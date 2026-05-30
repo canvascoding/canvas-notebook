@@ -1692,17 +1692,22 @@ function StarterPromptButton({
       type="button"
       data-testid={`chat-starter-prompt-${prompt.id}`}
       onClick={() => onSelect(prompt.prompt)}
-      className={`group flex min-w-0 flex-col items-start gap-2 border border-border bg-background/90 text-left text-foreground transition-colors hover:border-primary/40 hover:bg-accent ${
-        compact ? 'p-2.5' : 'min-w-[320px] p-4'
-      }`}
+      className={cn(
+        'group flex h-full w-full min-w-0 flex-col items-start overflow-hidden border border-border bg-background/90 text-left text-foreground transition-colors hover:border-primary/40 hover:bg-accent',
+        compact ? 'gap-2 p-2.5' : 'gap-3 p-4',
+      )}
     >
-      <span className="inline-flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-        <Icon className="h-4 w-4 text-primary" />
-        {t('example')}
+      <span className="inline-flex max-w-full min-w-0 items-center gap-2 text-[11px] font-semibold uppercase text-muted-foreground">
+        <Icon className="h-4 w-4 shrink-0 text-primary" />
+        <span className="min-w-0 truncate">{t('example')}</span>
       </span>
-      <div className="space-y-1">
-        <div className={`${compact ? 'text-sm' : 'text-base'} font-semibold tracking-tight`}>{prompt.title}</div>
-        <p className={`${compact ? 'text-xs line-clamp-2' : 'text-sm'} leading-relaxed text-muted-foreground`}>{prompt.description}</p>
+      <div className="min-w-0 space-y-1">
+        <div className={`${compact ? 'text-sm' : 'text-base'} line-clamp-2 min-w-0 break-words font-semibold [overflow-wrap:anywhere]`}>
+          {prompt.title}
+        </div>
+        <p className={`${compact ? 'line-clamp-2 text-xs' : 'line-clamp-3 text-sm'} min-w-0 break-words leading-relaxed text-muted-foreground [overflow-wrap:anywhere]`}>
+          {prompt.description}
+        </p>
       </div>
     </button>
   );
@@ -5318,35 +5323,38 @@ export default function CanvasAgentChat({
             )}
 
             {showStarterScreen && (
-            <div className="flex min-h-full flex-col justify-start py-4 md:justify-center md:py-0">
-              <div className="mx-auto flex w-full max-w-5xl flex-col items-center gap-5 text-center">
-                <div className="space-y-2">
-                  <span className="inline-flex items-center gap-2 border border-border bg-background/80 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
-                    <Sparkles className="h-4 w-4 text-primary" />
-                    {t('productivityBadge')}
+            <div className="flex min-h-full min-w-0 flex-col justify-start py-4 md:justify-center md:py-0">
+              <div className="mx-auto flex w-full max-w-4xl min-w-0 flex-col items-center gap-5 text-center">
+                <div className="w-full min-w-0 space-y-2">
+                  <span className="inline-flex max-w-full min-w-0 items-center justify-center gap-2 overflow-hidden border border-border bg-background/80 px-3 py-1 text-[10px] font-semibold uppercase text-muted-foreground">
+                    <Sparkles className="h-4 w-4 shrink-0 text-primary" />
+                    <span className="min-w-0 truncate">{t('productivityBadge')}</span>
                   </span>
                   {latestSession ? (
-                    <div className="flex justify-center">
+                    <div className="flex min-w-0 justify-center">
                       <Link
                         href={`${sessionBasePath}?session=${encodeURIComponent(latestSession.sessionId)}`}
-                        className="inline-flex max-w-full items-center gap-2 border border-border bg-background/80 px-3 py-1.5 text-xs text-foreground transition-colors hover:border-primary/40 hover:bg-accent"
+                        className="inline-flex max-w-full min-w-0 flex-wrap items-center justify-center gap-x-2 gap-y-1 overflow-hidden border border-border bg-background/80 px-3 py-1.5 text-xs text-foreground transition-colors hover:border-primary/40 hover:bg-accent"
                       >
-                        <History className="h-3.5 w-3.5 text-primary" />
-                        <span className="font-medium">{t('openLatestSession')}</span>
-                        <span className="max-w-[14rem] truncate text-muted-foreground">{latestSession.title || latestSession.sessionId}</span>
+                        <History className="h-3.5 w-3.5 shrink-0 text-primary" />
+                        <span className="min-w-0 truncate font-medium">{t('openLatestSession')}</span>
+                        <span className="min-w-0 max-w-full truncate text-muted-foreground sm:max-w-[14rem]">{latestSession.title || latestSession.sessionId}</span>
                       </Link>
                     </div>
                   ) : null}
                   <div className="space-y-1">
-                    <h2 className="text-xl font-semibold tracking-tight text-foreground md:text-2xl">
+                    <h2 className="mx-auto max-w-3xl break-words text-xl font-semibold text-foreground [overflow-wrap:anywhere] md:text-2xl">
                       {t(isStudioChatContext ? 'studioStarterTitle' : 'starterTitle')}
                     </h2>
-                    <p className="mx-auto max-w-2xl text-sm leading-relaxed text-muted-foreground">
+                    <p className="mx-auto max-w-2xl break-words text-sm leading-relaxed text-muted-foreground [overflow-wrap:anywhere]">
                       {t(isStudioChatContext ? 'studioStarterDescription' : 'starterDescription')}
                     </p>
                   </div>
                 </div>
-                <div data-testid="chat-starter-prompts" className={`w-full gap-3 pb-3 ${isCompactView ? 'grid grid-cols-1 sm:grid-cols-2' : 'flex overflow-x-auto no-scrollbar md:grid md:grid-cols-2 md:overflow-visible xl:grid-cols-3'} gap-4`}>
+                <div
+                  data-testid="chat-starter-prompts"
+                  className="grid w-full min-w-0 grid-cols-[repeat(auto-fit,minmax(min(100%,16rem),1fr))] gap-3 pb-3"
+                >
                   {localizedStarterPrompts.map((prompt) => (
                     <StarterPromptButton key={prompt.id} prompt={prompt} onSelect={applyStarterPrompt} compact={isCompactView} />
                   ))}
