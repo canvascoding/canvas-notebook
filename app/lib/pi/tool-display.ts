@@ -52,6 +52,12 @@ const TOOL_DISPLAY: Record<string, ToolDisplayEntry> = {
   update_automation_job: { label: 'Updated automation', labelDe: 'Automation aktualisiert', tone: 'automation' },
   delete_automation_job: { label: 'Deleted automation', labelDe: 'Automation gelöscht', tone: 'automation' },
   trigger_automation_job: { label: 'Started automation', labelDe: 'Automation gestartet', tone: 'automation' },
+  email_list_accounts: { label: 'Loaded email accounts', labelDe: 'E-Mail-Konten geladen', tone: 'data' },
+  email_search: { label: 'Searched email', labelDe: 'E-Mails durchsucht', tone: 'search' },
+  email_read: { label: 'Read email', labelDe: 'E-Mail gelesen', tone: 'data' },
+  email_create_draft: { label: 'Created email draft', labelDe: 'E-Mail-Entwurf erstellt', tone: 'data' },
+  email_update_draft: { label: 'Updated email draft', labelDe: 'E-Mail-Entwurf aktualisiert', tone: 'data' },
+  email_send_draft: { label: 'Sent email draft', labelDe: 'E-Mail-Entwurf gesendet', tone: 'data' },
 };
 
 export function getToolDisplayInfo(toolName: string | undefined, locale: string): ToolDisplayInfo {

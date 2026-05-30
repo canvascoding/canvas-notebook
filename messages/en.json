@@ -1538,6 +1538,61 @@
         "missingFlowInfo": "Missing flow information",
         "exchangeCode": "Failed to exchange code"
       }
+    },
+    "emailAccounts": {
+      "title": "Email Accounts",
+      "description": "Connect email accounts and control which senders can be read or recipients can be used for sending.",
+      "refresh": "Refresh",
+      "save": "Save",
+      "connect": "Connect",
+      "disconnect": "Disconnect",
+      "savePolicy": "Save policy",
+      "noAccounts": "No email accounts connected.",
+      "providers": {
+        "google": "Google",
+        "microsoft": "Microsoft"
+      },
+      "statuses": {
+        "active": "Active",
+        "expired": "Expired",
+        "revoked": "Revoked"
+      },
+      "oauth": {
+        "googleTitle": "Google OAuth",
+        "googleManagedDescription": "Connect Gmail accounts with Canvas Managed Services.",
+        "googleLocalDescription": "Used for connecting Gmail accounts in self-hosted setups.",
+        "microsoftTitle": "Microsoft OAuth",
+        "microsoftManagedDescription": "Connect Microsoft 365 or Outlook accounts with Canvas Managed Services.",
+        "microsoftLocalDescription": "Used for connecting Microsoft 365 or Outlook accounts.",
+        "clientId": "Client ID",
+        "clientSecret": "Client Secret"
+      },
+      "policy": {
+        "readFromLabel": "Read from emails",
+        "readFromPlaceholder": "All senders allowed",
+        "readFromDescription": "Add one sender per line or separate with commas. Use full addresses like name@example.com or domains like @example.com. Empty means all senders are allowed.",
+        "sendToLabel": "Send to emails",
+        "sendToPlaceholder": "All recipients allowed",
+        "sendToDescription": "Add one recipient per line or separate with commas. Use full addresses like name@example.com or domains like @example.com. Empty means all recipients are allowed."
+      },
+      "messages": {
+        "accountConnected": "Email account connected.",
+        "accountDisconnected": "Email account disconnected.",
+        "oauthSettingsSaved": "{provider} OAuth settings saved.",
+        "policySaved": "Email policy saved."
+      },
+      "errors": {
+        "loadOAuthSettings": "Failed to load email OAuth settings",
+        "loadAccounts": "Failed to load email accounts",
+        "oauthFailed": "Email OAuth failed.",
+        "oauthCredentialsRequired": "Client ID and Client Secret are required before saving or connecting OAuth.",
+        "loadIntegrationKeys": "Failed to load current integration keys",
+        "saveOAuthSettings": "Failed to save OAuth settings",
+        "startOAuth": "Failed to start email OAuth",
+        "missingAuthorizationUrl": "Email OAuth did not return an authorization URL.",
+        "savePolicy": "Failed to save email policy",
+        "disconnect": "Failed to disconnect email account"
+      }
     }
   },
   "skills": {
