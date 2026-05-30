@@ -23,6 +23,7 @@ import {
   Layers,
   FileVideo,
   Music,
+  Plus,
 } from 'lucide-react';
 import {
   Dialog,
@@ -33,6 +34,7 @@ import {
 } from '@/components/ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
+import { useRouter } from '@/i18n/navigation';
 import { ReferencePickerDialog } from './ReferencePickerDialog';
 import { ReferenceHoverCard } from './ReferenceHoverCard';
 import type { StudioPreset } from '../../types/presets';
@@ -133,6 +135,10 @@ interface ReferenceOption {
 interface ReferenceOptionListProps<T extends ReferenceOption> {
   items: T[];
   emptyText: string;
+  emptyAction?: {
+    label: string;
+    onClick: () => void;
+  };
   fallbackIcon: React.ReactNode;
   onSelect: (item: T) => void;
 }
@@ -140,13 +146,20 @@ interface ReferenceOptionListProps<T extends ReferenceOption> {
 function ReferenceOptionList<T extends ReferenceOption>({
   items,
   emptyText,
+  emptyAction,
   fallbackIcon,
   onSelect,
 }: ReferenceOptionListProps<T>) {
   if (items.length === 0) {
     return (
-      <div className="flex h-48 items-center justify-center rounded-md border border-dashed border-border bg-background text-sm text-muted-foreground">
-        {emptyText}
+      <div className="flex min-h-48 flex-col items-center justify-center gap-3 rounded-md border border-dashed border-border bg-background p-6 text-center">
+        <p className="text-sm text-muted-foreground">{emptyText}</p>
+        {emptyAction ? (
+          <Button type="button" size="sm" className="gap-2" onClick={emptyAction.onClick}>
+            <Plus className="h-4 w-4" />
+            {emptyAction.label}
+          </Button>
+        ) : null}
       </div>
     );
   }
@@ -217,6 +230,8 @@ export function PromptBar({
   onPasteImage,
 }: PromptBarProps) {
   const t = useTranslations('studio.promptBar');
+  const tStudio = useTranslations('studio');
+  const router = useRouter();
   const [referenceDialogOpen, setReferenceDialogOpen] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [closeReferenceDialogOnPickerConfirm, setCloseReferenceDialogOnPickerConfirm] = useState(false);
@@ -248,6 +263,10 @@ export function PromptBar({
   const availableProducts = useMemo(() => (products ?? []).filter((product) => !(value.productRefs ?? []).some((selected) => selected.id === product.id)), [products, value.productRefs]);
   const availablePersonas = useMemo(() => (personas ?? []).filter((persona) => !(value.personaRefs ?? []).some((selected) => selected.id === persona.id)), [personas, value.personaRefs]);
   const availableStyles = useMemo(() => (styles ?? []).filter((style) => !(value.styleRefs ?? []).some((selected) => selected.id === style.id)), [styles, value.styleRefs]);
+  const openModelCreate = useCallback((type: 'product' | 'persona' | 'style') => {
+    setReferenceDialogOpen(false);
+    router.push(`/studio/models/new?type=${type}`);
+  }, [router]);
 
   return (
     <div className="rounded-[28px] border border-border/80 bg-card/95 p-4 shadow-2xl">
@@ -508,6 +527,10 @@ export function PromptBar({
               <ReferenceOptionList
                 items={availableProducts}
                 emptyText={t('noProducts')}
+                emptyAction={products.length === 0 ? {
+                  label: tStudio('modelLibrary.newProduct'),
+                  onClick: () => openModelCreate('product'),
+                } : undefined}
                 fallbackIcon={<Package2 className="h-4 w-4" />}
                 onSelect={(product) => {
                   onProductAdd(product);
@@ -519,6 +542,10 @@ export function PromptBar({
               <ReferenceOptionList
                 items={availablePersonas}
                 emptyText={t('noPersonas')}
+                emptyAction={personas.length === 0 ? {
+                  label: tStudio('modelLibrary.newPersona'),
+                  onClick: () => openModelCreate('persona'),
+                } : undefined}
                 fallbackIcon={<UserRound className="h-4 w-4" />}
                 onSelect={(persona) => {
                   onPersonaAdd(persona);
@@ -530,6 +557,10 @@ export function PromptBar({
               <ReferenceOptionList
                 items={availableStyles}
                 emptyText={t('noStyles')}
+                emptyAction={styles.length === 0 ? {
+                  label: tStudio('modelLibrary.newStyle'),
+                  onClick: () => openModelCreate('style'),
+                } : undefined}
                 fallbackIcon={<LayoutTemplate className="h-4 w-4" />}
                 onSelect={(style) => {
                   onStyleAdd(style);
