@@ -27,8 +27,22 @@ type EmailAccountsResponse = {
   [key: string]: unknown;
 };
 
+type EmailOAuthStartResponse = {
+  provider: string;
+  authorizationUrl: string;
+  expiresAt?: string;
+  [key: string]: unknown;
+};
+
 function isLocalAccountId(accountId?: string): boolean {
   return Boolean(accountId?.startsWith('local_'));
+}
+
+function isConnectedEmailAccount(account: unknown): boolean {
+  if (!account || typeof account !== 'object' || Array.isArray(account)) return false;
+  const status = (account as { status?: unknown }).status;
+  if (typeof status !== 'string' || !status.trim()) return true;
+  return ['active', 'connected'].includes(status.trim().toLowerCase());
 }
 
 function getErrorMessage(error: unknown): string {
@@ -38,7 +52,7 @@ function getErrorMessage(error: unknown): string {
 function emailAccountsResponse(payload: EmailAccountsResponse, mode: 'managed' | 'local') {
   return {
     ...payload,
-    accounts: Array.isArray(payload.accounts) ? payload.accounts : [],
+    accounts: Array.isArray(payload.accounts) ? payload.accounts.filter(isConnectedEmailAccount) : [],
     mode,
   };
 }
@@ -48,17 +62,15 @@ export async function startEmailOAuth(params: {
   requestOrigin?: string | null;
   returnUrl?: string;
 }) {
+  if (await hasLocalEmailOAuthCredentials(params.provider)) {
+    return startLocalEmailOAuth(params);
+  }
+
   if (isManagedEmailAvailable()) {
-    try {
-      return await managedEmailRequest('/v1/managed/email/oauth/start', {
-        method: 'POST',
-        body: JSON.stringify({ provider: params.provider || 'google', returnUrl: params.returnUrl }),
-      });
-    } catch (error) {
-      if (!await hasLocalEmailOAuthCredentials(params.provider)) {
-        throw error;
-      }
-    }
+    return managedEmailRequest<EmailOAuthStartResponse>('/v1/managed/email/oauth/start', {
+      method: 'POST',
+      body: JSON.stringify({ provider: params.provider || 'google', returnUrl: params.returnUrl }),
+    });
   }
 
   return startLocalEmailOAuth(params);
@@ -66,6 +78,10 @@ export async function startEmailOAuth(params: {
 
 export async function listEmailAccounts() {
   const localAccounts = await listLocalEmailAccounts();
+  if (localAccounts.length > 0 || await hasLocalEmailOAuthCredentials()) {
+    return emailAccountsResponse({ accounts: localAccounts }, 'local');
+  }
+
   if (isManagedEmailAvailable()) {
     try {
       const managed = await managedEmailRequest<EmailAccountsResponse>('/v1/managed/email/accounts');
@@ -99,7 +115,7 @@ export async function disconnectEmailAccount(accountId: string) {
 
 export async function searchEmail(input: EmailSearchInput) {
   const localAccounts = await listLocalEmailAccounts();
-  if (isLocalAccountId(input.accountId) || (!input.accountId && !isManagedEmailAvailable() && (localAccounts.length > 0 || await hasLocalEmailOAuthCredentials()))) {
+  if (isLocalAccountId(input.accountId) || (!input.accountId && (localAccounts.length > 0 || await hasLocalEmailOAuthCredentials()))) {
     return searchLocalEmail(input);
   }
 
