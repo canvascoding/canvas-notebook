@@ -13,7 +13,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Loader2, Upload, RefreshCw, ChevronRight, ChevronsDownUp, Folder, Image as ImageIcon, CheckSquare2, CircleDot, FileVideo, Music } from 'lucide-react';
+import { Loader2, Upload, RefreshCw, ChevronRight, ChevronsDownUp, Folder, Image as ImageIcon, CheckCircle2, CheckSquare2, FileVideo, Music } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toPreviewUrl, toMediaUrl } from '@/app/lib/utils/media-url';
 import type { FileNode } from '@/app/lib/filesystem/workspace-files';
@@ -271,7 +271,7 @@ function TreeNode({
           multiple ? (
             <CheckSquare2 className="h-4 w-4 shrink-0 text-primary" />
           ) : (
-            <CircleDot className="h-4 w-4 shrink-0 text-primary" />
+            <CheckCircle2 className="h-4 w-4 shrink-0 text-primary" />
           )
         ) : (
           <div className="h-4 w-4 shrink-0 rounded-sm border border-muted-foreground/30" />
@@ -689,7 +689,7 @@ export function ReferencePickerDialog({ open, onOpenChange, onConfirm, multiple 
                               multiple ? (
                                 <CheckSquare2 className="absolute top-2 right-2 h-4 w-4 text-primary bg-white dark:bg-black rounded-sm" />
                               ) : (
-                                <CircleDot className="absolute top-2 right-2 h-4 w-4 text-primary bg-white dark:bg-black rounded-sm" />
+                                <CheckCircle2 className="absolute top-2 right-2 h-4 w-4 rounded-full bg-white text-primary dark:bg-black" />
                               )
                             )}
                           </div>
