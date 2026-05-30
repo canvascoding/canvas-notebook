@@ -266,7 +266,7 @@ export async function executeAutomationRun(runId: string): Promise<void> {
   const model = effectiveConfig.model;
   console.log(`[Automationen] Run ${runId} using provider=${provider}, model=${model.id}`);
 
-  const tools = await getPiTools(undefined, job.agentId);
+  const tools = await getPiTools(job.createdByUserId, job.agentId);
   const { systemPrompt } = await loadManagedAgentSystemPrompt(job.agentId);
   const promptMessage: AgentMessage = {
     role: 'user',
