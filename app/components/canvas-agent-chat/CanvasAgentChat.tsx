@@ -14,6 +14,8 @@ import {
   Paperclip,
   X,
   Image as ImageIcon,
+  CornerDownRight,
+  GripVertical,
   Loader2,
   History,
   Plus,
@@ -55,6 +57,7 @@ import {
   CheckCheck,
   ExternalLink,
   Lock,
+  MoreHorizontal,
   Square,
 } from 'lucide-react';
 import { ComposerReferencePicker, type ComposerReferencePickerItem } from '@/app/components/canvas-agent-chat/ComposerReferencePicker';
@@ -1775,7 +1778,6 @@ export default function CanvasAgentChat({
   const [sessionTitle, setSessionTitle] = useState<string | null>(null);
   const [showHistory, setShowHistory] = useState(false);
   const [showMobileDetails, setShowMobileDetails] = useState(false);
-  const [showMobileActionPanel, setShowMobileActionPanel] = useState(false);
   const [history, setHistory] = useState<AISession[]>([]);
   const [historySearchQuery, setHistorySearchQuery] = useState<string>('');
   const [historyUnreadOnly, setHistoryUnreadOnly] = useState<boolean>(false);
@@ -3027,7 +3029,7 @@ export default function CanvasAgentChat({
 
   const postControl = useCallback(async (
     targetSessionId: string,
-    action: 'follow_up' | 'steer' | 'promote_queued_to_steer' | 'abort' | 'replace' | 'compact',
+    action: 'follow_up' | 'steer' | 'promote_queued_to_steer' | 'remove_queued_item' | 'abort' | 'replace' | 'compact',
     message?: Extract<AgentMessage, { role: 'user' }>,
     queueItemId?: string,
   ) => {
@@ -3079,6 +3081,7 @@ export default function CanvasAgentChat({
     action: 'send' | 'steer' | 'follow_up' | 'replace',
     override?: { text: string; attachments: Attachment[] },
   ) => {
+    const effectiveAction = action === 'send' && runtimeStatus?.phase !== 'idle' ? 'follow_up' : action;
     const rawText = override?.text ?? input.trim();
     const baseAttachments = override?.attachments ?? attachments;
 
@@ -3117,21 +3120,20 @@ export default function CanvasAgentChat({
     setInput('');
     setAttachments([]);
 
-    const isBusySend = action === 'send' && runtimeStatus?.phase !== 'idle';
-    const optimisticStatus: ChatMessage['status'] = action === 'follow_up'
+    const optimisticStatus: ChatMessage['status'] = effectiveAction === 'follow_up'
       ? 'queued_follow_up'
-      : action === 'steer' || isBusySend
+      : effectiveAction === 'steer'
         ? 'queued_steering'
-        : action === 'replace'
+        : effectiveAction === 'replace'
           ? 'aborting'
           : 'pending';
-    const optimisticQueueKind = action === 'follow_up'
+    const optimisticQueueKind = effectiveAction === 'follow_up'
       ? 'follow_up'
-      : action === 'steer' || isBusySend
+      : effectiveAction === 'steer'
         ? 'steer'
         : undefined;
     const optimisticMessageId = appendOptimisticUserMessage(rawText, messageAttachments, optimisticStatus, optimisticQueueKind, userMessage);
-    const optimisticAssistantId = action === 'send' && !isBusySend ? createAssistantBubble() : null;
+    const optimisticAssistantId = effectiveAction === 'send' ? createAssistantBubble() : null;
     setIsResolvingInitialChatState(false);
 
     const activeFilePath = currentFile?.path ?? null;
@@ -3140,13 +3142,13 @@ export default function CanvasAgentChat({
       const targetSessionId = await ensureSession(rawText);
       setOptimisticRuntimePhase('streaming', targetSessionId);
       await ensureSessionSubscribed(targetSessionId);
-      const payload = action === 'send'
+      const payload = effectiveAction === 'send'
         ? await wsRequest<{ success: boolean; status?: RuntimeStatus; error?: string }>('send_message', {
           sessionId: targetSessionId,
           message: userMessage as unknown as Record<string, unknown>,
           context: buildRequestContext(activeFilePath),
         })
-        : { status: await postControl(targetSessionId, action, userMessage) };
+        : { status: await postControl(targetSessionId, effectiveAction, userMessage) };
 
       setMessages((prev) => prev.map((message) => (
         message.id === optimisticMessageId ? { ...message, status: 'sent' as const } : message
@@ -3179,18 +3181,19 @@ export default function CanvasAgentChat({
     }
   }, [appendSystemMessage, handleControlAction, t]);
 
-  const handleQueue = useCallback(async () => {
-    try {
-      await handleControlAction('follow_up');
-    } catch (error) {
-      appendSystemMessage(t('errorMessage', { message: error instanceof Error ? error.message : String(error) }));
-    }
-  }, [appendSystemMessage, handleControlAction, t]);
-
   const handlePromoteQueuedMessage = useCallback(async (queueItemId: string) => {
     if (!sessionIdRef.current) return;
     try {
       await postControl(sessionIdRef.current, 'promote_queued_to_steer', undefined, queueItemId);
+    } catch (error) {
+      appendSystemMessage(t('errorMessage', { message: error instanceof Error ? error.message : String(error) }));
+    }
+  }, [appendSystemMessage, postControl, t]);
+
+  const handleRemoveQueuedMessage = useCallback(async (queueItemId: string) => {
+    if (!sessionIdRef.current) return;
+    try {
+      await postControl(sessionIdRef.current, 'remove_queued_item', undefined, queueItemId);
     } catch (error) {
       appendSystemMessage(t('errorMessage', { message: error instanceof Error ? error.message : String(error) }));
     }
@@ -3248,7 +3251,6 @@ export default function CanvasAgentChat({
       setShowHistory(false);
     }
     setShowMobileDetails(false);
-    setShowMobileActionPanel(false);
     const isCurrentAgentConfig = agentConfig?.effectiveConfig?.agentId
       ? agentConfig.effectiveConfig.agentId === nextAgentId
       : nextAgentId === selectedAgentId;
@@ -3401,7 +3403,6 @@ export default function CanvasAgentChat({
     lastCompactionMarkerRef.current = null;
     userStartedNewChatRef.current = false;
     setShowMobileDetails(false);
-    setShowMobileActionPanel(false);
     const sessionProvider = session.provider || agentConfig?.piConfig?.activeProvider || 'pi';
     setActiveProvider(sessionProvider);
     setActiveModel(session.model || DEFAULT_MODEL_ID);
@@ -4386,7 +4387,6 @@ export default function CanvasAgentChat({
     if (!isMobile) {
       /* eslint-disable react-hooks/set-state-in-effect */
       setShowMobileDetails(false);
-      setShowMobileActionPanel(false);
       /* eslint-enable react-hooks/set-state-in-effect */
     }
   }, [isMobile]);
@@ -4436,10 +4436,10 @@ export default function CanvasAgentChat({
 
   const totalQueuedMessages = (runtimeStatus?.followUpQueue.length || 0) + (runtimeStatus?.steeringQueue.length || 0);
   const isRuntimeBusy = Boolean(runtimeStatus && runtimeStatus.phase !== 'idle');
-  const queuePreview: QueuePreviewItem[] = [
+  const queueItems: QueuePreviewItem[] = [
     ...(runtimeStatus?.steeringQueue || []).map((entry) => ({ ...entry, kind: 'steer' as const })),
     ...(runtimeStatus?.followUpQueue || []).map((entry) => ({ ...entry, kind: 'follow_up' as const })),
-  ].slice(0, 3);
+  ];
   const activeToolDisplay = runtimeStatus?.activeTool ? getToolDisplayInfo(runtimeStatus.activeTool.name, locale) : null;
   const collapsedRunMap = useMemo(() => buildCollapsedRunMap(messages, isRuntimeBusy), [messages, isRuntimeBusy]);
   const hiddenStepIds = useMemo(() => {
@@ -4573,7 +4573,6 @@ export default function CanvasAgentChat({
     if (isMobile || shouldShowHistoryAsOverlay) {
       setShowHistory(false);
     }
-    setShowMobileActionPanel(false);
     textareaRef.current?.focus();
   }, [shouldShowHistoryAsOverlay, isMobile]);
 
@@ -4611,6 +4610,66 @@ export default function CanvasAgentChat({
     : activeReferenceMatch?.query
       ? t('noFilesFoundMatching', { query: activeReferenceMatch.query })
       : t('noFilesInWorkspace');
+
+  const renderQueueItem = (entry: QueuePreviewItem) => {
+    const canPromote = entry.kind === 'follow_up' && !isWebSocketUnavailable;
+    const label = entry.text || t('imageMessage');
+
+    return (
+      <div
+        key={`${entry.kind}-${entry.id}`}
+        data-testid="chat-queue-item"
+        data-queue-kind={entry.kind}
+        className={cn(
+          'group flex min-h-10 items-center gap-2 border-b border-border/60 px-2.5 py-1.5 last:border-b-0',
+          isMobile ? 'text-[13px]' : 'text-sm',
+        )}
+      >
+        <GripVertical className="h-4 w-4 shrink-0 text-muted-foreground/35" aria-hidden="true" />
+        <CornerDownRight className="h-4 w-4 shrink-0 text-muted-foreground/70" aria-hidden="true" />
+        <button
+          type="button"
+          onClick={() => {
+            if (canPromote) {
+              void handlePromoteQueuedMessage(entry.id);
+            }
+          }}
+          disabled={!canPromote}
+          className="min-w-0 flex-1 truncate text-left text-foreground/75 transition-colors enabled:hover:text-foreground disabled:cursor-default"
+          title={label}
+        >
+          {label}
+        </button>
+        <button
+          type="button"
+          data-testid="chat-queue-item-steer"
+          onClick={() => void handlePromoteQueuedMessage(entry.id)}
+          disabled={!canPromote}
+          className="inline-flex shrink-0 items-center gap-1 px-2 py-1 text-xs font-medium text-muted-foreground transition-colors hover:text-primary disabled:cursor-default disabled:opacity-45"
+          title={t('steerAction')}
+        >
+          <CornerDownRight className="h-3.5 w-3.5" />
+          <span>{t('steer')}</span>
+        </button>
+        <button
+          type="button"
+          data-testid="chat-queue-item-remove"
+          onClick={() => void handleRemoveQueuedMessage(entry.id)}
+          disabled={isWebSocketUnavailable}
+          className="inline-flex h-8 w-8 shrink-0 items-center justify-center text-muted-foreground transition-colors hover:text-destructive disabled:cursor-not-allowed disabled:opacity-40"
+          title={t('removeQueuedMessage')}
+        >
+          <Trash2 className="h-4 w-4" />
+        </button>
+        <span
+          aria-hidden="true"
+          className="hidden h-8 w-8 shrink-0 items-center justify-center text-muted-foreground/60 sm:inline-flex"
+        >
+          <MoreHorizontal className="h-4 w-4" />
+        </span>
+      </div>
+    );
+  };
 
   const startHistoryResizing = useCallback((e: React.MouseEvent) => {
     isHistoryResizing.current = true;
@@ -4953,24 +5012,8 @@ export default function CanvasAgentChat({
                 {contextCompactLabel}
               </div>
               {totalQueuedMessages > 0 && (
-                <div data-testid="chat-queue-panel" className="border border-border/60 bg-muted/30 p-1.5 text-[10px]">
+                <div data-testid="chat-mobile-details-queue-panel" className="border border-border/60 bg-muted/30 p-1.5 text-[10px]">
                   <div className="mb-1 font-medium text-foreground">{t('queuedCount', { count: totalQueuedMessages })}</div>
-                  <div className="flex flex-wrap gap-1 text-muted-foreground">
-                    {queuePreview.map((entry) => (
-                      <button
-                        key={entry.id}
-                        type="button"
-                        data-testid="chat-queue-item"
-                        data-queue-kind={entry.kind}
-                        onClick={() => void handlePromoteQueuedMessage(entry.id)}
-                        disabled={isWebSocketUnavailable}
-                        className="border border-border/60 bg-muted/40 px-1.5 py-0.5 text-left transition-colors hover:border-primary/40 hover:bg-primary/10 hover:text-primary disabled:cursor-not-allowed disabled:opacity-40"
-                        title={t('steerAction')}
-                      >
-                        {entry.text || t('imageMessage')}
-                      </button>
-                    ))}
-                  </div>
                 </div>
                 )}
               </div>
@@ -5733,71 +5776,19 @@ export default function CanvasAgentChat({
           </div>
         )}
 
-        {!isMobile && runtimeStatus && totalQueuedMessages > 0 && (
-          <div data-testid="chat-queue-panel" className="mb-2 border border-border bg-muted/50 p-2 text-xs">
-            <div className="mb-1 flex items-center gap-2 font-medium text-foreground">
-              <span>{t('queuedCount', { count: totalQueuedMessages })}</span>
-              {runtimeStatus.activeTool && toolVerbosity !== 'minimal' ? (
-                <span className="text-muted-foreground">
-                  {t('activeToolPrefix')} {toolVerbosity === 'verbose' ? runtimeStatus.activeTool.name : activeToolDisplay?.label}
-                </span>
-              ) : null}
-            </div>
-            <div className="flex flex-wrap gap-2 text-muted-foreground">
-              {queuePreview.map((entry) => (
-                <button
-                  key={entry.id}
-                  type="button"
-                  data-testid="chat-queue-item"
-                  data-queue-kind={entry.kind}
-                  onClick={() => void handlePromoteQueuedMessage(entry.id)}
-                  disabled={isWebSocketUnavailable}
-                  className="border border-border/70 bg-background/60 px-2 py-1 text-left transition-colors hover:border-primary/40 hover:bg-primary/10 hover:text-primary disabled:cursor-not-allowed disabled:opacity-40"
-                  title={t('steerAction')}
-                >
-                  {entry.text || t('imageMessage')}
-                </button>
-              ))}
+        {runtimeStatus && totalQueuedMessages > 0 && (
+          <div
+            data-testid="chat-queue-panel"
+            className={cn(
+              'mb-2 overflow-hidden rounded-md border border-border/70 bg-background/95 shadow-sm',
+              isMobile ? 'max-h-36' : 'max-h-44',
+            )}
+          >
+            <div className={cn('overflow-y-auto', isMobile ? 'max-h-36' : 'max-h-44')}>
+              {queueItems.map((entry) => renderQueueItem(entry))}
             </div>
           </div>
         )}
-
-        {isMobile ? (
-          <>
-            {showMobileActionPanel && isRuntimeBusy ? (
-              <div data-testid="chat-mobile-action-panel" className="mb-2 grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  data-testid="chat-queue"
-                  onClick={() => void handleQueue()}
-                  disabled={!hasComposerContent || isWebSocketUnavailable || !isModelConfigured}
-                  className="border border-border bg-muted/60 px-3 py-2 text-xs font-medium text-foreground transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-40"
-                >
-                  {t('queueAction')}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setShowMobileActionPanel(false)}
-                  className="border border-border bg-background/80 px-3 py-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent"
-                >
-                  {t('close')}
-                </button>
-              </div>
-            ) : null}
-          </>
-        ) : isRuntimeBusy ? (
-          <div className="mb-2 flex flex-wrap gap-2">
-            <button
-              type="button"
-              data-testid="chat-queue"
-              onClick={() => void handleQueue()}
-              disabled={!hasComposerContent || isWebSocketUnavailable || !isModelConfigured}
-              className="border border-border bg-muted/60 px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              {t('queueAction')}
-            </button>
-          </div>
-        ) : null}
 
         <div className="flex items-end gap-2">
           <button
@@ -5838,22 +5829,6 @@ export default function CanvasAgentChat({
               />
             ) : null}
           </div>
-          {isMobile && isRuntimeBusy ? (
-            <button
-              type="button"
-              data-testid="chat-mobile-action-toggle"
-              onClick={() => setShowMobileActionPanel((current) => !current)}
-              className="relative border border-transparent p-2.5 text-muted-foreground transition-colors hover:border-border hover:bg-accent"
-              title={t('quickActions')}
-            >
-              {totalQueuedMessages > 0 ? (
-                <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-[9px] font-bold text-primary-foreground">
-                  {totalQueuedMessages}
-                </span>
-              ) : null}
-              {showMobileActionPanel ? <ChevronDown className="h-5 w-5" /> : <ChevronRight className="h-5 w-5" />}
-            </button>
-          ) : null}
           <button
             type="button"
             data-testid="chat-send"

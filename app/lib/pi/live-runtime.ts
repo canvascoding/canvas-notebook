@@ -397,6 +397,33 @@ class LivePiRuntime {
     return this.getStatus();
   }
 
+  async removeQueuedMessage(queueItemId: string) {
+    const followUpIndex = this.followUpQueue.findIndex((entry) => entry.preview.id === queueItemId || entry.id === queueItemId);
+    if (followUpIndex !== -1) {
+      this.followUpQueue.splice(followUpIndex, 1);
+      this.agent.clearFollowUpQueue();
+      for (const entry of this.followUpQueue) {
+        this.agent.followUp(entry.message);
+      }
+      this.touch();
+      this.publishStatus();
+      return this.getStatus();
+    }
+
+    const steeringIndex = this.steeringQueue.findIndex((entry) => entry.preview.id === queueItemId || entry.id === queueItemId);
+    if (steeringIndex !== -1) {
+      this.steeringQueue.splice(steeringIndex, 1);
+      this.agent.clearSteeringQueue();
+      for (const entry of this.steeringQueue) {
+        this.agent.steer(entry.message);
+      }
+      this.touch();
+      this.publishStatus();
+    }
+
+    return this.getStatus();
+  }
+
   async replace(message: Extract<AgentMessage, { role: 'user' }>) {
     const sanitized = sanitizeUserMessage(message);
 
