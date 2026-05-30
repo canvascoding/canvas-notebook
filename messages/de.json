@@ -2121,6 +2121,10 @@
       "presets": "Formate",
       "freeform": "Freiform",
       "presetHint": "Shift beim Ziehen hält das aktuelle Seitenverhältnis. Mausrad zoomt, Hintergrund ziehen verschiebt die Arbeitsfläche.",
+      "ratioLock": {
+        "label": "Format halten",
+        "description": "Hält das gewählte Format beim Ziehen der Ecken. Shift funktioniert weiterhin als temporäre Sperre."
+      },
       "snap": {
         "label": "Kanten-Snap",
         "description": "Dockt den Frame nahe am Bildrand leicht an, damit kleine Bewegungen im Zuschnitt bleiben."
