@@ -6,7 +6,8 @@ import { useTranslations } from 'next-intl';
 import { useFileStore } from '@/app/store/file-store';
 import { usePathname as useLocalePathname, getPathname } from '@/i18n/navigation';
 import { useLocale } from 'next-intl';
-import { getFileIconComponent } from '@/app/lib/files/file-icons';
+import { ImageThumbnailIcon } from '@/app/components/shared/ImageThumbnailIcon';
+import { getFileIconComponent, isImageFile } from '@/app/lib/files/file-icons';
 import { normalizeChatFilePath, type FilePathEntry } from '@/app/lib/chat/extract-file-paths';
 import { validateFileExists } from '@/app/lib/chat/validate-file-paths';
 
@@ -91,6 +92,7 @@ export function FileReferenceCard({ paths }: FileReferenceCardProps) {
       <div className="flex flex-col gap-1">
         {validPaths.map((entry) => {
           const fileName = entry.label || entry.path.split('/').pop() || entry.path;
+          const fallbackIcon = getFileIconComponent({ name: fileName, path: entry.path, type: 'file' });
           return (
             <button
               key={entry.path}
@@ -100,7 +102,14 @@ export function FileReferenceCard({ paths }: FileReferenceCardProps) {
               title={entry.path}
             >
               <span className="shrink-0">
-                {getFileIconComponent({ name: fileName, path: entry.path, type: 'file' })}
+                {isImageFile(entry.path) ? (
+                  <ImageThumbnailIcon
+                    path={entry.path}
+                    name={fileName}
+                    className="h-5 w-5 rounded-sm"
+                    fallbackIcon={fallbackIcon}
+                  />
+                ) : fallbackIcon}
               </span>
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-xs font-medium text-foreground group-hover:text-primary">
