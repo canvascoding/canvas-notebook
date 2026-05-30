@@ -158,6 +158,21 @@ interface AISession {
   };
 }
 
+type CachedChatSession = {
+  version: 1;
+  session: AISession;
+  messages: ChatMessage[];
+  hasMoreBefore: boolean;
+  oldestTimestamp: number | null;
+  oldestMessageId: number | null;
+  cachedAt: number;
+};
+
+type ChatSessionCacheStore = {
+  version: 1;
+  entries: CachedChatSession[];
+};
+
 interface ChatEvent {
   type: string;
   message?: AgentMessage;
@@ -237,6 +252,13 @@ type AgentProfile = {
 };
 
 const CHAT_AGENT_ID = DEFAULT_AGENT_ID;
+const CHAT_SESSION_CACHE_VERSION = 1;
+const CHAT_SESSION_MESSAGE_CACHE_STORAGE_KEY = 'canvas.chat.sessionMessages.v1';
+const CHAT_SESSION_MESSAGE_CACHE_MAX_ENTRIES = 6;
+const CHAT_SESSION_MESSAGE_CACHE_MAX_MESSAGES = 120;
+const CHAT_SESSION_MESSAGE_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
+const inMemoryChatSessionCache = new Map<string, CachedChatSession>();
+let hasHydratedChatSessionCache = false;
 
 type FilePickerFile = {
   name: string;
@@ -448,6 +470,246 @@ function getChatMessageTimestamp(message: ChatMessage | undefined): number | nul
   }
 
   return null;
+}
+
+function getChatMessageDbId(message: ChatMessage | undefined): number | null {
+  if (!message) {
+    return null;
+  }
+
+  const parsed = parseInt(message.id, 10);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function getChatSessionCacheKey(agentId: string | null | undefined, sessionId: string): string {
+  return `${agentId || CHAT_AGENT_ID}:${sessionId}`;
+}
+
+function isCacheableMessageSet(messages: ChatMessage[]): boolean {
+  if (messages.length === 0) {
+    return false;
+  }
+
+  if (messages.length === 1) {
+    const [message] = messages;
+    if (message.type === 'system' && (message.status === 'pending' || message.status === 'error')) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+function normalizeCachedSessionEntry(value: unknown): CachedChatSession | null {
+  if (!isRecord(value) || value.version !== CHAT_SESSION_CACHE_VERSION) {
+    return null;
+  }
+
+  const sessionValue = value.session;
+  const messagesValue = value.messages;
+  const cachedAt = typeof value.cachedAt === 'number' ? value.cachedAt : 0;
+
+  if (!isRecord(sessionValue) || !Array.isArray(messagesValue) || !cachedAt) {
+    return null;
+  }
+
+  const sessionId = typeof sessionValue.sessionId === 'string' ? sessionValue.sessionId : '';
+  if (!sessionId) {
+    return null;
+  }
+
+  const session: AISession = {
+    id: typeof sessionValue.id === 'number' ? sessionValue.id : cachedAt,
+    sessionId,
+    title: typeof sessionValue.title === 'string' ? sessionValue.title : null,
+    agentId: typeof sessionValue.agentId === 'string' ? sessionValue.agentId : CHAT_AGENT_ID,
+    model: typeof sessionValue.model === 'string' ? sessionValue.model : DEFAULT_MODEL_ID,
+    provider: typeof sessionValue.provider === 'string' ? sessionValue.provider : null,
+    thinkingLevel: typeof sessionValue.thinkingLevel === 'string' ? sessionValue.thinkingLevel as PiThinkingLevel : null,
+    createdAt: typeof sessionValue.createdAt === 'string' ? sessionValue.createdAt : new Date(cachedAt).toISOString(),
+    engine: sessionValue.engine === 'legacy' ? 'legacy' : 'pi',
+    lastMessageAt: typeof sessionValue.lastMessageAt === 'string' ? sessionValue.lastMessageAt : null,
+    lastViewedAt: typeof sessionValue.lastViewedAt === 'string' ? sessionValue.lastViewedAt : null,
+    hasUnread: typeof sessionValue.hasUnread === 'boolean' ? sessionValue.hasUnread : false,
+    creator: isRecord(sessionValue.creator)
+      ? {
+          name: typeof sessionValue.creator.name === 'string' ? sessionValue.creator.name : null,
+          email: typeof sessionValue.creator.email === 'string' ? sessionValue.creator.email : null,
+        }
+      : undefined,
+  };
+
+  return {
+    version: CHAT_SESSION_CACHE_VERSION,
+    session,
+    messages: messagesValue as ChatMessage[],
+    hasMoreBefore: typeof value.hasMoreBefore === 'boolean' ? value.hasMoreBefore : false,
+    oldestTimestamp: typeof value.oldestTimestamp === 'number' ? value.oldestTimestamp : null,
+    oldestMessageId: typeof value.oldestMessageId === 'number' ? value.oldestMessageId : null,
+    cachedAt,
+  };
+}
+
+function hydrateChatSessionCacheFromStorage() {
+  if (hasHydratedChatSessionCache || typeof window === 'undefined') {
+    return;
+  }
+
+  hasHydratedChatSessionCache = true;
+
+  try {
+    const stored = window.sessionStorage.getItem(CHAT_SESSION_MESSAGE_CACHE_STORAGE_KEY);
+    if (!stored) {
+      return;
+    }
+
+    const parsed = JSON.parse(stored) as unknown;
+    if (!isRecord(parsed) || parsed.version !== CHAT_SESSION_CACHE_VERSION || !Array.isArray(parsed.entries)) {
+      return;
+    }
+
+    for (const candidate of parsed.entries) {
+      const entry = normalizeCachedSessionEntry(candidate);
+      if (!entry || Date.now() - entry.cachedAt > CHAT_SESSION_MESSAGE_CACHE_TTL_MS) {
+        continue;
+      }
+      inMemoryChatSessionCache.set(getChatSessionCacheKey(entry.session.agentId, entry.session.sessionId), entry);
+    }
+  } catch (error) {
+    console.warn('[CanvasAgentChat] Failed to hydrate chat session cache', error);
+  }
+}
+
+function trimCachedMessages(messages: ChatMessage[]): { messages: ChatMessage[]; droppedEarlierMessages: boolean } {
+  if (messages.length <= CHAT_SESSION_MESSAGE_CACHE_MAX_MESSAGES) {
+    return { messages, droppedEarlierMessages: false };
+  }
+
+  return {
+    messages: messages.slice(-CHAT_SESSION_MESSAGE_CACHE_MAX_MESSAGES),
+    droppedEarlierMessages: true,
+  };
+}
+
+function buildCachedChatSessionEntry(params: {
+  session: AISession;
+  messages: ChatMessage[];
+  hasMoreBefore: boolean;
+  oldestTimestamp: number | null;
+  oldestMessageId: number | null;
+}): CachedChatSession {
+  const trimmed = trimCachedMessages(params.messages);
+  const firstMessage = trimmed.messages[0];
+  const trimmedOldestTimestamp = trimmed.droppedEarlierMessages
+    ? getChatMessageTimestamp(firstMessage) ?? params.oldestTimestamp
+    : params.oldestTimestamp;
+  const trimmedOldestMessageId = trimmed.droppedEarlierMessages
+    ? getChatMessageDbId(firstMessage) ?? params.oldestMessageId
+    : params.oldestMessageId;
+
+  return {
+    version: CHAT_SESSION_CACHE_VERSION,
+    session: {
+      ...params.session,
+      title: params.session.title ?? null,
+    },
+    messages: trimmed.messages,
+    hasMoreBefore: params.hasMoreBefore || trimmed.droppedEarlierMessages,
+    oldestTimestamp: trimmedOldestTimestamp,
+    oldestMessageId: trimmedOldestMessageId,
+    cachedAt: Date.now(),
+  };
+}
+
+function rememberChatSessionCacheEntry(entry: CachedChatSession) {
+  inMemoryChatSessionCache.set(getChatSessionCacheKey(entry.session.agentId, entry.session.sessionId), entry);
+}
+
+function persistChatSessionCache() {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  const entries = Array.from(inMemoryChatSessionCache.values())
+    .filter((entry) => Date.now() - entry.cachedAt <= CHAT_SESSION_MESSAGE_CACHE_TTL_MS)
+    .sort((a, b) => b.cachedAt - a.cachedAt)
+    .slice(0, CHAT_SESSION_MESSAGE_CACHE_MAX_ENTRIES);
+  const store: ChatSessionCacheStore = {
+    version: CHAT_SESSION_CACHE_VERSION,
+    entries,
+  };
+
+  try {
+    window.sessionStorage.setItem(CHAT_SESSION_MESSAGE_CACHE_STORAGE_KEY, JSON.stringify(store));
+  } catch (error) {
+    try {
+      window.sessionStorage.setItem(
+        CHAT_SESSION_MESSAGE_CACHE_STORAGE_KEY,
+        JSON.stringify({ ...store, entries: entries.slice(0, 1) }),
+      );
+    } catch {
+      window.sessionStorage.removeItem(CHAT_SESSION_MESSAGE_CACHE_STORAGE_KEY);
+    }
+    console.warn('[CanvasAgentChat] Failed to persist full chat session cache', error);
+  }
+}
+
+function readCachedChatSession(agentId: string | null | undefined, sessionId: string): CachedChatSession | null {
+  hydrateChatSessionCacheFromStorage();
+  const cacheKey = getChatSessionCacheKey(agentId, sessionId);
+  const entry = inMemoryChatSessionCache.get(cacheKey) || null;
+  if (!entry || Date.now() - entry.cachedAt > CHAT_SESSION_MESSAGE_CACHE_TTL_MS) {
+    if (entry) {
+      inMemoryChatSessionCache.delete(cacheKey);
+      persistChatSessionCache();
+    }
+    return null;
+  }
+  return entry;
+}
+
+function readLatestCachedChatSession(sessionId: string): CachedChatSession | null {
+  hydrateChatSessionCacheFromStorage();
+  const entries = Array.from(inMemoryChatSessionCache.values())
+    .filter((entry) => entry.session.sessionId === sessionId && Date.now() - entry.cachedAt <= CHAT_SESSION_MESSAGE_CACHE_TTL_MS)
+    .sort((a, b) => b.cachedAt - a.cachedAt);
+  return entries[0] || null;
+}
+
+function removeCachedChatSession(sessionId: string, agentId?: string | null) {
+  hydrateChatSessionCacheFromStorage();
+  for (const [cacheKey, entry] of inMemoryChatSessionCache.entries()) {
+    const matchesSession = entry.session.sessionId === sessionId;
+    const matchesAgent = !agentId || entry.session.agentId === agentId;
+    if (matchesSession && matchesAgent) {
+      inMemoryChatSessionCache.delete(cacheKey);
+    }
+  }
+  persistChatSessionCache();
+}
+
+function updateCachedChatSessionTitle(sessionId: string, title: string, agentId?: string | null) {
+  hydrateChatSessionCacheFromStorage();
+  let changed = false;
+  for (const [cacheKey, entry] of inMemoryChatSessionCache.entries()) {
+    const matchesSession = entry.session.sessionId === sessionId;
+    const matchesAgent = !agentId || entry.session.agentId === agentId;
+    if (!matchesSession || !matchesAgent) {
+      continue;
+    }
+    inMemoryChatSessionCache.set(cacheKey, {
+      ...entry,
+      session: {
+        ...entry.session,
+        title,
+      },
+      cachedAt: Date.now(),
+    });
+    changed = true;
+  }
+  if (changed) {
+    persistChatSessionCache();
+  }
 }
 
 function formatRunDuration(startedAt: number | null, endedAt: number | null): string | null {
@@ -1444,6 +1706,9 @@ export default function CanvasAgentChat({
   const subscribedSessionAckRef = useRef<string | null>(null);
   const subscribedSessionRequestRef = useRef<{ sessionId: string; promise: Promise<void> } | null>(null);
   const sessionListRequestRef = useRef<Promise<AISession[]> | null>(null);
+  const loadSessionRequestIdRef = useRef(0);
+  const loadSessionAbortRef = useRef<AbortController | null>(null);
+  const cachePersistTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hasLoadedSessionListRef = useRef(false);
   const inputHistoryCursorRef = useRef<number | null>(null);
   const inputHistoryDraftRef = useRef('');
@@ -1479,6 +1744,60 @@ export default function CanvasAgentChat({
   useEffect(() => {
     historyRef.current = history;
   }, [history]);
+
+  useEffect(() => {
+    return () => {
+      loadSessionAbortRef.current?.abort();
+      if (cachePersistTimerRef.current) {
+        clearTimeout(cachePersistTimerRef.current);
+        cachePersistTimerRef.current = null;
+      }
+      persistChatSessionCache();
+    };
+  }, []);
+
+  useEffect(() => {
+    const currentSessionId = sessionIdRef.current;
+    if (!currentSessionId || currentSessionId !== sessionId || !isCacheableMessageSet(messages)) {
+      return;
+    }
+
+    const sessionAgentId = sessionAgentIdRef.current || selectedAgentId;
+    const historySession = historyRef.current.find((candidate) => candidate.sessionId === currentSessionId);
+    const sessionForCache: AISession = {
+      id: historySession?.id ?? Date.now(),
+      sessionId: currentSessionId,
+      title: sessionTitle,
+      agentId: sessionAgentId,
+      model: activeModel || historySession?.model || DEFAULT_MODEL_ID,
+      provider: activeProvider || historySession?.provider || null,
+      thinkingLevel: activeThinkingLevel || historySession?.thinkingLevel || null,
+      createdAt: historySession?.createdAt ?? new Date().toISOString(),
+      engine: historySession?.engine ?? 'pi',
+      lastMessageAt: historySession?.lastMessageAt ?? new Date().toISOString(),
+      lastViewedAt: historySession?.lastViewedAt ?? null,
+      hasUnread: false,
+      creator: historySession?.creator,
+    };
+
+    const entry = buildCachedChatSessionEntry({
+      session: sessionForCache,
+      messages,
+      hasMoreBefore,
+      oldestTimestamp,
+      oldestMessageId,
+    });
+
+    rememberChatSessionCacheEntry(entry);
+
+    if (cachePersistTimerRef.current) {
+      clearTimeout(cachePersistTimerRef.current);
+    }
+    cachePersistTimerRef.current = setTimeout(() => {
+      cachePersistTimerRef.current = null;
+      persistChatSessionCache();
+    }, 300);
+  }, [activeModel, activeProvider, activeThinkingLevel, hasMoreBefore, messages, oldestMessageId, oldestTimestamp, selectedAgentId, sessionId, sessionTitle]);
 
   const getTextareaBaseHeight = useCallback(() => (
     isMobile ? MOBILE_TEXTAREA_BASE_HEIGHT_PX : DESKTOP_TEXTAREA_BASE_HEIGHT_PX
@@ -2856,8 +3175,37 @@ export default function CanvasAgentChat({
     return rawMessages.map((rawMessage) => mapRawMessage(rawMessage, toolCallsById));
   }, [mapRawMessage]);
 
+  const hydrateMessageRefsFromMessages = useCallback((nextMessages: ChatMessage[]) => {
+    const nextToolMessageIds: Record<string, string> = {};
+    let nextAssistantId: string | null = null;
+    let nextCompactionMarker: string | null = null;
+
+    for (const message of nextMessages) {
+      if (message.toolCallId) {
+        nextToolMessageIds[message.toolCallId] = message.id;
+      }
+      if (message.role === 'assistant' && message.status === 'sending') {
+        nextAssistantId = message.id;
+      }
+      if (message.compactMeta?.timestamp) {
+        nextCompactionMarker = message.compactMeta.timestamp;
+      }
+    }
+
+    toolMessageIdsRef.current = nextToolMessageIds;
+    currentAssistantIdRef.current = nextAssistantId;
+    lastCompactionMarkerRef.current = nextCompactionMarker;
+    messagesRef.current = nextMessages;
+  }, []);
+
   const loadSession = useCallback(async (session: AISession) => {
     const sessionAgentId = session.agentId || CHAT_AGENT_ID;
+    const requestId = loadSessionRequestIdRef.current + 1;
+    loadSessionRequestIdRef.current = requestId;
+    loadSessionAbortRef.current?.abort();
+    const abortController = new AbortController();
+    loadSessionAbortRef.current = abortController;
+
     resetStreamConnection();
     setSelectedAgentId(sessionAgentId);
     setSessionId(session.sessionId);
@@ -2881,63 +3229,104 @@ export default function CanvasAgentChat({
     setOldestMessageId(null);
     setIsLoadingOlder(false);
     setExpandedRunKeys(new Set());
-    setMessages([{ id: 'system', role: 'system', content: 'Loading...', status: 'pending', type: 'system' }]);
+    setRuntimeStatus(null);
+    toolMessageIdsRef.current = {};
+
+    const cachedEntry = readCachedChatSession(sessionAgentId, session.sessionId) || readLatestCachedChatSession(session.sessionId);
+    const hasCachedMessages = Boolean(cachedEntry && isCacheableMessageSet(cachedEntry.messages));
+
+    if (cachedEntry && hasCachedMessages) {
+      setMessages(cachedEntry.messages);
+      hydrateMessageRefsFromMessages(cachedEntry.messages);
+      setHasMoreBefore(cachedEntry.hasMoreBefore);
+      setOldestTimestamp(cachedEntry.oldestTimestamp);
+      setOldestMessageId(cachedEntry.oldestMessageId);
+      requestAnimationFrame(() => {
+        scrollToBottom('auto');
+      });
+    } else {
+      hydrateMessageRefsFromMessages([]);
+      setMessages([{ id: 'system', role: 'system', content: 'Loading...', status: 'pending', type: 'system' }]);
+    }
+
     // Always close history on mobile, conditionally on desktop
     if (isMobile || shouldShowHistoryAsOverlay) {
       setShowHistory(false);
     }
-    toolMessageIdsRef.current = {};
 
     // Check if session has unread messages and show banner
     console.log(`[CanvasAgentChat] loadSession: sessionId=${session.sessionId}, hasUnread=${session.hasUnread}, lastMessageAt=${session.lastMessageAt}, lastViewedAt=${session.lastViewedAt}`);
     if (session.hasUnread) {
       setHasUnreadInCurrentSession(true);
       setShowUnreadBanner(true);
-      // Mark as read in database
-      try {
-        await fetch('/api/sessions', {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ agentId: sessionAgentId, sessionId: session.sessionId, markAsRead: true }),
+      setHistory(prev => {
+        const updated = prev.map(s =>
+          s.sessionId === session.sessionId ? { ...s, hasUnread: false, lastViewedAt: new Date().toISOString() } : s
+        );
+        setTotalUnreadCount(updated.filter(s => s.hasUnread).length);
+        return updated;
+      });
+      void fetch('/api/sessions', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ agentId: sessionAgentId, sessionId: session.sessionId, markAsRead: true }),
+      })
+        .then(() => {
+          if (sessionIdRef.current !== session.sessionId) return;
+          setHasUnreadInCurrentSession(false);
+          setShowUnreadBanner(false);
+        })
+        .catch((err) => {
+          console.error('Failed to mark session as read', err);
         });
-        setHasUnreadInCurrentSession(false);
-        setShowUnreadBanner(false);
-        // Update history state to reflect read status
-        setHistory(prev => {
-          const updated = prev.map(s => 
-            s.sessionId === session.sessionId ? { ...s, hasUnread: false, lastViewedAt: new Date().toISOString() } : s
-          );
-          // Decrement unread count
-          setTotalUnreadCount(prev => Math.max(0, prev - 1));
-          return updated;
-        });
-      } catch (err) {
-        console.error('Failed to mark session as read', err);
-      }
     } else {
       setHasUnreadInCurrentSession(false);
       setShowUnreadBanner(false);
     }
 
     try {
-      const [messagesResponse, statusPayload] = await Promise.all([
-        fetch(`/api/sessions/messages?agentId=${encodeURIComponent(sessionAgentId)}&sessionId=${encodeURIComponent(session.sessionId)}&limit=50`),
-        ensureSessionSubscribed(session.sessionId).then(() => (
-          wsRequest<{ success: boolean; status?: RuntimeStatus }>('get_status', {
-            sessionId: session.sessionId,
-          })
-        )).catch((error) => {
-          console.error('Failed to load runtime status', error);
-          return null;
-        }),
-      ]);
+      const statusPromise = ensureSessionSubscribed(session.sessionId).then(() => (
+        wsRequest<{ success: boolean; status?: RuntimeStatus }>('get_status', {
+          sessionId: session.sessionId,
+        })
+      )).catch((error) => {
+        console.error('Failed to load runtime status', error);
+        return null;
+      });
 
-      const messagesPayload = await messagesResponse.json();
+      const messagesResponse = await fetch(
+        `/api/sessions/messages?agentId=${encodeURIComponent(sessionAgentId)}&sessionId=${encodeURIComponent(session.sessionId)}&limit=50`,
+        { signal: abortController.signal },
+      );
 
-      if (messagesPayload.success && messagesPayload.messages) {
-        setMessages(
-          mapRawMessages(messagesPayload.messages),
-        );
+      if (
+        abortController.signal.aborted ||
+        loadSessionRequestIdRef.current !== requestId ||
+        sessionIdRef.current !== session.sessionId
+      ) {
+        return;
+      }
+
+      const messagesPayload = await safeFetchJson<{
+        success: boolean;
+        messages?: PersistedChatMessage[];
+        hasMoreBefore?: boolean;
+        oldestTimestamp?: number | null;
+        oldestMessageId?: number | null;
+      }>(messagesResponse);
+
+      if (
+        abortController.signal.aborted ||
+        loadSessionRequestIdRef.current !== requestId ||
+        sessionIdRef.current !== session.sessionId
+      ) {
+        return;
+      }
+
+      if (messagesPayload?.success && Array.isArray(messagesPayload.messages)) {
+        const nextMessages = mapRawMessages(messagesPayload.messages);
+        setMessages(nextMessages);
+        hydrateMessageRefsFromMessages(nextMessages);
         if (typeof messagesPayload.hasMoreBefore === 'boolean') {
           setHasMoreBefore(messagesPayload.hasMoreBefore);
         } else if (messagesPayload.messages.length >= 50) {
@@ -2948,26 +3337,21 @@ export default function CanvasAgentChat({
         if (messagesPayload.oldestTimestamp != null) {
           setOldestTimestamp(messagesPayload.oldestTimestamp);
         } else if (messagesPayload.messages.length > 0) {
-          const firstRaw = messagesPayload.messages[0] as Record<string, unknown>;
+          const firstRaw = messagesPayload.messages[0] as unknown as Record<string, unknown>;
           const ts = typeof firstRaw.timestamp === 'number' ? firstRaw.timestamp : null;
           if (ts != null) setOldestTimestamp(ts);
         }
         if (typeof messagesPayload.oldestMessageId === 'number') {
           setOldestMessageId(messagesPayload.oldestMessageId);
         } else if (messagesPayload.messages.length > 0) {
-          const firstRaw = messagesPayload.messages[0] as Record<string, unknown>;
+          const firstRaw = messagesPayload.messages[0] as unknown as Record<string, unknown>;
           const id = typeof firstRaw.id === 'number' ? firstRaw.id : null;
           if (id != null) setOldestMessageId(id);
         }
+      } else if (!hasCachedMessages) {
+        setMessages([{ id: 'error', role: 'system', content: t('failedToLoadMessageHistory') }]);
       }
 
-      if (statusPayload?.success && statusPayload.status) {
-        setRuntimeStatusWithReconciliation(statusPayload.status as RuntimeStatus);
-        lastCompactionMarkerRef.current = (statusPayload.status as RuntimeStatus).lastCompactionAt || null;
-      } else {
-        setRuntimeStatus(null);
-      }
-      
       // Hide history view after loading session (always on mobile, conditionally on desktop)
       if (isMobile || shouldShowHistoryAsOverlay) {
         setShowHistory(false);
@@ -2977,12 +3361,41 @@ export default function CanvasAgentChat({
       requestAnimationFrame(() => {
         scrollToBottom('auto');
       });
-      
+
+      void statusPromise.then((statusPayload) => {
+        if (
+          abortController.signal.aborted ||
+          loadSessionRequestIdRef.current !== requestId ||
+          sessionIdRef.current !== session.sessionId
+        ) {
+          return;
+        }
+
+        if (statusPayload?.success && statusPayload.status) {
+          setRuntimeStatusWithReconciliation(statusPayload.status as RuntimeStatus);
+          lastCompactionMarkerRef.current = (statusPayload.status as RuntimeStatus).lastCompactionAt || null;
+        } else {
+          setRuntimeStatus(null);
+        }
+      }).finally(() => {
+        if (loadSessionAbortRef.current === abortController) {
+          loadSessionAbortRef.current = null;
+        }
+      });
     } catch (err) {
+      if (abortController.signal.aborted || loadSessionRequestIdRef.current !== requestId) {
+        return;
+      }
       console.error('Failed to load messages', err);
-      setMessages([{ id: 'error', role: 'system', content: t('failedToLoadMessageHistory') }]);
+      if (!hasCachedMessages) {
+        setMessages([{ id: 'error', role: 'system', content: t('failedToLoadMessageHistory') }]);
+      }
+    } finally {
+      if (abortController.signal.aborted && loadSessionAbortRef.current === abortController) {
+        loadSessionAbortRef.current = null;
+      }
     }
-  }, [agentConfig, ensureSessionSubscribed, mapRawMessages, resetStreamConnection, resolveSessionTitle, scrollToBottom, setRuntimeStatusWithReconciliation, t, isMobile, shouldShowHistoryAsOverlay, wsRequest]);
+  }, [agentConfig, ensureSessionSubscribed, hydrateMessageRefsFromMessages, mapRawMessages, resetStreamConnection, resolveSessionTitle, scrollToBottom, setRuntimeStatusWithReconciliation, t, isMobile, shouldShowHistoryAsOverlay, wsRequest]);
 
   const loadOlderMessages = useCallback(async () => {
     const currentSessionId = sessionIdRef.current;
@@ -3053,6 +3466,7 @@ export default function CanvasAgentChat({
       const res = await fetch(`/api/sessions?${params.toString()}`, { method: 'DELETE' });
       const data = await safeFetchJson<{ success: boolean }>(res);
       if (data?.success) {
+        removeCachedChatSession(id, targetSession?.agentId || selectedAgentId);
         setHistory((prev) => prev.filter((session) => session.sessionId !== id));
         if (sessionIdRef.current === id) {
           startNewChat();
@@ -3076,6 +3490,7 @@ export default function CanvasAgentChat({
       const data = await safeFetchJson<{ success: boolean }>(res);
       if (data?.success) {
         optimisticSessionTitlesRef.current[session.sessionId] = nextTitle.trim();
+        updateCachedChatSessionTitle(session.sessionId, nextTitle.trim(), session.agentId || selectedAgentId);
         setHistory((prev) => prev.map((item) => (item.sessionId === session.sessionId ? { ...item, title: nextTitle.trim() } : item)));
         if (sessionIdRef.current === session.sessionId) {
           setSessionTitle(nextTitle.trim());
@@ -3563,6 +3978,33 @@ export default function CanvasAgentChat({
 
     const loadRequestedSession = async () => {
       try {
+        const cachedEntry = readLatestCachedChatSession(resolvedRequestedSessionId);
+        if (cachedEntry) {
+          setHistory((current) => {
+            if (current.some((session) => session.sessionId === cachedEntry.session.sessionId)) {
+              return current;
+            }
+            return [cachedEntry.session, ...current];
+          });
+          setLatestSession((current) => current || cachedEntry.session);
+          setTotalUnreadCount((current) => current + (cachedEntry.session.hasUnread ? 1 : 0));
+          await loadSession(cachedEntry.session);
+          if (!forcedSessionId) {
+            requestedSessionCleanupRef.current = resolvedRequestedSessionId;
+            clearSessionParamFromUrl();
+          }
+          void loadSessionList()
+            .then((sessions) => {
+              setHistory(sessions);
+              setLatestSession(sessions[0] || cachedEntry.session);
+              setTotalUnreadCount(sessions.filter((session: AISession) => session.hasUnread).length);
+            })
+            .catch((err) => {
+              console.error('Failed to refresh requested session history', err);
+            });
+          return;
+        }
+
         const sessions = await loadSessionList();
         if (sessions.length > 0) {
           setHistory(sessions);
@@ -3610,6 +4052,29 @@ export default function CanvasAgentChat({
 
     const restoreSession = async () => {
       try {
+        const cachedEntry = readLatestCachedChatSession(storedSessionId);
+        if (cachedEntry) {
+          setHistory((current) => {
+            if (current.some((session) => session.sessionId === cachedEntry.session.sessionId)) {
+              return current;
+            }
+            return [cachedEntry.session, ...current];
+          });
+          setLatestSession((current) => current || cachedEntry.session);
+          setTotalUnreadCount((current) => current + (cachedEntry.session.hasUnread ? 1 : 0));
+          await loadSession(cachedEntry.session);
+          void loadSessionList()
+            .then((sessions) => {
+              setHistory(sessions);
+              setLatestSession(sessions[0] || cachedEntry.session);
+              setTotalUnreadCount(sessions.filter((session: AISession) => session.hasUnread).length);
+            })
+            .catch((err) => {
+              console.error('Failed to refresh restored session history', err);
+            });
+          return;
+        }
+
         const sessions = await loadSessionList();
         // A new session may have been created while the fetch was in-flight
         if (sessionIdRef.current) return;
