@@ -182,6 +182,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
   const [desktopChatMode, setDesktopChatMode] = useState<DesktopChatMode>('side');
   const [terminalVisible, setTerminalVisible] = useState(false);
   const [chatWidth, setChatWidth] = useState(420);
+  const [viewportWidth, setViewportWidth] = useState(420);
   const [mobileSurface, setMobileSurface] = useState<MobileSurface>('editor');
   const [mobileExplorerOpen, setMobileExplorerOpen] = useState(false);
   const [mobileChatOpen, setMobileChatOpen] = useState(false);
@@ -432,10 +433,18 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
 
   useEffect(() => {
     const handleViewport = () => {
-      const isMobile = window.innerWidth < 768;
+      const nextWidth = window.innerWidth;
+      const isMobile = nextWidth < 768;
       const nextMode = isMobile ? 'mobile' : 'desktop';
-      setViewportMode(nextMode);
-      setSidebarWidth((prev) => clampSidebarWidth(prev));
+      setViewportWidth((current) => (current === nextWidth ? current : nextWidth));
+      setViewportMode((current) => (current === nextMode ? current : nextMode));
+
+      if (!isMobile) {
+        setSidebarWidth((prev) => {
+          const clampedWidth = clampSidebarWidth(prev);
+          return clampedWidth === prev ? prev : clampedWidth;
+        });
+      }
 
       // Only reset layout state when the viewport mode actually changes (mobile ↔ desktop).
       // Some browsers fire synthetic resize events on tab switch which would otherwise
@@ -588,6 +597,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
     desktopChatMode === 'side'
       ? ({ width: chatVisible ? `${chatWidth}px` : '0px' } as CSSProperties)
       : undefined;
+  const chatContainerWidth = isDesktopChatFullscreen ? viewportWidth : chatWidth;
 
   return (
     <FileWatcherProvider>
@@ -778,13 +788,13 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
               aria-hidden={!mobileChatOpen}
               aria-labelledby="notebook-mobile-chat-title"
               className={cn(
-                'fixed inset-y-0 right-0 z-50 flex w-full flex-col border-l border-border bg-background shadow-lg transition-[transform,opacity,visibility] duration-300 ease-in-out md:hidden',
+                'fixed inset-x-0 top-0 bottom-0 z-[90] flex h-[100dvh] max-h-[100dvh] w-full flex-col overflow-hidden overscroll-contain border-l border-border bg-background shadow-lg transition-[transform,opacity,visibility] duration-300 ease-in-out md:hidden',
                 mobileChatOpen
                   ? 'visible translate-x-0 opacity-100'
                   : 'invisible pointer-events-none translate-x-full opacity-0'
               )}
             >
-              <div className="border-b border-border bg-background/95 px-4 py-3 text-left">
+              <div className="shrink-0 border-b border-border bg-background/95 px-4 py-3 pt-[calc(env(safe-area-inset-top)+0.75rem)] text-left">
                 <div className="flex items-center justify-between gap-4">
                   <div className="min-w-0">
                     <h2 id="notebook-mobile-chat-title" className="text-base font-semibold text-foreground">
@@ -808,7 +818,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
                 <CanvasAgentChat
                   initialPromptStorageKey={CANVAS_CHAT_INITIAL_PROMPT_STORAGE_KEY}
                   hideNavHeader={true}
-                  chatContainerWidth={chatWidth}
+                  chatContainerWidth={viewportWidth}
                   isSurfaceVisible={mobileChatOpen}
                 />
               </div>
@@ -892,7 +902,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
                       <CanvasAgentChat
                         initialPromptStorageKey={CANVAS_CHAT_INITIAL_PROMPT_STORAGE_KEY}
                         hideNavHeader={true}
-                        chatContainerWidth={isDesktopChatFullscreen ? window.innerWidth : chatWidth}
+                        chatContainerWidth={chatContainerWidth}
                         isSurfaceVisible={chatVisible}
                       />
                     </div>
