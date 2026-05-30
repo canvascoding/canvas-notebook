@@ -876,14 +876,99 @@ contentKind: ${attachment.contentKind}
   return content;
 }
 
+function createAttachmentBlockRegex(): RegExp {
+  return /(^|\n)--- Attachment: ([^\n]+) ---\n([\s\S]*?)\n--- Ende Attachment: [^\n]+ ---/g;
+}
+
+function getAttachmentBlockField(block: string, fieldName: string): string | undefined {
+  const escapedFieldName = fieldName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const match = block.match(new RegExp(`^${escapedFieldName}:\\s*(.*)$`, 'm'));
+  return match?.[1]?.trim() || undefined;
+}
+
+function parseAttachmentBlocks(text: string): Attachment[] {
+  const attachments: Attachment[] = [];
+
+  for (const match of text.matchAll(createAttachmentBlockRegex())) {
+    const name = match[2]?.trim();
+    const block = match[3] || '';
+    const id = getAttachmentBlockField(block, 'fileId');
+    const rawContentKind = getAttachmentBlockField(block, 'contentKind');
+    const contentKind = rawContentKind === 'image' || rawContentKind === 'document'
+      ? rawContentKind
+      : null;
+
+    if (!name || !id || !contentKind) {
+      continue;
+    }
+
+    attachments.push({
+      name,
+      id,
+      contentKind,
+      mimeType: getAttachmentBlockField(block, 'mimeType'),
+      category: getAttachmentBlockField(block, 'category'),
+      filePath: getAttachmentBlockField(block, 'containerFilePath'),
+    });
+  }
+
+  return attachments;
+}
+
+function stripAttachmentBlocks(text: string): string {
+  return text
+    .replace(createAttachmentBlockRegex(), (_match, prefix: string) => prefix || '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+function decodeAttachmentId(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
+function getImagePartAttachmentId(part: { data: string }): string {
+  const rawId = part.data.startsWith('/api/files/')
+    ? part.data.slice('/api/files/'.length)
+    : part.data;
+  return decodeAttachmentId(rawId);
+}
+
+function dedupeAttachments(attachments: Attachment[]): Attachment[] {
+  const byKey = new Map<string, Attachment>();
+
+  for (const attachment of attachments) {
+    const key = `${attachment.contentKind}:${attachment.id || attachment.filePath || attachment.name}`;
+    const existing = byKey.get(key);
+    if (!existing) {
+      byKey.set(key, attachment);
+      continue;
+    }
+
+    byKey.set(key, {
+      ...existing,
+      name: existing.name || attachment.name,
+      mimeType: existing.mimeType || attachment.mimeType,
+      category: existing.category || attachment.category,
+      filePath: existing.filePath || attachment.filePath,
+    });
+  }
+
+  return Array.from(byKey.values());
+}
+
 function normalizeMessageStart(text: string): string {
   return text.replace(/^\s+/, '');
 }
 
-function extractPiMessageText(piMessage?: AgentMessage | null): string {
+function extractPiMessageText(piMessage?: AgentMessage | null, options?: { hideAttachmentMetadata?: boolean }): string {
   if (!piMessage || isCompactBreakMessage(piMessage) || isComposioAuthRequiredMessage(piMessage)) return '';
   if (!Array.isArray(piMessage.content)) {
-    return typeof piMessage.content === 'string' ? piMessage.content : '';
+    const text = typeof piMessage.content === 'string' ? piMessage.content : '';
+    return options?.hideAttachmentMetadata ? stripAttachmentBlocks(text) : text;
   }
 
   const textContent = piMessage.content
@@ -895,7 +980,8 @@ function extractPiMessageText(piMessage?: AgentMessage | null): string {
     .join('\n');
 
   if (textContent) {
-    return normalizeMessageStart(textContent);
+    const visibleText = options?.hideAttachmentMetadata ? stripAttachmentBlocks(textContent) : textContent;
+    return normalizeMessageStart(visibleText);
   }
 
   if (piMessage.role === 'assistant' && piMessage.stopReason === 'error' && piMessage.errorMessage) {
@@ -931,30 +1017,37 @@ function isToolCallPart(part: unknown): part is PersistedToolCallPart {
   );
 }
 
-function extractImageAttachments(content: unknown): Attachment[] | undefined {
+function extractImageAttachments(content: unknown, metadataAttachments: Attachment[] = []): Attachment[] {
   if (!Array.isArray(content)) {
-    return undefined;
+    return [];
   }
 
+  const metadataById = new Map(metadataAttachments.map((attachment) => [attachment.id, attachment]));
   const attachments = content.reduce<Attachment[]>((result, part, index) => {
     if (isImagePart(part)) {
-      // For images, use the data as the ID (could be file ID or data URL)
-      // In the new system, data should be a file ID like "name---uuid.ext"
-      const imageId = part.data.startsWith('/api/files/') 
-        ? part.data.replace('/api/files/', '') 
-        : part.data;
+      const imageId = getImagePartAttachmentId(part);
+      const metadata = metadataById.get(imageId);
       
       result.push({
-        name: `attachment-${index + 1}`,
+        name: metadata?.name || `attachment-${index + 1}`,
         contentKind: 'image',
         id: imageId,
-        mimeType: part.mimeType,
-        category: 'image',
+        mimeType: metadata?.mimeType || part.mimeType,
+        category: metadata?.category || 'image',
+        filePath: metadata?.filePath,
       });
     }
     return result;
   }, []);
 
+  return attachments;
+}
+
+function extractMessageAttachments(content: unknown): Attachment[] | undefined {
+  const text = contentToString(content);
+  const metadataAttachments = parseAttachmentBlocks(text);
+  const imageAttachments = extractImageAttachments(content, metadataAttachments);
+  const attachments = dedupeAttachments([...metadataAttachments, ...imageAttachments]);
   return attachments.length > 0 ? attachments : undefined;
 }
 
@@ -3143,7 +3236,11 @@ export default function CanvasAgentChat({
     const persistedToolCall = toolCallId ? toolCallsById.get(toolCallId) : undefined;
     const content = isToolResult
       ? extractToolResultText(Array.isArray(rawMessage.content) ? rawMessage.content : undefined) || extractPiMessageText(rawMessage)
-      : extractPiMessageText(rawMessage);
+      : extractPiMessageText(rawMessage, { hideAttachmentMetadata: rawMessage.role === 'user' });
+    const imageAttachments = extractImageAttachments(rawMessage.content);
+    const messageAttachments = rawMessage.role === 'user'
+      ? extractMessageAttachments(rawMessage.content)
+      : imageAttachments.length > 0 ? imageAttachments : undefined;
 
     return {
       id: rawMessage.id?.toString() || Math.random().toString(),
@@ -3151,7 +3248,7 @@ export default function CanvasAgentChat({
       content,
       status: 'sent',
       type: isToolResult ? 'tool_result' : undefined,
-      attachments: extractImageAttachments(rawMessage.content),
+      attachments: messageAttachments,
       piMessage: rawMessage,
       toolCallId,
       toolName: persistedToolCall?.name || (isToolResult && 'toolName' in rawMessage && typeof rawMessage.toolName === 'string' ? rawMessage.toolName : undefined),
@@ -5381,8 +5478,11 @@ export default function CanvasAgentChat({
                   {message.attachments && message.attachments.length > 0 && (
                     <div className="mt-2 flex flex-wrap gap-2">
                       {message.attachments.map((attachment, index) => (
-                        <div key={index} className="flex items-center gap-1.5 border border-border bg-background/50 p-1.5 px-2.5 text-[10px]">
-                          <ImageIcon className="h-3 w-3" /> {attachment.name}
+                        <div key={index} data-testid="chat-message-attachment" className="flex items-center gap-1.5 border border-border bg-background/50 p-1.5 px-2.5 text-[10px]">
+                          {attachment.contentKind === 'image'
+                            ? <ImageIcon className="h-3 w-3" />
+                            : <FileText className="h-3 w-3" />}
+                          {attachment.name}
                         </div>
                       ))}
                     </div>

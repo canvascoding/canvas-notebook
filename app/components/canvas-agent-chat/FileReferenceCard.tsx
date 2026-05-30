@@ -14,6 +14,35 @@ interface FileReferenceCardProps {
   paths: FilePathEntry[];
 }
 
+function dedupeFilePathEntries(paths: FilePathEntry[]): FilePathEntry[] {
+  const byPath = new Map<string, FilePathEntry>();
+
+  for (const entry of paths) {
+    const normalizedPath = normalizeChatFilePath(entry.path);
+    if (!normalizedPath) {
+      continue;
+    }
+
+    const existing = byPath.get(normalizedPath);
+    if (!existing) {
+      byPath.set(normalizedPath, {
+        path: normalizedPath,
+        label: entry.label,
+      });
+      continue;
+    }
+
+    if (!existing.label && entry.label) {
+      byPath.set(normalizedPath, {
+        ...existing,
+        label: entry.label,
+      });
+    }
+  }
+
+  return Array.from(byPath.values());
+}
+
 export function FileReferenceCard({ paths }: FileReferenceCardProps) {
   const t = useTranslations('chat');
   const fileStore = useFileStore();
@@ -21,11 +50,12 @@ export function FileReferenceCard({ paths }: FileReferenceCardProps) {
   const pathname = useLocalePathname();
   const locale = useLocale();
   const [validPaths, setValidPaths] = React.useState<FilePathEntry[]>([]);
+  const uniquePaths = React.useMemo(() => dedupeFilePathEntries(paths), [paths]);
 
   React.useEffect(() => {
     const validate = async () => {
       const valid = await Promise.all(
-        paths.map(async (entry) => {
+        uniquePaths.map(async (entry) => {
           const exists = await validateFileExists(entry.path, fileTree);
           return exists ? entry : null;
         })
@@ -33,7 +63,7 @@ export function FileReferenceCard({ paths }: FileReferenceCardProps) {
       setValidPaths(valid.filter(Boolean) as FilePathEntry[]);
     };
     validate();
-  }, [paths, fileTree]);
+  }, [uniquePaths, fileTree]);
 
   const handleOpen = (filePath: string) => {
     const normalizedPath = normalizeChatFilePath(filePath);
