@@ -33,7 +33,7 @@ import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
 import { cn } from '@/lib/utils';
 import { getImageSizesForModel } from '@/app/lib/integrations/image-generation-constants';
-import { toMediaUrl, toPreviewUrl } from '@/app/lib/utils/media-url';
+import { toMediaUrl, toPreviewUrl, toWorkspaceMediaUrl } from '@/app/lib/utils/media-url';
 
 type Mode = 'crop' | 'ai_extend';
 type DragState =
@@ -425,6 +425,7 @@ export function AspectRatioEditorView() {
   const t = useTranslations('studio.aspectRatioEditor');
   const searchParams = useSearchParams();
   const initialRefPath = searchParams.get('ref');
+  const initialRefSource = searchParams.get('refSource');
   const initialProviderParam = searchParams.get('provider');
   const initialProvider = initialProviderParam === 'gemini' || initialProviderParam === 'openai' ? initialProviderParam : null;
   const initialModel = searchParams.get('model');
@@ -433,7 +434,11 @@ export function AspectRatioEditorView() {
   const imageRef = useRef<HTMLImageElement | null>(null);
   const dragRef = useRef<DragState | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
-  const [sourcePath, setSourcePath] = useState<string | null>(() => initialRefPath);
+  const [sourcePath, setSourcePath] = useState<string | null>(() => (
+    initialRefPath && initialRefSource === 'workspace'
+      ? toWorkspaceMediaUrl(initialRefPath)
+      : initialRefPath
+  ));
   const [imageSize, setImageSize] = useState({ width: 0, height: 0 });
   const [pan, setPan] = useState({ x: 80, y: 60 });
   const [zoom, setZoom] = useState(1);

@@ -151,14 +151,22 @@ export function FileActionsDropdown({
   const handleOpenInStudio = () => {
     if (!node) return;
     closeMenu();
-    const url = `/${locale}/studio/create?ref=${encodeURIComponent(node.path)}`;
+    const params = new URLSearchParams({
+      ref: node.path,
+      refSource: 'workspace',
+    });
+    const url = `/${locale}/studio/create?${params.toString()}`;
     window.open(url, '_blank');
   };
 
   const handleResizeInStudio = () => {
     if (!node) return;
     closeMenu();
-    const url = `/${locale}/studio/aspect-ratio?ref=${encodeURIComponent(node.path)}`;
+    const params = new URLSearchParams({
+      ref: node.path,
+      refSource: 'workspace',
+    });
+    const url = `/${locale}/studio/aspect-ratio?${params.toString()}`;
     window.open(url, '_blank');
   };
 

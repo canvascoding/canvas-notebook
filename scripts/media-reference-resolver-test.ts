@@ -23,6 +23,7 @@ async function main(): Promise<void> {
 
   try {
     const workspaceImage = await writeFixture('workspace/09_asset_library/photo.jpeg');
+    const workspaceStudioImage = await writeFixture('workspace/studio/reference.png');
     await writeFixture('studio/outputs/studio-gen-test.png');
     await writeFixture('studio/assets/products/product-1/img.png');
     await writeFixture('studio/assets/references/user-1/ref-abc.png');
@@ -38,6 +39,10 @@ async function main(): Promise<void> {
     const workspaceApi = classifyMediaReference('/api/media/09_asset_library/photo.jpeg');
     assert.equal(workspaceApi?.kind, 'workspace_relative');
     assert.equal(workspaceApi?.absolutePath, workspaceImage);
+
+    const workspaceStudioApi = classifyMediaReference('/api/media/studio/reference.png');
+    assert.equal(workspaceStudioApi?.kind, 'workspace_relative');
+    assert.equal(workspaceStudioApi?.absolutePath, workspaceStudioImage);
 
     const workspaceAbsolute = classifyMediaReference(workspaceImage);
     assert.equal(workspaceAbsolute?.kind, 'workspace_absolute');

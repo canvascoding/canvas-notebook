@@ -33,7 +33,7 @@ type StudioGenerateInput = Pick<
 >;
 
 function getReferenceRequestValue(ref: { id: string }) {
-  if (ref.id.startsWith('/api/studio/media/') || ref.id.startsWith('/api/studio/references/')) return ref.id;
+  if (ref.id.startsWith('/api/media/') || ref.id.startsWith('/api/studio/media/') || ref.id.startsWith('/api/studio/references/')) return ref.id;
   if (/^https?:\/\//i.test(ref.id)) return ref.id;
   return toMediaUrl(ref.id);
 }

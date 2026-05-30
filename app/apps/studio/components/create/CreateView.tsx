@@ -24,7 +24,7 @@ import { ReferencePickerDialog } from './ReferencePickerDialog';
 import { BatchDeleteDialog } from './BatchDeleteDialog';
 import Image from 'next/image';
 import { getDefaultModelForProvider, getAspectRatiosForProvider, getVideoResolutionsForModel, getVideoDurationsForModel, getImageSizesForModel, normalizeGeminiImageModelId, type VideoResolution, type StudioVideoDuration } from '@/app/lib/integrations/image-generation-constants';
-import { toMediaUrl, toPreviewUrl } from '@/app/lib/utils/media-url';
+import { toMediaUrl, toPreviewUrl, toWorkspaceMediaUrl } from '@/app/lib/utils/media-url';
 import { useSetStudioChatContext } from '@/app/apps/studio/context/studio-chat-context';
 import { useStudioGenerationStore } from '@/app/store/studio-generation-store';
 import { buildStudioGeneratePayload } from '../../utils/studio-generate-payload';
@@ -131,6 +131,16 @@ function getOutputReference(output: StudioGenerationOutput) {
   };
 }
 
+function getReferenceName(referencePath: string) {
+  const cleanPath = referencePath.split(/[?#]/, 1)[0] || referencePath;
+  const name = cleanPath.split('/').pop() || referencePath;
+  try {
+    return decodeURIComponent(name);
+  } catch {
+    return name;
+  }
+}
+
 export function CreateView() {
   const t = useTranslations('studio');
   const router = useRouter();
@@ -186,6 +196,7 @@ export function CreateView() {
   const [savingEditSelection, setSavingEditSelection] = useState(false);
   const promptOverlayRef = useRef<HTMLDivElement | null>(null);
   const openedRoutePreviewRef = useRef<string | null>(null);
+  const openedRouteReferenceRef = useRef<string | null>(null);
   const startedPendingGenerateRequestRef = useRef<string | null>(null);
   const [promptOverlayHeight, setPromptOverlayHeight] = useState(220);
 
@@ -425,17 +436,23 @@ export function CreateView() {
   }, [fetchGenerations, fetchProducts, fetchPersonas, fetchPresets, fetchStyles]);
 
   const initialRefPath = searchParams.get('ref');
+  const initialRefSource = searchParams.get('refSource');
   const initialGenerationId = searchParams.get('generation');
   const initialOutputId = searchParams.get('output');
 
   useEffect(() => {
     if (!initialRefPath) return;
+    const routeReferenceKey = `${initialRefSource || 'default'}:${initialRefPath}`;
+    if (openedRouteReferenceRef.current === routeReferenceKey) return;
+    openedRouteReferenceRef.current = routeReferenceKey;
+
+    const isWorkspaceReference = initialRefSource === 'workspace';
     store.setFileRefs([{
-      id: initialRefPath,
-      name: initialRefPath.split('/').pop() || initialRefPath,
+      id: isWorkspaceReference ? toWorkspaceMediaUrl(initialRefPath) : initialRefPath,
+      name: getReferenceName(initialRefPath),
       thumbnailPath: initialRefPath,
     }]);
-  }, [initialRefPath, store]);
+  }, [initialRefPath, initialRefSource, store]);
 
   useEffect(() => {
     if (!initialGenerationId) return;
