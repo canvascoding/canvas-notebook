@@ -21,6 +21,7 @@ export type EmailDraftInput = {
   bcc?: string[];
   subject: string;
   body: string;
+  is_HTML?: boolean;
 };
 
 type LocalEmailAccount = {
@@ -497,13 +498,14 @@ function gmailBodyText(payload: Record<string, unknown> | undefined): string {
 }
 
 function encodeRawEmail(input: EmailDraftInput) {
+  const contentType = input.is_HTML ? 'text/html' : 'text/plain';
   const headers = [
     `To: ${input.to.join(', ')}`,
     ...(input.cc?.length ? [`Cc: ${input.cc.join(', ')}`] : []),
     ...(input.bcc?.length ? [`Bcc: ${input.bcc.join(', ')}`] : []),
     `Subject: ${input.subject}`,
     'MIME-Version: 1.0',
-    'Content-Type: text/plain; charset=UTF-8',
+    `Content-Type: ${contentType}; charset=UTF-8`,
   ];
   return base64Url(Buffer.from(`${headers.join('\r\n')}\r\n\r\n${input.body}`, 'utf8'));
 }
@@ -615,7 +617,7 @@ export async function createLocalEmailDraft(input: EmailDraftInput) {
       method: 'POST',
       body: JSON.stringify({
         subject: input.subject,
-        body: { contentType: 'Text', content: input.body },
+        body: { contentType: input.is_HTML ? 'HTML' : 'Text', content: input.body },
         toRecipients: input.to.map((address) => ({ emailAddress: { address } })),
         ccRecipients: (input.cc || []).map((address) => ({ emailAddress: { address } })),
         bccRecipients: (input.bcc || []).map((address) => ({ emailAddress: { address } })),
@@ -640,7 +642,7 @@ export async function updateLocalEmailDraft(draftId: string, input: EmailDraftIn
       method: 'PATCH',
       body: JSON.stringify({
         subject: input.subject,
-        body: { contentType: 'Text', content: input.body },
+        body: { contentType: input.is_HTML ? 'HTML' : 'Text', content: input.body },
         toRecipients: input.to.map((address) => ({ emailAddress: { address } })),
         ccRecipients: (input.cc || []).map((address) => ({ emailAddress: { address } })),
         bccRecipients: (input.bcc || []).map((address) => ({ emailAddress: { address } })),

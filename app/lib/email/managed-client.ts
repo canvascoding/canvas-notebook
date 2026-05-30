@@ -14,6 +14,7 @@ export type EmailDraftInput = {
   bcc?: string[];
   subject: string;
   body: string;
+  is_HTML?: boolean;
 };
 
 export function isManagedEmailAvailable(): boolean {
