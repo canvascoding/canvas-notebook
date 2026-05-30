@@ -111,6 +111,55 @@ function filterTreeBySearch(nodes: FileNode[], query: string, kind: MediaKind): 
     });
 }
 
+function StudioAssetGridSkeleton() {
+  return (
+    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4" aria-hidden="true">
+      {Array.from({ length: 12 }, (_, index) => (
+        <div key={index} className="overflow-hidden rounded-lg border border-border bg-card">
+          <div className="aspect-video w-full animate-pulse bg-muted" />
+          <div className="space-y-2 p-2">
+            <div className="h-3 w-4/5 animate-pulse rounded bg-muted" />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function StudioAssetPreviewImage({ asset }: { asset: ImageAsset }) {
+  const [status, setStatus] = useState<'loading' | 'loaded' | 'error'>('loading');
+
+  return (
+    <div className="relative h-full w-full overflow-hidden">
+      {status === 'loading' ? (
+        <div className="absolute inset-0 z-10 flex items-center justify-center bg-muted" aria-hidden="true">
+          <div className="absolute inset-0 animate-pulse bg-muted" />
+          <div className="relative h-8 w-8 animate-pulse rounded-md border border-border/70 bg-background/60" />
+        </div>
+      ) : null}
+      {status === 'error' ? (
+        <div className="flex h-full w-full items-center justify-center bg-muted">
+          <ImageIcon className="h-7 w-7 text-muted-foreground" />
+        </div>
+      ) : (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={asset.previewUrl}
+          alt={asset.name}
+          className={cn(
+            'h-full w-full object-cover transition-opacity duration-200',
+            status === 'loaded' ? 'opacity-100' : 'opacity-0',
+          )}
+          loading="lazy"
+          decoding="async"
+          onLoad={() => setStatus('loaded')}
+          onError={() => setStatus('error')}
+        />
+      )}
+    </div>
+  );
+}
+
 function SelectionChip({
   asset,
   onRemove,
@@ -580,10 +629,7 @@ export function ReferencePickerDialog({ open, onOpenChange, onConfirm, multiple 
               {error && <p className="text-sm text-destructive mb-2 shrink-0">{error}</p>}
               <div className="flex-1 min-h-0 overflow-y-auto border rounded-md bg-background p-3">
                 {isLoading ? (
-                  <div className="flex h-40 items-center justify-center text-muted-foreground">
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    {t('loading')}
-                  </div>
+                  <StudioAssetGridSkeleton />
                 ) : assets.length === 0 ? (
                   <div className="flex h-40 items-center justify-center text-sm text-muted-foreground">{t('empty')}</div>
                 ) : (
@@ -595,8 +641,7 @@ export function ReferencePickerDialog({ open, onOpenChange, onConfirm, multiple 
                           className={cn('relative overflow-hidden border rounded-lg text-left transition', selected ? 'border-primary ring-2 ring-primary/20 bg-primary/5' : 'border-border bg-card hover:border-primary/50')}>
 	                          <div className="aspect-video w-full bg-muted flex items-center justify-center">
 	                            {mediaKind === 'image' ? (
-	                              // eslint-disable-next-line @next/next/no-img-element
-	                              <img src={asset.previewUrl} alt={asset.name} className="h-full w-full object-cover" loading="lazy" decoding="async" />
+	                              <StudioAssetPreviewImage key={asset.previewUrl} asset={asset} />
 	                            ) : mediaIcon(mediaKind, 'h-7 w-7 text-muted-foreground')}
 	                          </div>
                           <div className="p-2">
