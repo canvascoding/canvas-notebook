@@ -1794,6 +1794,7 @@ export default function CanvasAgentChat({
   const autoScrollRef = useRef<{ top: number; time: number } | null>(null);
   const autoScrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const touchScrollStartYRef = useRef<number | null>(null);
+  const composerMeasureRafRef = useRef<number | null>(null);
   const referenceRequestIdRef = useRef(0);
   const messagesRef = useRef<ChatMessage[]>([]);
   const subscribedSessionAckRef = useRef<string | null>(null);
@@ -1916,7 +1917,7 @@ export default function CanvasAgentChat({
     const baseHeight = getTextareaBaseHeight();
     const maxHeight = getTextareaMaxHeight();
     textarea.style.height = 'auto';
-    const nextHeight = Math.max(baseHeight, Math.min(textarea.scrollHeight, maxHeight));
+    const nextHeight = Math.max(baseHeight, Math.min(Math.ceil(textarea.scrollHeight), maxHeight));
     textarea.style.height = `${nextHeight}px`;
     textarea.style.overflowY = textarea.scrollHeight > maxHeight ? 'auto' : 'hidden';
     setTextareaHeight((current) => (current === nextHeight ? current : nextHeight));
@@ -4291,6 +4292,10 @@ export default function CanvasAgentChat({
       clearTimeout(autoScrollTimerRef.current);
       autoScrollTimerRef.current = null;
     }
+    if (composerMeasureRafRef.current !== null) {
+      cancelAnimationFrame(composerMeasureRafRef.current);
+      composerMeasureRafRef.current = null;
+    }
     resetStreamConnection();
   }, [resetStreamConnection]);
 
@@ -4307,26 +4312,40 @@ export default function CanvasAgentChat({
     const composer = composerRef.current;
     if (!composer) return;
 
-    const updateComposerHeight = () => {
+    const updateComposerSize = () => {
+      composerMeasureRafRef.current = null;
       const { height, width } = composer.getBoundingClientRect();
-      setComposerHeight(height);
-      setComposerWidth(width);
+      const nextHeight = Math.ceil(height);
+      const nextWidth = Math.ceil(width);
+      setComposerHeight((current) => (current === nextHeight ? current : nextHeight));
+      setComposerWidth((current) => (current === nextWidth ? current : nextWidth));
     };
 
-    updateComposerHeight();
+    const scheduleComposerSizeUpdate = () => {
+      if (composerMeasureRafRef.current !== null) {
+        cancelAnimationFrame(composerMeasureRafRef.current);
+      }
+      composerMeasureRafRef.current = requestAnimationFrame(updateComposerSize);
+    };
+
+    updateComposerSize();
 
     const resizeObserver = new ResizeObserver(() => {
-      updateComposerHeight();
+      scheduleComposerSizeUpdate();
     });
 
     resizeObserver.observe(composer);
-    window.addEventListener('resize', updateComposerHeight);
+    window.addEventListener('resize', scheduleComposerSizeUpdate);
 
     return () => {
       resizeObserver.disconnect();
-      window.removeEventListener('resize', updateComposerHeight);
+      window.removeEventListener('resize', scheduleComposerSizeUpdate);
+      if (composerMeasureRafRef.current !== null) {
+        cancelAnimationFrame(composerMeasureRafRef.current);
+        composerMeasureRafRef.current = null;
+      }
     };
-  }, [attachments.length, isMobile, runtimeStatus?.phase, showMobileActionPanel]);
+  }, []);
 
   useEffect(() => {
     syncTextareaHeight();
