@@ -24,6 +24,9 @@ import {
   FileVideo,
   Music,
   Plus,
+  ChevronLeft,
+  ChevronRight,
+  Search,
 } from 'lucide-react';
 import {
   Dialog,
@@ -130,12 +133,18 @@ interface ReferenceOption {
   name: string;
   description?: string | null;
   thumbnailPath?: string | null;
+  imageCount?: number;
+  images?: {
+    id: string;
+    filePath: string;
+    sortOrder: number;
+  }[];
 }
 
-interface ReferenceOptionListProps<T extends ReferenceOption> {
+interface ReferenceOptionGridProps<T extends ReferenceOption> {
   items: T[];
   emptyText: string;
-  emptyAction?: {
+  createAction: {
     label: string;
     onClick: () => void;
   };
@@ -143,68 +152,167 @@ interface ReferenceOptionListProps<T extends ReferenceOption> {
   onSelect: (item: T) => void;
 }
 
-function ReferenceOptionList<T extends ReferenceOption>({
-  items,
-  emptyText,
-  emptyAction,
+function getReferenceImagePaths(item: ReferenceOption) {
+  const paths = (item.images ?? [])
+    .slice()
+    .sort((left, right) => left.sortOrder - right.sortOrder)
+    .map((image) => image.filePath)
+    .filter(Boolean);
+
+  if (paths.length > 0) return paths;
+  return item.thumbnailPath ? [item.thumbnailPath] : [];
+}
+
+function ReferenceTile<T extends ReferenceOption>({
+  item,
   fallbackIcon,
   onSelect,
-}: ReferenceOptionListProps<T>) {
-  if (items.length === 0) {
-    return (
-      <div className="flex min-h-48 flex-col items-center justify-center gap-3 rounded-md border border-dashed border-border bg-background p-6 text-center">
-        <p className="text-sm text-muted-foreground">{emptyText}</p>
-        {emptyAction ? (
-          <Button type="button" size="sm" className="gap-2" onClick={emptyAction.onClick}>
-            <Plus className="h-4 w-4" />
-            {emptyAction.label}
-          </Button>
-        ) : null}
-      </div>
-    );
-  }
+}: {
+  item: T;
+  fallbackIcon: React.ReactNode;
+  onSelect: (item: T) => void;
+}) {
+  const imagePaths = useMemo(() => getReferenceImagePaths(item), [item]);
+  const [imageIndex, setImageIndex] = useState(0);
+  const safeImageIndex = imagePaths.length > 0 ? Math.min(imageIndex, imagePaths.length - 1) : 0;
+  const currentImage = imagePaths[safeImageIndex];
+  const hasMultipleImages = imagePaths.length > 1;
+
+  const handleNavigateImage = (event: React.MouseEvent, direction: -1 | 1) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setImageIndex((current) => {
+      if (!hasMultipleImages) return current;
+      return (current + direction + imagePaths.length) % imagePaths.length;
+    });
+  };
 
   return (
-    <div className="max-h-[48vh] overflow-y-auto rounded-md border border-border bg-background p-1">
-      <div className="grid gap-1">
-        {items.map((item) => (
-          <button
-            key={item.id}
-            type="button"
-            onClick={() => onSelect(item)}
-            className="flex min-h-14 w-full items-center gap-3 rounded-md px-2 py-2 text-left transition hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          >
-            {item.thumbnailPath ? (
-              <div className="h-10 w-10 shrink-0 overflow-hidden rounded-md border border-border/50 bg-muted">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={toPreviewUrl(item.thumbnailPath, 64, { preset: 'mini' })}
-                  alt=""
-                  className="h-full w-full object-cover"
-                  loading="lazy"
-                  onError={(e) => {
-                    (e.target as HTMLImageElement).style.display = 'none';
-                  }}
-                />
-              </div>
-            ) : (
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-md border border-border/50 bg-muted text-muted-foreground">
-                {fallbackIcon}
-              </div>
-            )}
-            <div className="min-w-0 flex-1">
-              <div className="truncate text-sm font-medium">{item.name}</div>
-              {item.description ? (
-                <div className="truncate text-xs text-muted-foreground">{item.description}</div>
-              ) : null}
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={() => onSelect(item)}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          onSelect(item);
+        }
+      }}
+      className="group flex min-h-[210px] cursor-pointer flex-col overflow-hidden rounded-lg border border-border bg-card text-left transition hover:border-primary/50 hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+    >
+      <div className="relative aspect-[4/3] w-full overflow-hidden bg-muted">
+        {currentImage ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={toPreviewUrl(currentImage, 420)}
+            alt=""
+            className="h-full w-full object-cover"
+            loading="lazy"
+            onError={(event) => {
+              (event.target as HTMLImageElement).style.display = 'none';
+            }}
+          />
+        ) : (
+          <div className="flex h-full w-full items-center justify-center text-muted-foreground">
+            {fallbackIcon}
+          </div>
+        )}
+        {hasMultipleImages ? (
+          <>
+            <button
+              type="button"
+              aria-label="Previous image"
+              onClick={(event) => handleNavigateImage(event, -1)}
+              className="absolute left-2 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full border border-white/60 bg-black/45 text-white shadow-sm opacity-100 transition hover:bg-black/65 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100"
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              aria-label="Next image"
+              onClick={(event) => handleNavigateImage(event, 1)}
+              className="absolute right-2 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full border border-white/60 bg-black/45 text-white shadow-sm opacity-100 transition hover:bg-black/65 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100"
+            >
+              <ChevronRight className="h-4 w-4" />
+            </button>
+            <div className="absolute bottom-2 right-2 rounded-full bg-black/55 px-2 py-0.5 text-[11px] font-medium text-white">
+              {safeImageIndex + 1}/{imagePaths.length}
             </div>
-          </button>
-        ))}
+          </>
+        ) : null}
+      </div>
+      <div className="flex min-h-[76px] flex-col justify-center gap-1 px-3 py-2.5">
+        <p className="line-clamp-2 text-sm font-medium leading-snug text-foreground">{item.name}</p>
+        {item.description ? (
+          <p className="line-clamp-2 text-xs leading-5 text-muted-foreground">{item.description}</p>
+        ) : null}
       </div>
     </div>
   );
 }
 
+function CreateReferenceTile({
+  label,
+  onClick,
+}: {
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex min-h-[210px] flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-border bg-background p-4 text-center text-sm font-medium text-muted-foreground transition hover:border-primary/60 hover:bg-primary/5 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+    >
+      <span className="flex h-12 w-12 items-center justify-center rounded-full border border-current/25 bg-card">
+        <Plus className="h-5 w-5" />
+      </span>
+      {label}
+    </button>
+  );
+}
+
+function ReferenceOptionGrid<T extends ReferenceOption>({
+  items,
+  emptyText,
+  createAction,
+  fallbackIcon,
+  onSelect,
+}: ReferenceOptionGridProps<T>) {
+  return (
+    <div className="min-h-[260px] flex-1 overflow-y-auto rounded-md border border-border bg-background p-2 sm:p-3">
+      {items.length === 0 ? (
+        <div className="mb-3 flex min-h-32 items-center justify-center rounded-md border border-dashed border-border bg-card/50 p-6 text-center text-sm text-muted-foreground">
+          {emptyText}
+        </div>
+      ) : null}
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+        {items.map((item) => (
+          <ReferenceTile
+            key={item.id}
+            item={item}
+            fallbackIcon={fallbackIcon}
+            onSelect={onSelect}
+          />
+        ))}
+        <CreateReferenceTile label={createAction.label} onClick={createAction.onClick} />
+      </div>
+    </div>
+  );
+}
+
+function filterReferenceOptions<T extends ReferenceOption>(items: T[], search: string) {
+  const query = search.trim().toLowerCase();
+  if (!query) return items;
+
+  return items.filter((item) => {
+    if (item.name.toLowerCase().includes(query)) return true;
+    if (item.description?.toLowerCase().includes(query)) return true;
+    return false;
+  });
+}
+
+type ReferenceCategory = 'product' | 'persona' | 'style';
 
 export function PromptBar({
   value,
@@ -233,6 +341,8 @@ export function PromptBar({
   const tStudio = useTranslations('studio');
   const router = useRouter();
   const [referenceDialogOpen, setReferenceDialogOpen] = useState(false);
+  const [referenceCategory, setReferenceCategory] = useState<ReferenceCategory>('product');
+  const [referenceSearch, setReferenceSearch] = useState('');
   const [pickerOpen, setPickerOpen] = useState(false);
   const [closeReferenceDialogOnPickerConfirm, setCloseReferenceDialogOnPickerConfirm] = useState(false);
   const [mediaPicker, setMediaPicker] = useState<'image' | 'video' | 'audio' | 'extendVideo'>('image');
@@ -263,10 +373,18 @@ export function PromptBar({
   const availableProducts = useMemo(() => (products ?? []).filter((product) => !(value.productRefs ?? []).some((selected) => selected.id === product.id)), [products, value.productRefs]);
   const availablePersonas = useMemo(() => (personas ?? []).filter((persona) => !(value.personaRefs ?? []).some((selected) => selected.id === persona.id)), [personas, value.personaRefs]);
   const availableStyles = useMemo(() => (styles ?? []).filter((style) => !(value.styleRefs ?? []).some((selected) => selected.id === style.id)), [styles, value.styleRefs]);
+  const filteredProducts = useMemo(() => filterReferenceOptions(availableProducts, referenceSearch), [availableProducts, referenceSearch]);
+  const filteredPersonas = useMemo(() => filterReferenceOptions(availablePersonas, referenceSearch), [availablePersonas, referenceSearch]);
+  const filteredStyles = useMemo(() => filterReferenceOptions(availableStyles, referenceSearch), [availableStyles, referenceSearch]);
   const openModelCreate = useCallback((type: 'product' | 'persona' | 'style') => {
     setReferenceDialogOpen(false);
     router.push(`/studio/models/new?type=${type}`);
   }, [router]);
+  const getEmptyText = useCallback((baseCount: number, defaultText: string) => {
+    if (referenceSearch.trim()) return t('noSearchResults');
+    if (baseCount > 0) return t('allReferencesSelected');
+    return defaultText;
+  }, [referenceSearch, t]);
 
   return (
     <div className="rounded-[28px] border border-border/80 bg-card/95 p-4 shadow-2xl">
@@ -276,7 +394,10 @@ export function PromptBar({
           {t('title')}
         </div>
         <div className="flex items-center gap-2">
-          <Button type="button" variant="outline" size="sm" className="rounded-full" onClick={() => setReferenceDialogOpen(true)}>
+          <Button type="button" variant="outline" size="sm" className="rounded-full" onClick={() => {
+            setReferenceSearch('');
+            setReferenceDialogOpen(true);
+          }}>
             <AtSign className="h-4 w-4" />
             {t('addReference')}
           </Button>
@@ -486,8 +607,14 @@ export function PromptBar({
         </div>
       ) : null}
 
-      <Dialog open={referenceDialogOpen} onOpenChange={setReferenceDialogOpen}>
-        <DialogContent className="w-[calc(100vw-2rem)] max-w-2xl gap-4 p-5 sm:p-6">
+      <Dialog
+        open={referenceDialogOpen}
+        onOpenChange={(open) => {
+          setReferenceDialogOpen(open);
+          if (!open) setReferenceSearch('');
+        }}
+      >
+        <DialogContent className="flex max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-5xl flex-col gap-4 overflow-hidden p-4 sm:max-h-[min(86vh,760px)] sm:p-6">
           <DialogHeader>
             <DialogTitle>{t('addReference')}</DialogTitle>
             <DialogDescription className="sr-only">{t('referenceCategories')}</DialogDescription>
@@ -508,7 +635,32 @@ export function PromptBar({
             <span className="ml-auto text-xs text-muted-foreground">{value.fileRefs.length}/9</span>
           </Button>
 
-          <Tabs defaultValue="product" className="min-h-0 gap-3">
+          <div className="relative shrink-0">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <input
+              type="text"
+              value={referenceSearch}
+              onChange={(event) => setReferenceSearch(event.target.value)}
+              placeholder={t('searchPlaceholder')}
+              className="h-11 w-full rounded-md border border-input bg-background pl-10 pr-10 text-sm outline-none transition focus:border-ring focus:ring-4 focus:ring-ring/15"
+            />
+            {referenceSearch ? (
+              <button
+                type="button"
+                onClick={() => setReferenceSearch('')}
+                className="absolute right-2 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground transition hover:bg-accent hover:text-foreground"
+                aria-label="Clear search"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            ) : null}
+          </div>
+
+          <Tabs
+            value={referenceCategory}
+            onValueChange={(nextValue) => setReferenceCategory(nextValue as ReferenceCategory)}
+            className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden"
+          >
             <TabsList className="grid w-full grid-cols-3">
               <TabsTrigger value="product">
                 <Package2 className="h-4 w-4" />
@@ -523,14 +675,14 @@ export function PromptBar({
                 {t('style')}
               </TabsTrigger>
             </TabsList>
-            <TabsContent value="product" className="mt-0">
-              <ReferenceOptionList
-                items={availableProducts}
-                emptyText={t('noProducts')}
-                emptyAction={products.length === 0 ? {
+            <TabsContent value="product" className="mt-0 min-h-0 flex-1 overflow-hidden data-[state=active]:flex">
+              <ReferenceOptionGrid
+                items={filteredProducts}
+                emptyText={getEmptyText(products.length, t('noProducts'))}
+                createAction={{
                   label: tStudio('modelLibrary.newProduct'),
                   onClick: () => openModelCreate('product'),
-                } : undefined}
+                }}
                 fallbackIcon={<Package2 className="h-4 w-4" />}
                 onSelect={(product) => {
                   onProductAdd(product);
@@ -538,14 +690,14 @@ export function PromptBar({
                 }}
               />
             </TabsContent>
-            <TabsContent value="persona" className="mt-0">
-              <ReferenceOptionList
-                items={availablePersonas}
-                emptyText={t('noPersonas')}
-                emptyAction={personas.length === 0 ? {
+            <TabsContent value="persona" className="mt-0 min-h-0 flex-1 overflow-hidden data-[state=active]:flex">
+              <ReferenceOptionGrid
+                items={filteredPersonas}
+                emptyText={getEmptyText(personas.length, t('noPersonas'))}
+                createAction={{
                   label: tStudio('modelLibrary.newPersona'),
                   onClick: () => openModelCreate('persona'),
-                } : undefined}
+                }}
                 fallbackIcon={<UserRound className="h-4 w-4" />}
                 onSelect={(persona) => {
                   onPersonaAdd(persona);
@@ -553,14 +705,14 @@ export function PromptBar({
                 }}
               />
             </TabsContent>
-            <TabsContent value="style" className="mt-0">
-              <ReferenceOptionList
-                items={availableStyles}
-                emptyText={t('noStyles')}
-                emptyAction={styles.length === 0 ? {
+            <TabsContent value="style" className="mt-0 min-h-0 flex-1 overflow-hidden data-[state=active]:flex">
+              <ReferenceOptionGrid
+                items={filteredStyles}
+                emptyText={getEmptyText(styles.length, t('noStyles'))}
+                createAction={{
                   label: tStudio('modelLibrary.newStyle'),
                   onClick: () => openModelCreate('style'),
-                } : undefined}
+                }}
                 fallbackIcon={<LayoutTemplate className="h-4 w-4" />}
                 onSelect={(style) => {
                   onStyleAdd(style);
