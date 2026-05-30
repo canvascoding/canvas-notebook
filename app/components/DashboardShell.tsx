@@ -185,6 +185,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
   const [mobileSurface, setMobileSurface] = useState<MobileSurface>('editor');
   const [mobileExplorerOpen, setMobileExplorerOpen] = useState(false);
   const [mobileChatOpen, setMobileChatOpen] = useState(false);
+  const [mobileChatMounted, setMobileChatMounted] = useState(false);
   const isResizing = useRef(false);
   const isSidebarResizing = useRef(false);
   const sidebarResizeRef = useRef<{
@@ -209,6 +210,18 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
   const openDesktopSideChat = useCallback(() => {
     setChatVisible(true);
     setDesktopChatMode('side');
+  }, []);
+
+  const openMobileChat = useCallback(() => {
+    setMobileChatMounted(true);
+    setMobileExplorerOpen(false);
+    setMobileChatOpen(true);
+  }, []);
+
+  const toggleMobileChat = useCallback(() => {
+    setMobileChatMounted(true);
+    setMobileExplorerOpen(false);
+    setMobileChatOpen((current) => !current);
   }, []);
 
   const setDesktopSidebarVisible = useCallback((nextVisible: boolean | ((current: boolean) => boolean)) => {
@@ -297,9 +310,14 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
 
     const sessionParam = searchParams.get('session');
     if (sessionParam) {
-      queueMicrotask(() => setChatVisible(true));
+      queueMicrotask(() => {
+        setChatVisible(true);
+        if (viewportMode === 'mobile') {
+          openMobileChat();
+        }
+      });
     }
-  }, [openDesktopSideChat, openNotebookFile, searchParams, viewportMode]);
+  }, [openDesktopSideChat, openMobileChat, openNotebookFile, searchParams, viewportMode]);
 
   useEffect(() => {
     if (viewportMode === null || initialNotebookStateResolvedRef.current) return;
@@ -408,9 +426,9 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
     if (viewportMode === 'mobile') {
       setMobileSurface('editor');
       setMobileExplorerOpen(false);
-      setMobileChatOpen(true);
+      openMobileChat();
     }
-  }, [viewportMode]);
+  }, [openMobileChat, viewportMode]);
 
   useEffect(() => {
     const handleViewport = () => {
@@ -433,6 +451,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
         const stored = window.sessionStorage.getItem(CANVAS_CHAT_INITIAL_PROMPT_STORAGE_KEY);
         if (stored) {
           setChatVisible(true);
+          setMobileChatMounted(true);
           setMobileChatOpen(true);
         } else {
           setChatVisible(false);
@@ -451,6 +470,19 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
     window.addEventListener('resize', handleViewport);
     return () => window.removeEventListener('resize', handleViewport);
   }, [shouldForceChatOpen]);
+
+  useEffect(() => {
+    if (!mobileChatOpen || viewportMode !== 'mobile') return;
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      setMobileChatOpen(false);
+    };
+
+    window.addEventListener('keydown', handleEscape);
+    return () => window.removeEventListener('keydown', handleEscape);
+  }, [mobileChatOpen, viewportMode]);
 
   const handleMobileFileSelect = useCallback(() => {
     if (viewportMode !== 'mobile') return;
@@ -631,8 +663,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
                           )}
                           onClick={() => {
                             if (isMobileViewport) {
-                              setMobileExplorerOpen(false);
-                              setMobileChatOpen((prev) => !prev);
+                              toggleMobileChat();
                             } else {
                               handleDesktopChatPrimaryAction();
                             }
@@ -702,7 +733,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
               ) : (
                 <MobileNotebookEmptyState
                   onOpenExplorer={() => setMobileExplorerOpen(true)}
-                  onOpenChat={() => setMobileChatOpen(true)}
+                  onOpenChat={openMobileChat}
                 />
               )
             ) : null}
@@ -739,19 +770,29 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
               </div>
             </SheetContent>
           </Sheet>
-          <Sheet open={mobileChatOpen} onOpenChange={setMobileChatOpen}>
-            <SheetContent
-              side="right"
-              showCloseButton={false}
-              className="w-full max-w-none gap-0 border-l p-0 sm:max-w-none"
+          {mobileChatMounted ? (
+            <div
+              id="onboarding-notebook-chat"
+              role="dialog"
+              aria-modal={mobileChatOpen}
+              aria-hidden={!mobileChatOpen}
+              aria-labelledby="notebook-mobile-chat-title"
+              className={cn(
+                'fixed inset-y-0 right-0 z-50 flex w-full flex-col border-l border-border bg-background shadow-lg transition-[transform,opacity,visibility] duration-300 ease-in-out md:hidden',
+                mobileChatOpen
+                  ? 'visible translate-x-0 opacity-100'
+                  : 'invisible pointer-events-none translate-x-full opacity-0'
+              )}
             >
-              <SheetHeader className="border-b border-border bg-background/95 px-4 py-3 text-left">
+              <div className="border-b border-border bg-background/95 px-4 py-3 text-left">
                 <div className="flex items-center justify-between gap-4">
                   <div className="min-w-0">
-                    <SheetTitle className="text-base">{tCommon('aiChat')}</SheetTitle>
-                    <SheetDescription className="sr-only">
+                    <h2 id="notebook-mobile-chat-title" className="text-base font-semibold text-foreground">
+                      {tCommon('aiChat')}
+                    </h2>
+                    <p className="sr-only">
                       {tChat('metadataDescription')}
-                    </SheetDescription>
+                    </p>
                   </div>
                   <Button
                     variant="ghost"
@@ -762,7 +803,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
                     <X className="h-4 w-4" />
                   </Button>
                 </div>
-              </SheetHeader>
+              </div>
               <div className="min-h-0 flex-1 overflow-hidden flex flex-col">
                 <CanvasAgentChat
                   initialPromptStorageKey={CANVAS_CHAT_INITIAL_PROMPT_STORAGE_KEY}
@@ -771,8 +812,8 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
                   isSurfaceVisible={mobileChatOpen}
                 />
               </div>
-            </SheetContent>
-          </Sheet>
+            </div>
+          ) : null}
         </main>
       ) : (
         <main className="flex min-h-0 flex-1 overflow-hidden relative">
