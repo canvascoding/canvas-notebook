@@ -5828,10 +5828,7 @@ export default function CanvasAgentChat({
               void handleSend();
             }}
             className={cn(
-              'flex-shrink-0 p-2.5 transition-all disabled:opacity-30',
-              isRuntimeBusy
-                ? 'bg-foreground text-background hover:bg-foreground/90'
-                : 'bg-primary text-primary-foreground hover:bg-primary/90',
+              'flex-shrink-0 bg-primary p-2.5 text-primary-foreground transition-all hover:bg-primary/90 disabled:opacity-30',
             )}
             disabled={isRuntimeBusy ? !runtimeStatus?.canAbort || isWebSocketUnavailable : !hasComposerContent || isWebSocketUnavailable || !isModelConfigured}
             title={isRuntimeBusy ? t('stop') : t('sendAction')}
