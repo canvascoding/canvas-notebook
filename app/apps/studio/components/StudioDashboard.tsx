@@ -88,9 +88,9 @@ export function StudioDashboard() {
   const stylesHook = useStudioStyles();
   const presetsHook = useStudioPresets();
   const { fetchGenerations, generations } = generationHook;
-  const { fetchProducts, products } = productsHook;
-  const { fetchPersonas, personas } = personasHook;
-  const { fetchStyles, styles } = stylesHook;
+  const { fetchProducts, products, loading: productsLoading } = productsHook;
+  const { fetchPersonas, personas, loading: personasLoading } = personasHook;
+  const { fetchStyles, styles, loading: stylesLoading } = stylesHook;
   const { fetchPresets, presets } = presetsHook;
 
   const store = useStudioGenerationStore();
@@ -110,11 +110,8 @@ export function StudioDashboard() {
 
   useEffect(() => {
     void fetchGenerations();
-    void fetchProducts();
-    void fetchPersonas();
-    void fetchStyles();
     void fetchPresets();
-  }, [fetchGenerations, fetchProducts, fetchPersonas, fetchPresets, fetchStyles]);
+  }, [fetchGenerations, fetchPresets]);
 
   useEffect(() => {
     let cancelled = false;
@@ -230,11 +227,17 @@ export function StudioDashboard() {
           products={products}
           personas={personas}
           styles={styles}
+          productsLoading={productsLoading}
+          personasLoading={personasLoading}
+          stylesLoading={stylesLoading}
           presets={presets}
+          fetchProducts={fetchProducts}
+          fetchPersonas={fetchPersonas}
+          fetchStyles={fetchStyles}
           onRawPromptChange={store.setRawPrompt}
-          onProductAdd={(product) => store.addProductRef({ id: product.id, name: product.name })}
-          onPersonaAdd={(persona) => store.addPersonaRef({ id: persona.id, name: persona.name })}
-          onStyleAdd={(style) => store.addStyleRef({ id: style.id, name: style.name })}
+          onProductAdd={(product) => store.addProductRef({ id: product.id, name: product.name, thumbnailPath: product.thumbnailPath ?? undefined })}
+          onPersonaAdd={(persona) => store.addPersonaRef({ id: persona.id, name: persona.name, thumbnailPath: persona.thumbnailPath ?? undefined })}
+          onStyleAdd={(style) => store.addStyleRef({ id: style.id, name: style.name, thumbnailPath: style.thumbnailPath ?? undefined })}
           onPresetSelect={store.setPresetRef}
           onReferenceRemove={(type, id) => {
             if (type === 'product') store.removeProductRef(id);
