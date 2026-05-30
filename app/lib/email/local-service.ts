@@ -387,12 +387,13 @@ export async function updateLocalEmailPolicy(accountId: string, policy: Partial<
 }
 
 export async function disconnectLocalEmailAccount(accountId: string) {
-  const account = await findLocalEmailAccount(accountId);
-  account.status = 'revoked';
-  account.accessToken = 'revoked';
-  account.refreshToken = undefined;
-  account.updatedAt = new Date().toISOString();
-  await saveLocalEmailAccount(account);
+  const state = await readLocalEmailState();
+  const account = state.accounts.find((candidate) => candidate.id === accountId && candidate.status === 'active');
+  if (!account) throw new Error('Email account not found.');
+  await writeLocalEmailState({
+    version: 1,
+    accounts: state.accounts.filter((candidate) => candidate.id !== account.id),
+  });
   return true;
 }
 
