@@ -88,6 +88,25 @@ const PRESET_CATEGORY_ICONS: Record<string, typeof Camera> = {
   automotive: Car,
 };
 
+type MultiImageReferenceModel = StudioProduct | StudioPersona | StudioStyle;
+
+function getModelPreviewImagePaths(model: MultiImageReferenceModel | undefined, fallbackPath?: string) {
+  const paths = [
+    ...(model?.images ?? [])
+      .slice()
+      .sort((left, right) => left.sortOrder - right.sortOrder)
+      .map((image) => image.filePath),
+    fallbackPath,
+  ];
+  const seen = new Set<string>();
+
+  return paths.filter((path): path is string => {
+    if (!path || seen.has(path)) return false;
+    seen.add(path);
+    return true;
+  });
+}
+
 interface ReferenceChipProps {
   label: string;
   borderColor: string;
@@ -182,6 +201,18 @@ export function PromptBar({
   const getProductThumbnail = useCallback((product: ReferenceTag) => productMap.get(product.id)?.thumbnailPath ?? product.thumbnailPath, [productMap]);
   const getPersonaThumbnail = useCallback((persona: ReferenceTag) => personaMap.get(persona.id)?.thumbnailPath ?? persona.thumbnailPath, [personaMap]);
   const getStyleThumbnail = useCallback((style: ReferenceTag) => styleMap.get(style.id)?.thumbnailPath ?? style.thumbnailPath, [styleMap]);
+  const getProductPreviewImagePaths = useCallback((product: ReferenceTag) => {
+    const model = productMap.get(product.id);
+    return getModelPreviewImagePaths(model, model?.thumbnailPath ?? product.thumbnailPath);
+  }, [productMap]);
+  const getPersonaPreviewImagePaths = useCallback((persona: ReferenceTag) => {
+    const model = personaMap.get(persona.id);
+    return getModelPreviewImagePaths(model, model?.thumbnailPath ?? persona.thumbnailPath);
+  }, [personaMap]);
+  const getStylePreviewImagePaths = useCallback((style: ReferenceTag) => {
+    const model = styleMap.get(style.id);
+    return getModelPreviewImagePaths(model, model?.thumbnailPath ?? style.thumbnailPath);
+  }, [styleMap]);
 
   return (
     <div className="rounded-[28px] border border-border/80 bg-card/95 p-4 shadow-2xl">
@@ -209,6 +240,7 @@ export function PromptBar({
               name={product.name}
               type="product"
               thumbnailPath={getProductThumbnail(product)}
+              previewImagePaths={getProductPreviewImagePaths(product)}
               fallbackIcon={<Package2 className="h-4 w-4 text-amber-600" />}
               bgColor="bg-amber-50"
               onRemove={() => onReferenceRemove('product', product.id)}
@@ -229,6 +261,7 @@ export function PromptBar({
               name={persona.name}
               type="persona"
               thumbnailPath={getPersonaThumbnail(persona)}
+              previewImagePaths={getPersonaPreviewImagePaths(persona)}
               fallbackIcon={<UserRound className="h-4 w-4 text-sky-600" />}
               bgColor="bg-sky-50"
               onRemove={() => onReferenceRemove('persona', persona.id)}
@@ -249,6 +282,7 @@ export function PromptBar({
               name={style.name}
               type="style"
               thumbnailPath={getStyleThumbnail(style)}
+              previewImagePaths={getStylePreviewImagePaths(style)}
               fallbackIcon={<LayoutTemplate className="h-4 w-4 text-emerald-600" />}
               bgColor="bg-emerald-50"
               onRemove={() => onReferenceRemove('style', style.id)}
