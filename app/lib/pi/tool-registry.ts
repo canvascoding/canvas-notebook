@@ -1208,6 +1208,7 @@ export const piTools: AgentTool[] = [
       bcc: Type.Optional(Type.Array(Type.String())),
       subject: Type.String(),
       body: Type.String(),
+      is_HTML: Type.Optional(Type.Boolean({ description: 'Set true to treat body as HTML. Defaults to plain text.' })),
     }),
     execute: async (_toolCallId, params) => {
       try {
@@ -1231,6 +1232,7 @@ export const piTools: AgentTool[] = [
       bcc: Type.Optional(Type.Array(Type.String())),
       subject: Type.String(),
       body: Type.String(),
+      is_HTML: Type.Optional(Type.Boolean({ description: 'Set true to treat body as HTML. Defaults to plain text.' })),
     }),
     execute: async (_toolCallId, params) => {
       try {
