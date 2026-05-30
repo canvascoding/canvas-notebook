@@ -42,7 +42,15 @@ async function main() {
       [{ path: 'test-bild-0-5k.jpg', label: 'test-bild-0-5k.jpg' }],
     );
     assert.deepEqual(
+      extractFilePaths('Das Video liegt im Workspace unter preview-clip.mp4.'),
+      [{ path: 'preview-clip.mp4', label: 'preview-clip.mp4' }],
+    );
+    assert.deepEqual(
       extractFilePaths('Inline API URLs like /api/media/test-bild-0-5k.jpg should not become workspace refs.'),
+      [],
+    );
+    assert.deepEqual(
+      extractFilePaths('Inline API URLs like /api/media/preview-clip.mp4 should not become workspace refs.'),
       [],
     );
 

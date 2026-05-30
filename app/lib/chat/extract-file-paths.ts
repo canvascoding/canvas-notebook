@@ -35,7 +35,7 @@ export function isFilePath(href: string): boolean {
 const FILE_PATH_REGEX =
   /(?:\/data\/workspace\/[^\s)\]}'"`,;]+)|(?:\.\/[\w./-]+\.[\w]+)|(?:[\w-]+(?:\/[\w.-]+)+\.[\w]+)|(?:["'`](?:[\w][\w./-]+\.[a-zA-Z0-9]{1,10})["'`])/g;
 
-const BARE_IMAGE_FILE_REGEX = /[\w-][\w.-]*\.(?:png|jpe?g|gif|webp|svg|bmp|ico)(?=$|[\s)\]}'"`,;.!?])/gi;
+const BARE_MEDIA_FILE_REGEX = /[\w-][\w.-]*\.(?:png|jpe?g|gif|webp|svg|bmp|ico|mp4|webm|ogv|mov)(?=$|[\s)\]}'"`,;.!?])/gi;
 const MARKDOWN_LINK_REGEX = /\[([^\]]*)\]\(([^)]+)\)/g;
 const PATH_CONTINUATION_CHAR_REGEX = /[\w./-]/;
 
@@ -104,8 +104,8 @@ export function extractFilePaths(content: string): FilePathEntry[] {
     }
   }
 
-  const bareImageMatches = [...content.matchAll(BARE_IMAGE_FILE_REGEX)];
-  for (const match of bareImageMatches) {
+  const bareMediaMatches = [...content.matchAll(BARE_MEDIA_FILE_REGEX)];
+  for (const match of bareMediaMatches) {
     if (isEmbeddedPathMatch(content, match)) {
       continue;
     }
