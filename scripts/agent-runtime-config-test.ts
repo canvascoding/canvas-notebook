@@ -4,6 +4,15 @@ import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
+type OpenAICompletionsCompatProbe = {
+  compat?: {
+    supportsDeveloperRole?: boolean;
+    supportsReasoningEffort?: boolean;
+    supportsStore?: boolean;
+    thinkingFormat?: string;
+  };
+};
+
 async function main() {
   const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'canvas-agent-runtime-'));
   process.env.CANVAS_DATA_ROOT = dataDir;
@@ -54,6 +63,7 @@ async function main() {
   } = await import('../app/lib/agents/storage');
   const { createAgentProfile, updateAgentProfile } = await import('../app/lib/agents/registry');
   const { resolveAgentRuntimeConfig, resolveAgentRuntimeSettings } = await import('../app/lib/agents/effective-runtime-config');
+  const { getCanvasControlPlaneModels } = await import('../app/lib/pi/model-resolver');
 
   const unconfiguredSettings = await resolveAgentRuntimeSettings(DEFAULT_MANAGED_AGENT_ID);
   assert.equal(unconfiguredSettings.activeProvider, DEFAULT_PI_CONFIG.activeProvider);
@@ -153,6 +163,12 @@ async function main() {
         provider: 'openrouter',
         reasoning: true,
       },
+      {
+        id: 'deepseek-v4-flash:cloud',
+        name: 'DeepSeek V4 Flash via Ollama',
+        provider: 'openai-compatible',
+        reasoning: true,
+      },
     ],
   }), {
     status: 200,
@@ -168,6 +184,16 @@ async function main() {
     const managedConfig = await resolveAgentRuntimeConfig(DEFAULT_MANAGED_AGENT_ID);
     assert.equal(managedConfig.activeProvider, 'canvas-control-plane');
     assert.equal(managedConfig.model.id, 'deepseek-v4-flash');
+    const managedCompat = (managedConfig.model as OpenAICompletionsCompatProbe).compat;
+    assert.equal(managedCompat?.supportsDeveloperRole, false);
+    assert.equal(managedCompat?.supportsStore, false);
+    assert.equal(managedCompat?.thinkingFormat, 'openrouter');
+
+    const managedModels = await getCanvasControlPlaneModels();
+    const openAiCompatibleModel = managedModels.find((model) => model.managedProvider === 'openai-compatible');
+    const openAiCompatibleCompat = (openAiCompatibleModel as OpenAICompletionsCompatProbe | undefined)?.compat;
+    assert.equal(openAiCompatibleCompat?.supportsDeveloperRole, false);
+    assert.equal(openAiCompatibleCompat?.supportsReasoningEffort, false);
   } finally {
     globalThis.fetch = originalFetch;
     delete process.env.CANVAS_MANAGED_SERVICES_ENABLED;

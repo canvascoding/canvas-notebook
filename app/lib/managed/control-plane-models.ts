@@ -38,6 +38,26 @@ export function managedProviderPath(provider: ManagedControlPlaneProvider): stri
   return 'openrouter';
 }
 
+function managedProviderCompat(provider: ManagedControlPlaneProvider): ManagedControlPlaneModel['compat'] {
+  const base = {
+    supportsDeveloperRole: false,
+    supportsStore: false,
+    supportsLongCacheRetention: false,
+  } satisfies NonNullable<ManagedControlPlaneModel['compat']>;
+
+  if (provider === 'openrouter') {
+    return {
+      ...base,
+      thinkingFormat: 'openrouter',
+    };
+  }
+
+  return {
+    ...base,
+    supportsReasoningEffort: false,
+  };
+}
+
 function parseManagedControlPlaneModel(value: unknown): ManagedControlPlaneModel | null {
   if (!isRecord(value)) return null;
   const id = typeof value.id === 'string' ? value.id.trim() : '';
@@ -87,6 +107,7 @@ function parseManagedControlPlaneModel(value: unknown): ManagedControlPlaneModel
     },
     contextWindow,
     maxTokens,
+    compat: managedProviderCompat(managedProvider),
     managedPricing: pricing,
   };
 }
