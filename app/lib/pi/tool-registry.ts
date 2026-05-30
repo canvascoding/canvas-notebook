@@ -128,6 +128,7 @@ import { listPersonas } from '../integrations/studio-persona-service';
 import { listStyles } from '../integrations/studio-style-service';
 import { StudioServiceError } from '../integrations/studio-errors';
 import { getStudioOutputsRoot } from '../integrations/studio-workspace';
+import { toPreviewUrl } from '../utils/media-url';
 import { createBulkJob } from '../integrations/studio-bulk-service';
 import { db } from '@/app/lib/db';
 import {
@@ -327,13 +328,15 @@ export function createStudioGenerateImageTool(
           const outputFilePath = o.filePath.replace(/^\/+/, '').replace(/^studio\/outputs\//, '');
           const fullPath = path.join(outputsRoot, outputFilePath);
           const referencePath = `studio/outputs/${outputFilePath}`;
+          const previewUrl = toPreviewUrl(outputFilePath, 960);
           const markdownImage = `![studio-${o.variationIndex}](${o.mediaUrl})`;
           return [
             `Output ${o.variationIndex + 1}:`,
             `  Output ID: ${o.id}`,
-            `  File: ${fullPath}`,
+            `  Absolute copy source path: ${fullPath}`,
             `  Studio reference path for later edits: ${referencePath}`,
-            `  Render URL: ${o.mediaUrl}`,
+            `  Browser render URL for Markdown: ${o.mediaUrl}`,
+            `  Thumbnail preview URL (UI only): ${previewUrl}`,
             `  Markdown image (copy exactly): ${markdownImage}`,
           ].join('\n');
         });
@@ -343,6 +346,7 @@ export function createStudioGenerateImageTool(
           ...outputLines,
           '',
           'Important for the final answer: embed the generated image by copying the Markdown image line exactly. Do not invent, shorten, slugify, or rewrite the image URL; relative filenames like ente-statt-affe.jpg will not render in the chat.',
+          'Important for file operations: use the absolute copy source path when copying the generated file to /data/workspace. The browser render URL and thumbnail preview URL are not filesystem paths.',
           '',
           'To copy to workspace: bash cp <file-path> /data/workspace/<destination>',
         ].join('\n');

@@ -142,8 +142,13 @@ async function main() {
   });
   const studioImageText = getText(studioImageResult);
   assert.match(studioImageText, /Studio image generation completed \(1 output/);
+  assert.match(studioImageText, /Absolute copy source path: .*studio-gen-ente-statt-affe/);
+  assert.match(studioImageText, /Studio reference path for later edits: studio\/outputs\/studio-gen-ente-statt-affe/);
+  assert.match(studioImageText, /Browser render URL for Markdown: \/api\/studio\/media\/studio\/outputs\/studio-gen-ente-statt-affe/);
+  assert.match(studioImageText, /Thumbnail preview URL \(UI only\): \/api\/files\/preview\?path=studio-gen-ente-statt-affe/);
   assert.match(studioImageText, /Markdown image \(copy exactly\): !\[studio-0\]\(\/api\/studio\/media\/studio\/outputs\/studio-gen-ente-statt-affe/);
   assert.match(studioImageText, /Do not invent, shorten, slugify, or rewrite the image URL/);
+  assert.match(studioImageText, /The browser render URL and thumbnail preview URL are not filesystem paths/);
   assert.equal(studioImageCalls.length, 1);
   assert.equal(studioImageCalls[0].mode, 'image');
 
