@@ -91,9 +91,11 @@ async function buildAgentConfigResponseData(
     piConfig?: PiRuntimeConfig;
     model?: string | null;
     modelResolutionError?: string | null;
+    includeReadiness?: boolean;
   } = {},
 ) {
-  const readiness = await buildAgentConfigReadiness();
+  const includeReadiness = options.includeReadiness !== false;
+  const readiness = includeReadiness ? await buildAgentConfigReadiness() : null;
   const engine = getActiveAiAgentEngine();
   const model = options.model !== undefined
     ? options.model
@@ -114,7 +116,7 @@ async function buildAgentConfigResponseData(
     inheritedFromMain: !effective.isMainAgent,
     overrideState: effective.overrideState,
     engine,
-    readiness,
+    ...(readiness ? { readiness } : {}),
     setupState: effective.setupState,
     managed: {
       canvasControlPlaneAvailable: effective.setupState.managedControlPlaneAvailable,
@@ -139,6 +141,7 @@ export async function GET(request: NextRequest) {
 
   try {
     const agentId = request.nextUrl.searchParams.get('agentId');
+    const includeReadiness = request.nextUrl.searchParams.get('readiness') !== 'false';
     const effective = await resolveAgentRuntimeSettings(agentId);
     let resolvedModel: string | null = effective.providerConfig.model?.trim() || null;
     let modelResolutionError: string | null = null;
@@ -178,6 +181,7 @@ export async function GET(request: NextRequest) {
     const data = await buildAgentConfigResponseData(effective, {
       model: resolvedModel,
       modelResolutionError,
+      includeReadiness,
     });
 
     return NextResponse.json({

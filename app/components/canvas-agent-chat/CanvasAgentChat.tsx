@@ -1708,6 +1708,7 @@ export default function CanvasAgentChat({
   const sessionListRequestRef = useRef<Promise<AISession[]> | null>(null);
   const loadSessionRequestIdRef = useRef(0);
   const loadSessionAbortRef = useRef<AbortController | null>(null);
+  const skipNextSessionStatusRefreshRef = useRef<string | null>(null);
   const cachePersistTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hasLoadedSessionListRef = useRef(false);
   const inputHistoryCursorRef = useRef<number | null>(null);
@@ -2538,12 +2539,23 @@ export default function CanvasAgentChat({
     }
 
     const agentId = selectedAgentId;
+    const sessionAgentConfig = isAgentConfigForAgent(agentConfig, agentId) ? agentConfig : null;
+    const configuredModelState = resolveAgentModelState(sessionAgentConfig);
+    const requestedModel = activeModel.trim() || configuredModelState?.model || '';
+    const requestedThinkingLevel = activeModel.trim()
+      ? activeThinkingLevel
+      : configuredModelState?.thinkingLevel || activeThinkingLevel;
+    const optimisticTitle = getOptimisticSessionTitle(preferredTitle ?? input, t('newChatTitle'));
+    const requestedTitle = isAutomaticSessionTitle(optimisticTitle) ? undefined : optimisticTitle;
 
     const createSessionResponse = await fetch('/api/sessions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         agentId,
+        ...(requestedTitle ? { title: requestedTitle } : {}),
+        ...(requestedModel ? { model: requestedModel } : {}),
+        ...(requestedThinkingLevel ? { thinkingLevel: requestedThinkingLevel } : {}),
       }),
     });
 
@@ -2557,27 +2569,20 @@ export default function CanvasAgentChat({
     const createdModel = createSessionPayload.session.model || activeModel;
     const createdThinkingLevel = createSessionPayload.session.thinkingLevel || activeThinkingLevel;
 
+    skipNextSessionStatusRefreshRef.current = nextSessionId;
     setSessionId(nextSessionId);
     setActiveProvider(createdProvider);
     setActiveModel(createdModel);
     setActiveThinkingLevel(createdThinkingLevel);
     sessionAgentIdRef.current = agentId;
 
-    const tempTitle = getOptimisticSessionTitle(preferredTitle ?? input, createSessionPayload.session.title || t('newChatTitle'));
+    const tempTitle = requestedTitle || getOptimisticSessionTitle(preferredTitle ?? input, createSessionPayload.session.title || t('newChatTitle'));
     setSessionTitle(tempTitle);
     if (!isAutomaticSessionTitle(tempTitle)) {
       optimisticSessionTitlesRef.current[nextSessionId] = tempTitle;
     }
 
     sessionIdRef.current = nextSessionId;
-
-    if (tempTitle && tempTitle !== t('newChatTitle')) {
-      void fetch('/api/sessions', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ agentId, sessionId: nextSessionId, title: tempTitle }),
-      });
-    }
 
     // Add new session to history immediately so it appears in the sidebar
     const newSession: AISession = {
@@ -2615,7 +2620,7 @@ export default function CanvasAgentChat({
     // No need to subscribe here manually to avoid double subscription
 
     return nextSessionId;
-  }, [activeModel, activeProvider, activeThinkingLevel, input, selectedAgentId, t]);
+  }, [activeModel, activeProvider, activeThinkingLevel, agentConfig, input, selectedAgentId, t]);
 
   // Helper function to format tool arguments
   const formatToolArgs = useCallback((args: unknown): string => {
@@ -3851,7 +3856,7 @@ export default function CanvasAgentChat({
       try {
         setAgentConfig(null);
         setIsAgentConfigLoading(true);
-        const params = new URLSearchParams({ agentId: selectedAgentId });
+        const params = new URLSearchParams({ agentId: selectedAgentId, readiness: 'false' });
         const res = await fetch(`/api/agents/config?${params.toString()}`);
         const data = await safeFetchJson<{ success: boolean; data?: AgentConfig }>(res);
         if (!cancelled && data?.success) {
@@ -4169,7 +4174,10 @@ export default function CanvasAgentChat({
 
   useEffect(() => {
     if (!sessionId) return;
-    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (skipNextSessionStatusRefreshRef.current === sessionId) {
+      skipNextSessionStatusRefreshRef.current = null;
+      return;
+    }
     void refreshRuntimeStatus(sessionId);
   }, [refreshRuntimeStatus, sessionId]);
 
