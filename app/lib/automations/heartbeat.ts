@@ -6,8 +6,10 @@ import { eq } from 'drizzle-orm';
 import { readManagedAgentFile } from '@/app/lib/agents/storage';
 import { sendMessage } from '@/app/lib/pi/runtime-service';
 import { createTelegramSession } from '@/app/lib/channels/telegram/session-resolver';
-import { deliverToTelegram } from '@/app/lib/channels/telegram/outbound';
 import { getChannelRegistry } from '@/app/lib/channels/registry';
+import { getChannelDeliveryReadiness } from '@/app/lib/channels/availability';
+import { TELEGRAM_CHANNEL_ID, telegramChannelSessionKey } from '@/app/lib/channels/constants';
+import { buildDeliveryTarget } from '@/app/lib/channels/delivery-targets';
 import type { AutomationJobRecord } from './types';
 
 export interface HeartbeatResult {
@@ -37,19 +39,16 @@ export async function executeHeartbeat(job: AutomationJobRecord): Promise<Heartb
 
   console.log(`[Heartbeat] Found ${bindings.length} linked Telegram user(s)`);
 
+  const readiness = await getChannelDeliveryReadiness(TELEGRAM_CHANNEL_ID);
+  if (!readiness.ok) {
+    console.warn(`[Heartbeat] Telegram delivery unavailable: ${readiness.error}`);
+    return { usersNotified: 0, sessionIds: [], errors: [readiness.error] };
+  }
+
   const channel = getChannelRegistry().get('telegram');
   if (!channel) {
     console.warn('[Heartbeat] Telegram channel not available in registry');
     return { usersNotified: 0, sessionIds: [], errors: ['Telegram channel not available'] };
-  }
-
-  const bot = 'getBot' in channel && typeof (channel as Record<string, unknown>).getBot === 'function'
-    ? ((channel as unknown as { getBot: () => unknown }).getBot() as import('grammy').Bot)
-    : null;
-
-  if (!bot) {
-    console.warn('[Heartbeat] Cannot get Telegram bot instance');
-    return { usersNotified: 0, sessionIds: [], errors: ['Cannot get Telegram bot instance'] };
   }
 
   const sessionIds: string[] = [];
@@ -68,11 +67,13 @@ export async function executeHeartbeat(job: AutomationJobRecord): Promise<Heartb
       const sessionId = await createTelegramSession(chatId, userId);
       sessionIds.push(sessionId);
 
-      await deliverToTelegram(
-        bot,
+      const delivery = await channel.deliver(
         { content: '💓 Heartbeat: Starte neue Session...', role: 'assistant' },
-        { chatId },
+        buildDeliveryTarget(TELEGRAM_CHANNEL_ID, telegramChannelSessionKey(chatId)),
       );
+      if (!delivery.ok) {
+        throw new Error(delivery.error || 'Telegram heartbeat delivery failed');
+      }
 
       await sendMessage(sessionId, userId, {
         role: 'user',

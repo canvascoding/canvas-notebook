@@ -3,6 +3,7 @@ import type { OutboundMessage, DeliveryTarget } from './types';
 import { WEB_CHANNEL_ID } from './constants';
 import { findLastActiveExternalLink, markChannelLinkOutbound } from './channel-links';
 import { buildDeliveryTarget } from './delivery-targets';
+import { getChannelDeliveryReadiness } from './availability';
 
 export async function deliverToLastActiveExternalChannel(
   sessionId: string,
@@ -11,6 +12,11 @@ export async function deliverToLastActiveExternalChannel(
 ): Promise<void> {
   const link = await findLastActiveExternalLink(sessionId, WEB_CHANNEL_ID);
   if (!link) {
+    return;
+  }
+
+  const readiness = await getChannelDeliveryReadiness(link.channelId);
+  if (!readiness.ok) {
     return;
   }
 
@@ -32,6 +38,9 @@ export async function deliverToLastActiveExternalChannel(
 export async function sendTypingToLastActiveExternalChannel(sessionId: string, _userId: string): Promise<void> {
   const link = await findLastActiveExternalLink(sessionId, WEB_CHANNEL_ID);
   if (!link) return;
+
+  const readiness = await getChannelDeliveryReadiness(link.channelId);
+  if (!readiness.ok) return;
 
   const channel = getChannelRegistry().get(link.channelId);
   const typingChannel = channel as typeof channel & {

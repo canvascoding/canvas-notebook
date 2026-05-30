@@ -5,6 +5,7 @@ import { and, eq } from 'drizzle-orm';
 import { db } from '@/app/lib/db';
 import { piSessions } from '@/app/lib/db/schema';
 import { getActiveChannelSession, getLatestActiveChannelSession } from '@/app/lib/channels/active-sessions';
+import { getChannelDeliveryReadiness } from '@/app/lib/channels/availability';
 import { ensureSessionChannelLink, markChannelLinkOutbound } from '@/app/lib/channels/channel-links';
 import { WEB_CHANNEL_ID, webChannelSessionKey } from '@/app/lib/channels/constants';
 import { buildDeliveryTarget } from '@/app/lib/channels/delivery-targets';
@@ -156,6 +157,14 @@ export function getAutomationDeliveryFailureMessage(
     return `Automation delivery to channel "${resolution.channelId}" failed: channel is not registered.`;
   }
 
+  if (dispatch.skippedReason === 'channel_disabled') {
+    return `Automation delivery to channel "${resolution.channelId}" failed: channel is disabled.`;
+  }
+
+  if (dispatch.skippedReason === 'channel_not_configured') {
+    return `Automation delivery to channel "${resolution.channelId}" failed: channel is not configured.`;
+  }
+
   if (dispatch.attempted) {
     return `Automation delivery to channel "${resolution.channelId}" failed${dispatch.error ? `: ${dispatch.error}` : '.'}`;
   }
@@ -214,6 +223,16 @@ export async function dispatchAutomationResult(input: {
       delivered: false,
       skippedReason: 'missing_channel_session_key',
       error: 'Delivery channel session key is required for external channels.',
+    };
+  }
+
+  const readiness = await getChannelDeliveryReadiness(input.resolution.channelId);
+  if (!readiness.ok) {
+    return {
+      attempted: false,
+      delivered: false,
+      skippedReason: readiness.reason,
+      error: readiness.error,
     };
   }
 
