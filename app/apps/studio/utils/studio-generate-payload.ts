@@ -63,7 +63,7 @@ export function buildStudioGeneratePayload(input: StudioGenerateInput): StudioGe
     product_ids: input.productRefs.map((product) => product.id),
     persona_ids: input.personaRefs.map((persona) => persona.id),
     style_ids: input.styleRefs.map((style) => style.id),
-    preset_id: input.presetRef?.id,
+    preset_id: input.mode === 'sound' ? undefined : input.presetRef?.id,
     aspect_ratio: input.aspectRatio,
     count: input.mode === 'video' || input.mode === 'sound' ? 1 : input.count,
     provider: input.provider,

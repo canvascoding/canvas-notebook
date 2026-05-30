@@ -151,7 +151,7 @@ export function ControlBar({
     <div className="flex flex-col gap-2">
       <div className="flex flex-wrap items-center gap-2 rounded-[24px] border border-border/70 bg-card/90 px-4 py-3 shadow-sm">
         <ModeToggle value={mode} onChange={onModeChange} />
-        <StudioPicker presets={presets} value={selectedPreset} onChange={onPresetChange} />
+        <StudioPicker presets={presets} value={selectedPreset} onChange={onPresetChange} disabled={isSound} />
 
         {!isSound ? (
           <AspectRatioPicker
