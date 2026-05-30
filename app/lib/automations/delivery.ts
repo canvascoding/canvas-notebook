@@ -13,6 +13,14 @@ import { getChannelRegistry } from '@/app/lib/channels/registry';
 
 import type { AutomationJobRecord } from './types';
 
+const JOB_PAUSING_DELIVERY_FAILURES = new Set([
+  'missing_channel_session_key',
+  'channel_not_registered',
+  'channel_disabled',
+  'channel_not_configured',
+  'channel_unlinked',
+]);
+
 export type AutomationDeliveryResolution = {
   sessionId: string;
   mode: 'new_session' | 'fixed_session' | 'channel_active';
@@ -165,6 +173,10 @@ export function getAutomationDeliveryFailureMessage(
     return `Automation delivery to channel "${resolution.channelId}" failed: channel is not configured.`;
   }
 
+  if (dispatch.skippedReason === 'channel_unlinked') {
+    return `Automation delivery to channel "${resolution.channelId}" failed: channel is no longer linked.`;
+  }
+
   if (dispatch.attempted) {
     return `Automation delivery to channel "${resolution.channelId}" failed${dispatch.error ? `: ${dispatch.error}` : '.'}`;
   }
@@ -174,6 +186,10 @@ export function getAutomationDeliveryFailureMessage(
   }
 
   return null;
+}
+
+export function shouldPauseAutomationAfterDeliveryFailure(dispatch?: AutomationDeliveryDispatchResult): boolean {
+  return Boolean(dispatch?.skippedReason && JOB_PAUSING_DELIVERY_FAILURES.has(dispatch.skippedReason));
 }
 
 export async function dispatchAutomationResult(input: {
@@ -226,7 +242,11 @@ export async function dispatchAutomationResult(input: {
     };
   }
 
-  const readiness = await getChannelDeliveryReadiness(input.resolution.channelId);
+  const readiness = await getChannelDeliveryReadiness({
+    channelId: input.resolution.channelId,
+    userId: input.userId,
+    channelSessionKey: input.resolution.channelSessionKey,
+  });
   if (!readiness.ok) {
     return {
       attempted: false,

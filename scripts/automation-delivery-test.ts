@@ -15,8 +15,14 @@ async function main() {
   const { db } = await import('../app/lib/db');
   const { user, piSessions, sessionChannelLinks } = await import('../app/lib/db/schema');
   const { setActiveChannelSession } = await import('../app/lib/channels/active-sessions');
+  const { createBinding, deleteBinding } = await import('../app/lib/channels/telegram/link-token');
   const { getChannelRegistry } = await import('../app/lib/channels/registry');
-  const { dispatchAutomationResult, getAutomationDeliveryFailureMessage, resolveAutomationDeliveryTarget } = await import('../app/lib/automations/delivery');
+  const {
+    dispatchAutomationResult,
+    getAutomationDeliveryFailureMessage,
+    resolveAutomationDeliveryTarget,
+    shouldPauseAutomationAfterDeliveryFailure,
+  } = await import('../app/lib/automations/delivery');
 
   const now = new Date();
   const userId = 'user-automation-delivery';
@@ -120,6 +126,7 @@ async function main() {
     channelSessionKey: 'telegram:42',
     sessionId: 'active-session',
   });
+  await createBinding(userId, 'telegram', '42', 'delivery-tester');
 
   const active = await resolveAutomationDeliveryTarget({
     job: {
@@ -277,9 +284,29 @@ async function main() {
   assert.equal(disabledTelegramDispatch.delivered, false);
   assert.equal(disabledTelegramDispatch.attempted, false);
   assert.equal(disabledTelegramDispatch.skippedReason, 'channel_disabled');
+  assert.equal(shouldPauseAutomationAfterDeliveryFailure(disabledTelegramDispatch), true);
   assert.deepEqual(delivered, [{ content: 'Telegram result', chatId: '42' }]);
   assert.match(getAutomationDeliveryFailureMessage(active, disabledTelegramDispatch) || '', /channel is disabled/);
   process.env.TELEGRAM_CHANNEL_ENABLED = 'true';
+
+  await deleteBinding(userId, 'telegram');
+  const unlinkedTelegramDispatch = await dispatchAutomationResult({
+    job: {
+      ...baseJob,
+      deliveryMode: 'origin',
+      deliveryChannelId: 'telegram',
+      deliveryChannelSessionKey: 'telegram:42',
+    },
+    userId,
+    resolution: active,
+    text: 'Unlinked Telegram result',
+  });
+  assert.equal(unlinkedTelegramDispatch.delivered, false);
+  assert.equal(unlinkedTelegramDispatch.attempted, false);
+  assert.equal(unlinkedTelegramDispatch.skippedReason, 'channel_unlinked');
+  assert.equal(shouldPauseAutomationAfterDeliveryFailure(unlinkedTelegramDispatch), true);
+  assert.deepEqual(delivered, [{ content: 'Telegram result', chatId: '42' }]);
+  assert.match(getAutomationDeliveryFailureMessage(active, unlinkedTelegramDispatch) || '', /no longer linked/);
 
   getChannelRegistry().unregister('telegram');
 

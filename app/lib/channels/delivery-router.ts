@@ -15,7 +15,11 @@ export async function deliverToLastActiveExternalChannel(
     return;
   }
 
-  const readiness = await getChannelDeliveryReadiness(link.channelId);
+  const readiness = await getChannelDeliveryReadiness({
+    channelId: link.channelId,
+    userId,
+    channelSessionKey: link.channelSessionKey,
+  });
   if (!readiness.ok) {
     return;
   }
@@ -39,7 +43,11 @@ export async function sendTypingToLastActiveExternalChannel(sessionId: string, _
   const link = await findLastActiveExternalLink(sessionId, WEB_CHANNEL_ID);
   if (!link) return;
 
-  const readiness = await getChannelDeliveryReadiness(link.channelId);
+  const readiness = await getChannelDeliveryReadiness({
+    channelId: link.channelId,
+    userId: _userId,
+    channelSessionKey: link.channelSessionKey,
+  });
   if (!readiness.ok) return;
 
   const channel = getChannelRegistry().get(link.channelId);
