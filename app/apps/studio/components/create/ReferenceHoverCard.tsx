@@ -3,7 +3,7 @@
 import { useState, useCallback } from 'react';
 import { cn } from '@/lib/utils';
 import { toPreviewUrl } from '@/app/lib/utils/media-url';
-import { Trash2 } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Trash2 } from 'lucide-react';
 import { HoverCard, HoverCardTrigger, HoverCardContent } from '@/components/ui/hover-card';
 import {
   Dialog,
@@ -22,6 +22,7 @@ interface ReferenceHoverCardProps {
   name: string;
   type: ReferenceType;
   thumbnailPath?: string;
+  previewImagePaths?: string[];
   fallbackIcon: React.ReactNode;
   bgColor: string;
   onRemove: () => void;
@@ -42,6 +43,17 @@ const TYPE_BADGE_COLORS: Record<ReferenceType, string> = {
   preset: 'bg-violet-100 text-violet-700',
   file: 'bg-rose-100 text-rose-700',
 };
+
+const MULTI_IMAGE_REFERENCE_TYPES = new Set<ReferenceType>(['product', 'persona', 'style']);
+
+function getUniquePreviewPaths(paths: Array<string | undefined>) {
+  const seen = new Set<string>();
+  return paths.filter((path): path is string => {
+    if (!path || seen.has(path)) return false;
+    seen.add(path);
+    return true;
+  });
+}
 
 function PreviewImageSkeleton() {
   return (
@@ -101,6 +113,7 @@ function PreviewContent({
   name,
   type,
   thumbnailPath,
+  previewImagePaths,
   fallbackIcon,
   onRemove,
   showCloseButton,
@@ -108,11 +121,29 @@ function PreviewContent({
   name: string;
   type: ReferenceType;
   thumbnailPath?: string;
+  previewImagePaths?: string[];
   fallbackIcon: React.ReactNode;
   onRemove: () => void;
   showCloseButton: boolean;
 }) {
-  const previewUrl = thumbnailPath ? toPreviewUrl(thumbnailPath, 320, { preset: 'mini' }) : undefined;
+  const canShowMultipleImages = MULTI_IMAGE_REFERENCE_TYPES.has(type);
+  const imagePaths = getUniquePreviewPaths([
+    ...(canShowMultipleImages ? previewImagePaths ?? [] : []),
+    thumbnailPath,
+  ]);
+  const [imageIndex, setImageIndex] = useState(0);
+  const safeImageIndex = imagePaths.length > 0 ? imageIndex % imagePaths.length : 0;
+  const currentImagePath = imagePaths[safeImageIndex];
+  const previewUrl = currentImagePath ? toPreviewUrl(currentImagePath, 320, { preset: 'mini' }) : undefined;
+  const hasMultipleImages = canShowMultipleImages && imagePaths.length > 1;
+  const nextPreviewPath = hasMultipleImages ? imagePaths[(safeImageIndex + 1) % imagePaths.length] : undefined;
+
+  const handleNavigateImage = (direction: -1 | 1) => {
+    setImageIndex((current) => {
+      if (imagePaths.length <= 1) return current;
+      return (current + direction + imagePaths.length) % imagePaths.length;
+    });
+  };
 
   return (
     <div className="flex w-full min-w-0 flex-col gap-2">
@@ -127,6 +158,55 @@ function PreviewContent({
             {fallbackIcon}
           </div>
         )}
+        {nextPreviewPath ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={toPreviewUrl(nextPreviewPath, 320, { preset: 'mini' })}
+            alt=""
+            aria-hidden="true"
+            className="sr-only"
+            loading="eager"
+          />
+        ) : null}
+        {hasMultipleImages ? (
+          <>
+            <button
+              type="button"
+              aria-label="Previous preview image"
+              onPointerDown={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+              }}
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                handleNavigateImage(-1);
+              }}
+              className="absolute left-2 top-1/2 z-10 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full border border-white/60 bg-black/45 text-white shadow-sm backdrop-blur-sm transition hover:bg-black/65"
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              aria-label="Next preview image"
+              onPointerDown={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+              }}
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                handleNavigateImage(1);
+              }}
+              className="absolute right-2 top-1/2 z-10 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full border border-white/60 bg-black/45 text-white shadow-sm backdrop-blur-sm transition hover:bg-black/65"
+            >
+              <ChevronRight className="h-4 w-4" />
+            </button>
+            <div className="absolute bottom-2 right-2 z-10 rounded-full bg-black/55 px-2 py-0.5 text-[11px] font-medium text-white shadow-sm backdrop-blur-sm">
+              {safeImageIndex + 1}/{imagePaths.length}
+            </div>
+          </>
+        ) : null}
         <button
           type="button"
           onPointerDown={(e) => {
@@ -135,7 +215,7 @@ function PreviewContent({
             onRemove();
           }}
           className={cn(
-            'absolute top-2 right-2 z-10 flex h-8 w-8 cursor-pointer items-center justify-center rounded-full bg-destructive/10 text-destructive shadow-sm backdrop-blur-sm transition-colors hover:bg-destructive/20',
+            'absolute top-2 right-2 z-20 flex h-8 w-8 cursor-pointer items-center justify-center rounded-full bg-destructive/10 text-destructive shadow-sm backdrop-blur-sm transition-colors hover:bg-destructive/20',
           )}
           title="Remove reference"
         >
@@ -164,6 +244,7 @@ export function ReferenceHoverCard({
   name,
   type,
   thumbnailPath,
+  previewImagePaths,
   fallbackIcon,
   bgColor,
   onRemove,
@@ -198,6 +279,7 @@ export function ReferenceHoverCard({
               name={name}
               type={type}
               thumbnailPath={thumbnailPath}
+              previewImagePaths={previewImagePaths}
               fallbackIcon={scaledFallbackIcon}
               onRemove={onRemove}
               showCloseButton={false}
@@ -229,6 +311,7 @@ export function ReferenceHoverCard({
               name={name}
               type={type}
               thumbnailPath={thumbnailPath}
+              previewImagePaths={previewImagePaths}
               fallbackIcon={scaledFallbackIcon}
               onRemove={handleRemove}
               showCloseButton={true}
