@@ -2,13 +2,14 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
-import { AlertCircle, CheckCircle2, ChevronLeft, ChevronRight, Code2, Download, Eye, FileText, Loader2, RefreshCw, Save, Share2, X } from 'lucide-react';
+import { AlertCircle, CheckCircle2, ChevronLeft, ChevronRight, Code2, Download, Eye, FileText, Loader2, MoreVertical, RefreshCw, Save, Share2, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { useFileStore, type FileNode } from '@/app/store/file-store';
 import { useEditorStore } from '@/app/store/editor-store';
 import { MarkdownEditor } from './MarkdownEditor';
 import { ShareMarkdownDialog } from '../file-browser/ShareMarkdownDialog';
+import { FileActionsDropdown } from '../file-browser/FileActionsDropdown';
 import { CodeEditor } from './CodeEditor';
 import { HtmlViewer } from './HtmlViewer';
 import { ImageViewer } from './ImageViewer';
@@ -245,6 +246,18 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
   const isBinary = !isText && !isImage && !isPdf && !isMarkdown && !isHtml && !isAudio && !isVideo && !isOffice;
   const savedTime = formatTimestamp(lastSavedAt);
   const breadcrumbs = currentFile ? currentFile.path.split('/').filter(Boolean) : [];
+  const currentFileNode = useMemo<FileNode | null>(() => {
+    if (!currentFile) return null;
+
+    return {
+      name: currentFile.path.split('/').pop() || currentFile.path,
+      path: currentFile.path,
+      type: 'file',
+      size: currentFile.stats?.size,
+      modified: currentFile.stats?.modified,
+      permissions: currentFile.stats?.permissions,
+    };
+  }, [currentFile]);
   const mediaMimeType = MEDIA_MIME_TYPES[extension];
   const imagePaths = useMemo(
     () => flattenDirectoryImages(fileTree, currentDirectory),
@@ -466,6 +479,23 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
               <span className="hidden sm:inline">{savedTime ? t('savedAt', { time: savedTime }) : t('saved')}</span>
             </span>
           )}
+          <FileActionsDropdown
+            node={currentFileNode}
+            showCreateActions={false}
+            showMultiSelectActions={false}
+            onAfterDelete={() => onClosePreview?.()}
+            contentProps={{ align: 'end' }}
+          >
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 w-6 p-0"
+              aria-label={t('fileActions')}
+              title={t('fileActions')}
+            >
+              <MoreVertical className="h-3.5 w-3.5" />
+            </Button>
+          </FileActionsDropdown>
           {onClosePreview ? (
             <Button
               variant="ghost"
