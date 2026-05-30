@@ -190,7 +190,7 @@ interface FileStoreState {
   // Clipboard state for copy/paste
   clipboardPaths: Set<string>;
   clipboardMode: 'copy' | null;
-  copyPaths: () => void;
+  copyPaths: (paths?: Iterable<string>) => void;
   pastePaths: (destDir: string) => Promise<void>;
   duplicatePath: (path: string) => Promise<void>;
 
@@ -310,7 +310,12 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
   // Clipboard state
   clipboardPaths: new Set<string>(),
   clipboardMode: null,
-  copyPaths: () => {
+  copyPaths: (paths?: Iterable<string>) => {
+    if (paths) {
+      set({ clipboardPaths: new Set(paths), clipboardMode: 'copy' });
+      return;
+    }
+
     const { multiSelectPaths, selectedNode, isMultiSelectMode } = get();
     if (isMultiSelectMode && multiSelectPaths.size > 0) {
       set({ clipboardPaths: new Set(multiSelectPaths), clipboardMode: 'copy' });
