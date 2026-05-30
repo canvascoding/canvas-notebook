@@ -521,6 +521,7 @@
     "steerAction": "Steuern",
     "sendAction": "Senden",
     "queueAction": "Einreihen",
+    "removeQueuedMessage": "Aus Queue entfernen",
     "sendNow": "Jetzt senden",
     "compactCanvas": "Canvas compact",
     "close": "Schließen",
@@ -582,8 +583,8 @@
     "composerPlaceholderMobile": "Frag nach Kampagnen, Dateien oder Skills...",
     "composerPlaceholderCompact": "Frag nach Projekt, Dateien oder Skills. Mit @ referenzierst du Dateien und mit / Skills.",
     "composerPlaceholderDefault": "Frag nach deinem Projekt, Marketing-Plan oder Workspace. Mit @ referenzierst du Dateien und mit / Skills.",
-    "composerHintBusyMobile": "Senden steuert den laufenden Agent. Im Schnellmenü kannst du die Nachricht für später einreihen.",
-    "composerHintBusyDesktop": "Senden steuert den laufenden Agent sofort. Einreihen sendet die Nachricht nach dem aktuellen Lauf.",
+    "composerHintBusyMobile": "Senden reiht die Nachricht ein. Steer in der Queue gibt sie direkt in den laufenden Agent-Loop.",
+    "composerHintBusyDesktop": "Senden reiht die Nachricht ein. Steer in der Queue gibt sie direkt in den laufenden Agent-Loop.",
     "composerHintIdle": "Tippe @ für Dateien, / für Skills oder wähle unten eine schnelle Aktion.",
     "starterPrompts": {
       "sm-campaign": {

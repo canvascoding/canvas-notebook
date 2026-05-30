@@ -32,7 +32,7 @@ import { WEB_CHANNEL_ID, webChannelSessionKey } from '@/app/lib/channels/constan
 import { getLicenseStatus } from '@/app/lib/license';
 import { isOnboardingComplete, isOnboardingEnabled } from '@/app/lib/onboarding/status';
 
-type ControlAction = 'follow_up' | 'steer' | 'promote_queued_to_steer' | 'abort' | 'replace' | 'compact';
+type ControlAction = 'follow_up' | 'steer' | 'promote_queued_to_steer' | 'remove_queued_item' | 'abort' | 'replace' | 'compact';
 type PiRuntimeStatus = Record<string, unknown>;
 
 type RuntimeService = typeof import('@/app/lib/pi/runtime-service');

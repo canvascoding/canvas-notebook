@@ -1246,7 +1246,29 @@ contentKind: document
       sessionId,
       runtimeStatus: currentStatus as Record<string, unknown>,
       onGetStatus: () => currentStatus as unknown as Record<string, unknown>,
-      onControl: (action, _message, _requestId, queueItemId) => {
+      onControl: (action, message, _requestId, queueItemId) => {
+        if (action === 'follow_up') {
+          const content = message?.content;
+          const text = typeof content === 'string'
+            ? content
+            : Array.isArray(content)
+              ? content
+                .map((part) => {
+                  const item = part as { type?: unknown; text?: unknown };
+                  return item?.type === 'text' && typeof item.text === 'string' ? item.text : '';
+                })
+                .filter(Boolean)
+                .join('\n')
+              : '';
+          currentStatus = {
+            ...currentStatus,
+            followUpQueue: [
+              ...currentStatus.followUpQueue!,
+              { id: 'follow-new', text, attachmentCount: 0 },
+            ],
+          };
+        }
+
         if (action === 'promote_queued_to_steer') {
           const entryIndex = currentStatus.followUpQueue!.findIndex((entry) => entry.id === queueItemId);
           const [entry] = entryIndex === -1 ? [] : currentStatus.followUpQueue!.splice(entryIndex, 1);
@@ -1254,6 +1276,14 @@ contentKind: document
             ...currentStatus,
             followUpQueue: currentStatus.followUpQueue!,
             steeringQueue: entry ? [...currentStatus.steeringQueue!, entry] : currentStatus.steeringQueue,
+          };
+        }
+
+        if (action === 'remove_queued_item') {
+          currentStatus = {
+            ...currentStatus,
+            followUpQueue: currentStatus.followUpQueue!.filter((entry) => entry.id !== queueItemId),
+            steeringQueue: currentStatus.steeringQueue!.filter((entry) => entry.id !== queueItemId),
           };
         }
 
@@ -1294,11 +1324,24 @@ contentKind: document
     await expect(page.getByTestId('chat-send')).toHaveAttribute('data-action', 'stop');
     await page.getByTestId('chat-input').fill('Take over immediately');
     await expect(page.getByTestId('chat-send')).toHaveAttribute('data-action', 'send');
+    await page.getByTestId('chat-send').click();
+
+    await expect(page.getByTestId('chat-queue-panel')).toContainText('3 in Queue');
+    const newQueueItem = page.getByTestId('chat-queue-item').filter({ hasText: 'Take over immediately' }).first();
+    await expect(newQueueItem).toHaveAttribute('data-queue-kind', 'follow_up');
+    await expect(page.getByTestId('chat-send')).toHaveAttribute('data-action', 'stop');
+
+    await newQueueItem.getByTestId('chat-queue-item-steer').click();
+    await expect(page.getByTestId('chat-queue-item').filter({ hasText: 'Take over immediately' }).first()).toHaveAttribute('data-queue-kind', 'steer');
+    await expect(page.getByTestId('chat-queue-panel')).toContainText('3 in Queue');
 
     const followUpQueueItem = page.getByTestId('chat-queue-item').filter({ hasText: 'Summarize afterwards' }).first();
     await expect(followUpQueueItem).toHaveAttribute('data-queue-kind', 'follow_up');
-    await followUpQueueItem.click();
+    await followUpQueueItem.getByTestId('chat-queue-item-steer').click();
     await expect(page.getByTestId('chat-queue-item').filter({ hasText: 'Summarize afterwards' }).first()).toHaveAttribute('data-queue-kind', 'steer');
+
+    await page.getByTestId('chat-queue-item').filter({ hasText: 'Take over immediately' }).first().getByTestId('chat-queue-item-remove').click();
+    await expect(page.getByTestId('chat-queue-panel')).not.toContainText('Take over immediately');
     await expect(page.getByTestId('chat-queue-panel')).toContainText('2 in Queue');
   });
 

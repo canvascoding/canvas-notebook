@@ -522,6 +522,7 @@
     "steerAction": "Steer",
     "sendAction": "Send",
     "queueAction": "Queue",
+    "removeQueuedMessage": "Remove from queue",
     "sendNow": "Send now",
     "compactCanvas": "Canvas compact",
     "close": "Close",
@@ -583,8 +584,8 @@
     "composerPlaceholderMobile": "Ask about campaigns, files, or skills...",
     "composerPlaceholderCompact": "Ask about a project, files, or skills. Use @ for files and / for skills.",
     "composerPlaceholderDefault": "Ask about your project, marketing plan, or workspace. Use @ for files and / for skills.",
-    "composerHintBusyMobile": "Send steers the running agent. Use quick actions to queue the message for later.",
-    "composerHintBusyDesktop": "Send steers the running agent immediately. Queue sends the message after the current run finishes.",
+    "composerHintBusyMobile": "Send queues the message. Steer in the queue sends it directly into the running agent loop.",
+    "composerHintBusyDesktop": "Send queues the message. Steer in the queue sends it directly into the running agent loop.",
     "composerHintIdle": "Type @ for files, / for skills, or pick a quick action below.",
     "starterPrompts": {
       "sm-campaign": {
