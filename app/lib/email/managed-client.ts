@@ -37,6 +37,15 @@ function controlPlaneUrl(path: string): string {
   return `${baseUrl}${path}`;
 }
 
+function managedEmailHeaders(options?: RequestInit): Headers {
+  const headers = new Headers(options?.headers);
+  if (options?.body !== undefined && options.body !== null && !headers.has('Content-Type')) {
+    headers.set('Content-Type', 'application/json');
+  }
+  headers.set('Authorization', `Bearer ${instanceToken()}`);
+  return headers;
+}
+
 async function readJson<T>(response: Response): Promise<T> {
   const text = await response.text();
   let payload: unknown = {};
@@ -62,12 +71,7 @@ export async function managedEmailRequest<T>(path: string, options?: RequestInit
   }
   const response = await fetch(controlPlaneUrl(path), {
     ...options,
-    headers: {
-      Authorization: `Bearer ${instanceToken()}`,
-      'Content-Type': 'application/json',
-      ...(options?.headers || {}),
-    },
+    headers: managedEmailHeaders(options),
   });
   return readJson<T>(response);
 }
-
