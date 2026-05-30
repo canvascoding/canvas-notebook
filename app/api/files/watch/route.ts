@@ -45,6 +45,7 @@ export async function GET(request: NextRequest) {
         id: clientId,
         send: (event: FileEvent) => {
           try {
+            watcher.touchClient(clientId);
             controller.enqueue(
               new TextEncoder().encode(
                 `event: filechange\ndata: ${JSON.stringify(event)}\n\n`
@@ -59,6 +60,7 @@ export async function GET(request: NextRequest) {
 
       const heartbeatInterval = setInterval(() => {
         try {
+          watcher.touchClient(clientId);
           controller.enqueue(
             new TextEncoder().encode(`event: heartbeat\ndata: ${Date.now()}\n\n`)
           );

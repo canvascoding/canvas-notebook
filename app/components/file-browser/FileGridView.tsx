@@ -252,10 +252,6 @@ export function FileGridView({ variant = 'default', onOpenFile }: FileGridViewPr
           throw new Error('Failed to search files');
         }
 
-        if (!response.ok) {
-          throw new Error('Failed to search files');
-        }
-
         const payload = await response.json() as { files?: FileSearchEntry[] };
         const nextResults = (payload.files ?? []).map((entry) => ({
           name: entry.name,
