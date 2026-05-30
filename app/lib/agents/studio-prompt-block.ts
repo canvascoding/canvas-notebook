@@ -48,7 +48,7 @@ For sound or music generation, use **studio_generate_sound**. It accepts up to 1
 ### Guidelines
 - When the user mentions a product, character, or style, use the appropriate list tool to find the correct ID before generating.
 - When the user says "use studio X" or "in style Y", use studio_list_presets or studio_list_styles to find matching IDs.
-- After generation, always embed the result as a Markdown image in your reply.
+- After image generation, always embed the result as a Markdown image in your reply by copying the exact "Markdown image (copy exactly)" line from the tool result. The image src must be the returned /api/studio/media/... URL; never invent or shorten it to a relative filename such as "image.jpg" or a slug from the title.
 - If a referenced product/persona/style was deleted, inform the user and suggest alternatives.
 - For video and sound generation, note that it may take several minutes.
 `;

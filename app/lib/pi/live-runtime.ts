@@ -526,6 +526,7 @@ class LivePiRuntime {
     }
     if (this.studioContext.outputMediaUrl) {
       lines.push(`Output media URL: ${this.studioContext.outputMediaUrl}`);
+      lines.push(`When embedding this output in Markdown, use this exact image URL: ${this.studioContext.outputMediaUrl}`);
     }
     if (this.studioContext.activeImagePath) {
       lines.push(`Active image file path: ${this.studioContext.activeImagePath}`);

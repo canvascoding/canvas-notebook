@@ -324,13 +324,25 @@ export function createStudioGenerateImageTool(
         const result = await executeFn(userId, { ...p, mode: 'image' });
         const outputsRoot = getStudioOutputsRoot();
         const outputLines = result.outputs.map((o) => {
-          const fullPath = path.join(outputsRoot, o.filePath);
-          return `Output ${o.variationIndex + 1}:\n  File: ${fullPath}\n  URL:  ${o.mediaUrl}\n  ![studio-${o.variationIndex}](${o.mediaUrl})`;
+          const outputFilePath = o.filePath.replace(/^\/+/, '').replace(/^studio\/outputs\//, '');
+          const fullPath = path.join(outputsRoot, outputFilePath);
+          const referencePath = `studio/outputs/${outputFilePath}`;
+          const markdownImage = `![studio-${o.variationIndex}](${o.mediaUrl})`;
+          return [
+            `Output ${o.variationIndex + 1}:`,
+            `  Output ID: ${o.id}`,
+            `  File: ${fullPath}`,
+            `  Studio reference path for later edits: ${referencePath}`,
+            `  Render URL: ${o.mediaUrl}`,
+            `  Markdown image (copy exactly): ${markdownImage}`,
+          ].join('\n');
         });
         const summary = [
           `Studio image generation completed (${result.outputs.length} output(s))`,
           '',
           ...outputLines,
+          '',
+          'Important for the final answer: embed the generated image by copying the Markdown image line exactly. Do not invent, shorten, slugify, or rewrite the image URL; relative filenames like ente-statt-affe.jpg will not render in the chat.',
           '',
           'To copy to workspace: bash cp <file-path> /data/workspace/<destination>',
         ].join('\n');

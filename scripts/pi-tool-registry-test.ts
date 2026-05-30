@@ -28,9 +28,33 @@ async function main() {
   };
 
   const { enableToolInConfig, getDefaultEnabledToolNames, serializeEnabledToolNames } = await import('../app/lib/pi/enabled-tools');
-  const { buildPiToolRegistry, createRipgrepTool, createStudioGenerateVideoTool, getPiToolMetadata, getPiTools, piTools } = await import('../app/lib/pi/tool-registry');
+  const { buildPiToolRegistry, createRipgrepTool, createStudioGenerateImageTool, createStudioGenerateVideoTool, getPiToolMetadata, getPiTools, piTools } = await import('../app/lib/pi/tool-registry');
 
   const studioCalls: StudioGenerateRequest[] = [];
+  const studioImageCalls: StudioGenerateRequest[] = [];
+  const studioImageMediaUrl = '/api/studio/media/studio/outputs/studio-gen-ente-statt-affe-0-2026-05-29T15-38-00-000Z-test.jpg';
+  const studioImageTool = createStudioGenerateImageTool({
+    userId: 'test-user',
+    executeStudioGenerationFn: async (_userId, body) => {
+      studioImageCalls.push(body);
+      return {
+        generationId: 'studio-image-generation',
+        status: 'completed',
+        mode: body.mode || 'image',
+        prompt: body.prompt,
+        outputs: [
+          {
+            id: 'studio-image-output',
+            variationIndex: 0,
+            filePath: 'studio-gen-ente-statt-affe-0-2026-05-29T15-38-00-000Z-test.jpg',
+            mediaUrl: studioImageMediaUrl,
+            mimeType: 'image/jpeg',
+            fileSize: 2345,
+          },
+        ],
+      };
+    },
+  });
   const studioTool = createStudioGenerateVideoTool({
     userId: 'test-user',
     executeStudioGenerationFn: async (_userId, body) => {
@@ -111,6 +135,17 @@ async function main() {
     path: path.join(tempDir, 'missing-dir'),
   });
   assert.match(getText(rgInvalidPathResult), /^Error:/);
+
+  const studioImageResult = await studioImageTool.execute('studio-image', {
+    prompt: 'Eine Ente statt einem Affen',
+    provider: 'gemini',
+  });
+  const studioImageText = getText(studioImageResult);
+  assert.match(studioImageText, /Studio image generation completed \(1 output/);
+  assert.match(studioImageText, /Markdown image \(copy exactly\): !\[studio-0\]\(\/api\/studio\/media\/studio\/outputs\/studio-gen-ente-statt-affe/);
+  assert.match(studioImageText, /Do not invent, shorten, slugify, or rewrite the image URL/);
+  assert.equal(studioImageCalls.length, 1);
+  assert.equal(studioImageCalls[0].mode, 'image');
 
   const studioSeedanceResult = await studioTool.execute('studio-seedance', {
     prompt: 'A cinematic product reveal',
