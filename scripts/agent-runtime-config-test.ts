@@ -63,7 +63,7 @@ async function main() {
   } = await import('../app/lib/agents/storage');
   const { createAgentProfile, updateAgentProfile } = await import('../app/lib/agents/registry');
   const { resolveAgentRuntimeConfig, resolveAgentRuntimeSettings } = await import('../app/lib/agents/effective-runtime-config');
-  const { getCanvasControlPlaneModels } = await import('../app/lib/pi/model-resolver');
+  const { getCanvasControlPlaneModels, resolvePiModel } = await import('../app/lib/pi/model-resolver');
 
   const unconfiguredSettings = await resolveAgentRuntimeSettings(DEFAULT_MANAGED_AGENT_ID);
   assert.equal(unconfiguredSettings.activeProvider, DEFAULT_PI_CONFIG.activeProvider);
@@ -135,6 +135,11 @@ async function main() {
   assert.equal(legacyConfig.activeProvider, 'openrouter');
   assert.equal(legacyConfig.providerConfig.model, 'anthropic/claude-3.5-sonnet');
   assert.equal(legacyConfig.model.id, 'anthropic/claude-sonnet-4.5');
+
+  const directOllamaModel = await resolvePiModel('ollama', 'deepseek-r1:32b');
+  const directOllamaCompat = (directOllamaModel as OpenAICompletionsCompatProbe).compat;
+  assert.equal(directOllamaCompat?.supportsDeveloperRole, false);
+  assert.equal(directOllamaCompat?.supportsReasoningEffort, false);
 
   await updateAgentProfile({
     agentId: customAgent.agentId,

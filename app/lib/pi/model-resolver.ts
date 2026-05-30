@@ -23,6 +23,23 @@ export const OLLAMA_PROVIDER_ID = 'ollama';
 // OpenAI-Compatible provider ID - used for custom OpenAI-compatible servers
 export const OPENAI_COMPATIBLE_PROVIDER_ID = 'openai-compatible';
 
+const OPENAI_COMPATIBLE_BRIDGE_COMPAT = {
+  supportsDeveloperRole: false,
+  supportsReasoningEffort: false,
+  supportsStore: false,
+  supportsLongCacheRetention: false,
+} satisfies NonNullable<Model<'openai-completions'>['compat']>;
+
+function withOpenAICompatibleBridgeCompat<T extends Model<'openai-completions'>>(model: T): T {
+  return {
+    ...model,
+    compat: {
+      ...model.compat,
+      ...OPENAI_COMPATIBLE_BRIDGE_COMPAT,
+    },
+  };
+}
+
   // Recommended Ollama models with metadata
 // Using 'openai-completions' api type for OpenAI-compatible Ollama API
 // Alle Modelle (lokal und cloud) werden über localhost API aufgerufen
@@ -270,6 +287,7 @@ export async function resolvePiModel(provider: string, modelName: string) {
     } else {
       model = { ...model, baseUrl: normalizedBaseUrl || model.baseUrl };
     }
+    model = withOpenAICompatibleBridgeCompat(model as Model<'openai-completions'>);
   }
 
   if (!model) {
@@ -314,7 +332,7 @@ export async function resolvePiModel(provider: string, modelName: string) {
       console.log(`[Ollama Debug] Using custom host: ${customUrl}`);
       
       return {
-        ...model,
+        ...withOpenAICompatibleBridgeCompat(model as Model<'openai-completions'>),
         baseUrl: customUrl,
       };
     }
@@ -322,7 +340,7 @@ export async function resolvePiModel(provider: string, modelName: string) {
     console.log(`[Ollama Debug] Using localhost: ${baseUrl}`);
     
     return {
-      ...model,
+      ...withOpenAICompatibleBridgeCompat(model as Model<'openai-completions'>),
       baseUrl,
     };
   }
