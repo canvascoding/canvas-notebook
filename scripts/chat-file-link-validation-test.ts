@@ -37,6 +37,14 @@ async function main() {
       extractFilePaths('Open [/data/workspace/generated/page.html](/data/workspace/generated/page.html).'),
       [{ path: 'generated/page.html', label: '/data/workspace/generated/page.html' }],
     );
+    assert.deepEqual(
+      extractFilePaths('Das Bild liegt im Workspace unter test-bild-0-5k.jpg.'),
+      [{ path: 'test-bild-0-5k.jpg', label: 'test-bild-0-5k.jpg' }],
+    );
+    assert.deepEqual(
+      extractFilePaths('Inline API URLs like /api/media/test-bild-0-5k.jpg should not become workspace refs.'),
+      [],
+    );
 
     assert.equal(await validateFileExists('docs/loaded.md', fileTree), true);
     assert.deepEqual(fetchCalls, [], 'loaded tree entries should not hit the API');

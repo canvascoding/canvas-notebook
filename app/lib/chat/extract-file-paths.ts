@@ -35,7 +35,9 @@ export function isFilePath(href: string): boolean {
 const FILE_PATH_REGEX =
   /(?:\/data\/workspace\/[^\s)\]}'"`,;]+)|(?:\.\/[\w./-]+\.[\w]+)|(?:[\w-]+(?:\/[\w.-]+)+\.[\w]+)|(?:["'`](?:[\w][\w./-]+\.[a-zA-Z0-9]{1,10})["'`])/g;
 
+const BARE_IMAGE_FILE_REGEX = /[\w-][\w.-]*\.(?:png|jpe?g|gif|webp|svg|bmp|ico)(?=$|[\s)\]}'"`,;.!?])/gi;
 const MARKDOWN_LINK_REGEX = /\[([^\]]*)\]\(([^)]+)\)/g;
+const PATH_CONTINUATION_CHAR_REGEX = /[\w./-]/;
 
 function normalizePath(path: string): string {
   return normalizeChatFilePath(path);
@@ -45,6 +47,22 @@ function getFileName(path: string): string {
   const normalized = normalizePath(path);
   const lastSegment = normalized.split('/').pop() || normalized;
   return lastSegment;
+}
+
+function isEmbeddedPathMatch(content: string, match: RegExpMatchArray): boolean {
+  const matchIndex = match.index ?? 0;
+  const previousChar = matchIndex > 0 ? content[matchIndex - 1] : '';
+  const rawPath = match[0];
+
+  return Boolean(
+    previousChar &&
+    PATH_CONTINUATION_CHAR_REGEX.test(previousChar) &&
+    !rawPath.startsWith('/') &&
+    !rawPath.startsWith('./') &&
+    !rawPath.startsWith('"') &&
+    !rawPath.startsWith("'") &&
+    !rawPath.startsWith('`'),
+  );
 }
 
 export function extractFilePaths(content: string): FilePathEntry[] {
@@ -69,6 +87,10 @@ export function extractFilePaths(content: string): FilePathEntry[] {
 
   const bareMatches = [...content.matchAll(FILE_PATH_REGEX)];
   for (const match of bareMatches) {
+    if (isEmbeddedPathMatch(content, match)) {
+      continue;
+    }
+
     const rawPath = match[0];
     const cleaned = normalizePath(rawPath);
     if (isFilePath(cleaned)) {
@@ -79,6 +101,23 @@ export function extractFilePaths(content: string): FilePathEntry[] {
           label: getFileName(rawPath),
         });
       }
+    }
+  }
+
+  const bareImageMatches = [...content.matchAll(BARE_IMAGE_FILE_REGEX)];
+  for (const match of bareImageMatches) {
+    if (isEmbeddedPathMatch(content, match)) {
+      continue;
+    }
+
+    const rawPath = match[0];
+    const cleaned = normalizePath(rawPath);
+    if (isFilePath(cleaned) && !seen.has(cleaned)) {
+      seen.add(cleaned);
+      results.push({
+        path: cleaned,
+        label: getFileName(rawPath),
+      });
     }
   }
 
