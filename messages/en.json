@@ -856,7 +856,8 @@
       "workspace": "Workspace",
       "channels": "Channels",
       "usage": "Usage",
-      "skills": "Skills"
+      "skills": "Skills",
+      "license": "License"
     },
     "general": {
       "language": "Language",

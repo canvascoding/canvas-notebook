@@ -188,6 +188,7 @@ type ScopeCardConfig = {
 const SETTINGS_TABS = ['general', 'integrations', 'agent-settings', 'workspace', 'usage', 'skills', 'channels', 'license'] as const;
 const SETTINGS_TAB_STORAGE_KEY = 'canvas-settings-active-tab';
 const ENV_CARD_OPEN_STORAGE_KEY = 'canvas-settings-env-card-open-state';
+const SETTINGS_TAB_TRIGGER_CLASS = 'min-h-9 min-w-0 border border-border px-2 data-[state=active]:bg-muted';
 
 type SettingsTab = (typeof SETTINGS_TABS)[number];
 type EnvCardOpenState = Record<EnvScope, boolean>;
@@ -2226,29 +2227,29 @@ export function IntegrationsSettingsClient({
         className="space-y-4"
       >
         <TabsList className="grid h-auto w-full grid-cols-1 gap-2 bg-transparent p-0 sm:grid-cols-8">
-          <TabsTrigger value="general" className="min-h-9 border border-border data-[state=active]:bg-muted">
-            {t('tabs.general')}
+          <TabsTrigger value="general" className={SETTINGS_TAB_TRIGGER_CLASS}>
+            <span className="min-w-0 truncate">{t('tabs.general')}</span>
           </TabsTrigger>
-          <TabsTrigger value="integrations" className="min-h-9 border border-border data-[state=active]:bg-muted">
-            {t('tabs.integrations')}
+          <TabsTrigger value="integrations" className={SETTINGS_TAB_TRIGGER_CLASS}>
+            <span className="min-w-0 truncate">{t('tabs.integrations')}</span>
           </TabsTrigger>
-          <TabsTrigger value="agent-settings" className="min-h-9 border border-border data-[state=active]:bg-muted">
-            {t('tabs.agentSettings')}
+          <TabsTrigger value="agent-settings" className={SETTINGS_TAB_TRIGGER_CLASS}>
+            <span className="min-w-0 truncate">{t('tabs.agentSettings')}</span>
           </TabsTrigger>
-          <TabsTrigger value="workspace" className="min-h-9 border border-border data-[state=active]:bg-muted">
-            {t('tabs.workspace')}
+          <TabsTrigger value="workspace" className={SETTINGS_TAB_TRIGGER_CLASS}>
+            <span className="min-w-0 truncate">{t('tabs.workspace')}</span>
           </TabsTrigger>
-          <TabsTrigger value="channels" className="min-h-9 border border-border data-[state=active]:bg-muted">
-            {t('tabs.channels')}
+          <TabsTrigger value="channels" className={SETTINGS_TAB_TRIGGER_CLASS}>
+            <span className="min-w-0 truncate">{t('tabs.channels')}</span>
           </TabsTrigger>
-          <TabsTrigger value="usage" className="min-h-9 border border-border data-[state=active]:bg-muted">
-            {t('tabs.usage')}
+          <TabsTrigger value="usage" className={SETTINGS_TAB_TRIGGER_CLASS}>
+            <span className="min-w-0 truncate">{t('tabs.usage')}</span>
           </TabsTrigger>
-          <TabsTrigger value="skills" className="min-h-9 border border-border data-[state=active]:bg-muted">
-            {t('tabs.skills')}
+          <TabsTrigger value="skills" className={SETTINGS_TAB_TRIGGER_CLASS}>
+            <span className="min-w-0 truncate">{t('tabs.skills')}</span>
           </TabsTrigger>
-          <TabsTrigger value="license" className="min-h-9 border border-border data-[state=active]:bg-muted">
-            License
+          <TabsTrigger value="license" className={SETTINGS_TAB_TRIGGER_CLASS}>
+            <span className="min-w-0 truncate">{t('tabs.license')}</span>
           </TabsTrigger>
         </TabsList>
 
