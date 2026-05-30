@@ -234,7 +234,10 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
     });
   }, []);
 
-  const openInitialNotebookChat = useCallback((mode: 'mobile' | 'desktop') => {
+  const openInitialNotebookChat = useCallback((
+    mode: 'mobile' | 'desktop',
+    options: { forceOpenChat?: boolean } = {},
+  ) => {
     setChatVisible(true);
 
     if (mode === 'desktop') {
@@ -243,6 +246,13 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
     }
 
     setMobileSurface('editor');
+    setMobileExplorerOpen(false);
+    if (options.forceOpenChat) {
+      setMobileChatMounted(true);
+      setMobileChatOpen(true);
+      return;
+    }
+
     setMobileChatOpen(false);
   }, []);
 
@@ -336,13 +346,15 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
       void openNotebookFile(storedPath);
       if (viewportMode === 'desktop') {
         queueMicrotask(openDesktopSideChat);
+      } else if (shouldForceChatOpen) {
+        queueMicrotask(() => openInitialNotebookChat(viewportMode, { forceOpenChat: true }));
       }
       return;
     }
 
     useFileStore.getState().clearCurrentFile();
-    queueMicrotask(() => openInitialNotebookChat(viewportMode));
-  }, [openDesktopSideChat, openInitialNotebookChat, openNotebookFile, searchParams, viewportMode]);
+    queueMicrotask(() => openInitialNotebookChat(viewportMode, { forceOpenChat: shouldForceChatOpen }));
+  }, [openDesktopSideChat, openInitialNotebookChat, openNotebookFile, searchParams, shouldForceChatOpen, viewportMode]);
 
   useEffect(() => {
     previousCurrentFilePathRef.current = useFileStore.getState().currentFile?.path ?? null;
