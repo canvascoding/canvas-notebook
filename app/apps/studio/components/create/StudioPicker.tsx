@@ -54,6 +54,7 @@ interface StudioPickerProps {
   presets: StudioPreset[];
   value: StudioPreset | null;
   onChange: (preset: StudioPreset | null) => void;
+  disabled?: boolean;
 }
 
 function groupPresetsByCategory(presets: StudioPreset[]) {
@@ -163,7 +164,7 @@ function PresetMenuItem({
   );
 }
 
-export function StudioPicker({ presets, value, onChange }: StudioPickerProps) {
+export function StudioPicker({ presets, value, onChange, disabled = false }: StudioPickerProps) {
   const [activePresetId, setActivePresetId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -188,7 +189,7 @@ export function StudioPicker({ presets, value, onChange }: StudioPickerProps) {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button type="button" variant="outline" size="sm" className="rounded-full">
+        <Button type="button" variant="outline" size="sm" className="rounded-full" disabled={disabled}>
           <LayoutTemplate className="h-4 w-4" />
           {value ? value.name : 'Preset'}
         </Button>

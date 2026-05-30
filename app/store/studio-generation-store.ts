@@ -141,7 +141,9 @@ export const useStudioGenerationStore = create<StudioGenerationState>((set) => (
   },
 
   mode: 'image',
-  setMode: (mode) => set({ mode }),
+  setMode: (mode) => set((state) => (
+    mode === 'sound' && state.presetRef ? { mode, presetRef: null } : { mode }
+  )),
 
   aspectRatio: '1:1',
   setAspectRatio: (aspectRatio) => set({ aspectRatio }),
@@ -225,7 +227,9 @@ export const useStudioGenerationStore = create<StudioGenerationState>((set) => (
   setStyleRefs: (styleRefs) => set({ styleRefs }),
 
   presetRef: null,
-  setPresetRef: (presetRef) => set({ presetRef }),
+  setPresetRef: (presetRef) => set((state) => (
+    state.mode === 'sound' ? { presetRef: null } : { presetRef }
+  )),
   removePresetRef: () => set({ presetRef: null }),
 
   fileRefs: [],
