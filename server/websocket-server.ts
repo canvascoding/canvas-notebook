@@ -32,7 +32,7 @@ import { WEB_CHANNEL_ID, webChannelSessionKey } from '@/app/lib/channels/constan
 import { getLicenseStatus } from '@/app/lib/license';
 import { isOnboardingComplete, isOnboardingEnabled } from '@/app/lib/onboarding/status';
 
-type ControlAction = 'follow_up' | 'steer' | 'abort' | 'replace' | 'compact';
+type ControlAction = 'follow_up' | 'steer' | 'promote_queued_to_steer' | 'abort' | 'replace' | 'compact';
 type PiRuntimeStatus = Record<string, unknown>;
 
 type RuntimeService = typeof import('@/app/lib/pi/runtime-service');
@@ -69,7 +69,7 @@ type ClientMessage =
       message: AgentMessage;
       context?: ChatRequestContext;
     }
-  | { type: 'control'; requestId?: string; sessionId: string; action: ControlAction; message?: AgentMessage }
+  | { type: 'control'; requestId?: string; sessionId: string; action: ControlAction; message?: AgentMessage; queueItemId?: string }
   | { type: 'get_status'; requestId?: string; sessionId: string }
   | { type: 'change_model'; requestId?: string; sessionId: string };
 
@@ -444,7 +444,7 @@ async function handleMessage(connection: WebSocketConnection, message: ClientMes
 
       try {
         const runtimeService = await getRuntimeService();
-        const status = await runtimeService.control(message.sessionId, userId, message.action, message.message);
+        const status = await runtimeService.control(message.sessionId, userId, message.action, message.message, message.queueItemId);
         sendWs(ws, {
           type: 'control_result',
           requestId: message.requestId,

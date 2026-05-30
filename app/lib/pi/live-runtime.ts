@@ -370,6 +370,33 @@ class LivePiRuntime {
     return this.getStatus();
   }
 
+  async promoteQueuedMessageToSteering(queueItemId: string) {
+    if (!this.agent.state.isStreaming) {
+      throw new Error('No active agent run to steer.');
+    }
+
+    const followUpIndex = this.followUpQueue.findIndex((entry) => entry.preview.id === queueItemId || entry.id === queueItemId);
+    if (followUpIndex === -1) {
+      return this.getStatus();
+    }
+
+    const [entry] = this.followUpQueue.splice(followUpIndex, 1);
+    if (!entry) {
+      return this.getStatus();
+    }
+
+    this.agent.clearFollowUpQueue();
+    for (const queuedEntry of this.followUpQueue) {
+      this.agent.followUp(queuedEntry.message);
+    }
+
+    this.steeringQueue.push(entry);
+    this.touch();
+    this.agent.steer(entry.message);
+    this.publishStatus();
+    return this.getStatus();
+  }
+
   async replace(message: Extract<AgentMessage, { role: 'user' }>) {
     const sanitized = sanitizeUserMessage(message);
 
