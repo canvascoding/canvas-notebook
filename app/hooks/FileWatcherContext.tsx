@@ -1,23 +1,32 @@
 'use client';
 
-import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
-import { getFileWatcherClient, type FileWatcherClient, type FileEvent } from '@/app/lib/file-watcher/client';
+import { useEffect, useState, type ReactNode } from 'react';
+import { getFileWatcherClient, type FileEvent } from '@/app/lib/file-watcher/client';
 
 interface FileWatcherContextValue {
   isConnected: boolean;
   lastEvent: FileEvent | null;
 }
 
-const FileWatcherContext = createContext<FileWatcherContextValue | null>(null);
-
 export function FileWatcherProvider({ children }: { children: ReactNode }) {
-  const [isConnected, setIsConnected] = useState(false);
+  useEffect(() => {
+    const client = getFileWatcherClient();
+    client.acquire();
+
+    return () => {
+      client.releaseConnection();
+    };
+  }, []);
+
+  return <>{children}</>;
+}
+
+export function useFileWatcherContext(): FileWatcherContextValue {
+  const [isConnected, setIsConnected] = useState(() => getFileWatcherClient().isConnected);
   const [lastEvent, setLastEvent] = useState<FileEvent | null>(null);
-  const clientRef = useRef<FileWatcherClient | null>(null);
 
   useEffect(() => {
     const client = getFileWatcherClient();
-    clientRef.current = client;
 
     const onConnected = () => setIsConnected(true);
     const onDisconnected = () => setIsConnected(false);
@@ -37,17 +46,8 @@ export function FileWatcherProvider({ children }: { children: ReactNode }) {
       client.removeEventListener('disconnected', onDisconnected);
       client.removeEventListener('filechange', onFileChange);
       client.releaseConnection();
-      clientRef.current = null;
     };
   }, []);
 
-  return (
-    <FileWatcherContext.Provider value={{ isConnected, lastEvent }}>
-      {children}
-    </FileWatcherContext.Provider>
-  );
-}
-
-export function useFileWatcherContext(): FileWatcherContextValue | null {
-  return useContext(FileWatcherContext);
+  return { isConnected, lastEvent };
 }

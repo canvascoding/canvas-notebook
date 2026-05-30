@@ -15,7 +15,6 @@ import { CreateItemDialog } from './CreateItemDialog';
 import { UploadDialog } from './UploadDialog';
 import { DeleteConfirmDialog } from './DeleteConfirmDialog';
 import { isProtectedAppOutputFolder } from '@/app/lib/filesystem/app-output-folders';
-import { useFileWatcherContext } from '@/app/hooks/FileWatcherContext';
 import { useImagePreprocess } from '@/app/hooks/useImagePreprocess';
 import { ImagePreprocessDialog } from '@/app/components/shared/ImagePreprocessDialog';
 import { getDroppedFiles } from '@/app/lib/drop-traverse';
@@ -46,8 +45,6 @@ export function FileBrowser({ variant = 'default', onFileSelect }: FileBrowserPr
 
   const isFullscreen = variant === 'fullscreen';
   const isMobileSheet = variant === 'mobile-sheet';
-
-  useFileWatcherContext();
 
   const {
     refreshDirectory,

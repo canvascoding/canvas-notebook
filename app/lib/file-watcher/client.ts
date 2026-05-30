@@ -18,6 +18,23 @@ interface FileEvent {
   timestamp: number;
 }
 
+function getWatchedDirs(): string[] {
+  const { browserMode, currentDirectory, expandedDirs } = useFileStore.getState();
+  const dirs = new Set<string>();
+
+  if (currentDirectory && currentDirectory !== '.') {
+    dirs.add(currentDirectory);
+  }
+
+  if (browserMode === 'tree') {
+    for (const dir of expandedDirs) {
+      if (dir !== '.') dirs.add(dir);
+    }
+  }
+
+  return Array.from(dirs);
+}
+
 export class FileWatcherClient extends EventTarget {
   private eventSource: EventSource | null = null;
   private clientId: string | null = null;
@@ -29,7 +46,6 @@ export class FileWatcherClient extends EventTarget {
   private disconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private syncTimer: ReturnType<typeof setTimeout> | null = null;
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
-  private pendingDirs = new Set<string>();
   private lastReloadTime = 0;
   private debounceMs = 1000;
   private maxDebounceMs = 5000;
@@ -54,8 +70,13 @@ export class FileWatcherClient extends EventTarget {
 
     if (wasZero && !this.storeUnsubscribe) {
       this.storeUnsubscribe = useFileStore.subscribe((state, prevState) => {
-        if (state.expandedDirs !== prevState.expandedDirs && this._isConnected && this.clientId) {
-          this.scheduleDirSync(state.expandedDirs);
+        const watchedDirsChanged =
+          state.expandedDirs !== prevState.expandedDirs ||
+          state.currentDirectory !== prevState.currentDirectory ||
+          state.browserMode !== prevState.browserMode;
+
+        if (watchedDirsChanged && this._isConnected && this.clientId) {
+          this.scheduleDirSync(getWatchedDirs());
         }
       });
     }
@@ -123,8 +144,7 @@ export class FileWatcherClient extends EventTarget {
           this._isConnected = true;
           this.dispatchEvent(new CustomEvent('connected'));
 
-          const expanded = useFileStore.getState().expandedDirs;
-          this.scheduleDirSync(expanded);
+          this.scheduleDirSync(getWatchedDirs());
         }
       } catch {}
     });
@@ -178,7 +198,6 @@ export class FileWatcherClient extends EventTarget {
     if (this.debounceTimer) {
       clearTimeout(this.debounceTimer);
       this.debounceTimer = null;
-      this.pendingDirs.clear();
     }
 
     if (this.eventSource) {
@@ -208,19 +227,14 @@ export class FileWatcherClient extends EventTarget {
   }
 
   private handleFileChange(event: FileEvent): void {
-    const dir = event.dir || (event.relativePath.includes('/')
-      ? event.relativePath.substring(0, event.relativePath.lastIndexOf('/'))
-      : '.');
-
     this.dispatchEvent(new CustomEvent<FileEvent>('filechange', { detail: event }));
 
-    this.debouncedReload(dir);
+    this.scheduleVisibleRefresh();
   }
 
-  private debouncedReload(dir: string = '.'): void {
+  private scheduleVisibleRefresh(): void {
     const now = Date.now();
     const timeSinceLastReload = now - this.lastReloadTime;
-    this.pendingDirs.add(dir);
 
     if (this.debounceTimer) {
       clearTimeout(this.debounceTimer);
@@ -231,25 +245,18 @@ export class FileWatcherClient extends EventTarget {
 
     this.debounceTimer = setTimeout(() => {
       this.debounceTimer = null;
-      const { refreshRootTree, loadSubdirectory } = useFileStore.getState();
-      const targetDirs = Array.from(this.pendingDirs);
-      this.pendingDirs.clear();
-      const currentExpanded = useFileStore.getState().expandedDirs;
-      if (targetDirs.includes('.')) {
-        refreshRootTree(true);
-      }
-      for (const targetDir of targetDirs) {
-        if (targetDir !== '.' && currentExpanded.has(targetDir)) {
-          loadSubdirectory(targetDir, true);
-        }
-      }
-      this.lastReloadTime = Date.now();
+      void useFileStore.getState().refreshVisibleTree()
+        .catch((error) => {
+          console.warn('[FileWatcherClient] Failed to refresh visible file tree:', error);
+        })
+        .finally(() => {
+          this.lastReloadTime = Date.now();
+        });
     }, finalWaitTime);
   }
 
-  private scheduleDirSync(expandedDirs: Set<string>): void {
+  private scheduleDirSync(dirs: string[]): void {
     if (!this.clientId) return;
-    const dirs = Array.from(expandedDirs);
     this.syncDirs(dirs);
   }
 
