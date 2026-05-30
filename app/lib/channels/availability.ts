@@ -1,16 +1,24 @@
 import { getTelegramConfigFromIntegrations } from '@/app/lib/integrations/env-config';
 
-import { TELEGRAM_CHANNEL_ID, WEB_CHANNEL_ID, normalizeStoredChannelId } from './constants';
+import { getBinding } from './telegram/link-token';
+import { TELEGRAM_CHANNEL_ID, WEB_CHANNEL_ID, normalizeStoredChannelId, telegramChatIdFromSessionKey } from './constants';
 
 export type ChannelDeliveryReadiness = {
   ok: true;
 } | {
   ok: false;
-  reason: 'channel_disabled' | 'channel_not_configured';
+  reason: 'channel_disabled' | 'channel_not_configured' | 'channel_unlinked';
   error: string;
 };
 
-export async function getChannelDeliveryReadiness(channelId: string): Promise<ChannelDeliveryReadiness> {
+export async function getChannelDeliveryReadiness(input: string | {
+  channelId: string;
+  userId?: string | null;
+  channelSessionKey?: string | null;
+}): Promise<ChannelDeliveryReadiness> {
+  const channelId = typeof input === 'string' ? input : input.channelId;
+  const userId = typeof input === 'string' ? null : input.userId?.trim() || null;
+  const channelSessionKey = typeof input === 'string' ? null : input.channelSessionKey?.trim() || null;
   const normalizedChannelId = normalizeStoredChannelId(channelId);
 
   if (normalizedChannelId === WEB_CHANNEL_ID) {
@@ -32,6 +40,18 @@ export async function getChannelDeliveryReadiness(channelId: string): Promise<Ch
         reason: 'channel_disabled',
         error: 'TELEGRAM_CHANNEL_ENABLED is false',
       };
+    }
+
+    if (userId && channelSessionKey) {
+      const chatId = telegramChatIdFromSessionKey(channelSessionKey);
+      const binding = await getBinding(TELEGRAM_CHANNEL_ID, chatId);
+      if (!binding || binding.userId !== userId) {
+        return {
+          ok: false,
+          reason: 'channel_unlinked',
+          error: 'Telegram channel is no longer linked for this user',
+        };
+      }
     }
   }
 

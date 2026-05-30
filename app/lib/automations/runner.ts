@@ -18,6 +18,7 @@ import {
   dispatchAutomationResult,
   getAutomationDeliveryFailureMessage,
   resolveAutomationDeliveryTarget,
+  shouldPauseAutomationAfterDeliveryFailure,
   type AutomationDeliveryDispatchResult,
   type AutomationDeliveryResolution,
 } from './delivery';
@@ -27,6 +28,7 @@ import {
   markAutomationRunFinished,
   markAutomationRunRetryScheduled,
   markAutomationRunStarted,
+  updateAutomationJob,
 } from './store';
 import { type AutomationJobRecord, type AutomationRunRecord } from './types';
 
@@ -376,7 +378,8 @@ export async function executeAutomationRun(runId: string): Promise<void> {
     console.log(`[Automationen] Run ${runId} completed successfully (duration=${duration}ms)`);
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Automation run failed.';
-    const retryAt = calculateRetryAt(run.attemptNumber);
+    const pauseJobAfterFailure = shouldPauseAutomationAfterDeliveryFailure(dispatchResult);
+    const retryAt = pauseJobAfterFailure ? null : calculateRetryAt(run.attemptNumber);
     const persistedMessages = finalMessages.length > 0
       ? finalMessages
       : [promptMessage, createAutomationErrorMessage(message, model.provider, model.id, model.api)];
@@ -426,10 +429,16 @@ export async function executeAutomationRun(runId: string): Promise<void> {
         ...buildAutomationRunMetadata(job, deliveryResolution, dispatchResult),
         status: 'failed',
         error: message,
+        automationPaused: pauseJobAfterFailure,
+        automationPauseReason: dispatchResult?.skippedReason ?? null,
         targetOutputPath: job.targetOutputPath,
         effectiveTargetOutputPath,
       },
     });
+    if (pauseJobAfterFailure) {
+      await updateAutomationJob(job.id, { status: 'paused' });
+      console.warn(`[Automationen] Paused job ${job.id} because delivery channel is unavailable (${dispatchResult?.skippedReason ?? 'unknown'})`);
+    }
     const duration = Date.now() - runStartTime;
     console.error(`[Automationen] Run ${runId} failed permanently (duration=${duration}ms): ${message}`);
   }
