@@ -19,7 +19,7 @@
     "apiKeyRequired": "API-Key erforderlich",
     "geminiApiKeyRequired": "Diese App benötigt einen GEMINI_API_KEY. Bitte konfiguriere ihn im Integrations-Tab.",
     "openaiApiKeyRequired": "Diese App benötigt einen OPENAI_API_KEY. Bitte konfiguriere ihn im Integrations-Tab.",
-    "goToIntegrations": "Zu Integrations",
+    "goToIntegrations": "Zu Integrationen",
     "logoAlt": "Canvas Notebook Logo",
     "assetPicker": {
       "imageTitle": "Bild auswählen",
@@ -1536,6 +1536,61 @@
         "enterCode": "Bitte gib den Autorisierungscode oder die Callback-URL ein",
         "missingFlowInfo": "Flow-Informationen fehlen",
         "exchangeCode": "Code konnte nicht ausgetauscht werden"
+      }
+    },
+    "emailAccounts": {
+      "title": "E-Mail-Konten",
+      "description": "Verbinde E-Mail-Konten und steuere, welche Absender gelesen und welche Empfänger zum Senden verwendet werden dürfen.",
+      "refresh": "Aktualisieren",
+      "save": "Speichern",
+      "connect": "Verbinden",
+      "disconnect": "Trennen",
+      "savePolicy": "Richtlinie speichern",
+      "noAccounts": "Keine E-Mail-Konten verbunden.",
+      "providers": {
+        "google": "Google",
+        "microsoft": "Microsoft"
+      },
+      "statuses": {
+        "active": "Aktiv",
+        "expired": "Abgelaufen",
+        "revoked": "Widerrufen"
+      },
+      "oauth": {
+        "googleTitle": "Google OAuth",
+        "googleManagedDescription": "Gmail-Konten über Canvas Managed Services verbinden.",
+        "googleLocalDescription": "Wird verwendet, um Gmail-Konten in Self-Hosted-Setups zu verbinden.",
+        "microsoftTitle": "Microsoft OAuth",
+        "microsoftManagedDescription": "Microsoft-365- oder Outlook-Konten über Canvas Managed Services verbinden.",
+        "microsoftLocalDescription": "Wird verwendet, um Microsoft-365- oder Outlook-Konten zu verbinden.",
+        "clientId": "Client-ID",
+        "clientSecret": "Client Secret"
+      },
+      "policy": {
+        "readFromLabel": "Lesbare Absender",
+        "readFromPlaceholder": "Alle Absender erlaubt",
+        "readFromDescription": "Füge einen Absender pro Zeile ein oder trenne Einträge mit Kommas. Nutze vollständige Adressen wie name@example.com oder Domains wie @example.com. Leer bedeutet, dass alle Absender erlaubt sind.",
+        "sendToLabel": "Erlaubte Empfänger",
+        "sendToPlaceholder": "Alle Empfänger erlaubt",
+        "sendToDescription": "Füge einen Empfänger pro Zeile ein oder trenne Einträge mit Kommas. Nutze vollständige Adressen wie name@example.com oder Domains wie @example.com. Leer bedeutet, dass alle Empfänger erlaubt sind."
+      },
+      "messages": {
+        "accountConnected": "E-Mail-Konto verbunden.",
+        "accountDisconnected": "E-Mail-Konto getrennt.",
+        "oauthSettingsSaved": "{provider}-OAuth-Einstellungen gespeichert.",
+        "policySaved": "E-Mail-Richtlinie gespeichert."
+      },
+      "errors": {
+        "loadOAuthSettings": "E-Mail-OAuth-Einstellungen konnten nicht geladen werden",
+        "loadAccounts": "E-Mail-Konten konnten nicht geladen werden",
+        "oauthFailed": "E-Mail-OAuth fehlgeschlagen.",
+        "oauthCredentialsRequired": "Client-ID und Client Secret sind erforderlich, bevor OAuth gespeichert oder verbunden werden kann.",
+        "loadIntegrationKeys": "Aktuelle Integrations-Keys konnten nicht geladen werden",
+        "saveOAuthSettings": "OAuth-Einstellungen konnten nicht gespeichert werden",
+        "startOAuth": "E-Mail-OAuth konnte nicht gestartet werden",
+        "missingAuthorizationUrl": "E-Mail-OAuth hat keine Autorisierungs-URL zurückgegeben.",
+        "savePolicy": "E-Mail-Richtlinie konnte nicht gespeichert werden",
+        "disconnect": "E-Mail-Konto konnte nicht getrennt werden"
       }
     }
   },

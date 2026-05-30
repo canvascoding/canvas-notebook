@@ -1213,6 +1213,7 @@ function McpConfigCard(props: {
 }
 
 function EmailAccountsCard() {
+  const t = useTranslations('settings.emailAccounts');
   const searchParams = useSearchParams();
   const handledEmailOAuthReturn = useRef(false);
   const [accounts, setAccounts] = useState<EmailAccount[]>([]);
@@ -1235,7 +1236,7 @@ function EmailAccountsCard() {
     try {
       const response = await fetch('/api/integrations/env?scope=integrations', { cache: 'no-store' });
       const payload = await response.json();
-      if (!response.ok || !payload.success) throw new Error(payload.error || 'Failed to load email OAuth settings');
+      if (!response.ok || !payload.success) throw new Error(payload.error || t('errors.loadOAuthSettings'));
       const entries = (payload.data?.entries || []) as EnvEntry[];
       const byKey = new Map(entries.map((entry) => [entry.key, entry.value]));
       setOauthDraft({
@@ -1245,11 +1246,11 @@ function EmailAccountsCard() {
         microsoftClientSecret: byKey.get('MICROSOFT_OAUTH_CLIENT_SECRET') || '',
       });
     } catch (oauthLoadError) {
-      setError(oauthLoadError instanceof Error ? oauthLoadError.message : 'Failed to load email OAuth settings');
+      setError(oauthLoadError instanceof Error ? oauthLoadError.message : t('errors.loadOAuthSettings'));
     } finally {
       setIsOAuthLoading(false);
     }
-  }, []);
+  }, [t]);
 
   const loadAccounts = useCallback(async () => {
     setIsLoading(true);
@@ -1257,7 +1258,7 @@ function EmailAccountsCard() {
     try {
       const response = await fetch('/api/email/accounts', { cache: 'no-store' });
       const payload = await response.json();
-      if (!response.ok || !payload.success) throw new Error(payload.error || 'Failed to load email accounts');
+      if (!response.ok || !payload.success) throw new Error(payload.error || t('errors.loadAccounts'));
       const nextAccounts = (payload.data?.accounts || []) as EmailAccount[];
       setEmailMode(payload.data?.mode === 'managed' ? 'managed' : 'local');
       setAccounts(nextAccounts);
@@ -1269,11 +1270,11 @@ function EmailAccountsCard() {
         },
       ])));
     } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : 'Failed to load email accounts');
+      setError(loadError instanceof Error ? loadError.message : t('errors.loadAccounts'));
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [t]);
 
   const clearEmailOAuthParams = useCallback(() => {
     const url = new URL(window.location.href);
@@ -1314,7 +1315,7 @@ function EmailAccountsCard() {
     if (emailOAuthStatus === 'connected') {
       handledEmailOAuthReturn.current = true;
       const timeout = window.setTimeout(() => {
-        setMessage('Email account connected.');
+        setMessage(t('messages.accountConnected'));
         setError(null);
         void loadAccounts();
         clearEmailOAuthParams();
@@ -1324,13 +1325,13 @@ function EmailAccountsCard() {
     if (emailOAuthStatus === 'failed' || emailOAuthError) {
       handledEmailOAuthReturn.current = true;
       const timeout = window.setTimeout(() => {
-        setError(emailOAuthError || 'Email OAuth failed.');
+        setError(emailOAuthError || t('errors.oauthFailed'));
         setMessage(null);
         clearEmailOAuthParams();
       }, 0);
       return () => window.clearTimeout(timeout);
     }
-  }, [clearEmailOAuthParams, loadAccounts, searchParams]);
+  }, [clearEmailOAuthParams, loadAccounts, searchParams, t]);
 
   const persistOAuthProvider = async (provider: 'google' | 'microsoft') => {
     const keys = provider === 'google'
@@ -1347,11 +1348,11 @@ function EmailAccountsCard() {
           clientSecretValue: oauthDraft.microsoftClientSecret.trim(),
         };
     if (!keys.clientIdValue || !keys.clientSecretValue) {
-      throw new Error('Client ID and Client Secret are required before saving or connecting OAuth.');
+      throw new Error(t('errors.oauthCredentialsRequired'));
     }
     const currentResponse = await fetch('/api/integrations/env?scope=integrations', { cache: 'no-store' });
     const currentPayload = await currentResponse.json();
-    if (!currentResponse.ok || !currentPayload.success) throw new Error(currentPayload.error || 'Failed to load current integration keys');
+    if (!currentResponse.ok || !currentPayload.success) throw new Error(currentPayload.error || t('errors.loadIntegrationKeys'));
     const currentEntries = (currentPayload.data?.entries || []) as EnvEntry[];
     const nextEntries = currentEntries
       .filter((entry) => entry.key !== keys.clientId && entry.key !== keys.clientSecret)
@@ -1364,7 +1365,7 @@ function EmailAccountsCard() {
       body: JSON.stringify({ scope: 'integrations', mode: 'kv', entries: nextEntries }),
     });
     const savePayload = await saveResponse.json();
-    if (!saveResponse.ok || !savePayload.success) throw new Error(savePayload.error || 'Failed to save OAuth settings');
+    if (!saveResponse.ok || !savePayload.success) throw new Error(savePayload.error || t('errors.saveOAuthSettings'));
     await loadOAuthEnv();
   };
 
@@ -1374,9 +1375,9 @@ function EmailAccountsCard() {
     setMessage(null);
     try {
       await persistOAuthProvider(provider);
-      setMessage(`${provider === 'google' ? 'Google' : 'Microsoft'} OAuth settings saved.`);
+      setMessage(t('messages.oauthSettingsSaved', { provider: provider === 'google' ? t('providers.google') : t('providers.microsoft') }));
     } catch (saveOAuthError) {
-      setError(saveOAuthError instanceof Error ? saveOAuthError.message : 'Failed to save OAuth settings');
+      setError(saveOAuthError instanceof Error ? saveOAuthError.message : t('errors.saveOAuthSettings'));
     } finally {
       setActiveAction(null);
     }
@@ -1397,11 +1398,11 @@ function EmailAccountsCard() {
         body: JSON.stringify({ provider }),
       });
       const payload = await response.json();
-      if (!response.ok || !payload.success) throw new Error(payload.error || 'Failed to start email OAuth');
-      if (!payload.data?.authorizationUrl) throw new Error('Email OAuth did not return an authorization URL.');
+      if (!response.ok || !payload.success) throw new Error(payload.error || t('errors.startOAuth'));
+      if (!payload.data?.authorizationUrl) throw new Error(t('errors.missingAuthorizationUrl'));
       window.location.assign(payload.data.authorizationUrl);
     } catch (oauthError) {
-      setError(oauthError instanceof Error ? oauthError.message : 'Failed to start email OAuth');
+      setError(oauthError instanceof Error ? oauthError.message : t('errors.startOAuth'));
     } finally {
       setActiveAction(null);
     }
@@ -1422,11 +1423,11 @@ function EmailAccountsCard() {
         }),
       });
       const payload = await response.json();
-      if (!response.ok || !payload.success) throw new Error(payload.error || 'Failed to save email policy');
-      setMessage('Email policy saved.');
+      if (!response.ok || !payload.success) throw new Error(payload.error || t('errors.savePolicy'));
+      setMessage(t('messages.policySaved'));
       await loadAccounts();
     } catch (saveError) {
-      setError(saveError instanceof Error ? saveError.message : 'Failed to save email policy');
+      setError(saveError instanceof Error ? saveError.message : t('errors.savePolicy'));
     } finally {
       setActiveAction(null);
     }
@@ -1439,11 +1440,11 @@ function EmailAccountsCard() {
     try {
       const response = await fetch(`/api/email/accounts/${encodeURIComponent(accountId)}`, { method: 'DELETE' });
       const payload = await response.json();
-      if (!response.ok || !payload.success) throw new Error(payload.error || 'Failed to disconnect email account');
-      setMessage('Email account disconnected.');
+      if (!response.ok || !payload.success) throw new Error(payload.error || t('errors.disconnect'));
+      setMessage(t('messages.accountDisconnected'));
       await loadAccounts();
     } catch (disconnectError) {
-      setError(disconnectError instanceof Error ? disconnectError.message : 'Failed to disconnect email account');
+      setError(disconnectError instanceof Error ? disconnectError.message : t('errors.disconnect'));
     } finally {
       setActiveAction(null);
     }
@@ -1453,19 +1454,30 @@ function EmailAccountsCard() {
   const isLocalEmailMode = emailMode === 'local';
   const hasConnectedEmailAccount = accounts.length > 0;
   const oauthActionDisabled = activeAction !== null || isOAuthLoading || emailMode === 'unknown' || hasConnectedEmailAccount;
+  const providerLabel = (provider: string) => {
+    if (provider === 'google') return t('providers.google');
+    if (provider === 'microsoft') return t('providers.microsoft');
+    return provider;
+  };
+  const statusLabel = (status: string) => {
+    if (status === 'active') return t('statuses.active');
+    if (status === 'expired') return t('statuses.expired');
+    if (status === 'revoked') return t('statuses.revoked');
+    return status;
+  };
 
   return (
     <Card>
       <CardHeader>
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div>
-            <CardTitle>Email Accounts</CardTitle>
-            <CardDescription>Connect email accounts and control which senders can be read or recipients can be used for sending.</CardDescription>
+            <CardTitle>{t('title')}</CardTitle>
+            <CardDescription>{t('description')}</CardDescription>
           </div>
           <div className="flex flex-wrap gap-2">
             <Button type="button" variant="outline" onClick={() => void loadAccounts()} disabled={isLoading}>
               {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
-              Refresh
+              {t('refresh')}
             </Button>
           </div>
         </div>
@@ -1477,13 +1489,13 @@ function EmailAccountsCard() {
           <div className="grid gap-3 lg:grid-cols-2">
             <div className="space-y-3 border border-border p-4">
               <div>
-                <h3 className="text-base font-semibold">Google OAuth</h3>
-                <p className="text-sm text-muted-foreground">{isManagedEmailMode ? 'Connect Gmail accounts with Canvas Managed Services.' : 'Used for connecting Gmail accounts in self-hosted setups.'}</p>
+                <h3 className="text-base font-semibold">{t('oauth.googleTitle')}</h3>
+                <p className="text-sm text-muted-foreground">{isManagedEmailMode ? t('oauth.googleManagedDescription') : t('oauth.googleLocalDescription')}</p>
               </div>
               {isLocalEmailMode && (
                 <>
                   <div className="space-y-2">
-                    <Label className="text-xs uppercase tracking-wider text-muted-foreground" htmlFor="email-google-client-id">Client ID</Label>
+                    <Label className="text-xs uppercase tracking-wider text-muted-foreground" htmlFor="email-google-client-id">{t('oauth.clientId')}</Label>
                     <Input
                       id="email-google-client-id"
                       className="font-mono text-xs"
@@ -1494,7 +1506,7 @@ function EmailAccountsCard() {
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label className="text-xs uppercase tracking-wider text-muted-foreground" htmlFor="email-google-client-secret">Client Secret</Label>
+                    <Label className="text-xs uppercase tracking-wider text-muted-foreground" htmlFor="email-google-client-secret">{t('oauth.clientSecret')}</Label>
                     <Input
                       id="email-google-client-secret"
                       type="password"
@@ -1511,24 +1523,24 @@ function EmailAccountsCard() {
                 {isLocalEmailMode && (
                   <Button type="button" variant="outline" onClick={() => void saveOAuthProvider('google')} disabled={isOAuthLoading || activeAction !== null}>
                     {activeAction === 'oauth-save:google' ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
-                    Save
+                    {t('save')}
                   </Button>
                 )}
                 <Button type="button" onClick={() => void startOAuth('google')} disabled={oauthActionDisabled}>
                   <ExternalLink className="mr-2 h-4 w-4" />
-                  Connect
+                  {t('connect')}
                 </Button>
               </div>
             </div>
             <div className="space-y-3 border border-border p-4">
               <div>
-                <h3 className="text-base font-semibold">Microsoft OAuth</h3>
-                <p className="text-sm text-muted-foreground">{isManagedEmailMode ? 'Connect Microsoft 365 or Outlook accounts with Canvas Managed Services.' : 'Used for connecting Microsoft 365 or Outlook accounts.'}</p>
+                <h3 className="text-base font-semibold">{t('oauth.microsoftTitle')}</h3>
+                <p className="text-sm text-muted-foreground">{isManagedEmailMode ? t('oauth.microsoftManagedDescription') : t('oauth.microsoftLocalDescription')}</p>
               </div>
               {isLocalEmailMode && (
                 <>
                   <div className="space-y-2">
-                    <Label className="text-xs uppercase tracking-wider text-muted-foreground" htmlFor="email-microsoft-client-id">Client ID</Label>
+                    <Label className="text-xs uppercase tracking-wider text-muted-foreground" htmlFor="email-microsoft-client-id">{t('oauth.clientId')}</Label>
                     <Input
                       id="email-microsoft-client-id"
                       className="font-mono text-xs"
@@ -1539,7 +1551,7 @@ function EmailAccountsCard() {
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label className="text-xs uppercase tracking-wider text-muted-foreground" htmlFor="email-microsoft-client-secret">Client Secret</Label>
+                    <Label className="text-xs uppercase tracking-wider text-muted-foreground" htmlFor="email-microsoft-client-secret">{t('oauth.clientSecret')}</Label>
                     <Input
                       id="email-microsoft-client-secret"
                       type="password"
@@ -1556,19 +1568,19 @@ function EmailAccountsCard() {
                 {isLocalEmailMode && (
                   <Button type="button" variant="outline" onClick={() => void saveOAuthProvider('microsoft')} disabled={isOAuthLoading || activeAction !== null}>
                     {activeAction === 'oauth-save:microsoft' ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
-                    Save
+                    {t('save')}
                   </Button>
                 )}
                 <Button type="button" onClick={() => void startOAuth('microsoft')} disabled={oauthActionDisabled}>
                   <ExternalLink className="mr-2 h-4 w-4" />
-                  Connect
+                  {t('connect')}
                 </Button>
               </div>
             </div>
           </div>
         )}
         {accounts.length === 0 ? (
-          <div className="border border-border p-4 text-sm text-muted-foreground">No email accounts connected.</div>
+          <div className="border border-border p-4 text-sm text-muted-foreground">{t('noAccounts')}</div>
         ) : (
           accounts.map((account) => {
             const draft = drafts[account.id] || { readFrom: '', sendTo: '' };
@@ -1578,46 +1590,46 @@ function EmailAccountsCard() {
                   <div>
                     <div className="flex flex-wrap items-center gap-2">
                       <h3 className="text-base font-semibold">{account.emailAddress}</h3>
-                      <Badge variant="outline">{account.provider}</Badge>
-                      <Badge variant={account.status === 'active' ? 'default' : 'secondary'}>{account.status}</Badge>
+                      <Badge variant="outline">{providerLabel(account.provider)}</Badge>
+                      <Badge variant={account.status === 'active' ? 'default' : 'secondary'}>{statusLabel(account.status)}</Badge>
                     </div>
                     {account.displayName && <p className="text-sm text-muted-foreground">{account.displayName}</p>}
                   </div>
                   <Button type="button" variant="ghost" size="sm" onClick={() => void disconnect(account.id)} disabled={activeAction !== null}>
                     <Trash2 className="mr-2 h-4 w-4" />
-                    Disconnect
+                    {t('disconnect')}
                   </Button>
                 </div>
                 <div className="grid gap-3 md:grid-cols-2">
                   <div>
-                    <Label className="text-xs uppercase tracking-wider text-muted-foreground">Read from emails</Label>
+                    <Label className="text-xs uppercase tracking-wider text-muted-foreground">{t('policy.readFromLabel')}</Label>
                     <textarea
                       className="mt-2 min-h-28 w-full border border-input bg-background px-3 py-2 text-sm"
                       value={draft.readFrom}
                       onChange={(event) => setDrafts((current) => ({ ...current, [account.id]: { ...draft, readFrom: event.target.value } }))}
-                      placeholder="All senders allowed"
+                      placeholder={t('policy.readFromPlaceholder')}
                     />
                     <p className="mt-2 text-xs text-muted-foreground">
-                      Add one sender per line or separate with commas. Use full addresses like name@example.com or domains like @example.com. Empty means all senders are allowed.
+                      {t('policy.readFromDescription')}
                     </p>
                   </div>
                   <div>
-                    <Label className="text-xs uppercase tracking-wider text-muted-foreground">Send to emails</Label>
+                    <Label className="text-xs uppercase tracking-wider text-muted-foreground">{t('policy.sendToLabel')}</Label>
                     <textarea
                       className="mt-2 min-h-28 w-full border border-input bg-background px-3 py-2 text-sm"
                       value={draft.sendTo}
                       onChange={(event) => setDrafts((current) => ({ ...current, [account.id]: { ...draft, sendTo: event.target.value } }))}
-                      placeholder="All recipients allowed"
+                      placeholder={t('policy.sendToPlaceholder')}
                     />
                     <p className="mt-2 text-xs text-muted-foreground">
-                      Add one recipient per line or separate with commas. Use full addresses like name@example.com or domains like @example.com. Empty means all recipients are allowed.
+                      {t('policy.sendToDescription')}
                     </p>
                   </div>
                 </div>
                 <div className="flex justify-end">
                   <Button type="button" onClick={() => void savePolicy(account.id)} disabled={activeAction !== null}>
                     <Save className="mr-2 h-4 w-4" />
-                    Save policy
+                    {t('savePolicy')}
                   </Button>
                 </div>
               </div>
