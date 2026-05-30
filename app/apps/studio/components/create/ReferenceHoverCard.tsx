@@ -13,6 +13,7 @@ import {
   DialogClose,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
+import { Skeleton } from '@/components/ui/skeleton';
 
 export type ReferenceType = 'product' | 'persona' | 'style' | 'preset' | 'file';
 
@@ -42,6 +43,60 @@ const TYPE_BADGE_COLORS: Record<ReferenceType, string> = {
   file: 'bg-rose-100 text-rose-700',
 };
 
+function PreviewImageSkeleton() {
+  return (
+    <div className="absolute inset-0 flex items-center justify-center overflow-hidden bg-muted/90" aria-hidden="true">
+      <div className="absolute inset-0 animate-pulse bg-[radial-gradient(circle_at_25%_20%,hsl(var(--background)/0.75),transparent_30%),linear-gradient(135deg,hsl(var(--muted)),hsl(var(--accent)),hsl(var(--muted)))]" />
+      <div className="relative flex w-4/5 flex-col items-center gap-3">
+        <Skeleton className="h-28 w-full rounded-lg bg-background/70" />
+        <div className="flex w-full gap-2">
+          <Skeleton className="h-2.5 flex-1 rounded-full bg-background/60" />
+          <Skeleton className="h-2.5 w-14 rounded-full bg-background/60" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PreviewImage({
+  previewUrl,
+  name,
+  fallbackIcon,
+}: {
+  previewUrl: string;
+  name: string;
+  fallbackIcon: React.ReactNode;
+}) {
+  const [imageStatus, setImageStatus] = useState<'loading' | 'loaded' | 'error'>('loading');
+
+  if (imageStatus === 'error') {
+    return (
+      <div className="relative z-[1] flex aspect-square w-full max-w-[280px] items-center justify-center">
+        {fallbackIcon}
+      </div>
+    );
+  }
+
+  return (
+    <>
+      {imageStatus === 'loading' ? <PreviewImageSkeleton /> : null}
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={previewUrl}
+        alt={name}
+        className={cn(
+          'relative z-[1] block h-auto max-h-[min(52dvh,360px)] w-auto max-w-full object-contain transition-opacity duration-300',
+          imageStatus === 'loaded' ? 'opacity-100' : 'opacity-0',
+        )}
+        loading="lazy"
+        decoding="async"
+        onLoad={() => setImageStatus('loaded')}
+        onError={() => setImageStatus('error')}
+      />
+    </>
+  );
+}
+
 function PreviewContent({
   name,
   type,
@@ -61,18 +116,12 @@ function PreviewContent({
 
   return (
     <div className="flex w-full min-w-0 flex-col gap-2">
-      <div className="relative mx-auto flex w-full max-w-[320px] items-center justify-center overflow-hidden rounded-md bg-muted">
+      <div className={cn(
+        'relative mx-auto flex w-full max-w-[320px] items-center justify-center overflow-hidden rounded-md bg-muted',
+        previewUrl && 'min-h-56',
+      )}>
         {previewUrl ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={previewUrl}
-            alt={name}
-            className="block h-auto max-h-[min(52dvh,360px)] w-auto max-w-full object-contain"
-            loading="lazy"
-            onError={(e) => {
-              (e.target as HTMLImageElement).style.display = 'none';
-            }}
-          />
+          <PreviewImage key={previewUrl} previewUrl={previewUrl} name={name} fallbackIcon={fallbackIcon} />
         ) : (
           <div className="flex aspect-square w-full max-w-[280px] items-center justify-center">
             {fallbackIcon}
