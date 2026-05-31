@@ -10,7 +10,24 @@ export type ToolDisplayTone =
   | 'person'
   | 'style'
   | 'list'
-  | 'automation'
+  | 'automationList'
+  | 'automationCreate'
+  | 'automationUpdate'
+  | 'automationDelete'
+  | 'automationTrigger'
+  | 'emailAccounts'
+  | 'emailRead'
+  | 'emailDraftCreate'
+  | 'emailDraftUpdate'
+  | 'emailSend'
+  | 'mcp'
+  | 'memory'
+  | 'session'
+  | 'delegation'
+  | 'composioSearch'
+  | 'composioSchema'
+  | 'composioExecute'
+  | 'composioConnections'
   | 'default';
 
 export type ToolDisplayInfo = {
@@ -47,17 +64,25 @@ const TOOL_DISPLAY: Record<string, ToolDisplayEntry> = {
   studio_list_personas: { label: 'Loaded personas', labelDe: 'Personas geladen', tone: 'person' },
   studio_list_styles: { label: 'Loaded styles', labelDe: 'Stile geladen', tone: 'style' },
   studio_list_presets: { label: 'Loaded presets', labelDe: 'Presets geladen', tone: 'list' },
-  list_automation_jobs: { label: 'Loaded automations', labelDe: 'Automationen geladen', tone: 'automation' },
-  create_automation_job: { label: 'Created automation', labelDe: 'Automation erstellt', tone: 'automation' },
-  update_automation_job: { label: 'Updated automation', labelDe: 'Automation aktualisiert', tone: 'automation' },
-  delete_automation_job: { label: 'Deleted automation', labelDe: 'Automation gelöscht', tone: 'automation' },
-  trigger_automation_job: { label: 'Started automation', labelDe: 'Automation gestartet', tone: 'automation' },
-  email_list_accounts: { label: 'Loaded email accounts', labelDe: 'E-Mail-Konten geladen', tone: 'data' },
+  list_automation_jobs: { label: 'Loaded automations', labelDe: 'Automationen geladen', tone: 'automationList' },
+  create_automation_job: { label: 'Created automation', labelDe: 'Automation erstellt', tone: 'automationCreate' },
+  update_automation_job: { label: 'Updated automation', labelDe: 'Automation aktualisiert', tone: 'automationUpdate' },
+  delete_automation_job: { label: 'Deleted automation', labelDe: 'Automation gelöscht', tone: 'automationDelete' },
+  trigger_automation_job: { label: 'Started automation', labelDe: 'Automation gestartet', tone: 'automationTrigger' },
+  email_list_accounts: { label: 'Loaded email accounts', labelDe: 'E-Mail-Konten geladen', tone: 'emailAccounts' },
   email_search: { label: 'Searched email', labelDe: 'E-Mails durchsucht', tone: 'search' },
-  email_read: { label: 'Read email', labelDe: 'E-Mail gelesen', tone: 'data' },
-  email_create_draft: { label: 'Created email draft', labelDe: 'E-Mail-Entwurf erstellt', tone: 'data' },
-  email_update_draft: { label: 'Updated email draft', labelDe: 'E-Mail-Entwurf aktualisiert', tone: 'data' },
-  email_send_draft: { label: 'Sent email draft', labelDe: 'E-Mail-Entwurf gesendet', tone: 'data' },
+  email_read: { label: 'Read email', labelDe: 'E-Mail gelesen', tone: 'emailRead' },
+  email_create_draft: { label: 'Created email draft', labelDe: 'E-Mail-Entwurf erstellt', tone: 'emailDraftCreate' },
+  email_update_draft: { label: 'Updated email draft', labelDe: 'E-Mail-Entwurf aktualisiert', tone: 'emailDraftUpdate' },
+  email_send_draft: { label: 'Sent email draft', labelDe: 'E-Mail-Entwurf gesendet', tone: 'emailSend' },
+  mcp: { label: 'Used MCP', labelDe: 'MCP verwendet', tone: 'mcp' },
+  memory: { label: 'Updated memory', labelDe: 'Memory aktualisiert', tone: 'memory' },
+  session_search: { label: 'Searched sessions', labelDe: 'Sessions durchsucht', tone: 'session' },
+  delegate_task: { label: 'Delegated task', labelDe: 'Aufgabe delegiert', tone: 'delegation' },
+  COMPOSIO_SEARCH_TOOLS: { label: 'Searched external tools', labelDe: 'Externe Tools gesucht', tone: 'composioSearch' },
+  COMPOSIO_GET_TOOL_SCHEMAS: { label: 'Loaded tool schemas', labelDe: 'Tool-Schemas geladen', tone: 'composioSchema' },
+  composio_execute: { label: 'Ran external tool', labelDe: 'Externes Tool ausgeführt', tone: 'composioExecute' },
+  COMPOSIO_MANAGE_CONNECTIONS: { label: 'Managed app connections', labelDe: 'App-Verbindungen verwaltet', tone: 'composioConnections' },
 };
 
 export function getToolDisplayInfo(toolName: string | undefined, locale: string): ToolDisplayInfo {
@@ -67,6 +92,20 @@ export function getToolDisplayInfo(toolName: string | undefined, locale: string)
     return {
       label: locale.startsWith('de') ? display.labelDe : display.label,
       tone: display.tone,
+    };
+  }
+
+  if (normalizedName.startsWith('mcp_')) {
+    return {
+      label: locale.startsWith('de') ? 'MCP-Tool ausgeführt' : 'Ran MCP tool',
+      tone: 'mcp',
+    };
+  }
+
+  if (normalizedName.startsWith('COMPOSIO_')) {
+    return {
+      label: locale.startsWith('de') ? 'Composio-Tool verwendet' : 'Used Composio tool',
+      tone: 'composioExecute',
     };
   }
 
