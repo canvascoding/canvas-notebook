@@ -6,7 +6,7 @@ import { useTranslations } from 'next-intl';
 
 import { AgentAvatar } from '@/app/components/agents/AgentAvatar';
 import { AgentIconPickerDialog } from '@/app/components/agents/AgentIconPickerDialog';
-import { AgentManagedFilesCard, type ManagedFileName } from './AgentManagedFilesCard';
+import { AgentManagedFilesEditor, type ManagedFileName } from './AgentManagedFilesCard';
 import { type AgentIconId } from '@/app/lib/agents/icons';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -471,34 +471,24 @@ export function CreateAgentDialog({
                   </section>
 
                   <section className="rounded-md border bg-muted/15 p-4">
-                    <AgentManagedFilesCard
-                      isMainAgent={false}
-                      files={fileDrafts}
-                      fileDrafts={fileDrafts}
-                      activeFile={activeFile}
-                      filesLoading={false}
-                      filesSaving={creating}
-                      filesResetting={false}
-                      filesError={null}
-                      filesSuccess={null}
-                      resetDialogOpen={false}
-                      resetTarget={null}
-                      onActiveFileChange={setActiveFile}
-                      onDraftChange={(fileName, value) => setFileDrafts((current) => ({ ...current, [fileName]: value }))}
-                      onSaveActiveFile={() => undefined}
-                      onReloadFiles={() => setFileDrafts(mergeFileDrafts(selectedTemplate))}
-                      onOpenResetDialog={() => undefined}
-                      onResetDialogOpenChange={() => undefined}
-                      onClearResetTarget={() => undefined}
-                      onResetFile={() => undefined}
-                      variant="embedded"
-                      visibleFileNames={CREATE_AGENT_FILE_NAMES}
-                      showInheritedFiles={false}
-                      showFileActions={false}
-                      editorClassName="h-[300px]"
-                      title={t('files.title')}
-                      description={t('files.description')}
-                    />
+                    <div id="onboarding-settings-managedFiles" className="space-y-3">
+                      <div className="space-y-1">
+                        <h3 className="text-base font-semibold">{t('files.title')}</h3>
+                        <p className="text-sm text-muted-foreground">{t('files.description')}</p>
+                      </div>
+                      <AgentManagedFilesEditor
+                        isMainAgent={false}
+                        files={fileDrafts}
+                        fileDrafts={fileDrafts}
+                        activeFile={activeFile}
+                        filesLoading={false}
+                        onActiveFileChange={setActiveFile}
+                        onDraftChange={(fileName, value) => setFileDrafts((current) => ({ ...current, [fileName]: value }))}
+                        visibleFileNames={CREATE_AGENT_FILE_NAMES}
+                        showInheritedFiles={false}
+                        editorClassName="h-[300px]"
+                      />
+                    </div>
                   </section>
 
                   {error && <p className="text-sm text-destructive">{error}</p>}
