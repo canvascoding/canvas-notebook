@@ -9,9 +9,10 @@ process.env.CANVAS_DATA_ROOT = dataDir;
 
 async function main() {
   const { db } = await import('../app/lib/db');
-  const { user } = await import('../app/lib/db/schema');
+  const { automationJobs, user } = await import('../app/lib/db/schema');
+  const { eq } = await import('drizzle-orm');
   const { readHeartbeatConfig, saveHeartbeatConfig } = await import('../app/lib/automations/heartbeat-config');
-  const { getHeartbeatJob } = await import('../app/lib/automations/store');
+  const { advanceAutomationJobSchedule, getHeartbeatJob } = await import('../app/lib/automations/store');
   const { buildHeartbeatPrompt } = await import('../app/lib/automations/heartbeat');
   const { writeManagedAgentFile } = await import('../app/lib/agents/storage');
 
@@ -53,6 +54,21 @@ async function main() {
   assert.equal(canvasHeartbeat.agentId, 'canvas-agent');
   assert.equal(researchHeartbeat.agentId, 'research-agent');
   assert.equal(researchHeartbeat.deliveryChannelId, 'telegram');
+
+  assert.ok(researchHeartbeat.jobId);
+  const previousResearchRunAt = new Date('2026-05-31T10:00:00.000Z');
+  const dueResearchRunAt = new Date('2026-05-31T12:00:00.000Z');
+  await db
+    .update(automationJobs)
+    .set({
+      lastRunAt: previousResearchRunAt,
+      nextRunAt: dueResearchRunAt,
+    })
+    .where(eq(automationJobs.id, researchHeartbeat.jobId));
+
+  await advanceAutomationJobSchedule(researchHeartbeat.jobId, dueResearchRunAt);
+  const advancedResearch = await getHeartbeatJob({ userId, agentId: 'research-agent' });
+  assert.equal(advancedResearch?.nextRunAt, '2026-05-31T14:00:00.000Z');
 
   await saveHeartbeatConfig({
     userId,
