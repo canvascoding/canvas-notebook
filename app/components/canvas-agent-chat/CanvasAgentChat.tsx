@@ -3963,8 +3963,10 @@ export default function CanvasAgentChat({
 
       if (messagesPayload?.success && Array.isArray(messagesPayload.messages)) {
         const nextMessages = mapRawMessages(messagesPayload.messages);
-        setMessages(nextMessages);
-        hydrateMessageRefsFromMessages(nextMessages);
+        if (nextMessages.length > 0 || !hasCachedMessages) {
+          setMessages(nextMessages);
+          hydrateMessageRefsFromMessages(nextMessages);
+        }
         if (typeof messagesPayload.hasMoreBefore === 'boolean') {
           setHasMoreBefore(messagesPayload.hasMoreBefore);
         } else if (messagesPayload.messages.length >= 50) {
@@ -4947,7 +4949,7 @@ export default function CanvasAgentChat({
   const isCompactComposer = composerWidth > 0 && composerWidth < 520;
   const isCompactView = isMobile || (composerWidth > 0 && composerWidth < 640);
   const showInitialChatLoader = messages.length === 0 && isResolvingInitialChatState;
-  const showStarterScreen = messages.length === 0 && !isResolvingInitialChatState;
+  const showStarterScreen = messages.length === 0 && !sessionId && !isResolvingInitialChatState;
   const activeSessionAgentId = history.find((session) => session.sessionId === sessionId)?.agentId || selectedAgentId;
   const agentProfilesById = useMemo(() => new Map(availableAgents.map((agent) => [agent.agentId, agent])), [availableAgents]);
   const activeAgentProfile = agentProfilesById.get(activeSessionAgentId);
