@@ -8,6 +8,7 @@ import { getLicenseStatus } from '@/app/lib/license';
 import { LicenseBanner } from '@/app/components/license/LicenseBanner';
 import { HomeWorkspaceView } from '@/app/components/home/HomeWorkspaceView';
 import { AppLauncher } from '@/app/components/AppLauncher';
+import { NotificationBell } from '@/app/components/notifications/NotificationBell';
 import { HomeHintProvider } from '@/app/components/onboarding/HomeHintProvider';
 import { isOnboardingEnabled } from '@/app/lib/onboarding/status';
 import { LogoutButton } from '@/app/components/LogoutButton';
@@ -41,6 +42,7 @@ export default async function Home() {
             </div>
 
             <div className="ml-auto flex items-center gap-2 md:gap-3">
+              <NotificationBell />
               <AppLauncher />
               <ThemeToggle />
               <LogoutButton />

@@ -24,6 +24,7 @@ import { ThemeToggle } from '@/app/components/ThemeToggle';
 
 
 import { AppLauncher } from '@/app/components/AppLauncher';
+import { NotificationBell } from '@/app/components/notifications/NotificationBell';
 
 interface FileBrowserProps {
   variant?: 'default' | 'mobile-sheet' | 'fullscreen';
@@ -315,6 +316,7 @@ export function FileBrowser({ variant = 'default', onFileSelect }: FileBrowserPr
             <h1 className="hidden md:block text-lg md:text-2xl font-bold truncate">{t('filesTitle')}</h1>
           </div>
           <div className="flex items-center gap-1.5 md:gap-4">
+            <NotificationBell />
             <AppLauncher />
             <ThemeToggle />
           </div>

@@ -1,6 +1,7 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { useLocale, useTranslations } from 'next-intl';
 import { toast } from 'sonner';
 import {
@@ -167,6 +168,9 @@ function fileLinkHref(workspacePath: string) {
 export function TodosClient({ title }: { title: string }) {
   const t = useTranslations('todos');
   const locale = useLocale();
+  const searchParams = useSearchParams();
+  const openedTodoParamRef = useRef<string | null>(null);
+  const pendingTodoParamRef = useRef<string | null>(null);
   const [todos, setTodos] = useState<TodoItem[]>([]);
   const [categories, setCategories] = useState<TodoCategory[]>([]);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('active');
@@ -311,6 +315,7 @@ export function TodosClient({ title }: { title: string }) {
         }
         return next;
       });
+      window.dispatchEvent(new CustomEvent('todo_updated'));
       return updated;
     } finally {
       setIsMutating(false);
@@ -327,6 +332,61 @@ export function TodosClient({ title }: { title: string }) {
       }
     }
   }, [t, updateTodo]);
+
+  const todoIdParam = searchParams.get('todo');
+
+  useEffect(() => {
+    if (
+      !todoIdParam
+      || openedTodoParamRef.current === todoIdParam
+      || pendingTodoParamRef.current === todoIdParam
+    ) {
+      return;
+    }
+
+    pendingTodoParamRef.current = todoIdParam;
+    let cancelled = false;
+    const handle = window.setTimeout(() => {
+      void (async () => {
+        let todo = todos.find((item) => item.id === todoIdParam) ?? null;
+
+        if (!todo) {
+          const response = await fetch(`/api/todos/${encodeURIComponent(todoIdParam)}`, {
+            credentials: 'include',
+            cache: 'no-store',
+          });
+          const fetchedTodo = await readApiData<TodoItem>(response);
+          todo = fetchedTodo;
+          if (cancelled) return;
+          setTodos((current) => {
+            const exists = current.some((item) => item.id === fetchedTodo.id);
+            return exists
+              ? current.map((item) => (item.id === fetchedTodo.id ? fetchedTodo : item))
+              : [fetchedTodo, ...current];
+          });
+        }
+
+        if (cancelled) return;
+        openedTodoParamRef.current = todoIdParam;
+        await handleSelectTodo(todo);
+      })().catch((error) => {
+        if (!cancelled) {
+          toast.error(error instanceof Error ? error.message : t('errors.loadFailed'));
+        }
+      }).finally(() => {
+        if (pendingTodoParamRef.current === todoIdParam) {
+          pendingTodoParamRef.current = null;
+        }
+      });
+    }, 0);
+    return () => {
+      cancelled = true;
+      if (pendingTodoParamRef.current === todoIdParam) {
+        pendingTodoParamRef.current = null;
+      }
+      window.clearTimeout(handle);
+    };
+  }, [handleSelectTodo, t, todoIdParam, todos]);
 
   const openCreateDialog = useCallback(() => {
     setEditingTodoId(null);
@@ -373,6 +433,7 @@ export function TodosClient({ title }: { title: string }) {
       await loadTodos();
       setSelectedTodoId(saved.id);
       setEditorOpen(false);
+      window.dispatchEvent(new CustomEvent('todo_updated'));
       toast.success(editingTodoId ? t('toasts.updated') : t('toasts.created'));
     } catch (error) {
       toast.error(error instanceof Error ? error.message : t('errors.saveFailed'));
@@ -391,6 +452,7 @@ export function TodosClient({ title }: { title: string }) {
       await readApiData<TodoItem>(response);
       setTodos((current) => current.filter((item) => item.id !== todo.id));
       setSelectedTodoId((current) => (current === todo.id ? null : current));
+      window.dispatchEvent(new CustomEvent('todo_updated'));
       toast.success(t('toasts.archived'));
     } catch (error) {
       toast.error(error instanceof Error ? error.message : t('errors.archiveFailed'));
@@ -431,6 +493,7 @@ export function TodosClient({ title }: { title: string }) {
         body: JSON.stringify({ markSeen: true }),
       }).then((response) => readApiData<TodoItem>(response))));
       await loadTodos();
+      window.dispatchEvent(new CustomEvent('todo_updated'));
       toast.success(t('toasts.markedAllSeen'));
     } catch (error) {
       toast.error(error instanceof Error ? error.message : t('errors.markSeenFailed'));

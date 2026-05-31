@@ -14,6 +14,7 @@ import { useTranslations } from 'next-intl';
 import { Link } from '@/i18n/navigation';
 import CanvasAgentChat from '@/app/components/canvas-agent-chat/CanvasAgentChat';
 import { AppLauncher } from '@/app/components/AppLauncher';
+import { NotificationBell } from '@/app/components/notifications/NotificationBell';
 import { ThemeToggle } from '@/app/components/ThemeToggle';
 import { HintProvider } from '@/app/components/onboarding/HintProvider';
 import type { ChatRequestContext } from '@/app/lib/chat/types';
@@ -91,21 +92,33 @@ export function ChatDockShell({
   const tNav = useTranslations('navigation');
   const tChat = useTranslations('chat');
   const [viewportMode, setViewportMode] = useState<'mobile' | 'desktop' | null>(null);
-  const [chatVisible, setChatVisible] = useState(() => getStoredBoolean(chatVisibleStorageKey, defaultChatVisible));
-  const [chatWidth, setChatWidth] = useState(() => getStoredChatWidth(chatWidthStorageKey));
+  const [chatVisible, setChatVisible] = useState(defaultChatVisible);
+  const [chatWidth, setChatWidth] = useState(DEFAULT_CHAT_WIDTH);
   const [desktopChatMode, setDesktopChatMode] = useState<DesktopChatMode>('side');
   const [mobileChatOpen, setMobileChatOpen] = useState(false);
   const [viewportWidth, setViewportWidth] = useState(DEFAULT_CHAT_WIDTH);
+  const [hasMounted, setHasMounted] = useState(false);
   const isResizing = useRef(false);
   const prevViewportModeRef = useRef<'mobile' | 'desktop' | null>(null);
 
   useEffect(() => {
-    window.localStorage.setItem(chatVisibleStorageKey, String(chatVisible));
-  }, [chatVisible, chatVisibleStorageKey]);
+    const handle = window.setTimeout(() => {
+      setChatVisible(getStoredBoolean(chatVisibleStorageKey, defaultChatVisible));
+      setChatWidth(getStoredChatWidth(chatWidthStorageKey));
+      setHasMounted(true);
+    }, 0);
+    return () => window.clearTimeout(handle);
+  }, [chatVisibleStorageKey, chatWidthStorageKey, defaultChatVisible]);
 
   useEffect(() => {
+    if (!hasMounted) return;
+    window.localStorage.setItem(chatVisibleStorageKey, String(chatVisible));
+  }, [chatVisible, chatVisibleStorageKey, hasMounted]);
+
+  useEffect(() => {
+    if (!hasMounted) return;
     window.localStorage.setItem(chatWidthStorageKey, String(chatWidth));
-  }, [chatWidth, chatWidthStorageKey]);
+  }, [chatWidth, chatWidthStorageKey, hasMounted]);
 
   useEffect(() => {
     const handleViewport = () => {
@@ -292,6 +305,7 @@ export function ChatDockShell({
 
             <div className="ml-auto flex min-w-0 items-center gap-1.5 md:gap-3">
               {headerActions}
+              <NotificationBell />
               <AppLauncher />
               {chatModeControl}
               <ThemeToggle />
