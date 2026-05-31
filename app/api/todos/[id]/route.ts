@@ -75,6 +75,9 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       ...(payload?.status !== undefined ? { status: parseStatus(payload.status) } : {}),
       ...(payload?.markSeen === true ? { seenAt: new Date() } : {}),
       ...(payload?.seenAt !== undefined ? { seenAt: parseOptionalDate(payload.seenAt) ?? null } : {}),
+      ...(payload?.completionComment !== undefined ? {
+        completionComment: typeof payload.completionComment === 'string' ? payload.completionComment : null,
+      } : {}),
       ...(payload?.fileLinks !== undefined ? { fileLinks: parseFileLinks(payload.fileLinks) ?? [] } : {}),
     });
 

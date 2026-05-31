@@ -597,7 +597,7 @@ class LivePiRuntime {
   }
 
   async reloadTools() {
-    this.tools = await getPiTools(this.userId, this.agentId);
+    this.tools = await getPiTools(this.userId, this.agentId, this.sessionId);
     this.lastComposition = null;
     this.agent.state.tools = this.planningMode ? filterToolsForPlanningMode(this.tools) : this.tools;
   }
@@ -1071,7 +1071,7 @@ async function createRuntime(sessionId: string, userId: string): Promise<LivePiR
     ? await ensurePiSessionSystemPromptSnapshot(sessionRecord)
     : await createPiSystemPromptSnapshot(agentId);
   const systemPrompt = promptSnapshot.systemPrompt;
-  const tools = await getPiTools(userId, agentId);
+  const tools = await getPiTools(userId, agentId, sessionId);
 
   const runtimeRef: { current: LivePiRuntime | null } = { current: null };
   const agent = new Agent({
@@ -1273,7 +1273,7 @@ export async function getPiRuntimeStatus(sessionId: string, userId: string): Pro
   };
   const promptSnapshot = await ensurePiSessionSystemPromptSnapshot(sessionRecord);
   const systemPrompt = promptSnapshot.systemPrompt;
-  const tools = await getPiTools(userId, sessionRecord.agentId);
+  const tools = await getPiTools(userId, sessionRecord.agentId, sessionId);
   const model = await resolvePiModel(sessionRecord.provider, sessionRecord.model);
   const composition = composePiHistoryForLlm({
     messages,

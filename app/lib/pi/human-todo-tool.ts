@@ -36,8 +36,11 @@ function normalizeFileLinks(value: unknown): TodoFileLinkInput[] | undefined {
   return value.filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0);
 }
 
-export function createHumanTodoTool(deps: { userId?: string; agentId?: string | null } = {}): AgentTool {
+export function createHumanTodoTool(deps: { userId?: string; agentId?: string | null; sessionId?: string | null } = {}): AgentTool {
   const sourceAgentId = normalizeManagedAgentId(deps.agentId);
+  const sourceSessionId = typeof deps.sessionId === 'string' && deps.sessionId.trim()
+    ? deps.sessionId.trim()
+    : null;
 
   return {
     name: 'create_human_todo',
@@ -59,7 +62,7 @@ export function createHumanTodoTool(deps: { userId?: string; agentId?: string | 
         description: 'Optional workspace-relative file paths relevant to the task. Absolute paths, URLs, and traversal are rejected.',
         maxItems: 20,
       })),
-      sourceSessionId: Type.Optional(Type.String({ description: 'Optional Canvas Agent session ID if known.' })),
+      sourceSessionId: Type.Optional(Type.String({ description: 'Optional Canvas Agent session ID. Usually set automatically by Canvas when this tool runs inside a chat session.' })),
     }),
     execute: async (_toolCallId, params) => {
       try {
@@ -76,7 +79,7 @@ export function createHumanTodoTool(deps: { userId?: string; agentId?: string | 
           dueAt: parseDueAt(input.dueAt),
           sourceType: 'agent',
           sourceAgentId,
-          sourceSessionId: typeof input.sourceSessionId === 'string' ? input.sourceSessionId : null,
+          sourceSessionId: sourceSessionId || (typeof input.sourceSessionId === 'string' ? input.sourceSessionId : null),
           seenAt: null,
           fileLinks: normalizeFileLinks(input.fileLinks),
         });

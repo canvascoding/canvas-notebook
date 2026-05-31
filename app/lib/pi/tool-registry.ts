@@ -1921,12 +1921,12 @@ function createMemoryTool(agentId?: string | null): AgentTool {
   };
 }
 
-function createUserScopedTools(userId?: string, agentId?: string | null): AgentTool[] {
+function createUserScopedTools(userId?: string, agentId?: string | null, sessionId?: string | null): AgentTool[] {
   const sourceAgentId = normalizeManagedAgentId(agentId);
   const tools: AgentTool[] = [
     createMemoryTool(agentId),
     createSessionSearchTool({ userId, agentId }),
-    createHumanTodoTool({ userId, agentId }),
+    createHumanTodoTool({ userId, agentId, sessionId }),
   ];
 
   if (sourceAgentId === DEFAULT_AGENT_ID) {
@@ -2267,15 +2267,15 @@ function getToolNotes(tool: AgentTool, group: PiToolGroup): string[] {
   return notes.length > 0 ? notes : ['Read-only or low-side-effect utility under normal use.'];
 }
 
-export function buildPiToolRegistry(userId?: string, agentId?: string | null): AgentTool[] {
-  const userScopedTools = createUserScopedTools(userId, agentId);
+export function buildPiToolRegistry(userId?: string, agentId?: string | null, sessionId?: string | null): AgentTool[] {
+  const userScopedTools = createUserScopedTools(userId, agentId, sessionId);
   const overriddenNames = new Set(userScopedTools.map((t) => t.name));
   const coreTools = piTools.filter((t) => !overriddenNames.has(t.name));
   return [...coreTools, ...userScopedTools];
 }
 
-export async function buildPiToolRegistryAsync(userId?: string, agentId?: string | null): Promise<AgentTool[]> {
-  const userScopedTools = createUserScopedTools(userId, agentId);
+export async function buildPiToolRegistryAsync(userId?: string, agentId?: string | null, sessionId?: string | null): Promise<AgentTool[]> {
+  const userScopedTools = createUserScopedTools(userId, agentId, sessionId);
   const overriddenNames = new Set(userScopedTools.map((t) => t.name));
   const coreTools = piTools.filter((t) => !overriddenNames.has(t.name));
   const composioConfigured = await isComposioConfigured();
@@ -2308,8 +2308,8 @@ export async function getPiToolMetadata(): Promise<PiToolMetadata[]> {
   });
 }
 
-export async function getPiTools(userId?: string, agentId?: string | null): Promise<AgentTool[]> {
-  let allTools = await buildPiToolRegistryAsync(userId, agentId);
+export async function getPiTools(userId?: string, agentId?: string | null, sessionId?: string | null): Promise<AgentTool[]> {
+  let allTools = await buildPiToolRegistryAsync(userId, agentId, sessionId);
 
   try {
     const effectiveConfig = await resolveAgentRuntimeSettings(agentId);
