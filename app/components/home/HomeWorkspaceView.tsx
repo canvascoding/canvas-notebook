@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import { useTranslations } from 'next-intl';
-import { NotebookPen, Workflow, Sparkles } from 'lucide-react';
+import { NotebookPen, Workflow, Sparkles, Settings } from 'lucide-react';
 import { PromptHero } from './PromptHero';
 import { CategoryPills, type CategoryId } from './CategoryPills';
 import { InspirationPanel } from './InspirationPanel';
@@ -83,6 +83,22 @@ export function HomeWorkspaceView({ licenseLocked = false }: { licenseLocked?: b
               title={tApps('studio.title')}
               description={tApps('studio.description')}
               href="/studio"
+            />
+          </div>
+        </div>
+      </section>
+
+      <section id="onboarding-home-settings">
+        <h3 className="mb-3 text-xs font-bold uppercase tracking-[0.18em] text-muted-foreground">
+          {t('sections.settings')}
+        </h3>
+        <div className="flex flex-wrap justify-center gap-3">
+          <div className="min-w-[260px] max-w-[320px] flex-1">
+            <ToolCard
+              icon={Settings}
+              title={tApps('settings.title')}
+              description={tApps('settings.description')}
+              href="/settings"
             />
           </div>
         </div>

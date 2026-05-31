@@ -724,6 +724,7 @@
     "sections": {
       "workspace": "Workspace",
       "create": "Erstellen",
+      "settings": "Einstellungen",
       "moreTools": "Weitere Tools"
     },
     "status": {
