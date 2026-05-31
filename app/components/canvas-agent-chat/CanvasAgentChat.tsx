@@ -59,6 +59,24 @@ import {
   Lock,
   MoreHorizontal,
   Square,
+  Brain,
+  CalendarClock,
+  CalendarCog,
+  CalendarPlus,
+  CalendarX,
+  FileJson,
+  Inbox,
+  MailOpen,
+  MailPlus,
+  MessagesSquare,
+  Network,
+  PencilLine,
+  Play,
+  Plug,
+  PlugZap,
+  SearchCheck,
+  Send,
+  SquareFunction,
 } from 'lucide-react';
 import { ComposerReferencePicker, type ComposerReferencePickerItem } from '@/app/components/canvas-agent-chat/ComposerReferencePicker';
 import { FileReferenceCard } from '@/app/components/canvas-agent-chat/FileReferenceCard';
@@ -435,7 +453,24 @@ const TOOL_TONE_ICONS: Record<ToolDisplayTone, React.ComponentType<{ className?:
   person: UserRound,
   style: Palette,
   list: ListChecks,
-  automation: RefreshCw,
+  automationList: CalendarClock,
+  automationCreate: CalendarPlus,
+  automationUpdate: CalendarCog,
+  automationDelete: CalendarX,
+  automationTrigger: Play,
+  emailAccounts: Inbox,
+  emailRead: MailOpen,
+  emailDraftCreate: MailPlus,
+  emailDraftUpdate: PencilLine,
+  emailSend: Send,
+  mcp: PlugZap,
+  memory: Brain,
+  session: MessagesSquare,
+  delegation: Network,
+  composioSearch: SearchCheck,
+  composioSchema: FileJson,
+  composioExecute: SquareFunction,
+  composioConnections: Plug,
   default: Settings,
 };
 
@@ -3077,11 +3112,14 @@ export default function CanvasAgentChat({
     return [];
   }, []);
 
+  const runtimePhase = runtimeStatus?.phase;
+
   const handleControlAction = useCallback(async (
     action: 'send' | 'steer' | 'follow_up' | 'replace',
     override?: { text: string; attachments: Attachment[] },
   ) => {
-    const effectiveAction = action === 'send' && runtimeStatus?.phase !== 'idle' ? 'follow_up' : action;
+    const sendShouldQueue = action === 'send' && runtimePhase !== undefined && runtimePhase !== 'idle';
+    const effectiveAction = sendShouldQueue ? 'follow_up' : action;
     const rawText = override?.text ?? input.trim();
     const baseAttachments = override?.attachments ?? attachments;
 
@@ -3171,7 +3209,7 @@ export default function CanvasAgentChat({
     }
 
     return;
-  }, [activeModel, agentConfig, appendOptimisticUserMessage, attachments, buildRequestContext, createAssistantBubble, currentFile, ensureSession, ensureSessionSubscribed, input, postControl, resetInputHistoryNavigation, runtimeStatus?.phase, selectedAgentId, showHistory, isMobile, setOptimisticRuntimePhase, setRuntimeStatusWithReconciliation, shouldShowHistoryAsOverlay, scanForImageReferences, t, wsRequest]);
+  }, [activeModel, agentConfig, appendOptimisticUserMessage, attachments, buildRequestContext, createAssistantBubble, currentFile, ensureSession, ensureSessionSubscribed, input, postControl, resetInputHistoryNavigation, runtimePhase, selectedAgentId, showHistory, isMobile, setOptimisticRuntimePhase, setRuntimeStatusWithReconciliation, shouldShowHistoryAsOverlay, scanForImageReferences, t, wsRequest]);
 
   const handleSend = useCallback(async () => {
     try {
@@ -4589,7 +4627,7 @@ export default function CanvasAgentChat({
         ? t('liveUpdatesUnavailable')
         : composerPlaceholder;
   const composerHint =
-    runtimeStatus?.phase !== 'idle'
+    isRuntimeBusy
       ? isMobile
         ? t('composerHintBusyMobile')
         : t('composerHintBusyDesktop')

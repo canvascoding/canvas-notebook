@@ -23,6 +23,29 @@ const EMPTY_USAGE = {
   },
 };
 
+function createMockRuntimeStatus(sessionId: string, overrides: Partial<PiRuntimeStatus> = {}): PiRuntimeStatus {
+  return {
+    sessionId,
+    phase: 'idle',
+    activeTool: null,
+    pendingToolCalls: 0,
+    followUpQueue: [],
+    steeringQueue: [],
+    canAbort: false,
+    contextWindow: 128000,
+    estimatedHistoryTokens: 0,
+    availableHistoryTokens: 100000,
+    contextUsagePercent: 0,
+    includedSummary: false,
+    omittedMessageCount: 0,
+    summaryUpdatedAt: null,
+    lastCompactionAt: null,
+    lastCompactionKind: null,
+    lastCompactionOmittedCount: 0,
+    ...overrides,
+  };
+}
+
 async function login(page: Page) {
   const response = await page.request.post('/api/auth/sign-in/email', {
     headers: {
@@ -138,7 +161,11 @@ function setupMockWebSocket(page: Page, config: MockWsConfig) {
             type: 'send_message_result',
             requestId,
             success: true,
-            status: { phase: 'streaming' },
+            status: {
+              ...createMockRuntimeStatus(sessionId, { phase: 'streaming', canAbort: true }),
+              ...(runtimeStatus ?? {}),
+              phase: 'streaming',
+            },
           }));
 
           config.onSendMessage?.(message.message, message.context, requestId);
@@ -158,7 +185,9 @@ function setupMockWebSocket(page: Page, config: MockWsConfig) {
         }
 
         case 'get_status': {
-          let status: Record<string, unknown> | null = runtimeStatus ?? { phase: 'idle' };
+          let status: Record<string, unknown> | null = runtimeStatus
+            ? { ...createMockRuntimeStatus(sessionId), ...runtimeStatus }
+            : createMockRuntimeStatus(sessionId);
           if (onGetStatus) {
             status = onGetStatus(requestId);
           }
@@ -172,7 +201,9 @@ function setupMockWebSocket(page: Page, config: MockWsConfig) {
 
         case 'control': {
           const action = message.action as string;
-          let status: Record<string, unknown> = runtimeStatus ?? { phase: 'idle' };
+          let status: Record<string, unknown> = runtimeStatus
+            ? { ...createMockRuntimeStatus(sessionId), ...runtimeStatus }
+            : createMockRuntimeStatus(sessionId);
           if (onControl) {
             status = onControl(action, message.message, requestId, message.queueItemId);
           }
@@ -484,6 +515,84 @@ contentKind: document
 
     await input.press('ArrowDown');
     await expect(input).toHaveValue('Draft before history navigation');
+  });
+
+  test('should start a new chat with send_message before runtime status exists', async ({ page }) => {
+    const sessionId = 'sess-new-chat-first-send';
+    let sendCount = 0;
+    const controlActions: string[] = [];
+
+    setupMockWebSocket(page, {
+      sessionId,
+      sendEventsAfterSendMessage: false,
+      onSendMessage: () => {
+        sendCount += 1;
+      },
+      onControl: (action) => {
+        controlActions.push(action);
+        return createMockRuntimeStatus(sessionId) as unknown as Record<string, unknown>;
+      },
+    });
+
+    await page.route('**/api/agents/config', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: true,
+          data: {
+            piConfig: {
+              activeProvider: 'openai',
+              providers: {
+                openai: { model: 'gpt-4o' },
+              },
+            },
+            discovery: {
+              openai: {
+                models: [{ id: 'gpt-4o', name: 'GPT-4o', supportsVision: true }],
+              },
+            },
+          },
+        }),
+      });
+    });
+
+    await page.route('**/api/sessions', async (route) => {
+      if (route.request().method() === 'POST') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            success: true,
+            session: {
+              id: 1,
+              sessionId,
+              title: 'First prompt',
+              model: 'gpt-4o',
+              provider: 'openai',
+              createdAt: new Date().toISOString(),
+            },
+          }),
+        });
+        return;
+      }
+
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ success: true, sessions: [] }),
+      });
+    });
+
+    await page.goto('/chat');
+    await startFreshChat(page);
+
+    await page.getByTestId('chat-input').fill('hi');
+    await page.getByTestId('chat-send').click();
+
+    await expect.poll(() => sendCount, { timeout: 15000 }).toBe(1);
+    expect(controlActions).not.toContain('follow_up');
+    await expect(page.getByText('No active agent run to queue a follow-up message.')).toHaveCount(0);
   });
 
   test('should render markdown and tool output separately in the chat UI', async ({ page }) => {
