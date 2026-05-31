@@ -396,10 +396,10 @@ function useLazyAgentConnections(
 
 function LoadingSkeletonGrid({ rows = 4 }: { rows?: number }) {
   return (
-    <div className="grid gap-2 sm:grid-cols-2">
+    <div className="grid min-w-0 gap-2 sm:grid-cols-2">
       {Array.from({ length: rows }).map((_, index) => (
-        <div key={index} className="rounded-md border bg-background p-3">
-          <div className="flex items-start gap-3">
+        <div key={index} className="min-w-0 rounded-md border bg-background p-3">
+          <div className="flex min-w-0 items-start gap-3">
             <Skeleton className="h-5 w-5 shrink-0" />
             <div className="min-w-0 flex-1 space-y-2">
               <Skeleton className="h-4 w-2/3" />
@@ -422,7 +422,7 @@ function TemplateList({ selectedTemplate, onSelectTemplate, compact = false }: T
   const t = useTranslations('settings.agentPanel.createDialog');
 
   return (
-    <div className="space-y-2">
+    <div className="min-w-0 space-y-2">
       {AGENT_TEMPLATES.map((template) => {
         const selected = template.id === selectedTemplate.id;
         return (
@@ -431,13 +431,13 @@ function TemplateList({ selectedTemplate, onSelectTemplate, compact = false }: T
             type="button"
             onClick={() => onSelectTemplate(template)}
             className={cn(
-              'flex w-full items-center gap-3 rounded-md border text-left transition',
+              'flex min-w-0 w-full items-center gap-3 rounded-md border text-left transition',
               compact ? 'p-2.5' : 'p-3',
               selected ? 'border-primary bg-background shadow-sm' : 'border-transparent hover:border-border hover:bg-background/70',
             )}
           >
-            <AgentAvatar iconId={template.iconId} className={compact ? 'h-8 w-8' : 'h-9 w-9'} iconClassName="h-4 w-4" />
-            <span className="min-w-0">
+            <AgentAvatar iconId={template.iconId} className={cn('shrink-0', compact ? 'h-8 w-8' : 'h-9 w-9')} iconClassName="h-4 w-4" />
+            <span className="min-w-0 flex-1 overflow-hidden">
               <span className="block truncate text-sm font-medium">{t(`templates.${template.id}.name`)}</span>
               <span className="line-clamp-2 text-xs text-muted-foreground">{t(`templates.${template.id}.description`)}</span>
             </span>
@@ -466,26 +466,26 @@ function CreateAgentSection({
   children,
 }: CreateAgentSectionProps) {
   return (
-    <section className="overflow-hidden rounded-md border bg-muted/10">
+    <section className="min-w-0 overflow-hidden rounded-md border bg-muted/10">
       <button
         type="button"
         onClick={() => onOpenChange(!open)}
-        className="flex w-full items-start justify-between gap-4 px-4 py-3 text-left transition-colors hover:bg-muted/30"
+        className="flex min-w-0 w-full items-start justify-between gap-3 px-3 py-3 text-left transition-colors hover:bg-muted/30 sm:gap-4 sm:px-4"
         aria-expanded={open}
       >
-        <span className="flex min-w-0 gap-3">
+        <span className="flex min-w-0 flex-1 gap-3">
           <span className="mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border bg-background text-muted-foreground">
             <Icon className="h-4 w-4" />
           </span>
-          <span className="min-w-0">
-            <span className="block text-base font-semibold">{title}</span>
+          <span className="min-w-0 flex-1">
+            <span className="block break-words text-base font-semibold">{title}</span>
             <span className="line-clamp-2 text-sm text-muted-foreground">{description}</span>
           </span>
         </span>
         <ChevronDown className={cn('mt-1 h-4 w-4 shrink-0 text-muted-foreground transition-transform', open && 'rotate-180')} />
       </button>
       {open && (
-        <div className="border-t px-4 py-3">
+        <div className="min-w-0 border-t px-3 py-3 sm:px-4">
           {children}
         </div>
       )}
@@ -602,14 +602,14 @@ export function CreateAgentDialog({
               </aside>
 
               <ScrollArea className="h-full min-h-0">
-                <div className="mx-auto flex max-w-4xl flex-col gap-4 p-4 sm:gap-5 sm:p-5">
+                <div className="mx-auto flex min-w-0 max-w-4xl flex-col gap-4 p-3 sm:gap-5 sm:p-5">
                   <div className="md:hidden">
                     <Popover open={templatePickerOpen} onOpenChange={setTemplatePickerOpen}>
                       <PopoverTrigger asChild>
-                        <Button type="button" variant="outline" className="h-auto w-full justify-between gap-3 px-3 py-2 text-left">
-                          <span className="flex min-w-0 items-center gap-2">
+                        <Button type="button" variant="outline" className="h-auto min-w-0 w-full justify-between gap-3 px-3 py-2 text-left">
+                          <span className="flex min-w-0 flex-1 items-center gap-2">
                             <Menu className="h-4 w-4 shrink-0" />
-                            <span className="min-w-0">
+                            <span className="min-w-0 flex-1 overflow-hidden">
                               <span className="block truncate text-sm font-medium">{t(`templates.${selectedTemplate.id}.name`)}</span>
                               <span className="block truncate text-xs text-muted-foreground">{t(`templates.${selectedTemplate.id}.description`)}</span>
                             </span>
@@ -617,14 +617,14 @@ export function CreateAgentDialog({
                           <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
                         </Button>
                       </PopoverTrigger>
-                      <PopoverContent align="start" className="w-[calc(100vw-2rem)] p-2">
+                      <PopoverContent align="start" className="max-h-[min(28rem,calc(100dvh-8rem))] w-[calc(100vw-1.5rem)] overflow-y-auto p-2">
                         <TemplateList selectedTemplate={selectedTemplate} onSelectTemplate={applyTemplate} compact />
                       </PopoverContent>
                     </Popover>
                   </div>
 
-                  <section className="rounded-md border bg-muted/10 p-3 sm:p-4">
-                    <div className="flex gap-3 sm:items-center sm:gap-4">
+                  <section className="min-w-0 overflow-hidden rounded-md border bg-muted/10 p-3 sm:p-4">
+                    <div className="flex min-w-0 flex-col gap-3 min-[420px]:flex-row min-[420px]:items-center sm:gap-4">
                       <button
                         type="button"
                         onClick={() => setIconPickerOpen(true)}
@@ -645,7 +645,7 @@ export function CreateAgentDialog({
                           id="create-agent-name"
                           value={name}
                           onChange={(event) => setName(event.target.value)}
-                          className="h-12 text-lg font-semibold"
+                          className="h-12 min-w-0 text-base font-semibold sm:text-lg"
                           placeholder={t('namePlaceholder')}
                         />
                       </div>
@@ -664,7 +664,7 @@ export function CreateAgentDialog({
                     ) : connections.length === 0 ? (
                       <p className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">{t('connections.empty')}</p>
                     ) : (
-                      <div className="grid gap-2 sm:grid-cols-2">
+                      <div className="grid min-w-0 gap-2 sm:grid-cols-2">
                         {connections.map((connection) => {
                           const selected = selectedConnections.has(connection.id);
                           return (
@@ -680,15 +680,17 @@ export function CreateAgentDialog({
                                 });
                               }}
                               className={cn(
-                                'flex items-start justify-between gap-3 rounded-md border p-3 text-left transition',
+                                'flex min-w-0 items-start justify-between gap-3 rounded-md border p-3 text-left transition',
                                 selected ? 'border-primary bg-primary/5' : 'border-border bg-background hover:bg-muted/40',
                               )}
                             >
-                              <span className="min-w-0">
+                              <span className="min-w-0 flex-1">
                                 <span className="block truncate text-sm font-medium">{connection.label}</span>
                                 <span className="block truncate text-xs text-muted-foreground">{connection.detail}</span>
                               </span>
-                              <Badge variant={connection.kind === 'mcp' ? 'secondary' : 'outline'}>{connection.kind}</Badge>
+                              <Badge variant={connection.kind === 'mcp' ? 'secondary' : 'outline'} className="shrink-0 uppercase">
+                                {connection.kind}
+                              </Badge>
                             </button>
                           );
                         })}
@@ -708,7 +710,7 @@ export function CreateAgentDialog({
                     ) : skills.length === 0 ? (
                       <p className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">{t('skills.empty')}</p>
                     ) : (
-                      <div className="grid gap-2 sm:grid-cols-2">
+                      <div className="grid min-w-0 gap-2 sm:grid-cols-2">
                         {skills.slice(0, 12).map((skill) => {
                           const selected = selectedSkills.includes(skill.name);
                           return (
@@ -723,7 +725,7 @@ export function CreateAgentDialog({
                                 ));
                               }}
                               className={cn(
-                                'flex items-start gap-3 rounded-md border p-3 text-left transition',
+                                'flex min-w-0 items-start gap-3 rounded-md border p-3 text-left transition',
                                 selected ? 'border-primary bg-primary/5' : 'border-border bg-background hover:bg-muted/40',
                               )}
                             >
@@ -733,8 +735,8 @@ export function CreateAgentDialog({
                               )}>
                                 {selected ? <Check className="h-3.5 w-3.5" /> : null}
                               </span>
-                              <span className="min-w-0">
-                                <span className="block truncate text-sm font-medium">{skill.name}</span>
+                              <span className="min-w-0 flex-1">
+                                <span className="block break-all text-sm font-medium">{skill.name}</span>
                                 <span className="line-clamp-2 text-xs text-muted-foreground">{skill.description || t('skills.noDescription')}</span>
                               </span>
                             </button>
@@ -751,7 +753,7 @@ export function CreateAgentDialog({
                     open={filesOpen}
                     onOpenChange={setFilesOpen}
                   >
-                    <div id="onboarding-settings-managedFiles" className="space-y-3">
+                    <div id="onboarding-settings-managedFiles" className="min-w-0 space-y-3">
                       <AgentManagedFilesEditor
                         isMainAgent={false}
                         files={fileDrafts}
@@ -773,10 +775,10 @@ export function CreateAgentDialog({
             </div>
 
             <DialogFooter className="shrink-0 border-t bg-background/95 px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] sm:px-5 sm:py-4">
-              <Button type="button" variant="outline" onClick={() => handleOpenChange(false)} disabled={creating}>
+              <Button type="button" variant="outline" onClick={() => handleOpenChange(false)} disabled={creating} className="w-full sm:w-auto">
                 {t('cancel')}
               </Button>
-              <Button type="button" onClick={() => void submit()} disabled={!canCreate}>
+              <Button type="button" onClick={() => void submit()} disabled={!canCreate} className="w-full sm:w-auto">
                 {creating ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Sparkles className="mr-2 h-4 w-4" />}
                 {creating ? t('creating') : t('create')}
               </Button>

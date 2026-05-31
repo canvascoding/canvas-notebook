@@ -103,8 +103,8 @@ export function AgentManagedFilesEditor({
   }
 
   return (
-    <>
-      <Tabs value={activeFile} onValueChange={(value) => onActiveFileChange(value as ManagedFileName)}>
+    <div className="min-w-0 space-y-3">
+      <Tabs value={activeFile} onValueChange={(value) => onActiveFileChange(value as ManagedFileName)} className="min-w-0">
         <TabsList className="flex h-auto w-full justify-start gap-2 overflow-x-auto bg-transparent p-0 pb-1">
           {visibleFileNames.map((fileName) => (
             <TabsTrigger key={fileName} value={fileName} className="shrink-0 border border-border data-[state=active]:bg-muted">
@@ -115,12 +115,12 @@ export function AgentManagedFilesEditor({
       </Tabs>
 
       {!isMainAgent && showInheritedFiles && (
-        <div className="grid gap-2 md:grid-cols-2">
+        <div className="grid min-w-0 gap-2 md:grid-cols-2">
           {SPECIAL_AGENT_INHERITED_FILES.map((fileName) => (
-            <div key={fileName} className="rounded-md border bg-muted/30 p-3 text-xs">
-              <div className="mb-1 flex items-center justify-between gap-2">
+            <div key={fileName} className="min-w-0 rounded-md border bg-muted/30 p-3 text-xs">
+              <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
                 <span className="font-semibold">{fileName}</span>
-                <span className="rounded bg-background px-2 py-0.5 text-muted-foreground">
+                <span className="max-w-full rounded bg-background px-2 py-0.5 text-muted-foreground">
                   {t('agentPanel.files.inheritedFromCanvas')}
                 </span>
               </div>
@@ -141,7 +141,7 @@ export function AgentManagedFilesEditor({
           onChange={(nextValue) => onDraftChange(activeFile, nextValue)}
         />
       </div>
-    </>
+    </div>
   );
 }
 
