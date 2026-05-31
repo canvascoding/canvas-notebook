@@ -1324,6 +1324,16 @@
         "reload": "Neu laden",
         "saved": "Heartbeat-Konfiguration gespeichert.",
         "editHeartbeatFile": "HEARTBEAT.md bearbeiten",
+        "fileTitle": "HEARTBEAT.md",
+        "fileDescription": "Bearbeite die Instructions, die bei diesem Heartbeat ausgeführt werden.",
+        "fileLoading": "Lade HEARTBEAT.md...",
+        "fileSave": "HEARTBEAT.md speichern",
+        "fileReload": "HEARTBEAT.md neu laden",
+        "fileReset": "HEARTBEAT.md zurücksetzen",
+        "fileSaved": "HEARTBEAT.md gespeichert.",
+        "fileResetSuccess": "HEARTBEAT.md zurückgesetzt.",
+        "fileConfirmResetTitle": "HEARTBEAT.md zurücksetzen?",
+        "fileConfirmReset": "Möchtest du HEARTBEAT.md wirklich auf den Standard-Prompt zurücksetzen?",
         "weekdayLabels": {
           "mon": "Mo",
           "tue": "Di",
@@ -1335,7 +1345,9 @@
         },
         "errors": {
           "load": "Heartbeat-Konfiguration konnte nicht geladen werden.",
-          "save": "Heartbeat-Konfiguration konnte nicht gespeichert werden."
+          "save": "Heartbeat-Konfiguration konnte nicht gespeichert werden.",
+          "fileSave": "HEARTBEAT.md konnte nicht gespeichert werden.",
+          "fileReset": "HEARTBEAT.md konnte nicht zurückgesetzt werden."
         }
       },
       "files": {

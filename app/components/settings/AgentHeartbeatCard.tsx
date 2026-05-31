@@ -1,12 +1,23 @@
 'use client';
 
-import { Heart, Loader2, RefreshCw, Save } from 'lucide-react';
+import { FileText, Heart, Loader2, RefreshCw, RotateCcw, Save } from 'lucide-react';
 import { useLocale, useTranslations } from 'next-intl';
 
 import { AgentSettingsAccordionCard } from './AgentSettingsAccordionCard';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import { MarkdownEditor } from '@/app/components/editor/MarkdownEditor';
 import type {
   AutomationDeliveryMode,
   AutomationDeliverySessionMode,
@@ -68,13 +79,26 @@ type AgentHeartbeatCardProps = {
   saving: boolean;
   error: string | null;
   success: string | null;
+  heartbeatFileDraft: string;
+  heartbeatFileLoading: boolean;
+  heartbeatFileSaving: boolean;
+  heartbeatFileResetting: boolean;
+  heartbeatFileError: string | null;
+  heartbeatFileSuccess: string | null;
+  heartbeatResetDialogOpen: boolean;
   onOpenChange: (isOpen: boolean) => void;
   onEnabledChange: (enabled: boolean) => void;
   onScheduleDraftChange: (patch: Partial<AgentHeartbeatScheduleDraft>) => void;
   onDeliveryDraftChange: (patch: Partial<AgentHeartbeatDeliveryDraft>) => void;
   onSave: () => void;
   onReload: () => void;
-  onEditHeartbeatFile: () => void;
+  onHeartbeatFileDraftChange: (value: string) => void;
+  onSaveHeartbeatFile: () => void;
+  onReloadHeartbeatFile: () => void;
+  onOpenHeartbeatResetDialog: () => void;
+  onHeartbeatResetDialogOpenChange: (open: boolean) => void;
+  onClearHeartbeatResetDialog: () => void;
+  onResetHeartbeatFile: () => void;
 };
 
 const WEEKDAYS: AutomationWeekday[] = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
@@ -104,15 +128,29 @@ export function AgentHeartbeatCard({
   saving,
   error,
   success,
+  heartbeatFileDraft,
+  heartbeatFileLoading,
+  heartbeatFileSaving,
+  heartbeatFileResetting,
+  heartbeatFileError,
+  heartbeatFileSuccess,
+  heartbeatResetDialogOpen,
   onOpenChange,
   onEnabledChange,
   onScheduleDraftChange,
   onDeliveryDraftChange,
   onSave,
   onReload,
-  onEditHeartbeatFile,
+  onHeartbeatFileDraftChange,
+  onSaveHeartbeatFile,
+  onReloadHeartbeatFile,
+  onOpenHeartbeatResetDialog,
+  onHeartbeatResetDialogOpenChange,
+  onClearHeartbeatResetDialog,
+  onResetHeartbeatFile,
 }: AgentHeartbeatCardProps) {
   const t = useTranslations('settings');
+  const tCommon = useTranslations('common');
   const locale = useLocale();
   const isGerman = locale.startsWith('de');
   const enabled = config?.enabled ?? false;
@@ -132,24 +170,25 @@ export function AgentHeartbeatCard({
   ].filter((item): item is string => Boolean(item));
 
   return (
-    <AgentSettingsAccordionCard
-      title={t('agentPanel.heartbeat.title')}
-      description={t('agentPanel.heartbeat.description')}
-      icon={Heart}
-      isOpen={isOpen}
-      onOpenChange={onOpenChange}
-      summaryItems={summaryItems}
-      contentClassName="space-y-4"
-    >
-      {loading ? (
-        <div className="flex items-center text-sm text-muted-foreground">
-          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-          {t('agentPanel.heartbeat.loading')}
-        </div>
-      ) : (
-        <>
-          {error && <p className="text-sm text-destructive">{error}</p>}
-          {success && <p className="text-sm text-primary">{success}</p>}
+    <>
+      <AgentSettingsAccordionCard
+        title={t('agentPanel.heartbeat.title')}
+        description={t('agentPanel.heartbeat.description')}
+        icon={Heart}
+        isOpen={isOpen}
+        onOpenChange={onOpenChange}
+        summaryItems={summaryItems}
+        contentClassName="space-y-4"
+      >
+        {loading ? (
+          <div className="flex items-center text-sm text-muted-foreground">
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            {t('agentPanel.heartbeat.loading')}
+          </div>
+        ) : (
+          <>
+            {error && <p className="text-sm text-destructive">{error}</p>}
+            {success && <p className="text-sm text-primary">{success}</p>}
 
           <div className="flex items-center justify-between gap-4 rounded-md border bg-muted/20 p-3">
             <div className="min-w-0">
@@ -325,21 +364,97 @@ export function AgentHeartbeatCard({
             <span>{t('agentPanel.heartbeat.lastRun')}: {formatDate(config?.lastRunAt ?? null, t('agentPanel.heartbeat.never'))}{config?.lastRunStatus ? ` (${config.lastRunStatus})` : ''}</span>
           </div>
 
-          <div className="flex flex-wrap gap-2">
-            <Button type="button" onClick={onSave} disabled={saving}>
-              {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
-              {t('agentPanel.heartbeat.save')}
-            </Button>
-            <Button type="button" variant="outline" onClick={onReload} disabled={loading || saving}>
-              <RefreshCw className="mr-2 h-4 w-4" />
-              {t('agentPanel.heartbeat.reload')}
-            </Button>
-            <Button type="button" variant="outline" onClick={onEditHeartbeatFile}>
-              {t('agentPanel.heartbeat.editHeartbeatFile')}
-            </Button>
-          </div>
-        </>
-      )}
-    </AgentSettingsAccordionCard>
+            <div className="flex flex-wrap gap-2">
+              <Button type="button" onClick={onSave} disabled={saving}>
+                {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+                {t('agentPanel.heartbeat.save')}
+              </Button>
+              <Button type="button" variant="outline" onClick={onReload} disabled={loading || saving}>
+                <RefreshCw className="mr-2 h-4 w-4" />
+                {t('agentPanel.heartbeat.reload')}
+              </Button>
+            </div>
+
+            <div className="space-y-3 rounded-md border bg-muted/20 p-3">
+              <div className="flex items-center gap-2">
+                <FileText className="h-4 w-4 text-muted-foreground" />
+                <div className="min-w-0">
+                  <p className="text-sm font-medium">{t('agentPanel.heartbeat.fileTitle')}</p>
+                  <p className="text-xs text-muted-foreground">{t('agentPanel.heartbeat.fileDescription')}</p>
+                </div>
+              </div>
+
+              {heartbeatFileLoading ? (
+                <div className="flex items-center text-sm text-muted-foreground">
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  {t('agentPanel.heartbeat.fileLoading')}
+                </div>
+              ) : (
+                <>
+                  <div
+                    data-testid="agent-heartbeat-file-editor"
+                    className="h-[400px] overflow-hidden rounded-md border border-input bg-background"
+                  >
+                    <MarkdownEditor
+                      value={heartbeatFileDraft}
+                      onChange={onHeartbeatFileDraftChange}
+                    />
+                  </div>
+
+                  {heartbeatFileError && <p className="text-sm text-destructive">{heartbeatFileError}</p>}
+                  {heartbeatFileSuccess && <p className="text-sm text-primary">{heartbeatFileSuccess}</p>}
+
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      type="button"
+                      onClick={onSaveHeartbeatFile}
+                      disabled={heartbeatFileSaving || heartbeatFileResetting}
+                    >
+                      {heartbeatFileSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+                      {t('agentPanel.heartbeat.fileSave')}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={onReloadHeartbeatFile}
+                      disabled={heartbeatFileLoading || heartbeatFileSaving || heartbeatFileResetting}
+                    >
+                      <RefreshCw className="mr-2 h-4 w-4" />
+                      {t('agentPanel.heartbeat.fileReload')}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={onOpenHeartbeatResetDialog}
+                      disabled={heartbeatFileLoading || heartbeatFileSaving || heartbeatFileResetting}
+                    >
+                      {heartbeatFileResetting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RotateCcw className="mr-2 h-4 w-4" />}
+                      {t('agentPanel.heartbeat.fileReset')}
+                    </Button>
+                  </div>
+                </>
+              )}
+            </div>
+          </>
+        )}
+      </AgentSettingsAccordionCard>
+
+      <AlertDialog open={heartbeatResetDialogOpen} onOpenChange={onHeartbeatResetDialogOpenChange}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('agentPanel.heartbeat.fileConfirmResetTitle')}</AlertDialogTitle>
+            <AlertDialogDescription>{t('agentPanel.heartbeat.fileConfirmReset')}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={onClearHeartbeatResetDialog}>
+              {tCommon('cancel')}
+            </AlertDialogCancel>
+            <AlertDialogAction onClick={onResetHeartbeatFile}>
+              {t('agentPanel.heartbeat.fileReset')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   );
 }

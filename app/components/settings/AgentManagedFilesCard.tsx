@@ -26,11 +26,16 @@ import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { MarkdownEditor } from '@/app/components/editor/MarkdownEditor';
 
 export const MANAGED_FILES = ['AGENTS.md', 'IDENTITY.md', 'USER.md', 'MEMORY.md', 'SOUL.md', 'TOOLS.md', 'HEARTBEAT.md'] as const;
+export const AGENT_FILE_TABS = ['AGENTS.md', 'IDENTITY.md', 'USER.md', 'MEMORY.md', 'SOUL.md', 'TOOLS.md'] as const;
 const SPECIAL_AGENT_INHERITED_FILES = ['IDENTITY.md', 'USER.md'] as const;
-const SPECIAL_AGENT_VISIBLE_FILES = MANAGED_FILES.filter((fileName) => !SPECIAL_AGENT_INHERITED_FILES.includes(fileName as typeof SPECIAL_AGENT_INHERITED_FILES[number]));
+const SPECIAL_AGENT_VISIBLE_FILES = AGENT_FILE_TABS.filter((fileName) => !SPECIAL_AGENT_INHERITED_FILES.includes(fileName as typeof SPECIAL_AGENT_INHERITED_FILES[number]));
 
 export type ManagedFileName = (typeof MANAGED_FILES)[number];
 export type ResetTarget = 'current' | 'all';
+
+export function getVisibleManagedFileNames(isMainAgent: boolean): ManagedFileName[] {
+  return [...(isMainAgent ? AGENT_FILE_TABS : SPECIAL_AGENT_VISIBLE_FILES)];
+}
 
 type AgentManagedFilesCardProps = {
   isMainAgent: boolean;
@@ -77,9 +82,7 @@ export function AgentManagedFilesCard({
 }: AgentManagedFilesCardProps) {
   const t = useTranslations('settings');
   const tCommon = useTranslations('common');
-  const visibleFileNames = isMainAgent
-    ? MANAGED_FILES
-    : SPECIAL_AGENT_VISIBLE_FILES;
+  const visibleFileNames = getVisibleManagedFileNames(isMainAgent);
 
   useEffect(() => {
     if (!visibleFileNames.includes(activeFile)) {
