@@ -53,6 +53,14 @@ Use the Composio gateway tools:
 
 If \`composio_execute\` returns \`auth_required\`, tell the user to connect the app in Settings -> Integrations -> Connected Apps or use the returned redirect URL. If you are unsure which action exists, search first instead of guessing.`;
 
+const BROWSER_SYSTEM_PROMPT = `## Browser Gateway
+
+Browser use is available through the \`browser\` gateway tool, but ordinary web reading should use \`web_fetch\` first because it is cheaper and safer on small virtual machines.
+
+Use \`browser\` only when JavaScript rendering, UI interaction, screenshots, login/session checks, console inspection, or local app verification requires a real browser. The browser gateway intentionally keeps detailed interaction guidance out of the system prompt; call \`browser\` with \`action: "help"\` and topic \`"safety"\` or \`"interaction"\` when those details are needed.
+
+Prefer \`observe\` before click/type actions, use returned \`target_id\` values where possible, and close the browser when finished.`;
+
 function getPromptSkillsForAgent<T extends { name: string; enabled?: boolean }>(
   normalizedAgentId: string,
   skills: T[],
@@ -85,6 +93,14 @@ function isComposioGatewayEnabled(enabledTools?: string[] | null): boolean {
   return normalized.some((toolName) => toolName === 'composio_execute' || toolName.startsWith('COMPOSIO_'));
 }
 
+function isBrowserGatewayEnabled(enabledTools?: string[] | null): boolean {
+  if (isDefaultToolsConfig(enabledTools)) {
+    return false;
+  }
+  const normalized = normalizeEnabledToolsConfig(enabledTools);
+  return normalized.includes('browser');
+}
+
 function formatEnabledToolLine(tool: PiToolMetadata): string {
   const label = tool.label && tool.label !== tool.name ? ` (${tool.label})` : '';
   const description = tool.description ? `: ${tool.description}` : '';
@@ -114,6 +130,10 @@ function formatConnectorToolHint(tool: PiToolMetadata): string | null {
       return '- Composio connections: use `COMPOSIO_MANAGE_CONNECTIONS` to check connection status or start an app connection flow.';
     }
     return `- Composio tool \`${tool.name}\`: if the exact action or params are unclear, use the Composio search/schema flow when available.`;
+  }
+
+  if (tool.group === 'Browser' || tool.name === 'browser') {
+    return '- Browser gateway: use `web_fetch` first for ordinary page content; use `browser` only for JavaScript rendering, UI interaction, screenshots, login/session checks, console inspection, or local app verification.';
   }
 
   return null;
@@ -208,6 +228,10 @@ export async function loadManagedAgentSystemPrompt(agentId?: string | null): Pro
 
       if ((await isComposioConfigured()) && isComposioGatewayEnabled(enabledTools)) {
         systemPrompt += '\n\n' + COMPOSIO_SYSTEM_PROMPT;
+      }
+
+      if (isBrowserGatewayEnabled(enabledTools)) {
+        systemPrompt += '\n\n' + BROWSER_SYSTEM_PROMPT;
       }
     } catch {
       // If we can't check composio config, don't add the prompt section

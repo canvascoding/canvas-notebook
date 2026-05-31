@@ -82,6 +82,7 @@ async function main() {
   const lsTool = piTools.find((tool) => tool.name === 'ls');
   const bashTool = piTools.find((tool) => tool.name === 'bash');
   const webFetchTool = piTools.find((tool) => tool.name === 'web_fetch');
+  const browserTool = piTools.find((tool) => tool.name === 'browser');
   const grepTool = piTools.find((tool) => tool.name === 'grep');
   const globTool = piTools.find((tool) => tool.name === 'glob');
 
@@ -92,6 +93,7 @@ async function main() {
   assert.ok(lsTool);
   assert.ok(bashTool);
   assert.ok(webFetchTool);
+  assert.ok(browserTool);
   assert.ok(grepTool);
   assert.ok(globTool);
 
@@ -223,10 +225,17 @@ async function main() {
   assert.equal(allTools.some((tool) => tool.name === 'session_search'), true);
   assert.equal(allTools.some((tool) => tool.name === 'studio_bulk_generate'), true);
   assert.equal(defaultEnabledTools.has('studio_bulk_generate'), false);
+  assert.equal(allTools.some((tool) => tool.name === 'browser'), true);
+  assert.equal(defaultEnabledTools.has('browser'), false);
   assert.equal((await getPiTools()).some((tool) => tool.name === 'studio_bulk_generate'), false);
+  assert.equal((await getPiTools()).some((tool) => tool.name === 'browser'), false);
   assert.deepEqual(
     enableToolInConfig('studio_bulk_generate', [], allTools.map((tool) => tool.name)),
-    allTools.map((tool) => tool.name),
+    allTools.map((tool) => tool.name).filter((toolName) => toolName !== 'browser'),
+  );
+  assert.deepEqual(
+    enableToolInConfig('browser', [], allTools.map((tool) => tool.name)),
+    allTools.map((tool) => tool.name).filter((toolName) => toolName !== 'studio_bulk_generate'),
   );
   assert.deepEqual(serializeEnabledToolNames(defaultEnabledTools, allTools.map((tool) => tool.name)), []);
   assert.equal(allTools.every((tool) => !['browser_start', 'browser_nav', 'brave_search', 'transcribe'].includes(tool.name)), true);
@@ -250,6 +259,12 @@ async function main() {
   assert.equal(delegateTaskMetadata.group, 'Delegation');
   assert.deepEqual(delegateTaskMetadata.toolsets, ['delegation']);
   assert.equal(delegateTaskMetadata.planningModeAllowed, false);
+  const browserMetadata = metadata.find((tool) => tool.name === 'browser');
+  assert.ok(browserMetadata);
+  assert.equal(browserMetadata.group, 'Browser');
+  assert.deepEqual(browserMetadata.toolsets, ['browser']);
+  assert.equal(browserMetadata.defaultEnabled, false);
+  assert.equal(browserMetadata.planningModeAllowed, false);
 
   console.log('pi-tool-registry-test: ok');
 
