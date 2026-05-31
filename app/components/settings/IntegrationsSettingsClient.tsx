@@ -2412,7 +2412,7 @@ export function IntegrationsSettingsClient({
                 <ChevronDown className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" sideOffset={8} className="w-[calc(100vw-1.5rem)] max-w-sm">
+            <DropdownMenuContent align="start" sideOffset={8} className="max-h-[min(26rem,calc(100dvh-8rem))] w-[calc(100vw-1.5rem)] max-w-sm overflow-y-auto">
               <DropdownMenuRadioGroup value={effectiveTab} onValueChange={handleTabChange}>
                 {SETTINGS_TAB_ITEMS.map((tab) => (
                   <DropdownMenuRadioItem key={tab.value} value={tab.value} className="min-h-10">
