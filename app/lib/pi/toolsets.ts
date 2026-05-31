@@ -100,7 +100,7 @@ const TOOLSET_TOOL_NAMES: Record<PiToolset, Set<string>> = {
     'email_send_draft',
     'email_update_draft',
   ]),
-  file: new Set(['glob', 'grep', 'ls', 'read', 'rg', 'write']),
+  file: new Set(['apply_patch', 'edit_file', 'glob', 'grep', 'list_file_snapshots', 'ls', 'read', 'restore_file_snapshot', 'rg', 'write']),
   memory: new Set(['memory']),
   mcp: new Set(['mcp']),
   session_search: new Set(['session_search']),

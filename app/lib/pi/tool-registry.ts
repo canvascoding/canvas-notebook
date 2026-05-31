@@ -13,6 +13,18 @@ import TurndownService from 'turndown';
 import { gfm } from 'turndown-plugin-gfm';
 import { filterSafeEnv } from '@/app/lib/security/env-allowlist';
 import {
+  applyAgentFilePatch,
+  assertAgentPathAllowed,
+  detectUnsafeBashCommand,
+  editAgentFile,
+  listAgentFileSnapshots,
+  resolveAgentPath,
+  restoreAgentFileSnapshot,
+  type AgentFileChangeResult,
+  type AgentFileValidationResult,
+  writeAgentTextFile,
+} from '@/app/lib/pi/agent-file-operations';
+import {
   addMemory,
   deleteMemory,
   readMemory,
@@ -22,84 +34,11 @@ import {
   type MemoryTarget,
 } from '@/app/lib/agents/memory-store';
 
-// NOTE: resolveAgentPath allows absolute paths, but agent file tools must call
-// assertAgentPathAllowed before touching the filesystem.
-// The agent must be able to access /data/agents (its own prompt and memory files)
-// in addition to /data/workspace. Relative paths still resolve from the workspace
-// root for convenience. The UI file browser (api/files/*) remains sandboxed via
-// workspace-files.ts — only agent tools use this unrestricted resolver.
-const AGENT_DATA = process.env.DATA || path.join(process.cwd(), 'data');
-const AGENT_WORKSPACE_ROOT = path.join(AGENT_DATA, 'workspace');
-const RESOLVED_AGENT_DATA = path.resolve(process.cwd(), AGENT_DATA);
-const PROTECTED_AGENT_PATHS = [
-  path.join(RESOLVED_AGENT_DATA, 'secrets'),
-  '/data/secrets',
-  '/proc',
-  '/run/secrets',
-  '/sys/firmware',
-];
-
-function isPathWithin(candidatePath: string, basePath: string): boolean {
-  const normalizedCandidate = path.resolve(candidatePath);
-  const normalizedBase = path.resolve(basePath);
-  return normalizedCandidate === normalizedBase || normalizedCandidate.startsWith(`${normalizedBase}${path.sep}`);
-}
-
-function isProtectedAgentPath(candidatePath: string): boolean {
-  return PROTECTED_AGENT_PATHS.some((protectedPath) => isPathWithin(candidatePath, protectedPath));
-}
-
-async function assertAgentPathAllowed(candidatePath: string): Promise<void> {
-  if (isProtectedAgentPath(candidatePath)) {
-    throw new Error('Access to this path is restricted for security reasons.');
-  }
-
-  try {
-    const realPath = await fsPromises.realpath(candidatePath);
-    if (isProtectedAgentPath(realPath)) {
-      throw new Error('Access to this path is restricted for security reasons.');
-    }
-  } catch (error) {
-    if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') {
-      return;
-    }
-    throw error;
-  }
-}
-
-async function assertAgentWritablePathAllowed(candidatePath: string): Promise<void> {
-  await assertAgentPathAllowed(candidatePath);
-
-  try {
-    await assertAgentPathAllowed(path.dirname(candidatePath));
-  } catch (error) {
-    if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') {
-      return;
-    }
-    throw error;
-  }
-}
-
-const BLOCKED_BASH_COMMAND_PATTERNS = [
-  /\b(?:env|printenv)\b/i,
-  /\bdeclare\s+-x\b/i,
-  /\bset\b\s*(?:[;&|]|$)/i,
-  /\bexport\b\s*(?:[;&|]|$)/i,
-  /\/proc\/[^;&|`$()\s]*\/environ/i,
-  /\/data\/secrets(?:\/|$)/i,
-  /\/run\/secrets(?:\/|$)/i,
-  /\/sys\/firmware(?:\/|$)/i,
-  /Canvas-(?:Integrations|Agents)\.env/i,
-];
-
 function assertBashCommandAllowed(command: string): void {
-  if (BLOCKED_BASH_COMMAND_PATTERNS.some((pattern) => pattern.test(command))) {
-    throw new Error('Commands that expose environment variables or restricted secret paths are not allowed.');
+  const blockedReason = detectUnsafeBashCommand(command);
+  if (blockedReason) {
+    throw new Error(blockedReason);
   }
-}
-
-function resolveAgentPath(p: string): string {
-  return path.isAbsolute(p) ? p : path.join(AGENT_WORKSPACE_ROOT, p);
 }
 import { resolveAgentRuntimeSettings } from '../agents/effective-runtime-config';
 import { resolveEnabledToolNames, isLegacyEnabledToolsValue, getDefaultEnabledToolNames } from './enabled-tools';
@@ -1183,6 +1122,33 @@ function untrustedEmailToolText(data: unknown): string {
   return `${EMAIL_UNTRUSTED_NOTICE}\n\n${JSON.stringify(data, null, 2)}`;
 }
 
+function formatValidation(validation: AgentFileValidationResult): string {
+  return validation.checks
+    .map((check) => `- ${check.ok ? 'OK' : 'FAILED'} ${check.name}: ${check.message}`)
+    .join('\n');
+}
+
+function formatFileChangeResult(result: AgentFileChangeResult): string {
+  return [
+    `${result.changed ? 'Updated' : 'Checked'} file: ${result.path}`,
+    `Snapshot: ${result.snapshot?.id || 'none'}`,
+    `Before SHA-256: ${result.beforeSha256 || 'new file'}`,
+    `After SHA-256: ${result.afterSha256}`,
+    `Size: ${result.size} bytes`,
+    `Validation: ${result.validation.ok ? 'passed' : 'failed'}`,
+    formatValidation(result.validation),
+    '',
+    'Diff:',
+    '```diff',
+    result.diff,
+    '```',
+  ].join('\n');
+}
+
+function formatFileChangeResults(results: AgentFileChangeResult[]): string {
+  return results.map((result, index) => `# File ${index + 1}\n${formatFileChangeResult(result)}`).join('\n\n');
+}
+
 
 /**
  * Registry for PI-compatible tools.
@@ -1390,22 +1356,144 @@ export const piTools: AgentTool[] = [
   {
     name: 'write',
     label: 'Writing file',
-    description: 'Writes content to a file. Use absolute paths (e.g. /data/agents/canvas-agent/MEMORY.md) or relative paths from /data/workspace. Creates directories if needed.',
+    description: 'Writes text content to a file. Creates an undo snapshot, returns a diff, validates supported file types, and verifies the file after writing. Prefer edit_file or apply_patch for existing files when possible.',
     parameters: Type.Object({
       path: Type.String({ description: 'Absolute path or workspace-relative path.' }),
       content: Type.String({ description: 'The content to write.' }),
+      expectedSha256: Type.Optional(Type.String({ description: 'Optional SHA-256 hash that must match the current file before writing.' })),
     }),
     execute: async (toolCallId, params) => {
-      const { path: filePath, content } = params as { path: string; content: string };
+      const { path: filePath, content, expectedSha256 } = params as { path: string; content: string; expectedSha256?: string };
       try {
-        const fullPath = resolveAgentPath(filePath);
-        await assertAgentWritablePathAllowed(fullPath);
-        const dir = path.dirname(fullPath);
-        await fsPromises.mkdir(dir, { recursive: true });
-        await fsPromises.writeFile(fullPath, content, 'utf8');
+        const result = await writeAgentTextFile({
+          path: filePath,
+          content,
+          expectedSha256,
+          operation: 'write',
+        });
         return {
-          content: [{ type: 'text', text: `Successfully wrote ${content.length} bytes to ${filePath}` }],
-          details: { filePath, size: content.length },
+          content: [{ type: 'text', text: formatFileChangeResult(result) }],
+          details: result,
+        };
+      } catch (error: unknown) {
+        const message = getErrorMessage(error);
+        return {
+          content: [{ type: 'text', text: `Error: ${message}` }],
+          details: { error: message },
+        };
+      }
+    },
+  },
+  {
+    name: 'edit_file',
+    label: 'Editing file safely',
+    description: 'Safely edits an existing text file by exact oldText -> newText replacement. Refuses ambiguous matches, creates an undo snapshot, returns a diff, validates supported file types, and verifies the file after writing. Use this instead of sed, perl -pi, tee, or shell redirects.',
+    parameters: Type.Object({
+      path: Type.String({ description: 'Absolute path or workspace-relative path.' }),
+      oldText: Type.String({ description: 'Exact text to replace. Must match expectedOccurrences.' }),
+      newText: Type.String({ description: 'Replacement text.' }),
+      expectedOccurrences: Type.Optional(Type.Number({ description: 'Exact number of expected oldText matches. Defaults to 1.' })),
+      expectedSha256: Type.Optional(Type.String({ description: 'Optional SHA-256 hash that must match the current file before editing.' })),
+    }),
+    execute: async (_toolCallId, params) => {
+      const { path: filePath, oldText, newText, expectedOccurrences, expectedSha256 } = params as {
+        path: string;
+        oldText: string;
+        newText: string;
+        expectedOccurrences?: number;
+        expectedSha256?: string;
+      };
+      try {
+        const result = await editAgentFile({
+          path: filePath,
+          oldText,
+          newText,
+          expectedOccurrences,
+          expectedSha256,
+        });
+        return {
+          content: [{ type: 'text', text: formatFileChangeResult(result) }],
+          details: result,
+        };
+      } catch (error: unknown) {
+        const message = getErrorMessage(error);
+        return {
+          content: [{ type: 'text', text: `Error: ${message}` }],
+          details: { error: message },
+        };
+      }
+    },
+  },
+  {
+    name: 'apply_patch',
+    label: 'Applying safe patch',
+    description: 'Safely applies multiple exact text replacements across one or more existing files. All replacements are preflighted before any write. Creates undo snapshots, returns diffs, validates supported file types, and verifies files after writing.',
+    parameters: Type.Object({
+      files: Type.Array(Type.Object({
+        path: Type.String({ description: 'Absolute path or workspace-relative path.' }),
+        expectedSha256: Type.Optional(Type.String({ description: 'Optional SHA-256 hash that must match this file before patching.' })),
+        edits: Type.Array(Type.Object({
+          oldText: Type.String({ description: 'Exact text to replace. Must match expectedOccurrences.' }),
+          newText: Type.String({ description: 'Replacement text.' }),
+          expectedOccurrences: Type.Optional(Type.Number({ description: 'Exact number of expected oldText matches. Defaults to 1.' })),
+        })),
+      })),
+    }),
+    execute: async (_toolCallId, params) => {
+      try {
+        const results = await applyAgentFilePatch(params as { files: Parameters<typeof applyAgentFilePatch>[0]['files'] });
+        return {
+          content: [{ type: 'text', text: formatFileChangeResults(results) }],
+          details: { results },
+        };
+      } catch (error: unknown) {
+        const message = getErrorMessage(error);
+        return {
+          content: [{ type: 'text', text: `Error: ${message}` }],
+          details: { error: message },
+        };
+      }
+    },
+  },
+  {
+    name: 'list_file_snapshots',
+    label: 'Listing file snapshots',
+    description: 'Lists recent undo snapshots created by agent file tools. Read-only. Use before restore_file_snapshot when the user asks to undo or inspect recent agent edits.',
+    parameters: Type.Object({
+      path: Type.Optional(Type.String({ description: 'Optional absolute path or workspace-relative path to filter snapshots.' })),
+      limit: Type.Optional(Type.Number({ description: 'Maximum snapshots to return. Default 20, max 100.' })),
+    }),
+    execute: async (_toolCallId, params) => {
+      const { path: filePath, limit } = params as { path?: string; limit?: number };
+      try {
+        const snapshots = await listAgentFileSnapshots({ path: filePath, limit });
+        return {
+          content: [{ type: 'text', text: snapshots.length > 0 ? JSON.stringify(snapshots, null, 2) : '(no snapshots found)' }],
+          details: { snapshots },
+        };
+      } catch (error: unknown) {
+        const message = getErrorMessage(error);
+        return {
+          content: [{ type: 'text', text: `Error: ${message}` }],
+          details: { error: message },
+        };
+      }
+    },
+  },
+  {
+    name: 'restore_file_snapshot',
+    label: 'Restoring file snapshot',
+    description: 'Restores a file from an undo snapshot created by write, edit_file, apply_patch, or restore_file_snapshot. Creates a new snapshot of the current state before restoring.',
+    parameters: Type.Object({
+      snapshotId: Type.String({ description: 'Snapshot ID from list_file_snapshots or a previous file edit result.' }),
+    }),
+    execute: async (_toolCallId, params) => {
+      const { snapshotId } = params as { snapshotId: string };
+      try {
+        const result = await restoreAgentFileSnapshot({ snapshotId });
+        return {
+          content: [{ type: 'text', text: formatFileChangeResult(result) }],
+          details: result,
         };
       } catch (error: unknown) {
         const message = getErrorMessage(error);
@@ -1970,11 +2058,14 @@ function getToolNotes(tool: AgentTool, group: PiToolGroup): string[] {
     notes.push('Starts controlled headless Chromium and may interact with live webpages.');
     notes.push('Use web_fetch first unless JavaScript rendering, UI interaction, screenshots, login/session checks, or local app verification require a browser.');
   }
-  if (['bash', 'terminal', 'rg', 'glob', 'grep', 'ls'].includes(tool.name)) {
+  if (['bash', 'terminal', 'rg', 'glob', 'grep', 'ls', 'read', 'list_file_snapshots'].includes(tool.name)) {
     notes.push('May execute local shell commands or inspect local files.');
   }
-  if (['write', 'edit', 'create_file', 'delete_file', 'studio_generate_image', 'studio_generate_video', 'studio_generate_sound', 'studio_bulk_generate'].includes(tool.name)) {
+  if (['write', 'edit', 'edit_file', 'apply_patch', 'restore_file_snapshot', 'create_file', 'delete_file', 'studio_generate_image', 'studio_generate_video', 'studio_generate_sound', 'studio_bulk_generate'].includes(tool.name)) {
     notes.push('May write files or create generated media.');
+  }
+  if (['write', 'edit_file', 'apply_patch', 'restore_file_snapshot'].includes(tool.name)) {
+    notes.push('Creates an undo snapshot and returns a diff when it changes a file.');
   }
   if (['web_fetch', 'browser'].includes(tool.name)) {
     notes.push('May load external network resources.');
