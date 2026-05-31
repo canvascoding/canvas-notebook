@@ -1163,9 +1163,79 @@
       "downloadZip": "Download as ZIP",
       "downloadDataZip": "Download all data as ZIP",
       "dataZipHint": "The data export includes the complete /data directory, including workspace, agent files, database, uploads, and stored secrets.",
+      "adminOnlyHint": "Full data exports and migration restores are available to admins only.",
       "downloading": "Preparing download...",
       "refresh": "Refresh",
       "emptyWorkspace": "Your workspace is empty.",
+      "migration": {
+        "title": "VM Migration",
+        "description": "Create a versioned migration bundle or restore one into this VM.",
+        "adminOnly": "Only admins can create migration bundles or restore data.",
+        "exportTitle": "Export bundle",
+        "selectedComponents": "{count} components selected",
+        "createExport": "Create migration ZIP",
+        "downloadExport": "Download migration ZIP",
+        "files": "Files",
+        "size": "Size",
+        "exportedAt": "Exported",
+        "secretsWarning": "Secrets are included in this export. Store and transfer this ZIP like a credential.",
+        "importTitle": "Import bundle",
+        "importDescription": "Large ZIP files are uploaded in chunks, inspected, and restored after a controlled app restart.",
+        "uploading": "Uploading migration ZIP...",
+        "uploadComplete": "Upload inspected",
+        "unknownVersion": "Unknown version",
+        "confirmPrompt": "Type FULL_RESTORE to replace the selected data areas on this VM.",
+        "confirmMismatch": "Restore was cancelled because the confirmation did not match.",
+        "restore": "Start full restore",
+        "restoreRestarting": "Restore staged. The app is restarting and will apply the migration before startup.",
+        "restoreRestartRequired": "Restore staged. Restart the app/container to apply the migration before startup.",
+        "components": {
+          "database": {
+            "label": "SQLite database",
+            "hint": "Settings, chats, automations, metadata"
+          },
+          "workspace": {
+            "label": "Workspace files",
+            "hint": "Visible files under /data/workspace"
+          },
+          "studioAssets": {
+            "label": "Studio assets",
+            "hint": "Products, personas, styles, references"
+          },
+          "studioOutputs": {
+            "label": "Studio outputs",
+            "hint": "Generated images, videos, sounds, edits"
+          },
+          "userUploads": {
+            "label": "User uploads",
+            "hint": "Attachments and uploaded references"
+          },
+          "agents": {
+            "label": "Agent files",
+            "hint": "Prompts, MCP config, runtime config"
+          },
+          "skills": {
+            "label": "Skills",
+            "hint": "Installed skill folders"
+          },
+          "secrets": {
+            "label": "Secrets",
+            "hint": "Integration env files and local credentials"
+          }
+        },
+        "compatibility": {
+          "same": "Version matches",
+          "older_export_allowed": "Older export, migrations will run",
+          "newer_export_blocked": "Newer export blocked",
+          "unsupported_bundle_schema": "Unsupported bundle"
+        },
+        "errors": {
+          "exportFailed": "Migration export failed.",
+          "uploadFailed": "Migration upload failed.",
+          "inspectFailed": "Migration inspection failed.",
+          "restoreFailed": "Migration restore could not be staged."
+        }
+      },
       "errors": {
         "loadStats": "Failed to load workspace stats.",
         "downloadFailed": "Failed to download workspace."

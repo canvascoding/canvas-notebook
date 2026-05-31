@@ -1162,9 +1162,79 @@
       "downloadZip": "Als ZIP herunterladen",
       "downloadDataZip": "Alle Daten als ZIP herunterladen",
       "dataZipHint": "Der Daten-Export enthält das komplette /data-Verzeichnis inklusive Workspace, Agent-Dateien, Datenbank, Uploads und gespeicherten Secrets.",
+      "adminOnlyHint": "Vollständige Datenexports und Migrations-Restores sind nur für Admins verfügbar.",
       "downloading": "Download wird vorbereitet...",
       "refresh": "Aktualisieren",
       "emptyWorkspace": "Dein Workspace ist leer.",
+      "migration": {
+        "title": "VM-Migration",
+        "description": "Erstelle ein versioniertes Migrations-Bundle oder stelle eines in dieser VM wieder her.",
+        "adminOnly": "Nur Admins können Migrations-Bundles erstellen oder Daten wiederherstellen.",
+        "exportTitle": "Bundle exportieren",
+        "selectedComponents": "{count} Bausteine ausgewählt",
+        "createExport": "Migrations-ZIP erstellen",
+        "downloadExport": "Migrations-ZIP herunterladen",
+        "files": "Dateien",
+        "size": "Größe",
+        "exportedAt": "Exportiert",
+        "secretsWarning": "Secrets sind in diesem Export enthalten. Dieses ZIP muss wie ein Zugangsschlüssel gespeichert und übertragen werden.",
+        "importTitle": "Bundle importieren",
+        "importDescription": "Große ZIP-Dateien werden in Chunks hochgeladen, geprüft und nach einem kontrollierten App-Neustart wiederhergestellt.",
+        "uploading": "Migrations-ZIP wird hochgeladen...",
+        "uploadComplete": "Upload geprüft",
+        "unknownVersion": "Unbekannte Version",
+        "confirmPrompt": "Tippe FULL_RESTORE, um die ausgewählten Datenbereiche dieser VM zu ersetzen.",
+        "confirmMismatch": "Restore wurde abgebrochen, weil die Bestätigung nicht übereinstimmt.",
+        "restore": "Full Restore starten",
+        "restoreRestarting": "Restore wurde vorbereitet. Die App startet neu und wendet die Migration vor dem Start an.",
+        "restoreRestartRequired": "Restore wurde vorbereitet. Starte App/Container neu, damit die Migration vor dem Start angewendet wird.",
+        "components": {
+          "database": {
+            "label": "SQLite-Datenbank",
+            "hint": "Einstellungen, Chats, Automationen, Metadaten"
+          },
+          "workspace": {
+            "label": "Workspace-Dateien",
+            "hint": "Sichtbare Dateien unter /data/workspace"
+          },
+          "studioAssets": {
+            "label": "Studio-Assets",
+            "hint": "Produkte, Personas, Styles, Referenzen"
+          },
+          "studioOutputs": {
+            "label": "Studio-Outputs",
+            "hint": "Generierte Bilder, Videos, Sounds, Edits"
+          },
+          "userUploads": {
+            "label": "User-Uploads",
+            "hint": "Anhänge und hochgeladene Referenzen"
+          },
+          "agents": {
+            "label": "Agent-Dateien",
+            "hint": "Prompts, MCP-Konfig, Runtime-Konfig"
+          },
+          "skills": {
+            "label": "Skills",
+            "hint": "Installierte Skill-Ordner"
+          },
+          "secrets": {
+            "label": "Secrets",
+            "hint": "Integrations-Env-Dateien und lokale Credentials"
+          }
+        },
+        "compatibility": {
+          "same": "Version passt",
+          "older_export_allowed": "Älterer Export, Migrationen laufen",
+          "newer_export_blocked": "Neuerer Export blockiert",
+          "unsupported_bundle_schema": "Bundle nicht unterstützt"
+        },
+        "errors": {
+          "exportFailed": "Migrations-Export fehlgeschlagen.",
+          "uploadFailed": "Migrations-Upload fehlgeschlagen.",
+          "inspectFailed": "Migrations-Prüfung fehlgeschlagen.",
+          "restoreFailed": "Migration konnte nicht vorbereitet werden."
+        }
+      },
       "errors": {
         "loadStats": "Workspace-Statistiken konnten nicht geladen werden.",
         "downloadFailed": "Workspace-Download fehlgeschlagen."
