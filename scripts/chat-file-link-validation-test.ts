@@ -26,8 +26,11 @@ async function main() {
   globalThis.fetch = (async (input: RequestInfo | URL) => {
     const url = String(input);
     fetchCalls.push(url);
-    return new Response(null, {
-      status: url.includes(encodeURIComponent('generated/new-file.md')) ? 200 : 404,
+    return Response.json({
+      success: true,
+      data: {
+        exists: url.includes(encodeURIComponent('generated/new-file.md')),
+      },
     });
   }) as typeof fetch;
 
@@ -62,8 +65,7 @@ async function main() {
 
     assert.equal(await validateFileExists('generated/new-file.md', fileTree), true);
     assert.equal(fetchCalls.length, 1);
-    assert.match(fetchCalls[0], /\/api\/files\/read\?/);
-    assert.match(fetchCalls[0], /meta=1/);
+    assert.match(fetchCalls[0], /\/api\/files\/exists\?/);
 
     assert.equal(await validateFileExists('missing/nope.md', fileTree), false);
     assert.equal(await validateFileExists('missing/nope.md', fileTree), false);

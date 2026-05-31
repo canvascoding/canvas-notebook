@@ -36,11 +36,18 @@ export async function validateFileExists(
     return cached.value === true;
   }
 
-  const promise = fetch(`/api/files/read?path=${encodeURIComponent(normalizedPath)}&meta=1`, {
+  const promise = fetch(`/api/files/exists?path=${encodeURIComponent(normalizedPath)}`, {
     credentials: 'include',
     cache: 'no-store',
   })
-    .then((response) => response.ok)
+    .then(async (response) => {
+      if (!response.ok) {
+        return false;
+      }
+
+      const payload = await response.json().catch(() => null);
+      return payload?.data?.exists === true;
+    })
     .catch(() => false)
     .then((exists) => {
       validationCache.set(normalizedPath, {
