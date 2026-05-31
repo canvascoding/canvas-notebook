@@ -1172,6 +1172,97 @@ function getAgentDisplayName(agentId: string | null | undefined): string {
     .join(' ');
 }
 
+type ChatHistorySessionRowProps = {
+  session: AISession;
+  isActive: boolean;
+  agentProfile?: AgentProfile;
+  agentName: string;
+  newChatTitle: string;
+  unreadResponseLabel: string;
+  renameSessionLabel: string;
+  deleteSessionLabel: string;
+  onLoadSession: (session: AISession) => void | Promise<void>;
+  onRenameSession: (session: AISession) => void | Promise<void>;
+  onDeleteSession: (sessionId: string) => void | Promise<void>;
+};
+
+function ChatHistorySessionRow({
+  session,
+  isActive,
+  agentProfile,
+  agentName,
+  newChatTitle,
+  unreadResponseLabel,
+  renameSessionLabel,
+  deleteSessionLabel,
+  onLoadSession,
+  onRenameSession,
+  onDeleteSession,
+}: ChatHistorySessionRowProps) {
+  const createdAtLabel = new Date(session.createdAt).toLocaleString();
+
+  return (
+    <div className={`group mb-1 flex w-full items-center p-2 transition-all ${
+      isActive
+        ? 'border border-primary/30 bg-primary/10'
+        : 'border border-transparent bg-muted/30 hover:border-border hover:bg-accent'
+    }`}>
+      <button type="button" onClick={() => { void onLoadSession(session); }} className="min-w-0 flex-1 text-left flex items-start gap-2">
+        <span className="relative mt-0.5 shrink-0">
+          <AgentAvatar
+            iconId={agentProfile?.iconId}
+            className={`h-8 w-8 rounded-md ${
+              isActive ? 'border-primary bg-primary/15 text-primary' : 'bg-background/80'
+            }`}
+            iconClassName="h-4 w-4"
+          />
+          {session.hasUnread && (
+            <span
+              data-testid="chat-history-unread-indicator"
+              className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full border border-background bg-blue-500"
+              title={unreadResponseLabel}
+              aria-label={unreadResponseLabel}
+            />
+          )}
+        </span>
+        <div className="min-w-0 flex-1 text-left">
+          <div className={`truncate text-sm font-medium ${
+            isActive ? 'text-primary' : 'text-foreground group-hover:text-primary'
+          }`}>
+            {getSessionDisplayTitle(session.title, newChatTitle)}
+          </div>
+          <div className="mt-1 flex flex-wrap gap-2 text-[10px] text-muted-foreground">
+            <span>{createdAtLabel}</span>
+            <span>&bull;</span>
+            <span className="inline-flex min-w-0 items-center gap-1">
+              <AgentIcon iconId={agentProfile?.iconId} className="h-3 w-3 shrink-0" />
+              <span className="truncate">{agentName}</span>
+            </span>
+            <span>&bull;</span>
+            <span>{session.model}</span>
+          </div>
+        </div>
+      </button>
+      <button
+        type="button"
+        onClick={() => { void onRenameSession(session); }}
+        className="ml-2 shrink-0 border border-transparent p-2 text-muted-foreground transition-all hover:border-border hover:bg-accent"
+        title={renameSessionLabel}
+      >
+        <Pencil size={15} />
+      </button>
+      <button
+        type="button"
+        onClick={() => { void onDeleteSession(session.sessionId); }}
+        className="ml-1 shrink-0 border border-transparent p-2 text-muted-foreground transition-all hover:border-destructive/40 hover:bg-destructive/10 hover:text-destructive"
+        title={deleteSessionLabel}
+      >
+        <Trash2 size={15} />
+      </button>
+    </div>
+  );
+}
+
 function getOptimisticSessionTitle(candidate: string | null | undefined, fallbackTitle: string): string {
   const trimmed = candidate?.trim();
   if (!trimmed) {
@@ -5171,64 +5262,20 @@ export default function CanvasAgentChat({
                         const sessionAgentProfile = agentProfilesById.get(sessionAgentId);
                         const sessionAgentName = sessionAgentProfile?.name || getAgentDisplayName(session.agentId);
                         return (
-                          <div key={session.id} className={`group mb-1 flex w-full items-center p-2 transition-all ${
-                            isActive
-                              ? 'border border-primary/30 bg-primary/10'
-                              : 'border border-transparent bg-muted/30 hover:border-border hover:bg-accent'
-                          }`}>
-                            <button type="button" onClick={() => void loadSession(session)} className="min-w-0 flex-1 text-left flex items-start gap-2">
-                              <span className="relative mt-0.5 shrink-0">
-                                <AgentAvatar
-                                  iconId={sessionAgentProfile?.iconId}
-                                  className={`h-8 w-8 rounded-md ${
-                                    isActive ? 'border-primary bg-primary/15 text-primary' : 'bg-background/80'
-                                  }`}
-                                  iconClassName="h-4 w-4"
-                                />
-                                {session.hasUnread && (
-                                  <span
-                                    data-testid="chat-history-unread-indicator"
-                                    className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full border border-background bg-blue-500"
-                                    title={t('unreadResponse')}
-                                    aria-label={t('unreadResponse')}
-                                  />
-                                )}
-                              </span>
-                              <div className="min-w-0 flex-1 text-left">
-                                <div className={`truncate text-sm font-medium ${
-                                  isActive ? 'text-primary' : 'text-foreground group-hover:text-primary'
-                                }`}>
-                                  {getSessionDisplayTitle(session.title, t('newChatTitle'))}
-                                </div>
-                                <div className="mt-1 flex flex-wrap gap-2 text-[10px] text-muted-foreground">
-                                  <span>{new Date(session.createdAt).toLocaleString()}</span>
-                                  <span>&bull;</span>
-                                  <span className="inline-flex min-w-0 items-center gap-1">
-                                    <AgentIcon iconId={sessionAgentProfile?.iconId} className="h-3 w-3 shrink-0" />
-                                    <span className="truncate">{sessionAgentName}</span>
-                                  </span>
-                                  <span>&bull;</span>
-                                  <span>{session.model}</span>
-                                </div>
-                              </div>
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => void renameSession(session)}
-                              className="ml-2 shrink-0 border border-transparent p-2 text-muted-foreground transition-all hover:border-border hover:bg-accent"
-                              title={t('renameSession')}
-                            >
-                              <Pencil size={15} />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => void deleteSession(session.sessionId)}
-                              className="ml-1 shrink-0 border border-transparent p-2 text-muted-foreground transition-all hover:border-destructive/40 hover:bg-destructive/10 hover:text-destructive"
-                              title={t('deleteSession')}
-                            >
-                              <Trash2 size={15} />
-                            </button>
-                          </div>
+                          <ChatHistorySessionRow
+                            key={session.id}
+                            session={session}
+                            isActive={isActive}
+                            agentProfile={sessionAgentProfile}
+                            agentName={sessionAgentName}
+                            newChatTitle={t('newChatTitle')}
+                            unreadResponseLabel={t('unreadResponse')}
+                            renameSessionLabel={t('renameSession')}
+                            deleteSessionLabel={t('deleteSession')}
+                            onLoadSession={loadSession}
+                            onRenameSession={renameSession}
+                            onDeleteSession={deleteSession}
+                          />
                         );
                       })}
                     </div>
@@ -5380,64 +5427,20 @@ export default function CanvasAgentChat({
                       const sessionAgentProfile = agentProfilesById.get(sessionAgentId);
                       const sessionAgentName = sessionAgentProfile?.name || getAgentDisplayName(session.agentId);
                       return (
-                        <div key={session.id} className={`group mb-1 flex w-full items-center p-2 transition-all ${
-                          isActive
-                            ? 'border border-primary/30 bg-primary/10'
-                            : 'border border-transparent bg-muted/30 hover:border-border hover:bg-accent'
-                        }`}>
-                          <button type="button" onClick={() => void loadSession(session)} className="min-w-0 flex-1 text-left flex items-start gap-2">
-                            <span className="relative mt-0.5 shrink-0">
-                              <AgentAvatar
-                                iconId={sessionAgentProfile?.iconId}
-                                className={`h-8 w-8 rounded-md ${
-                                  isActive ? 'border-primary bg-primary/15 text-primary' : 'bg-background/80'
-                                }`}
-                                iconClassName="h-4 w-4"
-                              />
-                              {session.hasUnread && (
-                                <span
-                                  data-testid="chat-history-unread-indicator"
-                                  className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full border border-background bg-blue-500"
-                                  title={t('unreadResponse')}
-                                  aria-label={t('unreadResponse')}
-                                />
-                              )}
-                            </span>
-                            <div className="min-w-0 flex-1 text-left">
-                              <div className={`truncate text-sm font-medium ${
-                                isActive ? 'text-primary' : 'text-foreground group-hover:text-primary'
-                              }`}>
-                                {getSessionDisplayTitle(session.title, t('newChatTitle'))}
-                              </div>
-                              <div className="mt-1 flex flex-wrap gap-2 text-[10px] text-muted-foreground">
-                                <span>{new Date(session.createdAt).toLocaleString()}</span>
-                                <span>&bull;</span>
-                                <span className="inline-flex min-w-0 items-center gap-1">
-                                  <AgentIcon iconId={sessionAgentProfile?.iconId} className="h-3 w-3 shrink-0" />
-                                  <span className="truncate">{sessionAgentName}</span>
-                                </span>
-                                <span>&bull;</span>
-                                <span>{session.model}</span>
-                              </div>
-                            </div>
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => void renameSession(session)}
-                            className="ml-2 shrink-0 border border-transparent p-2 text-muted-foreground transition-all hover:border-border hover:bg-accent"
-                            title={t('renameSession')}
-                          >
-                            <Pencil size={15} />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => void deleteSession(session.sessionId)}
-                            className="ml-1 shrink-0 border border-transparent p-2 text-muted-foreground transition-all hover:border-destructive/40 hover:bg-destructive/10 hover:text-destructive"
-                            title={t('deleteSession')}
-                          >
-                            <Trash2 size={15} />
-                          </button>
-                        </div>
+                        <ChatHistorySessionRow
+                          key={session.id}
+                          session={session}
+                          isActive={isActive}
+                          agentProfile={sessionAgentProfile}
+                          agentName={sessionAgentName}
+                          newChatTitle={t('newChatTitle')}
+                          unreadResponseLabel={t('unreadResponse')}
+                          renameSessionLabel={t('renameSession')}
+                          deleteSessionLabel={t('deleteSession')}
+                          onLoadSession={loadSession}
+                          onRenameSession={renameSession}
+                          onDeleteSession={deleteSession}
+                        />
                       );
                     })}
                   </div>
