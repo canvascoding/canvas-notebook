@@ -369,15 +369,12 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
         writeStoredNotebookOpenFilePath(nextPath);
       }
 
-      if (!nextPath || nextPath === previousPath || viewportMode !== 'desktop') {
-        return;
-      }
-
-      openDesktopSideChat();
+      // File selection should not override a manually hidden desktop chat.
+      // Explicit session/prompt entry points still open the chat in their own effects.
     });
 
     return unsubscribe;
-  }, [openDesktopSideChat, viewportMode]);
+  }, []);
 
   const handleMouseMove = useCallback((e: MouseEvent) => {
     if (!isResizing.current) return;
