@@ -1,20 +1,13 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState, startTransition } from 'react';
+import { useCallback, useEffect, useRef, useState, startTransition, type ReactNode } from 'react';
+import dynamic from 'next/dynamic';
 import { useSearchParams } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import { ArrowLeft, ChevronDown, ExternalLink, Eye, EyeOff, Loader2, Mail, Plus, RefreshCw, Save, Settings, Trash2 } from 'lucide-react';
 
-import { AgentSettingsPanel } from '@/app/components/settings/AgentSettingsPanel';
 import { GeneralSettingsPanel } from '@/app/components/settings/GeneralSettingsPanel';
-import { SkillsPanel } from '@/app/components/settings/SkillsPanel';
-import { WorkspaceSettingsPanel } from '@/app/components/settings/WorkspaceSettingsPanel';
-import { ConnectedAppsPanel } from '@/app/components/settings/ConnectedAppsPanel';
 import { SettingsAccordionCard } from '@/app/components/settings/SettingsAccordionCard';
-import { ChannelsPanel } from '@/app/components/settings/ChannelsPanel';
-import { UsageAnalyticsClient } from '@/app/components/usage/UsageAnalyticsClient';
-import { LicenseActivationPanel } from '@/app/components/license/LicenseActivationPanel';
-import { CodeEditor } from '@/app/components/editor/CodeEditor';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -194,11 +187,28 @@ const SETTINGS_TAB_STORAGE_KEY = 'canvas-settings-active-tab';
 const ENV_CARD_OPEN_STORAGE_KEY = 'canvas-settings-env-card-open-state';
 const INTEGRATIONS_SECTION_OPEN_STORAGE_KEY = 'canvas-settings-integrations-section-open-state';
 const SETTINGS_TAB_TRIGGER_CLASS = 'min-h-9 min-w-0 border border-border px-2 data-[state=active]:bg-muted';
+const SETTINGS_TAB_CONTENT_CLASS = 'space-y-4 data-[state=inactive]:hidden';
 
 type SettingsTab = (typeof SETTINGS_TABS)[number];
 type EnvCardOpenState = Record<EnvScope, boolean>;
 type IntegrationsSectionId = 'connectedApps' | 'emailAccounts' | 'mcpConfig';
 type IntegrationsSectionOpenState = Record<IntegrationsSectionId, boolean>;
+type ConnectedAppsPanelProps = {
+  isOpen: boolean;
+  onOpenChange: (isOpen: boolean) => void;
+};
+type UsageAnalyticsClientProps = {
+  isAdmin: boolean;
+};
+type LicenseActivationPanelProps = {
+  defaultEmail: string;
+};
+type CodeEditorProps = {
+  value: string;
+  onChange: (value: string) => void;
+  readOnly?: boolean;
+  path?: string;
+};
 
 const DEFAULT_SETTINGS_TAB: SettingsTab = 'general';
 const DEFAULT_ENV_CARD_OPEN_STATE: EnvCardOpenState = { integrations: false, agents: false };
@@ -207,6 +217,57 @@ const DEFAULT_INTEGRATIONS_SECTION_OPEN_STATE: IntegrationsSectionOpenState = {
   emailAccounts: false,
   mcpConfig: false,
 };
+
+function SettingsTabLoader() {
+  const t = useTranslations('settings');
+
+  return (
+    <div className="flex items-center py-8 text-sm text-muted-foreground">
+      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+      {t('envCard.loadingConfig')}
+    </div>
+  );
+}
+
+const AgentSettingsPanel = dynamic(
+  () => import('@/app/components/settings/AgentSettingsPanel').then((module) => module.AgentSettingsPanel),
+  { loading: SettingsTabLoader },
+);
+
+const SkillsPanel = dynamic(
+  () => import('@/app/components/settings/SkillsPanel').then((module) => module.SkillsPanel),
+  { loading: SettingsTabLoader },
+);
+
+const WorkspaceSettingsPanel = dynamic(
+  () => import('@/app/components/settings/WorkspaceSettingsPanel').then((module) => module.WorkspaceSettingsPanel),
+  { loading: SettingsTabLoader },
+);
+
+const ChannelsPanel = dynamic(
+  () => import('@/app/components/settings/ChannelsPanel').then((module) => module.ChannelsPanel),
+  { loading: SettingsTabLoader },
+);
+
+const ConnectedAppsPanel = dynamic<ConnectedAppsPanelProps>(
+  () => import('@/app/components/settings/ConnectedAppsPanel').then((module) => module.ConnectedAppsPanel),
+  { loading: SettingsTabLoader },
+);
+
+const UsageAnalyticsClient = dynamic<UsageAnalyticsClientProps>(
+  () => import('@/app/components/usage/UsageAnalyticsClient').then((module) => module.UsageAnalyticsClient),
+  { loading: SettingsTabLoader },
+);
+
+const LicenseActivationPanel = dynamic<LicenseActivationPanelProps>(
+  () => import('@/app/components/license/LicenseActivationPanel').then((module) => module.LicenseActivationPanel),
+  { loading: SettingsTabLoader },
+);
+
+const CodeEditor = dynamic<CodeEditorProps>(
+  () => import('@/app/components/editor/CodeEditor').then((module) => module.CodeEditor),
+  { loading: SettingsTabLoader },
+);
 
 function isSettingsTab(value: string | null): value is SettingsTab {
   return SETTINGS_TABS.includes(value as SettingsTab);
@@ -1701,14 +1762,41 @@ export function IntegrationsSettingsClient({
   const requestedTab = searchParams.get('tab');
   const initialTab = getInitialSettingsTab(requestedTab);
   const [settingsTab, setSettingsTab] = useState<SettingsTab>(initialTab);
+  const [loadedTabs, setLoadedTabs] = useState<Set<SettingsTab>>(() => new Set([initialTab]));
   const { activeTabOverride } = useHintContext();
+  const integrationsInitialLoadStartedRef = useRef(false);
 
   const effectiveTab = normalizeSettingsTab(activeTabOverride) ?? settingsTab;
+  const shouldRenderTab = (tab: SettingsTab) => effectiveTab === tab || loadedTabs.has(tab);
+  const renderLazyTabContent = (
+    tab: SettingsTab,
+    children: ReactNode,
+    options: { id?: string } = {},
+  ) => {
+    const shouldRender = shouldRenderTab(tab);
+
+    return (
+      <TabsContent
+        value={tab}
+        className={SETTINGS_TAB_CONTENT_CLASS}
+        id={options.id}
+        forceMount={shouldRender ? true : undefined}
+      >
+        {shouldRender ? children : null}
+      </TabsContent>
+    );
+  };
   const handleTabChange = (value: string) => {
     const nextTab = normalizeSettingsTab(value);
     if (!nextTab) return;
 
     setSettingsTab(nextTab);
+    setLoadedTabs((current) => {
+      if (current.has(nextTab)) return current;
+      const nextTabs = new Set(current);
+      nextTabs.add(nextTab);
+      return nextTabs;
+    });
     try {
       window.localStorage.setItem(SETTINGS_TAB_STORAGE_KEY, nextTab);
     } catch {
@@ -1894,6 +1982,11 @@ export function IntegrationsSettingsClient({
   }, [loadMcpConfig, loadMcpStatus, t]);
 
   useEffect(() => {
+    if (effectiveTab !== 'integrations' || integrationsInitialLoadStartedRef.current) {
+      return;
+    }
+
+    integrationsInitialLoadStartedRef.current = true;
     startTransition(() => {
       void Promise.all([
         ...SCOPE_CARDS.map((card) => loadState(card.scope)),
@@ -1901,13 +1994,19 @@ export function IntegrationsSettingsClient({
         loadMcpStatus(),
       ]);
     });
-  }, [loadMcpConfig, loadMcpStatus, loadState]);
+  }, [effectiveTab, loadMcpConfig, loadMcpStatus, loadState]);
 
   useEffect(() => {
     const tab = searchParams.get('tab');
     const nextTab = normalizeSettingsTab(tab) ?? getStoredSettingsTab() ?? DEFAULT_SETTINGS_TAB;
     startTransition(() => {
       setSettingsTab(nextTab);
+      setLoadedTabs((current) => {
+        if (current.has(nextTab)) return current;
+        const nextTabs = new Set(current);
+        nextTabs.add(nextTab);
+        return nextTabs;
+      });
     });
   }, [searchParams]);
 
@@ -2316,78 +2415,69 @@ export function IntegrationsSettingsClient({
           </TabsTrigger>
         </TabsList>
 
-        <TabsContent value="general" className="space-y-4">
+        {renderLazyTabContent('general',
           <GeneralSettingsPanel
             userName={userName}
             userEmail={userEmail}
             isManagedControlPlane={isManagedControlPlane}
-          />
-        </TabsContent>
+          />,
+        )}
 
-        <TabsContent value="integrations" className="space-y-4" id="onboarding-settings-integrations">
-          <ConnectedAppsPanel
-            isOpen={integrationsSectionOpenById.connectedApps}
-            onOpenChange={(isOpen) => setIntegrationsSectionOpen('connectedApps', isOpen)}
-          />
-          <EmailAccountsCard
-            isOpen={integrationsSectionOpenById.emailAccounts}
-            onOpenChange={(isOpen) => setIntegrationsSectionOpen('emailAccounts', isOpen)}
-          />
-          <McpConfigCard
-            isOpen={integrationsSectionOpenById.mcpConfig}
-            onOpenChange={(isOpen) => setIntegrationsSectionOpen('mcpConfig', isOpen)}
-            editor={mcpEditor}
-            onLoad={loadMcpConfig}
-            onLoadStatus={loadMcpStatus}
-            onServerAction={runMcpServerAction}
-            onSaveServer={saveMcpServer}
-            onDeleteServer={deleteMcpServer}
-            onRawChange={setMcpRawContent}
-            onSave={saveMcpConfig}
-          />
-          {SCOPE_CARDS.map((card) => (
-            <EnvEditorCard
-              key={card.scope}
-              card={card}
-              editor={editors[card.scope]}
-              isOpen={envCardOpenByScope[card.scope]}
-              onOpenChange={setEnvCardOpen}
-              onActiveTabChange={setActiveTab}
-              onLoad={loadState}
-              onAddEntry={addDraftEntry}
-              onRemoveEntry={removeDraftEntry}
-              onUpdateEntry={updateDraftEntry}
-              onToggleSecret={toggleSecretVisibility}
-              onRawChange={setRawContent}
-              onSaveKeyValue={saveKeyValue}
-              onSaveRaw={saveRaw}
+        {renderLazyTabContent('integrations',
+          <>
+            <ConnectedAppsPanel
+              isOpen={integrationsSectionOpenById.connectedApps}
+              onOpenChange={(isOpen) => setIntegrationsSectionOpen('connectedApps', isOpen)}
             />
-          ))}
-        </TabsContent>
+            <EmailAccountsCard
+              isOpen={integrationsSectionOpenById.emailAccounts}
+              onOpenChange={(isOpen) => setIntegrationsSectionOpen('emailAccounts', isOpen)}
+            />
+            <McpConfigCard
+              isOpen={integrationsSectionOpenById.mcpConfig}
+              onOpenChange={(isOpen) => setIntegrationsSectionOpen('mcpConfig', isOpen)}
+              editor={mcpEditor}
+              onLoad={loadMcpConfig}
+              onLoadStatus={loadMcpStatus}
+              onServerAction={runMcpServerAction}
+              onSaveServer={saveMcpServer}
+              onDeleteServer={deleteMcpServer}
+              onRawChange={setMcpRawContent}
+              onSave={saveMcpConfig}
+            />
+            {SCOPE_CARDS.map((card) => (
+              <EnvEditorCard
+                key={card.scope}
+                card={card}
+                editor={editors[card.scope]}
+                isOpen={envCardOpenByScope[card.scope]}
+                onOpenChange={setEnvCardOpen}
+                onActiveTabChange={setActiveTab}
+                onLoad={loadState}
+                onAddEntry={addDraftEntry}
+                onRemoveEntry={removeDraftEntry}
+                onUpdateEntry={updateDraftEntry}
+                onToggleSecret={toggleSecretVisibility}
+                onRawChange={setRawContent}
+                onSaveKeyValue={saveKeyValue}
+                onSaveRaw={saveRaw}
+              />
+            ))}
+          </>,
+          { id: 'onboarding-settings-integrations' },
+        )}
 
-        <TabsContent value="agent-settings" className="space-y-4">
-          <AgentSettingsPanel />
-        </TabsContent>
+        {renderLazyTabContent('agent-settings', <AgentSettingsPanel />)}
 
-        <TabsContent value="workspace" className="space-y-4">
-          <WorkspaceSettingsPanel />
-        </TabsContent>
+        {renderLazyTabContent('workspace', <WorkspaceSettingsPanel />)}
 
-        <TabsContent value="channels" className="space-y-4">
-          <ChannelsPanel />
-        </TabsContent>
+        {renderLazyTabContent('channels', <ChannelsPanel />)}
 
-        <TabsContent value="usage" className="space-y-4" id="onboarding-settings-usage">
-          <UsageAnalyticsClient isAdmin={isAdmin} />
-        </TabsContent>
+        {renderLazyTabContent('usage', <UsageAnalyticsClient isAdmin={isAdmin} />, { id: 'onboarding-settings-usage' })}
 
-        <TabsContent value="skills" className="space-y-4">
-          <SkillsPanel />
-        </TabsContent>
+        {renderLazyTabContent('skills', <SkillsPanel />)}
 
-        <TabsContent value="license" className="space-y-4">
-          <LicenseActivationPanel defaultEmail={userEmail} />
-        </TabsContent>
+        {renderLazyTabContent('license', <LicenseActivationPanel defaultEmail={userEmail} />)}
       </Tabs>
     </div>
   );
