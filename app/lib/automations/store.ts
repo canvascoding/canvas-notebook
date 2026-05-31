@@ -1040,9 +1040,12 @@ export async function advanceAutomationJobSchedule(jobId: string, anchor = new D
     return;
   }
 
+  const scheduleLastRunAt = job.schedule.kind === 'interval'
+    ? null
+    : job.lastRunAt ? new Date(job.lastRunAt) : null;
   const nextRunAt = job.status === 'paused'
     ? null
-    : computeNextRunAt(job.schedule, { from: anchor, lastRunAt: job.lastRunAt ? new Date(job.lastRunAt) : null });
+    : computeNextRunAt(job.schedule, { from: anchor, lastRunAt: scheduleLastRunAt });
 
   await db
     .update(automationJobs)
