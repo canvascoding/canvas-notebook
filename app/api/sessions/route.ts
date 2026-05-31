@@ -21,6 +21,7 @@ import { hasUnreadAssistantResponse } from '@/app/lib/chat/unread';
 import { getAgentProfile, normalizeManagedAgentId } from '@/app/lib/agents/registry';
 import { deletePiSessionsByDbIds } from '@/app/lib/pi/session-deletion';
 import { createPiSystemPromptSnapshot, piSystemPromptSnapshotDbFields } from '@/app/lib/pi/system-prompt-snapshot';
+import { markPiSessionAsReadForUser, markPiSessionAsUnreadForUser } from '@/app/lib/chat/session-read-state';
 
 type CreateSessionPayload = {
   title?: string;
@@ -36,6 +37,7 @@ type RenameSessionPayload = {
   agentId?: string;
   title?: string;
   markAsRead?: boolean;
+  markAsUnread?: boolean;
   markAllAsRead?: boolean;
   lastMessageAt?: string;
   model?: string;
@@ -471,6 +473,7 @@ export async function PATCH(request: NextRequest) {
     const sessionId = typeof payload.sessionId === 'string' ? payload.sessionId.trim() : '';
     const title = typeof payload.title === 'string' ? payload.title.trim() : '';
     const markAsRead = typeof payload.markAsRead === 'boolean' ? payload.markAsRead : false;
+    const markAsUnread = typeof payload.markAsUnread === 'boolean' ? payload.markAsUnread : false;
     const markAllAsRead = typeof payload.markAllAsRead === 'boolean' ? payload.markAllAsRead : false;
     const requestedModel = normalizeOptionalString(payload.model);
     const requestedThinkingLevel = normalizeThinkingLevel(payload.thinkingLevel);
@@ -547,25 +550,38 @@ export async function PATCH(request: NextRequest) {
     // Handle mark as read
     if (markAsRead) {
       console.log(`[API Sessions] PATCH markAsRead: sessionId=${sessionId}, userId=${session.user.id}`);
-      const piSession = await db
-        .select({ id: piSessions.id })
-        .from(piSessions)
-        .where(and(eq(piSessions.sessionId, sessionId), eq(piSessions.userId, session.user.id), eq(piSessions.agentId, requestedAgentId)));
+      const updated = await markPiSessionAsReadForUser({
+        sessionId,
+        userId: session.user.id,
+        agentId: requestedAgentId,
+      });
 
-      if (piSession.length > 0) {
-        const now = new Date();
-        console.log(`[API Sessions] PATCH markAsRead: setting lastViewedAt=${now.toISOString()} for dbId=${piSession[0].id}`);
-        await db.update(piSessions)
-          .set({ lastViewedAt: now, updatedAt: now })
-          .where(eq(piSessions.id, piSession[0].id));
-        
-        return NextResponse.json({
-          success: true,
-          session: { sessionId, lastViewedAt: new Date() },
-        });
+      if (!updated) {
+        return NextResponse.json({ success: false, error: 'Session not found' }, { status: 404 });
       }
 
-      return NextResponse.json({ success: false, error: 'Session not found' }, { status: 404 });
+      return NextResponse.json({
+        success: true,
+        session: updated,
+      });
+    }
+
+    // Handle mark as unread
+    if (markAsUnread) {
+      const updated = await markPiSessionAsUnreadForUser({
+        sessionId,
+        userId: session.user.id,
+        agentId: requestedAgentId,
+      });
+
+      if (!updated) {
+        return NextResponse.json({ success: false, error: 'Session not found or has no messages' }, { status: 404 });
+      }
+
+      return NextResponse.json({
+        success: true,
+        session: updated,
+      });
     }
 
     // Handle lastMessageAt update
