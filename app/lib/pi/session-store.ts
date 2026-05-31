@@ -4,6 +4,11 @@ import { eq, and, asc } from 'drizzle-orm';
 import { type AgentMessage } from '@mariozechner/pi-agent-core';
 import { type PiSessionSummaryState } from './history-budget';
 import { DEFAULT_PI_SESSION_TITLE, isAutomaticSessionTitle } from './session-titles';
+import {
+  createPiSystemPromptSnapshot,
+  piSystemPromptSnapshotDbFields,
+  type PiSystemPromptSnapshot,
+} from './system-prompt-snapshot';
 import { ensureSessionChannelLink } from '@/app/lib/channels/channel-links';
 import { DEFAULT_AGENT_ID, normalizeChannelThreadKey, normalizeStoredChannelId, WEB_CHANNEL_ID, webChannelSessionKey } from '@/app/lib/channels/constants';
 
@@ -85,6 +90,7 @@ export async function savePiSession(
     channelSessionKey?: string | null;
     channelThreadKey?: string | null;
     agentId?: string | null;
+    systemPromptSnapshot?: PiSystemPromptSnapshot;
   },
 ): Promise<void> {
   const agentId = resolveSessionAgentId(options?.agentId);
@@ -113,6 +119,7 @@ export async function savePiSession(
   const lastMessageAt = lastAssistantMessage ? new Date(getAgentMessageTimestamp(lastAssistantMessage)) : null;
 
   if (!session) {
+    const promptSnapshot = options?.systemPromptSnapshot ?? await createPiSystemPromptSnapshot(agentId);
     const [inserted] = await db.insert(piSessions).values({
       sessionId,
       userId,
@@ -126,12 +133,16 @@ export async function savePiSession(
       updatedAt: new Date(),
       lastMessageAt: lastMessageAt,
       lastViewedAt: null,
+      ...piSystemPromptSnapshotDbFields(promptSnapshot),
       ...summaryFields,
     }).returning({ id: piSessions.id });
     sessionDbId = inserted.id;
   } else {
     sessionDbId = session.id;
     const nextTitle = normalizedTitleOverride || (isAutomaticSessionTitle(session.title) ? derivedTitle : session.title);
+    const promptSnapshotFields = session.systemPromptSnapshot
+      ? {}
+      : piSystemPromptSnapshotDbFields(options?.systemPromptSnapshot ?? await createPiSystemPromptSnapshot(agentId));
 
     await db.update(piSessions)
       .set({ 
@@ -140,6 +151,7 @@ export async function savePiSession(
         provider,
         model,
         lastMessageAt: lastMessageAt,
+        ...promptSnapshotFields,
         ...summaryFields 
       })
       .where(eq(piSessions.id, sessionDbId));

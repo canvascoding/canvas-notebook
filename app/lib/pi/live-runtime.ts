@@ -7,7 +7,7 @@ import type { Api, Model } from '@mariozechner/pi-ai';
 import { db } from '@/app/lib/db';
 import { piSessions } from '@/app/lib/db/schema';
 import { resolveAgentRuntimeConfig } from '@/app/lib/agents/effective-runtime-config';
-import { loadManagedAgentSystemPrompt } from '@/app/lib/agents/system-prompt';
+import { createPiSystemPromptSnapshot, ensurePiSessionSystemPromptSnapshot } from '@/app/lib/pi/system-prompt-snapshot';
 import { resolvePiApiKey } from '@/app/lib/pi/api-key-resolver';
 import {
   composePiHistoryForLlm,
@@ -195,6 +195,27 @@ function sanitizeUserMessage(
   message: Extract<AgentMessage, { role: 'user' }>,
 ): Extract<AgentMessage, { role: 'user' }> {
   // Pass through all messages without filtering - let the model handle vision capabilities
+  return message;
+}
+
+function appendRuntimeContextToUserMessage(
+  message: Extract<AgentMessage, { role: 'user' }>,
+  runtimeContext: string,
+): Extract<AgentMessage, { role: 'user' }> {
+  if (typeof message.content === 'string') {
+    return {
+      ...message,
+      content: `${message.content}\n\n${runtimeContext}`,
+    };
+  }
+
+  if (Array.isArray(message.content)) {
+    return {
+      ...message,
+      content: [...message.content, { type: 'text', text: runtimeContext }],
+    };
+  }
+
   return message;
 }
 
@@ -598,8 +619,8 @@ class LivePiRuntime {
     return null;
   }
 
-  private getSystemPromptWithTimeZone(): string {
-    let prompt = this.systemPrompt;
+  private getRuntimeContextBlock(): string | null {
+    const sections: string[] = [];
 
     if (this.timeZoneContext) {
       const { timeZone, currentTime } = this.timeZoneContext;
@@ -615,28 +636,56 @@ class LivePiRuntime {
       // Format local time
       const localTimeStr = localDate.toLocaleString('sv-SE'); // ISO-like format: YYYY-MM-DD HH:MM:SS
 
-      prompt += `\n\nCurrent Date & Time: ${localTimeStr} (${timeZone}, UTC${offsetStr})`;
+      sections.push(`Current Date & Time: ${localTimeStr} (${timeZone}, UTC${offsetStr})`);
     }
 
     if (this.activeFileContext) {
-      prompt += `\n\nCurrently open file in editor: ${this.activeFileContext}`;
+      sections.push(`Currently open file in editor: ${this.activeFileContext}`);
     }
 
     if (this.planningMode) {
-      prompt += '\n\n' + PLANNING_MODE_GUIDANCE;
+      sections.push(PLANNING_MODE_GUIDANCE);
     }
 
     const pageBlock = this.getPageContextBlock();
     if (pageBlock) {
-      prompt += '\n\n' + pageBlock;
+      sections.push(pageBlock);
     }
 
     const studioBlock = this.getStudioContextBlock();
     if (studioBlock) {
-      prompt += '\n\n' + studioBlock;
+      sections.push(studioBlock);
     }
 
-    return prompt;
+    if (sections.length === 0) {
+      return null;
+    }
+
+    return [
+      '<runtime_context>',
+      'Canvas-provided context for this turn. Treat this as operational context, not as a separate user request.',
+      '',
+      ...sections,
+      '</runtime_context>',
+    ].join('\n');
+  }
+
+  private injectRuntimeContext(messages: AgentMessage[]): AgentMessage[] {
+    const runtimeContext = this.getRuntimeContextBlock();
+    if (!runtimeContext) {
+      return messages;
+    }
+
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+      const message = messages[index];
+      if (isUserMessage(message)) {
+        const nextMessages = messages.slice();
+        nextMessages[index] = appendRuntimeContextToUserMessage(message, runtimeContext);
+        return nextMessages;
+      }
+    }
+
+    return messages;
   }
 
   startPrompt(message: Extract<AgentMessage, { role: 'user' }>) {
@@ -661,10 +710,8 @@ class LivePiRuntime {
     this.isRunning = true;
     this.publishStatus();
 
-    // Update agent system prompt with current timezone before starting
-    const systemPromptWithTimeZone = this.getSystemPromptWithTimeZone();
-    if (systemPromptWithTimeZone !== this.agent.state.systemPrompt) {
-      this.agent.state.systemPrompt = systemPromptWithTimeZone;
+    if (this.agent.state.systemPrompt !== this.systemPrompt) {
+      this.agent.state.systemPrompt = this.systemPrompt;
     }
 
     // Apply planning mode tool filter
@@ -746,7 +793,7 @@ class LivePiRuntime {
     }
 
     this.publishStatus();
-    return result.composition.llmMessages;
+    return this.injectRuntimeContext(result.composition.llmMessages);
   }
 
   private createQueueEntry(message: Extract<AgentMessage, { role: 'user' }>) {
@@ -948,7 +995,10 @@ async function createRuntime(sessionId: string, userId: string): Promise<LivePiR
     summaryUpdatedAt: null,
     summaryThroughTimestamp: null,
   };
-  const { systemPrompt } = await loadManagedAgentSystemPrompt(agentId);
+  const promptSnapshot = sessionRecord
+    ? await ensurePiSessionSystemPromptSnapshot(sessionRecord)
+    : await createPiSystemPromptSnapshot(agentId);
+  const systemPrompt = promptSnapshot.systemPrompt;
   const tools = await getPiTools(userId, agentId);
 
   const runtimeRef: { current: LivePiRuntime | null } = { current: null };
@@ -1149,7 +1199,8 @@ export async function getPiRuntimeStatus(sessionId: string, userId: string): Pro
     summaryUpdatedAt: null,
     summaryThroughTimestamp: null,
   };
-  const { systemPrompt } = await loadManagedAgentSystemPrompt(sessionRecord.agentId);
+  const promptSnapshot = await ensurePiSessionSystemPromptSnapshot(sessionRecord);
+  const systemPrompt = promptSnapshot.systemPrompt;
   const tools = await getPiTools(userId, sessionRecord.agentId);
   const model = await resolvePiModel(sessionRecord.provider, sessionRecord.model);
   const composition = composePiHistoryForLlm({

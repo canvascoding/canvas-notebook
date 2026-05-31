@@ -59,12 +59,22 @@ async function main() {
     PI_RUNTIME_CONFIG_PATH,
     isWritableManagedAgentFileName,
     readManagedAgentFile,
+    writeManagedAgentFile,
     writePiRuntimeConfig,
   } = await import('../app/lib/agents/storage');
   const { createAgentProfile, getAgentProfile, updateAgentProfile } = await import('../app/lib/agents/registry');
   const { resolveAgentRuntimeConfig, resolveAgentRuntimeSettings } = await import('../app/lib/agents/effective-runtime-config');
   const { loadManagedAgentSystemPrompt } = await import('../app/lib/agents/system-prompt');
   const { getCanvasControlPlaneModels, resolvePiModel } = await import('../app/lib/pi/model-resolver');
+  const { db } = await import('../app/lib/db');
+  const { user: users, piSessions } = await import('../app/lib/db/schema');
+  const { eq } = await import('drizzle-orm');
+  const {
+    createPiSystemPromptSnapshot,
+    ensurePiSessionSystemPromptSnapshot,
+    hashPiSystemPrompt,
+    piSystemPromptSnapshotDbFields,
+  } = await import('../app/lib/pi/system-prompt-snapshot');
 
   const unconfiguredSettings = await resolveAgentRuntimeSettings(DEFAULT_MANAGED_AGENT_ID);
   assert.equal(unconfiguredSettings.activeProvider, DEFAULT_PI_CONFIG.activeProvider);
@@ -178,6 +188,70 @@ async function main() {
   const prompt = await loadManagedAgentSystemPrompt(customAgent.agentId);
   assert.match(prompt.systemPrompt, /# Agent-Relevant Skills/);
   assert.match(prompt.systemPrompt, /research-notes: Summarize and organize research material/);
+
+  await writeManagedAgentFile('AGENTS.md', 'Original session prompt.\n', customAgent.agentId);
+  const originalSnapshot = await createPiSystemPromptSnapshot(customAgent.agentId);
+  assert.match(originalSnapshot.systemPrompt, /Original session prompt/);
+
+  await db.insert(users).values({
+    id: 'snapshot-user',
+    name: 'Snapshot User',
+    email: 'snapshot@example.test',
+    emailVerified: false,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  });
+  await db.insert(piSessions).values({
+    sessionId: 'snapshotted-session',
+    userId: 'snapshot-user',
+    agentId: customAgent.agentId,
+    provider: 'google',
+    model: 'gemini-1.5-pro',
+    thinkingLevel: 'off',
+    title: 'Snapshot Test',
+    channelId: 'app',
+    channelSessionKey: null,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    ...piSystemPromptSnapshotDbFields(originalSnapshot),
+  });
+
+  await writeManagedAgentFile('AGENTS.md', 'Changed after session start.\n', customAgent.agentId);
+  const snapshottedSession = await db.query.piSessions.findFirst({
+    where: eq(piSessions.sessionId, 'snapshotted-session'),
+  });
+  assert.ok(snapshottedSession);
+  const storedSnapshot = await ensurePiSessionSystemPromptSnapshot(snapshottedSession);
+  assert.equal(storedSnapshot.systemPrompt, originalSnapshot.systemPrompt);
+  assert.doesNotMatch(storedSnapshot.systemPrompt, /Changed after session start/);
+
+  await db.insert(piSessions).values({
+    sessionId: 'legacy-unsnapshotted-session',
+    userId: 'snapshot-user',
+    agentId: customAgent.agentId,
+    provider: 'google',
+    model: 'gemini-1.5-pro',
+    thinkingLevel: 'off',
+    title: 'Legacy Snapshot Test',
+    channelId: 'app',
+    channelSessionKey: null,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  });
+  const legacySession = await db.query.piSessions.findFirst({
+    where: eq(piSessions.sessionId, 'legacy-unsnapshotted-session'),
+  });
+  assert.ok(legacySession);
+  const legacySnapshot = await ensurePiSessionSystemPromptSnapshot(legacySession);
+  assert.match(legacySnapshot.systemPrompt, /Changed after session start/);
+  const updatedLegacySession = await db.query.piSessions.findFirst({
+    where: eq(piSessions.sessionId, 'legacy-unsnapshotted-session'),
+  });
+  assert.ok(updatedLegacySession?.systemPromptSnapshot);
+  assert.equal(
+    updatedLegacySession.systemPromptSnapshotHash,
+    hashPiSystemPrompt(updatedLegacySession.systemPromptSnapshot),
+  );
 
   await fs.rm(PI_RUNTIME_CONFIG_PATH, { force: true });
   process.env.CANVAS_MANAGED_SERVICES_ENABLED = 'true';

@@ -4,11 +4,11 @@ import { agentLoop, type AgentContext, type AgentMessage, type ThinkingLevel } f
 import type { Api, Provider } from '@mariozechner/pi-ai';
 
 import { resolveAgentRuntimeConfig } from '@/app/lib/agents/effective-runtime-config';
-import { loadManagedAgentSystemPrompt } from '@/app/lib/agents/system-prompt';
 import { createDirectory } from '@/app/lib/filesystem/workspace-files';
 import { resolvePiApiKey } from '@/app/lib/pi/api-key-resolver';
 import { normalizePiMessagesForLlm } from '@/app/lib/pi/message-normalization';
 import { loadPiSessionWithSummary, savePiSession } from '@/app/lib/pi/session-store';
+import { loadPiSessionSystemPromptSnapshot } from '@/app/lib/pi/system-prompt-snapshot';
 import { getPiTools } from '@/app/lib/pi/tool-registry';
 
 import { getEffectiveAutomationTargetOutputPath } from './paths';
@@ -228,7 +228,12 @@ export async function executeAutomationRun(runId: string): Promise<void> {
   console.log(`[Automationen] Run ${runId} using provider=${provider}, model=${model.id}`);
 
   const tools = await getPiTools(job.createdByUserId, job.agentId);
-  const { systemPrompt } = await loadManagedAgentSystemPrompt(job.agentId);
+  const promptSnapshot = await loadPiSessionSystemPromptSnapshot({
+    sessionId: piSessionId,
+    userId: job.createdByUserId,
+    agentId: job.agentId,
+  });
+  const systemPrompt = promptSnapshot.systemPrompt;
   const promptMessage: AgentMessage = {
     role: 'user',
     content: promptText,
@@ -274,6 +279,7 @@ export async function executeAutomationRun(runId: string): Promise<void> {
         titleOverride: piSessionTitle,
         agentId: job.agentId,
         persistedLength: existingMessages.length,
+        systemPromptSnapshot: promptSnapshot,
       },
     );
 
