@@ -105,7 +105,7 @@ type ApiResponse<T> = {
 type TodoFollowUpResponse = {
   todo: TodoItem;
   sessionId: string;
-  notebookHref: string;
+  chatHref: string;
 };
 
 type TodoFormState = {
@@ -177,6 +177,23 @@ function todoToForm(todo: TodoItem): TodoFormState {
 
 function fileLinkHref(workspacePath: string) {
   return `/files?path=${encodeURIComponent(workspacePath)}`;
+}
+
+function todoChatHref(todo: Pick<TodoItem, 'id' | 'sourceSessionId'>) {
+  if (!todo.sourceSessionId) return '/todos';
+  const params = new URLSearchParams({
+    todo: todo.id,
+    session: todo.sourceSessionId,
+    chat: 'open',
+  });
+  return `/todos?${params.toString()}`;
+}
+
+function openDockChatSession(sessionId: string | null) {
+  if (!sessionId || typeof window === 'undefined') return;
+  window.dispatchEvent(new CustomEvent('canvas:open-chat-session', {
+    detail: { sessionId },
+  }));
 }
 
 export function TodosClient({ title }: { title: string }) {
@@ -523,7 +540,8 @@ export function TodosClient({ title }: { title: string }) {
       setSelectedTodoId(data.todo.id);
       window.dispatchEvent(new CustomEvent('todo_updated'));
       toast.success(t('toasts.followUpSent'));
-      router.push(data.notebookHref);
+      openDockChatSession(data.sessionId);
+      router.push(data.chatHref);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : t('errors.followUpFailed'));
     } finally {
@@ -955,7 +973,10 @@ export function TodosClient({ title }: { title: string }) {
                         {t('sections.session')}
                       </h4>
                       <Button asChild size="sm" variant="outline">
-                        <Link href={`/notebook?session=${encodeURIComponent(selectedTodo.sourceSessionId)}`}>
+                        <Link
+                          href={todoChatHref(selectedTodo)}
+                          onClick={() => openDockChatSession(selectedTodo.sourceSessionId)}
+                        >
                           <ExternalLink className="h-4 w-4" />
                           {t('actions.openSession')}
                         </Link>
