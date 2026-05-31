@@ -152,6 +152,57 @@ export const piUsageEvents = sqliteTable("pi_usage_events", {
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 });
 
+export const todoCategories = sqliteTable("todo_categories", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull().references(() => user.id),
+  name: text("name").notNull(),
+  color: text("color"),
+  icon: text("icon"),
+  sortOrder: integer("sort_order").notNull().default(0),
+  isArchived: integer("is_archived", { mode: "boolean" }).notNull().default(false),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+}, (table) => ({
+  userSortIdx: index("idx_todo_categories_user_sort").on(table.userId, table.sortOrder),
+  userArchivedIdx: index("idx_todo_categories_user_archived").on(table.userId, table.isArchived),
+}));
+
+export const todoItems = sqliteTable("todo_items", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull().references(() => user.id),
+  categoryId: text("category_id").references(() => todoCategories.id),
+  title: text("title").notNull(),
+  description: text("description"),
+  status: text("status").notNull().default("open"),
+  priority: text("priority").notNull().default("normal"),
+  dueAt: integer("due_at", { mode: "timestamp" }),
+  sourceType: text("source_type").notNull().default("user"),
+  sourceAgentId: text("source_agent_id"),
+  sourceSessionId: text("source_session_id"),
+  seenAt: integer("seen_at", { mode: "timestamp" }),
+  completedAt: integer("completed_at", { mode: "timestamp" }),
+  archivedAt: integer("archived_at", { mode: "timestamp" }),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+}, (table) => ({
+  userStatusUpdatedIdx: index("idx_todo_items_user_status_updated").on(table.userId, table.status, table.updatedAt),
+  userDueIdx: index("idx_todo_items_user_due").on(table.userId, table.dueAt),
+  userSeenIdx: index("idx_todo_items_user_seen").on(table.userId, table.seenAt),
+  categoryIdx: index("idx_todo_items_category").on(table.categoryId),
+}));
+
+export const todoFileLinks = sqliteTable("todo_file_links", {
+  id: text("id").primaryKey(),
+  todoId: text("todo_id").notNull().references(() => todoItems.id),
+  userId: text("user_id").notNull().references(() => user.id),
+  workspacePath: text("workspace_path").notNull(),
+  label: text("label"),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+}, (table) => ({
+  todoIdx: index("idx_todo_file_links_todo").on(table.todoId),
+  userPathIdx: index("idx_todo_file_links_user_path").on(table.userId, table.workspacePath),
+}));
+
 export const onboardingLog = sqliteTable("onboarding_log", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   completedAt: integer("completed_at", { mode: "timestamp" }).notNull(),

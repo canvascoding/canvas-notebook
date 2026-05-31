@@ -158,6 +158,51 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       updated_at INTEGER NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS todo_categories (
+      id TEXT PRIMARY KEY NOT NULL,
+      user_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      color TEXT,
+      icon TEXT,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      is_archived INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES user(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS todo_items (
+      id TEXT PRIMARY KEY NOT NULL,
+      user_id TEXT NOT NULL,
+      category_id TEXT,
+      title TEXT NOT NULL,
+      description TEXT,
+      status TEXT NOT NULL DEFAULT 'open',
+      priority TEXT NOT NULL DEFAULT 'normal',
+      due_at INTEGER,
+      source_type TEXT NOT NULL DEFAULT 'user',
+      source_agent_id TEXT,
+      source_session_id TEXT,
+      seen_at INTEGER,
+      completed_at INTEGER,
+      archived_at INTEGER,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES user(id),
+      FOREIGN KEY (category_id) REFERENCES todo_categories(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS todo_file_links (
+      id TEXT PRIMARY KEY NOT NULL,
+      todo_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      workspace_path TEXT NOT NULL,
+      label TEXT,
+      created_at INTEGER NOT NULL,
+      FOREIGN KEY (todo_id) REFERENCES todo_items(id),
+      FOREIGN KEY (user_id) REFERENCES user(id)
+    );
+
     CREATE TABLE IF NOT EXISTS automation_jobs (
       id TEXT PRIMARY KEY NOT NULL,
       name TEXT NOT NULL,
@@ -619,6 +664,14 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     CREATE INDEX IF NOT EXISTS idx_ai_messages_session_created ON ai_messages (ai_session_db_id, created_at, id);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_agents_agent_id ON agents (agent_id);
     CREATE INDEX IF NOT EXISTS idx_pi_messages_session_timestamp ON pi_messages (pi_session_db_id, timestamp, id);
+    CREATE INDEX IF NOT EXISTS idx_todo_categories_user_sort ON todo_categories (user_id, sort_order);
+    CREATE INDEX IF NOT EXISTS idx_todo_categories_user_archived ON todo_categories (user_id, is_archived);
+    CREATE INDEX IF NOT EXISTS idx_todo_items_user_status_updated ON todo_items (user_id, status, updated_at);
+    CREATE INDEX IF NOT EXISTS idx_todo_items_user_due ON todo_items (user_id, due_at);
+    CREATE INDEX IF NOT EXISTS idx_todo_items_user_seen ON todo_items (user_id, seen_at);
+    CREATE INDEX IF NOT EXISTS idx_todo_items_category ON todo_items (category_id);
+    CREATE INDEX IF NOT EXISTS idx_todo_file_links_todo ON todo_file_links (todo_id);
+    CREATE INDEX IF NOT EXISTS idx_todo_file_links_user_path ON todo_file_links (user_id, workspace_path);
   `);
 
   // ── Column additions for existing volumes ────────────────────────────────────
