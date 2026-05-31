@@ -1,4 +1,4 @@
-import { getModels, getProviders, registerBuiltInApiProviders, type KnownProvider, type Model } from '@mariozechner/pi-ai';
+import { getModels, getProviders, registerBuiltInApiProviders, type KnownProvider, type Model } from '@earendil-works/pi-ai';
 import { isManagedControlPlaneAvailable, readPiRuntimeConfig } from '../agents/storage';
 import { getManagedControlPlaneBaseUrl } from '../managed/control-plane-url';
 import {

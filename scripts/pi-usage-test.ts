@@ -3,7 +3,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-import type { AgentMessage } from '@mariozechner/pi-agent-core';
+import type { AgentMessage } from '@earendil-works/pi-agent-core';
 
 async function main() {
   const tempDir = await mkdtemp(path.join(os.tmpdir(), 'pi-usage-'));

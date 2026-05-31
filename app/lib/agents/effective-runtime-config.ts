@@ -1,6 +1,6 @@
 import 'server-only';
 
-import type { Api, Model } from '@mariozechner/pi-ai';
+import type { Api, Model } from '@earendil-works/pi-ai';
 
 import type { AgentProfile } from './registry';
 import { getAgentProfile, normalizeManagedAgentId } from './registry';

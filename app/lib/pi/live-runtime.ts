@@ -1,8 +1,8 @@
 import 'server-only';
 
 import path from 'node:path';
-import { Agent, type AgentEvent, type AgentMessage, type AgentTool, type ThinkingLevel } from '@mariozechner/pi-agent-core';
-import type { Api, Model } from '@mariozechner/pi-ai';
+import { Agent, type AgentEvent, type AgentMessage, type AgentTool, type ThinkingLevel } from '@earendil-works/pi-agent-core';
+import type { Api, Model } from '@earendil-works/pi-ai';
 
 import { db } from '@/app/lib/db';
 import { piSessions } from '@/app/lib/db/schema';

@@ -1,7 +1,7 @@
 import path from 'node:path';
 
-import { agentLoop, type AgentContext, type AgentMessage, type ThinkingLevel } from '@mariozechner/pi-agent-core';
-import type { Api, Provider } from '@mariozechner/pi-ai';
+import { agentLoop, type AgentContext, type AgentMessage, type ThinkingLevel } from '@earendil-works/pi-agent-core';
+import type { Api, Provider } from '@earendil-works/pi-ai';
 
 import { resolveAgentRuntimeConfig } from '@/app/lib/agents/effective-runtime-config';
 import { createDirectory } from '@/app/lib/filesystem/workspace-files';

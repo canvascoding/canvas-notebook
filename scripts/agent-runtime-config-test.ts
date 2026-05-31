@@ -24,7 +24,7 @@ async function main() {
   const originalLoad = moduleInternals._load;
   moduleInternals._load = (request, parent, isMain) => {
     if (request === 'server-only') return {};
-    if (request === '@mariozechner/pi-ai') {
+    if (request === '@earendil-works/pi-ai') {
       const model = (provider: string, id: string) => ({
         id,
         name: id,

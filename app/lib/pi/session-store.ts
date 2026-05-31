@@ -1,7 +1,7 @@
 import { db } from '../db';
 import { piSessions, piMessages, aiSessions, aiMessages, sessionChannelLinks } from '../db/schema';
 import { eq, and, asc } from 'drizzle-orm';
-import { type AgentMessage } from '@mariozechner/pi-agent-core';
+import { type AgentMessage } from '@earendil-works/pi-agent-core';
 import { type PiSessionSummaryState } from './history-budget';
 import { DEFAULT_PI_SESSION_TITLE, isAutomaticSessionTitle } from './session-titles';
 import {

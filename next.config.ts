@@ -9,8 +9,8 @@ const externalPackages = [
   'node-pty',
   'better-sqlite3',
   'drizzle-orm',
-  '@mariozechner/pi-ai',
-  '@mariozechner/pi-agent-core',
+  '@earendil-works/pi-ai',
+  '@earendil-works/pi-agent-core',
   '@eigenpal/docx-js-editor',
   'file-type',
 ];

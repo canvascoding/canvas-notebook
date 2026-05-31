@@ -20,7 +20,7 @@ import {
   broadcastToSession,
   broadcastToUser,
 } from './websocket-broadcast';
-import type { AgentMessage } from '@mariozechner/pi-agent-core';
+import type { AgentMessage } from '@earendil-works/pi-agent-core';
 import { initializeWebSocketBridge } from './chat-event-bridge';
 import { checkWsRateLimit } from './websocket-rate-limit';
 import type { ChatRequestContext } from '@/app/lib/chat/types';

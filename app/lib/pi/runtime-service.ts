@@ -3,7 +3,7 @@ import 'server-only';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import type { AgentMessage } from '@mariozechner/pi-agent-core';
+import type { AgentMessage } from '@earendil-works/pi-agent-core';
 
 import type { ChatRequestContext } from '@/app/lib/chat/types';
 import {

@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 
-import type { AgentMessage } from '@mariozechner/pi-agent-core';
-import type { AssistantMessage, Usage } from '@mariozechner/pi-ai';
+import type { AgentMessage } from '@earendil-works/pi-agent-core';
+import type { AssistantMessage, Usage } from '@earendil-works/pi-ai';
 import { and, eq } from 'drizzle-orm';
 
 import { db } from '../db';

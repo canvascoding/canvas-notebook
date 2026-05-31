@@ -1,4 +1,4 @@
-import { type AgentTool } from '@mariozechner/pi-agent-core';
+import { type AgentTool } from '@earendil-works/pi-agent-core';
 
 /**
  * Tools allowed in Planning Mode (read-only, no side effects).

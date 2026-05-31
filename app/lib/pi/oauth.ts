@@ -14,8 +14,9 @@ import {
   getOAuthApiKey,
   type OAuthProviderId,
   type OAuthCredentials,
+  type OAuthDeviceCodeInfo,
   type OAuthPrompt,
-} from '@mariozechner/pi-ai/oauth';
+} from '@earendil-works/pi-ai/oauth';
 
 export type { OAuthCredentials, OAuthProviderId, OAuthPrompt };
 
@@ -45,6 +46,14 @@ interface AuthFile {
 export type AuthUrlCallback = (url: string, instructions?: string) => void;
 export type PromptCallback = (message: string) => Promise<string>;
 export type ProgressCallback = (message: string) => void;
+
+function formatDeviceCodeInstructions(info: OAuthDeviceCodeInfo): string {
+  const details = [`Enter code: ${info.userCode}`];
+  if (info.expiresInSeconds) {
+    details.push(`Expires in ${Math.round(info.expiresInSeconds / 60)} minutes.`);
+  }
+  return details.join('\n');
+}
 
 /**
  * Ensure the auth file directory exists
@@ -169,8 +178,8 @@ export async function initiateOAuthLogin(
     
     case 'github-copilot': {
       return await loginGitHubCopilot({
-        onAuth: (url: string, instructions?: string) => {
-          onAuthUrl(url, instructions);
+        onDeviceCode: (info) => {
+          onAuthUrl(info.verificationUri, formatDeviceCodeInstructions(info));
         },
         onPrompt: async (prompt) => {
           return await onPrompt(prompt.message);

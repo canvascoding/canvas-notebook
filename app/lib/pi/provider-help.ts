@@ -41,7 +41,7 @@ export interface ProviderHelpInfo {
 
 /**
  * Provider help information mapping.
- * Covers all 23+ providers available in @mariozechner/pi-ai
+ * Covers all 23+ providers available in @earendil-works/pi-ai
  */
 export const PROVIDER_HELP: Record<string, ProviderHelpInfo> = {
   // API Key Providers

@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import Module from 'node:module';
 
-import type { AgentMessage } from '@mariozechner/pi-agent-core';
-import type { Model } from '@mariozechner/pi-ai';
+import type { AgentMessage } from '@earendil-works/pi-agent-core';
+import type { Model } from '@earendil-works/pi-ai';
 
 async function main() {
   const moduleLoader = Module as unknown as {
@@ -14,7 +14,7 @@ async function main() {
       return {};
     }
 
-    if (request === '@mariozechner/pi-ai') {
+    if (request === '@earendil-works/pi-ai') {
       return {
         registerBuiltInApiProviders: () => undefined,
         getProviders: () => [],
@@ -27,7 +27,7 @@ async function main() {
       };
     }
 
-    if (request === '@mariozechner/pi-ai/oauth') {
+    if (request === '@earendil-works/pi-ai/oauth') {
       return {};
     }
 

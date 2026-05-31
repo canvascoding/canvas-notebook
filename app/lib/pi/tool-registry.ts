@@ -1,5 +1,5 @@
-import { type AgentTool } from '@mariozechner/pi-agent-core';
-import { type ImageContent } from '@mariozechner/pi-ai';
+import { type AgentTool } from '@earendil-works/pi-agent-core';
+import { type ImageContent } from '@earendil-works/pi-ai';
 import { Type } from 'typebox';
 import { exec, execFile } from 'child_process';
 import { promises as fsPromises } from 'fs';
