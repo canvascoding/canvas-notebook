@@ -6,11 +6,11 @@ import { useSearchParams } from 'next/navigation';
 import { Loader2, Link2, Unlink, RefreshCw, Search, ExternalLink, Plug, Eye, EyeOff, ChevronDown, ChevronRight } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { ToolkitToolsDialog } from './ToolkitToolsDialog';
+import { SettingsAccordionCard } from './SettingsAccordionCard';
 
 type ConnectedAccount = {
   id: string;
@@ -45,7 +45,12 @@ type ComposioStatus = {
   connectedAccounts: ConnectedAccount[];
 };
 
-export function ConnectedAppsPanel() {
+type ConnectedAppsPanelProps = {
+  isOpen: boolean;
+  onOpenChange: (isOpen: boolean) => void;
+};
+
+export function ConnectedAppsPanel({ isOpen, onOpenChange }: ConnectedAppsPanelProps) {
   const t = useTranslations('settings.connectedApps');
   const searchParams = useSearchParams();
 
@@ -270,20 +275,19 @@ export function ConnectedAppsPanel() {
 
   if (loading) {
     return (
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Plug className="h-5 w-5" />
-            {t('title')}
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="flex items-center text-sm text-muted-foreground">
-            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            {t('apiKeyChecking')}
-          </div>
-        </CardContent>
-      </Card>
+      <SettingsAccordionCard
+        title={t('title')}
+        description={t('description')}
+        icon={Plug}
+        isOpen={isOpen}
+        onOpenChange={onOpenChange}
+        summaryItems={[t('apiKeyChecking')]}
+      >
+        <div className="flex items-center text-sm text-muted-foreground">
+          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+          {t('apiKeyChecking')}
+        </div>
+      </SettingsAccordionCard>
     );
   }
 
@@ -324,17 +328,21 @@ export function ConnectedAppsPanel() {
         return <Badge variant="outline">{t('statusInactive')}</Badge>;
     }
   };
+  const summaryItems = [
+    needsApiKey ? t('notConfiguredShort') : t('summary', { connected: connectedToolkits.length, available: availableToolkits.length }),
+    error ? t('errorSummary') : null,
+  ].filter((item): item is string => Boolean(item));
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <Plug className="h-5 w-5" />
-          {t('title')}
-        </CardTitle>
-        <CardDescription>{t('description')}</CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-6">
+    <SettingsAccordionCard
+      title={t('title')}
+      description={t('description')}
+      icon={Plug}
+      isOpen={isOpen}
+      onOpenChange={onOpenChange}
+      summaryItems={summaryItems}
+      contentClassName="space-y-6"
+    >
         {error && <p className="text-sm text-destructive">{error}</p>}
 
         {/* API Key Section */}
@@ -560,7 +568,6 @@ export function ConnectedAppsPanel() {
             </CollapsibleContent>
           </Collapsible>
         )}
-      </CardContent>
       {dialogToolkit && (
         <ToolkitToolsDialog
           slug={dialogToolkit.slug}
@@ -574,6 +581,6 @@ export function ConnectedAppsPanel() {
           onDisconnect={(slug) => { setDialogToolkit(null); void handleDisconnect(slug); }}
         />
       )}
-    </Card>
+    </SettingsAccordionCard>
   );
 }

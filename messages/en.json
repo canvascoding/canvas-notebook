@@ -860,6 +860,10 @@
       "skills": "Skills",
       "license": "License"
     },
+    "sections": {
+      "expand": "Expand",
+      "collapse": "Collapse"
+    },
     "general": {
       "language": "Language",
       "languageDescription": "Choose the interface language. Changes are applied immediately.",
@@ -1013,6 +1017,9 @@
       "title": "MCP Configuration",
       "description": "Configure Model Context Protocol servers for the agent.",
       "loading": "Loading MCP configuration...",
+      "summary": "{count, plural, =0 {No servers} one {# server} other {# servers}}",
+      "connectedSummary": "{count} connected",
+      "errorSummary": "Load error",
       "secretNote": "Do not paste API keys or OAuth tokens here. Reference environment variables managed in this tab instead.",
       "examplesLink": "Example MCP servers",
       "examplesCaution": "Use with caution: review external MCP servers before using them.",
@@ -1097,6 +1104,8 @@
       "description": "Connect external apps via Composio to give your agent access to 500+ integrations.",
       "notConfigured": "Add your Composio API key to get started.",
       "notConfiguredShort": "No API key",
+      "summary": "{connected} connected · {available} available",
+      "errorSummary": "Load error",
       "apiKeyInvalid": "The Composio API key is invalid. Please update it below.",
       "apiKeyValid": "API key is valid",
       "apiKeyChecking": "Checking API key...",
@@ -1544,6 +1553,9 @@
     "emailAccounts": {
       "title": "Email Accounts",
       "description": "Connect email accounts and control which senders can be read or recipients can be used for sending.",
+      "summary": "{count, plural, =0 {No accounts} one {# account connected} other {# accounts connected}}",
+      "loadingSummary": "Loading accounts...",
+      "errorSummary": "Load error",
       "refresh": "Refresh",
       "save": "Save",
       "connect": "Connect",

@@ -3,13 +3,14 @@
 import { useCallback, useEffect, useRef, useState, startTransition } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useTranslations } from 'next-intl';
-import { ArrowLeft, ChevronDown, ExternalLink, Eye, EyeOff, Loader2, Plus, RefreshCw, Save, Settings, Trash2 } from 'lucide-react';
+import { ArrowLeft, ChevronDown, ExternalLink, Eye, EyeOff, Loader2, Mail, Plus, RefreshCw, Save, Settings, Trash2 } from 'lucide-react';
 
 import { AgentSettingsPanel } from '@/app/components/settings/AgentSettingsPanel';
 import { GeneralSettingsPanel } from '@/app/components/settings/GeneralSettingsPanel';
 import { SkillsPanel } from '@/app/components/settings/SkillsPanel';
 import { WorkspaceSettingsPanel } from '@/app/components/settings/WorkspaceSettingsPanel';
 import { ConnectedAppsPanel } from '@/app/components/settings/ConnectedAppsPanel';
+import { SettingsAccordionCard } from '@/app/components/settings/SettingsAccordionCard';
 import { ChannelsPanel } from '@/app/components/settings/ChannelsPanel';
 import { UsageAnalyticsClient } from '@/app/components/usage/UsageAnalyticsClient';
 import { LicenseActivationPanel } from '@/app/components/license/LicenseActivationPanel';
@@ -191,13 +192,21 @@ type ScopeCardConfig = {
 const SETTINGS_TABS = ['general', 'integrations', 'agent-settings', 'workspace', 'usage', 'skills', 'channels', 'license'] as const;
 const SETTINGS_TAB_STORAGE_KEY = 'canvas-settings-active-tab';
 const ENV_CARD_OPEN_STORAGE_KEY = 'canvas-settings-env-card-open-state';
+const INTEGRATIONS_SECTION_OPEN_STORAGE_KEY = 'canvas-settings-integrations-section-open-state';
 const SETTINGS_TAB_TRIGGER_CLASS = 'min-h-9 min-w-0 border border-border px-2 data-[state=active]:bg-muted';
 
 type SettingsTab = (typeof SETTINGS_TABS)[number];
 type EnvCardOpenState = Record<EnvScope, boolean>;
+type IntegrationsSectionId = 'connectedApps' | 'emailAccounts' | 'mcpConfig';
+type IntegrationsSectionOpenState = Record<IntegrationsSectionId, boolean>;
 
 const DEFAULT_SETTINGS_TAB: SettingsTab = 'general';
 const DEFAULT_ENV_CARD_OPEN_STATE: EnvCardOpenState = { integrations: false, agents: false };
+const DEFAULT_INTEGRATIONS_SECTION_OPEN_STATE: IntegrationsSectionOpenState = {
+  connectedApps: false,
+  emailAccounts: false,
+  mcpConfig: false,
+};
 
 function isSettingsTab(value: string | null): value is SettingsTab {
   return SETTINGS_TABS.includes(value as SettingsTab);
@@ -233,6 +242,21 @@ function getStoredEnvCardOpenState(): EnvCardOpenState {
     };
   } catch {
     return DEFAULT_ENV_CARD_OPEN_STATE;
+  }
+}
+
+function getStoredIntegrationsSectionOpenState(): IntegrationsSectionOpenState {
+  if (typeof window === 'undefined') return DEFAULT_INTEGRATIONS_SECTION_OPEN_STATE;
+
+  try {
+    const storedState = JSON.parse(window.localStorage.getItem(INTEGRATIONS_SECTION_OPEN_STORAGE_KEY) || '{}') as Partial<IntegrationsSectionOpenState>;
+    return {
+      connectedApps: typeof storedState.connectedApps === 'boolean' ? storedState.connectedApps : DEFAULT_INTEGRATIONS_SECTION_OPEN_STATE.connectedApps,
+      emailAccounts: typeof storedState.emailAccounts === 'boolean' ? storedState.emailAccounts : DEFAULT_INTEGRATIONS_SECTION_OPEN_STATE.emailAccounts,
+      mcpConfig: typeof storedState.mcpConfig === 'boolean' ? storedState.mcpConfig : DEFAULT_INTEGRATIONS_SECTION_OPEN_STATE.mcpConfig,
+    };
+  } catch {
+    return DEFAULT_INTEGRATIONS_SECTION_OPEN_STATE;
   }
 }
 
@@ -734,6 +758,8 @@ function McpServerAvatar({ iconUrl, serverName }: { iconUrl?: string | null; ser
 }
 
 function McpConfigCard(props: {
+  isOpen: boolean;
+  onOpenChange: (isOpen: boolean) => void;
   editor: McpEditorState;
   onLoad: () => Promise<void>;
   onLoadStatus: () => Promise<void>;
@@ -744,7 +770,7 @@ function McpConfigCard(props: {
   onSave: () => Promise<void>;
 }) {
   const t = useTranslations('settings');
-  const { editor, onLoad, onLoadStatus, onServerAction, onSaveServer, onDeleteServer, onRawChange, onSave } = props;
+  const { editor, isOpen, onLoad, onLoadStatus, onOpenChange, onServerAction, onSaveServer, onDeleteServer, onRawChange, onSave } = props;
   const [mcpView, setMcpView] = useState<'list' | 'form'>('list');
   const [editingServerName, setEditingServerName] = useState<string | undefined>();
   const [serverDraft, setServerDraft] = useState<McpServerDraft>(() => createBlankMcpServerDraft());
@@ -762,6 +788,14 @@ function McpConfigCard(props: {
     }
   })();
   const configuredServers = Object.entries(config.mcpServers);
+  const connectedServerCount = configuredServers.filter(([serverName]) =>
+    editor.status?.servers.find((entry) => entry.name === serverName)?.connected
+  ).length;
+  const summaryItems = [
+    editor.isLoading ? t('mcpConfig.loading') : t('mcpConfig.summary', { count: configuredServers.length }),
+    !editor.isLoading && configuredServers.length > 0 ? t('mcpConfig.connectedSummary', { count: connectedServerCount }) : null,
+    editor.error ? t('mcpConfig.errorSummary') : null,
+  ].filter((item): item is string => Boolean(item));
 
   const startAddServer = () => {
     setEditingServerName(undefined);
@@ -886,15 +920,16 @@ function McpConfigCard(props: {
 
   return (
     <>
-    <Card id="onboarding-settings-mcp-config">
-      <CardHeader className="px-4 sm:px-6">
-        <CardTitle>{t('mcpConfig.title')}</CardTitle>
-        <CardDescription>
-          {t('mcpConfig.description')} {t('envCard.fileLocatedAt')}{' '}
-          <span className="break-all font-mono">{editor.state?.path || '/data/canvas-agent/mcp.json'}</span>.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4 px-4 pb-4 sm:px-6 sm:pb-6">
+    <SettingsAccordionCard
+      id="onboarding-settings-mcp-config"
+      title={t('mcpConfig.title')}
+      description={`${t('mcpConfig.description')} ${t('envCard.fileLocatedAt')} ${editor.state?.path || '/data/canvas-agent/mcp.json'}.`}
+      icon={Settings}
+      isOpen={isOpen}
+      onOpenChange={onOpenChange}
+      summaryItems={summaryItems}
+      contentClassName="space-y-4"
+    >
         {editor.isLoading ? (
           <div className="flex items-center text-sm text-muted-foreground">
             <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -1179,8 +1214,7 @@ function McpConfigCard(props: {
             )}
           </>
         )}
-      </CardContent>
-    </Card>
+    </SettingsAccordionCard>
     <Dialog open={Boolean(toolsDialog.server)} onOpenChange={(open) => { if (!open) closeToolsDialog(); }}>
       <DialogContent className="sm:max-w-3xl">
         <DialogHeader>
@@ -1216,7 +1250,7 @@ function McpConfigCard(props: {
   );
 }
 
-function EmailAccountsCard() {
+function EmailAccountsCard({ isOpen, onOpenChange }: { isOpen: boolean; onOpenChange: (isOpen: boolean) => void }) {
   const t = useTranslations('settings.emailAccounts');
   const searchParams = useSearchParams();
   const handledEmailOAuthReturn = useRef(false);
@@ -1469,24 +1503,27 @@ function EmailAccountsCard() {
     if (status === 'revoked') return t('statuses.revoked');
     return status;
   };
+  const summaryItems = [
+    isLoading ? t('loadingSummary') : t('summary', { count: accounts.length }),
+    error ? t('errorSummary') : null,
+  ].filter((item): item is string => Boolean(item));
 
   return (
-    <Card>
-      <CardHeader>
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div>
-            <CardTitle>{t('title')}</CardTitle>
-            <CardDescription>{t('description')}</CardDescription>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <Button type="button" variant="outline" onClick={() => void loadAccounts()} disabled={isLoading}>
-              {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
-              {t('refresh')}
-            </Button>
-          </div>
+    <SettingsAccordionCard
+      title={t('title')}
+      description={t('description')}
+      icon={Mail}
+      isOpen={isOpen}
+      onOpenChange={onOpenChange}
+      summaryItems={summaryItems}
+      contentClassName="space-y-4"
+    >
+        <div className="flex flex-wrap justify-end gap-2">
+          <Button type="button" variant="outline" onClick={() => void loadAccounts()} disabled={isLoading}>
+            {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
+            {t('refresh')}
+          </Button>
         </div>
-      </CardHeader>
-      <CardContent className="space-y-4">
         {error && <div className="border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</div>}
         {message && <div className="border border-border bg-muted px-3 py-2 text-sm text-muted-foreground">{message}</div>}
         {!hasConnectedEmailAccount && (
@@ -1643,8 +1680,7 @@ function EmailAccountsCard() {
             );
           })
         )}
-      </CardContent>
-    </Card>
+    </SettingsAccordionCard>
   );
 }
 
@@ -1690,6 +1726,7 @@ export function IntegrationsSettingsClient({
   });
   const [mcpEditor, setMcpEditor] = useState<McpEditorState>(INITIAL_MCP_STATE);
   const [envCardOpenByScope, setEnvCardOpenByScope] = useState<EnvCardOpenState>(DEFAULT_ENV_CARD_OPEN_STATE);
+  const [integrationsSectionOpenById, setIntegrationsSectionOpenById] = useState<IntegrationsSectionOpenState>(DEFAULT_INTEGRATIONS_SECTION_OPEN_STATE);
 
   const loadState = useCallback(async (scope: EnvScope) => {
     setEditors((current) => ({
@@ -1877,6 +1914,7 @@ export function IntegrationsSettingsClient({
   useEffect(() => {
     startTransition(() => {
       setEnvCardOpenByScope(getStoredEnvCardOpenState());
+      setIntegrationsSectionOpenById(getStoredIntegrationsSectionOpenState());
     });
   }, []);
 
@@ -2114,7 +2152,26 @@ export function IntegrationsSettingsClient({
         ...current,
         [scope]: isOpen,
       };
-      window.localStorage.setItem(ENV_CARD_OPEN_STORAGE_KEY, JSON.stringify(nextState));
+      try {
+        window.localStorage.setItem(ENV_CARD_OPEN_STORAGE_KEY, JSON.stringify(nextState));
+      } catch {
+        // Settings still work if persistent browser storage is unavailable.
+      }
+      return nextState;
+    });
+  };
+
+  const setIntegrationsSectionOpen = (sectionId: IntegrationsSectionId, isOpen: boolean) => {
+    setIntegrationsSectionOpenById((current) => {
+      const nextState = {
+        ...current,
+        [sectionId]: isOpen,
+      };
+      try {
+        window.localStorage.setItem(INTEGRATIONS_SECTION_OPEN_STORAGE_KEY, JSON.stringify(nextState));
+      } catch {
+        // Settings still work if persistent browser storage is unavailable.
+      }
       return nextState;
     });
   };
@@ -2268,9 +2325,17 @@ export function IntegrationsSettingsClient({
         </TabsContent>
 
         <TabsContent value="integrations" className="space-y-4" id="onboarding-settings-integrations">
-          <ConnectedAppsPanel />
-          <EmailAccountsCard />
+          <ConnectedAppsPanel
+            isOpen={integrationsSectionOpenById.connectedApps}
+            onOpenChange={(isOpen) => setIntegrationsSectionOpen('connectedApps', isOpen)}
+          />
+          <EmailAccountsCard
+            isOpen={integrationsSectionOpenById.emailAccounts}
+            onOpenChange={(isOpen) => setIntegrationsSectionOpen('emailAccounts', isOpen)}
+          />
           <McpConfigCard
+            isOpen={integrationsSectionOpenById.mcpConfig}
+            onOpenChange={(isOpen) => setIntegrationsSectionOpen('mcpConfig', isOpen)}
             editor={mcpEditor}
             onLoad={loadMcpConfig}
             onLoadStatus={loadMcpStatus}
