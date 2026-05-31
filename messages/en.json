@@ -1253,7 +1253,8 @@
           "loading": "Loading connections...",
           "empty": "No connected apps or active MCP servers found.",
           "mcpDetail": "{count} cached tools",
-          "composioDetail": "{count} tools"
+          "composioDetail": "{count} tools",
+          "loadMore": "Show {count} more"
         },
         "skills": {
           "title": "Relevant skills",

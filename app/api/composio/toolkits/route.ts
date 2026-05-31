@@ -21,6 +21,7 @@ function toToolkitSummary(value: unknown) {
   return {
     slug,
     name,
+    logo: stringValue(record.logo),
     connected: Boolean(record.connected),
     toolsCount: toolsCount ?? (Array.isArray(record.tools) ? record.tools.length : 0),
   };
@@ -30,17 +31,35 @@ export async function GET(request: NextRequest) {
   try {
     const connectedOnly = request.nextUrl.searchParams.get('connectedOnly') === '1';
     const summaryOnly = request.nextUrl.searchParams.get('summary') === '1';
+    const includeLogos = request.nextUrl.searchParams.get('includeLogos') === '1';
 
     if (connectedOnly) {
       const status = await getGatewayStatus();
+      let toolkitSummaryBySlug = new Map<string, ReturnType<typeof toToolkitSummary>>();
+      if (includeLogos) {
+        const result = await getGatewayToolkits().catch(() => ({ toolkits: [] }));
+        if (Array.isArray(result.toolkits)) {
+          toolkitSummaryBySlug = new Map(
+            result.toolkits
+              .map(toToolkitSummary)
+              .filter((toolkit) => toolkit.slug)
+              .map((toolkit) => [toolkit.slug, toolkit]),
+          );
+        }
+      }
+
       return NextResponse.json({
-        toolkits: status.connectedAccounts.map((account) => ({
-          slug: account.toolkit.slug,
-          name: account.toolkit.name || account.toolkit.slug,
-          connected: true,
-          connectedAccountStatus: account.status,
-          toolsCount: 0,
-        })),
+        toolkits: status.connectedAccounts.map((account) => {
+          const toolkit = toolkitSummaryBySlug.get(account.toolkit.slug);
+          return {
+            slug: account.toolkit.slug,
+            name: account.toolkit.name || toolkit?.name || account.toolkit.slug,
+            logo: toolkit?.logo || '',
+            connected: true,
+            connectedAccountStatus: account.status,
+            toolsCount: toolkit?.toolsCount || 0,
+          };
+        }),
       });
     }
 
