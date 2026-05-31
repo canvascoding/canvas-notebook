@@ -106,6 +106,7 @@ export function ChatDockShell({
   const [viewportWidth, setViewportWidth] = useState(DEFAULT_CHAT_WIDTH);
   const [hasMounted, setHasMounted] = useState(false);
   const [forcedChatSessionId, setForcedChatSessionId] = useState<string | null>(null);
+  const [chatOpenRequestId, setChatOpenRequestId] = useState(0);
   const isResizing = useRef(false);
   const prevViewportModeRef = useRef<'mobile' | 'desktop' | null>(null);
 
@@ -223,6 +224,7 @@ export function ChatDockShell({
     const applySession = (sessionId: string | null) => {
       if (sessionId) {
         setForcedChatSessionId(sessionId);
+        setChatOpenRequestId((current) => current + 1);
       }
     };
 
@@ -262,7 +264,7 @@ export function ChatDockShell({
     }, 0);
 
     return () => window.clearTimeout(handle);
-  }, [forcedChatSessionId, viewportMode]);
+  }, [chatOpenRequestId, forcedChatSessionId, viewportMode]);
 
   const isMobileViewport = viewportMode === 'mobile';
   const isDesktopViewport = viewportMode === 'desktop';

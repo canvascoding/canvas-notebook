@@ -26,7 +26,7 @@ import {
   X,
 } from 'lucide-react';
 
-import { Link, useRouter } from '@/i18n/navigation';
+import { Link } from '@/i18n/navigation';
 import { getDefaultTodoCategoryKey } from '@/app/lib/todos/default-categories';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -105,7 +105,6 @@ type ApiResponse<T> = {
 type TodoFollowUpResponse = {
   todo: TodoItem;
   sessionId: string;
-  chatHref: string;
 };
 
 type TodoFormState = {
@@ -179,14 +178,19 @@ function fileLinkHref(workspacePath: string) {
   return `/files?path=${encodeURIComponent(workspacePath)}`;
 }
 
-function todoChatHref(todo: Pick<TodoItem, 'id' | 'sourceSessionId'>) {
-  if (!todo.sourceSessionId) return '/todos';
-  const params = new URLSearchParams({
-    todo: todo.id,
-    session: todo.sourceSessionId,
-    chat: 'open',
-  });
-  return `/todos?${params.toString()}`;
+function pushTodoChatState(todo: Pick<TodoItem, 'id' | 'sourceSessionId'>) {
+  if (!todo.sourceSessionId || typeof window === 'undefined') return;
+
+  const url = new URL(window.location.href);
+  url.searchParams.set('todo', todo.id);
+  url.searchParams.set('session', todo.sourceSessionId);
+  url.searchParams.set('chat', 'open');
+
+  const nextPath = `${url.pathname}?${url.searchParams.toString()}${url.hash}`;
+  const currentPath = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+  if (nextPath !== currentPath) {
+    window.history.pushState({ todoId: todo.id, sessionId: todo.sourceSessionId }, '', nextPath);
+  }
 }
 
 function openDockChatSession(sessionId: string | null) {
@@ -199,7 +203,6 @@ function openDockChatSession(sessionId: string | null) {
 export function TodosClient({ title }: { title: string }) {
   const t = useTranslations('todos');
   const locale = useLocale();
-  const router = useRouter();
   const searchParams = useSearchParams();
   const openedTodoParamRef = useRef<string | null>(null);
   const pendingTodoParamRef = useRef<string | null>(null);
@@ -235,6 +238,11 @@ export function TodosClient({ title }: { title: string }) {
     if (!selectedTodo) return;
     setFollowUpDraft({ todoId: selectedTodo.id, value });
   }, [selectedTodo]);
+
+  const openTodoSession = useCallback((todo: Pick<TodoItem, 'id' | 'sourceSessionId'>) => {
+    openDockChatSession(todo.sourceSessionId);
+    pushTodoChatState(todo);
+  }, []);
 
   const visibleUnreadCount = useMemo(
     () => todos.filter((todo) => todo.status !== 'archived' && !todo.seenAt).length,
@@ -541,13 +549,13 @@ export function TodosClient({ title }: { title: string }) {
       window.dispatchEvent(new CustomEvent('todo_updated'));
       toast.success(t('toasts.followUpSent'));
       openDockChatSession(data.sessionId);
-      router.push(data.chatHref);
+      pushTodoChatState(data.todo);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : t('errors.followUpFailed'));
     } finally {
       setIsSendingFollowUp(false);
     }
-  }, [followUpComment, locale, router, t]);
+  }, [followUpComment, locale, t]);
 
   const restoreTodo = useCallback(async (todo: TodoItem) => {
     try {
@@ -972,14 +980,13 @@ export function TodosClient({ title }: { title: string }) {
                       <h4 className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
                         {t('sections.session')}
                       </h4>
-                      <Button asChild size="sm" variant="outline">
-                        <Link
-                          href={todoChatHref(selectedTodo)}
-                          onClick={() => openDockChatSession(selectedTodo.sourceSessionId)}
-                        >
-                          <ExternalLink className="h-4 w-4" />
-                          {t('actions.openSession')}
-                        </Link>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => openTodoSession(selectedTodo)}
+                      >
+                        <ExternalLink className="h-4 w-4" />
+                        {t('actions.openSession')}
                       </Button>
                     </div>
 
