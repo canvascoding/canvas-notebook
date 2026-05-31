@@ -526,6 +526,13 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     );
   `);
 
+  // Older imported databases may predate columns that are used by indexes below.
+  // Add those compatibility columns before index creation so restores can migrate
+  // from older Canvas versions without failing halfway through startup.
+  addColumns(sqlite, 'automation_jobs', {
+    next_run_at: 'INTEGER',
+  });
+
   // ── Indexes ──────────────────────────────────────────────────────────────────
 
   sqlite.exec(`

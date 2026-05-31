@@ -2486,7 +2486,7 @@ export function IntegrationsSettingsClient({
 
         {renderLazyTabContent('agent-settings', <AgentSettingsPanel />)}
 
-        {renderLazyTabContent('workspace', <WorkspaceSettingsPanel />)}
+        {renderLazyTabContent('workspace', <WorkspaceSettingsPanel isAdmin={isAdmin} />)}
 
         {renderLazyTabContent('channels', <ChannelsPanel />)}
 
