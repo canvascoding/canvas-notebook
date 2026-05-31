@@ -65,6 +65,7 @@ try {
   const agentColumns = getColumns(sqlite, 'agents');
   assert.ok(agentColumns.has('icon_id'));
   assert.ok(agentColumns.has('relevant_skills_json'));
+  assert.ok(agentColumns.has('relevant_connections_json'));
 
   const indexes = new Set(
     sqlite.prepare('PRAGMA index_list(channel_active_sessions)').all()

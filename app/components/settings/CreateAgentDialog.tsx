@@ -1,14 +1,25 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { Check, ChevronDown, FileText, Loader2, Menu, Plug, Search, Sparkles, type LucideIcon } from 'lucide-react';
+import { ChevronDown, FileText, Loader2, Menu, Plug, Search, Sparkles, Wrench, type LucideIcon } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 
 import { AgentAvatar } from '@/app/components/agents/AgentAvatar';
 import { AgentIconPickerDialog } from '@/app/components/agents/AgentIconPickerDialog';
 import { AgentManagedFilesEditor, type ManagedFileName } from './AgentManagedFilesCard';
+import { AgentConnectionsPicker, AgentRelevantSkillsPicker } from './AgentCapabilityPickers';
+import { AgentToolsEditor, type ToolMetadata } from './AgentToolsCard';
 import { type AgentIconId } from '@/app/lib/agents/icons';
-import { Badge } from '@/components/ui/badge';
+import { DEFAULT_AGENT_ID } from '@/app/lib/channels/constants';
+import {
+  disableToolInConfig,
+  enableToolInConfig,
+  getDefaultEnabledToolNames,
+  isDefaultToolsConfig,
+  resolveEnabledToolNames,
+  serializeEnabledToolNames,
+} from '@/app/lib/pi/enabled-tools';
+import type { PiThinkingLevel } from '@/app/lib/pi/config';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -21,7 +32,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Skeleton } from '@/components/ui/skeleton';
+import { Switch } from '@/components/ui/switch';
 import { cn } from '@/lib/utils';
 
 const CREATE_AGENT_FILE_NAMES = ['AGENTS.md', 'MEMORY.md', 'SOUL.md', 'TOOLS.md'] as const satisfies readonly ManagedFileName[];
@@ -128,24 +139,16 @@ export type CreateAgentInput = {
   name: string;
   iconId: AgentIconId;
   files: Partial<Record<ManagedFileName, string>>;
-  relevantSkills: string[];
+  enabledTools: string[] | null;
+  relevantSkills: string[] | null;
+  relevantConnections: string[] | null;
 };
 
-type SkillOption = {
-  name: string;
-  description?: string;
-  enabled?: boolean;
+type PiConfigData = {
+  activeProvider: string;
+  providers: Record<string, { enabledTools: string[]; model?: string; thinking?: PiThinkingLevel; [key: string]: unknown }>;
+  [key: string]: unknown;
 };
-
-type ConnectionOption = {
-  id: string;
-  label: string;
-  detail: string;
-  kind: 'mcp' | 'composio';
-  logoUrl?: string | null;
-};
-
-type LazyLoadStatus = 'idle' | 'loading' | 'loaded' | 'error';
 
 type CreateAgentDialogProps = {
   open: boolean;
@@ -155,313 +158,11 @@ type CreateAgentDialogProps = {
   onCreate: (input: CreateAgentInput) => Promise<boolean>;
 };
 
-const CREATE_AGENT_LAZY_CACHE_TTL_MS = 2 * 60 * 1000;
-const CREATE_AGENT_CONNECTION_PAGE_SIZE = 6;
-let cachedSkillOptions: { expiresAt: number; data: SkillOption[] } | null = null;
-let cachedConnectionOptions: { expiresAt: number; data: ConnectionOption[] } | null = null;
-const connectionLogoLoadCache = new Map<string, string | null>();
-
 function mergeFileDrafts(template: CreateAgentTemplate): Record<ManagedFileName, string> {
   return {
     ...EMPTY_FILE_DRAFTS,
     ...template.files,
   };
-}
-
-function appendSection(content: string, section: string): string {
-  const trimmedContent = content.trim();
-  const trimmedSection = section.trim();
-  if (!trimmedSection) return trimmedContent;
-  return [trimmedContent, trimmedSection].filter(Boolean).join('\n\n');
-}
-
-function buildConnectionGuidance(connections: ConnectionOption[]): string {
-  if (connections.length === 0) return '';
-
-  const mcpConnections = connections.filter((connection) => connection.kind === 'mcp');
-  const composioConnections = connections.filter((connection) => connection.kind === 'composio');
-  const lines = [
-    '## Prioritized external connections',
-    '',
-    'These connections are relevant for this agent. Their full tool catalogs are not loaded into the prompt; use the gateway tools to discover and call the right action.',
-  ];
-
-  if (mcpConnections.length > 0) {
-    lines.push('', '### MCP servers');
-    for (const connection of mcpConnections) {
-      lines.push(`- ${connection.label}: use the \`mcp\` gateway. If the exact action is unclear, run \`mcp\` with \`search_tools\`, then \`describe_tool\`, then \`call_tool\`.`);
-    }
-  }
-
-  if (composioConnections.length > 0) {
-    lines.push('', '### Composio toolkits');
-    for (const connection of composioConnections) {
-      const toolkit = connection.id.replace(/^composio:/, '');
-      lines.push(`- ${connection.label}: use \`COMPOSIO_SEARCH_TOOLS\`${toolkit ? ` with toolkit filter \`${toolkit}\`` : ''}, then \`COMPOSIO_GET_TOOL_SCHEMAS\`, then \`composio_execute\`.`);
-    }
-  }
-
-  return lines.join('\n');
-}
-
-function hasSkill(skills: SkillOption[], name: string): boolean {
-  return skills.some((skill) => skill.name === name);
-}
-
-function readCachedValue<T>(cached: { expiresAt: number; data: T } | null): T | null {
-  return cached && cached.expiresAt > Date.now() ? cached.data : null;
-}
-
-function preloadConnectionLogo(url: string): Promise<string | null> {
-  return new Promise((resolve) => {
-    const image = new window.Image();
-    image.onload = () => resolve(url);
-    image.onerror = () => resolve(null);
-    image.src = url;
-  });
-}
-
-function useSequentialConnectionLogos(connections: ConnectionOption[], shouldLoad: boolean) {
-  const [logoUrls, setLogoUrls] = useState<Record<string, string>>({});
-
-  useEffect(() => {
-    if (!shouldLoad || connections.length === 0) return;
-    let cancelled = false;
-    async function loadLogos() {
-      for (const connection of connections) {
-        const sourceUrl = connection.logoUrl;
-        if (!sourceUrl) continue;
-
-        const cacheKey = `${connection.id}:${sourceUrl}`;
-        const cachedLogoUrl = connectionLogoLoadCache.get(cacheKey);
-        if (cachedLogoUrl !== undefined) {
-          if (!cancelled && cachedLogoUrl) {
-            setLogoUrls((current) => ({ ...current, [connection.id]: cachedLogoUrl }));
-          }
-          continue;
-        }
-
-        const loadedLogoUrl = await preloadConnectionLogo(sourceUrl);
-        connectionLogoLoadCache.set(cacheKey, loadedLogoUrl);
-        if (cancelled) return;
-        if (loadedLogoUrl) {
-          setLogoUrls((current) => ({ ...current, [connection.id]: loadedLogoUrl }));
-        }
-      }
-    }
-
-    void loadLogos();
-    return () => {
-      cancelled = true;
-    };
-  }, [connections, shouldLoad]);
-
-  return logoUrls;
-}
-
-function useLazyAgentSkills(shouldLoad: boolean) {
-  const requestedRef = useRef(false);
-  const [status, setStatus] = useState<LazyLoadStatus>('idle');
-  const [skills, setSkills] = useState<SkillOption[]>([]);
-
-  useEffect(() => {
-    if (!shouldLoad || requestedRef.current) return;
-    let cancelled = false;
-
-    const cached = readCachedValue(cachedSkillOptions);
-    if (cached) {
-      requestedRef.current = true;
-      queueMicrotask(() => {
-        if (cancelled) return;
-        setSkills(cached);
-        setStatus('loaded');
-      });
-      return () => {
-        cancelled = true;
-      };
-    }
-
-    const controller = new AbortController();
-    requestedRef.current = true;
-    queueMicrotask(() => setStatus('loading'));
-
-    async function loadSkills() {
-      try {
-        const response = await fetch('/api/skills?summary=1', {
-          credentials: 'include',
-          cache: 'no-store',
-          signal: controller.signal,
-        });
-        const payload = (await response.json().catch(() => ({}))) as { success?: boolean; skills?: SkillOption[] };
-        const nextSkills = response.ok && payload.success && Array.isArray(payload.skills)
-          ? payload.skills.filter((skill) => skill.enabled !== false)
-          : [];
-        cachedSkillOptions = {
-          data: nextSkills,
-          expiresAt: Date.now() + CREATE_AGENT_LAZY_CACHE_TTL_MS,
-        };
-        if (cancelled || controller.signal.aborted) return;
-        setSkills(nextSkills);
-        setStatus('loaded');
-      } catch {
-        if (controller.signal.aborted) {
-          requestedRef.current = false;
-          return;
-        }
-        setSkills([]);
-        setStatus('error');
-      }
-    }
-
-    void loadSkills();
-    return () => {
-      cancelled = true;
-      controller.abort();
-    };
-  }, [shouldLoad]);
-
-  return { skills, status };
-}
-
-function useLazyAgentConnections(
-  shouldLoad: boolean,
-  formatMcpDetail: (count: number) => string,
-  formatComposioDetail: (count: number) => string,
-) {
-  const requestedRef = useRef(false);
-  const detailFormattersRef = useRef({ formatMcpDetail, formatComposioDetail });
-  const [status, setStatus] = useState<LazyLoadStatus>('idle');
-  const [connections, setConnections] = useState<ConnectionOption[]>([]);
-
-  useEffect(() => {
-    detailFormattersRef.current = { formatMcpDetail, formatComposioDetail };
-  }, [formatComposioDetail, formatMcpDetail]);
-
-  useEffect(() => {
-    if (!shouldLoad || requestedRef.current) return;
-    let cancelled = false;
-
-    const cached = readCachedValue(cachedConnectionOptions);
-    if (cached) {
-      requestedRef.current = true;
-      queueMicrotask(() => {
-        if (cancelled) return;
-        setConnections(cached);
-        setStatus('loaded');
-      });
-      return () => {
-        cancelled = true;
-      };
-    }
-
-    const controller = new AbortController();
-    requestedRef.current = true;
-    queueMicrotask(() => setStatus('loading'));
-
-    async function loadConnections() {
-      const nextConnections: ConnectionOption[] = [];
-
-      try {
-        const [mcpResult, composioResult] = await Promise.allSettled([
-          fetch('/api/integrations/mcp-status?summary=1', {
-            credentials: 'include',
-            cache: 'no-store',
-            signal: controller.signal,
-          }),
-          fetch('/api/composio/toolkits?connectedOnly=1&summary=1&includeLogos=1', {
-            credentials: 'include',
-            cache: 'no-store',
-            signal: controller.signal,
-          }),
-        ]);
-
-        if (cancelled || controller.signal.aborted) {
-          requestedRef.current = false;
-          return;
-        }
-
-        if (mcpResult.status === 'fulfilled') {
-          const mcpResponse = mcpResult.value;
-          const mcpPayload = (await mcpResponse.json().catch(() => ({}))) as {
-            success?: boolean;
-            data?: { servers?: Array<{ name?: string; enabled?: boolean; cachedToolCount?: number }> };
-          };
-          if (mcpResponse.ok && mcpPayload.success && Array.isArray(mcpPayload.data?.servers)) {
-            for (const server of mcpPayload.data.servers) {
-              if (!server.name || !server.enabled) continue;
-              nextConnections.push({
-                id: `mcp:${server.name}`,
-                kind: 'mcp',
-                label: server.name,
-                detail: detailFormattersRef.current.formatMcpDetail(server.cachedToolCount || 0),
-                logoUrl: `/api/integrations/mcp-icon/${encodeURIComponent(server.name)}`,
-              });
-            }
-          }
-        }
-
-        if (composioResult.status === 'fulfilled') {
-          const composioResponse = composioResult.value;
-          const composioPayload = (await composioResponse.json().catch(() => ({}))) as {
-            toolkits?: Array<{ slug?: string; name?: string; connected?: boolean; toolsCount?: number; logo?: string }>;
-          };
-          if (composioResponse.ok && Array.isArray(composioPayload.toolkits)) {
-            for (const toolkit of composioPayload.toolkits) {
-              if (!toolkit.slug || !toolkit.connected) continue;
-              nextConnections.push({
-                id: `composio:${toolkit.slug}`,
-                kind: 'composio',
-                label: toolkit.name || toolkit.slug,
-                detail: detailFormattersRef.current.formatComposioDetail(toolkit.toolsCount || 0),
-                logoUrl: toolkit.logo || null,
-              });
-            }
-          }
-        }
-
-        cachedConnectionOptions = {
-          data: nextConnections,
-          expiresAt: Date.now() + CREATE_AGENT_LAZY_CACHE_TTL_MS,
-        };
-        if (cancelled || controller.signal.aborted) return;
-        setConnections(nextConnections);
-        setStatus('loaded');
-      } catch {
-        if (controller.signal.aborted) {
-          requestedRef.current = false;
-          return;
-        }
-        setConnections([]);
-        setStatus('error');
-      }
-    }
-
-    void loadConnections();
-    return () => {
-      cancelled = true;
-      controller.abort();
-    };
-  }, [shouldLoad]);
-
-  return { connections, status };
-}
-
-function LoadingSkeletonGrid({ rows = 4 }: { rows?: number }) {
-  return (
-    <div className="grid min-w-0 gap-2 sm:grid-cols-2">
-      {Array.from({ length: rows }).map((_, index) => (
-        <div key={index} className="min-w-0 rounded-md border bg-background p-3">
-          <div className="flex min-w-0 items-start gap-3">
-            <Skeleton className="h-5 w-5 shrink-0" />
-            <div className="min-w-0 flex-1 space-y-2">
-              <Skeleton className="h-4 w-2/3" />
-              <Skeleton className="h-3 w-full" />
-            </div>
-          </div>
-        </div>
-      ))}
-    </div>
-  );
 }
 
 type TemplateListProps = {
@@ -506,6 +207,8 @@ type CreateAgentSectionProps = {
   icon: LucideIcon;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  enabled?: boolean;
+  onEnabledChange?: (enabled: boolean) => void;
   children: ReactNode;
 };
 
@@ -515,28 +218,48 @@ function CreateAgentSection({
   icon: Icon,
   open,
   onOpenChange,
+  enabled = true,
+  onEnabledChange,
   children,
 }: CreateAgentSectionProps) {
+  const contentAvailable = enabled;
+
   return (
     <section className="min-w-0 overflow-hidden rounded-md border bg-muted/10">
-      <button
-        type="button"
-        onClick={() => onOpenChange(!open)}
-        className="flex min-w-0 w-full items-start justify-between gap-3 px-3 py-3 text-left transition-colors hover:bg-muted/30 sm:gap-4 sm:px-4"
-        aria-expanded={open}
-      >
-        <span className="flex min-w-0 flex-1 gap-3">
-          <span className="mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border bg-background text-muted-foreground">
-            <Icon className="h-4 w-4" />
+      <div className="flex min-w-0 items-start gap-3 px-3 py-3 transition-colors hover:bg-muted/30 sm:gap-4 sm:px-4">
+        <button
+          type="button"
+          onClick={() => contentAvailable && onOpenChange(!open)}
+          className="flex min-w-0 flex-1 items-start justify-between gap-3 text-left disabled:cursor-default"
+          aria-expanded={contentAvailable && open}
+          disabled={!contentAvailable}
+        >
+          <span className="flex min-w-0 flex-1 gap-3">
+            <span className="mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border bg-background text-muted-foreground">
+              <Icon className="h-4 w-4" />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block break-words text-base font-semibold">{title}</span>
+              <span className="line-clamp-2 text-sm text-muted-foreground">{description}</span>
+            </span>
           </span>
-          <span className="min-w-0 flex-1">
-            <span className="block break-words text-base font-semibold">{title}</span>
-            <span className="line-clamp-2 text-sm text-muted-foreground">{description}</span>
-          </span>
-        </span>
-        <ChevronDown className={cn('mt-1 h-4 w-4 shrink-0 text-muted-foreground transition-transform', open && 'rotate-180')} />
-      </button>
-      {open && (
+          {contentAvailable && (
+            <ChevronDown className={cn('mt-1 h-4 w-4 shrink-0 text-muted-foreground transition-transform', open && 'rotate-180')} />
+          )}
+        </button>
+        {onEnabledChange && (
+          <Switch
+            checked={enabled}
+            onCheckedChange={(checked) => {
+              onEnabledChange(checked);
+              if (checked) onOpenChange(true);
+            }}
+            aria-label={title}
+            className="mt-1 shrink-0"
+          />
+        )}
+      </div>
+      {contentAvailable && open && (
         <div className="min-w-0 border-t px-3 py-3 sm:px-4">
           {children}
         </div>
@@ -545,36 +268,31 @@ function CreateAgentSection({
   );
 }
 
-function ConnectionLogo({
-  connection,
-  logoUrl,
-}: {
-  connection: ConnectionOption;
-  logoUrl?: string;
-}) {
-  const [failedLogoUrl, setFailedLogoUrl] = useState<string | null>(null);
-
-  if (logoUrl && failedLogoUrl !== logoUrl) {
-    return (
-      <span className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-md border bg-background">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={logoUrl}
-          alt=""
-          className="h-6 w-6 object-contain"
-          loading="lazy"
-          decoding="async"
-          onError={() => setFailedLogoUrl(logoUrl)}
-        />
-      </span>
-    );
+async function fetchCreateAgentJson<T>(input: string): Promise<T> {
+  const response = await fetch(input, {
+    credentials: 'include',
+    cache: 'no-store',
+  });
+  const payload = (await response.json().catch(() => ({}))) as {
+    success?: boolean;
+    error?: string;
+    data?: T;
+  };
+  if (!response.ok || !payload.success) {
+    throw new Error(payload.error || `Request failed (${response.status})`);
   }
+  return payload.data as T;
+}
 
-  return (
-    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border bg-muted/40 text-xs font-semibold uppercase text-muted-foreground">
-      {connection.kind === 'mcp' ? <Plug className="h-4 w-4" /> : connection.label.charAt(0)}
-    </span>
-  );
+function getExplicitEnabledToolsFromConfig(tools: ToolMetadata[], piConfig: PiConfigData | null): string[] | null {
+  if (!piConfig) return null;
+  const allNames = tools.map((tool) => tool.name);
+  const activeProvider = piConfig.providers[piConfig.activeProvider];
+  const enabledTools = activeProvider?.enabledTools ?? [];
+  const enabledSet = isDefaultToolsConfig(enabledTools)
+    ? getDefaultEnabledToolNames(allNames)
+    : resolveEnabledToolNames(allNames, enabledTools);
+  return serializeEnabledToolNames(enabledSet, allNames);
 }
 
 export function CreateAgentDialog({
@@ -593,28 +311,129 @@ export function CreateAgentDialog({
   const [fileDrafts, setFileDrafts] = useState<Record<ManagedFileName, string>>(() => mergeFileDrafts(AGENT_TEMPLATES[0]));
   const [activeFile, setActiveFile] = useState<ManagedFileName>('AGENTS.md');
   const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
-  const [selectedConnections, setSelectedConnections] = useState<Set<string>>(new Set());
+  const [skillsOverrideEnabled, setSkillsOverrideEnabled] = useState(false);
+  const [selectedConnections, setSelectedConnections] = useState<string[]>([]);
+  const [connectionsOverrideEnabled, setConnectionsOverrideEnabled] = useState(false);
   const [connectionsOpen, setConnectionsOpen] = useState(false);
-  const [connectionPage, setConnectionPage] = useState(1);
   const [skillsOpen, setSkillsOpen] = useState(false);
+  const [toolsOverrideEnabled, setToolsOverrideEnabled] = useState(false);
+  const [toolsOpen, setToolsOpen] = useState(false);
+  const [availableTools, setAvailableTools] = useState<ToolMetadata[]>([]);
+  const [toolsPiConfig, setToolsPiConfig] = useState<PiConfigData | null>(null);
+  const [customEnabledTools, setCustomEnabledTools] = useState<string[] | null>(null);
+  const [openToolRows, setOpenToolRows] = useState<Record<string, boolean>>({});
+  const [toolSearchQuery, setToolSearchQuery] = useState('');
+  const [activeToolGroups, setActiveToolGroups] = useState<Set<string>>(new Set());
+  const [toolsLoading, setToolsLoading] = useState(false);
+  const [toolsError, setToolsError] = useState<string | null>(null);
   const [filesOpen, setFilesOpen] = useState(true);
+  const toolsLoadRequestedRef = useRef(false);
 
   const selectedTemplate = useMemo(
     () => AGENT_TEMPLATES.find((template) => template.id === selectedTemplateId) || AGENT_TEMPLATES[0],
     [selectedTemplateId],
   );
-  const formatMcpConnectionDetail = useCallback((count: number) => t('connections.mcpDetail', { count }), [t]);
-  const formatComposioConnectionDetail = useCallback((count: number) => t('connections.composioDetail', { count }), [t]);
-  const { skills, status: skillsStatus } = useLazyAgentSkills(open && skillsOpen);
-  const { connections, status: connectionsStatus } = useLazyAgentConnections(
-    open && connectionsOpen,
-    formatMcpConnectionDetail,
-    formatComposioConnectionDetail,
-  );
-  const connectionLogoUrls = useSequentialConnectionLogos(connections, open && connectionsOpen && connectionsStatus === 'loaded');
-  const visibleConnectionCount = Math.min(connections.length, connectionPage * CREATE_AGENT_CONNECTION_PAGE_SIZE);
-  const visibleConnections = connections.slice(0, visibleConnectionCount);
-  const remainingConnectionCount = Math.max(connections.length - visibleConnectionCount, 0);
+
+  const toolGroups = useMemo(() => {
+    const groups = [...new Set(availableTools.map((tool) => tool.group).filter(Boolean))] as string[];
+    return groups.sort();
+  }, [availableTools]);
+
+  const filteredTools = useMemo(() => {
+    let result = availableTools;
+    if (activeToolGroups.size > 0) {
+      result = result.filter((tool) => tool.group && activeToolGroups.has(tool.group));
+    }
+    if (toolSearchQuery.trim()) {
+      const query = toolSearchQuery.trim().toLowerCase();
+      result = result.filter((tool) => (
+        tool.name.toLowerCase().includes(query) ||
+        tool.label.toLowerCase().includes(query) ||
+        tool.description.toLowerCase().includes(query) ||
+        (tool.group && tool.group.toLowerCase().includes(query))
+      ));
+    }
+    return result;
+  }, [activeToolGroups, availableTools, toolSearchQuery]);
+
+  const loadToolOptions = useCallback(async () => {
+    setToolsLoading(true);
+    setToolsError(null);
+    try {
+      const [toolsPayload, configPayload] = await Promise.all([
+        fetchCreateAgentJson<{ tools: ToolMetadata[] }>(`/api/agents/tools?${new URLSearchParams({ agentId: DEFAULT_AGENT_ID }).toString()}`),
+        fetchCreateAgentJson<{ piConfig: PiConfigData }>(`/api/agents/config?${new URLSearchParams({ agentId: DEFAULT_AGENT_ID }).toString()}`),
+      ]);
+      const nextTools = toolsPayload.tools || [];
+      const nextConfig = configPayload.piConfig;
+      setAvailableTools(nextTools);
+      setToolsPiConfig(nextConfig);
+      setCustomEnabledTools((current) => current ?? getExplicitEnabledToolsFromConfig(nextTools, nextConfig));
+    } catch (loadError) {
+      setToolsError(loadError instanceof Error ? loadError.message : t('tools.loadError'));
+    } finally {
+      setToolsLoading(false);
+    }
+  }, [t]);
+
+  useEffect(() => {
+    if (!open || !toolsOverrideEnabled || toolsLoadRequestedRef.current) return;
+    toolsLoadRequestedRef.current = true;
+    void loadToolOptions();
+  }, [loadToolOptions, open, toolsOverrideEnabled]);
+
+  useEffect(() => {
+    if (!toolsOverrideEnabled || customEnabledTools !== null || availableTools.length === 0 || !toolsPiConfig) return;
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (cancelled) return;
+      setCustomEnabledTools(getExplicitEnabledToolsFromConfig(availableTools, toolsPiConfig));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [availableTools, customEnabledTools, toolsOverrideEnabled, toolsPiConfig]);
+
+  const isCreateToolEnabled = useCallback((toolName: string): boolean => {
+    const allNames = availableTools.map((tool) => tool.name);
+    const enabledTools = customEnabledTools ?? [];
+    if (isDefaultToolsConfig(enabledTools)) {
+      return getDefaultEnabledToolNames(allNames).has(toolName);
+    }
+    return resolveEnabledToolNames(allNames, enabledTools).has(toolName);
+  }, [availableTools, customEnabledTools]);
+
+  const saveCreateToolsConfig = useCallback((nextEnabledTools: string[]) => {
+    setCustomEnabledTools(nextEnabledTools);
+  }, []);
+
+  const handleToolToggle = useCallback((toolName: string, enabled: boolean) => {
+    const currentEnabled = customEnabledTools ?? [];
+    const allNames = availableTools.map((tool) => tool.name);
+    saveCreateToolsConfig(
+      enabled
+        ? enableToolInConfig(toolName, currentEnabled, allNames)
+        : disableToolInConfig(toolName, currentEnabled, allNames),
+    );
+  }, [availableTools, customEnabledTools, saveCreateToolsConfig]);
+
+  const handleEnableAllTools = useCallback(() => {
+    const allNames = availableTools.map((tool) => tool.name);
+    saveCreateToolsConfig(serializeEnabledToolNames(allNames, allNames));
+  }, [availableTools, saveCreateToolsConfig]);
+
+  const handleDisableAllTools = useCallback(() => {
+    saveCreateToolsConfig(['__none__']);
+  }, [saveCreateToolsConfig]);
+
+  const toggleToolGroup = useCallback((group: string) => {
+    setActiveToolGroups((current) => {
+      const next = new Set(current);
+      if (next.has(group)) next.delete(group);
+      else next.add(group);
+      return next;
+    });
+  }, []);
 
   const applyTemplate = useCallback((template: CreateAgentTemplate) => {
     setSelectedTemplateId(template.id);
@@ -623,14 +442,22 @@ export function CreateAgentDialog({
     setFileDrafts(mergeFileDrafts(template));
     setActiveFile('AGENTS.md');
     setSelectedSkills(template.relevantSkills);
+    setSkillsOverrideEnabled(template.relevantSkills.length > 0);
+    setSkillsOpen(template.relevantSkills.length > 0);
     setTemplatePickerOpen(false);
   }, [t]);
 
   const resetDialog = useCallback(() => {
     applyTemplate(AGENT_TEMPLATES[0]);
-    setSelectedConnections(new Set());
+    setSelectedConnections([]);
+    setConnectionsOverrideEnabled(false);
     setConnectionsOpen(false);
-    setConnectionPage(1);
+    setToolsOverrideEnabled(false);
+    setToolsOpen(false);
+    setCustomEnabledTools(null);
+    setOpenToolRows({});
+    setToolSearchQuery('');
+    setActiveToolGroups(new Set());
     setSkillsOpen(false);
     setFilesOpen(true);
   }, [applyTemplate]);
@@ -642,26 +469,21 @@ export function CreateAgentDialog({
     onOpenChange(nextOpen);
   }, [onOpenChange, resetDialog]);
 
-  const enabledSelectedSkills = skillsStatus === 'loaded'
-    ? selectedSkills.filter((skillName) => hasSkill(skills, skillName))
-    : selectedSkills;
-  const canCreate = name.trim().length > 0 && !creating;
+  const canCreate = name.trim().length > 0
+    && !creating
+    && !(toolsOverrideEnabled && (toolsLoading || customEnabledTools === null));
 
   async function submit() {
     if (!canCreate) return;
-    const selectedConnectionOptions = connections.filter((connection) => selectedConnections.has(connection.id));
-    const connectionGuidance = buildConnectionGuidance(selectedConnectionOptions);
-    const submittedFileDrafts = {
-      ...fileDrafts,
-      'TOOLS.md': appendSection(fileDrafts['TOOLS.md'] || '', connectionGuidance),
-    };
     const success = await onCreate({
       name: name.trim(),
       iconId,
       files: Object.fromEntries(
-        CREATE_AGENT_FILE_NAMES.map((fileName) => [fileName, submittedFileDrafts[fileName] || '']),
+        CREATE_AGENT_FILE_NAMES.map((fileName) => [fileName, fileDrafts[fileName] || '']),
       ) as Partial<Record<ManagedFileName, string>>,
-      relevantSkills: enabledSelectedSkills,
+      enabledTools: toolsOverrideEnabled ? customEnabledTools ?? [] : null,
+      relevantSkills: skillsOverrideEnabled ? selectedSkills : null,
+      relevantConnections: connectionsOverrideEnabled ? selectedConnections : null,
     });
     if (success) {
       resetDialog();
@@ -743,71 +565,51 @@ export function CreateAgentDialog({
                   </section>
 
                   <CreateAgentSection
+                    title={t('tools.title')}
+                    description={t('tools.description')}
+                    icon={Wrench}
+                    open={toolsOpen}
+                    onOpenChange={setToolsOpen}
+                    enabled={toolsOverrideEnabled}
+                    onEnabledChange={setToolsOverrideEnabled}
+                  >
+                    <AgentToolsEditor
+                      availableTools={availableTools}
+                      filteredTools={filteredTools}
+                      toolGroups={toolGroups}
+                      activeToolGroups={activeToolGroups}
+                      openToolRows={openToolRows}
+                      toolsLoading={toolsLoading}
+                      toolsSaving={false}
+                      toolsError={toolsError}
+                      toolSearchQuery={toolSearchQuery}
+                      isToolEnabled={isCreateToolEnabled}
+                      onToolSearchQueryChange={setToolSearchQuery}
+                      onToggleToolGroup={toggleToolGroup}
+                      onClearToolGroups={() => setActiveToolGroups(new Set())}
+                      onToolRowOpenChange={(toolName, rowOpen) => setOpenToolRows((current) => ({ ...current, [toolName]: rowOpen }))}
+                      onToolToggle={handleToolToggle}
+                      onEnableAll={handleEnableAllTools}
+                      onDisableAll={handleDisableAllTools}
+                      compact
+                    />
+                  </CreateAgentSection>
+
+                  <CreateAgentSection
                     title={t('connections.title')}
                     description={t('connections.description')}
                     icon={Plug}
                     open={connectionsOpen}
                     onOpenChange={setConnectionsOpen}
+                    enabled={connectionsOverrideEnabled}
+                    onEnabledChange={setConnectionsOverrideEnabled}
                   >
-                    {connectionsStatus === 'loading' || connectionsStatus === 'idle' ? (
-                      <LoadingSkeletonGrid rows={2} />
-                    ) : connections.length === 0 ? (
-                      <p className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">{t('connections.empty')}</p>
-                    ) : (
-                      <div className="min-w-0 space-y-3">
-                        <div className="grid min-w-0 gap-2 sm:grid-cols-2">
-                          {visibleConnections.map((connection) => {
-                            const selected = selectedConnections.has(connection.id);
-                            return (
-                              <button
-                                key={connection.id}
-                                type="button"
-                                onClick={() => {
-                                  setSelectedConnections((current) => {
-                                    const next = new Set(current);
-                                    if (next.has(connection.id)) next.delete(connection.id);
-                                    else next.add(connection.id);
-                                    return next;
-                                  });
-                                }}
-                                className={cn(
-                                  'flex min-w-0 items-start gap-3 rounded-md border p-3 text-left transition',
-                                  selected
-                                    ? 'border-primary bg-primary/10 shadow-sm ring-2 ring-primary/35'
-                                    : 'border-border bg-background hover:border-primary/40 hover:bg-muted/40',
-                                )}
-                                aria-pressed={selected}
-                              >
-                                <ConnectionLogo connection={connection} logoUrl={connectionLogoUrls[connection.id]} />
-                                <span className="min-w-0 flex-1">
-                                  <span className="block truncate text-sm font-medium">{connection.label}</span>
-                                  <span className="block truncate text-xs text-muted-foreground">{connection.detail}</span>
-                                </span>
-                                <span className="flex shrink-0 flex-col items-end gap-2">
-                                  <Badge variant={connection.kind === 'mcp' ? 'secondary' : 'outline'} className="uppercase">
-                                    {connection.kind}
-                                  </Badge>
-                                  <span className={cn(
-                                    'inline-flex h-5 w-5 items-center justify-center rounded-full border transition',
-                                    selected ? 'border-primary bg-primary text-primary-foreground' : 'border-muted-foreground/30 bg-background',
-                                  )}>
-                                    {selected ? <Check className="h-3.5 w-3.5" /> : null}
-                                  </span>
-                                </span>
-                              </button>
-                            );
-                          })}
-                        </div>
-                        {remainingConnectionCount > 0 && (
-                          <div className="flex justify-center">
-                            <Button type="button" variant="outline" size="sm" onClick={() => setConnectionPage((page) => page + 1)}>
-                              <ChevronDown className="mr-1 h-3.5 w-3.5" />
-                              {t('connections.loadMore', { count: remainingConnectionCount })}
-                            </Button>
-                          </div>
-                        )}
-                      </div>
-                    )}
+                    <AgentConnectionsPicker
+                      enabled={connectionsOverrideEnabled}
+                      selectedConnectionIds={selectedConnections}
+                      onSelectedConnectionIdsChange={setSelectedConnections}
+                      pageSize={6}
+                    />
                   </CreateAgentSection>
 
                   <CreateAgentSection
@@ -816,46 +618,14 @@ export function CreateAgentDialog({
                     icon={Search}
                     open={skillsOpen}
                     onOpenChange={setSkillsOpen}
+                    enabled={skillsOverrideEnabled}
+                    onEnabledChange={setSkillsOverrideEnabled}
                   >
-                    {skillsStatus === 'loading' || skillsStatus === 'idle' ? (
-                      <LoadingSkeletonGrid rows={4} />
-                    ) : skills.length === 0 ? (
-                      <p className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">{t('skills.empty')}</p>
-                    ) : (
-                      <div className="grid min-w-0 gap-2 sm:grid-cols-2">
-                        {skills.slice(0, 12).map((skill) => {
-                          const selected = selectedSkills.includes(skill.name);
-                          return (
-                            <button
-                              key={skill.name}
-                              type="button"
-                              onClick={() => {
-                                setSelectedSkills((current) => (
-                                  current.includes(skill.name)
-                                    ? current.filter((entry) => entry !== skill.name)
-                                    : [...current, skill.name]
-                                ));
-                              }}
-                              className={cn(
-                                'flex min-w-0 items-start gap-3 rounded-md border p-3 text-left transition',
-                                selected ? 'border-primary bg-primary/5' : 'border-border bg-background hover:bg-muted/40',
-                              )}
-                            >
-                              <span className={cn(
-                                'mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded border',
-                                selected ? 'border-primary bg-primary text-primary-foreground' : 'border-border',
-                              )}>
-                                {selected ? <Check className="h-3.5 w-3.5" /> : null}
-                              </span>
-                              <span className="min-w-0 flex-1">
-                                <span className="block break-all text-sm font-medium">{skill.name}</span>
-                                <span className="line-clamp-2 text-xs text-muted-foreground">{skill.description || t('skills.noDescription')}</span>
-                              </span>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    )}
+                    <AgentRelevantSkillsPicker
+                      enabled={skillsOverrideEnabled}
+                      selectedSkillNames={selectedSkills}
+                      onSelectedSkillNamesChange={setSelectedSkills}
+                    />
                   </CreateAgentSection>
 
                   <CreateAgentSection

@@ -21,7 +21,7 @@ export type ToolMetadata = {
   notes?: string[];
 };
 
-type AgentToolsCardProps = {
+export type AgentToolsEditorProps = {
   availableTools: ToolMetadata[];
   filteredTools: ToolMetadata[];
   toolGroups: string[];
@@ -30,8 +30,6 @@ type AgentToolsCardProps = {
   toolsLoading: boolean;
   toolsSaving: boolean;
   toolsError: string | null;
-  isOpen: boolean;
-  onOpenChange: (isOpen: boolean) => void;
   toolSearchQuery: string;
   isToolEnabled: (toolName: string) => boolean;
   onToolSearchQueryChange: (value: string) => void;
@@ -41,6 +39,12 @@ type AgentToolsCardProps = {
   onToolToggle: (toolName: string, enabled: boolean) => void;
   onEnableAll: () => void;
   onDisableAll: () => void;
+  compact?: boolean;
+};
+
+type AgentToolsCardProps = AgentToolsEditorProps & {
+  isOpen: boolean;
+  onOpenChange: (isOpen: boolean) => void;
 };
 
 const EMAIL_TOOL_METADATA_DE: Record<string, { label: string; description: string }> = {
@@ -93,7 +97,7 @@ function localizeToolMetadata(tool: ToolMetadata, locale: string): ToolMetadata 
   };
 }
 
-export function AgentToolsCard({
+export function AgentToolsEditor({
   availableTools,
   filteredTools,
   toolGroups,
@@ -102,8 +106,6 @@ export function AgentToolsCard({
   toolsLoading,
   toolsSaving,
   toolsError,
-  isOpen,
-  onOpenChange,
   toolSearchQuery,
   isToolEnabled,
   onToolSearchQueryChange,
@@ -113,28 +115,13 @@ export function AgentToolsCard({
   onToolToggle,
   onEnableAll,
   onDisableAll,
-}: AgentToolsCardProps) {
+  compact = false,
+}: AgentToolsEditorProps) {
   const t = useTranslations('settings');
   const locale = useLocale();
-  const enabledToolCount = availableTools.filter((tool) => isToolEnabled(tool.name)).length;
-  const summaryItems = [
-    toolsLoading
-      ? t('agentPanel.tools.loading')
-      : t('agentPanel.tools.enabledSummary', { enabled: enabledToolCount, total: availableTools.length }),
-    toolsError ? t('agentPanel.tools.errorSummary') : null,
-  ].filter((item): item is string => Boolean(item));
 
   return (
-    <AgentSettingsAccordionCard
-      id="onboarding-settings-tools"
-      title={t('agentPanel.tools.title')}
-      description={t('agentPanel.tools.description')}
-      icon={Wrench}
-      isOpen={isOpen}
-      onOpenChange={onOpenChange}
-      summaryItems={summaryItems}
-      contentClassName="space-y-0"
-    >
+    <>
         {toolsLoading ? (
           <div className="flex items-center text-sm text-muted-foreground">
             <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -194,7 +181,7 @@ export function AgentToolsCard({
                 {t('agentPanel.tools.disableAll')}
               </Button>
             </div>
-            <div className="max-h-[400px] space-y-2 overflow-y-auto">
+            <div className={compact ? 'max-h-[320px] space-y-2 overflow-y-auto' : 'max-h-[400px] space-y-2 overflow-y-auto'}>
               {filteredTools.length === 0 ? (
                 <p className="py-2 text-sm text-muted-foreground">{t('agentPanel.tools.noMatchingTools')}</p>
               ) : (
@@ -209,7 +196,7 @@ export function AgentToolsCard({
                       onOpenChange={(open) => onToolRowOpenChange(tool.name, open)}
                       className="rounded border border-border bg-background"
                     >
-                      <div className="flex items-center gap-3 p-3">
+                      <div className={compact ? 'flex items-center gap-2 p-2.5' : 'flex items-center gap-3 p-3'}>
                         <CollapsibleTrigger className="flex min-w-0 flex-1 items-center gap-3 text-left">
                           <ChevronDown className={`h-4 w-4 shrink-0 text-muted-foreground transition-transform ${isOpen ? 'rotate-180' : ''}`} />
                           <div className="min-w-0 flex-1">
@@ -228,9 +215,9 @@ export function AgentToolsCard({
                         />
                       </div>
                       <CollapsibleContent>
-                        <div className="border-t border-border px-10 py-3 text-sm">
+                        <div className={compact ? 'border-t border-border px-8 py-2.5 text-xs' : 'border-t border-border px-10 py-3 text-sm'}>
                           <p className="text-muted-foreground">{displayTool.description || t('agentPanel.tools.noDescription')}</p>
-                          <div className="mt-3 grid gap-3 md:grid-cols-2">
+                          <div className={compact ? 'mt-2 grid gap-2 md:grid-cols-2' : 'mt-3 grid gap-3 md:grid-cols-2'}>
                             <div>
                               <div className="text-xs font-semibold uppercase text-muted-foreground">{t('agentPanel.tools.parameters')}</div>
                               {tool.parameters && tool.parameters.length > 0 ? (
@@ -272,6 +259,32 @@ export function AgentToolsCard({
           </div>
         )}
         {toolsError && <p className="mt-2 text-sm text-destructive">{toolsError}</p>}
+    </>
+  );
+}
+
+export function AgentToolsCard(props: AgentToolsCardProps) {
+  const t = useTranslations('settings');
+  const enabledToolCount = props.availableTools.filter((tool) => props.isToolEnabled(tool.name)).length;
+  const summaryItems = [
+    props.toolsLoading
+      ? t('agentPanel.tools.loading')
+      : t('agentPanel.tools.enabledSummary', { enabled: enabledToolCount, total: props.availableTools.length }),
+    props.toolsError ? t('agentPanel.tools.errorSummary') : null,
+  ].filter((item): item is string => Boolean(item));
+
+  return (
+    <AgentSettingsAccordionCard
+      id="onboarding-settings-tools"
+      title={t('agentPanel.tools.title')}
+      description={t('agentPanel.tools.description')}
+      icon={Wrench}
+      isOpen={props.isOpen}
+      onOpenChange={props.onOpenChange}
+      summaryItems={summaryItems}
+      contentClassName="space-y-0"
+    >
+      <AgentToolsEditor {...props} />
     </AgentSettingsAccordionCard>
   );
 }

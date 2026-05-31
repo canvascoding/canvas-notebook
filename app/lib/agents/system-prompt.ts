@@ -69,12 +69,64 @@ function getPromptSkillsForAgent<T extends { name: string; enabled?: boolean }>(
   if (normalizedAgentId === DEFAULT_MANAGED_AGENT_ID) {
     return skills;
   }
-  if (!relevantSkills || relevantSkills.length === 0) {
+
+  if (relevantSkills === null || relevantSkills === undefined) {
+    return skills;
+  }
+
+  if (relevantSkills.length === 0) {
     return [];
   }
 
   const relevantSet = new Set(relevantSkills);
   return skills.filter((skill) => skill.enabled && relevantSet.has(skill.name));
+}
+
+function formatConnectionName(connectionId: string, prefix: string): string {
+  return connectionId.slice(prefix.length).trim();
+}
+
+function buildPrioritizedConnectionsContext(relevantConnections?: string[] | null): string {
+  if (!relevantConnections || relevantConnections.length === 0) {
+    return '';
+  }
+
+  const mcpConnections = relevantConnections
+    .filter((connection) => connection.startsWith('mcp:'))
+    .map((connection) => formatConnectionName(connection, 'mcp:'))
+    .filter(Boolean);
+  const composioConnections = relevantConnections
+    .filter((connection) => connection.startsWith('composio:'))
+    .map((connection) => formatConnectionName(connection, 'composio:'))
+    .filter(Boolean);
+
+  if (mcpConnections.length === 0 && composioConnections.length === 0) {
+    return '';
+  }
+
+  const blocks = [
+    '## Prioritized Apps & MCP',
+    '',
+    'This specialized agent has prioritized external connections. Treat these as preferred connections when relevant, not as an exclusive allowlist.',
+  ];
+
+  if (mcpConnections.length > 0) {
+    blocks.push(
+      '',
+      '### MCP servers',
+      ...mcpConnections.map((server) => `- ${server}: prefer the \`mcp\` gateway for this server. If the exact action is unclear, run \`mcp\` with \`search_tools\`, then \`describe_tool\`, then \`call_tool\`.`),
+    );
+  }
+
+  if (composioConnections.length > 0) {
+    blocks.push(
+      '',
+      '### Composio toolkits',
+      ...composioConnections.map((toolkit) => `- ${toolkit}: prefer \`COMPOSIO_SEARCH_TOOLS\` with toolkit filter \`${toolkit}\`, then \`COMPOSIO_GET_TOOL_SCHEMAS\`, then \`composio_execute\`.`),
+    );
+  }
+
+  return blocks.join('\n');
 }
 
 function isMcpGatewayEnabled(enabledTools?: string[] | null): boolean {
@@ -220,6 +272,13 @@ export async function loadManagedAgentSystemPrompt(agentId?: string | null): Pro
       });
       if (specializedToolsContext) {
         systemPrompt += '\n\n' + specializedToolsContext;
+      }
+
+      const prioritizedConnectionsContext = normalizedAgentId === DEFAULT_MANAGED_AGENT_ID
+        ? ''
+        : buildPrioritizedConnectionsContext(agentProfile?.relevantConnections);
+      if (prioritizedConnectionsContext) {
+        systemPrompt += '\n\n' + prioritizedConnectionsContext;
       }
 
       if (isMcpGatewayEnabled(enabledTools)) {

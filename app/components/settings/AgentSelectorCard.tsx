@@ -22,6 +22,7 @@ export type AgentProfileItem = {
   defaultThinking: string | null;
   enabledTools: string[] | null;
   relevantSkills: string[] | null;
+  relevantConnections: string[] | null;
 };
 
 type AgentSelectorCardProps = {

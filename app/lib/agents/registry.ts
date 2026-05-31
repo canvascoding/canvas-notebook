@@ -21,6 +21,7 @@ export type AgentProfile = {
   defaultThinking: PiThinkingLevel | null;
   enabledTools: string[] | null;
   relevantSkills: string[] | null;
+  relevantConnections: string[] | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -51,6 +52,7 @@ function mapAgent(row: typeof agents.$inferSelect): AgentProfile {
     defaultThinking: normalizeThinking(row.defaultThinking),
     enabledTools: parseEnabledTools(row.enabledToolsJson),
     relevantSkills: parseStringList(row.relevantSkillsJson),
+    relevantConnections: parseStringList(row.relevantConnectionsJson),
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
@@ -165,6 +167,7 @@ export async function createAgentProfile(input: {
   defaultThinking?: PiThinkingLevel | null;
   enabledTools?: string[] | null;
   relevantSkills?: string[] | null;
+  relevantConnections?: string[] | null;
 }): Promise<AgentProfile> {
   const name = input.name.trim();
   if (!name) {
@@ -188,6 +191,7 @@ export async function createAgentProfile(input: {
     defaultThinking: normalizeThinking(input.defaultThinking) || null,
     enabledToolsJson: stringifyEnabledTools(input.enabledTools),
     relevantSkillsJson: stringifyStringList(input.relevantSkills),
+    relevantConnectionsJson: stringifyStringList(input.relevantConnections),
     createdAt: now,
     updatedAt: now,
   });
@@ -208,6 +212,7 @@ export async function updateAgentProfile(input: {
   defaultThinking?: PiThinkingLevel | null;
   enabledTools?: string[] | null;
   relevantSkills?: string[] | null;
+  relevantConnections?: string[] | null;
 }): Promise<AgentProfile> {
   const agentId = normalizeManagedAgentId(input.agentId);
   const existing = await getAgentProfile(agentId);
@@ -229,6 +234,7 @@ export async function updateAgentProfile(input: {
       defaultThinking: input.defaultThinking === undefined ? existing.defaultThinking : normalizeThinking(input.defaultThinking) || null,
       enabledToolsJson: input.enabledTools === undefined ? stringifyEnabledTools(existing.enabledTools) : stringifyEnabledTools(input.enabledTools),
       relevantSkillsJson: input.relevantSkills === undefined ? stringifyStringList(existing.relevantSkills) : stringifyStringList(input.relevantSkills),
+      relevantConnectionsJson: input.relevantConnections === undefined ? stringifyStringList(existing.relevantConnections) : stringifyStringList(input.relevantConnections),
       updatedAt: new Date(),
     })
     .where(eq(agents.agentId, agentId));

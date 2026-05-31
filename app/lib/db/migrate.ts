@@ -153,6 +153,7 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       default_thinking TEXT,
       enabled_tools_json TEXT,
       relevant_skills_json TEXT,
+      relevant_connections_json TEXT,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
     );
@@ -775,6 +776,7 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     default_thinking: 'TEXT',
     enabled_tools_json: 'TEXT',
     relevant_skills_json: 'TEXT',
+    relevant_connections_json: 'TEXT',
   });
   addColumns(sqlite, 'channel_active_sessions', {
     agent_id: "TEXT NOT NULL DEFAULT 'canvas-agent'",

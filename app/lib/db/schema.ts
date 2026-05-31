@@ -112,6 +112,7 @@ export const agents = sqliteTable("agents", {
   defaultThinking: text("default_thinking"),
   enabledToolsJson: text("enabled_tools_json"),
   relevantSkillsJson: text("relevant_skills_json"),
+  relevantConnectionsJson: text("relevant_connections_json"),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
 }, (table) => ({
