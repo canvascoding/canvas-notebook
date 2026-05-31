@@ -46,19 +46,38 @@ export type AgentFileChangeResult = {
   validation: AgentFileValidationResult;
 };
 
-export type AgentPathOperationResult = {
-  operation: 'copy_path' | 'move_path' | 'delete_path';
+export type AgentPathType = 'file' | 'directory' | 'other' | 'missing' | 'mixed';
+
+export type AgentPathOperationEntry = {
   sourcePath: string;
   destinationPath?: string;
   sourceResolvedPath: string;
   destinationResolvedPath?: string;
-  type: 'file' | 'directory' | 'other';
+  type: AgentPathType;
   changed: boolean;
   overwritten: boolean;
   bytes: number;
   files: number;
   directories: number;
   truncated: boolean;
+};
+
+export type AgentPathOperationResult = {
+  operation: 'copy_path' | 'move_path' | 'delete_path';
+  sourcePath: string;
+  sourcePaths: string[];
+  destinationPath?: string;
+  sourceResolvedPath: string;
+  sourceResolvedPaths: string[];
+  destinationResolvedPath?: string;
+  type: AgentPathType;
+  changed: boolean;
+  overwritten: boolean;
+  bytes: number;
+  files: number;
+  directories: number;
+  truncated: boolean;
+  entries: AgentPathOperationEntry[];
 };
 
 export type AgentPatchFileInput = {
@@ -801,14 +820,14 @@ export async function restoreAgentFileSnapshot(params: { snapshotId: string }): 
   };
 }
 
-function getPathType(stats: Stats): AgentPathOperationResult['type'] {
+function getPathType(stats: Stats): AgentPathType {
   if (stats.isFile()) return 'file';
   if (stats.isDirectory()) return 'directory';
   return 'other';
 }
 
 async function summarizePath(fullPath: string): Promise<{
-  type: AgentPathOperationResult['type'];
+  type: AgentPathType;
   bytes: number;
   files: number;
   directories: number;
@@ -880,45 +899,173 @@ function assertDestinationIsNotInsideSource(sourcePath: string, destinationPath:
   }
 }
 
+function normalizePathList(paths: string[], fieldName: string): string[] {
+  const normalized = paths.map((pathValue) => pathValue.trim()).filter(Boolean);
+  if (normalized.length === 0) {
+    throw new Error(`${fieldName} must include at least one path.`);
+  }
+  return normalized;
+}
+
+function pathOperationSummary(
+  operation: AgentPathOperationResult['operation'],
+  entries: AgentPathOperationEntry[],
+  destinationPath?: string,
+  destinationResolvedPath?: string,
+): AgentPathOperationResult {
+  if (entries.length === 0) {
+    throw new Error('Path operation result must include at least one entry.');
+  }
+
+  const typeSet = new Set(entries.map((entry) => entry.type));
+  const aggregateType: AgentPathType = typeSet.size === 1 ? entries[0].type : 'mixed';
+  const sourcePath = entries.length === 1 ? entries[0].sourcePath : `${entries.length} paths`;
+  const sourceResolvedPath = entries.length === 1 ? entries[0].sourceResolvedPath : `${entries.length} paths`;
+
+  return {
+    operation,
+    sourcePath,
+    sourcePaths: entries.map((entry) => entry.sourcePath),
+    destinationPath,
+    sourceResolvedPath,
+    sourceResolvedPaths: entries.map((entry) => entry.sourceResolvedPath),
+    destinationResolvedPath,
+    type: aggregateType,
+    changed: entries.some((entry) => entry.changed),
+    overwritten: entries.some((entry) => entry.overwritten),
+    bytes: entries.reduce((total, entry) => total + entry.bytes, 0),
+    files: entries.reduce((total, entry) => total + entry.files, 0),
+    directories: entries.reduce((total, entry) => total + entry.directories, 0),
+    truncated: entries.some((entry) => entry.truncated),
+    entries,
+  };
+}
+
+function getDestinationPathForSource(destinationDirectoryPath: string, sourcePath: string): string {
+  const baseName = path.basename(path.resolve(sourcePath));
+  if (!baseName || baseName === path.sep) {
+    throw new Error(`Unable to derive destination name for ${sourcePath}.`);
+  }
+  return path.join(destinationDirectoryPath, baseName);
+}
+
+async function assertDestinationDirectoryAvailable(destinationFullPath: string, destinationPath: string): Promise<void> {
+  if (await pathExists(destinationFullPath)) {
+    const stats = await fs.stat(destinationFullPath);
+    if (!stats.isDirectory()) {
+      throw new Error(`Destination must be a directory when multiple sources are provided: ${destinationPath}`);
+    }
+  }
+}
+
+function assertNoDuplicateDestinations(entries: AgentPathOperationEntry[]): void {
+  const destinations = new Set<string>();
+  for (const entry of entries) {
+    if (!entry.destinationResolvedPath) continue;
+    if (destinations.has(entry.destinationResolvedPath)) {
+      throw new Error(`Multiple sources resolve to the same destination: ${entry.destinationPath}`);
+    }
+    destinations.add(entry.destinationResolvedPath);
+  }
+}
+
+function assertNoNestedCopyMoveSources(entries: AgentPathOperationEntry[]): void {
+  for (const parentEntry of entries) {
+    if (parentEntry.type !== 'directory') continue;
+    for (const childEntry of entries) {
+      if (parentEntry === childEntry) continue;
+      if (isPathWithin(childEntry.sourceResolvedPath, parentEntry.sourceResolvedPath)) {
+        throw new Error('Multiple sources must not include paths nested under another source directory.');
+      }
+    }
+  }
+}
+
 export async function copyAgentPath(params: {
   sourcePath: string;
   destinationPath: string;
   overwrite?: boolean;
   recursive?: boolean;
 }): Promise<AgentPathOperationResult> {
-  const sourceFullPath = resolveAgentPath(params.sourcePath);
+  return copyAgentPaths({
+    sourcePaths: [params.sourcePath],
+    destinationPath: params.destinationPath,
+    overwrite: params.overwrite,
+    recursive: params.recursive,
+  });
+}
+
+export async function copyAgentPaths(params: {
+  sourcePaths: string[];
+  destinationPath: string;
+  overwrite?: boolean;
+  recursive?: boolean;
+}): Promise<AgentPathOperationResult> {
+  const sourcePaths = normalizePathList(params.sourcePaths, 'sourcePaths');
+  const multipleSources = sourcePaths.length > 1;
   const destinationFullPath = resolveAgentPath(params.destinationPath);
-  await assertAgentPathAllowed(sourceFullPath);
   await assertAgentWritablePathAllowed(destinationFullPath);
 
-  const summary = await summarizePath(sourceFullPath);
-  if (summary.type === 'directory' && params.recursive === false) {
-    throw new Error('Source is a directory. Set recursive to true to copy directories.');
-  }
-  assertDestinationIsNotInsideSource(sourceFullPath, destinationFullPath, summary.type);
-
-  const overwritten = await pathExists(destinationFullPath);
-  if (overwritten && !params.overwrite) {
-    throw new Error(`Destination already exists: ${params.destinationPath}`);
+  if (multipleSources) {
+    await assertDestinationDirectoryAvailable(destinationFullPath, params.destinationPath);
   }
 
-  await fs.mkdir(path.dirname(destinationFullPath), { recursive: true });
-  await fs.cp(sourceFullPath, destinationFullPath, {
-    recursive: summary.type === 'directory',
-    force: params.overwrite === true,
-    errorOnExist: params.overwrite !== true,
-  });
+  const entries: AgentPathOperationEntry[] = [];
+  for (const sourcePath of sourcePaths) {
+    const sourceFullPath = resolveAgentPath(sourcePath);
+    await assertAgentPathAllowed(sourceFullPath);
 
-  return {
-    operation: 'copy_path',
-    sourcePath: params.sourcePath,
-    destinationPath: params.destinationPath,
-    sourceResolvedPath: sourceFullPath,
-    destinationResolvedPath: destinationFullPath,
-    changed: true,
-    overwritten,
-    ...summary,
-  };
+    const summary = await summarizePath(sourceFullPath);
+    if (summary.type === 'directory' && params.recursive === false) {
+      throw new Error('Source is a directory. Set recursive to true to copy directories.');
+    }
+
+    const entryDestinationPath = multipleSources
+      ? getDestinationPathForSource(params.destinationPath, sourcePath)
+      : params.destinationPath;
+    const entryDestinationFullPath = multipleSources
+      ? getDestinationPathForSource(destinationFullPath, sourceFullPath)
+      : destinationFullPath;
+    await assertAgentWritablePathAllowed(entryDestinationFullPath);
+
+    if (path.resolve(sourceFullPath) === path.resolve(entryDestinationFullPath)) {
+      throw new Error('Source and destination must be different paths.');
+    }
+    assertDestinationIsNotInsideSource(sourceFullPath, entryDestinationFullPath, summary.type);
+
+    const overwritten = await pathExists(entryDestinationFullPath);
+    if (overwritten && !params.overwrite) {
+      throw new Error(`Destination already exists: ${entryDestinationPath}`);
+    }
+
+    entries.push({
+      sourcePath,
+      destinationPath: entryDestinationPath,
+      sourceResolvedPath: sourceFullPath,
+      destinationResolvedPath: entryDestinationFullPath,
+      changed: true,
+      overwritten,
+      ...summary,
+    });
+  }
+
+  assertNoDuplicateDestinations(entries);
+  assertNoNestedCopyMoveSources(entries);
+
+  for (const entry of entries) {
+    if (!entry.destinationResolvedPath) continue;
+    await fs.mkdir(path.dirname(entry.destinationResolvedPath), { recursive: true });
+    if (entry.overwritten && params.overwrite) {
+      await fs.rm(entry.destinationResolvedPath, { recursive: true, force: true });
+    }
+    await fs.cp(entry.sourceResolvedPath, entry.destinationResolvedPath, {
+      recursive: entry.type === 'directory',
+      force: params.overwrite === true,
+      errorOnExist: params.overwrite !== true,
+    });
+  }
+
+  return pathOperationSummary('copy_path', entries, params.destinationPath, destinationFullPath);
 }
 
 export async function moveAgentPath(params: {
@@ -926,71 +1073,158 @@ export async function moveAgentPath(params: {
   destinationPath: string;
   overwrite?: boolean;
 }): Promise<AgentPathOperationResult> {
-  const sourceFullPath = resolveAgentPath(params.sourcePath);
+  return moveAgentPaths({
+    sourcePaths: [params.sourcePath],
+    destinationPath: params.destinationPath,
+    overwrite: params.overwrite,
+  });
+}
+
+export async function moveAgentPaths(params: {
+  sourcePaths: string[];
+  destinationPath: string;
+  overwrite?: boolean;
+}): Promise<AgentPathOperationResult> {
+  const sourcePaths = normalizePathList(params.sourcePaths, 'sourcePaths');
+  const multipleSources = sourcePaths.length > 1;
   const destinationFullPath = resolveAgentPath(params.destinationPath);
-  await assertAgentPathAllowed(sourceFullPath);
   await assertAgentWritablePathAllowed(destinationFullPath);
 
-  const summary = await summarizePath(sourceFullPath);
-  assertDestinationIsNotInsideSource(sourceFullPath, destinationFullPath, summary.type);
-
-  const overwritten = await pathExists(destinationFullPath);
-  if (overwritten && !params.overwrite) {
-    throw new Error(`Destination already exists: ${params.destinationPath}`);
+  if (multipleSources) {
+    await assertDestinationDirectoryAvailable(destinationFullPath, params.destinationPath);
   }
 
-  await fs.mkdir(path.dirname(destinationFullPath), { recursive: true });
-  if (overwritten && params.overwrite) {
-    await fs.rm(destinationFullPath, { recursive: true, force: true });
-  }
+  const entries: AgentPathOperationEntry[] = [];
+  for (const sourcePath of sourcePaths) {
+    const sourceFullPath = resolveAgentPath(sourcePath);
+    await assertAgentPathAllowed(sourceFullPath);
 
-  try {
-    await fs.rename(sourceFullPath, destinationFullPath);
-  } catch (error) {
-    if (!(error && typeof error === 'object' && 'code' in error && error.code === 'EXDEV')) {
-      throw error;
+    const summary = await summarizePath(sourceFullPath);
+    const entryDestinationPath = multipleSources
+      ? getDestinationPathForSource(params.destinationPath, sourcePath)
+      : params.destinationPath;
+    const entryDestinationFullPath = multipleSources
+      ? getDestinationPathForSource(destinationFullPath, sourceFullPath)
+      : destinationFullPath;
+    await assertAgentWritablePathAllowed(entryDestinationFullPath);
+
+    if (path.resolve(sourceFullPath) === path.resolve(entryDestinationFullPath)) {
+      throw new Error('Source and destination must be different paths.');
     }
-    await fs.cp(sourceFullPath, destinationFullPath, { recursive: summary.type === 'directory', force: true });
-    await fs.rm(sourceFullPath, { recursive: summary.type === 'directory', force: true });
+    assertDestinationIsNotInsideSource(sourceFullPath, entryDestinationFullPath, summary.type);
+
+    const overwritten = await pathExists(entryDestinationFullPath);
+    if (overwritten && !params.overwrite) {
+      throw new Error(`Destination already exists: ${entryDestinationPath}`);
+    }
+
+    entries.push({
+      sourcePath,
+      destinationPath: entryDestinationPath,
+      sourceResolvedPath: sourceFullPath,
+      destinationResolvedPath: entryDestinationFullPath,
+      changed: true,
+      overwritten,
+      ...summary,
+    });
   }
 
-  return {
-    operation: 'move_path',
-    sourcePath: params.sourcePath,
-    destinationPath: params.destinationPath,
-    sourceResolvedPath: sourceFullPath,
-    destinationResolvedPath: destinationFullPath,
-    changed: true,
-    overwritten,
-    ...summary,
-  };
+  assertNoDuplicateDestinations(entries);
+  assertNoNestedCopyMoveSources(entries);
+
+  for (const entry of entries) {
+    if (!entry.destinationResolvedPath) continue;
+    await fs.mkdir(path.dirname(entry.destinationResolvedPath), { recursive: true });
+    if (entry.overwritten && params.overwrite) {
+      await fs.rm(entry.destinationResolvedPath, { recursive: true, force: true });
+    }
+
+    try {
+      await fs.rename(entry.sourceResolvedPath, entry.destinationResolvedPath);
+    } catch (error) {
+      if (!(error && typeof error === 'object' && 'code' in error && error.code === 'EXDEV')) {
+        throw error;
+      }
+      await fs.cp(entry.sourceResolvedPath, entry.destinationResolvedPath, { recursive: entry.type === 'directory', force: true });
+      await fs.rm(entry.sourceResolvedPath, { recursive: entry.type === 'directory', force: true });
+    }
+  }
+
+  return pathOperationSummary('move_path', entries, params.destinationPath, destinationFullPath);
 }
 
 export async function deleteAgentPath(params: {
   path: string;
   recursive?: boolean;
+  ignoreMissing?: boolean;
 }): Promise<AgentPathOperationResult> {
-  const fullPath = resolveAgentPath(params.path);
-  await assertAgentWritablePathAllowed(fullPath);
+  return deleteAgentPaths({
+    paths: [params.path],
+    recursive: params.recursive,
+    ignoreMissing: params.ignoreMissing,
+  });
+}
 
-  const summary = await summarizePath(fullPath);
-  if (summary.type === 'directory' && params.recursive !== true) {
-    throw new Error('Path is a directory. Set recursive to true to delete directories.');
+export async function deleteAgentPaths(params: {
+  paths: string[];
+  recursive?: boolean;
+  ignoreMissing?: boolean;
+}): Promise<AgentPathOperationResult> {
+  const requestedPaths = normalizePathList(params.paths, 'paths');
+  const seenResolvedPaths = new Set<string>();
+  const entries: AgentPathOperationEntry[] = [];
+
+  for (const requestedPath of requestedPaths) {
+    const fullPath = resolveAgentPath(requestedPath);
+    await assertAgentWritablePathAllowed(fullPath);
+    const resolvedFullPath = path.resolve(fullPath);
+    if (seenResolvedPaths.has(resolvedFullPath)) continue;
+    seenResolvedPaths.add(resolvedFullPath);
+
+    if (!(await pathExists(fullPath))) {
+      if (!params.ignoreMissing) {
+        throw new Error(`Path does not exist: ${requestedPath}`);
+      }
+      entries.push({
+        sourcePath: requestedPath,
+        sourceResolvedPath: fullPath,
+        type: 'missing',
+        changed: false,
+        overwritten: false,
+        bytes: 0,
+        files: 0,
+        directories: 0,
+        truncated: false,
+      });
+      continue;
+    }
+
+    const summary = await summarizePath(fullPath);
+    if (summary.type === 'directory' && params.recursive !== true) {
+      throw new Error('Path is a directory. Set recursive to true to delete directories.');
+    }
+
+    entries.push({
+      sourcePath: requestedPath,
+      sourceResolvedPath: fullPath,
+      changed: true,
+      overwritten: false,
+      ...summary,
+    });
   }
 
-  await fs.rm(fullPath, {
-    recursive: summary.type === 'directory',
-    force: false,
-  });
+  const deletableEntries = entries
+    .filter((entry) => entry.changed)
+    .sort((a, b) => b.sourceResolvedPath.length - a.sourceResolvedPath.length);
 
-  return {
-    operation: 'delete_path',
-    sourcePath: params.path,
-    sourceResolvedPath: fullPath,
-    changed: true,
-    overwritten: false,
-    ...summary,
-  };
+  for (const entry of deletableEntries) {
+    await fs.rm(entry.sourceResolvedPath, {
+      recursive: entry.type === 'directory',
+      force: false,
+    });
+  }
+
+  return pathOperationSummary('delete_path', entries);
 }
 
 export function detectUnsafeBashCommand(command: string): string | null {
