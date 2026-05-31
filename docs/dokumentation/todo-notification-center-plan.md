@@ -11,10 +11,11 @@ Der Chat soll in der neuen To-do-App rechts ein- und ausblendbar sein. Die beste
 - Start mit einer zentralen To-do-Liste pro Nutzer.
 - Kategorien ersetzen zunaechst mehrere Listen.
 - Mehrere Listen/Projekte werden erst spaeter eingefuehrt, falls ein klarer Bedarf nach projekt-, kunden- oder mitarbeiterbezogener Trennung entsteht.
-- User duerfen To-dos vollstaendig selbst verwalten: erstellen, bearbeiten, abhaken, wieder oeffnen, loeschen oder archivieren.
+- User duerfen To-dos vollstaendig selbst verwalten: erstellen, bearbeiten, abhaken, wieder oeffnen und loeschen. Technisch bedeutet "loeschen" zunaechst archivieren.
 - Agenten duerfen To-dos fuer den aktuell eingeloggten Nutzer erstellen, aber keine User-ID aus Tool-Parametern akzeptieren.
 - To-dos koennen Workspace-Dateien verlinken. Gespeichert werden nur validierte, workspace-relative Pfade.
 - Die Glocke ist eine kompakte Notification-Zentrale, aber nicht die primaere To-do-Oberflaeche.
+- Bestehende Agent-Sessions und deren Systemprompt-Snapshots werden nicht nachtraeglich aktualisiert. Die Human-in-the-loop-Regel gilt ab der Implementierung fuer neu erzeugte Systemprompts/Sessions.
 
 ## Bestehende Anknuepfungspunkte
 
@@ -133,7 +134,7 @@ Persistente To-dos, Kategorien und Dateiverlinkungen serverseitig verwalten.
 - `category_id TEXT`
 - `title TEXT NOT NULL`
 - `description TEXT`
-- `status TEXT NOT NULL` (`open`, `done`, optional spaeter `archived`)
+- `status TEXT NOT NULL` (`open`, `done`, `archived`)
 - `priority TEXT NOT NULL DEFAULT 'normal'` (`low`, `normal`, `high`)
 - `due_at INTEGER`
 - `source_type TEXT NOT NULL DEFAULT 'user'` (`user`, `agent`)
@@ -141,6 +142,7 @@ Persistente To-dos, Kategorien und Dateiverlinkungen serverseitig verwalten.
 - `source_session_id TEXT`
 - `seen_at INTEGER`
 - `completed_at INTEGER`
+- `archived_at INTEGER`
 - `created_at INTEGER NOT NULL`
 - `updated_at INTEGER NOT NULL`
 
@@ -203,13 +205,13 @@ Serverseitige API fuer UI und Agent-Tool bereitstellen.
   - bearbeitet Titel, Beschreibung, Kategorie, Prioritaet, Faelligkeit, Status, Dateilinks
   - markiert `seenAt` bei Bedarf
 - `DELETE /api/todos/[id]`
-  - loescht oder archiviert, Entscheidung beim Implementieren festlegen
+  - archiviert das To-do technisch (`status = 'archived'`, `archivedAt = now`)
+  - die UI kann diese Eintraege als "Zuletzt geloescht" anzeigen
 - `GET /api/todo-categories`
 - `POST /api/todo-categories`
 - `PATCH /api/todo-categories/[id]`
 - `DELETE /api/todo-categories/[id]`
-- `POST /api/todo-categories/from-template`
-  - legt eine Kategorie aus einer Vorlage an
+  - archiviert die Kategorie technisch; To-dos bleiben erhalten
 
 ### Sicherheit
 
@@ -259,27 +261,28 @@ Eine eigene App fuer To-dos mit Chat rechts, Desktop- und Mobile-tauglich.
 - To-do bearbeiten.
 - To-do abhaken.
 - To-do wieder oeffnen.
-- To-do loeschen oder archivieren.
+- To-do loeschen; technisch wird es archiviert.
+- "Zuletzt geloescht" anzeigen und archivierte To-dos bei Bedarf wiederherstellen.
 - Kategorie zuweisen.
 - Kategorie erstellen, umbenennen, loeschen.
-- Kategorie aus Template anlegen.
 - Datei aus Workspace verlinken.
 - Dateilink oeffnen.
 
-### Kategorie-Templates
+### Standardkategorien
 
-Statische Vorlagen, z. B.:
+Beim ersten Verwenden der To-do-App werden pro Nutzer einfache Standardkategorien angelegt. Der Nutzer kann sie spaeter umbenennen, ausblenden/archivieren oder eigene Kategorien ergaenzen.
 
+Vorgeschlagene Startkategorien:
+
+- To-do
+- Pruefen
 - Freigabe
-- Recherche
-- Content
-- Kunden
-- Entwicklung
+- Automation
 - Follow-up
-- Automation pruefen
-- Warten auf Rueckmeldung
+- Recherche
+- Dateien
 
-Templates werden nicht automatisch in die Datenbank geschrieben. Sie werden erst persistiert, wenn der Nutzer sie uebernimmt.
+Separate Kategorie-Templates sind fuer das MVP nicht noetig, weil die wichtigsten Kategorien direkt vorgegeben werden.
 
 ### Dateilinks
 
@@ -287,6 +290,7 @@ Templates werden nicht automatisch in die Datenbank geschrieben. Sie werden erst
 - Speichern als workspace-relativer Pfad.
 - Klick oeffnet `/files?path=<encoded-path>`.
 - `/files` muss Deep-Link-Support erhalten, damit die Datei direkt geladen und im Preview angezeigt wird.
+- Wenn eine verlinkte Datei geloescht oder verschoben wurde, bleibt das To-do stabil. Die UI zeigt "Datei nicht gefunden" und bietet keinen kaputten Preview-Zustand.
 
 ### Chat-Kontext
 
@@ -335,9 +339,7 @@ Parameter:
 
 - Tool ist user-gescoped ueber den laufenden Agent-Kontext.
 - Keine `userId` als Tool-Parameter.
-- Wenn `categoryName` existiert, aber keine Kategorie gefunden wird:
-  - entweder Kategorie automatisch erstellen oder To-do ohne Kategorie anlegen.
-  - Entscheidung beim Implementieren anhand UX treffen.
+- Wenn `categoryName` existiert, aber keine Kategorie gefunden wird, wird keine neue Kategorie automatisch erstellt. Das To-do faellt auf die Standardkategorie `To-do` zurueck.
 - `linkedWorkspacePaths` werden serverseitig validiert.
 - `sourceType = 'agent'`
 - `sourceAgentId = aktueller Agent`
@@ -391,12 +393,15 @@ Globale Glocke in Headern neben AppLauncher, Theme/Logout anzeigen. Sie zeigt ko
   - ungelesene Chat-Sessions
   - neue Agent-To-dos
   - faellige offene To-dos
+  - Darstellung maximal zweistellig, bei mehr als 99 als `99+`
 - Popover:
   - Abschnitt "Chat"
   - Abschnitt "To-dos"
   - Quicklinks zu Session bzw. To-do
   - Aktion "Alle Chat-Sessions als gelesen"
-  - Aktion "Neue To-dos als gesehen markieren"
+  - Aktion "Alle To-dos als gelesen markieren"
+  - Aktion pro Eintrag "Als gelesen markieren"
+  - Oeffnen eines To-dos auf der `/todos`-Route markiert dieses To-do ebenfalls als gelesen/gesehen
 
 ### API
 
@@ -412,7 +417,7 @@ Liefert:
 Optional:
 
 - `PATCH /api/notifications/read`
-  - markiert To-do-Hinweise als gesehen
+  - markiert einzelne oder alle To-do-Hinweise als gesehen
   - Chat-Read bleibt ueber bestehende Session-API
 
 ### Echtzeit
@@ -420,6 +425,7 @@ Optional:
 - Bei neuen Agent-To-dos user-weites WebSocket-Event senden, z. B. `todo_updated` oder `notification_summary_updated`.
 - Bestehende Broadcast-Infrastruktur kann `broadcastToUser` nutzen.
 - Glocke refetcht Summary bei Event.
+- Das reine Oeffnen der Glocke markiert To-dos nicht automatisch als gelesen. Gelesen wird ein To-do durch explizites Markieren oder durch Oeffnen des To-dos in der To-do-Route.
 
 ### Integration
 
@@ -458,6 +464,7 @@ To-do-Dateilinks fuehren direkt zur relevanten Workspace-Datei und oeffnen sie i
   - Ordner laden und anzeigen
 - Ungueltige oder fehlende Pfade:
   - Toast/Fehler anzeigen
+  - in To-do-Dateilinks sichtbar als "Datei nicht gefunden" markieren
   - auf Workspace-Root zurueckfallen
 
 ### Tests
@@ -495,13 +502,12 @@ Pro Phase:
 - keine parallelen Test-Container starten
 - bei Container-Testlaeufen immer recreate/rebuild
 
-## Offene Entscheidungen ohne Blocker
+## Rueckgestellte Erweiterungen ohne Blocker
 
-- Loeschen vs. Archivieren fuer To-dos: Empfehlung ist zunaechst "Loeschen" im UI mit Confirm, intern kann spaeter Archivierung ergaenzt werden.
-- Automatisches Erstellen fehlender Kategorien durch Agent-Tool: Empfehlung ist vorsichtig starten und nur bestehende Kategorie verwenden oder ohne Kategorie anlegen.
 - Mehrere Listen: Empfehlung ist erst nach MVP evaluieren.
 - Notification-Historie: Empfehlung ist zunaechst aggregierte Summary statt persistenter Notification-Tabelle.
+- Hard-Delete alter archivierter To-dos: nicht im MVP. To-dos bestehen aus kleinen Text-/Metadatenstrings und sollten speicherseitig unkritisch sein. Falls spaeter notwendig, kann ein Wartungsjob archivierte To-dos nach einer langen Frist, z. B. 12 oder 24 Monate, endgueltig entfernen.
 
 ## Keine offenen Blocker-Fragen
 
-Der Plan ist umsetzbar, ohne vorher weitere Entscheidungen zu erzwingen. Die offenen Punkte koennen waehrend der jeweiligen Phase anhand der konkreten UI und Nutzerfuehrung entschieden werden.
+Der Plan ist umsetzbar, ohne vorher weitere Entscheidungen zu erzwingen. Die rueckgestellten Punkte koennen nach dem MVP anhand der konkreten Nutzung bewertet werden.
