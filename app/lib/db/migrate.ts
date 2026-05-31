@@ -185,6 +185,9 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       source_session_id TEXT,
       seen_at INTEGER,
       completed_at INTEGER,
+      completion_comment TEXT,
+      follow_up_sent_at INTEGER,
+      follow_up_error TEXT,
       archived_at INTEGER,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL,
@@ -669,6 +672,7 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     CREATE INDEX IF NOT EXISTS idx_todo_items_user_status_updated ON todo_items (user_id, status, updated_at);
     CREATE INDEX IF NOT EXISTS idx_todo_items_user_due ON todo_items (user_id, due_at);
     CREATE INDEX IF NOT EXISTS idx_todo_items_user_seen ON todo_items (user_id, seen_at);
+    CREATE INDEX IF NOT EXISTS idx_todo_items_source_session ON todo_items (user_id, source_session_id);
     CREATE INDEX IF NOT EXISTS idx_todo_items_category ON todo_items (category_id);
     CREATE INDEX IF NOT EXISTS idx_todo_file_links_todo ON todo_file_links (todo_id);
     CREATE INDEX IF NOT EXISTS idx_todo_file_links_user_path ON todo_file_links (user_id, workspace_path);
@@ -686,6 +690,12 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
 
   addColumns(sqlite, 'automation_jobs', {
     target_output_path: 'TEXT',
+  });
+
+  addColumns(sqlite, 'todo_items', {
+    completion_comment: 'TEXT',
+    follow_up_sent_at: 'INTEGER',
+    follow_up_error: 'TEXT',
   });
 
   addColumns(sqlite, 'automation_runs', {

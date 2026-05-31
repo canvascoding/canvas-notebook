@@ -13,17 +13,20 @@ import {
   Circle,
   Clock3,
   Edit3,
+  ExternalLink,
   FileText,
   FolderSearch,
+  MessageSquare,
   MoreHorizontal,
   Plus,
   RefreshCcw,
   Search,
+  Send,
   Trash2,
   X,
 } from 'lucide-react';
 
-import { Link } from '@/i18n/navigation';
+import { Link, useRouter } from '@/i18n/navigation';
 import { getDefaultTodoCategoryKey } from '@/app/lib/todos/default-categories';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -73,9 +76,13 @@ type TodoItem = {
   status: TodoStatus;
   priority: TodoPriority;
   sourceType: TodoSourceType;
+  sourceSessionId: string | null;
   dueAt: string | null;
   seenAt: string | null;
   completedAt: string | null;
+  completionComment: string | null;
+  followUpSentAt: string | null;
+  followUpError: string | null;
   archivedAt: string | null;
   createdAt: string;
   updatedAt: string;
@@ -93,6 +100,12 @@ type ApiResponse<T> = {
   success: boolean;
   data?: T;
   error?: string;
+};
+
+type TodoFollowUpResponse = {
+  todo: TodoItem;
+  sessionId: string;
+  notebookHref: string;
 };
 
 type TodoFormState = {
@@ -169,6 +182,7 @@ function fileLinkHref(workspacePath: string) {
 export function TodosClient({ title }: { title: string }) {
   const t = useTranslations('todos');
   const locale = useLocale();
+  const router = useRouter();
   const searchParams = useSearchParams();
   const openedTodoParamRef = useRef<string | null>(null);
   const pendingTodoParamRef = useRef<string | null>(null);
@@ -188,11 +202,22 @@ export function TodosClient({ title }: { title: string }) {
   const [fileQuery, setFileQuery] = useState('');
   const [fileResults, setFileResults] = useState<WorkspaceFileEntry[]>([]);
   const [isFileSearching, setIsFileSearching] = useState(false);
+  const [followUpDraft, setFollowUpDraft] = useState<{ todoId: string | null; value: string }>({ todoId: null, value: '' });
+  const [isSendingFollowUp, setIsSendingFollowUp] = useState(false);
 
   const selectedTodo = useMemo(
     () => todos.find((todo) => todo.id === selectedTodoId) ?? null,
     [selectedTodoId, todos],
   );
+
+  const followUpComment = selectedTodo && followUpDraft.todoId === selectedTodo.id
+    ? followUpDraft.value
+    : selectedTodo?.completionComment ?? '';
+
+  const updateFollowUpComment = useCallback((value: string) => {
+    if (!selectedTodo) return;
+    setFollowUpDraft({ todoId: selectedTodo.id, value });
+  }, [selectedTodo]);
 
   const visibleUnreadCount = useMemo(
     () => todos.filter((todo) => todo.status !== 'archived' && !todo.seenAt).length,
@@ -478,6 +503,33 @@ export function TodosClient({ title }: { title: string }) {
       toast.error(error instanceof Error ? error.message : t('errors.saveFailed'));
     }
   }, [t, updateTodo]);
+
+  const sendTodoFollowUp = useCallback(async (todo: TodoItem) => {
+    if (!todo.sourceSessionId) return;
+
+    setIsSendingFollowUp(true);
+    try {
+      const response = await fetch(`/api/todos/${encodeURIComponent(todo.id)}/follow-up`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          comment: followUpComment,
+          locale,
+        }),
+      });
+      const data = await readApiData<TodoFollowUpResponse>(response);
+      setTodos((current) => current.map((item) => (item.id === data.todo.id ? data.todo : item)));
+      setSelectedTodoId(data.todo.id);
+      window.dispatchEvent(new CustomEvent('todo_updated'));
+      toast.success(t('toasts.followUpSent'));
+      router.push(data.notebookHref);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : t('errors.followUpFailed'));
+    } finally {
+      setIsSendingFollowUp(false);
+    }
+  }, [followUpComment, locale, router, t]);
 
   const restoreTodo = useCallback(async (todo: TodoItem) => {
     try {
@@ -807,6 +859,10 @@ export function TodosClient({ title }: { title: string }) {
                           </DropdownMenuItem>
                         ) : (
                           <>
+                            <DropdownMenuItem onSelect={() => void toggleDone(todo)}>
+                              {todo.status === 'done' ? <RefreshCcw className="h-4 w-4" /> : <CheckCircle2 className="h-4 w-4" />}
+                              {todo.status === 'done' ? t('actions.reopen') : t('actions.completeQuick')}
+                            </DropdownMenuItem>
                             <DropdownMenuItem onSelect={() => openEditDialog(todo)}>
                               <Edit3 className="h-4 w-4" />
                               {t('actions.edit')}
@@ -891,6 +947,58 @@ export function TodosClient({ title }: { title: string }) {
                     </div>
                   )}
                 </div>
+
+                {selectedTodo.sourceSessionId ? (
+                  <div className="space-y-3 border-t border-border pt-4">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <h4 className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                        {t('sections.session')}
+                      </h4>
+                      <Button asChild size="sm" variant="outline">
+                        <Link href={`/notebook?session=${encodeURIComponent(selectedTodo.sourceSessionId)}`}>
+                          <ExternalLink className="h-4 w-4" />
+                          {t('actions.openSession')}
+                        </Link>
+                      </Button>
+                    </div>
+
+                    {selectedTodo.status === 'done' ? (
+                      <div className="space-y-2">
+                        <Label htmlFor="todo-follow-up-comment">{t('fields.followUpComment')}</Label>
+                        <Textarea
+                          id="todo-follow-up-comment"
+                          value={followUpComment}
+                          onChange={(event) => updateFollowUpComment(event.target.value)}
+                          className="min-h-24"
+                          maxLength={5000}
+                          placeholder={t('fields.followUpCommentPlaceholder')}
+                        />
+                        {selectedTodo.followUpSentAt ? (
+                          <p className="text-xs text-muted-foreground">
+                            {t('labels.followUpSentAt', { date: formatDate(selectedTodo.followUpSentAt, locale) ?? selectedTodo.followUpSentAt })}
+                          </p>
+                        ) : null}
+                        {selectedTodo.followUpError ? (
+                          <p className="text-xs text-destructive">{selectedTodo.followUpError}</p>
+                        ) : null}
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => void sendTodoFollowUp(selectedTodo)}
+                          disabled={isSendingFollowUp || isMutating}
+                        >
+                          <Send className="h-4 w-4" />
+                          {selectedTodo.followUpSentAt ? t('actions.sendFollowUpAgain') : t('actions.sendFollowUp')}
+                        </Button>
+                      </div>
+                    ) : (
+                      <p className="flex items-start gap-2 text-sm text-muted-foreground">
+                        <MessageSquare className="mt-0.5 h-4 w-4 shrink-0" />
+                        {t('states.completeBeforeFollowUp')}
+                      </p>
+                    )}
+                  </div>
+                ) : null}
 
                 <div className="flex flex-wrap gap-2">
                   {selectedTodo.status === 'archived' ? (

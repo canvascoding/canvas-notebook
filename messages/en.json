@@ -882,7 +882,8 @@
       "markAllSeen": "Mark all read",
       "empty": "No open to-dos need attention.",
       "due": "Due",
-      "markSeen": "Mark to-do as read"
+      "markSeen": "Mark to-do as read",
+      "complete": "Quick complete to-do"
     }
   },
   "todos": {
@@ -892,7 +893,8 @@
     "sections": {
       "status": "Status",
       "categories": "Categories",
-      "files": "Files"
+      "files": "Files",
+      "session": "Session"
     },
     "filters": {
       "allCategories": "All categories",
@@ -940,6 +942,10 @@
       "archiveTodo": "Delete",
       "reopen": "Reopen",
       "complete": "Complete",
+      "completeQuick": "Quick complete",
+      "openSession": "Open session",
+      "sendFollowUp": "Inform agent",
+      "sendFollowUpAgain": "Inform agent again",
       "cancel": "Cancel",
       "save": "Save",
       "removeFile": "Remove file link"
@@ -954,6 +960,8 @@
       "fileSearch": "Link workspace file",
       "fileSearchPlaceholder": "Search filename or path",
       "linkedFiles": "Linked files",
+      "followUpComment": "Comment for the agent",
+      "followUpCommentPlaceholder": "Optional context about what was completed or how the agent should continue",
       "categoryName": "Name",
       "categoryColor": "Color"
     },
@@ -966,10 +974,12 @@
       "noSelectionTitle": "Select a to-do",
       "noSelectionDescription": "Click a to-do on the left to see details, files, and actions.",
       "searchingFiles": "Searching files...",
-      "noFileResults": "No workspace files found."
+      "noFileResults": "No workspace files found.",
+      "completeBeforeFollowUp": "Complete the to-do first. Then you can inform the agent in the linked session."
     },
     "labels": {
-      "unread": "Unread"
+      "unread": "Unread",
+      "followUpSentAt": "Last sent to the agent: {date}"
     },
     "editor": {
       "createTitle": "Create to-do",
@@ -987,6 +997,7 @@
       "archived": "To-do archived.",
       "completed": "To-do completed.",
       "reopened": "To-do reopened.",
+      "followUpSent": "Agent informed in the session.",
       "restored": "To-do restored.",
       "markedAllSeen": "Visible to-dos marked as read.",
       "categoryCreated": "Category created.",
@@ -997,6 +1008,7 @@
       "loadFailed": "Could not load to-dos.",
       "saveFailed": "Could not save to-do.",
       "archiveFailed": "Could not archive to-do.",
+      "followUpFailed": "Could not inform the agent.",
       "markSeenFailed": "Could not mark to-do as read.",
       "titleRequired": "Please enter a title.",
       "categoryNameRequired": "Please enter a category name.",

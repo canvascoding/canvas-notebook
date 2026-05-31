@@ -83,6 +83,9 @@ export type UpdateTodoInput = {
   dueAt?: Date | null;
   status?: TodoStatus;
   seenAt?: Date | null;
+  completionComment?: string | null;
+  followUpSentAt?: Date | null;
+  followUpError?: string | null;
   fileLinks?: TodoFileLinkInput[];
 };
 
@@ -360,6 +363,9 @@ export async function createTodo(userId: string, input: CreateTodoInput): Promis
     sourceSessionId: normalizeOptionalText(input.sourceSessionId, 160),
     seenAt: normalizeDate(input.seenAt),
     completedAt: null,
+    completionComment: null,
+    followUpSentAt: null,
+    followUpError: null,
     archivedAt: null,
     createdAt: now,
     updatedAt: now,
@@ -479,6 +485,15 @@ export async function updateTodo(userId: string, todoId: string, input: UpdateTo
   }
   if (input.seenAt !== undefined) {
     updates.seenAt = normalizeDate(input.seenAt);
+  }
+  if (input.completionComment !== undefined) {
+    updates.completionComment = normalizeOptionalText(input.completionComment, DESCRIPTION_MAX_LENGTH);
+  }
+  if (input.followUpSentAt !== undefined) {
+    updates.followUpSentAt = normalizeDate(input.followUpSentAt);
+  }
+  if (input.followUpError !== undefined) {
+    updates.followUpError = normalizeOptionalText(input.followUpError, 1000);
   }
   if (input.status !== undefined) {
     const nextStatus = normalizeTodoStatus(input.status);

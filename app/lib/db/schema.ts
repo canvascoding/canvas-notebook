@@ -181,6 +181,9 @@ export const todoItems = sqliteTable("todo_items", {
   sourceSessionId: text("source_session_id"),
   seenAt: integer("seen_at", { mode: "timestamp" }),
   completedAt: integer("completed_at", { mode: "timestamp" }),
+  completionComment: text("completion_comment"),
+  followUpSentAt: integer("follow_up_sent_at", { mode: "timestamp" }),
+  followUpError: text("follow_up_error"),
   archivedAt: integer("archived_at", { mode: "timestamp" }),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
@@ -188,6 +191,7 @@ export const todoItems = sqliteTable("todo_items", {
   userStatusUpdatedIdx: index("idx_todo_items_user_status_updated").on(table.userId, table.status, table.updatedAt),
   userDueIdx: index("idx_todo_items_user_due").on(table.userId, table.dueAt),
   userSeenIdx: index("idx_todo_items_user_seen").on(table.userId, table.seenAt),
+  sourceSessionIdx: index("idx_todo_items_source_session").on(table.userId, table.sourceSessionId),
   categoryIdx: index("idx_todo_items_category").on(table.categoryId),
 }));
 

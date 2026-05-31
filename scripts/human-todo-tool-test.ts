@@ -17,7 +17,7 @@ async function main() {
     updatedAt: new Date(),
   });
 
-  const tool = createHumanTodoTool({ userId, agentId: 'canvas-agent' });
+  const tool = createHumanTodoTool({ userId, agentId: 'canvas-agent', sessionId: 'session-from-runtime' });
 
   const result = await tool.execute('tool-test', {
     title: 'Review generated summary',
@@ -35,6 +35,7 @@ async function main() {
   assert.equal(rows[0].title, 'Review generated summary');
   assert.equal(rows[0].sourceType, 'agent');
   assert.equal(rows[0].sourceAgentId, 'canvas-agent');
+  assert.equal(rows[0].sourceSessionId, 'session-from-runtime');
   assert.equal(rows[0].seenAt, null);
   assert.equal(rows[0].priority, 'high');
 
@@ -58,6 +59,17 @@ async function main() {
     where: and(eq(todoCategories.id, fallback.categoryId), eq(todoCategories.userId, userId)),
   });
   assert.equal(fallbackCategory?.name, DEFAULT_TODO_CATEGORY_NAME);
+
+  const explicitSessionResult = await tool.execute('tool-test-explicit-session', {
+    title: 'Explicit session is ignored when runtime session exists',
+    sourceSessionId: 'manual-session',
+  });
+  const explicitSessionText = explicitSessionResult.content?.[0]?.type === 'text' ? explicitSessionResult.content[0].text : '';
+  assert.match(explicitSessionText, /Human to-do created/);
+  const explicitSessionTodo = await db.query.todoItems.findFirst({
+    where: and(eq(todoItems.userId, userId), eq(todoItems.title, 'Explicit session is ignored when runtime session exists')),
+  });
+  assert.equal(explicitSessionTodo?.sourceSessionId, 'session-from-runtime');
 
   await db.delete(todoFileLinks).where(eq(todoFileLinks.userId, userId));
   await db.delete(todoItems).where(eq(todoItems.userId, userId));

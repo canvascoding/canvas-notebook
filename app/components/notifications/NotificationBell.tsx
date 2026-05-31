@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useLocale, useTranslations } from 'next-intl';
-import { Bell, Check, Circle, Clock3, MessageSquare, ListTodo } from 'lucide-react';
+import { Bell, Check, CheckCircle2, Circle, Clock3, MessageSquare, ListTodo } from 'lucide-react';
 
 import { Link } from '@/i18n/navigation';
 import { Button } from '@/components/ui/button';
@@ -155,6 +155,22 @@ export function NotificationBell() {
     }
   }, [refresh]);
 
+  const completeTodo = useCallback(async (todoId: string) => {
+    setIsMutating(true);
+    try {
+      await fetch(`/api/todos/${encodeURIComponent(todoId)}`, {
+        method: 'PATCH',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'done', markSeen: true }),
+      });
+      window.dispatchEvent(new CustomEvent('todo_updated'));
+      await refresh();
+    } finally {
+      setIsMutating(false);
+    }
+  }, [refresh]);
+
   return (
     <Popover open={open} onOpenChange={handleOpenChange}>
       <PopoverTrigger asChild>
@@ -282,6 +298,15 @@ export function NotificationBell() {
                         <Check className="h-3 w-3" />
                       </Button>
                     ) : null}
+                    <Button
+                      variant="ghost"
+                      size="icon-xs"
+                      onClick={() => void completeTodo(todo.id)}
+                      disabled={isMutating}
+                      aria-label={t('todos.complete')}
+                    >
+                      <CheckCircle2 className="h-3 w-3" />
+                    </Button>
                   </div>
                 ))}
               </section>

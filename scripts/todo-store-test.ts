@@ -24,6 +24,7 @@ async function main() {
     markTodoSeen,
     normalizeWorkspaceTodoPath,
     restoreTodo,
+    updateTodo,
   } = await import('../app/lib/todos/store');
 
   const now = new Date('2026-05-31T12:00:00.000Z');
@@ -85,6 +86,15 @@ async function main() {
 
   const seen = await markTodoSeen('todo-user', created.id, new Date('2026-05-31T12:05:00.000Z'));
   assert.equal(seen?.seenAt?.toISOString(), '2026-05-31T12:05:00.000Z');
+
+  const completed = await updateTodo('todo-user', created.id, {
+    status: 'done',
+    completionComment: 'Erledigt, bitte weiterarbeiten.',
+    followUpSentAt: new Date('2026-05-31T12:06:00.000Z'),
+  });
+  assert.equal(completed?.status, 'done');
+  assert.equal(completed?.completionComment, 'Erledigt, bitte weiterarbeiten.');
+  assert.equal(completed?.followUpSentAt?.toISOString(), '2026-05-31T12:06:00.000Z');
 
   const archived = await archiveTodo('todo-user', created.id);
   assert.equal(archived?.status, 'archived');

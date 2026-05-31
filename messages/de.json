@@ -881,7 +881,8 @@
       "markAllSeen": "Alle als gelesen markieren",
       "empty": "Keine offenen To-dos, die Aufmerksamkeit benötigen.",
       "due": "Fällig",
-      "markSeen": "To-do als gelesen markieren"
+      "markSeen": "To-do als gelesen markieren",
+      "complete": "To-do schnell abhaken"
     }
   },
   "todos": {
@@ -891,7 +892,8 @@
     "sections": {
       "status": "Status",
       "categories": "Kategorien",
-      "files": "Dateien"
+      "files": "Dateien",
+      "session": "Session"
     },
     "filters": {
       "allCategories": "Alle Kategorien",
@@ -939,6 +941,10 @@
       "archiveTodo": "Löschen",
       "reopen": "Wieder öffnen",
       "complete": "Abhaken",
+      "completeQuick": "Schnell abhaken",
+      "openSession": "Session öffnen",
+      "sendFollowUp": "Agent informieren",
+      "sendFollowUpAgain": "Agent erneut informieren",
       "cancel": "Abbrechen",
       "save": "Speichern",
       "removeFile": "Dateilink entfernen"
@@ -953,6 +959,8 @@
       "fileSearch": "Workspace-Datei verlinken",
       "fileSearchPlaceholder": "Dateiname oder Pfad suchen",
       "linkedFiles": "Verlinkte Dateien",
+      "followUpComment": "Kommentar für den Agenten",
+      "followUpCommentPlaceholder": "Optionaler Kontext, was erledigt wurde oder wie der Agent weitermachen soll",
       "categoryName": "Name",
       "categoryColor": "Farbe"
     },
@@ -965,10 +973,12 @@
       "noSelectionTitle": "To-do auswählen",
       "noSelectionDescription": "Klicke links auf ein To-do, um Details, Dateien und Aktionen zu sehen.",
       "searchingFiles": "Dateien werden gesucht...",
-      "noFileResults": "Keine Workspace-Dateien gefunden."
+      "noFileResults": "Keine Workspace-Dateien gefunden.",
+      "completeBeforeFollowUp": "Hake das To-do zuerst ab. Danach kannst du den Agenten in der verknüpften Session informieren."
     },
     "labels": {
-      "unread": "Ungelesen"
+      "unread": "Ungelesen",
+      "followUpSentAt": "Zuletzt an den Agenten gesendet: {date}"
     },
     "editor": {
       "createTitle": "To-do erstellen",
@@ -986,6 +996,7 @@
       "archived": "To-do wurde archiviert.",
       "completed": "To-do abgehakt.",
       "reopened": "To-do wieder geöffnet.",
+      "followUpSent": "Agent wurde in der Session informiert.",
       "restored": "To-do wiederhergestellt.",
       "markedAllSeen": "Sichtbare To-dos wurden als gelesen markiert.",
       "categoryCreated": "Kategorie erstellt.",
@@ -996,6 +1007,7 @@
       "loadFailed": "To-dos konnten nicht geladen werden.",
       "saveFailed": "To-do konnte nicht gespeichert werden.",
       "archiveFailed": "To-do konnte nicht archiviert werden.",
+      "followUpFailed": "Agent konnte nicht informiert werden.",
       "markSeenFailed": "To-do konnte nicht als gelesen markiert werden.",
       "titleRequired": "Bitte gib einen Titel ein.",
       "categoryNameRequired": "Bitte gib einen Kategorienamen ein.",
