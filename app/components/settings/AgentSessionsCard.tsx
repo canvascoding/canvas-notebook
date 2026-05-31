@@ -21,6 +21,8 @@ export type AgentSessionItem = {
 };
 
 type AgentSessionsCardProps = {
+  activeAgentId: string;
+  activeAgentName: string;
   sessions: AgentSessionItem[];
   sessionsLoading: boolean;
   sessionError: string | null;
@@ -39,6 +41,8 @@ type AgentSessionsCardProps = {
 };
 
 export function AgentSessionsCard({
+  activeAgentId,
+  activeAgentName,
   sessions,
   sessionsLoading,
   sessionError,
@@ -58,6 +62,7 @@ export function AgentSessionsCard({
   const locale = useLocale();
   const t = useTranslations('settings');
   const summaryItems = [
+    t('agentPanel.sessions.activeAgentSummary', { agentName: activeAgentName }),
     sessionsLoading ? t('agentPanel.sessions.loading') : t('agentPanel.sessions.summary', { count: sessions.length }),
     sessionError ? t('agentPanel.sessions.errorSummary') : null,
   ].filter((item): item is string => Boolean(item));
@@ -71,6 +76,21 @@ export function AgentSessionsCard({
       onOpenChange={onOpenChange}
       summaryItems={summaryItems}
     >
+      <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border bg-muted/20 px-3 py-2">
+        <div className="min-w-0">
+          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            {t('agentPanel.sessions.activeAgentLabel')}
+          </p>
+          <p className="truncate text-sm font-medium">{activeAgentName}</p>
+        </div>
+        <div className="min-w-0 text-right">
+          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            {t('agentPanel.sessions.agentIdLabel')}
+          </p>
+          <p className="truncate font-mono text-xs text-muted-foreground">{activeAgentId}</p>
+        </div>
+      </div>
+
       <div className="flex flex-wrap gap-2">
         <Input
           className="min-w-[200px] flex-1"

@@ -102,6 +102,7 @@ import { useIsMobile } from '@/hooks/use-mobile';
 import { BUSINESS_STARTER_PROMPTS, STUDIO_STARTER_PROMPTS, type StarterPromptDefinition, type StarterPromptIcon } from '@/app/lib/chat/starter-prompts';
 import { ChatRuntimeActivityBadge } from '@/app/components/canvas-agent-chat/ChatRuntimeActivityBadge';
 import { ChatModelSelector } from '@/app/components/canvas-agent-chat/ChatModelSelector';
+import { AgentAvatar, AgentIcon } from '@/app/components/agents/AgentAvatar';
 import type { RuntimeQueueItem, RuntimeStatus } from '@/app/components/canvas-agent-chat/runtime-status';
 import { getSessionDisplayTitle, isAutomaticSessionTitle } from '@/app/lib/pi/session-titles';
 import { type CompactBreakMessage, isCompactBreakMessage, isComposioAuthRequiredMessage, type ComposioAuthRequiredMessage } from '@/app/lib/pi/custom-messages';
@@ -272,6 +273,7 @@ type AgentConfig = {
 type AgentProfile = {
   agentId: string;
   name: string;
+  iconId?: string;
   type: string;
   removable: boolean;
 };
@@ -4531,9 +4533,9 @@ export default function CanvasAgentChat({
   const activeAgentProfile = availableAgents.find((agent) => agent.agentId === activeSessionAgentId);
   const activeAgentDisplayName = activeAgentProfile?.name || getAgentDisplayName(activeSessionAgentId);
   const historyAgentOptions = useMemo(() => {
-    const byId = new Map<string, { agentId: string; name: string; count: number }>();
+    const byId = new Map<string, { agentId: string; name: string; iconId?: string; count: number }>();
     for (const agent of availableAgents) {
-      byId.set(agent.agentId, { agentId: agent.agentId, name: agent.name, count: 0 });
+      byId.set(agent.agentId, { agentId: agent.agentId, name: agent.name, iconId: agent.iconId, count: 0 });
     }
     for (const session of history) {
       const agentId = session.agentId || CHAT_AGENT_ID;
@@ -4541,6 +4543,7 @@ export default function CanvasAgentChat({
       byId.set(agentId, {
         agentId,
         name: existing?.name || getAgentDisplayName(agentId),
+        iconId: existing?.iconId,
         count: (existing?.count || 0) + 1,
       });
     }
@@ -4822,6 +4825,7 @@ export default function CanvasAgentChat({
                         className="inline-flex min-w-0 items-center gap-1.5 border border-border/60 bg-muted/50 px-2 py-0.5 text-[11px] font-medium text-foreground transition-colors hover:bg-accent"
                       >
                         <span className="text-[9px] uppercase tracking-[0.15em] text-muted-foreground">{t('agentLabel')}</span>
+                        <AgentIcon iconId={activeAgentProfile?.iconId} className="h-3 w-3 shrink-0 text-muted-foreground" />
                         <span className="min-w-0 max-w-[120px] truncate">{activeAgentDisplayName}</span>
                         <ChevronDown className="h-3 w-3 text-muted-foreground" />
                       </button>
@@ -4830,7 +4834,7 @@ export default function CanvasAgentChat({
                       <div className="px-2 py-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
                         {t('agentSelectTitle')}
                       </div>
-                      {(availableAgents.length > 0 ? availableAgents : [{ agentId: CHAT_AGENT_ID, name: 'Canvas Agent', type: 'main', removable: false }]).map((agent) => {
+                      {(availableAgents.length > 0 ? availableAgents : [{ agentId: CHAT_AGENT_ID, name: 'Canvas Agent', iconId: 'bot', type: 'main', removable: false }]).map((agent) => {
                         const selected = agent.agentId === activeSessionAgentId;
                         return (
                           <button
@@ -4841,7 +4845,8 @@ export default function CanvasAgentChat({
                               selected ? 'bg-primary/10 text-primary' : 'hover:bg-accent'
                             }`}
                           >
-                            <span className="min-w-0">
+                            <AgentAvatar iconId={agent.iconId} className="h-9 w-9" iconClassName="h-4 w-4" />
+                            <span className="min-w-0 flex-1">
                               <span className="block truncate font-medium">{agent.name}</span>
                               <span className="block truncate font-mono text-[10px] text-muted-foreground">{agent.agentId}</span>
                             </span>
@@ -5005,6 +5010,7 @@ export default function CanvasAgentChat({
                       className="inline-flex min-w-0 items-center gap-1 border border-border/60 bg-muted/40 px-1.5 py-0.5 text-[10px] text-foreground transition-colors hover:bg-accent"
                     >
                       <span className="text-[9px] uppercase tracking-[0.15em] text-muted-foreground">{t('agentLabel')}</span>
+                      <AgentIcon iconId={activeAgentProfile?.iconId} className="h-3 w-3 shrink-0 text-muted-foreground" />
                       <span className="min-w-0 truncate">{activeAgentDisplayName}</span>
                       <ChevronDown className="h-3 w-3 text-muted-foreground" />
                     </button>
@@ -5013,7 +5019,7 @@ export default function CanvasAgentChat({
                     <div className="px-2 py-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
                       {t('agentSelectTitle')}
                     </div>
-                    {(availableAgents.length > 0 ? availableAgents : [{ agentId: CHAT_AGENT_ID, name: 'Canvas Agent', type: 'main', removable: false }]).map((agent) => {
+                    {(availableAgents.length > 0 ? availableAgents : [{ agentId: CHAT_AGENT_ID, name: 'Canvas Agent', iconId: 'bot', type: 'main', removable: false }]).map((agent) => {
                       const selected = agent.agentId === activeSessionAgentId;
                       return (
                         <button
@@ -5024,7 +5030,8 @@ export default function CanvasAgentChat({
                             selected ? 'bg-primary/10 text-primary' : 'hover:bg-accent'
                           }`}
                         >
-                          <span className="min-w-0">
+                          <AgentAvatar iconId={agent.iconId} className="h-9 w-9" iconClassName="h-4 w-4" />
+                          <span className="min-w-0 flex-1">
                             <span className="block truncate font-medium">{agent.name}</span>
                             <span className="block truncate font-mono text-[10px] text-muted-foreground">{agent.agentId}</span>
                           </span>
@@ -5107,9 +5114,10 @@ export default function CanvasAgentChat({
                         historyAgentFilter === agent.agentId
                           ? 'border-primary/30 bg-primary/15 text-primary'
                           : 'border-border bg-muted/30 text-muted-foreground'
-                      }`}
-                      title={agent.agentId}
-                    >
+                    }`}
+                    title={agent.agentId}
+                  >
+                      <AgentIcon iconId={agent.iconId} className="mr-1 inline h-3 w-3 align-[-2px]" />
                       {agent.name}
                       {agent.count > 0 ? ` ${agent.count}` : ''}
                     </button>
@@ -5182,7 +5190,10 @@ export default function CanvasAgentChat({
                                 <div className="mt-1 flex flex-wrap gap-2 text-[10px] text-muted-foreground">
                                   <span>{new Date(session.createdAt).toLocaleString()}</span>
                                   <span>&bull;</span>
-                                  <span>{availableAgents.find((agent) => agent.agentId === (session.agentId || CHAT_AGENT_ID))?.name || getAgentDisplayName(session.agentId)}</span>
+                                  <span className="inline-flex min-w-0 items-center gap-1">
+                                    <AgentIcon iconId={availableAgents.find((agent) => agent.agentId === (session.agentId || CHAT_AGENT_ID))?.iconId} className="h-3 w-3 shrink-0" />
+                                    <span className="truncate">{availableAgents.find((agent) => agent.agentId === (session.agentId || CHAT_AGENT_ID))?.name || getAgentDisplayName(session.agentId)}</span>
+                                  </span>
                                   <span>&bull;</span>
                                   <span>{session.model}</span>
                                 </div>
@@ -5295,6 +5306,7 @@ export default function CanvasAgentChat({
                     }`}
                     title={agent.agentId}
                   >
+                    <AgentIcon iconId={agent.iconId} className="mr-1 inline h-3 w-3 align-[-2px]" />
                     {agent.name}
                     {agent.count > 0 ? ` ${agent.count}` : ''}
                   </button>
@@ -5375,7 +5387,10 @@ export default function CanvasAgentChat({
                               <div className="mt-1 flex flex-wrap gap-2 text-[10px] text-muted-foreground">
                                 <span>{new Date(session.createdAt).toLocaleString()}</span>
                                 <span>&bull;</span>
-                                <span>{availableAgents.find((agent) => agent.agentId === (session.agentId || CHAT_AGENT_ID))?.name || getAgentDisplayName(session.agentId)}</span>
+                                <span className="inline-flex min-w-0 items-center gap-1">
+                                  <AgentIcon iconId={availableAgents.find((agent) => agent.agentId === (session.agentId || CHAT_AGENT_ID))?.iconId} className="h-3 w-3 shrink-0" />
+                                  <span className="truncate">{availableAgents.find((agent) => agent.agentId === (session.agentId || CHAT_AGENT_ID))?.name || getAgentDisplayName(session.agentId)}</span>
+                                </span>
                                 <span>&bull;</span>
                                 <span>{session.model}</span>
                               </div>

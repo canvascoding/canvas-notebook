@@ -35,6 +35,7 @@ import { useLocale, useTranslations } from 'next-intl';
 import { toast } from 'sonner';
 
 import { WorkspaceDirectoryPickerDialog } from '@/app/apps/automationen/components/WorkspaceDirectoryPickerDialog';
+import { AgentAvatar, AgentIcon } from '@/app/components/agents/AgentAvatar';
 import { getEffectiveAutomationTargetOutputPath } from '@/app/lib/automations/paths';
 import type {
   AutomationJobRecord,
@@ -193,6 +194,7 @@ type AutomationsClientProps = {
 type AgentOption = {
   agentId: string;
   name: string;
+  iconId?: string;
   type: string;
   removable: boolean;
 };
@@ -708,7 +710,7 @@ export function AutomationsClient({ initialJobId = null }: AutomationsClientProp
   const enabledSkills = useMemo(() => skills.filter((skill) => skill.enabled !== false), [skills]);
   const agentOptions = agents.length > 0
     ? agents
-    : [{ agentId: DEFAULT_AGENT_ID, name: 'Canvas Agent', type: 'main', removable: false }];
+    : [{ agentId: DEFAULT_AGENT_ID, name: 'Canvas Agent', iconId: 'bot', type: 'main', removable: false }];
   const deliveryChannelOptions = useMemo(
     () => mergeDeliveryChannelOptions(deliveryChannels, [draft.deliveryChannelId, triggerDraft.deliveryChannelId, customWebhookDraft.deliveryChannelId]),
     [deliveryChannels, draft.deliveryChannelId, triggerDraft.deliveryChannelId, customWebhookDraft.deliveryChannelId],
@@ -1426,6 +1428,9 @@ export function AutomationsClient({ initialJobId = null }: AutomationsClientProp
         : draft;
     const isGerman = locale.startsWith('de');
     const selectedDeliveryChannel = getDeliveryChannelSelection(state);
+    const selectedAgent = agentOptions.find((agent) => agent.agentId === state.agentId)
+      || agentOptions.find((agent) => agent.agentId === DEFAULT_AGENT_ID)
+      || agentOptions[0];
     const updateState = (patch: Partial<JobDraft & TriggerComposerDraft & CustomWebhookDraft>) => {
       if (target === 'trigger') {
         setTriggerDraft((current) => ({ ...current, ...patch }));
@@ -1450,17 +1455,20 @@ export function AutomationsClient({ initialJobId = null }: AutomationsClientProp
             <Bot className="h-3.5 w-3.5" />
             {isGerman ? 'Agent' : 'Agent'}
           </span>
-          <select
-            className="h-10 rounded-md border border-input bg-background px-3 text-sm"
-            value={state.agentId}
-            onChange={(event) => updateState({ agentId: event.target.value })}
-          >
-            {agentOptions.map((agent) => (
-              <option key={agent.agentId} value={agent.agentId}>
-                {agent.name}{agent.removable ? '' : ' · System'}
-              </option>
-            ))}
-          </select>
+          <div className="flex h-10 items-center gap-2 rounded-md border border-input bg-background px-2">
+            <AgentAvatar iconId={selectedAgent?.iconId} className="h-6 w-6 rounded-sm border-0 bg-muted" iconClassName="h-3.5 w-3.5" />
+            <select
+              className="h-full min-w-0 flex-1 bg-transparent text-sm outline-none"
+              value={state.agentId}
+              onChange={(event) => updateState({ agentId: event.target.value })}
+            >
+              {agentOptions.map((agent) => (
+                <option key={agent.agentId} value={agent.agentId}>
+                  {agent.name}{agent.removable ? '' : ' · System'}
+                </option>
+              ))}
+            </select>
+          </div>
         </label>
         <label className="flex min-w-0 flex-col gap-1 text-sm">
           <span className="flex items-center gap-1 text-xs text-muted-foreground">
@@ -1725,7 +1733,10 @@ export function AutomationsClient({ initialJobId = null }: AutomationsClientProp
                     <span className="text-muted-foreground">{t('results.title')}</span>
                     <span className="min-w-0 max-w-[12rem] truncate text-right font-mono text-xs">{selectedJob.effectiveTargetOutputPath || t('output.none')}</span>
                     <span className="text-muted-foreground">{locale.startsWith('de') ? 'Agent' : 'Agent'}</span>
-                    <span className="min-w-0 max-w-[12rem] truncate text-right text-xs">{agentOptions.find((agent) => agent.agentId === selectedJob.agentId)?.name || selectedJob.agentId}</span>
+                    <span className="inline-flex min-w-0 max-w-[12rem] items-center justify-end gap-1 truncate text-right text-xs">
+                      <AgentIcon iconId={agentOptions.find((agent) => agent.agentId === selectedJob.agentId)?.iconId} className="h-3 w-3 shrink-0" />
+                      <span className="truncate">{agentOptions.find((agent) => agent.agentId === selectedJob.agentId)?.name || selectedJob.agentId}</span>
+                    </span>
                     <span className="text-muted-foreground">{locale.startsWith('de') ? 'Ziel' : 'Target'}</span>
                     <span className="min-w-0 max-w-[12rem] truncate text-right text-xs">{deliveryTargetSummary(selectedJob)}</span>
                   </div>

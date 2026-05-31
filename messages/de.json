@@ -1187,6 +1187,84 @@
           "delete": "Agent konnte nicht gelöscht werden."
         }
       },
+      "iconPicker": {
+        "title": "Agent-Icon auswählen",
+        "description": "Wähle ein Symbol, das diesen Agenten in Settings, Chat und Automationen wiedererkennbar macht.",
+        "close": "Schließen",
+        "icons": {
+          "bot": "Agent",
+          "sparkles": "Kreativ",
+          "search": "Recherche",
+          "code": "Code",
+          "palette": "Studio",
+          "briefcase": "Business",
+          "calendar": "Automation",
+          "messages": "Support",
+          "brain": "Strategie",
+          "wrench": "Tools",
+          "rocket": "Launch",
+          "shield": "Sicherheit"
+        }
+      },
+      "createDialog": {
+        "title": "Neuen Agenten anlegen",
+        "description": "Starte mit einem Template, personalisiere Icon, Skills und die wichtigsten Agent-Dateien.",
+        "changeIcon": "Icon ändern",
+        "nameLabel": "Name",
+        "namePlaceholder": "Agent-Name",
+        "cancel": "Abbrechen",
+        "create": "Agent erstellen",
+        "creating": "Agent wird erstellt...",
+        "templates": {
+          "custom": {
+            "name": "Custom Agent",
+            "description": "Freier Spezial-Agent ohne feste Rolle."
+          },
+          "research": {
+            "name": "Research Agent",
+            "description": "Sammelt Quellen, ordnet Kontext und fasst Ergebnisse zusammen."
+          },
+          "coding": {
+            "name": "Coding Agent",
+            "description": "Liest Code, setzt Änderungen um und prüft sie gezielt."
+          },
+          "marketing": {
+            "name": "Marketing Agent",
+            "description": "Hilft bei Kampagnen, Positionierung und Content."
+          },
+          "studio": {
+            "name": "Studio Agent",
+            "description": "Begleitet visuelle Produktion und Asset-Arbeit."
+          },
+          "automation": {
+            "name": "Automation Agent",
+            "description": "Plant wiederkehrende oder triggerbasierte Workflows."
+          },
+          "support": {
+            "name": "Support Agent",
+            "description": "Diagnostiziert Probleme und formuliert klare Lösungen."
+          }
+        },
+        "connections": {
+          "title": "Apps & MCP",
+          "description": "Verbundene Dienste können später agentenspezifisch priorisiert werden.",
+          "loading": "Lade Verbindungen...",
+          "empty": "Keine verbundenen Apps oder aktiven MCP-Server gefunden.",
+          "mcpDetail": "{count} gecachte Tools",
+          "composioDetail": "{count} Tools"
+        },
+        "skills": {
+          "title": "Relevante Skills",
+          "description": "Ausgewählte Skills werden dem Agenten im System Prompt priorisiert mitgegeben.",
+          "loading": "Lade Skills...",
+          "empty": "Keine aktivierten Skills gefunden.",
+          "noDescription": "Keine Beschreibung vorhanden."
+        },
+        "files": {
+          "title": "Agent-Dateien",
+          "description": "Lege die wichtigsten Setup-Dateien direkt beim Erstellen fest."
+        }
+      },
       "chatDisplay": {
         "title": "Chat-Anzeige",
         "description": "Lege fest, wie viel Hintergrundaktivität im Chat sichtbar ist.",
@@ -1376,7 +1454,10 @@
       },
       "sessions": {
         "title": "Sessions",
-        "description": "Chat-Historie verwalten.",
+        "description": "Chat-Historie des aktuell ausgewählten AI Agents verwalten.",
+        "activeAgentSummary": "Aktiver Agent: {agentName}",
+        "activeAgentLabel": "Aktiver AI Agent",
+        "agentIdLabel": "Agent-ID",
         "summary": "{count, plural, =0 {Keine Sessions} one {# Session} other {# Sessions}}",
         "errorSummary": "Fehler beim Laden",
         "newSessionPlaceholder": "Neue Session (Titel optional)",

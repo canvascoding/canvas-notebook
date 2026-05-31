@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useMemo } from 'react';
 import { ChevronDown, Loader2, RefreshCw, RotateCcw, Save } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 
@@ -57,6 +57,13 @@ type AgentManagedFilesCardProps = {
   onResetDialogOpenChange: (open: boolean) => void;
   onClearResetTarget: () => void;
   onResetFile: () => void;
+  variant?: 'card' | 'embedded';
+  visibleFileNames?: readonly ManagedFileName[];
+  showInheritedFiles?: boolean;
+  showFileActions?: boolean;
+  editorClassName?: string;
+  title?: string;
+  description?: string;
 };
 
 export function AgentManagedFilesCard({
@@ -79,10 +86,20 @@ export function AgentManagedFilesCard({
   onResetDialogOpenChange,
   onClearResetTarget,
   onResetFile,
+  variant = 'card',
+  visibleFileNames: visibleFileNamesOverride,
+  showInheritedFiles = true,
+  showFileActions = true,
+  editorClassName = 'h-[400px]',
+  title,
+  description,
 }: AgentManagedFilesCardProps) {
   const t = useTranslations('settings');
   const tCommon = useTranslations('common');
-  const visibleFileNames = getVisibleManagedFileNames(isMainAgent);
+  const visibleFileNames = useMemo(
+    () => [...(visibleFileNamesOverride || getVisibleManagedFileNames(isMainAgent))],
+    [isMainAgent, visibleFileNamesOverride],
+  );
 
   useEffect(() => {
     if (!visibleFileNames.includes(activeFile)) {
@@ -90,14 +107,15 @@ export function AgentManagedFilesCard({
     }
   }, [activeFile, onActiveFileChange, visibleFileNames]);
 
-  return (
+  const content = (
     <>
-      <Card id="onboarding-settings-managedFiles">
-        <CardHeader>
-          <CardTitle>{t('agentPanel.files.title')}</CardTitle>
-          <CardDescription>{t('agentPanel.files.description')}</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-3">
+      {variant === 'embedded' ? (
+        <div className="space-y-1">
+          <h3 className="text-base font-semibold">{title || t('agentPanel.files.title')}</h3>
+          <p className="text-sm text-muted-foreground">{description || t('agentPanel.files.description')}</p>
+        </div>
+      ) : null}
+
           {filesLoading || !files ? (
             <div className="flex items-center text-sm text-muted-foreground">
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -115,7 +133,7 @@ export function AgentManagedFilesCard({
                 </TabsList>
               </Tabs>
 
-              {!isMainAgent && (
+              {!isMainAgent && showInheritedFiles && (
                 <div className="grid gap-2 md:grid-cols-2">
                   {SPECIAL_AGENT_INHERITED_FILES.map((fileName) => (
                     <div key={fileName} className="rounded-md border bg-muted/30 p-3 text-xs">
@@ -135,7 +153,7 @@ export function AgentManagedFilesCard({
 
               <div
                 data-testid="agent-managed-file-editor"
-                className="h-[400px] overflow-hidden rounded-md border border-input"
+                className={`${editorClassName} overflow-hidden rounded-md border border-input`}
               >
                 <MarkdownEditor
                   value={fileDrafts[activeFile] ?? ''}
@@ -146,39 +164,60 @@ export function AgentManagedFilesCard({
               {filesError && <p className="text-sm text-destructive">{filesError}</p>}
               {filesSuccess && <p className="text-sm text-primary">{filesSuccess}</p>}
 
-              <div className="flex flex-wrap gap-2">
-                <Button data-testid="agent-managed-file-save" onClick={onSaveActiveFile} disabled={filesSaving || filesResetting}>
-                  {filesSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
-                  {t('agentPanel.files.save')}
-                </Button>
-                <Button variant="outline" onClick={onReloadFiles} disabled={filesLoading || filesSaving || filesResetting}>
-                  <RefreshCw className="mr-2 h-4 w-4" />
-                  {t('agentPanel.files.reload')}
-                </Button>
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button variant="outline" disabled={filesLoading || filesSaving || filesResetting}>
-                      {filesResetting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RotateCcw className="mr-2 h-4 w-4" />}
-                      {t('agentPanel.files.reset')}
-                      <ChevronDown className="ml-2 h-4 w-4" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="start">
-                    <DropdownMenuItem onClick={() => onOpenResetDialog('current')}>
-                      {t('agentPanel.files.resetCurrentFile')}
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => onOpenResetDialog('all')}>
-                      {t('agentPanel.files.resetAllFiles')}
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              </div>
+              {showFileActions && (
+                <div className="flex flex-wrap gap-2">
+                  <Button data-testid="agent-managed-file-save" onClick={onSaveActiveFile} disabled={filesSaving || filesResetting}>
+                    {filesSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+                    {t('agentPanel.files.save')}
+                  </Button>
+                  <Button variant="outline" onClick={onReloadFiles} disabled={filesLoading || filesSaving || filesResetting}>
+                    <RefreshCw className="mr-2 h-4 w-4" />
+                    {t('agentPanel.files.reload')}
+                  </Button>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="outline" disabled={filesLoading || filesSaving || filesResetting}>
+                        {filesResetting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RotateCcw className="mr-2 h-4 w-4" />}
+                        {t('agentPanel.files.reset')}
+                        <ChevronDown className="ml-2 h-4 w-4" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="start">
+                      <DropdownMenuItem onClick={() => onOpenResetDialog('current')}>
+                        {t('agentPanel.files.resetCurrentFile')}
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => onOpenResetDialog('all')}>
+                        {t('agentPanel.files.resetAllFiles')}
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
+              )}
             </>
           )}
+    </>
+  );
+
+  return (
+    <>
+      {variant === 'embedded' ? (
+        <div id="onboarding-settings-managedFiles" className="space-y-3">
+          {content}
+        </div>
+      ) : (
+        <Card id="onboarding-settings-managedFiles">
+          <CardHeader>
+            <CardTitle>{title || t('agentPanel.files.title')}</CardTitle>
+            <CardDescription>{description || t('agentPanel.files.description')}</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {content}
         </CardContent>
       </Card>
+      )}
 
-      <AlertDialog open={resetDialogOpen} onOpenChange={onResetDialogOpenChange}>
+      {showFileActions && (
+        <AlertDialog open={resetDialogOpen} onOpenChange={onResetDialogOpenChange}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
@@ -197,7 +236,8 @@ export function AgentManagedFilesCard({
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
-      </AlertDialog>
+        </AlertDialog>
+      )}
     </>
   );
 }

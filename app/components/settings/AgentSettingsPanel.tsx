@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState, startTransition } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, startTransition } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 
@@ -22,6 +22,7 @@ import { AgentManagedFilesCard, getVisibleManagedFileNames, type ManagedFileName
 import { AgentToolsCard, type ToolMetadata } from './AgentToolsCard';
 import { AgentChatDisplayCard } from './AgentChatDisplayCard';
 import { AgentSelectorCard, type AgentProfileItem } from './AgentSelectorCard';
+import type { CreateAgentInput } from './CreateAgentDialog';
 import {
   AgentHeartbeatCard,
   type AgentHeartbeatConfig,
@@ -51,6 +52,7 @@ type AgentSettingsSectionId = 'runtime' | 'chatDisplay' | 'tools' | 'heartbeat' 
 type AgentSettingsSectionOpenState = Record<AgentSettingsSectionId, boolean>;
 
 const AGENT_SETTINGS_SECTION_OPEN_STORAGE_KEY = 'canvas-settings-agent-section-open-state';
+const SHOW_AGENT_DOCTOR_SECTION = false;
 const DEFAULT_AGENT_SETTINGS_SECTION_OPEN_STATE: AgentSettingsSectionOpenState = {
   runtime: false,
   chatDisplay: false,
@@ -63,7 +65,7 @@ const DEFAULT_AGENT_SETTINGS_SECTION_OPEN_STATE: AgentSettingsSectionOpenState =
 function getInitialAgentSectionOpenState(requestedPanel: string | null): AgentSettingsSectionOpenState {
   const fallback = {
     ...DEFAULT_AGENT_SETTINGS_SECTION_OPEN_STATE,
-    doctor: requestedPanel === 'doctor',
+    doctor: SHOW_AGENT_DOCTOR_SECTION && requestedPanel === 'doctor',
   };
 
   if (typeof window === 'undefined') return fallback;
@@ -76,7 +78,9 @@ function getInitialAgentSectionOpenState(requestedPanel: string | null): AgentSe
       tools: typeof storedState.tools === 'boolean' ? storedState.tools : fallback.tools,
       heartbeat: typeof storedState.heartbeat === 'boolean' ? storedState.heartbeat : fallback.heartbeat,
       sessions: typeof storedState.sessions === 'boolean' ? storedState.sessions : fallback.sessions,
-      doctor: requestedPanel === 'doctor' || (typeof storedState.doctor === 'boolean' ? storedState.doctor : fallback.doctor),
+      doctor: SHOW_AGENT_DOCTOR_SECTION
+        ? requestedPanel === 'doctor' || (typeof storedState.doctor === 'boolean' ? storedState.doctor : fallback.doctor)
+        : false,
     };
   } catch {
     return fallback;
@@ -224,7 +228,6 @@ export function AgentSettingsPanel() {
   const [agentsLoading, setAgentsLoading] = useState(true);
   const [agentsError, setAgentsError] = useState<string | null>(null);
   const [selectedAgentId, setSelectedAgentId] = useState(DEFAULT_AGENT_ID);
-  const [createAgentName, setCreateAgentName] = useState('');
   const [agentCreating, setAgentCreating] = useState(false);
   const [agentDeletingId, setAgentDeletingId] = useState<string | null>(null);
 
@@ -263,6 +266,7 @@ export function AgentSettingsPanel() {
   const [createTitle, setCreateTitle] = useState('');
   const [sessionPendingId, setSessionPendingId] = useState<string | null>(null);
   const [renameDrafts, setRenameDrafts] = useState<Record<string, string>>({});
+  const sessionsRequestSeqRef = useRef(0);
 
   const [availableTools, setAvailableTools] = useState<ToolMetadata[]>([]);
   const [openToolRows, setOpenToolRows] = useState<Record<string, boolean>>({});
@@ -283,6 +287,7 @@ export function AgentSettingsPanel() {
   const [heartbeatSuccess, setHeartbeatSuccess] = useState<string | null>(null);
 
   const resetAgentScopedState = useCallback(() => {
+    sessionsRequestSeqRef.current += 1;
     setDoctorResult(null);
     setDoctorError(null);
     setFiles(null);
@@ -294,6 +299,10 @@ export function AgentSettingsPanel() {
     setResetTarget(null);
     setHeartbeatResetDialogOpen(false);
     setSessions([]);
+    setSessionsLoading(true);
+    setSessionError(null);
+    setCreateTitle('');
+    setSessionPendingId(null);
     setRenameDrafts({});
     setToolsPiConfig(null);
     setOpenToolRows({});
@@ -357,9 +366,9 @@ export function AgentSettingsPanel() {
     }
   }, [selectedAgentId, t]);
 
-  const createAgent = async () => {
-    const name = createAgentName.trim();
-    if (!name) return;
+  const createAgent = async (input: CreateAgentInput): Promise<boolean> => {
+    const name = input.name.trim();
+    if (!name) return false;
 
     setAgentCreating(true);
     setAgentsError(null);
@@ -368,13 +377,19 @@ export function AgentSettingsPanel() {
       const payload = await fetchJson<{ agent: AgentProfileItem }>('/api/agents', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name }),
+        body: JSON.stringify({
+          name,
+          iconId: input.iconId,
+          files: input.files,
+          relevantSkills: input.relevantSkills,
+        }),
       });
-      setCreateAgentName('');
       await loadAgents();
       selectAgent(payload.agent.agentId);
+      return true;
     } catch (error) {
       setAgentsError(error instanceof Error ? error.message : t('agentPanel.selector.errors.create'));
+      return false;
     } finally {
       setAgentCreating(false);
     }
@@ -411,11 +426,15 @@ export function AgentSettingsPanel() {
   };
 
   const loadSessions = useCallback(async () => {
+    const requestSeq = sessionsRequestSeqRef.current + 1;
+    sessionsRequestSeqRef.current = requestSeq;
+    const agentId = selectedAgentId;
+
     setSessionsLoading(true);
     setSessionError(null);
 
     try {
-      const params = new URLSearchParams({ agentId: selectedAgentId });
+      const params = new URLSearchParams({ agentId });
       const payload = await fetch(`/api/sessions?${params.toString()}`, {
         credentials: 'include',
         cache: 'no-store',
@@ -431,14 +450,18 @@ export function AgentSettingsPanel() {
       }
 
       const nextSessions = body.sessions || [];
+      if (sessionsRequestSeqRef.current !== requestSeq) return;
       setSessions(nextSessions);
       setRenameDrafts(
         Object.fromEntries(nextSessions.map((item) => [item.sessionId, item.title || ''])) as Record<string, string>,
       );
     } catch (error) {
+      if (sessionsRequestSeqRef.current !== requestSeq) return;
       setSessionError(error instanceof Error ? error.message : t('agentPanel.sessions.errors.load'));
     } finally {
-      setSessionsLoading(false);
+      if (sessionsRequestSeqRef.current === requestSeq) {
+        setSessionsLoading(false);
+      }
     }
   }, [selectedAgentId, t]);
 
@@ -569,7 +592,7 @@ export function AgentSettingsPanel() {
   }, [loadFiles, loadSessions, loadTools, loadToolsConfig, loadHeartbeatConfig]);
 
   useEffect(() => {
-    if (searchParams.get('panel') === 'doctor' && !doctorResult && !doctorRunning) {
+    if (SHOW_AGENT_DOCTOR_SECTION && searchParams.get('panel') === 'doctor' && !doctorResult && !doctorRunning) {
       startTransition(() => { void runDoctor(); });
     }
   }, [searchParams, doctorResult, doctorRunning, runDoctor]);
@@ -1049,12 +1072,10 @@ export function AgentSettingsPanel() {
         selectedAgentId={selectedAgentId}
         loading={agentsLoading}
         error={agentsError}
-        createName={createAgentName}
         creating={agentCreating}
         deletingAgentId={agentDeletingId}
         onSelectedAgentIdChange={selectAgent}
-        onCreateNameChange={setCreateAgentName}
-        onCreate={() => void createAgent()}
+        onCreate={createAgent}
         onDelete={(agentId) => void deleteAgent(agentId)}
         onReload={() => void loadAgents()}
       />
@@ -1223,6 +1244,8 @@ export function AgentSettingsPanel() {
       />
 
       <AgentSessionsCard
+        activeAgentId={selectedAgentId}
+        activeAgentName={selectedAgent?.name || selectedAgentId}
         sessions={sessions}
         sessionsLoading={sessionsLoading}
         sessionError={sessionError}
@@ -1245,14 +1268,16 @@ export function AgentSettingsPanel() {
         onDeleteOlderSessions={() => void deleteOlderSessions()}
       />
 
-      <AgentDoctorCard
-        doctorResult={doctorResult}
-        doctorRunning={doctorRunning}
-        doctorError={doctorError}
-        isOpen={agentSectionOpenById.doctor}
-        onOpenChange={(isOpen) => setAgentSectionOpen('doctor', isOpen)}
-        onRunDoctor={() => void runDoctor()}
-      />
+      {SHOW_AGENT_DOCTOR_SECTION && (
+        <AgentDoctorCard
+          doctorResult={doctorResult}
+          doctorRunning={doctorRunning}
+          doctorError={doctorError}
+          isOpen={agentSectionOpenById.doctor}
+          onOpenChange={(isOpen) => setAgentSectionOpen('doctor', isOpen)}
+          onRunDoctor={() => void runDoctor()}
+        />
+      )}
     </div>
   );
 }
