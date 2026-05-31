@@ -184,6 +184,23 @@ function asCommandExecutionError(error: unknown): CommandExecutionError {
   return error instanceof Error ? (error as CommandExecutionError) : new Error(String(error));
 }
 
+function throwIfAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) {
+    throw new Error('Tool execution aborted.');
+  }
+}
+
+function isAbortError(error: unknown, signal?: AbortSignal): boolean {
+  return Boolean(
+    signal?.aborted ||
+    (error instanceof Error && (
+      error.name === 'AbortError' ||
+      error.name === 'TimeoutError' ||
+      error.message.toLowerCase().includes('aborted')
+    )),
+  );
+}
+
 function clampMaxResults(value: unknown, fallback: number, max: number): number {
   if (typeof value !== 'number' || !Number.isFinite(value)) {
     return fallback;
@@ -817,7 +834,8 @@ interface WebFetchResult {
 async function fetchWebContent(
   urls: string[],
   timeoutPerUrl: number = 15,
-  maxContentLength: number = 10000
+  maxContentLength: number = 10000,
+  signal?: AbortSignal,
 ): Promise<WebFetchResult[]> {
   const results: WebFetchResult[] = [];
   const turndownService = new TurndownService({
@@ -827,6 +845,7 @@ async function fetchWebContent(
   turndownService.use(gfm);
 
   for (const url of urls) {
+    throwIfAborted(signal);
     const fetchTime = new Date().toISOString();
     
     try {
@@ -844,18 +863,16 @@ async function fetchWebContent(
         continue;
       }
 
-      // Fetch with timeout
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), timeoutPerUrl * 1000);
+      const timeoutSignal = AbortSignal.timeout(timeoutPerUrl * 1000);
+      const requestSignal = signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal;
       
       const response = await fetch(validatedUrl.toString(), {
-        signal: controller.signal,
+        signal: requestSignal,
         headers: {
           'User-Agent': 'Mozilla/5.0 (compatible; Canvas-Notebook/1.0)',
           'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
         },
       });
-      clearTimeout(timeoutId);
 
       if (!response.ok) {
         results.push({
@@ -932,6 +949,10 @@ async function fetchWebContent(
       });
 
     } catch (error: unknown) {
+      if (signal?.aborted) {
+        throw new Error('Tool execution aborted.');
+      }
+
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       
       // Check if it's a timeout
@@ -1022,8 +1043,9 @@ export function createWebFetchTool(): AgentTool {
         })
       ),
     }),
-    execute: async (toolCallId, params) => {
+    execute: async (toolCallId, params, signal) => {
       try {
+        throwIfAborted(signal);
         const { urls, timeout = 15, max_content_length = 10000 } = params as {
           urls: string[];
           timeout?: number;
@@ -1046,7 +1068,7 @@ export function createWebFetchTool(): AgentTool {
         }
 
         // Process URLs sequentially
-        const results = await fetchWebContent(urls, timeout, max_content_length);
+        const results = await fetchWebContent(urls, timeout, max_content_length, signal);
         const markdown = formatWebFetchResults(results);
         
         return {
@@ -1078,7 +1100,7 @@ export function createRipgrepTool(): AgentTool {
       hidden: Type.Optional(Type.Boolean({ description: 'Include hidden files when true.' })),
       maxResults: Type.Optional(Type.Number({ description: 'Maximum matches per file. Default: 50 (max 200).' })),
     }),
-    execute: async (toolCallId, params) => {
+    execute: async (toolCallId, params, signal) => {
       const {
         pattern,
         path: searchPath,
@@ -1096,6 +1118,7 @@ export function createRipgrepTool(): AgentTool {
       };
 
       try {
+        throwIfAborted(signal);
         const targetPath = resolveAgentPath(searchPath || '.');
         await assertAgentPathAllowed(targetPath);
         const args = ['-n', '--color', 'never', '--no-heading'];
@@ -1112,7 +1135,7 @@ export function createRipgrepTool(): AgentTool {
         args.push(pattern, targetPath);
 
         const { stdout, stderr } = await new Promise<{ stdout: string; stderr: string }>((resolve, reject) => {
-          execFile('rg', args, { cwd: '/' }, (err, commandStdout, commandStderr) => {
+          execFile('rg', args, { cwd: '/', signal }, (err, commandStdout, commandStderr) => {
             const errCode = (err as NodeJS.ErrnoException & { code?: number })?.code;
             if (errCode === 1) {
               resolve({ stdout: '', stderr: '' });
@@ -1132,6 +1155,12 @@ export function createRipgrepTool(): AgentTool {
           details: { args, stdout, stderr, matches },
         };
       } catch (error: unknown) {
+        if (isAbortError(error, signal)) {
+          return {
+            content: [{ type: 'text', text: 'Error: Tool execution aborted.' }],
+            details: { error: 'Tool execution aborted.' },
+          };
+        }
         const execError = asCommandExecutionError(error);
         const message = [execError.stderr, execError.message].filter(Boolean).join('\n') || getErrorMessage(error);
         return {
@@ -1394,13 +1423,15 @@ export const piTools: AgentTool[] = [
     parameters: Type.Object({
       command: Type.String({ description: 'The command to execute.' }),
     }),
-    execute: async (toolCallId, params) => {
+    execute: async (toolCallId, params, signal) => {
       const { command } = params as { command: string };
       try {
+        throwIfAborted(signal);
         assertBashCommandAllowed(command);
         const { stdout, stderr } = await execAsync(command, {
           cwd: '/',
           env: filterSafeEnv(process.env) as NodeJS.ProcessEnv,
+          signal,
         });
         const output = [stdout, stderr].filter(Boolean).join('\n');
         return {
@@ -1408,6 +1439,12 @@ export const piTools: AgentTool[] = [
           details: { stdout, stderr },
         };
       } catch (error: unknown) {
+        if (isAbortError(error, signal)) {
+          return {
+            content: [{ type: 'text', text: 'Error: Tool execution aborted.' }],
+            details: { error: 'Tool execution aborted.' },
+          };
+        }
         const execError = asCommandExecutionError(error);
         const output = [execError.stdout, execError.stderr, execError.message].filter(Boolean).join('\n');
         return {
@@ -1425,14 +1462,15 @@ export const piTools: AgentTool[] = [
       pattern: Type.String({ description: 'The regex pattern to search for.' }),
       path: Type.Optional(Type.String({ description: 'The directory or file to search in. Absolute or workspace-relative. Defaults to /data/workspace.' })),
     }),
-    execute: async (toolCallId, params) => {
+    execute: async (toolCallId, params, signal) => {
       const { pattern, path: searchPath } = params as { pattern: string; path?: string };
       try {
+        throwIfAborted(signal);
         const targetPath = resolveAgentPath(searchPath || '.');
         await assertAgentPathAllowed(targetPath);
         // Use execFile to avoid shell injection via pattern or path
         const { stdout, stderr } = await new Promise<{ stdout: string; stderr: string }>((resolve, reject) => {
-          execFile('rg', ['-n', pattern, targetPath], { cwd: '/' }, (err, stdout, stderr) => {
+          execFile('rg', ['-n', pattern, targetPath], { cwd: '/', signal }, (err, stdout, stderr) => {
             if (err && (err as NodeJS.ErrnoException & { code?: number }).code === 1) {
               resolve({ stdout: '', stderr: '' }); // no matches
             } else if (err) {
@@ -1448,6 +1486,12 @@ export const piTools: AgentTool[] = [
           details: { stdout, stderr },
         };
       } catch (error: unknown) {
+        if (isAbortError(error, signal)) {
+          return {
+            content: [{ type: 'text', text: 'Error: Tool execution aborted.' }],
+            details: { error: 'Tool execution aborted.' },
+          };
+        }
         const message = getErrorMessage(error);
         return {
           content: [{ type: 'text', text: `Error: ${message}` }],
@@ -1464,14 +1508,15 @@ export const piTools: AgentTool[] = [
       pattern: Type.String({ description: 'The glob pattern (e.g., "**/*.ts").' }),
       path: Type.Optional(Type.String({ description: 'The directory to search in. Absolute or workspace-relative. Defaults to /data/workspace.' })),
     }),
-    execute: async (toolCallId, params) => {
+    execute: async (toolCallId, params, signal) => {
       const { pattern, path: searchPath } = params as { pattern: string; path?: string };
       try {
+        throwIfAborted(signal);
         const searchRoot = resolveAgentPath(searchPath || '.');
         await assertAgentPathAllowed(searchRoot);
         // Use execFile with argument array to avoid shell injection via pattern
         const { stdout, stderr } = await new Promise<{ stdout: string; stderr: string }>((resolve, reject) => {
-          execFile('rg', ['--files', '-g', pattern, searchRoot], { cwd: '/' }, (err, stdout, stderr) => {
+          execFile('rg', ['--files', '-g', pattern, searchRoot], { cwd: '/', signal }, (err, stdout, stderr) => {
             const errCode = (err as NodeJS.ErrnoException & { code?: number })?.code;
             if (errCode === 1) {
               resolve({ stdout: '', stderr: '' });
@@ -1487,6 +1532,12 @@ export const piTools: AgentTool[] = [
           details: { stdout, stderr },
         };
       } catch (error: unknown) {
+        if (isAbortError(error, signal)) {
+          return {
+            content: [{ type: 'text', text: 'Error: Tool execution aborted.' }],
+            details: { error: 'Tool execution aborted.' },
+          };
+        }
         const message = getErrorMessage(error);
         return {
           content: [{ type: 'text', text: `Error: ${message}` }],

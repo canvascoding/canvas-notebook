@@ -111,9 +111,6 @@ async function sendChannelTypingIndicator(sessionId: string, userId: string, eve
   }
 }
 
-// Track which sessions are subscribed
-const subscribedSessions = new Map<string, Set<string>>(); // sessionId -> Set of userIds
-
 /**
  * Initialize WebSocket event listener for PI Runtime events
  */
@@ -228,36 +225,4 @@ export function initializeWebSocketBridge(): void {
   });
 
   console.log('[WebSocket Bridge] Event bridge initialized');
-}
-
-/**
- * Subscribe to PI Runtime events for a session
- */
-export async function subscribeToPiRuntimeEvents(sessionId: string, userId: string): Promise<void> {
-  console.log(`[WebSocket Bridge] Subscription requested for session ${sessionId}, user ${userId}`);
-
-  if (!subscribedSessions.has(sessionId)) {
-    subscribedSessions.set(sessionId, new Set());
-  }
-
-  subscribedSessions.get(sessionId)!.add(userId);
-
-  console.log(`[WebSocket Bridge] Active subscribers for session ${sessionId}:`, subscribedSessions.get(sessionId)!.size);
-}
-
-/**
- * Unsubscribe from PI Runtime events
- */
-export function unsubscribeFromPiRuntimeEvents(sessionId: string, userId: string): void {
-  const subscribers = subscribedSessions.get(sessionId);
-
-  if (subscribers) {
-    subscribers.delete(userId);
-
-    if (subscribers.size === 0) {
-      subscribedSessions.delete(sessionId);
-    }
-
-    console.log(`[WebSocket Bridge] Unsubscribed user ${userId} from session ${sessionId}`);
-  }
 }
