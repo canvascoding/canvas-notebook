@@ -91,12 +91,12 @@ function ToastMarkdown({ content }: { content: string }) {
     code: ({ children, className, ...props }: { children?: React.ReactNode; className?: string } & React.HTMLAttributes<HTMLElement>) => {
       const isBlock = className?.includes('language-');
       if (isBlock) {
-        return <code className="rounded bg-muted px-1 py-0.5 text-xs font-mono" {...props}>{children}</code>;
+        return <code className="break-all rounded bg-muted px-1 py-0.5 text-xs font-mono whitespace-normal" {...props}>{children}</code>;
       }
-      return <code className="rounded bg-muted px-0.5 text-xs font-mono" {...props}>{children}</code>;
+      return <code className="break-all rounded bg-muted px-0.5 text-xs font-mono whitespace-normal" {...props}>{children}</code>;
     },
     pre: ({ children }: { children?: React.ReactNode }) => <span>{children}</span>,
-    a: ({ children }: { children?: React.ReactNode }) => <span className="underline">{children}</span>,
+    a: ({ children }: { children?: React.ReactNode }) => <span className="break-all underline">{children}</span>,
     img: ({ alt }: { alt?: string }) => alt ? <span>{alt}</span> : null,
     table: () => null,
     ul: ({ children }: { children?: React.ReactNode }) => <span>{children}</span>,
@@ -107,7 +107,7 @@ function ToastMarkdown({ content }: { content: string }) {
   };
 
   return (
-    <div className="line-clamp-3 overflow-hidden break-words [&>*:first-child]:inline">
+    <div className="line-clamp-3 min-w-0 max-w-full overflow-hidden break-words [overflow-wrap:anywhere] [&>*:first-child]:inline">
       <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
         {content}
       </ReactMarkdown>
