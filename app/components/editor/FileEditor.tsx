@@ -156,6 +156,11 @@ function shouldShowDocumentLoadingSkeleton(path: string | null) {
   return extension === '' || TEXT_EXTENSIONS.has(extension) || DOCUMENT_SKELETON_EXTENSIONS.has(extension);
 }
 
+function shouldShowImageLoadingSkeleton(path: string | null) {
+  if (!path) return false;
+  return IMAGE_EXTENSIONS.has(getExtension(path));
+}
+
 function FileLoadingSkeleton({ path }: { path: string | null }) {
   const t = useTranslations('notebook');
   const fileName = path?.split('/').filter(Boolean).pop() || t('loadingPreview');
@@ -203,6 +208,43 @@ function FileLoadingSkeleton({ path }: { path: string | null }) {
             <Skeleton className="h-16" />
           </div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function ImageLoadingSkeleton({ path }: { path: string | null }) {
+  const t = useTranslations('notebook');
+  const fileName = path?.split('/').filter(Boolean).pop() || t('loadingPreview');
+
+  return (
+    <div data-testid="image-loading-skeleton" className="flex h-full min-h-0 flex-col bg-background">
+      <div className="flex h-11 shrink-0 items-center justify-between gap-3 border-b border-border px-3 py-2 sm:px-4">
+        <div className="flex min-w-0 items-center gap-2">
+          <Skeleton className="h-4 w-10 shrink-0" />
+          <div className="min-w-0">
+            <div className="truncate text-xs font-medium text-foreground">{fileName}</div>
+            <div className="mt-1 text-[11px] text-muted-foreground">{t('loadingPreview')}</div>
+          </div>
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          <Skeleton className="h-6 w-16" />
+          <Skeleton className="h-6 w-6" />
+        </div>
+      </div>
+      <div className="relative min-h-0 flex-1 overflow-hidden bg-background p-4">
+        <div className="flex h-full items-center justify-center">
+          <div className="relative flex h-full w-full max-w-5xl items-center justify-center">
+            <Skeleton className="h-full max-h-[620px] min-h-40 w-full rounded-lg" />
+            <div className="pointer-events-none absolute inset-x-4 bottom-4 flex justify-center gap-2">
+              <Skeleton className="h-2 w-16 rounded-full bg-background/70" />
+              <Skeleton className="h-2 w-10 rounded-full bg-background/70" />
+              <Skeleton className="h-2 w-14 rounded-full bg-background/70" />
+            </div>
+          </div>
+        </div>
+        <Skeleton className="absolute left-3 top-1/2 h-10 w-10 -translate-y-1/2 rounded-full" />
+        <Skeleton className="absolute right-3 top-1/2 h-10 w-10 -translate-y-1/2 rounded-full" />
       </div>
     </div>
   );
@@ -452,6 +494,10 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
 
   if (isLoadingFile) {
     const pendingPath = loadingFilePath ?? currentFile?.path ?? null;
+    if (shouldShowImageLoadingSkeleton(pendingPath)) {
+      return <ImageLoadingSkeleton path={pendingPath} />;
+    }
+
     if (shouldShowDocumentLoadingSkeleton(pendingPath)) {
       return <FileLoadingSkeleton path={pendingPath} />;
     }

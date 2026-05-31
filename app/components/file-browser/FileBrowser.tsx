@@ -209,6 +209,7 @@ export function FileBrowser({ variant = 'default', onFileSelect }: FileBrowserPr
 
   const handleOpenFile = useCallback((path: string) => {
     if (isFullscreen) {
+      void useFileStore.getState().loadFile(path, true);
       setActiveFilePath(path);
     } else {
       void useFileStore.getState().loadFile(path, true);
