@@ -775,7 +775,7 @@ class LivePiRuntime {
     });
   }
 
-  onAgentEvent(event: AgentEvent) {
+  async onAgentEvent(event: AgentEvent) {
     this.touch();
 
     if (event.type === 'message_start' && isUserMessage(event.message)) {
@@ -796,11 +796,11 @@ class LivePiRuntime {
     }
 
     if (event.type === 'turn_end') {
-      void this.handleTurnEnd();
+      await this.handleTurnEnd();
     }
 
     if (event.type === 'agent_end') {
-      void this.handleAgentEnd();
+      await this.handleAgentEnd();
     }
 
     if (event.type !== 'agent_end') {
@@ -1121,7 +1121,7 @@ async function createRuntime(sessionId: string, userId: string): Promise<LivePiR
   runtimeRef.current = runtime;
 
   const unsubscribe = agent.subscribe(async (event) => {
-    runtime.onAgentEvent(event);
+    await runtime.onAgentEvent(event);
   });
   runtime.agentUnsubscribe = unsubscribe;
 
