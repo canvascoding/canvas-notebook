@@ -24,6 +24,10 @@ import {
   getMigrationDataRoot,
   getMigrationExportsRoot,
 } from '@/app/lib/migration/paths';
+import {
+  getSelectedMigrationComponentPaths,
+  resolveMigrationDataPath,
+} from '@/app/lib/migration/component-paths';
 
 const EXPORT_STATUS_FILE = 'status.json';
 const SQLITE_FILE_NAME = 'sqlite.db';
@@ -63,40 +67,6 @@ async function readJobStatus(exportId: string): Promise<MigrationExportJob | nul
   } catch {
     return null;
   }
-}
-
-function getComponentRoots(dataRoot: string, components: MigrationComponents): Array<{
-  component: MigrationComponentKey;
-  sourcePath: string;
-  archiveRoot: string;
-}> {
-  const roots: Array<{ component: MigrationComponentKey; sourcePath: string; archiveRoot: string }> = [];
-
-  if (components.workspace) {
-    roots.push({ component: 'workspace', sourcePath: path.join(dataRoot, 'workspace'), archiveRoot: 'data/workspace' });
-  }
-  if (components.studioAssets) {
-    roots.push({ component: 'studioAssets', sourcePath: path.join(dataRoot, 'studio', 'assets'), archiveRoot: 'data/studio/assets' });
-  }
-  if (components.studioOutputs) {
-    roots.push({ component: 'studioOutputs', sourcePath: path.join(dataRoot, 'studio', 'outputs'), archiveRoot: 'data/studio/outputs' });
-    roots.push({ component: 'studioOutputs', sourcePath: path.join(dataRoot, 'studio', 'edits'), archiveRoot: 'data/studio/edits' });
-  }
-  if (components.userUploads) {
-    roots.push({ component: 'userUploads', sourcePath: path.join(dataRoot, 'user-uploads'), archiveRoot: 'data/user-uploads' });
-  }
-  if (components.agents) {
-    roots.push({ component: 'agents', sourcePath: path.join(dataRoot, 'agents'), archiveRoot: 'data/agents' });
-    roots.push({ component: 'agents', sourcePath: path.join(dataRoot, 'canvas-agent'), archiveRoot: 'data/canvas-agent' });
-  }
-  if (components.skills) {
-    roots.push({ component: 'skills', sourcePath: path.join(dataRoot, 'skills'), archiveRoot: 'data/skills' });
-  }
-  if (components.secrets) {
-    roots.push({ component: 'secrets', sourcePath: path.join(dataRoot, 'secrets'), archiveRoot: 'data/secrets' });
-  }
-
-  return roots;
 }
 
 function shouldSkipPath(filePath: string): boolean {
@@ -284,7 +254,13 @@ async function runExport(job: MigrationExportJob): Promise<void> {
       files.push(sqliteSnapshot.entry);
     }
 
-    for (const root of getComponentRoots(dataRoot, job.components)) {
+    const componentRoots = getSelectedMigrationComponentPaths(job.components).map((mapping) => ({
+      component: mapping.component,
+      sourcePath: resolveMigrationDataPath(dataRoot, mapping),
+      archiveRoot: mapping.archiveRoot,
+    }));
+
+    for (const root of componentRoots) {
       job.phase = `Scanning ${root.component}`;
       await persist(true);
       files.push(...await collectFiles(root.component, root.sourcePath, root.archiveRoot));
@@ -316,7 +292,7 @@ async function runExport(job: MigrationExportJob): Promise<void> {
       filePathByArchivePath.set(sqliteSnapshot.entry.archivePath, sqliteSnapshot.filePath);
     }
 
-    for (const root of getComponentRoots(dataRoot, job.components)) {
+    for (const root of componentRoots) {
       for (const entry of files.filter((item) => item.component === root.component)) {
         const relative = path.posix.relative(root.archiveRoot, entry.archivePath);
         filePathByArchivePath.set(entry.archivePath, path.join(root.sourcePath, relative));
