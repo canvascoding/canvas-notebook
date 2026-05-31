@@ -10,6 +10,7 @@ import { cn } from '@/lib/utils';
 
 
 import { AppLauncher } from '@/app/components/AppLauncher';
+import { NotificationBell } from '@/app/components/notifications/NotificationBell';
 import { ThemeToggle } from '@/app/components/ThemeToggle';
 import { HintProvider } from '@/app/components/onboarding/HintProvider';
 
@@ -82,6 +83,7 @@ export function SuitePageLayout({
             </div>
 
             <div className="ml-auto flex items-center gap-2 md:gap-3">
+              <NotificationBell />
               <AppLauncher />
               <ThemeToggle />
             </div>

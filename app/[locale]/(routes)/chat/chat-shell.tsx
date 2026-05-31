@@ -12,6 +12,7 @@ import CanvasAgentChat from '@/app/components/canvas-agent-chat/CanvasAgentChat'
 import { ThemeToggle } from '@/app/components/ThemeToggle';
 
 import { AppLauncher } from '@/app/components/AppLauncher';
+import { NotificationBell } from '@/app/components/notifications/NotificationBell';
 import { CANVAS_CHAT_INITIAL_PROMPT_STORAGE_KEY } from '@/app/lib/chat/constants';
 
 export function ChatShell() {
@@ -32,6 +33,7 @@ export function ChatShell() {
             <h1 className="hidden md:block text-lg md:text-2xl font-bold truncate">{t('title')}</h1>
           </div>
             <div className="flex items-center gap-1.5 md:gap-4">
+              <NotificationBell />
               <AppLauncher />
               <ThemeToggle />
             </div>

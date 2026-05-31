@@ -861,6 +861,29 @@
     "terminalError": "Fehler: {error}",
     "connectionFailed": "Verbindung fehlgeschlagen: {error}"
   },
+  "notifications": {
+    "open": "Benachrichtigungen öffnen, {count} ungelesen",
+    "title": "Benachrichtigungen",
+    "loading": "Wird aktualisiert...",
+    "summary": "{sessions} Sessions · {todos} To-dos",
+    "empty": {
+      "title": "Alles gelesen",
+      "description": "Neue Antworten und To-dos erscheinen hier."
+    },
+    "sessions": {
+      "title": "Sessions",
+      "empty": "Keine ungelesenen Sessions.",
+      "newResponse": "Neue Antwort"
+    },
+    "todos": {
+      "open": "To-dos",
+      "title": "To-dos",
+      "markAllSeen": "Alle lesen",
+      "empty": "Keine offenen To-dos mit Aufmerksamkeit.",
+      "due": "Fällig",
+      "markSeen": "To-do als gelesen markieren"
+    }
+  },
   "todos": {
     "title": "To-dos",
     "eyebrow": "Human-in-the-loop",
