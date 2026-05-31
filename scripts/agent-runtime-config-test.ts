@@ -103,10 +103,8 @@ async function main() {
 
   const inheritedAgent = await createAgentProfile({ name: 'Inherited Agent' });
   assert.equal(inheritedAgent.iconId, 'bot');
-  assert.equal(isWritableManagedAgentFileName('IDENTITY.md', inheritedAgent.agentId), false);
   assert.equal(isWritableManagedAgentFileName('USER.md', inheritedAgent.agentId), false);
   assert.equal(isWritableManagedAgentFileName('MEMORY.md', inheritedAgent.agentId), true);
-  assert.equal(isWritableManagedAgentFileName('IDENTITY.md', DEFAULT_MANAGED_AGENT_ID), true);
   const inheritedConfig = await resolveAgentRuntimeConfig(inheritedAgent.agentId);
   assert.equal(inheritedConfig.activeProvider, 'google');
   assert.equal(inheritedConfig.model.id, 'gemini-1.5-pro');

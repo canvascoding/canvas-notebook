@@ -35,7 +35,6 @@ type CreateAgentTemplate = {
 
 const EMPTY_FILE_DRAFTS: Record<ManagedFileName, string> = {
   'AGENTS.md': '',
-  'IDENTITY.md': '',
   'USER.md': '',
   'MEMORY.md': '',
   'SOUL.md': '',

@@ -21,7 +21,6 @@ Ask concise questions only when needed. Establish:
 
 ## Files To Update
 
-- `IDENTITY.md` — agent name and durable identity.
 - `USER.md` — user profile, stable preferences, timezone, and recurring context.
 - `SOUL.md` — communication style and behavioral preferences.
 

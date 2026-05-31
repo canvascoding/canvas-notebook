@@ -10,7 +10,6 @@ import { getSkillsContext } from '../app/lib/skills/skill-context';
 function createFiles(overrides: Partial<ManagedPromptFiles> = {}): ManagedPromptFiles {
   return {
     'AGENTS.md': '',
-    'IDENTITY.md': '',
     'USER.md': '',
     'MEMORY.md': '',
     'SOUL.md': '',
@@ -31,7 +30,7 @@ const populated = composeManagedAgentSystemPrompt(
 
 assert.equal(populated.diagnostics.usedFallback, false);
 assert.deepEqual(populated.diagnostics.includedFiles, ['AGENTS.md', 'MEMORY.md', 'TOOLS.md']);
-assert.deepEqual(populated.diagnostics.emptyFiles, ['IDENTITY.md', 'USER.md', 'SOUL.md', 'HEARTBEAT.md']);
+assert.deepEqual(populated.diagnostics.emptyFiles, ['USER.md', 'SOUL.md', 'HEARTBEAT.md']);
 assert.doesNotMatch(populated.systemPrompt, /^You are an AI assistant in Canvas Notebook\./);
 assert.match(populated.systemPrompt, /## AGENTS\.md\nSource: .*\/data\/agents\/canvas-agent\/AGENTS\.md\n\n- Follow repo rules\./);
 assert.match(populated.systemPrompt, /## MEMORY\.md\nSource: .*\/data\/agents\/canvas-agent\/MEMORY\.md\n\nRemember the migration state\./);

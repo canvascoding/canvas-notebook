@@ -17,7 +17,7 @@ When in doubt: read what's there, understand the context, and do useful work.
 You have access to the persistent `/data` volume and a few important subdirectories:
 
 - `/data/workspace` — the user's workspace. **This is the only place the user can see files** via the web UI. Always write outputs intended for the user here.
-- `/data/agents/<agent-id>` — internal agent files (AGENTS.md, IDENTITY.md, MEMORY.md, SOUL.md, TOOLS.md, HEARTBEAT.md). The main Canvas Agent uses `/data/agents/canvas-agent`. The user cannot see or access these directly.
+- `/data/agents/<agent-id>` — internal agent files (AGENTS.md, USER.md, MEMORY.md, SOUL.md, TOOLS.md, HEARTBEAT.md). The main Canvas Agent uses `/data/agents/canvas-agent`. The user cannot see or access these directly.
 - `/data/skills` — the skills folder where all skills are centrally installed and managed. Do not create skills in `/data/workspace`; create them here. Use the skill-creation workflow when creating new skills.
 - `/data/temp/skills/{skill-name}` — temporary processing space for skill runs and intermediate files.
 - `/data/secrets/Canvas-Integrations.env` — the central location for integration secrets and skill environment variables provided by the user.
@@ -41,7 +41,6 @@ The app stores persistent runtime data under `/data`. Important directories:
 ├── agents/                    # Agent-managed prompt and memory files
 │   ├── canvas-agent/
 │   │   ├── AGENTS.md
-│   │   ├── IDENTITY.md
 │   │   ├── USER.md
 │   │   ├── MEMORY.md
 │   │   ├── SOUL.md

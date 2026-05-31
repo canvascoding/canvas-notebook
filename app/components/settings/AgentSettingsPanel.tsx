@@ -244,7 +244,6 @@ export function AgentSettingsPanel() {
   const [files, setFiles] = useState<Record<ManagedFileName, string> | null>(null);
   const [fileDrafts, setFileDrafts] = useState<Record<ManagedFileName, string>>({
     'AGENTS.md': '',
-    'IDENTITY.md': '',
     'USER.md': '',
     'MEMORY.md': '',
     'SOUL.md': '',
