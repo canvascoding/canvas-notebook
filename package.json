@@ -50,6 +50,7 @@
     "test:sessions:read-state": "tsx scripts/session-read-state-test.ts",
     "test:todos:store": "tsx scripts/todo-store-test.ts",
     "test:todos:api": "node scripts/todo-api-test.mjs",
+    "test:todos:tool": "tsx --conditions react-server scripts/human-todo-tool-test.ts",
     "test:agents:runtime": "tsx --conditions react-server scripts/agent-runtime-config-test.ts",
     "test:e2e": "playwright test --pass-with-no-tests",
     "test:all": "node scripts/test-all.mjs",

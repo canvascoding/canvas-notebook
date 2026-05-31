@@ -10,6 +10,7 @@ export type PiToolset =
   | 'session_search'
   | 'studio'
   | 'terminal'
+  | 'todo'
   | 'web';
 
 export type PiToolsetInfo = {
@@ -74,6 +75,11 @@ export const PI_TOOLSETS: Record<PiToolset, PiToolsetInfo> = {
     label: 'Terminal',
     description: 'Execute shell commands in the agent runtime environment.',
   },
+  todo: {
+    name: 'todo',
+    label: 'To-do',
+    description: 'Create human-visible to-dos for review, approval, follow-up, or offline work.',
+  },
   web: {
     name: 'web',
     label: 'Web',
@@ -115,6 +121,7 @@ const TOOLSET_TOOL_NAMES: Record<PiToolset, Set<string>> = {
     'studio_list_styles',
   ]),
   terminal: new Set(['bash']),
+  todo: new Set(['create_human_todo']),
   web: new Set(['web_fetch']),
 };
 
