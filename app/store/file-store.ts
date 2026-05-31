@@ -92,7 +92,14 @@ function persistExplorerState(nextState: Pick<FileStoreState, 'currentDirectory'
   }
 }
 
-const initialExplorerState = readStoredExplorerState();
+const initialExplorerState: StoredExplorerState = {};
+
+function readClientBrowserMode(): BrowserMode {
+  if (typeof window === 'undefined') return 'tree';
+  const stored = window.localStorage.getItem('canvas-browser-mode');
+  if (stored === 'tree' || stored === 'list' || stored === 'grid') return stored;
+  return window.innerWidth < 768 ? 'list' : 'tree';
+}
 
 function getExtension(path: string) {
   const parts = path.split('.');
@@ -156,6 +163,7 @@ interface FileStoreState {
   // Browser mode
   browserMode: BrowserMode;
   setBrowserMode: (mode: BrowserMode) => void;
+  hydrateClientPreferences: () => void;
 
   // Expanded directories
   expandedDirs: Set<string>;
@@ -235,18 +243,20 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
 
   currentFile: null,
 
-  browserMode: (typeof window !== 'undefined'
-    ? (() => {
-        const stored = localStorage.getItem('canvas-browser-mode');
-        if (stored === 'tree' || stored === 'list' || stored === 'grid') return stored as BrowserMode;
-        return window.innerWidth < 768 ? 'list' : 'tree';
-      })()
-    : 'tree') as BrowserMode,
+  browserMode: 'tree',
   setBrowserMode: (mode: BrowserMode) => {
     if (typeof window !== 'undefined') {
       localStorage.setItem('canvas-browser-mode', mode);
     }
     set({ browserMode: mode });
+  },
+  hydrateClientPreferences: () => {
+    const storedExplorerState = readStoredExplorerState();
+    set({
+      browserMode: readClientBrowserMode(),
+      currentDirectory: storedExplorerState.currentDirectory ?? get().currentDirectory,
+      expandedDirs: new Set<string>(storedExplorerState.expandedDirs ?? Array.from(get().expandedDirs)),
+    });
   },
   isLoadingFile: false,
   loadingFilePath: null,

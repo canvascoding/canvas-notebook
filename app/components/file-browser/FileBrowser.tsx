@@ -1,6 +1,7 @@
 'use client';
 
 import { useRef, useState, useCallback, useEffect, type DragEvent } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { ArrowLeft, Download, Move, Search, X } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { toast } from 'sonner';
@@ -26,6 +27,20 @@ import { ThemeToggle } from '@/app/components/ThemeToggle';
 import { AppLauncher } from '@/app/components/AppLauncher';
 import { NotificationBell } from '@/app/components/notifications/NotificationBell';
 
+function normalizeWorkspacePathParam(value: string | null) {
+  if (!value) return null;
+  const normalized = value
+    .trim()
+    .replace(/\\/g, '/')
+    .replace(/^\/+/, '')
+    .replace(/\/+$/, '');
+  if (!normalized || normalized === '.' || normalized.includes('\0')) return null;
+
+  const segments = normalized.split('/').filter(Boolean);
+  if (segments.some((segment) => segment === '.' || segment === '..')) return null;
+  return segments.join('/');
+}
+
 interface FileBrowserProps {
   variant?: 'default' | 'mobile-sheet' | 'fullscreen';
   onFileSelect?: (path: string) => void;
@@ -34,7 +49,10 @@ interface FileBrowserProps {
 export function FileBrowser({ variant = 'default', onFileSelect }: FileBrowserProps) {
   const t = useTranslations('notebook');
   const tCommon = useTranslations('common');
+  const searchParams = useSearchParams();
   const dragCounter = useRef(0);
+  const openedPathParamRef = useRef<string | null>(null);
+  const pendingPathParamRef = useRef<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [createType, setCreateType] = useState<'file' | 'directory'>('file');
@@ -60,13 +78,22 @@ export function FileBrowser({ variant = 'default', onFileSelect }: FileBrowserPr
     setSearchQuery,
     collapseAllDirectories,
     fileTree,
+    hydrateClientPreferences,
     isMultiSelectMode,
     toggleMultiSelectMode,
     multiSelectPaths,
     clearMultiSelect,
     downloadFile,
+    revealAndLoadFile,
     setBulkMoveOpen,
   } = useFileStore();
+
+  useEffect(() => {
+    const handle = window.setTimeout(() => {
+      hydrateClientPreferences();
+    }, 0);
+    return () => window.clearTimeout(handle);
+  }, [hydrateClientPreferences]);
 
   const isDirectoryReachableInTree = useCallback(
     (dirPath: string) => {
@@ -188,6 +215,49 @@ export function FileBrowser({ variant = 'default', onFileSelect }: FileBrowserPr
     }
     onFileSelect?.(path);
   }, [isFullscreen, onFileSelect]);
+
+  const pathParam = normalizeWorkspacePathParam(searchParams.get('path'));
+
+  useEffect(() => {
+    if (
+      !isFullscreen
+      || !pathParam
+      || openedPathParamRef.current === pathParam
+      || pendingPathParamRef.current === pathParam
+    ) {
+      return;
+    }
+
+    pendingPathParamRef.current = pathParam;
+    let cancelled = false;
+    const handle = window.setTimeout(() => {
+      void revealAndLoadFile(pathParam)
+        .then(() => {
+          if (cancelled) return;
+          openedPathParamRef.current = pathParam;
+          setActiveFilePath(pathParam);
+          onFileSelect?.(pathParam);
+        })
+        .catch((error) => {
+          if (!cancelled) {
+            toast.error(error instanceof Error ? error.message : t('failedToLoadPreview'));
+          }
+        })
+        .finally(() => {
+          if (pendingPathParamRef.current === pathParam) {
+            pendingPathParamRef.current = null;
+          }
+        });
+    }, 0);
+
+    return () => {
+      cancelled = true;
+      if (pendingPathParamRef.current === pathParam) {
+        pendingPathParamRef.current = null;
+      }
+      window.clearTimeout(handle);
+    };
+  }, [isFullscreen, onFileSelect, pathParam, revealAndLoadFile, t]);
 
   const handleRefresh = useCallback(() => {
     void refreshVisibleTree();
