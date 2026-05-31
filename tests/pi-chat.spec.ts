@@ -1622,12 +1622,30 @@ contentKind: document
     });
   });
 
-  test('should keep session and model hidden from the mobile header until details are expanded', async ({ page }) => {
-    const sessionId = 'sess-mobile-details';
-
+  test('should expose the active agent selector beside mobile ready status', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
 
-    await page.route('**/api/agents/config', async (route) => {
+    await page.route(/\/api\/agents(\?.*)?$/, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: true,
+          data: {
+            agents: [
+              { agentId: 'canvas-agent', name: 'Canvas Agent', iconId: 'bot', type: 'main', removable: false },
+              { agentId: 'research-agent', name: 'Research Agent', iconId: 'search', type: 'special', removable: true },
+            ],
+          },
+        }),
+      });
+    });
+
+    await page.route(/\/api\/agents\/config(\?.*)?$/, async (route) => {
+      const url = new URL(route.request().url());
+      const agentId = url.searchParams.get('agentId') || 'canvas-agent';
+      const isResearchAgent = agentId === 'research-agent';
+
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -1637,12 +1655,21 @@ contentKind: document
             piConfig: {
               activeProvider: 'openai',
               providers: {
-                openai: { model: 'gpt-4o' },
+                openai: { model: isResearchAgent ? 'gpt-4o-search' : 'gpt-4o' },
               },
+            },
+            effectiveConfig: {
+              agentId,
+              activeProvider: 'openai',
+              model: isResearchAgent ? 'gpt-4o-search' : 'gpt-4o',
+              thinkingLevel: 'off',
             },
             discovery: {
               openai: {
-                models: [{ id: 'gpt-4o', name: 'GPT-4o', supportsVision: true }],
+                models: [
+                  { id: 'gpt-4o', name: 'GPT-4o', supportsVision: true },
+                  { id: 'gpt-4o-search', name: 'GPT-4o Search', supportsVision: true },
+                ],
               },
             },
           },
@@ -1650,7 +1677,7 @@ contentKind: document
       });
     });
 
-    await page.route('**/api/sessions', async (route) => {
+    await page.route(/\/api\/sessions(\?.*)?$/, async (route) => {
       const request = route.request();
       if (request.method() === 'GET') {
         await route.fulfill({
@@ -1658,15 +1685,7 @@ contentKind: document
           contentType: 'application/json',
           body: JSON.stringify({
             success: true,
-            sessions: [
-              {
-                id: 1,
-                sessionId,
-                title: 'Mobile runtime session',
-                model: 'gpt-4o',
-                createdAt: new Date().toISOString(),
-              },
-            ],
+            sessions: [],
           }),
         });
         return;
@@ -1681,71 +1700,33 @@ contentKind: document
       });
     });
 
-    await page.route(`**/api/sessions/messages?sessionId=${sessionId}`, async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          success: true,
-          messages: [
-            {
-              id: 'm1',
-              role: 'user',
-              content: 'Check mobile status visibility.',
-              timestamp: Date.now() - 1000,
-            },
-            {
-              id: 'm2',
-              role: 'assistant',
-              content: [{ type: 'text', text: 'Everything is running.' }],
-              api: 'mock',
-              provider: 'mock',
-              model: 'mock-model',
-              usage: EMPTY_USAGE,
-              stopReason: 'stop',
-              timestamp: Date.now() - 500,
-            },
-          ],
-        }),
-      });
-    });
-
-    setupMockWebSocket(page, {
-      sessionId,
-      runtimeStatus: {
-        sessionId,
-        phase: 'running_tool',
-        activeTool: { toolCallId: 'tool-1', name: 'read_file' },
-        pendingToolCalls: 1,
-        followUpQueue: [{ id: 'follow-1', text: 'Summarize afterwards', attachmentCount: 0 }],
-        steeringQueue: [],
-        canAbort: true,
-        contextWindow: 128000,
-        estimatedHistoryTokens: 14600,
-        availableHistoryTokens: 23500,
-        contextUsagePercent: 62,
-        includedSummary: true,
-        omittedMessageCount: 8,
-        summaryUpdatedAt: '2026-03-16T16:00:00.000Z',
-        lastCompactionAt: '2026-03-16T16:00:00.000Z',
-        lastCompactionKind: 'automatic',
-        lastCompactionOmittedCount: 8,
-      } as unknown as Record<string, unknown>,
-    });
-
     await page.goto('/chat');
 
     await expect(page.getByTestId('chat-runtime-banner')).toBeVisible();
+    await expect(page.getByTestId('chat-runtime-busy-badge')).toContainText('Ready');
+    await expect(page.getByTestId('chat-agent-id')).toBeVisible();
+    await expect(page.getByTestId('chat-agent-id')).toContainText('Canvas Agent');
     await expect(page.getByTestId('chat-mobile-details-toggle')).toBeVisible();
-    await expect(page.getByTestId('chat-session-id')).toHaveCount(0);
-    await expect(page.getByTestId('chat-model-badge')).toHaveCount(0);
+    await expect(page.getByTestId('chat-mobile-details-panel')).toHaveCount(0);
+
+    const detailsBox = await page.getByTestId('chat-mobile-details-toggle').boundingBox();
+    const settingsBox = await page.getByTestId('chat-mobile-agent-settings').boundingBox();
+    expect(detailsBox).not.toBeNull();
+    expect(settingsBox).not.toBeNull();
+    expect(detailsBox!.x).toBeLessThan(settingsBox!.x);
+
+    await page.getByTestId('chat-agent-id').click();
+    await page.getByRole('button', { name: /Research Agent\s+research-agent/i }).click();
+
+    await expect(page.getByTestId('chat-agent-id')).toContainText('Research Agent');
+    await expect(page.getByTestId('chat-mobile-details-panel')).toHaveCount(0);
 
     await page.getByTestId('chat-mobile-details-toggle').click();
 
     await expect(page.getByTestId('chat-mobile-details-panel')).toBeVisible();
-    await expect(page.getByTestId('chat-session-id')).toContainText('Mobile runtime session');
-    await expect(page.getByTestId('chat-model-badge')).toContainText('gpt-4o');
-    await expect(page.getByTestId('chat-queue-panel')).toContainText('Summarize afterwards');
+    await expect(page.getByTestId('chat-agent-id')).toHaveCount(1);
+    await expect(page.getByTestId('chat-session-id')).toHaveCount(1);
+    await expect(page.getByTestId('chat-model-badge')).toHaveCount(0);
   });
 
   test('should render a compaction break after manual canvas compact', async ({ page }) => {

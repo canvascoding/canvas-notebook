@@ -4624,6 +4624,11 @@ export default function CanvasAgentChat({
   const agentProfilesById = useMemo(() => new Map(availableAgents.map((agent) => [agent.agentId, agent])), [availableAgents]);
   const activeAgentProfile = agentProfilesById.get(activeSessionAgentId);
   const activeAgentDisplayName = activeAgentProfile?.name || getAgentDisplayName(activeSessionAgentId);
+  const chatAgentOptions = useMemo<AgentProfile[]>(() => (
+    availableAgents.length > 0
+      ? availableAgents
+      : [{ agentId: CHAT_AGENT_ID, name: 'Canvas Agent', iconId: 'bot', type: 'main', removable: false }]
+  ), [availableAgents]);
   const historyAgentOptions = useMemo(() => {
     const byId = new Map<string, { agentId: string; name: string; iconId?: string; count: number }>();
     for (const agent of availableAgents) {
@@ -4645,6 +4650,61 @@ export default function CanvasAgentChat({
       return a.name.localeCompare(b.name);
     });
   }, [availableAgents, history]);
+
+  const renderChatAgentSelector = (variant: 'desktop' | 'mobile') => {
+    const compact = variant === 'mobile';
+
+    return (
+      <Popover>
+        <PopoverTrigger asChild>
+          <button
+            type="button"
+            data-testid="chat-agent-id"
+            aria-label={`${t('agentSelectTitle')}: ${activeAgentDisplayName}`}
+            title={t('agentSelectTitle')}
+            className={cn(
+              'inline-flex min-w-0 items-center gap-1.5 border border-border/60 bg-muted/50 font-medium text-foreground transition-colors hover:bg-accent',
+              compact ? 'max-w-[12rem] px-2 py-0.5 text-[10px]' : 'px-2 py-0.5 text-[11px]',
+            )}
+          >
+            {!compact ? (
+              <span className="text-[9px] uppercase tracking-[0.15em] text-muted-foreground">{t('agentLabel')}</span>
+            ) : null}
+            <AgentIcon iconId={activeAgentProfile?.iconId} className="h-3 w-3 shrink-0 text-muted-foreground" />
+            <span className={cn('min-w-0 truncate', compact ? 'max-w-[8rem]' : 'max-w-[120px]')}>
+              {activeAgentDisplayName}
+            </span>
+            <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" />
+          </button>
+        </PopoverTrigger>
+        <PopoverContent align="start" side="bottom" className="w-64 p-1">
+          <div className="px-2 py-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+            {t('agentSelectTitle')}
+          </div>
+          {chatAgentOptions.map((agent) => {
+            const selected = agent.agentId === activeSessionAgentId;
+            return (
+              <button
+                key={agent.agentId}
+                type="button"
+                onClick={() => selectChatAgent(agent.agentId)}
+                className={`flex w-full items-center justify-between gap-2 rounded-md px-2 py-2 text-left text-sm transition-colors ${
+                  selected ? 'bg-primary/10 text-primary' : 'hover:bg-accent'
+                }`}
+              >
+                <AgentAvatar iconId={agent.iconId} className="h-9 w-9" iconClassName="h-4 w-4" />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate font-medium">{agent.name}</span>
+                  <span className="block truncate font-mono text-[10px] text-muted-foreground">{agent.agentId}</span>
+                </span>
+                {selected ? <CheckCircle2 className="h-4 w-4 shrink-0" /> : null}
+              </button>
+            );
+          })}
+        </PopoverContent>
+      </Popover>
+    );
+  };
 
   const toggleRunDisclosure = useCallback((runKey: string) => {
     setExpandedRunKeys((current) => {
@@ -4908,46 +4968,7 @@ export default function CanvasAgentChat({
                     <span className="text-[9px] uppercase tracking-[0.15em] text-muted-foreground">{t('sessionLabel')}</span>
                     <span className="min-w-0 truncate max-w-[120px]">{sessionDisplayLabel}</span>
                   </div>
-                  <Popover>
-                    <PopoverTrigger asChild>
-                      <button
-                        type="button"
-                        data-testid="chat-agent-id"
-                        title={t('agentSelectTitle')}
-                        className="inline-flex min-w-0 items-center gap-1.5 border border-border/60 bg-muted/50 px-2 py-0.5 text-[11px] font-medium text-foreground transition-colors hover:bg-accent"
-                      >
-                        <span className="text-[9px] uppercase tracking-[0.15em] text-muted-foreground">{t('agentLabel')}</span>
-                        <AgentIcon iconId={activeAgentProfile?.iconId} className="h-3 w-3 shrink-0 text-muted-foreground" />
-                        <span className="min-w-0 max-w-[120px] truncate">{activeAgentDisplayName}</span>
-                        <ChevronDown className="h-3 w-3 text-muted-foreground" />
-                      </button>
-                    </PopoverTrigger>
-                    <PopoverContent align="start" className="w-64 p-1">
-                      <div className="px-2 py-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-                        {t('agentSelectTitle')}
-                      </div>
-                      {(availableAgents.length > 0 ? availableAgents : [{ agentId: CHAT_AGENT_ID, name: 'Canvas Agent', iconId: 'bot', type: 'main', removable: false }]).map((agent) => {
-                        const selected = agent.agentId === activeSessionAgentId;
-                        return (
-                          <button
-                            key={agent.agentId}
-                            type="button"
-                            onClick={() => selectChatAgent(agent.agentId)}
-                            className={`flex w-full items-center justify-between gap-2 rounded-md px-2 py-2 text-left text-sm transition-colors ${
-                              selected ? 'bg-primary/10 text-primary' : 'hover:bg-accent'
-                            }`}
-                          >
-                            <AgentAvatar iconId={agent.iconId} className="h-9 w-9" iconClassName="h-4 w-4" />
-                            <span className="min-w-0 flex-1">
-                              <span className="block truncate font-medium">{agent.name}</span>
-                              <span className="block truncate font-mono text-[10px] text-muted-foreground">{agent.agentId}</span>
-                            </span>
-                            {selected ? <CheckCircle2 className="h-4 w-4 shrink-0" /> : null}
-                          </button>
-                        );
-                      })}
-                    </PopoverContent>
-                  </Popover>
+                  {renderChatAgentSelector('desktop')}
                 </div>
               )}
             </div>
@@ -4982,6 +5003,7 @@ export default function CanvasAgentChat({
           <div className="flex flex-wrap items-center gap-2">
             <div data-testid="chat-runtime-status" className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
               <ChatRuntimeActivityBadge status={runtimeStatus} />
+              {isMobile ? renderChatAgentSelector('mobile') : null}
               
               {/* Queue Badge */}
               {runtimeStatus && totalQueuedMessages > 0 && (
@@ -5042,23 +5064,25 @@ export default function CanvasAgentChat({
               )}
               {isMobile && (
                 <>
-                  <Link
-                    href="/settings?tab=agent"
-                    aria-label={t('openAgentSettings')}
-                    className="inline-flex items-center gap-1 border border-border/60 bg-muted/40 px-2 py-0.5 text-[11px] text-muted-foreground transition-all hover:bg-accent hover:text-foreground"
-                    title={t('openAgentSettings')}
-                  >
-                    <Settings className="h-3 w-3" />
-                  </Link>
                   <button
                     type="button"
                     data-testid="chat-mobile-details-toggle"
+                    aria-expanded={showMobileDetails}
                     onClick={() => setShowMobileDetails((current) => !current)}
                     className="inline-flex items-center gap-1 border border-border/60 bg-muted/40 px-2 py-0.5 text-[11px] text-foreground transition-colors hover:bg-accent"
                   >
                     {t('details')}
                     {showMobileDetails ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
                   </button>
+                  <Link
+                    href="/settings?tab=agent"
+                    data-testid="chat-mobile-agent-settings"
+                    aria-label={t('openAgentSettings')}
+                    className="inline-flex items-center gap-1 border border-border/60 bg-muted/40 px-2 py-0.5 text-[11px] text-muted-foreground transition-all hover:bg-accent hover:text-foreground"
+                    title={t('openAgentSettings')}
+                  >
+                    <Settings className="h-3 w-3" />
+                  </Link>
                 </>
               )}
             </div>
@@ -5093,46 +5117,6 @@ export default function CanvasAgentChat({
                   <span className="text-[9px] uppercase tracking-[0.15em] text-muted-foreground">{t('sessionLabel')}</span>
                   <span className="min-w-0 truncate">{sessionDisplayLabel}</span>
                 </div>
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <button
-                      type="button"
-                      data-testid="chat-agent-id"
-                      title={t('agentSelectTitle')}
-                      className="inline-flex min-w-0 items-center gap-1 border border-border/60 bg-muted/40 px-1.5 py-0.5 text-[10px] text-foreground transition-colors hover:bg-accent"
-                    >
-                      <span className="text-[9px] uppercase tracking-[0.15em] text-muted-foreground">{t('agentLabel')}</span>
-                      <AgentIcon iconId={activeAgentProfile?.iconId} className="h-3 w-3 shrink-0 text-muted-foreground" />
-                      <span className="min-w-0 truncate">{activeAgentDisplayName}</span>
-                      <ChevronDown className="h-3 w-3 text-muted-foreground" />
-                    </button>
-                  </PopoverTrigger>
-                  <PopoverContent align="start" className="w-64 p-1">
-                    <div className="px-2 py-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-                      {t('agentSelectTitle')}
-                    </div>
-                    {(availableAgents.length > 0 ? availableAgents : [{ agentId: CHAT_AGENT_ID, name: 'Canvas Agent', iconId: 'bot', type: 'main', removable: false }]).map((agent) => {
-                      const selected = agent.agentId === activeSessionAgentId;
-                      return (
-                        <button
-                          key={agent.agentId}
-                          type="button"
-                          onClick={() => selectChatAgent(agent.agentId)}
-                          className={`flex w-full items-center justify-between gap-2 rounded-md px-2 py-2 text-left text-sm transition-colors ${
-                            selected ? 'bg-primary/10 text-primary' : 'hover:bg-accent'
-                          }`}
-                        >
-                          <AgentAvatar iconId={agent.iconId} className="h-9 w-9" iconClassName="h-4 w-4" />
-                          <span className="min-w-0 flex-1">
-                            <span className="block truncate font-medium">{agent.name}</span>
-                            <span className="block truncate font-mono text-[10px] text-muted-foreground">{agent.agentId}</span>
-                          </span>
-                          {selected ? <CheckCircle2 className="h-4 w-4 shrink-0" /> : null}
-                        </button>
-                      );
-                    })}
-                  </PopoverContent>
-                </Popover>
                 {runtimeStatus?.includedSummary && (
                   <span className="border border-border/60 bg-muted/40 px-1.5 py-0.5 text-[10px] text-muted-foreground">
                     {t('summary')}
