@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState, startTransition, type ReactNo
 import dynamic from 'next/dynamic';
 import { useSearchParams } from 'next/navigation';
 import { useTranslations } from 'next-intl';
-import { ArrowLeft, ChevronDown, ExternalLink, Eye, EyeOff, Loader2, Mail, Plus, RefreshCw, Save, Settings, Trash2 } from 'lucide-react';
+import { ArrowLeft, ChevronDown, ExternalLink, Eye, EyeOff, Loader2, Mail, Menu, Plus, RefreshCw, Save, Settings, Trash2 } from 'lucide-react';
 
 import { GeneralSettingsPanel } from '@/app/components/settings/GeneralSettingsPanel';
 import { SettingsAccordionCard } from '@/app/components/settings/SettingsAccordionCard';
@@ -13,6 +13,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -182,14 +183,24 @@ type ScopeCardConfig = {
   keyHint: string;
 };
 
-const SETTINGS_TABS = ['general', 'integrations', 'agent-settings', 'workspace', 'usage', 'skills', 'channels', 'license'] as const;
+const SETTINGS_TAB_ITEMS = [
+  { value: 'general', labelKey: 'tabs.general' },
+  { value: 'integrations', labelKey: 'tabs.integrations' },
+  { value: 'agent-settings', labelKey: 'tabs.agentSettings' },
+  { value: 'workspace', labelKey: 'tabs.workspace' },
+  { value: 'channels', labelKey: 'tabs.channels' },
+  { value: 'usage', labelKey: 'tabs.usage' },
+  { value: 'skills', labelKey: 'tabs.skills' },
+  { value: 'license', labelKey: 'tabs.license' },
+] as const;
+const SETTINGS_TABS = SETTINGS_TAB_ITEMS.map((tab) => tab.value);
 const SETTINGS_TAB_STORAGE_KEY = 'canvas-settings-active-tab';
 const ENV_CARD_OPEN_STORAGE_KEY = 'canvas-settings-env-card-open-state';
 const INTEGRATIONS_SECTION_OPEN_STORAGE_KEY = 'canvas-settings-integrations-section-open-state';
 const SETTINGS_TAB_TRIGGER_CLASS = 'min-h-9 min-w-0 border border-border px-2 data-[state=active]:bg-muted';
 const SETTINGS_TAB_CONTENT_CLASS = 'space-y-4 data-[state=inactive]:hidden';
 
-type SettingsTab = (typeof SETTINGS_TABS)[number];
+type SettingsTab = (typeof SETTINGS_TAB_ITEMS)[number]['value'];
 type EnvCardOpenState = Record<EnvScope, boolean>;
 type IntegrationsSectionId = 'connectedApps' | 'emailAccounts' | 'mcpConfig';
 type IntegrationsSectionOpenState = Record<IntegrationsSectionId, boolean>;
@@ -2381,38 +2392,44 @@ export function IntegrationsSettingsClient({
     }));
   };
 
+  const activeSettingsTab = SETTINGS_TAB_ITEMS.find((tab) => tab.value === effectiveTab) ?? SETTINGS_TAB_ITEMS[0];
+
   return (
-    <div className="mx-auto w-full max-w-6xl px-4 py-5 sm:px-6 sm:py-6">
+    <div className="mx-auto w-full max-w-6xl overflow-x-hidden px-3 py-4 sm:px-6 sm:py-6">
       <Tabs
         value={effectiveTab}
         onValueChange={handleTabChange}
-        className="space-y-4"
+        className="min-w-0 space-y-4"
       >
-        <TabsList className="grid h-auto w-full grid-cols-1 gap-2 bg-transparent p-0 sm:grid-cols-8">
-          <TabsTrigger value="general" className={SETTINGS_TAB_TRIGGER_CLASS}>
-            <span className="min-w-0 truncate">{t('tabs.general')}</span>
-          </TabsTrigger>
-          <TabsTrigger value="integrations" className={SETTINGS_TAB_TRIGGER_CLASS}>
-            <span className="min-w-0 truncate">{t('tabs.integrations')}</span>
-          </TabsTrigger>
-          <TabsTrigger value="agent-settings" className={SETTINGS_TAB_TRIGGER_CLASS}>
-            <span className="min-w-0 truncate">{t('tabs.agentSettings')}</span>
-          </TabsTrigger>
-          <TabsTrigger value="workspace" className={SETTINGS_TAB_TRIGGER_CLASS}>
-            <span className="min-w-0 truncate">{t('tabs.workspace')}</span>
-          </TabsTrigger>
-          <TabsTrigger value="channels" className={SETTINGS_TAB_TRIGGER_CLASS}>
-            <span className="min-w-0 truncate">{t('tabs.channels')}</span>
-          </TabsTrigger>
-          <TabsTrigger value="usage" className={SETTINGS_TAB_TRIGGER_CLASS}>
-            <span className="min-w-0 truncate">{t('tabs.usage')}</span>
-          </TabsTrigger>
-          <TabsTrigger value="skills" className={SETTINGS_TAB_TRIGGER_CLASS}>
-            <span className="min-w-0 truncate">{t('tabs.skills')}</span>
-          </TabsTrigger>
-          <TabsTrigger value="license" className={SETTINGS_TAB_TRIGGER_CLASS}>
-            <span className="min-w-0 truncate">{t('tabs.license')}</span>
-          </TabsTrigger>
+        <div className="lg:hidden">
+          <DropdownMenu modal={false}>
+            <DropdownMenuTrigger asChild>
+              <Button type="button" variant="outline" className="h-11 w-full justify-between px-3">
+                <span className="flex min-w-0 items-center gap-2">
+                  <Menu className="h-4 w-4" aria-hidden="true" />
+                  <span className="min-w-0 truncate">{t(activeSettingsTab.labelKey)}</span>
+                </span>
+                <ChevronDown className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" sideOffset={8} className="w-[calc(100vw-1.5rem)] max-w-sm">
+              <DropdownMenuRadioGroup value={effectiveTab} onValueChange={handleTabChange}>
+                {SETTINGS_TAB_ITEMS.map((tab) => (
+                  <DropdownMenuRadioItem key={tab.value} value={tab.value} className="min-h-10">
+                    {t(tab.labelKey)}
+                  </DropdownMenuRadioItem>
+                ))}
+              </DropdownMenuRadioGroup>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+
+        <TabsList className="hidden h-auto w-full grid-cols-8 gap-2 bg-transparent p-0 lg:grid">
+          {SETTINGS_TAB_ITEMS.map((tab) => (
+            <TabsTrigger key={tab.value} value={tab.value} className={SETTINGS_TAB_TRIGGER_CLASS}>
+              <span className="min-w-0 truncate">{t(tab.labelKey)}</span>
+            </TabsTrigger>
+          ))}
         </TabsList>
 
         {renderLazyTabContent('general',
