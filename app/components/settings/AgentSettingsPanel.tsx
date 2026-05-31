@@ -18,7 +18,7 @@ import { DEFAULT_AGENT_ID } from '@/app/lib/channels/constants';
 import type { PiThinkingLevel } from '@/app/lib/pi/config';
 import { AgentSessionsCard, type AgentSessionItem } from './AgentSessionsCard';
 import { AgentDoctorCard, type DoctorResult } from './AgentDoctorCard';
-import { AgentManagedFilesCard, type ManagedFileName, type ResetTarget } from './AgentManagedFilesCard';
+import { AgentManagedFilesCard, getVisibleManagedFileNames, type ManagedFileName, type ResetTarget } from './AgentManagedFilesCard';
 import { AgentToolsCard, type ToolMetadata } from './AgentToolsCard';
 import { AgentChatDisplayCard } from './AgentChatDisplayCard';
 import { AgentSelectorCard, type AgentProfileItem } from './AgentSelectorCard';
@@ -248,9 +248,14 @@ export function AgentSettingsPanel() {
   });
   const [activeFile, setActiveFile] = useState<ManagedFileName>('AGENTS.md');
   const [filesResetting, setFilesResetting] = useState(false);
+  const [heartbeatFileSaving, setHeartbeatFileSaving] = useState(false);
+  const [heartbeatFileResetting, setHeartbeatFileResetting] = useState(false);
+  const [heartbeatFileError, setHeartbeatFileError] = useState<string | null>(null);
+  const [heartbeatFileSuccess, setHeartbeatFileSuccess] = useState<string | null>(null);
 
   const [resetDialogOpen, setResetDialogOpen] = useState(false);
   const [resetTarget, setResetTarget] = useState<ResetTarget | null>(null);
+  const [heartbeatResetDialogOpen, setHeartbeatResetDialogOpen] = useState(false);
 
   const [sessions, setSessions] = useState<SessionItem[]>([]);
   const [sessionsLoading, setSessionsLoading] = useState(true);
@@ -281,6 +286,13 @@ export function AgentSettingsPanel() {
     setDoctorResult(null);
     setDoctorError(null);
     setFiles(null);
+    setFilesError(null);
+    setFilesSuccess(null);
+    setHeartbeatFileError(null);
+    setHeartbeatFileSuccess(null);
+    setResetDialogOpen(false);
+    setResetTarget(null);
+    setHeartbeatResetDialogOpen(false);
     setSessions([]);
     setRenameDrafts({});
     setToolsPiConfig(null);
@@ -598,44 +610,80 @@ export function AgentSettingsPanel() {
     }
   };
 
-  const openHeartbeatFile = () => {
-    setActiveFile('HEARTBEAT.md');
-    window.setTimeout(() => {
-      document.getElementById('onboarding-settings-managedFiles')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }, 0);
+  const applyManagedFileContent = (fileName: ManagedFileName, content: string) => {
+    setFiles((current) => ({
+      ...(current || fileDrafts),
+      [fileName]: content,
+    }));
+    setFileDrafts((current) => ({
+      ...current,
+      [fileName]: content,
+    }));
   };
 
-  const saveActiveFile = async () => {
-    setFilesSaving(true);
-    setFilesError(null);
-    setFilesSuccess(null);
+  const requestResetManagedFile = async (fileName: ManagedFileName) => fetchJson<{ fileName: ManagedFileName; content: string }>('/api/agents/files', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      agentId: selectedAgentId,
+      action: 'reset',
+      fileName,
+    }),
+  });
+
+  const saveManagedFile = async (
+    fileName: ManagedFileName,
+    options: {
+      setSaving: (value: boolean) => void;
+      setError: (value: string | null) => void;
+      setSuccess: (value: string | null) => void;
+      successMessage: (savedFileName: ManagedFileName) => string;
+      errorMessage: string;
+    },
+  ) => {
+    options.setSaving(true);
+    options.setError(null);
+    options.setSuccess(null);
 
     try {
-      const content = fileDrafts[activeFile] ?? '';
+      const content = fileDrafts[fileName] ?? '';
       const payload = await fetchJson<{ fileName: ManagedFileName; content: string }>('/api/agents/files', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           agentId: selectedAgentId,
-          fileName: activeFile,
+          fileName,
           content,
         }),
       });
 
-      setFiles((current) => ({
-        ...(current || fileDrafts),
-        [payload.fileName]: payload.content,
-      }));
-      setFileDrafts((current) => ({
-        ...current,
-        [payload.fileName]: payload.content,
-      }));
-      setFilesSuccess(t('agentPanel.files.saved', { fileName: payload.fileName }));
+      applyManagedFileContent(payload.fileName, payload.content);
+      options.setSuccess(options.successMessage(payload.fileName));
     } catch (error) {
-      setFilesError(error instanceof Error ? error.message : t('agentPanel.files.errors.save'));
+      options.setError(error instanceof Error ? error.message : options.errorMessage);
     } finally {
-      setFilesSaving(false);
+      options.setSaving(false);
     }
+  };
+
+  const saveActiveFile = async () => {
+    await saveManagedFile(activeFile, {
+      setSaving: setFilesSaving,
+      setError: setFilesError,
+      setSuccess: setFilesSuccess,
+      successMessage: (fileName) => t('agentPanel.files.saved', { fileName }),
+      errorMessage: t('agentPanel.files.errors.save'),
+    });
+  };
+
+  const saveHeartbeatFile = async () => {
+    await saveManagedFile('HEARTBEAT.md', {
+      setSaving: setHeartbeatFileSaving,
+      setError: setHeartbeatFileError,
+      setSuccess: setHeartbeatFileSuccess,
+      successMessage: () => t('agentPanel.heartbeat.fileSaved'),
+      errorMessage: t('agentPanel.heartbeat.errors.fileSave'),
+    });
   };
 
   const resetFile = async () => {
@@ -647,37 +695,14 @@ export function AgentSettingsPanel() {
 
     try {
       if (resetTarget === 'current') {
-        const payload = await fetchJson<{ fileName: ManagedFileName; content: string }>('/api/agents/files', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            agentId: selectedAgentId,
-            action: 'reset',
-            fileName: activeFile,
-          }),
-        });
-
-        setFiles((current) => ({
-          ...(current || fileDrafts),
-          [payload.fileName]: payload.content,
-        }));
-        setFileDrafts((current) => ({
-          ...current,
-          [payload.fileName]: payload.content,
-        }));
+        const payload = await requestResetManagedFile(activeFile);
+        applyManagedFileContent(payload.fileName, payload.content);
         setFilesSuccess(t('agentPanel.files.resetSuccess', { fileName: payload.fileName }));
       } else {
-        const payload = await fetchJson<{ files: Array<{ fileName: ManagedFileName; content: string }> }>('/api/agents/files', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            agentId: selectedAgentId,
-            action: 'reset',
-          }),
-        });
+        const payload = await Promise.all(getVisibleManagedFileNames(isMainAgent).map((fileName) => requestResetManagedFile(fileName)));
 
         const newFiles: Record<ManagedFileName, string> = { ...fileDrafts };
-        for (const { fileName, content } of payload.files) {
+        for (const { fileName, content } of payload) {
           newFiles[fileName] = content;
         }
 
@@ -700,6 +725,23 @@ export function AgentSettingsPanel() {
   const openResetDialog = (target: ResetTarget) => {
     setResetTarget(target);
     setResetDialogOpen(true);
+  };
+
+  const resetHeartbeatFile = async () => {
+    setHeartbeatFileResetting(true);
+    setHeartbeatFileError(null);
+    setHeartbeatFileSuccess(null);
+
+    try {
+      const payload = await requestResetManagedFile('HEARTBEAT.md');
+      applyManagedFileContent(payload.fileName, payload.content);
+      setHeartbeatFileSuccess(t('agentPanel.heartbeat.fileResetSuccess'));
+    } catch (error) {
+      setHeartbeatFileError(error instanceof Error ? error.message : t('agentPanel.heartbeat.errors.fileReset'));
+    } finally {
+      setHeartbeatFileResetting(false);
+      setHeartbeatResetDialogOpen(false);
+    }
   };
 
   const createSession = async () => {
@@ -1119,13 +1161,35 @@ export function AgentSettingsPanel() {
         saving={heartbeatSaving}
         error={heartbeatError}
         success={heartbeatSuccess}
+        heartbeatFileDraft={fileDrafts['HEARTBEAT.md'] ?? ''}
+        heartbeatFileLoading={filesLoading}
+        heartbeatFileSaving={heartbeatFileSaving}
+        heartbeatFileResetting={heartbeatFileResetting}
+        heartbeatFileError={heartbeatFileError || filesError}
+        heartbeatFileSuccess={heartbeatFileSuccess}
+        heartbeatResetDialogOpen={heartbeatResetDialogOpen}
         onOpenChange={(isOpen) => setAgentSectionOpen('heartbeat', isOpen)}
         onEnabledChange={(enabled) => setHeartbeatConfig((current) => current ? { ...current, enabled } : current)}
         onScheduleDraftChange={(patch) => setHeartbeatScheduleDraft((current) => ({ ...current, ...patch }))}
         onDeliveryDraftChange={(patch) => setHeartbeatDeliveryDraft((current) => ({ ...current, ...patch }))}
         onSave={() => void saveHeartbeatConfig()}
         onReload={() => void Promise.all([loadHeartbeatConfig(), loadHeartbeatDeliveryChannels()])}
-        onEditHeartbeatFile={openHeartbeatFile}
+        onHeartbeatFileDraftChange={(value) =>
+          setFileDrafts((current) => ({
+            ...current,
+            'HEARTBEAT.md': value,
+          }))
+        }
+        onSaveHeartbeatFile={() => void saveHeartbeatFile()}
+        onReloadHeartbeatFile={() => {
+          setHeartbeatFileError(null);
+          setHeartbeatFileSuccess(null);
+          void loadFiles();
+        }}
+        onOpenHeartbeatResetDialog={() => setHeartbeatResetDialogOpen(true)}
+        onHeartbeatResetDialogOpenChange={setHeartbeatResetDialogOpen}
+        onClearHeartbeatResetDialog={() => setHeartbeatResetDialogOpen(false)}
+        onResetHeartbeatFile={() => void resetHeartbeatFile()}
       />
 
       <AgentManagedFilesCard
