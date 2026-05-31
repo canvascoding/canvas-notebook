@@ -1,11 +1,10 @@
 'use client';
 
 import { useEffect, useMemo } from 'react';
-import { ChevronDown, Loader2, RefreshCw, RotateCcw, Save } from 'lucide-react';
+import { ChevronDown, FileText, Loader2, RefreshCw, RotateCcw, Save } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -24,6 +23,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { MarkdownEditor } from '@/app/components/editor/MarkdownEditor';
+import { AgentSettingsAccordionCard } from './AgentSettingsAccordionCard';
 
 export const MANAGED_FILES = ['AGENTS.md', 'IDENTITY.md', 'USER.md', 'MEMORY.md', 'SOUL.md', 'TOOLS.md', 'HEARTBEAT.md'] as const;
 export const AGENT_FILE_TABS = ['AGENTS.md', 'IDENTITY.md', 'USER.md', 'MEMORY.md', 'SOUL.md', 'TOOLS.md'] as const;
@@ -55,6 +55,8 @@ type AgentManagedFilesCardProps = AgentManagedFilesEditorProps & {
   filesResetting: boolean;
   filesError: string | null;
   filesSuccess: string | null;
+  isOpen: boolean;
+  onOpenChange: (isOpen: boolean) => void;
   resetDialogOpen: boolean;
   resetTarget: ResetTarget | null;
   onSaveActiveFile: () => void;
@@ -153,6 +155,8 @@ export function AgentManagedFilesCard({
   filesResetting,
   filesError,
   filesSuccess,
+  isOpen,
+  onOpenChange,
   resetDialogOpen,
   resetTarget,
   onActiveFileChange,
@@ -171,15 +175,31 @@ export function AgentManagedFilesCard({
 }: AgentManagedFilesCardProps) {
   const t = useTranslations('settings');
   const tCommon = useTranslations('common');
+  const resolvedTitle = title || t('agentPanel.files.title');
+  const resolvedDescription = description || t('agentPanel.files.description');
+  const visibleSummaryFileNames = useMemo(
+    () => [...(visibleFileNames || getVisibleManagedFileNames(isMainAgent))],
+    [isMainAgent, visibleFileNames],
+  );
+  const summaryItems = [
+    filesLoading
+      ? t('agentPanel.files.loading')
+      : t('agentPanel.files.summary', { count: visibleSummaryFileNames.length }),
+    filesError ? t('agentPanel.files.errorSummary') : t('agentPanel.files.activeFileSummary', { fileName: activeFile }),
+  ];
 
   return (
     <>
-      <Card id="onboarding-settings-managedFiles">
-        <CardHeader>
-          <CardTitle>{title || t('agentPanel.files.title')}</CardTitle>
-          <CardDescription>{description || t('agentPanel.files.description')}</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-3">
+      <AgentSettingsAccordionCard
+        id="onboarding-settings-managedFiles"
+        title={resolvedTitle}
+        description={resolvedDescription}
+        icon={FileText}
+        isOpen={isOpen}
+        onOpenChange={onOpenChange}
+        summaryItems={summaryItems}
+        contentClassName="space-y-3"
+      >
           <AgentManagedFilesEditor
             isMainAgent={isMainAgent}
             files={files}
@@ -223,8 +243,7 @@ export function AgentManagedFilesCard({
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
-        </CardContent>
-      </Card>
+      </AgentSettingsAccordionCard>
 
       <AlertDialog open={resetDialogOpen} onOpenChange={onResetDialogOpenChange}>
         <AlertDialogContent>

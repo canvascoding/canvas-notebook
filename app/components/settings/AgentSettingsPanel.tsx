@@ -48,7 +48,7 @@ type PiConfigData = {
   [key: string]: unknown;
 };
 
-type AgentSettingsSectionId = 'runtime' | 'chatDisplay' | 'tools' | 'heartbeat' | 'sessions' | 'doctor';
+type AgentSettingsSectionId = 'runtime' | 'chatDisplay' | 'tools' | 'heartbeat' | 'files' | 'sessions' | 'doctor';
 type AgentSettingsSectionOpenState = Record<AgentSettingsSectionId, boolean>;
 
 const AGENT_SETTINGS_SECTION_OPEN_STORAGE_KEY = 'canvas-settings-agent-section-open-state';
@@ -58,6 +58,7 @@ const DEFAULT_AGENT_SETTINGS_SECTION_OPEN_STATE: AgentSettingsSectionOpenState =
   chatDisplay: false,
   tools: false,
   heartbeat: false,
+  files: false,
   sessions: false,
   doctor: false,
 };
@@ -77,6 +78,7 @@ function getInitialAgentSectionOpenState(requestedPanel: string | null): AgentSe
       chatDisplay: typeof storedState.chatDisplay === 'boolean' ? storedState.chatDisplay : fallback.chatDisplay,
       tools: typeof storedState.tools === 'boolean' ? storedState.tools : fallback.tools,
       heartbeat: typeof storedState.heartbeat === 'boolean' ? storedState.heartbeat : fallback.heartbeat,
+      files: typeof storedState.files === 'boolean' ? storedState.files : fallback.files,
       sessions: typeof storedState.sessions === 'boolean' ? storedState.sessions : fallback.sessions,
       doctor: SHOW_AGENT_DOCTOR_SECTION
         ? requestedPanel === 'doctor' || (typeof storedState.doctor === 'boolean' ? storedState.doctor : fallback.doctor)
@@ -1223,6 +1225,8 @@ export function AgentSettingsPanel() {
         filesResetting={filesResetting}
         filesError={filesError}
         filesSuccess={filesSuccess}
+        isOpen={agentSectionOpenById.files}
+        onOpenChange={(isOpen) => setAgentSectionOpen('files', isOpen)}
         resetDialogOpen={resetDialogOpen}
         resetTarget={resetTarget}
         onActiveFileChange={setActiveFile}
