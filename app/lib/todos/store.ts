@@ -22,9 +22,6 @@ export const DEFAULT_TODO_CATEGORIES = [
   { name: 'Pruefen', color: '#f59e0b', icon: 'search-check' },
   { name: 'Freigabe', color: '#10b981', icon: 'badge-check' },
   { name: 'Automation', color: '#8b5cf6', icon: 'workflow' },
-  { name: 'Follow-up', color: '#ec4899', icon: 'reply' },
-  { name: 'Recherche', color: '#06b6d4', icon: 'book-open' },
-  { name: 'Dateien', color: '#64748b', icon: 'file-text' },
 ] as const;
 
 const TITLE_MAX_LENGTH = 180;

@@ -790,6 +790,10 @@
         "title": "Automationen",
         "description": "Wiederkehrende Agent-Aufträge für den Workspace planen."
       },
+      "todos": {
+        "title": "To-dos",
+        "description": "Menschliche Aufgaben, Freigaben und Prüfungen zentral abarbeiten."
+      },
       "skills": {
         "title": "Skill Gallery",
         "description": "Skills erstellen, verwalten und im Chat nutzen."
@@ -856,6 +860,118 @@
     "processExitedWithCode": "Prozess mit Code {code} beendet",
     "terminalError": "Fehler: {error}",
     "connectionFailed": "Verbindung fehlgeschlagen: {error}"
+  },
+  "todos": {
+    "title": "To-dos",
+    "eyebrow": "Human-in-the-loop",
+    "summary": "{open} offen · {done} erledigt · {unread} ungelesen",
+    "sections": {
+      "status": "Status",
+      "categories": "Kategorien",
+      "files": "Dateien"
+    },
+    "filters": {
+      "allCategories": "Alle Kategorien",
+      "noCategory": "Ohne Kategorie",
+      "status": {
+        "active": "Aktiv",
+        "open": "Offen",
+        "done": "Erledigt",
+        "archived": "Zuletzt gelöscht",
+        "all": "Alle"
+      }
+    },
+    "status": {
+      "open": "Offen",
+      "done": "Erledigt",
+      "archived": "Archiviert"
+    },
+    "priority": {
+      "low": "Niedrig",
+      "normal": "Normal",
+      "high": "Hoch"
+    },
+    "source": {
+      "user": "User",
+      "agent": "Agent"
+    },
+    "actions": {
+      "markAllSeen": "Alle sichtbaren lesen",
+      "refresh": "Aktualisieren",
+      "newTodo": "To-do erstellen",
+      "newCategory": "Kategorie erstellen",
+      "categoryActions": "Kategorie-Aktionen",
+      "renameCategory": "Umbenennen",
+      "archiveCategory": "Archivieren",
+      "todoActions": "To-do-Aktionen",
+      "restore": "Wiederherstellen",
+      "edit": "Bearbeiten",
+      "markSeen": "Als gelesen markieren",
+      "archiveTodo": "Löschen",
+      "reopen": "Wieder öffnen",
+      "complete": "Abhaken",
+      "cancel": "Abbrechen",
+      "save": "Speichern",
+      "removeFile": "Dateilink entfernen"
+    },
+    "fields": {
+      "title": "Titel",
+      "description": "Beschreibung",
+      "category": "Kategorie",
+      "priority": "Priorität",
+      "dueAt": "Fällig",
+      "noDueAt": "Kein Datum",
+      "fileSearch": "Workspace-Datei verlinken",
+      "fileSearchPlaceholder": "Dateiname oder Pfad suchen",
+      "linkedFiles": "Verlinkte Dateien",
+      "categoryName": "Name",
+      "categoryColor": "Farbe"
+    },
+    "states": {
+      "loading": "To-dos werden geladen...",
+      "emptyTitle": "Keine To-dos in dieser Ansicht",
+      "emptyDescription": "Erstelle ein To-do oder ändere den Filter.",
+      "noDescription": "Keine Beschreibung hinterlegt.",
+      "noFiles": "Keine Dateien verlinkt.",
+      "noSelectionTitle": "To-do auswählen",
+      "noSelectionDescription": "Klicke links auf ein To-do, um Details, Dateien und Aktionen zu sehen.",
+      "searchingFiles": "Dateien werden gesucht...",
+      "noFileResults": "Keine Workspace-Dateien gefunden."
+    },
+    "labels": {
+      "unread": "Ungelesen"
+    },
+    "editor": {
+      "createTitle": "To-do erstellen",
+      "editTitle": "To-do bearbeiten",
+      "description": "Aufgaben können direkt vom Nutzer oder später vom Agenten angelegt werden."
+    },
+    "categoryEditor": {
+      "createTitle": "Kategorie erstellen",
+      "editTitle": "Kategorie bearbeiten",
+      "description": "Kategorien ordnen die zentrale To-do-Liste, ohne separate Listen zu erzwingen."
+    },
+    "toasts": {
+      "created": "To-do erstellt.",
+      "updated": "To-do gespeichert.",
+      "archived": "To-do wurde archiviert.",
+      "completed": "To-do abgehakt.",
+      "reopened": "To-do wieder geöffnet.",
+      "restored": "To-do wiederhergestellt.",
+      "markedAllSeen": "Sichtbare To-dos wurden als gelesen markiert.",
+      "categoryCreated": "Kategorie erstellt.",
+      "categoryUpdated": "Kategorie gespeichert.",
+      "categoryArchived": "Kategorie archiviert."
+    },
+    "errors": {
+      "loadFailed": "To-dos konnten nicht geladen werden.",
+      "saveFailed": "To-do konnte nicht gespeichert werden.",
+      "archiveFailed": "To-do konnte nicht archiviert werden.",
+      "markSeenFailed": "To-do konnte nicht als gelesen markiert werden.",
+      "titleRequired": "Bitte gib einen Titel ein.",
+      "categoryNameRequired": "Bitte gib einen Kategorienamen ein.",
+      "categorySaveFailed": "Kategorie konnte nicht gespeichert werden."
+    }
   },
   "settings": {
     "title": "Einstellungen",

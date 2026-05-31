@@ -791,6 +791,10 @@
         "title": "Automations",
         "description": "Plan recurring agent jobs for the workspace."
       },
+      "todos": {
+        "title": "To-dos",
+        "description": "Work through human tasks, approvals, and reviews in one place."
+      },
       "skills": {
         "title": "Skill Gallery",
         "description": "Create, manage, and use skills in chat."
@@ -857,6 +861,118 @@
     "processExitedWithCode": "Process exited with code {code}",
     "terminalError": "Error: {error}",
     "connectionFailed": "Connection failed: {error}"
+  },
+  "todos": {
+    "title": "To-dos",
+    "eyebrow": "Human in the loop",
+    "summary": "{open} open · {done} done · {unread} unread",
+    "sections": {
+      "status": "Status",
+      "categories": "Categories",
+      "files": "Files"
+    },
+    "filters": {
+      "allCategories": "All categories",
+      "noCategory": "No category",
+      "status": {
+        "active": "Active",
+        "open": "Open",
+        "done": "Done",
+        "archived": "Recently deleted",
+        "all": "All"
+      }
+    },
+    "status": {
+      "open": "Open",
+      "done": "Done",
+      "archived": "Archived"
+    },
+    "priority": {
+      "low": "Low",
+      "normal": "Normal",
+      "high": "High"
+    },
+    "source": {
+      "user": "User",
+      "agent": "Agent"
+    },
+    "actions": {
+      "markAllSeen": "Read visible",
+      "refresh": "Refresh",
+      "newTodo": "Create to-do",
+      "newCategory": "Create category",
+      "categoryActions": "Category actions",
+      "renameCategory": "Rename",
+      "archiveCategory": "Archive",
+      "todoActions": "To-do actions",
+      "restore": "Restore",
+      "edit": "Edit",
+      "markSeen": "Mark as read",
+      "archiveTodo": "Delete",
+      "reopen": "Reopen",
+      "complete": "Complete",
+      "cancel": "Cancel",
+      "save": "Save",
+      "removeFile": "Remove file link"
+    },
+    "fields": {
+      "title": "Title",
+      "description": "Description",
+      "category": "Category",
+      "priority": "Priority",
+      "dueAt": "Due",
+      "noDueAt": "No date",
+      "fileSearch": "Link workspace file",
+      "fileSearchPlaceholder": "Search filename or path",
+      "linkedFiles": "Linked files",
+      "categoryName": "Name",
+      "categoryColor": "Color"
+    },
+    "states": {
+      "loading": "Loading to-dos...",
+      "emptyTitle": "No to-dos in this view",
+      "emptyDescription": "Create a to-do or change the filter.",
+      "noDescription": "No description added.",
+      "noFiles": "No files linked.",
+      "noSelectionTitle": "Select a to-do",
+      "noSelectionDescription": "Click a to-do on the left to see details, files, and actions.",
+      "searchingFiles": "Searching files...",
+      "noFileResults": "No workspace files found."
+    },
+    "labels": {
+      "unread": "Unread"
+    },
+    "editor": {
+      "createTitle": "Create to-do",
+      "editTitle": "Edit to-do",
+      "description": "Tasks can be created directly by the user or later by the agent."
+    },
+    "categoryEditor": {
+      "createTitle": "Create category",
+      "editTitle": "Edit category",
+      "description": "Categories organize the central to-do list without forcing separate lists."
+    },
+    "toasts": {
+      "created": "To-do created.",
+      "updated": "To-do saved.",
+      "archived": "To-do archived.",
+      "completed": "To-do completed.",
+      "reopened": "To-do reopened.",
+      "restored": "To-do restored.",
+      "markedAllSeen": "Visible to-dos marked as read.",
+      "categoryCreated": "Category created.",
+      "categoryUpdated": "Category saved.",
+      "categoryArchived": "Category archived."
+    },
+    "errors": {
+      "loadFailed": "Could not load to-dos.",
+      "saveFailed": "Could not save to-do.",
+      "archiveFailed": "Could not archive to-do.",
+      "markSeenFailed": "Could not mark to-do as read.",
+      "titleRequired": "Please enter a title.",
+      "categoryNameRequired": "Please enter a category name.",
+      "categorySaveFailed": "Could not save category."
+    }
   },
   "settings": {
     "title": "Settings",
