@@ -882,7 +882,17 @@ class LivePiRuntime {
     this.activeTool = null;
     this.abortRequested = false;
     this.isRunning = false;
-    const persistedCount = await this.persistMessages('agent_end');
+    let persistedCount = 0;
+    let persistError: unknown = null;
+
+    try {
+      persistedCount = await this.persistMessages('agent_end');
+    } catch (error) {
+      persistError = error;
+      console.error('[LiveRuntime] Failed to persist final messages after agent_end:', error);
+      this.publishError(error);
+    }
+
     this.lastComposition = null;
     this.publishStatus();
     
@@ -890,7 +900,7 @@ class LivePiRuntime {
     // This allows notification system to read from DB without race conditions
     const allMessages = this.agent.state.messages.slice();
     const lastPersistedMessage = allMessages[allMessages.length - 1];
-    if (lastPersistedMessage && lastPersistedMessage.role === 'assistant') {
+    if (!persistError && lastPersistedMessage && lastPersistedMessage.role === 'assistant') {
       try {
         const { getPiRuntimeEventEmitter } = await import('./runtime-event-emitter');
         const emitter = getPiRuntimeEventEmitter();
