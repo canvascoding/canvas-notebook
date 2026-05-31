@@ -225,6 +225,34 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       FOREIGN KEY (job_id) REFERENCES automation_jobs(id) ON DELETE SET NULL
     );
 
+    CREATE TABLE IF NOT EXISTS automation_webhook_triggers (
+      id TEXT PRIMARY KEY NOT NULL,
+      job_id TEXT NOT NULL,
+      secret_hash TEXT NOT NULL,
+      secret_preview TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'active',
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      rotated_at INTEGER,
+      FOREIGN KEY (job_id) REFERENCES automation_jobs(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS automation_webhook_events (
+      id TEXT PRIMARY KEY NOT NULL,
+      webhook_id TEXT NOT NULL,
+      job_id TEXT NOT NULL,
+      event_id TEXT,
+      idempotency_key TEXT,
+      run_id TEXT,
+      status TEXT NOT NULL,
+      error TEXT,
+      metadata_json TEXT,
+      received_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      FOREIGN KEY (webhook_id) REFERENCES automation_webhook_triggers(id) ON DELETE CASCADE,
+      FOREIGN KEY (job_id) REFERENCES automation_jobs(id) ON DELETE CASCADE
+    );
+
     CREATE TABLE IF NOT EXISTS user_hint_state (
       id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
       user_id TEXT NOT NULL,
@@ -530,6 +558,12 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     CREATE UNIQUE INDEX IF NOT EXISTS idx_composio_webhook_events_webhook_id ON composio_webhook_events (webhook_id);
     CREATE INDEX IF NOT EXISTS idx_composio_webhook_events_trigger ON composio_webhook_events (trigger_id, received_at);
     CREATE INDEX IF NOT EXISTS idx_composio_webhook_events_job ON composio_webhook_events (job_id, received_at);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_automation_webhook_triggers_job ON automation_webhook_triggers (job_id);
+    CREATE INDEX IF NOT EXISTS idx_automation_webhook_triggers_status ON automation_webhook_triggers (status);
+    CREATE INDEX IF NOT EXISTS idx_automation_webhook_events_webhook_received ON automation_webhook_events (webhook_id, received_at);
+    CREATE INDEX IF NOT EXISTS idx_automation_webhook_events_job_received ON automation_webhook_events (job_id, received_at);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_automation_webhook_events_event ON automation_webhook_events (webhook_id, event_id);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_automation_webhook_events_idempotency ON automation_webhook_events (webhook_id, idempotency_key);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_user_hint_state_user_hint ON user_hint_state (user_id, hint_key);
     CREATE INDEX IF NOT EXISTS idx_user_hint_state_user_page ON user_hint_state (user_id, page);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_page_onboarding_state_user_page ON page_onboarding_state (user_id, page);

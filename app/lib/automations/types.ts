@@ -69,6 +69,11 @@ export type AutomationJobRecord = {
   composioConnectedAccountId: string | null;
   composioUserId: string | null;
   webhookTriggerConfig: Record<string, unknown> | null;
+  customWebhookId?: string | null;
+  customWebhookSecretPreview?: string | null;
+  customWebhookStatus?: string | null;
+  customWebhookCreatedAt?: string | null;
+  customWebhookRotatedAt?: string | null;
 };
 
 export type AutomationRunRecord = {
@@ -131,6 +136,21 @@ export type CreateWebhookAutomationJobInput = {
   composioConnectedAccountId: string;
   composioUserId: string;
   webhookTriggerConfig?: Record<string, unknown>;
+};
+
+export type CreateCustomWebhookAutomationJobInput = {
+  name: string;
+  prompt: string;
+  workspaceContextPaths?: string[];
+  targetOutputPath?: string | null;
+  preferredSkill?: AutomationPreferredSkill;
+  agentId?: string;
+  deliveryMode?: AutomationDeliveryMode;
+  deliveryChannelId?: string | null;
+  deliverySessionMode?: AutomationDeliverySessionMode;
+  deliverySessionId?: string | null;
+  deliveryChannelSessionKey?: string | null;
+  status?: AutomationJobStatus;
 };
 
 export type UpdateAutomationJobInput = Partial<CreateAutomationJobInput> & {

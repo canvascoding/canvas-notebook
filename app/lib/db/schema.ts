@@ -251,6 +251,39 @@ export const composioWebhookEvents = sqliteTable("composio_webhook_events", {
   jobIdx: index("idx_composio_webhook_events_job").on(table.jobId, table.receivedAt),
 }));
 
+export const automationWebhookTriggers = sqliteTable("automation_webhook_triggers", {
+  id: text("id").primaryKey(),
+  jobId: text("job_id").notNull().references(() => automationJobs.id, { onDelete: 'cascade' }),
+  secretHash: text("secret_hash").notNull(),
+  secretPreview: text("secret_preview").notNull(),
+  status: text("status").notNull().default('active'),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+  rotatedAt: integer("rotated_at", { mode: "timestamp" }),
+}, (table) => ({
+  jobIdx: uniqueIndex("idx_automation_webhook_triggers_job").on(table.jobId),
+  statusIdx: index("idx_automation_webhook_triggers_status").on(table.status),
+}));
+
+export const automationWebhookEvents = sqliteTable("automation_webhook_events", {
+  id: text("id").primaryKey(),
+  webhookId: text("webhook_id").notNull().references(() => automationWebhookTriggers.id, { onDelete: 'cascade' }),
+  jobId: text("job_id").notNull().references(() => automationJobs.id, { onDelete: 'cascade' }),
+  eventId: text("event_id"),
+  idempotencyKey: text("idempotency_key"),
+  runId: text("run_id"),
+  status: text("status").notNull(),
+  error: text("error"),
+  metadataJson: text("metadata_json"),
+  receivedAt: integer("received_at", { mode: "timestamp" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+}, (table) => ({
+  webhookReceivedIdx: index("idx_automation_webhook_events_webhook_received").on(table.webhookId, table.receivedAt),
+  jobReceivedIdx: index("idx_automation_webhook_events_job_received").on(table.jobId, table.receivedAt),
+  eventIdx: uniqueIndex("idx_automation_webhook_events_event").on(table.webhookId, table.eventId),
+  idempotencyIdx: uniqueIndex("idx_automation_webhook_events_idempotency").on(table.webhookId, table.idempotencyKey),
+}));
+
 export const userHintState = sqliteTable("user_hint_state", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   userId: text("user_id").notNull().references(() => user.id),

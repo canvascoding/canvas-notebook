@@ -1818,6 +1818,7 @@
       "title": "Vorlagen"
     },
     "triggers": {
+      "composioTab": "Composio App",
       "loadingApps": "Lade Apps mit Webhook-Triggern...",
       "loadingEvents": "Lade Events für diese App...",
       "setupRequiredTitle": "Composio ist noch nicht bereit",
@@ -1845,6 +1846,36 @@
       "sidebarModesDescription": "Die UI nutzt dieselben Canvas-Endpunkte. Local nutzt den lokalen Composio-Key, Managed läuft über die Control Plane.",
       "detailTitle": "Composio Trigger",
       "eventSummary": "Webhook Event",
+      "custom": {
+        "tab": "Custom Webhook",
+        "create": "Webhook erstellen",
+        "detailTitle": "Custom Webhook",
+        "detailDescription": "Dieser Endpoint startet genau diese Automation, wenn das passende Secret im Authorization-Header gesendet wird.",
+        "url": "URL",
+        "secret": "Secret",
+        "copyUrl": "Webhook-URL kopieren",
+        "copySecret": "Secret kopieren",
+        "copiedUrl": "Webhook-URL kopiert.",
+        "copiedSecret": "Secret kopiert.",
+        "rotateSecret": "Secret rotieren",
+        "secretRotated": "Webhook-Secret rotiert.",
+        "secretOnce": "Dieses Secret wird nur jetzt im Klartext angezeigt. Danach bleibt nur die Vorschau sichtbar.",
+        "hintTitle": "Für eigene Skripte und Integrationen",
+        "hintDescription": "Canvas erzeugt eine Webhook-URL und ein eigenes Secret nur für diese Automation. Sende JSON per POST und nutze einen Idempotency-Key, wenn dein System Events wiederholen kann.",
+        "sidebarTitle": "Direkter Ingress",
+        "sidebarDescription": "Dein Code ruft Canvas direkt auf. Es wird kein Composio-Konto benötigt.",
+        "sidebarSecretTitle": "Eigenes Secret pro Automation",
+        "sidebarSecretDescription": "Wenn die Automation gelöscht wird, verschwindet auch ihr Webhook-Zugang. Rotation betrifft nur diese eine Automation.",
+        "placeholders": {
+          "name": "Webhook: Deployment prüfen",
+          "prompt": "Wenn ein Event eingeht, prüfe den JSON-Inhalt, fasse das Ergebnis zusammen und erstelle bei Fehlern konkrete nächste Schritte..."
+        },
+        "errors": {
+          "create": "Webhook-Automation konnte nicht erstellt werden.",
+          "rotate": "Webhook-Secret konnte nicht rotiert werden.",
+          "copy": "Kopieren ist fehlgeschlagen."
+        }
+      },
       "fields": {
         "app": "App",
         "event": "Event",

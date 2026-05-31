@@ -10,6 +10,8 @@ import {
   CheckCircle2,
   Clock3,
   Bot,
+  Copy,
+  KeyRound,
   Link2,
   ExternalLink,
   FileText,
@@ -63,6 +65,7 @@ import { cn } from '@/lib/utils';
 
 type ScheduleKind = 'once' | 'daily' | 'weekly' | 'interval';
 type ComposerMode = 'scheduled' | 'trigger';
+type TriggerSource = 'custom' | 'composio';
 
 type JobDraft = {
   id: string | null;
@@ -155,6 +158,20 @@ type TriggerComposerDraft = {
   deliveryChannelSessionKey: string;
 };
 
+type CustomWebhookDraft = {
+  name: string;
+  prompt: string;
+  preferredSkill: string;
+  workspaceContextText: string;
+  targetOutputPath: string;
+  agentId: string;
+  deliveryMode: AutomationDeliveryMode;
+  deliveryChannelId: string;
+  deliverySessionMode: AutomationDeliverySessionMode;
+  deliverySessionId: string;
+  deliveryChannelSessionKey: string;
+};
+
 type ComposioStatus = {
   configured: boolean;
   apiKeyValid?: boolean;
@@ -231,6 +248,22 @@ function defaultTriggerDraft(): TriggerComposerDraft {
     workspaceContextText: '',
     targetOutputPath: '',
     configValues: {},
+    agentId: DEFAULT_AGENT_ID,
+    deliveryMode: 'web',
+    deliveryChannelId: 'web',
+    deliverySessionMode: 'new_session',
+    deliverySessionId: '',
+    deliveryChannelSessionKey: '',
+  };
+}
+
+function defaultCustomWebhookDraft(): CustomWebhookDraft {
+  return {
+    name: '',
+    prompt: '',
+    preferredSkill: 'auto',
+    workspaceContextText: '',
+    targetOutputPath: '',
     agentId: DEFAULT_AGENT_ID,
     deliveryMode: 'web',
     deliveryChannelId: 'web',
@@ -515,7 +548,12 @@ function normalizeDeliveryChannelSessionKeyForPayload(channelId: string | null, 
   return normalized;
 }
 
-function getDeliveryChannelSelection(state: Pick<JobDraft, 'deliveryMode' | 'deliveryChannelId'> | Pick<TriggerComposerDraft, 'deliveryMode' | 'deliveryChannelId'>): string {
+function getDeliveryChannelSelection(
+  state:
+    | Pick<JobDraft, 'deliveryMode' | 'deliveryChannelId'>
+    | Pick<TriggerComposerDraft, 'deliveryMode' | 'deliveryChannelId'>
+    | Pick<CustomWebhookDraft, 'deliveryMode' | 'deliveryChannelId'>,
+): string {
   if (state.deliveryMode === 'silent') return 'web';
   if (state.deliveryMode === 'web') return 'web';
   return state.deliveryChannelId || 'web';
@@ -631,6 +669,7 @@ export function AutomationsClient({ initialJobId = null }: AutomationsClientProp
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
   const [draft, setDraft] = useState<JobDraft>(() => defaultDraft());
   const [triggerDraft, setTriggerDraft] = useState<TriggerComposerDraft>(() => defaultTriggerDraft());
+  const [customWebhookDraft, setCustomWebhookDraft] = useState<CustomWebhookDraft>(() => defaultCustomWebhookDraft());
   const [runs, setRuns] = useState<AutomationRunRecord[]>([]);
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const [logContent, setLogContent] = useState('');
@@ -639,6 +678,7 @@ export function AutomationsClient({ initialJobId = null }: AutomationsClientProp
   const [agents, setAgents] = useState<AgentOption[]>([]);
   const [deliveryChannels, setDeliveryChannels] = useState<DeliveryChannelOption[]>([]);
   const [composerMode, setComposerMode] = useState<ComposerMode>('scheduled');
+  const [triggerSource, setTriggerSource] = useState<TriggerSource>('custom');
   const [triggerApps, setTriggerApps] = useState<TriggerCapableApp[]>([]);
   const [triggerTypesByToolkit, setTriggerTypesByToolkit] = useState<Record<string, TriggerTypeInfo[]>>({});
   const [appSearch, setAppSearch] = useState('');
@@ -649,7 +689,9 @@ export function AutomationsClient({ initialJobId = null }: AutomationsClientProp
   const [triggerAppsError, setTriggerAppsError] = useState<string | null>(null);
   const [triggerTypesError, setTriggerTypesError] = useState<string | null>(null);
   const [triggerActionSlug, setTriggerActionSlug] = useState<string | null>(null);
-  const [directoryPickerTarget, setDirectoryPickerTarget] = useState<'scheduled' | 'trigger'>('scheduled');
+  const [directoryPickerTarget, setDirectoryPickerTarget] = useState<'scheduled' | 'trigger' | 'customWebhook'>('scheduled');
+  const [webhookSecretsByJobId, setWebhookSecretsByJobId] = useState<Record<string, string>>({});
+  const [rotatingWebhookId, setRotatingWebhookId] = useState<string | null>(null);
   const [isLoadingJobs, setIsLoadingJobs] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [isRunningNow, setIsRunningNow] = useState(false);
@@ -668,8 +710,8 @@ export function AutomationsClient({ initialJobId = null }: AutomationsClientProp
     ? agents
     : [{ agentId: DEFAULT_AGENT_ID, name: 'Canvas Agent', type: 'main', removable: false }];
   const deliveryChannelOptions = useMemo(
-    () => mergeDeliveryChannelOptions(deliveryChannels, [draft.deliveryChannelId, triggerDraft.deliveryChannelId]),
-    [deliveryChannels, draft.deliveryChannelId, triggerDraft.deliveryChannelId],
+    () => mergeDeliveryChannelOptions(deliveryChannels, [draft.deliveryChannelId, triggerDraft.deliveryChannelId, customWebhookDraft.deliveryChannelId]),
+    [deliveryChannels, draft.deliveryChannelId, triggerDraft.deliveryChannelId, customWebhookDraft.deliveryChannelId],
   );
   const selectedTriggerApp = useMemo(
     () => triggerApps.find((app) => app.slug === triggerDraft.toolkitSlug) || null,
@@ -729,6 +771,10 @@ export function AutomationsClient({ initialJobId = null }: AutomationsClientProp
     () => getEffectiveAutomationTargetOutputPath({ name: draft.name || 'automation', targetOutputPath: draft.targetOutputPath }),
     [draft.name, draft.targetOutputPath],
   );
+  const selectedJobWebhookSecret = selectedJob?.id ? webhookSecretsByJobId[selectedJob.id] : '';
+  const selectedJobWebhookUrl = selectedJob?.customWebhookId
+    ? `${typeof window !== 'undefined' ? window.location.origin : ''}/api/automations/webhooks/${encodeURIComponent(selectedJob.customWebhookId)}`
+    : '';
 
   const weekdayLabels = useMemo<Record<AutomationWeekday, string>>(
     () => ({
@@ -938,14 +984,14 @@ export function AutomationsClient({ initialJobId = null }: AutomationsClientProp
   }, []);
 
   useEffect(() => {
-    if (!isComposerOpen || composerMode !== 'trigger' || triggerApps.length > 0 || isLoadingTriggerApps) return;
+    if (!isComposerOpen || composerMode !== 'trigger' || triggerSource !== 'composio' || triggerApps.length > 0 || isLoadingTriggerApps) return;
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void loadTriggerApps();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- catalog loading is only needed when opening the trigger tab
-  }, [isComposerOpen, composerMode, triggerApps.length, isLoadingTriggerApps]);
+  }, [isComposerOpen, composerMode, triggerSource, triggerApps.length, isLoadingTriggerApps]);
 
   useEffect(() => {
-    if (!isComposerOpen || composerMode !== 'trigger' || !triggerDraft.toolkitSlug) return;
+    if (!isComposerOpen || composerMode !== 'trigger' || triggerSource !== 'composio' || !triggerDraft.toolkitSlug) return;
     let cancelled = false;
     const toolkitSlug = triggerDraft.toolkitSlug;
     queueMicrotask(() => {
@@ -956,7 +1002,7 @@ export function AutomationsClient({ initialJobId = null }: AutomationsClientProp
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- selected toolkit drives lazy trigger loading
-  }, [isComposerOpen, composerMode, triggerDraft.toolkitSlug]);
+  }, [isComposerOpen, composerMode, triggerSource, triggerDraft.toolkitSlug]);
 
   useEffect(() => {
     if (!selectedTriggerApp || selectedTriggerTypes.length === 0) return;
@@ -1122,6 +1168,88 @@ export function AutomationsClient({ initialJobId = null }: AutomationsClientProp
     }
   }
 
+  async function handleCreateCustomWebhookAutomation() {
+    setIsSaving(true);
+    try {
+      const deliveryChannelId = normalizeDeliveryChannelIdForPayload(customWebhookDraft.deliveryMode, customWebhookDraft.deliveryChannelId);
+      const response = await fetch('/api/automations/webhooks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          name: customWebhookDraft.name.trim(),
+          prompt: customWebhookDraft.prompt.trim(),
+          preferredSkill: customWebhookDraft.preferredSkill || 'auto',
+          workspaceContextPaths: parseWorkspaceContext(customWebhookDraft.workspaceContextText),
+          targetOutputPath: customWebhookDraft.targetOutputPath.trim() || null,
+          agentId: customWebhookDraft.agentId,
+          deliveryMode: customWebhookDraft.deliveryMode,
+          deliveryChannelId,
+          deliverySessionMode: customWebhookDraft.deliverySessionMode,
+          deliverySessionId: customWebhookDraft.deliverySessionId.trim() || null,
+          deliveryChannelSessionKey: normalizeDeliveryChannelSessionKeyForPayload(deliveryChannelId, customWebhookDraft.deliveryChannelSessionKey),
+          status: 'active',
+        }),
+      });
+      const result = await readJsonResponse(response, 'Create webhook automation');
+      if (!response.ok || result.success === false) throw new Error(stringValue(result.error) || t('triggers.custom.errors.create'));
+      const data = asRecord(result.data);
+      const savedJob = data.job as AutomationJobRecord;
+      const secret = stringValue(data.secret);
+      if (!savedJob?.id || !secret) throw new Error(t('triggers.custom.errors.create'));
+      setWebhookSecretsByJobId((current) => ({ ...current, [savedJob.id]: secret }));
+      toast.success(t('toasts.jobCreated'));
+      setIsComposerOpen(false);
+      setComposerMode('scheduled');
+      setTriggerSource('custom');
+      setCustomWebhookDraft(defaultCustomWebhookDraft());
+      setSelectedJobId(savedJob.id);
+      setDraft(mapJobToDraft(savedJob));
+      await loadJobs({ keepSelection: true });
+      router.push(`/automationen/${savedJob.id}`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : t('triggers.custom.errors.create'));
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  async function handleRotateWebhookSecret() {
+    if (!selectedJob?.customWebhookId) return;
+    setRotatingWebhookId(selectedJob.customWebhookId);
+    try {
+      const response = await fetch(`/api/automations/webhooks/${encodeURIComponent(selectedJob.customWebhookId)}/secret`, {
+        method: 'POST',
+        credentials: 'include',
+      });
+      const result = await readJsonResponse(response, 'Rotate webhook secret');
+      if (!response.ok || result.success === false) throw new Error(stringValue(result.error) || t('triggers.custom.errors.rotate'));
+      const data = asRecord(result.data);
+      const savedJob = data.job as AutomationJobRecord;
+      const secret = stringValue(data.secret);
+      if (!savedJob?.id || !secret) throw new Error(t('triggers.custom.errors.rotate'));
+      setWebhookSecretsByJobId((current) => ({ ...current, [savedJob.id]: secret }));
+      setSelectedJobId(savedJob.id);
+      setDraft(mapJobToDraft(savedJob));
+      await loadJobs({ keepSelection: true });
+      toast.success(t('triggers.custom.secretRotated'));
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : t('triggers.custom.errors.rotate'));
+    } finally {
+      setRotatingWebhookId(null);
+    }
+  }
+
+  async function copyText(value: string, successMessage: string) {
+    if (!value) return;
+    try {
+      await navigator.clipboard.writeText(value);
+      toast.success(successMessage);
+    } catch {
+      toast.error(t('triggers.custom.errors.copy'));
+    }
+  }
+
   async function handleConnectTriggerApp(app: TriggerCapableApp) {
     setTriggerActionSlug(app.slug);
     try {
@@ -1191,7 +1319,9 @@ export function AutomationsClient({ initialJobId = null }: AutomationsClientProp
     setLogContent('');
     setDraft(defaultDraft());
     setTriggerDraft(defaultTriggerDraft());
+    setCustomWebhookDraft(defaultCustomWebhookDraft());
     setComposerMode('scheduled');
+    setTriggerSource('custom');
     setAppSearch('');
     setTriggerSearch('');
     setIsComposerOpen(true);
@@ -1250,6 +1380,26 @@ export function AutomationsClient({ initialJobId = null }: AutomationsClientProp
     );
   }
 
+  function renderCustomWebhookSkillSelect(id: string) {
+    return (
+      <label className="flex flex-col gap-1 text-sm">
+        <span className="text-xs text-muted-foreground">{t('editor.fields.preferredSkill')}</span>
+        <select
+          id={id}
+          className="h-10 rounded-md border border-input bg-background px-3 text-sm"
+          value={customWebhookDraft.preferredSkill}
+          onChange={(event) => setCustomWebhookDraft((current) => ({ ...current, preferredSkill: event.target.value }))}
+        >
+          <option value="auto">{t('skills.auto')}</option>
+          {enabledSkills.map((skill) => (
+            <option key={skill.name} value={skill.name}>/{skill.name}</option>
+          ))}
+        </select>
+        <span className="text-xs text-muted-foreground">{t('skills.description')}</span>
+      </label>
+    );
+  }
+
   function deliverySessionModeLabel(mode: AutomationDeliverySessionMode): string {
     const isGerman = locale.startsWith('de');
     if (mode === 'new_session') return isGerman ? 'Neue Session' : 'New session';
@@ -1268,14 +1418,19 @@ export function AutomationsClient({ initialJobId = null }: AutomationsClientProp
     return `${deliveryChannelDisplayLabel(channelId)} · ${deliverySessionModeLabel(job.deliverySessionMode)}`;
   }
 
-  function renderAgentDeliveryControls(target: 'scheduled' | 'trigger') {
-    const isTrigger = target === 'trigger';
-    const state = isTrigger ? triggerDraft : draft;
+  function renderAgentDeliveryControls(target: 'scheduled' | 'trigger' | 'customWebhook') {
+    const state = target === 'trigger'
+      ? triggerDraft
+      : target === 'customWebhook'
+        ? customWebhookDraft
+        : draft;
     const isGerman = locale.startsWith('de');
     const selectedDeliveryChannel = getDeliveryChannelSelection(state);
-    const updateState = (patch: Partial<JobDraft & TriggerComposerDraft>) => {
-      if (isTrigger) {
+    const updateState = (patch: Partial<JobDraft & TriggerComposerDraft & CustomWebhookDraft>) => {
+      if (target === 'trigger') {
         setTriggerDraft((current) => ({ ...current, ...patch }));
+      } else if (target === 'customWebhook') {
+        setCustomWebhookDraft((current) => ({ ...current, ...patch }));
       } else {
         setDraft((current) => ({ ...current, ...patch }));
       }
@@ -1377,7 +1532,7 @@ export function AutomationsClient({ initialJobId = null }: AutomationsClientProp
     }));
   }
 
-  function openDirectoryPicker(target: 'scheduled' | 'trigger') {
+  function openDirectoryPicker(target: 'scheduled' | 'trigger' | 'customWebhook') {
     setDirectoryPickerTarget(target);
     setIsDirectoryPickerOpen(true);
   }
@@ -1475,7 +1630,59 @@ export function AutomationsClient({ initialJobId = null }: AutomationsClientProp
                     <input data-testid="automation-target-output-path" className="h-10 w-full min-w-0 rounded-md border border-input bg-background px-3 font-mono text-xs" value={draft.targetOutputPath} onChange={(event) => setDraft((current) => ({ ...current, targetOutputPath: event.target.value }))} placeholder={t('output.placeholder')} />
                     <p className="break-all text-xs text-muted-foreground">{t('output.effectivePath')}: <span className="font-mono">{draftEffectiveTargetOutputPath || t('output.none')}</span></p>
                   </div>
-                  {selectedJob.jobType === 'webhook' ? (
+                  {selectedJob.customWebhookId ? (
+                    <div className="space-y-3 rounded-md border bg-muted/20 p-3">
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                        <div className="flex min-w-0 items-center gap-2">
+                          <Webhook className="h-4 w-4 shrink-0 text-muted-foreground" />
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium">{t('triggers.custom.detailTitle')}</p>
+                            <p className="mt-1 text-xs text-muted-foreground">{t('triggers.custom.detailDescription')}</p>
+                          </div>
+                        </div>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => void handleRotateWebhookSecret()}
+                          disabled={rotatingWebhookId === selectedJob.customWebhookId}
+                        >
+                          {rotatingWebhookId === selectedJob.customWebhookId ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <KeyRound className="mr-2 h-4 w-4" />}
+                          {t('triggers.custom.rotateSecret')}
+                        </Button>
+                      </div>
+                      <div className="grid gap-2 text-xs sm:grid-cols-[8rem_minmax(0,1fr)_auto]">
+                        <span className="text-muted-foreground">{t('triggers.custom.url')}</span>
+                        <span className="min-w-0 break-all font-mono">{selectedJobWebhookUrl}</span>
+                        <Button type="button" variant="ghost" size="icon" className="h-7 w-7" onClick={() => void copyText(selectedJobWebhookUrl, t('triggers.custom.copiedUrl'))} aria-label={t('triggers.custom.copyUrl')}>
+                          <Copy className="h-3.5 w-3.5" />
+                        </Button>
+                        <span className="text-muted-foreground">{t('triggers.custom.secret')}</span>
+                        <span className="min-w-0 break-all font-mono">{selectedJobWebhookSecret || selectedJob.customWebhookSecretPreview || t('noneYet')}</span>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7"
+                          onClick={() => void copyText(selectedJobWebhookSecret, t('triggers.custom.copiedSecret'))}
+                          disabled={!selectedJobWebhookSecret}
+                          aria-label={t('triggers.custom.copySecret')}
+                        >
+                          <Copy className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                      {selectedJobWebhookSecret ? (
+                        <div className="rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-900 dark:text-amber-200">
+                          {t('triggers.custom.secretOnce')}
+                        </div>
+                      ) : null}
+                      <pre className="max-h-48 overflow-x-auto rounded-md border bg-background p-3 text-xs"><code>{`curl -X POST '${selectedJobWebhookUrl}' \\
+  -H 'Authorization: Bearer ${selectedJobWebhookSecret || '<secret>'}' \\
+  -H 'Content-Type: application/json' \\
+  -H 'Idempotency-Key: event-001' \\
+  -d '{"event":"example","status":"ok"}'`}</code></pre>
+                    </div>
+                  ) : selectedJob.jobType === 'webhook' ? (
                     <div className="space-y-2 rounded-md border bg-muted/20 p-3">
                       <div className="flex items-center gap-2">
                         <Webhook className="h-4 w-4 text-muted-foreground" />
@@ -1718,7 +1925,82 @@ export function AutomationsClient({ initialJobId = null }: AutomationsClientProp
             <TabsContent value="trigger" className="m-0 min-h-0 flex-1 overflow-y-auto">
               <div className="grid min-h-0 gap-4 p-4 sm:p-6 lg:grid-cols-[minmax(0,1fr)_18rem]">
                 <div className="space-y-4">
-                  {isLoadingTriggerApps ? (
+                  <div className="grid grid-cols-2 rounded-md border bg-muted/20 p-1">
+                    <button
+                      type="button"
+                      className={cn(
+                        'flex min-h-10 items-center justify-center gap-2 rounded-sm px-3 text-sm font-medium transition',
+                        triggerSource === 'custom' ? 'bg-background shadow-sm' : 'text-muted-foreground hover:text-foreground',
+                      )}
+                      onClick={() => setTriggerSource('custom')}
+                    >
+                      <Webhook className="h-4 w-4" />
+                      {t('triggers.custom.tab')}
+                    </button>
+                    <button
+                      type="button"
+                      className={cn(
+                        'flex min-h-10 items-center justify-center gap-2 rounded-sm px-3 text-sm font-medium transition',
+                        triggerSource === 'composio' ? 'bg-background shadow-sm' : 'text-muted-foreground hover:text-foreground',
+                      )}
+                      onClick={() => setTriggerSource('composio')}
+                    >
+                      <Plug className="h-4 w-4" />
+                      {t('triggers.composioTab')}
+                    </button>
+                  </div>
+                  {triggerSource === 'custom' ? (
+                    <>
+                      <div className="rounded-md border border-primary/20 bg-primary/5 p-3 text-xs text-muted-foreground">
+                        <p className="font-medium text-foreground">{t('triggers.custom.hintTitle')}</p>
+                        <p className="mt-1">{t('triggers.custom.hintDescription')}</p>
+                      </div>
+                      <input
+                        className="h-11 w-full rounded-md border border-input bg-background px-3 text-base font-medium"
+                        value={customWebhookDraft.name}
+                        onChange={(event) => setCustomWebhookDraft((current) => ({ ...current, name: event.target.value }))}
+                        placeholder={t('triggers.custom.placeholders.name')}
+                      />
+                      <textarea
+                        className="min-h-[14rem] w-full resize-y rounded-md border border-input bg-background px-3 py-3 text-sm"
+                        value={customWebhookDraft.prompt}
+                        onChange={(event) => setCustomWebhookDraft((current) => ({ ...current, prompt: event.target.value }))}
+                        placeholder={t('triggers.custom.placeholders.prompt')}
+                      />
+                      {renderAgentDeliveryControls('customWebhook')}
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <label className="flex flex-col gap-1 text-sm">
+                          <span className="text-xs text-muted-foreground">{t('editor.fields.workspaceContext')}</span>
+                          <textarea
+                            className="h-24 resize-y rounded-md border border-input bg-background px-3 py-2 font-mono text-xs"
+                            value={customWebhookDraft.workspaceContextText}
+                            onChange={(event) => setCustomWebhookDraft((current) => ({ ...current, workspaceContextText: event.target.value }))}
+                            placeholder="00_dashboard&#10;03_offer-and-sales"
+                          />
+                        </label>
+                        {renderCustomWebhookSkillSelect('automation-custom-webhook-preferred-skill')}
+                      </div>
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+                        <label className="flex min-w-0 flex-1 flex-col gap-1 text-sm">
+                          <span className="text-xs text-muted-foreground">{t('triggers.fields.targetOutputPath')}</span>
+                          <input
+                            className="h-10 rounded-md border border-input bg-background px-3 font-mono text-xs"
+                            value={customWebhookDraft.targetOutputPath}
+                            onChange={(event) => setCustomWebhookDraft((current) => ({ ...current, targetOutputPath: event.target.value }))}
+                            placeholder={t('triggers.optional')}
+                          />
+                        </label>
+                        <Button type="button" variant="outline" className="justify-start" onClick={() => openDirectoryPicker('customWebhook')}>
+                          <Folder className="mr-2 h-4 w-4" />
+                          {t('output.pickInWorkspace')}
+                        </Button>
+                        <Button onClick={() => void handleCreateCustomWebhookAutomation()} disabled={isSaving || !customWebhookDraft.name.trim() || !customWebhookDraft.prompt.trim()}>
+                          {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <KeyRound className="mr-2 h-4 w-4" />}
+                          {t('triggers.custom.create')}
+                        </Button>
+                      </div>
+                    </>
+                  ) : isLoadingTriggerApps ? (
                     <div className="flex items-center gap-2 rounded-md border border-dashed px-3 py-8 text-sm text-muted-foreground">
                       <Loader2 className="h-4 w-4 animate-spin" />
                       {t('triggers.loadingApps')}
@@ -1879,12 +2161,12 @@ export function AutomationsClient({ initialJobId = null }: AutomationsClientProp
                 <aside className="space-y-3">
                   <p className="text-sm font-medium">{t('triggers.sidebarTitle')}</p>
                   <div className="rounded-md border bg-background p-3 text-xs text-muted-foreground">
-                    <p className="font-medium text-foreground">{t('triggers.sidebarWebhookTitle')}</p>
-                    <p className="mt-1">{t('triggers.sidebarWebhookDescription')}</p>
+                    <p className="font-medium text-foreground">{triggerSource === 'custom' ? t('triggers.custom.sidebarTitle') : t('triggers.sidebarWebhookTitle')}</p>
+                    <p className="mt-1">{triggerSource === 'custom' ? t('triggers.custom.sidebarDescription') : t('triggers.sidebarWebhookDescription')}</p>
                   </div>
                   <div className="rounded-md border bg-background p-3 text-xs text-muted-foreground">
-                    <p className="font-medium text-foreground">{t('triggers.sidebarModesTitle')}</p>
-                    <p className="mt-1">{t('triggers.sidebarModesDescription')}</p>
+                    <p className="font-medium text-foreground">{triggerSource === 'custom' ? t('triggers.custom.sidebarSecretTitle') : t('triggers.sidebarModesTitle')}</p>
+                    <p className="mt-1">{triggerSource === 'custom' ? t('triggers.custom.sidebarSecretDescription') : t('triggers.sidebarModesDescription')}</p>
                   </div>
                 </aside>
               </div>
@@ -1995,10 +2277,18 @@ export function AutomationsClient({ initialJobId = null }: AutomationsClientProp
       <WorkspaceDirectoryPickerDialog
         open={isDirectoryPickerOpen}
         onOpenChange={setIsDirectoryPickerOpen}
-        selectedPath={directoryPickerTarget === 'trigger' ? triggerDraft.targetOutputPath : draft.targetOutputPath}
+        selectedPath={
+          directoryPickerTarget === 'trigger'
+            ? triggerDraft.targetOutputPath
+            : directoryPickerTarget === 'customWebhook'
+              ? customWebhookDraft.targetOutputPath
+              : draft.targetOutputPath
+        }
         onSelect={(path) => {
           if (directoryPickerTarget === 'trigger') {
             setTriggerDraft((current) => ({ ...current, targetOutputPath: path }));
+          } else if (directoryPickerTarget === 'customWebhook') {
+            setCustomWebhookDraft((current) => ({ ...current, targetOutputPath: path }));
           } else {
             setDraft((current) => ({ ...current, targetOutputPath: path }));
           }

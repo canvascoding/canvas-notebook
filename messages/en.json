@@ -1819,6 +1819,7 @@
       "title": "Templates"
     },
     "triggers": {
+      "composioTab": "Composio app",
       "loadingApps": "Loading apps with webhook triggers...",
       "loadingEvents": "Loading events for this app...",
       "setupRequiredTitle": "Composio is not ready yet",
@@ -1846,6 +1847,36 @@
       "sidebarModesDescription": "The UI uses the same Canvas endpoints. Local uses the local Composio key, managed runs through the Control Plane.",
       "detailTitle": "Composio trigger",
       "eventSummary": "Webhook event",
+      "custom": {
+        "tab": "Custom webhook",
+        "create": "Create webhook",
+        "detailTitle": "Custom webhook",
+        "detailDescription": "This endpoint starts exactly this automation when the matching secret is sent in the Authorization header.",
+        "url": "URL",
+        "secret": "Secret",
+        "copyUrl": "Copy webhook URL",
+        "copySecret": "Copy secret",
+        "copiedUrl": "Webhook URL copied.",
+        "copiedSecret": "Secret copied.",
+        "rotateSecret": "Rotate secret",
+        "secretRotated": "Webhook secret rotated.",
+        "secretOnce": "This secret is shown in plain text only now. After that, only the preview remains visible.",
+        "hintTitle": "For your own scripts and integrations",
+        "hintDescription": "Canvas creates one webhook URL and one dedicated secret for this automation. Send JSON with POST and use an Idempotency-Key if your system can retry events.",
+        "sidebarTitle": "Direct ingress",
+        "sidebarDescription": "Your code calls Canvas directly. No Composio account is required.",
+        "sidebarSecretTitle": "One secret per automation",
+        "sidebarSecretDescription": "When the automation is deleted, its webhook access disappears too. Rotation affects only this one automation.",
+        "placeholders": {
+          "name": "Webhook: Check deployment",
+          "prompt": "When an event arrives, inspect the JSON, summarize the result, and create concrete next steps when failures are reported..."
+        },
+        "errors": {
+          "create": "Webhook automation could not be created.",
+          "rotate": "Webhook secret could not be rotated.",
+          "copy": "Copy failed."
+        }
+      },
       "fields": {
         "app": "App",
         "event": "Event",
