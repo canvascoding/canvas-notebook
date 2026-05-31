@@ -142,6 +142,7 @@ type ConnectionOption = {
   label: string;
   detail: string;
   kind: 'mcp' | 'composio';
+  logoUrl?: string | null;
 };
 
 type LazyLoadStatus = 'idle' | 'loading' | 'loaded' | 'error';
@@ -155,8 +156,10 @@ type CreateAgentDialogProps = {
 };
 
 const CREATE_AGENT_LAZY_CACHE_TTL_MS = 2 * 60 * 1000;
+const CREATE_AGENT_CONNECTION_PAGE_SIZE = 6;
 let cachedSkillOptions: { expiresAt: number; data: SkillOption[] } | null = null;
 let cachedConnectionOptions: { expiresAt: number; data: ConnectionOption[] } | null = null;
+const connectionLogoLoadCache = new Map<string, string | null>();
 
 function mergeFileDrafts(template: CreateAgentTemplate): Record<ManagedFileName, string> {
   return {
@@ -207,6 +210,53 @@ function hasSkill(skills: SkillOption[], name: string): boolean {
 
 function readCachedValue<T>(cached: { expiresAt: number; data: T } | null): T | null {
   return cached && cached.expiresAt > Date.now() ? cached.data : null;
+}
+
+function preloadConnectionLogo(url: string): Promise<string | null> {
+  return new Promise((resolve) => {
+    const image = new window.Image();
+    image.onload = () => resolve(url);
+    image.onerror = () => resolve(null);
+    image.src = url;
+  });
+}
+
+function useSequentialConnectionLogos(connections: ConnectionOption[], shouldLoad: boolean) {
+  const [logoUrls, setLogoUrls] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    if (!shouldLoad || connections.length === 0) return;
+    let cancelled = false;
+    async function loadLogos() {
+      for (const connection of connections) {
+        const sourceUrl = connection.logoUrl;
+        if (!sourceUrl) continue;
+
+        const cacheKey = `${connection.id}:${sourceUrl}`;
+        const cachedLogoUrl = connectionLogoLoadCache.get(cacheKey);
+        if (cachedLogoUrl !== undefined) {
+          if (!cancelled && cachedLogoUrl) {
+            setLogoUrls((current) => ({ ...current, [connection.id]: cachedLogoUrl }));
+          }
+          continue;
+        }
+
+        const loadedLogoUrl = await preloadConnectionLogo(sourceUrl);
+        connectionLogoLoadCache.set(cacheKey, loadedLogoUrl);
+        if (cancelled) return;
+        if (loadedLogoUrl) {
+          setLogoUrls((current) => ({ ...current, [connection.id]: loadedLogoUrl }));
+        }
+      }
+    }
+
+    void loadLogos();
+    return () => {
+      cancelled = true;
+    };
+  }, [connections, shouldLoad]);
+
+  return logoUrls;
 }
 
 function useLazyAgentSkills(shouldLoad: boolean) {
@@ -318,7 +368,7 @@ function useLazyAgentConnections(
             cache: 'no-store',
             signal: controller.signal,
           }),
-          fetch('/api/composio/toolkits?connectedOnly=1&summary=1', {
+          fetch('/api/composio/toolkits?connectedOnly=1&summary=1&includeLogos=1', {
             credentials: 'include',
             cache: 'no-store',
             signal: controller.signal,
@@ -344,6 +394,7 @@ function useLazyAgentConnections(
                 kind: 'mcp',
                 label: server.name,
                 detail: detailFormattersRef.current.formatMcpDetail(server.cachedToolCount || 0),
+                logoUrl: `/api/integrations/mcp-icon/${encodeURIComponent(server.name)}`,
               });
             }
           }
@@ -352,7 +403,7 @@ function useLazyAgentConnections(
         if (composioResult.status === 'fulfilled') {
           const composioResponse = composioResult.value;
           const composioPayload = (await composioResponse.json().catch(() => ({}))) as {
-            toolkits?: Array<{ slug?: string; name?: string; connected?: boolean; toolsCount?: number }>;
+            toolkits?: Array<{ slug?: string; name?: string; connected?: boolean; toolsCount?: number; logo?: string }>;
           };
           if (composioResponse.ok && Array.isArray(composioPayload.toolkits)) {
             for (const toolkit of composioPayload.toolkits) {
@@ -362,6 +413,7 @@ function useLazyAgentConnections(
                 kind: 'composio',
                 label: toolkit.name || toolkit.slug,
                 detail: detailFormattersRef.current.formatComposioDetail(toolkit.toolsCount || 0),
+                logoUrl: toolkit.logo || null,
               });
             }
           }
@@ -493,6 +545,38 @@ function CreateAgentSection({
   );
 }
 
+function ConnectionLogo({
+  connection,
+  logoUrl,
+}: {
+  connection: ConnectionOption;
+  logoUrl?: string;
+}) {
+  const [failedLogoUrl, setFailedLogoUrl] = useState<string | null>(null);
+
+  if (logoUrl && failedLogoUrl !== logoUrl) {
+    return (
+      <span className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-md border bg-background">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={logoUrl}
+          alt=""
+          className="h-6 w-6 object-contain"
+          loading="lazy"
+          decoding="async"
+          onError={() => setFailedLogoUrl(logoUrl)}
+        />
+      </span>
+    );
+  }
+
+  return (
+    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border bg-muted/40 text-xs font-semibold uppercase text-muted-foreground">
+      {connection.kind === 'mcp' ? <Plug className="h-4 w-4" /> : connection.label.charAt(0)}
+    </span>
+  );
+}
+
 export function CreateAgentDialog({
   open,
   creating,
@@ -511,6 +595,7 @@ export function CreateAgentDialog({
   const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
   const [selectedConnections, setSelectedConnections] = useState<Set<string>>(new Set());
   const [connectionsOpen, setConnectionsOpen] = useState(false);
+  const [connectionPage, setConnectionPage] = useState(1);
   const [skillsOpen, setSkillsOpen] = useState(false);
   const [filesOpen, setFilesOpen] = useState(true);
 
@@ -526,6 +611,10 @@ export function CreateAgentDialog({
     formatMcpConnectionDetail,
     formatComposioConnectionDetail,
   );
+  const connectionLogoUrls = useSequentialConnectionLogos(connections, open && connectionsOpen && connectionsStatus === 'loaded');
+  const visibleConnectionCount = Math.min(connections.length, connectionPage * CREATE_AGENT_CONNECTION_PAGE_SIZE);
+  const visibleConnections = connections.slice(0, visibleConnectionCount);
+  const remainingConnectionCount = Math.max(connections.length - visibleConnectionCount, 0);
 
   const applyTemplate = useCallback((template: CreateAgentTemplate) => {
     setSelectedTemplateId(template.id);
@@ -541,6 +630,7 @@ export function CreateAgentDialog({
     applyTemplate(AGENT_TEMPLATES[0]);
     setSelectedConnections(new Set());
     setConnectionsOpen(false);
+    setConnectionPage(1);
     setSkillsOpen(false);
     setFilesOpen(true);
   }, [applyTemplate]);
@@ -664,36 +754,58 @@ export function CreateAgentDialog({
                     ) : connections.length === 0 ? (
                       <p className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">{t('connections.empty')}</p>
                     ) : (
-                      <div className="grid min-w-0 gap-2 sm:grid-cols-2">
-                        {connections.map((connection) => {
-                          const selected = selectedConnections.has(connection.id);
-                          return (
-                            <button
-                              key={connection.id}
-                              type="button"
-                              onClick={() => {
-                                setSelectedConnections((current) => {
-                                  const next = new Set(current);
-                                  if (next.has(connection.id)) next.delete(connection.id);
-                                  else next.add(connection.id);
-                                  return next;
-                                });
-                              }}
-                              className={cn(
-                                'flex min-w-0 items-start justify-between gap-3 rounded-md border p-3 text-left transition',
-                                selected ? 'border-primary bg-primary/5' : 'border-border bg-background hover:bg-muted/40',
-                              )}
-                            >
-                              <span className="min-w-0 flex-1">
-                                <span className="block truncate text-sm font-medium">{connection.label}</span>
-                                <span className="block truncate text-xs text-muted-foreground">{connection.detail}</span>
-                              </span>
-                              <Badge variant={connection.kind === 'mcp' ? 'secondary' : 'outline'} className="shrink-0 uppercase">
-                                {connection.kind}
-                              </Badge>
-                            </button>
-                          );
-                        })}
+                      <div className="min-w-0 space-y-3">
+                        <div className="grid min-w-0 gap-2 sm:grid-cols-2">
+                          {visibleConnections.map((connection) => {
+                            const selected = selectedConnections.has(connection.id);
+                            return (
+                              <button
+                                key={connection.id}
+                                type="button"
+                                onClick={() => {
+                                  setSelectedConnections((current) => {
+                                    const next = new Set(current);
+                                    if (next.has(connection.id)) next.delete(connection.id);
+                                    else next.add(connection.id);
+                                    return next;
+                                  });
+                                }}
+                                className={cn(
+                                  'flex min-w-0 items-start gap-3 rounded-md border p-3 text-left transition',
+                                  selected
+                                    ? 'border-primary bg-primary/10 shadow-sm ring-2 ring-primary/35'
+                                    : 'border-border bg-background hover:border-primary/40 hover:bg-muted/40',
+                                )}
+                                aria-pressed={selected}
+                              >
+                                <ConnectionLogo connection={connection} logoUrl={connectionLogoUrls[connection.id]} />
+                                <span className="min-w-0 flex-1">
+                                  <span className="block truncate text-sm font-medium">{connection.label}</span>
+                                  <span className="block truncate text-xs text-muted-foreground">{connection.detail}</span>
+                                </span>
+                                <span className="flex shrink-0 flex-col items-end gap-2">
+                                  <Badge variant={connection.kind === 'mcp' ? 'secondary' : 'outline'} className="uppercase">
+                                    {connection.kind}
+                                  </Badge>
+                                  <span className={cn(
+                                    'inline-flex h-5 w-5 items-center justify-center rounded-full border transition',
+                                    selected ? 'border-primary bg-primary text-primary-foreground' : 'border-muted-foreground/30 bg-background',
+                                  )}>
+                                    {selected ? <Check className="h-3.5 w-3.5" /> : null}
+                                  </span>
+                                </span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                        {remainingConnectionCount > 0 && (
+                          <div className="flex justify-center">
+                            <Button type="button" variant="outline" size="sm" onClick={() => setConnectionPage((page) => page + 1)}>
+                              <ChevronDown className="mr-1 h-3.5 w-3.5" />
+                              {t('connections.loadMore', { count: remainingConnectionCount })}
+                            </Button>
+                          </div>
+                        )}
                       </div>
                     )}
                   </CreateAgentSection>

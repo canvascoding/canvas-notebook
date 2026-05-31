@@ -1252,7 +1252,8 @@
           "loading": "Lade Verbindungen...",
           "empty": "Keine verbundenen Apps oder aktiven MCP-Server gefunden.",
           "mcpDetail": "{count} gecachte Tools",
-          "composioDetail": "{count} Tools"
+          "composioDetail": "{count} Tools",
+          "loadMore": "{count} weitere anzeigen"
         },
         "skills": {
           "title": "Relevante Skills",
