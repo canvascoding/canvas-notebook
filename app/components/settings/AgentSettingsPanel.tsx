@@ -20,8 +20,10 @@ import { AgentSessionsCard, type AgentSessionItem } from './AgentSessionsCard';
 import { AgentDoctorCard, type DoctorResult } from './AgentDoctorCard';
 import { AgentManagedFilesCard, getVisibleManagedFileNames, type ManagedFileName, type ResetTarget } from './AgentManagedFilesCard';
 import { AgentToolsCard, type ToolMetadata } from './AgentToolsCard';
+import { AgentConnectionsPicker, AgentRelevantSkillsPicker } from './AgentCapabilityPickers';
 import { AgentChatDisplayCard } from './AgentChatDisplayCard';
 import { AgentSelectorCard, type AgentProfileItem } from './AgentSelectorCard';
+import { AgentSettingsAccordionCard } from './AgentSettingsAccordionCard';
 import type { CreateAgentInput } from './CreateAgentDialog';
 import {
   AgentHeartbeatCard,
@@ -48,7 +50,7 @@ type PiConfigData = {
   [key: string]: unknown;
 };
 
-type AgentSettingsSectionId = 'runtime' | 'chatDisplay' | 'tools' | 'heartbeat' | 'files' | 'sessions' | 'doctor';
+type AgentSettingsSectionId = 'runtime' | 'chatDisplay' | 'tools' | 'connections' | 'skills' | 'heartbeat' | 'files' | 'sessions' | 'doctor';
 type AgentSettingsSectionOpenState = Record<AgentSettingsSectionId, boolean>;
 
 const AGENT_SETTINGS_SECTION_OPEN_STORAGE_KEY = 'canvas-settings-agent-section-open-state';
@@ -57,6 +59,8 @@ const DEFAULT_AGENT_SETTINGS_SECTION_OPEN_STATE: AgentSettingsSectionOpenState =
   runtime: false,
   chatDisplay: false,
   tools: false,
+  connections: false,
+  skills: false,
   heartbeat: false,
   files: false,
   sessions: false,
@@ -81,6 +85,8 @@ function getInitialAgentSectionOpenState(requestedPanel: string | null): AgentSe
       runtime: typeof storedState.runtime === 'boolean' ? storedState.runtime : fallback.runtime,
       chatDisplay: typeof storedState.chatDisplay === 'boolean' ? storedState.chatDisplay : fallback.chatDisplay,
       tools: typeof storedState.tools === 'boolean' ? storedState.tools : fallback.tools,
+      connections: typeof storedState.connections === 'boolean' ? storedState.connections : fallback.connections,
+      skills: typeof storedState.skills === 'boolean' ? storedState.skills : fallback.skills,
       heartbeat: typeof storedState.heartbeat === 'boolean' ? storedState.heartbeat : fallback.heartbeat,
       files: typeof storedState.files === 'boolean' ? storedState.files : fallback.files,
       sessions: typeof storedState.sessions === 'boolean' ? storedState.sessions : fallback.sessions,
@@ -281,6 +287,10 @@ export function AgentSettingsPanel() {
   const [toolsPiConfig, setToolsPiConfig] = useState<PiConfigData | null>(null);
   const [toolSearchQuery, setToolSearchQuery] = useState('');
   const [activeToolGroups, setActiveToolGroups] = useState<Set<string>>(new Set());
+  const [capabilitiesSaving, setCapabilitiesSaving] = useState(false);
+  const [capabilitiesError, setCapabilitiesError] = useState<string | null>(null);
+  const [relevantSkillsDraft, setRelevantSkillsDraft] = useState<string[]>([]);
+  const [relevantConnectionsDraft, setRelevantConnectionsDraft] = useState<string[]>([]);
 
   const [heartbeatConfig, setHeartbeatConfig] = useState<AgentHeartbeatConfig | null>(null);
   const [heartbeatScheduleDraft, setHeartbeatScheduleDraft] = useState<AgentHeartbeatScheduleDraft>(() => defaultHeartbeatScheduleDraft());
@@ -324,6 +334,7 @@ export function AgentSettingsPanel() {
     setToolsPiConfig(null);
     setOpenToolRows({});
     setActiveToolGroups(new Set());
+    setCapabilitiesError(null);
     setHeartbeatConfig(null);
     setHeartbeatScheduleDraft(defaultHeartbeatScheduleDraft());
     setHeartbeatDeliveryDraft(defaultHeartbeatDeliveryDraft());
@@ -344,6 +355,20 @@ export function AgentSettingsPanel() {
   const isMainAgent = selectedAgentId === DEFAULT_AGENT_ID || selectedAgent?.type === 'main';
   const modelOverrideEnabled = isMainAgent || Boolean(selectedAgent?.defaultProvider && selectedAgent.defaultModel);
   const toolsOverrideEnabled = isMainAgent || Array.isArray(selectedAgent?.enabledTools);
+  const skillsOverrideEnabled = !isMainAgent && Array.isArray(selectedAgent?.relevantSkills);
+  const connectionsOverrideEnabled = !isMainAgent && Array.isArray(selectedAgent?.relevantConnections);
+
+  useEffect(() => {
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (cancelled) return;
+      setRelevantSkillsDraft(Array.isArray(selectedAgent?.relevantSkills) ? selectedAgent.relevantSkills : []);
+      setRelevantConnectionsDraft(Array.isArray(selectedAgent?.relevantConnections) ? selectedAgent.relevantConnections : []);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedAgent?.agentId, selectedAgent?.relevantConnections, selectedAgent?.relevantSkills]);
 
   const loadAgents = useCallback(async () => {
     setAgentsLoading(true);
@@ -398,7 +423,9 @@ export function AgentSettingsPanel() {
           name,
           iconId: input.iconId,
           files: input.files,
+          enabledTools: input.enabledTools,
           relevantSkills: input.relevantSkills,
+          relevantConnections: input.relevantConnections,
         }),
       });
       await loadAgents();
@@ -993,6 +1020,45 @@ export function AgentSettingsPanel() {
     }
   };
 
+  const saveAgentCapabilityOverrides = async (payload: Record<string, unknown>) => {
+    if (isMainAgent) return;
+    setCapabilitiesSaving(true);
+    setCapabilitiesError(null);
+    try {
+      await patchSelectedAgent(payload);
+    } catch (error) {
+      setCapabilitiesError(error instanceof Error ? error.message : t('agentPanel.capabilities.errors.save'));
+    } finally {
+      setCapabilitiesSaving(false);
+    }
+  };
+
+  const setAgentSkillsOverrideEnabled = async (enabled: boolean) => {
+    const nextSkills = enabled ? selectedAgent?.relevantSkills ?? [] : [];
+    setRelevantSkillsDraft(nextSkills);
+    await saveAgentCapabilityOverrides({
+      relevantSkills: enabled ? nextSkills : null,
+    });
+  };
+
+  const saveAgentRelevantSkills = async (skillNames: string[]) => {
+    setRelevantSkillsDraft(skillNames);
+    await saveAgentCapabilityOverrides({ relevantSkills: skillNames });
+  };
+
+  const setAgentConnectionsOverrideEnabled = async (enabled: boolean) => {
+    const nextConnections = enabled ? selectedAgent?.relevantConnections ?? [] : [];
+    setRelevantConnectionsDraft(nextConnections);
+    await saveAgentCapabilityOverrides({
+      relevantConnections: enabled ? nextConnections : null,
+    });
+  };
+
+  const saveAgentRelevantConnections = async (connectionIds: string[]) => {
+    setRelevantConnectionsDraft(connectionIds);
+    await saveAgentCapabilityOverrides({ relevantConnections: connectionIds });
+  };
+
   const toolGroups = useMemo(() => {
     const groups = [...new Set(availableTools.map(t => t.group).filter(Boolean))] as string[];
     return groups.sort();
@@ -1136,6 +1202,39 @@ export function AgentSettingsPanel() {
                 aria-label={t('agentPanel.inheritance.toolsOverride')}
               />
             </div>
+            <div className="flex items-center justify-between gap-4 rounded-md border bg-muted/20 p-3">
+              <div className="min-w-0">
+                <p className="text-sm font-medium">{t('agentPanel.capabilities.skillsToggle')}</p>
+                <p className="truncate text-xs text-muted-foreground">
+                  {skillsOverrideEnabled
+                    ? t('agentPanel.capabilities.skillsCustom', { count: selectedAgent?.relevantSkills?.length ?? 0 })
+                    : t('agentPanel.capabilities.skillsInherited')}
+                </p>
+              </div>
+              <Switch
+                checked={skillsOverrideEnabled}
+                onCheckedChange={(checked) => void setAgentSkillsOverrideEnabled(checked)}
+                disabled={capabilitiesSaving}
+                aria-label={t('agentPanel.capabilities.skillsToggle')}
+              />
+            </div>
+            <div className="flex items-center justify-between gap-4 rounded-md border bg-muted/20 p-3">
+              <div className="min-w-0">
+                <p className="text-sm font-medium">{t('agentPanel.capabilities.connectionsToggle')}</p>
+                <p className="truncate text-xs text-muted-foreground">
+                  {connectionsOverrideEnabled
+                    ? t('agentPanel.capabilities.connectionsCustom', { count: selectedAgent?.relevantConnections?.length ?? 0 })
+                    : t('agentPanel.capabilities.connectionsInherited')}
+                </p>
+              </div>
+              <Switch
+                checked={connectionsOverrideEnabled}
+                onCheckedChange={(checked) => void setAgentConnectionsOverrideEnabled(checked)}
+                disabled={capabilitiesSaving}
+                aria-label={t('agentPanel.capabilities.connectionsToggle')}
+              />
+            </div>
+            {capabilitiesError && <p className="text-sm text-destructive md:col-span-2">{capabilitiesError}</p>}
           </CardContent>
         </Card>
       )}
@@ -1187,6 +1286,39 @@ export function AgentSettingsPanel() {
           onEnableAll={handleEnableAll}
           onDisableAll={handleDisableAll}
         />
+      )}
+
+      {!isMainAgent && connectionsOverrideEnabled && (
+        <AgentSettingsAccordionCard
+          title={t('agentPanel.capabilities.connectionsTitle')}
+          description={t('agentPanel.capabilities.connectionsDescription')}
+          isOpen={agentSectionOpenById.connections}
+          onOpenChange={(isOpen) => setAgentSectionOpen('connections', isOpen)}
+          summaryItems={[t('agentPanel.capabilities.connectionsCustom', { count: relevantConnectionsDraft.length })]}
+        >
+          <AgentConnectionsPicker
+            enabled
+            selectedConnectionIds={relevantConnectionsDraft}
+            onSelectedConnectionIdsChange={(connectionIds) => void saveAgentRelevantConnections(connectionIds)}
+            pageSize={6}
+          />
+        </AgentSettingsAccordionCard>
+      )}
+
+      {!isMainAgent && skillsOverrideEnabled && (
+        <AgentSettingsAccordionCard
+          title={t('agentPanel.capabilities.skillsTitle')}
+          description={t('agentPanel.capabilities.skillsDescription')}
+          isOpen={agentSectionOpenById.skills}
+          onOpenChange={(isOpen) => setAgentSectionOpen('skills', isOpen)}
+          summaryItems={[t('agentPanel.capabilities.skillsCustom', { count: relevantSkillsDraft.length })]}
+        >
+          <AgentRelevantSkillsPicker
+            enabled
+            selectedSkillNames={relevantSkillsDraft}
+            onSelectedSkillNamesChange={(skillNames) => void saveAgentRelevantSkills(skillNames)}
+          />
+        </AgentSettingsAccordionCard>
       )}
 
       <AgentHeartbeatCard

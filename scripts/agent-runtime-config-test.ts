@@ -130,10 +130,12 @@ async function main() {
     defaultThinking: 'high',
     enabledTools: ['bash'],
     relevantSkills: ['research-notes'],
+    relevantConnections: ['mcp:Docs', 'composio:slack'],
   });
   const customProfile = await getAgentProfile(customAgent.agentId);
   assert.equal(customProfile?.iconId, 'sparkles');
   assert.deepEqual(customProfile?.relevantSkills, ['research-notes']);
+  assert.deepEqual(customProfile?.relevantConnections, ['mcp:Docs', 'composio:slack']);
   const customConfig = await resolveAgentRuntimeConfig(customAgent.agentId);
   assert.equal(customConfig.activeProvider, 'openrouter');
   assert.equal(customConfig.model.id, DEFAULT_PI_CONFIG.providers.openrouter.model);
@@ -217,6 +219,13 @@ async function main() {
   assert.match(prompt.systemPrompt, /# Enabled Skills/);
   assert.match(prompt.systemPrompt, /## Skill: research-notes/);
   assert.doesNotMatch(prompt.systemPrompt, /general-helper/);
+  assert.match(prompt.systemPrompt, /## Prioritized Apps & MCP/);
+  assert.match(prompt.systemPrompt, /Docs/);
+  assert.match(prompt.systemPrompt, /slack/);
+
+  const inheritedPrompt = await loadManagedAgentSystemPrompt(inheritedAgent.agentId);
+  assert.match(inheritedPrompt.systemPrompt, /## Skill: research-notes/);
+  assert.match(inheritedPrompt.systemPrompt, /## Skill: general-helper/);
 
   const canvasPrompt = await loadManagedAgentSystemPrompt(DEFAULT_MANAGED_AGENT_ID);
   assert.match(canvasPrompt.systemPrompt, /## Skill: research-notes/);

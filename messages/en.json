@@ -1254,9 +1254,14 @@
             "description": "Diagnoses issues and writes clear solutions."
           }
         },
+        "tools": {
+          "title": "Tools",
+          "description": "Use a custom tool set instead of inheriting the Canvas Agent tools.",
+          "loadError": "Failed to load tools."
+        },
         "connections": {
           "title": "Apps & MCP",
-          "description": "Connected services can later be prioritized per agent.",
+          "description": "Prioritize selected connected apps and MCP servers for this agent.",
           "loading": "Loading connections...",
           "empty": "No connected apps or active MCP servers found.",
           "mcpDetail": "{count} cached tools",
@@ -1273,6 +1278,39 @@
         "files": {
           "title": "Agent files",
           "description": "Set the most important setup files while creating the agent."
+        }
+      },
+      "capabilities": {
+        "previous": "Previous",
+        "next": "Next",
+        "paginationSummary": "Page {page} of {totalPages} · {total} total",
+        "skillsToggle": "Use relevant skills",
+        "skillsInherited": "Inherits all globally enabled skills",
+        "skillsCustom": "{count} selected skills",
+        "skillsTitle": "Relevant skills",
+        "skillsDescription": "Restrict this special agent to selected skills. Turning this off inherits all globally enabled skills.",
+        "connectionsToggle": "Use selected apps & MCP",
+        "connectionsInherited": "No prioritized app or MCP prompt section",
+        "connectionsCustom": "{count} selected connections",
+        "connectionsTitle": "Apps & MCP",
+        "connectionsDescription": "Prioritize selected connected apps and MCP servers in this agent's prompt.",
+        "errors": {
+          "save": "Failed to save agent capability settings."
+        },
+        "skills": {
+          "searchPlaceholder": "Search skills...",
+          "loadError": "Failed to load skills.",
+          "empty": "No enabled skills found.",
+          "emptySearch": "No skills match this search.",
+          "noDescription": "No description available."
+        },
+        "connections": {
+          "searchPlaceholder": "Search apps and MCP...",
+          "loadError": "Failed to load apps and MCP servers.",
+          "empty": "No connected apps or active MCP servers found.",
+          "emptySearch": "No apps or MCP servers match this search.",
+          "mcpDetail": "{count} cached tools",
+          "composioDetail": "{count} tools"
         }
       },
       "chatDisplay": {

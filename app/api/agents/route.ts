@@ -112,6 +112,7 @@ export async function POST(request: NextRequest) {
       defaultThinking: thinkingValue(payload.defaultThinking),
       enabledTools: stringArrayValue(payload.enabledTools),
       relevantSkills: stringArrayValue(payload.relevantSkills),
+      relevantConnections: stringArrayValue(payload.relevantConnections),
     });
     await writeInitialAgentFiles(agent.agentId, managedFilesValue(payload.files));
     return NextResponse.json({ success: true, data: { agent } });
@@ -153,6 +154,7 @@ export async function PATCH(request: NextRequest) {
       defaultThinking: Object.hasOwn(payload, 'defaultThinking') ? thinkingValue(payload.defaultThinking) : undefined,
       enabledTools: Object.hasOwn(payload, 'enabledTools') ? stringArrayValue(payload.enabledTools) : undefined,
       relevantSkills: Object.hasOwn(payload, 'relevantSkills') ? stringArrayValue(payload.relevantSkills) : undefined,
+      relevantConnections: Object.hasOwn(payload, 'relevantConnections') ? stringArrayValue(payload.relevantConnections) : undefined,
     });
     return NextResponse.json({ success: true, data: { agent } });
   } catch (error) {

@@ -1253,9 +1253,14 @@
             "description": "Diagnostiziert Probleme und formuliert klare Lösungen."
           }
         },
+        "tools": {
+          "title": "Tools",
+          "description": "Nutze ein eigenes Tool-Set, statt die Canvas-Agent-Tools zu erben.",
+          "loadError": "Tools konnten nicht geladen werden."
+        },
         "connections": {
           "title": "Apps & MCP",
-          "description": "Verbundene Dienste können später agentenspezifisch priorisiert werden.",
+          "description": "Priorisiere ausgewählte verbundene Apps und MCP-Server für diesen Agenten.",
           "loading": "Lade Verbindungen...",
           "empty": "Keine verbundenen Apps oder aktiven MCP-Server gefunden.",
           "mcpDetail": "{count} gecachte Tools",
@@ -1272,6 +1277,39 @@
         "files": {
           "title": "Agent-Dateien",
           "description": "Lege die wichtigsten Setup-Dateien direkt beim Erstellen fest."
+        }
+      },
+      "capabilities": {
+        "previous": "Zurück",
+        "next": "Weiter",
+        "paginationSummary": "Seite {page} von {totalPages} · {total} gesamt",
+        "skillsToggle": "Relevante Skills verwenden",
+        "skillsInherited": "Erbt alle global aktivierten Skills",
+        "skillsCustom": "{count} ausgewählte Skills",
+        "skillsTitle": "Relevante Skills",
+        "skillsDescription": "Beschränke diesen Spezial-Agenten auf ausgewählte Skills. Ausgeschaltet erbt er alle global aktivierten Skills.",
+        "connectionsToggle": "Ausgewählte Apps & MCP verwenden",
+        "connectionsInherited": "Keine priorisierte App- oder MCP-Sektion im Prompt",
+        "connectionsCustom": "{count} ausgewählte Verbindungen",
+        "connectionsTitle": "Apps & MCP",
+        "connectionsDescription": "Priorisiere ausgewählte verbundene Apps und MCP-Server im Prompt dieses Agenten.",
+        "errors": {
+          "save": "Agent-Fähigkeiten konnten nicht gespeichert werden."
+        },
+        "skills": {
+          "searchPlaceholder": "Skills suchen...",
+          "loadError": "Skills konnten nicht geladen werden.",
+          "empty": "Keine aktivierten Skills gefunden.",
+          "emptySearch": "Keine Skills passen zu dieser Suche.",
+          "noDescription": "Keine Beschreibung vorhanden."
+        },
+        "connections": {
+          "searchPlaceholder": "Apps und MCP suchen...",
+          "loadError": "Apps und MCP-Server konnten nicht geladen werden.",
+          "empty": "Keine verbundenen Apps oder aktiven MCP-Server gefunden.",
+          "emptySearch": "Keine Apps oder MCP-Server passen zu dieser Suche.",
+          "mcpDetail": "{count} gecachte Tools",
+          "composioDetail": "{count} Tools"
         }
       },
       "chatDisplay": {
