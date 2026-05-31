@@ -931,74 +931,112 @@ export async function markAutomationRunFinished(
   });
 }
 
-export async function getHeartbeatJob(): Promise<AutomationJobRecord | null> {
+export async function getHeartbeatJob(input: {
+  userId: string;
+  agentId?: string | null;
+}): Promise<AutomationJobRecord | null> {
+  const agentId = normalizeAgentId(input.agentId);
   const row = await db.query.automationJobs.findFirst({
-    where: eq(automationJobs.jobType, 'heartbeat'),
+    where: and(
+      eq(automationJobs.createdByUserId, input.userId),
+      eq(automationJobs.agentId, agentId),
+      eq(automationJobs.jobType, 'heartbeat'),
+    ),
   });
 
   return row ? mapJobRow(row) : null;
 }
 
 export async function upsertHeartbeatJob(data: {
+  userId: string;
+  agentId?: string | null;
   enabled: boolean;
   schedule: FriendlySchedule;
-  userId: string;
+  deliveryMode?: AutomationDeliveryMode;
+  deliveryChannelId?: string | null;
+  deliverySessionMode?: AutomationDeliverySessionMode;
+  deliverySessionId?: string | null;
+  deliveryChannelSessionKey?: string | null;
 }): Promise<AutomationJobRecord> {
-  const existing = await getHeartbeatJob();
+  const agentId = normalizeAgentId(data.agentId);
+  const existing = await getHeartbeatJob({ userId: data.userId, agentId });
 
   const status: AutomationJobStatus = data.enabled ? 'active' : 'paused';
+  const { schedule, error } = validateFriendlySchedule(data.schedule);
+  if (!schedule || error) {
+    throw new Error(error || 'Schedule is invalid.');
+  }
   const nextRunAt = data.enabled
-    ? computeNextRunAt(data.schedule, { from: new Date() })
+    ? computeNextRunAt(schedule, { from: new Date(), lastRunAt: existing?.lastRunAt ? new Date(existing.lastRunAt) : null })
     : null;
+  const deliveryMode = normalizeDeliveryMode(data.deliveryMode ?? existing?.deliveryMode);
+  const deliverySessionMode = normalizeDeliverySessionMode(data.deliverySessionMode ?? existing?.deliverySessionMode);
+  const deliveryChannelId = data.deliveryChannelId === undefined
+    ? existing?.deliveryChannelId ?? (deliveryMode === 'web' ? 'web' : null)
+    : normalizeOptionalShortString(data.deliveryChannelId, 120);
+  const deliverySessionId = data.deliverySessionId === undefined
+    ? existing?.deliverySessionId ?? null
+    : normalizeOptionalShortString(data.deliverySessionId, 500);
+  const deliveryChannelSessionKey = data.deliveryChannelSessionKey === undefined
+    ? existing?.deliveryChannelSessionKey ?? null
+    : normalizeOptionalShortString(data.deliveryChannelSessionKey, 500);
 
   if (existing) {
     const [updated] = await db
       .update(automationJobs)
       .set({
         status,
-        scheduleKind: data.schedule.kind,
-        scheduleConfigJson: JSON.stringify(data.schedule),
-        timeZone: data.schedule.timeZone,
+        scheduleKind: schedule.kind,
+        scheduleConfigJson: JSON.stringify(schedule),
+        timeZone: schedule.timeZone,
         nextRunAt,
+        deliveryMode,
+        deliveryChannelId,
+        deliverySessionMode,
+        deliverySessionId,
+        deliveryChannelSessionKey,
         updatedAt: new Date(),
       })
       .where(eq(automationJobs.id, existing.id))
       .returning();
 
-    console.log(`[Heartbeat] Updated heartbeat job ${existing.id} (status=${status}, schedule=${data.schedule.kind}, nextRunAt=${nextRunAt?.toISOString() ?? 'null'})`);
+    console.log(`[Heartbeat] Updated heartbeat job ${existing.id} (agent=${agentId}, status=${status}, schedule=${schedule.kind}, nextRunAt=${nextRunAt?.toISOString() ?? 'null'})`);
     return mapJobRow(updated);
   }
 
-  const id = `job-heartbeat-${Date.now()}`;
+  const id = `job-heartbeat-${agentId}-${Date.now()}`;
   const now = new Date();
 
   const [inserted] = await db
     .insert(automationJobs)
     .values({
       id,
-      name: 'Telegram Heartbeat',
+      name: 'Heartbeat',
       status,
       prompt: 'Heartbeat',
       preferredSkill: 'auto',
       workspaceContextPathsJson: '[]',
       targetOutputPath: null,
-      scheduleKind: data.schedule.kind,
-      scheduleConfigJson: JSON.stringify(data.schedule),
-      timeZone: data.schedule.timeZone,
+      scheduleKind: schedule.kind,
+      scheduleConfigJson: JSON.stringify(schedule),
+      timeZone: schedule.timeZone,
       nextRunAt,
       lastRunAt: null,
       lastRunStatus: null,
       createdByUserId: data.userId,
-      agentId: DEFAULT_MANAGED_AGENT_ID,
-      deliveryMode: 'web',
-      deliverySessionMode: 'new_session',
+      agentId,
+      deliveryMode,
+      deliveryChannelId,
+      deliverySessionMode,
+      deliverySessionId,
+      deliveryChannelSessionKey,
       createdAt: now,
       updatedAt: now,
       jobType: 'heartbeat',
-      channelId: 'telegram',
+      channelId: deliveryChannelId,
     })
     .returning();
 
-  console.log(`[Heartbeat] Created heartbeat job ${id} (status=${status}, schedule=${data.schedule.kind}, nextRunAt=${nextRunAt?.toISOString() ?? 'null'})`);
+  console.log(`[Heartbeat] Created heartbeat job ${id} (agent=${agentId}, status=${status}, schedule=${schedule.kind}, nextRunAt=${nextRunAt?.toISOString() ?? 'null'})`);
   return mapJobRow(inserted);
 }
