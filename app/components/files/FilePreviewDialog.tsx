@@ -51,10 +51,12 @@ interface FilePreviewDialogProps {
 
 export function FilePreviewDialog({ path, fileTree, currentDirectory, onClose }: FilePreviewDialogProps) {
   const t = useTranslations('notebook');
-  const { currentFile, loadFile, downloadFile, clearCurrentFile } = useFileStore();
+  const { currentFile, isLoadingFile, loadingFilePath, loadFile, downloadFile, clearCurrentFile } = useFileStore();
 
   useEffect(() => {
     if (!path) return;
+    const state = useFileStore.getState();
+    if (state.currentFile?.path === path || (state.isLoadingFile && state.loadingFilePath === path)) return;
     void loadFile(path, true);
   // eslint-disable-next-line react-hooks/exhaustive-deps -- only react to path changes
   }, [path]);
@@ -64,7 +66,7 @@ export function FilePreviewDialog({ path, fileTree, currentDirectory, onClose }:
     [currentDirectory, fileTree]
   );
 
-  const activePath = currentFile?.path ?? path;
+  const activePath = isLoadingFile && loadingFilePath ? loadingFilePath : currentFile?.path ?? path;
   const currentIndex = activePath ? imagePaths.indexOf(activePath) : -1;
   const hasPrev = currentIndex > 0;
   const hasNext = currentIndex >= 0 && currentIndex < imagePaths.length - 1;
