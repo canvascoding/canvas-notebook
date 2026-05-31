@@ -22,8 +22,18 @@ import { AgentManagedFilesCard, type ManagedFileName, type ResetTarget } from '.
 import { AgentToolsCard, type ToolMetadata } from './AgentToolsCard';
 import { AgentChatDisplayCard } from './AgentChatDisplayCard';
 import { AgentSelectorCard, type AgentProfileItem } from './AgentSelectorCard';
+import {
+  AgentHeartbeatCard,
+  type AgentHeartbeatConfig,
+  type AgentHeartbeatDeliveryChannelOption,
+  type AgentHeartbeatDeliveryDraft,
+  type AgentHeartbeatScheduleDraft,
+} from './AgentHeartbeatCard';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Switch } from '@/components/ui/switch';
+import type {
+  FriendlySchedule,
+} from '@/app/lib/automations/types';
 
 function buildAgentQuery(agentId: string): string {
   return new URLSearchParams({ agentId }).toString();
@@ -37,7 +47,7 @@ type PiConfigData = {
   [key: string]: unknown;
 };
 
-type AgentSettingsSectionId = 'runtime' | 'chatDisplay' | 'tools' | 'sessions' | 'doctor';
+type AgentSettingsSectionId = 'runtime' | 'chatDisplay' | 'tools' | 'heartbeat' | 'sessions' | 'doctor';
 type AgentSettingsSectionOpenState = Record<AgentSettingsSectionId, boolean>;
 
 const AGENT_SETTINGS_SECTION_OPEN_STORAGE_KEY = 'canvas-settings-agent-section-open-state';
@@ -45,6 +55,7 @@ const DEFAULT_AGENT_SETTINGS_SECTION_OPEN_STATE: AgentSettingsSectionOpenState =
   runtime: false,
   chatDisplay: false,
   tools: false,
+  heartbeat: false,
   sessions: false,
   doctor: false,
 };
@@ -63,6 +74,7 @@ function getInitialAgentSectionOpenState(requestedPanel: string | null): AgentSe
       runtime: typeof storedState.runtime === 'boolean' ? storedState.runtime : fallback.runtime,
       chatDisplay: typeof storedState.chatDisplay === 'boolean' ? storedState.chatDisplay : fallback.chatDisplay,
       tools: typeof storedState.tools === 'boolean' ? storedState.tools : fallback.tools,
+      heartbeat: typeof storedState.heartbeat === 'boolean' ? storedState.heartbeat : fallback.heartbeat,
       sessions: typeof storedState.sessions === 'boolean' ? storedState.sessions : fallback.sessions,
       doctor: requestedPanel === 'doctor' || (typeof storedState.doctor === 'boolean' ? storedState.doctor : fallback.doctor),
     };
@@ -90,6 +102,114 @@ async function fetchJson<T>(input: string, init?: RequestInit): Promise<T> {
   }
 
   return (payload.data as T) ?? (payload as unknown as T);
+}
+
+function defaultHeartbeatScheduleDraft(): AgentHeartbeatScheduleDraft {
+  return {
+    kind: 'daily',
+    timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
+    dailyTime: '09:00',
+    weeklyTime: '09:00',
+    weeklyDays: ['mon'],
+    intervalEvery: '1',
+    intervalUnit: 'days',
+  };
+}
+
+function scheduleToHeartbeatDraft(schedule: FriendlySchedule | null): AgentHeartbeatScheduleDraft {
+  const draft = defaultHeartbeatScheduleDraft();
+  if (!schedule) return draft;
+
+  if (schedule.kind === 'daily') {
+    return {
+      ...draft,
+      kind: 'daily',
+      timeZone: schedule.timeZone,
+      dailyTime: schedule.times[0] || draft.dailyTime,
+    };
+  }
+
+  if (schedule.kind === 'weekly') {
+    return {
+      ...draft,
+      kind: 'weekly',
+      timeZone: schedule.timeZone,
+      weeklyTime: schedule.times[0] || draft.weeklyTime,
+      weeklyDays: schedule.days.length > 0 ? schedule.days : draft.weeklyDays,
+    };
+  }
+
+  if (schedule.kind === 'interval') {
+    return {
+      ...draft,
+      kind: 'interval',
+      timeZone: schedule.timeZone,
+      intervalEvery: String(schedule.every || 1),
+      intervalUnit: schedule.unit,
+    };
+  }
+
+  return draft;
+}
+
+function heartbeatDraftToSchedule(draft: AgentHeartbeatScheduleDraft): FriendlySchedule {
+  if (draft.kind === 'weekly') {
+    return {
+      kind: 'weekly',
+      days: draft.weeklyDays.length > 0 ? draft.weeklyDays : ['mon'],
+      times: draft.weeklyTime ? [draft.weeklyTime] : ['09:00'],
+      timeZone: draft.timeZone,
+    };
+  }
+
+  if (draft.kind === 'interval') {
+    const every = Number(draft.intervalEvery || '1');
+    return {
+      kind: 'interval',
+      every: Number.isFinite(every) && every > 0 ? Math.floor(every) : 1,
+      unit: draft.intervalUnit,
+      timeZone: draft.timeZone,
+    };
+  }
+
+  return {
+    kind: 'daily',
+    times: draft.dailyTime ? [draft.dailyTime] : ['09:00'],
+    timeZone: draft.timeZone,
+  };
+}
+
+function defaultHeartbeatDeliveryDraft(): AgentHeartbeatDeliveryDraft {
+  return {
+    deliveryMode: 'web',
+    deliveryChannelId: 'web',
+    deliverySessionMode: 'new_session',
+    deliverySessionId: '',
+  };
+}
+
+function configToHeartbeatDeliveryDraft(config: AgentHeartbeatConfig | null): AgentHeartbeatDeliveryDraft {
+  if (!config) return defaultHeartbeatDeliveryDraft();
+  const deliveryMode = config.deliveryMode || 'web';
+  return {
+    deliveryMode,
+    deliveryChannelId: config.deliveryChannelId || (deliveryMode === 'web' ? 'web' : ''),
+    deliverySessionMode: config.deliverySessionMode || 'new_session',
+    deliverySessionId: config.deliverySessionId || '',
+  };
+}
+
+function normalizeDeliveryChannel(entry: unknown): AgentHeartbeatDeliveryChannelOption | null {
+  if (!entry || typeof entry !== 'object') return null;
+  const candidate = entry as Record<string, unknown>;
+  const id = typeof candidate.id === 'string' ? candidate.id.trim() : '';
+  if (!id) return null;
+  return {
+    id,
+    label: id === 'web' ? 'Web Chat' : id.charAt(0).toUpperCase() + id.slice(1),
+    connected: Boolean(candidate.connected),
+    running: Boolean(candidate.running),
+  };
 }
 
 export function AgentSettingsPanel() {
@@ -148,6 +268,15 @@ export function AgentSettingsPanel() {
   const [toolSearchQuery, setToolSearchQuery] = useState('');
   const [activeToolGroups, setActiveToolGroups] = useState<Set<string>>(new Set());
 
+  const [heartbeatConfig, setHeartbeatConfig] = useState<AgentHeartbeatConfig | null>(null);
+  const [heartbeatScheduleDraft, setHeartbeatScheduleDraft] = useState<AgentHeartbeatScheduleDraft>(() => defaultHeartbeatScheduleDraft());
+  const [heartbeatDeliveryDraft, setHeartbeatDeliveryDraft] = useState<AgentHeartbeatDeliveryDraft>(() => defaultHeartbeatDeliveryDraft());
+  const [heartbeatDeliveryChannels, setHeartbeatDeliveryChannels] = useState<AgentHeartbeatDeliveryChannelOption[]>([]);
+  const [heartbeatLoading, setHeartbeatLoading] = useState(true);
+  const [heartbeatSaving, setHeartbeatSaving] = useState(false);
+  const [heartbeatError, setHeartbeatError] = useState<string | null>(null);
+  const [heartbeatSuccess, setHeartbeatSuccess] = useState<string | null>(null);
+
   const resetAgentScopedState = useCallback(() => {
     setDoctorResult(null);
     setDoctorError(null);
@@ -157,6 +286,11 @@ export function AgentSettingsPanel() {
     setToolsPiConfig(null);
     setOpenToolRows({});
     setActiveToolGroups(new Set());
+    setHeartbeatConfig(null);
+    setHeartbeatScheduleDraft(defaultHeartbeatScheduleDraft());
+    setHeartbeatDeliveryDraft(defaultHeartbeatDeliveryDraft());
+    setHeartbeatError(null);
+    setHeartbeatSuccess(null);
   }, []);
 
   const selectAgent = useCallback((agentId: string) => {
@@ -319,6 +453,48 @@ export function AgentSettingsPanel() {
     }
   }, [selectedAgentId, t]);
 
+  const loadHeartbeatConfig = useCallback(async () => {
+    setHeartbeatLoading(true);
+    setHeartbeatError(null);
+
+    try {
+      const payload = await fetchJson<AgentHeartbeatConfig>(`/api/automations/heartbeat?${buildAgentQuery(selectedAgentId)}`);
+      setHeartbeatConfig(payload);
+      setHeartbeatScheduleDraft(scheduleToHeartbeatDraft(payload.schedule));
+      setHeartbeatDeliveryDraft(configToHeartbeatDeliveryDraft(payload));
+    } catch (error) {
+      setHeartbeatError(error instanceof Error ? error.message : t('agentPanel.heartbeat.errors.load'));
+    } finally {
+      setHeartbeatLoading(false);
+    }
+  }, [selectedAgentId, t]);
+
+  const loadHeartbeatDeliveryChannels = useCallback(async () => {
+    try {
+      const response = await fetch('/api/channels/status', {
+        credentials: 'include',
+        cache: 'no-store',
+      });
+      const payload = (await response.json().catch(() => ({}))) as {
+        success?: boolean;
+        channels?: unknown[];
+      };
+      if (response.ok && payload.success && Array.isArray(payload.channels)) {
+        const channels = payload.channels
+          .map(normalizeDeliveryChannel)
+          .filter((channel): channel is AgentHeartbeatDeliveryChannelOption => Boolean(channel));
+        setHeartbeatDeliveryChannels(channels);
+        return;
+      }
+    } catch {
+      /* ignore */
+    }
+
+    setHeartbeatDeliveryChannels([
+      { id: 'web', label: 'Web Chat', connected: true, running: true },
+    ]);
+  }, []);
+
   const patchSelectedAgent = useCallback(async (payload: Record<string, unknown>) => {
     if (isMainAgent) return;
     await fetchJson<{ agent: AgentProfileItem }>('/api/agents', {
@@ -366,8 +542,9 @@ export function AgentSettingsPanel() {
   useEffect(() => {
     startTransition(() => {
       void loadAgents();
+      void loadHeartbeatDeliveryChannels();
     });
-  }, [loadAgents]);
+  }, [loadAgents, loadHeartbeatDeliveryChannels]);
 
   useEffect(() => {
     startTransition(() => {
@@ -375,14 +552,58 @@ export function AgentSettingsPanel() {
       void loadSessions();
       void loadTools();
       void loadToolsConfig();
+      void loadHeartbeatConfig();
     });
-  }, [loadFiles, loadSessions, loadTools, loadToolsConfig]);
+  }, [loadFiles, loadSessions, loadTools, loadToolsConfig, loadHeartbeatConfig]);
 
   useEffect(() => {
     if (searchParams.get('panel') === 'doctor' && !doctorResult && !doctorRunning) {
       startTransition(() => { void runDoctor(); });
     }
   }, [searchParams, doctorResult, doctorRunning, runDoctor]);
+
+  const saveHeartbeatConfig = async () => {
+    setHeartbeatSaving(true);
+    setHeartbeatError(null);
+    setHeartbeatSuccess(null);
+
+    try {
+      const deliveryChannelId = heartbeatDeliveryDraft.deliveryMode === 'web'
+        ? 'web'
+        : heartbeatDeliveryDraft.deliveryChannelId || 'web';
+      const payload = await fetchJson<AgentHeartbeatConfig>('/api/automations/heartbeat', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          agentId: selectedAgentId,
+          enabled: heartbeatConfig?.enabled ?? false,
+          schedule: heartbeatDraftToSchedule(heartbeatScheduleDraft),
+          deliveryMode: deliveryChannelId === 'web' ? 'web' : heartbeatDeliveryDraft.deliveryMode,
+          deliveryChannelId,
+          deliverySessionMode: heartbeatDeliveryDraft.deliverySessionMode,
+          deliverySessionId: heartbeatDeliveryDraft.deliverySessionId.trim() || null,
+          deliveryChannelSessionKey: null,
+        }),
+      });
+
+      setHeartbeatConfig(payload);
+      setHeartbeatScheduleDraft(scheduleToHeartbeatDraft(payload.schedule));
+      setHeartbeatDeliveryDraft(configToHeartbeatDeliveryDraft(payload));
+      setHeartbeatSuccess(t('agentPanel.heartbeat.saved'));
+      setTimeout(() => setHeartbeatSuccess(null), 3000);
+    } catch (error) {
+      setHeartbeatError(error instanceof Error ? error.message : t('agentPanel.heartbeat.errors.save'));
+    } finally {
+      setHeartbeatSaving(false);
+    }
+  };
+
+  const openHeartbeatFile = () => {
+    setActiveFile('HEARTBEAT.md');
+    window.setTimeout(() => {
+      document.getElementById('onboarding-settings-managedFiles')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 0);
+  };
 
   const saveActiveFile = async () => {
     setFilesSaving(true);
@@ -887,6 +1108,25 @@ export function AgentSettingsPanel() {
           onDisableAll={handleDisableAll}
         />
       )}
+
+      <AgentHeartbeatCard
+        config={heartbeatConfig}
+        scheduleDraft={heartbeatScheduleDraft}
+        deliveryDraft={heartbeatDeliveryDraft}
+        deliveryChannels={heartbeatDeliveryChannels}
+        isOpen={agentSectionOpenById.heartbeat}
+        loading={heartbeatLoading}
+        saving={heartbeatSaving}
+        error={heartbeatError}
+        success={heartbeatSuccess}
+        onOpenChange={(isOpen) => setAgentSectionOpen('heartbeat', isOpen)}
+        onEnabledChange={(enabled) => setHeartbeatConfig((current) => current ? { ...current, enabled } : current)}
+        onScheduleDraftChange={(patch) => setHeartbeatScheduleDraft((current) => ({ ...current, ...patch }))}
+        onDeliveryDraftChange={(patch) => setHeartbeatDeliveryDraft((current) => ({ ...current, ...patch }))}
+        onSave={() => void saveHeartbeatConfig()}
+        onReload={() => void Promise.all([loadHeartbeatConfig(), loadHeartbeatDeliveryChannels()])}
+        onEditHeartbeatFile={openHeartbeatFile}
+      />
 
       <AgentManagedFilesCard
         isMainAgent={isMainAgent}

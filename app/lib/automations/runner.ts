@@ -13,7 +13,7 @@ import { getPiTools } from '@/app/lib/pi/tool-registry';
 
 import { getEffectiveAutomationTargetOutputPath } from './paths';
 import { buildAutomationPrompt } from './prompt';
-import { executeHeartbeat } from './heartbeat';
+import { buildHeartbeatPrompt } from './heartbeat';
 import {
   dispatchAutomationResult,
   getAutomationDeliveryFailureMessage,
@@ -185,48 +185,6 @@ export async function executeAutomationRun(runId: string): Promise<void> {
 
   const effectiveTargetOutputPath = getEffectiveAutomationTargetOutputPath(job);
 
-  if (job.jobType === 'heartbeat') {
-    console.log(`[Automationen] Executing heartbeat for run ${runId}`);
-    const heartbeatRunSessionId = `heartbeat-${run.id}`;
-    const startedRun = await markAutomationRunStarted(run.id, {
-      outputDir: null,
-      targetOutputPath: job.targetOutputPath,
-      effectiveTargetOutputPath: effectiveTargetOutputPath || null,
-      logPath: '',
-      resultPath: null,
-      piSessionId: heartbeatRunSessionId,
-      eventsLog: [],
-    });
-
-    if (!startedRun) {
-      console.warn(`[Automationen] Heartbeat run ${runId} could not be marked as started (already running?), aborting`);
-      return;
-    }
-
-    const heartbeatResult = await executeHeartbeat(job);
-    const heartbeatDuration = Date.now() - runStartTime;
-
-    const heartbeatStatus = heartbeatResult.errors.length > 0 && heartbeatResult.usersNotified === 0 ? 'failed' : 'success';
-    await markAutomationRunFinished(run.id, {
-      status: heartbeatStatus,
-      errorMessage: heartbeatResult.errors.length > 0 ? heartbeatResult.errors.join('; ') : null,
-      piSessionId: heartbeatResult.sessionIds[0] || heartbeatRunSessionId,
-      eventsLog: [],
-      metadataJson: {
-        provider: 'heartbeat',
-        model: 'heartbeat',
-        ...buildAutomationRunMetadata(job),
-        status: heartbeatResult.usersNotified > 0 ? 'success' : 'skipped',
-        heartbeatUsersNotified: heartbeatResult.usersNotified,
-        heartbeatSessionIds: heartbeatResult.sessionIds,
-        heartbeatErrors: heartbeatResult.errors,
-      },
-    });
-
-    console.log(`[Automationen] Heartbeat run ${runId} finished (status=${heartbeatStatus}, duration=${heartbeatDuration}ms, notified=${heartbeatResult.usersNotified}, errors=${heartbeatResult.errors.length})`);
-    return;
-  }
-
   if (effectiveTargetOutputPath) {
     const targetParentDir = path.posix.dirname(effectiveTargetOutputPath);
     if (targetParentDir && targetParentDir !== '.') {
@@ -234,10 +192,13 @@ export async function executeAutomationRun(runId: string): Promise<void> {
     }
   }
 
+  const jobPrompt = job.jobType === 'heartbeat'
+    ? await buildHeartbeatPrompt(job)
+    : job.prompt;
   const promptText = buildAutomationPrompt({
     name: job.name,
     workspaceContextPaths: job.workspaceContextPaths,
-    prompt: job.prompt,
+    prompt: jobPrompt,
     preferredSkill: job.preferredSkill,
     effectiveTargetOutputPath,
     webhookContext: run.triggerType === 'webhook' ? getWebhookPromptContext(run) : null,

@@ -2,44 +2,11 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { useTranslations } from 'next-intl';
-import { useRouter } from 'next/navigation';
 import { ChannelOverviewSection } from './channels/ChannelOverviewSection';
-import {
-  HeartbeatChannelCard,
-  type HeartbeatConfig,
-  type HeartbeatFixedKind,
-  type HeartbeatMode,
-  type HeartbeatSchedule,
-} from './channels/HeartbeatChannelCard';
 import { TelegramChannelCard, type TelegramStatus } from './channels/TelegramChannelCard';
-
-type ApiJson = {
-  success?: boolean;
-  error?: string;
-  [key: string]: unknown;
-};
-
-async function readApiJson(response: Response): Promise<ApiJson> {
-  const contentType = response.headers.get('content-type') || '';
-  if (contentType.toLowerCase().includes('application/json')) {
-    return await response.json() as ApiJson;
-  }
-
-  await response.text().catch(() => '');
-  if (response.status === 401) {
-    throw new Error('Unauthorized');
-  }
-  if (response.status === 402) {
-    throw new Error('License activation required');
-  }
-  throw new Error(response.ok
-    ? 'Server returned an unexpected response.'
-    : `Request failed (${response.status} ${response.statusText || 'unexpected response'}).`);
-}
 
 export function ChannelsPanel() {
   const t = useTranslations('settings');
-  const router = useRouter();
 
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -57,18 +24,6 @@ export function ChannelsPanel() {
 
   const [linkToken, setLinkToken] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
-
-  const [heartbeatConfig, setHeartbeatConfig] = useState<HeartbeatConfig | null>(null);
-  const [heartbeatSaving, setHeartbeatSaving] = useState(false);
-  const [heartbeatError, setHeartbeatError] = useState<string | null>(null);
-  const [heartbeatSuccess, setHeartbeatSuccess] = useState<string | null>(null);
-  const [heartbeatMode, setHeartbeatMode] = useState<HeartbeatMode>('pulse');
-  const [heartbeatFixedKind, setHeartbeatFixedKind] = useState<HeartbeatFixedKind>('daily');
-  const [heartbeatTimes, setHeartbeatTimes] = useState<string[]>(['09:00']);
-  const [heartbeatTimezone, setHeartbeatTimezone] = useState(Intl.DateTimeFormat().resolvedOptions().timeZone);
-  const [heartbeatWeekdays, setHeartbeatWeekdays] = useState<string[]>(['mon', 'tue', 'wed', 'thu', 'fri']);
-  const [heartbeatIntervalEvery, setHeartbeatIntervalEvery] = useState(6);
-  const [heartbeatIntervalUnit, setHeartbeatIntervalUnit] = useState<'minutes' | 'hours' | 'days'>('hours');
 
   const fullCommand = linkToken ? `/start ${linkToken}` : '';
 
@@ -118,49 +73,12 @@ export function ChannelsPanel() {
     }
   }, []);
 
-  const loadHeartbeatConfig = useCallback(async () => {
-    try {
-      const res = await fetch('/api/channels/heartbeat/config', { credentials: 'include', cache: 'no-store' });
-      const data = await res.json();
-      if (data.success) {
-        const config: HeartbeatConfig = {
-          configured: data.configured,
-          enabled: data.enabled,
-          schedule: data.schedule,
-          nextRunAt: data.nextRunAt,
-          lastRunAt: data.lastRunAt,
-          lastRunStatus: data.lastRunStatus,
-          jobId: data.jobId,
-        };
-        setHeartbeatConfig(config);
-        if (data.schedule) {
-          const sched = data.schedule as HeartbeatSchedule;
-          if (sched.kind === 'interval') {
-            setHeartbeatMode('pulse');
-            setHeartbeatIntervalEvery(sched.every);
-            setHeartbeatIntervalUnit(sched.unit);
-            setHeartbeatTimezone(sched.timeZone);
-          } else {
-            setHeartbeatMode('fixedTimes');
-            setHeartbeatFixedKind(sched.kind === 'weekly' ? 'weekly' : 'daily');
-            setHeartbeatTimes(sched.times);
-            setHeartbeatTimezone(sched.timeZone);
-            if (sched.kind === 'weekly') setHeartbeatWeekdays(sched.days);
-          }
-        }
-      }
-    } catch {
-      /* ignore */
-    }
-  }, []);
-
   useEffect(() => {
     void Promise.resolve().then(() => {
       void loadEnvValues();
       void loadStatus();
-      void loadHeartbeatConfig();
     });
-  }, [loadEnvValues, loadStatus, loadHeartbeatConfig]);
+  }, [loadEnvValues, loadStatus]);
 
   const saveEnv = async (key: string, value: string) => {
     setIsSaving(true);
@@ -323,69 +241,6 @@ export function ChannelsPanel() {
     }
   };
 
-  const buildScheduleFromForm = (): HeartbeatSchedule => {
-    if (heartbeatMode === 'pulse') {
-      return { kind: 'interval', every: heartbeatIntervalEvery, unit: heartbeatIntervalUnit, timeZone: heartbeatTimezone };
-    }
-    if (heartbeatFixedKind === 'weekly') {
-      return { kind: 'weekly', days: heartbeatWeekdays, times: heartbeatTimes, timeZone: heartbeatTimezone };
-    }
-    return { kind: 'daily', times: heartbeatTimes, timeZone: heartbeatTimezone };
-  };
-
-  const saveHeartbeatConfig = async (enabled: boolean): Promise<boolean> => {
-    setHeartbeatSaving(true);
-    setHeartbeatError(null);
-    setHeartbeatSuccess(null);
-    try {
-      const schedule = buildScheduleFromForm();
-      const res = await fetch('/api/channels/heartbeat/config', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ enabled, schedule }),
-      });
-      const data = await readApiJson(res);
-      if (!data.success) throw new Error(data.error || 'Failed to save');
-      setHeartbeatConfig({
-        configured: Boolean(data.configured),
-        enabled: Boolean(data.enabled),
-        schedule: data.schedule as HeartbeatSchedule | null,
-        nextRunAt: typeof data.nextRunAt === 'string' ? data.nextRunAt : null,
-        lastRunAt: typeof data.lastRunAt === 'string' ? data.lastRunAt : null,
-        lastRunStatus: typeof data.lastRunStatus === 'string' ? data.lastRunStatus : null,
-        jobId: typeof data.jobId === 'string' ? data.jobId : null,
-      });
-      setHeartbeatSuccess(t('channels.heartbeat.saved'));
-      setTimeout(() => setHeartbeatSuccess(null), 3000);
-      return true;
-    } catch (err) {
-      setHeartbeatError(err instanceof Error ? err.message : t('channels.heartbeat.saveError'));
-      return false;
-    } finally {
-      setHeartbeatSaving(false);
-    }
-  };
-
-  const handleHeartbeatToggle = async () => {
-    const previousEnabled = heartbeatConfig?.enabled ?? false;
-    const newEnabled = !previousEnabled;
-    setHeartbeatConfig((prev) => prev ? { ...prev, enabled: newEnabled } : null);
-    const saved = await saveHeartbeatConfig(newEnabled);
-    if (!saved) {
-      setHeartbeatConfig((prev) => prev ? { ...prev, enabled: previousEnabled } : null);
-    }
-  };
-
-  const formatNextRun = (dateStr: string | null) => {
-    if (!dateStr) return t('channels.heartbeat.never');
-    try {
-      return new Date(dateStr).toLocaleString();
-    } catch {
-      return dateStr;
-    }
-  };
-
   return (
     <div className="space-y-4">
     <ChannelOverviewSection telegramLinked={telegramStatus?.linked === true} />
@@ -423,30 +278,6 @@ export function ChannelsPanel() {
       onRestart={() => void restartBot()}
     />
 
-    <HeartbeatChannelCard
-      config={heartbeatConfig}
-      saving={heartbeatSaving}
-      error={heartbeatError}
-      success={heartbeatSuccess}
-      mode={heartbeatMode}
-      fixedKind={heartbeatFixedKind}
-      times={heartbeatTimes}
-      timezone={heartbeatTimezone}
-      weekdays={heartbeatWeekdays}
-      intervalEvery={heartbeatIntervalEvery}
-      intervalUnit={heartbeatIntervalUnit}
-      setMode={setHeartbeatMode}
-      setFixedKind={setHeartbeatFixedKind}
-      setTimes={setHeartbeatTimes}
-      setTimezone={setHeartbeatTimezone}
-      setWeekdays={setHeartbeatWeekdays}
-      setIntervalEvery={setHeartbeatIntervalEvery}
-      setIntervalUnit={setHeartbeatIntervalUnit}
-      onToggle={() => void handleHeartbeatToggle()}
-      onSave={() => void saveHeartbeatConfig(heartbeatConfig?.enabled ?? true)}
-      onEditHeartbeatFile={() => router.push('/settings?tab=agent-settings')}
-      formatDate={formatNextRun}
-    />
     </div>
   );
 }
