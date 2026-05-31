@@ -401,6 +401,7 @@
     "sourceNotFoundError": "Quelldatei nicht gefunden: '{path}'",
     "moveError": "Datei konnte nicht verschoben werden: {error}",
     "shareTitle": "Teilen: {fileName}",
+    "shareDescription": "Vorschau und PDF-Export für {fileName}.",
     "loadingPreview": "Vorschau wird geladen...",
     "tryAgain": "Erneut versuchen",
     "noPreviewAvailable": "Keine Vorschau verfügbar",

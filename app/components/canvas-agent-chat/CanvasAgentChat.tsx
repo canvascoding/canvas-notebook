@@ -1087,14 +1087,31 @@ function isAbortedAssistantPiMessage(piMessage?: AgentMessage | null): boolean {
   return candidate?.role === 'assistant' && candidate.stopReason === 'aborted';
 }
 
+function getPiMessageContent(piMessage?: AgentMessage | null): string | unknown[] | undefined {
+  if (!piMessage || !('content' in piMessage)) {
+    return undefined;
+  }
+
+  return piMessage.content;
+}
+
+function getChatMessageRole(role: AgentMessage['role']): ChatMessage['role'] {
+  if (role === 'user' || role === 'assistant' || role === 'toolResult') {
+    return role;
+  }
+
+  return 'system';
+}
+
 function extractPiMessageText(piMessage?: AgentMessage | null, options?: { hideAttachmentMetadata?: boolean }): string {
   if (!piMessage || isCompactBreakMessage(piMessage) || isComposioAuthRequiredMessage(piMessage)) return '';
-  if (!Array.isArray(piMessage.content)) {
-    const text = typeof piMessage.content === 'string' ? piMessage.content : '';
+  const messageContent = getPiMessageContent(piMessage);
+  if (!Array.isArray(messageContent)) {
+    const text = typeof messageContent === 'string' ? messageContent : '';
     return options?.hideAttachmentMetadata ? stripAttachmentBlocks(text) : text;
   }
 
-  const textContent = piMessage.content
+  const textContent = messageContent
     .map((part: unknown) => {
       if (isTextPart(part)) return part.text;
       return '';
@@ -3699,23 +3716,25 @@ export default function CanvasAgentChat({
       ? rawMessage.toolCallId
       : undefined;
     const persistedToolCall = toolCallId ? toolCallsById.get(toolCallId) : undefined;
+    const rawMessageContent = getPiMessageContent(rawMessage);
     const content = isToolResult
-      ? extractToolResultText(Array.isArray(rawMessage.content) ? rawMessage.content : undefined) || extractPiMessageText(rawMessage)
+      ? extractToolResultText(Array.isArray(rawMessageContent) ? rawMessageContent : undefined) || extractPiMessageText(rawMessage)
       : extractPiMessageText(rawMessage, { hideAttachmentMetadata: rawMessage.role === 'user' });
     const resolvedContent = isAbortedAssistantPiMessage(rawMessage) && !content.trim()
       ? t('runStopped')
       : content;
-    const imageAttachments = extractImageAttachments(rawMessage.content);
+    const imageAttachments = extractImageAttachments(rawMessageContent);
     const messageAttachments = rawMessage.role === 'user'
-      ? extractMessageAttachments(rawMessage.content)
+      ? extractMessageAttachments(rawMessageContent)
       : imageAttachments.length > 0 ? imageAttachments : undefined;
+    const chatRole = getChatMessageRole(rawMessage.role);
 
     return {
       id: rawMessage.id?.toString() || Math.random().toString(),
-      role: rawMessage.role,
+      role: chatRole,
       content: resolvedContent,
       status: 'sent',
-      type: isToolResult ? 'tool_result' : undefined,
+      type: isToolResult ? 'tool_result' : chatRole === 'system' ? 'system' : undefined,
       attachments: messageAttachments,
       piMessage: rawMessage,
       toolCallId,
@@ -3731,11 +3750,12 @@ export default function CanvasAgentChat({
     const toolCallsById = new Map<string, PersistedToolCallPart>();
 
     for (const rawMessage of rawMessages) {
-      if (rawMessage.role !== 'assistant' || !Array.isArray(rawMessage.content)) {
+      const rawMessageContent = getPiMessageContent(rawMessage);
+      if (rawMessage.role !== 'assistant' || !Array.isArray(rawMessageContent)) {
         continue;
       }
 
-      for (const part of rawMessage.content) {
+      for (const part of rawMessageContent) {
         if (isToolCallPart(part)) {
           toolCallsById.set(part.id, part);
         }

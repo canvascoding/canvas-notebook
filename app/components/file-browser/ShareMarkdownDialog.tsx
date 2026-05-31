@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
@@ -148,6 +149,9 @@ export function ShareMarkdownDialog({
               {t('shareTitle', { fileName })}
             </span>
           </DialogTitle>
+          <DialogDescription className="sr-only">
+            {t('shareDescription', { fileName })}
+          </DialogDescription>
         </DialogHeader>
 
         <div className="flex-1 min-h-0 px-3 sm:px-5 lg:px-6 pb-3 sm:pb-5 overflow-hidden">

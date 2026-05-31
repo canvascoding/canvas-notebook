@@ -402,6 +402,7 @@
     "sourceNotFoundError": "Source file not found: '{path}'",
     "moveError": "Failed to move file: {error}",
     "shareTitle": "Share: {fileName}",
+    "shareDescription": "Preview and PDF export for {fileName}.",
     "loadingPreview": "Loading preview...",
     "tryAgain": "Try again",
     "noPreviewAvailable": "No preview available",
