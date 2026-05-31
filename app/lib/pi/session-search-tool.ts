@@ -1,4 +1,4 @@
-import { type AgentMessage, type AgentTool } from '@mariozechner/pi-agent-core';
+import { type AgentMessage, type AgentTool } from '@earendil-works/pi-agent-core';
 import { Type } from 'typebox';
 import { and, asc, desc, eq, like, or } from 'drizzle-orm';
 

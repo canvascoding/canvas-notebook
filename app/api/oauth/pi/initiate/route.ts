@@ -102,7 +102,7 @@ export async function POST(request: NextRequest) {
     // Ensure script directory exists
     await mkdir(tempScriptDir, { recursive: true });
 
-    // Create symlink to node_modules so ES modules can resolve @mariozechner/pi-ai
+    // Create symlink to node_modules so ES modules can resolve @earendil-works/pi-ai
     const nodeModulesPath = join(process.cwd(), 'node_modules');
     const tempNodeModulesPath = join(tempScriptDir, 'node_modules');
     if (!existsSync(tempNodeModulesPath)) {
@@ -119,7 +119,7 @@ export async function POST(request: NextRequest) {
       name: `pi-oauth-${flowId}`,
       type: 'module',
       dependencies: {
-        '@mariozechner/pi-ai': '*'
+        '@earendil-works/pi-ai': '*'
       }
     }, null, 2);
     await writeFile(join(tempScriptDir, 'package.json'), tempPackageJson);
@@ -212,12 +212,12 @@ function generateOAuthScript(provider: string, flowId: string, stateFile: string
   // Different providers have different signatures:
   // - anthropic: loginAnthropic({ onAuth, onPrompt, onProgress, onManualCodeInput })
   // - openai-codex: loginOpenAICodex({ onAuth, onPrompt, onProgress, onManualCodeInput })
-  // - github-copilot: loginGitHubCopilot({ onAuth, onPrompt, onProgress })
+  // - github-copilot: loginGitHubCopilot({ onDeviceCode, onPrompt, onProgress })
   // All use options-based API now
   
   return `
 import fs from 'fs';
-import { ${loginFn} } from '@mariozechner/pi-ai/oauth';
+import { ${loginFn} } from '@earendil-works/pi-ai/oauth';
 
 // Helper to update state
 function updateState(updates) {
@@ -272,9 +272,33 @@ async function run() {
       });
     };
 
+    const handleDeviceCode = (info) => {
+      const instructions = [
+        'Enter code: ' + info.userCode,
+        info.expiresInSeconds ? 'Expires in ' + Math.round(info.expiresInSeconds / 60) + ' minutes.' : '',
+      ].filter(Boolean).join('\\n');
+
+      console.log('DEVICE_CODE:', info.userCode);
+      console.log('DEVICE_URL:', info.verificationUri);
+      updateState({
+        status: 'auth_url_received',
+        authUrl: info.verificationUri,
+        instructions,
+        deviceCode: info.userCode,
+        updatedAt: Date.now()
+      });
+    };
+
     const handlePromptCode = async (prompt) => {
-      const message = typeof prompt === 'string' ? prompt : prompt?.message || '';
+      const promptObject = typeof prompt === 'string' ? { message: prompt } : prompt || {};
+      const message = promptObject.message || '';
       console.log('WAITING_FOR_CODE', message);
+
+      if (promptObject.allowEmpty) {
+        updateState({ status: 'waiting_for_auth', prompt: message, updatedAt: Date.now() });
+        return '';
+      }
+
       updateState({ status: 'waiting_for_code', updatedAt: Date.now() });
       
       // Wait for the code file to be created by the exchange endpoint
@@ -306,13 +330,26 @@ async function run() {
       console.log('PROGRESS:', message);
     };
 
+    const handleSelect = async (prompt) => {
+      const selected = prompt.options?.[0]?.id;
+      console.log('SELECT:', prompt.message, selected);
+      updateState({
+        selectedOption: selected,
+        selectionPrompt: prompt.message,
+        updatedAt: Date.now()
+      });
+      return selected;
+    };
+
     let credentials;
     // ${provider} uses options object
     credentials = await ${loginFn}({
       onAuth: handleAuthUrl,
+      onDeviceCode: handleDeviceCode,
       onPrompt: handlePromptCode,
       ${provider === 'anthropic' || provider === 'openai-codex' ? 'onManualCodeInput: handlePromptCode,' : ''}
-      onProgress: handleProgress
+      onProgress: handleProgress,
+      onSelect: handleSelect
     });
 
     // Save credentials

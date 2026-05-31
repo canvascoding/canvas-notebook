@@ -30,7 +30,7 @@ const testModel = {
 };
 
 moduleInternals._load = (request, parent, isMain) => {
-  if (request === '@mariozechner/pi-ai' || request === '@mariozechner/pi-ai/oauth') {
+  if (request === '@earendil-works/pi-ai' || request === '@earendil-works/pi-ai/oauth') {
     return {
       registerBuiltInApiProviders() {},
       getProviders() {
@@ -42,7 +42,7 @@ moduleInternals._load = (request, parent, isMain) => {
     };
   }
 
-  if (request === '@mariozechner/pi-agent-core') {
+  if (request === '@earendil-works/pi-agent-core') {
     return {
       agentLoop: async function* agentLoopStub(_messages: unknown[], context: { tools?: Array<{ name: string }> }) {
         agentLoopToolNames = context.tools?.map((tool) => tool.name) ?? [];

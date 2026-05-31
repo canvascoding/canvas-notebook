@@ -1,5 +1,5 @@
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
-import type { AgentTool, AgentToolResult } from '@mariozechner/pi-agent-core';
+import type { AgentTool, AgentToolResult } from '@earendil-works/pi-agent-core';
 
 import { callMcpTool, listMcpTools } from '@/app/lib/mcp/manager';
 import { isMcpServerEnabled, readMcpConfig } from '@/app/lib/mcp/config';

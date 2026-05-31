@@ -1,5 +1,5 @@
-import type { AgentMessage } from '@mariozechner/pi-agent-core';
-import type { UserMessage } from '@mariozechner/pi-ai';
+import type { AgentMessage } from '@earendil-works/pi-agent-core';
+import type { UserMessage } from '@earendil-works/pi-ai';
 
 export type PiSessionSummaryState = {
   summaryText: string | null;
@@ -80,7 +80,18 @@ function estimateContentTokens(content: unknown): number {
 export function estimatePiMessageTokens(message: AgentMessage): number {
   if (message.role === 'compact-break') return MESSAGE_OVERHEAD_TOKENS;
   if (message.role === 'composio_auth_required') return MESSAGE_OVERHEAD_TOKENS;
-  return MESSAGE_OVERHEAD_TOKENS + estimateContentTokens(message.content);
+  if ('content' in message) {
+    return MESSAGE_OVERHEAD_TOKENS + estimateContentTokens(message.content);
+  }
+  if ('summary' in message && typeof message.summary === 'string') {
+    return MESSAGE_OVERHEAD_TOKENS + estimateTextTokens(message.summary);
+  }
+  if ('command' in message || 'output' in message) {
+    const command = 'command' in message && typeof message.command === 'string' ? message.command : '';
+    const output = 'output' in message && typeof message.output === 'string' ? message.output : '';
+    return MESSAGE_OVERHEAD_TOKENS + estimateTextTokens(`${command}\n${output}`);
+  }
+  return MESSAGE_OVERHEAD_TOKENS;
 }
 
 function getSummaryMessage(summaryText: string, maxHistoryTokens: number): UserMessage {

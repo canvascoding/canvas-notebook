@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { AgentContext, AgentMessage, AgentTool, ThinkingLevel } from '@mariozechner/pi-agent-core';
+import type { AgentContext, AgentMessage, AgentTool, ThinkingLevel } from '@earendil-works/pi-agent-core';
 import { Type } from 'typebox';
 import { and, eq } from 'drizzle-orm';
 
@@ -223,7 +223,7 @@ async function runEphemeralWorker(params: {
   let finalMessages: AgentMessage[] = [params.promptMessage];
   try {
     const [{ agentLoop }, { resolvePiApiKey }] = await Promise.all([
-      import('@mariozechner/pi-agent-core'),
+      import('@earendil-works/pi-agent-core'),
       import('@/app/lib/pi/api-key-resolver'),
     ]);
     const context: AgentContext = {

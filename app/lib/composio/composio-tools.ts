@@ -10,7 +10,7 @@ import {
   refreshGatewayToolkit,
   searchGatewayTools,
 } from './composio-gateway';
-import type { AgentTool } from '@mariozechner/pi-agent-core';
+import type { AgentTool } from '@earendil-works/pi-agent-core';
 
 const COMPOSIO_TOOL_DESCRIPTIONS = {
   SEARCH_TOOLS: 'Search for available tools across connected external apps (GitHub, Gmail, Slack, etc.). Returns tool name, description, and toolkit. Use this to discover which actions are available before executing. Always search before executing — don\'t guess action names.',

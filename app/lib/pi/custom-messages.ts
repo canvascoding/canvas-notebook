@@ -1,6 +1,6 @@
-import type { AgentMessage } from '@mariozechner/pi-agent-core';
+import type { AgentMessage } from '@earendil-works/pi-agent-core';
 
-declare module '@mariozechner/pi-agent-core' {
+declare module '@earendil-works/pi-agent-core' {
   interface CustomAgentMessages {
     'compact-break': CompactBreakMessage;
     'composio_auth_required': ComposioAuthRequiredMessage;

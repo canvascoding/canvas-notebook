@@ -1,4 +1,4 @@
-import type { AgentMessage } from '@mariozechner/pi-agent-core';
+import type { AgentMessage } from '@earendil-works/pi-agent-core';
 import type { UserAgentMessage } from '@/app/lib/pi/runtime-service';
 import type { InboundMessage } from './types';
 

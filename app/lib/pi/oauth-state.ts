@@ -3,7 +3,7 @@
  * Manages in-progress OAuth flows
  */
 
-import type { OAuthCredentials } from '@mariozechner/pi-ai/oauth';
+import type { OAuthCredentials } from '@earendil-works/pi-ai/oauth';
 import type { OAuthProviderId } from './oauth';
 
 interface OAuthFlow {

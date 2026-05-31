@@ -1,8 +1,8 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { AgentMessage } from '@mariozechner/pi-agent-core';
-import type { ImageContent, Message, ToolResultMessage, UserMessage } from '@mariozechner/pi-ai';
+import type { AgentMessage } from '@earendil-works/pi-agent-core';
+import type { ImageContent, Message, ToolResultMessage, UserMessage } from '@earendil-works/pi-ai';
 import { getWorkspacePath } from '../utils/workspace-manager';
 import { findFilePath } from '../filesystem/upload-handler';
 
@@ -252,9 +252,16 @@ async function normalizeImageArray(
   return changed ? normalizedContent : content;
 }
 
-async function normalizePiMessage(message: AgentMessage): Promise<Message> {
-  if (message.role === 'compact-break') return message as unknown as Message;
-  if (message.role === 'composio_auth_required') return message as unknown as Message;
+function hasMessageContent(message: AgentMessage): message is AgentMessage & { content: unknown } {
+  return 'content' in message;
+}
+
+async function normalizePiMessage(message: AgentMessage): Promise<Message | null> {
+  if (message.role === 'compact-break') return null;
+  if (message.role === 'composio_auth_required') return null;
+  if (!hasMessageContent(message)) {
+    return null;
+  }
   if (!Array.isArray(message.content)) {
     return message as Message;
   }
@@ -288,7 +295,8 @@ async function normalizePiMessage(message: AgentMessage): Promise<Message> {
 }
 
 export async function normalizePiMessagesForLlm(messages: AgentMessage[]): Promise<Message[]> {
-  return Promise.all(messages.map((message) => normalizePiMessage(message)));
+  const normalized = await Promise.all(messages.map((message) => normalizePiMessage(message)));
+  return normalized.filter((message): message is Message => message !== null);
 }
 
 /**
@@ -299,7 +307,7 @@ export function filterImagesForNonVisionModel(messages: AgentMessage[]): AgentMe
   return messages.map((message) => {
     if (message.role === 'compact-break') return message;
     if (message.role === 'composio_auth_required') return message;
-    if (!Array.isArray(message.content)) {
+    if (!hasMessageContent(message) || !Array.isArray(message.content)) {
       return message;
     }
 

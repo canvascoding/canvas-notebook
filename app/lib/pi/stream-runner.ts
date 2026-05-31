@@ -1,6 +1,6 @@
-import type { AgentEvent, AgentMessage } from '@mariozechner/pi-agent-core';
-import type { AssistantMessage } from '@mariozechner/pi-ai';
-import { isContextOverflow } from '@mariozechner/pi-ai';
+import type { AgentEvent, AgentMessage } from '@earendil-works/pi-agent-core';
+import type { AssistantMessage } from '@earendil-works/pi-ai';
+import { isContextOverflow } from '@earendil-works/pi-ai';
 
 type RunStreamAttempt = (aggressive: boolean) => AsyncIterable<AgentEvent>;
 type ForwardEvent = (event: AgentEvent) => void | Promise<void>;
