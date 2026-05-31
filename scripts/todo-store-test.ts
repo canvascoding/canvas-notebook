@@ -15,6 +15,7 @@ async function main() {
   const { user } = await import('../app/lib/db/schema');
   const {
     DEFAULT_TODO_CATEGORY_NAME,
+    getDefaultTodoCategoryKey,
     TodoStoreError,
     archiveTodo,
     createTodo,
@@ -56,7 +57,7 @@ async function main() {
   const created = await createTodo('todo-user', {
     title: '  Review the brief  ',
     description: 'Human review required',
-    categoryName: 'Pruefen',
+    categoryName: 'Prüfen',
     priority: 'high',
     sourceType: 'agent',
     sourceAgentId: 'canvas-agent',
@@ -70,7 +71,8 @@ async function main() {
   assert.equal(created.title, 'Review the brief');
   assert.equal(created.priority, 'high');
   assert.equal(created.sourceType, 'agent');
-  assert.equal(created.category?.name, 'Pruefen');
+  assert.equal(created.category?.name, 'Review');
+  assert.equal(getDefaultTodoCategoryKey(created.category), 'review');
   assert.equal(created.fileLinks.length, 1);
   assert.equal(created.fileLinks[0].workspacePath, 'docs/brief.md');
 

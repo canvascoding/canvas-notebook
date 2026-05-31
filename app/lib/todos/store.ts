@@ -5,6 +5,18 @@ import { and, asc, desc, eq, inArray, ne, sql } from 'drizzle-orm';
 import { db } from '@/app/lib/db';
 import { todoCategories, todoFileLinks, todoItems } from '@/app/lib/db/schema';
 import { validatePath } from '@/app/lib/filesystem/workspace-files';
+import {
+  DEFAULT_TODO_CATEGORIES,
+  DEFAULT_TODO_CATEGORY_NAME,
+  getDefaultTodoCategoryKey,
+  resolveDefaultTodoCategoryName,
+} from './default-categories';
+
+export {
+  DEFAULT_TODO_CATEGORIES,
+  DEFAULT_TODO_CATEGORY_NAME,
+  getDefaultTodoCategoryKey,
+} from './default-categories';
 
 export const TODO_STATUSES = ['open', 'done', 'archived'] as const;
 export type TodoStatus = typeof TODO_STATUSES[number];
@@ -14,15 +26,6 @@ export type TodoPriority = typeof TODO_PRIORITIES[number];
 
 export const TODO_SOURCE_TYPES = ['user', 'agent'] as const;
 export type TodoSourceType = typeof TODO_SOURCE_TYPES[number];
-
-export const DEFAULT_TODO_CATEGORY_NAME = 'To-do';
-
-export const DEFAULT_TODO_CATEGORIES = [
-  { name: DEFAULT_TODO_CATEGORY_NAME, color: '#3b82f6', icon: 'check-square' },
-  { name: 'Pruefen', color: '#f59e0b', icon: 'search-check' },
-  { name: 'Freigabe', color: '#10b981', icon: 'badge-check' },
-  { name: 'Automation', color: '#8b5cf6', icon: 'workflow' },
-] as const;
 
 const TITLE_MAX_LENGTH = 180;
 const DESCRIPTION_MAX_LENGTH = 5000;
@@ -307,10 +310,15 @@ async function resolveCategoryId(userId: string, input: Pick<CreateTodoInput, 'c
   }
 
   const requestedName = normalizeOptionalText(input.categoryName, CATEGORY_NAME_MAX_LENGTH);
-  const preferredName = requestedName || DEFAULT_TODO_CATEGORY_NAME;
+  const preferredName = resolveDefaultTodoCategoryName(requestedName) || DEFAULT_TODO_CATEGORY_NAME;
+  const preferredDefaultKey = getDefaultTodoCategoryKey(requestedName || preferredName);
   const categories = await listTodoCategories(userId);
   const matched = categories.find((category) => category.name.toLowerCase() === preferredName.toLowerCase())
-    ?? categories.find((category) => category.name.toLowerCase() === DEFAULT_TODO_CATEGORY_NAME.toLowerCase());
+    ?? (preferredDefaultKey
+      ? categories.find((category) => getDefaultTodoCategoryKey(category) === preferredDefaultKey)
+      : null)
+    ?? categories.find((category) => category.name.toLowerCase() === DEFAULT_TODO_CATEGORY_NAME.toLowerCase())
+    ?? categories.find((category) => getDefaultTodoCategoryKey(category) === 'todo');
 
   return matched?.id ?? null;
 }

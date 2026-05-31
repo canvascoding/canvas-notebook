@@ -6,6 +6,7 @@ import { db } from '@/app/lib/db';
 import { piSessions, todoItems } from '@/app/lib/db/schema';
 import { hasUnreadAssistantResponse } from '@/app/lib/chat/unread';
 import { DEFAULT_SESSION_TITLE } from '@/app/lib/pi/session-titles';
+import { getDefaultTodoCategoryKey } from '@/app/lib/todos/default-categories';
 import { listTodos, markTodoSeen } from '@/app/lib/todos/store';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 
@@ -92,6 +93,7 @@ export async function GET(request: NextRequest) {
           dueAt: todo.dueAt,
           seenAt: todo.seenAt,
           categoryName: todo.category?.name ?? null,
+          categoryKey: getDefaultTodoCategoryKey(todo.category),
           isDue: dueTodos.some((dueTodo) => dueTodo.id === todo.id),
         })),
       },

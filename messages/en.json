@@ -879,7 +879,7 @@
     "todos": {
       "open": "To-dos",
       "title": "To-dos",
-      "markAllSeen": "Read all",
+      "markAllSeen": "Mark all read",
       "empty": "No open to-dos need attention.",
       "due": "Due",
       "markSeen": "Mark to-do as read"
@@ -919,8 +919,14 @@
       "user": "User",
       "agent": "Agent"
     },
+    "defaultCategories": {
+      "todo": "To-do",
+      "review": "Review",
+      "approval": "Approval",
+      "automation": "Automation"
+    },
     "actions": {
-      "markAllSeen": "Read visible",
+      "markAllSeen": "Mark visible as read",
       "refresh": "Refresh",
       "newTodo": "Create to-do",
       "newCategory": "Create category",

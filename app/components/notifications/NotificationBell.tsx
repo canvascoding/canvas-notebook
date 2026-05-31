@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Separator } from '@/components/ui/separator';
 import { cn } from '@/lib/utils';
+import type { DefaultTodoCategoryKey } from '@/app/lib/todos/default-categories';
 
 type NotificationSummary = {
   unreadCount: number;
@@ -31,6 +32,7 @@ type NotificationSummary = {
       dueAt: string | null;
       seenAt: string | null;
       categoryName: string | null;
+      categoryKey: DefaultTodoCategoryKey | null;
       isDue: boolean;
     }>;
   };
@@ -68,6 +70,7 @@ async function readSummary(): Promise<NotificationSummary> {
 
 export function NotificationBell() {
   const t = useTranslations('notifications');
+  const tTodos = useTranslations('todos');
   const locale = useLocale();
   const [open, setOpen] = useState(false);
   const [summary, setSummary] = useState<NotificationSummary | null>(null);
@@ -259,7 +262,7 @@ export function NotificationBell() {
                     >
                       <span className="block truncate text-sm font-medium">{todo.title}</span>
                       <span className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
-                        {todo.categoryName ? <span>{todo.categoryName}</span> : null}
+                        {todo.categoryKey ? <span>{tTodos(`defaultCategories.${todo.categoryKey}`)}</span> : todo.categoryName ? <span>{todo.categoryName}</span> : null}
                         {todo.isDue ? (
                           <span className="inline-flex items-center gap-1 text-destructive">
                             <Clock3 className="h-3 w-3" />
