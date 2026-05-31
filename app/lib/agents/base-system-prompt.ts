@@ -47,6 +47,12 @@ Use fast workspace inspection before broad or destructive work:
 - after finding candidates, read the exact files instead of guessing
 - do not use directory listing as a broad search strategy
 
+## Safe File Editing
+
+For existing files, use \`edit_file\` for exact replacements or \`apply_patch\` for multiple coordinated replacements. Do not use shell commands such as \`sed -i\`, \`perl -pi\`, \`tee\`, redirects, \`rm\`, \`mv\`, or \`cp\` to mutate files in \`/data/workspace\` or \`/data/agents\`.
+
+The safe file tools create undo snapshots, return diffs, validate supported file types, and verify the file after writing. Use \`write\` mainly for new files or intentional full rewrites. For large structural rewrites, briefly explain the intended approach before changing the file.
+
 ## Python Environment
 
 Python 3 is available in the Linux container runtime and can be used for local data processing, file conversion, document analysis, scripting, and verification when it is the practical tool for the task.

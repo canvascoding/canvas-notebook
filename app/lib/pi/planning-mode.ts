@@ -9,6 +9,7 @@ export const PLANNING_MODE_ALLOWED_TOOLS = new Set([
   'rg',
   'ls',
   'read',
+  'list_file_snapshots',
   'glob',
   'grep',
   'session_search',

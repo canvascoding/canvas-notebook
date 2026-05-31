@@ -79,6 +79,11 @@ async function main() {
   });
   const rgTool = createRipgrepTool();
   const readTool = piTools.find((tool) => tool.name === 'read');
+  const writeTool = piTools.find((tool) => tool.name === 'write');
+  const editFileTool = piTools.find((tool) => tool.name === 'edit_file');
+  const applyPatchTool = piTools.find((tool) => tool.name === 'apply_patch');
+  const listFileSnapshotsTool = piTools.find((tool) => tool.name === 'list_file_snapshots');
+  const restoreFileSnapshotTool = piTools.find((tool) => tool.name === 'restore_file_snapshot');
   const lsTool = piTools.find((tool) => tool.name === 'ls');
   const bashTool = piTools.find((tool) => tool.name === 'bash');
   const webFetchTool = piTools.find((tool) => tool.name === 'web_fetch');
@@ -90,6 +95,11 @@ async function main() {
   assert.equal(piTools.some((tool) => tool.name === 'qmd'), false);
   assert.equal(piTools.some((tool) => tool.name === 'qmd_search'), false);
   assert.ok(readTool);
+  assert.ok(writeTool);
+  assert.ok(editFileTool);
+  assert.ok(applyPatchTool);
+  assert.ok(listFileSnapshotsTool);
+  assert.ok(restoreFileSnapshotTool);
   assert.ok(lsTool);
   assert.ok(bashTool);
   assert.ok(webFetchTool);
@@ -116,6 +126,104 @@ async function main() {
 
   const blockedBashResult = await bashTool.execute('bash-secret-env', { command: 'printenv' });
   assert.match(getText(blockedBashResult), /environment variables|restricted secret paths/i);
+
+  const workspaceDir = path.join(dataDir, 'workspace');
+  await fs.mkdir(path.join(workspaceDir, 'hausarbeit'), { recursive: true });
+  const markdownPath = path.join(workspaceDir, 'hausarbeit', '00_Projektplan_Team6_v2.md');
+  await fs.writeFile(markdownPath, [
+    '# Projektplan',
+    '',
+    '| Nr. | Frage | Status |',
+    '| --- | --- | --- |',
+    '| 1 | Thema final? | offen |',
+    '| 6 | Welche Zitierweise? | offen |',
+    '',
+    '- Einheitliche Zitierweise (Harvard oder Fußnoten - noch zu klären!)',
+    '- Abgabe prüfen',
+    '',
+  ].join('\n'), 'utf8');
+
+  const editResult = await editFileTool.execute('edit-markdown', {
+    path: 'hausarbeit/00_Projektplan_Team6_v2.md',
+    oldText: '| 6 | Welche Zitierweise? | offen |\n',
+    newText: '',
+    expectedOccurrences: 1,
+  });
+  const editText = getText(editResult);
+  assert.match(editText, /Updated file: hausarbeit\/00_Projektplan_Team6_v2\.md/);
+  assert.match(editText, /Validation: passed/);
+  assert.match(editText, /markdown-tables/);
+  assert.match(editText, /Snapshot: /);
+  assert.doesNotMatch(await fs.readFile(markdownPath, 'utf8'), /Welche Zitierweise/);
+
+  const brokenMarkdownResult = await editFileTool.execute('edit-broken-markdown', {
+    path: 'hausarbeit/00_Projektplan_Team6_v2.md',
+    oldText: '| 1 | Thema final? | offen |',
+    newText: '| 1 | Thema final? | offen | extra |',
+    expectedOccurrences: 1,
+  });
+  assert.match(getText(brokenMarkdownResult), /validation failed/i);
+  assert.doesNotMatch(await fs.readFile(markdownPath, 'utf8'), /extra/);
+
+  const snapshotsResult = await listFileSnapshotsTool.execute('list-snapshots', {
+    path: 'hausarbeit/00_Projektplan_Team6_v2.md',
+    limit: 10,
+  });
+  const snapshots = (snapshotsResult.details as { snapshots: Array<{ id: string; operation: string }> }).snapshots;
+  const editSnapshot = snapshots.find((snapshot) => snapshot.operation === 'edit_file');
+  assert.ok(editSnapshot);
+
+  const restoreResult = await restoreFileSnapshotTool.execute('restore-snapshot', {
+    snapshotId: editSnapshot.id,
+  });
+  assert.match(getText(restoreResult), /Updated file: hausarbeit\/00_Projektplan_Team6_v2\.md/);
+  assert.match(await fs.readFile(markdownPath, 'utf8'), /Welche Zitierweise/);
+
+  const jsonPath = path.join(workspaceDir, 'config.json');
+  await fs.writeFile(jsonPath, '{\n  "enabled": false,\n  "name": "old"\n}\n', 'utf8');
+  const patchResult = await applyPatchTool.execute('patch-json', {
+    files: [
+      {
+        path: 'config.json',
+        edits: [
+          { oldText: '"enabled": false', newText: '"enabled": true', expectedOccurrences: 1 },
+          { oldText: '"name": "old"', newText: '"name": "new"', expectedOccurrences: 1 },
+        ],
+      },
+    ],
+  });
+  assert.match(getText(patchResult), /json-parse: JSON syntax OK/);
+  assert.deepEqual(JSON.parse(await fs.readFile(jsonPath, 'utf8')), { enabled: true, name: 'new' });
+
+  const invalidJsonResult = await applyPatchTool.execute('patch-invalid-json', {
+    files: [
+      {
+        path: 'config.json',
+        edits: [
+          { oldText: '"name": "new"', newText: '"name": ', expectedOccurrences: 1 },
+        ],
+      },
+    ],
+  });
+  assert.match(getText(invalidJsonResult), /validation failed/i);
+  assert.deepEqual(JSON.parse(await fs.readFile(jsonPath, 'utf8')), { enabled: true, name: 'new' });
+
+  const writeResult = await writeTool.execute('write-new-file', {
+    path: 'notes/new.md',
+    content: '# New File\n\n| A | B |\n| --- | --- |\n| 1 | 2 |\n',
+  });
+  assert.match(getText(writeResult), /Updated file: notes\/new\.md/);
+  assert.match(getText(writeResult), /Snapshot: /);
+
+  const blockedSedResult = await bashTool.execute('bash-block-sed', {
+    command: "sed -i 's/Projekt/Plan/' /data/workspace/hausarbeit/00_Projektplan_Team6_v2.md",
+  });
+  assert.match(getText(blockedSedResult), /edit_file|apply_patch|sed/i);
+
+  const blockedRedirectResult = await bashTool.execute('bash-block-redirect', {
+    command: "echo broken > /data/workspace/hausarbeit/00_Projektplan_Team6_v2.md",
+  });
+  assert.match(getText(blockedRedirectResult), /redirects|write|edit_file|apply_patch/i);
 
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'canvas-rg-tool-'));
   const matchFile = path.join(tempDir, 'match.ts');
