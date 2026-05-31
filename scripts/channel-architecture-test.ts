@@ -8,6 +8,8 @@ import {
 } from '../app/lib/channels/constants';
 import { buildDeliveryTarget } from '../app/lib/channels/delivery-targets';
 import { buildUserAgentMessageFromInbound } from '../app/lib/channels/message-normalization';
+import { buildChannelChatContext } from '../app/lib/channels/chat-context';
+import { getChannelSystemPromptBlock } from '../app/lib/agents/channel-system-prompt';
 
 assert.equal(normalizeStoredChannelId('app'), 'web');
 assert.equal(normalizeStoredChannelId('web'), 'web');
@@ -18,6 +20,8 @@ assert.equal(telegramChannelSessionKey('123456'), 'telegram:123456');
 assert.equal(telegramChannelSessionKey('telegram:123456'), 'telegram:123456');
 assert.equal(telegramChatIdFromSessionKey('telegram:123456'), '123456');
 assert.equal(telegramChatIdFromSessionKey('123456'), '123456');
+assert.equal(getChannelSystemPromptBlock('web'), null);
+assert.match(getChannelSystemPromptBlock('telegram') || '', /Do not use Markdown tables/);
 assert.deepEqual(buildDeliveryTarget('telegram', 'telegram:123456'), {
   channelId: 'telegram',
   channelSessionKey: 'telegram:123456',
@@ -69,5 +73,10 @@ assert.deepEqual(explicitParts.content, [
   { type: 'text', text: 'caption' },
   { type: 'image', data: 'xyz', mimeType: 'image/jpeg' },
 ]);
+
+assert.deepEqual(
+  buildChannelChatContext({ channelId: 'telegram' }, { channelId: 'web', currentTime: '2026-05-31T12:00:00.000Z' }),
+  { channelId: 'telegram', currentTime: '2026-05-31T12:00:00.000Z' },
+);
 
 console.log('channel architecture tests passed');

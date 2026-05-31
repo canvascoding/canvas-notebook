@@ -81,6 +81,7 @@ export function resolveChatRequestContext(payload: unknown): ChatRequestContext 
 
 function normalizeContext(context?: ChatRequestContext): ChatRequestContext {
   return {
+    channelId: typeof context?.channelId === 'string' ? context.channelId : undefined,
     userTimeZone: typeof context?.userTimeZone === 'string' ? context.userTimeZone : undefined,
     currentTime: typeof context?.currentTime === 'string' ? context.currentTime : undefined,
     activeFilePath: typeof context?.activeFilePath === 'string' ? context.activeFilePath : null,
@@ -146,6 +147,8 @@ async function injectStudioImage(
 }
 
 function applyPromptContext(runtimeInstance: RuntimeInstance, context: ChatRequestContext): void {
+  runtimeInstance.setChannelContext(context.channelId);
+
   if (context.userTimeZone && context.currentTime) {
     runtimeInstance.setTimeZoneContext(context.userTimeZone, context.currentTime);
   }

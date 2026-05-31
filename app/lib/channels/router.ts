@@ -3,6 +3,7 @@ import { sendMessage } from '@/app/lib/pi/runtime-service';
 import type { InboundMessage } from './types';
 import { resolveChannelSession } from './session-resolver';
 import { buildUserAgentMessageFromInbound } from './message-normalization';
+import { buildChannelChatContext } from './chat-context';
 
 export type RoutedChannelMessageResult = {
   sessionId: string;
@@ -22,6 +23,11 @@ export async function handleInboundChannelMessage(
     displayName: typeof message.metadata?.displayName === 'string' ? message.metadata.displayName : null,
   });
 
-  const status = await sendMessage(sessionId, message.userId, buildUserAgentMessageFromInbound(message), context);
+  const status = await sendMessage(
+    sessionId,
+    message.userId,
+    buildUserAgentMessageFromInbound(message),
+    buildChannelChatContext(message, context),
+  );
   return { sessionId, status };
 }
