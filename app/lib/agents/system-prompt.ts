@@ -11,6 +11,7 @@ import {
   composeManagedAgentSystemPrompt,
   type ManagedSystemPromptResult,
 } from './system-prompt-shared';
+import { getAgentProfile } from './registry';
 import { loadSkillsFromDisk, getSkillsContext } from '../skills/skill-loader';
 import { isComposioConfigured } from '../composio/composio-client';
 import { resolveEnabledToolNames, isDefaultToolsConfig } from '../pi/enabled-tools';
@@ -34,17 +35,35 @@ You have access to external apps through Composio Meta Tools. Workflow:
 
 Always search before executing — don't guess action names.`;
 
+function getAgentRelevantSkillsContext(
+  skills: Array<{ name: string; description: string; enabled?: boolean }>,
+  relevantSkills?: string[] | null,
+): string {
+  if (!relevantSkills || relevantSkills.length === 0) return '';
+  const relevantSet = new Set(relevantSkills);
+  const matches = skills.filter((skill) => skill.enabled && relevantSet.has(skill.name));
+  if (matches.length === 0) return '';
+
+  let context = '\n\n# Agent-Relevant Skills\n\n';
+  context += 'Prioritize these enabled skills when they match the user request or the current task.\n\n';
+  for (const skill of matches) {
+    context += `- ${skill.name}: ${skill.description}\n`;
+  }
+  return context;
+}
+
 export async function loadManagedAgentSystemPrompt(agentId?: string | null): Promise<ManagedSystemPromptResult> {
   try {
     const normalizedAgentId = agentId?.trim().toLowerCase() || DEFAULT_MANAGED_AGENT_ID;
     const files = await readRuntimeManagedAgentFiles(normalizedAgentId);
+    const agentProfile = await getAgentProfile(normalizedAgentId);
     
     // Load PI config to get enabled skills and check composio tools
     const piConfig = await readPiRuntimeConfig();
     
     // Load enabled skills and add their context to system prompt
     const skills = await loadSkillsFromDisk(piConfig.enabledSkills);
-    const skillsContext = getSkillsContext(skills);
+    const skillsContext = `${getSkillsContext(skills)}${getAgentRelevantSkillsContext(skills, agentProfile?.relevantSkills)}`;
     
     const result = composeManagedAgentSystemPrompt(files, skillsContext, {
       agentId: normalizedAgentId,

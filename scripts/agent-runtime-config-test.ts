@@ -61,8 +61,9 @@ async function main() {
     readManagedAgentFile,
     writePiRuntimeConfig,
   } = await import('../app/lib/agents/storage');
-  const { createAgentProfile, updateAgentProfile } = await import('../app/lib/agents/registry');
+  const { createAgentProfile, getAgentProfile, updateAgentProfile } = await import('../app/lib/agents/registry');
   const { resolveAgentRuntimeConfig, resolveAgentRuntimeSettings } = await import('../app/lib/agents/effective-runtime-config');
+  const { loadManagedAgentSystemPrompt } = await import('../app/lib/agents/system-prompt');
   const { getCanvasControlPlaneModels, resolvePiModel } = await import('../app/lib/pi/model-resolver');
 
   const unconfiguredSettings = await resolveAgentRuntimeSettings(DEFAULT_MANAGED_AGENT_ID);
@@ -101,6 +102,7 @@ async function main() {
   );
 
   const inheritedAgent = await createAgentProfile({ name: 'Inherited Agent' });
+  assert.equal(inheritedAgent.iconId, 'bot');
   assert.equal(isWritableManagedAgentFileName('IDENTITY.md', inheritedAgent.agentId), false);
   assert.equal(isWritableManagedAgentFileName('USER.md', inheritedAgent.agentId), false);
   assert.equal(isWritableManagedAgentFileName('MEMORY.md', inheritedAgent.agentId), true);
@@ -114,11 +116,16 @@ async function main() {
 
   const customAgent = await createAgentProfile({
     name: 'Custom Agent',
+    iconId: 'sparkles',
     defaultProvider: 'openrouter',
     defaultModel: DEFAULT_PI_CONFIG.providers.openrouter.model,
     defaultThinking: 'high',
     enabledTools: ['bash'],
+    relevantSkills: ['research-notes'],
   });
+  const customProfile = await getAgentProfile(customAgent.agentId);
+  assert.equal(customProfile?.iconId, 'sparkles');
+  assert.deepEqual(customProfile?.relevantSkills, ['research-notes']);
   const customConfig = await resolveAgentRuntimeConfig(customAgent.agentId);
   assert.equal(customConfig.activeProvider, 'openrouter');
   assert.equal(customConfig.model.id, DEFAULT_PI_CONFIG.providers.openrouter.model);
@@ -143,16 +150,36 @@ async function main() {
 
   await updateAgentProfile({
     agentId: customAgent.agentId,
+    iconId: 'briefcase',
     defaultProvider: null,
     defaultModel: null,
     defaultThinking: null,
     enabledTools: null,
   });
+  const updatedCustomProfile = await getAgentProfile(customAgent.agentId);
+  assert.equal(updatedCustomProfile?.iconId, 'briefcase');
   const clearedConfig = await resolveAgentRuntimeConfig(customAgent.agentId);
   assert.equal(clearedConfig.activeProvider, 'google');
   assert.equal(clearedConfig.model.id, 'gemini-1.5-pro');
   assert.deepEqual(clearedConfig.enabledTools, ['read', 'ls']);
   assert.deepEqual(clearedConfig.overrideState, { model: false, tools: false });
+
+  await fs.mkdir(path.join(dataDir, 'skills', 'research-notes'), { recursive: true });
+  await fs.writeFile(
+    path.join(dataDir, 'skills', 'research-notes', 'SKILL.md'),
+    [
+      '---',
+      'name: research-notes',
+      'description: Summarize and organize research material.',
+      '---',
+      '',
+      '# Research Notes',
+    ].join('\n'),
+    'utf8',
+  );
+  const prompt = await loadManagedAgentSystemPrompt(customAgent.agentId);
+  assert.match(prompt.systemPrompt, /# Agent-Relevant Skills/);
+  assert.match(prompt.systemPrompt, /research-notes: Summarize and organize research material/);
 
   await fs.rm(PI_RUNTIME_CONFIG_PATH, { force: true });
   process.env.CANVAS_MANAGED_SERVICES_ENABLED = 'true';

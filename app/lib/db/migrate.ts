@@ -142,12 +142,14 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
       agent_id TEXT NOT NULL UNIQUE,
       name TEXT NOT NULL,
+      icon_id TEXT NOT NULL DEFAULT 'bot',
       type TEXT NOT NULL DEFAULT 'main',
       removable INTEGER NOT NULL DEFAULT 0,
       default_provider TEXT,
       default_model TEXT,
       default_thinking TEXT,
       enabled_tools_json TEXT,
+      relevant_skills_json TEXT,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
     );
@@ -763,8 +765,10 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     enabled: 'INTEGER NOT NULL DEFAULT 1',
   });
   addColumns(sqlite, 'agents', {
+    icon_id: "TEXT NOT NULL DEFAULT 'bot'",
     default_thinking: 'TEXT',
     enabled_tools_json: 'TEXT',
+    relevant_skills_json: 'TEXT',
   });
   addColumns(sqlite, 'channel_active_sessions', {
     agent_id: "TEXT NOT NULL DEFAULT 'canvas-agent'",

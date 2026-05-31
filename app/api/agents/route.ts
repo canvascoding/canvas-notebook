@@ -7,6 +7,13 @@ import {
   listAgentProfiles,
   updateAgentProfile,
 } from '@/app/lib/agents/registry';
+import { normalizeAgentIconId } from '@/app/lib/agents/icons';
+import {
+  isManagedAgentFileName,
+  isWritableManagedAgentFileName,
+  writeManagedAgentFile,
+  type AgentManagedFileName,
+} from '@/app/lib/agents/storage';
 import type { PiThinkingLevel } from '@/app/lib/pi/config';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 
@@ -56,6 +63,29 @@ function stringArrayValue(value: unknown): string[] | null {
   return value.filter((entry): entry is string => typeof entry === 'string');
 }
 
+function managedFilesValue(value: unknown): Partial<Record<AgentManagedFileName, string>> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  const result: Partial<Record<AgentManagedFileName, string>> = {};
+  for (const [fileName, content] of Object.entries(value)) {
+    if (isManagedAgentFileName(fileName) && typeof content === 'string') {
+      result[fileName] = content;
+    }
+  }
+  return result;
+}
+
+async function writeInitialAgentFiles(
+  agentId: string,
+  files: Partial<Record<AgentManagedFileName, string>>,
+): Promise<void> {
+  for (const [fileName, content] of Object.entries(files)) {
+    if (!isManagedAgentFileName(fileName) || !isWritableManagedAgentFileName(fileName, agentId)) {
+      continue;
+    }
+    await writeManagedAgentFile(fileName, content ?? '', agentId);
+  }
+}
+
 export async function POST(request: NextRequest) {
   const session = await auth.api.getSession({ headers: request.headers });
   if (!session) {
@@ -76,11 +106,14 @@ export async function POST(request: NextRequest) {
     const agent = await createAgentProfile({
       name: stringValue(payload.name) || '',
       agentId: stringValue(payload.agentId) || null,
+      iconId: normalizeAgentIconId(payload.iconId),
       defaultProvider: stringValue(payload.defaultProvider) || null,
       defaultModel: stringValue(payload.defaultModel) || null,
       defaultThinking: thinkingValue(payload.defaultThinking),
       enabledTools: stringArrayValue(payload.enabledTools),
+      relevantSkills: stringArrayValue(payload.relevantSkills),
     });
+    await writeInitialAgentFiles(agent.agentId, managedFilesValue(payload.files));
     return NextResponse.json({ success: true, data: { agent } });
   } catch (error) {
     return NextResponse.json(
@@ -114,10 +147,12 @@ export async function PATCH(request: NextRequest) {
     const agent = await updateAgentProfile({
       agentId,
       name: stringValue(payload.name),
+      iconId: Object.hasOwn(payload, 'iconId') ? normalizeAgentIconId(payload.iconId) : undefined,
       defaultProvider: Object.hasOwn(payload, 'defaultProvider') ? nullableStringValue(payload.defaultProvider) : undefined,
       defaultModel: Object.hasOwn(payload, 'defaultModel') ? nullableStringValue(payload.defaultModel) : undefined,
       defaultThinking: Object.hasOwn(payload, 'defaultThinking') ? thinkingValue(payload.defaultThinking) : undefined,
       enabledTools: Object.hasOwn(payload, 'enabledTools') ? stringArrayValue(payload.enabledTools) : undefined,
+      relevantSkills: Object.hasOwn(payload, 'relevantSkills') ? stringArrayValue(payload.relevantSkills) : undefined,
     });
     return NextResponse.json({ success: true, data: { agent } });
   } catch (error) {
