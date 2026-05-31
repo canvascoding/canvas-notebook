@@ -11,7 +11,7 @@
     "electron:build": "npm run electron:sync-version && npm run build && electron-builder --projectDir electron --dir",
     "electron:pack": "npm run electron:build",
     "electron:dist": "npm run electron:sync-version && npm run build && electron-builder --projectDir electron",
-    "build": "next build && bash scripts/inject-cli-version.sh",
+    "build": "NODE_OPTIONS=\"${NODE_OPTIONS:+$NODE_OPTIONS }--disable-warning=DEP0205\" next build && bash scripts/inject-cli-version.sh",
     "bootstrap:admin": "node scripts/bootstrap-admin.js",
     "start": "NODE_ENV=production ./scripts/start-services.sh",
     "lint": "eslint",
