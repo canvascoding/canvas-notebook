@@ -119,6 +119,33 @@ function getContentType(filePath) {
   return MEDIA_TYPES[ext] || 'application/octet-stream';
 }
 
+const RETIRED_SEED_SKILLS = [
+  {
+    name: 'browser-tools',
+    marker: 'author: canvas-studios',
+  },
+];
+
+function cleanupRetiredSeedSkills(skillsDir) {
+  for (const skill of RETIRED_SEED_SKILLS) {
+    const skillDir = path.join(skillsDir, skill.name);
+    const skillMdPath = path.join(skillDir, 'SKILL.md');
+
+    if (!fs.existsSync(skillMdPath)) {
+      continue;
+    }
+
+    const skillMd = fs.readFileSync(skillMdPath, 'utf8');
+    if (!skillMd.includes(`name: ${skill.name}`) || !skillMd.includes(skill.marker)) {
+      console.warn(`[Startup] Retired seed skill "${skill.name}" exists but did not match Canvas seed markers; preserving it.`);
+      continue;
+    }
+
+    fs.rmSync(skillDir, { recursive: true, force: true });
+    console.log(`[Startup] Removed retired seed skill: ${skill.name}`);
+  }
+}
+
 function ensureSkillsDirectory() {
   const skillsDir = resolveSkillsDataDir(process.cwd());
   const repoSkillsDir = path.resolve(process.cwd(), 'seed_skills');
@@ -132,6 +159,7 @@ function ensureSkillsDirectory() {
       fs.cpSync(repoSkillsDir, skillsDir, { recursive: true, force: true });
       console.log(`[Startup] Synced seed skills to ${skillsDir}`);
     }
+    cleanupRetiredSeedSkills(skillsDir);
   } catch (error) {
     console.error('[Startup] Failed to sync skills directory:', error);
   }
