@@ -17,10 +17,49 @@ import type { ChatRequestContext } from '@/app/lib/chat/types';
 import { generateRandomId } from '@/app/lib/utils/random-id';
 
 type PendingRequest = {
+  type: string;
   resolve: (value: Record<string, unknown>) => void;
   reject: (error: Error) => void;
   timer: ReturnType<typeof setTimeout>;
 };
+
+const QUIET_MESSAGE_TYPES = new Set(['agent_event', 'runtime_status']);
+
+function readyStateLabel(readyState: number | undefined): string {
+  return readyState === WebSocket.CONNECTING ? 'CONNECTING'
+    : readyState === WebSocket.OPEN ? 'OPEN'
+    : readyState === WebSocket.CLOSING ? 'CLOSING'
+    : readyState === WebSocket.CLOSED ? 'CLOSED'
+    : `UNKNOWN(${readyState})`;
+}
+
+function safeWebSocketUrl(url: string): string {
+  try {
+    const parsed = new URL(url);
+    return `${parsed.protocol}//${parsed.host}${parsed.pathname}`;
+  } catch {
+    return url;
+  }
+}
+
+function summarizeMessageForLog(message: Record<string, unknown>): Record<string, unknown> {
+  const summary: Record<string, unknown> = {
+    type: message.type,
+  };
+
+  if (typeof message.requestId === 'string') summary.requestId = message.requestId;
+  if (typeof message.sessionId === 'string') summary.sessionId = message.sessionId;
+  if (typeof message.action === 'string') summary.action = message.action;
+  if (typeof message.success === 'boolean') summary.success = message.success;
+  if (typeof message.error === 'string') summary.error = message.error;
+
+  const event = message.event;
+  if (event && typeof event === 'object' && 'type' in event) {
+    summary.eventType = (event as { type?: unknown }).type;
+  }
+
+  return summary;
+}
 
 export class WebSocketClient extends EventTarget {
   private ws: WebSocket | null = null;
@@ -37,6 +76,8 @@ export class WebSocketClient extends EventTarget {
   private refCount = 0;
   private disconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private pendingRequests = new Map<string, PendingRequest>();
+  private connectAttempt = 0;
+  private activeConnectionId: string | null = null;
   private static readonly DISCONNECT_GRACE_MS = 3000;
 
   constructor(baseUrl?: string) {
@@ -61,12 +102,29 @@ export class WebSocketClient extends EventTarget {
   connect(): Promise<void> {
     this.refCount++;
     this.cancelDisconnectTimer();
+    console.log('[WebSocket] connect() requested', {
+      refCount: this.refCount,
+      isConnecting: this.isConnecting,
+      isAuthenticated: this.isAuthenticated,
+      readyState: readyStateLabel(this.ws?.readyState),
+      subscribedSessions: this.subscribedSessions.size,
+      queuedMessages: this.messageQueue.length,
+      pendingRequests: this.pendingRequests.size,
+    });
 
     if (this.isAuthenticated && this.ws?.readyState === WebSocket.OPEN) {
+      console.log('[WebSocket] connect() reused authenticated connection', {
+        connectionId: this.activeConnectionId,
+        readyState: readyStateLabel(this.ws.readyState),
+      });
       return Promise.resolve();
     }
 
     if (this.isConnecting) {
+      console.log('[WebSocket] connect() waiting for in-flight connection', {
+        connectionId: this.activeConnectionId,
+        readyState: readyStateLabel(this.ws?.readyState),
+      });
       return new Promise((resolve, reject) => {
         const checkAuthenticated = () => {
           if (this.isAuthenticated && this.ws?.readyState === WebSocket.OPEN) {
@@ -86,17 +144,38 @@ export class WebSocketClient extends EventTarget {
     return new Promise((resolve, reject) => {
       this.connectResolve = resolve;
       this.connectReject = reject;
+      this.connectAttempt += 1;
+      const connectionId = `chat-ws-${this.connectAttempt}-${Date.now().toString(36)}`;
+      this.activeConnectionId = connectionId;
 
       try {
+        console.log('[WebSocket] connect_start', {
+          connectionId,
+          url: safeWebSocketUrl(this.baseUrl),
+          reconnectAttempts: this.reconnectAttempts,
+        });
         this.ws = new WebSocket(this.baseUrl);
 
         this.ws.onopen = () => {
-          console.log('[WebSocket] TCP connection established, waiting for auth...');
+          console.log('[WebSocket] socket_open waiting_for_auth', {
+            connectionId,
+            readyState: readyStateLabel(this.ws?.readyState),
+          });
           this.reconnectAttempts = 0;
         };
 
         this.ws.onclose = (event) => {
-          console.log(`[WebSocket] Disconnected: code=${event.code} reason=${event.reason || '(empty)'} wasClean=${event.wasClean}`);
+          console.log('[WebSocket] socket_close', {
+            connectionId,
+            code: event.code,
+            reason: event.reason || '(empty)',
+            wasClean: event.wasClean,
+            wasAuthenticated: this.isAuthenticated,
+            wasConnecting: this.isConnecting,
+            queuedMessages: this.messageQueue.length,
+            pendingRequests: this.pendingRequests.size,
+            subscribedSessions: this.subscribedSessions.size,
+          });
           const wasConnecting = this.isConnecting;
           this.isAuthenticated = false;
           this.isConnecting = false;
@@ -117,12 +196,11 @@ export class WebSocketClient extends EventTarget {
 
         this.ws.onerror = (error) => {
           const readyState = this.ws?.readyState;
-          const stateLabel = readyState === WebSocket.CONNECTING ? 'CONNECTING'
-            : readyState === WebSocket.OPEN ? 'OPEN'
-            : readyState === WebSocket.CLOSING ? 'CLOSING'
-            : readyState === WebSocket.CLOSED ? 'CLOSED'
-            : `UNKNOWN(${readyState})`;
-          console.error(`[WebSocket] Error (readyState=${stateLabel}):`, error);
+          console.error('[WebSocket] socket_error', {
+            connectionId,
+            readyState: readyStateLabel(readyState),
+            error,
+          });
           this.isConnecting = false;
           this.isAuthenticated = false;
 
@@ -144,7 +222,10 @@ export class WebSocketClient extends EventTarget {
           }
         };
       } catch (error) {
-        console.error('[WebSocket] Connection error:', error);
+        console.error('[WebSocket] connect_throw', {
+          connectionId,
+          error,
+        });
         this.isConnecting = false;
         this.isAuthenticated = false;
         reject(error);
@@ -169,6 +250,12 @@ export class WebSocketClient extends EventTarget {
     this.connectReject = null;
 
     if (this.ws) {
+      console.log('[WebSocket] disconnect() closing socket', {
+        connectionId: this.activeConnectionId,
+        readyState: readyStateLabel(this.ws.readyState),
+        pendingRequests: this.pendingRequests.size,
+        queuedMessages: this.messageQueue.length,
+      });
       this.ws.close(1000, 'client disconnect');
       this.ws = null;
     }
@@ -207,11 +294,23 @@ export class WebSocketClient extends EventTarget {
    */
   send(message: Record<string, unknown>): void {
     if (this.isAuthenticated && this.ws && this.ws.readyState === WebSocket.OPEN) {
+      if (!QUIET_MESSAGE_TYPES.has(String(message.type))) {
+        console.log('[WebSocket] send', {
+          connectionId: this.activeConnectionId,
+          ...summarizeMessageForLog(message),
+        });
+      }
       this.ws.send(JSON.stringify(message));
       return;
     }
     
-    console.log('[WebSocket] Not authenticated yet, queuing message:', message.type);
+    console.log('[WebSocket] send queued before auth', {
+      connectionId: this.activeConnectionId,
+      readyState: readyStateLabel(this.ws?.readyState),
+      isConnecting: this.isConnecting,
+      isManualDisconnect: this.isManualDisconnect,
+      ...summarizeMessageForLog(message),
+    });
     this.messageQueue.push(message);
     
     if (!this.isConnecting && !this.isManualDisconnect) {
@@ -231,15 +330,31 @@ export class WebSocketClient extends EventTarget {
     return new Promise<T>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pendingRequests.delete(requestId);
+        console.warn('[WebSocket] request_timeout', {
+          connectionId: this.activeConnectionId,
+          requestId,
+          type,
+          timeoutMs,
+          readyState: readyStateLabel(this.ws?.readyState),
+          isAuthenticated: this.isAuthenticated,
+        });
         reject(new Error('WebSocket request timeout'));
       }, timeoutMs);
 
       this.pendingRequests.set(requestId, {
+        type,
         resolve: (value) => resolve(value as T),
         reject,
         timer,
       });
 
+      console.log('[WebSocket] request_start', {
+        connectionId: this.activeConnectionId,
+        requestId,
+        type,
+        timeoutMs,
+        ...summarizeMessageForLog(payload),
+      });
       this.send({ type, requestId, ...payload });
     });
   }
@@ -255,10 +370,17 @@ export class WebSocketClient extends EventTarget {
   private flushMessageQueue(): void {
     if (this.messageQueue.length === 0) return;
     
-    console.log('[WebSocket] Flushing', this.messageQueue.length, 'queued messages after auth');
+    console.log('[WebSocket] flush_queue_after_auth', {
+      connectionId: this.activeConnectionId,
+      queuedMessages: this.messageQueue.length,
+    });
     while (this.messageQueue.length > 0) {
       const message = this.messageQueue.shift();
       if (message && this.ws && this.ws.readyState === WebSocket.OPEN) {
+        console.log('[WebSocket] send_queued', {
+          connectionId: this.activeConnectionId,
+          ...summarizeMessageForLog(message),
+        });
         this.ws.send(JSON.stringify(message));
       }
     }
@@ -269,7 +391,11 @@ export class WebSocketClient extends EventTarget {
    */
   subscribe(sessionId: string): Promise<Record<string, unknown>> {
     this.subscribedSessions.add(sessionId);
-    console.log(`[WebSocket] Subscribed to session ${sessionId}`);
+    console.log('[WebSocket] subscribe requested', {
+      connectionId: this.activeConnectionId,
+      sessionId,
+      subscribedSessions: this.subscribedSessions.size,
+    });
     return this.request('subscribe_session', { sessionId });
   }
 
@@ -279,7 +405,11 @@ export class WebSocketClient extends EventTarget {
   unsubscribe(sessionId: string): void {
     this.subscribedSessions.delete(sessionId);
     this.send({ type: 'unsubscribe_session', sessionId });
-    console.log(`[WebSocket] Unsubscribed from session ${sessionId}`);
+    console.log('[WebSocket] unsubscribe requested', {
+      connectionId: this.activeConnectionId,
+      sessionId,
+      subscribedSessions: this.subscribedSessions.size,
+    });
   }
 
   /**
@@ -290,6 +420,14 @@ export class WebSocketClient extends EventTarget {
     message: Record<string, unknown>,
     context?: ChatRequestContext
   ): void {
+    console.log('[WebSocket] sendMessage requested', {
+      connectionId: this.activeConnectionId,
+      sessionId,
+      hasContext: Boolean(context),
+      contextPage: context?.currentPage,
+      messageRole: typeof message.role === 'string' ? message.role : undefined,
+      contentKind: Array.isArray(message.content) ? 'parts' : typeof message.content,
+    });
     this.send({
       type: 'send_message',
       sessionId,
@@ -303,8 +441,17 @@ export class WebSocketClient extends EventTarget {
 
     if (success) {
       this.isAuthenticated = true;
+      console.log('[WebSocket] auth_success', {
+        connectionId: this.activeConnectionId,
+        queuedMessages: this.messageQueue.length,
+        resubscribeSessions: this.subscribedSessions.size,
+      });
 
       for (const sessionId of this.subscribedSessions) {
+        console.log('[WebSocket] resubscribe_after_auth', {
+          connectionId: this.activeConnectionId,
+          sessionId,
+        });
         this.ws?.send(JSON.stringify({ type: 'subscribe_session', sessionId }));
       }
 
@@ -320,6 +467,10 @@ export class WebSocketClient extends EventTarget {
     } else {
       this.isAuthenticated = false;
       this.isManualDisconnect = true;
+      console.error('[WebSocket] auth_failed', {
+        connectionId: this.activeConnectionId,
+        error: error || 'Authentication failed',
+      });
       this.rejectPendingRequests(new Error(error || 'WebSocket authentication failed'));
 
       this.dispatchEvent(new CustomEvent('error', { detail: { error: error || 'Authentication failed', code: 'AUTH_ERROR' } }));
@@ -345,6 +496,12 @@ export class WebSocketClient extends EventTarget {
       const pending = this.pendingRequests.get(requestId)!;
       clearTimeout(pending.timer);
       this.pendingRequests.delete(requestId);
+      console.log('[WebSocket] request_result', {
+        connectionId: this.activeConnectionId,
+        requestId,
+        requestType: pending.type,
+        ...summarizeMessageForLog(message),
+      });
 
       if (message.success === false) {
         pending.reject(new Error(typeof message.error === 'string' ? message.error : 'WebSocket request failed'));
@@ -356,12 +513,18 @@ export class WebSocketClient extends EventTarget {
 
     switch (type) {
       case 'auth_success':
-        console.log('[WebSocket] Authenticated as user:', message.userId);
+        console.log('[WebSocket] auth_success received', {
+          connectionId: this.activeConnectionId,
+          userId: message.userId,
+        });
         this.completeAuth(true);
         break;
 
       case 'auth_error':
-        console.error('[WebSocket] Auth error:', message.error);
+        console.error('[WebSocket] auth_error received', {
+          connectionId: this.activeConnectionId,
+          error: message.error,
+        });
         this.completeAuth(false, typeof message.error === 'string' ? message.error : 'Authentication failed');
         break;
 
@@ -441,7 +604,10 @@ export class WebSocketClient extends EventTarget {
       }
 
       case 'error':
-        console.error('[WebSocket] Server error:', message.error);
+        console.error('[WebSocket] server_error received', {
+          connectionId: this.activeConnectionId,
+          ...summarizeMessageForLog(message),
+        });
         this.dispatchEvent(new CustomEvent<{ error: string; code?: string }>('error', {
           detail: { error: message.error as string, code: message.code as string },
         }));
@@ -469,10 +635,21 @@ export class WebSocketClient extends EventTarget {
     const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempts), 30000);
     this.reconnectAttempts++;
 
-    console.log(`[WebSocket] Reconnect attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts} in ${delay}ms`);
+    console.log('[WebSocket] reconnect_scheduled', {
+      connectionId: this.activeConnectionId,
+      attempt: this.reconnectAttempts,
+      maxAttempts: this.maxReconnectAttempts,
+      delay,
+      subscribedSessions: this.subscribedSessions.size,
+      queuedMessages: this.messageQueue.length,
+    });
 
     setTimeout(() => {
-      console.log(`[WebSocket] Reconnecting... (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
+      console.log('[WebSocket] reconnect_starting', {
+        previousConnectionId: this.activeConnectionId,
+        attempt: this.reconnectAttempts,
+        maxAttempts: this.maxReconnectAttempts,
+      });
       this.isManualDisconnect = false;
       this.connect().catch(console.error);
     }, delay);
@@ -485,6 +662,7 @@ export class WebSocketClient extends EventTarget {
   resetForReconnect(): void {
     this.isManualDisconnect = false;
     this.reconnectAttempts = 0;
+    console.log('[WebSocket] resetForReconnect');
   }
 
   /**
