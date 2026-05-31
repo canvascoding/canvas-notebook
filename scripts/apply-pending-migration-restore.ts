@@ -7,10 +7,13 @@ import Database from 'better-sqlite3';
 import { runMigrations } from '../app/lib/db/migrate';
 import type {
   CanvasMigrationManifest,
-  MigrationComponentKey,
   MigrationComponents,
   PendingMigrationRestore,
 } from '../app/lib/migration/types';
+import {
+  getSelectedMigrationComponentPaths,
+  resolveMigrationDataPath,
+} from '../app/lib/migration/component-paths';
 
 const execFileAsync = promisify(execFile);
 
@@ -252,32 +255,15 @@ async function clearOauthFiles(): Promise<void> {
   await fs.mkdir(path.join(DATA_ROOT, 'pi-oauth-states'), { recursive: true }).catch(() => undefined);
 }
 
-function componentEnabled(components: MigrationComponents, key: MigrationComponentKey): boolean {
-  return components[key] === true;
-}
-
 async function applyFileComponents(params: {
   extractDataRoot: string;
   components: MigrationComponents;
   backupDir: string;
 }): Promise<void> {
-  const mappings: Array<{ component: MigrationComponentKey; source: string; target: string }> = [
-    { component: 'workspace', source: 'workspace', target: 'workspace' },
-    { component: 'studioAssets', source: path.join('studio', 'assets'), target: path.join('studio', 'assets') },
-    { component: 'studioOutputs', source: path.join('studio', 'outputs'), target: path.join('studio', 'outputs') },
-    { component: 'studioOutputs', source: path.join('studio', 'edits'), target: path.join('studio', 'edits') },
-    { component: 'userUploads', source: 'user-uploads', target: 'user-uploads' },
-    { component: 'agents', source: 'agents', target: 'agents' },
-    { component: 'agents', source: 'canvas-agent', target: 'canvas-agent' },
-    { component: 'skills', source: 'skills', target: 'skills' },
-    { component: 'secrets', source: 'secrets', target: 'secrets' },
-  ];
-
-  for (const mapping of mappings) {
-    if (!componentEnabled(params.components, mapping.component)) continue;
+  for (const mapping of getSelectedMigrationComponentPaths(params.components)) {
     await replacePath(
-      path.join(params.extractDataRoot, mapping.source),
-      path.join(DATA_ROOT, mapping.target),
+      resolveMigrationDataPath(params.extractDataRoot, mapping),
+      resolveMigrationDataPath(DATA_ROOT, mapping),
       params.backupDir,
     );
   }
