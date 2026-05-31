@@ -118,16 +118,30 @@ async function getChatInputMetrics(page: Page) {
 }
 
 type AgentEventPayload = Record<string, unknown>;
+type MockControlResult = Record<string, unknown> | {
+  status: Record<string, unknown>;
+  agentEvents?: AgentEventPayload[];
+};
 
 interface MockWsConfig {
   sessionId: string;
   onSubscribe?: () => void;
   onSendMessage?: (message: Record<string, unknown>, context: Record<string, unknown> | undefined, requestId: string) => void;
   onGetStatus?: (requestId: string) => Record<string, unknown> | null;
-  onControl?: (action: string, message: Record<string, unknown> | undefined, requestId: string, queueItemId?: string) => Record<string, unknown>;
+  onControl?: (action: string, message: Record<string, unknown> | undefined, requestId: string, queueItemId?: string) => MockControlResult;
   agentEvents?: AgentEventPayload[];
   sendEventsAfterSendMessage?: boolean;
   runtimeStatus?: Record<string, unknown>;
+}
+
+function isMockControlEnvelope(value: MockControlResult): value is { status: Record<string, unknown>; agentEvents?: AgentEventPayload[] } {
+  return Boolean(
+    value &&
+    typeof value === 'object' &&
+    'status' in value &&
+    value.status &&
+    typeof value.status === 'object',
+  );
 }
 
 function setupMockWebSocket(page: Page, config: MockWsConfig) {
@@ -204,10 +218,22 @@ function setupMockWebSocket(page: Page, config: MockWsConfig) {
           let status: Record<string, unknown> = runtimeStatus
             ? { ...createMockRuntimeStatus(sessionId), ...runtimeStatus }
             : createMockRuntimeStatus(sessionId);
+          let controlEvents: AgentEventPayload[] = [];
           if (onControl) {
-            status = onControl(action, message.message, requestId, message.queueItemId);
+            const result = onControl(action, message.message, requestId, message.queueItemId);
+            if (isMockControlEnvelope(result)) {
+              status = result.status;
+              controlEvents = result.agentEvents ?? [];
+            } else {
+              status = result;
+            }
           }
           ws.send(JSON.stringify({ type: 'control_result', requestId, success: true, status }));
+          controlEvents.forEach((event, index) => {
+            setTimeout(() => {
+              ws.send(JSON.stringify({ type: 'agent_event', sessionId, event }));
+            }, 50 + index * 50);
+          });
           break;
         }
 
@@ -1260,6 +1286,7 @@ contentKind: document
       lastCompactionKind: 'automatic',
       lastCompactionOmittedCount: 8,
     };
+    const queuedMessages = new Map<string, Record<string, unknown>>();
 
     await page.route('**/api/agents/config', async (route) => {
       await route.fulfill({
@@ -1376,6 +1403,9 @@ contentKind: document
               { id: 'follow-new', text, attachmentCount: 0 },
             ],
           };
+          if (message) {
+            queuedMessages.set('follow-new', message);
+          }
         }
 
         if (action === 'promote_queued_to_steer') {
@@ -1386,6 +1416,21 @@ contentKind: document
             followUpQueue: currentStatus.followUpQueue!,
             steeringQueue: entry ? [...currentStatus.steeringQueue!, entry] : currentStatus.steeringQueue,
           };
+          if (queueItemId === 'follow-new') {
+            return {
+              status: currentStatus as unknown as Record<string, unknown>,
+              agentEvents: [
+                {
+                  type: 'message_start',
+                  message: queuedMessages.get(queueItemId) || {
+                    role: 'user',
+                    content: entry?.text || '',
+                    timestamp: Date.now(),
+                  },
+                },
+              ],
+            };
+          }
         }
 
         if (action === 'remove_queued_item') {
@@ -1438,10 +1483,12 @@ contentKind: document
     await expect(page.getByTestId('chat-queue-panel')).toContainText('3 in Queue');
     const newQueueItem = page.getByTestId('chat-queue-item').filter({ hasText: 'Take over immediately' }).first();
     await expect(newQueueItem).toHaveAttribute('data-queue-kind', 'follow_up');
+    await expect(page.getByTestId('chat-message-user').filter({ hasText: 'Take over immediately' })).toHaveCount(0);
     await expect(page.getByTestId('chat-send')).toHaveAttribute('data-action', 'stop');
 
     await newQueueItem.getByTestId('chat-queue-item-steer').click();
     await expect(page.getByTestId('chat-queue-item').filter({ hasText: 'Take over immediately' }).first()).toHaveAttribute('data-queue-kind', 'steer');
+    await expect(page.getByTestId('chat-message-user').filter({ hasText: 'Take over immediately' })).toHaveCount(1);
     await expect(page.getByTestId('chat-queue-panel')).toContainText('3 in Queue');
 
     const followUpQueueItem = page.getByTestId('chat-queue-item').filter({ hasText: 'Summarize afterwards' }).first();

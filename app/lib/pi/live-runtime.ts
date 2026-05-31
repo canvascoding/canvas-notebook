@@ -67,6 +67,8 @@ type QueueEntryPreview = {
   id: string;
   text: string;
   attachmentCount: number;
+  messageTimestamp?: number;
+  signature?: string;
 };
 
 export type PiRuntimeStatus = {
@@ -186,6 +188,8 @@ function buildQueuePreview(message: Extract<AgentMessage, { role: 'user' }>): Qu
     id: `queue-${message.timestamp}-${Math.random().toString(36).slice(2, 8)}`,
     text: extractUserMessageText(message),
     attachmentCount: countMessageAttachments(message),
+    messageTimestamp: message.timestamp,
+    signature: getMessageSignature(message),
   };
 }
 

@@ -2,6 +2,8 @@ export type RuntimeQueueItem = {
   id: string;
   text: string;
   attachmentCount: number;
+  messageTimestamp?: number;
+  signature?: string;
 };
 
 export type RuntimeStatus = {

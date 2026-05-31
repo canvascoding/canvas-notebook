@@ -1531,6 +1531,43 @@ function buildQueuedMessageKey(text: string, attachmentCount: number): string {
   return `${text.trim()}::${attachmentCount}`;
 }
 
+function getAgentMessageTimestamp(message?: AgentMessage | null): number | null {
+  const timestamp = (message as { timestamp?: unknown } | null | undefined)?.timestamp;
+  return typeof timestamp === 'number' ? timestamp : null;
+}
+
+function countPiMessageImageAttachments(message?: AgentMessage | null): number {
+  const content = getPiMessageContent(message);
+  if (!Array.isArray(content)) {
+    return 0;
+  }
+
+  return content.filter(isImagePart).length;
+}
+
+function getQueuedSignatureFromPiMessage(message?: AgentMessage | null): string | null {
+  const timestamp = getAgentMessageTimestamp(message);
+  if (timestamp === null || !message || message.role !== 'user') {
+    return null;
+  }
+
+  return `${timestamp}:${extractPiMessageText(message)}:${countPiMessageImageAttachments(message)}`;
+}
+
+function takeQueueMatch(counts: Map<string, number>, key: string | null): boolean {
+  if (!key) {
+    return false;
+  }
+
+  const count = counts.get(key) || 0;
+  if (count <= 0) {
+    return false;
+  }
+
+  counts.set(key, count - 1);
+  return true;
+}
+
 function formatContextTokens(value: number): string {
   if (value >= 1000) {
     return `${(value / 1000).toFixed(value >= 10000 ? 0 : 1)}k`;
@@ -2879,17 +2916,27 @@ export default function CanvasAgentChat({
 
   const reconcileQueuedMessages = useCallback((status: RuntimeStatus) => {
     setMessages((prev) => {
-      const followQueueCounts = new Map<string, number>();
-      const steeringQueueCounts = new Map<string, number>();
+      const followSignatureCounts = new Map<string, number>();
+      const steerSignatureCounts = new Map<string, number>();
+      const followFallbackCounts = new Map<string, number>();
+      const steerFallbackCounts = new Map<string, number>();
 
       for (const entry of status.followUpQueue) {
-        const key = buildQueuedMessageKey(entry.text, entry.attachmentCount);
-        followQueueCounts.set(key, (followQueueCounts.get(key) || 0) + 1);
+        if (entry.signature) {
+          followSignatureCounts.set(entry.signature, (followSignatureCounts.get(entry.signature) || 0) + 1);
+        } else {
+          const key = buildQueuedMessageKey(entry.text, entry.attachmentCount);
+          followFallbackCounts.set(key, (followFallbackCounts.get(key) || 0) + 1);
+        }
       }
 
       for (const entry of status.steeringQueue) {
-        const key = buildQueuedMessageKey(entry.text, entry.attachmentCount);
-        steeringQueueCounts.set(key, (steeringQueueCounts.get(key) || 0) + 1);
+        if (entry.signature) {
+          steerSignatureCounts.set(entry.signature, (steerSignatureCounts.get(entry.signature) || 0) + 1);
+        } else {
+          const key = buildQueuedMessageKey(entry.text, entry.attachmentCount);
+          steerFallbackCounts.set(key, (steerFallbackCounts.get(key) || 0) + 1);
+        }
       }
 
       return prev.map((message) => {
@@ -2897,17 +2944,24 @@ export default function CanvasAgentChat({
           return message;
         }
 
-        const key = buildQueuedMessageKey(message.content, message.attachments?.length || 0);
-        const followCount = followQueueCounts.get(key) || 0;
-        if (followCount > 0) {
-          followQueueCounts.set(key, followCount - 1);
+        const signature = getQueuedSignatureFromPiMessage(message.piMessage);
+        if (takeQueueMatch(followSignatureCounts, signature)) {
           return { ...message, status: 'queued_follow_up', queueKind: 'follow_up' };
         }
 
-        const steerCount = steeringQueueCounts.get(key) || 0;
-        if (steerCount > 0) {
-          steeringQueueCounts.set(key, steerCount - 1);
+        if (takeQueueMatch(steerSignatureCounts, signature)) {
           return { ...message, status: 'queued_steering', queueKind: 'steer' };
+        }
+
+        const canUseFallbackMatch = message.status === 'queued_follow_up' || message.status === 'queued_steering' || Boolean(message.queueKind);
+        if (canUseFallbackMatch) {
+          const key = buildQueuedMessageKey(message.content, countPiMessageImageAttachments(message.piMessage));
+          if (takeQueueMatch(followFallbackCounts, key)) {
+            return { ...message, status: 'queued_follow_up', queueKind: 'follow_up' };
+          }
+          if (takeQueueMatch(steerFallbackCounts, key)) {
+            return { ...message, status: 'queued_steering', queueKind: 'steer' };
+          }
         }
 
         if (message.status === 'queued_follow_up' || message.status === 'queued_steering' || message.status === 'pending' || message.status === 'aborting') {
@@ -3268,6 +3322,59 @@ export default function CanvasAgentChat({
     return assistantId;
   }, [setMessages, findExistingMessageByPiMessage]);
 
+  const upsertUserMessageFromPiMessage = useCallback((piMessage: Extract<AgentMessage, { role: 'user' }>) => {
+    const timestamp = getAgentMessageTimestamp(piMessage);
+    const signature = getQueuedSignatureFromPiMessage(piMessage);
+    const content = extractPiMessageText(piMessage, { hideAttachmentMetadata: true });
+    const rawContent = getPiMessageContent(piMessage);
+    const messageAttachments = extractMessageAttachments(rawContent);
+
+    setMessages((prev) => {
+      const existingIndex = prev.findIndex((message) => {
+        if (message.role !== 'user') {
+          return false;
+        }
+
+        const existingTimestamp = getAgentMessageTimestamp(message.piMessage);
+        if (timestamp !== null && existingTimestamp === timestamp) {
+          return true;
+        }
+
+        return Boolean(signature && getQueuedSignatureFromPiMessage(message.piMessage) === signature);
+      });
+
+      if (existingIndex !== -1) {
+        const nextMessages = [...prev];
+        const existingMessage = nextMessages[existingIndex];
+        nextMessages[existingIndex] = {
+          ...existingMessage,
+          content: content || existingMessage.content,
+          status: 'sent',
+          attachments: messageAttachments || existingMessage.attachments,
+          piMessage,
+          queueKind: undefined,
+        };
+        return nextMessages;
+      }
+
+      return [
+        ...prev,
+        {
+          id: `user-${timestamp ?? Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          role: 'user',
+          content,
+          status: 'sent',
+          attachments: messageAttachments,
+          piMessage,
+        },
+      ];
+    });
+
+    if (isAtBottomRef.current) {
+      requestAnimationFrame(() => scrollToBottom('auto'));
+    }
+  }, [scrollToBottom]);
+
 
 
   const handleStreamEvent = useCallback((event: ChatEvent) => {
@@ -3285,6 +3392,11 @@ export default function CanvasAgentChat({
       const currentSessionId = sessionIdRef.current;
       if (!currentSessionId) return;
       refreshSavedMessagesRef.current?.(currentSessionId);
+      return;
+    }
+
+    if (event.type === 'message_start' && event.message?.role === 'user') {
+      upsertUserMessageFromPiMessage(event.message);
       return;
     }
 
@@ -3402,7 +3514,7 @@ export default function CanvasAgentChat({
 
     // Note: event types 'message', 'message_delta', and 'messages' are no longer produced
     // by LivePiRuntime. The live runtime uses message_start / message_update / message_end.
-  }, [appendCompactionBreak, appendSystemMessage, createAssistantBubble, formatToolArgs, scrollToBottom, setMessages, setRuntimeStatusWithReconciliation, syncPiMessage, t, upsertToolMessage]);
+  }, [appendCompactionBreak, appendSystemMessage, createAssistantBubble, formatToolArgs, scrollToBottom, setMessages, setRuntimeStatusWithReconciliation, syncPiMessage, t, upsertToolMessage, upsertUserMessageFromPiMessage]);
 
   // Listen for WebSocket agent events (from current tab, other tabs, or background runs).
   useEffect(() => {
@@ -3528,7 +3640,9 @@ export default function CanvasAgentChat({
       : effectiveAction === 'steer'
         ? 'steer'
         : undefined;
-    const optimisticMessageId = appendOptimisticUserMessage(rawText, messageAttachments, optimisticStatus, optimisticQueueKind, userMessage);
+    const optimisticMessageId = effectiveAction === 'follow_up'
+      ? null
+      : appendOptimisticUserMessage(rawText, messageAttachments, optimisticStatus, optimisticQueueKind, userMessage);
     const optimisticAssistantId = effectiveAction === 'send' ? createAssistantBubble() : null;
     setIsResolvingInitialChatState(false);
 
@@ -3546,17 +3660,21 @@ export default function CanvasAgentChat({
         })
         : { status: await postControl(targetSessionId, effectiveAction, userMessage) };
 
-      setMessages((prev) => prev.map((message) => (
-        message.id === optimisticMessageId ? { ...message, status: 'sent' as const } : message
-      )));
+      if (optimisticMessageId) {
+        setMessages((prev) => prev.map((message) => (
+          message.id === optimisticMessageId ? { ...message, status: 'sent' as const } : message
+        )));
+      }
 
       if (payload.status) {
         setRuntimeStatusWithReconciliation(payload.status as RuntimeStatus);
       }
     } catch (error) {
-      setMessages((prev) => prev.map((message) => (
-        message.id === optimisticMessageId ? { ...message, status: 'error' as const } : message
-      )));
+      if (optimisticMessageId) {
+        setMessages((prev) => prev.map((message) => (
+          message.id === optimisticMessageId ? { ...message, status: 'error' as const } : message
+        )));
+      }
       if (optimisticAssistantId) {
         setMessages((prev) => prev.filter((message) => message.id !== optimisticAssistantId));
         if (currentAssistantIdRef.current === optimisticAssistantId) {

@@ -211,7 +211,7 @@ export async function sendMessage(
 
   if (prepared.promptMessage) {
     if (prepared.status.canAbort) {
-      return prepared.runtimeInstance.queueSteering(prepared.promptMessage);
+      return prepared.runtimeInstance.queueFollowUp(prepared.promptMessage);
     }
 
     prepared.runtimeInstance.startPrompt(prepared.promptMessage);
