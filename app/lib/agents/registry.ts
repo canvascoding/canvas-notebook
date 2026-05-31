@@ -6,18 +6,21 @@ import { db } from '@/app/lib/db';
 import { agents, piSessions } from '@/app/lib/db/schema';
 import { deletePiSessionsByDbIds } from '@/app/lib/pi/session-deletion';
 import type { PiThinkingLevel } from '@/app/lib/pi/config';
+import { DEFAULT_AGENT_ICON_ID, normalizeAgentIconId, type AgentIconId } from './icons';
 import { DEFAULT_MANAGED_AGENT_ID } from './storage';
 
 export type AgentProfile = {
   id: number;
   agentId: string;
   name: string;
+  iconId: AgentIconId;
   type: string;
   removable: boolean;
   defaultProvider: string | null;
   defaultModel: string | null;
   defaultThinking: PiThinkingLevel | null;
   enabledTools: string[] | null;
+  relevantSkills: string[] | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -40,12 +43,14 @@ function mapAgent(row: typeof agents.$inferSelect): AgentProfile {
     id: row.id,
     agentId: row.agentId,
     name: row.name,
+    iconId: normalizeAgentIconId(row.iconId),
     type: row.type,
     removable: Boolean(row.removable),
     defaultProvider: row.defaultProvider ?? null,
     defaultModel: row.defaultModel ?? null,
     defaultThinking: normalizeThinking(row.defaultThinking),
     enabledTools: parseEnabledTools(row.enabledToolsJson),
+    relevantSkills: parseStringList(row.relevantSkillsJson),
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
@@ -56,7 +61,7 @@ function normalizeThinking(value?: string | null): PiThinkingLevel | null {
   return normalized && THINKING_LEVELS.has(normalized as PiThinkingLevel) ? normalized as PiThinkingLevel : null;
 }
 
-function normalizeEnabledTools(value?: string[] | null): string[] | null {
+function normalizeStringList(value?: string[] | null): string[] | null {
   if (!Array.isArray(value)) return null;
   const seen = new Set<string>();
   const result: string[] = [];
@@ -69,11 +74,19 @@ function normalizeEnabledTools(value?: string[] | null): string[] | null {
   return result;
 }
 
+function normalizeEnabledTools(value?: string[] | null): string[] | null {
+  return normalizeStringList(value);
+}
+
 function parseEnabledTools(value?: string | null): string[] | null {
+  return parseStringList(value);
+}
+
+function parseStringList(value?: string | null): string[] | null {
   if (!value) return null;
   try {
     const parsed = JSON.parse(value) as unknown;
-    return normalizeEnabledTools(Array.isArray(parsed) ? parsed : null);
+    return normalizeStringList(Array.isArray(parsed) ? parsed : null);
   } catch {
     return null;
   }
@@ -84,6 +97,11 @@ function stringifyEnabledTools(value?: string[] | null): string | null {
   return normalized ? JSON.stringify(normalized) : null;
 }
 
+function stringifyStringList(value?: string[] | null): string | null {
+  const normalized = normalizeStringList(value);
+  return normalized ? JSON.stringify(normalized) : null;
+}
+
 export async function ensureCanvasAgent(): Promise<AgentProfile> {
   const now = new Date();
   await db
@@ -91,6 +109,7 @@ export async function ensureCanvasAgent(): Promise<AgentProfile> {
     .values({
       agentId: DEFAULT_MANAGED_AGENT_ID,
       name: 'Canvas Agent',
+      iconId: DEFAULT_AGENT_ICON_ID,
       type: 'main',
       removable: false,
       createdAt: now,
@@ -140,10 +159,12 @@ function slugifyAgentId(name: string): string {
 export async function createAgentProfile(input: {
   name: string;
   agentId?: string | null;
+  iconId?: AgentIconId | null;
   defaultProvider?: string | null;
   defaultModel?: string | null;
   defaultThinking?: PiThinkingLevel | null;
   enabledTools?: string[] | null;
+  relevantSkills?: string[] | null;
 }): Promise<AgentProfile> {
   const name = input.name.trim();
   if (!name) {
@@ -159,12 +180,14 @@ export async function createAgentProfile(input: {
   await db.insert(agents).values({
     agentId,
     name,
+    iconId: normalizeAgentIconId(input.iconId),
     type: 'special',
     removable: true,
     defaultProvider: input.defaultProvider?.trim() || null,
     defaultModel: input.defaultModel?.trim() || null,
     defaultThinking: normalizeThinking(input.defaultThinking) || null,
     enabledToolsJson: stringifyEnabledTools(input.enabledTools),
+    relevantSkillsJson: stringifyStringList(input.relevantSkills),
     createdAt: now,
     updatedAt: now,
   });
@@ -179,10 +202,12 @@ export async function createAgentProfile(input: {
 export async function updateAgentProfile(input: {
   agentId: string;
   name?: string | null;
+  iconId?: AgentIconId | null;
   defaultProvider?: string | null;
   defaultModel?: string | null;
   defaultThinking?: PiThinkingLevel | null;
   enabledTools?: string[] | null;
+  relevantSkills?: string[] | null;
 }): Promise<AgentProfile> {
   const agentId = normalizeManagedAgentId(input.agentId);
   const existing = await getAgentProfile(agentId);
@@ -198,10 +223,12 @@ export async function updateAgentProfile(input: {
   await db.update(agents)
     .set({
       name: nextName,
+      iconId: input.iconId === undefined ? existing.iconId : normalizeAgentIconId(input.iconId),
       defaultProvider: input.defaultProvider === undefined ? existing.defaultProvider : input.defaultProvider?.trim() || null,
       defaultModel: input.defaultModel === undefined ? existing.defaultModel : input.defaultModel?.trim() || null,
       defaultThinking: input.defaultThinking === undefined ? existing.defaultThinking : normalizeThinking(input.defaultThinking) || null,
       enabledToolsJson: input.enabledTools === undefined ? stringifyEnabledTools(existing.enabledTools) : stringifyEnabledTools(input.enabledTools),
+      relevantSkillsJson: input.relevantSkills === undefined ? stringifyStringList(existing.relevantSkills) : stringifyStringList(input.relevantSkills),
       updatedAt: new Date(),
     })
     .where(eq(agents.agentId, agentId));
