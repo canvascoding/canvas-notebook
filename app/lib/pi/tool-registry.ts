@@ -91,6 +91,7 @@ import {
 import { createSessionSearchTool } from '@/app/lib/pi/session-search-tool';
 import { getPiToolsetsForTool, type PiToolset } from '@/app/lib/pi/toolsets';
 import { createDelegateTaskTool } from '@/app/lib/pi/delegate-task-tool';
+import { createHumanTodoTool } from '@/app/lib/pi/human-todo-tool';
 import { DEFAULT_AGENT_ID } from '@/app/lib/channels/constants';
 import { normalizeManagedAgentId } from '@/app/lib/agents/registry';
 import { createBrowserGatewayTool } from '@/app/lib/pi/browser/tool';
@@ -1807,7 +1808,7 @@ export const piTools: AgentTool[] = [
   createStudioListPresetsTool(),
 ];
 
-export type PiToolGroup = 'Core' | 'Studio' | 'Automation' | 'Composio' | 'MCP' | 'Email' | 'Session' | 'Delegation' | 'Memory' | 'Browser';
+export type PiToolGroup = 'Core' | 'Studio' | 'Automation' | 'Composio' | 'MCP' | 'Email' | 'Session' | 'Delegation' | 'Memory' | 'Browser' | 'Todo';
 
 export type PiToolMetadata = {
   name: string;
@@ -1925,6 +1926,7 @@ function createUserScopedTools(userId?: string, agentId?: string | null): AgentT
   const tools: AgentTool[] = [
     createMemoryTool(agentId),
     createSessionSearchTool({ userId, agentId }),
+    createHumanTodoTool({ userId, agentId }),
   ];
 
   if (sourceAgentId === DEFAULT_AGENT_ID) {
@@ -2166,6 +2168,7 @@ function getToolGroup(toolName: string): PiToolGroup {
   if (toolName === 'mcp' || toolName.startsWith('mcp_')) return 'MCP';
   if (toolName === 'memory') return 'Memory';
   if (toolName === 'browser') return 'Browser';
+  if (toolName === 'create_human_todo') return 'Todo';
   if (toolName === 'delegate_task') return 'Delegation';
   if (toolName === 'session_search') return 'Session';
   if (toolName.startsWith('email_')) return 'Email';
@@ -2224,6 +2227,10 @@ function getToolNotes(tool: AgentTool, group: PiToolGroup): string[] {
   if (group === 'Browser') {
     notes.push('Starts controlled headless Chromium and may interact with live webpages.');
     notes.push('Use web_fetch first unless JavaScript rendering, UI interaction, screenshots, login/session checks, or local app verification require a browser.');
+  }
+  if (group === 'Todo') {
+    notes.push('Creates human-visible to-dos for this user that can appear in notification UI.');
+    notes.push('Must not store secrets, credentials, or large raw logs in to-do text.');
   }
   if (['bash', 'terminal', 'rg', 'glob', 'grep', 'ls', 'read', 'list_file_snapshots'].includes(tool.name)) {
     notes.push('May execute local shell commands or inspect local files.');
