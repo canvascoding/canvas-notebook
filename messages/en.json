@@ -71,6 +71,8 @@
     "password": "Password",
     "emailPlaceholder": "Enter email",
     "passwordPlaceholder": "Enter password",
+    "showPassword": "Show password",
+    "hidePassword": "Hide password",
     "loginButton": "Login",
     "loggingIn": "Logging in...",
     "loginFailed": "Login failed",
