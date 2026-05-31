@@ -4826,6 +4826,14 @@ export default function CanvasAgentChat({
         available: formatContextTokens(runtimeStatus.availableHistoryTokens),
       })
     : t('noSessionYet');
+  const contextDetailedLabel = runtimeStatus
+    ? t('contextLabel', {
+        percent: runtimeStatus.contextUsagePercent,
+        used: formatContextTokens(runtimeStatus.estimatedHistoryTokens),
+        available: formatContextTokens(runtimeStatus.availableHistoryTokens),
+        window: formatContextTokens(runtimeStatus.contextWindow),
+      })
+    : t('noSessionYet');
   const contextTooltip = runtimeStatus
     ? t('contextTooltip', {
         used: formatContextTokens(runtimeStatus.estimatedHistoryTokens),
@@ -5322,7 +5330,7 @@ export default function CanvasAgentChat({
                   title={contextTooltip}
                   className="inline-flex items-center border border-border/60 bg-muted/40 px-2.5 py-0.5 text-[10px] font-medium text-muted-foreground"
                 >
-                  {contextCompactLabel}
+                  {contextDetailedLabel}
                 </span>
               ) : null}
               {!isMobile && (

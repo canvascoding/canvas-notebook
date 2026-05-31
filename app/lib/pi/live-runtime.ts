@@ -237,6 +237,7 @@ function getRuntimeStatusSignature(status: PiRuntimeStatus): string {
     followUpQueue: status.followUpQueue,
     steeringQueue: status.steeringQueue,
     canAbort: status.canAbort,
+    contextWindow: status.contextWindow,
     estimatedHistoryTokens: status.estimatedHistoryTokens,
     availableHistoryTokens: status.availableHistoryTokens,
     contextUsagePercent: status.contextUsagePercent,
@@ -882,6 +883,7 @@ class LivePiRuntime {
     this.abortRequested = false;
     this.isRunning = false;
     const persistedCount = await this.persistMessages('agent_end');
+    this.lastComposition = null;
     this.publishStatus();
     
     // Emit message_saved event AFTER everything is saved to database
@@ -975,6 +977,7 @@ class LivePiRuntime {
     this.isRunning = false;
     this.activeTool = null;
     this.abortRequested = false;
+    this.lastComposition = null;
     this.publishStatus();
   }
 
