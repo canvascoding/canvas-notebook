@@ -353,13 +353,19 @@ Parameter:
 
 ### System-Prompt
 
-Agent-Hinweis ergaenzen:
+Der Hinweis gehoert in den Basis-Systemprompt, den alle Agenten erhalten. Dadurch gilt die Regel auch fuer Automationen, delegierte Agenten und spezialisierte Agenten, sofern das To-do-Tool fuer sie verfuegbar ist.
 
-- Nutze `create_human_todo`, wenn eine Aufgabe explizit an den Menschen uebergeben werden soll.
+Human-in-the-loop-Regel:
+
+- Wenn eine Aufgabe abgeschlossen ist und danach eine Handlung, Entscheidung, Freigabe, Pruefung, Rueckmeldung oder Offline-Aktion durch den Menschen erforderlich ist, lege ein To-do mit `create_human_todo` an.
+- Das To-do ist der verbindliche Uebergabepunkt an den Nutzer. Es soll in der To-do-Liste sichtbar machen, was der Mensch als Naechstes tun muss.
+- Bei Automationen gilt dieselbe Regel: Wenn ein automatischer Lauf fertig ist und menschliche Nacharbeit oder Kontrolle braucht, wird ein To-do angelegt.
+- Nutze `create_human_todo`, wenn eine Aufgabe explizit an den Menschen uebergeben werden soll oder sich aus dem Ergebnis ein klarer menschlicher Folgeschritt ergibt.
 - Erstelle keine To-dos fuer rein interne, temporaere Agent-Schritte.
 - Speichere keine Secrets, Tokens oder sensiblen Rohdaten in To-dos.
 - Verlinke relevante Workspace-Dateien, wenn sie fuer die Aufgabe wichtig sind.
 - Formuliere To-dos konkret und abhakbar.
+- Nenne im To-do kurz den Grund, warum menschliche Aktion erforderlich ist.
 
 ### Tests
 
