@@ -5,10 +5,10 @@ import { useLocale, useTranslations } from 'next-intl';
 
 import { BarChart3, CalendarRange, Filter, Layers3, RefreshCw } from 'lucide-react';
 
-import { formatUsageCost } from '@/app/lib/pi/usage-format';
 import type {
   UsageEventsResponse,
   UsageSummaryGroupBy,
+  UsageSummaryRow,
   UsageSummaryResponse,
 } from '@/app/lib/pi/usage-types';
 import { Button } from '@/components/ui/button';
@@ -69,6 +69,10 @@ function buildQueryString(filters: FilterState, page = 1, pageSize = 50): string
   return params.toString();
 }
 
+function safeNumber(value: number | null | undefined): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : 0;
+}
+
 function StatCard({
   title,
   value,
@@ -84,7 +88,7 @@ function StatCard({
         <CardTitle className="text-xs font-bold uppercase tracking-[0.2em] text-muted-foreground">{title}</CardTitle>
       </CardHeader>
       <CardContent className="space-y-1">
-        <div className="text-2xl font-semibold tracking-tight">{value}</div>
+        <div className="break-words text-2xl font-semibold tracking-tight tabular-nums">{value}</div>
         <div className="text-xs text-muted-foreground">{subtitle}</div>
       </CardContent>
     </Card>
@@ -123,6 +127,33 @@ export function UsageAnalyticsClient({ isAdmin }: UsageAnalyticsClientProps) {
     stopReasonOptions.find((option) => option.value === activeFilters.stopReason)?.label || t('scope.all');
   const activeGroupByLabel =
     groupByOptions.find((option) => option.value === activeFilters.groupBy)?.label || activeFilters.groupBy;
+  const summaryRows = summary?.rows ?? [];
+  const integerFormatter = useMemo(
+    () =>
+      new Intl.NumberFormat(locale, {
+        maximumFractionDigits: 0,
+      }),
+    [locale],
+  );
+  const costFormatter = useMemo(
+    () =>
+      new Intl.NumberFormat(locale, {
+        style: 'currency',
+        currency: 'USD',
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      }),
+    [locale],
+  );
+
+  const formatInteger = (value: number | null | undefined) => integerFormatter.format(safeNumber(value));
+  const formatCost = (value: number | null | undefined) => costFormatter.format(safeNumber(value));
+  const formatSummaryBreakdown = (row: UsageSummaryRow) =>
+    t('summary.breakdown', {
+      input: formatInteger(row.inputTokens),
+      output: formatInteger(row.outputTokens),
+      cache: formatInteger(row.cacheTokens),
+    });
 
   function formatTimestamp(value: string): string {
     return new Intl.DateTimeFormat(locale, {
@@ -371,82 +402,117 @@ export function UsageAnalyticsClient({ isAdmin }: UsageAnalyticsClientProps) {
       <div className="grid gap-4 min-[480px]:grid-cols-2 xl:grid-cols-6">
         <StatCard
           title={t('stats.totalCost.title')}
-          value={formatUsageCost(summary?.totals.totalCost ?? 0)}
+          value={formatCost(summary?.totals.totalCost)}
           subtitle={t('stats.totalCost.subtitle')}
         />
         <StatCard
           title={t('stats.totalTokens.title')}
-          value={String(summary?.totals.totalTokens ?? 0)}
+          value={formatInteger(summary?.totals.totalTokens)}
           subtitle={t('stats.totalTokens.subtitle')}
         />
         <StatCard
           title={t('stats.input.title')}
-          value={String(summary?.totals.inputTokens ?? 0)}
+          value={formatInteger(summary?.totals.inputTokens)}
           subtitle={t('stats.input.subtitle')}
         />
         <StatCard
           title={t('stats.output.title')}
-          value={String(summary?.totals.outputTokens ?? 0)}
+          value={formatInteger(summary?.totals.outputTokens)}
           subtitle={t('stats.output.subtitle')}
         />
         <StatCard
           title={t('stats.cache.title')}
-          value={String(summary?.totals.cacheTokens ?? 0)}
+          value={formatInteger(summary?.totals.cacheTokens)}
           subtitle={t('stats.cache.subtitle')}
         />
         <StatCard
           title={t('stats.sessions.title')}
-          value={String(summary?.totals.sessionCount ?? 0)}
-          subtitle={t('stats.sessions.subtitle', { count: summary?.totals.eventCount ?? 0 })}
+          value={formatInteger(summary?.totals.sessionCount)}
+          subtitle={t('stats.sessions.subtitle', { count: formatInteger(summary?.totals.eventCount) })}
         />
       </div>
 
       <div className="grid gap-4 xl:grid-cols-[0.95fr_1.05fr]">
         <Card className="border-border/70 bg-card/95">
           <CardHeader className="px-4 pb-3 sm:px-6">
-            <CardTitle className="text-base">{t('summary.title')}</CardTitle>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <CardTitle className="text-base">{t('summary.title')}</CardTitle>
+              <span className="w-fit border border-border/70 bg-muted/70 px-2.5 py-1 text-xs font-medium text-muted-foreground">
+                {activeGroupByLabel}
+              </span>
+            </div>
           </CardHeader>
           <CardContent className="px-4 pb-4 sm:px-6 sm:pb-6">
-            <div className="overflow-x-auto">
-              <table data-testid="usage-summary-table" className="min-w-full border-collapse text-sm">
+            <div data-testid="usage-summary-desktop" className="hidden overflow-x-auto rounded-md border border-border/70 md:block">
+              <table data-testid="usage-summary-table" className="min-w-[720px] border-collapse text-sm">
                 <thead>
-                  <tr className="border-b border-border text-left text-xs uppercase tracking-[0.18em] text-muted-foreground">
-                    <th className="px-0 py-2">{t('summary.columns.group')}</th>
-                    <th className="px-0 py-2">{t('summary.columns.cost')}</th>
-                    <th className="px-0 py-2">{t('summary.columns.tokens')}</th>
-                    <th className="px-0 py-2">{t('summary.columns.sessions')}</th>
-                    <th className="px-0 py-2">{t('summary.columns.events')}</th>
+                  <tr className="border-b border-border bg-muted/60 text-left text-xs uppercase tracking-[0.16em] text-muted-foreground">
+                    <th className="w-[42%] px-3 py-2.5">{t('summary.columns.group')}</th>
+                    <th className="w-[16%] px-3 py-2.5 text-right">{t('summary.columns.cost')}</th>
+                    <th className="w-[18%] px-3 py-2.5 text-right">{t('summary.columns.tokens')}</th>
+                    <th className="w-[12%] px-3 py-2.5 text-right">{t('summary.columns.sessions')}</th>
+                    <th className="w-[12%] px-3 py-2.5 text-right">{t('summary.columns.events')}</th>
                   </tr>
                 </thead>
-                <tbody>
-                  {summary?.rows.length ? (
-                    summary.rows.map((row) => (
-                      <tr key={row.groupKey} className="border-b border-border/60 align-top">
-                        <td className="px-0 py-3">
-                          <div className="font-medium">{row.label}</div>
+                <tbody className="divide-y divide-border/60">
+                  {summaryRows.length ? (
+                    summaryRows.map((row) => (
+                      <tr key={row.groupKey} className="align-top transition-colors hover:bg-muted/35">
+                        <td className="min-w-0 px-3 py-3">
+                          <div className="break-words font-medium leading-snug">{row.label}</div>
                           <div className="text-xs text-muted-foreground">
-                            {t('summary.breakdown', {
-                              input: row.inputTokens,
-                              output: row.outputTokens,
-                              cache: row.cacheTokens,
-                            })}
+                            {formatSummaryBreakdown(row)}
                           </div>
                         </td>
-                        <td className="px-0 py-3 font-medium">{formatUsageCost(row.totalCost)}</td>
-                        <td className="px-0 py-3">{row.totalTokens}</td>
-                        <td className="px-0 py-3">{row.sessionCount}</td>
-                        <td className="px-0 py-3">{row.eventCount}</td>
+                        <td className="px-3 py-3 text-right font-medium tabular-nums">{formatCost(row.totalCost)}</td>
+                        <td className="px-3 py-3 text-right tabular-nums">{formatInteger(row.totalTokens)}</td>
+                        <td className="px-3 py-3 text-right tabular-nums">{formatInteger(row.sessionCount)}</td>
+                        <td className="px-3 py-3 text-right tabular-nums">{formatInteger(row.eventCount)}</td>
                       </tr>
                     ))
                   ) : (
                     <tr>
-                      <td colSpan={5} className="px-0 py-6 text-sm text-muted-foreground">
+                      <td colSpan={5} className="px-3 py-6 text-sm text-muted-foreground">
                         {isLoading ? t('summary.loading') : t('summary.empty')}
                       </td>
                     </tr>
                   )}
                 </tbody>
               </table>
+            </div>
+
+            <div data-testid="usage-summary-mobile" className="divide-y divide-border rounded-md border border-border/70 md:hidden">
+              {summaryRows.length ? (
+                summaryRows.map((row) => (
+                  <article key={row.groupKey} data-testid="usage-summary-mobile-row" className="space-y-3 p-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="break-words font-medium leading-snug">{row.label}</div>
+                        <div className="mt-1 text-xs text-muted-foreground">{formatSummaryBreakdown(row)}</div>
+                      </div>
+                      <div className="shrink-0 text-right text-sm font-semibold tabular-nums">{formatCost(row.totalCost)}</div>
+                    </div>
+                    <dl className="grid grid-cols-3 gap-2 text-xs">
+                      <div className="min-w-0">
+                        <dt className="text-muted-foreground">{t('summary.columns.tokens')}</dt>
+                        <dd className="mt-0.5 font-medium tabular-nums">{formatInteger(row.totalTokens)}</dd>
+                      </div>
+                      <div className="min-w-0">
+                        <dt className="text-muted-foreground">{t('summary.columns.sessions')}</dt>
+                        <dd className="mt-0.5 font-medium tabular-nums">{formatInteger(row.sessionCount)}</dd>
+                      </div>
+                      <div className="min-w-0">
+                        <dt className="text-muted-foreground">{t('summary.columns.events')}</dt>
+                        <dd className="mt-0.5 font-medium tabular-nums">{formatInteger(row.eventCount)}</dd>
+                      </div>
+                    </dl>
+                  </article>
+                ))
+              ) : (
+                <div className="p-4 text-sm text-muted-foreground">
+                  {isLoading ? t('summary.loading') : t('summary.empty')}
+                </div>
+              )}
             </div>
           </CardContent>
         </Card>
@@ -482,13 +548,13 @@ export function UsageAnalyticsClient({ isAdmin }: UsageAnalyticsClientProps) {
                           {isAdmin ? ` / ${row.userLabel}` : ''}
                           </div>
                         </div>
-                        <div className="text-right text-sm font-medium">{formatUsageCost(row.totalCost)}</div>
+                        <div className="text-right text-sm font-medium tabular-nums">{formatCost(row.totalCost)}</div>
                       </div>
                       <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
                         <span>{formatTimestamp(row.assistantTimestamp)}</span>
-                        <span>{t('events.tokens', { count: row.totalTokens })}</span>
-                        <span>{t('events.inputOutput', { input: row.inputTokens, output: row.outputTokens })}</span>
-                        <span>{t('events.cache', { count: row.cacheTokens })}</span>
+                        <span>{t('events.tokens', { count: formatInteger(row.totalTokens) })}</span>
+                        <span>{t('events.inputOutput', { input: formatInteger(row.inputTokens), output: formatInteger(row.outputTokens) })}</span>
+                        <span>{t('events.cache', { count: formatInteger(row.cacheTokens) })}</span>
                         <span>{row.stopReason}</span>
                       </div>
                     </div>
