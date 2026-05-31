@@ -146,6 +146,9 @@ type EmailOAuthDraft = {
 
 type EmailMode = 'unknown' | 'managed' | 'local';
 
+// Microsoft email OAuth stays in the code but is hidden until provider setup is active.
+const SHOW_MICROSOFT_EMAIL_OAUTH = false;
+
 type McpTransportMode = 'stdio' | 'http';
 
 type McpPairDraft = {
@@ -1487,7 +1490,7 @@ function EmailAccountsCard() {
         {error && <div className="border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</div>}
         {message && <div className="border border-border bg-muted px-3 py-2 text-sm text-muted-foreground">{message}</div>}
         {!hasConnectedEmailAccount && (
-          <div className="grid gap-3 lg:grid-cols-2">
+          <div className={`grid gap-3 ${SHOW_MICROSOFT_EMAIL_OAUTH ? 'lg:grid-cols-2' : 'lg:grid-cols-1'}`}>
             <div className="space-y-3 border border-border p-4">
               <div>
                 <h3 className="text-base font-semibold">{t('oauth.googleTitle')}</h3>
@@ -1533,51 +1536,54 @@ function EmailAccountsCard() {
                 </Button>
               </div>
             </div>
-            <div className="space-y-3 border border-border p-4">
-              <div>
-                <h3 className="text-base font-semibold">{t('oauth.microsoftTitle')}</h3>
-                <p className="text-sm text-muted-foreground">{isManagedEmailMode ? t('oauth.microsoftManagedDescription') : t('oauth.microsoftLocalDescription')}</p>
-              </div>
-              {isLocalEmailMode && (
-                <>
-                  <div className="space-y-2">
-                    <Label className="text-xs uppercase tracking-wider text-muted-foreground" htmlFor="email-microsoft-client-id">{t('oauth.clientId')}</Label>
-                    <Input
-                      id="email-microsoft-client-id"
-                      className="font-mono text-xs"
-                      value={oauthDraft.microsoftClientId}
-                      onChange={(event) => setOauthDraft((current) => ({ ...current, microsoftClientId: event.target.value }))}
-                      placeholder="MICROSOFT_OAUTH_CLIENT_ID"
-                      disabled={isOAuthLoading || activeAction !== null}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label className="text-xs uppercase tracking-wider text-muted-foreground" htmlFor="email-microsoft-client-secret">{t('oauth.clientSecret')}</Label>
-                    <Input
-                      id="email-microsoft-client-secret"
-                      type="password"
-                      className="font-mono text-xs"
-                      value={oauthDraft.microsoftClientSecret}
-                      onChange={(event) => setOauthDraft((current) => ({ ...current, microsoftClientSecret: event.target.value }))}
-                      placeholder="MICROSOFT_OAUTH_CLIENT_SECRET"
-                      disabled={isOAuthLoading || activeAction !== null}
-                    />
-                  </div>
-                </>
-              )}
-              <div className="flex flex-wrap justify-end gap-2">
+            {/* Microsoft OAuth UI is intentionally disabled until the provider is configured and active. */}
+            {SHOW_MICROSOFT_EMAIL_OAUTH && (
+              <div className="space-y-3 border border-border p-4">
+                <div>
+                  <h3 className="text-base font-semibold">{t('oauth.microsoftTitle')}</h3>
+                  <p className="text-sm text-muted-foreground">{isManagedEmailMode ? t('oauth.microsoftManagedDescription') : t('oauth.microsoftLocalDescription')}</p>
+                </div>
                 {isLocalEmailMode && (
-                  <Button type="button" variant="outline" onClick={() => void saveOAuthProvider('microsoft')} disabled={isOAuthLoading || activeAction !== null}>
-                    {activeAction === 'oauth-save:microsoft' ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
-                    {t('save')}
-                  </Button>
+                  <>
+                    <div className="space-y-2">
+                      <Label className="text-xs uppercase tracking-wider text-muted-foreground" htmlFor="email-microsoft-client-id">{t('oauth.clientId')}</Label>
+                      <Input
+                        id="email-microsoft-client-id"
+                        className="font-mono text-xs"
+                        value={oauthDraft.microsoftClientId}
+                        onChange={(event) => setOauthDraft((current) => ({ ...current, microsoftClientId: event.target.value }))}
+                        placeholder="MICROSOFT_OAUTH_CLIENT_ID"
+                        disabled={isOAuthLoading || activeAction !== null}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="text-xs uppercase tracking-wider text-muted-foreground" htmlFor="email-microsoft-client-secret">{t('oauth.clientSecret')}</Label>
+                      <Input
+                        id="email-microsoft-client-secret"
+                        type="password"
+                        className="font-mono text-xs"
+                        value={oauthDraft.microsoftClientSecret}
+                        onChange={(event) => setOauthDraft((current) => ({ ...current, microsoftClientSecret: event.target.value }))}
+                        placeholder="MICROSOFT_OAUTH_CLIENT_SECRET"
+                        disabled={isOAuthLoading || activeAction !== null}
+                      />
+                    </div>
+                  </>
                 )}
-                <Button type="button" onClick={() => void startOAuth('microsoft')} disabled={oauthActionDisabled}>
-                  <ExternalLink className="mr-2 h-4 w-4" />
-                  {t('connect')}
-                </Button>
+                <div className="flex flex-wrap justify-end gap-2">
+                  {isLocalEmailMode && (
+                    <Button type="button" variant="outline" onClick={() => void saveOAuthProvider('microsoft')} disabled={isOAuthLoading || activeAction !== null}>
+                      {activeAction === 'oauth-save:microsoft' ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+                      {t('save')}
+                    </Button>
+                  )}
+                  <Button type="button" onClick={() => void startOAuth('microsoft')} disabled={oauthActionDisabled}>
+                    <ExternalLink className="mr-2 h-4 w-4" />
+                    {t('connect')}
+                  </Button>
+                </div>
               </div>
-            </div>
+            )}
           </div>
         )}
         {accounts.length === 0 ? (
