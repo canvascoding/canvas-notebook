@@ -25,9 +25,9 @@ import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { MarkdownEditor } from '@/app/components/editor/MarkdownEditor';
 import { AgentSettingsAccordionCard } from './AgentSettingsAccordionCard';
 
-export const MANAGED_FILES = ['AGENTS.md', 'IDENTITY.md', 'USER.md', 'MEMORY.md', 'SOUL.md', 'TOOLS.md', 'HEARTBEAT.md'] as const;
-export const AGENT_FILE_TABS = ['AGENTS.md', 'IDENTITY.md', 'USER.md', 'MEMORY.md', 'SOUL.md', 'TOOLS.md'] as const;
-const SPECIAL_AGENT_INHERITED_FILES = ['IDENTITY.md', 'USER.md'] as const;
+export const MANAGED_FILES = ['AGENTS.md', 'USER.md', 'MEMORY.md', 'SOUL.md', 'TOOLS.md', 'HEARTBEAT.md'] as const;
+export const AGENT_FILE_TABS = ['AGENTS.md', 'USER.md', 'MEMORY.md', 'SOUL.md', 'TOOLS.md'] as const;
+const SPECIAL_AGENT_INHERITED_FILES = ['USER.md'] as const;
 const SPECIAL_AGENT_VISIBLE_FILES = AGENT_FILE_TABS.filter((fileName) => !SPECIAL_AGENT_INHERITED_FILES.includes(fileName as typeof SPECIAL_AGENT_INHERITED_FILES[number]));
 
 export type ManagedFileName = (typeof MANAGED_FILES)[number];

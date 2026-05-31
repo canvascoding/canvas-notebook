@@ -2,7 +2,7 @@ import path from 'node:path';
 
 import { resolveAgentsStorageRoot } from '../runtime-data-paths';
 
-export const MANAGED_PROMPT_FILE_NAMES = ['AGENTS.md', 'IDENTITY.md', 'USER.md', 'MEMORY.md', 'SOUL.md', 'TOOLS.md', 'HEARTBEAT.md'] as const;
+export const MANAGED_PROMPT_FILE_NAMES = ['AGENTS.md', 'USER.md', 'MEMORY.md', 'SOUL.md', 'TOOLS.md', 'HEARTBEAT.md'] as const;
 
 const AGENTS_STORAGE_ROOT = resolveAgentsStorageRoot();
 
