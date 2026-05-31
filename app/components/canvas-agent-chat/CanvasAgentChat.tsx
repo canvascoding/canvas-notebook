@@ -47,7 +47,6 @@ import {
   UserRound,
   Palette,
   ListChecks,
-  RefreshCw,
   CheckCircle2,
   XCircle,
   Copy,
@@ -3819,7 +3818,6 @@ export default function CanvasAgentChat({
     }
   }, [selectedAgentId, t]);
 
-  // eslint-disable-next-line react-hooks/preserve-manual-memoization
   const handleFileUploadMultiple = useCallback(async (files: File[], convertParams?: (ConvertParams | null)[]) => {
     setIsUploading(true);
     setUploadError(null);
@@ -3934,7 +3932,6 @@ export default function CanvasAgentChat({
     if (fileInputRef.current) fileInputRef.current.value = '';
   }, [preprocessAndUpload]);
 
-  // eslint-disable-next-line react-hooks/preserve-manual-memoization
   const handlePaste = useCallback((event: React.ClipboardEvent) => {
     const items = event.clipboardData?.items;
     if (!items) return;
