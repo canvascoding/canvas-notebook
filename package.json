@@ -49,6 +49,7 @@
     "test:channels:db": "tsx --conditions react-server scripts/channel-db-test.ts",
     "test:sessions:read-state": "tsx scripts/session-read-state-test.ts",
     "test:todos:store": "tsx scripts/todo-store-test.ts",
+    "test:todos:api": "node scripts/todo-api-test.mjs",
     "test:agents:runtime": "tsx --conditions react-server scripts/agent-runtime-config-test.ts",
     "test:e2e": "playwright test --pass-with-no-tests",
     "test:all": "node scripts/test-all.mjs",
