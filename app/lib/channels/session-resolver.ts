@@ -4,6 +4,7 @@ import { db } from '@/app/lib/db';
 import { piSessions, sessionChannelLinks } from '@/app/lib/db/schema';
 import { resolveAgentRuntimeConfig } from '@/app/lib/agents/effective-runtime-config';
 import { DEFAULT_PI_SESSION_TITLE } from '@/app/lib/pi/session-titles';
+import { createPiSystemPromptSnapshot, piSystemPromptSnapshotDbFields } from '@/app/lib/pi/system-prompt-snapshot';
 import { DEFAULT_AGENT_ID, normalizeChannelThreadKey, WEB_CHANNEL_ID, webChannelSessionKey } from './constants';
 import { ensureDefaultAgent } from './agents';
 import { getActiveChannelSession, setActiveChannelSession } from './active-sessions';
@@ -41,6 +42,7 @@ export async function createChannelSession(input: ResolveChannelSessionInput): P
   const agentId = resolveAgentId(input.agentId);
   const sessionId = input.requestedSessionId || `sess-${Date.now()}-${randomUUID()}`;
   const effectiveConfig = await resolveAgentRuntimeConfig(agentId);
+  const promptSnapshot = await createPiSystemPromptSnapshot(agentId);
   const now = new Date();
 
   await db.insert(piSessions).values({
@@ -52,6 +54,7 @@ export async function createChannelSession(input: ResolveChannelSessionInput): P
     thinkingLevel: effectiveConfig.thinkingLevel,
     channelId: 'app',
     channelSessionKey: null,
+    ...piSystemPromptSnapshotDbFields(promptSnapshot),
     title: DEFAULT_PI_SESSION_TITLE,
     createdAt: now,
     updatedAt: now,

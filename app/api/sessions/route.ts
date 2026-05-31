@@ -20,6 +20,7 @@ import { ensureSessionChannelLink } from '@/app/lib/channels/channel-links';
 import { hasUnreadAssistantResponse } from '@/app/lib/chat/unread';
 import { getAgentProfile, normalizeManagedAgentId } from '@/app/lib/agents/registry';
 import { deletePiSessionsByDbIds } from '@/app/lib/pi/session-deletion';
+import { createPiSystemPromptSnapshot, piSystemPromptSnapshotDbFields } from '@/app/lib/pi/system-prompt-snapshot';
 
 type CreateSessionPayload = {
   title?: string;
@@ -375,6 +376,7 @@ export async function POST(request: NextRequest) {
 
       const model = requestedModel || providerConfig?.model || 'unknown';
       const thinkingLevel = requestedThinkingLevel || providerConfig?.thinking || 'off';
+      const promptSnapshot = await createPiSystemPromptSnapshot(requestedAgentId);
       const channelId = typeof payload.channelId === 'string' ? payload.channelId : 'app';
       const normalizedChannelId = normalizeStoredChannelId(channelId);
       const channelSessionKey = typeof payload.channelSessionKey === 'string'
@@ -395,6 +397,7 @@ export async function POST(request: NextRequest) {
           title,
           channelId: 'app',
           channelSessionKey: null,
+          ...piSystemPromptSnapshotDbFields(promptSnapshot),
           createdAt: new Date(),
           updatedAt: new Date(),
         })

@@ -12,6 +12,11 @@ import { DEFAULT_AGENT_ID } from '@/app/lib/channels/constants';
 import { DEFAULT_PI_SESSION_TITLE } from '@/app/lib/pi/session-titles';
 import { savePiSession } from '@/app/lib/pi/session-store';
 import { PI_TOOLSETS, resolvePiToolsetTools } from '@/app/lib/pi/toolsets';
+import {
+  buildPiSystemPromptSnapshotFromText,
+  createPiSystemPromptSnapshot,
+  piSystemPromptSnapshotDbFields,
+} from '@/app/lib/pi/system-prompt-snapshot';
 
 type DelegateTaskArgs = {
   target_agent_id?: string;
@@ -369,6 +374,7 @@ async function startEphemeralDelegatedRun(request: DelegateTaskRequest): Promise
     {
       titleOverride: buildEphemeralSessionTitle(request.goal),
       agentId: request.sourceAgentId,
+      systemPromptSnapshot: buildPiSystemPromptSnapshotFromText(systemPrompt),
     },
   );
 
@@ -432,6 +438,7 @@ async function ensureManagedDelegatedSession(request: DelegateTaskRequest): Prom
   const effectiveConfig = await resolveAgentRuntimeConfig(request.targetAgentId);
   const provider = effectiveConfig.activeProvider;
   const providerConfig = effectiveConfig.providerConfig;
+  const promptSnapshot = await createPiSystemPromptSnapshot(request.targetAgentId);
 
   await db.insert(piSessions).values({
     sessionId,
@@ -443,6 +450,7 @@ async function ensureManagedDelegatedSession(request: DelegateTaskRequest): Prom
     title: DEFAULT_PI_SESSION_TITLE,
     channelId: 'app',
     channelSessionKey: null,
+    ...piSystemPromptSnapshotDbFields(promptSnapshot),
     createdAt: new Date(),
     updatedAt: new Date(),
   });

@@ -98,6 +98,9 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       summary_text TEXT,
       summary_updated_at INTEGER,
       summary_through_timestamp INTEGER,
+      system_prompt_snapshot TEXT,
+      system_prompt_snapshot_hash TEXT,
+      system_prompt_snapshot_created_at INTEGER,
       last_message_at INTEGER,
       last_viewed_at INTEGER,
       channel_id TEXT NOT NULL DEFAULT 'app',
@@ -651,6 +654,9 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     agent_id: "TEXT NOT NULL DEFAULT 'canvas-agent'",
     channel_id: "TEXT NOT NULL DEFAULT 'app'",
     channel_session_key: 'TEXT',
+    system_prompt_snapshot: 'TEXT',
+    system_prompt_snapshot_hash: 'TEXT',
+    system_prompt_snapshot_created_at: 'INTEGER',
   });
 
   addColumns(sqlite, 'automation_jobs', {
