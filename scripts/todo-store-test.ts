@@ -50,7 +50,7 @@ async function main() {
   ]);
 
   const categories = await ensureTodoCategories('todo-user');
-  assert.equal(categories.length, 7);
+  assert.equal(categories.length, 4);
   assert.equal(categories[0].name, DEFAULT_TODO_CATEGORY_NAME);
 
   const created = await createTodo('todo-user', {

@@ -5,6 +5,7 @@ import { getPathname, usePathname, Link } from '@/i18n/navigation';
 import { useLocale, useTranslations } from 'next-intl';
 import {
   NotebookPen,
+  ListTodo,
   Sparkles,
   FolderOpen,
   MessageSquare,
@@ -40,6 +41,7 @@ interface AppItem {
 
 const APPS: AppItem[] = [
   { id: 'notebook', href: '/notebook', icon: NotebookPen, hasQuickActions: false },
+  { id: 'todos', href: '/todos', icon: ListTodo, hasQuickActions: false },
   { id: 'studio', href: '/studio', icon: Sparkles, hasQuickActions: true },
   { id: 'files', href: '/files', icon: FolderOpen, hasQuickActions: false },
   { id: 'chat', href: '/chat', icon: MessageSquare, hasQuickActions: false },

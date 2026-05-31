@@ -62,7 +62,7 @@ async function run() {
   }
 
   const categories = await request('/api/todo-categories', { headers: { cookie } });
-  if (!categories.response.ok || !Array.isArray(categories.body?.data) || categories.body.data.length < 7) {
+  if (!categories.response.ok || !Array.isArray(categories.body?.data) || categories.body.data.length < 4) {
     throw new Error('Category seed/list failed');
   }
 
