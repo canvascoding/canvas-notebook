@@ -24,6 +24,7 @@ import {
 } from 'lucide-react';
 
 import { Link } from '@/i18n/navigation';
+import { getDefaultTodoCategoryKey } from '@/app/lib/todos/default-categories';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -201,10 +202,17 @@ export function TodosClient({ title }: { title: string }) {
   const openCount = useMemo(() => todos.filter((todo) => todo.status === 'open').length, [todos]);
   const doneCount = useMemo(() => todos.filter((todo) => todo.status === 'done').length, [todos]);
 
+  const formatCategoryName = useCallback((category: Pick<TodoCategory, 'name' | 'icon'> | null | undefined) => {
+    if (!category) return t('filters.noCategory');
+    const defaultKey = getDefaultTodoCategoryKey(category);
+    return defaultKey ? t(`defaultCategories.${defaultKey}`) : category.name;
+  }, [t]);
+
   const selectedCategoryName = useMemo(() => {
     if (!categoryFilter) return t('filters.allCategories');
-    return categories.find((category) => category.id === categoryFilter)?.name ?? t('filters.allCategories');
-  }, [categories, categoryFilter, t]);
+    const category = categories.find((item) => item.id === categoryFilter);
+    return category ? formatCategoryName(category) : t('filters.allCategories');
+  }, [categories, categoryFilter, formatCategoryName, t]);
 
   const loadCategories = useCallback(async () => {
     const response = await fetch('/api/todo-categories', { credentials: 'include', cache: 'no-store' });
@@ -681,7 +689,7 @@ export function TodosClient({ title }: { title: string }) {
                       className="h-2.5 w-2.5 shrink-0 rounded-full"
                       style={{ backgroundColor: category.color ?? '#64748b' }}
                     />
-                    <span className="truncate">{category.name}</span>
+                    <span className="truncate">{formatCategoryName(category)}</span>
                   </button>
                   <DropdownMenu modal={false}>
                     <DropdownMenuTrigger asChild>
@@ -769,7 +777,7 @@ export function TodosClient({ title }: { title: string }) {
                         {todo.category && (
                           <Badge variant="outline" className="gap-1">
                             <span className="h-2 w-2 rounded-full" style={{ backgroundColor: todo.category.color ?? '#64748b' }} />
-                            {todo.category.name}
+                            {formatCategoryName(todo.category)}
                           </Badge>
                         )}
                         <Badge variant={todo.priority === 'high' ? 'destructive' : 'secondary'}>
@@ -852,7 +860,7 @@ export function TodosClient({ title }: { title: string }) {
                 <div className="grid gap-2 text-sm">
                   <div className="flex items-center justify-between gap-3">
                     <span className="text-muted-foreground">{t('fields.category')}</span>
-                    <span className="truncate font-medium">{selectedTodo.category?.name ?? t('filters.noCategory')}</span>
+                    <span className="truncate font-medium">{formatCategoryName(selectedTodo.category)}</span>
                   </div>
                   <div className="flex items-center justify-between gap-3">
                     <span className="text-muted-foreground">{t('fields.priority')}</span>
@@ -957,7 +965,7 @@ export function TodosClient({ title }: { title: string }) {
                     >
                       <option value="">{t('filters.noCategory')}</option>
                       {categories.map((category) => (
-                        <option key={category.id} value={category.id}>{category.name}</option>
+                        <option key={category.id} value={category.id}>{formatCategoryName(category)}</option>
                       ))}
                     </select>
                   </label>

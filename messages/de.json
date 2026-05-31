@@ -865,21 +865,21 @@
     "open": "Benachrichtigungen öffnen, {count} ungelesen",
     "title": "Benachrichtigungen",
     "loading": "Wird aktualisiert...",
-    "summary": "{sessions} Sessions · {todos} To-dos",
+    "summary": "{sessions} Sitzungen · {todos} To-dos",
     "empty": {
       "title": "Alles gelesen",
       "description": "Neue Antworten und To-dos erscheinen hier."
     },
     "sessions": {
-      "title": "Sessions",
-      "empty": "Keine ungelesenen Sessions.",
+      "title": "Sitzungen",
+      "empty": "Keine ungelesenen Sitzungen.",
       "newResponse": "Neue Antwort"
     },
     "todos": {
       "open": "To-dos",
       "title": "To-dos",
-      "markAllSeen": "Alle lesen",
-      "empty": "Keine offenen To-dos mit Aufmerksamkeit.",
+      "markAllSeen": "Alle als gelesen markieren",
+      "empty": "Keine offenen To-dos, die Aufmerksamkeit benötigen.",
       "due": "Fällig",
       "markSeen": "To-do als gelesen markieren"
     }
@@ -915,11 +915,17 @@
       "high": "Hoch"
     },
     "source": {
-      "user": "User",
+      "user": "Nutzer",
       "agent": "Agent"
     },
+    "defaultCategories": {
+      "todo": "To-do",
+      "review": "Prüfen",
+      "approval": "Freigabe",
+      "automation": "Automation"
+    },
     "actions": {
-      "markAllSeen": "Alle sichtbaren lesen",
+      "markAllSeen": "Alle sichtbaren als gelesen markieren",
       "refresh": "Aktualisieren",
       "newTodo": "To-do erstellen",
       "newCategory": "Kategorie erstellen",

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { createHumanTodoTool } from '@/app/lib/pi/human-todo-tool';
 import { db } from '@/app/lib/db';
 import { todoCategories, todoFileLinks, todoItems, user } from '@/app/lib/db/schema';
-import { DEFAULT_TODO_CATEGORY_NAME } from '@/app/lib/todos/store';
+import { DEFAULT_TODO_CATEGORY_NAME, getDefaultTodoCategoryKey } from '@/app/lib/todos/store';
 import { and, eq } from 'drizzle-orm';
 
 async function main() {
@@ -22,7 +22,7 @@ async function main() {
   const result = await tool.execute('tool-test', {
     title: 'Review generated summary',
     description: 'Human review is required before publishing.',
-    categoryName: 'Pruefen',
+    categoryName: 'Prüfen',
     priority: 'high',
     fileLinks: [],
   });
@@ -41,7 +41,8 @@ async function main() {
   const category = await db.query.todoCategories.findFirst({
     where: and(eq(todoCategories.id, rows[0].categoryId!), eq(todoCategories.userId, userId)),
   });
-  assert.equal(category?.name, 'Pruefen');
+  assert.equal(category?.name, 'Review');
+  assert.equal(getDefaultTodoCategoryKey(category), 'review');
 
   const fallbackResult = await tool.execute('tool-test-fallback', {
     title: 'Fallback category test',

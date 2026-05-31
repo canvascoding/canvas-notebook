@@ -48,7 +48,7 @@ export function createHumanTodoTool(deps: { userId?: string; agentId?: string | 
     parameters: Type.Object({
       title: Type.String({ description: 'Short, concrete action title for the human. Example: "Review generated contract draft".' }),
       description: Type.Optional(Type.String({ description: 'Brief context and why human action is required. Keep it concise and avoid secrets.' })),
-      categoryName: Type.Optional(Type.String({ description: 'Preferred category name. Use one of: To-do, Pruefen, Freigabe, Automation. Defaults to To-do.' })),
+      categoryName: Type.Optional(Type.String({ description: 'Preferred category name. Use one of: To-do, Review, Approval, Automation. German aliases like Prüfen and Freigabe are accepted. Defaults to To-do.' })),
       priority: Type.Optional(Type.Union([
         Type.Literal('low'),
         Type.Literal('normal'),
