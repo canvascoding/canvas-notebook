@@ -185,9 +185,28 @@ async function main() {
     ].join('\n'),
     'utf8',
   );
+  await fs.mkdir(path.join(dataDir, 'skills', 'general-helper'), { recursive: true });
+  await fs.writeFile(
+    path.join(dataDir, 'skills', 'general-helper', 'SKILL.md'),
+    [
+      '---',
+      'name: general-helper',
+      'description: General helper skill for broad workspace tasks.',
+      '---',
+      '',
+      '# General Helper',
+    ].join('\n'),
+    'utf8',
+  );
   const prompt = await loadManagedAgentSystemPrompt(customAgent.agentId);
-  assert.match(prompt.systemPrompt, /# Agent-Relevant Skills/);
-  assert.match(prompt.systemPrompt, /research-notes: Summarize and organize research material/);
+  assert.doesNotMatch(prompt.systemPrompt, /# Agent-Relevant Skills/);
+  assert.match(prompt.systemPrompt, /# Enabled Skills/);
+  assert.match(prompt.systemPrompt, /## Skill: research-notes/);
+  assert.doesNotMatch(prompt.systemPrompt, /general-helper/);
+
+  const canvasPrompt = await loadManagedAgentSystemPrompt(DEFAULT_MANAGED_AGENT_ID);
+  assert.match(canvasPrompt.systemPrompt, /## Skill: research-notes/);
+  assert.match(canvasPrompt.systemPrompt, /## Skill: general-helper/);
 
   await writeManagedAgentFile('AGENTS.md', 'Original session prompt.\n', customAgent.agentId);
   const originalSnapshot = await createPiSystemPromptSnapshot(customAgent.agentId);

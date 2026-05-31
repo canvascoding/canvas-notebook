@@ -14,7 +14,7 @@ import {
 import { getAgentProfile } from './registry';
 import { loadSkillsFromDisk, getSkillsContext } from '../skills/skill-loader';
 import { isComposioConfigured } from '../composio/composio-client';
-import { resolveEnabledToolNames, isDefaultToolsConfig } from '../pi/enabled-tools';
+import { isDefaultToolsConfig, normalizeEnabledToolsConfig } from '../pi/enabled-tools';
 
 export {
   composeManagedAgentSystemPrompt,
@@ -24,32 +24,60 @@ export {
   type ManagedSystemPromptResult,
 } from './system-prompt-shared';
 
-const COMPOSIO_SYSTEM_PROMPT = `## Composio — External App Integration
+const MCP_SYSTEM_PROMPT = `## MCP — External Tool Gateway
 
-You have access to external apps through Composio Meta Tools. Workflow:
+MCP servers can expose many tools, so their full catalogs are not preloaded into the prompt. Assigned or mentioned MCP servers are priorities, not direct tool names.
 
-1. **Discover:** Use \`COMPOSIO_SEARCH_TOOLS\` with a natural language query to find relevant actions
-2. **Learn:** Use \`COMPOSIO_GET_TOOL_SCHEMAS\` to get exact parameter definitions for the actions you need
-3. **Execute:** Use \`composio_execute\` to run the action with the required parameters
-4. **Auth:** If \`composio_execute\` returns \`auth_required\`, inform the user they need to connect the app first and provide the redirect URL or direct them to Settings → Integrations → Connected Apps
+Use the \`mcp\` gateway tool:
+1. \`list_servers\` or \`status\` to inspect configured servers when needed
+2. \`search_tools\` with a natural-language query when you do not know the exact tool
+3. \`describe_tool\` to inspect the input schema before calling a tool
+4. \`call_tool\` with the schema-matching arguments to execute the selected tool
 
-Always search before executing — don't guess action names.`;
+Tools may be addressed as \`Server.tool\`. If you are unsure how to perform an action through MCP, search first instead of guessing.`;
 
-function getAgentRelevantSkillsContext(
-  skills: Array<{ name: string; description: string; enabled?: boolean }>,
+const COMPOSIO_SYSTEM_PROMPT = `## Composio — External App Gateway
+
+Composio can expose many external app actions, so the full action catalog is not preloaded into the prompt. Assigned or mentioned Composio toolkits are priorities, not direct tool names.
+
+Use the Composio gateway tools:
+1. \`COMPOSIO_SEARCH_TOOLS\` with a natural-language query, optionally filtered to relevant toolkit slugs
+2. \`COMPOSIO_GET_TOOL_SCHEMAS\` for exact parameter schemas of selected action slugs
+3. \`composio_execute\` with the selected action slug and schema-matching params
+4. \`COMPOSIO_MANAGE_CONNECTIONS\` to check, connect, or disconnect app accounts when needed
+
+If \`composio_execute\` returns \`auth_required\`, tell the user to connect the app in Settings -> Integrations -> Connected Apps or use the returned redirect URL. If you are unsure which action exists, search first instead of guessing.`;
+
+function getPromptSkillsForAgent<T extends { name: string; enabled?: boolean }>(
+  normalizedAgentId: string,
+  skills: T[],
   relevantSkills?: string[] | null,
-): string {
-  if (!relevantSkills || relevantSkills.length === 0) return '';
-  const relevantSet = new Set(relevantSkills);
-  const matches = skills.filter((skill) => skill.enabled && relevantSet.has(skill.name));
-  if (matches.length === 0) return '';
-
-  let context = '\n\n# Agent-Relevant Skills\n\n';
-  context += 'Prioritize these enabled skills when they match the user request or the current task.\n\n';
-  for (const skill of matches) {
-    context += `- ${skill.name}: ${skill.description}\n`;
+): T[] {
+  if (normalizedAgentId === DEFAULT_MANAGED_AGENT_ID) {
+    return skills;
   }
-  return context;
+  if (!relevantSkills || relevantSkills.length === 0) {
+    return [];
+  }
+
+  const relevantSet = new Set(relevantSkills);
+  return skills.filter((skill) => skill.enabled && relevantSet.has(skill.name));
+}
+
+function isMcpGatewayEnabled(enabledTools?: string[] | null): boolean {
+  if (isDefaultToolsConfig(enabledTools)) {
+    return true;
+  }
+  const normalized = normalizeEnabledToolsConfig(enabledTools);
+  return normalized.some((toolName) => toolName === 'mcp' || toolName.startsWith('mcp_'));
+}
+
+function isComposioGatewayEnabled(enabledTools?: string[] | null): boolean {
+  if (isDefaultToolsConfig(enabledTools)) {
+    return true;
+  }
+  const normalized = normalizeEnabledToolsConfig(enabledTools);
+  return normalized.some((toolName) => toolName === 'composio_execute' || toolName.startsWith('COMPOSIO_'));
 }
 
 export async function loadManagedAgentSystemPrompt(agentId?: string | null): Promise<ManagedSystemPromptResult> {
@@ -61,9 +89,11 @@ export async function loadManagedAgentSystemPrompt(agentId?: string | null): Pro
     // Load PI config to get enabled skills and check composio tools
     const piConfig = await readPiRuntimeConfig();
     
-    // Load enabled skills and add their context to system prompt
+    // The Canvas Agent receives all globally enabled skills. Specialized agents
+    // receive only their selected relevant skills, intersected with global enablement.
     const skills = await loadSkillsFromDisk(piConfig.enabledSkills);
-    const skillsContext = `${getSkillsContext(skills)}${getAgentRelevantSkillsContext(skills, agentProfile?.relevantSkills)}`;
+    const promptSkills = getPromptSkillsForAgent(normalizedAgentId, skills, agentProfile?.relevantSkills);
+    const skillsContext = getSkillsContext(promptSkills);
     
     const result = composeManagedAgentSystemPrompt(files, skillsContext, {
       agentId: normalizedAgentId,
@@ -75,20 +105,11 @@ export async function loadManagedAgentSystemPrompt(agentId?: string | null): Pro
     try {
       const effectiveConfig = await resolveAgentRuntimeConfig(normalizedAgentId);
       const enabledTools = effectiveConfig.enabledTools;
-      const composioToolNames = ['COMPOSIO_SEARCH_TOOLS', 'COMPOSIO_GET_TOOL_SCHEMAS', 'composio_execute', 'COMPOSIO_MANAGE_CONNECTIONS'];
-      
-      let composioEnabled = false;
-      if (await isComposioConfigured()) {
-        if (enabledTools && enabledTools.length > 0 && !isDefaultToolsConfig(enabledTools)) {
-          const enabledSet = resolveEnabledToolNames(composioToolNames, enabledTools);
-          composioEnabled = composioToolNames.some(name => enabledSet.has(name));
-        } else {
-          // Default config: composio tools are disabled by default
-          composioEnabled = false;
-        }
+      if (isMcpGatewayEnabled(enabledTools)) {
+        systemPrompt += '\n\n' + MCP_SYSTEM_PROMPT;
       }
-      
-      if (composioEnabled) {
+
+      if ((await isComposioConfigured()) && isComposioGatewayEnabled(enabledTools)) {
         systemPrompt += '\n\n' + COMPOSIO_SYSTEM_PROMPT;
       }
     } catch {
