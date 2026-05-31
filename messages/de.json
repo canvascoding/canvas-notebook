@@ -409,6 +409,8 @@
     "close": "Schließen",
     "generatingPdf": "PDF wird erzeugt...",
     "openAsPdf": "Als PDF öffnen",
+    "downloadPdf": "PDF herunterladen",
+    "pdfDownloadStarted": "PDF-Download gestartet",
     "failedToExportMarkdown": "Markdown-Export fehlgeschlagen: {statusText}",
     "failedToLoadPreview": "Vorschau konnte nicht geladen werden",
     "pdfGenerationFailed": "PDF-Erzeugung fehlgeschlagen: {statusText}",

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/app/lib/auth';
-import { markdownFileToHtmlDocument } from '@/app/lib/pdf/markdown-to-html';
+import { getCachedMarkdownHtmlDocument } from '@/app/lib/pdf/markdown-export-cache';
 import path from 'path';
 
 export async function GET(request: NextRequest) {
@@ -28,7 +28,7 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const htmlDocument = await markdownFileToHtmlDocument(filePath);
+    const htmlDocument = await getCachedMarkdownHtmlDocument(filePath);
 
     return new NextResponse(htmlDocument, {
       status: 200,
