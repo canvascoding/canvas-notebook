@@ -220,6 +220,33 @@ export async function sendMessage(
   return prepared.runtimeInstance.getStatus();
 }
 
+export async function sendFollowUpMessage(
+  sessionId: string,
+  userId: string,
+  message: UserAgentMessage,
+  context?: ChatRequestContext,
+): Promise<PiRuntimeStatus> {
+  const payload = {
+    sessionId,
+    message,
+    messages: [message],
+    context,
+  };
+  const prepared = await prepareRuntimePrompt(sessionId, userId, payload);
+  const promptMessage = prepared.promptMessage;
+
+  if (!promptMessage) {
+    throw new RuntimeServiceError('Follow-up message required.', 400);
+  }
+
+  if (prepared.status.canAbort) {
+    return prepared.runtimeInstance.queueFollowUp(promptMessage);
+  }
+
+  prepared.runtimeInstance.startPrompt(promptMessage);
+  return prepared.runtimeInstance.getStatus();
+}
+
 export async function control(
   sessionId: string,
   userId: string,

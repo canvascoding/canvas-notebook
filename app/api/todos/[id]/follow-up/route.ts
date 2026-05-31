@@ -4,7 +4,7 @@ import type { AgentMessage } from '@mariozechner/pi-agent-core';
 
 import { db } from '@/app/lib/db';
 import { piSessions } from '@/app/lib/db/schema';
-import { sendMessage } from '@/app/lib/pi/runtime-service';
+import { sendFollowUpMessage } from '@/app/lib/pi/runtime-service';
 import { applyTodoRateLimit, requireTodoSession, todoErrorResponse } from '@/app/lib/todos/api';
 import { getTodo, updateTodo } from '@/app/lib/todos/store';
 
@@ -109,7 +109,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
     };
 
     try {
-      const status = await sendMessage(todo.sourceSessionId, session.user.id, message, {
+      const status = await sendFollowUpMessage(todo.sourceSessionId, session.user.id, message, {
         channelId: 'web',
         currentPage: '/todos',
         currentTime: new Date(timestamp).toISOString(),
@@ -125,7 +125,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
         data: {
           todo: updated ?? preparedTodo,
           sessionId: todo.sourceSessionId,
-          notebookHref: `/notebook?session=${encodeURIComponent(todo.sourceSessionId)}`,
+          chatHref: `/todos?todo=${encodeURIComponent(todo.id)}&session=${encodeURIComponent(todo.sourceSessionId)}&chat=open`,
           runtimeStatus: status,
         },
       });

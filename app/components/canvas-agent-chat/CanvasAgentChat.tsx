@@ -2237,6 +2237,7 @@ export default function CanvasAgentChat({
   const composerMeasureRafRef = useRef<number | null>(null);
   const referenceRequestIdRef = useRef(0);
   const messagesRef = useRef<ChatMessage[]>([]);
+  const refreshSavedMessagesRef = useRef<((sessionId: string) => void) | null>(null);
   const subscribedSessionAckRef = useRef<string | null>(null);
   const subscribedSessionRequestRef = useRef<{ sessionId: string; promise: Promise<void> } | null>(null);
   const sessionListRequestRef = useRef<Promise<AISession[]> | null>(null);
@@ -2528,6 +2529,7 @@ export default function CanvasAgentChat({
       }
 
       if (isCurrentVisibleSession) {
+        refreshSavedMessagesRef.current?.(sessionId);
         void fetch('/api/sessions', {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
@@ -3262,6 +3264,13 @@ export default function CanvasAgentChat({
       return;
     }
 
+    if (event.type === 'message_saved') {
+      const currentSessionId = sessionIdRef.current;
+      if (!currentSessionId) return;
+      refreshSavedMessagesRef.current?.(currentSessionId);
+      return;
+    }
+
     if (event.type === 'message_start' && event.message?.role === 'assistant') {
       streamingContentRef.current = '';
       lastFlushedStreamingContentRef.current = '';
@@ -3758,6 +3767,55 @@ export default function CanvasAgentChat({
     lastCompactionMarkerRef.current = nextCompactionMarker;
     messagesRef.current = nextMessages;
   }, []);
+
+  const refreshSavedMessages = useCallback((targetSessionId: string) => {
+    const requestAgentId = sessionAgentIdRef.current || selectedAgentId;
+
+    void (async () => {
+      try {
+        const response = await fetch(
+          `/api/sessions/messages?agentId=${encodeURIComponent(requestAgentId)}&sessionId=${encodeURIComponent(targetSessionId)}&limit=50`,
+          { cache: 'no-store', credentials: 'include' },
+        );
+        const payload = await safeFetchJson<{
+          success: boolean;
+          messages?: PersistedChatMessage[];
+          hasMoreBefore?: boolean;
+          oldestTimestamp?: number | null;
+          oldestMessageId?: number | null;
+        }>(response);
+
+        if (
+          sessionIdRef.current !== targetSessionId ||
+          !payload?.success ||
+          !Array.isArray(payload.messages)
+        ) {
+          return;
+        }
+
+        const nextMessages = mapRawMessages(payload.messages);
+        setMessages(nextMessages);
+        hydrateMessageRefsFromMessages(nextMessages);
+        setHasMoreBefore(typeof payload.hasMoreBefore === 'boolean' ? payload.hasMoreBefore : payload.messages.length >= 50);
+        setOldestTimestamp(payload.oldestTimestamp ?? null);
+        setOldestMessageId(payload.oldestMessageId ?? null);
+        if (isAtBottomRef.current) {
+          requestAnimationFrame(() => scrollToBottom('auto'));
+        }
+      } catch (error) {
+        console.error('Failed to refresh messages after saved chat response', error);
+      }
+    })();
+  }, [hydrateMessageRefsFromMessages, mapRawMessages, scrollToBottom, selectedAgentId]);
+
+  useEffect(() => {
+    refreshSavedMessagesRef.current = refreshSavedMessages;
+    return () => {
+      if (refreshSavedMessagesRef.current === refreshSavedMessages) {
+        refreshSavedMessagesRef.current = null;
+      }
+    };
+  }, [refreshSavedMessages]);
 
   const loadSession = useCallback(async (session: AISession) => {
     const sessionAgentId = session.agentId || CHAT_AGENT_ID;

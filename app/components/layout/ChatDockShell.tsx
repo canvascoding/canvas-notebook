@@ -55,6 +55,13 @@ function getStoredChatWidth(key: string) {
   return Math.min(CHAT_WIDTH_MAX, Math.max(CHAT_WIDTH_MIN, stored));
 }
 
+function getRequestedChatSessionFromLocation() {
+  if (typeof window === 'undefined') return null;
+  const params = new URLSearchParams(window.location.search);
+  const sessionId = params.get('session');
+  return params.get('chat') === 'open' && sessionId ? sessionId : null;
+}
+
 type ChatDockShellProps = {
   children: ReactNode;
   title: ReactNode;
@@ -98,6 +105,7 @@ export function ChatDockShell({
   const [mobileChatOpen, setMobileChatOpen] = useState(false);
   const [viewportWidth, setViewportWidth] = useState(DEFAULT_CHAT_WIDTH);
   const [hasMounted, setHasMounted] = useState(false);
+  const [forcedChatSessionId, setForcedChatSessionId] = useState<string | null>(null);
   const isResizing = useRef(false);
   const prevViewportModeRef = useRef<'mobile' | 'desktop' | null>(null);
 
@@ -210,6 +218,51 @@ export function ChatDockShell({
     window.addEventListener('keydown', handleKeyboardToggle);
     return () => window.removeEventListener('keydown', handleKeyboardToggle);
   }, [handleDesktopChatPrimaryAction, viewportMode]);
+
+  useEffect(() => {
+    const applySession = (sessionId: string | null) => {
+      if (sessionId) {
+        setForcedChatSessionId(sessionId);
+      }
+    };
+
+    const handleInitialLocation = window.setTimeout(() => {
+      applySession(getRequestedChatSessionFromLocation());
+    }, 0);
+
+    const handleOpenChatSession = (event: Event) => {
+      const sessionId = (event as CustomEvent<{ sessionId?: unknown }>).detail?.sessionId;
+      applySession(typeof sessionId === 'string' ? sessionId : null);
+    };
+
+    const handlePopState = () => {
+      applySession(getRequestedChatSessionFromLocation());
+    };
+
+    window.addEventListener('canvas:open-chat-session', handleOpenChatSession);
+    window.addEventListener('popstate', handlePopState);
+    return () => {
+      window.clearTimeout(handleInitialLocation);
+      window.removeEventListener('canvas:open-chat-session', handleOpenChatSession);
+      window.removeEventListener('popstate', handlePopState);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!forcedChatSessionId || viewportMode === null) return;
+
+    const handle = window.setTimeout(() => {
+      if (viewportMode === 'mobile') {
+        setMobileChatOpen(true);
+        return;
+      }
+
+      setDesktopChatMode('side');
+      setChatVisible(true);
+    }, 0);
+
+    return () => window.clearTimeout(handle);
+  }, [forcedChatSessionId, viewportMode]);
 
   const isMobileViewport = viewportMode === 'mobile';
   const isDesktopViewport = viewportMode === 'desktop';
@@ -353,6 +406,7 @@ export function ChatDockShell({
                 <div className="flex h-full w-full flex-col">
                   <CanvasAgentChat
                     hideNavHeader
+                    forcedSessionId={forcedChatSessionId}
                     requestContext={requestContext}
                     chatContainerWidth={chatContainerWidth}
                     isSurfaceVisible={chatVisible}
@@ -389,6 +443,7 @@ export function ChatDockShell({
                 <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
                   <CanvasAgentChat
                     hideNavHeader
+                    forcedSessionId={forcedChatSessionId}
                     requestContext={requestContext}
                     chatContainerWidth={chatWidth}
                     isSurfaceVisible={mobileChatOpen}
