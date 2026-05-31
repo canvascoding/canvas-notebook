@@ -859,6 +859,10 @@
       "skills": "Skills",
       "license": "Lizenz"
     },
+    "sections": {
+      "expand": "Aufklappen",
+      "collapse": "Einklappen"
+    },
     "general": {
       "language": "Sprache",
       "languageDescription": "Wähle die Sprache der Benutzeroberfläche. Die Änderung wird sofort angewendet.",
@@ -1012,6 +1016,9 @@
       "title": "MCP-Konfiguration",
       "description": "Konfiguriere Model-Context-Protocol-Server für den Agenten.",
       "loading": "Lade MCP-Konfiguration...",
+      "summary": "{count, plural, =0 {Keine Server} one {# Server} other {# Server}}",
+      "connectedSummary": "{count} verbunden",
+      "errorSummary": "Fehler beim Laden",
       "secretNote": "Füge hier keine API-Keys oder OAuth-Tokens ein. Referenziere stattdessen Umgebungsvariablen, die in diesem Tab verwaltet werden.",
       "examplesLink": "Beispielhafte MCP-Server",
       "examplesCaution": "Mit Vorsicht verwenden: Externe MCP-Server vor dem Einsatz prüfen.",
@@ -1096,6 +1103,8 @@
       "description": "Verbinde externe Apps über Composio, um dem Agenten Zugang zu 500+ Integrationen zu geben.",
       "notConfigured": "Gib deinen Composio API-Schlüssel ein, um loszulegen.",
       "notConfiguredShort": "Kein API-Schlüssel",
+      "summary": "{connected} verbunden · {available} verfügbar",
+      "errorSummary": "Fehler beim Laden",
       "apiKeyInvalid": "Der Composio API-Schlüssel ist ungültig. Bitte aktualisiere ihn unten.",
       "apiKeyValid": "API-Schlüssel ist gültig",
       "apiKeyChecking": "API-Schlüssel wird geprüft...",
@@ -1543,6 +1552,9 @@
     "emailAccounts": {
       "title": "E-Mail-Konten",
       "description": "Verbinde E-Mail-Konten und steuere, welche Absender gelesen und welche Empfänger zum Senden verwendet werden dürfen.",
+      "summary": "{count, plural, =0 {Keine Konten} one {# Konto verbunden} other {# Konten verbunden}}",
+      "loadingSummary": "Lade Konten...",
+      "errorSummary": "Fehler beim Laden",
       "refresh": "Aktualisieren",
       "save": "Speichern",
       "connect": "Verbinden",
