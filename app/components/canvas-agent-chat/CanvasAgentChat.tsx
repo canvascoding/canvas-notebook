@@ -4530,7 +4530,8 @@ export default function CanvasAgentChat({
   const showInitialChatLoader = messages.length === 0 && isResolvingInitialChatState;
   const showStarterScreen = messages.length === 0 && !isResolvingInitialChatState;
   const activeSessionAgentId = history.find((session) => session.sessionId === sessionId)?.agentId || selectedAgentId;
-  const activeAgentProfile = availableAgents.find((agent) => agent.agentId === activeSessionAgentId);
+  const agentProfilesById = useMemo(() => new Map(availableAgents.map((agent) => [agent.agentId, agent])), [availableAgents]);
+  const activeAgentProfile = agentProfilesById.get(activeSessionAgentId);
   const activeAgentDisplayName = activeAgentProfile?.name || getAgentDisplayName(activeSessionAgentId);
   const historyAgentOptions = useMemo(() => {
     const byId = new Map<string, { agentId: string; name: string; iconId?: string; count: number }>();
@@ -4582,7 +4583,7 @@ export default function CanvasAgentChat({
       filtered = filtered.filter(s => 
         s.title?.toLowerCase().includes(query) || 
         s.sessionId.toLowerCase().includes(query) ||
-        (availableAgents.find((agent) => agent.agentId === (s.agentId || CHAT_AGENT_ID))?.name || getAgentDisplayName(s.agentId)).toLowerCase().includes(query)
+        (agentProfilesById.get(s.agentId || CHAT_AGENT_ID)?.name || getAgentDisplayName(s.agentId)).toLowerCase().includes(query)
       );
     }
     
@@ -4606,7 +4607,7 @@ export default function CanvasAgentChat({
     });
     
     return grouped;
-  }, [availableAgents, history, historyAgentFilter, historySearchQuery, historyUnreadOnly, getSessionTimeGroup]);
+  }, [agentProfilesById, history, historyAgentFilter, historySearchQuery, historyUnreadOnly, getSessionTimeGroup]);
 
   const applyStarterPrompt = useCallback((value: string) => {
     setInput(value);
@@ -5166,6 +5167,9 @@ export default function CanvasAgentChat({
                       </div>
                       {sessions.map((session) => {
                         const isActive = sessionId === session.sessionId;
+                        const sessionAgentId = session.agentId || CHAT_AGENT_ID;
+                        const sessionAgentProfile = agentProfilesById.get(sessionAgentId);
+                        const sessionAgentName = sessionAgentProfile?.name || getAgentDisplayName(session.agentId);
                         return (
                           <div key={session.id} className={`group mb-1 flex w-full items-center p-2 transition-all ${
                             isActive
@@ -5173,14 +5177,23 @@ export default function CanvasAgentChat({
                               : 'border border-transparent bg-muted/30 hover:border-border hover:bg-accent'
                           }`}>
                             <button type="button" onClick={() => void loadSession(session)} className="min-w-0 flex-1 text-left flex items-start gap-2">
-                              {session.hasUnread && (
-                                <div
-                                  data-testid="chat-history-unread-indicator"
-                                  className="mt-1 h-2 w-2 shrink-0 rounded-full bg-blue-500"
-                                  title={t('unreadResponse')}
-                                  aria-label={t('unreadResponse')}
+                              <span className="relative mt-0.5 shrink-0">
+                                <AgentAvatar
+                                  iconId={sessionAgentProfile?.iconId}
+                                  className={`h-8 w-8 rounded-md ${
+                                    isActive ? 'border-primary bg-primary/15 text-primary' : 'bg-background/80'
+                                  }`}
+                                  iconClassName="h-4 w-4"
                                 />
-                              )}
+                                {session.hasUnread && (
+                                  <span
+                                    data-testid="chat-history-unread-indicator"
+                                    className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full border border-background bg-blue-500"
+                                    title={t('unreadResponse')}
+                                    aria-label={t('unreadResponse')}
+                                  />
+                                )}
+                              </span>
                               <div className="min-w-0 flex-1 text-left">
                                 <div className={`truncate text-sm font-medium ${
                                   isActive ? 'text-primary' : 'text-foreground group-hover:text-primary'
@@ -5191,8 +5204,8 @@ export default function CanvasAgentChat({
                                   <span>{new Date(session.createdAt).toLocaleString()}</span>
                                   <span>&bull;</span>
                                   <span className="inline-flex min-w-0 items-center gap-1">
-                                    <AgentIcon iconId={availableAgents.find((agent) => agent.agentId === (session.agentId || CHAT_AGENT_ID))?.iconId} className="h-3 w-3 shrink-0" />
-                                    <span className="truncate">{availableAgents.find((agent) => agent.agentId === (session.agentId || CHAT_AGENT_ID))?.name || getAgentDisplayName(session.agentId)}</span>
+                                    <AgentIcon iconId={sessionAgentProfile?.iconId} className="h-3 w-3 shrink-0" />
+                                    <span className="truncate">{sessionAgentName}</span>
                                   </span>
                                   <span>&bull;</span>
                                   <span>{session.model}</span>
@@ -5363,6 +5376,9 @@ export default function CanvasAgentChat({
                     </div>
                     {sessions.map((session) => {
                       const isActive = sessionId === session.sessionId;
+                      const sessionAgentId = session.agentId || CHAT_AGENT_ID;
+                      const sessionAgentProfile = agentProfilesById.get(sessionAgentId);
+                      const sessionAgentName = sessionAgentProfile?.name || getAgentDisplayName(session.agentId);
                       return (
                         <div key={session.id} className={`group mb-1 flex w-full items-center p-2 transition-all ${
                           isActive
@@ -5370,14 +5386,23 @@ export default function CanvasAgentChat({
                             : 'border border-transparent bg-muted/30 hover:border-border hover:bg-accent'
                         }`}>
                           <button type="button" onClick={() => void loadSession(session)} className="min-w-0 flex-1 text-left flex items-start gap-2">
-                            {session.hasUnread && (
-                              <div
-                                data-testid="chat-history-unread-indicator"
-                                className="mt-1 h-2 w-2 shrink-0 rounded-full bg-blue-500"
-                                title={t('unreadResponse')}
-                                aria-label={t('unreadResponse')}
+                            <span className="relative mt-0.5 shrink-0">
+                              <AgentAvatar
+                                iconId={sessionAgentProfile?.iconId}
+                                className={`h-8 w-8 rounded-md ${
+                                  isActive ? 'border-primary bg-primary/15 text-primary' : 'bg-background/80'
+                                }`}
+                                iconClassName="h-4 w-4"
                               />
-                            )}
+                              {session.hasUnread && (
+                                <span
+                                  data-testid="chat-history-unread-indicator"
+                                  className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full border border-background bg-blue-500"
+                                  title={t('unreadResponse')}
+                                  aria-label={t('unreadResponse')}
+                                />
+                              )}
+                            </span>
                             <div className="min-w-0 flex-1 text-left">
                               <div className={`truncate text-sm font-medium ${
                                 isActive ? 'text-primary' : 'text-foreground group-hover:text-primary'
@@ -5388,8 +5413,8 @@ export default function CanvasAgentChat({
                                 <span>{new Date(session.createdAt).toLocaleString()}</span>
                                 <span>&bull;</span>
                                 <span className="inline-flex min-w-0 items-center gap-1">
-                                  <AgentIcon iconId={availableAgents.find((agent) => agent.agentId === (session.agentId || CHAT_AGENT_ID))?.iconId} className="h-3 w-3 shrink-0" />
-                                  <span className="truncate">{availableAgents.find((agent) => agent.agentId === (session.agentId || CHAT_AGENT_ID))?.name || getAgentDisplayName(session.agentId)}</span>
+                                  <AgentIcon iconId={sessionAgentProfile?.iconId} className="h-3 w-3 shrink-0" />
+                                  <span className="truncate">{sessionAgentName}</span>
                                 </span>
                                 <span>&bull;</span>
                                 <span>{session.model}</span>
