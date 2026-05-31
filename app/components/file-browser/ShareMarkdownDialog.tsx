@@ -22,8 +22,17 @@ interface ShareMarkdownDialogProps {
   kind?: 'markdown' | 'html';
 }
 
-function getPdfDownloadName(fileName: string) {
-  const baseName = fileName.split('/').pop()?.trim() || 'document';
+function getPdfDownloadName(filePath: string) {
+  const rawBaseName = filePath.split(/[\\/]/).filter(Boolean).pop() || 'document';
+  let decodedBaseName = rawBaseName;
+
+  try {
+    decodedBaseName = decodeURIComponent(rawBaseName);
+  } catch {
+    decodedBaseName = rawBaseName;
+  }
+
+  const baseName = decodedBaseName.trim() || 'document';
   const withoutKnownExtension = baseName.replace(/\.(md|mdx|markdown|html|htm)$/i, '');
   return `${withoutKnownExtension || 'document'}.pdf`;
 }
@@ -112,7 +121,7 @@ export function ShareMarkdownDialog({
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement('a');
       anchor.href = url;
-      anchor.download = getPdfDownloadName(fileName);
+      anchor.download = getPdfDownloadName(filePath);
       anchor.rel = 'noopener';
       document.body.appendChild(anchor);
       anchor.click();
