@@ -140,6 +140,20 @@ async function main() {
   assert.equal(customConfig.thinkingLevel, 'high');
   assert.deepEqual(customConfig.enabledTools, ['bash']);
   assert.deepEqual(customConfig.overrideState, { model: true, tools: true });
+  const customToolPrompt = await loadManagedAgentSystemPrompt(customAgent.agentId);
+  assert.match(customToolPrompt.systemPrompt, /## Agent-Enabled Runtime Tools/);
+  assert.match(customToolPrompt.systemPrompt, /`bash`/);
+  assert.doesNotMatch(customToolPrompt.systemPrompt, /`read`/);
+
+  const mcpAgent = await createAgentProfile({
+    name: 'MCP Agent',
+    enabledTools: ['mcp'],
+  });
+  const mcpPrompt = await loadManagedAgentSystemPrompt(mcpAgent.agentId);
+  assert.match(mcpPrompt.systemPrompt, /## Agent-Enabled Runtime Tools/);
+  assert.match(mcpPrompt.systemPrompt, /`mcp`/);
+  assert.match(mcpPrompt.systemPrompt, /Connector Discovery Hints/);
+  assert.match(mcpPrompt.systemPrompt, /search_tools/);
 
   const legacyAgent = await createAgentProfile({
     name: 'Legacy OpenRouter Agent',

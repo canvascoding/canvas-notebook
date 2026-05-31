@@ -14,7 +14,12 @@ import {
 import { getAgentProfile } from './registry';
 import { loadSkillsFromDisk, getSkillsContext } from '../skills/skill-loader';
 import { isComposioConfigured } from '../composio/composio-client';
-import { isDefaultToolsConfig, normalizeEnabledToolsConfig } from '../pi/enabled-tools';
+import {
+  isDefaultToolsConfig,
+  normalizeEnabledToolsConfig,
+  resolveEnabledToolNames,
+} from '../pi/enabled-tools';
+import type { PiToolMetadata } from '../pi/tool-registry';
 
 export {
   composeManagedAgentSystemPrompt,
@@ -80,6 +85,89 @@ function isComposioGatewayEnabled(enabledTools?: string[] | null): boolean {
   return normalized.some((toolName) => toolName === 'composio_execute' || toolName.startsWith('COMPOSIO_'));
 }
 
+function formatEnabledToolLine(tool: PiToolMetadata): string {
+  const label = tool.label && tool.label !== tool.name ? ` (${tool.label})` : '';
+  const description = tool.description ? `: ${tool.description}` : '';
+  const notes = tool.notes.length > 0 ? ` Notes: ${tool.notes.join(' ')}` : '';
+  return `- \`${tool.name}\`${label} [${tool.group}]${description}${notes}`;
+}
+
+function formatConnectorToolHint(tool: PiToolMetadata): string | null {
+  if (tool.group === 'MCP' || tool.name === 'mcp' || tool.name.startsWith('mcp_')) {
+    if (tool.name === 'mcp') {
+      return '- MCP gateway: use `mcp` with `search_tools` when the exact external tool is unclear, `describe_tool` for schemas, and `call_tool` for execution.';
+    }
+    return `- Direct MCP tool \`${tool.name}\`: if the direct tool does not expose enough context or parameters are unclear, use the \`mcp\` gateway search/describe flow when available.`;
+  }
+
+  if (tool.group === 'Composio' || tool.name === 'composio_execute' || tool.name.startsWith('COMPOSIO_')) {
+    if (tool.name === 'COMPOSIO_SEARCH_TOOLS') {
+      return '- Composio discovery: use `COMPOSIO_SEARCH_TOOLS` with a natural-language query and toolkit filters when the target app/toolkit is known.';
+    }
+    if (tool.name === 'COMPOSIO_GET_TOOL_SCHEMAS') {
+      return '- Composio schemas: use `COMPOSIO_GET_TOOL_SCHEMAS` before executing unfamiliar action slugs.';
+    }
+    if (tool.name === 'composio_execute') {
+      return '- Composio execution: use `composio_execute` only after discovering the action slug and checking the schema.';
+    }
+    if (tool.name === 'COMPOSIO_MANAGE_CONNECTIONS') {
+      return '- Composio connections: use `COMPOSIO_MANAGE_CONNECTIONS` to check connection status or start an app connection flow.';
+    }
+    return `- Composio tool \`${tool.name}\`: if the exact action or params are unclear, use the Composio search/schema flow when available.`;
+  }
+
+  return null;
+}
+
+async function buildSpecializedAgentToolsContext(params: {
+  normalizedAgentId: string;
+  enabledTools: string[];
+  toolsOverride: boolean;
+}): Promise<string> {
+  if (params.normalizedAgentId === DEFAULT_MANAGED_AGENT_ID || !params.toolsOverride) {
+    return '';
+  }
+
+  const { getPiToolMetadata } = await import('../pi/tool-registry');
+  const tools = await getPiToolMetadata();
+  const allToolNames = tools.map((tool) => tool.name);
+  const enabledSet = isDefaultToolsConfig(params.enabledTools)
+    ? new Set(tools.filter((tool) => tool.defaultEnabled).map((tool) => tool.name))
+    : resolveEnabledToolNames(allToolNames, params.enabledTools);
+  const enabledTools = tools.filter((tool) => enabledSet.has(tool.name));
+
+  if (enabledTools.length === 0) {
+    return [
+      '## Agent-Enabled Runtime Tools',
+      '',
+      'This specialized agent has an explicit tool override, but no runtime tools are enabled for it.',
+    ].join('\n');
+  }
+
+  const connectorHints = enabledTools
+    .map(formatConnectorToolHint)
+    .filter((hint): hint is string => Boolean(hint));
+
+  const blocks = [
+    '## Agent-Enabled Runtime Tools',
+    '',
+    'This specialized agent has an explicit tool override. The following runtime tools are enabled for this agent:',
+    '',
+    ...enabledTools.map(formatEnabledToolLine),
+  ];
+
+  if (connectorHints.length > 0) {
+    blocks.push(
+      '',
+      '### Connector Discovery Hints',
+      '',
+      ...connectorHints,
+    );
+  }
+
+  return blocks.join('\n');
+}
+
 export async function loadManagedAgentSystemPrompt(agentId?: string | null): Promise<ManagedSystemPromptResult> {
   try {
     const normalizedAgentId = agentId?.trim().toLowerCase() || DEFAULT_MANAGED_AGENT_ID;
@@ -105,6 +193,15 @@ export async function loadManagedAgentSystemPrompt(agentId?: string | null): Pro
     try {
       const effectiveConfig = await resolveAgentRuntimeConfig(normalizedAgentId);
       const enabledTools = effectiveConfig.enabledTools;
+      const specializedToolsContext = await buildSpecializedAgentToolsContext({
+        normalizedAgentId,
+        enabledTools,
+        toolsOverride: effectiveConfig.overrideState.tools,
+      });
+      if (specializedToolsContext) {
+        systemPrompt += '\n\n' + specializedToolsContext;
+      }
+
       if (isMcpGatewayEnabled(enabledTools)) {
         systemPrompt += '\n\n' + MCP_SYSTEM_PROMPT;
       }
