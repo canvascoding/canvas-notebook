@@ -55,6 +55,7 @@ const TOOL_DISPLAY: Record<string, ToolDisplayEntry> = {
   glob: { label: 'Browsed files', labelDe: 'Dateien durchsucht', tone: 'file' },
   ls: { label: 'Browsed files', labelDe: 'Dateien durchsucht', tone: 'file' },
   web_fetch: { label: 'Opened a web page', labelDe: 'Webseite geöffnet', tone: 'web' },
+  browser: { label: 'Used browser', labelDe: 'Browser verwendet', tone: 'web' },
   web_search: { label: 'Searched the web', labelDe: 'Web durchsucht', tone: 'web' },
   studio_generate_image: { label: 'Generated an image', labelDe: 'Bild generiert', tone: 'image' },
   studio_generate_video: { label: 'Generated a video', labelDe: 'Video generiert', tone: 'video' },

@@ -1,5 +1,6 @@
 export type PiToolset =
   | 'automation'
+  | 'browser'
   | 'composio'
   | 'delegation'
   | 'email'
@@ -22,6 +23,11 @@ export const PI_TOOLSETS: Record<PiToolset, PiToolsetInfo> = {
     name: 'automation',
     label: 'Automation',
     description: 'Create, update, inspect, and trigger scheduled automation jobs.',
+  },
+  browser: {
+    name: 'browser',
+    label: 'Browser',
+    description: 'Control a managed headless Chromium browser for JavaScript-rendered pages and UI verification.',
   },
   composio: {
     name: 'composio',
@@ -83,6 +89,7 @@ const TOOLSET_TOOL_NAMES: Record<PiToolset, Set<string>> = {
     'trigger_automation_job',
     'update_automation_job',
   ]),
+  browser: new Set(['browser']),
   composio: new Set(['composio_execute']),
   delegation: new Set(['delegate_task']),
   email: new Set([

@@ -150,6 +150,7 @@ import { getPiToolsetsForTool, type PiToolset } from '@/app/lib/pi/toolsets';
 import { createDelegateTaskTool } from '@/app/lib/pi/delegate-task-tool';
 import { DEFAULT_AGENT_ID } from '@/app/lib/channels/constants';
 import { normalizeManagedAgentId } from '@/app/lib/agents/registry';
+import { createBrowserGatewayTool } from '@/app/lib/pi/browser/tool';
 
 
 const execAsync = promisify(exec);
@@ -926,7 +927,7 @@ async function fetchWebContent(
           success: false,
           statusCode: response.status,
           title,
-          error: 'Content too short - site may require JavaScript. Use browser-content tool.',
+          error: 'Content too short - site may require JavaScript. Use the browser gateway only if rendering is required.',
           fetchTime,
         });
         continue;
@@ -1009,7 +1010,7 @@ function formatWebFetchResults(results: WebFetchResult[]): string {
   const failed = results.filter(r => !r.success).length;
   if (failed > 0) {
     markdown += `**Summary**: Successfully fetched ${successful} of ${total} URLs. ${failed} failed.\n`;
-    markdown += '\nFor failed URLs requiring JavaScript, use browser-content or browser-tools.';
+    markdown += '\nFor failed URLs requiring JavaScript rendering, use the browser gateway only when necessary.';
   }
   
   return markdown;
@@ -1021,7 +1022,7 @@ export function createWebFetchTool(): AgentTool {
     label: 'Fetching website content',
     description: 
       'Fetch and extract readable content from URLs using HTTP. Fast and lightweight (~50MB RAM). ' +
-      'Use this FIRST for static HTML sites, blogs, documentation. Only falls back to browser-tools ' +
+      'Use this FIRST for static HTML sites, blogs, documentation. Only fall back to the browser gateway ' +
       'if JavaScript rendering is required. Max 10 URLs.',
     parameters: Type.Object({
       urls: Type.Array(
@@ -1310,6 +1311,7 @@ export const piTools: AgentTool[] = [
     },
   },
   createWebFetchTool(),
+  createBrowserGatewayTool(),
   createRipgrepTool(),
   {
     name: 'ls',
@@ -1550,7 +1552,7 @@ export const piTools: AgentTool[] = [
   createStudioListPresetsTool(),
 ];
 
-export type PiToolGroup = 'Core' | 'Studio' | 'Automation' | 'Composio' | 'MCP' | 'Email' | 'Session' | 'Delegation' | 'Memory';
+export type PiToolGroup = 'Core' | 'Studio' | 'Automation' | 'Composio' | 'MCP' | 'Email' | 'Session' | 'Delegation' | 'Memory' | 'Browser';
 
 export type PiToolMetadata = {
   name: string;
@@ -1908,6 +1910,7 @@ function createUserScopedTools(userId?: string, agentId?: string | null): AgentT
 function getToolGroup(toolName: string): PiToolGroup {
   if (toolName === 'mcp' || toolName.startsWith('mcp_')) return 'MCP';
   if (toolName === 'memory') return 'Memory';
+  if (toolName === 'browser') return 'Browser';
   if (toolName === 'delegate_task') return 'Delegation';
   if (toolName === 'session_search') return 'Session';
   if (toolName.startsWith('email_')) return 'Email';
@@ -1963,13 +1966,20 @@ function getToolNotes(tool: AgentTool, group: PiToolGroup): string[] {
   if (group === 'Memory') {
     notes.push('May update durable agent or user memory files under /data/agents.');
   }
+  if (group === 'Browser') {
+    notes.push('Starts controlled headless Chromium and may interact with live webpages.');
+    notes.push('Use web_fetch first unless JavaScript rendering, UI interaction, screenshots, login/session checks, or local app verification require a browser.');
+  }
   if (['bash', 'terminal', 'rg', 'glob', 'grep', 'ls'].includes(tool.name)) {
     notes.push('May execute local shell commands or inspect local files.');
   }
   if (['write', 'edit', 'create_file', 'delete_file', 'studio_generate_image', 'studio_generate_video', 'studio_generate_sound', 'studio_bulk_generate'].includes(tool.name)) {
     notes.push('May write files or create generated media.');
   }
-  if (['web_fetch', 'studio_generate_image', 'studio_generate_video', 'studio_generate_sound', 'studio_bulk_generate'].includes(tool.name)) {
+  if (['web_fetch', 'browser'].includes(tool.name)) {
+    notes.push('May load external network resources.');
+  }
+  if (['studio_generate_image', 'studio_generate_video', 'studio_generate_sound', 'studio_bulk_generate'].includes(tool.name)) {
     notes.push('May call external services or require configured API keys.');
   }
   if (['studio_generate_image', 'studio_generate_video', 'studio_generate_sound', 'studio_bulk_generate'].includes(tool.name)) {
