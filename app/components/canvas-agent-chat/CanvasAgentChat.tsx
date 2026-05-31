@@ -1080,6 +1080,11 @@ function normalizeMessageStart(text: string): string {
   return text.replace(/^\s+/, '');
 }
 
+function isAbortedAssistantPiMessage(piMessage?: AgentMessage | null): boolean {
+  const candidate = piMessage as { role?: unknown; stopReason?: unknown } | null | undefined;
+  return candidate?.role === 'assistant' && candidate.stopReason === 'aborted';
+}
+
 function extractPiMessageText(piMessage?: AgentMessage | null, options?: { hideAttachmentMetadata?: boolean }): string {
   if (!piMessage || isCompactBreakMessage(piMessage) || isComposioAuthRequiredMessage(piMessage)) return '';
   if (!Array.isArray(piMessage.content)) {
@@ -3170,17 +3175,18 @@ export default function CanvasAgentChat({
       prev.map((message) => {
         if (message.id !== id) return message;
         const nextContent = extractPiMessageText(piMessage);
-        const isAssistantError = piMessage.role === 'assistant' && (piMessage.stopReason === 'error' || piMessage.stopReason === 'aborted');
+        const isAssistantAbort = isAbortedAssistantPiMessage(piMessage);
+        const isAssistantError = piMessage.role === 'assistant' && piMessage.stopReason === 'error';
         return {
           ...message,
-          content: nextContent || message.content,
+          content: nextContent || (isAssistantAbort ? t('runStopped') : message.content),
           status: isAssistantError ? 'error' : 'sent',
           type: isAssistantError ? 'system' : message.type,
           piMessage,
         };
       }),
     );
-  }, [setMessages]);
+  }, [setMessages, t]);
 
   // Helper to find existing message by PI message (to prevent duplicates when loading from DB + receiving stream events)
   const findExistingMessageByPiMessage = useCallback((message?: AgentMessage): string | null => {
@@ -3685,6 +3691,9 @@ export default function CanvasAgentChat({
     const content = isToolResult
       ? extractToolResultText(Array.isArray(rawMessage.content) ? rawMessage.content : undefined) || extractPiMessageText(rawMessage)
       : extractPiMessageText(rawMessage, { hideAttachmentMetadata: rawMessage.role === 'user' });
+    const resolvedContent = isAbortedAssistantPiMessage(rawMessage) && !content.trim()
+      ? t('runStopped')
+      : content;
     const imageAttachments = extractImageAttachments(rawMessage.content);
     const messageAttachments = rawMessage.role === 'user'
       ? extractMessageAttachments(rawMessage.content)
@@ -3693,7 +3702,7 @@ export default function CanvasAgentChat({
     return {
       id: rawMessage.id?.toString() || Math.random().toString(),
       role: rawMessage.role,
-      content,
+      content: resolvedContent,
       status: 'sent',
       type: isToolResult ? 'tool_result' : undefined,
       attachments: messageAttachments,
@@ -3703,9 +3712,9 @@ export default function CanvasAgentChat({
       toolArgs: persistedToolCall ? formatToolArgs(persistedToolCall.arguments) : undefined,
       isCollapsed: isToolResult,
       autoCollapsedAtEnd: isToolResult,
-      previewText: isToolResult ? truncatePreview(content) : undefined,
+      previewText: isToolResult ? truncatePreview(resolvedContent) : undefined,
     };
-  }, [formatToolArgs]);
+  }, [formatToolArgs, t]);
 
   const mapRawMessages = useCallback((rawMessages: PersistedChatMessage[]): ChatMessage[] => {
     const toolCallsById = new Map<string, PersistedToolCallPart>();
@@ -4829,7 +4838,8 @@ export default function CanvasAgentChat({
   const sessionDisplayLabel = getSessionDisplayLabel(sessionTitle, t('newChatTitle'));
   const hasComposerContent = Boolean(input.trim()) || attachments.length > 0;
   const primaryActionIsStop = isRuntimeBusy && !hasComposerContent;
-  const primaryActionLabel = primaryActionIsStop ? t('stop') : t('sendAction');
+  const isRuntimeAborting = runtimeStatus?.phase === 'aborting';
+  const primaryActionLabel = primaryActionIsStop ? (isRuntimeAborting ? t('stopping') : t('stop')) : t('sendAction');
   const selectedAgentConfig = isAgentConfigForAgent(agentConfig, selectedAgentId) ? agentConfig : null;
   const selectedAgentModelState = resolveAgentModelState(selectedAgentConfig);
   const effectiveActiveProvider = activeProvider || selectedAgentModelState?.provider || DEFAULT_PROVIDER_ID;
@@ -4839,7 +4849,7 @@ export default function CanvasAgentChat({
     : selectedAgentModelState?.thinkingLevel || activeThinkingLevel;
   const isModelConfigured = Boolean(effectiveActiveModel.trim());
   const primaryActionDisabled = primaryActionIsStop
-    ? !runtimeStatus?.canAbort || isWebSocketUnavailable
+    ? isRuntimeAborting || !runtimeStatus?.canAbort || isWebSocketUnavailable
     : !hasComposerContent || isWebSocketUnavailable || !isModelConfigured;
   const isModelConfigurationLoading = isAgentConfigLoading && !isModelConfigured;
   const showModelRequiredNotice = !isModelConfigured && !isModelConfigurationLoading;
@@ -5553,6 +5563,7 @@ export default function CanvasAgentChat({
             const isSystemError = isSystem && message.status === 'error';
             const isCompactBreak = message.type === 'compact_break';
             const isStreamingAssistant = isAssistant && message.status === 'sending';
+            const isAbortedAssistant = isAssistant && isAbortedAssistantPiMessage(message.piMessage);
             const collapsedRun = isAssistant ? collapsedRunMap.get(message.id) : undefined;
             const rawBodyContent = contentToString(message.content);
             const hasVisibleAssistantContent = rawBodyContent.trim().length > 0;
@@ -5616,32 +5627,36 @@ export default function CanvasAgentChat({
               );
             }
 
-            if (isAssistant && !isStreamingAssistant && !hasVisibleAssistantContent && message.status !== 'error') {
+            if (isAssistant && !isStreamingAssistant && !hasVisibleAssistantContent && message.status !== 'error' && !isAbortedAssistant) {
               return null;
             }
 
             const bubbleClass = isUser
               ? 'border-primary bg-primary text-primary-foreground shadow-sm'
-              : isAssistant
-                ? 'border-border bg-muted text-foreground'
-                : isTool
-                  ? 'border-amber-500/40 bg-amber-500/10 text-foreground'
-                  : isSystemError
-                    ? 'border-destructive/40 bg-destructive/10 text-destructive'
-                    : 'border-border bg-background/80 text-muted-foreground';
+              : isAbortedAssistant
+                ? 'border-rose-500/30 bg-rose-500/10 text-rose-800 dark:text-rose-200'
+                : isAssistant
+                  ? 'border-border bg-muted text-foreground'
+                  : isTool
+                    ? 'border-amber-500/40 bg-amber-500/10 text-foreground'
+                    : isSystemError
+                      ? 'border-destructive/40 bg-destructive/10 text-destructive'
+                      : 'border-border bg-background/80 text-muted-foreground';
 
             const title = isUser ? t('you') : isTool ? (message.toolName || t('tool')) : isAssistant ? t('assistant') : t('system');
             const bodyContent =
               rawBodyContent ||
-              (message.status === 'queued_follow_up'
-                ? t('queuedAfterCurrentRun')
-                : message.status === 'queued_steering'
-                  ? t('queuedAsSteeringMessage')
-                  : message.status === 'aborting'
-                    ? t('willSendAfterStop')
-                    : message.status === 'sending'
-                      ? (isTool ? t('runningTool') : t('agentWorking'))
-                      : '');
+              (isAbortedAssistant
+                ? t('runStopped')
+                : message.status === 'queued_follow_up'
+                  ? t('queuedAfterCurrentRun')
+                  : message.status === 'queued_steering'
+                    ? t('queuedAsSteeringMessage')
+                    : message.status === 'aborting'
+                      ? t('willSendAfterStop')
+                      : message.status === 'sending'
+                        ? (isTool ? t('runningTool') : t('agentWorking'))
+                        : '');
             const displayBodyContent = isAssistant
               ? rewriteRelativeStudioImageMarkdown(
                   bodyContent,
@@ -5698,6 +5713,7 @@ export default function CanvasAgentChat({
                       {!isAssistant || !suppressAssistantTitle ? (
                         <div className="mb-2 flex items-center gap-2">
                           <span className="text-[10px] font-bold uppercase tracking-widest opacity-60">{title}</span>
+                          {isAbortedAssistant ? <span className="text-[10px] uppercase tracking-widest opacity-60">{t('runStoppedBadge')}</span> : null}
                           {message.status === 'aborting' && <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-current opacity-70" />}
                           {message.status === 'queued_follow_up' ? <span className="text-[10px] uppercase tracking-widest opacity-60">{t('queue')}</span> : null}
                           {message.status === 'queued_steering' ? <span className="text-[10px] uppercase tracking-widest opacity-60">{t('steer')}</span> : null}

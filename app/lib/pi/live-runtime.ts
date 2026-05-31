@@ -229,6 +229,26 @@ function toPercent(used: number, available: number): number {
   return Math.max(0, Math.min(100, Math.round((used / available) * 100)));
 }
 
+function getRuntimeStatusSignature(status: PiRuntimeStatus): string {
+  return JSON.stringify({
+    phase: status.phase,
+    activeTool: status.activeTool,
+    pendingToolCalls: status.pendingToolCalls,
+    followUpQueue: status.followUpQueue,
+    steeringQueue: status.steeringQueue,
+    canAbort: status.canAbort,
+    estimatedHistoryTokens: status.estimatedHistoryTokens,
+    availableHistoryTokens: status.availableHistoryTokens,
+    contextUsagePercent: status.contextUsagePercent,
+    includedSummary: status.includedSummary,
+    omittedMessageCount: status.omittedMessageCount,
+    summaryUpdatedAt: status.summaryUpdatedAt,
+    lastCompactionAt: status.lastCompactionAt,
+    lastCompactionKind: status.lastCompactionKind,
+    lastCompactionOmittedCount: status.lastCompactionOmittedCount,
+  });
+}
+
 type PiRuntimePromptDispatchTarget = {
   setChannelContext: (channelId: string | undefined) => void;
   setTimeZoneContext: (timeZone: string, currentTime: string) => void;
@@ -288,6 +308,7 @@ class LivePiRuntime {
   private studioContext: PiRuntimePromptContext['studioContext'] | null = null;
   private persistLock = false;
   private persistPending: 'turn_end' | 'agent_end' | 'error' | null = null;
+  private lastBroadcastStatusSignature: string | null = null;
   agentUnsubscribe: (() => void) | null = null;
 
   constructor(init: RuntimeInit, agent: Agent) {
@@ -348,14 +369,14 @@ class LivePiRuntime {
         ? 'aborting'
         : this.activeTool
           ? 'running_tool'
-          : this.agent.state.isStreaming || this.isRunning
+          : this.isRunning
             ? 'streaming'
             : 'idle',
       activeTool: this.activeTool,
       pendingToolCalls: this.agent.state.pendingToolCalls.size,
       followUpQueue: this.followUpQueue.map((entry) => entry.preview),
       steeringQueue: this.steeringQueue.map((entry) => entry.preview),
-      canAbort: this.agent.state.isStreaming || this.isRunning || this.abortRequested,
+      canAbort: this.isRunning || this.abortRequested,
       contextWindow: this.model.contextWindow,
       estimatedHistoryTokens: composition.estimatedHistoryTokens,
       availableHistoryTokens: composition.availableHistoryTokens,
@@ -370,7 +391,7 @@ class LivePiRuntime {
   }
 
   async queueFollowUp(message: Extract<AgentMessage, { role: 'user' }>) {
-    if (!this.agent.state.isStreaming) {
+    if (!this.isRunning && !this.agent.state.isStreaming) {
       throw new Error('No active agent run to queue a follow-up message.');
     }
 
@@ -384,7 +405,7 @@ class LivePiRuntime {
   }
 
   async queueSteering(message: Extract<AgentMessage, { role: 'user' }>) {
-    if (!this.agent.state.isStreaming) {
+    if (!this.isRunning && !this.agent.state.isStreaming) {
       throw new Error('No active agent run to steer.');
     }
 
@@ -398,7 +419,7 @@ class LivePiRuntime {
   }
 
   async promoteQueuedMessageToSteering(queueItemId: string) {
-    if (!this.agent.state.isStreaming) {
+    if (!this.isRunning && !this.agent.state.isStreaming) {
       throw new Error('No active agent run to steer.');
     }
 
@@ -454,7 +475,7 @@ class LivePiRuntime {
   async replace(message: Extract<AgentMessage, { role: 'user' }>) {
     const sanitized = sanitizeUserMessage(message);
 
-    if (!this.agent.state.isStreaming) {
+    if (!this.isRunning && !this.agent.state.isStreaming) {
       this.startPrompt(sanitized);
       return this.getStatus();
     }
@@ -471,7 +492,7 @@ class LivePiRuntime {
   }
 
   async abort() {
-    if (this.agent.state.isStreaming) {
+    if (this.isRunning || this.agent.state.isStreaming || this.abortRequested) {
       this.abortRequested = true;
       this.touch();
       this.publishStatus();
@@ -482,7 +503,7 @@ class LivePiRuntime {
   }
 
   async compactNow() {
-    if (this.agent.state.isStreaming) {
+    if (this.isRunning || this.agent.state.isStreaming) {
       throw new Error('Cannot compact while the agent is processing.');
     }
 
@@ -900,9 +921,28 @@ class LivePiRuntime {
   }
 
   private publishStatus() {
-    this.publish({
+    const status = this.getStatus();
+    const event: RuntimeStatusEvent = {
       type: 'runtime_status',
-      status: this.getStatus(),
+      status,
+    };
+
+    this.publish(event);
+
+    const signature = getRuntimeStatusSignature(status);
+    if (signature === this.lastBroadcastStatusSignature) {
+      return;
+    }
+
+    this.lastBroadcastStatusSignature = signature;
+    this.emitRuntimeEvent(event);
+  }
+
+  private emitRuntimeEvent(event: PiRuntimeStreamEvent): void {
+    void getEmitter().then((emitter) => {
+      emitter.emitEvent(this.sessionId, this.userId, event as unknown as Record<string, unknown>);
+    }).catch(() => {
+      // Non-critical: WebSocket emission failure should not break runtime.
     });
   }
 
@@ -935,13 +975,16 @@ class LivePiRuntime {
     this.isRunning = false;
     this.activeTool = null;
     this.abortRequested = false;
+    this.publishStatus();
   }
 
   private publishError(error: unknown) {
-    this.publish({
+    const event: RuntimeErrorEvent = {
       type: 'error',
       error: getErrorMessage(error),
-    });
+    };
+    this.publish(event);
+    this.emitRuntimeEvent(event);
   }
 
   dispose(): void {

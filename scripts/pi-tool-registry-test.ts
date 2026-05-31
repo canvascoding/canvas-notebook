@@ -81,6 +81,9 @@ async function main() {
   const readTool = piTools.find((tool) => tool.name === 'read');
   const lsTool = piTools.find((tool) => tool.name === 'ls');
   const bashTool = piTools.find((tool) => tool.name === 'bash');
+  const webFetchTool = piTools.find((tool) => tool.name === 'web_fetch');
+  const grepTool = piTools.find((tool) => tool.name === 'grep');
+  const globTool = piTools.find((tool) => tool.name === 'glob');
 
   assert.equal(piTools.some((tool) => tool.name === 'rg'), true);
   assert.equal(piTools.some((tool) => tool.name === 'qmd'), false);
@@ -88,6 +91,9 @@ async function main() {
   assert.ok(readTool);
   assert.ok(lsTool);
   assert.ok(bashTool);
+  assert.ok(webFetchTool);
+  assert.ok(grepTool);
+  assert.ok(globTool);
 
   const secretsDir = path.join(dataDir, 'secrets');
   const secretFile = path.join(secretsDir, 'Canvas-Integrations.env');
@@ -135,6 +141,37 @@ async function main() {
     path: path.join(tempDir, 'missing-dir'),
   });
   assert.match(getText(rgInvalidPathResult), /^Error:/);
+
+  const abortedController = new AbortController();
+  abortedController.abort();
+
+  const abortedRgResult = await rgTool.execute('rg-abort', {
+    pattern: 'needle',
+    path: tempDir,
+  }, abortedController.signal);
+  assert.match(getText(abortedRgResult), /aborted/i);
+
+  const abortedBashResult = await bashTool.execute('bash-abort', {
+    command: 'sleep 5',
+  }, abortedController.signal);
+  assert.match(getText(abortedBashResult), /aborted/i);
+
+  const abortedWebFetchResult = await webFetchTool.execute('web-fetch-abort', {
+    urls: ['https://example.com'],
+  }, abortedController.signal);
+  assert.match(getText(abortedWebFetchResult), /aborted/i);
+
+  const abortedGrepResult = await grepTool.execute('grep-abort', {
+    pattern: 'needle',
+    path: tempDir,
+  }, abortedController.signal);
+  assert.match(getText(abortedGrepResult), /aborted/i);
+
+  const abortedGlobResult = await globTool.execute('glob-abort', {
+    pattern: '*.ts',
+    path: tempDir,
+  }, abortedController.signal);
+  assert.match(getText(abortedGlobResult), /aborted/i);
 
   const studioImageResult = await studioImageTool.execute('studio-image', {
     prompt: 'Eine Ente statt einem Affen',
