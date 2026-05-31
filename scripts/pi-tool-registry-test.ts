@@ -260,6 +260,39 @@ async function main() {
   assert.match(getText(deleteDirResult), /Operation: delete_path/);
   await assert.rejects(fs.stat(path.join(workspaceDir, 'bulk-copy')));
 
+  await fs.mkdir(path.join(workspaceDir, 'multi-src', 'dir-one'), { recursive: true });
+  await fs.writeFile(path.join(workspaceDir, 'multi-src', 'one.txt'), 'one\n', 'utf8');
+  await fs.writeFile(path.join(workspaceDir, 'multi-src', 'two.txt'), 'two\n', 'utf8');
+  await fs.writeFile(path.join(workspaceDir, 'multi-src', 'dir-one', 'nested.txt'), 'nested\n', 'utf8');
+
+  const multiCopyResult = await copyPathTool.execute('copy-many', {
+    sourcePaths: ['multi-src/one.txt', 'multi-src/two.txt', 'multi-src/dir-one'],
+    destinationPath: 'multi-copy',
+  });
+  assert.match(getText(multiCopyResult), /Sources: 3/);
+  assert.equal(await fs.readFile(path.join(workspaceDir, 'multi-copy', 'one.txt'), 'utf8'), 'one\n');
+  assert.equal(await fs.readFile(path.join(workspaceDir, 'multi-copy', 'two.txt'), 'utf8'), 'two\n');
+  assert.equal(await fs.readFile(path.join(workspaceDir, 'multi-copy', 'dir-one', 'nested.txt'), 'utf8'), 'nested\n');
+
+  const multiMoveResult = await movePathTool.execute('move-many', {
+    sourcePaths: ['multi-copy/one.txt', 'multi-copy/two.txt'],
+    destinationPath: 'multi-moved',
+  });
+  assert.match(getText(multiMoveResult), /Sources: 2/);
+  assert.equal(await fs.readFile(path.join(workspaceDir, 'multi-moved', 'one.txt'), 'utf8'), 'one\n');
+  assert.equal(await fs.readFile(path.join(workspaceDir, 'multi-moved', 'two.txt'), 'utf8'), 'two\n');
+  await assert.rejects(fs.stat(path.join(workspaceDir, 'multi-copy', 'one.txt')));
+
+  const multiDeleteResult = await deletePathTool.execute('delete-many', {
+    paths: ['multi-moved/one.txt', 'multi-moved/two.txt', 'multi-copy/dir-one', 'multi-missing.txt'],
+    recursive: true,
+    ignoreMissing: true,
+  });
+  assert.match(getText(multiDeleteResult), /Sources: 4/);
+  assert.match(getText(multiDeleteResult), /missing/);
+  await assert.rejects(fs.stat(path.join(workspaceDir, 'multi-moved', 'one.txt')));
+  await assert.rejects(fs.stat(path.join(workspaceDir, 'multi-copy', 'dir-one')));
+
   assert.equal(detectUnsafeBashCommand('cp -r /data/workspace/a /data/workspace/b'), null);
   assert.equal(detectUnsafeBashCommand('mv /data/workspace/a /data/workspace/b'), null);
   assert.equal(detectUnsafeBashCommand('rm -rf /data/workspace/a'), null);

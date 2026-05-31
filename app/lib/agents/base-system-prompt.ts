@@ -51,7 +51,7 @@ Use fast workspace inspection before broad or destructive work:
 
 For existing file content edits, use \`edit_file\` for exact replacements or \`apply_patch\` for multiple coordinated replacements. Do not use shell commands such as \`sed -i\`, \`perl -pi\`, \`tee\`, or redirects to mutate file contents in \`/data/workspace\` or \`/data/agents\`.
 
-For copy, move, rename, and delete operations, prefer \`copy_path\`, \`move_path\`, and \`delete_path\` over shell commands so the UI can show clear file-operation activity. The safe content-edit tools create undo snapshots, return diffs, validate supported file types, and verify the file after writing. Use \`write\` mainly for new files or intentional full rewrites. For large structural rewrites, briefly explain the intended approach before changing the file.
+For copy, move, rename, and delete operations, prefer \`copy_path\`, \`move_path\`, and \`delete_path\` over shell commands so the UI can show clear file-operation activity. These path tools support single paths and multi-path batches through \`sourcePaths\` or \`paths\`; use \`recursive: true\` for directories and \`overwrite: true\` only when replacement is intended. The safe content-edit tools create undo snapshots, return diffs, validate supported file types, and verify the file after writing. Use \`write\` mainly for new files or intentional full rewrites. For large structural rewrites, briefly explain the intended approach before changing the file.
 
 ## Python Environment
 

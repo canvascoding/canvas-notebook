@@ -15,12 +15,12 @@ import { filterSafeEnv } from '@/app/lib/security/env-allowlist';
 import {
   applyAgentFilePatch,
   assertAgentPathAllowed,
-  copyAgentPath,
-  deleteAgentPath,
+  copyAgentPaths,
+  deleteAgentPaths,
   detectUnsafeBashCommand,
   editAgentFile,
   listAgentFileSnapshots,
-  moveAgentPath,
+  moveAgentPaths,
   resolveAgentPath,
   restoreAgentFileSnapshot,
   type AgentFileChangeResult,
@@ -1154,9 +1154,22 @@ function formatFileChangeResults(results: AgentFileChangeResult[]): string {
 }
 
 function formatPathOperationResult(result: AgentPathOperationResult): string {
+  const entryLines = result.entries.length > 1
+    ? [
+        '',
+        'Entries:',
+        ...result.entries.slice(0, 20).map((entry, index) => {
+          const destination = entry.destinationPath ? ` -> ${entry.destinationPath}` : '';
+          return `${index + 1}. ${entry.sourcePath}${destination} (${entry.type}, files ${entry.files}, directories ${entry.directories}, bytes ${entry.bytes})`;
+        }),
+        result.entries.length > 20 ? `... ${result.entries.length - 20} more entries` : null,
+      ].filter(Boolean)
+    : [];
+
   return [
     `Operation: ${result.operation}`,
-    `Source: ${result.sourcePath}`,
+    `Sources: ${result.sourcePaths.length}`,
+    result.sourcePaths.length === 1 ? `Source: ${result.sourcePath}` : null,
     result.destinationPath ? `Destination: ${result.destinationPath}` : null,
     `Type: ${result.type}`,
     `Changed: ${result.changed ? 'yes' : 'no'}`,
@@ -1166,7 +1179,32 @@ function formatPathOperationResult(result: AgentPathOperationResult): string {
     `Bytes: ${result.bytes}`,
     result.truncated ? 'Summary truncated: yes' : 'Summary truncated: no',
     'Snapshot: none (path copy/move/delete operations do not snapshot file contents)',
+    ...entryLines,
   ].filter(Boolean).join('\n');
+}
+
+function readPathList(params: Record<string, unknown>, singleKey: string, listKey: string): string[] {
+  const paths: string[] = [];
+  const singlePath = params[singleKey];
+  const pathList = params[listKey];
+
+  if (typeof singlePath === 'string') {
+    paths.push(singlePath);
+  }
+  if (Array.isArray(pathList)) {
+    for (const item of pathList) {
+      if (typeof item !== 'string') {
+        throw new Error(`${listKey} must contain only strings.`);
+      }
+      paths.push(item);
+    }
+  }
+
+  const normalized = paths.map((pathValue) => pathValue.trim()).filter(Boolean);
+  if (normalized.length === 0) {
+    throw new Error(`Provide ${singleKey} or ${listKey}.`);
+  }
+  return normalized;
 }
 
 
@@ -1527,26 +1565,29 @@ export const piTools: AgentTool[] = [
   {
     name: 'copy_path',
     label: 'Copying file or directory',
-    description: 'Copies a file or directory within allowed local paths. Supports directory copies without creating content snapshots, so it is suitable for bulk file operations. Prefer this over bash cp so the UI can show a clear file operation.',
+    description: 'Copies one or more files/directories within allowed local paths. Supports directory copies without creating content snapshots, so it is suitable for bulk file operations. Prefer this over bash cp so the UI can show a clear file operation.',
     parameters: Type.Object({
-      sourcePath: Type.String({ description: 'Absolute path or workspace-relative source path.' }),
-      destinationPath: Type.String({ description: 'Absolute path or workspace-relative destination path.' }),
+      sourcePath: Type.Optional(Type.String({ description: 'Absolute path or workspace-relative source path.' })),
+      sourcePaths: Type.Optional(Type.Array(Type.String({ description: 'Absolute path or workspace-relative source path.' }), { description: 'Multiple source paths. When provided, destinationPath is treated as a directory.' })),
+      destinationPath: Type.String({ description: 'Absolute path or workspace-relative destination path. For multiple sources, this is the destination directory.' }),
       overwrite: Type.Optional(Type.Boolean({ description: 'Overwrite destination if it exists. Defaults to false.' })),
       recursive: Type.Optional(Type.Boolean({ description: 'Allow directory copy. Defaults to true.' })),
     }),
     execute: async (_toolCallId, params) => {
-      const { sourcePath, destinationPath, overwrite, recursive } = params as {
-        sourcePath: string;
+      const typedParams = params as {
+        sourcePath?: string;
+        sourcePaths?: string[];
         destinationPath: string;
         overwrite?: boolean;
         recursive?: boolean;
       };
       try {
-        const result = await copyAgentPath({
-          sourcePath,
-          destinationPath,
-          overwrite,
-          recursive: recursive ?? true,
+        const sourcePaths = readPathList(typedParams as Record<string, unknown>, 'sourcePath', 'sourcePaths');
+        const result = await copyAgentPaths({
+          sourcePaths,
+          destinationPath: typedParams.destinationPath,
+          overwrite: typedParams.overwrite,
+          recursive: typedParams.recursive ?? true,
         });
         return {
           content: [{ type: 'text', text: formatPathOperationResult(result) }],
@@ -1564,20 +1605,27 @@ export const piTools: AgentTool[] = [
   {
     name: 'move_path',
     label: 'Moving file or directory',
-    description: 'Moves or renames a file or directory within allowed local paths. Does not create content snapshots. Prefer this over bash mv so the UI can show a clear file operation.',
+    description: 'Moves, renames, or bulk-moves files/directories within allowed local paths. Does not create content snapshots. Prefer this over bash mv so the UI can show a clear file operation.',
     parameters: Type.Object({
-      sourcePath: Type.String({ description: 'Absolute path or workspace-relative source path.' }),
-      destinationPath: Type.String({ description: 'Absolute path or workspace-relative destination path.' }),
+      sourcePath: Type.Optional(Type.String({ description: 'Absolute path or workspace-relative source path.' })),
+      sourcePaths: Type.Optional(Type.Array(Type.String({ description: 'Absolute path or workspace-relative source path.' }), { description: 'Multiple source paths. When provided, destinationPath is treated as a directory.' })),
+      destinationPath: Type.String({ description: 'Absolute path or workspace-relative destination path. For multiple sources, this is the destination directory.' }),
       overwrite: Type.Optional(Type.Boolean({ description: 'Overwrite destination if it exists. Defaults to false.' })),
     }),
     execute: async (_toolCallId, params) => {
-      const { sourcePath, destinationPath, overwrite } = params as {
-        sourcePath: string;
+      const typedParams = params as {
+        sourcePath?: string;
+        sourcePaths?: string[];
         destinationPath: string;
         overwrite?: boolean;
       };
       try {
-        const result = await moveAgentPath({ sourcePath, destinationPath, overwrite });
+        const sourcePaths = readPathList(typedParams as Record<string, unknown>, 'sourcePath', 'sourcePaths');
+        const result = await moveAgentPaths({
+          sourcePaths,
+          destinationPath: typedParams.destinationPath,
+          overwrite: typedParams.overwrite,
+        });
         return {
           content: [{ type: 'text', text: formatPathOperationResult(result) }],
           details: result,
@@ -1594,15 +1642,22 @@ export const piTools: AgentTool[] = [
   {
     name: 'delete_path',
     label: 'Deleting file or directory',
-    description: 'Deletes a file or directory within allowed local paths. Does not create content snapshots, so use carefully. Directories require recursive=true. Prefer this over bash rm so the UI can show a clear file operation.',
+    description: 'Deletes one or more files/directories within allowed local paths. Does not create content snapshots, so use carefully. Directories require recursive=true. Prefer this over bash rm so the UI can show a clear file operation.',
     parameters: Type.Object({
-      path: Type.String({ description: 'Absolute path or workspace-relative path to delete.' }),
+      path: Type.Optional(Type.String({ description: 'Absolute path or workspace-relative path to delete.' })),
+      paths: Type.Optional(Type.Array(Type.String({ description: 'Absolute path or workspace-relative path to delete.' }), { description: 'Multiple paths to delete.' })),
       recursive: Type.Optional(Type.Boolean({ description: 'Required for deleting directories.' })),
+      ignoreMissing: Type.Optional(Type.Boolean({ description: 'Ignore paths that do not exist, similar to rm -f. Defaults to false.' })),
     }),
     execute: async (_toolCallId, params) => {
-      const { path: targetPath, recursive } = params as { path: string; recursive?: boolean };
+      const typedParams = params as { path?: string; paths?: string[]; recursive?: boolean; ignoreMissing?: boolean };
       try {
-        const result = await deleteAgentPath({ path: targetPath, recursive });
+        const paths = readPathList(typedParams as Record<string, unknown>, 'path', 'paths');
+        const result = await deleteAgentPaths({
+          paths,
+          recursive: typedParams.recursive,
+          ignoreMissing: typedParams.ignoreMissing,
+        });
         return {
           content: [{ type: 'text', text: formatPathOperationResult(result) }],
           details: result,
