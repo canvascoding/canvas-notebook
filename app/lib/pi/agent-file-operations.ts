@@ -1,12 +1,15 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { promises as fs } from 'node:fs';
+import type { Stats } from 'node:fs';
 import path from 'node:path';
 
 import { parseDocument } from 'yaml';
 
 const SNAPSHOT_DIR_NAME = 'agent-file-snapshots';
 const MAX_DIFF_CHARS = 24_000;
-const MAX_SNAPSHOT_COUNT = 500;
+const DEFAULT_MAX_SNAPSHOT_COUNT = 500;
+const DEFAULT_MAX_SNAPSHOT_BYTES = 250 * 1024 * 1024;
+const MAX_PATH_SUMMARY_ENTRIES = 5_000;
 
 export type AgentFileValidationCheck = {
   name: string;
@@ -43,6 +46,21 @@ export type AgentFileChangeResult = {
   validation: AgentFileValidationResult;
 };
 
+export type AgentPathOperationResult = {
+  operation: 'copy_path' | 'move_path' | 'delete_path';
+  sourcePath: string;
+  destinationPath?: string;
+  sourceResolvedPath: string;
+  destinationResolvedPath?: string;
+  type: 'file' | 'directory' | 'other';
+  changed: boolean;
+  overwritten: boolean;
+  bytes: number;
+  files: number;
+  directories: number;
+  truncated: boolean;
+};
+
 export type AgentPatchFileInput = {
   path: string;
   expectedSha256?: string;
@@ -74,6 +92,21 @@ export function getAgentWorkspaceRoot(): string {
 
 function getSnapshotRoot(): string {
   return path.join(getAgentDataRoot(), 'cache', SNAPSHOT_DIR_NAME);
+}
+
+function readPositiveIntegerEnv(name: string, fallback: number): number {
+  const value = process.env[name]?.trim();
+  if (!value) return fallback;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? Math.trunc(parsed) : fallback;
+}
+
+function getMaxSnapshotCount(): number {
+  return readPositiveIntegerEnv('AGENT_FILE_SNAPSHOT_MAX_COUNT', DEFAULT_MAX_SNAPSHOT_COUNT);
+}
+
+function getMaxSnapshotBytes(): number {
+  return readPositiveIntegerEnv('AGENT_FILE_SNAPSHOT_MAX_BYTES', DEFAULT_MAX_SNAPSHOT_BYTES);
 }
 
 function isPathWithin(candidatePath: string, basePath: string): boolean {
@@ -442,9 +475,28 @@ async function listAllSnapshotMetadata(): Promise<AgentFileSnapshotMetadata[]> {
 
 async function pruneSnapshots(): Promise<void> {
   const snapshots = await listAllSnapshotMetadata();
-  const stale = snapshots.slice(MAX_SNAPSHOT_COUNT);
+  const maxCount = getMaxSnapshotCount();
+  const maxBytes = getMaxSnapshotBytes();
+  const stale = new Set<AgentFileSnapshotMetadata>(snapshots.slice(maxCount));
+  let runningBytes = 0;
+
+  for (let index = 0; index < snapshots.length; index += 1) {
+    const snapshot = snapshots[index];
+    if (!snapshot) continue;
+    if (stale.has(snapshot)) continue;
+    if (index === 0) {
+      runningBytes += snapshot.size;
+      continue;
+    }
+    if (runningBytes + snapshot.size > maxBytes) {
+      stale.add(snapshot);
+      continue;
+    }
+    runningBytes += snapshot.size;
+  }
+
   await Promise.allSettled(
-    stale.map(async (snapshot) => {
+    [...stale].map(async (snapshot) => {
       await fs.rm(snapshotMetadataPath(snapshot.id), { force: true });
       await fs.rm(snapshotContentPath(snapshot.id), { force: true });
     }),
@@ -476,7 +528,7 @@ async function createSnapshotFromBuffer(params: {
     await fs.writeFile(path.join(root, `${id}.bin`), params.beforeBuffer, { mode: 0o600 });
   }
   await fs.writeFile(path.join(root, `${id}.json`), `${JSON.stringify(metadata, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
-  void pruneSnapshots().catch(() => {});
+  await pruneSnapshots().catch(() => undefined);
   return metadata;
 }
 
@@ -749,6 +801,198 @@ export async function restoreAgentFileSnapshot(params: { snapshotId: string }): 
   };
 }
 
+function getPathType(stats: Stats): AgentPathOperationResult['type'] {
+  if (stats.isFile()) return 'file';
+  if (stats.isDirectory()) return 'directory';
+  return 'other';
+}
+
+async function summarizePath(fullPath: string): Promise<{
+  type: AgentPathOperationResult['type'];
+  bytes: number;
+  files: number;
+  directories: number;
+  truncated: boolean;
+}> {
+  const stats = await fs.stat(fullPath);
+  const type = getPathType(stats);
+
+  if (!stats.isDirectory()) {
+    return {
+      type,
+      bytes: stats.size,
+      files: stats.isFile() ? 1 : 0,
+      directories: 0,
+      truncated: false,
+    };
+  }
+
+  let bytes = 0;
+  let files = 0;
+  let directories = 1;
+  let entriesSeen = 0;
+  let truncated = false;
+  const pending = [fullPath];
+
+  while (pending.length > 0) {
+    const current = pending.pop();
+    if (!current) break;
+
+    const entries = await fs.readdir(current, { withFileTypes: true });
+    for (const entry of entries) {
+      entriesSeen += 1;
+      if (entriesSeen > MAX_PATH_SUMMARY_ENTRIES) {
+        truncated = true;
+        pending.length = 0;
+        break;
+      }
+
+      const entryPath = path.join(current, entry.name);
+      const entryStats = await fs.stat(entryPath);
+      if (entry.isDirectory()) {
+        directories += 1;
+        pending.push(entryPath);
+      } else if (entry.isFile()) {
+        files += 1;
+        bytes += entryStats.size;
+      } else {
+        bytes += entryStats.size;
+      }
+    }
+  }
+
+  return { type, bytes, files, directories, truncated };
+}
+
+async function pathExists(fullPath: string): Promise<boolean> {
+  try {
+    await fs.stat(fullPath);
+    return true;
+  } catch (error) {
+    if (isEnoent(error)) return false;
+    throw error;
+  }
+}
+
+function assertDestinationIsNotInsideSource(sourcePath: string, destinationPath: string, sourceType: AgentPathOperationResult['type']): void {
+  if (sourceType === 'directory' && isPathWithin(destinationPath, sourcePath)) {
+    throw new Error('Destination must not be inside the source directory.');
+  }
+}
+
+export async function copyAgentPath(params: {
+  sourcePath: string;
+  destinationPath: string;
+  overwrite?: boolean;
+  recursive?: boolean;
+}): Promise<AgentPathOperationResult> {
+  const sourceFullPath = resolveAgentPath(params.sourcePath);
+  const destinationFullPath = resolveAgentPath(params.destinationPath);
+  await assertAgentPathAllowed(sourceFullPath);
+  await assertAgentWritablePathAllowed(destinationFullPath);
+
+  const summary = await summarizePath(sourceFullPath);
+  if (summary.type === 'directory' && params.recursive === false) {
+    throw new Error('Source is a directory. Set recursive to true to copy directories.');
+  }
+  assertDestinationIsNotInsideSource(sourceFullPath, destinationFullPath, summary.type);
+
+  const overwritten = await pathExists(destinationFullPath);
+  if (overwritten && !params.overwrite) {
+    throw new Error(`Destination already exists: ${params.destinationPath}`);
+  }
+
+  await fs.mkdir(path.dirname(destinationFullPath), { recursive: true });
+  await fs.cp(sourceFullPath, destinationFullPath, {
+    recursive: summary.type === 'directory',
+    force: params.overwrite === true,
+    errorOnExist: params.overwrite !== true,
+  });
+
+  return {
+    operation: 'copy_path',
+    sourcePath: params.sourcePath,
+    destinationPath: params.destinationPath,
+    sourceResolvedPath: sourceFullPath,
+    destinationResolvedPath: destinationFullPath,
+    changed: true,
+    overwritten,
+    ...summary,
+  };
+}
+
+export async function moveAgentPath(params: {
+  sourcePath: string;
+  destinationPath: string;
+  overwrite?: boolean;
+}): Promise<AgentPathOperationResult> {
+  const sourceFullPath = resolveAgentPath(params.sourcePath);
+  const destinationFullPath = resolveAgentPath(params.destinationPath);
+  await assertAgentPathAllowed(sourceFullPath);
+  await assertAgentWritablePathAllowed(destinationFullPath);
+
+  const summary = await summarizePath(sourceFullPath);
+  assertDestinationIsNotInsideSource(sourceFullPath, destinationFullPath, summary.type);
+
+  const overwritten = await pathExists(destinationFullPath);
+  if (overwritten && !params.overwrite) {
+    throw new Error(`Destination already exists: ${params.destinationPath}`);
+  }
+
+  await fs.mkdir(path.dirname(destinationFullPath), { recursive: true });
+  if (overwritten && params.overwrite) {
+    await fs.rm(destinationFullPath, { recursive: true, force: true });
+  }
+
+  try {
+    await fs.rename(sourceFullPath, destinationFullPath);
+  } catch (error) {
+    if (!(error && typeof error === 'object' && 'code' in error && error.code === 'EXDEV')) {
+      throw error;
+    }
+    await fs.cp(sourceFullPath, destinationFullPath, { recursive: summary.type === 'directory', force: true });
+    await fs.rm(sourceFullPath, { recursive: summary.type === 'directory', force: true });
+  }
+
+  return {
+    operation: 'move_path',
+    sourcePath: params.sourcePath,
+    destinationPath: params.destinationPath,
+    sourceResolvedPath: sourceFullPath,
+    destinationResolvedPath: destinationFullPath,
+    changed: true,
+    overwritten,
+    ...summary,
+  };
+}
+
+export async function deleteAgentPath(params: {
+  path: string;
+  recursive?: boolean;
+}): Promise<AgentPathOperationResult> {
+  const fullPath = resolveAgentPath(params.path);
+  await assertAgentWritablePathAllowed(fullPath);
+
+  const summary = await summarizePath(fullPath);
+  if (summary.type === 'directory' && params.recursive !== true) {
+    throw new Error('Path is a directory. Set recursive to true to delete directories.');
+  }
+
+  await fs.rm(fullPath, {
+    recursive: summary.type === 'directory',
+    force: false,
+  });
+
+  return {
+    operation: 'delete_path',
+    sourcePath: params.path,
+    sourceResolvedPath: fullPath,
+    changed: true,
+    overwritten: false,
+    ...summary,
+  };
+}
+
 export function detectUnsafeBashCommand(command: string): string | null {
   const secretPatterns = [
     /\b(?:env|printenv)\b/i,
@@ -779,8 +1023,8 @@ export function detectUnsafeBashCommand(command: string): string | null {
     return 'Unsafe in-place file edits with perl are blocked. Use edit_file or apply_patch instead.';
   }
 
-  if ((mentionsManagedPath || cdsIntoManagedPath) && /\b(?:rm|mv|cp|tee)\b/.test(normalized)) {
-    return 'Shell file mutations in /data/workspace or /data/agents are blocked. Use the dedicated file tools instead.';
+  if ((mentionsManagedPath || cdsIntoManagedPath) && /\btee\b/.test(normalized)) {
+    return 'Shell file writes with tee in /data/workspace or /data/agents are blocked. Use write, edit_file, or apply_patch instead.';
   }
 
   if ((mentionsManagedPath || cdsIntoManagedPath) && /(^|[^<>])>>?\s*(?!&)/.test(normalized)) {

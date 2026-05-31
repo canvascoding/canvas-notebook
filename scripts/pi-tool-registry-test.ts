@@ -28,6 +28,7 @@ async function main() {
   };
 
   const { enableToolInConfig, getDefaultEnabledToolNames, serializeEnabledToolNames } = await import('../app/lib/pi/enabled-tools');
+  const { detectUnsafeBashCommand } = await import('../app/lib/pi/agent-file-operations');
   const { buildPiToolRegistry, createRipgrepTool, createStudioGenerateImageTool, createStudioGenerateVideoTool, getPiToolMetadata, getPiTools, piTools } = await import('../app/lib/pi/tool-registry');
 
   const studioCalls: StudioGenerateRequest[] = [];
@@ -82,6 +83,9 @@ async function main() {
   const writeTool = piTools.find((tool) => tool.name === 'write');
   const editFileTool = piTools.find((tool) => tool.name === 'edit_file');
   const applyPatchTool = piTools.find((tool) => tool.name === 'apply_patch');
+  const copyPathTool = piTools.find((tool) => tool.name === 'copy_path');
+  const movePathTool = piTools.find((tool) => tool.name === 'move_path');
+  const deletePathTool = piTools.find((tool) => tool.name === 'delete_path');
   const listFileSnapshotsTool = piTools.find((tool) => tool.name === 'list_file_snapshots');
   const restoreFileSnapshotTool = piTools.find((tool) => tool.name === 'restore_file_snapshot');
   const lsTool = piTools.find((tool) => tool.name === 'ls');
@@ -98,6 +102,9 @@ async function main() {
   assert.ok(writeTool);
   assert.ok(editFileTool);
   assert.ok(applyPatchTool);
+  assert.ok(copyPathTool);
+  assert.ok(movePathTool);
+  assert.ok(deletePathTool);
   assert.ok(listFileSnapshotsTool);
   assert.ok(restoreFileSnapshotTool);
   assert.ok(lsTool);
@@ -214,6 +221,50 @@ async function main() {
   });
   assert.match(getText(writeResult), /Updated file: notes\/new\.md/);
   assert.match(getText(writeResult), /Snapshot: /);
+
+  await fs.mkdir(path.join(workspaceDir, 'bulk-src', 'nested'), { recursive: true });
+  await fs.writeFile(path.join(workspaceDir, 'bulk-src', 'nested', 'a.txt'), 'alpha\n', 'utf8');
+  await fs.writeFile(path.join(workspaceDir, 'bulk-src', 'b.txt'), 'beta\n', 'utf8');
+
+  const copyResult = await copyPathTool.execute('copy-dir', {
+    sourcePath: 'bulk-src',
+    destinationPath: 'bulk-copy',
+  });
+  assert.match(getText(copyResult), /Operation: copy_path/);
+  assert.match(getText(copyResult), /Snapshot: none/);
+  assert.equal(await fs.readFile(path.join(workspaceDir, 'bulk-copy', 'nested', 'a.txt'), 'utf8'), 'alpha\n');
+
+  const moveResult = await movePathTool.execute('move-file', {
+    sourcePath: 'bulk-copy/b.txt',
+    destinationPath: 'bulk-copy/c.txt',
+  });
+  assert.match(getText(moveResult), /Operation: move_path/);
+  assert.equal(await fs.readFile(path.join(workspaceDir, 'bulk-copy', 'c.txt'), 'utf8'), 'beta\n');
+
+  const deleteFileResult = await deletePathTool.execute('delete-file', {
+    path: 'bulk-copy/c.txt',
+  });
+  assert.match(getText(deleteFileResult), /Operation: delete_path/);
+  await assert.rejects(fs.stat(path.join(workspaceDir, 'bulk-copy', 'c.txt')));
+
+  const deleteDirBlockedResult = await deletePathTool.execute('delete-dir-blocked', {
+    path: 'bulk-copy',
+  });
+  assert.match(getText(deleteDirBlockedResult), /recursive/i);
+  assert.ok(await fs.stat(path.join(workspaceDir, 'bulk-copy')));
+
+  const deleteDirResult = await deletePathTool.execute('delete-dir', {
+    path: 'bulk-copy',
+    recursive: true,
+  });
+  assert.match(getText(deleteDirResult), /Operation: delete_path/);
+  await assert.rejects(fs.stat(path.join(workspaceDir, 'bulk-copy')));
+
+  assert.equal(detectUnsafeBashCommand('cp -r /data/workspace/a /data/workspace/b'), null);
+  assert.equal(detectUnsafeBashCommand('mv /data/workspace/a /data/workspace/b'), null);
+  assert.equal(detectUnsafeBashCommand('rm -rf /data/workspace/a'), null);
+  assert.match(detectUnsafeBashCommand("sed -i 's/a/b/' /data/workspace/file.md") || '', /sed/i);
+  assert.match(detectUnsafeBashCommand('echo broken > /data/workspace/file.md') || '', /redirects/i);
 
   const blockedSedResult = await bashTool.execute('bash-block-sed', {
     command: "sed -i 's/Projekt/Plan/' /data/workspace/hausarbeit/00_Projektplan_Team6_v2.md",
@@ -373,6 +424,14 @@ async function main() {
   assert.deepEqual(browserMetadata.toolsets, ['browser']);
   assert.equal(browserMetadata.defaultEnabled, false);
   assert.equal(browserMetadata.planningModeAllowed, false);
+  for (const toolName of ['copy_path', 'move_path', 'delete_path']) {
+    const pathMetadata = metadata.find((tool) => tool.name === toolName);
+    assert.ok(pathMetadata);
+    assert.equal(pathMetadata.group, 'Core');
+    assert.deepEqual(pathMetadata.toolsets, ['file']);
+    assert.equal(pathMetadata.defaultEnabled, true);
+    assert.equal(pathMetadata.planningModeAllowed, false);
+  }
 
   console.log('pi-tool-registry-test: ok');
 

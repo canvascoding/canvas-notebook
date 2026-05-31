@@ -15,13 +15,17 @@ import { filterSafeEnv } from '@/app/lib/security/env-allowlist';
 import {
   applyAgentFilePatch,
   assertAgentPathAllowed,
+  copyAgentPath,
+  deleteAgentPath,
   detectUnsafeBashCommand,
   editAgentFile,
   listAgentFileSnapshots,
+  moveAgentPath,
   resolveAgentPath,
   restoreAgentFileSnapshot,
   type AgentFileChangeResult,
   type AgentFileValidationResult,
+  type AgentPathOperationResult,
   writeAgentTextFile,
 } from '@/app/lib/pi/agent-file-operations';
 import {
@@ -1149,6 +1153,22 @@ function formatFileChangeResults(results: AgentFileChangeResult[]): string {
   return results.map((result, index) => `# File ${index + 1}\n${formatFileChangeResult(result)}`).join('\n\n');
 }
 
+function formatPathOperationResult(result: AgentPathOperationResult): string {
+  return [
+    `Operation: ${result.operation}`,
+    `Source: ${result.sourcePath}`,
+    result.destinationPath ? `Destination: ${result.destinationPath}` : null,
+    `Type: ${result.type}`,
+    `Changed: ${result.changed ? 'yes' : 'no'}`,
+    `Overwritten: ${result.overwritten ? 'yes' : 'no'}`,
+    `Files: ${result.files}`,
+    `Directories: ${result.directories}`,
+    `Bytes: ${result.bytes}`,
+    result.truncated ? 'Summary truncated: yes' : 'Summary truncated: no',
+    'Snapshot: none (path copy/move/delete operations do not snapshot file contents)',
+  ].filter(Boolean).join('\n');
+}
+
 
 /**
  * Registry for PI-compatible tools.
@@ -1493,6 +1513,98 @@ export const piTools: AgentTool[] = [
         const result = await restoreAgentFileSnapshot({ snapshotId });
         return {
           content: [{ type: 'text', text: formatFileChangeResult(result) }],
+          details: result,
+        };
+      } catch (error: unknown) {
+        const message = getErrorMessage(error);
+        return {
+          content: [{ type: 'text', text: `Error: ${message}` }],
+          details: { error: message },
+        };
+      }
+    },
+  },
+  {
+    name: 'copy_path',
+    label: 'Copying file or directory',
+    description: 'Copies a file or directory within allowed local paths. Supports directory copies without creating content snapshots, so it is suitable for bulk file operations. Prefer this over bash cp so the UI can show a clear file operation.',
+    parameters: Type.Object({
+      sourcePath: Type.String({ description: 'Absolute path or workspace-relative source path.' }),
+      destinationPath: Type.String({ description: 'Absolute path or workspace-relative destination path.' }),
+      overwrite: Type.Optional(Type.Boolean({ description: 'Overwrite destination if it exists. Defaults to false.' })),
+      recursive: Type.Optional(Type.Boolean({ description: 'Allow directory copy. Defaults to true.' })),
+    }),
+    execute: async (_toolCallId, params) => {
+      const { sourcePath, destinationPath, overwrite, recursive } = params as {
+        sourcePath: string;
+        destinationPath: string;
+        overwrite?: boolean;
+        recursive?: boolean;
+      };
+      try {
+        const result = await copyAgentPath({
+          sourcePath,
+          destinationPath,
+          overwrite,
+          recursive: recursive ?? true,
+        });
+        return {
+          content: [{ type: 'text', text: formatPathOperationResult(result) }],
+          details: result,
+        };
+      } catch (error: unknown) {
+        const message = getErrorMessage(error);
+        return {
+          content: [{ type: 'text', text: `Error: ${message}` }],
+          details: { error: message },
+        };
+      }
+    },
+  },
+  {
+    name: 'move_path',
+    label: 'Moving file or directory',
+    description: 'Moves or renames a file or directory within allowed local paths. Does not create content snapshots. Prefer this over bash mv so the UI can show a clear file operation.',
+    parameters: Type.Object({
+      sourcePath: Type.String({ description: 'Absolute path or workspace-relative source path.' }),
+      destinationPath: Type.String({ description: 'Absolute path or workspace-relative destination path.' }),
+      overwrite: Type.Optional(Type.Boolean({ description: 'Overwrite destination if it exists. Defaults to false.' })),
+    }),
+    execute: async (_toolCallId, params) => {
+      const { sourcePath, destinationPath, overwrite } = params as {
+        sourcePath: string;
+        destinationPath: string;
+        overwrite?: boolean;
+      };
+      try {
+        const result = await moveAgentPath({ sourcePath, destinationPath, overwrite });
+        return {
+          content: [{ type: 'text', text: formatPathOperationResult(result) }],
+          details: result,
+        };
+      } catch (error: unknown) {
+        const message = getErrorMessage(error);
+        return {
+          content: [{ type: 'text', text: `Error: ${message}` }],
+          details: { error: message },
+        };
+      }
+    },
+  },
+  {
+    name: 'delete_path',
+    label: 'Deleting file or directory',
+    description: 'Deletes a file or directory within allowed local paths. Does not create content snapshots, so use carefully. Directories require recursive=true. Prefer this over bash rm so the UI can show a clear file operation.',
+    parameters: Type.Object({
+      path: Type.String({ description: 'Absolute path or workspace-relative path to delete.' }),
+      recursive: Type.Optional(Type.Boolean({ description: 'Required for deleting directories.' })),
+    }),
+    execute: async (_toolCallId, params) => {
+      const { path: targetPath, recursive } = params as { path: string; recursive?: boolean };
+      try {
+        const result = await deleteAgentPath({ path: targetPath, recursive });
+        return {
+          content: [{ type: 'text', text: formatPathOperationResult(result) }],
           details: result,
         };
       } catch (error: unknown) {
@@ -2061,11 +2173,14 @@ function getToolNotes(tool: AgentTool, group: PiToolGroup): string[] {
   if (['bash', 'terminal', 'rg', 'glob', 'grep', 'ls', 'read', 'list_file_snapshots'].includes(tool.name)) {
     notes.push('May execute local shell commands or inspect local files.');
   }
-  if (['write', 'edit', 'edit_file', 'apply_patch', 'restore_file_snapshot', 'create_file', 'delete_file', 'studio_generate_image', 'studio_generate_video', 'studio_generate_sound', 'studio_bulk_generate'].includes(tool.name)) {
+  if (['write', 'edit', 'edit_file', 'apply_patch', 'copy_path', 'move_path', 'delete_path', 'restore_file_snapshot', 'create_file', 'delete_file', 'studio_generate_image', 'studio_generate_video', 'studio_generate_sound', 'studio_bulk_generate'].includes(tool.name)) {
     notes.push('May write files or create generated media.');
   }
   if (['write', 'edit_file', 'apply_patch', 'restore_file_snapshot'].includes(tool.name)) {
     notes.push('Creates an undo snapshot and returns a diff when it changes a file.');
+  }
+  if (['copy_path', 'move_path', 'delete_path'].includes(tool.name)) {
+    notes.push('Does not snapshot file contents; intended for bulk path operations with clear UI reporting.');
   }
   if (['web_fetch', 'browser'].includes(tool.name)) {
     notes.push('May load external network resources.');
