@@ -349,8 +349,9 @@ export function WorkspaceSettingsPanel({ isAdmin = false }: WorkspaceSettingsPan
 
               {error && <p className="text-sm text-destructive">{error}</p>}
 
-              <div className="flex flex-wrap items-center gap-2">
+              <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
                 <Button
+                  className="w-full justify-center sm:w-auto"
                   onClick={() => handleDownload('workspace')}
                   disabled={activeDownload !== null || stats.fileCount === 0}
                 >
@@ -364,6 +365,7 @@ export function WorkspaceSettingsPanel({ isAdmin = false }: WorkspaceSettingsPan
                 <Button
                   type="button"
                   variant="outline"
+                  className="w-full justify-center sm:w-auto"
                   onClick={() => handleDownload('data')}
                   disabled={activeDownload !== null || !isAdmin}
                 >
@@ -374,7 +376,13 @@ export function WorkspaceSettingsPanel({ isAdmin = false }: WorkspaceSettingsPan
                   )}
                   {activeDownload === 'data' ? t('workspacePanel.downloading') : t('workspacePanel.downloadDataZip')}
                 </Button>
-                <Button type="button" variant="outline" onClick={() => void loadStats()} disabled={isLoading}>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full justify-center sm:w-auto"
+                  onClick={() => void loadStats()}
+                  disabled={isLoading}
+                >
                   <RefreshCw className="mr-2 h-4 w-4" />
                   {t('workspacePanel.refresh')}
                 </Button>
@@ -403,8 +411,8 @@ export function WorkspaceSettingsPanel({ isAdmin = false }: WorkspaceSettingsPan
           ) : null}
 
           <div className="space-y-3">
-            <div className="flex items-center justify-between gap-3">
-              <div>
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="min-w-0">
                 <h3 className="text-sm font-semibold">{t('workspacePanel.migration.exportTitle')}</h3>
                 <p className="text-sm text-muted-foreground">
                   {t('workspacePanel.migration.selectedComponents', { count: selectedComponentCount })}
@@ -412,6 +420,7 @@ export function WorkspaceSettingsPanel({ isAdmin = false }: WorkspaceSettingsPan
               </div>
               <Button
                 type="button"
+                className="w-full justify-center sm:w-auto"
                 onClick={() => void createMigrationExport()}
                 disabled={!isAdmin || isCreatingExport || selectedComponentCount === 0 || exportJob?.status === 'running' || exportJob?.status === 'queued'}
               >
