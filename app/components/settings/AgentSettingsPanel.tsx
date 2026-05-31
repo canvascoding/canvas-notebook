@@ -422,6 +422,9 @@ export function AgentSettingsPanel() {
         body: JSON.stringify({
           name,
           iconId: input.iconId,
+          defaultProvider: input.defaultProvider,
+          defaultModel: input.defaultModel,
+          defaultThinking: input.defaultThinking,
           files: input.files,
           enabledTools: input.enabledTools,
           relevantSkills: input.relevantSkills,
