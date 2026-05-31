@@ -35,7 +35,15 @@ export async function GET(request: NextRequest) {
     });
     if (!limited.ok) return limited.response;
 
+    const summaryOnly = request.nextUrl.searchParams.get('summary') === '1';
     const runtime = await getMcpRuntimeStatus();
+    if (summaryOnly) {
+      return NextResponse.json({
+        success: true,
+        data: runtime,
+      });
+    }
+
     const [oauth, direct, icons] = await Promise.all([
       Promise.all(runtime.servers.map((server) => getMcpOAuthStatus(server.name))),
       buildDirectMcpTools(),

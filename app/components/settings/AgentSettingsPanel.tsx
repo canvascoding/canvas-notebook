@@ -63,11 +63,15 @@ const DEFAULT_AGENT_SETTINGS_SECTION_OPEN_STATE: AgentSettingsSectionOpenState =
   doctor: false,
 };
 
-function getInitialAgentSectionOpenState(requestedPanel: string | null): AgentSettingsSectionOpenState {
-  const fallback = {
+function getFallbackAgentSectionOpenState(requestedPanel: string | null): AgentSettingsSectionOpenState {
+  return {
     ...DEFAULT_AGENT_SETTINGS_SECTION_OPEN_STATE,
     doctor: SHOW_AGENT_DOCTOR_SECTION && requestedPanel === 'doctor',
   };
+}
+
+function getInitialAgentSectionOpenState(requestedPanel: string | null): AgentSettingsSectionOpenState {
+  const fallback = getFallbackAgentSectionOpenState(requestedPanel);
 
   if (typeof window === 'undefined') return fallback;
 
@@ -224,7 +228,7 @@ export function AgentSettingsPanel() {
   const requestedPanel = searchParams.get('panel');
   const toolVerbosity = useToolVerbosityStore((s) => s.toolVerbosity);
   const setToolVerbosity = useToolVerbosityStore((s) => s.setToolVerbosity);
-  const [agentSectionOpenById, setAgentSectionOpenById] = useState<AgentSettingsSectionOpenState>(() => getInitialAgentSectionOpenState(requestedPanel));
+  const [agentSectionOpenById, setAgentSectionOpenById] = useState<AgentSettingsSectionOpenState>(() => getFallbackAgentSectionOpenState(requestedPanel));
 
   const [agents, setAgents] = useState<AgentProfileItem[]>([]);
   const [agentsLoading, setAgentsLoading] = useState(true);
@@ -286,6 +290,18 @@ export function AgentSettingsPanel() {
   const [heartbeatSaving, setHeartbeatSaving] = useState(false);
   const [heartbeatError, setHeartbeatError] = useState<string | null>(null);
   const [heartbeatSuccess, setHeartbeatSuccess] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (!cancelled) {
+        setAgentSectionOpenById(getInitialAgentSectionOpenState(requestedPanel));
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [requestedPanel]);
 
   const resetAgentScopedState = useCallback(() => {
     sessionsRequestSeqRef.current += 1;

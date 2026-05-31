@@ -1,7 +1,7 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Check, Loader2, Plug, Search, Sparkles } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { Check, ChevronDown, FileText, Loader2, Menu, Plug, Search, Sparkles, type LucideIcon } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 
 import { AgentAvatar } from '@/app/components/agents/AgentAvatar';
@@ -19,7 +19,9 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
 
 const CREATE_AGENT_FILE_NAMES = ['AGENTS.md', 'MEMORY.md', 'SOUL.md', 'TOOLS.md'] as const satisfies readonly ManagedFileName[];
@@ -142,6 +144,8 @@ type ConnectionOption = {
   kind: 'mcp' | 'composio';
 };
 
+type LazyLoadStatus = 'idle' | 'loading' | 'loaded' | 'error';
+
 type CreateAgentDialogProps = {
   open: boolean;
   creating: boolean;
@@ -149,6 +153,10 @@ type CreateAgentDialogProps = {
   onOpenChange: (open: boolean) => void;
   onCreate: (input: CreateAgentInput) => Promise<boolean>;
 };
+
+const CREATE_AGENT_LAZY_CACHE_TTL_MS = 2 * 60 * 1000;
+let cachedSkillOptions: { expiresAt: number; data: SkillOption[] } | null = null;
+let cachedConnectionOptions: { expiresAt: number; data: ConnectionOption[] } | null = null;
 
 function mergeFileDrafts(template: CreateAgentTemplate): Record<ManagedFileName, string> {
   return {
@@ -159,6 +167,294 @@ function mergeFileDrafts(template: CreateAgentTemplate): Record<ManagedFileName,
 
 function hasSkill(skills: SkillOption[], name: string): boolean {
   return skills.some((skill) => skill.name === name);
+}
+
+function readCachedValue<T>(cached: { expiresAt: number; data: T } | null): T | null {
+  return cached && cached.expiresAt > Date.now() ? cached.data : null;
+}
+
+function useLazyAgentSkills(shouldLoad: boolean) {
+  const requestedRef = useRef(false);
+  const [status, setStatus] = useState<LazyLoadStatus>('idle');
+  const [skills, setSkills] = useState<SkillOption[]>([]);
+
+  useEffect(() => {
+    if (!shouldLoad || requestedRef.current) return;
+    let cancelled = false;
+
+    const cached = readCachedValue(cachedSkillOptions);
+    if (cached) {
+      requestedRef.current = true;
+      queueMicrotask(() => {
+        if (cancelled) return;
+        setSkills(cached);
+        setStatus('loaded');
+      });
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    const controller = new AbortController();
+    requestedRef.current = true;
+    queueMicrotask(() => setStatus('loading'));
+
+    async function loadSkills() {
+      try {
+        const response = await fetch('/api/skills?summary=1', {
+          credentials: 'include',
+          cache: 'no-store',
+          signal: controller.signal,
+        });
+        const payload = (await response.json().catch(() => ({}))) as { success?: boolean; skills?: SkillOption[] };
+        const nextSkills = response.ok && payload.success && Array.isArray(payload.skills)
+          ? payload.skills.filter((skill) => skill.enabled !== false)
+          : [];
+        cachedSkillOptions = {
+          data: nextSkills,
+          expiresAt: Date.now() + CREATE_AGENT_LAZY_CACHE_TTL_MS,
+        };
+        if (cancelled || controller.signal.aborted) return;
+        setSkills(nextSkills);
+        setStatus('loaded');
+      } catch {
+        if (controller.signal.aborted) {
+          requestedRef.current = false;
+          return;
+        }
+        setSkills([]);
+        setStatus('error');
+      }
+    }
+
+    void loadSkills();
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [shouldLoad]);
+
+  return { skills, status };
+}
+
+function useLazyAgentConnections(
+  shouldLoad: boolean,
+  formatMcpDetail: (count: number) => string,
+  formatComposioDetail: (count: number) => string,
+) {
+  const requestedRef = useRef(false);
+  const detailFormattersRef = useRef({ formatMcpDetail, formatComposioDetail });
+  const [status, setStatus] = useState<LazyLoadStatus>('idle');
+  const [connections, setConnections] = useState<ConnectionOption[]>([]);
+
+  useEffect(() => {
+    detailFormattersRef.current = { formatMcpDetail, formatComposioDetail };
+  }, [formatComposioDetail, formatMcpDetail]);
+
+  useEffect(() => {
+    if (!shouldLoad || requestedRef.current) return;
+    let cancelled = false;
+
+    const cached = readCachedValue(cachedConnectionOptions);
+    if (cached) {
+      requestedRef.current = true;
+      queueMicrotask(() => {
+        if (cancelled) return;
+        setConnections(cached);
+        setStatus('loaded');
+      });
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    const controller = new AbortController();
+    requestedRef.current = true;
+    queueMicrotask(() => setStatus('loading'));
+
+    async function loadConnections() {
+      const nextConnections: ConnectionOption[] = [];
+
+      try {
+        const [mcpResult, composioResult] = await Promise.allSettled([
+          fetch('/api/integrations/mcp-status?summary=1', {
+            credentials: 'include',
+            cache: 'no-store',
+            signal: controller.signal,
+          }),
+          fetch('/api/composio/toolkits?connectedOnly=1&summary=1', {
+            credentials: 'include',
+            cache: 'no-store',
+            signal: controller.signal,
+          }),
+        ]);
+
+        if (cancelled || controller.signal.aborted) {
+          requestedRef.current = false;
+          return;
+        }
+
+        if (mcpResult.status === 'fulfilled') {
+          const mcpResponse = mcpResult.value;
+          const mcpPayload = (await mcpResponse.json().catch(() => ({}))) as {
+            success?: boolean;
+            data?: { servers?: Array<{ name?: string; enabled?: boolean; cachedToolCount?: number }> };
+          };
+          if (mcpResponse.ok && mcpPayload.success && Array.isArray(mcpPayload.data?.servers)) {
+            for (const server of mcpPayload.data.servers) {
+              if (!server.name || !server.enabled) continue;
+              nextConnections.push({
+                id: `mcp:${server.name}`,
+                kind: 'mcp',
+                label: server.name,
+                detail: detailFormattersRef.current.formatMcpDetail(server.cachedToolCount || 0),
+              });
+            }
+          }
+        }
+
+        if (composioResult.status === 'fulfilled') {
+          const composioResponse = composioResult.value;
+          const composioPayload = (await composioResponse.json().catch(() => ({}))) as {
+            toolkits?: Array<{ slug?: string; name?: string; connected?: boolean; toolsCount?: number }>;
+          };
+          if (composioResponse.ok && Array.isArray(composioPayload.toolkits)) {
+            for (const toolkit of composioPayload.toolkits) {
+              if (!toolkit.slug || !toolkit.connected) continue;
+              nextConnections.push({
+                id: `composio:${toolkit.slug}`,
+                kind: 'composio',
+                label: toolkit.name || toolkit.slug,
+                detail: detailFormattersRef.current.formatComposioDetail(toolkit.toolsCount || 0),
+              });
+            }
+          }
+        }
+
+        cachedConnectionOptions = {
+          data: nextConnections,
+          expiresAt: Date.now() + CREATE_AGENT_LAZY_CACHE_TTL_MS,
+        };
+        if (cancelled || controller.signal.aborted) return;
+        setConnections(nextConnections);
+        setStatus('loaded');
+      } catch {
+        if (controller.signal.aborted) {
+          requestedRef.current = false;
+          return;
+        }
+        setConnections([]);
+        setStatus('error');
+      }
+    }
+
+    void loadConnections();
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [shouldLoad]);
+
+  return { connections, status };
+}
+
+function LoadingSkeletonGrid({ rows = 4 }: { rows?: number }) {
+  return (
+    <div className="grid gap-2 sm:grid-cols-2">
+      {Array.from({ length: rows }).map((_, index) => (
+        <div key={index} className="rounded-md border bg-background p-3">
+          <div className="flex items-start gap-3">
+            <Skeleton className="h-5 w-5 shrink-0" />
+            <div className="min-w-0 flex-1 space-y-2">
+              <Skeleton className="h-4 w-2/3" />
+              <Skeleton className="h-3 w-full" />
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+type TemplateListProps = {
+  selectedTemplate: CreateAgentTemplate;
+  onSelectTemplate: (template: CreateAgentTemplate) => void;
+  compact?: boolean;
+};
+
+function TemplateList({ selectedTemplate, onSelectTemplate, compact = false }: TemplateListProps) {
+  const t = useTranslations('settings.agentPanel.createDialog');
+
+  return (
+    <div className="space-y-2">
+      {AGENT_TEMPLATES.map((template) => {
+        const selected = template.id === selectedTemplate.id;
+        return (
+          <button
+            key={template.id}
+            type="button"
+            onClick={() => onSelectTemplate(template)}
+            className={cn(
+              'flex w-full items-center gap-3 rounded-md border text-left transition',
+              compact ? 'p-2.5' : 'p-3',
+              selected ? 'border-primary bg-background shadow-sm' : 'border-transparent hover:border-border hover:bg-background/70',
+            )}
+          >
+            <AgentAvatar iconId={template.iconId} className={compact ? 'h-8 w-8' : 'h-9 w-9'} iconClassName="h-4 w-4" />
+            <span className="min-w-0">
+              <span className="block truncate text-sm font-medium">{t(`templates.${template.id}.name`)}</span>
+              <span className="line-clamp-2 text-xs text-muted-foreground">{t(`templates.${template.id}.description`)}</span>
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+type CreateAgentSectionProps = {
+  title: string;
+  description: string;
+  icon: LucideIcon;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  children: ReactNode;
+};
+
+function CreateAgentSection({
+  title,
+  description,
+  icon: Icon,
+  open,
+  onOpenChange,
+  children,
+}: CreateAgentSectionProps) {
+  return (
+    <section className="overflow-hidden rounded-md border bg-muted/10">
+      <button
+        type="button"
+        onClick={() => onOpenChange(!open)}
+        className="flex w-full items-start justify-between gap-4 px-4 py-3 text-left transition-colors hover:bg-muted/30"
+        aria-expanded={open}
+      >
+        <span className="flex min-w-0 gap-3">
+          <span className="mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border bg-background text-muted-foreground">
+            <Icon className="h-4 w-4" />
+          </span>
+          <span className="min-w-0">
+            <span className="block text-base font-semibold">{title}</span>
+            <span className="line-clamp-2 text-sm text-muted-foreground">{description}</span>
+          </span>
+        </span>
+        <ChevronDown className={cn('mt-1 h-4 w-4 shrink-0 text-muted-foreground transition-transform', open && 'rotate-180')} />
+      </button>
+      {open && (
+        <div className="border-t px-4 py-3">
+          {children}
+        </div>
+      )}
+    </section>
+  );
 }
 
 export function CreateAgentDialog({
@@ -173,18 +469,26 @@ export function CreateAgentDialog({
   const [name, setName] = useState('');
   const [iconId, setIconId] = useState<AgentIconId>('bot');
   const [iconPickerOpen, setIconPickerOpen] = useState(false);
+  const [templatePickerOpen, setTemplatePickerOpen] = useState(false);
   const [fileDrafts, setFileDrafts] = useState<Record<ManagedFileName, string>>(() => mergeFileDrafts(AGENT_TEMPLATES[0]));
   const [activeFile, setActiveFile] = useState<ManagedFileName>('AGENTS.md');
-  const [skills, setSkills] = useState<SkillOption[]>([]);
-  const [skillsLoading, setSkillsLoading] = useState(false);
   const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
-  const [connections, setConnections] = useState<ConnectionOption[]>([]);
-  const [connectionsLoading, setConnectionsLoading] = useState(false);
   const [selectedConnections, setSelectedConnections] = useState<Set<string>>(new Set());
+  const [connectionsOpen, setConnectionsOpen] = useState(false);
+  const [skillsOpen, setSkillsOpen] = useState(false);
+  const [filesOpen, setFilesOpen] = useState(true);
 
   const selectedTemplate = useMemo(
     () => AGENT_TEMPLATES.find((template) => template.id === selectedTemplateId) || AGENT_TEMPLATES[0],
     [selectedTemplateId],
+  );
+  const formatMcpConnectionDetail = useCallback((count: number) => t('connections.mcpDetail', { count }), [t]);
+  const formatComposioConnectionDetail = useCallback((count: number) => t('connections.composioDetail', { count }), [t]);
+  const { skills, status: skillsStatus } = useLazyAgentSkills(open && skillsOpen);
+  const { connections, status: connectionsStatus } = useLazyAgentConnections(
+    open && connectionsOpen,
+    formatMcpConnectionDetail,
+    formatComposioConnectionDetail,
   );
 
   const applyTemplate = useCallback((template: CreateAgentTemplate) => {
@@ -194,11 +498,15 @@ export function CreateAgentDialog({
     setFileDrafts(mergeFileDrafts(template));
     setActiveFile('AGENTS.md');
     setSelectedSkills(template.relevantSkills);
+    setTemplatePickerOpen(false);
   }, [t]);
 
   const resetDialog = useCallback(() => {
     applyTemplate(AGENT_TEMPLATES[0]);
     setSelectedConnections(new Set());
+    setConnectionsOpen(false);
+    setSkillsOpen(false);
+    setFilesOpen(true);
   }, [applyTemplate]);
 
   const handleOpenChange = useCallback((nextOpen: boolean) => {
@@ -208,80 +516,9 @@ export function CreateAgentDialog({
     onOpenChange(nextOpen);
   }, [onOpenChange, resetDialog]);
 
-  useEffect(() => {
-    if (!open) return;
-    let cancelled = false;
-
-    async function loadSkills() {
-      setSkillsLoading(true);
-      try {
-        const response = await fetch('/api/skills', { credentials: 'include', cache: 'no-store' });
-        const payload = (await response.json().catch(() => ({}))) as { success?: boolean; skills?: SkillOption[] };
-        if (!cancelled && response.ok && payload.success && Array.isArray(payload.skills)) {
-          setSkills(payload.skills.filter((skill) => skill.enabled !== false));
-        }
-      } catch {
-        if (!cancelled) setSkills([]);
-      } finally {
-        if (!cancelled) setSkillsLoading(false);
-      }
-    }
-
-    async function loadConnections() {
-      setConnectionsLoading(true);
-      try {
-        const [mcpResponse, composioResponse] = await Promise.all([
-          fetch('/api/integrations/mcp-status', { credentials: 'include', cache: 'no-store' }),
-          fetch('/api/composio/toolkits', { credentials: 'include', cache: 'no-store' }),
-        ]);
-        const nextConnections: ConnectionOption[] = [];
-        const mcpPayload = (await mcpResponse.json().catch(() => ({}))) as {
-          success?: boolean;
-          data?: { servers?: Array<{ name?: string; connected?: boolean; enabled?: boolean; cachedToolCount?: number }> };
-        };
-        if (mcpResponse.ok && mcpPayload.success && Array.isArray(mcpPayload.data?.servers)) {
-          for (const server of mcpPayload.data.servers) {
-            if (!server.name || !server.enabled) continue;
-            nextConnections.push({
-              id: `mcp:${server.name}`,
-              kind: 'mcp',
-              label: server.name,
-              detail: t('connections.mcpDetail', { count: server.cachedToolCount || 0 }),
-            });
-          }
-        }
-
-        const composioPayload = (await composioResponse.json().catch(() => ({}))) as {
-          toolkits?: Array<{ slug?: string; name?: string; connected?: boolean; toolsCount?: number }>;
-        };
-        if (composioResponse.ok && Array.isArray(composioPayload.toolkits)) {
-          for (const toolkit of composioPayload.toolkits) {
-            if (!toolkit.slug || !toolkit.connected) continue;
-            nextConnections.push({
-              id: `composio:${toolkit.slug}`,
-              kind: 'composio',
-              label: toolkit.name || toolkit.slug,
-              detail: t('connections.composioDetail', { count: toolkit.toolsCount || 0 }),
-            });
-          }
-        }
-
-        if (!cancelled) setConnections(nextConnections);
-      } catch {
-        if (!cancelled) setConnections([]);
-      } finally {
-        if (!cancelled) setConnectionsLoading(false);
-      }
-    }
-
-    void loadSkills();
-    void loadConnections();
-    return () => {
-      cancelled = true;
-    };
-  }, [open, t]);
-
-  const enabledSelectedSkills = selectedSkills.filter((skillName) => hasSkill(skills, skillName));
+  const enabledSelectedSkills = skillsStatus === 'loaded'
+    ? selectedSkills.filter((skillName) => hasSkill(skills, skillName))
+    : selectedSkills;
   const canCreate = name.trim().length > 0 && !creating;
 
   async function submit() {
@@ -303,55 +540,59 @@ export function CreateAgentDialog({
   return (
     <>
       <Dialog open={open} onOpenChange={handleOpenChange}>
-        <DialogContent layout="viewport" className="bg-background p-0">
-          <div className="grid min-h-0 flex-1 grid-rows-[auto_minmax(0,1fr)_auto]">
-            <DialogHeader className="border-b px-5 py-4 pr-14">
+        <DialogContent
+          layout="viewport"
+          className="h-[100dvh] bg-background p-0 sm:h-[calc(100dvh-2rem)] md:h-[calc(100dvh-3rem)] lg:h-[calc(100dvh-4rem)]"
+        >
+          <div className="grid h-full min-h-0 flex-1 grid-rows-[auto_minmax(0,1fr)_auto]">
+            <DialogHeader className="shrink-0 border-b px-4 py-3 pr-14 sm:px-5 sm:py-4">
               <DialogTitle>{t('title')}</DialogTitle>
               <DialogDescription>{t('description')}</DialogDescription>
             </DialogHeader>
 
-            <div className="grid min-h-0 grid-cols-1 md:grid-cols-[18rem_minmax(0,1fr)]">
-              <aside className="border-b bg-muted/40 p-3 md:border-b-0 md:border-r">
-                <ScrollArea className="h-52 md:h-full">
+            <div className="grid min-h-0 overflow-hidden md:grid-cols-[17rem_minmax(0,1fr)]">
+              <aside className="hidden min-h-0 border-r bg-muted/35 p-3 md:block">
+                <ScrollArea className="h-full">
                   <div className="space-y-2 pr-2">
-                    {AGENT_TEMPLATES.map((template) => {
-                      const selected = template.id === selectedTemplate.id;
-                      return (
-                        <button
-                          key={template.id}
-                          type="button"
-                          onClick={() => applyTemplate(template)}
-                          className={cn(
-                            'flex w-full items-center gap-3 rounded-md border p-3 text-left transition',
-                            selected ? 'border-primary bg-background shadow-sm' : 'border-transparent hover:border-border hover:bg-background/70',
-                          )}
-                        >
-                          <AgentAvatar iconId={template.iconId} className="h-9 w-9" iconClassName="h-4.5 w-4.5" />
-                          <span className="min-w-0">
-                            <span className="block truncate text-sm font-medium">{t(`templates.${template.id}.name`)}</span>
-                            <span className="line-clamp-2 text-xs text-muted-foreground">{t(`templates.${template.id}.description`)}</span>
-                          </span>
-                        </button>
-                      );
-                    })}
+                    <TemplateList selectedTemplate={selectedTemplate} onSelectTemplate={applyTemplate} />
                   </div>
                 </ScrollArea>
               </aside>
 
-              <ScrollArea className="min-h-0">
-                <div className="mx-auto flex max-w-5xl flex-col gap-5 p-5">
-                  <section className="rounded-md border bg-muted/15 p-4">
-                    <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
+              <ScrollArea className="h-full min-h-0">
+                <div className="mx-auto flex max-w-4xl flex-col gap-4 p-4 sm:gap-5 sm:p-5">
+                  <div className="md:hidden">
+                    <Popover open={templatePickerOpen} onOpenChange={setTemplatePickerOpen}>
+                      <PopoverTrigger asChild>
+                        <Button type="button" variant="outline" className="h-auto w-full justify-between gap-3 px-3 py-2 text-left">
+                          <span className="flex min-w-0 items-center gap-2">
+                            <Menu className="h-4 w-4 shrink-0" />
+                            <span className="min-w-0">
+                              <span className="block truncate text-sm font-medium">{t(`templates.${selectedTemplate.id}.name`)}</span>
+                              <span className="block truncate text-xs text-muted-foreground">{t(`templates.${selectedTemplate.id}.description`)}</span>
+                            </span>
+                          </span>
+                          <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent align="start" className="w-[calc(100vw-2rem)] p-2">
+                        <TemplateList selectedTemplate={selectedTemplate} onSelectTemplate={applyTemplate} compact />
+                      </PopoverContent>
+                    </Popover>
+                  </div>
+
+                  <section className="rounded-md border bg-muted/10 p-3 sm:p-4">
+                    <div className="flex gap-3 sm:items-center sm:gap-4">
                       <button
                         type="button"
                         onClick={() => setIconPickerOpen(true)}
-                        className="group self-start rounded-md focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                        className="group shrink-0 self-start rounded-md focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
                         title={t('changeIcon')}
                       >
                         <AgentAvatar
                           iconId={iconId}
-                          className="h-20 w-20 border-primary/30 bg-background group-hover:bg-muted"
-                          iconClassName="h-10 w-10"
+                          className="h-16 w-16 border-primary/30 bg-background group-hover:bg-muted sm:h-20 sm:w-20"
+                          iconClassName="h-8 w-8 sm:h-10 sm:w-10"
                         />
                       </button>
                       <div className="min-w-0 flex-1 space-y-2">
@@ -369,19 +610,15 @@ export function CreateAgentDialog({
                     </div>
                   </section>
 
-                  <section className="rounded-md border bg-muted/15 p-4">
-                    <div className="mb-3 flex items-center justify-between gap-3">
-                      <div>
-                        <h3 className="text-base font-semibold">{t('connections.title')}</h3>
-                        <p className="text-sm text-muted-foreground">{t('connections.description')}</p>
-                      </div>
-                      <Plug className="h-5 w-5 text-muted-foreground" />
-                    </div>
-                    {connectionsLoading ? (
-                      <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                        {t('connections.loading')}
-                      </div>
+                  <CreateAgentSection
+                    title={t('connections.title')}
+                    description={t('connections.description')}
+                    icon={Plug}
+                    open={connectionsOpen}
+                    onOpenChange={setConnectionsOpen}
+                  >
+                    {connectionsStatus === 'loading' || connectionsStatus === 'idle' ? (
+                      <LoadingSkeletonGrid rows={2} />
                     ) : connections.length === 0 ? (
                       <p className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">{t('connections.empty')}</p>
                     ) : (
@@ -415,21 +652,17 @@ export function CreateAgentDialog({
                         })}
                       </div>
                     )}
-                  </section>
+                  </CreateAgentSection>
 
-                  <section className="rounded-md border bg-muted/15 p-4">
-                    <div className="mb-3 flex items-center justify-between gap-3">
-                      <div>
-                        <h3 className="text-base font-semibold">{t('skills.title')}</h3>
-                        <p className="text-sm text-muted-foreground">{t('skills.description')}</p>
-                      </div>
-                      <Search className="h-5 w-5 text-muted-foreground" />
-                    </div>
-                    {skillsLoading ? (
-                      <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                        {t('skills.loading')}
-                      </div>
+                  <CreateAgentSection
+                    title={t('skills.title')}
+                    description={t('skills.description')}
+                    icon={Search}
+                    open={skillsOpen}
+                    onOpenChange={setSkillsOpen}
+                  >
+                    {skillsStatus === 'loading' || skillsStatus === 'idle' ? (
+                      <LoadingSkeletonGrid rows={4} />
                     ) : skills.length === 0 ? (
                       <p className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">{t('skills.empty')}</p>
                     ) : (
@@ -467,14 +700,16 @@ export function CreateAgentDialog({
                         })}
                       </div>
                     )}
-                  </section>
+                  </CreateAgentSection>
 
-                  <section className="rounded-md border bg-muted/15 p-4">
+                  <CreateAgentSection
+                    title={t('files.title')}
+                    description={t('files.description')}
+                    icon={FileText}
+                    open={filesOpen}
+                    onOpenChange={setFilesOpen}
+                  >
                     <div id="onboarding-settings-managedFiles" className="space-y-3">
-                      <div className="space-y-1">
-                        <h3 className="text-base font-semibold">{t('files.title')}</h3>
-                        <p className="text-sm text-muted-foreground">{t('files.description')}</p>
-                      </div>
                       <AgentManagedFilesEditor
                         isMainAgent={false}
                         files={fileDrafts}
@@ -485,17 +720,17 @@ export function CreateAgentDialog({
                         onDraftChange={(fileName, value) => setFileDrafts((current) => ({ ...current, [fileName]: value }))}
                         visibleFileNames={CREATE_AGENT_FILE_NAMES}
                         showInheritedFiles={false}
-                        editorClassName="h-[300px]"
+                        editorClassName="h-[clamp(220px,34dvh,360px)]"
                       />
                     </div>
-                  </section>
+                  </CreateAgentSection>
 
                   {error && <p className="text-sm text-destructive">{error}</p>}
                 </div>
               </ScrollArea>
             </div>
 
-            <DialogFooter className="border-t px-5 py-4">
+            <DialogFooter className="shrink-0 border-t bg-background/95 px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] sm:px-5 sm:py-4">
               <Button type="button" variant="outline" onClick={() => handleOpenChange(false)} disabled={creating}>
                 {t('cancel')}
               </Button>
