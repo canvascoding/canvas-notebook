@@ -165,6 +165,42 @@ function mergeFileDrafts(template: CreateAgentTemplate): Record<ManagedFileName,
   };
 }
 
+function appendSection(content: string, section: string): string {
+  const trimmedContent = content.trim();
+  const trimmedSection = section.trim();
+  if (!trimmedSection) return trimmedContent;
+  return [trimmedContent, trimmedSection].filter(Boolean).join('\n\n');
+}
+
+function buildConnectionGuidance(connections: ConnectionOption[]): string {
+  if (connections.length === 0) return '';
+
+  const mcpConnections = connections.filter((connection) => connection.kind === 'mcp');
+  const composioConnections = connections.filter((connection) => connection.kind === 'composio');
+  const lines = [
+    '## Prioritized external connections',
+    '',
+    'These connections are relevant for this agent. Their full tool catalogs are not loaded into the prompt; use the gateway tools to discover and call the right action.',
+  ];
+
+  if (mcpConnections.length > 0) {
+    lines.push('', '### MCP servers');
+    for (const connection of mcpConnections) {
+      lines.push(`- ${connection.label}: use the \`mcp\` gateway. If the exact action is unclear, run \`mcp\` with \`search_tools\`, then \`describe_tool\`, then \`call_tool\`.`);
+    }
+  }
+
+  if (composioConnections.length > 0) {
+    lines.push('', '### Composio toolkits');
+    for (const connection of composioConnections) {
+      const toolkit = connection.id.replace(/^composio:/, '');
+      lines.push(`- ${connection.label}: use \`COMPOSIO_SEARCH_TOOLS\`${toolkit ? ` with toolkit filter \`${toolkit}\`` : ''}, then \`COMPOSIO_GET_TOOL_SCHEMAS\`, then \`composio_execute\`.`);
+    }
+  }
+
+  return lines.join('\n');
+}
+
 function hasSkill(skills: SkillOption[], name: string): boolean {
   return skills.some((skill) => skill.name === name);
 }
@@ -523,11 +559,17 @@ export function CreateAgentDialog({
 
   async function submit() {
     if (!canCreate) return;
+    const selectedConnectionOptions = connections.filter((connection) => selectedConnections.has(connection.id));
+    const connectionGuidance = buildConnectionGuidance(selectedConnectionOptions);
+    const submittedFileDrafts = {
+      ...fileDrafts,
+      'TOOLS.md': appendSection(fileDrafts['TOOLS.md'] || '', connectionGuidance),
+    };
     const success = await onCreate({
       name: name.trim(),
       iconId,
       files: Object.fromEntries(
-        CREATE_AGENT_FILE_NAMES.map((fileName) => [fileName, fileDrafts[fileName] || '']),
+        CREATE_AGENT_FILE_NAMES.map((fileName) => [fileName, submittedFileDrafts[fileName] || '']),
       ) as Partial<Record<ManagedFileName, string>>,
       relevantSkills: enabledSelectedSkills,
     });

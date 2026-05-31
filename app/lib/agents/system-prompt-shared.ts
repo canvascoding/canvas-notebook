@@ -1,6 +1,7 @@
 import path from 'node:path';
 
 import { resolveAgentsStorageRoot } from '../runtime-data-paths';
+import { CANVAS_BASE_SYSTEM_PROMPT, CANVAS_BASE_TOOL_GUIDANCE } from './base-system-prompt';
 
 export const MANAGED_PROMPT_FILE_NAMES = ['AGENTS.md', 'USER.md', 'MEMORY.md', 'SOUL.md', 'TOOLS.md', 'HEARTBEAT.md'] as const;
 
@@ -55,7 +56,7 @@ You are currently operating in **Planning Mode**. This mode restricts you to rea
 Acknowledge the request, outline what you would do, then ask the user to **switch back to Standard Mode** (Shift+Tab) so you can execute the changes.`;
 
 const MANAGED_FILES_INTRO =
-  `The following agent-managed files define your runtime behavior, memory, tone, and tool guidance. These files are stored under ${AGENTS_STORAGE_ROOT}/<agent-id> and can be edited when the user asks.`;
+  `The following editable agent-managed files add agent-specific role, memory, tone, and tool preferences. They are stored under ${AGENTS_STORAGE_ROOT}/<agent-id> and can be edited when the user asks.`;
 
 export type ManagedPromptDiagnostics = {
   loadedFiles: ManagedPromptFileName[];
@@ -91,6 +92,7 @@ export function composeManagedAgentSystemPrompt(
   skillsContext?: string,
   source?: ManagedPromptSource,
 ): ManagedSystemPromptResult {
+  const fixedSystemBlocks = [CANVAS_BASE_SYSTEM_PROMPT, CANVAS_BASE_TOOL_GUIDANCE];
   const sections = MANAGED_PROMPT_FILE_NAMES.map((fileName) => {
     const rawContent = files[fileName] ?? '';
     const content = rawContent.trim();
@@ -108,7 +110,7 @@ export function composeManagedAgentSystemPrompt(
     const fileAccessBlock = `\n\n${FILE_ACCESS_GUIDANCE}`;
 
     return {
-      systemPrompt: `${skillsBlock}${fileAccessBlock}`.trim(),
+      systemPrompt: `${fixedSystemBlocks.join('\n\n')}${skillsBlock}${fileAccessBlock}`.trim(),
       diagnostics: {
         loadedFiles: [...MANAGED_PROMPT_FILE_NAMES],
         includedFiles: [],
@@ -130,7 +132,7 @@ export function composeManagedAgentSystemPrompt(
   const fileAccessBlock = `\n\n${FILE_ACCESS_GUIDANCE}`;
 
   return {
-    systemPrompt: [MANAGED_FILES_INTRO, ...sectionBlocks].join('\n\n') + skillsBlock + fileAccessBlock,
+    systemPrompt: [...fixedSystemBlocks, MANAGED_FILES_INTRO, ...sectionBlocks].join('\n\n') + skillsBlock + fileAccessBlock,
     diagnostics: {
       loadedFiles: [...MANAGED_PROMPT_FILE_NAMES],
       includedFiles: includedSections.map((section) => section.fileName),
