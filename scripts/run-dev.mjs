@@ -32,6 +32,12 @@ function parsePort(value) {
   return parsed;
 }
 
+function appendNodeOption(nodeOptions, option) {
+  return nodeOptions.includes(option)
+    ? nodeOptions
+    : [nodeOptions, option].filter(Boolean).join(' ');
+}
+
 function canRewriteLocalUrl(value, expectedPort) {
   try {
     const url = new URL(value);
@@ -100,9 +106,14 @@ async function main() {
 
   const existingNodeOptions = process.env.NODE_OPTIONS || '';
   const maxOldSpaceFlag = '--max-old-space-size=4096';
-  const nodeOptions = existingNodeOptions.includes(maxOldSpaceFlag)
-    ? existingNodeOptions
-    : [existingNodeOptions, maxOldSpaceFlag].filter(Boolean).join(' ');
+  let nodeOptions = appendNodeOption(existingNodeOptions, maxOldSpaceFlag);
+  const nodeMajorVersion = Number.parseInt(process.versions.node.split('.')[0] ?? '0', 10);
+  if (nodeMajorVersion >= 26) {
+    // Tailwind and Sentry still register ESM hooks via Node's deprecated
+    // module.register() API on Node 26. Keep local dev logs focused until
+    // those upstream packages move to module.registerHooks().
+    nodeOptions = appendNodeOption(nodeOptions, '--disable-warning=DEP0205');
+  }
 
   const childEnv = {
     ...process.env,
