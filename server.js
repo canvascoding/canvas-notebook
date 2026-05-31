@@ -544,6 +544,9 @@ async function startServer() {
     console.error('[Startup] ERROR initializing WebSocket Server:', error.message);
     console.error('[Startup] Stack trace:', error.stack);
     isChatWebSocketRequest = () => false;
+    if (process.env.CANVAS_ALLOW_HTTP_WITHOUT_CHAT_WS !== 'true') {
+      throw error;
+    }
   }
 
   installChatUpgradeGuard(server);
