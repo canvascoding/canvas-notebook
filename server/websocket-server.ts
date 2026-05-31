@@ -105,8 +105,92 @@ type ServerMessage =
     }
   | { type: 'error'; error: string; code: string };
 
+const QUIET_SERVER_MESSAGE_TYPES = new Set(['agent_event']);
+
+function getHeaderValue(headers: IncomingMessage['headers'], name: string): string | undefined {
+  const value = headers[name.toLowerCase()];
+  if (Array.isArray(value)) return value.join(', ');
+  return value;
+}
+
+function truncateForLog(value: string | undefined, maxLength = 120): string | undefined {
+  if (!value) return undefined;
+  return value.length > maxLength ? `${value.slice(0, maxLength)}...` : value;
+}
+
+function summarizeUpgradeRequest(request: IncomingMessage): Record<string, unknown> {
+  const forwardedFor = getHeaderValue(request.headers, 'x-forwarded-for');
+  return {
+    url: request.url,
+    origin: getHeaderValue(request.headers, 'origin'),
+    remoteAddress: forwardedFor?.split(',')[0]?.trim() || request.socket.remoteAddress,
+    userAgent: truncateForLog(getHeaderValue(request.headers, 'user-agent')),
+  };
+}
+
+function summarizeClientMessage(message: ClientMessage | { type?: unknown }): Record<string, unknown> {
+  const input = message as {
+    type?: unknown;
+    requestId?: unknown;
+    sessionId?: unknown;
+    action?: unknown;
+    queueItemId?: unknown;
+    message?: { role?: unknown; content?: unknown };
+    context?: ChatRequestContext;
+  };
+  const summary: Record<string, unknown> = {
+    type: input.type,
+  };
+
+  if (typeof input.requestId === 'string') summary.requestId = input.requestId;
+  if (typeof input.sessionId === 'string') summary.sessionId = input.sessionId;
+  if (typeof input.action === 'string') summary.action = input.action;
+  if (typeof input.queueItemId === 'string') summary.queueItemId = input.queueItemId;
+  if (input.message) {
+    summary.messageRole = input.message.role;
+    summary.contentKind = Array.isArray(input.message.content) ? 'parts' : typeof input.message.content;
+  }
+  if (input.context) {
+    summary.contextPage = input.context.currentPage;
+    summary.contextChannel = input.context.channelId;
+    summary.hasStudioContext = Boolean(input.context.studioContext);
+  }
+
+  return summary;
+}
+
+function summarizeServerMessage(message: ServerMessage): Record<string, unknown> {
+  const output = message as {
+    type?: unknown;
+    requestId?: unknown;
+    sessionId?: unknown;
+    success?: unknown;
+    error?: unknown;
+    code?: unknown;
+    notificationType?: unknown;
+  };
+  const summary: Record<string, unknown> = {
+    type: output.type,
+  };
+
+  if (typeof output.requestId === 'string') summary.requestId = output.requestId;
+  if (typeof output.sessionId === 'string') summary.sessionId = output.sessionId;
+  if (typeof output.success === 'boolean') summary.success = output.success;
+  if (typeof output.error === 'string') summary.error = output.error;
+  if (typeof output.code === 'string') summary.code = output.code;
+  if (typeof output.notificationType === 'string') summary.notificationType = output.notificationType;
+
+  return summary;
+}
+
 /** Type-safe helper: serialise and send a ServerMessage over a WebSocket. */
 function sendWs(ws: WebSocket, msg: ServerMessage): void {
+  if (!QUIET_SERVER_MESSAGE_TYPES.has(msg.type)) {
+    console.log('[WebSocket] server_send', {
+      connectionId: connections.get(ws)?.id ?? 'preauth',
+      ...summarizeServerMessage(msg),
+    });
+  }
   ws.send(JSON.stringify(msg));
 }
 
@@ -140,16 +224,20 @@ function subscribeConnectionToSession(connection: WebSocketConnection, sessionId
 
 // Connection State
 interface WebSocketConnection {
+  id: string;
   ws: WebSocket;
   userId: string;
   sessionId?: string;
   isAlive: boolean;
   lastActivity: number;
+  connectedAt: number;
 }
 
 const connections = new Map<WebSocket, WebSocketConnection>();
 const HEARTBEAT_INTERVAL = 30000; // 30 seconds
 const CHAT_WEBSOCKET_PATH = '/ws/chat';
+const LOG_HEARTBEAT_SUCCESS = process.env.WS_HEARTBEAT_LOGS === '1';
+let nextConnectionId = 1;
 
 function normalizeChatWebSocketPath(requestUrl?: string): string | null {
   const [requestPath, query = ''] = (requestUrl || '').split('?', 2);
@@ -208,7 +296,12 @@ export function createWebSocketServer(server: http.Server): WebSocketServer {
  * Handle new WebSocket connection
  */
 async function handleConnection(ws: WebSocket, request: IncomingMessage): Promise<void> {
-  console.log('[WebSocket] New connection');
+  const connectionId = `chat-${nextConnectionId++}-${Date.now().toString(36)}`;
+  const connectedAt = Date.now();
+  console.log('[WebSocket] upgrade_accepted', {
+    connectionId,
+    ...summarizeUpgradeRequest(request),
+  });
 
   // Buffer messages that arrive before authentication completes.
   // The message listener must be registered synchronously (before the async auth await)
@@ -216,13 +309,65 @@ async function handleConnection(ws: WebSocket, request: IncomingMessage): Promis
   // are not silently dropped by the Node.js EventEmitter.
   const pendingMessages: Buffer[] = [];
   let connection: WebSocketConnection | null = null;
+  let cleanupDone = false;
+
+  const cleanupConnection = (source: 'close' | 'error', details: Record<string, unknown> = {}) => {
+    if (cleanupDone) return;
+    cleanupDone = true;
+
+    if (connection) {
+      console.log('[WebSocket] cleanup_connection', {
+        connectionId,
+        source,
+        userId: connection.userId,
+        sessionId: connection.sessionId,
+        uptimeMs: Date.now() - connection.connectedAt,
+        ...details,
+      });
+      handleDisconnect(connection);
+      return;
+    }
+
+    console.log('[WebSocket] cleanup_preauth_connection', {
+      connectionId,
+      source,
+      uptimeMs: Date.now() - connectedAt,
+      bufferedMessages: pendingMessages.length,
+      ...details,
+    });
+  };
 
   const dispatchMessage = (data: Buffer) => {
+    if (!connection) {
+      console.warn('[WebSocket] dispatch skipped without authenticated connection', {
+        connectionId,
+        bytes: data.length,
+      });
+      return;
+    }
+
     try {
       const message = JSON.parse(data.toString()) as ClientMessage;
-      handleMessage(connection!, message);
+      console.log('[WebSocket] server_receive', {
+        connectionId,
+        userId: connection.userId,
+        ...summarizeClientMessage(message),
+      });
+      void handleMessage(connection, message).catch((error) => {
+        console.error('[WebSocket] handleMessage failed', {
+          connectionId,
+          userId: connection?.userId,
+          message: summarizeClientMessage(message),
+          error,
+        });
+        sendWs(ws, { type: 'error', error: getErrorMessage(error), code: 'MESSAGE_HANDLER_ERROR' });
+      });
     } catch (error) {
-      console.error('[WebSocket] Error parsing message:', error);
+      console.error('[WebSocket] Error parsing message:', {
+        connectionId,
+        bytes: data.length,
+        error,
+      });
       sendWs(ws, { type: 'error', error: 'Invalid message format', code: 'INVALID_MESSAGE' });
     }
   };
@@ -231,36 +376,73 @@ async function handleConnection(ws: WebSocket, request: IncomingMessage): Promis
     if (!connection) {
       // Auth not yet complete — buffer the message
       pendingMessages.push(data);
+      console.log('[WebSocket] buffered_pre_auth_message', {
+        connectionId,
+        bufferedMessages: pendingMessages.length,
+        bytes: data.length,
+      });
       return;
     }
     dispatchMessage(data);
   });
 
+  ws.on('close', (code: number, reason: Buffer) => {
+    cleanupConnection('close', {
+      code,
+      reason: reason.toString() || '(empty)',
+    });
+  });
+
+  ws.on('error', (error) => {
+    console.error('[WebSocket] socket_error', {
+      connectionId,
+      error,
+    });
+    cleanupConnection('error');
+  });
+
   // Authenticate connection
+  console.log('[WebSocket] auth_start', {
+    connectionId,
+    bufferedMessages: pendingMessages.length,
+  });
   const authResult = await authenticateWebSocketConnection(request.headers);
 
   if (!authResult.isAuthenticated) {
-    console.error('[WebSocket] Authentication failed:', authResult.error);
+    console.error('[WebSocket] auth_failed', {
+      connectionId,
+      error: authResult.error,
+      bufferedMessages: pendingMessages.length,
+    });
     sendWs(ws, { type: 'auth_error', error: authResult.error || 'Authentication failed' });
     ws.close(4001, 'Unauthorized');
     return;
   }
 
   if (!(await isLicensedForRuntime())) {
-    console.warn('[WebSocket] License activation required. Closing connection.');
+    console.warn('[WebSocket] auth_rejected_license_required', {
+      connectionId,
+      userId: authResult.userId,
+    });
     sendWs(ws, { type: 'auth_error', error: 'License activation required' });
     ws.close(4003, 'License activation required');
     return;
   }
 
-  console.log('[WebSocket] Authenticated user:', authResult.userId);
+  console.log('[WebSocket] auth_success', {
+    connectionId,
+    userId: authResult.userId,
+    bufferedMessages: pendingMessages.length,
+  });
 
   // Create connection state
   connection = {
+    id: connectionId,
     ws,
     userId: authResult.userId!,
     isAlive: true,
     lastActivity: Date.now(),
+    connectedAt,
   };
 
   connections.set(ws, connection);
@@ -280,18 +462,14 @@ async function handleConnection(ws: WebSocket, request: IncomingMessage): Promis
   // Handle pong (heartbeat response)
   ws.on('pong', () => {
     connection!.isAlive = true;
-  });
-
-  // Handle disconnect
-  ws.on('close', (code: number, reason: Buffer) => {
-    console.log(`[WebSocket] Connection closed: code=${code} reason=${reason.toString() || '(empty)'}`);
-    handleDisconnect(connection!);
-  });
-
-  // Handle errors
-  ws.on('error', (error) => {
-    console.error('[WebSocket] Error:', error);
-    handleDisconnect(connection!);
+    connection!.lastActivity = Date.now();
+    if (LOG_HEARTBEAT_SUCCESS) {
+      console.log('[WebSocket] heartbeat_pong', {
+        connectionId,
+        userId: connection!.userId,
+        sessionId: connection!.sessionId,
+      });
+    }
   });
 }
 
@@ -306,19 +484,35 @@ async function handleMessage(connection: WebSocketConnection, message: ClientMes
       {
         const rl = checkWsRateLimit('subscribe_session', userId);
         if (!rl.ok) {
+          console.warn('[WebSocket] subscribe rate_limited', {
+            connectionId: connection.id,
+            userId,
+            requestId: message.requestId,
+            sessionId: message.sessionId,
+          });
           sendWs(ws, { type: 'subscribe_result', requestId: message.requestId, success: false, error: 'Rate limit exceeded' });
           return;
         }
       }
 
       if (!message.sessionId) {
+        console.warn('[WebSocket] subscribe rejected missing_session', {
+          connectionId: connection.id,
+          userId,
+          requestId: message.requestId,
+        });
         sendWs(ws, { type: 'error', error: 'sessionId required', code: 'MISSING_SESSION_ID' });
         sendWs(ws, { type: 'subscribe_result', requestId: message.requestId, success: false, error: 'sessionId required' });
         return;
       }
 
       if (!(await userOwnsSession(message.sessionId, userId))) {
-        console.warn(`[WebSocket] User ${userId} attempted to subscribe to unauthorized session ${message.sessionId}`);
+        console.warn('[WebSocket] subscribe rejected unauthorized', {
+          connectionId: connection.id,
+          userId,
+          requestId: message.requestId,
+          sessionId: message.sessionId,
+        });
         sendWs(ws, { type: 'error', error: 'Session not found', code: 'UNAUTHORIZED' });
         sendWs(ws, { type: 'subscribe_result', requestId: message.requestId, success: false, error: 'Session not found' });
         return;
@@ -326,9 +520,13 @@ async function handleMessage(connection: WebSocketConnection, message: ClientMes
 
       const isNew = subscribeConnectionToSession(connection, message.sessionId);
 
-      if (isNew) {
-        console.log(`[WebSocket] User ${userId} subscribed to session ${message.sessionId}`);
-      }
+      console.log('[WebSocket] subscribe completed', {
+        connectionId: connection.id,
+        userId,
+        requestId: message.requestId,
+        sessionId: message.sessionId,
+        isNew,
+      });
       sendWs(ws, {
         type: 'subscribe_result',
         requestId: message.requestId,
@@ -344,7 +542,11 @@ async function handleMessage(connection: WebSocketConnection, message: ClientMes
         if (connection.sessionId === message.sessionId) {
           connection.sessionId = undefined;
         }
-        console.log(`[WebSocket] User ${userId} unsubscribed from session ${message.sessionId}`);
+        console.log('[WebSocket] unsubscribe completed', {
+          connectionId: connection.id,
+          userId,
+          sessionId: message.sessionId,
+        });
       }
       break;
     }
@@ -353,12 +555,24 @@ async function handleMessage(connection: WebSocketConnection, message: ClientMes
       {
         const rl = checkWsRateLimit('send_message', userId);
         if (!rl.ok) {
+          console.warn('[WebSocket] send_message rate_limited', {
+            connectionId: connection.id,
+            userId,
+            requestId: message.requestId,
+            sessionId: message.sessionId,
+          });
           sendWs(ws, { type: 'send_message_result', requestId: message.requestId, success: false, error: 'Rate limit exceeded' });
           return;
         }
       }
 
       if (!message.sessionId || !message.message) {
+        console.warn('[WebSocket] send_message rejected missing_params', {
+          connectionId: connection.id,
+          userId,
+          requestId: message.requestId,
+          sessionId: message.sessionId,
+        });
         sendWs(ws, { type: 'error', error: 'sessionId and message required', code: 'MISSING_PARAMS' });
         sendWs(ws, { type: 'send_message_result', requestId: message.requestId, success: false, error: 'sessionId and message required' });
         return;
@@ -366,6 +580,12 @@ async function handleMessage(connection: WebSocketConnection, message: ClientMes
 
       const runtimeService = await getRuntimeService();
       if (!runtimeService.isValidUserMessage(message.message)) {
+        console.warn('[WebSocket] send_message rejected invalid_role', {
+          connectionId: connection.id,
+          userId,
+          requestId: message.requestId,
+          sessionId: message.sessionId,
+        });
         sendWs(ws, { type: 'error', error: 'Message role must be "user"', code: 'INVALID_ROLE' });
         sendWs(ws, { type: 'send_message_result', requestId: message.requestId, success: false, error: 'Message role must be "user"' });
         return;
@@ -375,7 +595,12 @@ async function handleMessage(connection: WebSocketConnection, message: ClientMes
       // Non-existent sessions are allowed (new-session create flow).
       const existingSessionOwner = await findSessionOwner(message.sessionId);
       if (existingSessionOwner && existingSessionOwner !== userId) {
-        console.warn(`[WebSocket] User ${userId} attempted to send to unauthorized session ${message.sessionId}`);
+        console.warn('[WebSocket] send_message rejected unauthorized', {
+          connectionId: connection.id,
+          userId,
+          requestId: message.requestId,
+          sessionId: message.sessionId,
+        });
         sendWs(ws, { type: 'error', error: 'Session not found', code: 'UNAUTHORIZED' });
         sendWs(ws, { type: 'send_message_result', requestId: message.requestId, success: false, error: 'Session not found' });
         return;
@@ -385,9 +610,18 @@ async function handleMessage(connection: WebSocketConnection, message: ClientMes
 
       // Subscribe before starting the runtime so early runtime events cannot race
       // ahead of this connection's session subscription.
-      subscribeConnectionToSession(connection, message.sessionId);
+      const subscribed = subscribeConnectionToSession(connection, message.sessionId);
 
       try {
+        console.log('[WebSocket] send_message starting_runtime', {
+          connectionId: connection.id,
+          userId,
+          requestId: message.requestId,
+          sessionId: message.sessionId,
+          subscribed,
+          contextPage: context?.currentPage,
+          contextChannel: context?.channelId,
+        });
         const status = await handleInboundChannelMessage({
           channelId: WEB_CHANNEL_ID,
           channelSessionKey: webChannelSessionKey(userId),
@@ -397,7 +631,15 @@ async function handleMessage(connection: WebSocketConnection, message: ClientMes
           contentParts: Array.isArray(message.message.content) ? message.message.content : undefined,
           metadata: { displayName: 'Web Chat' },
         }, context);
-        console.log(`[WebSocket] Message sent to session ${message.sessionId} via PI Runtime with context:`, context);
+        console.log('[WebSocket] send_message runtime_started', {
+          connectionId: connection.id,
+          userId,
+          requestId: message.requestId,
+          sessionId: message.sessionId,
+          resolvedSessionId: status.sessionId,
+          phase: status.status.phase,
+          canAbort: status.status.canAbort,
+        });
         sendWs(ws, {
           type: 'send_message_result',
           requestId: message.requestId,
@@ -405,7 +647,13 @@ async function handleMessage(connection: WebSocketConnection, message: ClientMes
           status: status.status,
         });
       } catch (error) {
-        console.error('[WebSocket] Error sending message:', error);
+        console.error('[WebSocket] send_message failed', {
+          connectionId: connection.id,
+          userId,
+          requestId: message.requestId,
+          sessionId: message.sessionId,
+          error,
+        });
         const errorMessage = getErrorMessage(error);
         sendWs(ws, {
           type: 'error',
@@ -426,25 +674,62 @@ async function handleMessage(connection: WebSocketConnection, message: ClientMes
       {
         const rl = checkWsRateLimit('control', userId);
         if (!rl.ok) {
+          console.warn('[WebSocket] control rate_limited', {
+            connectionId: connection.id,
+            userId,
+            requestId: message.requestId,
+            sessionId: message.sessionId,
+            action: message.action,
+          });
           sendWs(ws, { type: 'control_result', requestId: message.requestId, success: false, error: 'Rate limit exceeded' });
           return;
         }
       }
 
       if (!message.sessionId || !message.action) {
+        console.warn('[WebSocket] control rejected missing_params', {
+          connectionId: connection.id,
+          userId,
+          requestId: message.requestId,
+          sessionId: message.sessionId,
+          action: message.action,
+        });
         sendWs(ws, { type: 'control_result', requestId: message.requestId, success: false, error: 'sessionId and action required' });
         return;
       }
 
       if (!(await userOwnsSession(message.sessionId, userId))) {
-        console.warn(`[WebSocket] User ${userId} attempted to control unauthorized session ${message.sessionId}`);
+        console.warn('[WebSocket] control rejected unauthorized', {
+          connectionId: connection.id,
+          userId,
+          requestId: message.requestId,
+          sessionId: message.sessionId,
+          action: message.action,
+        });
         sendWs(ws, { type: 'control_result', requestId: message.requestId, success: false, error: 'Session not found' });
         return;
       }
 
       try {
+        console.log('[WebSocket] control starting', {
+          connectionId: connection.id,
+          userId,
+          requestId: message.requestId,
+          sessionId: message.sessionId,
+          action: message.action,
+          queueItemId: message.queueItemId,
+        });
         const runtimeService = await getRuntimeService();
         const status = await runtimeService.control(message.sessionId, userId, message.action, message.message, message.queueItemId);
+        console.log('[WebSocket] control completed', {
+          connectionId: connection.id,
+          userId,
+          requestId: message.requestId,
+          sessionId: message.sessionId,
+          action: message.action,
+          phase: status.phase,
+          canAbort: status.canAbort,
+        });
         sendWs(ws, {
           type: 'control_result',
           requestId: message.requestId,
@@ -452,6 +737,14 @@ async function handleMessage(connection: WebSocketConnection, message: ClientMes
           status,
         });
       } catch (error) {
+        console.error('[WebSocket] control failed', {
+          connectionId: connection.id,
+          userId,
+          requestId: message.requestId,
+          sessionId: message.sessionId,
+          action: message.action,
+          error,
+        });
         sendWs(ws, {
           type: 'control_result',
           requestId: message.requestId,
@@ -464,21 +757,44 @@ async function handleMessage(connection: WebSocketConnection, message: ClientMes
 
     case 'change_model': {
       if (!message.sessionId) {
+        console.warn('[WebSocket] change_model rejected missing_session', {
+          connectionId: connection.id,
+          userId,
+          requestId: message.requestId,
+        });
         sendWs(ws, { type: 'change_model_result', requestId: message.requestId, success: false, error: 'sessionId required' });
         return;
       }
 
       if (!(await userOwnsSession(message.sessionId, userId))) {
-        console.warn(`[WebSocket] User ${userId} attempted to change model for unauthorized session ${message.sessionId}`);
+        console.warn('[WebSocket] change_model rejected unauthorized', {
+          connectionId: connection.id,
+          userId,
+          requestId: message.requestId,
+          sessionId: message.sessionId,
+        });
         sendWs(ws, { type: 'change_model_result', requestId: message.requestId, success: false, error: 'Session not found' });
         return;
       }
 
       try {
+        console.log('[WebSocket] change_model invalidating_runtime', {
+          connectionId: connection.id,
+          userId,
+          requestId: message.requestId,
+          sessionId: message.sessionId,
+        });
         const runtimeService = await getRuntimeService();
         await runtimeService.invalidateRuntime(message.sessionId, userId);
         sendWs(ws, { type: 'change_model_result', requestId: message.requestId, success: true });
       } catch (error) {
+        console.error('[WebSocket] change_model failed', {
+          connectionId: connection.id,
+          userId,
+          requestId: message.requestId,
+          sessionId: message.sessionId,
+          error,
+        });
         sendWs(ws, {
           type: 'change_model_result',
           requestId: message.requestId,
@@ -493,17 +809,34 @@ async function handleMessage(connection: WebSocketConnection, message: ClientMes
       {
         const rl = checkWsRateLimit('get_status', userId);
         if (!rl.ok) {
+          console.warn('[WebSocket] get_status rate_limited', {
+            connectionId: connection.id,
+            userId,
+            requestId: message.requestId,
+            sessionId: message.sessionId,
+          });
           sendWs(ws, { type: 'status_result', requestId: message.requestId, success: false, error: 'Rate limit exceeded' });
           return;
         }
       }
 
       if (!message.sessionId) {
+        console.warn('[WebSocket] get_status rejected missing_session', {
+          connectionId: connection.id,
+          userId,
+          requestId: message.requestId,
+        });
         sendWs(ws, { type: 'status_result', requestId: message.requestId, success: false, error: 'sessionId required' });
         return;
       }
 
       if (!(await userOwnsSession(message.sessionId, userId))) {
+        console.warn('[WebSocket] get_status rejected unauthorized', {
+          connectionId: connection.id,
+          userId,
+          requestId: message.requestId,
+          sessionId: message.sessionId,
+        });
         sendWs(ws, { type: 'status_result', requestId: message.requestId, success: false, error: 'Session not found' });
         return;
       }
@@ -512,10 +845,24 @@ async function handleMessage(connection: WebSocketConnection, message: ClientMes
         const runtimeService = await getRuntimeService();
         const status = await runtimeService.getStatus(message.sessionId, userId);
         if (!status) {
+          console.warn('[WebSocket] get_status runtime_missing', {
+            connectionId: connection.id,
+            userId,
+            requestId: message.requestId,
+            sessionId: message.sessionId,
+          });
           sendWs(ws, { type: 'status_result', requestId: message.requestId, success: false, error: 'Session not found' });
           return;
         }
 
+        console.log('[WebSocket] get_status completed', {
+          connectionId: connection.id,
+          userId,
+          requestId: message.requestId,
+          sessionId: message.sessionId,
+          phase: status.phase,
+          canAbort: status.canAbort,
+        });
         sendWs(ws, {
           type: 'status_result',
           requestId: message.requestId,
@@ -523,6 +870,13 @@ async function handleMessage(connection: WebSocketConnection, message: ClientMes
           status,
         });
       } catch (error) {
+        console.error('[WebSocket] get_status failed', {
+          connectionId: connection.id,
+          userId,
+          requestId: message.requestId,
+          sessionId: message.sessionId,
+          error,
+        });
         sendWs(ws, {
           type: 'status_result',
           requestId: message.requestId,
@@ -536,7 +890,11 @@ async function handleMessage(connection: WebSocketConnection, message: ClientMes
     default: {
       // Defensive: message.type is 'never' here — guard for unknown messages from clients
       const unknownType = String((message as { type: unknown }).type);
-      console.warn('[WebSocket] Unknown message type:', unknownType);
+      console.warn('[WebSocket] unknown message type', {
+        connectionId: connection.id,
+        userId,
+        type: unknownType,
+      });
       sendWs(ws, { type: 'error', error: `Unknown message type: ${unknownType}`, code: 'UNKNOWN_MESSAGE_TYPE' });
       break;
     }
@@ -550,7 +908,16 @@ async function handleMessage(connection: WebSocketConnection, message: ClientMes
  * Handle WebSocket disconnect
  */
 function handleDisconnect(connection: WebSocketConnection): void {
-  const { ws, userId, sessionId } = connection;
+  const { id, ws, userId, sessionId } = connection;
+
+  if (!connections.has(ws)) {
+    console.log('[WebSocket] disconnect cleanup skipped already removed', {
+      connectionId: id,
+      userId,
+      sessionId,
+    });
+    return;
+  }
 
   if (sessionId) {
     unsubscribeFromSession(sessionId, ws);
@@ -562,6 +929,14 @@ function handleDisconnect(connection: WebSocketConnection): void {
   // Clean up user connections
   const allRemainingUserConnections = Array.from(connections.values())
     .filter(c => c.userId === userId);
+
+  console.log('[WebSocket] disconnect cleanup complete', {
+    connectionId: id,
+    userId,
+    sessionId,
+    remainingUserConnections: allRemainingUserConnections.length,
+    trackedConnections: connections.size,
+  });
 
   if (allRemainingUserConnections.length === 0) {
     console.log(`[WebSocket] User ${userId} has no more connections`);
@@ -586,13 +961,25 @@ function startHeartbeat(wss: WebSocketServer): void {
       }
 
       if (!connection.isAlive) {
-        console.log('[WebSocket] Terminating stale connection');
+        console.log('[WebSocket] heartbeat stale terminating connection', {
+          connectionId: connection.id,
+          userId: connection.userId,
+          sessionId: connection.sessionId,
+          idleMs: Date.now() - connection.lastActivity,
+        });
         ws.terminate();
         handleDisconnect(connection);
         return;
       }
 
       connection.isAlive = false;
+      if (LOG_HEARTBEAT_SUCCESS) {
+        console.log('[WebSocket] heartbeat_ping', {
+          connectionId: connection.id,
+          userId: connection.userId,
+          sessionId: connection.sessionId,
+        });
+      }
       ws.ping();
     });
   }, HEARTBEAT_INTERVAL);
