@@ -22,6 +22,7 @@ import { preparePiHistoryContext } from '@/app/lib/pi/session-summary';
 import { loadPiSessionWithSummary, savePiSession } from '@/app/lib/pi/session-store';
 import { getPiTools } from '@/app/lib/pi/tool-registry';
 import { filterToolsForPlanningMode } from '@/app/lib/pi/planning-mode';
+import { getChannelSystemPromptBlock } from '@/app/lib/agents/channel-system-prompt';
 import { PLANNING_MODE_GUIDANCE } from '@/app/lib/agents/system-prompt-shared';
 import { STUDIO_SYSTEM_PROMPT_BLOCK } from '@/app/lib/agents/studio-prompt-block';
 import { persistPiUsageEvents } from '@/app/lib/pi/usage-events';
@@ -108,6 +109,7 @@ export type RuntimeErrorEvent = {
 
 export type PiRuntimeStreamEvent = AgentEvent | RuntimeStatusEvent | ContextCompactedEvent | RuntimeErrorEvent;
 export type PiRuntimePromptContext = {
+  channelId?: string;
   activeFilePath?: string | null;
   userTimeZone?: string;
   currentTime?: string;
@@ -228,6 +230,7 @@ function toPercent(used: number, available: number): number {
 }
 
 type PiRuntimePromptDispatchTarget = {
+  setChannelContext: (channelId: string | undefined) => void;
   setTimeZoneContext: (timeZone: string, currentTime: string) => void;
   setActiveFileContext: (path: string | null) => void;
   setPlanningMode: (enabled: boolean) => void;
@@ -241,6 +244,8 @@ function applyPiRuntimePromptContext(
   runtime: PiRuntimePromptDispatchTarget,
   context?: PiRuntimePromptContext,
 ) {
+  runtime.setChannelContext(context?.channelId);
+
   if (context?.userTimeZone && context.currentTime) {
     runtime.setTimeZoneContext(context.userTimeZone, context.currentTime);
   }
@@ -275,6 +280,7 @@ class LivePiRuntime {
   private lastCompactionAt: Date | null;
   private lastCompactionKind: 'manual' | 'automatic' | null;
   private lastCompactionOmittedCount: number;
+  private channelId: string | null = null;
   private timeZoneContext: { timeZone: string; currentTime: string } | null = null;
   private activeFileContext: string | null = null;
   private planningMode = false;
@@ -328,7 +334,7 @@ class LivePiRuntime {
       this.lastComposition = composePiHistoryForLlm({
         messages: this.agent.state.messages,
         summary: this.summary,
-        systemPromptTokens: estimateTextTokens(this.systemPrompt),
+        systemPromptTokens: estimateTextTokens(this.getEffectiveSystemPrompt()),
         contextWindow: this.model.contextWindow,
         modelMaxTokens: this.model.maxTokens,
         toolCount: this.tools.length,
@@ -483,7 +489,7 @@ class LivePiRuntime {
     const result = await preparePiHistoryContext({
       messages: this.agent.state.messages,
       summary: this.summary,
-      systemPromptTokens: estimateTextTokens(this.systemPrompt),
+      systemPromptTokens: estimateTextTokens(this.getEffectiveSystemPrompt()),
       model: this.model,
       toolCount: this.tools.length,
       sessionId: this.sessionId,
@@ -493,7 +499,7 @@ class LivePiRuntime {
       this.lastComposition = composePiHistoryForLlm({
         messages: this.agent.state.messages,
         summary: this.summary,
-        systemPromptTokens: estimateTextTokens(this.systemPrompt),
+        systemPromptTokens: estimateTextTokens(this.getEffectiveSystemPrompt()),
         contextWindow: this.model.contextWindow,
         modelMaxTokens: this.model.maxTokens,
         toolCount: this.tools.length,
@@ -526,7 +532,7 @@ class LivePiRuntime {
       this.lastComposition = composePiHistoryForLlm({
         messages: this.agent.state.messages,
         summary: this.summary,
-        systemPromptTokens: estimateTextTokens(this.systemPrompt),
+        systemPromptTokens: estimateTextTokens(this.getEffectiveSystemPrompt()),
         contextWindow: this.model.contextWindow,
         modelMaxTokens: this.model.maxTokens,
         toolCount: this.tools.length,
@@ -536,6 +542,16 @@ class LivePiRuntime {
     this.touch();
     this.publishStatus();
     return this.getStatus();
+  }
+
+  setChannelContext(channelId: string | undefined) {
+    const nextChannelId = channelId?.trim().toLowerCase() || null;
+    if (this.channelId === nextChannelId) {
+      return;
+    }
+
+    this.channelId = nextChannelId;
+    this.lastComposition = null;
   }
 
   setTimeZoneContext(timeZone: string, currentTime: string) {
@@ -562,6 +578,15 @@ class LivePiRuntime {
     this.tools = await getPiTools(this.userId, this.agentId);
     this.lastComposition = null;
     this.agent.state.tools = this.planningMode ? filterToolsForPlanningMode(this.tools) : this.tools;
+  }
+
+  private getEffectiveSystemPrompt(): string {
+    const channelBlock = getChannelSystemPromptBlock(this.channelId);
+    if (!channelBlock || this.systemPrompt.includes(channelBlock)) {
+      return this.systemPrompt;
+    }
+
+    return `${this.systemPrompt}\n\n${channelBlock}`;
   }
 
   private getStudioContextBlock(): string | null {
@@ -710,8 +735,9 @@ class LivePiRuntime {
     this.isRunning = true;
     this.publishStatus();
 
-    if (this.agent.state.systemPrompt !== this.systemPrompt) {
-      this.agent.state.systemPrompt = this.systemPrompt;
+    const effectiveSystemPrompt = this.getEffectiveSystemPrompt();
+    if (this.agent.state.systemPrompt !== effectiveSystemPrompt) {
+      this.agent.state.systemPrompt = effectiveSystemPrompt;
     }
 
     // Apply planning mode tool filter
@@ -770,7 +796,7 @@ class LivePiRuntime {
     const result = await preparePiHistoryContext({
       messages,
       summary: this.summary,
-      systemPromptTokens: estimateTextTokens(this.systemPrompt),
+      systemPromptTokens: estimateTextTokens(this.getEffectiveSystemPrompt()),
       model: this.model,
       toolCount: this.tools.length,
       sessionId: this.sessionId,

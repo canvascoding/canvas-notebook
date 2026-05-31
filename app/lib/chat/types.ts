@@ -3,6 +3,7 @@
  * Used by both the temporary HTTP compatibility routes and the WebSocket runtime protocol.
  */
 export interface ChatRequestContext {
+  channelId?: string;
   userTimeZone?: string;
   currentTime?: string;
   activeFilePath?: string | null;
