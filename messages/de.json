@@ -1253,6 +1253,18 @@
             "description": "Diagnostiziert Probleme und formuliert klare Lösungen."
           }
         },
+        "model": {
+          "title": "KI-Modell",
+          "description": "Nutze ein eigenes Modell, statt das Canvas-Agent-Modell zu erben.",
+          "loading": "Lade Modelloptionen...",
+          "loadError": "Modelloptionen konnten nicht geladen werden.",
+          "empty": "Keine konfigurierbaren Modell-Provider gefunden.",
+          "providerLabel": "Provider",
+          "modelLabel": "Modell",
+          "thinkingLabel": "Denkstufe",
+          "hint": "Zugangsdaten und Provider-Setup bleiben global; hier wird nur der initiale Modell-Override des Agenten gesetzt.",
+          "retry": "Erneut laden"
+        },
         "tools": {
           "title": "Tools",
           "description": "Nutze ein eigenes Tool-Set, statt die Canvas-Agent-Tools zu erben.",

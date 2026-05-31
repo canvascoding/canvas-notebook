@@ -1,13 +1,19 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { ChevronDown, FileText, Loader2, Menu, Plug, Search, Sparkles, Wrench, type LucideIcon } from 'lucide-react';
+import { Brain, ChevronDown, FileText, Loader2, Menu, Plug, Search, Sparkles, Wrench, type LucideIcon } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 
 import { AgentAvatar } from '@/app/components/agents/AgentAvatar';
 import { AgentIconPickerDialog } from '@/app/components/agents/AgentIconPickerDialog';
 import { AgentManagedFilesEditor, type ManagedFileName } from './AgentManagedFilesCard';
 import { AgentConnectionsPicker, AgentRelevantSkillsPicker } from './AgentCapabilityPickers';
+import {
+  CreateAgentModelOverrideEditor,
+  getInitialCreateAgentModelDraft,
+  type CreateAgentModelDiscovery,
+  type CreateAgentModelDraft,
+} from './CreateAgentModelOverrideEditor';
 import { AgentToolsEditor, type ToolMetadata } from './AgentToolsCard';
 import { type AgentIconId } from '@/app/lib/agents/icons';
 import { DEFAULT_AGENT_ID } from '@/app/lib/channels/constants';
@@ -19,7 +25,7 @@ import {
   resolveEnabledToolNames,
   serializeEnabledToolNames,
 } from '@/app/lib/pi/enabled-tools';
-import type { PiThinkingLevel } from '@/app/lib/pi/config';
+import type { PiRuntimeConfig, PiThinkingLevel } from '@/app/lib/pi/config';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -138,17 +144,16 @@ const AGENT_TEMPLATES: CreateAgentTemplate[] = [
 export type CreateAgentInput = {
   name: string;
   iconId: AgentIconId;
+  defaultProvider: string | null;
+  defaultModel: string | null;
+  defaultThinking: PiThinkingLevel | null;
   files: Partial<Record<ManagedFileName, string>>;
   enabledTools: string[] | null;
   relevantSkills: string[] | null;
   relevantConnections: string[] | null;
 };
 
-type PiConfigData = {
-  activeProvider: string;
-  providers: Record<string, { enabledTools: string[]; model?: string; thinking?: PiThinkingLevel; [key: string]: unknown }>;
-  [key: string]: unknown;
-};
+type PiConfigData = PiRuntimeConfig;
 
 type CreateAgentDialogProps = {
   open: boolean;
@@ -314,6 +319,13 @@ export function CreateAgentDialog({
   const [skillsOverrideEnabled, setSkillsOverrideEnabled] = useState(false);
   const [selectedConnections, setSelectedConnections] = useState<string[]>([]);
   const [connectionsOverrideEnabled, setConnectionsOverrideEnabled] = useState(false);
+  const [modelOverrideEnabled, setModelOverrideEnabled] = useState(false);
+  const [modelOpen, setModelOpen] = useState(false);
+  const [modelPiConfig, setModelPiConfig] = useState<PiConfigData | null>(null);
+  const [modelDiscovery, setModelDiscovery] = useState<CreateAgentModelDiscovery>({});
+  const [modelDraft, setModelDraft] = useState<CreateAgentModelDraft>({ provider: '', model: '', thinking: 'off' });
+  const [modelLoading, setModelLoading] = useState(false);
+  const [modelError, setModelError] = useState<string | null>(null);
   const [connectionsOpen, setConnectionsOpen] = useState(false);
   const [skillsOpen, setSkillsOpen] = useState(false);
   const [toolsOverrideEnabled, setToolsOverrideEnabled] = useState(false);
@@ -327,6 +339,7 @@ export function CreateAgentDialog({
   const [toolsLoading, setToolsLoading] = useState(false);
   const [toolsError, setToolsError] = useState<string | null>(null);
   const [filesOpen, setFilesOpen] = useState(true);
+  const modelLoadRequestedRef = useRef(false);
   const toolsLoadRequestedRef = useRef(false);
 
   const selectedTemplate = useMemo(
@@ -375,6 +388,35 @@ export function CreateAgentDialog({
       setToolsLoading(false);
     }
   }, [t]);
+
+  const loadModelOptions = useCallback(async () => {
+    setModelLoading(true);
+    setModelError(null);
+    try {
+      const payload = await fetchCreateAgentJson<{ piConfig: PiConfigData; discovery: CreateAgentModelDiscovery }>(
+        `/api/agents/config?${new URLSearchParams({ agentId: DEFAULT_AGENT_ID, readiness: 'false' }).toString()}`,
+      );
+      const nextConfig = payload.piConfig;
+      const nextDiscovery = payload.discovery || {};
+      setModelPiConfig(nextConfig);
+      setModelDiscovery(nextDiscovery);
+      setModelDraft((current) => (
+        current.provider && current.model
+          ? current
+          : getInitialCreateAgentModelDraft(nextConfig, nextDiscovery)
+      ));
+    } catch (loadError) {
+      setModelError(loadError instanceof Error ? loadError.message : t('model.loadError'));
+    } finally {
+      setModelLoading(false);
+    }
+  }, [t]);
+
+  useEffect(() => {
+    if (!open || !modelOverrideEnabled || modelLoadRequestedRef.current) return;
+    modelLoadRequestedRef.current = true;
+    void loadModelOptions();
+  }, [loadModelOptions, modelOverrideEnabled, open]);
 
   useEffect(() => {
     if (!open || !toolsOverrideEnabled || toolsLoadRequestedRef.current) return;
@@ -452,6 +494,10 @@ export function CreateAgentDialog({
     setSelectedConnections([]);
     setConnectionsOverrideEnabled(false);
     setConnectionsOpen(false);
+    setModelOverrideEnabled(false);
+    setModelOpen(false);
+    setModelDraft({ provider: '', model: '', thinking: 'off' });
+    setModelError(null);
     setToolsOverrideEnabled(false);
     setToolsOpen(false);
     setCustomEnabledTools(null);
@@ -460,6 +506,8 @@ export function CreateAgentDialog({
     setActiveToolGroups(new Set());
     setSkillsOpen(false);
     setFilesOpen(true);
+    modelLoadRequestedRef.current = false;
+    toolsLoadRequestedRef.current = false;
   }, [applyTemplate]);
 
   const handleOpenChange = useCallback((nextOpen: boolean) => {
@@ -471,6 +519,7 @@ export function CreateAgentDialog({
 
   const canCreate = name.trim().length > 0
     && !creating
+    && !(modelOverrideEnabled && (modelLoading || Boolean(modelError) || !modelDraft.provider.trim() || !modelDraft.model.trim()))
     && !(toolsOverrideEnabled && (toolsLoading || customEnabledTools === null));
 
   async function submit() {
@@ -478,6 +527,9 @@ export function CreateAgentDialog({
     const success = await onCreate({
       name: name.trim(),
       iconId,
+      defaultProvider: modelOverrideEnabled ? modelDraft.provider.trim() : null,
+      defaultModel: modelOverrideEnabled ? modelDraft.model.trim() : null,
+      defaultThinking: modelOverrideEnabled ? modelDraft.thinking : null,
       files: Object.fromEntries(
         CREATE_AGENT_FILE_NAMES.map((fileName) => [fileName, fileDrafts[fileName] || '']),
       ) as Partial<Record<ManagedFileName, string>>,
@@ -563,6 +615,26 @@ export function CreateAgentDialog({
                       </div>
                     </div>
                   </section>
+
+                  <CreateAgentSection
+                    title={t('model.title')}
+                    description={t('model.description')}
+                    icon={Brain}
+                    open={modelOpen}
+                    onOpenChange={setModelOpen}
+                    enabled={modelOverrideEnabled}
+                    onEnabledChange={setModelOverrideEnabled}
+                  >
+                    <CreateAgentModelOverrideEditor
+                      piConfig={modelPiConfig}
+                      discovery={modelDiscovery}
+                      draft={modelDraft}
+                      loading={modelLoading}
+                      error={modelError}
+                      onDraftChange={setModelDraft}
+                      onRetry={loadModelOptions}
+                    />
+                  </CreateAgentSection>
 
                   <CreateAgentSection
                     title={t('tools.title')}

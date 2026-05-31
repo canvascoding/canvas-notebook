@@ -1254,6 +1254,18 @@
             "description": "Diagnoses issues and writes clear solutions."
           }
         },
+        "model": {
+          "title": "AI model",
+          "description": "Use a custom model instead of inheriting the Canvas Agent model.",
+          "loading": "Loading model options...",
+          "loadError": "Failed to load model options.",
+          "empty": "No configurable model providers found.",
+          "providerLabel": "Provider",
+          "modelLabel": "Model",
+          "thinkingLabel": "Thinking level",
+          "hint": "Credentials and provider setup stay global; this only sets the agent's initial model override.",
+          "retry": "Retry"
+        },
         "tools": {
           "title": "Tools",
           "description": "Use a custom tool set instead of inheriting the Canvas Agent tools.",
