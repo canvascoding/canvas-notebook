@@ -13,8 +13,18 @@ import {
   MessageSquare,
   ChevronLeft,
   CheckCheck,
+  Check,
+  Mail,
+  MoreHorizontal,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { getSessionDisplayTitle } from '@/app/lib/pi/session-titles';
 import { applySessionUnreadUpdate } from '@/app/lib/chat/unread';
 import { DEFAULT_AGENT_ID } from '@/app/lib/channels/constants';
@@ -213,8 +223,63 @@ export function SessionSidebar({
     return grouped;
   }, [history, searchQuery, unreadOnly, getSessionTimeGroup]);
 
-  const deleteSession = useCallback(async (e: React.MouseEvent, sessionId: string) => {
-    e.stopPropagation();
+  const markSessionAsRead = useCallback(async (session: AISession) => {
+    if (session.engine !== 'pi') {
+      return;
+    }
+
+    try {
+      const res = await fetch('/api/sessions', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ agentId, sessionId: session.sessionId, markAsRead: true }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setHistory((prev) => prev.map((item) =>
+          item.sessionId === session.sessionId
+            ? {
+                ...item,
+                lastViewedAt: data.session?.lastViewedAt || item.lastMessageAt || new Date().toISOString(),
+                hasUnread: Boolean(data.session?.hasUnread),
+              }
+            : item
+        ));
+      }
+    } catch (err) {
+      console.error('Failed to mark session as read', err);
+    }
+  }, [agentId]);
+
+  const markSessionAsUnread = useCallback(async (session: AISession) => {
+    if (session.engine !== 'pi' || !session.lastMessageAt) {
+      return;
+    }
+
+    try {
+      const res = await fetch('/api/sessions', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ agentId, sessionId: session.sessionId, markAsUnread: true }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setHistory((prev) => prev.map((item) =>
+          item.sessionId === session.sessionId
+            ? {
+                ...item,
+                lastViewedAt: null,
+                hasUnread: Boolean(data.session?.hasUnread ?? true),
+              }
+            : item
+        ));
+      }
+    } catch (err) {
+      console.error('Failed to mark session as unread', err);
+    }
+  }, [agentId]);
+
+  const deleteSession = useCallback(async (sessionId: string) => {
     if (!confirm(t('deleteSessionConfirm'))) return;
 
     try {
@@ -229,8 +294,7 @@ export function SessionSidebar({
     }
   }, [agentId, t]);
 
-  const renameSession = useCallback(async (e: React.MouseEvent, session: AISession) => {
-    e.stopPropagation();
+  const renameSession = useCallback(async (session: AISession) => {
     const nextTitle = prompt(t('renameSessionPrompt'), getSessionDisplayTitle(session.title, t('newChatTitle')));
     if (!nextTitle || !nextTitle.trim()) return;
 
@@ -373,6 +437,7 @@ export function SessionSidebar({
                   </div>
                   {sessions.map((session) => {
                     const isActive = currentSessionId === session.sessionId;
+                    const canUseUnreadActions = session.engine === 'pi' && Boolean(session.lastMessageAt);
                     return (
                       <div 
                         key={session.id} 
@@ -407,22 +472,46 @@ export function SessionSidebar({
                             </div>
                           </div>
                         </button>
-                        <button
-                          type="button"
-                          onClick={(e) => renameSession(e, session)}
-                          className="ml-2 shrink-0 rounded-md border border-transparent p-1.5 text-muted-foreground transition-all hover:border-border hover:bg-accent"
-                          title={t('renameSession')}
-                        >
-                          <Pencil size={14} />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={(e) => deleteSession(e, session.sessionId)}
-                          className="ml-1 shrink-0 rounded-md border border-transparent p-1.5 text-muted-foreground transition-all hover:border-destructive/40 hover:bg-destructive/10 hover:text-destructive"
-                          title={t('deleteSession')}
-                        >
-                          <Trash2 size={14} />
-                        </button>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon-xs"
+                              className="ml-2 shrink-0 text-muted-foreground opacity-70 transition-opacity hover:text-foreground group-hover:opacity-100"
+                              title={t('sessionActions')}
+                              aria-label={t('sessionActions')}
+                            >
+                              <MoreHorizontal size={14} />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end" className="w-48">
+                            <DropdownMenuItem onSelect={() => renameSession(session)}>
+                              <Pencil size={14} />
+                              {t('renameSession')}
+                            </DropdownMenuItem>
+                            {canUseUnreadActions && session.hasUnread && (
+                              <DropdownMenuItem onSelect={() => void markSessionAsRead(session)}>
+                                <Check size={14} />
+                                {t('markAsRead')}
+                              </DropdownMenuItem>
+                            )}
+                            {canUseUnreadActions && !session.hasUnread && (
+                              <DropdownMenuItem onSelect={() => void markSessionAsUnread(session)}>
+                                <Mail size={14} />
+                                {t('markAsUnread')}
+                              </DropdownMenuItem>
+                            )}
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                              variant="destructive"
+                              onSelect={() => deleteSession(session.sessionId)}
+                            >
+                              <Trash2 size={14} />
+                              {t('deleteSession')}
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
                       </div>
                     );
                   })}

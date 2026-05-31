@@ -47,6 +47,7 @@
     "test:email:accounts": "tsx scripts/email-accounts-service-test.ts",
     "test:channels": "tsx scripts/channel-architecture-test.ts",
     "test:channels:db": "tsx --conditions react-server scripts/channel-db-test.ts",
+    "test:sessions:read-state": "tsx scripts/session-read-state-test.ts",
     "test:agents:runtime": "tsx --conditions react-server scripts/agent-runtime-config-test.ts",
     "test:e2e": "playwright test --pass-with-no-tests",
     "test:all": "node scripts/test-all.mjs",
