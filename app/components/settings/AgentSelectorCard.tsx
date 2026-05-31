@@ -1,22 +1,27 @@
 'use client';
 
+import { useState } from 'react';
 import { Bot, Lock, Plus, RefreshCw, Trash2 } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 
+import { AgentAvatar } from '@/app/components/agents/AgentAvatar';
+import { CreateAgentDialog, type CreateAgentInput } from './CreateAgentDialog';
+import type { AgentIconId } from '@/app/lib/agents/icons';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
 
 export type AgentProfileItem = {
   agentId: string;
   name: string;
+  iconId: AgentIconId;
   type: string;
   removable: boolean;
   defaultProvider: string | null;
   defaultModel: string | null;
   defaultThinking: string | null;
   enabledTools: string[] | null;
+  relevantSkills: string[] | null;
 };
 
 type AgentSelectorCardProps = {
@@ -24,12 +29,10 @@ type AgentSelectorCardProps = {
   selectedAgentId: string;
   loading: boolean;
   error: string | null;
-  createName: string;
   creating: boolean;
   deletingAgentId: string | null;
   onSelectedAgentIdChange: (agentId: string) => void;
-  onCreateNameChange: (value: string) => void;
-  onCreate: () => void;
+  onCreate: (input: CreateAgentInput) => Promise<boolean>;
   onDelete: (agentId: string) => void;
   onReload: () => void;
 };
@@ -39,18 +42,18 @@ export function AgentSelectorCard({
   selectedAgentId,
   loading,
   error,
-  createName,
   creating,
   deletingAgentId,
   onSelectedAgentIdChange,
-  onCreateNameChange,
   onCreate,
   onDelete,
   onReload,
 }: AgentSelectorCardProps) {
   const t = useTranslations('settings');
+  const [createDialogOpen, setCreateDialogOpen] = useState(false);
 
   return (
+    <>
     <Card>
       <CardHeader>
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -62,6 +65,10 @@ export function AgentSelectorCard({
             <CardDescription>{t('agentPanel.selector.description')}</CardDescription>
           </div>
           <div className="flex gap-2">
+            <Button type="button" size="sm" onClick={() => setCreateDialogOpen(true)} disabled={creating}>
+              <Plus className="mr-2 h-4 w-4" />
+              {t('agentPanel.selector.create')}
+            </Button>
             <Button type="button" variant="outline" size="sm" onClick={onReload} disabled={loading}>
               <RefreshCw className="mr-2 h-4 w-4" />
               {t('agentPanel.selector.reload')}
@@ -72,19 +79,6 @@ export function AgentSelectorCard({
       <CardContent className="space-y-3">
         {error && <p className="text-sm text-red-600">{error}</p>}
         {loading && <p className="text-sm text-muted-foreground">{t('agentPanel.selector.loading')}</p>}
-
-        <div className="flex flex-col gap-2 sm:flex-row">
-          <Input
-            value={createName}
-            onChange={(event) => onCreateNameChange(event.target.value)}
-            placeholder={t('agentPanel.selector.createPlaceholder')}
-            disabled={creating}
-          />
-          <Button type="button" onClick={onCreate} disabled={creating || !createName.trim()} className="shrink-0">
-            <Plus className="mr-2 h-4 w-4" />
-            {creating ? t('agentPanel.selector.creating') : t('agentPanel.selector.create')}
-          </Button>
-        </div>
 
         <div className="grid gap-2 md:grid-cols-2">
           {agents.map((agent) => {
@@ -97,6 +91,7 @@ export function AgentSelectorCard({
                 }`}
               >
                 <div className="flex items-start gap-2">
+                  <AgentAvatar iconId={agent.iconId} className="h-11 w-11" />
                   <button
                     type="button"
                     onClick={() => onSelectedAgentIdChange(agent.agentId)}
@@ -153,5 +148,13 @@ export function AgentSelectorCard({
         <p className="text-xs text-muted-foreground">{t('agentPanel.selector.createHint')}</p>
       </CardContent>
     </Card>
+    <CreateAgentDialog
+      open={createDialogOpen}
+      creating={creating}
+      error={error}
+      onOpenChange={setCreateDialogOpen}
+      onCreate={onCreate}
+    />
+    </>
   );
 }

@@ -1188,6 +1188,84 @@
           "delete": "Failed to delete agent."
         }
       },
+      "iconPicker": {
+        "title": "Choose agent icon",
+        "description": "Pick a symbol that makes this agent recognizable in settings, chat, and automations.",
+        "close": "Close",
+        "icons": {
+          "bot": "Agent",
+          "sparkles": "Creative",
+          "search": "Research",
+          "code": "Code",
+          "palette": "Studio",
+          "briefcase": "Business",
+          "calendar": "Automation",
+          "messages": "Support",
+          "brain": "Strategy",
+          "wrench": "Tools",
+          "rocket": "Launch",
+          "shield": "Security"
+        }
+      },
+      "createDialog": {
+        "title": "Create new agent",
+        "description": "Start from a template, then personalize icon, skills, and the core agent files.",
+        "changeIcon": "Change icon",
+        "nameLabel": "Name",
+        "namePlaceholder": "Agent name",
+        "cancel": "Cancel",
+        "create": "Create agent",
+        "creating": "Creating agent...",
+        "templates": {
+          "custom": {
+            "name": "Custom Agent",
+            "description": "A free-form special agent without a fixed role."
+          },
+          "research": {
+            "name": "Research Agent",
+            "description": "Collects sources, organizes context, and summarizes findings."
+          },
+          "coding": {
+            "name": "Coding Agent",
+            "description": "Reads code, applies changes, and verifies them with focused checks."
+          },
+          "marketing": {
+            "name": "Marketing Agent",
+            "description": "Helps with campaigns, positioning, and content."
+          },
+          "studio": {
+            "name": "Studio Agent",
+            "description": "Supports visual production and asset work."
+          },
+          "automation": {
+            "name": "Automation Agent",
+            "description": "Plans recurring or trigger-based workflows."
+          },
+          "support": {
+            "name": "Support Agent",
+            "description": "Diagnoses issues and writes clear solutions."
+          }
+        },
+        "connections": {
+          "title": "Apps & MCP",
+          "description": "Connected services can later be prioritized per agent.",
+          "loading": "Loading connections...",
+          "empty": "No connected apps or active MCP servers found.",
+          "mcpDetail": "{count} cached tools",
+          "composioDetail": "{count} tools"
+        },
+        "skills": {
+          "title": "Relevant skills",
+          "description": "Selected skills are prioritized for this agent in the system prompt.",
+          "loading": "Loading skills...",
+          "empty": "No enabled skills found.",
+          "noDescription": "No description available."
+        },
+        "files": {
+          "title": "Agent files",
+          "description": "Set the most important setup files while creating the agent."
+        }
+      },
       "chatDisplay": {
         "title": "Chat Display",
         "description": "Choose how much background activity appears in the chat.",
@@ -1377,7 +1455,10 @@
       },
       "sessions": {
         "title": "Sessions",
-        "description": "Manage chat history.",
+        "description": "Manage chat history for the currently selected AI agent.",
+        "activeAgentSummary": "Active agent: {agentName}",
+        "activeAgentLabel": "Active AI agent",
+        "agentIdLabel": "Agent ID",
         "summary": "{count, plural, =0 {No sessions} one {# session} other {# sessions}}",
         "errorSummary": "Load error",
         "newSessionPlaceholder": "New session (title optional)",
