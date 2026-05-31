@@ -168,31 +168,36 @@ export function LicenseActivationPanel({ defaultEmail }: { defaultEmail: string 
   const statusCode = status?.code || codeFromLicenseError(status?.error as Parameters<typeof codeFromLicenseError>[0]);
 
   return (
-    <div className="space-y-4">
-      <Card>
-        <CardHeader>
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <CardTitle className="flex items-center gap-2">
-                {isLicensed ? <CheckCircle2 className="h-5 w-5" /> : <ShieldAlert className="h-5 w-5" />}
+    <div className="space-y-3 sm:space-y-4">
+      <Card className="gap-4 py-4 sm:gap-6 sm:py-6">
+        <CardHeader className="px-4 sm:px-6">
+          <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div className="min-w-0 space-y-1.5">
+              <CardTitle className="flex min-w-0 items-center gap-2 text-base sm:text-lg">
+                {isLicensed ? <CheckCircle2 className="h-5 w-5 shrink-0" /> : <ShieldAlert className="h-5 w-5 shrink-0" />}
                 {copy.title}
               </CardTitle>
-              <CardDescription>
+              <CardDescription className="leading-5">
                 {isLicensed
                   ? copy.verified
                   : copy.unverified}
               </CardDescription>
             </div>
-            <Badge variant={isLicensed ? 'default' : 'secondary'}>{loading ? copy.loading : status?.plan || copy.unregistered}</Badge>
+            <Badge className="w-fit max-w-full truncate" variant={isLicensed ? 'default' : 'secondary'}>
+              {loading ? copy.loading : status?.plan || copy.unregistered}
+            </Badge>
           </div>
         </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="border border-border bg-muted/30 px-3 py-3 text-sm">
-            <div className="flex items-start gap-3">
-              <Info className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
-              <div className="space-y-2">
+        <CardContent className="space-y-4 px-4 sm:px-6">
+          <div className="border border-border bg-muted/30 px-3 py-3 text-sm sm:px-4">
+            <div className="space-y-3 sm:flex sm:items-start sm:gap-3 sm:space-y-0">
+              <Info className="mt-0.5 hidden h-4 w-4 shrink-0 text-muted-foreground sm:block" />
+              <div className="min-w-0 space-y-3 leading-6">
                 <div>
-                  <p className="font-medium">{copy.activationTitle}</p>
+                  <p className="flex items-start gap-2 font-medium">
+                    <Info className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground sm:hidden" />
+                    <span>{copy.activationTitle}</span>
+                  </p>
                   <p className="mt-1 text-muted-foreground">
                     {copy.activationDescription}
                   </p>
@@ -209,10 +214,10 @@ export function LicenseActivationPanel({ defaultEmail }: { defaultEmail: string 
                     href="https://github.com/canvascoding/canvas-notebook?tab=License-1-ov-file"
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="mt-2 inline-flex items-center gap-1.5 text-xs font-medium text-foreground underline-offset-4 hover:underline"
+                    className="mt-2 inline-flex max-w-full items-center gap-1.5 text-xs font-medium text-foreground underline-offset-4 hover:underline"
                   >
-                    {copy.viewLicense}
-                    <ExternalLink className="h-3 w-3" />
+                    <span className="min-w-0 truncate">{copy.viewLicense}</span>
+                    <ExternalLink className="h-3 w-3 shrink-0" />
                   </a>
                 </div>
               </div>
@@ -220,14 +225,14 @@ export function LicenseActivationPanel({ defaultEmail }: { defaultEmail: string 
           </div>
 
           <div className="grid gap-2 text-sm">
-            <div className="flex items-center justify-between gap-3 border border-border px-3 py-2">
+            <div className="grid gap-1.5 border border-border px-3 py-2.5 sm:flex sm:items-center sm:justify-between sm:gap-3">
               <span className="text-muted-foreground">{copy.instanceId}</span>
-              <span className="truncate font-mono text-xs">{status?.instanceId || '...'}</span>
+              <span className="min-w-0 break-all font-mono text-xs sm:text-right">{status?.instanceId || '...'}</span>
             </div>
             {status?.expiresAt && (
-              <div className="flex items-center justify-between gap-3 border border-border px-3 py-2">
+              <div className="grid gap-1.5 border border-border px-3 py-2.5 sm:flex sm:items-center sm:justify-between sm:gap-3">
                 <span className="text-muted-foreground">{copy.expires}</span>
-                <span>{new Date(status.expiresAt).toLocaleString()}</span>
+                <span className="min-w-0 break-words sm:text-right">{new Date(status.expiresAt).toLocaleString()}</span>
               </div>
             )}
           </div>
@@ -236,9 +241,9 @@ export function LicenseActivationPanel({ defaultEmail }: { defaultEmail: string 
             <>
               <div className="space-y-2">
                 <Label htmlFor="license-email">{copy.email}</Label>
-                <div className="flex flex-col gap-2 sm:flex-row">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                   <Input id="license-email" type="email" value={email} onChange={(event) => setEmail(event.target.value)} />
-                  <Button onClick={requestLicense} disabled={registering || !email.trim()} className="gap-2">
+                  <Button onClick={requestLicense} disabled={registering || !email.trim()} className="h-10 w-full gap-2 sm:h-9 sm:w-auto">
                     {registering ? <Loader2 className="h-4 w-4 animate-spin" /> : <Mail className="h-4 w-4" />}
                     {copy.sendKey}
                   </Button>
@@ -247,9 +252,9 @@ export function LicenseActivationPanel({ defaultEmail }: { defaultEmail: string 
 
               <div className="space-y-2">
                 <Label htmlFor="license-key">{copy.activationKey}</Label>
-                <div className="flex flex-col gap-2 sm:flex-row">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                   <Input id="license-key" value={key} onChange={(event) => setKey(event.target.value)} />
-                  <Button onClick={activateLicense} disabled={activating || !key.trim()} className="gap-2">
+                  <Button onClick={activateLicense} disabled={activating || !key.trim()} className="h-10 w-full gap-2 sm:h-9 sm:w-auto">
                     {activating ? <Loader2 className="h-4 w-4 animate-spin" /> : <KeyRound className="h-4 w-4" />}
                     {copy.activate}
                   </Button>
@@ -257,9 +262,9 @@ export function LicenseActivationPanel({ defaultEmail }: { defaultEmail: string 
               </div>
 
               {status?.error && (
-                <div className="space-y-1 text-sm text-destructive">
+                <div className="space-y-1 break-words text-sm text-destructive">
                   <p>{licenseErrorMessage(status.error)}</p>
-                  {statusCode && <p className="font-mono text-xs text-muted-foreground">{statusCode}</p>}
+                  {statusCode && <p className="break-all font-mono text-xs text-muted-foreground">{statusCode}</p>}
                 </div>
               )}
             </>
