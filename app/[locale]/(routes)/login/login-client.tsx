@@ -5,11 +5,13 @@ import { useLocale, useTranslations } from 'next-intl';
 import { useSearchParams } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { authClient } from '@/app/lib/auth-client';
 import { LanguageSwitcher } from '@/app/components/language-switcher';
 import { toast } from 'sonner';
 import Image from 'next/image';
 import { routing } from '@/i18n/routing';
+import { Eye, EyeOff } from 'lucide-react';
 
 function buildLocalePath(locale: string, pathname: string) {
   if (locale === routing.defaultLocale) {
@@ -41,7 +43,9 @@ function LoginForm() {
   const searchParams = useSearchParams();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const passwordToggleLabel = showPassword ? t('hidePassword') : t('showPassword');
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -108,15 +112,39 @@ function LoginForm() {
             <label htmlFor="password" className="block text-sm font-medium text-foreground/90 mb-2">
               {t('password')}
             </label>
-            <Input
-              id="password"
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder={t('passwordPlaceholder')}
-              className="placeholder:text-muted-foreground"
-              required
-            />
+            <div className="relative">
+              <Input
+                id="password"
+                type={showPassword ? 'text' : 'password'}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder={t('passwordPlaceholder')}
+                className="pr-11 placeholder:text-muted-foreground"
+                required
+              />
+              <TooltipProvider delayDuration={300}>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      className="absolute right-1 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                      aria-label={passwordToggleLabel}
+                      aria-pressed={showPassword}
+                      onClick={() => setShowPassword((visible) => !visible)}
+                    >
+                      {showPassword ? (
+                        <EyeOff className="h-4 w-4" />
+                      ) : (
+                        <Eye className="h-4 w-4" />
+                      )}
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="top">{passwordToggleLabel}</TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            </div>
           </div>
 
           <Button

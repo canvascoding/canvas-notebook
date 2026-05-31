@@ -71,6 +71,8 @@
     "password": "Passwort",
     "emailPlaceholder": "E-Mail eingeben",
     "passwordPlaceholder": "Passwort eingeben",
+    "showPassword": "Passwort anzeigen",
+    "hidePassword": "Passwort verbergen",
     "loginButton": "Anmelden",
     "loggingIn": "Wird angemeldet...",
     "loginFailed": "Anmeldung fehlgeschlagen",
