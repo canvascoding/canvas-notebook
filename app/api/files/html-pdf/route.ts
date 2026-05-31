@@ -60,7 +60,7 @@ export async function POST(request: NextRequest) {
       status: 200,
       headers: {
         'Content-Type': 'application/pdf',
-        'Content-Disposition': `inline; filename="${fileName}.pdf"`,
+        'Content-Disposition': `attachment; filename="${fileName}.pdf"`,
         'Content-Length': pdfBuffer.length.toString(),
         'Cache-Control': 'private, no-cache',
       },

@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useRef, useCallback } from 'react';
-import { FileText, X, Loader2, Eye } from 'lucide-react';
+import { Download, FileText, X, Loader2, Eye } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { Button } from '@/components/ui/button';
 import {
@@ -20,6 +20,12 @@ interface ShareMarkdownDialogProps {
   filePath: string;
   fileName: string;
   kind?: 'markdown' | 'html';
+}
+
+function getPdfDownloadName(fileName: string) {
+  const baseName = fileName.split('/').pop()?.trim() || 'document';
+  const withoutKnownExtension = baseName.replace(/\.(md|mdx|markdown|html|htm)$/i, '');
+  return `${withoutKnownExtension || 'document'}.pdf`;
 }
 
 export function ShareMarkdownDialog({
@@ -86,9 +92,8 @@ export function ShareMarkdownDialog({
     }
   }, [open, filePath, kind, loadHtmlExport]);
 
-  const handleOpenPDF = async () => {
+  const handleDownloadPDF = async () => {
     setPdfLoading(true);
-    const newWindow = window.open('', '_blank');
     try {
       const response = await fetch(kind === 'html' ? '/api/files/html-pdf' : '/api/files/markdown-pdf', {
         method: 'POST',
@@ -97,7 +102,6 @@ export function ShareMarkdownDialog({
       });
 
       if (!response.ok) {
-        newWindow?.close();
         const errorData = await response.json().catch(() => null);
         throw new Error(
           errorData?.error || t('pdfGenerationFailed', { statusText: response.statusText })
@@ -106,12 +110,15 @@ export function ShareMarkdownDialog({
 
       const blob = await response.blob();
       const url = URL.createObjectURL(blob);
-      if (newWindow) {
-        newWindow.location.href = url;
-      } else {
-        window.open(url, '_blank');
-      }
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = getPdfDownloadName(fileName);
+      anchor.rel = 'noopener';
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
       setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      toast.success(t('pdfDownloadStarted'));
     } catch (err) {
       const message = err instanceof Error ? err.message : t('failedToGeneratePdf');
       toast.error(message);
@@ -124,8 +131,8 @@ export function ShareMarkdownDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent showCloseButton={false} className="flex flex-col w-full max-w-4xl h-[85vh] max-h-[85vh]">
-        <DialogHeader className="px-4 md:px-6 pt-4 md:pt-5 pb-2 shrink-0">
+      <DialogContent layout="viewport" showCloseButton={false} className="gap-0">
+        <DialogHeader className="px-3 sm:px-5 lg:px-6 pt-3 sm:pt-5 pb-2 shrink-0">
           <DialogTitle className="flex items-center gap-2 text-base md:text-lg">
             <FileText className="h-4 md:h-5 w-4 md:w-5 shrink-0" />
             <span className="truncate min-w-0" title={fileName}>
@@ -134,7 +141,7 @@ export function ShareMarkdownDialog({
           </DialogTitle>
         </DialogHeader>
 
-        <div className="flex-1 min-h-0 px-4 md:px-6 overflow-hidden">
+        <div className="flex-1 min-h-0 px-3 sm:px-5 lg:px-6 pb-3 sm:pb-5 overflow-hidden">
           {loading ? (
             <div className="flex items-center justify-center h-full">
               <div className="flex flex-col items-center gap-3">
@@ -152,7 +159,7 @@ export function ShareMarkdownDialog({
               </div>
             </div>
           ) : (
-            <div className="border rounded-lg overflow-hidden bg-white h-full">
+            <div className="border rounded-md sm:rounded-lg overflow-hidden bg-white h-full">
               {kind === 'html' ? (
                 htmlPreviewAllowed ? (
                   <iframe
@@ -196,8 +203,8 @@ export function ShareMarkdownDialog({
           )}
         </div>
 
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 px-4 md:px-6 py-3 md:py-4 border-t bg-muted/50 shrink-0">
-          <div className="text-xs md:text-sm text-muted-foreground order-2 sm:order-1">
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 px-3 sm:px-5 lg:px-6 py-3 border-t bg-muted/50 shrink-0">
+          <div className="text-xs md:text-sm text-muted-foreground order-2 sm:order-1 min-h-4">
             {!loading && !error && (
               <span className="flex items-center gap-1">
                 <Eye className="h-3 md:h-4 w-3 md:w-4" />
@@ -206,29 +213,29 @@ export function ShareMarkdownDialog({
             )}
           </div>
 
-          <div className="flex items-center justify-end gap-2 order-1 sm:order-2">
+          <div className="grid grid-cols-1 gap-2 order-1 sm:order-2 sm:flex sm:items-center sm:justify-end">
             <Button
               variant="outline"
               onClick={() => onOpenChange(false)}
               size="sm"
-              className="md:size-default"
+              className="w-full sm:w-auto"
             >
               <X className="h-4 w-4 mr-1 md:mr-2" />
               <span>{t('close')}</span>
             </Button>
 
             <Button
-              onClick={handleOpenPDF}
+              onClick={handleDownloadPDF}
               disabled={loading || pdfLoading || !!error || !hasPreview}
               size="sm"
-              className="md:size-default"
+              className="w-full sm:w-auto"
             >
               {pdfLoading ? (
                 <Loader2 className="h-4 w-4 mr-1 md:mr-2 animate-spin" />
               ) : (
-                <FileText className="h-4 w-4 mr-1 md:mr-2" />
+                <Download className="h-4 w-4 mr-1 md:mr-2" />
               )}
-              <span>{pdfLoading ? t('generatingPdf') : t('openAsPdf')}</span>
+              <span>{pdfLoading ? t('generatingPdf') : t('downloadPdf')}</span>
             </Button>
           </div>
         </div>

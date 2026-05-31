@@ -110,11 +110,8 @@ export async function generatePdfFromHtml(html: string): Promise<Buffer> {
   const b = await getBrowser();
   const page = await b.newPage();
   try {
-    await page.setContent(html, { waitUntil: 'load', timeout: 20000 });
-    await page.waitForNetworkIdle({ timeout: 20000 });
-    await page.evaluate(async () => {
-      await document.fonts?.ready;
-    });
+    await page.setContent(html, { waitUntil: 'domcontentloaded', timeout: 15000 });
+    await waitForPdfAssets(page);
     const pdf = await page.pdf({
       format: 'A4',
       printBackground: true,
@@ -124,6 +121,33 @@ export async function generatePdfFromHtml(html: string): Promise<Buffer> {
   } finally {
     await page.close();
   }
+}
+
+async function waitForPdfAssets(page: Page) {
+  await page.evaluate(async () => {
+    const timeout = (ms: number) => new Promise<void>((resolve) => {
+      window.setTimeout(resolve, ms);
+    });
+
+    const fontReady = document.fonts?.ready.then(() => undefined).catch(() => undefined) ?? Promise.resolve();
+    const imagesReady = Promise.all(
+      Array.from(document.images).map((image) => {
+        if (image.complete) {
+          return Promise.resolve();
+        }
+
+        return new Promise<void>((resolve) => {
+          image.addEventListener('load', () => resolve(), { once: true });
+          image.addEventListener('error', () => resolve(), { once: true });
+        });
+      })
+    ).then(() => undefined);
+
+    await Promise.race([
+      Promise.all([fontReady, imagesReady]).then(() => undefined),
+      timeout(5000),
+    ]);
+  });
 }
 
 async function applyEmojiFontFallback(page: Page) {

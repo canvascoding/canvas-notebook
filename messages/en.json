@@ -410,6 +410,8 @@
     "close": "Close",
     "generatingPdf": "Generating PDF...",
     "openAsPdf": "Open as PDF",
+    "downloadPdf": "Download PDF",
+    "pdfDownloadStarted": "PDF download started",
     "failedToExportMarkdown": "Failed to export markdown: {statusText}",
     "failedToLoadPreview": "Failed to load preview",
     "pdfGenerationFailed": "PDF generation failed: {statusText}",

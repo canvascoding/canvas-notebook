@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/app/lib/auth';
-import { markdownFileToHtmlDocument } from '@/app/lib/pdf/markdown-to-html';
+import { getCachedMarkdownHtmlDocument } from '@/app/lib/pdf/markdown-export-cache';
 import { generatePdfFromHtml } from '@/app/lib/pdf/browser';
 import path from 'path';
 
@@ -33,7 +33,7 @@ export async function POST(request: NextRequest) {
 
     const fileName = path.basename(filePath, ext);
 
-    const html = await markdownFileToHtmlDocument(filePath);
+    const html = await getCachedMarkdownHtmlDocument(filePath);
 
     const pdfBuffer = await Promise.race([
       generatePdfFromHtml(html),
@@ -46,7 +46,7 @@ export async function POST(request: NextRequest) {
       status: 200,
       headers: {
         'Content-Type': 'application/pdf',
-        'Content-Disposition': `inline; filename="${fileName}.pdf"`,
+        'Content-Disposition': `attachment; filename="${fileName}.pdf"`,
         'Content-Length': pdfBuffer.length.toString(),
         'Cache-Control': 'private, no-cache',
       },
