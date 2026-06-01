@@ -1,14 +1,6 @@
 name: Electron Desktop Build
 
 on:
-  push:
-    branches:
-      - "**"
-    tags:
-      - "v*"
-  schedule:
-    # Weekly desktop builds on Wednesdays at 03:00 UTC.
-    - cron: "0 3 * * 3"
   workflow_dispatch:
 
 permissions:
