@@ -15,7 +15,8 @@ const path = require('path');
 const originalLoad = Module._load;
 const originalResolveFilename = Module._resolveFilename;
 const piAiPackageRoot = path.resolve(process.cwd(), 'node_modules/@earendil-works/pi-ai/dist');
-const piAiModuleAliases = new Map([
+const piAgentCorePackageRoot = path.resolve(process.cwd(), 'node_modules/@earendil-works/pi-agent-core/dist');
+const esmOnlyPackageAliases = new Map([
   ['@earendil-works/pi-ai', path.join(piAiPackageRoot, 'index.js')],
   ['@earendil-works/pi-ai/oauth', path.join(piAiPackageRoot, 'oauth.js')],
   ['@earendil-works/pi-ai/anthropic', path.join(piAiPackageRoot, 'providers/anthropic.js')],
@@ -27,9 +28,11 @@ const piAiModuleAliases = new Map([
   ['@earendil-works/pi-ai/openai-completions', path.join(piAiPackageRoot, 'providers/openai-completions.js')],
   ['@earendil-works/pi-ai/openai-responses', path.join(piAiPackageRoot, 'providers/openai-responses.js')],
   ['@earendil-works/pi-ai/bedrock-provider', path.join(piAiPackageRoot, 'bedrock-provider.js')],
+  ['@earendil-works/pi-agent-core', path.join(piAgentCorePackageRoot, 'index.js')],
+  ['@earendil-works/pi-agent-core/node', path.join(piAgentCorePackageRoot, 'node.js')],
 ]);
 Module._resolveFilename = function resolveWithEsmPackageAliases(request, parent, isMain, options) {
-  const aliasedPath = piAiModuleAliases.get(request);
+  const aliasedPath = esmOnlyPackageAliases.get(request);
   if (aliasedPath) {
     return aliasedPath;
   }
@@ -155,6 +158,37 @@ function cleanupRetiredSeedSkills(skillsDir) {
   }
 }
 
+function syncSeedSkills(repoSkillsDir, skillsDir) {
+  const copyOptions = {
+    recursive: true,
+    force: true,
+    verbatimSymlinks: true,
+  };
+  const skillsRoot = path.resolve(skillsDir);
+  const maxAttempts = 5;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      fs.cpSync(repoSkillsDir, skillsDir, copyOptions);
+      return;
+    } catch (error) {
+      const targetPath = typeof error?.path === 'string' ? path.resolve(error.path) : null;
+      const canRetry =
+        error?.code === 'EEXIST' &&
+        targetPath &&
+        targetPath !== skillsRoot &&
+        targetPath.startsWith(`${skillsRoot}${path.sep}`);
+
+      if (!canRetry || attempt === maxAttempts) {
+        throw error;
+      }
+
+      console.warn(`[Startup] Replacing existing seed skill path before retry: ${targetPath}`);
+      fs.rmSync(targetPath, { recursive: true, force: true });
+    }
+  }
+}
+
 function ensureSkillsDirectory() {
   const skillsDir = resolveSkillsDataDir(process.cwd());
   const repoSkillsDir = path.resolve(process.cwd(), 'seed_skills');
@@ -165,7 +199,7 @@ function ensureSkillsDirectory() {
       console.log(`[Startup] Created skills directory: ${skillsDir}`);
     }
     if (fs.existsSync(repoSkillsDir)) {
-      fs.cpSync(repoSkillsDir, skillsDir, { recursive: true, force: true });
+      syncSeedSkills(repoSkillsDir, skillsDir);
       console.log(`[Startup] Synced seed skills to ${skillsDir}`);
     }
     cleanupRetiredSeedSkills(skillsDir);
