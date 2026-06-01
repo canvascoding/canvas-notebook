@@ -1404,9 +1404,9 @@ export function AutomationsClient({ initialJobId = null }: AutomationsClientProp
 
   function deliverySessionModeLabel(mode: AutomationDeliverySessionMode): string {
     const isGerman = locale.startsWith('de');
-    if (mode === 'new_session') return isGerman ? 'Neue Session' : 'New session';
-    if (mode === 'channel_active') return isGerman ? 'Aktive Session im gewählten Channel' : 'Active session in selected channel';
-    return isGerman ? 'Bestimmte Session-ID' : 'Specific session ID';
+    if (mode === 'new_session') return isGerman ? 'Neue Sitzung' : 'New session';
+    if (mode === 'channel_active') return isGerman ? 'Aktive Sitzung im gewählten Kanal' : 'Active session in selected channel';
+    return isGerman ? 'Bestimmte Sitzungs-ID' : 'Specific session ID';
   }
 
   function deliveryChannelDisplayLabel(channelId: string): string {
@@ -1473,7 +1473,7 @@ export function AutomationsClient({ initialJobId = null }: AutomationsClientProp
         <label className="flex min-w-0 flex-col gap-1 text-sm">
           <span className="flex items-center gap-1 text-xs text-muted-foreground">
             <Send className="h-3.5 w-3.5" />
-            {isGerman ? 'Ziel-Channel' : 'Delivery channel'}
+            {isGerman ? 'Zielkanal' : 'Delivery channel'}
           </span>
           <select
             data-testid={`automation-${target}-delivery-channel`}
@@ -1504,7 +1504,7 @@ export function AutomationsClient({ initialJobId = null }: AutomationsClientProp
         </label>
         {state.deliverySessionMode === 'fixed_session' ? (
           <label className="flex min-w-0 flex-col gap-1 text-sm md:col-span-2">
-            <span className="text-xs text-muted-foreground">{isGerman ? 'Session-ID' : 'Session ID'}</span>
+            <span className="text-xs text-muted-foreground">{isGerman ? 'Sitzungs-ID' : 'Session ID'}</span>
             <input
               className="h-10 rounded-md border border-input bg-background px-3 font-mono text-xs"
               value={state.deliverySessionId}
