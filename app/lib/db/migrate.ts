@@ -211,6 +211,7 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       token TEXT NOT NULL UNIQUE,
       token_hash TEXT NOT NULL UNIQUE,
       token_preview TEXT NOT NULL,
+      short_code TEXT UNIQUE,
       workspace_path TEXT NOT NULL,
       file_name TEXT NOT NULL,
       file_identity TEXT NOT NULL,
@@ -751,6 +752,14 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     studio_preset_id: 'TEXT',
     custom_prompt: 'TEXT',
   });
+
+  addColumns(sqlite, 'public_file_shares', {
+    short_code: 'TEXT',
+  });
+
+  sqlite.exec(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_public_file_shares_short_code ON public_file_shares (short_code);
+  `);
 
   addColumns(sqlite, 'pi_sessions', {
     agent_id: "TEXT NOT NULL DEFAULT 'canvas-agent'",

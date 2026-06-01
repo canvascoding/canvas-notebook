@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Copy, ExternalLink, Globe2, Loader2, ShieldAlert, Unlink, XCircle } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { toast } from 'sonner';
@@ -20,6 +20,9 @@ interface PublicShareResult {
   id: string;
   workspacePath: string;
   fileName: string;
+  shortCode?: string | null;
+  shortUrl?: string;
+  shortPath?: string;
   publicUrl: string;
   expiresAt: string | null;
   status: string;
@@ -45,6 +48,10 @@ function normalizePathForCompare(value: string) {
   return value.replace(/\\/g, '/').replace(/^\.\/+/, '').replace(/^\/+/, '');
 }
 
+function primaryShareUrl(share: PublicShareResult) {
+  return share.shortUrl || share.publicUrl;
+}
+
 export function PublicShareDialog({ open, onOpenChange, paths, onPublished }: PublicShareDialogProps) {
   const t = useTranslations('notebook');
   const [expiryDays, setExpiryDays] = useState<ExpiryOption>(30);
@@ -67,16 +74,20 @@ export function PublicShareDialog({ open, onOpenChange, paths, onPublished }: Pu
     [uniquePaths, existingSharePaths]
   );
 
+  const resetDialogState = useCallback(() => {
+    setExpiryDays(30);
+    setIsPublishing(false);
+    setIsChecking(false);
+    setRevokingIds(new Set());
+    setExistingShares([]);
+    setShares([]);
+    setSkipped([]);
+  }, []);
+
   useEffect(() => {
     if (!open) {
-      setExpiryDays(30);
-      setIsPublishing(false);
-      setIsChecking(false);
-      setRevokingIds(new Set());
-      setExistingShares([]);
-      setShares([]);
-      setSkipped([]);
-      return;
+      const resetTimer = window.setTimeout(resetDialogState, 0);
+      return () => window.clearTimeout(resetTimer);
     }
 
     if (uniquePaths.length === 0) return;
@@ -112,7 +123,7 @@ export function PublicShareDialog({ open, onOpenChange, paths, onPublished }: Pu
     void loadExistingShares();
 
     return () => controller.abort();
-  }, [open, uniquePaths, t]);
+  }, [open, uniquePaths, t, resetDialogState]);
 
   const handlePublish = async () => {
     if (publishablePaths.length === 0) {
@@ -190,7 +201,7 @@ export function PublicShareDialog({ open, onOpenChange, paths, onPublished }: Pu
   };
 
   const copyAll = async () => {
-    await copyText(shares.map((share) => share.publicUrl).join('\n'), t('publicShareCopiedAll'));
+    await copyText(shares.map(primaryShareUrl).join('\n'), t('publicShareCopiedAll'));
   };
 
   const openUrl = (url: string) => {
@@ -199,22 +210,31 @@ export function PublicShareDialog({ open, onOpenChange, paths, onPublished }: Pu
 
   const renderShareCard = (share: PublicShareResult) => {
     const isRevoking = revokingIds.has(share.id);
+    const shareUrl = primaryShareUrl(share);
+    const hasLongUrl = Boolean(share.publicUrl && share.publicUrl !== shareUrl);
 
     return (
       <div key={share.id} className="min-w-0 border border-border bg-background p-2">
         <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
           <div className="min-w-0">
             <div className="break-all text-sm font-medium" title={share.workspacePath}>{share.fileName}</div>
-            <div className="break-all font-mono text-xs text-muted-foreground" title={share.publicUrl}>{share.publicUrl}</div>
+            <div className="mt-1 text-[11px] font-medium uppercase text-muted-foreground">{t('publicShareShortUrl')}</div>
+            <div className="break-all bg-muted/40 px-2 py-1 font-mono text-xs" title={shareUrl}>{shareUrl}</div>
+            {hasLongUrl && (
+              <details className="mt-1 text-xs text-muted-foreground">
+                <summary className="cursor-pointer select-none">{t('publicShareLongUrl')}</summary>
+                <div className="mt-1 break-all font-mono" title={share.publicUrl}>{share.publicUrl}</div>
+              </details>
+            )}
             <div className="mt-1 text-xs text-muted-foreground">
               {share.expiresAt ? t('publicShareExpiresAt', { date: formatDate(share.expiresAt) }) : t('publicShareNeverExpires')}
             </div>
           </div>
           <div className="flex shrink-0 flex-wrap justify-end gap-1">
-            <Button variant="ghost" size="icon-sm" onClick={() => copyText(share.publicUrl, t('publicShareCopied'))}>
+            <Button variant="ghost" size="icon-sm" onClick={() => copyText(shareUrl, t('publicShareCopied'))}>
               <Copy className="h-4 w-4" />
             </Button>
-            <Button variant="ghost" size="icon-sm" onClick={() => openUrl(share.publicUrl)}>
+            <Button variant="ghost" size="icon-sm" onClick={() => openUrl(shareUrl)}>
               <ExternalLink className="h-4 w-4" />
             </Button>
             <Button

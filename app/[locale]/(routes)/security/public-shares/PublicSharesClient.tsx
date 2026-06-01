@@ -34,6 +34,9 @@ interface PublicShare {
   revokedAt: string | null;
   lastAccessedAt: string | null;
   accessCount: number;
+  shortCode?: string | null;
+  shortUrl?: string;
+  shortPath?: string;
   publicUrl: string;
 }
 
@@ -67,6 +70,10 @@ function statusClass(status: PublicShare['status']) {
   if (status === 'expired') return 'border-slate-500/30 bg-slate-500/10 text-slate-700 dark:text-slate-300';
   if (status === 'revoked') return 'border-muted bg-muted text-muted-foreground';
   return 'border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300';
+}
+
+function primaryShareUrl(share: PublicShare) {
+  return share.shortUrl || share.publicUrl;
 }
 
 export function PublicSharesClient() {
@@ -161,56 +168,60 @@ export function PublicSharesClient() {
     }
   };
 
-  const renderShareActions = (share: PublicShare, compact = false) => (
-    <div className={cn(compact ? 'grid grid-cols-1 gap-2 sm:grid-cols-2' : 'flex flex-wrap justify-end gap-1')}>
-      <Button
-        variant={compact ? 'outline' : 'ghost'}
-        size={compact ? 'sm' : 'icon-sm'}
-        className={compact ? 'min-w-0 justify-start' : undefined}
-        onClick={() => copyUrl(share.publicUrl)}
-        title={t('copyUrl')}
-      >
-        <Copy className="h-4 w-4" />
-        {compact ? t('copyUrl') : null}
-      </Button>
-      <Button
-        variant={compact ? 'outline' : 'ghost'}
-        size={compact ? 'sm' : 'icon-sm'}
-        className={compact ? 'min-w-0 justify-start' : undefined}
-        asChild
-        title={t('openPublicUrl')}
-      >
-        <a href={share.publicUrl} target="_blank" rel="noopener noreferrer">
-          <ExternalLink className="h-4 w-4" />
-          {compact ? t('openPublicUrl') : null}
-        </a>
-      </Button>
-      <Button
-        variant={compact ? 'outline' : 'ghost'}
-        size={compact ? 'sm' : 'icon-sm'}
-        className={compact ? 'min-w-0 justify-start' : undefined}
-        asChild
-        title={t('openFile')}
-      >
-        <Link href={`/files?path=${encodeURIComponent(share.workspacePath)}`}>
-          <FileText className="h-4 w-4" />
-          {compact ? t('openFile') : null}
-        </Link>
-      </Button>
-      {share.status === 'active' && (
+  const renderShareActions = (share: PublicShare, compact = false) => {
+    const shareUrl = primaryShareUrl(share);
+
+    return (
+      <div className={cn(compact ? 'grid grid-cols-1 gap-2 sm:grid-cols-2' : 'flex flex-wrap justify-end gap-1')}>
         <Button
           variant={compact ? 'outline' : 'ghost'}
-          size="sm"
-          className={cn('text-destructive hover:text-destructive', compact && 'min-w-0 justify-start')}
-          onClick={() => void revokeShare(share)}
-          disabled={revokingId === share.id}
+          size={compact ? 'sm' : 'icon-sm'}
+          className={compact ? 'min-w-0 justify-start' : undefined}
+          onClick={() => copyUrl(shareUrl)}
+          title={t('copyUrl')}
         >
-          {revokingId === share.id ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-          {t('revoke')}
+          <Copy className="h-4 w-4" />
+          {compact ? t('copyUrl') : null}
         </Button>
-      )}
-    </div>
-  );
+        <Button
+          variant={compact ? 'outline' : 'ghost'}
+          size={compact ? 'sm' : 'icon-sm'}
+          className={compact ? 'min-w-0 justify-start' : undefined}
+          asChild
+          title={t('openPublicUrl')}
+        >
+          <a href={shareUrl} target="_blank" rel="noopener noreferrer">
+            <ExternalLink className="h-4 w-4" />
+            {compact ? t('openPublicUrl') : null}
+          </a>
+        </Button>
+        <Button
+          variant={compact ? 'outline' : 'ghost'}
+          size={compact ? 'sm' : 'icon-sm'}
+          className={compact ? 'min-w-0 justify-start' : undefined}
+          asChild
+          title={t('openFile')}
+        >
+          <Link href={`/files?path=${encodeURIComponent(share.workspacePath)}`}>
+            <FileText className="h-4 w-4" />
+            {compact ? t('openFile') : null}
+          </Link>
+        </Button>
+        {share.status === 'active' && (
+          <Button
+            variant={compact ? 'outline' : 'ghost'}
+            size="sm"
+            className={cn('text-destructive hover:text-destructive', compact && 'min-w-0 justify-start')}
+            onClick={() => void revokeShare(share)}
+            disabled={revokingId === share.id}
+          >
+            {revokingId === share.id ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+            {t('revoke')}
+          </Button>
+        )}
+      </div>
+    );
+  };
 
   const renderFilterControls = (compact = false) => (
     <div className={cn('min-w-0', compact ? 'space-y-5' : 'contents')}>
@@ -382,98 +393,119 @@ export function PublicSharesClient() {
           </div>
         ) : (
           <>
-          <div className="grid gap-3 p-3 md:hidden">
-            {shares.map((share) => (
-              <article key={share.id} className="min-w-0 border border-border bg-background">
-                <div className="flex min-w-0 items-start justify-between gap-3 border-b border-border p-3">
-                  <div className="flex min-w-0 flex-1 items-start gap-2">
-                    <FileText className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
-                    <div className="min-w-0 flex-1">
-                      <div className="break-all text-sm font-medium leading-snug" title={share.fileName}>{share.fileName}</div>
-                      <div className="mt-1 flex flex-wrap gap-1">
-                        <Badge variant="outline" className={statusClass(share.status)}>{t(`status.${share.status}`)}</Badge>
-                        <Badge variant="secondary">{t(`source.${share.source}`)}</Badge>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="shrink-0 text-right text-xs text-muted-foreground">
-                    <div className="font-medium text-foreground">{share.accessCount}</div>
-                    <div>{t('accesses')}</div>
-                  </div>
-                </div>
-                <div className="space-y-3 p-3">
-                  <div className="min-w-0">
-                    <div className="text-xs font-medium text-muted-foreground">{t('filePath')}</div>
-                    <div className="mt-1 break-all bg-muted/40 px-2 py-1 font-mono text-xs" title={share.workspacePath}>
-                      {share.workspacePath}
-                    </div>
-                  </div>
-                  <div className="min-w-0">
-                    <div className="text-xs font-medium text-muted-foreground">{t('publicUrl')}</div>
-                    <div className="mt-1 break-all bg-muted/40 px-2 py-1 font-mono text-xs" title={share.publicUrl}>
-                      {share.publicUrl}
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-2 gap-2 text-xs">
-                    <div className="min-w-0 border border-border px-2 py-1.5">
-                      <div className="text-muted-foreground">{t('typeLabel')}</div>
-                      <div className="break-all">{share.mimeType}</div>
-                      <div className="text-muted-foreground">{formatBytes(share.sizeBytes)}</div>
-                    </div>
-                    <div className="min-w-0 border border-border px-2 py-1.5">
-                      <div className="text-muted-foreground">{t('expires')}</div>
-                      <div>{share.expiresAt ? formatDate(share.expiresAt) : t('never')}</div>
-                    </div>
-                  </div>
-                  {renderShareActions(share, true)}
-                </div>
-              </article>
-            ))}
-          </div>
-          <div className="hidden max-w-full overflow-x-auto md:block">
-            <table className="w-full min-w-[980px] text-left text-sm">
-              <thead className="border-b border-border bg-muted/40 text-xs text-muted-foreground">
-                <tr>
-                  <th className="px-3 py-2 font-medium">{t('file')}</th>
-                  <th className="px-3 py-2 font-medium">{t('statusLabel')}</th>
-                  <th className="px-3 py-2 font-medium">{t('typeLabel')}</th>
-                  <th className="px-3 py-2 font-medium">{t('expires')}</th>
-                  <th className="px-3 py-2 font-medium">{t('accesses')}</th>
-                  <th className="px-3 py-2 font-medium">{t('lastAccess')}</th>
-                  <th className="px-3 py-2 text-right font-medium">{t('actions')}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {shares.map((share) => (
-                  <tr key={share.id} className="border-b border-border/70 last:border-0">
-                    <td className="max-w-[360px] px-3 py-3">
-                      <div className="flex min-w-0 items-start gap-2">
+            <div className="grid gap-3 p-3 md:hidden">
+              {shares.map((share) => {
+                const shareUrl = primaryShareUrl(share);
+                const hasLongUrl = Boolean(share.publicUrl && share.publicUrl !== shareUrl);
+
+                return (
+                  <article key={share.id} className="min-w-0 border border-border bg-background">
+                    <div className="flex min-w-0 items-start justify-between gap-3 border-b border-border p-3">
+                      <div className="flex min-w-0 flex-1 items-start gap-2">
                         <FileText className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
-                        <div className="min-w-0">
-                          <div className="truncate font-medium" title={share.fileName}>{share.fileName}</div>
-                          <div className="truncate font-mono text-xs text-muted-foreground" title={share.workspacePath}>{share.workspacePath}</div>
-                          <div className="mt-1 truncate font-mono text-xs text-muted-foreground" title={share.publicUrl}>{share.publicUrl}</div>
+                        <div className="min-w-0 flex-1">
+                          <div className="break-all text-sm font-medium leading-snug" title={share.fileName}>{share.fileName}</div>
+                          <div className="mt-1 flex flex-wrap gap-1">
+                            <Badge variant="outline" className={statusClass(share.status)}>{t(`status.${share.status}`)}</Badge>
+                            <Badge variant="secondary">{t(`source.${share.source}`)}</Badge>
+                          </div>
                         </div>
                       </div>
-                    </td>
-                    <td className="px-3 py-3">
-                      <Badge variant="outline" className={statusClass(share.status)}>{t(`status.${share.status}`)}</Badge>
-                    </td>
-                    <td className="px-3 py-3 text-xs text-muted-foreground">
-                      <div>{share.mimeType}</div>
-                      <div>{formatBytes(share.sizeBytes)}</div>
-                    </td>
-                    <td className="px-3 py-3 text-xs text-muted-foreground">{share.expiresAt ? formatDate(share.expiresAt) : t('never')}</td>
-                    <td className="px-3 py-3">{share.accessCount}</td>
-                    <td className="px-3 py-3 text-xs text-muted-foreground">{formatDate(share.lastAccessedAt)}</td>
-                    <td className="px-3 py-3">
-                      {renderShareActions(share)}
-                    </td>
+                      <div className="shrink-0 text-right text-xs text-muted-foreground">
+                        <div className="font-medium text-foreground">{share.accessCount}</div>
+                        <div>{t('accesses')}</div>
+                      </div>
+                    </div>
+                    <div className="space-y-3 p-3">
+                      <div className="min-w-0">
+                        <div className="text-xs font-medium text-muted-foreground">{t('filePath')}</div>
+                        <div className="mt-1 break-all bg-muted/40 px-2 py-1 font-mono text-xs" title={share.workspacePath}>
+                          {share.workspacePath}
+                        </div>
+                      </div>
+                      <div className="min-w-0">
+                        <div className="text-xs font-medium text-muted-foreground">{t('shortUrl')}</div>
+                        <div className="mt-1 break-all bg-muted/40 px-2 py-1 font-mono text-xs" title={shareUrl}>
+                          {shareUrl}
+                        </div>
+                        {hasLongUrl ? (
+                          <details className="mt-1 text-xs text-muted-foreground">
+                            <summary className="cursor-pointer select-none">{t('longUrl')}</summary>
+                            <div className="mt-1 break-all font-mono" title={share.publicUrl}>{share.publicUrl}</div>
+                          </details>
+                        ) : null}
+                      </div>
+                      <div className="grid grid-cols-2 gap-2 text-xs">
+                        <div className="min-w-0 border border-border px-2 py-1.5">
+                          <div className="text-muted-foreground">{t('typeLabel')}</div>
+                          <div className="break-all">{share.mimeType}</div>
+                          <div className="text-muted-foreground">{formatBytes(share.sizeBytes)}</div>
+                        </div>
+                        <div className="min-w-0 border border-border px-2 py-1.5">
+                          <div className="text-muted-foreground">{t('expires')}</div>
+                          <div>{share.expiresAt ? formatDate(share.expiresAt) : t('never')}</div>
+                        </div>
+                      </div>
+                      {renderShareActions(share, true)}
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+            <div className="hidden max-w-full overflow-x-auto md:block">
+              <table className="w-full min-w-[980px] text-left text-sm">
+                <thead className="border-b border-border bg-muted/40 text-xs text-muted-foreground">
+                  <tr>
+                    <th className="px-3 py-2 font-medium">{t('file')}</th>
+                    <th className="px-3 py-2 font-medium">{t('statusLabel')}</th>
+                    <th className="px-3 py-2 font-medium">{t('typeLabel')}</th>
+                    <th className="px-3 py-2 font-medium">{t('expires')}</th>
+                    <th className="px-3 py-2 font-medium">{t('accesses')}</th>
+                    <th className="px-3 py-2 font-medium">{t('lastAccess')}</th>
+                    <th className="px-3 py-2 text-right font-medium">{t('actions')}</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {shares.map((share) => {
+                    const shareUrl = primaryShareUrl(share);
+                    const hasLongUrl = Boolean(share.publicUrl && share.publicUrl !== shareUrl);
+
+                    return (
+                      <tr key={share.id} className="border-b border-border/70 last:border-0">
+                        <td className="max-w-[360px] px-3 py-3">
+                          <div className="flex min-w-0 items-start gap-2">
+                            <FileText className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                            <div className="min-w-0">
+                              <div className="truncate font-medium" title={share.fileName}>{share.fileName}</div>
+                              <div className="truncate font-mono text-xs text-muted-foreground" title={share.workspacePath}>{share.workspacePath}</div>
+                              <div className="mt-1 truncate font-mono text-xs text-foreground" title={shareUrl}>{shareUrl}</div>
+                              {hasLongUrl ? (
+                                <div className="mt-0.5 truncate font-mono text-[11px] text-muted-foreground" title={share.publicUrl}>
+                                  {t('longUrl')}: {share.publicUrl}
+                                </div>
+                              ) : null}
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-3 py-3">
+                          <Badge variant="outline" className={statusClass(share.status)}>{t(`status.${share.status}`)}</Badge>
+                        </td>
+                        <td className="px-3 py-3 text-xs text-muted-foreground">
+                          <div>{share.mimeType}</div>
+                          <div>{formatBytes(share.sizeBytes)}</div>
+                        </td>
+                        <td className="px-3 py-3 text-xs text-muted-foreground">{share.expiresAt ? formatDate(share.expiresAt) : t('never')}</td>
+                        <td className="px-3 py-3">{share.accessCount}</td>
+                        <td className="px-3 py-3 text-xs text-muted-foreground">{formatDate(share.lastAccessedAt)}</td>
+                        <td className="px-3 py-3">
+                          {renderShareActions(share)}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           </>
         )}
       </section>

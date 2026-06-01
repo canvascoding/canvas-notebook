@@ -33,6 +33,9 @@ export interface PublicShareDto {
   revokedAt: string | null;
   lastAccessedAt: string | null;
   accessCount: number;
+  shortCode: string | null;
+  shortUrl: string;
+  shortPath: string;
   publicUrl: string;
   publicPath: string;
 }
@@ -40,12 +43,27 @@ export interface PublicShareDto {
 export interface PublicShareAnnotation {
   id: string;
   status: PublicShareStatus;
+  shortUrl: string;
   publicUrl: string;
   expiresAt: string | null;
   accessCount: number;
 }
 
-type PublicShareRow = typeof publicFileShares.$inferSelect;
+export type PublicShareRow = typeof publicFileShares.$inferSelect;
+
+export type PublicShareResolution = {
+  ok: true;
+  share: PublicShareDto;
+  row: PublicShareRow;
+  workspacePath: string;
+  fullPath: string;
+  sizeBytes: number;
+  mimeType: string;
+} | {
+  ok: false;
+  status: number;
+  error: string;
+};
 
 interface WorkspaceFileDetails {
   workspacePath: string;
@@ -58,6 +76,8 @@ interface WorkspaceFileDetails {
 }
 
 const TOKEN_BYTES = 32;
+const SHORT_CODE_LENGTH = 6;
+const SHORT_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789';
 const DEFAULT_SHARE_LIMIT = 500;
 
 const MIME_TYPES: Record<string, string> = {
@@ -233,6 +253,32 @@ function createToken(): string {
   return randomBytes(TOKEN_BYTES).toString('base64url');
 }
 
+function createShortCode(): string {
+  const maxAcceptedByte = Math.floor(256 / SHORT_CODE_ALPHABET.length) * SHORT_CODE_ALPHABET.length;
+  let code = '';
+  while (code.length < SHORT_CODE_LENGTH) {
+    for (const byte of randomBytes(SHORT_CODE_LENGTH * 2)) {
+      if (byte >= maxAcceptedByte) continue;
+      code += SHORT_CODE_ALPHABET[byte % SHORT_CODE_ALPHABET.length];
+      if (code.length === SHORT_CODE_LENGTH) break;
+    }
+  }
+  return code;
+}
+
+async function createUniqueShortCode(): Promise<string> {
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const shortCode = createShortCode();
+    const [existing] = await db.select({ id: publicFileShares.id })
+      .from(publicFileShares)
+      .where(eq(publicFileShares.shortCode, shortCode))
+      .limit(1);
+    if (!existing) return shortCode;
+  }
+
+  throw new Error('Could not allocate a unique short public URL.');
+}
+
 function tokenHash(token: string): string {
   return createHash('sha256').update(token).digest('hex');
 }
@@ -259,8 +305,18 @@ function publicFilePath(row: PublicShareRow): string {
   return `/public/files/${encodeURIComponent(row.token)}/${encodeURIComponent(row.fileName)}`;
 }
 
+function shortPublicFilePath(row: PublicShareRow): string {
+  return row.shortCode ? `/p/${encodeURIComponent(row.shortCode)}` : publicFilePath(row);
+}
+
 export function buildPublicFileUrl(row: PublicShareRow, baseUrl?: string | null): string {
   const relative = publicFilePath(row);
+  if (!baseUrl) return relative;
+  return `${baseUrl.replace(/\/+$/, '')}${relative}`;
+}
+
+export function buildShortPublicFileUrl(row: PublicShareRow, baseUrl?: string | null): string {
+  const relative = shortPublicFilePath(row);
   if (!baseUrl) return relative;
   return `${baseUrl.replace(/\/+$/, '')}${relative}`;
 }
@@ -284,6 +340,9 @@ function toDto(row: PublicShareRow, baseUrl?: string | null): PublicShareDto {
     revokedAt: toIso(row.revokedAt),
     lastAccessedAt: toIso(row.lastAccessedAt),
     accessCount: row.accessCount,
+    shortCode: row.shortCode,
+    shortUrl: buildShortPublicFileUrl(row, baseUrl),
+    shortPath: shortPublicFilePath(row),
     publicUrl: buildPublicFileUrl(row, baseUrl),
     publicPath: publicFilePath(row),
   };
@@ -296,6 +355,11 @@ async function updateShare(row: PublicShareRow, values: Partial<typeof publicFil
     .where(eq(publicFileShares.id, row.id));
   const [updated] = await db.select().from(publicFileShares).where(eq(publicFileShares.id, row.id)).limit(1);
   return updated || { ...row, ...values, updatedAt } as PublicShareRow;
+}
+
+async function ensureShortCode(row: PublicShareRow): Promise<PublicShareRow> {
+  if (row.shortCode) return row;
+  return updateShare(row, { shortCode: await createUniqueShortCode() });
 }
 
 async function reconcileRow(row: PublicShareRow): Promise<PublicShareRow> {
@@ -374,11 +438,12 @@ export async function createPublicFileShares(params: {
       const reconciledExistingRows = await Promise.all(existingRows.map(reconcileRow));
       const existing = reconciledExistingRows.find((row) => row.status === 'active' && row.fileIdentity === details.fileIdentity);
       if (existing) {
-        shares.push(toDto(await reconcileRow(existing), params.baseUrl));
+        shares.push(toDto(await ensureShortCode(await reconcileRow(existing)), params.baseUrl));
         continue;
       }
 
       const token = createToken();
+      const shortCode = await createUniqueShortCode();
       const now = new Date();
       const [inserted] = await db.insert(publicFileShares)
         .values({
@@ -386,6 +451,7 @@ export async function createPublicFileShares(params: {
           token,
           tokenHash: tokenHash(token),
           tokenPreview: token.slice(0, 8),
+          shortCode,
           workspacePath: details.workspacePath,
           fileName: details.fileName,
           fileIdentity: details.fileIdentity,
@@ -470,15 +536,17 @@ export async function listPublicFileShares(params: {
     }).filter((candidate): candidate is string => Boolean(candidate))
   );
 
-  return reconciled
+  const visibleRows = reconciled
     .filter((row) => params.isAdmin || row.createdByUserId === params.userId)
     .filter((row) => pathFilter.size === 0 || pathFilter.has(row.workspacePath))
     .filter((row) => !params.status || params.status === 'all' || row.status === params.status)
     .filter((row) => !params.source || params.source === 'all' || row.source === params.source)
     .filter((row) => matchesTypeFilter(row, type))
-    .filter((row) => !query || `${row.workspacePath} ${row.fileName}`.toLowerCase().includes(query))
-    .slice(0, limit)
-    .map((row) => toDto(row, params.baseUrl));
+    .filter((row) => !query || `${row.workspacePath} ${row.fileName} ${row.shortCode ?? ''} ${row.tokenPreview}`.toLowerCase().includes(query))
+    .slice(0, limit);
+
+  const withShortCodes = await Promise.all(visibleRows.map(ensureShortCode));
+  return withShortCodes.map((row) => toDto(row, params.baseUrl));
 }
 
 export async function getPublicShareAnnotations(paths: string[], baseUrl?: string | null): Promise<Map<string, PublicShareAnnotation>> {
@@ -499,12 +567,14 @@ export async function getPublicShareAnnotations(paths: string[], baseUrl?: strin
     if (!normalizedTargets.has(row.workspacePath)) continue;
     const reconciled = await reconcileRow(row);
     if (reconciled.status !== 'active') continue;
-    result.set(reconciled.workspacePath, {
-      id: reconciled.id,
+    const withShortCode = await ensureShortCode(reconciled);
+    result.set(withShortCode.workspacePath, {
+      id: withShortCode.id,
       status: 'active',
-      publicUrl: buildPublicFileUrl(reconciled, baseUrl),
-      expiresAt: toIso(reconciled.expiresAt),
-      accessCount: reconciled.accessCount,
+      shortUrl: buildShortPublicFileUrl(withShortCode, baseUrl),
+      publicUrl: buildPublicFileUrl(withShortCode, baseUrl),
+      expiresAt: toIso(withShortCode.expiresAt),
+      accessCount: withShortCode.accessCount,
     });
   }
   return result;
@@ -582,19 +652,43 @@ export async function syncPublicSharesAfterMove(oldPath: string, newPath: string
   );
 }
 
-export async function resolvePublicShareToken(token: string): Promise<{
-  ok: true;
-  share: PublicShareDto;
-  row: PublicShareRow;
-  workspacePath: string;
-  fullPath: string;
-  sizeBytes: number;
-  mimeType: string;
-} | {
-  ok: false;
-  status: number;
-  error: string;
-}> {
+async function resolvePublicShareRow(row: PublicShareRow): Promise<PublicShareResolution> {
+  const reconciled = await reconcileRow(row);
+  if (reconciled.status !== 'active') {
+    return {
+      ok: false,
+      status: reconciled.status === 'expired' || reconciled.status === 'revoked' ? 410 : 404,
+      error: `Public file is ${reconciled.status}.`,
+    };
+  }
+
+  const withShortCode = await ensureShortCode(reconciled);
+  const details = await getWorkspaceFileDetails(withShortCode.workspacePath);
+  if (details.fileIdentity !== withShortCode.fileIdentity) {
+    await updateShare(withShortCode, { status: 'stale' });
+    return { ok: false, status: 404, error: 'Public file is no longer the same file.' };
+  }
+
+  const updated = await updateShare(withShortCode, {
+    lastAccessedAt: new Date(),
+    accessCount: withShortCode.accessCount + 1,
+    mimeType: details.mimeType,
+    sizeBytes: details.sizeBytes,
+    fileName: details.fileName,
+  });
+
+  return {
+    ok: true,
+    share: toDto(updated, null),
+    row: updated,
+    workspacePath: details.workspacePath,
+    fullPath: details.fullPath,
+    sizeBytes: details.sizeBytes,
+    mimeType: details.mimeType,
+  };
+}
+
+export async function resolvePublicShareToken(token: string): Promise<PublicShareResolution> {
   const normalizedToken = token.trim();
   if (!/^[A-Za-z0-9_-]{20,160}$/.test(normalizedToken)) {
     return { ok: false, status: 404, error: 'Public file not found.' };
@@ -609,38 +703,30 @@ export async function resolvePublicShareToken(token: string): Promise<{
     return { ok: false, status: 404, error: 'Public file not found.' };
   }
 
-  const reconciled = await reconcileRow(row);
-  if (reconciled.status !== 'active') {
-    return {
-      ok: false,
-      status: reconciled.status === 'expired' || reconciled.status === 'revoked' ? 410 : 404,
-      error: `Public file is ${reconciled.status}.`,
-    };
+  return resolvePublicShareRow(row);
+}
+
+export async function resolvePublicShareShortCode(shortCode: string): Promise<PublicShareResolution> {
+  const normalizedShortCode = shortCode.trim();
+  const hasValidCharacters = Array.from(normalizedShortCode).every((char) => SHORT_CODE_ALPHABET.includes(char));
+  if (normalizedShortCode.length !== SHORT_CODE_LENGTH || !hasValidCharacters) {
+    return { ok: false, status: 404, error: 'Public file not found.' };
   }
 
-  const details = await getWorkspaceFileDetails(reconciled.workspacePath);
-  if (details.fileIdentity !== reconciled.fileIdentity) {
-    await updateShare(reconciled, { status: 'stale' });
-    return { ok: false, status: 404, error: 'Public file is no longer the same file.' };
+  const [row] = await db.select()
+    .from(publicFileShares)
+    .where(eq(publicFileShares.shortCode, normalizedShortCode))
+    .limit(1);
+
+  if (!row) {
+    return { ok: false, status: 404, error: 'Public file not found.' };
   }
 
-  await updateShare(reconciled, {
-    lastAccessedAt: new Date(),
-    accessCount: reconciled.accessCount + 1,
-    mimeType: details.mimeType,
-    sizeBytes: details.sizeBytes,
-    fileName: details.fileName,
-  });
-
-  return {
-    ok: true,
-    share: toDto({ ...reconciled, ...details, sizeBytes: details.sizeBytes } as PublicShareRow),
-    row: reconciled,
-    workspacePath: details.workspacePath,
-    fullPath: details.fullPath,
-    sizeBytes: details.sizeBytes,
-    mimeType: details.mimeType,
-  };
+  const resolved = await resolvePublicShareRow(row);
+  if (!resolved.ok) {
+    return { ok: false, status: 404, error: 'Public file not found.' };
+  }
+  return resolved;
 }
 
 function quotedFileName(fileName: string): string {
