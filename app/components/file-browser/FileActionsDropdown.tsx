@@ -33,6 +33,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
@@ -394,6 +395,13 @@ export function FileActionsDropdown({
           )}
           {showCreateActions && (
             <>
+              <DropdownMenuLabel className="px-2 py-1 text-xs font-medium text-muted-foreground">
+                {t('create')}
+              </DropdownMenuLabel>
+              <DropdownMenuItem onSelect={handleNewFolder}>
+                <FolderPlus className="h-4 w-4" />
+                {t('newFolder')}
+              </DropdownMenuItem>
               <DropdownMenuItem onSelect={handleNewFile}>
                 <FilePlus className="h-4 w-4" />
                 {t('newFile')}
@@ -401,10 +409,6 @@ export function FileActionsDropdown({
               <DropdownMenuItem onSelect={handleNewExcalidraw}>
                 <PenTool className="h-4 w-4" />
                 {t('newExcalidraw')}
-              </DropdownMenuItem>
-              <DropdownMenuItem onSelect={handleNewFolder}>
-                <FolderPlus className="h-4 w-4" />
-                {t('newFolder')}
               </DropdownMenuItem>
               <DropdownMenuSeparator />
             </>

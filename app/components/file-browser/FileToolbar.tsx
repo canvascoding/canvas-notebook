@@ -1,12 +1,13 @@
 'use client';
 
-import { ChevronDown, ChevronsDownUp, CheckSquare, FilePlus, FolderPlus, FolderTree, LayoutGrid, List, MoreHorizontal, PenTool, Plus, RefreshCw, Trash2, Upload } from 'lucide-react';
+import { ChevronDown, ChevronsDownUp, CheckSquare, FilePlus, FolderPlus, FolderTree, LayoutGrid, List, MoreHorizontal, PenTool, RefreshCw, Trash2, Upload } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
@@ -50,61 +51,114 @@ export function FileToolbar({ variant, isMultiSelectMode, isDeleteDisabled, hand
   const isMobileSheet = variant === 'mobile-sheet';
   const isFullscreen = variant === 'fullscreen';
 
-  const renderCreateMenu = ({
+  const renderCreateMenuItems = () => (
+    <>
+      <DropdownMenuLabel className="px-2 py-1 text-xs font-medium text-muted-foreground">
+        {t('create')}
+      </DropdownMenuLabel>
+      <DropdownMenuItem onSelect={handlers.onNewFolder}>
+        <FolderPlus className="h-4 w-4" />
+        {t('newFolder')}
+      </DropdownMenuItem>
+      <DropdownMenuItem onSelect={handlers.onNewFile}>
+        <FilePlus className="h-4 w-4" />
+        {t('newFile')}
+      </DropdownMenuItem>
+      <DropdownMenuItem onSelect={handlers.onNewExcalidraw}>
+        <PenTool className="h-4 w-4" />
+        {t('newExcalidraw')}
+      </DropdownMenuItem>
+    </>
+  );
+
+  const renderCreateSplitButton = ({
     align = 'start',
     sideOffset = 8,
     showLabel = false,
     labelClassName = 'hidden sm:inline',
     triggerClassName,
-    tooltipLabel,
+    mainTooltipLabel,
   }: {
     align?: 'start' | 'center' | 'end';
     sideOffset?: number;
     showLabel?: boolean;
     labelClassName?: string;
     triggerClassName?: string;
-    tooltipLabel?: string;
+    mainTooltipLabel?: string;
   } = {}) => {
-    const trigger = (
+    const mainButton = (
       <Button
         variant="ghost"
         size={showLabel ? 'sm' : 'icon-sm'}
-        className={cn(showLabel && 'h-8 gap-1.5 text-xs', triggerClassName)}
-        aria-label={t('create')}
+        className={cn(showLabel && 'h-8 gap-1.5 text-xs', 'rounded-r-none', triggerClassName)}
+        onClick={handlers.onNewFolder}
+        aria-label={t('newFolder')}
       >
-        <Plus className="h-4 w-4" />
-        {showLabel && <span className={labelClassName}>{t('create')}</span>}
-        {showLabel && <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />}
+        <FolderPlus className="h-4 w-4" />
+        {showLabel && <span className={labelClassName}>{t('newFolder')}</span>}
       </Button>
     );
 
+    const mainAction = mainTooltipLabel ? (
+      <Tooltip>
+        <TooltipTrigger asChild>{mainButton}</TooltipTrigger>
+        <TooltipContent>{mainTooltipLabel}</TooltipContent>
+      </Tooltip>
+    ) : mainButton;
+
     return (
       <DropdownMenu modal={false}>
-        {tooltipLabel ? (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <DropdownMenuTrigger asChild>{trigger}</DropdownMenuTrigger>
-            </TooltipTrigger>
-            <TooltipContent>{tooltipLabel}</TooltipContent>
-          </Tooltip>
-        ) : (
-          <DropdownMenuTrigger asChild>{trigger}</DropdownMenuTrigger>
-        )}
+        <div className="inline-flex shrink-0 overflow-hidden rounded-md">
+          {mainAction}
+          <DropdownMenuTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              className="h-8 w-6 rounded-l-none border-l border-border/70 px-0"
+              aria-label={t('create')}
+            >
+              <ChevronDown className="h-3.5 w-3.5" />
+            </Button>
+          </DropdownMenuTrigger>
+        </div>
         <DropdownMenuContent align={align} sideOffset={sideOffset} className="w-56">
-          <DropdownMenuItem onSelect={handlers.onNewFile}>
-            <FilePlus className="h-4 w-4" />
-            {t('newFile')}
-          </DropdownMenuItem>
-          <DropdownMenuItem onSelect={handlers.onNewExcalidraw}>
-            <PenTool className="h-4 w-4" />
-            {t('newExcalidraw')}
-          </DropdownMenuItem>
-          <DropdownMenuItem onSelect={handlers.onNewFolder}>
-            <FolderPlus className="h-4 w-4" />
-            {t('newFolder')}
-          </DropdownMenuItem>
+          {renderCreateMenuItems()}
         </DropdownMenuContent>
       </DropdownMenu>
+    );
+  };
+
+  const renderDeleteButton = ({
+    showLabel = false,
+    labelClassName = 'hidden sm:inline',
+    tooltipLabel,
+  }: {
+    showLabel?: boolean;
+    labelClassName?: string;
+    tooltipLabel?: string;
+  } = {}) => {
+    if (isDeleteDisabled) return null;
+
+    const button = (
+      <Button
+        variant="ghost"
+        size={showLabel ? 'sm' : 'icon-sm'}
+        className={cn(showLabel && 'h-8 gap-1.5 text-xs')}
+        onClick={handlers.onDelete}
+        aria-label={t('delete')}
+      >
+        <Trash2 className="h-4 w-4" />
+        {showLabel && <span className={labelClassName}>{t('delete')}</span>}
+      </Button>
+    );
+
+    if (!tooltipLabel) return button;
+
+    return (
+      <Tooltip>
+        <TooltipTrigger asChild>{button}</TooltipTrigger>
+        <TooltipContent>{tooltipLabel}</TooltipContent>
+      </Tooltip>
     );
   };
 
@@ -121,7 +175,7 @@ export function FileToolbar({ variant, isMultiSelectMode, isDeleteDisabled, hand
           <CheckSquare className={cn('h-4 w-4', isMultiSelectMode && 'text-primary')} />
           {isMultiSelectMode ? t('multiSelectDone') : t('select')}
         </Button>
-        {renderCreateMenu()}
+        {renderCreateSplitButton()}
         <Button
           variant="ghost"
           size="sm"
@@ -132,17 +186,7 @@ export function FileToolbar({ variant, isMultiSelectMode, isDeleteDisabled, hand
           <Upload className="h-4 w-4" />
           {t('upload')}
         </Button>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-8 gap-1.5 text-xs"
-          onClick={handlers.onDelete}
-          disabled={isDeleteDisabled}
-          aria-label={t('delete')}
-        >
-          <Trash2 className="h-4 w-4" />
-          {t('delete')}
-        </Button>
+        {renderDeleteButton({ showLabel: true })}
         <DropdownMenu modal={false}>
           <DropdownMenuTrigger asChild>
             <Button variant="ghost" size="icon-sm" aria-label={t('moreActions')}>
@@ -188,15 +232,12 @@ export function FileToolbar({ variant, isMultiSelectMode, isDeleteDisabled, hand
           <CheckSquare className={cn('h-4 w-4', isMultiSelectMode && 'text-primary')} />
           <span className="hidden sm:inline">{isMultiSelectMode ? t('multiSelectDone') : t('select')}</span>
         </Button>
-        {renderCreateMenu({ showLabel: true })}
+        {renderCreateSplitButton({ showLabel: true })}
         <Button variant="ghost" size="sm" className="h-8 gap-1.5 text-xs" onClick={handlers.onUpload} aria-label={t('upload')}>
           <Upload className="h-4 w-4" />
           <span className="hidden sm:inline">{t('upload')}</span>
         </Button>
-        <Button variant="ghost" size="sm" className="h-8 gap-1.5 text-xs" onClick={handlers.onDelete} disabled={isDeleteDisabled} aria-label={t('delete')}>
-          <Trash2 className="h-4 w-4" />
-          <span className="hidden sm:inline">{t('delete')}</span>
-        </Button>
+        {renderDeleteButton({ showLabel: true })}
 
         <div className="hidden h-5 w-px bg-border sm:block" />
 
@@ -242,7 +283,7 @@ export function FileToolbar({ variant, isMultiSelectMode, isDeleteDisabled, hand
             </TooltipTrigger>
             <TooltipContent>{t('select')}</TooltipContent>
           </Tooltip>
-          {renderCreateMenu({ sideOffset: 10, tooltipLabel: t('create') })}
+          {renderCreateSplitButton({ sideOffset: 10, mainTooltipLabel: t('newFolder') })}
           <Tooltip>
             <TooltipTrigger asChild>
               <Button variant="ghost" size="icon-sm" onClick={handlers.onUpload} aria-label={t('upload')}>
@@ -251,14 +292,7 @@ export function FileToolbar({ variant, isMultiSelectMode, isDeleteDisabled, hand
             </TooltipTrigger>
             <TooltipContent>{t('upload')}</TooltipContent>
           </Tooltip>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button variant="ghost" size="icon-sm" onClick={handlers.onDelete} disabled={isDeleteDisabled} aria-label={t('delete')}>
-                <Trash2 className="h-4 w-4" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>{t('delete')}</TooltipContent>
-          </Tooltip>
+          {renderDeleteButton({ tooltipLabel: t('delete') })}
 
           <div className="hidden h-5 w-px bg-border sm:block" />
 
