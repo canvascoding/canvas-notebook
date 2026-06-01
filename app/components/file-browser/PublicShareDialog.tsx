@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { Copy, ExternalLink, Globe2, Loader2, ShieldAlert, XCircle } from 'lucide-react';
+import { Copy, ExternalLink, Globe2, Loader2, ShieldAlert, Unlink, XCircle } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { toast } from 'sonner';
 
@@ -41,27 +41,85 @@ function formatDate(value: string | null) {
   return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value));
 }
 
+function normalizePathForCompare(value: string) {
+  return value.replace(/\\/g, '/').replace(/^\.\/+/, '').replace(/^\/+/, '');
+}
+
 export function PublicShareDialog({ open, onOpenChange, paths, onPublished }: PublicShareDialogProps) {
   const t = useTranslations('notebook');
   const [expiryDays, setExpiryDays] = useState<ExpiryOption>(30);
   const [isPublishing, setIsPublishing] = useState(false);
+  const [isChecking, setIsChecking] = useState(false);
+  const [revokingIds, setRevokingIds] = useState<Set<string>>(new Set());
+  const [existingShares, setExistingShares] = useState<PublicShareResult[]>([]);
   const [shares, setShares] = useState<PublicShareResult[]>([]);
   const [skipped, setSkipped] = useState<Array<{ path: string; reason: string }>>([]);
 
   const uniquePaths = useMemo(() => Array.from(new Set(paths.filter(Boolean))), [paths]);
   const fileCount = uniquePaths.length;
   const hasResults = shares.length > 0 || skipped.length > 0;
+  const existingSharePaths = useMemo(
+    () => new Set(existingShares.map((share) => normalizePathForCompare(share.workspacePath))),
+    [existingShares]
+  );
+  const publishablePaths = useMemo(
+    () => uniquePaths.filter((path) => !existingSharePaths.has(normalizePathForCompare(path))),
+    [uniquePaths, existingSharePaths]
+  );
 
   useEffect(() => {
     if (!open) {
       setExpiryDays(30);
       setIsPublishing(false);
+      setIsChecking(false);
+      setRevokingIds(new Set());
+      setExistingShares([]);
       setShares([]);
       setSkipped([]);
+      return;
     }
-  }, [open]);
+
+    if (uniquePaths.length === 0) return;
+
+    const controller = new AbortController();
+    const loadExistingShares = async () => {
+      setIsChecking(true);
+      try {
+        const params = new URLSearchParams({
+          status: 'active',
+          limit: '1000',
+        });
+        uniquePaths.forEach((path) => params.append('path', path));
+
+        const response = await fetch(`/api/security/public-shares?${params.toString()}`, {
+          credentials: 'include',
+          cache: 'no-store',
+          signal: controller.signal,
+        });
+        const payload = await response.json();
+        if (!response.ok || !payload.success) {
+          throw new Error(payload.error || t('publicShareCheckFailed'));
+        }
+        setExistingShares(payload.shares || []);
+      } catch (error) {
+        if (controller.signal.aborted) return;
+        toast.error(error instanceof Error ? error.message : t('publicShareCheckFailed'));
+      } finally {
+        if (!controller.signal.aborted) setIsChecking(false);
+      }
+    };
+
+    void loadExistingShares();
+
+    return () => controller.abort();
+  }, [open, uniquePaths, t]);
 
   const handlePublish = async () => {
+    if (publishablePaths.length === 0) {
+      toast.info(t('publicShareAlreadyPublishedAll'));
+      return;
+    }
+
     setIsPublishing(true);
     setSkipped([]);
     try {
@@ -70,7 +128,7 @@ export function PublicShareDialog({ open, onOpenChange, paths, onPublished }: Pu
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({
-          paths: uniquePaths,
+          paths: publishablePaths,
           expiresInDays: expiryDays === 0 ? null : expiryDays,
           reason: 'Created from file browser',
         }),
@@ -95,6 +153,33 @@ export function PublicShareDialog({ open, onOpenChange, paths, onPublished }: Pu
     }
   };
 
+  const handleUnpublish = async (share: PublicShareResult) => {
+    setRevokingIds((current) => new Set(current).add(share.id));
+    try {
+      const response = await fetch(`/api/security/public-shares/${encodeURIComponent(share.id)}`, {
+        method: 'DELETE',
+        credentials: 'include',
+      });
+      const payload = await response.json();
+      if (!response.ok || !payload.success) {
+        throw new Error(payload.error || t('publicShareRevokeFailed'));
+      }
+
+      setExistingShares((current) => current.filter((item) => item.id !== share.id));
+      setShares((current) => current.filter((item) => item.id !== share.id));
+      onPublished?.();
+      toast.success(t('publicShareUnpublished'));
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : t('publicShareRevokeFailed'));
+    } finally {
+      setRevokingIds((current) => {
+        const next = new Set(current);
+        next.delete(share.id);
+        return next;
+      });
+    }
+  };
+
   const copyText = async (text: string, successMessage: string) => {
     try {
       await navigator.clipboard.writeText(text);
@@ -110,6 +195,42 @@ export function PublicShareDialog({ open, onOpenChange, paths, onPublished }: Pu
 
   const openUrl = (url: string) => {
     window.open(url, '_blank', 'noopener,noreferrer');
+  };
+
+  const renderShareCard = (share: PublicShareResult) => {
+    const isRevoking = revokingIds.has(share.id);
+
+    return (
+      <div key={share.id} className="min-w-0 border border-border bg-background p-2">
+        <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+          <div className="min-w-0">
+            <div className="break-all text-sm font-medium" title={share.workspacePath}>{share.fileName}</div>
+            <div className="break-all font-mono text-xs text-muted-foreground" title={share.publicUrl}>{share.publicUrl}</div>
+            <div className="mt-1 text-xs text-muted-foreground">
+              {share.expiresAt ? t('publicShareExpiresAt', { date: formatDate(share.expiresAt) }) : t('publicShareNeverExpires')}
+            </div>
+          </div>
+          <div className="flex shrink-0 flex-wrap justify-end gap-1">
+            <Button variant="ghost" size="icon-sm" onClick={() => copyText(share.publicUrl, t('publicShareCopied'))}>
+              <Copy className="h-4 w-4" />
+            </Button>
+            <Button variant="ghost" size="icon-sm" onClick={() => openUrl(share.publicUrl)}>
+              <ExternalLink className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-destructive hover:text-destructive"
+              onClick={() => void handleUnpublish(share)}
+              disabled={isRevoking}
+            >
+              {isRevoking ? <Loader2 className="h-4 w-4 animate-spin" /> : <Unlink className="h-4 w-4" />}
+              {t('publicShareUnpublish')}
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
   };
 
   return (
@@ -147,7 +268,28 @@ export function PublicShareDialog({ open, onOpenChange, paths, onPublished }: Pu
             </div>
           </div>
 
-          {!hasResults && (
+          {isChecking && (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              {t('publicShareChecking')}
+            </div>
+          )}
+
+          {existingShares.length > 0 && (
+            <div className="min-w-0 space-y-2">
+              <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
+                <span className="text-sm font-medium">{t('publicShareAlreadyPublished')}</span>
+                <Badge variant="outline" className="border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300">
+                  {existingShares.length}
+                </Badge>
+              </div>
+              <div className="max-h-64 min-w-0 space-y-2 overflow-y-auto">
+                {existingShares.map((share) => renderShareCard(share))}
+              </div>
+            </div>
+          )}
+
+          {!hasResults && publishablePaths.length > 0 && (
             <div className="min-w-0 space-y-2">
               <span className="text-sm font-medium">{t('publicShareExpiry')}</span>
               <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
@@ -177,27 +319,7 @@ export function PublicShareDialog({ open, onOpenChange, paths, onPublished }: Pu
                 </Button>
               </div>
               <div className="max-h-64 min-w-0 space-y-2 overflow-y-auto">
-                {shares.map((share) => (
-                  <div key={share.id} className="min-w-0 border border-border bg-background p-2">
-                    <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                      <div className="min-w-0">
-                        <div className="break-all text-sm font-medium" title={share.workspacePath}>{share.fileName}</div>
-                        <div className="break-all font-mono text-xs text-muted-foreground" title={share.publicUrl}>{share.publicUrl}</div>
-                        <div className="mt-1 text-xs text-muted-foreground">
-                          {share.expiresAt ? t('publicShareExpiresAt', { date: formatDate(share.expiresAt) }) : t('publicShareNeverExpires')}
-                        </div>
-                      </div>
-                      <div className="flex shrink-0 justify-end gap-1">
-                        <Button variant="ghost" size="icon-sm" onClick={() => copyText(share.publicUrl, t('publicShareCopied'))}>
-                          <Copy className="h-4 w-4" />
-                        </Button>
-                        <Button variant="ghost" size="icon-sm" onClick={() => openUrl(share.publicUrl)}>
-                          <ExternalLink className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </div>
-                  </div>
-                ))}
+                {shares.map((share) => renderShareCard(share))}
               </div>
             </div>
           )}
@@ -222,10 +344,10 @@ export function PublicShareDialog({ open, onOpenChange, paths, onPublished }: Pu
 
         <DialogFooter className="shrink-0 gap-2 border-t border-border px-4 py-3 sm:px-6">
           <Button variant="ghost" onClick={() => onOpenChange(false)} className="w-full sm:w-auto">{t('close')}</Button>
-          {!hasResults && (
-            <Button onClick={handlePublish} disabled={isPublishing || fileCount === 0} className="w-full sm:w-auto">
+          {!hasResults && publishablePaths.length > 0 && (
+            <Button onClick={handlePublish} disabled={isPublishing || isChecking || fileCount === 0} className="w-full sm:w-auto">
               {isPublishing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Globe2 className="h-4 w-4" />}
-              {t('publicSharePublish')}
+              {existingShares.length > 0 ? t('publicSharePublishRemaining') : t('publicSharePublish')}
             </Button>
           )}
         </DialogFooter>
