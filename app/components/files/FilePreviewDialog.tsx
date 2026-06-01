@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useCallback } from 'react';
 import { useTranslations } from 'next-intl';
-import { ChevronLeft, ChevronRight, Download, X } from 'lucide-react';
+import { Download, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
 import { FileEditor } from '@/app/components/editor/FileEditor';
@@ -68,44 +68,25 @@ export function FilePreviewDialog({ path, fileTree, currentDirectory, onClose }:
   );
 
   const activePath = isLoadingFile && loadingFilePath ? loadingFilePath : currentFile?.path ?? path;
-  const isActiveImage = activePath ? IMAGE_EXTENSIONS.has(getExtension(activePath)) : false;
   const isActiveExcalidraw = activePath ? isExcalidrawFilePath(activePath) : false;
   const currentIndex = activePath ? imagePaths.indexOf(activePath) : -1;
-  const hasPrev = currentIndex > 0;
-  const hasNext = currentIndex >= 0 && currentIndex < imagePaths.length - 1;
 
   const handleClose = useCallback(() => {
     clearCurrentFile();
     onClose();
   }, [clearCurrentFile, onClose]);
 
-  const handlePrev = useCallback(() => {
-    if (currentIndex <= 0) return;
-    void loadFile(imagePaths[currentIndex - 1], true);
-  }, [currentIndex, imagePaths, loadFile]);
-
-  const handleNext = useCallback(() => {
-    if (currentIndex < 0 || currentIndex >= imagePaths.length - 1) return;
-    void loadFile(imagePaths[currentIndex + 1], true);
-  }, [currentIndex, imagePaths, loadFile]);
-
   useEffect(() => {
     if (!path) return;
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (isActiveImage && event.key === 'ArrowLeft') {
-        event.preventDefault();
-        handlePrev();
-      } else if (isActiveImage && event.key === 'ArrowRight') {
-        event.preventDefault();
-        handleNext();
-      } else if (!isActiveExcalidraw && event.key === 'Escape') {
+      if (!isActiveExcalidraw && event.key === 'Escape') {
         handleClose();
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [path, isActiveImage, isActiveExcalidraw, handlePrev, handleNext, handleClose]);
+  }, [path, isActiveExcalidraw, handleClose]);
 
   if (!path) return null;
 
@@ -149,32 +130,6 @@ export function FilePreviewDialog({ path, fileTree, currentDirectory, onClose }:
 
         <div className="relative min-h-0 flex-1 overflow-hidden">
           <FileEditor />
-
-          {imagePaths.length > 1 && currentIndex >= 0 && (
-            <Button
-              variant="ghost"
-              size="icon"
-              className="absolute left-3 top-1/2 z-10 -translate-y-1/2 rounded-full border border-border bg-background/90 shadow-sm backdrop-blur disabled:opacity-40"
-              onClick={handlePrev}
-              disabled={!hasPrev}
-              aria-label={t('previous')}
-            >
-              <ChevronLeft className="h-5 w-5" />
-            </Button>
-          )}
-
-          {imagePaths.length > 1 && currentIndex >= 0 && (
-            <Button
-              variant="ghost"
-              size="icon"
-              className="absolute right-3 top-1/2 z-10 -translate-y-1/2 rounded-full border border-border bg-background/90 shadow-sm backdrop-blur disabled:opacity-40"
-              onClick={handleNext}
-              disabled={!hasNext}
-              aria-label={t('next')}
-            >
-              <ChevronRight className="h-5 w-5" />
-            </Button>
-          )}
         </div>
       </DialogContent>
     </Dialog>
