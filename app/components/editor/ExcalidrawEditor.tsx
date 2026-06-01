@@ -208,7 +208,6 @@ export function ExcalidrawEditor({ path, value, onChange }: ExcalidrawEditorProp
         }}
       >
         <MainMenu>
-          <MainMenu.DefaultItems.Export />
           <MainMenu.DefaultItems.SaveAsImage />
           <MainMenu.DefaultItems.ChangeCanvasBackground />
           <MainMenu.DefaultItems.ClearCanvas />
