@@ -212,6 +212,7 @@ export const publicFileShares = sqliteTable("public_file_shares", {
   token: text("token").notNull().unique(),
   tokenHash: text("token_hash").notNull().unique(),
   tokenPreview: text("token_preview").notNull(),
+  shortCode: text("short_code").unique(),
   workspacePath: text("workspace_path").notNull(),
   fileName: text("file_name").notNull(),
   fileIdentity: text("file_identity").notNull(),
@@ -232,6 +233,7 @@ export const publicFileShares = sqliteTable("public_file_shares", {
 }, (table) => ({
   tokenHashIdx: uniqueIndex("idx_public_file_shares_token_hash").on(table.tokenHash),
   tokenIdx: uniqueIndex("idx_public_file_shares_token").on(table.token),
+  shortCodeIdx: uniqueIndex("idx_public_file_shares_short_code").on(table.shortCode),
   statusIdx: index("idx_public_file_shares_status").on(table.status),
   pathIdx: index("idx_public_file_shares_workspace_path").on(table.workspacePath),
   userStatusIdx: index("idx_public_file_shares_user_status").on(table.createdByUserId, table.status),

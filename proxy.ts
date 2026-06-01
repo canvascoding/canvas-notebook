@@ -16,6 +16,10 @@ function isWebSocketRoute(pathname: string) {
   return pathname === '/ws/chat' || /^\/[a-z]{2}(?:-[A-Z]{2})?\/ws\/chat$/u.test(pathname);
 }
 
+function isPublicShareRoute(pathname: string) {
+  return pathname.startsWith('/public/files/') || pathname.startsWith('/p/');
+}
+
 function getLocaleFromPathname(pathname: string) {
   for (const locale of routing.locales) {
     if (pathname === `/${locale}` || pathname.startsWith(`/${locale}/`)) {
@@ -220,6 +224,10 @@ export default async function middleware(request: NextRequest) {
   }
 
   if (isWebSocketRoute(pathname)) {
+    return NextResponse.next();
+  }
+
+  if (isPublicShareRoute(pathname)) {
     return NextResponse.next();
   }
 

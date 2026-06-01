@@ -47,6 +47,9 @@ export function FileGridItem({ node, onOpenFile, onOpenDirectory, size = 'sm' }:
   const isMultiSelected = multiSelectPaths.has(node.path);
   const isRowActive = isSelected || isMultiSelected;
   const isPublic = node.type === 'file' && node.publicShare?.status === 'active';
+  const publicShareUrl = node.publicShare && 'shortUrl' in node.publicShare && typeof node.publicShare.shortUrl === 'string'
+    ? node.publicShare.shortUrl
+    : node.publicShare?.publicUrl;
   const showImagePreview = isImageNode(node);
 
   const [thumbnailError, setThumbnailError] = useState(false);
@@ -128,7 +131,7 @@ export function FileGridItem({ node, onOpenFile, onOpenDirectory, size = 'sm' }:
         {isPublic && (
           <span
             className="mr-auto inline-flex min-w-0 max-w-[calc(100%-1.75rem)] items-center gap-1 rounded-sm bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:text-amber-300"
-            title={node.publicShare?.publicUrl}
+            title={publicShareUrl}
           >
             <Globe2 className="h-3 w-3" />
             <span className="truncate">{t('publicShareBadge')}</span>

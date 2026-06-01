@@ -1924,15 +1924,16 @@ function parsePublicShareExpiry(value: unknown): Date | null {
   return new Date(Date.now() + Math.min(Math.trunc(days), 365) * 24 * 60 * 60 * 1000);
 }
 
-function formatPublicShares(shares: Array<{ workspacePath: string; status: string; publicUrl: string; expiresAt: string | null; accessCount: number }>): string {
+function formatPublicShares(shares: Array<{ workspacePath: string; status: string; shortUrl?: string; publicUrl: string; expiresAt: string | null; accessCount: number }>): string {
   if (shares.length === 0) return '(no public shares found)';
   return shares.map((share) => [
     `Path: ${share.workspacePath}`,
     `Status: ${share.status}`,
-    `URL: ${share.publicUrl}`,
+    `Short URL: ${share.shortUrl || share.publicUrl}`,
+    share.shortUrl && share.shortUrl !== share.publicUrl ? `Long URL: ${share.publicUrl}` : null,
     `Expires: ${share.expiresAt || 'never'}`,
     `Accesses: ${share.accessCount}`,
-  ].join('\n')).join('\n\n');
+  ].filter(Boolean).join('\n')).join('\n\n');
 }
 
 function createPublicShareTool(userId?: string, agentId?: string | null, sessionId?: string | null): AgentTool {
