@@ -294,6 +294,7 @@
     "dropFilesToUpload": "Dateien zum Hochladen ablegen",
     "actions": "Aktionen",
     "moreActions": "Weitere Aktionen",
+    "create": "Erstellen",
     "newFilePrompt": "Neuer Dateiname",
     "newFolderPrompt": "Neuer Ordnername",
     "newFile": "Neue Datei",

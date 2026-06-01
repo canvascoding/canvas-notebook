@@ -1,6 +1,6 @@
 'use client';
 
-import { ChevronsDownUp, CheckSquare, FilePlus, FolderPlus, FolderTree, LayoutGrid, List, MoreHorizontal, PenTool, RefreshCw, Trash2, Upload } from 'lucide-react';
+import { ChevronDown, ChevronsDownUp, CheckSquare, FilePlus, FolderPlus, FolderTree, LayoutGrid, List, MoreHorizontal, PenTool, Plus, RefreshCw, Trash2, Upload } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { Button } from '@/components/ui/button';
 import {
@@ -50,6 +50,64 @@ export function FileToolbar({ variant, isMultiSelectMode, isDeleteDisabled, hand
   const isMobileSheet = variant === 'mobile-sheet';
   const isFullscreen = variant === 'fullscreen';
 
+  const renderCreateMenu = ({
+    align = 'start',
+    sideOffset = 8,
+    showLabel = false,
+    labelClassName = 'hidden sm:inline',
+    triggerClassName,
+    tooltipLabel,
+  }: {
+    align?: 'start' | 'center' | 'end';
+    sideOffset?: number;
+    showLabel?: boolean;
+    labelClassName?: string;
+    triggerClassName?: string;
+    tooltipLabel?: string;
+  } = {}) => {
+    const trigger = (
+      <Button
+        variant="ghost"
+        size={showLabel ? 'sm' : 'icon-sm'}
+        className={cn(showLabel && 'h-8 gap-1.5 text-xs', triggerClassName)}
+        aria-label={t('create')}
+      >
+        <Plus className="h-4 w-4" />
+        {showLabel && <span className={labelClassName}>{t('create')}</span>}
+        {showLabel && <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />}
+      </Button>
+    );
+
+    return (
+      <DropdownMenu modal={false}>
+        {tooltipLabel ? (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <DropdownMenuTrigger asChild>{trigger}</DropdownMenuTrigger>
+            </TooltipTrigger>
+            <TooltipContent>{tooltipLabel}</TooltipContent>
+          </Tooltip>
+        ) : (
+          <DropdownMenuTrigger asChild>{trigger}</DropdownMenuTrigger>
+        )}
+        <DropdownMenuContent align={align} sideOffset={sideOffset} className="w-56">
+          <DropdownMenuItem onSelect={handlers.onNewFile}>
+            <FilePlus className="h-4 w-4" />
+            {t('newFile')}
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={handlers.onNewExcalidraw}>
+            <PenTool className="h-4 w-4" />
+            {t('newExcalidraw')}
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={handlers.onNewFolder}>
+            <FolderPlus className="h-4 w-4" />
+            {t('newFolder')}
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    );
+  };
+
   if (isMobileSheet) {
     return (
       <div className="flex items-center gap-1 px-3 py-2">
@@ -63,6 +121,7 @@ export function FileToolbar({ variant, isMultiSelectMode, isDeleteDisabled, hand
           <CheckSquare className={cn('h-4 w-4', isMultiSelectMode && 'text-primary')} />
           {isMultiSelectMode ? t('multiSelectDone') : t('select')}
         </Button>
+        {renderCreateMenu()}
         <Button
           variant="ghost"
           size="sm"
@@ -91,19 +150,6 @@ export function FileToolbar({ variant, isMultiSelectMode, isDeleteDisabled, hand
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start" sideOffset={8} className="w-56">
-            <DropdownMenuItem onSelect={handlers.onNewFile}>
-              <FilePlus className="mr-2 h-4 w-4" />
-              {t('newFile')}
-            </DropdownMenuItem>
-            <DropdownMenuItem onSelect={handlers.onNewExcalidraw}>
-              <PenTool className="mr-2 h-4 w-4" />
-              {t('newExcalidraw')}
-            </DropdownMenuItem>
-            <DropdownMenuItem onSelect={handlers.onNewFolder}>
-              <FolderPlus className="mr-2 h-4 w-4" />
-              {t('newFolder')}
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
             {VIEW_MODES.map(({ mode, Icon, labelKey }) => (
               <DropdownMenuItem
                 key={mode}
@@ -142,18 +188,7 @@ export function FileToolbar({ variant, isMultiSelectMode, isDeleteDisabled, hand
           <CheckSquare className={cn('h-4 w-4', isMultiSelectMode && 'text-primary')} />
           <span className="hidden sm:inline">{isMultiSelectMode ? t('multiSelectDone') : t('select')}</span>
         </Button>
-        <Button variant="ghost" size="sm" className="h-8 gap-1.5 text-xs" onClick={handlers.onNewFile} aria-label={t('newFile')}>
-          <FilePlus className="h-4 w-4" />
-          <span className="hidden sm:inline">{t('newFile')}</span>
-        </Button>
-        <Button variant="ghost" size="sm" className="h-8 gap-1.5 text-xs" onClick={handlers.onNewExcalidraw} aria-label={t('newExcalidraw')}>
-          <PenTool className="h-4 w-4" />
-          <span className="hidden sm:inline">{t('newExcalidraw')}</span>
-        </Button>
-        <Button variant="ghost" size="sm" className="h-8 gap-1.5 text-xs" onClick={handlers.onNewFolder} aria-label={t('newFolder')}>
-          <FolderPlus className="h-4 w-4" />
-          <span className="hidden sm:inline">{t('newFolder')}</span>
-        </Button>
+        {renderCreateMenu({ showLabel: true })}
         <Button variant="ghost" size="sm" className="h-8 gap-1.5 text-xs" onClick={handlers.onUpload} aria-label={t('upload')}>
           <Upload className="h-4 w-4" />
           <span className="hidden sm:inline">{t('upload')}</span>
@@ -207,30 +242,7 @@ export function FileToolbar({ variant, isMultiSelectMode, isDeleteDisabled, hand
             </TooltipTrigger>
             <TooltipContent>{t('select')}</TooltipContent>
           </Tooltip>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button variant="ghost" size="icon-sm" onClick={handlers.onNewFile} aria-label={t('newFile')}>
-                <FilePlus className="h-4 w-4" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>{t('newFile')}</TooltipContent>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button variant="ghost" size="icon-sm" onClick={handlers.onNewExcalidraw} aria-label={t('newExcalidraw')}>
-                <PenTool className="h-4 w-4" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>{t('newExcalidraw')}</TooltipContent>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button variant="ghost" size="icon-sm" onClick={handlers.onNewFolder} aria-label={t('newFolder')}>
-                <FolderPlus className="h-4 w-4" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>{t('newFolder')}</TooltipContent>
-          </Tooltip>
+          {renderCreateMenu({ sideOffset: 10, tooltipLabel: t('create') })}
           <Tooltip>
             <TooltipTrigger asChild>
               <Button variant="ghost" size="icon-sm" onClick={handlers.onUpload} aria-label={t('upload')}>
