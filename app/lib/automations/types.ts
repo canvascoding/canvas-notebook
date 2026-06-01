@@ -3,14 +3,26 @@ export type AutomationRunStatus = 'pending' | 'running' | 'success' | 'failed' |
 export type AutomationTriggerType = 'scheduled' | 'manual' | 'retry' | 'webhook';
 export type AutomationPreferredSkill = string;
 export type AutomationJobType = 'default' | 'heartbeat' | 'webhook';
-export type AutomationDeliveryMode = 'web' | 'origin' | 'session' | 'channel_home' | 'silent';
+export type AutomationDeliveryMode = 'web' | 'origin' | 'session' | 'channel_home' | 'last_active' | 'silent';
 export type AutomationDeliverySessionMode = 'new_session' | 'channel_active' | 'fixed_session';
 export type AutomationScheduleKind = 'once' | 'daily' | 'weekly' | 'interval' | 'webhook';
 export type AutomationWeekday = 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat' | 'sun';
 export type AutomationIntervalUnit = 'minutes' | 'hours' | 'days';
 
-export type FriendlySchedule =
-  | {
+export type AutomationWorkingHours = {
+  enabled: boolean;
+  days: AutomationWeekday[];
+  start: string;
+  end: string;
+  timeZone: string;
+};
+
+type FriendlyScheduleOptions = {
+  workingHours?: AutomationWorkingHours | null;
+};
+
+export type FriendlySchedule = (
+  {
       kind: 'once';
       date: string;
       time: string;
@@ -36,7 +48,8 @@ export type FriendlySchedule =
   | {
       kind: 'webhook';
       timeZone: string;
-    };
+    }
+) & FriendlyScheduleOptions;
 
 export type AutomationJobRecord = {
   id: string;

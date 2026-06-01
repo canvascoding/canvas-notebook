@@ -159,6 +159,39 @@ async function main() {
   assert.equal(inferredActive.channelId, 'telegram');
   assert.equal(inferredActive.channelSessionKey, 'telegram:42');
 
+  const lastActive = await resolveAutomationDeliveryTarget({
+    job: {
+      ...baseJob,
+      deliveryMode: 'last_active',
+      deliveryChannelId: null,
+      deliveryChannelSessionKey: null,
+      deliverySessionMode: 'channel_active',
+    },
+    userId,
+    defaultSessionId: 'auto-last-active',
+  });
+  assert.equal(lastActive.sessionId, 'active-session');
+  assert.equal(lastActive.mode, 'channel_active');
+  assert.equal(lastActive.channelId, 'telegram');
+  assert.equal(lastActive.channelSessionKey, 'telegram:42');
+
+  process.env.TELEGRAM_CHANNEL_ENABLED = 'false';
+  const lastActiveFallback = await resolveAutomationDeliveryTarget({
+    job: {
+      ...baseJob,
+      deliveryMode: 'last_active',
+      deliveryChannelId: null,
+      deliveryChannelSessionKey: null,
+      deliverySessionMode: 'channel_active',
+    },
+    userId,
+    defaultSessionId: 'auto-last-active-fallback',
+  });
+  assert.equal(lastActiveFallback.channelId, 'web');
+  assert.equal(lastActiveFallback.channelSessionKey, `web:user:${userId}`);
+  assert.ok(lastActiveFallback.warnings.some((warning) => warning.includes('falling back')));
+  process.env.TELEGRAM_CHANNEL_ENABLED = 'true';
+
   const missingActive = await resolveAutomationDeliveryTarget({
     job: {
       ...baseJob,

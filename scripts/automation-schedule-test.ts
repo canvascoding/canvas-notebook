@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 
 import { getDefaultAutomationTargetOutputPath, getEffectiveAutomationTargetOutputPath } from '../app/lib/automations/paths';
 import { buildAutomationPrompt } from '../app/lib/automations/prompt';
-import { computeNextRunAt } from '../app/lib/automations/schedule';
+import { computeNextRunAt, validateFriendlySchedule } from '../app/lib/automations/schedule';
 import { type FriendlySchedule } from '../app/lib/automations/types';
 
 function assertDate(value: Date | null, message: string): Date {
@@ -50,6 +50,73 @@ const intervalRun = assertDate(
   'Interval schedule should produce a next run.',
 );
 assert.equal(intervalRun.toISOString(), '2026-03-14T09:30:00.000Z');
+
+const workingHoursIntervalSchedule: FriendlySchedule = {
+  kind: 'interval',
+  every: 60,
+  unit: 'minutes',
+  timeZone: 'UTC',
+  workingHours: {
+    enabled: true,
+    days: ['mon', 'tue', 'wed', 'thu', 'fri'],
+    start: '09:00',
+    end: '18:00',
+    timeZone: 'UTC',
+  },
+};
+
+const workingHoursRun = assertDate(
+  computeNextRunAt(workingHoursIntervalSchedule, {
+    from: new Date('2026-03-16T10:00:00.000Z'),
+    lastRunAt: new Date('2026-03-16T10:00:00.000Z'),
+  }),
+  'Interval schedule should run inside working hours.',
+);
+assert.equal(workingHoursRun.toISOString(), '2026-03-16T11:00:00.000Z');
+
+const afterHoursRun = assertDate(
+  computeNextRunAt(workingHoursIntervalSchedule, {
+    from: new Date('2026-03-16T17:30:00.000Z'),
+    lastRunAt: new Date('2026-03-16T17:30:00.000Z'),
+  }),
+  'Interval schedule should move after-hours runs to the next working window.',
+);
+assert.equal(afterHoursRun.toISOString(), '2026-03-17T09:00:00.000Z');
+
+const weekendRun = assertDate(
+  computeNextRunAt(workingHoursIntervalSchedule, {
+    from: new Date('2026-03-14T10:00:00.000Z'),
+    lastRunAt: new Date('2026-03-14T10:00:00.000Z'),
+  }),
+  'Interval schedule should move weekend runs to Monday morning.',
+);
+assert.equal(weekendRun.toISOString(), '2026-03-16T09:00:00.000Z');
+
+const disabledWorkingHoursRun = assertDate(
+  computeNextRunAt({
+    ...workingHoursIntervalSchedule,
+    workingHours: {
+      ...workingHoursIntervalSchedule.workingHours!,
+      enabled: false,
+    },
+  }, {
+    from: new Date('2026-03-16T17:30:00.000Z'),
+    lastRunAt: new Date('2026-03-16T17:30:00.000Z'),
+  }),
+  'Disabled working hours should keep the normal interval.',
+);
+assert.equal(disabledWorkingHoursRun.toISOString(), '2026-03-16T18:30:00.000Z');
+
+const invalidWorkingHours = validateFriendlySchedule({
+  ...workingHoursIntervalSchedule,
+  workingHours: {
+    ...workingHoursIntervalSchedule.workingHours!,
+    start: '18:00',
+    end: '09:00',
+  },
+});
+assert.equal(invalidWorkingHours.schedule, null);
+assert.match(invalidWorkingHours.error || '', /start time must be before/);
 
 const oneTimeSchedule: FriendlySchedule = {
   kind: 'once',

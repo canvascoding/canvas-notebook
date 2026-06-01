@@ -87,9 +87,25 @@ async function main() {
   assert.equal(unchangedResearch.enabled, true);
   assert.equal(unchangedResearch.schedule?.kind, 'interval');
 
-  const missing = await readHeartbeatConfig({ userId, agentId: 'sales-agent' });
+  const defaultHeartbeat = await saveHeartbeatConfig({
+    userId,
+    agentId: 'sales-agent',
+    enabled: true,
+  });
+  assert.equal(defaultHeartbeat.deliveryMode, 'last_active');
+  assert.equal(defaultHeartbeat.deliveryChannelId, null);
+  assert.equal(defaultHeartbeat.deliverySessionMode, 'channel_active');
+  assert.equal(defaultHeartbeat.schedule?.kind, 'interval');
+  assert.equal(defaultHeartbeat.schedule?.workingHours?.enabled, true);
+  assert.deepEqual(defaultHeartbeat.schedule?.workingHours?.days, ['mon', 'tue', 'wed', 'thu', 'fri']);
+  if (defaultHeartbeat.schedule?.kind === 'interval') {
+    assert.equal(defaultHeartbeat.schedule.every, 60);
+    assert.equal(defaultHeartbeat.schedule.unit, 'minutes');
+  }
+
+  const missing = await readHeartbeatConfig({ userId, agentId: 'support-agent' });
   assert.equal(missing.configured, false);
-  assert.equal(missing.agentId, 'sales-agent');
+  assert.equal(missing.agentId, 'support-agent');
 
   await writeManagedAgentFile('HEARTBEAT.md', 'Canvas heartbeat instructions', 'canvas-agent');
   await writeManagedAgentFile('HEARTBEAT.md', 'Research heartbeat instructions', 'research-agent');

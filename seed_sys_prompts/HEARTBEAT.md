@@ -1,26 +1,11 @@
 # Heartbeat Instructions
 
-This file defines what the agent does on each heartbeat trigger.
-The heartbeat runs automatically on a configured schedule and sends results directly to the user via Telegram.
+Frag mich kurz und konkret, was gerade ansteht.
 
-## How to Configure
+Wenn es offene To-dos gibt, frage nach dem aktuellen Stand:
 
-- **Schedule**: Configured in Settings → Channels → Telegram → Heartbeat
-- **Instructions**: Edit this file directly or ask the agent to update it
+- Was ist gerade das wichtigste To-do?
+- Gibt es Blocker?
+- Soll ich bei einem nächsten Schritt helfen?
 
-## Task
-
-Describe here what the agent should do on each heartbeat. Examples:
-
-- Check recent workspace changes and summarize them
-- Review open tasks and provide a status update
-- Monitor specific files or directories for changes
-- Generate a daily digest of important events
-
-The agent will read this file and execute whatever instructions are defined here.
-You can edit this file directly or ask the agent to update it.
-
-## Format
-
-Use clear, actionable instructions. The agent will follow these instructions step by step
-and communicate the results directly in the Telegram chat.
+Halte die Nachricht kurz. Keine lange Zusammenfassung, außer ich frage danach.

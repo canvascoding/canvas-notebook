@@ -1,8 +1,11 @@
 import {
+  type AutomationWorkingHours,
   type AutomationIntervalUnit,
   type AutomationWeekday,
   type FriendlySchedule,
 } from './types';
+
+const WEEKDAYS: AutomationWeekday[] = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
 
 const WEEKDAY_MAP: Record<AutomationWeekday, number> = {
   sun: 0,
@@ -49,6 +52,10 @@ function parseTimeInput(value: string): { hour: number; minute: number } | null 
   }
 
   return { hour, minute };
+}
+
+function timePartsToMinutes(value: { hour: number; minute: number }): number {
+  return value.hour * 60 + value.minute;
 }
 
 function normalizeTimeZone(value: string | undefined): string {
@@ -133,6 +140,61 @@ function intervalToMs(every: number, unit: AutomationIntervalUnit): number {
   return every * 24 * 60 * 60_000;
 }
 
+function normalizeWeekdays(input: unknown): AutomationWeekday[] {
+  if (!Array.isArray(input)) {
+    return [];
+  }
+
+  return input.filter((value): value is AutomationWeekday =>
+    value === 'mon' ||
+    value === 'tue' ||
+    value === 'wed' ||
+    value === 'thu' ||
+    value === 'fri' ||
+    value === 'sat' ||
+    value === 'sun');
+}
+
+function normalizeWorkingHours(input: unknown, fallbackTimeZone: string): { workingHours?: AutomationWorkingHours; error: string | null } {
+  if (input === undefined || input === null) {
+    return { error: null };
+  }
+
+  if (typeof input !== 'object') {
+    return { error: 'Working hours must be an object.' };
+  }
+
+  const candidate = input as Record<string, unknown>;
+  const enabled = typeof candidate.enabled === 'boolean' ? candidate.enabled : true;
+  const days = normalizeWeekdays(candidate.days);
+  if (enabled && days.length === 0) {
+    return { error: 'Working hours require at least one weekday.' };
+  }
+
+  const start = typeof candidate.start === 'string' ? candidate.start.trim() : '09:00';
+  const end = typeof candidate.end === 'string' ? candidate.end.trim() : '18:00';
+  const parsedStart = parseTimeInput(start);
+  const parsedEnd = parseTimeInput(end);
+  if (!parsedStart || !parsedEnd) {
+    return { error: 'Working hours require valid start and end times.' };
+  }
+
+  if (timePartsToMinutes(parsedStart) >= timePartsToMinutes(parsedEnd)) {
+    return { error: 'Working hours start time must be before the end time.' };
+  }
+
+  return {
+    workingHours: {
+      enabled,
+      days: days.length > 0 ? days : WEEKDAYS,
+      start,
+      end,
+      timeZone: normalizeTimeZone(typeof candidate.timeZone === 'string' ? candidate.timeZone : fallbackTimeZone),
+    },
+    error: null,
+  };
+}
+
 function normalizeTimesToSchedule(candidate: Record<string, unknown>, kind: 'daily' | 'weekly'): { times: string[]; error: string | null } {
   if (Array.isArray(candidate.times) && candidate.times.length > 0) {
     const times = candidate.times.filter((v): v is string => typeof v === 'string').map((s) => s.trim()).filter((s) => s.length > 0);
@@ -164,9 +226,14 @@ export function validateFriendlySchedule(input: unknown): { schedule: FriendlySc
   }
 
   const timeZone = normalizeTimeZone(typeof candidate.timeZone === 'string' ? candidate.timeZone : undefined);
+  const { workingHours, error: workingHoursError } = normalizeWorkingHours(candidate.workingHours, timeZone);
+  if (workingHoursError) {
+    return { schedule: null, error: workingHoursError };
+  }
+  const scheduleOptions = workingHours ? { workingHours } : {};
 
   if (kind === 'webhook') {
-    return { schedule: { kind, timeZone }, error: null };
+    return { schedule: { kind, timeZone, ...scheduleOptions }, error: null };
   }
 
   if (kind === 'once') {
@@ -175,31 +242,22 @@ export function validateFriendlySchedule(input: unknown): { schedule: FriendlySc
     if (!parseDateInput(date) || !parseTimeInput(time)) {
       return { schedule: null, error: 'One-time schedules require a valid date and time.' };
     }
-    return { schedule: { kind, date, time, timeZone }, error: null };
+    return { schedule: { kind, date, time, timeZone, ...scheduleOptions }, error: null };
   }
 
   if (kind === 'daily') {
     const { times, error } = normalizeTimesToSchedule(candidate, 'daily');
     if (error) return { schedule: null, error };
-    return { schedule: { kind, times, timeZone }, error: null };
+    return { schedule: { kind, times, timeZone, ...scheduleOptions }, error: null };
   }
 
   if (kind === 'weekly') {
-    const days = Array.isArray(candidate.days)
-      ? candidate.days.filter((value): value is AutomationWeekday =>
-          value === 'mon' ||
-          value === 'tue' ||
-          value === 'wed' ||
-          value === 'thu' ||
-          value === 'fri' ||
-          value === 'sat' ||
-          value === 'sun')
-      : [];
+    const days = normalizeWeekdays(candidate.days);
     const { times, error } = normalizeTimesToSchedule(candidate, 'weekly');
     if (error || !days.length) {
       return { schedule: null, error: error || 'Weekly schedules require at least one weekday.' };
     }
-    return { schedule: { kind, days, times, timeZone }, error: null };
+    return { schedule: { kind, days, times, timeZone, ...scheduleOptions }, error: null };
   }
 
   const every = typeof candidate.every === 'number' ? candidate.every : Number(candidate.every);
@@ -212,9 +270,47 @@ export function validateFriendlySchedule(input: unknown): { schedule: FriendlySc
   }
 
   return {
-    schedule: { kind, every: Math.floor(every), unit, timeZone },
+    schedule: { kind, every: Math.floor(every), unit, timeZone, ...scheduleOptions },
     error: null,
   };
+}
+
+function applyWorkingHoursWindow(candidate: Date | null, schedule: FriendlySchedule): Date | null {
+  if (!candidate || !schedule.workingHours?.enabled) {
+    return candidate;
+  }
+
+  const workingHours = schedule.workingHours;
+  const timeZone = normalizeTimeZone(workingHours.timeZone || schedule.timeZone);
+  const parsedStart = parseTimeInput(workingHours.start);
+  const parsedEnd = parseTimeInput(workingHours.end);
+  if (!parsedStart || !parsedEnd) {
+    return candidate;
+  }
+
+  const startMinute = timePartsToMinutes(parsedStart);
+  const endMinute = timePartsToMinutes(parsedEnd);
+  if (startMinute >= endMinute) {
+    return candidate;
+  }
+
+  const weekdays = new Set(workingHours.days.map((day) => WEEKDAY_MAP[day]));
+  const matchesWorkingHours = (parts: ZonedDateParts) => {
+    const minuteOfDay = parts.hour * 60 + parts.minute;
+    return weekdays.has(parts.weekday) && minuteOfDay >= startMinute && minuteOfDay < endMinute;
+  };
+
+  const candidateParts = getZonedDateParts(candidate, timeZone);
+  if (matchesWorkingHours(candidateParts)) {
+    return candidate;
+  }
+
+  return findNextMatchingDate(
+    new Date(candidate.getTime() + 60_000),
+    timeZone,
+    matchesWorkingHours,
+    14 * 24 * 60,
+  );
 }
 
 export function computeNextRunAt(
@@ -229,7 +325,7 @@ export function computeNextRunAt(
 
   if (schedule.kind === 'interval') {
     const anchor = options?.lastRunAt ? new Date(options.lastRunAt) : from;
-    return new Date(anchor.getTime() + intervalToMs(schedule.every, schedule.unit));
+    return applyWorkingHoursWindow(new Date(anchor.getTime() + intervalToMs(schedule.every, schedule.unit)), schedule);
   }
 
   const timeZone = normalizeTimeZone(schedule.timeZone);
@@ -241,7 +337,7 @@ export function computeNextRunAt(
     if (!date || !time) {
       return null;
     }
-    return findNextMatchingDate(
+    return applyWorkingHoursWindow(findNextMatchingDate(
       fromDate,
       timeZone,
       (parts) =>
@@ -251,7 +347,7 @@ export function computeNextRunAt(
         parts.hour === time.hour &&
         parts.minute === time.minute,
       370 * 24 * 60,
-    );
+    ), schedule);
   }
 
   if (schedule.kind === 'daily') {
@@ -260,12 +356,12 @@ export function computeNextRunAt(
       return null;
     }
     const timeSet = new Set(parsedTimes.map((t) => `${t.hour}:${t.minute}`));
-    return findNextMatchingDate(
+    return applyWorkingHoursWindow(findNextMatchingDate(
       fromDate,
       timeZone,
       (parts) => timeSet.has(`${parts.hour}:${parts.minute}`),
       3 * 24 * 60,
-    );
+    ), schedule);
   }
 
   if (schedule.kind === 'weekly') {
@@ -275,12 +371,12 @@ export function computeNextRunAt(
     }
     const weekdays = new Set(schedule.days.map((day) => WEEKDAY_MAP[day]));
     const timeSet = new Set(parsedTimes.map((t) => `${t.hour}:${t.minute}`));
-    return findNextMatchingDate(
+    return applyWorkingHoursWindow(findNextMatchingDate(
       fromDate,
       timeZone,
       (parts) => weekdays.has(parts.weekday) && timeSet.has(`${parts.hour}:${parts.minute}`),
       10 * 24 * 60,
-    );
+    ), schedule);
   }
 
   return null;

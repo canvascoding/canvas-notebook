@@ -48,6 +48,32 @@ export async function getLatestActiveChannelSession(input: {
   return row ?? null;
 }
 
+export async function getRecentActiveChannelSessions(input: {
+  userId: string;
+  agentId?: string | null;
+  limit?: number;
+}): Promise<Array<{
+  sessionId: string;
+  channelId: string;
+  channelSessionKey: string;
+  channelThreadKey: string;
+}>> {
+  return db.query.channelActiveSessions.findMany({
+    where: and(
+      eq(channelActiveSessions.userId, input.userId),
+      eq(channelActiveSessions.agentId, resolveAgentId(input.agentId)),
+    ),
+    columns: {
+      sessionId: true,
+      channelId: true,
+      channelSessionKey: true,
+      channelThreadKey: true,
+    },
+    orderBy: [desc(channelActiveSessions.updatedAt)],
+    limit: input.limit ?? 10,
+  });
+}
+
 export async function setActiveChannelSession(input: ChannelContextKey & {
   userId: string;
   sessionId: string;

@@ -35,6 +35,8 @@ import {
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Switch } from '@/components/ui/switch';
 import type {
+  AutomationWorkingHours,
+  AutomationWeekday,
   FriendlySchedule,
 } from '@/app/lib/automations/types';
 
@@ -121,24 +123,41 @@ async function fetchJson<T>(input: string, init?: RequestInit): Promise<T> {
 }
 
 function defaultHeartbeatScheduleDraft(): AgentHeartbeatScheduleDraft {
+  const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
   return {
-    kind: 'daily',
-    timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
+    kind: 'interval',
+    timeZone,
     dailyTime: '09:00',
     weeklyTime: '09:00',
     weeklyDays: ['mon'],
-    intervalEvery: '1',
-    intervalUnit: 'days',
+    intervalEvery: '60',
+    intervalUnit: 'minutes',
+    workingHoursEnabled: true,
+    workingHoursDays: ['mon', 'tue', 'wed', 'thu', 'fri'],
+    workingHoursStart: '09:00',
+    workingHoursEnd: '18:00',
+    workingHoursTimeZone: timeZone,
   };
 }
 
 function scheduleToHeartbeatDraft(schedule: FriendlySchedule | null): AgentHeartbeatScheduleDraft {
   const draft = defaultHeartbeatScheduleDraft();
   if (!schedule) return draft;
+  const workingHours = schedule.workingHours;
+  const workingHoursDraft = workingHours
+    ? {
+        workingHoursEnabled: workingHours.enabled,
+        workingHoursDays: workingHours.days.length > 0 ? workingHours.days : draft.workingHoursDays,
+        workingHoursStart: workingHours.start || draft.workingHoursStart,
+        workingHoursEnd: workingHours.end || draft.workingHoursEnd,
+        workingHoursTimeZone: workingHours.timeZone || schedule.timeZone || draft.workingHoursTimeZone,
+      }
+    : {};
 
   if (schedule.kind === 'daily') {
     return {
       ...draft,
+      ...workingHoursDraft,
       kind: 'daily',
       timeZone: schedule.timeZone,
       dailyTime: schedule.times[0] || draft.dailyTime,
@@ -148,6 +167,7 @@ function scheduleToHeartbeatDraft(schedule: FriendlySchedule | null): AgentHeart
   if (schedule.kind === 'weekly') {
     return {
       ...draft,
+      ...workingHoursDraft,
       kind: 'weekly',
       timeZone: schedule.timeZone,
       weeklyTime: schedule.times[0] || draft.weeklyTime,
@@ -158,6 +178,7 @@ function scheduleToHeartbeatDraft(schedule: FriendlySchedule | null): AgentHeart
   if (schedule.kind === 'interval') {
     return {
       ...draft,
+      ...workingHoursDraft,
       kind: 'interval',
       timeZone: schedule.timeZone,
       intervalEvery: String(schedule.every || 1),
@@ -169,12 +190,22 @@ function scheduleToHeartbeatDraft(schedule: FriendlySchedule | null): AgentHeart
 }
 
 function heartbeatDraftToSchedule(draft: AgentHeartbeatScheduleDraft): FriendlySchedule {
+  const defaultWorkingDays: AutomationWeekday[] = ['mon', 'tue', 'wed', 'thu', 'fri'];
+  const workingHours: AutomationWorkingHours = {
+    enabled: draft.workingHoursEnabled,
+    days: draft.workingHoursDays.length > 0 ? draft.workingHoursDays : defaultWorkingDays,
+    start: draft.workingHoursStart || '09:00',
+    end: draft.workingHoursEnd || '18:00',
+    timeZone: draft.workingHoursTimeZone || draft.timeZone,
+  };
+
   if (draft.kind === 'weekly') {
     return {
       kind: 'weekly',
       days: draft.weeklyDays.length > 0 ? draft.weeklyDays : ['mon'],
       times: draft.weeklyTime ? [draft.weeklyTime] : ['09:00'],
       timeZone: draft.timeZone,
+      workingHours,
     };
   }
 
@@ -185,6 +216,7 @@ function heartbeatDraftToSchedule(draft: AgentHeartbeatScheduleDraft): FriendlyS
       every: Number.isFinite(every) && every > 0 ? Math.floor(every) : 1,
       unit: draft.intervalUnit,
       timeZone: draft.timeZone,
+      workingHours,
     };
   }
 
@@ -192,14 +224,15 @@ function heartbeatDraftToSchedule(draft: AgentHeartbeatScheduleDraft): FriendlyS
     kind: 'daily',
     times: draft.dailyTime ? [draft.dailyTime] : ['09:00'],
     timeZone: draft.timeZone,
+    workingHours,
   };
 }
 
 function defaultHeartbeatDeliveryDraft(): AgentHeartbeatDeliveryDraft {
   return {
-    deliveryMode: 'web',
-    deliveryChannelId: 'web',
-    deliverySessionMode: 'new_session',
+    deliveryMode: 'last_active',
+    deliveryChannelId: 'last_active',
+    deliverySessionMode: 'channel_active',
     deliverySessionId: '',
   };
 }
@@ -209,7 +242,7 @@ function configToHeartbeatDeliveryDraft(config: AgentHeartbeatConfig | null): Ag
   const deliveryMode = config.deliveryMode || 'web';
   return {
     deliveryMode,
-    deliveryChannelId: config.deliveryChannelId || (deliveryMode === 'web' ? 'web' : ''),
+    deliveryChannelId: deliveryMode === 'last_active' ? 'last_active' : config.deliveryChannelId || (deliveryMode === 'web' ? 'web' : ''),
     deliverySessionMode: config.deliverySessionMode || 'new_session',
     deliverySessionId: config.deliverySessionId || '',
   };
@@ -650,9 +683,11 @@ export function AgentSettingsPanel() {
     setHeartbeatSuccess(null);
 
     try {
-      const deliveryChannelId = heartbeatDeliveryDraft.deliveryMode === 'web'
-        ? 'web'
-        : heartbeatDeliveryDraft.deliveryChannelId || 'web';
+      const deliveryChannelId = heartbeatDeliveryDraft.deliveryMode === 'last_active'
+        ? null
+        : heartbeatDeliveryDraft.deliveryMode === 'web'
+          ? 'web'
+          : heartbeatDeliveryDraft.deliveryChannelId || 'web';
       const payload = await fetchJson<AgentHeartbeatConfig>('/api/automations/heartbeat', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -660,7 +695,9 @@ export function AgentSettingsPanel() {
           agentId: selectedAgentId,
           enabled: heartbeatConfig?.enabled ?? false,
           schedule: heartbeatDraftToSchedule(heartbeatScheduleDraft),
-          deliveryMode: deliveryChannelId === 'web' ? 'web' : heartbeatDeliveryDraft.deliveryMode,
+          deliveryMode: heartbeatDeliveryDraft.deliveryMode === 'last_active'
+            ? 'last_active'
+            : deliveryChannelId === 'web' ? 'web' : heartbeatDeliveryDraft.deliveryMode,
           deliveryChannelId,
           deliverySessionMode: heartbeatDeliveryDraft.deliverySessionMode,
           deliverySessionId: heartbeatDeliveryDraft.deliverySessionId.trim() || null,

@@ -29,7 +29,7 @@ import {
 const STALE_AUTOMATION_RUN_TTL_MS = 15 * 60_000;
 const DEFAULT_DELIVERY_MODE: AutomationDeliveryMode = 'web';
 const DEFAULT_DELIVERY_SESSION_MODE: AutomationDeliverySessionMode = 'new_session';
-const DELIVERY_MODES = new Set<AutomationDeliveryMode>(['web', 'origin', 'session', 'channel_home', 'silent']);
+const DELIVERY_MODES = new Set<AutomationDeliveryMode>(['web', 'origin', 'session', 'channel_home', 'last_active', 'silent']);
 const DELIVERY_SESSION_MODES = new Set<AutomationDeliverySessionMode>(['new_session', 'channel_active', 'fixed_session']);
 
 function stripLeadingPathDecorators(value: string): string {

@@ -1,6 +1,6 @@
 'use client';
 
-import { FileText, Heart, Loader2, RefreshCw, RotateCcw, Save } from 'lucide-react';
+import { Clock3, FileText, Heart, Loader2, RefreshCw, RotateCcw, Save } from 'lucide-react';
 import { useLocale, useTranslations } from 'next-intl';
 
 import { AgentSettingsAccordionCard } from './AgentSettingsAccordionCard';
@@ -53,6 +53,11 @@ export type AgentHeartbeatScheduleDraft = {
   weeklyDays: AutomationWeekday[];
   intervalEvery: string;
   intervalUnit: AutomationIntervalUnit;
+  workingHoursEnabled: boolean;
+  workingHoursDays: AutomationWeekday[];
+  workingHoursStart: string;
+  workingHoursEnd: string;
+  workingHoursTimeZone: string;
 };
 
 export type AgentHeartbeatDeliveryDraft = {
@@ -154,10 +159,23 @@ export function AgentHeartbeatCard({
   const locale = useLocale();
   const isGerman = locale.startsWith('de');
   const enabled = config?.enabled ?? false;
-  const selectedDeliveryChannel = deliveryDraft.deliveryMode === 'web' ? 'web' : deliveryDraft.deliveryChannelId || 'web';
-  const channelOptions = deliveryChannels.length > 0
+  const controlsDisabled = saving || !enabled;
+  const workingHoursControlsDisabled = controlsDisabled || !scheduleDraft.workingHoursEnabled;
+  const selectedDeliveryChannel = deliveryDraft.deliveryMode === 'last_active'
+    ? 'last_active'
+    : deliveryDraft.deliveryMode === 'web' ? 'web' : deliveryDraft.deliveryChannelId || 'web';
+  const connectedChannelOptions = deliveryChannels.length > 0
     ? deliveryChannels
     : [{ id: 'web', label: isGerman ? 'Web-Chat' : 'Web chat', connected: true, running: true }];
+  const channelOptions = [
+    {
+      id: 'last_active',
+      label: t('agentPanel.heartbeat.lastActiveChannel'),
+      connected: true,
+      running: true,
+    },
+    ...connectedChannelOptions.filter((channel) => channel.id !== 'last_active'),
+  ];
 
   const summaryItems = [
     loading
@@ -202,8 +220,13 @@ export function AgentHeartbeatCard({
               aria-label={t('agentPanel.heartbeat.enableLabel')}
             />
           </div>
+          {!enabled && (
+            <p className="rounded-md border border-dashed bg-muted/20 px-3 py-2 text-sm text-muted-foreground">
+              {t('agentPanel.heartbeat.disabledSettingsHint')}
+            </p>
+          )}
 
-          <div className="space-y-3 rounded-md border bg-muted/20 p-3">
+          <div className={`space-y-3 rounded-md border bg-muted/20 p-3 ${controlsDisabled ? 'opacity-60' : ''}`} aria-disabled={controlsDisabled}>
             <div className="flex items-center gap-2">
               <Heart className="h-4 w-4 text-muted-foreground" />
               <p className="text-sm font-medium">{t('agentPanel.heartbeat.scheduleTitle')}</p>
@@ -215,7 +238,7 @@ export function AgentHeartbeatCard({
                   className="h-10 rounded-md border border-input bg-background px-3 text-sm"
                   value={scheduleDraft.kind}
                   onChange={(event) => onScheduleDraftChange({ kind: event.target.value as AgentHeartbeatScheduleKind })}
-                  disabled={saving}
+                  disabled={controlsDisabled}
                 >
                   <option value="daily">{t('agentPanel.heartbeat.daily')}</option>
                   <option value="weekly">{t('agentPanel.heartbeat.weekly')}</option>
@@ -230,7 +253,7 @@ export function AgentHeartbeatCard({
                     type="time"
                     value={scheduleDraft.dailyTime}
                     onChange={(event) => onScheduleDraftChange({ dailyTime: event.target.value })}
-                    disabled={saving}
+                    disabled={controlsDisabled}
                   />
                 </label>
               )}
@@ -244,7 +267,7 @@ export function AgentHeartbeatCard({
                       min={1}
                       value={scheduleDraft.intervalEvery}
                       onChange={(event) => onScheduleDraftChange({ intervalEvery: event.target.value })}
-                      disabled={saving}
+                      disabled={controlsDisabled}
                     />
                   </label>
                   <label className="flex flex-col gap-1 text-sm">
@@ -253,7 +276,7 @@ export function AgentHeartbeatCard({
                       className="h-10 rounded-md border border-input bg-background px-3 text-sm"
                       value={scheduleDraft.intervalUnit}
                       onChange={(event) => onScheduleDraftChange({ intervalUnit: event.target.value as AutomationIntervalUnit })}
-                      disabled={saving}
+                      disabled={controlsDisabled}
                     >
                       <option value="minutes">{t('agentPanel.heartbeat.minutes')}</option>
                       <option value="hours">{t('agentPanel.heartbeat.hours')}</option>
@@ -268,7 +291,7 @@ export function AgentHeartbeatCard({
                 <Input
                   value={scheduleDraft.timeZone}
                   onChange={(event) => onScheduleDraftChange({ timeZone: event.target.value })}
-                  disabled={saving}
+                  disabled={controlsDisabled}
                 />
               </label>
             </div>
@@ -288,7 +311,7 @@ export function AgentHeartbeatCard({
                             ? scheduleDraft.weeklyDays.filter((entry) => entry !== day)
                             : [...scheduleDraft.weeklyDays, day],
                         })}
-                        disabled={saving}
+                        disabled={controlsDisabled}
                       >
                         {t(`agentPanel.heartbeat.weekdayLabels.${day}`)}
                       </button>
@@ -301,14 +324,82 @@ export function AgentHeartbeatCard({
                     type="time"
                     value={scheduleDraft.weeklyTime}
                     onChange={(event) => onScheduleDraftChange({ weeklyTime: event.target.value })}
-                    disabled={saving}
+                    disabled={controlsDisabled}
                   />
                 </label>
               </div>
             )}
           </div>
 
-          <div className="grid gap-3 rounded-md border bg-muted/20 p-3 md:grid-cols-3">
+          <div className={`space-y-3 rounded-md border bg-muted/20 p-3 ${controlsDisabled ? 'opacity-60' : ''}`} aria-disabled={controlsDisabled}>
+            <div className="flex items-center justify-between gap-4">
+              <div className="flex min-w-0 items-center gap-2">
+                <Clock3 className="h-4 w-4 text-muted-foreground" />
+                <div className="min-w-0">
+                  <p className="text-sm font-medium">{t('agentPanel.heartbeat.workingHoursTitle')}</p>
+                  <p className="text-xs text-muted-foreground">{t('agentPanel.heartbeat.workingHoursDescription')}</p>
+                </div>
+              </div>
+              <Switch
+                checked={scheduleDraft.workingHoursEnabled}
+                onCheckedChange={(checked) => onScheduleDraftChange({ workingHoursEnabled: checked })}
+                disabled={controlsDisabled}
+                aria-label={t('agentPanel.heartbeat.workingHoursToggle')}
+              />
+            </div>
+
+            <div className="grid grid-cols-4 gap-2 sm:flex sm:flex-wrap">
+              {WEEKDAYS.map((day) => {
+                const selected = scheduleDraft.workingHoursDays.includes(day);
+                return (
+                  <button
+                    key={day}
+                    type="button"
+                    className={`min-h-10 rounded-md border px-3 py-2 text-sm ${selected ? 'border-primary bg-primary/10' : 'border-border bg-background'}`}
+                    onClick={() => onScheduleDraftChange({
+                      workingHoursDays: selected
+                        ? scheduleDraft.workingHoursDays.filter((entry) => entry !== day)
+                        : [...scheduleDraft.workingHoursDays, day],
+                    })}
+                    disabled={workingHoursControlsDisabled}
+                  >
+                    {t(`agentPanel.heartbeat.weekdayLabels.${day}`)}
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="grid gap-3 md:grid-cols-3">
+              <label className="flex flex-col gap-1 text-sm">
+                <span className="text-xs text-muted-foreground">{t('agentPanel.heartbeat.workingHoursStart')}</span>
+                <Input
+                  type="time"
+                  value={scheduleDraft.workingHoursStart}
+                  onChange={(event) => onScheduleDraftChange({ workingHoursStart: event.target.value })}
+                  disabled={workingHoursControlsDisabled}
+                />
+              </label>
+              <label className="flex flex-col gap-1 text-sm">
+                <span className="text-xs text-muted-foreground">{t('agentPanel.heartbeat.workingHoursEnd')}</span>
+                <Input
+                  type="time"
+                  value={scheduleDraft.workingHoursEnd}
+                  onChange={(event) => onScheduleDraftChange({ workingHoursEnd: event.target.value })}
+                  disabled={workingHoursControlsDisabled}
+                />
+              </label>
+              <label className="flex flex-col gap-1 text-sm">
+                <span className="text-xs text-muted-foreground">{t('agentPanel.heartbeat.timezone')}</span>
+                <Input
+                  value={scheduleDraft.workingHoursTimeZone}
+                  onChange={(event) => onScheduleDraftChange({ workingHoursTimeZone: event.target.value })}
+                  disabled={workingHoursControlsDisabled}
+                />
+              </label>
+            </div>
+          </div>
+
+          <div className={`grid gap-3 rounded-md border bg-muted/20 p-3 md:grid-cols-3 ${controlsDisabled ? 'opacity-60' : ''}`} aria-disabled={controlsDisabled}>
             <label className="flex min-w-0 flex-col gap-1 text-sm">
               <span className="text-xs text-muted-foreground">{t('agentPanel.heartbeat.deliveryChannel')}</span>
               <select
@@ -316,12 +407,20 @@ export function AgentHeartbeatCard({
                 value={selectedDeliveryChannel}
                 onChange={(event) => {
                   const channelId = event.target.value;
+                  if (channelId === 'last_active') {
+                    onDeliveryDraftChange({
+                      deliveryMode: 'last_active',
+                      deliveryChannelId: 'last_active',
+                      deliverySessionMode: 'channel_active',
+                    });
+                    return;
+                  }
                   onDeliveryDraftChange({
                     deliveryMode: channelId === 'web' ? 'web' : 'channel_home',
                     deliveryChannelId: channelId,
                   });
                 }}
-                disabled={saving}
+                disabled={controlsDisabled}
               >
                 {channelOptions.map((channel) => (
                   <option key={channel.id} value={channel.id}>
@@ -337,7 +436,7 @@ export function AgentHeartbeatCard({
                 className="h-10 rounded-md border border-input bg-background px-3 text-sm"
                 value={deliveryDraft.deliverySessionMode}
                 onChange={(event) => onDeliveryDraftChange({ deliverySessionMode: event.target.value as AutomationDeliverySessionMode })}
-                disabled={saving}
+                disabled={controlsDisabled}
               >
                 {(['new_session', 'channel_active', 'fixed_session'] as AutomationDeliverySessionMode[]).map((mode) => (
                   <option key={mode} value={mode}>{deliverySessionModeLabel(mode, isGerman)}</option>
@@ -353,7 +452,7 @@ export function AgentHeartbeatCard({
                   value={deliveryDraft.deliverySessionId}
                   onChange={(event) => onDeliveryDraftChange({ deliverySessionId: event.target.value })}
                   placeholder="pi-..."
-                  disabled={saving}
+                  disabled={controlsDisabled}
                 />
               </label>
             )}
@@ -375,7 +474,7 @@ export function AgentHeartbeatCard({
               </Button>
             </div>
 
-            <div className="space-y-3 rounded-md border bg-muted/20 p-3">
+            <div className={`space-y-3 rounded-md border bg-muted/20 p-3 ${controlsDisabled ? 'opacity-60' : ''}`} aria-disabled={controlsDisabled}>
               <div className="flex items-center gap-2">
                 <FileText className="h-4 w-4 text-muted-foreground" />
                 <div className="min-w-0">
@@ -393,12 +492,18 @@ export function AgentHeartbeatCard({
                 <>
                   <div
                     data-testid="agent-heartbeat-file-editor"
-                    className="h-[400px] overflow-hidden rounded-md border border-input bg-background"
+                    className="relative h-[400px] overflow-hidden rounded-md border border-input bg-background"
                   >
                     <MarkdownEditor
                       value={heartbeatFileDraft}
                       onChange={onHeartbeatFileDraftChange}
                     />
+                    {controlsDisabled && (
+                      <div
+                        className="absolute inset-0 cursor-not-allowed bg-background/55"
+                        aria-label={t('agentPanel.heartbeat.disabledSettingsHint')}
+                      />
+                    )}
                   </div>
 
                   {heartbeatFileError && <p className="text-sm text-destructive">{heartbeatFileError}</p>}
@@ -408,7 +513,7 @@ export function AgentHeartbeatCard({
                     <Button
                       type="button"
                       onClick={onSaveHeartbeatFile}
-                      disabled={heartbeatFileSaving || heartbeatFileResetting}
+                      disabled={controlsDisabled || heartbeatFileSaving || heartbeatFileResetting}
                     >
                       {heartbeatFileSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
                       {t('agentPanel.heartbeat.fileSave')}
@@ -417,7 +522,7 @@ export function AgentHeartbeatCard({
                       type="button"
                       variant="outline"
                       onClick={onReloadHeartbeatFile}
-                      disabled={heartbeatFileLoading || heartbeatFileSaving || heartbeatFileResetting}
+                      disabled={controlsDisabled || heartbeatFileLoading || heartbeatFileSaving || heartbeatFileResetting}
                     >
                       <RefreshCw className="mr-2 h-4 w-4" />
                       {t('agentPanel.heartbeat.fileReload')}
@@ -426,7 +531,7 @@ export function AgentHeartbeatCard({
                       type="button"
                       variant="outline"
                       onClick={onOpenHeartbeatResetDialog}
-                      disabled={heartbeatFileLoading || heartbeatFileSaving || heartbeatFileResetting}
+                      disabled={controlsDisabled || heartbeatFileLoading || heartbeatFileSaving || heartbeatFileResetting}
                     >
                       {heartbeatFileResetting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RotateCcw className="mr-2 h-4 w-4" />}
                       {t('agentPanel.heartbeat.fileReset')}

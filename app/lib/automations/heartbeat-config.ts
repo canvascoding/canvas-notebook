@@ -46,9 +46,17 @@ function defaultTimeZone(): string {
 
 export function getDefaultHeartbeatSchedule(): FriendlySchedule {
   return {
-    kind: 'daily',
-    times: ['09:00'],
+    kind: 'interval',
+    every: 60,
+    unit: 'minutes',
     timeZone: defaultTimeZone(),
+    workingHours: {
+      enabled: true,
+      days: ['mon', 'tue', 'wed', 'thu', 'fri'],
+      start: '09:00',
+      end: '18:00',
+      timeZone: defaultTimeZone(),
+    },
   };
 }
 
@@ -63,9 +71,9 @@ function serializeHeartbeatConfig(job: AutomationJobRecord | null, agentId: stri
       lastRunAt: null,
       lastRunStatus: null,
       jobId: null,
-      deliveryMode: 'web',
-      deliveryChannelId: 'web',
-      deliverySessionMode: 'new_session',
+      deliveryMode: 'last_active',
+      deliveryChannelId: null,
+      deliverySessionMode: 'channel_active',
       deliverySessionId: null,
       deliveryChannelSessionKey: null,
     };
@@ -104,14 +112,17 @@ export async function saveHeartbeatConfig(input: SaveHeartbeatConfigInput): Prom
 
   const schedule = input.schedule ?? existing?.schedule ?? getDefaultHeartbeatSchedule();
   const enabled = input.enabled ?? (existing?.status === 'active');
+  const deliveryMode = input.deliveryMode ?? existing?.deliveryMode ?? 'last_active';
   const job = await upsertHeartbeatJob({
     userId: input.userId,
     agentId: input.agentId,
     enabled,
     schedule,
-    deliveryMode: input.deliveryMode ?? existing?.deliveryMode,
-    deliveryChannelId: input.deliveryChannelId === undefined ? existing?.deliveryChannelId ?? 'web' : input.deliveryChannelId,
-    deliverySessionMode: input.deliverySessionMode ?? existing?.deliverySessionMode,
+    deliveryMode,
+    deliveryChannelId: input.deliveryChannelId === undefined
+      ? existing?.deliveryChannelId ?? (deliveryMode === 'web' ? 'web' : null)
+      : input.deliveryChannelId,
+    deliverySessionMode: input.deliverySessionMode ?? existing?.deliverySessionMode ?? 'channel_active',
     deliverySessionId: input.deliverySessionId === undefined ? existing?.deliverySessionId ?? null : input.deliverySessionId,
     deliveryChannelSessionKey: input.deliveryChannelSessionKey === undefined ? existing?.deliveryChannelSessionKey ?? null : input.deliveryChannelSessionKey,
   });

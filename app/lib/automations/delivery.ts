@@ -4,7 +4,7 @@ import { and, eq } from 'drizzle-orm';
 
 import { db } from '@/app/lib/db';
 import { piSessions } from '@/app/lib/db/schema';
-import { getActiveChannelSession, getLatestActiveChannelSession } from '@/app/lib/channels/active-sessions';
+import { getActiveChannelSession, getLatestActiveChannelSession, getRecentActiveChannelSessions } from '@/app/lib/channels/active-sessions';
 import { getChannelDeliveryReadiness } from '@/app/lib/channels/availability';
 import { ensureSessionChannelLink, markChannelLinkOutbound } from '@/app/lib/channels/channel-links';
 import { WEB_CHANNEL_ID, webChannelSessionKey } from '@/app/lib/channels/constants';
@@ -41,7 +41,52 @@ function defaultWebChannelSessionKey(userId: string): string {
   return webChannelSessionKey(userId);
 }
 
-function resolveDeliveryChannel(job: AutomationJobRecord, userId: string) {
+async function resolveDeliveryChannel(job: AutomationJobRecord, userId: string) {
+  const warnings: string[] = [];
+  if (job.deliveryMode === 'last_active') {
+    const recentSessions = await getRecentActiveChannelSessions({
+      userId,
+      agentId: job.agentId,
+      limit: 20,
+    });
+
+    for (const recentSession of recentSessions) {
+      const channelId = recentSession.channelId || WEB_CHANNEL_ID;
+      const channelSessionKey = recentSession.channelSessionKey?.trim()
+        || (channelId === WEB_CHANNEL_ID ? defaultWebChannelSessionKey(userId) : '');
+      if (!channelSessionKey) {
+        continue;
+      }
+
+      if (channelId !== WEB_CHANNEL_ID) {
+        const readiness = await getChannelDeliveryReadiness({
+          channelId,
+          userId,
+          channelSessionKey,
+        });
+        if (!readiness.ok) {
+          warnings.push(`Last active channel "${channelId}" is unavailable (${readiness.reason}); falling back.`);
+          continue;
+        }
+      }
+
+      return {
+        channelId,
+        channelSessionKey,
+        activeDelivery: true,
+        warnings,
+      };
+    }
+
+    warnings.push('No deliverable last active channel was available; falling back to web.');
+    return {
+      channelId: WEB_CHANNEL_ID,
+      channelSessionKey: defaultWebChannelSessionKey(userId),
+      activeDelivery: true,
+      warnings,
+    };
+  }
+
   const channelId = job.deliveryMode === 'silent'
     ? WEB_CHANNEL_ID
     : job.deliveryChannelId?.trim() || WEB_CHANNEL_ID;
@@ -52,6 +97,7 @@ function resolveDeliveryChannel(job: AutomationJobRecord, userId: string) {
     channelId,
     channelSessionKey,
     activeDelivery: true,
+    warnings,
   };
 }
 
@@ -79,7 +125,8 @@ export async function resolveAutomationDeliveryTarget(input: {
 }): Promise<AutomationDeliveryResolution> {
   const { job, userId, defaultSessionId } = input;
   const warnings: string[] = [];
-  const delivery = resolveDeliveryChannel(job, userId);
+  const delivery = await resolveDeliveryChannel(job, userId);
+  warnings.push(...delivery.warnings);
 
   if (delivery.channelId !== WEB_CHANNEL_ID && !delivery.channelSessionKey) {
     const latest = await getLatestActiveChannelSession({
