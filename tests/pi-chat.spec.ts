@@ -1480,7 +1480,8 @@ contentKind: document
       .toContain('Tool läuft: read_file');
     await expect(page.getByTestId('chat-runtime-status')).toContainText('2 in Queue');
     await expect(page.getByTestId('chat-runtime-status')).toContainText('Summary aktiv');
-    await expect(page.getByTestId('chat-context-meter')).toContainText('~62%', { timeout: 15000 });
+    await expect(page.getByTestId('chat-context-meter')).toContainText('15k/24k', { timeout: 15000 });
+    await expect(page.getByTestId('chat-context-meter')).not.toContainText('~62%');
     await expect(page.getByTestId('chat-context-meter')).toContainText('128k');
     await expect(page.getByTestId('chat-queue-panel')).toContainText('Summarize afterwards', { timeout: 15000 });
     await expect(page.getByTestId('chat-queue-panel')).toContainText('Stop and inspect README');
