@@ -114,31 +114,33 @@ export function PublicShareDialog({ open, onOpenChange, paths, onPublished }: Pu
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
+      <DialogContent className="flex max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-2xl min-w-0 flex-col gap-0 overflow-hidden p-0 sm:max-h-[calc(100dvh-2rem)] sm:w-[calc(100vw-2rem)]">
+        <DialogHeader className="min-w-0 px-4 pb-3 pt-5 pr-12 sm:px-6 sm:pt-6 sm:pr-12">
+          <DialogTitle className="flex min-w-0 items-center gap-2 text-base leading-tight sm:text-lg">
             <Globe2 className="h-5 w-5 text-amber-600" />
-            {t('publicShareTitle')}
+            <span className="min-w-0 truncate">{t('publicShareTitle')}</span>
           </DialogTitle>
-          <DialogDescription>{t('publicShareDescription')}</DialogDescription>
+          <DialogDescription className="text-sm leading-relaxed sm:text-base">
+            {t('publicShareDescription')}
+          </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4">
-          <div className="border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-100">
-            <div className="flex gap-2">
+        <div className="min-h-0 min-w-0 flex-1 space-y-4 overflow-y-auto px-4 pb-4 sm:px-6">
+          <div className="min-w-0 border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-100">
+            <div className="flex min-w-0 gap-2">
               <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" />
-              <p>{t('publicShareWarning')}</p>
+              <p className="min-w-0 break-words leading-relaxed">{t('publicShareWarning')}</p>
             </div>
           </div>
 
-          <div className="space-y-2">
-            <div className="flex items-center justify-between gap-2">
+          <div className="min-w-0 space-y-2">
+            <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
               <span className="text-sm font-medium">{t('publicShareFiles', { count: fileCount })}</span>
               <Badge variant="secondary">{t('publicShareReadOnly')}</Badge>
             </div>
-            <div className="max-h-28 overflow-auto border border-border bg-muted/30 p-2 text-xs">
+            <div className="max-h-32 min-w-0 overflow-y-auto border border-border bg-muted/30 p-2 text-xs">
               {uniquePaths.map((path) => (
-                <div key={path} className="truncate font-mono text-muted-foreground" title={path}>
+                <div key={path} className="break-all font-mono text-muted-foreground" title={path}>
                   {path}
                 </div>
               ))}
@@ -146,9 +148,9 @@ export function PublicShareDialog({ open, onOpenChange, paths, onPublished }: Pu
           </div>
 
           {!hasResults && (
-            <div className="space-y-2">
+            <div className="min-w-0 space-y-2">
               <span className="text-sm font-medium">{t('publicShareExpiry')}</span>
-              <div className="flex flex-wrap gap-2">
+              <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
                 {EXPIRY_OPTIONS.map((option) => (
                   <Button
                     key={option}
@@ -156,6 +158,7 @@ export function PublicShareDialog({ open, onOpenChange, paths, onPublished }: Pu
                     variant={expiryDays === option ? 'default' : 'outline'}
                     size="sm"
                     onClick={() => setExpiryDays(option)}
+                    className="w-full sm:w-auto"
                   >
                     {option === 0 ? t('publicShareNoExpiry') : t('publicShareDays', { count: option })}
                   </Button>
@@ -165,26 +168,26 @@ export function PublicShareDialog({ open, onOpenChange, paths, onPublished }: Pu
           )}
 
           {shares.length > 0 && (
-            <div className="space-y-2">
-              <div className="flex items-center justify-between gap-2">
+            <div className="min-w-0 space-y-2">
+              <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
                 <span className="text-sm font-medium">{t('publicShareLinks')}</span>
                 <Button variant="outline" size="sm" onClick={copyAll}>
                   <Copy className="h-4 w-4" />
                   {t('publicShareCopyAll')}
                 </Button>
               </div>
-              <div className="max-h-56 space-y-2 overflow-auto">
+              <div className="max-h-64 min-w-0 space-y-2 overflow-y-auto">
                 {shares.map((share) => (
-                  <div key={share.id} className="border border-border bg-background p-2">
-                    <div className="flex min-w-0 items-start justify-between gap-2">
+                  <div key={share.id} className="min-w-0 border border-border bg-background p-2">
+                    <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                       <div className="min-w-0">
-                        <div className="truncate text-sm font-medium" title={share.workspacePath}>{share.fileName}</div>
-                        <div className="truncate font-mono text-xs text-muted-foreground" title={share.publicUrl}>{share.publicUrl}</div>
+                        <div className="break-all text-sm font-medium" title={share.workspacePath}>{share.fileName}</div>
+                        <div className="break-all font-mono text-xs text-muted-foreground" title={share.publicUrl}>{share.publicUrl}</div>
                         <div className="mt-1 text-xs text-muted-foreground">
                           {share.expiresAt ? t('publicShareExpiresAt', { date: formatDate(share.expiresAt) }) : t('publicShareNeverExpires')}
                         </div>
                       </div>
-                      <div className="flex shrink-0 gap-1">
+                      <div className="flex shrink-0 justify-end gap-1">
                         <Button variant="ghost" size="icon-sm" onClick={() => copyText(share.publicUrl, t('publicShareCopied'))}>
                           <Copy className="h-4 w-4" />
                         </Button>
@@ -200,14 +203,14 @@ export function PublicShareDialog({ open, onOpenChange, paths, onPublished }: Pu
           )}
 
           {skipped.length > 0 && (
-            <div className="space-y-2">
-              <span className="flex items-center gap-2 text-sm font-medium text-destructive">
+            <div className="min-w-0 space-y-2">
+              <span className="flex min-w-0 items-center gap-2 text-sm font-medium text-destructive">
                 <XCircle className="h-4 w-4" />
                 {t('publicShareSkipped', { count: skipped.length })}
               </span>
-              <div className="max-h-28 overflow-auto border border-destructive/30 bg-destructive/5 p-2 text-xs">
+              <div className="max-h-32 min-w-0 overflow-y-auto border border-destructive/30 bg-destructive/5 p-2 text-xs">
                 {skipped.map((item) => (
-                  <div key={`${item.path}:${item.reason}`} className="mb-1">
+                  <div key={`${item.path}:${item.reason}`} className="mb-1 break-all">
                     <span className="font-mono">{item.path}</span>
                     <span className="text-muted-foreground"> - {item.reason}</span>
                   </div>
@@ -217,10 +220,10 @@ export function PublicShareDialog({ open, onOpenChange, paths, onPublished }: Pu
           )}
         </div>
 
-        <DialogFooter className="gap-2">
-          <Button variant="ghost" onClick={() => onOpenChange(false)}>{t('close')}</Button>
+        <DialogFooter className="shrink-0 gap-2 border-t border-border px-4 py-3 sm:px-6">
+          <Button variant="ghost" onClick={() => onOpenChange(false)} className="w-full sm:w-auto">{t('close')}</Button>
           {!hasResults && (
-            <Button onClick={handlePublish} disabled={isPublishing || fileCount === 0}>
+            <Button onClick={handlePublish} disabled={isPublishing || fileCount === 0} className="w-full sm:w-auto">
               {isPublishing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Globe2 className="h-4 w-4" />}
               {t('publicSharePublish')}
             </Button>

@@ -145,9 +145,39 @@ export function PublicSharesClient() {
     }
   };
 
+  const renderShareActions = (share: PublicShare, compact = false) => (
+    <div className={cn('flex flex-wrap gap-1', compact ? 'justify-start' : 'justify-end')}>
+      <Button variant="ghost" size="icon-sm" onClick={() => copyUrl(share.publicUrl)} title={t('copyUrl')}>
+        <Copy className="h-4 w-4" />
+      </Button>
+      <Button variant="ghost" size="icon-sm" asChild title={t('openPublicUrl')}>
+        <a href={share.publicUrl} target="_blank" rel="noopener noreferrer">
+          <ExternalLink className="h-4 w-4" />
+        </a>
+      </Button>
+      <Button variant="ghost" size="icon-sm" asChild title={t('openFile')}>
+        <Link href={`/files?path=${encodeURIComponent(share.workspacePath)}`}>
+          <FileText className="h-4 w-4" />
+        </Link>
+      </Button>
+      {share.status === 'active' && (
+        <Button
+          variant="ghost"
+          size="sm"
+          className="text-destructive hover:text-destructive"
+          onClick={() => void revokeShare(share)}
+          disabled={revokingId === share.id}
+        >
+          {revokingId === share.id ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+          {t('revoke')}
+        </Button>
+      )}
+    </div>
+  );
+
   return (
-    <div className="mx-auto flex w-full max-w-7xl flex-col gap-4 p-4 md:p-6">
-      <section className="border border-border bg-background p-4">
+    <div className="mx-auto flex w-full max-w-7xl min-w-0 flex-col gap-4 p-3 sm:p-4 md:p-6">
+      <section className="min-w-0 border border-border bg-background p-4">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div className="min-w-0">
             <div className="mb-2 flex items-center gap-2 text-sm font-medium text-amber-700 dark:text-amber-300">
@@ -156,24 +186,24 @@ export function PublicSharesClient() {
             </div>
             <p className="max-w-3xl text-sm text-muted-foreground">{t('securityNote')}</p>
           </div>
-          <div className="grid grid-cols-3 gap-2 text-center text-xs">
-            <div className="border border-border px-3 py-2">
+          <div className="grid w-full grid-cols-3 gap-2 text-center text-xs lg:w-auto">
+            <div className="min-w-0 border border-border px-2 py-2 sm:px-3">
               <div className="text-lg font-semibold">{summary.total}</div>
-              <div className="text-muted-foreground">{t('total')}</div>
+              <div className="truncate text-muted-foreground">{t('total')}</div>
             </div>
-            <div className="border border-border px-3 py-2">
+            <div className="min-w-0 border border-border px-2 py-2 sm:px-3">
               <div className="text-lg font-semibold text-emerald-600">{summary.active}</div>
-              <div className="text-muted-foreground">{t('active')}</div>
+              <div className="truncate text-muted-foreground">{t('active')}</div>
             </div>
-            <div className="border border-border px-3 py-2">
+            <div className="min-w-0 border border-border px-2 py-2 sm:px-3">
               <div className="text-lg font-semibold text-muted-foreground">{summary.inactive}</div>
-              <div className="text-muted-foreground">{t('inactive')}</div>
+              <div className="truncate text-muted-foreground">{t('inactive')}</div>
             </div>
           </div>
         </div>
       </section>
 
-      <section className="border border-border bg-background">
+      <section className="min-w-0 overflow-hidden border border-border bg-background">
         <div className="flex flex-col gap-3 border-b border-border p-3 lg:flex-row lg:items-center">
           <div className="relative min-w-0 flex-1">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -184,7 +214,7 @@ export function PublicSharesClient() {
               className="pl-9"
             />
           </div>
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
             <Filter className="h-4 w-4 text-muted-foreground" />
             {STATUS_FILTERS.map((item) => (
               <Button key={item} size="sm" variant={status === item ? 'default' : 'outline'} onClick={() => setStatus(item)}>
@@ -193,13 +223,13 @@ export function PublicSharesClient() {
             ))}
           </div>
         </div>
-        <div className="flex flex-wrap gap-2 border-b border-border p-3">
+        <div className="flex min-w-0 flex-wrap gap-2 border-b border-border p-3">
           {TYPE_FILTERS.map((item) => (
             <Button key={item} size="sm" variant={type === item ? 'secondary' : 'ghost'} onClick={() => setType(item)}>
               {t(`type.${item}`)}
             </Button>
           ))}
-          <div className="ml-auto flex flex-wrap gap-2">
+          <div className="flex w-full flex-wrap gap-2 lg:ml-auto lg:w-auto">
             {SOURCE_FILTERS.map((item) => (
               <Button key={item} size="sm" variant={source === item ? 'secondary' : 'ghost'} onClick={() => setSource(item)}>
                 {t(`source.${item}`)}
@@ -229,7 +259,46 @@ export function PublicSharesClient() {
             <p className="text-sm text-muted-foreground">{t('emptyDescription')}</p>
           </div>
         ) : (
-          <div className="overflow-x-auto">
+          <>
+          <div className="grid gap-3 p-3 md:hidden">
+            {shares.map((share) => (
+              <article key={share.id} className="min-w-0 border border-border bg-background p-3">
+                <div className="mb-3 flex min-w-0 items-start gap-2">
+                  <FileText className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                  <div className="min-w-0 flex-1">
+                    <div className="break-all font-medium" title={share.fileName}>{share.fileName}</div>
+                    <div className="mt-1 break-all font-mono text-xs text-muted-foreground" title={share.workspacePath}>
+                      {share.workspacePath}
+                    </div>
+                    <div className="mt-1 break-all font-mono text-xs text-muted-foreground" title={share.publicUrl}>
+                      {share.publicUrl}
+                    </div>
+                  </div>
+                </div>
+                <div className="mb-3 grid grid-cols-2 gap-2 text-xs">
+                  <div className="min-w-0">
+                    <div className="text-muted-foreground">{t('statusLabel')}</div>
+                    <Badge variant="outline" className={statusClass(share.status)}>{t(`status.${share.status}`)}</Badge>
+                  </div>
+                  <div className="min-w-0">
+                    <div className="text-muted-foreground">{t('typeLabel')}</div>
+                    <div className="break-all">{share.mimeType}</div>
+                    <div className="text-muted-foreground">{formatBytes(share.sizeBytes)}</div>
+                  </div>
+                  <div className="min-w-0">
+                    <div className="text-muted-foreground">{t('expires')}</div>
+                    <div>{share.expiresAt ? formatDate(share.expiresAt) : t('never')}</div>
+                  </div>
+                  <div className="min-w-0">
+                    <div className="text-muted-foreground">{t('accesses')}</div>
+                    <div>{share.accessCount}</div>
+                  </div>
+                </div>
+                {renderShareActions(share, true)}
+              </article>
+            ))}
+          </div>
+          <div className="hidden max-w-full overflow-x-auto md:block">
             <table className="w-full min-w-[980px] text-left text-sm">
               <thead className="border-b border-border bg-muted/40 text-xs text-muted-foreground">
                 <tr>
@@ -266,39 +335,14 @@ export function PublicSharesClient() {
                     <td className="px-3 py-3">{share.accessCount}</td>
                     <td className="px-3 py-3 text-xs text-muted-foreground">{formatDate(share.lastAccessedAt)}</td>
                     <td className="px-3 py-3">
-                      <div className="flex justify-end gap-1">
-                        <Button variant="ghost" size="icon-sm" onClick={() => copyUrl(share.publicUrl)} title={t('copyUrl')}>
-                          <Copy className="h-4 w-4" />
-                        </Button>
-                        <Button variant="ghost" size="icon-sm" asChild title={t('openPublicUrl')}>
-                          <a href={share.publicUrl} target="_blank" rel="noopener noreferrer">
-                            <ExternalLink className="h-4 w-4" />
-                          </a>
-                        </Button>
-                        <Button variant="ghost" size="icon-sm" asChild title={t('openFile')}>
-                          <Link href={`/files?path=${encodeURIComponent(share.workspacePath)}`}>
-                            <FileText className="h-4 w-4" />
-                          </Link>
-                        </Button>
-                        {share.status === 'active' && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="text-destructive hover:text-destructive"
-                            onClick={() => void revokeShare(share)}
-                            disabled={revokingId === share.id}
-                          >
-                            {revokingId === share.id ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                            {t('revoke')}
-                          </Button>
-                        )}
-                      </div>
+                      {renderShareActions(share)}
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
+          </>
         )}
       </section>
     </div>
