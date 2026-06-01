@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { Copy, ExternalLink, FileText, Filter, Globe2, Loader2, RefreshCw, Search, ShieldAlert, XCircle } from 'lucide-react';
+import { Copy, ExternalLink, FileText, Filter, Globe2, Loader2, Menu, RefreshCw, Search, ShieldAlert, XCircle } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { toast } from 'sonner';
 
@@ -9,6 +9,15 @@ import { Link } from '@/i18n/navigation';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import {
+  Sheet,
+  SheetClose,
+  SheetContent,
+  SheetDescription,
+  SheetFooter,
+  SheetHeader,
+  SheetTitle,
+} from '@/components/ui/sheet';
 import { cn } from '@/lib/utils';
 
 interface PublicShare {
@@ -70,6 +79,7 @@ export function PublicSharesClient() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [revokingId, setRevokingId] = useState<string | null>(null);
+  const [filtersOpen, setFiltersOpen] = useState(false);
 
   const loadShares = async () => {
     setLoading(true);
@@ -116,6 +126,12 @@ export function PublicSharesClient() {
     };
   }, [shares]);
 
+  const activeFilterCount = [
+    status !== 'active',
+    type !== 'all',
+    source !== 'all',
+  ].filter(Boolean).length;
+
   const copyUrl = async (url: string) => {
     try {
       await navigator.clipboard.writeText(url);
@@ -146,25 +162,46 @@ export function PublicSharesClient() {
   };
 
   const renderShareActions = (share: PublicShare, compact = false) => (
-    <div className={cn('flex flex-wrap gap-1', compact ? 'justify-start' : 'justify-end')}>
-      <Button variant="ghost" size="icon-sm" onClick={() => copyUrl(share.publicUrl)} title={t('copyUrl')}>
+    <div className={cn(compact ? 'grid grid-cols-1 gap-2 sm:grid-cols-2' : 'flex flex-wrap justify-end gap-1')}>
+      <Button
+        variant={compact ? 'outline' : 'ghost'}
+        size={compact ? 'sm' : 'icon-sm'}
+        className={compact ? 'min-w-0 justify-start' : undefined}
+        onClick={() => copyUrl(share.publicUrl)}
+        title={t('copyUrl')}
+      >
         <Copy className="h-4 w-4" />
+        {compact ? t('copyUrl') : null}
       </Button>
-      <Button variant="ghost" size="icon-sm" asChild title={t('openPublicUrl')}>
+      <Button
+        variant={compact ? 'outline' : 'ghost'}
+        size={compact ? 'sm' : 'icon-sm'}
+        className={compact ? 'min-w-0 justify-start' : undefined}
+        asChild
+        title={t('openPublicUrl')}
+      >
         <a href={share.publicUrl} target="_blank" rel="noopener noreferrer">
           <ExternalLink className="h-4 w-4" />
+          {compact ? t('openPublicUrl') : null}
         </a>
       </Button>
-      <Button variant="ghost" size="icon-sm" asChild title={t('openFile')}>
+      <Button
+        variant={compact ? 'outline' : 'ghost'}
+        size={compact ? 'sm' : 'icon-sm'}
+        className={compact ? 'min-w-0 justify-start' : undefined}
+        asChild
+        title={t('openFile')}
+      >
         <Link href={`/files?path=${encodeURIComponent(share.workspacePath)}`}>
           <FileText className="h-4 w-4" />
+          {compact ? t('openFile') : null}
         </Link>
       </Button>
       {share.status === 'active' && (
         <Button
-          variant="ghost"
+          variant={compact ? 'outline' : 'ghost'}
           size="sm"
-          className="text-destructive hover:text-destructive"
+          className={cn('text-destructive hover:text-destructive', compact && 'min-w-0 justify-start')}
           onClick={() => void revokeShare(share)}
           disabled={revokingId === share.id}
         >
@@ -172,6 +209,61 @@ export function PublicSharesClient() {
           {t('revoke')}
         </Button>
       )}
+    </div>
+  );
+
+  const renderFilterControls = (compact = false) => (
+    <div className={cn('min-w-0', compact ? 'space-y-5' : 'contents')}>
+      <div className={cn(compact ? 'space-y-2' : 'flex min-w-0 flex-wrap items-center gap-2')}>
+        {compact ? <div className="text-xs font-medium uppercase text-muted-foreground">{t('statusLabel')}</div> : <Filter className="h-4 w-4 text-muted-foreground" />}
+        <div className={cn(compact ? 'grid grid-cols-2 gap-2' : 'flex flex-wrap gap-2')}>
+          {STATUS_FILTERS.map((item) => (
+            <Button
+              key={item}
+              size="sm"
+              variant={status === item ? 'default' : 'outline'}
+              className={compact ? 'justify-start' : undefined}
+              onClick={() => setStatus(item)}
+            >
+              {t(`status.${item}`)}
+            </Button>
+          ))}
+        </div>
+      </div>
+
+      <div className={cn(compact ? 'space-y-2' : 'flex min-w-0 flex-wrap gap-2')}>
+        {compact ? <div className="text-xs font-medium uppercase text-muted-foreground">{t('typeLabel')}</div> : null}
+        <div className={cn(compact ? 'grid grid-cols-2 gap-2' : 'flex flex-wrap gap-2')}>
+          {TYPE_FILTERS.map((item) => (
+            <Button
+              key={item}
+              size="sm"
+              variant={type === item ? 'secondary' : 'ghost'}
+              className={compact ? 'justify-start' : undefined}
+              onClick={() => setType(item)}
+            >
+              {t(`type.${item}`)}
+            </Button>
+          ))}
+        </div>
+      </div>
+
+      <div className={cn(compact ? 'space-y-2' : 'flex w-full flex-wrap gap-2 lg:ml-auto lg:w-auto')}>
+        {compact ? <div className="text-xs font-medium uppercase text-muted-foreground">{t('sourceLabel')}</div> : null}
+        <div className={cn(compact ? 'grid grid-cols-2 gap-2' : 'flex flex-wrap gap-2')}>
+          {SOURCE_FILTERS.map((item) => (
+            <Button
+              key={item}
+              size="sm"
+              variant={source === item ? 'secondary' : 'ghost'}
+              className={compact ? 'justify-start' : undefined}
+              onClick={() => setSource(item)}
+            >
+              {t(`source.${item}`)}
+            </Button>
+          ))}
+        </div>
+      </div>
     </div>
   );
 
@@ -204,7 +296,7 @@ export function PublicSharesClient() {
       </section>
 
       <section className="min-w-0 overflow-hidden border border-border bg-background">
-        <div className="flex flex-col gap-3 border-b border-border p-3 lg:flex-row lg:items-center">
+        <div className="flex flex-col gap-3 border-b border-border p-3 md:flex-row md:items-center">
           <div className="relative min-w-0 flex-1">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
@@ -214,33 +306,63 @@ export function PublicSharesClient() {
               className="pl-9"
             />
           </div>
-          <div className="flex min-w-0 flex-wrap items-center gap-2">
-            <Filter className="h-4 w-4 text-muted-foreground" />
-            {STATUS_FILTERS.map((item) => (
-              <Button key={item} size="sm" variant={status === item ? 'default' : 'outline'} onClick={() => setStatus(item)}>
-                {t(`status.${item}`)}
-              </Button>
-            ))}
-          </div>
-        </div>
-        <div className="flex min-w-0 flex-wrap gap-2 border-b border-border p-3">
-          {TYPE_FILTERS.map((item) => (
-            <Button key={item} size="sm" variant={type === item ? 'secondary' : 'ghost'} onClick={() => setType(item)}>
-              {t(`type.${item}`)}
+          <div className="flex min-w-0 items-center gap-2 md:hidden">
+            <Button
+              variant="outline"
+              size="sm"
+              className="min-w-0 flex-1 justify-start"
+              onClick={() => setFiltersOpen(true)}
+            >
+              <Menu className="h-4 w-4" />
+              <span className="truncate">{t('filters')}</span>
+              {activeFilterCount > 0 ? (
+                <Badge variant="secondary" className="ml-auto">{activeFilterCount}</Badge>
+              ) : null}
             </Button>
-          ))}
-          <div className="flex w-full flex-wrap gap-2 lg:ml-auto lg:w-auto">
-            {SOURCE_FILTERS.map((item) => (
-              <Button key={item} size="sm" variant={source === item ? 'secondary' : 'ghost'} onClick={() => setSource(item)}>
-                {t(`source.${item}`)}
-              </Button>
-            ))}
-            <Button size="sm" variant="outline" onClick={() => void loadShares()} disabled={loading}>
+            <Button size="icon-sm" variant="outline" onClick={() => void loadShares()} disabled={loading} title={t('refresh')}>
               <RefreshCw className={cn('h-4 w-4', loading && 'animate-spin')} />
-              {t('refresh')}
             </Button>
           </div>
         </div>
+        <div className="hidden min-w-0 flex-wrap gap-2 border-b border-border p-3 md:flex">
+          {renderFilterControls(false)}
+          <Button size="sm" variant="outline" onClick={() => void loadShares()} disabled={loading}>
+            <RefreshCw className={cn('h-4 w-4', loading && 'animate-spin')} />
+            {t('refresh')}
+          </Button>
+        </div>
+
+        <Sheet open={filtersOpen} onOpenChange={setFiltersOpen}>
+          <SheetContent side="bottom" className="max-h-[88dvh] gap-0 overflow-hidden rounded-t-lg p-0 md:hidden">
+            <SheetHeader className="border-b border-border px-4 py-4 pr-12">
+              <SheetTitle className="flex items-center gap-2">
+                <Menu className="h-4 w-4" />
+                {t('filters')}
+              </SheetTitle>
+              <SheetDescription>{t('filtersDescription')}</SheetDescription>
+            </SheetHeader>
+            <div className="min-h-0 overflow-y-auto px-4 py-4">
+              {renderFilterControls(true)}
+            </div>
+            <SheetFooter className="border-t border-border p-4">
+              <div className="grid grid-cols-2 gap-2">
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setStatus('active');
+                    setType('all');
+                    setSource('all');
+                  }}
+                >
+                  {t('resetFilters')}
+                </Button>
+                <SheetClose asChild>
+                  <Button>{t('closeFilters')}</Button>
+                </SheetClose>
+              </div>
+            </SheetFooter>
+          </SheetContent>
+        </Sheet>
 
         {loading ? (
           <div className="flex h-48 items-center justify-center">
@@ -262,39 +384,49 @@ export function PublicSharesClient() {
           <>
           <div className="grid gap-3 p-3 md:hidden">
             {shares.map((share) => (
-              <article key={share.id} className="min-w-0 border border-border bg-background p-3">
-                <div className="mb-3 flex min-w-0 items-start gap-2">
-                  <FileText className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
-                  <div className="min-w-0 flex-1">
-                    <div className="break-all font-medium" title={share.fileName}>{share.fileName}</div>
-                    <div className="mt-1 break-all font-mono text-xs text-muted-foreground" title={share.workspacePath}>
+              <article key={share.id} className="min-w-0 border border-border bg-background">
+                <div className="flex min-w-0 items-start justify-between gap-3 border-b border-border p-3">
+                  <div className="flex min-w-0 flex-1 items-start gap-2">
+                    <FileText className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                    <div className="min-w-0 flex-1">
+                      <div className="break-all text-sm font-medium leading-snug" title={share.fileName}>{share.fileName}</div>
+                      <div className="mt-1 flex flex-wrap gap-1">
+                        <Badge variant="outline" className={statusClass(share.status)}>{t(`status.${share.status}`)}</Badge>
+                        <Badge variant="secondary">{t(`source.${share.source}`)}</Badge>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="shrink-0 text-right text-xs text-muted-foreground">
+                    <div className="font-medium text-foreground">{share.accessCount}</div>
+                    <div>{t('accesses')}</div>
+                  </div>
+                </div>
+                <div className="space-y-3 p-3">
+                  <div className="min-w-0">
+                    <div className="text-xs font-medium text-muted-foreground">{t('filePath')}</div>
+                    <div className="mt-1 break-all bg-muted/40 px-2 py-1 font-mono text-xs" title={share.workspacePath}>
                       {share.workspacePath}
                     </div>
-                    <div className="mt-1 break-all font-mono text-xs text-muted-foreground" title={share.publicUrl}>
+                  </div>
+                  <div className="min-w-0">
+                    <div className="text-xs font-medium text-muted-foreground">{t('publicUrl')}</div>
+                    <div className="mt-1 break-all bg-muted/40 px-2 py-1 font-mono text-xs" title={share.publicUrl}>
                       {share.publicUrl}
                     </div>
                   </div>
+                  <div className="grid grid-cols-2 gap-2 text-xs">
+                    <div className="min-w-0 border border-border px-2 py-1.5">
+                      <div className="text-muted-foreground">{t('typeLabel')}</div>
+                      <div className="break-all">{share.mimeType}</div>
+                      <div className="text-muted-foreground">{formatBytes(share.sizeBytes)}</div>
+                    </div>
+                    <div className="min-w-0 border border-border px-2 py-1.5">
+                      <div className="text-muted-foreground">{t('expires')}</div>
+                      <div>{share.expiresAt ? formatDate(share.expiresAt) : t('never')}</div>
+                    </div>
+                  </div>
+                  {renderShareActions(share, true)}
                 </div>
-                <div className="mb-3 grid grid-cols-2 gap-2 text-xs">
-                  <div className="min-w-0">
-                    <div className="text-muted-foreground">{t('statusLabel')}</div>
-                    <Badge variant="outline" className={statusClass(share.status)}>{t(`status.${share.status}`)}</Badge>
-                  </div>
-                  <div className="min-w-0">
-                    <div className="text-muted-foreground">{t('typeLabel')}</div>
-                    <div className="break-all">{share.mimeType}</div>
-                    <div className="text-muted-foreground">{formatBytes(share.sizeBytes)}</div>
-                  </div>
-                  <div className="min-w-0">
-                    <div className="text-muted-foreground">{t('expires')}</div>
-                    <div>{share.expiresAt ? formatDate(share.expiresAt) : t('never')}</div>
-                  </div>
-                  <div className="min-w-0">
-                    <div className="text-muted-foreground">{t('accesses')}</div>
-                    <div>{share.accessCount}</div>
-                  </div>
-                </div>
-                {renderShareActions(share, true)}
               </article>
             ))}
           </div>
