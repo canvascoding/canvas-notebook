@@ -19,11 +19,18 @@ interface FileEvent {
 }
 
 function getWatchedDirs(): string[] {
-  const { browserMode, currentDirectory, expandedDirs } = useFileStore.getState();
+  const { browserMode, currentDirectory, currentFile, expandedDirs } = useFileStore.getState();
   const dirs = new Set<string>();
 
   if (currentDirectory && currentDirectory !== '.') {
     dirs.add(currentDirectory);
+  }
+
+  if (currentFile?.path) {
+    const parts = currentFile.path.split('/').filter(Boolean);
+    if (parts.length > 1) {
+      dirs.add(parts.slice(0, -1).join('/'));
+    }
   }
 
   if (browserMode === 'tree') {
@@ -73,12 +80,17 @@ export class FileWatcherClient extends EventTarget {
         const watchedDirsChanged =
           state.expandedDirs !== prevState.expandedDirs ||
           state.currentDirectory !== prevState.currentDirectory ||
+          state.currentFile?.path !== prevState.currentFile?.path ||
           state.browserMode !== prevState.browserMode;
 
         if (watchedDirsChanged && this._isConnected && this.clientId) {
           this.scheduleDirSync(getWatchedDirs());
         }
       });
+    }
+
+    if (this._isConnected && this.clientId) {
+      this.scheduleDirSync(getWatchedDirs());
     }
 
     if (this._isConnected || this.eventSource) {

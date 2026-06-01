@@ -127,6 +127,15 @@ function serializeCanvasNotebookScene(
   return JSON.stringify(parsed, null, 2);
 }
 
+function toUpdateSceneAppState(appState: ExcalidrawInitialDataState['appState']) {
+  if (!appState) return null;
+
+  return {
+    ...appState,
+    name: appState.name ?? null,
+  } as Pick<AppState, keyof AppState>;
+}
+
 function getErrorMessage(error: unknown): string {
   if (error instanceof Error) return error.message;
   if (typeof error === 'string') return error;
@@ -229,8 +238,34 @@ export function ExcalidrawEditor({ path, value, onChange }: ExcalidrawEditorProp
     if (activePathRef.current !== path) {
       activePathRef.current = path;
       lastSerializedRef.current = effectiveContent;
+      return;
     }
-  }, [effectiveContent, path]);
+
+    if (effectiveContent === lastSerializedRef.current) {
+      return;
+    }
+
+    lastSerializedRef.current = effectiveContent;
+
+    if (isTextMode || session.invalid || !session.initialData) {
+      return;
+    }
+
+    const api = apiRef.current;
+    if (!api) {
+      return;
+    }
+
+    if (session.initialData.files) {
+      api.addFiles(Object.values(session.initialData.files));
+    }
+
+    api.updateScene({
+      elements: session.initialData.elements ?? [],
+      appState: toUpdateSceneAppState(session.initialData.appState),
+      captureUpdate: CaptureUpdateAction.NEVER,
+    });
+  }, [effectiveContent, isTextMode, path, session.initialData, session.invalid]);
 
   const langCode = useMemo(() => (
     locale.toLowerCase().startsWith('de') ? 'de-DE' : 'en'
