@@ -198,6 +198,7 @@ export function CreateView() {
   const openedRoutePreviewRef = useRef<string | null>(null);
   const openedRouteReferenceRef = useRef<string | null>(null);
   const startedPendingGenerateRequestRef = useRef<string | null>(null);
+  const isMountedRef = useRef(false);
   const [promptOverlayHeight, setPromptOverlayHeight] = useState(220);
 
   const openPicker = (target: 'start' | 'end' | 'references', maxSelection = 1) => {
@@ -432,6 +433,13 @@ export function CreateView() {
     void fetchPresets();
   }, [fetchGenerations, fetchPresets]);
 
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
   const initialRefPath = searchParams.get('ref');
   const initialRefSource = searchParams.get('refSource');
   const initialGenerationId = searchParams.get('generation');
@@ -514,21 +522,17 @@ export function CreateView() {
     if (!request || startedPendingGenerateRequestRef.current === request.id) return;
 
     startedPendingGenerateRequestRef.current = request.id;
-    let cancelled = false;
 
     (async () => {
-      clearGenerateRequest(request.id);
-      const result = await generate(request.payload);
-      if (cancelled) return;
-
-      if (result) {
-        router.replace(`/studio/create?generation=${encodeURIComponent(result.id)}`);
+      try {
+        const result = await generate(request.payload);
+        if (result && isMountedRef.current) {
+          router.replace(`/studio/create?generation=${encodeURIComponent(result.id)}`);
+        }
+      } finally {
+        clearGenerateRequest(request.id);
       }
     })();
-
-    return () => {
-      cancelled = true;
-    };
   }, [clearGenerateRequest, generate, pendingGenerateRequest, router]);
 
   const handlePasteImage = useCallback(async (file: File) => {
