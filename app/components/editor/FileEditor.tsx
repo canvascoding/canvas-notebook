@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useFileStore, type FileNode } from '@/app/store/file-store';
 import { useEditorStore } from '@/app/store/editor-store';
+import { getFileWatcherClient, type FileEvent } from '@/app/lib/file-watcher/client';
 import { MarkdownEditor } from './MarkdownEditor';
 import { ShareMarkdownDialog } from '../file-browser/ShareMarkdownDialog';
 import { FileActionsDropdown } from '../file-browser/FileActionsDropdown';
@@ -114,11 +115,27 @@ const DOCUMENT_SKELETON_EXTENSIONS = new Set([
   'htm',
   'pdf',
 ]);
+const EXTERNAL_FILE_RELOAD_DELAY_MS = 250;
 
 function getExtension(path: string) {
   const parts = path.split('.');
   if (parts.length <= 1) return '';
   return parts[parts.length - 1].toLowerCase();
+}
+
+function normalizeWorkspaceRelativePath(filePath: string) {
+  return filePath.replace(/\\/g, '/').replace(/^\.\/+/, '').replace(/^\/+/, '').replace(/\/+$/, '');
+}
+
+function fileEventMatchesPath(event: FileEvent, filePath: string) {
+  const normalizedFilePath = normalizeWorkspaceRelativePath(filePath);
+  const normalizedRelativePath = normalizeWorkspaceRelativePath(event.relativePath);
+
+  if (normalizedRelativePath === normalizedFilePath) {
+    return true;
+  }
+
+  return event.path.replace(/\\/g, '/').endsWith(`/${normalizedFilePath}`);
 }
 
 function flattenDirectoryImages(nodes: FileNode[], dirPath: string): string[] {
@@ -284,6 +301,7 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
   } = useEditorStore();
 
   const saveTimeoutRef = useRef<number | null>(null);
+  const externalReloadTimeoutRef = useRef<number | null>(null);
   const imagePreviewRef = useRef<HTMLDivElement>(null);
   const [shareOpen, setShareOpen] = useState(false);
   const [htmlViewMode, setHtmlViewMode] = useState<'code' | 'preview'>('code');
@@ -503,6 +521,47 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
     window.addEventListener('keydown', handleImageKeyDown);
     return () => window.removeEventListener('keydown', handleImageKeyDown);
   }, [handleImageNext, handleImagePrev, imagePaths.length, isImage]);
+
+  useEffect(() => {
+    if (!currentFile?.path || !isExcalidraw) return;
+
+    const watchedFilePath = currentFile.path;
+    const client = getFileWatcherClient();
+    client.acquire();
+
+    const handleFileChange = (event: Event) => {
+      const detail = (event as CustomEvent<FileEvent>).detail;
+      if (!detail) return;
+      if (detail.type !== 'add' && detail.type !== 'change') return;
+      if (!fileEventMatchesPath(detail, watchedFilePath)) return;
+
+      const editorState = useEditorStore.getState();
+      if (editorState.activePath !== watchedFilePath || editorState.isDirty) return;
+
+      if (externalReloadTimeoutRef.current) {
+        window.clearTimeout(externalReloadTimeoutRef.current);
+      }
+
+      externalReloadTimeoutRef.current = window.setTimeout(() => {
+        externalReloadTimeoutRef.current = null;
+        const latestEditorState = useEditorStore.getState();
+        if (latestEditorState.activePath !== watchedFilePath || latestEditorState.isDirty) return;
+
+        void loadFile(watchedFilePath, true);
+      }, EXTERNAL_FILE_RELOAD_DELAY_MS);
+    };
+
+    client.addEventListener('filechange', handleFileChange);
+
+    return () => {
+      client.removeEventListener('filechange', handleFileChange);
+      client.releaseConnection();
+      if (externalReloadTimeoutRef.current) {
+        window.clearTimeout(externalReloadTimeoutRef.current);
+        externalReloadTimeoutRef.current = null;
+      }
+    };
+  }, [currentFile?.path, isExcalidraw, loadFile]);
 
   if (isLoadingFile) {
     const pendingPath = loadingFilePath ?? currentFile?.path ?? null;
