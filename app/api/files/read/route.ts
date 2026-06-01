@@ -2,8 +2,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { readFile, getFileStats } from '@/app/lib/filesystem/workspace-files';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 import { auth } from '@/app/lib/auth';
+import { isExcalidrawFilePath } from '@/app/lib/excalidraw-file';
 
 const READ_SIZE_LIMIT = 5 * 1024 * 1024; // 5MB
+const EXCALIDRAW_READ_SIZE_LIMIT = 25 * 1024 * 1024; // embedded image data can make scenes larger
 
 function hasNodeErrorCode(error: unknown, code: string): boolean {
   return Boolean(error && typeof error === 'object' && 'code' in error && error.code === code);
@@ -53,7 +55,8 @@ export async function GET(request: NextRequest) {
       });
     }
     
-    if (stats.size > READ_SIZE_LIMIT) {
+    const sizeLimit = isExcalidrawFilePath(path) ? EXCALIDRAW_READ_SIZE_LIMIT : READ_SIZE_LIMIT;
+    if (stats.size > sizeLimit) {
         return NextResponse.json(
             { success: false, error: 'File is too large to read' },
             { status: 413 }

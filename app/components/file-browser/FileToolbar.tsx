@@ -1,6 +1,6 @@
 'use client';
 
-import { ChevronsDownUp, CheckSquare, FilePlus, FolderPlus, FolderTree, LayoutGrid, List, MoreHorizontal, RefreshCw, Trash2, Upload } from 'lucide-react';
+import { ChevronsDownUp, CheckSquare, FilePlus, FolderPlus, FolderTree, LayoutGrid, List, MoreHorizontal, PenTool, RefreshCw, Trash2, Upload } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { Button } from '@/components/ui/button';
 import {
@@ -22,6 +22,7 @@ import { useFileStore, type BrowserMode } from '@/app/store/file-store';
 export interface FileToolbarHandlers {
   onToggleMultiSelect: () => void;
   onNewFile: () => void;
+  onNewExcalidraw: () => void;
   onNewFolder: () => void;
   onUpload: () => void;
   onDelete: () => void;
@@ -94,6 +95,10 @@ export function FileToolbar({ variant, isMultiSelectMode, isDeleteDisabled, hand
               <FilePlus className="mr-2 h-4 w-4" />
               {t('newFile')}
             </DropdownMenuItem>
+            <DropdownMenuItem onSelect={handlers.onNewExcalidraw}>
+              <PenTool className="mr-2 h-4 w-4" />
+              {t('newExcalidraw')}
+            </DropdownMenuItem>
             <DropdownMenuItem onSelect={handlers.onNewFolder}>
               <FolderPlus className="mr-2 h-4 w-4" />
               {t('newFolder')}
@@ -140,6 +145,10 @@ export function FileToolbar({ variant, isMultiSelectMode, isDeleteDisabled, hand
         <Button variant="ghost" size="sm" className="h-8 gap-1.5 text-xs" onClick={handlers.onNewFile} aria-label={t('newFile')}>
           <FilePlus className="h-4 w-4" />
           <span className="hidden sm:inline">{t('newFile')}</span>
+        </Button>
+        <Button variant="ghost" size="sm" className="h-8 gap-1.5 text-xs" onClick={handlers.onNewExcalidraw} aria-label={t('newExcalidraw')}>
+          <PenTool className="h-4 w-4" />
+          <span className="hidden sm:inline">{t('newExcalidraw')}</span>
         </Button>
         <Button variant="ghost" size="sm" className="h-8 gap-1.5 text-xs" onClick={handlers.onNewFolder} aria-label={t('newFolder')}>
           <FolderPlus className="h-4 w-4" />
@@ -205,6 +214,14 @@ export function FileToolbar({ variant, isMultiSelectMode, isDeleteDisabled, hand
               </Button>
             </TooltipTrigger>
             <TooltipContent>{t('newFile')}</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="ghost" size="icon-sm" onClick={handlers.onNewExcalidraw} aria-label={t('newExcalidraw')}>
+                <PenTool className="h-4 w-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>{t('newExcalidraw')}</TooltipContent>
           </Tooltip>
           <Tooltip>
             <TooltipTrigger asChild>

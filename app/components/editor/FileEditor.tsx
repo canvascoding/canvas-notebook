@@ -27,9 +27,19 @@ const OfficeEditor = dynamic(() => import('./OfficeEditor').then(mod => mod.Offi
   ),
 });
 
+const ExcalidrawEditor = dynamic(() => import('./ExcalidrawEditor').then(mod => mod.ExcalidrawEditor), {
+  ssr: false,
+  loading: () => (
+    <div className="flex h-full items-center justify-center bg-background">
+      <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+    </div>
+  ),
+});
+
 const MARKDOWN_EXTENSIONS = new Set(['md', 'mdx', 'markdown']);
 const HTML_EXTENSIONS = new Set(['html', 'htm']);
 const OFFICE_EXTENSIONS = new Set(['docx', 'xlsx', 'csv', 'xls', 'pptx']);
+const EXCALIDRAW_EXTENSIONS = new Set(['excalidraw']);
 const IMAGE_EXTENSIONS = new Set([
   'png',
   'jpg',
@@ -73,6 +83,7 @@ const TEXT_EXTENSIONS = new Set([
   'php',
   'sql',
   'toml',
+  'excalidraw',
 ]);
 
 const MEDIA_MIME_TYPES: Record<string, string> = {
@@ -354,12 +365,13 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
   const isMarkdown = MARKDOWN_EXTENSIONS.has(extension);
   const isHtml = HTML_EXTENSIONS.has(extension);
   const isOffice = OFFICE_EXTENSIONS.has(extension);
+  const isExcalidraw = EXCALIDRAW_EXTENSIONS.has(extension);
   const isImage = IMAGE_EXTENSIONS.has(extension);
   const isPdf = PDF_EXTENSIONS.has(extension);
   const isAudio = AUDIO_EXTENSIONS.has(extension);
   const isVideo = VIDEO_EXTENSIONS.has(extension);
   const isText = extension === '' || TEXT_EXTENSIONS.has(extension);
-  const isBinary = !isText && !isImage && !isPdf && !isMarkdown && !isHtml && !isAudio && !isVideo && !isOffice;
+  const isBinary = !isText && !isImage && !isPdf && !isMarkdown && !isHtml && !isExcalidraw && !isAudio && !isVideo && !isOffice;
   const savedTime = formatTimestamp(lastSavedAt);
   const breadcrumbs = currentFile ? currentFile.path.split('/').filter(Boolean) : [];
   const currentFileNode = useMemo<FileNode | null>(() => {
@@ -640,7 +652,7 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
           ) : null}
         </div>
       </div>
-      <div className={isImage || isVideo || isMarkdown || isHtml ? 'min-h-0 flex-1 overflow-hidden' : (isOffice && extension !== 'docx' ? 'min-h-0 flex-1 relative' : 'min-h-0 flex-1 overflow-auto')}>
+      <div className={isImage || isVideo || isMarkdown || isHtml || isExcalidraw ? 'min-h-0 flex-1 overflow-hidden' : (isOffice && extension !== 'docx' ? 'min-h-0 flex-1 relative' : 'min-h-0 flex-1 overflow-auto')}>
           {isBinary ? (
             <div className="flex h-full flex-col items-center justify-center gap-3 text-center text-muted-foreground">
               <FileText className="h-8 w-8" />
@@ -710,6 +722,8 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
             />
           ) : isHtml ? (
             <HtmlViewer path={currentFile.path} value={draft} onChange={updateDraft} viewMode={htmlViewMode} refreshKey={htmlRefreshKey} lastSavedAt={lastSavedAt} />
+          ) : isExcalidraw ? (
+            <ExcalidrawEditor path={currentFile.path} value={draft} onChange={updateDraft} />
           ) : isMarkdown ? (
             <MarkdownEditor value={draft} onChange={updateDraft} />
           ) : (

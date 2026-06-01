@@ -4,6 +4,7 @@ import { clearFileTreeCache } from '@/app/lib/utils/file-tree-cache';
 import { invalidateFileReferenceCache } from '@/app/lib/filesystem/file-reference-cache';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 import { auth } from '@/app/lib/auth';
+import { createEmptyExcalidrawFileContent, isExcalidrawFilePath } from '@/app/lib/excalidraw-file';
 
 export async function POST(request: NextRequest) {
   const session = await auth.api.getSession({ headers: request.headers });
@@ -22,7 +23,11 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { path, type } = body as { path?: string; type?: 'file' | 'directory' };
+    const { path, type, template } = body as {
+      path?: string;
+      type?: 'file' | 'directory';
+      template?: 'excalidraw';
+    };
 
     if (!path || !type) {
       return NextResponse.json(
@@ -34,7 +39,12 @@ export async function POST(request: NextRequest) {
     if (type === 'directory') {
       await createDirectory(path);
     } else if (type === 'file') {
-      await writeFile(path, '');
+      await writeFile(
+        path,
+        template === 'excalidraw' || isExcalidrawFilePath(path)
+          ? createEmptyExcalidrawFileContent()
+          : ''
+      );
     } else {
       return NextResponse.json(
         { success: false, error: 'Invalid type' },

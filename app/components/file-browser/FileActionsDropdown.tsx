@@ -14,6 +14,7 @@ import {
   Maximize2,
   Move,
   Pencil,
+  PenTool,
   Share2,
   Trash2,
 } from 'lucide-react';
@@ -38,7 +39,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { isProtectedAppOutputFolder } from '@/app/lib/filesystem/app-output-folders';
 import { useFileStore, type FileNode } from '@/app/store/file-store';
-import { CreateItemDialog } from './CreateItemDialog';
+import { CreateItemDialog, type CreateItemType } from './CreateItemDialog';
 import { DeleteConfirmDialog } from './DeleteConfirmDialog';
 import { DirectoryBrowser } from './DirectoryBrowser';
 import { ShareMarkdownDialog } from './ShareMarkdownDialog';
@@ -102,7 +103,7 @@ export function FileActionsDropdown({
   const [renameOpen, setRenameOpen] = useState(false);
   const [newName, setNewName] = useState('');
   const [createOpen, setCreateOpen] = useState(false);
-  const [createType, setCreateType] = useState<'file' | 'directory'>('file');
+  const [createType, setCreateType] = useState<CreateItemType>('file');
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
 
@@ -176,14 +177,24 @@ export function FileActionsDropdown({
     setCreateOpen(true);
   };
 
+  const handleNewExcalidraw = () => {
+    closeMenu();
+    setCreateType('excalidraw');
+    setCreateOpen(true);
+  };
+
   const handleNewFolder = () => {
     closeMenu();
     setCreateType('directory');
     setCreateOpen(true);
   };
 
-  const handleCreate = async (fullPath: string, itemType: 'file' | 'directory') => {
-    await createPath(fullPath, itemType);
+  const handleCreate = async (
+    fullPath: string,
+    itemType: 'file' | 'directory',
+    options?: { template?: 'excalidraw' }
+  ) => {
+    await createPath(fullPath, itemType, options);
   };
 
   const handleRename = () => {
@@ -377,6 +388,10 @@ export function FileActionsDropdown({
               <DropdownMenuItem onSelect={handleNewFile}>
                 <FilePlus className="h-4 w-4" />
                 {t('newFile')}
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={handleNewExcalidraw}>
+                <PenTool className="h-4 w-4" />
+                {t('newExcalidraw')}
               </DropdownMenuItem>
               <DropdownMenuItem onSelect={handleNewFolder}>
                 <FolderPlus className="h-4 w-4" />

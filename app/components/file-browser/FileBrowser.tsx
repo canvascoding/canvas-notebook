@@ -12,7 +12,7 @@ import { useFileStore, findPathInTree } from '@/app/store/file-store';
 import { FileGridView } from './FileGridView';
 import { FileToolbar, type FileToolbarHandlers } from './FileToolbar';
 import { FileBreadcrumb } from './FileBreadcrumb';
-import { CreateItemDialog } from './CreateItemDialog';
+import { CreateItemDialog, type CreateItemType } from './CreateItemDialog';
 import { UploadDialog } from './UploadDialog';
 import { DeleteConfirmDialog } from './DeleteConfirmDialog';
 import { isProtectedAppOutputFolder } from '@/app/lib/filesystem/app-output-folders';
@@ -55,7 +55,7 @@ export function FileBrowser({ variant = 'default', onFileSelect }: FileBrowserPr
   const pendingPathParamRef = useRef<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
-  const [createType, setCreateType] = useState<'file' | 'directory'>('file');
+  const [createType, setCreateType] = useState<CreateItemType>('file');
   const [uploadOpen, setUploadOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deletePaths, setDeletePaths] = useState<string[]>([]);
@@ -131,8 +131,13 @@ export function FileBrowser({ variant = 'default', onFileSelect }: FileBrowserPr
   };
 
   const handleNewFile = () => { setCreateType('file'); setCreateOpen(true); };
+  const handleNewExcalidraw = () => { setCreateType('excalidraw'); setCreateOpen(true); };
   const handleNewFolder = () => { setCreateType('directory'); setCreateOpen(true); };
-  const handleCreate = async (fullPath: string, itemType: 'file' | 'directory') => { await createPath(fullPath, itemType); };
+  const handleCreate = async (
+    fullPath: string,
+    itemType: 'file' | 'directory',
+    options?: { template?: 'excalidraw' }
+  ) => { await createPath(fullPath, itemType, options); };
   const handleUploadClick = () => { setUploadOpen(true); };
   const handleUpload = async (files: File[], targetDir: string) => { await imagePreprocess.handleFiles(files, targetDir); };
 
@@ -267,6 +272,7 @@ export function FileBrowser({ variant = 'default', onFileSelect }: FileBrowserPr
   const toolbarHandlers: FileToolbarHandlers = {
     onToggleMultiSelect: toggleMultiSelectMode,
     onNewFile: handleNewFile,
+    onNewExcalidraw: handleNewExcalidraw,
     onNewFolder: handleNewFolder,
     onUpload: handleUploadClick,
     onDelete: handleDeleteClick,

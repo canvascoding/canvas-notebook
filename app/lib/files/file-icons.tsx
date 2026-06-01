@@ -10,6 +10,7 @@ import {
   FileSpreadsheet,
   FileDigit,
   Database,
+  PenTool,
   Presentation,
 } from 'lucide-react';
 import { getAppOutputFolderKind } from '../filesystem/app-output-folders';
@@ -70,6 +71,10 @@ export function getFileIconComponent({
   }
 
   const ext = name.split('.').pop()?.toLowerCase() || '';
+
+  if (ext === 'excalidraw') {
+    return <PenTool className={`${className} text-chart-5`} />;
+  }
 
   // Code & Scripts
   if (
