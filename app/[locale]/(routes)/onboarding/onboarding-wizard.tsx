@@ -13,6 +13,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
 import { toast } from 'sonner';
 import { CheckCircle2, KeyRound, Languages, Loader2, Mail, RefreshCw, ShieldAlert } from 'lucide-react';
 
@@ -205,6 +206,7 @@ function LicenseStep({
   const [status, setStatus] = useState<LicenseStatus | null>(null);
   const [email, setEmail] = useState(defaultEmail);
   const [key, setKey] = useState(initialLicenseKey);
+  const [marketingOptIn, setMarketingOptIn] = useState(false);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [registering, setRegistering] = useState(false);
@@ -260,7 +262,7 @@ function LicenseStep({
       const response = await fetch('/api/license/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, activationPath: window.location.pathname }),
+        body: JSON.stringify({ email, activationPath: window.location.pathname, marketingOptIn }),
       });
       const payload = await response.json().catch(() => ({})) as { success?: boolean; error?: string; code?: string };
       if (!response.ok || !payload.success) {
@@ -357,6 +359,24 @@ function LicenseStep({
                 {registering ? <Loader2 className="h-4 w-4 animate-spin" /> : <Mail className="h-4 w-4" />}
                 {t('licenseSendKey')}
               </Button>
+            </div>
+          </div>
+
+          <div className="flex items-start gap-3 border border-border bg-muted/20 p-3">
+            <Switch
+              id="onboarding-license-marketing-opt-in"
+              checked={marketingOptIn}
+              onCheckedChange={setMarketingOptIn}
+              aria-describedby="onboarding-license-marketing-opt-in-description"
+              className="mt-0.5"
+            />
+            <div className="space-y-1">
+              <Label htmlFor="onboarding-license-marketing-opt-in" className="cursor-pointer font-medium">
+                {t('licenseMarketingOptInLabel')}
+              </Label>
+              <p id="onboarding-license-marketing-opt-in-description" className="text-sm leading-5 text-muted-foreground">
+                {t('licenseMarketingOptInDescription')}
+              </p>
             </div>
           </div>
 
