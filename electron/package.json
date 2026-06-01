@@ -10,7 +10,7 @@
     "appId": "io.canvasstudios.notebook",
     "productName": "Canvas Notebook",
     "electronVersion": "42.3.0",
-    "buildVersion": "2026.6.1.1",
+    "buildVersion": "2026.6.1.3",
     "icon": "assets/icon",
     "artifactName": "${productName}-${buildVersion}-${os}-${arch}.${ext}",
     "directories": {
