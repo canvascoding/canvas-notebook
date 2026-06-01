@@ -14,23 +14,41 @@ const Module = require('module');
 const path = require('path');
 const originalLoad = Module._load;
 const originalResolveFilename = Module._resolveFilename;
-const piAiPackageRoot = path.resolve(process.cwd(), 'node_modules/@earendil-works/pi-ai/dist');
-const piAgentCorePackageRoot = path.resolve(process.cwd(), 'node_modules/@earendil-works/pi-agent-core/dist');
-const esmOnlyPackageAliases = new Map([
-  ['@earendil-works/pi-ai', path.join(piAiPackageRoot, 'index.js')],
-  ['@earendil-works/pi-ai/oauth', path.join(piAiPackageRoot, 'oauth.js')],
-  ['@earendil-works/pi-ai/anthropic', path.join(piAiPackageRoot, 'providers/anthropic.js')],
-  ['@earendil-works/pi-ai/azure-openai-responses', path.join(piAiPackageRoot, 'providers/azure-openai-responses.js')],
-  ['@earendil-works/pi-ai/google', path.join(piAiPackageRoot, 'providers/google.js')],
-  ['@earendil-works/pi-ai/google-vertex', path.join(piAiPackageRoot, 'providers/google-vertex.js')],
-  ['@earendil-works/pi-ai/mistral', path.join(piAiPackageRoot, 'providers/mistral.js')],
-  ['@earendil-works/pi-ai/openai-codex-responses', path.join(piAiPackageRoot, 'providers/openai-codex-responses.js')],
-  ['@earendil-works/pi-ai/openai-completions', path.join(piAiPackageRoot, 'providers/openai-completions.js')],
-  ['@earendil-works/pi-ai/openai-responses', path.join(piAiPackageRoot, 'providers/openai-responses.js')],
-  ['@earendil-works/pi-ai/bedrock-provider', path.join(piAiPackageRoot, 'bedrock-provider.js')],
-  ['@earendil-works/pi-agent-core', path.join(piAgentCorePackageRoot, 'index.js')],
-  ['@earendil-works/pi-agent-core/node', path.join(piAgentCorePackageRoot, 'node.js')],
-]);
+
+function getExportTarget(exportValue) {
+  if (typeof exportValue === 'string') {
+    return exportValue;
+  }
+  if (!exportValue || typeof exportValue !== 'object') {
+    return null;
+  }
+  return exportValue.import || exportValue.default || exportValue.require || null;
+}
+
+function addEsmOnlyPackageAliases(packageName, aliases) {
+  const packageRoot = path.resolve(process.cwd(), 'node_modules', packageName);
+  const packageJsonPath = path.join(packageRoot, 'package.json');
+  const packageJson = require(packageJsonPath);
+  const exportsMap = packageJson.exports && typeof packageJson.exports === 'object'
+    ? packageJson.exports
+    : { '.': packageJson.main || './dist/index.js' };
+
+  for (const [exportPath, exportValue] of Object.entries(exportsMap)) {
+    const target = getExportTarget(exportValue);
+    if (!target) {
+      continue;
+    }
+    const request = exportPath === '.'
+      ? packageName
+      : `${packageName}/${exportPath.replace(/^\.\//, '')}`;
+    aliases.set(request, path.resolve(packageRoot, target));
+  }
+}
+
+const esmOnlyPackageAliases = new Map();
+addEsmOnlyPackageAliases('@earendil-works/pi-ai', esmOnlyPackageAliases);
+addEsmOnlyPackageAliases('@earendil-works/pi-agent-core', esmOnlyPackageAliases);
+
 Module._resolveFilename = function resolveWithEsmPackageAliases(request, parent, isMain, options) {
   const aliasedPath = esmOnlyPackageAliases.get(request);
   if (aliasedPath) {
