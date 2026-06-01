@@ -158,7 +158,7 @@ export function FileTreeNode({ node, depth = 0, browserMode = 'tree', onNavigate
           <div
             data-file-path={node.path}
             className={cn(
-              'group relative flex w-full items-center px-2 text-foreground transition-colors',
+              'group relative flex w-full min-w-0 items-center px-2 text-foreground transition-colors',
               isMobile ? 'py-1.5' : 'py-0.5',
               isRowActive ? 'bg-accent/70' : 'hover:bg-accent/50',
               isPublic && 'border-l-2 border-amber-500 bg-amber-500/10'
@@ -167,7 +167,7 @@ export function FileTreeNode({ node, depth = 0, browserMode = 'tree', onNavigate
           >
             <SidebarMenuButton
               className={cn(
-                'flex-1 justify-start gap-2 bg-transparent text-foreground hover:!bg-transparent hover:text-foreground active:!bg-transparent data-[state=open]:hover:!bg-transparent',
+                'min-w-0 flex-1 justify-start gap-2 bg-transparent text-foreground hover:!bg-transparent hover:text-foreground active:!bg-transparent data-[state=open]:hover:!bg-transparent',
                 isMobile && 'min-h-[44px] py-2',
                 isRowActive && 'text-foreground'
               )}
@@ -178,7 +178,7 @@ export function FileTreeNode({ node, depth = 0, browserMode = 'tree', onNavigate
               ) : (
                 getFileIcon()
               )}
-              <span className="flex-1 truncate text-sm">{node.name}</span>
+              <span className="min-w-0 flex-1 truncate text-sm">{node.name}</span>
             </SidebarMenuButton>
             {isMultiSelectMode ? (
               <button
@@ -214,7 +214,7 @@ export function FileTreeNode({ node, depth = 0, browserMode = 'tree', onNavigate
           <div
             data-file-path={node.path}
           className={cn(
-            'group relative flex w-full items-center px-2 text-foreground transition-colors',
+            'group relative flex w-full min-w-0 items-center px-2 text-foreground transition-colors',
             isMobile ? 'py-1.5' : 'py-0.5',
             isRowActive ? 'bg-accent/70' : 'hover:bg-accent/50',
             isPublic && 'border-l-2 border-amber-500 bg-amber-500/10'
@@ -225,7 +225,7 @@ export function FileTreeNode({ node, depth = 0, browserMode = 'tree', onNavigate
             <CollapsibleTrigger asChild>
               <SidebarMenuButton
                 className={cn(
-                  'flex-1 justify-start gap-2 bg-transparent text-foreground hover:!bg-transparent hover:text-foreground active:!bg-transparent data-[state=open]:hover:!bg-transparent',
+                  'min-w-0 flex-1 justify-start gap-2 bg-transparent text-foreground hover:!bg-transparent hover:text-foreground active:!bg-transparent data-[state=open]:hover:!bg-transparent',
                   isMobile && 'min-h-[44px] py-2',
                   isRowActive && 'text-foreground'
                 )}
@@ -242,7 +242,7 @@ export function FileTreeNode({ node, depth = 0, browserMode = 'tree', onNavigate
                   />
                 )}
                 {getFileIcon()}
-                <span className="flex-1 truncate text-sm">{node.name}</span>
+                <span className="min-w-0 flex-1 truncate text-sm">{node.name}</span>
               </SidebarMenuButton>
             </CollapsibleTrigger>
             {isMultiSelectMode ? (
@@ -294,7 +294,7 @@ export function FileTreeNode({ node, depth = 0, browserMode = 'tree', onNavigate
       <div
         data-file-path={node.path}
           className={cn(
-            'group relative flex w-full items-center px-2 text-foreground transition-colors',
+            'group relative flex w-full min-w-0 items-center px-2 text-foreground transition-colors',
             isMobile ? 'py-1.5' : 'py-0.5',
             isRowActive ? 'bg-accent/70' : 'hover:bg-accent/50',
             isPublic && 'border-l-2 border-amber-500 bg-amber-500/10'
@@ -304,7 +304,7 @@ export function FileTreeNode({ node, depth = 0, browserMode = 'tree', onNavigate
       >
         <SidebarMenuButton
           className={cn(
-            'flex-1 justify-start gap-2 bg-transparent text-foreground hover:!bg-transparent hover:text-foreground active:!bg-transparent data-[state=open]:hover:!bg-transparent',
+            'min-w-0 flex-1 justify-start gap-2 bg-transparent text-foreground hover:!bg-transparent hover:text-foreground active:!bg-transparent data-[state=open]:hover:!bg-transparent',
             isMobile && 'min-h-[44px] py-2',
             isRowActive && 'text-foreground'
           )}
@@ -316,7 +316,7 @@ export function FileTreeNode({ node, depth = 0, browserMode = 'tree', onNavigate
             <span className={cn('h-4 w-4 shrink-0', isMobile ? 'pl-3' : 'pl-6')} />
           )}
           {getFileIcon()}
-          <span className="flex-1 truncate text-sm">{node.name}</span>
+          <span className="min-w-0 flex-1 truncate text-sm">{node.name}</span>
           {isPublic && (
             <Globe2
               className="h-3.5 w-3.5 shrink-0 text-amber-600"

@@ -127,11 +127,11 @@ export function FileGridItem({ node, onOpenFile, onOpenDirectory, size = 'sm' }:
       <div className="flex w-full items-center justify-end gap-0.5 px-1.5 pt-1.5 min-h-[20px]">
         {isPublic && (
           <span
-            className="mr-auto inline-flex items-center gap-1 rounded-sm bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:text-amber-300"
+            className="mr-auto inline-flex min-w-0 max-w-[calc(100%-1.75rem)] items-center gap-1 rounded-sm bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:text-amber-300"
             title={node.publicShare?.publicUrl}
           >
             <Globe2 className="h-3 w-3" />
-            {t('publicShareBadge')}
+            <span className="truncate">{t('publicShareBadge')}</span>
           </span>
         )}
         {isMultiSelectMode ? (
