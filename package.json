@@ -42,6 +42,7 @@
     "test:prompt-builder": "tsx scripts/prompt-builder-test.ts",
     "test:studio:preset-preview": "tsx scripts/studio-preset-preview-test.ts",
     "test:automation:schedule": "tsx scripts/automation-schedule-test.ts",
+    "test:automation:session-messages": "tsx scripts/automation-session-messages-test.ts",
     "test:automation:delivery": "tsx --conditions react-server scripts/automation-delivery-test.ts",
     "test:automation:webhook": "tsx --conditions react-server scripts/automation-custom-webhook-test.ts",
     "test:email:mime": "tsx scripts/email-mime-header-test.ts",
