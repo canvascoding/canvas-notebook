@@ -24,6 +24,18 @@ export interface ContextMenuPosition {
   y: number;
 }
 
+interface FileStats {
+  size: number;
+  modified: number;
+  permissions: string;
+}
+
+interface CurrentFile {
+  path: string;
+  content: string;
+  stats?: FileStats;
+}
+
 const TEXT_EXTENSIONS = new Set([
   'txt',
   'log',
@@ -128,6 +140,14 @@ function getParentDirectories(filePath: string): string[] {
   return dirs;
 }
 
+function areFileStatsEqual(left?: FileStats, right?: FileStats) {
+  return (
+    left?.size === right?.size &&
+    left?.modified === right?.modified &&
+    left?.permissions === right?.permissions
+  );
+}
+
 function findNodeInTree(searchPath: string, nodes: FileNode[]): FileNode | null {
   for (const node of nodes) {
     if (node.path === searchPath) return node;
@@ -154,15 +174,7 @@ interface FileStoreState {
   selectedNode: FileNode | null;
 
   // Current file
-  currentFile: {
-    path: string;
-    content: string;
-    stats?: {
-      size: number;
-      modified: number;
-      permissions: string;
-    };
-  } | null;
+  currentFile: CurrentFile | null;
   isLoadingFile: boolean;
   loadingFilePath: string | null;
   fileLoadRequestId: number;
@@ -219,6 +231,7 @@ interface FileStoreState {
   refreshVisibleTree: () => Promise<void>;
   loadSubdirectory: (dirPath: string, noCache?: boolean) => Promise<void>;
   loadFile: (path: string, noCache?: boolean) => Promise<void>;
+  refreshCurrentFileContent: (path: string) => Promise<CurrentFile | null>;
   revealAndLoadFile: (path: string) => Promise<void>;
   saveFile: (path: string, content: string) => Promise<void>;
   selectNode: (node: FileNode, ctrlOrMeta?: boolean, shiftKey?: boolean) => void;
@@ -668,6 +681,65 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
         isLoadingFile: false,
         loadingFilePath: null,
       });
+    }
+  },
+
+  refreshCurrentFileContent: async (path: string) => {
+    if (get().currentFile?.path !== path) {
+      return null;
+    }
+
+    const extension = getExtension(path);
+    const isText = extension === '' || TEXT_EXTENSIONS.has(extension);
+    if (!isText) {
+      return null;
+    }
+
+    try {
+      const response = await fetch(`/api/files/read?path=${encodeURIComponent(path)}&t=${Date.now()}`, {
+        credentials: 'include',
+        cache: 'no-store',
+      });
+
+      if (!response.ok) {
+        if (response.status === 404 && get().currentFile?.path === path) {
+          set({
+            currentFile: null,
+            fileError: null,
+          });
+          return null;
+        }
+
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to refresh file');
+      }
+
+      const { data } = await response.json();
+      const currentFile = get().currentFile;
+      if (currentFile?.path !== path) {
+        return null;
+      }
+
+      const refreshedFile: CurrentFile = {
+        ...currentFile,
+        content: data.content,
+        stats: data.stats,
+      };
+
+      if (
+        currentFile.content !== refreshedFile.content ||
+        !areFileStatsEqual(currentFile.stats, refreshedFile.stats)
+      ) {
+        set({
+          currentFile: refreshedFile,
+          fileError: null,
+        });
+      }
+
+      return refreshedFile;
+    } catch (error) {
+      console.warn('[FileStore] Failed to refresh current file content:', error);
+      return null;
     }
   },
 
