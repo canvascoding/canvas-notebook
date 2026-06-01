@@ -412,58 +412,74 @@ try {
   console.error('[Startup] Stack trace:', error.stack);
 }
 
-try {
-  console.log('[Startup] Running orphaned-assets cleanup...');
-  const { cleanupOrphanedStudioAssets } = require('./app/lib/cleanup/orphaned-assets');
-  cleanupOrphanedStudioAssets().then((result) => {
-    console.log(`[Startup] Orphaned-assets cleanup: ${result.deleted} files deleted, ${result.errors.length} errors`);
-  }).catch((err) => {
-    console.warn('[Startup] Orphaned-assets cleanup failed:', err.message);
-  });
-} catch (err) {
-  console.warn('[Startup] Orphaned-assets cleanup could not be loaded:', err.message);
-}
-
-try {
-  console.log('[Startup] Seeding studio preset assets...');
-  const { ensureDefaultStudioPresetsSeeded } = require('./app/lib/integrations/studio-preset-defaults');
-  const { ensureStudioAssetsWorkspace } = require('./app/lib/integrations/studio-workspace');
-  ensureStudioAssetsWorkspace().then(() => {
-    return ensureDefaultStudioPresetsSeeded();
-  }).then((result) => {
-    console.log(`[Startup] Studio preset seeding: ${result.total} presets (${result.inserted} inserted, ${result.updated} updated)`);
-  }).catch((err) => {
-    console.warn('[Startup] Studio preset seeding failed:', err.message);
-  });
-} catch (err) {
-  console.warn('[Startup] Studio preset seeding could not be loaded:', err.message);
-}
-
-// Periodic cleanup of expired auth sessions from SQLite
-try {
-  const { openDb } = require('./app/lib/db/index');
-  const CLEANUP_INTERVAL_MS = 15 * 60 * 1000;
-  async function purgeExpiredSessions() {
-    try {
-      const dbConn = await openDb();
-      const result = dbConn.run("DELETE FROM session WHERE expires_at < unixepoch()");
-      if (result.changes > 0) {
-        console.log(`[Session Cleanup] Deleted ${result.changes} expired session(s)`);
-      }
-      dbConn.run("PRAGMA optimize");
-      dbConn.close();
-    } catch (err) {
-      console.warn('[Session Cleanup] Failed:', err.message);
-    }
-  }
-  purgeExpiredSessions();
-  setInterval(purgeExpiredSessions, CLEANUP_INTERVAL_MS).unref?.();
-  console.log('[Startup] Expired session cleanup scheduled (every 15min)');
-} catch (err) {
-  console.warn('[Startup] Session cleanup could not be initialized:', err.message);
-}
-
 console.log('[Startup] Runtime setup complete');
+
+function runOrphanedAssetsCleanup() {
+  try {
+    console.log('[Startup] Running orphaned-assets cleanup...');
+    const { cleanupOrphanedStudioAssets } = require('./app/lib/cleanup/orphaned-assets');
+    cleanupOrphanedStudioAssets().then((result) => {
+      console.log(`[Startup] Orphaned-assets cleanup: ${result.deleted} files deleted, ${result.errors.length} errors`);
+    }).catch((err) => {
+      console.warn('[Startup] Orphaned-assets cleanup failed:', err.message);
+    });
+  } catch (err) {
+    console.warn('[Startup] Orphaned-assets cleanup could not be loaded:', err.message);
+  }
+}
+
+function runStudioPresetSeeding() {
+  try {
+    console.log('[Startup] Seeding studio preset assets...');
+    const { ensureDefaultStudioPresetsSeeded } = require('./app/lib/integrations/studio-preset-defaults');
+    const { ensureStudioAssetsWorkspace } = require('./app/lib/integrations/studio-workspace');
+    ensureStudioAssetsWorkspace().then(() => {
+      return ensureDefaultStudioPresetsSeeded();
+    }).then((result) => {
+      console.log(`[Startup] Studio preset seeding: ${result.total} presets (${result.inserted} inserted, ${result.updated} updated)`);
+    }).catch((err) => {
+      console.warn('[Startup] Studio preset seeding failed:', err.message);
+    });
+  } catch (err) {
+    console.warn('[Startup] Studio preset seeding could not be loaded:', err.message);
+  }
+}
+
+function scheduleExpiredSessionCleanup() {
+  try {
+    const { openDb } = require('./app/lib/db/index');
+    const CLEANUP_INTERVAL_MS = 15 * 60 * 1000;
+    async function purgeExpiredSessions() {
+      try {
+        const dbConn = await openDb();
+        const result = dbConn.run("DELETE FROM session WHERE expires_at < unixepoch()");
+        if (result.changes > 0) {
+          console.log(`[Session Cleanup] Deleted ${result.changes} expired session(s)`);
+        }
+        dbConn.run("PRAGMA optimize");
+        dbConn.close();
+      } catch (err) {
+        console.warn('[Session Cleanup] Failed:', err.message);
+      }
+    }
+    purgeExpiredSessions();
+    setInterval(purgeExpiredSessions, CLEANUP_INTERVAL_MS).unref?.();
+    console.log('[Startup] Expired session cleanup scheduled (every 15min)');
+  } catch (err) {
+    console.warn('[Startup] Session cleanup could not be initialized:', err.message);
+  }
+}
+
+function scheduleBackgroundMaintenance() {
+  const timer = setTimeout(() => {
+    console.log('[Startup] Starting background maintenance...');
+    runOrphanedAssetsCleanup();
+    runStudioPresetSeeding();
+    scheduleExpiredSessionCleanup();
+  }, 1500);
+  timer.unref?.();
+  console.log('[Startup] Background maintenance scheduled');
+}
 
 const server = http.createServer((req, res) => {
   const url = new URL(req.url, 'http://localhost');
@@ -622,11 +638,14 @@ async function startServer() {
     console.error('[Startup] Channel Manager failed:', error.message);
   }
 
+  console.log('[Startup] Preparing Next.js app...');
   await app.prepare();
+  console.log('[Startup] Next.js app prepared');
 
   server.listen(port, (err) => {
     if (err) throw err;
     console.log(`> Ready on http://localhost:${port}`);
+    scheduleBackgroundMaintenance();
   });
 }
 
