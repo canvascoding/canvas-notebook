@@ -11,6 +11,7 @@ Create valid `.excalidraw` JSON files directly in the workspace. Canvas Notebook
 
 - Write exactly one `.excalidraw` file at the requested path or in the current/requested folder.
 - Do not create a sidecar `.md`, `.png`, `.svg`, or README unless the user explicitly asks.
+- If the user provides Mermaid syntax, use it only as source material and create the final `.excalidraw` file directly. Do not save a separate `.mmd` file unless explicitly requested.
 - If a textual explanation is useful, put it in the chat response only.
 - Set the root `source` to `canvas-notebook`.
 - Prefer vector Excalidraw elements over embedded images. Use `files` only when image data is actually required and available.
@@ -38,9 +39,10 @@ Canvas Notebook reads `elements`, `appState`, and `files` as Excalidraw `initial
 
 1. Determine the target `.excalidraw` path. If the user gave a folder, create a descriptive kebab-case filename ending in `.excalidraw`.
 2. Understand what the diagram must communicate. For technical diagrams, inspect relevant files or docs first so names, APIs, and relationships are real.
-3. Plan the visual structure before writing JSON. Use layout to show relationships, not just equal boxes with labels.
-4. Write complete Excalidraw JSON. Use stable, descriptive IDs such as `api_gateway_rect` or `flow_to_worker`.
-5. Validate the file:
+3. If the source is Mermaid, translate its nodes, edges, labels, and diagram direction into Excalidraw elements; preserve the meaning but improve spacing and readability for Excalidraw.
+4. Plan the visual structure before writing JSON. Use layout to show relationships, not just equal boxes with labels.
+5. Write complete Excalidraw JSON. Use stable, descriptive IDs such as `api_gateway_rect` or `flow_to_worker`.
+6. Validate the file:
 
 ```bash
 python3 seed_skills/excalidraw-diagram/scripts/validate_excalidraw.py path/to/file.excalidraw
@@ -48,7 +50,7 @@ python3 seed_skills/excalidraw-diagram/scripts/validate_excalidraw.py path/to/fi
 
 If the skill is installed elsewhere, run the same script from that skill folder.
 
-6. Fix validation errors. If browser or Playwright verification is explicitly allowed, open the file in Canvas Notebook and visually check for overlaps, clipped text, and incorrect arrows.
+7. Fix validation errors. If browser or Playwright verification is explicitly allowed, open the file in Canvas Notebook and visually check for overlaps, clipped text, and incorrect arrows.
 
 ## Diagram Quality
 
