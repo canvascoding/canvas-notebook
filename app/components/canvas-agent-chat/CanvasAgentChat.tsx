@@ -147,6 +147,7 @@ interface ChatMessage {
   toolCallId?: string;
   toolArgs?: string;
   queueKind?: 'follow_up' | 'steer';
+  optimistic?: boolean;
   isCollapsed?: boolean;
   autoCollapsedAtEnd?: boolean;
   previewText?: string;
@@ -1566,6 +1567,10 @@ function takeQueueMatch(counts: Map<string, number>, key: string | null): boolea
 
   counts.set(key, count - 1);
   return true;
+}
+
+function getVisibleUserMessageKey(message: AgentMessage | null | undefined, fallbackContent: string): string {
+  return buildQueuedMessageKey(fallbackContent, countPiMessageImageAttachments(message));
 }
 
 function formatContextTokens(value: number): string {
@@ -3328,9 +3333,10 @@ export default function CanvasAgentChat({
     const content = extractPiMessageText(piMessage, { hideAttachmentMetadata: true });
     const rawContent = getPiMessageContent(piMessage);
     const messageAttachments = extractMessageAttachments(rawContent);
+    const visibleMessageKey = getVisibleUserMessageKey(piMessage, content);
 
     setMessages((prev) => {
-      const existingIndex = prev.findIndex((message) => {
+      let existingIndex = prev.findIndex((message) => {
         if (message.role !== 'user') {
           return false;
         }
@@ -3343,6 +3349,39 @@ export default function CanvasAgentChat({
         return Boolean(signature && getQueuedSignatureFromPiMessage(message.piMessage) === signature);
       });
 
+      if (existingIndex === -1) {
+        const activeAssistantId = currentAssistantIdRef.current;
+        for (let index = prev.length - 1; index >= 0; index -= 1) {
+          const message = prev[index];
+          if (message.role !== 'user' || !message.optimistic) {
+            continue;
+          }
+
+          const existingKey = getVisibleUserMessageKey(message.piMessage, message.content);
+          if (existingKey !== visibleMessageKey) {
+            continue;
+          }
+
+          const existingTimestamp = getAgentMessageTimestamp(message.piMessage);
+          const timestampsAreClose =
+            timestamp !== null &&
+            existingTimestamp !== null &&
+            Math.abs(timestamp - existingTimestamp) < 15000;
+          const pendingLocalTurn =
+            message.status === 'pending' ||
+            message.status === 'queued_steering' ||
+            message.status === 'aborting';
+          const activeAssistantAfterMessage =
+            timestamp === null &&
+            Boolean(activeAssistantId && prev.slice(index + 1).some((candidate) => candidate.id === activeAssistantId));
+
+          if (timestampsAreClose || pendingLocalTurn || activeAssistantAfterMessage) {
+            existingIndex = index;
+            break;
+          }
+        }
+      }
+
       if (existingIndex !== -1) {
         const nextMessages = [...prev];
         const existingMessage = nextMessages[existingIndex];
@@ -3353,6 +3392,7 @@ export default function CanvasAgentChat({
           attachments: messageAttachments || existingMessage.attachments,
           piMessage,
           queueKind: undefined,
+          optimistic: false,
         };
         return nextMessages;
       }
@@ -3366,6 +3406,7 @@ export default function CanvasAgentChat({
           status: 'sent',
           attachments: messageAttachments,
           piMessage,
+          optimistic: false,
         },
       ];
     });
@@ -3404,6 +3445,13 @@ export default function CanvasAgentChat({
       streamingContentRef.current = '';
       lastFlushedStreamingContentRef.current = '';
       createAssistantBubble(event.message);
+      return;
+    }
+
+    if (event.type === 'agent_end') {
+      setMessages((prev) => prev.map((message) => (
+        message.optimistic ? { ...message, optimistic: false } : message
+      )));
       return;
     }
 
@@ -3571,6 +3619,7 @@ export default function CanvasAgentChat({
         attachments: messageAttachments,
         piMessage,
         queueKind,
+        optimistic: true,
       },
     ]);
     return id;
