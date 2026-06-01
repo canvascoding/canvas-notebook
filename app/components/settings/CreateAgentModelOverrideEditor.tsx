@@ -40,9 +40,9 @@ function getModelProviders(piConfig: PiRuntimeConfig | null, discovery: CreateAg
   ]);
 
   return [...providerIds]
-    .filter((providerId) => providerId !== CANVAS_CONTROL_PLANE_PROVIDER_ID)
     .filter((providerId) => {
       if (providerId === 'openai-compatible') return true;
+      if (providerId === CANVAS_CONTROL_PLANE_PROVIDER_ID && piConfig.providers[providerId]) return true;
       return getModelOptions(providerId, piConfig, discovery).length > 0;
     })
     .sort();
@@ -53,7 +53,7 @@ export function getInitialCreateAgentModelDraft(
   discovery: CreateAgentModelDiscovery,
 ): CreateAgentModelDraft {
   const providers = getModelProviders(piConfig, discovery);
-  const inheritedProvider = piConfig.activeProvider !== CANVAS_CONTROL_PLANE_PROVIDER_ID && providers.includes(piConfig.activeProvider)
+  const inheritedProvider = providers.includes(piConfig.activeProvider)
     ? piConfig.activeProvider
     : providers[0] || '';
   const providerConfig = inheritedProvider ? piConfig.providers[inheritedProvider] : null;
@@ -93,6 +93,9 @@ export function CreateAgentModelOverrideEditor({
     [discovery, draft.provider, piConfig],
   );
   const selectedModelIsListed = modelOptions.some((model) => model.id === draft.model);
+  const getProviderLabel = (providerId: string) => (
+    providerId === CANVAS_CONTROL_PLANE_PROVIDER_ID ? providerT('canvasControlPlane.title') : providerId
+  );
 
   if (loading) {
     return (
@@ -146,7 +149,7 @@ export function CreateAgentModelOverrideEditor({
             <option value="" disabled>{providerT('selectProvider')}</option>
             {providers.map((providerId) => (
               <option key={providerId} value={providerId}>
-                {providerId}
+                {getProviderLabel(providerId)}
               </option>
             ))}
           </select>
