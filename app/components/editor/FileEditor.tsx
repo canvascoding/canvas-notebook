@@ -284,7 +284,18 @@ interface FileEditorProps {
 
 export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
   const t = useTranslations('notebook');
-  const { currentFile, isLoadingFile, loadingFilePath, fileError, saveFile, downloadFile, loadFile, fileTree, currentDirectory } = useFileStore();
+  const {
+    currentFile,
+    isLoadingFile,
+    loadingFilePath,
+    fileError,
+    saveFile,
+    downloadFile,
+    loadFile,
+    refreshCurrentFileContent,
+    fileTree,
+    currentDirectory,
+  } = useFileStore();
   const {
     activePath,
     draft,
@@ -547,7 +558,7 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
         const latestEditorState = useEditorStore.getState();
         if (latestEditorState.activePath !== watchedFilePath || latestEditorState.isDirty) return;
 
-        void loadFile(watchedFilePath, true);
+        void refreshCurrentFileContent(watchedFilePath);
       }, EXTERNAL_FILE_RELOAD_DELAY_MS);
     };
 
@@ -561,7 +572,7 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
         externalReloadTimeoutRef.current = null;
       }
     };
-  }, [currentFile?.path, isExcalidraw, loadFile]);
+  }, [currentFile?.path, isExcalidraw, refreshCurrentFileContent]);
 
   if (isLoadingFile) {
     const pendingPath = loadingFilePath ?? currentFile?.path ?? null;
