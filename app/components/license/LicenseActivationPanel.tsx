@@ -11,6 +11,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
+import { Switch } from '@/components/ui/switch';
 import { codeFromLicenseError } from '@/app/lib/license/error-codes';
 
 type LicenseStatus = {
@@ -65,6 +66,9 @@ function getActivationCopy(locale: string) {
         instanceId: 'Instance ID',
         expires: 'Läuft ab',
         email: 'E-Mail',
+        marketingOptInLabel: 'Newsletter erhalten',
+        marketingOptInDescription:
+          'Optional: Erhalte Produktneuigkeiten, Release-Hinweise und wichtige Canvas Notebook Updates per E-Mail. Du kannst dich jederzeit wieder abmelden.',
         sendKey: 'Key senden',
         activationKey: 'Aktivierungs-Key',
         activate: 'Aktivieren',
@@ -89,6 +93,9 @@ function getActivationCopy(locale: string) {
         instanceId: 'Instance ID',
         expires: 'Expires',
         email: 'Email',
+        marketingOptInLabel: 'Receive newsletter',
+        marketingOptInDescription:
+          'Optional: receive product news, release notes, and important Canvas Notebook updates by email. You can unsubscribe at any time.',
         sendKey: 'Send key',
         activationKey: 'Activation key',
         activate: 'Activate',
@@ -102,6 +109,7 @@ export function LicenseActivationPanel({ defaultEmail }: { defaultEmail: string 
   const [status, setStatus] = useState<LicenseStatus | null>(null);
   const [email, setEmail] = useState(defaultEmail);
   const [key, setKey] = useState(searchParams.get('key') || '');
+  const [marketingOptIn, setMarketingOptIn] = useState(false);
   const [loading, setLoading] = useState(true);
   const [registering, setRegistering] = useState(false);
   const [activating, setActivating] = useState(false);
@@ -127,7 +135,7 @@ export function LicenseActivationPanel({ defaultEmail }: { defaultEmail: string 
       const response = await fetch('/api/license/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email }),
+        body: JSON.stringify({ email, marketingOptIn }),
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok || !payload.success) {
@@ -247,6 +255,24 @@ export function LicenseActivationPanel({ defaultEmail }: { defaultEmail: string 
                     {registering ? <Loader2 className="h-4 w-4 animate-spin" /> : <Mail className="h-4 w-4" />}
                     {copy.sendKey}
                   </Button>
+                </div>
+              </div>
+
+              <div className="flex items-start gap-3 border border-border bg-muted/20 px-3 py-3">
+                <Switch
+                  id="license-marketing-opt-in"
+                  checked={marketingOptIn}
+                  onCheckedChange={setMarketingOptIn}
+                  aria-describedby="license-marketing-opt-in-description"
+                  className="mt-0.5"
+                />
+                <div className="space-y-1">
+                  <Label htmlFor="license-marketing-opt-in" className="cursor-pointer font-medium">
+                    {copy.marketingOptInLabel}
+                  </Label>
+                  <p id="license-marketing-opt-in-description" className="text-sm leading-5 text-muted-foreground">
+                    {copy.marketingOptInDescription}
+                  </p>
                 </div>
               </div>
 

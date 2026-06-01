@@ -118,6 +118,8 @@
     "licenseInstanceId": "Instance ID",
     "licenseExpires": "Expires",
     "licenseEmail": "Email",
+    "licenseMarketingOptInLabel": "Receive newsletter",
+    "licenseMarketingOptInDescription": "Optional: receive product news, release notes, and important Canvas Notebook updates by email. You can unsubscribe at any time.",
     "licenseSendKey": "Send key",
     "licenseActivationKey": "Activation key",
     "licenseActivate": "Activate",
