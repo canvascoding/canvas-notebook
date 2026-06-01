@@ -105,7 +105,7 @@ export function AgentManagedFilesEditor({
   return (
     <div className="min-w-0 space-y-3">
       <Tabs value={activeFile} onValueChange={(value) => onActiveFileChange(value as ManagedFileName)} className="min-w-0">
-        <TabsList className="flex h-auto w-full justify-start gap-2 overflow-x-auto bg-transparent p-0 pb-1">
+        <TabsList className="flex h-auto w-full flex-wrap justify-start gap-2 overflow-x-hidden bg-transparent p-0 pb-1">
           {visibleFileNames.map((fileName) => (
             <TabsTrigger key={fileName} value={fileName} className="shrink-0 border border-border data-[state=active]:bg-muted">
               {fileName}

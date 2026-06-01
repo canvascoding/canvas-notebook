@@ -548,7 +548,7 @@ export function CreateAgentDialog({
       <Dialog open={open} onOpenChange={handleOpenChange}>
         <DialogContent
           layout="viewport"
-          className="h-[100dvh] bg-background p-0 sm:h-[calc(100dvh-2rem)] md:h-[calc(100dvh-3rem)] lg:h-[calc(100dvh-4rem)]"
+          className="h-[100dvh] w-full max-w-full bg-background p-0 sm:h-[calc(100dvh-2rem)] md:h-[calc(100dvh-3rem)] lg:h-[calc(100dvh-4rem)]"
         >
           <div className="grid h-full min-h-0 flex-1 grid-rows-[auto_minmax(0,1fr)_auto]">
             <DialogHeader className="shrink-0 border-b px-4 py-3 pr-14 sm:px-5 sm:py-4">
@@ -565,8 +565,8 @@ export function CreateAgentDialog({
                 </ScrollArea>
               </aside>
 
-              <ScrollArea className="h-full min-h-0">
-                <div className="mx-auto flex min-w-0 max-w-4xl flex-col gap-4 p-3 sm:gap-5 sm:p-5">
+              <ScrollArea className="h-full min-h-0 max-w-full overflow-x-hidden">
+                <div className="mx-auto box-border flex w-[100dvw] max-w-[100dvw] min-w-0 flex-col gap-4 overflow-x-hidden p-3 pr-[calc(0.75rem+0.625rem)] sm:gap-5 sm:p-5 sm:pr-[calc(1.25rem+0.625rem)] md:w-full md:max-w-4xl">
                   <div className="md:hidden">
                     <Popover open={templatePickerOpen} onOpenChange={setTemplatePickerOpen}>
                       <PopoverTrigger asChild>

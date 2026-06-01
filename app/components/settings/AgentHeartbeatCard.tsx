@@ -301,16 +301,16 @@ export function AgentHeartbeatCard({
             </p>
           )}
 
-          <div className={`space-y-3 rounded-md border bg-muted/20 p-3 ${controlsDisabled ? 'opacity-60' : ''}`} aria-disabled={controlsDisabled}>
+          <div className={`min-w-0 space-y-3 rounded-md border bg-muted/20 p-3 ${controlsDisabled ? 'opacity-60' : ''}`} aria-disabled={controlsDisabled}>
             <div className="flex items-center gap-2">
               <Heart className="h-4 w-4 text-muted-foreground" />
               <p className="text-sm font-medium">{t('agentPanel.heartbeat.scheduleTitle')}</p>
             </div>
-            <div className="grid gap-3 md:grid-cols-3">
-              <label className="flex flex-col gap-1 text-sm">
+            <div className="grid min-w-0 gap-3 md:grid-cols-3">
+              <label className="flex min-w-0 flex-col gap-1 text-sm">
                 <span className="text-xs text-muted-foreground">{t('agentPanel.heartbeat.scheduleKindLabel')}</span>
                 <select
-                  className="h-10 rounded-md border border-input bg-background px-3 text-sm"
+                  className="h-10 w-full min-w-0 rounded-md border border-input bg-background px-3 text-sm"
                   value={scheduleDraft.kind}
                   onChange={(event) => onScheduleDraftChange({ kind: event.target.value as AgentHeartbeatScheduleKind })}
                   disabled={controlsDisabled}
@@ -322,7 +322,7 @@ export function AgentHeartbeatCard({
               </label>
 
               {scheduleDraft.kind === 'daily' && (
-                <label className="flex flex-col gap-1 text-sm">
+                <label className="flex min-w-0 flex-col gap-1 text-sm">
                   <span className="text-xs text-muted-foreground">{t('agentPanel.heartbeat.timeLabel')}</span>
                   <Input
                     type="time"
@@ -335,7 +335,7 @@ export function AgentHeartbeatCard({
 
               {scheduleDraft.kind === 'interval' && (
                 <>
-                  <label className="flex flex-col gap-1 text-sm">
+                  <label className="flex min-w-0 flex-col gap-1 text-sm">
                     <span className="text-xs text-muted-foreground">{t('agentPanel.heartbeat.intervalEveryLabel')}</span>
                     <Input
                       type="number"
@@ -345,10 +345,10 @@ export function AgentHeartbeatCard({
                       disabled={controlsDisabled}
                     />
                   </label>
-                  <label className="flex flex-col gap-1 text-sm">
+                  <label className="flex min-w-0 flex-col gap-1 text-sm">
                     <span className="text-xs text-muted-foreground">{t('agentPanel.heartbeat.intervalUnitLabel')}</span>
                     <select
-                      className="h-10 rounded-md border border-input bg-background px-3 text-sm"
+                      className="h-10 w-full min-w-0 rounded-md border border-input bg-background px-3 text-sm"
                       value={scheduleDraft.intervalUnit}
                       onChange={(event) => onScheduleDraftChange({ intervalUnit: event.target.value as AutomationIntervalUnit })}
                       disabled={controlsDisabled}
@@ -361,10 +361,10 @@ export function AgentHeartbeatCard({
                 </>
               )}
 
-              <label className="flex flex-col gap-1 text-sm">
+              <label className="flex min-w-0 flex-col gap-1 text-sm">
                 <span className="text-xs text-muted-foreground">{t('agentPanel.heartbeat.timezone')}</span>
                 <select
-                  className="h-10 rounded-md border border-input bg-background px-3 text-sm"
+                  className="h-10 w-full min-w-0 rounded-md border border-input bg-background px-3 text-sm"
                   value={scheduleDraft.timeZone}
                   onChange={(event) => onScheduleDraftChange({ timeZone: event.target.value })}
                   disabled={controlsDisabled}
@@ -389,14 +389,14 @@ export function AgentHeartbeatCard({
 
             {scheduleDraft.kind === 'weekly' && (
               <div className="space-y-3">
-                <div className="grid grid-cols-4 gap-2 sm:flex sm:flex-wrap">
+                <div className="grid min-w-0 grid-cols-4 gap-2 sm:flex sm:flex-wrap">
                   {WEEKDAYS.map((day) => {
                     const selected = scheduleDraft.weeklyDays.includes(day);
                     return (
                       <button
                         key={day}
                         type="button"
-                        className={`min-h-10 rounded-md border px-3 py-2 text-sm ${selected ? 'border-primary bg-primary/10' : 'border-border bg-background'}`}
+                        className={`min-h-10 min-w-0 overflow-hidden rounded-md border px-1.5 py-2 text-xs leading-tight [overflow-wrap:anywhere] sm:px-3 sm:text-sm ${selected ? 'border-primary bg-primary/10' : 'border-border bg-background'}`}
                         onClick={() => onScheduleDraftChange({
                           weeklyDays: selected
                             ? scheduleDraft.weeklyDays.filter((entry) => entry !== day)
@@ -409,7 +409,7 @@ export function AgentHeartbeatCard({
                     );
                   })}
                 </div>
-                <label className="flex max-w-xs flex-col gap-1 text-sm">
+                <label className="flex max-w-xs min-w-0 flex-col gap-1 text-sm">
                   <span className="text-xs text-muted-foreground">{t('agentPanel.heartbeat.timeLabel')}</span>
                   <Input
                     type="time"
@@ -422,7 +422,7 @@ export function AgentHeartbeatCard({
             )}
           </div>
 
-          <div className={`space-y-3 rounded-md border bg-muted/20 p-3 ${controlsDisabled ? 'opacity-60' : ''}`} aria-disabled={controlsDisabled}>
+          <div className={`min-w-0 space-y-3 rounded-md border bg-muted/20 p-3 ${controlsDisabled ? 'opacity-60' : ''}`} aria-disabled={controlsDisabled}>
             <div className="flex items-center justify-between gap-4">
               <div className="flex min-w-0 items-center gap-2">
                 <Clock3 className="h-4 w-4 text-muted-foreground" />
@@ -436,17 +436,18 @@ export function AgentHeartbeatCard({
                 onCheckedChange={(checked) => onScheduleDraftChange({ workingHoursEnabled: checked })}
                 disabled={controlsDisabled}
                 aria-label={t('agentPanel.heartbeat.workingHoursToggle')}
+                className="shrink-0"
               />
             </div>
 
-            <div className="grid grid-cols-4 gap-2 sm:flex sm:flex-wrap">
+            <div className="grid min-w-0 grid-cols-4 gap-2 sm:flex sm:flex-wrap">
               {WEEKDAYS.map((day) => {
                 const selected = scheduleDraft.workingHoursDays.includes(day);
                 return (
                   <button
                     key={day}
                     type="button"
-                    className={`min-h-10 rounded-md border px-3 py-2 text-sm ${selected ? 'border-primary bg-primary/10' : 'border-border bg-background'}`}
+                    className={`min-h-10 min-w-0 overflow-hidden rounded-md border px-1.5 py-2 text-xs leading-tight [overflow-wrap:anywhere] sm:px-3 sm:text-sm ${selected ? 'border-primary bg-primary/10' : 'border-border bg-background'}`}
                     onClick={() => onScheduleDraftChange({
                       workingHoursDays: selected
                         ? scheduleDraft.workingHoursDays.filter((entry) => entry !== day)
@@ -460,8 +461,8 @@ export function AgentHeartbeatCard({
               })}
             </div>
 
-            <div className="grid gap-3 md:grid-cols-3">
-              <label className="flex flex-col gap-1 text-sm">
+            <div className="grid min-w-0 gap-3 md:grid-cols-3">
+              <label className="flex min-w-0 flex-col gap-1 text-sm">
                 <span className="text-xs text-muted-foreground">{t('agentPanel.heartbeat.workingHoursStart')}</span>
                 <Input
                   type="time"
@@ -470,7 +471,7 @@ export function AgentHeartbeatCard({
                   disabled={workingHoursControlsDisabled}
                 />
               </label>
-              <label className="flex flex-col gap-1 text-sm">
+              <label className="flex min-w-0 flex-col gap-1 text-sm">
                 <span className="text-xs text-muted-foreground">{t('agentPanel.heartbeat.workingHoursEnd')}</span>
                 <Input
                   type="time"
@@ -479,10 +480,10 @@ export function AgentHeartbeatCard({
                   disabled={workingHoursControlsDisabled}
                 />
               </label>
-              <label className="flex flex-col gap-1 text-sm">
+              <label className="flex min-w-0 flex-col gap-1 text-sm">
                 <span className="text-xs text-muted-foreground">{t('agentPanel.heartbeat.timezone')}</span>
                 <select
-                  className="h-10 rounded-md border border-input bg-background px-3 text-sm"
+                  className="h-10 w-full min-w-0 rounded-md border border-input bg-background px-3 text-sm"
                   value={scheduleDraft.workingHoursTimeZone}
                   onChange={(event) => onScheduleDraftChange({ workingHoursTimeZone: event.target.value })}
                   disabled={workingHoursControlsDisabled}
@@ -506,11 +507,11 @@ export function AgentHeartbeatCard({
             </div>
           </div>
 
-          <div className={`grid gap-3 rounded-md border bg-muted/20 p-3 md:grid-cols-3 ${controlsDisabled ? 'opacity-60' : ''}`} aria-disabled={controlsDisabled}>
+          <div className={`grid min-w-0 gap-3 rounded-md border bg-muted/20 p-3 md:grid-cols-3 ${controlsDisabled ? 'opacity-60' : ''}`} aria-disabled={controlsDisabled}>
             <label className="flex min-w-0 flex-col gap-1 text-sm">
               <span className="text-xs text-muted-foreground">{t('agentPanel.heartbeat.deliveryChannel')}</span>
               <select
-                className="h-10 rounded-md border border-input bg-background px-3 text-sm"
+                className="h-10 w-full min-w-0 rounded-md border border-input bg-background px-3 text-sm"
                 value={selectedDeliveryChannel}
                 onChange={(event) => {
                   const channelId = event.target.value;
@@ -540,7 +541,7 @@ export function AgentHeartbeatCard({
             <label className="flex min-w-0 flex-col gap-1 text-sm">
               <span className="text-xs text-muted-foreground">{t('agentPanel.heartbeat.deliverySession')}</span>
               <select
-                className="h-10 rounded-md border border-input bg-background px-3 text-sm"
+                className="h-10 w-full min-w-0 rounded-md border border-input bg-background px-3 text-sm"
                 value={deliveryDraft.deliverySessionMode}
                 onChange={(event) => onDeliveryDraftChange({ deliverySessionMode: event.target.value as AutomationDeliverySessionMode })}
                 disabled={controlsDisabled}
