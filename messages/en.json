@@ -947,6 +947,7 @@
       "openSession": "Open session",
       "sendFollowUp": "Inform agent",
       "sendFollowUpAgain": "Inform agent again",
+      "filters": "Filters",
       "cancel": "Cancel",
       "save": "Save",
       "removeFile": "Remove file link"

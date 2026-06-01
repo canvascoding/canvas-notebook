@@ -946,6 +946,7 @@
       "openSession": "Session öffnen",
       "sendFollowUp": "Agent informieren",
       "sendFollowUpAgain": "Agent erneut informieren",
+      "filters": "Filter",
       "cancel": "Abbrechen",
       "save": "Speichern",
       "removeFile": "Dateilink entfernen"
