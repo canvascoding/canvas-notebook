@@ -22,6 +22,7 @@ import { getDroppedFiles } from '@/app/lib/drop-traverse';
 import { FilePreviewDialog } from '@/app/components/files/FilePreviewDialog';
 import { Link } from '@/i18n/navigation';
 import { ThemeToggle } from '@/app/components/ThemeToggle';
+import { notifyWorkspaceFileOpened } from '@/app/lib/files/workspace-file-events';
 import { PublicShareDialog } from './PublicShareDialog';
 
 
@@ -223,6 +224,8 @@ export function FileBrowser({ variant = 'default', onFileSelect }: FileBrowserPr
   );
 
   const handleOpenFile = useCallback((path: string) => {
+    notifyWorkspaceFileOpened(path, 'file-browser');
+
     if (isFullscreen) {
       void useFileStore.getState().loadFile(path, true);
       setActiveFilePath(path);

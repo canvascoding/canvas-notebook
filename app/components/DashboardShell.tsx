@@ -47,7 +47,7 @@ import { NotificationBell } from '@/app/components/notifications/NotificationBel
 import { useFileStore } from '@/app/store/file-store';
 import { FileWatcherProvider } from '@/app/hooks/FileWatcherContext';
 import { CANVAS_CHAT_INITIAL_PROMPT_STORAGE_KEY } from '@/app/lib/chat/constants';
-import { CHAT_FILE_REFERENCE_OPENED_EVENT } from '@/app/lib/chat/file-reference-events';
+import { WORKSPACE_FILE_OPENED_EVENT } from '@/app/lib/files/workspace-file-events';
 
 
 
@@ -411,6 +411,14 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
     setChatVisible(true);
   }, []);
 
+  const collapseDesktopFullscreenChat = useCallback(() => {
+    if (viewportMode !== 'desktop' || !chatVisible || desktopChatMode !== 'fullscreen') {
+      return;
+    }
+
+    setDesktopChatMode('side');
+  }, [chatVisible, desktopChatMode, viewportMode]);
+
   const handleDesktopChatPrimaryAction = useCallback(() => {
     if (!chatVisible) {
       openDesktopChat('side');
@@ -550,17 +558,15 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
   }, [handleDesktopChatPrimaryAction, setDesktopSidebarVisible, viewportMode]);
 
   useEffect(() => {
-    const handleChatFileReferenceOpen = () => {
-      if (viewportMode !== 'desktop') return;
-      setChatVisible(true);
-      setDesktopChatMode('side');
+    const handleWorkspaceFileOpen = () => {
+      collapseDesktopFullscreenChat();
     };
 
-    window.addEventListener(CHAT_FILE_REFERENCE_OPENED_EVENT, handleChatFileReferenceOpen);
+    window.addEventListener(WORKSPACE_FILE_OPENED_EVENT, handleWorkspaceFileOpen);
     return () => {
-      window.removeEventListener(CHAT_FILE_REFERENCE_OPENED_EVENT, handleChatFileReferenceOpen);
+      window.removeEventListener(WORKSPACE_FILE_OPENED_EVENT, handleWorkspaceFileOpen);
     };
-  }, [viewportMode]);
+  }, [collapseDesktopFullscreenChat]);
 
   useEffect(() => {
     const handleKeyboardToggle = (event: KeyboardEvent) => {

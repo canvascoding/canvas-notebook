@@ -1,3 +1,5 @@
+import { notifyWorkspaceFileOpened } from '@/app/lib/files/workspace-file-events';
+
 export const CHAT_FILE_REFERENCE_OPENED_EVENT = 'canvas:chat-file-reference-opened';
 
 export type ChatFileReferenceOpenedDetail = {
@@ -6,6 +8,8 @@ export type ChatFileReferenceOpenedDetail = {
 
 export function notifyChatFileReferenceOpened(path: string) {
   if (typeof window === 'undefined') return;
+
+  notifyWorkspaceFileOpened(path, 'chat-reference');
 
   window.dispatchEvent(
     new CustomEvent<ChatFileReferenceOpenedDetail>(CHAT_FILE_REFERENCE_OPENED_EVENT, {
