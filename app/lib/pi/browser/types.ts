@@ -12,17 +12,21 @@ export type BrowserAction =
   | 'scroll'
   | 'screenshot'
   | 'extract_content'
+  | 'evaluate'
   | 'console_logs'
   | 'close';
 
 export type BrowserGatewayInput = {
-  action?: BrowserAction;
+  action?: BrowserAction | 'eval';
   topic?: string;
   url?: string;
   target_id?: string;
   selector?: string;
   text?: string;
   key?: KeyInput | string;
+  script?: string;
+  expression?: string;
+  code?: string;
   wait_until?: 'load' | 'domcontentloaded' | 'networkidle0' | 'networkidle2';
   timeout_ms?: number;
   max_elements?: number;
