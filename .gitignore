@@ -74,6 +74,10 @@ temp/screenshots/
 *.tsbuildinfo
 next-env.d.ts
 
+# python
+__pycache__/
+*.py[cod]
+
 /docs
 !/docs/architecture/
 /.opencode
