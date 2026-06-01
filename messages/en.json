@@ -1714,6 +1714,8 @@
         "interval": "Interval",
         "timeLabel": "Time",
         "timezone": "Timezone",
+        "recommendedTimeZones": "Recommended time zones",
+        "allTimeZones": "All time zones",
         "minutes": "Minutes",
         "hours": "Hours",
         "days": "Days",

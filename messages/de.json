@@ -1713,6 +1713,8 @@
         "interval": "Intervall",
         "timeLabel": "Uhrzeit",
         "timezone": "Zeitzone",
+        "recommendedTimeZones": "Empfohlene Zeitzonen",
+        "allTimeZones": "Alle Zeitzonen",
         "minutes": "Minuten",
         "hours": "Stunden",
         "days": "Tage",
