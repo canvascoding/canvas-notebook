@@ -16,6 +16,7 @@ import {
   ExternalLink,
   FileText,
   FolderSearch,
+  Menu,
   MessageSquare,
   MoreHorizontal,
   Plus,
@@ -46,6 +47,13 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from '@/components/ui/sheet';
 import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
 
@@ -216,6 +224,7 @@ export function TodosClient({ title }: { title: string }) {
   const [editorOpen, setEditorOpen] = useState(false);
   const [editingTodoId, setEditingTodoId] = useState<string | null>(null);
   const [form, setForm] = useState<TodoFormState>(emptyForm);
+  const [filterSheetOpen, setFilterSheetOpen] = useState(false);
   const [categoryDialogOpen, setCategoryDialogOpen] = useState(false);
   const [editingCategory, setEditingCategory] = useState<TodoCategory | null>(null);
   const [categoryDraft, setCategoryDraft] = useState({ name: '', color: '#3b82f6' });
@@ -263,6 +272,11 @@ export function TodosClient({ title }: { title: string }) {
     const category = categories.find((item) => item.id === categoryFilter);
     return category ? formatCategoryName(category) : t('filters.allCategories');
   }, [categories, categoryFilter, formatCategoryName, t]);
+
+  const filterSummary = useMemo(
+    () => `${t(`filters.status.${statusFilter}`)} · ${selectedCategoryName}`,
+    [selectedCategoryName, statusFilter, t],
+  );
 
   const loadCategories = useCallback(async () => {
     const response = await fetch('/api/todo-categories', { credentials: 'include', cache: 'no-store' });
@@ -666,8 +680,99 @@ export function TodosClient({ title }: { title: string }) {
     setCategoryDialogOpen(true);
   }, []);
 
+  const renderStatusFilters = (closeOnSelect = false) => (
+    <div className="grid grid-cols-2 gap-1 md:grid-cols-1">
+      {statusFilters.map((filter) => (
+        <button
+          key={filter}
+          type="button"
+          className={cn(
+            'flex h-9 min-w-0 items-center justify-between gap-2 rounded-md px-3 text-sm transition-colors',
+            statusFilter === filter
+              ? 'bg-primary text-primary-foreground'
+              : 'text-muted-foreground hover:bg-accent hover:text-foreground',
+          )}
+          onClick={() => {
+            setStatusFilter(filter);
+            if (closeOnSelect) setFilterSheetOpen(false);
+          }}
+        >
+          <span className="min-w-0 truncate">{t(`filters.status.${filter}`)}</span>
+        </button>
+      ))}
+    </div>
+  );
+
+  const renderCategoryFilters = (closeOnSelect = false) => (
+    <div className="flex min-w-0 flex-col gap-1">
+      <button
+        type="button"
+        data-testid="todo-category-filter"
+        className={cn(
+          'flex h-9 min-w-0 items-center justify-between gap-2 rounded-md px-3 text-sm transition-colors',
+          !categoryFilter
+            ? 'bg-primary text-primary-foreground'
+            : 'text-muted-foreground hover:bg-accent hover:text-foreground',
+        )}
+        onClick={() => {
+          setCategoryFilter('');
+          if (closeOnSelect) setFilterSheetOpen(false);
+        }}
+      >
+        <span className="min-w-0 truncate">{t('filters.allCategories')}</span>
+      </button>
+      {categories.map((category) => (
+        <div key={category.id} className="flex min-w-0 items-center gap-1">
+          <button
+            type="button"
+            data-testid="todo-category-filter"
+            className={cn(
+              'flex h-9 min-w-0 flex-1 items-center gap-2 rounded-md px-3 text-sm transition-colors',
+              categoryFilter === category.id
+                ? 'bg-primary text-primary-foreground'
+                : 'text-muted-foreground hover:bg-accent hover:text-foreground',
+            )}
+            onClick={() => {
+              setCategoryFilter(category.id);
+              if (closeOnSelect) setFilterSheetOpen(false);
+            }}
+          >
+            <span
+              className="h-2.5 w-2.5 shrink-0 rounded-full"
+              style={{ backgroundColor: category.color ?? '#64748b' }}
+            />
+            <span className="min-w-0 truncate">{formatCategoryName(category)}</span>
+          </button>
+          <DropdownMenu modal={false}>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="icon-xs" aria-label={t('actions.categoryActions')}>
+                <MoreHorizontal className="h-3.5 w-3.5" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onSelect={() => {
+                if (closeOnSelect) setFilterSheetOpen(false);
+                openCategoryDialog(category);
+              }}>
+                <Edit3 className="h-4 w-4" />
+                {t('actions.renameCategory')}
+              </DropdownMenuItem>
+              <DropdownMenuItem variant="destructive" onSelect={() => {
+                if (closeOnSelect) setFilterSheetOpen(false);
+                void archiveCategory(category);
+              }}>
+                <Trash2 className="h-4 w-4" />
+                {t('actions.archiveCategory')}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+      ))}
+    </div>
+  );
+
   return (
-    <div data-testid="todos-page" className="flex min-h-full flex-col bg-background">
+    <div data-testid="todos-page" className="flex min-h-full w-full min-w-0 flex-col overflow-x-hidden bg-background">
       <div className="border-b border-border bg-background/95 px-4 py-4 md:px-6">
         <div className="mx-auto flex max-w-7xl flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div className="min-w-0">
@@ -676,31 +781,47 @@ export function TodosClient({ title }: { title: string }) {
             </p>
             <h2 className="mt-1 truncate text-xl font-semibold tracking-tight md:text-2xl">{title}</h2>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
             <Button
               data-testid="todo-mark-all-seen"
               variant="outline"
               size="sm"
+              className="px-2 sm:px-2.5"
               onClick={markAllVisibleSeen}
               disabled={isMutating || visibleUnreadCount === 0}
             >
               <BellOff className="h-4 w-4" />
-              {t('actions.markAllSeen')}
+              <span className="sr-only sm:not-sr-only">{t('actions.markAllSeen')}</span>
             </Button>
-            <Button variant="outline" size="sm" onClick={() => void refreshAll()} disabled={isLoading}>
+            <Button variant="outline" size="sm" className="px-2 sm:px-2.5" onClick={() => void refreshAll()} disabled={isLoading}>
               <RefreshCcw className="h-4 w-4" />
-              {t('actions.refresh')}
+              <span className="sr-only sm:not-sr-only">{t('actions.refresh')}</span>
             </Button>
-            <Button data-testid="todo-create-button" size="sm" onClick={openCreateDialog}>
+            <Button data-testid="todo-create-button" size="sm" className="min-w-0" onClick={openCreateDialog}>
               <Plus className="h-4 w-4" />
-              {t('actions.newTodo')}
+              <span className="min-w-0 truncate">{t('actions.newTodo')}</span>
             </Button>
           </div>
         </div>
       </div>
 
-      <div className="mx-auto grid w-full max-w-7xl flex-1 gap-4 p-4 md:grid-cols-[240px_minmax(0,1fr)] md:p-6 xl:grid-cols-[260px_minmax(0,1fr)_360px]">
-        <aside className="min-w-0 space-y-4">
+      <div className="mx-auto grid w-full min-w-0 max-w-7xl flex-1 gap-4 p-4 md:grid-cols-[240px_minmax(0,1fr)] md:p-6 xl:grid-cols-[260px_minmax(0,1fr)_360px]">
+        <div className="md:hidden">
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-auto min-h-9 w-full min-w-0 justify-between overflow-hidden whitespace-normal py-2 text-left"
+            onClick={() => setFilterSheetOpen(true)}
+          >
+            <span className="flex min-w-0 items-center gap-2">
+              <Menu className="h-4 w-4 shrink-0" />
+              <span className="shrink-0">{t('actions.filters')}</span>
+            </span>
+            <span className="min-w-0 truncate text-xs font-normal text-muted-foreground">{filterSummary}</span>
+          </Button>
+        </div>
+
+        <aside className="hidden min-w-0 space-y-4 md:block">
           <section className="space-y-3">
             <div className="flex items-center justify-between gap-2">
               <h3 className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
@@ -708,23 +829,7 @@ export function TodosClient({ title }: { title: string }) {
               </h3>
               <Badge variant="outline">{visibleUnreadCount > 99 ? '99+' : visibleUnreadCount}</Badge>
             </div>
-            <div className="grid grid-cols-2 gap-1 md:grid-cols-1">
-              {statusFilters.map((filter) => (
-                <button
-                  key={filter}
-                  type="button"
-                  className={cn(
-                    'flex h-9 items-center justify-between gap-2 rounded-md px-3 text-sm transition-colors',
-                    statusFilter === filter
-                      ? 'bg-primary text-primary-foreground'
-                      : 'text-muted-foreground hover:bg-accent hover:text-foreground',
-                  )}
-                  onClick={() => setStatusFilter(filter)}
-                >
-                  <span>{t(`filters.status.${filter}`)}</span>
-                </button>
-              ))}
-            </div>
+            {renderStatusFilters()}
           </section>
 
           <section className="space-y-3">
@@ -736,59 +841,7 @@ export function TodosClient({ title }: { title: string }) {
                 <Plus className="h-3.5 w-3.5" />
               </Button>
             </div>
-            <div className="flex gap-1 overflow-x-auto pb-1 md:flex-col md:overflow-visible md:pb-0">
-              <button
-                type="button"
-                data-testid="todo-category-filter"
-                className={cn(
-                  'flex h-9 shrink-0 items-center justify-between gap-2 rounded-md px-3 text-sm transition-colors md:w-full',
-                  !categoryFilter
-                    ? 'bg-primary text-primary-foreground'
-                    : 'text-muted-foreground hover:bg-accent hover:text-foreground',
-                )}
-                onClick={() => setCategoryFilter('')}
-              >
-                <span>{t('filters.allCategories')}</span>
-              </button>
-              {categories.map((category) => (
-                <div key={category.id} className="flex min-w-[160px] shrink-0 items-center gap-1 md:min-w-0">
-                  <button
-                    type="button"
-                    data-testid="todo-category-filter"
-                    className={cn(
-                      'flex h-9 min-w-0 flex-1 items-center gap-2 rounded-md px-3 text-sm transition-colors',
-                      categoryFilter === category.id
-                        ? 'bg-primary text-primary-foreground'
-                        : 'text-muted-foreground hover:bg-accent hover:text-foreground',
-                    )}
-                    onClick={() => setCategoryFilter(category.id)}
-                  >
-                    <span
-                      className="h-2.5 w-2.5 shrink-0 rounded-full"
-                      style={{ backgroundColor: category.color ?? '#64748b' }}
-                    />
-                    <span className="truncate">{formatCategoryName(category)}</span>
-                  </button>
-                  <DropdownMenu modal={false}>
-                    <DropdownMenuTrigger asChild>
-                      <Button variant="ghost" size="icon-xs" aria-label={t('actions.categoryActions')}>
-                        <MoreHorizontal className="h-3.5 w-3.5" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      <DropdownMenuItem onSelect={() => openCategoryDialog(category)}>
-                        <Edit3 className="h-4 w-4" />
-                        {t('actions.renameCategory')}
-                      </DropdownMenuItem>
-                      <DropdownMenuItem variant="destructive" onSelect={() => void archiveCategory(category)}>
-                        <Trash2 className="h-4 w-4" />
-                        {t('actions.archiveCategory')}
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </div>
-              ))}
-            </div>
+            {renderCategoryFilters()}
           </section>
         </aside>
 
@@ -822,12 +875,12 @@ export function TodosClient({ title }: { title: string }) {
                   key={todo.id}
                   data-testid="todo-list-item"
                   className={cn(
-                    'group rounded-md border bg-card p-3 transition-colors hover:border-primary/40 hover:bg-accent/60',
+                    'group min-w-0 overflow-hidden rounded-md border bg-card p-3 transition-colors hover:border-primary/40 hover:bg-accent/60',
                     selectedTodoId === todo.id && 'border-primary/60 bg-accent',
                     todo.status === 'archived' && 'opacity-80',
                   )}
                 >
-                  <div className="flex items-start gap-3">
+                  <div className="flex min-w-0 items-start gap-3">
                     <button
                       type="button"
                       className="mt-0.5 shrink-0 text-muted-foreground transition hover:text-foreground"
@@ -849,13 +902,13 @@ export function TodosClient({ title }: { title: string }) {
                         </h4>
                       </div>
                       {todo.description ? (
-                        <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">{todo.description}</p>
+                        <p className="mt-1 line-clamp-2 break-words text-sm text-muted-foreground">{todo.description}</p>
                       ) : null}
                       <div className="mt-3 flex flex-wrap items-center gap-1.5">
                         {todo.category && (
-                          <Badge variant="outline" className="gap-1">
-                            <span className="h-2 w-2 rounded-full" style={{ backgroundColor: todo.category.color ?? '#64748b' }} />
-                            {formatCategoryName(todo.category)}
+                          <Badge variant="outline" className="max-w-full min-w-0 gap-1">
+                            <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: todo.category.color ?? '#64748b' }} />
+                            <span className="min-w-0 truncate">{formatCategoryName(todo.category)}</span>
                           </Badge>
                         )}
                         <Badge variant={todo.priority === 'high' ? 'destructive' : 'secondary'}>
@@ -915,7 +968,7 @@ export function TodosClient({ title }: { title: string }) {
         </section>
 
         <aside className="min-w-0 xl:sticky xl:top-4 xl:self-start">
-          <div data-testid="todo-detail" className="rounded-md border border-border bg-background p-4">
+          <div data-testid="todo-detail" className="min-w-0 overflow-hidden rounded-md border border-border bg-background p-4">
             {selectedTodo ? (
               <div className="space-y-4">
                 <div className="flex items-start justify-between gap-3">
@@ -926,7 +979,7 @@ export function TodosClient({ title }: { title: string }) {
                       </Badge>
                       {!selectedTodo.seenAt && <Badge>{t('labels.unread')}</Badge>}
                     </div>
-                    <h3 className="mt-2 text-lg font-semibold leading-tight">{selectedTodo.title}</h3>
+                    <h3 className="mt-2 break-words text-lg font-semibold leading-tight">{selectedTodo.title}</h3>
                   </div>
                   <Button variant="ghost" size="icon-sm" onClick={() => openEditDialog(selectedTodo)} disabled={selectedTodo.status === 'archived'}>
                     <Edit3 className="h-4 w-4" />
@@ -934,23 +987,23 @@ export function TodosClient({ title }: { title: string }) {
                 </div>
 
                 {selectedTodo.description ? (
-                  <p className="whitespace-pre-wrap text-sm leading-relaxed text-muted-foreground">{selectedTodo.description}</p>
+                  <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-muted-foreground">{selectedTodo.description}</p>
                 ) : (
                   <p className="text-sm text-muted-foreground">{t('states.noDescription')}</p>
                 )}
 
                 <div className="grid gap-2 text-sm">
-                  <div className="flex items-center justify-between gap-3">
-                    <span className="text-muted-foreground">{t('fields.category')}</span>
-                    <span className="truncate font-medium">{formatCategoryName(selectedTodo.category)}</span>
+                  <div className="flex min-w-0 items-center justify-between gap-3">
+                    <span className="shrink-0 text-muted-foreground">{t('fields.category')}</span>
+                    <span className="min-w-0 truncate text-right font-medium">{formatCategoryName(selectedTodo.category)}</span>
                   </div>
-                  <div className="flex items-center justify-between gap-3">
-                    <span className="text-muted-foreground">{t('fields.priority')}</span>
+                  <div className="flex min-w-0 items-center justify-between gap-3">
+                    <span className="shrink-0 text-muted-foreground">{t('fields.priority')}</span>
                     <span className="font-medium">{t(`priority.${selectedTodo.priority}`)}</span>
                   </div>
-                  <div className="flex items-center justify-between gap-3">
-                    <span className="text-muted-foreground">{t('fields.dueAt')}</span>
-                    <span className="font-medium">{formatDate(selectedTodo.dueAt, locale) ?? t('fields.noDueAt')}</span>
+                  <div className="flex min-w-0 items-center justify-between gap-3">
+                    <span className="shrink-0 text-muted-foreground">{t('fields.dueAt')}</span>
+                    <span className="min-w-0 truncate text-right font-medium">{formatDate(selectedTodo.dueAt, locale) ?? t('fields.noDueAt')}</span>
                   </div>
                 </div>
 
@@ -963,10 +1016,10 @@ export function TodosClient({ title }: { title: string }) {
                   ) : (
                     <div className="space-y-2">
                       {selectedTodo.fileLinks.map((link) => (
-                        <Button key={link.id} asChild variant="outline" className="h-auto w-full justify-start whitespace-normal py-2 text-left">
+                        <Button key={link.id} asChild variant="outline" className="h-auto w-full min-w-0 justify-start overflow-hidden whitespace-normal py-2 text-left">
                           <Link href={fileLinkHref(link.workspacePath)}>
                             <FileText className="h-4 w-4" />
-                            <span className="min-w-0 truncate">{link.label || link.workspacePath}</span>
+                            <span className="min-w-0 flex-1 truncate">{link.label || link.workspacePath}</span>
                           </Link>
                         </Button>
                       ))}
@@ -1007,7 +1060,7 @@ export function TodosClient({ title }: { title: string }) {
                           </p>
                         ) : null}
                         {selectedTodo.followUpError ? (
-                          <p className="text-xs text-destructive">{selectedTodo.followUpError}</p>
+                          <p className="break-words text-xs text-destructive">{selectedTodo.followUpError}</p>
                         ) : null}
                         <Button
                           size="sm"
@@ -1060,6 +1113,49 @@ export function TodosClient({ title }: { title: string }) {
           </div>
         </aside>
       </div>
+
+      <Sheet open={filterSheetOpen} onOpenChange={setFilterSheetOpen}>
+        <SheetContent
+          side="bottom"
+          className="max-h-[calc(100dvh-1rem)] rounded-t-lg p-0 pb-[env(safe-area-inset-bottom)] md:hidden"
+        >
+          <SheetHeader className="border-b border-border pr-12 text-left">
+            <SheetTitle>{t('actions.filters')}</SheetTitle>
+            <SheetDescription>{filterSummary}</SheetDescription>
+          </SheetHeader>
+          <div className="min-h-0 overflow-y-auto px-4 py-4">
+            <section className="space-y-3">
+              <div className="flex items-center justify-between gap-2">
+                <h3 className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                  {t('sections.status')}
+                </h3>
+                <Badge variant="outline">{visibleUnreadCount > 99 ? '99+' : visibleUnreadCount}</Badge>
+              </div>
+              {renderStatusFilters(true)}
+            </section>
+
+            <section className="mt-5 space-y-3">
+              <div className="flex items-center justify-between gap-2">
+                <h3 className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                  {t('sections.categories')}
+                </h3>
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  onClick={() => {
+                    setFilterSheetOpen(false);
+                    openCategoryDialog();
+                  }}
+                  aria-label={t('actions.newCategory')}
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+              {renderCategoryFilters(true)}
+            </section>
+          </div>
+        </SheetContent>
+      </Sheet>
 
       <Dialog open={editorOpen} onOpenChange={setEditorOpen}>
         <DialogContent layout="viewport" className="mx-auto max-w-4xl">
