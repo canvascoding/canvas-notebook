@@ -550,7 +550,16 @@ contentKind: document
 
     setupMockWebSocket(page, {
       sessionId,
-      sendEventsAfterSendMessage: false,
+      agentEvents: [
+        {
+          type: 'message_start',
+          message: {
+            role: 'user',
+            content: 'hi',
+            timestamp: Date.now() + 5000,
+          },
+        },
+      ],
       onSendMessage: () => {
         sendCount += 1;
       },
@@ -618,6 +627,7 @@ contentKind: document
 
     await expect.poll(() => sendCount, { timeout: 15000 }).toBe(1);
     expect(controlActions).not.toContain('follow_up');
+    await expect(page.getByTestId('chat-message-user').filter({ hasText: 'hi' })).toHaveCount(1);
     await expect(page.getByText('No active agent run to queue a follow-up message.')).toHaveCount(0);
   });
 
