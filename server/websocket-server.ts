@@ -27,7 +27,6 @@ import type { ChatRequestContext } from '@/app/lib/chat/types';
 import { db } from '@/app/lib/db';
 import { piSessions } from '@/app/lib/db/schema';
 import { and, eq } from 'drizzle-orm';
-import { handleInboundChannelMessage } from '@/app/lib/channels/router';
 import { WEB_CHANNEL_ID, webChannelSessionKey } from '@/app/lib/channels/constants';
 import { getLicenseStatus } from '@/app/lib/license';
 import { isOnboardingComplete, isOnboardingEnabled } from '@/app/lib/onboarding/status';
@@ -36,9 +35,14 @@ type ControlAction = 'follow_up' | 'steer' | 'promote_queued_to_steer' | 'remove
 type PiRuntimeStatus = Record<string, unknown>;
 
 type RuntimeService = typeof import('@/app/lib/pi/runtime-service');
+type ChannelRouter = typeof import('@/app/lib/channels/router');
 
 async function getRuntimeService(): Promise<RuntimeService> {
   return import('@/app/lib/pi/runtime-service');
+}
+
+async function getChannelRouter(): Promise<ChannelRouter> {
+  return import('@/app/lib/channels/router');
 }
 
 async function isLicensedForRuntime(): Promise<boolean> {
@@ -622,6 +626,7 @@ async function handleMessage(connection: WebSocketConnection, message: ClientMes
           contextPage: context?.currentPage,
           contextChannel: context?.channelId,
         });
+        const { handleInboundChannelMessage } = await getChannelRouter();
         const status = await handleInboundChannelMessage({
           channelId: WEB_CHANNEL_ID,
           channelSessionKey: webChannelSessionKey(userId),
