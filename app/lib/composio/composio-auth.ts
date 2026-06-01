@@ -4,6 +4,19 @@ import { getComposio } from './composio-client';
 import { getComposioSession, getComposioUserId } from './composio-session';
 import { getAvailableToolkitsRaw } from './composio-toolkit-registry';
 
+export type ComposioConnectedAccountStatus =
+  | 'INITIALIZING'
+  | 'INITIATED'
+  | 'ACTIVE'
+  | 'FAILED'
+  | 'EXPIRED'
+  | 'INACTIVE'
+  | 'REVOKED';
+
+type ConnectedAccountListOptions = {
+  statuses?: ComposioConnectedAccountStatus[];
+};
+
 export async function initiateConnection(toolkit: string): Promise<{ redirectUrl: string | null; noAuth?: boolean }> {
   const composio = await getComposio();
   if (!composio) throw new Error('Composio not configured');
@@ -54,7 +67,7 @@ export async function getAuthConfigs(): Promise<Array<Record<string, unknown>>> 
   }
 }
 
-export async function getConnectedAccounts() {
+export async function getConnectedAccounts(options: ConnectedAccountListOptions = {}) {
   const composio = await getComposio();
   if (!composio) return [];
 
@@ -64,6 +77,7 @@ export async function getConnectedAccounts() {
 
   do {
     const params: Record<string, unknown> = { userIds: [userId], limit: 100 };
+    if (options.statuses?.length) params.statuses = options.statuses;
     if (cursor) params.cursor = cursor;
     const result = await composio.connectedAccounts.list(params as Parameters<typeof composio.connectedAccounts.list>[0]);
     const items = Array.isArray(result.items) ? result.items : [];
@@ -72,6 +86,10 @@ export async function getConnectedAccounts() {
   } while (cursor);
 
   return allItems;
+}
+
+export async function getActiveConnectedAccounts() {
+  return getConnectedAccounts({ statuses: ['ACTIVE'] });
 }
 
 export async function getToolkitsWithStatus() {
