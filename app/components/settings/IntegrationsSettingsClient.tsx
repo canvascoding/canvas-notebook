@@ -1211,6 +1211,16 @@ function McpConfigCard(props: {
                   {t('mcpConfig.examplesLink')}
                   <ExternalLink className="h-3.5 w-3.5" />
                 </a>
+                <span>•</span>
+                <a
+                  href="https://github.com/mcp"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 text-primary hover:underline"
+                >
+                  {t('mcpConfig.registryLink')}
+                  <ExternalLink className="h-3.5 w-3.5" />
+                </a>
                 <span>{t('mcpConfig.examplesCaution')}</span>
               </div>
             </div>
