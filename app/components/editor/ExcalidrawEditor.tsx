@@ -1,9 +1,11 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AlertCircle, Code2, RefreshCw } from 'lucide-react';
+import { AlertCircle, Code2, RefreshCw, Workflow } from 'lucide-react';
 import { useLocale, useTranslations } from 'next-intl';
 import {
+  CaptureUpdateAction,
+  convertToExcalidrawElements,
   Excalidraw,
   Footer,
   MainMenu,
@@ -17,7 +19,17 @@ import type {
   ExcalidrawImperativeAPI,
 } from '@excalidraw/excalidraw/types';
 import type { OrderedExcalidrawElement } from '@excalidraw/excalidraw/element/types';
+import type { ExcalidrawElementSkeleton } from '@excalidraw/excalidraw/data/transform';
 import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Textarea } from '@/components/ui/textarea';
 import { useTheme } from '@/app/components/ThemeProvider';
 import { EXCALIDRAW_FILE_SOURCE, createEmptyExcalidrawFileContent } from '@/app/lib/excalidraw-file';
 import { CodeEditor } from './CodeEditor';
@@ -32,6 +44,18 @@ interface ExcalidrawSession {
   initialData: ExcalidrawInitialDataState | null;
   invalid: boolean;
 }
+
+interface SceneBounds {
+  minX: number;
+  minY: number;
+  maxX: number;
+  maxY: number;
+}
+
+const MERMAID_PLACEHOLDER = `flowchart TD
+  A[Request] --> B{Authenticated?}
+  B -->|Yes| C[Open workspace]
+  B -->|No| D[Show login]`;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
@@ -103,6 +127,81 @@ function serializeCanvasNotebookScene(
   return JSON.stringify(parsed, null, 2);
 }
 
+function getErrorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (typeof error === 'string') return error;
+  return 'Unknown error';
+}
+
+function getElementBounds(element: Pick<OrderedExcalidrawElement, 'x' | 'y' | 'width' | 'height'> & {
+  points?: readonly (readonly [number, number])[];
+}): SceneBounds {
+  if (Array.isArray(element.points) && element.points.length > 0) {
+    const xs = element.points.map(([pointX]) => element.x + pointX);
+    const ys = element.points.map(([, pointY]) => element.y + pointY);
+    return {
+      minX: Math.min(...xs),
+      minY: Math.min(...ys),
+      maxX: Math.max(...xs),
+      maxY: Math.max(...ys),
+    };
+  }
+
+  return {
+    minX: Math.min(element.x, element.x + element.width),
+    minY: Math.min(element.y, element.y + element.height),
+    maxX: Math.max(element.x, element.x + element.width),
+    maxY: Math.max(element.y, element.y + element.height),
+  };
+}
+
+function getSceneBounds(elements: readonly OrderedExcalidrawElement[]): SceneBounds | null {
+  const visibleElements = elements.filter((element) => !element.isDeleted);
+  if (!visibleElements.length) return null;
+
+  return visibleElements.reduce<SceneBounds>((bounds, element) => {
+    const elementBounds = getElementBounds(element);
+    return {
+      minX: Math.min(bounds.minX, elementBounds.minX),
+      minY: Math.min(bounds.minY, elementBounds.minY),
+      maxX: Math.max(bounds.maxX, elementBounds.maxX),
+      maxY: Math.max(bounds.maxY, elementBounds.maxY),
+    };
+  }, getElementBounds(visibleElements[0]));
+}
+
+function getImportOffset(
+  existingElements: readonly OrderedExcalidrawElement[],
+  importedElements: readonly OrderedExcalidrawElement[]
+): { x: number; y: number } {
+  const importedBounds = getSceneBounds(importedElements);
+  if (!importedBounds) return { x: 0, y: 0 };
+
+  const existingBounds = getSceneBounds(existingElements);
+  if (!existingBounds) {
+    return {
+      x: 40 - importedBounds.minX,
+      y: 40 - importedBounds.minY,
+    };
+  }
+
+  return {
+    x: existingBounds.maxX + 160 - importedBounds.minX,
+    y: existingBounds.minY - importedBounds.minY,
+  };
+}
+
+function offsetElements(
+  elements: readonly OrderedExcalidrawElement[],
+  offset: { x: number; y: number }
+): OrderedExcalidrawElement[] {
+  return elements.map((element) => ({
+    ...element,
+    x: element.x + offset.x,
+    y: element.y + offset.y,
+  })) as OrderedExcalidrawElement[];
+}
+
 export function ExcalidrawEditor({ path, value, onChange }: ExcalidrawEditorProps) {
   const t = useTranslations('notebook');
   const locale = useLocale();
@@ -116,6 +215,10 @@ export function ExcalidrawEditor({ path, value, onChange }: ExcalidrawEditorProp
     content: string;
     nonce: number;
   } | null>(null);
+  const [mermaidDialogOpen, setMermaidDialogOpen] = useState(false);
+  const [mermaidSyntax, setMermaidSyntax] = useState('');
+  const [mermaidError, setMermaidError] = useState<string | null>(null);
+  const [isImportingMermaid, setIsImportingMermaid] = useState(false);
 
   const effectiveContent = contentOverride?.path === path ? contentOverride.content : value;
   const session = useMemo(() => parseExcalidrawContent(effectiveContent), [effectiveContent]);
@@ -153,6 +256,82 @@ export function ExcalidrawEditor({ path, value, onChange }: ExcalidrawEditorProp
     setContentOverride({ path, content: nextContent, nonce: Date.now() });
   }, [onChange, path]);
 
+  const handleMermaidDialogOpenChange = useCallback((open: boolean) => {
+    if (isImportingMermaid) return;
+    setMermaidDialogOpen(open);
+    if (!open) {
+      setMermaidError(null);
+    }
+  }, [isImportingMermaid]);
+
+  const handleImportMermaid = useCallback(async () => {
+    const definition = mermaidSyntax.trim();
+    if (!definition) {
+      setMermaidError(t('mermaidImportEmpty'));
+      return;
+    }
+
+    const api = apiRef.current;
+    if (!api) {
+      setMermaidError(t('mermaidImportUnavailable'));
+      return;
+    }
+
+    setIsImportingMermaid(true);
+    setMermaidError(null);
+
+    try {
+      const { parseMermaidToExcalidraw } = await import('@excalidraw/mermaid-to-excalidraw');
+      const { elements, files } = await parseMermaidToExcalidraw(definition, {
+        flowchart: {
+          curve: 'linear',
+        },
+        themeVariables: {
+          fontSize: '22px',
+        },
+        maxEdges: 1000,
+        maxTextSize: 50000,
+      });
+
+      const importedElements = convertToExcalidrawElements(
+        elements as ExcalidrawElementSkeleton[],
+        { regenerateIds: true }
+      );
+
+      if (!importedElements.length) {
+        setMermaidError(t('mermaidImportNoElements'));
+        return;
+      }
+
+      const currentElements = api.getSceneElementsIncludingDeleted();
+      const offset = getImportOffset(currentElements, importedElements);
+      const positionedElements = offsetElements(importedElements, offset);
+
+      if (files) {
+        api.addFiles(Object.values(files));
+      }
+
+      api.updateScene({
+        elements: [...currentElements, ...positionedElements],
+        captureUpdate: CaptureUpdateAction.IMMEDIATELY,
+      });
+
+      window.requestAnimationFrame(() => {
+        api.scrollToContent(positionedElements, {
+          fitToContent: true,
+          animate: true,
+        });
+      });
+      api.setToast({ message: t('mermaidImportSuccess'), duration: 3000 });
+      setMermaidSyntax('');
+      setMermaidDialogOpen(false);
+    } catch (error) {
+      setMermaidError(t('mermaidImportFailed', { message: getErrorMessage(error) }));
+    } finally {
+      setIsImportingMermaid(false);
+    }
+  }, [mermaidSyntax, t]);
+
   if (isTextMode) {
     return <CodeEditor value={value} onChange={onChange} readOnly={false} path={path} />;
   }
@@ -180,60 +359,113 @@ export function ExcalidrawEditor({ path, value, onChange }: ExcalidrawEditorProp
   }
 
   return (
-    <div className="h-full min-h-0 bg-background">
-      <Excalidraw
-        key={`${path}:${resetNonce}`}
-        excalidrawAPI={(api) => { apiRef.current = api; }}
-        initialData={session.initialData}
-        onChange={handleExcalidrawChange}
-        langCode={langCode}
-        theme={resolvedTheme}
-        name={path.split('/').pop() ?? path}
-        isCollaborating={false}
-        aiEnabled={false}
-        autoFocus
-        UIOptions={{
-          dockedSidebarBreakpoint: 880,
-          canvasActions: {
-            loadScene: false,
-            saveToActiveFile: false,
-            toggleTheme: false,
-            export: {
-              saveFileToDisk: false,
+    <>
+      <div className="h-full min-h-0 bg-background">
+        <Excalidraw
+          key={`${path}:${resetNonce}`}
+          excalidrawAPI={(api) => { apiRef.current = api; }}
+          initialData={session.initialData}
+          onChange={handleExcalidrawChange}
+          langCode={langCode}
+          theme={resolvedTheme}
+          name={path.split('/').pop() ?? path}
+          isCollaborating={false}
+          aiEnabled={false}
+          autoFocus
+          UIOptions={{
+            dockedSidebarBreakpoint: 880,
+            canvasActions: {
+              loadScene: false,
+              saveToActiveFile: false,
+              toggleTheme: false,
+              export: {
+                saveFileToDisk: false,
+              },
             },
-          },
-          tools: {
-            image: true,
-          },
-        }}
-      >
-        <MainMenu>
-          <MainMenu.DefaultItems.SaveAsImage />
-          <MainMenu.DefaultItems.ChangeCanvasBackground />
-          <MainMenu.DefaultItems.ClearCanvas />
-          <MainMenu.Separator />
-          <MainMenu.DefaultItems.Help />
-        </MainMenu>
-        <WelcomeScreen>
-          <WelcomeScreen.Center>
-            <WelcomeScreen.Center.Logo />
-            <WelcomeScreen.Center.Heading>
-              {t('excalidrawEmptyWelcome')}
-            </WelcomeScreen.Center.Heading>
-            <WelcomeScreen.Center.Menu>
-              <WelcomeScreen.Center.MenuItemHelp />
-            </WelcomeScreen.Center.Menu>
-          </WelcomeScreen.Center>
-          <WelcomeScreen.Hints.ToolbarHint>
-            {t('excalidrawWelcomeHint')}
-          </WelcomeScreen.Hints.ToolbarHint>
-        </WelcomeScreen>
-        <Footer>
-          <div className="pointer-events-none select-none rounded-md bg-background/80 px-2 py-1 text-[11px] text-muted-foreground shadow-sm backdrop-blur">
-            {t('excalidrawFooter')}
+            tools: {
+              image: true,
+            },
+          }}
+        >
+          <MainMenu>
+            <MainMenu.Item
+              icon={<Workflow className="h-4 w-4" />}
+              onSelect={() => setMermaidDialogOpen(true)}
+            >
+              {t('importMermaid')}
+            </MainMenu.Item>
+            <MainMenu.Separator />
+            <MainMenu.DefaultItems.SaveAsImage />
+            <MainMenu.DefaultItems.ChangeCanvasBackground />
+            <MainMenu.DefaultItems.ClearCanvas />
+            <MainMenu.Separator />
+            <MainMenu.DefaultItems.Help />
+          </MainMenu>
+          <WelcomeScreen>
+            <WelcomeScreen.Center>
+              <WelcomeScreen.Center.Logo />
+              <WelcomeScreen.Center.Heading>
+                {t('excalidrawEmptyWelcome')}
+              </WelcomeScreen.Center.Heading>
+              <WelcomeScreen.Center.Menu>
+                <WelcomeScreen.Center.MenuItemHelp />
+              </WelcomeScreen.Center.Menu>
+            </WelcomeScreen.Center>
+            <WelcomeScreen.Hints.ToolbarHint>
+              {t('excalidrawWelcomeHint')}
+            </WelcomeScreen.Hints.ToolbarHint>
+          </WelcomeScreen>
+          <Footer>
+            <div className="pointer-events-none select-none rounded-md bg-background/80 px-2 py-1 text-[11px] text-muted-foreground shadow-sm backdrop-blur">
+              {t('excalidrawFooter')}
+            </div>
+          </Footer>
+        </Excalidraw>
+      </div>
+      <Dialog open={mermaidDialogOpen} onOpenChange={handleMermaidDialogOpenChange}>
+        <DialogContent className="sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>{t('mermaidImportTitle')}</DialogTitle>
+            <DialogDescription>{t('mermaidImportDescription')}</DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-3">
+            <Textarea
+              value={mermaidSyntax}
+              onChange={(event) => {
+                setMermaidSyntax(event.target.value);
+                if (mermaidError) setMermaidError(null);
+              }}
+              placeholder={MERMAID_PLACEHOLDER}
+              spellCheck={false}
+              className="min-h-72 resize-y font-mono text-sm leading-6"
+              aria-label={t('mermaidImportTextareaLabel')}
+            />
+            {mermaidError && (
+              <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                {mermaidError}
+              </div>
+            )}
           </div>
-        </Footer>
-      </Excalidraw>
-    </div>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => handleMermaidDialogOpenChange(false)}
+              disabled={isImportingMermaid}
+            >
+              {t('cancel')}
+            </Button>
+            <Button
+              type="button"
+              onClick={handleImportMermaid}
+              disabled={isImportingMermaid || !mermaidSyntax.trim()}
+            >
+              <Workflow className="h-4 w-4" />
+              {isImportingMermaid ? t('mermaidImporting') : t('importMermaid')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
