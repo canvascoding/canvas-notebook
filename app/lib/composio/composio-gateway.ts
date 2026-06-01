@@ -3,7 +3,7 @@ import 'server-only';
 import { randomUUID } from 'crypto';
 import { eq, desc } from 'drizzle-orm';
 import { getComposio, getComposioMode, verifyApiKey, type ComposioMode } from './composio-client';
-import { disconnectTool, getConnectedAccounts, initiateConnection } from './composio-auth';
+import { disconnectTool, getActiveConnectedAccounts, getConnectedAccounts, initiateConnection } from './composio-auth';
 import { getComposioSession } from './composio-session';
 import { getComposioUserId } from './composio-identity';
 import { clearToolkitCache, getAvailableToolkits } from './composio-toolkit-registry';
@@ -209,6 +209,7 @@ export async function getGatewayStatus(): Promise<ComposioStatusResult> {
   if (mode === 'managed') {
     const result = await managedRequest<ComposioStatusResult>('/status');
     result.webhookSubscription = { configured: true, mode: 'managed' };
+    result.connectedAccounts = result.connectedAccounts.filter((account) => account.status === 'ACTIVE');
     return result;
   }
 
@@ -216,7 +217,7 @@ export async function getGatewayStatus(): Promise<ComposioStatusResult> {
   if (!apiKeyValid) {
     return { configured: true, apiKeyValid: false, mode, webhookSubscription: null, connectedAccounts: [] };
   }
-  const accounts = await getConnectedAccounts();
+  const accounts = await getActiveConnectedAccounts();
   let webhookSubscription: ComposioStatusResult['webhookSubscription'] = null;
   try {
     const sub = await getLocalWebhookSubscription();
