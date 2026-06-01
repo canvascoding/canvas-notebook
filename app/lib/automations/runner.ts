@@ -14,6 +14,7 @@ import { getPiTools } from '@/app/lib/pi/tool-registry';
 import { getEffectiveAutomationTargetOutputPath } from './paths';
 import { buildAutomationPrompt } from './prompt';
 import { buildHeartbeatPrompt } from './heartbeat';
+import { buildPersistedAutomationMessages, getAutomationPersistedLength } from './session-messages';
 import {
   dispatchAutomationResult,
   getAutomationDeliveryFailureMessage,
@@ -216,6 +217,7 @@ export async function executeAutomationRun(runId: string): Promise<void> {
   const events: string[] = [];
   let finalMessages: AgentMessage[] = [];
   let dispatchResult: AutomationDeliveryDispatchResult | undefined;
+  let promptPersistedBeforeRun = false;
   const existingSession = deliveryResolution.mode === 'new_session'
     ? null
     : await loadPiSessionWithSummary(piSessionId, job.createdByUserId, job.agentId);
@@ -282,6 +284,7 @@ export async function executeAutomationRun(runId: string): Promise<void> {
         systemPromptSnapshot: promptSnapshot,
       },
     );
+    promptPersistedBeforeRun = true;
 
     console.log(`[Automationen] Starting agent loop for run ${runId} (provider=${provider}, model=${model.id})`);
     for await (const event of agentLoop([promptMessage], context, config, undefined)) {
@@ -311,9 +314,15 @@ export async function executeAutomationRun(runId: string): Promise<void> {
     if (deliveryFailureMessage) {
       throw new Error(deliveryFailureMessage);
     }
-    const persistedFinalMessages = finalMessages.length >= existingMessages.length
-      ? finalMessages
-      : [...existingMessages, ...finalMessages];
+    const persistedFinalMessages = buildPersistedAutomationMessages({
+      existingMessages,
+      promptMessage,
+      runMessages: finalMessages,
+    });
+    const persistedLength = getAutomationPersistedLength({
+      existingMessagesLength: existingMessages.length,
+      promptPersistedBeforeRun,
+    });
     await savePiSession(
       piSessionId,
       job.createdByUserId,
@@ -324,7 +333,7 @@ export async function executeAutomationRun(runId: string): Promise<void> {
       {
         titleOverride: piSessionTitle,
         agentId: job.agentId,
-        persistedLength: existingMessages.length,
+        persistedLength,
       },
     );
     console.log(`[Automationen] Saved session ${piSessionId} for run ${runId}`);
@@ -352,9 +361,15 @@ export async function executeAutomationRun(runId: string): Promise<void> {
       : [promptMessage, createAutomationErrorMessage(message, model.provider, model.id, model.api)];
     const failureResultText = `Automation failed: ${message}`;
 
-    const persistedFailureMessages = persistedMessages.length >= existingMessages.length
-      ? persistedMessages
-      : [...existingMessages, ...persistedMessages];
+    const persistedFailureMessages = buildPersistedAutomationMessages({
+      existingMessages,
+      promptMessage,
+      runMessages: persistedMessages,
+    });
+    const persistedLength = getAutomationPersistedLength({
+      existingMessagesLength: existingMessages.length,
+      promptPersistedBeforeRun,
+    });
     await savePiSession(
       piSessionId,
       job.createdByUserId,
@@ -365,7 +380,7 @@ export async function executeAutomationRun(runId: string): Promise<void> {
       {
         titleOverride: piSessionTitle,
         agentId: job.agentId,
-        persistedLength: existingMessages.length,
+        persistedLength,
       },
     );
 
