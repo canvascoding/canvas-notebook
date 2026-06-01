@@ -15,18 +15,24 @@ import {
 import { useFileStore } from '@/app/store/file-store';
 import { DirectoryBrowser } from './DirectoryBrowser';
 
+export type CreateItemType = 'file' | 'directory' | 'excalidraw';
+
 interface CreateItemDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  type: 'file' | 'directory';
+  type: CreateItemType;
   defaultPath: string;
-  onCreate: (fullPath: string, type: 'file' | 'directory') => Promise<void>;
+  onCreate: (fullPath: string, type: 'file' | 'directory', options?: { template?: 'excalidraw' }) => Promise<void>;
 }
 
 function hasExtension(name: string): boolean {
   const lastDot = name.lastIndexOf('.');
   if (lastDot <= 0) return false;
   return lastDot < name.length - 1;
+}
+
+function hasExcalidrawExtension(name: string): boolean {
+  return name.toLowerCase().endsWith('.excalidraw');
 }
 
 export function CreateItemDialog({ open, onOpenChange, type, defaultPath, onCreate }: CreateItemDialogProps) {
@@ -60,6 +66,9 @@ export function CreateItemDialog({ open, onOpenChange, type, defaultPath, onCrea
 
   const getResolvedName = (): string => {
     const trimmed = name.trim();
+    if (type === 'excalidraw' && !hasExcalidrawExtension(trimmed)) {
+      return `${trimmed}.excalidraw`;
+    }
     if (type === 'file' && !hasExtension(trimmed)) {
       return `${trimmed}.md`;
     }
@@ -76,7 +85,11 @@ export function CreateItemDialog({ open, onOpenChange, type, defaultPath, onCrea
     const fullPath = targetDir === '.' ? resolvedName : `${targetDir}/${resolvedName}`;
     setIsCreating(true);
     try {
-      await onCreate(fullPath, type);
+      await onCreate(
+        fullPath,
+        type === 'directory' ? 'directory' : 'file',
+        type === 'excalidraw' ? { template: 'excalidraw' } : undefined
+      );
       onOpenChange(false);
     } catch {
       setError(t('createFailed'));
@@ -109,8 +122,8 @@ export function CreateItemDialog({ open, onOpenChange, type, defaultPath, onCrea
     });
   };
 
-  const resolvedPreview = type === 'file' && name.trim() && !hasExtension(name.trim())
-    ? `${name.trim()}.md`
+  const resolvedPreview = (type === 'file' || type === 'excalidraw') && name.trim()
+    ? getResolvedName() === name.trim() ? null : getResolvedName()
     : null;
 
   return (
@@ -118,16 +131,24 @@ export function CreateItemDialog({ open, onOpenChange, type, defaultPath, onCrea
       <DialogContent className="max-w-xl">
         <DialogHeader>
           <DialogTitle>
-            {type === 'file' ? t('createFileTitle') : t('createFolderTitle')}
+            {type === 'excalidraw'
+              ? t('createExcalidrawTitle')
+              : type === 'file'
+                ? t('createFileTitle')
+                : t('createFolderTitle')}
           </DialogTitle>
           <DialogDescription>
-            {type === 'file' ? t('createFileDescription') : t('createFolderDescription')}
+            {type === 'excalidraw'
+              ? t('createExcalidrawDescription')
+              : type === 'file'
+                ? t('createFileDescription')
+                : t('createFolderDescription')}
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
           <div>
             <label htmlFor="createItemName" className="text-xs text-muted-foreground">
-              {type === 'file' ? t('fileNameLabel') : t('folderNameLabel')}
+              {type === 'directory' ? t('folderNameLabel') : t('fileNameLabel')}
             </label>
             <Input
               id="createItemName"
@@ -135,7 +156,13 @@ export function CreateItemDialog({ open, onOpenChange, type, defaultPath, onCrea
               onChange={(e) => handleChange(e.target.value)}
               className="mt-1"
               onKeyDown={handleKeyDown}
-              placeholder={type === 'file' ? t('fileNamePlaceholder') : t('folderNamePlaceholder')}
+              placeholder={
+                type === 'excalidraw'
+                  ? t('excalidrawNamePlaceholder')
+                  : type === 'file'
+                    ? t('fileNamePlaceholder')
+                    : t('folderNamePlaceholder')
+              }
               autoFocus
             />
             {error && (
@@ -168,7 +195,11 @@ export function CreateItemDialog({ open, onOpenChange, type, defaultPath, onCrea
             {t('cancel')}
           </Button>
           <Button variant="secondary" onClick={() => void handleCreate()} disabled={isCreating}>
-            {type === 'file' ? t('createFile') : t('createFolder')}
+            {type === 'excalidraw'
+              ? t('createExcalidraw')
+              : type === 'file'
+                ? t('createFile')
+                : t('createFolder')}
           </Button>
         </DialogFooter>
       </DialogContent>

@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
 import { FileEditor } from '@/app/components/editor/FileEditor';
 import { useFileStore, type FileNode } from '@/app/store/file-store';
+import { isExcalidrawFilePath } from '@/app/lib/excalidraw-file';
 
 const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'ico']);
 
@@ -67,6 +68,8 @@ export function FilePreviewDialog({ path, fileTree, currentDirectory, onClose }:
   );
 
   const activePath = isLoadingFile && loadingFilePath ? loadingFilePath : currentFile?.path ?? path;
+  const isActiveImage = activePath ? IMAGE_EXTENSIONS.has(getExtension(activePath)) : false;
+  const isActiveExcalidraw = activePath ? isExcalidrawFilePath(activePath) : false;
   const currentIndex = activePath ? imagePaths.indexOf(activePath) : -1;
   const hasPrev = currentIndex > 0;
   const hasNext = currentIndex >= 0 && currentIndex < imagePaths.length - 1;
@@ -89,20 +92,20 @@ export function FilePreviewDialog({ path, fileTree, currentDirectory, onClose }:
   useEffect(() => {
     if (!path) return;
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'ArrowLeft') {
+      if (isActiveImage && event.key === 'ArrowLeft') {
         event.preventDefault();
         handlePrev();
-      } else if (event.key === 'ArrowRight') {
+      } else if (isActiveImage && event.key === 'ArrowRight') {
         event.preventDefault();
         handleNext();
-      } else if (event.key === 'Escape') {
+      } else if (!isActiveExcalidraw && event.key === 'Escape') {
         handleClose();
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [path, handlePrev, handleNext, handleClose]);
+  }, [path, isActiveImage, isActiveExcalidraw, handlePrev, handleNext, handleClose]);
 
   if (!path) return null;
 
@@ -111,7 +114,14 @@ export function FilePreviewDialog({ path, fileTree, currentDirectory, onClose }:
 
   return (
     <Dialog open={!!path} onOpenChange={(open) => { if (!open) handleClose(); }}>
-      <DialogContent layout="viewport" showCloseButton={false} className="flex h-full flex-col gap-0 p-0">
+      <DialogContent
+        layout="viewport"
+        showCloseButton={false}
+        className="flex h-full flex-col gap-0 p-0"
+        onEscapeKeyDown={(event) => {
+          if (isActiveExcalidraw) event.preventDefault();
+        }}
+      >
         <DialogTitle className="sr-only">{fileName}</DialogTitle>
         <DialogDescription className="sr-only">File editor: {fileName}</DialogDescription>
 

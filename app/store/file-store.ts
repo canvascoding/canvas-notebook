@@ -47,6 +47,7 @@ const TEXT_EXTENSIONS = new Set([
   'php',
   'sql',
   'toml',
+  'excalidraw',
 ]);
 
 const EXPLORER_STATE_STORAGE_KEY = 'canvas.fileExplorerState';
@@ -214,7 +215,7 @@ interface FileStoreState {
   revealAndLoadFile: (path: string) => Promise<void>;
   saveFile: (path: string, content: string) => Promise<void>;
   selectNode: (node: FileNode, ctrlOrMeta?: boolean, shiftKey?: boolean) => void;
-  createPath: (path: string, type: 'file' | 'directory') => Promise<void>;
+  createPath: (path: string, type: 'file' | 'directory', options?: { template?: 'excalidraw' }) => Promise<void>;
   deletePath: (path: string | string[]) => Promise<void>;
   renamePath: (oldPath: string, newPath: string, overwrite?: boolean) => Promise<void>;
   uploadFile: (file: File | File[], targetDir: string, pathMap?: Map<File, string>, convertParams?: (import('@/app/components/shared/ImagePreprocessDialog').ConvertParams | null)[]) => Promise<void>;
@@ -789,7 +790,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
     }
   },
 
-  createPath: async (path: string, type: 'file' | 'directory') => {
+  createPath: async (path: string, type: 'file' | 'directory', options = {}) => {
     set({ treeError: null });
 
     try {
@@ -799,7 +800,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
           'Content-Type': 'application/json',
         },
         credentials: 'include',
-        body: JSON.stringify({ path, type }),
+        body: JSON.stringify({ path, type, ...options }),
       });
 
       if (!response.ok) {

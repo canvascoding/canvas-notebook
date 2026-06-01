@@ -4,6 +4,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import "@uiw/react-md-editor/markdown-editor.css";
 import "@uiw/react-markdown-preview/markdown.css";
 import "@xterm/xterm/css/xterm.css";
+import "@excalidraw/excalidraw/index.css";
 import "../globals.css";
 import { Toaster } from "@/components/ui/sonner";
 import { AppThemeProvider } from "@/app/components/ThemeProvider";
@@ -95,6 +96,11 @@ export default async function LocaleLayout({
   return (
     <html lang={locale} suppressHydrationWarning>
       <head>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: 'window.EXCALIDRAW_ASSET_PATH="/excalidraw/";',
+          }}
+        />
         <script src="/theme-init.js" async />
       </head>
       <body
