@@ -83,7 +83,7 @@ export const PI_TOOLSETS: Record<PiToolset, PiToolsetInfo> = {
   web: {
     name: 'web',
     label: 'Web',
-    description: 'Fetch and extract public web content.',
+    description: 'Search the public web and fetch readable web content.',
   },
 };
 
@@ -122,7 +122,7 @@ const TOOLSET_TOOL_NAMES: Record<PiToolset, Set<string>> = {
   ]),
   terminal: new Set(['bash']),
   todo: new Set(['create_human_todo']),
-  web: new Set(['web_fetch']),
+  web: new Set(['web_search', 'web_fetch']),
 };
 
 export function getPiToolsetsForTool(toolName: string): PiToolset[] {

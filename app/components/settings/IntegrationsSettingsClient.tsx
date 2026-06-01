@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState, startTransition, type ReactNo
 import dynamic from 'next/dynamic';
 import { useSearchParams } from 'next/navigation';
 import { useTranslations } from 'next-intl';
-import { ArrowLeft, ChevronDown, ExternalLink, Eye, EyeOff, Loader2, Mail, Menu, Plus, RefreshCw, Save, Settings, Trash2 } from 'lucide-react';
+import { ArrowLeft, ChevronDown, ExternalLink, Eye, EyeOff, Loader2, Mail, Menu, Plus, RefreshCw, Save, Search, Settings, Trash2 } from 'lucide-react';
 
 import { GeneralSettingsPanel } from '@/app/components/settings/GeneralSettingsPanel';
 import { SettingsAccordionCard } from '@/app/components/settings/SettingsAccordionCard';
@@ -141,6 +141,13 @@ type EmailOAuthDraft = {
 
 type EmailMode = 'unknown' | 'managed' | 'local';
 
+type SearchIntegrationStatus = {
+  configured: boolean;
+  mode: 'local' | 'managed' | 'disabled';
+  localConfigured: boolean;
+  managedAvailable: boolean;
+};
+
 // Microsoft email OAuth stays in the code but is hidden until provider setup is active.
 const SHOW_MICROSOFT_EMAIL_OAUTH = false;
 
@@ -202,7 +209,7 @@ const SETTINGS_TAB_CONTENT_CLASS = 'space-y-4 data-[state=inactive]:hidden';
 
 type SettingsTab = (typeof SETTINGS_TAB_ITEMS)[number]['value'];
 type EnvCardOpenState = Record<EnvScope, boolean>;
-type IntegrationsSectionId = 'connectedApps' | 'emailAccounts' | 'mcpConfig';
+type IntegrationsSectionId = 'search' | 'connectedApps' | 'emailAccounts' | 'mcpConfig';
 type IntegrationsSectionOpenState = Record<IntegrationsSectionId, boolean>;
 type ConnectedAppsPanelProps = {
   isOpen: boolean;
@@ -224,6 +231,7 @@ type CodeEditorProps = {
 const DEFAULT_SETTINGS_TAB: SettingsTab = 'general';
 const DEFAULT_ENV_CARD_OPEN_STATE: EnvCardOpenState = { integrations: false, agents: false };
 const DEFAULT_INTEGRATIONS_SECTION_OPEN_STATE: IntegrationsSectionOpenState = {
+  search: false,
   connectedApps: false,
   emailAccounts: false,
   mcpConfig: false,
@@ -323,6 +331,7 @@ function getStoredIntegrationsSectionOpenState(): IntegrationsSectionOpenState {
   try {
     const storedState = JSON.parse(window.localStorage.getItem(INTEGRATIONS_SECTION_OPEN_STORAGE_KEY) || '{}') as Partial<IntegrationsSectionOpenState>;
     return {
+      search: typeof storedState.search === 'boolean' ? storedState.search : DEFAULT_INTEGRATIONS_SECTION_OPEN_STATE.search,
       connectedApps: typeof storedState.connectedApps === 'boolean' ? storedState.connectedApps : DEFAULT_INTEGRATIONS_SECTION_OPEN_STATE.connectedApps,
       emailAccounts: typeof storedState.emailAccounts === 'boolean' ? storedState.emailAccounts : DEFAULT_INTEGRATIONS_SECTION_OPEN_STATE.emailAccounts,
       mcpConfig: typeof storedState.mcpConfig === 'boolean' ? storedState.mcpConfig : DEFAULT_INTEGRATIONS_SECTION_OPEN_STATE.mcpConfig,
@@ -789,6 +798,179 @@ function EnvEditorCard(props: {
         </CollapsibleContent>
       </Card>
     </Collapsible>
+  );
+}
+
+function SearchIntegrationCard({
+  isOpen,
+  onOpenChange,
+  onEnvSaved,
+}: {
+  isOpen: boolean;
+  onOpenChange: (isOpen: boolean) => void;
+  onEnvSaved: () => Promise<void>;
+}) {
+  const t = useTranslations('settings.searchIntegration');
+  const [status, setStatus] = useState<SearchIntegrationStatus | null>(null);
+  const [apiKey, setApiKey] = useState('');
+  const [isVisible, setIsVisible] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const loadSearchIntegration = useCallback(async () => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      const [statusResponse, envResponse] = await Promise.all([
+        fetch('/api/integrations/search/status', { credentials: 'include', cache: 'no-store' }),
+        fetch('/api/integrations/env?scope=integrations', { credentials: 'include', cache: 'no-store' }),
+      ]);
+      const statusPayload = await statusResponse.json();
+      const envPayload = await envResponse.json();
+      if (!statusResponse.ok || !statusPayload.success) {
+        throw new Error(statusPayload.error || t('errors.load'));
+      }
+      if (!envResponse.ok || !envPayload.success) {
+        throw new Error(envPayload.error || t('errors.load'));
+      }
+      setStatus(statusPayload.data as SearchIntegrationStatus);
+      const entries = (envPayload.data?.entries || []) as EnvEntry[];
+      const braveKey = entries.find((entry) => entry.key === 'BRAVE_API_KEY')?.value || '';
+      setApiKey(braveKey);
+      setMessage(null);
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : t('errors.load'));
+    } finally {
+      setIsLoading(false);
+    }
+  }, [t]);
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      void loadSearchIntegration();
+    }, 0);
+    return () => window.clearTimeout(timeout);
+  }, [loadSearchIntegration]);
+
+  const saveApiKey = async (nextValue: string) => {
+    setIsSaving(true);
+    setError(null);
+    setMessage(null);
+    try {
+      const currentResponse = await fetch('/api/integrations/env?scope=integrations', {
+        credentials: 'include',
+        cache: 'no-store',
+      });
+      const currentPayload = await currentResponse.json();
+      if (!currentResponse.ok || !currentPayload.success) {
+        throw new Error(currentPayload.error || t('errors.load'));
+      }
+      const currentEntries = (currentPayload.data?.entries || []) as EnvEntry[];
+      const nextEntries = currentEntries
+        .filter((entry) => entry.key !== 'BRAVE_API_KEY')
+        .map((entry) => ({ key: entry.key, value: entry.value }));
+      const trimmed = nextValue.trim();
+      if (trimmed) {
+        nextEntries.push({ key: 'BRAVE_API_KEY', value: trimmed });
+      }
+
+      const saveResponse = await fetch('/api/integrations/env?scope=integrations', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ scope: 'integrations', mode: 'kv', entries: nextEntries }),
+      });
+      const savePayload = await saveResponse.json();
+      if (!saveResponse.ok || !savePayload.success) {
+        throw new Error(savePayload.error || t('errors.save'));
+      }
+      setApiKey(trimmed);
+      setMessage(trimmed ? t('saved') : t('removed'));
+      await Promise.all([loadSearchIntegration(), onEnvSaved()]);
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : t('errors.save'));
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const modeLabel = status?.mode === 'local'
+    ? t('modeLocal')
+    : status?.mode === 'managed'
+      ? t('modeManaged')
+      : t('modeMissing');
+  const summaryItems = [
+    isLoading ? t('loading') : modeLabel,
+    status?.managedAvailable ? t('managedAvailable') : null,
+  ].filter((item): item is string => Boolean(item));
+
+  return (
+    <SettingsAccordionCard
+      title={t('title')}
+      description={t('description')}
+      icon={Search}
+      isOpen={isOpen}
+      onOpenChange={onOpenChange}
+      summaryItems={summaryItems}
+      contentClassName="space-y-4"
+    >
+      <div className="flex flex-wrap items-center gap-2">
+        <Badge variant={status?.configured ? 'default' : 'secondary'}>{modeLabel}</Badge>
+        {status?.localConfigured && <Badge variant="outline">{t('localConfigured')}</Badge>}
+        {status?.managedAvailable && <Badge variant="outline">{t('managedAvailable')}</Badge>}
+      </div>
+      <p className="text-sm text-muted-foreground">
+        {status?.mode === 'managed' ? t('managedDescription') : t('localDescription')}
+      </p>
+      {error && <div className="border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</div>}
+      {message && <div className="border border-border bg-muted px-3 py-2 text-sm text-muted-foreground">{message}</div>}
+      <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-end">
+        <div className="space-y-2">
+          <Label className="text-xs uppercase tracking-wider text-muted-foreground" htmlFor="search-brave-api-key">
+            {t('apiKeyLabel')}
+          </Label>
+          <div className="relative">
+            <Input
+              id="search-brave-api-key"
+              type={isVisible ? 'text' : 'password'}
+              className="font-mono text-xs pr-11"
+              value={apiKey}
+              onChange={(event) => setApiKey(event.target.value)}
+              placeholder="BRAVE_API_KEY"
+              disabled={isLoading || isSaving}
+            />
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              className="absolute right-1 top-1/2 -translate-y-1/2"
+              aria-label={isVisible ? t('hideSecret') : t('showSecret')}
+              onClick={() => setIsVisible((current) => !current)}
+              disabled={isLoading || isSaving}
+            >
+              {isVisible ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+            </Button>
+          </div>
+          <p className="text-xs text-muted-foreground">{t('apiKeyHint')}</p>
+        </div>
+        <div className="flex flex-wrap gap-2 md:justify-end">
+          <Button type="button" variant="outline" onClick={() => void loadSearchIntegration()} disabled={isLoading || isSaving}>
+            {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
+            {t('reload')}
+          </Button>
+          <Button type="button" variant="outline" onClick={() => void saveApiKey('')} disabled={isLoading || isSaving || !apiKey.trim()}>
+            <Trash2 className="mr-2 h-4 w-4" />
+            {t('remove')}
+          </Button>
+          <Button type="button" onClick={() => void saveApiKey(apiKey)} disabled={isLoading || isSaving}>
+            {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+            {t('save')}
+          </Button>
+        </div>
+      </div>
+    </SettingsAccordionCard>
   );
 }
 
@@ -2442,6 +2624,11 @@ export function IntegrationsSettingsClient({
 
         {renderLazyTabContent('integrations',
           <>
+            <SearchIntegrationCard
+              isOpen={integrationsSectionOpenById.search}
+              onOpenChange={(isOpen) => setIntegrationsSectionOpen('search', isOpen)}
+              onEnvSaved={() => loadState('integrations')}
+            />
             <ConnectedAppsPanel
               isOpen={integrationsSectionOpenById.connectedApps}
               onOpenChange={(isOpen) => setIntegrationsSectionOpen('connectedApps', isOpen)}

@@ -11,7 +11,6 @@ import {
   Languages,
   Palette,
   Presentation,
-  Search,
   Sparkles,
   Wrench,
 } from 'lucide-react';
@@ -20,7 +19,6 @@ const SKILL_ICON_BY_NAME: Record<string, ComponentType<{ className?: string }>> 
   'ad-localization': Languages,
   'algorithmic-art': Sparkles,
   'brand-guidelines': Palette,
-  'brave-search': Search,
   'browser-tools': Globe,
   'canvas-design': Palette,
   'doc-coauthoring': BookOpen,

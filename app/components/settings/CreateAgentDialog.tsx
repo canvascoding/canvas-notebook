@@ -76,7 +76,7 @@ const AGENT_TEMPLATES: CreateAgentTemplate[] = [
   {
     id: 'research',
     iconId: 'search',
-    relevantSkills: ['brave-search', 'youtube-transcript'],
+    relevantSkills: ['youtube-transcript'],
     files: {
       'AGENTS.md': 'You are a research agent. Gather reliable context, compare sources, and return concise findings with clear next steps.',
       'MEMORY.md': 'Track durable research preferences, source choices, and recurring topics here.',

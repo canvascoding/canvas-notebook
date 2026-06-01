@@ -15,6 +15,8 @@ async function main() {
   process.env.QMD_ENABLED = 'false';
   const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'canvas-pi-data-'));
   process.env.DATA = dataDir;
+  process.env.CANVAS_DATA_ROOT = dataDir;
+  process.env.INTEGRATIONS_ENV_PATH = path.join(dataDir, 'secrets', 'Canvas-Integrations.env');
 
   const moduleInternals = Module as typeof Module & {
     _load: (request: string, parent: NodeModule | null, isMain: boolean) => unknown;
@@ -415,6 +417,8 @@ async function main() {
   assert.equal(allTools.some((tool) => tool.name === 'delegate_task'), true);
   assert.equal(defaultEnabledTools.has('session_search'), true);
   assert.equal(allTools.some((tool) => tool.name === 'session_search'), true);
+  assert.equal(defaultEnabledTools.has('web_search'), true);
+  assert.equal(allTools.some((tool) => tool.name === 'web_search'), true);
   assert.equal(allTools.some((tool) => tool.name === 'studio_bulk_generate'), true);
   assert.equal(defaultEnabledTools.has('studio_bulk_generate'), false);
   assert.equal(allTools.some((tool) => tool.name === 'browser'), true);
@@ -457,6 +461,12 @@ async function main() {
   assert.deepEqual(browserMetadata.toolsets, ['browser']);
   assert.equal(browserMetadata.defaultEnabled, false);
   assert.equal(browserMetadata.planningModeAllowed, false);
+  const webSearchMetadata = metadata.find((tool) => tool.name === 'web_search');
+  assert.ok(webSearchMetadata);
+  assert.equal(webSearchMetadata.group, 'Web');
+  assert.deepEqual(webSearchMetadata.toolsets, ['web']);
+  assert.equal(webSearchMetadata.defaultEnabled, true);
+  assert.equal(webSearchMetadata.planningModeAllowed, true);
   for (const toolName of ['copy_path', 'move_path', 'delete_path']) {
     const pathMetadata = metadata.find((tool) => tool.name === toolName);
     assert.ok(pathMetadata);
