@@ -115,6 +115,10 @@ async function main() {
   assert.ok(browserTool);
   assert.ok(grepTool);
   assert.ok(globTool);
+  const browserParametersJson = JSON.stringify(browserTool.parameters);
+  assert.match(browserParametersJson, /evaluate/);
+  assert.match(browserParametersJson, /eval/);
+  assert.match(browserParametersJson, /script/);
 
   const secretsDir = path.join(dataDir, 'secrets');
   const secretFile = path.join(secretsDir, 'Canvas-Integrations.env');
@@ -425,15 +429,17 @@ async function main() {
   assert.equal(defaultEnabledTools.has('browser'), false);
   assert.equal((await getPiTools()).some((tool) => tool.name === 'studio_bulk_generate'), false);
   assert.equal((await getPiTools()).some((tool) => tool.name === 'browser'), false);
+  const allToolNames = allTools.map((tool) => tool.name);
+  const defaultToolsWith = (toolName: string) => allToolNames.filter((name) => name === toolName || defaultEnabledTools.has(name));
   assert.deepEqual(
-    enableToolInConfig('studio_bulk_generate', [], allTools.map((tool) => tool.name)),
-    allTools.map((tool) => tool.name).filter((toolName) => toolName !== 'browser'),
+    enableToolInConfig('studio_bulk_generate', [], allToolNames),
+    defaultToolsWith('studio_bulk_generate'),
   );
   assert.deepEqual(
-    enableToolInConfig('browser', [], allTools.map((tool) => tool.name)),
-    allTools.map((tool) => tool.name).filter((toolName) => toolName !== 'studio_bulk_generate'),
+    enableToolInConfig('browser', [], allToolNames),
+    defaultToolsWith('browser'),
   );
-  assert.deepEqual(serializeEnabledToolNames(defaultEnabledTools, allTools.map((tool) => tool.name)), []);
+  assert.deepEqual(serializeEnabledToolNames(defaultEnabledTools, allToolNames), []);
   assert.equal(allTools.every((tool) => !['browser_start', 'browser_nav', 'brave_search', 'transcribe'].includes(tool.name)), true);
   assert.equal(allTools.some((tool) => tool.name === 'image_generation'), false);
   assert.equal(allTools.some((tool) => tool.name === 'video_generation'), false);
