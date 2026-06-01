@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import { useTranslations } from 'next-intl';
-import { NotebookPen, Workflow, Sparkles, Settings, ListTodo } from 'lucide-react';
+import { NotebookPen, Workflow, Sparkles, Settings, ListTodo, ShieldCheck } from 'lucide-react';
 import { PromptHero } from './PromptHero';
 import { CategoryPills, type CategoryId } from './CategoryPills';
 import { InspirationPanel } from './InspirationPanel';
@@ -107,6 +107,14 @@ export function HomeWorkspaceView({ licenseLocked = false }: { licenseLocked?: b
               title={tApps('settings.title')}
               description={tApps('settings.description')}
               href="/settings"
+            />
+          </div>
+          <div className="min-w-[260px] max-w-[320px] flex-1">
+            <ToolCard
+              icon={ShieldCheck}
+              title={tApps('security.title')}
+              description={tApps('security.description')}
+              href="/security/public-shares"
             />
           </div>
         </div>
