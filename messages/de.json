@@ -1680,9 +1680,9 @@
         "days": "Tage",
         "intervalEveryLabel": "Alle",
         "intervalUnitLabel": "Einheit",
-        "deliveryChannel": "Ziel-Channel",
-        "deliverySession": "Session",
-        "sessionId": "Session-ID",
+        "deliveryChannel": "Zielkanal",
+        "deliverySession": "Sitzung",
+        "sessionId": "Sitzungs-ID",
         "notConnected": "nicht verbunden",
         "nextRun": "Nächster Heartbeat",
         "lastRun": "Letzter Heartbeat",
@@ -1753,7 +1753,7 @@
         "agentIdLabel": "Agent-ID",
         "summary": "{count, plural, =0 {Keine Sessions} one {# Session} other {# Sessions}}",
         "errorSummary": "Fehler beim Laden",
-        "newSessionPlaceholder": "Neue Session (Titel optional)",
+        "newSessionPlaceholder": "Neue Sitzung (Titel optional)",
         "new": "Neu",
         "deleteAll": "Alle löschen",
         "deleteOlder": "Sessions älter als 2 Wochen löschen",
@@ -1865,7 +1865,7 @@
         },
         "oauth": {
           "title": "OAuth Login",
-          "description": "Melde dich mit deinem bestehenden Konto oder Abo an. Nur bei ausgewaehlten Providern verfuegbar.",
+          "description": "Melde dich mit deinem bestehenden Konto oder Abo an. Nur bei ausgewählten Providern verfügbar.",
           "providers": "Anthropic, OpenAI Codex"
         },
         "selfHosted": {
@@ -1969,7 +1969,7 @@
         "step2Label": "Schritt 2: Autorisierungscode eingeben",
         "step2Description": "Füge nach der Authentifizierung im Browser hier den Autorisierungscode oder die Callback-URL ein:",
         "codePlaceholder": "Autorisierungscode oder Callback-URL einfügen...",
-        "completeConnection": "Verbindung abschliessen"
+        "completeConnection": "Verbindung abschließen"
       },
       "errors": {
         "completeFlow": "OAuth-Flow konnte nicht abgeschlossen werden.",

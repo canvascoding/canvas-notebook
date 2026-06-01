@@ -103,19 +103,19 @@ type AgentHeartbeatCardProps = {
 
 const WEEKDAYS: AutomationWeekday[] = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
 
-function formatDate(value: string | null, emptyLabel: string): string {
+function formatDate(value: string | null, locale: string, emptyLabel: string): string {
   if (!value) return emptyLabel;
   try {
-    return new Date(value).toLocaleString();
+    return new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeStyle: 'medium' }).format(new Date(value));
   } catch {
     return value;
   }
 }
 
 function deliverySessionModeLabel(mode: AutomationDeliverySessionMode, isGerman: boolean): string {
-  if (mode === 'new_session') return isGerman ? 'Neue Session' : 'New session';
-  if (mode === 'channel_active') return isGerman ? 'Aktive Session im gewaehlten Channel' : 'Active session in selected channel';
-  return isGerman ? 'Bestimmte Session-ID' : 'Specific session ID';
+  if (mode === 'new_session') return isGerman ? 'Neue Sitzung' : 'New session';
+  if (mode === 'channel_active') return isGerman ? 'Aktive Sitzung im gewählten Kanal' : 'Active session in selected channel';
+  return isGerman ? 'Bestimmte Sitzungs-ID' : 'Specific session ID';
 }
 
 export function AgentHeartbeatCard({
@@ -165,7 +165,7 @@ export function AgentHeartbeatCard({
       : enabled
         ? t('agentPanel.heartbeat.enabledSummary')
         : t('agentPanel.heartbeat.disabledSummary'),
-    config?.nextRunAt ? t('agentPanel.heartbeat.nextRunSummary', { value: formatDate(config.nextRunAt, t('agentPanel.heartbeat.never')) }) : null,
+    config?.nextRunAt ? t('agentPanel.heartbeat.nextRunSummary', { value: formatDate(config.nextRunAt, locale, t('agentPanel.heartbeat.never')) }) : null,
     error ? t('agentPanel.heartbeat.errorSummary') : null,
   ].filter((item): item is string => Boolean(item));
 
@@ -360,8 +360,8 @@ export function AgentHeartbeatCard({
           </div>
 
           <div className="grid gap-2 text-sm text-muted-foreground sm:grid-cols-2">
-            <span>{t('agentPanel.heartbeat.nextRun')}: {formatDate(config?.nextRunAt ?? null, t('agentPanel.heartbeat.never'))}</span>
-            <span>{t('agentPanel.heartbeat.lastRun')}: {formatDate(config?.lastRunAt ?? null, t('agentPanel.heartbeat.never'))}{config?.lastRunStatus ? ` (${config.lastRunStatus})` : ''}</span>
+            <span>{t('agentPanel.heartbeat.nextRun')}: {formatDate(config?.nextRunAt ?? null, locale, t('agentPanel.heartbeat.never'))}</span>
+            <span>{t('agentPanel.heartbeat.lastRun')}: {formatDate(config?.lastRunAt ?? null, locale, t('agentPanel.heartbeat.never'))}{config?.lastRunStatus ? ` (${config.lastRunStatus})` : ''}</span>
           </div>
 
             <div className="flex flex-wrap gap-2">

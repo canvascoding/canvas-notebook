@@ -475,7 +475,7 @@ export async function deleteBulkJob(jobId: string): Promise<void> {
   if (job.status === 'pending' || job.status === 'processing') {
     throw new StudioServiceError(
       `Cannot delete active job '${jobId}'`,
-      'Bitte brich den Job zuerst ab, bevor du ihn loeschst.',
+      'Bitte brich den Job zuerst ab, bevor du ihn löschst.',
       'INVALID_STATUS',
     );
   }
