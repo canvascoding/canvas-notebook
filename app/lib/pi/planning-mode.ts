@@ -5,6 +5,7 @@ import { type AgentTool } from '@earendil-works/pi-agent-core';
  * Whitelist approach: new tools are blocked by default until explicitly added here.
  */
 export const PLANNING_MODE_ALLOWED_TOOLS = new Set([
+  'web_search',
   'web_fetch',
   'rg',
   'ls',

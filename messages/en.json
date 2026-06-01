@@ -1182,6 +1182,31 @@
         "saveEnvFile": "Failed to save env file."
       }
     },
+    "searchIntegration": {
+      "title": "Search",
+      "description": "Configure web search for agent tools.",
+      "loading": "Loading...",
+      "modeLocal": "Local API key",
+      "modeManaged": "Managed Search",
+      "modeMissing": "Not configured",
+      "localConfigured": "BRAVE_API_KEY set",
+      "managedAvailable": "Managed fallback available",
+      "localDescription": "Self-hosted notebooks use the BRAVE_API_KEY stored in Canvas-Integrations.env. Managed notebooks can also set their own key here to override the managed provider.",
+      "managedDescription": "No local key is set. Searches use the managed Brave Search provider from the Canvas Control Plane and are tracked for usage billing.",
+      "apiKeyLabel": "Brave Search API Key",
+      "apiKeyHint": "Stored as BRAVE_API_KEY in Canvas-Integrations.env. Leave empty to use Managed Search when available.",
+      "showSecret": "Show API key",
+      "hideSecret": "Hide API key",
+      "save": "Save",
+      "remove": "Remove",
+      "reload": "Reload",
+      "saved": "Search API key saved.",
+      "removed": "Search API key removed.",
+      "errors": {
+        "load": "Failed to load search settings.",
+        "save": "Failed to save search settings."
+      }
+    },
     "mcpConfig": {
       "title": "MCP Configuration",
       "description": "Configure Model Context Protocol servers for the agent.",
