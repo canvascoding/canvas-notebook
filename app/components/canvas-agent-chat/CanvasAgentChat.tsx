@@ -5073,13 +5073,12 @@ export default function CanvasAgentChat({
   }, [collapsedRunMap]);
   const contextCompactLabel = runtimeStatus
     ? t('contextCompactLabel', {
-        percent: runtimeStatus.contextUsagePercent,
+        used: formatContextTokens(runtimeStatus.estimatedHistoryTokens),
         available: formatContextTokens(runtimeStatus.availableHistoryTokens),
       })
     : t('noSessionYet');
   const contextDetailedLabel = runtimeStatus
     ? t('contextLabel', {
-        percent: runtimeStatus.contextUsagePercent,
         used: formatContextTokens(runtimeStatus.estimatedHistoryTokens),
         available: formatContextTokens(runtimeStatus.availableHistoryTokens),
         window: formatContextTokens(runtimeStatus.contextWindow),
@@ -5087,6 +5086,7 @@ export default function CanvasAgentChat({
     : t('noSessionYet');
   const contextTooltip = runtimeStatus
     ? t('contextTooltip', {
+        percent: runtimeStatus.contextUsagePercent,
         used: formatContextTokens(runtimeStatus.estimatedHistoryTokens),
         available: formatContextTokens(runtimeStatus.availableHistoryTokens),
         window: formatContextTokens(runtimeStatus.contextWindow),
@@ -5574,14 +5574,14 @@ export default function CanvasAgentChat({
             </div>
             
             {/* Right: Action Buttons */}
-            <div className="ml-auto flex flex-wrap items-center gap-1.5">
+            <div className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-1.5">
               {!isMobile ? (
                 <span
                   data-testid="chat-context-meter"
                   title={contextTooltip}
-                  className="inline-flex items-center border border-border/60 bg-muted/40 px-2.5 py-0.5 text-[10px] font-medium text-muted-foreground"
+                  className="inline-flex min-w-0 max-w-[min(20rem,40vw)] items-center border border-border/60 bg-muted/40 px-2.5 py-0.5 text-[10px] font-medium text-muted-foreground"
                 >
-                  {contextDetailedLabel}
+                  <span className="min-w-0 truncate">{contextDetailedLabel}</span>
                 </span>
               ) : null}
               {!isMobile && (
