@@ -295,6 +295,7 @@
     "dropFilesToUpload": "Drop files to upload",
     "actions": "Actions",
     "moreActions": "More actions",
+    "create": "Create",
     "newFilePrompt": "New file name",
     "newFolderPrompt": "New folder name",
     "newFile": "New file",
