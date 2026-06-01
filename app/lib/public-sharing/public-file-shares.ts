@@ -450,6 +450,7 @@ export async function listPublicFileShares(params: {
   status?: PublicShareStatus | 'all';
   type?: PublicShareTypeFilter;
   query?: string;
+  paths?: string[];
   source?: PublicShareSource | 'all';
   limit?: number;
   baseUrl?: string | null;
@@ -459,9 +460,19 @@ export async function listPublicFileShares(params: {
   const query = params.query?.trim().toLowerCase() || '';
   const type = params.type ?? 'all';
   const limit = Math.max(1, Math.min(params.limit ?? DEFAULT_SHARE_LIMIT, 1000));
+  const pathFilter = new Set(
+    (params.paths ?? []).map((candidate) => {
+      try {
+        return normalizeWorkspacePath(candidate);
+      } catch {
+        return null;
+      }
+    }).filter((candidate): candidate is string => Boolean(candidate))
+  );
 
   return reconciled
     .filter((row) => params.isAdmin || row.createdByUserId === params.userId)
+    .filter((row) => pathFilter.size === 0 || pathFilter.has(row.workspacePath))
     .filter((row) => !params.status || params.status === 'all' || row.status === params.status)
     .filter((row) => !params.source || params.source === 'all' || row.source === params.source)
     .filter((row) => matchesTypeFilter(row, type))

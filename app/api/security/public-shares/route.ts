@@ -42,6 +42,13 @@ function parseSource(value: string | null): PublicShareSource | 'all' {
   return 'all';
 }
 
+function parsePathFilters(searchParams: URLSearchParams): string[] {
+  return Array.from(new Set([
+    ...searchParams.getAll('path'),
+    ...searchParams.getAll('paths').flatMap((value) => value.split('\n')),
+  ].map((value) => value.trim()).filter(Boolean)));
+}
+
 function parseExpiry(body: Record<string, unknown>): Date | null {
   if (body.expiresAt === null || body.expiresAt === 'never') return null;
   if (body.expiresInDays === null || body.expiresInDays === 0 || body.expiresInDays === '0') return null;
@@ -85,6 +92,7 @@ export async function GET(request: NextRequest) {
     type: parseType(searchParams.get('type')),
     source: parseSource(searchParams.get('source')),
     query: searchParams.get('q') || '',
+    paths: parsePathFilters(searchParams),
     limit,
     baseUrl: requestBaseUrl(request),
   });
