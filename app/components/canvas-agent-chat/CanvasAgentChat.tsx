@@ -76,6 +76,7 @@ import {
   PlugZap,
   SearchCheck,
   Send,
+  ShieldCheck,
   SquareFunction,
 } from 'lucide-react';
 import { ComposerReferencePicker, type ComposerReferencePickerItem } from '@/app/components/canvas-agent-chat/ComposerReferencePicker';
@@ -483,6 +484,7 @@ const TOOL_TONE_ICONS: Record<ToolDisplayTone, React.ComponentType<{ className?:
   session: MessagesSquare,
   delegation: Network,
   todo: ListTodo,
+  publicShare: ShieldCheck,
   composioSearch: SearchCheck,
   composioSchema: FileJson,
   composioExecute: SquareFunction,
