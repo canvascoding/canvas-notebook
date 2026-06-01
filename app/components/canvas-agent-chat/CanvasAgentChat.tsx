@@ -81,6 +81,7 @@ import {
 import { ComposerReferencePicker, type ComposerReferencePickerItem } from '@/app/components/canvas-agent-chat/ComposerReferencePicker';
 import { FileReferenceCard } from '@/app/components/canvas-agent-chat/FileReferenceCard';
 import { extractFilePaths, isFilePath, normalizeChatFilePath } from '@/app/lib/chat/extract-file-paths';
+import { notifyChatFileReferenceOpened } from '@/app/lib/chat/file-reference-events';
 import { extractStudioImageMediaUrls, rewriteRelativeStudioImageMarkdown } from '@/app/lib/chat/studio-image-markdown';
 import { validateFileExists } from '@/app/lib/chat/validate-file-paths';
 import { getFileIconComponent } from '@/app/lib/files/file-icons';
@@ -1658,6 +1659,7 @@ function FileLink({ href, children }: { href: string; children: React.ReactNode 
       return;
     }
 
+    notifyChatFileReferenceOpened(normalizedPath);
     void fileStore.revealAndLoadFile(normalizedPath);
   };
 
