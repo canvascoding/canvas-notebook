@@ -9,6 +9,7 @@ import { useLocale } from 'next-intl';
 import { ImageThumbnailIcon } from '@/app/components/shared/ImageThumbnailIcon';
 import { getFileIconComponent, isImageFile } from '@/app/lib/files/file-icons';
 import { normalizeChatFilePath, type FilePathEntry } from '@/app/lib/chat/extract-file-paths';
+import { notifyChatFileReferenceOpened } from '@/app/lib/chat/file-reference-events';
 import { validateFileExists } from '@/app/lib/chat/validate-file-paths';
 
 interface FileReferenceCardProps {
@@ -79,6 +80,7 @@ export function FileReferenceCard({ paths }: FileReferenceCardProps) {
       return;
     }
 
+    notifyChatFileReferenceOpened(normalizedPath);
     void fileStore.revealAndLoadFile(normalizedPath);
   };
 

@@ -47,6 +47,7 @@ import { NotificationBell } from '@/app/components/notifications/NotificationBel
 import { useFileStore } from '@/app/store/file-store';
 import { FileWatcherProvider } from '@/app/hooks/FileWatcherContext';
 import { CANVAS_CHAT_INITIAL_PROMPT_STORAGE_KEY } from '@/app/lib/chat/constants';
+import { CHAT_FILE_REFERENCE_OPENED_EVENT } from '@/app/lib/chat/file-reference-events';
 
 
 
@@ -547,6 +548,19 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
       window.removeEventListener('notebook-desktop-toggle-chat', handleDesktopChatToggle);
     };
   }, [handleDesktopChatPrimaryAction, setDesktopSidebarVisible, viewportMode]);
+
+  useEffect(() => {
+    const handleChatFileReferenceOpen = () => {
+      if (viewportMode !== 'desktop') return;
+      setChatVisible(true);
+      setDesktopChatMode('side');
+    };
+
+    window.addEventListener(CHAT_FILE_REFERENCE_OPENED_EVENT, handleChatFileReferenceOpen);
+    return () => {
+      window.removeEventListener(CHAT_FILE_REFERENCE_OPENED_EVENT, handleChatFileReferenceOpen);
+    };
+  }, [viewportMode]);
 
   useEffect(() => {
     const handleKeyboardToggle = (event: KeyboardEvent) => {
