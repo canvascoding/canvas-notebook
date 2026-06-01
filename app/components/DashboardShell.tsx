@@ -200,6 +200,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
   const desktopDefaultChatAppliedRef = useRef(false);
   const prevViewportModeRef = useRef<'mobile' | 'desktop' | null>(null);
   const previousCurrentFilePathRef = useRef<string | null>(null);
+  const suppressNextMobileFileOpenCloseRef = useRef(0);
   const currentFile = useFileStore((state) => state.currentFile);
   const currentDirectory = useFileStore((state) => state.currentDirectory);
 
@@ -294,9 +295,16 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
     }
   }, []);
 
-  const openNotebookFile = useCallback(async (path: string) => {
+  const openNotebookFile = useCallback(async (
+    path: string,
+    options: { suppressMobileChatClose?: boolean } = {},
+  ) => {
     const normalizedPath = normalizeNotebookFilePath(path);
     if (!normalizedPath) return;
+
+    if (options.suppressMobileChatClose) {
+      suppressNextMobileFileOpenCloseRef.current += 1;
+    }
 
     await useFileStore.getState().revealAndLoadFile(normalizedPath);
 
@@ -311,17 +319,19 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
   }, []);
 
   useEffect(() => {
+    const sessionParam = searchParams.get('session');
     const targetPath = normalizeNotebookFilePath(searchParams.get('path'));
     if (targetPath && openedPathRef.current !== targetPath) {
       openedPathRef.current = targetPath;
-      void openNotebookFile(targetPath);
+      void openNotebookFile(targetPath, {
+        suppressMobileChatClose: Boolean(sessionParam),
+      });
 
       if (viewportMode === 'desktop') {
         queueMicrotask(openDesktopSideChat);
       }
     }
 
-    const sessionParam = searchParams.get('session');
     if (sessionParam) {
       queueMicrotask(() => {
         setChatVisible(true);
@@ -345,7 +355,9 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
     const storedPath = readStoredNotebookOpenFilePath();
     if (storedPath) {
       openedPathRef.current = storedPath;
-      void openNotebookFile(storedPath);
+      void openNotebookFile(storedPath, {
+        suppressMobileChatClose: shouldForceChatOpen && viewportMode === 'mobile',
+      });
       if (viewportMode === 'desktop') {
         queueMicrotask(openDesktopSideChat);
       } else if (shouldForceChatOpen) {
@@ -525,6 +537,10 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
     const unsub = useFileStore.subscribe((state) => {
       if (state.mobileFileOpenedCount !== prevCount) {
         prevCount = state.mobileFileOpenedCount;
+        if (suppressNextMobileFileOpenCloseRef.current > 0) {
+          suppressNextMobileFileOpenCloseRef.current -= 1;
+          return;
+        }
         if (viewportMode !== 'mobile') return;
         setMobileSurface('editor');
         setMobileExplorerOpen(false);
