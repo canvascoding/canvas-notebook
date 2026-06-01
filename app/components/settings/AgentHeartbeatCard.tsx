@@ -107,6 +107,79 @@ type AgentHeartbeatCardProps = {
 };
 
 const WEEKDAYS: AutomationWeekday[] = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+const RECOMMENDED_TIME_ZONES = [
+  'Europe/Berlin',
+  'Europe/Vienna',
+  'Europe/Zurich',
+  'Europe/Amsterdam',
+  'Europe/Paris',
+  'Europe/London',
+  'UTC',
+  'America/New_York',
+  'America/Los_Angeles',
+  'Asia/Dubai',
+  'Asia/Singapore',
+  'Asia/Tokyo',
+  'Australia/Sydney',
+];
+const FALLBACK_TIME_ZONES = [
+  ...RECOMMENDED_TIME_ZONES,
+  'Europe/Madrid',
+  'Europe/Rome',
+  'Europe/Stockholm',
+  'Europe/Warsaw',
+  'America/Chicago',
+  'America/Toronto',
+  'America/Sao_Paulo',
+  'Asia/Bangkok',
+  'Asia/Hong_Kong',
+  'Asia/Kolkata',
+  'Pacific/Auckland',
+];
+
+type TimeZoneOptionGroups = {
+  recommended: string[];
+  all: string[];
+};
+
+function getSupportedTimeZones(currentTimeZone?: string): TimeZoneOptionGroups {
+  const intlWithSupportedValues = Intl as typeof Intl & {
+    supportedValuesOf?: (key: 'timeZone') => string[];
+  };
+  const supportedValues = intlWithSupportedValues.supportedValuesOf?.('timeZone') ?? FALLBACK_TIME_ZONES;
+  const allValues = new Set<string>([...supportedValues, ...FALLBACK_TIME_ZONES]);
+  if (currentTimeZone) {
+    allValues.add(currentTimeZone);
+  }
+
+  const recommended = RECOMMENDED_TIME_ZONES.filter((timeZone) => allValues.has(timeZone));
+  const all = Array.from(allValues)
+    .filter((timeZone) => !recommended.includes(timeZone))
+    .sort((left, right) => left.localeCompare(right));
+
+  return { recommended, all };
+}
+
+function formatTimeZoneOffset(timeZone: string): string | null {
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone,
+      hour: '2-digit',
+      minute: '2-digit',
+      timeZoneName: 'shortOffset',
+    }).formatToParts(new Date());
+    return parts.find((part) => part.type === 'timeZoneName')?.value.replace('GMT', 'UTC') ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function formatTimeZoneLabel(timeZone: string, isGerman: boolean): string {
+  const offset = formatTimeZoneOffset(timeZone);
+  const city = timeZone.includes('/') ? timeZone.split('/').slice(1).join('/').replace(/_/g, ' ') : timeZone;
+  const label = isGerman ? city.replace('Vienna', 'Wien') : city;
+  return offset ? `${timeZone} (${offset}, ${label})` : timeZone;
+}
 
 function formatDate(value: string | null, locale: string, emptyLabel: string): string {
   if (!value) return emptyLabel;
@@ -176,6 +249,8 @@ export function AgentHeartbeatCard({
     },
     ...connectedChannelOptions.filter((channel) => channel.id !== 'last_active'),
   ];
+  const scheduleTimeZoneOptions = getSupportedTimeZones(scheduleDraft.timeZone);
+  const workingHoursTimeZoneOptions = getSupportedTimeZones(scheduleDraft.workingHoursTimeZone);
 
   const summaryItems = [
     loading
@@ -288,11 +363,27 @@ export function AgentHeartbeatCard({
 
               <label className="flex flex-col gap-1 text-sm">
                 <span className="text-xs text-muted-foreground">{t('agentPanel.heartbeat.timezone')}</span>
-                <Input
+                <select
+                  className="h-10 rounded-md border border-input bg-background px-3 text-sm"
                   value={scheduleDraft.timeZone}
                   onChange={(event) => onScheduleDraftChange({ timeZone: event.target.value })}
                   disabled={controlsDisabled}
-                />
+                >
+                  <optgroup label={t('agentPanel.heartbeat.recommendedTimeZones')}>
+                    {scheduleTimeZoneOptions.recommended.map((timeZone) => (
+                      <option key={timeZone} value={timeZone}>
+                        {formatTimeZoneLabel(timeZone, isGerman)}
+                      </option>
+                    ))}
+                  </optgroup>
+                  <optgroup label={t('agentPanel.heartbeat.allTimeZones')}>
+                    {scheduleTimeZoneOptions.all.map((timeZone) => (
+                      <option key={timeZone} value={timeZone}>
+                        {formatTimeZoneLabel(timeZone, isGerman)}
+                      </option>
+                    ))}
+                  </optgroup>
+                </select>
               </label>
             </div>
 
@@ -390,11 +481,27 @@ export function AgentHeartbeatCard({
               </label>
               <label className="flex flex-col gap-1 text-sm">
                 <span className="text-xs text-muted-foreground">{t('agentPanel.heartbeat.timezone')}</span>
-                <Input
+                <select
+                  className="h-10 rounded-md border border-input bg-background px-3 text-sm"
                   value={scheduleDraft.workingHoursTimeZone}
                   onChange={(event) => onScheduleDraftChange({ workingHoursTimeZone: event.target.value })}
                   disabled={workingHoursControlsDisabled}
-                />
+                >
+                  <optgroup label={t('agentPanel.heartbeat.recommendedTimeZones')}>
+                    {workingHoursTimeZoneOptions.recommended.map((timeZone) => (
+                      <option key={timeZone} value={timeZone}>
+                        {formatTimeZoneLabel(timeZone, isGerman)}
+                      </option>
+                    ))}
+                  </optgroup>
+                  <optgroup label={t('agentPanel.heartbeat.allTimeZones')}>
+                    {workingHoursTimeZoneOptions.all.map((timeZone) => (
+                      <option key={timeZone} value={timeZone}>
+                        {formatTimeZoneLabel(timeZone, isGerman)}
+                      </option>
+                    ))}
+                  </optgroup>
+                </select>
               </label>
             </div>
           </div>
