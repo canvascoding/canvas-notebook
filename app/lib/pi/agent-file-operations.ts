@@ -4,6 +4,11 @@ import type { Stats } from 'node:fs';
 import path from 'node:path';
 
 import { parseDocument } from 'yaml';
+import {
+  syncPublicSharesAfterDelete,
+  syncPublicSharesAfterMove,
+  syncPublicSharesAfterWrite,
+} from '@/app/lib/public-sharing/public-file-shares';
 
 const SNAPSHOT_DIR_NAME = 'agent-file-snapshots';
 const MAX_DIFF_CHARS = 24_000;
@@ -608,6 +613,7 @@ async function commitTextChange(params: {
   if (readBackText !== params.nextContent) {
     throw new Error(`Read-after-write verification failed for ${params.inputPath}.`);
   }
+  await syncPublicSharesAfterWrite([params.fullPath]);
 
   return {
     path: params.inputPath,
@@ -779,6 +785,7 @@ export async function restoreAgentFileSnapshot(params: { snapshotId: string }): 
 
   if (!snapshot.existed) {
     await fs.rm(fullPath, { force: true });
+    await syncPublicSharesAfterDelete([fullPath]);
     return {
       path: snapshot.path,
       resolvedPath: fullPath,
@@ -801,6 +808,7 @@ export async function restoreAgentFileSnapshot(params: { snapshotId: string }): 
   if (sha256Buffer(readBack) !== sha256Buffer(content)) {
     throw new Error(`Read-after-restore verification failed for ${snapshot.path}.`);
   }
+  await syncPublicSharesAfterWrite([fullPath]);
 
   const beforeText = before.buffer && !isProbablyBinary(before.buffer) ? before.buffer.toString('utf8') : null;
   const afterText = !isProbablyBinary(readBack) ? readBack.toString('utf8') : null;
@@ -1064,6 +1072,7 @@ export async function copyAgentPaths(params: {
       errorOnExist: params.overwrite !== true,
     });
   }
+  await syncPublicSharesAfterWrite(entries.map((entry) => entry.destinationResolvedPath).filter((value): value is string => Boolean(value)));
 
   return pathOperationSummary('copy_path', entries, params.destinationPath, destinationFullPath);
 }
@@ -1149,6 +1158,11 @@ export async function moveAgentPaths(params: {
       await fs.rm(entry.sourceResolvedPath, { recursive: entry.type === 'directory', force: true });
     }
   }
+  for (const entry of entries) {
+    if (entry.destinationResolvedPath) {
+      await syncPublicSharesAfterMove(entry.sourceResolvedPath, entry.destinationResolvedPath);
+    }
+  }
 
   return pathOperationSummary('move_path', entries, params.destinationPath, destinationFullPath);
 }
@@ -1223,6 +1237,7 @@ export async function deleteAgentPaths(params: {
       force: false,
     });
   }
+  await syncPublicSharesAfterDelete(deletableEntries.map((entry) => entry.sourceResolvedPath));
 
   return pathOperationSummary('delete_path', entries);
 }

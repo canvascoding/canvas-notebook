@@ -461,6 +461,29 @@
     "uploadFilesToGetStarted": "Lade Dateien hoch, um zu starten",
     "noResultsFound": "Keine Ergebnisse gefunden",
     "noFilesMatch": "Keine Dateien passen zu \"{query}\"",
+    "publicShareAction": "Datei veröffentlichen",
+    "publicShareManage": "Öffentlichen Link verwalten",
+    "publicShareBadge": "Öffentlich",
+    "publicShareTitle": "Datei öffentlich veröffentlichen",
+    "publicShareDescription": "Erstelle öffentliche Read-only-URLs für ausgewählte Workspace-Dateien.",
+    "publicShareWarning": "Jeder mit dem Link kann die veröffentlichte Datei ohne Login lesen. HTML wird in einer strikten Sandbox ohne Skripte ausgeliefert; diese Route akzeptiert keine Schreiboperationen.",
+    "publicShareFiles": "{count} Datei(en)",
+    "publicShareReadOnly": "Read-only",
+    "publicShareExpiry": "Ablauf",
+    "publicShareNoExpiry": "Kein Ablauf",
+    "publicShareDays": "{count} Tage",
+    "publicSharePublish": "Veröffentlichen",
+    "publicShareLinks": "Öffentliche URLs",
+    "publicShareCopyAll": "Alle kopieren",
+    "publicShareCopiedAll": "Alle URLs kopiert",
+    "publicShareCopied": "URL kopiert",
+    "publicShareCopyFailed": "URL konnte nicht kopiert werden",
+    "publicShareCreateFailed": "Datei konnte nicht veröffentlicht werden",
+    "publicShareCreated": "{count} öffentliche Link(s) erstellt",
+    "publicShareSkipped": "{count} übersprungen",
+    "publicShareExpiresAt": "Läuft ab am {date}",
+    "publicShareNeverExpires": "Kein Ablauf",
+    "publicShareFilesOnly": "Nur Dateien können veröffentlicht werden.",
     "previous": "Zurück",
     "next": "Weiter"
   },
@@ -833,6 +856,10 @@
         "title": "Dateien",
         "description": "Alle Workspace-Dateien durchsuchen, voranschaun und verwalten."
       },
+      "security": {
+        "title": "Security",
+        "description": "Öffentliche Datei-Links und sicherheitsrelevantes Teilen prüfen."
+      },
       "studio": {
         "title": "Studio",
         "description": "Produkte, Personas und Presets verwalten und KI-generierte Bilder erstellen."
@@ -850,6 +877,59 @@
       "madeWith": "Made with",
       "byCanvasCoding": "by Canvas Coding",
       "version": "v.{version}"
+    }
+  },
+  "security": {
+    "publicShares": {
+      "title": "Öffentliche Datei-Freigaben",
+      "securityNoteTitle": "Kontrolle öffentlicher Freigaben",
+      "securityNote": "Jeder aktive Eintrag auf dieser Seite ist ohne Login erreichbar. Links sind read-only, die Datei-Identität wird bei jedem Request geprüft, und fehlende oder ersetzte Dateien werden automatisch inaktiv markiert.",
+      "total": "Gesamt",
+      "active": "Aktiv",
+      "inactive": "Inaktiv",
+      "searchPlaceholder": "Nach Dateiname oder Workspace-Pfad suchen...",
+      "refresh": "Aktualisieren",
+      "tryAgain": "Erneut versuchen",
+      "loadFailed": "Öffentliche Freigaben konnten nicht geladen werden.",
+      "emptyTitle": "Keine öffentlichen Dateien für diesen Filter",
+      "emptyDescription": "Veröffentliche eine Datei im Dateibrowser, um eine öffentliche URL zu erstellen.",
+      "file": "Datei",
+      "statusLabel": "Status",
+      "typeLabel": "Typ",
+      "expires": "Ablauf",
+      "accesses": "Zugriffe",
+      "lastAccess": "Letzter Zugriff",
+      "actions": "Aktionen",
+      "never": "Nie",
+      "copyUrl": "URL kopieren",
+      "openPublicUrl": "Öffentliche URL öffnen",
+      "openFile": "Datei öffnen",
+      "copied": "URL kopiert",
+      "copyFailed": "URL konnte nicht kopiert werden",
+      "revoke": "Widerrufen",
+      "revoked": "Öffentlicher Link widerrufen",
+      "revokeFailed": "Öffentlicher Link konnte nicht widerrufen werden.",
+      "status": {
+        "all": "Alle",
+        "active": "Aktiv",
+        "expired": "Abgelaufen",
+        "missing": "Fehlt",
+        "stale": "Ersetzt",
+        "revoked": "Widerrufen"
+      },
+      "type": {
+        "all": "Alle Typen",
+        "image": "Bilder",
+        "html": "HTML",
+        "pdf": "PDF",
+        "media": "Audio/Video",
+        "other": "Sonstige"
+      },
+      "source": {
+        "all": "Alle Quellen",
+        "ui": "UI",
+        "agent": "Agent"
+      }
     }
   },
   "terminal": {

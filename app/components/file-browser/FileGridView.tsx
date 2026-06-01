@@ -61,6 +61,7 @@ interface FileSearchEntry {
   size?: number;
   modified?: number;
   permissions?: string;
+  publicShare?: FileNodeType['publicShare'];
 }
 
 export function FileGridView({ variant = 'default', onOpenFile }: FileGridViewProps) {
@@ -267,6 +268,7 @@ export function FileGridView({ variant = 'default', onOpenFile }: FileGridViewPr
           size: entry.size,
           modified: entry.modified,
           permissions: entry.permissions,
+          publicShare: entry.publicShare,
         } satisfies FileNodeType));
         setSearchResults(nextResults);
       } catch (error) {

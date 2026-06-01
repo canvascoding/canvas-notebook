@@ -5,6 +5,7 @@ import { invalidateFileReferenceCache } from '@/app/lib/filesystem/file-referenc
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 import { isProtectedAppOutputFolder } from '@/app/lib/filesystem/app-output-folders';
 import { auth } from '@/app/lib/auth';
+import { syncPublicSharesAfterDelete } from '@/app/lib/public-sharing/public-file-shares';
 
 export async function DELETE(request: NextRequest) {
   const session = await auth.api.getSession({ headers: request.headers });
@@ -47,6 +48,7 @@ export async function DELETE(request: NextRequest) {
     }
 
     const result = await batchDelete(pathsToDelete);
+    await syncPublicSharesAfterDelete(result.deleted);
 
     for (const deletedPath of result.deleted) {
       const parentDir = deletedPath.includes('/') ? deletedPath.substring(0, deletedPath.lastIndexOf('/')) : '.';

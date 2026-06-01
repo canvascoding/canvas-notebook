@@ -206,6 +206,31 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       FOREIGN KEY (user_id) REFERENCES user(id)
     );
 
+    CREATE TABLE IF NOT EXISTS public_file_shares (
+      id TEXT PRIMARY KEY NOT NULL,
+      token TEXT NOT NULL UNIQUE,
+      token_hash TEXT NOT NULL UNIQUE,
+      token_preview TEXT NOT NULL,
+      workspace_path TEXT NOT NULL,
+      file_name TEXT NOT NULL,
+      file_identity TEXT NOT NULL,
+      mime_type TEXT NOT NULL,
+      size_bytes INTEGER NOT NULL,
+      status TEXT NOT NULL DEFAULT 'active',
+      created_by_user_id TEXT NOT NULL,
+      created_by_agent_id TEXT,
+      source_session_id TEXT,
+      source TEXT NOT NULL DEFAULT 'ui',
+      reason TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      expires_at INTEGER,
+      revoked_at INTEGER,
+      last_accessed_at INTEGER,
+      access_count INTEGER NOT NULL DEFAULT 0,
+      FOREIGN KEY (created_by_user_id) REFERENCES user(id)
+    );
+
     CREATE TABLE IF NOT EXISTS automation_jobs (
       id TEXT PRIMARY KEY NOT NULL,
       name TEXT NOT NULL,
@@ -676,6 +701,12 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     CREATE INDEX IF NOT EXISTS idx_todo_items_category ON todo_items (category_id);
     CREATE INDEX IF NOT EXISTS idx_todo_file_links_todo ON todo_file_links (todo_id);
     CREATE INDEX IF NOT EXISTS idx_todo_file_links_user_path ON todo_file_links (user_id, workspace_path);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_public_file_shares_token_hash ON public_file_shares (token_hash);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_public_file_shares_token ON public_file_shares (token);
+    CREATE INDEX IF NOT EXISTS idx_public_file_shares_status ON public_file_shares (status);
+    CREATE INDEX IF NOT EXISTS idx_public_file_shares_workspace_path ON public_file_shares (workspace_path);
+    CREATE INDEX IF NOT EXISTS idx_public_file_shares_user_status ON public_file_shares (created_by_user_id, status);
+    CREATE INDEX IF NOT EXISTS idx_public_file_shares_expires_at ON public_file_shares (expires_at);
   `);
 
   // ── Column additions for existing volumes ────────────────────────────────────

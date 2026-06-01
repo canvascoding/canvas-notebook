@@ -207,6 +207,37 @@ export const todoFileLinks = sqliteTable("todo_file_links", {
   userPathIdx: index("idx_todo_file_links_user_path").on(table.userId, table.workspacePath),
 }));
 
+export const publicFileShares = sqliteTable("public_file_shares", {
+  id: text("id").primaryKey(),
+  token: text("token").notNull().unique(),
+  tokenHash: text("token_hash").notNull().unique(),
+  tokenPreview: text("token_preview").notNull(),
+  workspacePath: text("workspace_path").notNull(),
+  fileName: text("file_name").notNull(),
+  fileIdentity: text("file_identity").notNull(),
+  mimeType: text("mime_type").notNull(),
+  sizeBytes: integer("size_bytes").notNull(),
+  status: text("status").notNull().default("active"),
+  createdByUserId: text("created_by_user_id").notNull().references(() => user.id),
+  createdByAgentId: text("created_by_agent_id"),
+  sourceSessionId: text("source_session_id"),
+  source: text("source").notNull().default("ui"),
+  reason: text("reason"),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+  expiresAt: integer("expires_at", { mode: "timestamp" }),
+  revokedAt: integer("revoked_at", { mode: "timestamp" }),
+  lastAccessedAt: integer("last_accessed_at", { mode: "timestamp" }),
+  accessCount: integer("access_count").notNull().default(0),
+}, (table) => ({
+  tokenHashIdx: uniqueIndex("idx_public_file_shares_token_hash").on(table.tokenHash),
+  tokenIdx: uniqueIndex("idx_public_file_shares_token").on(table.token),
+  statusIdx: index("idx_public_file_shares_status").on(table.status),
+  pathIdx: index("idx_public_file_shares_workspace_path").on(table.workspacePath),
+  userStatusIdx: index("idx_public_file_shares_user_status").on(table.createdByUserId, table.status),
+  expiresIdx: index("idx_public_file_shares_expires_at").on(table.expiresAt),
+}));
+
 export const onboardingLog = sqliteTable("onboarding_log", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   completedAt: integer("completed_at", { mode: "timestamp" }).notNull(),

@@ -3,6 +3,35 @@ import { buildFileTree } from '@/app/lib/filesystem/workspace-files';
 import { buildFileTreeCacheKey, fileTreeCache } from '@/app/lib/utils/file-tree-cache';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 import { auth } from '@/app/lib/auth';
+import { getPublicShareAnnotations } from '@/app/lib/public-sharing/public-file-shares';
+
+function collectFilePaths(nodes: Array<{ path: string; type: string; children?: unknown[] }>, result: string[] = []) {
+  for (const node of nodes) {
+    if (node.type === 'file') result.push(node.path);
+    if (Array.isArray(node.children)) {
+      collectFilePaths(node.children as Array<{ path: string; type: string; children?: unknown[] }>, result);
+    }
+  }
+  return result;
+}
+
+function attachPublicShareAnnotations(
+  nodes: Array<{ path: string; type: string; children?: unknown[]; publicShare?: unknown }>,
+  annotations: Map<string, unknown>
+) {
+  for (const node of nodes) {
+    if (node.type === 'file') {
+      const annotation = annotations.get(node.path);
+      if (annotation) node.publicShare = annotation;
+    }
+    if (Array.isArray(node.children)) {
+      attachPublicShareAnnotations(
+        node.children as Array<{ path: string; type: string; children?: unknown[]; publicShare?: unknown }>,
+        annotations
+      );
+    }
+  }
+}
 
 export async function GET(request: NextRequest) {
   const session = await auth.api.getSession({ headers: request.headers });
@@ -34,6 +63,8 @@ export async function GET(request: NextRequest) {
     }
 
     const tree = await buildFileTree(path, depth);
+    const annotations = await getPublicShareAnnotations(collectFilePaths(tree));
+    attachPublicShareAnnotations(tree, annotations);
     fileTreeCache.set(cacheKey, tree);
 
     const headers = new Headers();

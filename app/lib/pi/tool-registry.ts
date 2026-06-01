@@ -96,6 +96,14 @@ import { DEFAULT_AGENT_ID } from '@/app/lib/channels/constants';
 import { normalizeManagedAgentId } from '@/app/lib/agents/registry';
 import { createBrowserGatewayTool } from '@/app/lib/pi/browser/tool';
 import { formatWebSearchResults, searchWeb } from '@/app/lib/integrations/brave-search-service';
+import { clearFileTreeCache } from '@/app/lib/utils/file-tree-cache';
+import {
+  createPublicFileShares,
+  listPublicFileShares,
+  revokePublicFileShare,
+  type PublicShareStatus,
+  type PublicShareTypeFilter,
+} from '@/app/lib/public-sharing/public-file-shares';
 
 
 const execAsync = promisify(exec);
@@ -1859,7 +1867,7 @@ export const piTools: AgentTool[] = [
   createStudioListPresetsTool(),
 ];
 
-export type PiToolGroup = 'Core' | 'Studio' | 'Automation' | 'Composio' | 'MCP' | 'Email' | 'Session' | 'Delegation' | 'Memory' | 'Browser' | 'Todo' | 'Web';
+export type PiToolGroup = 'Core' | 'Studio' | 'Automation' | 'Composio' | 'MCP' | 'Email' | 'Session' | 'Delegation' | 'Memory' | 'Browser' | 'Todo' | 'Web' | 'Security';
 
 export type PiToolMetadata = {
   name: string;
@@ -1889,6 +1897,146 @@ function formatMemoryResult(result: MemoryReadResult): string {
     `${label} entries from ${result.fileName}:`,
     ...result.entries.map((entry) => `- [${entry.id}] ${entry.content}`),
   ].join('\n');
+}
+
+function parsePublicShareStatus(value: unknown): PublicShareStatus | 'all' {
+  if (value === 'active' || value === 'revoked' || value === 'missing' || value === 'stale' || value === 'expired') {
+    return value;
+  }
+  return 'all';
+}
+
+function parsePublicShareType(value: unknown): PublicShareTypeFilter {
+  if (value === 'image' || value === 'html' || value === 'pdf' || value === 'media' || value === 'other') {
+    return value;
+  }
+  return 'all';
+}
+
+function parsePublicShareExpiry(value: unknown): Date | null {
+  if (value === null || value === 'never') return null;
+  const days = typeof value === 'number'
+    ? value
+    : typeof value === 'string'
+      ? Number.parseInt(value, 10)
+      : 30;
+  if (!Number.isFinite(days) || days <= 0) return null;
+  return new Date(Date.now() + Math.min(Math.trunc(days), 365) * 24 * 60 * 60 * 1000);
+}
+
+function formatPublicShares(shares: Array<{ workspacePath: string; status: string; publicUrl: string; expiresAt: string | null; accessCount: number }>): string {
+  if (shares.length === 0) return '(no public shares found)';
+  return shares.map((share) => [
+    `Path: ${share.workspacePath}`,
+    `Status: ${share.status}`,
+    `URL: ${share.publicUrl}`,
+    `Expires: ${share.expiresAt || 'never'}`,
+    `Accesses: ${share.accessCount}`,
+  ].join('\n')).join('\n\n');
+}
+
+function createPublicShareTool(userId?: string, agentId?: string | null, sessionId?: string | null): AgentTool {
+  return {
+    name: 'public_share_file',
+    label: 'Managing public file links',
+    description:
+      'Carefully creates, lists, or revokes read-only public URLs for specific workspace files. ' +
+      'Use only when the user explicitly asks to publish files publicly. Never publish folders, secrets, credentials, databases, private keys, or files that merely seem useful. ' +
+      'For create, provide a concrete path or paths, a reason, and confirmPublicExposure=true.',
+    parameters: Type.Object({
+      action: Type.Union([
+        Type.Literal('list'),
+        Type.Literal('create'),
+        Type.Literal('revoke'),
+      ], { description: 'Operation to perform.' }),
+      path: Type.Optional(Type.String({ description: 'Workspace-relative or /data/workspace file path for create.' })),
+      paths: Type.Optional(Type.Array(Type.String(), { description: 'Multiple concrete file paths for create. Folders are rejected.' })),
+      shareId: Type.Optional(Type.String({ description: 'Public share ID for revoke.' })),
+      status: Type.Optional(Type.String({ description: 'For list: all, active, expired, missing, stale, revoked.' })),
+      type: Type.Optional(Type.String({ description: 'For list: all, image, html, pdf, media, other.' })),
+      query: Type.Optional(Type.String({ description: 'For list: search by file name or workspace path.' })),
+      expiresInDays: Type.Optional(Type.Number({ description: 'For create: link lifetime in days. Defaults to 30. Use 0 only if the user explicitly asks for no expiration.' })),
+      reason: Type.Optional(Type.String({ description: 'Required for create: short reason the public link is needed.' })),
+      confirmPublicExposure: Type.Optional(Type.Boolean({ description: 'Required true for create. Confirms the user asked to expose the file publicly.' })),
+    }),
+    execute: async (_toolCallId, params) => {
+      try {
+        const scopedUserId = requireToolUserId(userId, 'public_share_file');
+        const p = params as {
+          action?: 'list' | 'create' | 'revoke';
+          path?: string;
+          paths?: string[];
+          shareId?: string;
+          status?: string;
+          type?: string;
+          query?: string;
+          expiresInDays?: number;
+          reason?: string;
+          confirmPublicExposure?: boolean;
+        };
+
+        if (p.action === 'list') {
+          const shares = await listPublicFileShares({
+            userId: scopedUserId,
+            isAdmin: false,
+            status: parsePublicShareStatus(p.status),
+            type: parsePublicShareType(p.type),
+            query: p.query || '',
+            source: 'all',
+            limit: 100,
+            baseUrl: process.env.BETTER_AUTH_BASE_URL || process.env.BASE_URL || null,
+          });
+          return { content: [{ type: 'text', text: formatPublicShares(shares) }], details: { shares } };
+        }
+
+        if (p.action === 'revoke') {
+          if (!p.shareId) throw new Error('shareId is required for revoke.');
+          const share = await revokePublicFileShare({
+            id: p.shareId,
+            userId: scopedUserId,
+            isAdmin: false,
+            baseUrl: process.env.BETTER_AUTH_BASE_URL || process.env.BASE_URL || null,
+          });
+          if (!share) throw new Error(`Public share not found: ${p.shareId}`);
+          clearFileTreeCache();
+          return { content: [{ type: 'text', text: `Public share revoked:\n${formatPublicShares([share])}` }], details: { share } };
+        }
+
+        if (p.action === 'create') {
+          if (p.confirmPublicExposure !== true) {
+            throw new Error('Refusing to publish: confirmPublicExposure must be true after the user explicitly asks for public sharing.');
+          }
+          const reason = normalizeOptionalString(p.reason)?.slice(0, 500);
+          if (!reason) throw new Error('reason is required for public sharing.');
+          const paths = readPathList(p as Record<string, unknown>, 'path', 'paths');
+          const result = await createPublicFileShares({
+            paths,
+            createdByUserId: scopedUserId,
+            source: 'agent',
+            createdByAgentId: normalizeManagedAgentId(agentId),
+            sourceSessionId: sessionId ?? null,
+            expiresAt: parsePublicShareExpiry(p.expiresInDays),
+            reason,
+            confirmPublicExposure: true,
+            baseUrl: process.env.BETTER_AUTH_BASE_URL || process.env.BASE_URL || null,
+          });
+          clearFileTreeCache();
+          const text = [
+            result.shares.length > 0 ? `Created public file link(s):\n${formatPublicShares(result.shares)}` : 'No public links were created.',
+            result.skipped.length > 0
+              ? `Skipped:\n${result.skipped.map((item) => `- ${item.path}: ${item.reason}`).join('\n')}`
+              : null,
+          ].filter(Boolean).join('\n\n');
+          return { content: [{ type: 'text', text }], details: result };
+        }
+
+        throw new Error('action must be list, create, or revoke.');
+      } catch (error: unknown) {
+        const message = getErrorMessage(error);
+        return { content: [{ type: 'text', text: `Error: ${message}` }], details: { error: message } };
+      }
+    },
+  };
 }
 
 function createMemoryTool(agentId?: string | null): AgentTool {
@@ -1978,6 +2126,7 @@ function createUserScopedTools(userId?: string, agentId?: string | null, session
     createMemoryTool(agentId),
     createSessionSearchTool({ userId, agentId }),
     createHumanTodoTool({ userId, agentId, sessionId }),
+    createPublicShareTool(userId, agentId, sessionId),
   ];
 
   if (sourceAgentId === DEFAULT_AGENT_ID) {
@@ -2221,6 +2370,7 @@ function getToolGroup(toolName: string): PiToolGroup {
   if (toolName === 'browser') return 'Browser';
   if (toolName.startsWith('web_')) return 'Web';
   if (toolName === 'create_human_todo') return 'Todo';
+  if (toolName === 'public_share_file') return 'Security';
   if (toolName === 'delegate_task') return 'Delegation';
   if (toolName === 'session_search') return 'Session';
   if (toolName.startsWith('email_')) return 'Email';
@@ -2287,6 +2437,10 @@ function getToolNotes(tool: AgentTool, group: PiToolGroup): string[] {
   if (group === 'Todo') {
     notes.push('Creates human-visible to-dos for this user that can appear in notification UI.');
     notes.push('Must not store secrets, credentials, or large raw logs in to-do text.');
+  }
+  if (group === 'Security') {
+    notes.push('Can expose selected workspace files through public read-only URLs without login.');
+    notes.push('Disabled by default. Use only when the user explicitly requests public sharing and never for secrets or folders.');
   }
   if (['bash', 'terminal', 'rg', 'glob', 'grep', 'ls', 'read', 'list_file_snapshots'].includes(tool.name)) {
     notes.push('May execute local shell commands or inspect local files.');

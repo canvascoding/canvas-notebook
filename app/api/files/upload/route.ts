@@ -7,6 +7,7 @@ import { rateLimit } from '@/app/lib/utils/rate-limit';
 import { auth } from '@/app/lib/auth';
 import { getImageConversionErrorMessage } from '@/app/lib/images/convert';
 import { normalizeUploadImageBuffer, parseUploadConvertParams } from '@/app/lib/images/upload-conversion';
+import { syncPublicSharesAfterWrite } from '@/app/lib/public-sharing/public-file-shares';
 
 const MAX_FILE_SIZE = 100 * 1024 * 1024;
 const MAX_TOTAL_SIZE = 500 * 1024 * 1024;
@@ -95,6 +96,7 @@ export async function POST(request: NextRequest) {
     }
 
     const uploadedFiles: string[] = [];
+    const uploadedPaths: string[] = [];
 
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
@@ -139,8 +141,10 @@ export async function POST(request: NextRequest) {
 
       await writeFile(targetPath, normalized.buffer);
       uploadedFiles.push(filename);
+      uploadedPaths.push(targetPath);
     }
 
+    await syncPublicSharesAfterWrite(uploadedPaths);
     clearFileTreeCache();
     invalidateFileReferenceCache();
 

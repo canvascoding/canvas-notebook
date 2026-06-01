@@ -10,6 +10,13 @@ export interface FileNode {
   modified?: number;
   permissions?: string;
   children?: FileNode[];
+  publicShare?: {
+    id: string;
+    status: string;
+    publicUrl: string;
+    expiresAt: string | null;
+    accessCount: number;
+  };
 }
 
 function getRuntimeCwd(): string {

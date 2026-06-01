@@ -88,6 +88,7 @@ const TOOL_DISPLAY: Record<string, ToolDisplayEntry> = {
   session_search: { label: 'Searched sessions', labelDe: 'Sessions durchsucht', tone: 'session' },
   delegate_task: { label: 'Delegated task', labelDe: 'Aufgabe delegiert', tone: 'delegation' },
   create_human_todo: { label: 'Created human to-do', labelDe: 'To-do für Menschen erstellt', tone: 'todo' },
+  public_share_file: { label: 'Managed public file link', labelDe: 'Öffentlichen Datei-Link verwaltet', tone: 'file' },
   COMPOSIO_SEARCH_TOOLS: { label: 'Searched external tools', labelDe: 'Externe Tools gesucht', tone: 'composioSearch' },
   COMPOSIO_GET_TOOL_SCHEMAS: { label: 'Loaded tool schemas', labelDe: 'Tool-Schemas geladen', tone: 'composioSchema' },
   composio_execute: { label: 'Ran external tool', labelDe: 'Externes Tool ausgeführt', tone: 'composioExecute' },
