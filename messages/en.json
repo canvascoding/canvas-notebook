@@ -462,6 +462,29 @@
     "uploadFilesToGetStarted": "Upload files to get started",
     "noResultsFound": "No results found",
     "noFilesMatch": "No files match \"{query}\"",
+    "publicShareAction": "Publish file",
+    "publicShareManage": "Manage public link",
+    "publicShareBadge": "Public",
+    "publicShareTitle": "Publish file publicly",
+    "publicShareDescription": "Create read-only public URLs for selected workspace files.",
+    "publicShareWarning": "Anyone with the link can read the published file without logging in. HTML is served through a strict no-script sandbox; this route never accepts writes.",
+    "publicShareFiles": "{count} file(s)",
+    "publicShareReadOnly": "Read-only",
+    "publicShareExpiry": "Expiration",
+    "publicShareNoExpiry": "No expiration",
+    "publicShareDays": "{count} days",
+    "publicSharePublish": "Publish",
+    "publicShareLinks": "Public URLs",
+    "publicShareCopyAll": "Copy all",
+    "publicShareCopiedAll": "All URLs copied",
+    "publicShareCopied": "URL copied",
+    "publicShareCopyFailed": "Could not copy URL",
+    "publicShareCreateFailed": "Could not publish file",
+    "publicShareCreated": "{count} public link(s) created",
+    "publicShareSkipped": "{count} skipped",
+    "publicShareExpiresAt": "Expires {date}",
+    "publicShareNeverExpires": "No expiration",
+    "publicShareFilesOnly": "Only files can be published.",
     "previous": "Previous",
     "next": "Next"
   },
@@ -834,6 +857,10 @@
         "title": "Files",
         "description": "Browse, preview, and manage all your workspace files."
       },
+      "security": {
+        "title": "Security",
+        "description": "Review public file links and security-sensitive sharing."
+      },
       "studio": {
         "title": "Studio",
         "description": "Manage products, personas, and presets, and create AI-generated images."
@@ -851,6 +878,59 @@
       "madeWith": "Made with",
       "byCanvasCoding": "by Canvas Coding",
       "version": "v.{version}"
+    }
+  },
+  "security": {
+    "publicShares": {
+      "title": "Public File Sharing",
+      "securityNoteTitle": "Public exposure control",
+      "securityNote": "Every active entry on this page is reachable without login. Links are read-only, file identity is checked on every request, and missing or replaced files are automatically marked inactive.",
+      "total": "Total",
+      "active": "Active",
+      "inactive": "Inactive",
+      "searchPlaceholder": "Search by file name or workspace path...",
+      "refresh": "Refresh",
+      "tryAgain": "Try again",
+      "loadFailed": "Failed to load public shares.",
+      "emptyTitle": "No public files match this filter",
+      "emptyDescription": "Publish a file from the file browser to create a public URL.",
+      "file": "File",
+      "statusLabel": "Status",
+      "typeLabel": "Type",
+      "expires": "Expires",
+      "accesses": "Accesses",
+      "lastAccess": "Last access",
+      "actions": "Actions",
+      "never": "Never",
+      "copyUrl": "Copy URL",
+      "openPublicUrl": "Open public URL",
+      "openFile": "Open file",
+      "copied": "URL copied",
+      "copyFailed": "Could not copy URL",
+      "revoke": "Revoke",
+      "revoked": "Public link revoked",
+      "revokeFailed": "Failed to revoke public link.",
+      "status": {
+        "all": "All",
+        "active": "Active",
+        "expired": "Expired",
+        "missing": "Missing",
+        "stale": "Replaced",
+        "revoked": "Revoked"
+      },
+      "type": {
+        "all": "All types",
+        "image": "Images",
+        "html": "HTML",
+        "pdf": "PDF",
+        "media": "Audio/video",
+        "other": "Other"
+      },
+      "source": {
+        "all": "All sources",
+        "ui": "UI",
+        "agent": "Agent"
+      }
     }
   },
   "terminal": {

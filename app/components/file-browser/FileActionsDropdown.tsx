@@ -10,6 +10,7 @@ import {
   Download,
   FilePlus,
   FolderPlus,
+  Globe2,
   ImagePlus,
   Maximize2,
   Move,
@@ -43,6 +44,7 @@ import { CreateItemDialog, type CreateItemType } from './CreateItemDialog';
 import { DeleteConfirmDialog } from './DeleteConfirmDialog';
 import { DirectoryBrowser } from './DirectoryBrowser';
 import { ShareMarkdownDialog } from './ShareMarkdownDialog';
+import { PublicShareDialog } from './PublicShareDialog';
 
 function getParentPath(path: string) {
   const trimmed = path.replace(/\/+$/, '');
@@ -106,6 +108,7 @@ export function FileActionsDropdown({
   const [createType, setCreateType] = useState<CreateItemType>('file');
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
+  const [publicShareOpen, setPublicShareOpen] = useState(false);
 
   const {
     createPath,
@@ -121,6 +124,7 @@ export function FileActionsDropdown({
     clipboardPaths,
     clipboardMode,
     setBulkMoveOpen,
+    refreshVisibleTree,
   } = useFileStore();
 
   const parentPath = useMemo(() => {
@@ -311,6 +315,11 @@ export function FileActionsDropdown({
     closeMenu();
   };
 
+  const handlePublicShare = () => {
+    setPublicShareOpen(true);
+    closeMenu();
+  };
+
   const toggleMoveDir = (path: string) => {
     setMoveExpandedDirs(prev => {
       const newSet = new Set(prev);
@@ -431,6 +440,10 @@ export function FileActionsDropdown({
             <Download className="h-4 w-4" />
             {t('download')}
           </DropdownMenuItem>
+          <DropdownMenuItem onSelect={handlePublicShare} disabled={!node || node.type !== 'file'}>
+            <Globe2 className="h-4 w-4" />
+            {node?.publicShare?.status === 'active' ? t('publicShareManage') : t('publicShareAction')}
+          </DropdownMenuItem>
           {isMarkdown && (
             <DropdownMenuItem onSelect={handleShare}>
               <Share2 className="h-4 w-4" />
@@ -549,6 +562,15 @@ export function FileActionsDropdown({
           onOpenChange={setShareOpen}
           filePath={node.path}
           fileName={node.name}
+        />
+      )}
+
+      {node && (
+        <PublicShareDialog
+          open={publicShareOpen}
+          onOpenChange={setPublicShareOpen}
+          paths={node.type === 'file' ? [node.path] : []}
+          onPublished={() => void refreshVisibleTree()}
         />
       )}
     </>

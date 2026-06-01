@@ -5,6 +5,7 @@ import { invalidateFileReferenceCache } from '@/app/lib/filesystem/file-referenc
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 import { isProtectedAppOutputFolder } from '@/app/lib/filesystem/app-output-folders';
 import { auth } from '@/app/lib/auth';
+import { syncPublicSharesAfterMove } from '@/app/lib/public-sharing/public-file-shares';
 
 interface RenameRequestBody {
   oldPath: string;
@@ -56,6 +57,7 @@ export async function POST(request: NextRequest) {
       const conflictError = conflict as RenameConflictError;
       if (overwrite && conflictError.code === 'FILE_EXISTS' && conflictError.type === 'file') {
         await renameFile(oldPath, newPath, true);
+        await syncPublicSharesAfterMove(oldPath, newPath);
         clearFileTreeCache();
         invalidateFileReferenceCache();
         return NextResponse.json({ success: true });
@@ -75,6 +77,7 @@ export async function POST(request: NextRequest) {
     }
 
     await renameFile(oldPath, newPath, overwrite);
+    await syncPublicSharesAfterMove(oldPath, newPath);
     clearFileTreeCache();
     invalidateFileReferenceCache();
 

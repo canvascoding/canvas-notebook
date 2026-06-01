@@ -2,7 +2,7 @@
 
 import { useRef, useState, useCallback, useEffect, type DragEvent } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { ArrowLeft, Download, Move, Search, X } from 'lucide-react';
+import { ArrowLeft, Download, Globe2, Move, Search, X } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -22,6 +22,7 @@ import { getDroppedFiles } from '@/app/lib/drop-traverse';
 import { FilePreviewDialog } from '@/app/components/files/FilePreviewDialog';
 import { Link } from '@/i18n/navigation';
 import { ThemeToggle } from '@/app/components/ThemeToggle';
+import { PublicShareDialog } from './PublicShareDialog';
 
 
 import { AppLauncher } from '@/app/components/AppLauncher';
@@ -61,6 +62,8 @@ export function FileBrowser({ variant = 'default', onFileSelect }: FileBrowserPr
   const [deletePaths, setDeletePaths] = useState<string[]>([]);
   const [deleteSkippedCount, setDeleteSkippedCount] = useState(0);
   const [activeFilePath, setActiveFilePath] = useState<string | null>(null);
+  const [publicShareOpen, setPublicShareOpen] = useState(false);
+  const [publicSharePaths, setPublicSharePaths] = useState<string[]>([]);
 
   const isFullscreen = variant === 'fullscreen';
   const isMobileSheet = variant === 'mobile-sheet';
@@ -204,6 +207,13 @@ export function FileBrowser({ variant = 'default', onFileSelect }: FileBrowserPr
     toast.success(t('download'));
   };
 
+  const handleBulkPublicShare = () => {
+    const selectedPaths = Array.from(multiSelectPaths);
+    if (selectedPaths.length === 0) return;
+    setPublicSharePaths(selectedPaths);
+    setPublicShareOpen(true);
+  };
+
   const navigateToDirectory = useCallback(
     async (targetDir: string) => {
       useFileStore.getState().setCurrentDirectory(targetDir);
@@ -323,6 +333,9 @@ export function FileBrowser({ variant = 'default', onFileSelect }: FileBrowserPr
                   <Button variant="ghost" size="icon-sm" onClick={() => void handleBulkDownload()} title={t('download')}>
                     <Download className="h-3.5 w-3.5" />
                   </Button>
+                  <Button variant="ghost" size="icon-sm" onClick={handleBulkPublicShare} title={t('publicShareAction')}>
+                    <Globe2 className="h-3.5 w-3.5" />
+                  </Button>
                 </>
               )}
               <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-foreground" onClick={toggleMultiSelectMode}>
@@ -362,6 +375,12 @@ export function FileBrowser({ variant = 'default', onFileSelect }: FileBrowserPr
       <CreateItemDialog open={createOpen} onOpenChange={setCreateOpen} type={createType} defaultPath={resolveTargetDir()} onCreate={handleCreate} />
       <UploadDialog open={uploadOpen} onOpenChange={setUploadOpen} defaultPath={resolveTargetDir()} onUpload={handleUpload} />
       <DeleteConfirmDialog open={deleteOpen} onOpenChange={setDeleteOpen} paths={deletePaths} skippedCount={deleteSkippedCount} onConfirm={handleConfirmDelete} />
+      <PublicShareDialog
+        open={publicShareOpen}
+        onOpenChange={setPublicShareOpen}
+        paths={publicSharePaths}
+        onPublished={() => void refreshVisibleTree()}
+      />
       <ImagePreprocessDialog open={imagePreprocess.dialogState !== null} onOpenChange={(open) => { if (!open) imagePreprocess.setDialogState(null); }} files={imagePreprocess.dialogState?.files ?? []} onConfirm={imagePreprocess.handleConfirm} onSkip={imagePreprocess.handleSkip} isProcessing={imagePreprocess.isProcessing} />
 
       {isFullscreen && (

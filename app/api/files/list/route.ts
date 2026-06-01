@@ -3,6 +3,7 @@ import { auth } from '@/app/lib/auth';
 import { getCachedFileReferenceEntries } from '@/app/lib/filesystem/file-reference-cache';
 import { searchFileReferenceEntries } from '@/app/lib/filesystem/file-reference-search';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
+import { getPublicShareAnnotations } from '@/app/lib/public-sharing/public-file-shares';
 
 export async function GET(request: NextRequest) {
   const session = await auth.api.getSession({ headers: request.headers });
@@ -24,10 +25,17 @@ export async function GET(request: NextRequest) {
     
     // Apply limit
     const limitedFiles = filteredFiles.slice(0, limit);
+    const annotations = await getPublicShareAnnotations(
+      limitedFiles.filter((file) => file.type === 'file').map((file) => file.path)
+    );
+    const filesWithShareState = limitedFiles.map((file) => ({
+      ...file,
+      publicShare: annotations.get(file.path),
+    }));
 
     return NextResponse.json({
       success: true,
-      files: limitedFiles,
+      files: filesWithShareState,
       total: filteredFiles.length,
     });
   } catch (error) {

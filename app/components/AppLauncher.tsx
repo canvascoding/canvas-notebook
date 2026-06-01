@@ -17,6 +17,7 @@ import {
   MoreHorizontal,
   ExternalLink,
   ArrowRight,
+  ShieldCheck,
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -47,6 +48,7 @@ const APPS: AppItem[] = [
   { id: 'chat', href: '/chat', icon: MessageSquare, hasQuickActions: false },
   { id: 'automations', href: '/automationen', icon: Workflow, hasQuickActions: false },
   { id: 'terminal', href: '/terminal', icon: Terminal, hasQuickActions: false },
+  { id: 'security', href: '/security/public-shares', icon: ShieldCheck, hasQuickActions: false },
   { id: 'settings', href: '/settings', icon: Settings, hasQuickActions: true },
   { id: 'help', href: '/help', icon: HelpCircle, hasQuickActions: false },
 ];

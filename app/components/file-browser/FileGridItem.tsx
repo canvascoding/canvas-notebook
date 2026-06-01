@@ -5,7 +5,8 @@ import { useFileStore, type FileNode as FileNodeType } from '@/app/store/file-st
 import { cn } from '@/lib/utils';
 import { getFileIconComponent } from '@/app/lib/files/file-icons';
 import { toPreviewUrl } from '@/app/lib/utils/media-url';
-import { MoreVertical } from 'lucide-react';
+import { Globe2, MoreVertical } from 'lucide-react';
+import { useTranslations } from 'next-intl';
 
 interface FileGridItemProps {
   node: FileNodeType;
@@ -30,6 +31,7 @@ function formatFileSize(bytes?: number): string {
 }
 
 export function FileGridItem({ node, onOpenFile, onOpenDirectory, size = 'sm' }: FileGridItemProps) {
+  const t = useTranslations('notebook');
   const {
     selectedNode,
     isMultiSelectMode,
@@ -44,6 +46,7 @@ export function FileGridItem({ node, onOpenFile, onOpenDirectory, size = 'sm' }:
   const isSelected = selectedNode?.path === node.path;
   const isMultiSelected = multiSelectPaths.has(node.path);
   const isRowActive = isSelected || isMultiSelected;
+  const isPublic = node.type === 'file' && node.publicShare?.status === 'active';
   const showImagePreview = isImageNode(node);
 
   const [thumbnailError, setThumbnailError] = useState(false);
@@ -115,12 +118,22 @@ export function FileGridItem({ node, onOpenFile, onOpenDirectory, size = 'sm' }:
         'group relative flex flex-col items-center rounded-lg border transition-all cursor-pointer',
         'hover:bg-accent/50 hover:border-primary/30',
         isRowActive ? 'bg-accent/70 border-primary/50' : 'border-border bg-background',
-        isDirectory && 'border-dashed'
+        isDirectory && 'border-dashed',
+        isPublic && 'border-amber-500 bg-amber-500/10 shadow-[inset_0_0_0_1px_rgba(245,158,11,0.25)]'
       )}
       onClick={handleClick}
       onContextMenu={handleContextMenu}
     >
       <div className="flex w-full items-center justify-end gap-0.5 px-1.5 pt-1.5 min-h-[20px]">
+        {isPublic && (
+          <span
+            className="mr-auto inline-flex items-center gap-1 rounded-sm bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:text-amber-300"
+            title={node.publicShare?.publicUrl}
+          >
+            <Globe2 className="h-3 w-3" />
+            {t('publicShareBadge')}
+          </span>
+        )}
         {isMultiSelectMode ? (
           <button
             onClick={(e) => { e.stopPropagation(); toggleMultiSelectPath(node.path); }}

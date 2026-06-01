@@ -4,6 +4,7 @@ import { clearFileTreeCache } from '@/app/lib/utils/file-tree-cache';
 import { invalidateFileReferenceCache } from '@/app/lib/filesystem/file-reference-cache';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 import { auth } from '@/app/lib/auth';
+import { syncPublicSharesAfterWrite } from '@/app/lib/public-sharing/public-file-shares';
 
 export async function POST(request: NextRequest) {
   const session = await auth.api.getSession({ headers: request.headers });
@@ -38,6 +39,7 @@ export async function POST(request: NextRequest) {
     }
 
     await writeFile(path, finalContent);
+    await syncPublicSharesAfterWrite([path]);
     clearFileTreeCache();
     invalidateFileReferenceCache();
 

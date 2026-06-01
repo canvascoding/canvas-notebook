@@ -5,6 +5,7 @@ import {
   ChevronRight,
   Square,
   CheckSquare,
+  Globe2,
   Loader2,
   MoreVertical,
 } from 'lucide-react';
@@ -50,6 +51,7 @@ export function FileTreeNode({ node, depth = 0, browserMode = 'tree', onNavigate
   const isSelected = selectedNode?.path === node.path;
   const isMultiSelected = multiSelectPaths.has(node.path);
   const isRowActive = isSelected || isMultiSelected;
+  const isPublic = node.type === 'file' && node.publicShare?.status === 'active';
   const childNodes = node.children ?? [];
   const rowPaddingStyle = isMobile
     ? { paddingLeft: `${8 + Math.min(depth, 4) * 12}px` }
@@ -158,7 +160,8 @@ export function FileTreeNode({ node, depth = 0, browserMode = 'tree', onNavigate
             className={cn(
               'group relative flex w-full items-center px-2 text-foreground transition-colors',
               isMobile ? 'py-1.5' : 'py-0.5',
-              isRowActive ? 'bg-accent/70' : 'hover:bg-accent/50'
+              isRowActive ? 'bg-accent/70' : 'hover:bg-accent/50',
+              isPublic && 'border-l-2 border-amber-500 bg-amber-500/10'
             )}
             onContextMenu={handleContextMenuForListMode}
           >
@@ -210,11 +213,12 @@ export function FileTreeNode({ node, depth = 0, browserMode = 'tree', onNavigate
         <SidebarMenuItem>
           <div
             data-file-path={node.path}
-            className={cn(
-              'group relative flex w-full items-center px-2 text-foreground transition-colors',
-              isMobile ? 'py-1.5' : 'py-0.5',
-              isRowActive ? 'bg-accent/70' : 'hover:bg-accent/50'
-            )}
+          className={cn(
+            'group relative flex w-full items-center px-2 text-foreground transition-colors',
+            isMobile ? 'py-1.5' : 'py-0.5',
+            isRowActive ? 'bg-accent/70' : 'hover:bg-accent/50',
+            isPublic && 'border-l-2 border-amber-500 bg-amber-500/10'
+          )}
             style={rowPaddingStyle}
             onContextMenu={handleContextMenu}
           >
@@ -289,11 +293,12 @@ export function FileTreeNode({ node, depth = 0, browserMode = 'tree', onNavigate
     <SidebarMenuItem>
       <div
         data-file-path={node.path}
-        className={cn(
-          'group relative flex w-full items-center px-2 text-foreground transition-colors',
-          isMobile ? 'py-1.5' : 'py-0.5',
-          isRowActive ? 'bg-accent/70' : 'hover:bg-accent/50'
-        )}
+          className={cn(
+            'group relative flex w-full items-center px-2 text-foreground transition-colors',
+            isMobile ? 'py-1.5' : 'py-0.5',
+            isRowActive ? 'bg-accent/70' : 'hover:bg-accent/50',
+            isPublic && 'border-l-2 border-amber-500 bg-amber-500/10'
+          )}
         style={rowPaddingStyle}
         onContextMenu={handleContextMenu}
       >
@@ -312,6 +317,12 @@ export function FileTreeNode({ node, depth = 0, browserMode = 'tree', onNavigate
           )}
           {getFileIcon()}
           <span className="flex-1 truncate text-sm">{node.name}</span>
+          {isPublic && (
+            <Globe2
+              className="h-3.5 w-3.5 shrink-0 text-amber-600"
+              aria-label="Public"
+            />
+          )}
           {!isMobile && !isDirectory && node.size !== undefined && (
             <span className="ml-auto shrink-0 text-xs text-muted-foreground">
               {formatSize(node.size)}
