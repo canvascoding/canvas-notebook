@@ -143,7 +143,10 @@ NEXT_PID=$!
 
 health_url="http://127.0.0.1:${PORT:-3000}/api/health"
 attempt=0
-max_attempts="${STARTUP_HEALTH_MAX_ATTEMPTS:-60}"
+# Older installations can spend extra time on the first post-upgrade startup
+# while Next.js warms up after migrations/restores. Keep the in-container wait
+# aligned with the CLI/installer health timeout.
+max_attempts="${STARTUP_HEALTH_MAX_ATTEMPTS:-180}"
 
 while [ "$attempt" -lt "$max_attempts" ]; do
   if [ -n "$NEXT_PID" ] && ! kill -0 "$NEXT_PID" 2>/dev/null; then
@@ -164,7 +167,7 @@ done
 
 if [ "$attempt" -ge "$max_attempts" ]; then
   step_fail
-  printf '\n  ERROR: Next.js did not become healthy within %ds\n' "$max_attempts" >&2
+  printf '\n  ERROR: Next.js did not become healthy within %ds (set STARTUP_HEALTH_MAX_ATTEMPTS to override)\n' "$max_attempts" >&2
   exit 1
 fi
 
