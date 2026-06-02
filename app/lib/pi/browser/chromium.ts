@@ -34,11 +34,20 @@ export type BrowserLaunchSpec = {
   executablePath: string;
   executableSource: ChromiumExecutableResolution['source'];
   attemptedPaths: string[];
+  userDataDir: string;
   args: string[];
   headless: boolean;
   runtime: BrowserRuntimeMode;
-  userDataDir: string;
 };
+
+function sanitizeBrowserSessionId(sessionId: string): string {
+  return sessionId
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]/g, '-')
+    .replace(/-{2,}/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 96) || 'default';
+}
 
 function unique(values: string[]): string[] {
   return [...new Set(values.filter(Boolean))];
@@ -221,18 +230,26 @@ function resolveBrowserDataRoot(env: NodeJS.ProcessEnv, existsSync: (path: strin
 export function resolveBrowserUserDataDir(
   env: NodeJS.ProcessEnv = process.env,
   existsSync: (path: string) => boolean = fs.existsSync,
+  sessionId?: string,
 ): string {
   const dataRoot = resolveBrowserDataRoot(env, existsSync);
   const cacheRoot = env.XDG_CACHE_HOME || path.join(dataRoot, 'cache');
-  return path.join(cacheRoot, 'browser-runtime');
+  const baseDir = path.join(cacheRoot, 'browser-runtime');
+  if (!sessionId) {
+    return baseDir;
+  }
+
+  return path.join(baseDir, sanitizeBrowserSessionId(sessionId));
 }
 
 export function buildBrowserLaunchSpec({
   env = process.env,
   platform = process.platform,
   existsSync = fs.existsSync,
+  userDataDir,
   execSyncImpl = execSync,
 }: RuntimeModeOptions & {
+  userDataDir?: string;
   execSyncImpl?: typeof execSync;
 } = {}): BrowserLaunchSpec {
   const runtime = getRuntimeMode({ env, platform, existsSync });
@@ -241,10 +258,10 @@ export function buildBrowserLaunchSpec({
     existsSync,
     execSyncImpl,
   });
-  const userDataDir = resolveBrowserUserDataDir(env, existsSync);
+  const resolvedUserDataDir = userDataDir ?? resolveBrowserUserDataDir(env, existsSync);
 
   const args = [
-    `--user-data-dir=${userDataDir}`,
+    `--user-data-dir=${resolvedUserDataDir}`,
     '--no-first-run',
     '--no-default-browser-check',
     '--disable-background-networking',
@@ -267,9 +284,9 @@ export function buildBrowserLaunchSpec({
     executablePath,
     executableSource: source,
     attemptedPaths,
+    userDataDir: resolvedUserDataDir,
     args,
     headless: runtime.headless,
     runtime,
-    userDataDir,
   };
 }

@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { promises as fs } from 'node:fs';
+import { existsSync, promises as fs } from 'node:fs';
 import path from 'node:path';
 
 import type { KeyInput } from 'puppeteer-core';
@@ -11,11 +11,14 @@ import {
   closeBrowserRuntime,
   ensurePage,
   getConsoleEntries,
+  getBrowserRuntimeContextKey,
   getStatusDetails,
+  getTargetStore,
   scheduleIdleClose,
+  withBrowserRuntimeLock,
+  type BrowserRuntimeContext,
 } from './runtime';
 import {
-  BrowserTargetStore,
   observeInteractiveTargets,
   resolveTargetHandle,
 } from './targets';
@@ -36,7 +39,6 @@ const MAX_TIMEOUT_MS = 60_000;
 const MAX_OBSERVED_TARGETS = 80;
 const MAX_CONTENT_LENGTH = 10_000;
 const MAX_CONSOLE_ENTRIES = 200;
-const targetStore = new BrowserTargetStore();
 
 function clampNumber(value: unknown, fallback: number, max: number): number {
   if (typeof value !== 'number' || !Number.isFinite(value)) {
@@ -156,24 +158,36 @@ function truncateText(value: string, maxLength: number): { text: string; truncat
   };
 }
 
-async function navigate(input: BrowserGatewayInput): Promise<BrowserGatewayOutput> {
-  const page = await ensurePage();
+function getContextTargetStore(context: BrowserRuntimeContext = {}): ReturnType<typeof getTargetStore> {
+  return getTargetStore(context);
+}
+
+async function navigate(
+  input: BrowserGatewayInput,
+  context: BrowserRuntimeContext = {},
+): Promise<BrowserGatewayOutput> {
+  const page = await ensurePage(context);
+  const targetStore = getContextTargetStore(context);
   const url = validateBrowserUrl(input.url);
   const timeout = clampNumber(input.timeout_ms, DEFAULT_TIMEOUT_MS, MAX_TIMEOUT_MS);
   const waitUntil = input.wait_until || 'domcontentloaded';
   await page.goto(url, { waitUntil, timeout });
   targetStore.clear();
-  const details = await getStatusDetails();
+  const details = await getStatusDetails(context);
   return {
     text: `Navigated to ${page.url()}`,
     details,
   };
 }
 
-async function observePage(input: BrowserGatewayInput): Promise<BrowserGatewayOutput> {
-  const page = await ensurePage();
+async function observePage(
+  input: BrowserGatewayInput,
+  context: BrowserRuntimeContext = {},
+): Promise<BrowserGatewayOutput> {
+  const page = await ensurePage(context);
   const maxElements = clampNumber(input.max_elements, MAX_OBSERVED_TARGETS, MAX_OBSERVED_TARGETS);
   const observed = await observeInteractiveTargets(page, maxElements);
+  const targetStore = getContextTargetStore(context);
   targetStore.replace(observed);
   return {
     text: formatJson(observed),
@@ -181,27 +195,35 @@ async function observePage(input: BrowserGatewayInput): Promise<BrowserGatewayOu
   };
 }
 
-async function click(input: BrowserGatewayInput): Promise<BrowserGatewayOutput> {
-  const page = await ensurePage();
+async function click(
+  input: BrowserGatewayInput,
+  context: BrowserRuntimeContext = {},
+): Promise<BrowserGatewayOutput> {
+  const page = await ensurePage(context);
+  const targetStore = getContextTargetStore(context);
   const handle = await resolveTargetHandle(page, input, targetStore);
   try {
     await handle.click();
     await page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 3_000 }).catch(() => undefined);
     return {
       text: 'Clicked browser target.',
-      details: await getStatusDetails(),
+      details: await getStatusDetails(context),
     };
   } finally {
     await handle.dispose().catch(() => undefined);
   }
 }
 
-async function typeText(input: BrowserGatewayInput): Promise<BrowserGatewayOutput> {
+async function typeText(
+  input: BrowserGatewayInput,
+  context: BrowserRuntimeContext = {},
+): Promise<BrowserGatewayOutput> {
   if (typeof input.text !== 'string') {
     throw new Error('text is required for type.');
   }
 
-  const page = await ensurePage();
+  const page = await ensurePage(context);
+  const targetStore = getContextTargetStore(context);
   const handle = await resolveTargetHandle(page, input, targetStore);
   try {
     await handle.click({ clickCount: input.clear === false ? 1 : 3 });
@@ -211,28 +233,35 @@ async function typeText(input: BrowserGatewayInput): Promise<BrowserGatewayOutpu
     await page.keyboard.type(input.text);
     return {
       text: 'Typed text into browser target.',
-      details: await getStatusDetails(),
+      details: await getStatusDetails(context),
     };
   } finally {
     await handle.dispose().catch(() => undefined);
   }
 }
 
-async function keypress(input: BrowserGatewayInput): Promise<BrowserGatewayOutput> {
+async function keypress(
+  input: BrowserGatewayInput,
+  context: BrowserRuntimeContext = {},
+): Promise<BrowserGatewayOutput> {
   const key = input.key?.trim() as KeyInput | undefined;
   if (!key) {
     throw new Error('key is required for keypress.');
   }
-  const page = await ensurePage();
+  const page = await ensurePage(context);
   await page.keyboard.press(key);
   return {
     text: `Pressed key: ${key}`,
-    details: await getStatusDetails(),
+    details: await getStatusDetails(context),
   };
 }
 
-async function scroll(input: BrowserGatewayInput): Promise<BrowserGatewayOutput> {
-  const page = await ensurePage();
+async function scroll(
+  input: BrowserGatewayInput,
+  context: BrowserRuntimeContext = {},
+): Promise<BrowserGatewayOutput> {
+  const page = await ensurePage(context);
+  const targetStore = getContextTargetStore(context);
   const scrollX = typeof input.scroll_x === 'number' ? input.scroll_x : 0;
   const scrollY = typeof input.scroll_y === 'number' ? input.scroll_y : 600;
 
@@ -254,13 +283,23 @@ async function scroll(input: BrowserGatewayInput): Promise<BrowserGatewayOutput>
   targetStore.clear();
   return {
     text: `Scrolled by x=${scrollX}, y=${scrollY}.`,
-    details: await getStatusDetails(),
+    details: await getStatusDetails(context),
   };
 }
 
-async function screenshot(input: BrowserGatewayInput): Promise<BrowserGatewayOutput> {
-  const page = await ensurePage();
-  const screenshotDir = path.join(resolveBrowserUserDataDir(), 'screenshots');
+async function screenshot(
+  input: BrowserGatewayInput,
+  context: BrowserRuntimeContext = {},
+): Promise<BrowserGatewayOutput> {
+  const page = await ensurePage(context);
+  const screenshotDir = path.join(
+    resolveBrowserUserDataDir(
+      process.env,
+      existsSync,
+      getBrowserRuntimeContextKey(context),
+    ),
+    'screenshots',
+  );
   await fs.mkdir(screenshotDir, { recursive: true });
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
   const filePath = path.join(screenshotDir, `browser-${timestamp}.png`);
@@ -277,13 +316,16 @@ async function screenshot(input: BrowserGatewayInput): Promise<BrowserGatewayOut
       filePath,
       fullPage: Boolean(input.full_page),
       size: buffer.length,
-      ...(await getStatusDetails()),
+      ...(await getStatusDetails(context)),
     },
   };
 }
 
-async function extractContent(input: BrowserGatewayInput): Promise<BrowserGatewayOutput> {
-  const page = await ensurePage();
+async function extractContent(
+  input: BrowserGatewayInput,
+  context: BrowserRuntimeContext = {},
+): Promise<BrowserGatewayOutput> {
+  const page = await ensurePage(context);
   const maxContentLength = clampNumber(input.max_content_length, MAX_CONTENT_LENGTH, 50_000);
   const extracted = await extractReadablePageContent(page, maxContentLength);
 
@@ -300,15 +342,18 @@ async function extractContent(input: BrowserGatewayInput): Promise<BrowserGatewa
       details.title ? `Title: ${details.title}` : null,
       '',
       extracted.content,
-      extracted.truncated ? `\n[...content truncated after ${maxContentLength} characters]` : null,
+      details.truncated ? `\n[...content truncated after ${maxContentLength} characters]` : null,
     ].filter((line): line is string => line !== null).join('\n'),
     details,
   };
 }
 
-function consoleLogs(input: BrowserGatewayInput): BrowserGatewayOutput {
+function consoleLogs(
+  input: BrowserGatewayInput,
+  context: BrowserRuntimeContext = {},
+): BrowserGatewayOutput {
   const limit = clampNumber(input.max_elements, 50, MAX_CONSOLE_ENTRIES);
-  const entries = getConsoleEntries(limit);
+  const entries = getConsoleEntries(context, limit);
   return {
     text: entries.length === 0 ? '(no console messages captured)' : formatJson(entries),
     details: { entries },
@@ -333,8 +378,11 @@ function formatEvaluateValue(value: unknown): string {
   return formatJson(value);
 }
 
-async function evaluateScript(input: BrowserGatewayInput): Promise<BrowserGatewayOutput> {
-  const page = await ensurePage();
+async function evaluateScript(
+  input: BrowserGatewayInput,
+  context: BrowserRuntimeContext = {},
+): Promise<BrowserGatewayOutput> {
+  const page = await ensurePage(context);
   const source = getEvaluateSource(input);
   const timeout = clampNumber(input.timeout_ms, DEFAULT_TIMEOUT_MS, MAX_TIMEOUT_MS);
   const maxContentLength = clampNumber(input.max_content_length, MAX_CONTENT_LENGTH, 50_000);
@@ -368,11 +416,15 @@ async function evaluateScript(input: BrowserGatewayInput): Promise<BrowserGatewa
       result: toJsonSafeValue(result),
       resultType: result === null ? 'null' : typeof result,
       truncated,
+      ...(await getStatusDetails(context)),
     },
   };
 }
 
-export async function runBrowserGatewayAction(input: BrowserGatewayInput): Promise<BrowserGatewayOutput> {
+export async function runBrowserGatewayAction(
+  input: BrowserGatewayInput,
+  context: BrowserRuntimeContext = {},
+): Promise<BrowserGatewayOutput> {
   const action = normalizeAction(input.action);
 
   if (action === 'help') {
@@ -380,51 +432,57 @@ export async function runBrowserGatewayAction(input: BrowserGatewayInput): Promi
   }
 
   if (action === 'status') {
-    const details = await getStatusDetails();
+    const details = await getStatusDetails(context);
     return { text: formatJson(details), details };
   }
 
-  if (action === 'close') {
-    await closeBrowserRuntime('requested');
-    targetStore.clear();
-    return { text: 'Browser closed.', details: { running: false } };
+  if (action === 'console_logs') {
+    return consoleLogs(input, context);
   }
 
-  if (action === 'start') {
-    await ensurePage();
-    targetStore.clear();
-    const details = await getStatusDetails();
-    return { text: formatJson(details), details };
-  }
+  return withBrowserRuntimeLock(context, async () => {
+    const targetStore = getContextTargetStore(context);
 
-  const status = await getStatusDetails();
-  if (!status.running) {
-    targetStore.clear();
-  }
-  scheduleIdleClose();
+    if (action === 'close') {
+      await closeBrowserRuntime(context, 'requested');
+      targetStore.clear();
+      return { text: 'Browser closed.', details: { running: false } };
+    }
 
-  switch (action) {
-    case 'navigate':
-      return navigate(input);
-    case 'observe':
-      return observePage(input);
-    case 'click':
-      return click(input);
-    case 'type':
-      return typeText(input);
-    case 'keypress':
-      return keypress(input);
-    case 'scroll':
-      return scroll(input);
-    case 'screenshot':
-      return screenshot(input);
-    case 'extract_content':
-      return extractContent(input);
-    case 'evaluate':
-      return evaluateScript(input);
-    case 'console_logs':
-      return consoleLogs(input);
-    default:
-      throw new Error(`Unsupported browser action "${action}".`);
-  }
+    if (action === 'start') {
+      await ensurePage(context);
+      targetStore.clear();
+      const details = await getStatusDetails(context);
+      return { text: formatJson(details), details };
+    }
+
+    const status = await getStatusDetails(context);
+    if (!status.running) {
+      targetStore.clear();
+    }
+    scheduleIdleClose(context);
+
+    switch (action) {
+      case 'navigate':
+        return navigate(input, context);
+      case 'observe':
+        return observePage(input, context);
+      case 'click':
+        return click(input, context);
+      case 'type':
+        return typeText(input, context);
+      case 'keypress':
+        return keypress(input, context);
+      case 'scroll':
+        return scroll(input, context);
+      case 'screenshot':
+        return screenshot(input, context);
+      case 'extract_content':
+        return extractContent(input, context);
+      case 'evaluate':
+        return evaluateScript(input, context);
+      default:
+        throw new Error(`Unsupported browser action "${action}".`);
+    }
+  });
 }

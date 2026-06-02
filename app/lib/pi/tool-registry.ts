@@ -2128,6 +2128,7 @@ function createUserScopedTools(userId?: string, agentId?: string | null, session
     createSessionSearchTool({ userId, agentId }),
     createHumanTodoTool({ userId, agentId, sessionId }),
     createPublicShareTool(userId, agentId, sessionId),
+    createBrowserGatewayTool({ userId, agentId: sourceAgentId, sessionId }),
   ];
 
   if (sourceAgentId === DEFAULT_AGENT_ID) {

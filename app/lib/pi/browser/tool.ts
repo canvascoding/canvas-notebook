@@ -4,8 +4,9 @@ import { type AgentTool } from '@earendil-works/pi-agent-core';
 import { Type } from 'typebox';
 
 import { runBrowserGatewayAction, type BrowserGatewayInput } from './gateway';
+import type { BrowserRuntimeContext } from './runtime';
 
-export function createBrowserGatewayTool(): AgentTool {
+export function createBrowserGatewayTool(context: BrowserRuntimeContext = {}): AgentTool {
   return {
     name: 'browser',
     label: 'Controlling browser',
@@ -61,7 +62,7 @@ export function createBrowserGatewayTool(): AgentTool {
         if (signal?.aborted) {
           throw new Error('Tool execution aborted.');
         }
-        const result = await runBrowserGatewayAction(params as BrowserGatewayInput);
+        const result = await runBrowserGatewayAction(params as BrowserGatewayInput, context);
         return {
           content: [
             { type: 'text', text: result.text },
