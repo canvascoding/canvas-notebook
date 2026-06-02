@@ -2175,20 +2175,41 @@ export default function CanvasAgentChat({
   // Container width detection for history layout
   const containerRef = useRef<HTMLDivElement>(null);
   const [measuredWidth, setMeasuredWidth] = useState(0);
+  const containerMeasureRafRef = useRef<number | null>(null);
   const HISTORY_BREAKPOINT = 650;
   const effectiveContainerWidth = chatContainerWidth ?? measuredWidth;
   const shouldShowHistoryAsOverlay = isMobile || effectiveContainerWidth < HISTORY_BREAKPOINT;
 
   useEffect(() => {
     if (chatContainerWidth !== undefined) return;
+    const container = containerRef.current;
+    if (!container) return;
+
     const updateWidth = () => {
-      if (containerRef.current) {
-        setMeasuredWidth(containerRef.current.clientWidth);
+      containerMeasureRafRef.current = null;
+      const nextWidth = Math.ceil(container.getBoundingClientRect().width);
+      setMeasuredWidth((current) => (current === nextWidth ? current : nextWidth));
+    };
+
+    const scheduleWidthUpdate = () => {
+      if (containerMeasureRafRef.current !== null) {
+        cancelAnimationFrame(containerMeasureRafRef.current);
+      }
+      containerMeasureRafRef.current = requestAnimationFrame(updateWidth);
+    };
+
+    updateWidth();
+
+    const resizeObserver = new ResizeObserver(scheduleWidthUpdate);
+    resizeObserver.observe(container);
+
+    return () => {
+      resizeObserver.disconnect();
+      if (containerMeasureRafRef.current !== null) {
+        cancelAnimationFrame(containerMeasureRafRef.current);
+        containerMeasureRafRef.current = null;
       }
     };
-    updateWidth();
-    window.addEventListener('resize', updateWidth);
-    return () => window.removeEventListener('resize', updateWidth);
   }, [chatContainerWidth]);
   
   // WebSocket integration
