@@ -1,7 +1,7 @@
 'use client';
 
 import type { ComponentProps, ReactNode } from 'react';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   ClipboardCopy,
   ClipboardPaste,
@@ -12,6 +12,7 @@ import {
   FolderPlus,
   Globe2,
   ImagePlus,
+  Images,
   Maximize2,
   Move,
   Pencil,
@@ -40,12 +41,14 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { isProtectedAppOutputFolder } from '@/app/lib/filesystem/app-output-folders';
+import { hasMarpFileName } from '@/app/lib/marp/detect';
 import { useFileStore, type FileNode } from '@/app/store/file-store';
 import { CreateItemDialog, type CreateItemType } from './CreateItemDialog';
 import { DeleteConfirmDialog } from './DeleteConfirmDialog';
 import { DirectoryBrowser } from './DirectoryBrowser';
 import { ShareMarkdownDialog } from './ShareMarkdownDialog';
 import { PublicShareDialog } from './PublicShareDialog';
+import { MarpExportDialog } from './MarpExportDialog';
 
 function getParentPath(path: string) {
   const trimmed = path.replace(/\/+$/, '');
@@ -109,6 +112,8 @@ export function FileActionsDropdown({
   const [createType, setCreateType] = useState<CreateItemType>('file');
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
+  const [marpExportOpen, setMarpExportOpen] = useState(false);
+  const [marpDetection, setMarpDetection] = useState<{ path: string; isMarp: boolean } | null>(null);
   const [publicShareOpen, setPublicShareOpen] = useState(false);
 
   const {
@@ -139,9 +144,14 @@ export function FileActionsDropdown({
   const isProtectedOutputFolder = node
     ? node.type === 'directory' && isProtectedAppOutputFolder(node.path)
     : false;
+  const nodePath = node?.path ?? null;
 
   const isMarkdown = node
     ? node.type === 'file' && /\.(md|mdx|markdown)$/i.test(node.name)
+    : false;
+  const hasMarpName = node ? node.type === 'file' && hasMarpFileName(node.name) : false;
+  const isMarpMarkdown = node
+    ? isMarkdown && (hasMarpName || (marpDetection?.path === node.path && marpDetection.isMarp))
     : false;
 
   const isImageFile = node
@@ -149,6 +159,34 @@ export function FileActionsDropdown({
     : false;
 
   const showMultiSelectOptions = showMultiSelectActions && multiSelectPaths.size > 0;
+
+  useEffect(() => {
+    if (!nodePath || !isMarkdown || hasMarpName) {
+      return;
+    }
+
+    let cancelled = false;
+
+    fetch(`/api/files/marp-detect?path=${encodeURIComponent(nodePath)}`)
+      .then(async (response) => {
+        if (!response.ok) return null;
+        return response.json() as Promise<{ isMarp?: boolean }>;
+      })
+      .then((result) => {
+        if (!cancelled) {
+          setMarpDetection({ path: nodePath, isMarp: !!result?.isMarp });
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setMarpDetection({ path: nodePath, isMarp: false });
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [hasMarpName, isMarkdown, nodePath]);
 
   const closeMenu = () => {
     onOpenChange?.(false);
@@ -316,6 +354,11 @@ export function FileActionsDropdown({
     closeMenu();
   };
 
+  const handleMarpExport = () => {
+    setMarpExportOpen(true);
+    closeMenu();
+  };
+
   const handlePublicShare = () => {
     setPublicShareOpen(true);
     closeMenu();
@@ -454,6 +497,12 @@ export function FileActionsDropdown({
               {t('share')}
             </DropdownMenuItem>
           )}
+          {isMarpMarkdown && (
+            <DropdownMenuItem onSelect={handleMarpExport}>
+              <Images className="h-4 w-4" />
+              {t('exportMarpImages')}
+            </DropdownMenuItem>
+          )}
           {isImageFile && (
             <>
               <DropdownMenuItem onSelect={handleOpenInStudio}>
@@ -564,6 +613,15 @@ export function FileActionsDropdown({
         <ShareMarkdownDialog
           open={shareOpen}
           onOpenChange={setShareOpen}
+          filePath={node.path}
+          fileName={node.name}
+        />
+      )}
+
+      {isMarpMarkdown && node && (
+        <MarpExportDialog
+          open={marpExportOpen}
+          onOpenChange={setMarpExportOpen}
           filePath={node.path}
           fileName={node.name}
         />
