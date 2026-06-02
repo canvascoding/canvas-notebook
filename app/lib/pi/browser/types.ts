@@ -36,6 +36,7 @@ export type BrowserGatewayInput = {
   full_page?: boolean;
   return_image?: boolean;
   clear?: boolean;
+  mutates?: boolean;
 };
 
 export type BrowserGatewayOutput = {

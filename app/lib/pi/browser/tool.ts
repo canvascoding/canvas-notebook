@@ -40,7 +40,7 @@ export function createBrowserGatewayTool(context: BrowserRuntimeContext = {}): A
       selector: Type.Optional(Type.String({ description: 'Fallback CSS selector. Must resolve to exactly one visible element.' })),
       text: Type.Optional(Type.String({ description: 'For type: text to enter.' })),
       key: Type.Optional(Type.String({ description: 'For keypress: key name, e.g. Enter, Escape, ArrowDown.' })),
-      script: Type.Optional(Type.String({ description: 'For evaluate: JavaScript expression or async function body to run in the page context.' })),
+      script: Type.Optional(Type.String({ description: 'For evaluate: JavaScript expression or async function body to run in the page context. Prefer read-only inspection.' })),
       expression: Type.Optional(Type.String({ description: 'For evaluate: alias for script.' })),
       code: Type.Optional(Type.String({ description: 'For evaluate/eval: alias for script.' })),
       wait_until: Type.Optional(Type.Union([
@@ -57,6 +57,7 @@ export function createBrowserGatewayTool(context: BrowserRuntimeContext = {}): A
       full_page: Type.Optional(Type.Boolean({ description: 'For screenshot: capture the full page instead of viewport.' })),
       return_image: Type.Optional(Type.Boolean({ description: 'For screenshot: include image bytes in the tool result. Defaults to false.' })),
       clear: Type.Optional(Type.Boolean({ description: 'For type: clear the existing value before typing. Defaults to true.' })),
+      mutates: Type.Optional(Type.Boolean({ description: 'For evaluate: set true only after explicit user approval when the script intentionally changes page state.' })),
     }),
     execute: async (_toolCallId, params, signal) => {
       try {
