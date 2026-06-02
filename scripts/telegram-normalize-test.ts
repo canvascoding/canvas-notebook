@@ -46,6 +46,16 @@ assertEqual(markdownToTelegramHtml('<b>raw</b> & text'), '&lt;b&gt;raw&lt;/b&gt;
 assertEqual(markdownToTelegramHtml('[bad](javascript:alert(1))'), 'bad)', 'drops unsafe links');
 assertEqual(markdownToTelegramHtml('## Ordner'), '<b>Ordner</b>', 'converts headings to bold text');
 assertEqual(markdownToTelegramHtml('- automationen/'), '• automationen/', 'converts markdown bullets to Telegram bullets');
+assertEqual(
+  markdownToTelegramHtml('| Bereich | Status |\n| --- | --- |\n| Agent | aktiv |\n| UI | prüfen |'),
+  '• Bereich: Agent; Status: aktiv\n• Bereich: UI; Status: prüfen',
+  'rewrites markdown tables as labeled bullets',
+);
+assertContains(
+  markdownToTelegramHtml('```md\n| Keep | Table |\n| --- | --- |\n```'),
+  '<pre>md\n| Keep | Table |\n| --- | --- |\n</pre>',
+  'keeps tables inside code blocks unchanged',
+);
 
 console.log('\nchunkTelegramMessage:');
 const shortChunks = chunkTelegramMessage('short');
