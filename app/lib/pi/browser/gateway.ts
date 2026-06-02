@@ -11,6 +11,7 @@ import {
   closeBrowserRuntime,
   ensurePage,
   getConsoleEntries,
+  getBrowserProfileContextKey,
   getBrowserRuntimeContextKey,
   getStatusDetails,
   getTargetStore,
@@ -109,6 +110,8 @@ function helpText(topic?: string): string {
       '- Do not solve CAPTCHAs, bypass paywalls, or bypass browser/web safety interstitials.',
       '- Use evaluate primarily for read-only inspection. Page mutations or form submission through evaluate require explicit user approval.',
       '- Prefer web_fetch for ordinary page reading; use browser only when rendering, UI state, login/session, screenshot, or local app verification requires it.',
+      '- For login continuity, use ordinary site login flows and accept necessary or persistent cookie/storage prompts when the user wants the session to remain signed in.',
+      '- Do not accept optional tracking, marketing, or third-party cookies unless the user explicitly asks for that.',
     ].join('\n');
   }
 
@@ -119,13 +122,15 @@ function helpText(topic?: string): string {
       '2. Use the returned target_id for click, type, or scroll when possible.',
       '3. Use selector only when target_id is unavailable and the selector resolves to exactly one visible element.',
       '4. Re-run observe after navigation, modal/menu changes, or failed interactions.',
-      '5. Close the browser when finished on small machines.',
+      '5. Use remember-me/keep-me-signed-in options when the user wants the login to persist across future agent sessions.',
+      '6. Close the browser when finished on small machines; persistent cookies and local storage stay in the agent browser profile.',
     ].join('\n');
   }
 
   return [
     'Browser gateway actions: status, start, navigate, observe, click, type, keypress, scroll, screenshot, extract_content, evaluate, console_logs, close.',
     'Use web_fetch first for static HTML, docs, blogs, and ordinary content extraction. Use this browser gateway only for JavaScript-rendered pages, UI interaction, screenshots, login/session checks, or local app verification.',
+    'Browser storage is persistent per user and agent by default, so cookies, local storage, and site login state can survive new agent sessions. Use normal site prompts to keep sign-ins persistent when appropriate.',
     'Call help with topic "safety" or "interaction" for more specific guidance.',
   ].join('\n');
 }
@@ -296,9 +301,10 @@ async function screenshot(
     resolveBrowserUserDataDir(
       process.env,
       existsSync,
-      getBrowserRuntimeContextKey(context),
+      getBrowserProfileContextKey(context),
     ),
     'screenshots',
+    getBrowserRuntimeContextKey(context),
   );
   await fs.mkdir(screenshotDir, { recursive: true });
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
@@ -446,7 +452,7 @@ export async function runBrowserGatewayAction(
     if (action === 'close') {
       await closeBrowserRuntime(context, 'requested');
       targetStore.clear();
-      return { text: 'Browser closed.', details: { running: false } };
+      return { text: 'Browser session closed.', details: { running: false } };
     }
 
     if (action === 'start') {
