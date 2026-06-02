@@ -22,6 +22,7 @@ write_caddy_config() {
   local tmp
   tmp="$(mktemp)"
   caddy_site_block "$domain" > "$tmp"
+  run_root mkdir -p "$(dirname "$CADDYFILE")"
   run_root cp "$tmp" "$CADDYFILE"
   rm -f "$tmp"
 }
@@ -35,7 +36,7 @@ sync_caddy() {
     return 0
   fi
 
-  if ! command -v caddy >/dev/null 2>&1 && ! command -v systemctl >/dev/null 2>&1; then
+  if ! command -v caddy >/dev/null 2>&1; then
     info "Caddy is not installed; skipping Caddy sync."
     return 0
   fi
@@ -63,7 +64,7 @@ caddy_fix() {
 
   printf '\n== Caddy fix ==\n'
 
-  if ! command -v caddy >/dev/null 2>&1 && ! command -v systemctl >/dev/null 2>&1; then
+  if ! command -v caddy >/dev/null 2>&1; then
     warn "Caddy is not installed; nothing to fix."
     return 1
   fi
