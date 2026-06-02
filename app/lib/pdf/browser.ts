@@ -7,7 +7,7 @@ let browser: Browser | null = null;
 
 const EMOJI_FONT_FALLBACK = '"Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji"';
 
-function findChromiumExecutable(): string {
+export function findChromiumExecutable(): string {
   // 1. Explicit env override
   if (process.env.CHROMIUM_PATH && fs.existsSync(process.env.CHROMIUM_PATH)) {
     return process.env.CHROMIUM_PATH;

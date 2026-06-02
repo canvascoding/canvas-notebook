@@ -2,14 +2,16 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
-import { AlertCircle, CheckCircle2, ChevronLeft, ChevronRight, Code2, Download, Eye, FileText, Loader2, MoreVertical, RefreshCw, Save, Share2, X } from 'lucide-react';
+import { AlertCircle, CheckCircle2, ChevronLeft, ChevronRight, Code2, Download, Eye, FileText, Loader2, MoreVertical, Presentation, RefreshCw, Save, Share2, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useFileStore, type FileNode } from '@/app/store/file-store';
 import { useEditorStore } from '@/app/store/editor-store';
 import { getFileWatcherClient, type FileEvent } from '@/app/lib/file-watcher/client';
+import { isMarpMarkdown } from '@/app/lib/marp/detect';
 import { MarkdownEditor } from './MarkdownEditor';
+import { MarpPreview } from './MarpPreview';
 import { ShareMarkdownDialog } from '../file-browser/ShareMarkdownDialog';
 import { FileActionsDropdown } from '../file-browser/FileActionsDropdown';
 import { CodeEditor } from './CodeEditor';
@@ -317,6 +319,11 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
   const [shareOpen, setShareOpen] = useState(false);
   const [htmlViewMode, setHtmlViewMode] = useState<'code' | 'preview'>('code');
   const [htmlRefreshKey, setHtmlRefreshKey] = useState(0);
+  const [markdownViewOverride, setMarkdownViewOverride] = useState<{
+    path: string | null;
+    mode: 'markdown' | 'slides';
+  }>({ path: null, mode: 'markdown' });
+  const [marpRefreshKey, setMarpRefreshKey] = useState(0);
   const [isClosingPreview, setIsClosingPreview] = useState(false);
 
   useEffect(() => {
@@ -392,6 +399,7 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
   }, [currentFile]);
 
   const isMarkdown = MARKDOWN_EXTENSIONS.has(extension);
+  const isMarpMarkdownFile = currentFile ? isMarkdown && isMarpMarkdown(currentFile.path, draft) : false;
   const isHtml = HTML_EXTENSIONS.has(extension);
   const isOffice = OFFICE_EXTENSIONS.has(extension);
   const isExcalidraw = EXCALIDRAW_EXTENSIONS.has(extension);
@@ -401,6 +409,9 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
   const isVideo = VIDEO_EXTENSIONS.has(extension);
   const isText = extension === '' || TEXT_EXTENSIONS.has(extension);
   const isBinary = !isText && !isImage && !isPdf && !isMarkdown && !isHtml && !isExcalidraw && !isAudio && !isVideo && !isOffice;
+  const markdownViewMode = isMarpMarkdownFile
+    ? (markdownViewOverride.path === activePath ? markdownViewOverride.mode : 'slides')
+    : 'markdown';
   const savedTime = formatTimestamp(lastSavedAt);
   const breadcrumbs = currentFile ? currentFile.path.split('/').filter(Boolean) : [];
   const currentFileNode = useMemo<FileNode | null>(() => {
@@ -652,6 +663,38 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
               </Button>
             </>
           )}
+          {isMarpMarkdownFile && (
+            <>
+              {markdownViewMode === 'slides' && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 w-6 p-0"
+                  onClick={() => setMarpRefreshKey((key) => key + 1)}
+                  title={t('refreshPreview')}
+                >
+                  <RefreshCw className="h-3.5 w-3.5" />
+                </Button>
+              )}
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 gap-1 px-2"
+                onClick={() => {
+                  setMarkdownViewOverride({
+                    path: activePath,
+                    mode: markdownViewMode === 'markdown' ? 'slides' : 'markdown',
+                  });
+                }}
+              >
+                {markdownViewMode === 'markdown' ? (
+                  <><Presentation className="h-3.5 w-3.5" /><span>{t('slidesPreview')}</span></>
+                ) : (
+                  <><Code2 className="h-3.5 w-3.5" /><span>{t('markdownEditor')}</span></>
+                )}
+              </Button>
+            </>
+          )}
           {isImage && <span className="bg-muted px-2 py-0.5 text-foreground shrink-0">{t('readOnly')}</span>}
           {(isMarkdown || isHtml) && (
             <Button
@@ -795,7 +838,11 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
           ) : isExcalidraw ? (
             <ExcalidrawEditor path={currentFile.path} value={draft} onChange={updateDraft} />
           ) : isMarkdown ? (
-            <MarkdownEditor value={draft} onChange={updateDraft} />
+            isMarpMarkdownFile && markdownViewMode === 'slides' ? (
+              <MarpPreview path={currentFile.path} content={draft} refreshKey={marpRefreshKey} />
+            ) : (
+              <MarkdownEditor value={draft} onChange={updateDraft} />
+            )
           ) : (
             <CodeEditor value={draft} onChange={updateDraft} readOnly={false} />
           )}
