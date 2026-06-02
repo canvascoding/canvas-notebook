@@ -4,6 +4,7 @@ import { saveUploadBuffer } from '@/app/lib/filesystem/upload-handler';
 import { getUserUploadsRoot } from '@/app/lib/runtime-data-paths';
 import { getBinding } from './link-token';
 import { registerCommands } from './commands';
+import { sendTypingAction } from './outbound';
 import type { InboundMessage } from '../types';
 import { handleInboundChannelMessage } from '@/app/lib/channels/router';
 import { TELEGRAM_CHANNEL_ID, telegramChannelSessionKey } from '@/app/lib/channels/constants';
@@ -111,6 +112,8 @@ export function setupInboundHandler(bot: Bot, onInbound: (message: InboundMessag
       await ctx.reply('Bitte verknüpfe zuerst deinen Account: /start TOKEN');
       return;
     }
+
+    void sendTypingAction(bot, chatId);
 
     const uploads: SavedTelegramUpload[] = [];
     if (ctx.message?.photo) {
