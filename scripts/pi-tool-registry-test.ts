@@ -119,6 +119,7 @@ async function main() {
   assert.match(browserParametersJson, /evaluate/);
   assert.match(browserParametersJson, /eval/);
   assert.match(browserParametersJson, /script/);
+  assert.match(browserParametersJson, /mutates/);
 
   const secretsDir = path.join(dataDir, 'secrets');
   const secretFile = path.join(secretsDir, 'Canvas-Integrations.env');

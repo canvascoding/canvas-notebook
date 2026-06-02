@@ -318,6 +318,39 @@ export async function closeBrowserRuntime(
   await closeProfileIfUnused(profileKey, profile);
 }
 
+export async function resetBrowserSessionPage(
+  context: BrowserRuntimeContext = {},
+): Promise<boolean> {
+  const profile = browserProfiles.get(getProfileKey(context));
+  const session = profile?.sessions.get(getSessionKey(context));
+  const currentPage = session?.activePage;
+  if (!session || !currentPage) {
+    return false;
+  }
+
+  session.activePage = null;
+  session.targetStore.clear();
+
+  if (currentPage.isClosed()) {
+    return true;
+  }
+
+  let timeoutId: NodeJS.Timeout | null = null;
+  await Promise.race([
+    currentPage.close().catch(() => undefined),
+    new Promise<void>((resolve) => {
+      timeoutId = setTimeout(resolve, 2_000);
+      timeoutId.unref?.();
+    }),
+  ]).finally(() => {
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+    }
+  });
+
+  return true;
+}
+
 export async function getStatusDetails(context: BrowserRuntimeContext = {}): Promise<BrowserStatusDetails> {
   const profile = browserProfiles.get(getProfileKey(context));
   if (!profile || !profile.browser?.connected) {
