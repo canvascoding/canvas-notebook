@@ -200,9 +200,9 @@ function buildEphemeralSessionTitle(goal: string): string {
   return truncate(`Delegate: ${goal.replace(/\s+/g, ' ').trim()}`, 120);
 }
 
-async function resolveEphemeralTools(request: DelegateTaskRequest): Promise<AgentTool[]> {
+async function resolveEphemeralTools(request: DelegateTaskRequest, sessionId: string): Promise<AgentTool[]> {
   const { getPiTools } = await import('@/app/lib/pi/tool-registry');
-  const allTools = await getPiTools(request.userId, request.sourceAgentId);
+  const allTools = await getPiTools(request.userId, request.sourceAgentId, sessionId);
   const allowedToolNames = resolvePiToolsetTools(request.toolsets, allTools.map((tool) => tool.name));
   for (const blockedToolName of BLOCKED_CHILD_TOOL_NAMES) {
     allowedToolNames.delete(blockedToolName);
@@ -358,10 +358,10 @@ async function startEphemeralDelegatedRun(request: DelegateTaskRequest): Promise
   const provider = effectiveConfig.activeProvider;
   const providerConfig = effectiveConfig.providerConfig;
   const model = effectiveConfig.model;
-  const tools = await resolveEphemeralTools(request);
+  const sessionId = buildDelegatedSessionId();
+  const tools = await resolveEphemeralTools(request, sessionId);
   const { systemPrompt: baseSystemPrompt } = await loadManagedAgentSystemPrompt(request.sourceAgentId);
   const systemPrompt = buildEphemeralSystemPrompt(baseSystemPrompt, request, tools);
-  const sessionId = buildDelegatedSessionId();
   const promptMessage = buildDelegationPrompt(request);
 
   await savePiSession(

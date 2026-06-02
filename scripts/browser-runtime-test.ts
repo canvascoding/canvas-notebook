@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   buildBrowserLaunchSpec,
   resolveChromiumExecutable,
+  resolveBrowserUserDataDir,
 } from '../app/lib/pi/browser/chromium';
 
 function makeExistsSync(existingPaths: string[]) {
@@ -101,11 +102,42 @@ function testDesktopVisibleLaunch() {
   assert.equal(spec.userDataDir, '/tmp/canvas-data/cache/browser-runtime');
 }
 
+function testSessionUserDataDir() {
+  const dir = resolveBrowserUserDataDir(
+    makeEnv({ DATA: '/tmp/canvas-data' }),
+    makeExistsSync([]),
+    'User 1 / Agent:Main / Sess_ABC',
+  );
+
+  assert.equal(dir, '/tmp/canvas-data/cache/browser-runtime/user-1-agent-main-sess_abc');
+}
+
+function testLaunchSpecUsesResolvedUserDataDirFlag() {
+  const spec = buildBrowserLaunchSpec({
+    env: {
+      NODE_ENV: 'test',
+      CANVAS_RUNTIME_ENV: 'docker',
+      CHROMIUM_PATH: '/usr/bin/chromium',
+      DATA: '/data',
+    } as NodeJS.ProcessEnv,
+    platform: 'linux',
+    existsSync: makeExistsSync(['/usr/bin/chromium']),
+    execSyncImpl: (() => '') as never,
+    userDataDir: '/data/cache/browser-runtime/session-a',
+  });
+
+  assert.equal(spec.userDataDir, '/data/cache/browser-runtime/session-a');
+  assert.ok(spec.args.includes('--user-data-dir=/data/cache/browser-runtime/session-a'));
+  assert.ok(!spec.args.includes('--user-data-dir=undefined'));
+}
+
 testEnvOverrideWins();
 testSystemFallbackWorks();
 testWhichFallbackWorks();
 testErrorListsAttemptedPaths();
 testContainerLaunchFlags();
 testDesktopVisibleLaunch();
+testSessionUserDataDir();
+testLaunchSpecUsesResolvedUserDataDirFlag();
 
 console.log('browser-runtime-test: ok');
