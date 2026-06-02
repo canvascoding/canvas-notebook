@@ -2431,6 +2431,7 @@ function getToolNotes(tool: AgentTool, group: PiToolGroup): string[] {
   if (group === 'Browser') {
     notes.push('Starts controlled headless Chromium and may interact with live webpages.');
     notes.push('Use web_fetch first unless JavaScript rendering, UI interaction, screenshots, login/session checks, or local app verification require a browser.');
+    notes.push('Browser storage persists per user and agent by default; accept necessary persistent cookies for requested login continuity, but not optional tracking cookies without explicit user approval.');
   }
   if (group === 'Web') {
     notes.push('May call external web services and load public network resources.');

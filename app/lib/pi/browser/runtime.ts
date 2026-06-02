@@ -11,7 +11,7 @@ import type { BrowserStatusDetails, ConsoleEntry } from './types';
 const DEFAULT_TIMEOUT_MS = 15_000;
 export const IDLE_CLOSE_MS = 5 * 60 * 1000;
 const MAX_CONSOLE_ENTRIES = 200;
-const MAX_CONCURRENT_BROWSER_RUNTIMES = parseInt(process.env.CANVAS_BROWSER_MAX_CONCURRENT_SESSIONS || '', 10) || 8;
+const MAX_CONCURRENT_BROWSER_PROFILES = parseInt(process.env.CANVAS_BROWSER_MAX_CONCURRENT_PROFILES || process.env.CANVAS_BROWSER_MAX_CONCURRENT_SESSIONS || '', 10) || 8;
 
 export type BrowserRuntimeContext = {
   userId?: string | null;
@@ -19,17 +19,23 @@ export type BrowserRuntimeContext = {
   sessionId?: string | null;
 };
 
-type RuntimeState = {
+type BrowserProfileScope = 'agent' | 'session' | 'user';
+
+type BrowserProfileState = {
   browser: Browser | null;
-  activePage: Page | null;
   launchPromise: Promise<Browser> | null;
+  sessions: Map<string, BrowserSessionState>;
+};
+
+type BrowserSessionState = {
+  activePage: Page | null;
   idleTimer: NodeJS.Timeout | null;
   consoleEntries: ConsoleEntry[];
   targetStore: BrowserTargetStore;
   actionLock: Promise<void>;
 };
 
-const browserRuntimes = new Map<string, RuntimeState>();
+const browserProfiles = new Map<string, BrowserProfileState>();
 
 type ConsoleMessageLike = {
   type(): string;
@@ -52,63 +58,119 @@ function clampMaxConcurrent(value: number): number {
   return Math.min(Math.max(Math.floor(value), 1), 200);
 }
 
-function getRuntimeKey(context: BrowserRuntimeContext = {}): string {
-  const userId = sanitizeScopeValue(context.userId?.trim() || 'anon', 'anon');
-  const agentId = sanitizeScopeValue(context.agentId?.trim() || 'default', 'default');
-  const sessionId = sanitizeScopeValue(context.sessionId?.trim() || 'shared', 'shared');
-  return `${userId}__${agentId}__${sessionId}`;
+function getBrowserProfileScope(): BrowserProfileScope {
+  const configured = process.env.CANVAS_BROWSER_PROFILE_SCOPE?.trim().toLowerCase();
+  if (configured === 'session' || configured === 'user') {
+    return configured;
+  }
+  return 'agent';
+}
+
+function getUserScope(context: BrowserRuntimeContext = {}): string {
+  return sanitizeScopeValue(context.userId?.trim() || 'anon', 'anon');
+}
+
+function getAgentScope(context: BrowserRuntimeContext = {}): string {
+  return sanitizeScopeValue(context.agentId?.trim() || 'default', 'default');
+}
+
+function getSessionScope(context: BrowserRuntimeContext = {}): string {
+  return sanitizeScopeValue(context.sessionId?.trim() || 'shared', 'shared');
+}
+
+function getSessionKey(context: BrowserRuntimeContext = {}): string {
+  return `${getUserScope(context)}__${getAgentScope(context)}__${getSessionScope(context)}`;
+}
+
+function getProfileKey(context: BrowserRuntimeContext = {}): string {
+  const userId = getUserScope(context);
+  const agentId = getAgentScope(context);
+  const sessionId = getSessionScope(context);
+
+  switch (getBrowserProfileScope()) {
+    case 'session':
+      return `${userId}__${agentId}__${sessionId}`;
+    case 'user':
+      return `${userId}`;
+    case 'agent':
+    default:
+      return `${userId}__${agentId}`;
+  }
 }
 
 export function getBrowserRuntimeContextKey(context: BrowserRuntimeContext = {}): string {
-  return getRuntimeKey(context);
+  return getSessionKey(context);
 }
 
-function getOrCreateRuntimeState(context: BrowserRuntimeContext = {}): RuntimeState {
-  const key = getRuntimeKey(context);
-  const existing = browserRuntimes.get(key);
-  if (existing) {
-    return existing;
-  }
+export function getBrowserProfileContextKey(context: BrowserRuntimeContext = {}): string {
+  return getProfileKey(context);
+}
 
-  const activeCount = Array.from(browserRuntimes.values())
-    .filter((item) => item.browser || item.launchPromise).length;
-  const maxConcurrent = clampMaxConcurrent(MAX_CONCURRENT_BROWSER_RUNTIMES);
-  if (activeCount >= maxConcurrent) {
-    throw new Error(
-      `Browser concurrency limit reached (${activeCount}/${maxConcurrent}). ` +
-      'Close existing browser sessions with action: close.',
-    );
-  }
-
-  const state: RuntimeState = {
-    browser: null,
+function createSessionState(): BrowserSessionState {
+  return {
     activePage: null,
-    launchPromise: null,
     idleTimer: null,
     consoleEntries: [],
     targetStore: new BrowserTargetStore(),
     actionLock: Promise.resolve(),
   };
-  browserRuntimes.set(key, state);
-  return state;
+}
+
+function getOrCreateProfileState(context: BrowserRuntimeContext = {}): BrowserProfileState {
+  const profileKey = getProfileKey(context);
+  const existing = browserProfiles.get(profileKey);
+  if (existing) {
+    return existing;
+  }
+
+  const activeCount = Array.from(browserProfiles.values())
+    .filter((item) => item.browser || item.launchPromise).length;
+  const maxConcurrent = clampMaxConcurrent(MAX_CONCURRENT_BROWSER_PROFILES);
+  if (activeCount >= maxConcurrent) {
+    throw new Error(
+      `Browser profile concurrency limit reached (${activeCount}/${maxConcurrent}). ` +
+      'Close existing browser sessions with action: close.',
+    );
+  }
+
+  const profile: BrowserProfileState = {
+    browser: null,
+    launchPromise: null,
+    sessions: new Map(),
+  };
+  browserProfiles.set(profileKey, profile);
+  return profile;
+}
+
+function getOrCreateSessionState(context: BrowserRuntimeContext = {}): BrowserSessionState {
+  const profile = getOrCreateProfileState(context);
+  const sessionKey = getSessionKey(context);
+  const existing = profile.sessions.get(sessionKey);
+  if (existing) {
+    return existing;
+  }
+
+  const session = createSessionState();
+  profile.sessions.set(sessionKey, session);
+  return session;
 }
 
 export function getTargetStore(context: BrowserRuntimeContext = {}): BrowserTargetStore {
-  return getOrCreateRuntimeState(context).targetStore;
+  return getOrCreateSessionState(context).targetStore;
 }
 
 export async function withBrowserRuntimeLock<T>(
   context: BrowserRuntimeContext = {},
   fn: () => Promise<T>,
 ): Promise<T> {
-  const state = getOrCreateRuntimeState(context);
-  const previousLock = state.actionLock;
+  const session = getOrCreateSessionState(context);
+  const previousLock = session.actionLock;
   let releaseCurrentLock: () => void = () => undefined;
   const currentLock = new Promise<void>((resolve) => {
     releaseCurrentLock = resolve;
   });
 
-  state.actionLock = previousLock.then(() => currentLock, () => currentLock);
+  session.actionLock = previousLock.then(() => currentLock, () => currentLock);
   await previousLock.catch(() => undefined);
 
   try {
@@ -118,139 +180,153 @@ export async function withBrowserRuntimeLock<T>(
   }
 }
 
-function clearTargetStore(context: BrowserRuntimeContext = {}): void {
-  const state = browserRuntimes.get(getRuntimeKey(context));
-  state?.targetStore.clear();
-}
-
 export function scheduleIdleClose(context: BrowserRuntimeContext = {}): void {
-  const state = getOrCreateRuntimeState(context);
+  const session = getOrCreateSessionState(context);
 
-  if (state.idleTimer) {
-    clearTimeout(state.idleTimer);
+  if (session.idleTimer) {
+    clearTimeout(session.idleTimer);
   }
-  state.idleTimer = setTimeout(() => {
+  session.idleTimer = setTimeout(() => {
     void closeBrowserRuntime(context, 'idle timeout');
   }, IDLE_CLOSE_MS);
-  state.idleTimer.unref?.();
+  session.idleTimer.unref?.();
 }
 
-function recordConsoleMessage(state: RuntimeState, message: ConsoleMessageLike): void {
+function recordConsoleMessage(session: BrowserSessionState, message: ConsoleMessageLike): void {
   const location = message.location();
   const renderedLocation = location.url
     ? `${location.url}${location.lineNumber !== undefined ? `:${location.lineNumber}` : ''}`
     : undefined;
-  state.consoleEntries.push({
+  session.consoleEntries.push({
     level: message.type(),
     text: message.text(),
     location: renderedLocation,
     timestamp: new Date().toISOString(),
   });
-  if (state.consoleEntries.length > MAX_CONSOLE_ENTRIES) {
-    state.consoleEntries.splice(0, state.consoleEntries.length - MAX_CONSOLE_ENTRIES);
+  if (session.consoleEntries.length > MAX_CONSOLE_ENTRIES) {
+    session.consoleEntries.splice(0, session.consoleEntries.length - MAX_CONSOLE_ENTRIES);
+  }
+}
+
+async function closeProfileIfUnused(profileKey: string, profile: BrowserProfileState): Promise<void> {
+  if (profile.sessions.size > 0) {
+    return;
+  }
+
+  const currentBrowser = profile.browser;
+  profile.browser = null;
+  profile.launchPromise = null;
+  browserProfiles.delete(profileKey);
+
+  if (currentBrowser?.connected) {
+    await currentBrowser.close().catch(() => undefined);
   }
 }
 
 async function ensureBrowser(context: BrowserRuntimeContext = {}): Promise<Browser> {
-  const state = getOrCreateRuntimeState(context);
+  const profile = getOrCreateProfileState(context);
 
-  if (state.browser?.connected) {
+  if (profile.browser?.connected) {
     scheduleIdleClose(context);
-    return state.browser;
+    return profile.browser;
   }
 
-  if (state.launchPromise) {
-    return state.launchPromise;
+  if (profile.launchPromise) {
+    return profile.launchPromise;
   }
 
-  const userDataDir = resolveBrowserUserDataDir(process.env, existsSync, getRuntimeKey(context));
+  const userDataDir = resolveBrowserUserDataDir(process.env, existsSync, getProfileKey(context));
   const launchSpec = buildBrowserLaunchSpec({ userDataDir });
   await fs.mkdir(launchSpec.userDataDir, { recursive: true });
 
-  state.launchPromise = puppeteer.launch({
+  profile.launchPromise = puppeteer.launch({
     executablePath: launchSpec.executablePath,
     headless: launchSpec.headless,
     args: launchSpec.args,
     defaultViewport: { width: 1280, height: 800 },
   }).then((launchedBrowser) => {
-    state.browser = launchedBrowser;
-    state.browser.on('disconnected', () => {
-      state.browser = null;
-      state.activePage = null;
+    profile.browser = launchedBrowser;
+    profile.browser.on('disconnected', () => {
+      profile.browser = null;
+      for (const session of profile.sessions.values()) {
+        session.activePage = null;
+        session.targetStore.clear();
+      }
     });
     scheduleIdleClose(context);
     return launchedBrowser;
   }).finally(() => {
-    state.launchPromise = null;
+    profile.launchPromise = null;
   });
 
-  return state.launchPromise;
+  return profile.launchPromise;
 }
 
 export async function ensurePage(context: BrowserRuntimeContext = {}): Promise<Page> {
-  const state = getOrCreateRuntimeState(context);
-  const b = await ensureBrowser(context);
-  if (state.activePage && !state.activePage.isClosed()) {
-    return state.activePage;
+  const session = getOrCreateSessionState(context);
+  const browser = await ensureBrowser(context);
+  if (session.activePage && !session.activePage.isClosed()) {
+    return session.activePage;
   }
 
-  const pages = await b.pages();
-  state.activePage = pages.find((page) => !page.isClosed()) || await b.newPage();
-  state.activePage.setDefaultTimeout(DEFAULT_TIMEOUT_MS);
-  state.activePage.setDefaultNavigationTimeout(DEFAULT_TIMEOUT_MS);
-  state.activePage.on('console', (message: ConsoleMessageLike) => {
-    recordConsoleMessage(state, message);
+  session.activePage = await browser.newPage();
+  session.activePage.setDefaultTimeout(DEFAULT_TIMEOUT_MS);
+  session.activePage.setDefaultNavigationTimeout(DEFAULT_TIMEOUT_MS);
+  session.activePage.on('console', (message: ConsoleMessageLike) => {
+    recordConsoleMessage(session, message);
+  });
+  session.activePage.on('close', () => {
+    if (session.activePage?.isClosed()) {
+      session.activePage = null;
+      session.targetStore.clear();
+    }
   });
 
-  for (const page of pages) {
-    if (page !== state.activePage && !page.isClosed()) {
-      await page.close().catch(() => undefined);
-    }
-  }
-
-  return state.activePage;
+  return session.activePage;
 }
 
 export async function closeBrowserRuntime(
   context: BrowserRuntimeContext = {},
   reason: string,
 ): Promise<void> {
-  const key = getRuntimeKey(context);
-  const state = browserRuntimes.get(key);
-  if (!state) {
+  const profileKey = getProfileKey(context);
+  const sessionKey = getSessionKey(context);
+  const profile = browserProfiles.get(profileKey);
+  const session = profile?.sessions.get(sessionKey);
+  if (!profile || !session) {
     return;
   }
 
-  if (state.idleTimer) {
-    clearTimeout(state.idleTimer);
-    state.idleTimer = null;
+  if (session.idleTimer) {
+    clearTimeout(session.idleTimer);
+    session.idleTimer = null;
   }
 
-  const currentBrowser = state.browser;
-  state.browser = null;
-  state.activePage = null;
-  state.launchPromise = null;
-  clearTargetStore(context);
+  const currentPage = session.activePage;
+  session.activePage = null;
+  session.targetStore.clear();
 
-  if (currentBrowser?.connected) {
-    await currentBrowser.close().catch(() => undefined);
+  if (currentPage && !currentPage.isClosed()) {
+    await currentPage.close().catch(() => undefined);
   }
 
   if (reason !== 'idle timeout') {
-    state.consoleEntries.length = 0;
+    session.consoleEntries.length = 0;
   }
 
-  browserRuntimes.delete(key);
+  profile.sessions.delete(sessionKey);
+  await closeProfileIfUnused(profileKey, profile);
 }
 
 export async function getStatusDetails(context: BrowserRuntimeContext = {}): Promise<BrowserStatusDetails> {
-  const state = browserRuntimes.get(getRuntimeKey(context));
-  if (!state || !state.browser?.connected) {
+  const profile = browserProfiles.get(getProfileKey(context));
+  if (!profile || !profile.browser?.connected) {
     return { running: false };
   }
 
-  const pages = await state.browser.pages().catch(() => []);
-  const page = state.activePage && !state.activePage.isClosed() ? state.activePage : pages[0];
+  const session = profile.sessions.get(getSessionKey(context));
+  const pages = await profile.browser.pages().catch(() => []);
+  const page = session?.activePage && !session.activePage.isClosed() ? session.activePage : null;
   return {
     running: true,
     pageCount: pages.length,
@@ -261,9 +337,10 @@ export async function getStatusDetails(context: BrowserRuntimeContext = {}): Pro
 }
 
 export function getConsoleEntries(context: BrowserRuntimeContext = {}, limit: number): ConsoleEntry[] {
-  const state = browserRuntimes.get(getRuntimeKey(context));
-  if (!state) {
+  const profile = browserProfiles.get(getProfileKey(context));
+  const session = profile?.sessions.get(getSessionKey(context));
+  if (!session) {
     return [];
   }
-  return state.consoleEntries.slice(-limit);
+  return session.consoleEntries.slice(-limit);
 }

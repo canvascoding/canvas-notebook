@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import Module from 'node:module';
 
 import {
   buildBrowserLaunchSpec,
@@ -131,13 +132,59 @@ function testLaunchSpecUsesResolvedUserDataDirFlag() {
   assert.ok(!spec.args.includes('--user-data-dir=undefined'));
 }
 
-testEnvOverrideWins();
-testSystemFallbackWorks();
-testWhichFallbackWorks();
-testErrorListsAttemptedPaths();
-testContainerLaunchFlags();
-testDesktopVisibleLaunch();
-testSessionUserDataDir();
-testLaunchSpecUsesResolvedUserDataDirFlag();
+async function testRuntimeProfileKeys() {
+  const moduleInternals = Module as typeof Module & {
+    _load: (request: string, parent: NodeModule | null, isMain: boolean) => unknown;
+  };
+  const originalLoad = moduleInternals._load;
+  moduleInternals._load = (request, parent, isMain) => {
+    if (request === 'server-only') {
+      return {};
+    }
+    return originalLoad(request, parent, isMain);
+  };
 
-console.log('browser-runtime-test: ok');
+  const originalProfileScope = process.env.CANVAS_BROWSER_PROFILE_SCOPE;
+  try {
+    const {
+      getBrowserProfileContextKey,
+      getBrowserRuntimeContextKey,
+    } = await import('../app/lib/pi/browser/runtime');
+
+    delete process.env.CANVAS_BROWSER_PROFILE_SCOPE;
+    const sessionA = { userId: 'User 1', agentId: 'Agent:Main', sessionId: 'Sess A' };
+    const sessionB = { userId: 'User 1', agentId: 'Agent:Main', sessionId: 'Sess B' };
+    assert.equal(getBrowserProfileContextKey(sessionA), 'user-1__agent-main');
+    assert.equal(getBrowserProfileContextKey(sessionB), 'user-1__agent-main');
+    assert.notEqual(getBrowserRuntimeContextKey(sessionA), getBrowserRuntimeContextKey(sessionB));
+
+    process.env.CANVAS_BROWSER_PROFILE_SCOPE = 'session';
+    assert.equal(getBrowserProfileContextKey(sessionA), getBrowserRuntimeContextKey(sessionA));
+  } finally {
+    if (originalProfileScope === undefined) {
+      delete process.env.CANVAS_BROWSER_PROFILE_SCOPE;
+    } else {
+      process.env.CANVAS_BROWSER_PROFILE_SCOPE = originalProfileScope;
+    }
+    moduleInternals._load = originalLoad;
+  }
+}
+
+async function main() {
+  testEnvOverrideWins();
+  testSystemFallbackWorks();
+  testWhichFallbackWorks();
+  testErrorListsAttemptedPaths();
+  testContainerLaunchFlags();
+  testDesktopVisibleLaunch();
+  testSessionUserDataDir();
+  testLaunchSpecUsesResolvedUserDataDirFlag();
+  await testRuntimeProfileKeys();
+
+  console.log('browser-runtime-test: ok');
+}
+
+main().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});

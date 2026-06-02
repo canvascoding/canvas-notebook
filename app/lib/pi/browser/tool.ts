@@ -13,6 +13,7 @@ export function createBrowserGatewayTool(context: BrowserRuntimeContext = {}): A
     description:
       'Controlled headless Chromium gateway. Use web_fetch first for ordinary web content. ' +
       'Use browser only for JavaScript-rendered pages, UI interaction, screenshots, login/session checks, or local app verification. ' +
+      'Browser storage persists per user and agent by default, so accept necessary or persistent cookie/storage prompts when the user wants login continuity; do not accept optional tracking cookies without explicit user approval. ' +
       'Call action "help" for detailed browser safety or interaction guidance.',
     executionMode: 'sequential',
     parameters: Type.Object({
