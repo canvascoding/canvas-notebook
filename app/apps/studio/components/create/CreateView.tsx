@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useTranslations } from 'next-intl';
-import { Sparkles } from 'lucide-react';
+import { AlertTriangle, ExternalLink, KeyRound, Sparkles } from 'lucide-react';
+import { Link } from '@/i18n/navigation';
 import { Button } from '@/components/ui/button';
 import { useStudioGeneration } from '../../hooks/useStudioGeneration';
 import { useStudioPersonas } from '../../hooks/useStudioPersonas';
@@ -28,6 +29,9 @@ import { toMediaUrl, toPreviewUrl, toWorkspaceMediaUrl } from '@/app/lib/utils/m
 import { useSetStudioChatContext } from '@/app/apps/studio/context/studio-chat-context';
 import { useStudioGenerationStore } from '@/app/store/studio-generation-store';
 import { buildStudioGeneratePayload } from '../../utils/studio-generate-payload';
+import { EMPTY_STUDIO_PROVIDER_CONFIG, type StudioProviderConfig } from '../../types/config';
+
+const KIE_REFERRAL_URL = 'https://kie.ai?ref=3564e992e10640926d4f0b1620c3a79f';
 
 const STARTING_POINTS = [
   {
@@ -89,6 +93,75 @@ function EmptyState() {
   );
 }
 
+type StudioProviderRequirement = 'gemini' | 'openai' | 'kie';
+
+function hasProviderAccess(config: StudioProviderConfig, provider: StudioProviderRequirement): boolean {
+  return config.localApiKeys[provider] || config.managedMediaAvailable;
+}
+
+function getMissingProviderRequirement(
+  config: StudioProviderConfig,
+  mode: 'image' | 'video' | 'sound',
+  provider: string,
+): StudioProviderRequirement | null {
+  if (mode === 'video' && provider === 'bytedance') {
+    return hasProviderAccess(config, 'kie') ? null : 'kie';
+  }
+
+  if (mode === 'image' && provider === 'openai') {
+    return hasProviderAccess(config, 'openai') ? null : 'openai';
+  }
+
+  if ((mode === 'image' || mode === 'sound') && provider === 'gemini') {
+    return hasProviderAccess(config, 'gemini') ? null : 'gemini';
+  }
+
+  if (mode === 'video' && provider === 'veo') {
+    return hasProviderAccess(config, 'gemini') ? null : 'gemini';
+  }
+
+  return null;
+}
+
+function ProviderRequirementNotice({ requirement }: { requirement: StudioProviderRequirement }) {
+  const t = useTranslations('studio.providerRequirements');
+  const showKieReferral = requirement === 'kie';
+
+  return (
+    <div className="flex flex-col gap-3 rounded-[20px] border border-amber-300/80 bg-amber-50/95 p-3 text-amber-950 shadow-sm dark:border-amber-500/35 dark:bg-amber-950/35 dark:text-amber-50 sm:flex-row sm:items-center">
+      <div className="flex min-w-0 flex-1 gap-3">
+        <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-amber-200 text-amber-950 dark:bg-amber-500/25 dark:text-amber-100">
+          <KeyRound className="h-4 w-4" />
+        </div>
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <AlertTriangle className="h-4 w-4" />
+            <p className="text-sm font-semibold">{t(`${requirement}.title`)}</p>
+          </div>
+          <p className="mt-1 text-sm leading-5 text-amber-900/85 dark:text-amber-100/85">
+            {t(`${requirement}.description`)}
+          </p>
+        </div>
+      </div>
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+        {showKieReferral ? (
+          <Button asChild size="sm" className="rounded-full">
+            <a href={KIE_REFERRAL_URL} target="_blank" rel="noreferrer">
+              {t('kie.getKey')}
+              <ExternalLink className="h-4 w-4" />
+            </a>
+          </Button>
+        ) : null}
+        <Button asChild size="sm" variant={showKieReferral ? 'outline' : 'default'} className="rounded-full">
+          <Link href="/settings?tab=integrations">
+            {t('openIntegrations')}
+          </Link>
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 function PreviewChip({ path, kind }: { path: string; kind: 'image' | 'video' }) {
   const name = path.split('/').pop() || path;
 
@@ -141,7 +214,11 @@ function getReferenceName(referencePath: string) {
   }
 }
 
-export function CreateView() {
+interface CreateViewProps {
+  initialProviderConfig?: StudioProviderConfig;
+}
+
+export function CreateView({ initialProviderConfig = EMPTY_STUDIO_PROVIDER_CONFIG }: CreateViewProps) {
   const t = useTranslations('studio');
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -200,6 +277,7 @@ export function CreateView() {
   const startedPendingGenerateRequestRef = useRef<string | null>(null);
   const isMountedRef = useRef(false);
   const [promptOverlayHeight, setPromptOverlayHeight] = useState(220);
+  const [providerConfig, setProviderConfig] = useState<StudioProviderConfig>(initialProviderConfig);
 
   const openPicker = (target: 'start' | 'end' | 'references', maxSelection = 1) => {
     setPicker({ open: true, target, maxSelection });
@@ -434,6 +512,27 @@ export function CreateView() {
   }, [fetchGenerations, fetchPresets]);
 
   useEffect(() => {
+    let cancelled = false;
+
+    async function fetchProviderConfig() {
+      try {
+        const response = await fetch('/api/studio/config', { credentials: 'include' });
+        const payload = await response.json();
+        if (!cancelled && response.ok && payload.success && payload.config) {
+          setProviderConfig(payload.config as StudioProviderConfig);
+        }
+      } catch (error) {
+        console.error('[Studio] Failed to refresh provider config:', error);
+      }
+    }
+
+    void fetchProviderConfig();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
     isMountedRef.current = true;
     return () => {
       isMountedRef.current = false;
@@ -506,10 +605,17 @@ export function CreateView() {
     const hasVeoExtendSource = store.mode === 'video' && store.provider === 'veo' && store.videoExtendSourceRef !== null;
     return store.rawPrompt.trim().length > 0 || store.productRefs.length > 0 || store.personaRefs.length > 0 || store.presetRef !== null || store.fileRefs.length > 0 || store.videoReferenceRefs.length > 0 || store.audioReferenceRefs.length > 0 || hasVeoExtendSource;
   }, [store.mode, store.provider, store.rawPrompt, store.productRefs.length, store.personaRefs.length, store.presetRef, store.fileRefs.length, store.videoReferenceRefs.length, store.audioReferenceRefs.length, store.videoExtendSourceRef]);
+  const missingProviderRequirement = useMemo(
+    () => getMissingProviderRequirement(providerConfig, store.mode, store.provider),
+    [providerConfig, store.mode, store.provider],
+  );
+  const canGenerateWithProvider = canGenerate && missingProviderRequirement === null;
 
   const isInitialGenerationLoad = generationHook.loading && generations.length === 0;
 
   const handleGenerate = async () => {
+    if (missingProviderRequirement) return;
+
     const result = await generate(buildStudioGeneratePayload(store));
 
     if (result) {
@@ -769,6 +875,10 @@ export function CreateView() {
             onPasteImage={handlePasteImage}
           />
 
+          {missingProviderRequirement ? (
+            <ProviderRequirementNotice requirement={missingProviderRequirement} />
+          ) : null}
+
           <ControlBar
             mode={store.mode}
             onModeChange={(nextMode) => {
@@ -875,7 +985,7 @@ export function CreateView() {
             onVideoNsfwCheckerChange={store.setVideoNsfwChecker}
             onGenerate={handleGenerate}
             isGenerating={generationHook.loading}
-            canGenerate={canGenerate}
+            canGenerate={canGenerateWithProvider}
             showMoreOptions={store.showMoreOptions}
             onShowMoreOptionsChange={store.setShowMoreOptions}
           />

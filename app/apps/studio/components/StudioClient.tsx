@@ -10,6 +10,7 @@ import { ModelLibrary } from './models/ModelLibrary';
 import { PresetLibrary } from './presets/PresetLibrary';
 import { AspectRatioEditorView } from './aspect-ratio/AspectRatioEditorView';
 import { ImagePlus, Layers, LayoutGrid, Sparkles, SwatchBook, Ratio } from 'lucide-react';
+import { EMPTY_STUDIO_PROVIDER_CONFIG, type StudioProviderConfig } from '../types/config';
 
 const tabs = [
   { key: 'dashboard', path: '/studio', icon: Sparkles },
@@ -20,7 +21,11 @@ const tabs = [
   { key: 'aspectRatio', path: '/studio/aspect-ratio', icon: Ratio },
 ] as const;
 
-export function StudioClient() {
+interface StudioClientProps {
+  providerConfig?: StudioProviderConfig;
+}
+
+export function StudioClient({ providerConfig = EMPTY_STUDIO_PROVIDER_CONFIG }: StudioClientProps) {
   const t = useTranslations('studio');
   const pathname = usePathname();
   const router = useRouter();
@@ -58,7 +63,7 @@ export function StudioClient() {
       </div>
       <div className="flex-1 overflow-y-auto p-4 md:p-6">
         {activeTab === 'dashboard' && <StudioDashboard />}
-        {activeTab === 'create' && <CreateView />}
+        {activeTab === 'create' && <CreateView initialProviderConfig={providerConfig} />}
         {activeTab === 'bulk' && <BulkGenerateView />}
         {activeTab === 'models' && <ModelLibrary />}
         {activeTab === 'presets' && <PresetLibrary />}
