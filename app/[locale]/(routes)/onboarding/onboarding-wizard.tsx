@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState, useTransition } from 'react';
 import Image from 'next/image';
 import { useTranslations } from 'next-intl';
-import { useParams } from 'next/navigation';
+import { useParams, useSearchParams } from 'next/navigation';
 import { usePathname, useRouter } from '@/i18n/navigation';
 import { routing } from '@/i18n/routing';
 
@@ -20,6 +20,7 @@ import { CheckCircle2, KeyRound, Languages, Loader2, Mail, RefreshCw, ShieldAler
 type Step = 'language' | 'license' | 'provider' | 'done';
 
 const STEPS: Step[] = ['language', 'license', 'provider', 'done'];
+const ONBOARDING_LICENSE_KEY_STORAGE_KEY = 'canvas.onboarding.licenseKey';
 
 type LicenseStatus = {
   licensed?: boolean;
@@ -58,6 +59,44 @@ async function fetchLicenseStatusPayload() {
   const response = await fetch('/api/license/status', { cache: 'no-store' });
   const payload = await response.json().catch(() => ({})) as LicenseStatus;
   return { response, payload };
+}
+
+function readStoredOnboardingLicenseKey() {
+  if (typeof window === 'undefined') return '';
+  try {
+    return window.sessionStorage.getItem(ONBOARDING_LICENSE_KEY_STORAGE_KEY) || '';
+  } catch {
+    return '';
+  }
+}
+
+function storeOnboardingLicenseKey(key: string) {
+  if (typeof window === 'undefined') return;
+  try {
+    if (key.trim()) {
+      window.sessionStorage.setItem(ONBOARDING_LICENSE_KEY_STORAGE_KEY, key);
+    } else {
+      window.sessionStorage.removeItem(ONBOARDING_LICENSE_KEY_STORAGE_KEY);
+    }
+  } catch {
+    // Onboarding still works if browser storage is unavailable.
+  }
+}
+
+function clearStoredOnboardingLicenseKey() {
+  if (typeof window === 'undefined') return;
+  try {
+    window.sessionStorage.removeItem(ONBOARDING_LICENSE_KEY_STORAGE_KEY);
+  } catch {
+    // Onboarding still works if browser storage is unavailable.
+  }
+}
+
+function getLicenseRegistrationActivationPath(fallback: string) {
+  if (typeof window === 'undefined') return fallback;
+  const url = new URL(window.location.href);
+  url.searchParams.delete('key');
+  return `${url.pathname}${url.search}` || fallback;
 }
 
 export default function OnboardingWizard({
@@ -205,7 +244,7 @@ function LicenseStep({
   const t = useTranslations('onboarding');
   const [status, setStatus] = useState<LicenseStatus | null>(null);
   const [email, setEmail] = useState(defaultEmail);
-  const [key, setKey] = useState(initialLicenseKey);
+  const [key, setKey] = useState(() => initialLicenseKey || readStoredOnboardingLicenseKey());
   const [marketingOptIn, setMarketingOptIn] = useState(false);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -256,13 +295,17 @@ function LicenseStep({
     };
   }, [t]);
 
+  useEffect(() => {
+    storeOnboardingLicenseKey(key);
+  }, [key]);
+
   async function requestLicense() {
     setRegistering(true);
     try {
       const response = await fetch('/api/license/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, activationPath: window.location.pathname, marketingOptIn }),
+        body: JSON.stringify({ email, activationPath: getLicenseRegistrationActivationPath('/onboarding'), marketingOptIn }),
       });
       const payload = await response.json().catch(() => ({})) as { success?: boolean; error?: string; code?: string };
       if (!response.ok || !payload.success) {
@@ -289,6 +332,7 @@ function LicenseStep({
         throw new Error(payload.code ? `${payload.error || t('licenseActivationFailed')} (${payload.code})` : payload.error || t('licenseActivationFailed'));
       }
       setStatus(payload);
+      clearStoredOnboardingLicenseKey();
       toast.success(t('licenseActivated'));
     } catch (error) {
       toast.error(error instanceof Error ? error.message : t('licenseActivationFailed'));
@@ -411,12 +455,14 @@ function LanguageStep({ onContinue }: { onContinue: () => void }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const params = useParams();
   const currentLocale = (params.locale as string) || routing.defaultLocale;
 
   function handleSelectLocale(locale: string) {
     startTransition(() => {
-      router.replace(pathname, { locale });
+      const query = searchParams.toString();
+      router.replace(query ? `${pathname}?${query}` : pathname, { locale });
     });
   }
 

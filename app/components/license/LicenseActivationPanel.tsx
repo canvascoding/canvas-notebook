@@ -43,6 +43,13 @@ function errorWithCode(message: string, code?: string) {
   return code ? `${message} (${code})` : message;
 }
 
+function getLicenseRegistrationActivationPath(fallback: string) {
+  if (typeof window === 'undefined') return fallback;
+  const url = new URL(window.location.href);
+  url.searchParams.delete('key');
+  return `${url.pathname}${url.search}` || fallback;
+}
+
 function getActivationCopy(locale: string) {
   const isGerman = locale.startsWith('de');
   return isGerman
@@ -135,7 +142,7 @@ export function LicenseActivationPanel({ defaultEmail }: { defaultEmail: string 
       const response = await fetch('/api/license/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, marketingOptIn }),
+        body: JSON.stringify({ email, activationPath: getLicenseRegistrationActivationPath('/settings?tab=license'), marketingOptIn }),
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok || !payload.success) {
