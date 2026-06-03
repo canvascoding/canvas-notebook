@@ -2582,6 +2582,22 @@
     "common": {
       "loading": "Loading..."
     },
+    "providerRequirements": {
+      "openIntegrations": "Open integrations",
+      "gemini": {
+        "title": "GEMINI_API_KEY is missing",
+        "description": "This self-hosted instance needs a GEMINI_API_KEY for Gemini images, Veo videos, or Lyria sound. Managed instances use the Canvas Control Plane fallback automatically."
+      },
+      "openai": {
+        "title": "OPENAI_API_KEY is missing",
+        "description": "This self-hosted instance needs an OPENAI_API_KEY to use OpenAI image models in Studio. Managed instances use the Canvas Control Plane fallback automatically."
+      },
+      "kie": {
+        "title": "KIE_API_KEY is missing for Seedance 2.0",
+        "description": "This self-hosted instance needs a KIE.ai API key to use Seedance 2.0 as a video model. Managed instances use the Canvas Control Plane fallback automatically.",
+        "getKey": "Get KIE.ai key"
+      }
+    },
     "tabs": {
       "create": "Create",
       "bulk": "Bulk",
