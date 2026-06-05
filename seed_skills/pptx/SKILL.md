@@ -227,6 +227,6 @@ pdftoppm -jpeg -r 150 -f N -l N output.pdf slide-fixed
 
 - `pip install "markitdown[pptx]"` - text extraction
 - `pip install Pillow` - thumbnail grids
-- `npm install -g pptxgenjs` - creating from scratch
+- `pptxgenjs` - creating from scratch; preinstalled in the Canvas container. For standalone local use, run `npm install pptxgenjs`.
 - LibreOffice (`soffice`) - PDF conversion (auto-configured for sandboxed environments via `scripts/office/soffice.py`)
 - Poppler (`pdftoppm`) - PDF to images
