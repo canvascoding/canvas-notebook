@@ -10,6 +10,7 @@ import {
   piSystemPromptSnapshotDbFields,
   type PiSystemPromptSnapshot,
 } from './system-prompt-snapshot';
+import { parsePersistedPiMessage, type PiMessageProjectionMode } from './message-projection';
 import { ensureSessionChannelLink } from '@/app/lib/channels/channel-links';
 import { DEFAULT_AGENT_ID, normalizeChannelThreadKey, normalizeStoredChannelId, WEB_CHANNEL_ID, webChannelSessionKey } from '@/app/lib/channels/constants';
 
@@ -190,7 +191,12 @@ export async function savePiSession(
   }
 }
 
-export async function loadPiSession(sessionId: string, userId: string, agentId?: string | null): Promise<AgentMessage[] | null> {
+export async function loadPiSession(
+  sessionId: string,
+  userId: string,
+  agentId?: string | null,
+  options?: { projectionMode?: PiMessageProjectionMode },
+): Promise<AgentMessage[] | null> {
   const session = await db.query.piSessions.findFirst({
     where: buildPiSessionLookup(sessionId, userId, agentId),
   });
@@ -201,7 +207,7 @@ export async function loadPiSession(sessionId: string, userId: string, agentId?:
       .where(eq(piMessages.piSessionDbId, session.id))
       .orderBy(asc(piMessages.timestamp));
 
-    return messages.map(m => JSON.parse(m.content) as AgentMessage);
+    return messages.map(m => parsePersistedPiMessage(m.content, options?.projectionMode ?? 'context'));
   }
 
   if (resolveSessionAgentId(agentId) !== DEFAULT_AGENT_ID) {
@@ -251,6 +257,7 @@ export async function loadPiSessionWithSummary(
   sessionId: string,
   userId: string,
   agentId?: string | null,
+  options?: { projectionMode?: PiMessageProjectionMode },
 ): Promise<{ messages: AgentMessage[]; summary: PiSessionSummaryState } | null> {
   const session = await db.query.piSessions.findFirst({
     where: buildPiSessionLookup(sessionId, userId, agentId),
@@ -266,7 +273,7 @@ export async function loadPiSessionWithSummary(
     .orderBy(asc(piMessages.timestamp));
 
   return {
-    messages: rows.map(m => JSON.parse(m.content) as AgentMessage),
+    messages: rows.map(m => parsePersistedPiMessage(m.content, options?.projectionMode ?? 'context')),
     summary: {
       summaryText: session.summaryText ?? null,
       summaryUpdatedAt: session.summaryUpdatedAt ?? null,
@@ -299,7 +306,11 @@ export async function updatePiSessionLastMessageAt(sessionId: string, userId: st
   }
 }
 
-export async function loadPiSessionByChannelKey(channelId: string, channelSessionKey: string): Promise<AgentMessage[] | null> {
+export async function loadPiSessionByChannelKey(
+  channelId: string,
+  channelSessionKey: string,
+  options?: { projectionMode?: PiMessageProjectionMode },
+): Promise<AgentMessage[] | null> {
   const normalizedChannelId = normalizeStoredChannelId(channelId);
   const link = await db.query.sessionChannelLinks.findFirst({
     where: and(
@@ -323,5 +334,5 @@ export async function loadPiSessionByChannelKey(channelId: string, channelSessio
     .where(eq(piMessages.piSessionDbId, session.id))
     .orderBy(asc(piMessages.timestamp));
 
-  return rows.map(m => JSON.parse(m.content) as AgentMessage);
+  return rows.map(m => parsePersistedPiMessage(m.content, options?.projectionMode ?? 'context'));
 }

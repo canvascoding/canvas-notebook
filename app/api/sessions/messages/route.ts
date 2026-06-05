@@ -6,6 +6,7 @@ import { auth } from '@/app/lib/auth';
 import { and, asc, desc, eq, lt, gt, or } from 'drizzle-orm';
 import { DEFAULT_AGENT_ID } from '@/app/lib/channels/constants';
 import { normalizeManagedAgentId } from '@/app/lib/agents/registry';
+import { parsePersistedPiMessage, type PiMessageProjectionMode } from '@/app/lib/pi/message-projection';
 
 const DEFAULT_LIMIT = 50;
 
@@ -50,6 +51,7 @@ export async function GET(request: NextRequest) {
   const afterParam = searchParams.get('after');
   const beforeIdParam = searchParams.get('beforeId');
   const afterIdParam = searchParams.get('afterId');
+  const projectionMode: PiMessageProjectionMode = searchParams.get('raw') === 'true' ? 'raw' : 'display';
   const before = parseCursorParam(beforeParam);
   const after = parseCursorParam(afterParam);
   const beforeId = parseCursorParam(beforeIdParam);
@@ -126,7 +128,7 @@ export async function GET(request: NextRequest) {
       }
 
       const mapped = resultRows.map(m => ({
-        ...JSON.parse(m.content),
+        ...parsePersistedPiMessage(m.content, projectionMode),
         id: m.id,
         createdAt: new Date(m.timestamp),
       }));
