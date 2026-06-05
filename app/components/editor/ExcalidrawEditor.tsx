@@ -32,17 +32,13 @@ import {
 import { Textarea } from '@/components/ui/textarea';
 import { useTheme } from '@/app/components/ThemeProvider';
 import { EXCALIDRAW_FILE_SOURCE, createEmptyExcalidrawFileContent } from '@/app/lib/excalidraw-file';
+import { parseExcalidrawContent } from '@/app/lib/excalidraw-scene';
 import { CodeEditor } from './CodeEditor';
 
 interface ExcalidrawEditorProps {
   path: string;
   value: string;
   onChange: (content: string) => void;
-}
-
-interface ExcalidrawSession {
-  initialData: ExcalidrawInitialDataState | null;
-  invalid: boolean;
 }
 
 interface SceneBounds {
@@ -56,46 +52,6 @@ const MERMAID_PLACEHOLDER = `flowchart TD
   A[Request] --> B{Authenticated?}
   B -->|Yes| C[Open workspace]
   B -->|No| D[Show login]`;
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
-}
-
-function parseExcalidrawContent(content: string): ExcalidrawSession {
-  const trimmed = content.trim();
-  if (!trimmed) {
-    return {
-      invalid: false,
-      initialData: {
-        elements: [],
-        appState: {
-          viewBackgroundColor: '#ffffff',
-        },
-        files: {},
-        scrollToContent: true,
-      },
-    };
-  }
-
-  try {
-    const parsed = JSON.parse(trimmed) as unknown;
-    if (!isRecord(parsed)) {
-      return { invalid: true, initialData: null };
-    }
-
-    return {
-      invalid: false,
-      initialData: {
-        elements: Array.isArray(parsed.elements) ? parsed.elements as ExcalidrawInitialDataState['elements'] : [],
-        appState: isRecord(parsed.appState) ? parsed.appState as ExcalidrawInitialDataState['appState'] : {},
-        files: isRecord(parsed.files) ? parsed.files as ExcalidrawInitialDataState['files'] : {},
-        scrollToContent: true,
-      },
-    };
-  } catch {
-    return { invalid: true, initialData: null };
-  }
-}
 
 function stripHostControlledAppState(appState: AppState): Partial<AppState> {
   const {
