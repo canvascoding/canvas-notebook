@@ -47,6 +47,10 @@ type RenameSessionPayload = {
 
 const THINKING_LEVELS = new Set<PiThinkingLevel>(['off', 'minimal', 'low', 'medium', 'high', 'xhigh']);
 
+function getSessionActivityTime(sessionItem: { createdAt: Date; lastMessageAt?: Date | null }): number {
+  return (sessionItem.lastMessageAt ?? sessionItem.createdAt).getTime();
+}
+
 function resolveRequestedModel(value: unknown): AgentId | null {
   if (typeof value !== 'string') {
     return null;
@@ -267,7 +271,7 @@ export async function GET(request: NextRequest) {
               : and(piBaseWhere, sql`1 = 0`)
             : piBaseWhere
         )
-        .orderBy(desc(piSessions.createdAt))
+        .orderBy(desc(sql`coalesce(${piSessions.lastMessageAt}, ${piSessions.createdAt})`), desc(piSessions.createdAt))
         .limit(100)
     ]);
 
@@ -280,7 +284,7 @@ export async function GET(request: NextRequest) {
         lastMessageAt: s.lastMessageAt,
         lastViewedAt: s.lastViewedAt
       }))
-    ].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+    ].sort((a, b) => getSessionActivityTime(b) - getSessionActivityTime(a));
 
     const mappedSessions = combined.map((item) => {
       const hasUnread = item.engine === 'pi' && hasUnreadAssistantResponse(item.lastMessageAt, item.lastViewedAt);

@@ -146,7 +146,7 @@ export function initializeWebSocketBridge(): void {
             eq(piSessions.sessionId, sessionId),
             eq(piSessions.userId, userId)
           ),
-          columns: { title: true, id: true }
+          columns: { title: true, id: true, lastMessageAt: true }
         });
 
         if (!session) {
@@ -154,7 +154,7 @@ export function initializeWebSocketBridge(): void {
           return;
         }
 
-        const lastMessageAt = new Date().toISOString();
+        const lastMessageAt = (session.lastMessageAt ?? new Date()).toISOString();
 
         let messagePreview = normalizeNotificationPreview(
           extractAssistantNotificationPreview(event.message)
@@ -166,7 +166,7 @@ export function initializeWebSocketBridge(): void {
               eq(piMessages.piSessionDbId, session.id),
               eq(piMessages.role, 'assistant')
             ),
-            orderBy: [desc(piMessages.timestamp)],
+            orderBy: [desc(piMessages.sequence), desc(piMessages.id)],
             columns: { content: true }
           });
 
