@@ -1,14 +1,20 @@
 'use client';
 
-import { useTransition } from 'react';
+import { useState, useTransition } from 'react';
 import { useParams } from 'next/navigation';
 import { usePathname, useRouter } from '@/i18n/navigation';
 import { routing } from '@/i18n/routing';
 import { useTranslations } from 'next-intl';
-import { ExternalLink, Languages, User, Mail, KeyRound, Info } from 'lucide-react';
+import { ExternalLink, Eye, EyeOff, KeyRound, Info, Languages, LockKeyhole, Mail, User } from 'lucide-react';
+import { toast } from 'sonner';
 
+import { authClient } from '@/app/lib/auth-client';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 
 const CONTROL_PANEL_DASHBOARD_URL = 'https://notebook.canvas.holdings/dashboard';
 
@@ -17,6 +23,159 @@ const LOGIN_ENV_KEYS = [
   { key: 'BOOTSTRAP_ADMIN_PASSWORD', translationKey: 'general.loginInfo.passwordKey' },
   { key: 'BOOTSTRAP_ADMIN_NAME', translationKey: 'general.loginInfo.nameKey' },
 ] as const;
+
+function PasswordChangeCard() {
+  const t = useTranslations('settings');
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [revokeOtherSessions, setRevokeOtherSessions] = useState(true);
+  const [showPasswords, setShowPasswords] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const passwordVisibilityLabel = showPasswords
+    ? t('general.passwordChange.hidePasswords')
+    : t('general.passwordChange.showPasswords');
+
+  async function handleSubmit(event: React.FormEvent) {
+    event.preventDefault();
+
+    if (newPassword !== confirmPassword) {
+      toast.error(t('general.passwordChange.passwordMismatch'));
+      return;
+    }
+
+    if (newPassword.length < 8 || newPassword.length > 128) {
+      toast.error(t('general.passwordChange.passwordLength'));
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      const { error } = await authClient.changePassword({
+        currentPassword,
+        newPassword,
+        revokeOtherSessions,
+      });
+
+      if (error) {
+        toast.error(error.message || t('general.passwordChange.failed'));
+        return;
+      }
+
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+      toast.success(t('general.passwordChange.success'));
+    } catch (error) {
+      console.error('[Settings] Failed to change password:', error);
+      toast.error(t('general.passwordChange.unexpectedError'));
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader className="px-4 sm:px-6">
+        <div className="flex items-center gap-2">
+          <LockKeyhole className="h-5 w-5 text-muted-foreground" />
+          <CardTitle>{t('general.passwordChange.title')}</CardTitle>
+        </div>
+        <CardDescription>{t('general.passwordChange.description')}</CardDescription>
+      </CardHeader>
+      <CardContent className="px-4 pb-4 sm:px-6 sm:pb-6">
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="grid gap-4 md:grid-cols-3">
+            <div className="space-y-2">
+              <Label htmlFor="current-password">{t('general.passwordChange.currentPassword')}</Label>
+              <Input
+                id="current-password"
+                type={showPasswords ? 'text' : 'password'}
+                value={currentPassword}
+                onChange={(event) => setCurrentPassword(event.target.value)}
+                autoComplete="current-password"
+                required
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="new-password">{t('general.passwordChange.newPassword')}</Label>
+              <Input
+                id="new-password"
+                type={showPasswords ? 'text' : 'password'}
+                value={newPassword}
+                onChange={(event) => setNewPassword(event.target.value)}
+                autoComplete="new-password"
+                minLength={8}
+                maxLength={128}
+                required
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="confirm-new-password">{t('general.passwordChange.confirmPassword')}</Label>
+              <div className="relative">
+                <Input
+                  id="confirm-new-password"
+                  type={showPasswords ? 'text' : 'password'}
+                  value={confirmPassword}
+                  onChange={(event) => setConfirmPassword(event.target.value)}
+                  autoComplete="new-password"
+                  minLength={8}
+                  maxLength={128}
+                  className="pr-11"
+                  required
+                />
+                <TooltipProvider delayDuration={300}>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon-sm"
+                        className="absolute right-1 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                        aria-label={passwordVisibilityLabel}
+                        aria-pressed={showPasswords}
+                        onClick={() => setShowPasswords((visible) => !visible)}
+                      >
+                        {showPasswords ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent side="top">{passwordVisibilityLabel}</TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-start gap-3">
+              <Switch
+                id="revoke-other-sessions"
+                checked={revokeOtherSessions}
+                onCheckedChange={setRevokeOtherSessions}
+                disabled={isSaving}
+              />
+              <div className="space-y-1">
+                <Label htmlFor="revoke-other-sessions" className="cursor-pointer">
+                  {t('general.passwordChange.revokeOtherSessions')}
+                </Label>
+                <p className="text-xs leading-5 text-muted-foreground">
+                  {t('general.passwordChange.revokeOtherSessionsDescription')}
+                </p>
+              </div>
+            </div>
+            <Button
+              type="submit"
+              className="w-full sm:w-auto"
+              disabled={isSaving || !currentPassword || !newPassword || !confirmPassword}
+            >
+              {isSaving ? t('general.passwordChange.saving') : t('general.passwordChange.submit')}
+            </Button>
+          </div>
+        </form>
+      </CardContent>
+    </Card>
+  );
+}
 
 export function GeneralSettingsPanel({
   userName = '',
@@ -103,6 +262,8 @@ export function GeneralSettingsPanel({
           )}
         </CardContent>
       </Card>
+
+      <PasswordChangeCard />
 
       <Card>
         <CardHeader className="px-4 sm:px-6">
