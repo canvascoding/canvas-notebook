@@ -1242,6 +1242,44 @@ export async function deleteAgentPaths(params: {
   return pathOperationSummary('delete_path', entries);
 }
 
+function isManagedDataPath(target: string): boolean {
+  return /^\/data\/(?:workspace|agents)(?:\/|$)/.test(target);
+}
+
+function stripShellTokenQuotes(token: string): string {
+  const trimmed = token.trim();
+  if (trimmed.length >= 2) {
+    const first = trimmed[0];
+    const last = trimmed[trimmed.length - 1];
+    if ((first === '"' && last === '"') || (first === "'" && last === "'")) {
+      return trimmed.slice(1, -1);
+    }
+  }
+  return trimmed;
+}
+
+function findShellWriteRedirectTargets(command: string): string[] {
+  const targets: string[] = [];
+  const redirectPattern = /(?:^|[^<])(?:\d*|&)?>>?\s*(?![&(])(?:"([^"]*)"|'([^']*)'|([^\s;&|]+))/g;
+  for (const match of command.matchAll(redirectPattern)) {
+    const target = stripShellTokenQuotes(match[1] || match[2] || match[3] || '');
+    if (!target || /^&\d+$/.test(target)) continue;
+    targets.push(target);
+  }
+  return targets;
+}
+
+function shellRedirectWritesManagedPath(command: string, cdsIntoManagedPath: boolean): boolean {
+  const targets = findShellWriteRedirectTargets(command);
+  if (targets.length === 0) return false;
+
+  return targets.some((target) => {
+    if (isManagedDataPath(target)) return true;
+    if (path.isAbsolute(target)) return false;
+    return cdsIntoManagedPath;
+  });
+}
+
 export function detectUnsafeBashCommand(command: string): string | null {
   const secretPatterns = [
     /\b(?:env|printenv)\b/i,
@@ -1276,7 +1314,7 @@ export function detectUnsafeBashCommand(command: string): string | null {
     return 'Shell file writes with tee in /data/workspace or /data/agents are blocked. Use write, edit_file, or apply_patch instead.';
   }
 
-  if ((mentionsManagedPath || cdsIntoManagedPath) && /(^|[^<>])>>?\s*(?!&)/.test(normalized)) {
+  if ((mentionsManagedPath || cdsIntoManagedPath) && shellRedirectWritesManagedPath(normalized, cdsIntoManagedPath)) {
     return 'Shell redirects that write workspace or agent files are blocked. Use write, edit_file, or apply_patch instead.';
   }
 
