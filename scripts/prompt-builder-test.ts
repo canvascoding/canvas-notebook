@@ -44,6 +44,8 @@ assert.doesNotMatch(populated.systemPrompt, /## File System Structure/);
 assert.doesNotMatch(populated.systemPrompt, /## Temporary Files Directory/);
 assert.doesNotMatch(populated.systemPrompt, /## Memory Management \(MEMORY\.md\)/);
 assert.match(populated.systemPrompt, /## File Access for Uploaded Attachments/);
+assert.match(populated.systemPrompt, /\*\*PDF\*\*: Use the `read` tool first for ordinary text extraction/);
+assert.doesNotMatch(populated.systemPrompt, /Use the `pdf` skill to read and extract content/);
 
 const skills: AnthropicSkill[] = [
   {
