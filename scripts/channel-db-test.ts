@@ -88,6 +88,63 @@ async function main() {
   });
   assert.equal(linkedRows.length, 2);
 
+  const webChannelSessionKey = `web:user:${userId}`;
+  const secondWebSessionId = 'sess-second-web';
+  const [secondWebSession] = await db.insert(piSessions).values({
+    sessionId: secondWebSessionId,
+    userId,
+    provider: 'test-provider',
+    model: 'test-model',
+    title: 'Second Web Session',
+    channelId: 'app',
+    channelSessionKey: null,
+    createdAt: now,
+    updatedAt: now,
+  }).returning({ id: piSessions.id });
+  await db.insert(piMessages).values({
+    piSessionDbId: secondWebSession.id,
+    role: 'user',
+    content: JSON.stringify({ role: 'user', content: 'from second web session', timestamp: now.getTime() + 2_000 }),
+    timestamp: now.getTime() + 2_000,
+  });
+  await ensureSessionChannelLink({
+    sessionId: secondWebSessionId,
+    userId,
+    channelId: 'web',
+    channelSessionKey: webChannelSessionKey,
+    isPrimary: true,
+    inboundAt: new Date(now.getTime() + 2_000),
+  });
+
+  let webLinks = await db.query.sessionChannelLinks.findMany({
+    where: and(
+      eq(sessionChannelLinks.userId, userId),
+      eq(sessionChannelLinks.channelId, 'web'),
+      eq(sessionChannelLinks.channelSessionKey, webChannelSessionKey),
+    ),
+  });
+  assert.equal(webLinks.filter((link) => link.isPrimary).length, 1);
+  assert.equal(webLinks.find((link) => link.isPrimary)?.sessionId, secondWebSessionId);
+
+  await setActiveChannelSession({
+    userId,
+    channelId: 'web',
+    channelSessionKey: webChannelSessionKey,
+    sessionId: linkedSessionId,
+  });
+  webLinks = await db.query.sessionChannelLinks.findMany({
+    where: and(
+      eq(sessionChannelLinks.userId, userId),
+      eq(sessionChannelLinks.channelId, 'web'),
+      eq(sessionChannelLinks.channelSessionKey, webChannelSessionKey),
+    ),
+  });
+  assert.equal(webLinks.filter((link) => link.isPrimary).length, 1);
+  assert.equal(webLinks.find((link) => link.isPrimary)?.sessionId, linkedSessionId);
+  const loadedByWebLink = await loadPiSessionByChannelKey('web', webChannelSessionKey);
+  assert.equal(loadedByWebLink?.[0]?.role, 'user');
+  assert.equal(loadedByWebLink?.[0]?.content, 'from linked session');
+
   await setActiveChannelSession({
     userId,
     channelId: 'telegram',
@@ -125,7 +182,10 @@ async function main() {
   assert.equal(externalLink?.channelSessionKey, 'telegram:42');
 
   const activeRows = await db.query.channelActiveSessions.findMany({
-    where: eq(channelActiveSessions.sessionId, linkedSessionId),
+    where: and(
+      eq(channelActiveSessions.sessionId, linkedSessionId),
+      eq(channelActiveSessions.channelId, 'telegram'),
+    ),
   });
   assert.equal(activeRows.length, 1);
 

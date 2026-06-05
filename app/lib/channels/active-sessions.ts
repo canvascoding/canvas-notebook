@@ -1,6 +1,6 @@
 import { and, desc, eq } from 'drizzle-orm';
 import { db } from '@/app/lib/db';
-import { channelActiveSessions } from '@/app/lib/db/schema';
+import { channelActiveSessions, sessionChannelLinks } from '@/app/lib/db/schema';
 import { DEFAULT_AGENT_ID, normalizeChannelThreadKey } from './constants';
 
 export type ChannelContextKey = {
@@ -99,6 +99,7 @@ export async function setActiveChannelSession(input: ChannelContextKey & {
         updatedAt: now,
       })
       .where(eq(channelActiveSessions.id, existing.id));
+    await markPrimaryChannelLinkForActiveSession(input, channelThreadKey);
     return;
   }
 
@@ -111,4 +112,30 @@ export async function setActiveChannelSession(input: ChannelContextKey & {
     sessionId: input.sessionId,
     updatedAt: now,
   }).onConflictDoNothing();
+  await markPrimaryChannelLinkForActiveSession(input, channelThreadKey);
+}
+
+async function markPrimaryChannelLinkForActiveSession(
+  input: ChannelContextKey & { userId: string; sessionId: string },
+  channelThreadKey: string,
+): Promise<void> {
+  await db.update(sessionChannelLinks)
+    .set({ isPrimary: false })
+    .where(and(
+      eq(sessionChannelLinks.userId, input.userId),
+      eq(sessionChannelLinks.channelId, input.channelId),
+      eq(sessionChannelLinks.channelSessionKey, input.channelSessionKey),
+      eq(sessionChannelLinks.channelThreadKey, channelThreadKey),
+      eq(sessionChannelLinks.isPrimary, true),
+    ));
+
+  await db.update(sessionChannelLinks)
+    .set({ isPrimary: true })
+    .where(and(
+      eq(sessionChannelLinks.userId, input.userId),
+      eq(sessionChannelLinks.channelId, input.channelId),
+      eq(sessionChannelLinks.channelSessionKey, input.channelSessionKey),
+      eq(sessionChannelLinks.channelThreadKey, channelThreadKey),
+      eq(sessionChannelLinks.sessionId, input.sessionId),
+    ));
 }

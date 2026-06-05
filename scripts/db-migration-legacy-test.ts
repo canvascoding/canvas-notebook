@@ -64,12 +64,17 @@ try {
     VALUES ('user-migration', 'Migration User', 'migration@example.test', 1, NULL, NULL, 1700000000, 1700000000);
 
     INSERT INTO pi_sessions (id, session_id, user_id, provider, model, title, created_at, updated_at)
-    VALUES (1, 'sess-migration', 'user-migration', 'test-provider', 'test-model', 'Migration Session', 1700000000, 1700000000);
+    VALUES
+      (1, 'sess-migration', 'user-migration', 'test-provider', 'test-model', 'Migration Session', 1700000000, 1700000000),
+      (2, 'sess-migration-old', 'user-migration', 'test-provider', 'test-model', 'Old Migration Session', 1699990000, 1699990000);
 
     INSERT INTO pi_messages (id, pi_session_db_id, role, content, timestamp)
     VALUES
       (10, 1, 'user', '{"role":"user","content":"first","timestamp":2000}', 2000),
       (20, 1, 'user', '{"role":"user","content":"second","timestamp":1000}', 1000);
+
+    INSERT INTO channel_active_sessions (user_id, channel_id, channel_session_key, channel_thread_key, session_id, updated_at)
+    VALUES ('user-migration', 'web', 'web:user:user-migration', '', 'sess-migration', 1700000100);
   `);
 
   runMigrations(sqlite);
@@ -105,6 +110,24 @@ try {
   );
   assert.ok(indexes.has('idx_channel_active_sessions_context_agent'));
   assert.equal(indexes.has('idx_channel_active_sessions_context'), false);
+
+  const channelLinkIndexes = new Set(
+    sqlite.prepare('PRAGMA index_list(session_channel_links)').all()
+      .map((index) => (index as { name: string }).name),
+  );
+  assert.ok(channelLinkIndexes.has('idx_session_channel_links_user_context'));
+  const migratedLinks = sqlite.prepare(`
+    SELECT session_id AS sessionId, is_primary AS isPrimary
+    FROM session_channel_links
+    WHERE user_id = 'user-migration'
+      AND channel_id = 'web'
+      AND channel_session_key = 'web:user:user-migration'
+    ORDER BY session_id
+  `).all() as Array<{ sessionId: string; isPrimary: number }>;
+  assert.deepEqual(migratedLinks, [
+    { sessionId: 'sess-migration', isPrimary: 1 },
+    { sessionId: 'sess-migration-old', isPrimary: 0 },
+  ]);
 
   const messageIndexes = new Set(
     sqlite.prepare('PRAGMA index_list(pi_messages)').all()

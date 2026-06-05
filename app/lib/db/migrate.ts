@@ -883,6 +883,7 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     CREATE UNIQUE INDEX IF NOT EXISTS idx_session_channel_links_unique ON session_channel_links (session_id, channel_id, channel_session_key, channel_thread_key);
     CREATE INDEX IF NOT EXISTS idx_session_channel_links_session ON session_channel_links (session_id);
     CREATE INDEX IF NOT EXISTS idx_session_channel_links_user_channel ON session_channel_links (user_id, channel_id);
+    CREATE INDEX IF NOT EXISTS idx_session_channel_links_user_context ON session_channel_links (user_id, channel_id, channel_session_key, channel_thread_key);
     CREATE INDEX IF NOT EXISTS idx_session_channel_links_context ON session_channel_links (channel_id, channel_session_key, channel_thread_key);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_channel_active_sessions_context ON channel_active_sessions (channel_id, channel_session_key, channel_thread_key);
     CREATE INDEX IF NOT EXISTS idx_channel_active_sessions_user_channel ON channel_active_sessions (user_id, channel_id);
@@ -971,6 +972,40 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       session_id,
       updated_at
     FROM telegram_active_session;
+
+    UPDATE session_channel_links
+    SET is_primary = 0
+    WHERE is_primary != 0
+      AND EXISTS (
+        SELECT 1
+        FROM channel_active_sessions active
+        WHERE active.user_id = session_channel_links.user_id
+          AND active.channel_id = session_channel_links.channel_id
+          AND active.channel_session_key = session_channel_links.channel_session_key
+          AND active.channel_thread_key = session_channel_links.channel_thread_key
+      );
+
+    UPDATE session_channel_links
+    SET is_primary = 1
+    WHERE EXISTS (
+      SELECT 1
+      FROM channel_active_sessions active
+      WHERE active.user_id = session_channel_links.user_id
+        AND active.channel_id = session_channel_links.channel_id
+        AND active.channel_session_key = session_channel_links.channel_session_key
+        AND active.channel_thread_key = session_channel_links.channel_thread_key
+        AND active.session_id = session_channel_links.session_id
+        AND active.id = (
+          SELECT latest.id
+          FROM channel_active_sessions latest
+          WHERE latest.user_id = active.user_id
+            AND latest.channel_id = active.channel_id
+            AND latest.channel_session_key = active.channel_session_key
+            AND latest.channel_thread_key = active.channel_thread_key
+          ORDER BY latest.updated_at DESC, latest.id DESC
+          LIMIT 1
+        )
+    );
   `);
 
   // ── One-time data fixes ───────────────────────────────────────────────────────

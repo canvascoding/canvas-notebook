@@ -1,7 +1,7 @@
 import { db } from '../db';
 import { legacyAiTablesExist } from '../db/legacy-ai-tables';
 import { piSessions, piMessages, aiSessions, aiMessages, sessionChannelLinks } from '../db/schema';
-import { eq, and, asc } from 'drizzle-orm';
+import { eq, and, asc, desc } from 'drizzle-orm';
 import { type AgentMessage } from '@earendil-works/pi-agent-core';
 import { type PiSessionSummaryState } from './history-budget';
 import { DEFAULT_PI_SESSION_TITLE, isAutomaticSessionTitle } from './session-titles';
@@ -327,6 +327,12 @@ export async function loadPiSessionByChannelKey(
       eq(sessionChannelLinks.channelSessionKey, channelSessionKey),
       eq(sessionChannelLinks.channelThreadKey, normalizeChannelThreadKey(null)),
     ),
+    orderBy: [
+      desc(sessionChannelLinks.isPrimary),
+      desc(sessionChannelLinks.lastInboundAt),
+      desc(sessionChannelLinks.updatedAt),
+      desc(sessionChannelLinks.id),
+    ],
     columns: { sessionId: true },
   });
 
