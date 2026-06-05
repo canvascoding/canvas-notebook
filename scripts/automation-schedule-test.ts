@@ -164,6 +164,19 @@ assert.match(prompt, /If you create workspace deliverables, write them to: repor
 assert.match(prompt, /Preferred skill: \/pdf/);
 assert.match(prompt, /Run logs and metadata are stored automatically in the database/);
 
+const heartbeatPrompt = buildAutomationPrompt({
+  name: 'Heartbeat',
+  workspaceContextPaths: [],
+  prompt: 'Lies HEARTBEAT.md.',
+  preferredSkill: 'auto',
+  executionKind: 'heartbeat',
+});
+
+assert.match(heartbeatPrompt, /HEARTBEAT EXECUTION CONTEXT/);
+assert.match(heartbeatPrompt, /DO NOT create a new automation - execute the heartbeat as configured/);
+assert.match(heartbeatPrompt, /Heartbeat task:/);
+assert.doesNotMatch(heartbeatPrompt, /AUTOMATION EXECUTION CONTEXT/);
+
 const composioPrompt = buildAutomationPrompt({
   name: 'Gmail Follow-up',
   workspaceContextPaths: [],

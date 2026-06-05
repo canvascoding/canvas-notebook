@@ -193,14 +193,16 @@ export async function executeAutomationRun(runId: string): Promise<void> {
     }
   }
 
+  const includeAutomatedHeartbeatContext = job.jobType === 'heartbeat' && run.triggerType !== 'manual';
   const jobPrompt = job.jobType === 'heartbeat'
-    ? await buildHeartbeatPrompt(job)
+    ? await buildHeartbeatPrompt(job, { includeAutomatedRuntimeContext: includeAutomatedHeartbeatContext })
     : job.prompt;
   const promptText = buildAutomationPrompt({
     name: job.name,
     workspaceContextPaths: job.workspaceContextPaths,
     prompt: jobPrompt,
     preferredSkill: job.preferredSkill,
+    executionKind: job.jobType === 'heartbeat' ? 'heartbeat' : 'automation',
     effectiveTargetOutputPath,
     webhookContext: run.triggerType === 'webhook' ? getWebhookPromptContext(run) : null,
   });
