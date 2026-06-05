@@ -818,7 +818,7 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
               onChange={() => {}}
             />
           ) : isPdf ? (
-            <PdfViewer path={currentFile.path} />
+            <PdfViewer key={currentFile.path} path={currentFile.path} />
           ) : isAudio ? (
             <MediaViewer
               path={currentFile.path}
