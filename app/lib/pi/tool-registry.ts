@@ -105,6 +105,10 @@ import {
   type PublicShareStatus,
   type PublicShareTypeFilter,
 } from '@/app/lib/public-sharing/public-file-shares';
+import {
+  MAX_AUDIO_TRANSCRIPTION_BYTES,
+  transcribeAudio,
+} from '@/app/lib/integrations/audio-transcription-service';
 
 
 const execAsync = promisify(exec);
@@ -133,10 +137,26 @@ const IMAGE_EXTENSIONS: Record<string, string> = {
   '.svg':  'image/svg+xml',
 };
 
+const AUDIO_EXTENSIONS: Record<string, string> = {
+  '.aac': 'audio/aac',
+  '.flac': 'audio/flac',
+  '.m4a': 'audio/mp4',
+  '.mp3': 'audio/mpeg',
+  '.oga': 'audio/ogg',
+  '.ogg': 'audio/ogg',
+  '.opus': 'audio/opus',
+  '.wav': 'audio/wav',
+  '.webm': 'audio/webm',
+};
+
 function imageContentForBuffer(filePath: string, buffer: Buffer): ImageContent | null {
   const mimeType = IMAGE_EXTENSIONS[path.extname(filePath).toLowerCase()];
   if (!mimeType) return null;
   return { type: 'image', data: buffer.toString('base64'), mimeType };
+}
+
+function audioMimeTypeForPath(filePath: string): string {
+  return AUDIO_EXTENSIONS[path.extname(filePath).toLowerCase()] || 'application/octet-stream';
 }
 
 function clampReadTextLimit(value: unknown): number {
@@ -750,6 +770,80 @@ export function createStudioGenerateSoundTool(
           : error instanceof Error
             ? error.message
             : 'An unexpected error occurred during studio sound generation.';
+        return {
+          content: [{ type: 'text', text: `Error: ${message}` }],
+          details: { error: message },
+        };
+      }
+    },
+  };
+}
+
+export function createTranscribeAudioTool(): AgentTool {
+  return {
+    name: 'transcribe_audio',
+    label: 'Transcribing audio',
+    description:
+      'Transcribes a local audio file to text using the configured voice transcription service. ' +
+      'Use for voice notes, meeting recordings, Telegram audio uploads, and speech-to-text workflows. ' +
+      'Accepts absolute paths such as /data/user-uploads/audio/file.ogg or workspace-relative paths.',
+    parameters: Type.Object({
+      file_path: Type.String({ description: 'Absolute path or workspace-relative path to an audio file.' }),
+      language: Type.Optional(Type.String({ description: 'Optional ISO-639-1 language code such as de or en.' })),
+      prompt: Type.Optional(Type.String({ description: 'Optional context or vocabulary hint for transcription.' })),
+    }),
+    execute: async (_toolCallId, params, signal) => {
+      try {
+        throwIfAborted(signal);
+        const input = params as {
+          file_path?: string;
+          language?: string;
+          prompt?: string;
+        };
+        const filePath = normalizeOptionalString(input.file_path);
+        if (!filePath) {
+          throw new Error('file_path is required.');
+        }
+
+        const fullPath = resolveAgentPath(filePath);
+        await assertAgentPathAllowed(fullPath);
+        const stats = await fsPromises.stat(fullPath);
+        if (!stats.isFile()) {
+          throw new Error(`Not a file: ${filePath}`);
+        }
+        if (stats.size > MAX_AUDIO_TRANSCRIPTION_BYTES) {
+          throw new Error(`Audio file is too large for transcription. Maximum size: ${MAX_AUDIO_TRANSCRIPTION_BYTES / (1024 * 1024)}MB.`);
+        }
+
+        const buffer = await fsPromises.readFile(fullPath);
+        const result = await transcribeAudio({
+          buffer,
+          filename: path.basename(fullPath),
+          mimeType: audioMimeTypeForPath(fullPath),
+          language: input.language,
+          prompt: input.prompt,
+          signal,
+        });
+
+        const text = [
+          `Transcript (${result.provider}/${result.model})`,
+          `File: ${fullPath}`,
+          '',
+          result.text,
+        ].join('\n');
+
+        return {
+          content: [{ type: 'text', text }],
+          details: {
+            filePath: fullPath,
+            provider: result.provider,
+            model: result.model,
+            durationMs: result.durationMs,
+            transcript: result.text,
+          },
+        };
+      } catch (error: unknown) {
+        const message = getErrorMessage(error);
         return {
           content: [{ type: 'text', text: `Error: ${message}` }],
           details: { error: message },
@@ -1640,6 +1734,7 @@ export const piTools: AgentTool[] = [
   createWebFetchTool(),
   createBrowserGatewayTool(),
   createRipgrepTool(),
+  createTranscribeAudioTool(),
   {
     name: 'ls',
     label: 'Listing directory',
@@ -2163,7 +2258,7 @@ export const piTools: AgentTool[] = [
   createStudioListPresetsTool(),
 ];
 
-export type PiToolGroup = 'Core' | 'Studio' | 'Automation' | 'Composio' | 'MCP' | 'Email' | 'Session' | 'Delegation' | 'Memory' | 'Browser' | 'Todo' | 'Web' | 'Security';
+export type PiToolGroup = 'Core' | 'Studio' | 'Automation' | 'Audio' | 'Composio' | 'MCP' | 'Email' | 'Session' | 'Delegation' | 'Memory' | 'Browser' | 'Todo' | 'Web' | 'Security';
 
 export type PiToolMetadata = {
   name: string;
@@ -2666,6 +2761,7 @@ function getToolGroup(toolName: string): PiToolGroup {
   if (toolName === 'mcp' || toolName.startsWith('mcp_')) return 'MCP';
   if (toolName === 'memory') return 'Memory';
   if (toolName === 'browser') return 'Browser';
+  if (toolName === 'transcribe_audio') return 'Audio';
   if (toolName.startsWith('web_')) return 'Web';
   if (toolName === 'create_human_todo') return 'Todo';
   if (toolName === 'public_share_file') return 'Security';
@@ -2715,6 +2811,10 @@ function getToolNotes(tool: AgentTool, group: PiToolGroup): string[] {
   if (group === 'Automation') {
     notes.push('May create, update, delete, or trigger scheduled automation jobs.');
   }
+  if (group === 'Audio') {
+    notes.push('Reads local audio files and may call external transcription services.');
+    notes.push('Requires GROQ_API_KEY configured under /settings?tab=integrations.');
+  }
   if (group === 'Session') {
     notes.push('Read-only access to this user and agent session history.');
   }
@@ -2741,7 +2841,7 @@ function getToolNotes(tool: AgentTool, group: PiToolGroup): string[] {
     notes.push('Can expose selected workspace files through public read-only URLs without login.');
     notes.push('Disabled by default. Use only when the user explicitly requests public sharing and never for secrets or folders.');
   }
-  if (['bash', 'terminal', 'rg', 'glob', 'grep', 'ls', 'read', 'list_file_snapshots'].includes(tool.name)) {
+  if (['bash', 'terminal', 'rg', 'glob', 'grep', 'ls', 'read', 'list_file_snapshots', 'transcribe_audio'].includes(tool.name)) {
     notes.push('May execute local shell commands or inspect local files.');
   }
   if (['write', 'edit', 'edit_file', 'apply_patch', 'copy_path', 'move_path', 'delete_path', 'restore_file_snapshot', 'create_file', 'delete_file', 'studio_generate_image', 'studio_generate_video', 'studio_generate_sound', 'studio_bulk_generate'].includes(tool.name)) {
@@ -2756,7 +2856,7 @@ function getToolNotes(tool: AgentTool, group: PiToolGroup): string[] {
   if (['web_search', 'web_fetch', 'browser'].includes(tool.name)) {
     notes.push('May load external network resources.');
   }
-  if (['studio_generate_image', 'studio_generate_video', 'studio_generate_sound', 'studio_bulk_generate'].includes(tool.name)) {
+  if (['studio_generate_image', 'studio_generate_video', 'studio_generate_sound', 'studio_bulk_generate', 'transcribe_audio'].includes(tool.name)) {
     notes.push('May call external services or require configured API keys.');
   }
   if (['studio_generate_image', 'studio_generate_video', 'studio_generate_sound', 'studio_bulk_generate'].includes(tool.name)) {

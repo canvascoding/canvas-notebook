@@ -1,4 +1,5 @@
 export type PiToolset =
+  | 'audio'
   | 'automation'
   | 'browser'
   | 'composio'
@@ -20,6 +21,11 @@ export type PiToolsetInfo = {
 };
 
 export const PI_TOOLSETS: Record<PiToolset, PiToolsetInfo> = {
+  audio: {
+    name: 'audio',
+    label: 'Audio',
+    description: 'Transcribe local audio files into text.',
+  },
   automation: {
     name: 'automation',
     label: 'Automation',
@@ -88,6 +94,7 @@ export const PI_TOOLSETS: Record<PiToolset, PiToolsetInfo> = {
 };
 
 const TOOLSET_TOOL_NAMES: Record<PiToolset, Set<string>> = {
+  audio: new Set(['transcribe_audio']),
   automation: new Set([
     'create_automation_job',
     'delete_automation_job',
