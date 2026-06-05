@@ -37,6 +37,15 @@ try {
       FOREIGN KEY (user_id) REFERENCES user(id)
     );
 
+    CREATE TABLE pi_messages (
+      id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+      pi_session_db_id INTEGER NOT NULL,
+      role TEXT NOT NULL,
+      content TEXT NOT NULL,
+      timestamp INTEGER NOT NULL,
+      FOREIGN KEY (pi_session_db_id) REFERENCES pi_sessions(id)
+    );
+
     CREATE TABLE channel_active_sessions (
       id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
       user_id TEXT NOT NULL,
@@ -50,6 +59,17 @@ try {
 
     CREATE UNIQUE INDEX idx_channel_active_sessions_context
       ON channel_active_sessions (channel_id, channel_session_key, channel_thread_key);
+
+    INSERT INTO user (id, name, email, email_verified, image, role, created_at, updated_at)
+    VALUES ('user-migration', 'Migration User', 'migration@example.test', 1, NULL, NULL, 1700000000, 1700000000);
+
+    INSERT INTO pi_sessions (id, session_id, user_id, provider, model, title, created_at, updated_at)
+    VALUES (1, 'sess-migration', 'user-migration', 'test-provider', 'test-model', 'Migration Session', 1700000000, 1700000000);
+
+    INSERT INTO pi_messages (id, pi_session_db_id, role, content, timestamp)
+    VALUES
+      (10, 1, 'user', '{"role":"user","content":"first","timestamp":2000}', 2000),
+      (20, 1, 'user', '{"role":"user","content":"second","timestamp":1000}', 1000);
   `);
 
   runMigrations(sqlite);
@@ -61,6 +81,14 @@ try {
   assert.ok(piSessionColumns.has('agent_id'));
   assert.ok(piSessionColumns.has('channel_id'));
   assert.ok(piSessionColumns.has('channel_session_key'));
+
+  const piMessageColumns = getColumns(sqlite, 'pi_messages');
+  assert.ok(piMessageColumns.has('sequence'));
+  const migratedMessages = sqlite.prepare('SELECT id, sequence FROM pi_messages ORDER BY id').all() as Array<{ id: number; sequence: number }>;
+  assert.deepEqual(migratedMessages, [
+    { id: 10, sequence: 1 },
+    { id: 20, sequence: 2 },
+  ]);
 
   const channelActiveSessionColumns = getColumns(sqlite, 'channel_active_sessions');
   assert.ok(channelActiveSessionColumns.has('agent_id'));
@@ -76,6 +104,12 @@ try {
   );
   assert.ok(indexes.has('idx_channel_active_sessions_context_agent'));
   assert.equal(indexes.has('idx_channel_active_sessions_context'), false);
+
+  const messageIndexes = new Set(
+    sqlite.prepare('PRAGMA index_list(pi_messages)').all()
+      .map((index) => (index as { name: string }).name),
+  );
+  assert.ok(messageIndexes.has('idx_pi_messages_session_sequence'));
 
   sqlite.close();
   console.log('legacy db migration tests passed');

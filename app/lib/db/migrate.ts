@@ -93,6 +93,7 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       role TEXT NOT NULL,
       content TEXT NOT NULL,
       timestamp INTEGER NOT NULL,
+      sequence INTEGER NOT NULL DEFAULT 0,
       FOREIGN KEY (pi_session_db_id) REFERENCES pi_sessions(id)
     );
 
@@ -703,6 +704,31 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     last_viewed_at: 'INTEGER',
     thinking_level: 'TEXT',
   });
+
+  addColumns(sqlite, 'pi_messages', {
+    sequence: 'INTEGER NOT NULL DEFAULT 0',
+  });
+
+  sqlite.exec(`
+    WITH ordered_messages AS (
+      SELECT
+        id,
+        ROW_NUMBER() OVER (
+          PARTITION BY pi_session_db_id
+          ORDER BY id
+        ) AS next_sequence
+      FROM pi_messages
+    )
+    UPDATE pi_messages
+    SET sequence = (
+      SELECT next_sequence
+      FROM ordered_messages
+      WHERE ordered_messages.id = pi_messages.id
+    )
+    WHERE sequence IS NULL OR sequence = 0;
+
+    CREATE INDEX IF NOT EXISTS idx_pi_messages_session_sequence ON pi_messages (pi_session_db_id, sequence, id);
+  `);
 
   addColumns(sqlite, 'automation_jobs', {
     target_output_path: 'TEXT',

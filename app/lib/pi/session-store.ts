@@ -181,11 +181,12 @@ export async function savePiSession(
   const newMessages = messages.slice(startIndex);
   if (newMessages.length > 0) {
     await db.insert(piMessages).values(
-      newMessages.map(m => ({
+      newMessages.map((m, index) => ({
         piSessionDbId: sessionDbId,
         role: m.role,
         content: JSON.stringify(m),
         timestamp: getAgentMessageTimestamp(m),
+        sequence: startIndex + index + 1,
       }))
     );
   }
@@ -205,7 +206,7 @@ export async function loadPiSession(
     const messages = await db.select()
       .from(piMessages)
       .where(eq(piMessages.piSessionDbId, session.id))
-      .orderBy(asc(piMessages.timestamp));
+      .orderBy(asc(piMessages.sequence), asc(piMessages.id));
 
     return messages.map(m => parsePersistedPiMessage(m.content, options?.projectionMode ?? 'context'));
   }
@@ -270,7 +271,7 @@ export async function loadPiSessionWithSummary(
   const rows = await db.select()
     .from(piMessages)
     .where(eq(piMessages.piSessionDbId, session.id))
-    .orderBy(asc(piMessages.timestamp));
+    .orderBy(asc(piMessages.sequence), asc(piMessages.id));
 
   return {
     messages: rows.map(m => parsePersistedPiMessage(m.content, options?.projectionMode ?? 'context')),
@@ -332,7 +333,7 @@ export async function loadPiSessionByChannelKey(
   const rows = await db.select()
     .from(piMessages)
     .where(eq(piMessages.piSessionDbId, session.id))
-    .orderBy(asc(piMessages.timestamp));
+    .orderBy(asc(piMessages.sequence), asc(piMessages.id));
 
   return rows.map(m => parsePersistedPiMessage(m.content, options?.projectionMode ?? 'context'));
 }

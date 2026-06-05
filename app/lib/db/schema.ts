@@ -125,8 +125,10 @@ export const piMessages = sqliteTable("pi_messages", {
   role: text("role").notNull(), // 'user', 'assistant', 'toolResult'
   content: text("content").notNull(), // Full JSON of Message object
   timestamp: integer("timestamp").notNull(),
+  sequence: integer("sequence").notNull().default(0),
 }, (table) => ({
   sessionTimestampIdx: index("idx_pi_messages_session_timestamp").on(table.piSessionDbId, table.timestamp, table.id),
+  sessionSequenceIdx: index("idx_pi_messages_session_sequence").on(table.piSessionDbId, table.sequence, table.id),
 }));
 
 export const piUsageEvents = sqliteTable("pi_usage_events", {

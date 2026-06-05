@@ -51,17 +51,23 @@ export async function GET(request: NextRequest) {
   const afterParam = searchParams.get('after');
   const beforeIdParam = searchParams.get('beforeId');
   const afterIdParam = searchParams.get('afterId');
+  const beforeSequenceParam = searchParams.get('beforeSequence');
+  const afterSequenceParam = searchParams.get('afterSequence');
   const projectionMode: PiMessageProjectionMode = searchParams.get('raw') === 'true' ? 'raw' : 'display';
   const before = parseCursorParam(beforeParam);
   const after = parseCursorParam(afterParam);
   const beforeId = parseCursorParam(beforeIdParam);
   const afterId = parseCursorParam(afterIdParam);
+  const beforeSequence = parseCursorParam(beforeSequenceParam);
+  const afterSequence = parseCursorParam(afterSequenceParam);
 
   if (
     (beforeParam !== null && Number.isNaN(before)) ||
     (afterParam !== null && Number.isNaN(after)) ||
     (beforeIdParam !== null && Number.isNaN(beforeId)) ||
-    (afterIdParam !== null && Number.isNaN(afterId))
+    (afterIdParam !== null && Number.isNaN(afterId)) ||
+    (beforeSequenceParam !== null && Number.isNaN(beforeSequence)) ||
+    (afterSequenceParam !== null && Number.isNaN(afterSequence))
   ) {
     return NextResponse.json({ success: false, error: 'Invalid pagination cursor' }, { status: 400 });
   }
@@ -76,7 +82,16 @@ export async function GET(request: NextRequest) {
 
     if (dbPiSessions.length > 0) {
       const conditions = [eq(piMessages.piSessionDbId, dbPiSessions[0].id)];
-      if (before !== null) {
+      if (beforeSequence !== null) {
+        conditions.push(
+          beforeId !== null
+            ? or(
+                lt(piMessages.sequence, beforeSequence),
+                and(eq(piMessages.sequence, beforeSequence), lt(piMessages.id, beforeId)),
+              )!
+            : lt(piMessages.sequence, beforeSequence),
+        );
+      } else if (before !== null) {
         conditions.push(
           beforeId !== null
             ? or(
@@ -86,7 +101,16 @@ export async function GET(request: NextRequest) {
             : lt(piMessages.timestamp, before),
         );
       }
-      if (after !== null) {
+      if (afterSequence !== null) {
+        conditions.push(
+          afterId !== null
+            ? or(
+                gt(piMessages.sequence, afterSequence),
+                and(eq(piMessages.sequence, afterSequence), gt(piMessages.id, afterId)),
+              )!
+            : gt(piMessages.sequence, afterSequence),
+        );
+      } else if (after !== null) {
         conditions.push(
           afterId !== null
             ? or(
@@ -97,7 +121,7 @@ export async function GET(request: NextRequest) {
         );
       }
 
-      const isBackwardPage = before !== null || (before === null && after === null);
+      const isBackwardPage = beforeSequence !== null || before !== null || (before === null && after === null && afterSequence === null);
 
       // Fetch limit+1 to detect if there are more pages
       const rows = await db
@@ -105,7 +129,7 @@ export async function GET(request: NextRequest) {
         .from(piMessages)
         .where(and(...conditions))
         .orderBy(
-          isBackwardPage ? desc(piMessages.timestamp) : asc(piMessages.timestamp),
+          isBackwardPage ? desc(piMessages.sequence) : asc(piMessages.sequence),
           isBackwardPage ? desc(piMessages.id) : asc(piMessages.id),
         )
         .limit(limit + 1);
@@ -120,8 +144,8 @@ export async function GET(request: NextRequest) {
       // Response order stays chronological even when fetched backwards for initial or older pages.
       if (isBackwardPage) {
         resultRows = [...resultRows].sort((a, b) => {
-          if (a.timestamp !== b.timestamp) {
-            return a.timestamp - b.timestamp;
+          if (a.sequence !== b.sequence) {
+            return a.sequence - b.sequence;
           }
           return a.id - b.id;
         });
@@ -130,6 +154,7 @@ export async function GET(request: NextRequest) {
       const mapped = resultRows.map(m => ({
         ...parsePersistedPiMessage(m.content, projectionMode),
         id: m.id,
+        sequence: m.sequence,
         createdAt: new Date(m.timestamp),
       }));
 
@@ -137,6 +162,8 @@ export async function GET(request: NextRequest) {
       const newestTimestamp = resultRows.length > 0 ? resultRows[resultRows.length - 1].timestamp : null;
       const oldestMessageId = resultRows.length > 0 ? resultRows[0].id : null;
       const newestMessageId = resultRows.length > 0 ? resultRows[resultRows.length - 1].id : null;
+      const oldestSequence = resultRows.length > 0 ? resultRows[0].sequence : null;
+      const newestSequence = resultRows.length > 0 ? resultRows[resultRows.length - 1].sequence : null;
 
       return NextResponse.json({
         success: true,
@@ -148,6 +175,8 @@ export async function GET(request: NextRequest) {
         newestTimestamp,
         oldestMessageId,
         newestMessageId,
+        oldestSequence,
+        newestSequence,
       });
     }
 

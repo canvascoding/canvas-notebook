@@ -194,6 +194,7 @@ type CachedChatSession = {
   hasMoreBefore: boolean;
   oldestTimestamp: number | null;
   oldestMessageId: number | null;
+  oldestSequence: number | null;
   cachedAt: number;
 };
 
@@ -230,6 +231,7 @@ interface ChatEvent {
 
 type PersistedChatMessage = AgentMessage & {
   id?: number | string;
+  sequence?: number;
 };
 type PersistedToolCallPart = {
   type: 'toolCall';
@@ -603,6 +605,11 @@ function getChatMessageDbId(message: ChatMessage | undefined): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+function getChatMessageSequence(message: ChatMessage | undefined): number | null {
+  const sequence = (message?.piMessage as { sequence?: unknown } | undefined)?.sequence;
+  return typeof sequence === 'number' && Number.isFinite(sequence) ? sequence : null;
+}
+
 function getChatSessionCacheKey(agentId: string | null | undefined, sessionId: string): string {
   return `${agentId || CHAT_AGENT_ID}:${sessionId}`;
 }
@@ -668,6 +675,7 @@ function normalizeCachedSessionEntry(value: unknown): CachedChatSession | null {
     hasMoreBefore: typeof value.hasMoreBefore === 'boolean' ? value.hasMoreBefore : false,
     oldestTimestamp: typeof value.oldestTimestamp === 'number' ? value.oldestTimestamp : null,
     oldestMessageId: typeof value.oldestMessageId === 'number' ? value.oldestMessageId : null,
+    oldestSequence: typeof value.oldestSequence === 'number' ? value.oldestSequence : null,
     cachedAt,
   };
 }
@@ -719,6 +727,7 @@ function buildCachedChatSessionEntry(params: {
   hasMoreBefore: boolean;
   oldestTimestamp: number | null;
   oldestMessageId: number | null;
+  oldestSequence: number | null;
 }): CachedChatSession {
   const trimmed = trimCachedMessages(params.messages);
   const firstMessage = trimmed.messages[0];
@@ -728,6 +737,9 @@ function buildCachedChatSessionEntry(params: {
   const trimmedOldestMessageId = trimmed.droppedEarlierMessages
     ? getChatMessageDbId(firstMessage) ?? params.oldestMessageId
     : params.oldestMessageId;
+  const trimmedOldestSequence = trimmed.droppedEarlierMessages
+    ? getChatMessageSequence(firstMessage) ?? params.oldestSequence
+    : params.oldestSequence;
 
   return {
     version: CHAT_SESSION_CACHE_VERSION,
@@ -739,6 +751,7 @@ function buildCachedChatSessionEntry(params: {
     hasMoreBefore: params.hasMoreBefore || trimmed.droppedEarlierMessages,
     oldestTimestamp: trimmedOldestTimestamp,
     oldestMessageId: trimmedOldestMessageId,
+    oldestSequence: trimmedOldestSequence,
     cachedAt: Date.now(),
   };
 }
@@ -2253,6 +2266,7 @@ export default function CanvasAgentChat({
   const [hasMoreBefore, setHasMoreBefore] = useState(false);
   const [oldestTimestamp, setOldestTimestamp] = useState<number | null>(null);
   const [oldestMessageId, setOldestMessageId] = useState<number | null>(null);
+  const [oldestSequence, setOldestSequence] = useState<number | null>(null);
   const [isLoadingOlder, setIsLoadingOlder] = useState(false);
   const [input, setInput] = useState<string>('');
   const [attachments, setAttachments] = useState<Attachment[]>([]);
@@ -2438,6 +2452,7 @@ export default function CanvasAgentChat({
       hasMoreBefore,
       oldestTimestamp,
       oldestMessageId,
+      oldestSequence,
     });
 
     rememberChatSessionCacheEntry(entry);
@@ -2449,7 +2464,7 @@ export default function CanvasAgentChat({
       cachePersistTimerRef.current = null;
       persistChatSessionCache();
     }, 300);
-  }, [activeModel, activeProvider, activeThinkingLevel, hasMoreBefore, messages, oldestMessageId, oldestTimestamp, selectedAgentId, sessionId, sessionTitle]);
+  }, [activeModel, activeProvider, activeThinkingLevel, hasMoreBefore, messages, oldestMessageId, oldestSequence, oldestTimestamp, selectedAgentId, sessionId, sessionTitle]);
 
   const getTextareaBaseHeight = useCallback(() => (
     isMobile ? MOBILE_TEXTAREA_BASE_HEIGHT_PX : DESKTOP_TEXTAREA_BASE_HEIGHT_PX
@@ -3864,6 +3879,7 @@ export default function CanvasAgentChat({
     setMessages([]);
     setHasMoreBefore(false);
     setOldestTimestamp(null);
+    setOldestSequence(null);
     setIsLoadingOlder(false);
     setExpandedRunKeys(new Set());
     // Always close history on mobile when starting new chat, conditionally on desktop
@@ -3910,6 +3926,7 @@ export default function CanvasAgentChat({
         content: '',
         type: 'compact_break' as const,
         status: 'sent' as const,
+        piMessage: rawMessage,
         compactMeta: {
           kind: cb.kind,
           timestamp: cb.timestamp,
@@ -3926,6 +3943,7 @@ export default function CanvasAgentChat({
         content: `Authentication required for ${authMsg.toolkitName}. [Connect ${authMsg.toolkitName}](${authMsg.redirectUrl})`,
         type: 'composio_auth_required' as const,
         status: 'sent' as const,
+        piMessage: rawMessage,
         composioAuthMeta: {
           toolkit: authMsg.toolkit,
           toolkitName: authMsg.toolkitName,
@@ -4027,6 +4045,7 @@ export default function CanvasAgentChat({
           hasMoreBefore?: boolean;
           oldestTimestamp?: number | null;
           oldestMessageId?: number | null;
+          oldestSequence?: number | null;
         }>(response);
 
         if (
@@ -4043,6 +4062,7 @@ export default function CanvasAgentChat({
         setHasMoreBefore(typeof payload.hasMoreBefore === 'boolean' ? payload.hasMoreBefore : payload.messages.length >= 50);
         setOldestTimestamp(payload.oldestTimestamp ?? null);
         setOldestMessageId(payload.oldestMessageId ?? null);
+        setOldestSequence(payload.oldestSequence ?? null);
         if (isAtBottomRef.current) {
           requestAnimationFrame(() => scrollToBottom('auto'));
         }
@@ -4089,6 +4109,7 @@ export default function CanvasAgentChat({
     setHasMoreBefore(false);
     setOldestTimestamp(null);
     setOldestMessageId(null);
+    setOldestSequence(null);
     setIsLoadingOlder(false);
     setExpandedRunKeys(new Set());
     setRuntimeStatus(null);
@@ -4103,6 +4124,7 @@ export default function CanvasAgentChat({
       setHasMoreBefore(cachedEntry.hasMoreBefore);
       setOldestTimestamp(cachedEntry.oldestTimestamp);
       setOldestMessageId(cachedEntry.oldestMessageId);
+      setOldestSequence(cachedEntry.oldestSequence);
       requestAnimationFrame(() => {
         scrollToBottom('auto');
       });
@@ -4175,6 +4197,7 @@ export default function CanvasAgentChat({
         hasMoreBefore?: boolean;
         oldestTimestamp?: number | null;
         oldestMessageId?: number | null;
+        oldestSequence?: number | null;
       }>(messagesResponse);
 
       if (
@@ -4211,6 +4234,13 @@ export default function CanvasAgentChat({
           const firstRaw = messagesPayload.messages[0] as unknown as Record<string, unknown>;
           const id = typeof firstRaw.id === 'number' ? firstRaw.id : null;
           if (id != null) setOldestMessageId(id);
+        }
+        if (typeof messagesPayload.oldestSequence === 'number') {
+          setOldestSequence(messagesPayload.oldestSequence);
+        } else if (messagesPayload.messages.length > 0) {
+          const firstRaw = messagesPayload.messages[0] as unknown as Record<string, unknown>;
+          const sequence = typeof firstRaw.sequence === 'number' ? firstRaw.sequence : null;
+          if (sequence != null) setOldestSequence(sequence);
         }
       } else if (!hasCachedMessages) {
         setMessages([{ id: 'error', role: 'system', content: t('failedToLoadMessageHistory') }]);
@@ -4263,7 +4293,7 @@ export default function CanvasAgentChat({
 
   const loadOlderMessages = useCallback(async () => {
     const currentSessionId = sessionIdRef.current;
-    if (!currentSessionId || isLoadingOlder || !hasMoreBefore || oldestTimestamp === null) return;
+    if (!currentSessionId || isLoadingOlder || !hasMoreBefore || (oldestSequence === null && oldestTimestamp === null)) return;
 
     setIsLoadingOlder(true);
     const agentId = sessionAgentIdRef.current || selectedAgentId;
@@ -4272,8 +4302,11 @@ export default function CanvasAgentChat({
     const previousScrollHeight = scrollContainer?.scrollHeight ?? 0;
 
     try {
+      const beforeCursor = oldestSequence !== null
+        ? `beforeSequence=${oldestSequence}`
+        : `before=${oldestTimestamp}`;
       const response = await fetch(
-        `/api/sessions/messages?agentId=${encodeURIComponent(agentId)}&sessionId=${encodeURIComponent(currentSessionId)}&before=${oldestTimestamp}${oldestMessageId !== null ? `&beforeId=${oldestMessageId}` : ''}&limit=50`,
+        `/api/sessions/messages?agentId=${encodeURIComponent(agentId)}&sessionId=${encodeURIComponent(currentSessionId)}&${beforeCursor}${oldestMessageId !== null ? `&beforeId=${oldestMessageId}` : ''}&limit=50`,
       );
       const payload = await response.json();
 
@@ -4293,6 +4326,9 @@ export default function CanvasAgentChat({
         if (typeof payload.oldestMessageId === 'number') {
           setOldestMessageId(payload.oldestMessageId);
         }
+        if (typeof payload.oldestSequence === 'number') {
+          setOldestSequence(payload.oldestSequence);
+        }
 
         // Preserve scroll position after prepending messages
         requestAnimationFrame(() => {
@@ -4307,7 +4343,7 @@ export default function CanvasAgentChat({
     } finally {
       setIsLoadingOlder(false);
     }
-  }, [hasMoreBefore, isLoadingOlder, mapRawMessages, oldestMessageId, oldestTimestamp, selectedAgentId]);
+  }, [hasMoreBefore, isLoadingOlder, mapRawMessages, oldestMessageId, oldestSequence, oldestTimestamp, selectedAgentId]);
 
   const clearSessionParamFromUrl = useCallback(() => {
     if (typeof window === 'undefined' || !window.location.search.includes('session=')) {
