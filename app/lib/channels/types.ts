@@ -13,8 +13,14 @@ export interface ChannelPlugin {
 export interface ChannelCapabilities {
   inboundText?: boolean;
   inboundImages?: boolean;
+  inboundVideos?: boolean;
+  inboundAudio?: boolean;
   inboundFiles?: boolean;
   outboundText?: boolean;
+  outboundImages?: boolean;
+  outboundVideos?: boolean;
+  outboundAudio?: boolean;
+  outboundFiles?: boolean;
   typingIndicator?: boolean;
 }
 
