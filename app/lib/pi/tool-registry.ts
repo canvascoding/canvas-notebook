@@ -112,6 +112,16 @@ const execAsync = promisify(exec);
 const DEFAULT_READ_TEXT_LIMIT = 40_000;
 const MAX_READ_TEXT_LIMIT = 120_000;
 const BINARY_SAMPLE_BYTES = 8192;
+const DEFAULT_PDF_TEXT_PAGE_LIMIT = 80;
+const MAX_PDF_TEXT_PAGE_LIMIT = 200;
+const DEFAULT_PDF_IMAGE_LIMIT = 2;
+const MAX_PDF_IMAGE_LIMIT = 5;
+const PDF_AUTO_IMAGE_MAX_PAGES = 20;
+const PDF_AUTO_IMAGE_MAX_BYTES = 25 * 1024 * 1024;
+const PDF_IMAGE_RENDER_WIDTH = 900;
+const PDF_IMAGE_MAX_BYTES = 750_000;
+const PDF_IMAGE_TOTAL_MAX_BYTES = 1_500_000;
+const PDF_MAX_IN_MEMORY_BYTES = 100 * 1024 * 1024;
 
 
 const IMAGE_EXTENSIONS: Record<string, string> = {
@@ -139,6 +149,16 @@ function clampReadTextLimit(value: unknown): number {
   return Math.min(Math.trunc(parsed), MAX_READ_TEXT_LIMIT);
 }
 
+function clampPositiveInteger(value: unknown, defaultValue: number, maxValue: number): number {
+  const parsed = typeof value === 'number'
+    ? value
+    : typeof value === 'string'
+      ? Number(value)
+      : defaultValue;
+  if (!Number.isFinite(parsed) || parsed <= 0) return defaultValue;
+  return Math.min(Math.trunc(parsed), maxValue);
+}
+
 function truncateReadText(text: string, maxChars: number): { text: string; truncated: boolean } {
   if (text.length <= maxChars) return { text, truncated: false };
   return {
@@ -150,6 +170,10 @@ function truncateReadText(text: string, maxChars: number): { text: string; trunc
 function isPdfBuffer(filePath: string, buffer: Buffer): boolean {
   return path.extname(filePath).toLowerCase() === '.pdf'
     || buffer.subarray(0, 5).toString('latin1') === '%PDF-';
+}
+
+function isPdfPath(filePath: string): boolean {
+  return path.extname(filePath).toLowerCase() === '.pdf';
 }
 
 function bufferLooksBinary(buffer: Buffer): boolean {
@@ -166,29 +190,176 @@ function bufferLooksBinary(buffer: Buffer): boolean {
   return controlBytes / sample.length > 0.1;
 }
 
-async function extractPdfTextForRead(filePath: string, buffer: Buffer, maxChars: number) {
+function normalizePdfPageNumbers(value: unknown, totalPages: number, maxPages: number): number[] {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<number>();
+  const pages: number[] = [];
+
+  for (const raw of value) {
+    const page = typeof raw === 'number' ? raw : typeof raw === 'string' ? Number(raw) : NaN;
+    if (!Number.isFinite(page)) continue;
+    const normalized = Math.trunc(page);
+    if (normalized < 1 || normalized > totalPages || seen.has(normalized)) continue;
+    seen.add(normalized);
+    pages.push(normalized);
+    if (pages.length >= maxPages) break;
+  }
+
+  return pages.sort((a, b) => a - b);
+}
+
+function firstPdfPages(totalPages: number, count: number): number[] {
+  return Array.from({ length: Math.min(totalPages, count) }, (_, index) => index + 1);
+}
+
+type PdfReadOptions = {
+  maxChars: number;
+  maxTextPages: number;
+  textPages?: unknown;
+  includeImages?: boolean;
+  includeImagesExplicit: boolean;
+  imagePages?: unknown;
+  maxImages: number;
+};
+
+async function renderPdfPageImagesForRead(
+  parser: PDFParse,
+  pageNumbers: number[],
+): Promise<{ images: ImageContent[]; details: Array<{ pageNumber: number; bytes: number; width: number; height: number }>; skipped: string[] }> {
+  if (pageNumbers.length === 0) {
+    return { images: [], details: [], skipped: [] };
+  }
+
+  const screenshots = await parser.getScreenshot({
+    partial: pageNumbers,
+    desiredWidth: PDF_IMAGE_RENDER_WIDTH,
+    imageBuffer: true,
+    imageDataUrl: false,
+  });
+
+  const images: ImageContent[] = [];
+  const details: Array<{ pageNumber: number; bytes: number; width: number; height: number }> = [];
+  const skipped: string[] = [];
+  let totalBytes = 0;
+
+  for (const page of screenshots.pages) {
+    const bytes = Buffer.from(page.data);
+    if (bytes.length > PDF_IMAGE_MAX_BYTES) {
+      skipped.push(`page ${page.pageNumber}: rendered image exceeded ${PDF_IMAGE_MAX_BYTES} bytes`);
+      continue;
+    }
+    if (totalBytes + bytes.length > PDF_IMAGE_TOTAL_MAX_BYTES) {
+      skipped.push(`page ${page.pageNumber}: skipped to keep PDF image result under ${PDF_IMAGE_TOTAL_MAX_BYTES} bytes`);
+      continue;
+    }
+
+    totalBytes += bytes.length;
+    images.push({ type: 'image', data: bytes.toString('base64'), mimeType: 'image/png' });
+    details.push({
+      pageNumber: page.pageNumber,
+      bytes: bytes.length,
+      width: Math.round(page.width),
+      height: Math.round(page.height),
+    });
+  }
+
+  return { images, details, skipped };
+}
+
+async function extractPdfTextForRead(filePath: string, buffer: Buffer, options: PdfReadOptions, signal?: AbortSignal) {
   const parser = new PDFParse({ data: buffer });
   try {
-    const result = await parser.getText({ pageJoiner: '\n-- Page page_number of total_number --' });
+    throwIfAborted(signal);
+    const info = await parser.getInfo();
+    const totalPages = info.total;
+    const explicitTextPages = normalizePdfPageNumbers(options.textPages, totalPages, MAX_PDF_TEXT_PAGE_LIMIT);
+    const textPageNumbers = explicitTextPages.length > 0
+      ? explicitTextPages
+      : firstPdfPages(totalPages, Math.min(totalPages, options.maxTextPages));
+    const textPageLimited = explicitTextPages.length === 0 && totalPages > textPageNumbers.length;
+
+    throwIfAborted(signal);
+    const result = await parser.getText({
+      ...(explicitTextPages.length > 0 ? { partial: textPageNumbers } : { first: textPageNumbers.length }),
+      pageJoiner: '\n-- Page page_number of total_number --',
+    });
     const hasExtractedText = result.pages.some((page) => page.text.trim().length > 0);
+    const notes: string[] = [];
+    if (textPageLimited) {
+      notes.push(`PDF text extraction was limited to the first ${textPageNumbers.length} of ${totalPages} pages. Call read with pdfTextPages or a larger maxPdfTextPages to inspect later pages.`);
+    }
+
+    const shouldAutoIncludeImages = !options.includeImagesExplicit
+      && totalPages <= PDF_AUTO_IMAGE_MAX_PAGES
+      && buffer.length <= PDF_AUTO_IMAGE_MAX_BYTES;
+    const shouldIncludeImages = options.includeImages === true || shouldAutoIncludeImages;
+    const imagePageNumbers = shouldIncludeImages
+      ? (
+          normalizePdfPageNumbers(options.imagePages, totalPages, options.maxImages).length > 0
+            ? normalizePdfPageNumbers(options.imagePages, totalPages, options.maxImages)
+            : firstPdfPages(totalPages, options.maxImages)
+        )
+      : [];
+
+    let imageContent: ImageContent[] = [];
+    let imageDetails: Array<{ pageNumber: number; bytes: number; width: number; height: number }> = [];
+    let skippedImages: string[] = [];
+    if (shouldIncludeImages) {
+      throwIfAborted(signal);
+      const rendered = await renderPdfPageImagesForRead(parser, imagePageNumbers);
+      imageContent = rendered.images;
+      imageDetails = rendered.details;
+      skippedImages = rendered.skipped;
+      if (imageDetails.length > 0) {
+        notes.push(`Rendered PDF page image(s) included for vision-capable models: ${imageDetails.map((image) => image.pageNumber).join(', ')}.`);
+      }
+      if (skippedImages.length > 0) {
+        notes.push(`Some PDF page images were skipped: ${skippedImages.join('; ')}.`);
+      }
+    } else if (!options.includeImagesExplicit && totalPages > 0) {
+      notes.push(`PDF page images were not auto-included because the PDF is large or outside the auto-render limit. Call read with includePdfImages: true and pdfImagePages to inspect selected pages visually.`);
+    }
+
     if (!hasExtractedText) {
+      const noteText = notes.length > 0 ? `\n\n${notes.join('\n')}` : '';
       return {
-        content: [{ type: 'text' as const, text: 'PDF parsed, but no extractable text was found. It may be scanned or image-based.' }],
-        details: { filePath, size: buffer.length, type: 'pdf', pages: result.total, truncated: false },
+        content: [
+          { type: 'text' as const, text: `PDF parsed, but no extractable text was found. It may be scanned or image-based.${noteText}` },
+          ...imageContent,
+        ],
+        details: {
+          filePath,
+          size: buffer.length,
+          type: 'pdf',
+          pages: totalPages,
+          textPagesRead: textPageNumbers,
+          textPageLimited,
+          truncated: false,
+          images: imageDetails,
+          skippedImages,
+        },
       };
     }
 
     const text = result.text.trim();
-    const truncated = truncateReadText(text, maxChars);
+    const truncated = truncateReadText(text, options.maxChars);
+    const noteText = notes.length > 0 ? `\n\n${notes.join('\n')}` : '';
     return {
-      content: [{ type: 'text' as const, text: truncated.text }],
+      content: [
+        { type: 'text' as const, text: `${truncated.text}${noteText}` },
+        ...imageContent,
+      ],
       details: {
         filePath,
         size: buffer.length,
         type: 'pdf',
-        pages: result.total,
+        pages: totalPages,
+        textPagesRead: textPageNumbers,
+        textPageLimited,
         textLength: text.length,
         truncated: truncated.truncated,
+        images: imageDetails,
+        skippedImages,
       },
     };
   } finally {
@@ -1513,17 +1684,49 @@ export const piTools: AgentTool[] = [
   {
     name: 'read',
     label: 'Reading file',
-    description: 'Reads the content of a file. Use absolute paths (e.g. /data/agents/canvas-agent/AGENTS.md) or relative paths from /data/workspace.',
+    description: 'Reads the content of a file. Use absolute paths (e.g. /data/agents/canvas-agent/AGENTS.md) or relative paths from /data/workspace. For PDFs, extracts text and can include limited rendered page images for vision-capable models.',
     parameters: Type.Object({
       path: Type.String({ description: 'Absolute path or workspace-relative path.' }),
       maxChars: Type.Optional(Type.Number({ description: `Maximum text characters to return. Default ${DEFAULT_READ_TEXT_LIMIT}, max ${MAX_READ_TEXT_LIMIT}.` })),
+      maxPdfTextPages: Type.Optional(Type.Number({ description: `For PDFs, maximum pages to parse for text when pdfTextPages is not provided. Default ${DEFAULT_PDF_TEXT_PAGE_LIMIT}, max ${MAX_PDF_TEXT_PAGE_LIMIT}.` })),
+      pdfTextPages: Type.Optional(Type.Array(Type.Number(), { description: 'For PDFs, specific 1-based page numbers to parse for text. Use for large PDFs or targeted rereads.' })),
+      includePdfImages: Type.Optional(Type.Boolean({ description: `For PDFs, include rendered page screenshots as image content for vision-capable models. Defaults to auto for PDFs up to ${PDF_AUTO_IMAGE_MAX_PAGES} pages and ${PDF_AUTO_IMAGE_MAX_BYTES} bytes.` })),
+      pdfImagePages: Type.Optional(Type.Array(Type.Number(), { description: 'For PDFs, specific 1-based page numbers to render as images. Use with includePdfImages for targeted visual inspection.' })),
+      maxPdfImages: Type.Optional(Type.Number({ description: `For PDFs, maximum rendered page images to include. Default ${DEFAULT_PDF_IMAGE_LIMIT}, max ${MAX_PDF_IMAGE_LIMIT}.` })),
     }),
-    execute: async (toolCallId, params) => {
-      const { path: filePath, maxChars } = params as { path: string; maxChars?: number };
+    execute: async (toolCallId, params, signal) => {
+      const {
+        path: filePath,
+        maxChars,
+        maxPdfTextPages,
+        pdfTextPages,
+        includePdfImages,
+        pdfImagePages,
+        maxPdfImages,
+      } = params as {
+        path: string;
+        maxChars?: number;
+        maxPdfTextPages?: number;
+        pdfTextPages?: number[];
+        includePdfImages?: boolean;
+        pdfImagePages?: number[];
+        maxPdfImages?: number;
+      };
       try {
         const fullPath = resolveAgentPath(filePath);
         await assertAgentPathAllowed(fullPath);
+        throwIfAborted(signal);
         const readTextLimit = clampReadTextLimit(maxChars);
+        const stats = await fsPromises.stat(fullPath);
+        if (isPdfPath(filePath) && stats.size > PDF_MAX_IN_MEMORY_BYTES) {
+          return {
+            content: [{
+              type: 'text',
+              text: `Error: PDF is too large for the read tool's in-memory parser (${stats.size} bytes, limit ${PDF_MAX_IN_MEMORY_BYTES}). Use a targeted PDF workflow, split the PDF, or inspect selected pages with an external PDF utility.`,
+            }],
+            details: { filePath, size: stats.size, type: 'pdf', error: 'pdf_too_large' },
+          };
+        }
         const buffer = await fsPromises.readFile(fullPath);
         const image = imageContentForBuffer(filePath, buffer);
         if (image) {
@@ -1533,7 +1736,15 @@ export const piTools: AgentTool[] = [
           };
         }
         if (isPdfBuffer(filePath, buffer)) {
-          return await extractPdfTextForRead(filePath, buffer, readTextLimit);
+          return await extractPdfTextForRead(filePath, buffer, {
+            maxChars: readTextLimit,
+            maxTextPages: clampPositiveInteger(maxPdfTextPages, DEFAULT_PDF_TEXT_PAGE_LIMIT, MAX_PDF_TEXT_PAGE_LIMIT),
+            textPages: pdfTextPages,
+            includeImages: includePdfImages,
+            includeImagesExplicit: typeof includePdfImages === 'boolean',
+            imagePages: pdfImagePages,
+            maxImages: clampPositiveInteger(maxPdfImages, DEFAULT_PDF_IMAGE_LIMIT, MAX_PDF_IMAGE_LIMIT),
+          }, signal);
         }
         if (bufferLooksBinary(buffer)) {
           return {

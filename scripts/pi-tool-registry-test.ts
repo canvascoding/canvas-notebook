@@ -11,16 +11,28 @@ function getText(result: unknown): string {
   return content?.find((item) => item.type === 'text')?.text || '';
 }
 
-function createSimplePdf(text: string): string {
-  const escapedText = text.replace(/[\\()]/g, '\\$&');
-  const stream = `BT /F1 24 Tf 100 700 Td (${escapedText}) Tj ET`;
+function getImages(result: unknown): Array<{ type?: string; data?: string; mimeType?: string }> {
+  const content = (result as { content?: Array<{ type?: string; data?: string; mimeType?: string }> }).content;
+  return content?.filter((item) => item.type === 'image') || [];
+}
+
+function createSimplePdfPages(texts: string[]): string {
+  const pageObjectNumbers = texts.map((_, index) => 4 + index * 2);
   const objects = [
     '1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n',
-    '2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n',
-    '3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>\nendobj\n',
-    '4 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n',
-    `5 0 obj\n<< /Length ${Buffer.byteLength(stream, 'latin1')} >>\nstream\n${stream}\nendstream\nendobj\n`,
+    `2 0 obj\n<< /Type /Pages /Kids [${pageObjectNumbers.map((objectNumber) => `${objectNumber} 0 R`).join(' ')}] /Count ${texts.length} >>\nendobj\n`,
+    '3 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n',
   ];
+  texts.forEach((text, index) => {
+    const escapedText = text.replace(/[\\()]/g, '\\$&');
+    const stream = `BT /F1 24 Tf 100 700 Td (${escapedText}) Tj ET`;
+    const pageObjectNumber = pageObjectNumbers[index];
+    const contentObjectNumber = pageObjectNumber + 1;
+    objects.push(
+      `${pageObjectNumber} 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents ${contentObjectNumber} 0 R >>\nendobj\n`,
+      `${contentObjectNumber} 0 obj\n<< /Length ${Buffer.byteLength(stream, 'latin1')} >>\nstream\n${stream}\nendstream\nendobj\n`,
+    );
+  });
 
   let pdf = '%PDF-1.4\n';
   const offsets: number[] = [];
@@ -36,6 +48,10 @@ function createSimplePdf(text: string): string {
   }
   pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`;
   return pdf;
+}
+
+function createSimplePdf(text: string): string {
+  return createSimplePdfPages([text]);
 }
 
 async function main() {
@@ -202,6 +218,43 @@ async function main() {
   assert.doesNotMatch(getText(pdfReadResult), /^%PDF-/);
   assert.equal((pdfReadResult.details as { type: string; pages: number }).type, 'pdf');
   assert.equal((pdfReadResult.details as { type: string; pages: number }).pages, 1);
+  assert.equal(getImages(pdfReadResult).length, 1);
+  assert.equal(getImages(pdfReadResult)[0].mimeType, 'image/png');
+  assert.match(getText(pdfReadResult), /Rendered PDF page image/);
+
+  const multiPagePdfPath = path.join(workspaceDir, 'docs', 'multi-page.pdf');
+  await fs.writeFile(multiPagePdfPath, createSimplePdfPages(['Page One Text', 'Page Two Diagram', 'Page Three Appendix']), 'latin1');
+  const limitedPdfReadResult = await readTool.execute('read-pdf-limited-pages', {
+    path: 'docs/multi-page.pdf',
+    maxPdfTextPages: 2,
+    includePdfImages: false,
+  });
+  assert.match(getText(limitedPdfReadResult), /Page One Text/);
+  assert.match(getText(limitedPdfReadResult), /Page Two Diagram/);
+  assert.doesNotMatch(getText(limitedPdfReadResult), /Page Three Appendix/);
+  assert.match(getText(limitedPdfReadResult), /limited to the first 2 of 3 pages/);
+  assert.equal((limitedPdfReadResult.details as { textPageLimited: boolean }).textPageLimited, true);
+  assert.deepEqual((limitedPdfReadResult.details as { textPagesRead: number[] }).textPagesRead, [1, 2]);
+  assert.equal(getImages(limitedPdfReadResult).length, 0);
+
+  const targetedPdfImageResult = await readTool.execute('read-pdf-targeted-image', {
+    path: 'docs/multi-page.pdf',
+    pdfTextPages: [2],
+    includePdfImages: true,
+    pdfImagePages: [2],
+    maxPdfImages: 1,
+  });
+  assert.match(getText(targetedPdfImageResult), /Page Two Diagram/);
+  assert.doesNotMatch(getText(targetedPdfImageResult), /Page One Text/);
+  assert.equal(getImages(targetedPdfImageResult).length, 1);
+  assert.deepEqual((targetedPdfImageResult.details as { images: Array<{ pageNumber: number }> }).images.map((image) => image.pageNumber), [2]);
+
+  const hugePdfPath = path.join(workspaceDir, 'docs', 'huge.pdf');
+  await fs.writeFile(hugePdfPath, '%PDF-1.4\n', 'latin1');
+  await fs.truncate(hugePdfPath, 101 * 1024 * 1024);
+  const hugePdfReadResult = await readTool.execute('read-huge-pdf', { path: 'docs/huge.pdf' });
+  assert.match(getText(hugePdfReadResult), /PDF is too large/);
+  assert.equal((hugePdfReadResult.details as { error: string }).error, 'pdf_too_large');
 
   const binaryPath = path.join(workspaceDir, 'docs', 'archive.bin');
   await fs.writeFile(binaryPath, Buffer.from([0, 1, 2, 3, 4, 5, 6, 7]));
