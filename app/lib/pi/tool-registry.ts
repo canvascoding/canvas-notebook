@@ -3,6 +3,7 @@ import { type ImageContent } from '@earendil-works/pi-ai';
 import { Type } from 'typebox';
 import { exec, execFile } from 'child_process';
 import { promises as fsPromises } from 'fs';
+import { PDFParse } from 'pdf-parse';
 import { createComposioTools } from '../composio/composio-tools';
 import { isComposioConfigured } from '../composio/composio-client';
 import { promisify } from 'util';
@@ -108,6 +109,10 @@ import {
 
 const execAsync = promisify(exec);
 
+const DEFAULT_READ_TEXT_LIMIT = 40_000;
+const MAX_READ_TEXT_LIMIT = 120_000;
+const BINARY_SAMPLE_BYTES = 8192;
+
 
 const IMAGE_EXTENSIONS: Record<string, string> = {
   '.gif':  'image/gif',
@@ -122,6 +127,73 @@ function imageContentForBuffer(filePath: string, buffer: Buffer): ImageContent |
   const mimeType = IMAGE_EXTENSIONS[path.extname(filePath).toLowerCase()];
   if (!mimeType) return null;
   return { type: 'image', data: buffer.toString('base64'), mimeType };
+}
+
+function clampReadTextLimit(value: unknown): number {
+  const parsed = typeof value === 'number'
+    ? value
+    : typeof value === 'string'
+      ? Number(value)
+      : DEFAULT_READ_TEXT_LIMIT;
+  if (!Number.isFinite(parsed) || parsed <= 0) return DEFAULT_READ_TEXT_LIMIT;
+  return Math.min(Math.trunc(parsed), MAX_READ_TEXT_LIMIT);
+}
+
+function truncateReadText(text: string, maxChars: number): { text: string; truncated: boolean } {
+  if (text.length <= maxChars) return { text, truncated: false };
+  return {
+    text: `${text.slice(0, maxChars)}\n[...content truncated after ${maxChars} characters]`,
+    truncated: true,
+  };
+}
+
+function isPdfBuffer(filePath: string, buffer: Buffer): boolean {
+  return path.extname(filePath).toLowerCase() === '.pdf'
+    || buffer.subarray(0, 5).toString('latin1') === '%PDF-';
+}
+
+function bufferLooksBinary(buffer: Buffer): boolean {
+  const sample = buffer.subarray(0, Math.min(buffer.length, BINARY_SAMPLE_BYTES));
+  if (sample.length === 0) return false;
+
+  let controlBytes = 0;
+  for (const byte of sample) {
+    if (byte === 0) return true;
+    const isAllowedControl = byte === 9 || byte === 10 || byte === 12 || byte === 13;
+    if (byte < 32 && !isAllowedControl) controlBytes += 1;
+  }
+
+  return controlBytes / sample.length > 0.1;
+}
+
+async function extractPdfTextForRead(filePath: string, buffer: Buffer, maxChars: number) {
+  const parser = new PDFParse({ data: buffer });
+  try {
+    const result = await parser.getText({ pageJoiner: '\n-- Page page_number of total_number --' });
+    const hasExtractedText = result.pages.some((page) => page.text.trim().length > 0);
+    if (!hasExtractedText) {
+      return {
+        content: [{ type: 'text' as const, text: 'PDF parsed, but no extractable text was found. It may be scanned or image-based.' }],
+        details: { filePath, size: buffer.length, type: 'pdf', pages: result.total, truncated: false },
+      };
+    }
+
+    const text = result.text.trim();
+    const truncated = truncateReadText(text, maxChars);
+    return {
+      content: [{ type: 'text' as const, text: truncated.text }],
+      details: {
+        filePath,
+        size: buffer.length,
+        type: 'pdf',
+        pages: result.total,
+        textLength: text.length,
+        truncated: truncated.truncated,
+      },
+    };
+  } finally {
+    await parser.destroy();
+  }
 }
 
 type CommandExecutionError = Error & {
@@ -1444,12 +1516,14 @@ export const piTools: AgentTool[] = [
     description: 'Reads the content of a file. Use absolute paths (e.g. /data/agents/canvas-agent/AGENTS.md) or relative paths from /data/workspace.',
     parameters: Type.Object({
       path: Type.String({ description: 'Absolute path or workspace-relative path.' }),
+      maxChars: Type.Optional(Type.Number({ description: `Maximum text characters to return. Default ${DEFAULT_READ_TEXT_LIMIT}, max ${MAX_READ_TEXT_LIMIT}.` })),
     }),
     execute: async (toolCallId, params) => {
-      const { path: filePath } = params as { path: string };
+      const { path: filePath, maxChars } = params as { path: string; maxChars?: number };
       try {
         const fullPath = resolveAgentPath(filePath);
         await assertAgentPathAllowed(fullPath);
+        const readTextLimit = clampReadTextLimit(maxChars);
         const buffer = await fsPromises.readFile(fullPath);
         const image = imageContentForBuffer(filePath, buffer);
         if (image) {
@@ -1458,9 +1532,20 @@ export const piTools: AgentTool[] = [
             details: { filePath, size: buffer.length, type: 'image' },
           };
         }
+        if (isPdfBuffer(filePath, buffer)) {
+          return await extractPdfTextForRead(filePath, buffer, readTextLimit);
+        }
+        if (bufferLooksBinary(buffer)) {
+          return {
+            content: [{ type: 'text', text: 'Error: Unsupported binary file. The read tool can return text files, images, and PDFs with extractable text.' }],
+            details: { filePath, size: buffer.length, type: 'binary' },
+          };
+        }
+        const text = buffer.toString('utf8');
+        const truncated = truncateReadText(text, readTextLimit);
         return {
-          content: [{ type: 'text', text: buffer.toString('utf8') }],
-          details: { filePath, size: buffer.length },
+          content: [{ type: 'text', text: truncated.text }],
+          details: { filePath, size: buffer.length, type: 'text', textLength: text.length, truncated: truncated.truncated },
         };
       } catch (error: unknown) {
         const message = getErrorMessage(error);

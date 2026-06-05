@@ -11,6 +11,33 @@ function getText(result: unknown): string {
   return content?.find((item) => item.type === 'text')?.text || '';
 }
 
+function createSimplePdf(text: string): string {
+  const escapedText = text.replace(/[\\()]/g, '\\$&');
+  const stream = `BT /F1 24 Tf 100 700 Td (${escapedText}) Tj ET`;
+  const objects = [
+    '1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n',
+    '2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n',
+    '3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>\nendobj\n',
+    '4 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n',
+    `5 0 obj\n<< /Length ${Buffer.byteLength(stream, 'latin1')} >>\nstream\n${stream}\nendstream\nendobj\n`,
+  ];
+
+  let pdf = '%PDF-1.4\n';
+  const offsets: number[] = [];
+  for (const object of objects) {
+    offsets.push(Buffer.byteLength(pdf, 'latin1'));
+    pdf += object;
+  }
+
+  const xrefOffset = Buffer.byteLength(pdf, 'latin1');
+  pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+  for (const offset of offsets) {
+    pdf += `${String(offset).padStart(10, '0')} 00000 n \n`;
+  }
+  pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`;
+  return pdf;
+}
+
 async function main() {
   process.env.QMD_ENABLED = 'false';
   const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'canvas-pi-data-'));
@@ -156,6 +183,30 @@ async function main() {
     '- Abgabe prüfen',
     '',
   ].join('\n'), 'utf8');
+
+  const truncatedReadResult = await readTool.execute('read-markdown-truncated', {
+    path: 'hausarbeit/00_Projektplan_Team6_v2.md',
+    maxChars: 12,
+  });
+  assert.match(getText(truncatedReadResult), /^# Projektpla/);
+  assert.match(getText(truncatedReadResult), /content truncated after 12 characters/);
+  assert.equal((truncatedReadResult.details as { type: string; truncated: boolean }).type, 'text');
+  assert.equal((truncatedReadResult.details as { type: string; truncated: boolean }).truncated, true);
+
+  await fs.mkdir(path.join(workspaceDir, 'docs'), { recursive: true });
+  const pdfPath = path.join(workspaceDir, 'docs', 'case.pdf');
+  await fs.writeFile(pdfPath, createSimplePdf('Canvas PDF Text'), 'latin1');
+  const pdfReadResult = await readTool.execute('read-pdf', { path: 'docs/case.pdf' });
+  assert.match(getText(pdfReadResult), /Canvas PDF Text/);
+  assert.doesNotMatch(getText(pdfReadResult), /^%PDF-/);
+  assert.equal((pdfReadResult.details as { type: string; pages: number }).type, 'pdf');
+  assert.equal((pdfReadResult.details as { type: string; pages: number }).pages, 1);
+
+  const binaryPath = path.join(workspaceDir, 'docs', 'archive.bin');
+  await fs.writeFile(binaryPath, Buffer.from([0, 1, 2, 3, 4, 5, 6, 7]));
+  const binaryReadResult = await readTool.execute('read-binary', { path: 'docs/archive.bin' });
+  assert.match(getText(binaryReadResult), /Unsupported binary file/);
+  assert.equal((binaryReadResult.details as { type: string }).type, 'binary');
 
   const editResult = await editFileTool.execute('edit-markdown', {
     path: 'hausarbeit/00_Projektplan_Team6_v2.md',
