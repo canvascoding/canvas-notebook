@@ -114,8 +114,15 @@ async function main() {
   const researchJob = await getHeartbeatJob({ userId, agentId: 'research-agent' });
   assert.ok(canvasJob);
   assert.ok(researchJob);
-  assert.match(await buildHeartbeatPrompt(canvasJob), /Canvas heartbeat instructions/);
-  assert.match(await buildHeartbeatPrompt(researchJob), /Research heartbeat instructions/);
+  const canvasPrompt = await buildHeartbeatPrompt(canvasJob);
+  const researchPrompt = await buildHeartbeatPrompt(researchJob);
+  const automatedResearchPrompt = await buildHeartbeatPrompt(researchJob, { includeAutomatedRuntimeContext: true });
+  assert.match(canvasPrompt, /Canvas heartbeat instructions/);
+  assert.match(researchPrompt, /Research heartbeat instructions/);
+  assert.doesNotMatch(researchPrompt, /AUTOMATISCHER HEARTBEAT-KONTEXT/);
+  assert.match(automatedResearchPrompt, /AUTOMATISCHER HEARTBEAT-KONTEXT/);
+  assert.match(automatedResearchPrompt, /Aktueller Heartbeat-Zeitplan: Intervall: alle 2 Stunden/);
+  assert.match(automatedResearchPrompt, /\/settings\?tab=agent-settings/);
 
   console.log('heartbeat config tests passed');
 }
