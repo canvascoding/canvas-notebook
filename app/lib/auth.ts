@@ -3,7 +3,6 @@ import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { db } from "@/app/lib/db";
 import { nextCookies } from "better-auth/next-js";
 import { bearer } from "better-auth/plugins";
-import { BOOTSTRAP_SIGNUP_ENV } from "@/app/lib/bootstrap-admin";
 
 const authBaseURL =
   process.env.BETTER_AUTH_BASE_URL ||
@@ -18,9 +17,7 @@ const useSecureCookies =
 
 const emailAndPasswordConfig = {
   enabled: true,
-  get disableSignUp() {
-    return process.env[BOOTSTRAP_SIGNUP_ENV] !== 'true';
-  },
+  disableSignUp: true,
 };
 
 const trustedOrigins = [
