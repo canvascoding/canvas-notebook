@@ -675,6 +675,7 @@ export const sessionChannelLinks = sqliteTable("session_channel_links", {
   uniqueLink: uniqueIndex("idx_session_channel_links_unique").on(table.sessionId, table.channelId, table.channelSessionKey, table.channelThreadKey),
   sessionIdx: index("idx_session_channel_links_session").on(table.sessionId),
   userChannelIdx: index("idx_session_channel_links_user_channel").on(table.userId, table.channelId),
+  userContextIdx: index("idx_session_channel_links_user_context").on(table.userId, table.channelId, table.channelSessionKey, table.channelThreadKey),
   channelContextIdx: index("idx_session_channel_links_context").on(table.channelId, table.channelSessionKey, table.channelThreadKey),
 }));
 

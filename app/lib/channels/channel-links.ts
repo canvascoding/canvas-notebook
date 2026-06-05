@@ -18,9 +18,25 @@ export type ChannelLinkInput = {
   outboundAt?: Date | null;
 };
 
+async function clearPrimaryChannelLinksForContext(input: ChannelLinkInput, channelThreadKey: string): Promise<void> {
+  await db.update(sessionChannelLinks)
+    .set({ isPrimary: false })
+    .where(and(
+      eq(sessionChannelLinks.userId, input.userId),
+      eq(sessionChannelLinks.channelId, input.channelId),
+      eq(sessionChannelLinks.channelSessionKey, input.channelSessionKey),
+      eq(sessionChannelLinks.channelThreadKey, channelThreadKey),
+      eq(sessionChannelLinks.isPrimary, true),
+    ));
+}
+
 export async function ensureSessionChannelLink(input: ChannelLinkInput): Promise<void> {
   const now = new Date();
   const channelThreadKey = normalizeChannelThreadKey(input.channelThreadKey);
+  if (input.isPrimary) {
+    await clearPrimaryChannelLinksForContext(input, channelThreadKey);
+  }
+
   const existing = await db.query.sessionChannelLinks.findFirst({
     where: and(
       eq(sessionChannelLinks.sessionId, input.sessionId),
