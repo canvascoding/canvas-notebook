@@ -1423,13 +1423,15 @@
       "disabledSaved": "{server} disabled.",
       "testSucceeded": "{server} connection test succeeded ({count} tools).",
       "authorizationStarted": "Authorization started for {server}. Complete the browser login, then test the connection.",
+      "authorizationCompleted": "OAuth authorization completed for {server}.",
       "authCleared": "OAuth credentials cleared for {server}.",
       "errors": {
         "load": "Failed to load MCP configuration.",
         "save": "Failed to save MCP configuration.",
         "status": "Failed to load MCP status.",
         "action": "Failed to update MCP server.",
-        "tools": "Failed to load cached MCP tools."
+        "tools": "Failed to load cached MCP tools.",
+        "popupBlocked": "The OAuth window was blocked by the browser. Allow popups for this app and try again."
       }
     },
     "connectedApps": {

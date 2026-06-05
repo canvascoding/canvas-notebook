@@ -2133,6 +2133,34 @@ export function IntegrationsSettingsClient({
     }
   }, [t]);
 
+  const pollMcpAuthorizationStatus = useCallback(async (server: string) => {
+    for (let attempt = 0; attempt < 30; attempt += 1) {
+      await new Promise((resolve) => window.setTimeout(resolve, attempt === 0 ? 2000 : 3000));
+
+      try {
+        const response = await fetch('/api/integrations/mcp-status', {
+          credentials: 'include',
+          cache: 'no-store',
+        });
+        const payload = await response.json();
+        if (!response.ok || !payload.success) continue;
+
+        const nextStatus = payload.data as McpStatusState;
+        const oauth = nextStatus.oauth.find((entry) => entry.serverName === server);
+        const authorized = Boolean(oauth?.authorized);
+        setMcpEditor((current) => ({
+          ...current,
+          status: nextStatus,
+          success: authorized ? t('mcpConfig.authorizationCompleted', { server }) : current.success,
+        }));
+
+        if (authorized) return;
+      } catch {
+        // Keep polling; transient errors should not interrupt the OAuth window flow.
+      }
+    }
+  }, [t]);
+
   const runMcpServerAction = useCallback(async (server: string, action: McpServerAction) => {
     setMcpEditor((current) => ({
       ...current,
@@ -2142,6 +2170,27 @@ export function IntegrationsSettingsClient({
     }));
 
     try {
+      if (action === 'authorize') {
+        const authWindow = window.open('about:blank', '_blank');
+        if (!authWindow) {
+          throw new Error(t('mcpConfig.errors.popupBlocked'));
+        }
+        try {
+          authWindow.opener = null;
+        } catch {
+          // Some browsers expose opener as read-only; the OAuth route itself is same-origin until it redirects.
+        }
+        authWindow.location.href = `/api/mcp/oauth/start?server=${encodeURIComponent(server)}`;
+
+        setMcpEditor((current) => ({
+          ...current,
+          activeServerAction: null,
+          success: t('mcpConfig.authorizationStarted', { server, count: 0 }),
+        }));
+        void pollMcpAuthorizationStatus(server);
+        return;
+      }
+
       const response = await fetch('/api/integrations/mcp-status', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -2153,19 +2202,13 @@ export function IntegrationsSettingsClient({
         throw new Error(payload.error || t('mcpConfig.errors.action'));
       }
 
-      if (action === 'authorize' && typeof payload.data?.authorizationUrl === 'string') {
-        window.open(payload.data.authorizationUrl, '_blank', 'noopener,noreferrer');
-      }
-
       const successKey = action === 'test'
         ? 'mcpConfig.testSucceeded'
         : action === 'enable'
           ? 'mcpConfig.enabledSaved'
           : action === 'disable'
             ? 'mcpConfig.disabledSaved'
-            : action === 'authorize'
-              ? 'mcpConfig.authorizationStarted'
-              : 'mcpConfig.authCleared';
+            : 'mcpConfig.authCleared';
 
       setMcpEditor((current) => ({
         ...current,
@@ -2182,7 +2225,7 @@ export function IntegrationsSettingsClient({
       }));
       await loadMcpStatus();
     }
-  }, [loadMcpConfig, loadMcpStatus, t]);
+  }, [loadMcpConfig, loadMcpStatus, pollMcpAuthorizationStatus, t]);
 
   useEffect(() => {
     if (effectiveTab !== 'integrations' || integrationsInitialLoadStartedRef.current) {

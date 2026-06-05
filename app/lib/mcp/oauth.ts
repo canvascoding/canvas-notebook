@@ -7,6 +7,7 @@ import { resolveAgentStorageDir } from '@/app/lib/runtime-data-paths';
 
 type OAuthServerConfig = {
   issuer?: string;
+  resourceMetadataUrl?: string;
   authorizationUrl?: string;
   tokenUrl?: string;
   registrationUrl?: string;
@@ -17,6 +18,18 @@ type OAuthServerConfig = {
 };
 
 type OAuthEndpoints = Required<Pick<OAuthServerConfig, 'authorizationUrl' | 'tokenUrl'>> & Pick<OAuthServerConfig, 'registrationUrl'>;
+
+type ProtectedResourceMetadata = {
+  resource?: string;
+  authorization_servers?: string[];
+};
+
+type OAuthClientRecord = {
+  clientId?: string;
+  clientSecret?: string;
+  redirectUri?: string;
+  registeredAt?: string;
+};
 
 type OAuthStateRecord = {
   state: string;
@@ -155,10 +168,10 @@ function getOriginFromRequest(requestOrigin: string | null | undefined): string 
   return (configured || requestOrigin || 'http://localhost:3000').replace(/\/+$/u, '');
 }
 
-async function readAuthorizationServerMetadata(metadataUrl: string): Promise<OAuthEndpoints> {
+async function readAuthorizationServerMetadataUrl(metadataUrl: string): Promise<OAuthEndpoints> {
   const response = await fetch(metadataUrl);
   if (!response.ok) {
-    throw new McpOAuthError(`OAuth discovery failed with status ${response.status}.`);
+    throw new McpOAuthError(`OAuth discovery failed with status ${response.status}.`, response.status);
   }
   const metadata = await response.json() as {
     authorization_endpoint?: string;
@@ -175,6 +188,66 @@ async function readAuthorizationServerMetadata(metadataUrl: string): Promise<OAu
   };
 }
 
+async function readProtectedResourceMetadataUrl(metadataUrl: string): Promise<ProtectedResourceMetadata> {
+  const response = await fetch(metadataUrl);
+  if (!response.ok) {
+    throw new McpOAuthError(`OAuth protected resource discovery failed with status ${response.status}.`, response.status);
+  }
+  const metadata = await response.json() as ProtectedResourceMetadata;
+  return {
+    resource: typeof metadata.resource === 'string' ? metadata.resource : undefined,
+    authorization_servers: Array.isArray(metadata.authorization_servers)
+      ? metadata.authorization_servers.filter((issuer): issuer is string => typeof issuer === 'string' && issuer.trim().length > 0)
+      : undefined,
+  };
+}
+
+function buildWellKnownUrls(baseUrl: string, metadataName: 'oauth-authorization-server' | 'oauth-protected-resource'): string[] {
+  const url = new URL(baseUrl);
+  const pathname = url.pathname.replace(/\/+$/u, '');
+  const candidates: string[] = [];
+
+  if (pathname) {
+    candidates.push(new URL(`/.well-known/${metadataName}${pathname}`, url.origin).toString());
+  }
+  candidates.push(new URL(`/.well-known/${metadataName}`, url.origin).toString());
+  return Array.from(new Set(candidates));
+}
+
+async function readAuthorizationServerMetadata(issuer: string): Promise<OAuthEndpoints> {
+  const candidates = buildWellKnownUrls(issuer, 'oauth-authorization-server');
+  let lastError: unknown = null;
+
+  for (const metadataUrl of candidates) {
+    try {
+      return await readAuthorizationServerMetadataUrl(metadataUrl);
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  throw lastError instanceof Error ? lastError : new McpOAuthError('OAuth discovery failed.');
+}
+
+async function discoverProtectedResourceMetadata(serverUrl: string): Promise<ProtectedResourceMetadata | null> {
+  const candidates = buildWellKnownUrls(serverUrl, 'oauth-protected-resource');
+  let lastNonNotFoundError: unknown = null;
+
+  for (const metadataUrl of candidates) {
+    try {
+      return await readProtectedResourceMetadataUrl(metadataUrl);
+    } catch (error) {
+      if (error instanceof McpOAuthError && error.status === 404) continue;
+      lastNonNotFoundError = error;
+    }
+  }
+
+  if (lastNonNotFoundError instanceof Error) {
+    throw lastNonNotFoundError;
+  }
+  return null;
+}
+
 async function resolveOAuthEndpoints(oauth: OAuthServerConfig, serverConfig?: McpServerConfig): Promise<OAuthEndpoints> {
   if (oauth.authorizationUrl && oauth.tokenUrl) {
     return {
@@ -184,17 +257,43 @@ async function resolveOAuthEndpoints(oauth: OAuthServerConfig, serverConfig?: Mc
     };
   }
 
-  if (!oauth.issuer) {
-    const serverUrl = typeof serverConfig?.url === 'string' ? serverConfig.url.trim() : '';
-    if (serverUrl) {
-      const origin = new URL(serverUrl).origin;
-      return await readAuthorizationServerMetadata(`${origin}/.well-known/oauth-authorization-server`);
+  const issuers: string[] = [];
+  if (oauth.issuer) {
+    issuers.push(oauth.issuer);
+  }
+
+  if (oauth.resourceMetadataUrl) {
+    const protectedResourceMetadata = await readProtectedResourceMetadataUrl(oauth.resourceMetadataUrl);
+    issuers.push(...(protectedResourceMetadata.authorization_servers || []));
+  }
+
+  const serverUrl = typeof serverConfig?.url === 'string' ? serverConfig.url.trim() : '';
+  if (serverUrl) {
+    const protectedResourceMetadata = await discoverProtectedResourceMetadata(serverUrl).catch((error) => {
+      if (oauth.issuer || oauth.resourceMetadataUrl) return null;
+      throw error;
+    });
+    if (protectedResourceMetadata?.authorization_servers?.length) {
+      issuers.push(...protectedResourceMetadata.authorization_servers);
     }
+    issuers.push(new URL(serverUrl).origin);
+  }
+
+  const uniqueIssuers = Array.from(new Set(issuers.map((issuer) => issuer.replace(/\/+$/u, '')).filter(Boolean)));
+  let lastError: unknown = null;
+  for (const issuer of uniqueIssuers) {
+    try {
+      return await readAuthorizationServerMetadata(issuer);
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  if (!uniqueIssuers.length) {
     throw new McpOAuthError('OAuth MCP server requires oauth.authorizationUrl and oauth.tokenUrl, oauth.issuer, or an HTTP url for discovery.');
   }
 
-  const issuer = oauth.issuer.replace(/\/+$/u, '');
-  return await readAuthorizationServerMetadata(`${issuer}/.well-known/oauth-authorization-server`);
+  throw lastError instanceof Error ? lastError : new McpOAuthError('OAuth discovery failed.');
 }
 
 async function resolveClient(serverName: string, oauth: OAuthServerConfig, redirectUri: string, registrationUrl?: string): Promise<{ clientId: string; clientSecret?: string }> {
@@ -202,12 +301,18 @@ async function resolveClient(serverName: string, oauth: OAuthServerConfig, redir
     return { clientId: oauth.clientId, clientSecret: oauth.clientSecret };
   }
 
-  const existing = await readJsonIfExists<{ clientId?: string; clientSecret?: string }>(getOAuthClientPath(serverName));
-  if (existing?.clientId) {
+  const existing = await readJsonIfExists<OAuthClientRecord>(getOAuthClientPath(serverName));
+  if (existing?.clientId && existing.redirectUri === redirectUri) {
     return { clientId: existing.clientId, clientSecret: existing.clientSecret };
   }
 
   if (!registrationUrl) {
+    if (existing?.clientId && !existing.redirectUri) {
+      return { clientId: existing.clientId, clientSecret: existing.clientSecret };
+    }
+    if (existing?.clientId) {
+      throw new McpOAuthError(`Stored OAuth client for MCP server "${serverName}" was registered with a different redirect URI. Clear OAuth credentials and authorize again.`);
+    }
     throw new McpOAuthError('OAuth MCP server requires oauth.clientId unless Dynamic Client Registration is available.');
   }
 
@@ -229,7 +334,12 @@ async function resolveClient(serverName: string, oauth: OAuthServerConfig, redir
     throw new McpOAuthError('OAuth dynamic client registration response is missing client_id.');
   }
 
-  const client = { clientId: registered.client_id, clientSecret: registered.client_secret };
+  const client = {
+    clientId: registered.client_id,
+    clientSecret: registered.client_secret,
+    redirectUri,
+    registeredAt: new Date().toISOString(),
+  } satisfies OAuthClientRecord;
   await writeJsonPrivate(getOAuthClientPath(serverName), client);
   return client;
 }
