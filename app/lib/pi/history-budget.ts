@@ -5,6 +5,7 @@ export type PiSessionSummaryState = {
   summaryText: string | null;
   summaryUpdatedAt: Date | null;
   summaryThroughTimestamp: number | null;
+  summaryThroughSequence: number | null;
 };
 
 export type PiHistoryComposition = {
@@ -137,6 +138,26 @@ export function getMessageTimestamp(message: AgentMessage): number {
   return 0;
 }
 
+export function getMessageSequence(message: AgentMessage): number | null {
+  const sequence = (message as unknown as { sequence?: unknown }).sequence;
+  return typeof sequence === 'number' && Number.isFinite(sequence) ? sequence : null;
+}
+
+export function getMaxMessageSequence(
+  messages: AgentMessage[],
+  fallback: number | null,
+): number | null {
+  let maxSequence = fallback;
+  for (const message of messages) {
+    const sequence = getMessageSequence(message);
+    if (sequence === null) {
+      continue;
+    }
+    maxSequence = maxSequence === null ? sequence : Math.max(maxSequence, sequence);
+  }
+  return maxSequence;
+}
+
 export function composePiHistoryForLlm({
   messages,
   summary,
@@ -172,9 +193,15 @@ export function composePiHistoryForLlm({
 
   const omittedMessages = messages.slice(0, Math.max(0, messages.length - keptMessages.length));
   const firstMsgTimestamp = messages.length > 0 ? getMessageTimestamp(messages[0]) : null;
-  const hasPrunedHistory = summary.summaryThroughTimestamp !== null
-    && firstMsgTimestamp !== null
-    && firstMsgTimestamp > summary.summaryThroughTimestamp;
+  const firstMsgSequence = messages.length > 0 ? getMessageSequence(messages[0]) : null;
+  const hasCompactBreakMarker = messages.some((message) => message.role === 'compact-break');
+  const hasPrunedHistory = hasCompactBreakMarker
+    || (summary.summaryThroughSequence !== null
+      && firstMsgSequence !== null
+      && firstMsgSequence > summary.summaryThroughSequence)
+    || (summary.summaryThroughTimestamp !== null
+      && firstMsgTimestamp !== null
+      && firstMsgTimestamp > summary.summaryThroughTimestamp);
   const shouldIncludeSummary = Boolean(summary.summaryText?.trim())
     && (omittedMessages.length > 0 || hasPrunedHistory);
   const llmMessages = shouldIncludeSummary
@@ -195,9 +222,20 @@ export function composePiHistoryForLlm({
 export function getUnsummarizedMessages(
   omittedMessages: AgentMessage[],
   summaryThroughTimestamp: number | null,
+  summaryThroughSequence: number | null = null,
 ): AgentMessage[] {
   if (omittedMessages.length === 0) {
     return [];
+  }
+
+  if (summaryThroughSequence !== null) {
+    return omittedMessages.filter((message) => {
+      const sequence = getMessageSequence(message);
+      if (sequence !== null) {
+        return sequence > summaryThroughSequence;
+      }
+      return summaryThroughTimestamp === null || getMessageTimestamp(message) > summaryThroughTimestamp;
+    });
   }
 
   if (summaryThroughTimestamp === null) {

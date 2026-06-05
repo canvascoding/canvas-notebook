@@ -85,6 +85,7 @@ export const piSessions = sqliteTable("pi_sessions", {
   summaryText: text("summary_text"),
   summaryUpdatedAt: integer("summary_updated_at", { mode: "timestamp" }),
   summaryThroughTimestamp: integer("summary_through_timestamp"),
+  summaryThroughSequence: integer("summary_through_sequence"),
   systemPromptSnapshot: text("system_prompt_snapshot"),
   systemPromptSnapshotHash: text("system_prompt_snapshot_hash"),
   systemPromptSnapshotCreatedAt: integer("system_prompt_snapshot_created_at", { mode: "timestamp" }),

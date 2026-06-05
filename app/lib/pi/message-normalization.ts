@@ -5,6 +5,7 @@ import type { AgentMessage } from '@earendil-works/pi-agent-core';
 import type { ImageContent, Message, ToolResultMessage, UserMessage } from '@earendil-works/pi-ai';
 import { getWorkspacePath } from '../utils/workspace-manager';
 import { findFilePath } from '../filesystem/upload-handler';
+import { projectAgentMessageForLoadedContext } from './message-projection';
 
 const IMAGE_MIME_BY_EXTENSION: Record<string, string> = {
   '.gif': 'image/gif',
@@ -295,7 +296,8 @@ async function normalizePiMessage(message: AgentMessage): Promise<Message | null
 }
 
 export async function normalizePiMessagesForLlm(messages: AgentMessage[]): Promise<Message[]> {
-  const normalized = await Promise.all(messages.map((message) => normalizePiMessage(message)));
+  const contextMessages = messages.map((message) => projectAgentMessageForLoadedContext(message, 'context'));
+  const normalized = await Promise.all(contextMessages.map((message) => normalizePiMessage(message)));
   return normalized.filter((message): message is Message => message !== null);
 }
 

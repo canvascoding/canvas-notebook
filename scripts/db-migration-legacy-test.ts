@@ -81,6 +81,7 @@ try {
   assert.ok(piSessionColumns.has('agent_id'));
   assert.ok(piSessionColumns.has('channel_id'));
   assert.ok(piSessionColumns.has('channel_session_key'));
+  assert.ok(piSessionColumns.has('summary_through_sequence'));
 
   const piMessageColumns = getColumns(sqlite, 'pi_messages');
   assert.ok(piMessageColumns.has('sequence'));

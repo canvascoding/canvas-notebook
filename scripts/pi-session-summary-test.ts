@@ -35,6 +35,7 @@ async function main() {
   };
 
   const { preparePiHistoryContext } = await import('../app/lib/pi/session-summary');
+  const { composePiHistoryForLlm, getUnsummarizedMessages } = await import('../app/lib/pi/history-budget');
 
   const model = {
     id: 'summary-test-model',
@@ -71,6 +72,7 @@ async function main() {
       summaryText: null,
       summaryUpdatedAt: null,
       summaryThroughTimestamp: null,
+      summaryThroughSequence: null,
     },
     systemPromptTokens: 200,
     model,
@@ -91,6 +93,7 @@ async function main() {
       summaryText: null,
       summaryUpdatedAt: null,
       summaryThroughTimestamp: null,
+      summaryThroughSequence: null,
     },
     systemPromptTokens: 200,
     model,
@@ -102,6 +105,51 @@ async function main() {
   assert.equal(noOmittedResult.summaryUpdated, false);
   assert.equal(noOmittedResult.summaryFailed, false);
   assert.equal(noOmittedResult.unsummarizedMessageCount, 0);
+
+  const outOfOrderOmittedMessages = [
+    {
+      role: 'assistant',
+      content: [{ type: 'text', text: 'summarized earlier' }],
+      api: 'test',
+      provider: 'test',
+      model: 'test',
+      stopReason: 'stop',
+      timestamp: 5_000,
+      sequence: 1,
+    },
+    {
+      role: 'assistant',
+      content: [{ type: 'text', text: 'newer in db order, older timestamp' }],
+      api: 'test',
+      provider: 'test',
+      model: 'test',
+      stopReason: 'stop',
+      timestamp: 4_000,
+      sequence: 2,
+    },
+  ] as unknown as AgentMessage[];
+
+  const unsummarized = getUnsummarizedMessages(outOfOrderOmittedMessages, 5_000, 1);
+  assert.equal(unsummarized.length, 1);
+  assert.equal((unsummarized[0] as unknown as { sequence: number }).sequence, 2);
+
+  const compactedComposition = composePiHistoryForLlm({
+    messages: [
+      { role: 'user', content: 'current visible turn', timestamp: 1_000, sequence: 3 } as unknown as AgentMessage,
+      { role: 'compact-break', kind: 'manual', timestamp: '2026-06-05T10:00:00.000Z', omittedMessageCount: 12 } as unknown as AgentMessage,
+    ],
+    summary: {
+      summaryText: 'Prior compacted context',
+      summaryUpdatedAt: new Date('2026-06-05T10:00:00.000Z'),
+      summaryThroughTimestamp: 5_000,
+      summaryThroughSequence: 2,
+    },
+    systemPromptTokens: 200,
+    contextWindow: 10_000,
+    modelMaxTokens: 512,
+    toolCount: 0,
+  });
+  assert.equal(compactedComposition.includedSummary, true);
 }
 
 main().catch((error) => {
