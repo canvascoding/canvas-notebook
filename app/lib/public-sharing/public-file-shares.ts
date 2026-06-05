@@ -65,6 +65,10 @@ export type PublicShareResolution = {
   error: string;
 };
 
+interface ResolvePublicShareOptions {
+  recordAccess?: boolean;
+}
+
 interface WorkspaceFileDetails {
   workspacePath: string;
   fullPath: string;
@@ -652,7 +656,7 @@ export async function syncPublicSharesAfterMove(oldPath: string, newPath: string
   );
 }
 
-async function resolvePublicShareRow(row: PublicShareRow): Promise<PublicShareResolution> {
+async function resolvePublicShareRow(row: PublicShareRow, options: ResolvePublicShareOptions = {}): Promise<PublicShareResolution> {
   const reconciled = await reconcileRow(row);
   if (reconciled.status !== 'active') {
     return {
@@ -669,13 +673,15 @@ async function resolvePublicShareRow(row: PublicShareRow): Promise<PublicShareRe
     return { ok: false, status: 404, error: 'Public file is no longer the same file.' };
   }
 
-  const updated = await updateShare(withShortCode, {
-    lastAccessedAt: new Date(),
-    accessCount: withShortCode.accessCount + 1,
-    mimeType: details.mimeType,
-    sizeBytes: details.sizeBytes,
-    fileName: details.fileName,
-  });
+  const updated = options.recordAccess === false
+    ? withShortCode
+    : await updateShare(withShortCode, {
+      lastAccessedAt: new Date(),
+      accessCount: withShortCode.accessCount + 1,
+      mimeType: details.mimeType,
+      sizeBytes: details.sizeBytes,
+      fileName: details.fileName,
+    });
 
   return {
     ok: true,
@@ -688,7 +694,7 @@ async function resolvePublicShareRow(row: PublicShareRow): Promise<PublicShareRe
   };
 }
 
-export async function resolvePublicShareToken(token: string): Promise<PublicShareResolution> {
+export async function resolvePublicShareToken(token: string, options: ResolvePublicShareOptions = {}): Promise<PublicShareResolution> {
   const normalizedToken = token.trim();
   if (!/^[A-Za-z0-9_-]{20,160}$/.test(normalizedToken)) {
     return { ok: false, status: 404, error: 'Public file not found.' };
@@ -703,10 +709,10 @@ export async function resolvePublicShareToken(token: string): Promise<PublicShar
     return { ok: false, status: 404, error: 'Public file not found.' };
   }
 
-  return resolvePublicShareRow(row);
+  return resolvePublicShareRow(row, options);
 }
 
-export async function resolvePublicShareShortCode(shortCode: string): Promise<PublicShareResolution> {
+export async function resolvePublicShareShortCode(shortCode: string, options: ResolvePublicShareOptions = {}): Promise<PublicShareResolution> {
   const normalizedShortCode = shortCode.trim();
   const hasValidCharacters = Array.from(normalizedShortCode).every((char) => SHORT_CODE_ALPHABET.includes(char));
   if (normalizedShortCode.length !== SHORT_CODE_LENGTH || !hasValidCharacters) {
@@ -722,7 +728,7 @@ export async function resolvePublicShareShortCode(shortCode: string): Promise<Pu
     return { ok: false, status: 404, error: 'Public file not found.' };
   }
 
-  const resolved = await resolvePublicShareRow(row);
+  const resolved = await resolvePublicShareRow(row, options);
   if (!resolved.ok) {
     return { ok: false, status: 404, error: 'Public file not found.' };
   }
