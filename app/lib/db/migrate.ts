@@ -77,6 +77,7 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       summary_text TEXT,
       summary_updated_at INTEGER,
       summary_through_timestamp INTEGER,
+      summary_through_sequence INTEGER,
       system_prompt_snapshot TEXT,
       system_prompt_snapshot_hash TEXT,
       system_prompt_snapshot_created_at INTEGER,
@@ -703,6 +704,7 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     last_message_at: 'INTEGER',
     last_viewed_at: 'INTEGER',
     thinking_level: 'TEXT',
+    summary_through_sequence: 'INTEGER',
   });
 
   addColumns(sqlite, 'pi_messages', {

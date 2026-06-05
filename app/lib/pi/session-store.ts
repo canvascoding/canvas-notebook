@@ -78,6 +78,13 @@ function getAgentMessageTimestamp(message: AgentMessage): number {
   return Date.now();
 }
 
+function attachPersistedSequence(message: AgentMessage, sequence: number): AgentMessage {
+  return {
+    ...(message as unknown as Record<string, unknown>),
+    sequence,
+  } as unknown as AgentMessage;
+}
+
 export async function savePiSession(
   sessionId: string,
   userId: string,
@@ -111,6 +118,7 @@ export async function savePiSession(
         summaryText: summary.summaryText ?? null,
         summaryUpdatedAt: summary.summaryUpdatedAt ?? null,
         summaryThroughTimestamp: summary.summaryThroughTimestamp ?? null,
+        summaryThroughSequence: summary.summaryThroughSequence ?? null,
       }
     : {};
 
@@ -207,7 +215,7 @@ export async function loadPiSession(
       .where(eq(piMessages.piSessionDbId, session.id))
       .orderBy(asc(piMessages.sequence), asc(piMessages.id));
 
-    return messages.map(m => parsePersistedPiMessage(m.content, options?.projectionMode ?? 'context'));
+    return messages.map(m => attachPersistedSequence(parsePersistedPiMessage(m.content, options?.projectionMode ?? 'context'), m.sequence));
   }
 
   if (resolveSessionAgentId(agentId) !== DEFAULT_AGENT_ID) {
@@ -273,11 +281,12 @@ export async function loadPiSessionWithSummary(
     .orderBy(asc(piMessages.sequence), asc(piMessages.id));
 
   return {
-    messages: rows.map(m => parsePersistedPiMessage(m.content, options?.projectionMode ?? 'context')),
+    messages: rows.map(m => attachPersistedSequence(parsePersistedPiMessage(m.content, options?.projectionMode ?? 'context'), m.sequence)),
     summary: {
       summaryText: session.summaryText ?? null,
       summaryUpdatedAt: session.summaryUpdatedAt ?? null,
       summaryThroughTimestamp: session.summaryThroughTimestamp ?? null,
+      summaryThroughSequence: session.summaryThroughSequence ?? null,
     },
   };
 }
@@ -334,5 +343,5 @@ export async function loadPiSessionByChannelKey(
     .where(eq(piMessages.piSessionDbId, session.id))
     .orderBy(asc(piMessages.sequence), asc(piMessages.id));
 
-  return rows.map(m => parsePersistedPiMessage(m.content, options?.projectionMode ?? 'context'));
+  return rows.map(m => attachPersistedSequence(parsePersistedPiMessage(m.content, options?.projectionMode ?? 'context'), m.sequence));
 }

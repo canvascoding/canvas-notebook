@@ -1086,6 +1086,7 @@ async function createRuntime(sessionId: string, userId: string): Promise<LivePiR
     summaryText: null,
     summaryUpdatedAt: null,
     summaryThroughTimestamp: null,
+    summaryThroughSequence: null,
   };
   const promptSnapshot = sessionRecord
     ? await ensurePiSessionSystemPromptSnapshot(sessionRecord)
@@ -1293,6 +1294,7 @@ export async function getPiRuntimeStatus(sessionId: string, userId: string): Pro
     summaryText: null,
     summaryUpdatedAt: null,
     summaryThroughTimestamp: null,
+    summaryThroughSequence: null,
   };
   const promptSnapshot = await ensurePiSessionSystemPromptSnapshot(sessionRecord);
   const systemPrompt = promptSnapshot.systemPrompt;

@@ -15,6 +15,7 @@ async function main() {
   const { savePiSession, loadPiSessionWithSummary } = await import('../app/lib/pi/session-store');
   const { buildPiSystemPromptSnapshotFromText } = await import('../app/lib/pi/system-prompt-snapshot');
   const { parsePersistedPiMessage } = await import('../app/lib/pi/message-projection');
+  const { normalizePiMessagesForLlm } = await import('../app/lib/pi/message-normalization');
 
   const now = new Date();
   const userId = 'user-projection';
@@ -95,6 +96,13 @@ async function main() {
   assert.ok(rawContent.includes(uniqueTailMarker));
   assert.doesNotMatch(projectedJson, new RegExp(uniqueTailMarker));
   assert.doesNotMatch(projectedJson, new RegExp(imageData.slice(0, 200)));
+
+  const normalizedForLlm = await normalizePiMessagesForLlm([messages[1]]);
+  const normalizedJson = JSON.stringify(normalizedForLlm[0]);
+  assert.ok(normalizedJson.length < 60_000);
+  assert.match(normalizedJson, /raw database record/);
+  assert.doesNotMatch(normalizedJson, new RegExp(uniqueTailMarker));
+  assert.doesNotMatch(normalizedJson, new RegExp(imageData.slice(0, 200)));
 
   const activitySessionId = 'sess-activity-clock';
   const staleAssistantTimestamp = new Date('2024-01-01T00:00:00.000Z').getTime();

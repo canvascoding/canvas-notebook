@@ -6,6 +6,7 @@ import { completeSimple, type AssistantMessage, type Message, type Model, type A
 import { resolvePiApiKey } from './api-key-resolver';
 import {
   composePiHistoryForLlm,
+  getMaxMessageSequence,
   getMessageTimestamp,
   getUnsummarizedMessages,
   type PiHistoryComposition,
@@ -270,6 +271,7 @@ export async function preparePiHistoryContext({
   const unsummarizedMessages = getUnsummarizedMessages(
     composition.omittedMessages,
     nextSummary.summaryThroughTimestamp,
+    nextSummary.summaryThroughSequence,
   );
 
   if (unsummarizedMessages.length === 0) {
@@ -300,6 +302,10 @@ export async function preparePiHistoryContext({
         summaryThroughTimestamp: unsummarizedMessages.reduce(
           (maxTimestamp, message) => Math.max(maxTimestamp, getMessageTimestamp(message)),
           nextSummary.summaryThroughTimestamp ?? 0,
+        ),
+        summaryThroughSequence: getMaxMessageSequence(
+          unsummarizedMessages,
+          nextSummary.summaryThroughSequence,
         ),
       };
       summaryUpdated = true;
