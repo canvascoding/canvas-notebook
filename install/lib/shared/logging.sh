@@ -21,7 +21,9 @@ ensure_log_file() {
 
 log_msg() {
   ensure_log_file
-  printf '%s %s\n' "$(date -Is)" "$*" >> "$LOG_FILE" 2>/dev/null || true
+  local timestamp
+  timestamp="$(date -Is 2>/dev/null || date -u '+%Y-%m-%dT%H:%M:%SZ')"
+  printf '%s %s\n' "$timestamp" "$*" >> "$LOG_FILE" 2>/dev/null || true
 }
 
 show_manager_log() {
