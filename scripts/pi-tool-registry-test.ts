@@ -356,6 +356,9 @@ async function main() {
   assert.equal(detectUnsafeBashCommand('rm -rf /data/workspace/a'), null);
   assert.match(detectUnsafeBashCommand("sed -i 's/a/b/' /data/workspace/file.md") || '', /sed/i);
   assert.match(detectUnsafeBashCommand('echo broken > /data/workspace/file.md') || '', /redirects/i);
+  assert.match(detectUnsafeBashCommand('cd /data/workspace && echo broken > file.md') || '', /redirects/i);
+  assert.equal(detectUnsafeBashCommand('cd /data/workspace/dsd-slides && nohup python3 -m http.server 8080 > /dev/null 2>&1 &'), null);
+  assert.equal(detectUnsafeBashCommand('cat /data/workspace/file.md > /tmp/file.md'), null);
 
   const blockedSedResult = await bashTool.execute('bash-block-sed', {
     command: "sed -i 's/Projekt/Plan/' /data/workspace/hausarbeit/00_Projektplan_Team6_v2.md",
@@ -366,6 +369,11 @@ async function main() {
     command: "echo broken > /data/workspace/hausarbeit/00_Projektplan_Team6_v2.md",
   });
   assert.match(getText(blockedRedirectResult), /redirects|write|edit_file|apply_patch/i);
+
+  const allowedNullRedirectResult = await bashTool.execute('bash-allow-null-redirect', {
+    command: `cd ${JSON.stringify(path.join(workspaceDir, 'hausarbeit'))} && printf ok > /dev/null 2>&1 && echo done`,
+  });
+  assert.equal(getText(allowedNullRedirectResult).trim(), 'done');
 
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'canvas-rg-tool-'));
   const matchFile = path.join(tempDir, 'match.ts');
