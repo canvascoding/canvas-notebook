@@ -1422,13 +1422,15 @@
       "disabledSaved": "{server} deaktiviert.",
       "testSucceeded": "{server} Verbindungstest erfolgreich ({count} Tools).",
       "authorizationStarted": "Autorisierung für {server} gestartet. Schließe den Browser-Login ab und teste dann die Verbindung.",
+      "authorizationCompleted": "OAuth-Autorisierung für {server} abgeschlossen.",
       "authCleared": "OAuth-Zugangsdaten für {server} gelöscht.",
       "errors": {
         "load": "MCP-Konfiguration konnte nicht geladen werden.",
         "save": "MCP-Konfiguration konnte nicht gespeichert werden.",
         "status": "MCP-Status konnte nicht geladen werden.",
         "action": "MCP-Server konnte nicht aktualisiert werden.",
-        "tools": "Gecachte MCP-Tools konnten nicht geladen werden."
+        "tools": "Gecachte MCP-Tools konnten nicht geladen werden.",
+        "popupBlocked": "Das OAuth-Fenster wurde vom Browser blockiert. Erlaube Popups für diese App und versuche es erneut."
       }
     },
     "connectedApps": {

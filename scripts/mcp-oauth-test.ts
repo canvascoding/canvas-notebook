@@ -18,14 +18,31 @@ function readForm(req: http.IncomingMessage): Promise<URLSearchParams> {
   });
 }
 
+function readJson(req: http.IncomingMessage): Promise<Record<string, unknown>> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    req.on('data', (chunk) => chunks.push(Buffer.from(chunk)));
+    req.on('end', () => resolve(JSON.parse(Buffer.concat(chunks).toString('utf8')) as Record<string, unknown>));
+    req.on('error', reject);
+  });
+}
+
 async function main() {
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'canvas-mcp-oauth-'));
   process.env.CANVAS_DATA_ROOT = tempRoot;
   process.env.BASE_URL = 'http://localhost:3000';
 
   let refreshCalls = 0;
+  let registrationCalls = 0;
+  const registeredRedirectUris: string[] = [];
   const server = http.createServer(async (req, res) => {
     if (req.url === '/register' && req.method === 'POST') {
+      const body = await readJson(req);
+      const redirectUris = Array.isArray(body.redirect_uris)
+        ? body.redirect_uris.filter((value): value is string => typeof value === 'string')
+        : [];
+      registeredRedirectUris.push(...redirectUris);
+      registrationCalls += 1;
       res.setHeader('Content-Type', 'application/json');
       res.end(JSON.stringify({ client_id: 'dynamic-client', client_secret: 'dynamic-secret' }));
       return;
@@ -35,6 +52,24 @@ async function main() {
       res.end(JSON.stringify({
         issuer: baseUrl,
         authorization_endpoint: `${baseUrl}/authorize`,
+        token_endpoint: `${baseUrl}/token`,
+        registration_endpoint: `${baseUrl}/register`,
+      }));
+      return;
+    }
+    if (req.url === '/.well-known/oauth-protected-resource/tenant/mcp' && req.method === 'GET') {
+      res.setHeader('Content-Type', 'application/json');
+      res.end(JSON.stringify({
+        resource: `${baseUrl}/tenant/mcp`,
+        authorization_servers: [`${baseUrl}/tenant-auth`],
+      }));
+      return;
+    }
+    if (req.url === '/.well-known/oauth-authorization-server/tenant-auth' && req.method === 'GET') {
+      res.setHeader('Content-Type', 'application/json');
+      res.end(JSON.stringify({
+        issuer: `${baseUrl}/tenant-auth`,
+        authorization_endpoint: `${baseUrl}/tenant-auth/authorize`,
         token_endpoint: `${baseUrl}/token`,
         registration_endpoint: `${baseUrl}/register`,
       }));
@@ -112,6 +147,24 @@ async function main() {
     assert.equal(authorizationUrl.searchParams.get('redirect_uri'), 'http://localhost:3000/api/mcp/oauth/callback');
     assert.equal(authorizationUrl.searchParams.get('code_challenge_method'), 'S256');
     assert.equal(Boolean(authorizationUrl.searchParams.get('code_challenge')), true);
+    assert.equal(registrationCalls, 1);
+    assert.deepEqual(registeredRedirectUris, ['http://localhost:3000/api/mcp/oauth/callback']);
+
+    const productionStarted = await startMcpOAuth('remote', 'https://canvas.example.com');
+    const productionAuthorizationUrl = new URL(productionStarted.authorizationUrl);
+    assert.equal(productionAuthorizationUrl.searchParams.get('redirect_uri'), 'http://localhost:3000/api/mcp/oauth/callback');
+    assert.equal(registrationCalls, 1);
+
+    delete process.env.BASE_URL;
+    const publicStarted = await startMcpOAuth('remote', 'https://canvas.example.com');
+    const publicAuthorizationUrl = new URL(publicStarted.authorizationUrl);
+    assert.equal(publicAuthorizationUrl.searchParams.get('redirect_uri'), 'https://canvas.example.com/api/mcp/oauth/callback');
+    assert.equal(registrationCalls, 2);
+    assert.deepEqual(registeredRedirectUris, [
+      'http://localhost:3000/api/mcp/oauth/callback',
+      'https://canvas.example.com/api/mcp/oauth/callback',
+    ]);
+    process.env.BASE_URL = 'http://localhost:3000';
 
     const token = await completeMcpOAuthCallback('auth-code', started.state);
     assert.equal(token.accessToken, 'initial-token');
@@ -155,6 +208,19 @@ async function main() {
     const discoveredUrl = new URL(discovered.authorizationUrl);
     assert.equal(discoveredUrl.origin + discoveredUrl.pathname, `${baseUrl}/authorize`);
     assert.equal(discoveredUrl.searchParams.get('client_id'), 'dynamic-client');
+
+    const pathResourceConfig = {
+      url: `${baseUrl}/tenant/mcp`,
+      auth: 'oauth',
+    };
+    await writeMcpConfigRaw(JSON.stringify({
+      settings: { toolPrefix: 'server', idleTimeout: 10 },
+      mcpServers: { pathDiscovered: pathResourceConfig },
+    }, null, 2));
+    const pathDiscovered = await startMcpOAuth('pathDiscovered', 'http://localhost:3000');
+    const pathDiscoveredUrl = new URL(pathDiscovered.authorizationUrl);
+    assert.equal(pathDiscoveredUrl.origin + pathDiscoveredUrl.pathname, `${baseUrl}/tenant-auth/authorize`);
+    assert.equal(pathDiscoveredUrl.searchParams.get('client_id'), 'dynamic-client');
 
     await writeMcpConfigRaw(JSON.stringify({
       settings: { toolPrefix: 'server', idleTimeout: 10 },
