@@ -158,6 +158,20 @@ step "Preparing data directories"
   mkdir -p /data/skills
   mkdir -p /data/workspace
   mkdir -p /data/temp/skills
+  if [ -d "${CANVAS_APP_ROOT}/node_modules" ]; then
+    if [ -L /data/node_modules ]; then
+      existing_node_modules_link="$(readlink /data/node_modules || true)"
+      if [ "$existing_node_modules_link" != "${CANVAS_APP_ROOT}/node_modules" ]; then
+        printf '[warning] /data/node_modules points to %s, expected %s\n' "$existing_node_modules_link" "${CANVAS_APP_ROOT}/node_modules"
+      fi
+    elif [ -e /data/node_modules ]; then
+      printf '[warning] /data/node_modules already exists; leaving it unchanged\n'
+    else
+      ln -s "${CANVAS_APP_ROOT}/node_modules" /data/node_modules
+    fi
+  else
+    printf '[warning] %s/node_modules not found; workspace Node dependency bridge skipped\n' "$CANVAS_APP_ROOT"
+  fi
 } >> "$STARTUP_LOG" 2>&1
 step_ok
 
