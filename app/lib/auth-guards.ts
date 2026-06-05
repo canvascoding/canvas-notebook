@@ -3,6 +3,7 @@ import { getLocale } from 'next-intl/server';
 import { redirect } from '@/i18n/navigation';
 
 import { auth } from '@/app/lib/auth';
+import { hasAnyAuthUser } from '@/app/lib/auth-setup';
 import { isOnboardingComplete, isOnboardingEnabled } from '@/app/lib/onboarding/status';
 import { getLicenseStatus } from '@/app/lib/license';
 
@@ -13,6 +14,9 @@ export async function requirePageSession(options?: { allowIncompleteOnboarding?:
   ]);
 
   if (!session) {
+    if (!hasAnyAuthUser()) {
+      redirect({ href: '/setup', locale });
+    }
     redirect({ href: '/login', locale });
   }
 

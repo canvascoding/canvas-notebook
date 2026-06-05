@@ -2,6 +2,7 @@ import { headers } from 'next/headers';
 import { redirect } from '@/i18n/navigation';
 import { getLocale } from 'next-intl/server';
 import { auth } from '@/app/lib/auth';
+import { hasAnyAuthUser } from '@/app/lib/auth-setup';
 import { isOnboardingEnabled, isOnboardingComplete } from '@/app/lib/onboarding/status';
 import LoginClient from './login-client';
 
@@ -16,6 +17,10 @@ export default async function LoginPage() {
       redirect({ href: '/onboarding', locale });
     }
     redirect({ href: '/', locale });
+  }
+
+  if (!hasAnyAuthUser()) {
+    redirect({ href: '/setup', locale });
   }
 
   return <LoginClient />;
