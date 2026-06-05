@@ -28,6 +28,7 @@ import { STUDIO_SYSTEM_PROMPT_BLOCK } from '@/app/lib/agents/studio-prompt-block
 import { persistPiUsageEvents } from '@/app/lib/pi/usage-events';
 import { getStudioOutputsRoot, STUDIO_OUTPUTS_ROOT_DIR } from '@/app/lib/integrations/studio-workspace';
 import { DEFAULT_AGENT_ID } from '@/app/lib/channels/constants';
+import { createToolLoopGuard } from '@/app/lib/pi/tool-loop-guard';
 import { and, eq } from 'drizzle-orm';
 
 const IDLE_TTL_MS = 15 * 60 * 1000;
@@ -149,6 +150,10 @@ type RuntimeInit = {
   tools: AgentTool[];
   summary: PiSessionSummaryState;
   initialMessages: AgentMessage[];
+};
+
+type RuntimeOptions = {
+  resetToolLoopGuard?: () => void;
 };
 
 function isUserMessage(message: AgentMessage): message is Extract<AgentMessage, { role: 'user' }> {
@@ -316,7 +321,7 @@ class LivePiRuntime {
   private lastBroadcastStatusSignature: string | null = null;
   agentUnsubscribe: (() => void) | null = null;
 
-  constructor(init: RuntimeInit, agent: Agent) {
+  constructor(init: RuntimeInit, agent: Agent, private readonly options: RuntimeOptions = {}) {
     this.sessionId = init.sessionId;
     this.userId = init.userId;
     this.agentId = init.agentId;
@@ -757,6 +762,7 @@ class LivePiRuntime {
     });
     
     this.touch();
+    this.options.resetToolLoopGuard?.();
     this.abortRequested = false;
     this.isRunning = true;
     this.publishStatus();
@@ -1086,6 +1092,7 @@ async function createRuntime(sessionId: string, userId: string): Promise<LivePiR
     : await createPiSystemPromptSnapshot(agentId);
   const systemPrompt = promptSnapshot.systemPrompt;
   const tools = await getPiTools(userId, agentId, sessionId);
+  const toolLoopGuard = createToolLoopGuard();
 
   const runtimeRef: { current: LivePiRuntime | null } = { current: null };
   const agent = new Agent({
@@ -1105,6 +1112,7 @@ async function createRuntime(sessionId: string, userId: string): Promise<LivePiR
       return runtimeRef.current.transformContext(messages, signal);
     },
     getApiKey: resolvePiApiKey,
+    afterToolCall: async (context) => toolLoopGuard.afterToolCall(context),
     sessionId,
   });
 
@@ -1121,6 +1129,7 @@ async function createRuntime(sessionId: string, userId: string): Promise<LivePiR
       initialMessages,
     },
     agent,
+    { resetToolLoopGuard: () => toolLoopGuard.reset() },
   );
   runtimeRef.current = runtime;
 

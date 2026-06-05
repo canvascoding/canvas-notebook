@@ -58,6 +58,7 @@ async function main() {
 
   const { enableToolInConfig, getDefaultEnabledToolNames, serializeEnabledToolNames } = await import('../app/lib/pi/enabled-tools');
   const { detectUnsafeBashCommand } = await import('../app/lib/pi/agent-file-operations');
+  const { createToolLoopGuard } = await import('../app/lib/pi/tool-loop-guard');
   const { buildPiToolRegistry, createRipgrepTool, createStudioGenerateImageTool, createStudioGenerateVideoTool, getPiToolMetadata, getPiTools, piTools } = await import('../app/lib/pi/tool-registry');
 
   const studioCalls: StudioGenerateRequest[] = [];
@@ -374,6 +375,48 @@ async function main() {
     command: `cd ${JSON.stringify(path.join(workspaceDir, 'hausarbeit'))} && printf ok > /dev/null 2>&1 && echo done`,
   });
   assert.equal(getText(allowedNullRedirectResult).trim(), 'done');
+
+  const loopGuard = createToolLoopGuard({ warningThreshold: 2, terminationThreshold: 3 });
+  const emptyUsage = {
+    input: 0,
+    output: 0,
+    cacheRead: 0,
+    cacheWrite: 0,
+    totalTokens: 0,
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+  };
+  const repeatedFailureContext = ({
+    assistantMessage: { role: 'assistant', content: [], api: 'test', provider: 'test', model: 'test', usage: emptyUsage, stopReason: 'toolCalls', timestamp: Date.now() },
+    toolCall: { id: 'tool-loop-1', type: 'toolCall', name: 'bash', arguments: { command: 'echo broken > /data/workspace/file.md' } },
+    args: { command: 'echo broken > /data/workspace/file.md' },
+    result: {
+      content: [{ type: 'text', text: 'Shell redirects that write workspace or agent files are blocked.' }],
+      details: { error: 'Shell redirects that write workspace or agent files are blocked.' },
+    },
+    isError: false,
+    context: { systemPrompt: '', messages: [], tools: [] },
+  } as unknown) as Parameters<ReturnType<typeof createToolLoopGuard>['afterToolCall']>[0];
+  assert.equal(loopGuard.afterToolCall(repeatedFailureContext), undefined);
+  const warnedLoopResult = loopGuard.afterToolCall(repeatedFailureContext);
+  assert.ok(warnedLoopResult);
+  assert.equal(warnedLoopResult.isError, true);
+  assert.equal(warnedLoopResult.terminate, false);
+  assert.match(warnedLoopResult.content?.[0]?.type === 'text' ? warnedLoopResult.content[0].text : '', /Do not retry this exact same tool call/);
+  const terminatedLoopResult = loopGuard.afterToolCall(repeatedFailureContext);
+  assert.ok(terminatedLoopResult);
+  assert.equal(terminatedLoopResult.terminate, true);
+  assert.match(terminatedLoopResult.content?.[0]?.type === 'text' ? terminatedLoopResult.content[0].text : '', /stopped to avoid an infinite tool loop/);
+
+  loopGuard.reset();
+  assert.equal(loopGuard.afterToolCall(repeatedFailureContext), undefined);
+  loopGuard.afterToolCall(repeatedFailureContext);
+  const successContext = ({
+    ...repeatedFailureContext,
+    result: { content: [{ type: 'text', text: 'ok' }], details: {} },
+    isError: false,
+  } as unknown) as Parameters<ReturnType<typeof createToolLoopGuard>['afterToolCall']>[0];
+  assert.equal(loopGuard.afterToolCall(successContext), undefined);
+  assert.equal(loopGuard.afterToolCall(repeatedFailureContext), undefined);
 
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'canvas-rg-tool-'));
   const matchFile = path.join(tempDir, 'match.ts');
