@@ -54,6 +54,9 @@ try {
 
   runMigrations(sqlite);
 
+  assert.equal(tableExists(sqlite, 'ai_sessions'), false);
+  assert.equal(tableExists(sqlite, 'ai_messages'), false);
+
   const piSessionColumns = getColumns(sqlite, 'pi_sessions');
   assert.ok(piSessionColumns.has('agent_id'));
   assert.ok(piSessionColumns.has('channel_id'));
@@ -84,5 +87,13 @@ function getColumns(sqlite: Database.Database, table: string): Set<string> {
   return new Set(
     sqlite.prepare(`PRAGMA table_info(${table})`).all()
       .map((column) => (column as { name: string }).name),
+  );
+}
+
+function tableExists(sqlite: Database.Database, table: string): boolean {
+  return Boolean(
+    sqlite
+      .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ? LIMIT 1")
+      .get(table),
   );
 }

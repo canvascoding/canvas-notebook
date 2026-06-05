@@ -8,6 +8,8 @@ import { isOnboardingComplete } from '../app/lib/onboarding/status';
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let db: any;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
+let openDb: any;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 let aiMessages: any;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let aiSessions: any;
@@ -332,8 +334,13 @@ async function runLegacySessionCleanupIfNeeded(): Promise<void> {
     return;
   }
 
-  const deletedMessages = await db.delete(aiMessages).returning({ id: aiMessages.id });
-  const deletedSessions = await db.delete(aiSessions).returning({ id: aiSessions.id });
+  const hasLegacyTables = await legacyAiTablesExist();
+  const deletedMessages = hasLegacyTables
+    ? await db.delete(aiMessages).returning({ id: aiMessages.id })
+    : [];
+  const deletedSessions = hasLegacyTables
+    ? await db.delete(aiSessions).returning({ id: aiSessions.id })
+    : [];
 
   const markerContent = {
     doneAt: new Date().toISOString(),
@@ -350,12 +357,27 @@ async function runLegacySessionCleanupIfNeeded(): Promise<void> {
   );
 }
 
+async function legacyAiTablesExist(): Promise<boolean> {
+  const sqlite = await openDb();
+  try {
+    const rows = sqlite.all(
+      "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN (?, ?)",
+      ['ai_sessions', 'ai_messages'],
+    ) as Array<{ name: string }>;
+    const names = new Set(rows.map((row) => row.name));
+    return names.has('ai_sessions') && names.has('ai_messages');
+  } finally {
+    sqlite.close();
+  }
+}
+
 async function main() {
   // Load database modules dynamically after env bootstrap so DATA/path aliases are available.
   try {
     const dbModule = await import('../app/lib/db/index');
     const schemaModule = await import('../app/lib/db/schema');
     db = dbModule.db;
+    openDb = dbModule.openDb;
     aiMessages = schemaModule.aiMessages;
     aiSessions = schemaModule.aiSessions;
   } catch (error) {

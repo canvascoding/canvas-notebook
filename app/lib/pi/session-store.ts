@@ -1,4 +1,5 @@
 import { db } from '../db';
+import { legacyAiTablesExist } from '../db/legacy-ai-tables';
 import { piSessions, piMessages, aiSessions, aiMessages, sessionChannelLinks } from '../db/schema';
 import { eq, and, asc } from 'drizzle-orm';
 import { type AgentMessage } from '@earendil-works/pi-agent-core';
@@ -204,6 +205,10 @@ export async function loadPiSession(sessionId: string, userId: string, agentId?:
   }
 
   if (resolveSessionAgentId(agentId) !== DEFAULT_AGENT_ID) {
+    return null;
+  }
+
+  if (!(await legacyAiTablesExist())) {
     return null;
   }
 
