@@ -165,20 +165,26 @@ case "$cmd" in
     ;;
 esac
 
-declare -A CMD_FILE=(
-  [install]=update       [update]=update
-  [start]=lifecycle      [restart]=lifecycle  [stop]=lifecycle  [down]=lifecycle
-  [status]=status        [health]=status      [diagnose]=status [config]=status [ps]=status
-  [logs]=logs           [container-logs]=logs [manager-log]=logs [cleanup-logs]=logs
-  [env]=env
-  [swap]=swap           [swap-enable]=swap   [swap-disable]=swap
-  [caddy]=caddy         [caddy-reload]=caddy [caddy-fix]=caddy
-  [auto-update-status]=auto_update [auto-update-enable]=auto_update [auto-update-disable]=auto_update [auto-update-sync]=auto_update
-  [cli-update]=cli_update
-  [config-show]=config_cmd [config-set]=config_cmd [config-migrate]=config_cmd
-)
+cmd_file_for() {
+  case "$1" in
+    install|update) printf 'update\n' ;;
+    start|restart|stop|down) printf 'lifecycle\n' ;;
+    status|health|diagnose|config|ps) printf 'status\n' ;;
+    logs|container-logs|manager-log|cleanup-logs) printf 'logs\n' ;;
+    env) printf 'env\n' ;;
+    admin) printf 'admin\n' ;;
+    swap|swap-enable|swap-disable) printf 'swap\n' ;;
+    caddy|caddy-reload|caddy-fix) printf 'caddy\n' ;;
+    auto-update-status|auto-update-enable|auto-update-disable|auto-update-sync) printf 'auto_update\n' ;;
+    cli-update) printf 'cli_update\n' ;;
+    config-show|config-set|config-migrate) printf 'config_cmd\n' ;;
+    *) return 1 ;;
+  esac
+}
 
-if [[ -z "${CMD_FILE[$cmd]:-}" ]]; then
+cmd_file="$(cmd_file_for "$cmd" || true)"
+
+if [[ -z "$cmd_file" ]]; then
   usage >&2
   exit 2
 fi
@@ -192,17 +198,17 @@ if [[ ! -d "$CMD_DIR" ]]; then
   CMD_DIR="${INSTALL_DIR}/lib/commands"
 fi
 
-if [[ -f "${CMD_DIR}/${CMD_FILE[$cmd]}.sh" ]]; then
+if [[ -f "${CMD_DIR}/${cmd_file}.sh" ]]; then
   # shellcheck source=/dev/null
-  . "${CMD_DIR}/${CMD_FILE[$cmd]}.sh"
+  . "${CMD_DIR}/${cmd_file}.sh"
 else
-  fail "Command file not found: ${CMD_DIR}/${CMD_FILE[$cmd]}.sh. Run: canvas-notebook cli-update"
+  fail "Command file not found: ${CMD_DIR}/${cmd_file}.sh. Run: canvas-notebook cli-update"
 fi
 
 cmd_fn="cmd_${cmd//-/_}"
 
 if ! declare -f "$cmd_fn" >/dev/null 2>&1; then
-  fail "Command '${cmd}' is defined in ${CMD_FILE[$cmd]}.sh but function ${cmd_fn}() not found"
+  fail "Command '${cmd}' is defined in ${cmd_file}.sh but function ${cmd_fn}() not found"
 fi
 
 "$cmd_fn" "${CMD_ARGS[@]}"

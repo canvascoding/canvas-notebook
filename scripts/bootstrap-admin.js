@@ -11,7 +11,114 @@ function normalizeEmail(email) {
   return normalized || null;
 }
 
-function getBootstrapAdminConfig() {
+function readStdin() {
+  return new Promise((resolve, reject) => {
+    let value = '';
+    process.stdin.setEncoding('utf8');
+    process.stdin.on('data', (chunk) => {
+      value += chunk;
+    });
+    process.stdin.on('end', () => {
+      resolve(value.replace(/\r?\n$/, ''));
+    });
+    process.stdin.on('error', reject);
+  });
+}
+
+function printCliUsage() {
+  console.log(`Usage:
+  node scripts/bootstrap-admin.js
+  node scripts/bootstrap-admin.js --email <email> [--name <name>] --password-stdin
+
+Without CLI options, BOOTSTRAP_ADMIN_EMAIL and BOOTSTRAP_ADMIN_PASSWORD are read from the environment.`);
+}
+
+async function getBootstrapAdminConfigFromArgs(args) {
+  let email = null;
+  let name = 'Administrator';
+  let passwordStdin = false;
+  let hasCliOptions = false;
+
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+
+    if (arg === '--email') {
+      hasCliOptions = true;
+      index += 1;
+      if (index >= args.length) {
+        throw new Error('--email requires a value.');
+      }
+      email = args[index];
+      continue;
+    }
+
+    if (arg.startsWith('--email=')) {
+      hasCliOptions = true;
+      email = arg.slice('--email='.length);
+      continue;
+    }
+
+    if (arg === '--name') {
+      hasCliOptions = true;
+      index += 1;
+      if (index >= args.length) {
+        throw new Error('--name requires a value.');
+      }
+      name = args[index];
+      continue;
+    }
+
+    if (arg.startsWith('--name=')) {
+      hasCliOptions = true;
+      name = arg.slice('--name='.length);
+      continue;
+    }
+
+    if (arg === '--password-stdin') {
+      hasCliOptions = true;
+      passwordStdin = true;
+      continue;
+    }
+
+    if (arg === '-h' || arg === '--help') {
+      printCliUsage();
+      process.exit(0);
+    }
+
+    throw new Error(`Unknown option: ${arg}`);
+  }
+
+  if (!hasCliOptions) {
+    return null;
+  }
+
+  const normalizedEmail = normalizeEmail(email);
+  if (!normalizedEmail) {
+    throw new Error('--email is required when using CLI bootstrap options.');
+  }
+
+  if (!passwordStdin) {
+    throw new Error('--password-stdin is required when using CLI bootstrap options.');
+  }
+
+  const password = await readStdin();
+  if (!password) {
+    throw new Error('Password stdin was empty.');
+  }
+
+  return {
+    email: normalizedEmail,
+    password,
+    name: name.trim() || 'Administrator',
+  };
+}
+
+async function getBootstrapAdminConfig() {
+  const cliConfig = await getBootstrapAdminConfigFromArgs(process.argv.slice(2));
+  if (cliConfig) {
+    return cliConfig;
+  }
+
   const email = normalizeEmail(process.env.BOOTSTRAP_ADMIN_EMAIL);
   const password = process.env.BOOTSTRAP_ADMIN_PASSWORD;
   const name = (process.env.BOOTSTRAP_ADMIN_NAME || 'Administrator').trim() || 'Administrator';
@@ -131,7 +238,7 @@ function insertUser(db, email, name) {
 }
 
 async function main() {
-  const bootstrapAdmin = getBootstrapAdminConfig();
+  const bootstrapAdmin = await getBootstrapAdminConfig();
 
   if (!bootstrapAdmin) {
     console.log('[bootstrap-admin] Skipped (BOOTSTRAP_ADMIN_EMAIL/BOOTSTRAP_ADMIN_PASSWORD not set).');

@@ -105,6 +105,43 @@ async function main() {
   assert.equal(await verifyPassword({ hash: migratedAccount.password!, password: 'OverridePassword123!' }), true);
   migrated.close();
 
+  execFileSync('node', ['scripts/bootstrap-admin.js', '--email', 'cli-reset@example.test', '--name', 'CLI Reset Admin', '--password-stdin'], {
+    cwd: process.cwd(),
+    input: 'CliResetPassword123!\n',
+    stdio: 'pipe',
+    env: {
+      ...process.env,
+      DATA: dataDir,
+      BOOTSTRAP_ADMIN_EMAIL: '',
+      BOOTSTRAP_ADMIN_PASSWORD: '',
+      BOOTSTRAP_ADMIN_NAME: '',
+    },
+  });
+
+  const cliReset = new Database(path.join(dataDir, 'sqlite.db'));
+  const cliResetUsers = cliReset.prepare('SELECT id, name, email, role FROM user').all() as Array<{
+    id: string;
+    name: string;
+    email: string;
+    role: string | null;
+  }>;
+  assert.equal(cliResetUsers.length, 1);
+  assert.equal(cliResetUsers[0].id, owner.id);
+  assert.equal(cliResetUsers[0].name, 'CLI Reset Admin');
+  assert.equal(cliResetUsers[0].email, 'cli-reset@example.test');
+  assert.equal(cliResetUsers[0].role, 'admin');
+
+  const cliResetAccount = cliReset.prepare(`
+    SELECT account_id AS accountId, user_id AS userId, password
+    FROM account
+    WHERE provider_id = 'credential'
+  `).get() as { accountId: string; userId: string; password: string | null };
+  assert.equal(cliResetAccount.accountId, owner.id);
+  assert.equal(cliResetAccount.userId, owner.id);
+  assert.ok(cliResetAccount.password);
+  assert.equal(await verifyPassword({ hash: cliResetAccount.password!, password: 'CliResetPassword123!' }), true);
+  cliReset.close();
+
   console.log('auth setup tests passed');
 }
 

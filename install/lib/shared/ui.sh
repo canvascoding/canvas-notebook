@@ -45,6 +45,8 @@ Commands:
   env        Show current environment from config.json
   env --sync Generate .env from config.json, sync Caddy, and restart
   env --edit Open config.json in editor, then sync and restart
+  admin reset-password --email <email> [--name <name>] [--password-stdin]
+             Reset or create the admin password inside the running container without storing it in env
   swap       Show swap status
   swap-enable [--size 2G] [--file /swapfile]
                Enable Canvas-managed swap and persist it
