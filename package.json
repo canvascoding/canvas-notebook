@@ -47,6 +47,7 @@
     "test:automation:webhook": "tsx --conditions react-server scripts/automation-custom-webhook-test.ts",
     "test:email:mime": "tsx scripts/email-mime-header-test.ts",
     "test:email:accounts": "tsx scripts/email-accounts-service-test.ts",
+    "test:auth:setup": "tsx --conditions react-server scripts/auth-setup-test.ts",
     "test:channels": "tsx scripts/channel-architecture-test.ts",
     "test:channels:db": "tsx --conditions react-server scripts/channel-db-test.ts",
     "test:sessions:read-state": "tsx scripts/session-read-state-test.ts",
