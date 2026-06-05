@@ -2,7 +2,7 @@ import 'server-only';
 
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/app/lib/auth';
-import { isBootstrapAdminEmail } from '@/app/lib/bootstrap-admin';
+import { isAdminUser } from '@/app/lib/admin-auth';
 
 export async function requireMigrationAdmin(request: NextRequest) {
   const session = await auth.api.getSession({ headers: request.headers });
@@ -13,8 +13,7 @@ export async function requireMigrationAdmin(request: NextRequest) {
     };
   }
 
-  const isAdmin = session.user.role === 'admin' || isBootstrapAdminEmail(session.user.email);
-  if (!isAdmin) {
+  if (!isAdminUser(session.user)) {
     return {
       ok: false as const,
       response: NextResponse.json({ success: false, error: 'Forbidden: admin only' }, { status: 403 }),

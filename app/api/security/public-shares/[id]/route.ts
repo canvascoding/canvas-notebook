@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { auth } from '@/app/lib/auth';
-import { isBootstrapAdminEmail } from '@/app/lib/bootstrap-admin';
+import { isAdminUser } from '@/app/lib/admin-auth';
 import { revokePublicFileShare } from '@/app/lib/public-sharing/public-file-shares';
 import { clearFileTreeCache } from '@/app/lib/utils/file-tree-cache';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
@@ -34,7 +34,7 @@ export async function DELETE(
   if (!limited.ok) return limited.response;
 
   const { id } = await context.params;
-  const isAdmin = session.user.role === 'admin' || isBootstrapAdminEmail(session.user.email);
+  const isAdmin = isAdminUser(session.user);
 
   try {
     const share = await revokePublicFileShare({
