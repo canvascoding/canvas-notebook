@@ -13,8 +13,14 @@ export class TelegramChannel implements ChannelPlugin {
   capabilities = {
     inboundText: true,
     inboundImages: true,
+    inboundVideos: true,
+    inboundAudio: true,
     inboundFiles: true,
     outboundText: true,
+    outboundImages: true,
+    outboundVideos: true,
+    outboundAudio: true,
+    outboundFiles: true,
     typingIndicator: true,
   };
   private bot: Bot;

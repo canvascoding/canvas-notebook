@@ -249,11 +249,13 @@ export async function findFilePath(fileId: string): Promise<string | null> {
 export async function saveUploadBuffer(
   buffer: Buffer,
   originalFilename: string,
-  providedMimeType?: string
+  providedMimeType?: string,
+  options: { maxBytes?: number } = {},
 ): Promise<UploadedFile> {
   // Check file size
-  if (buffer.length > MAX_FILE_SIZE) {
-    throw new Error(`File too large. Maximum size: ${MAX_FILE_SIZE / (1024 * 1024)}MB`);
+  const maxBytes = options.maxBytes ?? MAX_FILE_SIZE;
+  if (buffer.length > maxBytes) {
+    throw new Error(`File too large. Maximum size: ${maxBytes / (1024 * 1024)}MB`);
   }
   
   // Detect MIME type from buffer
