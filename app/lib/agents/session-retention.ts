@@ -3,6 +3,7 @@ import 'server-only';
 import { inArray } from 'drizzle-orm';
 
 import { db } from '@/app/lib/db';
+import { legacyAiTablesExist } from '@/app/lib/db/legacy-ai-tables';
 import { aiMessages, aiSessions } from '@/app/lib/db/schema';
 
 const DEFAULT_SESSION_RETENTION_LIMIT = 200;
@@ -12,6 +13,9 @@ export async function enforceAiSessionRetention(limit = DEFAULT_SESSION_RETENTIO
   removedMessages: number;
 }> {
   const normalizedLimit = Math.max(1, Math.floor(limit));
+  if (!(await legacyAiTablesExist())) {
+    return { removedSessions: 0, removedMessages: 0 };
+  }
 
   const allOrdered = await db
     .select({ id: aiSessions.id })

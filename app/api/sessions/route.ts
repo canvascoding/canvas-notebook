@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { randomUUID } from 'node:crypto';
 import { db } from '@/app/lib/db';
+import { legacyAiTablesExist } from '@/app/lib/db/legacy-ai-tables';
 import { aiSessions, aiMessages, user, piSessions, sessionChannelLinks } from '@/app/lib/db/schema';
 import { auth } from '@/app/lib/auth';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
@@ -170,6 +171,7 @@ export async function GET(request: NextRequest) {
   }
 
   try {
+    const legacyTablesAvailable = await legacyAiTablesExist();
     const cutoff = olderThanDays ? new Date(Date.now() - parseInt(olderThanDays, 10) * 24 * 60 * 60 * 1000) : null;
 
     if (countOnly && cutoff) {
@@ -186,7 +188,7 @@ export async function GET(request: NextRequest) {
             : and(eq(piSessions.userId, session.user.id), eq(piSessions.agentId, agentIdFilter!), piCutoffCondition!)
         );
 
-      const includeLegacyCount = includeAllAgentSessions || agentIdFilter === DEFAULT_AGENT_ID;
+      const includeLegacyCount = legacyTablesAvailable && (includeAllAgentSessions || agentIdFilter === DEFAULT_AGENT_ID);
       const legacyCutoffCondition = includeLegacyCount && cutoff
         ? and(eq(aiSessions.userId, session.user.id), lt(aiSessions.createdAt, cutoff))
         : undefined;
@@ -218,7 +220,7 @@ export async function GET(request: NextRequest) {
           ))
       : null;
     const filteredPiSessionIdValues = filteredPiSessionIds?.map((row) => row.sessionId) ?? null;
-    const includeLegacySessions = (includeAllAgentSessions || agentIdFilter === DEFAULT_AGENT_ID) && (!normalizedChannelFilter || normalizedChannelFilter === WEB_CHANNEL_ID);
+    const includeLegacySessions = legacyTablesAvailable && (includeAllAgentSessions || agentIdFilter === DEFAULT_AGENT_ID) && (!normalizedChannelFilter || normalizedChannelFilter === WEB_CHANNEL_ID);
     const piBaseWhere = includeAllAgentSessions
       ? eq(piSessions.userId, session.user.id)
       : and(eq(piSessions.userId, session.user.id), eq(piSessions.agentId, agentIdFilter!));
@@ -430,6 +432,10 @@ export async function POST(request: NextRequest) {
     const requestedModel = resolveRequestedModel(payload.agentId ?? payload.model);
     const model = requestedModel ?? (await resolveDefaultModel());
 
+    if (!(await legacyAiTablesExist())) {
+      return NextResponse.json({ success: false, error: 'Legacy session engine is no longer available' }, { status: 410 });
+    }
+
     const inserted = await db
       .insert(aiSessions)
       .values({
@@ -631,6 +637,10 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ success: false, error: 'Session not found' }, { status: 404 });
     }
 
+    if (!(await legacyAiTablesExist())) {
+      return NextResponse.json({ success: false, error: 'Session not found' }, { status: 404 });
+    }
+
     // Fallback to legacy
     const updatedLegacy = await db
       .update(aiSessions)
@@ -677,6 +687,8 @@ export async function DELETE(request: NextRequest) {
   }
 
   try {
+    const legacyTablesAvailable = await legacyAiTablesExist();
+
     if (shouldDeleteOlder) {
       const days = parseInt(olderThanDays!, 10);
       const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
@@ -702,7 +714,7 @@ export async function DELETE(request: NextRequest) {
         await deletePiSessionsByDbIds(olderPiSessions.map(s => s.id));
       }
 
-      const olderAiSessions = requestedAgentId === DEFAULT_AGENT_ID
+      const olderAiSessions = requestedAgentId === DEFAULT_AGENT_ID && legacyTablesAvailable
         ? await db
             .select({ id: aiSessions.id })
             .from(aiSessions)
@@ -736,7 +748,7 @@ export async function DELETE(request: NextRequest) {
         .where(and(eq(piSessions.userId, session.user.id), eq(piSessions.agentId, requestedAgentId)));
       await deletePiSessionsByDbIds(userPiSessions.map(s => s.id));
 
-      const userAiSessions = requestedAgentId === DEFAULT_AGENT_ID
+      const userAiSessions = requestedAgentId === DEFAULT_AGENT_ID && legacyTablesAvailable
         ? await db
             .select({ id: aiSessions.id })
             .from(aiSessions)
@@ -745,7 +757,7 @@ export async function DELETE(request: NextRequest) {
       if (userAiSessions.length > 0) {
         await db.delete(aiMessages).where(inArray(aiMessages.aiSessionDbId, userAiSessions.map(s => s.id)));
       }
-      if (requestedAgentId === DEFAULT_AGENT_ID) {
+      if (requestedAgentId === DEFAULT_AGENT_ID && legacyTablesAvailable) {
         await db.delete(aiSessions).where(eq(aiSessions.userId, session.user.id));
       }
 
@@ -764,6 +776,10 @@ export async function DELETE(request: NextRequest) {
     }
 
     if (requestedAgentId !== DEFAULT_AGENT_ID) {
+      return NextResponse.json({ success: false, error: 'Session not found' }, { status: 404 });
+    }
+
+    if (!legacyTablesAvailable) {
       return NextResponse.json({ success: false, error: 'Session not found' }, { status: 404 });
     }
 

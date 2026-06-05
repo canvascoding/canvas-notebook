@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/app/lib/db';
+import { legacyAiTablesExist } from '@/app/lib/db/legacy-ai-tables';
 import { aiSessions, aiMessages, piSessions, piMessages } from '@/app/lib/db/schema';
 import { auth } from '@/app/lib/auth';
 import { and, asc, desc, eq, lt, gt, or } from 'drizzle-orm';
@@ -149,6 +150,10 @@ export async function GET(request: NextRequest) {
     }
 
     if (agentId !== DEFAULT_AGENT_ID) {
+      return NextResponse.json({ success: true, messages: [], hasMoreBefore: false, hasMoreAfter: false, oldestTimestamp: null, newestTimestamp: null });
+    }
+
+    if (!(await legacyAiTablesExist())) {
       return NextResponse.json({ success: true, messages: [], hasMoreBefore: false, hasMoreAfter: false, oldestTimestamp: null, newestTimestamp: null });
     }
 

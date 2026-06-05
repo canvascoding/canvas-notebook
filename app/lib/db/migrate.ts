@@ -63,27 +63,6 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       updated_at INTEGER
     );
 
-    CREATE TABLE IF NOT EXISTS ai_sessions (
-      id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
-      session_id TEXT NOT NULL,
-      user_id TEXT NOT NULL,
-      model TEXT NOT NULL,
-      title TEXT,
-      created_at INTEGER NOT NULL,
-      FOREIGN KEY (user_id) REFERENCES user(id)
-    );
-
-    CREATE TABLE IF NOT EXISTS ai_messages (
-      id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
-      ai_session_db_id INTEGER NOT NULL,
-      role TEXT NOT NULL,
-      content TEXT NOT NULL,
-      type TEXT,
-      attachments TEXT,
-      created_at INTEGER NOT NULL,
-      FOREIGN KEY (ai_session_db_id) REFERENCES ai_sessions(id)
-    );
-
     CREATE TABLE IF NOT EXISTS pi_sessions (
       id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
       session_id TEXT NOT NULL,
@@ -688,9 +667,6 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     CREATE INDEX IF NOT EXISTS idx_studio_bulk_jobs_created ON studio_bulk_jobs (created_at);
     CREATE INDEX IF NOT EXISTS idx_studio_bulk_job_line_items_bulk_job ON studio_bulk_job_line_items (bulk_job_id);
     CREATE INDEX IF NOT EXISTS idx_studio_bulk_job_line_items_status ON studio_bulk_job_line_items (status);
-    CREATE INDEX IF NOT EXISTS idx_ai_sessions_user_created ON ai_sessions (user_id, created_at);
-    CREATE INDEX IF NOT EXISTS idx_ai_sessions_user_session ON ai_sessions (user_id, session_id);
-    CREATE INDEX IF NOT EXISTS idx_ai_messages_session_created ON ai_messages (ai_session_db_id, created_at, id);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_agents_agent_id ON agents (agent_id);
     CREATE INDEX IF NOT EXISTS idx_pi_messages_session_timestamp ON pi_messages (pi_session_db_id, timestamp, id);
     CREATE INDEX IF NOT EXISTS idx_todo_categories_user_sort ON todo_categories (user_id, sort_order);
@@ -709,6 +685,14 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     CREATE INDEX IF NOT EXISTS idx_public_file_shares_user_status ON public_file_shares (created_by_user_id, status);
     CREATE INDEX IF NOT EXISTS idx_public_file_shares_expires_at ON public_file_shares (expires_at);
   `);
+
+  if (tableExists(sqlite, 'ai_sessions') && tableExists(sqlite, 'ai_messages')) {
+    sqlite.exec(`
+      CREATE INDEX IF NOT EXISTS idx_ai_sessions_user_created ON ai_sessions (user_id, created_at);
+      CREATE INDEX IF NOT EXISTS idx_ai_sessions_user_session ON ai_sessions (user_id, session_id);
+      CREATE INDEX IF NOT EXISTS idx_ai_messages_session_created ON ai_messages (ai_session_db_id, created_at, id);
+    `);
+  }
 
   // ── Column additions for existing volumes ────────────────────────────────────
   // Each block adds columns that were missing from older schema versions.
@@ -998,5 +982,13 @@ function addColumns(
 function getColumnNames(sqlite: InstanceType<typeof Database>, table: string): Set<string> {
   return new Set(
     (sqlite.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>).map((c) => c.name),
+  );
+}
+
+function tableExists(sqlite: InstanceType<typeof Database>, table: string): boolean {
+  return Boolean(
+    sqlite
+      .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ? LIMIT 1")
+      .get(table),
   );
 }
