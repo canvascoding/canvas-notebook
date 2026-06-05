@@ -134,8 +134,7 @@ function printEnvInstructions(envFile, isNew) {
   }
   console.log();
   info('  BETTER_AUTH_SECRET    — a random secret (run: openssl rand -base64 32)');
-  info('  BOOTSTRAP_ADMIN_EMAIL — your login email');
-  info('  BOOTSTRAP_ADMIN_PASSWORD — your login password');
+  info('  BOOTSTRAP_ADMIN_*     — optional; otherwise create the admin account in the setup UI');
   console.log();
   info('Then run: npm run setup');
   console.log();
@@ -145,10 +144,10 @@ function envFileIsConfigured(envFile) {
   try {
     const content = readFileSync(envFile, 'utf-8');
     // Check if still contains placeholder values from the example
-    const hasExampleEmail = content.includes('admin@example.com');
-    const hasExamplePassword = /BOOTSTRAP_ADMIN_PASSWORD\s*=\s*admin\b/.test(content);
+    const hasPlaceholderSecret = /^BETTER_AUTH_SECRET=your-secret-genereate-please$/m.test(content)
+      || /^CANVAS_INTERNAL_API_KEY=your-secret-genereate-please$/m.test(content);
     const hasSampleSecret = content.includes('c9PkVtSazPhUtmcKsjau1w2uONuBZKiUvgFaHGXz2kZE=');
-    return !(hasExampleEmail || hasExamplePassword || hasSampleSecret);
+    return !(hasPlaceholderSecret || hasSampleSecret);
   } catch {
     return false;
   }

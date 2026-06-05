@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { auth } from '@/app/lib/auth';
-import { isBootstrapAdminEmail } from '@/app/lib/bootstrap-admin';
+import { isAdminUser } from '@/app/lib/admin-auth';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 import { clearFileTreeCache } from '@/app/lib/utils/file-tree-cache';
 import {
@@ -83,7 +83,7 @@ export async function GET(request: NextRequest) {
 
   const { searchParams } = new URL(request.url);
   const limit = Math.max(1, Math.min(Number.parseInt(searchParams.get('limit') || '500', 10), 1000));
-  const isAdmin = session.user.role === 'admin' || isBootstrapAdminEmail(session.user.email);
+  const isAdmin = isAdminUser(session.user);
 
   const shares = await listPublicFileShares({
     userId: session.user.id,

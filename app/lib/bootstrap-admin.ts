@@ -1,5 +1,3 @@
-export const BOOTSTRAP_SIGNUP_ENV = 'CANVAS_ALLOW_BOOTSTRAP_SIGNUP';
-
 function normalizeEmail(email: string | null | undefined): string | null {
   const normalized = email?.trim().toLowerCase();
   return normalized || null;

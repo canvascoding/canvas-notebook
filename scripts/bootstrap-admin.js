@@ -66,12 +66,24 @@ function openDatabase() {
   const sqlitePath = getSqlitePath();
   const db = new Database(sqlitePath);
   db.pragma('foreign_keys = ON');
+  db.pragma('busy_timeout = 5000');
   ensureBootstrapTables(db);
   return { db, sqlitePath };
 }
 
 function findUserByEmail(db, email) {
   return db.prepare('SELECT id, email, role, name FROM user WHERE lower(email) = ? LIMIT 1').get(email) || null;
+}
+
+function findBootstrapTargetUser(db) {
+  return db.prepare(`
+    SELECT id, email, role, name
+    FROM user
+    ORDER BY
+      CASE WHEN role = 'admin' THEN 0 ELSE 1 END,
+      created_at ASC
+    LIMIT 1
+  `).get() || null;
 }
 
 function ensureCredentialPassword(db, userId, passwordHash) {
@@ -132,11 +144,13 @@ async function main() {
   try {
     const { email, password, name } = bootstrapAdmin;
     const passwordHash = await hashPassword(password);
-    const existingUser = findUserByEmail(db, email);
+    db.exec('BEGIN IMMEDIATE');
 
+    const existingUser = findUserByEmail(db, email);
     if (existingUser) {
       updateExistingUser(db, existingUser.id, email, name);
       ensureCredentialPassword(db, existingUser.id, passwordHash);
+      db.exec('COMMIT');
 
       const verifiedUser = findUserByEmail(db, email);
       if (!verifiedUser) {
@@ -147,8 +161,24 @@ async function main() {
       return;
     }
 
+    const targetUser = findBootstrapTargetUser(db);
+    if (targetUser) {
+      updateExistingUser(db, targetUser.id, email, name);
+      ensureCredentialPassword(db, targetUser.id, passwordHash);
+      db.exec('COMMIT');
+
+      const verifiedUser = findUserByEmail(db, email);
+      if (!verifiedUser) {
+        throw new Error(`Bootstrap admin missing after override: ${email}`);
+      }
+
+      console.log(`[bootstrap-admin] Updated existing admin credentials: ${targetUser.email} -> ${email}`);
+      return;
+    }
+
     const userId = insertUser(db, email, name);
     ensureCredentialPassword(db, userId, passwordHash);
+    db.exec('COMMIT');
 
     const verifiedUser = findUserByEmail(db, email);
     if (!verifiedUser) {
@@ -156,6 +186,11 @@ async function main() {
     }
 
     console.log(`[bootstrap-admin] Created admin user: ${email}`);
+  } catch (error) {
+    if (db.inTransaction) {
+      db.exec('ROLLBACK');
+    }
+    throw error;
   } finally {
     db.close();
   }

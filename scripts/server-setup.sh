@@ -130,7 +130,7 @@ if [[ ! -f "$ENV_FILE" ]]; then
 fi
 
 env_has_placeholders() {
-  grep -qE 'admin@example\.com|BOOTSTRAP_ADMIN_PASSWORD\s*=\s*admin$|c9PkVtSazPhUtmcKsjau1w2uONuBZKiUvgFaHGXz2kZE=' "$ENV_FILE" 2>/dev/null
+  grep -qE 'c9PkVtSazPhUtmcKsjau1w2uONuBZKiUvgFaHGXz2kZE=' "$ENV_FILE" 2>/dev/null
 }
 
 # Auto-generate secrets if still placeholders
@@ -147,9 +147,8 @@ if env_has_placeholders; then
   echo -e "${BOLD}  You need to configure .env.docker.local before the app can start.${RESET}"
   echo
   info "Set at minimum:"
-  info "  BOOTSTRAP_ADMIN_EMAIL    — your login email"
-  info "  BOOTSTRAP_ADMIN_PASSWORD — your login password"
   info "  BETTER_AUTH_BASE_URL     — public URL (e.g. https://canvas.example.com)"
+  info "  BOOTSTRAP_ADMIN_*        — optional; otherwise create the admin account in the setup UI"
   echo
 
   EDITOR_CMD="${EDITOR:-nano}"

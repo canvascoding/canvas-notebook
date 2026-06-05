@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/app/lib/auth';
-import { isBootstrapAdminEmail } from '@/app/lib/bootstrap-admin';
+import { isAdminUser } from '@/app/lib/admin-auth';
 import { cleanupOrphanedStudioAssets } from '@/app/lib/cleanup/orphaned-assets';
 
 export async function POST(request: NextRequest) {
@@ -9,7 +9,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
   }
 
-  if (!isBootstrapAdminEmail(session.user.email)) {
+  if (!isAdminUser(session.user)) {
     return NextResponse.json({ success: false, error: 'Forbidden: admin only' }, { status: 403 });
   }
 
