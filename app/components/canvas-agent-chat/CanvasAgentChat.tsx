@@ -1237,15 +1237,23 @@ function ChatHistorySessionRow({
   onRenameSession,
   onDeleteSession,
 }: ChatHistorySessionRowProps) {
+  const [actionsOpen, setActionsOpen] = useState(false);
   const createdAtLabel = new Date(session.createdAt).toLocaleString();
 
   return (
-    <div className={`group mb-1 flex w-full items-center p-2 transition-all ${
-      isActive
-        ? 'border border-primary/30 bg-primary/10'
-        : 'border border-transparent bg-muted/30 hover:border-border hover:bg-accent'
-    }`}>
-      <button type="button" onClick={() => { void onLoadSession(session); }} className="min-w-0 flex-1 text-left flex items-start gap-2">
+    <div
+      className={cn(
+        'group mb-2 flex w-full items-start gap-2 rounded-md border p-2.5 transition-all',
+        isActive
+          ? 'border-primary/35 bg-primary/10 shadow-sm'
+          : 'border-transparent bg-muted/25 hover:border-border hover:bg-accent/80',
+      )}
+    >
+      <button
+        type="button"
+        onClick={() => { void onLoadSession(session); }}
+        className="flex min-w-0 flex-1 items-start gap-2.5 text-left"
+      >
         <span className="relative mt-0.5 shrink-0">
           <AgentAvatar
             iconId={agentProfile?.iconId}
@@ -1264,39 +1272,60 @@ function ChatHistorySessionRow({
           )}
         </span>
         <div className="min-w-0 flex-1 text-left">
-          <div className={`truncate text-sm font-medium ${
-            isActive ? 'text-primary' : 'text-foreground group-hover:text-primary'
-          }`}>
+          <div
+            className={cn(
+              'min-w-0 truncate text-sm font-semibold leading-5',
+              isActive ? 'text-primary' : 'text-foreground group-hover:text-primary',
+            )}
+          >
             {getSessionDisplayTitle(session.title, newChatTitle)}
           </div>
-          <div className="mt-1 flex flex-wrap gap-2 text-[10px] text-muted-foreground">
-            <span>{createdAtLabel}</span>
-            <span>&bull;</span>
-            <span className="inline-flex min-w-0 items-center gap-1">
+          <div className="mt-1.5 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[10px] leading-4 text-muted-foreground">
+            <span className="max-w-full truncate">{createdAtLabel}</span>
+            <span className="inline-flex max-w-full min-w-0 items-center gap-1">
               <AgentIcon iconId={agentProfile?.iconId} className="h-3 w-3 shrink-0" />
-              <span className="truncate">{agentName}</span>
+              <span className="min-w-0 max-w-[9rem] truncate">{agentName}</span>
             </span>
-            <span>&bull;</span>
-            <span>{session.model}</span>
+            <span className="max-w-full truncate font-mono">{session.model}</span>
           </div>
         </div>
       </button>
-      <button
-        type="button"
-        onClick={() => { void onRenameSession(session); }}
-        className="ml-2 shrink-0 border border-transparent p-2 text-muted-foreground transition-all hover:border-border hover:bg-accent"
-        title={renameSessionLabel}
-      >
-        <Pencil size={15} />
-      </button>
-      <button
-        type="button"
-        onClick={() => { void onDeleteSession(session.sessionId); }}
-        className="ml-1 shrink-0 border border-transparent p-2 text-muted-foreground transition-all hover:border-destructive/40 hover:bg-destructive/10 hover:text-destructive"
-        title={deleteSessionLabel}
-      >
-        <Trash2 size={15} />
-      </button>
+      <Popover open={actionsOpen} onOpenChange={setActionsOpen}>
+        <PopoverTrigger asChild>
+          <button
+            type="button"
+            className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-transparent text-muted-foreground transition-colors hover:border-border hover:bg-background/80 hover:text-foreground"
+            title={`${renameSessionLabel} / ${deleteSessionLabel}`}
+            aria-label={`${renameSessionLabel} / ${deleteSessionLabel}`}
+          >
+            <MoreHorizontal size={16} />
+          </button>
+        </PopoverTrigger>
+        <PopoverContent align="end" side="bottom" className="w-44 p-1">
+          <button
+            type="button"
+            onClick={() => {
+              setActionsOpen(false);
+              void onRenameSession(session);
+            }}
+            className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm text-foreground transition-colors hover:bg-accent"
+          >
+            <Pencil size={14} className="shrink-0 text-muted-foreground" />
+            <span className="min-w-0 truncate">{renameSessionLabel}</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setActionsOpen(false);
+              void onDeleteSession(session.sessionId);
+            }}
+            className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm text-destructive transition-colors hover:bg-destructive/10"
+          >
+            <Trash2 size={14} className="shrink-0" />
+            <span className="min-w-0 truncate">{deleteSessionLabel}</span>
+          </button>
+        </PopoverContent>
+      </Popover>
     </div>
   );
 }
@@ -1378,8 +1407,8 @@ function ChatHistoryPanel({
       )}
       style={!isOverlay && width ? { width: `${width}px` } : undefined}
     >
-      <div className="shrink-0 space-y-2 border-b border-border p-3">
-        <div className="flex items-center justify-between gap-2">
+      <div className="shrink-0 space-y-3 border-b border-border bg-background/70 p-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex min-w-0 items-center gap-2">
             <History size={14} className="shrink-0 text-muted-foreground" />
             <span className="truncate text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
@@ -1390,10 +1419,10 @@ function ChatHistoryPanel({
             <button
               type="button"
               onClick={onBackToChat}
-              className="inline-flex shrink-0 items-center gap-1 rounded-md border border-border bg-muted/30 px-2 py-1 text-[10px] font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+              className="inline-flex h-8 shrink-0 items-center gap-1 rounded-md border border-border bg-muted/30 px-2.5 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
             >
               <ChevronLeft size={12} />
-              {labels.backToChat}
+              <span className="max-w-[9rem] truncate">{labels.backToChat}</span>
             </button>
           ) : null}
         </div>
@@ -1404,23 +1433,24 @@ function ChatHistoryPanel({
             value={historySearchQuery}
             onChange={(event) => onSearchQueryChange(event.target.value)}
             placeholder={labels.searchSessions}
-            className="w-full rounded-md border border-border bg-background px-3 py-1.5 pl-8 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+            className="h-10 w-full rounded-md border border-border bg-background px-3 pl-9 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
           />
           <Search
             size={14}
-            className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground"
+            className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
           />
         </div>
 
-        <div className="flex gap-1 overflow-x-auto pb-1">
+        <div className="flex gap-1.5 overflow-x-auto pb-1">
           <button
             type="button"
             onClick={() => onAgentFilterChange('all')}
-            className={`shrink-0 rounded-md border px-2 py-1 text-[10px] font-medium transition-colors ${
+            className={cn(
+              'inline-flex h-8 shrink-0 items-center rounded-md border px-2.5 text-[11px] font-medium transition-colors',
               historyAgentFilter === 'all'
                 ? 'border-primary/30 bg-primary/15 text-primary'
-                : 'border-border bg-muted/30 text-muted-foreground'
-            }`}
+                : 'border-border bg-muted/30 text-muted-foreground',
+            )}
           >
             {labels.filterAllAgents}
           </button>
@@ -1429,47 +1459,49 @@ function ChatHistoryPanel({
               key={agent.agentId}
               type="button"
               onClick={() => onAgentFilterChange(agent.agentId)}
-              className={`shrink-0 rounded-md border px-2 py-1 text-[10px] font-medium transition-colors ${
+              className={cn(
+                'inline-flex h-8 max-w-[12rem] shrink-0 items-center gap-1 rounded-md border px-2.5 text-[11px] font-medium transition-colors',
                 historyAgentFilter === agent.agentId
                   ? 'border-primary/30 bg-primary/15 text-primary'
-                  : 'border-border bg-muted/30 text-muted-foreground'
-              }`}
+                  : 'border-border bg-muted/30 text-muted-foreground',
+              )}
               title={agent.agentId}
             >
-              <AgentIcon iconId={agent.iconId} className="mr-1 inline h-3 w-3 align-[-2px]" />
-              {agent.name}
-              {agent.count > 0 ? ` ${agent.count}` : ''}
+              <AgentIcon iconId={agent.iconId} className="h-3 w-3 shrink-0" />
+              <span className="min-w-0 truncate">{agent.name}</span>
+              {agent.count > 0 ? <span className="shrink-0 text-muted-foreground">{agent.count}</span> : null}
             </button>
           ))}
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-1.5">
           <button
             type="button"
             onClick={() => onUnreadOnlyChange(!historyUnreadOnly)}
-            className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-[10px] font-medium transition-colors ${
+            className={cn(
+              'inline-flex h-8 min-w-0 items-center gap-1.5 rounded-md border px-2.5 text-[11px] font-medium transition-colors',
               historyUnreadOnly
                 ? 'border-primary/30 bg-primary/15 text-primary'
-                : 'border-border bg-muted/30 text-muted-foreground'
-            }`}
+                : 'border-border bg-muted/30 text-muted-foreground',
+            )}
           >
             {historyUnreadOnly ? <Eye size={12} /> : <EyeOff size={12} />}
-            {historyUnreadOnly ? labels.filterUnreadOnly : labels.filterAllSessions}
+            <span className="truncate">{historyUnreadOnly ? labels.filterUnreadOnly : labels.filterAllSessions}</span>
           </button>
           {totalUnreadCount > 0 ? (
             <button
               type="button"
               onClick={() => { void onMarkAllAsRead(); }}
-              className="inline-flex items-center gap-1.5 rounded-md border border-border bg-muted/30 px-2 py-1 text-[10px] font-medium text-muted-foreground transition-colors hover:border-primary/30 hover:bg-primary/15 hover:text-primary"
+              className="inline-flex h-8 min-w-0 items-center gap-1.5 rounded-md border border-border bg-muted/30 px-2.5 text-[11px] font-medium text-muted-foreground transition-colors hover:border-primary/30 hover:bg-primary/15 hover:text-primary"
             >
               <CheckCheck size={12} />
-              {labels.markAllAsRead}
+              <span className="truncate">{labels.markAllAsRead}</span>
             </button>
           ) : null}
         </div>
       </div>
 
-      <div className={cn('flex-1 overflow-y-auto p-2', isOverlay ? 'pb-[calc(env(safe-area-inset-bottom)+0.75rem)]' : null)}>
+      <div className={cn('flex-1 overflow-y-auto p-2.5', isOverlay ? 'pb-[calc(env(safe-area-inset-bottom)+0.75rem)]' : null)}>
         {history.length === 0 ? (
           <div className="p-8 text-center text-sm italic text-muted-foreground">
             {labels.noRecentSessions}
@@ -5272,15 +5304,15 @@ export default function CanvasAgentChat({
             aria-label={`${t('agentSelectTitle')}: ${activeAgentDisplayName}`}
             title={t('agentSelectTitle')}
             className={cn(
-              'inline-flex min-w-0 items-center gap-1.5 border border-border/60 bg-muted/50 font-medium text-foreground transition-colors hover:bg-accent',
-              compact ? 'max-w-[12rem] px-2 py-0.5 text-[10px]' : 'px-2 py-0.5 text-[11px]',
+              'inline-flex h-8 min-w-0 items-center gap-1.5 rounded-md border border-border/60 bg-muted/50 px-2 font-medium text-foreground transition-colors hover:bg-accent',
+              compact ? 'max-w-[12rem] text-[10px]' : 'max-w-[min(14rem,100%)] text-[11px]',
             )}
           >
             {!compact ? (
               <span className="text-[9px] uppercase tracking-[0.15em] text-muted-foreground">{t('agentLabel')}</span>
             ) : null}
             <AgentIcon iconId={activeAgentProfile?.iconId} className="h-3 w-3 shrink-0 text-muted-foreground" />
-            <span className={cn('min-w-0 truncate', compact ? 'max-w-[8rem]' : 'max-w-[120px]')}>
+            <span className={cn('min-w-0 truncate', compact ? 'max-w-[8rem]' : 'max-w-[9rem]')}>
               {activeAgentDisplayName}
             </span>
             <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" />
@@ -5492,14 +5524,14 @@ export default function CanvasAgentChat({
 
       {/* Compact Header Row */}
       <div className="z-10 border-b border-border bg-background/95">
-        <div className="flex items-center justify-between px-3 py-1.5">
-          <div className="flex min-w-0 items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 px-3 py-2">
+          <div className="flex min-w-[12rem] flex-1 items-center gap-2 overflow-hidden">
             {showHistory ? (
               <button
                 type="button"
                 aria-label={t('backToChat')}
                 onClick={() => setShowHistory(false)}
-                className="border border-transparent p-1 transition-colors hover:border-border hover:bg-accent"
+                className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-transparent transition-colors hover:border-border hover:bg-accent"
                 title={t('backToChat')}
               >
                 <ChevronLeft size={18} />
@@ -5510,7 +5542,7 @@ export default function CanvasAgentChat({
                 data-testid="chat-history-toggle"
                 aria-label={t('toggleSidebar')}
                 onClick={() => setShowHistory(true)}
-                className="relative border border-transparent p-1 transition-colors hover:border-border hover:bg-accent"
+                className="relative inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-transparent transition-colors hover:border-border hover:bg-accent"
                 title={t('toggleSidebar')}
               >
                 <History size={18} />
@@ -5521,31 +5553,31 @@ export default function CanvasAgentChat({
                 )}
               </button>
             )}
-            <div className="min-w-0">
+            <div className="min-w-0 flex-1">
               {isMobile ? (
-                <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground">{t('canvasChatLabel')}</span>
+                <span className="block truncate text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground">{t('canvasChatLabel')}</span>
               ) : (
-                <div className="flex min-w-0 items-center gap-1.5">
+                <div className="flex min-w-0 flex-wrap items-center gap-1.5">
                   {/* Session Badge */}
                   <div
                     data-testid="chat-session-id"
                     title={sessionDisplayLabel}
-                    className="inline-flex min-w-0 items-center gap-1.5 border border-border/60 bg-muted/50 px-2 py-0.5 text-[11px] font-medium text-foreground"
+                    className="inline-flex h-8 min-w-0 max-w-[min(18rem,100%)] items-center gap-1.5 rounded-md border border-border/60 bg-muted/50 px-2 text-[11px] font-medium text-foreground"
                   >
                     <span className="text-[9px] uppercase tracking-[0.15em] text-muted-foreground">{t('sessionLabel')}</span>
-                    <span className="min-w-0 truncate max-w-[120px]">{sessionDisplayLabel}</span>
+                    <span className="min-w-0 truncate">{sessionDisplayLabel}</span>
                   </div>
                   {renderChatAgentSelector('desktop')}
                 </div>
               )}
             </div>
           </div>
-          <div className="flex items-center gap-1">
+          <div className="ml-auto flex shrink-0 items-center gap-1">
             <button
               type="button"
               aria-label={t('newChatTitle')}
               onClick={() => startNewChat()}
-              className="group flex items-center gap-1 border border-primary/30 bg-primary/15 px-2 py-1 text-primary transition-all hover:bg-primary/25"
+              className="group inline-flex h-8 items-center gap-1 rounded-md border border-primary/30 bg-primary/15 px-2.5 text-primary transition-all hover:bg-primary/25"
               title={t('newChatTitle')}
             >
               <Plus size={16} />
@@ -5555,7 +5587,7 @@ export default function CanvasAgentChat({
               <Link
                 href="/settings?tab=skills"
                 aria-label={t('viewSkills')}
-                className="group flex items-center gap-1 border border-border bg-muted/50 px-2 py-1 text-muted-foreground transition-all hover:bg-accent hover:text-foreground"
+                className="group inline-flex h-8 items-center gap-1 rounded-md border border-border bg-muted/50 px-2.5 text-muted-foreground transition-all hover:bg-accent hover:text-foreground"
                 title={t('viewSkills')}
               >
                 <Lightbulb size={16} />
@@ -5567,8 +5599,8 @@ export default function CanvasAgentChat({
 
         {/* Compact Status Bar */}
         <div data-testid="chat-runtime-banner" className="border-t border-border/50 px-3 py-1.5">
-          <div className="flex flex-wrap items-center gap-2">
-            <div data-testid="chat-runtime-status" className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-start gap-2">
+            <div data-testid="chat-runtime-status" className="flex min-w-[12rem] flex-1 flex-wrap items-center gap-2">
               <ChatRuntimeActivityBadge status={runtimeStatus} />
               {isMobile ? renderChatAgentSelector('mobile') : null}
               
@@ -5597,12 +5629,12 @@ export default function CanvasAgentChat({
             </div>
             
             {/* Right: Action Buttons */}
-            <div className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-1.5">
+            <div className="flex w-full min-w-0 flex-wrap items-center justify-start gap-1.5 md:ml-auto md:w-auto md:justify-end">
               {!isMobile ? (
                 <span
                   data-testid="chat-context-meter"
                   title={contextTooltip}
-                  className="inline-flex min-w-0 max-w-[min(20rem,40vw)] items-center border border-border/60 bg-muted/40 px-2.5 py-0.5 text-[10px] font-medium text-muted-foreground"
+                  className="inline-flex h-7 min-w-0 max-w-full items-center rounded-md border border-border/60 bg-muted/40 px-2.5 text-[10px] font-medium text-muted-foreground md:max-w-[min(20rem,40vw)]"
                 >
                   <span className="min-w-0 truncate">{contextDetailedLabel}</span>
                 </span>
@@ -5614,14 +5646,14 @@ export default function CanvasAgentChat({
                     data-testid="chat-compact"
                     onClick={() => void handleCompact()}
                     disabled={!sessionId || runtimeStatus?.phase !== 'idle'}
-                    className="border border-border bg-muted/50 px-2 py-0.5 text-[11px] font-medium text-foreground transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-40"
+                    className="h-7 rounded-md border border-border bg-muted/50 px-2.5 text-[11px] font-medium text-foreground transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-40"
                   >
                     {t('compact')}
                   </button>
                   <Link
                     href="/settings?tab=agent"
                     aria-label={t('openAgentSettings')}
-                    className="inline-flex items-center gap-1 border border-border/60 bg-muted/40 px-2 py-0.5 text-[11px] font-medium text-muted-foreground transition-all hover:bg-accent hover:text-foreground"
+                    className="inline-flex h-7 items-center gap-1 rounded-md border border-border/60 bg-muted/40 px-2.5 text-[11px] font-medium text-muted-foreground transition-all hover:bg-accent hover:text-foreground"
                     title={t('openAgentSettings')}
                   >
                     <Settings className="h-3 w-3" />
