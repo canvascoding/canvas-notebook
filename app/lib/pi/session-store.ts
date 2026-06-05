@@ -114,11 +114,12 @@ export async function savePiSession(
       }
     : {};
 
-  // Find last assistant message timestamp for lastMessageAt
-  const lastAssistantMessage = messages
-    .filter(m => m.role === 'assistant')
-    .sort((a, b) => getAgentMessageTimestamp(b) - getAgentMessageTimestamp(a))[0];
-  const lastMessageAt = lastAssistantMessage ? new Date(getAgentMessageTimestamp(lastAssistantMessage)) : null;
+  const startIndex = options?.persistedLength ?? 0;
+  const newMessages = messages.slice(startIndex);
+  const hasNewAssistantMessage = newMessages.some((message) => message.role === 'assistant');
+  const shouldMarkAssistantActivity = hasNewAssistantMessage && (!session || options?.persistedLength !== undefined || !session.lastMessageAt);
+  const assistantActivityAt = shouldMarkAssistantActivity ? new Date() : null;
+  const lastMessageAt = assistantActivityAt ?? session?.lastMessageAt ?? null;
 
   if (!session) {
     const promptSnapshot = options?.systemPromptSnapshot ?? await createPiSystemPromptSnapshot(agentId);
@@ -173,12 +174,10 @@ export async function savePiSession(
     outboundAt: lastMessageAt,
   });
 
-  const startIndex = options?.persistedLength ?? 0;
   if (startIndex === 0) {
     await db.delete(piMessages).where(eq(piMessages.piSessionDbId, sessionDbId));
   }
 
-  const newMessages = messages.slice(startIndex);
   if (newMessages.length > 0) {
     await db.insert(piMessages).values(
       newMessages.map((m, index) => ({
@@ -302,7 +301,7 @@ export async function updatePiSessionLastMessageAt(sessionId: string, userId: st
 
   if (session) {
     await db.update(piSessions)
-      .set({ lastMessageAt: timestamp })
+      .set({ lastMessageAt: timestamp, updatedAt: new Date() })
       .where(eq(piSessions.id, session.id));
   }
 }

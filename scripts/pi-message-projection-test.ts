@@ -11,7 +11,7 @@ process.env.DATA = dataDir;
 async function main() {
   const { eq } = await import('drizzle-orm');
   const { db } = await import('../app/lib/db');
-  const { user, piMessages } = await import('../app/lib/db/schema');
+  const { user, piMessages, piSessions } = await import('../app/lib/db/schema');
   const { savePiSession, loadPiSessionWithSummary } = await import('../app/lib/pi/session-store');
   const { buildPiSystemPromptSnapshotFromText } = await import('../app/lib/pi/system-prompt-snapshot');
   const { parsePersistedPiMessage } = await import('../app/lib/pi/message-projection');
@@ -95,6 +95,86 @@ async function main() {
   assert.ok(rawContent.includes(uniqueTailMarker));
   assert.doesNotMatch(projectedJson, new RegExp(uniqueTailMarker));
   assert.doesNotMatch(projectedJson, new RegExp(imageData.slice(0, 200)));
+
+  const activitySessionId = 'sess-activity-clock';
+  const staleAssistantTimestamp = new Date('2024-01-01T00:00:00.000Z').getTime();
+  const futureAssistantTimestamp = new Date('2025-01-01T00:00:00.000Z').getTime();
+  const activityMessages: AgentMessage[] = [
+    { role: 'user', content: 'activity test', timestamp: staleAssistantTimestamp - 1_000 } as AgentMessage,
+    {
+      role: 'assistant',
+      content: [{ type: 'text', text: 'first assistant' }],
+      api: 'test',
+      provider: 'test-provider',
+      model: 'test-model',
+      stopReason: 'stop',
+      timestamp: futureAssistantTimestamp,
+    } as AgentMessage,
+    {
+      role: 'assistant',
+      content: [{ type: 'text', text: 'last assistant in sequence' }],
+      api: 'test',
+      provider: 'test-provider',
+      model: 'test-model',
+      stopReason: 'stop',
+      timestamp: staleAssistantTimestamp,
+    } as AgentMessage,
+  ];
+
+  const activityBeforeSave = Date.now();
+  await savePiSession(
+    activitySessionId,
+    userId,
+    'test-provider',
+    'test-model',
+    activityMessages,
+    undefined,
+    {
+      systemPromptSnapshot: buildPiSystemPromptSnapshotFromText('activity prompt', now),
+    },
+  );
+  const activityAfterSave = Date.now();
+
+  const activitySession = await db.query.piSessions.findFirst({
+    where: eq(piSessions.sessionId, activitySessionId),
+  });
+  assert.ok(activitySession?.lastMessageAt);
+  const persistedActivityTime = activitySession.lastMessageAt.getTime();
+  assert.ok(persistedActivityTime >= activityBeforeSave - 1_000);
+  assert.ok(persistedActivityTime <= activityAfterSave + 1_000);
+  assert.notEqual(persistedActivityTime, futureAssistantTimestamp);
+  assert.notEqual(persistedActivityTime, staleAssistantTimestamp);
+
+  await savePiSession(
+    activitySessionId,
+    userId,
+    'test-provider',
+    'test-model',
+    activityMessages,
+  );
+
+  const afterFullResave = await db.query.piSessions.findFirst({
+    where: eq(piSessions.sessionId, activitySessionId),
+  });
+  assert.equal(afterFullResave?.lastMessageAt?.toISOString(), activitySession.lastMessageAt.toISOString());
+
+  await savePiSession(
+    activitySessionId,
+    userId,
+    'test-provider',
+    'test-model',
+    [
+      ...activityMessages,
+      { role: 'user', content: 'user-only follow-up', timestamp: Date.now() } as AgentMessage,
+    ],
+    undefined,
+    { persistedLength: activityMessages.length },
+  );
+
+  const afterUserOnlySave = await db.query.piSessions.findFirst({
+    where: eq(piSessions.sessionId, activitySessionId),
+  });
+  assert.equal(afterUserOnlySave?.lastMessageAt?.toISOString(), activitySession.lastMessageAt.toISOString());
 }
 
 main()
