@@ -30,6 +30,7 @@ import { ReferenceHoverCard } from './ReferenceHoverCard';
 import { ModelReferencePickerDialog } from './ModelReferencePickerDialog';
 import type { StudioPreset } from '../../types/presets';
 import type { StudioPersona, StudioProduct, StudioStyle } from '../../types/models';
+import { StudioMediaThumbnail } from '../StudioMediaThumbnail';
 
 interface ReferenceTag {
   id: string;
@@ -124,8 +125,13 @@ function ReferenceChip({ label, borderColor, bgColor, onRemove, thumbnailUrl, ic
         {isLoading ? (
           <Loader2 className="h-4 w-4 animate-spin" />
         ) : thumbnailUrl ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={thumbnailUrl} alt="" className="h-full w-full object-cover" loading="lazy" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+          <StudioMediaThumbnail
+            src={thumbnailUrl}
+            alt=""
+            fallback={icon}
+            skeletonIcon={icon}
+            className="rounded-none bg-transparent"
+          />
         ) : (
           icon
         )}
@@ -349,6 +355,7 @@ export function PromptBar({
               key={file.id}
               name={file.name}
               type="file"
+              thumbnailPath={file.thumbnailPath ?? file.id}
               fallbackIcon={<FileVideo className="h-4 w-4 text-indigo-600" />}
               bgColor="bg-indigo-50"
               onRemove={() => onReferenceRemove('videoReference', file.id)}
@@ -357,6 +364,7 @@ export function PromptBar({
                 label={`@video ${file.name}`}
                 borderColor="border-indigo-400"
                 bgColor="bg-indigo-50"
+                thumbnailUrl={toPreviewUrl(file.thumbnailPath ?? file.id, 64, { preset: 'mini' })}
                 icon={<FileVideo className="h-4 w-4 text-indigo-600" />}
                 onRemove={() => onReferenceRemove('videoReference', file.id)}
                 isLoading={file.status === 'loading'}
@@ -387,6 +395,7 @@ export function PromptBar({
               key={videoExtendSourceRef.id}
               name={videoExtendSourceRef.name}
               type="file"
+              thumbnailPath={videoExtendSourceRef.thumbnailPath ?? videoExtendSourceRef.id}
               fallbackIcon={<FileVideo className="h-4 w-4 text-orange-600" />}
               bgColor="bg-orange-50"
               onRemove={() => onReferenceRemove('videoExtendSource', videoExtendSourceRef.id)}
@@ -395,6 +404,7 @@ export function PromptBar({
                 label={`@extend ${videoExtendSourceRef.name}`}
                 borderColor="border-orange-400"
                 bgColor="bg-orange-50"
+                thumbnailUrl={toPreviewUrl(videoExtendSourceRef.thumbnailPath ?? videoExtendSourceRef.id, 64, { preset: 'mini' })}
                 icon={<FileVideo className="h-4 w-4 text-orange-600" />}
                 onRemove={() => onReferenceRemove('videoExtendSource', videoExtendSourceRef.id)}
                 isLoading={videoExtendSourceRef.status === 'loading'}
