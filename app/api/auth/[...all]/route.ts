@@ -9,7 +9,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
 
-  if (pathname.endsWith('/sign-up/email')) {
+  if (pathname.includes('/sign-up/')) {
     return NextResponse.json({ message: 'Sign up is disabled' }, { status: 403 });
   }
 

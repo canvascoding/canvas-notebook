@@ -318,6 +318,91 @@ export function UserManagementPanel({
 
   const userRows = useMemo(() => users, [users]);
 
+  const renderUserActions = (user: ManagedUser, options: { compact?: boolean } = {}) => {
+    const role = normalizeRole(user.role);
+    const isSelf = user.id === currentUserId;
+    const isRowBusy = activeAction?.endsWith(user.id) ?? false;
+    const isBanned = Boolean(user.banned);
+    const buttonClassName = options.compact ? 'w-full min-w-0' : undefined;
+    const wrapperClassName = options.compact
+      ? 'grid grid-cols-2 gap-2'
+      : 'flex flex-wrap justify-end gap-2';
+
+    return (
+      <div className={wrapperClassName}>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className={buttonClassName}
+          onClick={() => void setRole(user, role === 'admin' ? 'user' : 'admin')}
+          disabled={isSelf || isRowBusy || activeAction !== null}
+        >
+          <Shield data-icon="inline-start" />
+          {role === 'admin' ? t('actions.makeUser') : t('actions.makeAdmin')}
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className={buttonClassName}
+          onClick={() => {
+            setPasswordTarget(user);
+            setPasswordDraft('');
+            resetTransientState();
+          }}
+          disabled={isRowBusy || activeAction !== null}
+        >
+          <KeyRound data-icon="inline-start" />
+          {t('actions.password')}
+        </Button>
+        {isBanned ? (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className={buttonClassName}
+            onClick={() => void unbanUser(user)}
+            disabled={isRowBusy || activeAction !== null}
+          >
+            <CheckCircle2 data-icon="inline-start" />
+            {t('actions.unban')}
+          </Button>
+        ) : (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className={buttonClassName}
+            onClick={() => {
+              setBanTarget(user);
+              setBanReason('');
+              resetTransientState();
+            }}
+            disabled={isSelf || isRowBusy || activeAction !== null}
+          >
+            <Ban data-icon="inline-start" />
+            {t('actions.ban')}
+          </Button>
+        )}
+        <Button
+          type="button"
+          variant="destructive"
+          size="sm"
+          className={buttonClassName}
+          onClick={() => {
+            setDeleteTarget(user);
+            resetTransientState();
+          }}
+          disabled={isSelf || isRowBusy || activeAction !== null}
+        >
+          <Trash2 data-icon="inline-start" />
+          {t('actions.delete')}
+        </Button>
+      </div>
+    );
+  };
+
   if (!isAdmin) {
     return (
       <Card>
@@ -379,10 +464,72 @@ export function UserManagementPanel({
           </form>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
+          <div className="rounded-md border bg-muted/40 p-3 text-sm">
+            <p className="font-medium text-foreground">{t('provisioningNoteTitle')}</p>
+            <p className="mt-1 text-muted-foreground">{t('provisioningNoteDescription')}</p>
+          </div>
           {error && <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</div>}
           {message && <div className="rounded-md border border-border bg-muted px-3 py-2 text-sm text-muted-foreground">{message}</div>}
 
-          <div className="rounded-md border">
+          <div className="flex flex-col gap-3 md:hidden">
+            {isLoading ? (
+              <div className="rounded-md border px-3 py-6 text-center text-sm text-muted-foreground">
+                <span className="inline-flex items-center gap-2">
+                  <Loader2 className="animate-spin" />
+                  {t('loading')}
+                </span>
+              </div>
+            ) : userRows.length === 0 ? (
+              <div className="rounded-md border px-3 py-6 text-center text-sm text-muted-foreground">
+                {t('empty')}
+              </div>
+            ) : (
+              userRows.map((user) => {
+                const role = normalizeRole(user.role);
+                const isSelf = user.id === currentUserId;
+                const isBanned = Boolean(user.banned);
+
+                return (
+                  <div key={user.id} className="rounded-md border bg-background p-3">
+                    <div className="flex min-w-0 items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="flex min-w-0 items-center gap-2">
+                          <span className="truncate font-medium">{user.name || t('unnamed')}</span>
+                          {isSelf && <Badge variant="secondary">{t('self')}</Badge>}
+                        </div>
+                        <p className="mt-1 break-all text-xs text-muted-foreground">{user.email}</p>
+                      </div>
+                      <Badge variant={role === 'admin' ? 'default' : 'outline'} className="shrink-0">
+                        {role === 'admin' ? t('roles.admin') : t('roles.user')}
+                      </Badge>
+                    </div>
+                    <div className="mt-3 grid gap-2 text-xs text-muted-foreground">
+                      <div className="flex items-center justify-between gap-3">
+                        <span>{t('columns.status')}</span>
+                        <div className="flex min-w-0 flex-col items-end gap-1">
+                          <Badge variant={isBanned ? 'destructive' : 'secondary'}>
+                            {isBanned ? t('status.banned') : t('status.active')}
+                          </Badge>
+                          {isBanned && user.banReason && (
+                            <span className="max-w-44 truncate">{user.banReason}</span>
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex items-center justify-between gap-3">
+                        <span>{t('columns.created')}</span>
+                        <span className="text-right">{formatDate(user.createdAt, locale)}</span>
+                      </div>
+                    </div>
+                    <div className="mt-3">
+                      {renderUserActions(user, { compact: true })}
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+
+          <div className="hidden rounded-md border md:block">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -413,7 +560,6 @@ export function UserManagementPanel({
                   userRows.map((user) => {
                     const role = normalizeRole(user.role);
                     const isSelf = user.id === currentUserId;
-                    const isRowBusy = activeAction?.endsWith(user.id) ?? false;
                     const isBanned = Boolean(user.banned);
 
                     return (
@@ -446,72 +592,7 @@ export function UserManagementPanel({
                           {formatDate(user.createdAt, locale)}
                         </TableCell>
                         <TableCell>
-                          <div className="flex flex-wrap justify-end gap-2">
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              onClick={() => void setRole(user, role === 'admin' ? 'user' : 'admin')}
-                              disabled={isSelf || isRowBusy || activeAction !== null}
-                            >
-                              <Shield data-icon="inline-start" />
-                              {role === 'admin' ? t('actions.makeUser') : t('actions.makeAdmin')}
-                            </Button>
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              onClick={() => {
-                                setPasswordTarget(user);
-                                setPasswordDraft('');
-                                resetTransientState();
-                              }}
-                              disabled={isRowBusy || activeAction !== null}
-                            >
-                              <KeyRound data-icon="inline-start" />
-                              {t('actions.password')}
-                            </Button>
-                            {isBanned ? (
-                              <Button
-                                type="button"
-                                variant="outline"
-                                size="sm"
-                                onClick={() => void unbanUser(user)}
-                                disabled={isRowBusy || activeAction !== null}
-                              >
-                                <CheckCircle2 data-icon="inline-start" />
-                                {t('actions.unban')}
-                              </Button>
-                            ) : (
-                              <Button
-                                type="button"
-                                variant="outline"
-                                size="sm"
-                                onClick={() => {
-                                  setBanTarget(user);
-                                  setBanReason('');
-                                  resetTransientState();
-                                }}
-                                disabled={isSelf || isRowBusy || activeAction !== null}
-                              >
-                                <Ban data-icon="inline-start" />
-                                {t('actions.ban')}
-                              </Button>
-                            )}
-                            <Button
-                              type="button"
-                              variant="destructive"
-                              size="sm"
-                              onClick={() => {
-                                setDeleteTarget(user);
-                                resetTransientState();
-                              }}
-                              disabled={isSelf || isRowBusy || activeAction !== null}
-                            >
-                              <Trash2 data-icon="inline-start" />
-                              {t('actions.delete')}
-                            </Button>
-                          </div>
+                          {renderUserActions(user)}
                         </TableCell>
                       </TableRow>
                     );
@@ -570,6 +651,7 @@ export function UserManagementPanel({
                 onChange={(event) => setCreateDraft((current) => ({ ...current, password: event.target.value }))}
                 disabled={activeAction === 'create'}
               />
+              <p className="text-xs text-muted-foreground">{t('createDialog.passwordHint')}</p>
             </div>
             <div className="flex items-center justify-between gap-4 rounded-md border p-3">
               <div className="min-w-0">
