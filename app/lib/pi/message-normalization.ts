@@ -54,6 +54,39 @@ function stripWhitespace(value: string): string {
   return value.replace(/\s+/g, '');
 }
 
+function decodeUrlSegment(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
+export function resolveApiUploadFileId(value: string): string | null {
+  let parsed: URL;
+  try {
+    parsed = new URL(value, 'http://canvas.local');
+  } catch {
+    return null;
+  }
+
+  const parts = parsed.pathname.split('/').filter(Boolean);
+  if (parts[0] !== 'api' || parts[1] !== 'files') {
+    return null;
+  }
+
+  const rawFileId = parts[2];
+  if (!rawFileId || rawFileId === 'preview') {
+    return null;
+  }
+
+  if (parts.length > 3 && parts[3] !== 'preview') {
+    return null;
+  }
+
+  return decodeUrlSegment(rawFileId);
+}
+
 function isCleanBase64(value: string): boolean {
   if (value.length === 0 || value.length % 4 !== 0) return false;
   // Sample-based check avoids allocating copies of large strings
@@ -191,10 +224,10 @@ async function normalizeImagePart(part: ImageContent): Promise<ImageContent> {
     return loadImageDataFromFile(fileURLToPath(trimmed), part.mimeType);
   }
 
-  if (trimmed.startsWith('/api/files/')) {
-    const fileId = trimmed.replace('/api/files/', '');
+  const apiUploadFileId = resolveApiUploadFileId(trimmed);
+  if (apiUploadFileId) {
     try {
-      const filePath = await findFilePath(fileId);
+      const filePath = await findFilePath(apiUploadFileId);
       if (filePath) {
         return loadImageDataFromFile(filePath, part.mimeType);
       }
@@ -217,7 +250,7 @@ async function normalizeImagePart(part: ImageContent): Promise<ImageContent> {
   }
 
   throw new Error(
-    'Invalid image attachment payload. Expected base64 image data, a base64 data URL, or an absolute file path.',
+    'Invalid image attachment payload. Expected base64 image data, a base64 data URL, an /api/files upload URL, or an absolute file path.',
   );
 }
 
