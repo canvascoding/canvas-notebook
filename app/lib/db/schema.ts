@@ -191,6 +191,8 @@ export const todoItems = sqliteTable("todo_items", {
   completionComment: text("completion_comment"),
   followUpSentAt: integer("follow_up_sent_at", { mode: "timestamp" }),
   followUpError: text("follow_up_error"),
+  emailNotificationSentAt: integer("email_notification_sent_at", { mode: "timestamp" }),
+  emailNotificationError: text("email_notification_error"),
   archivedAt: integer("archived_at", { mode: "timestamp" }),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),

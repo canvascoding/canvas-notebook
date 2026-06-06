@@ -97,6 +97,19 @@ export type ListTodosOptions = {
   limit?: number;
 };
 
+async function sendTodoCreatedEmailNotificationIfNeeded(userId: string, todo: TodoWithRelations): Promise<void> {
+  if (process.env.CANVAS_DISABLE_TODO_EMAIL_NOTIFICATIONS === 'true') return;
+  if (todo.sourceType !== 'agent') return;
+
+  try {
+    const { sendTodoCreatedEmailNotification } = await import('./email-notifications');
+    await sendTodoCreatedEmailNotification(userId, todo);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to send todo email notification.';
+    console.warn('[Todos] Failed to run todo email notification:', message);
+  }
+}
+
 function normalizeRequiredText(value: string, fieldName: string, maxLength: number): string {
   const normalized = value.trim().replace(/\s+/g, ' ');
   if (!normalized) {
@@ -366,6 +379,8 @@ export async function createTodo(userId: string, input: CreateTodoInput): Promis
     completionComment: null,
     followUpSentAt: null,
     followUpError: null,
+    emailNotificationSentAt: null,
+    emailNotificationError: null,
     archivedAt: null,
     createdAt: now,
     updatedAt: now,
@@ -376,7 +391,8 @@ export async function createTodo(userId: string, input: CreateTodoInput): Promis
   if (!hydrated) {
     throw new TodoStoreError('Todo not found after creation', 'TODO_NOT_FOUND');
   }
-  return hydrated;
+  await sendTodoCreatedEmailNotificationIfNeeded(userId, hydrated);
+  return (await getTodo(userId, created.id)) ?? hydrated;
 }
 
 async function hydrateTodos(rows: TodoItem[]): Promise<TodoWithRelations[]> {

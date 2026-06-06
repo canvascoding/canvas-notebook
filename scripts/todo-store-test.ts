@@ -5,6 +5,7 @@ import path from 'node:path';
 
 const dataDir = mkdtempSync(path.join(tmpdir(), 'canvas-todo-store-'));
 process.env.DATA = dataDir;
+process.env.CANVAS_DISABLE_TODO_EMAIL_NOTIFICATIONS = 'true';
 
 async function main() {
   const workspaceDir = path.join(dataDir, 'workspace');
