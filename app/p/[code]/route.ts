@@ -4,6 +4,7 @@ import { publicShareFileResponse } from '@/app/lib/public-sharing/public-file-re
 import { isExcalidrawFilePath } from '@/app/lib/excalidraw-file';
 import { resolvePublicShareShortCode } from '@/app/lib/public-sharing/public-file-shares';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
+import { buildPublicRequestUrl } from '@/app/lib/utils/request-origin';
 
 function publicExcalidrawPreviewPath(token: string, fileName: string): string {
   return `/public/view/${encodeURIComponent(token)}/${encodeURIComponent(fileName)}`;
@@ -27,9 +28,9 @@ async function handleShortPublicFileRequest(
   if (method === 'GET') {
     const previewCheck = await resolvePublicShareShortCode(decodedCode, { recordAccess: false });
     if (previewCheck.ok && isExcalidrawFilePath(previewCheck.workspacePath)) {
-      return NextResponse.redirect(new URL(
-        publicExcalidrawPreviewPath(previewCheck.row.token, previewCheck.share.fileName),
-        request.url
+      return NextResponse.redirect(buildPublicRequestUrl(
+        request,
+        publicExcalidrawPreviewPath(previewCheck.row.token, previewCheck.share.fileName)
       ));
     }
 
