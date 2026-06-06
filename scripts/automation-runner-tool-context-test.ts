@@ -14,7 +14,11 @@ type LoadFn = (request: string, parent: NodeModule | null, isMain: boolean) => u
 const moduleInternals = Module as typeof Module & { _load: LoadFn };
 const originalLoad = moduleInternals._load;
 
-const toolCalls: Array<{ userId: string | undefined; agentId: string | null | undefined }> = [];
+const toolCalls: Array<{
+  userId: string | undefined;
+  agentId: string | null | undefined;
+  sessionId: string | null | undefined;
+}> = [];
 let agentLoopToolNames: string[] = [];
 
 const testModel = {
@@ -113,8 +117,8 @@ moduleInternals._load = (request, parent, isMain) => {
 
   if (request === '@/app/lib/pi/tool-registry' || request.endsWith('/pi/tool-registry')) {
     return {
-      getPiTools: async (userId?: string, agentId?: string | null) => {
-        toolCalls.push({ userId, agentId });
+      getPiTools: async (userId?: string, agentId?: string | null, sessionId?: string | null) => {
+        toolCalls.push({ userId, agentId, sessionId });
         return [
           {
             name: 'studio_generate_image',
@@ -176,7 +180,7 @@ async function main() {
 
   await executeAutomationRun(run.id);
 
-  assert.deepEqual(toolCalls, [{ userId, agentId }]);
+  assert.deepEqual(toolCalls, [{ userId, agentId, sessionId: `auto-${run.id.replace(/^run-/, '')}` }]);
   assert.deepEqual(agentLoopToolNames, ['studio_generate_image']);
 
   const finishedRun = await getAutomationRun(run.id);
