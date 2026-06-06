@@ -1156,6 +1156,9 @@
       "unread": "Ungelesen",
       "followUpSentAt": "Zuletzt an den Agenten gesendet: {date}"
     },
+    "detail": {
+      "dialogTitle": "To-do prüfen"
+    },
     "editor": {
       "createTitle": "To-do erstellen",
       "editTitle": "To-do bearbeiten",
