@@ -1157,17 +1157,17 @@ function McpConfigCard(props: {
           </div>
           {field !== 'headersFromEnv' && (
             <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-              <label className="flex items-center gap-2">
+              <label className="flex min-w-0 items-center gap-2">
                 <Switch
                   size="sm"
                   checked={entry.storeInEnv}
                   onCheckedChange={(checked) => updatePair(field, index, { storeInEnv: checked, envKey: entry.envKey || makeMcpEnvKey(serverDraft.name, entry.key) })}
                 />
-                {t('mcpConfig.storeInIntegrationsEnv')}
+                <span className="min-w-0">{t('mcpConfig.storeInIntegrationsEnv')}</span>
               </label>
               {entry.storeInEnv && (
                 <Input
-                  className="h-8 max-w-xs"
+                  className="h-8 w-full min-w-0 sm:max-w-xs"
                   value={entry.envKey || makeMcpEnvKey(serverDraft.name, entry.key)}
                   onChange={(event) => updatePair(field, index, { envKey: event.target.value })}
                   placeholder="MCP_SERVER_TOKEN"
@@ -1259,12 +1259,12 @@ function McpConfigCard(props: {
                   <h3 className="text-base font-semibold">{t('mcpConfig.serversTitle')}</h3>
                   <p className="text-sm text-muted-foreground">{t('mcpConfig.serversDescription')}</p>
                 </div>
-                <div className="flex flex-wrap gap-2">
-                  <Button type="button" variant="outline" onClick={() => void onLoadStatus()} disabled={editor.isStatusLoading || editor.isSaving}>
+                <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap">
+                  <Button type="button" variant="outline" className="w-full sm:w-auto" onClick={() => void onLoadStatus()} disabled={editor.isStatusLoading || editor.isSaving}>
                     {editor.isStatusLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
                     {t('mcpConfig.refreshStatus')}
                   </Button>
-                  <Button type="button" onClick={startAddServer}>
+                  <Button type="button" className="w-full sm:w-auto" onClick={startAddServer}>
                     <Plus className="mr-2 h-4 w-4" />
                     {t('mcpConfig.addServer')}
                   </Button>
@@ -1281,22 +1281,22 @@ function McpConfigCard(props: {
                     const draft = toMcpServerDraft(serverName, serverConfig);
                     const enabled = status?.enabled ?? draft.enabled;
                     return (
-                      <div key={serverName} className="flex flex-wrap items-center justify-between gap-3 border-b border-border p-4 last:border-b-0">
+                      <div key={serverName} className="flex flex-col gap-3 border-b border-border p-4 last:border-b-0 sm:flex-row sm:items-center sm:justify-between">
                         <button
                           type="button"
-                          className="flex min-w-0 items-center gap-3 rounded-md text-left outline-none transition-colors hover:bg-muted/50 focus-visible:ring-[3px] focus-visible:ring-ring/50"
+                          className="flex w-full min-w-0 items-center gap-3 rounded-md text-left outline-none transition-colors hover:bg-muted/50 focus-visible:ring-[3px] focus-visible:ring-ring/50 sm:w-auto"
                           onClick={() => void openToolsDialog(serverName)}
                           title={t('mcpConfig.showCachedTools')}
                         >
                           <McpServerAvatar iconUrl={status?.iconUrl} serverName={serverName} />
                           <div className="min-w-0">
                             <div className="flex flex-wrap items-center gap-2">
-                              <span className="font-medium">{serverName}</span>
+                              <span className="min-w-0 break-all font-medium">{serverName}</span>
                               <Badge variant="outline">{draft.mode === 'stdio' ? 'stdio' : 'http'}</Badge>
                               {status?.connected && <Badge>{t('mcpConfig.connected')}</Badge>}
                               {oauth?.requiresAuth && <Badge variant={oauth.authorized ? 'default' : 'destructive'}>{oauth.authorized ? t('mcpConfig.oauthAuthorized') : t('mcpConfig.oauthRequired')}</Badge>}
                             </div>
-                            <div className="mt-1 text-xs text-muted-foreground">
+                            <div className="mt-1 break-words text-xs text-muted-foreground">
                               {t('mcpConfig.cachedTools')}: {status?.cachedToolCount ?? 0}
                               {status?.lastError ? ` · ${t('mcpConfig.lastError')}: ${status.lastError}` : ''}
                             </div>
@@ -1307,11 +1307,12 @@ function McpConfigCard(props: {
                             ) : null}
                           </div>
                         </button>
-                        <div className="flex items-center gap-2">
+                        <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
                           <Button
                             type="button"
                             variant="outline"
                             size="sm"
+                            className="w-full sm:w-auto"
                             onClick={() => void onServerAction(serverName, 'test')}
                             disabled={!enabled || Boolean(editor.activeServerAction) || editor.isSaving}
                           >
@@ -1323,6 +1324,7 @@ function McpConfigCard(props: {
                               type="button"
                               variant="outline"
                               size="sm"
+                              className="w-full sm:w-auto"
                               onClick={() => void onServerAction(serverName, 'authorize')}
                               disabled={!enabled || Boolean(editor.activeServerAction) || editor.isSaving}
                             >
@@ -1330,15 +1332,17 @@ function McpConfigCard(props: {
                               {oauth.authorized ? t('mcpConfig.reauthorize') : t('mcpConfig.authorize')}
                             </Button>
                           )}
-                          <Button type="button" variant="ghost" size="icon" onClick={() => startEditServer(serverName)} title={t('mcpConfig.editServer')}>
-                            <Settings className="h-4 w-4" />
-                          </Button>
-                          <Switch
-                            checked={enabled}
-                            onCheckedChange={(checked) => void onServerAction(serverName, checked ? 'enable' : 'disable')}
-                            disabled={Boolean(editor.activeServerAction) || editor.isSaving}
-                            aria-label={enabled ? t('mcpConfig.disable') : t('mcpConfig.enable')}
-                          />
+                          <div className="flex items-center justify-end gap-2">
+                            <Button type="button" variant="ghost" size="icon" onClick={() => startEditServer(serverName)} title={t('mcpConfig.editServer')}>
+                              <Settings className="h-4 w-4" />
+                            </Button>
+                            <Switch
+                              checked={enabled}
+                              onCheckedChange={(checked) => void onServerAction(serverName, checked ? 'enable' : 'disable')}
+                              disabled={Boolean(editor.activeServerAction) || editor.isSaving}
+                              aria-label={enabled ? t('mcpConfig.disable') : t('mcpConfig.enable')}
+                            />
+                          </div>
                         </div>
                       </div>
                     );
@@ -1351,12 +1355,12 @@ function McpConfigCard(props: {
                 <div className="mt-3 h-[360px] overflow-hidden rounded-md border border-input bg-background">
                   <CodeEditor value={editor.rawContent} onChange={onRawChange} path="mcp.json" readOnly={editor.isSaving} />
                 </div>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  <Button type="button" onClick={() => void onSave()} disabled={editor.isSaving || editor.isLoading}>
+                <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+                  <Button type="button" className="w-full sm:w-auto" onClick={() => void onSave()} disabled={editor.isSaving || editor.isLoading}>
                     {editor.isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                     {t('mcpConfig.save')}
                   </Button>
-                  <Button type="button" variant="outline" onClick={() => void onLoad()} disabled={editor.isSaving}>
+                  <Button type="button" variant="outline" className="w-full sm:w-auto" onClick={() => void onLoad()} disabled={editor.isSaving}>
                     <RefreshCw className="mr-2 h-4 w-4" />
                     {t('envCard.reload')}
                   </Button>
@@ -1411,7 +1415,7 @@ function McpConfigCard(props: {
                   <div className="mt-2 space-y-2">
                     {serverDraft.args.map((arg, index) => (
                       <div key={`${index}-${arg}`} className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
-                        <Input value={arg} onChange={(event) => updateServerDraft({ args: serverDraft.args.map((entry, entryIndex) => entryIndex === index ? event.target.value : entry) })} />
+                        <Input className="min-w-0" value={arg} onChange={(event) => updateServerDraft({ args: serverDraft.args.map((entry, entryIndex) => entryIndex === index ? event.target.value : entry) })} />
                         <Button type="button" variant="ghost" size="icon" onClick={() => updateServerDraft({ args: serverDraft.args.filter((_entry, entryIndex) => entryIndex !== index) })}>
                           <Trash2 className="h-4 w-4" />
                         </Button>
@@ -1432,7 +1436,7 @@ function McpConfigCard(props: {
                   <div className="mt-2 space-y-2">
                     {serverDraft.envPassthrough.map((value, index) => (
                       <div key={`${index}-${value}`} className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
-                        <Input value={value} onChange={(event) => updateServerDraft({ envPassthrough: serverDraft.envPassthrough.map((entry, entryIndex) => entryIndex === index ? event.target.value : entry) })} placeholder="OPENAI_API_KEY" />
+                        <Input className="min-w-0" value={value} onChange={(event) => updateServerDraft({ envPassthrough: serverDraft.envPassthrough.map((entry, entryIndex) => entryIndex === index ? event.target.value : entry) })} placeholder="OPENAI_API_KEY" />
                         <Button type="button" variant="ghost" size="icon" onClick={() => updateServerDraft({ envPassthrough: serverDraft.envPassthrough.filter((_entry, entryIndex) => entryIndex !== index) })}>
                           <Trash2 className="h-4 w-4" />
                         </Button>
@@ -1509,10 +1513,10 @@ function McpConfigCard(props: {
               )}
             </div>
             <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-              <Button type="button" variant="outline" onClick={() => setServerDialogOpen(false)} disabled={editor.isSaving}>
+              <Button type="button" variant="outline" className="w-full sm:w-auto" onClick={() => setServerDialogOpen(false)} disabled={editor.isSaving}>
                 {t('mcpConfig.cancel')}
               </Button>
-              <Button type="button" onClick={saveServerFromDialog} disabled={editor.isSaving}>
+              <Button type="button" className="w-full sm:w-auto" onClick={saveServerFromDialog} disabled={editor.isSaving}>
                 {editor.isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
                 {t('mcpConfig.saveServer')}
               </Button>
