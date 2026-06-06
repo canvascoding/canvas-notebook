@@ -108,7 +108,7 @@ import { ChatModelSelector } from '@/app/components/canvas-agent-chat/ChatModelS
 import { AgentAvatar, AgentIcon } from '@/app/components/agents/AgentAvatar';
 import type { RuntimeQueueItem, RuntimeStatus } from '@/app/components/canvas-agent-chat/runtime-status';
 import { getSessionDisplayTitle, isAutomaticSessionTitle } from '@/app/lib/pi/session-titles';
-import { type CompactBreakMessage, isCompactBreakMessage, isComposioAuthRequiredMessage, type ComposioAuthRequiredMessage } from '@/app/lib/pi/custom-messages';
+import { type CompactBreakMessage, isCompactBreakMessage, isComposioAuthRequiredMessage, isRuntimeContinuationMessage, type ComposioAuthRequiredMessage } from '@/app/lib/pi/custom-messages';
 import { renderSkillIcon } from '@/app/lib/skills/skill-icons';
 import { searchSkillReferenceEntries } from '@/app/lib/skills/skill-reference-search';
 import { useWebSocket } from '@/app/hooks/useWebSocket';
@@ -1204,7 +1204,7 @@ function getChatMessageRole(role: AgentMessage['role']): ChatMessage['role'] {
 }
 
 function extractPiMessageText(piMessage?: AgentMessage | null, options?: { hideAttachmentMetadata?: boolean }): string {
-  if (!piMessage || isCompactBreakMessage(piMessage) || isComposioAuthRequiredMessage(piMessage)) return '';
+  if (!piMessage || isCompactBreakMessage(piMessage) || isComposioAuthRequiredMessage(piMessage) || isRuntimeContinuationMessage(piMessage)) return '';
   const messageContent = getPiMessageContent(piMessage);
   if (!Array.isArray(messageContent)) {
     const text = typeof messageContent === 'string' ? messageContent : '';
@@ -4308,7 +4308,9 @@ export default function CanvasAgentChat({
       }
     }
 
-    return rawMessages.map((rawMessage) => mapRawMessage(rawMessage, toolCallsById));
+    return rawMessages
+      .filter((rawMessage) => !isRuntimeContinuationMessage(rawMessage))
+      .map((rawMessage) => mapRawMessage(rawMessage, toolCallsById));
   }, [mapRawMessage]);
 
   const hydrateMessageRefsFromMessages = useCallback((nextMessages: ChatMessage[]) => {

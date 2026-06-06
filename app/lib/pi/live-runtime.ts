@@ -2,7 +2,7 @@ import 'server-only';
 
 import path from 'node:path';
 import { Agent, type AgentEvent, type AgentMessage, type AgentTool, type ThinkingLevel } from '@earendil-works/pi-agent-core';
-import type { Api, Model } from '@earendil-works/pi-ai';
+import type { Api, AssistantMessage, Model } from '@earendil-works/pi-ai';
 
 import { db } from '@/app/lib/db';
 import { piSessions } from '@/app/lib/db/schema';
@@ -16,7 +16,7 @@ import {
   type PiSessionSummaryState,
 } from '@/app/lib/pi/history-budget';
 import { normalizePiMessagesForLlm } from '@/app/lib/pi/message-normalization';
-import { createCompactBreakMessage } from '@/app/lib/pi/custom-messages';
+import { createCompactBreakMessage, createRuntimeContinuationMessage, type RuntimeContinuationReason } from '@/app/lib/pi/custom-messages';
 import { resolvePiModel } from '@/app/lib/pi/model-resolver';
 import { preparePiHistoryContext } from '@/app/lib/pi/session-summary';
 import { loadPiSessionWithSummary, savePiSession } from '@/app/lib/pi/session-store';
@@ -29,6 +29,12 @@ import { persistPiUsageEvents } from '@/app/lib/pi/usage-events';
 import { getStudioOutputsRoot, STUDIO_OUTPUTS_ROOT_DIR } from '@/app/lib/integrations/studio-workspace';
 import { DEFAULT_AGENT_ID } from '@/app/lib/channels/constants';
 import { createToolLoopGuard } from '@/app/lib/pi/tool-loop-guard';
+import {
+  createToolTailContinuationDecision,
+  extractAgentMessageText,
+  shouldContinueAfterIntermediateAck,
+  type RuntimeContinuationDecision,
+} from '@/app/lib/pi/run-continuation-guard';
 import { and, eq } from 'drizzle-orm';
 
 const IDLE_TTL_MS = 15 * 60 * 1000;
@@ -140,6 +146,20 @@ type RuntimeQueueEntry = {
   signature: string;
 };
 
+type RuntimeTurnEndEvent = Extract<AgentEvent, { type: 'turn_end' }>;
+
+type RuntimeTurnDiagnostics = {
+  role: AgentMessage['role'] | null;
+  assistantPreview: string;
+  stopReason?: string;
+  toolCallCount: number;
+  toolResultCount: number;
+  followUpQueueLength: number;
+  steeringQueueLength: number;
+  syntheticContinuationCount: number;
+  lastContinuationReason: RuntimeContinuationReason | null;
+};
+
 type RuntimeInit = {
   sessionId: string;
   userId: string;
@@ -178,6 +198,12 @@ function extractUserMessageText(message: Extract<AgentMessage, { role: 'user' }>
     .filter(Boolean)
     .join('\n')
     .trim();
+}
+
+function countAssistantToolCalls(message: AssistantMessage): number {
+  return message.content.filter((part) => (
+    part && typeof part === 'object' && 'type' in part && part.type === 'toolCall'
+  )).length;
 }
 
 function countMessageAttachments(message: Extract<AgentMessage, { role: 'user' }>): number {
@@ -319,6 +345,12 @@ class LivePiRuntime {
   private persistLock = false;
   private persistPending: 'turn_end' | 'agent_end' | 'error' | null = null;
   private lastBroadcastStatusSignature: string | null = null;
+  private currentUserPromptText = '';
+  private currentUserPromptSignature: string | null = null;
+  private syntheticContinuationCount = 0;
+  private lastContinuationReason: RuntimeContinuationReason | null = null;
+  private pendingInitialToolTailContinuation = false;
+  private lastTurnDiagnostics: RuntimeTurnDiagnostics | null = null;
   agentUnsubscribe: (() => void) | null = null;
 
   constructor(init: RuntimeInit, agent: Agent, private readonly options: RuntimeOptions = {}) {
@@ -335,6 +367,7 @@ class LivePiRuntime {
     this.lastCompactionAt = init.summary.summaryUpdatedAt;
     this.lastCompactionKind = init.summary.summaryUpdatedAt ? 'automatic' : null;
     this.lastCompactionOmittedCount = 0;
+    this.pendingInitialToolTailContinuation = createToolTailContinuationDecision(init.initialMessages) !== null;
   }
 
   touch() {
@@ -744,8 +777,92 @@ class LivePiRuntime {
     return messages;
   }
 
+  private resetRunSupervisorForUserMessage(message: Extract<AgentMessage, { role: 'user' }>): void {
+    this.currentUserPromptText = extractUserMessageText(message);
+    this.currentUserPromptSignature = getMessageSignature(message);
+    this.syntheticContinuationCount = 0;
+    this.lastContinuationReason = null;
+    this.lastTurnDiagnostics = null;
+  }
+
+  private buildTurnDiagnostics(event: RuntimeTurnEndEvent): RuntimeTurnDiagnostics {
+    const message = event.message;
+    const isAssistant = message.role === 'assistant';
+    return {
+      role: message.role ?? null,
+      assistantPreview: isAssistant ? extractAgentMessageText(message).slice(0, 200) : '',
+      stopReason: isAssistant ? message.stopReason : undefined,
+      toolCallCount: isAssistant ? countAssistantToolCalls(message) : 0,
+      toolResultCount: event.toolResults.length,
+      followUpQueueLength: this.followUpQueue.length,
+      steeringQueueLength: this.steeringQueue.length,
+      syntheticContinuationCount: this.syntheticContinuationCount,
+      lastContinuationReason: this.lastContinuationReason,
+    };
+  }
+
+  private createRuntimeContinuation(decision: RuntimeContinuationDecision): AgentMessage {
+    this.syntheticContinuationCount += 1;
+    this.lastContinuationReason = decision.reason;
+    return createRuntimeContinuationMessage(decision.reason, decision.prompt);
+  }
+
+  private maybeCreateInitialToolTailContinuation(): AgentMessage | null {
+    if (!this.pendingInitialToolTailContinuation) {
+      return null;
+    }
+
+    this.pendingInitialToolTailContinuation = false;
+    const decision = createToolTailContinuationDecision(this.agent.state.messages);
+    if (!decision) {
+      return null;
+    }
+
+    const message = this.createRuntimeContinuation(decision);
+    console.log('[LiveRuntime] Queued synthetic continuation before prompt:', {
+      sessionId: this.sessionId,
+      reason: decision.reason,
+      syntheticContinuationCount: this.syntheticContinuationCount,
+    });
+    return message;
+  }
+
+  private maybeQueueContinuationAfterTurn(event: RuntimeTurnEndEvent): RuntimeContinuationDecision | null {
+    if (this.abortRequested || this.pendingReplace) {
+      return null;
+    }
+    if (this.followUpQueue.length > 0 || this.steeringQueue.length > 0 || this.agent.hasQueuedMessages()) {
+      return null;
+    }
+    if (event.message.role !== 'assistant' || event.toolResults.length > 0) {
+      return null;
+    }
+
+    const decision = shouldContinueAfterIntermediateAck({
+      userMessage: this.currentUserPromptText,
+      assistantMessage: event.message,
+      toolsAvailable: this.agent.state.tools.length > 0,
+      syntheticContinuationCount: this.syntheticContinuationCount,
+    });
+
+    if (!decision) {
+      return null;
+    }
+
+    this.agent.followUp(this.createRuntimeContinuation(decision));
+    console.log('[LiveRuntime] Queued synthetic continuation after turn:', {
+      sessionId: this.sessionId,
+      reason: decision.reason,
+      syntheticContinuationCount: this.syntheticContinuationCount,
+      assistantPreview: decision.assistantPreview,
+    });
+    return decision;
+  }
+
   startPrompt(message: Extract<AgentMessage, { role: 'user' }>) {
     const sanitized = sanitizeUserMessage(message);
+    this.resetRunSupervisorForUserMessage(sanitized);
+    const initialContinuation = this.maybeCreateInitialToolTailContinuation();
     
     // Log message structure for debugging
     console.log('[LiveRuntime] startPrompt called:', {
@@ -759,6 +876,7 @@ class LivePiRuntime {
         ? sanitized.content.some((c: { type: string }) => c.type === 'image')
         : false,
       timestamp: sanitized.timestamp,
+      syntheticContinuationCount: this.syntheticContinuationCount,
     });
     
     this.touch();
@@ -779,7 +897,8 @@ class LivePiRuntime {
       this.agent.state.tools = this.tools;
     }
 
-    void this.agent.prompt(sanitized).catch(async (error) => {
+    const prompts = initialContinuation ? [initialContinuation, sanitized] : sanitized;
+    void this.agent.prompt(prompts).catch(async (error) => {
       this.publishError(error);
       await this.persistMessagesOnError();
     });
@@ -790,6 +909,10 @@ class LivePiRuntime {
 
     if (event.type === 'message_start' && isUserMessage(event.message)) {
       this.consumeQueuedMessage(event.message);
+      const signature = getMessageSignature(event.message);
+      if (signature !== this.currentUserPromptSignature) {
+        this.resetRunSupervisorForUserMessage(event.message);
+      }
     }
 
     if (event.type === 'tool_execution_start') {
@@ -806,7 +929,7 @@ class LivePiRuntime {
     }
 
     if (event.type === 'turn_end') {
-      await this.handleTurnEnd();
+      await this.handleTurnEnd(event);
     }
 
     if (event.type === 'agent_end') {
@@ -877,7 +1000,10 @@ class LivePiRuntime {
     }
   }
 
-  private async handleTurnEnd() {
+  private async handleTurnEnd(event: RuntimeTurnEndEvent) {
+    this.maybeQueueContinuationAfterTurn(event);
+    this.lastTurnDiagnostics = this.buildTurnDiagnostics(event);
+
     try {
       const persistedCount = await this.persistMessages('turn_end');
       if (persistedCount > 0) {
@@ -927,6 +1053,13 @@ class LivePiRuntime {
 
     if (persistedCount > 0) {
       console.log(`[LiveRuntime] Final save after agent_end: ${persistedCount} messages for session ${this.sessionId}`);
+    }
+
+    if (this.lastTurnDiagnostics) {
+      console.log('[LiveRuntime] agent_end diagnostics:', {
+        sessionId: this.sessionId,
+        ...this.lastTurnDiagnostics,
+      });
     }
 
     if (this.pendingReplace) {
