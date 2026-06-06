@@ -17,6 +17,7 @@ import {
   getCanvasControlPlaneModels,
   getPiModels,
   getPiProviders,
+  modelSupportsImageInput,
   OLLAMA_PROVIDER_ID,
   OPENAI_COMPATIBLE_PROVIDER_ID,
   resolvePiModel,
@@ -155,7 +156,7 @@ export async function GET(request: NextRequest) {
     }
     const piConfig = effective.piConfig;
 
-    // Discovery metadata - all models now support files/images
+    // Discovery metadata mirrors each model's declared input capabilities.
     const providers = getPiProviders();
     console.log(`[agents/config] GET: activeProvider=${piConfig.activeProvider}, providers=${JSON.stringify(Object.keys(piConfig.providers))}`);
     const discoveryEntries = await Promise.all(
@@ -173,6 +174,7 @@ export async function GET(request: NextRequest) {
             id: m.id,
             name: m.name,
             reasoning: Boolean(m.reasoning),
+            supportsVision: modelSupportsImageInput(m),
           })),
         }] as const;
       })

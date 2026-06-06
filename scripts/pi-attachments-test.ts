@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { normalizePiMessagesForLlm } from '../app/lib/pi/message-normalization';
+import { normalizePiMessagesForLlm, resolveApiUploadFileId } from '../app/lib/pi/message-normalization';
 
 async function main() {
   const tempDir = await mkdtemp(path.join(os.tmpdir(), 'pi-attachments-'));
@@ -37,6 +37,10 @@ async function main() {
     assert.deepEqual(fileMessage.content, [{ type: 'image', data: pngBase64, mimeType: 'image/png' }]);
     assert.deepEqual(dataUrlMessage.content, [{ type: 'image', data: pngBase64, mimeType: 'image/png' }]);
     assert.deepEqual(base64Message.content, [{ type: 'image', data: pngBase64, mimeType: 'image/png' }]);
+    assert.equal(resolveApiUploadFileId('/api/files/screenshot-1.png'), 'screenshot-1.png');
+    assert.equal(resolveApiUploadFileId('/api/files/screenshot%20one.png/preview?w=640'), 'screenshot one.png');
+    assert.equal(resolveApiUploadFileId('/api/files/preview?path=user-uploads/image/screenshot.png&w=640'), null);
+    assert.equal(resolveApiUploadFileId('/api/files/screenshot.png/other'), null);
 
     await assert.rejects(
       normalizePiMessagesForLlm([

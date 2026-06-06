@@ -77,7 +77,7 @@ function parseManagedControlPlaneModel(value: unknown): ManagedControlPlaneModel
     : 8192;
   const input = Array.isArray(value.input) && value.input.every((entry) => entry === 'text' || entry === 'image')
     ? value.input as ('text' | 'image')[]
-    : ['text', 'image'] as ('text' | 'image')[];
+    : ['text'] as ('text' | 'image')[];
   const pricingValue = isRecord(value.pricing) ? value.pricing : null;
   const pricing = pricingValue ? {
     currency: typeof pricingValue.currency === 'string' ? pricingValue.currency : 'usd',
