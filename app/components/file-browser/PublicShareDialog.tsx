@@ -52,6 +52,20 @@ function primaryShareUrl(share: PublicShareResult) {
   return share.shortUrl || share.publicUrl;
 }
 
+function shareDisplayKey(share: PublicShareResult) {
+  return share.id || `${normalizePathForCompare(share.workspacePath)}:${primaryShareUrl(share)}`;
+}
+
+function dedupeShares(shares: PublicShareResult[]) {
+  const seen = new Set<string>();
+  return shares.filter((share) => {
+    const key = shareDisplayKey(share);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 export function PublicShareDialog({ open, onOpenChange, paths, onPublished }: PublicShareDialogProps) {
   const t = useTranslations('notebook');
   const [expiryDays, setExpiryDays] = useState<ExpiryOption>(30);
@@ -73,6 +87,16 @@ export function PublicShareDialog({ open, onOpenChange, paths, onPublished }: Pu
     () => uniquePaths.filter((path) => !existingSharePaths.has(normalizePathForCompare(path))),
     [uniquePaths, existingSharePaths]
   );
+  const displayExistingShares = useMemo(() => dedupeShares(existingShares), [existingShares]);
+  const displayNewShares = useMemo(() => {
+    const existingKeys = new Set(displayExistingShares.map(shareDisplayKey));
+    const existingUrls = new Set(displayExistingShares.map(primaryShareUrl));
+
+    return dedupeShares(shares).filter((share) => {
+      if (existingKeys.has(shareDisplayKey(share))) return false;
+      return !existingUrls.has(primaryShareUrl(share));
+    });
+  }, [shares, displayExistingShares]);
 
   const resetDialogState = useCallback(() => {
     setExpiryDays(30);
@@ -200,8 +224,8 @@ export function PublicShareDialog({ open, onOpenChange, paths, onPublished }: Pu
     }
   };
 
-  const copyAll = async () => {
-    await copyText(shares.map(primaryShareUrl).join('\n'), t('publicShareCopiedAll'));
+  const copyShareUrls = async (shareList: PublicShareResult[]) => {
+    await copyText(shareList.map(primaryShareUrl).join('\n'), t('publicShareCopiedAll'));
   };
 
   const openUrl = (url: string) => {
@@ -211,21 +235,13 @@ export function PublicShareDialog({ open, onOpenChange, paths, onPublished }: Pu
   const renderShareCard = (share: PublicShareResult) => {
     const isRevoking = revokingIds.has(share.id);
     const shareUrl = primaryShareUrl(share);
-    const hasLongUrl = Boolean(share.publicUrl && share.publicUrl !== shareUrl);
 
     return (
       <div key={share.id} className="min-w-0 border border-border bg-background p-2">
         <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
           <div className="min-w-0">
             <div className="break-all text-sm font-medium" title={share.workspacePath}>{share.fileName}</div>
-            <div className="mt-1 text-[11px] font-medium uppercase text-muted-foreground">{t('publicShareShortUrl')}</div>
-            <div className="break-all bg-muted/40 px-2 py-1 font-mono text-xs" title={shareUrl}>{shareUrl}</div>
-            {hasLongUrl && (
-              <details className="mt-1 text-xs text-muted-foreground">
-                <summary className="cursor-pointer select-none">{t('publicShareLongUrl')}</summary>
-                <div className="mt-1 break-all font-mono" title={share.publicUrl}>{share.publicUrl}</div>
-              </details>
-            )}
+            <div className="mt-1 break-all bg-muted/40 px-2 py-1 font-mono text-xs" title={shareUrl}>{shareUrl}</div>
             <div className="mt-1 text-xs text-muted-foreground">
               {share.expiresAt ? t('publicShareExpiresAt', { date: formatDate(share.expiresAt) }) : t('publicShareNeverExpires')}
             </div>
@@ -295,16 +311,18 @@ export function PublicShareDialog({ open, onOpenChange, paths, onPublished }: Pu
             </div>
           )}
 
-          {existingShares.length > 0 && (
+          {displayExistingShares.length > 0 && (
             <div className="min-w-0 space-y-2">
               <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
                 <span className="text-sm font-medium">{t('publicShareAlreadyPublished')}</span>
-                <Badge variant="outline" className="border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300">
-                  {existingShares.length}
-                </Badge>
+                {displayExistingShares.length > 1 && (
+                  <Badge variant="outline" className="border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300">
+                    {displayExistingShares.length}
+                  </Badge>
+                )}
               </div>
               <div className="max-h-64 min-w-0 space-y-2 overflow-y-auto">
-                {existingShares.map((share) => renderShareCard(share))}
+                {displayExistingShares.map((share) => renderShareCard(share))}
               </div>
             </div>
           )}
@@ -329,17 +347,19 @@ export function PublicShareDialog({ open, onOpenChange, paths, onPublished }: Pu
             </div>
           )}
 
-          {shares.length > 0 && (
+          {displayNewShares.length > 0 && (
             <div className="min-w-0 space-y-2">
               <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
                 <span className="text-sm font-medium">{t('publicShareLinks')}</span>
-                <Button variant="outline" size="sm" onClick={copyAll}>
-                  <Copy className="h-4 w-4" />
-                  {t('publicShareCopyAll')}
-                </Button>
+                {displayNewShares.length > 1 && (
+                  <Button variant="outline" size="sm" onClick={() => void copyShareUrls(displayNewShares)}>
+                    <Copy className="h-4 w-4" />
+                    {t('publicShareCopyAll')}
+                  </Button>
+                )}
               </div>
               <div className="max-h-64 min-w-0 space-y-2 overflow-y-auto">
-                {shares.map((share) => renderShareCard(share))}
+                {displayNewShares.map((share) => renderShareCard(share))}
               </div>
             </div>
           )}
