@@ -53,6 +53,7 @@ export class FileWatcherClient extends EventTarget {
   private disconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private syncTimer: ReturnType<typeof setTimeout> | null = null;
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
+  private pendingRefreshDirs = new Set<string>();
   private lastReloadTime = 0;
   private debounceMs = 1000;
   private maxDebounceMs = 5000;
@@ -211,6 +212,7 @@ export class FileWatcherClient extends EventTarget {
       clearTimeout(this.debounceTimer);
       this.debounceTimer = null;
     }
+    this.pendingRefreshDirs.clear();
 
     if (this.eventSource) {
       this.eventSource.close();
@@ -241,10 +243,19 @@ export class FileWatcherClient extends EventTarget {
   private handleFileChange(event: FileEvent): void {
     this.dispatchEvent(new CustomEvent<FileEvent>('filechange', { detail: event }));
 
-    this.scheduleVisibleRefresh();
+    if (this.shouldRefreshTreeForEvent(event)) {
+      this.scheduleDirectoryRefresh(event.dir || '.');
+    }
   }
 
-  private scheduleVisibleRefresh(): void {
+  private shouldRefreshTreeForEvent(event: FileEvent): boolean {
+    if (event.relativePath === '.' && event.dir === '.') return true;
+    return event.type !== 'change';
+  }
+
+  private scheduleDirectoryRefresh(dirPath: string): void {
+    this.pendingRefreshDirs.add(dirPath || '.');
+
     const now = Date.now();
     const timeSinceLastReload = now - this.lastReloadTime;
 
@@ -257,14 +268,27 @@ export class FileWatcherClient extends EventTarget {
 
     this.debounceTimer = setTimeout(() => {
       this.debounceTimer = null;
-      void useFileStore.getState().refreshVisibleTree()
+      const dirsToRefresh = Array.from(this.pendingRefreshDirs).sort((a, b) => {
+        const depthDiff = a.split('/').length - b.split('/').length;
+        return depthDiff !== 0 ? depthDiff : a.localeCompare(b);
+      });
+      this.pendingRefreshDirs.clear();
+
+      void this.refreshDirectories(dirsToRefresh)
         .catch((error) => {
-          console.warn('[FileWatcherClient] Failed to refresh visible file tree:', error);
+          console.warn('[FileWatcherClient] Failed to refresh changed directories:', error);
         })
         .finally(() => {
           this.lastReloadTime = Date.now();
         });
     }, finalWaitTime);
+  }
+
+  private async refreshDirectories(dirPaths: string[]): Promise<void> {
+    const store = useFileStore.getState();
+    for (const dirPath of dirPaths) {
+      await store.refreshDirectory(dirPath, true);
+    }
   }
 
   private scheduleDirSync(dirs: string[]): void {

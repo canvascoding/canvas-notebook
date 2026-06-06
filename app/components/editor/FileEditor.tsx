@@ -117,6 +117,8 @@ const DOCUMENT_SKELETON_EXTENSIONS = new Set([
   'htm',
   'pdf',
 ]);
+const AUTOSAVE_DELAY_MS = 800;
+const EXCALIDRAW_AUTOSAVE_DELAY_MS = 3000;
 const EXTERNAL_FILE_RELOAD_DELAY_MS = 250;
 
 function getExtension(path: string) {
@@ -360,6 +362,10 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
       window.clearTimeout(saveTimeoutRef.current);
     }
 
+    const autosaveDelay = getExtension(activePath) === 'excalidraw'
+      ? EXCALIDRAW_AUTOSAVE_DELAY_MS
+      : AUTOSAVE_DELAY_MS;
+
     saveTimeoutRef.current = window.setTimeout(async () => {
       const { activePath: pathToSave, draft: contentToSave } =
         useEditorStore.getState();
@@ -384,7 +390,7 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
         setSaveError(message);
         toast.error(message);
       }
-    }, 800);
+    }, autosaveDelay);
 
     return () => {
       if (saveTimeoutRef.current) {
