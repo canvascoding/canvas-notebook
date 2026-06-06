@@ -1157,6 +1157,9 @@
       "unread": "Unread",
       "followUpSentAt": "Last sent to the agent: {date}"
     },
+    "detail": {
+      "dialogTitle": "Review to-do"
+    },
     "editor": {
       "createTitle": "Create to-do",
       "editTitle": "Edit to-do",

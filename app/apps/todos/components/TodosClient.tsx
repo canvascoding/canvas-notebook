@@ -208,6 +208,190 @@ function openDockChatSession(sessionId: string | null) {
   }));
 }
 
+type TodoDetailPanelProps = {
+  todo: TodoItem | null;
+  locale: string;
+  followUpComment: string;
+  isMutating: boolean;
+  isSendingFollowUp: boolean;
+  showEmptyState?: boolean;
+  formatCategoryName: (category: Pick<TodoCategory, 'name' | 'icon'> | null | undefined) => string;
+  onEdit: (todo: TodoItem) => void;
+  onRestore: (todo: TodoItem) => void | Promise<void>;
+  onToggleDone: (todo: TodoItem) => void | Promise<void>;
+  onMarkSeen: (todoId: string) => void | Promise<unknown>;
+  onOpenSession: (todo: Pick<TodoItem, 'id' | 'sourceSessionId'>) => void;
+  onUpdateFollowUpComment: (value: string) => void;
+  onSendFollowUp: (todo: TodoItem) => void | Promise<void>;
+};
+
+function TodoDetailPanel({
+  todo,
+  locale,
+  followUpComment,
+  isMutating,
+  isSendingFollowUp,
+  showEmptyState = true,
+  formatCategoryName,
+  onEdit,
+  onRestore,
+  onToggleDone,
+  onMarkSeen,
+  onOpenSession,
+  onUpdateFollowUpComment,
+  onSendFollowUp,
+}: TodoDetailPanelProps) {
+  const t = useTranslations('todos');
+
+  if (!todo) {
+    if (!showEmptyState) return null;
+
+    return (
+      <div className="flex min-h-[260px] flex-col items-center justify-center text-center">
+        <Clock3 className="h-8 w-8 text-muted-foreground" />
+        <p className="mt-3 text-sm font-medium">{t('states.noSelectionTitle')}</p>
+        <p className="mt-1 max-w-xs text-sm text-muted-foreground">{t('states.noSelectionDescription')}</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge variant={todo.status === 'done' ? 'default' : todo.status === 'archived' ? 'secondary' : 'outline'}>
+              {t(`status.${todo.status}`)}
+            </Badge>
+            {!todo.seenAt && <Badge>{t('labels.unread')}</Badge>}
+          </div>
+          <h3 className="mt-2 break-words text-lg font-semibold leading-tight">{todo.title}</h3>
+        </div>
+        <Button variant="ghost" size="icon-sm" onClick={() => onEdit(todo)} disabled={todo.status === 'archived'}>
+          <Edit3 className="h-4 w-4" />
+        </Button>
+      </div>
+
+      {todo.description ? (
+        <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-muted-foreground">{todo.description}</p>
+      ) : (
+        <p className="text-sm text-muted-foreground">{t('states.noDescription')}</p>
+      )}
+
+      <div className="grid gap-2 text-sm">
+        <div className="flex min-w-0 items-center justify-between gap-3">
+          <span className="shrink-0 text-muted-foreground">{t('fields.category')}</span>
+          <span className="min-w-0 truncate text-right font-medium">{formatCategoryName(todo.category)}</span>
+        </div>
+        <div className="flex min-w-0 items-center justify-between gap-3">
+          <span className="shrink-0 text-muted-foreground">{t('fields.priority')}</span>
+          <span className="font-medium">{t(`priority.${todo.priority}`)}</span>
+        </div>
+        <div className="flex min-w-0 items-center justify-between gap-3">
+          <span className="shrink-0 text-muted-foreground">{t('fields.dueAt')}</span>
+          <span className="min-w-0 truncate text-right font-medium">{formatDate(todo.dueAt, locale) ?? t('fields.noDueAt')}</span>
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        <h4 className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+          {t('sections.files')}
+        </h4>
+        {todo.fileLinks.length === 0 ? (
+          <p className="text-sm text-muted-foreground">{t('states.noFiles')}</p>
+        ) : (
+          <div className="space-y-2">
+            {todo.fileLinks.map((link) => (
+              <Button key={link.id} asChild variant="outline" className="h-auto w-full min-w-0 justify-start overflow-hidden whitespace-normal py-2 text-left">
+                <Link href={fileLinkHref(link.workspacePath)}>
+                  <FileText className="h-4 w-4" />
+                  <span className="min-w-0 flex-1 truncate">{link.label || link.workspacePath}</span>
+                </Link>
+              </Button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {todo.sourceSessionId ? (
+        <div className="space-y-3 border-t border-border pt-4">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h4 className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+              {t('sections.session')}
+            </h4>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => onOpenSession(todo)}
+            >
+              <ExternalLink className="h-4 w-4" />
+              {t('actions.openSession')}
+            </Button>
+          </div>
+
+          {todo.status === 'done' ? (
+            <div className="space-y-2">
+              <Label htmlFor="todo-follow-up-comment">{t('fields.followUpComment')}</Label>
+              <Textarea
+                id="todo-follow-up-comment"
+                value={followUpComment}
+                onChange={(event) => onUpdateFollowUpComment(event.target.value)}
+                className="min-h-24"
+                maxLength={5000}
+                placeholder={t('fields.followUpCommentPlaceholder')}
+              />
+              {todo.followUpSentAt ? (
+                <p className="text-xs text-muted-foreground">
+                  {t('labels.followUpSentAt', { date: formatDate(todo.followUpSentAt, locale) ?? todo.followUpSentAt })}
+                </p>
+              ) : null}
+              {todo.followUpError ? (
+                <p className="break-words text-xs text-destructive">{todo.followUpError}</p>
+              ) : null}
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => void onSendFollowUp(todo)}
+                disabled={isSendingFollowUp || isMutating}
+              >
+                <Send className="h-4 w-4" />
+                {todo.followUpSentAt ? t('actions.sendFollowUpAgain') : t('actions.sendFollowUp')}
+              </Button>
+            </div>
+          ) : (
+            <p className="flex items-start gap-2 text-sm text-muted-foreground">
+              <MessageSquare className="mt-0.5 h-4 w-4 shrink-0" />
+              {t('states.completeBeforeFollowUp')}
+            </p>
+          )}
+        </div>
+      ) : null}
+
+      <div className="flex flex-wrap gap-2">
+        {todo.status === 'archived' ? (
+          <Button size="sm" onClick={() => void onRestore(todo)} disabled={isMutating}>
+            <RefreshCcw className="h-4 w-4" />
+            {t('actions.restore')}
+          </Button>
+        ) : (
+          <>
+            <Button size="sm" onClick={() => void onToggleDone(todo)} disabled={isMutating}>
+              <CheckCircle2 className="h-4 w-4" />
+              {todo.status === 'done' ? t('actions.reopen') : t('actions.complete')}
+            </Button>
+            {!todo.seenAt && (
+              <Button size="sm" variant="outline" onClick={() => void onMarkSeen(todo.id)} disabled={isMutating}>
+                <Check className="h-4 w-4" />
+                {t('actions.markSeen')}
+              </Button>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function TodosClient({ title }: { title: string }) {
   const t = useTranslations('todos');
   const locale = useLocale();
@@ -222,6 +406,12 @@ export function TodosClient({ title }: { title: string }) {
   const [isLoading, setIsLoading] = useState(true);
   const [isMutating, setIsMutating] = useState(false);
   const [editorOpen, setEditorOpen] = useState(false);
+  const [detailDialogOpen, setDetailDialogOpen] = useState(false);
+  const [isMobileDetailViewport, setIsMobileDetailViewport] = useState(() => (
+    typeof window !== 'undefined'
+      ? window.matchMedia('(max-width: 767px)').matches
+      : false
+  ));
   const [editingTodoId, setEditingTodoId] = useState<string | null>(null);
   const [form, setForm] = useState<TodoFormState>(emptyForm);
   const [filterSheetOpen, setFilterSheetOpen] = useState(false);
@@ -247,6 +437,19 @@ export function TodosClient({ title }: { title: string }) {
     if (!selectedTodo) return;
     setFollowUpDraft({ todoId: selectedTodo.id, value });
   }, [selectedTodo]);
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia('(max-width: 767px)');
+    const updateViewport = (event: MediaQueryListEvent) => {
+      setIsMobileDetailViewport(event.matches);
+      if (!event.matches) {
+        setDetailDialogOpen(false);
+      }
+    };
+
+    mediaQuery.addEventListener('change', updateViewport);
+    return () => mediaQuery.removeEventListener('change', updateViewport);
+  }, []);
 
   const openTodoSession = useCallback((todo: Pick<TodoItem, 'id' | 'sourceSessionId'>) => {
     openDockChatSession(todo.sourceSessionId);
@@ -396,6 +599,9 @@ export function TodosClient({ title }: { title: string }) {
 
   const handleSelectTodo = useCallback(async (todo: TodoItem) => {
     setSelectedTodoId(todo.id);
+    if (isMobileDetailViewport) {
+      setDetailDialogOpen(true);
+    }
     if (!todo.seenAt) {
       try {
         await updateTodo(todo.id, { markSeen: true });
@@ -403,7 +609,7 @@ export function TodosClient({ title }: { title: string }) {
         toast.error(error instanceof Error ? error.message : t('errors.markSeenFailed'));
       }
     }
-  }, [t, updateTodo]);
+  }, [isMobileDetailViewport, t, updateTodo]);
 
   const todoIdParam = searchParams.get('todo');
 
@@ -967,152 +1173,58 @@ export function TodosClient({ title }: { title: string }) {
           </div>
         </section>
 
-        <aside className="min-w-0 xl:sticky xl:top-4 xl:self-start">
+        <aside className="hidden min-w-0 md:block xl:sticky xl:top-4 xl:self-start">
           <div data-testid="todo-detail" className="min-w-0 overflow-hidden rounded-md border border-border bg-background p-4">
-            {selectedTodo ? (
-              <div className="space-y-4">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Badge variant={selectedTodo.status === 'done' ? 'default' : selectedTodo.status === 'archived' ? 'secondary' : 'outline'}>
-                        {t(`status.${selectedTodo.status}`)}
-                      </Badge>
-                      {!selectedTodo.seenAt && <Badge>{t('labels.unread')}</Badge>}
-                    </div>
-                    <h3 className="mt-2 break-words text-lg font-semibold leading-tight">{selectedTodo.title}</h3>
-                  </div>
-                  <Button variant="ghost" size="icon-sm" onClick={() => openEditDialog(selectedTodo)} disabled={selectedTodo.status === 'archived'}>
-                    <Edit3 className="h-4 w-4" />
-                  </Button>
-                </div>
-
-                {selectedTodo.description ? (
-                  <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-muted-foreground">{selectedTodo.description}</p>
-                ) : (
-                  <p className="text-sm text-muted-foreground">{t('states.noDescription')}</p>
-                )}
-
-                <div className="grid gap-2 text-sm">
-                  <div className="flex min-w-0 items-center justify-between gap-3">
-                    <span className="shrink-0 text-muted-foreground">{t('fields.category')}</span>
-                    <span className="min-w-0 truncate text-right font-medium">{formatCategoryName(selectedTodo.category)}</span>
-                  </div>
-                  <div className="flex min-w-0 items-center justify-between gap-3">
-                    <span className="shrink-0 text-muted-foreground">{t('fields.priority')}</span>
-                    <span className="font-medium">{t(`priority.${selectedTodo.priority}`)}</span>
-                  </div>
-                  <div className="flex min-w-0 items-center justify-between gap-3">
-                    <span className="shrink-0 text-muted-foreground">{t('fields.dueAt')}</span>
-                    <span className="min-w-0 truncate text-right font-medium">{formatDate(selectedTodo.dueAt, locale) ?? t('fields.noDueAt')}</span>
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <h4 className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-                    {t('sections.files')}
-                  </h4>
-                  {selectedTodo.fileLinks.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">{t('states.noFiles')}</p>
-                  ) : (
-                    <div className="space-y-2">
-                      {selectedTodo.fileLinks.map((link) => (
-                        <Button key={link.id} asChild variant="outline" className="h-auto w-full min-w-0 justify-start overflow-hidden whitespace-normal py-2 text-left">
-                          <Link href={fileLinkHref(link.workspacePath)}>
-                            <FileText className="h-4 w-4" />
-                            <span className="min-w-0 flex-1 truncate">{link.label || link.workspacePath}</span>
-                          </Link>
-                        </Button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
-                {selectedTodo.sourceSessionId ? (
-                  <div className="space-y-3 border-t border-border pt-4">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <h4 className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-                        {t('sections.session')}
-                      </h4>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => openTodoSession(selectedTodo)}
-                      >
-                        <ExternalLink className="h-4 w-4" />
-                        {t('actions.openSession')}
-                      </Button>
-                    </div>
-
-                    {selectedTodo.status === 'done' ? (
-                      <div className="space-y-2">
-                        <Label htmlFor="todo-follow-up-comment">{t('fields.followUpComment')}</Label>
-                        <Textarea
-                          id="todo-follow-up-comment"
-                          value={followUpComment}
-                          onChange={(event) => updateFollowUpComment(event.target.value)}
-                          className="min-h-24"
-                          maxLength={5000}
-                          placeholder={t('fields.followUpCommentPlaceholder')}
-                        />
-                        {selectedTodo.followUpSentAt ? (
-                          <p className="text-xs text-muted-foreground">
-                            {t('labels.followUpSentAt', { date: formatDate(selectedTodo.followUpSentAt, locale) ?? selectedTodo.followUpSentAt })}
-                          </p>
-                        ) : null}
-                        {selectedTodo.followUpError ? (
-                          <p className="break-words text-xs text-destructive">{selectedTodo.followUpError}</p>
-                        ) : null}
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => void sendTodoFollowUp(selectedTodo)}
-                          disabled={isSendingFollowUp || isMutating}
-                        >
-                          <Send className="h-4 w-4" />
-                          {selectedTodo.followUpSentAt ? t('actions.sendFollowUpAgain') : t('actions.sendFollowUp')}
-                        </Button>
-                      </div>
-                    ) : (
-                      <p className="flex items-start gap-2 text-sm text-muted-foreground">
-                        <MessageSquare className="mt-0.5 h-4 w-4 shrink-0" />
-                        {t('states.completeBeforeFollowUp')}
-                      </p>
-                    )}
-                  </div>
-                ) : null}
-
-                <div className="flex flex-wrap gap-2">
-                  {selectedTodo.status === 'archived' ? (
-                    <Button size="sm" onClick={() => void restoreTodo(selectedTodo)} disabled={isMutating}>
-                      <RefreshCcw className="h-4 w-4" />
-                      {t('actions.restore')}
-                    </Button>
-                  ) : (
-                    <>
-                      <Button size="sm" onClick={() => void toggleDone(selectedTodo)} disabled={isMutating}>
-                        <CheckCircle2 className="h-4 w-4" />
-                        {selectedTodo.status === 'done' ? t('actions.reopen') : t('actions.complete')}
-                      </Button>
-                      {!selectedTodo.seenAt && (
-                        <Button size="sm" variant="outline" onClick={() => void updateTodo(selectedTodo.id, { markSeen: true })} disabled={isMutating}>
-                          <Check className="h-4 w-4" />
-                          {t('actions.markSeen')}
-                        </Button>
-                      )}
-                    </>
-                  )}
-                </div>
-              </div>
-            ) : (
-              <div className="flex min-h-[260px] flex-col items-center justify-center text-center">
-                <Clock3 className="h-8 w-8 text-muted-foreground" />
-                <p className="mt-3 text-sm font-medium">{t('states.noSelectionTitle')}</p>
-                <p className="mt-1 max-w-xs text-sm text-muted-foreground">{t('states.noSelectionDescription')}</p>
-              </div>
-            )}
+            <TodoDetailPanel
+              todo={selectedTodo}
+              locale={locale}
+              followUpComment={followUpComment}
+              isMutating={isMutating}
+              isSendingFollowUp={isSendingFollowUp}
+              formatCategoryName={formatCategoryName}
+              onEdit={openEditDialog}
+              onRestore={restoreTodo}
+              onToggleDone={toggleDone}
+              onMarkSeen={(todoId) => updateTodo(todoId, { markSeen: true })}
+              onOpenSession={openTodoSession}
+              onUpdateFollowUpComment={updateFollowUpComment}
+              onSendFollowUp={sendTodoFollowUp}
+            />
           </div>
         </aside>
       </div>
+
+      <Dialog
+        open={detailDialogOpen && isMobileDetailViewport && Boolean(selectedTodo)}
+        onOpenChange={setDetailDialogOpen}
+      >
+        <DialogContent layout="viewport" className="md:hidden">
+          <DialogHeader className="shrink-0 border-b px-4 pt-5 pb-4 pr-12 text-left">
+            <DialogTitle>{t('detail.dialogTitle')}</DialogTitle>
+            <DialogDescription className="truncate">
+              {selectedTodo?.title ?? t('states.noSelectionTitle')}
+            </DialogDescription>
+          </DialogHeader>
+          <div data-testid="todo-detail-dialog" className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
+            <TodoDetailPanel
+              todo={selectedTodo}
+              locale={locale}
+              followUpComment={followUpComment}
+              isMutating={isMutating}
+              isSendingFollowUp={isSendingFollowUp}
+              showEmptyState={false}
+              formatCategoryName={formatCategoryName}
+              onEdit={openEditDialog}
+              onRestore={restoreTodo}
+              onToggleDone={toggleDone}
+              onMarkSeen={(todoId) => updateTodo(todoId, { markSeen: true })}
+              onOpenSession={openTodoSession}
+              onUpdateFollowUpComment={updateFollowUpComment}
+              onSendFollowUp={sendTodoFollowUp}
+            />
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Sheet open={filterSheetOpen} onOpenChange={setFilterSheetOpen}>
         <SheetContent
