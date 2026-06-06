@@ -1529,8 +1529,13 @@ function formatValidation(validation: AgentFileValidationResult): string {
 }
 
 function formatFileChangeResult(result: AgentFileChangeResult): string {
+  let action = 'Checked';
+  if (result.changed) {
+    action = result.snapshot?.existed === false ? 'Created' : 'Updated';
+  }
+
   return [
-    `${result.changed ? 'Updated' : 'Checked'} file: ${result.path}`,
+    `${action} file: ${result.path}`,
     `Snapshot: ${result.snapshot?.id || 'none'}`,
     `Before SHA-256: ${result.beforeSha256 || 'new file'}`,
     `After SHA-256: ${result.afterSha256}`,
