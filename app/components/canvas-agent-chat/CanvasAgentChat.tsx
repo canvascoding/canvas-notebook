@@ -13,7 +13,6 @@ import type { AnthropicSkill } from '@/app/lib/skills/skill-manifest-anthropic';
 import {
   Paperclip,
   X,
-  Image as ImageIcon,
   CornerDownRight,
   GripVertical,
   Loader2,
@@ -105,6 +104,15 @@ import { useIsMobile } from '@/hooks/use-mobile';
 import { BUSINESS_STARTER_PROMPTS, STUDIO_STARTER_PROMPTS, type StarterPromptDefinition, type StarterPromptIcon } from '@/app/lib/chat/starter-prompts';
 import { ChatRuntimeActivityBadge } from '@/app/components/canvas-agent-chat/ChatRuntimeActivityBadge';
 import { ChatModelSelector } from '@/app/components/canvas-agent-chat/ChatModelSelector';
+import { AttachmentPreviewDialog } from '@/app/components/canvas-agent-chat/AttachmentPreviewDialog';
+import { AttachmentPreviewItem } from '@/app/components/canvas-agent-chat/AttachmentPreviewItem';
+import {
+  createImageAttachmentFromMediaUrl,
+  deriveUploadAttachmentPreview,
+  getAttachmentMediaUrl,
+  resolvePreviewSrcFromMediaUrl,
+  type ChatAttachment,
+} from '@/app/components/canvas-agent-chat/attachment-preview';
 import { AgentAvatar, AgentIcon } from '@/app/components/agents/AgentAvatar';
 import type { RuntimeQueueItem, RuntimeStatus } from '@/app/components/canvas-agent-chat/runtime-status';
 import { getSessionDisplayTitle, isAutomaticSessionTitle } from '@/app/lib/pi/session-titles';
@@ -126,21 +134,7 @@ import type { ChatRequestContext } from '@/app/lib/chat/types';
 import type { PiThinkingLevel } from '@/app/lib/pi/config';
 import { DEFAULT_AGENT_ID } from '@/app/lib/channels/constants';
 
-interface Attachment {
-  name: string;
-  contentKind: 'image' | 'document';
-  // Upload file ID or stable attachment key.
-  id: string;
-  mimeType?: string;
-  // document category
-  category?: string;
-  // Optional: absolute file path for direct server-side reading (studio outputs, etc.)
-  filePath?: string;
-  // Lightweight image thumbnail. Chat UI must use this instead of loading originals.
-  previewUrl?: string;
-  // Original media URL, used only for explicit open/zoom actions.
-  mediaUrl?: string;
-}
+type Attachment = ChatAttachment;
 
 interface ChatMessage {
   id: string;
@@ -412,18 +406,6 @@ function normalizeInitialPromptAgentId(value: unknown): string | null {
   return MANAGED_AGENT_ID_PATTERN.test(normalized) ? normalized : null;
 }
 
-function withDerivedAttachmentPreview(attachment: Attachment): Attachment {
-  if (attachment.contentKind !== 'image' || !attachment.id) {
-    return attachment;
-  }
-
-  return {
-    ...attachment,
-    previewUrl: attachment.previewUrl || toUploadPreviewUrl(attachment.id, 192, { preset: 'mini' }),
-    mediaUrl: attachment.mediaUrl || toUploadMediaUrl(attachment.id),
-  };
-}
-
 function parseInitialPromptAttachment(value: unknown): Attachment | null {
   if (!isRecord(value)) {
     return null;
@@ -439,7 +421,7 @@ function parseInitialPromptAttachment(value: unknown): Attachment | null {
     return null;
   }
 
-  return withDerivedAttachmentPreview({
+  return deriveUploadAttachmentPreview({
     name,
     id,
     contentKind,
@@ -598,32 +580,6 @@ function decodeMediaPath(value: string): string {
       }
     })
     .join('/');
-}
-
-function resolvePreviewSrcFromMediaUrl(mediaUrl: string, width = 640): string {
-  if (mediaUrl.startsWith('/api/files/')) {
-    const fileId = mediaUrl.slice('/api/files/'.length).split(/[?#]/, 1)[0];
-    if (fileId && !fileId.includes('/')) {
-      return toUploadPreviewUrl(decodeAttachmentId(fileId), width, { preset: 'mini' });
-    }
-  }
-
-  if (mediaUrl.startsWith('/api/media/')) {
-    const filePath = decodeMediaPath(mediaUrl.slice('/api/media/'.length).split(/[?#]/, 1)[0] || '');
-    return filePath ? toPreviewUrl(filePath, width, { preset: 'mini' }) : mediaUrl;
-  }
-
-  if (mediaUrl.startsWith('/media/')) {
-    const filePath = decodeMediaPath(mediaUrl.slice('/media/'.length).split(/[?#]/, 1)[0] || '');
-    return filePath ? toPreviewUrl(filePath, width, { preset: 'mini' }) : mediaUrl;
-  }
-
-  if (mediaUrl.startsWith('/api/studio/media/')) {
-    const studioPath = decodeMediaPath(mediaUrl.slice('/api/studio/media/'.length).split(/[?#]/, 1)[0] || '');
-    return studioPath ? toPreviewUrl(studioPath, width, { preset: 'mini' }) : mediaUrl;
-  }
-
-  return mediaUrl;
 }
 
 function getRecentStudioImageMediaUrls(messages: ChatMessage[], messageIndex: number): string[] {
@@ -1046,7 +1002,7 @@ function buildPromptContent(text: string, attachments: Attachment[]): UserPiCont
   }
 
   for (const attachment of attachments) {
-    const displayAttachment = withDerivedAttachmentPreview(attachment);
+    const displayAttachment = deriveUploadAttachmentPreview(attachment);
     const category = resolveAttachmentCategory(displayAttachment);
     const containerFilePath = displayAttachment.filePath || buildAttachmentContainerPath(displayAttachment);
     const metadataLines = [
@@ -1114,7 +1070,7 @@ function parseAttachmentBlocks(text: string): Attachment[] {
       continue;
     }
 
-    attachments.push(withDerivedAttachmentPreview({
+    attachments.push(deriveUploadAttachmentPreview({
       name,
       id,
       contentKind,
@@ -1271,7 +1227,7 @@ function extractImageAttachments(content: unknown, metadataAttachments: Attachme
       }
       const metadata = metadataById.get(imageId);
       
-      result.push(withDerivedAttachmentPreview({
+      result.push(deriveUploadAttachmentPreview({
         name: metadata?.name || `attachment-${index + 1}`,
         contentKind: 'image',
         id: imageId,
@@ -2083,84 +2039,6 @@ function MarkdownMessage({
   );
 }
 
-function AttachmentPreviewItem({
-  attachment,
-  context,
-  onRemove,
-  onMediaClick,
-}: {
-  attachment: Attachment;
-  context: 'message' | 'composer';
-  onRemove?: () => void;
-  onMediaClick?: (mediaUrl: string) => void;
-}) {
-  const isImage = attachment.contentKind === 'image' && Boolean(attachment.previewUrl);
-  const mediaUrl = attachment.mediaUrl || (attachment.contentKind === 'image' && attachment.id ? toUploadMediaUrl(attachment.id) : undefined);
-  const canOpen = Boolean(isImage && mediaUrl && onMediaClick);
-  const wrapperClass = context === 'composer'
-    ? 'flex shrink-0 items-center gap-2 border border-border bg-accent/70 p-1 px-2 text-xs'
-    : 'flex max-w-full items-center gap-2 border border-border bg-background/50 p-1.5 px-2.5 text-[10px]';
-
-  if (!isImage) {
-    return (
-      <div data-testid={context === 'message' ? 'chat-message-attachment' : undefined} className={wrapperClass} title={attachment.name}>
-        <FileText className={context === 'composer' ? 'h-3.5 w-3.5 shrink-0' : 'h-3 w-3 shrink-0'} />
-        <span className="min-w-0 truncate">{attachment.name}</span>
-        {onRemove ? (
-          <button type="button" onClick={onRemove} className="shrink-0 hover:text-destructive" aria-label={`Remove ${attachment.name}`}>
-            <X className="h-3 w-3" />
-          </button>
-        ) : null}
-      </div>
-    );
-  }
-
-  const imageBoxClass = context === 'composer'
-    ? 'h-12 w-16'
-    : 'h-20 w-28';
-
-  return (
-    <div
-      data-testid={context === 'message' ? 'chat-message-attachment' : undefined}
-      data-attachment-kind="image"
-      className={`${wrapperClass} ${context === 'message' ? 'max-w-[220px]' : 'max-w-[240px]'}`}
-      title={attachment.name}
-    >
-      <button
-        type="button"
-        disabled={!canOpen}
-        onClick={() => {
-          if (canOpen && mediaUrl) {
-            onMediaClick?.(mediaUrl);
-          }
-        }}
-        className={`${imageBoxClass} shrink-0 overflow-hidden rounded-md border border-border/70 bg-muted ${canOpen ? 'cursor-pointer transition hover:border-primary/40' : 'cursor-default'}`}
-      >
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={attachment.previewUrl}
-          alt={attachment.name}
-          className="h-full w-full object-cover"
-          loading="lazy"
-          decoding="async"
-        />
-      </button>
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-1.5">
-          <ImageIcon className={context === 'composer' ? 'h-3.5 w-3.5 shrink-0' : 'h-3 w-3 shrink-0'} />
-          <span className="min-w-0 truncate">{attachment.name}</span>
-        </div>
-        <div className="mt-0.5 truncate text-[10px] text-muted-foreground">Preview</div>
-      </div>
-      {onRemove ? (
-        <button type="button" onClick={onRemove} className="shrink-0 hover:text-destructive" aria-label={`Remove ${attachment.name}`}>
-          <X className="h-3 w-3" />
-        </button>
-      ) : null}
-    </div>
-  );
-}
-
 function StreamingMessageIndicator() {
   const t = useTranslations('chat');
   return (
@@ -2615,10 +2493,12 @@ export default function CanvasAgentChat({
   const [textareaHeight, setTextareaHeight] = useState(DESKTOP_TEXTAREA_BASE_HEIGHT_PX);
 
   // Upload states
-  const [isUploading, setIsUploading] = useState(false);
+  const [pendingUploads, setPendingUploads] = useState(0);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [imagePreprocessFiles, setImagePreprocessFiles] = useState<import('@/app/components/shared/ImagePreprocessDialog').PreprocessFileInfo[] | null>(null);
   const [imagePreprocessPendingFiles, setImagePreprocessPendingFiles] = useState<File[]>([]);
+  const [previewAttachment, setPreviewAttachment] = useState<Attachment | null>(null);
+  const isUploading = pendingUploads > 0;
   const isWebSocketUnavailable = wsError?.code === 'AUTH_ERROR';
 
   const referencePickerRef = useRef<HTMLDivElement>(null);
@@ -4708,7 +4588,10 @@ export default function CanvasAgentChat({
   }, [selectedAgentId, t]);
 
   const handleFileUploadMultiple = useCallback(async (files: File[], convertParams?: (ConvertParams | null)[]) => {
-    setIsUploading(true);
+    if (files.length === 0) {
+      return;
+    }
+    setPendingUploads((count) => count + 1);
     setUploadError(null);
     
     try {
@@ -4723,7 +4606,7 @@ export default function CanvasAgentChat({
       }
       
       const res = await fetch('/api/upload/attachment', { method: 'POST', body: formData });
-      const data = await safeFetchJson<{ success: boolean; error?: string; errors?: string[]; files?: { id: string; originalName: string; mimeType: string; category: string }[] }>(res);
+      const data = await safeFetchJson<{ success: boolean; error?: string; errors?: string[]; files?: { id: string; originalName: string; mimeType: string; size?: number; category: string }[] }>(res);
       
       if (!data || !data.success) {
         throw new Error(data?.error ?? 'Upload failed');
@@ -4736,14 +4619,16 @@ export default function CanvasAgentChat({
         id: string;
         originalName: string;
         mimeType: string;
+        size?: number;
         category: string;
       }) => {
         const isImage = uploadedFile.category === 'image';
-        return withDerivedAttachmentPreview({
+        return deriveUploadAttachmentPreview({
           name: uploadedFile.originalName,
           contentKind: isImage ? 'image' : 'document',
           id: uploadedFile.id,
           mimeType: uploadedFile.mimeType,
+          size: uploadedFile.size,
           category: uploadedFile.category,
         });
       });
@@ -4758,7 +4643,7 @@ export default function CanvasAgentChat({
       console.error('Upload failed', err);
       setUploadError(err instanceof Error ? err.message : 'Upload fehlgeschlagen. Netzwerkfehler oder Server nicht erreichbar.');
     } finally {
-      setIsUploading(false);
+      setPendingUploads((count) => Math.max(0, count - 1));
     }
   }, []);
 
@@ -4811,10 +4696,6 @@ export default function CanvasAgentChat({
     setImagePreprocessPendingFiles([]);
   }, [handleFileUploadMultiple, imagePreprocessPendingFiles]);
 
-  const handleFileUpload = useCallback(async (file: File) => {
-    await preprocessAndUpload([file]);
-  }, [preprocessAndUpload]);
-
   const onFileChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(event.target.files || []);
     if (files.length > 0) preprocessAndUpload(files);
@@ -4824,25 +4705,28 @@ export default function CanvasAgentChat({
   const handlePaste = useCallback((event: React.ClipboardEvent) => {
     const items = event.clipboardData?.items;
     if (!items) return;
-    let foundImage = false;
+    const pastedImages: File[] = [];
     for (let i = 0; i < items.length; i += 1) {
       if (items[i].type.indexOf('image') !== -1) {
-        foundImage = true;
         const file = items[i].getAsFile();
         if (file) {
           const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
           const renamedFile = new File([file], `screenshot-${timestamp}.png`, { type: file.type });
-          handleFileUpload(renamedFile);
+          pastedImages.push(renamedFile);
         }
       }
     }
-    if (!foundImage) {
+    if (pastedImages.length > 0) {
+      void preprocessAndUpload(pastedImages);
+      return;
+    }
+    if (pastedImages.length === 0) {
       const text = event.clipboardData?.getData('text') ?? '';
       if (/\.(png|jpe?g|webp|gif)$/i.test(text.trim())) {
         setUploadError('Tipp: Dateien aus dem Finder können nicht direkt eingefügt werden. Bitte nutze die Büroklammer zum Hochladen, oder kopiere das Bild direkt (z.B. Screenshot).');
       }
     }
-  }, [handleFileUpload]);
+  }, [preprocessAndUpload]);
 
   const closeReferencePicker = useCallback(() => {
     setActiveReferenceMatch(null);
@@ -4974,6 +4858,24 @@ export default function CanvasAgentChat({
   const removeAttachment = useCallback((index: number) => {
     setAttachments((prev) => prev.filter((_, itemIndex) => itemIndex !== index));
   }, []);
+
+  const handleAttachmentPreviewOpen = useCallback((attachment: Attachment) => {
+    const displayAttachment = deriveUploadAttachmentPreview(attachment);
+    const mediaUrl = getAttachmentMediaUrl(displayAttachment);
+    if (mediaUrl && onMediaClick) {
+      onMediaClick(mediaUrl);
+      return;
+    }
+    setPreviewAttachment(displayAttachment);
+  }, [onMediaClick, setPreviewAttachment]);
+
+  const handleMediaPreviewClick = useCallback((mediaUrl: string) => {
+    if (onMediaClick) {
+      onMediaClick(mediaUrl);
+      return;
+    }
+    setPreviewAttachment(createImageAttachmentFromMediaUrl(mediaUrl));
+  }, [onMediaClick, setPreviewAttachment]);
 
   const navigateInputHistory = useCallback((direction: 'older' | 'newer'): boolean => {
     if (userMessageHistory.length === 0) {
@@ -6234,7 +6136,7 @@ export default function CanvasAgentChat({
                 <ToolCallPill
                   key={message.id}
                   message={message}
-                  onMediaClick={onMediaClick}
+                  onMediaClick={handleMediaPreviewClick}
                 />
               );
             }
@@ -6360,7 +6262,7 @@ export default function CanvasAgentChat({
                               <pre className="overflow-x-auto whitespace-pre-wrap break-words text-xs leading-relaxed text-foreground/90 max-w-full">{message.toolArgs}</pre>
                             </div>
                           ) : null}
-                          <MarkdownMessage content={bodyContent} variant="tool" onMediaClick={onMediaClick} />
+                          <MarkdownMessage content={bodyContent} variant="tool" onMediaClick={handleMediaPreviewClick} />
                         </div>
                       ) : null}
                     </div>
@@ -6377,13 +6279,13 @@ export default function CanvasAgentChat({
                       ) : null}
 
                       {isUser ? (
-                        <MarkdownMessage content={bodyContent} variant="user" onMediaClick={onMediaClick} />
+                        <MarkdownMessage content={bodyContent} variant="user" onMediaClick={handleMediaPreviewClick} />
                       ) : isAssistant ? (
                         isStreamingAssistant && !rawBodyContent ? (
                           <StreamingMessageIndicator />
                         ) : (
                           <>
-                            <MarkdownMessage content={displayBodyContent} variant="assistant" onMediaClick={onMediaClick} />
+                            <MarkdownMessage content={displayBodyContent} variant="assistant" onMediaClick={handleMediaPreviewClick} />
                             {isStreamingAssistant ? (
                               <div className="mt-2 inline-flex items-center gap-1 text-muted-foreground/70">
                                 {[0, 160, 320].map((delay) => (
@@ -6412,7 +6314,7 @@ export default function CanvasAgentChat({
                           key={`${attachment.id || attachment.filePath || attachment.name}-${index}`}
                           attachment={attachment}
                           context="message"
-                          onMediaClick={onMediaClick}
+                          onOpen={handleAttachmentPreviewOpen}
                         />
                       ))}
                     </div>
@@ -6434,7 +6336,7 @@ export default function CanvasAgentChat({
                     expanded={expandedRunKeys.has(collapsedRun.key)}
                     onToggle={() => toggleRunDisclosure(collapsedRun.key)}
                     toolVerbosity={toolVerbosity}
-                    onMediaClick={onMediaClick}
+                    onMediaClick={handleMediaPreviewClick}
                   />
                   {renderedMessage}
                 </React.Fragment>
@@ -6532,7 +6434,7 @@ export default function CanvasAgentChat({
                 attachment={attachment}
                 context="composer"
                 onRemove={() => removeAttachment(index)}
-                onMediaClick={onMediaClick}
+                onOpen={handleAttachmentPreviewOpen}
               />
             ))}
           </div>
@@ -6654,6 +6556,10 @@ export default function CanvasAgentChat({
           </div>
         </div>
        </div>
+      <AttachmentPreviewDialog
+        attachment={previewAttachment}
+        onClose={() => setPreviewAttachment(null)}
+      />
       <ImagePreprocessDialog
         open={imagePreprocessFiles !== null}
         onOpenChange={(open) => { if (!open) { setImagePreprocessFiles(null); setImagePreprocessPendingFiles([]); } }}
