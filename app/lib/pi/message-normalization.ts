@@ -6,6 +6,7 @@ import type { ImageContent, Message, ToolResultMessage, UserMessage } from '@ear
 import { getWorkspacePath } from '../utils/workspace-manager';
 import { findFilePath } from '../filesystem/upload-handler';
 import { projectAgentMessageForLoadedContext } from './message-projection';
+import { convertImage } from '../images/convert';
 
 const IMAGE_MIME_BY_EXTENSION: Record<string, string> = {
   '.gif': 'image/gif',
@@ -21,6 +22,9 @@ const IMAGE_MIME_BY_EXTENSION: Record<string, string> = {
 
 const DATA_URL_PATTERN = /^data:(image\/[a-z0-9.+-]+);base64,([a-z0-9+/=\s]+)$/i;
 const BASE64_PATTERN = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
+const INLINE_IMAGE_BYTE_LIMIT = 6 * 1024 * 1024;
+const SOURCE_IMAGE_BYTE_LIMIT = 50 * 1024 * 1024;
+const LARGE_IMAGE_MAX_DIMENSION = 2048;
 
 // Regex to detect image file references in text
 // Supports both quoted: "path/to/file.jpg" and unquoted: path/to/file.jpg
@@ -81,32 +85,105 @@ function resolveImageMimeType(filePath: string, fallbackMimeType?: string): stri
   return mimeType;
 }
 
+function estimateBase64Bytes(value: string): number {
+  const padding = value.endsWith('==') ? 2 : value.endsWith('=') ? 1 : 0;
+  return Math.max(0, Math.floor(value.length * 3 / 4) - padding);
+}
+
+async function compactImageBufferForLlm(
+  buffer: Buffer,
+  originalName: string,
+  mimeType: string,
+): Promise<ImageContent> {
+  if (buffer.length > SOURCE_IMAGE_BYTE_LIMIT) {
+    throw new Error(
+      `Image attachment is too large for chat context (${Math.ceil(buffer.length / (1024 * 1024))}MB). Maximum source image size is ${SOURCE_IMAGE_BYTE_LIMIT / (1024 * 1024)}MB.`,
+    );
+  }
+
+  if (buffer.length <= INLINE_IMAGE_BYTE_LIMIT || mimeType === 'image/svg+xml') {
+    return {
+      type: 'image',
+      data: buffer.toString('base64'),
+      mimeType,
+    };
+  }
+
+  try {
+    const converted = await convertImage(buffer, originalName, {
+      format: 'webp',
+      quality: 82,
+      maxDimension: LARGE_IMAGE_MAX_DIMENSION,
+      sourceMimeType: mimeType,
+    });
+
+    return {
+      type: 'image',
+      data: converted.buffer.toString('base64'),
+      mimeType: converted.mimeType,
+    };
+  } catch (error) {
+    console.warn('[Message Normalization] Failed to compact large image attachment:', error instanceof Error ? error.message : error);
+    throw new Error(
+      `Image attachment is too large for chat context and could not be compacted (${Math.ceil(buffer.length / (1024 * 1024))}MB).`,
+    );
+  }
+}
+
+async function normalizeBase64ImageData(
+  data: string,
+  mimeType: string,
+  originalName = 'attachment',
+): Promise<ImageContent> {
+  const clean = hasWhitespace(data) ? stripWhitespace(data) : data;
+  const estimatedBytes = estimateBase64Bytes(clean);
+
+  if (estimatedBytes <= INLINE_IMAGE_BYTE_LIMIT || mimeType === 'image/svg+xml') {
+    return {
+      type: 'image',
+      data: clean,
+      mimeType,
+    };
+  }
+
+  if (estimatedBytes > SOURCE_IMAGE_BYTE_LIMIT) {
+    throw new Error(
+      `Image attachment is too large for chat context (${Math.ceil(estimatedBytes / (1024 * 1024))}MB). Maximum source image size is ${SOURCE_IMAGE_BYTE_LIMIT / (1024 * 1024)}MB.`,
+    );
+  }
+
+  return compactImageBufferForLlm(Buffer.from(clean, 'base64'), originalName, mimeType);
+}
+
 async function loadImageDataFromFile(filePath: string, mimeType: string): Promise<ImageContent> {
+  const resolvedMimeType = resolveImageMimeType(filePath, mimeType);
+  const stats = await fs.stat(filePath);
+  if (!stats.isFile()) {
+    throw new Error(`Image attachment path is not a file: ${filePath}`);
+  }
+  if (stats.size > SOURCE_IMAGE_BYTE_LIMIT) {
+    throw new Error(
+      `Image attachment is too large for chat context (${Math.ceil(stats.size / (1024 * 1024))}MB). Maximum source image size is ${SOURCE_IMAGE_BYTE_LIMIT / (1024 * 1024)}MB.`,
+    );
+  }
+
   const bytes = await fs.readFile(filePath);
-  return {
-    type: 'image',
-    data: bytes.toString('base64'),
-    mimeType: resolveImageMimeType(filePath, mimeType),
-  };
+  return compactImageBufferForLlm(bytes, path.basename(filePath), resolvedMimeType);
 }
 
 async function normalizeImagePart(part: ImageContent): Promise<ImageContent> {
   const rawData = part.data;
 
-  // Fast path: already clean base64 with no leading/trailing whitespace — return as-is (zero copies)
+  // Fast path: already clean base64 with no leading/trailing whitespace.
   if (rawData.length > 256 && !hasWhitespace(rawData) && isCleanBase64(rawData)) {
-    return part;
+    return normalizeBase64ImageData(rawData, part.mimeType, 'base64-attachment');
   }
 
   const trimmed = rawData.trim();
 
   const dataUrlMatch = trimmed.match(DATA_URL_PATTERN);
   if (dataUrlMatch) {
-    return {
-      type: 'image',
-      data: stripWhitespace(dataUrlMatch[2]),
-      mimeType: part.mimeType || dataUrlMatch[1],
-    };
+    return normalizeBase64ImageData(dataUrlMatch[2], part.mimeType || dataUrlMatch[1], 'data-url-attachment');
   }
 
   if (trimmed.startsWith('file://')) {
@@ -126,9 +203,7 @@ async function normalizeImagePart(part: ImageContent): Promise<ImageContent> {
   }
 
   if (isValidBase64(trimmed)) {
-    // Only strip whitespace if there actually is whitespace
-    const clean = hasWhitespace(trimmed) ? stripWhitespace(trimmed) : trimmed;
-    return clean === rawData ? part : { type: 'image', data: clean, mimeType: part.mimeType };
+    return normalizeBase64ImageData(trimmed, part.mimeType, 'base64-attachment');
   }
 
   const MAX_PATH_LENGTH = 4096;

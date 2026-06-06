@@ -241,6 +241,9 @@ const connections = new Map<WebSocket, WebSocketConnection>();
 const HEARTBEAT_INTERVAL = 30000; // 30 seconds
 const CHAT_WEBSOCKET_PATH = '/ws/chat';
 const LOG_HEARTBEAT_SUCCESS = process.env.WS_HEARTBEAT_LOGS === '1';
+const MAX_INBOUND_MESSAGE_BYTES = 4 * 1024 * 1024;
+const MAX_PREAUTH_BUFFERED_MESSAGES = 20;
+const MAX_PREAUTH_BUFFERED_BYTES = 512 * 1024;
 let nextConnectionId = 1;
 
 function normalizeChatWebSocketPath(requestUrl?: string): string | null {
@@ -312,6 +315,7 @@ async function handleConnection(ws: WebSocket, request: IncomingMessage): Promis
   // so that early client messages (e.g. send_message flushed immediately on ws.onopen)
   // are not silently dropped by the Node.js EventEmitter.
   const pendingMessages: Buffer[] = [];
+  let pendingMessageBytes = 0;
   let connection: WebSocketConnection | null = null;
   let cleanupDone = false;
 
@@ -337,6 +341,7 @@ async function handleConnection(ws: WebSocket, request: IncomingMessage): Promis
       source,
       uptimeMs: Date.now() - connectedAt,
       bufferedMessages: pendingMessages.length,
+      bufferedBytes: pendingMessageBytes,
       ...details,
     });
   };
@@ -377,12 +382,43 @@ async function handleConnection(ws: WebSocket, request: IncomingMessage): Promis
   };
 
   ws.on('message', (data: Buffer) => {
+    if (data.length > MAX_INBOUND_MESSAGE_BYTES) {
+      console.warn('[WebSocket] inbound message rejected too_large', {
+        connectionId,
+        bytes: data.length,
+        maxBytes: MAX_INBOUND_MESSAGE_BYTES,
+        authenticated: Boolean(connection),
+      });
+      sendWs(ws, { type: 'error', error: 'WebSocket message too large', code: 'MESSAGE_TOO_LARGE' });
+      ws.close(1009, 'Message too large');
+      return;
+    }
+
     if (!connection) {
       // Auth not yet complete — buffer the message
+      if (
+        pendingMessages.length >= MAX_PREAUTH_BUFFERED_MESSAGES ||
+        pendingMessageBytes + data.length > MAX_PREAUTH_BUFFERED_BYTES
+      ) {
+        console.warn('[WebSocket] preauth buffer rejected too_large', {
+          connectionId,
+          bufferedMessages: pendingMessages.length,
+          bufferedBytes: pendingMessageBytes,
+          incomingBytes: data.length,
+          maxMessages: MAX_PREAUTH_BUFFERED_MESSAGES,
+          maxBytes: MAX_PREAUTH_BUFFERED_BYTES,
+        });
+        sendWs(ws, { type: 'error', error: 'WebSocket authentication buffer exceeded', code: 'PREAUTH_BUFFER_EXCEEDED' });
+        ws.close(1009, 'Pre-auth buffer exceeded');
+        return;
+      }
+
       pendingMessages.push(data);
+      pendingMessageBytes += data.length;
       console.log('[WebSocket] buffered_pre_auth_message', {
         connectionId,
         bufferedMessages: pendingMessages.length,
+        bufferedBytes: pendingMessageBytes,
         bytes: data.length,
       });
       return;
@@ -437,6 +473,7 @@ async function handleConnection(ws: WebSocket, request: IncomingMessage): Promis
     connectionId,
     userId: authResult.userId,
     bufferedMessages: pendingMessages.length,
+    bufferedBytes: pendingMessageBytes,
   });
 
   // Create connection state
@@ -461,6 +498,8 @@ async function handleConnection(ws: WebSocket, request: IncomingMessage): Promis
     for (const data of pendingMessages) {
       dispatchMessage(data);
     }
+    pendingMessages.length = 0;
+    pendingMessageBytes = 0;
   }
 
   // Handle pong (heartbeat response)
