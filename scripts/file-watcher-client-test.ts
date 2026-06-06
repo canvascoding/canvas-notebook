@@ -56,8 +56,7 @@ async function main() {
   globalThis.EventSource = FakeEventSource as unknown as typeof EventSource;
 
   let refreshVisibleCalls = 0;
-  let rootRefreshCalls = 0;
-  let subdirectoryRefreshCalls = 0;
+  const refreshedDirectories: Array<{ dirPath: string; noCache?: boolean }> = [];
 
   useFileStore.setState({
     browserMode: 'list',
@@ -66,11 +65,8 @@ async function main() {
     refreshVisibleTree: async () => {
       refreshVisibleCalls += 1;
     },
-    refreshRootTree: async () => {
-      rootRefreshCalls += 1;
-    },
-    loadSubdirectory: async () => {
-      subdirectoryRefreshCalls += 1;
+    refreshDirectory: async (dirPath, noCache) => {
+      refreshedDirectories.push({ dirPath, noCache });
     },
   });
 
@@ -108,9 +104,20 @@ async function main() {
     });
     await delay(25);
 
-    assert.equal(refreshVisibleCalls, 1);
-    assert.equal(rootRefreshCalls, 0);
-    assert.equal(subdirectoryRefreshCalls, 0);
+    assert.equal(refreshVisibleCalls, 0);
+    assert.deepEqual(refreshedDirectories, [{ dirPath: 'docs/current', noCache: true }]);
+
+    source.emit('filechange', {
+      type: 'change',
+      path: '/data/workspace/docs/current/fresh.md',
+      relativePath: 'docs/current/fresh.md',
+      dir: 'docs/current',
+      timestamp: Date.now(),
+    });
+    await delay(FileWatcherClient.SYNC_DEBOUNCE_MS + 25);
+
+    assert.equal(refreshVisibleCalls, 0);
+    assert.deepEqual(refreshedDirectories, [{ dirPath: 'docs/current', noCache: true }]);
 
     client.disconnect();
     assert.equal(source.closed, true);

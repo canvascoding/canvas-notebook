@@ -1,10 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { writeFile } from '@/app/lib/filesystem/workspace-files';
-import { clearFileTreeCache } from '@/app/lib/utils/file-tree-cache';
+import { clearSubtreeCache } from '@/app/lib/utils/file-tree-cache';
 import { invalidateFileReferenceCache } from '@/app/lib/filesystem/file-reference-cache';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 import { auth } from '@/app/lib/auth';
 import { syncPublicSharesAfterWrite } from '@/app/lib/public-sharing/public-file-shares';
+
+function getParentDirectory(filePath: string) {
+  return filePath.includes('/') ? filePath.substring(0, filePath.lastIndexOf('/')) : '.';
+}
 
 export async function POST(request: NextRequest) {
   const session = await auth.api.getSession({ headers: request.headers });
@@ -40,7 +44,7 @@ export async function POST(request: NextRequest) {
 
     await writeFile(path, finalContent);
     await syncPublicSharesAfterWrite([path]);
-    clearFileTreeCache();
+    clearSubtreeCache(getParentDirectory(path));
     invalidateFileReferenceCache();
 
     return NextResponse.json({ success: true });
