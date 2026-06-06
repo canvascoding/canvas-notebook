@@ -1,6 +1,7 @@
 export type ToolDisplayTone =
   | 'command'
   | 'file'
+  | 'fileCreate'
   | 'search'
   | 'web'
   | 'image'
@@ -96,8 +97,32 @@ const TOOL_DISPLAY: Record<string, ToolDisplayEntry> = {
   COMPOSIO_MANAGE_CONNECTIONS: { label: 'Managed app connections', labelDe: 'App-Verbindungen verwaltet', tone: 'composioConnections' },
 };
 
-export function getToolDisplayInfo(toolName: string | undefined, locale: string): ToolDisplayInfo {
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function isNewFileWriteResult(details: unknown): boolean {
+  if (!isRecord(details)) {
+    return false;
+  }
+
+  if (details.beforeSha256 === null) {
+    return true;
+  }
+
+  const snapshot = details.snapshot;
+  return isRecord(snapshot) && snapshot.existed === false;
+}
+
+export function getToolDisplayInfo(toolName: string | undefined, locale: string, details?: unknown): ToolDisplayInfo {
   const normalizedName = (toolName || '').trim();
+  if (normalizedName === 'write' && isNewFileWriteResult(details)) {
+    return {
+      label: locale.startsWith('de') ? 'Datei erstellt' : 'Created a file',
+      tone: 'fileCreate',
+    };
+  }
+
   const display = normalizedName ? TOOL_DISPLAY[normalizedName] : undefined;
   if (display) {
     return {

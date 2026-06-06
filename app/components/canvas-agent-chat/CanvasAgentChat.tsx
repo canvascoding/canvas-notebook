@@ -35,6 +35,7 @@ import {
   WandSparkles,
   Clapperboard,
   BriefcaseBusiness,
+  FilePlus,
   FileText,
   FolderTree,
   Settings,
@@ -482,6 +483,7 @@ function parseInitialPromptPayload(storedData: string): InitialPromptPayload | n
 const TOOL_TONE_ICONS: Record<ToolDisplayTone, React.ComponentType<{ className?: string }>> = {
   command: Terminal,
   file: FolderOpen,
+  fileCreate: FilePlus,
   search: Search,
   web: Globe,
   image: Paintbrush,
@@ -516,6 +518,10 @@ const TOOL_TONE_ICONS: Record<ToolDisplayTone, React.ComponentType<{ className?:
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
+}
+
+function getPiMessageDetails(piMessage?: AgentMessage | null): unknown {
+  return isRecord(piMessage) ? piMessage.details : undefined;
 }
 
 function isTextPart(value: unknown): value is { type: 'text'; text: string } {
@@ -2187,7 +2193,7 @@ function ToolCallPill({
   const locale = useLocale();
   const isMobile = useIsMobile();
   const [copied, setCopied] = useState(false);
-  const display = getToolDisplayInfo(message.toolName, locale);
+  const display = getToolDisplayInfo(message.toolName, locale, getPiMessageDetails(message.piMessage));
   const Icon = TOOL_TONE_ICONS[display.tone] || TOOL_TONE_ICONS.default;
   const isRunning = message.status === 'sending' || message.status === 'aborting';
   const isError = message.status === 'error';
@@ -2335,7 +2341,7 @@ function RunStepItem({
   const locale = useLocale();
   const isTool = message.role === 'toolResult';
   const isAssistant = message.role === 'assistant';
-  const display = isTool ? getToolDisplayInfo(message.toolName, locale) : null;
+  const display = isTool ? getToolDisplayInfo(message.toolName, locale, getPiMessageDetails(message.piMessage)) : null;
   const Icon = display ? (TOOL_TONE_ICONS[display.tone] || TOOL_TONE_ICONS.default) : MessageStepIcon;
   const title = isTool ? (display?.label || message.toolName || t('tool')) : isAssistant ? t('assistant') : t('system');
   const bodyContent =

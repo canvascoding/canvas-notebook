@@ -331,8 +331,11 @@ async function main() {
     path: 'notes/new.md',
     content: '# New File\n\n| A | B |\n| --- | --- |\n| 1 | 2 |\n',
   });
-  assert.match(getText(writeResult), /Updated file: notes\/new\.md/);
+  assert.match(getText(writeResult), /Created file: notes\/new\.md/);
   assert.match(getText(writeResult), /Snapshot: /);
+  const writeDetails = writeResult.details as { beforeSha256: string | null; snapshot?: { existed?: boolean } | null };
+  assert.equal(writeDetails.beforeSha256, null);
+  assert.equal(writeDetails.snapshot?.existed, false);
 
   await fs.mkdir(path.join(workspaceDir, 'bulk-src', 'nested'), { recursive: true });
   await fs.writeFile(path.join(workspaceDir, 'bulk-src', 'nested', 'a.txt'), 'alpha\n', 'utf8');
