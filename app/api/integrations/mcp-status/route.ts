@@ -23,6 +23,15 @@ async function requireSession(request: NextRequest) {
   return null;
 }
 
+function getRequestOrigin(request: NextRequest): string {
+  const forwardedHost = request.headers.get('x-forwarded-host');
+  const forwardedProto = request.headers.get('x-forwarded-proto');
+  const proto = (forwardedProto || request.nextUrl.protocol.replace(/:$/u, '') || 'http').split(',')[0];
+  const host = forwardedHost || request.headers.get('host');
+  if (host) return `${proto}://${host.split(',')[0]}`;
+  return request.nextUrl.origin;
+}
+
 export async function GET(request: NextRequest) {
   const unauthorized = await requireSession(request);
   if (unauthorized) return unauthorized;
@@ -45,7 +54,7 @@ export async function GET(request: NextRequest) {
     }
 
     const [oauth, direct, icons] = await Promise.all([
-      Promise.all(runtime.servers.map((server) => getMcpOAuthStatus(server.name))),
+      Promise.all(runtime.servers.map((server) => getMcpOAuthStatus(server.name, getRequestOrigin(request)))),
       buildDirectMcpTools(),
       refreshMcpServerIcons(),
     ]);

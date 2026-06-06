@@ -152,17 +152,29 @@ async function main() {
 
     const productionStarted = await startMcpOAuth('remote', 'https://canvas.example.com');
     const productionAuthorizationUrl = new URL(productionStarted.authorizationUrl);
-    assert.equal(productionAuthorizationUrl.searchParams.get('redirect_uri'), 'http://localhost:3000/api/mcp/oauth/callback');
-    assert.equal(registrationCalls, 1);
+    assert.equal(productionAuthorizationUrl.searchParams.get('redirect_uri'), 'https://canvas.example.com/api/mcp/oauth/callback');
+    assert.equal(registrationCalls, 2);
+
+    let status = await getMcpOAuthStatus('remote', 'https://canvas.example.com');
+    assert.equal(status.redirectUri, 'https://canvas.example.com/api/mcp/oauth/callback');
 
     delete process.env.BASE_URL;
     const publicStarted = await startMcpOAuth('remote', 'https://canvas.example.com');
     const publicAuthorizationUrl = new URL(publicStarted.authorizationUrl);
     assert.equal(publicAuthorizationUrl.searchParams.get('redirect_uri'), 'https://canvas.example.com/api/mcp/oauth/callback');
     assert.equal(registrationCalls, 2);
+
+    process.env.MCP_OAUTH_BASE_URL = 'https://mcp-callback.example.com';
+    const overrideStarted = await startMcpOAuth('remote', 'https://canvas.example.com');
+    const overrideAuthorizationUrl = new URL(overrideStarted.authorizationUrl);
+    assert.equal(overrideAuthorizationUrl.searchParams.get('redirect_uri'), 'https://mcp-callback.example.com/api/mcp/oauth/callback');
+    assert.equal(registrationCalls, 3);
+    delete process.env.MCP_OAUTH_BASE_URL;
+
     assert.deepEqual(registeredRedirectUris, [
       'http://localhost:3000/api/mcp/oauth/callback',
       'https://canvas.example.com/api/mcp/oauth/callback',
+      'https://mcp-callback.example.com/api/mcp/oauth/callback',
     ]);
     process.env.BASE_URL = 'http://localhost:3000';
 
@@ -171,7 +183,7 @@ async function main() {
     assert.equal(token.refreshToken, 'refresh-token-1');
     assert.equal(await modeOf(getOAuthTokenPath('remote')), 0o600);
 
-    let status = await getMcpOAuthStatus('remote');
+    status = await getMcpOAuthStatus('remote');
     assert.equal(status.authorized, true);
 
     await new Promise((resolve) => setTimeout(resolve, 1100));

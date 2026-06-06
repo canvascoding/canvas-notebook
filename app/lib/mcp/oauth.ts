@@ -64,6 +64,7 @@ export type McpOAuthStatus = {
   authorized: boolean;
   requiresAuth: boolean;
   tokenPath: string;
+  redirectUri: string | null;
   expiresAt: string | null;
   scope: string | null;
   reason?: string;
@@ -164,8 +165,14 @@ function getOAuthConfig(serverConfig: McpServerConfig): OAuthServerConfig | null
 }
 
 function getOriginFromRequest(requestOrigin: string | null | undefined): string {
-  const configured = process.env.BASE_URL || process.env.APP_BASE_URL;
-  return (configured || requestOrigin || 'http://localhost:3000').replace(/\/+$/u, '');
+  const configured = process.env.MCP_OAUTH_BASE_URL;
+  const fallback = process.env.BASE_URL || process.env.APP_BASE_URL;
+  return (configured || requestOrigin || fallback || 'http://localhost:3000').replace(/\/+$/u, '');
+}
+
+function getRedirectUri(oauth: OAuthServerConfig, requestOrigin: string | null | undefined): string {
+  const origin = getOriginFromRequest(requestOrigin);
+  return oauth.redirectUri || `${origin}/api/mcp/oauth/callback`;
 }
 
 async function readAuthorizationServerMetadataUrl(metadataUrl: string): Promise<OAuthEndpoints> {
@@ -363,7 +370,7 @@ async function resolveServerForOAuth(serverName: string): Promise<{ serverConfig
   return { serverConfig, oauth, configHash: hashMcpServerConfig(serverConfig) };
 }
 
-export async function getMcpOAuthStatus(serverName: string): Promise<McpOAuthStatus> {
+export async function getMcpOAuthStatus(serverName: string, requestOrigin?: string | null): Promise<McpOAuthStatus> {
   try {
     const config = await readMcpConfig();
     const serverConfig = config.mcpServers[serverName];
@@ -379,6 +386,7 @@ export async function getMcpOAuthStatus(serverName: string): Promise<McpOAuthSta
         requiresAuth: false,
         authorized: false,
         tokenPath: getOAuthTokenPath(serverName),
+        redirectUri: null,
         expiresAt: null,
         scope: null,
       };
@@ -388,12 +396,14 @@ export async function getMcpOAuthStatus(serverName: string): Promise<McpOAuthSta
     const token = await readJsonIfExists<OAuthTokenRecord>(getOAuthTokenPath(serverName));
     const serverUrl = typeof serverConfig.url === 'string' ? serverConfig.url : undefined;
     const bound = Boolean(token && token.configHash === configHash && (!serverUrl || token.serverUrl === serverUrl));
+    const redirectUri = getRedirectUri(oauth, requestOrigin);
     return {
       serverName,
       configured: true,
       requiresAuth: true,
       authorized: bound,
       tokenPath: getOAuthTokenPath(serverName),
+      redirectUri,
       expiresAt: bound ? token?.expiresAt || null : null,
       scope: bound ? token?.scope || null : null,
       reason: token && !bound ? 'Stored token does not match the current server config.' : undefined,
@@ -405,6 +415,7 @@ export async function getMcpOAuthStatus(serverName: string): Promise<McpOAuthSta
       requiresAuth: false,
       authorized: false,
       tokenPath: getOAuthTokenPath(serverName),
+      redirectUri: null,
       expiresAt: null,
       scope: null,
       reason: error instanceof Error ? error.message : 'OAuth status unavailable.',
@@ -414,8 +425,7 @@ export async function getMcpOAuthStatus(serverName: string): Promise<McpOAuthSta
 
 export async function startMcpOAuth(serverName: string, requestOrigin?: string | null): Promise<McpOAuthStartResult> {
   const { serverConfig, oauth, configHash } = await resolveServerForOAuth(serverName);
-  const origin = getOriginFromRequest(requestOrigin);
-  const redirectUri = oauth.redirectUri || `${origin}/api/mcp/oauth/callback`;
+  const redirectUri = getRedirectUri(oauth, requestOrigin);
   const endpoints = await resolveOAuthEndpoints(oauth, serverConfig);
   const client = await resolveClient(serverName, oauth, redirectUri, endpoints.registrationUrl);
   const pkce = createPkcePair();
