@@ -9,6 +9,22 @@ export function toWorkspaceMediaUrl(filePath: string) {
   return `/api/media/${encodePathSegments(filePath.replace(/^\/+/, ''))}`;
 }
 
+export function toUploadMediaUrl(fileId: string) {
+  return `/api/files/${encodeURIComponent(fileId)}`;
+}
+
+export function toUploadPreviewUrl(fileId: string, width: number, options: PreviewUrlOptions = {}) {
+  const params = new URLSearchParams({
+    w: String(width),
+  });
+
+  if (options.preset && options.preset !== 'default') {
+    params.set('preset', options.preset);
+  }
+
+  return `/api/files/${encodeURIComponent(fileId)}/preview?${params.toString()}`;
+}
+
 export function toMediaUrl(filePath: string) {
   const encodedPath = encodePathSegments(filePath);
   

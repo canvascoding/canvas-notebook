@@ -269,7 +269,7 @@ test.describe('PI Chat E2E', () => {
     await context.close();
   });
 
-  test('should render persisted upload references as attachment chips without metadata duplication', async ({ page }) => {
+  test('should render persisted upload references as preview attachments without metadata duplication', async ({ page }) => {
     const sessionId = 'sess-attachment-history';
     const createdAt = new Date().toISOString();
     const imageId = 'reference---mock.png';
@@ -394,6 +394,17 @@ contentKind: document
       });
     });
 
+    await page.route(/\/api\/files\/[^/]+\/preview\?.*$/, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'image/png',
+        body: Buffer.from(
+          'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=',
+          'base64',
+        ),
+      });
+    });
+
     setupMockWebSocket(page, { sessionId, sendEventsAfterSendMessage: false });
 
     await page.goto(`/chat?session=${encodeURIComponent(sessionId)}`);
@@ -404,6 +415,7 @@ contentKind: document
     await expect(userMessage).not.toContainText('Agent-Hinweis');
     await expect(userMessage.getByTestId('chat-message-attachment')).toHaveCount(2);
     await expect(userMessage.getByTestId('chat-message-attachment').nth(0)).toContainText('reference.png');
+    await expect(userMessage.getByTestId('chat-message-attachment').nth(0).locator('img')).toHaveAttribute('src', new RegExp(`/api/files/${imageId}/preview\\?`));
     await expect(userMessage.getByTestId('chat-message-attachment').nth(1)).toContainText('briefing.pdf');
   });
 

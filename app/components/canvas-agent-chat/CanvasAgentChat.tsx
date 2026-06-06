@@ -86,7 +86,7 @@ import { notifyChatFileReferenceOpened } from '@/app/lib/chat/file-reference-eve
 import { extractStudioImageMediaUrls, rewriteRelativeStudioImageMarkdown } from '@/app/lib/chat/studio-image-markdown';
 import { validateFileExists } from '@/app/lib/chat/validate-file-paths';
 import { getFileIconComponent } from '@/app/lib/files/file-icons';
-import { toMediaUrl, toWorkspaceMediaUrl } from '@/app/lib/utils/media-url';
+import { toMediaUrl, toPreviewUrl, toUploadMediaUrl, toUploadPreviewUrl, toWorkspaceMediaUrl } from '@/app/lib/utils/media-url';
 import { useFileStore } from '@/app/store/file-store';
 import { Link } from '@/i18n/navigation';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -128,13 +128,17 @@ import { DEFAULT_AGENT_ID } from '@/app/lib/channels/constants';
 interface Attachment {
   name: string;
   contentKind: 'image' | 'document';
-  // File ID for accessing via /api/files/[id]
+  // Upload file ID or stable attachment key.
   id: string;
   mimeType?: string;
   // document category
   category?: string;
   // Optional: absolute file path for direct server-side reading (studio outputs, etc.)
   filePath?: string;
+  // Lightweight image thumbnail. Chat UI must use this instead of loading originals.
+  previewUrl?: string;
+  // Original media URL, used only for explicit open/zoom actions.
+  mediaUrl?: string;
 }
 
 interface ChatMessage {
@@ -216,9 +220,11 @@ interface ChatEvent {
   args?: unknown;
   result?: {
     content?: unknown[];
+    details?: unknown;
   };
   partialResult?: {
     content?: unknown[];
+    details?: unknown;
   };
   error?: string;
   messages?: AgentMessage[];
@@ -405,6 +411,18 @@ function normalizeInitialPromptAgentId(value: unknown): string | null {
   return MANAGED_AGENT_ID_PATTERN.test(normalized) ? normalized : null;
 }
 
+function withDerivedAttachmentPreview(attachment: Attachment): Attachment {
+  if (attachment.contentKind !== 'image' || !attachment.id) {
+    return attachment;
+  }
+
+  return {
+    ...attachment,
+    previewUrl: attachment.previewUrl || toUploadPreviewUrl(attachment.id, 192, { preset: 'mini' }),
+    mediaUrl: attachment.mediaUrl || toUploadMediaUrl(attachment.id),
+  };
+}
+
 function parseInitialPromptAttachment(value: unknown): Attachment | null {
   if (!isRecord(value)) {
     return null;
@@ -420,14 +438,16 @@ function parseInitialPromptAttachment(value: unknown): Attachment | null {
     return null;
   }
 
-  return {
+  return withDerivedAttachmentPreview({
     name,
     id,
     contentKind,
     mimeType: typeof value.mimeType === 'string' ? value.mimeType : undefined,
     category: typeof value.category === 'string' ? value.category : undefined,
     filePath: typeof value.filePath === 'string' ? value.filePath : undefined,
-  };
+    previewUrl: typeof value.previewUrl === 'string' ? value.previewUrl : undefined,
+    mediaUrl: typeof value.mediaUrl === 'string' ? value.mediaUrl : undefined,
+  });
 }
 
 function parseInitialPromptPayload(storedData: string): InitialPromptPayload | null {
@@ -559,6 +579,45 @@ function resolveMarkdownImageSrc(src: string): string {
   }
 
   return trimmed;
+}
+
+function decodeMediaPath(value: string): string {
+  return value
+    .split('/')
+    .map((segment) => {
+      try {
+        return decodeURIComponent(segment);
+      } catch {
+        return segment;
+      }
+    })
+    .join('/');
+}
+
+function resolvePreviewSrcFromMediaUrl(mediaUrl: string, width = 640): string {
+  if (mediaUrl.startsWith('/api/files/')) {
+    const fileId = mediaUrl.slice('/api/files/'.length).split(/[?#]/, 1)[0];
+    if (fileId && !fileId.includes('/')) {
+      return toUploadPreviewUrl(decodeAttachmentId(fileId), width, { preset: 'mini' });
+    }
+  }
+
+  if (mediaUrl.startsWith('/api/media/')) {
+    const filePath = decodeMediaPath(mediaUrl.slice('/api/media/'.length).split(/[?#]/, 1)[0] || '');
+    return filePath ? toPreviewUrl(filePath, width, { preset: 'mini' }) : mediaUrl;
+  }
+
+  if (mediaUrl.startsWith('/media/')) {
+    const filePath = decodeMediaPath(mediaUrl.slice('/media/'.length).split(/[?#]/, 1)[0] || '');
+    return filePath ? toPreviewUrl(filePath, width, { preset: 'mini' }) : mediaUrl;
+  }
+
+  if (mediaUrl.startsWith('/api/studio/media/')) {
+    const studioPath = decodeMediaPath(mediaUrl.slice('/api/studio/media/'.length).split(/[?#]/, 1)[0] || '');
+    return studioPath ? toPreviewUrl(studioPath, width, { preset: 'mini' }) : mediaUrl;
+  }
+
+  return mediaUrl;
 }
 
 function getRecentStudioImageMediaUrls(messages: ChatMessage[], messageIndex: number): string[] {
@@ -981,29 +1040,41 @@ function buildPromptContent(text: string, attachments: Attachment[]): UserPiCont
   }
 
   for (const attachment of attachments) {
-    const category = resolveAttachmentCategory(attachment);
-    const containerFilePath = attachment.filePath || buildAttachmentContainerPath(attachment);
+    const displayAttachment = withDerivedAttachmentPreview(attachment);
+    const category = resolveAttachmentCategory(displayAttachment);
+    const containerFilePath = displayAttachment.filePath || buildAttachmentContainerPath(displayAttachment);
+    const metadataLines = [
+      `containerFilePath: ${containerFilePath}`,
+      `fileId: ${displayAttachment.id}`,
+      `mimeType: ${displayAttachment.mimeType || 'application/octet-stream'}`,
+      `category: ${category}`,
+      `contentKind: ${displayAttachment.contentKind}`,
+    ];
+
+    if (displayAttachment.previewUrl) {
+      metadataLines.push(`previewUrl: ${displayAttachment.previewUrl}`);
+    }
+
+    if (displayAttachment.mediaUrl) {
+      metadataLines.push(`mediaUrl: ${displayAttachment.mediaUrl}`);
+    }
 
     content.push({
       type: 'text',
-      text: `--- Attachment: ${attachment.name} ---
-containerFilePath: ${containerFilePath}
-fileId: ${attachment.id}
-mimeType: ${attachment.mimeType || 'application/octet-stream'}
-category: ${category}
-contentKind: ${attachment.contentKind}
+      text: `--- Attachment: ${displayAttachment.name} ---
+${metadataLines.join('\n')}
 
 [Agent-Hinweis: Verwende containerFilePath, wenn du die Datei per Tool lesen, kopieren, verschieben oder im Workspace organisieren sollst.]
---- Ende Attachment: ${attachment.name} ---`,
+--- Ende Attachment: ${displayAttachment.name} ---`,
     });
 
-    if (attachment.contentKind === 'image') {
+    if (displayAttachment.contentKind === 'image') {
       // Images: Use API URL (will be converted to Base64 by message-normalization.ts)
       // This keeps the existing image handling intact
       content.push({
         type: 'image',
-        data: `/api/files/${encodeURIComponent(attachment.id)}`,
-        mimeType: attachment.mimeType!,
+        data: toUploadMediaUrl(displayAttachment.id),
+        mimeType: displayAttachment.mimeType!,
       });
     }
   }
@@ -1037,14 +1108,16 @@ function parseAttachmentBlocks(text: string): Attachment[] {
       continue;
     }
 
-    attachments.push({
+    attachments.push(withDerivedAttachmentPreview({
       name,
       id,
       contentKind,
       mimeType: getAttachmentBlockField(block, 'mimeType'),
       category: getAttachmentBlockField(block, 'category'),
       filePath: getAttachmentBlockField(block, 'containerFilePath'),
-    });
+      previewUrl: getAttachmentBlockField(block, 'previewUrl'),
+      mediaUrl: getAttachmentBlockField(block, 'mediaUrl'),
+    }));
   }
 
   return attachments;
@@ -1065,11 +1138,13 @@ function decodeAttachmentId(value: string): string {
   }
 }
 
-function getImagePartAttachmentId(part: { data: string }): string {
-  const rawId = part.data.startsWith('/api/files/')
-    ? part.data.slice('/api/files/'.length)
-    : part.data;
-  return decodeAttachmentId(rawId);
+function getImagePartAttachmentId(part: { data: string }): string | null {
+  if (!part.data.startsWith('/api/files/')) {
+    return null;
+  }
+
+  const rawId = part.data.slice('/api/files/'.length).split(/[?#]/, 1)[0];
+  return rawId ? decodeAttachmentId(rawId) : null;
 }
 
 function dedupeAttachments(attachments: Attachment[]): Attachment[] {
@@ -1089,6 +1164,8 @@ function dedupeAttachments(attachments: Attachment[]): Attachment[] {
       mimeType: existing.mimeType || attachment.mimeType,
       category: existing.category || attachment.category,
       filePath: existing.filePath || attachment.filePath,
+      previewUrl: existing.previewUrl || attachment.previewUrl,
+      mediaUrl: existing.mediaUrl || attachment.mediaUrl,
     });
   }
 
@@ -1183,16 +1260,21 @@ function extractImageAttachments(content: unknown, metadataAttachments: Attachme
   const attachments = content.reduce<Attachment[]>((result, part, index) => {
     if (isImagePart(part)) {
       const imageId = getImagePartAttachmentId(part);
+      if (!imageId) {
+        return result;
+      }
       const metadata = metadataById.get(imageId);
       
-      result.push({
+      result.push(withDerivedAttachmentPreview({
         name: metadata?.name || `attachment-${index + 1}`,
         contentKind: 'image',
         id: imageId,
         mimeType: metadata?.mimeType || part.mimeType,
         category: metadata?.category || 'image',
         filePath: metadata?.filePath,
-      });
+        previewUrl: metadata?.previewUrl,
+        mediaUrl: metadata?.mediaUrl,
+      }));
     }
     return result;
   }, []);
@@ -1206,6 +1288,122 @@ function extractMessageAttachments(content: unknown): Attachment[] | undefined {
   const imageAttachments = extractImageAttachments(content, metadataAttachments);
   const attachments = dedupeAttachments([...metadataAttachments, ...imageAttachments]);
   return attachments.length > 0 ? attachments : undefined;
+}
+
+const IMAGE_PREVIEW_EXTENSIONS = new Set(['avif', 'bmp', 'gif', 'heic', 'heif', 'jpeg', 'jpg', 'png', 'svg', 'tif', 'tiff', 'webp']);
+
+function getPathBasename(value: string): string {
+  const cleanPath = value.split(/[?#]/, 1)[0].replace(/\\/g, '/');
+  return cleanPath.split('/').filter(Boolean).pop() || value;
+}
+
+function getImageFileExtension(value: string): string {
+  const basename = getPathBasename(value);
+  const dotIndex = basename.lastIndexOf('.');
+  return dotIndex === -1 ? '' : basename.slice(dotIndex + 1).toLowerCase();
+}
+
+function isPreviewableImagePath(value: string): boolean {
+  return IMAGE_PREVIEW_EXTENSIONS.has(getImageFileExtension(value));
+}
+
+function getUploadImageIdFromPath(value: string): string | null {
+  const normalized = value.replace(/\\/g, '/').split(/[?#]/, 1)[0];
+  const apiFileMatch = normalized.match(/^\/api\/files\/([^/]+)$/);
+  if (apiFileMatch?.[1]) {
+    return decodeAttachmentId(apiFileMatch[1]);
+  }
+
+  const uploadMatch = normalized.match(/(?:^|\/)user-uploads\/image\/([^/]+)$/);
+  if (uploadMatch?.[1]) {
+    return uploadMatch[1];
+  }
+
+  const storagePathMatch = normalized.match(/^image\/([^/]+)$/);
+  if (storagePathMatch?.[1]) {
+    return storagePathMatch[1];
+  }
+
+  return null;
+}
+
+function normalizeStudioOutputPath(value: string): string | null {
+  const normalized = value.replace(/\\/g, '/').split(/[?#]/, 1)[0];
+  const apiStudioPrefix = '/api/studio/media/';
+  if (normalized.startsWith(apiStudioPrefix)) {
+    return decodeMediaPath(normalized.slice(apiStudioPrefix.length));
+  }
+
+  const studioOutputMatch = normalized.match(/(?:^|\/)studio\/outputs\/(.+)$/);
+  if (studioOutputMatch?.[1]) {
+    return `studio/outputs/${studioOutputMatch[1]}`;
+  }
+
+  return null;
+}
+
+function createImageAttachmentFromFileReference(value: string, fallbackName?: string): Attachment | null {
+  const uploadId = getUploadImageIdFromPath(value);
+  if (uploadId && isPreviewableImagePath(uploadId)) {
+    return {
+      name: fallbackName || getPathBasename(uploadId),
+      contentKind: 'image',
+      id: uploadId,
+      category: 'image',
+      previewUrl: toUploadPreviewUrl(uploadId, 192, { preset: 'mini' }),
+      mediaUrl: toUploadMediaUrl(uploadId),
+      filePath: value,
+    };
+  }
+
+  const studioPath = normalizeStudioOutputPath(value);
+  if (studioPath && isPreviewableImagePath(studioPath)) {
+    return {
+      name: fallbackName || getPathBasename(studioPath),
+      contentKind: 'image',
+      id: `studio:${studioPath}`,
+      category: 'image',
+      previewUrl: toPreviewUrl(studioPath, 192, { preset: 'mini' }),
+      mediaUrl: toMediaUrl(studioPath),
+      filePath: value,
+    };
+  }
+
+  if (!isPreviewableImagePath(value)) {
+    return null;
+  }
+
+  const normalizedWorkspacePath = normalizeChatFilePath(value);
+  return {
+    name: fallbackName || getPathBasename(value),
+    contentKind: 'image',
+    id: `workspace:${normalizedWorkspacePath}`,
+    category: 'image',
+    previewUrl: toPreviewUrl(normalizedWorkspacePath, 192, { preset: 'mini' }),
+    mediaUrl: toWorkspaceMediaUrl(normalizedWorkspacePath),
+    filePath: value,
+  };
+}
+
+function extractToolResultImageAttachments(piMessage?: AgentMessage | null): Attachment[] {
+  if (!piMessage || piMessage.role !== 'toolResult') {
+    return [];
+  }
+
+  const record = piMessage as unknown as Record<string, unknown>;
+  const details = record.details;
+  if (!isRecord(details)) {
+    return [];
+  }
+
+  const type = typeof details.type === 'string' ? details.type : '';
+  const filePath = typeof details.filePath === 'string' ? details.filePath : '';
+  if (type !== 'image' || !filePath) {
+    return [];
+  }
+
+  const attachment = createImageAttachmentFromFileReference(filePath);
+  return attachment ? [attachment] : [];
 }
 
 function getSessionDisplayLabel(sessionTitle: string | null, fallbackTitle: string): string {
@@ -1818,16 +2016,17 @@ function MarkdownMessage({
     img: ({ src, alt }: React.ImgHTMLAttributes<HTMLImageElement>) => {
       if (typeof src !== 'string' || !src) return null;
       const resolvedSrc = resolveMarkdownImageSrc(src);
+      const previewSrc = resolvePreviewSrcFromMediaUrl(resolvedSrc);
       const clickable = Boolean(onMediaClick);
       return (
         <button
           type="button"
-          className={`my-3 block overflow-hidden rounded-2xl border border-border/70 bg-background/70 ${clickable ? 'cursor-pointer transition hover:border-primary/40' : 'cursor-default'}`}
+          className={`my-3 block overflow-hidden rounded-md border border-border/70 bg-background/70 ${clickable ? 'cursor-pointer transition hover:border-primary/40' : 'cursor-default'}`}
           onClick={() => { if (onMediaClick) onMediaClick(resolvedSrc); }}
           disabled={!clickable}
         >
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={resolvedSrc} alt={alt || ''} className="max-h-[320px] w-auto max-w-full object-contain" />
+          <img src={previewSrc} alt={alt || ''} className="max-h-[320px] w-auto max-w-full object-contain" loading="lazy" decoding="async" />
         </button>
       );
     },
@@ -1874,6 +2073,84 @@ function MarkdownMessage({
       >
         {content}
       </ReactMarkdown>
+    </div>
+  );
+}
+
+function AttachmentPreviewItem({
+  attachment,
+  context,
+  onRemove,
+  onMediaClick,
+}: {
+  attachment: Attachment;
+  context: 'message' | 'composer';
+  onRemove?: () => void;
+  onMediaClick?: (mediaUrl: string) => void;
+}) {
+  const isImage = attachment.contentKind === 'image' && Boolean(attachment.previewUrl);
+  const mediaUrl = attachment.mediaUrl || (attachment.contentKind === 'image' && attachment.id ? toUploadMediaUrl(attachment.id) : undefined);
+  const canOpen = Boolean(isImage && mediaUrl && onMediaClick);
+  const wrapperClass = context === 'composer'
+    ? 'flex shrink-0 items-center gap-2 border border-border bg-accent/70 p-1 px-2 text-xs'
+    : 'flex max-w-full items-center gap-2 border border-border bg-background/50 p-1.5 px-2.5 text-[10px]';
+
+  if (!isImage) {
+    return (
+      <div data-testid={context === 'message' ? 'chat-message-attachment' : undefined} className={wrapperClass} title={attachment.name}>
+        <FileText className={context === 'composer' ? 'h-3.5 w-3.5 shrink-0' : 'h-3 w-3 shrink-0'} />
+        <span className="min-w-0 truncate">{attachment.name}</span>
+        {onRemove ? (
+          <button type="button" onClick={onRemove} className="shrink-0 hover:text-destructive" aria-label={`Remove ${attachment.name}`}>
+            <X className="h-3 w-3" />
+          </button>
+        ) : null}
+      </div>
+    );
+  }
+
+  const imageBoxClass = context === 'composer'
+    ? 'h-12 w-16'
+    : 'h-20 w-28';
+
+  return (
+    <div
+      data-testid={context === 'message' ? 'chat-message-attachment' : undefined}
+      data-attachment-kind="image"
+      className={`${wrapperClass} ${context === 'message' ? 'max-w-[220px]' : 'max-w-[240px]'}`}
+      title={attachment.name}
+    >
+      <button
+        type="button"
+        disabled={!canOpen}
+        onClick={() => {
+          if (canOpen && mediaUrl) {
+            onMediaClick?.(mediaUrl);
+          }
+        }}
+        className={`${imageBoxClass} shrink-0 overflow-hidden rounded-md border border-border/70 bg-muted ${canOpen ? 'cursor-pointer transition hover:border-primary/40' : 'cursor-default'}`}
+      >
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={attachment.previewUrl}
+          alt={attachment.name}
+          className="h-full w-full object-cover"
+          loading="lazy"
+          decoding="async"
+        />
+      </button>
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-1.5">
+          <ImageIcon className={context === 'composer' ? 'h-3.5 w-3.5 shrink-0' : 'h-3 w-3 shrink-0'} />
+          <span className="min-w-0 truncate">{attachment.name}</span>
+        </div>
+        <div className="mt-0.5 truncate text-[10px] text-muted-foreground">Preview</div>
+      </div>
+      {onRemove ? (
+        <button type="button" onClick={onRemove} className="shrink-0 hover:text-destructive" aria-label={`Remove ${attachment.name}`}>
+          <X className="h-3 w-3" />
+        </button>
+      ) : null}
     </div>
   );
 }
@@ -3147,8 +3424,9 @@ export default function CanvasAgentChat({
     toolArgs?: string;
     piMessage?: AgentMessage;
     type?: ChatMessage['type'];
+    attachments?: Attachment[];
   }) => {
-    const { assistantMessageId, toolCallId, toolName, toolArgs, content, status, piMessage, type } = params;
+    const { assistantMessageId, toolCallId, toolName, toolArgs, content, status, piMessage, type, attachments } = params;
     const knownMessageId = toolCallId ? toolMessageIdsRef.current[toolCallId] : undefined;
     const messageId = knownMessageId || `tool-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
@@ -3168,6 +3446,7 @@ export default function CanvasAgentChat({
         toolName,
         toolArgs,
         piMessage,
+        attachments,
         type: type || 'tool_result',
         isCollapsed: status === 'sent',
         autoCollapsedAtEnd: status === 'sent',
@@ -3191,6 +3470,7 @@ export default function CanvasAgentChat({
         toolArgs: toolArgs ?? prev[index].toolArgs,
         toolName: toolName ?? prev[index].toolName,
         piMessage: piMessage ?? prev[index].piMessage,
+        attachments: attachments ?? prev[index].attachments,
         type: type || prev[index].type,
         isCollapsed: status === 'sent' ? true : (status === 'sending' ? false : prev[index].isCollapsed),
         autoCollapsedAtEnd: status === 'sent' ? true : prev[index].autoCollapsedAtEnd,
@@ -3596,6 +3876,20 @@ export default function CanvasAgentChat({
 
     if (event.type === 'tool_execution_end') {
       const text = extractToolResultText(event.result?.content);
+      const resultDetails = event.result?.details;
+      const toolResultPiMessage = {
+        role: 'toolResult',
+        toolCallId: event.toolCallId,
+        toolName: event.toolName || t('tool'),
+        content: text ? [{ type: 'text', text }] : [],
+        details: resultDetails,
+        isError: false,
+        timestamp: Date.now(),
+      } as AgentMessage;
+      const resultAttachments = dedupeAttachments([
+        ...extractImageAttachments(event.result?.content),
+        ...extractToolResultImageAttachments(toolResultPiMessage),
+      ]);
       upsertToolMessage({
         assistantMessageId: currentAssistantIdRef.current,
         toolCallId: event.toolCallId,
@@ -3603,11 +3897,8 @@ export default function CanvasAgentChat({
         content: text,
         status: 'sent',
         type: 'tool_result',
-        piMessage: {
-          role: 'toolResult',
-          content: text ? [{ type: 'text', text }] : [],
-          timestamp: Date.now(),
-        } as AgentMessage,
+        piMessage: toolResultPiMessage,
+        attachments: resultAttachments.length > 0 ? resultAttachments : undefined,
       });
       return;
     }
@@ -3965,7 +4256,10 @@ export default function CanvasAgentChat({
     const resolvedContent = isAbortedAssistantPiMessage(rawMessage) && !content.trim()
       ? t('runStopped')
       : content;
-    const imageAttachments = extractImageAttachments(rawMessageContent);
+    const imageAttachments = dedupeAttachments([
+      ...extractImageAttachments(rawMessageContent),
+      ...extractToolResultImageAttachments(rawMessage),
+    ]);
     const messageAttachments = rawMessage.role === 'user'
       ? extractMessageAttachments(rawMessageContent)
       : imageAttachments.length > 0 ? imageAttachments : undefined;
@@ -4433,13 +4727,13 @@ export default function CanvasAgentChat({
         category: string;
       }) => {
         const isImage = uploadedFile.category === 'image';
-        return {
+        return withDerivedAttachmentPreview({
           name: uploadedFile.originalName,
           contentKind: isImage ? 'image' : 'document',
           id: uploadedFile.id,
           mimeType: uploadedFile.mimeType,
           category: uploadedFile.category,
-        };
+        });
       });
       
       setAttachments((prev) => [...prev, ...attachments]);
@@ -6102,12 +6396,12 @@ export default function CanvasAgentChat({
                   {message.attachments && message.attachments.length > 0 && (
                     <div className="mt-2 flex flex-wrap gap-2">
                       {message.attachments.map((attachment, index) => (
-                        <div key={index} data-testid="chat-message-attachment" className="flex items-center gap-1.5 border border-border bg-background/50 p-1.5 px-2.5 text-[10px]">
-                          {attachment.contentKind === 'image'
-                            ? <ImageIcon className="h-3 w-3" />
-                            : <FileText className="h-3 w-3" />}
-                          {attachment.name}
-                        </div>
+                        <AttachmentPreviewItem
+                          key={`${attachment.id || attachment.filePath || attachment.name}-${index}`}
+                          attachment={attachment}
+                          context="message"
+                          onMediaClick={onMediaClick}
+                        />
                       ))}
                     </div>
                   )}
@@ -6221,14 +6515,13 @@ export default function CanvasAgentChat({
             }`}
           >
             {attachments.map((attachment, index) => (
-              <div key={index} className="flex shrink-0 items-center gap-2 border border-border bg-accent/70 p-1 px-2 text-xs">
-                {attachment.contentKind === 'image'
-                  ? <ImageIcon className="h-3.5 w-3.5" />
-                  : <FileText className="h-3.5 w-3.5" />} {attachment.name}
-                <button type="button" onClick={() => removeAttachment(index)} className="hover:text-destructive">
-                  <X className="h-3 w-3" />
-                </button>
-              </div>
+              <AttachmentPreviewItem
+                key={`${attachment.id || attachment.filePath || attachment.name}-${index}`}
+                attachment={attachment}
+                context="composer"
+                onRemove={() => removeAttachment(index)}
+                onMediaClick={onMediaClick}
+              />
             ))}
           </div>
         )}
