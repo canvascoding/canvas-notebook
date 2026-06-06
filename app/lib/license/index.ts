@@ -2,6 +2,7 @@ import 'server-only';
 
 import { getControlPlaneLicenseBaseUrl, getLicenseInstanceId } from './instance';
 import { decodeLicenseJwt, verifyLicenseJwt } from './jwt';
+import { logLicenseInfoThrottled } from './logging';
 import { resolveLicensePublicKeys } from './public-key';
 import { loadStoredLicenseCert, saveLicenseCert } from './storage';
 import type { LicenseCert, LicenseStatus } from './types';
@@ -76,7 +77,7 @@ async function fetchManagedLicenseCert(instanceId: string): Promise<string | nul
   }
 
   try {
-    console.info(`${MANAGED_LOG_PREFIX} requesting managed license from control plane`, {
+    logLicenseInfoThrottled(MANAGED_LOG_PREFIX, 'requesting managed license from control plane', {
       instanceId,
       managedEnabled: process.env.CANVAS_MANAGED_SERVICES_ENABLED === 'true',
       hasInstanceToken: true,
@@ -100,7 +101,7 @@ async function fetchManagedLicenseCert(instanceId: string): Promise<string | nul
       });
       return null;
     }
-    console.info(`${MANAGED_LOG_PREFIX} resolved managed license from control plane`, {
+    logLicenseInfoThrottled(MANAGED_LOG_PREFIX, 'resolved managed license from control plane', {
       instanceId,
       status: response.status,
       controlPlaneHost: getControlPlaneHost(),
@@ -126,7 +127,7 @@ async function getManagedLicenseStatus(instanceId: string): Promise<LicenseStatu
     return null;
   }
   await saveLicenseCert(cert, payload);
-  console.info(`${MANAGED_LOG_PREFIX} managed license verified and stored`, {
+  logLicenseInfoThrottled(MANAGED_LOG_PREFIX, 'managed license verified and stored', {
     instanceId,
     plan: payload.plan,
     expiresAt: payload.exp ? new Date(payload.exp * 1000).toISOString() : null,
@@ -142,7 +143,7 @@ export async function getLicenseStatus(): Promise<LicenseStatus> {
     const payload = await verifyLicenseJwt(envCert, instanceId);
     if (payload) {
       await saveLicenseCert(envCert, payload);
-      console.info(`${LOG_PREFIX} resolved from env certificate`, {
+      logLicenseInfoThrottled(LOG_PREFIX, 'resolved from env certificate', {
         instanceId,
         plan: payload.plan,
         expiresAt: payload.exp ? new Date(payload.exp * 1000).toISOString() : null,
@@ -160,7 +161,7 @@ export async function getLicenseStatus(): Promise<LicenseStatus> {
   if (stored) {
     const payload = await verifyLicenseJwt(stored, instanceId);
     if (payload) {
-      console.info(`${LOG_PREFIX} resolved from stored certificate`, {
+      logLicenseInfoThrottled(LOG_PREFIX, 'resolved from stored certificate', {
         instanceId,
         plan: payload.plan,
         expiresAt: payload.exp ? new Date(payload.exp * 1000).toISOString() : null,
