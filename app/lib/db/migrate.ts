@@ -173,6 +173,8 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       completion_comment TEXT,
       follow_up_sent_at INTEGER,
       follow_up_error TEXT,
+      email_notification_sent_at INTEGER,
+      email_notification_error TEXT,
       archived_at INTEGER,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL,
@@ -744,6 +746,8 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     completion_comment: 'TEXT',
     follow_up_sent_at: 'INTEGER',
     follow_up_error: 'TEXT',
+    email_notification_sent_at: 'INTEGER',
+    email_notification_error: 'TEXT',
   });
 
   addColumns(sqlite, 'automation_runs', {

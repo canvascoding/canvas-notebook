@@ -6,6 +6,8 @@ import { todoCategories, todoFileLinks, todoItems, user } from '@/app/lib/db/sch
 import { DEFAULT_TODO_CATEGORY_NAME, getDefaultTodoCategoryKey } from '@/app/lib/todos/store';
 import { and, eq } from 'drizzle-orm';
 
+process.env.CANVAS_DISABLE_TODO_EMAIL_NOTIFICATIONS = 'true';
+
 async function main() {
   const userId = `human-todo-tool-${Date.now()}`;
   await db.insert(user).values({
