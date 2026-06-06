@@ -395,55 +395,79 @@ export async function renderMarpMarkdownToHtmlDocument(
   <style>
     html,
     body {
-      min-height: 100%;
+      width: 100%;
+      height: 100%;
+      max-width: 100%;
       margin: 0;
       background: #111827;
+      overflow-x: hidden;
     }
 
     body {
       box-sizing: border-box;
-      min-height: 100%;
+      min-width: 0;
+      overflow-x: hidden;
       overflow-y: auto;
+      overscroll-behavior: contain;
       padding: clamp(10px, 3vw, 28px);
       color: #111827;
       font-family: Arial, Helvetica, sans-serif;
+      -webkit-overflow-scrolling: touch;
+    }
+
+    *,
+    *::before,
+    *::after {
+      box-sizing: border-box;
     }
 
     .marpit {
       display: flex;
-      min-height: calc(100vh - clamp(20px, 6vw, 56px));
       width: 100%;
+      max-width: 100%;
+      min-width: 0;
+      min-height: 100%;
       flex-direction: column;
       align-items: center;
       gap: clamp(14px, 3vw, 28px);
+      overflow: visible;
     }
 
     .marp-slide-frame {
       display: grid;
-      width: min(100%, 1280px);
+      width: 100%;
+      max-width: 1280px;
+      min-width: 0;
       margin: 0;
       gap: 8px;
       justify-items: center;
+      overflow: visible;
     }
 
     .marp-slide-surface {
       display: flex;
       width: 100%;
-      overflow: hidden;
+      max-width: 100%;
+      min-width: 0;
+      overflow: visible;
       background: #fff;
       box-shadow: 0 20px 48px rgba(0, 0, 0, 0.32);
     }
 
     .marp-slide-surface > svg,
+    svg[data-marpit-svg],
     .marpit > svg {
       display: block;
-      width: 100%;
-      height: auto;
+      width: 100% !important;
+      max-width: 100% !important;
+      min-width: 0 !important;
+      height: auto !important;
+      flex: 0 0 auto;
       background: #fff;
     }
 
     .marpit > svg {
-      max-width: min(100%, 1280px);
+      max-width: min(100%, 1280px) !important;
       box-shadow: 0 20px 48px rgba(0, 0, 0, 0.32);
     }
 
@@ -455,16 +479,19 @@ export async function renderMarpMarkdownToHtmlDocument(
 
     @media (max-width: 720px) {
       body {
-        padding: 10px;
+        padding: max(8px, env(safe-area-inset-top)) max(8px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left));
       }
 
       .marpit {
-        min-height: calc(100vh - 20px);
-        gap: 14px;
+        gap: 12px;
       }
 
       .marp-slide-frame {
         gap: 6px;
+      }
+
+      .marp-slide-surface {
+        box-shadow: 0 10px 24px rgba(0, 0, 0, 0.28);
       }
 
       .marp-slide-caption {
