@@ -27,11 +27,11 @@ import { StudioPreview } from './create/StudioPreview';
 import { ReferencePickerDialog } from './create/ReferencePickerDialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { AudioLines, Sparkles, Layers, LayoutGrid, ArrowRight, Camera, Cpu, Home, Car, UtensilsCrossed, Sun, ImagePlus, Package, Play, ChevronDown, Crop } from 'lucide-react';
+import { AudioLines, Sparkles, Layers, LayoutGrid, ArrowRight, Camera, Cpu, Home, Car, UtensilsCrossed, Sun, ImagePlus, Package, Play, ChevronDown, Crop, Film, ImageIcon } from 'lucide-react';
 import { useStudioGenerationStore } from '@/app/store/studio-generation-store';
 import { cn } from '@/lib/utils';
-import Image from 'next/image';
 import { buildStudioGeneratePayload } from '../utils/studio-generate-payload';
+import { StudioMediaThumbnail } from './StudioMediaThumbnail';
 
 interface StartingPoint {
   id: string;
@@ -520,21 +520,24 @@ export function StudioDashboard() {
                       <AudioLines className="h-10 w-10" />
                     </div>
                   ) : output.type === 'video' ? (
-                    <video
-                      src={output.mediaUrl!}
-                      muted
-                      playsInline
-                      className="h-full w-full object-cover transition-transform group-hover:scale-105"
-                    />
+                    <StudioMediaThumbnail
+                      src={output.filePath ? toPreviewUrl(output.filePath, 480, { preset: 'mini' }) : null}
+                      alt={generation.prompt || 'Video output'}
+                      fallback={<Film className="h-8 w-8" />}
+                      skeletonIcon={<Film className="h-5 w-5" />}
+                      imageClassName="transition-transform duration-300 group-hover:scale-105"
+                    >
+                      <div className="absolute inset-0 flex items-center justify-center bg-black/20">
+                        <Play className="h-8 w-8 fill-white/90 text-white drop-shadow-lg" />
+                      </div>
+                    </StudioMediaThumbnail>
                   ) : (
-                    <Image
-                      src={toPreviewUrl(output.filePath!, 400, { preset: 'mini' })}
+                    <StudioMediaThumbnail
+                      src={output.filePath ? toPreviewUrl(output.filePath, 480, { preset: 'mini' }) : null}
                       alt={generation.prompt || 'Studio output'}
-                      className="h-full w-full object-cover transition-transform group-hover:scale-105"
-                      loading="lazy"
-                      width={400}
-                      height={400}
-                      unoptimized
+                      fallback={<ImageIcon className="h-8 w-8" />}
+                      skeletonIcon={<ImageIcon className="h-5 w-5" />}
+                      imageClassName="transition-transform duration-300 group-hover:scale-105"
                     />
                   )}
                   <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-transparent opacity-0 transition-opacity group-hover:opacity-100" />

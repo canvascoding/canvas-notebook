@@ -2,13 +2,12 @@
 
 import { memo } from 'react';
 
-/* eslint-disable @next/next/no-img-element */
-
 import { AudioLines, Film, ImageIcon, Play, Star } from 'lucide-react';
 import type { StudioGeneration, StudioGenerationOutput } from '../../types/generation';
 import { cn } from '@/lib/utils';
 import { toPreviewUrl } from '@/app/lib/utils/media-url';
 import { OutputHoverOverlay } from './OutputHoverOverlay';
+import { StudioMediaThumbnail } from '../StudioMediaThumbnail';
 
 interface OutputThumbnailProps {
   id: string;
@@ -100,25 +99,24 @@ export const OutputThumbnail = memo(function OutputThumbnail({
               </div>
             </div>
           ) : type === 'video' ? (
-            <div className="relative h-full w-full">
-              <img
-                className="h-full w-full object-cover"
-                src={toPreviewUrl(filePath, 400)}
-                alt={filePath}
-                loading="lazy"
-                decoding="async"
-              />
+            <StudioMediaThumbnail
+              src={filePath ? toPreviewUrl(filePath, 480, { preset: 'mini' }) : null}
+              alt={filePath}
+              fallback={<Film className="h-8 w-8" />}
+              skeletonIcon={<Film className="h-5 w-5" />}
+              imageClassName="transition-transform duration-300 group-hover:scale-[1.02]"
+            >
               <div className="absolute inset-0 flex items-center justify-center bg-black/25">
                 <Play className="h-10 w-10 text-white fill-white/90 drop-shadow-lg" />
               </div>
-            </div>
+            </StudioMediaThumbnail>
           ) : (
-            <img
-              className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.02]"
-              src={toPreviewUrl(filePath, 400, { preset: 'mini' })}
+            <StudioMediaThumbnail
+              src={filePath ? toPreviewUrl(filePath, 480, { preset: 'mini' }) : null}
               alt={filePath}
-              loading="lazy"
-              decoding="async"
+              fallback={<ImageIcon className="h-8 w-8" />}
+              skeletonIcon={<ImageIcon className="h-5 w-5" />}
+              imageClassName="transition-transform duration-300 group-hover:scale-[1.02]"
             />
           )
         ) : (

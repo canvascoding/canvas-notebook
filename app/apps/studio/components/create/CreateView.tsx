@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useTranslations } from 'next-intl';
-import { AlertTriangle, ExternalLink, KeyRound, Sparkles } from 'lucide-react';
+import { AlertTriangle, ExternalLink, FileVideo, ImageIcon, KeyRound, Sparkles } from 'lucide-react';
 import { Link } from '@/i18n/navigation';
 import { Button } from '@/components/ui/button';
 import { useStudioGeneration } from '../../hooks/useStudioGeneration';
@@ -23,13 +23,13 @@ import { PromptBar } from './PromptBar';
 import { ControlBar } from './ControlBar';
 import { ReferencePickerDialog } from './ReferencePickerDialog';
 import { BatchDeleteDialog } from './BatchDeleteDialog';
-import Image from 'next/image';
 import { getDefaultModelForProvider, getAspectRatiosForProvider, getVideoResolutionsForModel, getVideoDurationsForModel, getImageSizesForModel, normalizeGeminiImageModelId, type VideoResolution, type StudioVideoDuration } from '@/app/lib/integrations/image-generation-constants';
-import { toMediaUrl, toPreviewUrl, toWorkspaceMediaUrl } from '@/app/lib/utils/media-url';
+import { toPreviewUrl, toWorkspaceMediaUrl } from '@/app/lib/utils/media-url';
 import { useSetStudioChatContext } from '@/app/apps/studio/context/studio-chat-context';
 import { useStudioGenerationStore } from '@/app/store/studio-generation-store';
 import { buildStudioGeneratePayload } from '../../utils/studio-generate-payload';
 import { EMPTY_STUDIO_PROVIDER_CONFIG, type StudioProviderConfig } from '../../types/config';
+import { StudioMediaThumbnail } from '../StudioMediaThumbnail';
 
 const KIE_REFERRAL_URL = 'https://kie.ai?ref=3564e992e10640926d4f0b1620c3a79f';
 
@@ -168,19 +168,12 @@ function PreviewChip({ path, kind }: { path: string; kind: 'image' | 'video' }) 
   return (
       <div className="flex items-center gap-2 border border-border bg-background px-2 py-1.5 sm:py-1">
         <div className="relative h-12 w-16 sm:h-10 sm:w-14 overflow-hidden bg-muted flex-shrink-0">
-          {kind === 'image' ? (
-            <Image
-              src={toPreviewUrl(path, 200, { preset: 'mini' })}
-              alt={name}
-              fill
-              className="object-cover"
-              loading="lazy"
-              sizes="64px"
-              unoptimized
-            />
-          ) : (
-            <video src={toMediaUrl(path)} className="h-full w-full object-cover" muted />
-          )}
+          <StudioMediaThumbnail
+            src={toPreviewUrl(path, 200, { preset: 'mini' })}
+            alt={name}
+            fallback={kind === 'video' ? <FileVideo className="h-4 w-4" /> : <ImageIcon className="h-4 w-4" />}
+            skeletonIcon={kind === 'video' ? <FileVideo className="h-4 w-4" /> : <ImageIcon className="h-4 w-4" />}
+          />
         </div>
         <div className="min-w-0 flex-1">
           <p className="truncate text-xs font-medium">{name}</p>

@@ -22,6 +22,7 @@ import type { ConvertParams } from '@/app/components/shared/ImagePreprocessDialo
 import { ImageThumbnailIcon } from '@/app/components/shared/ImageThumbnailIcon';
 import { isHeicUploadFile, shouldPreprocessImageFile } from '@/app/lib/images/client-preprocess';
 import { ReferenceHoverCard } from './ReferenceHoverCard';
+import { StudioMediaThumbnail } from '../StudioMediaThumbnail';
 
 type Source = 'workspace' | 'studio' | 'upload' | 'urls';
 type MediaKind = 'image' | 'video' | 'audio';
@@ -166,36 +167,13 @@ function normalizeDownloadedReference(payload: unknown): ImageAsset {
 }
 
 function StudioAssetPreviewImage({ asset }: { asset: ImageAsset }) {
-  const [status, setStatus] = useState<'loading' | 'loaded' | 'error'>('loading');
-
   return (
-    <div className="relative h-full w-full overflow-hidden">
-      {status === 'loading' ? (
-        <div className="absolute inset-0 z-10 flex items-center justify-center bg-muted" aria-hidden="true">
-          <div className="absolute inset-0 animate-pulse bg-muted" />
-          <div className="relative h-8 w-8 animate-pulse rounded-md border border-border/70 bg-background/60" />
-        </div>
-      ) : null}
-      {status === 'error' ? (
-        <div className="flex h-full w-full items-center justify-center bg-muted">
-          <ImageIcon className="h-7 w-7 text-muted-foreground" />
-        </div>
-      ) : (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={asset.previewUrl}
-          alt={asset.name}
-          className={cn(
-            'h-full w-full object-cover transition-opacity duration-200',
-            status === 'loaded' ? 'opacity-100' : 'opacity-0',
-          )}
-          loading="lazy"
-          decoding="async"
-          onLoad={() => setStatus('loaded')}
-          onError={() => setStatus('error')}
-        />
-      )}
-    </div>
+    <StudioMediaThumbnail
+      src={asset.previewUrl}
+      alt={asset.name}
+      fallback={mediaIcon(asset.kind ?? 'image', 'h-7 w-7 text-muted-foreground')}
+      skeletonIcon={mediaIcon(asset.kind ?? 'image', 'h-4 w-4')}
+    />
   );
 }
 
@@ -218,9 +196,14 @@ function SelectionChip({
       onRemove={onRemove}
     >
       <div className="h-9 w-9 rounded-md border-2 border-rose-400 bg-rose-50 flex items-center justify-center overflow-hidden">
-        {mediaKind === 'image' ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={toPreviewUrl(asset.path, 64, { preset: 'mini' })} alt="" className="h-full w-full object-cover" loading="lazy" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+        {mediaKind === 'image' || mediaKind === 'video' ? (
+          <StudioMediaThumbnail
+            src={toPreviewUrl(asset.path, 64, { preset: 'mini' })}
+            alt=""
+            fallback={mediaIcon(mediaKind, 'h-4 w-4 text-rose-600')}
+            skeletonIcon={mediaIcon(mediaKind, 'h-4 w-4 text-rose-600')}
+            className="rounded-none bg-transparent"
+          />
         ) : mediaIcon(mediaKind, 'h-4 w-4 text-rose-600')}
       </div>
       <button
@@ -679,7 +662,7 @@ export function ReferencePickerDialog({ open, onOpenChange, onConfirm, multiple 
                         <button key={asset.path} type="button" onClick={() => toggleSelect(asset.path)}
                           className={cn('relative overflow-hidden border rounded-lg text-left transition', selected ? 'border-primary ring-2 ring-primary/20 bg-primary/5' : 'border-border bg-card hover:border-primary/50')}>
 	                          <div className="aspect-video w-full bg-muted flex items-center justify-center">
-	                            {mediaKind === 'image' ? (
+	                            {mediaKind === 'image' || mediaKind === 'video' ? (
 	                              <StudioAssetPreviewImage key={asset.previewUrl} asset={asset} />
 	                            ) : mediaIcon(mediaKind, 'h-7 w-7 text-muted-foreground')}
 	                          </div>

@@ -420,6 +420,7 @@ export function StudioPreview({
                 <video
                   className="max-h-full max-w-full object-contain shadow-2xl"
                   src={output.mediaUrl}
+                  poster={output.filePath ? toPreviewUrl(output.filePath, 960) : undefined}
                   controls
                   playsInline
                   preload="metadata"
