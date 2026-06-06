@@ -5,6 +5,7 @@ import { desc, eq } from 'drizzle-orm';
 import { db } from '@/app/lib/db';
 import { licensePublicKeys } from '@/app/lib/db/schema';
 import { getControlPlaneLicenseBaseUrl } from './instance';
+import { logLicenseInfoThrottled } from './logging';
 
 const CACHE_TTL_MS = 60 * 60 * 1000;
 const NEGATIVE_CACHE_TTL_MS = 60 * 1000;
@@ -209,7 +210,7 @@ async function resolveFromControlPlane(): Promise<LicensePublicKeyResolution> {
         error: error instanceof Error ? error.message : String(error),
       });
     });
-    console.info(`${LOG_PREFIX} resolved from control plane`, { kid: key.kid });
+    logLicenseInfoThrottled(LOG_PREFIX, 'resolved from control plane', { kid: key.kid });
     return { keys: [key], source: 'control_plane' };
   } catch (error) {
     const resolution: LicensePublicKeyResolution = { keys: [], source: 'none', error: 'unreachable' };
@@ -252,7 +253,7 @@ async function resolveFromSQLite(): Promise<LicensePublicKeyResolution> {
       .set({ lastUsedAt: new Date() })
       .where(eq(licensePublicKeys.fingerprint, key.fingerprint));
 
-    console.info(`${LOG_PREFIX} resolved from sqlite cache`, { kid: key.kid });
+    logLicenseInfoThrottled(LOG_PREFIX, 'resolved from sqlite cache', { kid: key.kid });
     return { keys: [key], source: 'sqlite' };
   } catch {
     console.warn(`${LOG_PREFIX} sqlite public key lookup failed`);
@@ -286,7 +287,7 @@ async function persistToSQLite(key: LicensePublicKey): Promise<void> {
 export async function resolveLicensePublicKeys(): Promise<LicensePublicKeyResolution> {
   const envKeys = resolveFromEnv();
   if (envKeys.length > 0) {
-    console.info(`${LOG_PREFIX} resolved from env`, {
+    logLicenseInfoThrottled(LOG_PREFIX, 'resolved from env', {
       count: envKeys.length,
       kids: envKeys.map((key) => key.kid),
     });
@@ -295,7 +296,7 @@ export async function resolveLicensePublicKeys(): Promise<LicensePublicKeyResolu
 
   const bundledKeys = resolveBundled();
   if (bundledKeys.length > 0) {
-    console.info(`${LOG_PREFIX} resolved from bundled keys`, {
+    logLicenseInfoThrottled(LOG_PREFIX, 'resolved from bundled keys', {
       count: bundledKeys.length,
       kids: bundledKeys.map((key) => key.kid),
     });
@@ -303,7 +304,7 @@ export async function resolveLicensePublicKeys(): Promise<LicensePublicKeyResolu
   }
 
   if (positiveMemoryCache && Date.now() < positiveMemoryCache.expiresAt) {
-    console.info(`${LOG_PREFIX} resolved from memory cache`, {
+    logLicenseInfoThrottled(LOG_PREFIX, 'resolved from memory cache', {
       source: positiveMemoryCache.resolution.source,
       count: positiveMemoryCache.resolution.keys.length,
       kids: positiveMemoryCache.resolution.keys.map((key) => key.kid),
