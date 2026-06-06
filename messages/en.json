@@ -1198,6 +1198,7 @@
       "integrations": "Integrations",
       "agentSettings": "Agent Settings",
       "workspace": "Workspace",
+      "userManagement": "Users",
       "channels": "Channels",
       "usage": "Usage",
       "skills": "Skills",
@@ -1241,6 +1242,100 @@
         "failed": "Could not change password",
         "success": "Password changed",
         "unexpectedError": "An unexpected error occurred"
+      }
+    },
+    "users": {
+      "title": "User Management",
+      "description": "Manage local notebook accounts, roles, and access bans.",
+      "forbidden": "Only administrators can manage users.",
+      "reload": "Reload",
+      "createUser": "Create user",
+      "searchPlaceholder": "Search by email",
+      "search": "Search",
+      "clearSearch": "Clear",
+      "loading": "Loading users...",
+      "empty": "No users found.",
+      "unnamed": "Unnamed",
+      "self": "You",
+      "cancel": "Cancel",
+      "defaultBanReason": "Banned by administrator",
+      "columns": {
+        "user": "User",
+        "role": "Role",
+        "status": "Status",
+        "created": "Created",
+        "actions": "Actions"
+      },
+      "roles": {
+        "admin": "Admin",
+        "user": "User"
+      },
+      "status": {
+        "active": "Active",
+        "banned": "Banned"
+      },
+      "actions": {
+        "makeAdmin": "Admin",
+        "makeUser": "User",
+        "password": "Password",
+        "ban": "Ban",
+        "unban": "Unban",
+        "delete": "Delete"
+      },
+      "fields": {
+        "name": "Name",
+        "email": "Email",
+        "password": "Password",
+        "newPassword": "New password"
+      },
+      "pagination": {
+        "summary": "{total} users · page {page} of {totalPages}",
+        "previous": "Previous",
+        "next": "Next"
+      },
+      "createDialog": {
+        "title": "Create user",
+        "description": "The new user can sign in with email and password afterward.",
+        "adminLabel": "Administrator access",
+        "adminDescription": "Admins can manage other users.",
+        "submit": "Create"
+      },
+      "passwordDialog": {
+        "title": "Set password",
+        "description": "Set a new password for {email}.",
+        "submit": "Save password"
+      },
+      "banDialog": {
+        "title": "Ban user",
+        "description": "{email} cannot sign in after the ban; existing sessions are revoked.",
+        "reason": "Reason",
+        "submit": "Ban"
+      },
+      "deleteDialog": {
+        "title": "Delete user",
+        "description": "{email} will be permanently deleted with sessions and login accounts. This cannot be undone.",
+        "submit": "Delete permanently"
+      },
+      "messages": {
+        "created": "{email} was created.",
+        "roleUpdated": "Role for {email} was updated.",
+        "passwordUpdated": "Password for {email} was updated.",
+        "banned": "{email} was banned.",
+        "unbanned": "{email} was unbanned.",
+        "deleted": "{email} was deleted."
+      },
+      "errors": {
+        "load": "Could not load users.",
+        "action": "Could not complete action.",
+        "create": "Could not create user.",
+        "createValidation": "Name, email, and a password of at least 8 characters are required.",
+        "role": "Could not change role.",
+        "selfRole": "You cannot change your own role here.",
+        "password": "Could not set password.",
+        "passwordLength": "Password must be at least 8 characters.",
+        "ban": "Could not ban user.",
+        "unban": "Could not unban user.",
+        "delete": "Could not delete user."
       }
     },
     "scopes": {

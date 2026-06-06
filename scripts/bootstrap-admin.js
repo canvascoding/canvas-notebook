@@ -144,6 +144,9 @@ CREATE TABLE IF NOT EXISTS user (
   email_verified INTEGER NOT NULL,
   image TEXT,
   role TEXT,
+  banned INTEGER,
+  ban_reason TEXT,
+  ban_expires INTEGER,
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
 );
@@ -167,6 +170,17 @@ CREATE TABLE IF NOT EXISTS account (
 
 CREATE UNIQUE INDEX IF NOT EXISTS user_email_unique ON user (email);
 `);
+
+  for (const [column, definition] of [
+    ['banned', 'INTEGER'],
+    ['ban_reason', 'TEXT'],
+    ['ban_expires', 'INTEGER'],
+  ]) {
+    const exists = db.prepare('PRAGMA table_info(user)').all().some((row) => row.name === column);
+    if (!exists) {
+      db.exec(`ALTER TABLE user ADD COLUMN ${column} ${definition}`);
+    }
+  }
 }
 
 function openDatabase() {

@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState, startTransition, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, startTransition, type ReactNode } from 'react';
 import dynamic from 'next/dynamic';
 import { useSearchParams } from 'next/navigation';
 import { useTranslations } from 'next-intl';
@@ -195,6 +195,7 @@ const SETTINGS_TAB_ITEMS = [
   { value: 'integrations', labelKey: 'tabs.integrations' },
   { value: 'agent-settings', labelKey: 'tabs.agentSettings' },
   { value: 'workspace', labelKey: 'tabs.workspace' },
+  { value: 'user-management', labelKey: 'tabs.userManagement' },
   { value: 'channels', labelKey: 'tabs.channels' },
   { value: 'usage', labelKey: 'tabs.usage' },
   { value: 'skills', labelKey: 'tabs.skills' },
@@ -220,6 +221,10 @@ type UsageAnalyticsClientProps = {
 };
 type LicenseActivationPanelProps = {
   defaultEmail: string;
+};
+type UserManagementPanelProps = {
+  currentUserId: string;
+  isAdmin: boolean;
 };
 type CodeEditorProps = {
   value: string;
@@ -260,6 +265,11 @@ const SkillsPanel = dynamic(
 
 const WorkspaceSettingsPanel = dynamic(
   () => import('@/app/components/settings/WorkspaceSettingsPanel').then((module) => module.WorkspaceSettingsPanel),
+  { loading: SettingsTabLoader },
+);
+
+const UserManagementPanel = dynamic<UserManagementPanelProps>(
+  () => import('@/app/components/settings/UserManagementPanel').then((module) => module.UserManagementPanel),
   { loading: SettingsTabLoader },
 );
 
@@ -1950,11 +1960,13 @@ function EmailAccountsCard({ isOpen, onOpenChange }: { isOpen: boolean; onOpenCh
 
 export function IntegrationsSettingsClient({
   isAdmin = false,
+  currentUserId = '',
   userName = '',
   userEmail = '',
   isManagedControlPlane = false,
 }: {
   isAdmin?: boolean;
+  currentUserId?: string;
   userName?: string;
   userEmail?: string;
   isManagedControlPlane?: boolean;
@@ -1970,7 +1982,16 @@ export function IntegrationsSettingsClient({
   const integrationsInitialLoadStartedRef = useRef(false);
 
   const effectiveTab = normalizeSettingsTab(activeTabOverride) ?? settingsTab;
-  const shouldRenderTab = (tab: SettingsTab) => effectiveTab === tab || loadedTabs.has(tab);
+  const visibleSettingsTabItems = useMemo(
+    () => SETTINGS_TAB_ITEMS.filter((tab) => tab.value !== 'user-management' || isAdmin),
+    [isAdmin],
+  );
+  const visibleSettingsTabs = useMemo(
+    () => new Set<SettingsTab>(visibleSettingsTabItems.map((tab) => tab.value)),
+    [visibleSettingsTabItems],
+  );
+  const visibleEffectiveTab = visibleSettingsTabs.has(effectiveTab) ? effectiveTab : DEFAULT_SETTINGS_TAB;
+  const shouldRenderTab = (tab: SettingsTab) => visibleEffectiveTab === tab || loadedTabs.has(tab);
   const renderLazyTabContent = (
     tab: SettingsTab,
     children: ReactNode,
@@ -1992,6 +2013,8 @@ export function IntegrationsSettingsClient({
   const handleTabChange = (value: string) => {
     const nextTab = normalizeSettingsTab(value);
     if (!nextTab) return;
+
+    if (!visibleSettingsTabs.has(nextTab)) return;
 
     setSettingsTab(nextTab);
     setLoadedTabs((current) => {
@@ -2244,7 +2267,8 @@ export function IntegrationsSettingsClient({
 
   useEffect(() => {
     const tab = searchParams.get('tab');
-    const nextTab = normalizeSettingsTab(tab) ?? getStoredSettingsTab() ?? DEFAULT_SETTINGS_TAB;
+    const requestedNextTab = normalizeSettingsTab(tab) ?? getStoredSettingsTab() ?? DEFAULT_SETTINGS_TAB;
+    const nextTab = visibleSettingsTabs.has(requestedNextTab) ? requestedNextTab : DEFAULT_SETTINGS_TAB;
     startTransition(() => {
       setSettingsTab(nextTab);
       setLoadedTabs((current) => {
@@ -2254,7 +2278,7 @@ export function IntegrationsSettingsClient({
         return nextTabs;
       });
     });
-  }, [searchParams]);
+  }, [searchParams, visibleSettingsTabs]);
 
   useEffect(() => {
     startTransition(() => {
@@ -2627,12 +2651,12 @@ export function IntegrationsSettingsClient({
     }));
   };
 
-  const activeSettingsTab = SETTINGS_TAB_ITEMS.find((tab) => tab.value === effectiveTab) ?? SETTINGS_TAB_ITEMS[0];
+  const activeSettingsTab = visibleSettingsTabItems.find((tab) => tab.value === visibleEffectiveTab) ?? visibleSettingsTabItems[0] ?? SETTINGS_TAB_ITEMS[0];
 
   return (
     <div className="mx-auto w-full max-w-6xl overflow-x-hidden px-3 py-4 sm:px-6 sm:py-6">
       <Tabs
-        value={effectiveTab}
+        value={visibleEffectiveTab}
         onValueChange={handleTabChange}
         className="min-w-0 space-y-4"
       >
@@ -2648,8 +2672,8 @@ export function IntegrationsSettingsClient({
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" sideOffset={8} className="max-h-[min(26rem,calc(100dvh-8rem))] w-[calc(100vw-1.5rem)] max-w-sm overflow-y-auto">
-              <DropdownMenuRadioGroup value={effectiveTab} onValueChange={handleTabChange}>
-                {SETTINGS_TAB_ITEMS.map((tab) => (
+              <DropdownMenuRadioGroup value={visibleEffectiveTab} onValueChange={handleTabChange}>
+                {visibleSettingsTabItems.map((tab) => (
                   <DropdownMenuRadioItem key={tab.value} value={tab.value} className="min-h-10">
                     {t(tab.labelKey)}
                   </DropdownMenuRadioItem>
@@ -2659,8 +2683,8 @@ export function IntegrationsSettingsClient({
           </DropdownMenu>
         </div>
 
-        <TabsList className="hidden h-auto w-full grid-cols-8 gap-2 bg-transparent p-0 lg:grid">
-          {SETTINGS_TAB_ITEMS.map((tab) => (
+        <TabsList className="hidden h-auto w-full grid-cols-[repeat(auto-fit,minmax(0,1fr))] gap-2 bg-transparent p-0 lg:grid">
+          {visibleSettingsTabItems.map((tab) => (
             <TabsTrigger key={tab.value} value={tab.value} className={SETTINGS_TAB_TRIGGER_CLASS}>
               <span className="min-w-0 truncate">{t(tab.labelKey)}</span>
             </TabsTrigger>
@@ -2727,6 +2751,10 @@ export function IntegrationsSettingsClient({
         {renderLazyTabContent('agent-settings', <AgentSettingsPanel />)}
 
         {renderLazyTabContent('workspace', <WorkspaceSettingsPanel isAdmin={isAdmin} />)}
+
+        {renderLazyTabContent('user-management',
+          <UserManagementPanel currentUserId={currentUserId} isAdmin={isAdmin} />,
+        )}
 
         {renderLazyTabContent('channels', <ChannelsPanel />)}
 
