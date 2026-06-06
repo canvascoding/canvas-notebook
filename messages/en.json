@@ -1259,6 +1259,8 @@
       "self": "You",
       "cancel": "Cancel",
       "defaultBanReason": "Banned by administrator",
+      "provisioningNoteTitle": "Accounts are managed locally",
+      "provisioningNoteDescription": "The app does not send invitation or password emails. New users receive their initial password directly from an administrator; in emergencies, the bootstrap admin can still be synchronized through BOOTSTRAP_ADMIN_EMAIL and BOOTSTRAP_ADMIN_PASSWORD.",
       "columns": {
         "user": "User",
         "role": "Role",
@@ -1298,6 +1300,7 @@
         "description": "The new user can sign in with email and password afterward.",
         "adminLabel": "Administrator access",
         "adminDescription": "Admins can manage other users.",
+        "passwordHint": "This password is not sent by email. Share it with the user through a secure channel.",
         "submit": "Create"
       },
       "passwordDialog": {

@@ -1258,6 +1258,8 @@
       "self": "Du",
       "cancel": "Abbrechen",
       "defaultBanReason": "Vom Administrator gesperrt",
+      "provisioningNoteTitle": "Accounts werden lokal verwaltet",
+      "provisioningNoteDescription": "Die App verschickt keine Einladungs- oder Passwort-E-Mails. Neue Benutzer erhalten ihr Startpasswort direkt vom Administrator; im Notfall kann der Bootstrap-Admin weiterhin über BOOTSTRAP_ADMIN_EMAIL und BOOTSTRAP_ADMIN_PASSWORD synchronisiert werden.",
       "columns": {
         "user": "Benutzer",
         "role": "Rolle",
@@ -1297,6 +1299,7 @@
         "description": "Der neue Benutzer kann sich danach mit E-Mail und Passwort anmelden.",
         "adminLabel": "Administratorrechte",
         "adminDescription": "Admins können andere Benutzer verwalten.",
+        "passwordHint": "Dieses Passwort wird nicht per E-Mail verschickt. Teile es dem Benutzer über einen sicheren Kanal mit.",
         "submit": "Anlegen"
       },
       "passwordDialog": {

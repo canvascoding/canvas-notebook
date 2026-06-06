@@ -44,7 +44,63 @@ async function signIn() {
   return cookie;
 }
 
+async function assertUserProvisioningIsAdminOnly() {
+  const signUpResponse = await fetch(`${baseUrl}/api/auth/sign-up/email`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Origin: baseUrl,
+    },
+    body: JSON.stringify({
+      name: 'Public Sign Up',
+      email: 'public-sign-up@example.test',
+      password: 'NotAllowed123!',
+    }),
+  });
+
+  if (signUpResponse.status !== 403) {
+    throw new Error(`Public sign-up was not blocked: ${signUpResponse.status}`);
+  }
+
+  const adminCreateResponse = await fetch(`${baseUrl}/api/auth/admin/create-user`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Origin: baseUrl,
+    },
+    body: JSON.stringify({
+      name: 'Unauthenticated Admin Create',
+      email: 'unauthenticated-admin-create@example.test',
+      password: 'NotAllowed123!',
+      role: 'user',
+    }),
+  });
+
+  if (adminCreateResponse.status !== 401 && adminCreateResponse.status !== 403) {
+    throw new Error(`Unauthenticated admin user creation was not blocked: ${adminCreateResponse.status}`);
+  }
+}
+
+async function assertAdminUserManagement(cookie) {
+  const usersResponse = await fetch(`${baseUrl}/api/auth/admin/list-users?limit=5&offset=0`, {
+    headers: {
+      cookie,
+      Origin: baseUrl,
+    },
+  });
+
+  if (!usersResponse.ok) {
+    throw new Error(`Admin user list failed: ${usersResponse.status}`);
+  }
+
+  const usersJson = await usersResponse.json();
+  if (!Array.isArray(usersJson.users) || typeof usersJson.total !== 'number') {
+    throw new Error('Admin user list response not successful');
+  }
+}
+
 async function run() {
+  await assertUserProvisioningIsAdminOnly();
   const cookie = await signIn();
 
   const treeResponse = await fetch(`${baseUrl}/api/files/tree?path=.&depth=1`, {
@@ -59,6 +115,8 @@ async function run() {
   if (!treeJson.success) {
     throw new Error('File tree response not successful');
   }
+
+  await assertAdminUserManagement(cookie);
 
   console.log('Smoke test passed');
 }
