@@ -85,7 +85,7 @@ export function MarpPreview({ path, content, refreshKey }: MarpPreviewProps) {
   }
 
   return (
-    <div className="relative h-full bg-slate-950">
+    <div className="relative h-full min-w-0 overflow-hidden bg-slate-950">
       {loading && !html ? (
         <div className="absolute inset-0 z-10 flex items-center justify-center bg-slate-950 text-slate-200">
           <div className="flex items-center gap-2 text-sm">
@@ -106,7 +106,7 @@ export function MarpPreview({ path, content, refreshKey }: MarpPreviewProps) {
         key={`${path}-${refreshKey}`}
         srcDoc={html}
         sandbox="allow-scripts"
-        className="h-full w-full border-0 bg-slate-950"
+        className="block h-full w-full min-w-0 border-0 bg-slate-950"
         title={t('marpPreviewTitle', { fileName: path.split('/').pop() || path })}
       />
     </div>
