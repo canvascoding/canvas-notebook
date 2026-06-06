@@ -4,6 +4,7 @@ import { auth } from '@/app/lib/auth';
 import { isAdminUser } from '@/app/lib/admin-auth';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 import { clearFileTreeCache } from '@/app/lib/utils/file-tree-cache';
+import { getPublicRequestOrigin } from '@/app/lib/utils/request-origin';
 import {
   createPublicFileShares,
   listPublicFileShares,
@@ -11,17 +12,6 @@ import {
   type PublicShareStatus,
   type PublicShareTypeFilter,
 } from '@/app/lib/public-sharing/public-file-shares';
-
-function requestBaseUrl(request: NextRequest): string {
-  const forwardedHost = request.headers.get('x-forwarded-host');
-  const host = forwardedHost || request.headers.get('host');
-  const forwardedProto = request.headers.get('x-forwarded-proto');
-  if (host) {
-    return `${forwardedProto || new URL(request.url).protocol.replace(':', '')}://${host}`;
-  }
-  const url = new URL(request.url);
-  return `${url.protocol}//${url.host}`;
-}
 
 function parseStatus(value: string | null): PublicShareStatus | 'all' {
   if (value === 'active' || value === 'revoked' || value === 'missing' || value === 'stale' || value === 'expired') {
@@ -94,7 +84,7 @@ export async function GET(request: NextRequest) {
     query: searchParams.get('q') || '',
     paths: parsePathFilters(searchParams),
     limit,
-    baseUrl: requestBaseUrl(request),
+    baseUrl: getPublicRequestOrigin(request),
   });
 
   return NextResponse.json({ success: true, shares });
@@ -133,7 +123,7 @@ export async function POST(request: NextRequest) {
       expiresAt: parseExpiry(body),
       reason: typeof body.reason === 'string' ? body.reason : null,
       confirmPublicExposure: true,
-      baseUrl: requestBaseUrl(request),
+      baseUrl: getPublicRequestOrigin(request),
     });
 
     clearFileTreeCache();

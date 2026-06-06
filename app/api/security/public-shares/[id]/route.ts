@@ -5,17 +5,7 @@ import { isAdminUser } from '@/app/lib/admin-auth';
 import { revokePublicFileShare } from '@/app/lib/public-sharing/public-file-shares';
 import { clearFileTreeCache } from '@/app/lib/utils/file-tree-cache';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
-
-function requestBaseUrl(request: NextRequest): string {
-  const forwardedHost = request.headers.get('x-forwarded-host');
-  const host = forwardedHost || request.headers.get('host');
-  const forwardedProto = request.headers.get('x-forwarded-proto');
-  if (host) {
-    return `${forwardedProto || new URL(request.url).protocol.replace(':', '')}://${host}`;
-  }
-  const url = new URL(request.url);
-  return `${url.protocol}//${url.host}`;
-}
+import { getPublicRequestOrigin } from '@/app/lib/utils/request-origin';
 
 export async function DELETE(
   request: NextRequest,
@@ -41,7 +31,7 @@ export async function DELETE(
       id,
       userId: session.user.id,
       isAdmin,
-      baseUrl: requestBaseUrl(request),
+      baseUrl: getPublicRequestOrigin(request),
     });
 
     if (!share) {
