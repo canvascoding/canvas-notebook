@@ -445,6 +445,17 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
     void loadFile(imagePaths[imageIndex + 1], true);
   }, [hasImageNext, imageIndex, imagePaths, loadFile]);
 
+  const handleShareAction = useCallback(() => {
+    if (!currentFile) return;
+
+    if (isPdf) {
+      void downloadFile(currentFile.path);
+      return;
+    }
+
+    setShareOpen(true);
+  }, [currentFile, downloadFile, isPdf]);
+
   const handleClosePreview = useCallback(async () => {
     if (isClosingPreview) return;
 
@@ -696,13 +707,13 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
             </>
           )}
           {isImage && <span className="bg-muted px-2 py-0.5 text-foreground shrink-0">{t('readOnly')}</span>}
-          {(isMarkdown || isHtml) && (
+          {(isMarkdown || isHtml || isPdf) && (
             <Button
               variant="ghost"
               size="sm"
               className="h-6 px-2 gap-1.5 text-xs"
-              onClick={() => setShareOpen(true)}
-              title="Export / Share"
+              onClick={handleShareAction}
+              title={isPdf ? t('downloadPdf') : t('share')}
             >
               <Share2 className="h-3.5 w-3.5" />
               <span>{t('share')}</span>
