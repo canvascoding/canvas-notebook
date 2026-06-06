@@ -102,6 +102,7 @@ type McpStatusState = {
     serverName: string;
     authorized: boolean;
     requiresAuth: boolean;
+    redirectUri: string | null;
     expiresAt: string | null;
     reason?: string;
   }>;
@@ -1286,6 +1287,11 @@ function McpConfigCard(props: {
                                 {t('mcpConfig.cachedTools')}: {status?.cachedToolCount ?? 0}
                                 {status?.lastError ? ` · ${t('mcpConfig.lastError')}: ${status.lastError}` : ''}
                               </div>
+                              {oauth?.requiresAuth && oauth.redirectUri ? (
+                                <div className="mt-1 break-all text-xs text-muted-foreground">
+                                  {t('mcpConfig.oauthRedirectUri')}: {oauth.redirectUri}
+                                </div>
+                              ) : null}
                             </div>
                           </button>
                           <div className="flex items-center gap-2">

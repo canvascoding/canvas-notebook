@@ -1556,6 +1556,7 @@
       "clearAuth": "Clear auth",
       "oauthAuthorized": "OAuth authorized",
       "oauthRequired": "OAuth required",
+      "oauthRedirectUri": "OAuth redirect URI",
       "cachedTools": "Cached tools",
       "showCachedTools": "Show cached tools",
       "cachedToolsTitle": "{server} cached tools",
