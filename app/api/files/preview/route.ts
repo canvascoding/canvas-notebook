@@ -1,9 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import path from 'node:path';
-import crypto from 'crypto';
 import { promises as fs } from 'fs';
-import { spawn } from 'child_process';
-import sharp from 'sharp';
 import { auth } from '@/app/lib/auth';
 import { resolveExistingWorkspacePath, validatePath } from '@/app/lib/filesystem/workspace-files';
 import { 
@@ -13,35 +10,13 @@ import {
   resolveValidatedUserUploadStudioRefPath 
 } from '@/app/lib/integrations/studio-paths';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
-
-const CACHE_ROOT = '/tmp/canvas-media-cache';
-const FFMPEG_BIN = 'ffmpeg';
-const MAX_WIDTH = 1920;
-const MIN_WIDTH = 64;
-const SUPPORTED_EXTENSIONS = new Set(['jpg', 'jpeg', 'png', 'webp', 'gif', 'heic', 'heif', 'mp4', 'webm', 'mov', 'avi', 'mkv']);
-const SHARP_EXTENSIONS = new Set(['jpg', 'jpeg', 'png', 'webp']);
-
-type PreviewFormat = 'jpg' | 'png' | 'webp';
-type PreviewPreset = 'default' | 'mini';
-
-interface PreviewProfile {
-  defaultWidth: number;
-  maxWidth: number;
-  format: PreviewFormat;
-}
-
-const PREVIEW_PROFILES: Record<PreviewPreset, PreviewProfile> = {
-  default: {
-    defaultWidth: 1280,
-    maxWidth: MAX_WIDTH,
-    format: 'jpg',
-  },
-  mini: {
-    defaultWidth: 192,
-    maxWidth: 320,
-    format: 'webp',
-  },
-};
+import {
+  getPreviewContentType,
+  getPreviewPreset,
+  isSupportedPreviewExtension,
+  renderCachedMediaPreview,
+  resolvePreviewWidth,
+} from '@/app/lib/files/media-preview';
 
 function buildMediaUrl(filePath: string) {
   const encodedPath = filePath
@@ -55,28 +30,6 @@ function buildSameOriginRedirect(request: NextRequest, relativePath: string): UR
   return new URL(relativePath, request.url);
 }
 
-function getPreviewPreset(rawPreset: string | null): PreviewPreset {
-  return rawPreset === 'mini' ? 'mini' : 'default';
-}
-
-function getOutputFormat(extension: string, preset: PreviewPreset): PreviewFormat {
-  if (preset === 'mini' && extension !== 'gif') {
-    return PREVIEW_PROFILES.mini.format;
-  }
-
-  return extension === 'png' ? 'png' : 'jpg';
-}
-
-function getContentType(format: PreviewFormat) {
-  if (format === 'png') return 'image/png';
-  if (format === 'webp') return 'image/webp';
-  return 'image/jpeg';
-}
-
-async function ensureDir(dirPath: string) {
-  await fs.mkdir(dirPath, { recursive: true });
-}
-
 async function fileExists(filePath: string) {
   try {
     await fs.stat(filePath);
@@ -84,93 +37,6 @@ async function fileExists(filePath: string) {
   } catch {
     return false;
   }
-}
-
-async function generateVideoThumbnail(inputPath: string, outputPath: string, width: number, format: PreviewFormat) {
-  const args = [
-    '-hide_banner',
-    '-loglevel',
-    'error',
-    '-i',
-    inputPath,
-    '-vf',
-    `scale='min(iw,${width})':-2`,
-    '-vframes',
-    '1',
-    '-y',
-  ];
-
-  if (format === 'jpg') {
-    args.push('-q:v', '3');
-  } else {
-    args.push('-compression_level', '3');
-  }
-
-  args.push(outputPath);
-
-  await new Promise<void>((resolve, reject) => {
-    const proc = spawn(FFMPEG_BIN, args);
-    let stderr = '';
-    proc.stderr?.on('data', (chunk) => {
-      stderr += chunk.toString();
-    });
-    proc.on('error', reject);
-    proc.on('close', (code) => {
-      if (code === 0) {
-        resolve();
-      } else {
-        reject(new Error(`ffmpeg exited with code ${code}: ${stderr.trim()}`));
-      }
-    });
-  });
-}
-
-async function generateImageThumbnail(
-  inputPath: string,
-  outputPath: string,
-  width: number,
-  format: PreviewFormat,
-  preset: PreviewPreset,
-) {
-  let image = sharp(inputPath, { animated: false, limitInputPixels: false }).rotate().resize({
-    width,
-    withoutEnlargement: true,
-    fit: 'inside',
-  });
-
-  if (format === 'png') {
-    image = image.png({
-      compressionLevel: preset === 'mini' ? 9 : 6,
-      palette: preset === 'mini',
-    });
-  } else if (format === 'webp') {
-    image = image.webp({
-      quality: preset === 'mini' ? 58 : 75,
-      effort: preset === 'mini' ? 2 : 4,
-    });
-  } else {
-    image = image.jpeg({
-      quality: preset === 'mini' ? 58 : 82,
-      mozjpeg: true,
-    });
-  }
-
-  await image.toFile(outputPath);
-}
-
-async function generateThumbnail(
-  inputPath: string,
-  outputPath: string,
-  extension: string,
-  width: number,
-  format: PreviewFormat,
-  preset: PreviewPreset,
-) {
-  if (SHARP_EXTENSIONS.has(extension)) {
-    return generateImageThumbnail(inputPath, outputPath, width, format, preset);
-  }
-
-  return generateVideoThumbnail(inputPath, outputPath, width, format);
 }
 
 export async function GET(request: NextRequest) {
@@ -193,7 +59,6 @@ export async function GET(request: NextRequest) {
     const filePath = searchParams.get('path');
     const widthParam = searchParams.get('w') || '';
     const preset = getPreviewPreset(searchParams.get('preset'));
-    const profile = PREVIEW_PROFILES[preset];
 
     if (!filePath) {
       return NextResponse.json(
@@ -202,13 +67,10 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const widthRaw = Number(widthParam);
-    const width = Number.isFinite(widthRaw)
-      ? Math.min(Math.max(widthRaw, MIN_WIDTH), profile.maxWidth)
-      : profile.defaultWidth;
+    const width = resolvePreviewWidth(widthParam, preset);
 
     const extension = path.posix.extname(filePath).slice(1).toLowerCase();
-    if (!SUPPORTED_EXTENSIONS.has(extension)) {
+    if (!isSupportedPreviewExtension(extension)) {
       const mediaPath = buildMediaUrl(filePath);
       return NextResponse.redirect(buildSameOriginRedirect(request, mediaPath));
     }
@@ -285,47 +147,39 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const format = getOutputFormat(extension, preset);
-    const cacheKey = crypto
-      .createHash('sha1')
-      .update(`${filePath}:${stats.size}:${stats.mtimeMs}:${width}:${preset}:${format}`)
-      .digest('hex');
-    const cacheFile = path.join(CACHE_ROOT, `${cacheKey}.${format}`);
-
-    await ensureDir(CACHE_ROOT);
-
-    if (!(await fileExists(cacheFile))) {
-      const tmpFile = path.join(CACHE_ROOT, `${cacheKey}.tmp.${format}`);
-      try {
-        await generateThumbnail(fullPath, tmpFile, extension, width, format, preset);
-        await fs.rename(tmpFile, cacheFile);
-      } catch (error) {
-        await fs.rm(tmpFile, { force: true }).catch(() => {});
-        const mediaPath = buildMediaUrl(filePath);
-        console.error('[API] Preview error:', error);
-        return NextResponse.redirect(buildSameOriginRedirect(request, mediaPath));
-      }
+    let preview;
+    try {
+      preview = await renderCachedMediaPreview({
+        inputPath: fullPath,
+        cacheIdentity: filePath,
+        extension,
+        width,
+        preset,
+        size: stats.size,
+        mtimeMs: stats.mtimeMs,
+      });
+    } catch (error) {
+      const mediaPath = buildMediaUrl(filePath);
+      console.error('[API] Preview error:', error);
+      return NextResponse.redirect(buildSameOriginRedirect(request, mediaPath));
     }
 
-    const cacheStats = await fs.stat(cacheFile);
-    const body = await fs.readFile(cacheFile);
-    const etag = `W/"${cacheStats.size}-${cacheStats.mtimeMs}"`;
     const requestEtag = request.headers.get('if-none-match');
-    if (requestEtag && requestEtag === etag) {
+    if (requestEtag && requestEtag === preview.etag) {
       return new NextResponse(null, {
         status: 304,
         headers: {
-          ETag: etag,
+          ETag: preview.etag,
           'Cache-Control': 'private, max-age=86400, immutable',
         },
       });
     }
 
-    return new NextResponse(body, {
+    return new NextResponse(preview.body, {
       headers: {
-        'Content-Type': getContentType(format),
+        'Content-Type': getPreviewContentType(preview.format),
         'Cache-Control': 'private, max-age=86400, immutable',
-        ETag: etag,
+        ETag: preview.etag,
       },
     });
   } catch (error) {
