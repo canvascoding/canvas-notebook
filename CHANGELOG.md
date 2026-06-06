@@ -19,6 +19,35 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.6.6.2] - 2026-06-06
+
+### Added
+
+- Added admin user management settings with localized UI, table support, bootstrap updates, and smoke coverage.
+- Added PDF preview share download action.
+- Added project changelog and release publisher workflow.
+- Added todo email notifications for newly created agent todos.
+
+### Changed
+
+- Improved user management provisioning hardening.
+- Optimized chat image previews with shared media preview utilities and file preview routing.
+- Formatted automation run prompts as Markdown.
+- Linked automation-created todos to their run sessions.
+- Reduced license status log noise.
+- Bumped Canvas Notebook and CLI version to `2026.6.6.2`.
+
+### Fixed
+
+- Hardened MCP OAuth redirects to use the public origin.
+- Moved the MCP server editor into a modal and improved its mobile layout.
+- Limited agent websocket memory growth through PI message normalization and projection updates.
+- Added browser automation resource usage warnings.
+
+### Verification
+
+- `npm run build`
+
 ## [2026.6.6.1] - 2026-06-06
 
 ### Added
@@ -937,4 +966,3 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 - Added SQLite database via Drizzle ORM.
 - Added better-auth authentication with bootstrap admin.
 - Added Docker Compose deployment.
-
