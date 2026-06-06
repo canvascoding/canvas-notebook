@@ -386,6 +386,9 @@ export function HomeChatPrompt() {
   const handleSubmit = async (event?: FormEvent<HTMLFormElement>) => {
     event?.preventDefault();
     const normalizedPrompt = prompt.trim();
+    if (isUploading) {
+      return;
+    }
     if (!normalizedPrompt && attachments.length === 0) {
       return;
     }
@@ -565,7 +568,7 @@ export function HomeChatPrompt() {
               type="submit" 
               size="sm" 
               className="w-full gap-2 sm:w-auto" 
-              disabled={isSubmitting || (!prompt.trim() && attachments.length === 0)}
+              disabled={isUploading || isSubmitting || (!prompt.trim() && attachments.length === 0)}
             >
               <Send className="h-4 w-4" />
               {tHome('chatPrompt.openCanvasChat')}

@@ -279,6 +279,9 @@ export function PromptHero({ licenseLocked = false }: { licenseLocked?: boolean 
     event?.preventDefault();
     const normalizedPrompt = prompt.trim();
     if (licenseLocked) return;
+    if (isUploading) {
+      return;
+    }
     if (!normalizedPrompt && attachments.length === 0) {
       return;
     }
@@ -414,7 +417,7 @@ export function PromptHero({ licenseLocked = false }: { licenseLocked?: boolean 
           <button
             type="submit"
             className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-50"
-            disabled={licenseLocked || isSubmitting || (!prompt.trim() && attachments.length === 0)}
+            disabled={licenseLocked || isUploading || isSubmitting || (!prompt.trim() && attachments.length === 0)}
           >
             <Send className="h-4 w-4" />
             {tHome('hero.submit')}

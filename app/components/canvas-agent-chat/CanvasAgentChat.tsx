@@ -4000,6 +4000,10 @@ export default function CanvasAgentChat({
     action: 'send' | 'steer' | 'follow_up' | 'replace',
     override?: { text: string; attachments: Attachment[] },
   ) => {
+    if (!override && isUploading) {
+      return;
+    }
+
     const sendShouldQueue = action === 'send' && runtimePhase !== undefined && runtimePhase !== 'idle';
     const effectiveAction = sendShouldQueue ? 'follow_up' : action;
     const rawText = override?.text ?? input.trim();
@@ -4097,7 +4101,7 @@ export default function CanvasAgentChat({
     }
 
     return;
-  }, [activeModel, agentConfig, appendOptimisticUserMessage, attachments, buildRequestContext, createAssistantBubble, currentFile, ensureSession, ensureSessionSubscribed, input, postControl, resetInputHistoryNavigation, runtimePhase, selectedAgentId, showHistory, isMobile, setOptimisticRuntimePhase, setRuntimeStatusWithReconciliation, shouldShowHistoryAsOverlay, scanForImageReferences, t, wsRequest]);
+  }, [activeModel, agentConfig, appendOptimisticUserMessage, attachments, buildRequestContext, createAssistantBubble, currentFile, ensureSession, ensureSessionSubscribed, input, isUploading, postControl, resetInputHistoryNavigation, runtimePhase, selectedAgentId, showHistory, isMobile, setOptimisticRuntimePhase, setRuntimeStatusWithReconciliation, shouldShowHistoryAsOverlay, scanForImageReferences, t, wsRequest]);
 
   const handleSend = useCallback(async () => {
     try {
@@ -5494,7 +5498,7 @@ export default function CanvasAgentChat({
   const isModelConfigured = Boolean(effectiveActiveModel.trim());
   const primaryActionDisabled = primaryActionIsStop
     ? isRuntimeAborting || !runtimeStatus?.canAbort || isWebSocketUnavailable
-    : !hasComposerContent || isWebSocketUnavailable || !isModelConfigured;
+    : isUploading || !hasComposerContent || isWebSocketUnavailable || !isModelConfigured;
   const isModelConfigurationLoading = isAgentConfigLoading && !isModelConfigured;
   const showModelRequiredNotice = !isModelConfigured && !isModelConfigurationLoading;
   const isHistoryOverlayOpen = showHistory && shouldShowHistoryAsOverlay;
