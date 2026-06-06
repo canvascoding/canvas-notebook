@@ -3,20 +3,17 @@
 import React, { FormEvent, useState, useRef, useCallback, useEffect } from 'react';
 import { getPathname } from '@/i18n/navigation';
 import { useLocale, useTranslations } from 'next-intl';
-import { Send, Paperclip, X, Image as ImageIcon, FileText, Loader2 } from 'lucide-react';
+import { Send, Paperclip, Loader2 } from 'lucide-react';
 import { getFileIconComponent } from '@/app/lib/files/file-icons';
 import { CANVAS_CHAT_ACTIVE_SESSION_STORAGE_KEY, CANVAS_CHAT_INITIAL_PROMPT_STORAGE_KEY } from '@/app/lib/chat/constants';
 import { DEFAULT_AGENT_ID } from '@/app/lib/channels/constants';
+import { AttachmentPreviewDialog } from '@/app/components/canvas-agent-chat/AttachmentPreviewDialog';
+import { AttachmentPreviewItem } from '@/app/components/canvas-agent-chat/AttachmentPreviewItem';
+import { deriveUploadAttachmentPreview, type ChatAttachment } from '@/app/components/canvas-agent-chat/attachment-preview';
 import { ImagePreprocessDialog } from '@/app/components/shared/ImagePreprocessDialog';
 import type { ConvertParams } from '@/app/components/shared/ImagePreprocessDialog';
 
-interface Attachment {
-  name: string;
-  contentKind: 'image' | 'document';
-  id: string;
-  mimeType?: string;
-  category?: string;
-}
+type Attachment = ChatAttachment;
 
 interface FilePickerFile {
   name: string;
@@ -42,15 +39,20 @@ export function PromptHero({ licenseLocked = false }: { licenseLocked?: boolean 
   const [isLoadingFiles, setIsLoadingFiles] = useState(false);
   const filePickerRef = useRef<HTMLDivElement>(null);
 
-  const [isUploading, setIsUploading] = useState(false);
+  const [pendingUploads, setPendingUploads] = useState(0);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [imagePreprocessFiles, setImagePreprocessFiles] = useState<import('@/app/components/shared/ImagePreprocessDialog').PreprocessFileInfo[] | null>(null);
   const [imagePreprocessPendingFiles, setImagePreprocessPendingFiles] = useState<File[]>([]);
+  const [previewAttachment, setPreviewAttachment] = useState<Attachment | null>(null);
+  const isUploading = pendingUploads > 0;
   const notebookHref = getPathname({ href: '/notebook', locale });
 
   const handleFileUploadMultiple = useCallback(async (files: File[], convertParams?: (ConvertParams | null)[]) => {
     if (licenseLocked) return;
-    setIsUploading(true);
+    if (files.length === 0) {
+      return;
+    }
+    setPendingUploads((count) => count + 1);
     setUploadError(null);
 
     try {
@@ -76,16 +78,18 @@ export function PromptHero({ licenseLocked = false }: { licenseLocked?: boolean 
         id: string;
         originalName: string;
         mimeType: string;
+        size?: number;
         category: string;
       }) => {
         const isImage = uploadedFile.category === 'image';
-        return {
+        return deriveUploadAttachmentPreview({
           name: uploadedFile.originalName,
           contentKind: isImage ? 'image' : 'document',
           id: uploadedFile.id,
           mimeType: uploadedFile.mimeType,
+          size: uploadedFile.size,
           category: uploadedFile.category,
-        };
+        });
       });
 
       setAttachments((prev) => [...prev, ...newAttachments]);
@@ -97,7 +101,7 @@ export function PromptHero({ licenseLocked = false }: { licenseLocked?: boolean 
       console.error('Upload failed', err);
       setUploadError(err instanceof Error ? err.message : 'Upload failed. Network error or server unreachable.');
     } finally {
-      setIsUploading(false);
+      setPendingUploads((count) => Math.max(0, count - 1));
     }
   }, [licenseLocked]);
 
@@ -147,11 +151,6 @@ export function PromptHero({ licenseLocked = false }: { licenseLocked?: boolean 
     setImagePreprocessPendingFiles([]);
   }, [handleFileUploadMultiple, imagePreprocessPendingFiles]);
 
-  const handleFileUpload = useCallback(async (file: File) => {
-    if (licenseLocked) return;
-    await preprocessAndUpload([file]);
-  }, [licenseLocked, preprocessAndUpload]);
-
   const onFileChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(event.target.files || []);
     if (files.length > 0) preprocessAndUpload(files);
@@ -159,20 +158,25 @@ export function PromptHero({ licenseLocked = false }: { licenseLocked?: boolean 
   }, [preprocessAndUpload]);
 
   const handlePaste = useCallback((event: React.ClipboardEvent) => {
+    if (licenseLocked) return;
     const items = event.clipboardData?.items;
     if (!items) return;
 
+    const pastedImages: File[] = [];
     for (let i = 0; i < items.length; i += 1) {
       if (items[i].type.indexOf('image') !== -1) {
         const file = items[i].getAsFile();
         if (file) {
           const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
           const renamedFile = new File([file], `screenshot-${timestamp}.png`, { type: file.type });
-          handleFileUpload(renamedFile);
+          pastedImages.push(renamedFile);
         }
       }
     }
-  }, [handleFileUpload]);
+    if (pastedImages.length > 0) {
+      void preprocessAndUpload(pastedImages);
+    }
+  }, [licenseLocked, preprocessAndUpload]);
 
   const removeAttachment = useCallback((index: number) => {
     setAttachments((prev) => prev.filter((_, itemIndex) => itemIndex !== index));
@@ -321,21 +325,13 @@ export function PromptHero({ licenseLocked = false }: { licenseLocked?: boolean 
         {attachments.length > 0 && (
           <div className="flex flex-wrap gap-2 border border-border bg-muted/60 p-2">
             {attachments.map((attachment, index) => (
-              <div key={index} className="flex items-center gap-2 border border-border bg-accent/70 p-1 px-2 text-xs">
-                {attachment.contentKind === 'image' ? (
-                  <ImageIcon className="h-3.5 w-3.5" />
-                ) : (
-                  <FileText className="h-3.5 w-3.5" />
-                )}
-                {attachment.name}
-                <button
-                  type="button"
-                  onClick={() => removeAttachment(index)}
-                  className="hover:text-destructive"
-                >
-                  <X className="h-3 w-3" />
-                </button>
-              </div>
+              <AttachmentPreviewItem
+                key={`${attachment.id || attachment.filePath || attachment.name}-${index}`}
+                attachment={attachment}
+                context="composer"
+                onRemove={() => removeAttachment(index)}
+                onOpen={setPreviewAttachment}
+              />
             ))}
           </div>
         )}
@@ -426,6 +422,10 @@ export function PromptHero({ licenseLocked = false }: { licenseLocked?: boolean 
       </form>
     </div>
 
+    <AttachmentPreviewDialog
+      attachment={previewAttachment}
+      onClose={() => setPreviewAttachment(null)}
+    />
     <ImagePreprocessDialog
       open={imagePreprocessFiles !== null}
       onOpenChange={(open) => { if (!open) { setImagePreprocessFiles(null); setImagePreprocessPendingFiles([]); } }}

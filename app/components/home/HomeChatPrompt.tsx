@@ -3,7 +3,7 @@
 import React, { FormEvent, useState, useRef, useCallback, useEffect } from 'react';
 import { getPathname, Link } from '@/i18n/navigation';
 import { useLocale, useTranslations } from 'next-intl';
-import { MessageSquare, Send, Paperclip, X, Image as ImageIcon, Megaphone, WandSparkles, Clapperboard, BriefcaseBusiness, FileText, FolderTree, Loader2 } from 'lucide-react';
+import { MessageSquare, Send, Paperclip, Megaphone, WandSparkles, Clapperboard, BriefcaseBusiness, FileText, FolderTree, Loader2 } from 'lucide-react';
 import { getFileIconComponent } from '@/app/lib/files/file-icons';
 
 import { CANVAS_CHAT_ACTIVE_SESSION_STORAGE_KEY, CANVAS_CHAT_INITIAL_PROMPT_STORAGE_KEY } from '@/app/lib/chat/constants';
@@ -12,16 +12,13 @@ import { BUSINESS_STARTER_PROMPTS, type StarterPromptDefinition, type StarterPro
 import { getSessionDisplayTitle } from '@/app/lib/pi/session-titles';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { AttachmentPreviewDialog } from '@/app/components/canvas-agent-chat/AttachmentPreviewDialog';
+import { AttachmentPreviewItem } from '@/app/components/canvas-agent-chat/AttachmentPreviewItem';
+import { deriveUploadAttachmentPreview, type ChatAttachment } from '@/app/components/canvas-agent-chat/attachment-preview';
 import { ImagePreprocessDialog } from '@/app/components/shared/ImagePreprocessDialog';
 import type { ConvertParams } from '@/app/components/shared/ImagePreprocessDialog';
 
-interface Attachment {
-  name: string;
-  contentKind: 'image' | 'document';
-  id: string;
-  mimeType?: string;
-  category?: string;
-}
+type Attachment = ChatAttachment;
 
 interface FilePickerFile {
   name: string;
@@ -134,14 +131,19 @@ export function HomeChatPrompt() {
     };
   }, [tChat]);
 
-  const [isUploading, setIsUploading] = useState(false);
+  const [pendingUploads, setPendingUploads] = useState(0);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [imagePreprocessFiles, setImagePreprocessFiles] = useState<import('@/app/components/shared/ImagePreprocessDialog').PreprocessFileInfo[] | null>(null);
   const [imagePreprocessPendingFiles, setImagePreprocessPendingFiles] = useState<File[]>([]);
+  const [previewAttachment, setPreviewAttachment] = useState<Attachment | null>(null);
+  const isUploading = pendingUploads > 0;
   const notebookHref = getPathname({ href: '/notebook', locale });
 
   const handleFileUploadMultiple = useCallback(async (files: File[], convertParams?: (ConvertParams | null)[]) => {
-    setIsUploading(true);
+    if (files.length === 0) {
+      return;
+    }
+    setPendingUploads((count) => count + 1);
     setUploadError(null);
     
     try {
@@ -168,16 +170,18 @@ export function HomeChatPrompt() {
         id: string;
         originalName: string;
         mimeType: string;
+        size?: number;
         category: string;
       }) => {
         const isImage = uploadedFile.category === 'image';
-        return {
+        return deriveUploadAttachmentPreview({
           name: uploadedFile.originalName,
           contentKind: isImage ? 'image' : 'document',
           id: uploadedFile.id,
           mimeType: uploadedFile.mimeType,
+          size: uploadedFile.size,
           category: uploadedFile.category,
-        };
+        });
       });
       
       setAttachments((prev) => [...prev, ...attachments]);
@@ -189,7 +193,7 @@ export function HomeChatPrompt() {
       console.error('Upload failed', err);
       setUploadError(err instanceof Error ? err.message : 'Upload fehlgeschlagen. Netzwerkfehler oder Server nicht erreichbar.');
     } finally {
-      setIsUploading(false);
+      setPendingUploads((count) => Math.max(0, count - 1));
     }
   }, []);
 
@@ -242,10 +246,6 @@ export function HomeChatPrompt() {
     setImagePreprocessPendingFiles([]);
   }, [handleFileUploadMultiple, imagePreprocessPendingFiles]);
 
-  const handleFileUpload = useCallback(async (file: File) => {
-    await preprocessAndUpload([file]);
-  }, [preprocessAndUpload]);
-
   const onFileChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(event.target.files || []);
     if (files.length > 0) preprocessAndUpload(files);
@@ -256,17 +256,21 @@ export function HomeChatPrompt() {
     const items = event.clipboardData?.items;
     if (!items) return;
 
+    const pastedImages: File[] = [];
     for (let i = 0; i < items.length; i += 1) {
       if (items[i].type.indexOf('image') !== -1) {
         const file = items[i].getAsFile();
         if (file) {
           const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
           const renamedFile = new File([file], `screenshot-${timestamp}.png`, { type: file.type });
-          handleFileUpload(renamedFile);
+          pastedImages.push(renamedFile);
         }
       }
     }
-  }, [handleFileUpload]);
+    if (pastedImages.length > 0) {
+      void preprocessAndUpload(pastedImages);
+    }
+  }, [preprocessAndUpload]);
 
   const removeAttachment = useCallback((index: number) => {
     setAttachments((prev) => prev.filter((_, itemIndex) => itemIndex !== index));
@@ -469,21 +473,13 @@ export function HomeChatPrompt() {
           {attachments.length > 0 && (
             <div className="flex flex-wrap gap-2 border border-border bg-muted/60 p-2">
               {attachments.map((attachment, index) => (
-                <div key={index} className="flex items-center gap-2 border border-border bg-accent/70 p-1 px-2 text-xs">
-                  {attachment.contentKind === 'image' ? (
-                    <ImageIcon className="h-3.5 w-3.5" />
-                  ) : (
-                    <FileText className="h-3.5 w-3.5" />
-                  )}
-                  {attachment.name}
-                  <button 
-                    type="button"
-                    onClick={() => removeAttachment(index)} 
-                    className="hover:text-destructive"
-                  >
-                    <X className="h-3 w-3" />
-                  </button>
-                </div>
+                <AttachmentPreviewItem
+                  key={`${attachment.id || attachment.filePath || attachment.name}-${index}`}
+                  attachment={attachment}
+                  context="composer"
+                  onRemove={() => removeAttachment(index)}
+                  onOpen={setPreviewAttachment}
+                />
               ))}
             </div>
           )}
@@ -578,6 +574,10 @@ export function HomeChatPrompt() {
       </CardContent>
     </Card>
 
+    <AttachmentPreviewDialog
+      attachment={previewAttachment}
+      onClose={() => setPreviewAttachment(null)}
+    />
     <ImagePreprocessDialog
       open={imagePreprocessFiles !== null}
       onOpenChange={(open) => { if (!open) { setImagePreprocessFiles(null); setImagePreprocessPendingFiles([]); } }}
