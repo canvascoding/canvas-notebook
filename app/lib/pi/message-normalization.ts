@@ -7,6 +7,7 @@ import { getWorkspacePath } from '../utils/workspace-manager';
 import { findFilePath } from '../filesystem/upload-handler';
 import { projectAgentMessageForLoadedContext } from './message-projection';
 import { convertImage } from '../images/convert';
+import { isRuntimeContinuationMessage } from './custom-messages';
 
 const IMAGE_MIME_BY_EXTENSION: Record<string, string> = {
   '.gif': 'image/gif',
@@ -335,6 +336,13 @@ function hasMessageContent(message: AgentMessage): message is AgentMessage & { c
 async function normalizePiMessage(message: AgentMessage): Promise<Message | null> {
   if (message.role === 'compact-break') return null;
   if (message.role === 'composio_auth_required') return null;
+  if (isRuntimeContinuationMessage(message)) {
+    return {
+      role: 'user',
+      content: [{ type: 'text', text: message.content }],
+      timestamp: message.timestamp,
+    };
+  }
   if (!hasMessageContent(message)) {
     return null;
   }

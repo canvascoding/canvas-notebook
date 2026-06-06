@@ -25,6 +25,7 @@
     "test:brave-search": "tsx scripts/brave-search-service-test.ts",
     "test:pi:session-search": "tsx scripts/pi-session-search-tool-test.ts",
     "test:pi:delegate-task": "tsx scripts/pi-delegate-task-tool-test.ts",
+    "test:pi:continuation": "tsx scripts/pi-run-continuation-guard-test.ts",
     "test:agent:memory": "tsx scripts/agent-memory-store-test.ts",
     "test:mcp:config": "tsx scripts/mcp-config-test.ts",
     "test:mcp:proxy": "tsx scripts/mcp-proxy-test.ts",
