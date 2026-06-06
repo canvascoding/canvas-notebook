@@ -1515,6 +1515,7 @@
       "noServers": "No MCP servers configured.",
       "addServer": "Add server",
       "editServer": "Edit server",
+      "cancel": "Cancel",
       "deleteServer": "Delete server",
       "backToServers": "Back to servers",
       "customTitle": "Connect to a custom MCP",
