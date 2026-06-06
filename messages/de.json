@@ -1197,6 +1197,7 @@
       "integrations": "Integrationen",
       "agentSettings": "Agent-Einstellungen",
       "workspace": "Workspace",
+      "userManagement": "Benutzer",
       "channels": "Channels",
       "usage": "Nutzung",
       "skills": "Skills",
@@ -1240,6 +1241,100 @@
         "failed": "Passwort konnte nicht geändert werden",
         "success": "Passwort wurde geändert",
         "unexpectedError": "Ein unerwarteter Fehler ist aufgetreten"
+      }
+    },
+    "users": {
+      "title": "Benutzerverwaltung",
+      "description": "Verwalte lokale Notebook-Accounts, Rollen und Zugriffssperren.",
+      "forbidden": "Nur Administratoren können Benutzer verwalten.",
+      "reload": "Neu laden",
+      "createUser": "Benutzer anlegen",
+      "searchPlaceholder": "Nach E-Mail suchen",
+      "search": "Suchen",
+      "clearSearch": "Zurücksetzen",
+      "loading": "Benutzer werden geladen...",
+      "empty": "Keine Benutzer gefunden.",
+      "unnamed": "Ohne Name",
+      "self": "Du",
+      "cancel": "Abbrechen",
+      "defaultBanReason": "Vom Administrator gesperrt",
+      "columns": {
+        "user": "Benutzer",
+        "role": "Rolle",
+        "status": "Status",
+        "created": "Erstellt",
+        "actions": "Aktionen"
+      },
+      "roles": {
+        "admin": "Admin",
+        "user": "User"
+      },
+      "status": {
+        "active": "Aktiv",
+        "banned": "Gesperrt"
+      },
+      "actions": {
+        "makeAdmin": "Admin",
+        "makeUser": "User",
+        "password": "Passwort",
+        "ban": "Sperren",
+        "unban": "Entsperren",
+        "delete": "Löschen"
+      },
+      "fields": {
+        "name": "Name",
+        "email": "E-Mail",
+        "password": "Passwort",
+        "newPassword": "Neues Passwort"
+      },
+      "pagination": {
+        "summary": "{total} Benutzer · Seite {page} von {totalPages}",
+        "previous": "Zurück",
+        "next": "Weiter"
+      },
+      "createDialog": {
+        "title": "Benutzer anlegen",
+        "description": "Der neue Benutzer kann sich danach mit E-Mail und Passwort anmelden.",
+        "adminLabel": "Administratorrechte",
+        "adminDescription": "Admins können andere Benutzer verwalten.",
+        "submit": "Anlegen"
+      },
+      "passwordDialog": {
+        "title": "Passwort setzen",
+        "description": "Setze ein neues Passwort für {email}.",
+        "submit": "Passwort speichern"
+      },
+      "banDialog": {
+        "title": "Benutzer sperren",
+        "description": "{email} kann sich nach der Sperre nicht mehr anmelden; bestehende Sitzungen werden widerrufen.",
+        "reason": "Grund",
+        "submit": "Sperren"
+      },
+      "deleteDialog": {
+        "title": "Benutzer löschen",
+        "description": "{email} wird dauerhaft mit Sitzungen und Login-Konten gelöscht. Diese Aktion kann nicht rückgängig gemacht werden.",
+        "submit": "Dauerhaft löschen"
+      },
+      "messages": {
+        "created": "{email} wurde angelegt.",
+        "roleUpdated": "Rolle für {email} wurde aktualisiert.",
+        "passwordUpdated": "Passwort für {email} wurde aktualisiert.",
+        "banned": "{email} wurde gesperrt.",
+        "unbanned": "{email} wurde entsperrt.",
+        "deleted": "{email} wurde gelöscht."
+      },
+      "errors": {
+        "load": "Benutzer konnten nicht geladen werden.",
+        "action": "Aktion konnte nicht ausgeführt werden.",
+        "create": "Benutzer konnte nicht angelegt werden.",
+        "createValidation": "Name, E-Mail und ein Passwort mit mindestens 8 Zeichen sind erforderlich.",
+        "role": "Rolle konnte nicht geändert werden.",
+        "selfRole": "Du kannst deine eigene Rolle hier nicht ändern.",
+        "password": "Passwort konnte nicht gesetzt werden.",
+        "passwordLength": "Das Passwort muss mindestens 8 Zeichen lang sein.",
+        "ban": "Benutzer konnte nicht gesperrt werden.",
+        "unban": "Benutzer konnte nicht entsperrt werden.",
+        "delete": "Benutzer konnte nicht gelöscht werden."
       }
     },
     "scopes": {

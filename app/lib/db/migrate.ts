@@ -21,6 +21,9 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       email_verified INTEGER NOT NULL,
       image TEXT,
       role TEXT,
+      banned INTEGER,
+      ban_reason TEXT,
+      ban_expires INTEGER,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
     );
@@ -33,6 +36,7 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       updated_at INTEGER NOT NULL,
       ip_address TEXT,
       user_agent TEXT,
+      impersonated_by TEXT,
       user_id TEXT NOT NULL,
       FOREIGN KEY (user_id) REFERENCES user(id)
     );
@@ -903,6 +907,14 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
   });
   addColumns(sqlite, 'channel_active_sessions', {
     agent_id: "TEXT NOT NULL DEFAULT 'canvas-agent'",
+  });
+  addColumns(sqlite, 'user', {
+    banned: 'INTEGER',
+    ban_reason: 'TEXT',
+    ban_expires: 'INTEGER',
+  });
+  addColumns(sqlite, 'session', {
+    impersonated_by: 'TEXT',
   });
   sqlite.exec(`
     UPDATE channel_active_sessions

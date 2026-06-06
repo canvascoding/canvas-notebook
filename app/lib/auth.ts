@@ -2,7 +2,7 @@ import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { db } from "@/app/lib/db";
 import { nextCookies } from "better-auth/next-js";
-import { bearer } from "better-auth/plugins";
+import { admin, bearer } from "better-auth/plugins";
 
 const authBaseURL =
   process.env.BETTER_AUTH_BASE_URL ||
@@ -36,18 +36,10 @@ export const auth = betterAuth({
   }),
   emailAndPassword: emailAndPasswordConfig,
   plugins: [
+    admin(),
     bearer(),
     nextCookies(),
   ],
-  user: {
-    additionalFields: {
-      role: {
-        type: "string",
-        required: false,
-        defaultValue: "user",
-      }
-    }
-  },
   session: {
     cookieCache: {
       enabled: true,
