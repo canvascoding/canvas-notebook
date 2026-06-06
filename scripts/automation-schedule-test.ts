@@ -160,8 +160,10 @@ const prompt = buildAutomationPrompt({
   effectiveTargetOutputPath: 'reports/daily',
 });
 
-assert.match(prompt, /If you create workspace deliverables, write them to: reports\/daily/);
-assert.match(prompt, /Preferred skill: \/pdf/);
+assert.match(prompt, /If you create workspace deliverables, write them to: `reports\/daily`/);
+assert.match(prompt, /\*\*Automation name:\*\* Daily Briefing/);
+assert.match(prompt, /\*\*Relevant workspace paths:\*\*\n- README\.md/);
+assert.match(prompt, /\*\*Preferred skill:\*\* `\/pdf`/);
 assert.match(prompt, /Run logs and metadata are stored automatically in the database/);
 
 const heartbeatPrompt = buildAutomationPrompt({
@@ -172,10 +174,10 @@ const heartbeatPrompt = buildAutomationPrompt({
   executionKind: 'heartbeat',
 });
 
-assert.match(heartbeatPrompt, /HEARTBEAT EXECUTION CONTEXT/);
-assert.match(heartbeatPrompt, /DO NOT create a new automation - execute the heartbeat as configured/);
-assert.match(heartbeatPrompt, /Heartbeat task:/);
-assert.doesNotMatch(heartbeatPrompt, /AUTOMATION EXECUTION CONTEXT/);
+assert.match(heartbeatPrompt, /## Heartbeat Execution Context/);
+assert.match(heartbeatPrompt, /\*\*Do not create a new automation\.\*\* Execute the heartbeat as configured/);
+assert.match(heartbeatPrompt, /### Heartbeat Task/);
+assert.doesNotMatch(heartbeatPrompt, /## Automation Execution Context/);
 
 const composioPrompt = buildAutomationPrompt({
   name: 'Gmail Follow-up',
@@ -196,7 +198,7 @@ const composioPrompt = buildAutomationPrompt({
 });
 
 assert.match(composioPrompt, /This run was started by a Composio trigger/);
-assert.match(composioPrompt, /Composio integration\/toolkit used: gmail/);
-assert.match(composioPrompt, /Webhook source: managed/);
+assert.match(composioPrompt, /\*\*Composio integration\/toolkit used:\*\* gmail/);
+assert.match(composioPrompt, /\*\*Webhook source:\*\* managed/);
 
 console.log('automation schedule tests passed');
