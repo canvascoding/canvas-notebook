@@ -60,7 +60,7 @@ import { cn } from '@/lib/utils';
 type TodoStatus = 'open' | 'done' | 'archived';
 type TodoPriority = 'low' | 'normal' | 'high';
 type TodoSourceType = 'user' | 'agent';
-type StatusFilter = 'active' | TodoStatus | 'all';
+type StatusFilter = TodoStatus | 'all';
 
 type TodoCategory = {
   id: string;
@@ -124,7 +124,7 @@ type TodoFormState = {
   fileLinks: Array<{ workspacePath: string; label: string | null }>;
 };
 
-const statusFilters: StatusFilter[] = ['active', 'open', 'done', 'archived', 'all'];
+const statusFilters: StatusFilter[] = ['open', 'done', 'archived', 'all'];
 const priorities: TodoPriority[] = ['low', 'normal', 'high'];
 
 const emptyForm: TodoFormState = {
@@ -400,7 +400,7 @@ export function TodosClient({ title }: { title: string }) {
   const pendingTodoParamRef = useRef<string | null>(null);
   const [todos, setTodos] = useState<TodoItem[]>([]);
   const [categories, setCategories] = useState<TodoCategory[]>([]);
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>('active');
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('open');
   const [categoryFilter, setCategoryFilter] = useState<string>('');
   const [selectedTodoId, setSelectedTodoId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -583,9 +583,6 @@ export function TodosClient({ title }: { title: string }) {
           return next.filter((todo) => todo.id !== updated.id);
         }
         if (statusFilter === 'done' && updated.status !== 'done') {
-          return next.filter((todo) => todo.id !== updated.id);
-        }
-        if (statusFilter === 'active' && updated.status === 'archived') {
           return next.filter((todo) => todo.id !== updated.id);
         }
         return next;
