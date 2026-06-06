@@ -1,8 +1,10 @@
 import 'server-only';
 
 import { Marp } from '@marp-team/marp-core';
+import fs from 'node:fs/promises';
 import path from 'path';
-import { readFile } from '@/app/lib/filesystem/workspace-files';
+import { fileURLToPath } from 'node:url';
+import { readFile, resolveExistingWorkspacePath } from '@/app/lib/filesystem/workspace-files';
 
 const MAX_ASSET_INLINE_SIZE = 5 * 1024 * 1024;
 
@@ -146,15 +148,14 @@ function decodeUrlPath(url: string): string {
 
 async function resolveWorkspaceAssetDataUri(assetUrl: string, baseDir: string): Promise<string | null> {
   const trimmedUrl = assetUrl.trim();
-  if (!trimmedUrl || isExternalOrSpecialUrl(trimmedUrl)) {
+  if (!trimmedUrl) {
     return null;
   }
 
-  const cleanUrl = decodeUrlPath(stripUrlDecorations(trimmedUrl));
-  const workspacePath = cleanUrl.startsWith('/')
-    ? cleanUrl.replace(/^\/+/, '')
-    : path.join(baseDir, cleanUrl);
-  const normalizedWorkspacePath = path.normalize(workspacePath).replace(/\\/g, '/');
+  const normalizedWorkspacePath = await resolveWorkspaceAssetPath(trimmedUrl, baseDir);
+  if (!normalizedWorkspacePath) {
+    return null;
+  }
 
   try {
     const buffer = await readFile(normalizedWorkspacePath);
@@ -170,8 +171,159 @@ async function resolveWorkspaceAssetDataUri(assetUrl: string, baseDir: string): 
   }
 }
 
+async function resolveWorkspaceAssetPath(assetUrl: string, baseDir: string): Promise<string | null> {
+  const appMediaPath = parseWorkspacePathFromAppMediaUrl(assetUrl);
+  if (appMediaPath) {
+    return normalizeWorkspacePath(appMediaPath);
+  }
+
+  if (/^file:\/\//i.test(assetUrl)) {
+    try {
+      return resolveAbsoluteWorkspaceAssetPath(fileURLToPath(assetUrl));
+    } catch {
+      return null;
+    }
+  }
+
+  const cleanUrl = decodeUrlPath(stripUrlDecorations(assetUrl));
+  if (!cleanUrl || isExternalOrSpecialUrl(cleanUrl)) {
+    return null;
+  }
+
+  if (path.isAbsolute(cleanUrl)) {
+    const absoluteWorkspacePath = await resolveAbsoluteWorkspaceAssetPath(cleanUrl);
+    if (absoluteWorkspacePath) {
+      return absoluteWorkspacePath;
+    }
+
+    return normalizeWorkspacePath(cleanUrl.replace(/^\/+/, ''));
+  }
+
+  return normalizeWorkspacePath(path.join(baseDir, cleanUrl));
+}
+
+function parseWorkspacePathFromAppMediaUrl(assetUrl: string): string | null {
+  let parsed: URL;
+
+  try {
+    parsed = new URL(assetUrl, 'http://canvas.local');
+  } catch {
+    return null;
+  }
+
+  if (parsed.origin !== 'http://canvas.local') {
+    return null;
+  }
+
+  const pathPrefixes = ['/api/media/preview/', '/api/media/'];
+  for (const prefix of pathPrefixes) {
+    if (parsed.pathname.startsWith(prefix)) {
+      return decodeUrlPath(parsed.pathname.slice(prefix.length));
+    }
+  }
+
+  if (parsed.pathname === '/api/files/preview') {
+    const filePath = parsed.searchParams.get('path');
+    return filePath ? decodeUrlPath(filePath) : null;
+  }
+
+  return null;
+}
+
+async function resolveAbsoluteWorkspaceAssetPath(filePath: string): Promise<string | null> {
+  try {
+    const realWorkspaceRoot = await resolveExistingWorkspacePath('.');
+    const realFilePath = await fs.realpath(filePath);
+    const relativePath = path.relative(realWorkspaceRoot, realFilePath);
+
+    if (relativePath === '' || relativePath.startsWith('..') || path.isAbsolute(relativePath)) {
+      return null;
+    }
+
+    return normalizeWorkspacePath(relativePath);
+  } catch {
+    return null;
+  }
+}
+
+function normalizeWorkspacePath(filePath: string): string {
+  return path.normalize(filePath).replace(/\\/g, '/').replace(/^\.\/+/, '');
+}
+
+async function replaceAsync(
+  input: string,
+  regex: RegExp,
+  replacer: (match: RegExpMatchArray) => Promise<string>
+): Promise<string> {
+  const matches = Array.from(input.matchAll(regex));
+  if (matches.length === 0) {
+    return input;
+  }
+
+  let result = '';
+  let lastIndex = 0;
+
+  for (const match of matches) {
+    const index = match.index ?? 0;
+    result += input.slice(lastIndex, index);
+    result += await replacer(match);
+    lastIndex = index + match[0].length;
+  }
+
+  return result + input.slice(lastIndex);
+}
+
+export async function inlineMarpMarkdownWorkspaceAssets(
+  markdown: string,
+  options: {
+    filePath: string;
+  }
+): Promise<string> {
+  const baseDir = path.dirname(options.filePath);
+
+  let nextMarkdown = await replaceAsync(
+    markdown,
+    /(!\[[^\]\n]*\]\(\s*)(<[^>\n]+>|[^\s)\n]+)([^)\n]*\))/g,
+    async (match) => {
+      const before = match[1] ?? '';
+      const rawSource = match[2] ?? '';
+      const after = match[3] ?? '';
+      const isAngled = rawSource.startsWith('<') && rawSource.endsWith('>');
+      const source = isAngled ? rawSource.slice(1, -1) : rawSource;
+      const dataUri = await resolveWorkspaceAssetDataUri(source, baseDir);
+
+      if (!dataUri) {
+        return match[0];
+      }
+
+      return `${before}${isAngled ? `<${dataUri}>` : dataUri}${after}`;
+    }
+  );
+
+  nextMarkdown = await inlineCssUrls(nextMarkdown, baseDir);
+
+  nextMarkdown = await replaceAsync(
+    nextMarkdown,
+    /(<(?:img|source|video|audio)\b[^>]*\b(?:src|poster)=["'])([^"']+)(["'][^>]*>)/gi,
+    async (match) => {
+      const before = match[1] ?? '';
+      const source = match[2] ?? '';
+      const after = match[3] ?? '';
+      const dataUri = await resolveWorkspaceAssetDataUri(source, baseDir);
+
+      if (!dataUri) {
+        return match[0];
+      }
+
+      return `${before}${dataUri}${after}`;
+    }
+  );
+
+  return nextMarkdown;
+}
+
 async function inlineHtmlAssetSources(html: string, baseDir: string): Promise<string> {
-  const sourceRegex = /(<(?:img|source|video|audio)\b[^>]*\bsrc=["'])([^"']+)(["'][^>]*>)/gi;
+  const sourceRegex = /(<(?:img|source|video|audio)\b[^>]*\b(?:src|poster)=["'])([^"']+)(["'][^>]*>)/gi;
   const matches = Array.from(html.matchAll(sourceRegex));
   let nextHtml = html;
 
@@ -202,6 +354,15 @@ async function inlineCssUrls(css: string, baseDir: string): Promise<string> {
   return nextCss;
 }
 
+function wrapMarpSlides(html: string): string {
+  let slideIndex = 0;
+
+  return html.replace(/(<svg\b(?=[^>]*\bdata-marpit-svg\b)[\s\S]*?<\/svg>)/g, (svg) => {
+    slideIndex += 1;
+    return `<figure class="marp-slide-frame" data-marp-slide="${slideIndex}" aria-label="Slide ${slideIndex}"><div class="marp-slide-surface">${svg}</div><figcaption class="marp-slide-caption">Slide ${slideIndex}</figcaption></figure>`;
+  });
+}
+
 function createMarpRenderer() {
   return new Marp({
     html: HTML_ALLOWLIST,
@@ -219,7 +380,7 @@ export async function renderMarpMarkdownToHtmlDocument(
   const baseDir = path.dirname(options.filePath);
   const marp = createMarpRenderer();
   const rendered = marp.render(markdown);
-  const html = await inlineHtmlAssetSources(rendered.html, baseDir);
+  const html = wrapMarpSlides(await inlineHtmlAssetSources(rendered.html, baseDir));
   const css = await inlineCssUrls(rendered.css, baseDir);
   const title = options.title || path.basename(options.filePath);
 
@@ -241,39 +402,81 @@ export async function renderMarpMarkdownToHtmlDocument(
 
     body {
       box-sizing: border-box;
-      padding: 24px;
+      min-height: 100%;
+      overflow-y: auto;
+      padding: clamp(10px, 3vw, 28px);
       color: #111827;
       font-family: Arial, Helvetica, sans-serif;
     }
 
     .marpit {
       display: flex;
-      min-height: calc(100vh - 48px);
+      min-height: calc(100vh - clamp(20px, 6vw, 56px));
+      width: 100%;
       flex-direction: column;
       align-items: center;
-      gap: 24px;
+      gap: clamp(14px, 3vw, 28px);
     }
 
-    .marpit > svg {
-      display: block;
+    .marp-slide-frame {
+      display: grid;
       width: min(100%, 1280px);
-      height: auto;
+      margin: 0;
+      gap: 8px;
+      justify-items: center;
+    }
+
+    .marp-slide-surface {
+      display: flex;
+      width: 100%;
+      overflow: hidden;
       background: #fff;
       box-shadow: 0 20px 48px rgba(0, 0, 0, 0.32);
     }
 
+    .marp-slide-surface > svg,
+    .marpit > svg {
+      display: block;
+      width: 100%;
+      height: auto;
+      background: #fff;
+    }
+
+    .marpit > svg {
+      max-width: min(100%, 1280px);
+      box-shadow: 0 20px 48px rgba(0, 0, 0, 0.32);
+    }
+
+    .marp-slide-caption {
+      color: #cbd5e1;
+      font-size: 12px;
+      line-height: 1;
+    }
+
     @media (max-width: 720px) {
       body {
-        padding: 12px;
+        padding: 10px;
       }
 
       .marpit {
-        min-height: calc(100vh - 24px);
-        gap: 12px;
+        min-height: calc(100vh - 20px);
+        gap: 14px;
+      }
+
+      .marp-slide-frame {
+        gap: 6px;
+      }
+
+      .marp-slide-caption {
+        font-size: 11px;
       }
     }
 
     @media print {
+      @page {
+        margin: 0;
+      }
+
       html,
       body {
         background: #fff;
@@ -285,10 +488,31 @@ export async function renderMarpMarkdownToHtmlDocument(
         min-height: 0;
       }
 
+      .marp-slide-frame {
+        display: block;
+        width: 100%;
+        break-after: page;
+        page-break-after: always;
+      }
+
+      .marp-slide-surface,
       .marpit > svg {
         width: 100%;
         box-shadow: none;
-        page-break-after: always;
+      }
+
+      .marp-slide-surface > svg,
+      .marpit > svg {
+        box-shadow: none;
+      }
+
+      .marp-slide-caption {
+        display: none;
+      }
+
+      .marp-slide-frame:last-child {
+        break-after: auto;
+        page-break-after: auto;
       }
     }
   </style>

@@ -500,7 +500,7 @@ export function FileActionsDropdown({
           {isMarpMarkdown && (
             <DropdownMenuItem onSelect={handleMarpExport}>
               <Images className="h-4 w-4" />
-              {t('exportMarpImages')}
+              {t('exportMarpSlides')}
             </DropdownMenuItem>
           )}
           {isImageFile && (
