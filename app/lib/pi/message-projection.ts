@@ -5,6 +5,7 @@ export type PiMessageProjectionMode = 'raw' | 'context' | 'display';
 const LARGE_PERSISTED_MESSAGE_THRESHOLD = 200_000;
 const CONTEXT_TOOL_RESULT_TEXT_LIMIT = 12_000;
 const DISPLAY_TOOL_RESULT_TEXT_LIMIT = 20_000;
+const LARGE_INLINE_IMAGE_THRESHOLD = 8 * 1024 * 1024;
 const DETAILS_STRING_LIMIT = 4_000;
 const DETAILS_ARRAY_LIMIT = 20;
 const DETAILS_OBJECT_KEY_LIMIT = 40;
@@ -77,6 +78,76 @@ function compactDetailsValue(value: unknown, depth = 0): unknown {
   return result;
 }
 
+function looksLikeInlineImageData(value: string): boolean {
+  if (value.length <= LARGE_INLINE_IMAGE_THRESHOLD) {
+    return false;
+  }
+  if (
+    value.startsWith('/') ||
+    value.startsWith('file://') ||
+    value.startsWith('http://') ||
+    value.startsWith('https://') ||
+    value.startsWith('/api/')
+  ) {
+    return false;
+  }
+
+  const sample = value.length > 12_000
+    ? `${value.slice(0, 4_000)}${value.slice(Math.floor(value.length / 2), Math.floor(value.length / 2) + 4_000)}${value.slice(-4_000)}`
+    : value;
+  return /^[A-Za-z0-9+/=\s]+$/u.test(sample);
+}
+
+function compactImagePart(
+  part: Record<string, unknown>,
+  metadata: { omittedImages: number },
+): Record<string, unknown> {
+  if (part.type !== 'image' || typeof part.data !== 'string' || !looksLikeInlineImageData(part.data)) {
+    return part;
+  }
+
+  metadata.omittedImages += 1;
+  const mimeType = typeof part.mimeType === 'string' ? part.mimeType : 'image';
+  return {
+    type: 'text',
+    text: `[${mimeType} image omitted from loaded chat context (${part.data.length} inline characters); raw image remains in database]`,
+  };
+}
+
+function compactInlineImagesForProjection(
+  message: AgentMessage,
+  mode: Exclude<PiMessageProjectionMode, 'raw'>,
+  rawContentLength: number,
+): AgentMessage {
+  const record = message as unknown as Record<string, unknown>;
+  const content = record.content;
+  if (!Array.isArray(content)) {
+    return message;
+  }
+
+  const metadata = { omittedImages: 0 };
+  const compactedContent = content.map((part) => {
+    if (!isRecord(part)) return part;
+    return compactImagePart(part, metadata);
+  });
+
+  if (metadata.omittedImages === 0) {
+    return message;
+  }
+
+  return {
+    ...record,
+    content: compactedContent,
+    persistenceProjection: {
+      mode,
+      rawContentLength,
+      truncated: true,
+      omittedImages: metadata.omittedImages,
+      omittedTextCharacters: 0,
+    } satisfies ProjectionMetadata,
+  } as unknown as AgentMessage;
+}
+
 function compactToolResultMessage(
   message: AgentMessage,
   mode: Exclude<PiMessageProjectionMode, 'raw'>,
@@ -105,14 +176,14 @@ function compactToolResultMessage(
           return { ...part, text: compactTextPart(part.text) };
         }
         if (part.type === 'image') {
-          omittedImages += 1;
-          truncated = true;
-          const mimeType = typeof part.mimeType === 'string' ? part.mimeType : 'image';
-          const dataLength = typeof part.data === 'string' ? part.data.length : 0;
-          return {
-            type: 'text',
-            text: `[${mimeType} image omitted from loaded chat context (${dataLength} base64 characters); raw image remains in database]`,
-          };
+          const imageMetadata = { omittedImages: 0 };
+          const compactedImagePart = compactImagePart(part, imageMetadata);
+          if (imageMetadata.omittedImages > 0) {
+            omittedImages += imageMetadata.omittedImages;
+            truncated = true;
+            return compactedImagePart;
+          }
+          return part;
         }
         return compactDetailsValue(part);
       })
@@ -144,8 +215,10 @@ export function projectAgentMessageForLoadedContext(
   rawContentLength = JSON.stringify(message).length,
 ): AgentMessage {
   if (mode === 'raw') return message;
-  if (message.role !== 'toolResult') return message;
-  return compactToolResultMessage(message, mode, rawContentLength);
+  if (message.role === 'toolResult') {
+    return compactToolResultMessage(message, mode, rawContentLength);
+  }
+  return compactInlineImagesForProjection(message, mode, rawContentLength);
 }
 
 export function parsePersistedPiMessage(

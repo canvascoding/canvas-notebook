@@ -20,6 +20,14 @@ export type ControlAction = 'follow_up' | 'steer' | 'promote_queued_to_steer' | 
 
 type RuntimeInstance = Awaited<ReturnType<typeof getOrCreatePiRuntime>>;
 
+const STUDIO_IMAGE_MIME_BY_EXTENSION: Record<string, string> = {
+  '.gif': 'image/gif',
+  '.jpeg': 'image/jpeg',
+  '.jpg': 'image/jpeg',
+  '.png': 'image/png',
+  '.webp': 'image/webp',
+};
+
 export class RuntimeServiceError extends Error {
   constructor(
     message: string,
@@ -92,6 +100,22 @@ function normalizeContext(context?: ChatRequestContext): ChatRequestContext {
   };
 }
 
+function resolveStudioOutputImage(outputFilePath: string): { imagePath: string; mimeType: string } | null {
+  const outputRoot = path.resolve(getStudioOutputsRoot());
+  const normalizedOutputPath = outputFilePath
+    .replace(/^\/+/, '')
+    .replace(/^studio\/outputs\//, '');
+  const imagePath = path.resolve(outputRoot, normalizedOutputPath);
+  const relativePath = path.relative(outputRoot, imagePath);
+
+  if (!relativePath || relativePath.startsWith('..') || path.isAbsolute(relativePath)) {
+    return null;
+  }
+
+  const mimeType = STUDIO_IMAGE_MIME_BY_EXTENSION[path.extname(imagePath).toLowerCase()];
+  return mimeType ? { imagePath, mimeType } : null;
+}
+
 async function injectStudioImage(
   message: UserAgentMessage | null,
   context: ChatRequestContext,
@@ -101,20 +125,23 @@ async function injectStudioImage(
   }
 
   try {
-    const imagePath = path.join(getStudioOutputsRoot(), context.studioContext.outputFilePath);
-    const imageBuffer = await fs.readFile(imagePath);
-    const base64Image = imageBuffer.toString('base64');
-    const ext = path.extname(context.studioContext.outputFilePath).toLowerCase();
-    const mimeType = ext === '.png' ? 'image/png'
-      : ext === '.jpg' || ext === '.jpeg' ? 'image/jpeg'
-        : ext === '.webp' ? 'image/webp'
-          : ext === '.gif' ? 'image/gif'
-            : 'image/png';
+    const resolved = resolveStudioOutputImage(context.studioContext.outputFilePath);
+    if (!resolved) {
+      console.warn('[RuntimeService] Skipping invalid studio image reference:', {
+        outputFilePath: context.studioContext.outputFilePath,
+      });
+      return message;
+    }
+
+    const stats = await fs.stat(resolved.imagePath);
+    if (!stats.isFile()) {
+      return message;
+    }
 
     const imageContent = {
       type: 'image' as const,
-      data: base64Image,
-      mimeType,
+      data: resolved.imagePath,
+      mimeType: resolved.mimeType,
     };
 
     if (typeof message.content === 'string') {

@@ -22,7 +22,7 @@ async function main() {
   const sessionId = 'sess-projection';
   const uniqueTailMarker = 'UNIQUE_RAW_TAIL_MARKER_9d9f20f1';
   const hugeText = `%PDF-1.4\n${'raw-pdf-body '.repeat(60_000)}${uniqueTailMarker}`;
-  const imageData = 'a'.repeat(250_000);
+  const imageData = 'A'.repeat(9_000_000);
 
   await db.insert(user).values({
     id: userId,
@@ -35,22 +35,33 @@ async function main() {
     updatedAt: now,
   });
 
+  const userImageMessage = {
+    role: 'user',
+    content: [
+      { type: 'text', text: 'attached image' },
+      { type: 'image', data: imageData, mimeType: 'image/png' },
+    ],
+    timestamp: now.getTime() + 1,
+  } as unknown as AgentMessage;
+  const toolResultMessage = {
+    role: 'toolResult',
+    toolName: 'read',
+    toolCallId: 'tool-projection',
+    content: [
+      { type: 'text', text: hugeText },
+      { type: 'image', data: imageData, mimeType: 'image/png' },
+    ],
+    details: {
+      filePath: '/data/workspace/case.pdf',
+      stdout: hugeText,
+    },
+    timestamp: now.getTime() + 2,
+  } as unknown as AgentMessage;
+
   const messages: AgentMessage[] = [
     { role: 'user', content: 'read the pdf', timestamp: now.getTime() } as AgentMessage,
-    {
-      role: 'toolResult',
-      toolName: 'read',
-      toolCallId: 'tool-projection',
-      content: [
-        { type: 'text', text: hugeText },
-        { type: 'image', data: imageData, mimeType: 'image/png' },
-      ],
-      details: {
-        filePath: '/data/workspace/case.pdf',
-        stdout: hugeText,
-      },
-      timestamp: now.getTime() + 1,
-    } as unknown as AgentMessage,
+    userImageMessage,
+    toolResultMessage,
     {
       role: 'assistant',
       content: [{ type: 'text', text: 'I read the PDF.' }],
@@ -58,7 +69,7 @@ async function main() {
       provider: 'test-provider',
       model: 'test-model',
       stopReason: 'stop',
-      timestamp: now.getTime() + 2,
+      timestamp: now.getTime() + 3,
     } as AgentMessage,
   ];
 
@@ -97,12 +108,26 @@ async function main() {
   assert.doesNotMatch(projectedJson, new RegExp(uniqueTailMarker));
   assert.doesNotMatch(projectedJson, new RegExp(imageData.slice(0, 200)));
 
-  const normalizedForLlm = await normalizePiMessagesForLlm([messages[1]]);
+  const projectedUserImage = loaded.messages.find((message) => {
+    const content = (message as unknown as { content?: unknown }).content;
+    return message.role === 'user' && Array.isArray(content);
+  });
+  assert.ok(projectedUserImage);
+  const projectedUserJson = JSON.stringify(projectedUserImage);
+  assert.match(projectedUserJson, /image omitted from loaded chat context/);
+  assert.doesNotMatch(projectedUserJson, new RegExp(imageData.slice(0, 200)));
+
+  const normalizedForLlm = await normalizePiMessagesForLlm([userImageMessage, toolResultMessage]);
   const normalizedJson = JSON.stringify(normalizedForLlm[0]);
   assert.ok(normalizedJson.length < 60_000);
-  assert.match(normalizedJson, /raw database record/);
-  assert.doesNotMatch(normalizedJson, new RegExp(uniqueTailMarker));
+  assert.match(normalizedJson, /image omitted from loaded chat context/);
   assert.doesNotMatch(normalizedJson, new RegExp(imageData.slice(0, 200)));
+
+  const normalizedToolJson = JSON.stringify(normalizedForLlm[1]);
+  assert.ok(normalizedToolJson.length < 60_000);
+  assert.match(normalizedToolJson, /raw database record/);
+  assert.doesNotMatch(normalizedToolJson, new RegExp(uniqueTailMarker));
+  assert.doesNotMatch(normalizedToolJson, new RegExp(imageData.slice(0, 200)));
 
   const activitySessionId = 'sess-activity-clock';
   const staleAssistantTimestamp = new Date('2024-01-01T00:00:00.000Z').getTime();

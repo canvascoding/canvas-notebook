@@ -24,6 +24,14 @@ type PendingRequest = {
 };
 
 const QUIET_MESSAGE_TYPES = new Set(['agent_event', 'runtime_status']);
+const MAX_QUEUED_MESSAGES = 20;
+const MAX_QUEUED_MESSAGE_BYTES = 512 * 1024;
+const MAX_SINGLE_QUEUED_MESSAGE_BYTES = 4 * 1024 * 1024;
+
+type QueuedMessage = {
+  message: Record<string, unknown>;
+  bytes: number;
+};
 
 function readyStateLabel(readyState: number | undefined): string {
   return readyState === WebSocket.CONNECTING ? 'CONNECTING'
@@ -61,6 +69,18 @@ function summarizeMessageForLog(message: Record<string, unknown>): Record<string
   return summary;
 }
 
+function estimateMessageBytes(message: Record<string, unknown>): number {
+  try {
+    const serialized = JSON.stringify(message);
+    if (typeof TextEncoder !== 'undefined') {
+      return new TextEncoder().encode(serialized).byteLength;
+    }
+    return serialized.length;
+  } catch {
+    return Number.MAX_SAFE_INTEGER;
+  }
+}
+
 export class WebSocketClient extends EventTarget {
   private ws: WebSocket | null = null;
   private reconnectAttempts = 0;
@@ -68,7 +88,8 @@ export class WebSocketClient extends EventTarget {
   private baseUrl: string;
   private subscribedSessions = new Set<string>();
   private isManualDisconnect = false;
-  private messageQueue: Array<Record<string, unknown>> = [];
+  private messageQueue: QueuedMessage[] = [];
+  private queuedMessageBytes = 0;
   private isConnecting = false;
   private isAuthenticated = false;
   private connectResolve: (() => void) | null = null;
@@ -109,6 +130,7 @@ export class WebSocketClient extends EventTarget {
       readyState: readyStateLabel(this.ws?.readyState),
       subscribedSessions: this.subscribedSessions.size,
       queuedMessages: this.messageQueue.length,
+      queuedMessageBytes: this.queuedMessageBytes,
       pendingRequests: this.pendingRequests.size,
     });
 
@@ -173,6 +195,7 @@ export class WebSocketClient extends EventTarget {
             wasAuthenticated: this.isAuthenticated,
             wasConnecting: this.isConnecting,
             queuedMessages: this.messageQueue.length,
+            queuedMessageBytes: this.queuedMessageBytes,
             pendingRequests: this.pendingRequests.size,
             subscribedSessions: this.subscribedSessions.size,
           });
@@ -248,6 +271,7 @@ export class WebSocketClient extends EventTarget {
 
     this.connectResolve = null;
     this.connectReject = null;
+    this.clearMessageQueue();
 
     if (this.ws) {
       console.log('[WebSocket] disconnect() closing socket', {
@@ -255,6 +279,7 @@ export class WebSocketClient extends EventTarget {
         readyState: readyStateLabel(this.ws.readyState),
         pendingRequests: this.pendingRequests.size,
         queuedMessages: this.messageQueue.length,
+        queuedMessageBytes: this.queuedMessageBytes,
       });
       this.ws.close(1000, 'client disconnect');
       this.ws = null;
@@ -291,8 +316,9 @@ export class WebSocketClient extends EventTarget {
   /**
    * Send message to server.
    * Queues the message if not yet authenticated; flushed after auth_success.
+   * Returns false when the queue guard rejects the message.
    */
-  send(message: Record<string, unknown>): void {
+  send(message: Record<string, unknown>): boolean {
     if (this.isAuthenticated && this.ws && this.ws.readyState === WebSocket.OPEN) {
       if (!QUIET_MESSAGE_TYPES.has(String(message.type))) {
         console.log('[WebSocket] send', {
@@ -301,7 +327,30 @@ export class WebSocketClient extends EventTarget {
         });
       }
       this.ws.send(JSON.stringify(message));
-      return;
+      return true;
+    }
+
+    const messageBytes = estimateMessageBytes(message);
+    if (
+      messageBytes > MAX_SINGLE_QUEUED_MESSAGE_BYTES ||
+      this.messageQueue.length >= MAX_QUEUED_MESSAGES ||
+      this.queuedMessageBytes + messageBytes > MAX_QUEUED_MESSAGE_BYTES
+    ) {
+      console.warn('[WebSocket] send rejected queue_limit', {
+        connectionId: this.activeConnectionId,
+        readyState: readyStateLabel(this.ws?.readyState),
+        messageBytes,
+        queuedMessages: this.messageQueue.length,
+        queuedMessageBytes: this.queuedMessageBytes,
+        maxQueuedMessages: MAX_QUEUED_MESSAGES,
+        maxQueuedBytes: MAX_QUEUED_MESSAGE_BYTES,
+        maxSingleMessageBytes: MAX_SINGLE_QUEUED_MESSAGE_BYTES,
+        ...summarizeMessageForLog(message),
+      });
+      this.dispatchEvent(new CustomEvent<{ error: string; code?: string }>('error', {
+        detail: { error: 'WebSocket send queue limit exceeded', code: 'QUEUE_LIMIT_EXCEEDED' },
+      }));
+      return false;
     }
     
     console.log('[WebSocket] send queued before auth', {
@@ -309,15 +358,20 @@ export class WebSocketClient extends EventTarget {
       readyState: readyStateLabel(this.ws?.readyState),
       isConnecting: this.isConnecting,
       isManualDisconnect: this.isManualDisconnect,
+      messageBytes,
+      queuedMessageBytes: this.queuedMessageBytes + messageBytes,
       ...summarizeMessageForLog(message),
     });
-    this.messageQueue.push(message);
+    this.messageQueue.push({ message, bytes: messageBytes });
+    this.queuedMessageBytes += messageBytes;
     
     if (!this.isConnecting && !this.isManualDisconnect) {
       this.connect().catch(err => {
         console.error('[WebSocket] Failed to auto-connect:', err);
       });
     }
+
+    return true;
   }
 
   request<T extends Record<string, unknown> = Record<string, unknown>>(
@@ -355,7 +409,11 @@ export class WebSocketClient extends EventTarget {
         timeoutMs,
         ...summarizeMessageForLog(payload),
       });
-      this.send({ type, requestId, ...payload });
+      if (!this.send({ type, requestId, ...payload })) {
+        clearTimeout(timer);
+        this.pendingRequests.delete(requestId);
+        reject(new Error('WebSocket send queue limit exceeded'));
+      }
     });
   }
 
@@ -373,17 +431,27 @@ export class WebSocketClient extends EventTarget {
     console.log('[WebSocket] flush_queue_after_auth', {
       connectionId: this.activeConnectionId,
       queuedMessages: this.messageQueue.length,
+      queuedMessageBytes: this.queuedMessageBytes,
     });
     while (this.messageQueue.length > 0) {
-      const message = this.messageQueue.shift();
-      if (message && this.ws && this.ws.readyState === WebSocket.OPEN) {
+      const queued = this.messageQueue.shift();
+      if (queued) {
+        this.queuedMessageBytes = Math.max(0, this.queuedMessageBytes - queued.bytes);
+      }
+      if (queued?.message && this.ws && this.ws.readyState === WebSocket.OPEN) {
         console.log('[WebSocket] send_queued', {
           connectionId: this.activeConnectionId,
-          ...summarizeMessageForLog(message),
+          ...summarizeMessageForLog(queued.message),
         });
-        this.ws.send(JSON.stringify(message));
+        this.ws.send(JSON.stringify(queued.message));
       }
     }
+    this.queuedMessageBytes = 0;
+  }
+
+  private clearMessageQueue(): void {
+    this.messageQueue = [];
+    this.queuedMessageBytes = 0;
   }
 
   /**

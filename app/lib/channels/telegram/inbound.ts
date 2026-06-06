@@ -98,7 +98,7 @@ async function persistTelegramUpload(
     category: uploaded.category,
     containerFilePath,
     ...(includeImagePart && uploaded.category === 'image'
-      ? { image: { data: buffer.toString('base64'), mimeType: uploaded.mimeType } }
+      ? { image: { data: containerFilePath, mimeType: uploaded.mimeType } }
       : {}),
   };
 }
