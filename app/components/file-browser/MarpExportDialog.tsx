@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Download, FileImage, Loader2, X } from 'lucide-react';
+import { Download, FileImage, FileText, Loader2, X } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -22,12 +22,18 @@ interface MarpExportDialogProps {
 }
 
 type ImageFormat = 'png' | 'jpeg';
+type ExportFormat = ImageFormat | 'pdf';
 
-function getFallbackDownloadName(filePath: string, format: ImageFormat) {
+function getFallbackDownloadName(filePath: string, format: ExportFormat) {
   const rawBaseName = filePath.split(/[\\/]/).filter(Boolean).pop() || 'slides';
   const baseName = rawBaseName
     .replace(/\.(marp|slides)\.(md|markdown)$/i, '')
     .replace(/\.(md|markdown)$/i, '');
+
+  if (format === 'pdf') {
+    return `${baseName || 'slides'}-slides.pdf`;
+  }
+
   return `${baseName || 'slides'}-${format}-slides.zip`;
 }
 
@@ -39,21 +45,21 @@ function getHeaderFileName(headers: Headers): string | null {
 
 export function MarpExportDialog({ open, onOpenChange, filePath, fileName }: MarpExportDialogProps) {
   const t = useTranslations('notebook');
-  const [loadingFormat, setLoadingFormat] = useState<ImageFormat | null>(null);
+  const [loadingFormat, setLoadingFormat] = useState<ExportFormat | null>(null);
 
-  const handleExport = async (format: ImageFormat) => {
+  const handleExport = async (format: ExportFormat) => {
     setLoadingFormat(format);
 
     try {
-      const response = await fetch('/api/files/marp-images', {
+      const response = await fetch(format === 'pdf' ? '/api/files/marp-pdf' : '/api/files/marp-images', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path: filePath, format }),
+        body: JSON.stringify(format === 'pdf' ? { path: filePath } : { path: filePath, format }),
       });
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => null);
-        throw new Error(errorData?.error || t('marpImageExportFailed'));
+        throw new Error(errorData?.error || t('marpExportFailed'));
       }
 
       const blob = await response.blob();
@@ -66,9 +72,9 @@ export function MarpExportDialog({ open, onOpenChange, filePath, fileName }: Mar
       anchor.click();
       anchor.remove();
       setTimeout(() => URL.revokeObjectURL(url), 60_000);
-      toast.success(t('marpImageDownloadStarted'));
+      toast.success(t('marpDownloadStarted'));
     } catch (err) {
-      const message = err instanceof Error ? err.message : t('marpImageExportFailed');
+      const message = err instanceof Error ? err.message : t('marpExportFailed');
       toast.error(message);
     } finally {
       setLoadingFormat(null);
@@ -81,14 +87,27 @@ export function MarpExportDialog({ open, onOpenChange, filePath, fileName }: Mar
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <FileImage className="h-5 w-5" />
-            {t('marpExportImagesTitle')}
+            {t('marpExportTitle')}
           </DialogTitle>
           <DialogDescription>
-            {t('marpExportImagesDescription', { fileName })}
+            {t('marpExportDescription', { fileName })}
           </DialogDescription>
         </DialogHeader>
 
-        <div className="grid gap-2 py-2 sm:grid-cols-2">
+        <div className="grid gap-2 py-2">
+          <Button
+            variant="secondary"
+            onClick={() => void handleExport('pdf')}
+            disabled={loadingFormat !== null}
+            className="justify-start"
+          >
+            {loadingFormat === 'pdf' ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <FileText className="h-4 w-4" />
+            )}
+            {t('downloadPdfSlides')}
+          </Button>
           <Button
             variant="secondary"
             onClick={() => void handleExport('png')}
