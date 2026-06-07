@@ -1075,7 +1075,8 @@
       "status": "Status",
       "categories": "Categories",
       "files": "Files",
-      "session": "Session"
+      "session": "Session",
+      "emailNotification": "Email notification"
     },
     "filters": {
       "allCategories": "All categories",
@@ -1130,7 +1131,8 @@
       "filters": "Filters",
       "cancel": "Cancel",
       "save": "Save",
-      "removeFile": "Remove file link"
+      "removeFile": "Remove file link",
+      "openIntegrationsSettings": "Add in settings"
     },
     "fields": {
       "title": "Title",
@@ -1161,7 +1163,9 @@
     },
     "labels": {
       "unread": "Unread",
-      "followUpSentAt": "Last sent to the agent: {date}"
+      "followUpSentAt": "Last sent to the agent: {date}",
+      "emailNotificationSentAt": "Email notification sent: {date}",
+      "emailNotificationBlocked": "Email notification not sent"
     },
     "detail": {
       "dialogTitle": "Review to-do"

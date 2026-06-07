@@ -22,7 +22,13 @@ type DraftInput = {
   is_HTML?: boolean;
 };
 
-let accounts: unknown[] = [{ id: 'local_notify_test', provider: 'google', emailAddress: 'owner@example.test', status: 'active' }];
+let accounts: unknown[] = [{
+  id: 'local_notify_test',
+  provider: 'google',
+  emailAddress: 'owner@example.test',
+  status: 'active',
+  policy: { readFrom: [], sendTo: [] },
+}];
 const drafts: DraftInput[] = [];
 const sentDrafts: Array<{ accountId: string; draftId: string }> = [];
 
@@ -132,6 +138,37 @@ async function main() {
   const storedSkippedTodo = await db.query.todoItems.findFirst({ where: eq(todoItems.id, skippedTodo.id) });
   assert.equal(storedSkippedTodo?.emailNotificationSentAt, null);
   assert.match(storedSkippedTodo?.emailNotificationError || '', /No active email account/);
+
+  accounts = [{
+    id: 'local_notify_test',
+    provider: 'google',
+    emailAddress: 'owner@example.test',
+    status: 'active',
+    policy: { readFrom: [], sendTo: ['allowed@example.test'] },
+  }];
+  const [policyTodo] = await db.insert(todoItems).values({
+    ...agentTodo,
+    id: 'todo-email-policy-blocked',
+    title: 'Policy blocked',
+    emailNotificationSentAt: null,
+    emailNotificationError: null,
+    createdAt: new Date(now.getTime() + 2),
+    updatedAt: new Date(now.getTime() + 2),
+  }).returning();
+
+  const policyBlocked = await sendTodoCreatedEmailNotification(userId, {
+    ...policyTodo,
+    category: null,
+    fileLinks: [],
+  });
+
+  assert.equal(policyBlocked.status, 'skipped');
+  assert.equal(drafts.length, 1);
+  assert.equal(sentDrafts.length, 1);
+  const storedPolicyTodo = await db.query.todoItems.findFirst({ where: eq(todoItems.id, policyTodo.id) });
+  assert.equal(storedPolicyTodo?.emailNotificationSentAt, null);
+  assert.match(storedPolicyTodo?.emailNotificationError || '', /not allowed by the email account sendTo policy/);
+  assert.match(storedPolicyTodo?.emailNotificationError || '', /Settings > Integrations/);
 
   console.log('Todo email notification test passed.');
 }
