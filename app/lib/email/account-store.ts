@@ -12,6 +12,7 @@ import {
   readEmailAccountSecret,
   writeEmailAccountSecret,
   type EmailAccountOAuthSecret,
+  type EmailAccountSmtpSecret,
   type EmailAccountSecret,
 } from '@/app/lib/email/secret-store';
 
@@ -30,6 +31,12 @@ export type PublicEmailAccount = {
   status: string;
   scope: string | null;
   expiresAt: string | null;
+  smtpHost: string | null;
+  smtpPort: number | null;
+  smtpSecure: boolean | null;
+  imapHost: string | null;
+  imapPort: number | null;
+  imapSecure: boolean | null;
   policy: EmailPolicy;
   createdAt: string;
   updatedAt: string;
@@ -76,6 +83,12 @@ export function publicStoredEmailAccount(account: StoredEmailAccount, secret?: E
     status: account.status,
     scope: secret?.authType === 'oauth' ? secret.scope || null : null,
     expiresAt: secret?.authType === 'oauth' ? secret.expiresAt || null : null,
+    smtpHost: secret?.authType === 'smtp_imap' ? secret.smtp.host : null,
+    smtpPort: secret?.authType === 'smtp_imap' ? secret.smtp.port : null,
+    smtpSecure: secret?.authType === 'smtp_imap' ? secret.smtp.secure : null,
+    imapHost: secret?.authType === 'smtp_imap' && secret.imap ? secret.imap.host : null,
+    imapPort: secret?.authType === 'smtp_imap' && secret.imap ? secret.imap.port : null,
+    imapSecure: secret?.authType === 'smtp_imap' && secret.imap ? secret.imap.secure : null,
     policy: parsePolicyJson(account.policyJson),
     createdAt: toIso(account.createdAt) || new Date(0).toISOString(),
     updatedAt: toIso(account.updatedAt) || new Date(0).toISOString(),
@@ -224,6 +237,65 @@ export async function upsertOAuthEmailAccount(params: {
     emailAddress,
     displayName: params.displayName ?? null,
     providerAccountId: params.providerAccountId ?? null,
+    status: 'active',
+    policyJson: JSON.stringify(policy),
+    secretRef,
+    lastUsedAt: null,
+    createdAt: params.createdAt || now,
+    updatedAt: now,
+  });
+
+  return getEmailAccountForUser(params.userId, id);
+}
+
+export async function upsertSmtpEmailAccount(params: {
+  userId: string;
+  accountId?: string;
+  emailAddress: string;
+  displayName?: string | null;
+  policy?: Partial<EmailPolicy> | null;
+  secret: EmailAccountSmtpSecret;
+  createdAt?: Date;
+}): Promise<StoredEmailAccount> {
+  const emailAddress = normalizeEmailAddress(params.emailAddress);
+  const existing = await db.query.emailAccounts.findFirst({
+    where: and(
+      eq(emailAccounts.userId, params.userId),
+      eq(emailAccounts.provider, 'smtp_imap'),
+      eq(emailAccounts.emailAddress, emailAddress),
+    ),
+  });
+  const now = new Date();
+  const id = existing?.id || params.accountId || accountIdFor(params.userId, 'smtp_imap', emailAddress);
+  const secretRef = existing?.secretRef || emailAccountSecretRef(params.userId, id);
+  const policy = params.policy === undefined && existing
+    ? parsePolicyJson(existing.policyJson)
+    : normalizePolicy(params.policy ?? null);
+
+  await writeEmailAccountSecret(secretRef, params.secret);
+
+  if (existing) {
+    await db.update(emailAccounts)
+      .set({
+        displayName: params.displayName === undefined ? existing.displayName : params.displayName,
+        authType: 'smtp_imap',
+        status: 'active',
+        policyJson: JSON.stringify(policy),
+        secretRef,
+        updatedAt: now,
+      })
+      .where(and(eq(emailAccounts.userId, params.userId), eq(emailAccounts.id, existing.id)));
+    return getEmailAccountForUser(params.userId, existing.id);
+  }
+
+  await db.insert(emailAccounts).values({
+    id,
+    userId: params.userId,
+    provider: 'smtp_imap',
+    authType: 'smtp_imap',
+    emailAddress,
+    displayName: params.displayName ?? null,
+    providerAccountId: emailAddress,
     status: 'active',
     policyJson: JSON.stringify(policy),
     secretRef,

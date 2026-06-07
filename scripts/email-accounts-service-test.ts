@@ -75,8 +75,9 @@ async function main() {
   await fs.mkdir(secretsDir, { recursive: true });
   await fs.writeFile(integrationsEnvPath, '', 'utf8');
 
-  const { disconnectEmailAccount, listEmailAccounts, startEmailOAuth } = await import('../app/lib/email/service');
+  const { createEmailDraft, disconnectEmailAccount, listEmailAccounts, saveEmailSmtpAccount, sendEmailDraft, startEmailOAuth } = await import('../app/lib/email/service');
   const { upsertOAuthEmailAccount } = await import('../app/lib/email/account-store');
+  const { setSmtpTransportFactoryForTests } = await import('../app/lib/email/smtp-service');
 
   await insertUser('owner-user', 'owner@example.test');
   await writeLegacyAccounts([legacyAccount()]);
@@ -127,6 +128,74 @@ async function main() {
   assert.equal(stateFiles.length, 1);
   const storedState = JSON.parse(await fs.readFile(path.join(stateDir, stateFiles[0]), 'utf8')) as { userId?: string };
   assert.equal(storedState.userId, 'owner-user');
+
+  let verifyCalls = 0;
+  const sentMessages: unknown[] = [];
+  setSmtpTransportFactoryForTests((options) => ({
+    options,
+    verify: async () => {
+      verifyCalls += 1;
+      return true;
+    },
+    sendMail: async (message: unknown) => {
+      sentMessages.push(message);
+      return { messageId: 'smtp-test-message' };
+    },
+    close: () => undefined,
+  }) as never);
+
+  const smtpAccount = await saveEmailSmtpAccount('owner-user', {
+    emailAddress: 'smtp-owner@example.test',
+    displayName: 'SMTP Owner',
+    smtpHost: 'smtp.example.test',
+    smtpPort: 587,
+    smtpSecure: false,
+    smtpUsername: 'smtp-owner',
+    smtpPassword: 'smtp-secret',
+    policy: { sendTo: ['@example.test'] },
+  }, { verify: true });
+  assert.equal(verifyCalls, 1);
+  assert.equal(smtpAccount.provider, 'smtp_imap');
+  assert.equal(smtpAccount.authType, 'smtp_imap');
+  assert.equal(smtpAccount.smtpHost, 'smtp.example.test');
+  assert.equal(JSON.stringify(smtpAccount).includes('smtp-secret'), false);
+
+  const updatedSmtpAccount = await saveEmailSmtpAccount('owner-user', {
+    emailAddress: 'smtp-owner@example.test',
+    displayName: null,
+    smtpHost: 'smtp.example.test',
+    smtpPort: 587,
+    smtpSecure: false,
+    smtpUsername: 'smtp-owner',
+    smtpPassword: 'smtp-secret-rotated',
+  });
+  assert.equal(verifyCalls, 1);
+  assert.equal(updatedSmtpAccount.id, smtpAccount.id);
+  assert.equal(updatedSmtpAccount.displayName, null);
+  assert.deepEqual(updatedSmtpAccount.policy.sendTo, ['@example.test']);
+
+  const draftResult = await createEmailDraft('owner-user', {
+    accountId: smtpAccount.id,
+    to: ['recipient@example.test'],
+    subject: 'SMTP draft',
+    body: '<p>Hello</p>',
+    is_HTML: true,
+  });
+  const draftId = (draftResult as { draft?: { id?: string } }).draft?.id;
+  assert.ok(draftId);
+  const sendResult = await sendEmailDraft('owner-user', smtpAccount.id, draftId);
+  assert.equal((sendResult as { sent?: boolean }).sent, true);
+  assert.equal(sentMessages.length, 1);
+  assert.deepEqual((sentMessages[0] as { to?: string[] }).to, ['recipient@example.test']);
+  assert.equal((sentMessages[0] as { html?: string }).html, '<p>Hello</p>');
+  await assert.rejects(() => createEmailDraft('owner-user', {
+    accountId: smtpAccount.id,
+    to: ['blocked@outside.test'],
+    subject: 'Blocked',
+    body: 'Blocked',
+  }), /not allowed/i);
+
+  setSmtpTransportFactoryForTests(null);
 
   await fs.rm(tmpRoot, { recursive: true, force: true });
   console.log('Email accounts service test passed.');

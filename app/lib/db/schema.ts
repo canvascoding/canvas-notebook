@@ -62,6 +62,27 @@ export const emailAccounts = sqliteTable("email_accounts", {
   userProviderEmailIdx: uniqueIndex("idx_email_accounts_user_provider_email").on(table.userId, table.provider, table.emailAddress),
 }));
 
+export const emailDrafts = sqliteTable("email_drafts", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull().references(() => user.id),
+  accountId: text("account_id").notNull().references(() => emailAccounts.id, { onDelete: 'cascade' }),
+  status: text("status").notNull().default("draft"),
+  toJson: text("to_json").notNull(),
+  ccJson: text("cc_json").notNull(),
+  bccJson: text("bcc_json").notNull(),
+  subject: text("subject").notNull(),
+  body: text("body").notNull(),
+  isHtml: integer("is_html", { mode: "boolean" }).notNull().default(false),
+  providerDraftId: text("provider_draft_id"),
+  sentAt: integer("sent_at", { mode: "timestamp" }),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull()
+}, (table) => ({
+  userIdx: index("idx_email_drafts_user").on(table.userId),
+  accountIdx: index("idx_email_drafts_account").on(table.accountId),
+  userStatusIdx: index("idx_email_drafts_user_status").on(table.userId, table.status),
+}));
+
 export const verification = sqliteTable("verification", {
   id: text("id").primaryKey(),
   identifier: text("identifier").notNull(),

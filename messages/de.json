@@ -2339,12 +2339,14 @@
       "noAccounts": "Keine E-Mail-Konten verbunden.",
       "providers": {
         "google": "Google",
-        "microsoft": "Microsoft"
+        "microsoft": "Microsoft",
+        "smtp": "SMTP/IMAP"
       },
       "statuses": {
         "active": "Aktiv",
         "expired": "Abgelaufen",
-        "revoked": "Widerrufen"
+        "revoked": "Widerrufen",
+        "disconnected": "Getrennt"
       },
       "oauth": {
         "googleTitle": "Google OAuth",
@@ -2355,6 +2357,27 @@
         "microsoftLocalDescription": "Wird verwendet, um Microsoft-365- oder Outlook-Konten zu verbinden.",
         "clientId": "Client-ID",
         "clientSecret": "Client Secret"
+      },
+      "smtp": {
+        "title": "SMTP/IMAP",
+        "description": "Verbinde ein klassisches Mailkonto mit SMTP-Versand.",
+        "emailAddress": "E-Mail-Adresse",
+        "displayName": "Anzeigename",
+        "host": "SMTP-Host",
+        "port": "SMTP-Port",
+        "secure": "SMTPS",
+        "username": "SMTP-Benutzername",
+        "password": "SMTP-Passwort",
+        "imapEnabled": "IMAP speichern",
+        "imapHost": "IMAP-Host",
+        "imapPort": "IMAP-Port",
+        "imapSecure": "IMAPS",
+        "imapUsername": "IMAP-Benutzername",
+        "imapPassword": "IMAP-Passwort",
+        "test": "Testen",
+        "save": "SMTP speichern",
+        "verifyAndSave": "Testen & speichern",
+        "secureBadge": "verschlüsselt"
       },
       "policy": {
         "readFromLabel": "Lesbare Absender",
@@ -2368,6 +2391,8 @@
         "accountConnected": "E-Mail-Konto verbunden.",
         "accountDisconnected": "E-Mail-Konto getrennt.",
         "oauthSettingsSaved": "{provider}-OAuth-Einstellungen gespeichert.",
+        "smtpSaved": "SMTP-Konto gespeichert.",
+        "smtpTested": "SMTP-Verbindung erfolgreich getestet.",
         "policySaved": "E-Mail-Richtlinie gespeichert."
       },
       "errors": {
@@ -2379,6 +2404,8 @@
         "saveOAuthSettings": "OAuth-Einstellungen konnten nicht gespeichert werden",
         "startOAuth": "E-Mail-OAuth konnte nicht gestartet werden",
         "missingAuthorizationUrl": "E-Mail-OAuth hat keine Autorisierungs-URL zurückgegeben.",
+        "testSmtp": "SMTP-Verbindung konnte nicht getestet werden",
+        "saveSmtp": "SMTP-Konto konnte nicht gespeichert werden",
         "savePolicy": "E-Mail-Richtlinie konnte nicht gespeichert werden",
         "disconnect": "E-Mail-Konto konnte nicht getrennt werden"
       }

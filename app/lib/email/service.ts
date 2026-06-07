@@ -13,6 +13,7 @@ import {
   type EmailDraftInput,
   type EmailPolicy,
 } from '@/app/lib/email/local-service';
+import { saveSmtpEmailAccount, testSmtpConnection, type SmtpAccountInput } from '@/app/lib/email/smtp-service';
 
 type EmailSearchInput = {
   accountId?: string;
@@ -66,6 +67,14 @@ export async function updateEmailPolicy(userId: string, accountId: string, polic
 
 export async function disconnectEmailAccount(userId: string, accountId: string) {
   return disconnectLocalEmailAccount(userId, accountId);
+}
+
+export async function saveEmailSmtpAccount(userId: string, input: SmtpAccountInput, options?: { verify?: boolean }) {
+  return saveSmtpEmailAccount(userId, input, options);
+}
+
+export async function testEmailSmtpConnection(input: SmtpAccountInput) {
+  return testSmtpConnection(input);
 }
 
 export async function searchEmail(userId: string, input: EmailSearchInput) {
