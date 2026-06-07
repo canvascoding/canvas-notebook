@@ -19,6 +19,35 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.6.7.1] - 2026-06-07
+
+### Added
+
+- Added attachment preview lightbox support for agent chat and home prompts.
+- Added runtime continuation guard coverage for PI live runs.
+
+### Changed
+
+- Improved Marp preview and PDF export, including mobile slide scaling.
+- Improved Studio preview loading states and media thumbnails.
+- Reduced file tree refresh churn after file writes.
+- Clarified created-file tool display names.
+- Defaulted todos to the open filter.
+- Updated Pi runtime packages and lodash audit override handling.
+- Bumped Canvas Notebook and CLI version to `2026.6.7.1`.
+
+### Fixed
+
+- Prevented chat sends while uploads are still finishing.
+- Fixed mobile todo detail display.
+- Fixed public Excalidraw redirect origin handling.
+- Fixed todo email send policy handling.
+- Hardened vision attachment handling.
+
+### Verification
+
+- `npm run build`
+
 ## [2026.6.6.2] - 2026-06-06
 
 ### Added
