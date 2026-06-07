@@ -19,7 +19,25 @@ export type EmailAccountOAuthSecret = {
   expiresAt?: string;
 };
 
-export type EmailAccountSecret = EmailAccountOAuthSecret;
+export type EmailAccountSmtpSecret = {
+  authType: 'smtp_imap';
+  smtp: {
+    host: string;
+    port: number;
+    secure: boolean;
+    username: string;
+    password: string;
+  };
+  imap?: {
+    host: string;
+    port: number;
+    secure: boolean;
+    username: string;
+    password: string;
+  };
+};
+
+export type EmailAccountSecret = EmailAccountOAuthSecret | EmailAccountSmtpSecret;
 
 function safePathSegment(value: string): string {
   return value.replace(/[^A-Za-z0-9_.-]/g, '_');

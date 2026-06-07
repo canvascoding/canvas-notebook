@@ -25,6 +25,11 @@ import {
   normalizeEmailPolicyList as normalizePolicyList,
   type EmailPolicy,
 } from '@/app/lib/email/policy';
+import {
+  createSmtpEmailDraft,
+  sendSmtpEmailDraft,
+  updateSmtpEmailDraft,
+} from '@/app/lib/email/smtp-service';
 import { readScopedEnvState } from '@/app/lib/integrations/env-config';
 import { resolveSecretsDir } from '@/app/lib/runtime-data-paths';
 
@@ -548,6 +553,9 @@ function encodeRawEmail(input: EmailDraftInput) {
 
 export async function searchLocalEmail(userId: string, input: { accountId?: string; query?: string; limit?: number }) {
   const account = await findLocalEmailAccount(userId, input.accountId);
+  if (account.authType === 'smtp_imap') {
+    throw new Error('IMAP search is not available for SMTP accounts yet.');
+  }
   const token = await validAccessToken(account);
   const limit = Math.min(Math.max(input.limit || 10, 1), 25);
   let messages: Array<Record<string, unknown>> = [];
@@ -600,6 +608,9 @@ export async function searchLocalEmail(userId: string, input: { accountId?: stri
 
 export async function readLocalEmailMessage(userId: string, accountId: string, messageId: string) {
   const account = await findLocalEmailAccount(userId, accountId);
+  if (account.authType === 'smtp_imap') {
+    throw new Error('IMAP read is not available for SMTP accounts yet.');
+  }
   const token = await validAccessToken(account);
   let message: Record<string, unknown>;
   if (account.provider === 'google') {
@@ -641,6 +652,9 @@ export async function readLocalEmailMessage(userId: string, accountId: string, m
 export async function createLocalEmailDraft(userId: string, input: EmailDraftInput) {
   const account = await findLocalEmailAccount(userId, input.accountId);
   assertRecipientsAllowed(account, input);
+  if (account.authType === 'smtp_imap') {
+    return createSmtpEmailDraft(userId, input);
+  }
   const token = await validAccessToken(account);
   let draft: Record<string, unknown>;
   if (account.provider === 'google') {
@@ -668,6 +682,9 @@ export async function createLocalEmailDraft(userId: string, input: EmailDraftInp
 export async function updateLocalEmailDraft(userId: string, draftId: string, input: EmailDraftInput) {
   const account = await findLocalEmailAccount(userId, input.accountId);
   assertRecipientsAllowed(account, input);
+  if (account.authType === 'smtp_imap') {
+    return updateSmtpEmailDraft(userId, draftId, input);
+  }
   const token = await validAccessToken(account);
   if (account.provider === 'google') {
     await gmailFetch(`drafts/${encodeURIComponent(draftId)}`, token, {
@@ -691,6 +708,9 @@ export async function updateLocalEmailDraft(userId: string, draftId: string, inp
 
 export async function sendLocalEmailDraft(userId: string, accountId: string, draftId: string) {
   const account = await findLocalEmailAccount(userId, accountId);
+  if (account.authType === 'smtp_imap') {
+    return sendSmtpEmailDraft(userId, accountId, draftId);
+  }
   const token = await validAccessToken(account);
   if (account.provider === 'google') {
     const draft = await gmailFetch(`drafts/${encodeURIComponent(draftId)}?format=full`, token);

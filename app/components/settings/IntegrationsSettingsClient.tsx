@@ -124,9 +124,16 @@ type McpToolsDialogState = {
 type EmailAccount = {
   id: string;
   provider: string;
+  authType: string;
   emailAddress: string;
   displayName: string | null;
   status: string;
+  smtpHost?: string | null;
+  smtpPort?: number | null;
+  smtpSecure?: boolean | null;
+  imapHost?: string | null;
+  imapPort?: number | null;
+  imapSecure?: boolean | null;
   policy: {
     readFrom: string[];
     sendTo: string[];
@@ -138,6 +145,22 @@ type EmailOAuthDraft = {
   googleClientSecret: string;
   microsoftClientId: string;
   microsoftClientSecret: string;
+};
+
+type EmailSmtpDraft = {
+  emailAddress: string;
+  displayName: string;
+  smtpHost: string;
+  smtpPort: string;
+  smtpSecure: boolean;
+  smtpUsername: string;
+  smtpPassword: string;
+  imapEnabled: boolean;
+  imapHost: string;
+  imapPort: string;
+  imapSecure: boolean;
+  imapUsername: string;
+  imapPassword: string;
 };
 
 type EmailMode = 'unknown' | 'managed' | 'local';
@@ -1573,6 +1596,21 @@ function EmailAccountsCard({ isOpen, onOpenChange }: { isOpen: boolean; onOpenCh
     microsoftClientId: '',
     microsoftClientSecret: '',
   });
+  const [smtpDraft, setSmtpDraft] = useState<EmailSmtpDraft>({
+    emailAddress: '',
+    displayName: '',
+    smtpHost: '',
+    smtpPort: '587',
+    smtpSecure: false,
+    smtpUsername: '',
+    smtpPassword: '',
+    imapEnabled: false,
+    imapHost: '',
+    imapPort: '993',
+    imapSecure: true,
+    imapUsername: '',
+    imapPassword: '',
+  });
   const [isLoading, setIsLoading] = useState(false);
   const [isOAuthLoading, setIsOAuthLoading] = useState(false);
   const [activeAction, setActiveAction] = useState<string | null>(null);
@@ -1756,6 +1794,63 @@ function EmailAccountsCard({ isOpen, onOpenChange }: { isOpen: boolean; onOpenCh
     }
   };
 
+  const smtpPayload = (verifyConnection = false) => ({
+    emailAddress: smtpDraft.emailAddress.trim(),
+    displayName: smtpDraft.displayName.trim() || null,
+    smtpHost: smtpDraft.smtpHost.trim(),
+    smtpPort: smtpDraft.smtpPort.trim(),
+    smtpSecure: smtpDraft.smtpSecure,
+    smtpUsername: smtpDraft.smtpUsername.trim(),
+    smtpPassword: smtpDraft.smtpPassword,
+    imapHost: smtpDraft.imapEnabled ? smtpDraft.imapHost.trim() : '',
+    imapPort: smtpDraft.imapEnabled ? smtpDraft.imapPort.trim() : '',
+    imapSecure: smtpDraft.imapSecure,
+    imapUsername: smtpDraft.imapEnabled ? smtpDraft.imapUsername.trim() : '',
+    imapPassword: smtpDraft.imapEnabled ? smtpDraft.imapPassword : '',
+    verifyConnection,
+  });
+
+  const testSmtp = async () => {
+    setActiveAction('smtp:test');
+    setError(null);
+    setMessage(null);
+    try {
+      const response = await fetch('/api/email/accounts/smtp/test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(smtpPayload(false)),
+      });
+      const payload = await response.json();
+      if (!response.ok || !payload.success) throw new Error(payload.error || t('errors.testSmtp'));
+      setMessage(t('messages.smtpTested'));
+    } catch (smtpError) {
+      setError(smtpError instanceof Error ? smtpError.message : t('errors.testSmtp'));
+    } finally {
+      setActiveAction(null);
+    }
+  };
+
+  const saveSmtp = async (verifyConnection = false) => {
+    setActiveAction(verifyConnection ? 'smtp:verify-save' : 'smtp:save');
+    setError(null);
+    setMessage(null);
+    try {
+      const response = await fetch('/api/email/accounts/smtp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(smtpPayload(verifyConnection)),
+      });
+      const payload = await response.json();
+      if (!response.ok || !payload.success) throw new Error(payload.error || t('errors.saveSmtp'));
+      setMessage(t('messages.smtpSaved'));
+      await loadAccounts();
+    } catch (smtpError) {
+      setError(smtpError instanceof Error ? smtpError.message : t('errors.saveSmtp'));
+    } finally {
+      setActiveAction(null);
+    }
+  };
+
   const savePolicy = async (accountId: string) => {
     setActiveAction(`policy:${accountId}`);
     setError(null);
@@ -1805,12 +1900,14 @@ function EmailAccountsCard({ isOpen, onOpenChange }: { isOpen: boolean; onOpenCh
   const providerLabel = (provider: string) => {
     if (provider === 'google') return t('providers.google');
     if (provider === 'microsoft') return t('providers.microsoft');
+    if (provider === 'smtp_imap') return t('providers.smtp');
     return provider;
   };
   const statusLabel = (status: string) => {
     if (status === 'active') return t('statuses.active');
     if (status === 'expired') return t('statuses.expired');
     if (status === 'revoked') return t('statuses.revoked');
+    if (status === 'disconnected') return t('statuses.disconnected');
     return status;
   };
   const summaryItems = [
@@ -1837,7 +1934,7 @@ function EmailAccountsCard({ isOpen, onOpenChange }: { isOpen: boolean; onOpenCh
         {error && <div className="border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</div>}
         {message && <div className="border border-border bg-muted px-3 py-2 text-sm text-muted-foreground">{message}</div>}
         {!hasConnectedEmailAccount && (
-          <div className={`grid gap-3 ${SHOW_MICROSOFT_EMAIL_OAUTH ? 'lg:grid-cols-2' : 'lg:grid-cols-1'}`}>
+          <div className={`grid gap-3 ${SHOW_MICROSOFT_EMAIL_OAUTH ? 'xl:grid-cols-3' : 'xl:grid-cols-2'}`}>
             <div className="space-y-3 border border-border p-4">
               <div>
                 <h3 className="text-base font-semibold">{t('oauth.googleTitle')}</h3>
@@ -1880,6 +1977,165 @@ function EmailAccountsCard({ isOpen, onOpenChange }: { isOpen: boolean; onOpenCh
                 <Button type="button" onClick={() => void startOAuth('google')} disabled={oauthActionDisabled}>
                   <ExternalLink className="mr-2 h-4 w-4" />
                   {t('connect')}
+                </Button>
+              </div>
+            </div>
+            <div className="space-y-3 border border-border p-4">
+              <div>
+                <h3 className="text-base font-semibold">{t('smtp.title')}</h3>
+                <p className="text-sm text-muted-foreground">{t('smtp.description')}</p>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="space-y-2 sm:col-span-2">
+                  <Label className="text-xs uppercase tracking-wider text-muted-foreground" htmlFor="email-smtp-email">{t('smtp.emailAddress')}</Label>
+                  <Input
+                    id="email-smtp-email"
+                    type="email"
+                    value={smtpDraft.emailAddress}
+                    onChange={(event) => setSmtpDraft((current) => ({ ...current, emailAddress: event.target.value }))}
+                    placeholder="name@example.com"
+                    disabled={activeAction !== null}
+                  />
+                </div>
+                <div className="space-y-2 sm:col-span-2">
+                  <Label className="text-xs uppercase tracking-wider text-muted-foreground" htmlFor="email-smtp-display-name">{t('smtp.displayName')}</Label>
+                  <Input
+                    id="email-smtp-display-name"
+                    value={smtpDraft.displayName}
+                    onChange={(event) => setSmtpDraft((current) => ({ ...current, displayName: event.target.value }))}
+                    disabled={activeAction !== null}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-xs uppercase tracking-wider text-muted-foreground" htmlFor="email-smtp-host">{t('smtp.host')}</Label>
+                  <Input
+                    id="email-smtp-host"
+                    className="font-mono text-xs"
+                    value={smtpDraft.smtpHost}
+                    onChange={(event) => setSmtpDraft((current) => ({ ...current, smtpHost: event.target.value }))}
+                    placeholder="smtp.example.com"
+                    disabled={activeAction !== null}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-xs uppercase tracking-wider text-muted-foreground" htmlFor="email-smtp-port">{t('smtp.port')}</Label>
+                  <Input
+                    id="email-smtp-port"
+                    inputMode="numeric"
+                    className="font-mono text-xs"
+                    value={smtpDraft.smtpPort}
+                    onChange={(event) => setSmtpDraft((current) => ({ ...current, smtpPort: event.target.value }))}
+                    disabled={activeAction !== null}
+                  />
+                </div>
+                <div className="flex items-center justify-between gap-3 border border-border px-3 py-2 sm:col-span-2">
+                  <Label className="text-sm" htmlFor="email-smtp-secure">{t('smtp.secure')}</Label>
+                  <Switch
+                    id="email-smtp-secure"
+                    checked={smtpDraft.smtpSecure}
+                    onCheckedChange={(checked) => setSmtpDraft((current) => ({ ...current, smtpSecure: checked, smtpPort: checked && current.smtpPort === '587' ? '465' : !checked && current.smtpPort === '465' ? '587' : current.smtpPort }))}
+                    disabled={activeAction !== null}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-xs uppercase tracking-wider text-muted-foreground" htmlFor="email-smtp-username">{t('smtp.username')}</Label>
+                  <Input
+                    id="email-smtp-username"
+                    className="font-mono text-xs"
+                    value={smtpDraft.smtpUsername}
+                    onChange={(event) => setSmtpDraft((current) => ({ ...current, smtpUsername: event.target.value }))}
+                    disabled={activeAction !== null}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-xs uppercase tracking-wider text-muted-foreground" htmlFor="email-smtp-password">{t('smtp.password')}</Label>
+                  <Input
+                    id="email-smtp-password"
+                    type="password"
+                    className="font-mono text-xs"
+                    value={smtpDraft.smtpPassword}
+                    onChange={(event) => setSmtpDraft((current) => ({ ...current, smtpPassword: event.target.value }))}
+                    disabled={activeAction !== null}
+                  />
+                </div>
+                <div className="flex items-center justify-between gap-3 border border-border px-3 py-2 sm:col-span-2">
+                  <Label className="text-sm" htmlFor="email-imap-enabled">{t('smtp.imapEnabled')}</Label>
+                  <Switch
+                    id="email-imap-enabled"
+                    checked={smtpDraft.imapEnabled}
+                    onCheckedChange={(checked) => setSmtpDraft((current) => ({ ...current, imapEnabled: checked }))}
+                    disabled={activeAction !== null}
+                  />
+                </div>
+                {smtpDraft.imapEnabled && (
+                  <>
+                    <div className="space-y-2">
+                      <Label className="text-xs uppercase tracking-wider text-muted-foreground" htmlFor="email-imap-host">{t('smtp.imapHost')}</Label>
+                      <Input
+                        id="email-imap-host"
+                        className="font-mono text-xs"
+                        value={smtpDraft.imapHost}
+                        onChange={(event) => setSmtpDraft((current) => ({ ...current, imapHost: event.target.value }))}
+                        placeholder="imap.example.com"
+                        disabled={activeAction !== null}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="text-xs uppercase tracking-wider text-muted-foreground" htmlFor="email-imap-port">{t('smtp.imapPort')}</Label>
+                      <Input
+                        id="email-imap-port"
+                        inputMode="numeric"
+                        className="font-mono text-xs"
+                        value={smtpDraft.imapPort}
+                        onChange={(event) => setSmtpDraft((current) => ({ ...current, imapPort: event.target.value }))}
+                        disabled={activeAction !== null}
+                      />
+                    </div>
+                    <div className="flex items-center justify-between gap-3 border border-border px-3 py-2 sm:col-span-2">
+                      <Label className="text-sm" htmlFor="email-imap-secure">{t('smtp.imapSecure')}</Label>
+                      <Switch
+                        id="email-imap-secure"
+                        checked={smtpDraft.imapSecure}
+                        onCheckedChange={(checked) => setSmtpDraft((current) => ({ ...current, imapSecure: checked, imapPort: checked && current.imapPort === '143' ? '993' : !checked && current.imapPort === '993' ? '143' : current.imapPort }))}
+                        disabled={activeAction !== null}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="text-xs uppercase tracking-wider text-muted-foreground" htmlFor="email-imap-username">{t('smtp.imapUsername')}</Label>
+                      <Input
+                        id="email-imap-username"
+                        className="font-mono text-xs"
+                        value={smtpDraft.imapUsername}
+                        onChange={(event) => setSmtpDraft((current) => ({ ...current, imapUsername: event.target.value }))}
+                        disabled={activeAction !== null}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="text-xs uppercase tracking-wider text-muted-foreground" htmlFor="email-imap-password">{t('smtp.imapPassword')}</Label>
+                      <Input
+                        id="email-imap-password"
+                        type="password"
+                        className="font-mono text-xs"
+                        value={smtpDraft.imapPassword}
+                        onChange={(event) => setSmtpDraft((current) => ({ ...current, imapPassword: event.target.value }))}
+                        disabled={activeAction !== null}
+                      />
+                    </div>
+                  </>
+                )}
+              </div>
+              <div className="flex flex-wrap justify-end gap-2">
+                <Button type="button" variant="outline" onClick={() => void testSmtp()} disabled={activeAction !== null || emailMode === 'unknown'}>
+                  {activeAction === 'smtp:test' ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
+                  {t('smtp.test')}
+                </Button>
+                <Button type="button" variant="outline" onClick={() => void saveSmtp(false)} disabled={activeAction !== null || emailMode === 'unknown'}>
+                  {activeAction === 'smtp:save' ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+                  {t('smtp.save')}
+                </Button>
+                <Button type="button" onClick={() => void saveSmtp(true)} disabled={activeAction !== null || emailMode === 'unknown'}>
+                  {activeAction === 'smtp:verify-save' ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ExternalLink className="mr-2 h-4 w-4" />}
+                  {t('smtp.verifyAndSave')}
                 </Button>
               </div>
             </div>
@@ -1948,6 +2204,11 @@ function EmailAccountsCard({ isOpen, onOpenChange }: { isOpen: boolean; onOpenCh
                       <Badge variant={account.status === 'active' ? 'default' : 'secondary'}>{statusLabel(account.status)}</Badge>
                     </div>
                     {account.displayName && <p className="text-sm text-muted-foreground">{account.displayName}</p>}
+                    {account.provider === 'smtp_imap' && account.smtpHost && (
+                      <p className="text-xs text-muted-foreground">
+                        {account.smtpHost}:{account.smtpPort}{account.smtpSecure ? ` ${t('smtp.secureBadge')}` : ''}
+                      </p>
+                    )}
                   </div>
                   <Button type="button" variant="ghost" size="sm" onClick={() => void disconnect(account.id)} disabled={activeAction !== null}>
                     <Trash2 className="mr-2 h-4 w-4" />

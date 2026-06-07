@@ -75,6 +75,25 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       FOREIGN KEY (user_id) REFERENCES user(id)
     );
 
+    CREATE TABLE IF NOT EXISTS email_drafts (
+      id TEXT PRIMARY KEY NOT NULL,
+      user_id TEXT NOT NULL,
+      account_id TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'draft',
+      to_json TEXT NOT NULL,
+      cc_json TEXT NOT NULL,
+      bcc_json TEXT NOT NULL,
+      subject TEXT NOT NULL,
+      body TEXT NOT NULL,
+      is_html INTEGER NOT NULL DEFAULT 0,
+      provider_draft_id TEXT,
+      sent_at INTEGER,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES user(id),
+      FOREIGN KEY (account_id) REFERENCES email_accounts(id) ON DELETE CASCADE
+    );
+
     CREATE TABLE IF NOT EXISTS verification (
       id TEXT PRIMARY KEY NOT NULL,
       identifier TEXT NOT NULL,
@@ -619,6 +638,9 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     CREATE INDEX IF NOT EXISTS idx_email_accounts_user ON email_accounts (user_id);
     CREATE INDEX IF NOT EXISTS idx_email_accounts_user_status ON email_accounts (user_id, status);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_email_accounts_user_provider_email ON email_accounts (user_id, provider, email_address);
+    CREATE INDEX IF NOT EXISTS idx_email_drafts_user ON email_drafts (user_id);
+    CREATE INDEX IF NOT EXISTS idx_email_drafts_account ON email_drafts (account_id);
+    CREATE INDEX IF NOT EXISTS idx_email_drafts_user_status ON email_drafts (user_id, status);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_pi_usage_events_fingerprint ON pi_usage_events (fingerprint);
     CREATE INDEX IF NOT EXISTS idx_pi_usage_events_user_created_at ON pi_usage_events (user_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_pi_usage_events_session_created_at ON pi_usage_events (session_id, created_at);
