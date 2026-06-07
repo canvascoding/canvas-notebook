@@ -39,12 +39,12 @@ moduleInternals._load = (request, parent, isMain) => {
 
   if (request === '@/app/lib/email/service' || request.endsWith('/email/service')) {
     return {
-      listEmailAccounts: async () => ({ mode: 'local', accounts }),
-      createEmailDraft: async (input: DraftInput) => {
+      listEmailAccounts: async (_userId: string) => ({ mode: 'local', accounts }),
+      createEmailDraft: async (_userId: string, input: DraftInput) => {
         drafts.push(input);
         return { draft: { id: `draft-${drafts.length}` } };
       },
-      sendEmailDraft: async (accountId: string, draftId: string) => {
+      sendEmailDraft: async (_userId: string, accountId: string, draftId: string) => {
         sentDrafts.push({ accountId, draftId });
         return { sent: true, draftId };
       },

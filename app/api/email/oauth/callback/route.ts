@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+import { auth } from '@/app/lib/auth';
 import { completeLocalEmailOAuth } from '@/app/lib/email/local-service';
 
 function safeReturnUrl(value: string | undefined, fallback: string, allowedOrigin: string): string {
@@ -15,6 +16,13 @@ function safeReturnUrl(value: string | undefined, fallback: string, allowedOrigi
 
 export async function GET(request: NextRequest) {
   const fallbackUrl = `${request.nextUrl.origin}/settings?tab=integrations`;
+  const session = await auth.api.getSession({ headers: request.headers });
+  if (!session) {
+    const redirectUrl = new URL(fallbackUrl);
+    redirectUrl.searchParams.set('emailOAuthError', 'unauthorized');
+    return NextResponse.redirect(redirectUrl);
+  }
+
   const error = request.nextUrl.searchParams.get('error');
   if (error) {
     const redirectUrl = new URL(fallbackUrl);
@@ -31,7 +39,7 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const result = await completeLocalEmailOAuth(code, state);
+    const result = await completeLocalEmailOAuth(session.user.id, code, state);
     const redirectUrl = new URL(safeReturnUrl(result.returnUrl, fallbackUrl, request.nextUrl.origin));
     redirectUrl.searchParams.set('emailOAuth', 'connected');
     return NextResponse.redirect(redirectUrl);

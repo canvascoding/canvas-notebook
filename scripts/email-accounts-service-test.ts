@@ -19,18 +19,14 @@ let tmpRoot = '';
 let secretsDir = '';
 let integrationsEnvPath = '';
 let accountsPath = '';
+let stateDir = '';
 
-async function writeLocalAccounts(accounts: unknown[]) {
+async function writeLegacyAccounts(accounts: unknown[]) {
   await fs.mkdir(path.dirname(accountsPath), { recursive: true });
   await fs.writeFile(accountsPath, `${JSON.stringify({ version: 1, accounts }, null, 2)}\n`, 'utf8');
 }
 
-async function readStoredLocalAccounts() {
-  const raw = JSON.parse(await fs.readFile(accountsPath, 'utf8')) as { accounts?: unknown[] };
-  return Array.isArray(raw.accounts) ? raw.accounts : [];
-}
-
-function localAccount(status: 'active' | 'expired' | 'revoked' = 'active') {
+function legacyAccount(status: 'active' | 'expired' | 'revoked' = 'active') {
   const now = new Date().toISOString();
   return {
     id: 'local_google_test',
@@ -43,11 +39,27 @@ function localAccount(status: 'active' | 'expired' | 'revoked' = 'active') {
     refreshToken: 'refresh-token',
     scope: 'email profile',
     expiresAt: new Date(Date.now() + 60_000).toISOString(),
-    policy: { readFrom: [], sendTo: [] },
+    policy: { readFrom: [], sendTo: ['owner@example.test'] },
     status,
     createdAt: now,
     updatedAt: now,
   };
+}
+
+async function insertUser(userId: string, email: string) {
+  const { db } = await import('../app/lib/db');
+  const { user } = await import('../app/lib/db/schema');
+  const now = new Date();
+  await db.insert(user).values({
+    id: userId,
+    name: userId,
+    email,
+    emailVerified: true,
+    image: null,
+    role: null,
+    createdAt: now,
+    updatedAt: now,
+  });
 }
 
 async function main() {
@@ -55,73 +67,67 @@ async function main() {
   secretsDir = path.join(tmpRoot, 'secrets');
   integrationsEnvPath = path.join(secretsDir, 'Canvas-Integrations.env');
   accountsPath = path.join(secretsDir, 'email-oauth', 'accounts.json');
+  stateDir = path.join(secretsDir, 'email-oauth', '.state');
 
+  process.env.DATA = tmpRoot;
   process.env.CANVAS_DATA_ROOT = tmpRoot;
   process.env.INTEGRATIONS_ENV_PATH = integrationsEnvPath;
   await fs.mkdir(secretsDir, { recursive: true });
-
-  const originalFetch = globalThis.fetch;
-  const { disconnectEmailAccount, listEmailAccounts, startEmailOAuth } = await import('../app/lib/email/service');
-
-  delete process.env.CANVAS_MANAGED_SERVICES_ENABLED;
-  delete process.env.CANVAS_CONTROL_PLANE_URL;
-  delete process.env.CANVAS_INSTANCE_TOKEN;
   await fs.writeFile(integrationsEnvPath, '', 'utf8');
-  await writeLocalAccounts([localAccount()]);
 
-  const localBefore = await listEmailAccounts();
-  assert.equal(localBefore.mode, 'local');
-  assert.equal(localBefore.accounts.length, 1);
+  const { disconnectEmailAccount, listEmailAccounts, startEmailOAuth } = await import('../app/lib/email/service');
+  const { upsertOAuthEmailAccount } = await import('../app/lib/email/account-store');
 
-  await disconnectEmailAccount('local_google_test');
+  await insertUser('owner-user', 'owner@example.test');
+  await writeLegacyAccounts([legacyAccount()]);
 
-  const localAfter = await listEmailAccounts();
-  assert.equal(localAfter.mode, 'local');
-  assert.equal(localAfter.accounts.length, 0);
-  assert.equal((await readStoredLocalAccounts()).length, 0);
+  const ownerBefore = await listEmailAccounts('owner-user');
+  assert.equal(ownerBefore.mode, 'local');
+  assert.equal(ownerBefore.accounts.length, 1);
+  assert.equal((ownerBefore.accounts[0] as { id: string }).id, 'local_google_test');
+  await assert.rejects(() => fs.access(accountsPath));
+  await fs.access(path.join(secretsDir, 'email-oauth', 'accounts.legacy.json'));
 
-  process.env.CANVAS_MANAGED_SERVICES_ENABLED = 'true';
-  process.env.CANVAS_CONTROL_PLANE_URL = 'https://control.example/agent';
-  process.env.CANVAS_INSTANCE_TOKEN = 'managed-token';
+  const otherBefore = await listEmailAccounts('other-user');
+  assert.equal(otherBefore.accounts.length, 0);
 
-  const managedRequests: string[] = [];
-  globalThis.fetch = (async (input, init) => {
-    managedRequests.push(String(input));
-    const headers = new Headers(init?.headers);
-    assert.equal(headers.get('Authorization'), 'Bearer managed-token');
-    return new Response(JSON.stringify({
-      accounts: [
-        { id: 'managed-active', provider: 'google', emailAddress: 'active@example.test', status: 'active', policy: { readFrom: [], sendTo: [] } },
-        { id: 'managed-revoked', provider: 'google', emailAddress: 'revoked@example.test', status: 'revoked', policy: { readFrom: [], sendTo: [] } },
-        { id: 'managed-expired', provider: 'google', emailAddress: 'expired@example.test', status: 'expired', policy: { readFrom: [], sendTo: [] } },
-      ],
-    }), { status: 200, headers: { 'Content-Type': 'application/json' } });
-  }) as typeof fetch;
+  await insertUser('other-user', 'other@example.test');
+  await upsertOAuthEmailAccount({
+    userId: 'other-user',
+    provider: 'google',
+    providerAccountId: 'google-user-2',
+    emailAddress: 'other@example.test',
+    displayName: 'Other User',
+    secret: {
+      authType: 'oauth',
+      tokenType: 'Bearer',
+      accessToken: 'other-access',
+      refreshToken: 'other-refresh',
+      scope: 'email profile',
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    },
+  });
 
-  const managedList = await listEmailAccounts();
-  assert.equal(managedList.mode, 'managed');
-  assert.deepEqual(
-    managedList.accounts.map((account) => (account as { id: string }).id),
-    ['managed-active'],
-  );
-  assert.deepEqual(managedRequests, ['https://control.example/v1/managed/email/accounts']);
+  const ownerAccounts = await listEmailAccounts('owner-user');
+  const otherAccounts = await listEmailAccounts('other-user');
+  assert.deepEqual(ownerAccounts.accounts.map((account) => (account as { emailAddress: string }).emailAddress), ['owner@example.test']);
+  assert.deepEqual(otherAccounts.accounts.map((account) => (account as { emailAddress: string }).emailAddress), ['other@example.test']);
+  await assert.rejects(() => disconnectEmailAccount('other-user', 'local_google_test'), /not found/i);
+
+  await disconnectEmailAccount('owner-user', 'local_google_test');
+  const ownerAfterDisconnect = await listEmailAccounts('owner-user');
+  assert.equal(ownerAfterDisconnect.accounts.length, 0);
+  assert.equal((await listEmailAccounts('other-user')).accounts.length, 1);
 
   await fs.writeFile(integrationsEnvPath, 'GOOGLE_OAUTH_CLIENT_ID=local-client\nGOOGLE_OAUTH_CLIENT_SECRET=local-secret\n', 'utf8');
-  managedRequests.length = 0;
-  globalThis.fetch = (async () => {
-    throw new Error('Managed email API should not be called while local OAuth credentials are configured.');
-  }) as typeof fetch;
-
-  const localPriorityList = await listEmailAccounts();
-  assert.equal(localPriorityList.mode, 'local');
-  assert.equal(localPriorityList.accounts.length, 0);
-  assert.equal(managedRequests.length, 0);
-
-  const oauthStart = await startEmailOAuth({ provider: 'google', requestOrigin: 'http://localhost:3000' });
+  const oauthStart = await startEmailOAuth('owner-user', { provider: 'google', requestOrigin: 'http://localhost:3000' });
   assert.equal(oauthStart.provider, 'google');
   assert.match(oauthStart.authorizationUrl, /^https:\/\/accounts\.google\.com\/o\/oauth2\/v2\/auth/u);
+  const stateFiles = await fs.readdir(stateDir);
+  assert.equal(stateFiles.length, 1);
+  const storedState = JSON.parse(await fs.readFile(path.join(stateDir, stateFiles[0]), 'utf8')) as { userId?: string };
+  assert.equal(storedState.userId, 'owner-user');
 
-  globalThis.fetch = originalFetch;
   await fs.rm(tmpRoot, { recursive: true, force: true });
   console.log('Email accounts service test passed.');
 }

@@ -88,7 +88,7 @@ export async function sendTodoCreatedEmailNotification(userId: string, todo: Tod
   }
 
   try {
-    const accountsResponse = await listEmailAccounts();
+    const accountsResponse = await listEmailAccounts(userId);
     const rawAccounts: unknown[] = Array.isArray(accountsResponse.accounts)
       ? accountsResponse.accounts
       : [];
@@ -107,7 +107,7 @@ export async function sendTodoCreatedEmailNotification(userId: string, todo: Tod
     }
 
     const email = renderTodoNotificationEmail(todo);
-    const draftResponse = await createEmailDraft({
+    const draftResponse = await createEmailDraft(userId, {
       accountId: account.id,
       to: [recipient],
       subject: email.subject,
@@ -119,7 +119,7 @@ export async function sendTodoCreatedEmailNotification(userId: string, todo: Tod
       throw new Error('Email draft service did not return a draft ID.');
     }
 
-    await sendEmailDraft(account.id, draftId);
+    await sendEmailDraft(userId, account.id, draftId);
     await markTodoNotificationStatus(todo.id, { sentAt: new Date(), error: null });
     return { status: 'sent', accountId: account.id, draftId };
   } catch (error) {
