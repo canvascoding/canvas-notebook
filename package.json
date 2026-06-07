@@ -196,6 +196,7 @@
     "typescript": "^6.0.2"
   },
   "overrides": {
+    "lodash-es": "4.18.1",
     "postcss": "8.5.15"
   }
 }
