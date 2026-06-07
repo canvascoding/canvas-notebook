@@ -4,6 +4,20 @@ import crypto from 'crypto';
 import path from 'path';
 import { promises as fs } from 'fs';
 
+import { db } from '@/app/lib/db';
+import { user } from '@/app/lib/db/schema';
+import {
+  disconnectStoredEmailAccount,
+  getEmailAccountForUser,
+  listPublicEmailAccountsForUser,
+  publicStoredEmailAccount,
+  readStoredEmailAccountSecret,
+  saveStoredEmailAccountOAuthSecret,
+  setStoredEmailAccountStatus,
+  updateStoredEmailPolicy,
+  upsertOAuthEmailAccount,
+  type StoredEmailAccount,
+} from '@/app/lib/email/account-store';
 import {
   assertEmailRecipientsAllowed,
   assertEmailSenderAllowed,
@@ -27,7 +41,7 @@ export type EmailDraftInput = {
   is_HTML?: boolean;
 };
 
-type LocalEmailAccount = {
+type LegacyLocalEmailAccount = {
   id: string;
   provider: EmailProvider;
   providerAccountId?: string;
@@ -46,11 +60,12 @@ type LocalEmailAccount = {
 
 type LocalEmailState = {
   version: 1;
-  accounts: LocalEmailAccount[];
+  accounts: LegacyLocalEmailAccount[];
 };
 
 type OAuthState = {
   state: string;
+  userId: string;
   provider: EmailProvider;
   codeVerifier: string;
   redirectUri: string;
@@ -145,8 +160,66 @@ async function readLocalEmailState(): Promise<LocalEmailState> {
   return await readJsonIfExists<LocalEmailState>(accountsPath()) || { version: 1, accounts: [] };
 }
 
-async function writeLocalEmailState(state: LocalEmailState): Promise<void> {
-  await writeJsonPrivate(accountsPath(), state);
+const legacyMigrationCheckedForUser = new Set<string>();
+
+function dateFromIso(value: string | undefined): Date | undefined {
+  if (!value) return undefined;
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp) ? new Date(timestamp) : undefined;
+}
+
+async function singleWorkspaceUserId(): Promise<string | null> {
+  const users = await db.select({ id: user.id }).from(user).limit(2);
+  return users.length === 1 ? users[0].id : null;
+}
+
+async function backupOrRemoveLegacyAccountsFile(): Promise<void> {
+  const legacyPath = accountsPath();
+  const backupPath = path.join(emailRoot(), 'accounts.legacy.json');
+  try {
+    await fs.access(backupPath);
+    await fs.rm(legacyPath, { force: true });
+  } catch {
+    await fs.rename(legacyPath, backupPath).catch(() => undefined);
+  }
+}
+
+async function migrateLegacyEmailAccountsIfSafe(userId: string): Promise<void> {
+  if (legacyMigrationCheckedForUser.has(userId)) return;
+
+  const state = await readLocalEmailState();
+  const activeAccounts = state.accounts.filter((account) => account.status === 'active');
+  if (activeAccounts.length === 0) {
+    legacyMigrationCheckedForUser.add(userId);
+    return;
+  }
+
+  const onlyUserId = await singleWorkspaceUserId();
+  if (onlyUserId !== userId) return;
+
+  for (const account of activeAccounts) {
+    await upsertOAuthEmailAccount({
+      userId,
+      accountId: account.id,
+      provider: account.provider,
+      providerAccountId: account.providerAccountId,
+      emailAddress: account.emailAddress,
+      displayName: account.displayName,
+      policy: account.policy,
+      createdAt: dateFromIso(account.createdAt),
+      secret: {
+        authType: 'oauth',
+        tokenType: account.tokenType || 'Bearer',
+        accessToken: account.accessToken,
+        refreshToken: account.refreshToken,
+        scope: account.scope,
+        expiresAt: account.expiresAt,
+      },
+    });
+  }
+
+  await backupOrRemoveLegacyAccountsFile();
+  legacyMigrationCheckedForUser.add(userId);
 }
 
 async function integrationEnvMap(): Promise<Map<string, string>> {
@@ -194,6 +267,7 @@ function getOrigin(requestOrigin?: string | null): string {
 }
 
 export async function startLocalEmailOAuth(params: {
+  userId: string;
   provider?: string;
   requestOrigin?: string | null;
   returnUrl?: string;
@@ -212,6 +286,7 @@ export async function startLocalEmailOAuth(params: {
 
   await writeJsonPrivate(statePath(state), {
     state,
+    userId: params.userId,
     provider,
     codeVerifier,
     redirectUri,
@@ -272,10 +347,13 @@ async function microsoftProfile(accessToken: string) {
   return { providerAccountId: body.id || emailAddress, emailAddress: emailAddress.toLowerCase(), displayName: body.displayName || null };
 }
 
-export async function completeLocalEmailOAuth(code: string, state: string) {
+export async function completeLocalEmailOAuth(userId: string, code: string, state: string) {
   const stored = await readJsonIfExists<OAuthState>(statePath(state));
   if (!stored || stored.state !== state || Date.parse(stored.expiresAt) <= Date.now()) {
     throw new Error('Invalid or expired email OAuth state.');
+  }
+  if (stored.userId !== userId) {
+    throw new Error('Email OAuth state does not belong to the current user.');
   }
   const config = await getOAuthConfig(stored.provider);
   if (!config) throw new Error('Email OAuth credentials are no longer configured.');
@@ -287,126 +365,93 @@ export async function completeLocalEmailOAuth(code: string, state: string) {
   const token = await exchangeToken(config, params);
   if (!token.access_token) throw new Error('OAuth response did not include an access token.');
   const profile = stored.provider === 'google' ? await googleProfile(token.access_token) : await microsoftProfile(token.access_token);
-  const now = new Date().toISOString();
-  const current = await readLocalEmailState();
-  const existing = current.accounts.find((account) => account.provider === stored.provider && account.emailAddress === profile.emailAddress);
-  const account: LocalEmailAccount = {
-    id: existing?.id || `local_${stored.provider}_${crypto.createHash('sha256').update(profile.emailAddress).digest('hex').slice(0, 16)}`,
-    provider: stored.provider,
+  const account = await upsertOAuthEmailAccount({
+    userId,
     providerAccountId: profile.providerAccountId,
+    provider: stored.provider,
     emailAddress: profile.emailAddress,
     displayName: profile.displayName,
-    tokenType: token.token_type || 'Bearer',
-    accessToken: token.access_token,
-    refreshToken: token.refresh_token || existing?.refreshToken,
-    scope: token.scope || config.scopes.join(' '),
-    expiresAt: token.expires_in ? new Date(Date.now() + token.expires_in * 1000).toISOString() : existing?.expiresAt,
-    policy: existing?.policy || { readFrom: [], sendTo: [] },
-    status: 'active',
-    createdAt: existing?.createdAt || now,
-    updatedAt: now,
-  };
-  const nextAccounts = current.accounts.filter((candidate) => candidate.id !== account.id);
-  nextAccounts.push(account);
-  await writeLocalEmailState({ version: 1, accounts: nextAccounts });
-  await fs.rm(statePath(state), { force: true }).catch(() => undefined);
-  return { account: publicLocalEmailAccount(account), returnUrl: stored.returnUrl };
-}
-
-export function publicLocalEmailAccount(account: LocalEmailAccount) {
-  return {
-    id: account.id,
-    provider: account.provider,
-    emailAddress: account.emailAddress,
-    displayName: account.displayName || null,
-    status: account.status,
-    scope: account.scope || null,
-    expiresAt: account.expiresAt || null,
-    policy: {
-      readFrom: normalizePolicyList(account.policy.readFrom),
-      sendTo: normalizePolicyList(account.policy.sendTo),
+    secret: {
+      authType: 'oauth',
+      tokenType: token.token_type || 'Bearer',
+      accessToken: token.access_token,
+      refreshToken: token.refresh_token,
+      scope: token.scope || config.scopes.join(' '),
+      expiresAt: token.expires_in ? new Date(Date.now() + token.expires_in * 1000).toISOString() : undefined,
     },
-    createdAt: account.createdAt,
-    updatedAt: account.updatedAt,
-  };
-}
-
-export async function listLocalEmailAccounts() {
-  const state = await readLocalEmailState();
-  return state.accounts.filter((account) => account.status === 'active').map(publicLocalEmailAccount);
-}
-
-async function findLocalEmailAccount(accountId?: string): Promise<LocalEmailAccount> {
-  const state = await readLocalEmailState();
-  const account = accountId
-    ? state.accounts.find((candidate) => candidate.id === accountId && candidate.status === 'active')
-    : state.accounts.find((candidate) => candidate.status === 'active');
-  if (!account) throw new Error(accountId ? 'Email account not found.' : 'No active email account is connected.');
-  return account;
-}
-
-async function saveLocalEmailAccount(account: LocalEmailAccount): Promise<void> {
-  const state = await readLocalEmailState();
-  await writeLocalEmailState({
-    version: 1,
-    accounts: state.accounts.map((candidate) => candidate.id === account.id ? account : candidate),
   });
+  await fs.rm(statePath(state), { force: true }).catch(() => undefined);
+  return { account: await publicLocalEmailAccount(account), returnUrl: stored.returnUrl };
 }
 
-async function validAccessToken(account: LocalEmailAccount): Promise<string> {
-  if (!account.expiresAt || Date.parse(account.expiresAt) > Date.now() + 60_000) return account.accessToken;
-  if (!account.refreshToken) {
-    account.status = 'expired';
-    account.updatedAt = new Date().toISOString();
-    await saveLocalEmailAccount(account);
+export async function publicLocalEmailAccount(account: StoredEmailAccount) {
+  const secret = await readStoredEmailAccountSecret(account).catch(() => null);
+  return publicStoredEmailAccount(account, secret);
+}
+
+export async function listLocalEmailAccounts(userId: string) {
+  await migrateLegacyEmailAccountsIfSafe(userId);
+  return listPublicEmailAccountsForUser(userId);
+}
+
+async function findLocalEmailAccount(userId: string, accountId?: string): Promise<StoredEmailAccount> {
+  await migrateLegacyEmailAccountsIfSafe(userId);
+  return getEmailAccountForUser(userId, accountId);
+}
+
+async function validAccessToken(account: StoredEmailAccount): Promise<string> {
+  const secret = await readStoredEmailAccountSecret(account);
+  if (secret.authType !== 'oauth') throw new Error('Email account is not an OAuth account.');
+  if (!secret.expiresAt || Date.parse(secret.expiresAt) > Date.now() + 60_000) return secret.accessToken;
+  if (!secret.refreshToken) {
+    await setStoredEmailAccountStatus(account, 'expired');
     throw new Error('Email account authorization expired. Reconnect the account.');
   }
-  const config = await getOAuthConfig(account.provider);
+  const config = await getOAuthConfig(account.provider as EmailProvider);
   if (!config) throw new Error('Email OAuth credentials are no longer configured.');
   const params = new URLSearchParams();
   params.set('grant_type', 'refresh_token');
-  params.set('refresh_token', account.refreshToken);
+  params.set('refresh_token', secret.refreshToken);
   const refreshed = await exchangeToken(config, params);
   if (!refreshed.access_token) throw new Error('OAuth refresh response did not include an access token.');
-  account.accessToken = refreshed.access_token;
-  account.refreshToken = refreshed.refresh_token || account.refreshToken;
-  account.tokenType = refreshed.token_type || account.tokenType;
-  account.scope = refreshed.scope || account.scope;
-  account.expiresAt = refreshed.expires_in ? new Date(Date.now() + refreshed.expires_in * 1000).toISOString() : account.expiresAt;
-  account.updatedAt = new Date().toISOString();
-  await saveLocalEmailAccount(account);
-  return account.accessToken;
-}
-
-export async function updateLocalEmailPolicy(accountId: string, policy: Partial<EmailPolicy>) {
-  const account = await findLocalEmailAccount(accountId);
-  account.policy = {
-    readFrom: policy.readFrom === undefined ? normalizePolicyList(account.policy.readFrom) : normalizePolicyList(policy.readFrom),
-    sendTo: policy.sendTo === undefined ? normalizePolicyList(account.policy.sendTo) : normalizePolicyList(policy.sendTo),
-  };
-  account.updatedAt = new Date().toISOString();
-  await saveLocalEmailAccount(account);
-  return publicLocalEmailAccount(account);
-}
-
-export async function disconnectLocalEmailAccount(accountId: string) {
-  const state = await readLocalEmailState();
-  const account = state.accounts.find((candidate) => candidate.id === accountId && candidate.status === 'active');
-  if (!account) throw new Error('Email account not found.');
-  await writeLocalEmailState({
-    version: 1,
-    accounts: state.accounts.filter((candidate) => candidate.id !== account.id),
+  await saveStoredEmailAccountOAuthSecret(account, {
+    authType: 'oauth',
+    accessToken: refreshed.access_token,
+    refreshToken: refreshed.refresh_token || secret.refreshToken,
+    tokenType: refreshed.token_type || secret.tokenType,
+    scope: refreshed.scope || secret.scope,
+    expiresAt: refreshed.expires_in ? new Date(Date.now() + refreshed.expires_in * 1000).toISOString() : secret.expiresAt,
   });
-  return true;
+  return refreshed.access_token;
 }
 
-function assertSenderAllowed(account: LocalEmailAccount, from: string) {
-  assertEmailSenderAllowed(from, account.policy.readFrom);
+export async function updateLocalEmailPolicy(userId: string, accountId: string, policy: Partial<EmailPolicy>) {
+  return updateStoredEmailPolicy(userId, accountId, policy);
 }
 
-function assertRecipientsAllowed(account: LocalEmailAccount, input: EmailDraftInput) {
+export async function disconnectLocalEmailAccount(userId: string, accountId: string) {
+  return disconnectStoredEmailAccount(userId, accountId);
+}
+
+function policyForAccount(account: StoredEmailAccount): EmailPolicy {
+  try {
+    const parsed = JSON.parse(account.policyJson) as Partial<EmailPolicy>;
+    return {
+      readFrom: normalizePolicyList(parsed.readFrom),
+      sendTo: normalizePolicyList(parsed.sendTo),
+    };
+  } catch {
+    return { readFrom: [], sendTo: [] };
+  }
+}
+
+function assertSenderAllowed(account: StoredEmailAccount, from: string) {
+  assertEmailSenderAllowed(from, policyForAccount(account).readFrom);
+}
+
+function assertRecipientsAllowed(account: StoredEmailAccount, input: EmailDraftInput) {
   const recipients = [...input.to, ...(input.cc || []), ...(input.bcc || [])];
-  assertEmailRecipientsAllowed(recipients, account.policy.sendTo);
+  assertEmailRecipientsAllowed(recipients, policyForAccount(account).sendTo);
 }
 
 function gmailHeader(headers: Array<{ name?: string; value?: string }> | undefined, name: string) {
@@ -501,8 +546,8 @@ function encodeRawEmail(input: EmailDraftInput) {
   return base64Url(Buffer.from(`${headers.join('\r\n')}\r\n\r\n${input.body}`, 'utf8'));
 }
 
-export async function searchLocalEmail(input: { accountId?: string; query?: string; limit?: number }) {
-  const account = await findLocalEmailAccount(input.accountId);
+export async function searchLocalEmail(userId: string, input: { accountId?: string; query?: string; limit?: number }) {
+  const account = await findLocalEmailAccount(userId, input.accountId);
   const token = await validAccessToken(account);
   const limit = Math.min(Math.max(input.limit || 10, 1), 25);
   let messages: Array<Record<string, unknown>> = [];
@@ -546,14 +591,15 @@ export async function searchLocalEmail(input: { accountId?: string; query?: stri
       };
     });
   }
+  const policy = policyForAccount(account);
   return {
-    account: publicLocalEmailAccount(account),
-    messages: messages.filter((message) => isEmailAddressAllowed(String(message.from || ''), normalizePolicyList(account.policy.readFrom))),
+    account: await publicLocalEmailAccount(account),
+    messages: messages.filter((message) => isEmailAddressAllowed(String(message.from || ''), policy.readFrom)),
   };
 }
 
-export async function readLocalEmailMessage(accountId: string, messageId: string) {
-  const account = await findLocalEmailAccount(accountId);
+export async function readLocalEmailMessage(userId: string, accountId: string, messageId: string) {
+  const account = await findLocalEmailAccount(userId, accountId);
   const token = await validAccessToken(account);
   let message: Record<string, unknown>;
   if (account.provider === 'google') {
@@ -589,11 +635,11 @@ export async function readLocalEmailMessage(accountId: string, messageId: string
       snippet: String(raw.bodyPreview || ''),
     };
   }
-  return { account: publicLocalEmailAccount(account), message };
+  return { account: await publicLocalEmailAccount(account), message };
 }
 
-export async function createLocalEmailDraft(input: EmailDraftInput) {
-  const account = await findLocalEmailAccount(input.accountId);
+export async function createLocalEmailDraft(userId: string, input: EmailDraftInput) {
+  const account = await findLocalEmailAccount(userId, input.accountId);
   assertRecipientsAllowed(account, input);
   const token = await validAccessToken(account);
   let draft: Record<string, unknown>;
@@ -616,11 +662,11 @@ export async function createLocalEmailDraft(input: EmailDraftInput) {
     });
     draft = { id: String(result.id || ''), providerDraft: result };
   }
-  return { account: publicLocalEmailAccount(account), draft };
+  return { account: await publicLocalEmailAccount(account), draft };
 }
 
-export async function updateLocalEmailDraft(draftId: string, input: EmailDraftInput) {
-  const account = await findLocalEmailAccount(input.accountId);
+export async function updateLocalEmailDraft(userId: string, draftId: string, input: EmailDraftInput) {
+  const account = await findLocalEmailAccount(userId, input.accountId);
   assertRecipientsAllowed(account, input);
   const token = await validAccessToken(account);
   if (account.provider === 'google') {
@@ -640,11 +686,11 @@ export async function updateLocalEmailDraft(draftId: string, input: EmailDraftIn
       }),
     });
   }
-  return { account: publicLocalEmailAccount(account), draft: { id: draftId } };
+  return { account: await publicLocalEmailAccount(account), draft: { id: draftId } };
 }
 
-export async function sendLocalEmailDraft(accountId: string, draftId: string) {
-  const account = await findLocalEmailAccount(accountId);
+export async function sendLocalEmailDraft(userId: string, accountId: string, draftId: string) {
+  const account = await findLocalEmailAccount(userId, accountId);
   const token = await validAccessToken(account);
   if (account.provider === 'google') {
     const draft = await gmailFetch(`drafts/${encodeURIComponent(draftId)}?format=full`, token);
@@ -664,5 +710,5 @@ export async function sendLocalEmailDraft(accountId: string, draftId: string) {
     assertRecipientsAllowed(account, { accountId, to: recipients, subject: '', body: '' });
     await microsoftFetch(`messages/${encodeURIComponent(draftId)}/send`, token, { method: 'POST' });
   }
-  return { account: publicLocalEmailAccount(account), sent: true, draftId };
+  return { account: await publicLocalEmailAccount(account), sent: true, draftId };
 }

@@ -42,6 +42,26 @@ export const account = sqliteTable("account", {
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull()
 });
 
+export const emailAccounts = sqliteTable("email_accounts", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull().references(() => user.id),
+  provider: text("provider").notNull(),
+  authType: text("auth_type").notNull(),
+  emailAddress: text("email_address").notNull(),
+  displayName: text("display_name"),
+  providerAccountId: text("provider_account_id"),
+  status: text("status").notNull().default("active"),
+  policyJson: text("policy_json").notNull(),
+  secretRef: text("secret_ref").notNull(),
+  lastUsedAt: integer("last_used_at", { mode: "timestamp" }),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull()
+}, (table) => ({
+  userIdx: index("idx_email_accounts_user").on(table.userId),
+  userStatusIdx: index("idx_email_accounts_user_status").on(table.userId, table.status),
+  userProviderEmailIdx: uniqueIndex("idx_email_accounts_user_provider_email").on(table.userId, table.provider, table.emailAddress),
+}));
+
 export const verification = sqliteTable("verification", {
   id: text("id").primaryKey(),
   identifier: text("identifier").notNull(),

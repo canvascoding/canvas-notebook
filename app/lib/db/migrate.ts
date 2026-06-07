@@ -58,6 +58,23 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       FOREIGN KEY (user_id) REFERENCES user(id)
     );
 
+    CREATE TABLE IF NOT EXISTS email_accounts (
+      id TEXT PRIMARY KEY NOT NULL,
+      user_id TEXT NOT NULL,
+      provider TEXT NOT NULL,
+      auth_type TEXT NOT NULL,
+      email_address TEXT NOT NULL,
+      display_name TEXT,
+      provider_account_id TEXT,
+      status TEXT NOT NULL DEFAULT 'active',
+      policy_json TEXT NOT NULL,
+      secret_ref TEXT NOT NULL,
+      last_used_at INTEGER,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES user(id)
+    );
+
     CREATE TABLE IF NOT EXISTS verification (
       id TEXT PRIMARY KEY NOT NULL,
       identifier TEXT NOT NULL,
@@ -599,6 +616,9 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
   sqlite.exec(`
     CREATE UNIQUE INDEX IF NOT EXISTS user_email_unique ON user (email);
     CREATE UNIQUE INDEX IF NOT EXISTS session_token_unique ON session (token);
+    CREATE INDEX IF NOT EXISTS idx_email_accounts_user ON email_accounts (user_id);
+    CREATE INDEX IF NOT EXISTS idx_email_accounts_user_status ON email_accounts (user_id, status);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_email_accounts_user_provider_email ON email_accounts (user_id, provider, email_address);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_pi_usage_events_fingerprint ON pi_usage_events (fingerprint);
     CREATE INDEX IF NOT EXISTS idx_pi_usage_events_user_created_at ON pi_usage_events (user_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_pi_usage_events_session_created_at ON pi_usage_events (session_id, created_at);
