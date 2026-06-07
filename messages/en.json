@@ -2336,6 +2336,8 @@
       "save": "Save",
       "connect": "Connect",
       "disconnect": "Disconnect",
+      "addAccount": "Add account",
+      "cancelAddAccount": "Cancel add",
       "savePolicy": "Save policy",
       "noAccounts": "No email accounts connected.",
       "providers": {
@@ -2361,7 +2363,7 @@
       },
       "smtp": {
         "title": "SMTP/IMAP",
-        "description": "Connect a classic mail account with SMTP sending.",
+        "description": "Connect a classic mail account with SMTP sending and optional IMAP reading.",
         "emailAddress": "Email address",
         "displayName": "Display name",
         "host": "SMTP host",

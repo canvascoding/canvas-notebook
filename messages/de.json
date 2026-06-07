@@ -2335,6 +2335,8 @@
       "save": "Speichern",
       "connect": "Verbinden",
       "disconnect": "Trennen",
+      "addAccount": "Konto hinzufügen",
+      "cancelAddAccount": "Hinzufügen abbrechen",
       "savePolicy": "Richtlinie speichern",
       "noAccounts": "Keine E-Mail-Konten verbunden.",
       "providers": {
@@ -2360,7 +2362,7 @@
       },
       "smtp": {
         "title": "SMTP/IMAP",
-        "description": "Verbinde ein klassisches Mailkonto mit SMTP-Versand.",
+        "description": "Verbinde ein klassisches Mailkonto mit SMTP-Versand und optionalem IMAP-Lesen.",
         "emailAddress": "E-Mail-Adresse",
         "displayName": "Anzeigename",
         "host": "SMTP-Host",

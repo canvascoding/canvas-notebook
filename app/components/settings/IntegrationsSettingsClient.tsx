@@ -175,6 +175,24 @@ type SearchIntegrationStatus = {
 // Microsoft email OAuth stays in the code but is hidden until provider setup is active.
 const SHOW_MICROSOFT_EMAIL_OAUTH = false;
 
+function emptyEmailSmtpDraft(): EmailSmtpDraft {
+  return {
+    emailAddress: '',
+    displayName: '',
+    smtpHost: '',
+    smtpPort: '587',
+    smtpSecure: false,
+    smtpUsername: '',
+    smtpPassword: '',
+    imapEnabled: false,
+    imapHost: '',
+    imapPort: '993',
+    imapSecure: true,
+    imapUsername: '',
+    imapPassword: '',
+  };
+}
+
 type McpTransportMode = 'stdio' | 'http';
 
 type McpPairDraft = {
@@ -1596,21 +1614,8 @@ function EmailAccountsCard({ isOpen, onOpenChange }: { isOpen: boolean; onOpenCh
     microsoftClientId: '',
     microsoftClientSecret: '',
   });
-  const [smtpDraft, setSmtpDraft] = useState<EmailSmtpDraft>({
-    emailAddress: '',
-    displayName: '',
-    smtpHost: '',
-    smtpPort: '587',
-    smtpSecure: false,
-    smtpUsername: '',
-    smtpPassword: '',
-    imapEnabled: false,
-    imapHost: '',
-    imapPort: '993',
-    imapSecure: true,
-    imapUsername: '',
-    imapPassword: '',
-  });
+  const [smtpDraft, setSmtpDraft] = useState<EmailSmtpDraft>(() => emptyEmailSmtpDraft());
+  const [isAddingEmailAccount, setIsAddingEmailAccount] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [isOAuthLoading, setIsOAuthLoading] = useState(false);
   const [activeAction, setActiveAction] = useState<string | null>(null);
@@ -1770,7 +1775,6 @@ function EmailAccountsCard({ isOpen, onOpenChange }: { isOpen: boolean; onOpenCh
   };
 
   const startOAuth = async (provider: 'google' | 'microsoft') => {
-    if (accounts.length > 0) return;
     setActiveAction(`oauth:${provider}`);
     setError(null);
     setMessage(null);
@@ -1843,6 +1847,8 @@ function EmailAccountsCard({ isOpen, onOpenChange }: { isOpen: boolean; onOpenCh
       const payload = await response.json();
       if (!response.ok || !payload.success) throw new Error(payload.error || t('errors.saveSmtp'));
       setMessage(t('messages.smtpSaved'));
+      setSmtpDraft(emptyEmailSmtpDraft());
+      setIsAddingEmailAccount(false);
       await loadAccounts();
     } catch (smtpError) {
       setError(smtpError instanceof Error ? smtpError.message : t('errors.saveSmtp'));
@@ -1896,7 +1902,8 @@ function EmailAccountsCard({ isOpen, onOpenChange }: { isOpen: boolean; onOpenCh
   const isManagedEmailMode = emailMode === 'managed';
   const isLocalEmailMode = emailMode === 'local';
   const hasConnectedEmailAccount = accounts.length > 0;
-  const oauthActionDisabled = activeAction !== null || isOAuthLoading || emailMode === 'unknown' || hasConnectedEmailAccount;
+  const showAddAccountPanel = !hasConnectedEmailAccount || isAddingEmailAccount;
+  const oauthActionDisabled = activeAction !== null || isOAuthLoading || emailMode === 'unknown';
   const providerLabel = (provider: string) => {
     if (provider === 'google') return t('providers.google');
     if (provider === 'microsoft') return t('providers.microsoft');
@@ -1926,6 +1933,17 @@ function EmailAccountsCard({ isOpen, onOpenChange }: { isOpen: boolean; onOpenCh
       contentClassName="space-y-4"
     >
         <div className="flex flex-wrap justify-end gap-2">
+          {hasConnectedEmailAccount && (
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setIsAddingEmailAccount((current) => !current)}
+              disabled={activeAction !== null || emailMode === 'unknown'}
+            >
+              <Plus className="mr-2 h-4 w-4" />
+              {isAddingEmailAccount ? t('cancelAddAccount') : t('addAccount')}
+            </Button>
+          )}
           <Button type="button" variant="outline" onClick={() => void loadAccounts()} disabled={isLoading}>
             {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
             {t('refresh')}
@@ -1933,7 +1951,7 @@ function EmailAccountsCard({ isOpen, onOpenChange }: { isOpen: boolean; onOpenCh
         </div>
         {error && <div className="border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</div>}
         {message && <div className="border border-border bg-muted px-3 py-2 text-sm text-muted-foreground">{message}</div>}
-        {!hasConnectedEmailAccount && (
+        {showAddAccountPanel && (
           <div className={`grid gap-3 ${SHOW_MICROSOFT_EMAIL_OAUTH ? 'xl:grid-cols-3' : 'xl:grid-cols-2'}`}>
             <div className="space-y-3 border border-border p-4">
               <div>
@@ -2205,9 +2223,16 @@ function EmailAccountsCard({ isOpen, onOpenChange }: { isOpen: boolean; onOpenCh
                     </div>
                     {account.displayName && <p className="text-sm text-muted-foreground">{account.displayName}</p>}
                     {account.provider === 'smtp_imap' && account.smtpHost && (
-                      <p className="text-xs text-muted-foreground">
-                        {account.smtpHost}:{account.smtpPort}{account.smtpSecure ? ` ${t('smtp.secureBadge')}` : ''}
-                      </p>
+                      <div className="mt-1 space-y-1 text-xs text-muted-foreground">
+                        <p>
+                          SMTP {account.smtpHost}:{account.smtpPort}{account.smtpSecure ? ` ${t('smtp.secureBadge')}` : ''}
+                        </p>
+                        {account.imapHost && (
+                          <p>
+                            IMAP {account.imapHost}:{account.imapPort}{account.imapSecure ? ` ${t('smtp.secureBadge')}` : ''}
+                          </p>
+                        )}
+                      </div>
                     )}
                   </div>
                   <Button type="button" variant="ghost" size="sm" onClick={() => void disconnect(account.id)} disabled={activeAction !== null}>
