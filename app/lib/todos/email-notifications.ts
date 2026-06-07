@@ -4,6 +4,11 @@ import { eq } from 'drizzle-orm';
 
 import { db } from '@/app/lib/db';
 import { todoItems, user } from '@/app/lib/db/schema';
+import {
+  isEmailAddressAllowed,
+  normalizeEmailPolicyList,
+  todoNotificationSendPolicyError,
+} from '@/app/lib/email/policy';
 import { createEmailDraft, listEmailAccounts, sendEmailDraft } from '@/app/lib/email/service';
 import { renderTodoNotificationEmail } from '@/app/lib/email/templates/todo-notification';
 import type { TodoWithRelations } from '@/app/lib/todos/store';
@@ -11,6 +16,9 @@ import type { TodoWithRelations } from '@/app/lib/todos/store';
 type EmailAccountCandidate = {
   id: string;
   status?: string | null;
+  policy?: {
+    sendTo?: unknown;
+  } | null;
 };
 
 export type TodoEmailNotificationResult =
@@ -35,6 +43,22 @@ function normalizeRecipient(value: string | null | undefined): string | null {
   if (typeof value !== 'string') return null;
   const normalized = value.trim().toLowerCase();
   return normalized && normalized.includes('@') ? normalized : null;
+}
+
+function sendPolicyForAccount(account: EmailAccountCandidate): string[] | null {
+  if (!account.policy || typeof account.policy !== 'object' || !('sendTo' in account.policy)) {
+    return null;
+  }
+  return normalizeEmailPolicyList(account.policy.sendTo);
+}
+
+function isSendPolicyError(message: string): boolean {
+  const normalized = message.toLowerCase();
+  return (
+    normalized.includes('sendto')
+    || normalized.includes('send policy')
+    || (normalized.includes('recipient') && normalized.includes('allowed'))
+  );
 }
 
 async function markTodoNotificationStatus(todoId: string, status: { sentAt?: Date | null; error?: string | null }) {
@@ -75,6 +99,13 @@ export async function sendTodoCreatedEmailNotification(userId: string, todo: Tod
       return { status: 'skipped', reason: 'No active email account connected.' };
     }
 
+    const sendToPolicy = sendPolicyForAccount(account);
+    if (sendToPolicy && !isEmailAddressAllowed(recipient, sendToPolicy)) {
+      const message = todoNotificationSendPolicyError(recipient);
+      await markTodoNotificationStatus(todo.id, { error: message });
+      return { status: 'skipped', reason: message };
+    }
+
     const email = renderTodoNotificationEmail(todo);
     const draftResponse = await createEmailDraft({
       accountId: account.id,
@@ -92,7 +123,10 @@ export async function sendTodoCreatedEmailNotification(userId: string, todo: Tod
     await markTodoNotificationStatus(todo.id, { sentAt: new Date(), error: null });
     return { status: 'sent', accountId: account.id, draftId };
   } catch (error) {
-    const message = getErrorMessage(error);
+    const rawMessage = getErrorMessage(error);
+    const message = isSendPolicyError(rawMessage)
+      ? `${todoNotificationSendPolicyError(recipient)} (${rawMessage})`
+      : rawMessage;
     await markTodoNotificationStatus(todo.id, { error: message });
     console.warn('[TodoEmailNotification] Failed to send todo notification email:', message);
     return { status: 'failed', error: message };

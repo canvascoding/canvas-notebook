@@ -1074,7 +1074,8 @@
       "status": "Status",
       "categories": "Kategorien",
       "files": "Dateien",
-      "session": "Session"
+      "session": "Session",
+      "emailNotification": "E-Mail-Benachrichtigung"
     },
     "filters": {
       "allCategories": "Alle Kategorien",
@@ -1129,7 +1130,8 @@
       "filters": "Filter",
       "cancel": "Abbrechen",
       "save": "Speichern",
-      "removeFile": "Dateilink entfernen"
+      "removeFile": "Dateilink entfernen",
+      "openIntegrationsSettings": "In Einstellungen hinzufügen"
     },
     "fields": {
       "title": "Titel",
@@ -1160,7 +1162,9 @@
     },
     "labels": {
       "unread": "Ungelesen",
-      "followUpSentAt": "Zuletzt an den Agenten gesendet: {date}"
+      "followUpSentAt": "Zuletzt an den Agenten gesendet: {date}",
+      "emailNotificationSentAt": "E-Mail-Benachrichtigung gesendet: {date}",
+      "emailNotificationBlocked": "E-Mail-Benachrichtigung nicht gesendet"
     },
     "detail": {
       "dialogTitle": "To-do prüfen"

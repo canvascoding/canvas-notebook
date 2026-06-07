@@ -16,6 +16,8 @@ import {
   ExternalLink,
   FileText,
   FolderSearch,
+  MailCheck,
+  MailWarning,
   Menu,
   MessageSquare,
   MoreHorizontal,
@@ -91,6 +93,8 @@ type TodoItem = {
   completionComment: string | null;
   followUpSentAt: string | null;
   followUpError: string | null;
+  emailNotificationSentAt: string | null;
+  emailNotificationError: string | null;
   archivedAt: string | null;
   createdAt: string;
   updatedAt: string;
@@ -292,6 +296,52 @@ function TodoDetailPanel({
           <span className="min-w-0 truncate text-right font-medium">{formatDate(todo.dueAt, locale) ?? t('fields.noDueAt')}</span>
         </div>
       </div>
+
+      {todo.sourceType === 'agent' && (todo.emailNotificationSentAt || todo.emailNotificationError) ? (
+        <div className="space-y-2 border-t border-border pt-4">
+          <h4 className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+            {t('sections.emailNotification')}
+          </h4>
+          <div
+            className={cn(
+              'space-y-2 border px-3 py-2 text-sm',
+              todo.emailNotificationError
+                ? 'border-destructive/30 bg-destructive/5 text-destructive'
+                : 'border-border bg-muted/40 text-muted-foreground',
+            )}
+          >
+            <div className="flex items-start gap-2">
+              {todo.emailNotificationError ? (
+                <MailWarning className="mt-0.5 h-4 w-4 shrink-0" />
+              ) : (
+                <MailCheck className="mt-0.5 h-4 w-4 shrink-0" />
+              )}
+              <div className="min-w-0 space-y-1">
+                <p className="font-medium">
+                  {todo.emailNotificationError
+                    ? t('labels.emailNotificationBlocked')
+                    : t('labels.emailNotificationSentAt', {
+                        date: todo.emailNotificationSentAt
+                          ? formatDate(todo.emailNotificationSentAt, locale) ?? todo.emailNotificationSentAt
+                          : '',
+                      })}
+                </p>
+                {todo.emailNotificationError ? (
+                  <p className="break-words text-xs leading-relaxed">{todo.emailNotificationError}</p>
+                ) : null}
+              </div>
+            </div>
+            {todo.emailNotificationError ? (
+              <Button asChild size="sm" variant="outline" className="h-8 border-destructive/30 bg-background text-destructive hover:bg-destructive/10 hover:text-destructive">
+                <Link href="/settings?tab=integrations">
+                  <ExternalLink className="h-4 w-4" />
+                  {t('actions.openIntegrationsSettings')}
+                </Link>
+              </Button>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
 
       <div className="space-y-2">
         <h4 className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">

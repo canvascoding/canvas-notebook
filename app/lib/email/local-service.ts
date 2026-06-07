@@ -4,15 +4,18 @@ import crypto from 'crypto';
 import path from 'path';
 import { promises as fs } from 'fs';
 
+import {
+  assertEmailRecipientsAllowed,
+  assertEmailSenderAllowed,
+  isEmailAddressAllowed,
+  normalizeEmailPolicyList as normalizePolicyList,
+  type EmailPolicy,
+} from '@/app/lib/email/policy';
 import { readScopedEnvState } from '@/app/lib/integrations/env-config';
 import { resolveSecretsDir } from '@/app/lib/runtime-data-paths';
 
 export type EmailProvider = 'google' | 'microsoft';
-
-export type EmailPolicy = {
-  readFrom: string[];
-  sendTo: string[];
-};
+export type { EmailPolicy } from '@/app/lib/email/policy';
 
 export type EmailDraftInput = {
   accountId: string;
@@ -397,56 +400,13 @@ export async function disconnectLocalEmailAccount(accountId: string) {
   return true;
 }
 
-function normalizePolicyList(value: unknown): string[] {
-  if (!Array.isArray(value)) return [];
-  const seen = new Set<string>();
-  const entries: string[] = [];
-  for (const item of value) {
-    if (typeof item !== 'string') continue;
-    const normalized = item.trim().toLowerCase();
-    if (!normalized || seen.has(normalized)) continue;
-    if (!isValidPolicyEntry(normalized)) continue;
-    seen.add(normalized);
-    entries.push(normalized);
-  }
-  return entries;
-}
-
-function isValidPolicyEntry(value: string) {
-  if (value.startsWith('*@')) return /^[a-z0-9.-]+\.[a-z]{2,}$/i.test(value.slice(2));
-  if (value.startsWith('@')) return /^[a-z0-9.-]+\.[a-z]{2,}$/i.test(value.slice(1));
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/i.test(value);
-}
-
-function parseAddress(value: string) {
-  const match = value.match(/<([^>]+)>/u);
-  return (match?.[1] || value).trim().toLowerCase();
-}
-
-function addressAllowed(address: string, allowlist: string[]) {
-  if (allowlist.length === 0) return true;
-  const normalized = parseAddress(address);
-  const domain = normalized.split('@')[1] || '';
-  return allowlist.some((entry) => {
-    if (entry.startsWith('*@')) return domain === entry.slice(2);
-    if (entry.startsWith('@')) return domain === entry.slice(1);
-    return normalized === entry;
-  });
-}
-
 function assertSenderAllowed(account: LocalEmailAccount, from: string) {
-  if (!addressAllowed(from, normalizePolicyList(account.policy.readFrom))) {
-    throw new Error(`Email sender is not allowed by read policy: ${parseAddress(from)}`);
-  }
+  assertEmailSenderAllowed(from, account.policy.readFrom);
 }
 
 function assertRecipientsAllowed(account: LocalEmailAccount, input: EmailDraftInput) {
   const recipients = [...input.to, ...(input.cc || []), ...(input.bcc || [])];
-  for (const recipient of recipients) {
-    if (!addressAllowed(recipient, normalizePolicyList(account.policy.sendTo))) {
-      throw new Error(`Email recipient is not allowed by send policy: ${parseAddress(recipient)}`);
-    }
-  }
+  assertEmailRecipientsAllowed(recipients, account.policy.sendTo);
 }
 
 function gmailHeader(headers: Array<{ name?: string; value?: string }> | undefined, name: string) {
@@ -588,7 +548,7 @@ export async function searchLocalEmail(input: { accountId?: string; query?: stri
   }
   return {
     account: publicLocalEmailAccount(account),
-    messages: messages.filter((message) => addressAllowed(String(message.from || ''), normalizePolicyList(account.policy.readFrom))),
+    messages: messages.filter((message) => isEmailAddressAllowed(String(message.from || ''), normalizePolicyList(account.policy.readFrom))),
   };
 }
 
