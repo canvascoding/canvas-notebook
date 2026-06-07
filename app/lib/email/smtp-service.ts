@@ -22,6 +22,7 @@ import {
   normalizeEmailPolicyList,
   type EmailPolicy,
 } from '@/app/lib/email/policy';
+import { verifyImapSecret } from '@/app/lib/email/imap-service';
 import type { EmailAccountSmtpSecret } from '@/app/lib/email/secret-store';
 
 export type SmtpAccountInput = {
@@ -185,6 +186,7 @@ export async function saveSmtpEmailAccount(userId: string, input: SmtpAccountInp
   const normalized = normalizeSmtpInput(input);
   if (options?.verify) {
     await verifySmtpSecret(normalized.secret);
+    await verifyImapSecret(normalized.secret);
   }
   const account = await upsertSmtpEmailAccount({
     userId,
@@ -200,11 +202,15 @@ export async function saveSmtpEmailAccount(userId: string, input: SmtpAccountInp
 export async function testSmtpConnection(input: SmtpAccountInput) {
   const normalized = normalizeSmtpInput(input);
   await verifySmtpSecret(normalized.secret);
+  await verifyImapSecret(normalized.secret);
   return {
     ok: true,
     smtpHost: normalized.secret.smtp.host,
     smtpPort: normalized.secret.smtp.port,
     smtpSecure: normalized.secret.smtp.secure,
+    imapHost: normalized.secret.imap?.host || null,
+    imapPort: normalized.secret.imap?.port || null,
+    imapSecure: normalized.secret.imap?.secure ?? null,
   };
 }
 

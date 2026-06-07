@@ -30,6 +30,10 @@ import {
   sendSmtpEmailDraft,
   updateSmtpEmailDraft,
 } from '@/app/lib/email/smtp-service';
+import {
+  readImapEmailMessage,
+  searchImapEmail,
+} from '@/app/lib/email/imap-service';
 import { readScopedEnvState } from '@/app/lib/integrations/env-config';
 import { resolveSecretsDir } from '@/app/lib/runtime-data-paths';
 
@@ -554,7 +558,7 @@ function encodeRawEmail(input: EmailDraftInput) {
 export async function searchLocalEmail(userId: string, input: { accountId?: string; query?: string; limit?: number }) {
   const account = await findLocalEmailAccount(userId, input.accountId);
   if (account.authType === 'smtp_imap') {
-    throw new Error('IMAP search is not available for SMTP accounts yet.');
+    return searchImapEmail(account, input);
   }
   const token = await validAccessToken(account);
   const limit = Math.min(Math.max(input.limit || 10, 1), 25);
@@ -609,7 +613,7 @@ export async function searchLocalEmail(userId: string, input: { accountId?: stri
 export async function readLocalEmailMessage(userId: string, accountId: string, messageId: string) {
   const account = await findLocalEmailAccount(userId, accountId);
   if (account.authType === 'smtp_imap') {
-    throw new Error('IMAP read is not available for SMTP accounts yet.');
+    return readImapEmailMessage(account, messageId);
   }
   const token = await validAccessToken(account);
   let message: Record<string, unknown>;

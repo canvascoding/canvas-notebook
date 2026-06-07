@@ -75,9 +75,10 @@ async function main() {
   await fs.mkdir(secretsDir, { recursive: true });
   await fs.writeFile(integrationsEnvPath, '', 'utf8');
 
-  const { createEmailDraft, disconnectEmailAccount, listEmailAccounts, saveEmailSmtpAccount, sendEmailDraft, startEmailOAuth } = await import('../app/lib/email/service');
+  const { createEmailDraft, disconnectEmailAccount, listEmailAccounts, readEmailMessage, saveEmailSmtpAccount, searchEmail, sendEmailDraft, startEmailOAuth } = await import('../app/lib/email/service');
   const { upsertOAuthEmailAccount } = await import('../app/lib/email/account-store');
   const { setSmtpTransportFactoryForTests } = await import('../app/lib/email/smtp-service');
+  const { setImapClientFactoryForTests } = await import('../app/lib/email/imap-service');
 
   await insertUser('owner-user', 'owner@example.test');
   await writeLegacyAccounts([legacyAccount()]);
@@ -195,6 +196,108 @@ async function main() {
     body: 'Blocked',
   }), /not allowed/i);
 
+  let imapConnectCalls = 0;
+  let imapLogoutCalls = 0;
+  let imapReleaseCalls = 0;
+  const allowedRaw = Buffer.from([
+    'From: Allowed Sender <allowed@example.test>',
+    'To: smtp-owner@example.test',
+    'Subject: Allowed IMAP message',
+    'Date: Tue, 02 Jan 2024 10:00:00 +0000',
+    '',
+    'Allowed body text from IMAP.',
+  ].join('\r\n'));
+  const blockedRaw = Buffer.from([
+    'From: Blocked Sender <blocked@outside.test>',
+    'To: smtp-owner@example.test',
+    'Subject: Blocked IMAP message',
+    'Date: Tue, 02 Jan 2024 09:00:00 +0000',
+    '',
+    'Blocked body text from IMAP.',
+  ].join('\r\n'));
+  const imapMessages = new Map<number, unknown>([
+    [1001, {
+      uid: 1001,
+      threadId: 'blocked-thread',
+      envelope: {
+        subject: 'Blocked IMAP message',
+        date: new Date('2024-01-02T09:00:00Z'),
+        from: [{ name: 'Blocked Sender', address: 'blocked@outside.test' }],
+        to: [{ address: 'smtp-owner@example.test' }],
+      },
+      internalDate: new Date('2024-01-02T09:00:00Z'),
+      source: blockedRaw,
+    }],
+    [1002, {
+      uid: 1002,
+      threadId: 'allowed-thread',
+      envelope: {
+        subject: 'Allowed IMAP message',
+        date: new Date('2024-01-02T10:00:00Z'),
+        from: [{ name: 'Allowed Sender', address: 'allowed@example.test' }],
+        to: [{ address: 'smtp-owner@example.test' }],
+      },
+      internalDate: new Date('2024-01-02T10:00:00Z'),
+      source: allowedRaw,
+    }],
+  ]);
+  setImapClientFactoryForTests(() => ({
+    connect: async () => {
+      imapConnectCalls += 1;
+    },
+    logout: async () => {
+      imapLogoutCalls += 1;
+    },
+    close: () => undefined,
+    getMailboxLock: async () => ({
+      release: () => {
+        imapReleaseCalls += 1;
+      },
+    }),
+    search: async () => [1001, 1002],
+    fetch: async function* (range: number[]) {
+      for (const uid of range) {
+        const message = imapMessages.get(uid);
+        if (message) yield message as never;
+      }
+    },
+    fetchOne: async (seq: number) => (imapMessages.get(seq) || false) as never,
+  }) as never);
+
+  const smtpImapAccount = await saveEmailSmtpAccount('owner-user', {
+    emailAddress: 'smtp-imap-owner@example.test',
+    displayName: 'SMTP IMAP Owner',
+    smtpHost: 'smtp.example.test',
+    smtpPort: 587,
+    smtpSecure: false,
+    smtpUsername: 'smtp-imap-owner',
+    smtpPassword: 'smtp-secret',
+    imapHost: 'imap.example.test',
+    imapPort: 993,
+    imapSecure: true,
+    imapUsername: 'smtp-imap-owner',
+    imapPassword: 'imap-secret',
+    policy: { readFrom: ['@example.test'], sendTo: ['@example.test'] },
+  }, { verify: true });
+  assert.equal(imapConnectCalls, 1);
+  assert.equal(imapLogoutCalls, 1);
+  assert.equal(smtpImapAccount.imapHost, 'imap.example.test');
+  assert.equal(JSON.stringify(smtpImapAccount).includes('imap-secret'), false);
+
+  const searchResult = await searchEmail('owner-user', { accountId: smtpImapAccount.id, query: 'IMAP', limit: 5 });
+  const searchMessages = (searchResult as { messages?: Array<{ id: string; from: string; snippet: string }> }).messages || [];
+  assert.equal(searchMessages.length, 1);
+  assert.equal(searchMessages[0].id, '1002');
+  assert.match(searchMessages[0].from, /allowed@example\.test/u);
+  assert.match(searchMessages[0].snippet, /Allowed body text/u);
+  assert.equal(imapReleaseCalls, 1);
+
+  const readResult = await readEmailMessage('owner-user', smtpImapAccount.id, '1002');
+  const readBody = (readResult as { message?: { body?: string } }).message?.body || '';
+  assert.match(readBody, /Allowed body text from IMAP/u);
+  await assert.rejects(() => readEmailMessage('owner-user', smtpImapAccount.id, '1001'), /sender is not allowed/i);
+
+  setImapClientFactoryForTests(null);
   setSmtpTransportFactoryForTests(null);
 
   await fs.rm(tmpRoot, { recursive: true, force: true });
