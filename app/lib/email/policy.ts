@@ -20,6 +20,39 @@ export function normalizeEmailPolicyList(value: unknown): string[] {
   return entries;
 }
 
+function mergeEmailPolicyDefaults(entries: string[], defaults: string[], seedWhenEmpty: boolean): string[] {
+  if (entries.length === 0 && !seedWhenEmpty) return entries;
+  const seen = new Set(entries);
+  const merged = [...entries];
+  for (const entry of defaults) {
+    if (seen.has(entry)) continue;
+    seen.add(entry);
+    merged.push(entry);
+  }
+  return merged;
+}
+
+export function emailPolicyDefaultAddresses(addresses: unknown): string[] {
+  if (!Array.isArray(addresses)) return [];
+  return normalizeEmailPolicyList(
+    addresses.map((address) => (typeof address === 'string' ? parseEmailAddress(address) : address)),
+  );
+}
+
+export function withEmailPolicyDefaultAddresses(
+  policy: Partial<EmailPolicy> | null | undefined,
+  addresses: unknown,
+  options: { seedWhenEmpty?: boolean } = {},
+): EmailPolicy {
+  const defaults = emailPolicyDefaultAddresses(addresses);
+  const readFrom = normalizeEmailPolicyList(policy?.readFrom);
+  const sendTo = normalizeEmailPolicyList(policy?.sendTo);
+  return {
+    readFrom: mergeEmailPolicyDefaults(readFrom, defaults, Boolean(options.seedWhenEmpty)),
+    sendTo: mergeEmailPolicyDefaults(sendTo, defaults, Boolean(options.seedWhenEmpty)),
+  };
+}
+
 export function isValidEmailPolicyEntry(value: string) {
   if (value.startsWith('*@')) return /^[a-z0-9.-]+\.[a-z]{2,}$/i.test(value.slice(2));
   if (value.startsWith('@')) return /^[a-z0-9.-]+\.[a-z]{2,}$/i.test(value.slice(1));

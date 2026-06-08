@@ -5,7 +5,7 @@ import { and, eq } from 'drizzle-orm';
 
 import { db } from '@/app/lib/db';
 import { emailAccounts } from '@/app/lib/db/schema';
-import { normalizeEmailPolicyList, type EmailPolicy } from '@/app/lib/email/policy';
+import { withEmailPolicyDefaultAddresses, type EmailPolicy } from '@/app/lib/email/policy';
 import {
   deleteEmailAccountSecret,
   emailAccountSecretRef,
@@ -51,19 +51,23 @@ function normalizeEmailAddress(value: string): string {
   return normalized;
 }
 
-function normalizePolicy(policy?: Partial<EmailPolicy> | null): EmailPolicy {
-  return {
-    readFrom: normalizeEmailPolicyList(policy?.readFrom),
-    sendTo: normalizeEmailPolicyList(policy?.sendTo),
-  };
+type NormalizePolicyOptions = {
+  defaultAddresses?: unknown[];
+  seedDefaultsWhenEmpty?: boolean;
+};
+
+function normalizePolicy(policy?: Partial<EmailPolicy> | null, options: NormalizePolicyOptions = {}): EmailPolicy {
+  return withEmailPolicyDefaultAddresses(policy, options.defaultAddresses || [], {
+    seedWhenEmpty: options.seedDefaultsWhenEmpty,
+  });
 }
 
-function parsePolicyJson(value: string): EmailPolicy {
+function parsePolicyJson(value: string, options: NormalizePolicyOptions = {}): EmailPolicy {
   try {
     const parsed = JSON.parse(value) as Partial<EmailPolicy>;
-    return normalizePolicy(parsed);
+    return normalizePolicy(parsed, options);
   } catch {
-    return { readFrom: [], sendTo: [] };
+    return normalizePolicy(null, options);
   }
 }
 
@@ -95,7 +99,7 @@ export function publicStoredEmailAccount(account: StoredEmailAccount, secret?: E
     imapPort: secret?.authType === 'smtp_imap' && secret.imap ? secret.imap.port : null,
     imapSecure: secret?.authType === 'smtp_imap' && secret.imap ? secret.imap.secure : null,
     imapUsername: secret?.authType === 'smtp_imap' && secret.imap ? secret.imap.username : null,
-    policy: parsePolicyJson(account.policyJson),
+    policy: parsePolicyJson(account.policyJson, { defaultAddresses: [account.emailAddress] }),
     createdAt: toIso(account.createdAt) || new Date(0).toISOString(),
     updatedAt: toIso(account.updatedAt) || new Date(0).toISOString(),
   };
@@ -201,11 +205,11 @@ export async function updateStoredEmailPolicy(
   policy: Partial<EmailPolicy>,
 ): Promise<PublicEmailAccount> {
   const account = await getEmailAccountForUser(userId, accountId);
-  const currentPolicy = parsePolicyJson(account.policyJson);
+  const currentPolicy = parsePolicyJson(account.policyJson, { defaultAddresses: [account.emailAddress] });
   const nextPolicy = normalizePolicy({
     readFrom: policy.readFrom === undefined ? currentPolicy.readFrom : policy.readFrom,
     sendTo: policy.sendTo === undefined ? currentPolicy.sendTo : policy.sendTo,
-  });
+  }, { defaultAddresses: [account.emailAddress] });
 
   await db.update(emailAccounts)
     .set({ policyJson: JSON.stringify(nextPolicy), updatedAt: new Date() })
@@ -246,7 +250,13 @@ export async function upsertOAuthEmailAccount(params: {
   const now = new Date();
   const id = existing?.id || params.accountId || accountIdFor(params.userId, params.provider, emailAddress);
   const secretRef = existing?.secretRef || emailAccountSecretRef(params.userId, id);
-  const policy = normalizePolicy(params.policy || (existing ? parsePolicyJson(existing.policyJson) : null));
+  const policySource = params.policy === undefined && existing
+    ? parsePolicyJson(existing.policyJson, { defaultAddresses: [emailAddress] })
+    : params.policy ?? null;
+  const policy = normalizePolicy(policySource, {
+    defaultAddresses: [emailAddress],
+    seedDefaultsWhenEmpty: !existing,
+  });
   const isPrimary = await shouldStoreAccountAsPrimary(params.userId, existing);
   let nextSecret = params.secret;
 
@@ -339,9 +349,13 @@ export async function upsertSmtpEmailAccount(params: {
   const now = new Date();
   const id = existing?.id || params.accountId || accountIdFor(params.userId, 'smtp_imap', emailAddress);
   const secretRef = existing?.secretRef || emailAccountSecretRef(params.userId, id);
-  const policy = params.policy === undefined && existing
-    ? parsePolicyJson(existing.policyJson)
-    : normalizePolicy(params.policy ?? null);
+  const policySource = params.policy === undefined && existing
+    ? parsePolicyJson(existing.policyJson, { defaultAddresses: [emailAddress] })
+    : params.policy ?? null;
+  const policy = normalizePolicy(policySource, {
+    defaultAddresses: [emailAddress],
+    seedDefaultsWhenEmpty: !existing,
+  });
   const isPrimary = await shouldStoreAccountAsPrimary(params.userId, existing);
 
   await writeEmailAccountSecret(secretRef, params.secret);
