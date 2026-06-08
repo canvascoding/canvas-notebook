@@ -553,6 +553,31 @@ contentKind: document
 
     await input.press('ArrowDown');
     await expect(input).toHaveValue('Draft before history navigation');
+
+    const multilineDraft = 'Draft line one\nDraft line two\nDraft line three';
+    await input.fill(multilineDraft);
+    await input.evaluate((element) => {
+      const textarea = element as HTMLTextAreaElement;
+      textarea.focus();
+      textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+    });
+
+    await input.press('ArrowUp');
+    await expect(input).toHaveValue(multilineDraft);
+    await expect
+      .poll(async () => input.evaluate((element) => (element as HTMLTextAreaElement).selectionStart))
+      .toBeLessThan(multilineDraft.length);
+
+    await input.evaluate((element) => {
+      const textarea = element as HTMLTextAreaElement;
+      textarea.focus();
+      textarea.setSelectionRange(0, 0);
+    });
+    await input.press('ArrowUp');
+    await expect(input).toHaveValue('Second history message');
+
+    await input.press('ArrowDown');
+    await expect(input).toHaveValue(multilineDraft);
   });
 
   test('should start a new chat with send_message before runtime status exists', async ({ page }) => {
@@ -1309,6 +1334,7 @@ contentKind: document
       lastCompactionOmittedCount: 8,
     };
     const queuedMessages = new Map<string, Record<string, unknown>>();
+    const controlActions: string[] = [];
 
     await page.route('**/api/agents/config', async (route) => {
       await route.fulfill({
@@ -1405,6 +1431,8 @@ contentKind: document
       runtimeStatus: currentStatus as Record<string, unknown>,
       onGetStatus: () => currentStatus as unknown as Record<string, unknown>,
       onControl: (action, message, _requestId, queueItemId) => {
+        controlActions.push(action);
+
         if (action === 'follow_up') {
           const content = message?.content;
           const text = typeof content === 'string'
@@ -1473,6 +1501,14 @@ contentKind: document
           };
         }
 
+        if (action === 'abort') {
+          currentStatus = {
+            ...currentStatus,
+            phase: 'aborting',
+            activeTool: null,
+          };
+        }
+
         return currentStatus as unknown as Record<string, unknown>;
       },
       agentEvents: [
@@ -1522,6 +1558,12 @@ contentKind: document
     await page.getByTestId('chat-queue-item').filter({ hasText: 'Take over immediately' }).first().getByTestId('chat-queue-item-remove').click();
     await expect(page.getByTestId('chat-queue-panel')).not.toContainText('Take over immediately');
     await expect(page.getByTestId('chat-queue-panel')).toContainText('2 in Queue');
+
+    const busyInput = page.getByTestId('chat-input');
+    await busyInput.fill('Draft while the agent is still working');
+    await busyInput.press('Escape');
+    await expect.poll(() => controlActions.filter((action) => action === 'abort').length).toBe(1);
+    await expect(busyInput).toHaveValue('Draft while the agent is still working');
   });
 
   test('should show productive starter prompts and prefill the mobile composer without overflow', async ({ page }) => {
