@@ -208,9 +208,6 @@ configure_secrets() {
 }
 
 configure_compose_values() {
-  [[ -n "${ADMIN_EMAIL:-}" ]] && config_json_write env.BOOTSTRAP_ADMIN_EMAIL "$ADMIN_EMAIL" && ok "Set BOOTSTRAP_ADMIN_EMAIL"
-  [[ -n "${ADMIN_PASSWORD:-}" ]] && config_json_write env.BOOTSTRAP_ADMIN_PASSWORD "$ADMIN_PASSWORD" && ok "Set BOOTSTRAP_ADMIN_PASSWORD"
-  [[ -n "${ADMIN_NAME:-}" ]] && config_json_write env.BOOTSTRAP_ADMIN_NAME "$ADMIN_NAME" && ok "Set BOOTSTRAP_ADMIN_NAME"
   if [[ -n "${BASE_URL:-}" ]]; then
     config_json_write env.BETTER_AUTH_BASE_URL "$BASE_URL"
     config_json_write env.BASE_URL "$BASE_URL"
@@ -234,28 +231,25 @@ configure_compose_values() {
   done
 
   local has_placeholders=false
-  local email_val pw_val url_val
-  email_val="$(jq -r '.env.BOOTSTRAP_ADMIN_EMAIL // empty' "$CONFIG_JSON_PATH")"
-  pw_val="$(jq -r '.env.BOOTSTRAP_ADMIN_PASSWORD // empty' "$CONFIG_JSON_PATH")"
+  local url_val domain_val
   url_val="$(jq -r '.env.BETTER_AUTH_BASE_URL // empty' "$CONFIG_JSON_PATH")"
   domain_val="$(jq -r '.domain // empty' "$CONFIG_JSON_PATH")"
 
-  if [[ -z "$email_val" || "$email_val" == "admin@example.com" ]] || \
-     [[ -z "$pw_val" || "$pw_val" == "change-me" ]] || \
-     [[ -z "$url_val" && -z "$domain_val" ]]; then
+  if [[ -z "$url_val" && -z "$domain_val" ]]; then
     has_placeholders=true
   fi
 
   if [[ "$has_placeholders" == "true" ]]; then
     if [[ "$NONINTERACTIVE" == "true" ]]; then
-      fail "Config still contains placeholder values. Required: ADMIN_EMAIL, ADMIN_PASSWORD, BASE_URL"
+      fail "Config still contains placeholder values. Required: BASE_URL"
     fi
     section "Configuration"
     echo
     info "Set at minimum:"
-    info "  BOOTSTRAP_ADMIN_EMAIL    — your login email"
-    info "  BOOTSTRAP_ADMIN_PASSWORD — your login password"
     info "  domain                   — public domain (e.g. app.example.com)"
+    echo
+    info "The first admin can be created in the setup UI after launch."
+    info "For automation, pass ADMIN_EMAIL and ADMIN_PASSWORD to this installer; they will be applied once and not stored."
     echo
     info "Config file: ${CONFIG_JSON_PATH}"
 
@@ -264,15 +258,48 @@ configure_compose_values() {
     ask "  Press Enter to open ${CONFIG_JSON_PATH} in ${EDITOR_CMD}, or Ctrl+C to abort: " _dummy ""
     "$EDITOR_CMD" "$CONFIG_JSON_PATH" </dev/tty
 
-    email_val="$(jq -r '.env.BOOTSTRAP_ADMIN_EMAIL // empty' "$CONFIG_JSON_PATH")"
-    pw_val="$(jq -r '.env.BOOTSTRAP_ADMIN_PASSWORD // empty' "$CONFIG_JSON_PATH")"
     domain_val="$(jq -r '.domain // empty' "$CONFIG_JSON_PATH")"
-    if [[ -z "$email_val" || -z "$pw_val" || -z "$domain_val" ]]; then
+    if [[ -z "$domain_val" ]]; then
       fail "Config still contains placeholder values. Edit ${CONFIG_JSON_PATH} and re-run: bash install.sh"
     fi
   fi
 
   ok "Configuration is set"
+}
+
+apply_transient_admin_credentials() {
+  if [[ -z "${ADMIN_EMAIL:-}" && -z "${ADMIN_PASSWORD:-}" ]]; then
+    return 0
+  fi
+
+  if [[ -z "${ADMIN_EMAIL:-}" || -z "${ADMIN_PASSWORD:-}" ]]; then
+    fail "ADMIN_EMAIL and ADMIN_PASSWORD must be provided together. They are applied once and are not stored."
+  fi
+
+  if [[ ! "$ADMIN_EMAIL" =~ ^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$ ]]; then
+    fail "ADMIN_EMAIL must be a valid email address."
+  fi
+
+  if [[ "${#ADMIN_PASSWORD}" -lt 8 || "${#ADMIN_PASSWORD}" -gt 128 ]]; then
+    fail "ADMIN_PASSWORD must be between 8 and 128 characters."
+  fi
+
+  local admin_name cli_path
+  admin_name="${ADMIN_NAME:-Administrator}"
+  cli_path="${CANVAS_CLI_PATH:-/usr/local/bin/canvas-notebook}"
+
+  section "Initial admin"
+  "$cli_path" start --no-banner
+
+  if printf '%s\n' "$ADMIN_PASSWORD" | "$cli_path" admin reset-password \
+    --email "$ADMIN_EMAIL" \
+    --name "$admin_name" \
+    --password-stdin \
+    --no-banner; then
+    ok "Initial admin credentials applied for ${ADMIN_EMAIL}"
+  else
+    fail "Could not apply initial admin credentials. The password was not stored; retry with: canvas-notebook admin reset-password --email ${ADMIN_EMAIL}"
+  fi
 }
 
 run_cli_update_only() {
@@ -325,6 +352,7 @@ run_prebuilt_install() {
   install_management_cli
   install_systemd_service
   install_update_timer
+  apply_transient_admin_credentials
 
   local domain
   domain="$(jq -r '.domain // empty' "$CONFIG_JSON_PATH" 2>/dev/null)"
@@ -337,12 +365,11 @@ run_prebuilt_install() {
     info "If you set a domain with SETUP_CADDY=true, run: canvas-notebook caddy-reload"
   fi
   echo
-  echo -e "${_OUT_BOLD}Next step: start the container${_OUT_RESET}"
+  echo -e "${_OUT_BOLD}Canvas Notebook service is installed.${_OUT_RESET}"
   echo
-  info "  canvas-notebook start"
+  info "  canvas-notebook status          Check container and health"
   echo
   echo -e "${_OUT_BOLD}Useful commands:${_OUT_RESET}"
-  info "  canvas-notebook status          Check container and health"
   info "  canvas-notebook logs            Follow container logs"
   info "  canvas-notebook env             Show configuration"
   info "  canvas-notebook config-show     Show config.json"

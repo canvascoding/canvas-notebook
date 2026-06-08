@@ -56,5 +56,5 @@ replace_placeholder_for_key() {
 
 compose_has_placeholders() {
   local file="$1"
-  grep -qE 'admin@example\.com|BOOTSTRAP_ADMIN_PASSWORD:.*"change-me"|your-domain\.com|change-me-generate-with-openssl-rand-base64-32' "$file" 2>/dev/null
+  grep -qE 'your-domain\.com|change-me-generate-with-openssl-rand-base64-32' "$file" 2>/dev/null
 }

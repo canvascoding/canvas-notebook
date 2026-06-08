@@ -148,7 +148,7 @@ if env_has_placeholders; then
   echo
   info "Set at minimum:"
   info "  BETTER_AUTH_BASE_URL     — public URL (e.g. https://canvas.example.com)"
-  info "  BOOTSTRAP_ADMIN_*        — optional; otherwise create the admin account in the setup UI"
+  info "  Admin account            — create it in the first-run setup UI"
   echo
 
   EDITOR_CMD="${EDITOR:-nano}"

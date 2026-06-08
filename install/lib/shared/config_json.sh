@@ -33,9 +33,6 @@ CONFIG_JSON_DEFAULTS='{
     "HOSTNAME": "0.0.0.0",
     "NODE_ENV": "production",
     "DATA": "/data",
-    "BOOTSTRAP_ADMIN_EMAIL": "",
-    "BOOTSTRAP_ADMIN_PASSWORD": "",
-    "BOOTSTRAP_ADMIN_NAME": "Administrator",
     "LOG_LEVEL": "info",
     "ONBOARDING": true,
     "ALLOW_SIGNUP": false,
@@ -336,19 +333,6 @@ config_json_migrate() {
     if [[ -n "$val" && "$val" != "https://your-domain.com" ]]; then
       config_json_write env.BASE_URL "$val"
     fi
-    val="$(sed -n -E '/^[[:space:]]*BOOTSTRAP_ADMIN_EMAIL:/ { s/^[^:]*:[[:space:]]*//; s/^[\"'\'']//; s/[\"'\'']$//; p; q }' "$compose_file" 2>/dev/null || true)"
-    if [[ -n "$val" && "$val" != "admin@example.com" ]]; then
-      config_json_write env.BOOTSTRAP_ADMIN_EMAIL "$val"
-    fi
-    val="$(sed -n -E '/^[[:space:]]*BOOTSTRAP_ADMIN_PASSWORD:/ { s/^[^:]*:[[:space:]]*//; s/^[\"'\'']//; s/[\"'\'']$//; p; q }' "$compose_file" 2>/dev/null || true)"
-    if [[ -n "$val" && "$val" != "change-me" ]]; then
-      config_json_write env.BOOTSTRAP_ADMIN_PASSWORD "$val"
-    fi
-    val="$(sed -n -E '/^[[:space:]]*BOOTSTRAP_ADMIN_NAME:/ { s/^[^:]*:[[:space:]]*//; s/^[\"'\'']//; s/[\"'\'']$//; p; q }' "$compose_file" 2>/dev/null || true)"
-    if [[ -n "$val" ]]; then
-      config_json_write env.BOOTSTRAP_ADMIN_NAME "$val"
-    fi
-
     local port_mapping
     port_mapping="$(sed -n -E '/^[[:space:]]*- *"[0-9]+:[0-9]+"/ { s/^[[:space:]]*- *"/; s/".*//; p; q }' "$compose_file" 2>/dev/null || true)"
     if [[ -n "$port_mapping" ]]; then
