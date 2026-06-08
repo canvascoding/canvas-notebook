@@ -1002,6 +1002,7 @@
     "markUnread": "Mark unread",
     "markDone": "Done",
     "clearDone": "Not done",
+    "messageOptions": "Message options",
     "replyOptions": "Reply options",
     "moveTo": "Move to...",
     "draftCreated": "Draft was created in the connected account.",
@@ -3258,6 +3259,9 @@
       "sessionPlaceholder": "Session title or ID",
       "stopReason": "Stop Reason",
       "groupBy": "Group By",
+      "user": "User",
+      "allUsers": "All users",
+      "userOption": "{label} · {count} events",
       "userId": "User ID",
       "userIdPlaceholder": "Optional admin-wide filter"
     },
@@ -3345,7 +3349,8 @@
     },
     "errors": {
       "loadSummary": "Failed to load summary ({status}).",
-      "loadEvents": "Failed to load events ({status})."
+      "loadEvents": "Failed to load events ({status}).",
+      "loadUsers": "Failed to load users ({status})."
     }
   },
   "help": {
