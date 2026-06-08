@@ -462,10 +462,6 @@ class LivePiRuntime {
   }
 
   async promoteQueuedMessageToSteering(queueItemId: string) {
-    if (!this.isRunning && !this.agent.state.isStreaming) {
-      throw new Error('No active agent run to steer.');
-    }
-
     const followUpIndex = this.followUpQueue.findIndex((entry) => entry.preview.id === queueItemId || entry.id === queueItemId);
     if (followUpIndex === -1) {
       return this.getStatus();
@@ -479,6 +475,11 @@ class LivePiRuntime {
     this.agent.clearFollowUpQueue();
     for (const queuedEntry of this.followUpQueue) {
       this.agent.followUp(queuedEntry.message);
+    }
+
+    if (!this.isRunning && !this.agent.state.isStreaming) {
+      this.startPrompt(entry.message);
+      return this.getStatus();
     }
 
     this.steeringQueue.push(entry);

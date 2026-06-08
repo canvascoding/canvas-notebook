@@ -1566,6 +1566,152 @@ contentKind: document
     await expect(busyInput).toHaveValue('Draft while the agent is still working');
   });
 
+  test('should start a queued follow-up from Steer after the active run was stopped', async ({ page }) => {
+    const sessionId = 'sess-stopped-queued-steer';
+    let currentStatus = createMockRuntimeStatus(sessionId, {
+      phase: 'idle',
+      followUpQueue: [{ id: 'follow-after-stop', text: 'Continue after stop', attachmentCount: 0 }],
+      canAbort: false,
+    });
+    const controlActions: string[] = [];
+
+    await page.route('**/api/agents/config', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: true,
+          data: {
+            piConfig: {
+              activeProvider: 'openai',
+              providers: {
+                openai: { model: 'gpt-4o' },
+              },
+            },
+            discovery: {
+              openai: {
+                models: [{ id: 'gpt-4o', name: 'GPT-4o', supportsVision: true }],
+              },
+            },
+          },
+        }),
+      });
+    });
+
+    await page.route('**/api/sessions', async (route) => {
+      const request = route.request();
+      if (request.method() === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            success: true,
+            sessions: [
+              {
+                id: 1,
+                sessionId,
+                title: 'Stopped runtime session',
+                model: 'gpt-4o',
+                createdAt: new Date().toISOString(),
+              },
+            ],
+          }),
+        });
+        return;
+      }
+
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: true,
+          session: {
+            id: 1,
+            sessionId,
+            title: 'Stopped runtime session',
+            model: 'gpt-4o',
+            createdAt: new Date().toISOString(),
+          },
+        }),
+      });
+    });
+
+    await page.route(`**/api/sessions/messages?sessionId=${sessionId}`, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: true,
+          messages: [
+            {
+              id: 'm1',
+              role: 'user',
+              content: 'Stop the current run.',
+              timestamp: Date.now() - 1000,
+            },
+            {
+              id: 'm2',
+              role: 'assistant',
+              content: [{ type: 'text', text: 'Stopped.' }],
+              api: 'mock',
+              provider: 'mock',
+              model: 'mock-model',
+              usage: EMPTY_USAGE,
+              stopReason: 'aborted',
+              timestamp: Date.now() - 500,
+            },
+          ],
+        }),
+      });
+    });
+
+    setupMockWebSocket(page, {
+      sessionId,
+      runtimeStatus: currentStatus as unknown as Record<string, unknown>,
+      onGetStatus: () => currentStatus as unknown as Record<string, unknown>,
+      onControl: (action, _message, _requestId, queueItemId) => {
+        controlActions.push(action);
+
+        if (action === 'promote_queued_to_steer' && queueItemId === 'follow-after-stop') {
+          currentStatus = createMockRuntimeStatus(sessionId, {
+            phase: 'streaming',
+            followUpQueue: [],
+            steeringQueue: [],
+            canAbort: true,
+          });
+
+          return {
+            status: currentStatus as unknown as Record<string, unknown>,
+            agentEvents: [
+              {
+                type: 'message_start',
+                message: {
+                  role: 'user',
+                  content: 'Continue after stop',
+                  timestamp: Date.now(),
+                },
+              },
+            ],
+          };
+        }
+
+        return currentStatus as unknown as Record<string, unknown>;
+      },
+    });
+
+    await page.goto('/chat');
+
+    await expect(page.getByTestId('chat-queue-panel')).toContainText('Continue after stop', { timeout: 15000 });
+    await expect(page.getByTestId('chat-runtime-status')).toContainText('1 in Queue');
+
+    await page.getByTestId('chat-queue-item').filter({ hasText: 'Continue after stop' }).first().getByTestId('chat-queue-item-steer').click();
+
+    await expect.poll(() => controlActions.includes('promote_queued_to_steer')).toBe(true);
+    await expect(page.getByTestId('chat-message-user').filter({ hasText: 'Continue after stop' })).toHaveCount(1);
+    await expect(page.getByTestId('chat-queue-item').filter({ hasText: 'Continue after stop' })).toHaveCount(0);
+    await expect(page.getByText(/No active agent run to steer/i)).toHaveCount(0);
+  });
+
   test('should show productive starter prompts and prefill the mobile composer without overflow', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await mockEmptyChatBootstrap(page);
