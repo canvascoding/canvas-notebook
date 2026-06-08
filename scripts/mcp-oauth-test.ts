@@ -181,6 +181,7 @@ async function main() {
     const token = await completeMcpOAuthCallback('auth-code', started.state);
     assert.equal(token.accessToken, 'initial-token');
     assert.equal(token.refreshToken, 'refresh-token-1');
+    assert.equal(getOAuthTokenPath('remote'), path.join(tempRoot, 'settings', 'mcp-oauth', 'remote', 'tokens.json'));
     assert.equal(await modeOf(getOAuthTokenPath('remote')), 0o600);
 
     status = await getMcpOAuthStatus('remote');

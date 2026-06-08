@@ -15,6 +15,7 @@ const COMPONENT_PATH_MAPPINGS: MigrationComponentPathMapping[] = [
   { component: 'studioOutputs', dataPath: ['studio', 'edits'], archiveRoot: 'data/studio/edits' },
   { component: 'userUploads', dataPath: ['user-uploads'], archiveRoot: 'data/user-uploads' },
   { component: 'agents', dataPath: ['agents'], archiveRoot: 'data/agents' },
+  { component: 'agents', dataPath: ['settings'], archiveRoot: 'data/settings' },
   { component: 'agents', dataPath: ['canvas-agent'], archiveRoot: 'data/canvas-agent' },
   { component: 'skills', dataPath: ['skills'], archiveRoot: 'data/skills' },
   { component: 'secrets', dataPath: ['secrets'], archiveRoot: 'data/secrets' },

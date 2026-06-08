@@ -1,9 +1,13 @@
 import crypto from 'crypto';
 import path from 'path';
-import { promises as fs } from 'fs';
 
 import { readMcpConfig, type McpServerConfig } from '@/app/lib/mcp/config';
-import { resolveAgentStorageDir } from '@/app/lib/runtime-data-paths';
+import {
+  readSettingsBufferFileIfExists,
+  readSettingsTextFileIfExists,
+  writeSettingsBufferFileAtomic,
+  writeSettingsTextFileAtomic,
+} from '@/app/lib/settings-storage';
 
 const ICON_CACHE_FILE = 'mcp-server-icons.json';
 const ICON_CACHE_DIR = 'mcp-icons';
@@ -42,18 +46,6 @@ const CONTENT_TYPE_EXTENSIONS: Record<string, string> = {
 
 function sanitizeServerName(serverName: string): string {
   return serverName.replace(/[^A-Za-z0-9_.-]/g, '_') || 'server';
-}
-
-function resolveIconCachePath(): string {
-  return path.join(resolveAgentStorageDir(), ICON_CACHE_FILE);
-}
-
-function resolveIconDir(): string {
-  return path.join(resolveAgentStorageDir(), ICON_CACHE_DIR);
-}
-
-function resolveIconFilePath(fileName: string): string {
-  return path.join(resolveIconDir(), path.basename(fileName));
 }
 
 function getErrorMessage(error: unknown): string {
@@ -108,21 +100,19 @@ function getRegistrableOrigin(origin: string): string | null {
 
 async function readIconCache(): Promise<McpIconCacheFile> {
   try {
-    return JSON.parse(await fs.readFile(resolveIconCachePath(), 'utf8')) as McpIconCacheFile;
+    const { content } = await readSettingsTextFileIfExists(ICON_CACHE_FILE);
+    if (!content) {
+      return { version: 1, updatedAt: new Date(0).toISOString(), servers: {} };
+    }
+    return JSON.parse(content) as McpIconCacheFile;
   } catch {
     return { version: 1, updatedAt: new Date(0).toISOString(), servers: {} };
   }
 }
 
 async function writeIconCache(cache: McpIconCacheFile): Promise<void> {
-  const cachePath = resolveIconCachePath();
-  await fs.mkdir(path.dirname(cachePath), { recursive: true });
   cache.updatedAt = new Date().toISOString();
-  const tmpPath = `${cachePath}.tmp-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-  await fs.writeFile(tmpPath, `${JSON.stringify(cache, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
-  await fs.chmod(tmpPath, 0o600).catch(() => undefined);
-  await fs.rename(tmpPath, cachePath);
-  await fs.chmod(cachePath, 0o600).catch(() => undefined);
+  await writeSettingsTextFileAtomic(ICON_CACHE_FILE, JSON.stringify(cache, null, 2));
 }
 
 async function fetchWithTimeout(url: string, init?: RequestInit): Promise<Response> {
@@ -252,10 +242,7 @@ async function fetchIcon(serverName: string, origin: string, iconUrl: string): P
   const extension = CONTENT_TYPE_EXTENSIONS[contentType];
   const digest = crypto.createHash('sha256').update(`${serverName}:${iconUrl}:${buffer.length}`).digest('hex').slice(0, 16);
   const fileName = `${sanitizeServerName(serverName)}-${digest}.${extension}`;
-  await fs.mkdir(resolveIconDir(), { recursive: true });
-  const filePath = resolveIconFilePath(fileName);
-  await fs.writeFile(filePath, buffer, { mode: 0o600 });
-  await fs.chmod(filePath, 0o600).catch(() => undefined);
+  await writeSettingsBufferFileAtomic(path.join(ICON_CACHE_DIR, fileName), buffer);
 
   return {
     serverName,
@@ -370,7 +357,7 @@ export async function readMcpServerIconFile(serverName: string): Promise<{ buffe
   const metadata = await getMcpServerIconMetadata(serverName);
   if (!metadata?.fileName || !metadata.contentType) return null;
 
-  const buffer = await fs.readFile(resolveIconFilePath(metadata.fileName)).catch(() => null);
+  const { buffer } = await readSettingsBufferFileIfExists(path.join(ICON_CACHE_DIR, metadata.fileName));
   if (!buffer) return null;
   return { buffer, contentType: metadata.contentType };
 }

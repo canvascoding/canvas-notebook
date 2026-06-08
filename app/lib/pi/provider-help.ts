@@ -280,7 +280,7 @@ export const PROVIDER_HELP: Record<string, ProviderHelpInfo> = {
     notes: [
       'Requires active ChatGPT Plus or Pro subscription',
       'OAuth authentication is handled securely via PI',
-      'Credentials are stored encrypted in /data/canvas-agent/',
+      'Credentials are stored encrypted in /data/settings/',
       'Token refresh is automatic',
     ],
     documentationUrl: 'https://github.com/openai/codex',

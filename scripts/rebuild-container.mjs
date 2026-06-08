@@ -52,7 +52,7 @@ function exec(command, options = {}) {
 
 function ensureDataDirs() {
   const dataDir = join(rootDir, 'data');
-  const subdirs = ['workspace', 'canvas-agent', 'agents/canvas-agent', 'pi-oauth-states', 'secrets', 'skills'];
+  const subdirs = ['workspace', 'settings', 'agents/canvas-agent', 'pi-oauth-states', 'secrets', 'skills'];
 
   if (!existsSync(dataDir)) {
     log('Creating data/ directory...', 'yellow');

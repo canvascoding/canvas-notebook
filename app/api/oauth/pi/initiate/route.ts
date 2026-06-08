@@ -10,10 +10,10 @@ import { spawn } from 'child_process';
 import { writeFile, mkdir, readFile, readdir, symlink } from 'fs/promises';
 import { existsSync } from 'fs';
 import { dirname, join } from 'path';
-import { resolveCanvasDataRoot } from '@/app/lib/runtime-data-paths';
+import { resolveCanvasDataRoot, resolveSettingsStorageDir } from '@/app/lib/runtime-data-paths';
 
 const DATA_ROOT = resolveCanvasDataRoot();
-const AUTH_FILE_PATH = process.env.OAUTH_STORAGE_PATH || join(DATA_ROOT, 'canvas-agent', 'auth.json');
+const AUTH_FILE_PATH = process.env.OAUTH_STORAGE_PATH || join(resolveSettingsStorageDir(), 'auth.json');
 const OAUTH_STATE_DIR = join(DATA_ROOT, 'pi-oauth-states');
 
 const ACTIVE_STATUSES = new Set(['pending', 'waiting_for_auth', 'waiting_for_code', 'auth_url_received']);
