@@ -17,7 +17,11 @@ import {
 } from '@/app/lib/pi/history-budget';
 import { normalizePiMessagesForLlm } from '@/app/lib/pi/message-normalization';
 import { createCompactBreakMessage, createRuntimeContinuationMessage, type RuntimeContinuationReason } from '@/app/lib/pi/custom-messages';
-import { resolvePiModel } from '@/app/lib/pi/model-resolver';
+import {
+  formatImageInputUnsupportedError,
+  isImageInputUnsupportedError,
+  resolvePiModel,
+} from '@/app/lib/pi/model-resolver';
 import { preparePiHistoryContext } from '@/app/lib/pi/session-summary';
 import { loadPiSessionWithSummary, savePiSession } from '@/app/lib/pi/session-store';
 import { getPiTools } from '@/app/lib/pi/tool-registry';
@@ -180,8 +184,39 @@ function isUserMessage(message: AgentMessage): message is Extract<AgentMessage, 
   return message.role === 'user';
 }
 
-function getErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : 'Unknown agent error';
+function formatRuntimeProviderError(message: string, model: Model<Api>): string {
+  if (!isImageInputUnsupportedError(message)) {
+    return message;
+  }
+
+  return formatImageInputUnsupportedError({
+    modelId: model.id,
+    provider: model.provider,
+    message,
+  });
+}
+
+function getErrorMessage(error: unknown, model: Model<Api>): string {
+  const message = error instanceof Error ? error.message : 'Unknown agent error';
+  return formatRuntimeProviderError(message, model);
+}
+
+function normalizeAssistantErrorMessage(message: AgentMessage, model: Model<Api>): void {
+  if (message.role !== 'assistant' || message.stopReason !== 'error' || !message.errorMessage) {
+    return;
+  }
+
+  message.errorMessage = formatRuntimeProviderError(message.errorMessage, model);
+}
+
+function normalizeAgentEventErrors(event: AgentEvent, model: Model<Api>): void {
+  if ('message' in event && event.message) {
+    normalizeAssistantErrorMessage(event.message, model);
+  }
+
+  if ('messages' in event && Array.isArray(event.messages)) {
+    event.messages.forEach((message) => normalizeAssistantErrorMessage(message, model));
+  }
 }
 
 function extractUserMessageText(message: Extract<AgentMessage, { role: 'user' }>): string {
@@ -907,6 +942,7 @@ class LivePiRuntime {
 
   async onAgentEvent(event: AgentEvent) {
     this.touch();
+    normalizeAgentEventErrors(event, this.model);
 
     if (event.type === 'message_start' && isUserMessage(event.message)) {
       this.consumeQueuedMessage(event.message);
@@ -1138,7 +1174,7 @@ class LivePiRuntime {
   private publishError(error: unknown) {
     const event: RuntimeErrorEvent = {
       type: 'error',
-      error: getErrorMessage(error),
+      error: getErrorMessage(error, this.model),
     };
     this.publish(event);
     this.emitRuntimeEvent(event);

@@ -69,6 +69,8 @@ export const VISION_MODEL_IDS = new Set([
   // xAI Vision Models
   'grok-2-vision',
   'grok-2-vision-latest',
+  'grok-4.20-reasoning',
+  'grok-4.3',
   // Ollama / OpenRouter-style vision IDs
   'llava',
   'bakllava',
@@ -78,6 +80,44 @@ export const VISION_MODEL_IDS = new Set([
 ]);
 
 type OpenAICompletionsModelInput = Model<'openai-completions'>['input'];
+type ModelCapabilityProbe = {
+  id?: string;
+  input?: readonly string[];
+  input_modalities?: readonly string[];
+  supported_input_modalities?: readonly string[];
+  architecture?: {
+    input_modalities?: readonly string[];
+  };
+  modalities?: {
+    input?: readonly string[];
+  };
+};
+
+function normalizeModelInputModalities(value: unknown): OpenAICompletionsModelInput | null {
+  if (!Array.isArray(value)) {
+    return null;
+  }
+
+  const modalities = value
+    .filter((item): item is string => typeof item === 'string')
+    .map((item) => item.trim().toLowerCase())
+    .filter((item) => item === 'text' || item === 'image');
+  if (modalities.length === 0) {
+    return null;
+  }
+
+  return Array.from(new Set(modalities)) as OpenAICompletionsModelInput;
+}
+
+function getDeclaredModelInputModalities(model: ModelCapabilityProbe): OpenAICompletionsModelInput | null {
+  return (
+    normalizeModelInputModalities(model.architecture?.input_modalities) ||
+    normalizeModelInputModalities(model.input_modalities) ||
+    normalizeModelInputModalities(model.supported_input_modalities) ||
+    normalizeModelInputModalities(model.modalities?.input) ||
+    normalizeModelInputModalities(model.input)
+  );
+}
 
 function modelIdLooksVisionCapable(modelId: string): boolean {
   const normalized = modelId.trim().toLowerCase();
@@ -89,7 +129,11 @@ function modelIdLooksVisionCapable(modelId: string): boolean {
     normalized.includes('vision') ||
     normalized.includes('llava') ||
     normalized.includes('bakllava') ||
+    normalized.includes('pixtral') ||
+    normalized.includes('multimodal') ||
+    normalized.includes('omni') ||
     /(^|\/)kimi-k2\.6(?:[:@-]|$)/.test(normalized) ||
+    /(^|\/)grok-(?:2-vision|4(?:\.20|\.3)(?:[-.\w]*)?)(?:[:@/.-]|$)/.test(normalized) ||
     /(^|[-_:.\/])vl([-.~_:$\/]|$)/.test(normalized)
   );
 }
@@ -106,12 +150,62 @@ export function modelSupportsVision(modelId: string): boolean {
   );
 }
 
-export function modelSupportsImageInput(model: { input?: readonly string[] } | null | undefined): boolean {
-  return Array.isArray(model?.input) && model.input.includes('image');
+export function resolveModelInputModalities(model: ModelCapabilityProbe | null | undefined): OpenAICompletionsModelInput {
+  if (!model) {
+    return ['text'];
+  }
+
+  const declaredInput = getDeclaredModelInputModalities(model);
+  const input: OpenAICompletionsModelInput = declaredInput && declaredInput.length > 0 ? declaredInput : ['text'];
+  if (model.id && modelSupportsVision(model.id) && !input.includes('image')) {
+    return Array.from(new Set([...input, 'image'])) as OpenAICompletionsModelInput;
+  }
+
+  return input;
+}
+
+export function withResolvedModelInput<T extends { id: string; input?: readonly string[] }>(model: T): T {
+  const input = resolveModelInputModalities(model);
+  if (Array.isArray(model.input) && model.input.length === input.length && model.input.every((item, index) => item === input[index])) {
+    return model;
+  }
+
+  return {
+    ...model,
+    input,
+  };
+}
+
+export function modelSupportsImageInput(model: ModelCapabilityProbe | null | undefined): boolean {
+  return resolveModelInputModalities(model).includes('image');
 }
 
 function inferModelInput(modelId: string): OpenAICompletionsModelInput {
   return modelSupportsVision(modelId) ? ['text', 'image'] : ['text'];
+}
+
+const IMAGE_INPUT_UNSUPPORTED_PATTERNS = [
+  /image inputs? (?:are|is) not supported/i,
+  /images? (?:are|is) not supported (?:by|for) (?:this )?model/i,
+  /(?:this|the current) model does not support images?/i,
+  /model does not support images?/i,
+  /unsupported (?:input )?modality[^.:\n]*image/i,
+  /invalid request content[\s\S]{0,240}image/i,
+  /image_url[\s\S]{0,240}(?:not supported|unsupported)/i,
+];
+
+export function isImageInputUnsupportedError(message: string): boolean {
+  return IMAGE_INPUT_UNSUPPORTED_PATTERNS.some((pattern) => pattern.test(message));
+}
+
+export function formatImageInputUnsupportedError(params: { modelId: string; provider: string; message: string }): string {
+  return [
+    `The selected model (${params.provider}/${params.modelId}) rejected the attached image input.`,
+    'Canvas did not crash; the provider refused the multimodal request after the image was sent.',
+    'Choose a model that supports image input, or switch this model/provider to text-only behavior before using image attachments.',
+    '',
+    `Provider error: ${params.message}`,
+  ].join('\n');
 }
 
 export const OLLAMA_MODELS: Model<'openai-completions'>[] = [
@@ -188,10 +282,10 @@ export function getPiModels(provider: string, customModel?: string) {
         contextWindow: 128000,
         maxTokens: 8192,
       };
-      const merged = [...OLLAMA_MODELS, customModelEntry];
+      const merged = [...OLLAMA_MODELS, customModelEntry].map(withResolvedModelInput);
       return merged.filter((m, i) => merged.findIndex(x => x.id === m.id) === i);
     }
-    return OLLAMA_MODELS;
+    return OLLAMA_MODELS.map(withResolvedModelInput);
   }
 
   // OpenAI-Compatible provider - returns empty list, user enters custom model
@@ -209,7 +303,7 @@ export function getPiModels(provider: string, customModel?: string) {
         contextWindow: 128000,
         maxTokens: 8192,
       };
-      return [customModelEntry];
+      return [withResolvedModelInput(customModelEntry)];
     }
     return [];
   }
@@ -229,15 +323,15 @@ export function getPiModels(provider: string, customModel?: string) {
         maxTokens: 8192,
       };
       return [
-        ...FALLBACK_CANVAS_CONTROL_PLANE_MODELS,
-        customModelEntry,
+        ...FALLBACK_CANVAS_CONTROL_PLANE_MODELS.map(withResolvedModelInput),
+        withResolvedModelInput(customModelEntry),
       ];
     }
-    return FALLBACK_CANVAS_CONTROL_PLANE_MODELS;
+    return FALLBACK_CANVAS_CONTROL_PLANE_MODELS.map(withResolvedModelInput);
   }
   
   try {
-    return getModels(provider as KnownProvider);
+    return getModels(provider as KnownProvider).map(withResolvedModelInput);
   } catch {
     return [];
   }
@@ -278,7 +372,7 @@ export async function resolvePiModel(provider: string, modelName: string) {
       : undefined;
   
   const models = provider === CANVAS_CONTROL_PLANE_PROVIDER_ID
-    ? await getCanvasControlPlaneModels()
+    ? (await getCanvasControlPlaneModels()).map(withResolvedModelInput)
     : getPiModels(provider, customModel);
   let model = findModelWithCompatibilityFallback(models, modelName);
   if (model && model.id !== modelName) {
@@ -338,7 +432,7 @@ export async function resolvePiModel(provider: string, modelName: string) {
       throw new Error('CANVAS_CONTROL_PLANE_URL is required for the Canvas Control Plane provider.');
     }
     const managedProvider = managedProviderPath((model as ManagedControlPlaneModel).managedProvider || 'openrouter');
-    return {
+    return withResolvedModelInput({
       ...model,
       baseUrl: `${controlPlaneUrl}/v1/managed/${managedProvider}/v1`,
       headers: {
@@ -346,7 +440,7 @@ export async function resolvePiModel(provider: string, modelName: string) {
         'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
         'Accept': 'application/json',
       },
-    };
+    });
   }
   
   // For Ollama, we always use the local API endpoint (localhost:11434)
@@ -369,21 +463,21 @@ export async function resolvePiModel(provider: string, modelName: string) {
       
       console.log(`[Ollama Debug] Using custom host: ${customUrl}`);
       
-      return {
+      return withResolvedModelInput({
         ...withOpenAICompatibleBridgeCompat(model as Model<'openai-completions'>),
         baseUrl: customUrl,
-      };
+      });
     }
     
     console.log(`[Ollama Debug] Using localhost: ${baseUrl}`);
     
-    return {
+    return withResolvedModelInput({
       ...withOpenAICompatibleBridgeCompat(model as Model<'openai-completions'>),
       baseUrl,
-    };
+    });
   }
   
-  return model;
+  return withResolvedModelInput(model);
 }
 
 /**
