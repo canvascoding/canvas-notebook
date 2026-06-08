@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/app/lib/auth';
 import { startEmailOAuth } from '@/app/lib/email/service';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
+import { getPublicRequestOrigin } from '@/app/lib/utils/request-origin';
 
 async function requireSession(request: NextRequest) {
   const session = await auth.api.getSession({ headers: request.headers });
@@ -17,7 +18,7 @@ export async function POST(request: NextRequest) {
   if (!limited.ok) return limited.response;
   try {
     const body = await request.json().catch(() => ({})) as { provider?: string; returnUrl?: string };
-    const origin = request.headers.get('origin') || request.nextUrl.origin;
+    const origin = getPublicRequestOrigin(request);
     const returnUrl = body.returnUrl || `${origin}/settings?tab=integrations`;
     const data = await startEmailOAuth(session.user.id, { provider: body.provider || 'google', requestOrigin: origin, returnUrl });
     return NextResponse.json({ success: true, data });

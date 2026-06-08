@@ -37,6 +37,7 @@ import {
 } from '@/app/lib/email/imap-service';
 import { readScopedEnvState } from '@/app/lib/integrations/env-config';
 import { resolveSecretsDir } from '@/app/lib/runtime-data-paths';
+import { normalizePublicOrigin } from '@/app/lib/utils/request-origin';
 
 export type EmailProvider = 'google' | 'microsoft';
 export type { EmailPolicy } from '@/app/lib/email/policy';
@@ -272,8 +273,29 @@ export async function hasLocalEmailOAuthCredentials(provider?: string): Promise<
 }
 
 function getOrigin(requestOrigin?: string | null): string {
-  const configured = process.env.BASE_URL || process.env.APP_BASE_URL;
-  return (configured || requestOrigin || 'http://localhost:3000').replace(/\/+$/u, '');
+  return normalizePublicOrigin(process.env.EMAIL_OAUTH_BASE_URL)
+    || normalizePublicOrigin(process.env.OAUTH_BASE_URL)
+    || normalizePublicOrigin(requestOrigin)
+    || normalizePublicOrigin(process.env.BASE_URL)
+    || normalizePublicOrigin(process.env.APP_BASE_URL)
+    || normalizePublicOrigin(process.env.BETTER_AUTH_BASE_URL)
+    || 'http://localhost:3000';
+}
+
+export function getLocalEmailOAuthRedirectUri(requestOrigin?: string | null): string {
+  return `${getOrigin(requestOrigin)}/api/email/oauth/callback`;
+}
+
+export async function getLocalEmailOAuthStatus(requestOrigin?: string | null) {
+  const [google, microsoft] = await Promise.all([getOAuthConfig('google'), getOAuthConfig('microsoft')]);
+  return {
+    mode: 'local' as const,
+    redirectUri: getLocalEmailOAuthRedirectUri(requestOrigin),
+    providers: {
+      google: { configured: Boolean(google) },
+      microsoft: { configured: Boolean(microsoft) },
+    },
+  };
 }
 
 export async function startLocalEmailOAuth(params: {
@@ -291,7 +313,7 @@ export async function startLocalEmailOAuth(params: {
   const codeVerifier = base64Url(crypto.randomBytes(32));
   const codeChallenge = base64Url(crypto.createHash('sha256').update(codeVerifier).digest());
   const state = base64Url(crypto.randomBytes(32));
-  const redirectUri = `${getOrigin(params.requestOrigin)}/api/email/oauth/callback`;
+  const redirectUri = getLocalEmailOAuthRedirectUri(params.requestOrigin);
   const expiresAt = new Date(Date.now() + 10 * 60_000).toISOString();
 
   await writeJsonPrivate(statePath(state), {

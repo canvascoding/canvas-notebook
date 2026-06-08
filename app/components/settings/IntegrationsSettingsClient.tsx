@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, startTransition, typ
 import dynamic from 'next/dynamic';
 import { useSearchParams } from 'next/navigation';
 import { useTranslations } from 'next-intl';
-import { ChevronDown, ExternalLink, Eye, EyeOff, Loader2, Mail, Menu, Plus, RefreshCw, Save, Search, Settings, Star, Trash2 } from 'lucide-react';
+import { ChevronDown, Copy, ExternalLink, Eye, EyeOff, Loader2, Mail, Menu, Plus, RefreshCw, Save, Search, Settings, Star, Trash2 } from 'lucide-react';
 
 import { GeneralSettingsPanel } from '@/app/components/settings/GeneralSettingsPanel';
 import { SettingsAccordionCard } from '@/app/components/settings/SettingsAccordionCard';
@@ -146,6 +146,15 @@ type EmailOAuthDraft = {
   googleClientSecret: string;
   microsoftClientId: string;
   microsoftClientSecret: string;
+};
+
+type EmailOAuthStatus = {
+  mode: EmailMode;
+  redirectUri: string | null;
+  providers: {
+    google?: { configured: boolean };
+    microsoft?: { configured: boolean };
+  };
 };
 
 type EmailSmtpDraft = {
@@ -1615,6 +1624,7 @@ function EmailAccountsCard({ isOpen, onOpenChange }: { isOpen: boolean; onOpenCh
     microsoftClientId: '',
     microsoftClientSecret: '',
   });
+  const [emailOAuthStatus, setEmailOAuthStatus] = useState<EmailOAuthStatus | null>(null);
   const [smtpDraft, setSmtpDraft] = useState<EmailSmtpDraft>(() => emptyEmailSmtpDraft());
   const [isAddingEmailAccount, setIsAddingEmailAccount] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -1626,9 +1636,14 @@ function EmailAccountsCard({ isOpen, onOpenChange }: { isOpen: boolean; onOpenCh
   const loadOAuthEnv = useCallback(async () => {
     setIsOAuthLoading(true);
     try {
-      const response = await fetch('/api/integrations/env?scope=integrations', { cache: 'no-store' });
+      const [response, statusResponse] = await Promise.all([
+        fetch('/api/integrations/env?scope=integrations', { credentials: 'include', cache: 'no-store' }),
+        fetch('/api/email/oauth/status', { credentials: 'include', cache: 'no-store' }),
+      ]);
       const payload = await response.json();
+      const statusPayload = await statusResponse.json();
       if (!response.ok || !payload.success) throw new Error(payload.error || t('errors.loadOAuthSettings'));
+      if (!statusResponse.ok || !statusPayload.success) throw new Error(statusPayload.error || t('errors.loadOAuthSettings'));
       const entries = (payload.data?.entries || []) as EnvEntry[];
       const byKey = new Map(entries.map((entry) => [entry.key, entry.value]));
       setOauthDraft({
@@ -1637,6 +1652,7 @@ function EmailAccountsCard({ isOpen, onOpenChange }: { isOpen: boolean; onOpenCh
         microsoftClientId: byKey.get('MICROSOFT_OAUTH_CLIENT_ID') || '',
         microsoftClientSecret: byKey.get('MICROSOFT_OAUTH_CLIENT_SECRET') || '',
       });
+      setEmailOAuthStatus(statusPayload.data as EmailOAuthStatus);
     } catch (oauthLoadError) {
       setError(oauthLoadError instanceof Error ? oauthLoadError.message : t('errors.loadOAuthSettings'));
     } finally {
@@ -1695,6 +1711,7 @@ function EmailAccountsCard({ isOpen, onOpenChange }: { isOpen: boolean; onOpenCh
           microsoftClientId: '',
           microsoftClientSecret: '',
         });
+        setEmailOAuthStatus(null);
       }
     }, 0);
     return () => window.clearTimeout(timeout);
@@ -1772,6 +1789,19 @@ function EmailAccountsCard({ isOpen, onOpenChange }: { isOpen: boolean; onOpenCh
       setError(saveOAuthError instanceof Error ? saveOAuthError.message : t('errors.saveOAuthSettings'));
     } finally {
       setActiveAction(null);
+    }
+  };
+
+  const copyRedirectUri = async () => {
+    const redirectUri = emailOAuthStatus?.redirectUri;
+    if (!redirectUri) return;
+    try {
+      await navigator.clipboard.writeText(redirectUri);
+      setMessage(t('messages.redirectUriCopied'));
+      setError(null);
+    } catch {
+      setError(t('errors.copyRedirectUri'));
+      setMessage(null);
     }
   };
 
@@ -2001,6 +2031,27 @@ function EmailAccountsCard({ isOpen, onOpenChange }: { isOpen: boolean; onOpenCh
                       disabled={isOAuthLoading || activeAction !== null}
                     />
                   </div>
+                  {emailOAuthStatus?.redirectUri && (
+                    <div className="space-y-2 rounded-md border border-border bg-muted/30 p-3">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0 space-y-1">
+                          <Label className="text-xs uppercase tracking-wider text-muted-foreground">{t('oauth.redirectUri')}</Label>
+                          <p className="break-all font-mono text-xs text-foreground">{emailOAuthStatus.redirectUri}</p>
+                        </div>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="icon-sm"
+                          aria-label={t('oauth.copyRedirectUri')}
+                          onClick={() => void copyRedirectUri()}
+                          disabled={activeAction !== null}
+                        >
+                          <Copy className="h-4 w-4" />
+                        </Button>
+                      </div>
+                      <p className="text-xs text-muted-foreground">{t('oauth.redirectUriHelp')}</p>
+                    </div>
+                  )}
                 </>
               )}
               <div className="flex flex-wrap justify-end gap-2">

@@ -2361,7 +2361,10 @@
         "microsoftManagedDescription": "Connect Microsoft 365 or Outlook accounts with Canvas Managed Services.",
         "microsoftLocalDescription": "Used for connecting Microsoft 365 or Outlook accounts.",
         "clientId": "Client ID",
-        "clientSecret": "Client Secret"
+        "clientSecret": "Client Secret",
+        "redirectUri": "Redirect URI",
+        "redirectUriHelp": "Add this exact URI to the Google OAuth client under Authorized redirect URIs.",
+        "copyRedirectUri": "Copy redirect URI"
       },
       "smtp": {
         "title": "SMTP/IMAP",
@@ -2396,6 +2399,7 @@
         "accountConnected": "Email account connected.",
         "accountDisconnected": "Email account disconnected.",
         "oauthSettingsSaved": "{provider} OAuth settings saved.",
+        "redirectUriCopied": "Redirect URI copied.",
         "smtpSaved": "SMTP account saved.",
         "smtpTested": "SMTP connection tested successfully.",
         "policySaved": "Email policy saved.",
@@ -2410,6 +2414,7 @@
         "saveOAuthSettings": "Failed to save OAuth settings",
         "startOAuth": "Failed to start email OAuth",
         "missingAuthorizationUrl": "Email OAuth did not return an authorization URL.",
+        "copyRedirectUri": "Failed to copy redirect URI",
         "testSmtp": "Failed to test SMTP connection",
         "saveSmtp": "Failed to save SMTP account",
         "savePolicy": "Failed to save email policy",

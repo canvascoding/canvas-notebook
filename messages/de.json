@@ -2360,7 +2360,10 @@
         "microsoftManagedDescription": "Microsoft-365- oder Outlook-Konten über Canvas Managed Services verbinden.",
         "microsoftLocalDescription": "Wird verwendet, um Microsoft-365- oder Outlook-Konten zu verbinden.",
         "clientId": "Client-ID",
-        "clientSecret": "Client Secret"
+        "clientSecret": "Client Secret",
+        "redirectUri": "Redirect-URI",
+        "redirectUriHelp": "Diese exakte URI muss im Google OAuth Client unter Authorized redirect URIs eingetragen sein.",
+        "copyRedirectUri": "Redirect-URI kopieren"
       },
       "smtp": {
         "title": "SMTP/IMAP",
@@ -2395,6 +2398,7 @@
         "accountConnected": "E-Mail-Konto verbunden.",
         "accountDisconnected": "E-Mail-Konto getrennt.",
         "oauthSettingsSaved": "{provider}-OAuth-Einstellungen gespeichert.",
+        "redirectUriCopied": "Redirect-URI kopiert.",
         "smtpSaved": "SMTP-Konto gespeichert.",
         "smtpTested": "SMTP-Verbindung erfolgreich getestet.",
         "policySaved": "E-Mail-Richtlinie gespeichert.",
@@ -2409,6 +2413,7 @@
         "saveOAuthSettings": "OAuth-Einstellungen konnten nicht gespeichert werden",
         "startOAuth": "E-Mail-OAuth konnte nicht gestartet werden",
         "missingAuthorizationUrl": "E-Mail-OAuth hat keine Autorisierungs-URL zurückgegeben.",
+        "copyRedirectUri": "Redirect-URI konnte nicht kopiert werden",
         "testSmtp": "SMTP-Verbindung konnte nicht getestet werden",
         "saveSmtp": "SMTP-Konto konnte nicht gespeichert werden",
         "savePolicy": "E-Mail-Richtlinie konnte nicht gespeichert werden",

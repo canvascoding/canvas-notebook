@@ -43,6 +43,19 @@ export function getPublicRequestOrigin(request: RequestOriginInput): string {
   return url.origin;
 }
 
+export function normalizePublicOrigin(value: string | null | undefined): string | null {
+  const trimmed = value?.trim();
+  if (!trimmed) return null;
+
+  try {
+    const url = new URL(trimmed);
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return null;
+    return url.origin;
+  } catch {
+    return null;
+  }
+}
+
 export function buildPublicRequestUrl(request: RequestOriginInput, relativePath: string): URL {
   return new URL(relativePath, getPublicRequestOrigin(request));
 }
