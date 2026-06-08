@@ -6,6 +6,7 @@ import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
 import { isColorCode, ColorSwatch } from '@/app/lib/markdown/color-swatch';
 import { rehypeInlineColorSwatch } from '@/app/lib/markdown/rehype-inline-color-swatch';
+import { SafeMarkdownImage } from '@/app/components/shared/SafeMarkdownImage';
 import { cn } from '@/lib/utils';
 
 interface MarkdownRendererProps {
@@ -73,13 +74,10 @@ export function MarkdownRenderer({
     }: React.ImgHTMLAttributes<HTMLImageElement>) => {
       if (typeof src !== 'string' || !src) return null;
       return (
-        // Markdown image sources can be arbitrary user-provided URLs, so next/image
-        // domain restrictions are not a good fit for this renderer.
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
+        <SafeMarkdownImage
           src={src}
           alt={alt || ''}
-          className="my-2 max-h-[320px] w-auto max-w-full rounded-lg object-contain"
+          imageClassName="my-2 max-h-[320px] w-auto max-w-full rounded-lg object-contain"
         />
       );
     },

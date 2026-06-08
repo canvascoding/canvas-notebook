@@ -121,6 +121,7 @@ import { renderSkillIcon } from '@/app/lib/skills/skill-icons';
 import { searchSkillReferenceEntries } from '@/app/lib/skills/skill-reference-search';
 import { useWebSocket } from '@/app/hooks/useWebSocket';
 import { ImagePreprocessDialog } from '@/app/components/shared/ImagePreprocessDialog';
+import { SafeMarkdownImage } from '@/app/components/shared/SafeMarkdownImage';
 import type { ConvertParams } from '@/app/components/shared/ImagePreprocessDialog';
 import { usePlanModeStore } from '@/app/store/plan-mode-store';
 import { useToolVerbosityStore, type ToolVerbosity } from '@/app/store/tool-verbosity-store';
@@ -648,6 +649,87 @@ function isCacheableMessageSet(messages: ChatMessage[]): boolean {
   }
 
   return true;
+}
+
+function isLiveMessageInProgress(message: ChatMessage): boolean {
+  return Boolean(message.optimistic) ||
+    message.status === 'pending' ||
+    message.status === 'sending' ||
+    message.status === 'aborting' ||
+    message.status === 'queued_follow_up' ||
+    message.status === 'queued_steering';
+}
+
+function areAttachmentsEquivalent(current: Attachment[] | undefined, next: Attachment[] | undefined): boolean {
+  if (!current?.length && !next?.length) {
+    return true;
+  }
+  if (!current || !next || current.length !== next.length) {
+    return false;
+  }
+
+  return current.every((attachment, index) => {
+    const other = next[index];
+    return (
+      attachment.id === other.id &&
+      attachment.name === other.name &&
+      attachment.filePath === other.filePath &&
+      attachment.mediaUrl === other.mediaUrl &&
+      attachment.previewUrl === other.previewUrl &&
+      attachment.mimeType === other.mimeType &&
+      attachment.category === other.category &&
+      attachment.contentKind === other.contentKind
+    );
+  });
+}
+
+function areCompactMetaEquivalent(current: ChatMessage['compactMeta'], next: ChatMessage['compactMeta']): boolean {
+  if (!current && !next) {
+    return true;
+  }
+  return Boolean(current && next) &&
+    current?.kind === next?.kind &&
+    current?.timestamp === next?.timestamp &&
+    current?.omittedMessageCount === next?.omittedMessageCount;
+}
+
+function areComposioAuthMetaEquivalent(current: ChatMessage['composioAuthMeta'], next: ChatMessage['composioAuthMeta']): boolean {
+  if (!current && !next) {
+    return true;
+  }
+  return Boolean(current && next) &&
+    current?.toolkit === next?.toolkit &&
+    current?.toolkitName === next?.toolkitName &&
+    current?.redirectUrl === next?.redirectUrl &&
+    current?.toolName === next?.toolName;
+}
+
+function areChatMessagesEquivalent(current: ChatMessage, next: ChatMessage): boolean {
+  return (
+    current.id === next.id &&
+    current.role === next.role &&
+    current.content === next.content &&
+    current.type === next.type &&
+    current.status === next.status &&
+    current.toolName === next.toolName &&
+    current.toolCallId === next.toolCallId &&
+    current.toolArgs === next.toolArgs &&
+    current.queueKind === next.queueKind &&
+    current.optimistic === next.optimistic &&
+    current.isCollapsed === next.isCollapsed &&
+    current.autoCollapsedAtEnd === next.autoCollapsedAtEnd &&
+    current.previewText === next.previewText &&
+    areAttachmentsEquivalent(current.attachments, next.attachments) &&
+    areCompactMetaEquivalent(current.compactMeta, next.compactMeta) &&
+    areComposioAuthMetaEquivalent(current.composioAuthMeta, next.composioAuthMeta)
+  );
+}
+
+function areChatMessageListsEquivalent(current: ChatMessage[], next: ChatMessage[]): boolean {
+  if (current.length !== next.length) {
+    return false;
+  }
+  return current.every((message, index) => areChatMessagesEquivalent(message, next[index]));
 }
 
 function normalizeCachedSessionEntry(value: unknown): CachedChatSession | null {
@@ -1887,7 +1969,7 @@ function FileLink({ href, children }: { href: string; children: React.ReactNode 
   );
 }
 
-function MarkdownMessage({
+const MarkdownMessage = React.memo(function MarkdownMessage({
   content,
   variant,
   onMediaClick,
@@ -1981,15 +2063,15 @@ function MarkdownMessage({
       const previewSrc = resolvePreviewSrcFromMediaUrl(resolvedSrc);
       const clickable = Boolean(onMediaClick);
       return (
-        <button
-          type="button"
-          className={`my-3 block overflow-hidden rounded-md border border-border/70 bg-background/70 ${clickable ? 'cursor-pointer transition hover:border-primary/40' : 'cursor-default'}`}
-          onClick={() => { if (onMediaClick) onMediaClick(resolvedSrc); }}
-          disabled={!clickable}
-        >
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={previewSrc} alt={alt || ''} className="max-h-[320px] w-auto max-w-full object-contain" loading="lazy" decoding="async" />
-        </button>
+        <SafeMarkdownImage
+          src={resolvedSrc}
+          previewSrc={previewSrc}
+          openSrc={resolvedSrc}
+          alt={alt || ''}
+          wrapperClassName={`my-3 block overflow-hidden rounded-md border border-border/70 bg-background/70 ${clickable ? 'transition hover:border-primary/40' : 'cursor-default'}`}
+          imageClassName="max-h-[320px] w-auto max-w-full object-contain"
+          onOpen={onMediaClick}
+        />
       );
     },
     code: ({ className, children, ...props }: React.HTMLAttributes<HTMLElement> & { children?: React.ReactNode }) => {
@@ -2037,7 +2119,9 @@ function MarkdownMessage({
       </ReactMarkdown>
     </div>
   );
-}
+});
+
+MarkdownMessage.displayName = 'MarkdownMessage';
 
 function StreamingMessageIndicator() {
   const t = useTranslations('chat');
@@ -2531,6 +2615,7 @@ export default function CanvasAgentChat({
   const referenceRequestIdRef = useRef(0);
   const messagesRef = useRef<ChatMessage[]>([]);
   const refreshSavedMessagesRef = useRef<((sessionId: string) => void) | null>(null);
+  const deferredSavedMessageRefreshSessionRef = useRef<string | null>(null);
   const subscribedSessionAckRef = useRef<string | null>(null);
   const subscribedSessionRequestRef = useRef<{ sessionId: string; promise: Promise<void> } | null>(null);
   const sessionListRequestRef = useRef<Promise<AISession[]> | null>(null);
@@ -2661,6 +2746,48 @@ export default function CanvasAgentChat({
   useEffect(() => {
     runtimeStatusRef.current = runtimeStatus;
   }, [runtimeStatus]);
+
+  const hasLiveMessagesInProgress = useCallback(() => {
+    const status = runtimeStatusRef.current;
+    if (status && status.phase !== 'idle') {
+      return true;
+    }
+    return messagesRef.current.some(isLiveMessageInProgress);
+  }, []);
+
+  const requestSavedMessageRefresh = useCallback((targetSessionId: string) => {
+    if (sessionIdRef.current !== targetSessionId) {
+      return;
+    }
+
+    const refreshSavedMessages = refreshSavedMessagesRef.current;
+    if (!refreshSavedMessages || hasLiveMessagesInProgress()) {
+      deferredSavedMessageRefreshSessionRef.current = targetSessionId;
+      return;
+    }
+
+    refreshSavedMessages(targetSessionId);
+  }, [hasLiveMessagesInProgress]);
+
+  useEffect(() => {
+    const targetSessionId = deferredSavedMessageRefreshSessionRef.current;
+    if (!targetSessionId) {
+      return;
+    }
+
+    if (targetSessionId !== sessionId) {
+      deferredSavedMessageRefreshSessionRef.current = null;
+      return;
+    }
+
+    const refreshSavedMessages = refreshSavedMessagesRef.current;
+    if (!refreshSavedMessages || hasLiveMessagesInProgress()) {
+      return;
+    }
+
+    deferredSavedMessageRefreshSessionRef.current = null;
+    refreshSavedMessages(targetSessionId);
+  }, [hasLiveMessagesInProgress, messages, runtimeStatus?.phase, sessionId]);
 
   const buildRequestContext = useCallback((activeFilePath: string | null): ChatRequestContext => ({
     activeFilePath,
@@ -2823,7 +2950,7 @@ export default function CanvasAgentChat({
       }
 
       if (isCurrentVisibleSession) {
-        refreshSavedMessagesRef.current?.(sessionId);
+        requestSavedMessageRefresh(sessionId);
         void fetch('/api/sessions', {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
@@ -2851,7 +2978,7 @@ export default function CanvasAgentChat({
     return () => {
       window.removeEventListener('session_updated', handleSessionUpdated as EventListener);
     };
-  }, [loadSessionList, resolveSessionTitle, selectedAgentId]);
+  }, [loadSessionList, requestSavedMessageRefresh, resolveSessionTitle, selectedAgentId]);
 
   // Session is created on-demand when user sends first message
 
@@ -3670,7 +3797,7 @@ export default function CanvasAgentChat({
     if (event.type === 'message_saved') {
       const currentSessionId = sessionIdRef.current;
       if (!currentSessionId) return;
-      refreshSavedMessagesRef.current?.(currentSessionId);
+      requestSavedMessageRefresh(currentSessionId);
       return;
     }
 
@@ -3811,7 +3938,7 @@ export default function CanvasAgentChat({
 
     // Note: event types 'message', 'message_delta', and 'messages' are no longer produced
     // by LivePiRuntime. The live runtime uses message_start / message_update / message_end.
-  }, [appendCompactionBreak, appendSystemMessage, createAssistantBubble, formatToolArgs, scrollToBottom, setMessages, setRuntimeStatusWithReconciliation, syncPiMessage, t, upsertToolMessage, upsertUserMessageFromPiMessage]);
+  }, [appendCompactionBreak, appendSystemMessage, createAssistantBubble, formatToolArgs, requestSavedMessageRefresh, scrollToBottom, setMessages, setRuntimeStatusWithReconciliation, syncPiMessage, t, upsertToolMessage, upsertUserMessageFromPiMessage]);
 
   // Listen for WebSocket agent events (from current tab, other tabs, or background runs).
   useEffect(() => {
@@ -4243,8 +4370,10 @@ export default function CanvasAgentChat({
         }
 
         const nextMessages = mapRawMessages(payload.messages);
-        setMessages(nextMessages);
-        hydrateMessageRefsFromMessages(nextMessages);
+        if (!areChatMessageListsEquivalent(messagesRef.current, nextMessages)) {
+          setMessages(nextMessages);
+          hydrateMessageRefsFromMessages(nextMessages);
+        }
         setHasMoreBefore(typeof payload.hasMoreBefore === 'boolean' ? payload.hasMoreBefore : payload.messages.length >= 50);
         setOldestTimestamp(payload.oldestTimestamp ?? null);
         setOldestMessageId(payload.oldestMessageId ?? null);
@@ -4396,7 +4525,10 @@ export default function CanvasAgentChat({
 
       if (messagesPayload?.success && Array.isArray(messagesPayload.messages)) {
         const nextMessages = mapRawMessages(messagesPayload.messages);
-        if (nextMessages.length > 0 || !hasCachedMessages) {
+        if (
+          (nextMessages.length > 0 || !hasCachedMessages) &&
+          (!hasCachedMessages || !cachedEntry || !areChatMessageListsEquivalent(cachedEntry.messages, nextMessages))
+        ) {
           setMessages(nextMessages);
           hydrateMessageRefsFromMessages(nextMessages);
         }
