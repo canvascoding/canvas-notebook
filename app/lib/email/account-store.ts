@@ -35,9 +35,11 @@ export type PublicEmailAccount = {
   smtpHost: string | null;
   smtpPort: number | null;
   smtpSecure: boolean | null;
+  smtpUsername: string | null;
   imapHost: string | null;
   imapPort: number | null;
   imapSecure: boolean | null;
+  imapUsername: string | null;
   policy: EmailPolicy;
   createdAt: string;
   updatedAt: string;
@@ -88,9 +90,11 @@ export function publicStoredEmailAccount(account: StoredEmailAccount, secret?: E
     smtpHost: secret?.authType === 'smtp_imap' ? secret.smtp.host : null,
     smtpPort: secret?.authType === 'smtp_imap' ? secret.smtp.port : null,
     smtpSecure: secret?.authType === 'smtp_imap' ? secret.smtp.secure : null,
+    smtpUsername: secret?.authType === 'smtp_imap' ? secret.smtp.username : null,
     imapHost: secret?.authType === 'smtp_imap' && secret.imap ? secret.imap.host : null,
     imapPort: secret?.authType === 'smtp_imap' && secret.imap ? secret.imap.port : null,
     imapSecure: secret?.authType === 'smtp_imap' && secret.imap ? secret.imap.secure : null,
+    imapUsername: secret?.authType === 'smtp_imap' && secret.imap ? secret.imap.username : null,
     policy: parsePolicyJson(account.policyJson),
     createdAt: toIso(account.createdAt) || new Date(0).toISOString(),
     updatedAt: toIso(account.updatedAt) || new Date(0).toISOString(),
@@ -308,13 +312,30 @@ export async function upsertSmtpEmailAccount(params: {
   createdAt?: Date;
 }): Promise<StoredEmailAccount> {
   const emailAddress = normalizeEmailAddress(params.emailAddress);
-  const existing = await db.query.emailAccounts.findFirst({
+  const existingById = params.accountId
+    ? await db.query.emailAccounts.findFirst({
+        where: and(eq(emailAccounts.userId, params.userId), eq(emailAccounts.id, params.accountId), eq(emailAccounts.provider, 'smtp_imap')),
+      })
+    : null;
+  const existing = existingById || await db.query.emailAccounts.findFirst({
     where: and(
       eq(emailAccounts.userId, params.userId),
       eq(emailAccounts.provider, 'smtp_imap'),
       eq(emailAccounts.emailAddress, emailAddress),
     ),
   });
+  if (existingById && existingById.emailAddress !== emailAddress) {
+    const emailCollision = await db.query.emailAccounts.findFirst({
+      where: and(
+        eq(emailAccounts.userId, params.userId),
+        eq(emailAccounts.provider, 'smtp_imap'),
+        eq(emailAccounts.emailAddress, emailAddress),
+      ),
+    });
+    if (emailCollision && emailCollision.id !== existingById.id) {
+      throw new Error('An SMTP/IMAP account with this email address already exists.');
+    }
+  }
   const now = new Date();
   const id = existing?.id || params.accountId || accountIdFor(params.userId, 'smtp_imap', emailAddress);
   const secretRef = existing?.secretRef || emailAccountSecretRef(params.userId, id);
@@ -329,6 +350,8 @@ export async function upsertSmtpEmailAccount(params: {
   if (existing) {
     await db.update(emailAccounts)
       .set({
+        emailAddress,
+        providerAccountId: emailAddress,
         displayName: params.displayName === undefined ? existing.displayName : params.displayName,
         authType: 'smtp_imap',
         status: 'active',

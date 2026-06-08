@@ -75,7 +75,7 @@ async function main() {
   await fs.mkdir(secretsDir, { recursive: true });
   await fs.writeFile(integrationsEnvPath, '', 'utf8');
 
-  const { createEmailDraft, disconnectEmailAccount, getEmailOAuthStatus, listEmailAccounts, listEmailFolders, listEmailMessages, readEmailMessage, saveEmailSmtpAccount, searchEmail, sendEmailDraft, setEmailMainAccount, startEmailOAuth } = await import('../app/lib/email/service');
+  const { createEmailDraft, disconnectEmailAccount, getEmailOAuthStatus, listEmailAccounts, listEmailFolders, listEmailMessages, readEmailMessage, saveEmailSmtpAccount, searchEmail, sendEmailDraft, setEmailMainAccount, startEmailOAuth, testEmailAccount, testEmailSmtpConnection } = await import('../app/lib/email/service');
   const { upsertOAuthEmailAccount } = await import('../app/lib/email/account-store');
   const { setSmtpTransportFactoryForTests } = await import('../app/lib/email/smtp-service');
   const { setImapClientFactoryForTests } = await import('../app/lib/email/imap-service');
@@ -327,6 +327,58 @@ async function main() {
   assert.equal(smtpImapAccount.isPrimary, false);
   assert.equal(smtpImapAccount.imapHost, 'imap.example.test');
   assert.equal(JSON.stringify(smtpImapAccount).includes('imap-secret'), false);
+
+  const editedSmtpImapAccount = await saveEmailSmtpAccount('owner-user', {
+    accountId: smtpImapAccount.id,
+    emailAddress: 'smtp-imap-owner@example.test',
+    displayName: 'Edited SMTP IMAP Owner',
+    smtpHost: 'smtp-edited.example.test',
+    smtpPort: 465,
+    smtpSecure: true,
+    smtpUsername: 'smtp-imap-owner-edited',
+    smtpPassword: '',
+    imapHost: 'imap-edited.example.test',
+    imapPort: 993,
+    imapSecure: true,
+    imapUsername: 'smtp-imap-owner-edited',
+    imapPassword: '',
+  });
+  assert.equal(editedSmtpImapAccount.id, smtpImapAccount.id);
+  assert.equal(editedSmtpImapAccount.displayName, 'Edited SMTP IMAP Owner');
+  assert.equal(editedSmtpImapAccount.smtpHost, 'smtp-edited.example.test');
+  assert.equal(editedSmtpImapAccount.smtpPort, 465);
+  assert.equal(editedSmtpImapAccount.smtpSecure, true);
+  assert.equal(editedSmtpImapAccount.smtpUsername, 'smtp-imap-owner-edited');
+  assert.equal(editedSmtpImapAccount.imapHost, 'imap-edited.example.test');
+  assert.equal(editedSmtpImapAccount.imapUsername, 'smtp-imap-owner-edited');
+  assert.equal(JSON.stringify(editedSmtpImapAccount).includes('smtp-secret'), false);
+  assert.equal(JSON.stringify(editedSmtpImapAccount).includes('imap-secret'), false);
+
+  const editedDraftTestResult = await testEmailSmtpConnection('owner-user', {
+    accountId: smtpImapAccount.id,
+    emailAddress: 'smtp-imap-owner@example.test',
+    displayName: 'Edited SMTP IMAP Owner',
+    smtpHost: 'smtp-edited.example.test',
+    smtpPort: 465,
+    smtpSecure: true,
+    smtpUsername: 'smtp-imap-owner-edited',
+    smtpPassword: '',
+    imapHost: 'imap-edited.example.test',
+    imapPort: 993,
+    imapSecure: true,
+    imapUsername: 'smtp-imap-owner-edited',
+    imapPassword: '',
+  });
+  assert.equal((editedDraftTestResult as { ok?: boolean }).ok, true);
+  assert.equal((editedDraftTestResult as { imapHost?: string | null }).imapHost, 'imap-edited.example.test');
+
+  const storedTestResult = await testEmailAccount('owner-user', smtpImapAccount.id);
+  assert.equal((storedTestResult as { ok?: boolean }).ok, true);
+  assert.equal((storedTestResult as { smtp?: { ok?: boolean } }).smtp?.ok, true);
+  assert.equal((storedTestResult as { imap?: { configured?: boolean } }).imap?.configured, true);
+  assert.equal((storedTestResult as { imap?: { ok?: boolean } }).imap?.ok, true);
+  assert.equal(imapConnectCalls, 3);
+  assert.equal(imapLogoutCalls, 3);
 
   await assert.rejects(() => setEmailMainAccount('other-user', smtpImapAccount.id), /not found/i);
   const mainAccount = await setEmailMainAccount('owner-user', smtpImapAccount.id);

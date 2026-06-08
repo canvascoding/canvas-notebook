@@ -132,9 +132,11 @@ type EmailAccount = {
   smtpHost?: string | null;
   smtpPort?: number | null;
   smtpSecure?: boolean | null;
+  smtpUsername?: string | null;
   imapHost?: string | null;
   imapPort?: number | null;
   imapSecure?: boolean | null;
+  imapUsername?: string | null;
   policy: {
     readFrom: string[];
     sendTo: string[];
@@ -158,6 +160,7 @@ type EmailOAuthStatus = {
 };
 
 type EmailSmtpDraft = {
+  accountId: string | null;
   emailAddress: string;
   displayName: string;
   smtpHost: string;
@@ -187,6 +190,7 @@ const SHOW_MICROSOFT_EMAIL_OAUTH = false;
 
 function emptyEmailSmtpDraft(): EmailSmtpDraft {
   return {
+    accountId: null,
     emailAddress: '',
     displayName: '',
     smtpHost: '',
@@ -1611,7 +1615,15 @@ function McpConfigCard(props: {
   );
 }
 
-export function EmailAccountsCard({ isOpen, onOpenChange }: { isOpen: boolean; onOpenChange: (isOpen: boolean) => void }) {
+export function EmailAccountsCard({
+  isOpen,
+  onOpenChange,
+  onAccountsChanged,
+}: {
+  isOpen: boolean;
+  onOpenChange: (isOpen: boolean) => void;
+  onAccountsChanged?: () => void | Promise<void>;
+}) {
   const t = useTranslations('settings.emailAccounts');
   const searchParams = useSearchParams();
   const handledEmailOAuthReturn = useRef(false);
@@ -1684,6 +1696,11 @@ export function EmailAccountsCard({ isOpen, onOpenChange }: { isOpen: boolean; o
     }
   }, [t]);
 
+  const reloadAccountsAfterChange = useCallback(async () => {
+    await loadAccounts();
+    await onAccountsChanged?.();
+  }, [loadAccounts, onAccountsChanged]);
+
   const clearEmailOAuthParams = useCallback(() => {
     const url = new URL(window.location.href);
     url.searchParams.delete('emailOAuth');
@@ -1726,7 +1743,7 @@ export function EmailAccountsCard({ isOpen, onOpenChange }: { isOpen: boolean; o
       const timeout = window.setTimeout(() => {
         setMessage(t('messages.accountConnected'));
         setError(null);
-        void loadAccounts();
+        void reloadAccountsAfterChange();
         clearEmailOAuthParams();
       }, 0);
       return () => window.clearTimeout(timeout);
@@ -1740,7 +1757,7 @@ export function EmailAccountsCard({ isOpen, onOpenChange }: { isOpen: boolean; o
       }, 0);
       return () => window.clearTimeout(timeout);
     }
-  }, [clearEmailOAuthParams, loadAccounts, searchParams, t]);
+  }, [clearEmailOAuthParams, reloadAccountsAfterChange, searchParams, t]);
 
   const persistOAuthProvider = async (provider: 'google' | 'microsoft') => {
     const keys = provider === 'google'
@@ -1830,6 +1847,7 @@ export function EmailAccountsCard({ isOpen, onOpenChange }: { isOpen: boolean; o
   };
 
   const smtpPayload = (verifyConnection = false) => ({
+    accountId: smtpDraft.accountId || undefined,
     emailAddress: smtpDraft.emailAddress.trim(),
     displayName: smtpDraft.displayName.trim() || null,
     smtpHost: smtpDraft.smtpHost.trim(),
@@ -1877,12 +1895,70 @@ export function EmailAccountsCard({ isOpen, onOpenChange }: { isOpen: boolean; o
       });
       const payload = await response.json();
       if (!response.ok || !payload.success) throw new Error(payload.error || t('errors.saveSmtp'));
-      setMessage(t('messages.smtpSaved'));
+      setMessage(t(smtpDraft.accountId ? 'messages.smtpUpdated' : 'messages.smtpSaved'));
       setSmtpDraft(emptyEmailSmtpDraft());
       setIsAddingEmailAccount(false);
-      await loadAccounts();
+      await reloadAccountsAfterChange();
     } catch (smtpError) {
       setError(smtpError instanceof Error ? smtpError.message : t('errors.saveSmtp'));
+    } finally {
+      setActiveAction(null);
+    }
+  };
+
+  const editSmtpAccount = (account: EmailAccount) => {
+    setSmtpDraft({
+      accountId: account.id,
+      emailAddress: account.emailAddress,
+      displayName: account.displayName || '',
+      smtpHost: account.smtpHost || '',
+      smtpPort: account.smtpPort ? String(account.smtpPort) : '587',
+      smtpSecure: Boolean(account.smtpSecure),
+      smtpUsername: account.smtpUsername || '',
+      smtpPassword: '',
+      imapEnabled: Boolean(account.imapHost),
+      imapHost: account.imapHost || '',
+      imapPort: account.imapPort ? String(account.imapPort) : '993',
+      imapSecure: account.imapSecure ?? true,
+      imapUsername: account.imapUsername || '',
+      imapPassword: '',
+    });
+    setIsAddingEmailAccount(true);
+    setError(null);
+    setMessage(null);
+  };
+
+  const clearSmtpDraft = () => {
+    setSmtpDraft(emptyEmailSmtpDraft());
+    setIsAddingEmailAccount(false);
+  };
+
+  const toggleAddAccountPanel = () => {
+    if (isAddingEmailAccount) {
+      clearSmtpDraft();
+      return;
+    }
+    setSmtpDraft(emptyEmailSmtpDraft());
+    setIsAddingEmailAccount(true);
+  };
+
+  const testStoredAccount = async (accountId: string) => {
+    setActiveAction(`test:${accountId}`);
+    setError(null);
+    setMessage(null);
+    try {
+      const response = await fetch(`/api/email/accounts/${encodeURIComponent(accountId)}/test`, { method: 'POST' });
+      const payload = await response.json();
+      if (!response.ok || !payload.success) throw new Error(payload.error || t('errors.testStoredAccount'));
+      if (!payload.data?.ok) {
+        const smtpError = payload.data?.smtp?.error;
+        const imapError = payload.data?.imap?.error;
+        throw new Error([smtpError, imapError].filter(Boolean).join(' ') || t('errors.testStoredAccount'));
+      }
+      setMessage(payload.data?.imap?.configured ? t('messages.accountTested') : t('messages.accountTestedSmtpOnly'));
+      await reloadAccountsAfterChange();
+    } catch (testError) {
+      setError(testError instanceof Error ? testError.message : t('errors.testStoredAccount'));
     } finally {
       setActiveAction(null);
     }
@@ -1905,7 +1981,7 @@ export function EmailAccountsCard({ isOpen, onOpenChange }: { isOpen: boolean; o
       const payload = await response.json();
       if (!response.ok || !payload.success) throw new Error(payload.error || t('errors.savePolicy'));
       setMessage(t('messages.policySaved'));
-      await loadAccounts();
+      await reloadAccountsAfterChange();
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : t('errors.savePolicy'));
     } finally {
@@ -1922,7 +1998,7 @@ export function EmailAccountsCard({ isOpen, onOpenChange }: { isOpen: boolean; o
       const payload = await response.json();
       if (!response.ok || !payload.success) throw new Error(payload.error || t('errors.setMainEmail'));
       setMessage(t('messages.mainEmailSaved'));
-      await loadAccounts();
+      await reloadAccountsAfterChange();
     } catch (mainEmailError) {
       setError(mainEmailError instanceof Error ? mainEmailError.message : t('errors.setMainEmail'));
     } finally {
@@ -1939,7 +2015,7 @@ export function EmailAccountsCard({ isOpen, onOpenChange }: { isOpen: boolean; o
       const payload = await response.json();
       if (!response.ok || !payload.success) throw new Error(payload.error || t('errors.disconnect'));
       setMessage(t('messages.accountDisconnected'));
-      await loadAccounts();
+      await reloadAccountsAfterChange();
     } catch (disconnectError) {
       setError(disconnectError instanceof Error ? disconnectError.message : t('errors.disconnect'));
     } finally {
@@ -1985,14 +2061,14 @@ export function EmailAccountsCard({ isOpen, onOpenChange }: { isOpen: boolean; o
             <Button
               type="button"
               variant="outline"
-              onClick={() => setIsAddingEmailAccount((current) => !current)}
+              onClick={toggleAddAccountPanel}
               disabled={activeAction !== null || emailMode === 'unknown'}
             >
               <Plus className="mr-2 h-4 w-4" />
               {isAddingEmailAccount ? t('cancelAddAccount') : t('addAccount')}
             </Button>
           )}
-          <Button type="button" variant="outline" onClick={() => void loadAccounts()} disabled={isLoading}>
+          <Button type="button" variant="outline" onClick={() => void reloadAccountsAfterChange()} disabled={isLoading}>
             {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
             {t('refresh')}
           </Button>
@@ -2069,8 +2145,11 @@ export function EmailAccountsCard({ isOpen, onOpenChange }: { isOpen: boolean; o
             </div>
             <div className="space-y-3 border border-border p-4">
               <div>
-                <h3 className="text-base font-semibold">{t('smtp.title')}</h3>
-                <p className="text-sm text-muted-foreground">{t('smtp.description')}</p>
+                <h3 className="text-base font-semibold">{t(smtpDraft.accountId ? 'smtp.editTitle' : 'smtp.title')}</h3>
+                <p className="text-sm text-muted-foreground">{t(smtpDraft.accountId ? 'smtp.editDescription' : 'smtp.description')}</p>
+              </div>
+              <div className="border border-border bg-muted/30 px-3 py-2 text-xs leading-5 text-muted-foreground">
+                {t('smtp.imapSetupInfo')}
               </div>
               <div className="grid gap-3 sm:grid-cols-2">
                 <div className="space-y-2 sm:col-span-2">
@@ -2142,6 +2221,7 @@ export function EmailAccountsCard({ isOpen, onOpenChange }: { isOpen: boolean; o
                     className="font-mono text-xs"
                     value={smtpDraft.smtpPassword}
                     onChange={(event) => setSmtpDraft((current) => ({ ...current, smtpPassword: event.target.value }))}
+                    placeholder={smtpDraft.accountId ? t('smtp.keepExistingPassword') : undefined}
                     disabled={activeAction !== null}
                   />
                 </div>
@@ -2154,6 +2234,7 @@ export function EmailAccountsCard({ isOpen, onOpenChange }: { isOpen: boolean; o
                     disabled={activeAction !== null}
                   />
                 </div>
+                <p className="text-xs leading-5 text-muted-foreground sm:col-span-2">{t('smtp.imapDescription')}</p>
                 {smtpDraft.imapEnabled && (
                   <>
                     <div className="space-y-2">
@@ -2205,6 +2286,7 @@ export function EmailAccountsCard({ isOpen, onOpenChange }: { isOpen: boolean; o
                         className="font-mono text-xs"
                         value={smtpDraft.imapPassword}
                         onChange={(event) => setSmtpDraft((current) => ({ ...current, imapPassword: event.target.value }))}
+                        placeholder={smtpDraft.accountId ? t('smtp.keepExistingPassword') : undefined}
                         disabled={activeAction !== null}
                       />
                     </div>
@@ -2218,11 +2300,11 @@ export function EmailAccountsCard({ isOpen, onOpenChange }: { isOpen: boolean; o
                 </Button>
                 <Button type="button" variant="outline" onClick={() => void saveSmtp(false)} disabled={activeAction !== null || emailMode === 'unknown'}>
                   {activeAction === 'smtp:save' ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
-                  {t('smtp.save')}
+                  {t(smtpDraft.accountId ? 'smtp.saveChanges' : 'smtp.save')}
                 </Button>
                 <Button type="button" onClick={() => void saveSmtp(true)} disabled={activeAction !== null || emailMode === 'unknown'}>
                   {activeAction === 'smtp:verify-save' ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ExternalLink className="mr-2 h-4 w-4" />}
-                  {t('smtp.verifyAndSave')}
+                  {t(smtpDraft.accountId ? 'smtp.verifyAndSaveChanges' : 'smtp.verifyAndSave')}
                 </Button>
               </div>
             </div>
@@ -2307,10 +2389,25 @@ export function EmailAccountsCard({ isOpen, onOpenChange }: { isOpen: boolean; o
                             IMAP {account.imapHost}:{account.imapPort}{account.imapSecure ? ` ${t('smtp.secureBadge')}` : ''}
                           </p>
                         )}
+                        {!account.imapHost && (
+                          <p>{t('smtp.sendOnlyInfo')}</p>
+                        )}
                       </div>
                     )}
                   </div>
                   <div className="flex flex-wrap justify-end gap-2">
+                    {account.provider === 'smtp_imap' && (
+                      <>
+                        <Button type="button" variant="outline" size="sm" onClick={() => void testStoredAccount(account.id)} disabled={activeAction !== null}>
+                          {activeAction === `test:${account.id}` ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
+                          {t('testAccount')}
+                        </Button>
+                        <Button type="button" variant="outline" size="sm" onClick={() => editSmtpAccount(account)} disabled={activeAction !== null}>
+                          <Settings className="mr-2 h-4 w-4" />
+                          {t('editAccount')}
+                        </Button>
+                      </>
+                    )}
                     {!account.isPrimary && (
                       <Button type="button" variant="outline" size="sm" onClick={() => void setMainEmail(account.id)} disabled={activeAction !== null}>
                         {activeAction === `main:${account.id}` ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Star className="mr-2 h-4 w-4" />}

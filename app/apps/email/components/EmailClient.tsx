@@ -248,7 +248,7 @@ export function EmailClient() {
             </div>
           </div>
         </section>
-        <EmailAccountsCard isOpen={accountsOpen} onOpenChange={setAccountsOpen} />
+        <EmailAccountsCard isOpen={accountsOpen} onOpenChange={setAccountsOpen} onAccountsChanged={loadAccounts} />
       </div>
     );
   }
@@ -326,7 +326,7 @@ export function EmailClient() {
               <p className="text-sm leading-6 text-muted-foreground">{t('imapMissingDescription')}</p>
             </div>
           </section>
-          <EmailAccountsCard isOpen={accountsOpen} onOpenChange={setAccountsOpen} />
+          <EmailAccountsCard isOpen={accountsOpen} onOpenChange={setAccountsOpen} onAccountsChanged={loadAccounts} />
         </div>
       ) : (
         <div className="grid min-h-[620px] flex-1 gap-3 lg:grid-cols-[220px_minmax(280px,380px)_minmax(0,1fr)]">
@@ -442,7 +442,7 @@ export function EmailClient() {
       )}
 
       {canReadActiveAccount && (
-        <EmailAccountsCard isOpen={accountsOpen} onOpenChange={setAccountsOpen} />
+        <EmailAccountsCard isOpen={accountsOpen} onOpenChange={setAccountsOpen} onAccountsChanged={loadAccounts} />
       )}
     </div>
   );
