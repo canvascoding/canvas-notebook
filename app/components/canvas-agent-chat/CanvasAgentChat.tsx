@@ -1126,6 +1126,19 @@ ${metadataLines.join('\n')}
   return content;
 }
 
+function isTextareaAtHistoryBoundary(textarea: HTMLTextAreaElement, direction: 'older' | 'newer'): boolean {
+  const { selectionStart, selectionEnd, value } = textarea;
+  if (selectionStart !== selectionEnd) {
+    return false;
+  }
+
+  if (direction === 'older') {
+    return !value.slice(0, selectionStart).includes('\n');
+  }
+
+  return !value.slice(selectionEnd).includes('\n');
+}
+
 function createAttachmentBlockRegex(): RegExp {
   return /(^|\n)--- Attachment: ([^\n]+) ---\n([\s\S]*?)\n--- Ende Attachment: [^\n]+ ---/g;
 }
@@ -5026,7 +5039,7 @@ export default function CanvasAgentChat({
       }
     } else {
       if (currentCursor === null) {
-        return true;
+        return false;
       }
       nextCursor = currentCursor >= userMessageHistory.length - 1 ? null : currentCursor + 1;
     }
@@ -5036,7 +5049,7 @@ export default function CanvasAgentChat({
     return true;
   }, [applyInputHistoryValue, input, userMessageHistory]);
 
-  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+  const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.shiftKey && e.key === 'Tab') {
       e.preventDefault();
       togglePlanningMode();
@@ -5047,6 +5060,15 @@ export default function CanvasAgentChat({
       e.preventDefault();
       closeReferencePicker();
       return;
+    }
+
+    if (e.key === 'Escape') {
+      const status = runtimeStatusRef.current;
+      if (status && status.phase !== 'idle' && status.phase !== 'aborting' && status.canAbort && !isWebSocketUnavailable) {
+        e.preventDefault();
+        void handleStop();
+        return;
+      }
     }
 
     if (activeReferenceMatch && referencePickerItems.length > 0) {
@@ -5070,7 +5092,8 @@ export default function CanvasAgentChat({
     }
 
     if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
-      if (navigateInputHistory(e.key === 'ArrowUp' ? 'older' : 'newer')) {
+      const direction = e.key === 'ArrowUp' ? 'older' : 'newer';
+      if (isTextareaAtHistoryBoundary(e.currentTarget, direction) && navigateInputHistory(direction)) {
         e.preventDefault();
       }
       return;
@@ -5080,7 +5103,7 @@ export default function CanvasAgentChat({
       e.preventDefault();
       void handleSend();
     }
-  }, [activeReferenceMatch, closeReferencePicker, handleReferenceSelect, handleSend, navigateInputHistory, referencePickerItems, selectedReferenceIndex, togglePlanningMode]);
+  }, [activeReferenceMatch, closeReferencePicker, handleReferenceSelect, handleSend, handleStop, isWebSocketUnavailable, navigateInputHistory, referencePickerItems, selectedReferenceIndex, togglePlanningMode]);
 
   useEffect(() => {
     let cancelled = false;
