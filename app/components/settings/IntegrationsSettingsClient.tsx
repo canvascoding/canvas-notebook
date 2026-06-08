@@ -1669,6 +1669,11 @@ export function EmailAccountsCard({
   const [activeAction, setActiveAction] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const onPreviewPreferencesChangedRef = useRef(onPreviewPreferencesChanged);
+
+  useEffect(() => {
+    onPreviewPreferencesChangedRef.current = onPreviewPreferencesChanged;
+  }, [onPreviewPreferencesChanged]);
 
   const loadPreviewPreferences = useCallback(async () => {
     setIsLoadingPreviewPreferences(true);
@@ -1678,13 +1683,13 @@ export function EmailAccountsCard({
       if (!response.ok || !payload.success) throw new Error(payload.error || t('errors.loadPreviewPreferences'));
       const nextPreferences = emailPreviewPreferencesFromPayload(payload.data);
       setPreviewPreferences(nextPreferences);
-      onPreviewPreferencesChanged?.(nextPreferences);
+      onPreviewPreferencesChangedRef.current?.(nextPreferences);
     } catch (preferencesError) {
       setError(preferencesError instanceof Error ? preferencesError.message : t('errors.loadPreviewPreferences'));
     } finally {
       setIsLoadingPreviewPreferences(false);
     }
-  }, [onPreviewPreferencesChanged, t]);
+  }, [t]);
 
   const saveRemoteImagesPreference = useCallback(async (emailAllowRemoteImages: boolean) => {
     const previousPreferences = previewPreferences;
@@ -1703,7 +1708,7 @@ export function EmailAccountsCard({
       if (!response.ok || !payload.success) throw new Error(payload.error || t('errors.savePreviewPreferences'));
       const nextPreferences = emailPreviewPreferencesFromPayload(payload.data);
       setPreviewPreferences(nextPreferences);
-      onPreviewPreferencesChanged?.(nextPreferences);
+      onPreviewPreferencesChangedRef.current?.(nextPreferences);
       setMessage(t('messages.previewPreferencesSaved'));
     } catch (preferencesError) {
       setPreviewPreferences(previousPreferences);
@@ -1711,7 +1716,7 @@ export function EmailAccountsCard({
     } finally {
       setIsSavingPreviewPreferences(false);
     }
-  }, [onPreviewPreferencesChanged, previewPreferences, t]);
+  }, [previewPreferences, t]);
 
   const loadOAuthEnv = useCallback(async () => {
     setIsOAuthLoading(true);
