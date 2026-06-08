@@ -156,7 +156,7 @@ function envFileIsConfigured(envFile) {
 // ─── Data directories ─────────────────────────────────────────────────────────
 
 function ensureDataDirs() {
-  const subdirs = ['workspace', 'canvas-agent', 'agents/canvas-agent', 'pi-oauth-states', 'secrets', 'skills'];
+  const subdirs = ['workspace', 'settings', 'agents/canvas-agent', 'pi-oauth-states', 'secrets', 'skills'];
   for (const subdir of subdirs) {
     const path = join(rootDir, 'data', subdir);
     if (!existsSync(path)) {

@@ -86,7 +86,7 @@ async function main() {
     /No model selected/,
   );
 
-  await writePiRuntimeConfig({
+  const configuredPiConfig = {
     ...DEFAULT_PI_CONFIG,
     activeProvider: 'google',
     providers: {
@@ -102,7 +102,21 @@ async function main() {
         enabledTools: ['bash'],
       },
     },
-  });
+  };
+  await writePiRuntimeConfig(configuredPiConfig);
+  assert.equal(PI_RUNTIME_CONFIG_PATH, path.join(dataDir, 'settings', 'pi-runtime-config.json'));
+  assert.ok(await fs.stat(PI_RUNTIME_CONFIG_PATH));
+
+  await fs.rm(PI_RUNTIME_CONFIG_PATH, { force: true });
+  await fs.mkdir(path.join(dataDir, 'canvas-agent'), { recursive: true });
+  await fs.writeFile(
+    path.join(dataDir, 'canvas-agent', 'pi-runtime-config.json'),
+    `${JSON.stringify(configuredPiConfig, null, 2)}\n`,
+    'utf8',
+  );
+  const migratedRuntimeSettings = await resolveAgentRuntimeSettings(DEFAULT_MANAGED_AGENT_ID);
+  assert.equal(migratedRuntimeSettings.activeProvider, 'google');
+  assert.ok(await fs.stat(PI_RUNTIME_CONFIG_PATH));
 
   await fs.mkdir(path.join(dataDir, 'canvas-agent'), { recursive: true });
   await fs.writeFile(path.join(dataDir, 'canvas-agent', 'MEMORY.md'), 'Legacy runtime memory.\n', 'utf8');
@@ -320,6 +334,7 @@ async function main() {
   );
 
   await fs.rm(PI_RUNTIME_CONFIG_PATH, { force: true });
+  await fs.rm(path.join(dataDir, 'canvas-agent', 'pi-runtime-config.json'), { force: true });
   process.env.CANVAS_MANAGED_SERVICES_ENABLED = 'true';
   process.env.CANVAS_CONTROL_PLANE_URL = 'https://control-plane.example.test';
   process.env.CANVAS_INSTANCE_TOKEN = 'instance-token';

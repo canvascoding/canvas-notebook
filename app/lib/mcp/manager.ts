@@ -1,6 +1,4 @@
 import crypto from 'crypto';
-import path from 'path';
-import { promises as fs } from 'fs';
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
@@ -10,7 +8,11 @@ import type { CallToolResult, Tool } from '@modelcontextprotocol/sdk/types.js';
 import { readScopedEnvState } from '@/app/lib/integrations/env-config';
 import { isMcpServerEnabled, readMcpConfig, resolveMcpConfigPath, type McpConfig, type McpServerConfig } from '@/app/lib/mcp/config';
 import { getValidMcpAccessToken } from '@/app/lib/mcp/oauth';
-import { resolveAgentStorageDir } from '@/app/lib/runtime-data-paths';
+import {
+  readSettingsTextFileIfExists,
+  resolveSettingsStoragePath,
+  writeSettingsTextFileAtomic,
+} from '@/app/lib/settings-storage';
 
 const DEFAULT_TIMEOUT_MS = 20_000;
 const DEFAULT_IDLE_TIMEOUT_MINUTES = 10;
@@ -395,26 +397,23 @@ async function withManagedConnection<T>(
 }
 
 function resolveCachePath(): string {
-  return path.join(resolveAgentStorageDir(), CACHE_FILE);
+  return resolveSettingsStoragePath(CACHE_FILE);
 }
 
 async function readCache(): Promise<McpCacheFile> {
-  const cachePath = resolveCachePath();
   try {
-    return JSON.parse(await fs.readFile(cachePath, 'utf8')) as McpCacheFile;
+    const { content } = await readSettingsTextFileIfExists(CACHE_FILE);
+    if (!content) {
+      return { version: 1, updatedAt: new Date(0).toISOString(), servers: {} };
+    }
+    return JSON.parse(content) as McpCacheFile;
   } catch {
     return { version: 1, updatedAt: new Date(0).toISOString(), servers: {} };
   }
 }
 
 async function writeCache(cache: McpCacheFile): Promise<void> {
-  const cachePath = resolveCachePath();
-  await fs.mkdir(path.dirname(cachePath), { recursive: true });
-  const tmpPath = `${cachePath}.tmp-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-  await fs.writeFile(tmpPath, `${JSON.stringify(cache, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
-  await fs.chmod(tmpPath, 0o600).catch(() => undefined);
-  await fs.rename(tmpPath, cachePath);
-  await fs.chmod(cachePath, 0o600).catch(() => undefined);
+  await writeSettingsTextFileAtomic(CACHE_FILE, JSON.stringify(cache, null, 2));
 }
 
 export async function readCachedTools(serverName: string, configHash: string): Promise<Tool[] | null> {

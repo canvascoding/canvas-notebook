@@ -145,7 +145,7 @@ async function main() {
   assert.equal(toolsB.some((tool) => tool.name === 'sum'), true);
   assert.equal(await countStarts(startFile), 1);
 
-  const cachePath = path.join(tempRoot, 'canvas-agent', 'mcp-cache.json');
+  const cachePath = path.join(tempRoot, 'settings', 'mcp-cache.json');
   const cache = JSON.parse(await fs.readFile(cachePath, 'utf8'));
   assert.equal(cache.servers.fake.tools.some((tool: { name: string }) => tool.name === 'echo'), true);
 

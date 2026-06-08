@@ -8,6 +8,7 @@ import {
   resolveAgentsStorageRoot,
   resolveCanvasDataRoot,
   resolveSecretsDir,
+  resolveSettingsStorageDir,
 } from '@/app/lib/runtime-data-paths';
 import { getWorkspacePath } from '@/app/lib/utils/workspace-manager';
 
@@ -130,9 +131,11 @@ async function getDeniedMediaRoots(): Promise<string[]> {
   const dataRoot = resolveCanvasDataRoot();
   const roots = uniqueRoots([
     resolveSecretsDir(),
+    resolveSettingsStorageDir(),
     resolveAgentStorageDir(),
     resolveAgentsStorageRoot(),
     path.join(dataRoot, 'secrets'),
+    path.join(dataRoot, 'settings'),
     path.join(dataRoot, 'canvas-agent'),
     path.join(dataRoot, 'agents'),
   ]);

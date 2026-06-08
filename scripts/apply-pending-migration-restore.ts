@@ -245,6 +245,8 @@ async function applyDatabase(params: {
 
 async function clearOauthFiles(): Promise<void> {
   const targets = [
+    path.join(DATA_ROOT, 'settings', 'auth.json'),
+    path.join(DATA_ROOT, 'settings', 'mcp-oauth'),
     path.join(DATA_ROOT, 'canvas-agent', 'auth.json'),
     path.join(DATA_ROOT, 'canvas-agent', 'mcp-oauth'),
     path.join(DATA_ROOT, 'pi-oauth-states'),
@@ -269,6 +271,7 @@ async function applyFileComponents(params: {
   }
 
   await chmodRecursive(path.join(DATA_ROOT, 'secrets'), 0o700, 0o600);
+  await chmodRecursive(path.join(DATA_ROOT, 'settings'), 0o700, 0o600);
   await chmodRecursive(path.join(DATA_ROOT, 'canvas-agent'), 0o700, 0o600);
 }
 

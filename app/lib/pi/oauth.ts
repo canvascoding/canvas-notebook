@@ -1,11 +1,11 @@
 /**
  * PI OAuth Credential Manager
- * Manages OAuth credentials for all PI providers in /data/canvas-agent/auth.json
+ * Manages OAuth credentials for all PI providers in /data/settings/auth.json
  */
 
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
-import { join } from 'path';
-import { resolveAgentStorageDir } from '@/app/lib/runtime-data-paths';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
+import { dirname, join } from 'path';
+import { resolveAgentStorageDir, resolveSettingsStorageDir } from '@/app/lib/runtime-data-paths';
 import {
   loginAnthropic,
   loginOpenAICodex,
@@ -20,8 +20,9 @@ import {
 
 export type { OAuthCredentials, OAuthProviderId, OAuthPrompt };
 
-// Credentials storage path - use env var or fall back to local dev path
-const AUTH_FILE_PATH = process.env.OAUTH_STORAGE_PATH || join(resolveAgentStorageDir(), 'auth.json');
+const DEFAULT_AUTH_FILE_PATH = join(resolveSettingsStorageDir(), 'auth.json');
+const LEGACY_AUTH_FILE_PATH = join(resolveAgentStorageDir(), 'auth.json');
+const AUTH_FILE_PATH = process.env.OAUTH_STORAGE_PATH || DEFAULT_AUTH_FILE_PATH;
 
 // Built-in OAuth providers (Google Gemini CLI and Antigravity removed in pi-ai 0.71.0)
 export const PI_OAUTH_PROVIDERS: OAuthProviderId[] = [
@@ -59,9 +60,22 @@ function formatDeviceCodeInstructions(info: OAuthDeviceCodeInfo): string {
  * Ensure the auth file directory exists
  */
 function ensureAuthDir(): void {
-  const dir = join(AUTH_FILE_PATH, '..');
+  const dir = dirname(AUTH_FILE_PATH);
   if (!existsSync(dir)) {
     mkdirSync(dir, { recursive: true });
+  }
+}
+
+function migrateLegacyAuthFileIfNeeded(): void {
+  if (process.env.OAUTH_STORAGE_PATH || existsSync(AUTH_FILE_PATH) || !existsSync(LEGACY_AUTH_FILE_PATH)) {
+    return;
+  }
+
+  try {
+    ensureAuthDir();
+    copyFileSync(LEGACY_AUTH_FILE_PATH, AUTH_FILE_PATH);
+  } catch {
+    // If /data/settings is unavailable, reads continue from the legacy path.
   }
 }
 
@@ -70,8 +84,13 @@ function ensureAuthDir(): void {
  */
 function loadAuthFile(): AuthFile {
   try {
+    migrateLegacyAuthFileIfNeeded();
     if (existsSync(AUTH_FILE_PATH)) {
       const content = readFileSync(AUTH_FILE_PATH, 'utf-8');
+      return JSON.parse(content) as AuthFile;
+    }
+    if (!process.env.OAUTH_STORAGE_PATH && existsSync(LEGACY_AUTH_FILE_PATH)) {
+      const content = readFileSync(LEGACY_AUTH_FILE_PATH, 'utf-8');
       return JSON.parse(content) as AuthFile;
     }
   } catch (error) {
@@ -84,8 +103,20 @@ function loadAuthFile(): AuthFile {
  * Save auth data to file
  */
 function saveAuthFile(auth: AuthFile): void {
-  ensureAuthDir();
-  writeFileSync(AUTH_FILE_PATH, JSON.stringify(auth, null, 2));
+  try {
+    migrateLegacyAuthFileIfNeeded();
+    ensureAuthDir();
+    writeFileSync(AUTH_FILE_PATH, JSON.stringify(auth, null, 2));
+  } catch (error) {
+    if (process.env.OAUTH_STORAGE_PATH) {
+      throw error;
+    }
+    const legacyDir = dirname(LEGACY_AUTH_FILE_PATH);
+    if (!existsSync(legacyDir)) {
+      mkdirSync(legacyDir, { recursive: true });
+    }
+    writeFileSync(LEGACY_AUTH_FILE_PATH, JSON.stringify(auth, null, 2));
+  }
 }
 
 /**

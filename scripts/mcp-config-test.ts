@@ -22,7 +22,7 @@ async function main() {
   } = await import('../app/lib/mcp/config');
 
   const configPath = resolveMcpConfigPath();
-  assert.equal(configPath, path.join(tempRoot, 'canvas-agent', 'mcp.json'));
+  assert.equal(configPath, path.join(tempRoot, 'settings', 'mcp.json'));
 
   const initial = await readMcpConfigState();
   assert.equal(initial.path, configPath);
@@ -35,6 +35,26 @@ async function main() {
     mcpServers: {},
   });
   assert.equal(await modeOf(configPath), 0o600);
+
+  await fs.rm(configPath, { force: true });
+  const legacyConfigPath = path.join(tempRoot, 'canvas-agent', 'mcp.json');
+  await fs.mkdir(path.dirname(legacyConfigPath), { recursive: true });
+  const legacyConfig = {
+    settings: {
+      toolPrefix: 'legacy',
+      idleTimeout: 7,
+    },
+    mcpServers: {
+      migrated: {
+        command: 'node',
+      },
+    },
+  };
+  await fs.writeFile(legacyConfigPath, `${JSON.stringify(legacyConfig, null, 2)}\n`, 'utf8');
+  const migrated = await readMcpConfigState();
+  assert.equal(migrated.path, configPath);
+  assert.deepEqual(JSON.parse(migrated.rawContent), legacyConfig);
+  assert.deepEqual(JSON.parse(await fs.readFile(configPath, 'utf8')), legacyConfig);
 
   assert.throws(
     () => parseAndValidateMcpConfig('{ "mcpServers": {'),

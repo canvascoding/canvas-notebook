@@ -1,9 +1,13 @@
 import crypto from 'crypto';
 import path from 'path';
-import { promises as fs } from 'fs';
 
 import { readMcpConfig, type McpServerConfig } from '@/app/lib/mcp/config';
-import { resolveAgentStorageDir } from '@/app/lib/runtime-data-paths';
+import {
+  readSettingsTextFileIfExists,
+  removeSettingsPath,
+  resolveSettingsStoragePath,
+  writeSettingsTextFileAtomic,
+} from '@/app/lib/settings-storage';
 
 type OAuthServerConfig = {
   issuer?: string;
@@ -108,46 +112,48 @@ function sanitizeServerName(serverName: string): string {
 }
 
 function getOAuthRoot(): string {
-  return path.join(resolveAgentStorageDir(), 'mcp-oauth');
+  return resolveSettingsStoragePath('mcp-oauth');
+}
+
+function getServerOAuthRelativeDir(serverName: string): string {
+  return path.join('mcp-oauth', sanitizeServerName(serverName));
 }
 
 function getServerOAuthDir(serverName: string): string {
   return path.join(getOAuthRoot(), sanitizeServerName(serverName));
 }
 
+function getOAuthTokenRelativePath(serverName: string): string {
+  return path.join(getServerOAuthRelativeDir(serverName), 'tokens.json');
+}
+
 export function getOAuthTokenPath(serverName: string): string {
   return path.join(getServerOAuthDir(serverName), 'tokens.json');
 }
 
-function getOAuthClientPath(serverName: string): string {
-  return path.join(getServerOAuthDir(serverName), 'client.json');
+function getOAuthClientRelativePath(serverName: string): string {
+  return path.join(getServerOAuthRelativeDir(serverName), 'client.json');
 }
 
-function getOAuthStateDir(): string {
-  return path.join(getOAuthRoot(), '.state');
+function getOAuthStateRelativeDir(): string {
+  return path.join('mcp-oauth', '.state');
 }
 
-function getOAuthStatePath(state: string): string {
-  return path.join(getOAuthStateDir(), `${sanitizeServerName(state)}.json`);
+function getOAuthStateRelativePath(state: string): string {
+  return path.join(getOAuthStateRelativeDir(), `${sanitizeServerName(state)}.json`);
 }
 
-async function ensurePrivateDir(dirPath: string): Promise<void> {
-  await fs.mkdir(dirPath, { recursive: true, mode: 0o700 });
-  await fs.chmod(dirPath, 0o700).catch(() => undefined);
+async function writeJsonPrivate(relativePath: string, payload: unknown): Promise<void> {
+  await writeSettingsTextFileAtomic(relativePath, JSON.stringify(payload, null, 2), {
+    mode: 0o600,
+    directoryMode: 0o700,
+  });
 }
 
-async function writeJsonPrivate(filePath: string, payload: unknown): Promise<void> {
-  await ensurePrivateDir(path.dirname(filePath));
-  const tmpPath = `${filePath}.tmp-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-  await fs.writeFile(tmpPath, `${JSON.stringify(payload, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
-  await fs.chmod(tmpPath, 0o600).catch(() => undefined);
-  await fs.rename(tmpPath, filePath);
-  await fs.chmod(filePath, 0o600).catch(() => undefined);
-}
-
-async function readJsonIfExists<T>(filePath: string): Promise<T | null> {
+async function readJsonIfExists<T>(relativePath: string): Promise<T | null> {
   try {
-    return JSON.parse(await fs.readFile(filePath, 'utf8')) as T;
+    const { content } = await readSettingsTextFileIfExists(relativePath);
+    return content === null ? null : JSON.parse(content) as T;
   } catch {
     return null;
   }
@@ -308,7 +314,7 @@ async function resolveClient(serverName: string, oauth: OAuthServerConfig, redir
     return { clientId: oauth.clientId, clientSecret: oauth.clientSecret };
   }
 
-  const existing = await readJsonIfExists<OAuthClientRecord>(getOAuthClientPath(serverName));
+  const existing = await readJsonIfExists<OAuthClientRecord>(getOAuthClientRelativePath(serverName));
   if (existing?.clientId && existing.redirectUri === redirectUri) {
     return { clientId: existing.clientId, clientSecret: existing.clientSecret };
   }
@@ -347,7 +353,7 @@ async function resolveClient(serverName: string, oauth: OAuthServerConfig, redir
     redirectUri,
     registeredAt: new Date().toISOString(),
   } satisfies OAuthClientRecord;
-  await writeJsonPrivate(getOAuthClientPath(serverName), client);
+  await writeJsonPrivate(getOAuthClientRelativePath(serverName), client);
   return client;
 }
 
@@ -393,7 +399,7 @@ export async function getMcpOAuthStatus(serverName: string, requestOrigin?: stri
     }
 
     const configHash = hashMcpServerConfig(serverConfig);
-    const token = await readJsonIfExists<OAuthTokenRecord>(getOAuthTokenPath(serverName));
+    const token = await readJsonIfExists<OAuthTokenRecord>(getOAuthTokenRelativePath(serverName));
     const serverUrl = typeof serverConfig.url === 'string' ? serverConfig.url : undefined;
     const bound = Boolean(token && token.configHash === configHash && (!serverUrl || token.serverUrl === serverUrl));
     const redirectUri = getRedirectUri(oauth, requestOrigin);
@@ -443,7 +449,7 @@ export async function startMcpOAuth(serverName: string, requestOrigin?: string |
     authorizationUrl.searchParams.set('scope', scope);
   }
 
-  await writeJsonPrivate(getOAuthStatePath(state), {
+  await writeJsonPrivate(getOAuthStateRelativePath(state), {
     state,
     serverName,
     codeVerifier: pkce.verifier,
@@ -492,7 +498,7 @@ async function resolveClientSecretForRefresh(serverName: string, oauth: OAuthSer
     return oauth.clientSecret;
   }
 
-  const storedClient = await readJsonIfExists<{ clientId?: string; clientSecret?: string }>(getOAuthClientPath(serverName));
+  const storedClient = await readJsonIfExists<{ clientId?: string; clientSecret?: string }>(getOAuthClientRelativePath(serverName));
   if (storedClient?.clientId === clientId) {
     return storedClient.clientSecret;
   }
@@ -501,8 +507,8 @@ async function resolveClientSecretForRefresh(serverName: string, oauth: OAuthSer
 }
 
 export async function completeMcpOAuthCallback(code: string, state: string): Promise<OAuthTokenRecord> {
-  const statePath = getOAuthStatePath(state);
-  const stored = await readJsonIfExists<OAuthStateRecord>(statePath);
+  const stateRelativePath = getOAuthStateRelativePath(state);
+  const stored = await readJsonIfExists<OAuthStateRecord>(stateRelativePath);
   if (!stored || stored.state !== state) {
     throw new McpOAuthError('Invalid or expired OAuth state.');
   }
@@ -535,19 +541,19 @@ export async function completeMcpOAuthCallback(code: string, state: string): Pro
     updatedAt: new Date().toISOString(),
   };
 
-  await writeJsonPrivate(getOAuthTokenPath(stored.serverName), token);
-  await fs.rm(statePath, { force: true }).catch(() => undefined);
+  await writeJsonPrivate(getOAuthTokenRelativePath(stored.serverName), token);
+  await removeSettingsPath(stateRelativePath);
   return token;
 }
 
 export async function clearMcpOAuth(serverName: string): Promise<void> {
-  await fs.rm(getServerOAuthDir(serverName), { recursive: true, force: true });
+  await removeSettingsPath(getServerOAuthRelativeDir(serverName), { recursive: true });
 }
 
 export async function getValidMcpAccessToken(serverName: string, serverConfig: McpServerConfig, configHash: string): Promise<string | null> {
   if (!getOAuthConfig(serverConfig)) return null;
-  const tokenPath = getOAuthTokenPath(serverName);
-  const token = await readJsonIfExists<OAuthTokenRecord>(tokenPath);
+  const tokenRelativePath = getOAuthTokenRelativePath(serverName);
+  const token = await readJsonIfExists<OAuthTokenRecord>(tokenRelativePath);
   const serverUrl = typeof serverConfig.url === 'string' ? serverConfig.url : undefined;
   if (!token || token.configHash !== configHash || (serverUrl && token.serverUrl !== serverUrl)) {
     throw new McpOAuthError(`MCP server "${serverName}" requires OAuth authorization. Use mcp auth_start.`);
@@ -572,7 +578,7 @@ export async function getValidMcpAccessToken(serverName: string, serverConfig: M
     refreshed = await exchangeToken(params, endpoints.tokenUrl, clientSecret);
   } catch (error) {
     if (error instanceof McpOAuthError && (error.status === 400 || error.status === 401)) {
-      await fs.rm(tokenPath, { force: true }).catch(() => undefined);
+      await removeSettingsPath(tokenRelativePath);
       throw new McpOAuthError(`OAuth token for MCP server "${serverName}" could not be refreshed. Reauthorize the server in Settings > Integrations.`);
     }
     throw error;
@@ -590,6 +596,6 @@ export async function getValidMcpAccessToken(serverName: string, serverConfig: M
     expiresAt: refreshed.expires_in ? new Date(Date.now() + refreshed.expires_in * 1000).toISOString() : token.expiresAt,
     updatedAt: new Date().toISOString(),
   };
-  await writeJsonPrivate(tokenPath, updated);
+  await writeJsonPrivate(tokenRelativePath, updated);
   return updated.accessToken;
 }

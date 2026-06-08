@@ -40,6 +40,10 @@ function resolveAgentStorageDir(cwd = process.cwd()): string {
   return path.join(resolveCanvasDataRoot(cwd), 'canvas-agent');
 }
 
+function resolveSettingsStorageDir(cwd = process.cwd()): string {
+  return path.join(resolveCanvasDataRoot(cwd), 'settings');
+}
+
 function resolveAgentsStorageRoot(cwd = process.cwd()): string {
   return path.join(resolveCanvasDataRoot(cwd), 'agents');
 }
@@ -59,14 +63,15 @@ function resolveDefaultAgentsEnvPath(cwd = process.cwd()): string {
 loadAppEnv(process.cwd());
 
 const AGENT_STORAGE_DIR = resolveAgentStorageDir();
+const SETTINGS_STORAGE_DIR = resolveSettingsStorageDir();
 const AGENTS_STORAGE_ROOT = resolveAgentsStorageRoot();
 const CANVAS_AGENT_STORAGE_DIR = path.join(AGENTS_STORAGE_ROOT, 'canvas-agent');
 const SECRETS_DIR = resolveSecretsDir();
 const DEFAULT_INTEGRATIONS_ENV_PATH = resolveDefaultIntegrationsEnvPath();
 const DEFAULT_AGENTS_ENV_PATH = resolveDefaultAgentsEnvPath();
 const LEGACY_WIPE_MARKER_PATH = path.join(AGENT_STORAGE_DIR, '.legacy-session-wipe-done');
-const RUNTIME_CONFIG_PATH = path.join(AGENT_STORAGE_DIR, 'agent-runtime-config.json');
-const PI_RUNTIME_CONFIG_PATH = path.join(AGENT_STORAGE_DIR, 'pi-runtime-config.json');
+const WIPE_MARKER_PATH = path.join(SETTINGS_STORAGE_DIR, '.legacy-session-wipe-done');
+const RUNTIME_CONFIG_PATH = path.join(SETTINGS_STORAGE_DIR, 'agent-runtime-config.json');
 
 // Legacy paths for migration
 const LEGACY_AGENT_STORAGE_DIR = '/home/node/canvas-agent';
@@ -78,6 +83,15 @@ const SEED_SYS_PROMPTS_DIR = path.join(process.cwd(), 'seed_sys_prompts');
 
 // All managed files (excluding BOOTSTRAP.md which is only for initial setup)
 const MANAGED_FILE_NAMES = ['AGENTS.md', 'USER.md', 'MEMORY.md', 'SOUL.md', 'TOOLS.md', 'HEARTBEAT.md'] as const;
+const GLOBAL_SETTINGS_FILE_NAMES = [
+  'agent-runtime-config.json',
+  'pi-runtime-config.json',
+  'mcp.json',
+  'mcp-cache.json',
+  'mcp-server-icons.json',
+  'auth.json',
+] as const;
+const GLOBAL_SETTINGS_DIR_NAMES = ['mcp-oauth', 'mcp-icons', 'email-oauth'] as const;
 
 // Helper to read seed file content
 async function readSeedFile(fileName: string): Promise<string | null> {
@@ -139,6 +153,40 @@ async function copyManagedFilesIfTargetMissing(sourceDir: string, label: string)
   }
 }
 
+async function copyGlobalSettingsIfTargetMissing(sourceDir: string, label: string): Promise<void> {
+  if (!(await fileExists(sourceDir))) {
+    return;
+  }
+
+  console.log(`[bootstrap-agent-runtime] Checking for global settings in ${label}: ${sourceDir}...`);
+  await fs.mkdir(SETTINGS_STORAGE_DIR, { recursive: true, mode: 0o700 });
+  await fs.chmod(SETTINGS_STORAGE_DIR, 0o700).catch(() => undefined);
+
+  for (const fileName of GLOBAL_SETTINGS_FILE_NAMES) {
+    const sourcePath = path.join(sourceDir, fileName);
+    const targetPath = path.join(SETTINGS_STORAGE_DIR, fileName);
+    if (!(await fileExists(sourcePath)) || await fileExists(targetPath)) {
+      continue;
+    }
+
+    console.log(`[bootstrap-agent-runtime] Migrating ${fileName} from ${label} to /data/settings...`);
+    await fs.copyFile(sourcePath, targetPath);
+    await fs.chmod(targetPath, 0o600).catch(() => undefined);
+  }
+
+  for (const dirName of GLOBAL_SETTINGS_DIR_NAMES) {
+    const sourcePath = path.join(sourceDir, dirName);
+    const targetPath = path.join(SETTINGS_STORAGE_DIR, dirName);
+    if (!(await fileExists(sourcePath)) || await fileExists(targetPath)) {
+      continue;
+    }
+
+    console.log(`[bootstrap-agent-runtime] Migrating ${dirName}/ from ${label} to /data/settings...`);
+    await fs.cp(sourcePath, targetPath, { recursive: true, preserveTimestamps: true });
+    await fs.chmod(targetPath, 0o700).catch(() => undefined);
+  }
+}
+
 function getIntegrationsEnvPath(): string {
   const configured = process.env.INTEGRATIONS_ENV_PATH?.trim();
   return configured || DEFAULT_INTEGRATIONS_ENV_PATH;
@@ -154,25 +202,9 @@ async function migrateLegacyFiles(): Promise<void> {
   await copyManagedFilesIfTargetMissing(LEGACY_AGENT_STORAGE_DIR, 'legacy /home/node/canvas-agent');
   await copyManagedFilesIfTargetMissing(AGENT_STORAGE_DIR, 'legacy /data/canvas-agent');
 
-  // Runtime config files still live under /data/canvas-agent for compatibility.
-  if (await fileExists(LEGACY_AGENT_STORAGE_DIR)) {
-    await fs.mkdir(AGENT_STORAGE_DIR, { recursive: true });
-
-    // Migrate legacy runtime config if exists and new one doesn't
-    const legacyRuntimeConfig = path.join(LEGACY_AGENT_STORAGE_DIR, 'agent-runtime-config.json');
-    if (await fileExists(legacyRuntimeConfig) && !(await fileExists(RUNTIME_CONFIG_PATH))) {
-      console.log(`[bootstrap-agent-runtime] Migrating runtime config from legacy location...`);
-      await fs.copyFile(legacyRuntimeConfig, RUNTIME_CONFIG_PATH);
-      await fs.chmod(RUNTIME_CONFIG_PATH, 0o600);
-    }
-
-    const legacyPiRuntimeConfig = path.join(LEGACY_AGENT_STORAGE_DIR, 'pi-runtime-config.json');
-    if (await fileExists(legacyPiRuntimeConfig) && !(await fileExists(PI_RUNTIME_CONFIG_PATH))) {
-      console.log(`[bootstrap-agent-runtime] Migrating PI runtime config from legacy location...`);
-      await fs.copyFile(legacyPiRuntimeConfig, PI_RUNTIME_CONFIG_PATH);
-      await fs.chmod(PI_RUNTIME_CONFIG_PATH, 0o600);
-    }
-  }
+  // Migrate global runtime and integration settings into /data/settings.
+  await copyGlobalSettingsIfTargetMissing(LEGACY_AGENT_STORAGE_DIR, 'legacy /home/node/canvas-agent');
+  await copyGlobalSettingsIfTargetMissing(AGENT_STORAGE_DIR, 'legacy /data/canvas-agent');
   
   // Migrate legacy env files
   await fs.mkdir(SECRETS_DIR, { recursive: true });
@@ -279,7 +311,8 @@ async function writeJsonAtomic(filePath: string, payload: unknown): Promise<void
 }
 
 async function ensureAgentStorageBootstrap(): Promise<void> {
-  await fs.mkdir(AGENT_STORAGE_DIR, { recursive: true });
+  await fs.mkdir(SETTINGS_STORAGE_DIR, { recursive: true, mode: 0o700 });
+  await fs.chmod(SETTINGS_STORAGE_DIR, 0o700).catch(() => undefined);
   await fs.mkdir(CANVAS_AGENT_STORAGE_DIR, { recursive: true });
 
   // Check onboarding status for BOOTSTRAP.md handling
@@ -327,7 +360,14 @@ async function ensureAgentStorageBootstrap(): Promise<void> {
 }
 
 async function runLegacySessionCleanupIfNeeded(): Promise<void> {
+  if (await fileExists(WIPE_MARKER_PATH)) {
+    console.log(`[bootstrap-agent-runtime] Legacy wipe skipped (marker exists: ${WIPE_MARKER_PATH}).`);
+    return;
+  }
+
   if (await fileExists(LEGACY_WIPE_MARKER_PATH)) {
+    await fs.mkdir(SETTINGS_STORAGE_DIR, { recursive: true, mode: 0o700 }).catch(() => undefined);
+    await fs.copyFile(LEGACY_WIPE_MARKER_PATH, WIPE_MARKER_PATH).catch(() => undefined);
     console.log(`[bootstrap-agent-runtime] Legacy wipe skipped (marker exists: ${LEGACY_WIPE_MARKER_PATH}).`);
     return;
   }
@@ -348,7 +388,10 @@ async function runLegacySessionCleanupIfNeeded(): Promise<void> {
     },
   };
 
-  await fs.writeFile(LEGACY_WIPE_MARKER_PATH, `${JSON.stringify(markerContent, null, 2)}\n`, 'utf8');
+  await writeTextAtomic(WIPE_MARKER_PATH, JSON.stringify(markerContent, null, 2)).catch(async () => {
+    await fs.mkdir(AGENT_STORAGE_DIR, { recursive: true }).catch(() => undefined);
+    await fs.writeFile(LEGACY_WIPE_MARKER_PATH, `${JSON.stringify(markerContent, null, 2)}\n`, 'utf8');
+  });
 
   console.log(
     `[bootstrap-agent-runtime] Legacy wipe done (messages=${deletedMessages.length}, sessions=${deletedSessions.length}).`,
@@ -393,7 +436,7 @@ async function main() {
 
   console.log('[bootstrap-agent-runtime] Agent runtime bootstrap complete.');
   console.log(`[bootstrap-agent-runtime] Agent files location: ${CANVAS_AGENT_STORAGE_DIR}`);
-  console.log(`[bootstrap-agent-runtime] Runtime config location: ${AGENT_STORAGE_DIR}`);
+  console.log(`[bootstrap-agent-runtime] Runtime config location: ${SETTINGS_STORAGE_DIR}`);
   console.log(`[bootstrap-agent-runtime] Secrets location: ${SECRETS_DIR}`);
 }
 

@@ -6,12 +6,18 @@ import { type AgentId } from './catalog';
 import { DEFAULT_PI_CONFIG, normalizePiRuntimeConfig, type PiRuntimeConfig, validatePiConfig } from '../pi/config';
 import { CANVAS_CONTROL_PLANE_PROVIDER_ID, getCanvasControlPlaneModels } from '../managed/control-plane-models';
 import { resolveAgentStorageDir, resolveAgentsStorageRoot } from '../runtime-data-paths';
+import {
+  ensureSettingsStorageDirectory,
+  readSettingsTextFileIfExists,
+  resolveSettingsStoragePath,
+  writeSettingsJsonFileAtomic,
+} from '@/app/lib/settings-storage';
 
 export const AGENT_STORAGE_DIR = resolveAgentStorageDir();
 export const AGENTS_STORAGE_ROOT = resolveAgentsStorageRoot();
 export const DEFAULT_MANAGED_AGENT_ID = 'canvas-agent';
 export const PI_RUNTIME_CONFIG_FILE = 'pi-runtime-config.json';
-export const PI_RUNTIME_CONFIG_PATH = path.join(AGENT_STORAGE_DIR, PI_RUNTIME_CONFIG_FILE);
+export const PI_RUNTIME_CONFIG_PATH = resolveSettingsStoragePath(PI_RUNTIME_CONFIG_FILE);
 export const AGENT_MANAGED_FILE_NAMES = ['AGENTS.md', 'USER.md', 'MEMORY.md', 'SOUL.md', 'TOOLS.md', 'HEARTBEAT.md'] as const;
 export const SPECIAL_AGENT_MANAGED_FILE_NAMES = ['AGENTS.md', 'MEMORY.md', 'SOUL.md', 'TOOLS.md', 'HEARTBEAT.md'] as const;
 export const CANVAS_INHERITED_FILE_NAMES = ['USER.md'] as const;
@@ -143,6 +149,10 @@ function createUnconfiguredPiRuntimeConfig(): PiRuntimeConfig {
 }
 
 async function ensureStorageDirectory(): Promise<void> {
+  await ensureSettingsStorageDirectory();
+}
+
+async function ensureLegacyAgentStorageDirectory(): Promise<void> {
   await fs.mkdir(AGENT_STORAGE_DIR, { recursive: true });
 }
 
@@ -170,13 +180,6 @@ async function readFileIfExists(filePath: string): Promise<string | null> {
     }
     throw error;
   }
-}
-
-async function writeJsonAtomic(filePath: string, payload: unknown): Promise<void> {
-  const tempPath = `${filePath}.tmp-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-  const body = `${JSON.stringify(payload, null, 2)}\n`;
-  await fs.writeFile(tempPath, body, { encoding: 'utf8', mode: 0o600 });
-  await fs.rename(tempPath, filePath);
 }
 
 async function writeTextAtomic(filePath: string, content: string): Promise<void> {
@@ -237,7 +240,7 @@ async function migrateLegacyCanvasAgentFileIfMissing(
 export async function ensureAgentManagedFilesExist(agentId?: string | null): Promise<void> {
   await fs.mkdir(resolveAgentScopedStorageDir(agentId), { recursive: true });
   if (shouldMigrateLegacyCanvasAgentFiles(agentId)) {
-    await ensureStorageDirectory();
+    await ensureLegacyAgentStorageDirectory();
   }
 
   for (const fileName of getOwnedManagedFileNames(agentId)) {
@@ -324,7 +327,7 @@ export async function writeManagedAgentFile(fileName: AgentManagedFileName, cont
  */
 export async function readPiRuntimeConfig(): Promise<PiRuntimeConfig> {
   await ensureStorageDirectory();
-  const rawContent = await readFileIfExists(PI_RUNTIME_CONFIG_PATH);
+  const { content: rawContent } = await readSettingsTextFileIfExists(PI_RUNTIME_CONFIG_FILE);
   if (rawContent === null) {
     return withManagedRuntimeDefaults(createUnconfiguredPiRuntimeConfig());
   }
@@ -352,7 +355,7 @@ export async function writePiRuntimeConfig(config: PiRuntimeConfig): Promise<PiR
     ...normalizedConfig,
     updatedAt: new Date().toISOString(),
   };
-  await writeJsonAtomic(PI_RUNTIME_CONFIG_PATH, payload);
+  await writeSettingsJsonFileAtomic(PI_RUNTIME_CONFIG_FILE, payload);
   return payload;
 }
 

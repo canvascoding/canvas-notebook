@@ -1,7 +1,8 @@
-import path from 'path';
-import { promises as fs } from 'fs';
-
-import { resolveAgentStorageDir } from '@/app/lib/runtime-data-paths';
+import {
+  readSettingsTextFileIfExists,
+  resolveSettingsStoragePath,
+  writeSettingsTextFileAtomic,
+} from '@/app/lib/settings-storage';
 
 export const MCP_CONFIG_FILE = 'mcp.json';
 export const DEFAULT_MCP_CONFIG = {
@@ -58,15 +59,11 @@ export function isMcpServerEnabled(config: McpServerConfig): boolean {
 }
 
 export function resolveMcpConfigPath(): string {
-  return path.join(resolveAgentStorageDir(), MCP_CONFIG_FILE);
+  return resolveSettingsStoragePath(MCP_CONFIG_FILE);
 }
 
 function formatDefaultConfig(): string {
   return `${JSON.stringify(DEFAULT_MCP_CONFIG, null, 2)}\n`;
-}
-
-async function ensureParentDirectory(filePath: string): Promise<void> {
-  await fs.mkdir(path.dirname(filePath), { recursive: true });
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -125,45 +122,23 @@ export function parseAndValidateMcpConfig(rawContent: string): McpConfig {
 }
 
 export async function ensureMcpConfigExists(): Promise<{ filePath: string; created: boolean }> {
-  const filePath = resolveMcpConfigPath();
-
-  try {
-    await fs.access(filePath);
-    await fs.chmod(filePath, 0o600).catch(() => undefined);
-    return { filePath, created: false };
-  } catch (error) {
-    if (!(error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT')) {
-      throw error;
-    }
+  const existing = await readSettingsTextFileIfExists(MCP_CONFIG_FILE);
+  if (existing.content !== null) {
+    return { filePath: existing.filePath, created: false };
   }
 
-  await ensureParentDirectory(filePath);
-  const tmpPath = `${filePath}.tmp-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-  await fs.writeFile(tmpPath, formatDefaultConfig(), { encoding: 'utf8', mode: 0o600 });
-  await fs.chmod(tmpPath, 0o600).catch(() => undefined);
-
-  try {
-    await fs.rename(tmpPath, filePath);
-  } catch (error) {
-    await fs.rm(tmpPath, { force: true }).catch(() => undefined);
-    if (error && typeof error === 'object' && 'code' in error && error.code === 'EEXIST') {
-      await fs.chmod(filePath, 0o600).catch(() => undefined);
-      return { filePath, created: false };
-    }
-    throw error;
-  }
-
+  const filePath = await writeSettingsTextFileAtomic(MCP_CONFIG_FILE, formatDefaultConfig());
   return { filePath, created: true };
 }
 
 export async function readMcpConfigState(): Promise<McpConfigState> {
-  const { filePath, created } = await ensureMcpConfigExists();
-  const rawContent = await fs.readFile(filePath, 'utf8');
+  const { created } = await ensureMcpConfigExists();
+  const state = await readSettingsTextFileIfExists(MCP_CONFIG_FILE);
 
   return {
-    path: filePath,
+    path: state.filePath,
     exists: !created,
-    rawContent,
+    rawContent: state.content ?? formatDefaultConfig(),
   };
 }
 
@@ -175,15 +150,7 @@ export async function readMcpConfig(): Promise<McpConfig> {
 export async function writeMcpConfigRaw(rawContent: string): Promise<McpConfigState> {
   parseAndValidateMcpConfig(rawContent);
 
-  const filePath = resolveMcpConfigPath();
-  await ensureParentDirectory(filePath);
-
-  const tmpPath = `${filePath}.tmp-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-  const content = rawContent.endsWith('\n') || rawContent.length === 0 ? rawContent : `${rawContent}\n`;
-  await fs.writeFile(tmpPath, content, { encoding: 'utf8', mode: 0o600 });
-  await fs.chmod(tmpPath, 0o600).catch(() => undefined);
-  await fs.rename(tmpPath, filePath);
-  await fs.chmod(filePath, 0o600).catch(() => undefined);
+  await writeSettingsTextFileAtomic(MCP_CONFIG_FILE, rawContent);
 
   return readMcpConfigState();
 }

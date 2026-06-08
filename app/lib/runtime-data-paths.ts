@@ -37,6 +37,10 @@ export function resolveAgentsStorageRoot(cwd?: string): string {
   return path.join(resolveCanvasDataRoot(cwd), 'agents');
 }
 
+export function resolveSettingsStorageDir(cwd?: string): string {
+  return path.join(resolveCanvasDataRoot(cwd), 'settings');
+}
+
 export function resolveSecretsDir(cwd?: string): string {
   return path.join(resolveCanvasDataRoot(cwd), 'secrets');
 }
