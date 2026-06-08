@@ -522,13 +522,11 @@ type EmailMessageViewerLabels = {
   attachments: string;
   cancel: string;
   cc: string;
-  clearDone: string;
   date: string;
   emptyBody: string;
   forward: string;
   from: string;
   loadingMessage: string;
-  markDone: string;
   markRead: string;
   markUnread: string;
   messageOptions: string;
@@ -860,19 +858,6 @@ function EmailMessageViewer({
               {labels.forward}
             </Button>
             <EmailAiSplitButton actions={actions} labels={labels} />
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              disabled={Boolean(actions.activeAction)}
-              onClick={() => actions.onAction(message.isAnswered ? 'clear-answered' : 'mark-answered')}
-              title={message.isAnswered ? labels.clearDone : labels.markDone}
-            >
-              {actions.activeAction === 'mark-answered' || actions.activeAction === 'clear-answered'
-                ? <Loader2 className="h-4 w-4 animate-spin" />
-                : message.isAnswered ? <XCircle className="h-4 w-4" /> : <CheckCircle2 className="h-4 w-4" />}
-              {message.isAnswered ? labels.clearDone : labels.markDone}
-            </Button>
             <label className="sr-only" htmlFor={`email-message-move-${message.id}`}>{labels.moveTo}</label>
             <select
               id={`email-message-move-${message.id}`}
@@ -1620,13 +1605,11 @@ export function EmailClient() {
     attachments: t('attachments'),
     cancel: t('composeCancel'),
     cc: t('cc'),
-    clearDone: t('clearDone'),
     date: t('date'),
     emptyBody: t('emptyBody'),
     forward: t('forward'),
     from: t('from'),
     loadingMessage: t('loadingMessage'),
-    markDone: t('markDone'),
     markRead: t('markRead'),
     markUnread: t('markUnread'),
     messageOptions: t('messageOptions'),
