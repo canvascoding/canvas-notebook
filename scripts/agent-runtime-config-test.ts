@@ -66,7 +66,7 @@ async function main() {
   const { createAgentProfile, getAgentProfile, updateAgentProfile } = await import('../app/lib/agents/registry');
   const { resolveAgentRuntimeConfig, resolveAgentRuntimeSettings } = await import('../app/lib/agents/effective-runtime-config');
   const { loadManagedAgentSystemPrompt } = await import('../app/lib/agents/system-prompt');
-  const { getCanvasControlPlaneModels, resolvePiModel } = await import('../app/lib/pi/model-resolver');
+  const { getCanvasControlPlaneModels, modelSupportsVision, resolvePiModel } = await import('../app/lib/pi/model-resolver');
   const { db } = await import('../app/lib/db');
   const { user: users, piSessions } = await import('../app/lib/db/schema');
   const { eq } = await import('drizzle-orm');
@@ -209,6 +209,10 @@ async function main() {
   const directOllamaCompat = (directOllamaModel as OpenAICompletionsCompatProbe).compat;
   assert.equal(directOllamaCompat?.supportsDeveloperRole, false);
   assert.equal(directOllamaCompat?.supportsReasoningEffort, false);
+  assert.equal(modelSupportsVision('kimi-k2.6:cloud'), true);
+  assert.equal(modelSupportsVision('moonshotai/kimi-k2.6'), true);
+  const kimiVisionModel = await resolvePiModel('ollama', 'kimi-k2.6:cloud');
+  assert.deepEqual(kimiVisionModel.input, ['text', 'image']);
 
   await updateAgentProfile({
     agentId: customAgent.agentId,
