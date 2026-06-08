@@ -28,6 +28,7 @@ export type PublicEmailAccount = {
   authType: string;
   emailAddress: string;
   displayName: string | null;
+  isPrimary: boolean;
   status: string;
   scope: string | null;
   expiresAt: string | null;
@@ -80,6 +81,7 @@ export function publicStoredEmailAccount(account: StoredEmailAccount, secret?: E
     authType: account.authType,
     emailAddress: account.emailAddress,
     displayName: account.displayName || null,
+    isPrimary: Boolean(account.isPrimary),
     status: account.status,
     scope: secret?.authType === 'oauth' ? secret.scope || null : null,
     expiresAt: secret?.authType === 'oauth' ? secret.expiresAt || null : null,
@@ -98,7 +100,7 @@ export function publicStoredEmailAccount(account: StoredEmailAccount, secret?: E
 export async function listEmailAccountRecordsForUser(userId: string): Promise<StoredEmailAccount[]> {
   return db.query.emailAccounts.findMany({
     where: and(eq(emailAccounts.userId, userId), eq(emailAccounts.status, 'active')),
-    orderBy: (table, { desc }) => [desc(table.updatedAt)],
+    orderBy: (table, { desc }) => [desc(table.isPrimary), desc(table.updatedAt)],
   });
 }
 
@@ -119,11 +121,54 @@ export async function getEmailAccountForUser(userId: string, accountId?: string)
       })
     : await db.query.emailAccounts.findFirst({
         where: and(eq(emailAccounts.userId, userId), eq(emailAccounts.status, 'active')),
-        orderBy: (table, { desc }) => [desc(table.updatedAt)],
+        orderBy: (table, { desc }) => [desc(table.isPrimary), desc(table.updatedAt)],
       });
 
   if (!account) throw new Error(accountId ? 'Email account not found.' : 'No active email account is connected.');
   return account;
+}
+
+async function hasActivePrimaryEmailAccount(userId: string): Promise<boolean> {
+  const primaryAccount = await db.query.emailAccounts.findFirst({
+    where: and(eq(emailAccounts.userId, userId), eq(emailAccounts.status, 'active'), eq(emailAccounts.isPrimary, true)),
+    columns: { id: true },
+  });
+  return Boolean(primaryAccount);
+}
+
+async function shouldStoreAccountAsPrimary(userId: string, existing?: StoredEmailAccount | null): Promise<boolean> {
+  if (existing?.isPrimary) return true;
+  return !(await hasActivePrimaryEmailAccount(userId));
+}
+
+async function clearPrimaryEmailAccounts(userId: string): Promise<void> {
+  await db.update(emailAccounts)
+    .set({ isPrimary: false })
+    .where(and(eq(emailAccounts.userId, userId), eq(emailAccounts.isPrimary, true)));
+}
+
+async function ensurePrimaryEmailAccount(userId: string): Promise<void> {
+  if (await hasActivePrimaryEmailAccount(userId)) return;
+  const fallback = await db.query.emailAccounts.findFirst({
+    where: and(eq(emailAccounts.userId, userId), eq(emailAccounts.status, 'active')),
+    orderBy: (table, { desc }) => [desc(table.updatedAt)],
+  });
+  if (!fallback) return;
+  await db.update(emailAccounts)
+    .set({ isPrimary: true, updatedAt: new Date() })
+    .where(and(eq(emailAccounts.userId, userId), eq(emailAccounts.id, fallback.id)));
+}
+
+export async function setPrimaryStoredEmailAccount(userId: string, accountId: string): Promise<PublicEmailAccount> {
+  await getEmailAccountForUser(userId, accountId);
+  await clearPrimaryEmailAccounts(userId);
+  await db.update(emailAccounts)
+    .set({ isPrimary: true, updatedAt: new Date() })
+    .where(and(eq(emailAccounts.userId, userId), eq(emailAccounts.id, accountId), eq(emailAccounts.status, 'active')));
+
+  const updated = await getEmailAccountForUser(userId, accountId);
+  const secret = await readEmailAccountSecret(updated.secretRef).catch(() => null);
+  return publicStoredEmailAccount(updated, secret);
 }
 
 export async function readStoredEmailAccountSecret(account: StoredEmailAccount): Promise<EmailAccountSecret> {
@@ -171,6 +216,7 @@ export async function disconnectStoredEmailAccount(userId: string, accountId: st
   const account = await getEmailAccountForUser(userId, accountId);
   await db.delete(emailAccounts).where(and(eq(emailAccounts.userId, userId), eq(emailAccounts.id, accountId)));
   await deleteEmailAccountSecret(account.secretRef);
+  if (account.isPrimary) await ensurePrimaryEmailAccount(userId);
   return true;
 }
 
@@ -197,6 +243,7 @@ export async function upsertOAuthEmailAccount(params: {
   const id = existing?.id || params.accountId || accountIdFor(params.userId, params.provider, emailAddress);
   const secretRef = existing?.secretRef || emailAccountSecretRef(params.userId, id);
   const policy = normalizePolicy(params.policy || (existing ? parsePolicyJson(existing.policyJson) : null));
+  const isPrimary = await shouldStoreAccountAsPrimary(params.userId, existing);
   let nextSecret = params.secret;
 
   if (existing && !nextSecret.refreshToken) {
@@ -213,6 +260,7 @@ export async function upsertOAuthEmailAccount(params: {
   }
 
   await writeEmailAccountSecret(secretRef, nextSecret);
+  if (isPrimary) await clearPrimaryEmailAccounts(params.userId);
 
   if (existing) {
     await db.update(emailAccounts)
@@ -223,6 +271,7 @@ export async function upsertOAuthEmailAccount(params: {
         status: 'active',
         policyJson: JSON.stringify(policy),
         secretRef,
+        isPrimary,
         updatedAt: now,
       })
       .where(and(eq(emailAccounts.userId, params.userId), eq(emailAccounts.id, existing.id)));
@@ -240,6 +289,7 @@ export async function upsertOAuthEmailAccount(params: {
     status: 'active',
     policyJson: JSON.stringify(policy),
     secretRef,
+    isPrimary,
     lastUsedAt: null,
     createdAt: params.createdAt || now,
     updatedAt: now,
@@ -271,8 +321,10 @@ export async function upsertSmtpEmailAccount(params: {
   const policy = params.policy === undefined && existing
     ? parsePolicyJson(existing.policyJson)
     : normalizePolicy(params.policy ?? null);
+  const isPrimary = await shouldStoreAccountAsPrimary(params.userId, existing);
 
   await writeEmailAccountSecret(secretRef, params.secret);
+  if (isPrimary) await clearPrimaryEmailAccounts(params.userId);
 
   if (existing) {
     await db.update(emailAccounts)
@@ -282,6 +334,7 @@ export async function upsertSmtpEmailAccount(params: {
         status: 'active',
         policyJson: JSON.stringify(policy),
         secretRef,
+        isPrimary,
         updatedAt: now,
       })
       .where(and(eq(emailAccounts.userId, params.userId), eq(emailAccounts.id, existing.id)));
@@ -299,6 +352,7 @@ export async function upsertSmtpEmailAccount(params: {
     status: 'active',
     policyJson: JSON.stringify(policy),
     secretRef,
+    isPrimary,
     lastUsedAt: null,
     createdAt: params.createdAt || now,
     updatedAt: now,

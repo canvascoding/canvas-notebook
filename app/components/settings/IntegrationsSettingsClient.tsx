@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, startTransition, typ
 import dynamic from 'next/dynamic';
 import { useSearchParams } from 'next/navigation';
 import { useTranslations } from 'next-intl';
-import { ChevronDown, ExternalLink, Eye, EyeOff, Loader2, Mail, Menu, Plus, RefreshCw, Save, Search, Settings, Trash2 } from 'lucide-react';
+import { ChevronDown, ExternalLink, Eye, EyeOff, Loader2, Mail, Menu, Plus, RefreshCw, Save, Search, Settings, Star, Trash2 } from 'lucide-react';
 
 import { GeneralSettingsPanel } from '@/app/components/settings/GeneralSettingsPanel';
 import { SettingsAccordionCard } from '@/app/components/settings/SettingsAccordionCard';
@@ -127,6 +127,7 @@ type EmailAccount = {
   authType: string;
   emailAddress: string;
   displayName: string | null;
+  isPrimary: boolean;
   status: string;
   smtpHost?: string | null;
   smtpPort?: number | null;
@@ -1882,6 +1883,23 @@ function EmailAccountsCard({ isOpen, onOpenChange }: { isOpen: boolean; onOpenCh
     }
   };
 
+  const setMainEmail = async (accountId: string) => {
+    setActiveAction(`main:${accountId}`);
+    setError(null);
+    setMessage(null);
+    try {
+      const response = await fetch(`/api/email/accounts/${encodeURIComponent(accountId)}/main`, { method: 'PATCH' });
+      const payload = await response.json();
+      if (!response.ok || !payload.success) throw new Error(payload.error || t('errors.setMainEmail'));
+      setMessage(t('messages.mainEmailSaved'));
+      await loadAccounts();
+    } catch (mainEmailError) {
+      setError(mainEmailError instanceof Error ? mainEmailError.message : t('errors.setMainEmail'));
+    } finally {
+      setActiveAction(null);
+    }
+  };
+
   const disconnect = async (accountId: string) => {
     setActiveAction(`disconnect:${accountId}`);
     setError(null);
@@ -2218,6 +2236,12 @@ function EmailAccountsCard({ isOpen, onOpenChange }: { isOpen: boolean; onOpenCh
                   <div>
                     <div className="flex flex-wrap items-center gap-2">
                       <h3 className="text-base font-semibold">{account.emailAddress}</h3>
+                      {account.isPrimary && (
+                        <Badge variant="secondary" className="gap-1">
+                          <Star className="h-3 w-3" />
+                          {t('mainEmail')}
+                        </Badge>
+                      )}
                       <Badge variant="outline">{providerLabel(account.provider)}</Badge>
                       <Badge variant={account.status === 'active' ? 'default' : 'secondary'}>{statusLabel(account.status)}</Badge>
                     </div>
@@ -2235,10 +2259,18 @@ function EmailAccountsCard({ isOpen, onOpenChange }: { isOpen: boolean; onOpenCh
                       </div>
                     )}
                   </div>
-                  <Button type="button" variant="ghost" size="sm" onClick={() => void disconnect(account.id)} disabled={activeAction !== null}>
-                    <Trash2 className="mr-2 h-4 w-4" />
-                    {t('disconnect')}
-                  </Button>
+                  <div className="flex flex-wrap justify-end gap-2">
+                    {!account.isPrimary && (
+                      <Button type="button" variant="outline" size="sm" onClick={() => void setMainEmail(account.id)} disabled={activeAction !== null}>
+                        {activeAction === `main:${account.id}` ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Star className="mr-2 h-4 w-4" />}
+                        {t('setMainEmail')}
+                      </Button>
+                    )}
+                    <Button type="button" variant="ghost" size="sm" onClick={() => void disconnect(account.id)} disabled={activeAction !== null}>
+                      <Trash2 className="mr-2 h-4 w-4" />
+                      {t('disconnect')}
+                    </Button>
+                  </div>
                 </div>
                 <div className="grid gap-3 md:grid-cols-2">
                   <div>
