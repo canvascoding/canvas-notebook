@@ -148,6 +148,53 @@ function areFileStatsEqual(left?: FileStats, right?: FileStats) {
   );
 }
 
+interface ApiErrorPayload {
+  error?: unknown;
+  message?: unknown;
+}
+
+function formatResponseStatus(response: Response) {
+  const statusText = response.statusText ? ` ${response.statusText}` : '';
+  return response.status ? ` (${response.status}${statusText})` : '';
+}
+
+function describeNonJsonResponse(response: Response, fallbackMessage: string, body: string) {
+  const trimmed = body.trimStart().toLowerCase();
+  const responseKind = trimmed.startsWith('<!doctype') || trimmed.startsWith('<html')
+    ? 'HTML'
+    : 'a non-JSON response';
+  return `${fallbackMessage}${formatResponseStatus(response)}: server returned ${responseKind} instead of JSON. Please retry when the server is responsive.`;
+}
+
+async function readApiJson<T>(response: Response, fallbackMessage: string): Promise<T> {
+  const body = await response.text();
+  if (!body.trim()) {
+    throw new Error(`${fallbackMessage}${formatResponseStatus(response)}`);
+  }
+
+  try {
+    return JSON.parse(body) as T;
+  } catch {
+    throw new Error(describeNonJsonResponse(response, fallbackMessage, body));
+  }
+}
+
+async function readApiError(response: Response, fallbackMessage: string) {
+  try {
+    const payload = await readApiJson<ApiErrorPayload>(response, fallbackMessage);
+    if (typeof payload.error === 'string' && payload.error.trim()) {
+      return payload.error;
+    }
+    if (typeof payload.message === 'string' && payload.message.trim()) {
+      return payload.message;
+    }
+  } catch (error) {
+    if (error instanceof Error) return error.message;
+  }
+
+  return `${fallbackMessage}${formatResponseStatus(response)}`;
+}
+
 function findNodeInTree(searchPath: string, nodes: FileNode[]): FileNode | null {
   for (const node of nodes) {
     if (node.path === searchPath) return node;
@@ -375,8 +422,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
       });
 
       if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'Failed to paste files');
+        throw new Error(await readApiError(response, 'Failed to paste files'));
       }
 
       await get().refreshDirectory(destDir, true);
@@ -403,8 +449,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
       });
 
       if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'Failed to duplicate file');
+        throw new Error(await readApiError(response, 'Failed to duplicate file'));
       }
 
       await get().refreshDirectory(parentDir, true);
@@ -429,11 +474,10 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
       });
 
       if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'Failed to load file tree');
+        throw new Error(await readApiError(response, 'Failed to load file tree'));
       }
 
-      const { data } = await response.json();
+      const { data } = await readApiJson<{ data: FileNode[] }>(response, 'Failed to load file tree');
       set({ fileTree: data, isLoadingTree: false });
     } catch (error) {
       const message =
@@ -456,11 +500,10 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
       });
 
       if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'Failed to refresh root tree');
+        throw new Error(await readApiError(response, 'Failed to refresh root tree'));
       }
 
-      const { data } = await response.json();
+      const { data } = await readApiJson<{ data: FileNode[] }>(response, 'Failed to refresh root tree');
 
       // Merge: preserve existing children from current tree so expanded
       // folders don't appear empty after a root-level refresh (depth=0).
@@ -574,17 +617,10 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
       });
 
       if (!response.ok) {
-        let errorMsg = `Failed to load subdirectory (${response.status})`;
-        try {
-          const errorData = await response.json();
-          errorMsg = errorData.error || errorMsg;
-        } catch {
-          // Response was not JSON (e.g. HTML 404 page)
-        }
-        throw new Error(errorMsg);
+        throw new Error(await readApiError(response, 'Failed to load subdirectory'));
       }
 
-      const { data } = await response.json();
+      const { data } = await readApiJson<{ data: FileNode[] }>(response, 'Failed to load subdirectory');
 
       const mergeSubtree = (nodes: FileNode[], targetPath: string, children: FileNode[]): FileNode[] => {
         return nodes.map((node) => {
@@ -654,11 +690,10 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
           }
           return;
         }
-        const error = await response.json();
-        throw new Error(error.error || 'Failed to load file');
+        throw new Error(await readApiError(response, 'Failed to load file'));
       }
 
-      const { data } = await response.json();
+      const { data } = await readApiJson<{ data: CurrentFile }>(response, 'Failed to load file');
       if (get().fileLoadRequestId !== requestId) return;
 
       const fileName = path.split('/').pop() || path;
@@ -710,11 +745,10 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
           return null;
         }
 
-        const error = await response.json();
-        throw new Error(error.error || 'Failed to refresh file');
+        throw new Error(await readApiError(response, 'Failed to refresh file'));
       }
 
-      const { data } = await response.json();
+      const { data } = await readApiJson<{ data: CurrentFile }>(response, 'Failed to refresh file');
       const currentFile = get().currentFile;
       if (currentFile?.path !== path) {
         return null;
@@ -801,8 +835,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
       });
 
       if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'Failed to save file');
+        throw new Error(await readApiError(response, 'Failed to save file'));
       }
 
       // Update current file if it's the same path
@@ -883,8 +916,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
       });
 
       if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'Failed to create path');
+        throw new Error(await readApiError(response, 'Failed to create path'));
       }
 
       // Refresh from parent directory
@@ -914,11 +946,10 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
       });
 
       if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'Failed to delete paths');
+        throw new Error(await readApiError(response, 'Failed to delete paths'));
       }
 
-      const result = await response.json();
+      const result = await readApiJson<{ failed?: Array<{ path: string; error: string }> }>(response, 'Failed to delete paths');
       if (result.failed && result.failed.length > 0) {
         const failedPaths = result.failed.map((f: { path: string; error: string }) => f.path).join(', ');
         throw new Error(`Failed to delete: ${failedPaths}`);
@@ -972,9 +1003,17 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
       });
 
       if (!response.ok) {
-        const error = await response.json();
+        const error = await readApiJson<ApiErrorPayload & {
+          code?: string;
+          type?: string;
+          sourcePath?: string;
+          destPath?: string;
+        }>(response, 'Failed to rename path');
         // Create a more detailed error with additional fields
-        const err = new Error(error.error || 'Failed to rename path') as Error & {
+        const message = typeof error.error === 'string' && error.error.trim()
+          ? error.error
+          : 'Failed to rename path';
+        const err = new Error(message) as Error & {
           code?: string;
           type?: string;
           sourcePath?: string;
