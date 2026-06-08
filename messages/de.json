@@ -1021,6 +1021,8 @@
     "date": "Datum",
     "emptyBody": "Kein lesbarer Nachrichtentext vorhanden.",
     "attachments": "Anhänge",
+    "remoteImagesBlocked": "Remote-Bilder und externe Ressourcen sind aus Datenschutzgründen blockiert.",
+    "showRemoteImages": "Bilder laden",
     "unknownAttachmentType": "Unbekannter Dateityp",
     "imapMissingTitle": "IMAP ist für dieses Konto nicht konfiguriert",
     "imapMissingDescription": "Dieses Konto kann aktuell für Versand und Richtlinien genutzt werden. Für Inbox, Lesen und Suche muss IMAP in den Kontoeinstellungen gespeichert werden.",

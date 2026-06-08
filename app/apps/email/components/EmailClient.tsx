@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import DOMPurify from 'dompurify';
 import {
   Archive,
@@ -9,6 +9,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Forward,
+  Image as ImageIcon,
   Inbox,
   Loader2,
   Mail,
@@ -101,8 +102,10 @@ const EMAIL_HTML_SANITIZE_CONFIG = {
     'abbr',
     'b',
     'blockquote',
+    'body',
     'br',
     'caption',
+    'center',
     'code',
     'col',
     'colgroup',
@@ -112,6 +115,8 @@ const EMAIL_HTML_SANITIZE_CONFIG = {
     'dl',
     'dt',
     'em',
+    'font',
+    'head',
     'h1',
     'h2',
     'h3',
@@ -119,6 +124,7 @@ const EMAIL_HTML_SANITIZE_CONFIG = {
     'h5',
     'h6',
     'hr',
+    'html',
     'i',
     'img',
     'li',
@@ -129,6 +135,7 @@ const EMAIL_HTML_SANITIZE_CONFIG = {
     'small',
     'span',
     'strong',
+    'style',
     'sub',
     'sup',
     'table',
@@ -146,25 +153,32 @@ const EMAIL_HTML_SANITIZE_CONFIG = {
     'align',
     'alt',
     'aria-label',
+    'bgcolor',
     'border',
     'cellpadding',
     'cellspacing',
+    'class',
     'colspan',
     'dir',
+    'face',
     'height',
     'href',
+    'id',
     'lang',
     'rel',
+    'role',
     'rowspan',
     'scope',
     'src',
+    'style',
     'target',
     'title',
+    'valign',
     'width',
   ],
   ALLOW_DATA_ATTR: false,
-  FORBID_ATTR: ['ping', 'srcset', 'style'],
-  FORBID_TAGS: ['base', 'button', 'embed', 'form', 'iframe', 'input', 'link', 'math', 'meta', 'object', 'script', 'select', 'style', 'svg', 'textarea'],
+  FORBID_ATTR: ['ping', 'srcset'],
+  FORBID_TAGS: ['base', 'button', 'embed', 'form', 'iframe', 'input', 'link', 'math', 'meta', 'object', 'script', 'select', 'svg', 'textarea'],
 };
 
 function formatDate(value: string) {
@@ -200,12 +214,92 @@ function isFetchNetworkError(error: unknown): boolean {
   return error instanceof TypeError && /failed to fetch|fetch failed|networkerror/iu.test(error.message);
 }
 
-function sanitizeEmailHtml(value: string) {
-  const sanitized = DOMPurify.sanitize(value, EMAIL_HTML_SANITIZE_CONFIG);
-  if (typeof document === 'undefined') return sanitized;
+function sanitizeEmailCss(value: string, allowRemoteResources: boolean) {
+  let blockedRemoteResources = false;
+  let css = value
+    .replace(/@import[^;]+;/giu, '')
+    .replace(/expression\s*\([^)]*\)/giu, '')
+    .replace(/javascript\s*:/giu, '')
+    .replace(/vbscript\s*:/giu, '');
+
+  css = css.replace(/url\(\s*(['"]?)(.*?)\1\s*\)/giu, (match, _quote: string, rawUrl: string) => {
+    const url = rawUrl.trim();
+    if (/^data:image\/(?:gif|jpe?g|png|webp);base64,/iu.test(url)) return `url("${url}")`;
+    if (/^https?:\/\//iu.test(url)) {
+      blockedRemoteResources = true;
+      return allowRemoteResources ? `url("${url}")` : 'none';
+    }
+    return 'none';
+  });
+
+  return { blockedRemoteResources, css };
+}
+
+function extractEmailStyleBlocks(value: string, allowRemoteResources: boolean) {
+  const styles: string[] = [];
+  let blockedRemoteResources = false;
+  const html = value.replace(/<style\b[^>]*>([\s\S]*?)<\/style>/giu, (_match, rawCss: string) => {
+    const result = sanitizeEmailCss(rawCss, allowRemoteResources);
+    blockedRemoteResources = blockedRemoteResources || result.blockedRemoteResources;
+    const css = result.css.replace(/<\/style/giu, '<\\/style').trim();
+    if (css) styles.push(`<style>${css}</style>`);
+    return '';
+  });
+
+  return { blockedRemoteResources, html, styleHtml: styles.join('\n') };
+}
+
+function buildEmailPreviewDocument(html: string) {
+  return `<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<base target="_blank">
+<style>
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: #ffffff;
+    color: #111827;
+    font-family: Arial, Helvetica, sans-serif;
+    font-size: 14px;
+    line-height: 1.45;
+  }
+  body {
+    overflow-wrap: anywhere;
+    word-break: normal;
+  }
+  * {
+    box-sizing: border-box;
+    max-width: 100%;
+  }
+  img {
+    max-width: 100%;
+    height: auto;
+  }
+  table {
+    max-width: 100%;
+    border-collapse: separate;
+  }
+  pre {
+    white-space: pre-wrap;
+  }
+</style>
+</head>
+<body>
+${html}
+</body>
+</html>`;
+}
+
+function sanitizeEmailHtml(value: string, allowRemoteResources: boolean) {
+  const extractedStyles = extractEmailStyleBlocks(value, allowRemoteResources);
+  const sanitized = DOMPurify.sanitize(extractedStyles.html, EMAIL_HTML_SANITIZE_CONFIG);
+  if (typeof document === 'undefined') return { blockedRemoteResources: false, html: sanitized };
 
   const template = document.createElement('template');
   template.innerHTML = sanitized;
+  let blockedRemoteResources = extractedStyles.blockedRemoteResources;
 
   template.content.querySelectorAll('a').forEach((anchor) => {
     const href = anchor.getAttribute('href')?.trim() || '';
@@ -217,32 +311,112 @@ function sanitizeEmailHtml(value: string) {
     anchor.setAttribute('rel', 'noopener noreferrer');
   });
 
-  template.content.querySelectorAll('img').forEach((image) => {
-    const src = image.getAttribute('src')?.trim() || '';
-    if (!/^data:image\/(?:gif|jpe?g|png|webp);base64,/i.test(src)) {
-      image.remove();
+  template.content.querySelectorAll<HTMLElement>('[style]').forEach((element) => {
+    const result = sanitizeEmailCss(element.getAttribute('style') || '', allowRemoteResources);
+    blockedRemoteResources = blockedRemoteResources || result.blockedRemoteResources;
+    if (result.css.trim()) {
+      element.setAttribute('style', result.css);
+    } else {
+      element.removeAttribute('style');
     }
   });
 
+  template.content.querySelectorAll('style').forEach((style) => {
+    const result = sanitizeEmailCss(style.textContent || '', allowRemoteResources);
+    blockedRemoteResources = blockedRemoteResources || result.blockedRemoteResources;
+    if (result.css.trim()) {
+      style.textContent = result.css;
+    } else {
+      style.remove();
+    }
+  });
+
+  template.content.querySelectorAll('img').forEach((image) => {
+    const src = image.getAttribute('src')?.trim() || '';
+    if (/^data:image\/(?:gif|jpe?g|png|webp);base64,/iu.test(src)) {
+      return;
+    }
+    if (/^https?:\/\//iu.test(src)) {
+      blockedRemoteResources = true;
+      if (allowRemoteResources) {
+        image.setAttribute('referrerpolicy', 'no-referrer');
+        image.setAttribute('loading', 'lazy');
+        return;
+      }
+      image.remove();
+      return;
+    }
+    image.remove();
+  });
+
   if (!template.content.textContent?.trim() && !template.content.querySelector('img')) {
-    return '';
+    return { blockedRemoteResources, html: '' };
   }
 
-  return template.innerHTML;
+  return { blockedRemoteResources, html: [extractedStyles.styleHtml, template.innerHTML].filter(Boolean).join('\n') };
 }
 
-function EmailMessageBody({ message, emptyText }: { message: EmailMessageDetail; emptyText: string }) {
-  const sanitizedHtml = useMemo(
-    () => message.bodyHtml ? sanitizeEmailHtml(message.bodyHtml) : '',
-    [message.bodyHtml],
+function EmailMessageBody({
+  message,
+  remoteImagesBlockedText,
+  showRemoteImagesText,
+  emptyText,
+}: {
+  message: EmailMessageDetail;
+  remoteImagesBlockedText: string;
+  showRemoteImagesText: string;
+  emptyText: string;
+}) {
+  const iframeRef = useRef<HTMLIFrameElement | null>(null);
+  const messageKey = `${message.id}:${message.bodyHtml?.length || 0}`;
+  const [remoteResourceState, setRemoteResourceState] = useState({ allow: false, messageKey: '' });
+  const [iframeLayout, setIframeLayout] = useState({ height: 360, messageKey: '' });
+  const allowRemoteResources = remoteResourceState.messageKey === messageKey && remoteResourceState.allow;
+  const iframeHeight = iframeLayout.messageKey === messageKey ? iframeLayout.height : 360;
+  const sanitized = useMemo(
+    () => message.bodyHtml ? sanitizeEmailHtml(message.bodyHtml, allowRemoteResources) : { blockedRemoteResources: false, html: '' },
+    [allowRemoteResources, message.bodyHtml],
   );
+  const srcDoc = useMemo(() => buildEmailPreviewDocument(sanitized.html), [sanitized.html]);
 
-  if (sanitizedHtml.trim()) {
+  const resizeIframe = useCallback(() => {
+    const doc = iframeRef.current?.contentDocument;
+    if (!doc) return;
+    const contentHeight = Math.max(doc.documentElement.scrollHeight, doc.body?.scrollHeight || 0);
+    const nextHeight = Math.max(240, Math.min(2400, contentHeight));
+    setIframeLayout({ height: nextHeight, messageKey });
+  }, [messageKey]);
+
+  if (sanitized.html.trim()) {
     return (
-      <div
-        className="min-w-0 overflow-x-auto break-words text-sm leading-6 text-foreground [&_*]:max-w-full [&_a]:break-words [&_a]:font-medium [&_a]:text-primary [&_blockquote]:border-l-2 [&_blockquote]:border-border [&_blockquote]:pl-3 [&_blockquote]:text-muted-foreground [&_code]:rounded-sm [&_code]:bg-muted [&_code]:px-1 [&_h1]:mb-3 [&_h1]:text-xl [&_h1]:font-semibold [&_h2]:mb-3 [&_h2]:text-lg [&_h2]:font-semibold [&_h3]:mb-2 [&_h3]:text-base [&_h3]:font-semibold [&_hr]:my-4 [&_hr]:border-border [&_ol]:ml-5 [&_ol]:list-decimal [&_p]:mb-3 [&_p:last-child]:mb-0 [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:bg-muted [&_pre]:p-3 [&_table]:my-3 [&_table]:w-full [&_table]:border-collapse [&_td]:border [&_td]:border-border [&_td]:p-2 [&_th]:border [&_th]:border-border [&_th]:p-2 [&_ul]:ml-5 [&_ul]:list-disc"
-        dangerouslySetInnerHTML={{ __html: sanitizedHtml }}
-      />
+      <div className="min-w-0">
+        {sanitized.blockedRemoteResources && !allowRemoteResources && (
+          <div className="mb-3 flex flex-col gap-2 border border-border bg-muted/40 px-3 py-2 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
+            <span className="flex min-w-0 items-center gap-2">
+              <ImageIcon className="h-4 w-4 shrink-0" />
+              {remoteImagesBlockedText}
+            </span>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={() => setRemoteResourceState({ allow: true, messageKey })}
+            >
+              {showRemoteImagesText}
+            </Button>
+          </div>
+        )}
+        <iframe
+          ref={iframeRef}
+          className="block w-full overflow-hidden border-0 bg-white"
+          referrerPolicy="no-referrer"
+          sandbox="allow-popups allow-popups-to-escape-sandbox allow-same-origin"
+          srcDoc={srcDoc}
+          style={{ height: iframeHeight }}
+          title={message.subject || 'Email content'}
+          onLoad={resizeIframe}
+        />
+      </div>
     );
   }
 
@@ -271,10 +445,12 @@ type EmailMessageViewerLabels = {
   moveTo: string;
   noSubject: string;
   permanentDelete: string;
+  remoteImagesBlocked: string;
   reply: string;
   replyAll: string;
   replyOptions: string;
   selectMessage: string;
+  showRemoteImages: string;
   summary: string;
   to: string;
   trash: string;
@@ -474,7 +650,12 @@ function EmailMessageViewer({
         )}
       </header>
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
-        <EmailMessageBody message={message} emptyText={labels.emptyBody} />
+        <EmailMessageBody
+          message={message}
+          emptyText={labels.emptyBody}
+          remoteImagesBlockedText={labels.remoteImagesBlocked}
+          showRemoteImagesText={labels.showRemoteImages}
+        />
         {message.attachments && message.attachments.length > 0 && (
           <div className="mt-5 border-t border-border pt-4">
             <div className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">{labels.attachments}</div>
@@ -851,10 +1032,12 @@ export function EmailClient() {
     moveTo: t('moveTo'),
     noSubject: t('noSubject'),
     permanentDelete: t('permanentDelete'),
+    remoteImagesBlocked: t('remoteImagesBlocked'),
     reply: t('reply'),
     replyAll: t('replyAll'),
     replyOptions: t('replyOptions'),
     selectMessage: t('selectMessage'),
+    showRemoteImages: t('showRemoteImages'),
     summary: t('summary'),
     to: t('to'),
     trash: t('trash'),
