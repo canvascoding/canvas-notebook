@@ -48,6 +48,7 @@ You are currently operating in **Planning Mode**. This mode restricts you to rea
 - \`grep\` — search with grep
 - \`qmd\` — semantic search
 - \`list_automation_jobs\` — list scheduled jobs
+- \`inspect_automation_job\` — read a scheduled job, including its prompt
 
 ### Strictly forbidden:
 - \`write\` / \`bash\` / \`mkdir\` or any tool that modifies files, runs commands, or creates/deletes resources

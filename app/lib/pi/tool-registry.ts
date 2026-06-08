@@ -440,20 +440,45 @@ function normalizeOptionalString(value: string | undefined): string | undefined 
 const VALID_AUTOMATION_DAYS: AutomationWeekday[] = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
 const VALID_AUTOMATION_INTERVAL_UNITS: AutomationIntervalUnit[] = ['minutes', 'hours', 'days'];
 
-function formatAutomationJob(job: AutomationJobRecord): string {
+function formatAutomationPromptPreview(prompt: string): string {
+  const normalized = prompt.replace(/\s+/g, ' ').trim();
+  if (normalized.length <= 240) {
+    return normalized || '(empty)';
+  }
+  return `${normalized.slice(0, 240)}...`;
+}
+
+function formatAutomationPromptBlock(prompt: string): string {
+  return ['Prompt:', '```text', prompt, '```'].join('\n');
+}
+
+function formatAutomationJob(job: AutomationJobRecord, options: { includeFullPrompt?: boolean } = {}): string {
   const schedule = JSON.stringify(job.schedule);
   const outputPath = job.targetOutputPath || job.effectiveTargetOutputPath || 'none';
-  return [
+  const lines = [
     `ID: ${job.id}`,
     `Name: ${job.name}`,
     `Status: ${job.status}`,
-    `Preferred skill: auto`,
+    `Preferred skill: ${job.preferredSkill || 'auto'}`,
     `Schedule: ${schedule}`,
     `Next run: ${job.nextRunAt || 'not scheduled'}`,
     `Last run: ${job.lastRunAt || 'never'}`,
     `Last run status: ${job.lastRunStatus || 'n/a'}`,
     `Output: ${outputPath}`,
-  ].join('\n');
+    `Context paths: ${job.workspaceContextPaths.length > 0 ? job.workspaceContextPaths.join(', ') : 'none'}`,
+    `Agent ID: ${job.agentId}`,
+    `Delivery: mode=${job.deliveryMode}, channel=${job.deliveryChannelId || 'none'}, sessionMode=${job.deliverySessionMode}`,
+    `Updated at: ${job.updatedAt}`,
+  ];
+
+  if (options.includeFullPrompt) {
+    lines.push(formatAutomationPromptBlock(job.prompt));
+  } else {
+    lines.push(`Prompt preview (${job.prompt.length} chars): ${formatAutomationPromptPreview(job.prompt)}`);
+    lines.push('Use inspect_automation_job to read the full prompt before editing it.');
+  }
+
+  return lines.join('\n');
 }
 
 function normalizeAutomationStatus(value: string | undefined): AutomationJobStatus | undefined {
@@ -523,6 +548,25 @@ function normalizeAutomationWorkspacePaths(paths: string[] | undefined): string[
     .slice(0, 20);
 
   return normalized.length > 0 ? normalized : undefined;
+}
+
+function normalizeAutomationWorkspacePathsForUpdate(paths: string[] | undefined): string[] | undefined {
+  if (paths === undefined) {
+    return undefined;
+  }
+
+  return paths
+    .map((entry) => entry.trim().replace(/^\/+|^\.\/+/, ''))
+    .filter(Boolean)
+    .slice(0, 20);
+}
+
+async function getUserOwnedAutomationJob(userId: string, jobId: string): Promise<AutomationJobRecord> {
+  const job = await getAutomationJob(jobId);
+  if (!job || job.createdByUserId !== userId) {
+    throw new Error(`Automation job "${jobId}" not found.`);
+  }
+  return job;
 }
 
 export function createStudioGenerateImageTool(
@@ -2617,7 +2661,7 @@ function createUserScopedTools(userId?: string, agentId?: string | null, session
     {
       name: 'list_automation_jobs',
       label: 'Listing automation jobs',
-      description: 'Lists all automation jobs with their status and schedule information. Use when user wants to see existing automations, check job status, or view scheduled workflows.',
+      description: 'Lists all automation jobs with status, schedule, and a short prompt preview. Use inspect_automation_job to read the full prompt before editing an existing automation.',
       parameters: Type.Object({}),
       execute: async () => {
         try {
@@ -2629,6 +2673,31 @@ function createUserScopedTools(userId?: string, agentId?: string | null, session
           return {
             content: [{ type: 'text', text }],
             details: { jobs },
+          };
+        } catch (error: unknown) {
+          const message = getErrorMessage(error);
+          return {
+            content: [{ type: 'text', text: `Error: ${message}` }],
+            details: { error: message },
+          };
+        }
+      },
+    },
+    {
+      name: 'inspect_automation_job',
+      label: 'Inspecting automation job',
+      description: 'Reads one automation job in full, including the complete prompt text, schedule, context paths, output target, delivery settings, and updatedAt. Always use this before updating an automation prompt so you can preserve the existing prompt and edit it precisely.',
+      parameters: Type.Object({
+        jobId: Type.String({ description: 'ID of the automation job to inspect' }),
+      }),
+      execute: async (toolCallId, params) => {
+        const { jobId } = params as { jobId: string };
+        try {
+          const scopedUserId = requireToolUserId(userId, 'automation tools');
+          const job = await getUserOwnedAutomationJob(scopedUserId, jobId);
+          return {
+            content: [{ type: 'text', text: formatAutomationJob(job, { includeFullPrompt: true }) }],
+            details: { job },
           };
         } catch (error: unknown) {
           const message = getErrorMessage(error);
@@ -2690,7 +2759,7 @@ function createUserScopedTools(userId?: string, agentId?: string | null, session
             scopedUserId,
           );
           return {
-            content: [{ type: 'text', text: `Automation job created successfully\n\n${formatAutomationJob(job)}` }],
+            content: [{ type: 'text', text: `Automation job created successfully\n\n${formatAutomationJob(job, { includeFullPrompt: true })}` }],
             details: { job },
           };
         } catch (error: unknown) {
@@ -2705,11 +2774,13 @@ function createUserScopedTools(userId?: string, agentId?: string | null, session
     {
       name: 'update_automation_job',
       label: 'Updating automation job',
-      description: 'Updates an existing automation job. Use to modify job parameters, pause/resume jobs, change schedules, or update prompts. Required: jobId. Optional: name, prompt, schedule, targetOutputPath, workspaceContextPaths, status (active/paused).',
+      description: 'Updates an existing automation job. Required: jobId. Optional: name, prompt, schedule, targetOutputPath, workspaceContextPaths, status (active/paused). Before changing prompt, call inspect_automation_job, preserve the existing prompt text, edit only the requested parts, and pass expectedPrompt or expectedUpdatedAt to avoid overwriting a newer version.',
       parameters: Type.Object({
         jobId: Type.String({ description: 'ID of the job to update' }),
         name: Type.Optional(Type.String({ description: 'New name for the job' })),
         prompt: Type.Optional(Type.String({ description: 'New prompt/script' })),
+        expectedPrompt: Type.Optional(Type.String({ description: 'Current full prompt as returned by inspect_automation_job. Required for prompt edits unless expectedUpdatedAt is provided.' })),
+        expectedUpdatedAt: Type.Optional(Type.String({ description: 'Current updatedAt value as returned by inspect_automation_job. Required for prompt edits unless expectedPrompt is provided.' })),
         schedule: Type.Optional(Type.Object({
           kind: Type.String({ description: 'Schedule type: once, daily, weekly, interval' }),
           date: Type.Optional(Type.String({ description: 'For once: date in YYYY-MM-DD format' })),
@@ -2724,10 +2795,12 @@ function createUserScopedTools(userId?: string, agentId?: string | null, session
         status: Type.Optional(Type.String({ description: 'active or paused' })),
       }),
       execute: async (toolCallId, params) => {
-        const { jobId, name, prompt, schedule, targetOutputPath, workspaceContextPaths, status } = params as {
+        const { jobId, name, prompt, expectedPrompt, expectedUpdatedAt, schedule, targetOutputPath, workspaceContextPaths, status } = params as {
           jobId: string;
           name?: string;
           prompt?: string;
+          expectedPrompt?: string;
+          expectedUpdatedAt?: string;
           schedule?: {
             kind: string;
             date?: string;
@@ -2742,14 +2815,25 @@ function createUserScopedTools(userId?: string, agentId?: string | null, session
           status?: string;
         };
         try {
-          requireToolUserId(userId, 'automation tools');
+          const scopedUserId = requireToolUserId(userId, 'automation tools');
+          const existingJob = await getUserOwnedAutomationJob(scopedUserId, jobId);
+          const normalizedPrompt = normalizeOptionalString(prompt)?.slice(0, 12000);
+          if (normalizedPrompt !== undefined && expectedPrompt === undefined && expectedUpdatedAt === undefined) {
+            throw new Error('Prompt updates require expectedPrompt or expectedUpdatedAt from inspect_automation_job. Inspect the automation first, then submit the complete revised prompt.');
+          }
+          if (expectedPrompt !== undefined && existingJob.prompt !== expectedPrompt) {
+            throw new Error('Automation prompt changed since inspection. Inspect the automation again before updating.');
+          }
+          if (expectedUpdatedAt !== undefined && existingJob.updatedAt !== expectedUpdatedAt) {
+            throw new Error('Automation changed since inspection. Inspect the automation again before updating.');
+          }
           const updatedJob = await updateAutomationJob(jobId, {
             name: normalizeOptionalString(name)?.slice(0, 120),
-            prompt: normalizeOptionalString(prompt)?.slice(0, 12000),
+            prompt: normalizedPrompt,
             targetOutputPath: targetOutputPath === undefined
               ? undefined
               : normalizeOptionalString(targetOutputPath)?.replace(/^\/+|^\.\/+/, '') || null,
-            workspaceContextPaths: normalizeAutomationWorkspacePaths(workspaceContextPaths),
+            workspaceContextPaths: normalizeAutomationWorkspacePathsForUpdate(workspaceContextPaths),
             status: normalizeAutomationStatus(status),
             schedule: schedule ? normalizeAutomationSchedule(schedule) : undefined,
           });
@@ -2757,7 +2841,7 @@ function createUserScopedTools(userId?: string, agentId?: string | null, session
             throw new Error(`Automation job "${jobId}" not found.`);
           }
           return {
-            content: [{ type: 'text', text: `Automation job updated successfully\n\n${formatAutomationJob(updatedJob)}` }],
+            content: [{ type: 'text', text: `Automation job updated successfully\n\n${formatAutomationJob(updatedJob, { includeFullPrompt: true })}` }],
             details: { job: updatedJob },
           };
         } catch (error: unknown) {
@@ -2779,7 +2863,8 @@ function createUserScopedTools(userId?: string, agentId?: string | null, session
       execute: async (toolCallId, params) => {
         const { jobId } = params as { jobId: string };
         try {
-          requireToolUserId(userId, 'automation tools');
+          const scopedUserId = requireToolUserId(userId, 'automation tools');
+          await getUserOwnedAutomationJob(scopedUserId, jobId);
           const deleted = await deleteAutomationJob(jobId);
           if (!deleted) {
             throw new Error(`Automation job "${jobId}" not found.`);
@@ -2807,11 +2892,8 @@ function createUserScopedTools(userId?: string, agentId?: string | null, session
       execute: async (toolCallId, params) => {
         const { jobId } = params as { jobId: string };
         try {
-          requireToolUserId(userId, 'automation tools');
-          const job = await getAutomationJob(jobId);
-          if (!job) {
-            throw new Error(`Automation job "${jobId}" not found.`);
-          }
+          const scopedUserId = requireToolUserId(userId, 'automation tools');
+          await getUserOwnedAutomationJob(scopedUserId, jobId);
           const run = await scheduleAutomationJobRun(jobId, 'manual', new Date());
           if (!run) {
             return {
