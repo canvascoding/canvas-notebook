@@ -260,6 +260,54 @@ export const todoFileLinks = sqliteTable("todo_file_links", {
   userPathIdx: index("idx_todo_file_links_user_path").on(table.userId, table.workspacePath),
 }));
 
+export const todoEmailReplyWatchers = sqliteTable("todo_email_reply_watchers", {
+  id: text("id").primaryKey(),
+  todoId: text("todo_id").notNull().references(() => todoItems.id, { onDelete: 'cascade' }),
+  userId: text("user_id").notNull().references(() => user.id),
+  accountId: text("account_id").notNull().references(() => emailAccounts.id, { onDelete: 'cascade' }),
+  status: text("status").notNull().default("active"),
+  replyToken: text("reply_token").notNull(),
+  outboundMessageId: text("outbound_message_id"),
+  sourceAgentId: text("source_agent_id"),
+  sourceSessionId: text("source_session_id"),
+  locale: text("locale").notNull().default("de"),
+  sentAt: integer("sent_at", { mode: "timestamp" }).notNull(),
+  lastCheckedAt: integer("last_checked_at", { mode: "timestamp" }),
+  completedAt: integer("completed_at", { mode: "timestamp" }),
+  error: text("error"),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+}, (table) => ({
+  statusCheckedIdx: index("idx_todo_email_reply_watchers_status_checked").on(table.status, table.lastCheckedAt),
+  todoIdx: index("idx_todo_email_reply_watchers_todo").on(table.todoId),
+  userStatusIdx: index("idx_todo_email_reply_watchers_user_status").on(table.userId, table.status),
+  tokenIdx: uniqueIndex("idx_todo_email_reply_watchers_token").on(table.replyToken),
+}));
+
+export const todoEmailReplyEvents = sqliteTable("todo_email_reply_events", {
+  id: text("id").primaryKey(),
+  watcherId: text("watcher_id").notNull().references(() => todoEmailReplyWatchers.id, { onDelete: 'cascade' }),
+  todoId: text("todo_id").notNull().references(() => todoItems.id, { onDelete: 'cascade' }),
+  userId: text("user_id").notNull().references(() => user.id),
+  accountId: text("account_id").notNull().references(() => emailAccounts.id, { onDelete: 'cascade' }),
+  providerMessageId: text("provider_message_id").notNull(),
+  threadId: text("thread_id"),
+  folder: text("folder"),
+  fromAddress: text("from_address"),
+  subject: text("subject"),
+  receivedAt: integer("received_at", { mode: "timestamp" }),
+  replyText: text("reply_text"),
+  status: text("status").notNull(),
+  error: text("error"),
+  dispatchedAt: integer("dispatched_at", { mode: "timestamp" }),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+}, (table) => ({
+  watcherCreatedIdx: index("idx_todo_email_reply_events_watcher_created").on(table.watcherId, table.createdAt),
+  todoCreatedIdx: index("idx_todo_email_reply_events_todo_created").on(table.todoId, table.createdAt),
+  uniqueMessageIdx: uniqueIndex("idx_todo_email_reply_events_message").on(table.watcherId, table.accountId, table.providerMessageId),
+}));
+
 export const publicFileShares = sqliteTable("public_file_shares", {
   id: text("id").primaryKey(),
   token: text("token").notNull().unique(),

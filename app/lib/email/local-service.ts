@@ -36,6 +36,7 @@ import {
   normalizeEmailPolicyList as normalizePolicyList,
   type EmailPolicy,
 } from '@/app/lib/email/policy';
+import { emailCustomHeaderEntries, type EmailCustomHeaders } from '@/app/lib/email/headers';
 import {
   createSmtpEmailDraft,
   sendSmtpEmail,
@@ -69,6 +70,7 @@ export type EmailDraftInput = {
   subject: string;
   body: string;
   is_HTML?: boolean;
+  headers?: EmailCustomHeaders;
 };
 
 export type { EmailDerivedDraftMode, EmailDerivedDraftOverrides } from '@/app/lib/email/message-draft-builder';
@@ -561,6 +563,14 @@ function gmailHeader(headers: Array<{ name?: string; value?: string }> | undefin
   return header?.value || '';
 }
 
+function splitHeaderReferences(value: string): string[] {
+  return value
+    .split(/\s+/u)
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+    .slice(0, 20);
+}
+
 function folderRoleFromName(name: string): EmailFolder['role'] {
   const lower = name.toLowerCase();
   if (lower === 'inbox') return 'inbox';
@@ -707,6 +717,7 @@ function encodeRawEmail(input: EmailDraftInput) {
     ...(input.cc?.length ? [`Cc: ${input.cc.map(sanitizeEmailHeaderValue).join(', ')}`] : []),
     ...(input.bcc?.length ? [`Bcc: ${input.bcc.map(sanitizeEmailHeaderValue).join(', ')}`] : []),
     `Subject: ${encodeMimeHeaderValue(input.subject)}`,
+    ...emailCustomHeaderEntries(input.headers).map((header) => `${header.name}: ${sanitizeEmailHeaderValue(header.value)}`),
     'MIME-Version: 1.0',
     `Content-Type: ${contentType}; charset=UTF-8`,
   ];
@@ -902,13 +913,16 @@ export async function readLocalEmailMessage(userId: string, accountId: string, m
       cc: gmailHeader(headers, 'Cc'),
       subject: gmailHeader(headers, 'Subject'),
       date: gmailHeader(headers, 'Date'),
+      messageId: gmailHeader(headers, 'Message-ID'),
+      inReplyTo: gmailHeader(headers, 'In-Reply-To'),
+      references: splitHeaderReferences(gmailHeader(headers, 'References')),
       body: bodyText,
       bodyHtml,
       isRead: !labelIds.includes('UNREAD'),
       snippet: String(raw.snippet || ''),
     };
   } else {
-    const raw = await microsoftFetch(`messages/${encodeURIComponent(messageId)}?$select=id,conversationId,from,toRecipients,ccRecipients,subject,receivedDateTime,body,bodyPreview,isRead`, token);
+    const raw = await microsoftFetch(`messages/${encodeURIComponent(messageId)}?$select=id,conversationId,internetMessageId,from,toRecipients,ccRecipients,subject,receivedDateTime,body,bodyPreview,isRead`, token);
     const from = (raw.from as { emailAddress?: { address?: string } } | undefined)?.emailAddress?.address || '';
     assertSenderAllowed(account, from);
     const body = raw.body as { content?: string; contentType?: string } | undefined;
@@ -922,6 +936,9 @@ export async function readLocalEmailMessage(userId: string, accountId: string, m
       cc: raw.ccRecipients || [],
       subject: String(raw.subject || ''),
       date: String(raw.receivedDateTime || ''),
+      messageId: String(raw.internetMessageId || ''),
+      inReplyTo: '',
+      references: [],
       body: isHtml ? htmlToPlainText(bodyContent) : bodyContent,
       bodyHtml: isHtml ? bodyContent : '',
       isRead: raw.isRead !== false,

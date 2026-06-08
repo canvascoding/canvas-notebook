@@ -257,6 +257,16 @@ function snippetFromText(value: string | undefined): string {
   return (value || '').replace(/\s+/gu, ' ').trim().slice(0, 240);
 }
 
+function normalizeReferences(value: string | string[] | undefined): string[] {
+  if (!value) return [];
+  const values = Array.isArray(value) ? value : [value];
+  return values
+    .flatMap((entry) => String(entry).split(/\s+/u))
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+    .slice(0, 20);
+}
+
 function filterForInput(input: ImapEmailListInput): ImapMessageFilter {
   const value = String(input.filter || '').trim().toLowerCase();
   if (value === 'unread' || value === 'answered' || value === 'unanswered' || value === 'flagged' || value === 'attachments') {
@@ -632,6 +642,9 @@ export async function readImapEmailMessage(account: StoredEmailAccount, messageI
       cc: formatAddressList(fetched.envelope?.cc),
       subject: fetched.envelope?.subject || parsed?.subject || '',
       date: isoDate(fetched.envelope?.date || fetched.internalDate || parsed?.date),
+      messageId: parsed?.messageId || '',
+      inReplyTo: parsed?.inReplyTo || '',
+      references: normalizeReferences(parsed?.references),
       body,
       bodyHtml: typeof parsed?.html === 'string' ? parsed.html : '',
       attachments: (parsed?.attachments || []).map((attachment, index) => ({

@@ -9,10 +9,16 @@ import {
   normalizeEmailPolicyList,
   todoNotificationSendPolicyError,
 } from '@/app/lib/email/policy';
-import { createEmailDraft, listEmailAccounts, sendEmailDraft } from '@/app/lib/email/service';
+import { listEmailAccounts, sendEmailMessage } from '@/app/lib/email/service';
 import { renderTodoNotificationEmail } from '@/app/lib/email/templates/todo-notification';
 import { getUserPreferredLocale } from '@/app/lib/user-preferences';
 import type { TodoWithRelations } from '@/app/lib/todos/store';
+import {
+  appendTodoEmailReplyTokenToSubject,
+  createTodoEmailReplyToken,
+  createTodoEmailReplyWatcher,
+  todoEmailReplyTrackingHeaders,
+} from '@/app/lib/todos/email-reply-tracking';
 
 type EmailAccountCandidate = {
   id: string;
@@ -24,7 +30,7 @@ type EmailAccountCandidate = {
 };
 
 export type TodoEmailNotificationResult =
-  | { status: 'sent'; accountId: string; draftId: string }
+  | { status: 'sent'; accountId: string; messageId: string | null; replyToken: string | null }
   | { status: 'skipped'; reason: string }
   | { status: 'failed'; error: string };
 
@@ -119,22 +125,35 @@ export async function sendTodoCreatedEmailNotification(userId: string, todo: Tod
     }
 
     const locale = await resolveUserLocale(userId);
-    const email = renderTodoNotificationEmail(todo, locale);
-    const draftResponse = await createEmailDraft(userId, {
+    const replyToken = todo.sourceSessionId ? createTodoEmailReplyToken() : null;
+    const email = renderTodoNotificationEmail(todo, locale, { replyToken });
+    const sendResponse = await sendEmailMessage(userId, {
       accountId: account.id,
       to: [recipient],
-      subject: email.subject,
+      subject: replyToken ? appendTodoEmailReplyTokenToSubject(email.subject, replyToken) : email.subject,
       body: email.html,
       is_HTML: true,
+      headers: replyToken ? todoEmailReplyTrackingHeaders(todo.id, replyToken) : undefined,
     });
-    const draftId = (draftResponse as { draft?: { id?: unknown } }).draft?.id;
-    if (typeof draftId !== 'string' || !draftId.trim()) {
-      throw new Error('Email draft service did not return a draft ID.');
+    const messageId = (sendResponse as { messageId?: unknown }).messageId;
+    const normalizedMessageId = typeof messageId === 'string' && messageId.trim() ? messageId.trim() : null;
+
+    if (replyToken) {
+      await createTodoEmailReplyWatcher({
+        todoId: todo.id,
+        userId,
+        accountId: account.id,
+        replyToken,
+        outboundMessageId: normalizedMessageId,
+        sourceAgentId: todo.sourceAgentId,
+        sourceSessionId: todo.sourceSessionId,
+        locale,
+        sentAt: new Date(),
+      });
     }
 
-    await sendEmailDraft(userId, account.id, draftId);
     await markTodoNotificationStatus(todo.id, { sentAt: new Date(), error: null });
-    return { status: 'sent', accountId: account.id, draftId };
+    return { status: 'sent', accountId: account.id, messageId: normalizedMessageId, replyToken };
   } catch (error) {
     const rawMessage = getErrorMessage(error);
     const message = isSendPolicyError(rawMessage)

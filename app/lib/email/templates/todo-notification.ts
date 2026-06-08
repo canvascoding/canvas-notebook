@@ -19,6 +19,7 @@ type TodoNotificationCopy = {
     priority: string;
     dueAt: string;
     createdAt: string;
+    replyCode: string;
   };
   values: {
     defaultCategory: string;
@@ -27,6 +28,7 @@ type TodoNotificationCopy = {
   };
   priorities: Record<TodoWithRelations['priority'], string>;
   actionLabel: string;
+  replyHint: string;
   footer: string;
 };
 
@@ -44,6 +46,7 @@ const COPY: Record<TodoNotificationLocale, TodoNotificationCopy> = {
       priority: 'Priorität',
       dueAt: 'Fällig',
       createdAt: 'Erstellt',
+      replyCode: 'Antwort-Code',
     },
     values: {
       defaultCategory: 'To-do',
@@ -56,6 +59,7 @@ const COPY: Record<TodoNotificationLocale, TodoNotificationCopy> = {
       normal: 'Normal',
     },
     actionLabel: 'To-do öffnen',
+    replyHint: 'Du kannst direkt auf diese E-Mail antworten. Canvas leitet deine Antwort an die verknüpfte Agent-Session weiter.',
     footer: 'Diese Benachrichtigung wurde automatisch von Canvas Notebook gesendet, weil ein Agent ein To-do erstellt hat.',
   },
   en: {
@@ -71,6 +75,7 @@ const COPY: Record<TodoNotificationLocale, TodoNotificationCopy> = {
       priority: 'Priority',
       dueAt: 'Due',
       createdAt: 'Created',
+      replyCode: 'Reply code',
     },
     values: {
       defaultCategory: 'To-do',
@@ -83,6 +88,7 @@ const COPY: Record<TodoNotificationLocale, TodoNotificationCopy> = {
       normal: 'Normal',
     },
     actionLabel: 'Open to-do',
+    replyHint: 'You can reply directly to this email. Canvas will forward your reply to the linked agent session.',
     footer: 'This notification was sent automatically by Canvas Notebook because an agent created a to-do.',
   },
 };
@@ -115,6 +121,7 @@ function todoHref(todo: TodoWithRelations, locale: TodoNotificationLocale): stri
 export function renderTodoNotificationEmail(
   todo: TodoWithRelations,
   localeInput?: string | null,
+  options: { replyToken?: string | null } = {},
 ): { subject: string; html: string } {
   const locale = normalizeLocale(localeInput);
   const copy = COPY[locale];
@@ -154,8 +161,15 @@ export function renderTodoNotificationEmail(
           <td>${escapeHtml(copy.fields.createdAt)}</td>
           <td>${escapeHtml(createdAt ?? copy.values.justNow)}</td>
         </tr>
+        ${options.replyToken ? `
+        <tr>
+          <td>${escapeHtml(copy.fields.replyCode)}</td>
+          <td>${escapeHtml(options.replyToken)}</td>
+        </tr>
+        ` : ''}
         ${fileLinks}
       </table>
+      ${options.replyToken ? `<p class="muted">${escapeHtml(copy.replyHint)}</p>` : ''}
     </div>
   `;
 
