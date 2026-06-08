@@ -973,6 +973,8 @@
     "loadingMessage": "Nachricht wird geladen...",
     "accountLabel": "E-Mail-Konto",
     "mainEmail": "Main Email",
+    "manageAccounts": "Accounts verwalten",
+    "manageAccountsDescription": "Verbinde, teste und bearbeite E-Mail-Accounts sowie Read-/Send-Policies.",
     "refresh": "Aktualisieren",
     "search": "Suchen",
     "searchPlaceholder": "Nach Absender, Betreff oder Inhalt suchen...",

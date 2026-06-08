@@ -20,6 +20,7 @@ import {
   Search,
   Sparkles,
   Star,
+  Settings,
   Trash2,
   XCircle,
 } from 'lucide-react';
@@ -620,14 +621,14 @@ export function EmailClient() {
     }
   }, [activeAccount, activeFolder, canReadActiveAccount, messagePage, submittedQuery, t]);
 
-  const loadMessage = useCallback(async (message: EmailMessageSummary) => {
+  const loadMessage = useCallback(async (message: EmailMessageSummary, options?: { openDialog?: boolean }) => {
     if (!activeAccount) return;
     setSelectedMessageId(message.id);
     setIsLoadingMessage(true);
     setError(null);
     setMessageActionNotice(null);
     setMessageSummary('');
-    if (isCompactViewport) setMessageDialogOpen(true);
+    if (isCompactViewport || options?.openDialog) setMessageDialogOpen(true);
     try {
       const params = new URLSearchParams();
       params.set('folder', message.folder || activeFolder);
@@ -929,6 +930,10 @@ export function EmailClient() {
               {isLoadingMessages ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
               {t('refresh')}
             </Button>
+            <Button type="button" variant="outline" onClick={() => setAccountsOpen(true)}>
+              <Settings className="mr-2 h-4 w-4" />
+              {t('manageAccounts')}
+            </Button>
           </div>
         </div>
 
@@ -972,15 +977,18 @@ export function EmailClient() {
       )}
 
       {!canReadActiveAccount ? (
-        <div className="grid min-h-0 flex-1 gap-4 overflow-y-auto lg:grid-cols-[minmax(0,1fr)_420px]">
+        <div className="min-h-0 flex-1 overflow-y-auto">
           <section className="flex min-h-80 items-center justify-center border border-border bg-card p-6 text-center">
             <div className="max-w-md space-y-3">
               <MailWarning className="mx-auto h-9 w-9 text-muted-foreground" />
               <h3 className="text-base font-semibold">{t('imapMissingTitle')}</h3>
               <p className="text-sm leading-6 text-muted-foreground">{t('imapMissingDescription')}</p>
+              <Button type="button" onClick={() => setAccountsOpen(true)}>
+                <Settings className="mr-2 h-4 w-4" />
+                {t('manageAccounts')}
+              </Button>
             </div>
           </section>
-          <EmailAccountsCard isOpen={accountsOpen} onOpenChange={setAccountsOpen} onAccountsChanged={loadAccounts} />
         </div>
       ) : (
         <div className="grid flex-none gap-3 lg:min-h-0 lg:flex-1 lg:overflow-hidden lg:grid-cols-[220px_minmax(280px,380px)_minmax(0,1fr)]">
@@ -1064,6 +1072,7 @@ export function EmailClient() {
                       selectedMessageId === message.id && 'bg-primary/10',
                     )}
                     onClick={() => void loadMessage(message)}
+                    onDoubleClick={() => void loadMessage(message, { openDialog: true })}
                   >
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0 truncate text-sm font-medium">{message.from || t('unknownSender')}</div>
@@ -1090,8 +1099,8 @@ export function EmailClient() {
       )}
 
       {canReadActiveAccount && (
-        <Dialog open={isCompactViewport && messageDialogOpen} onOpenChange={setMessageDialogOpen}>
-          <DialogContent layout="viewport" className="lg:hidden">
+        <Dialog open={messageDialogOpen} onOpenChange={setMessageDialogOpen}>
+          <DialogContent layout="viewport">
             <DialogHeader className="sr-only">
               <DialogTitle>{selectedMessage?.subject || t('noSubject')}</DialogTitle>
               <DialogDescription>
@@ -1110,8 +1119,18 @@ export function EmailClient() {
         </Dialog>
       )}
 
-      {canReadActiveAccount && (
-        <EmailAccountsCard isOpen={accountsOpen} onOpenChange={setAccountsOpen} onAccountsChanged={loadAccounts} />
+      {accounts.length > 0 && (
+        <Dialog open={accountsOpen} onOpenChange={setAccountsOpen}>
+          <DialogContent layout="viewport">
+            <DialogHeader className="border-b border-border px-4 py-4 pr-12 sm:px-6">
+              <DialogTitle>{t('manageAccounts')}</DialogTitle>
+              <DialogDescription>{t('manageAccountsDescription')}</DialogDescription>
+            </DialogHeader>
+            <div className="min-h-0 flex-1 overflow-y-auto px-3 py-4 sm:px-6">
+              <EmailAccountsCard isOpen={true} onOpenChange={() => undefined} onAccountsChanged={loadAccounts} />
+            </div>
+          </DialogContent>
+        </Dialog>
       )}
     </div>
   );

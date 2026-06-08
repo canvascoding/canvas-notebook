@@ -974,6 +974,8 @@
     "loadingMessage": "Loading message...",
     "accountLabel": "Email account",
     "mainEmail": "Main email",
+    "manageAccounts": "Manage accounts",
+    "manageAccountsDescription": "Connect, test, and edit email accounts plus read/send policies.",
     "refresh": "Refresh",
     "search": "Search",
     "searchPlaceholder": "Search sender, subject, or content...",
