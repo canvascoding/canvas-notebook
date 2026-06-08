@@ -31,6 +31,7 @@ import { AudioLines, Sparkles, Layers, LayoutGrid, ArrowRight, Camera, Cpu, Home
 import { useStudioGenerationStore } from '@/app/store/studio-generation-store';
 import { cn } from '@/lib/utils';
 import { buildStudioGeneratePayload } from '../utils/studio-generate-payload';
+import { getStudioUserPrompt } from '../utils/studio-generation-prompt';
 import { StudioMediaThumbnail } from './StudioMediaThumbnail';
 
 interface StartingPoint {
@@ -506,6 +507,7 @@ export function StudioDashboard() {
             {recentCompleted.map((generation) => {
               const output = generation.outputs.find((o) => o.mediaUrl);
               if (!output) return null;
+              const displayPrompt = getStudioUserPrompt(generation);
               return (
                 <button
                   key={generation.id}
@@ -522,7 +524,7 @@ export function StudioDashboard() {
                   ) : output.type === 'video' ? (
                     <StudioMediaThumbnail
                       src={output.filePath ? toPreviewUrl(output.filePath, 480, { preset: 'mini' }) : null}
-                      alt={generation.prompt || 'Video output'}
+                      alt={displayPrompt || 'Video output'}
                       fallback={<Film className="h-8 w-8" />}
                       skeletonIcon={<Film className="h-5 w-5" />}
                       imageClassName="transition-transform duration-300 group-hover:scale-105"
@@ -534,16 +536,16 @@ export function StudioDashboard() {
                   ) : (
                     <StudioMediaThumbnail
                       src={output.filePath ? toPreviewUrl(output.filePath, 480, { preset: 'mini' }) : null}
-                      alt={generation.prompt || 'Studio output'}
+                      alt={displayPrompt || 'Studio output'}
                       fallback={<ImageIcon className="h-8 w-8" />}
                       skeletonIcon={<ImageIcon className="h-5 w-5" />}
                       imageClassName="transition-transform duration-300 group-hover:scale-105"
                     />
                   )}
                   <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-transparent opacity-0 transition-opacity group-hover:opacity-100" />
-                  {generation.prompt && (
+                  {displayPrompt && (
                     <p className="absolute bottom-2 left-2 right-2 truncate text-xs text-white opacity-0 transition-opacity group-hover:opacity-100">
-                      {generation.prompt}
+                      {displayPrompt}
                     </p>
                   )}
                   {output.isFavorite && (
@@ -623,7 +625,7 @@ export function StudioDashboard() {
           }}
           onCreateVariation={(generation, output) => {
             store.setMode('image');
-            store.setRawPrompt(generation.rawPrompt || generation.prompt || '');
+            store.setRawPrompt(getStudioUserPrompt(generation));
             store.setProductRefs((generation.product_ids ?? []).map((id) => {
               const p = products.find((product) => product.id === id);
               return { id, name: p?.name || id };
@@ -644,7 +646,7 @@ export function StudioDashboard() {
           }}
           onCreateVideo={(generation, output) => {
             store.setMode('video');
-            store.setRawPrompt(generation.rawPrompt || generation.prompt || '');
+            store.setRawPrompt(getStudioUserPrompt(generation));
             store.setProductRefs((generation.product_ids ?? []).map((id) => {
               const p = products.find((product) => product.id === id);
               return { id, name: p?.name || id };

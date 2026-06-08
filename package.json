@@ -42,6 +42,7 @@
     "test:media:references": "tsx --conditions react-server scripts/media-reference-resolver-test.ts",
     "test:upload:conversion": "tsx --conditions react-server scripts/upload-conversion-test.ts",
     "test:prompt-builder": "tsx scripts/prompt-builder-test.ts",
+    "test:studio:prompt": "tsx scripts/studio-generation-prompt-test.ts",
     "test:studio:preset-preview": "tsx scripts/studio-preset-preview-test.ts",
     "test:automation:schedule": "tsx scripts/automation-schedule-test.ts",
     "test:automation:session-messages": "tsx scripts/automation-session-messages-test.ts",

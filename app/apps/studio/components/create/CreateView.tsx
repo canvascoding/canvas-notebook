@@ -28,6 +28,7 @@ import { toPreviewUrl, toWorkspaceMediaUrl } from '@/app/lib/utils/media-url';
 import { useSetStudioChatContext } from '@/app/apps/studio/context/studio-chat-context';
 import { useStudioGenerationStore } from '@/app/store/studio-generation-store';
 import { buildStudioGeneratePayload } from '../../utils/studio-generate-payload';
+import { getStudioUserPrompt } from '../../utils/studio-generation-prompt';
 import { EMPTY_STUDIO_PROVIDER_CONFIG, type StudioProviderConfig } from '../../types/config';
 import { StudioMediaThumbnail } from '../StudioMediaThumbnail';
 
@@ -304,7 +305,7 @@ export function CreateView({ initialProviderConfig = EMPTY_STUDIO_PROVIDER_CONFI
         studioContext: {
           generationId: resolvedSelectedGeneration.id,
           currentOutputId: resolvedSelectedOutput.id,
-          generationPrompt: resolvedSelectedGeneration.prompt || resolvedSelectedGeneration.rawPrompt || null,
+          generationPrompt: getStudioUserPrompt(resolvedSelectedGeneration) || null,
           generationPresetId: resolvedSelectedGeneration.studioPresetId,
           generationProductIds: resolvedSelectedGeneration.product_ids ?? [],
           generationPersonaIds: resolvedSelectedGeneration.persona_ids ?? [],
@@ -718,7 +719,7 @@ export function CreateView({ initialProviderConfig = EMPTY_STUDIO_PROVIDER_CONFI
               }}
               onCreateVariation={(generation, output) => {
                 store.setMode('image');
-                store.setRawPrompt(generation.rawPrompt || generation.prompt || '');
+                store.setRawPrompt(getStudioUserPrompt(generation));
                 store.setProductRefs((generation.product_ids ?? []).map((id) => {
                   const p = products.find((product) => product.id === id);
                   return { id, name: p?.name || id };
@@ -737,7 +738,7 @@ export function CreateView({ initialProviderConfig = EMPTY_STUDIO_PROVIDER_CONFI
               }}
               onCreateVideo={(generation, output) => {
                 store.setMode('video');
-                store.setRawPrompt(generation.rawPrompt || generation.prompt || '');
+                store.setRawPrompt(getStudioUserPrompt(generation));
                 store.setProductRefs((generation.product_ids ?? []).map((id) => {
                   const p = products.find((product) => product.id === id);
                   return { id, name: p?.name || id };
@@ -1010,7 +1011,7 @@ export function CreateView({ initialProviderConfig = EMPTY_STUDIO_PROVIDER_CONFI
         onOpenCustomAspectRatio={handleOpenCustomAspectRatio}
         onCreateVariation={(generation, output) => {
           store.setMode('image');
-          store.setRawPrompt(generation.rawPrompt || generation.prompt || '');
+          store.setRawPrompt(getStudioUserPrompt(generation));
           store.setProductRefs((generation.product_ids ?? []).map((id: string) => {
             const p = products.find((product) => product.id === id);
             return { id, name: p?.name || id };
@@ -1029,7 +1030,7 @@ export function CreateView({ initialProviderConfig = EMPTY_STUDIO_PROVIDER_CONFI
         }}
         onCreateVideo={(generation, output) => {
           store.setMode('video');
-          store.setRawPrompt(generation.rawPrompt || generation.prompt || '');
+          store.setRawPrompt(getStudioUserPrompt(generation));
           store.setProductRefs((generation.product_ids ?? []).map((id: string) => {
             const p = products.find((product) => product.id === id);
             return { id, name: p?.name || id };
