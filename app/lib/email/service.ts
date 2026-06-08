@@ -3,6 +3,7 @@ import 'server-only';
 import {
   createLocalEmailDraft,
   disconnectLocalEmailAccount,
+  getLocalEmailOAuthStatus,
   listLocalEmailAccounts,
   readLocalEmailMessage,
   searchLocalEmail,
@@ -55,6 +56,12 @@ export async function startEmailOAuth(userId: string, params: {
   returnUrl?: string;
 }): Promise<EmailOAuthStartResponse> {
   return startLocalEmailOAuth({ ...params, userId });
+}
+
+export async function getEmailOAuthStatus(params: {
+  requestOrigin?: string | null;
+}) {
+  return getLocalEmailOAuthStatus(params.requestOrigin);
 }
 
 export async function listEmailAccounts(userId: string) {

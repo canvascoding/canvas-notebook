@@ -75,7 +75,7 @@ async function main() {
   await fs.mkdir(secretsDir, { recursive: true });
   await fs.writeFile(integrationsEnvPath, '', 'utf8');
 
-  const { createEmailDraft, disconnectEmailAccount, listEmailAccounts, readEmailMessage, saveEmailSmtpAccount, searchEmail, sendEmailDraft, setEmailMainAccount, startEmailOAuth } = await import('../app/lib/email/service');
+  const { createEmailDraft, disconnectEmailAccount, getEmailOAuthStatus, listEmailAccounts, readEmailMessage, saveEmailSmtpAccount, searchEmail, sendEmailDraft, setEmailMainAccount, startEmailOAuth } = await import('../app/lib/email/service');
   const { upsertOAuthEmailAccount } = await import('../app/lib/email/account-store');
   const { setSmtpTransportFactoryForTests } = await import('../app/lib/email/smtp-service');
   const { setImapClientFactoryForTests } = await import('../app/lib/email/imap-service');
@@ -122,14 +122,31 @@ async function main() {
   assert.equal(ownerAfterDisconnect.accounts.length, 0);
   assert.equal((await listEmailAccounts('other-user')).accounts.length, 1);
 
+  delete process.env.EMAIL_OAUTH_BASE_URL;
+  delete process.env.OAUTH_BASE_URL;
+  delete process.env.BASE_URL;
+  delete process.env.APP_BASE_URL;
+  delete process.env.BETTER_AUTH_BASE_URL;
   await fs.writeFile(integrationsEnvPath, 'GOOGLE_OAUTH_CLIENT_ID=local-client\nGOOGLE_OAUTH_CLIENT_SECRET=local-secret\n', 'utf8');
-  const oauthStart = await startEmailOAuth('owner-user', { provider: 'google', requestOrigin: 'http://localhost:3000' });
+  const oauthStart = await startEmailOAuth('owner-user', { provider: 'google', requestOrigin: 'https://canvas.example.com' });
   assert.equal(oauthStart.provider, 'google');
   assert.match(oauthStart.authorizationUrl, /^https:\/\/accounts\.google\.com\/o\/oauth2\/v2\/auth/u);
+  const oauthStartUrl = new URL(oauthStart.authorizationUrl);
+  assert.equal(oauthStartUrl.searchParams.get('redirect_uri'), 'https://canvas.example.com/api/email/oauth/callback');
+  const oauthStatus = await getEmailOAuthStatus({ requestOrigin: 'https://canvas.example.com' });
+  assert.equal(oauthStatus.redirectUri, 'https://canvas.example.com/api/email/oauth/callback');
+  assert.equal(oauthStatus.providers.google.configured, true);
+  assert.equal(oauthStatus.providers.microsoft.configured, false);
   const stateFiles = await fs.readdir(stateDir);
   assert.equal(stateFiles.length, 1);
-  const storedState = JSON.parse(await fs.readFile(path.join(stateDir, stateFiles[0]), 'utf8')) as { userId?: string };
+  const storedState = JSON.parse(await fs.readFile(path.join(stateDir, stateFiles[0]), 'utf8')) as { userId?: string; redirectUri?: string };
   assert.equal(storedState.userId, 'owner-user');
+  assert.equal(storedState.redirectUri, 'https://canvas.example.com/api/email/oauth/callback');
+
+  process.env.EMAIL_OAUTH_BASE_URL = 'https://oauth.example.com/custom/path';
+  const overriddenOAuthStart = await startEmailOAuth('owner-user', { provider: 'google', requestOrigin: 'https://canvas.example.com' });
+  const overriddenOAuthStartUrl = new URL(overriddenOAuthStart.authorizationUrl);
+  assert.equal(overriddenOAuthStartUrl.searchParams.get('redirect_uri'), 'https://oauth.example.com/api/email/oauth/callback');
 
   let verifyCalls = 0;
   const sentMessages: unknown[] = [];
