@@ -40,6 +40,10 @@ type EmailAccount = {
   isPrimary: boolean;
   status: string;
   imapHost: string | null;
+  policy: {
+    readFrom: string[];
+    sendTo: string[];
+  };
 };
 
 type EmailFolder = {
@@ -80,6 +84,7 @@ type EmailMessageDetail = EmailMessageSummary & {
 
 const MESSAGE_PAGE_SIZE = 20;
 const COMPACT_VIEWPORT_QUERY = '(max-width: 1023px)';
+const SEND_POLICY_ERROR_PATTERN = /send policy:\s*([^\s,;]+)/iu;
 const EMAIL_HTML_SANITIZE_CONFIG = {
   ALLOWED_TAGS: [
     'a',
@@ -163,6 +168,22 @@ function formatRecipients(value: string[] | string | undefined) {
   if (!value) return '';
   if (Array.isArray(value)) return value.filter(Boolean).join(', ');
   return value;
+}
+
+function extractBlockedSendPolicyRecipient(error: string | null): string | null {
+  const match = error?.match(SEND_POLICY_ERROR_PATTERN);
+  const email = match?.[1]?.trim().toLowerCase();
+  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/u.test(email)) return null;
+  return email;
+}
+
+function sendPolicyAllowsEmail(email: string, sendTo: string[]): boolean {
+  if (sendTo.length === 0) return true;
+  const normalizedEmail = email.toLowerCase();
+  return sendTo.some((entry) => {
+    const normalizedEntry = entry.trim().toLowerCase();
+    return normalizedEntry === normalizedEmail || (normalizedEntry.startsWith('@') && normalizedEmail.endsWith(normalizedEntry));
+  });
 }
 
 function sanitizeEmailHtml(value: string) {
@@ -435,6 +456,7 @@ export function EmailClient() {
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
   const [isLoadingMessage, setIsLoadingMessage] = useState(false);
   const [activeMessageAction, setActiveMessageAction] = useState<EmailMessageActionName | null>(null);
+  const [isAddingSendPolicyRecipient, setIsAddingSendPolicyRecipient] = useState(false);
   const [messageActionNotice, setMessageActionNotice] = useState<string | null>(null);
   const [messageSummary, setMessageSummary] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -444,6 +466,12 @@ export function EmailClient() {
     [accounts, activeAccountId],
   );
   const canReadActiveAccount = Boolean(activeAccount && (activeAccount.authType !== 'smtp_imap' || activeAccount.imapHost));
+  const blockedSendPolicyRecipient = useMemo(() => extractBlockedSendPolicyRecipient(error), [error]);
+  const canAddBlockedSendPolicyRecipient = Boolean(
+    activeAccount
+    && blockedSendPolicyRecipient
+    && !sendPolicyAllowsEmail(blockedSendPolicyRecipient, activeAccount.policy?.sendTo || []),
+  );
 
   const loadAccounts = useCallback(async () => {
     setIsLoadingAccounts(true);
@@ -618,6 +646,37 @@ export function EmailClient() {
     setMessagePage(0);
     setSubmittedQuery(query.trim());
   };
+
+  const addBlockedRecipientToSendPolicy = useCallback(async () => {
+    if (!activeAccount || !blockedSendPolicyRecipient) return;
+    const currentSendTo = activeAccount.policy?.sendTo || [];
+    const nextSendTo = Array.from(new Set([...currentSendTo, blockedSendPolicyRecipient]));
+    setIsAddingSendPolicyRecipient(true);
+    setMessageActionNotice(null);
+
+    try {
+      const response = await fetch(`/api/email/accounts/${encodeURIComponent(activeAccount.id)}/policy`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ sendTo: nextSendTo }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload.success) throw new Error(payload.error || t('errors.updatePolicy'));
+      const updatedAccount = payload.data as EmailAccount | undefined;
+      setAccounts((current) => current.map((account) => (
+        account.id === activeAccount.id
+          ? updatedAccount || { ...account, policy: { ...account.policy, sendTo: nextSendTo } }
+          : account
+      )));
+      setError(null);
+      setMessageActionNotice(t('sendPolicyRecipientAdded', { email: blockedSendPolicyRecipient }));
+    } catch (policyError) {
+      setError(policyError instanceof Error ? policyError.message : t('errors.updatePolicy'));
+    } finally {
+      setIsAddingSendPolicyRecipient(false);
+    }
+  }, [activeAccount, blockedSendPolicyRecipient, t]);
 
   const handleMessageAction = useCallback(async (action: EmailMessageActionName, destination?: string) => {
     if (!activeAccount || !selectedMessage) return;
@@ -836,8 +895,21 @@ export function EmailClient() {
       </section>
 
       {error && (
-        <div className="border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-          {error}
+        <div className="flex flex-col gap-2 border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive sm:flex-row sm:items-center sm:justify-between">
+          <span className="min-w-0 break-words">{error}</span>
+          {canAddBlockedSendPolicyRecipient && blockedSendPolicyRecipient && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="w-full border-destructive/40 bg-background text-foreground hover:bg-destructive/10 sm:w-auto"
+              onClick={() => void addBlockedRecipientToSendPolicy()}
+              disabled={isAddingSendPolicyRecipient}
+            >
+              {isAddingSendPolicyRecipient ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
+              {t('addRecipientToSendPolicy', { email: blockedSendPolicyRecipient })}
+            </Button>
+          )}
         </div>
       )}
 
