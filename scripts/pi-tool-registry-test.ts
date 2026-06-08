@@ -604,6 +604,124 @@ async function main() {
   assert.equal(allTools.some((tool) => tool.name === 'video_generation'), false);
   assert.equal(allTools.some((tool) => tool.name === 'studio_edit_image'), false);
 
+  const { db } = await import('../app/lib/db');
+  const { user } = await import('../app/lib/db/schema');
+  const { createAutomationJob: createAutomationJobInStore, getAutomationJob } = await import('../app/lib/automations/store');
+  const now = new Date();
+  await db.insert(user).values([
+    {
+      id: 'automation-owner',
+      name: 'Automation Owner',
+      email: 'automation-owner@example.com',
+      emailVerified: true,
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      id: 'automation-other',
+      name: 'Automation Other',
+      email: 'automation-other@example.com',
+      emailVerified: true,
+      createdAt: now,
+      updatedAt: now,
+    },
+  ]);
+
+  const ownerAutomationTools = buildPiToolRegistry('automation-owner');
+  const createAutomationTool = ownerAutomationTools.find((tool) => tool.name === 'create_automation_job');
+  const listAutomationTool = ownerAutomationTools.find((tool) => tool.name === 'list_automation_jobs');
+  const inspectAutomationTool = ownerAutomationTools.find((tool) => tool.name === 'inspect_automation_job');
+  const updateAutomationTool = ownerAutomationTools.find((tool) => tool.name === 'update_automation_job');
+  const deleteAutomationTool = ownerAutomationTools.find((tool) => tool.name === 'delete_automation_job');
+  const triggerAutomationTool = ownerAutomationTools.find((tool) => tool.name === 'trigger_automation_job');
+  assert.ok(createAutomationTool);
+  assert.ok(listAutomationTool);
+  assert.ok(inspectAutomationTool);
+  assert.ok(updateAutomationTool);
+  assert.ok(deleteAutomationTool);
+  assert.ok(triggerAutomationTool);
+
+  const originalAutomationPrompt = [
+    'Pruefe jeden Morgen die offenen Notizen.',
+    'Erstelle eine kurze Prioritaetenliste.',
+  ].join('\n');
+  const createAutomationResult = await createAutomationTool.execute('create-automation', {
+    name: 'Prompt Editor Automation',
+    prompt: originalAutomationPrompt,
+    schedule: { kind: 'daily', time: '09:00', timeZone: 'UTC' },
+    targetOutputPath: 'reports/daily',
+    workspaceContextPaths: ['README.md'],
+    status: 'active',
+  });
+  assert.match(getText(createAutomationResult), /Automation job created successfully/);
+  assert.match(getText(createAutomationResult), /```text/);
+  assert.match(getText(createAutomationResult), /Pruefe jeden Morgen/);
+  const createdAutomationJob = (createAutomationResult.details as { job: { id: string; prompt: string; updatedAt: string } }).job;
+  assert.equal(createdAutomationJob.prompt, originalAutomationPrompt);
+
+  const listAutomationResult = await listAutomationTool.execute('list-automations', {});
+  assert.match(getText(listAutomationResult), /Prompt preview/);
+  assert.match(getText(listAutomationResult), /Use inspect_automation_job/);
+  assert.doesNotMatch(getText(listAutomationResult), /```text/);
+
+  const inspectAutomationResult = await inspectAutomationTool.execute('inspect-automation', { jobId: createdAutomationJob.id });
+  const inspectText = getText(inspectAutomationResult);
+  assert.match(inspectText, /Prompt:/);
+  assert.match(inspectText, /```text/);
+  assert.match(inspectText, /Pruefe jeden Morgen die offenen Notizen\.\nErstelle eine kurze Prioritaetenliste\./);
+  const inspectedAutomationJob = (inspectAutomationResult.details as { job: { prompt: string; updatedAt: string } }).job;
+  assert.equal(inspectedAutomationJob.prompt, originalAutomationPrompt);
+
+  const rejectedPromptUpdate = await updateAutomationTool.execute('update-automation-without-expected', {
+    jobId: createdAutomationJob.id,
+    prompt: `${originalAutomationPrompt}\nSende danach eine knappe Zusammenfassung.`,
+  });
+  assert.match(getText(rejectedPromptUpdate), /expectedPrompt or expectedUpdatedAt/);
+
+  const rejectedStalePromptUpdate = await updateAutomationTool.execute('update-automation-stale-prompt', {
+    jobId: createdAutomationJob.id,
+    prompt: `${originalAutomationPrompt}\nSende danach eine knappe Zusammenfassung.`,
+    expectedPrompt: 'outdated prompt',
+  });
+  assert.match(getText(rejectedStalePromptUpdate), /changed since inspection/);
+
+  const revisedAutomationPrompt = `${originalAutomationPrompt}\nSende danach eine knappe Zusammenfassung.`;
+  const updateAutomationResult = await updateAutomationTool.execute('update-automation', {
+    jobId: createdAutomationJob.id,
+    prompt: revisedAutomationPrompt,
+    expectedPrompt: inspectedAutomationJob.prompt,
+    workspaceContextPaths: [],
+    targetOutputPath: '',
+  });
+  assert.match(getText(updateAutomationResult), /Automation job updated successfully/);
+  assert.match(getText(updateAutomationResult), /Sende danach eine knappe Zusammenfassung/);
+  const updatedAutomationJob = await getAutomationJob(createdAutomationJob.id);
+  assert.ok(updatedAutomationJob);
+  assert.equal(updatedAutomationJob.prompt, revisedAutomationPrompt);
+  assert.deepEqual(updatedAutomationJob.workspaceContextPaths, []);
+  assert.equal(updatedAutomationJob.targetOutputPath, null);
+  assert.equal(updatedAutomationJob.schedule.kind, 'daily');
+
+  const otherAutomationJob = await createAutomationJobInStore(
+    {
+      name: 'Other User Automation',
+      prompt: 'This must stay private to another user.',
+      schedule: { kind: 'daily', times: ['10:00'], timeZone: 'UTC' },
+      status: 'active',
+    },
+    'automation-other',
+  );
+  assert.match(getText(await inspectAutomationTool.execute('inspect-other-automation', { jobId: otherAutomationJob.id })), /not found/);
+  assert.match(getText(await updateAutomationTool.execute('update-other-automation', {
+    jobId: otherAutomationJob.id,
+    name: 'Cross-user update attempt',
+  })), /not found/);
+  assert.match(getText(await triggerAutomationTool.execute('trigger-other-automation', { jobId: otherAutomationJob.id })), /not found/);
+  assert.match(getText(await deleteAutomationTool.execute('delete-other-automation', { jobId: otherAutomationJob.id })), /not found/);
+  const otherAutomationAfterAttempts = await getAutomationJob(otherAutomationJob.id);
+  assert.ok(otherAutomationAfterAttempts);
+  assert.equal(otherAutomationAfterAttempts.name, 'Other User Automation');
+
   const metadata = await getPiToolMetadata();
   const memoryMetadata = metadata.find((tool) => tool.name === 'memory');
   assert.ok(memoryMetadata);
@@ -615,6 +733,11 @@ async function main() {
   assert.equal(sessionSearchMetadata.group, 'Session');
   assert.deepEqual(sessionSearchMetadata.toolsets, ['session_search']);
   assert.equal(sessionSearchMetadata.planningModeAllowed, true);
+  const inspectAutomationMetadata = metadata.find((tool) => tool.name === 'inspect_automation_job');
+  assert.ok(inspectAutomationMetadata);
+  assert.equal(inspectAutomationMetadata.group, 'Automation');
+  assert.deepEqual(inspectAutomationMetadata.toolsets, ['automation']);
+  assert.equal(inspectAutomationMetadata.planningModeAllowed, true);
   const delegateTaskMetadata = metadata.find((tool) => tool.name === 'delegate_task');
   assert.ok(delegateTaskMetadata);
   assert.equal(delegateTaskMetadata.group, 'Delegation');

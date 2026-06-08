@@ -16,6 +16,7 @@ export const PLANNING_MODE_ALLOWED_TOOLS = new Set([
   'session_search',
   'qmd',
   'list_automation_jobs',
+  'inspect_automation_job',
 ]);
 
 export function filterToolsForPlanningMode(tools: AgentTool[]): AgentTool[] {
