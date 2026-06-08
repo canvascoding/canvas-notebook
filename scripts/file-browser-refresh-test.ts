@@ -60,6 +60,20 @@ async function main() {
 
     assert.equal(docs?.children?.[0]?.path, 'docs/fresh.md');
     assert.equal(app?.children?.[0]?.path, 'src/app/page.tsx');
+
+    globalThis.fetch = (async () => new Response('<!DOCTYPE html><html><body>busy</body></html>', {
+      status: 503,
+      statusText: 'Service Unavailable',
+      headers: { 'content-type': 'text/html; charset=utf-8' },
+    })) as typeof fetch;
+
+    await useFileStore.getState().loadFile('docs/busy-preview.png', true);
+
+    const errorMessage = useFileStore.getState().fileError;
+    assert.ok(errorMessage, 'HTML error responses should set a file error');
+    assert.match(errorMessage, /server returned HTML instead of JSON/);
+    assert.doesNotMatch(errorMessage, /Unexpected token/);
+    assert.equal(useFileStore.getState().isLoadingFile, false);
   } finally {
     globalThis.fetch = originalFetch;
   }
