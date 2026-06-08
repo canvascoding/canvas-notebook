@@ -19,7 +19,41 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
-## [2026.6.7.1] - 2026-06-07
+## [2026.6.8.1] - 2026-06-08
+
+### Added
+
+- Added full email client: SMTP and IMAP account support, read-only mailbox, compose/reply/draft actions, AI reply and summary, message search, remote image preferences, and permanent delete.
+- Added interactive public HTML sharing and public file previews with SSR-safe Excalidraw rendering.
+- Added agent profile onboarding and transient admin bootstrap flow.
+- Added create-agent shortcut to chat selector.
+- Added usage analytics user filter.
+- Added read image previews in the chat read tool.
+- Marked Kimi K2.6 as vision capable.
+- Added todo email reply watcher for bidirectional task tracking.
+
+### Changed
+
+- Improved email client responsiveness, preview layout, folder sidebar, and account editing UX.
+- Improved vision model capability handling and automation agent prompt editing.
+- Improved chat composer keyboard controls and image preview lightbox.
+- Improved Studio prompt handoff and gallery original prompt display.
+- Moved global agent settings to centralized storage with scoped runtime data paths.
+- Localized todo notification emails.
+- Updated README with installation docs, product positioning, and star history.
+
+### Fixed
+
+- Fixed public Excalidraw preview SSR, HTML preview asset loading, and file preview non-JSON responses.
+- Fixed email account preview preference reload, message action requests, and OAuth redirect handling.
+- Fixed stopped queue steer and chat markdown image refresh flicker.
+- Fixed agent file reset seed handling and local Google email OAuth redirect.
+- Fixed automation run error persistence.
+
+### Verification
+
+- `npm run build`
+
 
 ### Added
 
