@@ -71,7 +71,14 @@ import { listProducts } from '../integrations/studio-product-service';
 import { listPersonas } from '../integrations/studio-persona-service';
 import { listStyles } from '../integrations/studio-style-service';
 import { StudioServiceError } from '../integrations/studio-errors';
-import { getStudioOutputsRoot } from '../integrations/studio-workspace';
+import {
+  getStudioAssetsRoot,
+  getStudioEditsRoot,
+  getStudioOutputsRoot,
+  STUDIO_ASSETS_ROOT_DIR,
+  STUDIO_EDITS_ROOT_DIR,
+  STUDIO_OUTPUTS_ROOT_DIR,
+} from '../integrations/studio-workspace';
 import { toPreviewUrl } from '../utils/media-url';
 import { createBulkJob } from '../integrations/studio-bulk-service';
 import { db } from '@/app/lib/db';
@@ -159,6 +166,202 @@ function imageContentForBuffer(filePath: string, buffer: Buffer): ImageContent |
   const mimeType = IMAGE_EXTENSIONS[path.extname(filePath).toLowerCase()];
   if (!mimeType) return null;
   return { type: 'image', data: buffer.toString('base64'), mimeType };
+}
+
+type ResolvedReadToolPath = {
+  fullPath: string;
+  displayPath: string;
+  source: 'absolute' | 'workspace' | 'studio';
+};
+
+function isPathWithin(candidatePath: string, basePath: string): boolean {
+  const normalizedCandidate = path.resolve(candidatePath);
+  const normalizedBase = path.resolve(basePath);
+  return normalizedCandidate === normalizedBase || normalizedCandidate.startsWith(`${normalizedBase}${path.sep}`);
+}
+
+function toPosixPath(value: string): string {
+  return value.replace(/\\/g, '/');
+}
+
+function stripQueryAndHash(value: string): string {
+  return value.split(/[?#]/, 1)[0];
+}
+
+function safeDecodePath(value: string): string {
+  return value
+    .split('/')
+    .map((segment) => {
+      try {
+        return decodeURIComponent(segment);
+      } catch {
+        return segment;
+      }
+    })
+    .join('/');
+}
+
+function normalizeReadReferencePath(filePath: string): string {
+  const trimmed = filePath.trim();
+  let reference = trimmed;
+
+  try {
+    const parsed = new URL(trimmed, 'http://canvas.local');
+    const pathname = safeDecodePath(parsed.pathname);
+    if (pathname.startsWith('/api/studio/media/')) {
+      reference = pathname.slice('/api/studio/media/'.length);
+    } else if (pathname.startsWith('/api/media/')) {
+      reference = pathname.slice('/api/media/'.length);
+    } else if (pathname.startsWith('/media/')) {
+      reference = pathname.slice('/media/'.length);
+    } else if (pathname === '/api/files/preview') {
+      reference = parsed.searchParams.get('path') || trimmed;
+    } else if (parsed.origin !== 'http://canvas.local') {
+      reference = trimmed;
+    } else {
+      reference = pathname;
+    }
+  } catch {
+    reference = trimmed;
+  }
+
+  return safeDecodePath(stripQueryAndHash(toPosixPath(reference))).replace(/^\/+/, '');
+}
+
+function pathExists(candidatePath: string): Promise<boolean> {
+  return fsPromises.access(candidatePath)
+    .then(() => true)
+    .catch((error: unknown) => {
+      if (
+        error &&
+        typeof error === 'object' &&
+        'code' in error &&
+        (error.code === 'ENOENT' || error.code === 'ENOTDIR')
+      ) {
+        return false;
+      }
+      throw error;
+    });
+}
+
+function getRelativePathIfWithin(candidatePath: string, basePath: string): string | null {
+  const relativePath = path.relative(basePath, candidatePath);
+  if (!relativePath || relativePath.startsWith('..') || path.isAbsolute(relativePath)) {
+    return null;
+  }
+  return toPosixPath(relativePath);
+}
+
+function getStudioDisplayPathForAbsolute(filePath: string): string | null {
+  const outputRelativePath = getRelativePathIfWithin(filePath, getStudioOutputsRoot());
+  if (outputRelativePath) {
+    return path.posix.join(STUDIO_OUTPUTS_ROOT_DIR, outputRelativePath);
+  }
+
+  const editRelativePath = getRelativePathIfWithin(filePath, getStudioEditsRoot());
+  if (editRelativePath) {
+    return path.posix.join(STUDIO_EDITS_ROOT_DIR, editRelativePath);
+  }
+
+  const assetRelativePath = getRelativePathIfWithin(filePath, getStudioAssetsRoot());
+  if (assetRelativePath) {
+    return path.posix.join(STUDIO_ASSETS_ROOT_DIR, assetRelativePath);
+  }
+
+  return null;
+}
+
+function buildStudioRootReadCandidate(rootPath: string, displayRoot: string, relativePath: string): ResolvedReadToolPath | null {
+  const fullPath = path.resolve(rootPath, relativePath);
+  if (!isPathWithin(fullPath, rootPath)) {
+    return null;
+  }
+
+  return {
+    fullPath,
+    displayPath: path.posix.join(displayRoot, toPosixPath(relativePath)),
+    source: 'studio',
+  };
+}
+
+function buildStudioReadCandidate(referencePath: string): ResolvedReadToolPath | null {
+  const normalized = normalizeReadReferencePath(referencePath);
+  const withoutDataPrefix = normalized.startsWith('data/studio/')
+    ? normalized.slice('data/'.length)
+    : normalized;
+
+  if (withoutDataPrefix.startsWith(`${STUDIO_OUTPUTS_ROOT_DIR}/`)) {
+    const relativePath = withoutDataPrefix.slice(`${STUDIO_OUTPUTS_ROOT_DIR}/`.length);
+    return buildStudioRootReadCandidate(getStudioOutputsRoot(), STUDIO_OUTPUTS_ROOT_DIR, relativePath);
+  }
+
+  if (withoutDataPrefix.startsWith(`${STUDIO_EDITS_ROOT_DIR}/`)) {
+    const relativePath = withoutDataPrefix.slice(`${STUDIO_EDITS_ROOT_DIR}/`.length);
+    return buildStudioRootReadCandidate(getStudioEditsRoot(), STUDIO_EDITS_ROOT_DIR, relativePath);
+  }
+
+  if (withoutDataPrefix.startsWith(`${STUDIO_ASSETS_ROOT_DIR}/`)) {
+    const relativePath = withoutDataPrefix.slice(`${STUDIO_ASSETS_ROOT_DIR}/`.length);
+    return buildStudioRootReadCandidate(getStudioAssetsRoot(), STUDIO_ASSETS_ROOT_DIR, relativePath);
+  }
+
+  if (/^studio-gen-[^/]+\.(?:gif|jpe?g|png|webp|svg)$/i.test(withoutDataPrefix)) {
+    return buildStudioRootReadCandidate(getStudioOutputsRoot(), STUDIO_OUTPUTS_ROOT_DIR, withoutDataPrefix);
+  }
+
+  if (/^(?:products|personas|styles|presets|references)\//.test(withoutDataPrefix)) {
+    return buildStudioRootReadCandidate(getStudioAssetsRoot(), STUDIO_ASSETS_ROOT_DIR, withoutDataPrefix);
+  }
+
+  return null;
+}
+
+async function resolveReadToolPath(filePath: string): Promise<ResolvedReadToolPath> {
+  if (path.isAbsolute(filePath)) {
+    const absolutePath = path.resolve(filePath);
+    return {
+      fullPath: absolutePath,
+      displayPath: getStudioDisplayPathForAbsolute(absolutePath) || filePath,
+      source: 'absolute',
+    };
+  }
+
+  const workspacePath = resolveAgentPath(filePath);
+  const candidates: ResolvedReadToolPath[] = [
+    {
+      fullPath: workspacePath,
+      displayPath: filePath,
+      source: 'workspace',
+    },
+  ];
+
+  const studioCandidate = buildStudioReadCandidate(filePath);
+  if (studioCandidate && !candidates.some((candidate) => path.resolve(candidate.fullPath) === path.resolve(studioCandidate.fullPath))) {
+    candidates.push(studioCandidate);
+  }
+
+  for (const candidate of candidates) {
+    if (await pathExists(candidate.fullPath)) {
+      return candidate;
+    }
+  }
+
+  return candidates[0];
+}
+
+function formatImageReadText(params: {
+  requestedPath: string;
+  displayPath: string;
+  mimeType: string;
+  size: number;
+}): string {
+  return [
+    `Image loaded for visual analysis: ${params.displayPath}`,
+    params.displayPath !== params.requestedPath ? `Requested path: ${params.requestedPath}` : null,
+    `MIME type: ${params.mimeType}`,
+    `Size: ${params.size} bytes`,
+    'The image is attached to this tool result as an image content block for vision-capable models.',
+  ].filter(Boolean).join('\n');
 }
 
 function audioMimeTypeForPath(filePath: string): string {
@@ -1874,12 +2077,13 @@ export const piTools: AgentTool[] = [
         maxPdfImages?: number;
       };
       try {
-        const fullPath = resolveAgentPath(filePath);
+        const resolvedPath = await resolveReadToolPath(filePath);
+        const fullPath = resolvedPath.fullPath;
         await assertAgentPathAllowed(fullPath);
         throwIfAborted(signal);
         const readTextLimit = clampReadTextLimit(maxChars);
         const stats = await fsPromises.stat(fullPath);
-        if (isPdfPath(filePath) && stats.size > PDF_MAX_IN_MEMORY_BYTES) {
+        if (isPdfPath(fullPath) && stats.size > PDF_MAX_IN_MEMORY_BYTES) {
           return {
             content: [{
               type: 'text',
@@ -1889,11 +2093,29 @@ export const piTools: AgentTool[] = [
           };
         }
         const buffer = await fsPromises.readFile(fullPath);
-        const image = imageContentForBuffer(filePath, buffer);
+        const image = imageContentForBuffer(fullPath, buffer);
         if (image) {
           return {
-            content: [image],
-            details: { filePath, size: buffer.length, type: 'image' },
+            content: [
+              {
+                type: 'text',
+                text: formatImageReadText({
+                  requestedPath: filePath,
+                  displayPath: resolvedPath.displayPath,
+                  mimeType: image.mimeType,
+                  size: buffer.length,
+                }),
+              },
+              image,
+            ],
+            details: {
+              filePath: resolvedPath.displayPath,
+              requestedPath: filePath,
+              resolvedPath: fullPath,
+              size: buffer.length,
+              type: 'image',
+              source: resolvedPath.source,
+            },
           };
         }
         if (isPdfBuffer(filePath, buffer)) {
