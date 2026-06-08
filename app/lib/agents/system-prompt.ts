@@ -16,9 +16,11 @@ import { loadSkillsFromDisk, getSkillsContext } from '../skills/skill-loader';
 import { isComposioConfigured } from '../composio/composio-client';
 import {
   isDefaultToolsConfig,
+  isBrowserToolEnabledConfig,
   normalizeEnabledToolsConfig,
   resolveEnabledToolNames,
 } from '../pi/enabled-tools';
+import { isBrowserRuntimeAvailable } from '../pi/browser/requirements';
 import type { PiToolMetadata } from '../pi/tool-registry';
 
 export {
@@ -59,7 +61,7 @@ Browser use is available through the \`browser\` gateway tool, but ordinary web 
 
 Use \`browser\` only when JavaScript rendering, UI interaction, screenshots, login/session checks, console inspection, or local app verification requires a real browser. The browser gateway intentionally keeps detailed interaction guidance out of the system prompt; call \`browser\` with \`action: "help"\` and topic \`"safety"\` or \`"interaction"\` when those details are needed.
 
-Prefer \`observe\` before click/type actions, use returned \`target_id\` values where possible, and close the browser when finished.`;
+Prefer \`observe\` before click/type actions, use returned \`target_id\` values where possible, use \`dialog_status\`, \`accept_dialog\`, or \`dismiss_dialog\` for JavaScript dialogs, and close the browser when finished. Navigation blocks cloud metadata, link-local, multicast, and private network targets by default while allowing localhost for local app verification.`;
 
 function getPromptSkillsForAgent<T extends { name: string; enabled?: boolean }>(
   normalizedAgentId: string,
@@ -146,11 +148,7 @@ function isComposioGatewayEnabled(enabledTools?: string[] | null): boolean {
 }
 
 function isBrowserGatewayEnabled(enabledTools?: string[] | null): boolean {
-  if (isDefaultToolsConfig(enabledTools)) {
-    return false;
-  }
-  const normalized = normalizeEnabledToolsConfig(enabledTools);
-  return normalized.includes('browser');
+  return isBrowserToolEnabledConfig(enabledTools);
 }
 
 function formatEnabledToolLine(tool: PiToolMetadata): string {
@@ -210,7 +208,7 @@ async function buildSpecializedAgentToolsContext(params: {
   const enabledSet = isDefaultToolsConfig(params.enabledTools)
     ? new Set(tools.filter((tool) => tool.defaultEnabled).map((tool) => tool.name))
     : resolveEnabledToolNames(allToolNames, params.enabledTools);
-  const enabledTools = tools.filter((tool) => enabledSet.has(tool.name));
+  const enabledTools = tools.filter((tool) => enabledSet.has(tool.name) && tool.availability?.available !== false);
 
   if (enabledTools.length === 0) {
     return [
@@ -293,7 +291,7 @@ export async function loadManagedAgentSystemPrompt(agentId?: string | null): Pro
         systemPrompt += '\n\n' + COMPOSIO_SYSTEM_PROMPT;
       }
 
-      if (isBrowserGatewayEnabled(enabledTools)) {
+      if (isBrowserGatewayEnabled(enabledTools) && isBrowserRuntimeAvailable()) {
         systemPrompt += '\n\n' + BROWSER_SYSTEM_PROMPT;
       }
     } catch {

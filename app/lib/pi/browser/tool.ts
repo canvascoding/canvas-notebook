@@ -14,6 +14,7 @@ export function createBrowserGatewayTool(context: BrowserRuntimeContext = {}): A
       'Controlled headless Chromium gateway. Use web_fetch first for ordinary web content. ' +
       'Use browser only for JavaScript-rendered pages, UI interaction, screenshots, login/session checks, or local app verification. ' +
       'Browser storage persists per user and agent by default, so accept necessary or persistent cookie/storage prompts when the user wants login continuity; do not accept optional tracking cookies without explicit user approval. ' +
+      'Navigation blocks metadata, link-local, multicast, and private network targets by default while allowing localhost for local app checks. ' +
       'Call action "help" for detailed browser safety or interaction guidance.',
     executionMode: 'sequential',
     parameters: Type.Object({
@@ -31,6 +32,9 @@ export function createBrowserGatewayTool(context: BrowserRuntimeContext = {}): A
         Type.Literal('extract_content'),
         Type.Literal('evaluate'),
         Type.Literal('eval'),
+        Type.Literal('dialog_status'),
+        Type.Literal('accept_dialog'),
+        Type.Literal('dismiss_dialog'),
         Type.Literal('console_logs'),
         Type.Literal('close'),
       ], { description: 'Browser gateway action to run.' }),
@@ -39,6 +43,7 @@ export function createBrowserGatewayTool(context: BrowserRuntimeContext = {}): A
       target_id: Type.Optional(Type.String({ description: 'Target ID returned by observe. Prefer this for click/type/scroll.' })),
       selector: Type.Optional(Type.String({ description: 'Fallback CSS selector. Must resolve to exactly one visible element.' })),
       text: Type.Optional(Type.String({ description: 'For type: text to enter.' })),
+      prompt_text: Type.Optional(Type.String({ description: 'For accept_dialog on prompt dialogs: text to submit.' })),
       key: Type.Optional(Type.String({ description: 'For keypress: key name, e.g. Enter, Escape, ArrowDown.' })),
       script: Type.Optional(Type.String({ description: 'For evaluate: JavaScript expression or async function body to run in the page context. Prefer read-only inspection.' })),
       expression: Type.Optional(Type.String({ description: 'For evaluate: alias for script.' })),

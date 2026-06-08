@@ -3,6 +3,7 @@ import Module from 'node:module';
 
 import {
   buildBrowserLaunchSpec,
+  checkChromiumExecutable,
   resolveChromiumExecutable,
   resolveBrowserUserDataDir,
 } from '../app/lib/pi/browser/chromium';
@@ -62,6 +63,26 @@ function testErrorListsAttemptedPaths() {
       error.message.includes('/missing/custom') &&
       error.message.includes('/usr/bin/chromium'),
   );
+}
+
+function testNonThrowingExecutableStatus() {
+  const missing = checkChromiumExecutable({
+    env: makeEnv({ CHROMIUM_PATH: '/missing/custom' }),
+    existsSync: makeExistsSync([]),
+    execSyncImpl: (() => '') as never,
+  });
+
+  assert.equal(missing.available, false);
+  assert.ok(missing.error.includes('No Chromium/Chrome executable found'));
+  assert.ok(missing.attemptedPaths.includes('/missing/custom'));
+
+  const available = checkChromiumExecutable({
+    env: makeEnv({ CHROMIUM_PATH: '/custom/chromium' }),
+    existsSync: makeExistsSync(['/custom/chromium']),
+    execSyncImpl: (() => '') as never,
+  });
+  assert.equal(available.available, true);
+  assert.equal(available.executablePath, '/custom/chromium');
 }
 
 function testContainerLaunchFlags() {
@@ -175,6 +196,7 @@ async function main() {
   testSystemFallbackWorks();
   testWhichFallbackWorks();
   testErrorListsAttemptedPaths();
+  testNonThrowingExecutableStatus();
   testContainerLaunchFlags();
   testDesktopVisibleLaunch();
   testSessionUserDataDir();

@@ -96,6 +96,7 @@ import { createHumanTodoTool } from '@/app/lib/pi/human-todo-tool';
 import { DEFAULT_AGENT_ID } from '@/app/lib/channels/constants';
 import { normalizeManagedAgentId } from '@/app/lib/agents/registry';
 import { createBrowserGatewayTool } from '@/app/lib/pi/browser/tool';
+import { getBrowserRequirementStatus } from '@/app/lib/pi/browser/requirements';
 import { formatWebSearchResults, searchWeb } from '@/app/lib/integrations/brave-search-service';
 import { clearFileTreeCache } from '@/app/lib/utils/file-tree-cache';
 import {
@@ -2286,6 +2287,13 @@ export type PiToolMetadata = {
   planningModeAllowed: boolean;
   defaultEnabled: boolean;
   notes: string[];
+  availability?: {
+    available: boolean;
+    reason: string | null;
+    executablePath?: string | null;
+    executableSource?: string | null;
+    checkedAt: string;
+  };
 };
 
 function requireToolUserId(userId: string | undefined, toolLabel: string): string {
@@ -2918,6 +2926,9 @@ export async function getPiToolMetadata(): Promise<PiToolMetadata[]> {
   const allTools = await buildPiToolRegistryAsync();
   const allToolNames = allTools.map((tool) => tool.name);
   const defaultEnabledSet = getDefaultEnabledToolNames(allToolNames);
+  const browserRequirements = allToolNames.includes('browser')
+    ? getBrowserRequirementStatus({ cache: true })
+    : null;
 
   return allTools.map((tool) => {
     const group = getToolGroup(tool.name);
@@ -2931,6 +2942,15 @@ export async function getPiToolMetadata(): Promise<PiToolMetadata[]> {
       planningModeAllowed: PLANNING_MODE_ALLOWED_TOOLS.has(tool.name),
       defaultEnabled: defaultEnabledSet.has(tool.name),
       notes: getToolNotes(tool, group),
+      availability: tool.name === 'browser' && browserRequirements
+        ? {
+            available: browserRequirements.available,
+            reason: browserRequirements.reason,
+            executablePath: browserRequirements.executablePath,
+            executableSource: browserRequirements.executableSource,
+            checkedAt: browserRequirements.checkedAt,
+          }
+        : undefined,
     };
   });
 }
@@ -2952,6 +2972,14 @@ export async function getPiTools(userId?: string, agentId?: string | null, sessi
       // No user config yet (default state) — exclude disabled-by-default tools
       const defaultEnabledSet = getDefaultEnabledToolNames(allToolNames);
       allTools = allTools.filter((t) => defaultEnabledSet.has(t.name));
+    }
+
+    if (allTools.some((tool) => tool.name === 'browser')) {
+      const browserRequirements = getBrowserRequirementStatus({ cache: true });
+      if (!browserRequirements.available) {
+        console.warn('[ToolRegistry] Browser tool enabled but unavailable:', browserRequirements.reason);
+        allTools = allTools.filter((tool) => tool.name !== 'browser');
+      }
     }
   } catch (error) {
     console.error('[ToolRegistry] Error reading config for tool filtering, returning default tools:', error);

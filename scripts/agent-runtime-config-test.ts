@@ -94,7 +94,7 @@ async function main() {
       google: {
         ...DEFAULT_PI_CONFIG.providers.google,
         model: 'gemini-1.5-pro',
-        thinking: 'off',
+        thinking: 'off' as const,
         enabledTools: ['read', 'ls'],
       },
       openrouter: {

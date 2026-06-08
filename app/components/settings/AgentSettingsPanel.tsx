@@ -20,6 +20,7 @@ import { AgentSessionsCard, type AgentSessionItem } from './AgentSessionsCard';
 import { AgentDoctorCard, type DoctorResult } from './AgentDoctorCard';
 import { AgentManagedFilesCard, getVisibleManagedFileNames, type ManagedFileName, type ResetTarget } from './AgentManagedFilesCard';
 import { AgentToolsCard, type ToolMetadata } from './AgentToolsCard';
+import { AgentBrowserCard, type AgentBrowserStatus } from './AgentBrowserCard';
 import { AgentConnectionsPicker, AgentRelevantSkillsPicker } from './AgentCapabilityPickers';
 import { AgentChatDisplayCard } from './AgentChatDisplayCard';
 import { AgentSelectorCard, type AgentProfileItem } from './AgentSelectorCard';
@@ -52,7 +53,7 @@ type PiConfigData = {
   [key: string]: unknown;
 };
 
-type AgentSettingsSectionId = 'runtime' | 'chatDisplay' | 'tools' | 'connections' | 'skills' | 'heartbeat' | 'files' | 'sessions' | 'doctor';
+type AgentSettingsSectionId = 'runtime' | 'chatDisplay' | 'tools' | 'browser' | 'connections' | 'skills' | 'heartbeat' | 'files' | 'sessions' | 'doctor';
 type AgentSettingsSectionOpenState = Record<AgentSettingsSectionId, boolean>;
 
 const AGENT_SETTINGS_SECTION_OPEN_STORAGE_KEY = 'canvas-settings-agent-section-open-state';
@@ -61,6 +62,7 @@ const DEFAULT_AGENT_SETTINGS_SECTION_OPEN_STATE: AgentSettingsSectionOpenState =
   runtime: false,
   chatDisplay: false,
   tools: false,
+  browser: false,
   connections: false,
   skills: false,
   heartbeat: false,
@@ -87,6 +89,7 @@ function getInitialAgentSectionOpenState(requestedPanel: string | null): AgentSe
       runtime: typeof storedState.runtime === 'boolean' ? storedState.runtime : fallback.runtime,
       chatDisplay: typeof storedState.chatDisplay === 'boolean' ? storedState.chatDisplay : fallback.chatDisplay,
       tools: typeof storedState.tools === 'boolean' ? storedState.tools : fallback.tools,
+      browser: typeof storedState.browser === 'boolean' ? storedState.browser : fallback.browser,
       connections: typeof storedState.connections === 'boolean' ? storedState.connections : fallback.connections,
       skills: typeof storedState.skills === 'boolean' ? storedState.skills : fallback.skills,
       heartbeat: typeof storedState.heartbeat === 'boolean' ? storedState.heartbeat : fallback.heartbeat,
@@ -320,6 +323,11 @@ export function AgentSettingsPanel() {
   const [toolsPiConfig, setToolsPiConfig] = useState<PiConfigData | null>(null);
   const [toolSearchQuery, setToolSearchQuery] = useState('');
   const [activeToolGroups, setActiveToolGroups] = useState<Set<string>>(new Set());
+  const [browserStatus, setBrowserStatus] = useState<AgentBrowserStatus | null>(null);
+  const [browserLoading, setBrowserLoading] = useState(true);
+  const [browserPendingAction, setBrowserPendingAction] = useState<string | null>(null);
+  const [browserError, setBrowserError] = useState<string | null>(null);
+  const [browserSuccess, setBrowserSuccess] = useState<string | null>(null);
   const [capabilitiesSaving, setCapabilitiesSaving] = useState(false);
   const [capabilitiesError, setCapabilitiesError] = useState<string | null>(null);
   const [relevantSkillsDraft, setRelevantSkillsDraft] = useState<string[]>([]);
@@ -367,6 +375,11 @@ export function AgentSettingsPanel() {
     setToolsPiConfig(null);
     setOpenToolRows({});
     setActiveToolGroups(new Set());
+    setBrowserStatus(null);
+    setBrowserLoading(true);
+    setBrowserPendingAction(null);
+    setBrowserError(null);
+    setBrowserSuccess(null);
     setCapabilitiesError(null);
     setHeartbeatConfig(null);
     setHeartbeatScheduleDraft(defaultHeartbeatScheduleDraft());
@@ -568,6 +581,20 @@ export function AgentSettingsPanel() {
     }
   }, [selectedAgentId, t]);
 
+  const loadBrowserStatus = useCallback(async () => {
+    setBrowserLoading(true);
+    setBrowserError(null);
+
+    try {
+      const payload = await fetchJson<AgentBrowserStatus>(`/api/agents/browser?${buildAgentQuery(selectedAgentId)}`);
+      setBrowserStatus(payload);
+    } catch (error) {
+      setBrowserError(error instanceof Error ? error.message : t('agentPanel.browser.errors.load'));
+    } finally {
+      setBrowserLoading(false);
+    }
+  }, [selectedAgentId, t]);
+
   const loadHeartbeatConfig = useCallback(async () => {
     setHeartbeatLoading(true);
     setHeartbeatError(null);
@@ -667,9 +694,10 @@ export function AgentSettingsPanel() {
       void loadSessions();
       void loadTools();
       void loadToolsConfig();
+      void loadBrowserStatus();
       void loadHeartbeatConfig();
     });
-  }, [loadFiles, loadSessions, loadTools, loadToolsConfig, loadHeartbeatConfig]);
+  }, [loadFiles, loadSessions, loadTools, loadToolsConfig, loadBrowserStatus, loadHeartbeatConfig]);
 
   useEffect(() => {
     if (SHOW_AGENT_DOCTOR_SECTION && searchParams.get('panel') === 'doctor' && !doctorResult && !doctorRunning) {
@@ -1023,6 +1051,38 @@ export function AgentSettingsPanel() {
     void saveToolsConfig(['__none__']);
   };
 
+  const runBrowserRuntimeAction = async (
+    action: 'close_session' | 'delete_profile' | 'launch_probe',
+    successMessage: string,
+  ) => {
+    setBrowserPendingAction(action);
+    setBrowserError(null);
+    setBrowserSuccess(null);
+
+    try {
+      const payload = await fetchJson<AgentBrowserStatus>('/api/agents/browser', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ agentId: selectedAgentId, action }),
+      });
+      setBrowserStatus(payload);
+      const probe = payload.probe?.launchProbe;
+      setBrowserSuccess(probe && !probe.ok && probe.reason ? probe.reason : successMessage);
+      setTimeout(() => setBrowserSuccess(null), 4000);
+    } catch (error) {
+      setBrowserError(error instanceof Error ? error.message : t('agentPanel.browser.errors.action'));
+    } finally {
+      setBrowserPendingAction(null);
+    }
+  };
+
+  const deleteBrowserProfileForAgent = async () => {
+    if (!window.confirm(t('agentPanel.browser.confirmDeleteProfile'))) {
+      return;
+    }
+    await runBrowserRuntimeAction('delete_profile', t('agentPanel.browser.profileDeleted'));
+  };
+
   const setModelOverrideEnabled = async (enabled: boolean) => {
     if (isMainAgent) return;
     setToolsSaving(true);
@@ -1325,6 +1385,22 @@ export function AgentSettingsPanel() {
           onToolToggle={handleToolToggle}
           onEnableAll={handleEnableAll}
           onDisableAll={handleDisableAll}
+        />
+      )}
+
+      {availableTools.some((tool) => tool.name === 'browser') && (
+        <AgentBrowserCard
+          status={browserStatus}
+          loading={browserLoading}
+          pendingAction={browserPendingAction}
+          error={browserError}
+          success={browserSuccess}
+          isOpen={agentSectionOpenById.browser}
+          onOpenChange={(isOpen) => setAgentSectionOpen('browser', isOpen)}
+          onReload={() => void loadBrowserStatus()}
+          onCloseSession={() => void runBrowserRuntimeAction('close_session', t('agentPanel.browser.sessionClosed'))}
+          onDeleteProfile={() => void deleteBrowserProfileForAgent()}
+          onLaunchProbe={() => void runBrowserRuntimeAction('launch_probe', t('agentPanel.browser.launchProbeOk'))}
         />
       )}
 
