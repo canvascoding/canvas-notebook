@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { auth } from '@/app/lib/auth';
-import { readEmailMessage } from '@/app/lib/email/service';
+import { listEmailFolders } from '@/app/lib/email/service';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 
 async function requireSession(request: NextRequest) {
@@ -10,18 +10,18 @@ async function requireSession(request: NextRequest) {
   return session;
 }
 
-export async function GET(request: NextRequest, { params }: { params: Promise<{ accountId: string; messageId: string }> }) {
+export async function GET(request: NextRequest) {
   const session = await requireSession(request);
   if (session instanceof NextResponse) return session;
-  const limited = rateLimit(request, { limit: 60, windowMs: 60_000, keyPrefix: 'email-message-get' });
+  const limited = rateLimit(request, { limit: 60, windowMs: 60_000, keyPrefix: 'email-folders-get' });
   if (!limited.ok) return limited.response;
+
   try {
-    const { accountId, messageId } = await params;
-    const folder = request.nextUrl.searchParams.get('folder') || undefined;
-    const data = await readEmailMessage(session.user.id, accountId, messageId, folder);
+    const accountId = request.nextUrl.searchParams.get('accountId') || undefined;
+    const data = await listEmailFolders(session.user.id, accountId);
     return NextResponse.json({ success: true, data });
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Failed to read email message';
+    const message = error instanceof Error ? error.message : 'Failed to load email folders';
     return NextResponse.json({ success: false, error: message }, { status: 500 });
   }
 }

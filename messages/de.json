@@ -964,7 +964,39 @@
   },
   "emails": {
     "title": "E-Mail",
-    "description": "Verwalte die verbundenen E-Mail-Konten für Postfächer, Versand, Agent-Tools und Systemmails."
+    "description": "Verwalte die verbundenen E-Mail-Konten für Postfächer, Versand, Agent-Tools und Systemmails.",
+    "emptyDescription": "Verbinde zuerst ein E-Mail-Konto. Danach erscheinen hier Postfächer, Nachrichten und Reader.",
+    "loadingAccounts": "E-Mail-Konten werden geladen...",
+    "loadingFolders": "Folder werden geladen...",
+    "loadingMessages": "Nachrichten werden geladen...",
+    "loadingMessage": "Nachricht wird geladen...",
+    "accountLabel": "E-Mail-Konto",
+    "mainEmail": "Main Email",
+    "refresh": "Aktualisieren",
+    "search": "Suchen",
+    "searchPlaceholder": "Nach Absender, Betreff oder Inhalt suchen...",
+    "folders": "Folder",
+    "messages": "Nachrichten",
+    "noFolders": "Keine Folder gefunden.",
+    "noMessages": "Keine Nachrichten gefunden.",
+    "selectMessage": "Wähle eine Nachricht aus der Liste.",
+    "unknownSender": "Unbekannter Absender",
+    "noSubject": "(kein Betreff)",
+    "from": "Von",
+    "to": "An",
+    "cc": "Cc",
+    "date": "Datum",
+    "emptyBody": "Kein lesbarer Nachrichtentext vorhanden.",
+    "attachments": "Anhänge",
+    "unknownAttachmentType": "Unbekannter Dateityp",
+    "imapMissingTitle": "IMAP ist für dieses Konto nicht konfiguriert",
+    "imapMissingDescription": "Dieses Konto kann aktuell für Versand und Richtlinien genutzt werden. Für Inbox, Lesen und Suche muss IMAP in den Kontoeinstellungen gespeichert werden.",
+    "errors": {
+      "loadAccounts": "E-Mail-Konten konnten nicht geladen werden.",
+      "loadFolders": "Folder konnten nicht geladen werden.",
+      "loadMessages": "Nachrichten konnten nicht geladen werden.",
+      "loadMessage": "Nachricht konnte nicht geladen werden."
+    }
   },
   "security": {
     "publicShares": {

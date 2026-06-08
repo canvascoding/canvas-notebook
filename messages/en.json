@@ -965,7 +965,39 @@
   },
   "emails": {
     "title": "Email",
-    "description": "Manage connected email accounts for inboxes, sending, agent tools, and system mail."
+    "description": "Manage connected email accounts for inboxes, sending, agent tools, and system mail.",
+    "emptyDescription": "Connect an email account first. Inboxes, messages, and the reader will appear here afterward.",
+    "loadingAccounts": "Loading email accounts...",
+    "loadingFolders": "Loading folders...",
+    "loadingMessages": "Loading messages...",
+    "loadingMessage": "Loading message...",
+    "accountLabel": "Email account",
+    "mainEmail": "Main email",
+    "refresh": "Refresh",
+    "search": "Search",
+    "searchPlaceholder": "Search sender, subject, or content...",
+    "folders": "Folders",
+    "messages": "Messages",
+    "noFolders": "No folders found.",
+    "noMessages": "No messages found.",
+    "selectMessage": "Select a message from the list.",
+    "unknownSender": "Unknown sender",
+    "noSubject": "(no subject)",
+    "from": "From",
+    "to": "To",
+    "cc": "Cc",
+    "date": "Date",
+    "emptyBody": "No readable message body available.",
+    "attachments": "Attachments",
+    "unknownAttachmentType": "Unknown file type",
+    "imapMissingTitle": "IMAP is not configured for this account",
+    "imapMissingDescription": "This account can currently be used for sending and policies. Store IMAP settings to enable inbox, reading, and search.",
+    "errors": {
+      "loadAccounts": "Could not load email accounts.",
+      "loadFolders": "Could not load folders.",
+      "loadMessages": "Could not load messages.",
+      "loadMessage": "Could not load message."
+    }
   },
   "security": {
     "publicShares": {
