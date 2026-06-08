@@ -18,7 +18,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json().catch(() => ({}));
-    const data = await listEmailMessages(session.user.id, body);
+    const data = await listEmailMessages(session.user.id, body, { enforceReadPolicy: false });
     return NextResponse.json({ success: true, data });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to list email messages';

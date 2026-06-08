@@ -7,6 +7,7 @@ import {
   createLocalEmailDraft,
   deleteLocalEmailMessagePermanently,
   disconnectLocalEmailAccount,
+  generateLocalEmailComposeBody,
   generateLocalEmailAiReplyBody,
   getLocalEmailOAuthStatus,
   listLocalEmailFolders,
@@ -29,6 +30,7 @@ import {
   type EmailDerivedDraftOverrides,
   type EmailDerivedDraftMode,
   type EmailDraftInput,
+  type EmailComposeAiInput,
   type EmailPolicy,
 } from '@/app/lib/email/local-service';
 import { saveSmtpEmailAccount, testSmtpConnection, testStoredSmtpEmailAccount, type SmtpAccountInput } from '@/app/lib/email/smtp-service';
@@ -43,6 +45,10 @@ type EmailMessageListInput = EmailSearchInput & {
   folder?: string;
   filter?: string;
   offset?: number;
+};
+
+type EmailReadPolicyOptions = {
+  enforceReadPolicy?: boolean;
 };
 
 type EmailAccountsResponse = {
@@ -119,16 +125,16 @@ export async function testEmailAccount(userId: string, accountId: string) {
   return testStoredSmtpEmailAccount(userId, accountId);
 }
 
-export async function searchEmail(userId: string, input: EmailSearchInput) {
-  return searchLocalEmail(userId, input);
+export async function searchEmail(userId: string, input: EmailSearchInput, options?: EmailReadPolicyOptions) {
+  return searchLocalEmail(userId, input, options);
 }
 
-export async function listEmailMessages(userId: string, input: EmailMessageListInput) {
-  return listLocalEmailMessages(userId, input);
+export async function listEmailMessages(userId: string, input: EmailMessageListInput, options?: EmailReadPolicyOptions) {
+  return listLocalEmailMessages(userId, input, options);
 }
 
-export async function readEmailMessage(userId: string, accountId: string, messageId: string, folder?: string) {
-  return readLocalEmailMessage(userId, accountId, messageId, folder);
+export async function readEmailMessage(userId: string, accountId: string, messageId: string, folder?: string, options?: EmailReadPolicyOptions) {
+  return readLocalEmailMessage(userId, accountId, messageId, folder, options);
 }
 
 export async function setEmailMessageRead(
@@ -167,8 +173,8 @@ export async function deleteEmailMessagePermanently(userId: string, accountId: s
   return deleteLocalEmailMessagePermanently(userId, accountId, messageId, folder);
 }
 
-export async function summarizeEmailMessage(userId: string, accountId: string, messageId: string, folder?: string) {
-  return summarizeLocalEmailMessage(userId, accountId, messageId, folder);
+export async function summarizeEmailMessage(userId: string, accountId: string, messageId: string, folder?: string, options?: EmailReadPolicyOptions) {
+  return summarizeLocalEmailMessage(userId, accountId, messageId, folder, options);
 }
 
 export async function createEmailDerivedDraft(
@@ -178,8 +184,9 @@ export async function createEmailDerivedDraft(
   folder: string | undefined,
   mode: EmailDerivedDraftMode,
   overrides?: EmailDerivedDraftOverrides,
+  options?: EmailReadPolicyOptions,
 ) {
-  return createLocalEmailDerivedDraft(userId, accountId, messageId, folder, mode, overrides);
+  return createLocalEmailDerivedDraft(userId, accountId, messageId, folder, mode, overrides, options);
 }
 
 export async function sendEmailDerivedMessage(
@@ -189,16 +196,21 @@ export async function sendEmailDerivedMessage(
   folder: string | undefined,
   mode: EmailDerivedDraftMode,
   overrides?: EmailDerivedDraftOverrides,
+  options?: EmailReadPolicyOptions,
 ) {
-  return sendLocalEmailDerivedMessage(userId, accountId, messageId, folder, mode, overrides);
+  return sendLocalEmailDerivedMessage(userId, accountId, messageId, folder, mode, overrides, options);
 }
 
-export async function generateEmailAiReplyBody(userId: string, accountId: string, messageId: string, folder?: string) {
-  return generateLocalEmailAiReplyBody(userId, accountId, messageId, folder);
+export async function generateEmailAiReplyBody(userId: string, accountId: string, messageId: string, folder?: string, instruction?: string, options?: EmailReadPolicyOptions) {
+  return generateLocalEmailAiReplyBody(userId, accountId, messageId, folder, instruction, options);
 }
 
-export async function createEmailAiReplyDraft(userId: string, accountId: string, messageId: string, folder?: string) {
-  return createLocalEmailAiReplyDraft(userId, accountId, messageId, folder);
+export async function generateEmailComposeBody(userId: string, input: EmailComposeAiInput, options?: EmailReadPolicyOptions) {
+  return generateLocalEmailComposeBody(userId, input, options);
+}
+
+export async function createEmailAiReplyDraft(userId: string, accountId: string, messageId: string, folder?: string, instruction?: string, options?: EmailReadPolicyOptions) {
+  return createLocalEmailAiReplyDraft(userId, accountId, messageId, folder, instruction, options);
 }
 
 export async function createEmailDraft(userId: string, input: EmailDraftInput) {

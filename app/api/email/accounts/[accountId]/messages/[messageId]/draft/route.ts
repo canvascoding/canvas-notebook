@@ -33,7 +33,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     const body = await request.json().catch(() => ({}));
     const folder = stringValue((body as { folder?: unknown }).folder);
     const mode = draftMode((body as { mode?: unknown }).mode);
-    const data = await createEmailDerivedDraft(session.user.id, accountId, messageId, folder, mode);
+    const data = await createEmailDerivedDraft(session.user.id, accountId, messageId, folder, mode, undefined, { enforceReadPolicy: false });
     return NextResponse.json({ success: true, data });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to create email draft';

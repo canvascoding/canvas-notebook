@@ -149,15 +149,29 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     });
 
     if (operation === 'summary') {
-      data = await summarizeEmailMessage(session.user.id, accountId, messageId, folder);
+      data = await summarizeEmailMessage(session.user.id, accountId, messageId, folder, { enforceReadPolicy: false });
     }
 
     if (operation === 'ai-reply') {
-      data = await createEmailAiReplyDraft(session.user.id, accountId, messageId, folder);
+      data = await createEmailAiReplyDraft(
+        session.user.id,
+        accountId,
+        messageId,
+        folder,
+        optionalStringValue((body as { instruction?: unknown }).instruction),
+        { enforceReadPolicy: false },
+      );
     }
 
     if (operation === 'ai-reply-preview') {
-      data = await generateEmailAiReplyBody(session.user.id, accountId, messageId, folder);
+      data = await generateEmailAiReplyBody(
+        session.user.id,
+        accountId,
+        messageId,
+        folder,
+        optionalStringValue((body as { instruction?: unknown }).instruction),
+        { enforceReadPolicy: false },
+      );
     }
 
     if (operation === 'draft') {
@@ -167,7 +181,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         cc: stringListValue((body as { cc?: unknown }).cc),
         subject: optionalStringValue((body as { subject?: unknown }).subject),
         to: stringListValue((body as { to?: unknown }).to),
-      });
+      }, { enforceReadPolicy: false });
     }
 
     if (operation === 'send') {
@@ -177,7 +191,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         cc: stringListValue((body as { cc?: unknown }).cc),
         subject: optionalStringValue((body as { subject?: unknown }).subject),
         to: stringListValue((body as { to?: unknown }).to),
-      });
+      }, { enforceReadPolicy: false });
     }
 
     if (operation === 'action') {

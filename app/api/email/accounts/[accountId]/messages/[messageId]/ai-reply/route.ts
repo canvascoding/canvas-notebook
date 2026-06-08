@@ -24,7 +24,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     const { accountId, messageId } = await params;
     const body = await request.json().catch(() => ({}));
     const folder = stringValue((body as { folder?: unknown }).folder);
-    const data = await createEmailAiReplyDraft(session.user.id, accountId, messageId, folder);
+    const data = await createEmailAiReplyDraft(session.user.id, accountId, messageId, folder, undefined, { enforceReadPolicy: false });
     return NextResponse.json({ success: true, data });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to create AI reply draft';

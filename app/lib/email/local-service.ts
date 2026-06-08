@@ -20,6 +20,7 @@ import {
   type StoredEmailAccount,
 } from '@/app/lib/email/account-store';
 import {
+  draftEmailComposeWithAi,
   draftEmailReplyWithAi,
   summarizeEmailWithAi,
 } from '@/app/lib/email/ai-service';
@@ -73,6 +74,18 @@ export type EmailDraftInput = {
   headers?: EmailCustomHeaders;
 };
 
+export type EmailComposeAiInput = {
+  accountId?: string;
+  cc?: string[];
+  currentBody?: string;
+  folder?: string;
+  instruction?: string;
+  messageId?: string;
+  mode?: 'compose' | EmailDerivedDraftMode;
+  subject?: string;
+  to?: string[];
+};
+
 export type { EmailDerivedDraftMode, EmailDerivedDraftOverrides } from '@/app/lib/email/message-draft-builder';
 
 type LegacyLocalEmailAccount = {
@@ -124,6 +137,10 @@ type EmailMessageListInput = {
   filter?: string;
   limit?: number;
   offset?: number;
+};
+
+type EmailReadPolicyOptions = {
+  enforceReadPolicy?: boolean;
 };
 
 type TokenResponse = {
@@ -791,10 +808,11 @@ export async function listLocalEmailFolders(userId: string, accountId?: string) 
   }
 }
 
-export async function listLocalEmailMessages(userId: string, input: EmailMessageListInput) {
+export async function listLocalEmailMessages(userId: string, input: EmailMessageListInput, options?: EmailReadPolicyOptions) {
   const account = await findLocalEmailAccount(userId, input.accountId);
+  const enforceReadPolicy = options?.enforceReadPolicy !== false;
   if (account.authType === 'smtp_imap') {
-    return listImapEmailMessages(account, input);
+    return listImapEmailMessages(account, input, { enforceReadPolicy });
   }
   const token = await validAccessToken(account);
   const limit = Math.min(Math.max(input.limit || 10, 1), 50);
@@ -804,7 +822,8 @@ export async function listLocalEmailMessages(userId: string, input: EmailMessage
   if (account.provider === 'google') {
     const search = new URLSearchParams({ maxResults: String(limit + offset), q: query });
     const folder = (input.folder || '').trim();
-    if (folder && folder !== 'all' && folder !== 'INBOX') search.append('labelIds', folder);
+    if (folder && folder !== 'all') search.append('labelIds', folder);
+    if (input.filter === 'unread') search.append('labelIds', 'UNREAD');
     const list = await gmailFetch(`messages?${search.toString()}`, token);
     const ids = Array.isArray(list.messages) ? list.messages.slice(offset, offset + limit) as Array<{ id?: string }> : [];
     const loaded = await Promise.all(ids.map((item) => gmailFetch(`messages/${item.id}?format=metadata&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=Date`, token)));
@@ -844,6 +863,9 @@ export async function listLocalEmailMessages(userId: string, input: EmailMessage
     if (query.trim()) {
       params.set('$search', `"${query.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`);
     }
+    if (input.filter === 'unread') {
+      params.set('$filter', 'isRead eq false');
+    }
     const result = await microsoftFetch(`${pathPrefix}messages?${params.toString()}`, token, query.trim() ? { headers: { ConsistencyLevel: 'eventual' } } : undefined);
     const values = Array.isArray(result.value) ? result.value as Record<string, unknown>[] : [];
     messages = values.map((message) => {
@@ -871,25 +893,28 @@ export async function listLocalEmailMessages(userId: string, input: EmailMessage
   return {
     account: await publicLocalEmailAccount(account),
     folder: input.folder || (account.provider === 'microsoft' ? 'inbox' : 'INBOX'),
-    messages: messages.filter((message) => isEmailAddressAllowed(String(message.from || ''), policy.readFrom)),
+    messages: enforceReadPolicy
+      ? messages.filter((message) => isEmailAddressAllowed(String(message.from || ''), policy.readFrom))
+      : messages,
     total: null,
     offset,
     limit,
   };
 }
 
-export async function searchLocalEmail(userId: string, input: { accountId?: string; query?: string; limit?: number }) {
-  const result = await listLocalEmailMessages(userId, input);
+export async function searchLocalEmail(userId: string, input: { accountId?: string; query?: string; limit?: number }, options?: EmailReadPolicyOptions) {
+  const result = await listLocalEmailMessages(userId, input, options);
   return {
     account: result.account,
     messages: result.messages,
   };
 }
 
-export async function readLocalEmailMessage(userId: string, accountId: string, messageId: string, folder?: string) {
+export async function readLocalEmailMessage(userId: string, accountId: string, messageId: string, folder?: string, options?: EmailReadPolicyOptions) {
   const account = await findLocalEmailAccount(userId, accountId);
+  const enforceReadPolicy = options?.enforceReadPolicy !== false;
   if (account.authType === 'smtp_imap') {
-    return readImapEmailMessage(account, messageId, folder);
+    return readImapEmailMessage(account, messageId, folder, { enforceReadPolicy });
   }
   const token = await validAccessToken(account);
   let message: Record<string, unknown>;
@@ -898,7 +923,7 @@ export async function readLocalEmailMessage(userId: string, accountId: string, m
     const payload = raw.payload as Record<string, unknown> | undefined;
     const headers = payload?.headers as Array<{ name?: string; value?: string }> | undefined;
     const from = gmailHeader(headers, 'From');
-    assertSenderAllowed(account, from);
+    if (enforceReadPolicy) assertSenderAllowed(account, from);
     const bodyHtml = gmailBodyByMime(payload, 'text/html');
     const bodyText = gmailBodyByMime(payload, 'text/plain') || (bodyHtml ? htmlToPlainText(bodyHtml) : gmailBodyText(payload));
     const labelIds = Array.isArray(raw.labelIds) ? raw.labelIds.map(String) : [];
@@ -921,7 +946,7 @@ export async function readLocalEmailMessage(userId: string, accountId: string, m
   } else {
     const raw = await microsoftFetch(`messages/${encodeURIComponent(messageId)}?$select=id,conversationId,internetMessageId,from,toRecipients,ccRecipients,subject,receivedDateTime,body,bodyPreview,isRead`, token);
     const from = (raw.from as { emailAddress?: { address?: string } } | undefined)?.emailAddress?.address || '';
-    assertSenderAllowed(account, from);
+    if (enforceReadPolicy) assertSenderAllowed(account, from);
     const body = raw.body as { content?: string; contentType?: string } | undefined;
     const bodyContent = String(body?.content || '');
     const isHtml = String(body?.contentType || '').toLowerCase() === 'html';
@@ -1060,8 +1085,8 @@ export async function deleteLocalEmailMessagePermanently(userId: string, account
   return oauthMessageMutationResult(account, 'permanent-delete', messageId, folder);
 }
 
-export async function summarizeLocalEmailMessage(userId: string, accountId: string, messageId: string, folder?: string) {
-  const result = await readLocalEmailMessage(userId, accountId, messageId, folder);
+export async function summarizeLocalEmailMessage(userId: string, accountId: string, messageId: string, folder?: string, options?: EmailReadPolicyOptions) {
+  const result = await readLocalEmailMessage(userId, accountId, messageId, folder, options);
   const summary = await summarizeEmailWithAi(result.message as Record<string, unknown>);
   return {
     account: result.account,
@@ -1077,9 +1102,10 @@ export async function createLocalEmailDerivedDraft(
   folder: string | undefined,
   mode: EmailDerivedDraftMode,
   overrides?: EmailDerivedDraftOverrides,
+  options?: EmailReadPolicyOptions,
 ) {
   const account = await findLocalEmailAccount(userId, accountId);
-  const result = await readLocalEmailMessage(userId, account.id, messageId, folder);
+  const result = await readLocalEmailMessage(userId, account.id, messageId, folder, options);
   const message = result.message as Record<string, unknown>;
   const ownAddresses = await ownEmailAddressesForUser(userId, account);
   const draftInput = buildEmailDerivedDraft({
@@ -1097,9 +1123,9 @@ export async function createLocalEmailDerivedDraft(
   };
 }
 
-export async function generateLocalEmailAiReplyBody(userId: string, accountId: string, messageId: string, folder?: string) {
-  const result = await readLocalEmailMessage(userId, accountId, messageId, folder);
-  const body = await draftEmailReplyWithAi(result.message as Record<string, unknown>);
+export async function generateLocalEmailAiReplyBody(userId: string, accountId: string, messageId: string, folder?: string, instruction?: string, options?: EmailReadPolicyOptions) {
+  const result = await readLocalEmailMessage(userId, accountId, messageId, folder, options);
+  const body = await draftEmailReplyWithAi(result.message as Record<string, unknown>, instruction);
   return {
     account: result.account,
     body,
@@ -1107,9 +1133,31 @@ export async function generateLocalEmailAiReplyBody(userId: string, accountId: s
   };
 }
 
-export async function createLocalEmailAiReplyDraft(userId: string, accountId: string, messageId: string, folder?: string) {
-  const result = await generateLocalEmailAiReplyBody(userId, accountId, messageId, folder);
-  return createLocalEmailDerivedDraft(userId, accountId, messageId, folder, 'reply', { bodyOverride: result.body });
+export async function generateLocalEmailComposeBody(userId: string, input: EmailComposeAiInput, options?: EmailReadPolicyOptions) {
+  const account = await findLocalEmailAccount(userId, input.accountId);
+  const messageResult = input.messageId
+    ? await readLocalEmailMessage(userId, account.id, input.messageId, input.folder, options)
+    : null;
+  const body = await draftEmailComposeWithAi({
+    cc: input.cc || [],
+    currentBody: input.currentBody,
+    instruction: input.instruction,
+    message: messageResult?.message as Record<string, unknown> | null,
+    mode: input.mode || (messageResult ? 'reply' : 'compose'),
+    subject: input.subject,
+    to: input.to || [],
+  });
+
+  return {
+    account: await publicLocalEmailAccount(account),
+    body,
+    messageId: input.messageId || null,
+  };
+}
+
+export async function createLocalEmailAiReplyDraft(userId: string, accountId: string, messageId: string, folder?: string, instruction?: string, options?: EmailReadPolicyOptions) {
+  const result = await generateLocalEmailAiReplyBody(userId, accountId, messageId, folder, instruction, options);
+  return createLocalEmailDerivedDraft(userId, accountId, messageId, folder, 'reply', { bodyOverride: result.body }, options);
 }
 
 export async function createLocalEmailDraft(userId: string, input: EmailDraftInput) {
@@ -1197,9 +1245,10 @@ export async function sendLocalEmailDerivedMessage(
   folder: string | undefined,
   mode: EmailDerivedDraftMode,
   overrides?: EmailDerivedDraftOverrides,
+  options?: EmailReadPolicyOptions,
 ) {
   const account = await findLocalEmailAccount(userId, accountId);
-  const result = await readLocalEmailMessage(userId, account.id, messageId, folder);
+  const result = await readLocalEmailMessage(userId, account.id, messageId, folder, options);
   const message = result.message as Record<string, unknown>;
   const ownAddresses = await ownEmailAddressesForUser(userId, account);
   const draftInput = buildEmailDerivedDraft({
