@@ -1001,6 +1001,7 @@
     "markUnread": "Als ungelesen",
     "markDone": "Done",
     "clearDone": "Nicht done",
+    "messageOptions": "Nachrichtenoptionen",
     "replyOptions": "Antwortoptionen",
     "moveTo": "Verschieben nach...",
     "draftCreated": "Entwurf wurde im verbundenen Konto erstellt.",
@@ -3257,6 +3258,9 @@
       "sessionPlaceholder": "Session-Titel oder ID",
       "stopReason": "Stop-Grund",
       "groupBy": "Gruppieren nach",
+      "user": "Benutzer",
+      "allUsers": "Alle Benutzer",
+      "userOption": "{label} · {count} Events",
       "userId": "User-ID",
       "userIdPlaceholder": "Optionaler Admin-Filter"
     },
@@ -3344,7 +3348,8 @@
     },
     "errors": {
       "loadSummary": "Zusammenfassung konnte nicht geladen werden ({status}).",
-      "loadEvents": "Events konnten nicht geladen werden ({status})."
+      "loadEvents": "Events konnten nicht geladen werden ({status}).",
+      "loadUsers": "Benutzerliste konnte nicht geladen werden ({status})."
     }
   },
   "help": {

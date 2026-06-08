@@ -9,6 +9,7 @@ import type {
   UsageSummaryGroupBy,
   UsageSummaryResponse,
   UsageTotals,
+  UsageUsersResponse,
 } from './usage-types';
 
 const DEFAULT_WINDOW_DAYS = 30;
@@ -366,6 +367,52 @@ export async function getUsageEvents(
       outputTokens: toNumber(row.outputTokens),
       cacheTokens: toNumber(row.cacheTokens),
       totalCost: toNumber(row.totalCost),
+    })),
+  };
+}
+
+export async function getUsageUsers(
+  filters: UsageFilters,
+  viewer: { id: string; role?: string | null },
+): Promise<UsageUsersResponse> {
+  if (viewer.role !== 'admin') {
+    throw new Error('FORBIDDEN_USAGE_USERS');
+  }
+
+  const usageEventCountExpr = sql<number>`count(${piUsageEvents.id})`;
+  const lastUsageAtExpr = sql<number | null>`max(${piUsageEvents.assistantTimestamp})`;
+
+  const rows = await db
+    .select({
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      usageEventCount: usageEventCountExpr,
+      lastUsageAt: lastUsageAtExpr,
+    })
+    .from(user)
+    .leftJoin(
+      piUsageEvents,
+      and(
+        eq(piUsageEvents.userId, user.id),
+        sql`${piUsageEvents.assistantTimestamp} >= ${toUnixSeconds(filters.from)}`,
+        sql`${piUsageEvents.assistantTimestamp} <= ${toUnixSeconds(filters.to)}`,
+      ),
+    )
+    .groupBy(user.id, user.name, user.email, user.role)
+    .orderBy(desc(usageEventCountExpr), asc(user.email))
+    .limit(500);
+
+  return {
+    users: rows.map((row) => ({
+      id: row.id,
+      label: row.name ? `${row.name} <${row.email}>` : row.email,
+      name: row.name,
+      email: row.email,
+      role: row.role,
+      usageEventCount: toNumber(row.usageEventCount),
+      lastUsageAt: row.lastUsageAt === null ? null : new Date(toNumber(row.lastUsageAt) * 1000).toISOString(),
     })),
   };
 }

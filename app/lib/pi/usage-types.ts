@@ -76,3 +76,17 @@ export type UsageEventsResponse = {
   totalRows: number;
   rows: UsageEventRow[];
 };
+
+export type UsageUserOption = {
+  id: string;
+  label: string;
+  name: string;
+  email: string;
+  role: string | null;
+  usageEventCount: number;
+  lastUsageAt: string | null;
+};
+
+export type UsageUsersResponse = {
+  users: UsageUserOption[];
+};

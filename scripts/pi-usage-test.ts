@@ -7,7 +7,7 @@ import type { AgentMessage } from '@earendil-works/pi-agent-core';
 
 async function main() {
   const tempDir = await mkdtemp(path.join(os.tmpdir(), 'pi-usage-'));
-  process.env.SQLITE_PATH = path.join(tempDir, 'usage.sqlite');
+  process.env.DATA = tempDir;
 
   const [{ db }, schema, usageEvents, usageReporting, usageFormat] = await Promise.all([
     import('../app/lib/db'),
@@ -30,6 +30,7 @@ async function main() {
   const {
     getUsageEvents,
     getUsageSummary,
+    getUsageUsers,
     parsePage,
     parsePageSize,
     parseUsageFilters,
@@ -347,6 +348,36 @@ async function main() {
       [userId, otherUserId],
     );
 
+    const adminUsageUsers = await getUsageUsers(
+      {
+        from: new Date('2026-03-01T00:00:00.000Z'),
+        to: new Date('2026-03-31T23:59:59.999Z'),
+        groupBy: 'day',
+      },
+      { id: adminId, role: 'admin' },
+    );
+    const alphaUsageUser = adminUsageUsers.users.find((usageUser) => usageUser.id === userId);
+    const otherUsageUser = adminUsageUsers.users.find((usageUser) => usageUser.id === otherUserId);
+    const adminUsageUser = adminUsageUsers.users.find((usageUser) => usageUser.id === adminId);
+    assert.equal(adminUsageUsers.users.length, 3);
+    assert.equal(alphaUsageUser?.label, 'Canvas User <user@example.com>');
+    assert.equal(alphaUsageUser?.usageEventCount, 2);
+    assert.equal(alphaUsageUser?.lastUsageAt, '2026-03-11T08:00:00.000Z');
+    assert.equal(otherUsageUser?.usageEventCount, 1);
+    assert.equal(adminUsageUser?.usageEventCount, 0);
+
+    await assert.rejects(
+      getUsageUsers(
+        {
+          from: new Date('2026-03-01T00:00:00.000Z'),
+          to: new Date('2026-03-31T23:59:59.999Z'),
+          groupBy: 'day',
+        },
+        { id: userId, role: 'user' },
+      ),
+      /FORBIDDEN_USAGE_USERS/,
+    );
+
     await assert.rejects(
       getUsageSummary(
         {
@@ -390,9 +421,9 @@ async function main() {
 
     assert.equal(hasRenderableUsage(alphaAssistant.usage), true);
     assert.equal(hasRenderableUsage(noUsageAssistant.usage), false);
-    assert.equal(formatUsageCompact(alphaAssistant.usage), '210 tok · $0.0053');
+    assert.equal(formatUsageCompact(alphaAssistant.usage), '210 tok');
     assert.equal(formatUsageBreakdown(alphaAssistant.usage), '120 in / 80 out');
-    assert.equal(formatUsageCompact(zeroCostAssistant.usage), '50 tok · $0.0000');
+    assert.equal(formatUsageCompact(zeroCostAssistant.usage), '50 tok');
     assert.equal(formatUsageCost(0.01234), '$0.0123');
 
     console.log('[PI Usage Test] Passed.');

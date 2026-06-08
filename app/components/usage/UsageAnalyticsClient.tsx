@@ -10,6 +10,8 @@ import type {
   UsageSummaryGroupBy,
   UsageSummaryRow,
   UsageSummaryResponse,
+  UsageUserOption,
+  UsageUsersResponse,
 } from '@/app/lib/pi/usage-types';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -69,6 +71,15 @@ function buildQueryString(filters: FilterState, page = 1, pageSize = 50): string
   return params.toString();
 }
 
+function buildUsersQueryString(filters: FilterState): string {
+  const params = new URLSearchParams({
+    from: filters.from,
+    to: filters.to,
+  });
+
+  return params.toString();
+}
+
 function safeNumber(value: number | null | undefined): number {
   return typeof value === 'number' && Number.isFinite(value) ? value : 0;
 }
@@ -117,17 +128,20 @@ export function UsageAnalyticsClient({ isAdmin }: UsageAnalyticsClientProps) {
   const [activeFilters, setActiveFilters] = useState<FilterState>(() => createDefaultFilters());
   const [summary, setSummary] = useState<UsageSummaryResponse | null>(null);
   const [events, setEvents] = useState<UsageEventsResponse | null>(null);
+  const [users, setUsers] = useState<UsageUsersResponse | null>(null);
   const [page, setPage] = useState(1);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const queryString = useMemo(() => buildQueryString(activeFilters, page), [activeFilters, page]);
+  const usersQueryString = useMemo(() => buildUsersQueryString(activeFilters), [activeFilters]);
   const canGoNext = events ? page * events.pageSize < events.totalRows : false;
   const activeStopReasonLabel =
     stopReasonOptions.find((option) => option.value === activeFilters.stopReason)?.label || t('scope.all');
   const activeGroupByLabel =
     groupByOptions.find((option) => option.value === activeFilters.groupBy)?.label || activeFilters.groupBy;
   const summaryRows = summary?.rows ?? [];
+  const userOptions = users?.users ?? [];
   const integerFormatter = useMemo(
     () =>
       new Intl.NumberFormat(locale, {
@@ -154,6 +168,15 @@ export function UsageAnalyticsClient({ isAdmin }: UsageAnalyticsClientProps) {
       output: formatInteger(row.outputTokens),
       cache: formatInteger(row.cacheTokens),
     });
+  const formatUserOptionLabel = (userOption: UsageUserOption) =>
+    t('filters.userOption', {
+      label: userOption.label,
+      count: formatInteger(userOption.usageEventCount),
+    });
+  const activeUserLabel =
+    activeFilters.userId
+      ? userOptions.find((userOption) => userOption.id === activeFilters.userId)?.label || activeFilters.userId
+      : t('scope.allUsers');
 
   function formatTimestamp(value: string): string {
     return new Intl.DateTimeFormat(locale, {
@@ -170,13 +193,15 @@ export function UsageAnalyticsClient({ isAdmin }: UsageAnalyticsClientProps) {
       setError(null);
 
       try {
-        const [summaryRes, eventsRes] = await Promise.all([
+        const [summaryRes, eventsRes, usersRes] = await Promise.all([
           fetch(`/api/usage/summary?${queryString}`),
           fetch(`/api/usage/events?${queryString}`),
+          isAdmin ? fetch(`/api/usage/users?${usersQueryString}`) : Promise.resolve(null),
         ]);
 
         const summaryPayload = await summaryRes.json();
         const eventsPayload = await eventsRes.json();
+        const usersPayload = usersRes ? await usersRes.json() : null;
 
         if (!summaryRes.ok || !summaryPayload.success) {
           throw new Error(summaryPayload.error || t('errors.loadSummary', { status: summaryRes.status }));
@@ -186,9 +211,14 @@ export function UsageAnalyticsClient({ isAdmin }: UsageAnalyticsClientProps) {
           throw new Error(eventsPayload.error || t('errors.loadEvents', { status: eventsRes.status }));
         }
 
+        if (usersRes && (!usersRes.ok || !usersPayload.success)) {
+          throw new Error(usersPayload.error || t('errors.loadUsers', { status: usersRes.status }));
+        }
+
         if (!cancelled) {
           setSummary(summaryPayload as UsageSummaryResponse);
           setEvents(eventsPayload as UsageEventsResponse);
+          setUsers(usersPayload ? usersPayload as UsageUsersResponse : null);
         }
       } catch (fetchError) {
         if (!cancelled) {
@@ -206,7 +236,7 @@ export function UsageAnalyticsClient({ isAdmin }: UsageAnalyticsClientProps) {
     return () => {
       cancelled = true;
     };
-  }, [queryString, t]);
+  }, [isAdmin, queryString, t, usersQueryString]);
 
   const setPresetRange = (days: number) => {
     const now = new Date();
@@ -342,12 +372,19 @@ export function UsageAnalyticsClient({ isAdmin }: UsageAnalyticsClientProps) {
               </label>
               {isAdmin ? (
                 <label className="space-y-1 text-sm">
-                  <span className="text-xs font-bold uppercase tracking-[0.18em] text-muted-foreground">{t('filters.userId')}</span>
-                  <Input
-                    placeholder={t('filters.userIdPlaceholder')}
+                  <span className="text-xs font-bold uppercase tracking-[0.18em] text-muted-foreground">{t('filters.user')}</span>
+                  <select
+                    className="flex h-10 w-full border border-border bg-background px-3 text-sm"
                     value={draftFilters.userId}
                     onChange={(event) => setDraftFilters((prev) => ({ ...prev, userId: event.target.value }))}
-                  />
+                  >
+                    <option value="">{t('filters.allUsers')}</option>
+                    {userOptions.map((userOption) => (
+                      <option key={userOption.id} value={userOption.id}>
+                        {formatUserOptionLabel(userOption)}
+                      </option>
+                    ))}
+                  </select>
                 </label>
               ) : null}
             </div>
@@ -385,7 +422,7 @@ export function UsageAnalyticsClient({ isAdmin }: UsageAnalyticsClientProps) {
             <div>{t('scope.stopReason', { value: activeStopReasonLabel })}</div>
             <div>{t('scope.groupedBy', { value: activeGroupByLabel })}</div>
             {isAdmin ? (
-              <div>{t('scope.userScope', { value: activeFilters.userId || t('scope.allUsers') })}</div>
+              <div>{t('scope.userScope', { value: activeUserLabel })}</div>
             ) : (
               <div>{t('scope.userScope', { value: t('scope.currentUser') })}</div>
             )}
