@@ -1611,7 +1611,7 @@ function McpConfigCard(props: {
   );
 }
 
-function EmailAccountsCard({ isOpen, onOpenChange }: { isOpen: boolean; onOpenChange: (isOpen: boolean) => void }) {
+export function EmailAccountsCard({ isOpen, onOpenChange }: { isOpen: boolean; onOpenChange: (isOpen: boolean) => void }) {
   const t = useTranslations('settings.emailAccounts');
   const searchParams = useSearchParams();
   const handledEmailOAuthReturn = useRef(false);

@@ -919,6 +919,10 @@
         "title": "To-dos",
         "description": "Menschliche Aufgaben, Freigaben und Prüfungen zentral abarbeiten."
       },
+      "emails": {
+        "title": "E-Mail",
+        "description": "Mehrere Postfächer verbinden, Main Email festlegen und Richtlinien pflegen."
+      },
       "skills": {
         "title": "Skill Gallery",
         "description": "Skills erstellen, verwalten und im Chat nutzen."
@@ -957,6 +961,10 @@
       "byCanvasCoding": "by Canvas Coding",
       "version": "v.{version}"
     }
+  },
+  "emails": {
+    "title": "E-Mail",
+    "description": "Verwalte die verbundenen E-Mail-Konten für Postfächer, Versand, Agent-Tools und Systemmails."
   },
   "security": {
     "publicShares": {

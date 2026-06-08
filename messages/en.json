@@ -920,6 +920,10 @@
         "title": "To-dos",
         "description": "Work through human tasks, approvals, and reviews in one place."
       },
+      "emails": {
+        "title": "Email",
+        "description": "Connect multiple inboxes, choose the main email, and maintain policies."
+      },
       "skills": {
         "title": "Skill Gallery",
         "description": "Create, manage, and use skills in chat."
@@ -958,6 +962,10 @@
       "byCanvasCoding": "by Canvas Coding",
       "version": "v.{version}"
     }
+  },
+  "emails": {
+    "title": "Email",
+    "description": "Manage connected email accounts for inboxes, sending, agent tools, and system mail."
   },
   "security": {
     "publicShares": {
