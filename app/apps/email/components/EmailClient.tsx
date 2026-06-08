@@ -9,6 +9,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Forward,
+  FolderInput,
   Image as ImageIcon,
   Inbox,
   Loader2,
@@ -519,6 +520,7 @@ type EmailMessageViewerLabels = {
   aiSummary: string;
   archive: string;
   attachments: string;
+  cancel: string;
   cc: string;
   clearDone: string;
   date: string;
@@ -531,6 +533,7 @@ type EmailMessageViewerLabels = {
   markUnread: string;
   messageOptions: string;
   moveTo: string;
+  noFolders: string;
   noSubject: string;
   permanentDelete: string;
   remoteImagesBlocked: string;
@@ -576,7 +579,7 @@ type EmailMessageActionName =
   | 'summary'
   | 'trash';
 
-type EmailMessageListActionName = 'archive' | 'mark-read' | 'mark-unread' | 'permanent-delete' | 'trash';
+type EmailMessageListActionName = 'archive' | 'mark-read' | 'mark-unread' | 'move' | 'permanent-delete' | 'trash';
 
 type EmailMessageListActionState = {
   action: EmailMessageListActionName;
@@ -639,69 +642,165 @@ function EmailReplySplitButton({
   );
 }
 
-function EmailMessageRowActions({
-  activeAction,
+function EmailAiSplitButton({
+  actions,
   labels,
-  message,
-  onAction,
 }: {
-  activeAction: EmailMessageListActionState;
-  labels: Pick<EmailMessageViewerLabels, 'archive' | 'markRead' | 'markUnread' | 'permanentDelete' | 'trash'> & { messageOptions: string };
-  message: EmailMessageSummary;
-  onAction(message: EmailMessageSummary, action: EmailMessageListActionName): void;
+  actions: EmailMessageViewerActions;
+  labels: Pick<EmailMessageViewerLabels, 'aiReply' | 'aiSummary' | 'summary'>;
 }) {
-  const isBusy = activeAction?.messageId === message.id;
-  const isArchiveBusy = isBusy && activeAction?.action === 'archive';
-  const isReadBusy = isBusy && (activeAction?.action === 'mark-read' || activeAction?.action === 'mark-unread');
-  const isTrashBusy = isBusy && activeAction?.action === 'trash';
-  const isPermanentDeleteBusy = isBusy && activeAction?.action === 'permanent-delete';
-  const readAction = message.isRead ? 'mark-unread' : 'mark-read';
-  const readLabel = message.isRead ? labels.markUnread : labels.markRead;
+  const isBusy = Boolean(actions.activeAction);
+  const isAiReplyBusy = actions.activeAction === 'ai-reply';
+  const isSummaryBusy = actions.activeAction === 'summary';
 
   return (
     <DropdownMenu modal={false}>
-      <div className="inline-flex overflow-hidden rounded-md border border-transparent bg-background/70 opacity-100 transition-opacity sm:opacity-0 sm:group-hover/message:opacity-100 sm:group-focus-within/message:opacity-100">
+      <div className="inline-flex shrink-0 overflow-hidden rounded-md">
         <Button
           type="button"
-          size="icon-sm"
-          variant="ghost"
-          className="h-8 w-8 rounded-r-none"
+          size="sm"
+          variant="outline"
+          className="rounded-r-none"
           disabled={isBusy}
-          aria-label={labels.archive}
-          title={labels.archive}
-          onClick={() => onAction(message, 'archive')}
+          onClick={() => actions.onAction('ai-reply')}
+          title={labels.aiReply}
         >
-          {isArchiveBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Archive className="h-4 w-4" />}
+          {isAiReplyBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+          {labels.aiReply}
         </Button>
         <DropdownMenuTrigger asChild>
           <Button
             type="button"
             size="icon-sm"
-            variant="ghost"
+            variant="outline"
             className="h-8 w-7 rounded-l-none border-l border-border/70 px-0"
             disabled={isBusy}
-            aria-label={labels.messageOptions}
-            title={labels.messageOptions}
+            aria-label={labels.aiSummary}
+            title={labels.aiSummary}
           >
-            {isReadBusy || isTrashBusy || isPermanentDeleteBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ChevronDown className="h-3.5 w-3.5" />}
+            {isSummaryBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ChevronDown className="h-3.5 w-3.5" />}
           </Button>
         </DropdownMenuTrigger>
       </div>
-      <DropdownMenuContent align="end" sideOffset={8} className="w-44">
-        <DropdownMenuItem onSelect={() => onAction(message, readAction)}>
-          {message.isRead ? <Mail className="h-4 w-4" /> : <MailOpen className="h-4 w-4" />}
-          {readLabel}
-        </DropdownMenuItem>
-        <DropdownMenuItem onSelect={() => onAction(message, 'trash')} className="text-destructive focus:text-destructive">
-          <Trash2 className="h-4 w-4" />
-          {labels.trash}
-        </DropdownMenuItem>
-        <DropdownMenuItem onSelect={() => onAction(message, 'permanent-delete')} className="text-destructive focus:text-destructive">
-          <XCircle className="h-4 w-4" />
-          {labels.permanentDelete}
+      <DropdownMenuContent align="start" sideOffset={8} className="w-44">
+        <DropdownMenuItem onSelect={() => actions.onAction('summary')}>
+          <Sparkles className="h-4 w-4" />
+          {labels.summary}
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
+  );
+}
+
+function EmailMessageRowActions({
+  activeAction,
+  folders,
+  labels,
+  message,
+  onAction,
+}: {
+  activeAction: EmailMessageListActionState;
+  folders: EmailFolder[];
+  labels: Pick<EmailMessageViewerLabels, 'archive' | 'cancel' | 'markRead' | 'markUnread' | 'moveTo' | 'noFolders' | 'permanentDelete' | 'trash'> & { messageOptions: string };
+  message: EmailMessageSummary;
+  onAction(message: EmailMessageSummary, action: EmailMessageListActionName, destination?: string): void;
+}) {
+  const [isMoveOpen, setIsMoveOpen] = useState(false);
+  const isBusy = activeAction?.messageId === message.id;
+  const isArchiveBusy = isBusy && activeAction?.action === 'archive';
+  const isMoveBusy = isBusy && activeAction?.action === 'move';
+  const isReadBusy = isBusy && (activeAction?.action === 'mark-read' || activeAction?.action === 'mark-unread');
+  const isTrashBusy = isBusy && activeAction?.action === 'trash';
+  const isPermanentDeleteBusy = isBusy && activeAction?.action === 'permanent-delete';
+  const readAction = message.isRead ? 'mark-unread' : 'mark-read';
+  const readLabel = message.isRead ? labels.markUnread : labels.markRead;
+  const selectableFolders = folders.filter((folder) => folder.selectable !== false && folder.path !== message.folder);
+
+  return (
+    <>
+      <DropdownMenu modal={false}>
+        <div className="inline-flex overflow-hidden rounded-md border border-transparent bg-background/70 opacity-100 transition-opacity sm:opacity-0 sm:group-hover/message:opacity-100 sm:group-focus-within/message:opacity-100">
+          <Button
+            type="button"
+            size="icon-sm"
+            variant="ghost"
+            className="h-8 w-8 rounded-r-none"
+            disabled={isBusy}
+            aria-label={labels.trash}
+            title={labels.trash}
+            onClick={() => onAction(message, 'trash')}
+          >
+            {isTrashBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+          </Button>
+          <DropdownMenuTrigger asChild>
+            <Button
+              type="button"
+              size="icon-sm"
+              variant="ghost"
+              className="h-8 w-7 rounded-l-none border-l border-border/70 px-0"
+              disabled={isBusy}
+              aria-label={labels.messageOptions}
+              title={labels.messageOptions}
+            >
+              {isArchiveBusy || isMoveBusy || isReadBusy || isPermanentDeleteBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ChevronDown className="h-3.5 w-3.5" />}
+            </Button>
+          </DropdownMenuTrigger>
+        </div>
+        <DropdownMenuContent align="end" sideOffset={8} className="w-48">
+          <DropdownMenuItem onSelect={() => onAction(message, 'archive')}>
+            <Archive className="h-4 w-4" />
+            {labels.archive}
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => setIsMoveOpen(true)}>
+            <FolderInput className="h-4 w-4" />
+            {labels.moveTo}
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => onAction(message, readAction)}>
+            {message.isRead ? <Mail className="h-4 w-4" /> : <MailOpen className="h-4 w-4" />}
+            {readLabel}
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => onAction(message, 'permanent-delete')} className="text-destructive focus:text-destructive">
+            <XCircle className="h-4 w-4" />
+            {labels.permanentDelete}
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+
+      <Dialog open={isMoveOpen} onOpenChange={setIsMoveOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader className="pr-8">
+            <DialogTitle className="text-base">{labels.moveTo}</DialogTitle>
+            <DialogDescription className="truncate text-sm">{message.subject}</DialogDescription>
+          </DialogHeader>
+          <div className="max-h-72 overflow-y-auto border border-border">
+            {selectableFolders.length === 0 ? (
+              <div className="px-3 py-3 text-sm text-muted-foreground">{labels.noFolders}</div>
+            ) : (
+              selectableFolders.map((folder) => (
+                <button
+                  key={folder.path}
+                  type="button"
+                  className="flex w-full items-center justify-between gap-2 border-b border-border px-3 py-2 text-left text-sm last:border-b-0 hover:bg-muted"
+                  disabled={isBusy}
+                  onClick={() => {
+                    setIsMoveOpen(false);
+                    onAction(message, 'move', folder.path);
+                  }}
+                >
+                  <span className="min-w-0 truncate">{folder.name}</span>
+                  {folder.unseenCount ? <span className="shrink-0 text-xs text-muted-foreground">{folder.unseenCount}</span> : null}
+                </button>
+              ))
+            )}
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setIsMoveOpen(false)}>
+              {labels.cancel}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
 
@@ -745,29 +844,22 @@ function EmailMessageViewer({
 
   return (
     <article className={cn('h-full min-h-0 overflow-y-auto', className)}>
-      <header className="border-b border-border px-4 py-3 pr-12">
-        <h3 className="text-lg font-semibold leading-7">{message.subject || labels.noSubject}</h3>
-        <div className="mt-2 flex flex-col gap-1 text-sm text-muted-foreground">
+      <header className="border-b border-border px-3 py-2.5 pr-10 sm:px-4">
+        <h3 className="text-base font-semibold leading-6 sm:text-lg sm:leading-7">{message.subject || labels.noSubject}</h3>
+        <div className="mt-1.5 flex flex-col gap-0.5 text-xs text-muted-foreground sm:text-sm">
           <p><span className="font-medium text-foreground">{labels.from}:</span> {message.from}</p>
           {formatRecipients(message.to) && <p><span className="font-medium text-foreground">{labels.to}:</span> {formatRecipients(message.to)}</p>}
           {formatRecipients(message.cc) && <p><span className="font-medium text-foreground">{labels.cc}:</span> {formatRecipients(message.cc)}</p>}
           {message.date && <p><span className="font-medium text-foreground">{labels.date}:</span> {formatDate(message.date)}</p>}
         </div>
         {actions && (
-          <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-border/70 pt-3">
+          <div className="mt-2.5 flex flex-wrap items-center gap-1.5 border-t border-border/70 pt-2.5">
             <EmailReplySplitButton actions={actions} labels={labels} />
             <Button type="button" size="sm" variant="outline" disabled={Boolean(actions.activeAction)} onClick={() => actions.onAction('draft-forward')} title={labels.forward}>
               {actions.activeAction === 'draft-forward' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Forward className="h-4 w-4" />}
               {labels.forward}
             </Button>
-            <Button type="button" size="sm" variant="outline" disabled={Boolean(actions.activeAction)} onClick={() => actions.onAction('summary')} title={labels.summary}>
-              {actions.activeAction === 'summary' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-              {labels.summary}
-            </Button>
-            <Button type="button" size="sm" variant="outline" disabled={Boolean(actions.activeAction)} onClick={() => actions.onAction('ai-reply')} title={labels.aiReply}>
-              {actions.activeAction === 'ai-reply' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-              {labels.aiReply}
-            </Button>
+            <EmailAiSplitButton actions={actions} labels={labels} />
             <Button
               type="button"
               size="sm"
@@ -801,7 +893,7 @@ function EmailMessageViewer({
           </div>
         )}
         {summary && (
-          <div className="mt-4 border border-primary/25 bg-primary/5 px-3 py-2 text-sm leading-6">
+          <div className="mt-3 border border-primary/25 bg-primary/5 px-3 py-2 text-sm leading-6">
             <div className="mb-1 text-xs font-semibold uppercase tracking-[0.14em] text-primary">{labels.aiSummary}</div>
             <p className="whitespace-pre-wrap">{summary}</p>
           </div>
@@ -881,12 +973,12 @@ function EmailComposeDialog({
       <DialogContent layout="viewport">
         {draft && (
           <>
-            <DialogHeader className="shrink-0 border-b border-border px-4 py-4 pr-12 sm:px-6">
-              <DialogTitle>{composeDialogTitle(draft, labels)}</DialogTitle>
-              <DialogDescription>{labels.composeDescription}</DialogDescription>
+            <DialogHeader className="shrink-0 border-b border-border px-4 py-3 pr-10 sm:px-5">
+              <DialogTitle className="text-base leading-6">{composeDialogTitle(draft, labels)}</DialogTitle>
+              <DialogDescription className="text-xs leading-5 sm:text-sm">{labels.composeDescription}</DialogDescription>
             </DialogHeader>
-            <div className="min-h-0 flex-1 overflow-y-auto px-3 py-4 sm:px-6">
-              <div className="grid min-h-full gap-4 lg:grid-cols-[minmax(300px,440px)_minmax(0,1fr)]">
+            <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3 sm:px-5">
+              <div className="grid min-h-full gap-3 lg:grid-cols-[minmax(300px,420px)_minmax(0,1fr)]">
                 <section className="min-w-0 space-y-3">
                   <div className="space-y-1.5">
                     <label className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground" htmlFor="email-compose-to">
@@ -1462,9 +1554,10 @@ export function EmailClient() {
     }
   }, [activeAccount, activeFolder, loadFolders, openComposeDraft, selectedMessage, t]);
 
-  const handleMessageListAction = useCallback(async (message: EmailMessageSummary, action: EmailMessageListActionName) => {
+  const handleMessageListAction = useCallback(async (message: EmailMessageSummary, action: EmailMessageListActionName, destination?: string) => {
     if (!activeAccount) return;
     if (action === 'permanent-delete' && !window.confirm(t('confirmPermanentDelete'))) return;
+    if (action === 'move' && !destination) return;
 
     const folder = message.folder || activeFolder;
     const endpoint = `/api/email/accounts/${encodeURIComponent(activeAccount.id)}/messages/actions`;
@@ -1477,7 +1570,7 @@ export function EmailClient() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ action, folder, messageId: message.id, operation: 'action' }),
+        body: JSON.stringify({ action, destination, folder, messageId: message.id, operation: 'action' }),
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok || !payload.success) throw new Error(payload.error || t('errors.updateMessage'));
@@ -1525,6 +1618,7 @@ export function EmailClient() {
     aiSummary: t('aiSummary'),
     archive: t('archive'),
     attachments: t('attachments'),
+    cancel: t('composeCancel'),
     cc: t('cc'),
     clearDone: t('clearDone'),
     date: t('date'),
@@ -1537,6 +1631,7 @@ export function EmailClient() {
     markUnread: t('markUnread'),
     messageOptions: t('messageOptions'),
     moveTo: t('moveTo'),
+    noFolders: t('noFolders'),
     noSubject: t('noSubject'),
     permanentDelete: t('permanentDelete'),
     remoteImagesBlocked: t('remoteImagesBlocked'),
@@ -1612,19 +1707,19 @@ export function EmailClient() {
 
   return (
     <div className="mx-auto flex h-full min-h-0 w-full max-w-7xl flex-col gap-3 overflow-y-auto px-3 py-3 sm:px-6 sm:py-5 lg:overflow-hidden">
-      <section className="shrink-0 flex flex-col gap-3 border border-border bg-card px-3 py-3 sm:px-4">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-          <div className="flex min-w-0 items-start gap-3">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-border bg-muted">
+      <section className="shrink-0 flex flex-col gap-2 border border-border bg-card px-3 py-2 sm:px-4">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex min-w-0 items-center gap-2">
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border bg-muted">
               <Inbox className="h-5 w-5 text-primary" aria-hidden="true" />
             </div>
             <div className="min-w-0">
-              <h2 className="truncate text-lg font-semibold tracking-tight">{t('title')}</h2>
+              <h2 className="truncate text-base font-semibold tracking-tight">{t('title')}</h2>
               {activeAccount && (
-                <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
-                  <span className="truncate">{activeAccount.emailAddress}</span>
+                <div className="mt-0.5 flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
+                  <span className="min-w-0 truncate">{activeAccount.emailAddress}</span>
                   {activeAccount.isPrimary && (
-                    <Badge variant="secondary" className="gap-1">
+                    <Badge variant="secondary" className="hidden gap-1 sm:inline-flex">
                       <Star className="h-3 w-3" />
                       {t('mainEmail')}
                     </Badge>
@@ -1633,41 +1728,34 @@ export function EmailClient() {
               )}
             </div>
           </div>
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-            <label className="sr-only" htmlFor="email-account-switcher">{t('accountLabel')}</label>
-            <select
-              id="email-account-switcher"
-              className="h-10 w-full min-w-0 border border-input bg-background px-3 text-sm sm:min-w-[220px]"
-              value={activeAccountId}
-              onChange={(event) => selectAccount(event.target.value)}
-            >
-              {accounts.map((account) => (
-                <option key={account.id} value={account.id}>
-                  {account.isPrimary ? `${account.emailAddress} (${t('mainEmail')})` : account.emailAddress}
-                </option>
-              ))}
-            </select>
-            <Button type="button" variant="outline" onClick={() => void loadMessages()} disabled={!canReadActiveAccount || isLoadingMessages}>
-              {isLoadingMessages ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
-              {t('refresh')}
+          <div className="flex shrink-0 items-center gap-2">
+            <Button type="button" size="sm" variant="outline" aria-label={t('accountLabel')} title={t('accountLabel')} onClick={() => setAccountsOpen(true)}>
+              <Settings className="h-4 w-4 sm:mr-2" />
+              <span className="hidden sm:inline">{t('accountLabel')}</span>
             </Button>
-            <Button type="button" variant="outline" onClick={() => setAccountsOpen(true)}>
-              <Settings className="mr-2 h-4 w-4" />
-              {t('manageAccounts')}
+            <Button
+              type="button"
+              size="icon-sm"
+              variant="outline"
+              aria-label={t('refresh')}
+              title={t('refresh')}
+              onClick={() => void loadMessages()}
+              disabled={!canReadActiveAccount || isLoadingMessages}
+            >
+              {isLoadingMessages ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
             </Button>
           </div>
         </div>
 
-        <form onSubmit={handleSearch} className="flex flex-col gap-2 sm:flex-row">
+        <form onSubmit={handleSearch} className="flex gap-2">
           <Input
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             placeholder={t('searchPlaceholder')}
-            className="h-10"
+            className="h-9"
           />
-          <Button type="submit" disabled={!canReadActiveAccount || isLoadingMessages}>
-            <Search className="mr-2 h-4 w-4" />
-            {t('search')}
+          <Button type="submit" size="icon-sm" className="h-9 w-9 shrink-0" disabled={!canReadActiveAccount || isLoadingMessages} aria-label={t('search')} title={t('search')}>
+            <Search className="h-4 w-4" />
           </Button>
         </form>
       </section>
@@ -1852,6 +1940,7 @@ export function EmailClient() {
                     <div className="flex shrink-0 items-start px-2 py-2">
                       <EmailMessageRowActions
                         activeAction={activeMessageListAction}
+                        folders={folders}
                         labels={messageViewerLabels}
                         message={message}
                         onAction={handleMessageListAction}
@@ -1920,11 +2009,28 @@ export function EmailClient() {
       {accounts.length > 0 && (
         <Dialog open={accountsOpen} onOpenChange={setAccountsOpen}>
           <DialogContent layout="viewport">
-            <DialogHeader className="border-b border-border px-4 py-4 pr-12 sm:px-6">
-              <DialogTitle>{t('manageAccounts')}</DialogTitle>
-              <DialogDescription>{t('manageAccountsDescription')}</DialogDescription>
+            <DialogHeader className="border-b border-border px-4 py-3 pr-10 sm:px-5">
+              <DialogTitle className="text-base leading-6">{t('manageAccounts')}</DialogTitle>
+              <DialogDescription className="text-xs leading-5 sm:text-sm">{t('manageAccountsDescription')}</DialogDescription>
             </DialogHeader>
-            <div className="min-h-0 flex-1 overflow-y-auto px-3 py-4 sm:px-6">
+            <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-3 py-3 sm:px-5">
+              <section className="border border-border bg-muted/25 px-3 py-3">
+                <label className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground" htmlFor="email-account-switcher">
+                  {t('accountLabel')}
+                </label>
+                <select
+                  id="email-account-switcher"
+                  className="mt-2 h-10 w-full min-w-0 border border-input bg-background px-3 text-sm"
+                  value={activeAccountId}
+                  onChange={(event) => selectAccount(event.target.value)}
+                >
+                  {accounts.map((account) => (
+                    <option key={account.id} value={account.id}>
+                      {account.isPrimary ? `${account.emailAddress} (${t('mainEmail')})` : account.emailAddress}
+                    </option>
+                  ))}
+                </select>
+              </section>
               <EmailAccountsCard
                 isOpen={true}
                 onOpenChange={() => undefined}
