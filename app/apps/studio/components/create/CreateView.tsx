@@ -28,6 +28,7 @@ import { toPreviewUrl, toWorkspaceMediaUrl } from '@/app/lib/utils/media-url';
 import { useSetStudioChatContext } from '@/app/apps/studio/context/studio-chat-context';
 import { useStudioGenerationStore } from '@/app/store/studio-generation-store';
 import { buildStudioGeneratePayload } from '../../utils/studio-generate-payload';
+import { clearStudioGenerateHandoff, consumeStudioGenerateHandoff } from '../../utils/studio-generate-handoff';
 import { getStudioUserPrompt } from '../../utils/studio-generation-prompt';
 import { EMPTY_STUDIO_PROVIDER_CONFIG, type StudioProviderConfig } from '../../types/config';
 import { StudioMediaThumbnail } from '../StudioMediaThumbnail';
@@ -537,6 +538,7 @@ export function CreateView({ initialProviderConfig = EMPTY_STUDIO_PROVIDER_CONFI
   const initialRefSource = searchParams.get('refSource');
   const initialGenerationId = searchParams.get('generation');
   const initialOutputId = searchParams.get('output');
+  const initialGenerateRequestId = searchParams.get('generateRequest');
 
   useEffect(() => {
     if (!initialRefPath) return;
@@ -618,10 +620,11 @@ export function CreateView({ initialProviderConfig = EMPTY_STUDIO_PROVIDER_CONFI
   };
 
   useEffect(() => {
-    const request = pendingGenerateRequest;
+    const request = pendingGenerateRequest ?? consumeStudioGenerateHandoff(initialGenerateRequestId);
     if (!request || startedPendingGenerateRequestRef.current === request.id) return;
 
     startedPendingGenerateRequestRef.current = request.id;
+    clearStudioGenerateHandoff(request.id);
 
     (async () => {
       try {
@@ -631,9 +634,10 @@ export function CreateView({ initialProviderConfig = EMPTY_STUDIO_PROVIDER_CONFI
         }
       } finally {
         clearGenerateRequest(request.id);
+        clearStudioGenerateHandoff(request.id);
       }
     })();
-  }, [clearGenerateRequest, generate, pendingGenerateRequest, router]);
+  }, [clearGenerateRequest, generate, initialGenerateRequestId, pendingGenerateRequest, router]);
 
   const handlePasteImage = useCallback(async (file: File) => {
     try {

@@ -31,6 +31,7 @@ import { AudioLines, Sparkles, Layers, LayoutGrid, ArrowRight, Camera, Cpu, Home
 import { useStudioGenerationStore } from '@/app/store/studio-generation-store';
 import { cn } from '@/lib/utils';
 import { buildStudioGeneratePayload } from '../utils/studio-generate-payload';
+import { persistStudioGenerateHandoff } from '../utils/studio-generate-handoff';
 import { getStudioUserPrompt } from '../utils/studio-generation-prompt';
 import { StudioMediaThumbnail } from './StudioMediaThumbnail';
 
@@ -154,9 +155,11 @@ export function StudioDashboard() {
   }, [store.mode, store.provider, store.rawPrompt, store.productRefs.length, store.personaRefs.length, store.presetRef, store.fileRefs.length, store.videoReferenceRefs.length, store.audioReferenceRefs.length, store.videoExtendSourceRef]);
 
   const handleGenerate = useCallback(async () => {
-    store.queueGenerateRequest(buildStudioGeneratePayload(store));
+    const payload = buildStudioGeneratePayload(store);
+    const requestId = store.queueGenerateRequest(payload);
+    persistStudioGenerateHandoff({ id: requestId, payload });
     store.resetAfterGenerate();
-    router.push('/studio/create');
+    router.push(`/studio/create?generateRequest=${encodeURIComponent(requestId)}`);
   }, [store, router]);
 
   const handleStartingPoint = useCallback((sp: StartingPoint) => {
