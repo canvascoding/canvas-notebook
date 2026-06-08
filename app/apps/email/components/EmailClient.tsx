@@ -18,6 +18,7 @@ import {
   MailWarning,
   PanelLeftClose,
   PanelLeftOpen,
+  PenLine,
   RefreshCw,
   Reply,
   ReplyAll,
@@ -95,14 +96,15 @@ type EmailMessageDetail = EmailMessageSummary & {
   }>;
 };
 
-type EmailComposeMode = 'forward' | 'reply' | 'reply-all';
+type EmailComposeMode = 'compose' | 'forward' | 'reply' | 'reply-all';
 
 type EmailComposeDraft = {
   aiGenerated?: boolean;
+  aiPrompt: string;
   body: string;
   ccText: string;
-  folder: string;
-  message: EmailMessageDetail;
+  folder?: string;
+  message?: EmailMessageDetail;
   mode: EmailComposeMode;
   subject: string;
   toText: string;
@@ -550,10 +552,15 @@ type EmailComposeDialogLabels = Pick<EmailMessageViewerLabels, 'cc' | 'date' | '
   addRecipientToSendPolicy(email: string): string;
   cancel: string;
   composeAiReplyTitle: string;
+  composeAiPromptLabel: string;
+  composeAiPromptPlaceholder: string;
   composeBodyLabel: string;
   composeBodyPlaceholder: string;
   composeDescription: string;
   composeForwardTitle: string;
+  composeGenerateWithAi: string;
+  composeGeneratingWithAi: string;
+  composeNewTitle: string;
   composeOriginalTitle: string;
   composeReplyAllTitle: string;
   composeReplyTitle: string;
@@ -913,6 +920,7 @@ function EmailMessageViewer({
 }
 
 function composeDialogTitle(draft: EmailComposeDraft, labels: EmailComposeDialogLabels) {
+  if (draft.mode === 'compose') return labels.composeNewTitle;
   if (draft.aiGenerated) return labels.composeAiReplyTitle;
   if (draft.mode === 'forward') return labels.composeForwardTitle;
   if (draft.mode === 'reply-all') return labels.composeReplyAllTitle;
@@ -925,11 +933,13 @@ function EmailComposeDialog({
   draft,
   error,
   isAddingSendPolicyRecipient,
+  isGeneratingAi,
   isSubmitting,
   labels,
   onAddSendPolicyRecipient,
   onAllowRemoteResourcesForSender,
   onClose,
+  onGenerateAi,
   onSubmit,
   onUpdate,
 }: {
@@ -938,13 +948,15 @@ function EmailComposeDialog({
   draft: EmailComposeDraft | null;
   error: string | null;
   isAddingSendPolicyRecipient: boolean;
+  isGeneratingAi: boolean;
   isSubmitting: boolean;
   labels: EmailComposeDialogLabels;
   onAddSendPolicyRecipient(email: string): void;
   onAllowRemoteResourcesForSender(sender: string): void;
   onClose(): void;
+  onGenerateAi(): void;
   onSubmit(): void;
-  onUpdate(updates: Partial<Pick<EmailComposeDraft, 'body' | 'ccText' | 'subject' | 'toText'>>): void;
+  onUpdate(updates: Partial<Pick<EmailComposeDraft, 'aiPrompt' | 'body' | 'ccText' | 'subject' | 'toText'>>): void;
 }) {
   const blockedRecipient = useMemo(() => extractBlockedSendPolicyRecipient(error), [error]);
 
@@ -952,7 +964,7 @@ function EmailComposeDialog({
     <Dialog
       open={Boolean(draft)}
       onOpenChange={(open) => {
-        if (!open && !isSubmitting) onClose();
+        if (!open && !isSubmitting && !isGeneratingAi) onClose();
       }}
     >
       <DialogContent layout="viewport">
@@ -963,7 +975,7 @@ function EmailComposeDialog({
               <DialogDescription className="text-xs leading-5 sm:text-sm">{labels.composeDescription}</DialogDescription>
             </DialogHeader>
             <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3 sm:px-5">
-              <div className="grid min-h-full gap-3 lg:grid-cols-[minmax(300px,420px)_minmax(0,1fr)]">
+              <div className={cn('grid min-h-full gap-3', draft.message && 'lg:grid-cols-[minmax(300px,420px)_minmax(0,1fr)]')}>
                 <section className="min-w-0 space-y-3">
                   <div className="space-y-1.5">
                     <label className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground" htmlFor="email-compose-to">
@@ -998,6 +1010,29 @@ function EmailComposeDialog({
                       disabled={isSubmitting}
                     />
                   </div>
+                  <div className="space-y-2 border border-border bg-muted/30 px-3 py-3">
+                    <label className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground" htmlFor="email-compose-ai-prompt">
+                      {labels.composeAiPromptLabel}
+                    </label>
+                    <Textarea
+                      id="email-compose-ai-prompt"
+                      value={draft.aiPrompt}
+                      onChange={(event) => onUpdate({ aiPrompt: event.target.value })}
+                      placeholder={labels.composeAiPromptPlaceholder}
+                      className="min-h-20 resize-y bg-background"
+                      disabled={isSubmitting || isGeneratingAi}
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={onGenerateAi}
+                      disabled={isSubmitting || isGeneratingAi || !draft.aiPrompt.trim()}
+                    >
+                      {isGeneratingAi ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Sparkles className="mr-2 h-4 w-4" />}
+                      {isGeneratingAi ? labels.composeGeneratingWithAi : labels.composeGenerateWithAi}
+                    </Button>
+                  </div>
                   <div className="space-y-1.5">
                     <label className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground" htmlFor="email-compose-body">
                       {labels.composeBodyLabel}
@@ -1031,38 +1066,40 @@ function EmailComposeDialog({
                   )}
                 </section>
 
-                <section className="min-w-0 overflow-hidden border border-border bg-card">
-                  <div className="border-b border-border px-3 py-3 sm:px-4">
-                    <div className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-                      {labels.composeOriginalTitle}
+                {draft.message && (
+                  <section className="min-w-0 overflow-hidden border border-border bg-card">
+                    <div className="border-b border-border px-3 py-3 sm:px-4">
+                      <div className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                        {labels.composeOriginalTitle}
+                      </div>
+                      <h3 className="mt-2 truncate text-base font-semibold">{draft.message.subject || labels.noSubject}</h3>
+                      <div className="mt-2 space-y-1 text-xs text-muted-foreground">
+                        <p className="truncate"><span className="font-medium text-foreground">{labels.from}:</span> {draft.message.from}</p>
+                        {formatRecipients(draft.message.to) && <p className="truncate"><span className="font-medium text-foreground">{labels.to}:</span> {formatRecipients(draft.message.to)}</p>}
+                        {formatRecipients(draft.message.cc) && <p className="truncate"><span className="font-medium text-foreground">{labels.cc}:</span> {formatRecipients(draft.message.cc)}</p>}
+                        {draft.message.date && <p className="truncate"><span className="font-medium text-foreground">{labels.date}:</span> {formatDate(draft.message.date)}</p>}
+                      </div>
                     </div>
-                    <h3 className="mt-2 truncate text-base font-semibold">{draft.message.subject || labels.noSubject}</h3>
-                    <div className="mt-2 space-y-1 text-xs text-muted-foreground">
-                      <p className="truncate"><span className="font-medium text-foreground">{labels.from}:</span> {draft.message.from}</p>
-                      {formatRecipients(draft.message.to) && <p className="truncate"><span className="font-medium text-foreground">{labels.to}:</span> {formatRecipients(draft.message.to)}</p>}
-                      {formatRecipients(draft.message.cc) && <p className="truncate"><span className="font-medium text-foreground">{labels.cc}:</span> {formatRecipients(draft.message.cc)}</p>}
-                      {draft.message.date && <p className="truncate"><span className="font-medium text-foreground">{labels.date}:</span> {formatDate(draft.message.date)}</p>}
+                    <div className="max-h-[42dvh] overflow-y-auto px-3 py-3 sm:px-4 lg:max-h-[calc(100dvh-20rem)]">
+                      <EmailMessageBody
+                        allowRemoteResourcesByDefault={allowRemoteResourcesByDefault}
+                        allowedRemoteResourceSenders={allowedRemoteResourceSenders}
+                        message={draft.message}
+                        onAllowRemoteResourcesForSender={onAllowRemoteResourcesForSender}
+                        emptyText={labels.emptyBody}
+                        remoteImagesBlockedText={labels.remoteImagesBlocked}
+                        showRemoteImagesText={labels.showRemoteImages}
+                      />
                     </div>
-                  </div>
-                  <div className="max-h-[42dvh] overflow-y-auto px-3 py-3 sm:px-4 lg:max-h-[calc(100dvh-20rem)]">
-                    <EmailMessageBody
-                      allowRemoteResourcesByDefault={allowRemoteResourcesByDefault}
-                      allowedRemoteResourceSenders={allowedRemoteResourceSenders}
-                      message={draft.message}
-                      onAllowRemoteResourcesForSender={onAllowRemoteResourcesForSender}
-                      emptyText={labels.emptyBody}
-                      remoteImagesBlockedText={labels.remoteImagesBlocked}
-                      showRemoteImagesText={labels.showRemoteImages}
-                    />
-                  </div>
-                </section>
+                  </section>
+                )}
               </div>
             </div>
             <DialogFooter className="shrink-0 border-t border-border px-4 py-3 sm:px-6">
-              <Button type="button" variant="outline" onClick={onClose} disabled={isSubmitting}>
+              <Button type="button" variant="outline" onClick={onClose} disabled={isSubmitting || isGeneratingAi}>
                 {labels.cancel}
               </Button>
-              <Button type="button" onClick={onSubmit} disabled={isSubmitting}>
+              <Button type="button" onClick={onSubmit} disabled={isSubmitting || isGeneratingAi}>
                 {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Mail className="mr-2 h-4 w-4" />}
                 {isSubmitting ? labels.composeSending : labels.composeSend}
               </Button>
@@ -1091,6 +1128,7 @@ export function EmailClient() {
   const [isCompactViewport, setIsCompactViewport] = useState(false);
   const [messageDialogOpen, setMessageDialogOpen] = useState(false);
   const [isFolderSidebarOpen, setIsFolderSidebarOpen] = useState(false);
+  const [messageFilter, setMessageFilter] = useState<'all' | 'unread'>('all');
   const [query, setQuery] = useState('');
   const [submittedQuery, setSubmittedQuery] = useState('');
   const [isLoadingAccounts, setIsLoadingAccounts] = useState(true);
@@ -1102,6 +1140,7 @@ export function EmailClient() {
   const [isAddingSendPolicyRecipient, setIsAddingSendPolicyRecipient] = useState(false);
   const [composeDraft, setComposeDraft] = useState<EmailComposeDraft | null>(null);
   const [composeError, setComposeError] = useState<string | null>(null);
+  const [isGeneratingComposeAi, setIsGeneratingComposeAi] = useState(false);
   const [isSubmittingCompose, setIsSubmittingCompose] = useState(false);
   const [messageActionNotice, setMessageActionNotice] = useState<string | null>(null);
   const [messageSummary, setMessageSummary] = useState('');
@@ -1227,6 +1266,7 @@ export function EmailClient() {
         credentials: 'include',
         body: JSON.stringify({
           accountId: activeAccount.id,
+          filter: messageFilter,
           folder: activeFolder,
           query: submittedQuery,
           limit: MESSAGE_PAGE_SIZE,
@@ -1254,7 +1294,32 @@ export function EmailClient() {
     } finally {
       setIsLoadingMessages(false);
     }
-  }, [activeAccount, activeFolder, canReadActiveAccount, messagePage, submittedQuery, t]);
+  }, [activeAccount, activeFolder, canReadActiveAccount, messageFilter, messagePage, submittedQuery, t]);
+
+  const updateMessageReadState = useCallback((messageId: string, isRead: boolean) => {
+    setMessages((current) => current.map((message) => message.id === messageId ? { ...message, isRead } : message));
+    setSelectedMessage((current) => current?.id === messageId ? { ...current, isRead } : current);
+  }, []);
+
+  const markMessageReadOnOpen = useCallback(async (message: EmailMessageSummary | EmailMessageDetail) => {
+    if (!activeAccount || message.isRead) return;
+    const folder = message.folder || activeFolder;
+    updateMessageReadState(message.id, true);
+
+    try {
+      const response = await fetch(`/api/email/accounts/${encodeURIComponent(activeAccount.id)}/messages/actions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ action: 'mark-read', folder, messageId: message.id, operation: 'action' }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload.success) throw new Error(payload.error || t('errors.updateMessage'));
+      void loadFolders(activeAccount.id);
+    } catch {
+      updateMessageReadState(message.id, false);
+    }
+  }, [activeAccount, activeFolder, loadFolders, t, updateMessageReadState]);
 
   const loadMessage = useCallback(async (message: EmailMessageSummary, options?: { openDialog?: boolean }) => {
     if (!activeAccount) return;
@@ -1273,7 +1338,10 @@ export function EmailClient() {
       );
       const payload = await response.json();
       if (!response.ok || !payload.success) throw new Error(payload.error || t('errors.loadMessage'));
-      setSelectedMessage(payload.data?.message as EmailMessageDetail);
+      const nextMessage = payload.data?.message as EmailMessageDetail | undefined;
+      if (!nextMessage) throw new Error(t('errors.loadMessage'));
+      setSelectedMessage(nextMessage);
+      void markMessageReadOnOpen(nextMessage);
     } catch (loadError) {
       setSelectedMessage(null);
       setMessageDialogOpen(false);
@@ -1281,7 +1349,7 @@ export function EmailClient() {
     } finally {
       setIsLoadingMessage(false);
     }
-  }, [activeAccount, activeFolder, isCompactViewport, t]);
+  }, [activeAccount, activeFolder, isCompactViewport, markMessageReadOnOpen, t]);
 
   useEffect(() => {
     const timeout = window.setTimeout(() => {
@@ -1341,6 +1409,11 @@ export function EmailClient() {
     setSubmittedQuery(query.trim());
   };
 
+  const toggleUnreadFilter = () => {
+    setMessagePage(0);
+    setMessageFilter((current) => current === 'unread' ? 'all' : 'unread');
+  };
+
   const addRecipientToSendPolicy = useCallback(async (email: string) => {
     if (!activeAccount || !email) return;
     const normalizedEmail = email.trim().toLowerCase();
@@ -1395,6 +1468,7 @@ export function EmailClient() {
 
     return {
       aiGenerated,
+      aiPrompt: '',
       body,
       ccText: composeRecipientText(cc),
       folder: message.folder || activeFolder,
@@ -1413,15 +1487,72 @@ export function EmailClient() {
     setMessageDialogOpen(false);
   }, [buildComposeDraft]);
 
-  const updateComposeDraft = useCallback((updates: Partial<Pick<EmailComposeDraft, 'body' | 'ccText' | 'subject' | 'toText'>>) => {
+  const openNewComposeDraft = useCallback(() => {
+    setComposeError(null);
+    setError(null);
+    setMessageActionNotice(null);
+    setComposeDraft({
+      aiGenerated: false,
+      aiPrompt: '',
+      body: '',
+      ccText: '',
+      folder: activeFolder,
+      mode: 'compose',
+      subject: '',
+      toText: '',
+    });
+    setMessageDialogOpen(false);
+  }, [activeFolder]);
+
+  const updateComposeDraft = useCallback((updates: Partial<Pick<EmailComposeDraft, 'aiPrompt' | 'body' | 'ccText' | 'subject' | 'toText'>>) => {
     setComposeDraft((current) => current ? { ...current, ...updates } : current);
   }, []);
 
   const closeComposeDialog = useCallback(() => {
-    if (isSubmittingCompose) return;
+    if (isSubmittingCompose || isGeneratingComposeAi) return;
     setComposeDraft(null);
     setComposeError(null);
-  }, [isSubmittingCompose]);
+  }, [isGeneratingComposeAi, isSubmittingCompose]);
+
+  const generateComposeAiBody = useCallback(async () => {
+    if (!activeAccount || !composeDraft || !composeDraft.aiPrompt.trim()) return;
+    setIsGeneratingComposeAi(true);
+    setComposeError(null);
+    setError(null);
+    setMessageActionNotice(null);
+
+    try {
+      const response = await fetch('/api/email/compose/ai', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          accountId: activeAccount.id,
+          cc: splitRecipientInput(composeDraft.ccText),
+          currentBody: composeDraft.body,
+          folder: composeDraft.folder,
+          instruction: composeDraft.aiPrompt,
+          messageId: composeDraft.message?.id,
+          mode: composeDraft.mode,
+          subject: composeDraft.subject,
+          to: splitRecipientInput(composeDraft.toText),
+        }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload.success) throw new Error(payload.error || t('errors.generateCompose'));
+      const body = String(payload.data?.body || '').trim();
+      if (!body) throw new Error(t('errors.generateCompose'));
+      setComposeDraft((current) => current ? { ...current, aiGenerated: true, body } : current);
+    } catch (generateError) {
+      const message = isFetchNetworkError(generateError)
+        ? t('errors.actionRequest')
+        : generateError instanceof Error ? generateError.message : t('errors.generateCompose');
+      setComposeError(message);
+      setError(message);
+    } finally {
+      setIsGeneratingComposeAi(false);
+    }
+  }, [activeAccount, composeDraft, t]);
 
   const submitComposeDraft = useCallback(async () => {
     if (!activeAccount || !composeDraft) return;
@@ -1431,20 +1562,29 @@ export function EmailClient() {
     setMessageActionNotice(null);
 
     try {
-      const response = await fetch(`/api/email/accounts/${encodeURIComponent(activeAccount.id)}/messages/actions`, {
+      const isNewCompose = composeDraft.mode === 'compose';
+      const response = await fetch(isNewCompose ? '/api/email/send' : `/api/email/accounts/${encodeURIComponent(activeAccount.id)}/messages/actions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({
-          bodyOverride: composeDraft.body,
-          cc: splitRecipientInput(composeDraft.ccText),
-          folder: composeDraft.folder,
-          messageId: composeDraft.message.id,
-          mode: composeDraft.mode,
-          operation: 'send',
-          subject: composeDraft.subject,
-          to: splitRecipientInput(composeDraft.toText),
-        }),
+        body: JSON.stringify(isNewCompose
+          ? {
+              accountId: activeAccount.id,
+              body: composeDraft.body,
+              cc: splitRecipientInput(composeDraft.ccText),
+              subject: composeDraft.subject,
+              to: splitRecipientInput(composeDraft.toText),
+            }
+          : {
+              bodyOverride: composeDraft.body,
+              cc: splitRecipientInput(composeDraft.ccText),
+              folder: composeDraft.folder,
+              messageId: composeDraft.message?.id,
+              mode: composeDraft.mode,
+              operation: 'send',
+              subject: composeDraft.subject,
+              to: splitRecipientInput(composeDraft.toText),
+            }),
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok || !payload.success) throw new Error(payload.error || t('errors.updateMessage'));
@@ -1633,10 +1773,15 @@ export function EmailClient() {
     cancel: t('composeCancel'),
     cc: t('cc'),
     composeAiReplyTitle: t('composeAiReplyTitle'),
+    composeAiPromptLabel: t('composeAiPromptLabel'),
+    composeAiPromptPlaceholder: t('composeAiPromptPlaceholder'),
     composeBodyLabel: t('composeBodyLabel'),
     composeBodyPlaceholder: t('composeBodyPlaceholder'),
     composeDescription: t('composeDescription'),
     composeForwardTitle: t('composeForwardTitle'),
+    composeGenerateWithAi: t('composeGenerateWithAi'),
+    composeGeneratingWithAi: t('composeGeneratingWithAi'),
+    composeNewTitle: t('composeNewTitle'),
     composeOriginalTitle: t('composeOriginalTitle'),
     composeReplyAllTitle: t('composeReplyAllTitle'),
     composeReplyTitle: t('composeReplyTitle'),
@@ -1712,6 +1857,10 @@ export function EmailClient() {
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-2">
+            <Button type="button" size="sm" onClick={openNewComposeDraft} disabled={!activeAccount}>
+              <PenLine className="h-4 w-4 sm:mr-2" />
+              <span className="hidden sm:inline">{t('compose')}</span>
+            </Button>
             <Button type="button" size="sm" variant="outline" aria-label={t('accountLabel')} title={t('accountLabel')} onClick={() => setAccountsOpen(true)}>
               <Settings className="h-4 w-4 sm:mr-2" />
               <span className="hidden sm:inline">{t('accountLabel')}</span>
@@ -1867,7 +2016,19 @@ export function EmailClient() {
                   </div>
                 </div>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center justify-end gap-2">
+                <Button
+                  type="button"
+                  variant={messageFilter === 'unread' ? 'default' : 'outline'}
+                  size="sm"
+                  className="h-8"
+                  onClick={toggleUnreadFilter}
+                  disabled={isLoadingMessages}
+                  aria-pressed={messageFilter === 'unread'}
+                >
+                  <span className={cn('mr-2 h-2 w-2 rounded-full', messageFilter === 'unread' ? 'bg-primary-foreground' : 'bg-primary')} />
+                  {t('unreadOnly')}
+                </Button>
                 <Button
                   type="button"
                   variant="outline"
@@ -1909,16 +2070,29 @@ export function EmailClient() {
                   >
                     <button
                       type="button"
-                      className="min-w-0 flex-1 px-3 py-3 text-left"
+                      className="grid min-w-0 flex-1 grid-cols-[0.75rem_minmax(0,1fr)] gap-2 px-3 py-3 text-left"
                       onClick={() => void loadMessage(message)}
                       onDoubleClick={() => void loadMessage(message, { openDialog: true })}
                     >
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="min-w-0 truncate text-sm font-medium">{message.from || t('unknownSender')}</div>
-                        <div className="shrink-0 text-[11px] text-muted-foreground">{formatDate(message.date)}</div>
+                      <span
+                        className={cn(
+                          'mt-1.5 h-2 w-2 rounded-full',
+                          message.isRead === false ? 'bg-primary' : 'bg-transparent',
+                        )}
+                        aria-hidden="true"
+                      />
+                      <div className="min-w-0">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className={cn('min-w-0 truncate text-sm', message.isRead === false ? 'font-semibold text-foreground' : 'font-medium')}>
+                            {message.from || t('unknownSender')}
+                          </div>
+                          <div className="shrink-0 text-[11px] text-muted-foreground">{formatDate(message.date)}</div>
+                        </div>
+                        <div className={cn('mt-1 truncate text-sm', message.isRead === false ? 'font-semibold text-foreground' : 'font-medium')}>
+                          {message.subject || t('noSubject')}
+                        </div>
+                        <p className="mt-1 line-clamp-2 text-xs leading-5 text-muted-foreground">{message.snippet}</p>
                       </div>
-                      <div className="mt-1 truncate text-sm font-semibold">{message.subject || t('noSubject')}</div>
-                      <p className="mt-1 line-clamp-2 text-xs leading-5 text-muted-foreground">{message.snippet}</p>
                     </button>
                     <div className="flex shrink-0 items-start px-2 py-2">
                       <EmailMessageRowActions
@@ -1980,11 +2154,13 @@ export function EmailClient() {
         draft={composeDraft}
         error={composeError}
         isAddingSendPolicyRecipient={isAddingSendPolicyRecipient}
+        isGeneratingAi={isGeneratingComposeAi}
         isSubmitting={isSubmittingCompose}
         labels={composeDialogLabels}
         onAddSendPolicyRecipient={(email) => void addRecipientToSendPolicy(email)}
         onAllowRemoteResourcesForSender={allowRemoteImagesForSender}
         onClose={closeComposeDialog}
+        onGenerateAi={() => void generateComposeAiBody()}
         onSubmit={() => void submitComposeDraft()}
         onUpdate={updateComposeDraft}
       />

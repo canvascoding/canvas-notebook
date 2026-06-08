@@ -18,7 +18,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   try {
     const { accountId, messageId } = await params;
     const folder = request.nextUrl.searchParams.get('folder') || undefined;
-    const data = await readEmailMessage(session.user.id, accountId, messageId, folder);
+    const data = await readEmailMessage(session.user.id, accountId, messageId, folder, { enforceReadPolicy: false });
     return NextResponse.json({ success: true, data });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to read email message';

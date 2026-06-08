@@ -17,7 +17,7 @@ export async function POST(request: NextRequest) {
   if (!limited.ok) return limited.response;
   try {
     const body = await request.json().catch(() => ({}));
-    const data = await searchEmail(session.user.id, body);
+    const data = await searchEmail(session.user.id, body, { enforceReadPolicy: false });
     return NextResponse.json({ success: true, data });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to search email';

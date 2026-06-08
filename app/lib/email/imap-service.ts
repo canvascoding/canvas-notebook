@@ -82,6 +82,10 @@ type ImapEmailListInput = {
   hasAttachments?: boolean;
 };
 
+type ImapReadPolicyOptions = {
+  enforceReadPolicy?: boolean;
+};
+
 const SEARCH_QUERY_MAX_LENGTH = 250;
 const SEARCH_SOURCE_MAX_BYTES = 64 * 1024;
 const READ_SOURCE_MAX_BYTES = 1024 * 1024;
@@ -506,7 +510,7 @@ export async function listImapEmailFolders(account: StoredEmailAccount) {
   };
 }
 
-export async function listImapEmailMessages(account: StoredEmailAccount, input: ImapEmailListInput) {
+export async function listImapEmailMessages(account: StoredEmailAccount, input: ImapEmailListInput, options?: ImapReadPolicyOptions) {
   const secret = await readStoredEmailAccountSecret(account);
   if (secret.authType !== 'smtp_imap') throw new Error('Email account is not an SMTP/IMAP account.');
   requireImapSecret(secret);
@@ -515,6 +519,7 @@ export async function listImapEmailMessages(account: StoredEmailAccount, input: 
   const offset = normalizeOffset(input.offset);
   const filter = filterForInput(input);
   const policy = policyForAccount(account);
+  const enforceReadPolicy = options?.enforceReadPolicy !== false;
 
   const result = await withImapMailbox(secret, input.folder, async (client, folder) => {
     const found = await client.search(query ? searchObjectForInput({ ...input, query }) : searchObjectForInput(input), { uid: true });
@@ -551,7 +556,7 @@ export async function listImapEmailMessages(account: StoredEmailAccount, input: 
     const normalized = [];
     for (const message of loaded) {
       const from = firstAddress(message.envelope);
-      if (!isEmailAddressAllowed(from, policy.readFrom)) continue;
+      if (enforceReadPolicy && !isEmailAddressAllowed(from, policy.readFrom)) continue;
       const hasAttachments = hasAttachmentBodyStructure(message.bodyStructure);
       if (filter === 'attachments' && !hasAttachments) continue;
       const flags = publicFlags(message.flags);
@@ -601,7 +606,7 @@ export async function searchImapEmail(account: StoredEmailAccount, input: ImapEm
   };
 }
 
-export async function readImapEmailMessage(account: StoredEmailAccount, messageId: string, folder?: string) {
+export async function readImapEmailMessage(account: StoredEmailAccount, messageId: string, folder?: string, options?: ImapReadPolicyOptions) {
   const secret = await readStoredEmailAccountSecret(account);
   if (secret.authType !== 'smtp_imap') throw new Error('Email account is not an SMTP/IMAP account.');
   requireImapSecret(secret);
@@ -620,7 +625,9 @@ export async function readImapEmailMessage(account: StoredEmailAccount, messageI
     if (!fetched) throw new Error('Email message not found.');
 
     const from = firstAddress(fetched.envelope);
-    assertEmailSenderAllowed(from, policyForAccount(account).readFrom);
+    if (options?.enforceReadPolicy !== false) {
+      assertEmailSenderAllowed(from, policyForAccount(account).readFrom);
+    }
     const parsed = fetched.source ? await simpleParser(fetched.source, {
       skipHtmlToText: false,
       skipTextToHtml: true,
