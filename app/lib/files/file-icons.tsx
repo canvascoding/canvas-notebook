@@ -14,6 +14,7 @@ import {
   Presentation,
 } from 'lucide-react';
 import { getAppOutputFolderKind } from '../filesystem/app-output-folders';
+import { hasMarpFileName } from '../marp/detect';
 
 export interface FileIconProps {
   name: string;
@@ -71,6 +72,10 @@ export function getFileIconComponent({
   }
 
   const ext = name.split('.').pop()?.toLowerCase() || '';
+
+  if (hasMarpFileName(path || name)) {
+    return <Presentation className={`${className} text-chart-3`} />;
+  }
 
   if (ext === 'excalidraw') {
     return <PenTool className={`${className} text-chart-5`} />;
