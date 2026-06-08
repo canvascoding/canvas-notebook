@@ -246,6 +246,7 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       created_by_agent_id TEXT,
       source_session_id TEXT,
       source TEXT NOT NULL DEFAULT 'ui',
+      security_mode TEXT NOT NULL DEFAULT 'strict',
       reason TEXT,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL,
@@ -872,6 +873,7 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
 
   addColumns(sqlite, 'public_file_shares', {
     short_code: 'TEXT',
+    security_mode: "TEXT NOT NULL DEFAULT 'strict'",
   });
 
   sqlite.exec(`

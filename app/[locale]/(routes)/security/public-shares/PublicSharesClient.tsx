@@ -28,6 +28,7 @@ interface PublicShare {
   sizeBytes: number;
   status: 'active' | 'revoked' | 'missing' | 'stale' | 'expired';
   source: 'ui' | 'agent';
+  securityMode?: 'strict' | 'interactive';
   createdAt: string;
   updatedAt: string;
   expiresAt: string | null;
@@ -70,6 +71,10 @@ function statusClass(status: PublicShare['status']) {
   if (status === 'expired') return 'border-slate-500/30 bg-slate-500/10 text-slate-700 dark:text-slate-300';
   if (status === 'revoked') return 'border-muted bg-muted text-muted-foreground';
   return 'border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300';
+}
+
+function shareSecurityMode(share: PublicShare) {
+  return share.securityMode === 'interactive' ? 'interactive' : 'strict';
 }
 
 function primaryShareUrl(share: PublicShare) {
@@ -408,6 +413,9 @@ export function PublicSharesClient() {
                           <div className="mt-1 flex flex-wrap gap-1">
                             <Badge variant="outline" className={statusClass(share.status)}>{t(`status.${share.status}`)}</Badge>
                             <Badge variant="secondary">{t(`source.${share.source}`)}</Badge>
+                            <Badge variant={shareSecurityMode(share) === 'interactive' ? 'outline' : 'secondary'}>
+                              {t(`securityMode.${shareSecurityMode(share)}`)}
+                            </Badge>
                           </div>
                         </div>
                       </div>
@@ -440,6 +448,7 @@ export function PublicSharesClient() {
                           <div className="text-muted-foreground">{t('typeLabel')}</div>
                           <div className="break-all">{share.mimeType}</div>
                           <div className="text-muted-foreground">{formatBytes(share.sizeBytes)}</div>
+                          <div className="mt-1 text-muted-foreground">{t(`securityMode.${shareSecurityMode(share)}`)}</div>
                         </div>
                         <div className="min-w-0 border border-border px-2 py-1.5">
                           <div className="text-muted-foreground">{t('expires')}</div>
@@ -493,6 +502,9 @@ export function PublicSharesClient() {
                         <td className="px-3 py-3 text-xs text-muted-foreground">
                           <div>{share.mimeType}</div>
                           <div>{formatBytes(share.sizeBytes)}</div>
+                          <Badge variant={shareSecurityMode(share) === 'interactive' ? 'outline' : 'secondary'} className="mt-1">
+                            {t(`securityMode.${shareSecurityMode(share)}`)}
+                          </Badge>
                         </td>
                         <td className="px-3 py-3 text-xs text-muted-foreground">{share.expiresAt ? formatDate(share.expiresAt) : t('never')}</td>
                         <td className="px-3 py-3">{share.accessCount}</td>

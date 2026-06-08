@@ -10,6 +10,14 @@ import { and, desc, eq } from 'drizzle-orm';
 import { db } from '@/app/lib/db';
 import { publicFileShares } from '@/app/lib/db/schema';
 import { resolveExistingWorkspacePath, validatePath } from '@/app/lib/filesystem/workspace-files';
+import {
+  INTERACTIVE_PUBLIC_HTML_CSP,
+  isHtmlWorkspacePath,
+  normalizePublicShareSecurityMode,
+  PUBLIC_SHARE_ASSET_CSP,
+  STRICT_PUBLIC_HTML_CSP,
+  type PublicShareSecurityMode,
+} from '@/app/lib/public-sharing/public-share-security';
 
 export type PublicShareStatus = 'active' | 'revoked' | 'missing' | 'stale' | 'expired';
 export type PublicShareSource = 'ui' | 'agent';
@@ -23,6 +31,7 @@ export interface PublicShareDto {
   sizeBytes: number;
   status: PublicShareStatus;
   source: PublicShareSource;
+  securityMode: PublicShareSecurityMode;
   createdByUserId: string;
   createdByAgentId: string | null;
   sourceSessionId: string | null;
@@ -45,6 +54,7 @@ export interface PublicShareAnnotation {
   status: PublicShareStatus;
   shortUrl: string;
   publicUrl: string;
+  securityMode: PublicShareSecurityMode;
   expiresAt: string | null;
   accessCount: number;
 }
@@ -91,11 +101,14 @@ const MIME_TYPES: Record<string, string> = {
   gif: 'image/gif',
   htm: 'text/html; charset=utf-8',
   html: 'text/html; charset=utf-8',
+  ico: 'image/x-icon',
   jpeg: 'image/jpeg',
   jpg: 'image/jpeg',
+  js: 'text/javascript; charset=utf-8',
   json: 'application/json; charset=utf-8',
   m4a: 'audio/mp4',
   md: 'text/markdown; charset=utf-8',
+  mjs: 'text/javascript; charset=utf-8',
   mov: 'video/quicktime',
   mp3: 'audio/mpeg',
   mp4: 'video/mp4',
@@ -105,9 +118,13 @@ const MIME_TYPES: Record<string, string> = {
   png: 'image/png',
   svg: 'image/svg+xml',
   txt: 'text/plain; charset=utf-8',
+  ttf: 'font/ttf',
   wav: 'audio/wav',
+  wasm: 'application/wasm',
   webm: 'video/webm',
   webp: 'image/webp',
+  woff: 'font/woff',
+  woff2: 'font/woff2',
 };
 
 const FORCED_ATTACHMENT_EXTENSIONS = new Set([
@@ -208,12 +225,12 @@ function fileIdentity(stats: Stats): string {
   return `${stats.dev}:${stats.ino}`;
 }
 
-function getMimeType(filePath: string): string {
+export function getPublicShareMimeType(filePath: string): string {
   const extension = path.extname(filePath).slice(1).toLowerCase();
   return MIME_TYPES[extension] || 'application/octet-stream';
 }
 
-function isSensitiveWorkspacePath(workspacePath: string): boolean {
+export function isSensitiveWorkspacePath(workspacePath: string): boolean {
   const segments = workspacePath.split('/').map((segment) => segment.toLowerCase());
   const baseName = segments[segments.length - 1] || '';
   const ext = path.extname(baseName);
@@ -247,7 +264,7 @@ async function getWorkspaceFileDetails(inputPath: string): Promise<WorkspaceFile
     fullPath,
     fileName: path.posix.basename(workspacePath),
     fileIdentity: fileIdentity(stats),
-    mimeType: getMimeType(workspacePath),
+    mimeType: getPublicShareMimeType(workspacePath),
     sizeBytes: stats.size,
     stats,
   };
@@ -334,6 +351,7 @@ function toDto(row: PublicShareRow, baseUrl?: string | null): PublicShareDto {
     sizeBytes: row.sizeBytes,
     status: safeStatus(row.status),
     source: row.source === 'agent' ? 'agent' : 'ui',
+    securityMode: normalizePublicShareSecurityMode(row.securityMode),
     createdByUserId: row.createdByUserId,
     createdByAgentId: row.createdByAgentId,
     sourceSessionId: row.sourceSessionId,
@@ -411,6 +429,7 @@ export async function createPublicFileShares(params: {
   sourceSessionId?: string | null;
   expiresAt?: Date | null;
   reason?: string | null;
+  securityMode?: PublicShareSecurityMode;
   confirmPublicExposure?: boolean;
   baseUrl?: string | null;
 }): Promise<{
@@ -419,6 +438,12 @@ export async function createPublicFileShares(params: {
 }> {
   if (params.source === 'agent' && params.confirmPublicExposure !== true) {
     throw new Error('Agent-created public shares require confirmPublicExposure=true.');
+  }
+
+  const source = params.source ?? 'ui';
+  const requestedSecurityMode = normalizePublicShareSecurityMode(params.securityMode);
+  if (source !== 'ui' && requestedSecurityMode === 'interactive') {
+    throw new Error('Interactive public HTML shares can only be created from the user interface.');
   }
 
   const uniquePaths = Array.from(new Set(params.paths.map((candidate) => candidate.trim()).filter(Boolean)));
@@ -432,6 +457,10 @@ export async function createPublicFileShares(params: {
   for (const requestedPath of uniquePaths) {
     try {
       const details = await getWorkspaceFileDetails(requestedPath);
+      if (requestedSecurityMode === 'interactive' && !isHtmlWorkspacePath(details.workspacePath)) {
+        throw new Error('Interactive public sharing is only available for HTML files.');
+      }
+
       const existingRows = await db.select()
         .from(publicFileShares)
         .where(and(
@@ -442,7 +471,15 @@ export async function createPublicFileShares(params: {
       const reconciledExistingRows = await Promise.all(existingRows.map(reconcileRow));
       const existing = reconciledExistingRows.find((row) => row.status === 'active' && row.fileIdentity === details.fileIdentity);
       if (existing) {
-        shares.push(toDto(await ensureShortCode(await reconcileRow(existing)), params.baseUrl));
+        const existingSecurityMode = normalizePublicShareSecurityMode(existing.securityMode);
+        const row = existingSecurityMode === requestedSecurityMode
+          ? existing
+          : await updateShare(existing, {
+            securityMode: requestedSecurityMode,
+            expiresAt: params.expiresAt ?? existing.expiresAt,
+            reason: params.reason?.trim().slice(0, 500) || existing.reason,
+          });
+        shares.push(toDto(await ensureShortCode(await reconcileRow(row)), params.baseUrl));
         continue;
       }
 
@@ -465,7 +502,8 @@ export async function createPublicFileShares(params: {
           createdByUserId: params.createdByUserId,
           createdByAgentId: params.createdByAgentId ?? null,
           sourceSessionId: params.sourceSessionId ?? null,
-          source: params.source ?? 'ui',
+          source,
+          securityMode: requestedSecurityMode,
           reason: params.reason?.trim().slice(0, 500) || null,
           createdAt: now,
           updatedAt: now,
@@ -577,6 +615,7 @@ export async function getPublicShareAnnotations(paths: string[], baseUrl?: strin
       status: 'active',
       shortUrl: buildShortPublicFileUrl(withShortCode, baseUrl),
       publicUrl: buildPublicFileUrl(withShortCode, baseUrl),
+      securityMode: normalizePublicShareSecurityMode(withShortCode.securityMode),
       expiresAt: toIso(withShortCode.expiresAt),
       accessCount: withShortCode.accessCount,
     });
@@ -745,10 +784,13 @@ export function createPublicFileHeaders(params: {
   mimeType: string;
   sizeBytes?: number;
   range?: { start: number; end: number; total: number };
+  securityMode?: PublicShareSecurityMode;
+  asSiteAsset?: boolean;
 }): Headers {
   const ext = path.extname(params.workspacePath).slice(1).toLowerCase();
   const isHtml = params.mimeType.toLowerCase().includes('text/html');
-  const forceAttachment = FORCED_ATTACHMENT_EXTENSIONS.has(ext);
+  const securityMode = normalizePublicShareSecurityMode(params.securityMode);
+  const forceAttachment = FORCED_ATTACHMENT_EXTENSIONS.has(ext) && !params.asSiteAsset;
   const headers = new Headers({
     'Content-Type': params.mimeType,
     'X-Content-Type-Options': 'nosniff',
@@ -771,26 +813,10 @@ export function createPublicFileHeaders(params: {
   if (isHtml) {
     headers.set(
       'Content-Security-Policy',
-      [
-        'sandbox',
-        "default-src 'none'",
-        "script-src 'none'",
-        "connect-src 'none'",
-        "img-src data: blob:",
-        "media-src data: blob:",
-        "style-src 'unsafe-inline'",
-        "font-src data:",
-        "object-src 'none'",
-        "base-uri 'none'",
-        "form-action 'none'",
-        "frame-ancestors 'none'",
-      ].join('; ')
+      securityMode === 'interactive' ? INTERACTIVE_PUBLIC_HTML_CSP : STRICT_PUBLIC_HTML_CSP
     );
   } else {
-    headers.set(
-      'Content-Security-Policy',
-      "default-src 'none'; img-src 'self' data: blob:; media-src 'self' data: blob:; style-src 'none'; script-src 'none'; object-src 'none'; frame-ancestors 'none';"
-    );
+    headers.set('Content-Security-Policy', PUBLIC_SHARE_ASSET_CSP);
   }
 
   if (forceAttachment) {
