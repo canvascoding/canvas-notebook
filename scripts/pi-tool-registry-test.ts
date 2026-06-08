@@ -210,6 +210,30 @@ async function main() {
   assert.equal((truncatedReadResult.details as { type: string; truncated: boolean }).type, 'text');
   assert.equal((truncatedReadResult.details as { type: string; truncated: boolean }).truncated, true);
 
+  const studioOutputsDir = path.join(dataDir, 'studio', 'outputs');
+  await fs.mkdir(studioOutputsDir, { recursive: true });
+  const studioImageName = 'studio-gen-read-test-0-2026-06-08T10-00-00-000Z-abcd1234.jpg';
+  const studioImagePath = path.join(studioOutputsDir, studioImageName);
+  const studioImageBytes = Buffer.from([0xff, 0xd8, 0xff, 0xdb, 0x00, 0x43, 0xff, 0xd9]);
+  await fs.writeFile(studioImagePath, studioImageBytes);
+
+  const studioImageReadResult = await readTool.execute('read-studio-image', {
+    path: `studio/outputs/${studioImageName}`,
+  });
+  assert.match(getText(studioImageReadResult), /Image loaded for visual analysis/);
+  assert.equal(getImages(studioImageReadResult).length, 1);
+  assert.equal(getImages(studioImageReadResult)[0].mimeType, 'image/jpeg');
+  assert.equal(getImages(studioImageReadResult)[0].data, studioImageBytes.toString('base64'));
+  assert.equal((studioImageReadResult.details as { filePath: string }).filePath, `studio/outputs/${studioImageName}`);
+  assert.equal((studioImageReadResult.details as { resolvedPath: string }).resolvedPath, studioImagePath);
+
+  const bareStudioImageReadResult = await readTool.execute('read-bare-studio-image', {
+    path: studioImageName,
+  });
+  assert.match(getText(bareStudioImageReadResult), /Requested path: studio-gen-read-test/);
+  assert.equal((bareStudioImageReadResult.details as { filePath: string }).filePath, `studio/outputs/${studioImageName}`);
+  assert.equal(getImages(bareStudioImageReadResult).length, 1);
+
   await fs.mkdir(path.join(workspaceDir, 'docs'), { recursive: true });
   const pdfPath = path.join(workspaceDir, 'docs', 'case.pdf');
   await fs.writeFile(pdfPath, createSimplePdf('Canvas PDF Text'), 'latin1');
