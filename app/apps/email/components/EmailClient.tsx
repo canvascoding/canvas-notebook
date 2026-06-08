@@ -429,11 +429,13 @@ function sanitizeEmailHtml(value: string, allowRemoteResources: boolean) {
 }
 
 function EmailMessageBody({
+  allowRemoteResourcesByDefault,
   message,
   remoteImagesBlockedText,
   showRemoteImagesText,
   emptyText,
 }: {
+  allowRemoteResourcesByDefault: boolean;
   message: EmailMessageDetail;
   remoteImagesBlockedText: string;
   showRemoteImagesText: string;
@@ -443,7 +445,7 @@ function EmailMessageBody({
   const messageKey = `${message.id}:${message.bodyHtml?.length || 0}`;
   const [remoteResourceState, setRemoteResourceState] = useState({ allow: false, messageKey: '' });
   const [iframeLayout, setIframeLayout] = useState({ height: 360, messageKey: '' });
-  const allowRemoteResources = remoteResourceState.messageKey === messageKey && remoteResourceState.allow;
+  const allowRemoteResources = allowRemoteResourcesByDefault || (remoteResourceState.messageKey === messageKey && remoteResourceState.allow);
   const iframeHeight = iframeLayout.messageKey === messageKey ? iframeLayout.height : 360;
   const sanitized = useMemo(
     () => message.bodyHtml ? sanitizeEmailHtml(message.bodyHtml, allowRemoteResources) : { blockedRemoteResources: false, html: '' },
@@ -687,6 +689,7 @@ function EmailMessageRowActions({
 
 function EmailMessageViewer({
   actions,
+  allowRemoteResourcesByDefault,
   className,
   isLoading,
   labels,
@@ -694,6 +697,7 @@ function EmailMessageViewer({
   summary,
 }: {
   actions?: EmailMessageViewerActions;
+  allowRemoteResourcesByDefault: boolean;
   className?: string;
   isLoading: boolean;
   labels: EmailMessageViewerLabels;
@@ -783,6 +787,7 @@ function EmailMessageViewer({
       </header>
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
         <EmailMessageBody
+          allowRemoteResourcesByDefault={allowRemoteResourcesByDefault}
           message={message}
           emptyText={labels.emptyBody}
           remoteImagesBlockedText={labels.remoteImagesBlocked}
@@ -814,6 +819,7 @@ function composeDialogTitle(draft: EmailComposeDraft, labels: EmailComposeDialog
 }
 
 function EmailComposeDialog({
+  allowRemoteResourcesByDefault,
   draft,
   error,
   isAddingSendPolicyRecipient,
@@ -824,6 +830,7 @@ function EmailComposeDialog({
   onSubmit,
   onUpdate,
 }: {
+  allowRemoteResourcesByDefault: boolean;
   draft: EmailComposeDraft | null;
   error: string | null;
   isAddingSendPolicyRecipient: boolean;
@@ -934,6 +941,7 @@ function EmailComposeDialog({
                   </div>
                   <div className="max-h-[42dvh] overflow-y-auto px-3 py-3 sm:px-4 lg:max-h-[calc(100dvh-20rem)]">
                     <EmailMessageBody
+                      allowRemoteResourcesByDefault={allowRemoteResourcesByDefault}
                       message={draft.message}
                       emptyText={labels.emptyBody}
                       remoteImagesBlockedText={labels.remoteImagesBlocked}
@@ -963,6 +971,7 @@ export function EmailClient() {
   const t = useTranslations('emails');
   const [accountsOpen, setAccountsOpen] = useState(false);
   const [accounts, setAccounts] = useState<EmailAccount[]>([]);
+  const [emailAllowRemoteImages, setEmailAllowRemoteImages] = useState(false);
   const [activeAccountId, setActiveAccountId] = useState('');
   const [folders, setFolders] = useState<EmailFolder[]>([]);
   const [activeFolder, setActiveFolder] = useState('INBOX');
@@ -1024,6 +1033,17 @@ export function EmailClient() {
       setError(loadError instanceof Error ? loadError.message : t('errors.loadAccounts'));
     } finally {
       setIsLoadingAccounts(false);
+    }
+  }, [t]);
+
+  const loadEmailPreferences = useCallback(async () => {
+    try {
+      const response = await fetch('/api/user-preferences', { credentials: 'include', cache: 'no-store' });
+      const payload = await response.json();
+      if (!response.ok || !payload.success) throw new Error(payload.error || t('errors.loadPreferences'));
+      setEmailAllowRemoteImages(Boolean(payload.data?.emailAllowRemoteImages));
+    } catch (preferencesError) {
+      setError(preferencesError instanceof Error ? preferencesError.message : t('errors.loadPreferences'));
     }
   }, [t]);
 
@@ -1135,6 +1155,13 @@ export function EmailClient() {
     }, 0);
     return () => window.clearTimeout(timeout);
   }, [loadAccounts]);
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      void loadEmailPreferences();
+    }, 0);
+    return () => window.clearTimeout(timeout);
+  }, [loadEmailPreferences]);
 
   useEffect(() => {
     const mediaQuery = window.matchMedia(COMPACT_VIEWPORT_QUERY);
@@ -1511,7 +1538,12 @@ export function EmailClient() {
             </div>
           </div>
         </section>
-        <EmailAccountsCard isOpen={accountsOpen} onOpenChange={setAccountsOpen} onAccountsChanged={loadAccounts} />
+        <EmailAccountsCard
+          isOpen={accountsOpen}
+          onOpenChange={setAccountsOpen}
+          onAccountsChanged={loadAccounts}
+          onPreviewPreferencesChanged={(preferences) => setEmailAllowRemoteImages(preferences.emailAllowRemoteImages)}
+        />
       </div>
     );
   }
@@ -1772,6 +1804,7 @@ export function EmailClient() {
           <section className="hidden min-h-0 flex-col overflow-hidden border border-border bg-card lg:flex">
             <EmailMessageViewer
               actions={selectedMessage ? { activeAction: activeMessageAction, folders, onAction: handleMessageAction } : undefined}
+              allowRemoteResourcesByDefault={emailAllowRemoteImages}
               isLoading={isLoadingMessage}
               labels={messageViewerLabels}
               message={selectedMessage}
@@ -1792,6 +1825,7 @@ export function EmailClient() {
             </DialogHeader>
             <EmailMessageViewer
               actions={selectedMessage ? { activeAction: activeMessageAction, folders, onAction: handleMessageAction } : undefined}
+              allowRemoteResourcesByDefault={emailAllowRemoteImages}
               className="bg-card"
               isLoading={isLoadingMessage}
               labels={messageViewerLabels}
@@ -1803,6 +1837,7 @@ export function EmailClient() {
       )}
 
       <EmailComposeDialog
+        allowRemoteResourcesByDefault={emailAllowRemoteImages}
         draft={composeDraft}
         error={composeError}
         isAddingSendPolicyRecipient={isAddingSendPolicyRecipient}
@@ -1822,7 +1857,12 @@ export function EmailClient() {
               <DialogDescription>{t('manageAccountsDescription')}</DialogDescription>
             </DialogHeader>
             <div className="min-h-0 flex-1 overflow-y-auto px-3 py-4 sm:px-6">
-              <EmailAccountsCard isOpen={true} onOpenChange={() => undefined} onAccountsChanged={loadAccounts} />
+              <EmailAccountsCard
+                isOpen={true}
+                onOpenChange={() => undefined}
+                onAccountsChanged={loadAccounts}
+                onPreviewPreferencesChanged={(preferences) => setEmailAllowRemoteImages(preferences.emailAllowRemoteImages)}
+              />
             </div>
           </DialogContent>
         </Dialog>
