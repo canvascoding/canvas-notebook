@@ -10,7 +10,7 @@ export default async function EmailsPage() {
   await requirePageSession();
 
   return (
-    <SuitePageLayout title={t('title')} hintPage="emails" hintEnabled={isOnboardingEnabled()}>
+    <SuitePageLayout title={t('title')} hintPage="emails" hintEnabled={isOnboardingEnabled()} mainClassName="overflow-hidden">
       <EmailClient />
     </SuitePageLayout>
   );
