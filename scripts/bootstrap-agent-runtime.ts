@@ -113,7 +113,7 @@ async function readFileIfExists(filePath: string): Promise<string | null> {
   }
 }
 
-async function copyManagedFilesIfTargetEmpty(sourceDir: string, label: string): Promise<void> {
+async function copyManagedFilesIfTargetMissing(sourceDir: string, label: string): Promise<void> {
   if (!(await fileExists(sourceDir))) {
     return;
   }
@@ -129,8 +129,7 @@ async function copyManagedFilesIfTargetEmpty(sourceDir: string, label: string): 
       continue;
     }
 
-    const targetContent = await readFileIfExists(targetPath);
-    if (!isContentEmpty(targetContent)) {
+    if (await fileExists(targetPath)) {
       continue;
     }
 
@@ -152,8 +151,8 @@ function getAgentsEnvPath(): string {
 
 async function migrateLegacyFiles(): Promise<void> {
   // Migrate managed markdown files into the canonical /data/agents/canvas-agent directory.
-  await copyManagedFilesIfTargetEmpty(LEGACY_AGENT_STORAGE_DIR, 'legacy /home/node/canvas-agent');
-  await copyManagedFilesIfTargetEmpty(AGENT_STORAGE_DIR, 'legacy /data/canvas-agent');
+  await copyManagedFilesIfTargetMissing(LEGACY_AGENT_STORAGE_DIR, 'legacy /home/node/canvas-agent');
+  await copyManagedFilesIfTargetMissing(AGENT_STORAGE_DIR, 'legacy /data/canvas-agent');
 
   // Runtime config files still live under /data/canvas-agent for compatibility.
   if (await fileExists(LEGACY_AGENT_STORAGE_DIR)) {
@@ -288,10 +287,9 @@ async function ensureAgentStorageBootstrap(): Promise<void> {
 
   for (const fileName of MANAGED_FILE_NAMES) {
     const targetPath = path.join(CANVAS_AGENT_STORAGE_DIR, fileName);
-    const existingContent = await readFileIfExists(targetPath);
 
-    // Skip if file exists and has content
-    if (!isContentEmpty(existingContent)) {
+    // A present empty file is intentional, for example after resetting USER.md or MEMORY.md.
+    if (await fileExists(targetPath)) {
       continue;
     }
 

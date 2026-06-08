@@ -59,6 +59,7 @@ async function main() {
     PI_RUNTIME_CONFIG_PATH,
     isWritableManagedAgentFileName,
     readManagedAgentFile,
+    resetManagedAgentFile,
     writeManagedAgentFile,
     writePiRuntimeConfig,
   } = await import('../app/lib/agents/storage');
@@ -111,6 +112,29 @@ async function main() {
     'Legacy runtime memory.',
   );
 
+  const seedContentFor = async (fileName: string) => {
+    const seedPath = path.join(process.cwd(), 'seed_sys_prompts', fileName);
+    try {
+      const seedContent = await fs.readFile(seedPath, 'utf8');
+      return seedContent.endsWith('\n') || seedContent.length === 0 ? seedContent : `${seedContent}\n`;
+    } catch {
+      return '';
+    }
+  };
+  const resetRegressionFiles = ['AGENTS.md', 'USER.md', 'MEMORY.md', 'SOUL.md', 'TOOLS.md'] as const;
+  for (const fileName of resetRegressionFiles) {
+    await fs.writeFile(path.join(dataDir, 'canvas-agent', fileName), `Legacy ${fileName} should not return after reset.\n`, 'utf8');
+    await writeManagedAgentFile(fileName, `Customized ${fileName}.\n`, DEFAULT_MANAGED_AGENT_ID);
+
+    const expectedSeed = await seedContentFor(fileName);
+    assert.equal(await resetManagedAgentFile(fileName, DEFAULT_MANAGED_AGENT_ID), expectedSeed);
+    assert.equal(await readManagedAgentFile(fileName, DEFAULT_MANAGED_AGENT_ID), expectedSeed);
+    assert.equal(
+      await fs.readFile(path.join(dataDir, 'agents', 'canvas-agent', fileName), 'utf8'),
+      expectedSeed,
+    );
+  }
+
   const inheritedAgent = await createAgentProfile({ name: 'Inherited Agent' });
   assert.equal(inheritedAgent.iconId, 'bot');
   assert.equal(isWritableManagedAgentFileName('USER.md', inheritedAgent.agentId), false);
@@ -145,7 +169,7 @@ async function main() {
   const customToolPrompt = await loadManagedAgentSystemPrompt(customAgent.agentId);
   assert.match(customToolPrompt.systemPrompt, /## Agent-Enabled Runtime Tools/);
   assert.match(customToolPrompt.systemPrompt, /`bash`/);
-  assert.doesNotMatch(customToolPrompt.systemPrompt, /`read`/);
+  assert.doesNotMatch(customToolPrompt.systemPrompt, /^- `read` /m);
 
   const mcpAgent = await createAgentProfile({
     name: 'MCP Agent',

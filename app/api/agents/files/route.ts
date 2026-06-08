@@ -6,7 +6,7 @@ import {
   AgentConfigValidationError,
   isManagedAgentFileName,
   readManagedAgentFiles,
-  readManagedAgentFile,
+  resetManagedAgentFile,
   writeManagedAgentFile,
   AGENT_MANAGED_FILE_NAMES,
   DEFAULT_MANAGED_AGENT_ID,
@@ -169,9 +169,7 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ success: false, error: `${fileName} is inherited from the Canvas Agent and cannot be reset for specialized agents.` }, { status: 400 });
       }
 
-      // Write empty content - this triggers seed fallback in readManagedAgentFile
-      await writeManagedAgentFile(fileName, '', agentId);
-      const content = await readManagedAgentFile(fileName, agentId);
+      const content = await resetManagedAgentFile(fileName, agentId);
 
       return NextResponse.json({
         success: true,
@@ -189,8 +187,7 @@ export async function POST(request: NextRequest) {
         : SPECIAL_AGENT_MANAGED_FILE_NAMES;
 
       for (const fileName of fileNames) {
-        await writeManagedAgentFile(fileName, '', agentId);
-        const content = await readManagedAgentFile(fileName, agentId);
+        const content = await resetManagedAgentFile(fileName, agentId);
         results.push({ fileName, content });
       }
 

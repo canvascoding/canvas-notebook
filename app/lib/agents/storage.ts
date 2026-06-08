@@ -33,12 +33,6 @@ async function readSeedFile(fileName: string): Promise<string | null> {
   }
 }
 
-// Check if content is effectively empty
-function isContentEmpty(content: string | null): boolean {
-  if (content === null) return true;
-  return content.trim().length === 0;
-}
-
 export type AgentConfigReadiness = {
   activeProviderId: string;
   activeProviderReady: boolean;
@@ -222,21 +216,21 @@ export function isWritableManagedAgentFileName(fileName: AgentManagedFileName, a
   return getOwnedManagedFileNames(agentId).includes(fileName);
 }
 
-async function migrateLegacyCanvasAgentFileIfNeeded(
+async function migrateLegacyCanvasAgentFileIfMissing(
   fileName: AgentManagedFileName,
   targetPath: string,
   existingContent: string | null,
 ): Promise<string | null> {
-  if (!isContentEmpty(existingContent)) {
+  if (existingContent !== null) {
     return existingContent;
   }
 
   const legacyContent = await readFileIfExists(resolveLegacyManagedFilePath(fileName));
-  if (isContentEmpty(legacyContent)) {
-    return existingContent;
+  if (legacyContent === null) {
+    return null;
   }
 
-  await writeTextAtomic(targetPath, legacyContent ?? '');
+  await writeTextAtomic(targetPath, legacyContent);
   return legacyContent;
 }
 
@@ -250,14 +244,14 @@ export async function ensureAgentManagedFilesExist(agentId?: string | null): Pro
     const filePath = resolveManagedFilePath(fileName, agentId);
     let existing = await readFileIfExists(filePath);
 
-    // Skip if file exists and has content
-    if (!isContentEmpty(existing)) {
+    // A present empty file is intentional, for example after resetting USER.md or MEMORY.md.
+    if (existing !== null) {
       continue;
     }
 
     if (shouldMigrateLegacyCanvasAgentFiles(agentId)) {
-      existing = await migrateLegacyCanvasAgentFileIfNeeded(fileName, filePath, existing);
-      if (!isContentEmpty(existing)) {
+      existing = await migrateLegacyCanvasAgentFileIfMissing(fileName, filePath, existing);
+      if (existing !== null) {
         continue;
       }
     }
@@ -275,26 +269,16 @@ export async function readManagedAgentFile(fileName: AgentManagedFileName, agent
   const filePath = resolveManagedFilePath(fileName, agentId);
   const content = await readFileIfExists(filePath);
 
-  if (!isContentEmpty(content)) {
-    return content ?? '';
-  }
-
-  if (shouldMigrateLegacyCanvasAgentFiles(agentId)) {
-    const migratedContent = await migrateLegacyCanvasAgentFileIfNeeded(fileName, filePath, content);
-    if (!isContentEmpty(migratedContent)) {
-      return migratedContent ?? '';
-    }
-  }
-
-  // If file is empty, try to return seed content
-  if (isContentEmpty(content)) {
-    const seedContent = await readSeedFile(fileName);
-    if (seedContent !== null) {
-      return seedContent;
-    }
-  }
-
   return content ?? '';
+}
+
+export async function resetManagedAgentFile(fileName: AgentManagedFileName, agentId?: string | null): Promise<string> {
+  await fs.mkdir(resolveAgentScopedStorageDir(agentId), { recursive: true });
+  const filePath = resolveManagedFilePath(fileName, agentId);
+  const seedContent = await readSeedFile(fileName);
+
+  await writeTextAtomic(filePath, seedContent ?? '');
+  return (await readFileIfExists(filePath)) ?? '';
 }
 
 export async function readManagedAgentFiles(agentId?: string | null): Promise<AgentManagedFiles> {
