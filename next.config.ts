@@ -43,6 +43,7 @@ const nextConfig: NextConfig = {
   },
   serverExternalPackages: externalPackages,
   outputFileTracingExcludes: {
+    '/*': ['./data/**/*'],
     '/api/files/download': ['./data/**/*', './next.config.ts'],
   },
   turbopack: {

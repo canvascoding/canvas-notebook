@@ -5,8 +5,20 @@ import { isExcalidrawFilePath } from '@/app/lib/excalidraw-file';
 import { resolvePublicShareToken } from '@/app/lib/public-sharing/public-file-shares';
 import { buildPublicRequestUrl } from '@/app/lib/utils/request-origin';
 
-function publicExcalidrawPreviewPath(token: string, fileName: string): string {
+function publicPreviewPath(token: string, fileName: string): string {
   return `/public/view/${encodeURIComponent(token)}/${encodeURIComponent(fileName)}`;
+}
+
+function wantsAttachmentDownload(request: NextRequest): boolean {
+  return request.nextUrl.searchParams.get('download') === '1';
+}
+
+function isBrowserDocumentNavigation(request: NextRequest): boolean {
+  const fetchDest = request.headers.get('sec-fetch-dest');
+  if (fetchDest) return fetchDest === 'document';
+
+  const accept = request.headers.get('accept') || '';
+  return accept.includes('text/html');
 }
 
 async function handlePublicFileRequest(
@@ -19,10 +31,14 @@ async function handlePublicFileRequest(
 
   if (method === 'GET') {
     const previewCheck = await resolvePublicShareToken(decodedToken, { recordAccess: false });
-    if (previewCheck.ok && isExcalidrawFilePath(previewCheck.workspacePath)) {
+    if (
+      previewCheck.ok
+      && !wantsAttachmentDownload(request)
+      && (isExcalidrawFilePath(previewCheck.workspacePath) || isBrowserDocumentNavigation(request))
+    ) {
       return NextResponse.redirect(buildPublicRequestUrl(
         request,
-        publicExcalidrawPreviewPath(decodedToken, previewCheck.share.fileName)
+        publicPreviewPath(decodedToken, previewCheck.share.fileName)
       ));
     }
 

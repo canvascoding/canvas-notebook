@@ -15,7 +15,8 @@ const MDEditor = dynamic(
 
 interface MarkdownEditorProps {
   value: string;
-  onChange: (value: string) => void;
+  onChange?: (value: string) => void;
+  readOnly?: boolean;
 }
 
 function extractTextFromChildren(children: React.ReactNode): string {
@@ -51,7 +52,7 @@ function extractColorCode(props: Record<string, any>): string | null {
   return null;
 }
 
-export function MarkdownEditor({ value, onChange }: MarkdownEditorProps) {
+export function MarkdownEditor({ value, onChange, readOnly = false }: MarkdownEditorProps) {
   const { resolvedTheme } = useTheme();
   const colorMode = resolvedTheme === 'light' ? 'light' : 'dark';
 
@@ -98,8 +99,12 @@ export function MarkdownEditor({ value, onChange }: MarkdownEditorProps) {
     <div className="h-full overflow-hidden" data-color-mode={colorMode}>
       <MDEditor
         value={value}
-        onChange={(nextValue) => onChange(nextValue ?? '')}
+        onChange={(nextValue) => {
+          if (!readOnly) onChange?.(nextValue ?? '');
+        }}
         preview="preview"
+        hideToolbar={readOnly}
+        textareaProps={{ readOnly }}
         visibleDragbar={false}
         height="100%"
         style={{ height: '100%' }}

@@ -10,6 +10,7 @@ import { toMediaUrl } from '@/app/lib/utils/media-url';
 
 interface PdfViewerProps {
   path: string;
+  sourceUrl?: string;
 }
 
 interface PdfPageCanvasProps {
@@ -205,9 +206,9 @@ function PdfPageCanvas({
   );
 }
 
-export function PdfViewer({ path }: PdfViewerProps) {
+export function PdfViewer({ path, sourceUrl }: PdfViewerProps) {
   const t = useTranslations('notebook');
-  const src = toMediaUrl(path);
+  const src = sourceUrl ?? toMediaUrl(path);
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const pageRefs = useRef<Map<number, HTMLDivElement>>(new Map());
   const rafRef = useRef<number | null>(null);

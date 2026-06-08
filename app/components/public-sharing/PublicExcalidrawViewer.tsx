@@ -2,8 +2,9 @@
 
 import { useMemo } from 'react';
 import dynamic from 'next/dynamic';
-import { AlertCircle, Loader2 } from 'lucide-react';
+import { AlertCircle, Download, Loader2 } from 'lucide-react';
 
+import { Button } from '@/components/ui/button';
 import { parseExcalidrawContent } from '@/app/lib/excalidraw-scene';
 
 const PublicExcalidrawCanvas = dynamic(
@@ -21,9 +22,10 @@ const PublicExcalidrawCanvas = dynamic(
 interface PublicExcalidrawViewerProps {
   fileName: string;
   content: string;
+  downloadUrl?: string;
 }
 
-export function PublicExcalidrawViewer({ fileName, content }: PublicExcalidrawViewerProps) {
+export function PublicExcalidrawViewer({ fileName, content, downloadUrl }: PublicExcalidrawViewerProps) {
   const session = useMemo(() => parseExcalidrawContent(content), [content]);
 
   if (session.invalid) {
@@ -53,9 +55,19 @@ export function PublicExcalidrawViewer({ fileName, content }: PublicExcalidrawVi
           <h1 className="truncate text-sm font-medium">{fileName}</h1>
           <p className="truncate text-xs text-muted-foreground">Public Excalidraw preview · local edits only</p>
         </div>
-        <span className="shrink-0 border border-border bg-muted px-2 py-1 text-xs text-muted-foreground">
-          Local edits only
-        </span>
+        <div className="flex shrink-0 items-center gap-2">
+          <span className="hidden border border-border bg-muted px-2 py-1 text-xs text-muted-foreground sm:inline">
+            Local edits only
+          </span>
+          {downloadUrl ? (
+            <Button asChild variant="secondary" size="sm">
+              <a href={downloadUrl} download={fileName}>
+                <Download className="h-4 w-4" />
+                Download
+              </a>
+            </Button>
+          ) : null}
+        </div>
       </header>
       <section className="min-h-0 flex-1 overflow-hidden">
         <PublicExcalidrawCanvas initialData={session.initialData} fileName={fileName} />
