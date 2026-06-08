@@ -115,6 +115,9 @@ async function main() {
   const otherAccounts = await listEmailAccounts('other-user');
   assert.deepEqual(ownerAccounts.accounts.map((account) => (account as { emailAddress: string }).emailAddress), ['owner@example.test']);
   assert.deepEqual(otherAccounts.accounts.map((account) => (account as { emailAddress: string }).emailAddress), ['other@example.test']);
+  const otherPolicy = (otherAccounts.accounts[0] as { policy: { readFrom: string[]; sendTo: string[] } }).policy;
+  assert.deepEqual(otherPolicy.readFrom, ['other@example.test']);
+  assert.deepEqual(otherPolicy.sendTo, ['other@example.test']);
   await assert.rejects(() => disconnectEmailAccount('other-user', 'local_google_test'), /not found/i);
 
   await disconnectEmailAccount('owner-user', 'local_google_test');
@@ -199,7 +202,8 @@ async function main() {
   assert.equal(updatedSmtpAccount.id, smtpAccount.id);
   assert.equal(updatedSmtpAccount.isPrimary, true);
   assert.equal(updatedSmtpAccount.displayName, null);
-  assert.deepEqual(updatedSmtpAccount.policy.sendTo, ['@example.test']);
+  assert.deepEqual(updatedSmtpAccount.policy.readFrom, ['smtp-owner@example.test']);
+  assert.deepEqual(updatedSmtpAccount.policy.sendTo, ['@example.test', 'smtp-owner@example.test']);
 
   const draftResult = await createEmailDraft('owner-user', {
     accountId: smtpAccount.id,
@@ -237,6 +241,28 @@ async function main() {
     subject: 'Blocked direct',
     body: 'Blocked',
   }), /not allowed/i);
+
+  const restrictiveSelfAccount = await saveEmailSmtpAccount('owner-user', {
+    emailAddress: 'smtp-self@outside.test',
+    displayName: 'SMTP Self',
+    smtpHost: 'smtp.example.test',
+    smtpPort: 587,
+    smtpSecure: false,
+    smtpUsername: 'smtp-self',
+    smtpPassword: 'smtp-secret',
+    policy: { sendTo: ['allowed@example.test'] },
+  });
+  assert.deepEqual(restrictiveSelfAccount.policy.readFrom, ['smtp-self@outside.test']);
+  assert.deepEqual(restrictiveSelfAccount.policy.sendTo, ['allowed@example.test', 'smtp-self@outside.test']);
+  const selfSendResult = await sendEmailMessage('owner-user', {
+    accountId: restrictiveSelfAccount.id,
+    to: ['smtp-self@outside.test'],
+    subject: 'Self send',
+    body: 'Self send body',
+  });
+  assert.equal((selfSendResult as { sent?: boolean }).sent, true);
+  assert.equal(sentMessages.length, 3);
+  assert.deepEqual((sentMessages[2] as { to?: string[] }).to, ['smtp-self@outside.test']);
 
   let imapConnectCalls = 0;
   let imapLogoutCalls = 0;

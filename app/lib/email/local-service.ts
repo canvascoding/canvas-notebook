@@ -33,7 +33,7 @@ import {
   assertEmailRecipientsAllowed,
   assertEmailSenderAllowed,
   isEmailAddressAllowed,
-  normalizeEmailPolicyList as normalizePolicyList,
+  withEmailPolicyDefaultAddresses,
   type EmailPolicy,
 } from '@/app/lib/email/policy';
 import { emailCustomHeaderEntries, type EmailCustomHeaders } from '@/app/lib/email/headers';
@@ -540,10 +540,7 @@ export async function setPrimaryLocalEmailAccount(userId: string, accountId: str
 function policyForAccount(account: StoredEmailAccount): EmailPolicy {
   try {
     const parsed = JSON.parse(account.policyJson) as Partial<EmailPolicy>;
-    return {
-      readFrom: normalizePolicyList(parsed.readFrom),
-      sendTo: normalizePolicyList(parsed.sendTo),
-    };
+    return withEmailPolicyDefaultAddresses(parsed, [account.emailAddress]);
   } catch {
     return { readFrom: [], sendTo: [] };
   }

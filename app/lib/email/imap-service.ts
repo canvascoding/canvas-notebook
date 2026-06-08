@@ -22,7 +22,7 @@ import {
 import {
   assertEmailSenderAllowed,
   isEmailAddressAllowed,
-  normalizeEmailPolicyList,
+  withEmailPolicyDefaultAddresses,
   type EmailPolicy,
 } from '@/app/lib/email/policy';
 import type { EmailAccountSmtpSecret } from '@/app/lib/email/secret-store';
@@ -193,10 +193,7 @@ export async function verifyImapSecret(secret: EmailAccountSmtpSecret): Promise<
 function policyForAccount(account: StoredEmailAccount): EmailPolicy {
   try {
     const parsed = JSON.parse(account.policyJson) as Partial<EmailPolicy>;
-    return {
-      readFrom: normalizeEmailPolicyList(parsed.readFrom),
-      sendTo: normalizeEmailPolicyList(parsed.sendTo),
-    };
+    return withEmailPolicyDefaultAddresses(parsed, [account.emailAddress]);
   } catch {
     return { readFrom: [], sendTo: [] };
   }

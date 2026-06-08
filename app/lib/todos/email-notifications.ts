@@ -8,6 +8,7 @@ import {
   isEmailAddressAllowed,
   normalizeEmailPolicyList,
   todoNotificationSendPolicyError,
+  withEmailPolicyDefaultAddresses,
 } from '@/app/lib/email/policy';
 import { listEmailAccounts, sendEmailMessage } from '@/app/lib/email/service';
 import { renderTodoNotificationEmail } from '@/app/lib/email/templates/todo-notification';
@@ -22,6 +23,7 @@ import {
 
 type EmailAccountCandidate = {
   id: string;
+  emailAddress?: string | null;
   isPrimary?: boolean | null;
   status?: string | null;
   policy?: {
@@ -53,11 +55,14 @@ function normalizeRecipient(value: string | null | undefined): string | null {
   return normalized && normalized.includes('@') ? normalized : null;
 }
 
-function sendPolicyForAccount(account: EmailAccountCandidate): string[] | null {
+function sendPolicyForAccount(account: EmailAccountCandidate, recipient: string): string[] | null {
   if (!account.policy || typeof account.policy !== 'object' || !('sendTo' in account.policy)) {
     return null;
   }
-  return normalizeEmailPolicyList(account.policy.sendTo);
+  return withEmailPolicyDefaultAddresses(
+    { sendTo: normalizeEmailPolicyList(account.policy.sendTo) },
+    [recipient, account.emailAddress],
+  ).sendTo;
 }
 
 function isSendPolicyError(message: string): boolean {
@@ -117,7 +122,7 @@ export async function sendTodoCreatedEmailNotification(userId: string, todo: Tod
       return { status: 'skipped', reason: 'No active email account connected.' };
     }
 
-    const sendToPolicy = sendPolicyForAccount(account);
+    const sendToPolicy = sendPolicyForAccount(account, recipient);
     if (sendToPolicy && !isEmailAddressAllowed(recipient, sendToPolicy)) {
       const message = todoNotificationSendPolicyError(recipient);
       await markTodoNotificationStatus(todo.id, { error: message });

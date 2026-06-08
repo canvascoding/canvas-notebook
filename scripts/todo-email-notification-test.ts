@@ -232,26 +232,26 @@ async function main() {
   }];
   const [policyTodo] = await db.insert(todoItems).values({
     ...agentTodo,
-    id: 'todo-email-policy-blocked',
-    title: 'Policy blocked',
+    id: 'todo-email-policy-own-recipient',
+    title: 'Policy own recipient',
     emailNotificationSentAt: null,
     emailNotificationError: null,
     createdAt: new Date(now.getTime() + 3),
     updatedAt: new Date(now.getTime() + 3),
   }).returning();
 
-  const policyBlocked = await sendTodoCreatedEmailNotification(userId, {
+  const policyAllowed = await sendTodoCreatedEmailNotification(userId, {
     ...policyTodo,
     category: null,
     fileLinks: [],
   });
 
-  assert.equal(policyBlocked.status, 'skipped');
-  assert.equal(sentMessages.length, 2);
+  assert.equal(policyAllowed.status, 'sent');
+  assert.equal(sentMessages.length, 3);
+  assert.deepEqual(sentMessages[2].to, ['owner@example.test']);
   const storedPolicyTodo = await db.query.todoItems.findFirst({ where: eq(todoItems.id, policyTodo.id) });
-  assert.equal(storedPolicyTodo?.emailNotificationSentAt, null);
-  assert.match(storedPolicyTodo?.emailNotificationError || '', /not allowed by the email account sendTo policy/);
-  assert.match(storedPolicyTodo?.emailNotificationError || '', /Settings > Integrations/);
+  assert.ok(storedPolicyTodo?.emailNotificationSentAt);
+  assert.equal(storedPolicyTodo?.emailNotificationError, null);
 
   console.log('Todo email notification test passed.');
 }
