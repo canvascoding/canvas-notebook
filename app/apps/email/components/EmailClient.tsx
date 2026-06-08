@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Inbox, Loader2, MailWarning, RefreshCw, Search, Star } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Inbox, Loader2, MailWarning, RefreshCw, Search, Star } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 
 import { EmailAccountsCard } from '@/app/components/settings/IntegrationsSettingsClient';
@@ -56,6 +56,8 @@ type EmailMessageDetail = EmailMessageSummary & {
   }>;
 };
 
+const MESSAGE_PAGE_SIZE = 20;
+
 function formatDate(value: string) {
   if (!value) return '';
   const date = new Date(value);
@@ -77,6 +79,8 @@ export function EmailClient() {
   const [folders, setFolders] = useState<EmailFolder[]>([]);
   const [activeFolder, setActiveFolder] = useState('INBOX');
   const [messages, setMessages] = useState<EmailMessageSummary[]>([]);
+  const [messageTotal, setMessageTotal] = useState<number | null>(null);
+  const [messagePage, setMessagePage] = useState(0);
   const [selectedMessageId, setSelectedMessageId] = useState('');
   const [selectedMessage, setSelectedMessage] = useState<EmailMessageDetail | null>(null);
   const [query, setQuery] = useState('');
@@ -113,6 +117,16 @@ export function EmailClient() {
       setIsLoadingAccounts(false);
     }
   }, [t]);
+
+  const selectAccount = (accountId: string) => {
+    setActiveAccountId(accountId);
+    setMessagePage(0);
+  };
+
+  const selectFolder = (folder: string) => {
+    setActiveFolder(folder);
+    setMessagePage(0);
+  };
 
   const loadFolders = useCallback(async (accountId: string) => {
     if (!accountId) return;
@@ -152,23 +166,26 @@ export function EmailClient() {
           accountId: activeAccount.id,
           folder: activeFolder,
           query: submittedQuery,
-          limit: 25,
+          limit: MESSAGE_PAGE_SIZE,
+          offset: messagePage * MESSAGE_PAGE_SIZE,
         }),
       });
       const payload = await response.json();
       if (!response.ok || !payload.success) throw new Error(payload.error || t('errors.loadMessages'));
       const nextMessages = (payload.data?.messages || []) as EmailMessageSummary[];
       setMessages(nextMessages);
+      setMessageTotal(typeof payload.data?.total === 'number' ? payload.data.total : null);
       setSelectedMessageId((current) => current && nextMessages.some((message) => message.id === current) ? current : '');
       setSelectedMessage(null);
     } catch (loadError) {
       setMessages([]);
+      setMessageTotal(null);
       setSelectedMessage(null);
       setError(loadError instanceof Error ? loadError.message : t('errors.loadMessages'));
     } finally {
       setIsLoadingMessages(false);
     }
-  }, [activeAccount, activeFolder, canReadActiveAccount, submittedQuery, t]);
+  }, [activeAccount, activeFolder, canReadActiveAccount, messagePage, submittedQuery, t]);
 
   const loadMessage = useCallback(async (message: EmailMessageSummary) => {
     if (!activeAccount) return;
@@ -204,6 +221,7 @@ export function EmailClient() {
     const timeout = window.setTimeout(() => {
       setFolders([]);
       setMessages([]);
+      setMessageTotal(null);
       setSelectedMessage(null);
       setSelectedMessageId('');
       if (!activeAccount) return;
@@ -222,8 +240,22 @@ export function EmailClient() {
 
   const handleSearch = (event: React.FormEvent) => {
     event.preventDefault();
+    setMessagePage(0);
     setSubmittedQuery(query.trim());
   };
+
+  const messageOffset = messagePage * MESSAGE_PAGE_SIZE;
+  const messageStart = messages.length > 0 ? messageOffset + 1 : 0;
+  const messageEnd = messageOffset + messages.length;
+  const hasPreviousMessagePage = messagePage > 0;
+  const hasNextMessagePage = messageTotal === null
+    ? messages.length === MESSAGE_PAGE_SIZE
+    : messageEnd < messageTotal;
+  const messageRangeLabel = messages.length === 0
+    ? t('messageRangeEmpty')
+    : messageTotal === null
+      ? t(hasNextMessagePage ? 'messageRangeMore' : 'messageRangeUnknown', { start: messageStart, end: messageEnd })
+      : t('messageRange', { start: messageStart, end: messageEnd, total: messageTotal });
 
   if (isLoadingAccounts) {
     return (
@@ -236,7 +268,7 @@ export function EmailClient() {
 
   if (accounts.length === 0) {
     return (
-      <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 px-3 py-4 sm:px-6 sm:py-6">
+      <div className="mx-auto flex h-full w-full max-w-6xl flex-col gap-4 overflow-y-auto px-3 py-4 sm:px-6 sm:py-6">
         <section className="border border-border bg-card px-4 py-4 sm:px-6">
           <div className="flex items-start gap-3">
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-border bg-muted">
@@ -254,8 +286,8 @@ export function EmailClient() {
   }
 
   return (
-    <div className="mx-auto flex h-full w-full max-w-7xl flex-col gap-3 px-3 py-3 sm:px-6 sm:py-5">
-      <section className="flex flex-col gap-3 border border-border bg-card px-3 py-3 sm:px-4">
+    <div className="mx-auto flex h-full min-h-0 w-full max-w-7xl flex-col gap-3 overflow-y-auto px-3 py-3 sm:px-6 sm:py-5 lg:overflow-hidden">
+      <section className="shrink-0 flex flex-col gap-3 border border-border bg-card px-3 py-3 sm:px-4">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex min-w-0 items-start gap-3">
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-border bg-muted">
@@ -280,9 +312,9 @@ export function EmailClient() {
             <label className="sr-only" htmlFor="email-account-switcher">{t('accountLabel')}</label>
             <select
               id="email-account-switcher"
-              className="h-10 min-w-[220px] border border-input bg-background px-3 text-sm"
+              className="h-10 w-full min-w-0 border border-input bg-background px-3 text-sm sm:min-w-[220px]"
               value={activeAccountId}
-              onChange={(event) => setActiveAccountId(event.target.value)}
+              onChange={(event) => selectAccount(event.target.value)}
             >
               {accounts.map((account) => (
                 <option key={account.id} value={account.id}>
@@ -318,7 +350,7 @@ export function EmailClient() {
       )}
 
       {!canReadActiveAccount ? (
-        <div className="grid flex-1 gap-4 lg:grid-cols-[minmax(0,1fr)_420px]">
+        <div className="grid min-h-0 flex-1 gap-4 overflow-y-auto lg:grid-cols-[minmax(0,1fr)_420px]">
           <section className="flex min-h-80 items-center justify-center border border-border bg-card p-6 text-center">
             <div className="max-w-md space-y-3">
               <MailWarning className="mx-auto h-9 w-9 text-muted-foreground" />
@@ -329,12 +361,12 @@ export function EmailClient() {
           <EmailAccountsCard isOpen={accountsOpen} onOpenChange={setAccountsOpen} onAccountsChanged={loadAccounts} />
         </div>
       ) : (
-        <div className="grid min-h-[620px] flex-1 gap-3 lg:grid-cols-[220px_minmax(280px,380px)_minmax(0,1fr)]">
-          <aside className="min-h-0 border border-border bg-card">
+        <div className="grid flex-none gap-3 lg:min-h-0 lg:flex-1 lg:overflow-hidden lg:grid-cols-[220px_minmax(280px,380px)_minmax(0,1fr)]">
+          <aside className="flex min-h-0 flex-col overflow-hidden border border-border bg-card">
             <div className="border-b border-border px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
               {t('folders')}
             </div>
-            <div className="max-h-[240px] overflow-y-auto p-2 lg:max-h-none">
+            <div className="max-h-44 overflow-y-auto p-2 lg:max-h-none lg:flex-1">
               {isLoadingFolders ? (
                 <div className="flex items-center px-2 py-3 text-sm text-muted-foreground">
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -351,7 +383,7 @@ export function EmailClient() {
                       'flex w-full items-center justify-between gap-2 px-2 py-2 text-left text-sm transition-colors',
                       activeFolder === folder.path ? 'bg-primary/10 text-primary' : 'hover:bg-muted',
                     )}
-                    onClick={() => setActiveFolder(folder.path)}
+                    onClick={() => selectFolder(folder.path)}
                   >
                     <span className="min-w-0 truncate">{folder.name}</span>
                     {folder.unseenCount ? <span className="text-xs font-medium">{folder.unseenCount}</span> : null}
@@ -361,11 +393,38 @@ export function EmailClient() {
             </div>
           </aside>
 
-          <section className="min-h-0 border border-border bg-card">
-            <div className="border-b border-border px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-              {t('messages')}
+          <section className="flex min-h-0 flex-col overflow-hidden border border-border bg-card">
+            <div className="flex flex-col gap-2 border-b border-border px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
+              <div className="min-w-0">
+                <div className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                  {t('messages')}
+                </div>
+                <div className="mt-1 text-xs text-muted-foreground">{messageRangeLabel}</div>
+              </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon-sm"
+                  aria-label={t('previousPage')}
+                  onClick={() => setMessagePage((current) => Math.max(0, current - 1))}
+                  disabled={!hasPreviousMessagePage || isLoadingMessages}
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon-sm"
+                  aria-label={t('nextPage')}
+                  onClick={() => setMessagePage((current) => current + 1)}
+                  disabled={!hasNextMessagePage || isLoadingMessages}
+                >
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+              </div>
             </div>
-            <div className="max-h-[360px] overflow-y-auto lg:max-h-none">
+            <div className="min-h-0 max-h-[52dvh] overflow-y-auto lg:max-h-none lg:flex-1">
               {isLoadingMessages ? (
                 <div className="flex items-center px-3 py-4 text-sm text-muted-foreground">
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -396,7 +455,7 @@ export function EmailClient() {
             </div>
           </section>
 
-          <section className="min-h-0 border border-border bg-card">
+          <section className="flex min-h-[360px] max-h-[72dvh] flex-col overflow-hidden border border-border bg-card lg:min-h-0 lg:max-h-none">
             {isLoadingMessage ? (
               <div className="flex h-full min-h-80 items-center justify-center text-sm text-muted-foreground">
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
