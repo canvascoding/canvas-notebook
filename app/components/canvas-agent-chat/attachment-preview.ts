@@ -63,7 +63,11 @@ export function getAttachmentMediaUrl(attachment: ChatAttachment): string | unde
   return undefined;
 }
 
-export function resolvePreviewSrcFromMediaUrl(mediaUrl: string, width = 640): string {
+export function resolvePreviewSrcFromMediaUrl(
+  mediaUrl: string,
+  width = 640,
+  options: { preset?: 'default' | 'mini' } = { preset: 'mini' },
+): string {
   const parsed = parseRelativeUrl(mediaUrl);
   if (!parsed) {
     return mediaUrl;
@@ -73,24 +77,24 @@ export function resolvePreviewSrcFromMediaUrl(mediaUrl: string, width = 640): st
 
   if (pathParts[0] === 'api' && pathParts[1] === 'files') {
     if (pathParts[2] && pathParts[2] !== 'preview') {
-      return toUploadPreviewUrl(decodePathSegment(pathParts[2]), width, { preset: 'mini' });
+      return toUploadPreviewUrl(decodePathSegment(pathParts[2]), width, { preset: options.preset });
     }
     return mediaUrl;
   }
 
   if (pathParts[0] === 'api' && pathParts[1] === 'media') {
     const filePath = decodeMediaPath(pathParts.slice(2).join('/'));
-    return filePath ? toPreviewUrl(filePath, width, { preset: 'mini' }) : mediaUrl;
+    return filePath ? toPreviewUrl(filePath, width, { preset: options.preset }) : mediaUrl;
   }
 
   if (pathParts[0] === 'media') {
     const filePath = decodeMediaPath(pathParts.slice(1).join('/'));
-    return filePath ? toPreviewUrl(filePath, width, { preset: 'mini' }) : mediaUrl;
+    return filePath ? toPreviewUrl(filePath, width, { preset: options.preset }) : mediaUrl;
   }
 
   if (pathParts[0] === 'api' && pathParts[1] === 'studio' && pathParts[2] === 'media') {
     const studioPath = decodeMediaPath(pathParts.slice(3).join('/'));
-    return studioPath ? toPreviewUrl(studioPath, width, { preset: 'mini' }) : mediaUrl;
+    return studioPath ? toPreviewUrl(studioPath, width, { preset: options.preset }) : mediaUrl;
   }
 
   return mediaUrl;

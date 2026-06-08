@@ -12,13 +12,15 @@ import {
 interface AttachmentPreviewItemProps {
   attachment: ChatAttachment;
   context: 'message' | 'composer';
+  previewGroup?: ChatAttachment[];
   onRemove?: () => void;
-  onOpen?: (attachment: ChatAttachment) => void;
+  onOpen?: (attachment: ChatAttachment, previewGroup?: ChatAttachment[]) => void;
 }
 
 export function AttachmentPreviewItem({
   attachment,
   context,
+  previewGroup,
   onRemove,
   onOpen,
 }: AttachmentPreviewItemProps) {
@@ -52,6 +54,9 @@ export function AttachmentPreviewItem({
   const imageBoxClass = context === 'composer'
     ? 'h-12 w-16'
     : 'h-20 w-28';
+  const imageDimensions = context === 'composer'
+    ? { width: 64, height: 48 }
+    : { width: 112, height: 80 };
 
   return (
     <div
@@ -65,7 +70,7 @@ export function AttachmentPreviewItem({
         disabled={!canOpen}
         onClick={() => {
           if (canOpen) {
-            onOpen?.(displayAttachment);
+            onOpen?.(displayAttachment, previewGroup);
           }
         }}
         className={cn(
@@ -79,9 +84,13 @@ export function AttachmentPreviewItem({
         <img
           src={displayAttachment.previewUrl}
           alt={displayAttachment.name}
+          width={imageDimensions.width}
+          height={imageDimensions.height}
           className="h-full w-full object-cover"
           loading="lazy"
           decoding="async"
+          fetchPriority="low"
+          draggable={false}
         />
       </button>
       <div className="min-w-0 flex-1">

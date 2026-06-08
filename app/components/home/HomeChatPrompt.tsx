@@ -477,8 +477,9 @@ export function HomeChatPrompt() {
                   key={`${attachment.id || attachment.filePath || attachment.name}-${index}`}
                   attachment={attachment}
                   context="composer"
+                  previewGroup={attachments}
                   onRemove={() => removeAttachment(index)}
-                  onOpen={setPreviewAttachment}
+                  onOpen={(selectedAttachment) => setPreviewAttachment(selectedAttachment)}
                 />
               ))}
             </div>
@@ -576,6 +577,7 @@ export function HomeChatPrompt() {
 
     <AttachmentPreviewDialog
       attachment={previewAttachment}
+      attachments={attachments}
       onClose={() => setPreviewAttachment(null)}
     />
     <ImagePreprocessDialog
