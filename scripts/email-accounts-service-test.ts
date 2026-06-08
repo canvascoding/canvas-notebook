@@ -75,7 +75,7 @@ async function main() {
   await fs.mkdir(secretsDir, { recursive: true });
   await fs.writeFile(integrationsEnvPath, '', 'utf8');
 
-  const { createEmailDraft, disconnectEmailAccount, listEmailAccounts, readEmailMessage, saveEmailSmtpAccount, searchEmail, sendEmailDraft, startEmailOAuth } = await import('../app/lib/email/service');
+  const { createEmailDraft, disconnectEmailAccount, listEmailAccounts, readEmailMessage, saveEmailSmtpAccount, searchEmail, sendEmailDraft, setEmailMainAccount, startEmailOAuth } = await import('../app/lib/email/service');
   const { upsertOAuthEmailAccount } = await import('../app/lib/email/account-store');
   const { setSmtpTransportFactoryForTests } = await import('../app/lib/email/smtp-service');
   const { setImapClientFactoryForTests } = await import('../app/lib/email/imap-service');
@@ -87,6 +87,7 @@ async function main() {
   assert.equal(ownerBefore.mode, 'local');
   assert.equal(ownerBefore.accounts.length, 1);
   assert.equal((ownerBefore.accounts[0] as { id: string }).id, 'local_google_test');
+  assert.equal((ownerBefore.accounts[0] as { isPrimary?: boolean }).isPrimary, true);
   await assert.rejects(() => fs.access(accountsPath));
   await fs.access(path.join(secretsDir, 'email-oauth', 'accounts.legacy.json'));
 
@@ -158,6 +159,7 @@ async function main() {
   assert.equal(verifyCalls, 1);
   assert.equal(smtpAccount.provider, 'smtp_imap');
   assert.equal(smtpAccount.authType, 'smtp_imap');
+  assert.equal(smtpAccount.isPrimary, true);
   assert.equal(smtpAccount.smtpHost, 'smtp.example.test');
   assert.equal(JSON.stringify(smtpAccount).includes('smtp-secret'), false);
 
@@ -172,6 +174,7 @@ async function main() {
   });
   assert.equal(verifyCalls, 1);
   assert.equal(updatedSmtpAccount.id, smtpAccount.id);
+  assert.equal(updatedSmtpAccount.isPrimary, true);
   assert.equal(updatedSmtpAccount.displayName, null);
   assert.deepEqual(updatedSmtpAccount.policy.sendTo, ['@example.test']);
 
@@ -281,10 +284,27 @@ async function main() {
   }, { verify: true });
   assert.equal(imapConnectCalls, 1);
   assert.equal(imapLogoutCalls, 1);
+  assert.equal(smtpImapAccount.isPrimary, false);
   assert.equal(smtpImapAccount.imapHost, 'imap.example.test');
   assert.equal(JSON.stringify(smtpImapAccount).includes('imap-secret'), false);
 
-  const searchResult = await searchEmail('owner-user', { accountId: smtpImapAccount.id, query: 'IMAP', limit: 5 });
+  await assert.rejects(() => setEmailMainAccount('other-user', smtpImapAccount.id), /not found/i);
+  const mainAccount = await setEmailMainAccount('owner-user', smtpImapAccount.id);
+  assert.equal(mainAccount.id, smtpImapAccount.id);
+  assert.equal(mainAccount.isPrimary, true);
+  const accountsAfterMainChange = await listEmailAccounts('owner-user');
+  assert.equal((accountsAfterMainChange.accounts[0] as { id: string }).id, smtpImapAccount.id);
+  assert.equal((accountsAfterMainChange.accounts[0] as { isPrimary?: boolean }).isPrimary, true);
+
+  const defaultDraftResult = await createEmailDraft('owner-user', {
+    to: ['default-recipient@example.test'],
+    subject: 'Default main draft',
+    body: 'Created from main email',
+  });
+  assert.equal((defaultDraftResult as { account?: { id?: string } }).account?.id, smtpImapAccount.id);
+
+  const searchResult = await searchEmail('owner-user', { query: 'IMAP', limit: 5 });
+  assert.equal((searchResult as { account?: { id?: string } }).account?.id, smtpImapAccount.id);
   const searchMessages = (searchResult as { messages?: Array<{ id: string; from: string; snippet: string }> }).messages || [];
   assert.equal(searchMessages.length, 1);
   assert.equal(searchMessages[0].id, '1002');

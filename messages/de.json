@@ -2337,6 +2337,8 @@
       "disconnect": "Trennen",
       "addAccount": "Konto hinzufügen",
       "cancelAddAccount": "Hinzufügen abbrechen",
+      "mainEmail": "Main Email",
+      "setMainEmail": "Als Main Email setzen",
       "savePolicy": "Richtlinie speichern",
       "noAccounts": "Keine E-Mail-Konten verbunden.",
       "providers": {
@@ -2395,7 +2397,8 @@
         "oauthSettingsSaved": "{provider}-OAuth-Einstellungen gespeichert.",
         "smtpSaved": "SMTP-Konto gespeichert.",
         "smtpTested": "SMTP-Verbindung erfolgreich getestet.",
-        "policySaved": "E-Mail-Richtlinie gespeichert."
+        "policySaved": "E-Mail-Richtlinie gespeichert.",
+        "mainEmailSaved": "Main Email gespeichert."
       },
       "errors": {
         "loadOAuthSettings": "E-Mail-OAuth-Einstellungen konnten nicht geladen werden",
@@ -2409,6 +2412,7 @@
         "testSmtp": "SMTP-Verbindung konnte nicht getestet werden",
         "saveSmtp": "SMTP-Konto konnte nicht gespeichert werden",
         "savePolicy": "E-Mail-Richtlinie konnte nicht gespeichert werden",
+        "setMainEmail": "Main Email konnte nicht gespeichert werden",
         "disconnect": "E-Mail-Konto konnte nicht getrennt werden"
       }
     }

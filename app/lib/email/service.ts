@@ -7,6 +7,7 @@ import {
   readLocalEmailMessage,
   searchLocalEmail,
   sendLocalEmailDraft,
+  setPrimaryLocalEmailAccount,
   startLocalEmailOAuth,
   updateLocalEmailDraft,
   updateLocalEmailPolicy,
@@ -63,6 +64,10 @@ export async function listEmailAccounts(userId: string) {
 
 export async function updateEmailPolicy(userId: string, accountId: string, policy: Partial<EmailPolicy>) {
   return updateLocalEmailPolicy(userId, accountId, policy);
+}
+
+export async function setEmailMainAccount(userId: string, accountId: string) {
+  return setPrimaryLocalEmailAccount(userId, accountId);
 }
 
 export async function disconnectEmailAccount(userId: string, accountId: string) {

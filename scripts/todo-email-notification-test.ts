@@ -23,10 +23,18 @@ type DraftInput = {
 };
 
 let accounts: unknown[] = [{
+  id: 'local_notify_secondary',
+  provider: 'google',
+  emailAddress: 'secondary@example.test',
+  status: 'active',
+  isPrimary: false,
+  policy: { readFrom: [], sendTo: [] },
+}, {
   id: 'local_notify_test',
   provider: 'google',
   emailAddress: 'owner@example.test',
   status: 'active',
+  isPrimary: true,
   policy: { readFrom: [], sendTo: [] },
 }];
 const drafts: DraftInput[] = [];
@@ -144,6 +152,7 @@ async function main() {
     provider: 'google',
     emailAddress: 'owner@example.test',
     status: 'active',
+    isPrimary: true,
     policy: { readFrom: [], sendTo: ['allowed@example.test'] },
   }];
   const [policyTodo] = await db.insert(todoItems).values({

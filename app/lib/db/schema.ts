@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import { sqliteTable, text, integer, real, index, uniqueIndex, primaryKey } from "drizzle-orm/sqlite-core";
 
 export const user = sqliteTable("user", {
@@ -53,6 +54,7 @@ export const emailAccounts = sqliteTable("email_accounts", {
   status: text("status").notNull().default("active"),
   policyJson: text("policy_json").notNull(),
   secretRef: text("secret_ref").notNull(),
+  isPrimary: integer("is_primary", { mode: "boolean" }).notNull().default(false),
   lastUsedAt: integer("last_used_at", { mode: "timestamp" }),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull()
@@ -60,6 +62,7 @@ export const emailAccounts = sqliteTable("email_accounts", {
   userIdx: index("idx_email_accounts_user").on(table.userId),
   userStatusIdx: index("idx_email_accounts_user_status").on(table.userId, table.status),
   userProviderEmailIdx: uniqueIndex("idx_email_accounts_user_provider_email").on(table.userId, table.provider, table.emailAddress),
+  userPrimaryIdx: uniqueIndex("idx_email_accounts_user_primary").on(table.userId).where(sql`${table.isPrimary} = 1`),
 }));
 
 export const emailDrafts = sqliteTable("email_drafts", {

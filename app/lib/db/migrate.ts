@@ -69,6 +69,7 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       status TEXT NOT NULL DEFAULT 'active',
       policy_json TEXT NOT NULL,
       secret_ref TEXT NOT NULL,
+      is_primary INTEGER NOT NULL DEFAULT 0,
       last_used_at INTEGER,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL,
@@ -630,6 +631,59 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     next_run_at: 'INTEGER',
   });
 
+  addColumns(sqlite, 'email_accounts', {
+    is_primary: 'INTEGER NOT NULL DEFAULT 0',
+  });
+
+  sqlite.exec(`
+    UPDATE email_accounts
+    SET is_primary = 0
+    WHERE status != 'active';
+
+    WITH ranked_primary_accounts AS (
+      SELECT
+        id,
+        ROW_NUMBER() OVER (
+          PARTITION BY user_id
+          ORDER BY updated_at DESC, id DESC
+        ) AS primary_rank
+      FROM email_accounts
+      WHERE status = 'active'
+        AND is_primary = 1
+    )
+    UPDATE email_accounts
+    SET is_primary = 0
+    WHERE id IN (
+      SELECT id
+      FROM ranked_primary_accounts
+      WHERE primary_rank > 1
+    );
+
+    UPDATE email_accounts
+    SET is_primary = 1
+    WHERE status = 'active'
+      AND id IN (
+        SELECT fallback.id
+        FROM email_accounts fallback
+        WHERE fallback.status = 'active'
+          AND NOT EXISTS (
+            SELECT 1
+            FROM email_accounts current_primary
+            WHERE current_primary.user_id = fallback.user_id
+              AND current_primary.status = 'active'
+              AND current_primary.is_primary = 1
+          )
+          AND fallback.id = (
+            SELECT newest.id
+            FROM email_accounts newest
+            WHERE newest.user_id = fallback.user_id
+              AND newest.status = 'active'
+            ORDER BY newest.updated_at DESC, newest.id DESC
+            LIMIT 1
+          )
+      );
+  `);
+
   // ── Indexes ──────────────────────────────────────────────────────────────────
 
   sqlite.exec(`
@@ -638,6 +692,7 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     CREATE INDEX IF NOT EXISTS idx_email_accounts_user ON email_accounts (user_id);
     CREATE INDEX IF NOT EXISTS idx_email_accounts_user_status ON email_accounts (user_id, status);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_email_accounts_user_provider_email ON email_accounts (user_id, provider, email_address);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_email_accounts_user_primary ON email_accounts (user_id) WHERE is_primary = 1;
     CREATE INDEX IF NOT EXISTS idx_email_drafts_user ON email_drafts (user_id);
     CREATE INDEX IF NOT EXISTS idx_email_drafts_account ON email_drafts (account_id);
     CREATE INDEX IF NOT EXISTS idx_email_drafts_user_status ON email_drafts (user_id, status);

@@ -15,6 +15,7 @@ import type { TodoWithRelations } from '@/app/lib/todos/store';
 
 type EmailAccountCandidate = {
   id: string;
+  isPrimary?: boolean | null;
   status?: string | null;
   policy?: {
     sendTo?: unknown;
@@ -93,7 +94,7 @@ export async function sendTodoCreatedEmailNotification(userId: string, todo: Tod
       ? accountsResponse.accounts
       : [];
     const accounts = rawAccounts.filter(isActiveAccount);
-    const account = accounts[0];
+    const account = accounts.find((candidate) => candidate.isPrimary) || accounts[0];
     if (!account) {
       await markTodoNotificationStatus(todo.id, { error: 'No active email account connected.' });
       return { status: 'skipped', reason: 'No active email account connected.' };

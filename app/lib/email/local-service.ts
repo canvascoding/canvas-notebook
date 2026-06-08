@@ -13,6 +13,7 @@ import {
   publicStoredEmailAccount,
   readStoredEmailAccountSecret,
   saveStoredEmailAccountOAuthSecret,
+  setPrimaryStoredEmailAccount,
   setStoredEmailAccountStatus,
   updateStoredEmailPolicy,
   upsertOAuthEmailAccount,
@@ -41,7 +42,7 @@ export type EmailProvider = 'google' | 'microsoft';
 export type { EmailPolicy } from '@/app/lib/email/policy';
 
 export type EmailDraftInput = {
-  accountId: string;
+  accountId?: string;
   to: string[];
   cc?: string[];
   bcc?: string[];
@@ -442,6 +443,11 @@ export async function disconnectLocalEmailAccount(userId: string, accountId: str
   return disconnectStoredEmailAccount(userId, accountId);
 }
 
+export async function setPrimaryLocalEmailAccount(userId: string, accountId: string) {
+  await migrateLegacyEmailAccountsIfSafe(userId);
+  return setPrimaryStoredEmailAccount(userId, accountId);
+}
+
 function policyForAccount(account: StoredEmailAccount): EmailPolicy {
   try {
     const parsed = JSON.parse(account.policyJson) as Partial<EmailPolicy>;
@@ -655,27 +661,28 @@ export async function readLocalEmailMessage(userId: string, accountId: string, m
 
 export async function createLocalEmailDraft(userId: string, input: EmailDraftInput) {
   const account = await findLocalEmailAccount(userId, input.accountId);
-  assertRecipientsAllowed(account, input);
+  const normalizedInput = { ...input, accountId: account.id };
+  assertRecipientsAllowed(account, normalizedInput);
   if (account.authType === 'smtp_imap') {
-    return createSmtpEmailDraft(userId, input);
+    return createSmtpEmailDraft(userId, normalizedInput);
   }
   const token = await validAccessToken(account);
   let draft: Record<string, unknown>;
   if (account.provider === 'google') {
     const result = await gmailFetch('drafts', token, {
       method: 'POST',
-      body: JSON.stringify({ message: { raw: encodeRawEmail(input) } }),
+      body: JSON.stringify({ message: { raw: encodeRawEmail(normalizedInput) } }),
     });
     draft = { id: String(result.id || ''), providerDraft: result };
   } else {
     const result = await microsoftFetch('messages', token, {
       method: 'POST',
       body: JSON.stringify({
-        subject: input.subject,
-        body: { contentType: input.is_HTML ? 'HTML' : 'Text', content: input.body },
-        toRecipients: input.to.map((address) => ({ emailAddress: { address } })),
-        ccRecipients: (input.cc || []).map((address) => ({ emailAddress: { address } })),
-        bccRecipients: (input.bcc || []).map((address) => ({ emailAddress: { address } })),
+        subject: normalizedInput.subject,
+        body: { contentType: normalizedInput.is_HTML ? 'HTML' : 'Text', content: normalizedInput.body },
+        toRecipients: normalizedInput.to.map((address) => ({ emailAddress: { address } })),
+        ccRecipients: (normalizedInput.cc || []).map((address) => ({ emailAddress: { address } })),
+        bccRecipients: (normalizedInput.bcc || []).map((address) => ({ emailAddress: { address } })),
       }),
     });
     draft = { id: String(result.id || ''), providerDraft: result };
@@ -685,25 +692,26 @@ export async function createLocalEmailDraft(userId: string, input: EmailDraftInp
 
 export async function updateLocalEmailDraft(userId: string, draftId: string, input: EmailDraftInput) {
   const account = await findLocalEmailAccount(userId, input.accountId);
-  assertRecipientsAllowed(account, input);
+  const normalizedInput = { ...input, accountId: account.id };
+  assertRecipientsAllowed(account, normalizedInput);
   if (account.authType === 'smtp_imap') {
-    return updateSmtpEmailDraft(userId, draftId, input);
+    return updateSmtpEmailDraft(userId, draftId, normalizedInput);
   }
   const token = await validAccessToken(account);
   if (account.provider === 'google') {
     await gmailFetch(`drafts/${encodeURIComponent(draftId)}`, token, {
       method: 'PUT',
-      body: JSON.stringify({ id: draftId, message: { raw: encodeRawEmail(input) } }),
+      body: JSON.stringify({ id: draftId, message: { raw: encodeRawEmail(normalizedInput) } }),
     });
   } else {
     await microsoftFetch(`messages/${encodeURIComponent(draftId)}`, token, {
       method: 'PATCH',
       body: JSON.stringify({
-        subject: input.subject,
-        body: { contentType: input.is_HTML ? 'HTML' : 'Text', content: input.body },
-        toRecipients: input.to.map((address) => ({ emailAddress: { address } })),
-        ccRecipients: (input.cc || []).map((address) => ({ emailAddress: { address } })),
-        bccRecipients: (input.bcc || []).map((address) => ({ emailAddress: { address } })),
+        subject: normalizedInput.subject,
+        body: { contentType: normalizedInput.is_HTML ? 'HTML' : 'Text', content: normalizedInput.body },
+        toRecipients: normalizedInput.to.map((address) => ({ emailAddress: { address } })),
+        ccRecipients: (normalizedInput.cc || []).map((address) => ({ emailAddress: { address } })),
+        bccRecipients: (normalizedInput.bcc || []).map((address) => ({ emailAddress: { address } })),
       }),
     });
   }
