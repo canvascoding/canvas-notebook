@@ -197,6 +197,145 @@ Spaeter aufbauen:
 
 Diese Features sollten nicht in den ersten Client-Schritt gemischt werden. Erst muss die Mailbox robust, sicher und multi-account-faehig sein.
 
+## Odysseus-orientierter Feature-Ausbau
+
+Der Odysseus-Client besteht im Kern aus drei Ebenen:
+
+1. Reader-Toolbar direkt an der geoeffneten Mail.
+2. More-Menue fuer zustandsveraendernde Mail-Aktionen.
+3. Backend-Endpunkte, die jede Aktion serverseitig auf `account_id + folder + uid` ausfuehren.
+
+Dieses Muster wird fuer Canvas uebernommen, aber in React/Next-Service-Schichten umgesetzt. Keine DOM-String-Menues aus Odysseus kopieren.
+
+### Direkt zu portierende Verhaltensweisen
+
+- Beim Oeffnen einer Mail wird sie lokal und serverseitig als gelesen markiert.
+- Reader-Toolbar:
+  - Reply.
+  - Reply all, nur sinnvoll sichtbar, wenn mehrere Thread-Beteiligte vorhanden sind.
+  - Forward.
+  - AI reply.
+  - Summary.
+  - More.
+- More-Menue:
+  - Mark read / Mark unread.
+  - Done / Not done (`\Answered`).
+  - Archive.
+  - Move to folder.
+  - Move to trash.
+  - Delete permanently mit expliziter Confirmation.
+- Nach Archive/Delete/Move wird die Mail aus der aktuellen Liste entfernt und die Reader-Auswahl geleert.
+- Nach Flag-Aenderungen wird die lokale Liste sofort aktualisiert und anschliessend serverseitig bestaetigt.
+
+Odysseus-Referenzen:
+
+- Reader-Toolbar: `../odysseus/static/js/emailLibrary.js`, `_toggleCardPreview`.
+- More-Menue: `../odysseus/static/js/emailLibrary.js`, `_showReaderMoreMenu`.
+- Sidebar-Aktionen: `../odysseus/static/js/emailInbox.js`, `_archiveEmail`, `_deleteEmail`, `_toggleDone`.
+- Backend-Mutationen: `../odysseus/routes/email_routes.py`, `mark-read`, `mark-unread`, `archive`, `delete`, `delete-permanent`, `move`.
+- AI Summary: `../odysseus/static/js/emailLibrary.js`, `_summarizeEmail` und `../odysseus/routes/email_routes.py`, `summarize_email`.
+- AI Reply: `../odysseus/static/js/emailInbox.js`, `ai-reply` Draft-Flow und `../odysseus/routes/email_routes.py`, `ai_reply`.
+
+### Umsetzungsschritt A: Mail-Aktionen
+
+Backend:
+
+- `app/lib/email/imap-service.ts`
+  - `setImapEmailMessageSeen(account, messageId, folder, seen)`.
+  - `setImapEmailMessageAnswered(account, messageId, folder, answered)`.
+  - `moveImapEmailMessage(account, messageId, folder, destination)`.
+  - `archiveImapEmailMessage(account, messageId, folder)`.
+  - `trashImapEmailMessage(account, messageId, folder)`.
+  - `deleteImapEmailMessagePermanently(account, messageId, folder)`.
+- `app/lib/email/local-service.ts`
+  - Gleiche Funktionen provider-neutral anbieten.
+  - SMTP/IMAP nutzt IMAPFlow.
+  - Microsoft nutzt Graph `move`, `PATCH isRead`, `DELETE`.
+  - Google nutzt Gmail `modify`, `trash`, `delete`; dafuer ist ein OAuth-Scope-Upgrade auf `https://www.googleapis.com/auth/gmail.modify` noetig. Ohne Scope klare Fehlermeldung mit Reconnect-Hinweis.
+- `app/lib/email/service.ts`
+  - Provider-neutrale Exporte.
+- API-Routen unter `app/api/email/accounts/[accountId]/messages/[messageId]/...`
+  - `POST mark-read`
+  - `POST mark-unread`
+  - `POST mark-answered`
+  - `POST clear-answered`
+  - `POST archive`
+  - `POST move`
+  - `DELETE trash`
+  - `DELETE permanent`
+
+Frontend:
+
+- Reader-Toolbar in `EmailMessageViewer`.
+- More-Menue als einfache, mobile-taugliche Button-Gruppe oder Dropdown.
+- Move-to-folder Dialog mit bestehender Folder-Liste.
+- Confirm-Dialog fuer permanent delete.
+
+### Umsetzungsschritt B: Reply / Reply All / Forward
+
+Backend:
+
+- `createEmailReplyDraft(userId, accountId, messageId, folder, mode, optionalBody?)`.
+- Originalmail wird serverseitig geladen, nicht vom Client vertraut.
+- Reply-All-Empfaengerlogik wird aus Odysseus portiert:
+  - eigene Account-Adressen aller Accounts des Users herausfiltern;
+  - Originalsender in `to`;
+  - uebrige To/Cc in `cc`;
+  - keine Duplikate.
+- Draft erhaelt Threading-Metadaten:
+  - `In-Reply-To`
+  - `References`
+  - Source Account / Folder / UID
+
+Frontend:
+
+- Reply/Reply All/Forward oeffnen eine Compose-/Draft-Ansicht.
+- Wenn Compose noch nicht voll gebaut ist, erste Version als Draft-Erzeugung mit Erfolgshinweis und spaeterer Compose-Route.
+
+### Umsetzungsschritt C: AI Summary
+
+Odysseus macht Summary nicht automatisch bei jedem Klick, sondern zeigt zuerst einen Zustand und generiert explizit. Canvas uebernimmt dieses Kosten-/Kontrollmuster.
+
+Backend:
+
+- Route: `POST /api/email/accounts/[accountId]/messages/[messageId]/summary`.
+- Server laedt die Mail selbst.
+- Prompt:
+  - 1-3 kurze Bullet Points.
+  - Hauptpunkt, Action Items, Deadlines.
+  - Mailinhalt als untrusted user content markieren.
+- Cache:
+  - userId + accountId + messageId + folder + subject/date als Key.
+  - Spalte/Store kann zunaechst file- oder sqlite-basiert analog Draft-Store sein.
+
+Frontend:
+
+- Summary-Button zeigt Panel oberhalb Body.
+- Wenn nicht cached: "Generate now".
+- Ergebnis nur als Text rendern, nie als HTML.
+
+### Umsetzungsschritt D: AI Reply
+
+AI Reply erstellt nie automatisch eine gesendete Mail, sondern nur einen Draft.
+
+Backend:
+
+- Route: `POST /api/email/accounts/[accountId]/messages/[messageId]/ai-reply`.
+- Server laedt Originalmail selbst.
+- LLM bekommt:
+  - Empfaenger.
+  - Betreff.
+  - Originalbody.
+  - optional spaeter Sender-Historie.
+- Ergebnis wird bereinigt und als Reply-Draft gespeichert.
+- `sendTo`-Policy bleibt aktiv; fuer reine UI-Manual-Overrides wird spaeter ein eigener expliziter Override-Mechanismus benoetigt.
+
+Frontend:
+
+- AI Reply Button generiert Draft.
+- UI zeigt Ladezustand und Ergebnislink/Compose-State.
+- Kein automatisches Senden.
+
 ## Frontend-Design
 
 Erster voll nutzbarer Client:
