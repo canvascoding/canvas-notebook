@@ -20,6 +20,10 @@ import {
   type StoredEmailAccount,
 } from '@/app/lib/email/account-store';
 import {
+  draftEmailReplyWithAi,
+  summarizeEmailWithAi,
+} from '@/app/lib/email/ai-service';
+import {
   assertEmailRecipientsAllowed,
   assertEmailSenderAllowed,
   isEmailAddressAllowed,
@@ -32,9 +36,15 @@ import {
   updateSmtpEmailDraft,
 } from '@/app/lib/email/smtp-service';
 import {
+  archiveImapEmailMessage,
+  deleteImapEmailMessagePermanently,
   listImapEmailFolders,
   listImapEmailMessages,
+  moveImapEmailMessage,
   readImapEmailMessage,
+  setImapEmailMessageAnswered,
+  setImapEmailMessageRead,
+  trashImapEmailMessage,
   type EmailFolder,
 } from '@/app/lib/email/imap-service';
 import { readScopedEnvState } from '@/app/lib/integrations/env-config';
@@ -53,6 +63,8 @@ export type EmailDraftInput = {
   body: string;
   is_HTML?: boolean;
 };
+
+export type EmailDerivedDraftMode = 'forward' | 'reply' | 'reply-all';
 
 type LegacyLocalEmailAccount = {
   id: string;
@@ -121,8 +133,11 @@ const googleScopes = [
   'profile',
   'https://www.googleapis.com/auth/gmail.readonly',
   'https://www.googleapis.com/auth/gmail.compose',
+  'https://www.googleapis.com/auth/gmail.modify',
   'https://www.googleapis.com/auth/gmail.send',
 ];
+
+const GOOGLE_MODIFY_SCOPE = 'https://www.googleapis.com/auth/gmail.modify';
 
 const microsoftScopes = [
   'openid',
@@ -468,6 +483,15 @@ async function validAccessToken(account: StoredEmailAccount): Promise<string> {
   return refreshed.access_token;
 }
 
+async function assertGoogleModifyScope(account: StoredEmailAccount): Promise<void> {
+  const secret = await readStoredEmailAccountSecret(account);
+  if (secret.authType !== 'oauth') throw new Error('Email account is not an OAuth account.');
+  const scopes = new Set(String(secret.scope || '').split(/\s+/u).filter(Boolean));
+  if (!scopes.has(GOOGLE_MODIFY_SCOPE)) {
+    throw new Error('Reconnect this Google email account to grant Gmail modify permissions.');
+  }
+}
+
 export async function updateLocalEmailPolicy(userId: string, accountId: string, policy: Partial<EmailPolicy>) {
   return updateStoredEmailPolicy(userId, accountId, policy);
 }
@@ -556,6 +580,42 @@ async function microsoftFetch(pathSuffix: string, token: string, init?: RequestI
   return body as Record<string, unknown>;
 }
 
+async function gmailModifyMessage(
+  account: StoredEmailAccount,
+  token: string,
+  messageId: string,
+  payload: { addLabelIds?: string[]; removeLabelIds?: string[] },
+) {
+  await assertGoogleModifyScope(account);
+  return gmailFetch(`messages/${encodeURIComponent(messageId)}/modify`, token, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+async function microsoftMoveMessage(token: string, messageId: string, destinationId: string) {
+  return microsoftFetch(`messages/${encodeURIComponent(messageId)}/move`, token, {
+    method: 'POST',
+    body: JSON.stringify({ destinationId }),
+  });
+}
+
+async function oauthMessageMutationResult(
+  account: StoredEmailAccount,
+  action: string,
+  messageId: string,
+  folder?: string,
+  destination?: string,
+) {
+  return {
+    account: await publicLocalEmailAccount(account),
+    action,
+    destination,
+    folder: folder || (account.provider === 'microsoft' ? 'inbox' : 'INBOX'),
+    messageId,
+  };
+}
+
 function decodeBase64Url(value: string) {
   return Buffer.from(value.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8');
 }
@@ -600,6 +660,16 @@ function gmailBodyText(payload: Record<string, unknown> | undefined): string {
   return parts.map((part) => gmailBodyText(part)).filter(Boolean).join('\n\n');
 }
 
+function gmailBodyByMime(payload: Record<string, unknown> | undefined, mimeType: string): string {
+  if (!payload) return '';
+  if (payload.mimeType === mimeType) {
+    const body = payload.body as Record<string, unknown> | undefined;
+    if (typeof body?.data === 'string') return decodeBase64Url(body.data);
+  }
+  const parts = Array.isArray(payload.parts) ? payload.parts as Record<string, unknown>[] : [];
+  return parts.map((part) => gmailBodyByMime(part, mimeType)).filter(Boolean).join('\n\n');
+}
+
 function encodeRawEmail(input: EmailDraftInput) {
   const contentType = input.is_HTML ? 'text/html' : 'text/plain';
   const headers = [
@@ -611,6 +681,112 @@ function encodeRawEmail(input: EmailDraftInput) {
     `Content-Type: ${contentType}; charset=UTF-8`,
   ];
   return base64Url(Buffer.from(`${headers.join('\r\n')}\r\n\r\n${input.body}`, 'utf8'));
+}
+
+function stripHtml(value: string): string {
+  return value
+    .replace(/<br\s*\/?>/giu, '\n')
+    .replace(/<\/p>/giu, '\n\n')
+    .replace(/<[^>]+>/gu, ' ')
+    .replace(/&nbsp;/gu, ' ')
+    .replace(/&amp;/gu, '&')
+    .replace(/&lt;/gu, '<')
+    .replace(/&gt;/gu, '>')
+    .replace(/\n{3,}/gu, '\n\n')
+    .replace(/[ \t]+/gu, ' ')
+    .trim();
+}
+
+function textFromMessage(message: Record<string, unknown>): string {
+  const body = typeof message.body === 'string' ? message.body : '';
+  const snippet = typeof message.snippet === 'string' ? message.snippet : '';
+  return stripHtml(body || snippet);
+}
+
+function subjectFromMessage(message: Record<string, unknown>): string {
+  return String(message.subject || '').trim();
+}
+
+function replySubject(subject: string): string {
+  const normalized = subject.trim();
+  if (!normalized) return 'Re:';
+  return /^re:/iu.test(normalized) ? normalized : `Re: ${normalized}`;
+}
+
+function forwardSubject(subject: string): string {
+  const normalized = subject.trim();
+  if (!normalized) return 'Fwd:';
+  return /^(fwd|fw):/iu.test(normalized) ? normalized : `Fwd: ${normalized}`;
+}
+
+function extractEmailAddress(value: unknown): string {
+  if (!value) return '';
+  if (typeof value === 'string') {
+    const match = value.match(/<([^<>@\s]+@[^<>@\s]+)>/u) || value.match(/([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})/iu);
+    return (match?.[1] || '').trim().toLowerCase();
+  }
+  if (typeof value === 'object') {
+    const record = value as {
+      address?: unknown;
+      email?: unknown;
+      emailAddress?: { address?: unknown };
+    };
+    return extractEmailAddress(record.emailAddress?.address || record.address || record.email);
+  }
+  return '';
+}
+
+function extractEmailAddresses(value: unknown): string[] {
+  if (!value) return [];
+  if (Array.isArray(value)) {
+    return value.flatMap(extractEmailAddresses);
+  }
+  if (typeof value === 'string') {
+    return value.split(',').map(extractEmailAddress).filter(Boolean);
+  }
+  return [extractEmailAddress(value)].filter(Boolean);
+}
+
+function uniqueAddresses(values: string[], ownAddresses: Set<string>): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const value of values) {
+    const email = extractEmailAddress(value);
+    if (!email || ownAddresses.has(email) || seen.has(email)) continue;
+    seen.add(email);
+    result.push(email);
+  }
+  return result;
+}
+
+async function ownEmailAddressesForUser(userId: string, account: StoredEmailAccount): Promise<Set<string>> {
+  const own = new Set<string>([account.emailAddress.toLowerCase()]);
+  const accounts = await listPublicEmailAccountsForUser(userId).catch(() => []);
+  for (const item of accounts as Array<{ emailAddress?: string }>) {
+    if (item.emailAddress) own.add(item.emailAddress.toLowerCase());
+  }
+  return own;
+}
+
+function quotedBody(message: Record<string, unknown>): string {
+  const from = String(message.from || '').trim();
+  const date = String(message.date || '').trim();
+  const body = textFromMessage(message);
+  const quoted = body.split(/\r?\n/u).map((line) => `> ${line}`).join('\n');
+  const intro = date && from ? `On ${date}, ${from} wrote:` : from ? `${from} wrote:` : 'Original message:';
+  return `${intro}\n${quoted}`;
+}
+
+function forwardedBody(message: Record<string, unknown>): string {
+  return [
+    '---------- Forwarded message ----------',
+    `From: ${String(message.from || '').trim()}`,
+    `Date: ${String(message.date || '').trim()}`,
+    `Subject: ${subjectFromMessage(message)}`,
+    `To: ${extractEmailAddresses(message.to).join(', ')}`,
+    '',
+    textFromMessage(message),
+  ].join('\n');
 }
 
 export async function listLocalEmailFolders(userId: string, accountId?: string) {
@@ -684,6 +860,7 @@ export async function listLocalEmailMessages(userId: string, input: EmailMessage
     messages = loaded.map((message) => {
       const payload = message.payload as Record<string, unknown> | undefined;
       const headers = payload?.headers as Array<{ name?: string; value?: string }> | undefined;
+      const labelIds = Array.isArray(message.labelIds) ? message.labelIds.map(String) : [];
       return {
         id: String(message.id || ''),
         uid: String(message.id || ''),
@@ -695,7 +872,7 @@ export async function listLocalEmailMessages(userId: string, input: EmailMessage
         subject: gmailHeader(headers, 'Subject'),
         date: gmailHeader(headers, 'Date'),
         flags: [],
-        isRead: true,
+        isRead: !labelIds.includes('UNREAD'),
         isAnswered: false,
         isFlagged: false,
         hasAttachments: false,
@@ -710,7 +887,7 @@ export async function listLocalEmailMessages(userId: string, input: EmailMessage
     const params = new URLSearchParams({
       '$top': String(limit),
       '$skip': String(offset),
-      '$select': 'id,conversationId,from,subject,receivedDateTime,bodyPreview',
+      '$select': 'id,conversationId,from,subject,receivedDateTime,bodyPreview,isRead',
       '$orderby': 'receivedDateTime desc',
     });
     if (query.trim()) {
@@ -731,7 +908,7 @@ export async function listLocalEmailMessages(userId: string, input: EmailMessage
         subject: String(message.subject || ''),
         date: String(message.receivedDateTime || ''),
         flags: [],
-        isRead: true,
+        isRead: message.isRead !== false,
         isAnswered: false,
         isFlagged: false,
         hasAttachments: false,
@@ -771,6 +948,9 @@ export async function readLocalEmailMessage(userId: string, accountId: string, m
     const headers = payload?.headers as Array<{ name?: string; value?: string }> | undefined;
     const from = gmailHeader(headers, 'From');
     assertSenderAllowed(account, from);
+    const bodyHtml = gmailBodyByMime(payload, 'text/html');
+    const bodyText = gmailBodyByMime(payload, 'text/plain') || (bodyHtml ? stripHtml(bodyHtml) : gmailBodyText(payload));
+    const labelIds = Array.isArray(raw.labelIds) ? raw.labelIds.map(String) : [];
     message = {
       id: String(raw.id || ''),
       threadId: String(raw.threadId || ''),
@@ -779,13 +959,18 @@ export async function readLocalEmailMessage(userId: string, accountId: string, m
       cc: gmailHeader(headers, 'Cc'),
       subject: gmailHeader(headers, 'Subject'),
       date: gmailHeader(headers, 'Date'),
-      body: gmailBodyText(payload),
+      body: bodyText,
+      bodyHtml,
+      isRead: !labelIds.includes('UNREAD'),
       snippet: String(raw.snippet || ''),
     };
   } else {
-    const raw = await microsoftFetch(`messages/${encodeURIComponent(messageId)}?$select=id,conversationId,from,toRecipients,ccRecipients,subject,receivedDateTime,body,bodyPreview`, token);
+    const raw = await microsoftFetch(`messages/${encodeURIComponent(messageId)}?$select=id,conversationId,from,toRecipients,ccRecipients,subject,receivedDateTime,body,bodyPreview,isRead`, token);
     const from = (raw.from as { emailAddress?: { address?: string } } | undefined)?.emailAddress?.address || '';
     assertSenderAllowed(account, from);
+    const body = raw.body as { content?: string; contentType?: string } | undefined;
+    const bodyContent = String(body?.content || '');
+    const isHtml = String(body?.contentType || '').toLowerCase() === 'html';
     message = {
       id: String(raw.id || ''),
       threadId: String(raw.conversationId || ''),
@@ -794,11 +979,183 @@ export async function readLocalEmailMessage(userId: string, accountId: string, m
       cc: raw.ccRecipients || [],
       subject: String(raw.subject || ''),
       date: String(raw.receivedDateTime || ''),
-      body: String((raw.body as { content?: string } | undefined)?.content || ''),
+      body: isHtml ? stripHtml(bodyContent) : bodyContent,
+      bodyHtml: isHtml ? bodyContent : '',
+      isRead: raw.isRead !== false,
       snippet: String(raw.bodyPreview || ''),
     };
   }
   return { account: await publicLocalEmailAccount(account), message };
+}
+
+export async function setLocalEmailMessageRead(
+  userId: string,
+  accountId: string,
+  messageId: string,
+  folder: string | undefined,
+  read: boolean,
+) {
+  const account = await findLocalEmailAccount(userId, accountId);
+  if (account.authType === 'smtp_imap') {
+    return setImapEmailMessageRead(account, messageId, folder, read);
+  }
+
+  const token = await validAccessToken(account);
+  if (account.provider === 'google') {
+    await gmailModifyMessage(account, token, messageId, read ? { removeLabelIds: ['UNREAD'] } : { addLabelIds: ['UNREAD'] });
+  } else {
+    await microsoftFetch(`messages/${encodeURIComponent(messageId)}`, token, {
+      method: 'PATCH',
+      body: JSON.stringify({ isRead: read }),
+    });
+  }
+
+  return oauthMessageMutationResult(account, read ? 'mark-read' : 'mark-unread', messageId, folder);
+}
+
+export async function setLocalEmailMessageAnswered(
+  userId: string,
+  accountId: string,
+  messageId: string,
+  folder: string | undefined,
+  answered: boolean,
+) {
+  const account = await findLocalEmailAccount(userId, accountId);
+  if (account.authType !== 'smtp_imap') {
+    throw new Error('Done/not-done flags are only supported for SMTP/IMAP email accounts.');
+  }
+
+  return setImapEmailMessageAnswered(account, messageId, folder, answered);
+}
+
+export async function archiveLocalEmailMessage(userId: string, accountId: string, messageId: string, folder?: string) {
+  const account = await findLocalEmailAccount(userId, accountId);
+  if (account.authType === 'smtp_imap') {
+    return archiveImapEmailMessage(account, messageId, folder);
+  }
+
+  const token = await validAccessToken(account);
+  if (account.provider === 'google') {
+    await gmailModifyMessage(account, token, messageId, { removeLabelIds: ['INBOX'] });
+    return oauthMessageMutationResult(account, 'archive', messageId, folder, 'all');
+  }
+
+  await microsoftMoveMessage(token, messageId, 'archive');
+  return oauthMessageMutationResult(account, 'archive', messageId, folder, 'archive');
+}
+
+export async function moveLocalEmailMessage(
+  userId: string,
+  accountId: string,
+  messageId: string,
+  folder: string | undefined,
+  destination: string,
+) {
+  const account = await findLocalEmailAccount(userId, accountId);
+  const destinationFolder = destination.trim();
+  if (!destinationFolder) throw new Error('A destination folder is required.');
+  if (account.authType === 'smtp_imap') {
+    return moveImapEmailMessage(account, messageId, folder, destinationFolder);
+  }
+
+  const token = await validAccessToken(account);
+  if (account.provider === 'google') {
+    const removeLabelIds = folder && folder !== destinationFolder && folder !== 'all' ? [folder] : [];
+    await gmailModifyMessage(account, token, messageId, { addLabelIds: [destinationFolder], removeLabelIds });
+  } else {
+    await microsoftMoveMessage(token, messageId, destinationFolder);
+  }
+
+  return oauthMessageMutationResult(account, 'move', messageId, folder, destinationFolder);
+}
+
+export async function trashLocalEmailMessage(userId: string, accountId: string, messageId: string, folder?: string) {
+  const account = await findLocalEmailAccount(userId, accountId);
+  if (account.authType === 'smtp_imap') {
+    return trashImapEmailMessage(account, messageId, folder);
+  }
+
+  const token = await validAccessToken(account);
+  if (account.provider === 'google') {
+    await assertGoogleModifyScope(account);
+    await gmailFetch(`messages/${encodeURIComponent(messageId)}/trash`, token, { method: 'POST' });
+    return oauthMessageMutationResult(account, 'trash', messageId, folder, 'TRASH');
+  }
+
+  await microsoftMoveMessage(token, messageId, 'deleteditems');
+  return oauthMessageMutationResult(account, 'trash', messageId, folder, 'deleteditems');
+}
+
+export async function deleteLocalEmailMessagePermanently(userId: string, accountId: string, messageId: string, folder?: string) {
+  const account = await findLocalEmailAccount(userId, accountId);
+  if (account.authType === 'smtp_imap') {
+    return deleteImapEmailMessagePermanently(account, messageId, folder);
+  }
+
+  const token = await validAccessToken(account);
+  if (account.provider === 'google') {
+    await assertGoogleModifyScope(account);
+    await gmailFetch(`messages/${encodeURIComponent(messageId)}`, token, { method: 'DELETE' });
+  } else {
+    await microsoftFetch(`messages/${encodeURIComponent(messageId)}`, token, { method: 'DELETE' });
+  }
+
+  return oauthMessageMutationResult(account, 'permanent-delete', messageId, folder);
+}
+
+export async function summarizeLocalEmailMessage(userId: string, accountId: string, messageId: string, folder?: string) {
+  const result = await readLocalEmailMessage(userId, accountId, messageId, folder);
+  const summary = await summarizeEmailWithAi(result.message as Record<string, unknown>);
+  return {
+    account: result.account,
+    messageId,
+    summary,
+  };
+}
+
+export async function createLocalEmailDerivedDraft(
+  userId: string,
+  accountId: string,
+  messageId: string,
+  folder: string | undefined,
+  mode: EmailDerivedDraftMode,
+  bodyOverride?: string,
+) {
+  const account = await findLocalEmailAccount(userId, accountId);
+  const result = await readLocalEmailMessage(userId, account.id, messageId, folder);
+  const message = result.message as Record<string, unknown>;
+  const ownAddresses = await ownEmailAddressesForUser(userId, account);
+  const from = extractEmailAddress(message.from);
+  const originalTo = extractEmailAddresses(message.to);
+  const originalCc = extractEmailAddresses(message.cc);
+  const subject = subjectFromMessage(message);
+  const isForward = mode === 'forward';
+  const to = isForward
+    ? []
+    : uniqueAddresses([from, ...(mode === 'reply-all' ? originalTo : [])], ownAddresses);
+  const cc = mode === 'reply-all' ? uniqueAddresses(originalCc, ownAddresses) : [];
+  const body = isForward
+    ? `\n\n${forwardedBody(message)}`
+    : `${bodyOverride?.trim() || ''}\n\n${quotedBody(message)}`.trimStart();
+
+  return {
+    mode,
+    originalMessageId: messageId,
+    ...(await createLocalEmailDraft(userId, {
+      accountId: account.id,
+      to,
+      cc,
+      subject: isForward ? forwardSubject(subject) : replySubject(subject),
+      body,
+      is_HTML: false,
+    })),
+  };
+}
+
+export async function createLocalEmailAiReplyDraft(userId: string, accountId: string, messageId: string, folder?: string) {
+  const result = await readLocalEmailMessage(userId, accountId, messageId, folder);
+  const body = await draftEmailReplyWithAi(result.message as Record<string, unknown>);
+  return createLocalEmailDerivedDraft(userId, accountId, messageId, folder, 'reply', body);
 }
 
 export async function createLocalEmailDraft(userId: string, input: EmailDraftInput) {

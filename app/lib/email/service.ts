@@ -1,19 +1,29 @@
 import 'server-only';
 
 import {
+  archiveLocalEmailMessage,
+  createLocalEmailAiReplyDraft,
+  createLocalEmailDerivedDraft,
   createLocalEmailDraft,
+  deleteLocalEmailMessagePermanently,
   disconnectLocalEmailAccount,
   getLocalEmailOAuthStatus,
   listLocalEmailFolders,
   listLocalEmailAccounts,
   listLocalEmailMessages,
+  moveLocalEmailMessage,
   readLocalEmailMessage,
   searchLocalEmail,
   sendLocalEmailDraft,
+  setLocalEmailMessageAnswered,
+  setLocalEmailMessageRead,
   setPrimaryLocalEmailAccount,
   startLocalEmailOAuth,
+  summarizeLocalEmailMessage,
+  trashLocalEmailMessage,
   updateLocalEmailDraft,
   updateLocalEmailPolicy,
+  type EmailDerivedDraftMode,
   type EmailDraftInput,
   type EmailPolicy,
 } from '@/app/lib/email/local-service';
@@ -115,6 +125,60 @@ export async function listEmailMessages(userId: string, input: EmailMessageListI
 
 export async function readEmailMessage(userId: string, accountId: string, messageId: string, folder?: string) {
   return readLocalEmailMessage(userId, accountId, messageId, folder);
+}
+
+export async function setEmailMessageRead(
+  userId: string,
+  accountId: string,
+  messageId: string,
+  folder: string | undefined,
+  read: boolean,
+) {
+  return setLocalEmailMessageRead(userId, accountId, messageId, folder, read);
+}
+
+export async function setEmailMessageAnswered(
+  userId: string,
+  accountId: string,
+  messageId: string,
+  folder: string | undefined,
+  answered: boolean,
+) {
+  return setLocalEmailMessageAnswered(userId, accountId, messageId, folder, answered);
+}
+
+export async function archiveEmailMessage(userId: string, accountId: string, messageId: string, folder?: string) {
+  return archiveLocalEmailMessage(userId, accountId, messageId, folder);
+}
+
+export async function moveEmailMessage(userId: string, accountId: string, messageId: string, folder: string | undefined, destination: string) {
+  return moveLocalEmailMessage(userId, accountId, messageId, folder, destination);
+}
+
+export async function trashEmailMessage(userId: string, accountId: string, messageId: string, folder?: string) {
+  return trashLocalEmailMessage(userId, accountId, messageId, folder);
+}
+
+export async function deleteEmailMessagePermanently(userId: string, accountId: string, messageId: string, folder?: string) {
+  return deleteLocalEmailMessagePermanently(userId, accountId, messageId, folder);
+}
+
+export async function summarizeEmailMessage(userId: string, accountId: string, messageId: string, folder?: string) {
+  return summarizeLocalEmailMessage(userId, accountId, messageId, folder);
+}
+
+export async function createEmailDerivedDraft(
+  userId: string,
+  accountId: string,
+  messageId: string,
+  folder: string | undefined,
+  mode: EmailDerivedDraftMode,
+) {
+  return createLocalEmailDerivedDraft(userId, accountId, messageId, folder, mode);
+}
+
+export async function createEmailAiReplyDraft(userId: string, accountId: string, messageId: string, folder?: string) {
+  return createLocalEmailAiReplyDraft(userId, accountId, messageId, folder);
 }
 
 export async function createEmailDraft(userId: string, input: EmailDraftInput) {

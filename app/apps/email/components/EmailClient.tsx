@@ -2,7 +2,26 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import DOMPurify from 'dompurify';
-import { ChevronLeft, ChevronRight, Inbox, Loader2, MailWarning, RefreshCw, Search, Star } from 'lucide-react';
+import {
+  Archive,
+  CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
+  Forward,
+  Inbox,
+  Loader2,
+  Mail,
+  MailOpen,
+  MailWarning,
+  RefreshCw,
+  Reply,
+  ReplyAll,
+  Search,
+  Sparkles,
+  Star,
+  Trash2,
+  XCircle,
+} from 'lucide-react';
 import { useTranslations } from 'next-intl';
 
 import { EmailAccountsCard } from '@/app/components/settings/IntegrationsSettingsClient';
@@ -28,6 +47,7 @@ type EmailFolder = {
   name: string;
   path: string;
   role: string;
+  selectable?: boolean;
   messageCount: number | null;
   unseenCount: number | null;
 };
@@ -199,28 +219,67 @@ function EmailMessageBody({ message, emptyText }: { message: EmailMessageDetail;
 }
 
 type EmailMessageViewerLabels = {
+  aiReply: string;
+  aiSummary: string;
+  archive: string;
   attachments: string;
   cc: string;
+  clearDone: string;
   date: string;
   emptyBody: string;
+  forward: string;
   from: string;
   loadingMessage: string;
+  markDone: string;
+  markRead: string;
+  markUnread: string;
+  moveTo: string;
   noSubject: string;
+  permanentDelete: string;
+  reply: string;
+  replyAll: string;
   selectMessage: string;
+  summary: string;
   to: string;
+  trash: string;
   unknownAttachmentType: string;
 };
 
+type EmailMessageActionName =
+  | 'archive'
+  | 'ai-reply'
+  | 'clear-answered'
+  | 'draft-forward'
+  | 'draft-reply'
+  | 'draft-reply-all'
+  | 'mark-answered'
+  | 'mark-read'
+  | 'mark-unread'
+  | 'move'
+  | 'permanent-delete'
+  | 'summary'
+  | 'trash';
+
+type EmailMessageViewerActions = {
+  activeAction: EmailMessageActionName | null;
+  folders: EmailFolder[];
+  onAction(action: EmailMessageActionName, destination?: string): void;
+};
+
 function EmailMessageViewer({
+  actions,
   className,
   isLoading,
   labels,
   message,
+  summary,
 }: {
+  actions?: EmailMessageViewerActions;
   className?: string;
   isLoading: boolean;
   labels: EmailMessageViewerLabels;
   message: EmailMessageDetail | null;
+  summary?: string;
 }) {
   if (isLoading) {
     return (
@@ -249,6 +308,91 @@ function EmailMessageViewer({
           {formatRecipients(message.cc) && <p><span className="font-medium text-foreground">{labels.cc}:</span> {formatRecipients(message.cc)}</p>}
           {message.date && <p><span className="font-medium text-foreground">{labels.date}:</span> {formatDate(message.date)}</p>}
         </div>
+        {actions && (
+          <div className="mt-4 flex flex-wrap items-center gap-2">
+            <Button type="button" size="sm" variant="outline" disabled={Boolean(actions.activeAction)} onClick={() => actions.onAction('draft-reply')} title={labels.reply}>
+              {actions.activeAction === 'draft-reply' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Reply className="h-4 w-4" />}
+              {labels.reply}
+            </Button>
+            <Button type="button" size="sm" variant="outline" disabled={Boolean(actions.activeAction)} onClick={() => actions.onAction('draft-reply-all')} title={labels.replyAll}>
+              {actions.activeAction === 'draft-reply-all' ? <Loader2 className="h-4 w-4 animate-spin" /> : <ReplyAll className="h-4 w-4" />}
+              {labels.replyAll}
+            </Button>
+            <Button type="button" size="sm" variant="outline" disabled={Boolean(actions.activeAction)} onClick={() => actions.onAction('draft-forward')} title={labels.forward}>
+              {actions.activeAction === 'draft-forward' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Forward className="h-4 w-4" />}
+              {labels.forward}
+            </Button>
+            <Button type="button" size="sm" variant="outline" disabled={Boolean(actions.activeAction)} onClick={() => actions.onAction('summary')} title={labels.summary}>
+              {actions.activeAction === 'summary' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+              {labels.summary}
+            </Button>
+            <Button type="button" size="sm" variant="outline" disabled={Boolean(actions.activeAction)} onClick={() => actions.onAction('ai-reply')} title={labels.aiReply}>
+              {actions.activeAction === 'ai-reply' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+              {labels.aiReply}
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={Boolean(actions.activeAction)}
+              onClick={() => actions.onAction(message.isRead ? 'mark-unread' : 'mark-read')}
+              title={message.isRead ? labels.markUnread : labels.markRead}
+            >
+              {actions.activeAction === 'mark-read' || actions.activeAction === 'mark-unread'
+                ? <Loader2 className="h-4 w-4 animate-spin" />
+                : message.isRead ? <Mail className="h-4 w-4" /> : <MailOpen className="h-4 w-4" />}
+              {message.isRead ? labels.markUnread : labels.markRead}
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={Boolean(actions.activeAction)}
+              onClick={() => actions.onAction(message.isAnswered ? 'clear-answered' : 'mark-answered')}
+              title={message.isAnswered ? labels.clearDone : labels.markDone}
+            >
+              {actions.activeAction === 'mark-answered' || actions.activeAction === 'clear-answered'
+                ? <Loader2 className="h-4 w-4 animate-spin" />
+                : message.isAnswered ? <XCircle className="h-4 w-4" /> : <CheckCircle2 className="h-4 w-4" />}
+              {message.isAnswered ? labels.clearDone : labels.markDone}
+            </Button>
+            <Button type="button" size="sm" variant="outline" disabled={Boolean(actions.activeAction)} onClick={() => actions.onAction('archive')} title={labels.archive}>
+              {actions.activeAction === 'archive' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Archive className="h-4 w-4" />}
+              {labels.archive}
+            </Button>
+            <Button type="button" size="sm" variant="outline" disabled={Boolean(actions.activeAction)} onClick={() => actions.onAction('trash')} title={labels.trash}>
+              {actions.activeAction === 'trash' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+              {labels.trash}
+            </Button>
+            <Button type="button" size="sm" variant="outline" disabled={Boolean(actions.activeAction)} onClick={() => actions.onAction('permanent-delete')} title={labels.permanentDelete}>
+              {actions.activeAction === 'permanent-delete' ? <Loader2 className="h-4 w-4 animate-spin" /> : <XCircle className="h-4 w-4" />}
+              {labels.permanentDelete}
+            </Button>
+            <label className="sr-only" htmlFor={`email-message-move-${message.id}`}>{labels.moveTo}</label>
+            <select
+              id={`email-message-move-${message.id}`}
+              className="h-8 max-w-full border border-input bg-background px-2 text-sm"
+              defaultValue=""
+              disabled={Boolean(actions.activeAction)}
+              onChange={(event) => {
+                const destination = event.target.value;
+                event.target.value = '';
+                if (destination) actions.onAction('move', destination);
+              }}
+            >
+              <option value="">{labels.moveTo}</option>
+              {actions.folders.filter((folder) => folder.selectable !== false && folder.path !== message.folder).map((folder) => (
+                <option key={folder.path} value={folder.path}>{folder.name}</option>
+              ))}
+            </select>
+          </div>
+        )}
+        {summary && (
+          <div className="mt-4 border border-primary/25 bg-primary/5 px-3 py-2 text-sm leading-6">
+            <div className="mb-1 text-xs font-semibold uppercase tracking-[0.14em] text-primary">{labels.aiSummary}</div>
+            <p className="whitespace-pre-wrap">{summary}</p>
+          </div>
+        )}
       </header>
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
         <EmailMessageBody message={message} emptyText={labels.emptyBody} />
@@ -290,6 +434,9 @@ export function EmailClient() {
   const [isLoadingFolders, setIsLoadingFolders] = useState(false);
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
   const [isLoadingMessage, setIsLoadingMessage] = useState(false);
+  const [activeMessageAction, setActiveMessageAction] = useState<EmailMessageActionName | null>(null);
+  const [messageActionNotice, setMessageActionNotice] = useState<string | null>(null);
+  const [messageSummary, setMessageSummary] = useState('');
   const [error, setError] = useState<string | null>(null);
 
   const activeAccount = useMemo(
@@ -378,11 +525,15 @@ export function EmailClient() {
       setMessageTotal(typeof payload.data?.total === 'number' ? payload.data.total : null);
       setSelectedMessageId((current) => current && nextMessages.some((message) => message.id === current) ? current : '');
       setSelectedMessage(null);
+      setMessageActionNotice(null);
+      setMessageSummary('');
       setMessageDialogOpen(false);
     } catch (loadError) {
       setMessages([]);
       setMessageTotal(null);
       setSelectedMessage(null);
+      setMessageActionNotice(null);
+      setMessageSummary('');
       setMessageDialogOpen(false);
       setError(loadError instanceof Error ? loadError.message : t('errors.loadMessages'));
     } finally {
@@ -395,6 +546,8 @@ export function EmailClient() {
     setSelectedMessageId(message.id);
     setIsLoadingMessage(true);
     setError(null);
+    setMessageActionNotice(null);
+    setMessageSummary('');
     if (isCompactViewport) setMessageDialogOpen(true);
     try {
       const params = new URLSearchParams();
@@ -443,6 +596,8 @@ export function EmailClient() {
       setMessageTotal(null);
       setSelectedMessage(null);
       setSelectedMessageId('');
+      setMessageActionNotice(null);
+      setMessageSummary('');
       setMessageDialogOpen(false);
       if (!activeAccount) return;
       if (!canReadActiveAccount) return;
@@ -464,6 +619,97 @@ export function EmailClient() {
     setSubmittedQuery(query.trim());
   };
 
+  const handleMessageAction = useCallback(async (action: EmailMessageActionName, destination?: string) => {
+    if (!activeAccount || !selectedMessage) return;
+    if (action === 'permanent-delete' && !window.confirm(t('confirmPermanentDelete'))) return;
+
+    const folder = selectedMessage.folder || activeFolder;
+    const endpointBase = `/api/email/accounts/${encodeURIComponent(activeAccount.id)}/messages/${encodeURIComponent(selectedMessage.id)}`;
+    setActiveMessageAction(action);
+    setMessageActionNotice(null);
+    setError(null);
+
+    try {
+      let response: Response;
+      if (action === 'summary') {
+        response = await fetch(`${endpointBase}/summary`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ folder }),
+        });
+      } else if (action === 'ai-reply') {
+        response = await fetch(`${endpointBase}/ai-reply`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ folder }),
+        });
+      } else if (action === 'draft-reply' || action === 'draft-reply-all' || action === 'draft-forward') {
+        const mode = action === 'draft-forward' ? 'forward' : action === 'draft-reply-all' ? 'reply-all' : 'reply';
+        response = await fetch(`${endpointBase}/draft`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ folder, mode }),
+        });
+      } else {
+        response = await fetch(`${endpointBase}/actions`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ action, destination, folder }),
+        });
+      }
+
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload.success) throw new Error(payload.error || t('errors.updateMessage'));
+
+      if (action === 'summary') {
+        setMessageSummary(String(payload.data?.summary || ''));
+        return;
+      }
+
+      if (action === 'ai-reply') {
+        setMessageActionNotice(t('aiReplyDraftCreated'));
+        return;
+      }
+
+      if (action === 'draft-reply' || action === 'draft-reply-all' || action === 'draft-forward') {
+        setMessageActionNotice(t('draftCreated'));
+        return;
+      }
+
+      if (action === 'mark-read' || action === 'mark-unread') {
+        const isRead = action === 'mark-read';
+        setMessages((current) => current.map((message) => message.id === selectedMessage.id ? { ...message, isRead } : message));
+        setSelectedMessage((current) => current ? { ...current, isRead } : current);
+        setMessageActionNotice(t('messageUpdated'));
+        return;
+      }
+
+      if (action === 'mark-answered' || action === 'clear-answered') {
+        const isAnswered = action === 'mark-answered';
+        setMessages((current) => current.map((message) => message.id === selectedMessage.id ? { ...message, isAnswered } : message));
+        setSelectedMessage((current) => current ? { ...current, isAnswered } : current);
+        setMessageActionNotice(t('messageUpdated'));
+        return;
+      }
+
+      setMessages((current) => current.filter((message) => message.id !== selectedMessage.id));
+      setSelectedMessage(null);
+      setSelectedMessageId('');
+      setMessageSummary('');
+      setMessageDialogOpen(false);
+      setMessageActionNotice(t('messageMoved'));
+      void loadFolders(activeAccount.id);
+    } catch (actionError) {
+      setError(actionError instanceof Error ? actionError.message : t('errors.updateMessage'));
+    } finally {
+      setActiveMessageAction(null);
+    }
+  }, [activeAccount, activeFolder, loadFolders, selectedMessage, t]);
+
   const messageOffset = messagePage * MESSAGE_PAGE_SIZE;
   const messageStart = messages.length > 0 ? messageOffset + 1 : 0;
   const messageEnd = messageOffset + messages.length;
@@ -477,15 +723,29 @@ export function EmailClient() {
       ? t(hasNextMessagePage ? 'messageRangeMore' : 'messageRangeUnknown', { start: messageStart, end: messageEnd })
       : t('messageRange', { start: messageStart, end: messageEnd, total: messageTotal });
   const messageViewerLabels = {
+    aiReply: t('aiReply'),
+    aiSummary: t('aiSummary'),
+    archive: t('archive'),
     attachments: t('attachments'),
     cc: t('cc'),
+    clearDone: t('clearDone'),
     date: t('date'),
     emptyBody: t('emptyBody'),
+    forward: t('forward'),
     from: t('from'),
     loadingMessage: t('loadingMessage'),
+    markDone: t('markDone'),
+    markRead: t('markRead'),
+    markUnread: t('markUnread'),
+    moveTo: t('moveTo'),
     noSubject: t('noSubject'),
+    permanentDelete: t('permanentDelete'),
+    reply: t('reply'),
+    replyAll: t('replyAll'),
     selectMessage: t('selectMessage'),
+    summary: t('summary'),
     to: t('to'),
+    trash: t('trash'),
     unknownAttachmentType: t('unknownAttachmentType'),
   };
 
@@ -578,6 +838,12 @@ export function EmailClient() {
       {error && (
         <div className="border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
           {error}
+        </div>
+      )}
+
+      {messageActionNotice && (
+        <div className="border border-primary/30 bg-primary/10 px-3 py-2 text-sm text-primary">
+          {messageActionNotice}
         </div>
       )}
 
@@ -689,9 +955,11 @@ export function EmailClient() {
 
           <section className="hidden min-h-0 flex-col overflow-hidden border border-border bg-card lg:flex">
             <EmailMessageViewer
+              actions={selectedMessage ? { activeAction: activeMessageAction, folders, onAction: handleMessageAction } : undefined}
               isLoading={isLoadingMessage}
               labels={messageViewerLabels}
               message={selectedMessage}
+              summary={messageSummary}
             />
           </section>
         </div>
@@ -707,10 +975,12 @@ export function EmailClient() {
               </DialogDescription>
             </DialogHeader>
             <EmailMessageViewer
+              actions={selectedMessage ? { activeAction: activeMessageAction, folders, onAction: handleMessageAction } : undefined}
               className="bg-card"
               isLoading={isLoadingMessage}
               labels={messageViewerLabels}
               message={selectedMessage}
+              summary={messageSummary}
             />
           </DialogContent>
         </Dialog>
