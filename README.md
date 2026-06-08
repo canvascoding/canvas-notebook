@@ -15,17 +15,52 @@
 
 ## What is Canvas Notebook?
 
-Canvas Notebook is a personal workspace that lives in a container. Think of it as a notebook that can read, write, search, and create files — with an AI you can actually talk to. You bring your files, the agent does the work.
+Canvas Notebook is a self-hosted workspace for people who want an AI agent close to their real files, tools, and workflows. It combines a file browser, editor, terminal, chat, automations, to-dos, email, and creative AI tools in one container-first app.
+
+Bring your workspace. Connect your preferred AI provider. Let the agent read, write, search, create, and automate without sending your whole operating system to a SaaS product.
+
+---
+
+## Why Canvas Notebook?
+
+| You need | Canvas Notebook gives you |
+|----------|---------------------------|
+| A private AI workspace | Run it on your own VPS, homelab, or internal server |
+| Agent work with real files | The agent can use your mounted `/data/workspace` directly |
+| Provider choice | Use OpenRouter, Anthropic, Google Gemini, Ollama, Groq, Mistral, or OpenAI |
+| Repeatable workflows | Turn recurring prompts into scheduled automations |
+| Extensibility | Add custom skills with plain folders and `SKILL.md` files |
+| Operational control | Update, restart, inspect logs, and reset admin access from the VM CLI |
+
+---
+
+## Built for
+
+- **Creators and agencies** managing campaign assets, briefs, documents, image generations, and client work
+- **Developers and operators** who want a browser-based workspace with terminal access and reproducible self-hosting
+- **Teams with sensitive files** that need login protection, local storage, and explicit control over public sharing
+- **Power users** who want AI chat, file operations, automations, email, and to-dos in one place
 
 ---
 
 ## Features
+
+### Workspace Apps
+- **Notebook** — files, chat, and editor in one focused workspace
+- **Files** — browse, preview, upload, download, share, rename, move, and delete workspace files
+- **To-dos** — track human tasks, approvals, and follow-ups that come out of agent work
+- **Email** — connect inboxes, review messages, draft replies, and manage send policies
+- **Studio** — manage products, personas, styles, presets, and AI-generated creative assets
+- **Automations** — schedule recurring agent jobs for the workspace
+- **Security** — review public file links and sharing exposure
+- **Usage Analytics** — inspect token and cost usage across sessions, models, and users
 
 ### File Browser & Editor
 - Browse, create, rename, move, and delete files and folders
 - Upload and download files between your machine and the workspace
 - **Markdown editor** with live preview
 - **Code editor** with syntax highlighting for all common languages
+- Document, spreadsheet, presentation, Excalidraw, HTML, and media previews
 - Auto-save
 
 ### Viewers
@@ -35,6 +70,7 @@ Canvas Notebook is a personal workspace that lives in a container. Think of it a
 - Chat with an AI that has direct access to your workspace
 - The agent can read and write files, run shell commands, search your notes, and execute tasks autonomously
 - Conversations are persisted — pick up where you left off
+- Agent settings, tools, managed prompt files, model selection, and runtime status live in the app
 - **Skills** — drop a folder with a `SKILL.md` file into `/data/skills/` and the agent gains new capabilities. Skills can do things like generate images, process documents, run custom workflows, or anything else you define
 - **Workflow automation** — tell the agent to run something on a schedule (once, daily, weekly, or at a custom interval) and it will
 
@@ -48,9 +84,6 @@ Connect with any of the following — API keys are configured at runtime inside 
 
 ### Terminal
 Full shell access in the browser — run commands, manage files, execute scripts.
-
-### Spreadsheet Viewer
-View Excel and CSV files directly, no downloads needed.
 
 ### Language Support
 The interface is fully translated — switch languages from the header or the onboarding wizard. Currently supported:
