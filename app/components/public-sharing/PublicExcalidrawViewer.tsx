@@ -1,10 +1,22 @@
 'use client';
 
 import { useMemo } from 'react';
-import { AlertCircle } from 'lucide-react';
-import { Excalidraw, Footer, MainMenu } from '@excalidraw/excalidraw';
+import dynamic from 'next/dynamic';
+import { AlertCircle, Loader2 } from 'lucide-react';
 
 import { parseExcalidrawContent } from '@/app/lib/excalidraw-scene';
+
+const PublicExcalidrawCanvas = dynamic(
+  () => import('./PublicExcalidrawCanvas').then(mod => mod.PublicExcalidrawCanvas),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex h-full items-center justify-center bg-background">
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      </div>
+    ),
+  }
+);
 
 interface PublicExcalidrawViewerProps {
   fileName: string;
@@ -46,44 +58,7 @@ export function PublicExcalidrawViewer({ fileName, content }: PublicExcalidrawVi
         </span>
       </header>
       <section className="min-h-0 flex-1 overflow-hidden">
-        <Excalidraw
-          initialData={session.initialData}
-          name={fileName}
-          isCollaborating={false}
-          aiEnabled={false}
-          UIOptions={{
-            dockedSidebarBreakpoint: 880,
-            canvasActions: {
-              changeViewBackgroundColor: true,
-              clearCanvas: true,
-              export: {
-                saveFileToDisk: true,
-              },
-              loadScene: false,
-              saveAsImage: true,
-              saveToActiveFile: false,
-              toggleTheme: false,
-            },
-            tools: {
-              image: true,
-            },
-            welcomeScreen: false,
-          }}
-        >
-          <MainMenu>
-            <MainMenu.DefaultItems.Export />
-            <MainMenu.DefaultItems.SaveAsImage />
-            <MainMenu.DefaultItems.ChangeCanvasBackground />
-            <MainMenu.DefaultItems.ClearCanvas />
-            <MainMenu.Separator />
-            <MainMenu.DefaultItems.Help />
-          </MainMenu>
-          <Footer>
-            <div className="pointer-events-none select-none bg-background/80 px-2 py-1 text-[11px] text-muted-foreground shadow-sm backdrop-blur">
-              Changes stay in this browser until you export or save to disk.
-            </div>
-          </Footer>
-        </Excalidraw>
+        <PublicExcalidrawCanvas initialData={session.initialData} fileName={fileName} />
       </section>
     </main>
   );
