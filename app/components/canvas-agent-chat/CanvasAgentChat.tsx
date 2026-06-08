@@ -2595,6 +2595,7 @@ export default function CanvasAgentChat({
   const [imagePreprocessFiles, setImagePreprocessFiles] = useState<import('@/app/components/shared/ImagePreprocessDialog').PreprocessFileInfo[] | null>(null);
   const [imagePreprocessPendingFiles, setImagePreprocessPendingFiles] = useState<File[]>([]);
   const [previewAttachment, setPreviewAttachment] = useState<Attachment | null>(null);
+  const [previewAttachmentGroup, setPreviewAttachmentGroup] = useState<Attachment[]>([]);
   const isUploading = pendingUploads > 0;
   const isWebSocketUnavailable = wsError?.code === 'AUTH_ERROR';
 
@@ -5004,15 +5005,19 @@ export default function CanvasAgentChat({
     setAttachments((prev) => prev.filter((_, itemIndex) => itemIndex !== index));
   }, []);
 
-  const handleAttachmentPreviewOpen = useCallback((attachment: Attachment) => {
+  const handleAttachmentPreviewOpen = useCallback((attachment: Attachment, previewGroup?: Attachment[]) => {
     const displayAttachment = deriveUploadAttachmentPreview(attachment);
     const mediaUrl = getAttachmentMediaUrl(displayAttachment);
     if (mediaUrl && onMediaClick) {
       onMediaClick(mediaUrl);
       return;
     }
+    const displayGroup = (previewGroup?.length ? previewGroup : [displayAttachment])
+      .map((item) => deriveUploadAttachmentPreview(item))
+      .filter((item) => item.contentKind === 'image');
     setPreviewAttachment(displayAttachment);
-  }, [onMediaClick, setPreviewAttachment]);
+    setPreviewAttachmentGroup(displayGroup.length ? displayGroup : [displayAttachment]);
+  }, [onMediaClick, setPreviewAttachment, setPreviewAttachmentGroup]);
 
   const handleMediaPreviewClick = useCallback((mediaUrl: string) => {
     if (onMediaClick) {
@@ -5020,7 +5025,13 @@ export default function CanvasAgentChat({
       return;
     }
     setPreviewAttachment(createImageAttachmentFromMediaUrl(mediaUrl));
-  }, [onMediaClick, setPreviewAttachment]);
+    setPreviewAttachmentGroup([]);
+  }, [onMediaClick, setPreviewAttachment, setPreviewAttachmentGroup]);
+
+  const handleAttachmentPreviewClose = useCallback(() => {
+    setPreviewAttachment(null);
+    setPreviewAttachmentGroup([]);
+  }, [setPreviewAttachment, setPreviewAttachmentGroup]);
 
   const navigateInputHistory = useCallback((direction: 'older' | 'newer'): boolean => {
     if (userMessageHistory.length === 0) {
@@ -6479,6 +6490,7 @@ export default function CanvasAgentChat({
                           key={`${attachment.id || attachment.filePath || attachment.name}-${index}`}
                           attachment={attachment}
                           context="message"
+                          previewGroup={message.attachments}
                           onOpen={handleAttachmentPreviewOpen}
                         />
                       ))}
@@ -6598,6 +6610,7 @@ export default function CanvasAgentChat({
                 key={`${attachment.id || attachment.filePath || attachment.name}-${index}`}
                 attachment={attachment}
                 context="composer"
+                previewGroup={attachments}
                 onRemove={() => removeAttachment(index)}
                 onOpen={handleAttachmentPreviewOpen}
               />
@@ -6723,7 +6736,8 @@ export default function CanvasAgentChat({
        </div>
       <AttachmentPreviewDialog
         attachment={previewAttachment}
-        onClose={() => setPreviewAttachment(null)}
+        attachments={previewAttachmentGroup}
+        onClose={handleAttachmentPreviewClose}
       />
       <ImagePreprocessDialog
         open={imagePreprocessFiles !== null}
