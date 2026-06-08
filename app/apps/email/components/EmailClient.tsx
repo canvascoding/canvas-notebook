@@ -196,6 +196,10 @@ function sendPolicyAllowsEmail(email: string, sendTo: string[]): boolean {
   });
 }
 
+function isFetchNetworkError(error: unknown): boolean {
+  return error instanceof TypeError && /failed to fetch|fetch failed|networkerror/iu.test(error.message);
+}
+
 function sanitizeEmailHtml(value: string) {
   const sanitized = DOMPurify.sanitize(value, EMAIL_HTML_SANITIZE_CONFIG);
   if (typeof document === 'undefined') return sanitized;
@@ -742,43 +746,30 @@ export function EmailClient() {
     if (action === 'permanent-delete' && !window.confirm(t('confirmPermanentDelete'))) return;
 
     const folder = selectedMessage.folder || activeFolder;
-    const endpointBase = `/api/email/accounts/${encodeURIComponent(activeAccount.id)}/messages/${encodeURIComponent(selectedMessage.id)}`;
+    const endpoint = `/api/email/accounts/${encodeURIComponent(activeAccount.id)}/messages/actions`;
     setActiveMessageAction(action);
     setMessageActionNotice(null);
     setError(null);
 
     try {
-      let response: Response;
+      let body: Record<string, unknown>;
       if (action === 'summary') {
-        response = await fetch(`${endpointBase}/summary`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'include',
-          body: JSON.stringify({ folder }),
-        });
+        body = { folder, messageId: selectedMessage.id, operation: 'summary' };
       } else if (action === 'ai-reply') {
-        response = await fetch(`${endpointBase}/ai-reply`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'include',
-          body: JSON.stringify({ folder }),
-        });
+        body = { folder, messageId: selectedMessage.id, operation: 'ai-reply' };
       } else if (action === 'draft-reply' || action === 'draft-reply-all' || action === 'draft-forward') {
         const mode = action === 'draft-forward' ? 'forward' : action === 'draft-reply-all' ? 'reply-all' : 'reply';
-        response = await fetch(`${endpointBase}/draft`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'include',
-          body: JSON.stringify({ folder, mode }),
-        });
+        body = { folder, messageId: selectedMessage.id, mode, operation: 'draft' };
       } else {
-        response = await fetch(`${endpointBase}/actions`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'include',
-          body: JSON.stringify({ action, destination, folder }),
-        });
+        body = { action, destination, folder, messageId: selectedMessage.id, operation: 'action' };
       }
+
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(body),
+      });
 
       const payload = await response.json().catch(() => ({}));
       if (!response.ok || !payload.success) throw new Error(payload.error || t('errors.updateMessage'));
@@ -822,7 +813,9 @@ export function EmailClient() {
       setMessageActionNotice(t('messageMoved'));
       void loadFolders(activeAccount.id);
     } catch (actionError) {
-      setError(actionError instanceof Error ? actionError.message : t('errors.updateMessage'));
+      setError(isFetchNetworkError(actionError)
+        ? t('errors.actionRequest')
+        : actionError instanceof Error ? actionError.message : t('errors.updateMessage'));
     } finally {
       setActiveMessageAction(null);
     }
