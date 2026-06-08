@@ -24,6 +24,19 @@ const LOGIN_ENV_KEYS = [
   { key: 'BOOTSTRAP_ADMIN_NAME', translationKey: 'general.loginInfo.nameKey' },
 ] as const;
 
+async function savePreferredLocale(locale: string): Promise<void> {
+  const response = await fetch('/api/user-preferences', {
+    method: 'PATCH',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ locale }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to save preferred locale (${response.status}).`);
+  }
+}
+
 function PasswordChangeCard() {
   const t = useTranslations('settings');
   const [currentPassword, setCurrentPassword] = useState('');
@@ -195,6 +208,10 @@ export function GeneralSettingsPanel({
 
   function handleSelectLocale(locale: string) {
     startTransition(() => {
+      void savePreferredLocale(locale).catch((error) => {
+        console.warn('[Settings] Failed to save preferred locale:', error);
+        toast.error(t('general.languageSaveFailed'));
+      });
       router.replace(pathname, { locale });
     });
   }

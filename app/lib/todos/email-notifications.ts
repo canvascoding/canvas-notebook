@@ -11,6 +11,7 @@ import {
 } from '@/app/lib/email/policy';
 import { createEmailDraft, listEmailAccounts, sendEmailDraft } from '@/app/lib/email/service';
 import { renderTodoNotificationEmail } from '@/app/lib/email/templates/todo-notification';
+import { getUserPreferredLocale } from '@/app/lib/user-preferences';
 import type { TodoWithRelations } from '@/app/lib/todos/store';
 
 type EmailAccountCandidate = {
@@ -73,6 +74,16 @@ async function markTodoNotificationStatus(todoId: string, status: { sentAt?: Dat
     .where(eq(todoItems.id, todoId));
 }
 
+async function resolveUserLocale(userId: string): Promise<string> {
+  try {
+    return await getUserPreferredLocale(userId);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn('[TodoEmailNotification] Failed to resolve user locale:', message);
+    return 'de';
+  }
+}
+
 export async function sendTodoCreatedEmailNotification(userId: string, todo: TodoWithRelations): Promise<TodoEmailNotificationResult> {
   if (todo.sourceType !== 'agent') {
     return { status: 'skipped', reason: 'Todo was not created by an agent.' };
@@ -107,7 +118,8 @@ export async function sendTodoCreatedEmailNotification(userId: string, todo: Tod
       return { status: 'skipped', reason: message };
     }
 
-    const email = renderTodoNotificationEmail(todo);
+    const locale = await resolveUserLocale(userId);
+    const email = renderTodoNotificationEmail(todo, locale);
     const draftResponse = await createEmailDraft(userId, {
       accountId: account.id,
       to: [recipient],

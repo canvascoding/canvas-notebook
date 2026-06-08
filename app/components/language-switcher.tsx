@@ -13,6 +13,22 @@ import {
 import { Languages } from 'lucide-react';
 import { useParams } from 'next/navigation';
 
+async function persistPreferredLocale(locale: string): Promise<void> {
+  try {
+    const response = await fetch('/api/user-preferences', {
+      method: 'PATCH',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ locale }),
+    });
+    if (!response.ok && response.status !== 401) {
+      console.warn('[LanguageSwitcher] Failed to save preferred locale:', response.status);
+    }
+  } catch (error) {
+    console.warn('[LanguageSwitcher] Failed to save preferred locale:', error);
+  }
+}
+
 export function LanguageSwitcher() {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -22,6 +38,7 @@ export function LanguageSwitcher() {
 
   function onSelectLocale(nextLocale: string) {
     startTransition(() => {
+      void persistPreferredLocale(nextLocale);
       router.replace(pathname, { locale: nextLocale });
     });
   }

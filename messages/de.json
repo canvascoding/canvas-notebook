@@ -1301,6 +1301,7 @@
       "language": "Sprache",
       "languageDescription": "Wähle die Sprache der Benutzeroberfläche. Die Änderung wird sofort angewendet.",
       "languageActive": "Aktiv",
+      "languageSaveFailed": "Sprache konnte nicht für E-Mail-Benachrichtigungen gespeichert werden.",
       "loginInfoTitle": "Login-Informationen",
       "loginInfoDescription": "Dein aktuelles Konto und die optionalen Bootstrap-Einstellungen.",
       "loginInfoEmail": "E-Mail",
