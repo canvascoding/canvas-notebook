@@ -563,7 +563,7 @@ type EmailMessageActionName =
   | 'summary'
   | 'trash';
 
-type EmailMessageListActionName = 'archive' | 'mark-read' | 'mark-unread' | 'trash';
+type EmailMessageListActionName = 'archive' | 'mark-read' | 'mark-unread' | 'permanent-delete' | 'trash';
 
 type EmailMessageListActionState = {
   action: EmailMessageListActionName;
@@ -633,7 +633,7 @@ function EmailMessageRowActions({
   onAction,
 }: {
   activeAction: EmailMessageListActionState;
-  labels: Pick<EmailMessageViewerLabels, 'archive' | 'markRead' | 'markUnread' | 'trash'> & { messageOptions: string };
+  labels: Pick<EmailMessageViewerLabels, 'archive' | 'markRead' | 'markUnread' | 'permanentDelete' | 'trash'> & { messageOptions: string };
   message: EmailMessageSummary;
   onAction(message: EmailMessageSummary, action: EmailMessageListActionName): void;
 }) {
@@ -641,6 +641,7 @@ function EmailMessageRowActions({
   const isArchiveBusy = isBusy && activeAction?.action === 'archive';
   const isReadBusy = isBusy && (activeAction?.action === 'mark-read' || activeAction?.action === 'mark-unread');
   const isTrashBusy = isBusy && activeAction?.action === 'trash';
+  const isPermanentDeleteBusy = isBusy && activeAction?.action === 'permanent-delete';
   const readAction = message.isRead ? 'mark-unread' : 'mark-read';
   const readLabel = message.isRead ? labels.markUnread : labels.markRead;
 
@@ -669,7 +670,7 @@ function EmailMessageRowActions({
             aria-label={labels.messageOptions}
             title={labels.messageOptions}
           >
-            {isReadBusy || isTrashBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ChevronDown className="h-3.5 w-3.5" />}
+            {isReadBusy || isTrashBusy || isPermanentDeleteBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ChevronDown className="h-3.5 w-3.5" />}
           </Button>
         </DropdownMenuTrigger>
       </div>
@@ -681,6 +682,10 @@ function EmailMessageRowActions({
         <DropdownMenuItem onSelect={() => onAction(message, 'trash')} className="text-destructive focus:text-destructive">
           <Trash2 className="h-4 w-4" />
           {labels.trash}
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => onAction(message, 'permanent-delete')} className="text-destructive focus:text-destructive">
+          <XCircle className="h-4 w-4" />
+          {labels.permanentDelete}
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
@@ -1407,6 +1412,8 @@ export function EmailClient() {
 
   const handleMessageListAction = useCallback(async (message: EmailMessageSummary, action: EmailMessageListActionName) => {
     if (!activeAccount) return;
+    if (action === 'permanent-delete' && !window.confirm(t('confirmPermanentDelete'))) return;
+
     const folder = message.folder || activeFolder;
     const endpoint = `/api/email/accounts/${encodeURIComponent(activeAccount.id)}/messages/actions`;
     setActiveMessageListAction({ action, messageId: message.id });
