@@ -11,6 +11,7 @@ import type {
   StudioGenerationOutput,
   StudioGenerationStatus,
 } from '../types/generation';
+import { getStudioUserPrompt } from '../utils/studio-generation-prompt';
 
 const POLL_INTERVAL_MS = 10_000;
 const GENERATIONS_PAGE_SIZE = 48;
@@ -452,7 +453,7 @@ export function useStudioGeneration(): UseStudioGenerationReturn {
 
   const createVariation = useCallback(async (generation: StudioGeneration, output: StudioGenerationOutput) => {
     return generate({
-      prompt: generation.rawPrompt || generation.prompt || '',
+      prompt: getStudioUserPrompt(generation),
       mode: 'image',
       product_ids: generation.product_ids ?? [],
       persona_ids: generation.persona_ids ?? [],
@@ -466,7 +467,7 @@ export function useStudioGeneration(): UseStudioGenerationReturn {
 
   const createVideoFromOutput = useCallback(async (generation: StudioGeneration, output: StudioGenerationOutput) => {
     return generate({
-      prompt: generation.rawPrompt || generation.prompt || '',
+      prompt: getStudioUserPrompt(generation),
       mode: 'video',
       product_ids: generation.product_ids ?? [],
       persona_ids: generation.persona_ids ?? [],

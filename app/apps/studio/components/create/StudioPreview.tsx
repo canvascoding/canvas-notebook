@@ -9,6 +9,7 @@ import type { StudioProduct, StudioPersona, StudioStyle } from '../../types/mode
 import type { StudioPreset } from '../../types/presets';
 import { toPreviewUrl } from '@/app/lib/utils/media-url';
 import { downloadStudioOutput } from '../../utils/downloadStudioOutput';
+import { getStudioUserPrompt } from '../../utils/studio-generation-prompt';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -204,7 +205,7 @@ export function StudioPreview({
   const hasAnyReferences = resolvedProducts.length > 0 || resolvedPersonas.length > 0 || resolvedStyles.length > 0;
 
   const aspectRatioLabel = getAspectRatioLabel(output, generation);
-  const prompt = generation.prompt || generation.rawPrompt || 'No prompt saved for this generation.';
+  const prompt = getStudioUserPrompt(generation, 'No prompt saved for this generation.');
   const canEditImage = output.type === 'image' && Boolean(output.mediaUrl) && Boolean(onEditSelection);
   const canUseAspectRatio = output.type === 'image' && Boolean(output.mediaUrl) && Boolean(onUseAspectRatio);
   const canOpenCustomAspectRatio = output.type === 'image' && Boolean(output.filePath) && Boolean(onOpenCustomAspectRatio);
