@@ -1022,6 +1022,8 @@
     "date": "Date",
     "emptyBody": "No readable message body available.",
     "attachments": "Attachments",
+    "remoteImagesBlocked": "Remote images and external resources are blocked for privacy.",
+    "showRemoteImages": "Load images",
     "unknownAttachmentType": "Unknown file type",
     "imapMissingTitle": "IMAP is not configured for this account",
     "imapMissingDescription": "This account can currently be used for sending and policies. Store IMAP settings to enable inbox, reading, and search.",
