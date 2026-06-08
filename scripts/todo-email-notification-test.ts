@@ -67,6 +67,7 @@ async function main() {
   const { todoItems, user } = await import('../app/lib/db/schema');
   const { eq } = await import('drizzle-orm');
   const { sendTodoCreatedEmailNotification } = await import('../app/lib/todos/email-notifications');
+  const { setUserPreferredLocale } = await import('../app/lib/user-preferences');
   const now = new Date();
   const userId = 'todo-email-user';
 
@@ -116,6 +117,12 @@ async function main() {
   assert.equal(drafts[0].accountId, 'local_notify_test');
   assert.equal(drafts[0].is_HTML, true);
   assert.match(drafts[0].subject, /^Neues Canvas To-do:/);
+  assert.match(drafts[0].body, /<html lang="de">/);
+  assert.match(drafts[0].body, /für dich angelegt/);
+  assert.match(drafts[0].body, /Priorität/);
+  assert.match(drafts[0].body, /Fällig/);
+  assert.match(drafts[0].body, /To-do öffnen/);
+  assert.doesNotMatch(drafts[0].body, /fuer|Prioritaet|Faellig|oeffnen/);
   assert.match(drafts[0].body, /&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
   assert.match(drafts[0].body, /Check &lt;b&gt;the draft&lt;\/b&gt;<br>Then approve\./);
   assert.doesNotMatch(drafts[0].body, /<script>/);
@@ -124,6 +131,36 @@ async function main() {
   assert.ok(storedSentTodo?.emailNotificationSentAt);
   assert.equal(storedSentTodo?.emailNotificationError, null);
 
+  await setUserPreferredLocale(userId, 'en');
+  const [englishTodo] = await db.insert(todoItems).values({
+    ...agentTodo,
+    id: 'todo-email-english',
+    title: 'Buy acetone',
+    description: null,
+    dueAt: new Date('2026-06-08T00:00:00.000Z'),
+    emailNotificationSentAt: null,
+    emailNotificationError: null,
+    createdAt: new Date(now.getTime() + 1),
+    updatedAt: new Date(now.getTime() + 1),
+  }).returning();
+
+  const englishResult = await sendTodoCreatedEmailNotification(userId, {
+    ...englishTodo,
+    category: null,
+    fileLinks: [],
+  });
+
+  assert.equal(englishResult.status, 'sent');
+  assert.equal(drafts.length, 2);
+  assert.equal(sentDrafts.length, 2);
+  assert.match(drafts[1].subject, /^New Canvas to-do:/);
+  assert.match(drafts[1].body, /<html lang="en">/);
+  assert.match(drafts[1].body, /Your Canvas Agent created a new to-do for you\./);
+  assert.match(drafts[1].body, /Priority/);
+  assert.match(drafts[1].body, /Due/);
+  assert.match(drafts[1].body, /Open to-do/);
+  assert.match(drafts[1].body, /\/en\/todos\?todo=todo-email-english/);
+
   accounts = [];
   const [skippedTodo] = await db.insert(todoItems).values({
     ...agentTodo,
@@ -131,8 +168,8 @@ async function main() {
     title: 'No account',
     emailNotificationSentAt: null,
     emailNotificationError: null,
-    createdAt: new Date(now.getTime() + 1),
-    updatedAt: new Date(now.getTime() + 1),
+    createdAt: new Date(now.getTime() + 2),
+    updatedAt: new Date(now.getTime() + 2),
   }).returning();
 
   const skipped = await sendTodoCreatedEmailNotification(userId, {
@@ -142,7 +179,7 @@ async function main() {
   });
 
   assert.equal(skipped.status, 'skipped');
-  assert.equal(drafts.length, 1);
+  assert.equal(drafts.length, 2);
   const storedSkippedTodo = await db.query.todoItems.findFirst({ where: eq(todoItems.id, skippedTodo.id) });
   assert.equal(storedSkippedTodo?.emailNotificationSentAt, null);
   assert.match(storedSkippedTodo?.emailNotificationError || '', /No active email account/);
@@ -161,8 +198,8 @@ async function main() {
     title: 'Policy blocked',
     emailNotificationSentAt: null,
     emailNotificationError: null,
-    createdAt: new Date(now.getTime() + 2),
-    updatedAt: new Date(now.getTime() + 2),
+    createdAt: new Date(now.getTime() + 3),
+    updatedAt: new Date(now.getTime() + 3),
   }).returning();
 
   const policyBlocked = await sendTodoCreatedEmailNotification(userId, {
@@ -172,8 +209,8 @@ async function main() {
   });
 
   assert.equal(policyBlocked.status, 'skipped');
-  assert.equal(drafts.length, 1);
-  assert.equal(sentDrafts.length, 1);
+  assert.equal(drafts.length, 2);
+  assert.equal(sentDrafts.length, 2);
   const storedPolicyTodo = await db.query.todoItems.findFirst({ where: eq(todoItems.id, policyTodo.id) });
   assert.equal(storedPolicyTodo?.emailNotificationSentAt, null);
   assert.match(storedPolicyTodo?.emailNotificationError || '', /not allowed by the email account sendTo policy/);

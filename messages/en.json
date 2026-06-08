@@ -1302,6 +1302,7 @@
       "language": "Language",
       "languageDescription": "Choose the interface language. Changes are applied immediately.",
       "languageActive": "Active",
+      "languageSaveFailed": "Could not save the language for email notifications.",
       "loginInfoTitle": "Login Information",
       "loginInfoDescription": "Your current account and optional bootstrap settings.",
       "loginInfoEmail": "Email",

@@ -6,6 +6,7 @@ export type EmailTemplateAction = {
 };
 
 type AppEmailTemplateInput = {
+  locale?: string;
   title: string;
   preheader?: string;
   intro?: string;
@@ -23,7 +24,12 @@ export function escapeHtml(value: string | null | undefined): string {
     .replace(/'/g, '&#39;');
 }
 
+function normalizeTemplateLocale(locale: string | null | undefined): 'de' | 'en' {
+  return locale?.toLowerCase().startsWith('en') ? 'en' : 'de';
+}
+
 export function renderAppEmailTemplate(input: AppEmailTemplateInput): string {
+  const locale = normalizeTemplateLocale(input.locale);
   const preheader = input.preheader ? escapeHtml(input.preheader) : '';
   const intro = input.intro ? `<p class="muted">${escapeHtml(input.intro)}</p>` : '';
   const action = input.action
@@ -35,7 +41,7 @@ export function renderAppEmailTemplate(input: AppEmailTemplateInput): string {
     : '';
 
   return `<!doctype html>
-<html lang="de">
+<html lang="${locale}">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
