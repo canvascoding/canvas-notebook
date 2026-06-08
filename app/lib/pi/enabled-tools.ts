@@ -82,6 +82,13 @@ export function isDefaultToolsConfig(enabledTools?: string[] | null): boolean {
   return normalized.length === 0 || isLegacyEnabledToolsValue(enabledTools);
 }
 
+export function isBrowserToolEnabledConfig(enabledTools?: string[] | null): boolean {
+  if (isDefaultToolsConfig(enabledTools)) {
+    return false;
+  }
+  return normalizeEnabledToolsConfig(enabledTools).includes('browser');
+}
+
 export function areAllToolsEnabled(enabledTools?: string[] | null): boolean {
   const normalized = normalizeEnabledToolsConfig(enabledTools);
   return normalized.length > 0 && !isLegacyEnabledToolsValue(enabledTools) && !normalized.includes(DISABLED_ALL_TOOLS_SENTINEL);

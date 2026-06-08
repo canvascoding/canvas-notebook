@@ -8,11 +8,14 @@ import type { KeyInput } from 'puppeteer-core';
 import { resolveBrowserUserDataDir } from './chromium';
 import { extractReadablePageContent } from './content';
 import {
+  acceptPendingDialog,
   closeBrowserRuntime,
+  dismissPendingDialog,
   ensurePage,
   getConsoleEntries,
   getBrowserProfileContextKey,
   getBrowserRuntimeContextKey,
+  getPendingDialogDetails,
   getStatusDetails,
   getTargetStore,
   resetBrowserSessionPage,
@@ -29,6 +32,8 @@ import type {
   BrowserGatewayInput,
   BrowserGatewayOutput,
 } from './types';
+import { getBrowserRequirementStatus } from './requirements';
+import { assertBrowserNavigationUrlAllowed } from './url-policy';
 
 export type {
   BrowserAction,
@@ -77,6 +82,9 @@ function normalizeAction(value: unknown): BrowserAction {
     'screenshot',
     'extract_content',
     'evaluate',
+    'dialog_status',
+    'accept_dialog',
+    'dismiss_dialog',
     'console_logs',
     'close',
   ];
@@ -86,28 +94,11 @@ function normalizeAction(value: unknown): BrowserAction {
   throw new Error(`Unsupported browser action "${action || '(empty)'}". Use action "help" for available actions.`);
 }
 
-function validateBrowserUrl(rawUrl: string | undefined): string {
+async function validateBrowserUrl(rawUrl: string | undefined): Promise<string> {
   if (!rawUrl?.trim()) {
     throw new Error('url is required for navigate.');
   }
-
-  const trimmed = rawUrl.trim();
-  if (trimmed === 'about:blank') {
-    return trimmed;
-  }
-
-  let parsed: URL;
-  try {
-    parsed = new URL(trimmed);
-  } catch {
-    throw new Error('url must be an absolute http(s) URL or about:blank.');
-  }
-
-  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-    throw new Error('Only http and https URLs are allowed in the managed browser.');
-  }
-
-  return parsed.toString();
+  return assertBrowserNavigationUrlAllowed(rawUrl);
 }
 
 function helpText(topic?: string): string {
@@ -120,6 +111,7 @@ function helpText(topic?: string): string {
       '- Do not transmit sensitive data, upload files, delete data, submit purchases, change permissions, or create accounts without explicit user approval at action time.',
       '- Do not solve CAPTCHAs, bypass paywalls, or bypass browser/web safety interstitials.',
       '- Use evaluate primarily for read-only inspection. If evaluate intentionally changes page state, pass mutates: true only after explicit user approval.',
+      '- Browser navigation blocks cloud metadata, link-local, multicast, and private network targets by default; localhost is allowed for local app verification.',
       '- Prefer web_fetch for ordinary page reading; use browser only when rendering, UI state, login/session, screenshot, or local app verification requires it.',
       '- For login continuity, use ordinary site login flows and accept necessary or persistent cookie/storage prompts when the user wants the session to remain signed in.',
       '- Do not accept optional tracking, marketing, or third-party cookies unless the user explicitly asks for that.',
@@ -139,8 +131,9 @@ function helpText(topic?: string): string {
   }
 
   return [
-    'Browser gateway actions: status, start, navigate, observe, click, type, keypress, scroll, screenshot, extract_content, evaluate, console_logs, close.',
+    'Browser gateway actions: status, start, navigate, observe, click, type, keypress, scroll, screenshot, extract_content, evaluate, dialog_status, accept_dialog, dismiss_dialog, console_logs, close.',
     'Use web_fetch first for static HTML, docs, blogs, and ordinary content extraction. Use this browser gateway only for JavaScript-rendered pages, UI interaction, screenshots, login/session checks, or local app verification.',
+    'Navigation blocks cloud metadata, link-local, multicast, and private network targets by default; localhost is allowed for local app verification.',
     'Browser storage is persistent per user and agent by default, so cookies, local storage, and site login state can survive new agent sessions. Use normal site prompts to keep sign-ins persistent when appropriate.',
     'Evaluate is intended for read-only inspection. Set mutates: true only when the script intentionally changes page state and the user has approved that action.',
     'Call help with topic "safety" or "interaction" for more specific guidance.',
@@ -216,7 +209,7 @@ async function navigate(
 ): Promise<BrowserGatewayOutput> {
   const page = await ensurePage(context);
   const targetStore = getContextTargetStore(context);
-  const url = validateBrowserUrl(input.url);
+  const url = await validateBrowserUrl(input.url);
   const timeout = clampNumber(input.timeout_ms, DEFAULT_TIMEOUT_MS, MAX_TIMEOUT_MS);
   const waitUntil = input.wait_until || 'domcontentloaded';
   await page.goto(url, { waitUntil, timeout });
@@ -409,6 +402,33 @@ function consoleLogs(
   };
 }
 
+function dialogStatus(context: BrowserRuntimeContext = {}): BrowserGatewayOutput {
+  const pendingDialog = getPendingDialogDetails(context);
+  return {
+    text: pendingDialog ? formatJson(pendingDialog) : '(no browser dialog pending)',
+    details: { pendingDialog },
+  };
+}
+
+async function acceptDialog(
+  input: BrowserGatewayInput,
+  context: BrowserRuntimeContext = {},
+): Promise<BrowserGatewayOutput> {
+  const accepted = await acceptPendingDialog(context, input.prompt_text);
+  return {
+    text: accepted ? 'Accepted browser dialog.' : '(no browser dialog pending)',
+    details: { accepted },
+  };
+}
+
+async function dismissDialog(context: BrowserRuntimeContext = {}): Promise<BrowserGatewayOutput> {
+  const dismissed = await dismissPendingDialog(context);
+  return {
+    text: dismissed ? 'Dismissed browser dialog.' : '(no browser dialog pending)',
+    details: { dismissed },
+  };
+}
+
 function getEvaluateSource(input: BrowserGatewayInput): string {
   const source = input.script ?? input.expression ?? input.code;
   if (typeof source !== 'string' || !source.trim()) {
@@ -520,8 +540,10 @@ export async function runBrowserGatewayAction(
   }
 
   if (action === 'status') {
+    const requirements = getBrowserRequirementStatus({ cache: true });
     const details = await getStatusDetails(context);
-    return { text: formatJson(details), details };
+    const payload = { ...details, requirements };
+    return { text: formatJson(payload), details: payload };
   }
 
   if (action === 'console_logs') {
@@ -538,6 +560,13 @@ export async function runBrowserGatewayAction(
     }
 
     if (action === 'start') {
+      const requirements = getBrowserRequirementStatus({ cache: true });
+      if (!requirements.available) {
+        return {
+          text: `Browser unavailable: ${requirements.reason || 'Chromium requirements are not satisfied.'}`,
+          details: { requirements },
+        };
+      }
       await ensurePage(context);
       targetStore.clear();
       const details = await getStatusDetails(context);
@@ -569,6 +598,12 @@ export async function runBrowserGatewayAction(
         return extractContent(input, context);
       case 'evaluate':
         return evaluateScript(input, context);
+      case 'dialog_status':
+        return dialogStatus(context);
+      case 'accept_dialog':
+        return acceptDialog(input, context);
+      case 'dismiss_dialog':
+        return dismissDialog(context);
       default:
         throw new Error(`Unsupported browser action "${action}".`);
     }

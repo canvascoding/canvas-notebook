@@ -13,6 +13,9 @@ export type BrowserAction =
   | 'screenshot'
   | 'extract_content'
   | 'evaluate'
+  | 'dialog_status'
+  | 'accept_dialog'
+  | 'dismiss_dialog'
   | 'console_logs'
   | 'close';
 
@@ -37,6 +40,7 @@ export type BrowserGatewayInput = {
   return_image?: boolean;
   clear?: boolean;
   mutates?: boolean;
+  prompt_text?: string;
 };
 
 export type BrowserGatewayOutput = {
@@ -52,12 +56,17 @@ export type ObservedTarget = {
   targetId: string;
   tag: string;
   role: string | null;
+  name: string | null;
   text: string | null;
   ariaLabel: string | null;
   placeholder: string | null;
   href: string | null;
   value: string | null;
   testId: string | null;
+  type: string | null;
+  disabled: boolean;
+  checked: boolean | null;
+  selected: boolean | null;
   rect: { x: number; y: number; width: number; height: number };
   candidates: string[];
 };
@@ -81,4 +90,29 @@ export type BrowserStatusDetails = {
   activeUrl?: string | null;
   activeTitle?: string | null;
   idleCloseMs?: number;
+  pendingDialog?: BrowserDialogDetails | null;
+};
+
+export type BrowserDialogDetails = {
+  type: string;
+  message: string;
+  defaultValue: string;
+  openedAt: string;
+};
+
+export type BrowserProfileScope = 'agent' | 'session' | 'user';
+
+export type BrowserProfileDetails = {
+  scope: BrowserProfileScope;
+  profileKey: string;
+  sessionKey: string;
+  userDataDir: string;
+  profileDirExists: boolean;
+  running: boolean;
+  activeSessionCount: number;
+  pageCount?: number;
+  activeUrl?: string | null;
+  activeTitle?: string | null;
+  idleCloseMs: number;
+  pendingDialog?: BrowserDialogDetails | null;
 };

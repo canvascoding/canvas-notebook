@@ -4,7 +4,7 @@ import path from 'node:path';
 
 const CONTAINER_MARKERS = ['/.dockerenv', '/run/.containerenv'];
 
-const COMMON_BROWSER_PATHS = [
+export const COMMON_BROWSER_PATHS = [
   '/usr/bin/chromium',
   '/usr/bin/chromium-browser',
   '/usr/bin/google-chrome',
@@ -29,6 +29,19 @@ export type ChromiumExecutableResolution = {
   source: 'env' | 'playwright' | 'system' | 'which';
   attemptedPaths: string[];
 };
+
+export type ChromiumExecutableStatus =
+  | (ChromiumExecutableResolution & {
+      available: true;
+      error?: never;
+    })
+  | {
+      available: false;
+      executablePath?: never;
+      source?: never;
+      attemptedPaths: string[];
+      error: string;
+    };
 
 export type BrowserLaunchSpec = {
   executablePath: string;
@@ -150,7 +163,7 @@ function findExecutableOnPath(
   }
 }
 
-export function resolveChromiumExecutable({
+export function checkChromiumExecutable({
   env = process.env,
   existsSync = fs.existsSync,
   execSyncImpl = execSync,
@@ -158,7 +171,7 @@ export function resolveChromiumExecutable({
   env?: NodeJS.ProcessEnv;
   existsSync?: (path: string) => boolean;
   execSyncImpl?: typeof execSync;
-} = {}): ChromiumExecutableResolution {
+} = {}): ChromiumExecutableStatus {
   const attemptedPaths: string[] = [];
 
   const configuredPath = env.CHROMIUM_PATH?.trim();
@@ -166,6 +179,7 @@ export function resolveChromiumExecutable({
     attemptedPaths.push(configuredPath);
     if (existsSync(configuredPath)) {
       return {
+        available: true,
         executablePath: configuredPath,
         source: 'env',
         attemptedPaths,
@@ -177,6 +191,7 @@ export function resolveChromiumExecutable({
     attemptedPaths.push(candidate);
     if (existsSync(candidate)) {
       return {
+        available: true,
         executablePath: candidate,
         source: 'playwright',
         attemptedPaths,
@@ -188,6 +203,7 @@ export function resolveChromiumExecutable({
     attemptedPaths.push(candidate);
     if (existsSync(candidate)) {
       return {
+        available: true,
         executablePath: candidate,
         source: 'system',
         attemptedPaths,
@@ -200,6 +216,7 @@ export function resolveChromiumExecutable({
     attemptedPaths.push(whichPath);
     if (existsSync(whichPath)) {
       return {
+        available: true,
         executablePath: whichPath,
         source: 'which',
         attemptedPaths,
@@ -208,10 +225,28 @@ export function resolveChromiumExecutable({
   }
 
   const lookupSummary = unique(attemptedPaths).join(', ');
-  throw new Error(
-    `No Chromium/Chrome executable found. Checked: ${lookupSummary || 'no candidate paths'}. ` +
+  return {
+    available: false,
+    attemptedPaths: unique(attemptedPaths),
+    error: `No Chromium/Chrome executable found. Checked: ${lookupSummary || 'no candidate paths'}. ` +
       'Set CHROMIUM_PATH or install Chromium.',
-  );
+  };
+}
+
+export function resolveChromiumExecutable(options: {
+  env?: NodeJS.ProcessEnv;
+  existsSync?: (path: string) => boolean;
+  execSyncImpl?: typeof execSync;
+} = {}): ChromiumExecutableResolution {
+  const status = checkChromiumExecutable(options);
+  if (!status.available) {
+    throw new Error(status.error);
+  }
+  return {
+    executablePath: status.executablePath,
+    source: status.source,
+    attemptedPaths: status.attemptedPaths,
+  };
 }
 
 function resolveBrowserDataRoot(env: NodeJS.ProcessEnv, existsSync: (path: string) => boolean): string {

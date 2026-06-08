@@ -37,6 +37,7 @@
     "test:studio:veo": "tsx scripts/veo-generation-test.ts",
     "test:skills:runtime": "tsx scripts/skills-runtime-test.ts",
     "test:browser-start": "tsx scripts/browser-runtime-test.ts",
+    "test:browser-url-policy": "tsx scripts/browser-url-policy-test.ts",
     "test:file-watcher": "tsx scripts/file-watcher-client-test.ts && tsx scripts/file-browser-refresh-test.ts",
     "test:media:references": "tsx --conditions react-server scripts/media-reference-resolver-test.ts",
     "test:upload:conversion": "tsx --conditions react-server scripts/upload-conversion-test.ts",

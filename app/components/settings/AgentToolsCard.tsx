@@ -19,6 +19,13 @@ export type ToolMetadata = {
   planningModeAllowed?: boolean;
   defaultEnabled?: boolean;
   notes?: string[];
+  availability?: {
+    available: boolean;
+    reason: string | null;
+    executablePath?: string | null;
+    executableSource?: string | null;
+    checkedAt: string;
+  };
 };
 
 export type AgentToolsEditorProps = {
@@ -260,7 +267,15 @@ export function AgentToolsEditor({
                                 <Badge variant={tool.defaultEnabled ? 'secondary' : 'outline'}>
                                   {tool.defaultEnabled ? t('agentPanel.tools.defaultEnabled') : t('agentPanel.tools.defaultDisabled')}
                                 </Badge>
+                                {tool.availability && (
+                                  <Badge variant={tool.availability.available ? 'secondary' : 'destructive'}>
+                                    {tool.availability.available ? t('agentPanel.tools.available') : t('agentPanel.tools.unavailable')}
+                                  </Badge>
+                                )}
                               </div>
+                              {tool.availability && !tool.availability.available && tool.availability.reason && (
+                                <p className="mt-2 text-xs text-destructive">{tool.availability.reason}</p>
+                              )}
                               {displayTool.notes && displayTool.notes.length > 0 && (
                                 <ul className="mt-3 space-y-1 text-xs text-muted-foreground">
                                   {displayTool.notes.map((note) => (
