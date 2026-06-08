@@ -178,6 +178,10 @@ type EmailSmtpDraft = {
 
 type EmailMode = 'unknown' | 'managed' | 'local';
 
+type EmailPreviewPreferences = {
+  emailAllowRemoteImages: boolean;
+};
+
 type SearchIntegrationStatus = {
   configured: boolean;
   mode: 'local' | 'managed' | 'disabled';
@@ -1619,10 +1623,12 @@ export function EmailAccountsCard({
   isOpen,
   onOpenChange,
   onAccountsChanged,
+  onPreviewPreferencesChanged,
 }: {
   isOpen: boolean;
   onOpenChange: (isOpen: boolean) => void;
   onAccountsChanged?: () => void | Promise<void>;
+  onPreviewPreferencesChanged?: (preferences: EmailPreviewPreferences) => void;
 }) {
   const t = useTranslations('settings.emailAccounts');
   const searchParams = useSearchParams();
@@ -1638,12 +1644,58 @@ export function EmailAccountsCard({
   });
   const [emailOAuthStatus, setEmailOAuthStatus] = useState<EmailOAuthStatus | null>(null);
   const [smtpDraft, setSmtpDraft] = useState<EmailSmtpDraft>(() => emptyEmailSmtpDraft());
+  const [previewPreferences, setPreviewPreferences] = useState<EmailPreviewPreferences>({ emailAllowRemoteImages: false });
   const [isAddingEmailAccount, setIsAddingEmailAccount] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [isLoadingPreviewPreferences, setIsLoadingPreviewPreferences] = useState(false);
+  const [isSavingPreviewPreferences, setIsSavingPreviewPreferences] = useState(false);
   const [isOAuthLoading, setIsOAuthLoading] = useState(false);
   const [activeAction, setActiveAction] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  const loadPreviewPreferences = useCallback(async () => {
+    setIsLoadingPreviewPreferences(true);
+    try {
+      const response = await fetch('/api/user-preferences', { credentials: 'include', cache: 'no-store' });
+      const payload = await response.json();
+      if (!response.ok || !payload.success) throw new Error(payload.error || t('errors.loadPreviewPreferences'));
+      const nextPreferences = { emailAllowRemoteImages: Boolean(payload.data?.emailAllowRemoteImages) };
+      setPreviewPreferences(nextPreferences);
+      onPreviewPreferencesChanged?.(nextPreferences);
+    } catch (preferencesError) {
+      setError(preferencesError instanceof Error ? preferencesError.message : t('errors.loadPreviewPreferences'));
+    } finally {
+      setIsLoadingPreviewPreferences(false);
+    }
+  }, [onPreviewPreferencesChanged, t]);
+
+  const saveRemoteImagesPreference = useCallback(async (emailAllowRemoteImages: boolean) => {
+    const previousPreferences = previewPreferences;
+    setPreviewPreferences({ emailAllowRemoteImages });
+    setIsSavingPreviewPreferences(true);
+    setError(null);
+    setMessage(null);
+    try {
+      const response = await fetch('/api/user-preferences', {
+        method: 'PATCH',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ emailAllowRemoteImages }),
+      });
+      const payload = await response.json();
+      if (!response.ok || !payload.success) throw new Error(payload.error || t('errors.savePreviewPreferences'));
+      const nextPreferences = { emailAllowRemoteImages: Boolean(payload.data?.emailAllowRemoteImages) };
+      setPreviewPreferences(nextPreferences);
+      onPreviewPreferencesChanged?.(nextPreferences);
+      setMessage(t('messages.previewPreferencesSaved'));
+    } catch (preferencesError) {
+      setPreviewPreferences(previousPreferences);
+      setError(preferencesError instanceof Error ? preferencesError.message : t('errors.savePreviewPreferences'));
+    } finally {
+      setIsSavingPreviewPreferences(false);
+    }
+  }, [onPreviewPreferencesChanged, previewPreferences, t]);
 
   const loadOAuthEnv = useCallback(async () => {
     setIsOAuthLoading(true);
@@ -1714,6 +1766,13 @@ export function EmailAccountsCard({
     }, 0);
     return () => window.clearTimeout(timeout);
   }, [loadAccounts]);
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      void loadPreviewPreferences();
+    }, 0);
+    return () => window.clearTimeout(timeout);
+  }, [loadPreviewPreferences]);
 
   useEffect(() => {
     const timeout = window.setTimeout(() => {
@@ -2075,6 +2134,23 @@ export function EmailAccountsCard({
         </div>
         {error && <div className="border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</div>}
         {message && <div className="border border-border bg-muted px-3 py-2 text-sm text-muted-foreground">{message}</div>}
+        <div className="flex flex-col gap-3 border border-border bg-muted/30 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0 space-y-1">
+            <Label className="text-sm font-medium" htmlFor="email-preview-remote-images">
+              {t('preview.remoteImagesTitle')}
+            </Label>
+            <p className="text-sm leading-5 text-muted-foreground">{t('preview.remoteImagesDescription')}</p>
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            {(isLoadingPreviewPreferences || isSavingPreviewPreferences) && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
+            <Switch
+              id="email-preview-remote-images"
+              checked={previewPreferences.emailAllowRemoteImages}
+              onCheckedChange={(checked) => void saveRemoteImagesPreference(checked)}
+              disabled={isLoadingPreviewPreferences || isSavingPreviewPreferences}
+            />
+          </div>
+        </div>
         {showAddAccountPanel && (
           <div className={`grid gap-3 ${SHOW_MICROSOFT_EMAIL_OAUTH ? 'xl:grid-cols-3' : 'xl:grid-cols-2'}`}>
             <div className="space-y-3 border border-border p-4">

@@ -1042,6 +1042,7 @@
     "imapMissingDescription": "This account can currently be used for sending and policies. Store IMAP settings to enable inbox, reading, and search.",
     "errors": {
       "loadAccounts": "Could not load email accounts.",
+      "loadPreferences": "Could not load email settings.",
       "loadFolders": "Could not load folders.",
       "loadMessages": "Could not load messages.",
       "loadMessage": "Could not load message.",
@@ -2505,6 +2506,10 @@
         "revoked": "Revoked",
         "disconnected": "Disconnected"
       },
+      "preview": {
+        "remoteImagesTitle": "Load external images automatically",
+        "remoteImagesDescription": "When enabled, the email preview loads remote images and external image resources without an extra click. It stays disabled by default for privacy."
+      },
       "oauth": {
         "googleTitle": "Google OAuth",
         "googleManagedDescription": "Connect Gmail accounts with Canvas Managed Services.",
@@ -2565,6 +2570,7 @@
         "smtpTested": "SMTP connection tested successfully.",
         "accountTested": "SMTP and IMAP connections tested successfully.",
         "accountTestedSmtpOnly": "SMTP connection tested successfully. IMAP is not configured.",
+        "previewPreferencesSaved": "Email preview settings saved.",
         "policySaved": "Email policy saved.",
         "mainEmailSaved": "Main email saved."
       },
@@ -2578,6 +2584,8 @@
         "startOAuth": "Failed to start email OAuth",
         "missingAuthorizationUrl": "Email OAuth did not return an authorization URL.",
         "copyRedirectUri": "Failed to copy redirect URI",
+        "loadPreviewPreferences": "Failed to load email preview settings",
+        "savePreviewPreferences": "Failed to save email preview settings",
         "testSmtp": "Failed to test SMTP connection",
         "testStoredAccount": "Failed to test saved connection",
         "saveSmtp": "Failed to save SMTP account",

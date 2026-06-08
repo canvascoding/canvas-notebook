@@ -1041,6 +1041,7 @@
     "imapMissingDescription": "Dieses Konto kann aktuell für Versand und Richtlinien genutzt werden. Für Inbox, Lesen und Suche muss IMAP in den Kontoeinstellungen gespeichert werden.",
     "errors": {
       "loadAccounts": "E-Mail-Konten konnten nicht geladen werden.",
+      "loadPreferences": "E-Mail-Einstellungen konnten nicht geladen werden.",
       "loadFolders": "Folder konnten nicht geladen werden.",
       "loadMessages": "Nachrichten konnten nicht geladen werden.",
       "loadMessage": "Nachricht konnte nicht geladen werden.",
@@ -2504,6 +2505,10 @@
         "revoked": "Widerrufen",
         "disconnected": "Getrennt"
       },
+      "preview": {
+        "remoteImagesTitle": "Externe Bilder automatisch laden",
+        "remoteImagesDescription": "Wenn aktiviert, lädt die E-Mail-Vorschau Remote-Bilder und externe Bildressourcen ohne zusätzlichen Klick. Aus Datenschutzgründen bleibt das standardmäßig deaktiviert."
+      },
       "oauth": {
         "googleTitle": "Google OAuth",
         "googleManagedDescription": "Gmail-Konten über Canvas Managed Services verbinden.",
@@ -2564,6 +2569,7 @@
         "smtpTested": "SMTP-Verbindung erfolgreich getestet.",
         "accountTested": "SMTP- und IMAP-Verbindung erfolgreich getestet.",
         "accountTestedSmtpOnly": "SMTP-Verbindung erfolgreich getestet. IMAP ist nicht konfiguriert.",
+        "previewPreferencesSaved": "E-Mail-Vorschau-Einstellungen gespeichert.",
         "policySaved": "E-Mail-Richtlinie gespeichert.",
         "mainEmailSaved": "Main Email gespeichert."
       },
@@ -2577,6 +2583,8 @@
         "startOAuth": "E-Mail-OAuth konnte nicht gestartet werden",
         "missingAuthorizationUrl": "E-Mail-OAuth hat keine Autorisierungs-URL zurückgegeben.",
         "copyRedirectUri": "Redirect-URI konnte nicht kopiert werden",
+        "loadPreviewPreferences": "E-Mail-Vorschau-Einstellungen konnten nicht geladen werden",
+        "savePreviewPreferences": "E-Mail-Vorschau-Einstellungen konnten nicht gespeichert werden",
         "testSmtp": "SMTP-Verbindung konnte nicht getestet werden",
         "testStoredAccount": "Gespeicherte Verbindung konnte nicht getestet werden",
         "saveSmtp": "SMTP-Konto konnte nicht gespeichert werden",

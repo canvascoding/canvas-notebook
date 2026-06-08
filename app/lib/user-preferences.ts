@@ -12,6 +12,7 @@ const SUPPORTED_LOCALES = routing.locales as readonly string[];
 export type UserLocale = typeof routing.locales[number];
 
 export type UserPreferences = {
+  emailAllowRemoteImages?: boolean;
   locale?: UserLocale;
 };
 
@@ -44,9 +45,12 @@ export function normalizeUserLocale(value: unknown): UserLocale | null {
 
 function normalizePreferences(value: unknown): UserPreferences {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
-  const record = value as { locale?: unknown };
+  const record = value as { emailAllowRemoteImages?: unknown; locale?: unknown };
   const locale = normalizeUserLocale(record.locale);
-  return locale ? { locale } : {};
+  return {
+    ...(typeof record.emailAllowRemoteImages === 'boolean' ? { emailAllowRemoteImages: record.emailAllowRemoteImages } : {}),
+    ...(locale ? { locale } : {}),
+  };
 }
 
 function parsePreferencesFile(content: string | null): UserPreferencesFile {
@@ -113,6 +117,14 @@ export async function updateUserPreferences(
         throw new Error('Unsupported locale.');
       }
       nextPreferences.locale = locale;
+    }
+  }
+
+  if ('emailAllowRemoteImages' in updates) {
+    if (updates.emailAllowRemoteImages === undefined) {
+      delete nextPreferences.emailAllowRemoteImages;
+    } else {
+      nextPreferences.emailAllowRemoteImages = Boolean(updates.emailAllowRemoteImages);
     }
   }
 
