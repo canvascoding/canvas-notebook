@@ -7,6 +7,7 @@ import { useParams, useSearchParams } from 'next/navigation';
 import { usePathname, useRouter } from '@/i18n/navigation';
 import { routing } from '@/i18n/routing';
 
+import CanvasAgentChat from '@/app/components/canvas-agent-chat/CanvasAgentChat';
 import { PiProviderSetupCard } from '@/app/components/settings/PiProviderSetupCard';
 import { ThemeToggle } from '@/app/components/ThemeToggle';
 import { Button } from '@/components/ui/button';
@@ -17,9 +18,9 @@ import { Switch } from '@/components/ui/switch';
 import { toast } from 'sonner';
 import { CheckCircle2, KeyRound, Languages, Loader2, Mail, RefreshCw, ShieldAlert } from 'lucide-react';
 
-type Step = 'language' | 'license' | 'provider' | 'done';
+type Step = 'language' | 'license' | 'provider' | 'profile' | 'done';
 
-const STEPS: Step[] = ['language', 'license', 'provider', 'done'];
+const STEPS: Step[] = ['language', 'license', 'provider', 'profile', 'done'];
 const ONBOARDING_LICENSE_KEY_STORAGE_KEY = 'canvas.onboarding.licenseKey';
 
 type LicenseStatus = {
@@ -107,27 +108,81 @@ export default function OnboardingWizard({
   initialLicenseKey: string;
 }) {
   const t = useTranslations('onboarding');
+  const params = useParams();
+  const currentLocale = (params.locale as string) || routing.defaultLocale;
   const [step, setStep] = useState<Step>('language');
   const [completeLoading, setCompleteLoading] = useState(false);
+  const [modelTestLoading, setModelTestLoading] = useState(false);
+  const [modelTestError, setModelTestError] = useState<string | null>(null);
+  const [profileSessionId, setProfileSessionId] = useState<string | null>(null);
 
-  async function handleDone() {
-    setCompleteLoading(true);
+  async function openProfileSession() {
+    const response = await fetch('/api/onboarding/profile-session', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ locale: currentLocale }),
+    });
+    const data = (await response.json().catch(() => ({}))) as {
+      success?: boolean;
+      complete?: boolean;
+      sessionId?: string;
+      error?: string;
+    };
+
+    if (!response.ok || !data.success) {
+      throw new Error(data.error || t('profileSessionError'));
+    }
+
+    if (data.complete) {
+      setStep('done');
+      return;
+    }
+
+    if (!data.sessionId) {
+      throw new Error(t('profileSessionError'));
+    }
+
+    setProfileSessionId(data.sessionId);
+    setStep('profile');
+  }
+
+  async function handleProviderSaved() {
+    toast.success(t('providerSaved'));
+    setModelTestLoading(true);
+    setModelTestError(null);
     try {
-      const response = await fetch('/api/onboarding/complete', {
+      const response = await fetch('/api/agents/model-test', {
         method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ agentId: 'canvas-agent' }),
       });
+      const data = (await response.json().catch(() => ({}))) as {
+        success?: boolean;
+        error?: string;
+        code?: string;
+      };
 
-      if (!response.ok) {
-        const data = (await response.json().catch(() => ({}))) as { error?: string };
-        toast.error(data.error || t('completionError'));
+      if (!response.ok || !data.success) {
+        const message = data.error || t('modelTestFailed');
+        setModelTestError(data.code ? `${message} (${data.code})` : message);
+        toast.error(t('modelTestFailed'));
         return;
       }
 
-      const statusResponse = await fetch('/api/license/status', { cache: 'no-store' });
-      const status = await statusResponse.json().catch(() => ({ licensed: false })) as { licensed?: boolean };
-      window.location.href = status.licensed ? '/' : '/settings?tab=license';
-    } catch {
-      toast.error(t('unexpectedError'));
+      await openProfileSession();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : t('unexpectedError');
+      setModelTestError(message);
+      toast.error(message);
+    } finally {
+      setModelTestLoading(false);
+    }
+  }
+
+  function handleDone() {
+    setCompleteLoading(true);
+    try {
+      window.location.href = '/';
     } finally {
       setCompleteLoading(false);
     }
@@ -144,7 +199,7 @@ export default function OnboardingWizard({
         </div>
 
         <div className="flex flex-1 items-start justify-center py-4">
-          <div className={`w-full ${step === 'provider' ? 'max-w-5xl' : 'max-w-lg'}`}>
+          <div className={`w-full ${step === 'provider' || step === 'profile' ? 'max-w-5xl' : 'max-w-lg'}`}>
             <div className="rounded-xl border border-border bg-card p-6 shadow-sm sm:p-8">
               <div className="mb-2 flex items-center justify-center">
                 <Image
@@ -198,18 +253,29 @@ export default function OnboardingWizard({
                     description={t('providerDescription')}
                     saveButtonLabel={t('saveProvider')}
                     saveSuccessMessage={t('saveSuccessMessage')}
-                    onSaved={() => {
-                      toast.success(t('providerSaved'));
-                      setStep('done');
-                    }}
+                    onSaved={handleProviderSaved}
                   />
 
-                  <div className="flex justify-end">
-                    <Button variant="outline" onClick={() => setStep('done')}>
-                      {t('skipSetup')}
-                    </Button>
-                  </div>
+                  {modelTestLoading && (
+                    <div className="flex items-center gap-2 border border-border bg-muted/30 p-3 text-sm text-muted-foreground">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      {t('modelTestChecking')}
+                    </div>
+                  )}
+
+                  {modelTestError && (
+                    <div className="border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
+                      {modelTestError}
+                    </div>
+                  )}
                 </div>
+              )}
+
+              {step === 'profile' && profileSessionId && (
+                <AgentProfileStep
+                  sessionId={profileSessionId}
+                  onComplete={() => setStep('done')}
+                />
               )}
 
               {step === 'done' && (
@@ -227,6 +293,87 @@ export default function OnboardingWizard({
             </div>
           </div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function AgentProfileStep({
+  sessionId,
+  onComplete,
+}: {
+  sessionId: string;
+  onComplete: () => void;
+}) {
+  const t = useTranslations('onboarding');
+  const [skipping, setSkipping] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function checkStatus() {
+      try {
+        const response = await fetch('/api/onboarding/status', { cache: 'no-store' });
+        const data = (await response.json().catch(() => ({}))) as { complete?: boolean };
+        if (!cancelled && data.complete) {
+          toast.success(t('profileCompleteDetected'));
+          onComplete();
+        }
+      } catch {
+        // Polling is best-effort; the user can still continue after a successful skip.
+      }
+    }
+
+    void checkStatus();
+    const timer = window.setInterval(() => void checkStatus(), 2500);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [onComplete, t]);
+
+  async function handleSkip() {
+    setSkipping(true);
+    try {
+      const response = await fetch('/api/onboarding/profile-skip', {
+        method: 'POST',
+      });
+      const data = (await response.json().catch(() => ({}))) as { success?: boolean; error?: string; code?: string };
+      if (!response.ok || !data.success) {
+        throw new Error(data.code ? `${data.error || t('profileSkipError')} (${data.code})` : data.error || t('profileSkipError'));
+      }
+      toast.success(t('profileSkipped'));
+      onComplete();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : t('profileSkipError'));
+    } finally {
+      setSkipping(false);
+    }
+  }
+
+  return (
+    <div className="space-y-5">
+      <div>
+        <h2 className="mb-1 text-xl font-semibold">{t('profileTitle')}</h2>
+        <p className="text-sm text-muted-foreground">
+          {t('profileDescription')}
+        </p>
+      </div>
+
+      <div className="h-[68vh] min-h-[460px] max-h-[720px] overflow-hidden border border-border bg-background">
+        <CanvasAgentChat
+          hideNavHeader
+          forcedSessionId={sessionId}
+          isSurfaceVisible
+          requestContext={{ currentPage: 'onboarding' }}
+        />
+      </div>
+
+      <div className="flex justify-end">
+        <Button variant="outline" onClick={handleSkip} disabled={skipping} className="gap-2">
+          {skipping && <Loader2 className="h-4 w-4 animate-spin" />}
+          {skipping ? t('profileSkipping') : t('profileSkip')}
+        </Button>
       </div>
     </div>
   );

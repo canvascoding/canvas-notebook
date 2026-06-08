@@ -22,6 +22,8 @@ import {
 } from '../pi/enabled-tools';
 import { isBrowserRuntimeAvailable } from '../pi/browser/requirements';
 import type { PiToolMetadata } from '../pi/tool-registry';
+import { readOnboardingBootstrapPrompt } from '../onboarding/profile';
+import { isOnboardingComplete } from '../onboarding/status';
 
 export {
   composeManagedAgentSystemPrompt,
@@ -242,6 +244,33 @@ async function buildSpecializedAgentToolsContext(params: {
   return blocks.join('\n');
 }
 
+async function buildOnboardingBootstrapContext(normalizedAgentId: string): Promise<string> {
+  if (normalizedAgentId !== DEFAULT_MANAGED_AGENT_ID) {
+    return '';
+  }
+
+  try {
+    if (await isOnboardingComplete()) {
+      return '';
+    }
+
+    const bootstrapPrompt = await readOnboardingBootstrapPrompt();
+    if (!bootstrapPrompt) {
+      return '';
+    }
+
+    return [
+      '## Onboarding Bootstrap',
+      '',
+      'The following setup-only instructions apply while the initial Canvas Agent onboarding is incomplete.',
+      '',
+      bootstrapPrompt,
+    ].join('\n');
+  } catch {
+    return '';
+  }
+}
+
 export async function loadManagedAgentSystemPrompt(agentId?: string | null): Promise<ManagedSystemPromptResult> {
   try {
     const normalizedAgentId = agentId?.trim().toLowerCase() || DEFAULT_MANAGED_AGENT_ID;
@@ -262,8 +291,13 @@ export async function loadManagedAgentSystemPrompt(agentId?: string | null): Pro
       inheritedFiles: normalizedAgentId === DEFAULT_MANAGED_AGENT_ID ? [] : CANVAS_INHERITED_FILE_NAMES,
     });
     
-    // Check if composio tools are enabled for the active provider
     let systemPrompt = result.systemPrompt;
+    const onboardingBootstrapContext = await buildOnboardingBootstrapContext(normalizedAgentId);
+    if (onboardingBootstrapContext) {
+      systemPrompt += '\n\n' + onboardingBootstrapContext;
+    }
+
+    // Check if composio tools are enabled for the active provider
     try {
       const effectiveConfig = await resolveAgentRuntimeConfig(normalizedAgentId);
       const enabledTools = effectiveConfig.enabledTools;

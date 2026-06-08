@@ -95,6 +95,11 @@ import { createDelegateTaskTool } from '@/app/lib/pi/delegate-task-tool';
 import { createHumanTodoTool } from '@/app/lib/pi/human-todo-tool';
 import { DEFAULT_AGENT_ID } from '@/app/lib/channels/constants';
 import { normalizeManagedAgentId } from '@/app/lib/agents/registry';
+import {
+  completeOnboardingProfile,
+  isOnboardingProfileToolAvailable,
+  ONBOARDING_PROFILE_TOOL_NAME,
+} from '@/app/lib/onboarding/profile';
 import { createBrowserGatewayTool } from '@/app/lib/pi/browser/tool';
 import { getBrowserRequirementStatus } from '@/app/lib/pi/browser/requirements';
 import { formatWebSearchResults, searchWeb } from '@/app/lib/integrations/brave-search-service';
@@ -2275,7 +2280,7 @@ export const piTools: AgentTool[] = [
   createStudioListPresetsTool(),
 ];
 
-export type PiToolGroup = 'Core' | 'Studio' | 'Automation' | 'Audio' | 'Composio' | 'MCP' | 'Email' | 'Session' | 'Delegation' | 'Memory' | 'Browser' | 'Todo' | 'Web' | 'Security';
+export type PiToolGroup = 'Core' | 'Studio' | 'Automation' | 'Audio' | 'Composio' | 'MCP' | 'Email' | 'Session' | 'Delegation' | 'Memory' | 'Browser' | 'Todo' | 'Web' | 'Security' | 'Onboarding';
 
 export type PiToolMetadata = {
   name: string;
@@ -2536,6 +2541,63 @@ function createMemoryTool(agentId?: string | null): AgentTool {
   };
 }
 
+function createOnboardingProfileTool(userId?: string, agentId?: string | null, sessionId?: string | null): AgentTool {
+  return {
+    name: ONBOARDING_PROFILE_TOOL_NAME,
+    label: 'Completing onboarding profile',
+    description:
+      'Completes the initial Canvas Agent onboarding after collecting the user profile and agent identity information. ' +
+      'Use only when you have enough durable information to write USER.md and SOUL.md. This tool writes those files, removes BOOTSTRAP.md, and marks onboarding complete.',
+    parameters: Type.Object({
+      userMd: Type.String({ description: 'Complete Markdown content for USER.md. Include durable user facts, preferences, context, and goals. Do not include secrets.' }),
+      soulMd: Type.String({ description: 'Complete Markdown content for SOUL.md. Include durable agent identity, communication style, boundaries, and collaboration preferences. Do not include secrets.' }),
+      summary: Type.Optional(Type.String({ description: 'Short one-sentence summary of what was captured.' })),
+    }),
+    execute: async (_toolCallId, params) => {
+      try {
+        const scopedUserId = requireToolUserId(userId, ONBOARDING_PROFILE_TOOL_NAME);
+        const available = await isOnboardingProfileToolAvailable({ agentId, sessionId });
+        if (!available) {
+          throw new Error('This tool is only available during the initial Canvas Agent onboarding profile session.');
+        }
+
+        const input = params as {
+          userMd?: string;
+          soulMd?: string;
+          summary?: string;
+        };
+        if (typeof input.userMd !== 'string') {
+          throw new Error('userMd is required.');
+        }
+        if (typeof input.soulMd !== 'string') {
+          throw new Error('soulMd is required.');
+        }
+
+        const result = await completeOnboardingProfile({
+          userId: scopedUserId,
+          userMd: input.userMd,
+          soulMd: input.soulMd,
+          summary: input.summary,
+        });
+
+        return {
+          content: [{
+            type: 'text',
+            text: `Onboarding profile completed. BOOTSTRAP.md ${result.deletedBootstrap ? 'was removed' : 'was already absent'}.`,
+          }],
+          details: result,
+        };
+      } catch (error: unknown) {
+        const message = getErrorMessage(error);
+        return {
+          content: [{ type: 'text', text: `Error: ${message}` }],
+          details: { error: message },
+        };
+      }
+    },
+  };
+}
+
 function createUserScopedTools(userId?: string, agentId?: string | null, sessionId?: string | null): AgentTool[] {
   const sourceAgentId = normalizeManagedAgentId(agentId);
   const tools: AgentTool[] = [
@@ -2783,6 +2845,7 @@ function createUserScopedTools(userId?: string, agentId?: string | null, session
 }
 
 function getToolGroup(toolName: string): PiToolGroup {
+  if (toolName === ONBOARDING_PROFILE_TOOL_NAME) return 'Onboarding';
   if (toolName === 'mcp' || toolName.startsWith('mcp_')) return 'MCP';
   if (toolName === 'memory') return 'Memory';
   if (toolName === 'browser') return 'Browser';
@@ -2866,6 +2929,10 @@ function getToolNotes(tool: AgentTool, group: PiToolGroup): string[] {
   if (group === 'Security') {
     notes.push('Can expose selected workspace files through public read-only URLs without login.');
     notes.push('Disabled by default. Use only when the user explicitly requests public sharing and never for secrets or folders.');
+  }
+  if (group === 'Onboarding') {
+    notes.push('Only available during the initial Canvas Agent onboarding profile session.');
+    notes.push('Writes USER.md and SOUL.md, removes setup-only BOOTSTRAP.md, and marks onboarding complete.');
   }
   if (['bash', 'terminal', 'rg', 'glob', 'grep', 'ls', 'read', 'list_file_snapshots', 'transcribe_audio'].includes(tool.name)) {
     notes.push('May execute local shell commands or inspect local files.');
@@ -2957,6 +3024,7 @@ export async function getPiToolMetadata(): Promise<PiToolMetadata[]> {
 
 export async function getPiTools(userId?: string, agentId?: string | null, sessionId?: string | null): Promise<AgentTool[]> {
   let allTools = await buildPiToolRegistryAsync(userId, agentId, sessionId);
+  const onboardingProfileToolAvailable = await isOnboardingProfileToolAvailable({ agentId, sessionId }).catch(() => false);
 
   try {
     const effectiveConfig = await resolveAgentRuntimeSettings(agentId);
@@ -2981,12 +3049,20 @@ export async function getPiTools(userId?: string, agentId?: string | null, sessi
         allTools = allTools.filter((tool) => tool.name !== 'browser');
       }
     }
+
+    if (onboardingProfileToolAvailable && !allTools.some((tool) => tool.name === ONBOARDING_PROFILE_TOOL_NAME)) {
+      allTools.push(createOnboardingProfileTool(userId, agentId, sessionId));
+    }
   } catch (error) {
     console.error('[ToolRegistry] Error reading config for tool filtering, returning default tools:', error);
     // Fallback: exclude disabled-by-default tools even on error
     const allToolNames = allTools.map((t) => t.name);
     const defaultEnabledSet = getDefaultEnabledToolNames(allToolNames);
     allTools = allTools.filter((t) => defaultEnabledSet.has(t.name));
+
+    if (onboardingProfileToolAvailable && !allTools.some((tool) => tool.name === ONBOARDING_PROFILE_TOOL_NAME)) {
+      allTools.push(createOnboardingProfileTool(userId, agentId, sessionId));
+    }
   }
 
   return allTools;

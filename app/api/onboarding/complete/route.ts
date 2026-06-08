@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { auth } from '@/app/lib/auth';
 import { getLicenseStatus } from '@/app/lib/license';
-import { isOnboardingEnabled, isOnboardingComplete, markOnboardingComplete } from '@/app/lib/onboarding/status';
+import { isOnboardingEnabled, isOnboardingComplete } from '@/app/lib/onboarding/status';
 
 export async function POST(request: NextRequest) {
   if (!isOnboardingEnabled()) {
@@ -26,11 +26,8 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  await markOnboardingComplete({
-    completedBy: session.user.id,
-    method: 'ui',
-    notes: session.user.email,
-  });
-
-  return NextResponse.json({ success: true });
+  return NextResponse.json(
+    { success: false, error: 'Agent profile onboarding required', code: 'PROFILE_REQUIRED' },
+    { status: 409 },
+  );
 }
