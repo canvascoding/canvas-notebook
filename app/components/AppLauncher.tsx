@@ -17,6 +17,7 @@ import {
   MoreHorizontal,
   ExternalLink,
   ArrowRight,
+  Inbox,
   ShieldCheck,
 } from 'lucide-react';
 import {
@@ -43,6 +44,7 @@ interface AppItem {
 const APPS: AppItem[] = [
   { id: 'notebook', href: '/notebook', icon: NotebookPen, hasQuickActions: false },
   { id: 'todos', href: '/todos', icon: ListTodo, hasQuickActions: false },
+  { id: 'emails', href: '/emails', icon: Inbox, hasQuickActions: false },
   { id: 'studio', href: '/studio', icon: Sparkles, hasQuickActions: true },
   { id: 'files', href: '/files', icon: FolderOpen, hasQuickActions: false },
   { id: 'chat', href: '/chat', icon: MessageSquare, hasQuickActions: false },
