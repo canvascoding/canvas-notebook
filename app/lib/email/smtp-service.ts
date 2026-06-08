@@ -287,21 +287,11 @@ export async function updateSmtpEmailDraft(userId: string, draftId: string, inpu
   return { account: await publicStoredEmailAccount(account, await readStoredEmailAccountSecret(account)), draft: publicEmailDraft(draft) };
 }
 
-export async function sendSmtpEmailDraft(userId: string, accountId: string, draftId: string) {
-  const account = await getEmailAccountForUser(userId, accountId);
-  const secret = await readStoredEmailAccountSecret(account);
-  if (secret.authType !== 'smtp_imap') throw new Error('Email account is not an SMTP account.');
-  const draft = await getStoredEmailDraft(userId, draftId);
-  if (!draft || draft.accountId !== accountId || draft.status !== 'draft') throw new Error('Email draft not found.');
-  const input = draftInputFromStored(draft);
-  const policy = policyForAccount(account.policyJson);
-  const recipients = [...input.to, ...(input.cc || []), ...(input.bcc || [])];
-  assertEmailRecipientsAllowed(recipients, policy.sendTo);
-
+async function sendSmtpMessage(secret: EmailAccountSmtpSecret, from: { name?: string | null; address: string }, input: LocalEmailDraftInput) {
   const transporter = smtpTransportFactory(smtpTransportOptions(secret));
   try {
-    await transporter.sendMail({
-      from: account.displayName ? { name: account.displayName, address: account.emailAddress } : account.emailAddress,
+    return await transporter.sendMail({
+      from: from.name ? { name: from.name, address: from.address } : from.address,
       to: input.to,
       cc: input.cc,
       bcc: input.bcc,
@@ -313,6 +303,36 @@ export async function sendSmtpEmailDraft(userId: string, accountId: string, draf
   } finally {
     transporter.close();
   }
+}
+
+export async function sendSmtpEmail(userId: string, input: LocalEmailDraftInput) {
+  const account = await getEmailAccountForUser(userId, input.accountId);
+  const secret = await readStoredEmailAccountSecret(account);
+  if (secret.authType !== 'smtp_imap') throw new Error('Email account is not an SMTP account.');
+  const policy = policyForAccount(account.policyJson);
+  const recipients = [...input.to, ...(input.cc || []), ...(input.bcc || [])];
+  assertEmailRecipientsAllowed(recipients, policy.sendTo);
+
+  const result = await sendSmtpMessage(secret, { name: account.displayName, address: account.emailAddress }, input);
+  return {
+    account: publicStoredEmailAccount(account, secret),
+    sent: true,
+    messageId: typeof result.messageId === 'string' ? result.messageId : null,
+  };
+}
+
+export async function sendSmtpEmailDraft(userId: string, accountId: string, draftId: string) {
+  const account = await getEmailAccountForUser(userId, accountId);
+  const secret = await readStoredEmailAccountSecret(account);
+  if (secret.authType !== 'smtp_imap') throw new Error('Email account is not an SMTP account.');
+  const draft = await getStoredEmailDraft(userId, draftId);
+  if (!draft || draft.accountId !== accountId || draft.status !== 'draft') throw new Error('Email draft not found.');
+  const input = draftInputFromStored(draft);
+  const policy = policyForAccount(account.policyJson);
+  const recipients = [...input.to, ...(input.cc || []), ...(input.bcc || [])];
+  assertEmailRecipientsAllowed(recipients, policy.sendTo);
+
+  await sendSmtpMessage(secret, { name: account.displayName, address: account.emailAddress }, input);
 
   const sentDraft = await markStoredEmailDraftSent(userId, draftId);
   return {

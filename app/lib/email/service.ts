@@ -15,7 +15,9 @@ import {
   moveLocalEmailMessage,
   readLocalEmailMessage,
   searchLocalEmail,
+  sendLocalEmailDerivedMessage,
   sendLocalEmailDraft,
+  sendLocalEmailMessage,
   setLocalEmailMessageAnswered,
   setLocalEmailMessageRead,
   setPrimaryLocalEmailAccount,
@@ -180,6 +182,17 @@ export async function createEmailDerivedDraft(
   return createLocalEmailDerivedDraft(userId, accountId, messageId, folder, mode, overrides);
 }
 
+export async function sendEmailDerivedMessage(
+  userId: string,
+  accountId: string,
+  messageId: string,
+  folder: string | undefined,
+  mode: EmailDerivedDraftMode,
+  overrides?: EmailDerivedDraftOverrides,
+) {
+  return sendLocalEmailDerivedMessage(userId, accountId, messageId, folder, mode, overrides);
+}
+
 export async function generateEmailAiReplyBody(userId: string, accountId: string, messageId: string, folder?: string) {
   return generateLocalEmailAiReplyBody(userId, accountId, messageId, folder);
 }
@@ -194,6 +207,10 @@ export async function createEmailDraft(userId: string, input: EmailDraftInput) {
 
 export async function updateEmailDraft(userId: string, draftId: string, input: EmailDraftInput) {
   return updateLocalEmailDraft(userId, draftId, input);
+}
+
+export async function sendEmailMessage(userId: string, input: EmailDraftInput) {
+  return sendLocalEmailMessage(userId, input);
 }
 
 export async function sendEmailDraft(userId: string, accountId: string, draftId: string) {

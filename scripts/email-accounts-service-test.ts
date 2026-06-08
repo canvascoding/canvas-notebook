@@ -75,7 +75,7 @@ async function main() {
   await fs.mkdir(secretsDir, { recursive: true });
   await fs.writeFile(integrationsEnvPath, '', 'utf8');
 
-  const { createEmailDraft, disconnectEmailAccount, getEmailOAuthStatus, listEmailAccounts, listEmailFolders, listEmailMessages, readEmailMessage, saveEmailSmtpAccount, searchEmail, sendEmailDraft, setEmailMainAccount, startEmailOAuth, testEmailAccount, testEmailSmtpConnection } = await import('../app/lib/email/service');
+  const { createEmailDraft, disconnectEmailAccount, getEmailOAuthStatus, listEmailAccounts, listEmailFolders, listEmailMessages, readEmailMessage, saveEmailSmtpAccount, searchEmail, sendEmailDraft, sendEmailMessage, setEmailMainAccount, startEmailOAuth, testEmailAccount, testEmailSmtpConnection } = await import('../app/lib/email/service');
   const { upsertOAuthEmailAccount } = await import('../app/lib/email/account-store');
   const { setSmtpTransportFactoryForTests } = await import('../app/lib/email/smtp-service');
   const { setImapClientFactoryForTests } = await import('../app/lib/email/imap-service');
@@ -133,6 +133,7 @@ async function main() {
   assert.match(oauthStart.authorizationUrl, /^https:\/\/accounts\.google\.com\/o\/oauth2\/v2\/auth/u);
   const oauthStartUrl = new URL(oauthStart.authorizationUrl);
   assert.equal(oauthStartUrl.searchParams.get('redirect_uri'), 'https://canvas.example.com/api/email/oauth/callback');
+  assert.ok((oauthStartUrl.searchParams.get('scope') || '').split(' ').includes('https://www.googleapis.com/auth/gmail.send'));
   const oauthStatus = await getEmailOAuthStatus({ requestOrigin: 'https://canvas.example.com' });
   assert.equal(oauthStatus.redirectUri, 'https://canvas.example.com/api/email/oauth/callback');
   assert.equal(oauthStatus.providers.google.configured, true);
@@ -142,6 +143,11 @@ async function main() {
   const storedState = JSON.parse(await fs.readFile(path.join(stateDir, stateFiles[0]), 'utf8')) as { userId?: string; redirectUri?: string };
   assert.equal(storedState.userId, 'owner-user');
   assert.equal(storedState.redirectUri, 'https://canvas.example.com/api/email/oauth/callback');
+
+  await fs.writeFile(integrationsEnvPath, 'GOOGLE_OAUTH_CLIENT_ID=local-client\nGOOGLE_OAUTH_CLIENT_SECRET=local-secret\nMICROSOFT_OAUTH_CLIENT_ID=ms-client\nMICROSOFT_OAUTH_CLIENT_SECRET=ms-secret\n', 'utf8');
+  const microsoftOAuthStart = await startEmailOAuth('owner-user', { provider: 'microsoft', requestOrigin: 'https://canvas.example.com' });
+  const microsoftOAuthStartUrl = new URL(microsoftOAuthStart.authorizationUrl);
+  assert.ok((microsoftOAuthStartUrl.searchParams.get('scope') || '').split(' ').includes('Mail.Send'));
 
   process.env.EMAIL_OAUTH_BASE_URL = 'https://oauth.example.com/custom/path';
   const overriddenOAuthStart = await startEmailOAuth('owner-user', { provider: 'google', requestOrigin: 'https://canvas.example.com' });
@@ -209,10 +215,26 @@ async function main() {
   assert.equal(sentMessages.length, 1);
   assert.deepEqual((sentMessages[0] as { to?: string[] }).to, ['recipient@example.test']);
   assert.equal((sentMessages[0] as { html?: string }).html, '<p>Hello</p>');
+  const directSendResult = await sendEmailMessage('owner-user', {
+    accountId: smtpAccount.id,
+    to: ['direct@example.test'],
+    subject: 'SMTP direct',
+    body: 'Direct send body',
+  });
+  assert.equal((directSendResult as { sent?: boolean }).sent, true);
+  assert.equal(sentMessages.length, 2);
+  assert.deepEqual((sentMessages[1] as { to?: string[] }).to, ['direct@example.test']);
+  assert.equal((sentMessages[1] as { text?: string }).text, 'Direct send body');
   await assert.rejects(() => createEmailDraft('owner-user', {
     accountId: smtpAccount.id,
     to: ['blocked@outside.test'],
     subject: 'Blocked',
+    body: 'Blocked',
+  }), /not allowed/i);
+  await assert.rejects(() => sendEmailMessage('owner-user', {
+    accountId: smtpAccount.id,
+    to: ['blocked@outside.test'],
+    subject: 'Blocked direct',
     body: 'Blocked',
   }), /not allowed/i);
 
