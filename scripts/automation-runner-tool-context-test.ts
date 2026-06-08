@@ -20,6 +20,7 @@ const toolCalls: Array<{
   sessionId: string | null | undefined;
 }> = [];
 let agentLoopToolNames: string[] = [];
+let agentLoopMode: 'success' | 'empty-error' = 'success';
 
 const testModel = {
   id: 'test-model',
@@ -48,8 +49,42 @@ moduleInternals._load = (request, parent, isMain) => {
 
   if (request === '@earendil-works/pi-agent-core') {
     return {
-      agentLoop: async function* agentLoopStub(_messages: unknown[], context: { tools?: Array<{ name: string }> }) {
+      agentLoop: async function* agentLoopStub(messages: unknown[], context: { tools?: Array<{ name: string }> }) {
         agentLoopToolNames = context.tools?.map((tool) => tool.name) ?? [];
+        if (agentLoopMode === 'empty-error') {
+          yield {
+            type: 'agent_end',
+            messages: [
+              ...messages,
+              ...messages,
+              {
+                role: 'assistant',
+                content: [],
+                api: testModel.api,
+                provider: testModel.provider,
+                model: testModel.id,
+                usage: {
+                  input: 0,
+                  output: 0,
+                  cacheRead: 0,
+                  cacheWrite: 0,
+                  totalTokens: 0,
+                  cost: {
+                    input: 0,
+                    output: 0,
+                    cacheRead: 0,
+                    cacheWrite: 0,
+                    total: 0,
+                  },
+                },
+                stopReason: 'error',
+                errorMessage: 'empty model failure',
+                timestamp: Date.now(),
+              },
+            ],
+          };
+          return;
+        }
         yield {
           type: 'agent_end',
           messages: [
@@ -145,8 +180,8 @@ async function main() {
   const now = new Date();
 
   const { db } = await import('../app/lib/db');
-  const { user, piSessions } = await import('../app/lib/db/schema');
-  const { eq } = await import('drizzle-orm');
+  const { user, piSessions, piMessages } = await import('../app/lib/db/schema');
+  const { asc, eq } = await import('drizzle-orm');
   const { createAutomationJob, getAutomationRun, scheduleAutomationJobRun } = await import('../app/lib/automations/store');
   const { executeAutomationRun } = await import('../app/lib/automations/runner');
 
@@ -192,6 +227,44 @@ async function main() {
   });
   assert.equal(session?.userId, userId);
   assert.equal(session?.agentId, agentId);
+
+  agentLoopMode = 'empty-error';
+  const failingJob = await createAutomationJob(
+    {
+      name: 'Failing Automation',
+      prompt: 'Trigger an empty assistant error.',
+      preferredSkill: 'auto',
+      workspaceContextPaths: [],
+      targetOutputPath: null,
+      agentId,
+      deliveryMode: 'web',
+      deliverySessionMode: 'new_session',
+      schedule: { kind: 'interval', every: 1, unit: 'hours', timeZone: 'UTC' },
+    },
+    userId,
+  );
+  const failingRun = await scheduleAutomationJobRun(failingJob.id, 'manual', now);
+  assert.ok(failingRun);
+
+  await executeAutomationRun(failingRun.id);
+
+  const retriedRun = await getAutomationRun(failingRun.id);
+  assert.equal(retriedRun?.status, 'retry_scheduled');
+  assert.equal(retriedRun?.errorMessage, 'empty model failure');
+
+  const failingSessionId = `auto-${failingRun.id.replace(/^run-/, '')}`;
+  const failingSession = await db.query.piSessions.findFirst({
+    where: eq(piSessions.sessionId, failingSessionId),
+    columns: { id: true },
+  });
+  assert.ok(failingSession);
+
+  const persistedMessages = await db.query.piMessages.findMany({
+    where: eq(piMessages.piSessionDbId, failingSession.id),
+    orderBy: [asc(piMessages.sequence)],
+  });
+  assert.equal(persistedMessages.filter((message) => message.role === 'user').length, 1);
+  assert.ok(persistedMessages.some((message) => message.content.includes('Automation failed: empty model failure')));
 
   console.log('automation-runner-tool-context-test: ok');
 }

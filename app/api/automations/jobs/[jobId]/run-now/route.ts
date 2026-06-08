@@ -25,6 +25,9 @@ export async function POST(request: NextRequest, context: RouteContext) {
     if (!job) {
       return NextResponse.json({ success: false, error: 'Automation not found.' }, { status: 404 });
     }
+    if (job.createdByUserId !== session.user.id) {
+      return NextResponse.json({ success: false, error: 'Automation not found.' }, { status: 404 });
+    }
 
     const run = await scheduleAutomationJobRun(jobId, 'manual', new Date());
     if (!run) {
