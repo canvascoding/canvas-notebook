@@ -75,7 +75,7 @@ async function main() {
   await fs.mkdir(secretsDir, { recursive: true });
   await fs.writeFile(integrationsEnvPath, '', 'utf8');
 
-  const { createEmailDraft, disconnectEmailAccount, getEmailOAuthStatus, listEmailAccounts, readEmailMessage, saveEmailSmtpAccount, searchEmail, sendEmailDraft, setEmailMainAccount, startEmailOAuth } = await import('../app/lib/email/service');
+  const { createEmailDraft, disconnectEmailAccount, getEmailOAuthStatus, listEmailAccounts, listEmailFolders, listEmailMessages, readEmailMessage, saveEmailSmtpAccount, searchEmail, sendEmailDraft, setEmailMainAccount, startEmailOAuth } = await import('../app/lib/email/service');
   const { upsertOAuthEmailAccount } = await import('../app/lib/email/account-store');
   const { setSmtpTransportFactoryForTests } = await import('../app/lib/email/smtp-service');
   const { setImapClientFactoryForTests } = await import('../app/lib/email/imap-service');
@@ -219,6 +219,7 @@ async function main() {
   let imapConnectCalls = 0;
   let imapLogoutCalls = 0;
   let imapReleaseCalls = 0;
+  const lockedFolders: string[] = [];
   const allowedRaw = Buffer.from([
     'From: Allowed Sender <allowed@example.test>',
     'To: smtp-owner@example.test',
@@ -269,11 +270,33 @@ async function main() {
       imapLogoutCalls += 1;
     },
     close: () => undefined,
-    getMailboxLock: async () => ({
-      release: () => {
-        imapReleaseCalls += 1;
+    list: async () => [
+      {
+        path: 'INBOX',
+        name: 'INBOX',
+        flags: new Set(),
+        listed: true,
+        subscribed: false,
+        status: { path: 'INBOX', messages: 2, unseen: 1 },
       },
-    }),
+      {
+        path: 'Sent',
+        name: 'Sent',
+        flags: new Set(['\\Sent']),
+        specialUse: '\\Sent',
+        listed: true,
+        subscribed: false,
+        status: { path: 'Sent', messages: 1, unseen: 0 },
+      },
+    ] as never,
+    getMailboxLock: async (folder: string | string[]) => {
+      lockedFolders.push(Array.isArray(folder) ? folder.join('/') : folder);
+      return {
+        release: () => {
+          imapReleaseCalls += 1;
+        },
+      };
+    },
     search: async () => [1001, 1002],
     fetch: async function* (range: number[]) {
       for (const uid of range) {
@@ -328,10 +351,26 @@ async function main() {
   assert.match(searchMessages[0].from, /allowed@example\.test/u);
   assert.match(searchMessages[0].snippet, /Allowed body text/u);
   assert.equal(imapReleaseCalls, 1);
+  assert.equal(lockedFolders.at(-1), 'INBOX');
+
+  const foldersResult = await listEmailFolders('owner-user', smtpImapAccount.id);
+  const folders = (foldersResult as { folders?: Array<{ path: string; role: string; unseenCount: number | null }> }).folders || [];
+  assert.deepEqual(folders.map((folder) => folder.path), ['INBOX', 'Sent']);
+  assert.equal(folders[0].role, 'inbox');
+  assert.equal(folders[0].unseenCount, 1);
+
+  const sentListResult = await listEmailMessages('owner-user', { accountId: smtpImapAccount.id, folder: 'Sent', limit: 5 });
+  assert.equal((sentListResult as { folder?: string }).folder, 'Sent');
+  assert.equal(lockedFolders.at(-1), 'Sent');
+  const sentFolderMessages = (sentListResult as { messages?: Array<{ id: string; folder: string }> }).messages || [];
+  assert.equal(sentFolderMessages.length, 1);
+  assert.equal(sentFolderMessages[0].folder, 'Sent');
 
   const readResult = await readEmailMessage('owner-user', smtpImapAccount.id, '1002');
   const readBody = (readResult as { message?: { body?: string } }).message?.body || '';
   assert.match(readBody, /Allowed body text from IMAP/u);
+  const sentReadResult = await readEmailMessage('owner-user', smtpImapAccount.id, '1002', 'Sent');
+  assert.equal((sentReadResult as { message?: { folder?: string } }).message?.folder, 'Sent');
   await assert.rejects(() => readEmailMessage('owner-user', smtpImapAccount.id, '1001'), /sender is not allowed/i);
 
   setImapClientFactoryForTests(null);

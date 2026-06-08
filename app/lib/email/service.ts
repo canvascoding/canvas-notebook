@@ -4,7 +4,9 @@ import {
   createLocalEmailDraft,
   disconnectLocalEmailAccount,
   getLocalEmailOAuthStatus,
+  listLocalEmailFolders,
   listLocalEmailAccounts,
+  listLocalEmailMessages,
   readLocalEmailMessage,
   searchLocalEmail,
   sendLocalEmailDraft,
@@ -21,6 +23,12 @@ type EmailSearchInput = {
   accountId?: string;
   query?: string;
   limit?: number;
+};
+
+type EmailMessageListInput = EmailSearchInput & {
+  folder?: string;
+  filter?: string;
+  offset?: number;
 };
 
 type EmailAccountsResponse = {
@@ -69,6 +77,10 @@ export async function listEmailAccounts(userId: string) {
   return emailAccountsResponse({ accounts: localAccounts }, 'local');
 }
 
+export async function listEmailFolders(userId: string, accountId?: string) {
+  return listLocalEmailFolders(userId, accountId);
+}
+
 export async function updateEmailPolicy(userId: string, accountId: string, policy: Partial<EmailPolicy>) {
   return updateLocalEmailPolicy(userId, accountId, policy);
 }
@@ -93,8 +105,12 @@ export async function searchEmail(userId: string, input: EmailSearchInput) {
   return searchLocalEmail(userId, input);
 }
 
-export async function readEmailMessage(userId: string, accountId: string, messageId: string) {
-  return readLocalEmailMessage(userId, accountId, messageId);
+export async function listEmailMessages(userId: string, input: EmailMessageListInput) {
+  return listLocalEmailMessages(userId, input);
+}
+
+export async function readEmailMessage(userId: string, accountId: string, messageId: string, folder?: string) {
+  return readLocalEmailMessage(userId, accountId, messageId, folder);
 }
 
 export async function createEmailDraft(userId: string, input: EmailDraftInput) {

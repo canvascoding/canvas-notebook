@@ -6,6 +6,7 @@ import type {
   FetchOptions,
   FetchQueryObject,
   ImapFlowOptions,
+  ListResponse,
   MessageAddressObject,
   MessageEnvelopeObject,
   SearchObject,
@@ -32,6 +33,7 @@ type ImapClientLike = {
   connect(): Promise<void>;
   logout(): Promise<void>;
   close(): void;
+  list(options?: { statusQuery?: { messages?: boolean; unseen?: boolean } }): Promise<ListResponse[]>;
   getMailboxLock(path: string | string[]): Promise<ImapLock>;
   search(query: SearchObject, options?: { uid?: boolean }): Promise<number[] | false>;
   fetch(range: SequenceString | number[] | SearchObject, query: FetchQueryObject, options?: FetchOptions): AsyncIterable<FetchMessageObject>;
@@ -40,9 +42,28 @@ type ImapClientLike = {
 
 type ImapClientFactory = (secret: EmailAccountSmtpSecret) => ImapClientLike;
 
-type ImapEmailSearchInput = {
+export type EmailFolderRole = 'inbox' | 'sent' | 'drafts' | 'trash' | 'junk' | 'archive' | 'custom';
+
+export type EmailFolder = {
+  id: string;
+  name: string;
+  path: string;
+  role: EmailFolderRole;
+  selectable: boolean;
+  messageCount: number | null;
+  unseenCount: number | null;
+};
+
+type ImapMessageFilter = 'all' | 'unread' | 'answered' | 'unanswered' | 'flagged' | 'attachments';
+
+type ImapEmailListInput = {
   query?: string;
+  folder?: string;
+  filter?: string;
   limit?: number;
+  offset?: number;
+  from?: string;
+  hasAttachments?: boolean;
 };
 
 const SEARCH_QUERY_MAX_LENGTH = 250;
@@ -92,16 +113,38 @@ async function closeImapClient(client: ImapClientLike): Promise<void> {
   }
 }
 
-async function withImapInbox<T>(secret: EmailAccountSmtpSecret, callback: (client: ImapClientLike) => Promise<T>): Promise<T> {
+async function withImapClient<T>(secret: EmailAccountSmtpSecret, callback: (client: ImapClientLike) => Promise<T>): Promise<T> {
+  requireImapSecret(secret);
+  const client = imapClientFactory(secret);
+  let connected = false;
+  try {
+    await client.connect();
+    connected = true;
+    return await callback(client);
+  } finally {
+    if (connected) {
+      await closeImapClient(client);
+    } else {
+      client.close();
+    }
+  }
+}
+
+async function withImapMailbox<T>(
+  secret: EmailAccountSmtpSecret,
+  folder: string | undefined,
+  callback: (client: ImapClientLike, folder: string) => Promise<T>,
+): Promise<T> {
   requireImapSecret(secret);
   const client = imapClientFactory(secret);
   let connected = false;
   let lock: ImapLock | null = null;
+  const folderPath = normalizeFolderPath(folder);
   try {
     await client.connect();
     connected = true;
-    lock = await client.getMailboxLock('INBOX');
-    return await callback(client);
+    lock = await client.getMailboxLock(folderPath);
+    return await callback(client, folderPath);
   } finally {
     try {
       lock?.release();
@@ -147,13 +190,17 @@ function normalizeSearchQuery(query: string | undefined): string {
   return (query || '').trim().replace(/\s+/gu, ' ').slice(0, SEARCH_QUERY_MAX_LENGTH);
 }
 
-function searchObjectForQuery(query: string): SearchObject {
-  if (!query) return { all: true };
-  return { text: query };
+function normalizeLimit(limit: number | undefined): number {
+  return Math.min(Math.max(Number.isFinite(limit) ? Number(limit) : 10, 1), 50);
 }
 
-function normalizeLimit(limit: number | undefined): number {
-  return Math.min(Math.max(Number.isFinite(limit) ? Number(limit) : 10, 1), 25);
+function normalizeOffset(offset: number | undefined): number {
+  return Math.min(Math.max(Number.isFinite(offset) ? Number(offset) : 0, 0), 10_000);
+}
+
+function normalizeFolderPath(folder: string | undefined): string {
+  const normalized = (folder || 'INBOX').trim().replace(/[\u0000\r\n]/gu, '').slice(0, 240);
+  return normalized || 'INBOX';
 }
 
 function parseUid(messageId: string): number {
@@ -188,6 +235,110 @@ function snippetFromText(value: string | undefined): string {
   return (value || '').replace(/\s+/gu, ' ').trim().slice(0, 240);
 }
 
+function filterForInput(input: ImapEmailListInput): ImapMessageFilter {
+  const value = String(input.filter || '').trim().toLowerCase();
+  if (value === 'unread' || value === 'answered' || value === 'unanswered' || value === 'flagged' || value === 'attachments') {
+    return value;
+  }
+  return input.hasAttachments ? 'attachments' : 'all';
+}
+
+function searchObjectForInput(input: ImapEmailListInput): SearchObject {
+  const query = normalizeSearchQuery(input.query);
+  const filter = filterForInput(input);
+  const search: SearchObject = query ? { text: query } : {};
+
+  if (filter === 'unread') search.seen = false;
+  if (filter === 'answered') search.answered = true;
+  if (filter === 'unanswered') search.answered = false;
+  if (filter === 'flagged') search.flagged = true;
+
+  const from = input.from?.trim();
+  if (from) search.from = from.slice(0, SEARCH_QUERY_MAX_LENGTH);
+
+  if (Object.keys(search).length === 0 || filter === 'attachments') search.all = true;
+  return search;
+}
+
+function hasAttachmentBodyStructure(value: unknown): boolean {
+  if (!value || typeof value !== 'object') return false;
+  const node = value as {
+    disposition?: string;
+    dispositionParameters?: Record<string, unknown>;
+    parameters?: Record<string, unknown>;
+    childNodes?: unknown[];
+  };
+  if (String(node.disposition || '').toLowerCase() === 'attachment') return true;
+  if (typeof node.dispositionParameters?.filename === 'string' || typeof node.parameters?.name === 'string') return true;
+  return Array.isArray(node.childNodes) && node.childNodes.some(hasAttachmentBodyStructure);
+}
+
+function publicFlags(flags: unknown): string[] {
+  if (flags instanceof Set) return Array.from(flags).map(String);
+  if (Array.isArray(flags)) return flags.map(String);
+  return [];
+}
+
+function hasFlag(flags: string[], flag: string): boolean {
+  return flags.some((item) => item.toLowerCase() === flag.toLowerCase());
+}
+
+function folderRole(path: string, specialUse?: string): EmailFolderRole {
+  const normalizedSpecialUse = String(specialUse || '').toLowerCase();
+  if (normalizedSpecialUse.includes('inbox')) return 'inbox';
+  if (normalizedSpecialUse.includes('sent')) return 'sent';
+  if (normalizedSpecialUse.includes('draft')) return 'drafts';
+  if (normalizedSpecialUse.includes('trash')) return 'trash';
+  if (normalizedSpecialUse.includes('junk')) return 'junk';
+  if (normalizedSpecialUse.includes('archive') || normalizedSpecialUse.includes('all')) return 'archive';
+
+  const lowerPath = path.toLowerCase();
+  if (lowerPath === 'inbox') return 'inbox';
+  if (lowerPath.includes('sent')) return 'sent';
+  if (lowerPath.includes('draft')) return 'drafts';
+  if (lowerPath.includes('trash') || lowerPath.includes('bin') || lowerPath.includes('deleted')) return 'trash';
+  if (lowerPath.includes('spam') || lowerPath.includes('junk')) return 'junk';
+  if (lowerPath.includes('archive') || lowerPath.includes('all mail')) return 'archive';
+  return 'custom';
+}
+
+function folderDisplayName(path: string, fallbackName?: string): string {
+  if (fallbackName?.trim()) return fallbackName.trim();
+  const parts = path.split(/[/.]/u).map((item) => item.trim()).filter(Boolean);
+  return parts.at(-1) || path;
+}
+
+function normalizeFolder(folder: ListResponse): EmailFolder {
+  const path = folder.path || folder.name || 'INBOX';
+  const flags = folder.flags instanceof Set ? Array.from(folder.flags).map(String) : [];
+  return {
+    id: path,
+    path,
+    name: folderDisplayName(path, folder.name),
+    role: folderRole(path, folder.specialUse),
+    selectable: !flags.some((flag) => flag.toLowerCase() === '\\noselect'),
+    messageCount: typeof folder.status?.messages === 'number' ? folder.status.messages : null,
+    unseenCount: typeof folder.status?.unseen === 'number' ? folder.status.unseen : null,
+  };
+}
+
+function sortFolders(folders: EmailFolder[]): EmailFolder[] {
+  const weight: Record<EmailFolderRole, number> = {
+    inbox: 0,
+    sent: 1,
+    drafts: 2,
+    archive: 3,
+    junk: 4,
+    trash: 5,
+    custom: 6,
+  };
+  return folders.toSorted((left, right) => {
+    const roleDelta = weight[left.role] - weight[right.role];
+    if (roleDelta !== 0) return roleDelta;
+    return left.name.localeCompare(right.name);
+  });
+}
+
 async function snippetFromSource(source: Buffer | undefined): Promise<string> {
   if (!source?.length) return '';
   try {
@@ -207,24 +358,67 @@ function publicImapAccount(account: StoredEmailAccount, secret: EmailAccountSmtp
   return publicStoredEmailAccount(account, secret);
 }
 
-export async function searchImapEmail(account: StoredEmailAccount, input: ImapEmailSearchInput) {
+export async function listImapEmailFolders(account: StoredEmailAccount) {
+  const secret = await readStoredEmailAccountSecret(account);
+  if (secret.authType !== 'smtp_imap') throw new Error('Email account is not an SMTP/IMAP account.');
+  requireImapSecret(secret);
+
+  const folders = await withImapClient(secret, async (client) => {
+    const listed = await client.list({ statusQuery: { messages: true, unseen: true } });
+    const normalized = listed.map(normalizeFolder).filter((folder) => folder.selectable);
+    if (!normalized.some((folder) => folder.path.toLowerCase() === 'inbox')) {
+      normalized.unshift({
+        id: 'INBOX',
+        name: 'Inbox',
+        path: 'INBOX',
+        role: 'inbox',
+        selectable: true,
+        messageCount: null,
+        unseenCount: null,
+      });
+    }
+    return sortFolders(normalized);
+  });
+
+  return {
+    account: publicImapAccount(account, secret),
+    folders,
+  };
+}
+
+export async function listImapEmailMessages(account: StoredEmailAccount, input: ImapEmailListInput) {
   const secret = await readStoredEmailAccountSecret(account);
   if (secret.authType !== 'smtp_imap') throw new Error('Email account is not an SMTP/IMAP account.');
   requireImapSecret(secret);
   const query = normalizeSearchQuery(input.query);
   const limit = normalizeLimit(input.limit);
+  const offset = normalizeOffset(input.offset);
+  const filter = filterForInput(input);
   const policy = policyForAccount(account);
 
-  const messages = await withImapInbox(secret, async (client) => {
-    const found = await client.search(searchObjectForQuery(query), { uid: true });
-    const uids = (found || []).slice(-limit).reverse();
-    if (uids.length === 0) return [];
+  const result = await withImapMailbox(secret, input.folder, async (client, folder) => {
+    const found = await client.search(query ? searchObjectForInput({ ...input, query }) : searchObjectForInput(input), { uid: true });
+    const ordered = (found || []).slice().reverse();
+    const candidateLimit = filter === 'attachments' ? Math.max(limit * 8, 200) : limit;
+    const uids = ordered.slice(offset, offset + candidateLimit);
+    if (uids.length === 0) {
+      return {
+        folder,
+        messages: [],
+        total: ordered.length,
+        offset,
+        limit,
+      };
+    }
 
     const loaded: FetchMessageObject[] = [];
     for await (const message of client.fetch(uids, {
       uid: true,
+      flags: true,
       envelope: true,
       internalDate: true,
+      size: true,
+      bodyStructure: true,
       source: { maxLength: SEARCH_SOURCE_MAX_BYTES },
       threadId: true,
     }, { uid: true })) {
@@ -238,36 +432,69 @@ export async function searchImapEmail(account: StoredEmailAccount, input: ImapEm
     for (const message of loaded) {
       const from = firstAddress(message.envelope);
       if (!isEmailAddressAllowed(from, policy.readFrom)) continue;
+      const hasAttachments = hasAttachmentBodyStructure(message.bodyStructure);
+      if (filter === 'attachments' && !hasAttachments) continue;
+      const flags = publicFlags(message.flags);
       normalized.push({
         id: String(message.uid),
+        uid: String(message.uid),
+        folder,
         threadId: message.threadId || String(message.uid),
         from,
+        to: formatAddressList(message.envelope?.to),
+        cc: formatAddressList(message.envelope?.cc),
         subject: message.envelope?.subject || '',
         date: isoDate(message.envelope?.date || message.internalDate),
+        size: message.size || null,
+        flags,
+        isRead: hasFlag(flags, '\\Seen'),
+        isAnswered: hasFlag(flags, '\\Answered'),
+        isFlagged: hasFlag(flags, '\\Flagged'),
+        hasAttachments,
         snippet: await snippetFromSource(message.source),
       });
     }
-    return normalized;
+    return {
+      folder,
+      messages: normalized.slice(0, limit),
+      total: ordered.length,
+      offset,
+      limit,
+    };
   });
 
   return {
     account: publicImapAccount(account, secret),
-    messages,
+    ...result,
   };
 }
 
-export async function readImapEmailMessage(account: StoredEmailAccount, messageId: string) {
+export async function searchImapEmail(account: StoredEmailAccount, input: ImapEmailListInput) {
+  const result = await listImapEmailMessages(account, {
+    ...input,
+    folder: input.folder || 'INBOX',
+  });
+
+  return {
+    account: result.account,
+    messages: result.messages,
+  };
+}
+
+export async function readImapEmailMessage(account: StoredEmailAccount, messageId: string, folder?: string) {
   const secret = await readStoredEmailAccountSecret(account);
   if (secret.authType !== 'smtp_imap') throw new Error('Email account is not an SMTP/IMAP account.');
   requireImapSecret(secret);
   const uid = parseUid(messageId);
 
-  const message = await withImapInbox(secret, async (client) => {
+  const message = await withImapMailbox(secret, folder, async (client, folderPath) => {
     const fetched = await client.fetchOne(uid, {
       uid: true,
+      flags: true,
       envelope: true,
       internalDate: true,
       source: { maxLength: READ_SOURCE_MAX_BYTES },
+      bodyStructure: true,
       threadId: true,
     }, { uid: true });
     if (!fetched) throw new Error('Email message not found.');
@@ -280,9 +507,12 @@ export async function readImapEmailMessage(account: StoredEmailAccount, messageI
       maxHtmlLengthToParse: 512 * 1024,
     }) : null;
     const body = parsed?.text || (typeof parsed?.html === 'string' ? parsed.html : '');
+    const flags = publicFlags(fetched.flags);
 
     return {
       id: String(fetched.uid),
+      uid: String(fetched.uid),
+      folder: folderPath,
       threadId: fetched.threadId || String(fetched.uid),
       from,
       to: formatAddressList(fetched.envelope?.to),
@@ -290,6 +520,19 @@ export async function readImapEmailMessage(account: StoredEmailAccount, messageI
       subject: fetched.envelope?.subject || parsed?.subject || '',
       date: isoDate(fetched.envelope?.date || fetched.internalDate || parsed?.date),
       body,
+      bodyHtml: typeof parsed?.html === 'string' ? parsed.html : '',
+      attachments: (parsed?.attachments || []).map((attachment, index) => ({
+        index,
+        filename: attachment.filename || `attachment-${index + 1}`,
+        contentType: attachment.contentType,
+        size: attachment.size,
+        contentId: attachment.contentId || null,
+      })),
+      flags,
+      isRead: hasFlag(flags, '\\Seen'),
+      isAnswered: hasFlag(flags, '\\Answered'),
+      isFlagged: hasFlag(flags, '\\Flagged'),
+      hasAttachments: hasAttachmentBodyStructure(fetched.bodyStructure),
       snippet: snippetFromText(body),
     };
   });

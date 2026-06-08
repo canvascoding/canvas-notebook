@@ -32,8 +32,10 @@ import {
   updateSmtpEmailDraft,
 } from '@/app/lib/email/smtp-service';
 import {
+  listImapEmailFolders,
+  listImapEmailMessages,
   readImapEmailMessage,
-  searchImapEmail,
+  type EmailFolder,
 } from '@/app/lib/email/imap-service';
 import { readScopedEnvState } from '@/app/lib/integrations/env-config';
 import { resolveSecretsDir } from '@/app/lib/runtime-data-paths';
@@ -92,6 +94,15 @@ type OAuthConfig = {
   clientId: string;
   clientSecret: string;
   scopes: string[];
+};
+
+type EmailMessageListInput = {
+  accountId?: string;
+  folder?: string;
+  query?: string;
+  filter?: string;
+  limit?: number;
+  offset?: number;
 };
 
 type TokenResponse = {
@@ -496,6 +507,25 @@ function gmailHeader(headers: Array<{ name?: string; value?: string }> | undefin
   return header?.value || '';
 }
 
+function folderRoleFromName(name: string): EmailFolder['role'] {
+  const lower = name.toLowerCase();
+  if (lower === 'inbox') return 'inbox';
+  if (lower.includes('sent')) return 'sent';
+  if (lower.includes('draft')) return 'drafts';
+  if (lower.includes('trash') || lower.includes('bin') || lower.includes('deleted')) return 'trash';
+  if (lower.includes('spam') || lower.includes('junk')) return 'junk';
+  if (lower.includes('archive') || lower.includes('all mail')) return 'archive';
+  return 'custom';
+}
+
+function fallbackOAuthFolders(account: StoredEmailAccount): EmailFolder[] {
+  if (account.provider === 'microsoft') {
+    return [{ id: 'inbox', name: 'Inbox', path: 'inbox', role: 'inbox', selectable: true, messageCount: null, unseenCount: null }];
+  }
+
+  return [{ id: 'INBOX', name: 'Inbox', path: 'INBOX', role: 'inbox', selectable: true, messageCount: null, unseenCount: null }];
+}
+
 async function gmailFetch(pathSuffix: string, token: string, init?: RequestInit) {
   const response = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/${pathSuffix}`, {
     ...init,
@@ -583,50 +613,128 @@ function encodeRawEmail(input: EmailDraftInput) {
   return base64Url(Buffer.from(`${headers.join('\r\n')}\r\n\r\n${input.body}`, 'utf8'));
 }
 
-export async function searchLocalEmail(userId: string, input: { accountId?: string; query?: string; limit?: number }) {
+export async function listLocalEmailFolders(userId: string, accountId?: string) {
+  const account = await findLocalEmailAccount(userId, accountId);
+  if (account.authType === 'smtp_imap') {
+    return listImapEmailFolders(account);
+  }
+
+  const token = await validAccessToken(account);
+  try {
+    if (account.provider === 'google') {
+      const result = await gmailFetch('labels', token);
+      const labels = Array.isArray(result.labels) ? result.labels as Array<{ id?: string; name?: string; messagesTotal?: number; messagesUnread?: number }> : [];
+      return {
+        account: await publicLocalEmailAccount(account),
+        folders: labels
+          .filter((label) => label.id && label.name)
+          .map((label) => ({
+            id: String(label.id),
+            path: String(label.id),
+            name: String(label.name),
+            role: folderRoleFromName(String(label.name)),
+            selectable: true,
+            messageCount: typeof label.messagesTotal === 'number' ? label.messagesTotal : null,
+            unseenCount: typeof label.messagesUnread === 'number' ? label.messagesUnread : null,
+          })),
+      };
+    }
+
+    const result = await microsoftFetch('mailFolders?$top=100&$select=id,displayName,totalItemCount,unreadItemCount', token);
+    const folders = Array.isArray(result.value) ? result.value as Array<{ id?: string; displayName?: string; totalItemCount?: number; unreadItemCount?: number }> : [];
+    return {
+      account: await publicLocalEmailAccount(account),
+      folders: folders
+        .filter((folder) => folder.id && folder.displayName)
+        .map((folder) => ({
+          id: String(folder.id),
+          path: String(folder.id),
+          name: String(folder.displayName),
+          role: folderRoleFromName(String(folder.displayName)),
+          selectable: true,
+          messageCount: typeof folder.totalItemCount === 'number' ? folder.totalItemCount : null,
+          unseenCount: typeof folder.unreadItemCount === 'number' ? folder.unreadItemCount : null,
+        })),
+    };
+  } catch {
+    return {
+      account: await publicLocalEmailAccount(account),
+      folders: fallbackOAuthFolders(account),
+    };
+  }
+}
+
+export async function listLocalEmailMessages(userId: string, input: EmailMessageListInput) {
   const account = await findLocalEmailAccount(userId, input.accountId);
   if (account.authType === 'smtp_imap') {
-    return searchImapEmail(account, input);
+    return listImapEmailMessages(account, input);
   }
   const token = await validAccessToken(account);
-  const limit = Math.min(Math.max(input.limit || 10, 1), 25);
+  const limit = Math.min(Math.max(input.limit || 10, 1), 50);
+  const offset = Math.min(Math.max(input.offset || 0, 0), 10_000);
+  const query = input.query || '';
   let messages: Array<Record<string, unknown>> = [];
   if (account.provider === 'google') {
-    const search = new URLSearchParams({ maxResults: String(limit), q: input.query || '' });
+    const search = new URLSearchParams({ maxResults: String(limit + offset), q: query });
+    const folder = (input.folder || '').trim();
+    if (folder && folder !== 'all' && folder !== 'INBOX') search.append('labelIds', folder);
     const list = await gmailFetch(`messages?${search.toString()}`, token);
-    const ids = Array.isArray(list.messages) ? list.messages.slice(0, limit) as Array<{ id?: string }> : [];
+    const ids = Array.isArray(list.messages) ? list.messages.slice(offset, offset + limit) as Array<{ id?: string }> : [];
     const loaded = await Promise.all(ids.map((item) => gmailFetch(`messages/${item.id}?format=metadata&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=Date`, token)));
     messages = loaded.map((message) => {
       const payload = message.payload as Record<string, unknown> | undefined;
       const headers = payload?.headers as Array<{ name?: string; value?: string }> | undefined;
       return {
         id: String(message.id || ''),
+        uid: String(message.id || ''),
+        folder: input.folder || 'INBOX',
         threadId: String(message.threadId || ''),
         from: gmailHeader(headers, 'From'),
+        to: [gmailHeader(headers, 'To')].filter(Boolean),
+        cc: [gmailHeader(headers, 'Cc')].filter(Boolean),
         subject: gmailHeader(headers, 'Subject'),
         date: gmailHeader(headers, 'Date'),
+        flags: [],
+        isRead: true,
+        isAnswered: false,
+        isFlagged: false,
+        hasAttachments: false,
         snippet: String(message.snippet || ''),
       };
     });
   } else {
+    const folder = (input.folder || '').trim();
+    const pathPrefix = folder && folder !== 'inbox'
+      ? `mailFolders/${encodeURIComponent(folder)}/`
+      : '';
     const params = new URLSearchParams({
       '$top': String(limit),
+      '$skip': String(offset),
       '$select': 'id,conversationId,from,subject,receivedDateTime,bodyPreview',
       '$orderby': 'receivedDateTime desc',
     });
-    if (input.query?.trim()) {
-      params.set('$search', `"${input.query.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`);
+    if (query.trim()) {
+      params.set('$search', `"${query.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`);
     }
-    const result = await microsoftFetch(`messages?${params.toString()}`, token, input.query?.trim() ? { headers: { ConsistencyLevel: 'eventual' } } : undefined);
+    const result = await microsoftFetch(`${pathPrefix}messages?${params.toString()}`, token, query.trim() ? { headers: { ConsistencyLevel: 'eventual' } } : undefined);
     const values = Array.isArray(result.value) ? result.value as Record<string, unknown>[] : [];
     messages = values.map((message) => {
       const from = message.from as { emailAddress?: { address?: string } } | undefined;
       return {
         id: String(message.id || ''),
+        uid: String(message.id || ''),
+        folder: input.folder || 'inbox',
         threadId: String(message.conversationId || ''),
         from: from?.emailAddress?.address || '',
+        to: [],
+        cc: [],
         subject: String(message.subject || ''),
         date: String(message.receivedDateTime || ''),
+        flags: [],
+        isRead: true,
+        isAnswered: false,
+        isFlagged: false,
+        hasAttachments: false,
         snippet: String(message.bodyPreview || ''),
       };
     });
@@ -634,14 +742,26 @@ export async function searchLocalEmail(userId: string, input: { accountId?: stri
   const policy = policyForAccount(account);
   return {
     account: await publicLocalEmailAccount(account),
+    folder: input.folder || (account.provider === 'microsoft' ? 'inbox' : 'INBOX'),
     messages: messages.filter((message) => isEmailAddressAllowed(String(message.from || ''), policy.readFrom)),
+    total: null,
+    offset,
+    limit,
   };
 }
 
-export async function readLocalEmailMessage(userId: string, accountId: string, messageId: string) {
+export async function searchLocalEmail(userId: string, input: { accountId?: string; query?: string; limit?: number }) {
+  const result = await listLocalEmailMessages(userId, input);
+  return {
+    account: result.account,
+    messages: result.messages,
+  };
+}
+
+export async function readLocalEmailMessage(userId: string, accountId: string, messageId: string, folder?: string) {
   const account = await findLocalEmailAccount(userId, accountId);
   if (account.authType === 'smtp_imap') {
-    return readImapEmailMessage(account, messageId);
+    return readImapEmailMessage(account, messageId, folder);
   }
   const token = await validAccessToken(account);
   let message: Record<string, unknown>;
