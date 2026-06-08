@@ -1030,6 +1030,7 @@
       "loadMessages": "Nachrichten konnten nicht geladen werden.",
       "loadMessage": "Nachricht konnte nicht geladen werden.",
       "updateMessage": "Nachricht konnte nicht aktualisiert werden.",
+      "actionRequest": "Die E-Mail-Aktion konnte nicht an den Server gesendet werden. Bitte lade die Seite neu und versuche es erneut.",
       "updatePolicy": "Send-Policy konnte nicht aktualisiert werden."
     }
   },

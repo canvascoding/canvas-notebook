@@ -1031,6 +1031,7 @@
       "loadMessages": "Could not load messages.",
       "loadMessage": "Could not load message.",
       "updateMessage": "Could not update message.",
+      "actionRequest": "The email action could not be sent to the server. Refresh the page and try again.",
       "updatePolicy": "Could not update send policy."
     }
   },
