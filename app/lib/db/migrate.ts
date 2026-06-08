@@ -230,6 +230,52 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       FOREIGN KEY (user_id) REFERENCES user(id)
     );
 
+    CREATE TABLE IF NOT EXISTS todo_email_reply_watchers (
+      id TEXT PRIMARY KEY NOT NULL,
+      todo_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      account_id TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'active',
+      reply_token TEXT NOT NULL,
+      outbound_message_id TEXT,
+      source_agent_id TEXT,
+      source_session_id TEXT,
+      locale TEXT NOT NULL DEFAULT 'de',
+      sent_at INTEGER NOT NULL,
+      last_checked_at INTEGER,
+      completed_at INTEGER,
+      error TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      FOREIGN KEY (todo_id) REFERENCES todo_items(id) ON DELETE CASCADE,
+      FOREIGN KEY (user_id) REFERENCES user(id),
+      FOREIGN KEY (account_id) REFERENCES email_accounts(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS todo_email_reply_events (
+      id TEXT PRIMARY KEY NOT NULL,
+      watcher_id TEXT NOT NULL,
+      todo_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      account_id TEXT NOT NULL,
+      provider_message_id TEXT NOT NULL,
+      thread_id TEXT,
+      folder TEXT,
+      from_address TEXT,
+      subject TEXT,
+      received_at INTEGER,
+      reply_text TEXT,
+      status TEXT NOT NULL,
+      error TEXT,
+      dispatched_at INTEGER,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      FOREIGN KEY (watcher_id) REFERENCES todo_email_reply_watchers(id) ON DELETE CASCADE,
+      FOREIGN KEY (todo_id) REFERENCES todo_items(id) ON DELETE CASCADE,
+      FOREIGN KEY (user_id) REFERENCES user(id),
+      FOREIGN KEY (account_id) REFERENCES email_accounts(id) ON DELETE CASCADE
+    );
+
     CREATE TABLE IF NOT EXISTS public_file_shares (
       id TEXT PRIMARY KEY NOT NULL,
       token TEXT NOT NULL UNIQUE,
@@ -784,6 +830,13 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     CREATE INDEX IF NOT EXISTS idx_todo_items_category ON todo_items (category_id);
     CREATE INDEX IF NOT EXISTS idx_todo_file_links_todo ON todo_file_links (todo_id);
     CREATE INDEX IF NOT EXISTS idx_todo_file_links_user_path ON todo_file_links (user_id, workspace_path);
+    CREATE INDEX IF NOT EXISTS idx_todo_email_reply_watchers_status_checked ON todo_email_reply_watchers (status, last_checked_at);
+    CREATE INDEX IF NOT EXISTS idx_todo_email_reply_watchers_todo ON todo_email_reply_watchers (todo_id);
+    CREATE INDEX IF NOT EXISTS idx_todo_email_reply_watchers_user_status ON todo_email_reply_watchers (user_id, status);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_todo_email_reply_watchers_token ON todo_email_reply_watchers (reply_token);
+    CREATE INDEX IF NOT EXISTS idx_todo_email_reply_events_watcher_created ON todo_email_reply_events (watcher_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_todo_email_reply_events_todo_created ON todo_email_reply_events (todo_id, created_at);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_todo_email_reply_events_message ON todo_email_reply_events (watcher_id, account_id, provider_message_id);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_public_file_shares_token_hash ON public_file_shares (token_hash);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_public_file_shares_token ON public_file_shares (token);
     CREATE INDEX IF NOT EXISTS idx_public_file_shares_status ON public_file_shares (status);

@@ -135,6 +135,40 @@ async function executeReadyRuns() {
   }
 }
 
+async function pollTodoEmailReplies() {
+  const baseUrl = getBaseUrl();
+  const token = await getInternalToken();
+  if (!token) {
+    console.warn('[Scheduler] CANVAS_INTERNAL_API_KEY is missing. Skipping todo email reply poll.');
+    return null;
+  }
+
+  try {
+    const response = await fetch(`${baseUrl}/api/todos/email-replies/poll`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-canvas-internal-token': token,
+      },
+    });
+
+    if (!response.ok) {
+      const error = await response.text();
+      console.warn(`[Scheduler] Failed to poll todo email replies: ${response.status} - ${error}`);
+      return null;
+    }
+    const result = await response.json();
+    const pollResult = result.result || {};
+    if (pollResult.processed > 0 || pollResult.failed > 0 || pollResult.expired > 0) {
+      console.log(`[Scheduler] Todo email replies processed=${pollResult.processed || 0}, failed=${pollResult.failed || 0}, expired=${pollResult.expired || 0}`);
+    }
+    return pollResult;
+  } catch (error) {
+    console.warn('[Scheduler] Error polling todo email replies:', error instanceof Error ? error.message : error);
+    return null;
+  }
+}
+
 async function tick() {
   if (activeTick) {
     return activeTick;
@@ -149,7 +183,10 @@ async function tick() {
   activeTick = (async () => {
     const queuedResult = await queueDueScheduledJobs();
     const executedResult = await executeReadyRuns();
-    const hadWork = (queuedResult && queuedResult.length > 0) || (executedResult && executedResult.length > 0);
+    const todoReplyResult = await pollTodoEmailReplies();
+    const hadWork = (queuedResult && queuedResult.length > 0)
+      || (executedResult && executedResult.length > 0)
+      || Boolean(todoReplyResult && (todoReplyResult.processed > 0 || todoReplyResult.failed > 0 || todoReplyResult.expired > 0));
 
     if (hadWork) {
       consecutiveIdleTicks = 0;

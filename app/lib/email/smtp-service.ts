@@ -22,6 +22,7 @@ import {
   normalizeEmailPolicyList,
   type EmailPolicy,
 } from '@/app/lib/email/policy';
+import { normalizeEmailCustomHeaders, type EmailCustomHeaders } from '@/app/lib/email/headers';
 import { verifyImapSecret } from '@/app/lib/email/imap-service';
 import type { EmailAccountSmtpSecret } from '@/app/lib/email/secret-store';
 
@@ -40,6 +41,10 @@ export type SmtpAccountInput = {
   imapUsername?: string;
   imapPassword?: string;
   policy?: Partial<EmailPolicy>;
+};
+
+type SmtpEmailInput = LocalEmailDraftInput & {
+  headers?: EmailCustomHeaders;
 };
 
 type SmtpTransportFactory = (options: SMTPTransport.Options) => nodemailer.Transporter;
@@ -287,7 +292,7 @@ export async function updateSmtpEmailDraft(userId: string, draftId: string, inpu
   return { account: await publicStoredEmailAccount(account, await readStoredEmailAccountSecret(account)), draft: publicEmailDraft(draft) };
 }
 
-async function sendSmtpMessage(secret: EmailAccountSmtpSecret, from: { name?: string | null; address: string }, input: LocalEmailDraftInput) {
+async function sendSmtpMessage(secret: EmailAccountSmtpSecret, from: { name?: string | null; address: string }, input: SmtpEmailInput) {
   const transporter = smtpTransportFactory(smtpTransportOptions(secret));
   try {
     return await transporter.sendMail({
@@ -296,6 +301,7 @@ async function sendSmtpMessage(secret: EmailAccountSmtpSecret, from: { name?: st
       cc: input.cc,
       bcc: input.bcc,
       subject: input.subject,
+      headers: normalizeEmailCustomHeaders(input.headers),
       ...(input.is_HTML ? { html: input.body } : { text: input.body }),
       disableFileAccess: true,
       disableUrlAccess: true,
