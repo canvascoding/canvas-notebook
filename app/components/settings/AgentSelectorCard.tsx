@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Bot, Lock, Plus, RefreshCw, Trash2 } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 
@@ -32,6 +32,7 @@ type AgentSelectorCardProps = {
   error: string | null;
   creating: boolean;
   deletingAgentId: string | null;
+  openCreateDialogOnMount?: boolean;
   onSelectedAgentIdChange: (agentId: string) => void;
   onCreate: (input: CreateAgentInput) => Promise<boolean>;
   onDelete: (agentId: string) => void;
@@ -45,6 +46,7 @@ export function AgentSelectorCard({
   error,
   creating,
   deletingAgentId,
+  openCreateDialogOnMount = false,
   onSelectedAgentIdChange,
   onCreate,
   onDelete,
@@ -52,6 +54,18 @@ export function AgentSelectorCard({
 }: AgentSelectorCardProps) {
   const t = useTranslations('settings');
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
+  const openCreateDialogHandledRef = useRef(false);
+
+  useEffect(() => {
+    if (!openCreateDialogOnMount) {
+      openCreateDialogHandledRef.current = false;
+      return;
+    }
+
+    if (openCreateDialogHandledRef.current) return;
+    openCreateDialogHandledRef.current = true;
+    setCreateDialogOpen(true);
+  }, [openCreateDialogOnMount]);
 
   return (
     <>

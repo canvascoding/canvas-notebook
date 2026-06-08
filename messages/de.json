@@ -598,6 +598,7 @@
     "sessionLabel": "Session",
     "agentLabel": "Agent",
     "agentSelectTitle": "Agent auswählen",
+    "createAgent": "Neuen Agenten anlegen",
     "modelLabel": "Modell",
     "newChatTitle": "Neuer Chat",
     "newChatShort": "Neu",

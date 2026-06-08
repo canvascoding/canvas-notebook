@@ -5695,8 +5695,18 @@ export default function CanvasAgentChat({
           </button>
         </PopoverTrigger>
         <PopoverContent align="start" side="bottom" className="w-64 p-1">
-          <div className="px-2 py-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-            {t('agentSelectTitle')}
+          <div className="flex items-center justify-between gap-2 px-2 py-1.5">
+            <div className="min-w-0 truncate text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+              {t('agentSelectTitle')}
+            </div>
+            <Link
+              href="/settings?tab=agent-settings&createAgent=1"
+              className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-border bg-background text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              title={t('createAgent')}
+              aria-label={t('createAgent')}
+            >
+              <Plus className="h-4 w-4" />
+            </Link>
           </div>
           {chatAgentOptions.map((agent) => {
             const selected = agent.agentId === activeSessionAgentId;
