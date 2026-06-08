@@ -24,6 +24,11 @@ import {
   summarizeEmailWithAi,
 } from '@/app/lib/email/ai-service';
 import {
+  buildEmailDerivedDraft,
+  htmlToPlainText,
+  type EmailDerivedDraftMode,
+} from '@/app/lib/email/message-draft-builder';
+import {
   assertEmailRecipientsAllowed,
   assertEmailSenderAllowed,
   isEmailAddressAllowed,
@@ -64,7 +69,7 @@ export type EmailDraftInput = {
   is_HTML?: boolean;
 };
 
-export type EmailDerivedDraftMode = 'forward' | 'reply' | 'reply-all';
+export type { EmailDerivedDraftMode } from '@/app/lib/email/message-draft-builder';
 
 type LegacyLocalEmailAccount = {
   id: string;
@@ -683,82 +688,6 @@ function encodeRawEmail(input: EmailDraftInput) {
   return base64Url(Buffer.from(`${headers.join('\r\n')}\r\n\r\n${input.body}`, 'utf8'));
 }
 
-function stripHtml(value: string): string {
-  return value
-    .replace(/<br\s*\/?>/giu, '\n')
-    .replace(/<\/p>/giu, '\n\n')
-    .replace(/<[^>]+>/gu, ' ')
-    .replace(/&nbsp;/gu, ' ')
-    .replace(/&amp;/gu, '&')
-    .replace(/&lt;/gu, '<')
-    .replace(/&gt;/gu, '>')
-    .replace(/\n{3,}/gu, '\n\n')
-    .replace(/[ \t]+/gu, ' ')
-    .trim();
-}
-
-function textFromMessage(message: Record<string, unknown>): string {
-  const body = typeof message.body === 'string' ? message.body : '';
-  const snippet = typeof message.snippet === 'string' ? message.snippet : '';
-  return stripHtml(body || snippet);
-}
-
-function subjectFromMessage(message: Record<string, unknown>): string {
-  return String(message.subject || '').trim();
-}
-
-function replySubject(subject: string): string {
-  const normalized = subject.trim();
-  if (!normalized) return 'Re:';
-  return /^re:/iu.test(normalized) ? normalized : `Re: ${normalized}`;
-}
-
-function forwardSubject(subject: string): string {
-  const normalized = subject.trim();
-  if (!normalized) return 'Fwd:';
-  return /^(fwd|fw):/iu.test(normalized) ? normalized : `Fwd: ${normalized}`;
-}
-
-function extractEmailAddress(value: unknown): string {
-  if (!value) return '';
-  if (typeof value === 'string') {
-    const match = value.match(/<([^<>@\s]+@[^<>@\s]+)>/u) || value.match(/([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})/iu);
-    return (match?.[1] || '').trim().toLowerCase();
-  }
-  if (typeof value === 'object') {
-    const record = value as {
-      address?: unknown;
-      email?: unknown;
-      emailAddress?: { address?: unknown };
-    };
-    return extractEmailAddress(record.emailAddress?.address || record.address || record.email);
-  }
-  return '';
-}
-
-function extractEmailAddresses(value: unknown): string[] {
-  if (!value) return [];
-  if (Array.isArray(value)) {
-    return value.flatMap(extractEmailAddresses);
-  }
-  if (typeof value === 'string') {
-    return value.split(',').map(extractEmailAddress).filter(Boolean);
-  }
-  return [extractEmailAddress(value)].filter(Boolean);
-}
-
-function uniqueAddresses(values: string[], ownAddresses: Set<string>): string[] {
-  const seen = new Set<string>();
-  const result: string[] = [];
-  for (const value of values) {
-    const email = extractEmailAddress(value);
-    if (!email || ownAddresses.has(email) || seen.has(email)) continue;
-    seen.add(email);
-    result.push(email);
-  }
-  return result;
-}
-
 async function ownEmailAddressesForUser(userId: string, account: StoredEmailAccount): Promise<Set<string>> {
   const own = new Set<string>([account.emailAddress.toLowerCase()]);
   const accounts = await listPublicEmailAccountsForUser(userId).catch(() => []);
@@ -766,27 +695,6 @@ async function ownEmailAddressesForUser(userId: string, account: StoredEmailAcco
     if (item.emailAddress) own.add(item.emailAddress.toLowerCase());
   }
   return own;
-}
-
-function quotedBody(message: Record<string, unknown>): string {
-  const from = String(message.from || '').trim();
-  const date = String(message.date || '').trim();
-  const body = textFromMessage(message);
-  const quoted = body.split(/\r?\n/u).map((line) => `> ${line}`).join('\n');
-  const intro = date && from ? `On ${date}, ${from} wrote:` : from ? `${from} wrote:` : 'Original message:';
-  return `${intro}\n${quoted}`;
-}
-
-function forwardedBody(message: Record<string, unknown>): string {
-  return [
-    '---------- Forwarded message ----------',
-    `From: ${String(message.from || '').trim()}`,
-    `Date: ${String(message.date || '').trim()}`,
-    `Subject: ${subjectFromMessage(message)}`,
-    `To: ${extractEmailAddresses(message.to).join(', ')}`,
-    '',
-    textFromMessage(message),
-  ].join('\n');
 }
 
 export async function listLocalEmailFolders(userId: string, accountId?: string) {
@@ -949,7 +857,7 @@ export async function readLocalEmailMessage(userId: string, accountId: string, m
     const from = gmailHeader(headers, 'From');
     assertSenderAllowed(account, from);
     const bodyHtml = gmailBodyByMime(payload, 'text/html');
-    const bodyText = gmailBodyByMime(payload, 'text/plain') || (bodyHtml ? stripHtml(bodyHtml) : gmailBodyText(payload));
+    const bodyText = gmailBodyByMime(payload, 'text/plain') || (bodyHtml ? htmlToPlainText(bodyHtml) : gmailBodyText(payload));
     const labelIds = Array.isArray(raw.labelIds) ? raw.labelIds.map(String) : [];
     message = {
       id: String(raw.id || ''),
@@ -979,7 +887,7 @@ export async function readLocalEmailMessage(userId: string, accountId: string, m
       cc: raw.ccRecipients || [],
       subject: String(raw.subject || ''),
       date: String(raw.receivedDateTime || ''),
-      body: isHtml ? stripHtml(bodyContent) : bodyContent,
+      body: isHtml ? htmlToPlainText(bodyContent) : bodyContent,
       bodyHtml: isHtml ? bodyContent : '',
       isRead: raw.isRead !== false,
       snippet: String(raw.bodyPreview || ''),
@@ -1125,30 +1033,18 @@ export async function createLocalEmailDerivedDraft(
   const result = await readLocalEmailMessage(userId, account.id, messageId, folder);
   const message = result.message as Record<string, unknown>;
   const ownAddresses = await ownEmailAddressesForUser(userId, account);
-  const from = extractEmailAddress(message.from);
-  const originalTo = extractEmailAddresses(message.to);
-  const originalCc = extractEmailAddresses(message.cc);
-  const subject = subjectFromMessage(message);
-  const isForward = mode === 'forward';
-  const to = isForward
-    ? []
-    : uniqueAddresses([from, ...(mode === 'reply-all' ? originalTo : [])], ownAddresses);
-  const cc = mode === 'reply-all' ? uniqueAddresses(originalCc, ownAddresses) : [];
-  const body = isForward
-    ? `\n\n${forwardedBody(message)}`
-    : `${bodyOverride?.trim() || ''}\n\n${quotedBody(message)}`.trimStart();
+  const draftInput = buildEmailDerivedDraft({
+    accountId: account.id,
+    bodyOverride,
+    message,
+    mode,
+    ownAddresses,
+  });
 
   return {
     mode,
     originalMessageId: messageId,
-    ...(await createLocalEmailDraft(userId, {
-      accountId: account.id,
-      to,
-      cc,
-      subject: isForward ? forwardSubject(subject) : replySubject(subject),
-      body,
-      is_HTML: false,
-    })),
+    ...(await createLocalEmailDraft(userId, draftInput)),
   };
 }
 
