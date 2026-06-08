@@ -224,15 +224,47 @@ async function main() {
   assert.equal(getImages(studioImageReadResult).length, 1);
   assert.equal(getImages(studioImageReadResult)[0].mimeType, 'image/jpeg');
   assert.equal(getImages(studioImageReadResult)[0].data, studioImageBytes.toString('base64'));
-  assert.equal((studioImageReadResult.details as { filePath: string }).filePath, `studio/outputs/${studioImageName}`);
-  assert.equal((studioImageReadResult.details as { resolvedPath: string }).resolvedPath, studioImagePath);
+  const studioImageReadDetails = studioImageReadResult.details as {
+    filePath: string;
+    mediaUrl: string;
+    mimeType: string;
+    previewUrl: string;
+    resolvedPath: string;
+  };
+  assert.equal(studioImageReadDetails.filePath, `studio/outputs/${studioImageName}`);
+  assert.equal(studioImageReadDetails.resolvedPath, studioImagePath);
+  assert.equal(studioImageReadDetails.mimeType, 'image/jpeg');
+  assert.equal(studioImageReadDetails.previewUrl, `/api/files/preview?path=${encodeURIComponent(`studio/outputs/${studioImageName}`)}&w=192&preset=mini`);
+  assert.equal(studioImageReadDetails.mediaUrl, `/api/studio/media/studio/outputs/${studioImageName}`);
 
   const bareStudioImageReadResult = await readTool.execute('read-bare-studio-image', {
     path: studioImageName,
   });
   assert.match(getText(bareStudioImageReadResult), /Requested path: studio-gen-read-test/);
   assert.equal((bareStudioImageReadResult.details as { filePath: string }).filePath, `studio/outputs/${studioImageName}`);
+  assert.equal(
+    (bareStudioImageReadResult.details as { previewUrl: string }).previewUrl,
+    `/api/files/preview?path=${encodeURIComponent(`studio/outputs/${studioImageName}`)}&w=192&preset=mini`,
+  );
   assert.equal(getImages(bareStudioImageReadResult).length, 1);
+
+  const studioAssetsProductsDir = path.join(dataDir, 'studio', 'assets', 'products');
+  await fs.mkdir(studioAssetsProductsDir, { recursive: true });
+  const studioAssetImageName = 'studio-asset-read-test.jpg';
+  const studioAssetImagePath = path.join(studioAssetsProductsDir, studioAssetImageName);
+  await fs.writeFile(studioAssetImagePath, studioImageBytes);
+  const studioAssetImageReadResult = await readTool.execute('read-studio-asset-image', {
+    path: `products/${studioAssetImageName}`,
+  });
+  assert.equal((studioAssetImageReadResult.details as { filePath: string }).filePath, `studio/assets/products/${studioAssetImageName}`);
+  assert.equal(
+    (studioAssetImageReadResult.details as { previewUrl: string }).previewUrl,
+    `/api/files/preview?path=${encodeURIComponent(`studio/assets/products/${studioAssetImageName}`)}&w=192&preset=mini`,
+  );
+  assert.equal(
+    (studioAssetImageReadResult.details as { mediaUrl: string }).mediaUrl,
+    `/api/studio/media/studio/assets/products/${studioAssetImageName}`,
+  );
 
   await fs.mkdir(path.join(workspaceDir, 'docs'), { recursive: true });
   const pdfPath = path.join(workspaceDir, 'docs', 'case.pdf');

@@ -1459,8 +1459,29 @@ function extractToolResultImageAttachments(piMessage?: AgentMessage | null): Att
     return [];
   }
 
-  const attachment = createImageAttachmentFromFileReference(filePath);
-  return attachment ? [attachment] : [];
+  const previewUrl = typeof details.previewUrl === 'string' ? details.previewUrl : undefined;
+  const mediaUrl = typeof details.mediaUrl === 'string' ? details.mediaUrl : undefined;
+  const mimeType = typeof details.mimeType === 'string' ? details.mimeType : undefined;
+  const size = typeof details.size === 'number' ? details.size : undefined;
+  const name = typeof details.name === 'string' ? details.name : getPathBasename(filePath);
+  const inferredAttachment = createImageAttachmentFromFileReference(filePath, name);
+  if (!inferredAttachment && !previewUrl && !mediaUrl) {
+    return [];
+  }
+
+  return [{
+    ...(inferredAttachment || {
+      name,
+      contentKind: 'image' as const,
+      id: `tool-result:${filePath}`,
+      category: 'image',
+      filePath,
+    }),
+    previewUrl: previewUrl || inferredAttachment?.previewUrl,
+    mediaUrl: mediaUrl || inferredAttachment?.mediaUrl,
+    mimeType: mimeType || inferredAttachment?.mimeType,
+    size: size ?? inferredAttachment?.size,
+  }];
 }
 
 function getSessionDisplayLabel(sessionTitle: string | null, fallbackTitle: string): string {
