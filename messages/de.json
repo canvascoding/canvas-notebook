@@ -1002,6 +1002,8 @@
     "aiReplyDraftCreated": "AI-Antwortentwurf wurde im verbundenen Konto erstellt.",
     "messageUpdated": "Nachricht wurde aktualisiert.",
     "messageMoved": "Nachricht wurde verschoben.",
+    "addRecipientToSendPolicy": "{email} erlauben",
+    "sendPolicyRecipientAdded": "{email} wurde zur Send-Policy hinzugefügt.",
     "confirmPermanentDelete": "Diese Nachricht endgültig löschen?",
     "noFolders": "Keine Folder gefunden.",
     "noMessages": "Keine Nachrichten gefunden.",
@@ -1022,7 +1024,8 @@
       "loadFolders": "Folder konnten nicht geladen werden.",
       "loadMessages": "Nachrichten konnten nicht geladen werden.",
       "loadMessage": "Nachricht konnte nicht geladen werden.",
-      "updateMessage": "Nachricht konnte nicht aktualisiert werden."
+      "updateMessage": "Nachricht konnte nicht aktualisiert werden.",
+      "updatePolicy": "Send-Policy konnte nicht aktualisiert werden."
     }
   },
   "security": {

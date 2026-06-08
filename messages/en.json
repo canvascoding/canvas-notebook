@@ -1003,6 +1003,8 @@
     "aiReplyDraftCreated": "AI reply draft was created in the connected account.",
     "messageUpdated": "Message was updated.",
     "messageMoved": "Message was moved.",
+    "addRecipientToSendPolicy": "Allow {email}",
+    "sendPolicyRecipientAdded": "{email} was added to the send policy.",
     "confirmPermanentDelete": "Delete this message forever?",
     "noFolders": "No folders found.",
     "noMessages": "No messages found.",
@@ -1023,7 +1025,8 @@
       "loadFolders": "Could not load folders.",
       "loadMessages": "Could not load messages.",
       "loadMessage": "Could not load message.",
-      "updateMessage": "Could not update message."
+      "updateMessage": "Could not update message.",
+      "updatePolicy": "Could not update send policy."
     }
   },
   "security": {
