@@ -1,12 +1,14 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import DOMPurify from 'dompurify';
 import { ChevronLeft, ChevronRight, Inbox, Loader2, MailWarning, RefreshCw, Search, Star } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 
 import { EmailAccountsCard } from '@/app/components/settings/IntegrationsSettingsClient';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 
@@ -57,6 +59,78 @@ type EmailMessageDetail = EmailMessageSummary & {
 };
 
 const MESSAGE_PAGE_SIZE = 20;
+const COMPACT_VIEWPORT_QUERY = '(max-width: 1023px)';
+const EMAIL_HTML_SANITIZE_CONFIG = {
+  ALLOWED_TAGS: [
+    'a',
+    'abbr',
+    'b',
+    'blockquote',
+    'br',
+    'caption',
+    'code',
+    'col',
+    'colgroup',
+    'dd',
+    'del',
+    'div',
+    'dl',
+    'dt',
+    'em',
+    'h1',
+    'h2',
+    'h3',
+    'h4',
+    'h5',
+    'h6',
+    'hr',
+    'i',
+    'img',
+    'li',
+    'ol',
+    'p',
+    'pre',
+    's',
+    'small',
+    'span',
+    'strong',
+    'sub',
+    'sup',
+    'table',
+    'tbody',
+    'td',
+    'tfoot',
+    'th',
+    'thead',
+    'tr',
+    'u',
+    'ul',
+  ],
+  ALLOWED_ATTR: [
+    'abbr',
+    'align',
+    'alt',
+    'aria-label',
+    'border',
+    'cellpadding',
+    'cellspacing',
+    'colspan',
+    'dir',
+    'height',
+    'href',
+    'lang',
+    'rel',
+    'rowspan',
+    'scope',
+    'src',
+    'target',
+    'title',
+    'width',
+  ],
+  ALLOW_DATA_ATTR: false,
+  FORBID_ATTR: ['ping', 'srcset', 'style'],
+  FORBID_TAGS: ['base', 'button', 'embed', 'form', 'iframe', 'input', 'link', 'math', 'meta', 'object', 'script', 'select', 'style', 'svg', 'textarea'],
+};
 
 function formatDate(value: string) {
   if (!value) return '';
@@ -71,6 +145,131 @@ function formatRecipients(value: string[] | string | undefined) {
   return value;
 }
 
+function sanitizeEmailHtml(value: string) {
+  const sanitized = DOMPurify.sanitize(value, EMAIL_HTML_SANITIZE_CONFIG);
+  if (typeof document === 'undefined') return sanitized;
+
+  const template = document.createElement('template');
+  template.innerHTML = sanitized;
+
+  template.content.querySelectorAll('a').forEach((anchor) => {
+    const href = anchor.getAttribute('href')?.trim() || '';
+    if (!/^(https?:|mailto:)/i.test(href)) {
+      anchor.removeAttribute('href');
+      return;
+    }
+    anchor.setAttribute('target', '_blank');
+    anchor.setAttribute('rel', 'noopener noreferrer');
+  });
+
+  template.content.querySelectorAll('img').forEach((image) => {
+    const src = image.getAttribute('src')?.trim() || '';
+    if (!/^data:image\/(?:gif|jpe?g|png|webp);base64,/i.test(src)) {
+      image.remove();
+    }
+  });
+
+  if (!template.content.textContent?.trim() && !template.content.querySelector('img')) {
+    return '';
+  }
+
+  return template.innerHTML;
+}
+
+function EmailMessageBody({ message, emptyText }: { message: EmailMessageDetail; emptyText: string }) {
+  const sanitizedHtml = useMemo(
+    () => message.bodyHtml ? sanitizeEmailHtml(message.bodyHtml) : '',
+    [message.bodyHtml],
+  );
+
+  if (sanitizedHtml.trim()) {
+    return (
+      <div
+        className="min-w-0 overflow-x-auto break-words text-sm leading-6 text-foreground [&_*]:max-w-full [&_a]:break-words [&_a]:font-medium [&_a]:text-primary [&_blockquote]:border-l-2 [&_blockquote]:border-border [&_blockquote]:pl-3 [&_blockquote]:text-muted-foreground [&_code]:rounded-sm [&_code]:bg-muted [&_code]:px-1 [&_h1]:mb-3 [&_h1]:text-xl [&_h1]:font-semibold [&_h2]:mb-3 [&_h2]:text-lg [&_h2]:font-semibold [&_h3]:mb-2 [&_h3]:text-base [&_h3]:font-semibold [&_hr]:my-4 [&_hr]:border-border [&_ol]:ml-5 [&_ol]:list-decimal [&_p]:mb-3 [&_p:last-child]:mb-0 [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:bg-muted [&_pre]:p-3 [&_table]:my-3 [&_table]:w-full [&_table]:border-collapse [&_td]:border [&_td]:border-border [&_td]:p-2 [&_th]:border [&_th]:border-border [&_th]:p-2 [&_ul]:ml-5 [&_ul]:list-disc"
+        dangerouslySetInnerHTML={{ __html: sanitizedHtml }}
+      />
+    );
+  }
+
+  return (
+    <pre className="whitespace-pre-wrap break-words font-sans text-sm leading-6 text-foreground">
+      {message.body || message.snippet || emptyText}
+    </pre>
+  );
+}
+
+type EmailMessageViewerLabels = {
+  attachments: string;
+  cc: string;
+  date: string;
+  emptyBody: string;
+  from: string;
+  loadingMessage: string;
+  noSubject: string;
+  selectMessage: string;
+  to: string;
+  unknownAttachmentType: string;
+};
+
+function EmailMessageViewer({
+  className,
+  isLoading,
+  labels,
+  message,
+}: {
+  className?: string;
+  isLoading: boolean;
+  labels: EmailMessageViewerLabels;
+  message: EmailMessageDetail | null;
+}) {
+  if (isLoading) {
+    return (
+      <div className={cn('flex h-full min-h-80 items-center justify-center text-sm text-muted-foreground', className)}>
+        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+        {labels.loadingMessage}
+      </div>
+    );
+  }
+
+  if (!message) {
+    return (
+      <div className={cn('flex h-full min-h-80 items-center justify-center px-6 text-center text-sm text-muted-foreground', className)}>
+        {labels.selectMessage}
+      </div>
+    );
+  }
+
+  return (
+    <article className={cn('flex h-full min-h-0 flex-col', className)}>
+      <header className="border-b border-border px-4 py-4 pr-12">
+        <h3 className="text-lg font-semibold leading-7">{message.subject || labels.noSubject}</h3>
+        <div className="mt-3 flex flex-col gap-1 text-sm text-muted-foreground">
+          <p><span className="font-medium text-foreground">{labels.from}:</span> {message.from}</p>
+          {formatRecipients(message.to) && <p><span className="font-medium text-foreground">{labels.to}:</span> {formatRecipients(message.to)}</p>}
+          {formatRecipients(message.cc) && <p><span className="font-medium text-foreground">{labels.cc}:</span> {formatRecipients(message.cc)}</p>}
+          {message.date && <p><span className="font-medium text-foreground">{labels.date}:</span> {formatDate(message.date)}</p>}
+        </div>
+      </header>
+      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
+        <EmailMessageBody message={message} emptyText={labels.emptyBody} />
+        {message.attachments && message.attachments.length > 0 && (
+          <div className="mt-5 border-t border-border pt-4">
+            <div className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">{labels.attachments}</div>
+            <div className="mt-2 flex flex-col gap-2">
+              {message.attachments.map((attachment) => (
+                <div key={attachment.filename} className="border border-border px-3 py-2 text-sm">
+                  <div className="font-medium">{attachment.filename}</div>
+                  <div className="text-xs text-muted-foreground">{attachment.contentType || labels.unknownAttachmentType}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </article>
+  );
+}
+
 export function EmailClient() {
   const t = useTranslations('emails');
   const [accountsOpen, setAccountsOpen] = useState(false);
@@ -83,6 +282,8 @@ export function EmailClient() {
   const [messagePage, setMessagePage] = useState(0);
   const [selectedMessageId, setSelectedMessageId] = useState('');
   const [selectedMessage, setSelectedMessage] = useState<EmailMessageDetail | null>(null);
+  const [isCompactViewport, setIsCompactViewport] = useState(false);
+  const [messageDialogOpen, setMessageDialogOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [submittedQuery, setSubmittedQuery] = useState('');
   const [isLoadingAccounts, setIsLoadingAccounts] = useState(true);
@@ -177,10 +378,12 @@ export function EmailClient() {
       setMessageTotal(typeof payload.data?.total === 'number' ? payload.data.total : null);
       setSelectedMessageId((current) => current && nextMessages.some((message) => message.id === current) ? current : '');
       setSelectedMessage(null);
+      setMessageDialogOpen(false);
     } catch (loadError) {
       setMessages([]);
       setMessageTotal(null);
       setSelectedMessage(null);
+      setMessageDialogOpen(false);
       setError(loadError instanceof Error ? loadError.message : t('errors.loadMessages'));
     } finally {
       setIsLoadingMessages(false);
@@ -192,6 +395,7 @@ export function EmailClient() {
     setSelectedMessageId(message.id);
     setIsLoadingMessage(true);
     setError(null);
+    if (isCompactViewport) setMessageDialogOpen(true);
     try {
       const params = new URLSearchParams();
       params.set('folder', message.folder || activeFolder);
@@ -204,11 +408,12 @@ export function EmailClient() {
       setSelectedMessage(payload.data?.message as EmailMessageDetail);
     } catch (loadError) {
       setSelectedMessage(null);
+      setMessageDialogOpen(false);
       setError(loadError instanceof Error ? loadError.message : t('errors.loadMessage'));
     } finally {
       setIsLoadingMessage(false);
     }
-  }, [activeAccount, activeFolder, t]);
+  }, [activeAccount, activeFolder, isCompactViewport, t]);
 
   useEffect(() => {
     const timeout = window.setTimeout(() => {
@@ -218,12 +423,27 @@ export function EmailClient() {
   }, [loadAccounts]);
 
   useEffect(() => {
+    const mediaQuery = window.matchMedia(COMPACT_VIEWPORT_QUERY);
+    const updateViewport = () => {
+      setIsCompactViewport(mediaQuery.matches);
+      if (!mediaQuery.matches) {
+        setMessageDialogOpen(false);
+      }
+    };
+
+    updateViewport();
+    mediaQuery.addEventListener('change', updateViewport);
+    return () => mediaQuery.removeEventListener('change', updateViewport);
+  }, []);
+
+  useEffect(() => {
     const timeout = window.setTimeout(() => {
       setFolders([]);
       setMessages([]);
       setMessageTotal(null);
       setSelectedMessage(null);
       setSelectedMessageId('');
+      setMessageDialogOpen(false);
       if (!activeAccount) return;
       if (!canReadActiveAccount) return;
       void loadFolders(activeAccount.id);
@@ -256,6 +476,18 @@ export function EmailClient() {
     : messageTotal === null
       ? t(hasNextMessagePage ? 'messageRangeMore' : 'messageRangeUnknown', { start: messageStart, end: messageEnd })
       : t('messageRange', { start: messageStart, end: messageEnd, total: messageTotal });
+  const messageViewerLabels = {
+    attachments: t('attachments'),
+    cc: t('cc'),
+    date: t('date'),
+    emptyBody: t('emptyBody'),
+    from: t('from'),
+    loadingMessage: t('loadingMessage'),
+    noSubject: t('noSubject'),
+    selectMessage: t('selectMessage'),
+    to: t('to'),
+    unknownAttachmentType: t('unknownAttachmentType'),
+  };
 
   if (isLoadingAccounts) {
     return (
@@ -455,49 +687,33 @@ export function EmailClient() {
             </div>
           </section>
 
-          <section className="flex min-h-[360px] max-h-[72dvh] flex-col overflow-hidden border border-border bg-card lg:min-h-0 lg:max-h-none">
-            {isLoadingMessage ? (
-              <div className="flex h-full min-h-80 items-center justify-center text-sm text-muted-foreground">
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                {t('loadingMessage')}
-              </div>
-            ) : selectedMessage ? (
-              <article className="flex h-full min-h-0 flex-col">
-                <header className="border-b border-border px-4 py-4">
-                  <h3 className="text-lg font-semibold leading-7">{selectedMessage.subject || t('noSubject')}</h3>
-                  <div className="mt-3 space-y-1 text-sm text-muted-foreground">
-                    <p><span className="font-medium text-foreground">{t('from')}:</span> {selectedMessage.from}</p>
-                    {formatRecipients(selectedMessage.to) && <p><span className="font-medium text-foreground">{t('to')}:</span> {formatRecipients(selectedMessage.to)}</p>}
-                    {formatRecipients(selectedMessage.cc) && <p><span className="font-medium text-foreground">{t('cc')}:</span> {formatRecipients(selectedMessage.cc)}</p>}
-                    {selectedMessage.date && <p><span className="font-medium text-foreground">{t('date')}:</span> {formatDate(selectedMessage.date)}</p>}
-                  </div>
-                </header>
-                <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
-                  <pre className="whitespace-pre-wrap break-words font-sans text-sm leading-6 text-foreground">
-                    {selectedMessage.body || selectedMessage.bodyHtml || selectedMessage.snippet || t('emptyBody')}
-                  </pre>
-                  {selectedMessage.attachments && selectedMessage.attachments.length > 0 && (
-                    <div className="mt-5 border-t border-border pt-4">
-                      <div className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">{t('attachments')}</div>
-                      <div className="mt-2 space-y-2">
-                        {selectedMessage.attachments.map((attachment) => (
-                          <div key={attachment.filename} className="border border-border px-3 py-2 text-sm">
-                            <div className="font-medium">{attachment.filename}</div>
-                            <div className="text-xs text-muted-foreground">{attachment.contentType || t('unknownAttachmentType')}</div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </article>
-            ) : (
-              <div className="flex h-full min-h-80 items-center justify-center px-6 text-center text-sm text-muted-foreground">
-                {t('selectMessage')}
-              </div>
-            )}
+          <section className="hidden min-h-0 flex-col overflow-hidden border border-border bg-card lg:flex">
+            <EmailMessageViewer
+              isLoading={isLoadingMessage}
+              labels={messageViewerLabels}
+              message={selectedMessage}
+            />
           </section>
         </div>
+      )}
+
+      {canReadActiveAccount && (
+        <Dialog open={isCompactViewport && messageDialogOpen} onOpenChange={setMessageDialogOpen}>
+          <DialogContent layout="viewport" className="lg:hidden">
+            <DialogHeader className="sr-only">
+              <DialogTitle>{selectedMessage?.subject || t('noSubject')}</DialogTitle>
+              <DialogDescription>
+                {selectedMessage ? `${t('from')}: ${selectedMessage.from}` : t('loadingMessage')}
+              </DialogDescription>
+            </DialogHeader>
+            <EmailMessageViewer
+              className="bg-card"
+              isLoading={isLoadingMessage}
+              labels={messageViewerLabels}
+              message={selectedMessage}
+            />
+          </DialogContent>
+        </Dialog>
       )}
 
       {canReadActiveAccount && (
