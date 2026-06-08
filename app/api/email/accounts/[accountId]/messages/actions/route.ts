@@ -7,6 +7,7 @@ import {
   createEmailAiReplyDraft,
   createEmailDerivedDraft,
   deleteEmailMessagePermanently,
+  generateEmailAiReplyBody,
   moveEmailMessage,
   setEmailMessageAnswered,
   setEmailMessageRead,
@@ -17,7 +18,7 @@ import { logEmailClientEvent } from '@/app/lib/email/logging';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 
 type DraftMode = 'forward' | 'reply' | 'reply-all';
-type MessageOperation = 'action' | 'ai-reply' | 'draft' | 'summary';
+type MessageOperation = 'action' | 'ai-reply' | 'ai-reply-preview' | 'draft' | 'summary';
 type EmailMessageAction =
   | 'archive'
   | 'clear-answered'
@@ -46,10 +47,34 @@ function requiredString(value: unknown, field: string): string {
 
 function operationValue(value: unknown): MessageOperation {
   const normalized = stringValue(value);
-  if (normalized === 'action' || normalized === 'ai-reply' || normalized === 'draft' || normalized === 'summary') {
+  if (
+    normalized === 'action'
+    || normalized === 'ai-reply'
+    || normalized === 'ai-reply-preview'
+    || normalized === 'draft'
+    || normalized === 'summary'
+  ) {
     return normalized;
   }
   throw new Error('Unsupported email message operation.');
+}
+
+function optionalStringValue(value: unknown): string | undefined {
+  return typeof value === 'string' ? value.trim() || undefined : undefined;
+}
+
+function stringListValue(value: unknown): string[] | undefined {
+  if (Array.isArray(value)) {
+    return value
+      .map((entry) => typeof entry === 'string' ? entry.trim() : '')
+      .filter(Boolean);
+  }
+  if (typeof value !== 'string') return undefined;
+  const normalized = value
+    .split(/[,\n;]/u)
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+  return normalized.length > 0 ? normalized : undefined;
 }
 
 function draftMode(value: unknown): DraftMode {
@@ -129,9 +154,18 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       data = await createEmailAiReplyDraft(session.user.id, accountId, messageId, folder);
     }
 
+    if (operation === 'ai-reply-preview') {
+      data = await generateEmailAiReplyBody(session.user.id, accountId, messageId, folder);
+    }
+
     if (operation === 'draft') {
       if (!mode) throw new Error('Unsupported email draft mode.');
-      data = await createEmailDerivedDraft(session.user.id, accountId, messageId, folder, mode);
+      data = await createEmailDerivedDraft(session.user.id, accountId, messageId, folder, mode, {
+        bodyOverride: optionalStringValue((body as { bodyOverride?: unknown }).bodyOverride),
+        cc: stringListValue((body as { cc?: unknown }).cc),
+        subject: optionalStringValue((body as { subject?: unknown }).subject),
+        to: stringListValue((body as { to?: unknown }).to),
+      });
     }
 
     if (operation === 'action') {

@@ -32,7 +32,7 @@ import { useTranslations } from 'next-intl';
 import { EmailAccountsCard } from '@/app/components/settings/IntegrationsSettingsClient';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -40,6 +40,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
 
 type EmailAccount = {
@@ -91,6 +92,19 @@ type EmailMessageDetail = EmailMessageSummary & {
     contentType?: string;
     size?: number;
   }>;
+};
+
+type EmailComposeMode = 'forward' | 'reply' | 'reply-all';
+
+type EmailComposeDraft = {
+  aiGenerated?: boolean;
+  body: string;
+  ccText: string;
+  folder: string;
+  message: EmailMessageDetail;
+  mode: EmailComposeMode;
+  subject: string;
+  toText: string;
 };
 
 const MESSAGE_PAGE_SIZE = 20;
@@ -192,6 +206,64 @@ function formatRecipients(value: string[] | string | undefined) {
   if (!value) return '';
   if (Array.isArray(value)) return value.filter(Boolean).join(', ');
   return value;
+}
+
+function extractEmailAddressForCompose(value: unknown): string {
+  if (!value) return '';
+  if (typeof value === 'string') {
+    const match = value.match(/<([^<>@\s]+@[^<>@\s]+)>/u) || value.match(/([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})/iu);
+    return (match?.[1] || '').trim().toLowerCase();
+  }
+  if (typeof value === 'object') {
+    const record = value as {
+      address?: unknown;
+      email?: unknown;
+      emailAddress?: { address?: unknown };
+    };
+    return extractEmailAddressForCompose(record.emailAddress?.address || record.address || record.email);
+  }
+  return '';
+}
+
+function splitRecipientInput(value: string): string[] {
+  return value
+    .split(/[,\n;]/u)
+    .map((entry) => extractEmailAddressForCompose(entry) || entry.trim())
+    .filter(Boolean);
+}
+
+function extractRecipientEmailsForCompose(value: string[] | string | undefined): string[] {
+  if (!value) return [];
+  if (Array.isArray(value)) return value.flatMap(extractRecipientEmailsForCompose);
+  return splitRecipientInput(value);
+}
+
+function uniqueComposeRecipients(values: string[], ownAddresses = new Set<string>()): string[] {
+  const seen = new Set<string>();
+  const recipients: string[] = [];
+  for (const value of values) {
+    const email = extractEmailAddressForCompose(value);
+    if (!email || ownAddresses.has(email) || seen.has(email)) continue;
+    seen.add(email);
+    recipients.push(email);
+  }
+  return recipients;
+}
+
+function composeRecipientText(values: string[]) {
+  return values.join(', ');
+}
+
+function replySubjectForCompose(subject: string) {
+  const normalized = subject.trim();
+  if (!normalized) return 'Re:';
+  return /^re:/iu.test(normalized) ? normalized : `Re: ${normalized}`;
+}
+
+function forwardSubjectForCompose(subject: string) {
+  const normalized = subject.trim();
+  if (!normalized) return 'Fwd:';
+  return /^(fwd|fw):/iu.test(normalized) ? normalized : `Fwd: ${normalized}`;
 }
 
 function extractBlockedSendPolicyRecipient(error: string | null): string | null {
@@ -457,6 +529,22 @@ type EmailMessageViewerLabels = {
   unknownAttachmentType: string;
 };
 
+type EmailComposeDialogLabels = Pick<EmailMessageViewerLabels, 'cc' | 'date' | 'emptyBody' | 'from' | 'noSubject' | 'remoteImagesBlocked' | 'showRemoteImages' | 'to'> & {
+  addRecipientToSendPolicy(email: string): string;
+  cancel: string;
+  composeAiReplyTitle: string;
+  composeBodyLabel: string;
+  composeBodyPlaceholder: string;
+  composeCreateDraft: string;
+  composeCreatingDraft: string;
+  composeDescription: string;
+  composeForwardTitle: string;
+  composeOriginalTitle: string;
+  composeReplyAllTitle: string;
+  composeReplyTitle: string;
+  subject: string;
+};
+
 type EmailMessageActionName =
   | 'archive'
   | 'ai-reply'
@@ -674,6 +762,159 @@ function EmailMessageViewer({
   );
 }
 
+function composeDialogTitle(draft: EmailComposeDraft, labels: EmailComposeDialogLabels) {
+  if (draft.aiGenerated) return labels.composeAiReplyTitle;
+  if (draft.mode === 'forward') return labels.composeForwardTitle;
+  if (draft.mode === 'reply-all') return labels.composeReplyAllTitle;
+  return labels.composeReplyTitle;
+}
+
+function EmailComposeDialog({
+  draft,
+  error,
+  isAddingSendPolicyRecipient,
+  isSubmitting,
+  labels,
+  onAddSendPolicyRecipient,
+  onClose,
+  onSubmit,
+  onUpdate,
+}: {
+  draft: EmailComposeDraft | null;
+  error: string | null;
+  isAddingSendPolicyRecipient: boolean;
+  isSubmitting: boolean;
+  labels: EmailComposeDialogLabels;
+  onAddSendPolicyRecipient(email: string): void;
+  onClose(): void;
+  onSubmit(): void;
+  onUpdate(updates: Partial<Pick<EmailComposeDraft, 'body' | 'ccText' | 'subject' | 'toText'>>): void;
+}) {
+  const blockedRecipient = useMemo(() => extractBlockedSendPolicyRecipient(error), [error]);
+
+  return (
+    <Dialog
+      open={Boolean(draft)}
+      onOpenChange={(open) => {
+        if (!open && !isSubmitting) onClose();
+      }}
+    >
+      <DialogContent layout="viewport">
+        {draft && (
+          <>
+            <DialogHeader className="shrink-0 border-b border-border px-4 py-4 pr-12 sm:px-6">
+              <DialogTitle>{composeDialogTitle(draft, labels)}</DialogTitle>
+              <DialogDescription>{labels.composeDescription}</DialogDescription>
+            </DialogHeader>
+            <div className="min-h-0 flex-1 overflow-y-auto px-3 py-4 sm:px-6">
+              <div className="grid min-h-full gap-4 lg:grid-cols-[minmax(300px,440px)_minmax(0,1fr)]">
+                <section className="min-w-0 space-y-3">
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground" htmlFor="email-compose-to">
+                      {labels.to}
+                    </label>
+                    <Input
+                      id="email-compose-to"
+                      value={draft.toText}
+                      onChange={(event) => onUpdate({ toText: event.target.value })}
+                      disabled={isSubmitting}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground" htmlFor="email-compose-cc">
+                      {labels.cc}
+                    </label>
+                    <Input
+                      id="email-compose-cc"
+                      value={draft.ccText}
+                      onChange={(event) => onUpdate({ ccText: event.target.value })}
+                      disabled={isSubmitting}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground" htmlFor="email-compose-subject">
+                      {labels.subject}
+                    </label>
+                    <Input
+                      id="email-compose-subject"
+                      value={draft.subject}
+                      onChange={(event) => onUpdate({ subject: event.target.value })}
+                      disabled={isSubmitting}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground" htmlFor="email-compose-body">
+                      {labels.composeBodyLabel}
+                    </label>
+                    <Textarea
+                      id="email-compose-body"
+                      value={draft.body}
+                      onChange={(event) => onUpdate({ body: event.target.value })}
+                      placeholder={labels.composeBodyPlaceholder}
+                      className="min-h-52 resize-y"
+                      disabled={isSubmitting}
+                    />
+                  </div>
+                  {error && (
+                    <div className="space-y-2 border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                      <p className="break-words">{error}</p>
+                      {blockedRecipient && (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="w-full border-destructive/40 bg-background text-foreground hover:bg-destructive/10 sm:w-auto"
+                          onClick={() => onAddSendPolicyRecipient(blockedRecipient)}
+                          disabled={isAddingSendPolicyRecipient}
+                        >
+                          {isAddingSendPolicyRecipient ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
+                          {labels.addRecipientToSendPolicy(blockedRecipient)}
+                        </Button>
+                      )}
+                    </div>
+                  )}
+                </section>
+
+                <section className="min-w-0 overflow-hidden border border-border bg-card">
+                  <div className="border-b border-border px-3 py-3 sm:px-4">
+                    <div className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                      {labels.composeOriginalTitle}
+                    </div>
+                    <h3 className="mt-2 truncate text-base font-semibold">{draft.message.subject || labels.noSubject}</h3>
+                    <div className="mt-2 space-y-1 text-xs text-muted-foreground">
+                      <p className="truncate"><span className="font-medium text-foreground">{labels.from}:</span> {draft.message.from}</p>
+                      {formatRecipients(draft.message.to) && <p className="truncate"><span className="font-medium text-foreground">{labels.to}:</span> {formatRecipients(draft.message.to)}</p>}
+                      {formatRecipients(draft.message.cc) && <p className="truncate"><span className="font-medium text-foreground">{labels.cc}:</span> {formatRecipients(draft.message.cc)}</p>}
+                      {draft.message.date && <p className="truncate"><span className="font-medium text-foreground">{labels.date}:</span> {formatDate(draft.message.date)}</p>}
+                    </div>
+                  </div>
+                  <div className="max-h-[42dvh] overflow-y-auto px-3 py-3 sm:px-4 lg:max-h-[calc(100dvh-20rem)]">
+                    <EmailMessageBody
+                      message={draft.message}
+                      emptyText={labels.emptyBody}
+                      remoteImagesBlockedText={labels.remoteImagesBlocked}
+                      showRemoteImagesText={labels.showRemoteImages}
+                    />
+                  </div>
+                </section>
+              </div>
+            </div>
+            <DialogFooter className="shrink-0 border-t border-border px-4 py-3 sm:px-6">
+              <Button type="button" variant="outline" onClick={onClose} disabled={isSubmitting}>
+                {labels.cancel}
+              </Button>
+              <Button type="button" onClick={onSubmit} disabled={isSubmitting}>
+                {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Mail className="mr-2 h-4 w-4" />}
+                {isSubmitting ? labels.composeCreatingDraft : labels.composeCreateDraft}
+              </Button>
+            </DialogFooter>
+          </>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export function EmailClient() {
   const t = useTranslations('emails');
   const [accountsOpen, setAccountsOpen] = useState(false);
@@ -697,6 +938,9 @@ export function EmailClient() {
   const [isLoadingMessage, setIsLoadingMessage] = useState(false);
   const [activeMessageAction, setActiveMessageAction] = useState<EmailMessageActionName | null>(null);
   const [isAddingSendPolicyRecipient, setIsAddingSendPolicyRecipient] = useState(false);
+  const [composeDraft, setComposeDraft] = useState<EmailComposeDraft | null>(null);
+  const [composeError, setComposeError] = useState<string | null>(null);
+  const [isSubmittingCompose, setIsSubmittingCompose] = useState(false);
   const [messageActionNotice, setMessageActionNotice] = useState<string | null>(null);
   const [messageSummary, setMessageSummary] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -891,10 +1135,12 @@ export function EmailClient() {
     setSubmittedQuery(query.trim());
   };
 
-  const addBlockedRecipientToSendPolicy = useCallback(async () => {
-    if (!activeAccount || !blockedSendPolicyRecipient) return;
+  const addRecipientToSendPolicy = useCallback(async (email: string) => {
+    if (!activeAccount || !email) return;
+    const normalizedEmail = email.trim().toLowerCase();
+    if (!normalizedEmail) return;
     const currentSendTo = activeAccount.policy?.sendTo || [];
-    const nextSendTo = Array.from(new Set([...currentSendTo, blockedSendPolicyRecipient]));
+    const nextSendTo = Array.from(new Set([...currentSendTo, normalizedEmail]));
     setIsAddingSendPolicyRecipient(true);
     setMessageActionNotice(null);
 
@@ -913,17 +1159,110 @@ export function EmailClient() {
           ? updatedAccount || { ...account, policy: { ...account.policy, sendTo: nextSendTo } }
           : account
       )));
-      setError(null);
-      setMessageActionNotice(t('sendPolicyRecipientAdded', { email: blockedSendPolicyRecipient }));
+      setError((current) => extractBlockedSendPolicyRecipient(current) === normalizedEmail ? null : current);
+      setComposeError((current) => extractBlockedSendPolicyRecipient(current) === normalizedEmail ? null : current);
+      setMessageActionNotice(t('sendPolicyRecipientAdded', { email: normalizedEmail }));
     } catch (policyError) {
       setError(policyError instanceof Error ? policyError.message : t('errors.updatePolicy'));
     } finally {
       setIsAddingSendPolicyRecipient(false);
     }
-  }, [activeAccount, blockedSendPolicyRecipient, t]);
+  }, [activeAccount, t]);
+
+  const addBlockedRecipientToSendPolicy = useCallback(async () => {
+    if (!blockedSendPolicyRecipient) return;
+    await addRecipientToSendPolicy(blockedSendPolicyRecipient);
+  }, [addRecipientToSendPolicy, blockedSendPolicyRecipient]);
+
+  const buildComposeDraft = useCallback((mode: EmailComposeMode, message: EmailMessageDetail, body = '', aiGenerated = false): EmailComposeDraft => {
+    const ownAddresses = new Set(accounts.map((account) => account.emailAddress.trim().toLowerCase()).filter(Boolean));
+    const from = extractEmailAddressForCompose(message.from);
+    const originalTo = extractRecipientEmailsForCompose(message.to);
+    const originalCc = extractRecipientEmailsForCompose(message.cc);
+    const to = mode === 'forward'
+      ? []
+      : uniqueComposeRecipients([from, ...(mode === 'reply-all' ? originalTo : [])], ownAddresses);
+    const cc = mode === 'reply-all' ? uniqueComposeRecipients(originalCc, ownAddresses) : [];
+    const subject = mode === 'forward'
+      ? forwardSubjectForCompose(message.subject || '')
+      : replySubjectForCompose(message.subject || '');
+
+    return {
+      aiGenerated,
+      body,
+      ccText: composeRecipientText(cc),
+      folder: message.folder || activeFolder,
+      message,
+      mode,
+      subject,
+      toText: composeRecipientText(to),
+    };
+  }, [accounts, activeFolder]);
+
+  const openComposeDraft = useCallback((mode: EmailComposeMode, message: EmailMessageDetail, body = '', aiGenerated = false) => {
+    setComposeError(null);
+    setError(null);
+    setMessageActionNotice(null);
+    setComposeDraft(buildComposeDraft(mode, message, body, aiGenerated));
+    setMessageDialogOpen(false);
+  }, [buildComposeDraft]);
+
+  const updateComposeDraft = useCallback((updates: Partial<Pick<EmailComposeDraft, 'body' | 'ccText' | 'subject' | 'toText'>>) => {
+    setComposeDraft((current) => current ? { ...current, ...updates } : current);
+  }, []);
+
+  const closeComposeDialog = useCallback(() => {
+    if (isSubmittingCompose) return;
+    setComposeDraft(null);
+    setComposeError(null);
+  }, [isSubmittingCompose]);
+
+  const submitComposeDraft = useCallback(async () => {
+    if (!activeAccount || !composeDraft) return;
+    setIsSubmittingCompose(true);
+    setComposeError(null);
+    setError(null);
+    setMessageActionNotice(null);
+
+    try {
+      const response = await fetch(`/api/email/accounts/${encodeURIComponent(activeAccount.id)}/messages/actions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          bodyOverride: composeDraft.body,
+          cc: splitRecipientInput(composeDraft.ccText),
+          folder: composeDraft.folder,
+          messageId: composeDraft.message.id,
+          mode: composeDraft.mode,
+          operation: 'draft',
+          subject: composeDraft.subject,
+          to: splitRecipientInput(composeDraft.toText),
+        }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload.success) throw new Error(payload.error || t('errors.updateMessage'));
+      setComposeDraft(null);
+      setComposeError(null);
+      setMessageActionNotice(t(composeDraft.aiGenerated ? 'aiReplyDraftCreated' : 'draftCreated'));
+    } catch (submitError) {
+      const message = isFetchNetworkError(submitError)
+        ? t('errors.actionRequest')
+        : submitError instanceof Error ? submitError.message : t('errors.updateMessage');
+      setComposeError(message);
+      setError(message);
+    } finally {
+      setIsSubmittingCompose(false);
+    }
+  }, [activeAccount, composeDraft, t]);
 
   const handleMessageAction = useCallback(async (action: EmailMessageActionName, destination?: string) => {
     if (!activeAccount || !selectedMessage) return;
+    if (action === 'draft-reply' || action === 'draft-reply-all' || action === 'draft-forward') {
+      const mode = action === 'draft-forward' ? 'forward' : action === 'draft-reply-all' ? 'reply-all' : 'reply';
+      openComposeDraft(mode, selectedMessage);
+      return;
+    }
     if (action === 'permanent-delete' && !window.confirm(t('confirmPermanentDelete'))) return;
 
     const folder = selectedMessage.folder || activeFolder;
@@ -937,10 +1276,7 @@ export function EmailClient() {
       if (action === 'summary') {
         body = { folder, messageId: selectedMessage.id, operation: 'summary' };
       } else if (action === 'ai-reply') {
-        body = { folder, messageId: selectedMessage.id, operation: 'ai-reply' };
-      } else if (action === 'draft-reply' || action === 'draft-reply-all' || action === 'draft-forward') {
-        const mode = action === 'draft-forward' ? 'forward' : action === 'draft-reply-all' ? 'reply-all' : 'reply';
-        body = { folder, messageId: selectedMessage.id, mode, operation: 'draft' };
+        body = { folder, messageId: selectedMessage.id, operation: 'ai-reply-preview' };
       } else {
         body = { action, destination, folder, messageId: selectedMessage.id, operation: 'action' };
       }
@@ -961,12 +1297,7 @@ export function EmailClient() {
       }
 
       if (action === 'ai-reply') {
-        setMessageActionNotice(t('aiReplyDraftCreated'));
-        return;
-      }
-
-      if (action === 'draft-reply' || action === 'draft-reply-all' || action === 'draft-forward') {
-        setMessageActionNotice(t('draftCreated'));
+        openComposeDraft('reply', selectedMessage, String(payload.data?.body || ''), true);
         return;
       }
 
@@ -1000,7 +1331,7 @@ export function EmailClient() {
     } finally {
       setActiveMessageAction(null);
     }
-  }, [activeAccount, activeFolder, loadFolders, selectedMessage, t]);
+  }, [activeAccount, activeFolder, loadFolders, openComposeDraft, selectedMessage, t]);
 
   const messageOffset = messagePage * MESSAGE_PAGE_SIZE;
   const messageStart = messages.length > 0 ? messageOffset + 1 : 0;
@@ -1042,6 +1373,29 @@ export function EmailClient() {
     to: t('to'),
     trash: t('trash'),
     unknownAttachmentType: t('unknownAttachmentType'),
+  };
+  const composeDialogLabels: EmailComposeDialogLabels = {
+    addRecipientToSendPolicy: (email: string) => t('addRecipientToSendPolicy', { email }),
+    cancel: t('composeCancel'),
+    cc: t('cc'),
+    composeAiReplyTitle: t('composeAiReplyTitle'),
+    composeBodyLabel: t('composeBodyLabel'),
+    composeBodyPlaceholder: t('composeBodyPlaceholder'),
+    composeCreateDraft: t('composeCreateDraft'),
+    composeCreatingDraft: t('composeCreatingDraft'),
+    composeDescription: t('composeDescription'),
+    composeForwardTitle: t('composeForwardTitle'),
+    composeOriginalTitle: t('composeOriginalTitle'),
+    composeReplyAllTitle: t('composeReplyAllTitle'),
+    composeReplyTitle: t('composeReplyTitle'),
+    date: t('date'),
+    emptyBody: t('emptyBody'),
+    from: t('from'),
+    noSubject: t('noSubject'),
+    remoteImagesBlocked: t('remoteImagesBlocked'),
+    showRemoteImages: t('showRemoteImages'),
+    subject: t('subject'),
+    to: t('to'),
   };
 
   if (isLoadingAccounts) {
@@ -1343,6 +1697,18 @@ export function EmailClient() {
           </DialogContent>
         </Dialog>
       )}
+
+      <EmailComposeDialog
+        draft={composeDraft}
+        error={composeError}
+        isAddingSendPolicyRecipient={isAddingSendPolicyRecipient}
+        isSubmitting={isSubmittingCompose}
+        labels={composeDialogLabels}
+        onAddSendPolicyRecipient={(email) => void addRecipientToSendPolicy(email)}
+        onClose={closeComposeDialog}
+        onSubmit={() => void submitComposeDraft()}
+        onUpdate={updateComposeDraft}
+      />
 
       {accounts.length > 0 && (
         <Dialog open={accountsOpen} onOpenChange={setAccountsOpen}>
