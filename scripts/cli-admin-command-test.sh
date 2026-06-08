@@ -127,4 +127,14 @@ if grep -q 'RecoveryPassword123!' "$CANVAS_MANAGER_LOG_DIR/manager.log" 2>/dev/n
   exit 1
 fi
 
+if "$TMP_DIR/install/bin/canvas-notebook" config-set env.BOOTSTRAP_ADMIN_PASSWORD should-not-store --json --no-banner >"$TMP_DIR/config-set-output.json" 2>&1; then
+  echo "BOOTSTRAP_ADMIN_PASSWORD config-set unexpectedly succeeded" >&2
+  exit 1
+fi
+
+if grep -q 'should-not-store' "$CANVAS_CONFIG_JSON" 2>/dev/null; then
+  echo "BOOTSTRAP_ADMIN_PASSWORD was written to config.json" >&2
+  exit 1
+fi
+
 echo "cli admin command tests passed"

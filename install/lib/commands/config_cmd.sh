@@ -1,13 +1,12 @@
 #!/usr/bin/env bash
 
-_MASKED_JSON_KEYS=("BETTER_AUTH_SECRET" "CANVAS_INTERNAL_API_KEY" "BOOTSTRAP_ADMIN_PASSWORD")
+_MASKED_JSON_KEYS=("BETTER_AUTH_SECRET" "CANVAS_INTERNAL_API_KEY")
 
 _mask_json_secrets() {
   local input="$1"
   local jq_expr
   jq_expr='.env.BETTER_AUTH_SECRET = (if .env.BETTER_AUTH_SECRET == "" then "(not set)" else (.env.BETTER_AUTH_SECRET | .[0:4] + "***") end)
-    | .env.CANVAS_INTERNAL_API_KEY = (if .env.CANVAS_INTERNAL_API_KEY == "" then "(not set)" else (.env.CANVAS_INTERNAL_API_KEY | .[0:4] + "***") end)
-    | .env.BOOTSTRAP_ADMIN_PASSWORD = (if .env.BOOTSTRAP_ADMIN_PASSWORD == "" then "(not set)" else (.env.BOOTSTRAP_ADMIN_PASSWORD | .[0:4] + "***") end)'
+    | .env.CANVAS_INTERNAL_API_KEY = (if .env.CANVAS_INTERNAL_API_KEY == "" then "(not set)" else (.env.CANVAS_INTERNAL_API_KEY | .[0:4] + "***") end)'
   printf '%s' "$input" | jq "$jq_expr"
 }
 
@@ -35,11 +34,16 @@ cmd_config_set() {
   fi
 
   local key="$1" value="$2"
+
+  if [[ "$key" == "env.BOOTSTRAP_ADMIN_PASSWORD" ]]; then
+    fail "BOOTSTRAP_ADMIN_PASSWORD is not stored in config.json. Use: canvas-notebook admin reset-password --email <email> --password-stdin"
+  fi
+
   config_json_write "$key" "$value"
 
   local display_value="$value"
   case "$key" in
-    env.BETTER_AUTH_SECRET|env.CANVAS_INTERNAL_API_KEY|env.BOOTSTRAP_ADMIN_PASSWORD)
+    env.BETTER_AUTH_SECRET|env.CANVAS_INTERNAL_API_KEY)
       display_value="${value:0:4}***"
       ;;
   esac
