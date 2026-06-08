@@ -47,6 +47,35 @@ test.describe('Studio Generation + Polling', () => {
     createdProductIds = [];
   });
 
+  test('carries dashboard prompt into create generation handoff', async ({ page }) => {
+    await login(page);
+    await page.goto('/studio', { waitUntil: 'networkidle' });
+
+    const prompt = `Dashboard handoff product shot ${Date.now()}`;
+    await page.locator('textarea').first().fill(prompt);
+
+    const genRequest = page.waitForRequest(
+      (req) => req.url().includes('/api/studio/generate') && req.method() === 'POST',
+    );
+    const genResponse = page.waitForResponse(
+      (resp) => resp.url().includes('/api/studio/generate') && resp.status() === 201,
+    );
+
+    const generateButton = page.getByRole('button', { name: /generat|erstellen|create/i }).last();
+    await generateButton.click();
+
+    const request = await genRequest;
+    const payload = JSON.parse(request.postData() || '{}') as { prompt?: string };
+    expect(payload.prompt).toBe(prompt);
+
+    const response = await genResponse;
+    const data = await response.json();
+    expect(data.success).toBe(true);
+    expect(data.generationId).toBeTruthy();
+    createdGenerationIds.push(data.generationId);
+    await expect(page).toHaveURL(/\/studio\/create\?generation=/, { timeout: 10000 });
+  });
+
   test('starts a text-to-image generation', async ({ page }) => {
     await login(page);
     await page.goto('/studio/create', { waitUntil: 'networkidle' });
