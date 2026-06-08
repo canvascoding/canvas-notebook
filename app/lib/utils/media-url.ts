@@ -57,8 +57,26 @@ export function toMediaUrl(filePath: string) {
 export function toHtmlPreviewUrl(filePath: string) {
   const encodedPath = encodePathSegments(filePath);
 
-  if (filePath.startsWith('studio/') || filePath.startsWith('studio-gen-') || filePath.startsWith('user-uploads/studio-references/') || filePath.startsWith('presets/') || filePath.startsWith('products/') || filePath.startsWith('personas/') || filePath.startsWith('styles/') || filePath.startsWith('references/')) {
+  if (filePath.startsWith('studio/')) {
     return `/api/studio/media/preview/${encodedPath}`;
+  }
+
+  if (filePath.startsWith('studio-gen-')) {
+    return `/api/studio/media/preview/studio/outputs/${encodedPath}`;
+  }
+
+  if (filePath.startsWith('user-uploads/studio-references/')) {
+    return `/api/studio/media/preview/${encodedPath}`;
+  }
+
+  if (
+    filePath.startsWith('presets/') ||
+    filePath.startsWith('products/') ||
+    filePath.startsWith('personas/') ||
+    filePath.startsWith('styles/') ||
+    filePath.startsWith('references/')
+  ) {
+    return `/api/studio/media/preview/studio/assets/${encodedPath}`;
   }
 
   return `/api/media/preview/${encodedPath}`;
