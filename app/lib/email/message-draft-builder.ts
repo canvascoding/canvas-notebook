@@ -2,6 +2,13 @@ import 'server-only';
 
 export type EmailDerivedDraftMode = 'forward' | 'reply' | 'reply-all';
 
+export type EmailDerivedDraftOverrides = {
+  bodyOverride?: string;
+  cc?: string[];
+  subject?: string;
+  to?: string[];
+};
+
 type EmailDraftInput = {
   accountId?: string;
   to: string[];
@@ -14,11 +21,10 @@ type EmailDraftInput = {
 
 type BuildEmailDerivedDraftInput = {
   accountId: string;
-  bodyOverride?: string;
   message: Record<string, unknown>;
   mode: EmailDerivedDraftMode;
   ownAddresses: Set<string>;
-};
+} & EmailDerivedDraftOverrides;
 
 export function htmlToPlainText(value: string): string {
   return value
@@ -96,6 +102,19 @@ function uniqueAddresses(values: string[], ownAddresses: Set<string>): string[] 
   return result;
 }
 
+function overrideAddresses(values: string[] | undefined): string[] | undefined {
+  if (!values) return undefined;
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const value of values) {
+    const email = extractEmailAddress(value);
+    if (!email || seen.has(email)) continue;
+    seen.add(email);
+    result.push(email);
+  }
+  return result;
+}
+
 function quotedBody(message: Record<string, unknown>): string {
   const from = String(message.from || '').trim();
   const date = String(message.date || '').trim();
@@ -123,19 +142,22 @@ export function buildEmailDerivedDraft(input: BuildEmailDerivedDraftInput): Emai
   const from = extractEmailAddress(input.message.from);
   const originalTo = extractEmailAddresses(input.message.to);
   const originalCc = extractEmailAddresses(input.message.cc);
-  const to = isForward
+  const defaultTo = isForward
     ? []
     : uniqueAddresses([from, ...(input.mode === 'reply-all' ? originalTo : [])], input.ownAddresses);
-  const cc = input.mode === 'reply-all' ? uniqueAddresses(originalCc, input.ownAddresses) : [];
+  const defaultCc = input.mode === 'reply-all' ? uniqueAddresses(originalCc, input.ownAddresses) : [];
+  const to = overrideAddresses(input.to) ?? defaultTo;
+  const cc = overrideAddresses(input.cc) ?? defaultCc;
+  const intro = input.bodyOverride?.trim() || '';
   const body = isForward
-    ? `\n\n${forwardedBody(input.message)}`
-    : `${input.bodyOverride?.trim() || ''}\n\n${quotedBody(input.message)}`.trimStart();
+    ? [intro, forwardedBody(input.message)].filter(Boolean).join('\n\n')
+    : [intro, quotedBody(input.message)].filter(Boolean).join('\n\n');
 
   return {
     accountId: input.accountId,
     to,
     cc,
-    subject: isForward ? forwardSubject(subject) : replySubject(subject),
+    subject: input.subject?.trim() || (isForward ? forwardSubject(subject) : replySubject(subject)),
     body,
     is_HTML: false,
   };

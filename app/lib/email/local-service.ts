@@ -26,6 +26,7 @@ import {
 import {
   buildEmailDerivedDraft,
   htmlToPlainText,
+  type EmailDerivedDraftOverrides,
   type EmailDerivedDraftMode,
 } from '@/app/lib/email/message-draft-builder';
 import {
@@ -69,7 +70,7 @@ export type EmailDraftInput = {
   is_HTML?: boolean;
 };
 
-export type { EmailDerivedDraftMode } from '@/app/lib/email/message-draft-builder';
+export type { EmailDerivedDraftMode, EmailDerivedDraftOverrides } from '@/app/lib/email/message-draft-builder';
 
 type LegacyLocalEmailAccount = {
   id: string;
@@ -1027,7 +1028,7 @@ export async function createLocalEmailDerivedDraft(
   messageId: string,
   folder: string | undefined,
   mode: EmailDerivedDraftMode,
-  bodyOverride?: string,
+  overrides?: EmailDerivedDraftOverrides,
 ) {
   const account = await findLocalEmailAccount(userId, accountId);
   const result = await readLocalEmailMessage(userId, account.id, messageId, folder);
@@ -1035,10 +1036,10 @@ export async function createLocalEmailDerivedDraft(
   const ownAddresses = await ownEmailAddressesForUser(userId, account);
   const draftInput = buildEmailDerivedDraft({
     accountId: account.id,
-    bodyOverride,
     message,
     mode,
     ownAddresses,
+    ...overrides,
   });
 
   return {
@@ -1048,10 +1049,19 @@ export async function createLocalEmailDerivedDraft(
   };
 }
 
-export async function createLocalEmailAiReplyDraft(userId: string, accountId: string, messageId: string, folder?: string) {
+export async function generateLocalEmailAiReplyBody(userId: string, accountId: string, messageId: string, folder?: string) {
   const result = await readLocalEmailMessage(userId, accountId, messageId, folder);
   const body = await draftEmailReplyWithAi(result.message as Record<string, unknown>);
-  return createLocalEmailDerivedDraft(userId, accountId, messageId, folder, 'reply', body);
+  return {
+    account: result.account,
+    body,
+    messageId,
+  };
+}
+
+export async function createLocalEmailAiReplyDraft(userId: string, accountId: string, messageId: string, folder?: string) {
+  const result = await generateLocalEmailAiReplyBody(userId, accountId, messageId, folder);
+  return createLocalEmailDerivedDraft(userId, accountId, messageId, folder, 'reply', { bodyOverride: result.body });
 }
 
 export async function createLocalEmailDraft(userId: string, input: EmailDraftInput) {

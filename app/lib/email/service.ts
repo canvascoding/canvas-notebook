@@ -7,6 +7,7 @@ import {
   createLocalEmailDraft,
   deleteLocalEmailMessagePermanently,
   disconnectLocalEmailAccount,
+  generateLocalEmailAiReplyBody,
   getLocalEmailOAuthStatus,
   listLocalEmailFolders,
   listLocalEmailAccounts,
@@ -23,6 +24,7 @@ import {
   trashLocalEmailMessage,
   updateLocalEmailDraft,
   updateLocalEmailPolicy,
+  type EmailDerivedDraftOverrides,
   type EmailDerivedDraftMode,
   type EmailDraftInput,
   type EmailPolicy,
@@ -173,8 +175,13 @@ export async function createEmailDerivedDraft(
   messageId: string,
   folder: string | undefined,
   mode: EmailDerivedDraftMode,
+  overrides?: EmailDerivedDraftOverrides,
 ) {
-  return createLocalEmailDerivedDraft(userId, accountId, messageId, folder, mode);
+  return createLocalEmailDerivedDraft(userId, accountId, messageId, folder, mode, overrides);
+}
+
+export async function generateEmailAiReplyBody(userId: string, accountId: string, messageId: string, folder?: string) {
+  return generateLocalEmailAiReplyBody(userId, accountId, messageId, folder);
 }
 
 export async function createEmailAiReplyDraft(userId: string, accountId: string, messageId: string, folder?: string) {
