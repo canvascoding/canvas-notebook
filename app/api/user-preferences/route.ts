@@ -43,6 +43,13 @@ export async function PATCH(request: NextRequest) {
     updates.emailAllowRemoteImages = payload.emailAllowRemoteImages;
   }
 
+  if (payload && typeof payload === 'object' && 'emailRemoteImageAllowedSenders' in payload) {
+    if (!Array.isArray(payload.emailRemoteImageAllowedSenders)) {
+      return NextResponse.json({ success: false, error: 'Unsupported email remote image sender setting.' }, { status: 400 });
+    }
+    updates.emailRemoteImageAllowedSenders = payload.emailRemoteImageAllowedSenders;
+  }
+
   if (Object.keys(updates).length === 0) {
     return NextResponse.json({ success: false, error: 'No supported preference update provided.' }, { status: 400 });
   }
