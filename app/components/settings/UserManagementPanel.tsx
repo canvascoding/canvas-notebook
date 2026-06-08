@@ -66,6 +66,11 @@ type CreateUserDraft = {
   isAdmin: boolean;
 };
 
+type RoleChangeTarget = {
+  user: ManagedUser;
+  nextRole: 'admin' | 'user';
+};
+
 function unwrapAuthResult<T>(result: unknown, fallbackMessage: string): T {
   const typed = result as AuthResult<T>;
   if (typed?.error) {
@@ -100,6 +105,39 @@ function createEmptyDraft(): CreateUserDraft {
   };
 }
 
+function getRoleDialogCopy(locale: string, target: RoleChangeTarget | null): {
+  title: string;
+  description: string;
+  submit: string;
+} {
+  if (!target) {
+    return {
+      title: '',
+      description: '',
+      submit: '',
+    };
+  }
+
+  const isGerman = locale.toLowerCase().startsWith('de');
+  const roleLabel = target.nextRole === 'admin'
+    ? isGerman ? 'Admin' : 'administrator'
+    : isGerman ? 'User' : 'regular user';
+
+  if (isGerman) {
+    return {
+      title: 'Rolle ändern',
+      description: `${target.user.email} wird zu ${roleLabel} geändert. Bitte bestätige diese Berechtigungsänderung.`,
+      submit: 'Rolle ändern',
+    };
+  }
+
+  return {
+    title: 'Change role',
+    description: `${target.user.email} will be changed to ${roleLabel}. Confirm this permission change before continuing.`,
+    submit: 'Change role',
+  };
+}
+
 export function UserManagementPanel({
   currentUserId,
   isAdmin,
@@ -122,6 +160,7 @@ export function UserManagementPanel({
   const [createDraft, setCreateDraft] = useState<CreateUserDraft>(() => createEmptyDraft());
   const [passwordTarget, setPasswordTarget] = useState<ManagedUser | null>(null);
   const [passwordDraft, setPasswordDraft] = useState('');
+  const [roleTarget, setRoleTarget] = useState<RoleChangeTarget | null>(null);
   const [banTarget, setBanTarget] = useState<ManagedUser | null>(null);
   const [banReason, setBanReason] = useState('');
   const [deleteTarget, setDeleteTarget] = useState<ManagedUser | null>(null);
@@ -224,7 +263,9 @@ export function UserManagementPanel({
     );
   };
 
-  const setRole = async (user: ManagedUser, nextRole: 'admin' | 'user') => {
+  const changeRole = async () => {
+    if (!roleTarget) return;
+    const { user, nextRole } = roleTarget;
     if (user.id === currentUserId) {
       setError(t('errors.selfRole'));
       return;
@@ -237,6 +278,7 @@ export function UserManagementPanel({
           await authClient.admin.setRole({ userId: user.id, role: nextRole }),
           t('errors.role'),
         );
+        setRoleTarget(null);
       },
       t('messages.roleUpdated', { email: user.email }),
     );
@@ -317,6 +359,7 @@ export function UserManagementPanel({
   };
 
   const userRows = useMemo(() => users, [users]);
+  const roleDialogCopy = getRoleDialogCopy(locale, roleTarget);
 
   const renderUserActions = (user: ManagedUser, options: { compact?: boolean } = {}) => {
     const role = normalizeRole(user.role);
@@ -335,7 +378,10 @@ export function UserManagementPanel({
           variant="outline"
           size="sm"
           className={buttonClassName}
-          onClick={() => void setRole(user, role === 'admin' ? 'user' : 'admin')}
+          onClick={() => {
+            setRoleTarget({ user, nextRole: role === 'admin' ? 'user' : 'admin' });
+            resetTransientState();
+          }}
           disabled={isSelf || isRowBusy || activeAction !== null}
         >
           <Shield data-icon="inline-start" />
@@ -677,6 +723,21 @@ export function UserManagementPanel({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog open={Boolean(roleTarget)} onOpenChange={(open) => !open && setRoleTarget(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{roleDialogCopy.title}</AlertDialogTitle>
+            <AlertDialogDescription>{roleDialogCopy.description}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={activeAction?.startsWith('role:')}>{t('cancel')}</AlertDialogCancel>
+            <AlertDialogAction disabled={activeAction?.startsWith('role:')} onClick={() => void changeRole()}>
+              {roleDialogCopy.submit}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <Dialog open={Boolean(passwordTarget)} onOpenChange={(open) => !open && setPasswordTarget(null)}>
         <DialogContent>
