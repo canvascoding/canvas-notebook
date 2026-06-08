@@ -38,6 +38,7 @@ import {
 } from '@/app/lib/email/policy';
 import {
   createSmtpEmailDraft,
+  sendSmtpEmail,
   sendSmtpEmailDraft,
   updateSmtpEmailDraft,
 } from '@/app/lib/email/smtp-service';
@@ -144,6 +145,13 @@ const googleScopes = [
 ];
 
 const GOOGLE_MODIFY_SCOPE = 'https://www.googleapis.com/auth/gmail.modify';
+const GOOGLE_SEND_SCOPES = new Set([
+  'https://mail.google.com/',
+  'https://www.googleapis.com/auth/gmail.modify',
+  'https://www.googleapis.com/auth/gmail.compose',
+  'https://www.googleapis.com/auth/gmail.send',
+]);
+const MICROSOFT_SEND_SCOPE = 'Mail.Send';
 
 const microsoftScopes = [
   'openid',
@@ -498,6 +506,22 @@ async function assertGoogleModifyScope(account: StoredEmailAccount): Promise<voi
   }
 }
 
+async function assertOAuthSendScope(account: StoredEmailAccount): Promise<void> {
+  const secret = await readStoredEmailAccountSecret(account);
+  if (secret.authType !== 'oauth') throw new Error('Email account is not an OAuth account.');
+  const scopes = String(secret.scope || '').split(/\s+/u).filter(Boolean);
+  if (account.provider === 'google') {
+    if (!scopes.some((scope) => GOOGLE_SEND_SCOPES.has(scope))) {
+      throw new Error('Reconnect this Google email account to grant Gmail send permissions.');
+    }
+    return;
+  }
+
+  if (!scopes.some((scope) => scope.toLowerCase() === MICROSOFT_SEND_SCOPE.toLowerCase())) {
+    throw new Error('Reconnect this Microsoft email account to grant Mail.Send permissions.');
+  }
+}
+
 export async function updateLocalEmailPolicy(userId: string, accountId: string, policy: Partial<EmailPolicy>) {
   return updateStoredEmailPolicy(userId, accountId, policy);
 }
@@ -687,6 +711,16 @@ function encodeRawEmail(input: EmailDraftInput) {
     `Content-Type: ${contentType}; charset=UTF-8`,
   ];
   return base64Url(Buffer.from(`${headers.join('\r\n')}\r\n\r\n${input.body}`, 'utf8'));
+}
+
+function microsoftMessagePayload(input: EmailDraftInput) {
+  return {
+    subject: input.subject,
+    body: { contentType: input.is_HTML ? 'HTML' : 'Text', content: input.body },
+    toRecipients: input.to.map((address) => ({ emailAddress: { address } })),
+    ccRecipients: (input.cc || []).map((address) => ({ emailAddress: { address } })),
+    bccRecipients: (input.bcc || []).map((address) => ({ emailAddress: { address } })),
+  };
 }
 
 async function ownEmailAddressesForUser(userId: string, account: StoredEmailAccount): Promise<Set<string>> {
@@ -1082,13 +1116,7 @@ export async function createLocalEmailDraft(userId: string, input: EmailDraftInp
   } else {
     const result = await microsoftFetch('messages', token, {
       method: 'POST',
-      body: JSON.stringify({
-        subject: normalizedInput.subject,
-        body: { contentType: normalizedInput.is_HTML ? 'HTML' : 'Text', content: normalizedInput.body },
-        toRecipients: normalizedInput.to.map((address) => ({ emailAddress: { address } })),
-        ccRecipients: (normalizedInput.cc || []).map((address) => ({ emailAddress: { address } })),
-        bccRecipients: (normalizedInput.bcc || []).map((address) => ({ emailAddress: { address } })),
-      }),
+      body: JSON.stringify(microsoftMessagePayload(normalizedInput)),
     });
     draft = { id: String(result.id || ''), providerDraft: result };
   }
@@ -1111,16 +1139,68 @@ export async function updateLocalEmailDraft(userId: string, draftId: string, inp
   } else {
     await microsoftFetch(`messages/${encodeURIComponent(draftId)}`, token, {
       method: 'PATCH',
-      body: JSON.stringify({
-        subject: normalizedInput.subject,
-        body: { contentType: normalizedInput.is_HTML ? 'HTML' : 'Text', content: normalizedInput.body },
-        toRecipients: normalizedInput.to.map((address) => ({ emailAddress: { address } })),
-        ccRecipients: (normalizedInput.cc || []).map((address) => ({ emailAddress: { address } })),
-        bccRecipients: (normalizedInput.bcc || []).map((address) => ({ emailAddress: { address } })),
-      }),
+      body: JSON.stringify(microsoftMessagePayload(normalizedInput)),
     });
   }
   return { account: await publicLocalEmailAccount(account), draft: { id: draftId } };
+}
+
+export async function sendLocalEmailMessage(userId: string, input: EmailDraftInput) {
+  const account = await findLocalEmailAccount(userId, input.accountId);
+  const normalizedInput = { ...input, accountId: account.id };
+  assertRecipientsAllowed(account, normalizedInput);
+  if (account.authType === 'smtp_imap') {
+    return sendSmtpEmail(userId, normalizedInput);
+  }
+
+  await assertOAuthSendScope(account);
+  const token = await validAccessToken(account);
+  let messageId: string | null = null;
+  if (account.provider === 'google') {
+    const providerMessage = await gmailFetch('messages/send', token, {
+      method: 'POST',
+      body: JSON.stringify({ raw: encodeRawEmail(normalizedInput) }),
+    });
+    messageId = typeof providerMessage.id === 'string' ? providerMessage.id : null;
+  } else {
+    await microsoftFetch('sendMail', token, {
+      method: 'POST',
+      body: JSON.stringify({ message: microsoftMessagePayload(normalizedInput), saveToSentItems: true }),
+    });
+  }
+
+  return {
+    account: await publicLocalEmailAccount(account),
+    sent: true,
+    messageId,
+  };
+}
+
+export async function sendLocalEmailDerivedMessage(
+  userId: string,
+  accountId: string,
+  messageId: string,
+  folder: string | undefined,
+  mode: EmailDerivedDraftMode,
+  overrides?: EmailDerivedDraftOverrides,
+) {
+  const account = await findLocalEmailAccount(userId, accountId);
+  const result = await readLocalEmailMessage(userId, account.id, messageId, folder);
+  const message = result.message as Record<string, unknown>;
+  const ownAddresses = await ownEmailAddressesForUser(userId, account);
+  const draftInput = buildEmailDerivedDraft({
+    accountId: account.id,
+    message,
+    mode,
+    ownAddresses,
+    ...overrides,
+  });
+
+  return {
+    mode,
+    originalMessageId: messageId,
+    ...(await sendLocalEmailMessage(userId, draftInput)),
+  };
 }
 
 export async function sendLocalEmailDraft(userId: string, accountId: string, draftId: string) {
@@ -1129,6 +1209,7 @@ export async function sendLocalEmailDraft(userId: string, accountId: string, dra
     return sendSmtpEmailDraft(userId, accountId, draftId);
   }
   const token = await validAccessToken(account);
+  await assertOAuthSendScope(account);
   if (account.provider === 'google') {
     const draft = await gmailFetch(`drafts/${encodeURIComponent(draftId)}?format=full`, token);
     const message = draft.message as Record<string, unknown> | undefined;

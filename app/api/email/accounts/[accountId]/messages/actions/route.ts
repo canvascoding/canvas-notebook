@@ -9,6 +9,7 @@ import {
   deleteEmailMessagePermanently,
   generateEmailAiReplyBody,
   moveEmailMessage,
+  sendEmailDerivedMessage,
   setEmailMessageAnswered,
   setEmailMessageRead,
   summarizeEmailMessage,
@@ -18,7 +19,7 @@ import { logEmailClientEvent } from '@/app/lib/email/logging';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 
 type DraftMode = 'forward' | 'reply' | 'reply-all';
-type MessageOperation = 'action' | 'ai-reply' | 'ai-reply-preview' | 'draft' | 'summary';
+type MessageOperation = 'action' | 'ai-reply' | 'ai-reply-preview' | 'draft' | 'send' | 'summary';
 type EmailMessageAction =
   | 'archive'
   | 'clear-answered'
@@ -52,6 +53,7 @@ function operationValue(value: unknown): MessageOperation {
     || normalized === 'ai-reply'
     || normalized === 'ai-reply-preview'
     || normalized === 'draft'
+    || normalized === 'send'
     || normalized === 'summary'
   ) {
     return normalized;
@@ -124,7 +126,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     operation = operationValue((body as { operation?: unknown }).operation);
     let data: unknown;
 
-    if (operation === 'draft') {
+    if (operation === 'draft' || operation === 'send') {
       mode = draftMode((body as { mode?: unknown }).mode);
     }
 
@@ -161,6 +163,16 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     if (operation === 'draft') {
       if (!mode) throw new Error('Unsupported email draft mode.');
       data = await createEmailDerivedDraft(session.user.id, accountId, messageId, folder, mode, {
+        bodyOverride: optionalStringValue((body as { bodyOverride?: unknown }).bodyOverride),
+        cc: stringListValue((body as { cc?: unknown }).cc),
+        subject: optionalStringValue((body as { subject?: unknown }).subject),
+        to: stringListValue((body as { to?: unknown }).to),
+      });
+    }
+
+    if (operation === 'send') {
+      if (!mode) throw new Error('Unsupported email send mode.');
+      data = await sendEmailDerivedMessage(session.user.id, accountId, messageId, folder, mode, {
         bodyOverride: optionalStringValue((body as { bodyOverride?: unknown }).bodyOverride),
         cc: stringListValue((body as { cc?: unknown }).cc),
         subject: optionalStringValue((body as { subject?: unknown }).subject),

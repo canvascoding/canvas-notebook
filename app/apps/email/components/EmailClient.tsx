@@ -538,13 +538,13 @@ type EmailComposeDialogLabels = Pick<EmailMessageViewerLabels, 'cc' | 'date' | '
   composeAiReplyTitle: string;
   composeBodyLabel: string;
   composeBodyPlaceholder: string;
-  composeCreateDraft: string;
-  composeCreatingDraft: string;
   composeDescription: string;
   composeForwardTitle: string;
   composeOriginalTitle: string;
   composeReplyAllTitle: string;
   composeReplyTitle: string;
+  composeSend: string;
+  composeSending: string;
   subject: string;
 };
 
@@ -962,7 +962,7 @@ function EmailComposeDialog({
               </Button>
               <Button type="button" onClick={onSubmit} disabled={isSubmitting}>
                 {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Mail className="mr-2 h-4 w-4" />}
-                {isSubmitting ? labels.composeCreatingDraft : labels.composeCreateDraft}
+                {isSubmitting ? labels.composeSending : labels.composeSend}
               </Button>
             </DialogFooter>
           </>
@@ -1312,7 +1312,7 @@ export function EmailClient() {
           folder: composeDraft.folder,
           messageId: composeDraft.message.id,
           mode: composeDraft.mode,
-          operation: 'draft',
+          operation: 'send',
           subject: composeDraft.subject,
           to: splitRecipientInput(composeDraft.toText),
         }),
@@ -1321,7 +1321,7 @@ export function EmailClient() {
       if (!response.ok || !payload.success) throw new Error(payload.error || t('errors.updateMessage'));
       setComposeDraft(null);
       setComposeError(null);
-      setMessageActionNotice(t(composeDraft.aiGenerated ? 'aiReplyDraftCreated' : 'draftCreated'));
+      setMessageActionNotice(t(composeDraft.aiGenerated ? 'aiReplySent' : 'messageSent'));
     } catch (submitError) {
       const message = isFetchNetworkError(submitError)
         ? t('errors.actionRequest')
@@ -1505,13 +1505,13 @@ export function EmailClient() {
     composeAiReplyTitle: t('composeAiReplyTitle'),
     composeBodyLabel: t('composeBodyLabel'),
     composeBodyPlaceholder: t('composeBodyPlaceholder'),
-    composeCreateDraft: t('composeCreateDraft'),
-    composeCreatingDraft: t('composeCreatingDraft'),
     composeDescription: t('composeDescription'),
     composeForwardTitle: t('composeForwardTitle'),
     composeOriginalTitle: t('composeOriginalTitle'),
     composeReplyAllTitle: t('composeReplyAllTitle'),
     composeReplyTitle: t('composeReplyTitle'),
+    composeSend: t('composeSend'),
+    composeSending: t('composeSending'),
     date: t('date'),
     emptyBody: t('emptyBody'),
     from: t('from'),
