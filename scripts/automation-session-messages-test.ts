@@ -81,6 +81,15 @@ assert.deepEqual(
   buildPersistedAutomationMessages({
     existingMessages,
     promptMessage,
+    runMessages: [promptMessage, promptMessage, automationAnswer],
+  }),
+  [existingUser, existingAssistant, promptMessage, automationAnswer],
+);
+
+assert.deepEqual(
+  buildPersistedAutomationMessages({
+    existingMessages,
+    promptMessage,
     runMessages: [existingUser, existingAssistant, promptMessage, automationAnswer],
   }),
   [existingUser, existingAssistant, promptMessage, automationAnswer],

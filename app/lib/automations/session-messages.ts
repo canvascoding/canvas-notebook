@@ -24,6 +24,19 @@ function isPromptMessage(message: AgentMessage | undefined, promptMessage: Agent
   return Boolean(message && sameMessageContent(message, promptMessage));
 }
 
+function collapseRepeatedPromptPrefix(messages: AgentMessage[], promptMessage: AgentMessage): AgentMessage[] {
+  let promptPrefixLength = 0;
+  while (isPromptMessage(messages[promptPrefixLength], promptMessage)) {
+    promptPrefixLength += 1;
+  }
+
+  if (promptPrefixLength <= 1) {
+    return messages;
+  }
+
+  return [messages[0], ...messages.slice(promptPrefixLength)];
+}
+
 export function buildPersistedAutomationMessages(input: {
   existingMessages: AgentMessage[];
   promptMessage: AgentMessage;
@@ -32,9 +45,10 @@ export function buildPersistedAutomationMessages(input: {
   const runTail = startsWithMessagePrefix(input.runMessages, input.existingMessages)
     ? input.runMessages.slice(input.existingMessages.length)
     : input.runMessages;
-  const normalizedRunTail = isPromptMessage(runTail[0], input.promptMessage)
-    ? runTail
-    : [input.promptMessage, ...runTail];
+  const dedupedRunTail = collapseRepeatedPromptPrefix(runTail, input.promptMessage);
+  const normalizedRunTail = isPromptMessage(dedupedRunTail[0], input.promptMessage)
+    ? dedupedRunTail
+    : [input.promptMessage, ...dedupedRunTail];
 
   return [...input.existingMessages, ...normalizedRunTail];
 }
