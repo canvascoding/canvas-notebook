@@ -980,6 +980,8 @@
     "search": "Search",
     "searchPlaceholder": "Search sender, subject, or content...",
     "folders": "Folders",
+    "showFolders": "Show folders",
+    "hideFolders": "Collapse folders",
     "messages": "Messages",
     "messageRange": "{start}-{end} of {total}",
     "messageRangeUnknown": "{start}-{end}",

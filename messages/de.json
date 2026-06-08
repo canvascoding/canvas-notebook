@@ -979,6 +979,8 @@
     "search": "Suchen",
     "searchPlaceholder": "Nach Absender, Betreff oder Inhalt suchen...",
     "folders": "Folder",
+    "showFolders": "Folder anzeigen",
+    "hideFolders": "Folder einklappen",
     "messages": "Nachrichten",
     "messageRange": "{start}-{end} von {total}",
     "messageRangeUnknown": "{start}-{end}",

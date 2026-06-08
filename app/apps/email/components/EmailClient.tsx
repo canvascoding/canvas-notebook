@@ -14,6 +14,8 @@ import {
   Mail,
   MailOpen,
   MailWarning,
+  PanelLeftClose,
+  PanelLeftOpen,
   RefreshCw,
   Reply,
   ReplyAll,
@@ -501,6 +503,7 @@ export function EmailClient() {
   const [selectedMessage, setSelectedMessage] = useState<EmailMessageDetail | null>(null);
   const [isCompactViewport, setIsCompactViewport] = useState(false);
   const [messageDialogOpen, setMessageDialogOpen] = useState(false);
+  const [isFolderSidebarOpen, setIsFolderSidebarOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [submittedQuery, setSubmittedQuery] = useState('');
   const [isLoadingAccounts, setIsLoadingAccounts] = useState(true);
@@ -516,6 +519,10 @@ export function EmailClient() {
   const activeAccount = useMemo(
     () => accounts.find((account) => account.id === activeAccountId) || accounts[0] || null,
     [accounts, activeAccountId],
+  );
+  const activeFolderName = useMemo(
+    () => folders.find((folder) => folder.path === activeFolder)?.name || activeFolder,
+    [activeFolder, folders],
   );
   const canReadActiveAccount = Boolean(activeAccount && (activeAccount.authType !== 'smtp_imap' || activeAccount.imapHost));
   const blockedSendPolicyRecipient = useMemo(() => extractBlockedSendPolicyRecipient(error), [error]);
@@ -991,45 +998,87 @@ export function EmailClient() {
           </section>
         </div>
       ) : (
-        <div className="grid flex-none gap-3 lg:min-h-0 lg:flex-1 lg:overflow-hidden lg:grid-cols-[220px_minmax(280px,380px)_minmax(0,1fr)]">
-          <aside className="flex min-h-0 flex-col overflow-hidden border border-border bg-card">
-            <div className="border-b border-border px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-              {t('folders')}
-            </div>
-            <div className="max-h-44 overflow-y-auto p-2 lg:max-h-none lg:flex-1">
-              {isLoadingFolders ? (
-                <div className="flex items-center px-2 py-3 text-sm text-muted-foreground">
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  {t('loadingFolders')}
+        <div
+          className={cn(
+            'grid flex-none gap-3 lg:min-h-0 lg:flex-1 lg:overflow-hidden',
+            isFolderSidebarOpen
+              ? 'lg:grid-cols-[220px_minmax(280px,380px)_minmax(0,1fr)]'
+              : 'lg:grid-cols-[minmax(300px,420px)_minmax(0,1fr)]',
+          )}
+        >
+          {isFolderSidebarOpen && (
+            <aside className="flex min-h-0 flex-col overflow-hidden border border-border bg-card">
+              <div className="flex items-center justify-between gap-2 border-b border-border px-3 py-2">
+                <div className="min-w-0 truncate text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                  {t('folders')}
                 </div>
-              ) : folders.length === 0 ? (
-                <div className="px-2 py-3 text-sm text-muted-foreground">{t('noFolders')}</div>
-              ) : (
-                folders.map((folder) => (
-                  <button
-                    key={folder.path}
-                    type="button"
-                    className={cn(
-                      'flex w-full items-center justify-between gap-2 px-2 py-2 text-left text-sm transition-colors',
-                      activeFolder === folder.path ? 'bg-primary/10 text-primary' : 'hover:bg-muted',
-                    )}
-                    onClick={() => selectFolder(folder.path)}
-                  >
-                    <span className="min-w-0 truncate">{folder.name}</span>
-                    {folder.unseenCount ? <span className="text-xs font-medium">{folder.unseenCount}</span> : null}
-                  </button>
-                ))
-              )}
-            </div>
-          </aside>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label={t('hideFolders')}
+                  aria-expanded={isFolderSidebarOpen}
+                  title={t('hideFolders')}
+                  onClick={() => setIsFolderSidebarOpen(false)}
+                >
+                  <PanelLeftClose className="h-4 w-4" />
+                </Button>
+              </div>
+              <div className="max-h-44 overflow-y-auto p-2 lg:max-h-none lg:flex-1">
+                {isLoadingFolders ? (
+                  <div className="flex items-center px-2 py-3 text-sm text-muted-foreground">
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    {t('loadingFolders')}
+                  </div>
+                ) : folders.length === 0 ? (
+                  <div className="px-2 py-3 text-sm text-muted-foreground">{t('noFolders')}</div>
+                ) : (
+                  folders.map((folder) => (
+                    <button
+                      key={folder.path}
+                      type="button"
+                      className={cn(
+                        'flex w-full items-center justify-between gap-2 px-2 py-2 text-left text-sm transition-colors',
+                        activeFolder === folder.path ? 'bg-primary/10 text-primary' : 'hover:bg-muted',
+                      )}
+                      onClick={() => selectFolder(folder.path)}
+                    >
+                      <span className="min-w-0 truncate">{folder.name}</span>
+                      {folder.unseenCount ? <span className="text-xs font-medium">{folder.unseenCount}</span> : null}
+                    </button>
+                  ))
+                )}
+              </div>
+            </aside>
+          )}
 
           <section className="flex min-h-0 flex-col overflow-hidden border border-border bg-card">
             <div className="flex flex-col gap-2 border-b border-border px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
-              <div className="min-w-0">
-                <div className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-                  {t('messages')}
+              <div className="flex min-w-0 items-start gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon-sm"
+                  aria-label={isFolderSidebarOpen ? t('hideFolders') : t('showFolders')}
+                  aria-expanded={isFolderSidebarOpen}
+                  title={isFolderSidebarOpen ? t('hideFolders') : t('showFolders')}
+                  onClick={() => setIsFolderSidebarOpen((current) => !current)}
+                >
+                  {isFolderSidebarOpen ? <PanelLeftClose className="h-4 w-4" /> : <PanelLeftOpen className="h-4 w-4" />}
+                </Button>
+                <div className="min-w-0">
+                  <div className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                    {t('messages')}
+                  </div>
+                  <div className="mt-1 flex min-w-0 flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                    <span>{messageRangeLabel}</span>
+                    {!isFolderSidebarOpen && activeFolderName && (
+                      <Badge variant="secondary" className="max-w-full truncate" title={activeFolderName}>
+                        {activeFolderName}
+                      </Badge>
+                    )}
+                  </div>
                 </div>
-                <div className="mt-1 text-xs text-muted-foreground">{messageRangeLabel}</div>
               </div>
               <div className="flex items-center gap-2">
                 <Button
