@@ -79,7 +79,7 @@ import {
   STUDIO_EDITS_ROOT_DIR,
   STUDIO_OUTPUTS_ROOT_DIR,
 } from '../integrations/studio-workspace';
-import { toPreviewUrl } from '../utils/media-url';
+import { toMediaUrl, toPreviewUrl } from '../utils/media-url';
 import { createBulkJob } from '../integrations/studio-bulk-service';
 import { db } from '@/app/lib/db';
 import {
@@ -362,6 +362,22 @@ function formatImageReadText(params: {
     `Size: ${params.size} bytes`,
     'The image is attached to this tool result as an image content block for vision-capable models.',
   ].filter(Boolean).join('\n');
+}
+
+function getReadImagePreviewDetails(displayPath: string): { previewUrl?: string; mediaUrl?: string } {
+  if (path.isAbsolute(displayPath)) {
+    return {};
+  }
+
+  const normalizedDisplayPath = toPosixPath(displayPath).replace(/^\.\/+/, '').replace(/^\/+/, '');
+  if (!normalizedDisplayPath) {
+    return {};
+  }
+
+  return {
+    previewUrl: toPreviewUrl(normalizedDisplayPath, 192, { preset: 'mini' }),
+    mediaUrl: toMediaUrl(normalizedDisplayPath),
+  };
 }
 
 function audioMimeTypeForPath(filePath: string): string {
@@ -2114,7 +2130,9 @@ export const piTools: AgentTool[] = [
               resolvedPath: fullPath,
               size: buffer.length,
               type: 'image',
+              mimeType: image.mimeType,
               source: resolvedPath.source,
+              ...getReadImagePreviewDetails(resolvedPath.displayPath),
             },
           };
         }
