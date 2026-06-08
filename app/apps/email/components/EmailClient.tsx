@@ -727,17 +727,17 @@ function EmailMessageViewer({
   }
 
   return (
-    <article className={cn('flex h-full min-h-0 flex-col', className)}>
-      <header className="border-b border-border px-4 py-4 pr-12">
+    <article className={cn('h-full min-h-0 overflow-y-auto', className)}>
+      <header className="border-b border-border px-4 py-3 pr-12">
         <h3 className="text-lg font-semibold leading-7">{message.subject || labels.noSubject}</h3>
-        <div className="mt-3 flex flex-col gap-1 text-sm text-muted-foreground">
+        <div className="mt-2 flex flex-col gap-1 text-sm text-muted-foreground">
           <p><span className="font-medium text-foreground">{labels.from}:</span> {message.from}</p>
           {formatRecipients(message.to) && <p><span className="font-medium text-foreground">{labels.to}:</span> {formatRecipients(message.to)}</p>}
           {formatRecipients(message.cc) && <p><span className="font-medium text-foreground">{labels.cc}:</span> {formatRecipients(message.cc)}</p>}
           {message.date && <p><span className="font-medium text-foreground">{labels.date}:</span> {formatDate(message.date)}</p>}
         </div>
         {actions && (
-          <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-border/70 pt-3">
+          <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-border/70 pt-3">
             <EmailReplySplitButton actions={actions} labels={labels} />
             <Button type="button" size="sm" variant="outline" disabled={Boolean(actions.activeAction)} onClick={() => actions.onAction('draft-forward')} title={labels.forward}>
               {actions.activeAction === 'draft-forward' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Forward className="h-4 w-4" />}
@@ -790,7 +790,7 @@ function EmailMessageViewer({
           </div>
         )}
       </header>
-      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
+      <div className="px-4 py-4">
         <EmailMessageBody
           allowRemoteResourcesByDefault={allowRemoteResourcesByDefault}
           message={message}
