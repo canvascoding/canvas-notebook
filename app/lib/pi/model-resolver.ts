@@ -72,6 +72,8 @@ export const VISION_MODEL_IDS = new Set([
   // Ollama / OpenRouter-style vision IDs
   'llava',
   'bakllava',
+  'kimi-k2.6',
+  'kimi-k2.6:cloud',
   'qwen3-vl:235b-cloud',
 ]);
 
@@ -87,6 +89,7 @@ function modelIdLooksVisionCapable(modelId: string): boolean {
     normalized.includes('vision') ||
     normalized.includes('llava') ||
     normalized.includes('bakllava') ||
+    /(^|\/)kimi-k2\.6(?:[:@-]|$)/.test(normalized) ||
     /(^|[-_:.\/])vl([-.~_:$\/]|$)/.test(normalized)
   );
 }
