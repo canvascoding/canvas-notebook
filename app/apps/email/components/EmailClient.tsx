@@ -514,6 +514,7 @@ type EmailMessageViewerLabels = {
   markDone: string;
   markRead: string;
   markUnread: string;
+  messageOptions: string;
   moveTo: string;
   noSubject: string;
   permanentDelete: string;
@@ -559,6 +560,13 @@ type EmailMessageActionName =
   | 'permanent-delete'
   | 'summary'
   | 'trash';
+
+type EmailMessageListActionName = 'archive' | 'mark-read' | 'mark-unread' | 'trash';
+
+type EmailMessageListActionState = {
+  action: EmailMessageListActionName;
+  messageId: string;
+} | null;
 
 type EmailMessageViewerActions = {
   activeAction: EmailMessageActionName | null;
@@ -616,6 +624,67 @@ function EmailReplySplitButton({
   );
 }
 
+function EmailMessageRowActions({
+  activeAction,
+  labels,
+  message,
+  onAction,
+}: {
+  activeAction: EmailMessageListActionState;
+  labels: Pick<EmailMessageViewerLabels, 'archive' | 'markRead' | 'markUnread' | 'trash'> & { messageOptions: string };
+  message: EmailMessageSummary;
+  onAction(message: EmailMessageSummary, action: EmailMessageListActionName): void;
+}) {
+  const isBusy = activeAction?.messageId === message.id;
+  const isArchiveBusy = isBusy && activeAction?.action === 'archive';
+  const isReadBusy = isBusy && (activeAction?.action === 'mark-read' || activeAction?.action === 'mark-unread');
+  const isTrashBusy = isBusy && activeAction?.action === 'trash';
+  const readAction = message.isRead ? 'mark-unread' : 'mark-read';
+  const readLabel = message.isRead ? labels.markUnread : labels.markRead;
+
+  return (
+    <DropdownMenu modal={false}>
+      <div className="inline-flex overflow-hidden rounded-md border border-transparent bg-background/70 opacity-100 transition-opacity sm:opacity-0 sm:group-hover/message:opacity-100 sm:group-focus-within/message:opacity-100">
+        <Button
+          type="button"
+          size="icon-sm"
+          variant="ghost"
+          className="h-8 w-8 rounded-r-none"
+          disabled={isBusy}
+          aria-label={labels.archive}
+          title={labels.archive}
+          onClick={() => onAction(message, 'archive')}
+        >
+          {isArchiveBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Archive className="h-4 w-4" />}
+        </Button>
+        <DropdownMenuTrigger asChild>
+          <Button
+            type="button"
+            size="icon-sm"
+            variant="ghost"
+            className="h-8 w-7 rounded-l-none border-l border-border/70 px-0"
+            disabled={isBusy}
+            aria-label={labels.messageOptions}
+            title={labels.messageOptions}
+          >
+            {isReadBusy || isTrashBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ChevronDown className="h-3.5 w-3.5" />}
+          </Button>
+        </DropdownMenuTrigger>
+      </div>
+      <DropdownMenuContent align="end" sideOffset={8} className="w-44">
+        <DropdownMenuItem onSelect={() => onAction(message, readAction)}>
+          {message.isRead ? <Mail className="h-4 w-4" /> : <MailOpen className="h-4 w-4" />}
+          {readLabel}
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => onAction(message, 'trash')} className="text-destructive focus:text-destructive">
+          <Trash2 className="h-4 w-4" />
+          {labels.trash}
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
 function EmailMessageViewer({
   actions,
   className,
@@ -659,7 +728,7 @@ function EmailMessageViewer({
           {message.date && <p><span className="font-medium text-foreground">{labels.date}:</span> {formatDate(message.date)}</p>}
         </div>
         {actions && (
-          <div className="mt-4 flex flex-wrap items-center gap-2">
+          <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-border/70 pt-3">
             <EmailReplySplitButton actions={actions} labels={labels} />
             <Button type="button" size="sm" variant="outline" disabled={Boolean(actions.activeAction)} onClick={() => actions.onAction('draft-forward')} title={labels.forward}>
               {actions.activeAction === 'draft-forward' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Forward className="h-4 w-4" />}
@@ -678,19 +747,6 @@ function EmailMessageViewer({
               size="sm"
               variant="outline"
               disabled={Boolean(actions.activeAction)}
-              onClick={() => actions.onAction(message.isRead ? 'mark-unread' : 'mark-read')}
-              title={message.isRead ? labels.markUnread : labels.markRead}
-            >
-              {actions.activeAction === 'mark-read' || actions.activeAction === 'mark-unread'
-                ? <Loader2 className="h-4 w-4 animate-spin" />
-                : message.isRead ? <Mail className="h-4 w-4" /> : <MailOpen className="h-4 w-4" />}
-              {message.isRead ? labels.markUnread : labels.markRead}
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              disabled={Boolean(actions.activeAction)}
               onClick={() => actions.onAction(message.isAnswered ? 'clear-answered' : 'mark-answered')}
               title={message.isAnswered ? labels.clearDone : labels.markDone}
             >
@@ -698,18 +754,6 @@ function EmailMessageViewer({
                 ? <Loader2 className="h-4 w-4 animate-spin" />
                 : message.isAnswered ? <XCircle className="h-4 w-4" /> : <CheckCircle2 className="h-4 w-4" />}
               {message.isAnswered ? labels.clearDone : labels.markDone}
-            </Button>
-            <Button type="button" size="sm" variant="outline" disabled={Boolean(actions.activeAction)} onClick={() => actions.onAction('archive')} title={labels.archive}>
-              {actions.activeAction === 'archive' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Archive className="h-4 w-4" />}
-              {labels.archive}
-            </Button>
-            <Button type="button" size="sm" variant="outline" disabled={Boolean(actions.activeAction)} onClick={() => actions.onAction('trash')} title={labels.trash}>
-              {actions.activeAction === 'trash' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
-              {labels.trash}
-            </Button>
-            <Button type="button" size="sm" variant="outline" disabled={Boolean(actions.activeAction)} onClick={() => actions.onAction('permanent-delete')} title={labels.permanentDelete}>
-              {actions.activeAction === 'permanent-delete' ? <Loader2 className="h-4 w-4 animate-spin" /> : <XCircle className="h-4 w-4" />}
-              {labels.permanentDelete}
             </Button>
             <label className="sr-only" htmlFor={`email-message-move-${message.id}`}>{labels.moveTo}</label>
             <select
@@ -937,6 +981,7 @@ export function EmailClient() {
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
   const [isLoadingMessage, setIsLoadingMessage] = useState(false);
   const [activeMessageAction, setActiveMessageAction] = useState<EmailMessageActionName | null>(null);
+  const [activeMessageListAction, setActiveMessageListAction] = useState<EmailMessageListActionState>(null);
   const [isAddingSendPolicyRecipient, setIsAddingSendPolicyRecipient] = useState(false);
   const [composeDraft, setComposeDraft] = useState<EmailComposeDraft | null>(null);
   const [composeError, setComposeError] = useState<string | null>(null);
@@ -1333,6 +1378,50 @@ export function EmailClient() {
     }
   }, [activeAccount, activeFolder, loadFolders, openComposeDraft, selectedMessage, t]);
 
+  const handleMessageListAction = useCallback(async (message: EmailMessageSummary, action: EmailMessageListActionName) => {
+    if (!activeAccount) return;
+    const folder = message.folder || activeFolder;
+    const endpoint = `/api/email/accounts/${encodeURIComponent(activeAccount.id)}/messages/actions`;
+    setActiveMessageListAction({ action, messageId: message.id });
+    setMessageActionNotice(null);
+    setError(null);
+
+    try {
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ action, folder, messageId: message.id, operation: 'action' }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload.success) throw new Error(payload.error || t('errors.updateMessage'));
+
+      if (action === 'mark-read' || action === 'mark-unread') {
+        const isRead = action === 'mark-read';
+        setMessages((current) => current.map((currentMessage) => currentMessage.id === message.id ? { ...currentMessage, isRead } : currentMessage));
+        setSelectedMessage((current) => current?.id === message.id ? { ...current, isRead } : current);
+        setMessageActionNotice(t('messageUpdated'));
+        return;
+      }
+
+      setMessages((current) => current.filter((currentMessage) => currentMessage.id !== message.id));
+      if (selectedMessageId === message.id) {
+        setSelectedMessage(null);
+        setSelectedMessageId('');
+        setMessageSummary('');
+        setMessageDialogOpen(false);
+      }
+      setMessageActionNotice(t('messageMoved'));
+      void loadFolders(activeAccount.id);
+    } catch (actionError) {
+      setError(isFetchNetworkError(actionError)
+        ? t('errors.actionRequest')
+        : actionError instanceof Error ? actionError.message : t('errors.updateMessage'));
+    } finally {
+      setActiveMessageListAction(null);
+    }
+  }, [activeAccount, activeFolder, loadFolders, selectedMessageId, t]);
+
   const messageOffset = messagePage * MESSAGE_PAGE_SIZE;
   const messageStart = messages.length > 0 ? messageOffset + 1 : 0;
   const messageEnd = messageOffset + messages.length;
@@ -1360,6 +1449,7 @@ export function EmailClient() {
     markDone: t('markDone'),
     markRead: t('markRead'),
     markUnread: t('markUnread'),
+    messageOptions: t('messageOptions'),
     moveTo: t('moveTo'),
     noSubject: t('noSubject'),
     permanentDelete: t('permanentDelete'),
@@ -1585,17 +1675,19 @@ export function EmailClient() {
           <section className="flex min-h-0 flex-col overflow-hidden border border-border bg-card">
             <div className="flex flex-col gap-2 border-b border-border px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex min-w-0 items-start gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="icon-sm"
-                  aria-label={isFolderSidebarOpen ? t('hideFolders') : t('showFolders')}
-                  aria-expanded={isFolderSidebarOpen}
-                  title={isFolderSidebarOpen ? t('hideFolders') : t('showFolders')}
-                  onClick={() => setIsFolderSidebarOpen((current) => !current)}
-                >
-                  {isFolderSidebarOpen ? <PanelLeftClose className="h-4 w-4" /> : <PanelLeftOpen className="h-4 w-4" />}
-                </Button>
+                {!isFolderSidebarOpen && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon-sm"
+                    aria-label={t('showFolders')}
+                    aria-expanded={isFolderSidebarOpen}
+                    title={t('showFolders')}
+                    onClick={() => setIsFolderSidebarOpen(true)}
+                  >
+                    <PanelLeftOpen className="h-4 w-4" />
+                  </Button>
+                )}
                 <div className="min-w-0">
                   <div className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
                     {t('messages')}
@@ -1643,23 +1735,35 @@ export function EmailClient() {
                 <div className="px-3 py-4 text-sm text-muted-foreground">{t('noMessages')}</div>
               ) : (
                 messages.map((message) => (
-                  <button
+                  <div
                     key={`${message.folder || activeFolder}:${message.id}`}
-                    type="button"
                     className={cn(
-                      'block w-full border-b border-border px-3 py-3 text-left transition-colors hover:bg-muted/60',
+                      'group/message flex w-full items-stretch border-b border-border transition-colors hover:bg-muted/60',
                       selectedMessageId === message.id && 'bg-primary/10',
                     )}
-                    onClick={() => void loadMessage(message)}
-                    onDoubleClick={() => void loadMessage(message, { openDialog: true })}
                   >
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0 truncate text-sm font-medium">{message.from || t('unknownSender')}</div>
-                      <div className="shrink-0 text-[11px] text-muted-foreground">{formatDate(message.date)}</div>
+                    <button
+                      type="button"
+                      className="min-w-0 flex-1 px-3 py-3 text-left"
+                      onClick={() => void loadMessage(message)}
+                      onDoubleClick={() => void loadMessage(message, { openDialog: true })}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0 truncate text-sm font-medium">{message.from || t('unknownSender')}</div>
+                        <div className="shrink-0 text-[11px] text-muted-foreground">{formatDate(message.date)}</div>
+                      </div>
+                      <div className="mt-1 truncate text-sm font-semibold">{message.subject || t('noSubject')}</div>
+                      <p className="mt-1 line-clamp-2 text-xs leading-5 text-muted-foreground">{message.snippet}</p>
+                    </button>
+                    <div className="flex shrink-0 items-start px-2 py-2">
+                      <EmailMessageRowActions
+                        activeAction={activeMessageListAction}
+                        labels={messageViewerLabels}
+                        message={message}
+                        onAction={handleMessageListAction}
+                      />
                     </div>
-                    <div className="mt-1 truncate text-sm font-semibold">{message.subject || t('noSubject')}</div>
-                    <p className="mt-1 line-clamp-2 text-xs leading-5 text-muted-foreground">{message.snippet}</p>
-                  </button>
+                  </div>
                 ))
               )}
             </div>
