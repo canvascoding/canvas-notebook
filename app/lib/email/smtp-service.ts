@@ -92,7 +92,13 @@ function normalizeRequiredString(value: unknown, label: string): string {
   return normalized;
 }
 
-function normalizeSmtpInput(input: SmtpAccountInput): {
+function normalizePassword(value: unknown, fallback: string | undefined, label: string): string {
+  if (typeof value === 'string' && value.length > 0) return value;
+  if (fallback) return fallback;
+  throw new Error(`${label} is required.`);
+}
+
+function normalizeSmtpInput(input: SmtpAccountInput, existingSecret?: EmailAccountSmtpSecret | null): {
   emailAddress: string;
   displayName: string | null;
   policy?: Partial<EmailPolicy>;
@@ -102,11 +108,11 @@ function normalizeSmtpInput(input: SmtpAccountInput): {
   const smtpHost = normalizeHost(input.smtpHost, 'SMTP host');
   const smtpPort = normalizePort(input.smtpPort, 'SMTP port');
   const smtpUsername = normalizeRequiredString(input.smtpUsername, 'SMTP username');
-  const smtpPassword = normalizeRequiredString(input.smtpPassword, 'SMTP password');
+  const smtpPassword = normalizePassword(input.smtpPassword, existingSecret?.smtp.password, 'SMTP password');
   const imapHost = normalizeOptionalHost(input.imapHost, 'IMAP host');
   const imapPort = normalizeOptionalPort(input.imapPort, 'IMAP port');
   const imapUsername = input.imapUsername ? normalizeRequiredString(input.imapUsername, 'IMAP username') : undefined;
-  const imapPassword = input.imapPassword ? normalizeRequiredString(input.imapPassword, 'IMAP password') : undefined;
+  const imapPassword = input.imapPassword ? normalizeRequiredString(input.imapPassword, 'IMAP password') : existingSecret?.imap?.password;
 
   if ((imapHost || imapPort || imapUsername || imapPassword) && (!imapHost || !imapPort || !imapUsername || !imapPassword)) {
     throw new Error('IMAP host, port, username, and password are all required when IMAP is configured.');
@@ -182,8 +188,17 @@ function draftInputFromStored(draft: Awaited<ReturnType<typeof getStoredEmailDra
   return publicEmailDraft(draft) as LocalEmailDraftInput;
 }
 
+async function readExistingSmtpSecretForInput(userId: string, input: SmtpAccountInput): Promise<EmailAccountSmtpSecret | null> {
+  if (!input.accountId) return null;
+  const existingAccount = await getEmailAccountForUser(userId, input.accountId);
+  const secret = await readStoredEmailAccountSecret(existingAccount);
+  if (secret.authType !== 'smtp_imap') throw new Error('Email account is not an SMTP/IMAP account.');
+  return secret;
+}
+
 export async function saveSmtpEmailAccount(userId: string, input: SmtpAccountInput, options?: { verify?: boolean }) {
-  const normalized = normalizeSmtpInput(input);
+  const existingSecret = await readExistingSmtpSecretForInput(userId, input);
+  const normalized = normalizeSmtpInput(input, existingSecret);
   if (options?.verify) {
     await verifySmtpSecret(normalized.secret);
     await verifyImapSecret(normalized.secret);
@@ -199,8 +214,9 @@ export async function saveSmtpEmailAccount(userId: string, input: SmtpAccountInp
   return publicStoredEmailAccount(account, normalized.secret);
 }
 
-export async function testSmtpConnection(input: SmtpAccountInput) {
-  const normalized = normalizeSmtpInput(input);
+export async function testSmtpConnection(userId: string, input: SmtpAccountInput) {
+  const existingSecret = await readExistingSmtpSecretForInput(userId, input);
+  const normalized = normalizeSmtpInput(input, existingSecret);
   await verifySmtpSecret(normalized.secret);
   await verifyImapSecret(normalized.secret);
   return {
@@ -211,6 +227,45 @@ export async function testSmtpConnection(input: SmtpAccountInput) {
     imapHost: normalized.secret.imap?.host || null,
     imapPort: normalized.secret.imap?.port || null,
     imapSecure: normalized.secret.imap?.secure ?? null,
+  };
+}
+
+export async function testStoredSmtpEmailAccount(userId: string, accountId: string) {
+  const account = await getEmailAccountForUser(userId, accountId);
+  const secret = await readStoredEmailAccountSecret(account);
+  if (secret.authType !== 'smtp_imap') throw new Error('Email account is not an SMTP/IMAP account.');
+
+  const smtp = { ok: false, host: secret.smtp.host, port: secret.smtp.port, secure: secret.smtp.secure, error: null as string | null };
+  const imap = {
+    ok: false,
+    configured: Boolean(secret.imap),
+    host: secret.imap?.host || null,
+    port: secret.imap?.port || null,
+    secure: secret.imap?.secure ?? null,
+    error: null as string | null,
+  };
+
+  try {
+    await verifySmtpSecret(secret);
+    smtp.ok = true;
+  } catch (error) {
+    smtp.error = error instanceof Error ? error.message : 'SMTP connection failed.';
+  }
+
+  if (secret.imap) {
+    try {
+      await verifyImapSecret(secret);
+      imap.ok = true;
+    } catch (error) {
+      imap.error = error instanceof Error ? error.message : 'IMAP connection failed.';
+    }
+  }
+
+  return {
+    ok: smtp.ok && (!imap.configured || imap.ok),
+    account: publicStoredEmailAccount(account, secret),
+    smtp,
+    imap,
   };
 }
 
