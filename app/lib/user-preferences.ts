@@ -13,6 +13,7 @@ export type UserLocale = typeof routing.locales[number];
 
 export type UserPreferences = {
   emailAllowRemoteImages?: boolean;
+  emailRemoteImageAllowedSenders?: string[];
   locale?: UserLocale;
 };
 
@@ -36,6 +37,22 @@ function normalizeUserId(userId: string): string {
   return normalized;
 }
 
+function normalizeEmailAddressList(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
+  const entries: string[] = [];
+  for (const item of value) {
+    if (typeof item !== 'string') continue;
+    const match = item.match(/<([^<>@\s]+@[^<>@\s]+)>/u) || item.match(/([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})/iu);
+    const normalized = (match?.[1] || item).trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/iu.test(normalized) || seen.has(normalized)) continue;
+    seen.add(normalized);
+    entries.push(normalized);
+    if (entries.length >= 500) break;
+  }
+  return entries;
+}
+
 export function normalizeUserLocale(value: unknown): UserLocale | null {
   if (typeof value !== 'string') return null;
   const normalized = value.trim().toLowerCase().split(/[-_]/u)[0];
@@ -45,10 +62,12 @@ export function normalizeUserLocale(value: unknown): UserLocale | null {
 
 function normalizePreferences(value: unknown): UserPreferences {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
-  const record = value as { emailAllowRemoteImages?: unknown; locale?: unknown };
+  const record = value as { emailAllowRemoteImages?: unknown; emailRemoteImageAllowedSenders?: unknown; locale?: unknown };
   const locale = normalizeUserLocale(record.locale);
+  const emailRemoteImageAllowedSenders = normalizeEmailAddressList(record.emailRemoteImageAllowedSenders);
   return {
     ...(typeof record.emailAllowRemoteImages === 'boolean' ? { emailAllowRemoteImages: record.emailAllowRemoteImages } : {}),
+    ...(emailRemoteImageAllowedSenders.length > 0 ? { emailRemoteImageAllowedSenders } : {}),
     ...(locale ? { locale } : {}),
   };
 }
@@ -125,6 +144,15 @@ export async function updateUserPreferences(
       delete nextPreferences.emailAllowRemoteImages;
     } else {
       nextPreferences.emailAllowRemoteImages = Boolean(updates.emailAllowRemoteImages);
+    }
+  }
+
+  if ('emailRemoteImageAllowedSenders' in updates) {
+    const emailRemoteImageAllowedSenders = normalizeEmailAddressList(updates.emailRemoteImageAllowedSenders);
+    if (emailRemoteImageAllowedSenders.length === 0) {
+      delete nextPreferences.emailRemoteImageAllowedSenders;
+    } else {
+      nextPreferences.emailRemoteImageAllowedSenders = emailRemoteImageAllowedSenders;
     }
   }
 

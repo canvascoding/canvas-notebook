@@ -180,6 +180,7 @@ type EmailMode = 'unknown' | 'managed' | 'local';
 
 type EmailPreviewPreferences = {
   emailAllowRemoteImages: boolean;
+  emailRemoteImageAllowedSenders: string[];
 };
 
 type SearchIntegrationStatus = {
@@ -188,6 +189,18 @@ type SearchIntegrationStatus = {
   localConfigured: boolean;
   managedAvailable: boolean;
 };
+
+function emailPreviewPreferencesFromPayload(value: unknown): EmailPreviewPreferences {
+  const record = value && typeof value === 'object' && !Array.isArray(value)
+    ? value as { emailAllowRemoteImages?: unknown; emailRemoteImageAllowedSenders?: unknown }
+    : {};
+  return {
+    emailAllowRemoteImages: Boolean(record.emailAllowRemoteImages),
+    emailRemoteImageAllowedSenders: Array.isArray(record.emailRemoteImageAllowedSenders)
+      ? record.emailRemoteImageAllowedSenders.filter((entry): entry is string => typeof entry === 'string')
+      : [],
+  };
+}
 
 // Microsoft email OAuth stays in the code but is hidden until provider setup is active.
 const SHOW_MICROSOFT_EMAIL_OAUTH = false;
@@ -1644,7 +1657,10 @@ export function EmailAccountsCard({
   });
   const [emailOAuthStatus, setEmailOAuthStatus] = useState<EmailOAuthStatus | null>(null);
   const [smtpDraft, setSmtpDraft] = useState<EmailSmtpDraft>(() => emptyEmailSmtpDraft());
-  const [previewPreferences, setPreviewPreferences] = useState<EmailPreviewPreferences>({ emailAllowRemoteImages: false });
+  const [previewPreferences, setPreviewPreferences] = useState<EmailPreviewPreferences>({
+    emailAllowRemoteImages: false,
+    emailRemoteImageAllowedSenders: [],
+  });
   const [isAddingEmailAccount, setIsAddingEmailAccount] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [isLoadingPreviewPreferences, setIsLoadingPreviewPreferences] = useState(false);
@@ -1660,7 +1676,7 @@ export function EmailAccountsCard({
       const response = await fetch('/api/user-preferences', { credentials: 'include', cache: 'no-store' });
       const payload = await response.json();
       if (!response.ok || !payload.success) throw new Error(payload.error || t('errors.loadPreviewPreferences'));
-      const nextPreferences = { emailAllowRemoteImages: Boolean(payload.data?.emailAllowRemoteImages) };
+      const nextPreferences = emailPreviewPreferencesFromPayload(payload.data);
       setPreviewPreferences(nextPreferences);
       onPreviewPreferencesChanged?.(nextPreferences);
     } catch (preferencesError) {
@@ -1672,7 +1688,7 @@ export function EmailAccountsCard({
 
   const saveRemoteImagesPreference = useCallback(async (emailAllowRemoteImages: boolean) => {
     const previousPreferences = previewPreferences;
-    setPreviewPreferences({ emailAllowRemoteImages });
+    setPreviewPreferences({ ...previewPreferences, emailAllowRemoteImages });
     setIsSavingPreviewPreferences(true);
     setError(null);
     setMessage(null);
@@ -1685,7 +1701,7 @@ export function EmailAccountsCard({
       });
       const payload = await response.json();
       if (!response.ok || !payload.success) throw new Error(payload.error || t('errors.savePreviewPreferences'));
-      const nextPreferences = { emailAllowRemoteImages: Boolean(payload.data?.emailAllowRemoteImages) };
+      const nextPreferences = emailPreviewPreferencesFromPayload(payload.data);
       setPreviewPreferences(nextPreferences);
       onPreviewPreferencesChanged?.(nextPreferences);
       setMessage(t('messages.previewPreferencesSaved'));
