@@ -6,6 +6,7 @@ import { useTranslations } from 'next-intl';
 import { toast } from 'sonner';
 
 import { Button } from '@/components/ui/button';
+import { Label } from '@/components/ui/label';
 import {
   Dialog,
   DialogContent,
@@ -15,11 +16,14 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
+import { Switch } from '@/components/ui/switch';
 
 interface PublicShareResult {
   id: string;
   workspacePath: string;
   fileName: string;
+  mimeType?: string;
+  securityMode?: 'strict' | 'interactive';
   shortCode?: string | null;
   shortUrl?: string;
   shortPath?: string;
@@ -52,6 +56,14 @@ function primaryShareUrl(share: PublicShareResult) {
   return share.shortUrl || share.publicUrl;
 }
 
+function isHtmlPath(path: string) {
+  return /\.(html|htm)$/i.test(path);
+}
+
+function shareSecurityMode(share: PublicShareResult) {
+  return share.securityMode === 'interactive' ? 'interactive' : 'strict';
+}
+
 function shareDisplayKey(share: PublicShareResult) {
   return share.id || `${normalizePathForCompare(share.workspacePath)}:${primaryShareUrl(share)}`;
 }
@@ -72,6 +84,7 @@ export function PublicShareDialog({ open, onOpenChange, paths, onPublished }: Pu
   const [isPublishing, setIsPublishing] = useState(false);
   const [isChecking, setIsChecking] = useState(false);
   const [revokingIds, setRevokingIds] = useState<Set<string>>(new Set());
+  const [interactiveHtmlEnabled, setInteractiveHtmlEnabled] = useState(false);
   const [existingShares, setExistingShares] = useState<PublicShareResult[]>([]);
   const [shares, setShares] = useState<PublicShareResult[]>([]);
   const [skipped, setSkipped] = useState<Array<{ path: string; reason: string }>>([]);
@@ -79,6 +92,10 @@ export function PublicShareDialog({ open, onOpenChange, paths, onPublished }: Pu
   const uniquePaths = useMemo(() => Array.from(new Set(paths.filter(Boolean))), [paths]);
   const fileCount = uniquePaths.length;
   const hasResults = shares.length > 0 || skipped.length > 0;
+  const canUseInteractiveHtml = uniquePaths.length === 1 && isHtmlPath(uniquePaths[0] || '');
+  const requestedSecurityMode: 'strict' | 'interactive' = canUseInteractiveHtml && interactiveHtmlEnabled
+    ? 'interactive'
+    : 'strict';
   const existingSharePaths = useMemo(
     () => new Set(existingShares.map((share) => normalizePathForCompare(share.workspacePath))),
     [existingShares]
@@ -88,6 +105,16 @@ export function PublicShareDialog({ open, onOpenChange, paths, onPublished }: Pu
     [uniquePaths, existingSharePaths]
   );
   const displayExistingShares = useMemo(() => dedupeShares(existingShares), [existingShares]);
+  const existingShareForSelectedHtml = useMemo(() => {
+    if (!canUseInteractiveHtml) return null;
+    const selectedPath = normalizePathForCompare(uniquePaths[0] || '');
+    return displayExistingShares.find((share) => normalizePathForCompare(share.workspacePath) === selectedPath) || null;
+  }, [canUseInteractiveHtml, uniquePaths, displayExistingShares]);
+  const isUpdatingSecurityMode = Boolean(
+    existingShareForSelectedHtml
+    && shareSecurityMode(existingShareForSelectedHtml) !== requestedSecurityMode
+  );
+  const actionablePaths = isUpdatingSecurityMode ? uniquePaths : publishablePaths;
   const displayNewShares = useMemo(() => {
     const existingKeys = new Set(displayExistingShares.map(shareDisplayKey));
     const existingUrls = new Set(displayExistingShares.map(primaryShareUrl));
@@ -103,6 +130,7 @@ export function PublicShareDialog({ open, onOpenChange, paths, onPublished }: Pu
     setIsPublishing(false);
     setIsChecking(false);
     setRevokingIds(new Set());
+    setInteractiveHtmlEnabled(false);
     setExistingShares([]);
     setShares([]);
     setSkipped([]);
@@ -150,7 +178,7 @@ export function PublicShareDialog({ open, onOpenChange, paths, onPublished }: Pu
   }, [open, uniquePaths, t, resetDialogState]);
 
   const handlePublish = async () => {
-    if (publishablePaths.length === 0) {
+    if (actionablePaths.length === 0) {
       toast.info(t('publicShareAlreadyPublishedAll'));
       return;
     }
@@ -163,7 +191,8 @@ export function PublicShareDialog({ open, onOpenChange, paths, onPublished }: Pu
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({
-          paths: publishablePaths,
+          paths: actionablePaths,
+          securityMode: requestedSecurityMode,
           expiresInDays: expiryDays === 0 ? null : expiryDays,
           reason: 'Created from file browser',
         }),
@@ -174,11 +203,21 @@ export function PublicShareDialog({ open, onOpenChange, paths, onPublished }: Pu
         throw new Error(payload.error || t('publicShareCreateFailed'));
       }
 
-      setShares(payload.shares || []);
+      const nextShares = payload.shares || [];
+      setShares(nextShares);
       setSkipped(payload.skipped || []);
+      if (isUpdatingSecurityMode && nextShares.length > 0) {
+        setExistingShares((current) => {
+          const byId = new Map(current.map((share) => [share.id, share]));
+          nextShares.forEach((share: PublicShareResult) => byId.set(share.id, share));
+          return Array.from(byId.values());
+        });
+      }
       onPublished?.();
       if ((payload.shares || []).length > 0) {
-        toast.success(t('publicShareCreated', { count: (payload.shares || []).length }));
+        toast.success(isUpdatingSecurityMode
+          ? t('publicShareUpdated')
+          : t('publicShareCreated', { count: (payload.shares || []).length }));
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : t('publicShareCreateFailed');
@@ -245,6 +284,9 @@ export function PublicShareDialog({ open, onOpenChange, paths, onPublished }: Pu
             <div className="mt-1 text-xs text-muted-foreground">
               {share.expiresAt ? t('publicShareExpiresAt', { date: formatDate(share.expiresAt) }) : t('publicShareNeverExpires')}
             </div>
+            <Badge variant={shareSecurityMode(share) === 'interactive' ? 'outline' : 'secondary'} className="mt-2">
+              {shareSecurityMode(share) === 'interactive' ? t('publicShareModeInteractive') : t('publicShareModeStrict')}
+            </Badge>
           </div>
           <div className="flex shrink-0 flex-wrap justify-end gap-1">
             <Button variant="ghost" size="icon-sm" onClick={() => copyText(shareUrl, t('publicShareCopied'))}>
@@ -286,7 +328,9 @@ export function PublicShareDialog({ open, onOpenChange, paths, onPublished }: Pu
           <div className="min-w-0 border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-100">
             <div className="flex min-w-0 gap-2">
               <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" />
-              <p className="min-w-0 break-words leading-relaxed">{t('publicShareWarning')}</p>
+              <p className="min-w-0 break-words leading-relaxed">
+                {interactiveHtmlEnabled ? t('publicShareWarningInteractive') : t('publicShareWarning')}
+              </p>
             </div>
           </div>
 
@@ -327,7 +371,28 @@ export function PublicShareDialog({ open, onOpenChange, paths, onPublished }: Pu
             </div>
           )}
 
-          {!hasResults && publishablePaths.length > 0 && (
+          {!hasResults && canUseInteractiveHtml && (
+            <div className="min-w-0 border border-border bg-background p-3">
+              <div className="flex min-w-0 items-start justify-between gap-3">
+                <div className="min-w-0 space-y-1">
+                  <Label htmlFor="interactive-html-share" className="text-sm font-medium">
+                    {t('publicShareInteractiveHtml')}
+                  </Label>
+                  <p className="text-sm leading-relaxed text-muted-foreground">
+                    {t('publicShareInteractiveHtmlDescription')}
+                  </p>
+                </div>
+                <Switch
+                  id="interactive-html-share"
+                  checked={interactiveHtmlEnabled}
+                  onCheckedChange={setInteractiveHtmlEnabled}
+                  aria-label={t('publicShareInteractiveHtml')}
+                />
+              </div>
+            </div>
+          )}
+
+          {!hasResults && actionablePaths.length > 0 && (
             <div className="min-w-0 space-y-2">
               <span className="text-sm font-medium">{t('publicShareExpiry')}</span>
               <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
@@ -384,10 +449,14 @@ export function PublicShareDialog({ open, onOpenChange, paths, onPublished }: Pu
 
         <DialogFooter className="shrink-0 gap-2 border-t border-border px-4 py-3 sm:px-6">
           <Button variant="ghost" onClick={() => onOpenChange(false)} className="w-full sm:w-auto">{t('close')}</Button>
-          {!hasResults && publishablePaths.length > 0 && (
+          {!hasResults && actionablePaths.length > 0 && (
             <Button onClick={handlePublish} disabled={isPublishing || isChecking || fileCount === 0} className="w-full sm:w-auto">
               {isPublishing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Globe2 className="h-4 w-4" />}
-              {existingShares.length > 0 ? t('publicSharePublishRemaining') : t('publicSharePublish')}
+              {isUpdatingSecurityMode
+                ? t('publicShareUpdate')
+                : existingShares.length > 0
+                  ? t('publicSharePublishRemaining')
+                  : t('publicSharePublish')}
             </Button>
           )}
         </DialogFooter>

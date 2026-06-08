@@ -536,13 +536,19 @@
     "publicShareTitle": "Datei öffentlich veröffentlichen",
     "publicShareDescription": "Erstelle öffentliche Read-only-URLs für ausgewählte Workspace-Dateien.",
     "publicShareWarning": "Jeder mit dem Link kann die veröffentlichte Datei ohne Login lesen. HTML wird in einer strikten Sandbox ohne Skripte ausgeliefert; diese Route akzeptiert keine Schreiboperationen.",
+    "publicShareWarningInteractive": "Jeder mit dem Link kann diese HTML-Seite ohne Login öffnen. Skripte und Nachbar-Dateien aus demselben Ordner werden erlaubt; diese Route bleibt read-only.",
     "publicShareFiles": "{count} Datei(en)",
     "publicShareReadOnly": "Read-only",
+    "publicShareInteractiveHtml": "Interaktive HTML-Seite",
+    "publicShareInteractiveHtmlDescription": "Aktiviert JavaScript und lädt Dateien wie app.js, style.css oder Bilder aus demselben Ordner der HTML-Datei.",
+    "publicShareModeStrict": "Sicher",
+    "publicShareModeInteractive": "Interaktiv",
     "publicShareExpiry": "Ablauf",
     "publicShareNoExpiry": "Kein Ablauf",
     "publicShareDays": "{count} Tage",
     "publicSharePublish": "Veröffentlichen",
     "publicSharePublishRemaining": "Rest veröffentlichen",
+    "publicShareUpdate": "Link aktualisieren",
     "publicShareChecking": "Öffentlichen Status prüfen ...",
     "publicShareCheckFailed": "Öffentlicher Status konnte nicht geprüft werden",
     "publicShareAlreadyPublished": "Bereits öffentlich",
@@ -559,6 +565,7 @@
     "publicShareCopyFailed": "URL konnte nicht kopiert werden",
     "publicShareCreateFailed": "Datei konnte nicht veröffentlicht werden",
     "publicShareCreated": "{count} öffentliche Link(s) erstellt",
+    "publicShareUpdated": "Öffentlicher Link aktualisiert",
     "publicShareSkipped": "{count} übersprungen",
     "publicShareExpiresAt": "Läuft ab am {date}",
     "publicShareNeverExpires": "Kein Ablauf",
@@ -1113,6 +1120,10 @@
         "all": "Alle Quellen",
         "ui": "UI",
         "agent": "Agent"
+      },
+      "securityMode": {
+        "strict": "Sicher",
+        "interactive": "Interaktiv"
       }
     }
   },

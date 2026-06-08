@@ -537,13 +537,19 @@
     "publicShareTitle": "Publish file publicly",
     "publicShareDescription": "Create read-only public URLs for selected workspace files.",
     "publicShareWarning": "Anyone with the link can read the published file without logging in. HTML is served through a strict no-script sandbox; this route never accepts writes.",
+    "publicShareWarningInteractive": "Anyone with the link can open this HTML page without logging in. Scripts and neighboring files from the same folder are allowed; this route remains read-only.",
     "publicShareFiles": "{count} file(s)",
     "publicShareReadOnly": "Read-only",
+    "publicShareInteractiveHtml": "Interactive HTML page",
+    "publicShareInteractiveHtmlDescription": "Enables JavaScript and loads files like app.js, style.css, or images from the same folder as the HTML file.",
+    "publicShareModeStrict": "Safe",
+    "publicShareModeInteractive": "Interactive",
     "publicShareExpiry": "Expiration",
     "publicShareNoExpiry": "No expiration",
     "publicShareDays": "{count} days",
     "publicSharePublish": "Publish",
     "publicSharePublishRemaining": "Publish remaining",
+    "publicShareUpdate": "Update link",
     "publicShareChecking": "Checking public status...",
     "publicShareCheckFailed": "Could not check public status",
     "publicShareAlreadyPublished": "Already public",
@@ -560,6 +566,7 @@
     "publicShareCopyFailed": "Could not copy URL",
     "publicShareCreateFailed": "Could not publish file",
     "publicShareCreated": "{count} public link(s) created",
+    "publicShareUpdated": "Public link updated",
     "publicShareSkipped": "{count} skipped",
     "publicShareExpiresAt": "Expires {date}",
     "publicShareNeverExpires": "No expiration",
@@ -1114,6 +1121,10 @@
         "all": "All sources",
         "ui": "UI",
         "agent": "Agent"
+      },
+      "securityMode": {
+        "strict": "Safe",
+        "interactive": "Interactive"
       }
     }
   },

@@ -14,7 +14,7 @@ async function handlePublicFileRequest(
   context: { params: Promise<{ token: string; filename: string[] }> },
   method: 'GET' | 'HEAD',
 ) {
-  const { token } = await context.params;
+  const { token, filename } = await context.params;
   const decodedToken = decodeURIComponent(token);
 
   if (method === 'GET') {
@@ -27,12 +27,12 @@ async function handlePublicFileRequest(
     }
 
     if (!previewCheck.ok) {
-      return publicShareFileResponse(request, previewCheck, method);
+      return publicShareFileResponse(request, previewCheck, method, { requestedPathParts: filename });
     }
   }
 
   const resolved = await resolvePublicShareToken(decodedToken);
-  return publicShareFileResponse(request, resolved, method);
+  return publicShareFileResponse(request, resolved, method, { requestedPathParts: filename });
 }
 
 export async function GET(

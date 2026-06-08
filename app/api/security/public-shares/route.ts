@@ -12,6 +12,7 @@ import {
   type PublicShareStatus,
   type PublicShareTypeFilter,
 } from '@/app/lib/public-sharing/public-file-shares';
+import { normalizePublicShareSecurityMode } from '@/app/lib/public-sharing/public-share-security';
 
 function parseStatus(value: string | null): PublicShareStatus | 'all' {
   if (value === 'active' || value === 'revoked' || value === 'missing' || value === 'stale' || value === 'expired') {
@@ -122,6 +123,7 @@ export async function POST(request: NextRequest) {
       source: 'ui',
       expiresAt: parseExpiry(body),
       reason: typeof body.reason === 'string' ? body.reason : null,
+      securityMode: normalizePublicShareSecurityMode(body.securityMode),
       confirmPublicExposure: true,
       baseUrl: getPublicRequestOrigin(request),
     });

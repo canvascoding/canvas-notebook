@@ -276,6 +276,7 @@ export const publicFileShares = sqliteTable("public_file_shares", {
   createdByAgentId: text("created_by_agent_id"),
   sourceSessionId: text("source_session_id"),
   source: text("source").notNull().default("ui"),
+  securityMode: text("security_mode").notNull().default("strict"),
   reason: text("reason"),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
