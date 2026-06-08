@@ -5,6 +5,7 @@ import DOMPurify from 'dompurify';
 import {
   Archive,
   CheckCircle2,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   Forward,
@@ -28,6 +29,12 @@ import { EmailAccountsCard } from '@/app/components/settings/IntegrationsSetting
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 
@@ -259,6 +266,7 @@ type EmailMessageViewerLabels = {
   permanentDelete: string;
   reply: string;
   replyAll: string;
+  replyOptions: string;
   selectMessage: string;
   summary: string;
   to: string;
@@ -286,6 +294,56 @@ type EmailMessageViewerActions = {
   folders: EmailFolder[];
   onAction(action: EmailMessageActionName, destination?: string): void;
 };
+
+function EmailReplySplitButton({
+  actions,
+  labels,
+}: {
+  actions: EmailMessageViewerActions;
+  labels: Pick<EmailMessageViewerLabels, 'reply' | 'replyAll' | 'replyOptions'>;
+}) {
+  const isBusy = Boolean(actions.activeAction);
+  const isReplyBusy = actions.activeAction === 'draft-reply';
+  const isReplyAllBusy = actions.activeAction === 'draft-reply-all';
+
+  return (
+    <DropdownMenu modal={false}>
+      <div className="inline-flex shrink-0 overflow-hidden rounded-md">
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          className="rounded-r-none"
+          disabled={isBusy}
+          onClick={() => actions.onAction('draft-reply-all')}
+          title={labels.replyAll}
+        >
+          {isReplyAllBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <ReplyAll className="h-4 w-4" />}
+          {labels.replyAll}
+        </Button>
+        <DropdownMenuTrigger asChild>
+          <Button
+            type="button"
+            size="icon-sm"
+            variant="outline"
+            className="h-8 w-7 rounded-l-none border-l border-border/70 px-0"
+            disabled={isBusy}
+            aria-label={labels.replyOptions}
+            title={labels.replyOptions}
+          >
+            {isReplyBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ChevronDown className="h-3.5 w-3.5" />}
+          </Button>
+        </DropdownMenuTrigger>
+      </div>
+      <DropdownMenuContent align="start" sideOffset={8} className="w-44">
+        <DropdownMenuItem onSelect={() => actions.onAction('draft-reply')}>
+          <Reply className="h-4 w-4" />
+          {labels.reply}
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
 
 function EmailMessageViewer({
   actions,
@@ -331,14 +389,7 @@ function EmailMessageViewer({
         </div>
         {actions && (
           <div className="mt-4 flex flex-wrap items-center gap-2">
-            <Button type="button" size="sm" variant="outline" disabled={Boolean(actions.activeAction)} onClick={() => actions.onAction('draft-reply')} title={labels.reply}>
-              {actions.activeAction === 'draft-reply' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Reply className="h-4 w-4" />}
-              {labels.reply}
-            </Button>
-            <Button type="button" size="sm" variant="outline" disabled={Boolean(actions.activeAction)} onClick={() => actions.onAction('draft-reply-all')} title={labels.replyAll}>
-              {actions.activeAction === 'draft-reply-all' ? <Loader2 className="h-4 w-4 animate-spin" /> : <ReplyAll className="h-4 w-4" />}
-              {labels.replyAll}
-            </Button>
+            <EmailReplySplitButton actions={actions} labels={labels} />
             <Button type="button" size="sm" variant="outline" disabled={Boolean(actions.activeAction)} onClick={() => actions.onAction('draft-forward')} title={labels.forward}>
               {actions.activeAction === 'draft-forward' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Forward className="h-4 w-4" />}
               {labels.forward}
@@ -801,6 +852,7 @@ export function EmailClient() {
     permanentDelete: t('permanentDelete'),
     reply: t('reply'),
     replyAll: t('replyAll'),
+    replyOptions: t('replyOptions'),
     selectMessage: t('selectMessage'),
     summary: t('summary'),
     to: t('to'),
