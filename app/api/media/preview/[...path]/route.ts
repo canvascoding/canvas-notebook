@@ -1,25 +1,32 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getFileStats, createReadStream } from '@/app/lib/filesystem/workspace-files';
+import { getFileStats, createReadStream, readFile } from '@/app/lib/filesystem/workspace-files';
 import { auth } from '@/app/lib/auth';
 import { Readable } from 'stream';
+import {
+  createHtmlPreviewDocument,
+  getHtmlPreviewAssetContentType,
+  HTML_PREVIEW_ASSET_CSP,
+  HTML_PREVIEW_CSP,
+  isHtmlFile,
+} from '@/app/lib/html-preview';
 
-const HTML_EXTENSIONS = new Set(['html', 'htm']);
+const WORKSPACE_HTML_PREVIEW_PREFIX = '/api/media/preview';
 
-function isHtmlFile(filePath: string): boolean {
-  const ext = filePath.split('.').pop()?.toLowerCase() || '';
-  return HTML_EXTENSIONS.has(ext);
+async function streamPreviewAsset(filePath: string) {
+  const stats = await getFileStats(filePath);
+  const { stream } = await createReadStream(filePath);
+  const webStream = Readable.toWeb(stream) as unknown as ReadableStream<Uint8Array>;
+
+  return new NextResponse(webStream, {
+    status: 200,
+    headers: {
+      'Content-Type': getHtmlPreviewAssetContentType(filePath),
+      'Content-Length': stats.size.toString(),
+      'Content-Security-Policy': HTML_PREVIEW_ASSET_CSP,
+      'X-Content-Type-Options': 'nosniff',
+    },
+  });
 }
-
-const PREVIEW_CSP = [
-  "default-src 'self'",
-  "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
-  "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
-  "font-src 'self' https://fonts.gstatic.com",
-  "img-src 'self' data: blob: https:",
-  "media-src 'self' data: blob: https:",
-  "connect-src 'self'",
-  "frame-ancestors 'self'",
-].join('; ');
 
 export async function GET(
   request: NextRequest,
@@ -33,25 +40,22 @@ export async function GET(
   const { path: pathParts } = await context.params;
   const filePath = pathParts.join('/');
 
-  if (!isHtmlFile(filePath)) {
-    return NextResponse.json({ success: false, error: 'Preview only available for HTML files' }, { status: 400 });
-  }
-
   try {
-    const stats = await getFileStats(filePath);
-    const fileSize = stats.size;
+    if (!isHtmlFile(filePath)) {
+      return await streamPreviewAsset(filePath);
+    }
 
-    const { stream } = await createReadStream(filePath);
-    const webStream = Readable.toWeb(stream) as unknown as ReadableStream<Uint8Array>;
-
+    const html = (await readFile(filePath)).toString('utf-8');
+    const document = createHtmlPreviewDocument(html, filePath, WORKSPACE_HTML_PREVIEW_PREFIX);
+    const body = Buffer.from(document, 'utf-8');
     const headers = new Headers({
       'Content-Type': 'text/html; charset=utf-8',
-      'Content-Length': fileSize.toString(),
-      'Content-Security-Policy': PREVIEW_CSP,
+      'Content-Length': body.length.toString(),
+      'Content-Security-Policy': HTML_PREVIEW_CSP,
       'X-Content-Type-Options': 'nosniff',
     });
 
-    return new NextResponse(webStream, { status: 200, headers });
+    return new NextResponse(body, { status: 200, headers });
   } catch {
     return NextResponse.json({ success: false, error: 'File not found or unreadable' }, { status: 404 });
   }

@@ -286,6 +286,8 @@ interface FileEditorProps {
   onClosePreview?: () => void;
 }
 
+type HtmlViewMode = 'code' | 'preview';
+
 export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
   const t = useTranslations('notebook');
   const {
@@ -319,7 +321,10 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
   const externalReloadTimeoutRef = useRef<number | null>(null);
   const imagePreviewRef = useRef<HTMLDivElement>(null);
   const [shareOpen, setShareOpen] = useState(false);
-  const [htmlViewMode, setHtmlViewMode] = useState<'code' | 'preview'>('code');
+  const [htmlViewPreference, setHtmlViewPreference] = useState<{ path: string | null; mode: HtmlViewMode }>({
+    path: null,
+    mode: 'preview',
+  });
   const [htmlRefreshKey, setHtmlRefreshKey] = useState(0);
   const [markdownViewOverride, setMarkdownViewOverride] = useState<{
     path: string | null;
@@ -418,6 +423,21 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
   const markdownViewMode = isMarpMarkdownFile
     ? (markdownViewOverride.path === activePath ? markdownViewOverride.mode : 'slides')
     : 'markdown';
+  const htmlViewMode: HtmlViewMode = isHtml && htmlViewPreference.path === currentFile?.path
+    ? htmlViewPreference.mode
+    : 'preview';
+
+  const setCurrentHtmlViewMode = useCallback((nextMode: HtmlViewMode | ((mode: HtmlViewMode) => HtmlViewMode)) => {
+    const htmlPath = currentFile?.path ?? null;
+    setHtmlViewPreference((previous) => {
+      const currentMode = previous.path === htmlPath ? previous.mode : 'preview';
+      return {
+        path: htmlPath,
+        mode: typeof nextMode === 'function' ? nextMode(currentMode) : nextMode,
+      };
+    });
+  }, [currentFile?.path]);
+
   const savedTime = formatTimestamp(lastSavedAt);
   const breadcrumbs = currentFile ? currentFile.path.split('/').filter(Boolean) : [];
   const currentFileNode = useMemo<FileNode | null>(() => {
@@ -670,7 +690,7 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
                 variant="ghost"
                 size="sm"
                 className="h-6 gap-1 px-2"
-                onClick={() => setHtmlViewMode((m) => (m === 'code' ? 'preview' : 'code'))}
+                onClick={() => setCurrentHtmlViewMode((m) => (m === 'code' ? 'preview' : 'code'))}
               >
                 {htmlViewMode === 'code' ? (
                   <><Eye className="h-3.5 w-3.5" /><span>Preview</span></>
