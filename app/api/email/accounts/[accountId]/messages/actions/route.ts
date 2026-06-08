@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import crypto from 'crypto';
 
 import { auth } from '@/app/lib/auth';
 import {
@@ -12,6 +13,7 @@ import {
   summarizeEmailMessage,
   trashEmailMessage,
 } from '@/app/lib/email/service';
+import { logEmailClientEvent } from '@/app/lib/email/logging';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 
 type DraftMode = 'forward' | 'reply' | 'reply-all';
@@ -79,13 +81,45 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   const limited = rateLimit(request, { limit: 60, windowMs: 60_000, keyPrefix: 'email-message-actions-body-post' });
   if (!limited.ok) return limited.response;
 
+  const requestId = crypto.randomUUID();
+  const startedAt = Date.now();
+  let accountId = '';
+  let action: EmailMessageAction | undefined;
+  let destination: string | undefined;
+  let folder: string | undefined;
+  let messageId = '';
+  let mode: DraftMode | undefined;
+  let operation: MessageOperation | undefined;
+
   try {
-    const { accountId } = await params;
+    ({ accountId } = await params);
     const body = await request.json().catch(() => ({}));
-    const messageId = requiredString((body as { messageId?: unknown }).messageId, 'messageId');
-    const folder = stringValue((body as { folder?: unknown }).folder);
-    const operation = operationValue((body as { operation?: unknown }).operation);
+    messageId = requiredString((body as { messageId?: unknown }).messageId, 'messageId');
+    folder = stringValue((body as { folder?: unknown }).folder);
+    operation = operationValue((body as { operation?: unknown }).operation);
     let data: unknown;
+
+    if (operation === 'draft') {
+      mode = draftMode((body as { mode?: unknown }).mode);
+    }
+
+    if (operation === 'action') {
+      action = actionValue((body as { action?: unknown }).action);
+      destination = stringValue((body as { destination?: unknown }).destination);
+    }
+
+    logEmailClientEvent('info', 'message_action_requested', {
+      accountId,
+      action,
+      destination,
+      folder,
+      messageId,
+      mode,
+      operation,
+      requestId,
+      status: 'requested',
+      userId: session.user.id,
+    });
 
     if (operation === 'summary') {
       data = await summarizeEmailMessage(session.user.id, accountId, messageId, folder);
@@ -96,14 +130,11 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     }
 
     if (operation === 'draft') {
-      const mode = draftMode((body as { mode?: unknown }).mode);
+      if (!mode) throw new Error('Unsupported email draft mode.');
       data = await createEmailDerivedDraft(session.user.id, accountId, messageId, folder, mode);
     }
 
     if (operation === 'action') {
-      const action = actionValue((body as { action?: unknown }).action);
-      const destination = stringValue((body as { destination?: unknown }).destination);
-
       if (action === 'archive') data = await archiveEmailMessage(session.user.id, accountId, messageId, folder);
       if (action === 'trash') data = await trashEmailMessage(session.user.id, accountId, messageId, folder);
       if (action === 'permanent-delete') data = await deleteEmailMessagePermanently(session.user.id, accountId, messageId, folder);
@@ -117,8 +148,36 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       }
     }
 
+    logEmailClientEvent('info', 'message_action_succeeded', {
+      accountId,
+      action,
+      destination,
+      durationMs: Date.now() - startedAt,
+      folder,
+      messageId,
+      mode,
+      operation,
+      requestId,
+      status: 'succeeded',
+      userId: session.user.id,
+    });
+
     return NextResponse.json({ success: true, data });
   } catch (error) {
+    logEmailClientEvent('error', 'message_action_failed', {
+      accountId,
+      action,
+      destination,
+      durationMs: Date.now() - startedAt,
+      error,
+      folder,
+      messageId,
+      mode,
+      operation,
+      requestId,
+      status: 'failed',
+      userId: session.user.id,
+    });
     const message = error instanceof Error ? error.message : 'Failed to update email message';
     return NextResponse.json({ success: false, error: message }, { status: 500 });
   }
