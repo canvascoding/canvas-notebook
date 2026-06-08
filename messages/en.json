@@ -998,6 +998,7 @@
     "markUnread": "Mark unread",
     "markDone": "Done",
     "clearDone": "Not done",
+    "replyOptions": "Reply options",
     "moveTo": "Move to...",
     "draftCreated": "Draft was created in the connected account.",
     "aiReplyDraftCreated": "AI reply draft was created in the connected account.",
