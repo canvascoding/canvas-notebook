@@ -8,6 +8,8 @@ import { toMediaUrl, toPreviewUrl } from '@/app/lib/utils/media-url';
 
 interface ImageViewerProps {
   path: string;
+  previewSrc?: string;
+  fullSrc?: string;
 }
 
 interface ImageContentProps {
@@ -59,15 +61,15 @@ function ImageContent({ previewSrc, fullSrc, name }: ImageContentProps) {
   );
 }
 
-export function ImageViewer({ path }: ImageViewerProps) {
-  const previewSrc = toPreviewUrl(path, 1280);
-  const fullSrc = toMediaUrl(path);
+export function ImageViewer({ path, previewSrc, fullSrc }: ImageViewerProps) {
+  const resolvedPreviewSrc = previewSrc ?? toPreviewUrl(path, 1280);
+  const resolvedFullSrc = fullSrc ?? toMediaUrl(path);
   const name = path.split('/').pop() || 'image';
 
   return (
     <div className="relative flex h-full items-center justify-center bg-background">
       {/* Use native img to avoid Next/Image loader constraints for local API streams. */}
-      <ImageContent key={path} previewSrc={previewSrc} fullSrc={fullSrc} name={name} />
+      <ImageContent key={`${path}-${resolvedPreviewSrc}`} previewSrc={resolvedPreviewSrc} fullSrc={resolvedFullSrc} name={name} />
     </div>
   );
 }

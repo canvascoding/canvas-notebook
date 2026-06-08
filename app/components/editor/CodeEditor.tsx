@@ -98,6 +98,8 @@ export function CodeEditor({ value, onChange, readOnly = false, path }: CodeEdit
     : [EditorView.lineWrapping];
 
   useEffect(() => {
+    if (readOnly) return;
+
     // Handle Cmd/Ctrl+S keyboard shortcut
     const handleKeyDown = (event: KeyboardEvent) => {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 's') {
@@ -108,7 +110,7 @@ export function CodeEditor({ value, onChange, readOnly = false, path }: CodeEdit
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
+  }, [readOnly]);
 
   return (
     <div className="h-full w-full">

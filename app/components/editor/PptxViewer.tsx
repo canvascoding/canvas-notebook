@@ -9,6 +9,7 @@ import { PPTXViewer } from 'pptxviewjs';
 
 interface PptxViewerProps {
   path: string;
+  sourceUrl?: string;
 }
 
 const FALLBACK_SLIDE_RATIO = 16 / 9;
@@ -36,7 +37,7 @@ function fitCanvasToContainer(canvas: HTMLCanvasElement, container: HTMLDivEleme
   canvas.style.height = `${cssHeight}px`;
 }
 
-export function PptxViewer({ path }: PptxViewerProps) {
+export function PptxViewer({ path, sourceUrl }: PptxViewerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const viewerRef = useRef<PPTXViewer | null>(null);
@@ -72,7 +73,7 @@ export function PptxViewer({ path }: PptxViewerProps) {
         setError(null);
         exposePptxPeerDependencies();
 
-        const response = await fetch(`/api/files/download?path=${encodeURIComponent(path)}`, {
+        const response = await fetch(sourceUrl ?? `/api/files/download?path=${encodeURIComponent(path)}`, {
           credentials: 'include'
         });
 
@@ -131,7 +132,7 @@ export function PptxViewer({ path }: PptxViewerProps) {
         viewerRef.current = null;
       }
     };
-  }, [path, renderSlide]);
+  }, [path, renderSlide, sourceUrl]);
 
   const nextSlide = async () => {
     if (currentSlide >= totalSlides - 1 || isRendering) return;

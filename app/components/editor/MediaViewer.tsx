@@ -9,6 +9,7 @@ interface MediaViewerProps {
   kind: 'audio' | 'video';
   mimeType?: string;
   size?: number;
+  sourceUrl?: string;
 }
 
 function formatBytes(value?: number) {
@@ -37,8 +38,8 @@ function formatDuration(seconds?: number | null) {
   return parts.join(':');
 }
 
-export function MediaViewer({ path, kind, mimeType, size }: MediaViewerProps) {
-  const sourceUrl = toMediaUrl(path);
+export function MediaViewer({ path, kind, mimeType, size, sourceUrl }: MediaViewerProps) {
+  const resolvedSourceUrl = sourceUrl ?? toMediaUrl(path);
   const [duration, setDuration] = useState<number | null>(null);
   const sizeLabel = formatBytes(size);
   const durationLabel = formatDuration(duration);
@@ -74,7 +75,7 @@ export function MediaViewer({ path, kind, mimeType, size }: MediaViewerProps) {
             onLoadedMetadata={handleLoadedMetadata}
             className="w-full max-w-3xl"
           >
-          <source src={sourceUrl} type={mimeType} />
+          <source src={resolvedSourceUrl} type={mimeType} />
           Your browser does not support the audio element.
         </audio>
         </div>
@@ -93,7 +94,7 @@ export function MediaViewer({ path, kind, mimeType, size }: MediaViewerProps) {
         playsInline
         className="h-full w-full max-h-screen max-w-full bg-black object-contain"
       >
-        <source src={sourceUrl} type={mimeType} />
+        <source src={resolvedSourceUrl} type={mimeType} />
         Your browser does not support the video element.
       </video>
       </div>

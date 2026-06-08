@@ -28,6 +28,8 @@ interface OfficeEditorProps {
   extension: string;
   updateDraft?: (content: string) => void;
   onChange?: () => void;
+  readOnly?: boolean;
+  sourceUrl?: string;
 }
 
 function OfficeDocumentLoadingSkeleton({ path, extension }: { path: string; extension: string }) {
@@ -78,7 +80,7 @@ export interface OfficeEditorRef {
 }
 
 export const OfficeEditor = forwardRef<OfficeEditorRef, OfficeEditorProps>(
-  function OfficeEditor({ path, extension, updateDraft, onChange }, ref) {
+  function OfficeEditor({ path, extension, updateDraft, onChange, readOnly = false, sourceUrl }, ref) {
     const t = useTranslations('notebook');
     const docxEditorRef = useRef<{ save: () => Promise<ArrayBuffer | null> } | null>(null);
     const spreadsheetEditorRef = useRef<{ save: () => Promise<string | null>; getData: () => { name: string; data: (string | number | boolean)[][] }[] | null; hasChanges: () => boolean } | null>(null);
@@ -155,7 +157,7 @@ export const OfficeEditor = forwardRef<OfficeEditorRef, OfficeEditorProps>(
         // Load DOCX file for the new editor
         const loadDocx = async () => {
           try {
-            const response = await fetch(`/api/files/download?path=${encodeURIComponent(path)}`, {
+            const response = await fetch(sourceUrl ?? `/api/files/download?path=${encodeURIComponent(path)}`, {
               credentials: 'include'
             });
             if (!response.ok) throw new Error(`Fetch failed: ${response.status}`);
@@ -179,7 +181,7 @@ export const OfficeEditor = forwardRef<OfficeEditorRef, OfficeEditorProps>(
           cancelled = true;
         };
       }
-    }, [path, extension]);
+    }, [path, extension, sourceUrl]);
 
     if (isLoadingDocx) {
       return <OfficeDocumentLoadingSkeleton path={path} extension={extension} />;
@@ -199,6 +201,7 @@ export const OfficeEditor = forwardRef<OfficeEditorRef, OfficeEditorProps>(
     if (extension === 'docx' && docxBuffer) {
       return (
         <div className="flex flex-col h-full w-full bg-background relative overflow-hidden">
+          {!readOnly && (
           <div className="absolute top-2 right-12 z-[70] flex gap-2">
             <button 
                 onClick={(e) => {
@@ -210,11 +213,12 @@ export const OfficeEditor = forwardRef<OfficeEditorRef, OfficeEditorProps>(
                 {t('updateChanges')}
             </button>
           </div>
+          )}
           <DocxEditorComponent
             ref={docxEditorRef}
             path={path}
             documentBuffer={docxBuffer}
-            mode="editing"
+            mode={readOnly ? 'viewing' : 'editing'}
             onChange={() => {}}
           />
         </div>
@@ -225,6 +229,7 @@ export const OfficeEditor = forwardRef<OfficeEditorRef, OfficeEditorProps>(
     if (extension === 'xlsx' || extension === 'csv' || extension === 'xls') {
       return (
         <div className="flex flex-col h-full w-full bg-background relative overflow-hidden">
+          {!readOnly && (
           <div className="absolute top-2 right-12 z-[70] flex gap-2">
             <button 
                 onClick={(e) => {
@@ -236,10 +241,13 @@ export const OfficeEditor = forwardRef<OfficeEditorRef, OfficeEditorProps>(
                 {t('updateChanges')}
             </button>
           </div>
+          )}
           <SpreadsheetEditorComponent
             ref={spreadsheetEditorRef}
             path={path}
             onChange={onChange}
+            readOnly={readOnly}
+            sourceUrl={sourceUrl}
           />
         </div>
       );
@@ -251,6 +259,7 @@ export const OfficeEditor = forwardRef<OfficeEditorRef, OfficeEditorProps>(
         <div className="flex flex-col h-full w-full bg-background relative overflow-hidden">
           <PptxViewerComponent
             path={path}
+            sourceUrl={sourceUrl}
           />
         </div>
       );

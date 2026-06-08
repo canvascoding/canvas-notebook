@@ -159,6 +159,7 @@ export async function publicShareFileResponse(
     range: range ? { ...range, total: responseFile.sizeBytes } : undefined,
     securityMode: resolved.share.securityMode,
     asSiteAsset: responseFile.asSiteAsset,
+    forceAttachment: request.nextUrl.searchParams.get('download') === '1',
   });
 
   if (method === 'HEAD') {

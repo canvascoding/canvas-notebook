@@ -13,6 +13,8 @@ import './spreadsheet-editor.css';
 interface SpreadsheetEditorProps {
   path: string;
   onChange?: () => void;
+  readOnly?: boolean;
+  sourceUrl?: string;
 }
 
 interface SheetData {
@@ -59,7 +61,7 @@ function normalizeProcessedValue(value: unknown): string | number | boolean | un
 }
 
 export const SpreadsheetEditor = forwardRef<SpreadsheetEditorRef, SpreadsheetEditorProps>(
-  function SpreadsheetEditor({ path, onChange }, ref) {
+  function SpreadsheetEditor({ path, onChange, readOnly = false, sourceUrl }, ref) {
     const containerRef = useRef<HTMLDivElement>(null);
     const jspreadsheetInstanceRef = useRef<ReturnType<typeof jspreadsheet> | null>(null);
     const [isLoading, setIsLoading] = useState(true);
@@ -135,7 +137,7 @@ export const SpreadsheetEditor = forwardRef<SpreadsheetEditorRef, SpreadsheetEdi
           console.log('[SpreadsheetEditor] Loading file:', path);
           
           // Fetch file content
-          const response = await fetch(`/api/files/download?path=${encodeURIComponent(path)}`, {
+          const response = await fetch(sourceUrl ?? `/api/files/download?path=${encodeURIComponent(path)}`, {
             credentials: 'include'
           });
           
@@ -232,6 +234,7 @@ export const SpreadsheetEditor = forwardRef<SpreadsheetEditorRef, SpreadsheetEdi
               parseFormulas: true,
               tabs: sheets.length > 1,
               onchange: () => {
+                if (readOnly) return;
                 setHasUnsavedChanges(true);
                 onChange?.();
               },
@@ -239,7 +242,8 @@ export const SpreadsheetEditor = forwardRef<SpreadsheetEditorRef, SpreadsheetEdi
                 setHasUnsavedChanges(false);
                 setIsLoading(false);
               },
-            });
+              editable: !readOnly,
+            } as Parameters<typeof jspreadsheet>[1]);
 
             jspreadsheetInstanceRef.current = instance;
           }
@@ -264,7 +268,7 @@ export const SpreadsheetEditor = forwardRef<SpreadsheetEditorRef, SpreadsheetEdi
           jspreadsheetInstanceRef.current = null;
         }
       };
-    }, [path, onChange]);
+    }, [path, onChange, readOnly, sourceUrl]);
 
     const convertToBase64 = useCallback((extension: string): string => {
       if (extension === 'csv') {
@@ -335,8 +339,8 @@ export const SpreadsheetEditor = forwardRef<SpreadsheetEditorRef, SpreadsheetEdi
           data: getSheetData(index),
         }));
       },
-      hasChanges: () => hasUnsavedChanges,
-    }), [convertToBase64, fileExtension, hasUnsavedChanges, sheetNames]);
+      hasChanges: () => readOnly ? false : hasUnsavedChanges,
+    }), [convertToBase64, fileExtension, hasUnsavedChanges, readOnly, sheetNames]);
 
     if (error) {
       return (

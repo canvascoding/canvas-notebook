@@ -786,11 +786,12 @@ export function createPublicFileHeaders(params: {
   range?: { start: number; end: number; total: number };
   securityMode?: PublicShareSecurityMode;
   asSiteAsset?: boolean;
+  forceAttachment?: boolean;
 }): Headers {
   const ext = path.extname(params.workspacePath).slice(1).toLowerCase();
   const isHtml = params.mimeType.toLowerCase().includes('text/html');
   const securityMode = normalizePublicShareSecurityMode(params.securityMode);
-  const forceAttachment = FORCED_ATTACHMENT_EXTENSIONS.has(ext) && !params.asSiteAsset;
+  const forceAttachment = params.forceAttachment || (FORCED_ATTACHMENT_EXTENSIONS.has(ext) && !params.asSiteAsset);
   const headers = new Headers({
     'Content-Type': params.mimeType,
     'X-Content-Type-Options': 'nosniff',

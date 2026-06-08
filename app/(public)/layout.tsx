@@ -1,8 +1,13 @@
 import type { Metadata, Viewport } from 'next';
 import { Geist, Geist_Mono } from 'next/font/google';
+import { NextIntlClientProvider } from 'next-intl';
 
+import '@uiw/react-md-editor/markdown-editor.css';
+import '@uiw/react-markdown-preview/markdown.css';
 import '@excalidraw/excalidraw/index.css';
 import '../globals.css';
+import { AppThemeProvider } from '@/app/components/ThemeProvider';
+import messages from '@/messages/de.json';
 
 const geistSans = Geist({
   variable: '--font-geist-sans',
@@ -40,7 +45,11 @@ export default function PublicLayout({ children }: { children: React.ReactNode }
         />
       </head>
       <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
-        {children}
+        <NextIntlClientProvider locale="de" messages={messages}>
+          <AppThemeProvider>
+            {children}
+          </AppThemeProvider>
+        </NextIntlClientProvider>
       </body>
     </html>
   );
