@@ -97,6 +97,7 @@ function normalizeContext(context?: ChatRequestContext): ChatRequestContext {
     planningMode: context?.planningMode === true,
     currentPage: typeof context?.currentPage === 'string' ? context.currentPage : undefined,
     studioContext: context?.studioContext,
+    emailContext: context?.emailContext,
   };
 }
 
@@ -212,6 +213,7 @@ export async function prepareRuntimePrompt(
     phase: status.phase,
     contextWindow: status.contextWindow,
     hasStudioContext: !!context.studioContext,
+    hasEmailContext: !!context.emailContext,
     studioOutputPath: context.studioContext?.outputFilePath,
   });
 

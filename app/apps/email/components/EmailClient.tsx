@@ -31,6 +31,7 @@ import {
 } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 
+import { useSetEmailChatContext } from '@/app/apps/email/context/email-chat-context';
 import { EmailAccountsCard } from '@/app/components/settings/IntegrationsSettingsClient';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -1113,6 +1114,7 @@ function EmailComposeDialog({
 
 export function EmailClient() {
   const t = useTranslations('emails');
+  const setEmailChatContext = useSetEmailChatContext();
   const [accountsOpen, setAccountsOpen] = useState(false);
   const [accounts, setAccounts] = useState<EmailAccount[]>([]);
   const [emailAllowRemoteImages, setEmailAllowRemoteImages] = useState(false);
@@ -1161,6 +1163,43 @@ export function EmailClient() {
     && blockedSendPolicyRecipient
     && !sendPolicyAllowsEmail(blockedSendPolicyRecipient, activeAccount.policy?.sendTo || []),
   );
+
+  useEffect(() => {
+    setEmailChatContext({
+      currentPage: '/emails',
+      emailContext: {
+        accountEmail: activeAccount?.emailAddress,
+        accountId: activeAccount?.id,
+        filter: messageFilter,
+        folder: activeFolder,
+        folderName: activeFolderName,
+        query: submittedQuery || undefined,
+        selectedMessageDate: selectedMessage?.date || null,
+        selectedMessageFolder: selectedMessage?.folder || activeFolder,
+        selectedMessageFrom: selectedMessage?.from || null,
+        selectedMessageId: selectedMessage?.id || selectedMessageId || undefined,
+        selectedMessageIsRead: selectedMessage?.isRead ?? null,
+        selectedMessageSubject: selectedMessage?.subject || null,
+      },
+    });
+  }, [
+    activeAccount?.emailAddress,
+    activeAccount?.id,
+    activeFolder,
+    activeFolderName,
+    messageFilter,
+    selectedMessage?.date,
+    selectedMessage?.folder,
+    selectedMessage?.from,
+    selectedMessage?.id,
+    selectedMessage?.isRead,
+    selectedMessage?.subject,
+    selectedMessageId,
+    setEmailChatContext,
+    submittedQuery,
+  ]);
+
+  useEffect(() => () => setEmailChatContext(null), [setEmailChatContext]);
 
   const loadAccounts = useCallback(async () => {
     setIsLoadingAccounts(true);
