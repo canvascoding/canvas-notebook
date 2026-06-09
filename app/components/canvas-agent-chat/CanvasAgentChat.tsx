@@ -292,7 +292,6 @@ type ChatHistoryAgentOption = {
   agentId: string;
   name: string;
   iconId?: string;
-  count: number;
 };
 const CHAT_HISTORY_GROUP_ORDER: ChatHistoryGroup[] = ['today', 'last7', 'last14', 'last30', 'older'];
 
@@ -1758,7 +1757,6 @@ function ChatHistoryPanel({
             >
               <AgentIcon iconId={agent.iconId} className="h-3 w-3 shrink-0" />
               <span className="min-w-0 truncate">{agent.name}</span>
-              {agent.count > 0 ? <span className="shrink-0 text-muted-foreground">{agent.count}</span> : null}
             </button>
           ))}
         </div>
@@ -5615,9 +5613,9 @@ export default function CanvasAgentChat({
       : [{ agentId: CHAT_AGENT_ID, name: 'Canvas Agent', iconId: 'bot', type: 'main', removable: false }]
   ), [availableAgents]);
   const historyAgentOptions = useMemo<ChatHistoryAgentOption[]>(() => {
-    const byId = new Map<string, { agentId: string; name: string; iconId?: string; count: number }>();
+    const byId = new Map<string, ChatHistoryAgentOption>();
     for (const agent of availableAgents) {
-      byId.set(agent.agentId, { agentId: agent.agentId, name: agent.name, iconId: agent.iconId, count: 0 });
+      byId.set(agent.agentId, { agentId: agent.agentId, name: agent.name, iconId: agent.iconId });
     }
     for (const session of history) {
       const agentId = session.agentId || CHAT_AGENT_ID;
@@ -5626,7 +5624,6 @@ export default function CanvasAgentChat({
         agentId,
         name: existing?.name || getAgentDisplayName(agentId),
         iconId: existing?.iconId,
-        count: (existing?.count || 0) + 1,
       });
     }
     return Array.from(byId.values()).sort((a, b) => {
