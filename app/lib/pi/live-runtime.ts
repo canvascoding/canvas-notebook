@@ -27,6 +27,7 @@ import { loadPiSessionWithSummary, savePiSession } from '@/app/lib/pi/session-st
 import { getPiTools } from '@/app/lib/pi/tool-registry';
 import { filterToolsForPlanningMode } from '@/app/lib/pi/planning-mode';
 import { getChannelSystemPromptBlock } from '@/app/lib/agents/channel-system-prompt';
+import { EMAIL_SYSTEM_PROMPT_BLOCK } from '@/app/lib/agents/email-prompt-block';
 import { PLANNING_MODE_GUIDANCE } from '@/app/lib/agents/system-prompt-shared';
 import { STUDIO_SYSTEM_PROMPT_BLOCK } from '@/app/lib/agents/studio-prompt-block';
 import { persistPiUsageEvents } from '@/app/lib/pi/usage-events';
@@ -138,6 +139,20 @@ export type PiRuntimePromptContext = {
     outputFilePath?: string | null;
     outputMediaUrl?: string | null;
     activeImagePath?: string | null;
+  };
+  emailContext?: {
+    accountEmail?: string;
+    accountId?: string;
+    filter?: 'all' | 'unread';
+    folder?: string;
+    folderName?: string;
+    query?: string;
+    selectedMessageDate?: string | null;
+    selectedMessageFolder?: string;
+    selectedMessageFrom?: string | null;
+    selectedMessageId?: string;
+    selectedMessageIsRead?: boolean | null;
+    selectedMessageSubject?: string | null;
   };
 };
 
@@ -327,6 +342,7 @@ type PiRuntimePromptDispatchTarget = {
   setPlanningMode: (enabled: boolean) => void;
   setPageContext: (page: string | undefined) => void;
   setStudioContext: (context: PiRuntimePromptContext['studioContext']) => void;
+  setEmailContext: (context: PiRuntimePromptContext['emailContext']) => void;
   reloadTools: () => Promise<void>;
   startPrompt: (message: Extract<AgentMessage, { role: 'user' }>) => void;
 };
@@ -345,6 +361,7 @@ function applyPiRuntimePromptContext(
   runtime.setPlanningMode(context?.planningMode ?? false);
   runtime.setPageContext(context?.currentPage);
   runtime.setStudioContext(context?.studioContext);
+  runtime.setEmailContext(context?.emailContext);
 }
 
 class LivePiRuntime {
@@ -377,6 +394,7 @@ class LivePiRuntime {
   private planningMode = false;
   private pageContext: string | null = null;
   private studioContext: PiRuntimePromptContext['studioContext'] | null = null;
+  private emailContext: PiRuntimePromptContext['emailContext'] | null = null;
   private persistLock = false;
   private persistPending: 'turn_end' | 'agent_end' | 'error' | null = null;
   private lastBroadcastStatusSignature: string | null = null;
@@ -674,6 +692,10 @@ class LivePiRuntime {
     this.studioContext = context ?? null;
   }
 
+  setEmailContext(context: PiRuntimePromptContext['emailContext']) {
+    this.emailContext = context ?? null;
+  }
+
   async reloadTools() {
     this.tools = await getPiTools(this.userId, this.agentId, this.sessionId);
     this.lastComposition = null;
@@ -736,10 +758,64 @@ class LivePiRuntime {
     return lines.join('\n');
   }
 
+  private getEmailContextBlock(): string | null {
+    if (!this.emailContext) {
+      return null;
+    }
+
+    const lines = [
+      '## Active Email Context',
+      'The user is working in the Canvas Email client.',
+    ];
+
+    if (this.emailContext.accountEmail) {
+      lines.push(`Active account email: ${this.emailContext.accountEmail}`);
+    }
+    if (this.emailContext.accountId) {
+      lines.push(`Active account ID: ${this.emailContext.accountId}`);
+    }
+    if (this.emailContext.folderName || this.emailContext.folder) {
+      lines.push(`Active folder: ${this.emailContext.folderName || this.emailContext.folder}`);
+    }
+    if (this.emailContext.folder && this.emailContext.folderName && this.emailContext.folder !== this.emailContext.folderName) {
+      lines.push(`Active folder path: ${this.emailContext.folder}`);
+    }
+    if (this.emailContext.filter) {
+      lines.push(`Message filter: ${this.emailContext.filter}`);
+    }
+    if (this.emailContext.query) {
+      lines.push(`Current search query: ${this.emailContext.query}`);
+    }
+    if (this.emailContext.selectedMessageId) {
+      lines.push(`Selected message ID: ${this.emailContext.selectedMessageId}`);
+    }
+    if (this.emailContext.selectedMessageFolder) {
+      lines.push(`Selected message folder: ${this.emailContext.selectedMessageFolder}`);
+    }
+    if (this.emailContext.selectedMessageSubject) {
+      lines.push(`Selected message subject: ${this.emailContext.selectedMessageSubject}`);
+    }
+    if (this.emailContext.selectedMessageFrom) {
+      lines.push(`Selected message from: ${this.emailContext.selectedMessageFrom}`);
+    }
+    if (this.emailContext.selectedMessageDate) {
+      lines.push(`Selected message date: ${this.emailContext.selectedMessageDate}`);
+    }
+    if (typeof this.emailContext.selectedMessageIsRead === 'boolean') {
+      lines.push(`Selected message read: ${this.emailContext.selectedMessageIsRead ? 'yes' : 'no'}`);
+    }
+
+    lines.push('This context contains only mailbox metadata. Use email_read before making claims about the selected email body.');
+    return lines.join('\n');
+  }
+
   private getPageContextBlock(): string | null {
     if (!this.pageContext) return null;
     if (this.pageContext.startsWith('/studio')) {
       return STUDIO_SYSTEM_PROMPT_BLOCK;
+    }
+    if (this.pageContext.startsWith('/emails')) {
+      return EMAIL_SYSTEM_PROMPT_BLOCK;
     }
     return null;
   }
@@ -780,6 +856,11 @@ class LivePiRuntime {
     const studioBlock = this.getStudioContextBlock();
     if (studioBlock) {
       sections.push(studioBlock);
+    }
+
+    const emailBlock = this.getEmailContextBlock();
+    if (emailBlock) {
+      sections.push(emailBlock);
     }
 
     if (sections.length === 0) {

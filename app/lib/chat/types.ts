@@ -21,4 +21,18 @@ export interface ChatRequestContext {
     outputMediaUrl?: string | null;
     activeImagePath?: string | null;
   };
+  emailContext?: {
+    accountEmail?: string;
+    accountId?: string;
+    filter?: 'all' | 'unread';
+    folder?: string;
+    folderName?: string;
+    query?: string;
+    selectedMessageDate?: string | null;
+    selectedMessageFolder?: string;
+    selectedMessageFrom?: string | null;
+    selectedMessageId?: string;
+    selectedMessageIsRead?: boolean | null;
+    selectedMessageSubject?: string | null;
+  };
 }
