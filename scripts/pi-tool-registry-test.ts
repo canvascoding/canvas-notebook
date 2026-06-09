@@ -69,6 +69,22 @@ async function main() {
     if (request === 'server-only') {
       return {};
     }
+    if (request === '@earendil-works/pi-ai') {
+      return {
+        completeSimple: async () => ({
+          role: 'assistant',
+          content: [{ type: 'text', text: 'unused' }],
+          stopReason: 'stop',
+        }),
+        getModels: () => [],
+        getProviders: () => [],
+        isContextOverflow: () => false,
+        registerBuiltInApiProviders: () => undefined,
+      };
+    }
+    if (request === '@earendil-works/pi-ai/oauth') {
+      return {};
+    }
     return originalLoad(request, parent, isMain);
   };
 
@@ -209,6 +225,25 @@ async function main() {
   assert.match(getText(truncatedReadResult), /content truncated after 12 characters/);
   assert.equal((truncatedReadResult.details as { type: string; truncated: boolean }).type, 'text');
   assert.equal((truncatedReadResult.details as { type: string; truncated: boolean }).truncated, true);
+
+  const workspaceImagePath = path.join(workspaceDir, 'hausarbeit', 'cashflow.png');
+  const workspaceImageBytes = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  await fs.writeFile(workspaceImagePath, workspaceImageBytes);
+  const absoluteWorkspaceImageReadResult = await readTool.execute('read-absolute-workspace-image', {
+    path: workspaceImagePath,
+  });
+  const absoluteWorkspaceImageDetails = absoluteWorkspaceImageReadResult.details as {
+    filePath: string;
+    mediaUrl: string;
+    previewUrl: string;
+    resolvedPath: string;
+  };
+  assert.match(getText(absoluteWorkspaceImageReadResult), /Image loaded for visual analysis: hausarbeit\/cashflow\.png/);
+  assert.equal(getImages(absoluteWorkspaceImageReadResult).length, 1);
+  assert.equal(absoluteWorkspaceImageDetails.filePath, 'hausarbeit/cashflow.png');
+  assert.equal(absoluteWorkspaceImageDetails.resolvedPath, workspaceImagePath);
+  assert.equal(absoluteWorkspaceImageDetails.previewUrl, `/api/files/preview?path=${encodeURIComponent('hausarbeit/cashflow.png')}&w=192&preset=mini`);
+  assert.equal(absoluteWorkspaceImageDetails.mediaUrl, '/api/media/hausarbeit/cashflow.png');
 
   const studioOutputsDir = path.join(dataDir, 'studio', 'outputs');
   await fs.mkdir(studioOutputsDir, { recursive: true });

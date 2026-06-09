@@ -252,6 +252,8 @@ type CollapsedRun = {
   endedAt: number | null;
 };
 
+type AttachmentOpenHandler = (attachment: Attachment, previewGroup?: Attachment[]) => void;
+
 type DiscoveryModel = {
   id: string;
   name: string;
@@ -1022,6 +1024,49 @@ function buildCollapsedRunMap(messages: ChatMessage[], isRuntimeBusy: boolean): 
   }
 
   return runs;
+}
+
+function getPreviewableToolImageAttachments(message: ChatMessage): Attachment[] {
+  if (message.role !== 'toolResult' || !message.attachments?.length) {
+    return [];
+  }
+
+  return message.attachments
+    .map((attachment) => deriveUploadAttachmentPreview(attachment))
+    .filter((attachment) => attachment.contentKind === 'image' && Boolean(attachment.previewUrl || getAttachmentMediaUrl(attachment)));
+}
+
+function buildToolImagePreviewGroups(messages: ChatMessage[]): Map<string, Attachment[]> {
+  const groups = new Map<string, Attachment[]>();
+
+  for (let index = 0; index < messages.length; index += 1) {
+    const message = messages[index];
+    if (message?.role !== 'user') {
+      continue;
+    }
+
+    let runEnd = messages.length;
+    for (let cursor = index + 1; cursor < messages.length; cursor += 1) {
+      if (messages[cursor]?.role === 'user') {
+        runEnd = cursor;
+        break;
+      }
+    }
+
+    const runMessages = messages.slice(index + 1, runEnd);
+    const previewGroup = dedupeAttachments(runMessages.flatMap(getPreviewableToolImageAttachments));
+    if (previewGroup.length > 0) {
+      for (const runMessage of runMessages) {
+        if (runMessage.role === 'toolResult') {
+          groups.set(runMessage.id, previewGroup);
+        }
+      }
+    }
+
+    index = runEnd - 1;
+  }
+
+  return groups;
 }
 
 function hasEarlierVisibleAssistantInRun(messages: ChatMessage[], messageIndex: number, hiddenMessageIds: Set<string>): boolean {
@@ -2179,9 +2224,13 @@ function StreamingMessageIndicator() {
 function ToolCallPill({
   message,
   onMediaClick,
+  onAttachmentOpen,
+  previewGroup,
 }: {
   message: ChatMessage;
   onMediaClick?: (mediaUrl: string) => void;
+  onAttachmentOpen?: AttachmentOpenHandler;
+  previewGroup?: Attachment[];
 }) {
   const t = useTranslations('chat');
   const locale = useLocale();
@@ -2195,6 +2244,9 @@ function ToolCallPill({
     contentToString(message.content) ||
     (isRunning ? t('runningTool') : t('noOutputYet'));
   const toolStatusLabel = getToolStatusLabel(message, t);
+  const imageAttachments = getPreviewableToolImageAttachments(message);
+  const imagePreviewGroup = previewGroup?.length ? previewGroup : imageAttachments;
+  const primaryAttachmentName = imageAttachments[0]?.name;
 
   const copyDetails = async () => {
     const sections = [
@@ -2226,6 +2278,11 @@ function ToolCallPill({
     >
       <Icon className="h-3.5 w-3.5 shrink-0" />
       <span className="min-w-0 truncate font-medium">{display.label}</span>
+      {primaryAttachmentName ? (
+        <span className="min-w-0 max-w-[9rem] truncate text-muted-foreground/80 sm:max-w-[13rem]">
+          {primaryAttachmentName}
+        </span>
+      ) : null}
       {isRunning ? (
         <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
       ) : isError ? (
@@ -2285,6 +2342,19 @@ function ToolCallPill({
         ) : null}
         <div className="rounded-md border border-border/70 bg-background p-2">
           <div className="mb-1 border-b border-border/70 pb-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">{t('toolOutput')}</div>
+          {imageAttachments.length > 0 ? (
+            <div data-testid="chat-tool-attachments" className="mb-2 flex flex-wrap gap-2">
+              {imageAttachments.map((attachment, index) => (
+                <AttachmentPreviewItem
+                  key={`${attachment.id || attachment.filePath || attachment.name}-${index}`}
+                  attachment={attachment}
+                  context="message"
+                  previewGroup={imagePreviewGroup}
+                  onOpen={onAttachmentOpen}
+                />
+              ))}
+            </div>
+          ) : null}
           <MarkdownMessage content={bodyContent} variant="tool" onMediaClick={onMediaClick} />
         </div>
       </div>
@@ -2326,10 +2396,14 @@ function RunStepItem({
   message,
   toolVerbosity,
   onMediaClick,
+  onAttachmentOpen,
+  previewGroup,
 }: {
   message: ChatMessage;
   toolVerbosity: ToolVerbosity;
   onMediaClick?: (mediaUrl: string) => void;
+  onAttachmentOpen?: AttachmentOpenHandler;
+  previewGroup?: Attachment[];
 }) {
   const t = useTranslations('chat');
   const locale = useLocale();
@@ -2347,7 +2421,12 @@ function RunStepItem({
   if (isTool && toolVerbosity !== 'minimal') {
     return (
       <div data-testid="chat-run-step" className="min-w-0 overflow-hidden">
-        <ToolCallPill message={message} onMediaClick={onMediaClick} />
+        <ToolCallPill
+          message={message}
+          onMediaClick={onMediaClick}
+          onAttachmentOpen={onAttachmentOpen}
+          previewGroup={previewGroup}
+        />
       </div>
     );
   }
@@ -2387,12 +2466,16 @@ function AgentRunDisclosure({
   onToggle,
   toolVerbosity,
   onMediaClick,
+  onAttachmentOpen,
+  previewGroups,
 }: {
   run: CollapsedRun;
   expanded: boolean;
   onToggle: () => void;
   toolVerbosity: ToolVerbosity;
   onMediaClick?: (mediaUrl: string) => void;
+  onAttachmentOpen?: AttachmentOpenHandler;
+  previewGroups?: Map<string, Attachment[]>;
 }) {
   const t = useTranslations('chat');
   const duration = formatRunDuration(run.startedAt, run.endedAt);
@@ -2422,6 +2505,8 @@ function AgentRunDisclosure({
                 message={step}
                 toolVerbosity={toolVerbosity}
                 onMediaClick={onMediaClick}
+                onAttachmentOpen={onAttachmentOpen}
+                previewGroup={previewGroups?.get(step.id)}
               />
             ))}
           </div>
@@ -5546,6 +5631,7 @@ export default function CanvasAgentChat({
   ];
   const activeToolDisplay = runtimeStatus?.activeTool ? getToolDisplayInfo(runtimeStatus.activeTool.name, locale) : null;
   const collapsedRunMap = useMemo(() => buildCollapsedRunMap(messages, isRuntimeBusy), [messages, isRuntimeBusy]);
+  const toolImagePreviewGroups = useMemo(() => buildToolImagePreviewGroups(messages), [messages]);
   const hiddenStepIds = useMemo(() => {
     const ids = new Set<string>();
     for (const run of collapsedRunMap.values()) {
@@ -6317,6 +6403,7 @@ export default function CanvasAgentChat({
             const isStreamingAssistant = isAssistant && message.status === 'sending';
             const isAbortedAssistant = isAssistant && isAbortedAssistantPiMessage(message.piMessage);
             const collapsedRun = isAssistant ? collapsedRunMap.get(message.id) : undefined;
+            const toolImagePreviewGroup = isTool ? toolImagePreviewGroups.get(message.id) : undefined;
             const rawBodyContent = contentToString(message.content);
             const hasVisibleAssistantContent = rawBodyContent.trim().length > 0;
             const suppressAssistantTitle = isAssistant && hasEarlierVisibleAssistantInRun(messages, messageIndex, hiddenStepIds);
@@ -6331,6 +6418,8 @@ export default function CanvasAgentChat({
                   key={message.id}
                   message={message}
                   onMediaClick={handleMediaPreviewClick}
+                  onAttachmentOpen={handleAttachmentPreviewOpen}
+                  previewGroup={toolImagePreviewGroups.get(message.id)}
                 />
               );
             }
@@ -6508,7 +6597,7 @@ export default function CanvasAgentChat({
                           key={`${attachment.id || attachment.filePath || attachment.name}-${index}`}
                           attachment={attachment}
                           context="message"
-                          previewGroup={message.attachments}
+                          previewGroup={toolImagePreviewGroup || message.attachments}
                           onOpen={handleAttachmentPreviewOpen}
                         />
                       ))}
@@ -6532,6 +6621,8 @@ export default function CanvasAgentChat({
                     onToggle={() => toggleRunDisclosure(collapsedRun.key)}
                     toolVerbosity={toolVerbosity}
                     onMediaClick={handleMediaPreviewClick}
+                    onAttachmentOpen={handleAttachmentPreviewOpen}
+                    previewGroups={toolImagePreviewGroups}
                   />
                   {renderedMessage}
                 </React.Fragment>

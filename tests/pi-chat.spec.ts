@@ -861,6 +861,131 @@ contentKind: document
     await expect(page.getByTestId('chat-tool-body').last()).toContainText('is_looping');
   });
 
+  test('should show read image tool results as small clickable previews grouped by run', async ({ page }) => {
+    const sessionId = 'sess-read-image-previews';
+    const firstPath = 'tesla-dcf/screenshots/screenshot-a.png';
+    const secondPath = 'tesla-dcf/screenshots/screenshot-b.png';
+    const firstPreviewUrl = `/api/files/preview?path=${encodeURIComponent(firstPath)}&w=192&preset=mini`;
+    const secondPreviewUrl = `/api/files/preview?path=${encodeURIComponent(secondPath)}&w=192&preset=mini`;
+    const firstMediaUrl = '/api/media/tesla-dcf/screenshots/screenshot-a.png';
+    const secondMediaUrl = '/api/media/tesla-dcf/screenshots/screenshot-b.png';
+    const tinyPng = Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=',
+      'base64',
+    );
+
+    await page.route(/\/api\/files\/preview\?.*$/, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'image/png',
+        body: tinyPng,
+      });
+    });
+    await page.route(/\/api\/media\/tesla-dcf\/screenshots\/screenshot-[ab]\.png$/, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'image/png',
+        body: tinyPng,
+      });
+    });
+
+    setupMockWebSocket(page, {
+      sessionId,
+      agentEvents: [
+        {
+          type: 'tool_execution_start',
+          toolCallId: 'read-image-a',
+          toolName: 'read',
+          args: { path: firstPath },
+        },
+        {
+          type: 'tool_execution_end',
+          toolCallId: 'read-image-a',
+          toolName: 'read',
+          result: {
+            content: [{ type: 'text', text: `Image loaded for visual analysis: ${firstPath}` }],
+            details: {
+              filePath: firstPath,
+              requestedPath: firstPath,
+              type: 'image',
+              mimeType: 'image/png',
+              size: 143264,
+              previewUrl: firstPreviewUrl,
+              mediaUrl: firstMediaUrl,
+            },
+          },
+        },
+        {
+          type: 'tool_execution_start',
+          toolCallId: 'read-image-b',
+          toolName: 'read',
+          args: { path: secondPath },
+        },
+        {
+          type: 'tool_execution_end',
+          toolCallId: 'read-image-b',
+          toolName: 'read',
+          result: {
+            content: [{ type: 'text', text: `Image loaded for visual analysis: ${secondPath}` }],
+            details: {
+              filePath: secondPath,
+              requestedPath: secondPath,
+              type: 'image',
+              mimeType: 'image/png',
+              size: 2048,
+              previewUrl: secondPreviewUrl,
+              mediaUrl: secondMediaUrl,
+            },
+          },
+        },
+        {
+          type: 'message_end',
+          message: {
+            role: 'assistant',
+            content: [{ type: 'text', text: 'I inspected both screenshots.' }],
+            api: 'mock',
+            provider: 'mock',
+            model: 'mock-model',
+            usage: EMPTY_USAGE,
+            stopReason: 'stop',
+            timestamp: Date.now(),
+          },
+        },
+        { type: 'agent_end' },
+      ],
+    });
+
+    await mockEmptyChatBootstrap(page);
+    await page.addInitScript(() => window.localStorage.setItem('canvas-tool-verbosity', 'verbose'));
+    await page.goto('/chat');
+    await startFreshChat(page);
+    await page.getByTestId('chat-input').fill('Read both screenshots.');
+    await page.getByTestId('chat-send').click();
+
+    const runDisclosure = page.getByTestId('chat-run-disclosure').first();
+    await expect(runDisclosure).toBeVisible({ timeout: 15000 });
+    await runDisclosure.getByTestId('chat-run-disclosure-toggle').click();
+
+    const toolPills = runDisclosure.getByTestId('chat-tool-subtle');
+    await expect(toolPills).toHaveCount(2);
+    await expect(toolPills.nth(0)).toContainText('screenshot-a.png');
+
+    await toolPills.nth(0).locator('button').click();
+    const toolBody = page.getByTestId('chat-tool-body').last();
+    await expect(toolBody.getByTestId('chat-tool-attachments')).toBeVisible();
+    const attachment = toolBody.getByTestId('chat-message-attachment').first();
+    await expect(attachment).toContainText('screenshot-a.png');
+    await expect(attachment.locator('img')).toHaveAttribute('src', new RegExp(`/api/files/preview\\?path=${encodeURIComponent(firstPath)}`));
+
+    await attachment.locator('button').click();
+    await expect(page.getByTestId('attachment-preview-full-image')).toBeVisible();
+    await expect(page.getByTestId('attachment-preview-full-image')).toHaveAttribute('src', firstMediaUrl);
+    await expect(page.getByTestId('attachment-preview-next')).toBeVisible();
+
+    await page.getByTestId('attachment-preview-next').click();
+    await expect(page.getByTestId('attachment-preview-full-image')).toHaveAttribute('src', secondMediaUrl);
+  });
+
   test('should hide assistant text behind a streaming placeholder until the final message arrives', async ({ page }) => {
     const sessionId = 'sess-streaming-placeholder';
 
