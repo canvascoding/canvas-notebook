@@ -19,6 +19,31 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.6.9.1] - 2026-06-09
+
+### Added
+
+- Added public Markdown export sharing, including public Markdown and PDF export routes.
+- Added the chat dock to the email route.
+- Added read image previews in agent chat.
+- Added public preview app icons.
+
+### Changed
+
+- Render public shares on short URLs through the shared public preview renderer.
+- Use managed email OAuth credentials when available.
+- Removed agent session counts from chat history.
+- Bumped Canvas Notebook and CLI version to `2026.6.9.1`.
+
+### Fixed
+
+- Fixed public share dialog refresh behavior.
+- Avoided full page refreshes when saving email policies.
+
+### Verification
+
+- `npm run build`
+
 ## [2026.6.8.1] - 2026-06-08
 
 ### Added
