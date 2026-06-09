@@ -20,6 +20,7 @@ import {
   deleteAgentPaths,
   detectUnsafeBashCommand,
   editAgentFile,
+  getAgentWorkspaceRoot,
   listAgentFileSnapshots,
   moveAgentPaths,
   resolveAgentPath,
@@ -271,6 +272,10 @@ function getStudioDisplayPathForAbsolute(filePath: string): string | null {
   return null;
 }
 
+function getWorkspaceDisplayPathForAbsolute(filePath: string): string | null {
+  return getRelativePathIfWithin(filePath, getAgentWorkspaceRoot());
+}
+
 function buildStudioRootReadCandidate(rootPath: string, displayRoot: string, relativePath: string): ResolvedReadToolPath | null {
   const fullPath = path.resolve(rootPath, relativePath);
   if (!isPathWithin(fullPath, rootPath)) {
@@ -321,7 +326,7 @@ async function resolveReadToolPath(filePath: string): Promise<ResolvedReadToolPa
     const absolutePath = path.resolve(filePath);
     return {
       fullPath: absolutePath,
-      displayPath: getStudioDisplayPathForAbsolute(absolutePath) || filePath,
+      displayPath: getStudioDisplayPathForAbsolute(absolutePath) || getWorkspaceDisplayPathForAbsolute(absolutePath) || filePath,
       source: 'absolute',
     };
   }

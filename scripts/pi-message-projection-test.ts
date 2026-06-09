@@ -52,7 +52,11 @@ async function main() {
       { type: 'image', data: imageData, mimeType: 'image/png' },
     ],
     details: {
-      filePath: '/data/workspace/case.pdf',
+      filePath: 'case.pdf',
+      type: 'image',
+      mimeType: 'image/png',
+      previewUrl: '/api/files/preview?path=case.pdf&w=192&preset=mini',
+      mediaUrl: '/api/media/case.pdf',
       stdout: hugeText,
     },
     timestamp: now.getTime() + 2,
@@ -107,6 +111,12 @@ async function main() {
   assert.ok(rawContent.includes(uniqueTailMarker));
   assert.doesNotMatch(projectedJson, new RegExp(uniqueTailMarker));
   assert.doesNotMatch(projectedJson, new RegExp(imageData.slice(0, 200)));
+  const projectedToolDetails = projectedTool.details as Record<string, unknown>;
+  assert.equal(projectedToolDetails.filePath, 'case.pdf');
+  assert.equal(projectedToolDetails.type, 'image');
+  assert.equal(projectedToolDetails.mimeType, 'image/png');
+  assert.equal(projectedToolDetails.previewUrl, '/api/files/preview?path=case.pdf&w=192&preset=mini');
+  assert.equal(projectedToolDetails.mediaUrl, '/api/media/case.pdf');
 
   const projectedUserImage = loaded.messages.find((message) => {
     const content = (message as unknown as { content?: unknown }).content;
