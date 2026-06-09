@@ -21,6 +21,8 @@ interface ShareMarkdownDialogProps {
   filePath: string;
   fileName: string;
   kind?: 'markdown' | 'html';
+  markdownExportUrl?: string;
+  markdownPdfUrl?: string;
 }
 
 function getPdfDownloadName(filePath: string) {
@@ -44,6 +46,8 @@ export function ShareMarkdownDialog({
   filePath,
   fileName,
   kind = 'markdown',
+  markdownExportUrl,
+  markdownPdfUrl,
 }: ShareMarkdownDialogProps) {
   const t = useTranslations('notebook');
   const [loading, setLoading] = useState(false);
@@ -67,7 +71,7 @@ export function ShareMarkdownDialog({
 
     try {
       const response = await fetch(
-        `/api/files/markdown-export?path=${encodeURIComponent(filePath)}`
+        markdownExportUrl || `/api/files/markdown-export?path=${encodeURIComponent(filePath)}`
       );
 
       if (!response.ok) {
@@ -86,7 +90,7 @@ export function ShareMarkdownDialog({
     } finally {
       setLoading(false);
     }
-  }, [filePath, kind, t]);
+  }, [filePath, kind, markdownExportUrl, t]);
 
   useEffect(() => {
     if (open && filePath) {
@@ -105,10 +109,11 @@ export function ShareMarkdownDialog({
   const handleDownloadPDF = async () => {
     setPdfLoading(true);
     try {
-      const response = await fetch(kind === 'html' ? '/api/files/html-pdf' : '/api/files/markdown-pdf', {
+      const publicMarkdownPdf = kind === 'markdown' && markdownPdfUrl;
+      const response = await fetch(kind === 'html' ? '/api/files/html-pdf' : markdownPdfUrl || '/api/files/markdown-pdf', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path: filePath }),
+        headers: publicMarkdownPdf ? undefined : { 'Content-Type': 'application/json' },
+        body: publicMarkdownPdf ? undefined : JSON.stringify({ path: filePath }),
       });
 
       if (!response.ok) {
