@@ -2060,8 +2060,26 @@ export function EmailAccountsCard({
       });
       const payload = await response.json();
       if (!response.ok || !payload.success) throw new Error(payload.error || t('errors.savePolicy'));
+      const updatedAccount = payload.data as EmailAccount | undefined;
+      const nextReadFrom = Array.isArray(updatedAccount?.policy?.readFrom)
+        ? updatedAccount.policy.readFrom
+        : draft.readFrom.split(/\r?\n|,/).map((entry) => entry.trim()).filter(Boolean);
+      const nextSendTo = Array.isArray(updatedAccount?.policy?.sendTo)
+        ? updatedAccount.policy.sendTo
+        : draft.sendTo.split(/\r?\n|,/).map((entry) => entry.trim()).filter(Boolean);
+      setAccounts((current) => current.map((account) => (
+        account.id === accountId
+          ? { ...account, ...(updatedAccount || {}), policy: { readFrom: nextReadFrom, sendTo: nextSendTo } }
+          : account
+      )));
+      setDrafts((current) => ({
+        ...current,
+        [accountId]: {
+          readFrom: nextReadFrom.join('\n'),
+          sendTo: nextSendTo.join('\n'),
+        },
+      }));
       setMessage(t('messages.policySaved'));
-      await reloadAccountsAfterChange();
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : t('errors.savePolicy'));
     } finally {
