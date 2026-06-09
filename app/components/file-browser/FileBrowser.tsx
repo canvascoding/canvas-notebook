@@ -43,6 +43,13 @@ function normalizeWorkspacePathParam(value: string | null) {
   return segments.join('/');
 }
 
+function getParentDirectory(path: string) {
+  const trimmed = path.replace(/\/+$/, '');
+  const lastSlash = trimmed.lastIndexOf('/');
+  if (lastSlash <= 0) return '.';
+  return trimmed.slice(0, lastSlash);
+}
+
 interface FileBrowserProps {
   variant?: 'default' | 'mobile-sheet' | 'fullscreen';
   onFileSelect?: (path: string) => void;
@@ -215,6 +222,21 @@ export function FileBrowser({ variant = 'default', onFileSelect }: FileBrowserPr
     setPublicShareOpen(true);
   };
 
+  const refreshPublishedPaths = useCallback(
+    async (paths: string[]) => {
+      const dirsToRefresh = Array.from(new Set(paths.map(getParentDirectory)));
+      dirsToRefresh.sort((a, b) => {
+        const depthDiff = a.split('/').length - b.split('/').length;
+        return depthDiff !== 0 ? depthDiff : a.localeCompare(b);
+      });
+
+      for (const dirPath of dirsToRefresh) {
+        await refreshDirectory(dirPath, true);
+      }
+    },
+    [refreshDirectory]
+  );
+
   const navigateToDirectory = useCallback(
     async (targetDir: string) => {
       useFileStore.getState().setCurrentDirectory(targetDir);
@@ -382,7 +404,7 @@ export function FileBrowser({ variant = 'default', onFileSelect }: FileBrowserPr
         open={publicShareOpen}
         onOpenChange={setPublicShareOpen}
         paths={publicSharePaths}
-        onPublished={() => void refreshVisibleTree()}
+        onPublished={() => void refreshPublishedPaths(publicSharePaths)}
       />
       <ImagePreprocessDialog open={imagePreprocess.dialogState !== null} onOpenChange={(open) => { if (!open) imagePreprocess.setDialogState(null); }} files={imagePreprocess.dialogState?.files ?? []} onConfirm={imagePreprocess.handleConfirm} onSkip={imagePreprocess.handleSkip} isProcessing={imagePreprocess.isProcessing} />
 
