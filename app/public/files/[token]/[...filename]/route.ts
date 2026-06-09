@@ -5,7 +5,8 @@ import { isExcalidrawFilePath } from '@/app/lib/excalidraw-file';
 import { resolvePublicShareToken } from '@/app/lib/public-sharing/public-file-shares';
 import { buildPublicRequestUrl } from '@/app/lib/utils/request-origin';
 
-function publicPreviewPath(token: string, fileName: string): string {
+function publicPreviewPath(token: string, fileName: string, shortCode?: string | null): string {
+  if (shortCode) return `/p/${encodeURIComponent(shortCode)}`;
   return `/public/view/${encodeURIComponent(token)}/${encodeURIComponent(fileName)}`;
 }
 
@@ -38,7 +39,7 @@ async function handlePublicFileRequest(
     ) {
       return NextResponse.redirect(buildPublicRequestUrl(
         request,
-        publicPreviewPath(decodedToken, previewCheck.share.fileName)
+        publicPreviewPath(decodedToken, previewCheck.share.fileName, previewCheck.share.shortCode)
       ));
     }
 
