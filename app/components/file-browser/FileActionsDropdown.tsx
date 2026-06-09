@@ -130,7 +130,7 @@ export function FileActionsDropdown({
     clipboardPaths,
     clipboardMode,
     setBulkMoveOpen,
-    refreshVisibleTree,
+    refreshDirectory,
   } = useFileStore();
 
   const parentPath = useMemo(() => {
@@ -632,7 +632,7 @@ export function FileActionsDropdown({
           open={publicShareOpen}
           onOpenChange={setPublicShareOpen}
           paths={node.type === 'file' ? [node.path] : []}
-          onPublished={() => void refreshVisibleTree()}
+          onPublished={() => void refreshDirectory(getParentPath(node.path), true)}
         />
       )}
     </>

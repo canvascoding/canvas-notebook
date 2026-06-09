@@ -533,7 +533,7 @@
     "publicShareAction": "Datei veröffentlichen",
     "publicShareManage": "Öffentlichen Link verwalten",
     "publicShareBadge": "Öffentlich",
-    "publicShareTitle": "Datei öffentlich veröffentlichen",
+    "publicShareTitle": "Datei veröffentlichen",
     "publicShareDescription": "Erstelle öffentliche Read-only-URLs für ausgewählte Workspace-Dateien.",
     "publicShareWarning": "Jeder mit dem Link kann die veröffentlichte Datei ohne Login lesen. HTML wird in einer strikten Sandbox ohne Skripte ausgeliefert; diese Route akzeptiert keine Schreiboperationen.",
     "publicShareWarningInteractive": "Jeder mit dem Link kann diese HTML-Seite ohne Login öffnen. Skripte und Nachbar-Dateien aus demselben Ordner werden erlaubt; diese Route bleibt read-only.",

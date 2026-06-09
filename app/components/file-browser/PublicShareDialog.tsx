@@ -52,6 +52,20 @@ function normalizePathForCompare(value: string) {
   return value.replace(/\\/g, '/').replace(/^\.\/+/, '').replace(/^\/+/, '');
 }
 
+function serializePaths(paths: string[]) {
+  return JSON.stringify(paths.filter(Boolean));
+}
+
+function parseSerializedPaths(serializedPaths: string) {
+  try {
+    const parsed = JSON.parse(serializedPaths) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((path): path is string => typeof path === 'string' && path.trim().length > 0);
+  } catch {
+    return [];
+  }
+}
+
 function primaryShareUrl(share: PublicShareResult) {
   return share.shortUrl || share.publicUrl;
 }
@@ -89,7 +103,8 @@ export function PublicShareDialog({ open, onOpenChange, paths, onPublished }: Pu
   const [shares, setShares] = useState<PublicShareResult[]>([]);
   const [skipped, setSkipped] = useState<Array<{ path: string; reason: string }>>([]);
 
-  const uniquePaths = useMemo(() => Array.from(new Set(paths.filter(Boolean))), [paths]);
+  const pathsKey = useMemo(() => serializePaths(paths), [paths]);
+  const uniquePaths = useMemo(() => Array.from(new Set(parseSerializedPaths(pathsKey))), [pathsKey]);
   const fileCount = uniquePaths.length;
   const hasResults = shares.length > 0 || skipped.length > 0;
   const canUseInteractiveHtml = uniquePaths.length === 1 && isHtmlPath(uniquePaths[0] || '');
