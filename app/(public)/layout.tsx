@@ -7,6 +7,7 @@ import '@uiw/react-markdown-preview/markdown.css';
 import '@excalidraw/excalidraw/index.css';
 import '../globals.css';
 import { AppThemeProvider } from '@/app/components/ThemeProvider';
+import { Toaster } from '@/components/ui/sonner';
 import messages from '@/messages/de.json';
 
 const geistSans = Geist({
@@ -64,6 +65,7 @@ export default function PublicLayout({ children }: { children: React.ReactNode }
         <NextIntlClientProvider locale="de" messages={messages}>
           <AppThemeProvider>
             {children}
+            <Toaster richColors position="top-right" />
           </AppThemeProvider>
         </NextIntlClientProvider>
       </body>

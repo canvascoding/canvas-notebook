@@ -3,7 +3,8 @@
 import dynamic from 'next/dynamic';
 import { useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
-import { AlertCircle, Code2, Download, Eye, FileText, Loader2, RefreshCw } from 'lucide-react';
+import { AlertCircle, Code2, Download, Eye, FileText, Loader2, RefreshCw, Share2 } from 'lucide-react';
+import { useTranslations } from 'next-intl';
 
 import { Button } from '@/components/ui/button';
 import { CodeEditor } from '@/app/components/editor/CodeEditor';
@@ -11,6 +12,7 @@ import { ImageViewer } from '@/app/components/editor/ImageViewer';
 import { MarkdownEditor } from '@/app/components/editor/MarkdownEditor';
 import { MediaViewer } from '@/app/components/editor/MediaViewer';
 import { PdfViewer } from '@/app/components/editor/PdfViewer';
+import { ShareMarkdownDialog } from '@/app/components/file-browser/ShareMarkdownDialog';
 import type { PublicPreviewKind } from '@/app/lib/public-sharing/public-preview-types';
 import type { PublicShareSecurityMode } from '@/app/lib/public-sharing/public-share-security';
 
@@ -32,6 +34,8 @@ interface PublicFilePreviewProps {
   downloadUrl: string;
   content?: string | null;
   securityMode?: PublicShareSecurityMode;
+  markdownExportUrl?: string;
+  markdownPdfUrl?: string;
 }
 
 type HtmlMode = 'preview' | 'code';
@@ -99,13 +103,22 @@ export function PublicFilePreview({
   downloadUrl,
   content,
   securityMode = 'strict',
+  markdownExportUrl,
+  markdownPdfUrl,
 }: PublicFilePreviewProps) {
+  const t = useTranslations('notebook');
   const [htmlMode, setHtmlMode] = useState<HtmlMode>('preview');
   const [htmlRefreshKey, setHtmlRefreshKey] = useState(0);
+  const [shareOpen, setShareOpen] = useState(false);
   const extension = useMemo(() => getExtension(fileName), [fileName]);
   const sizeLabel = formatBytes(sizeBytes);
   const canShowTextContent = typeof content === 'string';
   const canShowHtmlCode = previewKind === 'html' && canShowTextContent;
+  const canShareMarkdown = (
+    (previewKind === 'markdown' || previewKind === 'marp') &&
+    canShowTextContent &&
+    Boolean(markdownExportUrl && markdownPdfUrl)
+  );
   const htmlSandbox = securityMode === 'interactive'
     ? 'allow-scripts allow-popups allow-downloads'
     : '';
@@ -181,6 +194,16 @@ export function PublicFilePreview({
               )}
             </Button>
           ) : null}
+          {canShareMarkdown ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setShareOpen(true)}
+            >
+              <Share2 className="h-4 w-4" />
+              {t('share')}
+            </Button>
+          ) : null}
           <Button asChild variant="secondary" size="sm">
             <a href={downloadUrl} download={fileName}>
               <Download className="h-4 w-4" />
@@ -192,6 +215,16 @@ export function PublicFilePreview({
       <section className="min-h-0 flex-1 overflow-hidden">
         {body}
       </section>
+      {canShareMarkdown ? (
+        <ShareMarkdownDialog
+          open={shareOpen}
+          onOpenChange={setShareOpen}
+          filePath={fileName}
+          fileName={fileName}
+          markdownExportUrl={markdownExportUrl}
+          markdownPdfUrl={markdownPdfUrl}
+        />
+      ) : null}
     </main>
   );
 }

@@ -9,6 +9,7 @@ import { PublicFilePreview } from '@/app/components/public-sharing/PublicFilePre
 import { PublicExcalidrawViewer } from '@/app/components/public-sharing/PublicExcalidrawViewer';
 import { isExcalidrawFilePath } from '@/app/lib/excalidraw-file';
 import { isMarpMarkdown } from '@/app/lib/marp/detect';
+import { publicMarkdownExportPath, publicMarkdownPdfPath } from '@/app/lib/public-sharing/public-markdown-export';
 import type { PublicShareResolution } from '@/app/lib/public-sharing/public-file-shares';
 import type { PublicPreviewKind } from '@/app/lib/public-sharing/public-preview-types';
 
@@ -95,6 +96,8 @@ function shouldReadTextContent(previewKind: PublicPreviewKind) {
 export async function PublicResolvedFilePreview({ resolved }: { resolved: ResolvedPublicShare }) {
   const assetUrl = publicAssetPath(resolved.row.token, resolved.share.fileName);
   const downloadUrl = publicDownloadPath(resolved.row.token, resolved.share.fileName);
+  const markdownExportUrl = publicMarkdownExportPath(resolved.row.token);
+  const markdownPdfUrl = publicMarkdownPdfPath(resolved.row.token);
 
   if (isExcalidrawFilePath(resolved.workspacePath)) {
     if (resolved.sizeBytes > EXCALIDRAW_PREVIEW_SIZE_LIMIT) {
@@ -151,6 +154,8 @@ export async function PublicResolvedFilePreview({ resolved }: { resolved: Resolv
       downloadUrl={downloadUrl}
       content={content}
       securityMode={resolved.share.securityMode}
+      markdownExportUrl={markdownExportUrl}
+      markdownPdfUrl={markdownPdfUrl}
     />
   );
 }
