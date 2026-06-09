@@ -17,6 +17,21 @@ export type EmailDraftInput = {
   is_HTML?: boolean;
 };
 
+export type ManagedEmailAccount = {
+  id: string;
+  provider: string;
+  authType?: string;
+  emailAddress: string;
+  displayName: string | null;
+  isPrimary?: boolean;
+  status: string;
+  scope?: string | null;
+  expiresAt?: string | null;
+  policy: EmailPolicy;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
 export function isManagedEmailAvailable(): boolean {
   return (
     process.env.CANVAS_MANAGED_SERVICES_ENABLED === 'true' &&
@@ -35,6 +50,11 @@ function controlPlaneUrl(path: string): string {
   const baseUrl = getManagedControlPlaneBaseUrl();
   if (!baseUrl) throw new Error('Managed email is not configured. Missing CANVAS_CONTROL_PLANE_URL.');
   return `${baseUrl}${path}`;
+}
+
+export function getManagedEmailOAuthRedirectUri(): string | null {
+  const baseUrl = getManagedControlPlaneBaseUrl();
+  return baseUrl ? `${baseUrl}/v1/managed/email/oauth/callback` : null;
 }
 
 function managedEmailHeaders(options?: RequestInit): Headers {
