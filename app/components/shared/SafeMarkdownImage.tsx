@@ -10,6 +10,9 @@ type SafeMarkdownImageProps = {
   alt?: string;
   wrapperClassName?: string;
   imageClassName?: string;
+  errorClassName?: string;
+  errorLabel?: string;
+  showError?: boolean;
   onOpen?: (src: string) => void;
 };
 
@@ -20,6 +23,9 @@ export function SafeMarkdownImage({
   alt = '',
   wrapperClassName,
   imageClassName,
+  errorClassName,
+  errorLabel = 'Image could not be loaded.',
+  showError = false,
   onOpen,
 }: SafeMarkdownImageProps) {
   const displaySrc = previewSrc || src;
@@ -53,7 +59,23 @@ export function SafeMarkdownImage({
     };
   }, [displaySrc, failedSrc, loadedSrc]);
 
-  if (!displaySrc || failedSrc === displaySrc || loadedSrc !== displaySrc) {
+  if (!displaySrc || loadedSrc !== displaySrc) {
+    if (showError && failedSrc === displaySrc) {
+      return (
+        <span
+          role="img"
+          aria-label={errorLabel}
+          title={displaySrc}
+          className={cn(
+            'inline-flex max-w-full items-center rounded-md border border-destructive/30 bg-destructive/10 px-2 py-1 text-xs text-destructive',
+            errorClassName,
+          )}
+        >
+          {errorLabel}
+        </span>
+      );
+    }
+
     return null;
   }
 
