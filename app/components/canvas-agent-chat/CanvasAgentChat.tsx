@@ -2,6 +2,8 @@
 
 import React, { useState, useRef, useEffect, useCallback, useLayoutEffect, useMemo } from 'react';
 import type { AgentMessage } from '@earendil-works/pi-agent-core';
+import { createThinkingFilterState, filterThinkingChunk, flushThinkingFilter } from '@/app/lib/pi/thinking-filter';
+import type { ThinkingFilterState } from '@/app/lib/pi/thinking-filter';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
@@ -210,6 +212,7 @@ interface ChatEvent {
   assistantMessageEvent?: {
     type?: string;
     delta?: string;
+    content?: string;
   };
   toolName?: string;
   toolCallId?: string;
@@ -1298,12 +1301,22 @@ function getChatMessageRole(role: AgentMessage['role']): ChatMessage['role'] {
   return 'system';
 }
 
+function stripThinkingTags(text: string): string {
+  return text
+    .replace(/<thinking>[\s\S]*?<\/thinking>/gi, '')
+    .replace(/<reasoning>[\s\S]*?<\/reasoning>/gi, '')
+    .replace(/<\/?thinking>/gi, '')
+    .replace(/<\/?reasoning>/gi, '')
+    .trim();
+}
+
 function extractPiMessageText(piMessage?: AgentMessage | null, options?: { hideAttachmentMetadata?: boolean }): string {
   if (!piMessage || isCompactBreakMessage(piMessage) || isComposioAuthRequiredMessage(piMessage) || isRuntimeContinuationMessage(piMessage)) return '';
   const messageContent = getPiMessageContent(piMessage);
   if (!Array.isArray(messageContent)) {
     const text = typeof messageContent === 'string' ? messageContent : '';
-    return options?.hideAttachmentMetadata ? stripAttachmentBlocks(text) : text;
+    const strippedText = stripThinkingTags(text);
+    return options?.hideAttachmentMetadata ? stripAttachmentBlocks(strippedText) : strippedText;
   }
 
   const textContent = messageContent
@@ -1315,7 +1328,8 @@ function extractPiMessageText(piMessage?: AgentMessage | null, options?: { hideA
     .join('\n');
 
   if (textContent) {
-    const visibleText = options?.hideAttachmentMetadata ? stripAttachmentBlocks(textContent) : textContent;
+    const strippedText = stripThinkingTags(textContent);
+    const visibleText = options?.hideAttachmentMetadata ? stripAttachmentBlocks(strippedText) : strippedText;
     return normalizeMessageStart(visibleText);
   }
 
@@ -2718,6 +2732,8 @@ export default function CanvasAgentChat({
   const streamingContentRef = useRef<string>('');
   const lastFlushedStreamingContentRef = useRef<string>('');
   const streamingRafRef = useRef<number | null>(null);
+  const thinkingFilterRef = useRef<ThinkingFilterState>(createThinkingFilterState());
+  const thinkingContentRef = useRef<string>('');
   const runtimeStatusRef = useRef<RuntimeStatus | null>(null);
   const sessionIdRef = useRef<string | null>(null);
   const sessionAgentIdRef = useRef<string>(CHAT_AGENT_ID);
@@ -3397,6 +3413,8 @@ export default function CanvasAgentChat({
       streamingRafRef.current = null;
     }
     streamingContentRef.current = '';
+    thinkingFilterRef.current = createThinkingFilterState();
+    thinkingContentRef.current = '';
   }, []);
 
   const reconcileQueuedMessages = useCallback((status: RuntimeStatus) => {
@@ -3927,6 +3945,8 @@ export default function CanvasAgentChat({
     if (event.type === 'message_start' && event.message?.role === 'assistant') {
       streamingContentRef.current = '';
       lastFlushedStreamingContentRef.current = '';
+      thinkingFilterRef.current = createThinkingFilterState();
+      thinkingContentRef.current = '';
       createAssistantBubble(event.message);
       return;
     }
@@ -3940,8 +3960,35 @@ export default function CanvasAgentChat({
 
     if (event.type === 'message_update') {
       const assistantId = currentAssistantIdRef.current || createAssistantBubble(event.message);
-      if (event.assistantMessageEvent?.type === 'text_delta') {
-        streamingContentRef.current += event.assistantMessageEvent.delta || '';
+      const eventType = event.assistantMessageEvent?.type;
+
+      if (eventType === 'thinking_start' || eventType === 'thinking_delta') {
+        const delta = event.assistantMessageEvent?.delta || '';
+        if (delta) {
+          thinkingContentRef.current += delta;
+        }
+        return;
+      }
+
+      if (eventType === 'thinking_end') {
+        const content = event.assistantMessageEvent?.content;
+        if (typeof content === 'string' && content) {
+          thinkingContentRef.current += content;
+        }
+        return;
+      }
+
+      if (eventType === 'text_delta') {
+        const rawDelta = event.assistantMessageEvent?.delta || '';
+        const filtered = filterThinkingChunk(rawDelta, thinkingFilterRef.current);
+        thinkingFilterRef.current = filtered.state;
+        if (filtered.thinking) {
+          thinkingContentRef.current += filtered.thinking;
+        }
+        const displayDelta = filtered.text;
+        if (displayDelta) {
+          streamingContentRef.current += displayDelta;
+        }
         if (streamingRafRef.current === null) {
           const flush = () => {
             const content = normalizeMessageStart(streamingContentRef.current);
@@ -3972,6 +4019,16 @@ export default function CanvasAgentChat({
         cancelAnimationFrame(streamingRafRef.current);
         streamingRafRef.current = null;
       }
+
+      const flushed = flushThinkingFilter(thinkingFilterRef.current);
+      if (flushed.text) {
+        streamingContentRef.current += flushed.text;
+      }
+      if (flushed.thinking) {
+        thinkingContentRef.current += flushed.thinking;
+      }
+      thinkingFilterRef.current = createThinkingFilterState();
+
       streamingContentRef.current = '';
       lastFlushedStreamingContentRef.current = '';
       const assistantId = currentAssistantIdRef.current || createAssistantBubble(event.message);

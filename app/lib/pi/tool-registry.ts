@@ -2835,8 +2835,11 @@ function createOnboardingProfileTool(userId?: string, agentId?: string | null, s
     name: ONBOARDING_PROFILE_TOOL_NAME,
     label: 'Completing onboarding profile',
     description:
-      'Completes the initial Canvas Agent onboarding after collecting the user profile and agent identity information. ' +
-      'Use only when you have enough durable information to write USER.md and SOUL.md. This tool writes those files, removes BOOTSTRAP.md, and marks onboarding complete.',
+      'Call this tool ONCE when the initial onboarding conversation has gathered enough information about the user and agent preferences. ' +
+      'It writes USER.md and SOUL.md, removes BOOTSTRAP.md, and marks onboarding complete. ' +
+      'Do NOT call this tool before you have asked the user at least one question and received a real answer. ' +
+      'Do NOT call this tool repeatedly. If the tool returns an error, explain the issue to the user and try once more with corrected parameters. ' +
+      'After a successful call, give a brief confirmation in natural language. Do not output code, logs, or technical artifacts after the call.',
     parameters: Type.Object({
       userMd: Type.String({ description: 'Complete Markdown content for USER.md. Include durable user facts, preferences, context, and goals. Do not include secrets.' }),
       soulMd: Type.String({ description: 'Complete Markdown content for SOUL.md. Include durable agent identity, communication style, boundaries, and collaboration preferences. Do not include secrets.' }),

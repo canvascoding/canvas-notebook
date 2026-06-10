@@ -18,6 +18,12 @@ import {
 import { normalizePiMessagesForLlm } from '@/app/lib/pi/message-normalization';
 import { createCompactBreakMessage, createRuntimeContinuationMessage, type RuntimeContinuationReason } from '@/app/lib/pi/custom-messages';
 import {
+  createThinkingFilterState,
+  filterThinkingChunk,
+  flushThinkingFilter,
+  type ThinkingFilterState,
+} from '@/app/lib/pi/thinking-filter';
+import {
   formatImageInputUnsupportedError,
   isImageInputUnsupportedError,
   resolvePiModel,
@@ -404,6 +410,7 @@ class LivePiRuntime {
   private lastContinuationReason: RuntimeContinuationReason | null = null;
   private pendingInitialToolTailContinuation = false;
   private lastTurnDiagnostics: RuntimeTurnDiagnostics | null = null;
+  private thinkingFilterState: ThinkingFilterState = createThinkingFilterState();
   agentUnsubscribe: (() => void) | null = null;
 
   constructor(init: RuntimeInit, agent: Agent, private readonly options: RuntimeOptions = {}) {
@@ -1025,11 +1032,64 @@ class LivePiRuntime {
     this.touch();
     normalizeAgentEventErrors(event, this.model);
 
+    if (event.type === 'message_start' && event.message?.role === 'assistant') {
+      this.thinkingFilterState = createThinkingFilterState();
+    }
+
     if (event.type === 'message_start' && isUserMessage(event.message)) {
       this.consumeQueuedMessage(event.message);
       const signature = getMessageSignature(event.message);
       if (signature !== this.currentUserPromptSignature) {
         this.resetRunSupervisorForUserMessage(event.message);
+      }
+    }
+
+    if (event.type === 'message_update' && event.assistantMessageEvent) {
+      const eventType = event.assistantMessageEvent.type;
+      if (eventType === 'thinking_start' || eventType === 'thinking_delta' || eventType === 'thinking_end') {
+        this.publishStatus();
+        return;
+      }
+      if (eventType === 'text_delta') {
+        const rawDelta = event.assistantMessageEvent.delta || '';
+        if (rawDelta) {
+          const filtered = filterThinkingChunk(rawDelta, this.thinkingFilterState);
+          this.thinkingFilterState = filtered.state;
+          if (filtered.text) {
+            const filteredEvent: typeof event = {
+              ...event,
+              assistantMessageEvent: {
+                ...event.assistantMessageEvent,
+                delta: filtered.text,
+              },
+            };
+            void getEmitter().then((emitter) => {
+              emitter.emitEvent(this.sessionId, this.userId, filteredEvent as Record<string, unknown>);
+            }).catch(() => {});
+          }
+        }
+        this.publishStatus();
+        return;
+      }
+    }
+
+    if (event.type === 'message_end' && event.message?.role === 'assistant') {
+      const flushed = flushThinkingFilter(this.thinkingFilterState);
+      this.thinkingFilterState = createThinkingFilterState();
+      if (flushed.text) {
+        const syntheticDelta: AgentEvent = {
+          type: 'message_update',
+          assistantMessageEvent: {
+            type: 'text_delta',
+            contentIndex: 0,
+            delta: flushed.text,
+            partial: event.message,
+          },
+          message: event.message,
+        };
+        void getEmitter().then((emitter) => {
+          emitter.emitEvent(this.sessionId, this.userId, syntheticDelta as Record<string, unknown>);
+        }).catch(() => {});
       }
     }
 
