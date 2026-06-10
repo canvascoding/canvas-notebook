@@ -10,7 +10,7 @@ import { HomeWorkspaceView } from '@/app/components/home/HomeWorkspaceView';
 import { AppLauncher } from '@/app/components/AppLauncher';
 import { NotificationBell } from '@/app/components/notifications/NotificationBell';
 import { HomeHintProvider } from '@/app/components/onboarding/HomeHintProvider';
-import { isOnboardingEnabled } from '@/app/lib/onboarding/status';
+import { isOnboardingHintsEnabled } from '@/app/lib/onboarding/status';
 import { LogoutButton } from '@/app/components/LogoutButton';
 import { ThemeToggle } from '@/app/components/ThemeToggle';
 import { VersionUpdateIndicator } from '@/app/components/VersionUpdateIndicator';
@@ -22,7 +22,7 @@ const releaseTagUrl = `${repositoryUrl}/releases/tag/${releaseTag}`;
 
 export default async function Home() {
   const tHome = await getTranslations('home');
-  const onboardingEnabled = isOnboardingEnabled();
+  const onboardingEnabled = isOnboardingHintsEnabled();
   await requirePageSession({ allowUnlicensed: true });
   const licenseStatus = await getLicenseStatus();
 

@@ -6,6 +6,10 @@ export function isOnboardingEnabled(): boolean {
   return process.env.ONBOARDING?.trim().toLowerCase() !== 'false';
 }
 
+export function isOnboardingHintsEnabled(): boolean {
+  return process.env.ONBOARDING_HINTS?.trim().toLowerCase() === 'true';
+}
+
 export async function isOnboardingComplete(): Promise<boolean> {
   try {
     const row = await db.select().from(onboardingLog).where(eq(onboardingLog.method, 'ui')).limit(1);

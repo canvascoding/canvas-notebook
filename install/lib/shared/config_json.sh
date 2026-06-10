@@ -35,6 +35,7 @@ CONFIG_JSON_DEFAULTS='{
     "DATA": "/data",
     "LOG_LEVEL": "info",
     "ONBOARDING": true,
+    "ONBOARDING_HINTS": false,
     "ALLOW_SIGNUP": false,
     "OLLAMA_CLI_AUTO_INSTALL": true
   }
