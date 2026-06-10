@@ -8,7 +8,7 @@ const handleI18nRouting = createIntlMiddleware(routing);
 const LICENSE_GATE_COOKIE = 'canvas_license_gate';
 
 // Public routes that don't require authentication
-const PUBLIC_PREFIX_ROUTES = ['/login', '/sign-in', '/sign-up', '/api/auth', '/api/license', '/api/automations/execute', '/api/automations/scheduler'];
+const PUBLIC_PREFIX_ROUTES = ['/login', '/sign-in', '/sign-up', '/setup', '/api/auth', '/api/license', '/api/setup', '/api/automations/execute', '/api/automations/scheduler'];
 const PUBLIC_EXACT_ROUTES = ['/', '/api/health', '/manifest.webmanifest'];
 const LICENSE_ALLOWED_API_PREFIXES = ['/api/auth', '/api/health', '/api/license', '/api/onboarding'];
 
