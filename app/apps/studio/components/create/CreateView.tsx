@@ -1044,9 +1044,9 @@ export function CreateView({ initialProviderConfig = EMPTY_STUDIO_PROVIDER_CONFI
             return { id, name: p?.name || id };
           }));
           store.setPresetRef(presets.find((p) => p.id === generation.studioPresetId) ?? null);
-          store.setAspectRatio(generation.aspectRatio || '1:1');
-          store.setProvider(generation.provider || 'gemini');
-          store.setModel(normalizeGeminiImageModelId(generation.model || getDefaultModelForProvider('image', generation.provider || 'gemini')));
+          store.setAspectRatio(['16:9', '9:16'].includes(generation.aspectRatio) ? generation.aspectRatio : '16:9');
+          store.setProvider('veo');
+          store.setModel(getDefaultModelForProvider('video', 'veo'));
           replaceFileRefsWithOutput(output);
           setSelectedGenerationId(null);
           setSelectedOutputId(null);
