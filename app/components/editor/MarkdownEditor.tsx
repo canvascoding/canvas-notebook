@@ -4,7 +4,9 @@ import dynamic from 'next/dynamic';
 import React from 'react';
 import { useTheme } from '@/app/components/ThemeProvider';
 import { MermaidDiagram } from '@/components/ui/mermaid-diagram';
+import { SafeMarkdownImage } from '@/app/components/shared/SafeMarkdownImage';
 import { ColorSwatch, isColorCode } from '@/app/lib/markdown/color-swatch';
+import { resolveMarkdownImageUrl } from '@/app/lib/markdown/markdown-image-url';
 import { rehypeMermaid } from '@/app/lib/markdown/rehype-mermaid';
 import { rehypeInlineColorSwatch } from '@/app/lib/markdown/rehype-inline-color-swatch';
 
@@ -17,6 +19,7 @@ interface MarkdownEditorProps {
   value: string;
   onChange?: (value: string) => void;
   readOnly?: boolean;
+  filePath?: string;
 }
 
 function extractTextFromChildren(children: React.ReactNode): string {
@@ -52,11 +55,45 @@ function extractColorCode(props: Record<string, any>): string | null {
   return null;
 }
 
-export function MarkdownEditor({ value, onChange, readOnly = false }: MarkdownEditorProps) {
+function MarkdownPreviewImage({
+  src,
+  alt,
+  filePath,
+}: React.ImgHTMLAttributes<HTMLImageElement> & { filePath?: string }) {
+  if (typeof src !== 'string' || !src) return null;
+
+  const resolvedImage = resolveMarkdownImageUrl(src, filePath);
+  if (!resolvedImage.ok) {
+    return (
+      <span
+        role="img"
+        aria-label={resolvedImage.error}
+        title={src}
+        className="my-2 inline-flex max-w-full items-center rounded-md border border-destructive/30 bg-destructive/10 px-2 py-1 text-xs text-destructive"
+      >
+        {resolvedImage.error}
+      </span>
+    );
+  }
+
+  return (
+    <SafeMarkdownImage
+      src={src}
+      previewSrc={resolvedImage.src}
+      alt={alt || ''}
+      imageClassName="my-2 max-h-[60vh] w-auto max-w-full rounded-md object-contain"
+      showError
+      errorLabel={`Image could not be loaded: ${src}`}
+      errorClassName="my-2"
+    />
+  );
+}
+
+export function MarkdownEditor({ value, onChange, readOnly = false, filePath }: MarkdownEditorProps) {
   const { resolvedTheme } = useTheme();
   const colorMode = resolvedTheme === 'light' ? 'light' : 'dark';
 
-  const previewOptions = {
+  const previewOptions = React.useMemo(() => ({
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     rehypePlugins: [rehypeInlineColorSwatch, rehypeMermaid] as any[],
     components: {
@@ -92,8 +129,16 @@ export function MarkdownEditor({ value, onChange, readOnly = false }: MarkdownEd
         
         return <code className={className} {...restProps}>{children}</code>;
       },
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      img: (props: any) => (
+        <MarkdownPreviewImage
+          src={props.src}
+          alt={props.alt}
+          filePath={filePath}
+        />
+      ),
     },
-  };
+  }), [filePath]);
 
   return (
     <div className="h-full overflow-hidden" data-color-mode={colorMode}>
