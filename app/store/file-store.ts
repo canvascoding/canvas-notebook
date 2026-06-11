@@ -276,7 +276,7 @@ interface FileStoreState {
   refreshRootTree: (noCache?: boolean) => Promise<void>;
   refreshDirectory: (dirPath: string, noCache?: boolean) => Promise<void>;
   refreshVisibleTree: () => Promise<void>;
-  loadSubdirectory: (dirPath: string, noCache?: boolean) => Promise<void>;
+  loadSubdirectory: (dirPath: string, noCache?: boolean, expand?: boolean) => Promise<void>;
   loadFile: (path: string, noCache?: boolean) => Promise<void>;
   refreshCurrentFileContent: (path: string) => Promise<CurrentFile | null>;
   revealAndLoadFile: (path: string) => Promise<void>;
@@ -575,14 +575,21 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
     }
   },
 
-  loadSubdirectory: async (dirPath: string, noCache = false) => {
+  loadSubdirectory: async (dirPath: string, noCache = false, expand = true) => {
     if (dirPath === '.') {
       await get().refreshRootTree(noCache);
       return;
     }
 
     const { loadingDirs, expandedDirs, fileTree } = get();
-    if (loadingDirs.has(dirPath)) return;
+    if (loadingDirs.has(dirPath)) {
+      if (expand && !expandedDirs.has(dirPath)) {
+        const newExpanded = new Set(expandedDirs);
+        newExpanded.add(dirPath);
+        get().setExpandedDirs(newExpanded);
+      }
+      return;
+    }
 
     const findNodeInTree = (searchPath: string, nodes: FileNode[]): FileNode | null => {
       for (const node of nodes) {
@@ -596,13 +603,19 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
     };
 
     const existingNode = findNodeInTree(dirPath, fileTree);
-    if (!noCache && existingNode && existingNode.children && existingNode.children.length > 0) {
-      if (!expandedDirs.has(dirPath)) {
+    if (!noCache && existingNode && Array.isArray(existingNode.children)) {
+      if (expand && !expandedDirs.has(dirPath)) {
         const newExpanded = new Set(expandedDirs);
         newExpanded.add(dirPath);
         get().setExpandedDirs(newExpanded);
       }
       return;
+    }
+
+    if (expand && !expandedDirs.has(dirPath)) {
+      const newExpanded = new Set(expandedDirs);
+      newExpanded.add(dirPath);
+      get().setExpandedDirs(newExpanded);
     }
 
     const newLoading = new Set(loadingDirs);
@@ -637,14 +650,16 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
       // Use fresh state references after the async gap to avoid
       // overwriting concurrent tree updates (race condition).
       const newTree = mergeSubtree(get().fileTree, dirPath, data);
-      const newExpanded = new Set(get().expandedDirs);
-      newExpanded.add(dirPath);
 
       const newLoading = new Set(get().loadingDirs);
       newLoading.delete(dirPath);
 
       set({ fileTree: newTree, loadingDirs: newLoading });
-      get().setExpandedDirs(newExpanded);
+      if (expand) {
+        const newExpanded = new Set(get().expandedDirs);
+        newExpanded.add(dirPath);
+        get().setExpandedDirs(newExpanded);
+      }
     } catch (error) {
       const newLoading = new Set(get().loadingDirs);
       newLoading.delete(dirPath);
@@ -1186,7 +1201,9 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
       newExpanded.delete(path);
       get().setExpandedDirs(newExpanded);
     } else {
-      get().loadSubdirectory(path);
+      newExpanded.add(path);
+      get().setExpandedDirs(newExpanded);
+      get().loadSubdirectory(path, false, false);
     }
   },
   collapseAllDirectories: () => {

@@ -52,6 +52,7 @@ export function FileTreeNode({ node, depth = 0, browserMode = 'tree', onNavigate
   const isMultiSelected = multiSelectPaths.has(node.path);
   const isRowActive = isSelected || isMultiSelected;
   const isPublic = node.type === 'file' && node.publicShare?.status === 'active';
+  const hasLoadedChildren = Array.isArray(node.children);
   const childNodes = node.children ?? [];
   const rowPaddingStyle = isMobile
     ? { paddingLeft: `${8 + Math.min(depth, 4) * 12}px` }
@@ -207,7 +208,7 @@ export function FileTreeNode({ node, depth = 0, browserMode = 'tree', onNavigate
       );
     }
 
-    const showChildren = isExpanded && (childNodes.length > 0 || isLoading);
+    const showChildren = isExpanded && (hasLoadedChildren || isLoading);
     return (
       <Collapsible open={isExpanded} onOpenChange={handleToggle}>
         <SidebarMenuItem>
