@@ -663,6 +663,7 @@
     "sendAction": "Send",
     "queueAction": "Queue",
     "removeQueuedMessage": "Remove from queue",
+    "editQueuedMessage": "Edit",
     "sendNow": "Send now",
     "compactCanvas": "Canvas compact",
     "close": "Close",

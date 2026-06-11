@@ -2747,6 +2747,7 @@ export default function CanvasAgentChat({
   const [hasUnreadInCurrentSession, setHasUnreadInCurrentSession] = useState(false);
   const [showUnreadBanner, setShowUnreadBanner] = useState(false);
   const [totalUnreadCount, setTotalUnreadCount] = useState(0);
+  const [openQueueItemPopoverId, setOpenQueueItemPopoverId] = useState<string | null>(null);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [isResolvingInitialChatState, setIsResolvingInitialChatState] = useState(() => {
     if (initialPrompt?.trim() || resolvedRequestedSessionId) {
@@ -4437,6 +4438,45 @@ export default function CanvasAgentChat({
       appendSystemMessage(t('errorMessage', { message: error instanceof Error ? error.message : String(error) }));
     }
   }, [appendSystemMessage, postControl, t]);
+
+  const handleEditQueuedMessage = useCallback(async (entry: QueuePreviewItem) => {
+    if (!sessionIdRef.current) return;
+    try {
+      // 1. Find matching local message to restore attachments
+      let messageAttachments: Attachment[] = [];
+      if (entry.signature) {
+        const matchingMessage = messages.find(
+          (msg) =>
+            msg.role === 'user' &&
+            getQueuedSignatureFromPiMessage(msg.piMessage) === entry.signature,
+        );
+        if (matchingMessage?.attachments) {
+          messageAttachments = matchingMessage.attachments;
+        }
+      } else {
+        const matchingMessage = messages.find(
+          (msg) =>
+            msg.role === 'user' &&
+            msg.content === entry.text &&
+            countPiMessageImageAttachments(msg.piMessage) === entry.attachmentCount,
+        );
+        if (matchingMessage?.attachments) {
+          messageAttachments = matchingMessage.attachments;
+        }
+      }
+
+      // 2. Remove from queue
+      await postControl(sessionIdRef.current, 'remove_queued_item', undefined, entry.id);
+
+      // 3. Load into composer
+      setInput(entry.text);
+      setAttachments(messageAttachments);
+      setOpenQueueItemPopoverId(null);
+      textareaRef.current?.focus();
+    } catch (error) {
+      appendSystemMessage(t('errorMessage', { message: error instanceof Error ? error.message : String(error) }));
+    }
+  }, [messages, postControl, appendSystemMessage, t, setInput, setAttachments]);
 
   const handleCompact = useCallback(async () => {
     if (!sessionIdRef.current) return;
@@ -6146,12 +6186,37 @@ export default function CanvasAgentChat({
         >
           <Trash2 className="h-4 w-4" />
         </button>
-        <span
-          aria-hidden="true"
-          className="hidden h-8 w-8 shrink-0 items-center justify-center text-muted-foreground/60 sm:inline-flex"
-        >
-          <MoreHorizontal className="h-4 w-4" />
-        </span>
+        {entry.kind === 'follow_up' && (
+          <Popover
+            open={openQueueItemPopoverId === entry.id}
+            onOpenChange={(open) => {
+              setOpenQueueItemPopoverId(open ? entry.id : null);
+            }}
+          >
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                disabled={isWebSocketUnavailable}
+                className="inline-flex h-8 w-8 shrink-0 items-center justify-center text-muted-foreground transition-colors hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+                title={t('editQueuedMessage')}
+              >
+                <MoreHorizontal className="h-4 w-4" />
+              </button>
+            </PopoverTrigger>
+            <PopoverContent align="end" side="bottom" className="w-44 p-1">
+              <button
+                type="button"
+                onClick={() => {
+                  void handleEditQueuedMessage(entry);
+                }}
+                className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm text-foreground transition-colors hover:bg-accent"
+              >
+                <Pencil size={14} className="shrink-0 text-muted-foreground" />
+                <span className="min-w-0 truncate">{t('editQueuedMessage')}</span>
+              </button>
+            </PopoverContent>
+          </Popover>
+        )}
       </div>
     );
   };

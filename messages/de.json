@@ -662,6 +662,7 @@
     "sendAction": "Senden",
     "queueAction": "Einreihen",
     "removeQueuedMessage": "Aus Queue entfernen",
+    "editQueuedMessage": "Bearbeiten",
     "sendNow": "Jetzt senden",
     "compactCanvas": "Canvas compact",
     "close": "Schließen",
