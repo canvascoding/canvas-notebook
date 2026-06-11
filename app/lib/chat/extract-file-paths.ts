@@ -7,7 +7,7 @@ const ABSOLUTE_WORKSPACE_PREFIX = '/data/workspace/';
 
 export function normalizeChatFilePath(filePath: string): string {
   return filePath
-    .replace(/^["'`]|["'`]$/g, '')
+    .replace(/^["'`]+|["'`]+$/g, '')
     .replace(/^\.\/|\/$/g, '')
     .replace(/^\/data\/workspace\//, '');
 }

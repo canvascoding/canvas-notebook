@@ -2037,7 +2037,7 @@ function getCompactBreakLabel(
   return baseLabel;
 }
 
-function FileLink({ href, children }: { href: string; children: React.ReactNode }) {
+function FileLink({ href, children, showIcon = false }: { href: string; children: React.ReactNode; showIcon?: boolean }) {
   const fileStore = useFileStore();
   const fileTree = fileStore.fileTree;
   const pathname = useLocalePathname();
@@ -2073,6 +2073,24 @@ function FileLink({ href, children }: { href: string; children: React.ReactNode 
   };
 
   const isNotFound = isValid === false;
+
+  if (showIcon) {
+    const fileName = href.split('/').pop() || href;
+    const icon = getFileIconComponent({ name: fileName, path: href, type: 'file', className: 'h-3.5 w-3.5' });
+
+    return (
+      <span className="inline-flex items-center gap-1">
+        <span className="shrink-0">{icon}</span>
+        <button
+          onClick={handleClick}
+          className={`underline underline-offset-2 transition-colors ${isNotFound ? 'text-muted-foreground cursor-not-allowed' : 'cursor-pointer text-primary hover:text-primary/80'}`}
+          title={isNotFound ? `File not found: ${href}` : `Open ${href}`}
+        >
+          {children}
+        </button>
+      </span>
+    );
+  }
 
   return (
     <button
@@ -2202,6 +2220,11 @@ const MarkdownMessage = React.memo(function MarkdownMessage({
       const cleanedCode = codeString.replace(/\n$/, '').trim();
       if (isColorCode(cleanedCode)) {
         return <ColorSwatch color={cleanedCode} />;
+      }
+
+      // Check if inline code is a file path
+      if (!className && isFilePath(cleanedCode)) {
+        return <FileLink href={cleanedCode} showIcon={true}>{children}</FileLink>;
       }
       
       const lang = className?.replace('language-', '').replace('hljs', '').trim();
