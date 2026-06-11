@@ -1,5 +1,6 @@
 'use client';
 
+import { useTranslations } from 'next-intl';
 import { ChevronDown, Settings2, Sparkles } from 'lucide-react';
 import {
   DropdownMenu,
@@ -135,6 +136,7 @@ export function ControlBar({
   showMoreOptions,
   onShowMoreOptionsChange,
 }: ControlBarProps) {
+  const t = useTranslations('studio.aspectRatioEditor');
   const countLabel = mode === 'video' || mode === 'sound' ? '1 output' : `${count} output${count === 1 ? '' : 's'}`;
   const models = getModelsForProvider(mode, provider);
   const aspectRatios = getAspectRatiosForProvider(mode, provider);
@@ -146,6 +148,13 @@ export function ControlBar({
   const videoResolutions = isVideo ? getVideoResolutionsForModel(model) : [];
   const videoDurations = isVideo ? getVideoDurationsForModel(model) : [];
   const durationLocked = !isSeedance && (videoResolution === '1080p' || videoResolution === '4k');
+
+  const imageSizeLabels: Record<string, string> = {
+    '512': t('resolutionVeryLow'),
+    '1K': t('resolutionNormal'),
+    '2K': t('resolutionHigh'),
+    '4K': t('resolutionVeryHigh'),
+  };
 
   return (
     <div className="flex flex-col gap-2">
@@ -276,11 +285,7 @@ export function ControlBar({
                       : provider === 'openai'
                         ? OPENAI_MODELS.find((om) => om.id === m.id)?.optionKey === 'gptImage2'
                           ? 'GPT Image 2 — Best Quality'
-                          : OPENAI_MODELS.find((om) => om.id === m.id)?.optionKey === 'gptImage15'
-                            ? 'GPT Image 1.5 — Best Quality'
-                            : OPENAI_MODELS.find((om) => om.id === m.id)?.optionKey === 'gptImage1'
-                              ? 'GPT Image 1 — High Quality'
-                              : 'GPT Image 1 Mini — Fast & Affordable'
+                          : 'GPT Image 1.5 — Best Quality'
                         : m.id === GEMINI_FLASH_IMAGE_MODEL_ID
                           ? 'Gemini 3.1 Flash — Best Quality & Features'
                           : m.id === GEMINI_PRO_IMAGE_MODEL_ID
@@ -350,7 +355,7 @@ export function ControlBar({
                 >
                   {getImageSizesForModel(model).map((size) => (
                     <option key={size} value={size}>
-                      {size === '512' ? '512px (0.5K)' : size}
+                      {imageSizeLabels[size] || size}
                     </option>
                   ))}
                 </select>

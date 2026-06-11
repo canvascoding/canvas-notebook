@@ -289,6 +289,13 @@ function ProviderControls({
   const models = activeProvider?.models ?? [];
   const imageSizes = provider === 'gemini' ? getImageSizesForModel(model) : [];
 
+  const imageSizeLabels: Record<string, string> = {
+    '512': t('resolutionVeryLow'),
+    '1K': t('resolutionNormal'),
+    '2K': t('resolutionHigh'),
+    '4K': t('resolutionVeryHigh'),
+  };
+
   return (
     <div className="space-y-3 rounded-lg border border-border bg-background p-3">
       <div className="flex items-center gap-2 text-sm font-medium">
@@ -341,7 +348,7 @@ function ProviderControls({
         <label className="flex flex-col gap-1 text-sm">
           <span className="text-xs text-muted-foreground">{t('resolution')}</span>
           <select className="h-9 rounded-md border border-input bg-background px-2" value={imageSize} onChange={(event) => onImageSizeChange(event.target.value)}>
-            {imageSizes.map((item) => <option key={item} value={item}>{item}</option>)}
+            {imageSizes.map((item) => <option key={item} value={item}>{imageSizeLabels[item] || item}</option>)}
           </select>
         </label>
       ) : null}

@@ -89,18 +89,6 @@ const OPENAI_MODELS: ImageModelOption[] = [
     shortLabel: 'GPT Image 1.5',
     description: 'State of the art model with superior instruction following, text rendering and editing.',
   },
-  {
-    id: 'gpt-image-1',
-    label: '✨ High Quality',
-    shortLabel: 'GPT Image 1',
-    description: 'High quality generation with detailed editing capabilities.',
-  },
-  {
-    id: 'gpt-image-1-mini',
-    label: '⚡ Fast & Affordable',
-    shortLabel: 'GPT Image 1 Mini',
-    description: 'Cost-effective option for fast iterations where top quality isn\'t critical.',
-  },
 ];
 
 const GEMINI_ASPECT_RATIOS = ['1:1', '16:9', '9:16', '4:3', '3:4'];
