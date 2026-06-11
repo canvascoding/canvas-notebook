@@ -697,6 +697,14 @@ export async function createStudioGeneration(
     sourceGenerationId = sourceOutput.generationId;
   }
 
+  let studioPresetName = null;
+  if (request.preset_id) {
+    const [preset] = await db.select({ name: studioPresets.name })
+      .from(studioPresets)
+      .where(eq(studioPresets.id, request.preset_id));
+    studioPresetName = preset?.name ?? null;
+  }
+
   const requestMetadata = JSON.stringify({
     productIds,
     personaIds,
@@ -733,6 +741,7 @@ export async function createStudioGeneration(
     prompt: rawPrompt,
     rawPrompt: request.prompt,
     studioPresetId: request.preset_id ?? null,
+    studioPresetName,
     aspectRatio,
     provider: providerId,
     model,
@@ -1022,9 +1031,11 @@ async function generateStudioImages(
     : (provider.models[0]?.id || normalizedModel);
 
   if (!provider.supportedAspectRatios.includes(aspectRatio)) {
+    const supportedList = provider.supportedAspectRatios.join(', ');
     throw new StudioServiceError(
       `Aspect ratio ${aspectRatio} not supported`,
-      `Seitenverhältnis '${aspectRatio}' wird von Provider '${providerId}' nicht unterstützt.`,
+      `Seitenverhältnis '${aspectRatio}' wird von Provider '${providerId}' nicht unterstützt. Unterstützte Seitenverhältnisse: ${supportedList}.`,
+      'INVALID_ASPECT_RATIO',
     );
   }
 
