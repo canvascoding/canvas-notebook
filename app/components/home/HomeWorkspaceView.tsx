@@ -66,7 +66,7 @@ export function HomeWorkspaceView({ licenseLocked = false }: { licenseLocked?: b
               icon={Workflow}
               title={tApps('automations.title')}
               description={tApps('automations.description')}
-              href="/automationen"
+              href="/automations"
             />
           </div>
           <div className="min-w-[260px] max-w-[320px] flex-1">

@@ -48,7 +48,7 @@ const APPS: AppItem[] = [
   { id: 'studio', href: '/studio', icon: Sparkles, hasQuickActions: true },
   { id: 'files', href: '/files', icon: FolderOpen, hasQuickActions: false },
   { id: 'chat', href: '/chat', icon: MessageSquare, hasQuickActions: false },
-  { id: 'automations', href: '/automationen', icon: Workflow, hasQuickActions: false },
+  { id: 'automations', href: '/automations', icon: Workflow, hasQuickActions: false },
   { id: 'terminal', href: '/terminal', icon: Terminal, hasQuickActions: false },
   { id: 'security', href: '/security/public-shares', icon: ShieldCheck, hasQuickActions: false },
   { id: 'settings', href: '/settings', icon: Settings, hasQuickActions: true },

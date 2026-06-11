@@ -39,12 +39,12 @@ test.describe('Automationen UI', () => {
     const uniqueName = `PW Automation ${Date.now()} mit langem Titel für Overflow-Test`;
     const targetDir = `test-output/playwright-target-${Date.now()}`;
 
-    await page.goto('/automationen');
-    await expect(page).toHaveURL(/\/(?:[a-z]{2}\/)?automationen$/);
+    await page.goto('/automations');
+    await expect(page).toHaveURL(/\/(?:[a-z]{2}\/)?automations$/);
     await page.getByTestId('automation-new').click();
 
     await page.getByTestId('automation-name').fill(uniqueName);
-    await page.getByTestId('automation-prompt').fill(
+    await page.getByTestId('automation-prompt').locator('textarea').fill(
       'Schreibe eine kurze Datei summary.txt in den angegebenen Output-Ordner. Falls das nicht klappt, erklaere knapp warum.',
     );
     await page.getByTestId('automation-context-paths').fill('README.md');
@@ -56,7 +56,7 @@ test.describe('Automationen UI', () => {
     await page.getByTestId('automation-interval-every').fill('1');
     await page.getByTestId('automation-save').click();
 
-    await expect(page).toHaveURL(/\/(?:[a-z]{2}\/)?automationen\/job-/, { timeout: 15000 });
+    await expect(page).toHaveURL(/\/(?:[a-z]{2}\/)?automations\/job-/, { timeout: 15000 });
     await expect(page.getByText(uniqueName).first()).toBeVisible({ timeout: 15000 });
     await expect(page.getByTestId('automation-run-now')).toBeEnabled();
     await expect

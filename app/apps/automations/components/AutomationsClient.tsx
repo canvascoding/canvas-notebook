@@ -34,7 +34,7 @@ import {
 import { useLocale, useTranslations } from 'next-intl';
 import { toast } from 'sonner';
 
-import { WorkspaceDirectoryPickerDialog } from '@/app/apps/automationen/components/WorkspaceDirectoryPickerDialog';
+import { WorkspaceDirectoryPickerDialog } from '@/app/apps/automations/components/WorkspaceDirectoryPickerDialog';
 import { AgentAvatar, AgentIcon } from '@/app/components/agents/AgentAvatar';
 import { getEffectiveAutomationTargetOutputPath } from '@/app/lib/automations/paths';
 import type {
@@ -61,6 +61,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { MarkdownRenderer } from '@/app/components/shared/MarkdownRenderer';
+import { MarkdownEditor } from '@/app/components/editor/MarkdownEditor';
 import { Link, useRouter } from '@/i18n/navigation';
 import { cn } from '@/lib/utils';
 
@@ -1109,7 +1110,7 @@ export function AutomationsClient({ initialJobId = null }: AutomationsClientProp
       setSelectedJobId(savedJob.id);
       setDraft(mapJobToDraft(savedJob));
       await loadJobs({ keepSelection: true });
-      router.push(`/automationen/${savedJob.id}`);
+      router.push(`/automations/${savedJob.id}`);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : t('errors.saveJob'));
     } finally {
@@ -1162,7 +1163,7 @@ export function AutomationsClient({ initialJobId = null }: AutomationsClientProp
       setSelectedJobId(savedJob.id);
       setDraft(mapJobToDraft(savedJob));
       await loadJobs({ keepSelection: true });
-      router.push(`/automationen/${savedJob.id}`);
+      router.push(`/automations/${savedJob.id}`);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : t('triggers.errors.create'));
     } finally {
@@ -1208,7 +1209,7 @@ export function AutomationsClient({ initialJobId = null }: AutomationsClientProp
       setSelectedJobId(savedJob.id);
       setDraft(mapJobToDraft(savedJob));
       await loadJobs({ keepSelection: true });
-      router.push(`/automationen/${savedJob.id}`);
+      router.push(`/automations/${savedJob.id}`);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : t('triggers.custom.errors.create'));
     } finally {
@@ -1306,7 +1307,7 @@ export function AutomationsClient({ initialJobId = null }: AutomationsClientProp
       setSelectedRunId(null);
       setLogContent('');
       await loadJobs();
-      router.push('/automationen');
+      router.push('/automations');
     } catch (error) {
       toast.error(error instanceof Error ? error.message : t('errors.deleteJob'));
     } finally {
@@ -1573,7 +1574,7 @@ export function AutomationsClient({ initialJobId = null }: AutomationsClientProp
           <div className="space-y-4">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <Button variant="outline" size="sm" asChild className="w-fit">
-                <Link href="/automationen">
+                <Link href="/automations">
                   <ArrowLeft className="mr-2 h-4 w-4" />
                   {t('overview.title')}
                 </Link>
@@ -1614,7 +1615,9 @@ export function AutomationsClient({ initialJobId = null }: AutomationsClientProp
                   </div>
                   <label className="flex min-w-0 flex-col gap-1 text-sm">
                     <span className="text-xs text-muted-foreground">{t('editor.fields.prompt')}</span>
-                    <textarea data-testid="automation-prompt" className="min-h-48 min-w-0 resize-y rounded-md border border-input bg-background px-3 py-2 text-sm" value={draft.prompt} onChange={(event) => setDraft((current) => ({ ...current, prompt: event.target.value }))} />
+                    <div data-testid="automation-prompt" className="min-h-48 min-w-0 rounded-md border border-input bg-background overflow-hidden">
+                      <MarkdownEditor value={draft.prompt} onChange={(value) => setDraft((current) => ({ ...current, prompt: value }))} />
+                    </div>
                   </label>
                   <div className="grid gap-4 md:grid-cols-2">
                     <label className="flex min-w-0 flex-col gap-1 text-sm">
@@ -1784,7 +1787,7 @@ export function AutomationsClient({ initialJobId = null }: AutomationsClientProp
                 <p className="mt-1 max-w-md text-sm text-muted-foreground">{t('overview.emptySelectionDescription')}</p>
               </div>
               <Button asChild variant="outline">
-                <Link href="/automationen">
+                <Link href="/automations">
                   <ArrowLeft className="mr-2 h-4 w-4" />
                   {t('overview.title')}
                 </Link>
@@ -1862,7 +1865,9 @@ export function AutomationsClient({ initialJobId = null }: AutomationsClientProp
                                     <p className="min-w-0 truncate text-sm font-medium">{job.name}</p>
                                     <Badge variant={job.status === 'active' ? 'default' : 'secondary'} className="shrink-0">{t(`jobStatus.${job.status}`)}</Badge>
                                   </div>
-                                  <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{job.prompt}</p>
+                                  <div className="mt-1 max-h-[2.5em] overflow-hidden text-xs text-muted-foreground">
+                                    <MarkdownRenderer content={job.prompt} variant="muted" />
+                                  </div>
                                   <div className="mt-3 grid min-w-0 gap-1 text-xs text-muted-foreground sm:grid-cols-2 lg:grid-cols-4">
                                     <span className="min-w-0 truncate">{describeFriendlyScheduleLocalized(job.schedule, t, weekdayLabels)}</span>
                                     <span className="min-w-0 truncate">{t('overview.nextRun')}: {formatDateTime(job.nextRunAt, locale, t('scheduleSummary.notScheduled'))}</span>
@@ -1871,7 +1876,7 @@ export function AutomationsClient({ initialJobId = null }: AutomationsClientProp
                                   </div>
                                 </div>
                                 <Button asChild size="sm" className="w-full md:w-auto">
-                                  <Link href={`/automationen/${job.id}`}>{t('runDetails.details')}</Link>
+                                  <Link href={`/automations/${job.id}`}>{t('runDetails.details')}</Link>
                                 </Button>
                               </div>
                             </article>
@@ -1904,7 +1909,9 @@ export function AutomationsClient({ initialJobId = null }: AutomationsClientProp
               <div className="grid min-h-0 gap-4 p-4 sm:p-6 lg:grid-cols-[minmax(0,1fr)_18rem]">
                 <div className="space-y-4">
                   <input data-testid="automation-name" className="h-11 w-full rounded-md border border-input bg-background px-3 text-base font-medium" value={draft.name} onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))} placeholder={t('editor.placeholders.name')} />
-                  <textarea data-testid="automation-prompt" className="min-h-[18rem] w-full resize-y rounded-md border border-input bg-background px-3 py-3 text-sm" value={draft.prompt} onChange={(event) => setDraft((current) => ({ ...current, prompt: event.target.value }))} placeholder={t('editor.placeholders.prompt')} />
+                  <div data-testid="automation-prompt" className="min-h-[18rem] w-full rounded-md border border-input bg-background overflow-hidden">
+                    <MarkdownEditor value={draft.prompt} onChange={(value) => setDraft((current) => ({ ...current, prompt: value }))} />
+                  </div>
                   <ScheduleEditor draft={draft} setDraft={setDraft} t={t} weekdayLabels={weekdayLabels} compact />
                   {renderAgentDeliveryControls('scheduled')}
                   <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
@@ -1972,12 +1979,9 @@ export function AutomationsClient({ initialJobId = null }: AutomationsClientProp
                         onChange={(event) => setCustomWebhookDraft((current) => ({ ...current, name: event.target.value }))}
                         placeholder={t('triggers.custom.placeholders.name')}
                       />
-                      <textarea
-                        className="min-h-[14rem] w-full resize-y rounded-md border border-input bg-background px-3 py-3 text-sm"
-                        value={customWebhookDraft.prompt}
-                        onChange={(event) => setCustomWebhookDraft((current) => ({ ...current, prompt: event.target.value }))}
-                        placeholder={t('triggers.custom.placeholders.prompt')}
-                      />
+                      <div className="min-h-[14rem] w-full rounded-md border border-input bg-background overflow-hidden">
+                        <MarkdownEditor value={customWebhookDraft.prompt} onChange={(value) => setCustomWebhookDraft((current) => ({ ...current, prompt: value }))} />
+                      </div>
                       {renderAgentDeliveryControls('customWebhook')}
                       <div className="grid gap-3 sm:grid-cols-2">
                         <label className="flex flex-col gap-1 text-sm">
@@ -2137,7 +2141,9 @@ export function AutomationsClient({ initialJobId = null }: AutomationsClientProp
                         <p className="font-medium text-foreground">{t('triggers.promptHintTitle')}</p>
                         <p className="mt-1">{t('triggers.promptHintDescription')}</p>
                       </div>
-                      <textarea className="min-h-[14rem] w-full resize-y rounded-md border border-input bg-background px-3 py-3 text-sm" value={triggerDraft.prompt} onChange={(event) => setTriggerDraft((current) => ({ ...current, prompt: event.target.value }))} placeholder={t('triggers.placeholders.prompt')} />
+                      <div className="min-h-[14rem] w-full rounded-md border border-input bg-background overflow-hidden">
+                        <MarkdownEditor value={triggerDraft.prompt} onChange={(value) => setTriggerDraft((current) => ({ ...current, prompt: value }))} />
+                      </div>
                       <TriggerConfigFields
                         schema={selectedTriggerType?.configSchema || null}
                         values={triggerDraft.configValues}

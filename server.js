@@ -481,6 +481,24 @@ function scheduleBackgroundMaintenance() {
   console.log('[Startup] Background maintenance scheduled');
 }
 
+function recoverStaleAutomationRuns() {
+  try {
+    console.log('[Startup] Running automation stale-run recovery...');
+    const { markStaleAutomationRunsFailed } = require('./app/lib/automations/store');
+    markStaleAutomationRunsFailed().then((count) => {
+      if (count > 0) {
+        console.log(`[Startup] Recovered ${count} stale automation run(s)`);
+      } else {
+        console.log('[Startup] No stale automation runs to recover');
+      }
+    }).catch((err) => {
+      console.warn('[Startup] Failed to recover stale automation runs:', err.message);
+    });
+  } catch (err) {
+    console.warn('[Startup] Could not load automation recovery module:', err.message);
+  }
+}
+
 const server = http.createServer((req, res) => {
   const url = new URL(req.url, 'http://localhost');
 
@@ -646,6 +664,7 @@ async function startServer() {
     if (err) throw err;
     console.log(`> Ready on http://localhost:${port}`);
     scheduleBackgroundMaintenance();
+    recoverStaleAutomationRuns();
   });
 }
 
