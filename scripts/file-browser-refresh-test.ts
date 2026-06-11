@@ -3,6 +3,15 @@ import { useFileStore, type FileNode } from '../app/store/file-store';
 
 const originalFetch = globalThis.fetch;
 
+async function waitFor(predicate: () => boolean, message: string) {
+  const deadline = Date.now() + 1000;
+  while (Date.now() < deadline) {
+    if (predicate()) return;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  assert.fail(message);
+}
+
 async function main() {
   const calls: string[] = [];
   const responses: Record<string, FileNode[]> = {
@@ -19,16 +28,64 @@ async function main() {
     'src/app': [
       { name: 'page.tsx', path: 'src/app/page.tsx', type: 'file' },
     ],
+    empty: [],
   };
-
-  globalThis.fetch = (async (input: RequestInfo | URL) => {
-    const url = new URL(String(input), 'http://localhost');
-    const path = url.searchParams.get('path') || '.';
-    calls.push(path);
-    return Response.json({ success: true, data: responses[path] ?? [] });
-  }) as typeof fetch;
+  let delayDocsFetch = true;
+  const docsFetchControl: { release?: () => void } = {};
+  const docsFetchStarted = new Promise<void>((resolve) => {
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const url = new URL(String(input), 'http://localhost');
+      const path = url.searchParams.get('path') || '.';
+      calls.push(path);
+      if (delayDocsFetch && path === 'docs') {
+        resolve();
+        await new Promise<void>((release) => {
+          docsFetchControl.release = release;
+        });
+      }
+      return Response.json({ success: true, data: responses[path] ?? [] });
+    }) as typeof fetch;
+  });
 
   try {
+    useFileStore.setState({
+      fileTree: [
+        { name: 'docs', path: 'docs', type: 'directory' },
+      ],
+      loadingDirs: new Set<string>(),
+      expandedDirs: new Set<string>(),
+    });
+
+    useFileStore.getState().toggleDirectory('docs');
+    assert.equal(useFileStore.getState().expandedDirs.has('docs'), true, 'opening a folder should expand immediately');
+    assert.equal(useFileStore.getState().loadingDirs.has('docs'), true, 'opening an unloaded folder should show a loading state');
+    await docsFetchStarted;
+
+    useFileStore.getState().toggleDirectory('docs');
+    assert.equal(useFileStore.getState().expandedDirs.has('docs'), false, 'closing a loading folder should collapse immediately');
+    const releaseDocsFetch = docsFetchControl.release;
+    if (typeof releaseDocsFetch !== 'function') {
+      assert.fail('docs fetch release should be available after fetch starts');
+    }
+    releaseDocsFetch();
+    await waitFor(() => !useFileStore.getState().loadingDirs.has('docs'), 'docs fetch should finish');
+    assert.equal(useFileStore.getState().expandedDirs.has('docs'), false, 'finished loads should not reopen a folder the user closed');
+
+    useFileStore.setState({
+      fileTree: [
+        { name: 'empty', path: 'empty', type: 'directory', children: [] },
+      ],
+      loadingDirs: new Set<string>(),
+      expandedDirs: new Set<string>(),
+    });
+    calls.length = 0;
+    useFileStore.getState().toggleDirectory('empty');
+    assert.equal(useFileStore.getState().expandedDirs.has('empty'), true, 'loaded empty folders should still expand');
+    assert.deepEqual(calls, [], 'loaded empty folders should not fetch again');
+
+    delayDocsFetch = false;
+    calls.length = 0;
+
     useFileStore.setState({
       fileTree: [
         {
