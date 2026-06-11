@@ -19,6 +19,7 @@ export function FileContextMenu() {
       key={contextMenuRequestId}
       node={contextMenuNode}
       open={isContextMenuOpen}
+      showCreateActions={false}
       onOpenChange={(open) => {
         if (!open) closeContextMenu();
       }}

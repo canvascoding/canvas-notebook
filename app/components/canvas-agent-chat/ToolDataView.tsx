@@ -50,25 +50,25 @@ function Scalar({ value }: { value: unknown }) {
   const locale = useLocale();
 
   if (value === null || value === undefined) {
-    return <span className="italic text-muted-foreground">—</span>;
+    return <span className="italic text-muted-foreground text-[11px]">—</span>;
   }
 
   if (typeof value === 'boolean') {
     return (
-      <span className={value ? 'text-emerald-600 font-medium' : 'text-red-500 font-medium'}>
+      <span className={`text-[11px] ${value ? 'text-emerald-600 font-medium' : 'text-red-500 font-medium'}`}>
         {value ? 'true' : 'false'}
       </span>
     );
   }
 
   if (typeof value === 'number') {
-    return <span className="tabular-nums">{value}</span>;
+    return <span className="tabular-nums text-[11px]">{value}</span>;
   }
 
   if (typeof value === 'string') {
     if (isISODate(value)) {
       return (
-        <span className="text-foreground" title={value}>
+        <span className="text-[11px] text-foreground" title={value}>
           {fmtDate(value, locale)}
         </span>
       );
@@ -76,7 +76,7 @@ function Scalar({ value }: { value: unknown }) {
 
     if (looksLikeId(value)) {
       return (
-        <span className="font-mono text-xs text-foreground/80" title={value}>
+        <span className="font-mono text-[10px] text-foreground/80" title={value}>
           {truncateId(value)}
         </span>
       );
@@ -84,17 +84,17 @@ function Scalar({ value }: { value: unknown }) {
 
     if (value.length > 120) {
       return (
-        <span className="text-foreground/80" title={value}>
+        <span className="text-[11px] text-foreground/80" title={value}>
           {value.slice(0, 120)}…
         </span>
       );
     }
 
-    return <span className="text-foreground/80">{value}</span>;
+    return <span className="text-[11px] text-foreground/80">{value}</span>;
   }
 
   // Fallback for symbols / functions / anything else
-  return <span className="text-muted-foreground">{String(value)}</span>;
+  return <span className="text-muted-foreground text-[11px]">{String(value)}</span>;
 }
 
 /* ------------------------------------------------------------------ */
@@ -115,9 +115,9 @@ export function ToolDataView({ data, level = 0 }: Omit<NodeProps, 'isLast'>) {
 
   /* --- array --------------------------------------------------------- */
   if (Array.isArray(data)) {
-    if (data.length === 0) {
-      return <span className="italic text-muted-foreground">[]</span>;
-    }
+  if (data.length === 0) {
+    return <span className="italic text-muted-foreground text-[11px]">[]</span>;
+  }
 
     return (
       <div className="space-y-0.5">
@@ -145,7 +145,7 @@ export function ToolDataView({ data, level = 0 }: Omit<NodeProps, 'isLast'>) {
   /* --- object -------------------------------------------------------- */
   const entries = Object.entries(data);
   if (entries.length === 0) {
-    return <span className="italic text-muted-foreground">{'{}'}</span>;
+    return <span className="italic text-muted-foreground text-[11px]">{'{}'}</span>;
   }
 
   const padLeft = level > 0 ? 'pl-3 border-l border-border/40 ml-1' : '';

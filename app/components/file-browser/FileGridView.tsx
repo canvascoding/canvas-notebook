@@ -20,6 +20,7 @@ import { FileTreeNode } from './FileTreeNode';
 import { FileContextMenu } from './FileContextMenu';
 import { BulkMoveDialog } from './BulkMoveDialog';
 import { FileGridItem } from './FileGridItem';
+import { BackgroundContextMenu } from './BackgroundContextMenu';
 
 function getParentDirectory(path: string) {
   return path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '.';
@@ -351,6 +352,18 @@ export function FileGridView({ variant = 'default', onOpenFile }: FileGridViewPr
     );
   }
 
+  const handleBackgroundContextMenu = (event: React.MouseEvent) => {
+    // Nur wenn nicht auf ein FileGridItem geklickt wurde
+    const target = event.target as HTMLElement;
+    if (target.closest('[data-file-path]') || target.closest('[role="menuitem"]')) return;
+    event.preventDefault();
+    event.stopPropagation();
+    useFileStore.getState().openBackgroundContextMenu(
+      { x: event.clientX, y: event.clientY },
+      currentDirectory
+    );
+  };
+
   if (browserMode === 'grid') {
     const gridItems = normalizedSearchQuery
       ? searchResultNodes
@@ -362,7 +375,7 @@ export function FileGridView({ variant = 'default', onOpenFile }: FileGridViewPr
     };
 
     return (
-      <div ref={containerRef} className="h-full overflow-y-auto p-3 md:p-4">
+      <div ref={containerRef} className="h-full overflow-y-auto p-3 md:p-4" onContextMenu={handleBackgroundContextMenu}>
         {gridItems.length === 0 && !searchQuery ? (
           <div className="flex h-full flex-col items-center justify-center gap-2 p-4 text-center">
             <FolderOpen className="h-10 w-10 text-muted-foreground/50" />
@@ -397,6 +410,7 @@ export function FileGridView({ variant = 'default', onOpenFile }: FileGridViewPr
           </div>
         )}
         <FileContextMenu />
+        <BackgroundContextMenu />
         <BulkMoveDialog />
       </div>
     );
@@ -419,7 +433,7 @@ export function FileGridView({ variant = 'default', onOpenFile }: FileGridViewPr
     };
 
     const listContent = (
-      <div ref={containerRef} className="relative h-full overflow-y-auto py-2" tabIndex={-1}>
+      <div ref={containerRef} className="relative h-full overflow-y-auto py-2" tabIndex={-1} onContextMenu={handleBackgroundContextMenu}>
         {currentDirectory !== '.' && (
           <button
             type="button"
@@ -464,6 +478,7 @@ export function FileGridView({ variant = 'default', onOpenFile }: FileGridViewPr
           </div>
         )}
         <FileContextMenu />
+        <BackgroundContextMenu />
         <BulkMoveDialog />
       </div>
     );
@@ -479,7 +494,7 @@ export function FileGridView({ variant = 'default', onOpenFile }: FileGridViewPr
 
   // tree view
   const treeContent = (
-    <div ref={containerRef} className="relative h-full overflow-y-auto py-2" tabIndex={-1}>
+    <div ref={containerRef} className="relative h-full overflow-y-auto py-2" tabIndex={-1} onContextMenu={handleBackgroundContextMenu}>
       <SidebarProvider>
         <SidebarGroup className="p-0">
           <SidebarGroupContent>
@@ -503,6 +518,7 @@ export function FileGridView({ variant = 'default', onOpenFile }: FileGridViewPr
         </div>
       )}
       <FileContextMenu />
+      <BackgroundContextMenu />
       <BulkMoveDialog />
     </div>
   );

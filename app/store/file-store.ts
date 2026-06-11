@@ -254,6 +254,14 @@ interface FileStoreState {
   openContextMenu: (node: FileNode, position: ContextMenuPosition) => void;
   closeContextMenu: () => void;
 
+  // Background context menu (for empty space)
+  backgroundContextMenuPosition: ContextMenuPosition | null;
+  backgroundContextMenuDirectory: string;
+  isBackgroundContextMenuOpen: boolean;
+  backgroundContextMenuRequestId: number;
+  openBackgroundContextMenu: (position: ContextMenuPosition, directory: string) => void;
+  closeBackgroundContextMenu: () => void;
+
   // Mobile UI state
   mobileSurface: 'files' | 'editor' | null;
   mobileFileOpenedCount: number;
@@ -370,6 +378,25 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
   closeContextMenu: () => {
     set({
       isContextMenuOpen: false,
+    });
+  },
+
+  // Background context menu state
+  backgroundContextMenuPosition: null,
+  backgroundContextMenuDirectory: '.',
+  isBackgroundContextMenuOpen: false,
+  backgroundContextMenuRequestId: 0,
+  openBackgroundContextMenu: (position: ContextMenuPosition, directory: string) => {
+    set((state) => ({
+      backgroundContextMenuPosition: position,
+      backgroundContextMenuDirectory: directory,
+      isBackgroundContextMenuOpen: true,
+      backgroundContextMenuRequestId: state.backgroundContextMenuRequestId + 1,
+    }));
+  },
+  closeBackgroundContextMenu: () => {
+    set({
+      isBackgroundContextMenuOpen: false,
     });
   },
 
