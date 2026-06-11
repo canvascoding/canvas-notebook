@@ -71,7 +71,8 @@ export function getFileIconComponent({
     );
   }
 
-  const ext = name.split('.').pop()?.toLowerCase() || '';
+  const cleanName = name.replace(/[^a-zA-Z0-9]+$/, '');
+  const ext = cleanName.split('.').pop()?.toLowerCase() || '';
 
   if (hasMarpFileName(path || name)) {
     return <Presentation className={`${className} text-chart-3`} />;
