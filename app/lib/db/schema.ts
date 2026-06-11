@@ -644,6 +644,7 @@ export const studioGenerations = sqliteTable("studio_generations", {
   prompt: text("prompt"),
   rawPrompt: text("raw_prompt"),
   studioPresetId: text("studio_preset_id").references(() => studioPresets.id, { onDelete: 'set null' }),
+  studioPresetName: text("studio_preset_name"),
   aspectRatio: text("aspect_ratio").notNull().default('1:1'),
   provider: text("provider").notNull(),
   model: text("model").notNull(),

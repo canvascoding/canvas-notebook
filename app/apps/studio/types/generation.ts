@@ -27,6 +27,7 @@ export interface StudioGeneration {
   prompt: string | null;
   rawPrompt: string | null;
   studioPresetId: string | null;
+  studioPresetName: string | null;
   aspectRatio: string;
   provider: string;
   model: string;

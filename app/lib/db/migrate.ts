@@ -577,6 +577,7 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       prompt TEXT,
       raw_prompt TEXT,
       studio_preset_id TEXT,
+      studio_preset_name TEXT,
       aspect_ratio TEXT NOT NULL DEFAULT '1:1',
       provider TEXT NOT NULL,
       model TEXT NOT NULL,
@@ -678,9 +679,9 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     next_run_at: 'INTEGER',
   });
 
-  addColumns(sqlite, 'email_accounts', {
-    is_primary: 'INTEGER NOT NULL DEFAULT 0',
-  });
+    addColumns(sqlite, 'studio_generations', {
+      studio_preset_name: 'TEXT',
+    });
 
   sqlite.exec(`
     UPDATE email_accounts
