@@ -1138,9 +1138,10 @@ export async function generatePresetPreview(
 
   const aspectRatio = input.aspectRatio?.trim() || '1:1';
   if (!provider.supportedAspectRatios.includes(aspectRatio)) {
+    const supportedList = provider.supportedAspectRatios.join(', ');
     throw new StudioServiceError(
       `Unsupported preview aspect ratio: ${aspectRatio}`,
-      `Seitenverhältnis '${aspectRatio}' wird von ${provider.name} nicht unterstützt.`,
+      `Seitenverhältnis '${aspectRatio}' wird von ${provider.name} nicht unterstützt. Unterstützte Seitenverhältnisse: ${supportedList}.`,
       'INVALID_ASPECT_RATIO',
     );
   }

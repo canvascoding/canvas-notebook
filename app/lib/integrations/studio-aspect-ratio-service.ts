@@ -290,7 +290,8 @@ export async function createAspectRatioPreview(input: AspectRatioPreviewRequest)
     throw new Error('No model available for provider');
   }
   if (!provider.supportedAspectRatios.includes(request.aspectRatio)) {
-    throw new Error(`Aspect ratio ${request.aspectRatio} is not supported by ${provider.name}`);
+    const supportedList = provider.supportedAspectRatios.join(', ');
+    throw new Error(`Aspect ratio ${request.aspectRatio} is not supported by ${provider.name}. Supported ratios: ${supportedList}.`);
   }
 
   const referenceCanvas = await renderExtendReference(

@@ -71,7 +71,7 @@ import {
 import { listProducts } from '../integrations/studio-product-service';
 import { listPersonas } from '../integrations/studio-persona-service';
 import { listStyles } from '../integrations/studio-style-service';
-import { StudioServiceError } from '../integrations/studio-errors';
+
 import {
   getStudioAssetsRoot,
   getStudioEditsRoot,
@@ -826,53 +826,41 @@ export function createStudioGenerateImageTool(
     }),
     execute: async (toolCallId, params) => {
       const p = params as StudioGenerateRequest;
-      try {
-        if (!userId) {
-          throw new Error('User ID is required for studio generation.');
-        }
-        const result = await executeFn(userId, { ...p, mode: 'image' });
-        const outputsRoot = getStudioOutputsRoot();
-        const outputLines = result.outputs.map((o) => {
-          const outputFilePath = o.filePath.replace(/^\/+/, '').replace(/^studio\/outputs\//, '');
-          const fullPath = path.join(outputsRoot, outputFilePath);
-          const referencePath = `studio/outputs/${outputFilePath}`;
-          const previewUrl = toPreviewUrl(outputFilePath, 960);
-          const markdownImage = `![studio-${o.variationIndex}](${o.mediaUrl})`;
-          return [
-            `Output ${o.variationIndex + 1}:`,
-            `  Output ID: ${o.id}`,
-            `  Absolute copy source path: ${fullPath}`,
-            `  Studio reference path for later edits: ${referencePath}`,
-            `  Browser render URL for Markdown: ${o.mediaUrl}`,
-            `  Thumbnail preview URL (UI only): ${previewUrl}`,
-            `  Markdown image (copy exactly): ${markdownImage}`,
-          ].join('\n');
-        });
-        const summary = [
-          `Studio image generation completed (${result.outputs.length} output(s))`,
-          '',
-          ...outputLines,
-          '',
-          'Important for the final answer: embed the generated image by copying the Markdown image line exactly. Do not invent, shorten, slugify, or rewrite the image URL; relative filenames like ente-statt-affe.jpg will not render in the chat.',
-          'Important for file operations: use the absolute copy source path when copying the generated file to /data/workspace. The browser render URL and thumbnail preview URL are not filesystem paths.',
-          '',
-          'To copy to workspace: bash cp <file-path> /data/workspace/<destination>',
-        ].join('\n');
-        return {
-          content: [{ type: 'text', text: summary }],
-          details: result,
-        };
-      } catch (error: unknown) {
-        const message = error instanceof StudioServiceError
-          ? error.userMessage
-          : error instanceof Error
-            ? error.message
-            : 'An unexpected error occurred during studio image generation.';
-        return {
-          content: [{ type: 'text', text: `Error: ${message}` }],
-          details: { error: message },
-        };
+      if (!userId) {
+        throw new Error('User ID is required for studio generation.');
       }
+      const result = await executeFn(userId, { ...p, mode: 'image' });
+      const outputsRoot = getStudioOutputsRoot();
+      const outputLines = result.outputs.map((o) => {
+        const outputFilePath = o.filePath.replace(/^\/+/, '').replace(/^studio\/outputs\//, '');
+        const fullPath = path.join(outputsRoot, outputFilePath);
+        const referencePath = `studio/outputs/${outputFilePath}`;
+        const previewUrl = toPreviewUrl(outputFilePath, 960);
+        const markdownImage = `![studio-${o.variationIndex}](${o.mediaUrl})`;
+        return [
+          `Output ${o.variationIndex + 1}:`,
+          `  Output ID: ${o.id}`,
+          `  Absolute copy source path: ${fullPath}`,
+          `  Studio reference path for later edits: ${referencePath}`,
+          `  Browser render URL for Markdown: ${o.mediaUrl}`,
+          `  Thumbnail preview URL (UI only): ${previewUrl}`,
+          `  Markdown image (copy exactly): ${markdownImage}`,
+        ].join('\n');
+      });
+      const summary = [
+        `Studio image generation completed (${result.outputs.length} output(s))`,
+        '',
+        ...outputLines,
+        '',
+        'Important for the final answer: embed the generated image by copying the Markdown image line exactly. Do not invent, shorten, slugify, or rewrite the image URL; relative filenames like ente-statt-affe.jpg will not render in the chat.',
+        'Important for file operations: use the absolute copy source path when copying the generated file to /data/workspace. The browser render URL and thumbnail preview URL are not filesystem paths.',
+        '',
+        'To copy to workspace: bash cp <file-path> /data/workspace/<destination>',
+      ].join('\n');
+      return {
+        content: [{ type: 'text', text: summary }],
+        details: result,
+      };
     },
   };
 }
@@ -917,62 +905,50 @@ export function createStudioGenerateVideoTool(
     }),
     execute: async (toolCallId, params) => {
       const p = params as Record<string, unknown>;
-      try {
-        if (!userId) {
-          throw new Error('User ID is required for studio generation.');
-        }
-        const request: StudioGenerateRequest = {
-          prompt: p.prompt as string,
-          mode: 'video',
-          product_ids: p.product_ids as string[] | undefined,
-          persona_ids: p.persona_ids as string[] | undefined,
-          style_ids: p.style_ids as string[] | undefined,
-          preset_id: p.preset_id as string | undefined,
-          aspect_ratio: p.aspect_ratio as string | undefined,
-          provider: p.provider as string | undefined,
-          model: p.model as string | undefined,
-          video_resolution: p.resolution as StudioGenerateRequest['video_resolution'],
-          video_duration: p.duration as number | undefined,
-          start_frame_path: p.start_frame_path as string | undefined,
-          end_frame_path: p.end_frame_path as string | undefined,
-          is_looping: p.is_looping as boolean | undefined,
-          person_generation: p.person_generation as StudioGenerateRequest['person_generation'],
-          video_generate_audio: p.generate_audio as boolean | undefined,
-          video_web_search: p.web_search as boolean | undefined,
-          video_nsfw_checker: p.nsfw_checker as boolean | undefined,
-          source_output_id: p.source_output_id as string | undefined,
-          extra_reference_urls: p.extra_reference_urls as string[] | undefined,
-          video_reference_urls: p.reference_video_urls as string[] | undefined,
-          audio_reference_urls: p.reference_audio_urls as string[] | undefined,
-        };
-        const result = await executeFn(userId, request);
-        const outputsRoot = getStudioOutputsRoot();
-        const outputLines = result.outputs.map((o) => {
-          const fullPath = path.join(outputsRoot, o.filePath);
-          return `Output:\n  File: ${fullPath}\n  URL:  ${o.mediaUrl}`;
-        });
-        const summary = [
-          `Studio video generation completed (${result.outputs.length} output(s))`,
-          '',
-          ...outputLines,
-          '',
-          'To copy to workspace: bash cp <file-path> /data/workspace/<destination>',
-        ].join('\n');
-        return {
-          content: [{ type: 'text', text: summary }],
-          details: result,
-        };
-      } catch (error: unknown) {
-        const message = error instanceof StudioServiceError
-          ? error.userMessage
-          : error instanceof Error
-            ? error.message
-            : 'An unexpected error occurred during studio video generation.';
-        return {
-          content: [{ type: 'text', text: `Error: ${message}` }],
-          details: { error: message },
-        };
+      if (!userId) {
+        throw new Error('User ID is required for studio generation.');
       }
+      const request: StudioGenerateRequest = {
+        prompt: p.prompt as string,
+        mode: 'video',
+        product_ids: p.product_ids as string[] | undefined,
+        persona_ids: p.persona_ids as string[] | undefined,
+        style_ids: p.style_ids as string[] | undefined,
+        preset_id: p.preset_id as string | undefined,
+        aspect_ratio: p.aspect_ratio as string | undefined,
+        provider: p.provider as string | undefined,
+        model: p.model as string | undefined,
+        video_resolution: p.resolution as StudioGenerateRequest['video_resolution'],
+        video_duration: p.duration as number | undefined,
+        start_frame_path: p.start_frame_path as string | undefined,
+        end_frame_path: p.end_frame_path as string | undefined,
+        is_looping: p.is_looping as boolean | undefined,
+        person_generation: p.person_generation as StudioGenerateRequest['person_generation'],
+        video_generate_audio: p.generate_audio as boolean | undefined,
+        video_web_search: p.web_search as boolean | undefined,
+        video_nsfw_checker: p.nsfw_checker as boolean | undefined,
+        source_output_id: p.source_output_id as string | undefined,
+        extra_reference_urls: p.extra_reference_urls as string[] | undefined,
+        video_reference_urls: p.reference_video_urls as string[] | undefined,
+        audio_reference_urls: p.reference_audio_urls as string[] | undefined,
+      };
+      const result = await executeFn(userId, request);
+      const outputsRoot = getStudioOutputsRoot();
+      const outputLines = result.outputs.map((o) => {
+        const fullPath = path.join(outputsRoot, o.filePath);
+        return `Output:\n  File: ${fullPath}\n  URL:  ${o.mediaUrl}`;
+      });
+      const summary = [
+        `Studio video generation completed (${result.outputs.length} output(s))`,
+        '',
+        ...outputLines,
+        '',
+        'To copy to workspace: bash cp <file-path> /data/workspace/<destination>',
+      ].join('\n');
+      return {
+        content: [{ type: 'text', text: summary }],
+        details: result,
+      };
     },
   };
 }
@@ -1004,51 +980,39 @@ export function createStudioGenerateSoundTool(
     }),
     execute: async (toolCallId, params) => {
       const p = params as Record<string, unknown>;
-      try {
-        if (!userId) {
-          throw new Error('User ID is required for studio generation.');
-        }
-        const request: StudioGenerateRequest = {
-          prompt: p.prompt as string,
-          mode: 'sound',
-          product_ids: p.product_ids as string[] | undefined,
-          persona_ids: p.persona_ids as string[] | undefined,
-          style_ids: p.style_ids as string[] | undefined,
-          preset_id: p.preset_id as string | undefined,
-          provider: 'gemini',
-          model: p.model as string | undefined,
-          output_format: p.output_format as StudioGenerateRequest['output_format'],
-          source_output_id: p.source_output_id as string | undefined,
-          extra_reference_urls: p.extra_reference_urls as string[] | undefined,
-        };
-        const result = await executeFn(userId, request);
-        const outputsRoot = getStudioOutputsRoot();
-        const outputLines = result.outputs.map((o) => {
-          const fullPath = path.join(outputsRoot, o.filePath);
-          return `Output:\n  File: ${fullPath}\n  URL:  ${o.mediaUrl}`;
-        });
-        const summary = [
-          `Studio sound generation completed (${result.outputs.length} output(s))`,
-          '',
-          ...outputLines,
-          '',
-          'To copy to workspace: bash cp <file-path> /data/workspace/<destination>',
-        ].join('\n');
-        return {
-          content: [{ type: 'text', text: summary }],
-          details: result,
-        };
-      } catch (error: unknown) {
-        const message = error instanceof StudioServiceError
-          ? error.userMessage
-          : error instanceof Error
-            ? error.message
-            : 'An unexpected error occurred during studio sound generation.';
-        return {
-          content: [{ type: 'text', text: `Error: ${message}` }],
-          details: { error: message },
-        };
+      if (!userId) {
+        throw new Error('User ID is required for studio generation.');
       }
+      const request: StudioGenerateRequest = {
+        prompt: p.prompt as string,
+        mode: 'sound',
+        product_ids: p.product_ids as string[] | undefined,
+        persona_ids: p.persona_ids as string[] | undefined,
+        style_ids: p.style_ids as string[] | undefined,
+        preset_id: p.preset_id as string | undefined,
+        provider: 'gemini',
+        model: p.model as string | undefined,
+        output_format: p.output_format as StudioGenerateRequest['output_format'],
+        source_output_id: p.source_output_id as string | undefined,
+        extra_reference_urls: p.extra_reference_urls as string[] | undefined,
+      };
+      const result = await executeFn(userId, request);
+      const outputsRoot = getStudioOutputsRoot();
+      const outputLines = result.outputs.map((o) => {
+        const fullPath = path.join(outputsRoot, o.filePath);
+        return `Output:\n  File: ${fullPath}\n  URL:  ${o.mediaUrl}`;
+      });
+      const summary = [
+        `Studio sound generation completed (${result.outputs.length} output(s))`,
+        '',
+        ...outputLines,
+        '',
+        'To copy to workspace: bash cp <file-path> /data/workspace/<destination>',
+      ].join('\n');
+      return {
+        content: [{ type: 'text', text: summary }],
+        details: result,
+      };
     },
   };
 }
@@ -1165,34 +1129,22 @@ export function createStudioBulkGenerateTool(
         versions_per_product?: number;
       };
 
-      try {
-        if (!userId) {
-          throw new Error('User ID is required for bulk generation.');
-        }
-
-        const job = await createFn(userId, {
-          productIds: product_ids,
-          prompt,
-          presetId: preset_id,
-          aspectRatio: aspect_ratio,
-          versionsPerProduct: versions_per_product,
-        });
-
-        return {
-          content: [{ type: 'text', text: `Bulk generation started. Job ID: ${job.id}\nTotal line items: ${job.totalLineItems}\nStatus: ${job.status}` }],
-          details: { jobId: job.id, totalLineItems: job.totalLineItems, status: job.status },
-        };
-      } catch (error: unknown) {
-        const message = error instanceof StudioServiceError
-          ? error.userMessage
-          : error instanceof Error
-            ? error.message
-            : 'An unexpected error occurred during bulk generation.';
-        return {
-          content: [{ type: 'text', text: `Error: ${message}` }],
-          details: { error: message },
-        };
+      if (!userId) {
+        throw new Error('User ID is required for bulk generation.');
       }
+
+      const job = await createFn(userId, {
+        productIds: product_ids,
+        prompt,
+        presetId: preset_id,
+        aspectRatio: aspect_ratio,
+        versionsPerProduct: versions_per_product,
+      });
+
+      return {
+        content: [{ type: 'text', text: `Bulk generation started. Job ID: ${job.id}\nTotal line items: ${job.totalLineItems}\nStatus: ${job.status}` }],
+        details: { jobId: job.id, totalLineItems: job.totalLineItems, status: job.status },
+      };
     },
   };
 }
