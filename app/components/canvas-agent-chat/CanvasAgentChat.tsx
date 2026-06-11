@@ -133,6 +133,7 @@ import { cn } from '@/lib/utils';
 
 import { PlanModeToggle } from './PlanModeToggle';
 import { CANVAS_CHAT_ACTIVE_SESSION_STORAGE_KEY } from '@/app/lib/chat/constants';
+import { loadComposerDraft, removeComposerDraft, saveComposerDraft } from '@/app/lib/chat/draft-storage';
 import { applySessionUnreadUpdate } from '@/app/lib/chat/unread';
 import type { ChatRequestContext } from '@/app/lib/chat/types';
 import type { PiThinkingLevel } from '@/app/lib/pi/config';
@@ -2839,6 +2840,7 @@ export default function CanvasAgentChat({
   const inputHistoryCursorRef = useRef<number | null>(null);
   const inputHistoryDraftRef = useRef('');
   const historyRef = useRef<AISession[]>([]);
+  const draftSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const userMessageHistory = useMemo(() => (
     messages
@@ -2881,6 +2883,30 @@ export default function CanvasAgentChat({
       persistChatSessionCache();
     };
   }, []);
+
+  useEffect(() => {
+    return () => {
+      if (draftSaveTimerRef.current) {
+        clearTimeout(draftSaveTimerRef.current);
+        draftSaveTimerRef.current = null;
+      }
+    };
+  }, []);
+
+  // Persist composer text as draft when user types
+  useEffect(() => {
+    if (draftSaveTimerRef.current) {
+      clearTimeout(draftSaveTimerRef.current);
+    }
+    draftSaveTimerRef.current = setTimeout(() => {
+      const key = sessionIdRef.current ?? '__new__';
+      if (input.trim()) {
+        saveComposerDraft(key, input);
+      } else {
+        removeComposerDraft(key);
+      }
+    }, 300);
+  }, [input]);
 
   useEffect(() => {
     const currentSessionId = sessionIdRef.current;
@@ -4373,6 +4399,7 @@ export default function CanvasAgentChat({
     resetInputHistoryNavigation();
     setInput('');
     setAttachments([]);
+    removeComposerDraft(sessionIdRef.current ?? '__new__');
 
     const optimisticStatus: ChatMessage['status'] = effectiveAction === 'follow_up'
       ? 'queued_follow_up'
@@ -4530,7 +4557,13 @@ export default function CanvasAgentChat({
     setSessionId(null);
     setSessionTitle(null);
     resetInputHistoryNavigation();
-    setInput('');
+    // Persist any unsent text from the previous session before switching to new chat
+    const currentSessionId = sessionIdRef.current;
+    if (currentSessionId && input.trim()) {
+      saveComposerDraft(currentSessionId, input);
+    }
+    const newChatDraft = loadComposerDraft('__new__');
+    setInput(newChatDraft ?? '');
     setAttachments([]);
     sessionIdRef.current = null;
     sessionAgentIdRef.current = nextAgentId;
@@ -4561,7 +4594,7 @@ export default function CanvasAgentChat({
     setActiveModel(providerState.model);
     setActiveThinkingLevel(providerState.thinkingLevel);
     toolMessageIdsRef.current = {};
-  }, [agentConfig, resetInputHistoryNavigation, resetStreamConnection, selectedAgentId, isMobile, shouldShowHistoryAsOverlay]);
+  }, [agentConfig, input, resetInputHistoryNavigation, resetStreamConnection, selectedAgentId, isMobile, shouldShowHistoryAsOverlay]);
 
   const selectChatAgent = useCallback((agentId: string) => {
     if (agentId === selectedAgentId && !sessionIdRef.current) {
@@ -4768,6 +4801,8 @@ export default function CanvasAgentChat({
     sessionAgentIdRef.current = sessionAgentId;
     lastCompactionMarkerRef.current = null;
     userStartedNewChatRef.current = false;
+    const sessionDraft = loadComposerDraft(session.sessionId);
+    setInput(sessionDraft ?? '');
     setShowMobileDetails(false);
     const sessionProvider = session.provider || agentConfig?.piConfig?.activeProvider || 'pi';
     setActiveProvider(sessionProvider);
@@ -5041,6 +5076,7 @@ export default function CanvasAgentChat({
       const data = await safeFetchJson<{ success: boolean }>(res);
       if (data?.success) {
         removeCachedChatSession(id, targetSession?.agentId || selectedAgentId);
+        removeComposerDraft(id);
         setHistory((prev) => prev.filter((session) => session.sessionId !== id));
         if (sessionIdRef.current === id) {
           startNewChat();
