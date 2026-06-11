@@ -2834,6 +2834,7 @@ export default function CanvasAgentChat({
   const loadSessionAbortRef = useRef<AbortController | null>(null);
   const skipNextSessionStatusRefreshRef = useRef<string | null>(null);
   const cachePersistTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const resizeObserverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hasLoadedSessionListRef = useRef(false);
   const inputHistoryCursorRef = useRef<number | null>(null);
   const inputHistoryDraftRef = useRef('');
@@ -3359,6 +3360,20 @@ export default function CanvasAgentChat({
     };
   }, [handleScroll, handleTouchEnd, handleTouchMove, handleTouchStart, handleWheel, syncBottomLockState]);
 
+  // ═══════════════════════════════════════════════════════════════════
+  // Scroll-Effekt: ResizeObserver mit Debounce
+  // ═══════════════════════════════════════════════════════════════════
+  // WICHTIG: Dieser Observer reagiert auf *jede* Höhenänderung im Chat-
+  // Content (z.B. Streaming-Text, kollabierte Tool-Nachrichten, oder
+  // asynchron geladene Bilder). Ohne Debounce führt das schnelle Hoch-
+  // /Runter-Springen, wenn z.B. ein Bild von SafeMarkdownImage plötzlich
+  // erscheint.
+  //
+  // Der Debounce (200 ms) fasst schnelle, aufeinanderfolgende Resize-
+  // Events zu einem einzigen scrollToBottom zusammen. Manuelle Aufrufe
+  // von scrollToBottom (z.B. beim Senden oder bei neuer Nachricht)
+  // werden dadurch NICHT beeinflusst.
+  // ═══════════════════════════════════════════════════════════════════
   useEffect(() => {
     const scrollContainer = scrollContainerRef.current;
     const scrollContent = scrollContentRef.current;
@@ -3366,11 +3381,25 @@ export default function CanvasAgentChat({
 
     const resizeObserver = new ResizeObserver(() => {
       if (!isAtBottomRef.current) return;
-      scrollToBottom('auto');
+
+      if (resizeObserverTimerRef.current) {
+        clearTimeout(resizeObserverTimerRef.current);
+      }
+
+      resizeObserverTimerRef.current = setTimeout(() => {
+        resizeObserverTimerRef.current = null;
+        scrollToBottom('auto');
+      }, 200);
     });
 
     resizeObserver.observe(scrollContent);
-    return () => resizeObserver.disconnect();
+    return () => {
+      resizeObserver.disconnect();
+      if (resizeObserverTimerRef.current) {
+        clearTimeout(resizeObserverTimerRef.current);
+        resizeObserverTimerRef.current = null;
+      }
+    };
   }, [scrollToBottom]);
 
   useLayoutEffect(() => {

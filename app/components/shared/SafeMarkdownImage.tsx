@@ -59,6 +59,7 @@ export function SafeMarkdownImage({
     };
   }, [displaySrc, failedSrc, loadedSrc]);
 
+  // Render a placeholder while loading to prevent layout shift in chat scroll.
   if (!displaySrc || loadedSrc !== displaySrc) {
     if (showError && failedSrc === displaySrc) {
       return (
@@ -76,7 +77,15 @@ export function SafeMarkdownImage({
       );
     }
 
-    return null;
+    // Placeholder: reserve vertical space so the chat doesn't jump when the image loads.
+    return (
+      <span
+        className={cn(
+          'block min-h-[160px] w-full rounded-md border border-border/40 bg-muted/60',
+          wrapperClassName,
+        )}
+      />
+    );
   }
 
   const image = (
