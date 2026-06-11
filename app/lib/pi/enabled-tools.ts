@@ -1,7 +1,7 @@
 export const DISABLED_ALL_TOOLS_SENTINEL = '__none__';
 
 const LEGACY_TOOL_NAMES = new Set(['filesystem', 'terminal', 'web-search']);
-const DEFAULT_DISABLED_TOOL_NAMES = ['browser', 'studio_bulk_generate', 'public_share_file'];
+const DEFAULT_DISABLED_TOOL_NAMES = ['browser', 'studio_bulk_generate'];
 
 /**
  * Tools that are disabled by default for new users.
