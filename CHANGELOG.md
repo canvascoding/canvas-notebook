@@ -11,13 +11,39 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.6.11.1] - 2026-06-11
+
+### Added
+
+- Persist unsent composer drafts per session in localStorage.
+- Interactive error card with prompt recovery in Studio: failed generation cards are clickable to show original prompt, copy, and remix.
+- Edit follow-up queue messages via context menu.
+
 ### Changed
 
-- Nothing yet.
+- Translate Studio image resolution labels and remove deprecated models.
+- Render tool I/O as structured key/value lists in compact chat mode.
+- Remove `public_share_file` from default disabled tools.
+- Simplify compact session history.
+- Make Studio Preview load references/presets on mount and persist preset name.
 
 ### Fixed
 
-- Nothing yet.
+- Fix redirect loop between login and setup on initial setup.
+- Fix garbled AI responses: activate thinking filter, improve onboarding prompt.
+- Fix markdown save response reliability.
+- Handle malformed upload form data.
+- Fix lazy file tree expansion.
+- Fix inconsistent file reference rendering in chat.
+- Fix automation timeout, stale-cleanup on startup & execute-ready, global stale-run recovery.
+- Fix chat scroll jumping when images load asynchronously.
+- Fix studio preview popup jumping during image navigation.
+- Fix studio generation error handling: propagate errors to AI agent with supported ratios list.
+- Fix robuster und schnellerer Bild-Upload in Studio Models.
+
+### Verification
+
+- `npm run build`
 
 ## [2026.6.9.1] - 2026-06-09
 
