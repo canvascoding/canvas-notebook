@@ -300,6 +300,7 @@ export function ReferenceHoverCard({
         </span>
         <Dialog open={mobileDialogOpen} onOpenChange={setMobileDialogOpen}>
           <DialogContent
+            layout="viewport"
             className="max-h-[calc(100dvh-2rem)] w-[calc(100vw-2rem)] max-w-sm overflow-y-auto p-3 sm:max-w-sm sm:p-4"
             showCloseButton={false}
           >
