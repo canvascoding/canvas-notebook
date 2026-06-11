@@ -14,7 +14,7 @@ import { getActiveAiAgentEngine } from '@/app/lib/agents/runtime';
 import { DEFAULT_SESSION_TITLE } from '@/app/lib/pi/session-titles';
 import { CANVAS_CONTROL_PLANE_PROVIDER_ID, getCanvasControlPlaneModels, getPiModels, OLLAMA_PROVIDER_ID, OPENAI_COMPATIBLE_PROVIDER_ID } from '@/app/lib/pi/model-resolver';
 import type { PiThinkingLevel } from '@/app/lib/pi/config';
-import { getStatus, invalidateRuntime } from '@/app/lib/pi/runtime-service';
+import { getActiveRuntimeStatusSummaries, getStatus, invalidateRuntime } from '@/app/lib/pi/runtime-service';
 import { DEFAULT_AGENT_ID, WEB_CHANNEL_ID, normalizeStoredChannelId, webChannelSessionKey } from '@/app/lib/channels/constants';
 import { ensureDefaultAgent } from '@/app/lib/channels/agents';
 import { ensureSessionChannelLink } from '@/app/lib/channels/channel-links';
@@ -286,8 +286,16 @@ export async function GET(request: NextRequest) {
       }))
     ].sort((a, b) => getSessionActivityTime(b) - getSessionActivityTime(a));
 
+    const runtimeStatusSummaries = await getActiveRuntimeStatusSummaries({
+      userId: session.user.id,
+      sessionIds: combined
+        .filter((item) => item.engine === 'pi')
+        .map((item) => item.sessionId),
+    });
+
     const mappedSessions = combined.map((item) => {
       const hasUnread = item.engine === 'pi' && hasUnreadAssistantResponse(item.lastMessageAt, item.lastViewedAt);
+      const runtimeStatus = item.engine === 'pi' ? runtimeStatusSummaries[item.sessionId] : undefined;
       if (hasUnread) {
         console.log(`[API Sessions] Unread session: sessionId=${item.sessionId}, lastMessageAt=${item.lastMessageAt?.toISOString()}, lastViewedAt=${item.lastViewedAt?.toISOString()}`);
       }
@@ -304,6 +312,8 @@ export async function GET(request: NextRequest) {
         createdAt: item.createdAt,
         lastMessageAt: item.lastMessageAt,
         lastViewedAt: item.lastViewedAt,
+        runtimePhase: runtimeStatus?.phase ?? null,
+        runtimeActiveToolName: runtimeStatus?.activeToolName ?? null,
         channelId: item.channelId,
         hasUnread,
         creator: {
