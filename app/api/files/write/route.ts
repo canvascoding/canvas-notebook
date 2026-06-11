@@ -4,19 +4,19 @@ import { clearSubtreeCache } from '@/app/lib/utils/file-tree-cache';
 import { invalidateFileReferenceCache } from '@/app/lib/filesystem/file-reference-cache';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 import { auth } from '@/app/lib/auth';
-import { syncPublicSharesAfterWrite } from '@/app/lib/public-sharing/public-file-shares';
+import { queuePublicSharesAfterWrite } from '@/app/lib/public-sharing/public-file-shares';
 
 function getParentDirectory(filePath: string) {
   return filePath.includes('/') ? filePath.substring(0, filePath.lastIndexOf('/')) : '.';
 }
 
 export async function POST(request: NextRequest) {
-  const session = await auth.api.getSession({ headers: request.headers });
-  if (!session) {
-    return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
-  }
-
   try {
+    const session = await auth.api.getSession({ headers: request.headers });
+    if (!session) {
+      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
+    }
+
     const limited = rateLimit(request, {
       limit: 20,
       windowMs: 60_000,
@@ -43,9 +43,9 @@ export async function POST(request: NextRequest) {
     }
 
     await writeFile(path, finalContent);
-    await syncPublicSharesAfterWrite([path]);
     clearSubtreeCache(getParentDirectory(path));
     invalidateFileReferenceCache();
+    queuePublicSharesAfterWrite([path]);
 
     return NextResponse.json({ success: true });
   } catch (error) {

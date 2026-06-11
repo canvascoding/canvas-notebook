@@ -5,7 +5,7 @@ import { promises as fs } from 'node:fs';
 import type { Stats } from 'node:fs';
 import path from 'node:path';
 
-import { and, desc, eq } from 'drizzle-orm';
+import { and, desc, eq, inArray } from 'drizzle-orm';
 
 import { db } from '@/app/lib/db';
 import { publicFileShares } from '@/app/lib/db/schema';
@@ -654,12 +654,25 @@ export async function syncPublicSharesAfterWrite(paths: string[]): Promise<void>
     }
   }).filter((candidate): candidate is string => Boolean(candidate));
 
-  if (normalized.length === 0) return;
+  const uniquePaths = Array.from(new Set(normalized));
+  if (uniquePaths.length === 0) return;
 
-  const rows = await db.select().from(publicFileShares).where(eq(publicFileShares.status, 'active'));
-  await Promise.all(rows
-    .filter((row) => normalized.includes(row.workspacePath))
-    .map(reconcileRow));
+  const rows = await db.select()
+    .from(publicFileShares)
+    .where(and(
+      eq(publicFileShares.status, 'active'),
+      inArray(publicFileShares.workspacePath, uniquePaths),
+    ));
+  await Promise.all(rows.map(reconcileRow));
+}
+
+export function queuePublicSharesAfterWrite(paths: string[]): void {
+  const timer = setTimeout(() => {
+    syncPublicSharesAfterWrite(paths).catch((error) => {
+      console.warn('[public-sharing] Failed to sync public shares after write:', error);
+    });
+  }, 0) as ReturnType<typeof setTimeout> & { unref?: () => void };
+  timer.unref?.();
 }
 
 function remapWorkspacePath(rowPath: string, oldPath: string, newPath: string): string {
