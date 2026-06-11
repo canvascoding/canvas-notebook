@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { dispatchAutomationRunExecution } from '@/app/lib/automations/dispatch';
-import { listExecutableAutomationRuns } from '@/app/lib/automations/store';
+import { listExecutableAutomationRuns, markStaleAutomationRunsFailed } from '@/app/lib/automations/store';
 import { isValidCanvasInternalToken } from '@/app/lib/internal-auth';
 
 export const dynamic = 'force-dynamic';
@@ -13,6 +13,12 @@ export async function POST(request: NextRequest) {
 
   try {
     const now = new Date();
+    // Clean up any stale runs that may have been left behind by crashes
+    const markedStale = await markStaleAutomationRunsFailed(now);
+    if (markedStale > 0) {
+      console.warn(`[Scheduler API] Marked ${markedStale} stale run(s) as failed before dispatch`);
+    }
+
     const runs = await listExecutableAutomationRuns(now);
     const executed: string[] = [];
 

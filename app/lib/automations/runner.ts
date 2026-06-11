@@ -37,6 +37,7 @@ const MAX_ATTEMPTS = 3;
 const RETRY_BACKOFF_MS = [60_000, 5 * 60_000] as const;
 const MAX_EVENTS_LOG = 500;
 const MAX_EVENT_JSON_LENGTH = 10_000;
+const RUN_TIMEOUT_MS = 10 * 60_000;
 const EMPTY_USAGE = {
   input: 0,
   output: 0,
@@ -93,6 +94,12 @@ function calculateRetryAt(attemptNumber: number): Date | null {
   }
   const delay = RETRY_BACKOFF_MS[attemptNumber - 1] ?? RETRY_BACKOFF_MS[RETRY_BACKOFF_MS.length - 1];
   return new Date(Date.now() + delay);
+}
+
+function createRunTimeoutPromise(ms: number): Promise<never> {
+  return new Promise((_, reject) => {
+    setTimeout(() => reject(new Error(`Automation run timed out after ${ms}ms`)), ms);
+  });
 }
 
 function buildAutomationSessionId(runId: string): string {
@@ -292,15 +299,24 @@ export async function executeAutomationRun(runId: string): Promise<void> {
       promptPersistedBeforeRun = true;
 
       console.log(`[Automationen] Starting agent loop for run ${runId} (provider=${provider}, model=${model.id})`);
-      for await (const event of agentLoop([promptMessage], context, config, undefined)) {
-        if (events.length < MAX_EVENTS_LOG) {
-          const json = JSON.stringify(event);
-          events.push(json.length > MAX_EVENT_JSON_LENGTH ? json.slice(0, MAX_EVENT_JSON_LENGTH) + '...[truncated]' : json);
+      const agentLoopPromise = (async () => {
+        const loopEvents: string[] = [];
+        let loopMessages: AgentMessage[] = [];
+        for await (const event of agentLoop([promptMessage], context, config, undefined)) {
+          if (loopEvents.length < MAX_EVENTS_LOG) {
+            const json = JSON.stringify(event);
+            loopEvents.push(json.length > MAX_EVENT_JSON_LENGTH ? json.slice(0, MAX_EVENT_JSON_LENGTH) + '...[truncated]' : json);
+          }
+          if (event.type === 'agent_end') {
+            loopMessages = event.messages;
+          }
         }
-        if (event.type === 'agent_end') {
-          finalMessages = event.messages;
-        }
-      }
+        return { loopEvents, loopMessages };
+      })();
+
+      const { loopEvents, loopMessages } = await Promise.race([agentLoopPromise, createRunTimeoutPromise(RUN_TIMEOUT_MS)]);
+      events.push(...loopEvents);
+      finalMessages = loopMessages;
       console.log(`[Automationen] Agent loop completed for run ${runId} (events=${events.length})`);
 
       const assistantError = getAssistantError(finalMessages);

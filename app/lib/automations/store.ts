@@ -914,6 +914,48 @@ export async function listExecutableAutomationRuns(now = new Date()): Promise<Au
   return mapRunRows(rows);
 }
 
+export async function markStaleAutomationRunsFailed(now = new Date()): Promise<number> {
+  const staleBefore = new Date(now.getTime() - STALE_AUTOMATION_RUN_TTL_MS);
+  const staleRuns = await db
+    .select()
+    .from(automationRuns)
+    .where(
+      and(
+        eq(automationRuns.status, 'running'),
+        lte(automationRuns.startedAt, staleBefore),
+      ),
+    );
+
+  if (staleRuns.length > 0) {
+    console.warn(`[Automationen] Marking ${staleRuns.length} stale run(s) as failed globally`);
+    db.transaction((tx) => {
+      for (const run of staleRuns) {
+        tx
+          .update(automationRuns)
+          .set({
+            status: 'failed',
+            errorMessage: 'Automation run was marked stale before a new run could start.',
+            finishedAt: now,
+          })
+          .where(eq(automationRuns.id, run.id))
+          .run();
+
+        tx
+          .update(automationJobs)
+          .set({
+            lastRunAt: now,
+            lastRunStatus: 'failed',
+            updatedAt: now,
+          })
+          .where(eq(automationJobs.id, run.jobId))
+          .run();
+      }
+    });
+  }
+
+  return staleRuns.length;
+}
+
 async function failStaleAutomationRuns(jobId: string, now = new Date()): Promise<number> {
   const staleBefore = new Date(now.getTime() - STALE_AUTOMATION_RUN_TTL_MS);
   const staleRuns = await db
