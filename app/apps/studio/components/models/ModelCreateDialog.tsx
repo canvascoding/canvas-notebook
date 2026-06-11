@@ -6,6 +6,7 @@ import { useRouter } from '@/i18n/navigation';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Loader2, Plus, X } from 'lucide-react';
+import { toast } from 'sonner';
 import { useStudioProducts } from '../../hooks/useStudioProducts';
 import { useStudioPersonas } from '../../hooks/useStudioPersonas';
 import { useStudioStyles } from '../../hooks/useStudioStyles';
@@ -210,25 +211,33 @@ export function ModelCreateDialog({ entityType = 'product' }: ModelCreateDialogP
         return;
       }
 
+      // Upload images in parallel instead of sequentially
+      const uploadTasks: Promise<unknown>[] = [];
       for (const img of pendingImages) {
         if (entityType === 'product') {
-          await productsHook.addImage(entityId, img.file);
+          uploadTasks.push(productsHook.addImage(entityId, img.file));
         } else if (entityType === 'persona') {
-          await personasHook.addImage(entityId, img.file);
+          uploadTasks.push(personasHook.addImage(entityId, img.file));
         } else {
-          await stylesHook.addImage(entityId, img.file);
+          uploadTasks.push(stylesHook.addImage(entityId, img.file));
         }
       }
 
       for (const ref of pendingReferenceUrls) {
         if (ref.status !== 'success') continue;
         if (entityType === 'product') {
-          await productsHook.addImageFromUrl(entityId, ref.originalUrl);
+          uploadTasks.push(productsHook.addImageFromUrl(entityId, ref.originalUrl));
         } else if (entityType === 'persona') {
-          await personasHook.addImageFromUrl(entityId, ref.originalUrl);
+          uploadTasks.push(personasHook.addImageFromUrl(entityId, ref.originalUrl));
         } else {
-          await stylesHook.addImageFromUrl(entityId, ref.originalUrl);
+          uploadTasks.push(stylesHook.addImageFromUrl(entityId, ref.originalUrl));
         }
+      }
+
+      const results = await Promise.allSettled(uploadTasks);
+      const failed = results.filter((r) => r.status === 'rejected');
+      if (failed.length > 0) {
+        toast.error(`${failed.length} image(s) failed to upload`);
       }
 
       router.push(`/studio/models/${entityId}?type=${entityType}`);

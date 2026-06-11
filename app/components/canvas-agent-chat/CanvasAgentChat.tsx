@@ -2432,11 +2432,15 @@ function ToolCallPill({
             {(() => {
               const trimmed = bodyContent.trim();
               if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
-                try {
-                  const parsed = JSON.parse(bodyContent);
+                const parsed = (() => {
+                  try {
+                    return JSON.parse(bodyContent);
+                  } catch {
+                    return null;
+                  }
+                })();
+                if (parsed) {
                   return <ToolDataView data={parsed} />;
-                } catch {
-                  /* fall through to Markdown */
                 }
               }
               return <MarkdownMessage content={bodyContent} variant="tool" onMediaClick={onMediaClick} />;

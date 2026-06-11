@@ -13,6 +13,7 @@ interface UseStudioPersonasReturn {
   deletePersona: (id: string) => Promise<{ success: boolean; warnings?: string[] } | null>;
   addImage: (personaId: string, file: File) => Promise<StudioPersonaImage | null>;
   addImageFromUrl: (personaId: string, url: string) => Promise<StudioPersonaImage | null>;
+  addImageFromFilePath: (personaId: string, filePath: string) => Promise<StudioPersonaImage | null>;
   deleteImage: (personaId: string, imageId: string) => Promise<boolean>;
   replaceImage: (personaId: string, imageId: string, file: File) => Promise<StudioPersonaImage | null>;
   reorderImages: (personaId: string, imageOrder: string[]) => Promise<boolean>;
@@ -142,6 +143,24 @@ export function useStudioPersonas(): UseStudioPersonasReturn {
     }
   }, [fetchPersonas]);
 
+  const addImageFromFilePath = useCallback(async (personaId: string, filePath: string): Promise<StudioPersonaImage | null> => {
+    setError(null);
+    try {
+      const res = await fetch(`/api/studio/personas/${personaId}/images`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ filePath }),
+      });
+      if (!res.ok) throw new Error('Failed to add image');
+      const result = await res.json();
+      await fetchPersonas();
+      return result.image ?? null;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unknown error');
+      return null;
+    }
+  }, [fetchPersonas]);
+
   const deleteImage = useCallback(async (personaId: string, imageId: string): Promise<boolean> => {
     setError(null);
     try {
@@ -205,6 +224,7 @@ export function useStudioPersonas(): UseStudioPersonasReturn {
     deletePersona,
     addImage,
     addImageFromUrl,
+    addImageFromFilePath,
     deleteImage,
     replaceImage,
     reorderImages,
