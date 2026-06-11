@@ -504,7 +504,10 @@ export function CreateView({ initialProviderConfig = EMPTY_STUDIO_PROVIDER_CONFI
   useEffect(() => {
     void fetchGenerations();
     void fetchPresets();
-  }, [fetchGenerations, fetchPresets]);
+    void fetchProducts();
+    void fetchPersonas();
+    void fetchStyles();
+  }, [fetchGenerations, fetchPresets, fetchProducts, fetchPersonas, fetchStyles]);
 
   useEffect(() => {
     let cancelled = false;

@@ -492,7 +492,7 @@ export function StudioPreview({
                     </Badge>
                   ) : generation.studioPresetId ? (
                     <span className="inline-flex items-center gap-1.5 rounded-full border border-dashed border-muted-foreground/40 bg-muted/50 px-3 py-1 text-xs text-muted-foreground">
-                      [Gelöscht]
+                      {generation.studioPresetName ? `${generation.studioPresetName} [Gelöscht]` : '[Gelöscht]'}
                     </span>
                   ) : (
                     <span className="inline-flex items-center gap-1.5 rounded-full border border-dashed border-muted-foreground/40 bg-muted/50 px-3 py-1 text-xs text-muted-foreground">
