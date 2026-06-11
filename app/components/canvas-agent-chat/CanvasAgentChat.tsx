@@ -83,6 +83,7 @@ import {
 } from 'lucide-react';
 import { ComposerReferencePicker, type ComposerReferencePickerItem } from '@/app/components/canvas-agent-chat/ComposerReferencePicker';
 import { FileReferenceCard } from '@/app/components/canvas-agent-chat/FileReferenceCard';
+import { ToolDataView, ToolDataViewFromJson } from '@/app/components/canvas-agent-chat/ToolDataView';
 import { extractFilePaths, isFilePath, normalizeChatFilePath } from '@/app/lib/chat/extract-file-paths';
 import { notifyChatFileReferenceOpened } from '@/app/lib/chat/file-reference-events';
 import { extractStudioImageMediaUrls, rewriteRelativeStudioImageMarkdown } from '@/app/lib/chat/studio-image-markdown';
@@ -2401,13 +2402,19 @@ function ToolCallPill({
       </div>
       <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain p-3">
         {message.toolArgs ? (
-          <div className="rounded-md border border-border/70 bg-muted/35 p-2">
-            <div className="mb-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">{t('toolInput')}</div>
-            <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-words text-xs leading-relaxed text-foreground/85">{message.toolArgs}</pre>
+          <div className="rounded-md border border-border/60 bg-muted/30 p-3">
+            <div className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70">
+              {t('toolInput')}
+            </div>
+            <div className="max-h-52 overflow-auto pr-1">
+              <ToolDataViewFromJson json={message.toolArgs} />
+            </div>
           </div>
         ) : null}
-        <div className="rounded-md border border-border/70 bg-background p-2">
-          <div className="mb-1 border-b border-border/70 pb-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">{t('toolOutput')}</div>
+        <div className="rounded-md border border-border/60 bg-background p-3">
+          <div className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70">
+            {t('toolOutput')}
+          </div>
           {imageAttachments.length > 0 ? (
             <div data-testid="chat-tool-attachments" className="mb-2 flex flex-wrap gap-2">
               {imageAttachments.map((attachment, index) => (
@@ -2421,7 +2428,20 @@ function ToolCallPill({
               ))}
             </div>
           ) : null}
-          <MarkdownMessage content={bodyContent} variant="tool" onMediaClick={onMediaClick} />
+          <div className="max-h-52 overflow-auto pr-1">
+            {(() => {
+              const trimmed = bodyContent.trim();
+              if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+                try {
+                  const parsed = JSON.parse(bodyContent);
+                  return <ToolDataView data={parsed} />;
+                } catch {
+                  /* fall through to Markdown */
+                }
+              }
+              return <MarkdownMessage content={bodyContent} variant="tool" onMediaClick={onMediaClick} />;
+            })()}
+          </div>
         </div>
       </div>
     </>
@@ -6685,12 +6705,29 @@ export default function CanvasAgentChat({
                       {toolBodyVisible ? (
                         <div data-testid="chat-tool-body" className="mt-3 space-y-3">
                           {message.toolArgs ? (
-                            <div className="rounded-md border border-amber-500/30 bg-background/60 p-2">
-                              <div className="mb-1 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">{t('toolInput')}</div>
-                              <pre className="overflow-x-auto whitespace-pre-wrap break-words text-xs leading-relaxed text-foreground/90 max-w-full">{message.toolArgs}</pre>
+                            <div className="rounded-md border border-amber-500/30 bg-background/60 p-3">
+                              <div className="mb-2 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">{t('toolInput')}</div>
+                              <div className="max-h-52 overflow-auto pr-1">
+                                <ToolDataViewFromJson json={message.toolArgs} />
+                              </div>
                             </div>
                           ) : null}
-                          <MarkdownMessage content={bodyContent} variant="tool" onMediaClick={handleMediaPreviewClick} />
+                          {(() => {
+                            const trimmed = bodyContent.trim();
+                            if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+                              try {
+                                const parsed = JSON.parse(bodyContent);
+                                return (
+                                  <div className="max-h-52 overflow-auto pr-1">
+                                    <ToolDataView data={parsed} />
+                                  </div>
+                                );
+                              } catch {
+                                /* fall through to Markdown */
+                              }
+                            }
+                            return <MarkdownMessage content={bodyContent} variant="tool" onMediaClick={handleMediaPreviewClick} />;
+                          })()}
                         </div>
                       ) : null}
                     </div>
