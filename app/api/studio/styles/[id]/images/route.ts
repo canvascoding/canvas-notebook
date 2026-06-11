@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/app/lib/auth';
+import { parseMultipartFormData } from '@/app/lib/api/form-data';
 import { addStyleImage } from '@/app/lib/integrations/studio-style-service';
 import { ensureStudioAssetsWorkspace } from '@/app/lib/integrations/studio-workspace';
 import { StudioServiceError } from '@/app/lib/integrations/studio-errors';
@@ -22,7 +23,11 @@ export async function POST(
   let fileData: { buffer: Buffer; fileName: string; mimeType: string; fileSize: number; width?: number; height?: number; sourceType: 'upload' | 'url_import'; sourceUrl?: string };
 
   if (contentType.includes('multipart/form-data')) {
-    const formData = await request.formData();
+    const parsedFormData = await parseMultipartFormData(request);
+    if (!parsedFormData.ok) {
+      return parsedFormData.response;
+    }
+    const formData = parsedFormData.formData;
     const file = formData.get('file') as File | null;
     if (!file) {
       return NextResponse.json({ success: false, error: 'No file provided' }, { status: 400 });
