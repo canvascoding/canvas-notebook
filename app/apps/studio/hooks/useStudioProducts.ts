@@ -13,6 +13,7 @@ interface UseStudioProductsReturn {
   deleteProduct: (id: string) => Promise<{ success: boolean; warnings?: string[] } | null>;
   addImage: (productId: string, file: File) => Promise<StudioProductImage | null>;
   addImageFromUrl: (productId: string, url: string) => Promise<StudioProductImage | null>;
+  addImageFromFilePath: (productId: string, filePath: string) => Promise<StudioProductImage | null>;
   deleteImage: (productId: string, imageId: string) => Promise<boolean>;
   replaceImage: (productId: string, imageId: string, file: File) => Promise<StudioProductImage | null>;
   reorderImages: (productId: string, imageOrder: string[]) => Promise<boolean>;
@@ -124,6 +125,24 @@ export function useStudioProducts(): UseStudioProductsReturn {
     }
   }, [fetchProducts]);
 
+  const addImageFromFilePath = useCallback(async (productId: string, filePath: string): Promise<StudioProductImage | null> => {
+    setError(null);
+    try {
+      const res = await fetch(`/api/studio/products/${productId}/images`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ filePath }),
+      });
+      if (!res.ok) throw new Error('Failed to add image');
+      const result = await res.json();
+      await fetchProducts();
+      return result.image ?? null;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unknown error');
+      return null;
+    }
+  }, [fetchProducts]);
+
   const addImageFromUrl = useCallback(async (productId: string, url: string): Promise<StudioProductImage | null> => {
     setError(null);
     try {
@@ -205,6 +224,7 @@ export function useStudioProducts(): UseStudioProductsReturn {
     deleteProduct,
     addImage,
     addImageFromUrl,
+    addImageFromFilePath,
     deleteImage,
     replaceImage,
     reorderImages,

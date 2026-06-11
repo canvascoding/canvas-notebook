@@ -102,7 +102,7 @@ export async function updateProduct(
 export async function addProductImage(
   productId: string,
   userId: string,
-  file: { buffer: Buffer; fileName: string; mimeType: string; fileSize: number; width?: number; height?: number; sourceType: 'upload' | 'url_import'; sourceUrl?: string }
+  file: { buffer: Buffer; fileName: string; mimeType: string; fileSize: number; width?: number; height?: number; sourceType: 'upload' | 'url_import' | 'workspace_import'; sourceUrl?: string }
 ) {
   const product = await getOwnedProduct(productId, userId);
   if (!product) {

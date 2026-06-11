@@ -6,11 +6,20 @@ import { useRouter } from '@/i18n/navigation';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card } from '@/components/ui/card';
-import { Trash2, Pencil, Plus, Loader2, Expand } from 'lucide-react';
+import { Progress } from '@/components/ui/progress';
+import { Trash2, Pencil, Plus, Loader2, Expand, AlertCircle } from 'lucide-react';
+import { toast } from 'sonner';
 import { ReferencePickerDialog } from '../create/ReferencePickerDialog';
 import { ModelImagePreviewDialog } from './ModelImagePreviewDialog';
-import { toMediaUrl } from '@/app/lib/utils/media-url';
 import type { StudioProduct, StudioProductImage, StudioPersona, StudioPersonaImage, StudioStyle, StudioStyleImage } from '../../types/models';
+
+interface UploadingImage {
+  id: string;
+  fileName: string;
+  progress: number;
+  status: 'uploading' | 'done' | 'error';
+  error?: string;
+}
 
 interface ModelDetailDialogProps {
   entityId: string;
@@ -30,6 +39,7 @@ export function ModelDetailDialog({ entityId, entityType }: ModelDetailDialogPro
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showPicker, setShowPicker] = useState(false);
   const [previewIndex, setPreviewIndex] = useState<number | null>(null);
+  const [uploadingImages, setUploadingImages] = useState<UploadingImage[]>([]);
 
   const fetchEntity = useCallback(async () => {
     setLoading(true);
@@ -53,11 +63,135 @@ export function ModelDetailDialog({ entityId, entityType }: ModelDetailDialogPro
     }
   }, [entityId, entityType]);
 
-  useEffect(() => { // eslint-disable-next-line react-hooks/set-state-in-effect
-    fetchEntity(); }, [fetchEntity]);
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    fetchEntity();
+  }, [fetchEntity]);
 
   const images = entity?.images ?? [];
-  const imageCount = images.length;
+  const imageCount = images.length + uploadingImages.filter((u) => u.status !== 'error').length;
+
+  const getUploadEndpoint = useCallback(() => {
+    if (entityType === 'product') return `/api/studio/products/${entityId}/images`;
+    if (entityType === 'persona') return `/api/studio/personas/${entityId}/images`;
+    return `/api/studio/styles/${entityId}/images`;
+  }, [entityType, entityId]);
+
+  const addImageFromFilePath = useCallback(async (filePath: string) => {
+    const res = await fetch(getUploadEndpoint(), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ filePath }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({ error: 'Upload failed' }));
+      throw new Error(data.error || 'Upload failed');
+    }
+    return res.json();
+  }, [getUploadEndpoint]);
+
+  const addImageFromFile = useCallback(async (file: File, onProgress?: (pct: number) => void) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', getUploadEndpoint());
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable && onProgress) {
+          onProgress(Math.round((e.loaded / e.total) * 100));
+        }
+      };
+      xhr.onload = () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          try {
+            resolve(JSON.parse(xhr.responseText));
+          } catch {
+            resolve(xhr.responseText);
+          }
+        } else {
+          let msg = 'Upload failed';
+          try {
+            const d = JSON.parse(xhr.responseText);
+            msg = d.error || msg;
+          } catch { /* ignore */ }
+          reject(new Error(msg));
+        }
+      };
+      xhr.onerror = () => reject(new Error('Network error'));
+      xhr.send(formData);
+    });
+  }, [getUploadEndpoint]);
+
+  const handlePickerConfirm = useCallback(async (paths: string[]) => {
+    const remainingSlots = 10 - images.length;
+    const toAdd = paths.slice(0, remainingSlots);
+    if (toAdd.length === 0) return;
+
+    setSaving(true);
+    try {
+      // Workspace / studio assets -> filePath-Import (schnell, kein doppelter Transfer)
+      const filePathTasks = toAdd.map((path) =>
+        addImageFromFilePath(path).catch((err) => {
+          toast.error(`${t('modelDetail.addImageError')}: ${err.message}`);
+          return null;
+        })
+      );
+      await Promise.all(filePathTasks);
+      await fetchEntity();
+      toast.success(t('modelDetail.imagesAdded'));
+    } catch {
+      toast.error(t('modelDetail.addImageError'));
+    } finally {
+      setSaving(false);
+    }
+  }, [images.length, addImageFromFilePath, fetchEntity, t]);
+
+  const handleUploadFiles = useCallback(async (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    const remainingSlots = 10 - images.length;
+    const toUpload = Array.from(files).slice(0, remainingSlots);
+    if (toUpload.length === 0) {
+      toast.warning(t('modelDetail.maxImagesReached'));
+      return;
+    }
+
+    const newUploads: UploadingImage[] = toUpload.map((file) => ({
+      id: `${Date.now()}-${Math.random()}`,
+      fileName: file.name,
+      progress: 0,
+      status: 'uploading' as const,
+    }));
+    setUploadingImages((prev) => [...prev, ...newUploads]);
+
+    await Promise.all(
+      toUpload.map(async (file, index) => {
+        const uploadId = newUploads[index].id;
+        try {
+          await addImageFromFile(file, (pct) => {
+            setUploadingImages((prev) =>
+              prev.map((u) => (u.id === uploadId ? { ...u, progress: pct } : u))
+            );
+          });
+          setUploadingImages((prev) =>
+            prev.map((u) => (u.id === uploadId ? { ...u, progress: 100, status: 'done' as const } : u))
+          );
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : 'Upload failed';
+          setUploadingImages((prev) =>
+            prev.map((u) => (u.id === uploadId ? { ...u, status: 'error' as const, error: msg } : u))
+          );
+          toast.error(`${file.name}: ${msg}`);
+        }
+      })
+    );
+
+    // Clean up done uploads after a moment and refresh
+    setTimeout(() => {
+      setUploadingImages((prev) => prev.filter((u) => u.status !== 'done'));
+      void fetchEntity();
+    }, 1500);
+    void fetchEntity();
+  }, [images.length, addImageFromFile, fetchEntity, t]);
 
   const handleSaveName = useCallback(async () => {
     if (!nameValue.trim()) return;
@@ -125,38 +259,6 @@ export function ModelDetailDialog({ entityId, entityType }: ModelDetailDialogPro
     }
   }, [entityId, entityType, router]);
 
-  const handlePickerConfirm = useCallback(async (paths: string[]) => {
-    const remainingSlots = 10 - imageCount;
-    const toAdd = paths.slice(0, remainingSlots);
-    if (toAdd.length === 0) return;
-
-    setSaving(true);
-    try {
-      for (const path of toAdd) {
-        try {
-          const res = await fetch(toMediaUrl(path));
-          if (!res.ok) continue;
-          const blob = await res.blob();
-          const fileName = path.split('/').pop() || 'image.jpg';
-          const file = new File([blob], fileName, { type: blob.type || 'image/jpeg' });
-          const formData = new FormData();
-          formData.append('file', file);
-          const endpoint = entityType === 'product'
-            ? `/api/studio/products/${entityId}/images`
-            : entityType === 'persona'
-            ? `/api/studio/personas/${entityId}/images`
-            : `/api/studio/styles/${entityId}/images`;
-          await fetch(endpoint, { method: 'POST', body: formData });
-        } catch {
-          // skip failed downloads
-        }
-      }
-      await fetchEntity();
-    } finally {
-      setSaving(false);
-    }
-  }, [entityId, entityType, imageCount, fetchEntity]);
-
   const getImageUrl = (imageId: string) => {
     return entityType === 'product'
       ? `/api/studio/products/${entityId}/images/${imageId}`
@@ -166,7 +268,11 @@ export function ModelDetailDialog({ entityId, entityType }: ModelDetailDialogPro
   };
 
   if (loading) {
-    return <div className="flex items-center justify-center py-16"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>;
+    return (
+      <div className="flex items-center justify-center py-16">
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      </div>
+    );
   }
 
   if (!entity) {
@@ -213,12 +319,54 @@ export function ModelDetailDialog({ entityId, entityType }: ModelDetailDialogPro
         <div className="flex items-center justify-between">
           <h3 className="text-sm font-medium">{t('modelDetail.images')} ({imageCount}/10)</h3>
           {imageCount < 10 && (
-            <Button size="sm" variant="outline" onClick={() => setShowPicker(true)} className="gap-1">
-              <Plus className="h-3 w-3" />
-              {t('modelDetail.addImages')}
-            </Button>
+            <div className="flex gap-2">
+              <Button size="sm" variant="outline" onClick={() => setShowPicker(true)} className="gap-1" disabled={saving}>
+                <Plus className="h-3 w-3" />
+                {t('modelDetail.addImages')}
+              </Button>
+              <input
+                type="file"
+                accept="image/*"
+                multiple
+                className="hidden"
+                id="model-detail-file-input"
+                onChange={(e) => {
+                  void handleUploadFiles(e.target.files);
+                  e.target.value = '';
+                }}
+              />
+              <Button size="sm" variant="outline" asChild className="gap-1" disabled={saving}>
+                <label htmlFor="model-detail-file-input" className="cursor-pointer">
+                  <Plus className="h-3 w-3" />
+                  {t('modelDetail.uploadFiles')}
+                </label>
+              </Button>
+            </div>
           )}
         </div>
+
+        {/* Upload progress cards */}
+        {uploadingImages.length > 0 && (
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
+            {uploadingImages.map((u) => (
+              <div key={u.id} className="relative aspect-square overflow-hidden rounded-md border border-border bg-muted flex flex-col items-center justify-center gap-2 p-2">
+                {u.status === 'error' ? (
+                  <>
+                    <AlertCircle className="h-6 w-6 text-destructive" />
+                    <p className="text-xs text-destructive text-center line-clamp-2">{u.error}</p>
+                  </>
+                ) : (
+                  <>
+                    <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                    <p className="text-xs text-muted-foreground text-center line-clamp-1">{u.fileName}</p>
+                    <Progress value={u.progress} className="h-1.5 w-full" />
+                  </>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
           {images.map((img: StudioProductImage | StudioPersonaImage | StudioStyleImage, index: number) => (
             <div

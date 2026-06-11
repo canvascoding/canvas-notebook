@@ -13,6 +13,7 @@ interface UseStudioStylesReturn {
   deleteStyle: (id: string) => Promise<{ success: boolean; warnings?: string[] } | null>;
   addImage: (styleId: string, file: File) => Promise<StudioStyleImage | null>;
   addImageFromUrl: (styleId: string, url: string) => Promise<StudioStyleImage | null>;
+  addImageFromFilePath: (styleId: string, filePath: string) => Promise<StudioStyleImage | null>;
   deleteImage: (styleId: string, imageId: string) => Promise<boolean>;
   replaceImage: (styleId: string, imageId: string, file: File) => Promise<StudioStyleImage | null>;
   reorderImages: (styleId: string, imageOrder: string[]) => Promise<boolean>;
@@ -142,6 +143,24 @@ export function useStudioStyles(): UseStudioStylesReturn {
     }
   }, [fetchStyles]);
 
+  const addImageFromFilePath = useCallback(async (styleId: string, filePath: string): Promise<StudioStyleImage | null> => {
+    setError(null);
+    try {
+      const res = await fetch(`/api/studio/styles/${styleId}/images`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ filePath }),
+      });
+      if (!res.ok) throw new Error('Failed to add image');
+      const result = await res.json();
+      await fetchStyles();
+      return result.image ?? null;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unknown error');
+      return null;
+    }
+  }, [fetchStyles]);
+
   const deleteImage = useCallback(async (styleId: string, imageId: string): Promise<boolean> => {
     setError(null);
     try {
@@ -205,6 +224,7 @@ export function useStudioStyles(): UseStudioStylesReturn {
     deleteStyle,
     addImage,
     addImageFromUrl,
+    addImageFromFilePath,
     deleteImage,
     replaceImage,
     reorderImages,

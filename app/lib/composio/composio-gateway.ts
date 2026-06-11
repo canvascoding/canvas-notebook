@@ -145,16 +145,20 @@ async function managedRequest<T>(
   }
   const method = options.method || 'GET';
   logComposioTrigger('Managed fetch started', { method, path, query: url.searchParams.toString() });
+  const headers: Record<string, string> = {
+    'Authorization': `Bearer ${instanceToken()}`,
+    'X-Canvas-Composio-User-Id': userId,
+  };
+  const body = options.body ? JSON.stringify({ ...options.body, composioUserId: userId }) : undefined;
+  if (body) {
+    headers['Content-Type'] = 'application/json';
+  }
   let response: Response;
   try {
     response = await fetch(url, {
       method,
-      headers: {
-        'Authorization': `Bearer ${instanceToken()}`,
-        'Content-Type': 'application/json',
-        'X-Canvas-Composio-User-Id': userId,
-      },
-      body: options.body ? JSON.stringify({ ...options.body, composioUserId: userId }) : undefined,
+      headers,
+      body,
     });
   } catch (error) {
     logComposioTriggerError('Managed fetch failed', error, { method, path });

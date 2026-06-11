@@ -102,7 +102,7 @@ export async function updatePersona(
 export async function addPersonaImage(
   personaId: string,
   userId: string,
-  file: { buffer: Buffer; fileName: string; mimeType: string; fileSize: number; width?: number; height?: number; sourceType: 'upload' | 'url_import'; sourceUrl?: string }
+  file: { buffer: Buffer; fileName: string; mimeType: string; fileSize: number; width?: number; height?: number; sourceType: 'upload' | 'url_import' | 'workspace_import'; sourceUrl?: string }
 ) {
   const persona = await getOwnedPersona(personaId, userId);
   if (!persona) {
