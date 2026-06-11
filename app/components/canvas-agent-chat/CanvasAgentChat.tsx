@@ -169,6 +169,21 @@ interface ChatMessage {
 }
 
 type QueuePreviewItem = RuntimeQueueItem & { kind: 'follow_up' | 'steer' };
+type SessionRuntimePhase = RuntimeStatus['phase'];
+
+function normalizeSessionRuntimePhase(value: unknown): SessionRuntimePhase | null {
+  return value === 'idle' || value === 'streaming' || value === 'running_tool' || value === 'aborting'
+    ? value
+    : null;
+}
+
+function getHistoryRuntimePhase(status: RuntimeStatus): SessionRuntimePhase | null {
+  return status.phase === 'idle' ? null : status.phase;
+}
+
+function getHistoryRuntimeActiveToolName(status: RuntimeStatus): string | null {
+  return status.phase === 'running_tool' ? status.activeTool?.name ?? null : null;
+}
 
 interface AISession {
   id: number;
@@ -182,6 +197,8 @@ interface AISession {
   engine?: 'legacy' | 'pi';
   lastMessageAt?: string | null;
   lastViewedAt?: string | null;
+  runtimePhase?: SessionRuntimePhase | null;
+  runtimeActiveToolName?: string | null;
   hasUnread?: boolean;
   creator?: {
     name?: string | null;
@@ -766,6 +783,8 @@ function normalizeCachedSessionEntry(value: unknown): CachedChatSession | null {
     engine: sessionValue.engine === 'legacy' ? 'legacy' : 'pi',
     lastMessageAt: typeof sessionValue.lastMessageAt === 'string' ? sessionValue.lastMessageAt : null,
     lastViewedAt: typeof sessionValue.lastViewedAt === 'string' ? sessionValue.lastViewedAt : null,
+    runtimePhase: normalizeSessionRuntimePhase(sessionValue.runtimePhase),
+    runtimeActiveToolName: typeof sessionValue.runtimeActiveToolName === 'string' ? sessionValue.runtimeActiveToolName : null,
     hasUnread: typeof sessionValue.hasUnread === 'boolean' ? sessionValue.hasUnread : false,
     creator: isRecord(sessionValue.creator)
       ? {
@@ -1571,6 +1590,19 @@ type ChatHistorySessionRowProps = {
   onDeleteSession: (sessionId: string) => void | Promise<void>;
 };
 
+function getHistoryAgentAvatarClassName(session: AISession): string {
+  switch (session.runtimePhase) {
+    case 'aborting':
+      return 'border-rose-500/50 bg-rose-500/15 text-rose-700 ring-2 ring-rose-500/20 dark:text-rose-300';
+    case 'running_tool':
+      return 'border-amber-500/60 bg-amber-500/20 text-amber-800 ring-2 ring-amber-500/30 dark:text-amber-200';
+    case 'streaming':
+      return 'border-amber-500/45 bg-amber-500/15 text-amber-700 ring-2 ring-amber-500/20 dark:text-amber-300';
+    default:
+      return 'bg-background/80';
+  }
+}
+
 function ChatHistorySessionRow({
   session,
   isActive,
@@ -1604,9 +1636,7 @@ function ChatHistorySessionRow({
         <span className="relative mt-0.5 shrink-0">
           <AgentAvatar
             iconId={agentProfile?.iconId}
-            className={`h-8 w-8 rounded-md ${
-              isActive ? 'border-primary bg-primary/15 text-primary' : 'bg-background/80'
-            }`}
+            className={cn('h-8 w-8 rounded-md', getHistoryAgentAvatarClassName(session))}
             iconClassName="h-4 w-4"
           />
           {session.hasUnread && (
@@ -1633,7 +1663,6 @@ function ChatHistorySessionRow({
               <AgentIcon iconId={agentProfile?.iconId} className="h-3 w-3 shrink-0" />
               <span className="min-w-0 max-w-[9rem] truncate">{agentName}</span>
             </span>
-            <span className="max-w-full truncate font-mono">{session.model}</span>
           </div>
         </div>
       </button>
@@ -3476,10 +3505,46 @@ export default function CanvasAgentChat({
     });
   }, []);
 
+  const applyRuntimeStatusToHistory = useCallback((status: RuntimeStatus) => {
+    const runtimePhase = getHistoryRuntimePhase(status);
+    const runtimeActiveToolName = getHistoryRuntimeActiveToolName(status);
+
+    setHistory((prev) => {
+      let changed = false;
+      const next = prev.map((session) => {
+        if (session.sessionId !== status.sessionId) {
+          return session;
+        }
+
+        if (
+          session.runtimePhase === runtimePhase &&
+          session.runtimeActiveToolName === runtimeActiveToolName
+        ) {
+          return session;
+        }
+
+        changed = true;
+        return {
+          ...session,
+          runtimePhase,
+          runtimeActiveToolName,
+        };
+      });
+
+      if (changed) {
+        historyRef.current = next;
+        return next;
+      }
+
+      return prev;
+    });
+  }, []);
+
   const setRuntimeStatusWithReconciliation = useCallback((status: RuntimeStatus) => {
     setRuntimeStatus(status);
+    applyRuntimeStatusToHistory(status);
     reconcileQueuedMessages(status);
-  }, [reconcileQueuedMessages]);
+  }, [applyRuntimeStatusToHistory, reconcileQueuedMessages]);
 
   const setOptimisticRuntimePhase = useCallback((phase: RuntimeStatus['phase'], sessionIdOverride?: string | null) => {
     setRuntimeStatus((current) => {
@@ -6104,7 +6169,7 @@ export default function CanvasAgentChat({
       )}
 
       {/* Compact Header Row */}
-      <div className="z-10 border-b border-border bg-background/95">
+      <div className={cn('z-10 border-b border-border bg-background/95', isHistoryOverlayOpen ? 'hidden' : null)}>
         <div className="flex flex-wrap items-center gap-2 px-3 py-2">
           <div className="flex min-w-[12rem] flex-1 items-center gap-2 overflow-hidden">
             {showHistory ? (

@@ -467,8 +467,6 @@ export function SessionSidebar({
                             </div>
                             <div className="mt-1 flex flex-wrap gap-2 text-[10px] text-muted-foreground">
                               <span>{new Date(session.createdAt).toLocaleString()}</span>
-                              <span>&bull;</span>
-                              <span>{session.model}</span>
                             </div>
                           </div>
                         </button>

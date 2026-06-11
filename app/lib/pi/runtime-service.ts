@@ -7,6 +7,7 @@ import type { AgentMessage } from '@earendil-works/pi-agent-core';
 
 import type { ChatRequestContext } from '@/app/lib/chat/types';
 import {
+  getExistingPiRuntimeStatuses,
   getOrCreatePiRuntime,
   getPiRuntimeStatus,
   invalidatePiRuntime,
@@ -17,6 +18,11 @@ import { getStudioOutputsRoot } from '@/app/lib/integrations/studio-workspace';
 export type UserAgentMessage = Extract<AgentMessage, { role: 'user' }>;
 
 export type ControlAction = 'follow_up' | 'steer' | 'promote_queued_to_steer' | 'remove_queued_item' | 'abort' | 'replace' | 'compact';
+
+export type SessionRuntimeStatusSummary = {
+  phase: PiRuntimeStatus['phase'];
+  activeToolName: string | null;
+};
 
 type RuntimeInstance = Awaited<ReturnType<typeof getOrCreatePiRuntime>>;
 
@@ -325,6 +331,30 @@ export async function getStatus(
   userId: string,
 ): Promise<PiRuntimeStatus | null> {
   return getPiRuntimeStatus(sessionId, userId);
+}
+
+export async function getActiveRuntimeStatusSummaries({
+  sessionIds,
+  userId,
+}: {
+  sessionIds: string[];
+  userId: string;
+}): Promise<Record<string, SessionRuntimeStatusSummary>> {
+  const statuses = await getExistingPiRuntimeStatuses(sessionIds, userId);
+  const summaries: Record<string, SessionRuntimeStatusSummary> = {};
+
+  for (const [sessionId, status] of statuses) {
+    if (status.phase === 'idle') {
+      continue;
+    }
+
+    summaries[sessionId] = {
+      phase: status.phase,
+      activeToolName: status.activeTool?.name ?? null,
+    };
+  }
+
+  return summaries;
 }
 
 export async function invalidateRuntime(sessionId: string, userId: string): Promise<boolean> {

@@ -1562,6 +1562,32 @@ export async function getExistingPiRuntime(sessionId: string, userId: string) {
   return resolved;
 }
 
+export async function getExistingPiRuntimeStatuses(
+  sessionIds: string[],
+  userId: string,
+): Promise<Map<string, PiRuntimeStatus>> {
+  const store = getStore();
+  const uniqueSessionIds = Array.from(new Set(sessionIds.filter(Boolean)));
+  const entries = await Promise.all(uniqueSessionIds.map(async (sessionId) => {
+    const key = getRuntimeKey(sessionId, userId);
+    const runtimePromise = store.runtimes.get(key);
+    if (!runtimePromise) {
+      return null;
+    }
+
+    try {
+      const runtime = await runtimePromise;
+      runtime.touch();
+      return [sessionId, runtime.getStatus()] as const;
+    } catch {
+      store.runtimes.delete(key);
+      return null;
+    }
+  }));
+
+  return new Map(entries.filter((entry): entry is readonly [string, PiRuntimeStatus] => entry !== null));
+}
+
 export async function invalidatePiRuntime(sessionId: string, userId: string) {
   const store = getStore();
   const key = getRuntimeKey(sessionId, userId);
