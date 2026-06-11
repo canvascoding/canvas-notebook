@@ -3,6 +3,7 @@ import { promises as fs } from 'fs';
 import path from 'path';
 import sharp from 'sharp';
 import { auth } from '@/app/lib/auth';
+import { parseMultipartFormData } from '@/app/lib/api/form-data';
 
 // Configuration for image processing
 const MAX_IMAGE_DIMENSION = 1024; // Max width/height in pixels
@@ -75,7 +76,11 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const formData = await request.formData();
+    const parsedFormData = await parseMultipartFormData(request);
+    if (!parsedFormData.ok) {
+      return parsedFormData.response;
+    }
+    const formData = parsedFormData.formData;
     const file = formData.get('file') as File;
 
     if (!file) {

@@ -1088,6 +1088,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
   uploadFile: async (file: File | File[], targetDir: string, pathMap?: Map<File, string>, convertParams?: (import('@/app/components/shared/ImagePreprocessDialog').ConvertParams | null)[]) => {
     set({ treeError: null, uploadProgress: 0 });
     const files = Array.isArray(file) ? file : [file];
+    const totalUploadBytes = files.reduce((total, currentFile) => total + currentFile.size, 0);
 
     try {
       const formData = new FormData();
@@ -1122,8 +1123,18 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
             resolve();
           } else {
             try {
-              const error = JSON.parse(xhr.responseText);
-              reject(new Error(error.error || `Upload failed with status ${xhr.status}`));
+              const error = JSON.parse(xhr.responseText) as { error?: unknown; code?: unknown };
+              if (error.code === 'FORMDATA_PARSE_ERROR') {
+                console.warn('[FileStore] Upload FormData parse error', {
+                  endpoint: '/api/files/upload',
+                  status: xhr.status,
+                  fileCount: files.length,
+                  totalBytes: totalUploadBytes,
+                  hasPathMap: Boolean(pathMap),
+                  hasConvertParams: Boolean(convertParams?.length),
+                });
+              }
+              reject(new Error(typeof error.error === 'string' ? error.error : `Upload failed with status ${xhr.status}`));
             } catch {
               reject(new Error(`Upload failed with status ${xhr.status}`));
             }

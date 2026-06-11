@@ -3,6 +3,7 @@ import path from 'path';
 import fs from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { auth } from '@/app/lib/auth';
+import { parseMultipartFormData } from '@/app/lib/api/form-data';
 import { getUserUploadsStudioRefRoot } from '@/app/lib/runtime-data-paths';
 import { toMediaUrl, toPreviewUrl } from '@/app/lib/utils/media-url';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
@@ -46,7 +47,11 @@ export async function POST(request: NextRequest) {
       return limited.response;
     }
 
-    const formData = await request.formData();
+    const parsedFormData = await parseMultipartFormData(request);
+    if (!parsedFormData.ok) {
+      return parsedFormData.response;
+    }
+    const formData = parsedFormData.formData;
     const files = formData.getAll('files') as File[];
     const convertParamsRaw = formData.get('convertParams')?.toString();
 

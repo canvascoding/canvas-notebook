@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/app/lib/auth';
+import { parseMultipartFormData } from '@/app/lib/api/form-data';
 import { replacePersonaImage } from '@/app/lib/integrations/studio-persona-service';
 import { StudioServiceError } from '@/app/lib/integrations/studio-errors';
 
@@ -13,7 +14,11 @@ export async function POST(
   }
   const { id, imgId } = await params;
 
-  const formData = await request.formData();
+  const parsedFormData = await parseMultipartFormData(request);
+  if (!parsedFormData.ok) {
+    return parsedFormData.response;
+  }
+  const formData = parsedFormData.formData;
   const file = formData.get('file') as File | null;
   if (!file) {
     return NextResponse.json({ success: false, error: 'No file provided' }, { status: 400 });

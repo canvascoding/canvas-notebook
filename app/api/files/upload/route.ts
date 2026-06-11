@@ -5,6 +5,7 @@ import { clearFileTreeCache } from '@/app/lib/utils/file-tree-cache';
 import { invalidateFileReferenceCache } from '@/app/lib/filesystem/file-reference-cache';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 import { auth } from '@/app/lib/auth';
+import { parseMultipartFormData } from '@/app/lib/api/form-data';
 import { getImageConversionErrorMessage } from '@/app/lib/images/convert';
 import { normalizeUploadImageBuffer, parseUploadConvertParams } from '@/app/lib/images/upload-conversion';
 import { syncPublicSharesAfterWrite } from '@/app/lib/public-sharing/public-file-shares';
@@ -48,7 +49,11 @@ export async function POST(request: NextRequest) {
       return limited.response;
     }
 
-    const formData = await request.formData();
+    const parsedFormData = await parseMultipartFormData(request);
+    if (!parsedFormData.ok) {
+      return parsedFormData.response;
+    }
+    const formData = parsedFormData.formData;
     const files = formData.getAll('files') as File[];
     const targetDir = formData.get('path')?.toString() || '.';
     const convertParamsRaw = formData.get('convertParams')?.toString();

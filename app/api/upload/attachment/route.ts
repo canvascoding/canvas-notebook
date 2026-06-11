@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { saveUploadBuffer } from '@/app/lib/filesystem/upload-handler';
 import { auth } from '@/app/lib/auth';
+import { parseMultipartFormData } from '@/app/lib/api/form-data';
 import { getImageConversionErrorMessage } from '@/app/lib/images/convert';
 import { normalizeUploadImageBuffer, parseUploadConvertParams } from '@/app/lib/images/upload-conversion';
 
@@ -13,7 +14,11 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const formData = await request.formData();
+    const parsedFormData = await parseMultipartFormData(request);
+    if (!parsedFormData.ok) {
+      return parsedFormData.response;
+    }
+    const formData = parsedFormData.formData;
     const files = formData.getAll('file') as File[];
     const convertParamsRaw = formData.get('convertParams')?.toString();
 
