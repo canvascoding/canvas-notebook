@@ -776,6 +776,14 @@ export function CreateView({ initialProviderConfig = EMPTY_STUDIO_PROVIDER_CONFI
                   setSelectedOutputId(null);
                 }
               }}
+              onRemixGeneration={(generation) => {
+                store.setRawPrompt(getStudioUserPrompt(generation));
+                // Scroll to the prompt bar for better UX
+                const promptBar = document.getElementById('studio-prompt-bar');
+                if (promptBar) {
+                  promptBar.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                }
+              }}
               onSaveToWorkspace={handleSaveSingleToWorkspace}
             />
           </div>

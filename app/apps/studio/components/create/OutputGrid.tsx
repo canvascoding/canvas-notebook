@@ -33,6 +33,7 @@ interface OutputGridProps {
   onCreateVideo: (generation: StudioGeneration, output: StudioGenerationOutput) => void;
   onDelete: (generation: StudioGeneration, output: StudioGenerationOutput) => void;
   onDeleteGeneration?: (generation: StudioGeneration) => void;
+  onRemixGeneration?: (generation: StudioGeneration) => void;
   onSaveToWorkspace?: (generation: StudioGeneration, output: StudioGenerationOutput) => void;
 }
 
@@ -56,6 +57,7 @@ export function OutputGrid({
   onCreateVideo,
   onDelete,
   onDeleteGeneration,
+  onRemixGeneration,
   onSaveToWorkspace,
 }: OutputGridProps) {
   const getExpectedOutputCount = (generation: StudioGeneration) => {
@@ -243,7 +245,9 @@ export function OutputGrid({
                 key={generation.id}
                 mode={generation.mode}
                 message={getGenerationError(generation)}
+                prompt={generation.rawPrompt || generation.prompt}
                 onDelete={() => onDeleteGeneration?.(generation)}
+                onRemix={onRemixGeneration ? () => onRemixGeneration(generation) : undefined}
               />
             ))}
           </div>
