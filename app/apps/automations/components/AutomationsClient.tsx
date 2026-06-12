@@ -210,6 +210,24 @@ type DeliveryChannelOption = {
 const WEEKDAY_OPTIONS: AutomationWeekday[] = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
 const DEFAULT_AGENT_ID = 'canvas-agent';
 
+type AutomationPromptEditorProps = {
+  value: string;
+  onChange: (value: string) => void;
+  heightClassName: string;
+  testId?: string;
+};
+
+function AutomationPromptEditor({ value, onChange, heightClassName, testId }: AutomationPromptEditorProps) {
+  return (
+    <div
+      data-testid={testId}
+      className={cn('min-w-0 overflow-hidden rounded-md border border-input bg-background', heightClassName)}
+    >
+      <MarkdownEditor value={value} onChange={onChange} />
+    </div>
+  );
+}
+
 function defaultDraft(): JobDraft {
   const now = new Date();
   const today = now.toISOString().slice(0, 10);
@@ -1615,9 +1633,12 @@ export function AutomationsClient({ initialJobId = null }: AutomationsClientProp
                   </div>
                   <label className="flex min-w-0 flex-col gap-1 text-sm">
                     <span className="text-xs text-muted-foreground">{t('editor.fields.prompt')}</span>
-                    <div data-testid="automation-prompt" className="min-h-48 min-w-0 rounded-md border border-input bg-background overflow-hidden">
-                      <MarkdownEditor value={draft.prompt} onChange={(value) => setDraft((current) => ({ ...current, prompt: value }))} />
-                    </div>
+                    <AutomationPromptEditor
+                      testId="automation-prompt"
+                      heightClassName="h-48"
+                      value={draft.prompt}
+                      onChange={(value) => setDraft((current) => ({ ...current, prompt: value }))}
+                    />
                   </label>
                   <div className="grid gap-4 md:grid-cols-2">
                     <label className="flex min-w-0 flex-col gap-1 text-sm">
@@ -1909,9 +1930,12 @@ export function AutomationsClient({ initialJobId = null }: AutomationsClientProp
               <div className="grid min-h-0 gap-4 p-4 sm:p-6 lg:grid-cols-[minmax(0,1fr)_18rem]">
                 <div className="space-y-4">
                   <input data-testid="automation-name" className="h-11 w-full rounded-md border border-input bg-background px-3 text-base font-medium" value={draft.name} onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))} placeholder={t('editor.placeholders.name')} />
-                  <div data-testid="automation-prompt" className="min-h-[18rem] w-full rounded-md border border-input bg-background overflow-hidden">
-                    <MarkdownEditor value={draft.prompt} onChange={(value) => setDraft((current) => ({ ...current, prompt: value }))} />
-                  </div>
+                  <AutomationPromptEditor
+                    testId="automation-prompt"
+                    heightClassName="h-[18rem] w-full"
+                    value={draft.prompt}
+                    onChange={(value) => setDraft((current) => ({ ...current, prompt: value }))}
+                  />
                   <ScheduleEditor draft={draft} setDraft={setDraft} t={t} weekdayLabels={weekdayLabels} compact />
                   {renderAgentDeliveryControls('scheduled')}
                   <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
@@ -1979,9 +2003,11 @@ export function AutomationsClient({ initialJobId = null }: AutomationsClientProp
                         onChange={(event) => setCustomWebhookDraft((current) => ({ ...current, name: event.target.value }))}
                         placeholder={t('triggers.custom.placeholders.name')}
                       />
-                      <div className="min-h-[14rem] w-full rounded-md border border-input bg-background overflow-hidden">
-                        <MarkdownEditor value={customWebhookDraft.prompt} onChange={(value) => setCustomWebhookDraft((current) => ({ ...current, prompt: value }))} />
-                      </div>
+                      <AutomationPromptEditor
+                        heightClassName="h-[14rem] w-full"
+                        value={customWebhookDraft.prompt}
+                        onChange={(value) => setCustomWebhookDraft((current) => ({ ...current, prompt: value }))}
+                      />
                       {renderAgentDeliveryControls('customWebhook')}
                       <div className="grid gap-3 sm:grid-cols-2">
                         <label className="flex flex-col gap-1 text-sm">
@@ -2141,9 +2167,11 @@ export function AutomationsClient({ initialJobId = null }: AutomationsClientProp
                         <p className="font-medium text-foreground">{t('triggers.promptHintTitle')}</p>
                         <p className="mt-1">{t('triggers.promptHintDescription')}</p>
                       </div>
-                      <div className="min-h-[14rem] w-full rounded-md border border-input bg-background overflow-hidden">
-                        <MarkdownEditor value={triggerDraft.prompt} onChange={(value) => setTriggerDraft((current) => ({ ...current, prompt: value }))} />
-                      </div>
+                      <AutomationPromptEditor
+                        heightClassName="h-[14rem] w-full"
+                        value={triggerDraft.prompt}
+                        onChange={(value) => setTriggerDraft((current) => ({ ...current, prompt: value }))}
+                      />
                       <TriggerConfigFields
                         schema={selectedTriggerType?.configSchema || null}
                         values={triggerDraft.configValues}
