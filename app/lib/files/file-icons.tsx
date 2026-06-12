@@ -12,6 +12,7 @@ import {
   Database,
   PenTool,
   Presentation,
+  Notebook,
 } from 'lucide-react';
 import { getAppOutputFolderKind } from '../filesystem/app-output-folders';
 import { hasMarpFileName } from '../marp/detect';
@@ -89,8 +90,12 @@ export function getFileIconComponent({
     return <FileCode className={`${className} text-chart-2`} />;
   }
 
+  if (['md', 'mdx', 'markdown'].includes(ext)) {
+    return <Notebook className={`${className} text-chart-1`} />;
+  }
+
   // Documents
-  if (['md', 'mdx', 'markdown', 'txt', 'log'].includes(ext)) {
+  if (['txt', 'log'].includes(ext)) {
     return <FileText className={`${className} text-muted-foreground`} />;
   }
   if (ext === 'pdf') {

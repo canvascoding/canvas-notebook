@@ -18,6 +18,7 @@ import {
 import { useFileStore, FileNode as FileNodeType, type BrowserMode } from '@/app/store/file-store';
 import { cn } from '@/lib/utils';
 import { getFileIconComponent, isImageFile } from '@/app/lib/files/file-icons';
+import { getFileDisplayName } from '@/app/lib/files/display-name';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { ImageThumbnailIcon } from '@/app/components/shared/ImageThumbnailIcon';
 
@@ -54,6 +55,7 @@ export function FileTreeNode({ node, depth = 0, browserMode = 'tree', onNavigate
   const isPublic = node.type === 'file' && node.publicShare?.status === 'active';
   const hasLoadedChildren = Array.isArray(node.children);
   const childNodes = node.children ?? [];
+  const displayName = getFileDisplayName(node);
   const rowPaddingStyle = isMobile
     ? { paddingLeft: `${8 + Math.min(depth, 4) * 12}px` }
     : undefined;
@@ -179,7 +181,7 @@ export function FileTreeNode({ node, depth = 0, browserMode = 'tree', onNavigate
               ) : (
                 getFileIcon()
               )}
-              <span className="min-w-0 flex-1 truncate text-sm">{node.name}</span>
+              <span className="min-w-0 flex-1 truncate text-sm" title={node.name}>{displayName}</span>
             </SidebarMenuButton>
             {isMultiSelectMode ? (
               <button
@@ -243,7 +245,7 @@ export function FileTreeNode({ node, depth = 0, browserMode = 'tree', onNavigate
                   />
                 )}
                 {getFileIcon()}
-                <span className="min-w-0 flex-1 truncate text-sm">{node.name}</span>
+                <span className="min-w-0 flex-1 truncate text-sm" title={node.name}>{displayName}</span>
               </SidebarMenuButton>
             </CollapsibleTrigger>
             {isMultiSelectMode ? (
@@ -317,7 +319,7 @@ export function FileTreeNode({ node, depth = 0, browserMode = 'tree', onNavigate
             <span className={cn('h-4 w-4 shrink-0', isMobile ? 'pl-3' : 'pl-6')} />
           )}
           {getFileIcon()}
-          <span className="min-w-0 flex-1 truncate text-sm">{node.name}</span>
+          <span className="min-w-0 flex-1 truncate text-sm" title={node.name}>{displayName}</span>
           {isPublic && (
             <Globe2
               className="h-3.5 w-3.5 shrink-0 text-amber-600"

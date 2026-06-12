@@ -4,6 +4,7 @@ import { useState, useCallback, useRef } from 'react';
 import { useFileStore, type FileNode as FileNodeType } from '@/app/store/file-store';
 import { cn } from '@/lib/utils';
 import { getFileIconComponent } from '@/app/lib/files/file-icons';
+import { getFileDisplayName } from '@/app/lib/files/display-name';
 import { toPreviewUrl } from '@/app/lib/utils/media-url';
 import { Globe2, MoreVertical } from 'lucide-react';
 import { useTranslations } from 'next-intl';
@@ -47,6 +48,7 @@ export function FileGridItem({ node, onOpenFile, onOpenDirectory, size = 'sm' }:
   const isMultiSelected = multiSelectPaths.has(node.path);
   const isRowActive = isSelected || isMultiSelected;
   const isPublic = node.type === 'file' && node.publicShare?.status === 'active';
+  const displayName = getFileDisplayName(node);
   const publicShareUrl = node.publicShare && 'shortUrl' in node.publicShare && typeof node.publicShare.shortUrl === 'string'
     ? node.publicShare.shortUrl
     : node.publicShare?.publicUrl;
@@ -198,8 +200,8 @@ export function FileGridItem({ node, onOpenFile, onOpenDirectory, size = 'sm' }:
         <p className={cn(
           'truncate text-xs sm:text-sm leading-tight',
           isRowActive ? 'font-medium text-foreground' : 'text-foreground/90'
-        )}>
-          {node.name}
+        )} title={node.name}>
+          {displayName}
         </p>
         {!isDirectory && node.size !== undefined && (
           <p className="truncate text-[10px] text-muted-foreground/70">
