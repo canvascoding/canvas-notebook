@@ -735,7 +735,7 @@ function EmailMessageRowActions({
   return (
     <>
       <DropdownMenu modal={false}>
-        <div className="inline-flex overflow-hidden rounded-md border border-transparent bg-background/70 opacity-100 transition-opacity sm:opacity-0 sm:group-hover/message:opacity-100 sm:group-focus-within/message:opacity-100">
+        <div className="inline-flex overflow-hidden rounded-md border border-transparent bg-background/70 opacity-100 transition-opacity [@media(hover:hover)_and_(pointer:fine)]:opacity-0 [@media(hover:hover)_and_(pointer:fine)]:group-focus-within/message:opacity-100 [@media(hover:hover)_and_(pointer:fine)]:group-hover/message:opacity-100">
           <Button
             type="button"
             size="icon-sm"
