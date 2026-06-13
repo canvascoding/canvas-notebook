@@ -9,6 +9,20 @@ moduleInternals._load = (request, parent, isMain) => {
   if (request === 'server-only') {
     return {};
   }
+  if (request === '@earendil-works/pi-ai') {
+    return {
+      completeSimple: async () => {
+        throw new Error('pi-ai should not be called by the email MIME header test.');
+      },
+      getModels: () => [],
+      getProviders: () => [],
+      isContextOverflow: () => false,
+      registerBuiltInApiProviders: () => undefined,
+    };
+  }
+  if (request === '@earendil-works/pi-ai/oauth') {
+    return {};
+  }
   return originalLoad(request, parent, isMain);
 };
 

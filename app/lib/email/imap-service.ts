@@ -19,6 +19,7 @@ import {
   readStoredEmailAccountSecret,
   type StoredEmailAccount,
 } from '@/app/lib/email/account-store';
+import { isLikelyHtmlEmailContent, normalizeEmailHtmlContent } from '@/app/lib/email/html-content';
 import {
   assertEmailSenderAllowed,
   isEmailAddressAllowed,
@@ -471,7 +472,12 @@ async function snippetFromSource(source: Buffer | undefined): Promise<string> {
       skipTextToHtml: true,
       maxHtmlLengthToParse: 128 * 1024,
     });
-    const body = parsed.text || (typeof parsed.html === 'string' ? parsed.html.replace(/<[^>]+>/gu, ' ') : '');
+    const parsedHtml = typeof parsed.html === 'string'
+      ? normalizeEmailHtmlContent(parsed.html)
+      : isLikelyHtmlEmailContent(parsed.text) ? normalizeEmailHtmlContent(parsed.text) : '';
+    const body = parsed.text && !isLikelyHtmlEmailContent(parsed.text)
+      ? parsed.text
+      : parsedHtml.replace(/<[^>]+>/gu, ' ');
     return snippetFromText(body);
   } catch {
     return '';
@@ -633,7 +639,10 @@ export async function readImapEmailMessage(account: StoredEmailAccount, messageI
       skipTextToHtml: true,
       maxHtmlLengthToParse: 512 * 1024,
     }) : null;
-    const body = parsed?.text || (typeof parsed?.html === 'string' ? parsed.html : '');
+    const parsedHtml = typeof parsed?.html === 'string' ? normalizeEmailHtmlContent(parsed.html) : '';
+    const fallbackHtml = !parsedHtml && isLikelyHtmlEmailContent(parsed?.text) ? normalizeEmailHtmlContent(parsed?.text) : '';
+    const bodyHtml = parsedHtml || fallbackHtml;
+    const body = parsed?.text || bodyHtml;
     const flags = publicFlags(fetched.flags);
 
     return {
@@ -650,7 +659,7 @@ export async function readImapEmailMessage(account: StoredEmailAccount, messageI
       inReplyTo: parsed?.inReplyTo || '',
       references: normalizeReferences(parsed?.references),
       body,
-      bodyHtml: typeof parsed?.html === 'string' ? parsed.html : '',
+      bodyHtml,
       attachments: (parsed?.attachments || []).map((attachment, index) => ({
         index,
         filename: attachment.filename || `attachment-${index + 1}`,

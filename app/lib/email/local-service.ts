@@ -19,6 +19,7 @@ import {
   upsertOAuthEmailAccount,
   type StoredEmailAccount,
 } from '@/app/lib/email/account-store';
+import { isLikelyHtmlEmailContent, normalizeEmailHtmlContent } from '@/app/lib/email/html-content';
 import {
   draftEmailComposeWithAi,
   draftEmailReplyWithAi,
@@ -924,8 +925,15 @@ export async function readLocalEmailMessage(userId: string, accountId: string, m
     const headers = payload?.headers as Array<{ name?: string; value?: string }> | undefined;
     const from = gmailHeader(headers, 'From');
     if (enforceReadPolicy) assertSenderAllowed(account, from);
-    const bodyHtml = gmailBodyByMime(payload, 'text/html');
-    const bodyText = gmailBodyByMime(payload, 'text/plain') || (bodyHtml ? htmlToPlainText(bodyHtml) : gmailBodyText(payload));
+    const providerBodyHtml = normalizeEmailHtmlContent(gmailBodyByMime(payload, 'text/html'));
+    const providerBodyText = gmailBodyByMime(payload, 'text/plain');
+    const fallbackBodyHtml = !providerBodyHtml && isLikelyHtmlEmailContent(providerBodyText)
+      ? normalizeEmailHtmlContent(providerBodyText)
+      : '';
+    const bodyHtml = providerBodyHtml || fallbackBodyHtml;
+    const bodyText = fallbackBodyHtml
+      ? htmlToPlainText(fallbackBodyHtml)
+      : providerBodyText || (bodyHtml ? htmlToPlainText(bodyHtml) : gmailBodyText(payload));
     const labelIds = Array.isArray(raw.labelIds) ? raw.labelIds.map(String) : [];
     message = {
       id: String(raw.id || ''),
@@ -949,7 +957,8 @@ export async function readLocalEmailMessage(userId: string, accountId: string, m
     if (enforceReadPolicy) assertSenderAllowed(account, from);
     const body = raw.body as { content?: string; contentType?: string } | undefined;
     const bodyContent = String(body?.content || '');
-    const isHtml = String(body?.contentType || '').toLowerCase() === 'html';
+    const isHtml = String(body?.contentType || '').toLowerCase() === 'html' || isLikelyHtmlEmailContent(bodyContent);
+    const bodyHtml = isHtml ? normalizeEmailHtmlContent(bodyContent) : '';
     message = {
       id: String(raw.id || ''),
       threadId: String(raw.conversationId || ''),
@@ -961,8 +970,8 @@ export async function readLocalEmailMessage(userId: string, accountId: string, m
       messageId: String(raw.internetMessageId || ''),
       inReplyTo: '',
       references: [],
-      body: isHtml ? htmlToPlainText(bodyContent) : bodyContent,
-      bodyHtml: isHtml ? bodyContent : '',
+      body: isHtml ? htmlToPlainText(bodyHtml) : bodyContent,
+      bodyHtml,
       isRead: raw.isRead !== false,
       snippet: String(raw.bodyPreview || ''),
     };

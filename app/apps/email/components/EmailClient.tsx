@@ -33,6 +33,7 @@ import { useTranslations } from 'next-intl';
 
 import { useSetEmailChatContext } from '@/app/apps/email/context/email-chat-context';
 import { EmailAccountsCard } from '@/app/components/settings/IntegrationsSettingsClient';
+import { isLikelyHtmlEmailContent, normalizeEmailHtmlContent } from '@/app/lib/email/html-content';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -369,7 +370,7 @@ ${html}
 }
 
 function sanitizeEmailHtml(value: string, allowRemoteResources: boolean) {
-  const extractedStyles = extractEmailStyleBlocks(value, allowRemoteResources);
+  const extractedStyles = extractEmailStyleBlocks(normalizeEmailHtmlContent(value), allowRemoteResources);
   const sanitized = DOMPurify.sanitize(extractedStyles.html, EMAIL_HTML_SANITIZE_CONFIG);
   if (typeof document === 'undefined') return { blockedRemoteResources: false, html: sanitized };
 
@@ -432,6 +433,14 @@ function sanitizeEmailHtml(value: string, allowRemoteResources: boolean) {
   return { blockedRemoteResources, html: [extractedStyles.styleHtml, template.innerHTML].filter(Boolean).join('\n') };
 }
 
+function emailHtmlForPreview(bodyHtmlValue: string | undefined, bodyValue: string | undefined): string {
+  const bodyHtml = normalizeEmailHtmlContent(bodyHtmlValue);
+  if (bodyHtml) return bodyHtml;
+
+  const body = bodyValue || '';
+  return isLikelyHtmlEmailContent(body) ? normalizeEmailHtmlContent(body) : '';
+}
+
 function EmailMessageBody({
   allowRemoteResourcesByDefault,
   allowedRemoteResourceSenders,
@@ -450,7 +459,8 @@ function EmailMessageBody({
   emptyText: string;
 }) {
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
-  const messageKey = `${message.id}:${message.bodyHtml?.length || 0}`;
+  const htmlForPreview = useMemo(() => emailHtmlForPreview(message.bodyHtml, message.body), [message.body, message.bodyHtml]);
+  const messageKey = `${message.id}:${htmlForPreview.length}:${message.body?.length || 0}`;
   const senderEmail = extractEmailAddressForCompose(message.from);
   const [remoteResourceState, setRemoteResourceState] = useState({ allow: false, messageKey: '' });
   const [iframeLayout, setIframeLayout] = useState({ height: 360, messageKey: '' });
@@ -460,8 +470,8 @@ function EmailMessageBody({
     || (remoteResourceState.messageKey === messageKey && remoteResourceState.allow);
   const iframeHeight = iframeLayout.messageKey === messageKey ? iframeLayout.height : 360;
   const sanitized = useMemo(
-    () => message.bodyHtml ? sanitizeEmailHtml(message.bodyHtml, allowRemoteResources) : { blockedRemoteResources: false, html: '' },
-    [allowRemoteResources, message.bodyHtml],
+    () => htmlForPreview ? sanitizeEmailHtml(htmlForPreview, allowRemoteResources) : { blockedRemoteResources: false, html: '' },
+    [allowRemoteResources, htmlForPreview],
   );
   const srcDoc = useMemo(() => buildEmailPreviewDocument(sanitized.html), [sanitized.html]);
 
