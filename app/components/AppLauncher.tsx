@@ -96,7 +96,7 @@ function getQuickActions(
 
   if (app.id === 'studio') {
     return [
-      { label: tStudio('tabs.create'), href: '/studio/create' },
+      { label: tStudio('tabs.create'), href: '/studio' },
       { label: tStudio('tabs.models'), href: '/studio/models' },
       { label: tStudio('tabs.presets'), href: '/studio/presets' },
       { label: tStudio('tabs.bulk'), href: '/studio/bulk' },

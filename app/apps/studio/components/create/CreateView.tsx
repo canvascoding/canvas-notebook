@@ -1,10 +1,10 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { useTranslations } from 'next-intl';
-import { AlertTriangle, ExternalLink, FileVideo, ImageIcon, KeyRound, Sparkles } from 'lucide-react';
-import { Link } from '@/i18n/navigation';
+import { AlertTriangle, ChevronDown, ExternalLink, FileVideo, ImageIcon, KeyRound, Sparkles } from 'lucide-react';
+import { Link, useRouter } from '@/i18n/navigation';
 import { Button } from '@/components/ui/button';
 import { useStudioGeneration } from '../../hooks/useStudioGeneration';
 import { useStudioPersonas } from '../../hooks/useStudioPersonas';
@@ -34,27 +34,18 @@ import { EMPTY_STUDIO_PROVIDER_CONFIG, type StudioProviderConfig } from '../../t
 import { StudioMediaThumbnail } from '../StudioMediaThumbnail';
 
 const KIE_REFERRAL_URL = 'https://kie.ai?ref=3564e992e10640926d4f0b1620c3a79f';
+const INSPIRATION_OUTPUT_THRESHOLD = 8;
 
-const STARTING_POINTS = [
-  {
-    title: 'Hero product launch',
-    description: 'Clean catalog-style product visual with sharp lighting and premium detail.',
-  },
-  {
-    title: 'Lifestyle campaign moment',
-    description: 'Warm editorial scene with people, context, and brand atmosphere.',
-  },
-  {
-    title: 'Beauty close-up',
-    description: 'Skincare or cosmetics concept with luminous surfaces and elegant gradients.',
-  },
-  {
-    title: 'Short video concept',
-    description: 'Start from a still or text prompt and evolve it into a cinematic clip.',
-  },
-] as const;
+interface StartingPoint {
+  id: string;
+  title: string;
+  description: string;
+  category: string;
+  prompt: string;
+  presetId: string | null;
+}
 
-function EmptyState() {
+function EmptyState({ inspirationPanel }: { inspirationPanel?: ReactNode }) {
   const t = useTranslations('studio');
   return (
     <div className="flex min-h-full flex-col items-center justify-center px-4 py-10">
@@ -71,27 +62,69 @@ function EmptyState() {
           </p>
         </div>
 
-        <div className="w-full space-y-3">
-          <Badge variant="secondary" className="w-fit rounded-full px-3 py-1 text-xs uppercase tracking-[0.18em]">
-            {t('dashboard.startingPointsTitle')}
-          </Badge>
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-            {STARTING_POINTS.map((item) => (
-              <div
-                key={item.title}
-                className="group rounded-3xl border border-border/70 bg-card/80 p-5 shadow-sm transition-all hover:-translate-y-0.5 hover:border-primary/35 hover:shadow-md"
-              >
-                <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-2xl bg-primary/10 text-primary">
-                  <Sparkles className="h-5 w-5" />
-                </div>
-                <h3 className="mb-2 text-base font-semibold text-foreground">{item.title}</h3>
-                <p className="text-sm leading-6 text-muted-foreground">{item.description}</p>
-              </div>
-            ))}
-          </div>
-        </div>
+        {inspirationPanel}
       </div>
     </div>
+  );
+}
+
+function StartingPointsPanel({
+  collapsed,
+  onCollapsedChange,
+  onSelect,
+  startingPoints,
+}: {
+  collapsed: boolean;
+  onCollapsedChange: (collapsed: boolean) => void;
+  onSelect: (startingPoint: StartingPoint) => void;
+  startingPoints: StartingPoint[];
+}) {
+  const t = useTranslations('studio');
+
+  if (startingPoints.length === 0) {
+    return null;
+  }
+
+  return (
+    <section className="w-full rounded-3xl border border-border/70 bg-card/90 p-4 shadow-sm">
+      <button
+        type="button"
+        aria-expanded={!collapsed}
+        onClick={() => onCollapsedChange(!collapsed)}
+        className="flex w-full items-center gap-2 text-left"
+      >
+        <ChevronDown
+          className={`h-4 w-4 shrink-0 text-muted-foreground transition-transform ${collapsed ? '-rotate-90' : ''}`}
+        />
+        <Badge variant="secondary" className="rounded-full px-3 py-1 text-xs uppercase tracking-[0.18em]">
+          {t('dashboard.startingPointsTitle')}
+        </Badge>
+      </button>
+
+      {!collapsed ? (
+        <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          {startingPoints.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => onSelect(item)}
+              className="group rounded-2xl border border-border/70 bg-background/80 p-4 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-primary/35 hover:shadow-md"
+            >
+              <div className="mb-3 flex items-center gap-2">
+                <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                  <Sparkles className="h-4 w-4" />
+                </span>
+                <span className="rounded-full border border-border px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+                  {item.category}
+                </span>
+              </div>
+              <h3 className="mb-1.5 text-sm font-semibold text-foreground">{item.title}</h3>
+              <p className="line-clamp-2 text-xs leading-5 text-muted-foreground">{item.description}</p>
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </section>
   );
 }
 
@@ -273,6 +306,8 @@ export function CreateView({ initialProviderConfig = EMPTY_STUDIO_PROVIDER_CONFI
   const isMountedRef = useRef(false);
   const [promptOverlayHeight, setPromptOverlayHeight] = useState(220);
   const [providerConfig, setProviderConfig] = useState<StudioProviderConfig>(initialProviderConfig);
+  const [startingPoints, setStartingPoints] = useState<StartingPoint[]>([]);
+  const [startingPointsLoading, setStartingPointsLoading] = useState(true);
 
   const openPicker = (target: 'start' | 'end' | 'references', maxSelection = 1) => {
     setPicker({ open: true, target, maxSelection });
@@ -302,7 +337,7 @@ export function CreateView({ initialProviderConfig = EMPTY_STUDIO_PROVIDER_CONFI
   useEffect(() => {
     if (resolvedSelectedGeneration && resolvedSelectedOutput) {
       setChatContext({
-        currentPage: '/studio/create',
+        currentPage: '/studio',
         studioContext: {
           generationId: resolvedSelectedGeneration.id,
           currentOutputId: resolvedSelectedOutput.id,
@@ -317,7 +352,7 @@ export function CreateView({ initialProviderConfig = EMPTY_STUDIO_PROVIDER_CONFI
       return;
     }
 
-    setChatContext({ currentPage: '/studio/create' });
+    setChatContext({ currentPage: '/studio' });
   }, [resolvedSelectedGeneration, resolvedSelectedOutput, setChatContext]);
 
   const handleToggleOutputSelect = (outputId: string, selected: boolean) => {
@@ -338,6 +373,17 @@ export function CreateView({ initialProviderConfig = EMPTY_STUDIO_PROVIDER_CONFI
     setSelectionEnabled(true);
     setShowSaveDialog(true);
   };
+
+  const handleStartingPointSelect = useCallback((startingPoint: StartingPoint) => {
+    store.setRawPrompt(startingPoint.prompt);
+    if (startingPoint.presetId) {
+      const preset = presets.find((item) => item.id === startingPoint.presetId);
+      if (preset) {
+        store.setPresetRef(preset);
+      }
+    }
+    store.setInspirationCollapsed(true);
+  }, [presets, store]);
 
   const findOutputPair = useCallback((outputId: string): { generationId: string; outputId: string } | null => {
     for (const gen of generations) {
@@ -512,6 +558,31 @@ export function CreateView({ initialProviderConfig = EMPTY_STUDIO_PROVIDER_CONFI
   useEffect(() => {
     let cancelled = false;
 
+    async function fetchStartingPoints() {
+      try {
+        const response = await fetch('/api/studio/starting-points', { credentials: 'include' });
+        const payload = await response.json();
+        if (!cancelled && response.ok && payload.success && Array.isArray(payload.startingPoints)) {
+          setStartingPoints(payload.startingPoints as StartingPoint[]);
+        }
+      } catch {
+        // The studio remains fully usable without inspiration data.
+      } finally {
+        if (!cancelled) {
+          setStartingPointsLoading(false);
+        }
+      }
+    }
+
+    void fetchStartingPoints();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
     async function fetchProviderConfig() {
       try {
         const response = await fetch('/api/studio/config', { credentials: 'include' });
@@ -611,6 +682,36 @@ export function CreateView({ initialProviderConfig = EMPTY_STUDIO_PROVIDER_CONFI
   const canGenerateWithProvider = canGenerate && missingProviderRequirement === null;
 
   const isInitialGenerationLoad = generationHook.loading && generations.length === 0;
+  const completedOutputCount = useMemo(
+    () => generations.reduce(
+      (count, generation) => count + generation.outputs.filter((output) => Boolean(output.mediaUrl)).length,
+      0,
+    ),
+    [generations],
+  );
+  const hasStudioActivity = useMemo(
+    () => generations.some((generation) => (
+      generation.outputs.length > 0 ||
+      generation.status === 'pending' ||
+      generation.status === 'generating' ||
+      generation.status === 'failed'
+    )),
+    [generations],
+  );
+  const shouldShowInspiration = (
+    !startingPointsLoading &&
+    completedOutputCount < INSPIRATION_OUTPUT_THRESHOLD &&
+    mediaFilter === 'all' &&
+    dateFilter === 'all'
+  );
+  const inspirationPanel = shouldShowInspiration ? (
+    <StartingPointsPanel
+      collapsed={store.inspirationCollapsed}
+      onCollapsedChange={store.setInspirationCollapsed}
+      onSelect={handleStartingPointSelect}
+      startingPoints={startingPoints}
+    />
+  ) : null;
 
   const handleGenerate = async () => {
     if (missingProviderRequirement) return;
@@ -633,7 +734,7 @@ export function CreateView({ initialProviderConfig = EMPTY_STUDIO_PROVIDER_CONFI
       try {
         const result = await generate(request.payload);
         if (result && isMountedRef.current) {
-          router.replace(`/studio/create?generation=${encodeURIComponent(result.id)}`);
+          router.replace(`/studio?generation=${encodeURIComponent(result.id)}`);
         }
       } finally {
         clearGenerateRequest(request.id);
@@ -701,11 +802,16 @@ export function CreateView({ initialProviderConfig = EMPTY_STUDIO_PROVIDER_CONFI
               onFavoriteSelected={handleBatchFavorite}
               onDownloadSelected={handleBatchDownload}
             />
+            {hasStudioActivity && inspirationPanel ? (
+              <div className="p-3 pb-0">
+                {inspirationPanel}
+              </div>
+            ) : null}
             <OutputGrid
               generations={generations}
               initialLoading={isInitialGenerationLoad}
               recentlyCompletedIds={recentlyCompletedIds}
-              emptyState={<EmptyState />}
+              emptyState={<EmptyState inspirationPanel={inspirationPanel} />}
               mediaFilter={mediaFilter}
               dateFilter={dateFilter}
               sortOrder={sortOrder}

@@ -199,7 +199,7 @@ export function FileActionsDropdown({
       ref: node.path,
       refSource: 'workspace',
     });
-    const url = `/${locale}/studio/create?${params.toString()}`;
+    const url = `/${locale}/studio?${params.toString()}`;
     window.open(url, '_blank');
   };
 

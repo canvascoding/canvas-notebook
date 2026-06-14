@@ -1,28 +1,34 @@
-import { Suspense } from 'react';
 import { requirePageSession } from '@/app/lib/auth-guards';
-import { CreateView } from '@/app/apps/studio/components/create/CreateView';
+import { redirect } from '@/i18n/navigation';
+import { getLocale } from 'next-intl/server';
 
-function StudioCreateFallback() {
-  return (
-    <div className="flex h-full min-h-[520px] items-center justify-center p-6">
-      <div className="grid w-full max-w-5xl grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
-        {Array.from({ length: 10 }, (_, index) => (
-          <div
-            key={index}
-            className="aspect-square animate-pulse rounded-2xl border border-border/70 bg-muted"
-          />
-        ))}
-      </div>
-    </div>
-  );
+type StudioCreatePageProps = {
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+};
+
+function buildSearchString(searchParams: Record<string, string | string[] | undefined>) {
+  const params = new URLSearchParams();
+
+  for (const [key, value] of Object.entries(searchParams)) {
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        params.append(key, item);
+      }
+    } else if (value !== undefined) {
+      params.set(key, value);
+    }
+  }
+
+  const query = params.toString();
+  return query ? `?${query}` : '';
 }
 
-export default async function StudioCreatePage() {
+export default async function StudioCreatePage({ searchParams }: StudioCreatePageProps) {
   await requirePageSession();
+  const [locale, resolvedSearchParams] = await Promise.all([
+    getLocale(),
+    searchParams ?? Promise.resolve({}),
+  ]);
 
-  return (
-    <Suspense fallback={<StudioCreateFallback />}>
-      <CreateView />
-    </Suspense>
-  );
+  redirect({ href: `/studio${buildSearchString(resolvedSearchParams)}`, locale });
 }
