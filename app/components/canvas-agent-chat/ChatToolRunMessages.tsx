@@ -228,7 +228,7 @@ export function ToolCallPill({
   );
 
   const detailsPanel = (
-    <>
+    <div data-testid="chat-tool-body" className="flex min-h-0 flex-1 flex-col">
       <div className="shrink-0 border-b border-border/70 px-3 py-2">
         <div className="flex items-center justify-between gap-3">
           <div className="min-w-0">
@@ -315,7 +315,7 @@ export function ToolCallPill({
           </div>
         </div>
       </div>
-    </>
+    </div>
   );
 
   return (

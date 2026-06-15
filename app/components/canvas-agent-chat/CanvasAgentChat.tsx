@@ -2,8 +2,6 @@
 
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import type { AgentMessage } from '@earendil-works/pi-agent-core';
-import { createThinkingFilterState, filterThinkingChunk, flushThinkingFilter } from '@/app/lib/pi/thinking-filter';
-import type { ThinkingFilterState } from '@/app/lib/pi/thinking-filter';
 import { useTranslations } from 'next-intl';
 import {
   Loader2,
@@ -40,6 +38,10 @@ import { ChatRuntimeActivityBadge } from '@/app/components/canvas-agent-chat/Cha
 import { AttachmentPreviewDialog } from '@/app/components/canvas-agent-chat/AttachmentPreviewDialog';
 import { deriveUploadAttachmentPreview } from '@/app/lib/chat/attachment-preview';
 import { useChatComposerLayout } from '@/app/components/canvas-agent-chat/useChatComposerLayout';
+import {
+  countPiMessageImageAttachments,
+  getQueuedSignatureFromPiMessage,
+} from '@/app/components/canvas-agent-chat/chatRuntimeMessageUtils';
 import { useChatScrollController } from '@/app/components/canvas-agent-chat/useChatScrollController';
 import {
   dedupeAttachments,
@@ -52,17 +54,11 @@ import {
   getChatMessageRole,
   getPiMessageContent,
   isAbortedAssistantPiMessage,
-  isImagePart,
   isRecord,
   isToolCallPart,
-  normalizeMessageStart,
   truncatePreview,
 } from '@/app/lib/chat/message-content';
 import type { RuntimeStatus } from '@/app/lib/chat/runtime-status';
-import {
-  getHistoryRuntimeActiveToolName,
-  getHistoryRuntimePhase,
-} from '@/app/lib/chat/runtime-message-utils';
 import { areChatMessageListsEquivalent } from '@/app/lib/chat/message-equivalence';
 import {
   buildCachedChatSessionEntry,
@@ -97,13 +93,13 @@ import { fetchChatAgentConfig, fetchChatAgents } from '@/app/lib/chat/agent-api'
 import { getAgentDisplayName } from '@/app/lib/chat/agent-display';
 import { useChatAttachments } from '@/app/components/canvas-agent-chat/useChatAttachments';
 import { useChatComposerDraft } from '@/app/components/canvas-agent-chat/useChatComposerDraft';
+import { useChatRuntimeEvents } from '@/app/components/canvas-agent-chat/useChatRuntimeEvents';
 import { useComposerReferences } from '@/app/components/canvas-agent-chat/useComposerReferences';
 import type {
   AgentConfig,
   AgentProfile,
   AISession,
   Attachment,
-  ChatEvent,
   ChatHistoryAgentOption,
   ChatHistoryGroup,
   ChatHistoryGroups,
@@ -249,15 +245,6 @@ function parseInitialPromptPayload(storedData: string): InitialPromptPayload | n
   }
 }
 
-function isLiveMessageInProgress(message: ChatMessage): boolean {
-  return Boolean(message.optimistic) ||
-    message.status === 'pending' ||
-    message.status === 'sending' ||
-    message.status === 'aborting' ||
-    message.status === 'queued_follow_up' ||
-    message.status === 'queued_steering';
-}
-
 function resolveAttachmentCategory(attachment: Attachment): string {
   const category = attachment.category || (attachment.contentKind === 'image' ? 'image' : 'document');
   return category;
@@ -340,52 +327,7 @@ function getOptimisticSessionTitle(candidate: string | null | undefined, fallbac
     return fallbackTitle;
   }
 
-  return trimmed.slice(0, 50);
-}
-
-function buildQueuedMessageKey(text: string, attachmentCount: number): string {
-  return `${text.trim()}::${attachmentCount}`;
-}
-
-function getAgentMessageTimestamp(message?: AgentMessage | null): number | null {
-  const timestamp = (message as { timestamp?: unknown } | null | undefined)?.timestamp;
-  return typeof timestamp === 'number' ? timestamp : null;
-}
-
-function countPiMessageImageAttachments(message?: AgentMessage | null): number {
-  const content = getPiMessageContent(message);
-  if (!Array.isArray(content)) {
-    return 0;
-  }
-
-  return content.filter(isImagePart).length;
-}
-
-function getQueuedSignatureFromPiMessage(message?: AgentMessage | null): string | null {
-  const timestamp = getAgentMessageTimestamp(message);
-  if (timestamp === null || !message || message.role !== 'user') {
-    return null;
-  }
-
-  return `${timestamp}:${extractPiMessageText(message)}:${countPiMessageImageAttachments(message)}`;
-}
-
-function takeQueueMatch(counts: Map<string, number>, key: string | null): boolean {
-  if (!key) {
-    return false;
-  }
-
-  const count = counts.get(key) || 0;
-  if (count <= 0) {
-    return false;
-  }
-
-  counts.set(key, count - 1);
-  return true;
-}
-
-function getVisibleUserMessageKey(message: AgentMessage | null | undefined, fallbackContent: string): string {
-  return buildQueuedMessageKey(fallbackContent, countPiMessageImageAttachments(message));
+  return trimmed.slice(0, 48);
 }
 
 function formatContextTokens(value: number): string {
@@ -492,7 +434,6 @@ export default function CanvasAgentChat({
   const [isAgentConfigLoading, setIsAgentConfigLoading] = useState(true);
   const [availableAgents, setAvailableAgents] = useState<AgentProfile[]>([]);
   const [selectedAgentId, setSelectedAgentId] = useState(CHAT_AGENT_ID);
-  const [runtimeStatus, setRuntimeStatus] = useState<RuntimeStatus | null>(null);
   const [hasUnreadInCurrentSession, setHasUnreadInCurrentSession] = useState(false);
   const [showUnreadBanner, setShowUnreadBanner] = useState(false);
   const [totalUnreadCount, setTotalUnreadCount] = useState(0);
@@ -566,19 +507,9 @@ export default function CanvasAgentChat({
   const initialPromptConsumedRef = useRef(false);
   const requestedSessionCleanupRef = useRef<string | null>(null);
   const optimisticSessionTitlesRef = useRef<Record<string, string>>({});
-  const toolMessageIdsRef = useRef<Record<string, string>>({});
-  const currentAssistantIdRef = useRef<string | null>(null);
-  const streamingContentRef = useRef<string>('');
-  const lastFlushedStreamingContentRef = useRef<string>('');
-  const streamingRafRef = useRef<number | null>(null);
-  const thinkingFilterRef = useRef<ThinkingFilterState>(createThinkingFilterState());
-  const thinkingContentRef = useRef<string>('');
-  const runtimeStatusRef = useRef<RuntimeStatus | null>(null);
   const sessionAgentIdRef = useRef<string>(CHAT_AGENT_ID);
   const surfaceVisibleRef = useRef(isSurfaceVisible);
-  const lastCompactionMarkerRef = useRef<string | null>(null);
   const userStartedNewChatRef = useRef(false);
-  const messagesRef = useRef<ChatMessage[]>([]);
   const refreshSavedMessagesRef = useRef<((sessionId: string) => void) | null>(null);
   const deferredSavedMessageRefreshSessionRef = useRef<string | null>(null);
   const subscribedSessionAckRef = useRef<string | null>(null);
@@ -590,6 +521,37 @@ export default function CanvasAgentChat({
   const cachePersistTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hasLoadedSessionListRef = useRef(false);
   const historyRef = useRef<AISession[]>([]);
+  const {
+    appendCompactionBreak,
+    appendOptimisticUserMessage,
+    appendSystemMessage,
+    clearCurrentAssistant,
+    createAssistantBubble,
+    hasLiveMessagesInProgress,
+    hydrateRuntimeMessageRefs,
+    messagesRef,
+    requestSavedMessageRefresh,
+    resetRuntimeMessageRefs,
+    resetStreamConnection,
+    runtimeStatus,
+    runtimeStatusRef,
+    setLastCompactionMarker,
+    setOptimisticRuntimePhase,
+    setRuntimeStatus,
+    setRuntimeStatusWithReconciliation,
+    toggleToolMessage,
+  } = useChatRuntimeEvents({
+    deferredSavedMessageRefreshSessionRef,
+    refreshSavedMessagesRef,
+    historyRef,
+    isAtBottomRef,
+    messages,
+    scrollToBottom,
+    sessionIdRef,
+    setHistory,
+    setMessages,
+    t,
+  });
   const {
     navigateInputHistory,
     resetInputHistoryNavigation,
@@ -617,11 +579,6 @@ export default function CanvasAgentChat({
     setInput,
     textareaRef,
   });
-
-  // Sync messagesRef with messages state
-  useEffect(() => {
-    messagesRef.current = messages;
-  }, [messages]);
 
   useEffect(() => {
     historyRef.current = history;
@@ -681,32 +638,6 @@ export default function CanvasAgentChat({
       persistChatSessionCache();
     }, 300);
   }, [activeModel, activeProvider, activeThinkingLevel, hasMoreBefore, messages, oldestMessageId, oldestSequence, oldestTimestamp, selectedAgentId, sessionId, sessionTitle]);
-
-  useEffect(() => {
-    runtimeStatusRef.current = runtimeStatus;
-  }, [runtimeStatus]);
-
-  const hasLiveMessagesInProgress = useCallback(() => {
-    const status = runtimeStatusRef.current;
-    if (status && status.phase !== 'idle') {
-      return true;
-    }
-    return messagesRef.current.some(isLiveMessageInProgress);
-  }, []);
-
-  const requestSavedMessageRefresh = useCallback((targetSessionId: string) => {
-    if (sessionIdRef.current !== targetSessionId) {
-      return;
-    }
-
-    const refreshSavedMessages = refreshSavedMessagesRef.current;
-    if (!refreshSavedMessages || hasLiveMessagesInProgress()) {
-      deferredSavedMessageRefreshSessionRef.current = targetSessionId;
-      return;
-    }
-
-    refreshSavedMessages(targetSessionId);
-  }, [hasLiveMessagesInProgress]);
 
   useEffect(() => {
     const targetSessionId = deferredSavedMessageRefreshSessionRef.current;
@@ -1017,268 +948,6 @@ export default function CanvasAgentChat({
     return 'older';
   }, []);
 
-  const resetStreamConnection = useCallback(() => {
-    currentAssistantIdRef.current = null;
-    if (streamingRafRef.current !== null) {
-      cancelAnimationFrame(streamingRafRef.current);
-      streamingRafRef.current = null;
-    }
-    streamingContentRef.current = '';
-    thinkingFilterRef.current = createThinkingFilterState();
-    thinkingContentRef.current = '';
-  }, []);
-
-  const reconcileQueuedMessages = useCallback((status: RuntimeStatus) => {
-    setMessages((prev) => {
-      const followSignatureCounts = new Map<string, number>();
-      const steerSignatureCounts = new Map<string, number>();
-      const followFallbackCounts = new Map<string, number>();
-      const steerFallbackCounts = new Map<string, number>();
-
-      for (const entry of status.followUpQueue) {
-        if (entry.signature) {
-          followSignatureCounts.set(entry.signature, (followSignatureCounts.get(entry.signature) || 0) + 1);
-        } else {
-          const key = buildQueuedMessageKey(entry.text, entry.attachmentCount);
-          followFallbackCounts.set(key, (followFallbackCounts.get(key) || 0) + 1);
-        }
-      }
-
-      for (const entry of status.steeringQueue) {
-        if (entry.signature) {
-          steerSignatureCounts.set(entry.signature, (steerSignatureCounts.get(entry.signature) || 0) + 1);
-        } else {
-          const key = buildQueuedMessageKey(entry.text, entry.attachmentCount);
-          steerFallbackCounts.set(key, (steerFallbackCounts.get(key) || 0) + 1);
-        }
-      }
-
-      return prev.map((message) => {
-        if (message.role !== 'user') {
-          return message;
-        }
-
-        const signature = getQueuedSignatureFromPiMessage(message.piMessage);
-        if (takeQueueMatch(followSignatureCounts, signature)) {
-          return { ...message, status: 'queued_follow_up', queueKind: 'follow_up' };
-        }
-
-        if (takeQueueMatch(steerSignatureCounts, signature)) {
-          return { ...message, status: 'queued_steering', queueKind: 'steer' };
-        }
-
-        const canUseFallbackMatch = message.status === 'queued_follow_up' || message.status === 'queued_steering' || Boolean(message.queueKind);
-        if (canUseFallbackMatch) {
-          const key = buildQueuedMessageKey(message.content, countPiMessageImageAttachments(message.piMessage));
-          if (takeQueueMatch(followFallbackCounts, key)) {
-            return { ...message, status: 'queued_follow_up', queueKind: 'follow_up' };
-          }
-          if (takeQueueMatch(steerFallbackCounts, key)) {
-            return { ...message, status: 'queued_steering', queueKind: 'steer' };
-          }
-        }
-
-        if (message.status === 'queued_follow_up' || message.status === 'queued_steering' || message.status === 'pending' || message.status === 'aborting') {
-          return { ...message, status: 'sent', queueKind: undefined };
-        }
-
-        return message;
-      });
-    });
-  }, []);
-
-  const applyRuntimeStatusToHistory = useCallback((status: RuntimeStatus) => {
-    const runtimePhase = getHistoryRuntimePhase(status);
-    const runtimeActiveToolName = getHistoryRuntimeActiveToolName(status);
-
-    setHistory((prev) => {
-      let changed = false;
-      const next = prev.map((session) => {
-        if (session.sessionId !== status.sessionId) {
-          return session;
-        }
-
-        if (
-          session.runtimePhase === runtimePhase &&
-          session.runtimeActiveToolName === runtimeActiveToolName
-        ) {
-          return session;
-        }
-
-        changed = true;
-        return {
-          ...session,
-          runtimePhase,
-          runtimeActiveToolName,
-        };
-      });
-
-      if (changed) {
-        historyRef.current = next;
-        return next;
-      }
-
-      return prev;
-    });
-  }, []);
-
-  const setRuntimeStatusWithReconciliation = useCallback((status: RuntimeStatus) => {
-    setRuntimeStatus(status);
-    applyRuntimeStatusToHistory(status);
-    reconcileQueuedMessages(status);
-  }, [applyRuntimeStatusToHistory, reconcileQueuedMessages]);
-
-  const setOptimisticRuntimePhase = useCallback((phase: RuntimeStatus['phase'], sessionIdOverride?: string | null) => {
-    setRuntimeStatus((current) => {
-      const sessionId = sessionIdOverride || current?.sessionId || sessionIdRef.current || 'pending-session';
-      const baseStatus: RuntimeStatus = current || {
-        sessionId,
-        phase: 'idle',
-        activeTool: null,
-        pendingToolCalls: 0,
-        followUpQueue: [],
-        steeringQueue: [],
-        canAbort: false,
-        contextWindow: 0,
-        estimatedHistoryTokens: 0,
-        availableHistoryTokens: 0,
-        contextUsagePercent: 0,
-        includedSummary: false,
-        omittedMessageCount: 0,
-        summaryUpdatedAt: null,
-        lastCompactionAt: null,
-        lastCompactionKind: null,
-        lastCompactionOmittedCount: 0,
-      };
-
-      const nextStatus: RuntimeStatus = {
-        ...baseStatus,
-        sessionId,
-        phase,
-        activeTool: phase === 'running_tool' ? baseStatus.activeTool : null,
-        pendingToolCalls: phase === 'idle' ? 0 : baseStatus.pendingToolCalls,
-        canAbort: phase !== 'idle',
-      };
-
-      runtimeStatusRef.current = nextStatus;
-      return nextStatus;
-    });
-  }, []);
-
-  const appendSystemMessage = useCallback((content: string) => {
-    setMessages((prev) => [
-      ...prev,
-      {
-        id: `${Date.now()}-system`,
-        role: 'system',
-        content,
-        status: 'error',
-        type: 'system',
-      },
-    ]);
-  }, []);
-
-  const appendCompactionBreak = useCallback((kind: 'manual' | 'automatic', timestamp: string, omittedMessageCount: number) => {
-    if (lastCompactionMarkerRef.current === timestamp) {
-      return;
-    }
-
-    lastCompactionMarkerRef.current = timestamp;
-    setMessages((prev) => [
-      ...prev,
-      {
-        id: `compact-${timestamp}`,
-        role: 'system',
-        content: kind === 'manual' ? t('compactManual') : t('compactAutomatic'),
-        type: 'compact_break',
-        status: 'sent',
-        compactMeta: {
-          kind,
-          timestamp,
-          omittedMessageCount,
-        },
-      },
-    ]);
-  }, [t]);
-
-  const toggleToolMessage = useCallback((messageId: string) => {
-    setMessages((prev) =>
-      prev.map((message) => (
-        message.id === messageId && message.role === 'toolResult'
-          ? { ...message, isCollapsed: !message.isCollapsed, autoCollapsedAtEnd: false }
-          : message
-      )),
-    );
-  }, []);
-
-  const upsertToolMessage = useCallback((params: {
-    assistantMessageId?: string | null;
-    content?: string;
-    status?: ChatMessage['status'];
-    toolCallId?: string;
-    toolName?: string;
-    toolArgs?: string;
-    piMessage?: AgentMessage;
-    type?: ChatMessage['type'];
-    attachments?: Attachment[];
-  }) => {
-    const { assistantMessageId, toolCallId, toolName, toolArgs, content, status, piMessage, type, attachments } = params;
-    const knownMessageId = toolCallId ? toolMessageIdsRef.current[toolCallId] : undefined;
-    const messageId = knownMessageId || `tool-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-
-    if (toolCallId && !knownMessageId) {
-      toolMessageIdsRef.current[toolCallId] = messageId;
-    }
-
-    setMessages((prev) => {
-      const index = prev.findIndex((message) => message.id === messageId);
-      const assistantIndex = assistantMessageId ? prev.findIndex((message) => message.id === assistantMessageId) : -1;
-      const nextMessage: ChatMessage = {
-        id: messageId,
-        role: 'toolResult',
-        content: content || '',
-        status: status || 'sent',
-        toolCallId,
-        toolName,
-        toolArgs,
-        piMessage,
-        attachments,
-        type: type || 'tool_result',
-        isCollapsed: status === 'sent',
-        autoCollapsedAtEnd: status === 'sent',
-        previewText: truncatePreview(content || ''),
-      };
-
-      if (index === -1) {
-        if (assistantIndex === -1) {
-          return [...prev, nextMessage];
-        }
-
-        const nextMessages = [...prev];
-        nextMessages.splice(assistantIndex, 0, nextMessage);
-        return nextMessages;
-      }
-
-      const mergedMessage: ChatMessage = {
-        ...prev[index],
-        ...nextMessage,
-        content: content ?? prev[index].content,
-        toolArgs: toolArgs ?? prev[index].toolArgs,
-        toolName: toolName ?? prev[index].toolName,
-        piMessage: piMessage ?? prev[index].piMessage,
-        attachments: attachments ?? prev[index].attachments,
-        type: type || prev[index].type,
-        isCollapsed: status === 'sent' ? true : (status === 'sending' ? false : prev[index].isCollapsed),
-        autoCollapsedAtEnd: status === 'sent' ? true : prev[index].autoCollapsedAtEnd,
-        previewText: truncatePreview(content ?? prev[index].content),
-      };
-
-      const nextMessages = [...prev];
-      nextMessages[index] = mergedMessage;
-      return nextMessages;
-    });
-  }, []);
-
   const refreshRuntimeStatus = useCallback(async (targetSessionId: string) => {
     try {
       await ensureSessionSubscribed(targetSessionId);
@@ -1377,387 +1046,6 @@ export default function CanvasAgentChat({
     return nextSessionId;
   }, [activeModel, activeProvider, activeThinkingLevel, agentConfig, input, selectedAgentId, t]);
 
-  // Helper to sync PI message to chat
-  const syncPiMessage = useCallback((id: string, piMessage: AgentMessage) => {
-    setMessages((prev) =>
-      prev.map((message) => {
-        if (message.id !== id) return message;
-        const nextContent = extractPiMessageText(piMessage);
-        const isAssistantAbort = isAbortedAssistantPiMessage(piMessage);
-        const isAssistantError = piMessage.role === 'assistant' && piMessage.stopReason === 'error';
-        return {
-          ...message,
-          content: nextContent || (isAssistantAbort ? t('runStopped') : message.content),
-          status: isAssistantError ? 'error' : 'sent',
-          type: isAssistantError ? 'system' : message.type,
-          piMessage,
-        };
-      }),
-    );
-  }, [setMessages, t]);
-
-  // Helper to find existing message by PI message (to prevent duplicates when loading from DB + receiving stream events)
-  const findExistingMessageByPiMessage = useCallback((message?: AgentMessage): string | null => {
-    if (!message) return null;
-    
-    // Use PI message timestamp as unique identifier
-    const piTimestamp = (message as { timestamp?: number }).timestamp;
-    if (!piTimestamp) return null;
-    
-    // Check current messages for one with matching PI timestamp
-    const existingId = messagesRef.current.find(
-      (m: ChatMessage) => m.role === 'assistant' && m.piMessage && (m.piMessage as { timestamp?: number }).timestamp === piTimestamp
-    )?.id;
-    
-    return existingId || null;
-  }, []);
-
-  // Helper to create assistant message bubble
-  const createAssistantBubble = useCallback((message?: AgentMessage) => {
-    // Check if message already exists (e.g., loaded from DB)
-    const existingId = findExistingMessageByPiMessage(message);
-    if (existingId) {
-      // Message already exists, use existing ID and don't create duplicate
-      currentAssistantIdRef.current = existingId;
-      return existingId;
-    }
-
-    const activeAssistantId = currentAssistantIdRef.current;
-    if (activeAssistantId) {
-      setMessages((prev) => prev.map((chatMessage) => {
-        if (chatMessage.id !== activeAssistantId || chatMessage.role !== 'assistant') {
-          return chatMessage;
-        }
-
-        const nextContent = extractPiMessageText(message);
-        return {
-          ...chatMessage,
-          content: nextContent || chatMessage.content,
-          status: 'sending',
-          piMessage: message || chatMessage.piMessage,
-        };
-      }));
-      return activeAssistantId;
-    }
-    
-    const assistantId = `assistant-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    currentAssistantIdRef.current = assistantId;
-    setMessages((prev) => [
-      ...prev,
-      {
-        id: assistantId,
-        role: 'assistant',
-        content: extractPiMessageText(message),
-        status: 'sending',
-        piMessage: message,
-      },
-    ]);
-    return assistantId;
-  }, [setMessages, findExistingMessageByPiMessage]);
-
-  const upsertUserMessageFromPiMessage = useCallback((piMessage: Extract<AgentMessage, { role: 'user' }>) => {
-    const timestamp = getAgentMessageTimestamp(piMessage);
-    const signature = getQueuedSignatureFromPiMessage(piMessage);
-    const content = extractPiMessageText(piMessage, { hideAttachmentMetadata: true });
-    const rawContent = getPiMessageContent(piMessage);
-    const messageAttachments = extractMessageAttachments(rawContent);
-    const visibleMessageKey = getVisibleUserMessageKey(piMessage, content);
-
-    setMessages((prev) => {
-      let existingIndex = prev.findIndex((message) => {
-        if (message.role !== 'user') {
-          return false;
-        }
-
-        const existingTimestamp = getAgentMessageTimestamp(message.piMessage);
-        if (timestamp !== null && existingTimestamp === timestamp) {
-          return true;
-        }
-
-        return Boolean(signature && getQueuedSignatureFromPiMessage(message.piMessage) === signature);
-      });
-
-      if (existingIndex === -1) {
-        const activeAssistantId = currentAssistantIdRef.current;
-        for (let index = prev.length - 1; index >= 0; index -= 1) {
-          const message = prev[index];
-          if (message.role !== 'user' || !message.optimistic) {
-            continue;
-          }
-
-          const existingKey = getVisibleUserMessageKey(message.piMessage, message.content);
-          if (existingKey !== visibleMessageKey) {
-            continue;
-          }
-
-          const existingTimestamp = getAgentMessageTimestamp(message.piMessage);
-          const timestampsAreClose =
-            timestamp !== null &&
-            existingTimestamp !== null &&
-            Math.abs(timestamp - existingTimestamp) < 15000;
-          const pendingLocalTurn =
-            message.status === 'pending' ||
-            message.status === 'queued_steering' ||
-            message.status === 'aborting';
-          const activeAssistantAfterMessage =
-            timestamp === null &&
-            Boolean(activeAssistantId && prev.slice(index + 1).some((candidate) => candidate.id === activeAssistantId));
-
-          if (timestampsAreClose || pendingLocalTurn || activeAssistantAfterMessage) {
-            existingIndex = index;
-            break;
-          }
-        }
-      }
-
-      if (existingIndex !== -1) {
-        const nextMessages = [...prev];
-        const existingMessage = nextMessages[existingIndex];
-        nextMessages[existingIndex] = {
-          ...existingMessage,
-          content: content || existingMessage.content,
-          status: 'sent',
-          attachments: messageAttachments || existingMessage.attachments,
-          piMessage,
-          queueKind: undefined,
-          optimistic: false,
-        };
-        return nextMessages;
-      }
-
-      return [
-        ...prev,
-        {
-          id: `user-${timestamp ?? Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-          role: 'user',
-          content,
-          status: 'sent',
-          attachments: messageAttachments,
-          piMessage,
-          optimistic: false,
-        },
-      ];
-    });
-
-    if (isAtBottomRef.current) {
-      requestAnimationFrame(() => scrollToBottom('auto'));
-    }
-  }, [isAtBottomRef, scrollToBottom]);
-
-
-
-  const handleStreamEvent = useCallback((event: ChatEvent) => {
-    if (event.type === 'runtime_status' && event.status) {
-      setRuntimeStatusWithReconciliation(event.status);
-      return;
-    }
-
-    if (event.type === 'context_compacted' && event.timestamp && event.kind) {
-      appendCompactionBreak(event.kind, event.timestamp, event.omittedMessageCount || 0);
-      return;
-    }
-
-    if (event.type === 'message_saved') {
-      const currentSessionId = sessionIdRef.current;
-      if (!currentSessionId) return;
-      requestSavedMessageRefresh(currentSessionId);
-      return;
-    }
-
-    if (event.type === 'message_start' && event.message?.role === 'user') {
-      upsertUserMessageFromPiMessage(event.message);
-      return;
-    }
-
-    if (event.type === 'message_start' && event.message?.role === 'assistant') {
-      streamingContentRef.current = '';
-      lastFlushedStreamingContentRef.current = '';
-      thinkingFilterRef.current = createThinkingFilterState();
-      thinkingContentRef.current = '';
-      createAssistantBubble(event.message);
-      return;
-    }
-
-    if (event.type === 'agent_end') {
-      setMessages((prev) => prev.map((message) => (
-        message.optimistic ? { ...message, optimistic: false } : message
-      )));
-      return;
-    }
-
-    if (event.type === 'message_update') {
-      const assistantId = currentAssistantIdRef.current || createAssistantBubble(event.message);
-      const eventType = event.assistantMessageEvent?.type;
-
-      if (eventType === 'thinking_start' || eventType === 'thinking_delta') {
-        const delta = event.assistantMessageEvent?.delta || '';
-        if (delta) {
-          thinkingContentRef.current += delta;
-        }
-        return;
-      }
-
-      if (eventType === 'thinking_end') {
-        const content = event.assistantMessageEvent?.content;
-        if (typeof content === 'string' && content) {
-          thinkingContentRef.current += content;
-        }
-        return;
-      }
-
-      if (eventType === 'text_delta') {
-        const rawDelta = event.assistantMessageEvent?.delta || '';
-        const filtered = filterThinkingChunk(rawDelta, thinkingFilterRef.current);
-        thinkingFilterRef.current = filtered.state;
-        if (filtered.thinking) {
-          thinkingContentRef.current += filtered.thinking;
-        }
-        const displayDelta = filtered.text;
-        if (displayDelta) {
-          streamingContentRef.current += displayDelta;
-        }
-        if (streamingRafRef.current === null) {
-          const flush = () => {
-            const content = normalizeMessageStart(streamingContentRef.current);
-            if (content !== lastFlushedStreamingContentRef.current) {
-              lastFlushedStreamingContentRef.current = content;
-              setMessages((prev) =>
-                prev.map((msg) =>
-                  msg.id === assistantId
-                    ? { ...msg, content, status: 'sending' as const }
-                    : msg
-                )
-              );
-              if (isAtBottomRef.current) {
-                scrollToBottom('auto');
-              }
-            }
-            streamingRafRef.current = requestAnimationFrame(flush);
-          };
-          streamingRafRef.current = requestAnimationFrame(flush);
-        }
-      }
-      return;
-    }
-
-    if (event.type === 'message_end' && event.message?.role === 'assistant') {
-      // Stop the RAF loop and do one final authoritative sync from the PI message object.
-      if (streamingRafRef.current !== null) {
-        cancelAnimationFrame(streamingRafRef.current);
-        streamingRafRef.current = null;
-      }
-
-      const flushed = flushThinkingFilter(thinkingFilterRef.current);
-      if (flushed.text) {
-        streamingContentRef.current += flushed.text;
-      }
-      if (flushed.thinking) {
-        thinkingContentRef.current += flushed.thinking;
-      }
-      thinkingFilterRef.current = createThinkingFilterState();
-
-      streamingContentRef.current = '';
-      lastFlushedStreamingContentRef.current = '';
-      const assistantId = currentAssistantIdRef.current || createAssistantBubble(event.message);
-      syncPiMessage(assistantId, event.message);
-      currentAssistantIdRef.current = null;
-      
-      return;
-    }
-
-    if (event.type === 'tool_execution_start') {
-      upsertToolMessage({
-        assistantMessageId: currentAssistantIdRef.current,
-        toolCallId: event.toolCallId,
-        toolName: event.toolName || t('tool'),
-        toolArgs: formatToolArgs(event.args),
-        status: 'sending',
-        type: 'tool_use',
-      });
-      return;
-    }
-
-    if (event.type === 'tool_execution_update') {
-      upsertToolMessage({
-        assistantMessageId: currentAssistantIdRef.current,
-        toolCallId: event.toolCallId,
-        toolName: event.toolName || t('tool'),
-        content: extractToolResultText(event.partialResult?.content),
-        status: 'sending',
-        type: 'tool_use',
-      });
-      return;
-    }
-
-    if (event.type === 'tool_execution_end') {
-      const text = extractToolResultText(event.result?.content);
-      const resultDetails = event.result?.details;
-      const toolResultPiMessage = {
-        role: 'toolResult',
-        toolCallId: event.toolCallId,
-        toolName: event.toolName || t('tool'),
-        content: text ? [{ type: 'text', text }] : [],
-        details: resultDetails,
-        isError: false,
-        timestamp: Date.now(),
-      } as AgentMessage;
-      const resultAttachments = dedupeAttachments([
-        ...extractImageAttachments(event.result?.content),
-        ...extractToolResultImageAttachments(toolResultPiMessage),
-      ]);
-      upsertToolMessage({
-        assistantMessageId: currentAssistantIdRef.current,
-        toolCallId: event.toolCallId,
-        toolName: event.toolName || t('tool'),
-        content: text,
-        status: 'sent',
-        type: 'tool_result',
-        piMessage: toolResultPiMessage,
-        attachments: resultAttachments.length > 0 ? resultAttachments : undefined,
-      });
-      return;
-    }
-
-    if (event.type === 'tool_result') {
-      const { toolCallId, text } = event;
-      upsertToolMessage({
-        toolCallId,
-        status: 'sent',
-        type: 'tool_result',
-        piMessage: {
-          role: 'toolResult',
-          content: text ? [{ type: 'text', text }] : [],
-          timestamp: Date.now(),
-        } as AgentMessage,
-      });
-      return;
-    }
-
-    if (event.type === 'error') {
-      appendSystemMessage(t('errorMessage', { message: event.error || t('unknownError') }));
-      return;
-    }
-
-    // Note: event types 'message', 'message_delta', and 'messages' are no longer produced
-    // by LivePiRuntime. The live runtime uses message_start / message_update / message_end.
-  }, [appendCompactionBreak, appendSystemMessage, createAssistantBubble, isAtBottomRef, requestSavedMessageRefresh, scrollToBottom, setMessages, setRuntimeStatusWithReconciliation, syncPiMessage, t, upsertToolMessage, upsertUserMessageFromPiMessage]);
-
-  // Listen for WebSocket agent events (from current tab, other tabs, or background runs).
-  useEffect(() => {
-    const handleAgentEvent = (event: CustomEvent<{ sessionId: string; event: ChatEvent }>) => {
-      const { sessionId: eventSessionId, event: agentEvent } = event.detail;
-
-      if (eventSessionId !== sessionIdRef.current) return;
-
-      handleStreamEvent(agentEvent);
-    };
-    
-    window.addEventListener('agent_event', handleAgentEvent as EventListener);
-    return () => {
-      window.removeEventListener('agent_event', handleAgentEvent as EventListener);
-    };
-  }, [handleStreamEvent]);
-
   const postControl = useCallback(async (
     targetSessionId: string,
     action: 'follow_up' | 'steer' | 'promote_queued_to_steer' | 'remove_queued_item' | 'abort' | 'replace' | 'compact',
@@ -1778,30 +1066,6 @@ export default function CanvasAgentChat({
 
     return null;
   }, [setRuntimeStatusWithReconciliation, wsRequest]);
-
-  const appendOptimisticUserMessage = useCallback((
-    text: string,
-    messageAttachments: Attachment[],
-    status: ChatMessage['status'],
-    queueKind?: ChatMessage['queueKind'],
-    piMessage?: Extract<AgentMessage, { role: 'user' }>,
-  ) => {
-    const id = `user-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    setMessages((prev) => [
-      ...prev,
-      {
-        id,
-        role: 'user',
-        content: text,
-        status,
-        attachments: messageAttachments,
-        piMessage,
-        queueKind,
-        optimistic: true,
-      },
-    ]);
-    return id;
-  }, []);
 
   const scanForImageReferences = useCallback(async (): Promise<Attachment[]> => {
     // This function is disabled for now - it would need a different approach
@@ -1909,15 +1173,13 @@ export default function CanvasAgentChat({
       }
       if (optimisticAssistantId) {
         setMessages((prev) => prev.filter((message) => message.id !== optimisticAssistantId));
-        if (currentAssistantIdRef.current === optimisticAssistantId) {
-          currentAssistantIdRef.current = null;
-        }
+        clearCurrentAssistant(optimisticAssistantId);
       }
       throw error;
     }
 
     return;
-  }, [activeModel, agentConfig, appendOptimisticUserMessage, attachments, buildRequestContext, createAssistantBubble, currentFile, ensureSession, ensureSessionSubscribed, input, isUploading, postControl, resetInputHistoryNavigation, runtimePhase, selectedAgentId, showHistory, isMobile, setAttachments, setOptimisticRuntimePhase, setRuntimeStatusWithReconciliation, shouldShowHistoryAsOverlay, scanForImageReferences, t, wsRequest]);
+  }, [activeModel, agentConfig, appendOptimisticUserMessage, attachments, buildRequestContext, clearCurrentAssistant, createAssistantBubble, currentFile, ensureSession, ensureSessionSubscribed, input, isUploading, postControl, resetInputHistoryNavigation, runtimePhase, selectedAgentId, showHistory, isMobile, setAttachments, setOptimisticRuntimePhase, setRuntimeStatusWithReconciliation, shouldShowHistoryAsOverlay, scanForImageReferences, t, wsRequest]);
 
   const handleSend = useCallback(async () => {
     try {
@@ -2026,7 +1288,7 @@ export default function CanvasAgentChat({
     setAttachments([]);
     sessionIdRef.current = null;
     sessionAgentIdRef.current = nextAgentId;
-    lastCompactionMarkerRef.current = null;
+    resetRuntimeMessageRefs();
     userStartedNewChatRef.current = true;
     // Clear persisted session so reopening chat doesn't restore this session
     if (typeof window !== 'undefined') {
@@ -2052,8 +1314,7 @@ export default function CanvasAgentChat({
     setActiveProvider(providerState.provider);
     setActiveModel(providerState.model);
     setActiveThinkingLevel(providerState.thinkingLevel);
-    toolMessageIdsRef.current = {};
-  }, [agentConfig, input, resetInputHistoryNavigation, resetStreamConnection, selectedAgentId, isMobile, setAttachments, shouldShowHistoryAsOverlay]);
+  }, [agentConfig, input, resetInputHistoryNavigation, resetRuntimeMessageRefs, resetStreamConnection, selectedAgentId, isMobile, setAttachments, setRuntimeStatus, shouldShowHistoryAsOverlay]);
 
   const selectChatAgent = useCallback((agentId: string) => {
     if (agentId === selectedAgentId && !sessionIdRef.current) {
@@ -2168,29 +1429,6 @@ export default function CanvasAgentChat({
       .map((rawMessage) => mapRawMessage(rawMessage, toolCallsById));
   }, [mapRawMessage]);
 
-  const hydrateMessageRefsFromMessages = useCallback((nextMessages: ChatMessage[]) => {
-    const nextToolMessageIds: Record<string, string> = {};
-    let nextAssistantId: string | null = null;
-    let nextCompactionMarker: string | null = null;
-
-    for (const message of nextMessages) {
-      if (message.toolCallId) {
-        nextToolMessageIds[message.toolCallId] = message.id;
-      }
-      if (message.role === 'assistant' && message.status === 'sending') {
-        nextAssistantId = message.id;
-      }
-      if (message.compactMeta?.timestamp) {
-        nextCompactionMarker = message.compactMeta.timestamp;
-      }
-    }
-
-    toolMessageIdsRef.current = nextToolMessageIds;
-    currentAssistantIdRef.current = nextAssistantId;
-    lastCompactionMarkerRef.current = nextCompactionMarker;
-    messagesRef.current = nextMessages;
-  }, []);
-
   const refreshSavedMessages = useCallback((targetSessionId: string) => {
     const requestAgentId = sessionAgentIdRef.current || selectedAgentId;
 
@@ -2215,7 +1453,7 @@ export default function CanvasAgentChat({
         const nextMessages = mapRawMessages(payload.messages);
         if (!areChatMessageListsEquivalent(messagesRef.current, nextMessages)) {
           setMessages(nextMessages);
-          hydrateMessageRefsFromMessages(nextMessages);
+          hydrateRuntimeMessageRefs(nextMessages);
         }
         setHasMoreBefore(typeof payload.hasMoreBefore === 'boolean' ? payload.hasMoreBefore : payload.messages.length >= 50);
         setOldestTimestamp(payload.oldestTimestamp ?? null);
@@ -2228,7 +1466,7 @@ export default function CanvasAgentChat({
         console.error('Failed to refresh messages after saved chat response', error);
       }
     })();
-  }, [hydrateMessageRefsFromMessages, isAtBottomRef, mapRawMessages, scrollToBottom, selectedAgentId]);
+  }, [hydrateRuntimeMessageRefs, isAtBottomRef, mapRawMessages, messagesRef, scrollToBottom, selectedAgentId]);
 
   useEffect(() => {
     refreshSavedMessagesRef.current = refreshSavedMessages;
@@ -2253,7 +1491,7 @@ export default function CanvasAgentChat({
     setSessionTitle(resolveSessionTitle(session.sessionId, session.title));
     sessionIdRef.current = session.sessionId;
     sessionAgentIdRef.current = sessionAgentId;
-    lastCompactionMarkerRef.current = null;
+    resetRuntimeMessageRefs();
     userStartedNewChatRef.current = false;
     const sessionDraft = loadComposerDraft(session.sessionId);
     setInput(sessionDraft ?? '');
@@ -2273,14 +1511,13 @@ export default function CanvasAgentChat({
     setIsLoadingOlder(false);
     setExpandedRunKeys(new Set());
     setRuntimeStatus(null);
-    toolMessageIdsRef.current = {};
 
     const cachedEntry = readCachedChatSession(sessionAgentId, session.sessionId) || readLatestCachedChatSession(session.sessionId);
     const hasCachedMessages = Boolean(cachedEntry && isCacheableMessageSet(cachedEntry.messages));
 
     if (cachedEntry && hasCachedMessages) {
       setMessages(cachedEntry.messages);
-      hydrateMessageRefsFromMessages(cachedEntry.messages);
+      hydrateRuntimeMessageRefs(cachedEntry.messages);
       setHasMoreBefore(cachedEntry.hasMoreBefore);
       setOldestTimestamp(cachedEntry.oldestTimestamp);
       setOldestMessageId(cachedEntry.oldestMessageId);
@@ -2289,7 +1526,7 @@ export default function CanvasAgentChat({
         scrollToBottom('auto');
       });
     } else {
-      hydrateMessageRefsFromMessages([]);
+      hydrateRuntimeMessageRefs([]);
       setMessages([{ id: 'system', role: 'system', content: 'Loading...', status: 'pending', type: 'system' }]);
     }
 
@@ -2356,7 +1593,7 @@ export default function CanvasAgentChat({
           (!hasCachedMessages || !cachedEntry || !areChatMessageListsEquivalent(cachedEntry.messages, nextMessages))
         ) {
           setMessages(nextMessages);
-          hydrateMessageRefsFromMessages(nextMessages);
+          hydrateRuntimeMessageRefs(nextMessages);
         }
         if (typeof messagesPayload.hasMoreBefore === 'boolean') {
           setHasMoreBefore(messagesPayload.hasMoreBefore);
@@ -2411,7 +1648,7 @@ export default function CanvasAgentChat({
 
         if (statusPayload?.success && statusPayload.status) {
           setRuntimeStatusWithReconciliation(statusPayload.status as RuntimeStatus);
-          lastCompactionMarkerRef.current = (statusPayload.status as RuntimeStatus).lastCompactionAt || null;
+          setLastCompactionMarker((statusPayload.status as RuntimeStatus).lastCompactionAt);
         } else {
           setRuntimeStatus(null);
         }
@@ -2433,7 +1670,7 @@ export default function CanvasAgentChat({
         loadSessionAbortRef.current = null;
       }
     }
-  }, [agentConfig, ensureSessionSubscribed, hydrateMessageRefsFromMessages, mapRawMessages, resetStreamConnection, resolveSessionTitle, scrollToBottom, setRuntimeStatusWithReconciliation, t, isMobile, shouldShowHistoryAsOverlay, wsRequest]);
+  }, [agentConfig, ensureSessionSubscribed, hydrateRuntimeMessageRefs, mapRawMessages, resetRuntimeMessageRefs, resetStreamConnection, resolveSessionTitle, scrollToBottom, setLastCompactionMarker, setRuntimeStatus, setRuntimeStatusWithReconciliation, t, isMobile, shouldShowHistoryAsOverlay, wsRequest]);
 
   const loadOlderMessages = useCallback(async () => {
     const currentSessionId = sessionIdRef.current;
@@ -2594,7 +1831,7 @@ export default function CanvasAgentChat({
       e.preventDefault();
       void handleSend();
     }
-  }, [activeReferenceMatch, closeReferencePicker, handleReferenceSelect, handleSend, handleStop, isWebSocketUnavailable, navigateInputHistory, referencePickerItems, selectNextReference, selectedReferenceIndex, selectPreviousReference, togglePlanningMode]);
+  }, [activeReferenceMatch, closeReferencePicker, handleReferenceSelect, handleSend, handleStop, isWebSocketUnavailable, navigateInputHistory, referencePickerItems, runtimeStatusRef, selectNextReference, selectedReferenceIndex, selectPreviousReference, togglePlanningMode]);
 
   useEffect(() => {
     let cancelled = false;
@@ -3268,7 +2505,7 @@ export default function CanvasAgentChat({
                   {/* Session Badge */}
                   <div
                     data-testid="chat-session-id"
-                    title={sessionDisplayLabel}
+                    title={sessionId || t('newChatTitle')}
                     className="inline-flex h-8 min-w-0 max-w-[min(18rem,100%)] items-center gap-1.5 rounded-md border border-border/60 bg-muted/50 px-2 text-[11px] font-medium text-foreground"
                   >
                     <span className="text-[9px] uppercase tracking-[0.15em] text-muted-foreground">{t('sessionLabel')}</span>

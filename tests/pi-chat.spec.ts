@@ -70,6 +70,7 @@ async function startFreshChat(page: Page) {
 async function mockEmptyChatBootstrap(page: Page, options: { sessionId?: string; title?: string } = {}) {
   const mockSessionId = options.sessionId || `sess-mock-${Date.now()}`;
   const mockTitle = options.title || 'New session';
+  let mockSession: Record<string, unknown> | null = null;
 
   await page.route('**/api/agents/config**', async (route) => {
     await route.fulfill({
@@ -106,27 +107,56 @@ async function mockEmptyChatBootstrap(page: Page, options: { sessionId?: string;
       } catch {
         payload = {};
       }
+      mockSession = {
+        id: 1,
+        sessionId: mockSessionId,
+        title: payload.title || mockTitle,
+        agentId: payload.agentId || 'canvas-agent',
+        model: payload.model || 'gpt-4o',
+        provider: 'openai',
+        thinkingLevel: payload.thinkingLevel || null,
+        createdAt,
+        engine: 'pi',
+        lastMessageAt: createdAt,
+        lastViewedAt: createdAt,
+        hasUnread: false,
+        creator: null,
+      };
 
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify({
           success: true,
-          session: {
-            id: 1,
-            sessionId: mockSessionId,
-            title: payload.title || mockTitle,
-            agentId: payload.agentId || 'canvas-agent',
-            model: payload.model || 'gpt-4o',
-            provider: 'openai',
-            thinkingLevel: payload.thinkingLevel || null,
-            createdAt,
-            engine: 'pi',
-            lastMessageAt: null,
-            lastViewedAt: createdAt,
-            hasUnread: false,
-            creator: null,
-          },
+          session: mockSession,
+        }),
+      });
+      return;
+    }
+
+    if (method === 'PATCH') {
+      let payload: { title?: string } = {};
+      try {
+        payload = request.postDataJSON() as typeof payload;
+      } catch {
+        payload = {};
+      }
+
+      if (mockSession && payload.title) {
+        mockSession = {
+          ...mockSession,
+          title: payload.title,
+          lastMessageAt: new Date().toISOString(),
+        };
+      }
+
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: true,
+          session: mockSession,
+          sessions: mockSession ? [mockSession] : [],
         }),
       });
       return;
@@ -142,7 +172,7 @@ async function mockEmptyChatBootstrap(page: Page, options: { sessionId?: string;
       contentType: 'application/json',
       body: JSON.stringify({
         success: true,
-        sessions: [],
+        sessions: mockSession ? [mockSession] : [],
       }),
     });
   });
@@ -464,10 +494,43 @@ contentKind: document
   });
 
   test('should bootstrap a session, show the session id, and derive a history title', async ({ page }) => {
+    const sessionId = `sess-bootstrap-${Date.now()}`;
+    const prompt = `Session title smoke ${Date.now()} should become the visible history title after the first streamed reply finishes.`;
+
+    await mockEmptyChatBootstrap(page, { sessionId });
+    await setupMockWebSocket(page, {
+      sessionId,
+      agentEvents: [
+        {
+          type: 'agent_end',
+          messages: [
+            {
+              role: 'user',
+              content: prompt,
+              timestamp: Date.now(),
+            },
+            {
+              role: 'assistant',
+              content: [{ type: 'text', text: 'Done.' }],
+              api: 'mock',
+              provider: 'mock',
+              model: 'mock-model',
+              usage: EMPTY_USAGE,
+              stopReason: 'stop',
+              timestamp: Date.now() + 1,
+            },
+          ],
+        },
+        {
+          type: 'runtime_status',
+          status: createMockRuntimeStatus(sessionId, { phase: 'idle' }),
+        },
+      ],
+    });
+
     await page.goto('/chat');
     await startFreshChat(page);
 
-    const prompt = `Session title smoke ${Date.now()} should become the visible history title after the first streamed reply finishes.`;
     const input = page.getByTestId('chat-input');
 
     await input.fill(prompt);
@@ -502,7 +565,7 @@ contentKind: document
     expect((resolvedSession?.title || '').length).toBeLessThanOrEqual(48);
 
     await page.locator('button').filter({ has: page.locator('.lucide-history') }).first().click();
-    await expect(page.getByText('Sessions', { exact: true })).toBeVisible();
+    await expect(page.getByText('Chat History', { exact: true })).toBeVisible();
     await expect(page.getByRole('button', { name: /session title smoke/i }).first()).toBeVisible();
   });
 
@@ -1895,9 +1958,10 @@ contentKind: document
     });
 
     await page.goto('/chat');
+    await page.getByRole('link', { name: /Open latest session Stopped runtime session/i }).click();
 
     await expect(page.getByTestId('chat-queue-panel')).toContainText('Continue after stop', { timeout: 15000 });
-    await expect(page.getByTestId('chat-runtime-status')).toContainText('1 in Queue');
+    await expect(page.getByTestId('chat-runtime-status')).toContainText('1 queued');
 
     await page.getByTestId('chat-queue-item').filter({ hasText: 'Continue after stop' }).first().getByTestId('chat-queue-item-steer').click();
 
@@ -2296,13 +2360,14 @@ contentKind: document
     });
 
     await page.goto('/chat');
+    await page.getByRole('link', { name: /Open latest session Compact session/i }).click();
 
     await expect(page.getByTestId('chat-compact')).toBeEnabled({ timeout: 15000 });
     await page.getByTestId('chat-compact').click();
 
     const breakMarker = page.getByTestId('chat-compaction-break');
     await expect(breakMarker).toBeVisible();
-    await expect(breakMarker).toContainText('Canvas context compaction');
+    await expect(breakMarker).toContainText('Canvas context compacted');
     await expect(breakMarker).toContainText('6');
   });
 
