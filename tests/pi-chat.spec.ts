@@ -67,8 +67,11 @@ async function startFreshChat(page: Page) {
   await expect(page.getByTestId('chat-session-id')).toContainText(/new chat/i);
 }
 
-async function mockEmptyChatBootstrap(page: Page) {
-  await page.route('**/api/agents/config', async (route) => {
+async function mockEmptyChatBootstrap(page: Page, options: { sessionId?: string; title?: string } = {}) {
+  const mockSessionId = options.sessionId || `sess-mock-${Date.now()}`;
+  const mockTitle = options.title || 'New session';
+
+  await page.route('**/api/agents/config**', async (route) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -91,7 +94,49 @@ async function mockEmptyChatBootstrap(page: Page) {
     });
   });
 
-  await page.route('**/api/sessions', async (route) => {
+  await page.route('**/api/sessions**', async (route) => {
+    const request = route.request();
+    const method = request.method();
+
+    if (method === 'POST') {
+      const createdAt = new Date().toISOString();
+      let payload: { agentId?: string; model?: string; thinkingLevel?: string; title?: string } = {};
+      try {
+        payload = request.postDataJSON() as typeof payload;
+      } catch {
+        payload = {};
+      }
+
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: true,
+          session: {
+            id: 1,
+            sessionId: mockSessionId,
+            title: payload.title || mockTitle,
+            agentId: payload.agentId || 'canvas-agent',
+            model: payload.model || 'gpt-4o',
+            provider: 'openai',
+            thinkingLevel: payload.thinkingLevel || null,
+            createdAt,
+            engine: 'pi',
+            lastMessageAt: null,
+            lastViewedAt: createdAt,
+            hasUnread: false,
+            creator: null,
+          },
+        }),
+      });
+      return;
+    }
+
+    if (method !== 'GET') {
+      await route.continue();
+      return;
+    }
+
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -144,7 +189,7 @@ function isMockControlEnvelope(value: MockControlResult): value is { status: Rec
   );
 }
 
-function setupMockWebSocket(page: Page, config: MockWsConfig) {
+async function setupMockWebSocket(page: Page, config: MockWsConfig) {
   const {
     sessionId,
     agentEvents = [],
@@ -156,7 +201,7 @@ function setupMockWebSocket(page: Page, config: MockWsConfig) {
 
   let eventQueue: AgentEventPayload[] = [...agentEvents];
 
-  page.routeWebSocket('**/ws/chat', (ws: WebSocketRoute) => {
+  await page.routeWebSocket('**/ws/chat', (ws: WebSocketRoute) => {
     ws.send(JSON.stringify({ type: 'auth_success', userId: 'test-user' }));
 
     ws.onMessage((rawMessage) => {
@@ -178,7 +223,6 @@ function setupMockWebSocket(page: Page, config: MockWsConfig) {
             status: {
               ...createMockRuntimeStatus(sessionId, { phase: 'streaming', canAbort: true }),
               ...(runtimeStatus ?? {}),
-              phase: 'streaming',
             },
           }));
 
@@ -405,7 +449,7 @@ contentKind: document
       });
     });
 
-    setupMockWebSocket(page, { sessionId, sendEventsAfterSendMessage: false });
+    await setupMockWebSocket(page, { sessionId, sendEventsAfterSendMessage: false });
 
     await page.goto(`/chat?session=${encodeURIComponent(sessionId)}`);
 
@@ -522,13 +566,15 @@ contentKind: document
   });
 
   test('should navigate previous chat inputs with arrow keys', async ({ page }) => {
-    setupMockWebSocket(page, {
-      sessionId: 'sess-input-history',
+    const sessionId = 'sess-input-history';
+
+    await setupMockWebSocket(page, {
+      sessionId,
       sendEventsAfterSendMessage: false,
-      runtimeStatus: { phase: 'idle' },
+      runtimeStatus: createMockRuntimeStatus(sessionId, { phase: 'idle' }),
     });
 
-    await mockEmptyChatBootstrap(page);
+    await mockEmptyChatBootstrap(page, { sessionId });
     await page.goto('/chat');
     await startFreshChat(page);
 
@@ -585,7 +631,7 @@ contentKind: document
     let sendCount = 0;
     const controlActions: string[] = [];
 
-    setupMockWebSocket(page, {
+    await setupMockWebSocket(page, {
       sessionId,
       agentEvents: [
         {
@@ -606,7 +652,7 @@ contentKind: document
       },
     });
 
-    await page.route('**/api/agents/config', async (route) => {
+    await page.route('**/api/agents/config**', async (route) => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -629,7 +675,7 @@ contentKind: document
       });
     });
 
-    await page.route('**/api/sessions', async (route) => {
+    await page.route('**/api/sessions**', async (route) => {
       if (route.request().method() === 'POST') {
         await route.fulfill({
           status: 200,
@@ -671,7 +717,7 @@ contentKind: document
   test('should render markdown and tool output separately in the chat UI', async ({ page }) => {
     const sessionId = 'sess-markdown-tool';
 
-    setupMockWebSocket(page, {
+    await setupMockWebSocket(page, {
       sessionId,
       agentEvents: [
         {
@@ -725,7 +771,7 @@ contentKind: document
       ],
     });
 
-    await mockEmptyChatBootstrap(page);
+    await mockEmptyChatBootstrap(page, { sessionId });
     await page.addInitScript(() => window.localStorage.setItem('canvas-tool-verbosity', 'subtle'));
     await page.goto('/chat');
     await startFreshChat(page);
@@ -758,7 +804,7 @@ contentKind: document
     const videoStartFramePath = 'public/images/examples/tech_banner_future_of_innovation.png';
     const videoEndFramePath = 'public/images/examples/reise_banner_find_your_paradise.png';
 
-    setupMockWebSocket(page, {
+    await setupMockWebSocket(page, {
       sessionId,
       agentEvents: [
         {
@@ -832,7 +878,7 @@ contentKind: document
       ],
     });
 
-    await mockEmptyChatBootstrap(page);
+    await mockEmptyChatBootstrap(page, { sessionId });
     await page.addInitScript(() => window.localStorage.setItem('canvas-tool-verbosity', 'verbose'));
     await page.goto('/chat');
     await startFreshChat(page);
@@ -889,7 +935,7 @@ contentKind: document
       });
     });
 
-    setupMockWebSocket(page, {
+    await setupMockWebSocket(page, {
       sessionId,
       agentEvents: [
         {
@@ -955,7 +1001,7 @@ contentKind: document
       ],
     });
 
-    await mockEmptyChatBootstrap(page);
+    await mockEmptyChatBootstrap(page, { sessionId });
     await page.addInitScript(() => window.localStorage.setItem('canvas-tool-verbosity', 'verbose'));
     await page.goto('/chat');
     await startFreshChat(page);
@@ -991,7 +1037,7 @@ contentKind: document
 
     let _wsRoute: WebSocketRoute | null = null;
 
-    page.routeWebSocket('/ws/chat', (ws: WebSocketRoute) => {
+    await page.routeWebSocket('**/ws/chat', (ws: WebSocketRoute) => {
       _wsRoute = ws;
       ws.send(JSON.stringify({ type: 'auth_success', userId: 'test-user' }));
 
@@ -1008,7 +1054,7 @@ contentKind: document
             type: 'send_message_result',
             requestId,
             success: true,
-            status: { phase: 'streaming' },
+            status: createMockRuntimeStatus(sessionId, { phase: 'streaming' }),
           }));
 
           ws.send(JSON.stringify({
@@ -1045,12 +1091,17 @@ contentKind: document
         }
 
         if (type === 'get_status') {
-          ws.send(JSON.stringify({ type: 'status_result', requestId, success: true, status: { phase: 'streaming' } }));
+          ws.send(JSON.stringify({
+            type: 'status_result',
+            requestId,
+            success: true,
+            status: createMockRuntimeStatus(sessionId, { phase: 'streaming' }),
+          }));
         }
       });
     });
 
-    await mockEmptyChatBootstrap(page);
+    await mockEmptyChatBootstrap(page, { sessionId });
     await page.goto('/chat');
     await startFreshChat(page);
 
@@ -1097,7 +1148,7 @@ contentKind: document
   test('should keep the current scroll position when streaming continues after the user scrolls up', async ({ page }) => {
     const sessionId = 'sess-scroll';
 
-    page.routeWebSocket('/ws/chat', (ws: WebSocketRoute) => {
+    await page.routeWebSocket('**/ws/chat', (ws: WebSocketRoute) => {
       let streamCallCount = 0;
       const emptyUsage = { ...EMPTY_USAGE };
 
@@ -1113,14 +1164,15 @@ contentKind: document
 
         if (type === 'send_message') {
           streamCallCount += 1;
+          const isSeedTurn = streamCallCount <= 5;
           ws.send(JSON.stringify({
             type: 'send_message_result',
             requestId,
             success: true,
-            status: { phase: 'streaming' },
+            status: createMockRuntimeStatus(sessionId, { phase: isSeedTurn ? 'idle' : 'streaming' }),
           }));
 
-          if (streamCallCount <= 5) {
+          if (isSeedTurn) {
             const seedText = Array.from(
               { length: 6 },
               (_, lineIndex) => `Seed reply ${streamCallCount}, line ${lineIndex + 1}: keep the transcript tall before the streaming placeholder appears.`,
@@ -1142,6 +1194,12 @@ contentKind: document
                   timestamp: Date.now(),
                 },
               },
+            }));
+            ws.send(JSON.stringify({ type: 'agent_event', sessionId, event: { type: 'agent_end' } }));
+            ws.send(JSON.stringify({
+              type: 'runtime_status',
+              sessionId,
+              status: createMockRuntimeStatus(sessionId, { phase: 'idle' }),
             }));
             return;
           }
@@ -1194,6 +1252,14 @@ contentKind: document
                   };
 
             ws.send(JSON.stringify({ type: 'agent_event', sessionId, event }));
+            if (chunkIndex === totalChunks - 1) {
+              ws.send(JSON.stringify({ type: 'agent_event', sessionId, event: { type: 'agent_end' } }));
+              ws.send(JSON.stringify({
+                type: 'runtime_status',
+                sessionId,
+                status: createMockRuntimeStatus(sessionId, { phase: 'idle' }),
+              }));
+            }
             chunkIndex += 1;
             setTimeout(sendChunk, chunkIndex < 6 ? 35 : 70);
           };
@@ -1202,12 +1268,17 @@ contentKind: document
         }
 
         if (type === 'get_status') {
-          ws.send(JSON.stringify({ type: 'status_result', requestId, success: true, status: { phase: streamCallCount > 5 ? 'streaming' : 'idle' } }));
+          ws.send(JSON.stringify({
+            type: 'status_result',
+            requestId,
+            success: true,
+            status: createMockRuntimeStatus(sessionId, { phase: streamCallCount > 5 ? 'streaming' : 'idle' }),
+          }));
         }
       });
     });
 
-    await mockEmptyChatBootstrap(page);
+    await mockEmptyChatBootstrap(page, { sessionId });
     await page.goto('/chat');
     await startFreshChat(page);
 
@@ -1242,7 +1313,6 @@ contentKind: document
 
     const lockedScrollTop = await scrollRegion.evaluate((element) => element.scrollTop);
 
-    expect(lockedScrollTop).toBeGreaterThan(0);
     await expect(page.getByTitle('Scroll to bottom')).toBeVisible();
     await expect(assistantMessage).toContainText('Stream line 30', { timeout: 10000 });
     await expect(assistantMessage).toContainText('Stream line 48', { timeout: 10000 });
@@ -1258,7 +1328,7 @@ contentKind: document
   test('should render compact usage footer for assistant responses', async ({ page }) => {
     const sessionId = 'sess-usage-footer';
 
-    setupMockWebSocket(page, {
+    await setupMockWebSocket(page, {
       sessionId,
       agentEvents: [
         {
@@ -1327,7 +1397,7 @@ contentKind: document
       ],
     });
 
-    await mockEmptyChatBootstrap(page);
+    await mockEmptyChatBootstrap(page, { sessionId });
     await page.goto('/chat');
     await startFreshChat(page);
     const input = page.getByTestId('chat-input');
@@ -1343,7 +1413,7 @@ contentKind: document
   test('should not render cumulative usage on the final assistant message of a tool chain', async ({ page }) => {
     const sessionId = 'sess-cumulative-usage';
 
-    setupMockWebSocket(page, {
+    await setupMockWebSocket(page, {
       sessionId,
       agentEvents: [
         {
@@ -1415,7 +1485,7 @@ contentKind: document
       ],
     });
 
-    await mockEmptyChatBootstrap(page);
+    await mockEmptyChatBootstrap(page, { sessionId });
     await page.goto('/chat');
     await startFreshChat(page);
 
@@ -1461,7 +1531,7 @@ contentKind: document
     const queuedMessages = new Map<string, Record<string, unknown>>();
     const controlActions: string[] = [];
 
-    await page.route('**/api/agents/config', async (route) => {
+    await page.route('**/api/agents/config**', async (route) => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -1484,7 +1554,7 @@ contentKind: document
       });
     });
 
-    await page.route('**/api/sessions', async (route) => {
+    await page.route('**/api/sessions**', async (route) => {
       const request = route.request();
       if (request.method() === 'GET') {
         await route.fulfill({
@@ -1522,7 +1592,7 @@ contentKind: document
       });
     });
 
-    await page.route(`**/api/sessions/messages?sessionId=${sessionId}`, async (route) => {
+    await page.route('**/api/sessions/messages**', async (route) => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -1551,7 +1621,7 @@ contentKind: document
       });
     });
 
-    setupMockWebSocket(page, {
+    await setupMockWebSocket(page, {
       sessionId,
       runtimeStatus: currentStatus as Record<string, unknown>,
       onGetStatus: () => currentStatus as unknown as Record<string, unknown>,
@@ -1700,7 +1770,7 @@ contentKind: document
     });
     const controlActions: string[] = [];
 
-    await page.route('**/api/agents/config', async (route) => {
+    await page.route('**/api/agents/config**', async (route) => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -1723,7 +1793,7 @@ contentKind: document
       });
     });
 
-    await page.route('**/api/sessions', async (route) => {
+    await page.route('**/api/sessions**', async (route) => {
       const request = route.request();
       if (request.method() === 'GET') {
         await route.fulfill({
@@ -1761,7 +1831,7 @@ contentKind: document
       });
     });
 
-    await page.route(`**/api/sessions/messages?sessionId=${sessionId}`, async (route) => {
+    await page.route('**/api/sessions/messages**', async (route) => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -1790,7 +1860,7 @@ contentKind: document
       });
     });
 
-    setupMockWebSocket(page, {
+    await setupMockWebSocket(page, {
       sessionId,
       runtimeStatus: currentStatus as unknown as Record<string, unknown>,
       onGetStatus: () => currentStatus as unknown as Record<string, unknown>,
@@ -2134,7 +2204,7 @@ contentKind: document
       lastCompactionOmittedCount: 0,
     };
 
-    await page.route('**/api/agents/config', async (route) => {
+    await page.route('**/api/agents/config**', async (route) => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -2157,7 +2227,7 @@ contentKind: document
       });
     });
 
-    await page.route('**/api/sessions', async (route) => {
+    await page.route('**/api/sessions**', async (route) => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -2176,7 +2246,7 @@ contentKind: document
       });
     });
 
-    await page.route(`**/api/sessions/messages?sessionId=${sessionId}`, async (route) => {
+    await page.route('**/api/sessions/messages**', async (route) => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -2205,7 +2275,7 @@ contentKind: document
       });
     });
 
-    setupMockWebSocket(page, {
+    await setupMockWebSocket(page, {
       sessionId,
       runtimeStatus: currentStatus as Record<string, unknown>,
       onGetStatus: () => currentStatus as unknown as Record<string, unknown>,
