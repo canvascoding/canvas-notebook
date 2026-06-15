@@ -36,7 +36,7 @@ export function AttachmentPreviewItem({
   if (!isImage) {
     return (
       <div
-        data-testid={context === 'message' ? 'chat-message-attachment' : undefined}
+        data-testid={context === 'message' ? 'chat-message-attachment' : 'chat-composer-attachment'}
         className={wrapperClass}
         title={displayAttachment.name}
       >
@@ -60,7 +60,7 @@ export function AttachmentPreviewItem({
 
   return (
     <div
-      data-testid={context === 'message' ? 'chat-message-attachment' : undefined}
+      data-testid={context === 'message' ? 'chat-message-attachment' : 'chat-composer-attachment'}
       data-attachment-kind="image"
       className={cn(wrapperClass, context === 'message' ? 'max-w-[220px]' : 'max-w-[240px]')}
       title={displayAttachment.name}

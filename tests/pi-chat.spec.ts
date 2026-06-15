@@ -1017,9 +1017,9 @@ contentKind: document
     await expect(toolPills.nth(0)).toContainText('screenshot-a.png');
 
     await toolPills.nth(0).locator('button').click();
-    const toolBody = page.getByTestId('chat-tool-body').last();
-    await expect(toolBody.getByTestId('chat-tool-attachments')).toBeVisible();
-    const attachment = toolBody.getByTestId('chat-message-attachment').first();
+    const toolAttachments = page.getByTestId('chat-tool-attachments').filter({ hasText: 'screenshot-a.png' });
+    await expect(toolAttachments).toBeVisible();
+    const attachment = toolAttachments.getByTestId('chat-message-attachment').first();
     await expect(attachment).toContainText('screenshot-a.png');
     await expect(attachment.locator('img')).toHaveAttribute('src', new RegExp(`/api/files/preview\\?path=${encodeURIComponent(firstPath)}`));
 

@@ -38,11 +38,7 @@ import { useIsMobile } from '@/hooks/use-mobile';
 import { BUSINESS_STARTER_PROMPTS, STUDIO_STARTER_PROMPTS } from '@/app/lib/chat/starter-prompts';
 import { ChatRuntimeActivityBadge } from '@/app/components/canvas-agent-chat/ChatRuntimeActivityBadge';
 import { AttachmentPreviewDialog } from '@/app/components/canvas-agent-chat/AttachmentPreviewDialog';
-import {
-  createImageAttachmentFromMediaUrl,
-  deriveUploadAttachmentPreview,
-  getAttachmentMediaUrl,
-} from '@/app/lib/chat/attachment-preview';
+import { deriveUploadAttachmentPreview } from '@/app/lib/chat/attachment-preview';
 import { useChatComposerLayout } from '@/app/components/canvas-agent-chat/useChatComposerLayout';
 import { useChatScrollController } from '@/app/components/canvas-agent-chat/useChatScrollController';
 import {
@@ -68,7 +64,6 @@ import {
   getHistoryRuntimePhase,
 } from '@/app/lib/chat/runtime-message-utils';
 import { areChatMessageListsEquivalent } from '@/app/lib/chat/message-equivalence';
-import { safeFetchJson } from '@/app/lib/chat/fetch-json';
 import {
   buildCachedChatSessionEntry,
   isCacheableMessageSet,
@@ -90,7 +85,6 @@ import { getSessionDisplayTitle, isAutomaticSessionTitle } from '@/app/lib/pi/se
 import { type CompactBreakMessage, isComposioAuthRequiredMessage, isRuntimeContinuationMessage, type ComposioAuthRequiredMessage } from '@/app/lib/pi/custom-messages';
 import { useWebSocket } from '@/app/hooks/useWebSocket';
 import { ImagePreprocessDialog } from '@/app/components/shared/ImagePreprocessDialog';
-import type { ConvertParams } from '@/app/components/shared/ImagePreprocessDialog';
 import { usePlanModeStore } from '@/app/store/plan-mode-store';
 import { useToolVerbosityStore } from '@/app/store/tool-verbosity-store';
 import { getToolDisplayInfo } from '@/app/lib/pi/tool-display';
@@ -101,6 +95,7 @@ import { loadComposerDraft, removeComposerDraft, saveComposerDraft } from '@/app
 import { applySessionUnreadUpdate } from '@/app/lib/chat/unread';
 import { fetchChatAgentConfig, fetchChatAgents } from '@/app/lib/chat/agent-api';
 import { getAgentDisplayName } from '@/app/lib/chat/agent-display';
+import { useChatAttachments } from '@/app/components/canvas-agent-chat/useChatAttachments';
 import { useChatComposerDraft } from '@/app/components/canvas-agent-chat/useChatComposerDraft';
 import { useComposerReferences } from '@/app/components/canvas-agent-chat/useComposerReferences';
 import type {
@@ -478,7 +473,6 @@ export default function CanvasAgentChat({
   const [oldestSequence, setOldestSequence] = useState<number | null>(null);
   const [isLoadingOlder, setIsLoadingOlder] = useState(false);
   const [input, setInput] = useState<string>('');
-  const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [sessionTitle, setSessionTitle] = useState<string | null>(null);
   const [showHistory, setShowHistory] = useState(false);
@@ -530,18 +524,29 @@ export default function CanvasAgentChat({
   }));
   const [showComposerHint, setShowComposerHint] = useState(false);
 
-  // Upload states
-  const [pendingUploads, setPendingUploads] = useState(0);
-  const [uploadError, setUploadError] = useState<string | null>(null);
-  const [imagePreprocessFiles, setImagePreprocessFiles] = useState<import('@/app/components/shared/ImagePreprocessDialog').PreprocessFileInfo[] | null>(null);
-  const [imagePreprocessPendingFiles, setImagePreprocessPendingFiles] = useState<File[]>([]);
-  const [previewAttachment, setPreviewAttachment] = useState<Attachment | null>(null);
-  const [previewAttachmentGroup, setPreviewAttachmentGroup] = useState<Attachment[]>([]);
-  const isUploading = pendingUploads > 0;
   const isWebSocketUnavailable = wsError?.code === 'AUTH_ERROR';
 
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const sessionIdRef = useRef<string | null>(null);
+  const {
+    attachments,
+    fileInputRef,
+    handleAttachmentPreviewClose,
+    handleAttachmentPreviewOpen,
+    handleImagePreprocessConfirm,
+    handleImagePreprocessOpenChange,
+    handleImagePreprocessSkip,
+    handleMediaPreviewClick,
+    handlePaste,
+    imagePreprocessFiles,
+    isUploading,
+    onFileChange,
+    previewAttachment,
+    previewAttachmentGroup,
+    removeAttachment,
+    setAttachments,
+    setUploadError,
+    uploadError,
+  } = useChatAttachments({ onMediaClick });
   const {
     composerHeight,
     composerRef,
@@ -1912,7 +1917,7 @@ export default function CanvasAgentChat({
     }
 
     return;
-  }, [activeModel, agentConfig, appendOptimisticUserMessage, attachments, buildRequestContext, createAssistantBubble, currentFile, ensureSession, ensureSessionSubscribed, input, isUploading, postControl, resetInputHistoryNavigation, runtimePhase, selectedAgentId, showHistory, isMobile, setOptimisticRuntimePhase, setRuntimeStatusWithReconciliation, shouldShowHistoryAsOverlay, scanForImageReferences, t, wsRequest]);
+  }, [activeModel, agentConfig, appendOptimisticUserMessage, attachments, buildRequestContext, createAssistantBubble, currentFile, ensureSession, ensureSessionSubscribed, input, isUploading, postControl, resetInputHistoryNavigation, runtimePhase, selectedAgentId, showHistory, isMobile, setAttachments, setOptimisticRuntimePhase, setRuntimeStatusWithReconciliation, shouldShowHistoryAsOverlay, scanForImageReferences, t, wsRequest]);
 
   const handleSend = useCallback(async () => {
     try {
@@ -2048,7 +2053,7 @@ export default function CanvasAgentChat({
     setActiveModel(providerState.model);
     setActiveThinkingLevel(providerState.thinkingLevel);
     toolMessageIdsRef.current = {};
-  }, [agentConfig, input, resetInputHistoryNavigation, resetStreamConnection, selectedAgentId, isMobile, shouldShowHistoryAsOverlay]);
+  }, [agentConfig, input, resetInputHistoryNavigation, resetStreamConnection, selectedAgentId, isMobile, setAttachments, shouldShowHistoryAsOverlay]);
 
   const selectChatAgent = useCallback((agentId: string) => {
     if (agentId === selectedAgentId && !sessionIdRef.current) {
@@ -2534,176 +2539,6 @@ export default function CanvasAgentChat({
       console.error('Failed to rename session', err);
     }
   }, [selectedAgentId, t]);
-
-  const handleFileUploadMultiple = useCallback(async (files: File[], convertParams?: (ConvertParams | null)[]) => {
-    if (files.length === 0) {
-      return;
-    }
-    setPendingUploads((count) => count + 1);
-    setUploadError(null);
-    
-    try {
-      const formData = new FormData();
-      files.forEach((file) => formData.append('file', file));
-
-      if (convertParams && convertParams.length > 0) {
-        const paramsSerializable = convertParams.map((p) =>
-          p ? { format: p.format, quality: p.quality, maxDimension: p.maxDimension } : null
-        );
-        formData.append('convertParams', JSON.stringify(paramsSerializable));
-      }
-      
-      const res = await fetch('/api/upload/attachment', { method: 'POST', body: formData });
-      const data = await safeFetchJson<{ success: boolean; error?: string; errors?: string[]; files?: { id: string; originalName: string; mimeType: string; size?: number; category: string }[] }>(res);
-      
-      if (!data || !data.success) {
-        throw new Error(data?.error ?? 'Upload failed');
-      }
-      
-      // API now returns array of files
-      const uploadedFiles = data.files || [];
-      
-      const attachments: Attachment[] = uploadedFiles.map((uploadedFile: {
-        id: string;
-        originalName: string;
-        mimeType: string;
-        size?: number;
-        category: string;
-      }) => {
-        const isImage = uploadedFile.category === 'image';
-        return deriveUploadAttachmentPreview({
-          name: uploadedFile.originalName,
-          contentKind: isImage ? 'image' : 'document',
-          id: uploadedFile.id,
-          mimeType: uploadedFile.mimeType,
-          size: uploadedFile.size,
-          category: uploadedFile.category,
-        });
-      });
-      
-      setAttachments((prev) => [...prev, ...attachments]);
-      
-      // Show warning if some files failed
-      if (data.errors && data.errors.length > 0) {
-        setUploadError(`Einige Dateien konnten nicht hochgeladen werden: ${data.errors.join(', ')}`);
-      }
-    } catch (err) {
-      console.error('Upload failed', err);
-      setUploadError(err instanceof Error ? err.message : 'Upload fehlgeschlagen. Netzwerkfehler oder Server nicht erreichbar.');
-    } finally {
-      setPendingUploads((count) => Math.max(0, count - 1));
-    }
-  }, []);
-
-  const preprocessAndUpload = useCallback(async (files: File[]) => {
-    const HEIC_TYPES = new Set(['image/heic', 'image/heif', 'image/heic-sequence']);
-    const HEIC_EXTS = new Set(['heic', 'heif']);
-    const SIZE_THRESHOLD = 1_500_000;
-    const preprocessFiles: import('@/app/components/shared/ImagePreprocessDialog').PreprocessFileInfo[] = [];
-    const normalFiles: File[] = [];
-
-    for (const file of files) {
-      const isHeic = HEIC_TYPES.has(file.type.toLowerCase()) || HEIC_EXTS.has(file.name.split('.').pop()?.toLowerCase() ?? '');
-      const isImage = file.type.startsWith('image/') || HEIC_EXTS.has(file.name.split('.').pop()?.toLowerCase() ?? '');
-      const isLarge = isImage && file.size > SIZE_THRESHOLD;
-      if (isHeic || isLarge) {
-        preprocessFiles.push({ file, isHeic, isLarge });
-      } else {
-        normalFiles.push(file);
-      }
-    }
-
-    if (normalFiles.length > 0) {
-      await handleFileUploadMultiple(normalFiles);
-    }
-    if (preprocessFiles.length > 0) {
-      setImagePreprocessPendingFiles(preprocessFiles.map((f) => f.file));
-      setImagePreprocessFiles(preprocessFiles);
-    }
-  }, [handleFileUploadMultiple]);
-
-  const handleImagePreprocessConfirm = useCallback(async (convertParams: (ConvertParams | null)[]) => {
-    await handleFileUploadMultiple(imagePreprocessPendingFiles, convertParams);
-    setImagePreprocessFiles(null);
-    setImagePreprocessPendingFiles([]);
-  }, [handleFileUploadMultiple, imagePreprocessPendingFiles]);
-
-  const handleImagePreprocessSkip = useCallback(async () => {
-    const HEIC_TYPES = new Set(['image/heic', 'image/heif', 'image/heic-sequence']);
-    const HEIC_EXTS = new Set(['heic', 'heif']);
-    const nonHeicFiles = imagePreprocessPendingFiles.filter((f) => {
-      return !HEIC_TYPES.has(f.type.toLowerCase()) && !HEIC_EXTS.has(f.name.split('.').pop()?.toLowerCase() ?? '');
-    });
-    if (nonHeicFiles.length > 0) {
-      await handleFileUploadMultiple(nonHeicFiles);
-    }
-    setImagePreprocessFiles(null);
-    setImagePreprocessPendingFiles([]);
-  }, [handleFileUploadMultiple, imagePreprocessPendingFiles]);
-
-  const onFileChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(event.target.files || []);
-    if (files.length > 0) preprocessAndUpload(files);
-    if (fileInputRef.current) fileInputRef.current.value = '';
-  }, [preprocessAndUpload]);
-
-  const handlePaste = useCallback((event: React.ClipboardEvent) => {
-    const items = event.clipboardData?.items;
-    if (!items) return;
-    const pastedImages: File[] = [];
-    for (let i = 0; i < items.length; i += 1) {
-      if (items[i].type.indexOf('image') !== -1) {
-        const file = items[i].getAsFile();
-        if (file) {
-          const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-          const renamedFile = new File([file], `screenshot-${timestamp}.png`, { type: file.type });
-          pastedImages.push(renamedFile);
-        }
-      }
-    }
-    if (pastedImages.length > 0) {
-      void preprocessAndUpload(pastedImages);
-      return;
-    }
-    if (pastedImages.length === 0) {
-      const text = event.clipboardData?.getData('text') ?? '';
-      if (/\.(png|jpe?g|webp|gif)$/i.test(text.trim())) {
-        setUploadError('Tipp: Dateien aus dem Finder können nicht direkt eingefügt werden. Bitte nutze die Büroklammer zum Hochladen, oder kopiere das Bild direkt (z.B. Screenshot).');
-      }
-    }
-  }, [preprocessAndUpload]);
-
-  const removeAttachment = useCallback((index: number) => {
-    setAttachments((prev) => prev.filter((_, itemIndex) => itemIndex !== index));
-  }, []);
-
-  const handleAttachmentPreviewOpen = useCallback((attachment: Attachment, previewGroup?: Attachment[]) => {
-    const displayAttachment = deriveUploadAttachmentPreview(attachment);
-    const mediaUrl = getAttachmentMediaUrl(displayAttachment);
-    if (mediaUrl && onMediaClick) {
-      onMediaClick(mediaUrl);
-      return;
-    }
-    const displayGroup = (previewGroup?.length ? previewGroup : [displayAttachment])
-      .map((item) => deriveUploadAttachmentPreview(item))
-      .filter((item) => item.contentKind === 'image');
-    setPreviewAttachment(displayAttachment);
-    setPreviewAttachmentGroup(displayGroup.length ? displayGroup : [displayAttachment]);
-  }, [onMediaClick, setPreviewAttachment, setPreviewAttachmentGroup]);
-
-  const handleMediaPreviewClick = useCallback((mediaUrl: string) => {
-    if (onMediaClick) {
-      onMediaClick(mediaUrl);
-      return;
-    }
-    setPreviewAttachment(createImageAttachmentFromMediaUrl(mediaUrl));
-    setPreviewAttachmentGroup([]);
-  }, [onMediaClick, setPreviewAttachment, setPreviewAttachmentGroup]);
-
-  const handleAttachmentPreviewClose = useCallback(() => {
-    setPreviewAttachment(null);
-    setPreviewAttachmentGroup([]);
-  }, [setPreviewAttachment, setPreviewAttachmentGroup]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.shiftKey && e.key === 'Tab') {
@@ -3820,7 +3655,7 @@ export default function CanvasAgentChat({
       />
       <ImagePreprocessDialog
         open={imagePreprocessFiles !== null}
-        onOpenChange={(open) => { if (!open) { setImagePreprocessFiles(null); setImagePreprocessPendingFiles([]); } }}
+        onOpenChange={handleImagePreprocessOpenChange}
         files={imagePreprocessFiles ?? []}
         onConfirm={handleImagePreprocessConfirm}
         onSkip={handleImagePreprocessSkip}

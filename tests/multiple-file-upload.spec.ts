@@ -28,6 +28,8 @@ test.describe('Multiple File Upload', () => {
   test.setTimeout(90000);
   test.use({ storageState: AUTH_STATE_PATH });
 
+  const composerAttachments = (page: Page) => page.getByTestId('chat-composer-attachment');
+
   test.beforeAll(async ({ browser }: { browser: Browser }) => {
     test.setTimeout(120000);
     const context = await browser.newContext({ storageState: undefined });
@@ -60,15 +62,12 @@ test.describe('Multiple File Upload', () => {
       },
     ]);
     
-    // Wait for attachments to appear
-    await page.waitForTimeout(2000);
-    
     // Verify both attachments are shown
-    const attachmentBadges = page.locator('[class*="bg-accent/70"]').filter({ hasText: /test/ });
+    const attachmentBadges = composerAttachments(page).filter({ hasText: /test/ });
     await expect(attachmentBadges).toHaveCount(2);
     
     // Verify filenames are visible
-    const attachmentText = await page.locator('[class*="bg-accent/70"]').allTextContents();
+    const attachmentText = await composerAttachments(page).allTextContents();
     expect(attachmentText.join(' ')).toContain('test1.txt');
     expect(attachmentText.join(' ')).toContain('test2.txt');
   });
@@ -95,15 +94,12 @@ test.describe('Multiple File Upload', () => {
       },
     ]);
     
-    // Wait for uploads
-    await page.waitForTimeout(2000);
-    
     // Verify both attachments appear
-    const attachmentBadges = page.locator('[class*="bg-accent/70"]');
+    const attachmentBadges = composerAttachments(page);
     await expect(attachmentBadges).toHaveCount(2);
     
     // Check that both files are present
-    const allText = await page.locator('[class*="bg-accent/70"]').allTextContents();
+    const allText = await composerAttachments(page).allTextContents();
     const allTextCombined = allText.join(' ');
     expect(allTextCombined).toContain('test-image.png');
     expect(allTextCombined).toContain('test-doc.pdf');
@@ -127,9 +123,6 @@ test.describe('Multiple File Upload', () => {
         buffer: largeBuffer,
       },
     ]);
-    
-    // Wait for error message
-    await page.waitForTimeout(2000);
     
     // Verify error is shown
     const errorBanner = page.locator('[class*="bg-destructive/10"]');
@@ -164,22 +157,16 @@ test.describe('Multiple File Upload', () => {
       },
     ]);
     
-    // Wait for uploads
-    await page.waitForTimeout(2000);
-    
     // Verify 3 attachments
-    let attachmentBadges = page.locator('[class*="bg-accent/70"]');
+    let attachmentBadges = composerAttachments(page);
     await expect(attachmentBadges).toHaveCount(3);
     
     // Remove middle attachment (file2)
-    const allBadges = await page.locator('[class*="bg-accent/70"]').all();
+    const allBadges = await composerAttachments(page).all();
     await allBadges[1].locator('button').click();
     
-    // Wait for removal
-    await page.waitForTimeout(500);
-    
     // Verify only 2 remain
-    attachmentBadges = page.locator('[class*="bg-accent/70"]');
+    attachmentBadges = composerAttachments(page);
     await expect(attachmentBadges).toHaveCount(2);
   });
 });
