@@ -6,7 +6,8 @@ import { AlertCircle, CheckCircle2, ChevronLeft, ChevronRight, Code2, Download, 
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
-import { useFileStore, type FileNode } from '@/app/store/file-store';
+import { useFileStore } from '@/app/store/file-store';
+import type { FileNode } from '@/app/lib/files/types';
 import { useEditorStore } from '@/app/store/editor-store';
 import { getFileWatcherClient, type FileEvent } from '@/app/lib/file-watcher/client';
 import { isMarpMarkdown } from '@/app/lib/marp/detect';

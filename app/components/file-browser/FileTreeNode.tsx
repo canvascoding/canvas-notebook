@@ -15,7 +15,8 @@ import {
   SidebarMenuButton,
   SidebarMenuSub,
 } from '@/components/ui/sidebar';
-import { useFileStore, FileNode as FileNodeType, type BrowserMode } from '@/app/store/file-store';
+import { useFileStore } from '@/app/store/file-store';
+import type { BrowserMode, FileNode as FileNodeType } from '@/app/lib/files/types';
 import { cn } from '@/lib/utils';
 import { getFileIconComponent, isImageFile } from '@/app/lib/files/file-icons';
 import { getFileDisplayName } from '@/app/lib/files/display-name';

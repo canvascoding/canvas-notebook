@@ -1,39 +1,19 @@
 import { create } from 'zustand';
+import type { BrowserMode, CurrentFile, FileNode, FileStats } from '@/app/lib/files/types';
+import { getExtension, getParentDirectories, getParentDirectory } from '@/app/lib/files/path-utils';
+import {
+  findNodeInTree,
+  findPathInTree,
+  flattenTreePaths,
+  mergeSubtreeChildren,
+} from '@/app/lib/files/tree-utils';
 
-export interface FileNode {
-  name: string;
-  path: string;
-  type: 'file' | 'directory';
-  size?: number;
-  modified?: number;
-  permissions?: string;
-  children?: FileNode[];
-  publicShare?: {
-    id: string;
-    status: string;
-    publicUrl: string;
-    expiresAt: string | null;
-    accessCount: number;
-  };
-}
-
-export type BrowserMode = 'tree' | 'list' | 'grid';
+export type { BrowserMode, CurrentFile, FileNode, FileStats } from '@/app/lib/files/types';
+export { findPathInTree } from '@/app/lib/files/tree-utils';
 
 export interface ContextMenuPosition {
   x: number;
   y: number;
-}
-
-interface FileStats {
-  size: number;
-  modified: number;
-  permissions: string;
-}
-
-interface CurrentFile {
-  path: string;
-  content: string;
-  stats?: FileStats;
 }
 
 const TEXT_EXTENSIONS = new Set([
@@ -121,25 +101,6 @@ function readClientBrowserMode(): BrowserMode {
   return window.innerWidth < 768 ? 'list' : 'tree';
 }
 
-function getExtension(path: string) {
-  const parts = path.split('.');
-  if (parts.length <= 1) return '';
-  return parts[parts.length - 1].toLowerCase();
-}
-
-function getParentDirectory(path: string) {
-  return path.includes('/') ? path.substring(0, path.lastIndexOf('/')) : '.';
-}
-
-function getParentDirectories(filePath: string): string[] {
-  const parts = filePath.split('/').filter(Boolean);
-  const dirs: string[] = [];
-  for (let i = 1; i < parts.length; i += 1) {
-    dirs.push(parts.slice(0, i).join('/'));
-  }
-  return dirs;
-}
-
 function areFileStatsEqual(left?: FileStats, right?: FileStats) {
   return (
     left?.size === right?.size &&
@@ -193,22 +154,6 @@ async function readApiError(response: Response, fallbackMessage: string) {
   }
 
   return `${fallbackMessage}${formatResponseStatus(response)}`;
-}
-
-function findNodeInTree(searchPath: string, nodes: FileNode[]): FileNode | null {
-  for (const node of nodes) {
-    if (node.path === searchPath) return node;
-    if (node.children) {
-      const found = findNodeInTree(searchPath, node.children);
-      if (found) return found;
-    }
-  }
-  return null;
-}
-
-export function findPathInTree(searchPath: string, tree: FileNode[]): boolean {
-  if (searchPath === '.') return true;
-  return findNodeInTree(searchPath, tree) !== null;
 }
 
 interface FileStoreState {
@@ -618,17 +563,6 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
       return;
     }
 
-    const findNodeInTree = (searchPath: string, nodes: FileNode[]): FileNode | null => {
-      for (const node of nodes) {
-        if (node.path === searchPath) return node;
-        if (node.children) {
-          const found = findNodeInTree(searchPath, node.children);
-          if (found) return found;
-        }
-      }
-      return null;
-    };
-
     const existingNode = findNodeInTree(dirPath, fileTree);
     if (!noCache && existingNode && Array.isArray(existingNode.children)) {
       if (expand && !expandedDirs.has(dirPath)) {
@@ -662,21 +596,9 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
 
       const { data } = await readApiJson<{ data: FileNode[] }>(response, 'Failed to load subdirectory');
 
-      const mergeSubtree = (nodes: FileNode[], targetPath: string, children: FileNode[]): FileNode[] => {
-        return nodes.map((node) => {
-          if (node.path === targetPath) {
-            return { ...node, children };
-          }
-          if (node.children) {
-            return { ...node, children: mergeSubtree(node.children, targetPath, children) };
-          }
-          return node;
-        });
-      };
-
       // Use fresh state references after the async gap to avoid
       // overwriting concurrent tree updates (race condition).
-      const newTree = mergeSubtree(get().fileTree, dirPath, data);
+      const newTree = mergeSubtreeChildren(get().fileTree, dirPath, data);
 
       const newLoading = new Set(get().loadingDirs);
       newLoading.delete(dirPath);
@@ -1286,17 +1208,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
   },
 
   selectRange: (startPath: string, endPath: string, currentTree: FileNode[]) => {
-    const flattenTree = (nodes: FileNode[], result: string[] = []): string[] => {
-      for (const node of nodes) {
-        result.push(node.path);
-        if (node.children) {
-          flattenTree(node.children, result);
-        }
-      }
-      return result;
-    };
-
-    const allPaths = flattenTree(currentTree);
+    const allPaths = flattenTreePaths(currentTree);
     const startIndex = allPaths.indexOf(startPath);
     const endIndex = allPaths.indexOf(endPath);
 

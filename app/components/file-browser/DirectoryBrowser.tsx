@@ -3,7 +3,8 @@
 import { type ReactNode } from 'react';
 import { ChevronRight, Folder, Loader2 } from 'lucide-react';
 import { useTranslations } from 'next-intl';
-import { useFileStore, type FileNode } from '@/app/store/file-store';
+import { useFileStore } from '@/app/store/file-store';
+import type { FileNode } from '@/app/lib/files/types';
 
 interface DirectoryBrowserProps {
   tree: FileNode[];

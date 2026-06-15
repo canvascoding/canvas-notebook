@@ -1,4 +1,5 @@
-import type { FileNode } from '@/app/store/file-store';
+import type { FileNode } from '@/app/lib/files/types';
+import { findNodeInTree } from '@/app/lib/files/tree-utils';
 import { normalizeChatFilePath } from '@/app/lib/chat/extract-file-paths';
 
 const POSITIVE_VALIDATION_CACHE_TTL_MS = 30_000;
@@ -65,13 +66,4 @@ export async function validateFileExists(
   return promise;
 }
 
-export function findNodeInTree(path: string, nodes: FileNode[]): FileNode | null {
-  for (const node of nodes) {
-    if (node.path === path) return node;
-    if (node.children) {
-      const found = findNodeInTree(path, node.children);
-      if (found) return found;
-    }
-  }
-  return null;
-}
+export { findNodeInTree } from '@/app/lib/files/tree-utils';

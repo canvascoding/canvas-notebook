@@ -8,7 +8,9 @@ import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
-import { useFileStore, findPathInTree } from '@/app/store/file-store';
+import { useFileStore } from '@/app/store/file-store';
+import { getParentDirectory, normalizeWorkspacePathParam } from '@/app/lib/files/path-utils';
+import { findPathInTree } from '@/app/lib/files/tree-utils';
 import { FileGridView } from './FileGridView';
 import { FileToolbar, type FileToolbarHandlers } from './FileToolbar';
 import { FileBreadcrumb } from './FileBreadcrumb';
@@ -28,27 +30,6 @@ import { PublicShareDialog } from './PublicShareDialog';
 
 import { AppLauncher } from '@/app/components/AppLauncher';
 import { NotificationBell } from '@/app/components/notifications/NotificationBell';
-
-function normalizeWorkspacePathParam(value: string | null) {
-  if (!value) return null;
-  const normalized = value
-    .trim()
-    .replace(/\\/g, '/')
-    .replace(/^\/+/, '')
-    .replace(/\/+$/, '');
-  if (!normalized || normalized === '.' || normalized.includes('\0')) return null;
-
-  const segments = normalized.split('/').filter(Boolean);
-  if (segments.some((segment) => segment === '.' || segment === '..')) return null;
-  return segments.join('/');
-}
-
-function getParentDirectory(path: string) {
-  const trimmed = path.replace(/\/+$/, '');
-  const lastSlash = trimmed.lastIndexOf('/');
-  if (lastSlash <= 0) return '.';
-  return trimmed.slice(0, lastSlash);
-}
 
 interface FileBrowserProps {
   variant?: 'default' | 'mobile-sheet' | 'fullscreen';

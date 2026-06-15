@@ -18,7 +18,8 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
-import { useFileStore, type BrowserMode } from '@/app/store/file-store';
+import { useFileStore } from '@/app/store/file-store';
+import type { BrowserMode } from '@/app/lib/files/types';
 
 export interface FileToolbarHandlers {
   onToggleMultiSelect: () => void;

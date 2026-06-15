@@ -1,7 +1,8 @@
 'use client';
 
 import { useState, useCallback, useRef } from 'react';
-import { useFileStore, type FileNode as FileNodeType } from '@/app/store/file-store';
+import { useFileStore } from '@/app/store/file-store';
+import type { FileNode as FileNodeType } from '@/app/lib/files/types';
 import { cn } from '@/lib/utils';
 import { getFileIconComponent } from '@/app/lib/files/file-icons';
 import { getFileDisplayName } from '@/app/lib/files/display-name';

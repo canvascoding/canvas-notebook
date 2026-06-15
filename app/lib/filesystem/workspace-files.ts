@@ -1,23 +1,9 @@
 import {createReadStream as createLocalReadStream, promises as fs, accessSync} from 'fs';
 import path from 'path';
 import {Readable} from 'stream';
+import type { FileNode } from '@/app/lib/files/types';
 
-export interface FileNode {
-  name: string;
-  path: string;
-  type: 'file' | 'directory';
-  size?: number;
-  modified?: number;
-  permissions?: string;
-  children?: FileNode[];
-  publicShare?: {
-    id: string;
-    status: string;
-    publicUrl: string;
-    expiresAt: string | null;
-    accessCount: number;
-  };
-}
+export type { FileNode } from '@/app/lib/files/types';
 
 function getRuntimeCwd(): string {
   return Reflect.apply(process.cwd, process, []) as string;

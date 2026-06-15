@@ -5,10 +5,7 @@ import { invalidateFileReferenceCache } from '@/app/lib/filesystem/file-referenc
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 import { auth } from '@/app/lib/auth';
 import { queuePublicSharesAfterWrite } from '@/app/lib/public-sharing/public-file-shares';
-
-function getParentDirectory(filePath: string) {
-  return filePath.includes('/') ? filePath.substring(0, filePath.lastIndexOf('/')) : '.';
-}
+import { getParentDirectory } from '@/app/lib/files/path-utils';
 
 export async function POST(request: NextRequest) {
   try {

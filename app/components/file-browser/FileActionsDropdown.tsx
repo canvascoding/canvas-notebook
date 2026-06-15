@@ -42,31 +42,15 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { isProtectedAppOutputFolder } from '@/app/lib/filesystem/app-output-folders';
 import { hasMarpFileName } from '@/app/lib/marp/detect';
-import { useFileStore, type FileNode } from '@/app/store/file-store';
+import { useFileStore } from '@/app/store/file-store';
+import type { FileNode } from '@/app/lib/files/types';
+import { getParentDirectory, joinWorkspacePath } from '@/app/lib/files/path-utils';
 import { CreateItemDialog, type CreateItemType } from './CreateItemDialog';
 import { DeleteConfirmDialog } from './DeleteConfirmDialog';
 import { DirectoryBrowser } from './DirectoryBrowser';
 import { ShareMarkdownDialog } from './ShareMarkdownDialog';
 import { PublicShareDialog } from './PublicShareDialog';
 import { MarpExportDialog } from './MarpExportDialog';
-
-function getParentPath(path: string) {
-  const trimmed = path.replace(/\/+$/, '');
-  const lastSlash = trimmed.lastIndexOf('/');
-  if (lastSlash <= 0) {
-    return '.';
-  }
-  return trimmed.slice(0, lastSlash);
-}
-
-function joinPath(parent: string, name: string) {
-  const normalizedParent = parent === '.' ? '' : parent.replace(/\/+$/, '');
-  const normalizedName = name.replace(/^\/+/, '');
-  if (!normalizedParent) {
-    return normalizedName;
-  }
-  return `${normalizedParent}/${normalizedName}`;
-}
 
 const IMAGE_EXTENSIONS = /\.(png|jpe?g|webp|gif|svg|bmp|tiff?)$/i;
 
@@ -138,7 +122,7 @@ export function FileActionsDropdown({
     if (node.type === 'directory') {
       return node.path;
     }
-    return getParentPath(node.path);
+    return getParentDirectory(node.path);
   }, [node]);
 
   const isProtectedOutputFolder = node
@@ -257,7 +241,7 @@ export function FileActionsDropdown({
       return;
     }
 
-    const newPath = joinPath(getParentPath(node.path), newName);
+    const newPath = joinWorkspacePath(getParentDirectory(node.path), newName);
     await renamePath(node.path, newPath);
     setRenameOpen(false);
     onAfterRename?.(node.path, newPath, node);
@@ -270,7 +254,7 @@ export function FileActionsDropdown({
     }
 
     if (node) setMoveName(node.name);
-    if (node) setMoveTarget(getParentPath(node.path));
+    if (node) setMoveTarget(getParentDirectory(node.path));
     setMoveExpandedDirs(new Set());
     setIsMovingMultiple(false);
     setMoveOpen(true);
@@ -334,7 +318,7 @@ export function FileActionsDropdown({
 
   const handlePaste = async () => {
     if (!node) return;
-    const destDir = node.type === 'directory' ? node.path : getParentPath(node.path);
+    const destDir = node.type === 'directory' ? node.path : getParentDirectory(node.path);
     try {
       await pastePaths(destDir);
       closeMenu();
@@ -632,7 +616,7 @@ export function FileActionsDropdown({
           open={publicShareOpen}
           onOpenChange={setPublicShareOpen}
           paths={node.type === 'file' ? [node.path] : []}
-          onPublished={() => void refreshDirectory(getParentPath(node.path), true)}
+          onPublished={() => void refreshDirectory(getParentDirectory(node.path), true)}
         />
       )}
     </>

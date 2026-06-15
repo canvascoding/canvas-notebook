@@ -6,7 +6,8 @@ import { Download, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
 import { FileEditor } from '@/app/components/editor/FileEditor';
-import { useFileStore, type FileNode } from '@/app/store/file-store';
+import { useFileStore } from '@/app/store/file-store';
+import type { FileNode } from '@/app/lib/files/types';
 import { isExcalidrawFilePath } from '@/app/lib/excalidraw-file';
 
 const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'ico']);

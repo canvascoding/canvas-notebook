@@ -11,44 +11,19 @@ import {
   SidebarProvider,
 } from '@/components/ui/sidebar';
 import { Button } from '@/components/ui/button';
+import { useFileStore } from '@/app/store/file-store';
+import type { FileNode as FileNodeType } from '@/app/lib/files/types';
 import {
-  useFileStore,
-  type FileNode as FileNodeType,
-  findPathInTree,
-} from '@/app/store/file-store';
+  getDirectoryDepth,
+  getDirectoryPathChain,
+  getParentDirectory,
+} from '@/app/lib/files/path-utils';
+import { findPathInTree, flattenDirectoryChildren } from '@/app/lib/files/tree-utils';
 import { FileTreeNode } from './FileTreeNode';
 import { FileContextMenu } from './FileContextMenu';
 import { BulkMoveDialog } from './BulkMoveDialog';
 import { FileGridItem } from './FileGridItem';
 import { BackgroundContextMenu } from './BackgroundContextMenu';
-
-function getParentDirectory(path: string) {
-  return path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '.';
-}
-
-function getDirectoryDepth(path: string) {
-  if (path === '.') return 0;
-  return path.split('/').filter(Boolean).length;
-}
-
-function getDirectoryPathChain(path: string) {
-  if (path === '.') return [];
-
-  const segments = path.split('/').filter(Boolean);
-  return segments.map((_, index) => segments.slice(0, index + 1).join('/'));
-}
-
-function flattenDirectoryChildren(nodes: FileNodeType[], dirPath: string): FileNodeType[] | null {
-  if (dirPath === '.') return nodes;
-  for (const node of nodes) {
-    if (node.path === dirPath) return node.children ?? null;
-    if (node.children) {
-      const found = flattenDirectoryChildren(node.children, dirPath);
-      if (found !== null) return found;
-    }
-  }
-  return null;
-}
 
 interface FileGridViewProps {
   variant?: 'default' | 'mobile-sheet' | 'fullscreen';
