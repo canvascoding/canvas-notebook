@@ -133,6 +133,13 @@ import {
   removeCachedChatSession,
   updateCachedChatSessionTitle,
 } from '@/app/lib/chat/session-cache';
+import {
+  createChatSession,
+  deleteChatSession as deleteChatSessionRequest,
+  fetchChatSessionMessages,
+  fetchChatSessions,
+  patchChatSessions,
+} from '@/app/lib/chat/session-api';
 import { buildCollapsedRunMap, formatRunDuration } from '@/app/lib/chat/run-collapse';
 import { getSessionDisplayTitle, isAutomaticSessionTitle } from '@/app/lib/pi/session-titles';
 import { type CompactBreakMessage, isCompactBreakMessage, isComposioAuthRequiredMessage, isRuntimeContinuationMessage, type ComposioAuthRequiredMessage } from '@/app/lib/pi/custom-messages';
@@ -2516,13 +2523,7 @@ export default function CanvasAgentChat({
     }
 
     const request = (async () => {
-      const params = new URLSearchParams({ agentId: 'all' });
-      const res = await fetch(`/api/sessions?${params.toString()}`);
-      const data = await safeFetchJson<{ success: boolean; sessions?: AISession[] }>(res);
-      if (!data?.success) {
-        return [];
-      }
-      const sessions = applyResolvedTitles(data.sessions || []);
+      const sessions = applyResolvedTitles(await fetchChatSessions('all'));
       hasLoadedSessionListRef.current = true;
       return sessions;
     })();
@@ -2605,11 +2606,7 @@ export default function CanvasAgentChat({
 
       if (isCurrentVisibleSession) {
         requestSavedMessageRefresh(sessionId);
-        void fetch('/api/sessions', {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ agentId: sessionAgentIdRef.current || selectedAgentId, sessionId, markAsRead: true }),
-        }).catch((error) => {
+        void patchChatSessions({ agentId: sessionAgentIdRef.current || selectedAgentId, sessionId, markAsRead: true }).catch((error) => {
           console.error('Failed to mark active session as read after response', error);
         });
       }
@@ -2894,11 +2891,7 @@ export default function CanvasAgentChat({
       if (activeVisibleUnreadSession && currentVisibleSessionId) {
         setHasUnreadInCurrentSession(false);
         setShowUnreadBanner(false);
-        void fetch('/api/sessions', {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ agentId: sessionAgentIdRef.current || selectedAgentId, sessionId: currentVisibleSessionId, markAsRead: true }),
-        }).catch((error) => {
+        void patchChatSessions({ agentId: sessionAgentIdRef.current || selectedAgentId, sessionId: currentVisibleSessionId, markAsRead: true }).catch((error) => {
           console.error('Failed to mark active session as read after history refresh', error);
         });
       }
@@ -2925,12 +2918,7 @@ export default function CanvasAgentChat({
 
   const markAllAsRead = useCallback(async () => {
     try {
-      const res = await fetch('/api/sessions', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ agentId: selectedAgentId, markAllAsRead: true }),
-      });
-      const data = await safeFetchJson<{ success: boolean; lastViewedAt?: string }>(res);
+      const data = await patchChatSessions({ agentId: selectedAgentId, markAllAsRead: true });
       if (data?.success) {
         const now = data.lastViewedAt;
         setHistory((prev) => prev.map((s) => s.hasUnread ? { ...s, lastViewedAt: s.lastMessageAt || now, hasUnread: false } : s));
@@ -3245,20 +3233,15 @@ export default function CanvasAgentChat({
     const optimisticTitle = getOptimisticSessionTitle(preferredTitle ?? input, t('newChatTitle'));
     const requestedTitle = isAutomaticSessionTitle(optimisticTitle) ? undefined : optimisticTitle;
 
-    const createSessionResponse = await fetch('/api/sessions', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        agentId,
-        ...(requestedTitle ? { title: requestedTitle } : {}),
-        ...(requestedModel ? { model: requestedModel } : {}),
-        ...(requestedThinkingLevel ? { thinkingLevel: requestedThinkingLevel } : {}),
-      }),
+    const createSessionPayload = await createChatSession({
+      agentId,
+      ...(requestedTitle ? { title: requestedTitle } : {}),
+      ...(requestedModel ? { model: requestedModel } : {}),
+      ...(requestedThinkingLevel ? { thinkingLevel: requestedThinkingLevel } : {}),
     });
 
-    const createSessionPayload = await createSessionResponse.json().catch(() => null);
-    if (!createSessionResponse.ok || !createSessionPayload?.success || !createSessionPayload?.session?.sessionId) {
-      throw new Error(createSessionPayload?.error || `Failed to create session (HTTP ${createSessionResponse.status})`);
+    if (!createSessionPayload?.success || !createSessionPayload.session?.sessionId) {
+      throw new Error(createSessionPayload?.error || 'Failed to create session');
     }
 
     const nextSessionId = createSessionPayload.session.sessionId as string;
@@ -4153,18 +4136,13 @@ export default function CanvasAgentChat({
 
     void (async () => {
       try {
-        const response = await fetch(
-          `/api/sessions/messages?agentId=${encodeURIComponent(requestAgentId)}&sessionId=${encodeURIComponent(targetSessionId)}&limit=50`,
-          { cache: 'no-store', credentials: 'include' },
-        );
-        const payload = await safeFetchJson<{
-          success: boolean;
-          messages?: PersistedChatMessage[];
-          hasMoreBefore?: boolean;
-          oldestTimestamp?: number | null;
-          oldestMessageId?: number | null;
-          oldestSequence?: number | null;
-        }>(response);
+        const payload = await fetchChatSessionMessages({
+          agentId: requestAgentId,
+          sessionId: targetSessionId,
+          limit: 50,
+          cache: 'no-store',
+          credentials: 'include',
+        });
 
         if (
           sessionIdRef.current !== targetSessionId ||
@@ -4272,11 +4250,7 @@ export default function CanvasAgentChat({
         setTotalUnreadCount(updated.filter(s => s.hasUnread).length);
         return updated;
       });
-      void fetch('/api/sessions', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ agentId: sessionAgentId, sessionId: session.sessionId, markAsRead: true }),
-      })
+      void patchChatSessions({ agentId: sessionAgentId, sessionId: session.sessionId, markAsRead: true })
         .then(() => {
           if (sessionIdRef.current !== session.sessionId) return;
           setHasUnreadInCurrentSession(false);
@@ -4300,27 +4274,12 @@ export default function CanvasAgentChat({
         return null;
       });
 
-      const messagesResponse = await fetch(
-        `/api/sessions/messages?agentId=${encodeURIComponent(sessionAgentId)}&sessionId=${encodeURIComponent(session.sessionId)}&limit=50`,
-        { signal: abortController.signal },
-      );
-
-      if (
-        abortController.signal.aborted ||
-        loadSessionRequestIdRef.current !== requestId ||
-        sessionIdRef.current !== session.sessionId
-      ) {
-        return;
-      }
-
-      const messagesPayload = await safeFetchJson<{
-        success: boolean;
-        messages?: PersistedChatMessage[];
-        hasMoreBefore?: boolean;
-        oldestTimestamp?: number | null;
-        oldestMessageId?: number | null;
-        oldestSequence?: number | null;
-      }>(messagesResponse);
+      const messagesPayload = await fetchChatSessionMessages({
+        agentId: sessionAgentId,
+        sessionId: session.sessionId,
+        limit: 50,
+        signal: abortController.signal,
+      });
 
       if (
         abortController.signal.aborted ||
@@ -4427,15 +4386,16 @@ export default function CanvasAgentChat({
     const previousScrollHeight = scrollContainer?.scrollHeight ?? 0;
 
     try {
-      const beforeCursor = oldestSequence !== null
-        ? `beforeSequence=${oldestSequence}`
-        : `before=${oldestTimestamp}`;
-      const response = await fetch(
-        `/api/sessions/messages?agentId=${encodeURIComponent(agentId)}&sessionId=${encodeURIComponent(currentSessionId)}&${beforeCursor}${oldestMessageId !== null ? `&beforeId=${oldestMessageId}` : ''}&limit=50`,
-      );
-      const payload = await response.json();
+      const payload = await fetchChatSessionMessages({
+        agentId,
+        sessionId: currentSessionId,
+        limit: 50,
+        beforeSequence: oldestSequence,
+        before: oldestSequence === null ? oldestTimestamp : null,
+        beforeId: oldestMessageId,
+      });
 
-      if (payload.success && payload.messages) {
+      if (payload?.success && payload.messages) {
         const olderMessages: ChatMessage[] = mapRawMessages(payload.messages);
 
         if (olderMessages.length === 0) {
@@ -4487,9 +4447,7 @@ export default function CanvasAgentChat({
 
     try {
       const targetSession = history.find((session) => session.sessionId === id);
-      const params = new URLSearchParams({ agentId: targetSession?.agentId || selectedAgentId, sessionId: id });
-      const res = await fetch(`/api/sessions?${params.toString()}`, { method: 'DELETE' });
-      const data = await safeFetchJson<{ success: boolean }>(res);
+      const data = await deleteChatSessionRequest(targetSession?.agentId || selectedAgentId, id);
       if (data?.success) {
         removeCachedChatSession(id, targetSession?.agentId || selectedAgentId);
         removeComposerDraft(id);
@@ -4508,12 +4466,7 @@ export default function CanvasAgentChat({
     if (!nextTitle || !nextTitle.trim()) return;
 
     try {
-      const res = await fetch('/api/sessions', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ agentId: session.agentId || selectedAgentId, sessionId: session.sessionId, title: nextTitle.trim() }),
-      });
-      const data = await safeFetchJson<{ success: boolean }>(res);
+      const data = await patchChatSessions({ agentId: session.agentId || selectedAgentId, sessionId: session.sessionId, title: nextTitle.trim() });
       if (data?.success) {
         optimisticSessionTitlesRef.current[session.sessionId] = nextTitle.trim();
         updateCachedChatSessionTitle(session.sessionId, nextTitle.trim(), session.agentId || selectedAgentId);
