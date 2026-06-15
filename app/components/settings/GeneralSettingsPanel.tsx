@@ -16,7 +16,7 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 
-const CONTROL_PANEL_DASHBOARD_URL = 'https://notebook.canvas.holdings/dashboard';
+const CONTROL_PANEL_DASHBOARD_URL = 'https://canvasnotebook.app/dashboard';
 
 const LOGIN_ENV_KEYS = [
   { key: 'BOOTSTRAP_ADMIN_EMAIL', translationKey: 'general.loginInfo.emailKey' },
