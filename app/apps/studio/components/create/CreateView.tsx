@@ -461,11 +461,12 @@ export function CreateView({ initialProviderConfig = EMPTY_STUDIO_PROVIDER_CONFI
     setSelectedOutputId(outputId);
   };
 
-  const applyGenerationSettingsToPrompt = useCallback((generation: StudioGeneration) => {
-    store.setMode('image');
-    store.setProvider(generation.provider || 'gemini');
-    store.setModel(normalizeGeminiImageModelId(generation.model || getDefaultModelForProvider('image', generation.provider || 'gemini')));
-    store.setCount(1);
+  const clearSelectedOutput = useCallback(() => {
+    setSelectedGenerationId(null);
+    setSelectedOutputId(null);
+  }, []);
+
+  const applyGenerationReferencesToPrompt = useCallback((generation: StudioGeneration) => {
     store.setProductRefs((generation.product_ids ?? []).map((id) => {
       const p = products.find((product) => product.id === id);
       return { id, name: p?.name || id };
@@ -481,10 +482,37 @@ export function CreateView({ initialProviderConfig = EMPTY_STUDIO_PROVIDER_CONFI
     store.setPresetRef(presets.find((p) => p.id === generation.studioPresetId) ?? null);
   }, [personas, presets, products, store, styles]);
 
+  const applyGenerationSettingsToPrompt = useCallback((generation: StudioGeneration) => {
+    store.setMode('image');
+    store.setProvider(generation.provider || 'gemini');
+    store.setModel(normalizeGeminiImageModelId(generation.model || getDefaultModelForProvider('image', generation.provider || 'gemini')));
+    store.setCount(1);
+    applyGenerationReferencesToPrompt(generation);
+  }, [applyGenerationReferencesToPrompt, store]);
+
   const replaceFileRefsWithOutput = useCallback((output: StudioGenerationOutput) => {
     const ref = getOutputReference(output);
     store.setFileRefs(ref ? [ref] : []);
   }, [store]);
+
+  const applyOutputAsImageVariation = useCallback((generation: StudioGeneration, output: StudioGenerationOutput) => {
+    applyGenerationSettingsToPrompt(generation);
+    store.setRawPrompt(getStudioUserPrompt(generation));
+    store.setAspectRatio(generation.aspectRatio || '1:1');
+    replaceFileRefsWithOutput(output);
+    clearSelectedOutput();
+  }, [applyGenerationSettingsToPrompt, clearSelectedOutput, replaceFileRefsWithOutput, store]);
+
+  const applyOutputAsVideoSource = useCallback((generation: StudioGeneration, output: StudioGenerationOutput) => {
+    store.setMode('video');
+    store.setRawPrompt(getStudioUserPrompt(generation));
+    applyGenerationReferencesToPrompt(generation);
+    store.setAspectRatio(['16:9', '9:16'].includes(generation.aspectRatio) ? generation.aspectRatio : '16:9');
+    store.setProvider('veo');
+    store.setModel(getDefaultModelForProvider('video', 'veo'));
+    replaceFileRefsWithOutput(output);
+    clearSelectedOutput();
+  }, [applyGenerationReferencesToPrompt, clearSelectedOutput, replaceFileRefsWithOutput, store]);
 
   const handleUseAspectRatio = useCallback((generation: StudioGeneration, output: StudioGenerationOutput, aspectRatio: string) => {
     applyGenerationSettingsToPrompt(generation);
@@ -836,44 +864,8 @@ export function CreateView({ initialProviderConfig = EMPTY_STUDIO_PROVIDER_CONFI
               onToggleFavorite={(generation, output) => {
                 void generationHook.toggleFavorite(generation.id, output.id, !output.isFavorite);
               }}
-              onCreateVariation={(generation, output) => {
-                store.setMode('image');
-                store.setRawPrompt(getStudioUserPrompt(generation));
-                store.setProductRefs((generation.product_ids ?? []).map((id) => {
-                  const p = products.find((product) => product.id === id);
-                  return { id, name: p?.name || id };
-                }));
-                store.setPersonaRefs((generation.persona_ids ?? []).map((id) => {
-                  const p = personas.find((persona) => persona.id === id);
-                  return { id, name: p?.name || id };
-                }));
-                store.setPresetRef(presets.find((p) => p.id === generation.studioPresetId) ?? null);
-                store.setAspectRatio(generation.aspectRatio || '1:1');
-                store.setProvider(generation.provider || 'gemini');
-                store.setModel(normalizeGeminiImageModelId(generation.model || getDefaultModelForProvider('image', generation.provider || 'gemini')));
-                replaceFileRefsWithOutput(output);
-                setSelectedGenerationId(null);
-                setSelectedOutputId(null);
-              }}
-              onCreateVideo={(generation, output) => {
-                store.setMode('video');
-                store.setRawPrompt(getStudioUserPrompt(generation));
-                store.setProductRefs((generation.product_ids ?? []).map((id) => {
-                  const p = products.find((product) => product.id === id);
-                  return { id, name: p?.name || id };
-                }));
-                store.setPersonaRefs((generation.persona_ids ?? []).map((id) => {
-                  const p = personas.find((persona) => persona.id === id);
-                  return { id, name: p?.name || id };
-                }));
-                store.setPresetRef(presets.find((p) => p.id === generation.studioPresetId) ?? null);
-                store.setAspectRatio(['16:9', '9:16'].includes(generation.aspectRatio) ? generation.aspectRatio : '16:9');
-                store.setProvider('veo');
-                store.setModel(getDefaultModelForProvider('video', 'veo'));
-                replaceFileRefsWithOutput(output);
-                setSelectedGenerationId(null);
-                setSelectedOutputId(null);
-              }}
+              onCreateVariation={applyOutputAsImageVariation}
+              onCreateVideo={applyOutputAsVideoSource}
               onDelete={(generation, output) => {
                 void generationHook.deleteOutput(generation.id, output.id);
                 if (selectedGenerationId === generation.id && selectedOutputId === output.id) {
@@ -1138,44 +1130,8 @@ export function CreateView({ initialProviderConfig = EMPTY_STUDIO_PROVIDER_CONFI
         onEditSelection={handleOpenEditSelection}
         onUseAspectRatio={handleUseAspectRatio}
         onOpenCustomAspectRatio={handleOpenCustomAspectRatio}
-        onCreateVariation={(generation, output) => {
-          store.setMode('image');
-          store.setRawPrompt(getStudioUserPrompt(generation));
-          store.setProductRefs((generation.product_ids ?? []).map((id: string) => {
-            const p = products.find((product) => product.id === id);
-            return { id, name: p?.name || id };
-          }));
-          store.setPersonaRefs((generation.persona_ids ?? []).map((id: string) => {
-            const p = personas.find((persona) => persona.id === id);
-            return { id, name: p?.name || id };
-          }));
-          store.setPresetRef(presets.find((p) => p.id === generation.studioPresetId) ?? null);
-          store.setAspectRatio(generation.aspectRatio || '1:1');
-          store.setProvider(generation.provider || 'gemini');
-          store.setModel(normalizeGeminiImageModelId(generation.model || getDefaultModelForProvider('image', generation.provider || 'gemini')));
-          replaceFileRefsWithOutput(output);
-          setSelectedGenerationId(null);
-          setSelectedOutputId(null);
-        }}
-        onCreateVideo={(generation, output) => {
-          store.setMode('video');
-          store.setRawPrompt(getStudioUserPrompt(generation));
-          store.setProductRefs((generation.product_ids ?? []).map((id: string) => {
-            const p = products.find((product) => product.id === id);
-            return { id, name: p?.name || id };
-          }));
-          store.setPersonaRefs((generation.persona_ids ?? []).map((id: string) => {
-            const p = personas.find((persona) => persona.id === id);
-            return { id, name: p?.name || id };
-          }));
-          store.setPresetRef(presets.find((p) => p.id === generation.studioPresetId) ?? null);
-          store.setAspectRatio(['16:9', '9:16'].includes(generation.aspectRatio) ? generation.aspectRatio : '16:9');
-          store.setProvider('veo');
-          store.setModel(getDefaultModelForProvider('video', 'veo'));
-          replaceFileRefsWithOutput(output);
-          setSelectedGenerationId(null);
-          setSelectedOutputId(null);
-        }}
+        onCreateVariation={applyOutputAsImageVariation}
+        onCreateVideo={applyOutputAsVideoSource}
         onDelete={(generation, output) => {
           void generationHook.deleteOutput(generation.id, output.id);
           setSelectedGenerationId(null);
