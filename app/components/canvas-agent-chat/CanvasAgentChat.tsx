@@ -74,8 +74,17 @@ import { cn } from '@/lib/utils';
 
 import { CANVAS_CHAT_ACTIVE_SESSION_STORAGE_KEY } from '@/app/lib/chat/constants';
 import { loadComposerDraft, removeComposerDraft, saveComposerDraft } from '@/app/lib/chat/draft-storage';
-import { fetchChatAgentConfig, fetchChatAgents } from '@/app/lib/chat/agent-api';
 import { getAgentDisplayName } from '@/app/lib/chat/agent-display';
+import {
+  DEFAULT_MODEL_ID,
+  DEFAULT_PROVIDER_ID,
+  DEFAULT_THINKING_LEVEL,
+  isAgentConfigForAgent,
+  resolveAgentModelState,
+  resolveAgentProviderState,
+  useChatAgentConfig,
+  type AgentModelState,
+} from '@/app/components/canvas-agent-chat/useChatAgentConfig';
 import { useChatAttachments } from '@/app/components/canvas-agent-chat/useChatAttachments';
 import { useChatComposerDraft } from '@/app/components/canvas-agent-chat/useChatComposerDraft';
 import { useChatRuntimeEvents } from '@/app/components/canvas-agent-chat/useChatRuntimeEvents';
@@ -83,7 +92,6 @@ import { useChatSessionHistory } from '@/app/components/canvas-agent-chat/useCha
 import { mapPersistedChatMessages } from '@/app/components/canvas-agent-chat/chatMessageMapping';
 import { useComposerReferences } from '@/app/components/canvas-agent-chat/useComposerReferences';
 import type {
-  AgentConfig,
   AgentProfile,
   AISession,
   Attachment,
@@ -93,7 +101,6 @@ import type {
   QueuePreviewItem,
   UserPiContent,
 } from '@/app/lib/chat/types';
-import type { PiThinkingLevel } from '@/app/lib/pi/config';
 import { DEFAULT_AGENT_ID } from '@/app/lib/channels/constants';
 
 const CHAT_AGENT_ID = DEFAULT_AGENT_ID;
@@ -111,17 +118,8 @@ interface CanvasAgentChatProps {
   onMediaClick?: (mediaUrl: string) => void;
 }
 
-const DEFAULT_PROVIDER_ID = '';
-const DEFAULT_MODEL_ID = '';
-const DEFAULT_THINKING_LEVEL: PiThinkingLevel = 'off';
 const CHAT_REQUEST_TIMEOUT_MS = 30_000;
 const ONBOARDING_CHAT_REQUEST_TIMEOUT_MS = 90_000;
-
-type AgentModelState = {
-  provider: string;
-  model: string;
-  thinkingLevel: PiThinkingLevel;
-};
 
 type InitialPromptPayload = {
   prompt: string;
@@ -130,41 +128,6 @@ type InitialPromptPayload = {
 };
 
 const MANAGED_AGENT_ID_PATTERN = /^[a-z0-9][a-z0-9_-]{0,63}$/;
-
-function resolveAgentModelState(config: AgentConfig | null): AgentModelState | null {
-  if (!config?.piConfig) {
-    return null;
-  }
-
-  const provider = config.effectiveConfig?.activeProvider || config.piConfig.activeProvider;
-  const providerConfig = config.piConfig.providers?.[provider];
-  const model = config.effectiveConfig?.model || providerConfig?.model;
-  if (!provider || !model) {
-    return null;
-  }
-
-  return {
-    provider,
-    model,
-    thinkingLevel: config.effectiveConfig?.thinkingLevel || providerConfig?.thinking || DEFAULT_THINKING_LEVEL,
-  };
-}
-
-function resolveAgentProviderState(config: AgentConfig | null): AgentModelState {
-  const provider = config?.effectiveConfig?.activeProvider || config?.piConfig?.activeProvider || DEFAULT_PROVIDER_ID;
-  const providerConfig = provider ? config?.piConfig?.providers?.[provider] : undefined;
-  const modelState = resolveAgentModelState(config);
-  return {
-    provider,
-    model: modelState?.model || '',
-    thinkingLevel: modelState?.thinkingLevel || providerConfig?.thinking || DEFAULT_THINKING_LEVEL,
-  };
-}
-
-function isAgentConfigForAgent(config: AgentConfig | null, agentId: string): boolean {
-  const configAgentId = config?.effectiveConfig?.agentId;
-  return !configAgentId || configAgentId === agentId;
-}
 
 function normalizeInitialPromptAgentId(value: unknown): string | null {
   if (typeof value !== 'string') {
@@ -406,13 +369,23 @@ export default function CanvasAgentChat({
   const [sessionTitle, setSessionTitle] = useState<string | null>(null);
   const [showHistory, setShowHistory] = useState(false);
   const [showMobileDetails, setShowMobileDetails] = useState(false);
-  const [activeModel, setActiveModel] = useState(DEFAULT_MODEL_ID);
-  const [activeProvider, setActiveProvider] = useState(DEFAULT_PROVIDER_ID);
-  const [activeThinkingLevel, setActiveThinkingLevel] = useState<PiThinkingLevel>(DEFAULT_THINKING_LEVEL);
-  const [agentConfig, setAgentConfig] = useState<AgentConfig | null>(null);
-  const [isAgentConfigLoading, setIsAgentConfigLoading] = useState(true);
-  const [availableAgents, setAvailableAgents] = useState<AgentProfile[]>([]);
-  const [selectedAgentId, setSelectedAgentId] = useState(CHAT_AGENT_ID);
+  const {
+    activeModel,
+    activeProvider,
+    activeThinkingLevel,
+    agentConfig,
+    availableAgents,
+    isAgentConfigLoading,
+    selectedAgentId,
+    setActiveModel,
+    setActiveProvider,
+    setActiveThinkingLevel,
+    setSelectedAgentId,
+    updateAgentModelSelection,
+  } = useChatAgentConfig({
+    initialAgentId: CHAT_AGENT_ID,
+    sessionId,
+  });
   const [hasUnreadInCurrentSession, setHasUnreadInCurrentSession] = useState(false);
   const [showUnreadBanner, setShowUnreadBanner] = useState(false);
   const [openQueueItemPopoverId, setOpenQueueItemPopoverId] = useState<string | null>(null);
@@ -864,7 +837,7 @@ export default function CanvasAgentChat({
     // No need to subscribe here manually to avoid double subscription
 
     return nextSessionId;
-  }, [activeModel, activeProvider, activeThinkingLevel, addSessionToHistory, agentConfig, input, selectedAgentId, t]);
+  }, [activeModel, activeProvider, activeThinkingLevel, addSessionToHistory, agentConfig, input, selectedAgentId, setActiveModel, setActiveProvider, setActiveThinkingLevel, t]);
 
   const postControl = useCallback(async (
     targetSessionId: string,
@@ -1006,7 +979,7 @@ export default function CanvasAgentChat({
     }
 
     return;
-  }, [activeModel, agentConfig, appendOptimisticUserMessage, attachments, buildRequestContext, chatRequestTimeoutMs, clearCurrentAssistant, createAssistantBubble, currentFile, ensureSession, ensureSessionSubscribed, input, isUploading, postControl, resetInputHistoryNavigation, runtimePhase, selectedAgentId, showHistory, isMobile, setAttachments, setOptimisticRuntimePhase, setRuntimeStatusWithReconciliation, shouldShowHistoryAsOverlay, scanForImageReferences, t, wsRequest]);
+  }, [activeModel, agentConfig, appendOptimisticUserMessage, attachments, buildRequestContext, chatRequestTimeoutMs, clearCurrentAssistant, createAssistantBubble, currentFile, ensureSession, ensureSessionSubscribed, input, isUploading, postControl, resetInputHistoryNavigation, runtimePhase, selectedAgentId, setActiveModel, setActiveProvider, setActiveThinkingLevel, showHistory, isMobile, setAttachments, setOptimisticRuntimePhase, setRuntimeStatusWithReconciliation, shouldShowHistoryAsOverlay, scanForImageReferences, t, wsRequest]);
 
   const handleSend = useCallback(async () => {
     try {
@@ -1141,7 +1114,7 @@ export default function CanvasAgentChat({
     setActiveProvider(providerState.provider);
     setActiveModel(providerState.model);
     setActiveThinkingLevel(providerState.thinkingLevel);
-  }, [agentConfig, input, resetInputHistoryNavigation, resetRuntimeMessageRefs, resetStreamConnection, selectedAgentId, isMobile, setAttachments, setRuntimeStatus, shouldShowHistoryAsOverlay]);
+  }, [agentConfig, input, resetInputHistoryNavigation, resetRuntimeMessageRefs, resetStreamConnection, selectedAgentId, setActiveModel, setActiveProvider, setActiveThinkingLevel, isMobile, setAttachments, setRuntimeStatus, shouldShowHistoryAsOverlay]);
 
   const selectChatAgent = useCallback((agentId: string) => {
     if (agentId === selectedAgentId && !sessionIdRef.current) {
@@ -1152,7 +1125,7 @@ export default function CanvasAgentChat({
     resetHistoryState();
     startNewChat(agentId);
     void fetchHistory();
-  }, [fetchHistory, resetHistoryState, selectedAgentId, startNewChat, setHistoryAgentFilter]);
+  }, [fetchHistory, resetHistoryState, selectedAgentId, setSelectedAgentId, startNewChat, setHistoryAgentFilter]);
 
   const mapRawMessages = useCallback((rawMessages: PersistedChatMessage[]): ChatMessage[] => {
     return mapPersistedChatMessages(rawMessages, t('runStopped'));
@@ -1399,7 +1372,7 @@ export default function CanvasAgentChat({
         loadSessionAbortRef.current = null;
       }
     }
-  }, [agentConfig, ensureSessionSubscribed, hydrateRuntimeMessageRefs, mapRawMessages, resetRuntimeMessageRefs, resetStreamConnection, resolveSessionTitle, scrollToBottom, setHistory, setLastCompactionMarker, setRuntimeStatus, setRuntimeStatusWithReconciliation, setTotalUnreadCount, t, isMobile, shouldShowHistoryAsOverlay, wsRequest]);
+  }, [agentConfig, ensureSessionSubscribed, hydrateRuntimeMessageRefs, mapRawMessages, resetRuntimeMessageRefs, resetStreamConnection, resolveSessionTitle, scrollToBottom, setActiveModel, setActiveProvider, setActiveThinkingLevel, setHistory, setLastCompactionMarker, setRuntimeStatus, setRuntimeStatusWithReconciliation, setSelectedAgentId, setTotalUnreadCount, t, isMobile, shouldShowHistoryAsOverlay, wsRequest]);
 
   const loadOlderMessages = useCallback(async () => {
     const currentSessionId = sessionIdRef.current;
@@ -1563,59 +1536,6 @@ export default function CanvasAgentChat({
   }, [activeReferenceMatch, closeReferencePicker, handleReferenceSelect, handleSend, handleStop, isWebSocketUnavailable, navigateInputHistory, referencePickerItems, runtimeStatusRef, selectNextReference, selectedReferenceIndex, selectPreviousReference, togglePlanningMode]);
 
   useEffect(() => {
-    let cancelled = false;
-
-    const fetchConfig = async () => {
-      try {
-        setAgentConfig(null);
-        setIsAgentConfigLoading(true);
-        const config = await fetchChatAgentConfig(selectedAgentId);
-        if (!cancelled) {
-          setAgentConfig(config);
-        }
-      } catch (err) {
-        if (!cancelled) {
-          console.error('Failed to fetch agent config', err);
-        }
-      } finally {
-        if (!cancelled) {
-          setIsAgentConfigLoading(false);
-        }
-      }
-    };
-
-    void fetchConfig();
-    return () => {
-      cancelled = true;
-    };
-  }, [selectedAgentId]);
-
-  useEffect(() => {
-    const fetchAgents = async () => {
-      try {
-        setAvailableAgents(await fetchChatAgents());
-      } catch (err) {
-        console.error('Failed to fetch agents', err);
-      }
-    };
-
-    void fetchAgents();
-  }, [setHistory]);
-
-  useEffect(() => {
-    if (sessionId) {
-      return;
-    }
-    const providerState = resolveAgentProviderState(agentConfig);
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setActiveProvider(providerState.provider);
-    setActiveModel(providerState.model);
-    setActiveThinkingLevel(providerState.thinkingLevel);
-  }, [agentConfig, sessionId]);
-
-
-
-  useEffect(() => {
     if (initialPromptConsumedRef.current) return;
     if (!agentConfig) return;
     if (!isAgentConfigForAgent(agentConfig, selectedAgentId)) return;
@@ -1659,7 +1579,7 @@ export default function CanvasAgentChat({
     }
 
     void queueInitialPrompt(parsed.prompt, parsed.attachments, initialPromptStorageKey);
-  }, [agentConfig, appendSystemMessage, handleControlAction, initialPrompt, initialPromptStorageKey, selectedAgentId, setHistoryAgentFilter, t]);
+  }, [agentConfig, appendSystemMessage, handleControlAction, initialPrompt, initialPromptStorageKey, selectedAgentId, setHistoryAgentFilter, setSelectedAgentId, t]);
 
   useEffect(() => {
     if (initialPrompt?.trim()) return;
@@ -1795,53 +1715,14 @@ export default function CanvasAgentChat({
 
   // Poll runtime status only while the agent is active; fetch once on session switch
   const isAgentActive = runtimeStatus != null && runtimeStatus.phase !== 'idle';
-  const handleModelChange = useCallback((next: { model: string; thinkingLevel: PiThinkingLevel; provider: string }) => {
-    setActiveModel(next.model);
-    setActiveProvider(next.provider);
-    setActiveThinkingLevel(next.thinkingLevel);
-    setAgentConfig((current) => {
-      const providerConfig = current?.piConfig?.providers?.[next.provider];
-      if (!current || !providerConfig) {
-        return current;
-      }
-
-      return {
-        ...current,
-        effectiveConfig: current.effectiveConfig
-          ? {
-              ...current.effectiveConfig,
-              activeProvider: next.provider,
-              model: next.model,
-              thinkingLevel: next.thinkingLevel,
-              setupState: current.effectiveConfig.setupState
-                ? {
-                    ...current.effectiveConfig.setupState,
-                    modelConfigured: true,
-                    issues: current.effectiveConfig.setupState.issues.filter((issue) => !issue.toLowerCase().includes('model')),
-                  }
-                : current.effectiveConfig.setupState,
-            }
-          : current.effectiveConfig,
-        piConfig: {
-          ...current.piConfig,
-          activeProvider: next.provider,
-          providers: {
-            ...current.piConfig.providers,
-            [next.provider]: {
-              ...providerConfig,
-              model: next.model,
-              thinking: next.thinkingLevel,
-            },
-          },
-        },
-      };
-    });
+  const handleModelChange = useCallback((next: AgentModelState) => {
+    updateAgentModelSelection(next);
     setHistory((items) => items.map((item) => (
       item.sessionId === sessionIdRef.current
         ? { ...item, model: next.model, provider: next.provider, thinkingLevel: next.thinkingLevel }
         : item
     )));
-  }, [setHistory]);
+  }, [setHistory, updateAgentModelSelection]);
 
   const invalidateRuntimeAfterModelChange = useCallback(async () => {
     const currentSessionId = sessionIdRef.current;
