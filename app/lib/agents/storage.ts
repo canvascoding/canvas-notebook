@@ -5,6 +5,7 @@ import { promises as fs } from 'fs';
 import { type AgentId } from './catalog';
 import { DEFAULT_PI_CONFIG, normalizePiRuntimeConfig, type PiRuntimeConfig, validatePiConfig } from '../pi/config';
 import { CANVAS_CONTROL_PLANE_PROVIDER_ID, getCanvasControlPlaneModels } from '../managed/control-plane-models';
+import { getManagedControlPlaneBaseUrl } from '../managed/control-plane-url';
 import { resolveAgentStorageDir, resolveAgentsStorageRoot } from '../runtime-data-paths';
 import {
   ensureSettingsStorageDirectory,
@@ -76,7 +77,7 @@ export class AgentConfigValidationError extends Error {
 export function isManagedControlPlaneAvailable(): boolean {
   return (
     process.env.CANVAS_MANAGED_SERVICES_ENABLED === 'true' ||
-    Boolean(process.env.CANVAS_CONTROL_PLANE_URL?.trim() && process.env.CANVAS_INSTANCE_TOKEN?.trim())
+    Boolean(getManagedControlPlaneBaseUrl() && process.env.CANVAS_INSTANCE_TOKEN?.trim())
   );
 }
 

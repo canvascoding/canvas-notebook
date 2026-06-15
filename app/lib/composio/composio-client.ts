@@ -2,6 +2,7 @@ import 'server-only';
 
 import { Composio } from '@composio/core';
 import { readScopedEnvState } from '../integrations/env-config';
+import { getManagedControlPlaneBaseUrl } from '../managed/control-plane-url';
 import { getComposioUserId } from './composio-identity';
 
 let composioInstance: Composio | null = null;
@@ -11,7 +12,7 @@ export type ComposioMode = 'local' | 'managed' | 'disabled';
 function isManagedComposioAvailable(): boolean {
   return (
     process.env.CANVAS_MANAGED_SERVICES_ENABLED === 'true' &&
-    Boolean(process.env.CANVAS_CONTROL_PLANE_URL?.trim()) &&
+    Boolean(getManagedControlPlaneBaseUrl()) &&
     Boolean(process.env.CANVAS_INSTANCE_TOKEN?.trim())
   );
 }

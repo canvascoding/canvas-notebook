@@ -3,6 +3,7 @@ import 'server-only';
 import crypto from 'crypto';
 
 import { readScopedEnvState, replaceScopedEnvEntries } from '../integrations/env-config';
+import { getManagedControlPlaneBaseUrl } from '../managed/control-plane-url';
 
 const COMPOSIO_USER_ID_KEY = 'COMPOSIO_USER_ID';
 const COMPOSIO_USER_ID_PREFIX = 'canvas-notebook-';
@@ -18,7 +19,7 @@ function composioUserIdFromInstance(): string | null {
 function isManagedInstance(): boolean {
   return (
     process.env.CANVAS_MANAGED_SERVICES_ENABLED === 'true' &&
-    Boolean(process.env.CANVAS_CONTROL_PLANE_URL?.trim()) &&
+    Boolean(getManagedControlPlaneBaseUrl()) &&
     Boolean(process.env.CANVAS_INSTANCE_TOKEN?.trim())
   );
 }
