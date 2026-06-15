@@ -1,20 +1,7 @@
 import { toMediaUrl, toPreviewUrl, toUploadMediaUrl, toUploadPreviewUrl } from '@/app/lib/utils/media-url';
+import type { ChatAttachment } from '@/app/lib/chat/types';
 
-export interface ChatAttachment {
-  name: string;
-  contentKind: 'image' | 'document';
-  // Upload file ID or stable attachment key.
-  id: string;
-  mimeType?: string;
-  category?: string;
-  // Optional absolute/container path for direct server-side reading.
-  filePath?: string;
-  // Lightweight image thumbnail. Chat UI must use this instead of loading originals.
-  previewUrl?: string;
-  // Original media URL, used only for explicit open/zoom actions.
-  mediaUrl?: string;
-  size?: number;
-}
+export type { ChatAttachment };
 
 function decodePathSegment(value: string): string {
   try {

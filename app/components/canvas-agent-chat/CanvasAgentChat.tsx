@@ -114,10 +114,14 @@ import {
   deriveUploadAttachmentPreview,
   getAttachmentMediaUrl,
   resolvePreviewSrcFromMediaUrl,
-  type ChatAttachment,
 } from '@/app/components/canvas-agent-chat/attachment-preview';
 import { AgentAvatar, AgentIcon } from '@/app/components/agents/AgentAvatar';
-import type { RuntimeQueueItem, RuntimeStatus } from '@/app/components/canvas-agent-chat/runtime-status';
+import type { RuntimeStatus } from '@/app/lib/chat/runtime-status';
+import {
+  getHistoryRuntimeActiveToolName,
+  getHistoryRuntimePhase,
+  normalizeSessionRuntimePhase,
+} from '@/app/lib/chat/runtime-message-utils';
 import { getSessionDisplayTitle, isAutomaticSessionTitle } from '@/app/lib/pi/session-titles';
 import { type CompactBreakMessage, isCompactBreakMessage, isComposioAuthRequiredMessage, isRuntimeContinuationMessage, type ComposioAuthRequiredMessage } from '@/app/lib/pi/custom-messages';
 import { renderSkillIcon } from '@/app/lib/skills/skill-icons';
@@ -135,188 +139,30 @@ import { PlanModeToggle } from './PlanModeToggle';
 import { CANVAS_CHAT_ACTIVE_SESSION_STORAGE_KEY } from '@/app/lib/chat/constants';
 import { loadComposerDraft, removeComposerDraft, saveComposerDraft } from '@/app/lib/chat/draft-storage';
 import { applySessionUnreadUpdate } from '@/app/lib/chat/unread';
-import type { ChatRequestContext } from '@/app/lib/chat/types';
+import type {
+  AgentConfig,
+  AgentProfile,
+  AISession,
+  Attachment,
+  AttachmentOpenHandler,
+  CachedChatSession,
+  ChatEvent,
+  ChatHistoryAgentOption,
+  ChatHistoryGroup,
+  ChatHistoryGroups,
+  ChatHistoryPanelVariant,
+  ChatMessage,
+  ChatRequestContext,
+  ChatSessionCacheStore,
+  CollapsedRun,
+  PersistedChatMessage,
+  PersistedToolCallPart,
+  QueuePreviewItem,
+  UserPiContent,
+} from '@/app/lib/chat/types';
 import type { PiThinkingLevel } from '@/app/lib/pi/config';
 import { DEFAULT_AGENT_ID } from '@/app/lib/channels/constants';
 
-type Attachment = ChatAttachment;
-
-interface ChatMessage {
-  id: string;
-  role: 'user' | 'assistant' | 'system' | 'toolResult';
-  content: string;
-  type?: 'tool_use' | 'tool_result' | 'system' | 'compact_break' | 'composio_auth_required';
-  status?: 'pending' | 'sending' | 'queued_follow_up' | 'queued_steering' | 'aborting' | 'sent' | 'error';
-  attachments?: Attachment[];
-  piMessage?: AgentMessage;
-  toolName?: string;
-  toolCallId?: string;
-  toolArgs?: string;
-  queueKind?: 'follow_up' | 'steer';
-  optimistic?: boolean;
-  isCollapsed?: boolean;
-  autoCollapsedAtEnd?: boolean;
-  previewText?: string;
-  compactMeta?: {
-    kind: 'manual' | 'automatic';
-    timestamp: string;
-    omittedMessageCount: number;
-  };
-  composioAuthMeta?: {
-    toolkit: string;
-    toolkitName: string;
-    redirectUrl: string;
-    toolName: string;
-  };
-}
-
-type QueuePreviewItem = RuntimeQueueItem & { kind: 'follow_up' | 'steer' };
-type SessionRuntimePhase = RuntimeStatus['phase'];
-
-function normalizeSessionRuntimePhase(value: unknown): SessionRuntimePhase | null {
-  return value === 'idle' || value === 'streaming' || value === 'running_tool' || value === 'aborting'
-    ? value
-    : null;
-}
-
-function getHistoryRuntimePhase(status: RuntimeStatus): SessionRuntimePhase | null {
-  return status.phase === 'idle' ? null : status.phase;
-}
-
-function getHistoryRuntimeActiveToolName(status: RuntimeStatus): string | null {
-  return status.phase === 'running_tool' ? status.activeTool?.name ?? null : null;
-}
-
-interface AISession {
-  id: number;
-  sessionId: string;
-  title: string | null;
-  agentId?: string;
-  model: string;
-  provider?: string | null;
-  thinkingLevel?: PiThinkingLevel | null;
-  createdAt: string;
-  engine?: 'legacy' | 'pi';
-  lastMessageAt?: string | null;
-  lastViewedAt?: string | null;
-  runtimePhase?: SessionRuntimePhase | null;
-  runtimeActiveToolName?: string | null;
-  hasUnread?: boolean;
-  creator?: {
-    name?: string | null;
-    email?: string | null;
-  };
-}
-
-type CachedChatSession = {
-  version: 1;
-  session: AISession;
-  messages: ChatMessage[];
-  hasMoreBefore: boolean;
-  oldestTimestamp: number | null;
-  oldestMessageId: number | null;
-  oldestSequence: number | null;
-  cachedAt: number;
-};
-
-type ChatSessionCacheStore = {
-  version: 1;
-  entries: CachedChatSession[];
-};
-
-interface ChatEvent {
-  type: string;
-  message?: AgentMessage;
-  text?: string;
-  assistantMessageEvent?: {
-    type?: string;
-    delta?: string;
-    content?: string;
-  };
-  toolName?: string;
-  toolCallId?: string;
-  args?: unknown;
-  result?: {
-    content?: unknown[];
-    details?: unknown;
-  };
-  partialResult?: {
-    content?: unknown[];
-    details?: unknown;
-  };
-  error?: string;
-  messages?: AgentMessage[];
-  status?: RuntimeStatus;
-  timestamp?: string;
-  kind?: 'manual' | 'automatic';
-  omittedMessageCount?: number;
-  includedSummary?: boolean;
-}
-
-type PersistedChatMessage = AgentMessage & {
-  id?: number | string;
-  sequence?: number;
-};
-type PersistedToolCallPart = {
-  type: 'toolCall';
-  id: string;
-  name: string;
-  arguments: unknown;
-};
-type UserPiMessage = Extract<AgentMessage, { role: 'user' }>;
-type UserPiContent = UserPiMessage['content'];
-
-type CollapsedRun = {
-  key: string;
-  finalAssistantId: string;
-  steps: ChatMessage[];
-  startedAt: number | null;
-  endedAt: number | null;
-};
-
-type AttachmentOpenHandler = (attachment: Attachment, previewGroup?: Attachment[]) => void;
-
-type DiscoveryModel = {
-  id: string;
-  name: string;
-  supportsVision?: boolean;
-  reasoning?: boolean;
-};
-
-type AgentConfig = {
-  piConfig: {
-    activeProvider: string;
-    providers: Record<string, { model: string; thinking?: PiThinkingLevel }>;
-  };
-  effectiveConfig?: {
-    agentId: string;
-    activeProvider: string;
-    model: string | null;
-    thinkingLevel: PiThinkingLevel;
-    setupState?: {
-      modelConfigured: boolean;
-      issues: string[];
-    };
-  };
-  discovery: Record<string, { models: DiscoveryModel[] }>;
-};
-
-type AgentProfile = {
-  agentId: string;
-  name: string;
-  iconId?: string;
-  type: string;
-  removable: boolean;
-};
-
-type ChatHistoryGroup = 'today' | 'last7' | 'last14' | 'last30' | 'older';
-type ChatHistoryGroups = Record<ChatHistoryGroup, AISession[]>;
-type ChatHistoryPanelVariant = 'sidebar' | 'overlay';
-type ChatHistoryAgentOption = {
-  agentId: string;
-  name: string;
-  iconId?: string;
-};
 const CHAT_HISTORY_GROUP_ORDER: ChatHistoryGroup[] = ['today', 'last7', 'last14', 'last30', 'older'];
 
 const CHAT_AGENT_ID = DEFAULT_AGENT_ID;
