@@ -92,6 +92,7 @@ export async function createMigrationUpload(params: {
 export async function writeMigrationUploadPart(params: {
   uploadId: string;
   partIndex: number;
+  expectedBytes?: number;
   body: ReadableStream<Uint8Array> | null;
 }): Promise<MigrationUploadStatus> {
   const status = await readMigrationUpload(params.uploadId);
@@ -101,6 +102,9 @@ export async function writeMigrationUploadPart(params: {
   if (!Number.isSafeInteger(params.partIndex) || params.partIndex < 0 || params.partIndex >= status.totalParts) {
     throw new Error('Upload part index is invalid.');
   }
+  if (params.expectedBytes !== undefined && (!Number.isSafeInteger(params.expectedBytes) || params.expectedBytes < 0)) {
+    throw new Error('Upload part expected byte count is invalid.');
+  }
 
   await ensureMigrationDir(getUploadPartsDir(params.uploadId));
   const partPath = getPartPath(params.uploadId, params.partIndex);
@@ -109,6 +113,11 @@ export async function writeMigrationUploadPart(params: {
     createWriteStream(partPath, { mode: 0o600 }),
   );
   await fs.chmod(partPath, 0o600).catch(() => undefined);
+  const stats = await fs.stat(partPath);
+  if (params.expectedBytes !== undefined && stats.size !== params.expectedBytes) {
+    await fs.rm(partPath, { force: true }).catch(() => undefined);
+    throw new Error(`Migration upload part size mismatch: part ${params.partIndex} expected ${params.expectedBytes}, got ${stats.size}.`);
+  }
 
   if (!status.receivedParts.includes(params.partIndex)) {
     status.receivedParts.push(params.partIndex);

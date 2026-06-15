@@ -41,6 +41,7 @@
     "test:file-watcher": "tsx scripts/file-watcher-client-test.ts && tsx scripts/file-browser-refresh-test.ts",
     "test:media:references": "tsx --conditions react-server scripts/media-reference-resolver-test.ts",
     "test:upload:conversion": "tsx --conditions react-server scripts/upload-conversion-test.ts",
+    "test:migration:upload": "tsx --conditions react-server scripts/migration-upload-test.ts",
     "test:prompt-builder": "tsx scripts/prompt-builder-test.ts",
     "test:studio:prompt": "tsx scripts/studio-generation-prompt-test.ts",
     "test:studio:preset-preview": "tsx scripts/studio-preset-preview-test.ts",

@@ -31,6 +31,10 @@ import {
   type MigrationInspection,
   type MigrationUploadStatus,
 } from '@/app/lib/migration/types';
+import {
+  getMigrationUploadPartRange,
+  getMigrationUploadTotalParts,
+} from '@/app/lib/migration/upload-chunks';
 
 interface WorkspaceStats {
   fileCount: number;
@@ -43,8 +47,6 @@ interface WorkspaceSettingsPanelProps {
 }
 
 type DownloadScope = 'workspace' | 'data';
-
-const MIGRATION_CHUNK_SIZE = 64 * 1024 * 1024;
 
 const COMPONENT_ICONS: Record<MigrationComponentKey, LucideIcon> = {
   database: Database,
@@ -218,7 +220,7 @@ export function WorkspaceSettingsPanel({ isAdmin = false }: WorkspaceSettingsPan
     setUploadProgress(0);
 
     try {
-      const totalParts = Math.max(1, Math.ceil(file.size / MIGRATION_CHUNK_SIZE));
+      const totalParts = getMigrationUploadTotalParts(file.size);
       const createResponse = await fetch('/api/migration/uploads', {
         method: 'POST',
         credentials: 'include',
@@ -238,9 +240,8 @@ export function WorkspaceSettingsPanel({ isAdmin = false }: WorkspaceSettingsPan
       setUploadStatus(createPayload.upload);
 
       for (let partIndex = 0; partIndex < totalParts; partIndex++) {
-        const start = partIndex * MIGRATION_CHUNK_SIZE;
-        const end = Math.min(file.size, start + MIGRATION_CHUNK_SIZE);
-        const partResponse = await fetch(`/api/migration/uploads/${uploadId}?partIndex=${partIndex}`, {
+        const { start, end, size } = getMigrationUploadPartRange(file.size, partIndex);
+        const partResponse = await fetch(`/api/migration/uploads/${uploadId}?partIndex=${partIndex}&expectedBytes=${size}`, {
           method: 'PUT',
           credentials: 'include',
           body: file.slice(start, end),

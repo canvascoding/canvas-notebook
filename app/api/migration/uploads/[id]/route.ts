@@ -4,6 +4,15 @@ import { requireMigrationAdmin } from '@/app/lib/migration/auth';
 import { readMigrationUpload, writeMigrationUploadPart } from '@/app/lib/migration/upload-service';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 
+function parseOptionalByteCount(value: string | null): number | undefined {
+  if (value === null || value.trim() === '') return undefined;
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed < 0) {
+    throw new Error('Upload part expected byte count is invalid.');
+  }
+  return parsed;
+}
+
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
@@ -33,13 +42,16 @@ export async function PUT(
   });
   if (!limited.ok) return limited.response;
 
-  const { id } = await params;
-  const partIndex = Number(request.nextUrl.searchParams.get('partIndex'));
-
   try {
+    const { id } = await params;
+    const partIndex = Number(request.nextUrl.searchParams.get('partIndex'));
+    const expectedBytes = parseOptionalByteCount(request.nextUrl.searchParams.get('expectedBytes'))
+      ?? parseOptionalByteCount(request.headers.get('content-length'));
+
     const upload = await writeMigrationUploadPart({
       uploadId: id,
       partIndex,
+      expectedBytes,
       body: request.body,
     });
     return NextResponse.json({ success: true, upload });
