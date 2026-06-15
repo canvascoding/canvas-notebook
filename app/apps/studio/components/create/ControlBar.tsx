@@ -1,6 +1,7 @@
 'use client';
 
 import { useTranslations } from 'next-intl';
+import type { ReactNode } from 'react';
 import { ChevronDown, Settings2, Sparkles } from 'lucide-react';
 import {
   DropdownMenu,
@@ -38,6 +39,30 @@ import {
 } from '@/app/lib/integrations/image-generation-constants';
 
 const IMAGE_COUNTS = [1, 2, 3, 4] as const;
+
+interface SelectFieldProps {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  children: ReactNode;
+  disabled?: boolean;
+}
+
+function SelectField({ label, value, onChange, children, disabled }: SelectFieldProps) {
+  return (
+    <label className="flex flex-col gap-1 text-sm">
+      <span className="text-xs text-muted-foreground">{label}</span>
+      <select
+        className="h-9 rounded-xl border border-input bg-background px-2 text-sm"
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        disabled={disabled}
+      >
+        {children}
+      </select>
+    </label>
+  );
+}
 
 interface ControlBarProps {
   mode: StudioGenerationMode;
@@ -256,127 +281,82 @@ export function ControlBar({
       {showMoreOptions && (
         <div className="rounded-2xl border border-border/70 bg-background/70 px-3 py-2 shadow-sm">
           <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
-            <label className="flex flex-col gap-1 text-sm">
-              <span className="text-xs text-muted-foreground">Provider</span>
-              <select
-                className="h-9 rounded-xl border border-input bg-background px-2 text-sm"
-                value={provider}
-                onChange={(event) => onProviderChange(event.target.value)}
-              >
-                {(mode === 'sound' ? SOUND_PROVIDERS : mode === 'video' ? VIDEO_PROVIDERS : PROVIDERS).map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.id === 'gemini' ? 'Google Gemini' : p.id === 'openai' ? 'OpenAI' : p.id === 'bytedance' ? 'Bytedance' : 'Google Veo'}
-                  </option>
-                ))}
-              </select>
-            </label>
+            <SelectField label="Provider" value={provider} onChange={onProviderChange}>
+              {(mode === 'sound' ? SOUND_PROVIDERS : mode === 'video' ? VIDEO_PROVIDERS : PROVIDERS).map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.id === 'gemini' ? 'Google Gemini' : p.id === 'openai' ? 'OpenAI' : p.id === 'bytedance' ? 'Bytedance' : 'Google Veo'}
+                </option>
+              ))}
+            </SelectField>
 
-            <label className="flex flex-col gap-1 text-sm">
-              <span className="text-xs text-muted-foreground">Model</span>
-              <select
-                className="h-9 rounded-xl border border-input bg-background px-2 text-sm"
-                value={model}
-                onChange={(event) => onModelChange(event.target.value)}
-              >
-                {models.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {isVideo || isSound
-                      ? (MODEL_LABELS[m.id] || m.id)
-                      : provider === 'openai'
-                        ? OPENAI_MODELS.find((om) => om.id === m.id)?.optionKey === 'gptImage2'
-                          ? 'GPT Image 2 — Best Quality'
-                          : 'GPT Image 1.5 — Best Quality'
-                        : m.id === GEMINI_FLASH_IMAGE_MODEL_ID
-                          ? 'Gemini 3.1 Flash — Best Quality & Features'
-                          : m.id === GEMINI_PRO_IMAGE_MODEL_ID
-                            ? 'Nano Banana Pro — Pro Quality & Reasoning'
-                            : 'Gemini 2.5 Flash — Fast & Affordable'}
-                  </option>
-                ))}
-              </select>
-            </label>
+            <SelectField label="Model" value={model} onChange={onModelChange}>
+              {models.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {isVideo || isSound
+                    ? (MODEL_LABELS[m.id] || m.id)
+                    : provider === 'openai'
+                      ? OPENAI_MODELS.find((om) => om.id === m.id)?.optionKey === 'gptImage2'
+                        ? 'GPT Image 2 — Best Quality'
+                        : 'GPT Image 1.5 — Best Quality'
+                      : m.id === GEMINI_FLASH_IMAGE_MODEL_ID
+                        ? 'Gemini 3.1 Flash — Best Quality & Features'
+                        : m.id === GEMINI_PRO_IMAGE_MODEL_ID
+                          ? 'Nano Banana Pro — Pro Quality & Reasoning'
+                          : 'Gemini 2.5 Flash — Fast & Affordable'}
+                </option>
+              ))}
+            </SelectField>
 
             {isOpenAI && mode === 'image' ? (
               <>
-                <label className="flex flex-col gap-1 text-sm">
-                  <span className="text-xs text-muted-foreground">Quality</span>
-                  <select
-                    className="h-9 rounded-xl border border-input bg-background px-2 text-sm"
-                    value={quality}
-                    onChange={(event) => onQualityChange(event.target.value as typeof quality)}
-                  >
-                    {QUALITY_OPTIONS.map((q) => (
-                      <option key={q} value={q}>
-                        {q.charAt(0).toUpperCase() + q.slice(1)}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+                <SelectField label="Quality" value={quality} onChange={(value) => onQualityChange(value as typeof quality)}>
+                  {QUALITY_OPTIONS.map((q) => (
+                    <option key={q} value={q}>
+                      {q.charAt(0).toUpperCase() + q.slice(1)}
+                    </option>
+                  ))}
+                </SelectField>
 
-                <label className="flex flex-col gap-1 text-sm">
-                  <span className="text-xs text-muted-foreground">Output Format</span>
-                  <select
-                    className="h-9 rounded-xl border border-input bg-background px-2 text-sm"
-                    value={outputFormat}
-                    onChange={(event) => onOutputFormatChange(event.target.value as typeof outputFormat)}
-                  >
-                    {OUTPUT_FORMAT_OPTIONS.map((fmt) => (
-                      <option key={fmt} value={fmt}>
-                        {fmt.toUpperCase()}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+                <SelectField label="Output Format" value={outputFormat} onChange={(value) => onOutputFormatChange(value as typeof outputFormat)}>
+                  {OUTPUT_FORMAT_OPTIONS.map((fmt) => (
+                    <option key={fmt} value={fmt}>
+                      {fmt.toUpperCase()}
+                    </option>
+                  ))}
+                </SelectField>
               </>
             ) : null}
 
             {isSound ? (
-              <label className="flex flex-col gap-1 text-sm">
-                <span className="text-xs text-muted-foreground">Output Format</span>
-                <select
-                  className="h-9 rounded-xl border border-input bg-background px-2 text-sm"
-                  value={model === 'lyria-3-pro-preview' && (outputFormat === 'mp3' || outputFormat === 'wav') ? outputFormat : 'mp3'}
-                  onChange={(event) => onOutputFormatChange(event.target.value as typeof outputFormat)}
-                  disabled={model !== 'lyria-3-pro-preview'}
-                >
-                  <option value="mp3">MP3</option>
-                  <option value="wav">WAV</option>
-                </select>
-              </label>
+              <SelectField
+                label="Output Format"
+                value={model === 'lyria-3-pro-preview' && (outputFormat === 'mp3' || outputFormat === 'wav') ? outputFormat : 'mp3'}
+                onChange={(value) => onOutputFormatChange(value as typeof outputFormat)}
+                disabled={model !== 'lyria-3-pro-preview'}
+              >
+                <option value="mp3">MP3</option>
+                <option value="wav">WAV</option>
+              </SelectField>
             ) : null}
 
             {!isOpenAI && mode === 'image' && getImageSizesForModel(model).length > 0 ? (
-              <label className="flex flex-col gap-1 text-sm">
-                <span className="text-xs text-muted-foreground">Resolution</span>
-                <select
-                  className="h-9 rounded-xl border border-input bg-background px-2 text-sm"
-                  value={imageSize}
-                  onChange={(event) => onImageSizeChange(event.target.value)}
-                >
-                  {getImageSizesForModel(model).map((size) => (
-                    <option key={size} value={size}>
-                      {imageSizeLabels[size] || size}
-                    </option>
-                  ))}
-                </select>
-              </label>
+              <SelectField label="Resolution" value={imageSize} onChange={onImageSizeChange}>
+                {getImageSizesForModel(model).map((size) => (
+                  <option key={size} value={size}>
+                    {imageSizeLabels[size] || size}
+                  </option>
+                ))}
+              </SelectField>
             ) : null}
 
             {isOpenAI && mode === 'image' ? (
-              <label className="flex flex-col gap-1 text-sm">
-                <span className="text-xs text-muted-foreground">Background</span>
-                <select
-                  className="h-9 rounded-xl border border-input bg-background px-2 text-sm"
-                  value={background}
-                  onChange={(event) => onBackgroundChange(event.target.value as typeof background)}
-                >
-                  {BACKGROUND_OPTIONS.map((bg) => (
-                    <option key={bg} value={bg}>
-                      {bg.charAt(0).toUpperCase() + bg.slice(1)}
-                    </option>
-                  ))}
-                </select>
-              </label>
+              <SelectField label="Background" value={background} onChange={(value) => onBackgroundChange(value as typeof background)}>
+                {BACKGROUND_OPTIONS.map((bg) => (
+                  <option key={bg} value={bg}>
+                    {bg.charAt(0).toUpperCase() + bg.slice(1)}
+                  </option>
+                ))}
+              </SelectField>
             ) : null}
 
             {isSeedance ? (
