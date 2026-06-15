@@ -122,6 +122,7 @@ import {
   getHistoryRuntimePhase,
 } from '@/app/lib/chat/runtime-message-utils';
 import { areChatMessageListsEquivalent } from '@/app/lib/chat/message-equivalence';
+import { safeFetchJson } from '@/app/lib/chat/fetch-json';
 import {
   buildCachedChatSessionEntry,
   isCacheableMessageSet,
@@ -540,21 +541,6 @@ function hasEarlierVisibleAssistantInRun(messages: ChatMessage[], messageIndex: 
   }
 
   return false;
-}
-
-async function safeFetchJson<T = unknown>(res: Response): Promise<T | null> {
-  if (!res.ok) {
-    return null;
-  }
-  const text = await res.text();
-  if (!text) {
-    return null;
-  }
-  try {
-    return JSON.parse(text) as T;
-  } catch {
-    return null;
-  }
 }
 
 function isImagePart(value: unknown): value is { type: 'image'; data: string; mimeType: string } {
