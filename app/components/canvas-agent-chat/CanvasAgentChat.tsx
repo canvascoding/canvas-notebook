@@ -47,21 +47,14 @@ import {
   isRecord,
 } from '@/app/lib/chat/message-content';
 import type { RuntimeStatus } from '@/app/lib/chat/runtime-status';
-import { areChatMessageListsEquivalent } from '@/app/lib/chat/message-equivalence';
 import {
-  buildCachedChatSessionEntry,
-  isCacheableMessageSet,
-  persistChatSessionCache,
-  readCachedChatSession,
   readLatestCachedChatSession,
-  rememberChatSessionCacheEntry,
   removeCachedChatSession,
   updateCachedChatSessionTitle,
 } from '@/app/lib/chat/session-cache';
 import {
   createChatSession,
   deleteChatSession as deleteChatSessionRequest,
-  fetchChatSessionMessages,
   patchChatSessions,
 } from '@/app/lib/chat/session-api';
 import { getSessionDisplayTitle, isAutomaticSessionTitle } from '@/app/lib/pi/session-titles';
@@ -89,7 +82,7 @@ import { useChatAttachments } from '@/app/components/canvas-agent-chat/useChatAt
 import { useChatComposerDraft } from '@/app/components/canvas-agent-chat/useChatComposerDraft';
 import { useChatRuntimeEvents } from '@/app/components/canvas-agent-chat/useChatRuntimeEvents';
 import { useChatSessionHistory } from '@/app/components/canvas-agent-chat/useChatSessionHistory';
-import { mapPersistedChatMessages } from '@/app/components/canvas-agent-chat/chatMessageMapping';
+import { useChatSessionMessages } from '@/app/components/canvas-agent-chat/useChatSessionMessages';
 import { useComposerReferences } from '@/app/components/canvas-agent-chat/useComposerReferences';
 import type {
   AgentProfile,
@@ -97,7 +90,6 @@ import type {
   Attachment,
   ChatMessage,
   ChatRequestContext,
-  PersistedChatMessage,
   QueuePreviewItem,
   UserPiContent,
 } from '@/app/lib/chat/types';
@@ -465,10 +457,7 @@ export default function CanvasAgentChat({
   const deferredSavedMessageRefreshSessionRef = useRef<string | null>(null);
   const subscribedSessionAckRef = useRef<string | null>(null);
   const subscribedSessionRequestRef = useRef<{ sessionId: string; promise: Promise<void> } | null>(null);
-  const loadSessionRequestIdRef = useRef(0);
-  const loadSessionAbortRef = useRef<AbortController | null>(null);
   const skipNextSessionStatusRefreshRef = useRef<string | null>(null);
-  const cachePersistTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const {
     addSessionToHistory,
     agentProfilesById,
@@ -577,81 +566,6 @@ export default function CanvasAgentChat({
     setInput,
     textareaRef,
   });
-
-  useEffect(() => {
-    return () => {
-      loadSessionAbortRef.current?.abort();
-      if (cachePersistTimerRef.current) {
-        clearTimeout(cachePersistTimerRef.current);
-        cachePersistTimerRef.current = null;
-      }
-      persistChatSessionCache();
-    };
-  }, []);
-
-  useEffect(() => {
-    const currentSessionId = sessionIdRef.current;
-    if (!currentSessionId || currentSessionId !== sessionId || !isCacheableMessageSet(messages)) {
-      return;
-    }
-
-    const sessionAgentId = sessionAgentIdRef.current || selectedAgentId;
-    const historySession = historyRef.current.find((candidate) => candidate.sessionId === currentSessionId);
-    const sessionForCache: AISession = {
-      id: historySession?.id ?? Date.now(),
-      sessionId: currentSessionId,
-      title: sessionTitle,
-      agentId: sessionAgentId,
-      model: activeModel || historySession?.model || DEFAULT_MODEL_ID,
-      provider: activeProvider || historySession?.provider || null,
-      thinkingLevel: activeThinkingLevel || historySession?.thinkingLevel || null,
-      createdAt: historySession?.createdAt ?? new Date().toISOString(),
-      engine: historySession?.engine ?? 'pi',
-      lastMessageAt: historySession?.lastMessageAt ?? new Date().toISOString(),
-      lastViewedAt: historySession?.lastViewedAt ?? null,
-      hasUnread: false,
-      creator: historySession?.creator,
-    };
-
-    const entry = buildCachedChatSessionEntry({
-      session: sessionForCache,
-      messages,
-      hasMoreBefore,
-      oldestTimestamp,
-      oldestMessageId,
-      oldestSequence,
-    });
-
-    rememberChatSessionCacheEntry(entry);
-
-    if (cachePersistTimerRef.current) {
-      clearTimeout(cachePersistTimerRef.current);
-    }
-    cachePersistTimerRef.current = setTimeout(() => {
-      cachePersistTimerRef.current = null;
-      persistChatSessionCache();
-    }, 300);
-  }, [activeModel, activeProvider, activeThinkingLevel, hasMoreBefore, historyRef, messages, oldestMessageId, oldestSequence, oldestTimestamp, selectedAgentId, sessionId, sessionTitle]);
-
-  useEffect(() => {
-    const targetSessionId = deferredSavedMessageRefreshSessionRef.current;
-    if (!targetSessionId) {
-      return;
-    }
-
-    if (targetSessionId !== sessionId) {
-      deferredSavedMessageRefreshSessionRef.current = null;
-      return;
-    }
-
-    const refreshSavedMessages = refreshSavedMessagesRef.current;
-    if (!refreshSavedMessages || hasLiveMessagesInProgress()) {
-      return;
-    }
-
-    deferredSavedMessageRefreshSessionRef.current = null;
-    refreshSavedMessages(targetSessionId);
-  }, [hasLiveMessagesInProgress, messages, runtimeStatus?.phase, sessionId]);
 
   const buildRequestContext = useCallback((activeFilePath: string | null): ChatRequestContext => ({
     activeFilePath,
@@ -1127,307 +1041,65 @@ export default function CanvasAgentChat({
     void fetchHistory();
   }, [fetchHistory, resetHistoryState, selectedAgentId, setSelectedAgentId, startNewChat, setHistoryAgentFilter]);
 
-  const mapRawMessages = useCallback((rawMessages: PersistedChatMessage[]): ChatMessage[] => {
-    return mapPersistedChatMessages(rawMessages, t('runStopped'));
-  }, [t]);
-
-  const refreshSavedMessages = useCallback((targetSessionId: string) => {
-    const requestAgentId = sessionAgentIdRef.current || selectedAgentId;
-
-    void (async () => {
-      try {
-        const payload = await fetchChatSessionMessages({
-          agentId: requestAgentId,
-          sessionId: targetSessionId,
-          limit: 50,
-          cache: 'no-store',
-          credentials: 'include',
-        });
-
-        if (
-          sessionIdRef.current !== targetSessionId ||
-          !payload?.success ||
-          !Array.isArray(payload.messages)
-        ) {
-          return;
-        }
-
-        const nextMessages = mapRawMessages(payload.messages);
-        if (!areChatMessageListsEquivalent(messagesRef.current, nextMessages)) {
-          setMessages(nextMessages);
-          hydrateRuntimeMessageRefs(nextMessages);
-        }
-        setHasMoreBefore(typeof payload.hasMoreBefore === 'boolean' ? payload.hasMoreBefore : payload.messages.length >= 50);
-        setOldestTimestamp(payload.oldestTimestamp ?? null);
-        setOldestMessageId(payload.oldestMessageId ?? null);
-        setOldestSequence(payload.oldestSequence ?? null);
-        if (isAtBottomRef.current) {
-          requestAnimationFrame(() => scrollToBottom('auto'));
-        }
-      } catch (error) {
-        console.error('Failed to refresh messages after saved chat response', error);
-      }
-    })();
-  }, [hydrateRuntimeMessageRefs, isAtBottomRef, mapRawMessages, messagesRef, scrollToBottom, selectedAgentId]);
-
-  useEffect(() => {
-    refreshSavedMessagesRef.current = refreshSavedMessages;
-    return () => {
-      if (refreshSavedMessagesRef.current === refreshSavedMessages) {
-        refreshSavedMessagesRef.current = null;
-      }
-    };
-  }, [refreshSavedMessages]);
-
-  const loadSession = useCallback(async (session: AISession) => {
-    const sessionAgentId = session.agentId || CHAT_AGENT_ID;
-    const requestId = loadSessionRequestIdRef.current + 1;
-    loadSessionRequestIdRef.current = requestId;
-    loadSessionAbortRef.current?.abort();
-    const abortController = new AbortController();
-    loadSessionAbortRef.current = abortController;
-
-    resetStreamConnection();
-    setSelectedAgentId(sessionAgentId);
-    setSessionId(session.sessionId);
-    setSessionTitle(resolveSessionTitle(session.sessionId, session.title));
-    sessionIdRef.current = session.sessionId;
-    sessionAgentIdRef.current = sessionAgentId;
-    resetRuntimeMessageRefs();
-    userStartedNewChatRef.current = false;
-    const sessionDraft = loadComposerDraft(session.sessionId);
-    setInput(sessionDraft ?? '');
-    setShowMobileDetails(false);
-    const sessionProvider = session.provider || agentConfig?.piConfig?.activeProvider || 'pi';
-    setActiveProvider(sessionProvider);
-    setActiveModel(session.model || DEFAULT_MODEL_ID);
-    setActiveThinkingLevel(
-      session.thinkingLevel ||
-      agentConfig?.piConfig?.providers?.[sessionProvider]?.thinking ||
-      DEFAULT_THINKING_LEVEL,
-    );
-    setHasMoreBefore(false);
-    setOldestTimestamp(null);
-    setOldestMessageId(null);
-    setOldestSequence(null);
-    setIsLoadingOlder(false);
-    setExpandedRunKeys(new Set());
-    setRuntimeStatus(null);
-
-    const cachedEntry = readCachedChatSession(sessionAgentId, session.sessionId) || readLatestCachedChatSession(session.sessionId);
-    const hasCachedMessages = Boolean(cachedEntry && isCacheableMessageSet(cachedEntry.messages));
-
-    if (cachedEntry && hasCachedMessages) {
-      setMessages(cachedEntry.messages);
-      hydrateRuntimeMessageRefs(cachedEntry.messages);
-      setHasMoreBefore(cachedEntry.hasMoreBefore);
-      setOldestTimestamp(cachedEntry.oldestTimestamp);
-      setOldestMessageId(cachedEntry.oldestMessageId);
-      setOldestSequence(cachedEntry.oldestSequence);
-      requestAnimationFrame(() => {
-        scrollToBottom('auto');
-      });
-    } else {
-      hydrateRuntimeMessageRefs([]);
-      setMessages([{ id: 'system', role: 'system', content: 'Loading...', status: 'pending', type: 'system' }]);
-    }
-
-    // Always close history on mobile, conditionally on desktop
-    if (isMobile || shouldShowHistoryAsOverlay) {
-      setShowHistory(false);
-    }
-
-    // Check if session has unread messages and show banner
-    console.log(`[CanvasAgentChat] loadSession: sessionId=${session.sessionId}, hasUnread=${session.hasUnread}, lastMessageAt=${session.lastMessageAt}, lastViewedAt=${session.lastViewedAt}`);
-    if (session.hasUnread) {
-      setHasUnreadInCurrentSession(true);
-      setShowUnreadBanner(true);
-      setHistory(prev => {
-        const updated = prev.map(s =>
-          s.sessionId === session.sessionId ? { ...s, hasUnread: false, lastViewedAt: new Date().toISOString() } : s
-        );
-        setTotalUnreadCount(updated.filter(s => s.hasUnread).length);
-        return updated;
-      });
-      void patchChatSessions({ agentId: sessionAgentId, sessionId: session.sessionId, markAsRead: true })
-        .then(() => {
-          if (sessionIdRef.current !== session.sessionId) return;
-          setHasUnreadInCurrentSession(false);
-          setShowUnreadBanner(false);
-        })
-        .catch((err) => {
-          console.error('Failed to mark session as read', err);
-        });
-    } else {
-      setHasUnreadInCurrentSession(false);
-      setShowUnreadBanner(false);
-    }
-
-    try {
-      const statusPromise = ensureSessionSubscribed(session.sessionId).then(() => (
-        wsRequest<{ success: boolean; status?: RuntimeStatus }>('get_status', {
-          sessionId: session.sessionId,
-        })
-      )).catch((error) => {
-        console.error('Failed to load runtime status', error);
-        return null;
-      });
-
-      const messagesPayload = await fetchChatSessionMessages({
-        agentId: sessionAgentId,
-        sessionId: session.sessionId,
-        limit: 50,
-        signal: abortController.signal,
-      });
-
-      if (
-        abortController.signal.aborted ||
-        loadSessionRequestIdRef.current !== requestId ||
-        sessionIdRef.current !== session.sessionId
-      ) {
-        return;
-      }
-
-      if (messagesPayload?.success && Array.isArray(messagesPayload.messages)) {
-        const nextMessages = mapRawMessages(messagesPayload.messages);
-        if (
-          (nextMessages.length > 0 || !hasCachedMessages) &&
-          (!hasCachedMessages || !cachedEntry || !areChatMessageListsEquivalent(cachedEntry.messages, nextMessages))
-        ) {
-          setMessages(nextMessages);
-          hydrateRuntimeMessageRefs(nextMessages);
-        }
-        if (typeof messagesPayload.hasMoreBefore === 'boolean') {
-          setHasMoreBefore(messagesPayload.hasMoreBefore);
-        } else if (messagesPayload.messages.length >= 50) {
-          setHasMoreBefore(true);
-        } else {
-          setHasMoreBefore(false);
-        }
-        if (messagesPayload.oldestTimestamp != null) {
-          setOldestTimestamp(messagesPayload.oldestTimestamp);
-        } else if (messagesPayload.messages.length > 0) {
-          const firstRaw = messagesPayload.messages[0] as unknown as Record<string, unknown>;
-          const ts = typeof firstRaw.timestamp === 'number' ? firstRaw.timestamp : null;
-          if (ts != null) setOldestTimestamp(ts);
-        }
-        if (typeof messagesPayload.oldestMessageId === 'number') {
-          setOldestMessageId(messagesPayload.oldestMessageId);
-        } else if (messagesPayload.messages.length > 0) {
-          const firstRaw = messagesPayload.messages[0] as unknown as Record<string, unknown>;
-          const id = typeof firstRaw.id === 'number' ? firstRaw.id : null;
-          if (id != null) setOldestMessageId(id);
-        }
-        if (typeof messagesPayload.oldestSequence === 'number') {
-          setOldestSequence(messagesPayload.oldestSequence);
-        } else if (messagesPayload.messages.length > 0) {
-          const firstRaw = messagesPayload.messages[0] as unknown as Record<string, unknown>;
-          const sequence = typeof firstRaw.sequence === 'number' ? firstRaw.sequence : null;
-          if (sequence != null) setOldestSequence(sequence);
-        }
-      } else if (!hasCachedMessages) {
-        setMessages([{ id: 'error', role: 'system', content: t('failedToLoadMessageHistory') }]);
-      }
-
-      // Hide history view after loading session (always on mobile, conditionally on desktop)
-      if (isMobile || shouldShowHistoryAsOverlay) {
-        setShowHistory(false);
-      }
-
-      // Force scroll to bottom after session load
-      requestAnimationFrame(() => {
-        scrollToBottom('auto');
-      });
-
-      void statusPromise.then((statusPayload) => {
-        if (
-          abortController.signal.aborted ||
-          loadSessionRequestIdRef.current !== requestId ||
-          sessionIdRef.current !== session.sessionId
-        ) {
-          return;
-        }
-
-        if (statusPayload?.success && statusPayload.status) {
-          setRuntimeStatusWithReconciliation(statusPayload.status as RuntimeStatus);
-          setLastCompactionMarker((statusPayload.status as RuntimeStatus).lastCompactionAt);
-        } else {
-          setRuntimeStatus(null);
-        }
-      }).finally(() => {
-        if (loadSessionAbortRef.current === abortController) {
-          loadSessionAbortRef.current = null;
-        }
-      });
-    } catch (err) {
-      if (abortController.signal.aborted || loadSessionRequestIdRef.current !== requestId) {
-        return;
-      }
-      console.error('Failed to load messages', err);
-      if (!hasCachedMessages) {
-        setMessages([{ id: 'error', role: 'system', content: t('failedToLoadMessageHistory') }]);
-      }
-    } finally {
-      if (abortController.signal.aborted && loadSessionAbortRef.current === abortController) {
-        loadSessionAbortRef.current = null;
-      }
-    }
-  }, [agentConfig, ensureSessionSubscribed, hydrateRuntimeMessageRefs, mapRawMessages, resetRuntimeMessageRefs, resetStreamConnection, resolveSessionTitle, scrollToBottom, setActiveModel, setActiveProvider, setActiveThinkingLevel, setHistory, setLastCompactionMarker, setRuntimeStatus, setRuntimeStatusWithReconciliation, setSelectedAgentId, setTotalUnreadCount, t, isMobile, shouldShowHistoryAsOverlay, wsRequest]);
-
-  const loadOlderMessages = useCallback(async () => {
-    const currentSessionId = sessionIdRef.current;
-    if (!currentSessionId || isLoadingOlder || !hasMoreBefore || (oldestSequence === null && oldestTimestamp === null)) return;
-
-    setIsLoadingOlder(true);
-    const agentId = sessionAgentIdRef.current || selectedAgentId;
-
-    const scrollContainer = scrollContainerRef.current;
-    const previousScrollHeight = scrollContainer?.scrollHeight ?? 0;
-
-    try {
-      const payload = await fetchChatSessionMessages({
-        agentId,
-        sessionId: currentSessionId,
-        limit: 50,
-        beforeSequence: oldestSequence,
-        before: oldestSequence === null ? oldestTimestamp : null,
-        beforeId: oldestMessageId,
-      });
-
-      if (payload?.success && payload.messages) {
-        const olderMessages: ChatMessage[] = mapRawMessages(payload.messages);
-
-        if (olderMessages.length === 0) {
-          setHasMoreBefore(false);
-          return;
-        }
-
-        setMessages(prev => [...olderMessages, ...prev]);
-        setHasMoreBefore(payload.hasMoreBefore ?? (olderMessages.length >= 50));
-        if (payload.oldestTimestamp != null) {
-          setOldestTimestamp(payload.oldestTimestamp);
-        }
-        if (typeof payload.oldestMessageId === 'number') {
-          setOldestMessageId(payload.oldestMessageId);
-        }
-        if (typeof payload.oldestSequence === 'number') {
-          setOldestSequence(payload.oldestSequence);
-        }
-
-        // Preserve scroll position after prepending messages
-        requestAnimationFrame(() => {
-          if (scrollContainer) {
-            const newScrollHeight = scrollContainer.scrollHeight;
-            scrollContainer.scrollTop = newScrollHeight - previousScrollHeight;
-          }
-        });
-      }
-    } catch (err) {
-      console.error('[CanvasAgentChat] Failed to load older messages:', err);
-    } finally {
-      setIsLoadingOlder(false);
-    }
-  }, [hasMoreBefore, isLoadingOlder, mapRawMessages, oldestMessageId, oldestSequence, oldestTimestamp, scrollContainerRef, selectedAgentId]);
+  const { loadOlderMessages, loadSession } = useChatSessionMessages({
+    activeModel,
+    activeProvider,
+    activeThinkingLevel,
+    agentConfig,
+    deferredSavedMessageRefreshSessionRef,
+    ensureSessionSubscribed,
+    hasLiveMessagesInProgress,
+    hasMoreBefore,
+    historyRef,
+    hydrateRuntimeMessageRefs,
+    isAtBottomRef,
+    isLoadingOlder,
+    isMobile,
+    messages,
+    messagesRef,
+    oldestMessageId,
+    oldestSequence,
+    oldestTimestamp,
+    refreshSavedMessagesRef,
+    resetRuntimeMessageRefs,
+    resetStreamConnection,
+    resolveSessionTitle,
+    runtimeStatus,
+    scrollContainerRef,
+    scrollToBottom,
+    selectedAgentId,
+    sessionAgentIdRef,
+    sessionId,
+    sessionIdRef,
+    sessionTitle,
+    setActiveModel,
+    setActiveProvider,
+    setActiveThinkingLevel,
+    setExpandedRunKeys,
+    setHasMoreBefore,
+    setHasUnreadInCurrentSession,
+    setHistory,
+    setInput,
+    setIsLoadingOlder,
+    setMessages,
+    setOldestMessageId,
+    setOldestSequence,
+    setOldestTimestamp,
+    setRuntimeStatus,
+    setRuntimeStatusWithReconciliation,
+    setLastCompactionMarker,
+    setSelectedAgentId,
+    setSessionId,
+    setSessionTitle,
+    setShowHistory,
+    setShowMobileDetails,
+    setShowUnreadBanner,
+    setTotalUnreadCount,
+    shouldShowHistoryAsOverlay,
+    t,
+    userStartedNewChatRef,
+    wsRequest,
+  });
 
   const clearSessionParamFromUrl = useCallback(() => {
     if (typeof window === 'undefined' || !window.location.search.includes('session=')) {
