@@ -18,7 +18,7 @@ import {
 } from 'lucide-react';
 import { ChatComposer } from '@/app/components/canvas-agent-chat/ChatComposer';
 import { ChatAgentSelector } from '@/app/components/canvas-agent-chat/ChatAgentSelector';
-import { ChatHistoryPanel, type ChatHistoryPanelLabels, type ChatHistoryPanelProps } from '@/app/components/canvas-agent-chat/ChatHistoryPanel';
+import { ChatHistoryPanel, type ChatHistoryPanelProps } from '@/app/components/canvas-agent-chat/ChatHistoryPanel';
 import { ChatMessageList } from '@/app/components/canvas-agent-chat/ChatMessageList';
 import { ChatStarterScreen } from '@/app/components/canvas-agent-chat/ChatStarterScreen';
 import { toUploadMediaUrl } from '@/app/lib/utils/media-url';
@@ -74,7 +74,6 @@ import {
   createChatSession,
   deleteChatSession as deleteChatSessionRequest,
   fetchChatSessionMessages,
-  fetchChatSessions,
   patchChatSessions,
 } from '@/app/lib/chat/session-api';
 import { getSessionDisplayTitle, isAutomaticSessionTitle } from '@/app/lib/pi/session-titles';
@@ -88,21 +87,18 @@ import { cn } from '@/lib/utils';
 
 import { CANVAS_CHAT_ACTIVE_SESSION_STORAGE_KEY } from '@/app/lib/chat/constants';
 import { loadComposerDraft, removeComposerDraft, saveComposerDraft } from '@/app/lib/chat/draft-storage';
-import { applySessionUnreadUpdate } from '@/app/lib/chat/unread';
 import { fetchChatAgentConfig, fetchChatAgents } from '@/app/lib/chat/agent-api';
 import { getAgentDisplayName } from '@/app/lib/chat/agent-display';
 import { useChatAttachments } from '@/app/components/canvas-agent-chat/useChatAttachments';
 import { useChatComposerDraft } from '@/app/components/canvas-agent-chat/useChatComposerDraft';
 import { useChatRuntimeEvents } from '@/app/components/canvas-agent-chat/useChatRuntimeEvents';
+import { useChatSessionHistory } from '@/app/components/canvas-agent-chat/useChatSessionHistory';
 import { useComposerReferences } from '@/app/components/canvas-agent-chat/useComposerReferences';
 import type {
   AgentConfig,
   AgentProfile,
   AISession,
   Attachment,
-  ChatHistoryAgentOption,
-  ChatHistoryGroup,
-  ChatHistoryGroups,
   ChatMessage,
   ChatRequestContext,
   PersistedChatMessage,
@@ -124,12 +120,15 @@ interface CanvasAgentChatProps {
   isSurfaceVisible?: boolean;
   forcedSessionId?: string | null;
   requestContext?: ChatRequestContext;
+  onRuntimeStatusChange?: (status: RuntimeStatus | null) => void;
   onMediaClick?: (mediaUrl: string) => void;
 }
 
 const DEFAULT_PROVIDER_ID = '';
 const DEFAULT_MODEL_ID = '';
 const DEFAULT_THINKING_LEVEL: PiThinkingLevel = 'off';
+const CHAT_REQUEST_TIMEOUT_MS = 30_000;
+const ONBOARDING_CHAT_REQUEST_TIMEOUT_MS = 90_000;
 
 type AgentModelState = {
   provider: string;
@@ -347,6 +346,7 @@ export default function CanvasAgentChat({
   isSurfaceVisible = true,
   forcedSessionId,
   requestContext,
+  onRuntimeStatusChange,
   onMediaClick,
 }: CanvasAgentChatProps) {
   const t = useTranslations('chat');
@@ -419,14 +419,6 @@ export default function CanvasAgentChat({
   const [sessionTitle, setSessionTitle] = useState<string | null>(null);
   const [showHistory, setShowHistory] = useState(false);
   const [showMobileDetails, setShowMobileDetails] = useState(false);
-  const [history, setHistory] = useState<AISession[]>([]);
-  const [historySearchQuery, setHistorySearchQuery] = useState<string>('');
-  const [historyUnreadOnly, setHistoryUnreadOnly] = useState<boolean>(false);
-  const [historyAgentFilter, setHistoryAgentFilter] = useState<string>('all');
-  const [historySidebarWidth, setHistorySidebarWidth] = useState(280);
-  const historyResizeRef = useRef<{ startX: number; startWidth: number } | null>(null);
-  const isHistoryResizing = useRef(false);
-  const [latestSession, setLatestSession] = useState<AISession | null>(null);
   const [activeModel, setActiveModel] = useState(DEFAULT_MODEL_ID);
   const [activeProvider, setActiveProvider] = useState(DEFAULT_PROVIDER_ID);
   const [activeThinkingLevel, setActiveThinkingLevel] = useState<PiThinkingLevel>(DEFAULT_THINKING_LEVEL);
@@ -436,9 +428,7 @@ export default function CanvasAgentChat({
   const [selectedAgentId, setSelectedAgentId] = useState(CHAT_AGENT_ID);
   const [hasUnreadInCurrentSession, setHasUnreadInCurrentSession] = useState(false);
   const [showUnreadBanner, setShowUnreadBanner] = useState(false);
-  const [totalUnreadCount, setTotalUnreadCount] = useState(0);
   const [openQueueItemPopoverId, setOpenQueueItemPopoverId] = useState<string | null>(null);
-  const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [isResolvingInitialChatState, setIsResolvingInitialChatState] = useState(() => {
     if (initialPrompt?.trim() || resolvedRequestedSessionId) {
       return true;
@@ -511,16 +501,56 @@ export default function CanvasAgentChat({
   const surfaceVisibleRef = useRef(isSurfaceVisible);
   const userStartedNewChatRef = useRef(false);
   const refreshSavedMessagesRef = useRef<((sessionId: string) => void) | null>(null);
+  const requestSavedMessageRefreshRef = useRef<((sessionId: string) => void) | null>(null);
   const deferredSavedMessageRefreshSessionRef = useRef<string | null>(null);
   const subscribedSessionAckRef = useRef<string | null>(null);
   const subscribedSessionRequestRef = useRef<{ sessionId: string; promise: Promise<void> } | null>(null);
-  const sessionListRequestRef = useRef<Promise<AISession[]> | null>(null);
   const loadSessionRequestIdRef = useRef(0);
   const loadSessionAbortRef = useRef<AbortController | null>(null);
   const skipNextSessionStatusRefreshRef = useRef<string | null>(null);
   const cachePersistTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const hasLoadedSessionListRef = useRef(false);
-  const historyRef = useRef<AISession[]>([]);
+  const {
+    addSessionToHistory,
+    agentProfilesById,
+    fetchHistory,
+    filteredHistory,
+    hasLoadedSessionListRef,
+    history,
+    historyAgentFilter,
+    historyAgentOptions,
+    historyGroupLabels,
+    historyPanelLabels,
+    historyRef,
+    historySearchQuery,
+    historySidebarWidth,
+    historyUnreadOnly,
+    isLoadingHistory,
+    latestSession,
+    loadSessionList,
+    markAllAsRead,
+    resetHistoryState,
+    resolveSessionTitle,
+    setHistory,
+    setHistoryAgentFilter,
+    setHistoryAndLatest,
+    setHistorySearchQuery,
+    setHistoryUnreadOnly,
+    setTotalUnreadCount,
+    startHistoryResizing,
+    totalUnreadCount,
+  } = useChatSessionHistory({
+    availableAgents,
+    optimisticSessionTitlesRef,
+    requestSavedMessageRefreshRef,
+    selectedAgentId,
+    sessionAgentIdRef,
+    sessionIdRef,
+    setHasUnreadInCurrentSession,
+    setSessionTitle,
+    setShowUnreadBanner,
+    surfaceVisibleRef,
+    t,
+  });
   const {
     appendCompactionBreak,
     appendOptimisticUserMessage,
@@ -552,6 +582,14 @@ export default function CanvasAgentChat({
     setMessages,
     t,
   });
+  useEffect(() => {
+    requestSavedMessageRefreshRef.current = requestSavedMessageRefresh;
+    return () => {
+      if (requestSavedMessageRefreshRef.current === requestSavedMessageRefresh) {
+        requestSavedMessageRefreshRef.current = null;
+      }
+    };
+  }, [requestSavedMessageRefresh]);
   const {
     navigateInputHistory,
     resetInputHistoryNavigation,
@@ -579,10 +617,6 @@ export default function CanvasAgentChat({
     setInput,
     textareaRef,
   });
-
-  useEffect(() => {
-    historyRef.current = history;
-  }, [history]);
 
   useEffect(() => {
     return () => {
@@ -637,7 +671,7 @@ export default function CanvasAgentChat({
       cachePersistTimerRef.current = null;
       persistChatSessionCache();
     }, 300);
-  }, [activeModel, activeProvider, activeThinkingLevel, hasMoreBefore, messages, oldestMessageId, oldestSequence, oldestTimestamp, selectedAgentId, sessionId, sessionTitle]);
+  }, [activeModel, activeProvider, activeThinkingLevel, hasMoreBefore, historyRef, messages, oldestMessageId, oldestSequence, oldestTimestamp, selectedAgentId, sessionId, sessionTitle]);
 
   useEffect(() => {
     const targetSessionId = deferredSavedMessageRefreshSessionRef.current;
@@ -697,57 +731,6 @@ export default function CanvasAgentChat({
     await promise;
   }, [subscribe]);
 
-  const resolveSessionTitle = useCallback((targetSessionId: string, title: string | null | undefined) => {
-    const optimisticTitle = optimisticSessionTitlesRef.current[targetSessionId];
-    const normalizedTitle = title?.trim() || null;
-
-    if (optimisticTitle && (!normalizedTitle || isAutomaticSessionTitle(normalizedTitle))) {
-      return optimisticTitle;
-    }
-
-    if (optimisticTitle && normalizedTitle && !isAutomaticSessionTitle(normalizedTitle)) {
-      delete optimisticSessionTitlesRef.current[targetSessionId];
-    }
-
-    return normalizedTitle;
-  }, []);
-
-  const applyResolvedTitles = useCallback((sessions: AISession[]) => {
-    return sessions.map((session) => {
-      const resolvedTitle = resolveSessionTitle(session.sessionId, session.title);
-      if (resolvedTitle === session.title) {
-        return session;
-      }
-
-      return {
-        ...session,
-        title: resolvedTitle,
-      };
-    });
-  }, [resolveSessionTitle]);
-
-  const loadSessionList = useCallback(async () => {
-    if (sessionListRequestRef.current) {
-      return sessionListRequestRef.current;
-    }
-
-    const request = (async () => {
-      const sessions = applyResolvedTitles(await fetchChatSessions('all'));
-      hasLoadedSessionListRef.current = true;
-      return sessions;
-    })();
-
-    sessionListRequestRef.current = request;
-
-    try {
-      return await request;
-    } finally {
-      if (sessionListRequestRef.current === request) {
-        sessionListRequestRef.current = null;
-      }
-    }
-  }, [applyResolvedTitles]);
-
   // Session subscription for WebSocket
   useEffect(() => {
     if (!wsConnected || !sessionId) {
@@ -777,68 +760,6 @@ export default function CanvasAgentChat({
       console.log(`[CanvasAgentChat] Unsubscribed from session ${sessionId}`);
     };
   }, [ensureSessionSubscribed, wsConnected, sessionId, unsubscribe]);
-
-  // Listen for session_updated events (from WebSocket client) to update history unread status
-  useEffect(() => {
-    const handleSessionUpdated = (event: CustomEvent<{ sessionId: string; lastMessageAt: string; title?: string }>) => {
-      const { sessionId, lastMessageAt, title } = event.detail;
-      const currentSessionId = sessionIdRef.current;
-      const currentVisible = surfaceVisibleRef.current;
-      const isCurrentVisibleSession = sessionId === currentSessionId && currentVisible;
-      console.log(`[CanvasAgentChat] session_updated received: sessionId=${sessionId}, lastMessageAt=${lastMessageAt}, title="${title}", currentSessionId=${currentSessionId}, surfaceVisible=${currentVisible}, isCurrentVisibleSession=${isCurrentVisibleSession}`);
-      const sessionFound = historyRef.current.some((session) => session.sessionId === sessionId);
-      const resolvedTitle = resolveSessionTitle(sessionId, title);
-
-      // Update history state to reflect new lastMessageAt (and title if provided)
-      setHistory(prev => {
-        const updated = prev.map(session => {
-          if (session.sessionId !== sessionId) return session;
-          const updatedSession = applySessionUnreadUpdate(session, event.detail, {
-            isCurrentVisibleSession,
-            title: resolvedTitle,
-          });
-          console.log(`[CanvasAgentChat] Unread calc for ${sessionId}: isCurrentVisible=${isCurrentVisibleSession}, lastMessageAt=${lastMessageAt}, lastViewedAt=${session.lastViewedAt}, newLastViewedAt=${updatedSession.lastViewedAt}, hasUnread=${updatedSession.hasUnread}`);
-          return updatedSession;
-        });
-
-        // Recalculate unread count
-        const unreadCount = updated.filter(s => s.hasUnread).length;
-        setTotalUnreadCount(unreadCount);
-        historyRef.current = updated;
-
-        return updated;
-      });
-
-      if (resolvedTitle && sessionId === sessionIdRef.current) {
-        setSessionTitle(resolvedTitle);
-      }
-
-      if (isCurrentVisibleSession) {
-        requestSavedMessageRefresh(sessionId);
-        void patchChatSessions({ agentId: sessionAgentIdRef.current || selectedAgentId, sessionId, markAsRead: true }).catch((error) => {
-          console.error('Failed to mark active session as read after response', error);
-        });
-      }
-
-      if (!sessionFound) {
-        void (async () => {
-          try {
-            const sessions = await loadSessionList();
-            setHistory(sessions);
-            setLatestSession(sessions[0] || null);
-            setTotalUnreadCount(sessions.filter((session: AISession) => session.hasUnread).length);
-          } catch (error) {
-            console.error('Failed to refresh history after session update', error);
-          }
-        })();
-      }
-    };
-
-    window.addEventListener('session_updated', handleSessionUpdated as EventListener);
-    return () => {
-      window.removeEventListener('session_updated', handleSessionUpdated as EventListener);
-    };
-  }, [loadSessionList, requestSavedMessageRefresh, resolveSessionTitle, selectedAgentId]);
 
   // Session is created on-demand when user sends first message
 
@@ -873,80 +794,6 @@ export default function CanvasAgentChat({
       }));
     };
   }, [isSurfaceVisible, sessionId]);
-
-  const fetchHistory = useCallback(async () => {
-    setIsLoadingHistory(true);
-    try {
-      const currentVisibleSessionId = surfaceVisibleRef.current ? sessionIdRef.current : null;
-      const sessions = await loadSessionList();
-      const activeVisibleUnreadSession = currentVisibleSessionId
-        ? sessions.find((session: AISession) => session.sessionId === currentVisibleSessionId && session.hasUnread)
-        : null;
-      const visibleSessions = activeVisibleUnreadSession
-        ? sessions.map((session: AISession) => (
-            session.sessionId === currentVisibleSessionId
-              ? {
-                  ...session,
-                  hasUnread: false,
-                  lastViewedAt: session.lastMessageAt || new Date().toISOString(),
-                }
-              : session
-          ))
-        : sessions;
-
-      if (activeVisibleUnreadSession && currentVisibleSessionId) {
-        setHasUnreadInCurrentSession(false);
-        setShowUnreadBanner(false);
-        void patchChatSessions({ agentId: sessionAgentIdRef.current || selectedAgentId, sessionId: currentVisibleSessionId, markAsRead: true }).catch((error) => {
-          console.error('Failed to mark active session as read after history refresh', error);
-        });
-      }
-
-      setHistory(visibleSessions);
-      setLatestSession(visibleSessions[0] || null);
-      
-      // Calculate total unread count
-      const unreadCount = visibleSessions.filter((s: AISession) => s.hasUnread).length;
-      setTotalUnreadCount(unreadCount);
-
-      if (sessionIdRef.current) {
-        const currentSession = visibleSessions.find((session: AISession) => session.sessionId === sessionIdRef.current);
-        if (currentSession) {
-          setSessionTitle(resolveSessionTitle(currentSession.sessionId, currentSession.title));
-        }
-      }
-    } catch (err) {
-      console.error('Failed to fetch history', err);
-    } finally {
-      setIsLoadingHistory(false);
-    }
-  }, [loadSessionList, resolveSessionTitle, selectedAgentId]);
-
-  const markAllAsRead = useCallback(async () => {
-    try {
-      const data = await patchChatSessions({ agentId: selectedAgentId, markAllAsRead: true });
-      if (data?.success) {
-        const now = data.lastViewedAt;
-        setHistory((prev) => prev.map((s) => s.hasUnread ? { ...s, lastViewedAt: s.lastMessageAt || now, hasUnread: false } : s));
-        setTotalUnreadCount(0);
-      }
-    } catch (err) {
-      console.error('Failed to mark all as read', err);
-    }
-  }, [selectedAgentId]);
-
-  const getSessionTimeGroup = useCallback((dateString: string): ChatHistoryGroup => {
-    const date = new Date(dateString);
-    const now = new Date();
-    const diffMs = now.getTime() - date.getTime();
-    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-    
-    if (diffDays === 0) return 'today';
-    if (diffDays <= 7) return 'last7';
-    if (diffDays <= 14) return 'last14';
-    if (diffDays <= 30) return 'last30';
-    return 'older';
-  }, []);
 
   const refreshRuntimeStatus = useCallback(async (targetSessionId: string) => {
     try {
@@ -1024,27 +871,13 @@ export default function CanvasAgentChat({
       creator: createSessionPayload.session.creator,
     };
 
-    setHistory((prevHistory) => {
-      // Check if session already exists (shouldn't happen, but safety check)
-      const exists = prevHistory.some(s => s.sessionId === nextSessionId);
-      if (exists) return prevHistory;
-
-      // Add new session at the beginning and re-sort by lastMessageAt
-      const updated = [newSession, ...prevHistory];
-      updated.sort((a, b) => {
-        const aTime = a.lastMessageAt ? new Date(a.lastMessageAt).getTime() : new Date(a.createdAt).getTime();
-        const bTime = b.lastMessageAt ? new Date(b.lastMessageAt).getTime() : new Date(b.createdAt).getTime();
-        return bTime - aTime;
-      });
-      return updated;
-    });
-    setLatestSession(newSession);
+    addSessionToHistory(newSession);
 
     // Note: Subscription happens automatically via useEffect when sessionId changes
     // No need to subscribe here manually to avoid double subscription
 
     return nextSessionId;
-  }, [activeModel, activeProvider, activeThinkingLevel, agentConfig, input, selectedAgentId, t]);
+  }, [activeModel, activeProvider, activeThinkingLevel, addSessionToHistory, agentConfig, input, selectedAgentId, t]);
 
   const postControl = useCallback(async (
     targetSessionId: string,
@@ -1074,6 +907,13 @@ export default function CanvasAgentChat({
   }, []);
 
   const runtimePhase = runtimeStatus?.phase;
+  const chatRequestTimeoutMs = requestContext?.currentPage === 'onboarding'
+    ? ONBOARDING_CHAT_REQUEST_TIMEOUT_MS
+    : CHAT_REQUEST_TIMEOUT_MS;
+
+  useEffect(() => {
+    onRuntimeStatusChange?.(runtimeStatus);
+  }, [onRuntimeStatusChange, runtimeStatus]);
 
   const handleControlAction = useCallback(async (
     action: 'send' | 'steer' | 'follow_up' | 'replace',
@@ -1153,7 +993,7 @@ export default function CanvasAgentChat({
           sessionId: targetSessionId,
           message: userMessage as unknown as Record<string, unknown>,
           context: buildRequestContext(activeFilePath),
-        })
+        }, chatRequestTimeoutMs)
         : { status: await postControl(targetSessionId, effectiveAction, userMessage) };
 
       if (optimisticMessageId) {
@@ -1179,7 +1019,7 @@ export default function CanvasAgentChat({
     }
 
     return;
-  }, [activeModel, agentConfig, appendOptimisticUserMessage, attachments, buildRequestContext, clearCurrentAssistant, createAssistantBubble, currentFile, ensureSession, ensureSessionSubscribed, input, isUploading, postControl, resetInputHistoryNavigation, runtimePhase, selectedAgentId, showHistory, isMobile, setAttachments, setOptimisticRuntimePhase, setRuntimeStatusWithReconciliation, shouldShowHistoryAsOverlay, scanForImageReferences, t, wsRequest]);
+  }, [activeModel, agentConfig, appendOptimisticUserMessage, attachments, buildRequestContext, chatRequestTimeoutMs, clearCurrentAssistant, createAssistantBubble, currentFile, ensureSession, ensureSessionSubscribed, input, isUploading, postControl, resetInputHistoryNavigation, runtimePhase, selectedAgentId, showHistory, isMobile, setAttachments, setOptimisticRuntimePhase, setRuntimeStatusWithReconciliation, shouldShowHistoryAsOverlay, scanForImageReferences, t, wsRequest]);
 
   const handleSend = useCallback(async () => {
     try {
@@ -1322,14 +1162,10 @@ export default function CanvasAgentChat({
     }
     setSelectedAgentId(agentId);
     setHistoryAgentFilter(agentId);
-    sessionListRequestRef.current = null;
-    hasLoadedSessionListRef.current = false;
-    setHistory([]);
-    setLatestSession(null);
-    setTotalUnreadCount(0);
+    resetHistoryState();
     startNewChat(agentId);
     void fetchHistory();
-  }, [fetchHistory, selectedAgentId, startNewChat]);
+  }, [fetchHistory, resetHistoryState, selectedAgentId, startNewChat, setHistoryAgentFilter]);
 
   const mapRawMessage = useCallback((
     rawMessage: PersistedChatMessage,
@@ -1670,7 +1506,7 @@ export default function CanvasAgentChat({
         loadSessionAbortRef.current = null;
       }
     }
-  }, [agentConfig, ensureSessionSubscribed, hydrateRuntimeMessageRefs, mapRawMessages, resetRuntimeMessageRefs, resetStreamConnection, resolveSessionTitle, scrollToBottom, setLastCompactionMarker, setRuntimeStatus, setRuntimeStatusWithReconciliation, t, isMobile, shouldShowHistoryAsOverlay, wsRequest]);
+  }, [agentConfig, ensureSessionSubscribed, hydrateRuntimeMessageRefs, mapRawMessages, resetRuntimeMessageRefs, resetStreamConnection, resolveSessionTitle, scrollToBottom, setHistory, setLastCompactionMarker, setRuntimeStatus, setRuntimeStatusWithReconciliation, setTotalUnreadCount, t, isMobile, shouldShowHistoryAsOverlay, wsRequest]);
 
   const loadOlderMessages = useCallback(async () => {
     const currentSessionId = sessionIdRef.current;
@@ -1756,7 +1592,7 @@ export default function CanvasAgentChat({
     } catch (err) {
       console.error('Failed to delete session', err);
     }
-  }, [history, selectedAgentId, startNewChat, t]);
+  }, [history, selectedAgentId, setHistory, startNewChat, t]);
 
   const renameSession = useCallback(async (session: AISession) => {
     const nextTitle = prompt(t('renameSessionPrompt'), getSessionDisplayTitle(session.title, t('newChatTitle')));
@@ -1775,7 +1611,7 @@ export default function CanvasAgentChat({
     } catch (err) {
       console.error('Failed to rename session', err);
     }
-  }, [selectedAgentId, t]);
+  }, [selectedAgentId, setHistory, t]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.shiftKey && e.key === 'Tab') {
@@ -1871,7 +1707,7 @@ export default function CanvasAgentChat({
     };
 
     void fetchAgents();
-  }, []);
+  }, [setHistory]);
 
   useEffect(() => {
     if (sessionId) {
@@ -1930,7 +1766,7 @@ export default function CanvasAgentChat({
     }
 
     void queueInitialPrompt(parsed.prompt, parsed.attachments, initialPromptStorageKey);
-  }, [agentConfig, appendSystemMessage, handleControlAction, initialPrompt, initialPromptStorageKey, selectedAgentId, t]);
+  }, [agentConfig, appendSystemMessage, handleControlAction, initialPrompt, initialPromptStorageKey, selectedAgentId, setHistoryAgentFilter, t]);
 
   useEffect(() => {
     if (initialPrompt?.trim()) return;
@@ -1939,12 +1775,11 @@ export default function CanvasAgentChat({
     if (hasLoadedSessionListRef.current) return;
     if (userStartedNewChatRef.current) return;
     void fetchHistory();
-  }, [fetchHistory, initialPrompt, isResolvingInitialChatState, resolvedRequestedSessionId]);
+  }, [fetchHistory, hasLoadedSessionListRef, initialPrompt, isResolvingInitialChatState, resolvedRequestedSessionId]);
 
   // Fetch history when showing history panel and it's empty (mobile bug fix)
   useEffect(() => {
     if (showHistory && history.length === 0 && !isLoadingHistory) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       void fetchHistory();
     }
   }, [showHistory, history.length, fetchHistory, isLoadingHistory]);
@@ -1963,14 +1798,7 @@ export default function CanvasAgentChat({
       try {
         const cachedEntry = readLatestCachedChatSession(resolvedRequestedSessionId);
         if (cachedEntry) {
-          setHistory((current) => {
-            if (current.some((session) => session.sessionId === cachedEntry.session.sessionId)) {
-              return current;
-            }
-            return [cachedEntry.session, ...current];
-          });
-          setLatestSession((current) => current || cachedEntry.session);
-          setTotalUnreadCount((current) => current + (cachedEntry.session.hasUnread ? 1 : 0));
+          addSessionToHistory(cachedEntry.session);
           await loadSession(cachedEntry.session);
           if (!forcedSessionId) {
             requestedSessionCleanupRef.current = resolvedRequestedSessionId;
@@ -1978,9 +1806,7 @@ export default function CanvasAgentChat({
           }
           void loadSessionList()
             .then((sessions) => {
-              setHistory(sessions);
-              setLatestSession(sessions[0] || cachedEntry.session);
-              setTotalUnreadCount(sessions.filter((session: AISession) => session.hasUnread).length);
+              setHistoryAndLatest(sessions.length > 0 ? sessions : [cachedEntry.session]);
             })
             .catch((err) => {
               console.error('Failed to refresh requested session history', err);
@@ -1990,9 +1816,7 @@ export default function CanvasAgentChat({
 
         const sessions = await loadSessionList();
         if (sessions.length > 0) {
-          setHistory(sessions);
-          setLatestSession(sessions[0] || null);
-          setTotalUnreadCount(sessions.filter((session: AISession) => session.hasUnread).length);
+          setHistoryAndLatest(sessions);
           const targetSession = sessions.find((session: AISession) => session.sessionId === resolvedRequestedSessionId);
           if (targetSession) {
             await loadSession(targetSession);
@@ -2010,7 +1834,7 @@ export default function CanvasAgentChat({
     };
 
     void loadRequestedSession();
-  }, [clearSessionParamFromUrl, forcedSessionId, initialPrompt, initialPromptStorageKey, loadSession, loadSessionList, resolvedRequestedSessionId]);
+  }, [addSessionToHistory, clearSessionParamFromUrl, forcedSessionId, initialPrompt, initialPromptStorageKey, loadSession, loadSessionList, resolvedRequestedSessionId, setHistoryAndLatest]);
 
   // Restore previously active session on remount (mobile Sheet unmount/remount)
   useEffect(() => {
@@ -2037,20 +1861,11 @@ export default function CanvasAgentChat({
       try {
         const cachedEntry = readLatestCachedChatSession(storedSessionId);
         if (cachedEntry) {
-          setHistory((current) => {
-            if (current.some((session) => session.sessionId === cachedEntry.session.sessionId)) {
-              return current;
-            }
-            return [cachedEntry.session, ...current];
-          });
-          setLatestSession((current) => current || cachedEntry.session);
-          setTotalUnreadCount((current) => current + (cachedEntry.session.hasUnread ? 1 : 0));
+          addSessionToHistory(cachedEntry.session);
           await loadSession(cachedEntry.session);
           void loadSessionList()
             .then((sessions) => {
-              setHistory(sessions);
-              setLatestSession(sessions[0] || cachedEntry.session);
-              setTotalUnreadCount(sessions.filter((session: AISession) => session.hasUnread).length);
+              setHistoryAndLatest(sessions.length > 0 ? sessions : [cachedEntry.session]);
             })
             .catch((err) => {
               console.error('Failed to refresh restored session history', err);
@@ -2062,9 +1877,7 @@ export default function CanvasAgentChat({
         // A new session may have been created while the fetch was in-flight
         if (sessionIdRef.current) return;
         if (sessions.length > 0) {
-          setHistory(sessions);
-          setLatestSession(sessions[0] || null);
-          setTotalUnreadCount(sessions.filter((session: AISession) => session.hasUnread).length);
+          setHistoryAndLatest(sessions);
           const targetSession = sessions.find((s: AISession) => s.sessionId === storedSessionId);
           if (targetSession) {
             await loadSession(targetSession);
@@ -2135,7 +1948,7 @@ export default function CanvasAgentChat({
         ? { ...item, model: next.model, provider: next.provider, thinkingLevel: next.thinkingLevel }
         : item
     )));
-  }, []);
+  }, [setHistory]);
 
   const invalidateRuntimeAfterModelChange = useCallback(async () => {
     const currentSessionId = sessionIdRef.current;
@@ -2235,7 +2048,6 @@ export default function CanvasAgentChat({
   const showInitialChatLoader = messages.length === 0 && isResolvingInitialChatState;
   const showStarterScreen = messages.length === 0 && !sessionId && !isResolvingInitialChatState;
   const activeSessionAgentId = history.find((session) => session.sessionId === sessionId)?.agentId || selectedAgentId;
-  const agentProfilesById = useMemo(() => new Map(availableAgents.map((agent) => [agent.agentId, agent])), [availableAgents]);
   const activeAgentProfile = agentProfilesById.get(activeSessionAgentId);
   const activeAgentDisplayName = activeAgentProfile?.name || getAgentDisplayName(activeSessionAgentId);
   const chatAgentOptions = useMemo<AgentProfile[]>(() => (
@@ -2243,92 +2055,6 @@ export default function CanvasAgentChat({
       ? availableAgents
       : [{ agentId: CHAT_AGENT_ID, name: 'Canvas Agent', iconId: 'bot', type: 'main', removable: false }]
   ), [availableAgents]);
-  const historyAgentOptions = useMemo<ChatHistoryAgentOption[]>(() => {
-    const byId = new Map<string, ChatHistoryAgentOption>();
-    for (const agent of availableAgents) {
-      byId.set(agent.agentId, { agentId: agent.agentId, name: agent.name, iconId: agent.iconId });
-    }
-    for (const session of history) {
-      const agentId = session.agentId || CHAT_AGENT_ID;
-      const existing = byId.get(agentId);
-      byId.set(agentId, {
-        agentId,
-        name: existing?.name || getAgentDisplayName(agentId),
-        iconId: existing?.iconId,
-      });
-    }
-    return Array.from(byId.values()).sort((a, b) => {
-      if (a.agentId === CHAT_AGENT_ID) return -1;
-      if (b.agentId === CHAT_AGENT_ID) return 1;
-      return a.name.localeCompare(b.name);
-    });
-  }, [availableAgents, history]);
-
-  const filteredHistory = useMemo<ChatHistoryGroups>(() => {
-    let filtered = [...history];
-
-    if (historyUnreadOnly) {
-      filtered = filtered.filter(s => s.hasUnread);
-    }
-
-    if (historyAgentFilter !== 'all') {
-      filtered = filtered.filter(s => (s.agentId || CHAT_AGENT_ID) === historyAgentFilter);
-    }
-
-    if (historySearchQuery.trim()) {
-      const query = historySearchQuery.toLowerCase();
-      filtered = filtered.filter(s =>
-        s.title?.toLowerCase().includes(query) ||
-        s.sessionId.toLowerCase().includes(query) ||
-        (agentProfilesById.get(s.agentId || CHAT_AGENT_ID)?.name || getAgentDisplayName(s.agentId)).toLowerCase().includes(query)
-      );
-    }
-
-    filtered.sort((a, b) => {
-      const aTime = a.lastMessageAt ? new Date(a.lastMessageAt).getTime() : new Date(a.createdAt).getTime();
-      const bTime = b.lastMessageAt ? new Date(b.lastMessageAt).getTime() : new Date(b.createdAt).getTime();
-      return bTime - aTime;
-    });
-
-    const grouped: ChatHistoryGroups = {
-      today: [],
-      last7: [],
-      last14: [],
-      last30: [],
-      older: [],
-    };
-
-    filtered.forEach(session => {
-      const group = getSessionTimeGroup(session.createdAt);
-      grouped[group].push(session);
-    });
-
-    return grouped;
-  }, [agentProfilesById, history, historyAgentFilter, historySearchQuery, historyUnreadOnly, getSessionTimeGroup]);
-
-  const historyGroupLabels = useMemo<Record<ChatHistoryGroup, string>>(() => ({
-    today: t('groupToday'),
-    last7: t('groupLast7Days'),
-    last14: t('groupLast14Days'),
-    last30: t('groupLast30Days'),
-    older: t('groupOlder'),
-  }), [t]);
-
-  const historyPanelLabels = useMemo<ChatHistoryPanelLabels>(() => ({
-    chatHistory: t('chatHistory'),
-    searchSessions: t('searchSessions'),
-    filterAllAgents: t('filterAllAgents'),
-    filterUnreadOnly: t('filterUnreadOnly'),
-    filterAllSessions: t('filterAllSessions'),
-    markAllAsRead: t('markAllAsRead'),
-    backToChat: t('backToChat'),
-    noRecentSessions: t('noRecentSessions'),
-    noSessionsFoundWithFilter: t('noSessionsFoundWithFilter'),
-    newChatTitle: t('newChatTitle'),
-    unreadResponse: t('unreadResponse'),
-    renameSession: t('renameSession'),
-    deleteSession: t('deleteSession'),
-  }), [t]);
 
   const historyPanelProps: Omit<ChatHistoryPanelProps, 'variant' | 'width' | 'onBackToChat'> = {
     history,
@@ -2406,40 +2132,6 @@ export default function CanvasAgentChat({
     : activeReferenceMatch?.query
       ? t('noFilesFoundMatching', { query: activeReferenceMatch.query })
       : t('noFilesInWorkspace');
-
-  const startHistoryResizing = useCallback((e: React.MouseEvent) => {
-    isHistoryResizing.current = true;
-    document.body.style.cursor = 'col-resize';
-    document.body.style.userSelect = 'none';
-    historyResizeRef.current = {
-      startX: e.clientX,
-      startWidth: historySidebarWidth,
-    };
-  }, [historySidebarWidth]);
-
-  useEffect(() => {
-    const handleMouseMove = (e: MouseEvent) => {
-      if (!isHistoryResizing.current || !historyResizeRef.current) return;
-      const nextWidth = Math.min(400, Math.max(220, historyResizeRef.current.startWidth + (e.clientX - historyResizeRef.current.startX)));
-      setHistorySidebarWidth(nextWidth);
-    };
-
-    const handleMouseUp = () => {
-      if (isHistoryResizing.current) {
-        isHistoryResizing.current = false;
-        historyResizeRef.current = null;
-        document.body.style.cursor = 'default';
-        document.body.style.userSelect = 'auto';
-      }
-    };
-
-    document.addEventListener('mousemove', handleMouseMove);
-    document.addEventListener('mouseup', handleMouseUp);
-    return () => {
-      document.removeEventListener('mousemove', handleMouseMove);
-      document.removeEventListener('mouseup', handleMouseUp);
-    };
-  }, []);
 
   return (
     <div ref={containerRef} className="relative flex h-full flex-col overflow-hidden bg-card text-card-foreground">
