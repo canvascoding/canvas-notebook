@@ -158,6 +158,7 @@ import { PlanModeToggle } from './PlanModeToggle';
 import { CANVAS_CHAT_ACTIVE_SESSION_STORAGE_KEY } from '@/app/lib/chat/constants';
 import { loadComposerDraft, removeComposerDraft, saveComposerDraft } from '@/app/lib/chat/draft-storage';
 import { applySessionUnreadUpdate } from '@/app/lib/chat/unread';
+import { fetchChatAgentConfig, fetchChatAgents } from '@/app/lib/chat/agent-api';
 import type {
   AgentConfig,
   AgentProfile,
@@ -4870,11 +4871,9 @@ export default function CanvasAgentChat({
       try {
         setAgentConfig(null);
         setIsAgentConfigLoading(true);
-        const params = new URLSearchParams({ agentId: selectedAgentId, readiness: 'false' });
-        const res = await fetch(`/api/agents/config?${params.toString()}`);
-        const data = await safeFetchJson<{ success: boolean; data?: AgentConfig }>(res);
-        if (!cancelled && data?.success) {
-          setAgentConfig(data.data ?? null);
+        const config = await fetchChatAgentConfig(selectedAgentId);
+        if (!cancelled) {
+          setAgentConfig(config);
         }
       } catch (err) {
         if (!cancelled) {
@@ -4896,11 +4895,7 @@ export default function CanvasAgentChat({
   useEffect(() => {
     const fetchAgents = async () => {
       try {
-        const res = await fetch('/api/agents', { cache: 'no-store' });
-        const data = await safeFetchJson<{ success: boolean; data?: { agents?: AgentProfile[] } }>(res);
-        if (data?.success) {
-          setAvailableAgents(data.data?.agents || []);
-        }
+        setAvailableAgents(await fetchChatAgents());
       } catch (err) {
         console.error('Failed to fetch agents', err);
       }
