@@ -24,7 +24,6 @@ import {
   Lightbulb,
   CircleHelp,
   Settings,
-  CheckCircle2,
   ArrowLeft,
   ExternalLink,
   Lock,
@@ -33,6 +32,7 @@ import {
 } from 'lucide-react';
 import { ComposerReferencePicker, type ComposerReferencePickerItem } from '@/app/components/canvas-agent-chat/ComposerReferencePicker';
 import { FileReferenceCard } from '@/app/components/canvas-agent-chat/FileReferenceCard';
+import { ChatAgentSelector } from '@/app/components/canvas-agent-chat/ChatAgentSelector';
 import { ChatHistoryPanel, type ChatHistoryPanelLabels, type ChatHistoryPanelProps } from '@/app/components/canvas-agent-chat/ChatHistoryPanel';
 import { getRecentStudioImageMediaUrls, MarkdownMessage } from '@/app/components/canvas-agent-chat/ChatMarkdownMessage';
 import { ChatStarterScreen } from '@/app/components/canvas-agent-chat/ChatStarterScreen';
@@ -88,7 +88,6 @@ import {
   normalizeMessageStart,
   truncatePreview,
 } from '@/app/lib/chat/message-content';
-import { AgentAvatar, AgentIcon } from '@/app/components/agents/AgentAvatar';
 import type { RuntimeStatus } from '@/app/lib/chat/runtime-status';
 import {
   getHistoryRuntimeActiveToolName,
@@ -3863,71 +3862,6 @@ export default function CanvasAgentChat({
     onDeleteSession: deleteSession,
   };
 
-  const renderChatAgentSelector = (variant: 'desktop' | 'mobile') => {
-    const compact = variant === 'mobile';
-
-    return (
-      <Popover>
-        <PopoverTrigger asChild>
-          <button
-            type="button"
-            data-testid="chat-agent-id"
-            aria-label={`${t('agentSelectTitle')}: ${activeAgentDisplayName}`}
-            title={t('agentSelectTitle')}
-            className={cn(
-              'inline-flex h-8 min-w-0 items-center gap-1.5 rounded-md border border-border/60 bg-muted/50 px-2 font-medium text-foreground transition-colors hover:bg-accent',
-              compact ? 'max-w-[12rem] text-[10px]' : 'max-w-[min(14rem,100%)] text-[11px]',
-            )}
-          >
-            {!compact ? (
-              <span className="text-[9px] uppercase tracking-[0.15em] text-muted-foreground">{t('agentLabel')}</span>
-            ) : null}
-            <AgentIcon iconId={activeAgentProfile?.iconId} className="h-3 w-3 shrink-0 text-muted-foreground" />
-            <span className={cn('min-w-0 truncate', compact ? 'max-w-[8rem]' : 'max-w-[9rem]')}>
-              {activeAgentDisplayName}
-            </span>
-            <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" />
-          </button>
-        </PopoverTrigger>
-        <PopoverContent align="start" side="bottom" className="w-64 p-1">
-          <div className="flex items-center justify-between gap-2 px-2 py-1.5">
-            <div className="min-w-0 truncate text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-              {t('agentSelectTitle')}
-            </div>
-            <Link
-              href="/settings?tab=agent-settings&createAgent=1"
-              className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-border bg-background text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              title={t('createAgent')}
-              aria-label={t('createAgent')}
-            >
-              <Plus className="h-4 w-4" />
-            </Link>
-          </div>
-          {chatAgentOptions.map((agent) => {
-            const selected = agent.agentId === activeSessionAgentId;
-            return (
-              <button
-                key={agent.agentId}
-                type="button"
-                onClick={() => selectChatAgent(agent.agentId)}
-                className={`flex w-full items-center justify-between gap-2 rounded-md px-2 py-2 text-left text-sm transition-colors ${
-                  selected ? 'bg-primary/10 text-primary' : 'hover:bg-accent'
-                }`}
-              >
-                <AgentAvatar iconId={agent.iconId} className="h-9 w-9" iconClassName="h-4 w-4" />
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate font-medium">{agent.name}</span>
-                  <span className="block truncate font-mono text-[10px] text-muted-foreground">{agent.agentId}</span>
-                </span>
-                {selected ? <CheckCircle2 className="h-4 w-4 shrink-0" /> : null}
-              </button>
-            );
-          })}
-        </PopoverContent>
-      </Popover>
-    );
-  };
-
   const toggleRunDisclosure = useCallback((runKey: string) => {
     setExpandedRunKeys((current) => {
       const next = new Set(current);
@@ -4173,7 +4107,14 @@ export default function CanvasAgentChat({
                     <span className="text-[9px] uppercase tracking-[0.15em] text-muted-foreground">{t('sessionLabel')}</span>
                     <span className="min-w-0 truncate">{sessionDisplayLabel}</span>
                   </div>
-                  {renderChatAgentSelector('desktop')}
+                  <ChatAgentSelector
+                    variant="desktop"
+                    activeAgentId={activeSessionAgentId}
+                    activeAgentName={activeAgentDisplayName}
+                    activeAgentIconId={activeAgentProfile?.iconId}
+                    agents={chatAgentOptions}
+                    onSelectAgent={selectChatAgent}
+                  />
                 </div>
               )}
             </div>
@@ -4208,7 +4149,16 @@ export default function CanvasAgentChat({
           <div className="flex flex-wrap items-start gap-2">
             <div data-testid="chat-runtime-status" className="flex min-w-[12rem] flex-1 flex-wrap items-center gap-2">
               <ChatRuntimeActivityBadge status={runtimeStatus} />
-              {isMobile ? renderChatAgentSelector('mobile') : null}
+              {isMobile ? (
+                <ChatAgentSelector
+                  variant="mobile"
+                  activeAgentId={activeSessionAgentId}
+                  activeAgentName={activeAgentDisplayName}
+                  activeAgentIconId={activeAgentProfile?.iconId}
+                  agents={chatAgentOptions}
+                  onSelectAgent={selectChatAgent}
+                />
+              ) : null}
               
               {/* Queue Badge */}
               {runtimeStatus && totalQueuedMessages > 0 && (
