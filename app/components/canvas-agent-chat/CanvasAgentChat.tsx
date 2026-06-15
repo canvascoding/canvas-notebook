@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useRef, useEffect, useCallback, useLayoutEffect, useMemo } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import type { AgentMessage } from '@earendil-works/pi-agent-core';
 import { createThinkingFilterState, filterThinkingChunk, flushThinkingFilter } from '@/app/lib/pi/thinking-filter';
 import type { ThinkingFilterState } from '@/app/lib/pi/thinking-filter';
@@ -46,6 +46,7 @@ import {
   deriveUploadAttachmentPreview,
   getAttachmentMediaUrl,
 } from '@/app/lib/chat/attachment-preview';
+import { useChatComposerLayout } from '@/app/components/canvas-agent-chat/useChatComposerLayout';
 import { useChatScrollController } from '@/app/components/canvas-agent-chat/useChatScrollController';
 import {
   contentToString,
@@ -142,12 +143,6 @@ interface CanvasAgentChatProps {
 const DEFAULT_PROVIDER_ID = '';
 const DEFAULT_MODEL_ID = '';
 const DEFAULT_THINKING_LEVEL: PiThinkingLevel = 'off';
-const MOBILE_TEXTAREA_BASE_HEIGHT_PX = 56;
-const DESKTOP_TEXTAREA_BASE_HEIGHT_PX = 72;
-const MOBILE_TEXTAREA_MAX_HEIGHT_PX = 192;
-const DESKTOP_TEXTAREA_MAX_HEIGHT_PX = 256;
-const MOBILE_TEXTAREA_MAX_VIEWPORT_RATIO = 0.3;
-const DESKTOP_TEXTAREA_MAX_VIEWPORT_RATIO = 0.35;
 
 type AgentModelState = {
   provider: string;
@@ -543,10 +538,7 @@ export default function CanvasAgentChat({
     prompt: t(`${starterPromptTranslationKey}.${prompt.id}.prompt`),
   }));
   const [isLoadingReferenceItems, setIsLoadingReferenceItems] = useState(false);
-  const [composerHeight, setComposerHeight] = useState(220);
-  const [composerWidth, setComposerWidth] = useState(0);
   const [showComposerHint, setShowComposerHint] = useState(false);
-  const [textareaHeight, setTextareaHeight] = useState(DESKTOP_TEXTAREA_BASE_HEIGHT_PX);
 
   // Upload states
   const [pendingUploads, setPendingUploads] = useState(0);
@@ -559,9 +551,14 @@ export default function CanvasAgentChat({
   const isWebSocketUnavailable = wsError?.code === 'AUTH_ERROR';
 
   const referencePickerRef = useRef<HTMLDivElement>(null);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const composerRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const {
+    composerHeight,
+    composerRef,
+    composerWidth,
+    textareaHeight,
+    textareaRef,
+  } = useChatComposerLayout({ input, isMobile });
   const {
     isAtBottom,
     isAtBottomRef,
@@ -587,7 +584,6 @@ export default function CanvasAgentChat({
   const surfaceVisibleRef = useRef(isSurfaceVisible);
   const lastCompactionMarkerRef = useRef<string | null>(null);
   const userStartedNewChatRef = useRef(false);
-  const composerMeasureRafRef = useRef<number | null>(null);
   const referenceRequestIdRef = useRef(0);
   const messagesRef = useRef<ChatMessage[]>([]);
   const refreshSavedMessagesRef = useRef<((sessionId: string) => void) | null>(null);
@@ -625,7 +621,7 @@ export default function CanvasAgentChat({
       textarea.focus();
       textarea.setSelectionRange(value.length, value.length);
     });
-  }, []);
+  }, [textareaRef]);
 
   // Sync messagesRef with messages state
   useEffect(() => {
@@ -714,35 +710,6 @@ export default function CanvasAgentChat({
       persistChatSessionCache();
     }, 300);
   }, [activeModel, activeProvider, activeThinkingLevel, hasMoreBefore, messages, oldestMessageId, oldestSequence, oldestTimestamp, selectedAgentId, sessionId, sessionTitle]);
-
-  const getTextareaBaseHeight = useCallback(() => (
-    isMobile ? MOBILE_TEXTAREA_BASE_HEIGHT_PX : DESKTOP_TEXTAREA_BASE_HEIGHT_PX
-  ), [isMobile]);
-
-  const getTextareaMaxHeight = useCallback(() => {
-    if (typeof window === 'undefined') {
-      return isMobile ? MOBILE_TEXTAREA_MAX_HEIGHT_PX : DESKTOP_TEXTAREA_MAX_HEIGHT_PX;
-    }
-
-    const viewportLimit = Math.floor(
-      window.innerHeight * (isMobile ? MOBILE_TEXTAREA_MAX_VIEWPORT_RATIO : DESKTOP_TEXTAREA_MAX_VIEWPORT_RATIO),
-    );
-    const fixedLimit = isMobile ? MOBILE_TEXTAREA_MAX_HEIGHT_PX : DESKTOP_TEXTAREA_MAX_HEIGHT_PX;
-    return Math.max(getTextareaBaseHeight(), Math.min(fixedLimit, viewportLimit));
-  }, [getTextareaBaseHeight, isMobile]);
-
-  const syncTextareaHeight = useCallback(() => {
-    const textarea = textareaRef.current;
-    if (!textarea) return;
-
-    const baseHeight = getTextareaBaseHeight();
-    const maxHeight = getTextareaMaxHeight();
-    textarea.style.height = 'auto';
-    const nextHeight = Math.max(baseHeight, Math.min(Math.ceil(textarea.scrollHeight), maxHeight));
-    textarea.style.height = `${nextHeight}px`;
-    textarea.style.overflowY = textarea.scrollHeight > maxHeight ? 'auto' : 'hidden';
-    setTextareaHeight((current) => (current === nextHeight ? current : nextHeight));
-  }, [getTextareaBaseHeight, getTextareaMaxHeight]);
 
   useEffect(() => {
     runtimeStatusRef.current = runtimeStatus;
@@ -972,10 +939,6 @@ export default function CanvasAgentChat({
   }, [loadSessionList, requestSavedMessageRefresh, resolveSessionTitle, selectedAgentId]);
 
   // Session is created on-demand when user sends first message
-
-  useLayoutEffect(() => {
-    syncTextareaHeight();
-  }, [input, isMobile, syncTextareaHeight]);
 
   useEffect(() => {
     sessionIdRef.current = sessionId;
@@ -2057,7 +2020,7 @@ export default function CanvasAgentChat({
     } catch (error) {
       appendSystemMessage(t('errorMessage', { message: error instanceof Error ? error.message : String(error) }));
     }
-  }, [messages, postControl, appendSystemMessage, t, setInput, setAttachments]);
+  }, [messages, postControl, appendSystemMessage, t, setInput, setAttachments, textareaRef]);
 
   const handleCompact = useCallback(async () => {
     if (!sessionIdRef.current) return;
@@ -2869,7 +2832,7 @@ export default function CanvasAgentChat({
       textareaRef.current?.focus();
       textareaRef.current?.setSelectionRange(nextCursorPosition, nextCursorPosition);
     }, 0);
-  }, [activeReferenceMatch, closeReferencePicker, input, resetInputHistoryNavigation]);
+  }, [activeReferenceMatch, closeReferencePicker, input, resetInputHistoryNavigation, textareaRef]);
 
   const removeAttachment = useCallback((index: number) => {
     setAttachments((prev) => prev.filter((_, itemIndex) => itemIndex !== index));
@@ -3321,10 +3284,6 @@ export default function CanvasAgentChat({
   }, [refreshRuntimeStatus, sessionId, isAgentActive]);
 
   useEffect(() => () => {
-    if (composerMeasureRafRef.current !== null) {
-      cancelAnimationFrame(composerMeasureRafRef.current);
-      composerMeasureRafRef.current = null;
-    }
     resetStreamConnection();
   }, [resetStreamConnection]);
 
@@ -3335,49 +3294,6 @@ export default function CanvasAgentChat({
       /* eslint-enable react-hooks/set-state-in-effect */
     }
   }, [isMobile]);
-
-  useEffect(() => {
-    const composer = composerRef.current;
-    if (!composer) return;
-
-    const updateComposerSize = () => {
-      composerMeasureRafRef.current = null;
-      const { height, width } = composer.getBoundingClientRect();
-      const nextHeight = Math.ceil(height);
-      const nextWidth = Math.ceil(width);
-      setComposerHeight((current) => (current === nextHeight ? current : nextHeight));
-      setComposerWidth((current) => (current === nextWidth ? current : nextWidth));
-    };
-
-    const scheduleComposerSizeUpdate = () => {
-      if (composerMeasureRafRef.current !== null) {
-        cancelAnimationFrame(composerMeasureRafRef.current);
-      }
-      composerMeasureRafRef.current = requestAnimationFrame(updateComposerSize);
-    };
-
-    updateComposerSize();
-
-    const resizeObserver = new ResizeObserver(() => {
-      scheduleComposerSizeUpdate();
-    });
-
-    resizeObserver.observe(composer);
-    window.addEventListener('resize', scheduleComposerSizeUpdate);
-
-    return () => {
-      resizeObserver.disconnect();
-      window.removeEventListener('resize', scheduleComposerSizeUpdate);
-      if (composerMeasureRafRef.current !== null) {
-        cancelAnimationFrame(composerMeasureRafRef.current);
-        composerMeasureRafRef.current = null;
-      }
-    };
-  }, []);
-
-  useEffect(() => {
-    syncTextareaHeight();
-  }, [composerWidth, syncTextareaHeight]);
 
   const totalQueuedMessages = (runtimeStatus?.followUpQueue.length || 0) + (runtimeStatus?.steeringQueue.length || 0);
   const isRuntimeBusy = Boolean(runtimeStatus && runtimeStatus.phase !== 'idle');
@@ -3570,7 +3486,7 @@ export default function CanvasAgentChat({
       setShowHistory(false);
     }
     textareaRef.current?.focus();
-  }, [shouldShowHistoryAsOverlay, isMobile]);
+  }, [shouldShowHistoryAsOverlay, isMobile, textareaRef]);
 
   const composerPlaceholder = isMobile
     ? t('composerPlaceholderMobile')
