@@ -26,7 +26,7 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ReferencePickerDialog } from './ReferencePickerDialog';
-import { ReferenceHoverCard } from './ReferenceHoverCard';
+import { ReferenceHoverCard, type ReferenceType } from './ReferenceHoverCard';
 import { ModelReferencePickerDialog } from './ModelReferencePickerDialog';
 import type { StudioPreset } from '../../types/presets';
 import type { StudioPersona, StudioProduct, StudioStyle } from '../../types/models';
@@ -159,6 +159,46 @@ function ReferenceChip({ label, borderColor, bgColor, onRemove, thumbnailUrl, ic
   );
 }
 
+interface ReferenceRenderItem {
+  key: string;
+  name: string;
+  type: ReferenceType;
+  thumbnailPath?: string;
+  previewImagePaths?: string[];
+  fallbackIcon: React.ReactNode;
+  bgColor: string;
+  borderColor: string;
+  label: string;
+  chipIcon: React.ReactNode;
+  thumbnailUrl?: string;
+  isLoading?: boolean;
+  onRemove: () => void;
+}
+
+function ReferenceTagItem({ item }: { item: ReferenceRenderItem }) {
+  return (
+    <ReferenceHoverCard
+      name={item.name}
+      type={item.type}
+      thumbnailPath={item.thumbnailPath}
+      previewImagePaths={item.previewImagePaths}
+      fallbackIcon={item.fallbackIcon}
+      bgColor={item.bgColor}
+      onRemove={item.onRemove}
+    >
+      <ReferenceChip
+        label={item.label}
+        borderColor={item.borderColor}
+        bgColor={item.bgColor}
+        thumbnailUrl={item.thumbnailUrl}
+        icon={item.chipIcon}
+        onRemove={item.onRemove}
+        isLoading={item.isLoading}
+      />
+    </ReferenceHoverCard>
+  );
+}
+
 export function PromptBar({
   value,
   mode,
@@ -231,193 +271,137 @@ export function PromptBar({
     const model = styleMap.get(style.id);
     return getModelPreviewImagePaths(model, model?.thumbnailPath ?? style.thumbnailPath);
   }, [styleMap]);
-  const hasReferences = (
-    value.productRefs.length > 0 ||
-    value.personaRefs.length > 0 ||
-    value.styleRefs.length > 0 ||
-    Boolean(value.presetRef) ||
-    value.fileRefs.length > 0 ||
-    videoReferenceRefs.length > 0 ||
-    audioReferenceRefs.length > 0 ||
-    Boolean(videoExtendSourceRef)
-  );
+  const referenceItems: ReferenceRenderItem[] = [
+    ...value.productRefs.map((product) => {
+      const thumbnailPath = getProductThumbnail(product);
+      return {
+        key: `product:${product.id}`,
+        name: product.name,
+        type: 'product' as const,
+        thumbnailPath,
+        previewImagePaths: getProductPreviewImagePaths(product),
+        fallbackIcon: <Package2 className="h-4 w-4 text-amber-600" />,
+        bgColor: 'bg-amber-50',
+        borderColor: 'border-amber-400',
+        label: `@product ${product.name}`,
+        chipIcon: <Package2 className="h-4 w-4 text-amber-600" />,
+        thumbnailUrl: thumbnailPath ? toPreviewUrl(thumbnailPath, 64, { preset: 'mini' }) : undefined,
+        onRemove: () => onReferenceRemove('product', product.id),
+      };
+    }),
+    ...value.personaRefs.map((persona) => {
+      const thumbnailPath = getPersonaThumbnail(persona);
+      return {
+        key: `persona:${persona.id}`,
+        name: persona.name,
+        type: 'persona' as const,
+        thumbnailPath,
+        previewImagePaths: getPersonaPreviewImagePaths(persona),
+        fallbackIcon: <UserRound className="h-4 w-4 text-sky-600" />,
+        bgColor: 'bg-sky-50',
+        borderColor: 'border-sky-400',
+        label: `@persona ${persona.name}`,
+        chipIcon: <UserRound className="h-4 w-4 text-sky-600" />,
+        thumbnailUrl: thumbnailPath ? toPreviewUrl(thumbnailPath, 64, { preset: 'mini' }) : undefined,
+        onRemove: () => onReferenceRemove('persona', persona.id),
+      };
+    }),
+    ...value.styleRefs.map((style) => {
+      const thumbnailPath = getStyleThumbnail(style);
+      return {
+        key: `style:${style.id}`,
+        name: style.name,
+        type: 'style' as const,
+        thumbnailPath,
+        previewImagePaths: getStylePreviewImagePaths(style),
+        fallbackIcon: <LayoutTemplate className="h-4 w-4 text-emerald-600" />,
+        bgColor: 'bg-emerald-50',
+        borderColor: 'border-emerald-400',
+        label: `@style ${style.name}`,
+        chipIcon: <LayoutTemplate className="h-4 w-4 text-emerald-600" />,
+        thumbnailUrl: thumbnailPath ? toPreviewUrl(thumbnailPath, 64, { preset: 'mini' }) : undefined,
+        onRemove: () => onReferenceRemove('style', style.id),
+      };
+    }),
+    ...(value.presetRef ? (() => {
+      const CategoryIcon = PRESET_CATEGORY_ICONS[value.presetRef.category ?? ''] ?? Layers;
+      return [{
+        key: `preset:${value.presetRef.id}`,
+        name: value.presetRef.name,
+        type: 'preset' as const,
+        thumbnailPath: value.presetRef.previewImagePath ?? undefined,
+        fallbackIcon: <CategoryIcon className="h-4 w-4 text-violet-600" />,
+        bgColor: 'bg-violet-50',
+        borderColor: 'border-violet-400',
+        label: `@studio ${value.presetRef.name}`,
+        chipIcon: <CategoryIcon className="h-4 w-4 text-violet-600" />,
+        thumbnailUrl: value.presetRef.previewImagePath ? toPreviewUrl(value.presetRef.previewImagePath, 64, { preset: 'mini' }) : undefined,
+        onRemove: () => onReferenceRemove('preset', value.presetRef?.id || ''),
+      }];
+    })() : []),
+    ...value.fileRefs.map((file) => ({
+      key: `file:${file.id}`,
+      name: file.name,
+      type: 'file' as const,
+      thumbnailPath: file.thumbnailPath,
+      fallbackIcon: <ImageIcon className="h-4 w-4 text-rose-600" />,
+      bgColor: 'bg-rose-50',
+      borderColor: 'border-rose-400',
+      label: `@file ${file.name}`,
+      chipIcon: <ImageIcon className="h-4 w-4 text-rose-600" />,
+      thumbnailUrl: file.thumbnailPath ? toPreviewUrl(file.thumbnailPath, 64, { preset: 'mini' }) : undefined,
+      isLoading: file.status === 'loading',
+      onRemove: () => onReferenceRemove('file', file.id),
+    })),
+    ...videoReferenceRefs.map((file) => ({
+      key: `video:${file.id}`,
+      name: file.name,
+      type: 'file' as const,
+      thumbnailPath: file.thumbnailPath ?? file.id,
+      fallbackIcon: <FileVideo className="h-4 w-4 text-indigo-600" />,
+      bgColor: 'bg-indigo-50',
+      borderColor: 'border-indigo-400',
+      label: `@video ${file.name}`,
+      chipIcon: <FileVideo className="h-4 w-4 text-indigo-600" />,
+      thumbnailUrl: toPreviewUrl(file.thumbnailPath ?? file.id, 64, { preset: 'mini' }),
+      isLoading: file.status === 'loading',
+      onRemove: () => onReferenceRemove('videoReference', file.id),
+    })),
+    ...audioReferenceRefs.map((file) => ({
+      key: `audio:${file.id}`,
+      name: file.name,
+      type: 'file' as const,
+      fallbackIcon: <Music className="h-4 w-4 text-teal-600" />,
+      bgColor: 'bg-teal-50',
+      borderColor: 'border-teal-400',
+      label: `@audio ${file.name}`,
+      chipIcon: <Music className="h-4 w-4 text-teal-600" />,
+      isLoading: file.status === 'loading',
+      onRemove: () => onReferenceRemove('audioReference', file.id),
+    })),
+    ...(videoExtendSourceRef ? [{
+      key: `extend:${videoExtendSourceRef.id}`,
+      name: videoExtendSourceRef.name,
+      type: 'file' as const,
+      thumbnailPath: videoExtendSourceRef.thumbnailPath ?? videoExtendSourceRef.id,
+      fallbackIcon: <FileVideo className="h-4 w-4 text-orange-600" />,
+      bgColor: 'bg-orange-50',
+      borderColor: 'border-orange-400',
+      label: `@extend ${videoExtendSourceRef.name}`,
+      chipIcon: <FileVideo className="h-4 w-4 text-orange-600" />,
+      thumbnailUrl: toPreviewUrl(videoExtendSourceRef.thumbnailPath ?? videoExtendSourceRef.id, 64, { preset: 'mini' }),
+      isLoading: videoExtendSourceRef.status === 'loading',
+      onRemove: () => onReferenceRemove('videoExtendSource', videoExtendSourceRef.id),
+    }] : []),
+  ];
 
   return (
     <div id="studio-prompt-bar" className="space-y-2">
-      {hasReferences ? (
+      {referenceItems.length > 0 ? (
         <div className="flex max-h-[76px] flex-wrap gap-1.5 overflow-y-auto pr-1">
-          {value.productRefs.map((product) => (
-            <ReferenceHoverCard
-              key={product.id}
-              name={product.name}
-              type="product"
-              thumbnailPath={getProductThumbnail(product)}
-              previewImagePaths={getProductPreviewImagePaths(product)}
-              fallbackIcon={<Package2 className="h-4 w-4 text-amber-600" />}
-              bgColor="bg-amber-50"
-              onRemove={() => onReferenceRemove('product', product.id)}
-            >
-              <ReferenceChip
-                label={`@product ${product.name}`}
-                borderColor="border-amber-400"
-                bgColor="bg-amber-50"
-                thumbnailUrl={getProductThumbnail(product) ? toPreviewUrl(getProductThumbnail(product)!, 64, { preset: 'mini' }) : undefined}
-                icon={<Package2 className="h-4 w-4 text-amber-600" />}
-                onRemove={() => onReferenceRemove('product', product.id)}
-              />
-            </ReferenceHoverCard>
+          {referenceItems.map((item) => (
+            <ReferenceTagItem key={item.key} item={item} />
           ))}
-          {value.personaRefs.map((persona) => (
-            <ReferenceHoverCard
-              key={persona.id}
-              name={persona.name}
-              type="persona"
-              thumbnailPath={getPersonaThumbnail(persona)}
-              previewImagePaths={getPersonaPreviewImagePaths(persona)}
-              fallbackIcon={<UserRound className="h-4 w-4 text-sky-600" />}
-              bgColor="bg-sky-50"
-              onRemove={() => onReferenceRemove('persona', persona.id)}
-            >
-              <ReferenceChip
-                label={`@persona ${persona.name}`}
-                borderColor="border-sky-400"
-                bgColor="bg-sky-50"
-                thumbnailUrl={getPersonaThumbnail(persona) ? toPreviewUrl(getPersonaThumbnail(persona)!, 64, { preset: 'mini' }) : undefined}
-                icon={<UserRound className="h-4 w-4 text-sky-600" />}
-                onRemove={() => onReferenceRemove('persona', persona.id)}
-              />
-            </ReferenceHoverCard>
-          ))}
-          {value.styleRefs.map((style) => (
-            <ReferenceHoverCard
-              key={style.id}
-              name={style.name}
-              type="style"
-              thumbnailPath={getStyleThumbnail(style)}
-              previewImagePaths={getStylePreviewImagePaths(style)}
-              fallbackIcon={<LayoutTemplate className="h-4 w-4 text-emerald-600" />}
-              bgColor="bg-emerald-50"
-              onRemove={() => onReferenceRemove('style', style.id)}
-            >
-              <ReferenceChip
-                label={`@style ${style.name}`}
-                borderColor="border-emerald-400"
-                bgColor="bg-emerald-50"
-                thumbnailUrl={getStyleThumbnail(style) ? toPreviewUrl(getStyleThumbnail(style)!, 64, { preset: 'mini' }) : undefined}
-                icon={<LayoutTemplate className="h-4 w-4 text-emerald-600" />}
-                onRemove={() => onReferenceRemove('style', style.id)}
-              />
-            </ReferenceHoverCard>
-          ))}
-          {value.presetRef ? (
-            <ReferenceHoverCard
-              key={value.presetRef.id}
-              name={value.presetRef.name}
-              type="preset"
-              thumbnailPath={value.presetRef.previewImagePath ?? undefined}
-              fallbackIcon={(() => {
-                const CategoryIcon = PRESET_CATEGORY_ICONS[value.presetRef.category ?? ''] ?? Layers;
-                return <CategoryIcon className="h-4 w-4 text-violet-600" />;
-              })()}
-              bgColor="bg-violet-50"
-              onRemove={() => onReferenceRemove('preset', value.presetRef?.id || '')}
-            >
-              <ReferenceChip
-                label={`@studio ${value.presetRef.name}`}
-                borderColor="border-violet-400"
-                bgColor="bg-violet-50"
-                thumbnailUrl={value.presetRef.previewImagePath ? toPreviewUrl(value.presetRef.previewImagePath, 64, { preset: 'mini' }) : undefined}
-                icon={(() => {
-                  const CategoryIcon = PRESET_CATEGORY_ICONS[value.presetRef.category ?? ''] ?? Layers;
-                  return <CategoryIcon className="h-4 w-4 text-violet-600" />;
-                })()}
-                onRemove={() => onReferenceRemove('preset', value.presetRef?.id || '')}
-              />
-            </ReferenceHoverCard>
-          ) : null}
-          {value.fileRefs.map((file) => (
-            <ReferenceHoverCard
-              key={file.id}
-              name={file.name}
-              type="file"
-              thumbnailPath={file.thumbnailPath}
-              fallbackIcon={<ImageIcon className="h-4 w-4 text-rose-600" />}
-              bgColor="bg-rose-50"
-              onRemove={() => onReferenceRemove('file', file.id)}
-            >
-              <ReferenceChip
-                label={`@file ${file.name}`}
-                borderColor="border-rose-400"
-                bgColor="bg-rose-50"
-                thumbnailUrl={file.thumbnailPath ? toPreviewUrl(file.thumbnailPath, 64, { preset: 'mini' }) : undefined}
-                icon={<ImageIcon className="h-4 w-4 text-rose-600" />}
-                onRemove={() => onReferenceRemove('file', file.id)}
-                isLoading={file.status === 'loading'}
-              />
-            </ReferenceHoverCard>
-          ))}
-          {videoReferenceRefs.map((file) => (
-            <ReferenceHoverCard
-              key={file.id}
-              name={file.name}
-              type="file"
-              thumbnailPath={file.thumbnailPath ?? file.id}
-              fallbackIcon={<FileVideo className="h-4 w-4 text-indigo-600" />}
-              bgColor="bg-indigo-50"
-              onRemove={() => onReferenceRemove('videoReference', file.id)}
-            >
-              <ReferenceChip
-                label={`@video ${file.name}`}
-                borderColor="border-indigo-400"
-                bgColor="bg-indigo-50"
-                thumbnailUrl={toPreviewUrl(file.thumbnailPath ?? file.id, 64, { preset: 'mini' })}
-                icon={<FileVideo className="h-4 w-4 text-indigo-600" />}
-                onRemove={() => onReferenceRemove('videoReference', file.id)}
-                isLoading={file.status === 'loading'}
-              />
-            </ReferenceHoverCard>
-          ))}
-          {audioReferenceRefs.map((file) => (
-            <ReferenceHoverCard
-              key={file.id}
-              name={file.name}
-              type="file"
-              fallbackIcon={<Music className="h-4 w-4 text-teal-600" />}
-              bgColor="bg-teal-50"
-              onRemove={() => onReferenceRemove('audioReference', file.id)}
-            >
-              <ReferenceChip
-                label={`@audio ${file.name}`}
-                borderColor="border-teal-400"
-                bgColor="bg-teal-50"
-                icon={<Music className="h-4 w-4 text-teal-600" />}
-                onRemove={() => onReferenceRemove('audioReference', file.id)}
-                isLoading={file.status === 'loading'}
-              />
-            </ReferenceHoverCard>
-          ))}
-          {videoExtendSourceRef ? (
-            <ReferenceHoverCard
-              key={videoExtendSourceRef.id}
-              name={videoExtendSourceRef.name}
-              type="file"
-              thumbnailPath={videoExtendSourceRef.thumbnailPath ?? videoExtendSourceRef.id}
-              fallbackIcon={<FileVideo className="h-4 w-4 text-orange-600" />}
-              bgColor="bg-orange-50"
-              onRemove={() => onReferenceRemove('videoExtendSource', videoExtendSourceRef.id)}
-            >
-              <ReferenceChip
-                label={`@extend ${videoExtendSourceRef.name}`}
-                borderColor="border-orange-400"
-                bgColor="bg-orange-50"
-                thumbnailUrl={toPreviewUrl(videoExtendSourceRef.thumbnailPath ?? videoExtendSourceRef.id, 64, { preset: 'mini' })}
-                icon={<FileVideo className="h-4 w-4 text-orange-600" />}
-                onRemove={() => onReferenceRemove('videoExtendSource', videoExtendSourceRef.id)}
-                isLoading={videoExtendSourceRef.status === 'loading'}
-              />
-            </ReferenceHoverCard>
-          ) : null}
-
         </div>
       ) : null}
 
