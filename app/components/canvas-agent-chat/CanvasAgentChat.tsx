@@ -89,7 +89,7 @@ import { notifyChatFileReferenceOpened } from '@/app/lib/chat/file-reference-eve
 import { extractStudioImageMediaUrls, rewriteRelativeStudioImageMarkdown } from '@/app/lib/chat/studio-image-markdown';
 import { validateFileExists } from '@/app/lib/chat/validate-file-paths';
 import { getFileIconComponent } from '@/app/lib/files/file-icons';
-import { toMediaUrl, toPreviewUrl, toUploadMediaUrl, toUploadPreviewUrl, toWorkspaceMediaUrl } from '@/app/lib/utils/media-url';
+import { toMediaUrl, toUploadMediaUrl, toWorkspaceMediaUrl } from '@/app/lib/utils/media-url';
 import { useFileStore } from '@/app/store/file-store';
 import { Link } from '@/i18n/navigation';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -115,6 +115,25 @@ import {
   getAttachmentMediaUrl,
   resolvePreviewSrcFromMediaUrl,
 } from '@/app/lib/chat/attachment-preview';
+import {
+  contentToString,
+  dedupeAttachments,
+  extractImageAttachments,
+  extractMessageAttachments,
+  extractPiMessageText,
+  extractToolResultImageAttachments,
+  extractToolResultText,
+  formatToolArgs,
+  getChatMessageRole,
+  getPiMessageContent,
+  getPiMessageDetails,
+  isAbortedAssistantPiMessage,
+  isImagePart,
+  isRecord,
+  isToolCallPart,
+  normalizeMessageStart,
+  truncatePreview,
+} from '@/app/lib/chat/message-content';
 import { AgentAvatar, AgentIcon } from '@/app/components/agents/AgentAvatar';
 import type { RuntimeStatus } from '@/app/lib/chat/runtime-status';
 import {
@@ -142,7 +161,7 @@ import {
 } from '@/app/lib/chat/session-api';
 import { buildCollapsedRunMap, formatRunDuration } from '@/app/lib/chat/run-collapse';
 import { getSessionDisplayTitle, isAutomaticSessionTitle } from '@/app/lib/pi/session-titles';
-import { type CompactBreakMessage, isCompactBreakMessage, isComposioAuthRequiredMessage, isRuntimeContinuationMessage, type ComposioAuthRequiredMessage } from '@/app/lib/pi/custom-messages';
+import { type CompactBreakMessage, isComposioAuthRequiredMessage, isRuntimeContinuationMessage, type ComposioAuthRequiredMessage } from '@/app/lib/pi/custom-messages';
 import { renderSkillIcon } from '@/app/lib/skills/skill-icons';
 import { searchSkillReferenceEntries } from '@/app/lib/skills/skill-reference-search';
 import { useWebSocket } from '@/app/hooks/useWebSocket';
@@ -379,32 +398,6 @@ const TOOL_TONE_ICONS: Record<ToolDisplayTone, React.ComponentType<{ className?:
   default: Settings,
 };
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null;
-}
-
-function getPiMessageDetails(piMessage?: AgentMessage | null): unknown {
-  return isRecord(piMessage) ? piMessage.details : undefined;
-}
-
-function isTextPart(value: unknown): value is { type: 'text'; text: string } {
-  return isRecord(value) && value.type === 'text' && typeof value.text === 'string';
-}
-
-// Helper to safely convert message content to string
-function contentToString(content: unknown): string {
-  if (typeof content === 'string') {
-    return content;
-  }
-  if (Array.isArray(content)) {
-    return content
-      .map((part) => (isTextPart(part) ? part.text : ''))
-      .filter(Boolean)
-      .join('\n');
-  }
-  return '';
-}
-
 const STUDIO_MEDIA_PATH_PREFIXES = [
   'studio/',
   'studio-gen-',
@@ -448,19 +441,6 @@ function resolveMarkdownImageSrc(src: string): string {
   }
 
   return trimmed;
-}
-
-function decodeMediaPath(value: string): string {
-  return value
-    .split('/')
-    .map((segment) => {
-      try {
-        return decodeURIComponent(segment);
-      } catch {
-        return segment;
-      }
-    })
-    .join('/');
 }
 
 function getRecentStudioImageMediaUrls(messages: ChatMessage[], messageIndex: number): string[] {
@@ -551,10 +531,6 @@ function hasEarlierVisibleAssistantInRun(messages: ChatMessage[], messageIndex: 
   return false;
 }
 
-function isImagePart(value: unknown): value is { type: 'image'; data: string; mimeType: string } {
-  return isRecord(value) && value.type === 'image' && typeof value.data === 'string' && typeof value.mimeType === 'string';
-}
-
 function resolveAttachmentCategory(attachment: Attachment): string {
   const category = attachment.category || (attachment.contentKind === 'image' ? 'image' : 'document');
   return category;
@@ -629,362 +605,6 @@ function isTextareaAtHistoryBoundary(textarea: HTMLTextAreaElement, direction: '
   }
 
   return !value.slice(selectionEnd).includes('\n');
-}
-
-function createAttachmentBlockRegex(): RegExp {
-  return /(^|\n)--- Attachment: ([^\n]+) ---\n([\s\S]*?)\n--- Ende Attachment: [^\n]+ ---/g;
-}
-
-function getAttachmentBlockField(block: string, fieldName: string): string | undefined {
-  const escapedFieldName = fieldName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const match = block.match(new RegExp(`^${escapedFieldName}:\\s*(.*)$`, 'm'));
-  return match?.[1]?.trim() || undefined;
-}
-
-function parseAttachmentBlocks(text: string): Attachment[] {
-  const attachments: Attachment[] = [];
-
-  for (const match of text.matchAll(createAttachmentBlockRegex())) {
-    const name = match[2]?.trim();
-    const block = match[3] || '';
-    const id = getAttachmentBlockField(block, 'fileId');
-    const rawContentKind = getAttachmentBlockField(block, 'contentKind');
-    const contentKind = rawContentKind === 'image' || rawContentKind === 'document'
-      ? rawContentKind
-      : null;
-
-    if (!name || !id || !contentKind) {
-      continue;
-    }
-
-    attachments.push(deriveUploadAttachmentPreview({
-      name,
-      id,
-      contentKind,
-      mimeType: getAttachmentBlockField(block, 'mimeType'),
-      category: getAttachmentBlockField(block, 'category'),
-      filePath: getAttachmentBlockField(block, 'containerFilePath'),
-      previewUrl: getAttachmentBlockField(block, 'previewUrl'),
-      mediaUrl: getAttachmentBlockField(block, 'mediaUrl'),
-    }));
-  }
-
-  return attachments;
-}
-
-function stripAttachmentBlocks(text: string): string {
-  return text
-    .replace(createAttachmentBlockRegex(), (_match, prefix: string) => prefix || '')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim();
-}
-
-function decodeAttachmentId(value: string): string {
-  try {
-    return decodeURIComponent(value);
-  } catch {
-    return value;
-  }
-}
-
-function getImagePartAttachmentId(part: { data: string }): string | null {
-  if (!part.data.startsWith('/api/files/')) {
-    return null;
-  }
-
-  const rawId = part.data.slice('/api/files/'.length).split(/[?#]/, 1)[0];
-  return rawId ? decodeAttachmentId(rawId) : null;
-}
-
-function dedupeAttachments(attachments: Attachment[]): Attachment[] {
-  const byKey = new Map<string, Attachment>();
-
-  for (const attachment of attachments) {
-    const key = `${attachment.contentKind}:${attachment.id || attachment.filePath || attachment.name}`;
-    const existing = byKey.get(key);
-    if (!existing) {
-      byKey.set(key, attachment);
-      continue;
-    }
-
-    byKey.set(key, {
-      ...existing,
-      name: existing.name || attachment.name,
-      mimeType: existing.mimeType || attachment.mimeType,
-      category: existing.category || attachment.category,
-      filePath: existing.filePath || attachment.filePath,
-      previewUrl: existing.previewUrl || attachment.previewUrl,
-      mediaUrl: existing.mediaUrl || attachment.mediaUrl,
-    });
-  }
-
-  return Array.from(byKey.values());
-}
-
-function normalizeMessageStart(text: string): string {
-  return text.replace(/^\s+/, '');
-}
-
-function isAbortedAssistantPiMessage(piMessage?: AgentMessage | null): boolean {
-  const candidate = piMessage as { role?: unknown; stopReason?: unknown } | null | undefined;
-  return candidate?.role === 'assistant' && candidate.stopReason === 'aborted';
-}
-
-function getPiMessageContent(piMessage?: AgentMessage | null): string | unknown[] | undefined {
-  if (!piMessage || !('content' in piMessage)) {
-    return undefined;
-  }
-
-  return piMessage.content;
-}
-
-function getChatMessageRole(role: AgentMessage['role']): ChatMessage['role'] {
-  if (role === 'user' || role === 'assistant' || role === 'toolResult') {
-    return role;
-  }
-
-  return 'system';
-}
-
-function stripThinkingTags(text: string): string {
-  return text
-    .replace(/<thinking>[\s\S]*?<\/thinking>/gi, '')
-    .replace(/<reasoning>[\s\S]*?<\/reasoning>/gi, '')
-    .replace(/<\/?thinking>/gi, '')
-    .replace(/<\/?reasoning>/gi, '')
-    .trim();
-}
-
-function extractPiMessageText(piMessage?: AgentMessage | null, options?: { hideAttachmentMetadata?: boolean }): string {
-  if (!piMessage || isCompactBreakMessage(piMessage) || isComposioAuthRequiredMessage(piMessage) || isRuntimeContinuationMessage(piMessage)) return '';
-  const messageContent = getPiMessageContent(piMessage);
-  if (!Array.isArray(messageContent)) {
-    const text = typeof messageContent === 'string' ? messageContent : '';
-    const strippedText = stripThinkingTags(text);
-    return options?.hideAttachmentMetadata ? stripAttachmentBlocks(strippedText) : strippedText;
-  }
-
-  const textContent = messageContent
-    .map((part: unknown) => {
-      if (isTextPart(part)) return part.text;
-      return '';
-    })
-    .filter(Boolean)
-    .join('\n');
-
-  if (textContent) {
-    const strippedText = stripThinkingTags(textContent);
-    const visibleText = options?.hideAttachmentMetadata ? stripAttachmentBlocks(strippedText) : strippedText;
-    return normalizeMessageStart(visibleText);
-  }
-
-  if (piMessage.role === 'assistant' && piMessage.stopReason === 'error' && piMessage.errorMessage) {
-    return `[Error] ${piMessage.errorMessage}`;
-  }
-
-  return '';
-}
-
-function extractToolResultText(content: unknown[] | undefined): string {
-  if (!Array.isArray(content)) {
-    return '';
-  }
-
-  return normalizeMessageStart(
-    content
-      .map((part) => (isTextPart(part) ? part.text : ''))
-      .filter(Boolean)
-      .join('\n'),
-  );
-}
-
-function isToolCallPart(part: unknown): part is PersistedToolCallPart {
-  return (
-    !!part &&
-    typeof part === 'object' &&
-    'type' in part &&
-    part.type === 'toolCall' &&
-    'id' in part &&
-    typeof part.id === 'string' &&
-    'name' in part &&
-    typeof part.name === 'string'
-  );
-}
-
-function extractImageAttachments(content: unknown, metadataAttachments: Attachment[] = []): Attachment[] {
-  if (!Array.isArray(content)) {
-    return [];
-  }
-
-  const metadataById = new Map(metadataAttachments.map((attachment) => [attachment.id, attachment]));
-  const attachments = content.reduce<Attachment[]>((result, part, index) => {
-    if (isImagePart(part)) {
-      const imageId = getImagePartAttachmentId(part);
-      if (!imageId) {
-        return result;
-      }
-      const metadata = metadataById.get(imageId);
-      
-      result.push(deriveUploadAttachmentPreview({
-        name: metadata?.name || `attachment-${index + 1}`,
-        contentKind: 'image',
-        id: imageId,
-        mimeType: metadata?.mimeType || part.mimeType,
-        category: metadata?.category || 'image',
-        filePath: metadata?.filePath,
-        previewUrl: metadata?.previewUrl,
-        mediaUrl: metadata?.mediaUrl,
-      }));
-    }
-    return result;
-  }, []);
-
-  return attachments;
-}
-
-function extractMessageAttachments(content: unknown): Attachment[] | undefined {
-  const text = contentToString(content);
-  const metadataAttachments = parseAttachmentBlocks(text);
-  const imageAttachments = extractImageAttachments(content, metadataAttachments);
-  const attachments = dedupeAttachments([...metadataAttachments, ...imageAttachments]);
-  return attachments.length > 0 ? attachments : undefined;
-}
-
-const IMAGE_PREVIEW_EXTENSIONS = new Set(['avif', 'bmp', 'gif', 'heic', 'heif', 'jpeg', 'jpg', 'png', 'svg', 'tif', 'tiff', 'webp']);
-
-function getPathBasename(value: string): string {
-  const cleanPath = value.split(/[?#]/, 1)[0].replace(/\\/g, '/');
-  return cleanPath.split('/').filter(Boolean).pop() || value;
-}
-
-function getImageFileExtension(value: string): string {
-  const basename = getPathBasename(value);
-  const dotIndex = basename.lastIndexOf('.');
-  return dotIndex === -1 ? '' : basename.slice(dotIndex + 1).toLowerCase();
-}
-
-function isPreviewableImagePath(value: string): boolean {
-  return IMAGE_PREVIEW_EXTENSIONS.has(getImageFileExtension(value));
-}
-
-function getUploadImageIdFromPath(value: string): string | null {
-  const normalized = value.replace(/\\/g, '/').split(/[?#]/, 1)[0];
-  const apiFileMatch = normalized.match(/^\/api\/files\/([^/]+)$/);
-  if (apiFileMatch?.[1]) {
-    return decodeAttachmentId(apiFileMatch[1]);
-  }
-
-  const uploadMatch = normalized.match(/(?:^|\/)user-uploads\/image\/([^/]+)$/);
-  if (uploadMatch?.[1]) {
-    return uploadMatch[1];
-  }
-
-  const storagePathMatch = normalized.match(/^image\/([^/]+)$/);
-  if (storagePathMatch?.[1]) {
-    return storagePathMatch[1];
-  }
-
-  return null;
-}
-
-function normalizeStudioOutputPath(value: string): string | null {
-  const normalized = value.replace(/\\/g, '/').split(/[?#]/, 1)[0];
-  const apiStudioPrefix = '/api/studio/media/';
-  if (normalized.startsWith(apiStudioPrefix)) {
-    return decodeMediaPath(normalized.slice(apiStudioPrefix.length));
-  }
-
-  const studioOutputMatch = normalized.match(/(?:^|\/)studio\/outputs\/(.+)$/);
-  if (studioOutputMatch?.[1]) {
-    return `studio/outputs/${studioOutputMatch[1]}`;
-  }
-
-  return null;
-}
-
-function createImageAttachmentFromFileReference(value: string, fallbackName?: string): Attachment | null {
-  const uploadId = getUploadImageIdFromPath(value);
-  if (uploadId && isPreviewableImagePath(uploadId)) {
-    return {
-      name: fallbackName || getPathBasename(uploadId),
-      contentKind: 'image',
-      id: uploadId,
-      category: 'image',
-      previewUrl: toUploadPreviewUrl(uploadId, 192, { preset: 'mini' }),
-      mediaUrl: toUploadMediaUrl(uploadId),
-      filePath: value,
-    };
-  }
-
-  const studioPath = normalizeStudioOutputPath(value);
-  if (studioPath && isPreviewableImagePath(studioPath)) {
-    return {
-      name: fallbackName || getPathBasename(studioPath),
-      contentKind: 'image',
-      id: `studio:${studioPath}`,
-      category: 'image',
-      previewUrl: toPreviewUrl(studioPath, 192, { preset: 'mini' }),
-      mediaUrl: toMediaUrl(studioPath),
-      filePath: value,
-    };
-  }
-
-  if (!isPreviewableImagePath(value)) {
-    return null;
-  }
-
-  const normalizedWorkspacePath = normalizeChatFilePath(value);
-  return {
-    name: fallbackName || getPathBasename(value),
-    contentKind: 'image',
-    id: `workspace:${normalizedWorkspacePath}`,
-    category: 'image',
-    previewUrl: toPreviewUrl(normalizedWorkspacePath, 192, { preset: 'mini' }),
-    mediaUrl: toWorkspaceMediaUrl(normalizedWorkspacePath),
-    filePath: value,
-  };
-}
-
-function extractToolResultImageAttachments(piMessage?: AgentMessage | null): Attachment[] {
-  if (!piMessage || piMessage.role !== 'toolResult') {
-    return [];
-  }
-
-  const record = piMessage as unknown as Record<string, unknown>;
-  const details = record.details;
-  if (!isRecord(details)) {
-    return [];
-  }
-
-  const type = typeof details.type === 'string' ? details.type : '';
-  const filePath = typeof details.filePath === 'string' ? details.filePath : '';
-  if (type !== 'image' || !filePath) {
-    return [];
-  }
-
-  const previewUrl = typeof details.previewUrl === 'string' ? details.previewUrl : undefined;
-  const mediaUrl = typeof details.mediaUrl === 'string' ? details.mediaUrl : undefined;
-  const mimeType = typeof details.mimeType === 'string' ? details.mimeType : undefined;
-  const size = typeof details.size === 'number' ? details.size : undefined;
-  const name = typeof details.name === 'string' ? details.name : getPathBasename(filePath);
-  const inferredAttachment = createImageAttachmentFromFileReference(filePath, name);
-  if (!inferredAttachment && !previewUrl && !mediaUrl) {
-    return [];
-  }
-
-  return [{
-    ...(inferredAttachment || {
-      name,
-      contentKind: 'image' as const,
-      id: `tool-result:${filePath}`,
-      category: 'image',
-      filePath,
-    }),
-    previewUrl: previewUrl || inferredAttachment?.previewUrl,
-    mediaUrl: mediaUrl || inferredAttachment?.mediaUrl,
-    mimeType: mimeType || inferredAttachment?.mimeType,
-    size: size ?? inferredAttachment?.size,
-  }];
 }
 
 function getSessionDisplayLabel(sessionTitle: string | null, fallbackTitle: string): string {
@@ -1415,19 +1035,6 @@ function formatContextTokens(value: number): string {
   }
 
   return `${value}`;
-}
-
-function truncatePreview(value: string, maxLength = 88): string {
-  const normalized = value.replace(/\s+/g, ' ').trim();
-  if (!normalized) {
-    return '';
-  }
-
-  if (normalized.length <= maxLength) {
-    return normalized;
-  }
-
-  return `${normalized.slice(0, maxLength - 1).trimEnd()}…`;
 }
 
 function getToolStatusLabel(
@@ -3303,21 +2910,6 @@ export default function CanvasAgentChat({
     return nextSessionId;
   }, [activeModel, activeProvider, activeThinkingLevel, agentConfig, input, selectedAgentId, t]);
 
-  // Helper function to format tool arguments
-  const formatToolArgs = useCallback((args: unknown): string => {
-    if (args === undefined) {
-      return '';
-    }
-    if (typeof args === 'string') {
-      return args;
-    }
-    try {
-      return JSON.stringify(args, null, 2);
-    } catch {
-      return String(args);
-    }
-  }, []);
-
   // Helper to sync PI message to chat
   const syncPiMessage = useCallback((id: string, piMessage: AgentMessage) => {
     setMessages((prev) =>
@@ -3681,7 +3273,7 @@ export default function CanvasAgentChat({
 
     // Note: event types 'message', 'message_delta', and 'messages' are no longer produced
     // by LivePiRuntime. The live runtime uses message_start / message_update / message_end.
-  }, [appendCompactionBreak, appendSystemMessage, createAssistantBubble, formatToolArgs, requestSavedMessageRefresh, scrollToBottom, setMessages, setRuntimeStatusWithReconciliation, syncPiMessage, t, upsertToolMessage, upsertUserMessageFromPiMessage]);
+  }, [appendCompactionBreak, appendSystemMessage, createAssistantBubble, requestSavedMessageRefresh, scrollToBottom, setMessages, setRuntimeStatusWithReconciliation, syncPiMessage, t, upsertToolMessage, upsertUserMessageFromPiMessage]);
 
   // Listen for WebSocket agent events (from current tab, other tabs, or background runs).
   useEffect(() => {
@@ -4086,7 +3678,7 @@ export default function CanvasAgentChat({
       autoCollapsedAtEnd: isToolResult,
       previewText: isToolResult ? truncatePreview(resolvedContent) : undefined,
     };
-  }, [formatToolArgs, t]);
+  }, [t]);
 
   const mapRawMessages = useCallback((rawMessages: PersistedChatMessage[]): ChatMessage[] => {
     const toolCallsById = new Map<string, PersistedToolCallPart>();
