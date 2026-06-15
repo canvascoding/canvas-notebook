@@ -4,35 +4,20 @@ import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { useTranslations } from 'next-intl';
 import {
   Loader2,
-  History,
-  Plus,
-  ChevronLeft,
-  ChevronDown,
-  ChevronRight,
   ArrowDown,
-  Wrench,
-  Lightbulb,
-  Settings,
-  ArrowLeft,
 } from 'lucide-react';
 import { ChatComposer } from '@/app/components/canvas-agent-chat/ChatComposer';
-import { ChatAgentSelector } from '@/app/components/canvas-agent-chat/ChatAgentSelector';
+import { ChatHeader } from '@/app/components/canvas-agent-chat/ChatHeader';
 import { ChatHistoryPanel, type ChatHistoryPanelProps } from '@/app/components/canvas-agent-chat/ChatHistoryPanel';
 import { ChatMessageList } from '@/app/components/canvas-agent-chat/ChatMessageList';
 import { ChatStarterScreen } from '@/app/components/canvas-agent-chat/ChatStarterScreen';
 import { useFileStore } from '@/app/store/file-store';
-import { Link } from '@/i18n/navigation';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { usePathname as useLocalePathname } from '@/i18n/navigation';
 import { useLocale } from 'next-intl';
-import { Button } from '@/components/ui/button';
-
-
-import { ThemeToggle } from '@/app/components/ThemeToggle';
 
 import { useIsMobile } from '@/hooks/use-mobile';
 import { BUSINESS_STARTER_PROMPTS, STUDIO_STARTER_PROMPTS } from '@/app/lib/chat/starter-prompts';
-import { ChatRuntimeActivityBadge } from '@/app/components/canvas-agent-chat/ChatRuntimeActivityBadge';
 import { AttachmentPreviewDialog } from '@/app/components/canvas-agent-chat/AttachmentPreviewDialog';
 import { useChatComposerLayout } from '@/app/components/canvas-agent-chat/useChatComposerLayout';
 import { useChatScrollController } from '@/app/components/canvas-agent-chat/useChatScrollController';
@@ -51,7 +36,6 @@ import { ImagePreprocessDialog } from '@/app/components/shared/ImagePreprocessDi
 import { usePlanModeStore } from '@/app/store/plan-mode-store';
 import { useToolVerbosityStore } from '@/app/store/tool-verbosity-store';
 import { getToolDisplayInfo } from '@/app/lib/pi/tool-display';
-import { cn } from '@/lib/utils';
 
 import { CANVAS_CHAT_ACTIVE_SESSION_STORAGE_KEY } from '@/app/lib/chat/constants';
 import { removeComposerDraft } from '@/app/lib/chat/draft-storage';
@@ -133,7 +117,6 @@ export default function CanvasAgentChat({
   onMediaClick,
 }: CanvasAgentChatProps) {
   const t = useTranslations('chat');
-  const tCommon = useTranslations('common');
   const locale = useLocale();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -998,263 +981,35 @@ export default function CanvasAgentChat({
 
   return (
     <div ref={containerRef} className="relative flex h-full flex-col overflow-hidden bg-card text-card-foreground">
-      {!hideNavHeader && (
-      <header className="z-40 h-16 flex-shrink-0 border-b border-border bg-background/95 pt-[env(safe-area-inset-top)]">
-        <div className="mx-auto flex h-full items-center justify-between px-4">
-          <div className="flex items-center gap-2">
-            <Button asChild variant="outline" size="sm" className="gap-2 px-2 sm:px-3">
-              <Link href="/">
-                <ArrowLeft className="h-4 w-4" />
-                <span className="hidden sm:inline">{tCommon('suite')}</span>
-              </Link>
-            </Button>
-            <h1 className="hidden md:block text-lg md:text-2xl font-bold truncate">{t('title')}</h1>
-          </div>
-          <div className="flex items-center gap-1.5 md:gap-4">
-            <ThemeToggle />
-            <Button asChild variant="outline" size="sm" className="hidden gap-2 px-2 sm:px-3 md:inline-flex">
-              <Link href="/usage">{t('usage')}</Link>
-            </Button>
-
-          </div>
-        </div>
-      </header>
-      )}
-
-      {/* Compact Header Row */}
-      <div className={cn('z-10 border-b border-border bg-background/95', isHistoryOverlayOpen ? 'hidden' : null)}>
-        <div className="flex flex-wrap items-center gap-2 px-3 py-2">
-          <div className="flex min-w-[12rem] flex-1 items-center gap-2 overflow-hidden">
-            {showHistory ? (
-              <button
-                type="button"
-                aria-label={t('backToChat')}
-                onClick={() => setShowHistory(false)}
-                className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-transparent transition-colors hover:border-border hover:bg-accent"
-                title={t('backToChat')}
-              >
-                <ChevronLeft size={18} />
-              </button>
-            ) : (
-              <button
-                type="button"
-                data-testid="chat-history-toggle"
-                aria-label={t('toggleSidebar')}
-                onClick={() => setShowHistory(true)}
-                className="relative inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-transparent transition-colors hover:border-border hover:bg-accent"
-                title={t('toggleSidebar')}
-              >
-                <History size={18} />
-                {totalUnreadCount > 0 && (
-                  <span className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-blue-500 text-[9px] font-bold text-white">
-                    {totalUnreadCount > 9 ? '9+' : totalUnreadCount}
-                  </span>
-                )}
-              </button>
-            )}
-            <div className="min-w-0 flex-1">
-              {isMobile ? (
-                <span className="block truncate text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground">{t('canvasChatLabel')}</span>
-              ) : (
-                <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-                  {/* Session Badge */}
-                  <div
-                    data-testid="chat-session-id"
-                    title={sessionId || t('newChatTitle')}
-                    className="inline-flex h-8 min-w-0 max-w-[min(18rem,100%)] items-center gap-1.5 rounded-md border border-border/60 bg-muted/50 px-2 text-[11px] font-medium text-foreground"
-                  >
-                    <span className="text-[9px] uppercase tracking-[0.15em] text-muted-foreground">{t('sessionLabel')}</span>
-                    <span className="min-w-0 truncate">{sessionDisplayLabel}</span>
-                  </div>
-                  <ChatAgentSelector
-                    variant="desktop"
-                    activeAgentId={activeSessionAgentId}
-                    activeAgentName={activeAgentDisplayName}
-                    activeAgentIconId={activeAgentProfile?.iconId}
-                    agents={chatAgentOptions}
-                    onSelectAgent={selectChatAgent}
-                  />
-                </div>
-              )}
-            </div>
-          </div>
-          <div className="ml-auto flex shrink-0 items-center gap-1">
-            <button
-              type="button"
-              aria-label={t('newChatTitle')}
-              onClick={() => startNewChat()}
-              className="group inline-flex h-8 items-center gap-1 rounded-md border border-primary/30 bg-primary/15 px-2.5 text-primary transition-all hover:bg-primary/25"
-              title={t('newChatTitle')}
-            >
-              <Plus size={16} />
-              <span className="hidden text-[11px] font-bold sm:inline">{t('newChatShort')}</span>
-            </button>
-            {showSkillsLink && (
-              <Link
-                href="/settings?tab=skills"
-                aria-label={t('viewSkills')}
-                className="group inline-flex h-8 items-center gap-1 rounded-md border border-border bg-muted/50 px-2.5 text-muted-foreground transition-all hover:bg-accent hover:text-foreground"
-                title={t('viewSkills')}
-              >
-                <Lightbulb size={16} />
-                <span className="hidden text-[11px] font-bold sm:inline">{t('skills')}</span>
-              </Link>
-            )}
-          </div>
-        </div>
-
-        {/* Compact Status Bar */}
-        <div data-testid="chat-runtime-banner" className="border-t border-border/50 px-3 py-1.5">
-          <div className="flex flex-wrap items-start gap-2">
-            <div data-testid="chat-runtime-status" className="flex min-w-[12rem] flex-1 flex-wrap items-center gap-2">
-              <ChatRuntimeActivityBadge status={runtimeStatus} />
-              {isMobile ? (
-                <ChatAgentSelector
-                  variant="mobile"
-                  activeAgentId={activeSessionAgentId}
-                  activeAgentName={activeAgentDisplayName}
-                  activeAgentIconId={activeAgentProfile?.iconId}
-                  agents={chatAgentOptions}
-                  onSelectAgent={selectChatAgent}
-                />
-              ) : null}
-              
-              {/* Queue Badge */}
-              {runtimeStatus && totalQueuedMessages > 0 && (
-                <span className="inline-flex items-center gap-1 border border-border/60 bg-muted/40 px-1.5 py-0.5 text-[10px] text-muted-foreground">
-                  <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
-                  {t('queuedCount', { count: totalQueuedMessages })}
-                </span>
-              )}
-              
-              {/* Summary Badge */}
-              {!isMobile && runtimeStatus?.includedSummary && (
-                <span className="border border-border/60 bg-muted/40 px-1.5 py-0.5 text-[10px] text-muted-foreground">
-                  {t('summary')}
-                </span>
-              )}
-              
-              {/* Active Tool Badge */}
-              {!isMobile && runtimeStatus?.activeTool && toolVerbosity !== 'minimal' && (
-                <span className="inline-flex items-center gap-1 border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-[10px] text-amber-600">
-                  <Wrench size={10} />
-                  {toolVerbosity === 'verbose' ? runtimeStatus.activeTool.name : activeToolDisplay?.label}
-                </span>
-              )}
-            </div>
-            
-            {/* Right: Action Buttons */}
-            <div className="flex w-full min-w-0 flex-wrap items-center justify-start gap-1.5 md:ml-auto md:w-auto md:justify-end">
-              {!isMobile ? (
-                <span
-                  data-testid="chat-context-meter"
-                  title={contextTooltip}
-                  className="inline-flex h-7 min-w-0 max-w-full items-center rounded-md border border-border/60 bg-muted/40 px-2.5 text-[10px] font-medium text-muted-foreground md:max-w-[min(20rem,40vw)]"
-                >
-                  <span className="min-w-0 truncate">{contextDetailedLabel}</span>
-                </span>
-              ) : null}
-              {!isMobile && (
-                <>
-                  <button
-                    type="button"
-                    data-testid="chat-compact"
-                    onClick={() => void handleCompact()}
-                    disabled={!sessionId || runtimeStatus?.phase !== 'idle'}
-                    className="h-7 rounded-md border border-border bg-muted/50 px-2.5 text-[11px] font-medium text-foreground transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-40"
-                  >
-                    {t('compact')}
-                  </button>
-                  <Link
-                    href="/settings?tab=agent"
-                    aria-label={t('openAgentSettings')}
-                    className="inline-flex h-7 items-center gap-1 rounded-md border border-border/60 bg-muted/40 px-2.5 text-[11px] font-medium text-muted-foreground transition-all hover:bg-accent hover:text-foreground"
-                    title={t('openAgentSettings')}
-                  >
-                    <Settings className="h-3 w-3" />
-                    {!isCompactView ? <span>{t('settings')}</span> : null}
-                  </Link>
-                </>
-              )}
-              {isMobile && (
-                <>
-                  <button
-                    type="button"
-                    data-testid="chat-mobile-details-toggle"
-                    aria-expanded={showMobileDetails}
-                    onClick={() => setShowMobileDetails((current) => !current)}
-                    className="inline-flex items-center gap-1 border border-border/60 bg-muted/40 px-2 py-0.5 text-[11px] text-foreground transition-colors hover:bg-accent"
-                  >
-                    {t('details')}
-                    {showMobileDetails ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
-                  </button>
-                  <Link
-                    href="/settings?tab=agent"
-                    data-testid="chat-mobile-agent-settings"
-                    aria-label={t('openAgentSettings')}
-                    className="inline-flex items-center gap-1 border border-border/60 bg-muted/40 px-2 py-0.5 text-[11px] text-muted-foreground transition-all hover:bg-accent hover:text-foreground"
-                    title={t('openAgentSettings')}
-                  >
-                    <Settings className="h-3 w-3" />
-                  </Link>
-                </>
-              )}
-            </div>
-          </div>
-          
-          {/* Context Progress Bar - Slim */}
-          <div className="mt-1.5 flex items-center gap-2" title={contextTooltip}>
-            <div className="flex-1 h-1 overflow-hidden rounded-full bg-black/5 dark:bg-gray-700">
-              <div
-                data-testid="chat-context-progress"
-                className={`h-full rounded-full transition-all ${
-                  runtimeStatus?.phase === 'aborting'
-                    ? 'bg-rose-400'
-                    : runtimeStatus?.phase === 'running_tool'
-                      ? 'bg-amber-400'
-                      : 'bg-cyan-400'
-                }`}
-                style={{ width: `${contextProgressPercent}%` }}
-              />
-            </div>
-          </div>
-          
-          {/* Mobile Details Panel */}
-          {isMobile && showMobileDetails && (
-            <div data-testid="chat-mobile-details-panel" className="mt-2 space-y-2 border-t border-border/50 pt-2">
-              <div className="flex flex-wrap gap-1.5">
-                <div
-                  data-testid="chat-session-id"
-                  title={sessionId || t('newChatTitle')}
-                  className="inline-flex min-w-0 items-center gap-1 border border-border/60 bg-muted/40 px-1.5 py-0.5 text-[10px] text-foreground"
-                >
-                  <span className="text-[9px] uppercase tracking-[0.15em] text-muted-foreground">{t('sessionLabel')}</span>
-                  <span className="min-w-0 truncate">{sessionDisplayLabel}</span>
-                </div>
-                {runtimeStatus?.includedSummary && (
-                  <span className="border border-border/60 bg-muted/40 px-1.5 py-0.5 text-[10px] text-muted-foreground">
-                    {t('summary')}
-                  </span>
-                )}
-                {runtimeStatus?.activeTool && toolVerbosity !== 'minimal' && (
-                  <span className="inline-flex items-center gap-1 border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-[10px] text-amber-600">
-                    <Wrench size={9} />
-                    {toolVerbosity === 'verbose' ? runtimeStatus.activeTool.name : activeToolDisplay?.label}
-                  </span>
-                )}
-              </div>
-              <div data-testid="chat-context-meter" title={contextTooltip} className="text-[10px] text-muted-foreground">
-                {contextCompactLabel}
-              </div>
-              {totalQueuedMessages > 0 && (
-                <div data-testid="chat-mobile-details-queue-panel" className="border border-border/60 bg-muted/30 p-1.5 text-[10px]">
-                  <div className="mb-1 font-medium text-foreground">{t('queuedCount', { count: totalQueuedMessages })}</div>
-                </div>
-                )}
-              </div>
-            )}
-           </div>
-         </div>
+      <ChatHeader
+        activeAgentDisplayName={activeAgentDisplayName}
+        activeAgentIconId={activeAgentProfile?.iconId}
+        activeSessionAgentId={activeSessionAgentId}
+        activeToolLabel={activeToolDisplay?.label}
+        chatAgentOptions={chatAgentOptions}
+        contextCompactLabel={contextCompactLabel}
+        contextDetailedLabel={contextDetailedLabel}
+        contextProgressPercent={contextProgressPercent}
+        contextTooltip={contextTooltip}
+        hideNavHeader={hideNavHeader}
+        isCompactView={isCompactView}
+        isHistoryOverlayOpen={isHistoryOverlayOpen}
+        isMobile={isMobile}
+        onCompact={() => void handleCompact()}
+        onSelectAgent={selectChatAgent}
+        onSetShowHistory={setShowHistory}
+        onStartNewChat={() => startNewChat()}
+        onToggleMobileDetails={() => setShowMobileDetails((current) => !current)}
+        runtimeStatus={runtimeStatus}
+        sessionDisplayLabel={sessionDisplayLabel}
+        sessionId={sessionId}
+        showHistory={showHistory}
+        showMobileDetails={showMobileDetails}
+        showSkillsLink={showSkillsLink}
+        toolVerbosity={toolVerbosity}
+        totalQueuedMessages={totalQueuedMessages}
+        totalUnreadCount={totalUnreadCount}
+      />
 
         <div className="relative flex-1 flex min-h-0">
         {showHistory && !shouldShowHistoryAsOverlay && (
