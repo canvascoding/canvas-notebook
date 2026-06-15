@@ -7,6 +7,18 @@ import {
   flattenTreePaths,
   mergeSubtreeChildren,
 } from '@/app/lib/files/tree-utils';
+import {
+  copyWorkspacePaths,
+  createWorkspacePath,
+  deleteWorkspacePaths,
+  loadWorkspaceTree,
+  readApiError,
+  readWorkspaceFile,
+  renameWorkspacePath,
+  triggerWorkspaceDownload,
+  uploadWorkspaceFiles,
+  writeWorkspaceFile,
+} from '@/app/lib/files/client';
 
 export type { BrowserMode, CurrentFile, FileNode, FileStats } from '@/app/lib/files/types';
 export { findPathInTree } from '@/app/lib/files/tree-utils';
@@ -107,53 +119,6 @@ function areFileStatsEqual(left?: FileStats, right?: FileStats) {
     left?.modified === right?.modified &&
     left?.permissions === right?.permissions
   );
-}
-
-interface ApiErrorPayload {
-  error?: unknown;
-  message?: unknown;
-}
-
-function formatResponseStatus(response: Response) {
-  const statusText = response.statusText ? ` ${response.statusText}` : '';
-  return response.status ? ` (${response.status}${statusText})` : '';
-}
-
-function describeNonJsonResponse(response: Response, fallbackMessage: string, body: string) {
-  const trimmed = body.trimStart().toLowerCase();
-  const responseKind = trimmed.startsWith('<!doctype') || trimmed.startsWith('<html')
-    ? 'HTML'
-    : 'a non-JSON response';
-  return `${fallbackMessage}${formatResponseStatus(response)}: server returned ${responseKind} instead of JSON. Please retry when the server is responsive.`;
-}
-
-async function readApiJson<T>(response: Response, fallbackMessage: string): Promise<T> {
-  const body = await response.text();
-  if (!body.trim()) {
-    throw new Error(`${fallbackMessage}${formatResponseStatus(response)}`);
-  }
-
-  try {
-    return JSON.parse(body) as T;
-  } catch {
-    throw new Error(describeNonJsonResponse(response, fallbackMessage, body));
-  }
-}
-
-async function readApiError(response: Response, fallbackMessage: string) {
-  try {
-    const payload = await readApiJson<ApiErrorPayload>(response, fallbackMessage);
-    if (typeof payload.error === 'string' && payload.error.trim()) {
-      return payload.error;
-    }
-    if (typeof payload.message === 'string' && payload.message.trim()) {
-      return payload.message;
-    }
-  } catch (error) {
-    if (error instanceof Error) return error.message;
-  }
-
-  return `${fallbackMessage}${formatResponseStatus(response)}`;
 }
 
 interface FileStoreState {
@@ -382,20 +347,11 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
     if (clipboardMode !== 'copy' || clipboardPaths.size === 0) return;
 
     try {
-      const response = await fetch('/api/files/copy', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({
-          sources: Array.from(clipboardPaths),
-          destDir,
-          overwrite: false,
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error(await readApiError(response, 'Failed to paste files'));
-      }
+      await copyWorkspacePaths({
+        sources: Array.from(clipboardPaths),
+        destDir,
+        overwrite: false,
+      }, 'Failed to paste files');
 
       await get().refreshDirectory(destDir, true);
     } catch (error) {
@@ -408,21 +364,12 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
     const parentDir = getParentDirectory(path);
 
     try {
-      const response = await fetch('/api/files/copy', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({
-          sources: [path],
-          destDir: parentDir,
-          overwrite: false,
-          renameOnCollision: true,
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error(await readApiError(response, 'Failed to duplicate file'));
-      }
+      await copyWorkspacePaths({
+        sources: [path],
+        destDir: parentDir,
+        overwrite: false,
+        renameOnCollision: true,
+      }, 'Failed to duplicate file');
 
       await get().refreshDirectory(parentDir, true);
     } catch (error) {
@@ -439,17 +386,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
     const depthTarget = typeof depth === 'number' ? depth : 4;
 
     try {
-      const url = `/api/files/tree?path=${encodeURIComponent(path)}&depth=${depthTarget}${noCache ? `&noCache=${Date.now()}` : ''}`;
-      const response = await fetch(url, {
-        credentials: 'include',
-        cache: noCache ? 'no-store' : 'default',
-      });
-
-      if (!response.ok) {
-        throw new Error(await readApiError(response, 'Failed to load file tree'));
-      }
-
-      const { data } = await readApiJson<{ data: FileNode[] }>(response, 'Failed to load file tree');
+      const data = await loadWorkspaceTree(path, depthTarget, noCache);
       set({ fileTree: data, isLoadingTree: false });
     } catch (error) {
       const message =
@@ -465,17 +402,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
     set({ treeError: null });
 
     try {
-      const url = `/api/files/tree?path=.&depth=0${noCache ? `&noCache=${Date.now()}` : ''}`;
-      const response = await fetch(url, {
-        credentials: 'include',
-        cache: noCache ? 'no-store' : 'default',
-      });
-
-      if (!response.ok) {
-        throw new Error(await readApiError(response, 'Failed to refresh root tree'));
-      }
-
-      const { data } = await readApiJson<{ data: FileNode[] }>(response, 'Failed to refresh root tree');
+      const data = await loadWorkspaceTree('.', 0, noCache, 'Failed to refresh root tree');
 
       // Merge: preserve existing children from current tree so expanded
       // folders don't appear empty after a root-level refresh (depth=0).
@@ -584,17 +511,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
     set({ loadingDirs: newLoading });
 
     try {
-      const url = `/api/files/tree?path=${encodeURIComponent(dirPath)}&depth=1${noCache ? `&noCache=${Date.now()}` : ''}`;
-      const response = await fetch(url, {
-        credentials: 'include',
-        cache: noCache ? 'no-store' : 'default',
-      });
-
-      if (!response.ok) {
-        throw new Error(await readApiError(response, 'Failed to load subdirectory'));
-      }
-
-      const { data } = await readApiJson<{ data: FileNode[] }>(response, 'Failed to load subdirectory');
+      const data = await loadWorkspaceTree(dirPath, 1, noCache, 'Failed to load subdirectory');
 
       // Use fresh state references after the async gap to avoid
       // overwriting concurrent tree updates (race condition).
@@ -631,33 +548,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
       const isText = extension === '' || TEXT_EXTENSIONS.has(extension);
       const useMetaOnly = !isText;
 
-      let url = `/api/files/read?path=${encodeURIComponent(path)}${useMetaOnly ? '&meta=1' : ''}`;
-      if (noCache) {
-        url += `&t=${Date.now()}`; // Cache-busting parameter
-      }
-      
-      const response = await fetch(url, {
-        credentials: 'include',
-        cache: 'no-store', // Aggressively disable browser caching
-      });
-
-      if (!response.ok) {
-        // If the file is not found (404), clear the editor instead of showing an error.
-        if (response.status === 404) {
-          if (get().fileLoadRequestId === requestId) {
-            set({
-              currentFile: null,
-              isLoadingFile: false,
-              loadingFilePath: null,
-              fileError: null,
-            });
-          }
-          return;
-        }
-        throw new Error(await readApiError(response, 'Failed to load file'));
-      }
-
-      const { data } = await readApiJson<{ data: CurrentFile }>(response, 'Failed to load file');
+      const data = await readWorkspaceFile(path, { metaOnly: useMetaOnly, noCache });
       if (get().fileLoadRequestId !== requestId) return;
 
       const fileName = path.split('/').pop() || path;
@@ -672,9 +563,22 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
         loadingFilePath: null,
       });
     } catch (error) {
+      if (error instanceof Response && error.status === 404) {
+        if (get().fileLoadRequestId === requestId) {
+          set({
+            currentFile: null,
+            isLoadingFile: false,
+            loadingFilePath: null,
+            fileError: null,
+          });
+        }
+        return;
+      }
       if (get().fileLoadRequestId !== requestId) return;
       const message =
-        error instanceof Error ? error.message : 'Failed to load file';
+        error instanceof Response
+          ? await readApiError(error, 'Failed to load file')
+          : error instanceof Error ? error.message : 'Failed to load file';
       set({
         fileError: message,
         isLoadingFile: false,
@@ -695,24 +599,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
     }
 
     try {
-      const response = await fetch(`/api/files/read?path=${encodeURIComponent(path)}&t=${Date.now()}`, {
-        credentials: 'include',
-        cache: 'no-store',
-      });
-
-      if (!response.ok) {
-        if (response.status === 404 && get().currentFile?.path === path) {
-          set({
-            currentFile: null,
-            fileError: null,
-          });
-          return null;
-        }
-
-        throw new Error(await readApiError(response, 'Failed to refresh file'));
-      }
-
-      const { data } = await readApiJson<{ data: CurrentFile }>(response, 'Failed to refresh file');
+      const data = await readWorkspaceFile(path, { noCache: true, fallbackMessage: 'Failed to refresh file' });
       const currentFile = get().currentFile;
       if (currentFile?.path !== path) {
         return null;
@@ -736,6 +623,13 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
 
       return refreshedFile;
     } catch (error) {
+      if (error instanceof Response && error.status === 404 && get().currentFile?.path === path) {
+        set({
+          currentFile: null,
+          fileError: null,
+        });
+        return null;
+      }
       console.warn('[FileStore] Failed to refresh current file content:', error);
       return null;
     }
@@ -789,18 +683,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
     set({ fileError: null });
 
     try {
-      const response = await fetch('/api/files/write', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        credentials: 'include',
-        body: JSON.stringify({ path, content }),
-      });
-
-      if (!response.ok) {
-        throw new Error(await readApiError(response, 'Failed to save file'));
-      }
+      await writeWorkspaceFile(path, content);
 
       // Update current file if it's the same path
       const { currentFile } = get();
@@ -870,18 +753,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
     set({ treeError: null });
 
     try {
-      const response = await fetch('/api/files/create', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        credentials: 'include',
-        body: JSON.stringify({ path, type, ...options }),
-      });
-
-      if (!response.ok) {
-        throw new Error(await readApiError(response, 'Failed to create path'));
-      }
+      await createWorkspacePath(path, type, options);
 
       // Refresh from parent directory
       const parentDir = getParentDirectory(path);
@@ -902,18 +774,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
     const pathsToDelete = Array.isArray(paths) ? paths : [paths];
 
     try {
-      const response = await fetch('/api/files/delete', {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ path: pathsToDelete }),
-      });
-
-      if (!response.ok) {
-        throw new Error(await readApiError(response, 'Failed to delete paths'));
-      }
-
-      const result = await readApiJson<{ failed?: Array<{ path: string; error: string }> }>(response, 'Failed to delete paths');
+      const result = await deleteWorkspacePaths(pathsToDelete);
       if (result.failed && result.failed.length > 0) {
         const failedPaths = result.failed.map((f: { path: string; error: string }) => f.path).join(', ');
         throw new Error(`Failed to delete: ${failedPaths}`);
@@ -957,38 +818,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
     set({ treeError: null });
 
     try {
-      const response = await fetch('/api/files/rename', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        credentials: 'include',
-        body: JSON.stringify({ oldPath, newPath, overwrite }),
-      });
-
-      if (!response.ok) {
-        const error = await readApiJson<ApiErrorPayload & {
-          code?: string;
-          type?: string;
-          sourcePath?: string;
-          destPath?: string;
-        }>(response, 'Failed to rename path');
-        // Create a more detailed error with additional fields
-        const message = typeof error.error === 'string' && error.error.trim()
-          ? error.error
-          : 'Failed to rename path';
-        const err = new Error(message) as Error & {
-          code?: string;
-          type?: string;
-          sourcePath?: string;
-          destPath?: string;
-        };
-        err.code = error.code;
-        err.type = error.type;
-        err.sourcePath = error.sourcePath;
-        err.destPath = error.destPath;
-        throw err;
-      }
+      await renameWorkspacePath(oldPath, newPath, overwrite);
 
       const { expandedDirs, selectedNode, currentFile, currentDirectory, setCurrentDirectory } = get();
 
@@ -1052,61 +882,14 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
   uploadFile: async (file: File | File[], targetDir: string, pathMap?: Map<File, string>, convertParams?: (import('@/app/components/shared/ImagePreprocessDialog').ConvertParams | null)[]) => {
     set({ treeError: null, uploadProgress: 0 });
     const files = Array.isArray(file) ? file : [file];
-    const totalUploadBytes = files.reduce((total, currentFile) => total + currentFile.size, 0);
 
     try {
-      const formData = new FormData();
-      formData.append('path', targetDir);
-
-      for (const f of files) {
-        const filePath = pathMap?.get(f) || (f as { webkitRelativePath?: string }).webkitRelativePath || f.name;
-        formData.append('files', f, filePath);
-      }
-
-      if (convertParams && convertParams.length === files.length) {
-        const paramsForAll: ({ format: string; quality: number; maxDimension?: number } | null)[] = convertParams.map((p) =>
-          p ? { format: p.format, quality: p.quality, maxDimension: p.maxDimension } : null
-        );
-        formData.append('convertParams', JSON.stringify(paramsForAll));
-      }
-
-      await new Promise<void>((resolve, reject) => {
-        const xhr = new XMLHttpRequest();
-        xhr.open('POST', '/api/files/upload', true);
-        xhr.withCredentials = true;
-
-        xhr.upload.onprogress = (event) => {
-          if (event.lengthComputable) {
-            const overall = Math.round((event.loaded / event.total) * 100);
-            set({ uploadProgress: overall });
-          }
-        };
-
-        xhr.onload = () => {
-          if (xhr.status >= 200 && xhr.status < 300) {
-            resolve();
-          } else {
-            try {
-              const error = JSON.parse(xhr.responseText) as { error?: unknown; code?: unknown };
-              if (error.code === 'FORMDATA_PARSE_ERROR') {
-                console.warn('[FileStore] Upload FormData parse error', {
-                  endpoint: '/api/files/upload',
-                  status: xhr.status,
-                  fileCount: files.length,
-                  totalBytes: totalUploadBytes,
-                  hasPathMap: Boolean(pathMap),
-                  hasConvertParams: Boolean(convertParams?.length),
-                });
-              }
-              reject(new Error(typeof error.error === 'string' ? error.error : `Upload failed with status ${xhr.status}`));
-            } catch {
-              reject(new Error(`Upload failed with status ${xhr.status}`));
-            }
-          }
-        };
-
-        xhr.onerror = () => reject(new Error('Network error during upload'));
-        xhr.send(formData);
+      await uploadWorkspaceFiles({
+        files,
+        targetDir,
+        pathMap,
+        convertParams,
+        onProgress: (progress) => set({ uploadProgress: progress }),
       });
 
       await get().refreshDirectory(targetDir, true);
@@ -1123,15 +906,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
     set({ fileError: null });
 
     try {
-      const url = `/api/files/download?path=${encodeURIComponent(path)}&download=1`;
-      const anchor = document.createElement('a');
-      const name = path.split('/').pop() || 'download';
-      anchor.href = url;
-      anchor.download = name;
-      anchor.rel = 'noopener';
-      document.body.appendChild(anchor);
-      anchor.click();
-      anchor.remove();
+      triggerWorkspaceDownload(path);
     } catch (error) {
       const message =
         error instanceof Error ? error.message : 'Failed to download file';
