@@ -44,19 +44,7 @@ import {
 } from '@/app/components/canvas-agent-chat/chatRuntimeMessageUtils';
 import { useChatScrollController } from '@/app/components/canvas-agent-chat/useChatScrollController';
 import {
-  dedupeAttachments,
-  extractImageAttachments,
-  extractMessageAttachments,
-  extractPiMessageText,
-  extractToolResultImageAttachments,
-  extractToolResultText,
-  formatToolArgs,
-  getChatMessageRole,
-  getPiMessageContent,
-  isAbortedAssistantPiMessage,
   isRecord,
-  isToolCallPart,
-  truncatePreview,
 } from '@/app/lib/chat/message-content';
 import type { RuntimeStatus } from '@/app/lib/chat/runtime-status';
 import { areChatMessageListsEquivalent } from '@/app/lib/chat/message-equivalence';
@@ -77,7 +65,6 @@ import {
   patchChatSessions,
 } from '@/app/lib/chat/session-api';
 import { getSessionDisplayTitle, isAutomaticSessionTitle } from '@/app/lib/pi/session-titles';
-import { type CompactBreakMessage, isComposioAuthRequiredMessage, isRuntimeContinuationMessage, type ComposioAuthRequiredMessage } from '@/app/lib/pi/custom-messages';
 import { useWebSocket } from '@/app/hooks/useWebSocket';
 import { ImagePreprocessDialog } from '@/app/components/shared/ImagePreprocessDialog';
 import { usePlanModeStore } from '@/app/store/plan-mode-store';
@@ -93,6 +80,7 @@ import { useChatAttachments } from '@/app/components/canvas-agent-chat/useChatAt
 import { useChatComposerDraft } from '@/app/components/canvas-agent-chat/useChatComposerDraft';
 import { useChatRuntimeEvents } from '@/app/components/canvas-agent-chat/useChatRuntimeEvents';
 import { useChatSessionHistory } from '@/app/components/canvas-agent-chat/useChatSessionHistory';
+import { mapPersistedChatMessages } from '@/app/components/canvas-agent-chat/chatMessageMapping';
 import { useComposerReferences } from '@/app/components/canvas-agent-chat/useComposerReferences';
 import type {
   AgentConfig,
@@ -102,7 +90,6 @@ import type {
   ChatMessage,
   ChatRequestContext,
   PersistedChatMessage,
-  PersistedToolCallPart,
   QueuePreviewItem,
   UserPiContent,
 } from '@/app/lib/chat/types';
@@ -1167,103 +1154,9 @@ export default function CanvasAgentChat({
     void fetchHistory();
   }, [fetchHistory, resetHistoryState, selectedAgentId, startNewChat, setHistoryAgentFilter]);
 
-  const mapRawMessage = useCallback((
-    rawMessage: PersistedChatMessage,
-    toolCallsById: Map<string, PersistedToolCallPart> = new Map(),
-  ): ChatMessage => {
-    if (rawMessage.role === 'compact-break') {
-      const cb = rawMessage as unknown as CompactBreakMessage;
-      return {
-        id: rawMessage.id?.toString() || `compact-${cb.timestamp}`,
-        role: 'system' as const,
-        content: '',
-        type: 'compact_break' as const,
-        status: 'sent' as const,
-        piMessage: rawMessage,
-        compactMeta: {
-          kind: cb.kind,
-          timestamp: cb.timestamp,
-          omittedMessageCount: cb.omittedMessageCount,
-        },
-      };
-    }
-
-    if (isComposioAuthRequiredMessage(rawMessage)) {
-      const authMsg = rawMessage as ComposioAuthRequiredMessage;
-      return {
-        id: rawMessage.id?.toString() || `composio-auth-${authMsg.toolkit}`,
-        role: 'system' as const,
-        content: `Authentication required for ${authMsg.toolkitName}. [Connect ${authMsg.toolkitName}](${authMsg.redirectUrl})`,
-        type: 'composio_auth_required' as const,
-        status: 'sent' as const,
-        piMessage: rawMessage,
-        composioAuthMeta: {
-          toolkit: authMsg.toolkit,
-          toolkitName: authMsg.toolkitName,
-          redirectUrl: authMsg.redirectUrl,
-          toolName: authMsg.toolName,
-        },
-      };
-    }
-
-    const isToolResult = rawMessage.role === 'toolResult';
-    const toolCallId = isToolResult && 'toolCallId' in rawMessage && typeof rawMessage.toolCallId === 'string'
-      ? rawMessage.toolCallId
-      : undefined;
-    const persistedToolCall = toolCallId ? toolCallsById.get(toolCallId) : undefined;
-    const rawMessageContent = getPiMessageContent(rawMessage);
-    const content = isToolResult
-      ? extractToolResultText(Array.isArray(rawMessageContent) ? rawMessageContent : undefined) || extractPiMessageText(rawMessage)
-      : extractPiMessageText(rawMessage, { hideAttachmentMetadata: rawMessage.role === 'user' });
-    const resolvedContent = isAbortedAssistantPiMessage(rawMessage) && !content.trim()
-      ? t('runStopped')
-      : content;
-    const imageAttachments = dedupeAttachments([
-      ...extractImageAttachments(rawMessageContent),
-      ...extractToolResultImageAttachments(rawMessage),
-    ]);
-    const messageAttachments = rawMessage.role === 'user'
-      ? extractMessageAttachments(rawMessageContent)
-      : imageAttachments.length > 0 ? imageAttachments : undefined;
-    const chatRole = getChatMessageRole(rawMessage.role);
-
-    return {
-      id: rawMessage.id?.toString() || Math.random().toString(),
-      role: chatRole,
-      content: resolvedContent,
-      status: 'sent',
-      type: isToolResult ? 'tool_result' : chatRole === 'system' ? 'system' : undefined,
-      attachments: messageAttachments,
-      piMessage: rawMessage,
-      toolCallId,
-      toolName: persistedToolCall?.name || (isToolResult && 'toolName' in rawMessage && typeof rawMessage.toolName === 'string' ? rawMessage.toolName : undefined),
-      toolArgs: persistedToolCall ? formatToolArgs(persistedToolCall.arguments) : undefined,
-      isCollapsed: isToolResult,
-      autoCollapsedAtEnd: isToolResult,
-      previewText: isToolResult ? truncatePreview(resolvedContent) : undefined,
-    };
-  }, [t]);
-
   const mapRawMessages = useCallback((rawMessages: PersistedChatMessage[]): ChatMessage[] => {
-    const toolCallsById = new Map<string, PersistedToolCallPart>();
-
-    for (const rawMessage of rawMessages) {
-      const rawMessageContent = getPiMessageContent(rawMessage);
-      if (rawMessage.role !== 'assistant' || !Array.isArray(rawMessageContent)) {
-        continue;
-      }
-
-      for (const part of rawMessageContent) {
-        if (isToolCallPart(part)) {
-          toolCallsById.set(part.id, part);
-        }
-      }
-    }
-
-    return rawMessages
-      .filter((rawMessage) => !isRuntimeContinuationMessage(rawMessage))
-      .map((rawMessage) => mapRawMessage(rawMessage, toolCallsById));
-  }, [mapRawMessage]);
+    return mapPersistedChatMessages(rawMessages, t('runStopped'));
+  }, [t]);
 
   const refreshSavedMessages = useCallback((targetSessionId: string) => {
     const requestAgentId = sessionAgentIdRef.current || selectedAgentId;
