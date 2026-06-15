@@ -5,6 +5,7 @@ import { useTranslations } from 'next-intl';
 
 import { usePathname } from '@/i18n/navigation';
 import { ChatDockShell } from '@/app/components/layout/ChatDockShell';
+import { StudioRouteNav } from '@/app/apps/studio/components/StudioRouteNav';
 import { useStudioChatContext } from '@/app/apps/studio/context/studio-chat-context';
 import type { ChatRequestContext } from '@/app/lib/chat/types';
 
@@ -63,6 +64,7 @@ export function StudioShell({ children, hintEnabled = true }: { children: ReactN
       storageKeyPrefix="studio"
       chatVisibleStorageKey={chatVisibleStorageKey}
       defaultChatVisible={!isAspectRatioEditor}
+      headerActions={<StudioRouteNav />}
       hintPage="studio"
       hintEnabled={hintEnabled}
     >
