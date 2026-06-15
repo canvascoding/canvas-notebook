@@ -39,6 +39,14 @@ export function getDirectoryPathChain(dirPath: string): string[] {
   return segments.map((_, index) => segments.slice(0, index + 1).join('/'));
 }
 
+export function isSameOrDescendantPath(path: string, parentPath: string): boolean {
+  return path === parentPath || path.startsWith(parentPath + '/');
+}
+
+export function remapDescendantPath(path: string, oldRoot: string, newRoot: string): string {
+  return path === oldRoot ? newRoot : path.replace(oldRoot + '/', newRoot + '/');
+}
+
 export function normalizeWorkspacePathParam(value: string | null): string | null {
   if (!value) return null;
   const normalized = value

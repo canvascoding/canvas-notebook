@@ -1,11 +1,22 @@
 import { create } from 'zustand';
 import type { BrowserMode, CurrentFile, FileNode, FileStats } from '@/app/lib/files/types';
-import { getExtension, getParentDirectories, getParentDirectory } from '@/app/lib/files/path-utils';
+import {
+  getExtension,
+  getParentDirectories,
+  getParentDirectory,
+  isSameOrDescendantPath,
+  remapDescendantPath,
+} from '@/app/lib/files/path-utils';
 import {
   findNodeInTree,
-  findPathInTree,
-  flattenTreePaths,
+  getDirectoryDirectChildPaths,
+  getExpandedDescendantDirectories,
+  getTreeSelectionRangePaths,
+  getVisibleTreeRefreshDirectories,
+  hasRefreshParentInTree,
+  mergeRootNodesPreservingChildren,
   mergeSubtreeChildren,
+  remapExpandedDirectories,
 } from '@/app/lib/files/tree-utils';
 import {
   copyWorkspacePaths,
@@ -406,20 +417,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
 
       // Merge: preserve existing children from current tree so expanded
       // folders don't appear empty after a root-level refresh (depth=0).
-      const currentTree = get().fileTree;
-      const oldNodesByPath = new Map<string, FileNode>();
-      for (const node of currentTree) {
-        oldNodesByPath.set(node.path, node);
-      }
-      const mergedTree = data.map((newNode: FileNode) => {
-        if (newNode.type === 'directory') {
-          const existing = oldNodesByPath.get(newNode.path);
-          if (existing?.children) {
-            return { ...newNode, children: existing.children };
-          }
-        }
-        return newNode;
-      });
+      const mergedTree = mergeRootNodesPreservingChildren(data, get().fileTree);
 
       set({ fileTree: mergedTree });
     } catch (error) {
@@ -442,33 +440,9 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
     const { browserMode, currentDirectory, expandedDirs } = get();
     await get().refreshRootTree(true);
 
-    const dirsToRefresh = new Set<string>();
-    if (currentDirectory !== '.') {
-      for (const dirPath of getParentDirectories(`${currentDirectory}/_`)) {
-        dirsToRefresh.add(dirPath);
-      }
-      dirsToRefresh.add(currentDirectory);
-    }
-
-    if (browserMode === 'tree') {
-      for (const dirPath of expandedDirs) {
-        if (dirPath !== '.') dirsToRefresh.add(dirPath);
-      }
-    }
-
-    const sortedDirs = Array.from(dirsToRefresh).sort((a, b) => {
-      const depthDiff = a.split('/').length - b.split('/').length;
-      return depthDiff !== 0 ? depthDiff : a.localeCompare(b);
-    });
-
-    for (const dirPath of sortedDirs) {
-      const parentDir = getParentDirectory(dirPath);
-      const tree = get().fileTree;
-      const parentExists = parentDir === '.'
-        ? tree.some((node) => node.path === dirPath.split('/')[0] && node.type === 'directory')
-        : findPathInTree(parentDir, tree);
-
-      if (parentExists) {
+    const dirsToRefresh = getVisibleTreeRefreshDirectories(currentDirectory, expandedDirs, browserMode === 'tree');
+    for (const dirPath of dirsToRefresh) {
+      if (hasRefreshParentInTree(get().fileTree, dirPath)) {
         await get().loadSubdirectory(dirPath, true);
       }
     }
@@ -822,30 +796,22 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
 
       const { expandedDirs, selectedNode, currentFile, currentDirectory, setCurrentDirectory } = get();
 
-      const isDescendant = (p: string) =>
-        p === oldPath || p.startsWith(oldPath + '/');
-      const remapPath = (p: string) =>
-        p === oldPath ? newPath : p.replace(oldPath + '/', newPath + '/');
-
       let updatedExpandedDirs = expandedDirs;
-      if (expandedDirs.has(oldPath) || [...expandedDirs].some(isDescendant)) {
-        const remapped = new Set<string>();
-        for (const dir of expandedDirs) {
-          remapped.add(isDescendant(dir) ? remapPath(dir) : dir);
-        }
-        updatedExpandedDirs = remapped;
+      const remappedExpandedDirs = remapExpandedDirectories(expandedDirs, oldPath, newPath);
+      if (remappedExpandedDirs !== expandedDirs) {
+        updatedExpandedDirs = remappedExpandedDirs;
         get().setExpandedDirs(updatedExpandedDirs);
       }
 
       if (currentDirectory === oldPath || currentDirectory.startsWith(oldPath + '/')) {
-        setCurrentDirectory(remapPath(currentDirectory));
+        setCurrentDirectory(remapDescendantPath(currentDirectory, oldPath, newPath));
       }
 
       const updatedSelectedNode = selectedNode
-        ? (isDescendant(selectedNode.path) ? { ...selectedNode, path: remapPath(selectedNode.path) } : selectedNode)
+        ? (isSameOrDescendantPath(selectedNode.path, oldPath) ? { ...selectedNode, path: remapDescendantPath(selectedNode.path, oldPath, newPath) } : selectedNode)
         : null;
-      const updatedCurrentFile = currentFile && isDescendant(currentFile.path)
-        ? { ...currentFile, path: remapPath(currentFile.path) }
+      const updatedCurrentFile = currentFile && isSameOrDescendantPath(currentFile.path, oldPath)
+        ? { ...currentFile, path: remapDescendantPath(currentFile.path, oldPath, newPath) }
         : currentFile;
       set({
         selectedNode: updatedSelectedNode,
@@ -860,11 +826,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
         await get().refreshDirectory(parentDir, true);
       }
 
-      const childExpandedDirs = [...updatedExpandedDirs]
-        .filter(d => d === newPath || d.startsWith(newPath + '/'))
-        .sort((a, b) => a.split('/').length - b.split('/').length);
-
-      for (const dir of childExpandedDirs) {
+      for (const dir of getExpandedDescendantDirectories(updatedExpandedDirs, newPath)) {
         if (dir !== newPath) {
           await get().loadSubdirectory(dir, true);
         }
@@ -983,15 +945,8 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
   },
 
   selectRange: (startPath: string, endPath: string, currentTree: FileNode[]) => {
-    const allPaths = flattenTreePaths(currentTree);
-    const startIndex = allPaths.indexOf(startPath);
-    const endIndex = allPaths.indexOf(endPath);
-
-    if (startIndex === -1 || endIndex === -1) return;
-
-    const start = Math.min(startIndex, endIndex);
-    const end = Math.max(startIndex, endIndex);
-    const rangePaths = allPaths.slice(start, end + 1);
+    const rangePaths = getTreeSelectionRangePaths(currentTree, startPath, endPath);
+    if (rangePaths.length === 0) return;
 
     set((state) => {
       const newMultiSelectPaths = new Set(state.multiSelectPaths);
@@ -1001,22 +956,8 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
   },
 
   selectAllInDirectory: (dirPath: string) => {
-    const { fileTree } = get();
-    
-    const findDirectory = (nodes: FileNode[], path: string): FileNode | null => {
-      for (const node of nodes) {
-        if (node.path === path) return node;
-        if (node.children) {
-          const found = findDirectory(node.children, path);
-          if (found) return found;
-        }
-      }
-      return null;
-    };
-
-    const dir = dirPath === '.' ? { children: fileTree } : findDirectory(fileTree, dirPath);
-    if (dir && dir.children) {
-      const childPaths = dir.children.map((child) => child.path);
+    const childPaths = getDirectoryDirectChildPaths(get().fileTree, dirPath);
+    if (childPaths.length > 0) {
       set((state) => {
         const newMultiSelectPaths = new Set(state.multiSelectPaths);
         for (const p of childPaths) newMultiSelectPaths.add(p);
