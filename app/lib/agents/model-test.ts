@@ -4,6 +4,7 @@ import { completeSimple, type Api, type AssistantMessage, type Message, type Mod
 
 import { resolveAgentRuntimeConfig } from '@/app/lib/agents/effective-runtime-config';
 import { DEFAULT_MANAGED_AGENT_ID } from '@/app/lib/agents/storage';
+import { CANVAS_CONTROL_PLANE_PROVIDER_ID } from '@/app/lib/managed/control-plane-models';
 import { resolvePiApiKey } from '@/app/lib/pi/api-key-resolver';
 
 export type AgentModelTestCode =
@@ -23,6 +24,7 @@ export type AgentModelTestResult = {
   runId?: string;
   durationMs?: number;
   timeoutMs?: number;
+  attempts?: number;
 };
 
 type TestAgentModelConnectionDeps = {
@@ -30,6 +32,7 @@ type TestAgentModelConnectionDeps = {
   resolveApiKey?: typeof resolvePiApiKey;
   complete?: typeof completeSimple;
   now?: () => number;
+  sleep?: (ms: number) => Promise<void>;
 };
 
 const MODEL_TEST_SYSTEM_PROMPT = [
@@ -39,6 +42,8 @@ const MODEL_TEST_SYSTEM_PROMPT = [
 
 const MODEL_TEST_PROMPT = 'Reply exactly OK.';
 const DEFAULT_MODEL_TEST_TIMEOUT_MS = 30_000;
+const MANAGED_MODEL_TEST_MAX_ATTEMPTS = 2;
+const MANAGED_MODEL_TEST_RETRY_DELAY_MS = 1_000;
 const MODEL_TEST_LOG_PREFIX = '[agents/model-test]';
 
 function redactSensitiveText(value: string): string {
@@ -125,6 +130,10 @@ function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'Unknown model test error';
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 function createTimeoutController(
   timeoutMs: number,
   onTimeout?: () => void,
@@ -153,20 +162,12 @@ export async function testAgentModelConnection(params?: {
   const resolveApiKey = deps.resolveApiKey ?? resolvePiApiKey;
   const complete = deps.complete ?? completeSimple;
   const now = deps.now ?? Date.now;
+  const wait = deps.sleep ?? sleep;
 
   let provider: string | undefined;
   let modelId: string | undefined;
   const startedAt = now();
   const runId = `mt-${startedAt.toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-  const { controller, dispose } = createTimeoutController(timeoutMs, () => {
-    logWarn(runId, 'timeout-fired', {
-      agentId,
-      provider,
-      model: modelId,
-      timeoutMs,
-      durationMs: now() - startedAt,
-    });
-  });
 
   logInfo(runId, 'start', { agentId, timeoutMs });
 
@@ -209,6 +210,7 @@ export async function testAgentModelConnection(params?: {
         runId,
         durationMs: now() - startedAt,
         timeoutMs,
+        attempts: 0,
       };
     }
 
@@ -220,104 +222,196 @@ export async function testAgentModelConnection(params?: {
       },
     ];
 
-    const completeStartedAt = now();
-    logInfo(runId, 'probe-request-start', {
-      agentId,
-      provider,
-      model: modelId,
-      timeoutMs,
-    });
-    const response = await complete(
-      effectiveConfig.model,
-      {
-        systemPrompt: MODEL_TEST_SYSTEM_PROMPT,
-        messages,
-      },
-      {
-        apiKey,
-        temperature: 0,
-        maxTokens: 8,
-        sessionId: `model-test:${agentId}:${runId}`,
-        signal: controller.signal,
-      },
-    );
-    const completeDurationMs = now() - completeStartedAt;
+    const maxAttempts = provider === CANVAS_CONTROL_PLANE_PROVIDER_ID ? MANAGED_MODEL_TEST_MAX_ATTEMPTS : 1;
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      const completeStartedAt = now();
+      const { controller, dispose } = createTimeoutController(timeoutMs, () => {
+        logWarn(runId, 'timeout-fired', {
+          agentId,
+          provider,
+          model: modelId,
+          attempt,
+          maxAttempts,
+          timeoutMs,
+          durationMs: now() - startedAt,
+        });
+      });
 
-    if (response.stopReason === 'error' || response.stopReason === 'aborted') {
-      logWarn(runId, 'probe-request-failed', {
+      logInfo(runId, 'probe-request-start', {
         agentId,
         provider,
         model: modelId,
-        stopReason: response.stopReason,
-        code: response.stopReason === 'aborted' ? 'MODEL_TEST_TIMEOUT' : 'MODEL_TEST_FAILED',
-        errorMessage: truncateLogText(response.errorMessage),
-        completeDurationMs,
-        durationMs: now() - startedAt,
+        attempt,
+        maxAttempts,
         timeoutMs,
       });
-      return {
-        success: false,
-        provider,
-        model: modelId,
-        error: response.errorMessage || 'Model test failed.',
-        code: response.stopReason === 'aborted' ? 'MODEL_TEST_TIMEOUT' : 'MODEL_TEST_FAILED',
-        runId,
-        durationMs: now() - startedAt,
-        timeoutMs,
-      };
+
+      try {
+        const response = await complete(
+          effectiveConfig.model,
+          {
+            systemPrompt: MODEL_TEST_SYSTEM_PROMPT,
+            messages,
+          },
+          {
+            apiKey,
+            temperature: 0,
+            maxTokens: 8,
+            sessionId: `model-test:${agentId}:${runId}:attempt-${attempt}`,
+            signal: controller.signal,
+          },
+        );
+        const completeDurationMs = now() - completeStartedAt;
+
+        if (response.stopReason === 'error' || response.stopReason === 'aborted') {
+          const code = response.stopReason === 'aborted' ? 'MODEL_TEST_TIMEOUT' : 'MODEL_TEST_FAILED';
+          logWarn(runId, 'probe-request-failed', {
+            agentId,
+            provider,
+            model: modelId,
+            attempt,
+            maxAttempts,
+            stopReason: response.stopReason,
+            code,
+            willRetry: code === 'MODEL_TEST_TIMEOUT' && attempt < maxAttempts,
+            errorMessage: truncateLogText(response.errorMessage),
+            completeDurationMs,
+            durationMs: now() - startedAt,
+            timeoutMs,
+          });
+
+          if (code === 'MODEL_TEST_TIMEOUT' && attempt < maxAttempts) {
+            await wait(MANAGED_MODEL_TEST_RETRY_DELAY_MS);
+            continue;
+          }
+
+          return {
+            success: false,
+            provider,
+            model: modelId,
+            error: response.errorMessage || 'Model test failed.',
+            code,
+            runId,
+            durationMs: now() - startedAt,
+            timeoutMs,
+            attempts: attempt,
+          };
+        }
+
+        const responseText = extractAssistantText(response);
+        if (!/\bok\b/i.test(responseText)) {
+          logWarn(runId, 'unexpected-response', {
+            agentId,
+            provider,
+            model: modelId,
+            attempt,
+            maxAttempts,
+            stopReason: response.stopReason,
+            responsePreview: truncateLogText(responseText, 300),
+            completeDurationMs,
+            durationMs: now() - startedAt,
+          });
+          return {
+            success: false,
+            provider,
+            model: modelId,
+            responseText,
+            error: 'Model responded, but did not return the expected probe response.',
+            code: 'MODEL_TEST_UNEXPECTED_RESPONSE',
+            runId,
+            durationMs: now() - startedAt,
+            timeoutMs,
+            attempts: attempt,
+          };
+        }
+
+        logInfo(runId, 'success', {
+          agentId,
+          provider,
+          model: modelId,
+          attempt,
+          maxAttempts,
+          stopReason: response.stopReason,
+          responseChars: responseText.length,
+          completeDurationMs,
+          durationMs: now() - startedAt,
+        });
+        return {
+          success: true,
+          provider,
+          model: modelId,
+          responseText,
+          runId,
+          durationMs: now() - startedAt,
+          timeoutMs,
+          attempts: attempt,
+        };
+      } catch (error) {
+        const timedOut = controller.signal.aborted;
+        const code = timedOut ? 'MODEL_TEST_TIMEOUT' : 'MODEL_TEST_FAILED';
+        logWarn(runId, 'probe-request-exception', {
+          agentId,
+          provider,
+          model: modelId,
+          attempt,
+          maxAttempts,
+          code,
+          timedOut,
+          willRetry: timedOut && attempt < maxAttempts,
+          durationMs: now() - startedAt,
+          timeoutMs,
+          error: summarizeError(error),
+        });
+
+        if (timedOut && attempt < maxAttempts) {
+          await wait(MANAGED_MODEL_TEST_RETRY_DELAY_MS);
+          continue;
+        }
+
+        return {
+          success: false,
+          provider,
+          model: modelId,
+          error: getErrorMessage(error),
+          code,
+          runId,
+          durationMs: now() - startedAt,
+          timeoutMs,
+          attempts: attempt,
+        };
+      } finally {
+        dispose();
+      }
     }
 
-    const responseText = extractAssistantText(response);
-    if (!/\bok\b/i.test(responseText)) {
-      logWarn(runId, 'unexpected-response', {
-        agentId,
-        provider,
-        model: modelId,
-        stopReason: response.stopReason,
-        responsePreview: truncateLogText(responseText, 300),
-        completeDurationMs,
-        durationMs: now() - startedAt,
-      });
-      return {
-        success: false,
-        provider,
-        model: modelId,
-        responseText,
-        error: 'Model responded, but did not return the expected probe response.',
-        code: 'MODEL_TEST_UNEXPECTED_RESPONSE',
-        runId,
-        durationMs: now() - startedAt,
-        timeoutMs,
-      };
-    }
-
-    logInfo(runId, 'success', {
+    logWarn(runId, 'probe-request-failed', {
       agentId,
       provider,
       model: modelId,
-      stopReason: response.stopReason,
-      responseChars: responseText.length,
-      completeDurationMs,
+      code: 'MODEL_TEST_FAILED',
       durationMs: now() - startedAt,
+      timeoutMs,
+      attempts: maxAttempts,
     });
     return {
-      success: true,
+      success: false,
       provider,
       model: modelId,
-      responseText,
+      error: 'Model test failed.',
+      code: 'MODEL_TEST_FAILED',
       runId,
       durationMs: now() - startedAt,
       timeoutMs,
+      attempts: maxAttempts,
     };
   } catch (error) {
-    const timedOut = controller.signal.aborted;
-    const code = timedOut ? 'MODEL_TEST_TIMEOUT' : provider || modelId ? 'MODEL_TEST_FAILED' : 'MODEL_NOT_CONFIGURED';
+    const code = provider || modelId ? 'MODEL_TEST_FAILED' : 'MODEL_NOT_CONFIGURED';
     logWarn(runId, 'exception', {
       agentId,
       provider,
       model: modelId,
       code,
-      timedOut,
+      timedOut: false,
       durationMs: now() - startedAt,
       timeoutMs,
       error: summarizeError(error),
@@ -331,8 +425,7 @@ export async function testAgentModelConnection(params?: {
       runId,
       durationMs: now() - startedAt,
       timeoutMs,
+      attempts: 0,
     };
-  } finally {
-    dispose();
   }
 }

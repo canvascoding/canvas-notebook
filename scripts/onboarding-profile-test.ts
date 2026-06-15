@@ -20,6 +20,15 @@ const fakeModel = {
   maxTokens: 8192,
 } as const;
 
+const fakeManagedModel = {
+  ...fakeModel,
+  id: 'managed-test',
+  name: 'Managed Test',
+  provider: 'canvas-control-plane',
+  baseUrl: 'https://api.canvasnotebook.app/v1/managed/openrouter/v1',
+  managedProvider: 'openrouter',
+} as const;
+
 function assistantText(text: string): AssistantMessage {
   return {
     role: 'assistant',
@@ -158,6 +167,38 @@ async function main() {
       },
     });
     assert.equal(okCall.success, true);
+
+    let managedAttempts = 0;
+    const managedRetryCall = await testAgentModelConnection({
+      deps: {
+        resolveConfig: async () => ({
+          activeProvider: 'canvas-control-plane',
+          model: fakeManagedModel,
+        }) as unknown as EffectiveAgentRuntimeConfig,
+        resolveApiKey: async () => 'managed-token',
+        sleep: async () => undefined,
+        complete: async () => {
+          managedAttempts += 1;
+          if (managedAttempts === 1) {
+            return {
+              ...assistantText(''),
+              provider: fakeManagedModel.provider,
+              model: fakeManagedModel.id,
+              stopReason: 'aborted',
+              errorMessage: 'Request was aborted',
+            };
+          }
+          return {
+            ...assistantText('OK'),
+            provider: fakeManagedModel.provider,
+            model: fakeManagedModel.id,
+          };
+        },
+      },
+    });
+    assert.equal(managedRetryCall.success, true);
+    assert.equal(managedRetryCall.attempts, 2);
+    assert.equal(managedAttempts, 2);
 
     const bootstrapPath = getOnboardingBootstrapPath(DEFAULT_MANAGED_AGENT_ID);
     await fs.mkdir(path.dirname(bootstrapPath), { recursive: true });

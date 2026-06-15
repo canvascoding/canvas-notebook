@@ -47,6 +47,7 @@ export async function POST(request: NextRequest) {
     durationMs: Date.now() - startedAt,
     probeDurationMs: result.durationMs,
     timeoutMs: result.timeoutMs,
+    attempts: result.attempts,
   };
   if (result.success) {
     console.log('[agents/model-test/api] POST complete', logPayload);
