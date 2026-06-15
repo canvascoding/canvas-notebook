@@ -1,74 +1,59 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest } from 'next/server';
 import { batchCopy } from '@/app/lib/filesystem/workspace-files';
-import { clearSubtreeCache } from '@/app/lib/utils/file-tree-cache';
-import { invalidateFileReferenceCache } from '@/app/lib/filesystem/file-reference-cache';
-import { rateLimit } from '@/app/lib/utils/rate-limit';
 import { isProtectedAppOutputFolder } from '@/app/lib/filesystem/app-output-folders';
-import { auth } from '@/app/lib/auth';
+import {
+  applyRateLimit,
+  invalidateWorkspaceFileViews,
+  jsonError,
+  jsonServerError,
+  jsonSuccess,
+  readJsonBody,
+  requireApiSession,
+} from '@/app/lib/api/route-helpers';
 
 export async function POST(request: NextRequest) {
-  const session = await auth.api.getSession({ headers: request.headers });
-  if (!session) {
-    return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
-  }
+  const unauthorized = await requireApiSession(request);
+  if (unauthorized) return unauthorized;
 
   try {
-    const limited = rateLimit(request, {
+    const rateLimitResponse = applyRateLimit(request, {
       limit: 20,
       windowMs: 60_000,
       keyPrefix: 'files-copy',
     });
-    if (!limited.ok) {
-      return limited.response;
-    }
+    if (rateLimitResponse) return rateLimitResponse;
 
-    const body = await request.json();
-    const { sources, destDir, overwrite = false, renameOnCollision = false } = body as {
+    const body = await readJsonBody<{
       sources?: string[];
       destDir?: string;
       overwrite?: boolean;
       renameOnCollision?: boolean;
-    };
+    }>(request);
+    const { sources, destDir, overwrite = false, renameOnCollision = false } = body;
 
     if (!sources || !Array.isArray(sources) || sources.length === 0) {
-      return NextResponse.json(
-        { success: false, error: 'Sources array is required and must not be empty' },
-        { status: 400 }
-      );
+      return jsonError('Sources array is required and must not be empty', 400);
     }
 
     if (!destDir || typeof destDir !== 'string') {
-      return NextResponse.json(
-        { success: false, error: 'destDir is required' },
-        { status: 400 }
-      );
+      return jsonError('destDir is required', 400);
     }
 
     const protectedPaths = sources.filter((p) => isProtectedAppOutputFolder(p));
     if (protectedPaths.length > 0) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: `Protected app output folder(s) cannot be copied: ${protectedPaths.join(', ')}`,
-        },
-        { status: 403 }
-      );
+      return jsonError(`Protected app output folder(s) cannot be copied: ${protectedPaths.join(', ')}`, 403);
     }
 
     const result = await batchCopy(sources, destDir, overwrite, renameOnCollision);
 
-    clearSubtreeCache(destDir);
-    invalidateFileReferenceCache();
+    invalidateWorkspaceFileViews({ subtreeDirs: [destDir] });
 
-    return NextResponse.json({
-      success: true,
+    return jsonSuccess({
       copied: result.copied,
       failed: result.failed,
       skipped: result.skipped,
     });
   } catch (error) {
-    console.error('[API] File copy error:', error);
-    const message = error instanceof Error ? error.message : 'Failed to copy files';
-    return NextResponse.json({ success: false, error: message }, { status: 500 });
+    return jsonServerError('[API] File copy error:', error, 'Failed to copy files');
   }
 }

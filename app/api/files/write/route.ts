@@ -1,36 +1,34 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest } from 'next/server';
 import { writeFile } from '@/app/lib/filesystem/workspace-files';
-import { clearSubtreeCache } from '@/app/lib/utils/file-tree-cache';
-import { invalidateFileReferenceCache } from '@/app/lib/filesystem/file-reference-cache';
-import { rateLimit } from '@/app/lib/utils/rate-limit';
-import { auth } from '@/app/lib/auth';
 import { queuePublicSharesAfterWrite } from '@/app/lib/public-sharing/public-file-shares';
 import { getParentDirectory } from '@/app/lib/files/path-utils';
+import {
+  applyRateLimit,
+  invalidateWorkspaceFileViews,
+  jsonError,
+  jsonServerError,
+  jsonSuccess,
+  readJsonBody,
+  requireApiSession,
+} from '@/app/lib/api/route-helpers';
 
 export async function POST(request: NextRequest) {
   try {
-    const session = await auth.api.getSession({ headers: request.headers });
-    if (!session) {
-      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
-    }
+    const unauthorized = await requireApiSession(request);
+    if (unauthorized) return unauthorized;
 
-    const limited = rateLimit(request, {
+    const rateLimitResponse = applyRateLimit(request, {
       limit: 20,
       windowMs: 60_000,
       keyPrefix: 'files-write',
     });
-    if (!limited.ok) {
-      return limited.response;
-    }
+    if (rateLimitResponse) return rateLimitResponse;
 
-    const body = await request.json();
+    const body = await readJsonBody<{ path?: string; content?: string }>(request);
     const { path, content } = body;
 
     if (!path || content === undefined) {
-      return NextResponse.json(
-        { success: false, error: 'Path and content are required' },
-        { status: 400 }
-      );
+      return jsonError('Path and content are required', 400);
     }
 
     // Check if content is base64 encoded (prefix with base64: to distinguish from plain text)
@@ -40,17 +38,11 @@ export async function POST(request: NextRequest) {
     }
 
     await writeFile(path, finalContent);
-    clearSubtreeCache(getParentDirectory(path));
-    invalidateFileReferenceCache();
+    invalidateWorkspaceFileViews({ subtreeDirs: [getParentDirectory(path)] });
     queuePublicSharesAfterWrite([path]);
 
-    return NextResponse.json({ success: true });
+    return jsonSuccess();
   } catch (error) {
-    console.error('[API] File write error:', error);
-    const message = error instanceof Error ? error.message : 'Failed to write file';
-    return NextResponse.json(
-      { success: false, error: message },
-      { status: 500 }
-    );
+    return jsonServerError('[API] File write error:', error, 'Failed to write file');
   }
 }

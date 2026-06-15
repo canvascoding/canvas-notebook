@@ -1,39 +1,37 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest } from 'next/server';
 import { createDirectory, writeFile } from '@/app/lib/filesystem/workspace-files';
-import { clearFileTreeCache } from '@/app/lib/utils/file-tree-cache';
-import { invalidateFileReferenceCache } from '@/app/lib/filesystem/file-reference-cache';
-import { rateLimit } from '@/app/lib/utils/rate-limit';
-import { auth } from '@/app/lib/auth';
 import { createEmptyExcalidrawFileContent, isExcalidrawFilePath } from '@/app/lib/excalidraw-file';
+import {
+  applyRateLimit,
+  invalidateWorkspaceFileViews,
+  jsonError,
+  jsonServerError,
+  jsonSuccess,
+  readJsonBody,
+  requireApiSession,
+} from '@/app/lib/api/route-helpers';
 
 export async function POST(request: NextRequest) {
-  const session = await auth.api.getSession({ headers: request.headers });
-  if (!session) {
-    return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
-  }
+  const unauthorized = await requireApiSession(request);
+  if (unauthorized) return unauthorized;
 
   try {
-    const limited = rateLimit(request, {
+    const rateLimitResponse = applyRateLimit(request, {
       limit: 20,
       windowMs: 60_000,
       keyPrefix: 'files-create',
     });
-    if (!limited.ok) {
-      return limited.response;
-    }
+    if (rateLimitResponse) return rateLimitResponse;
 
-    const body = await request.json();
-    const { path, type, template } = body as {
+    const body = await readJsonBody<{
       path?: string;
       type?: 'file' | 'directory';
       template?: 'excalidraw';
-    };
+    }>(request);
+    const { path, type, template } = body;
 
     if (!path || !type) {
-      return NextResponse.json(
-        { success: false, error: 'Path and type are required' },
-        { status: 400 }
-      );
+      return jsonError('Path and type are required', 400);
     }
 
     if (type === 'directory') {
@@ -46,22 +44,13 @@ export async function POST(request: NextRequest) {
           : ''
       );
     } else {
-      return NextResponse.json(
-        { success: false, error: 'Invalid type' },
-        { status: 400 }
-      );
+      return jsonError('Invalid type', 400);
     }
 
-    clearFileTreeCache();
-    invalidateFileReferenceCache();
+    invalidateWorkspaceFileViews({ fullTree: true });
 
-    return NextResponse.json({ success: true });
+    return jsonSuccess();
   } catch (error) {
-    console.error('[API] File create error:', error);
-    const message = error instanceof Error ? error.message : 'Failed to create path';
-    return NextResponse.json(
-      { success: false, error: message },
-      { status: 500 }
-    );
+    return jsonServerError('[API] File create error:', error, 'Failed to create path');
   }
 }

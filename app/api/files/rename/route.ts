@@ -1,11 +1,16 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest } from 'next/server';
 import { renameFile, checkRenameConflict, type RenameConflictError } from '@/app/lib/filesystem/workspace-files';
-import { clearFileTreeCache } from '@/app/lib/utils/file-tree-cache';
-import { invalidateFileReferenceCache } from '@/app/lib/filesystem/file-reference-cache';
-import { rateLimit } from '@/app/lib/utils/rate-limit';
 import { isProtectedAppOutputFolder } from '@/app/lib/filesystem/app-output-folders';
-import { auth } from '@/app/lib/auth';
 import { syncPublicSharesAfterMove } from '@/app/lib/public-sharing/public-file-shares';
+import {
+  applyRateLimit,
+  invalidateWorkspaceFileViews,
+  jsonError,
+  jsonServerError,
+  jsonSuccess,
+  readJsonBody,
+  requireApiSession,
+} from '@/app/lib/api/route-helpers';
 
 interface RenameRequestBody {
   oldPath: string;
@@ -14,41 +19,28 @@ interface RenameRequestBody {
 }
 
 export async function POST(request: NextRequest) {
-  const session = await auth.api.getSession({ headers: request.headers });
-  if (!session) {
-    return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
-  }
+  const unauthorized = await requireApiSession(request);
+  if (unauthorized) return unauthorized;
 
   try {
-    const limited = rateLimit(request, {
+    const rateLimitResponse = applyRateLimit(request, {
       limit: 20,
       windowMs: 60_000,
       keyPrefix: 'files-rename',
     });
-    if (!limited.ok) {
-      return limited.response;
-    }
+    if (rateLimitResponse) return rateLimitResponse;
 
-    const body = await request.json() as RenameRequestBody;
+    const body = await readJsonBody<RenameRequestBody>(request);
     const { oldPath, newPath, overwrite = false } = body;
 
     if (!oldPath || !newPath) {
-      return NextResponse.json(
-        { success: false, error: 'oldPath and newPath are required' },
-        { status: 400 }
-      );
+      return jsonError('oldPath and newPath are required', 400);
     }
     if (isProtectedAppOutputFolder(oldPath)) {
-      return NextResponse.json(
-        { success: false, error: `Protected app output folder cannot be modified: ${oldPath}` },
-        { status: 403 }
-      );
+      return jsonError(`Protected app output folder cannot be modified: ${oldPath}`, 403);
     }
     if (isProtectedAppOutputFolder(newPath)) {
-      return NextResponse.json(
-        { success: false, error: `Protected app output folder cannot be overwritten: ${newPath}` },
-        { status: 403 }
-      );
+      return jsonError(`Protected app output folder cannot be overwritten: ${newPath}`, 403);
     }
 
     // Check for conflicts first (for better error messages)
@@ -58,53 +50,37 @@ export async function POST(request: NextRequest) {
       if (overwrite && conflictError.code === 'FILE_EXISTS' && conflictError.type === 'file') {
         await renameFile(oldPath, newPath, true);
         await syncPublicSharesAfterMove(oldPath, newPath);
-        clearFileTreeCache();
-        invalidateFileReferenceCache();
-        return NextResponse.json({ success: true });
+        invalidateWorkspaceFileViews({ fullTree: true });
+        return jsonSuccess();
       }
 
-      return NextResponse.json(
-        { 
-          success: false, 
-          error: conflict.message,
-          code: conflictError.code,
-          type: conflictError.type,
-          sourcePath: conflictError.sourcePath,
-          destPath: conflictError.destPath
-        },
-        { status: 409 }
-      );
+      return jsonError(conflict.message, 409, {
+        code: conflictError.code,
+        type: conflictError.type,
+        sourcePath: conflictError.sourcePath,
+        destPath: conflictError.destPath,
+      });
     }
 
     await renameFile(oldPath, newPath, overwrite);
     await syncPublicSharesAfterMove(oldPath, newPath);
-    clearFileTreeCache();
-    invalidateFileReferenceCache();
+    invalidateWorkspaceFileViews({ fullTree: true });
 
-    return NextResponse.json({ success: true });
+    return jsonSuccess();
   } catch (error) {
-    console.error('[API] File rename error:', error);
     const message = error instanceof Error ? error.message : 'Failed to rename path';
     
     // Check if this is a conflict error
     const conflictError = error as RenameConflictError;
     if (conflictError.code && ['FILE_EXISTS', 'DIRECTORY_EXISTS', 'SOURCE_NOT_FOUND'].includes(conflictError.code)) {
-      return NextResponse.json(
-        { 
-          success: false, 
-          error: message,
-          code: conflictError.code,
-          type: conflictError.type,
-          sourcePath: conflictError.sourcePath,
-          destPath: conflictError.destPath
-        },
-        { status: 409 }
-      );
+      return jsonError(message, 409, {
+        code: conflictError.code,
+        type: conflictError.type,
+        sourcePath: conflictError.sourcePath,
+        destPath: conflictError.destPath,
+      });
     }
     
-    return NextResponse.json(
-      { success: false, error: message },
-      { status: 500 }
-    );
+    return jsonServerError('[API] File rename error:', error, 'Failed to rename path');
   }
 }
