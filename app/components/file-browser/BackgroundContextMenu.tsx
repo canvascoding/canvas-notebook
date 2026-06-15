@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import {
   FilePlus,
   FolderPlus,
@@ -17,13 +17,12 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { useFileStore } from '@/app/store/file-store';
-import { CreateItemDialog, type CreateItemType } from './CreateItemDialog';
+import { CreateItemDialog } from './CreateItemDialog';
 import { UploadDialog } from './UploadDialog';
+import { useCreateItemDialog } from './useCreateItemDialog';
 
 export function BackgroundContextMenu() {
   const t = useTranslations('notebook');
-  const [createOpen, setCreateOpen] = useState(false);
-  const [createType, setCreateType] = useState<CreateItemType>('file');
   const [uploadOpen, setUploadOpen] = useState(false);
 
   const {
@@ -32,39 +31,26 @@ export function BackgroundContextMenu() {
     isBackgroundContextMenuOpen,
     backgroundContextMenuRequestId,
     closeBackgroundContextMenu,
-    createPath,
     uploadFile,
     currentDirectory,
   } = useFileStore();
 
-  const closeMenu = () => {
+  const closeMenu = useCallback(() => {
     closeBackgroundContextMenu();
-  };
+  }, [closeBackgroundContextMenu]);
+
+  const { createDialogProps, openCreateDialog } = useCreateItemDialog(closeMenu);
 
   const handleNewFile = () => {
-    closeMenu();
-    setCreateType('file');
-    setCreateOpen(true);
+    openCreateDialog('file');
   };
 
   const handleNewExcalidraw = () => {
-    closeMenu();
-    setCreateType('excalidraw');
-    setCreateOpen(true);
+    openCreateDialog('excalidraw');
   };
 
   const handleNewFolder = () => {
-    closeMenu();
-    setCreateType('directory');
-    setCreateOpen(true);
-  };
-
-  const handleCreate = async (
-    fullPath: string,
-    itemType: 'file' | 'directory',
-    options?: { template?: 'excalidraw' }
-  ) => {
-    await createPath(fullPath, itemType, options);
+    openCreateDialog('directory');
   };
 
   const handleUpload = () => {
@@ -82,11 +68,8 @@ export function BackgroundContextMenu() {
     return (
       <>
         <CreateItemDialog
-          open={createOpen}
-          onOpenChange={setCreateOpen}
-          type={createType}
+          {...createDialogProps}
           defaultPath={directory}
-          onCreate={handleCreate}
         />
         <UploadDialog
           open={uploadOpen}
@@ -148,11 +131,8 @@ export function BackgroundContextMenu() {
       </DropdownMenu>
 
       <CreateItemDialog
-        open={createOpen}
-        onOpenChange={setCreateOpen}
-        type={createType}
+        {...createDialogProps}
         defaultPath={directory}
-        onCreate={handleCreate}
       />
 
       <UploadDialog

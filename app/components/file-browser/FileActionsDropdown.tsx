@@ -1,7 +1,7 @@
 'use client';
 
 import type { ComponentProps, ReactNode } from 'react';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ClipboardCopy,
   ClipboardPaste,
@@ -45,12 +45,13 @@ import { hasMarpFileName } from '@/app/lib/marp/detect';
 import { useFileStore } from '@/app/store/file-store';
 import type { FileNode } from '@/app/lib/files/types';
 import { getParentDirectory, joinWorkspacePath } from '@/app/lib/files/path-utils';
-import { CreateItemDialog, type CreateItemType } from './CreateItemDialog';
+import { CreateItemDialog } from './CreateItemDialog';
 import { DeleteConfirmDialog } from './DeleteConfirmDialog';
 import { DirectoryBrowser } from './DirectoryBrowser';
 import { ShareMarkdownDialog } from './ShareMarkdownDialog';
 import { PublicShareDialog } from './PublicShareDialog';
 import { MarpExportDialog } from './MarpExportDialog';
+import { useCreateItemDialog } from './useCreateItemDialog';
 
 const IMAGE_EXTENSIONS = /\.(png|jpe?g|webp|gif|svg|bmp|tiff?)$/i;
 
@@ -92,8 +93,6 @@ export function FileActionsDropdown({
   const [isMovingMultiple, setIsMovingMultiple] = useState(false);
   const [renameOpen, setRenameOpen] = useState(false);
   const [newName, setNewName] = useState('');
-  const [createOpen, setCreateOpen] = useState(false);
-  const [createType, setCreateType] = useState<CreateItemType>('file');
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
   const [marpExportOpen, setMarpExportOpen] = useState(false);
@@ -101,7 +100,6 @@ export function FileActionsDropdown({
   const [publicShareOpen, setPublicShareOpen] = useState(false);
 
   const {
-    createPath,
     deletePath,
     renamePath,
     downloadFile,
@@ -172,9 +170,11 @@ export function FileActionsDropdown({
     };
   }, [hasMarpName, isMarkdown, nodePath]);
 
-  const closeMenu = () => {
+  const closeMenu = useCallback(() => {
     onOpenChange?.(false);
-  };
+  }, [onOpenChange]);
+
+  const { createDialogProps, openCreateDialog } = useCreateItemDialog(closeMenu);
 
   const handleOpenInStudio = () => {
     if (!node) return;
@@ -199,29 +199,15 @@ export function FileActionsDropdown({
   };
 
   const handleNewFile = () => {
-    closeMenu();
-    setCreateType('file');
-    setCreateOpen(true);
+    openCreateDialog('file');
   };
 
   const handleNewExcalidraw = () => {
-    closeMenu();
-    setCreateType('excalidraw');
-    setCreateOpen(true);
+    openCreateDialog('excalidraw');
   };
 
   const handleNewFolder = () => {
-    closeMenu();
-    setCreateType('directory');
-    setCreateOpen(true);
-  };
-
-  const handleCreate = async (
-    fullPath: string,
-    itemType: 'file' | 'directory',
-    options?: { template?: 'excalidraw' }
-  ) => {
-    await createPath(fullPath, itemType, options);
+    openCreateDialog('directory');
   };
 
   const handleRename = () => {
@@ -512,11 +498,8 @@ export function FileActionsDropdown({
       </DropdownMenu>
 
       <CreateItemDialog
-        open={createOpen}
-        onOpenChange={setCreateOpen}
-        type={createType}
+        {...createDialogProps}
         defaultPath={parentPath}
-        onCreate={handleCreate}
       />
 
       <DeleteConfirmDialog

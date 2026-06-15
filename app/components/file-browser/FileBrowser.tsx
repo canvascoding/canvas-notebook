@@ -14,7 +14,7 @@ import { findPathInTree } from '@/app/lib/files/tree-utils';
 import { FileGridView } from './FileGridView';
 import { FileToolbar, type FileToolbarHandlers } from './FileToolbar';
 import { FileBreadcrumb } from './FileBreadcrumb';
-import { CreateItemDialog, type CreateItemType } from './CreateItemDialog';
+import { CreateItemDialog } from './CreateItemDialog';
 import { UploadDialog } from './UploadDialog';
 import { DeleteConfirmDialog } from './DeleteConfirmDialog';
 import { isProtectedAppOutputFolder } from '@/app/lib/filesystem/app-output-folders';
@@ -26,6 +26,7 @@ import { Link } from '@/i18n/navigation';
 import { ThemeToggle } from '@/app/components/ThemeToggle';
 import { notifyWorkspaceFileOpened } from '@/app/lib/files/workspace-file-events';
 import { PublicShareDialog } from './PublicShareDialog';
+import { useCreateItemDialog } from './useCreateItemDialog';
 
 
 import { AppLauncher } from '@/app/components/AppLauncher';
@@ -44,8 +45,6 @@ export function FileBrowser({ variant = 'default', onFileSelect }: FileBrowserPr
   const openedPathParamRef = useRef<string | null>(null);
   const pendingPathParamRef = useRef<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
-  const [createOpen, setCreateOpen] = useState(false);
-  const [createType, setCreateType] = useState<CreateItemType>('file');
   const [uploadOpen, setUploadOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deletePaths, setDeletePaths] = useState<string[]>([]);
@@ -61,7 +60,6 @@ export function FileBrowser({ variant = 'default', onFileSelect }: FileBrowserPr
     refreshDirectory,
     refreshVisibleTree,
     selectedNode,
-    createPath,
     deletePath,
     uploadFile,
     uploadProgress,
@@ -122,14 +120,10 @@ export function FileBrowser({ variant = 'default', onFileSelect }: FileBrowserPr
     return trimmed.slice(0, lastSlash);
   };
 
-  const handleNewFile = () => { setCreateType('file'); setCreateOpen(true); };
-  const handleNewExcalidraw = () => { setCreateType('excalidraw'); setCreateOpen(true); };
-  const handleNewFolder = () => { setCreateType('directory'); setCreateOpen(true); };
-  const handleCreate = async (
-    fullPath: string,
-    itemType: 'file' | 'directory',
-    options?: { template?: 'excalidraw' }
-  ) => { await createPath(fullPath, itemType, options); };
+  const { createDialogProps, openCreateDialog } = useCreateItemDialog();
+  const handleNewFile = () => openCreateDialog('file');
+  const handleNewExcalidraw = () => openCreateDialog('excalidraw');
+  const handleNewFolder = () => openCreateDialog('directory');
   const handleUploadClick = () => { setUploadOpen(true); };
   const handleUpload = async (files: File[], targetDir: string) => { await imagePreprocess.handleFiles(files, targetDir); };
 
@@ -378,7 +372,7 @@ export function FileBrowser({ variant = 'default', onFileSelect }: FileBrowserPr
         <FileGridView variant={variant} onOpenFile={handleOpenFile} />
       </div>
 
-      <CreateItemDialog open={createOpen} onOpenChange={setCreateOpen} type={createType} defaultPath={resolveTargetDir()} onCreate={handleCreate} />
+      <CreateItemDialog {...createDialogProps} defaultPath={resolveTargetDir()} />
       <UploadDialog open={uploadOpen} onOpenChange={setUploadOpen} defaultPath={resolveTargetDir()} onUpload={handleUpload} />
       <DeleteConfirmDialog open={deleteOpen} onOpenChange={setDeleteOpen} paths={deletePaths} skippedCount={deleteSkippedCount} onConfirm={handleConfirmDelete} />
       <PublicShareDialog
