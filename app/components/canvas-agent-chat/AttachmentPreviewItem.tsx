@@ -7,7 +7,7 @@ import {
   formatAttachmentSize,
   getAttachmentMediaUrl,
   type ChatAttachment,
-} from './attachment-preview';
+} from '@/app/lib/chat/attachment-preview';
 
 interface AttachmentPreviewItemProps {
   attachment: ChatAttachment;

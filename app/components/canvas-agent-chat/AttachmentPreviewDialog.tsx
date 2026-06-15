@@ -12,7 +12,7 @@ import {
   getAttachmentMediaUrl,
   resolvePreviewSrcFromMediaUrl,
   type ChatAttachment,
-} from './attachment-preview';
+} from '@/app/lib/chat/attachment-preview';
 
 interface AttachmentPreviewDialogProps {
   attachment: ChatAttachment | null;

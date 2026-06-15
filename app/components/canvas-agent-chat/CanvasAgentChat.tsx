@@ -114,7 +114,7 @@ import {
   deriveUploadAttachmentPreview,
   getAttachmentMediaUrl,
   resolvePreviewSrcFromMediaUrl,
-} from '@/app/components/canvas-agent-chat/attachment-preview';
+} from '@/app/lib/chat/attachment-preview';
 import { AgentAvatar, AgentIcon } from '@/app/components/agents/AgentAvatar';
 import type { RuntimeStatus } from '@/app/lib/chat/runtime-status';
 import {
