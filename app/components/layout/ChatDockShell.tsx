@@ -99,8 +99,8 @@ export function ChatDockShell({
   const tNav = useTranslations('navigation');
   const tChat = useTranslations('chat');
   const [viewportMode, setViewportMode] = useState<'mobile' | 'desktop' | null>(null);
-  const [chatVisible, setChatVisible] = useState(defaultChatVisible);
-  const [chatWidth, setChatWidth] = useState(DEFAULT_CHAT_WIDTH);
+  const [chatVisible, setChatVisible] = useState(() => getStoredBoolean(chatVisibleStorageKey, defaultChatVisible));
+  const [chatWidth, setChatWidth] = useState(() => getStoredChatWidth(chatWidthStorageKey));
   const [desktopChatMode, setDesktopChatMode] = useState<DesktopChatMode>('side');
   const [mobileChatOpen, setMobileChatOpen] = useState(false);
   const [viewportWidth, setViewportWidth] = useState(DEFAULT_CHAT_WIDTH);
