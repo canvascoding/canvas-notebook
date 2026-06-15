@@ -43,12 +43,8 @@ import {
   getQueuedSignatureFromPiMessage,
 } from '@/app/components/canvas-agent-chat/chatRuntimeMessageUtils';
 import { useChatScrollController } from '@/app/components/canvas-agent-chat/useChatScrollController';
-import {
-  isRecord,
-} from '@/app/lib/chat/message-content';
 import type { RuntimeStatus } from '@/app/lib/chat/runtime-status';
 import {
-  readLatestCachedChatSession,
   removeCachedChatSession,
   updateCachedChatSessionTitle,
 } from '@/app/lib/chat/session-cache';
@@ -82,6 +78,7 @@ import { useChatAttachments } from '@/app/components/canvas-agent-chat/useChatAt
 import { useChatComposerDraft } from '@/app/components/canvas-agent-chat/useChatComposerDraft';
 import { useChatRuntimeEvents } from '@/app/components/canvas-agent-chat/useChatRuntimeEvents';
 import { useChatSessionHistory } from '@/app/components/canvas-agent-chat/useChatSessionHistory';
+import { useChatSessionBootstrap } from '@/app/components/canvas-agent-chat/useChatSessionBootstrap';
 import { useChatSessionMessages } from '@/app/components/canvas-agent-chat/useChatSessionMessages';
 import { useComposerReferences } from '@/app/components/canvas-agent-chat/useComposerReferences';
 import type {
@@ -112,79 +109,6 @@ interface CanvasAgentChatProps {
 
 const CHAT_REQUEST_TIMEOUT_MS = 30_000;
 const ONBOARDING_CHAT_REQUEST_TIMEOUT_MS = 90_000;
-
-type InitialPromptPayload = {
-  prompt: string;
-  attachments: Attachment[];
-  agentId: string | null;
-};
-
-const MANAGED_AGENT_ID_PATTERN = /^[a-z0-9][a-z0-9_-]{0,63}$/;
-
-function normalizeInitialPromptAgentId(value: unknown): string | null {
-  if (typeof value !== 'string') {
-    return null;
-  }
-
-  const normalized = value.trim().toLowerCase();
-  return MANAGED_AGENT_ID_PATTERN.test(normalized) ? normalized : null;
-}
-
-function parseInitialPromptAttachment(value: unknown): Attachment | null {
-  if (!isRecord(value)) {
-    return null;
-  }
-
-  const contentKind = value.contentKind === 'image' || value.contentKind === 'document'
-    ? value.contentKind
-    : null;
-  const name = typeof value.name === 'string' ? value.name : '';
-  const id = typeof value.id === 'string' ? value.id : '';
-
-  if (!contentKind || !name || !id) {
-    return null;
-  }
-
-  return deriveUploadAttachmentPreview({
-    name,
-    id,
-    contentKind,
-    mimeType: typeof value.mimeType === 'string' ? value.mimeType : undefined,
-    category: typeof value.category === 'string' ? value.category : undefined,
-    filePath: typeof value.filePath === 'string' ? value.filePath : undefined,
-    previewUrl: typeof value.previewUrl === 'string' ? value.previewUrl : undefined,
-    mediaUrl: typeof value.mediaUrl === 'string' ? value.mediaUrl : undefined,
-  });
-}
-
-function parseInitialPromptPayload(storedData: string): InitialPromptPayload | null {
-  try {
-    const parsed = JSON.parse(storedData) as unknown;
-    if (!isRecord(parsed)) {
-      return null;
-    }
-
-    const prompt = typeof parsed.prompt === 'string' ? parsed.prompt : '';
-    const attachments = Array.isArray(parsed.attachments)
-      ? parsed.attachments
-        .map(parseInitialPromptAttachment)
-        .filter((attachment): attachment is Attachment => Boolean(attachment))
-      : [];
-
-    if (!prompt.trim() && attachments.length === 0) {
-      return null;
-    }
-
-    return {
-      prompt,
-      attachments,
-      agentId: normalizeInitialPromptAgentId(parsed.agentId),
-    };
-  } catch {
-    const prompt = storedData.trim();
-    return prompt ? { prompt, attachments: [], agentId: null } : null;
-  }
-}
 
 function resolveAttachmentCategory(attachment: Attachment): string {
   const category = attachment.category || (attachment.contentKind === 'image' ? 'image' : 'document');
@@ -1207,183 +1131,37 @@ export default function CanvasAgentChat({
     }
   }, [activeReferenceMatch, closeReferencePicker, handleReferenceSelect, handleSend, handleStop, isWebSocketUnavailable, navigateInputHistory, referencePickerItems, runtimeStatusRef, selectNextReference, selectedReferenceIndex, selectPreviousReference, togglePlanningMode]);
 
-  useEffect(() => {
-    if (initialPromptConsumedRef.current) return;
-    if (!agentConfig) return;
-    if (!isAgentConfigForAgent(agentConfig, selectedAgentId)) return;
-
-    const queueInitialPrompt = async (promptText: string, promptAttachments: Attachment[], storageKey?: string) => {
-      initialPromptConsumedRef.current = true;
-      try {
-        await handleControlAction('send', { text: promptText, attachments: promptAttachments });
-        if (storageKey && typeof window !== 'undefined') {
-          window.sessionStorage.removeItem(storageKey);
-        }
-      } catch (error) {
-        setIsResolvingInitialChatState(false);
-        appendSystemMessage(t('errorMessage', { message: error instanceof Error ? error.message : String(error) }));
-      }
-    };
-
-    const candidatePrompt = (initialPrompt || '').trim();
-    if (candidatePrompt) {
-      void queueInitialPrompt(candidatePrompt, []);
-      return;
-    }
-
-    if (!initialPromptStorageKey || typeof window === 'undefined') return;
-    const storedData = window.sessionStorage.getItem(initialPromptStorageKey);
-    if (!storedData) return;
-
-    const parsed = parseInitialPromptPayload(storedData);
-    if (!parsed) {
-      return;
-    }
-
-    const targetAgentId = parsed.agentId || CHAT_AGENT_ID;
-    if (targetAgentId !== selectedAgentId) {
-      sessionAgentIdRef.current = targetAgentId;
-      Promise.resolve().then(() => {
-        setHistoryAgentFilter(targetAgentId);
-        setSelectedAgentId(targetAgentId);
-      });
-      return;
-    }
-
-    void queueInitialPrompt(parsed.prompt, parsed.attachments, initialPromptStorageKey);
-  }, [agentConfig, appendSystemMessage, handleControlAction, initialPrompt, initialPromptStorageKey, selectedAgentId, setHistoryAgentFilter, setSelectedAgentId, t]);
-
-  useEffect(() => {
-    if (initialPrompt?.trim()) return;
-    if (resolvedRequestedSessionId) return;
-    if (isResolvingInitialChatState) return;
-    if (hasLoadedSessionListRef.current) return;
-    if (userStartedNewChatRef.current) return;
-    void fetchHistory();
-  }, [fetchHistory, hasLoadedSessionListRef, initialPrompt, isResolvingInitialChatState, resolvedRequestedSessionId]);
-
-  // Fetch history when showing history panel and it's empty (mobile bug fix)
-  useEffect(() => {
-    if (showHistory && history.length === 0 && !isLoadingHistory) {
-      void fetchHistory();
-    }
-  }, [showHistory, history.length, fetchHistory, isLoadingHistory]);
-
-  useEffect(() => {
-    if (initialPrompt?.trim()) return;
-    if (initialPromptStorageKey && typeof window !== 'undefined' && window.sessionStorage.getItem(initialPromptStorageKey)) {
-      return;
-    }
-    if (userStartedNewChatRef.current) return;
-    if (!resolvedRequestedSessionId) return;
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setIsResolvingInitialChatState(true);
-
-    const loadRequestedSession = async () => {
-      try {
-        const cachedEntry = readLatestCachedChatSession(resolvedRequestedSessionId);
-        if (cachedEntry) {
-          addSessionToHistory(cachedEntry.session);
-          await loadSession(cachedEntry.session);
-          if (!forcedSessionId) {
-            requestedSessionCleanupRef.current = resolvedRequestedSessionId;
-            clearSessionParamFromUrl();
-          }
-          void loadSessionList()
-            .then((sessions) => {
-              setHistoryAndLatest(sessions.length > 0 ? sessions : [cachedEntry.session]);
-            })
-            .catch((err) => {
-              console.error('Failed to refresh requested session history', err);
-            });
-          return;
-        }
-
-        const sessions = await loadSessionList();
-        if (sessions.length > 0) {
-          setHistoryAndLatest(sessions);
-          const targetSession = sessions.find((session: AISession) => session.sessionId === resolvedRequestedSessionId);
-          if (targetSession) {
-            await loadSession(targetSession);
-            if (!forcedSessionId) {
-              requestedSessionCleanupRef.current = resolvedRequestedSessionId;
-              clearSessionParamFromUrl();
-            }
-          }
-        }
-      } catch (err) {
-        console.error('Failed to load requested session', err);
-      } finally {
-        setIsResolvingInitialChatState(false);
-      }
-    };
-
-    void loadRequestedSession();
-  }, [addSessionToHistory, clearSessionParamFromUrl, forcedSessionId, initialPrompt, initialPromptStorageKey, loadSession, loadSessionList, resolvedRequestedSessionId, setHistoryAndLatest]);
-
-  // Restore previously active session on remount (mobile Sheet unmount/remount)
-  useEffect(() => {
-    if (initialPrompt?.trim()) return;
-    if (initialPromptStorageKey && typeof window !== 'undefined' && window.sessionStorage.getItem(initialPromptStorageKey)) {
-      return;
-    }
-    if (initialPromptConsumedRef.current) return;
-    if (resolvedRequestedSessionId) return;
-    if (userStartedNewChatRef.current) return;
-    if (sessionId) return;
-
-    const storedSessionId = typeof window !== 'undefined'
-      ? window.sessionStorage.getItem(CANVAS_CHAT_ACTIVE_SESSION_STORAGE_KEY)
-      : null;
-    if (!storedSessionId) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setIsResolvingInitialChatState(false);
-      return;
-    }
-    setIsResolvingInitialChatState(true);
-
-    const restoreSession = async () => {
-      try {
-        const cachedEntry = readLatestCachedChatSession(storedSessionId);
-        if (cachedEntry) {
-          addSessionToHistory(cachedEntry.session);
-          await loadSession(cachedEntry.session);
-          void loadSessionList()
-            .then((sessions) => {
-              setHistoryAndLatest(sessions.length > 0 ? sessions : [cachedEntry.session]);
-            })
-            .catch((err) => {
-              console.error('Failed to refresh restored session history', err);
-            });
-          return;
-        }
-
-        const sessions = await loadSessionList();
-        // A new session may have been created while the fetch was in-flight
-        if (sessionIdRef.current) return;
-        if (sessions.length > 0) {
-          setHistoryAndLatest(sessions);
-          const targetSession = sessions.find((s: AISession) => s.sessionId === storedSessionId);
-          if (targetSession) {
-            await loadSession(targetSession);
-          }
-        }
-      } catch (err) {
-        console.error('Failed to restore previous session', err);
-      } finally {
-        setIsResolvingInitialChatState(false);
-      }
-    };
-
-    void restoreSession();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  useEffect(() => {
-    if (requestedSessionCleanupRef.current && !resolvedRequestedSessionId) {
-      requestedSessionCleanupRef.current = null;
-    }
-  }, [resolvedRequestedSessionId]);
+  useChatSessionBootstrap({
+    addSessionToHistory,
+    agentConfig,
+    appendSystemMessage,
+    clearSessionParamFromUrl,
+    fetchHistory,
+    forcedSessionId,
+    handleControlAction,
+    hasLoadedSessionListRef,
+    historyLength: history.length,
+    initialPrompt,
+    initialPromptConsumedRef,
+    initialPromptStorageKey,
+    isLoadingHistory,
+    isResolvingInitialChatState,
+    loadSession,
+    loadSessionList,
+    requestedSessionCleanupRef,
+    resolvedRequestedSessionId,
+    selectedAgentId,
+    sessionAgentIdRef,
+    sessionId,
+    sessionIdRef,
+    setHistoryAgentFilter,
+    setHistoryAndLatest,
+    setIsResolvingInitialChatState,
+    setSelectedAgentId,
+    showHistory,
+    t,
+    userStartedNewChatRef,
+  });
 
   // Poll runtime status only while the agent is active; fetch once on session switch
   const isAgentActive = runtimeStatus != null && runtimeStatus.phase !== 'idle';
