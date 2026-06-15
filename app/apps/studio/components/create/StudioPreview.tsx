@@ -3,12 +3,12 @@
 /* eslint-disable @next/next/no-img-element */
 
 import { useCallback, useEffect, useState } from 'react';
-import { ArrowLeft, AudioLines, Brush, Check, ChevronDown, ChevronLeft, ChevronRight, Download, Film, ImageIcon, Info, Maximize2, MoreHorizontal, RefreshCcw, Save, Star, Trash2, User, Box } from 'lucide-react';
+import { ArrowLeft, AudioLines, Brush, Check, ChevronDown, ChevronLeft, ChevronRight, Download, Film, ImageIcon, Info, Maximize2, MoreHorizontal, RefreshCcw, Save, Share2, Star, Trash2, User, Box } from 'lucide-react';
 import type { StudioGeneration, StudioGenerationOutput } from '../../types/generation';
 import type { StudioProduct, StudioPersona, StudioStyle } from '../../types/models';
 import type { StudioPreset } from '../../types/presets';
 import { toPreviewUrl } from '@/app/lib/utils/media-url';
-import { downloadStudioOutput } from '../../utils/downloadStudioOutput';
+import { downloadStudioOutput, shareOrDownloadStudioOutput } from '../../utils/downloadStudioOutput';
 import { getStudioUserPrompt } from '../../utils/studio-generation-prompt';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -163,6 +163,11 @@ export function StudioPreview({
   if (!open || !generation || !output) {
     return null;
   }
+
+  const handleShareOrDownload = () => {
+    if (!output.mediaUrl) return;
+    void shareOrDownloadStudioOutput(output);
+  };
 
   const handleDownload = () => {
     if (!output.mediaUrl) return;
@@ -331,8 +336,16 @@ export function StudioPreview({
             <RefreshCcw className="h-4 w-4" />
             Remix
           </Button>
-          <Button variant="outline" size="icon" className="rounded-full" onClick={handleDownload} disabled={!output.mediaUrl} aria-label="Download">
-            <Download className="h-4 w-4" />
+          <Button
+            variant="outline"
+            size="icon"
+            className="rounded-full"
+            onClick={handleShareOrDownload}
+            disabled={!output.mediaUrl}
+            aria-label={output.type === 'image' ? 'Share' : 'Download'}
+            title={output.type === 'image' ? 'Share' : 'Download'}
+          >
+            {output.type === 'image' ? <Share2 className="h-4 w-4" /> : <Download className="h-4 w-4" />}
           </Button>
 
           <DropdownMenu>
@@ -345,6 +358,16 @@ export function StudioPreview({
               <DropdownMenuItem onSelect={() => onEditSelection?.(generation, output)} disabled={!canEditImage}>
                 <Brush className="mr-2 h-4 w-4" />
                 Edit selection
+              </DropdownMenuItem>
+              {output.type === 'image' ? (
+                <DropdownMenuItem onSelect={handleShareOrDownload} disabled={!output.mediaUrl}>
+                  <Share2 className="mr-2 h-4 w-4" />
+                  Share / save to Photos
+                </DropdownMenuItem>
+              ) : null}
+              <DropdownMenuItem onSelect={handleDownload} disabled={!output.mediaUrl}>
+                <Download className="mr-2 h-4 w-4" />
+                Download file
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               {DETAIL_ASPECT_RATIOS.map((ratio) => (

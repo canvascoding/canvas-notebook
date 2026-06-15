@@ -1,9 +1,9 @@
 'use client';
 
-import { Download, Film, RefreshCcw, Save, Star, Trash2 } from 'lucide-react';
+import { Download, Film, RefreshCcw, Save, Share2, Star, Trash2 } from 'lucide-react';
 import type { StudioGeneration, StudioGenerationOutput } from '../../types/generation';
 import { Button } from '@/components/ui/button';
-import { downloadStudioOutput } from '../../utils/downloadStudioOutput';
+import { shareOrDownloadStudioOutput } from '../../utils/downloadStudioOutput';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -45,7 +45,7 @@ export function OutputHoverOverlay({
 
   const handleDownload = () => {
     if (!mediaUrl) return;
-    void downloadStudioOutput(output.id);
+    void shareOrDownloadStudioOutput(output);
   };
 
   const handleDelete = () => {
@@ -74,8 +74,16 @@ export function OutputHoverOverlay({
           </Button>
 
           <div className="flex gap-2">
-            <Button type="button" size="icon" variant="secondary" className="h-9 w-9 rounded-full bg-black/55 text-white hover:bg-black/70" onClick={handleDownload}>
-              <Download className="h-4 w-4" />
+            <Button
+              type="button"
+              size="icon"
+              variant="secondary"
+              className="h-9 w-9 rounded-full bg-black/55 text-white hover:bg-black/70"
+              onClick={handleDownload}
+              aria-label={type === 'image' ? 'Teilen' : 'Download'}
+              title={type === 'image' ? 'Teilen' : 'Download'}
+            >
+              {type === 'image' ? <Share2 className="h-4 w-4" /> : <Download className="h-4 w-4" />}
             </Button>
             <Button type="button" size="icon" variant="secondary" className="h-9 w-9 rounded-full bg-black/55 text-white hover:bg-black/70" onClick={() => onToggleFavorite(generation, output)}>
               <Star className={`h-4 w-4 ${isFavorite ? 'fill-current text-amber-300' : ''}`} />
