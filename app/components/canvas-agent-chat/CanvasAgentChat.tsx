@@ -5,10 +5,7 @@ import type { AgentMessage } from '@earendil-works/pi-agent-core';
 import { createThinkingFilterState, filterThinkingChunk, flushThinkingFilter } from '@/app/lib/pi/thinking-filter';
 import type { ThinkingFilterState } from '@/app/lib/pi/thinking-filter';
 import { useTranslations } from 'next-intl';
-import type { AnthropicSkill } from '@/app/lib/skills/skill-manifest-anthropic';
 import {
-  Paperclip,
-  X,
   Loader2,
   History,
   Plus,
@@ -18,16 +15,14 @@ import {
   ArrowDown,
   Wrench,
   Lightbulb,
-  CircleHelp,
   Settings,
   ArrowLeft,
-  Square,
 } from 'lucide-react';
-import { ComposerReferencePicker, type ComposerReferencePickerItem } from '@/app/components/canvas-agent-chat/ComposerReferencePicker';
+import type { ComposerReferencePickerItem } from '@/app/components/canvas-agent-chat/ComposerReferencePicker';
+import { ChatComposer, type FilePickerFile, type ReferencePickerValue, type SkillPickerSkill } from '@/app/components/canvas-agent-chat/ChatComposer';
 import { ChatAgentSelector } from '@/app/components/canvas-agent-chat/ChatAgentSelector';
 import { ChatHistoryPanel, type ChatHistoryPanelLabels, type ChatHistoryPanelProps } from '@/app/components/canvas-agent-chat/ChatHistoryPanel';
 import { ChatMessageList } from '@/app/components/canvas-agent-chat/ChatMessageList';
-import { ChatQueuePanel } from '@/app/components/canvas-agent-chat/ChatQueuePanel';
 import { ChatStarterScreen } from '@/app/components/canvas-agent-chat/ChatStarterScreen';
 import { getFileIconComponent } from '@/app/lib/files/file-icons';
 import { toUploadMediaUrl } from '@/app/lib/utils/media-url';
@@ -45,9 +40,7 @@ import { findActiveComposerReference, replaceComposerReference, type ComposerRef
 import { useIsMobile } from '@/hooks/use-mobile';
 import { BUSINESS_STARTER_PROMPTS, STUDIO_STARTER_PROMPTS } from '@/app/lib/chat/starter-prompts';
 import { ChatRuntimeActivityBadge } from '@/app/components/canvas-agent-chat/ChatRuntimeActivityBadge';
-import { ChatModelSelector } from '@/app/components/canvas-agent-chat/ChatModelSelector';
 import { AttachmentPreviewDialog } from '@/app/components/canvas-agent-chat/AttachmentPreviewDialog';
-import { AttachmentPreviewItem } from '@/app/components/canvas-agent-chat/AttachmentPreviewItem';
 import {
   createImageAttachmentFromMediaUrl,
   deriveUploadAttachmentPreview,
@@ -107,7 +100,6 @@ import { useToolVerbosityStore } from '@/app/store/tool-verbosity-store';
 import { getToolDisplayInfo } from '@/app/lib/pi/tool-display';
 import { cn } from '@/lib/utils';
 
-import { PlanModeToggle } from './PlanModeToggle';
 import { CANVAS_CHAT_ACTIVE_SESSION_STORAGE_KEY } from '@/app/lib/chat/constants';
 import { loadComposerDraft, removeComposerDraft, saveComposerDraft } from '@/app/lib/chat/draft-storage';
 import { applySessionUnreadUpdate } from '@/app/lib/chat/unread';
@@ -133,16 +125,6 @@ import type { PiThinkingLevel } from '@/app/lib/pi/config';
 import { DEFAULT_AGENT_ID } from '@/app/lib/channels/constants';
 
 const CHAT_AGENT_ID = DEFAULT_AGENT_ID;
-
-type FilePickerFile = {
-  name: string;
-  path: string;
-  type: 'file' | 'directory';
-  isImage: boolean;
-};
-
-type SkillPickerSkill = Pick<AnthropicSkill, 'name' | 'title' | 'description' | 'enabled'>;
-type ReferencePickerValue = FilePickerFile | SkillPickerSkill;
 
 interface CanvasAgentChatProps {
   initialPrompt?: string | null;
@@ -4246,189 +4228,70 @@ export default function CanvasAgentChat({
             <ArrowDown size={20} />
           </button>
         )}
-      </div>
-
-      <div
+      <ChatComposer
         ref={composerRef}
-        aria-hidden={isHistoryOverlayOpen}
-        className={cn(
-          'absolute bottom-0 left-0 right-0 z-20 border-t border-border bg-background/95 px-3 pt-3',
-          isHistoryOverlayOpen ? 'hidden' : null,
-        )}
-        style={{ paddingBottom: isMobile ? 'calc(env(safe-area-inset-bottom) + 0.75rem)' : '0.75rem' }}
-      >
-        {uploadError && (
-          <div className="mb-2 flex items-center justify-between border border-destructive/30 bg-destructive/10 p-2 text-xs text-destructive">
-            <span>{uploadError}</span>
-            <button type="button" onClick={() => setUploadError(null)} className="ml-2 hover:opacity-70">
-              <X className="h-3 w-3" />
-            </button>
-          </div>
-        )}
-
-        {isWebSocketUnavailable && (
-          <div className="mb-2 border border-amber-500/30 bg-amber-500/10 p-2 text-xs text-amber-900 dark:text-amber-100">
-            <div className="font-medium">{t('liveUpdatesUnavailable')}</div>
-            <div className="mt-1 text-[11px] opacity-80">{t('liveUpdatesUnavailableDescription')}</div>
-          </div>
-        )}
-
-        {showModelRequiredNotice && (
-          <div className="mb-2 flex flex-wrap items-center justify-between gap-2 border border-amber-500/30 bg-amber-500/10 p-2 text-xs text-amber-900 dark:text-amber-100">
-            <div className="min-w-0">
-              <div className="font-medium">{t('modelRequiredTitle')}</div>
-              <div className="mt-1 text-[11px] opacity-80">{t('modelRequiredDescription')}</div>
-            </div>
-            <Link
-              href="/settings?tab=agent"
-              className="inline-flex shrink-0 items-center gap-1 border border-amber-500/40 bg-background/60 px-2 py-1 text-[11px] font-medium text-foreground transition-colors hover:bg-accent"
-            >
-              <Settings className="h-3 w-3" />
-              {t('openAgentSettings')}
-            </Link>
-          </div>
-        )}
-
-        {attachments.length > 0 && (
-          <div
-            className={`mb-2 gap-2 border border-border bg-muted/60 p-2 ${
-              isMobile ? 'flex overflow-x-auto no-scrollbar' : 'flex flex-wrap'
-            }`}
-          >
-            {attachments.map((attachment, index) => (
-              <AttachmentPreviewItem
-                key={`${attachment.id || attachment.filePath || attachment.name}-${index}`}
-                attachment={attachment}
-                context="composer"
-                previewGroup={attachments}
-                onRemove={() => removeAttachment(index)}
-                onOpen={handleAttachmentPreviewOpen}
-              />
-            ))}
-          </div>
-        )}
-
-        {runtimeStatus && totalQueuedMessages > 0 && (
-          <ChatQueuePanel
-            items={queueItems}
-            isMobile={isMobile}
-            isWebSocketUnavailable={isWebSocketUnavailable}
-            openItemId={openQueueItemPopoverId}
-            onOpenItemChange={setOpenQueueItemPopoverId}
-            onPromote={(queueItemId) => {
-              void handlePromoteQueuedMessage(queueItemId);
-            }}
-            onRemove={(queueItemId) => {
-              void handleRemoveQueuedMessage(queueItemId);
-            }}
-            onEdit={(entry) => {
-              void handleEditQueuedMessage(entry);
-            }}
-          />
-        )}
-
-        <div className="flex items-end gap-2">
-          <button
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={composerDisabled}
-            className="border border-transparent p-2.5 text-muted-foreground transition-colors hover:border-border hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
-            title={isUploading ? t('uploading') : t('attachImage')}
-          >
-            {isUploading
-              ? <Loader2 className="h-5 w-5 animate-spin" />
-              : <Paperclip className="h-5 w-5" />}
-          </button>
-          <input type="file" ref={fileInputRef} onChange={onFileChange} className="hidden" accept="image/*,application/pdf,.docx,.txt,.md,.csv,.json,.yaml,.yml,.xml,.html" multiple />
-          <div className="relative flex-1 min-w-0">
-            <textarea
-              ref={textareaRef}
-              data-testid="chat-input"
-              rows={1}
-              value={input}
-              onChange={handleInputChange}
-              onKeyDown={handleKeyDown}
-              onPaste={handlePaste}
-              placeholder={composerPlaceholderText}
-              style={{ height: `${textareaHeight}px` }}
-              disabled={isWebSocketUnavailable}
-              className={`w-full resize-none border bg-background p-2.5 text-base placeholder:text-xs placeholder:text-muted-foreground focus:outline-none focus:ring-1 md:text-sm sm:placeholder:text-sm ${planningMode ? 'border-amber-500 focus:ring-amber-500' : 'border-border focus:ring-ring'}`}
-            />
-
-            {activeReferenceMatch ? (
-              <ComposerReferencePicker
-                emptyState={referencePickerEmptyState}
-                header={referencePickerHeader}
-                items={referencePickerItems}
-                onSelect={handleReferenceSelect}
-                pickerRef={referencePickerRef}
-                selectedIndex={selectedReferenceIndex}
-              />
-            ) : null}
-          </div>
-          <button
-            type="button"
-            data-testid="chat-send"
-            data-action={primaryActionIsStop ? 'stop' : 'send'}
-            aria-label={primaryActionLabel}
-            onClick={() => {
-              if (primaryActionIsStop) {
-                void handleStop();
-                return;
-              }
-              void handleSend();
-            }}
-            className={cn(
-              'flex-shrink-0 bg-primary p-2.5 text-primary-foreground transition-all hover:bg-primary/90 disabled:opacity-30',
-            )}
-            disabled={primaryActionDisabled}
-            title={primaryActionLabel}
-          >
-            {primaryActionIsStop ? (
-              <Square className="h-5 w-5 fill-current" />
-            ) : (
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="h-5 w-5">
-                <path d="M22 2L11 13M22 2L15 22L11 13M11 13L2 9L22 2" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
-            )}
-          </button>
+        ariaHidden={isHistoryOverlayOpen}
+        isMobile={isMobile}
+        uploadError={uploadError}
+        onClearUploadError={() => setUploadError(null)}
+        isWebSocketUnavailable={isWebSocketUnavailable}
+        showModelRequiredNotice={showModelRequiredNotice}
+        attachments={attachments}
+        onRemoveAttachment={removeAttachment}
+        onAttachmentOpen={handleAttachmentPreviewOpen}
+        showQueuePanel={Boolean(runtimeStatus && totalQueuedMessages > 0)}
+        queueItems={queueItems}
+        openQueueItemId={openQueueItemPopoverId}
+        onOpenQueueItemChange={setOpenQueueItemPopoverId}
+        onPromoteQueuedMessage={(queueItemId) => {
+          void handlePromoteQueuedMessage(queueItemId);
+        }}
+        onRemoveQueuedMessage={(queueItemId) => {
+          void handleRemoveQueuedMessage(queueItemId);
+        }}
+        onEditQueuedMessage={(entry) => {
+          void handleEditQueuedMessage(entry);
+        }}
+        fileInputRef={fileInputRef}
+        onFileChange={onFileChange}
+        composerDisabled={composerDisabled}
+        isUploading={isUploading}
+        textareaRef={textareaRef}
+        input={input}
+        onInputChange={handleInputChange}
+        onKeyDown={handleKeyDown}
+        onPaste={handlePaste}
+        composerPlaceholderText={composerPlaceholderText}
+        textareaHeight={textareaHeight}
+        planningMode={planningMode}
+        showReferencePicker={Boolean(activeReferenceMatch)}
+        referencePickerEmptyState={referencePickerEmptyState}
+        referencePickerHeader={referencePickerHeader}
+        referencePickerItems={referencePickerItems}
+        onReferenceSelect={handleReferenceSelect}
+        referencePickerRef={referencePickerRef}
+        selectedReferenceIndex={selectedReferenceIndex}
+        primaryActionIsStop={primaryActionIsStop}
+        primaryActionLabel={primaryActionLabel}
+        primaryActionDisabled={primaryActionDisabled}
+        onStop={handleStop}
+        onSend={handleSend}
+        selectedAgentId={selectedAgentId}
+        sessionId={sessionId}
+        activeModel={effectiveActiveModel}
+        activeProvider={effectiveActiveProvider}
+        thinkingLevel={effectiveActiveThinkingLevel}
+        agentConfig={selectedAgentConfig}
+        modelSelectorDisabled={Boolean(runtimeStatus && runtimeStatus.phase !== 'idle') || !effectiveActiveProvider}
+        compactModelSelector={isCompactView}
+        onModelChange={handleModelChange}
+        onRuntimeInvalidated={invalidateRuntimeAfterModelChange}
+        showComposerHint={showComposerHint}
+        onToggleComposerHint={() => setShowComposerHint((current) => !current)}
+        composerHint={composerHint}
+      />
         </div>
-        <div className="mt-2 flex items-start justify-between gap-2">
-          <div className="flex flex-col items-start gap-1">
-            <div className="flex flex-wrap items-center gap-2">
-              <ChatModelSelector
-                agentId={selectedAgentId}
-                sessionId={sessionId}
-                activeModel={effectiveActiveModel}
-                activeProvider={effectiveActiveProvider}
-                thinkingLevel={effectiveActiveThinkingLevel}
-                agentConfig={selectedAgentConfig}
-                disabled={Boolean(runtimeStatus && runtimeStatus.phase !== 'idle') || !effectiveActiveProvider}
-                compact={isCompactView}
-                onModelChange={handleModelChange}
-                onRuntimeInvalidated={invalidateRuntimeAfterModelChange}
-              />
-              <PlanModeToggle />
-              <button
-                type="button"
-                data-testid="chat-composer-hint-toggle"
-                aria-expanded={showComposerHint}
-                onClick={() => setShowComposerHint((current) => !current)}
-                className="inline-flex items-center gap-1 text-[10px] text-muted-foreground transition-colors hover:text-foreground"
-              >
-                <CircleHelp className="h-3.5 w-3.5" />
-                {t('hint')}
-              </button>
-            </div>
-            {showComposerHint ? (
-              <div className="max-w-[38rem] border border-border/60 bg-muted/30 px-2 py-1.5 text-[10px] leading-relaxed text-muted-foreground">
-                {composerHint}
-              </div>
-            ) : null}
-          </div>
-          </div>
-        </div>
-       </div>
+      </div>
       <AttachmentPreviewDialog
         attachment={previewAttachment}
         attachments={previewAttachmentGroup}
