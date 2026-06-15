@@ -129,6 +129,7 @@ function StartingPointsPanel({
 }
 
 type StudioProviderRequirement = 'gemini' | 'openai' | 'kie';
+type StudioProviderConfigStatus = 'checking' | 'ready';
 
 function hasProviderAccess(config: StudioProviderConfig, provider: StudioProviderRequirement): boolean {
   return config.localApiKeys[provider] || config.managedMediaAvailable;
@@ -306,6 +307,7 @@ export function CreateView({ initialProviderConfig = EMPTY_STUDIO_PROVIDER_CONFI
   const isMountedRef = useRef(false);
   const [promptOverlayHeight, setPromptOverlayHeight] = useState(220);
   const [providerConfig, setProviderConfig] = useState<StudioProviderConfig>(initialProviderConfig);
+  const [providerConfigStatus, setProviderConfigStatus] = useState<StudioProviderConfigStatus>('checking');
   const [startingPoints, setStartingPoints] = useState<StartingPoint[]>([]);
   const [startingPointsLoading, setStartingPointsLoading] = useState(true);
 
@@ -592,6 +594,10 @@ export function CreateView({ initialProviderConfig = EMPTY_STUDIO_PROVIDER_CONFI
         }
       } catch (error) {
         console.error('[Studio] Failed to refresh provider config:', error);
+      } finally {
+        if (!cancelled) {
+          setProviderConfigStatus('ready');
+        }
       }
     }
 
@@ -679,7 +685,8 @@ export function CreateView({ initialProviderConfig = EMPTY_STUDIO_PROVIDER_CONFI
     () => getMissingProviderRequirement(providerConfig, store.mode, store.provider),
     [providerConfig, store.mode, store.provider],
   );
-  const canGenerateWithProvider = canGenerate && missingProviderRequirement === null;
+  const shouldShowProviderRequirement = providerConfigStatus === 'ready' && missingProviderRequirement !== null;
+  const canGenerateWithProvider = canGenerate && providerConfigStatus === 'ready' && missingProviderRequirement === null;
 
   const isInitialGenerationLoad = generationHook.loading && generations.length === 0;
   const completedOutputCount = useMemo(
@@ -714,7 +721,7 @@ export function CreateView({ initialProviderConfig = EMPTY_STUDIO_PROVIDER_CONFI
   ) : null;
 
   const handleGenerate = async () => {
-    if (missingProviderRequirement) return;
+    if (providerConfigStatus !== 'ready' || missingProviderRequirement) return;
 
     const result = await generate(buildStudioGeneratePayload(store));
 
@@ -898,9 +905,9 @@ export function CreateView({ initialProviderConfig = EMPTY_STUDIO_PROVIDER_CONFI
 
       <div
         ref={promptOverlayRef}
-        className="absolute inset-x-0 bottom-0 z-40 px-4 py-4 md:px-6"
+        className="pointer-events-none absolute inset-x-0 bottom-0 z-40 px-4 py-4 md:px-6"
       >
-        <div className="mx-auto flex w-full max-w-4xl flex-col gap-3">
+        <div className="pointer-events-auto mx-auto flex w-full max-w-4xl flex-col gap-3">
           {store.mode === 'video' ? (
             <div className="space-y-2 border border-border bg-background p-3">
               <p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">{t('sections.frames.title')}</p>
@@ -990,7 +997,7 @@ export function CreateView({ initialProviderConfig = EMPTY_STUDIO_PROVIDER_CONFI
             onPasteImage={handlePasteImage}
           />
 
-          {missingProviderRequirement ? (
+          {shouldShowProviderRequirement ? (
             <ProviderRequirementNotice requirement={missingProviderRequirement} />
           ) : null}
 
