@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState, useTransition } from 'react';
+import { useCallback, useEffect, useRef, useState, useTransition } from 'react';
 import Image from 'next/image';
 import { useTranslations } from 'next-intl';
 import { useParams, useSearchParams } from 'next/navigation';
@@ -19,6 +19,7 @@ import { toast } from 'sonner';
 import { CheckCircle2, KeyRound, Languages, Loader2, Mail, RefreshCw, ShieldAlert } from 'lucide-react';
 
 type Step = 'language' | 'license' | 'provider' | 'profile' | 'done';
+type OnboardingRuntimePhase = 'idle' | 'streaming' | 'running_tool' | 'aborting';
 
 const STEPS: Step[] = ['language', 'license', 'provider', 'profile', 'done'];
 const ONBOARDING_LICENSE_KEY_STORAGE_KEY = 'canvas.onboarding.licenseKey';
@@ -307,6 +308,19 @@ function AgentProfileStep({
 }) {
   const t = useTranslations('onboarding');
   const [skipping, setSkipping] = useState(false);
+  const [profileCompleteDetected, setProfileCompleteDetected] = useState(false);
+  const [runtimePhase, setRuntimePhase] = useState<OnboardingRuntimePhase>('idle');
+  const completedRef = useRef(false);
+
+  useEffect(() => {
+    if (!profileCompleteDetected || runtimePhase !== 'idle' || completedRef.current) {
+      return;
+    }
+
+    completedRef.current = true;
+    toast.success(t('profileCompleteDetected'));
+    onComplete();
+  }, [onComplete, profileCompleteDetected, runtimePhase, t]);
 
   useEffect(() => {
     let cancelled = false;
@@ -316,8 +330,7 @@ function AgentProfileStep({
         const response = await fetch('/api/onboarding/status', { cache: 'no-store' });
         const data = (await response.json().catch(() => ({}))) as { complete?: boolean };
         if (!cancelled && data.complete) {
-          toast.success(t('profileCompleteDetected'));
-          onComplete();
+          setProfileCompleteDetected(true);
         }
       } catch {
         // Polling is best-effort; the user can still continue after a successful skip.
@@ -366,6 +379,7 @@ function AgentProfileStep({
           forcedSessionId={sessionId}
           isSurfaceVisible
           requestContext={{ currentPage: 'onboarding' }}
+          onRuntimeStatusChange={(status) => setRuntimePhase((status?.phase || 'idle') as OnboardingRuntimePhase)}
         />
       </div>
 
