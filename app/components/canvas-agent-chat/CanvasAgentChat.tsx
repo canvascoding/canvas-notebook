@@ -49,7 +49,6 @@ import {
 import { useChatComposerLayout } from '@/app/components/canvas-agent-chat/useChatComposerLayout';
 import { useChatScrollController } from '@/app/components/canvas-agent-chat/useChatScrollController';
 import {
-  contentToString,
   dedupeAttachments,
   extractImageAttachments,
   extractMessageAttachments,
@@ -107,6 +106,7 @@ import { loadComposerDraft, removeComposerDraft, saveComposerDraft } from '@/app
 import { applySessionUnreadUpdate } from '@/app/lib/chat/unread';
 import { fetchChatAgentConfig, fetchChatAgents } from '@/app/lib/chat/agent-api';
 import { getAgentDisplayName } from '@/app/lib/chat/agent-display';
+import { useChatComposerDraft } from '@/app/components/canvas-agent-chat/useChatComposerDraft';
 import type {
   AgentConfig,
   AgentProfile,
@@ -552,6 +552,7 @@ export default function CanvasAgentChat({
 
   const referencePickerRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const sessionIdRef = useRef<string | null>(null);
   const {
     composerHeight,
     composerRef,
@@ -579,7 +580,6 @@ export default function CanvasAgentChat({
   const thinkingFilterRef = useRef<ThinkingFilterState>(createThinkingFilterState());
   const thinkingContentRef = useRef<string>('');
   const runtimeStatusRef = useRef<RuntimeStatus | null>(null);
-  const sessionIdRef = useRef<string | null>(null);
   const sessionAgentIdRef = useRef<string>(CHAT_AGENT_ID);
   const surfaceVisibleRef = useRef(isSurfaceVisible);
   const lastCompactionMarkerRef = useRef<string | null>(null);
@@ -596,32 +596,17 @@ export default function CanvasAgentChat({
   const skipNextSessionStatusRefreshRef = useRef<string | null>(null);
   const cachePersistTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hasLoadedSessionListRef = useRef(false);
-  const inputHistoryCursorRef = useRef<number | null>(null);
-  const inputHistoryDraftRef = useRef('');
   const historyRef = useRef<AISession[]>([]);
-  const draftSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const userMessageHistory = useMemo(() => (
-    messages
-      .filter((message) => message.role === 'user')
-      .map((message) => contentToString(message.content).trim())
-      .filter(Boolean)
-  ), [messages]);
-
-  const resetInputHistoryNavigation = useCallback(() => {
-    inputHistoryCursorRef.current = null;
-    inputHistoryDraftRef.current = '';
-  }, []);
-
-  const applyInputHistoryValue = useCallback((value: string) => {
-    setInput(value);
-    requestAnimationFrame(() => {
-      const textarea = textareaRef.current;
-      if (!textarea) return;
-      textarea.focus();
-      textarea.setSelectionRange(value.length, value.length);
-    });
-  }, [textareaRef]);
+  const {
+    navigateInputHistory,
+    resetInputHistoryNavigation,
+  } = useChatComposerDraft({
+    input,
+    messages,
+    sessionIdRef,
+    setInput,
+    textareaRef,
+  });
 
   // Sync messagesRef with messages state
   useEffect(() => {
@@ -642,30 +627,6 @@ export default function CanvasAgentChat({
       persistChatSessionCache();
     };
   }, []);
-
-  useEffect(() => {
-    return () => {
-      if (draftSaveTimerRef.current) {
-        clearTimeout(draftSaveTimerRef.current);
-        draftSaveTimerRef.current = null;
-      }
-    };
-  }, []);
-
-  // Persist composer text as draft when user types
-  useEffect(() => {
-    if (draftSaveTimerRef.current) {
-      clearTimeout(draftSaveTimerRef.current);
-    }
-    draftSaveTimerRef.current = setTimeout(() => {
-      const key = sessionIdRef.current ?? '__new__';
-      if (input.trim()) {
-        saveComposerDraft(key, input);
-      } else {
-        removeComposerDraft(key);
-      }
-    }, 300);
-  }, [input]);
 
   useEffect(() => {
     const currentSessionId = sessionIdRef.current;
@@ -2865,33 +2826,6 @@ export default function CanvasAgentChat({
     setPreviewAttachment(null);
     setPreviewAttachmentGroup([]);
   }, [setPreviewAttachment, setPreviewAttachmentGroup]);
-
-  const navigateInputHistory = useCallback((direction: 'older' | 'newer'): boolean => {
-    if (userMessageHistory.length === 0) {
-      return false;
-    }
-
-    const currentCursor = inputHistoryCursorRef.current;
-    let nextCursor: number | null;
-
-    if (direction === 'older') {
-      if (currentCursor === null) {
-        inputHistoryDraftRef.current = input;
-        nextCursor = userMessageHistory.length - 1;
-      } else {
-        nextCursor = Math.max(0, currentCursor - 1);
-      }
-    } else {
-      if (currentCursor === null) {
-        return false;
-      }
-      nextCursor = currentCursor >= userMessageHistory.length - 1 ? null : currentCursor + 1;
-    }
-
-    inputHistoryCursorRef.current = nextCursor;
-    applyInputHistoryValue(nextCursor === null ? inputHistoryDraftRef.current : userMessageHistory[nextCursor]);
-    return true;
-  }, [applyInputHistoryValue, input, userMessageHistory]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.shiftKey && e.key === 'Tab') {
