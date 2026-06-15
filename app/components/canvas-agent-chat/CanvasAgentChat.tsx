@@ -1,7 +1,6 @@
 'use client';
 
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
-import type { AgentMessage } from '@earendil-works/pi-agent-core';
 import { useTranslations } from 'next-intl';
 import {
   Loader2,
@@ -21,7 +20,6 @@ import { ChatAgentSelector } from '@/app/components/canvas-agent-chat/ChatAgentS
 import { ChatHistoryPanel, type ChatHistoryPanelProps } from '@/app/components/canvas-agent-chat/ChatHistoryPanel';
 import { ChatMessageList } from '@/app/components/canvas-agent-chat/ChatMessageList';
 import { ChatStarterScreen } from '@/app/components/canvas-agent-chat/ChatStarterScreen';
-import { toUploadMediaUrl } from '@/app/lib/utils/media-url';
 import { useFileStore } from '@/app/store/file-store';
 import { Link } from '@/i18n/navigation';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -36,12 +34,7 @@ import { useIsMobile } from '@/hooks/use-mobile';
 import { BUSINESS_STARTER_PROMPTS, STUDIO_STARTER_PROMPTS } from '@/app/lib/chat/starter-prompts';
 import { ChatRuntimeActivityBadge } from '@/app/components/canvas-agent-chat/ChatRuntimeActivityBadge';
 import { AttachmentPreviewDialog } from '@/app/components/canvas-agent-chat/AttachmentPreviewDialog';
-import { deriveUploadAttachmentPreview } from '@/app/lib/chat/attachment-preview';
 import { useChatComposerLayout } from '@/app/components/canvas-agent-chat/useChatComposerLayout';
-import {
-  countPiMessageImageAttachments,
-  getQueuedSignatureFromPiMessage,
-} from '@/app/components/canvas-agent-chat/chatRuntimeMessageUtils';
 import { useChatScrollController } from '@/app/components/canvas-agent-chat/useChatScrollController';
 import type { RuntimeStatus } from '@/app/lib/chat/runtime-status';
 import {
@@ -49,11 +42,10 @@ import {
   updateCachedChatSessionTitle,
 } from '@/app/lib/chat/session-cache';
 import {
-  createChatSession,
   deleteChatSession as deleteChatSessionRequest,
   patchChatSessions,
 } from '@/app/lib/chat/session-api';
-import { getSessionDisplayTitle, isAutomaticSessionTitle } from '@/app/lib/pi/session-titles';
+import { getSessionDisplayTitle } from '@/app/lib/pi/session-titles';
 import { useWebSocket } from '@/app/hooks/useWebSocket';
 import { ImagePreprocessDialog } from '@/app/components/shared/ImagePreprocessDialog';
 import { usePlanModeStore } from '@/app/store/plan-mode-store';
@@ -62,19 +54,18 @@ import { getToolDisplayInfo } from '@/app/lib/pi/tool-display';
 import { cn } from '@/lib/utils';
 
 import { CANVAS_CHAT_ACTIVE_SESSION_STORAGE_KEY } from '@/app/lib/chat/constants';
-import { loadComposerDraft, removeComposerDraft, saveComposerDraft } from '@/app/lib/chat/draft-storage';
+import { removeComposerDraft } from '@/app/lib/chat/draft-storage';
 import { getAgentDisplayName } from '@/app/lib/chat/agent-display';
 import {
   DEFAULT_MODEL_ID,
   DEFAULT_PROVIDER_ID,
-  DEFAULT_THINKING_LEVEL,
   isAgentConfigForAgent,
   resolveAgentModelState,
-  resolveAgentProviderState,
   useChatAgentConfig,
   type AgentModelState,
 } from '@/app/components/canvas-agent-chat/useChatAgentConfig';
 import { useChatAttachments } from '@/app/components/canvas-agent-chat/useChatAttachments';
+import { useChatControlActions } from '@/app/components/canvas-agent-chat/useChatControlActions';
 import { useChatComposerDraft } from '@/app/components/canvas-agent-chat/useChatComposerDraft';
 import { useChatRuntimeEvents } from '@/app/components/canvas-agent-chat/useChatRuntimeEvents';
 import { useChatSessionHistory } from '@/app/components/canvas-agent-chat/useChatSessionHistory';
@@ -84,11 +75,9 @@ import { useComposerReferences } from '@/app/components/canvas-agent-chat/useCom
 import type {
   AgentProfile,
   AISession,
-  Attachment,
   ChatMessage,
   ChatRequestContext,
   QueuePreviewItem,
-  UserPiContent,
 } from '@/app/lib/chat/types';
 import { DEFAULT_AGENT_ID } from '@/app/lib/channels/constants';
 
@@ -110,69 +99,6 @@ interface CanvasAgentChatProps {
 const CHAT_REQUEST_TIMEOUT_MS = 30_000;
 const ONBOARDING_CHAT_REQUEST_TIMEOUT_MS = 90_000;
 
-function resolveAttachmentCategory(attachment: Attachment): string {
-  const category = attachment.category || (attachment.contentKind === 'image' ? 'image' : 'document');
-  return category;
-}
-
-function buildAttachmentContainerPath(attachment: Attachment): string {
-  const category = resolveAttachmentCategory(attachment);
-  return `/data/user-uploads/${category}/${attachment.id}`;
-}
-
-function buildPromptContent(text: string, attachments: Attachment[]): UserPiContent {
-  if (attachments.length === 0) {
-    return text;
-  }
-
-  const content: Array<{ type: 'text'; text: string } | { type: 'image'; data: string; mimeType: string }> = [];
-  if (text) {
-    content.push({ type: 'text', text });
-  }
-
-  for (const attachment of attachments) {
-    const displayAttachment = deriveUploadAttachmentPreview(attachment);
-    const category = resolveAttachmentCategory(displayAttachment);
-    const containerFilePath = displayAttachment.filePath || buildAttachmentContainerPath(displayAttachment);
-    const metadataLines = [
-      `containerFilePath: ${containerFilePath}`,
-      `fileId: ${displayAttachment.id}`,
-      `mimeType: ${displayAttachment.mimeType || 'application/octet-stream'}`,
-      `category: ${category}`,
-      `contentKind: ${displayAttachment.contentKind}`,
-    ];
-
-    if (displayAttachment.previewUrl) {
-      metadataLines.push(`previewUrl: ${displayAttachment.previewUrl}`);
-    }
-
-    if (displayAttachment.mediaUrl) {
-      metadataLines.push(`mediaUrl: ${displayAttachment.mediaUrl}`);
-    }
-
-    content.push({
-      type: 'text',
-      text: `--- Attachment: ${displayAttachment.name} ---
-${metadataLines.join('\n')}
-
-[Agent-Hinweis: Verwende containerFilePath, wenn du die Datei per Tool lesen, kopieren, verschieben oder im Workspace organisieren sollst.]
---- Ende Attachment: ${displayAttachment.name} ---`,
-    });
-
-    if (displayAttachment.contentKind === 'image') {
-      // Images: Use API URL (will be converted to Base64 by message-normalization.ts)
-      // This keeps the existing image handling intact
-      content.push({
-        type: 'image',
-        data: toUploadMediaUrl(displayAttachment.id),
-        mimeType: displayAttachment.mimeType!,
-      });
-    }
-  }
-
-  return content;
-}
-
 function isTextareaAtHistoryBoundary(textarea: HTMLTextAreaElement, direction: 'older' | 'newer'): boolean {
   const { selectionStart, selectionEnd, value } = textarea;
   if (selectionStart !== selectionEnd) {
@@ -184,15 +110,6 @@ function isTextareaAtHistoryBoundary(textarea: HTMLTextAreaElement, direction: '
   }
 
   return !value.slice(selectionEnd).includes('\n');
-}
-
-function getOptimisticSessionTitle(candidate: string | null | undefined, fallbackTitle: string): string {
-  const trimmed = candidate?.trim();
-  if (!trimmed) {
-    return fallbackTitle;
-  }
-
-  return trimmed.slice(0, 48);
 }
 
 function formatContextTokens(value: number): string {
@@ -607,103 +524,6 @@ export default function CanvasAgentChat({
     }
   }, [ensureSessionSubscribed, setRuntimeStatusWithReconciliation, wsRequest]);
 
-  const ensureSession = useCallback(async (preferredTitle?: string) => {
-    if (sessionIdRef.current) {
-      return sessionIdRef.current;
-    }
-
-    const agentId = selectedAgentId;
-    const sessionAgentConfig = isAgentConfigForAgent(agentConfig, agentId) ? agentConfig : null;
-    const configuredModelState = resolveAgentModelState(sessionAgentConfig);
-    const requestedModel = activeModel.trim() || configuredModelState?.model || '';
-    const requestedThinkingLevel = activeModel.trim()
-      ? activeThinkingLevel
-      : configuredModelState?.thinkingLevel || activeThinkingLevel;
-    const optimisticTitle = getOptimisticSessionTitle(preferredTitle ?? input, t('newChatTitle'));
-    const requestedTitle = isAutomaticSessionTitle(optimisticTitle) ? undefined : optimisticTitle;
-
-    const createSessionPayload = await createChatSession({
-      agentId,
-      ...(requestedTitle ? { title: requestedTitle } : {}),
-      ...(requestedModel ? { model: requestedModel } : {}),
-      ...(requestedThinkingLevel ? { thinkingLevel: requestedThinkingLevel } : {}),
-    });
-
-    if (!createSessionPayload?.success || !createSessionPayload.session?.sessionId) {
-      throw new Error(createSessionPayload?.error || 'Failed to create session');
-    }
-
-    const nextSessionId = createSessionPayload.session.sessionId as string;
-    const createdProvider = createSessionPayload.session.provider || activeProvider;
-    const createdModel = createSessionPayload.session.model || activeModel;
-    const createdThinkingLevel = createSessionPayload.session.thinkingLevel || activeThinkingLevel;
-
-    skipNextSessionStatusRefreshRef.current = nextSessionId;
-    setSessionId(nextSessionId);
-    setActiveProvider(createdProvider);
-    setActiveModel(createdModel);
-    setActiveThinkingLevel(createdThinkingLevel);
-    sessionAgentIdRef.current = agentId;
-
-    const tempTitle = requestedTitle || getOptimisticSessionTitle(preferredTitle ?? input, createSessionPayload.session.title || t('newChatTitle'));
-    setSessionTitle(tempTitle);
-    if (!isAutomaticSessionTitle(tempTitle)) {
-      optimisticSessionTitlesRef.current[nextSessionId] = tempTitle;
-    }
-
-    sessionIdRef.current = nextSessionId;
-
-    // Add new session to history immediately so it appears in the sidebar
-    const newSession: AISession = {
-      id: Date.now(), // temporary id for local state
-      sessionId: nextSessionId,
-      title: tempTitle,
-      agentId: createSessionPayload.session.agentId || agentId,
-      model: createdModel,
-      provider: createdProvider,
-      thinkingLevel: createdThinkingLevel,
-      createdAt: new Date().toISOString(),
-      engine: createSessionPayload.session.engine || 'pi',
-      lastMessageAt: new Date().toISOString(),
-      hasUnread: false, // User just created it, so no unread messages
-      creator: createSessionPayload.session.creator,
-    };
-
-    addSessionToHistory(newSession);
-
-    // Note: Subscription happens automatically via useEffect when sessionId changes
-    // No need to subscribe here manually to avoid double subscription
-
-    return nextSessionId;
-  }, [activeModel, activeProvider, activeThinkingLevel, addSessionToHistory, agentConfig, input, selectedAgentId, setActiveModel, setActiveProvider, setActiveThinkingLevel, t]);
-
-  const postControl = useCallback(async (
-    targetSessionId: string,
-    action: 'follow_up' | 'steer' | 'promote_queued_to_steer' | 'remove_queued_item' | 'abort' | 'replace' | 'compact',
-    message?: Extract<AgentMessage, { role: 'user' }>,
-    queueItemId?: string,
-  ) => {
-    const payload = await wsRequest<{ success: boolean; status?: RuntimeStatus; error?: string }>('control', {
-      sessionId: targetSessionId,
-      action,
-      ...(message ? { message } : {}),
-      ...(queueItemId ? { queueItemId } : {}),
-    });
-
-    if (payload.status) {
-      setRuntimeStatusWithReconciliation(payload.status as RuntimeStatus);
-      return payload.status as RuntimeStatus;
-    }
-
-    return null;
-  }, [setRuntimeStatusWithReconciliation, wsRequest]);
-
-  const scanForImageReferences = useCallback(async (): Promise<Attachment[]> => {
-    // This function is disabled for now - it would need a different approach
-    // with the new ID-based system. Images need to be explicitly uploaded.
-    return [];
-  }, []);
-
   const runtimePhase = runtimeStatus?.phase;
   const chatRequestTimeoutMs = requestContext?.currentPage === 'onboarding'
     ? ONBOARDING_CHAT_REQUEST_TIMEOUT_MS
@@ -713,257 +533,76 @@ export default function CanvasAgentChat({
     onRuntimeStatusChange?.(runtimeStatus);
   }, [onRuntimeStatusChange, runtimeStatus]);
 
-  const handleControlAction = useCallback(async (
-    action: 'send' | 'steer' | 'follow_up' | 'replace',
-    override?: { text: string; attachments: Attachment[] },
-  ) => {
-    if (!override && isUploading) {
-      return;
-    }
-
-    const sendShouldQueue = action === 'send' && runtimePhase !== undefined && runtimePhase !== 'idle';
-    const effectiveAction = sendShouldQueue ? 'follow_up' : action;
-    const rawText = override?.text ?? input.trim();
-    const baseAttachments = override?.attachments ?? attachments;
-
-    if (!rawText && baseAttachments.length === 0) {
-      return;
-    }
-
-    const effectiveAgentConfig = isAgentConfigForAgent(agentConfig, selectedAgentId) ? agentConfig : null;
-    const configuredModelState = resolveAgentModelState(effectiveAgentConfig);
-    const effectiveModel = activeModel.trim() || configuredModelState?.model || '';
-
-    if (!effectiveModel.trim()) {
-      throw new Error(t('modelRequiredError'));
-    }
-
-    if (!activeModel.trim() && configuredModelState) {
-      setActiveProvider(configuredModelState.provider);
-      setActiveModel(configuredModelState.model);
-      setActiveThinkingLevel(configuredModelState.thinkingLevel);
-    }
-
-    // Close history when sending message (always on mobile, conditionally on desktop)
-    if (showHistory && (isMobile || shouldShowHistoryAsOverlay)) {
-      setShowHistory(false);
-    }
-
-    const autoAttachments = override ? [] : await scanForImageReferences();
-    const messageAttachments = [...baseAttachments, ...autoAttachments];
-    const userMessage: Extract<AgentMessage, { role: 'user' }> = {
-      role: 'user',
-      content: buildPromptContent(rawText, messageAttachments),
-      timestamp: Date.now(),
-    };
-
-    resetInputHistoryNavigation();
-    setInput('');
-    setAttachments([]);
-    removeComposerDraft(sessionIdRef.current ?? '__new__');
-
-    const optimisticStatus: ChatMessage['status'] = effectiveAction === 'follow_up'
-      ? 'queued_follow_up'
-      : effectiveAction === 'steer'
-        ? 'queued_steering'
-        : effectiveAction === 'replace'
-          ? 'aborting'
-          : 'pending';
-    const optimisticQueueKind = effectiveAction === 'follow_up'
-      ? 'follow_up'
-      : effectiveAction === 'steer'
-        ? 'steer'
-        : undefined;
-    const optimisticMessageId = effectiveAction === 'follow_up'
-      ? null
-      : appendOptimisticUserMessage(rawText, messageAttachments, optimisticStatus, optimisticQueueKind, userMessage);
-    const optimisticAssistantId = effectiveAction === 'send' ? createAssistantBubble() : null;
-    setIsResolvingInitialChatState(false);
-
-    const activeFilePath = currentFile?.path ?? null;
-
-    try {
-      const targetSessionId = await ensureSession(rawText);
-      setOptimisticRuntimePhase('streaming', targetSessionId);
-      await ensureSessionSubscribed(targetSessionId);
-      const payload = effectiveAction === 'send'
-        ? await wsRequest<{ success: boolean; status?: RuntimeStatus; error?: string }>('send_message', {
-          sessionId: targetSessionId,
-          message: userMessage as unknown as Record<string, unknown>,
-          context: buildRequestContext(activeFilePath),
-        }, chatRequestTimeoutMs)
-        : { status: await postControl(targetSessionId, effectiveAction, userMessage) };
-
-      if (optimisticMessageId) {
-        setMessages((prev) => prev.map((message) => (
-          message.id === optimisticMessageId ? { ...message, status: 'sent' as const } : message
-        )));
-      }
-
-      if (payload.status) {
-        setRuntimeStatusWithReconciliation(payload.status as RuntimeStatus);
-      }
-    } catch (error) {
-      if (optimisticMessageId) {
-        setMessages((prev) => prev.map((message) => (
-          message.id === optimisticMessageId ? { ...message, status: 'error' as const } : message
-        )));
-      }
-      if (optimisticAssistantId) {
-        setMessages((prev) => prev.filter((message) => message.id !== optimisticAssistantId));
-        clearCurrentAssistant(optimisticAssistantId);
-      }
-      throw error;
-    }
-
-    return;
-  }, [activeModel, agentConfig, appendOptimisticUserMessage, attachments, buildRequestContext, chatRequestTimeoutMs, clearCurrentAssistant, createAssistantBubble, currentFile, ensureSession, ensureSessionSubscribed, input, isUploading, postControl, resetInputHistoryNavigation, runtimePhase, selectedAgentId, setActiveModel, setActiveProvider, setActiveThinkingLevel, showHistory, isMobile, setAttachments, setOptimisticRuntimePhase, setRuntimeStatusWithReconciliation, shouldShowHistoryAsOverlay, scanForImageReferences, t, wsRequest]);
-
-  const handleSend = useCallback(async () => {
-    try {
-      await handleControlAction('send');
-    } catch (error) {
-      appendSystemMessage(t('errorMessage', { message: error instanceof Error ? error.message : String(error) }));
-    }
-  }, [appendSystemMessage, handleControlAction, t]);
-
-  const handlePromoteQueuedMessage = useCallback(async (queueItemId: string) => {
-    if (!sessionIdRef.current) return;
-    try {
-      await postControl(sessionIdRef.current, 'promote_queued_to_steer', undefined, queueItemId);
-    } catch (error) {
-      appendSystemMessage(t('errorMessage', { message: error instanceof Error ? error.message : String(error) }));
-    }
-  }, [appendSystemMessage, postControl, t]);
-
-  const handleRemoveQueuedMessage = useCallback(async (queueItemId: string) => {
-    if (!sessionIdRef.current) return;
-    try {
-      await postControl(sessionIdRef.current, 'remove_queued_item', undefined, queueItemId);
-    } catch (error) {
-      appendSystemMessage(t('errorMessage', { message: error instanceof Error ? error.message : String(error) }));
-    }
-  }, [appendSystemMessage, postControl, t]);
-
-  const handleStop = useCallback(async () => {
-    if (!sessionIdRef.current) return;
-    try {
-      await postControl(sessionIdRef.current, 'abort');
-    } catch (error) {
-      appendSystemMessage(t('errorMessage', { message: error instanceof Error ? error.message : String(error) }));
-    }
-  }, [appendSystemMessage, postControl, t]);
-
-  const handleEditQueuedMessage = useCallback(async (entry: QueuePreviewItem) => {
-    if (!sessionIdRef.current) return;
-    try {
-      // 1. Find matching local message to restore attachments
-      let messageAttachments: Attachment[] = [];
-      if (entry.signature) {
-        const matchingMessage = messages.find(
-          (msg) =>
-            msg.role === 'user' &&
-            getQueuedSignatureFromPiMessage(msg.piMessage) === entry.signature,
-        );
-        if (matchingMessage?.attachments) {
-          messageAttachments = matchingMessage.attachments;
-        }
-      } else {
-        const matchingMessage = messages.find(
-          (msg) =>
-            msg.role === 'user' &&
-            msg.content === entry.text &&
-            countPiMessageImageAttachments(msg.piMessage) === entry.attachmentCount,
-        );
-        if (matchingMessage?.attachments) {
-          messageAttachments = matchingMessage.attachments;
-        }
-      }
-
-      // 2. Remove from queue
-      await postControl(sessionIdRef.current, 'remove_queued_item', undefined, entry.id);
-
-      // 3. Load into composer
-      setInput(entry.text);
-      setAttachments(messageAttachments);
-      setOpenQueueItemPopoverId(null);
-      textareaRef.current?.focus();
-    } catch (error) {
-      appendSystemMessage(t('errorMessage', { message: error instanceof Error ? error.message : String(error) }));
-    }
-  }, [messages, postControl, appendSystemMessage, t, setInput, setAttachments, textareaRef]);
-
-  const handleCompact = useCallback(async () => {
-    if (!sessionIdRef.current) return;
-    try {
-      const status = await postControl(sessionIdRef.current, 'compact');
-      if (status?.lastCompactionAt && status.lastCompactionKind) {
-        if (status.lastCompactionOmittedCount === 0) {
-          appendSystemMessage(t('compactAlreadyOptimized'));
-        } else {
-          appendCompactionBreak(status.lastCompactionKind, status.lastCompactionAt, status.lastCompactionOmittedCount || 0);
-        }
-      }
-    } catch (error) {
-      appendSystemMessage(t('errorMessage', { message: error instanceof Error ? error.message : String(error) }));
-    }
-  }, [appendCompactionBreak, appendSystemMessage, postControl, t]);
-
-  const startNewChat = useCallback((agentIdOverride?: string) => {
-    const nextAgentId = agentIdOverride || selectedAgentId;
-    resetStreamConnection();
-    setRuntimeStatus(null);
-    setSessionId(null);
-    setSessionTitle(null);
-    resetInputHistoryNavigation();
-    // Persist any unsent text from the previous session before switching to new chat
-    const currentSessionId = sessionIdRef.current;
-    if (currentSessionId && input.trim()) {
-      saveComposerDraft(currentSessionId, input);
-    }
-    const newChatDraft = loadComposerDraft('__new__');
-    setInput(newChatDraft ?? '');
-    setAttachments([]);
-    sessionIdRef.current = null;
-    sessionAgentIdRef.current = nextAgentId;
-    resetRuntimeMessageRefs();
-    userStartedNewChatRef.current = true;
-    // Clear persisted session so reopening chat doesn't restore this session
-    if (typeof window !== 'undefined') {
-      window.sessionStorage.removeItem(CANVAS_CHAT_ACTIVE_SESSION_STORAGE_KEY);
-    }
-    setMessages([]);
-    setHasMoreBefore(false);
-    setOldestTimestamp(null);
-    setOldestSequence(null);
-    setIsLoadingOlder(false);
-    setExpandedRunKeys(new Set());
-    // Always close history on mobile when starting new chat, conditionally on desktop
-    if (isMobile || shouldShowHistoryAsOverlay) {
-      setShowHistory(false);
-    }
-    setShowMobileDetails(false);
-    const isCurrentAgentConfig = agentConfig?.effectiveConfig?.agentId
-      ? agentConfig.effectiveConfig.agentId === nextAgentId
-      : nextAgentId === selectedAgentId;
-    const providerState = isCurrentAgentConfig
-      ? resolveAgentProviderState(agentConfig)
-      : { provider: DEFAULT_PROVIDER_ID, model: DEFAULT_MODEL_ID, thinkingLevel: DEFAULT_THINKING_LEVEL };
-    setActiveProvider(providerState.provider);
-    setActiveModel(providerState.model);
-    setActiveThinkingLevel(providerState.thinkingLevel);
-  }, [agentConfig, input, resetInputHistoryNavigation, resetRuntimeMessageRefs, resetStreamConnection, selectedAgentId, setActiveModel, setActiveProvider, setActiveThinkingLevel, isMobile, setAttachments, setRuntimeStatus, shouldShowHistoryAsOverlay]);
-
-  const selectChatAgent = useCallback((agentId: string) => {
-    if (agentId === selectedAgentId && !sessionIdRef.current) {
-      return;
-    }
-    setSelectedAgentId(agentId);
-    setHistoryAgentFilter(agentId);
-    resetHistoryState();
-    startNewChat(agentId);
-    void fetchHistory();
-  }, [fetchHistory, resetHistoryState, selectedAgentId, setSelectedAgentId, startNewChat, setHistoryAgentFilter]);
+  const {
+    handleCompact,
+    handleControlAction,
+    handleEditQueuedMessage,
+    handlePromoteQueuedMessage,
+    handleRemoveQueuedMessage,
+    handleSend,
+    handleStop,
+    selectChatAgent,
+    startNewChat,
+  } = useChatControlActions({
+    activeModel,
+    activeProvider,
+    activeThinkingLevel,
+    addSessionToHistory,
+    agentConfig,
+    appendCompactionBreak,
+    appendOptimisticUserMessage,
+    appendSystemMessage,
+    attachments,
+    buildRequestContext,
+    chatRequestTimeoutMs,
+    clearCurrentAssistant,
+    createAssistantBubble,
+    currentFilePath: currentFile?.path ?? null,
+    ensureSessionSubscribed,
+    fetchHistory,
+    input,
+    isMobile,
+    isUploading,
+    messages,
+    optimisticSessionTitlesRef,
+    resetHistoryState,
+    resetInputHistoryNavigation,
+    resetRuntimeMessageRefs,
+    resetStreamConnection,
+    runtimePhase,
+    selectedAgentId,
+    sessionAgentIdRef,
+    sessionIdRef,
+    setActiveModel,
+    setActiveProvider,
+    setActiveThinkingLevel,
+    setAttachments,
+    setExpandedRunKeys,
+    setHasMoreBefore,
+    setHistoryAgentFilter,
+    setInput,
+    setIsLoadingOlder,
+    setIsResolvingInitialChatState,
+    setMessages,
+    setOldestSequence,
+    setOldestTimestamp,
+    setOpenQueueItemPopoverId,
+    setOptimisticRuntimePhase,
+    setRuntimeStatus,
+    setRuntimeStatusWithReconciliation,
+    setSelectedAgentId,
+    setSessionId,
+    setSessionTitle,
+    setShowHistory,
+    setShowMobileDetails,
+    shouldShowHistoryAsOverlay,
+    showHistory,
+    skipNextSessionStatusRefreshRef,
+    t,
+    textareaRef,
+    userStartedNewChatRef,
+    wsRequest,
+  });
 
   const { loadOlderMessages, loadSession } = useChatSessionMessages({
     activeModel,
