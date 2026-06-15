@@ -158,7 +158,7 @@ export function ControlBar({
 
   return (
     <div className="flex flex-col gap-2">
-      <div className="flex flex-wrap items-center gap-2 rounded-[24px] border border-border/70 bg-card/90 px-4 py-3 shadow-sm">
+      <div className="flex flex-wrap items-center gap-2 border-t border-border/60 pt-2">
         <ModeToggle value={mode} onChange={onModeChange} />
         <StudioPicker presets={presets} value={selectedPreset} onChange={onPresetChange} disabled={isSound} />
 
@@ -229,21 +229,21 @@ export function ControlBar({
           </>
         )}
 
-        <div className="ml-auto flex gap-2">
+        <div className="ml-auto flex items-center gap-2">
           <Button
             type="button"
             variant={showMoreOptions ? 'default' : 'outline'}
             size="sm"
-            className="rounded-full"
+            className="h-8 rounded-full px-2.5"
             onClick={() => onShowMoreOptionsChange(!showMoreOptions)}
           >
             <Settings2 className="h-4 w-4" />
-            {showMoreOptions ? 'Less Options' : 'More Options'}
+            <span className="hidden sm:inline">{showMoreOptions ? 'Less Options' : 'More Options'}</span>
           </Button>
           <Button
             type="button"
             size="sm"
-            className="rounded-full px-4"
+            className="h-9 rounded-full px-3 sm:px-4"
             onClick={onGenerate}
             disabled={isGenerating || !canGenerate}
           >
@@ -254,12 +254,12 @@ export function ControlBar({
       </div>
 
       {showMoreOptions && (
-        <div className="rounded-[24px] border border-border/70 bg-card/90 px-4 py-3 shadow-sm">
+        <div className="rounded-2xl border border-border/70 bg-background/70 px-3 py-2 shadow-sm">
           <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
             <label className="flex flex-col gap-1 text-sm">
               <span className="text-xs text-muted-foreground">Provider</span>
               <select
-                className="h-9 border border-input bg-background px-2 text-sm"
+                className="h-9 rounded-xl border border-input bg-background px-2 text-sm"
                 value={provider}
                 onChange={(event) => onProviderChange(event.target.value)}
               >
@@ -274,7 +274,7 @@ export function ControlBar({
             <label className="flex flex-col gap-1 text-sm">
               <span className="text-xs text-muted-foreground">Model</span>
               <select
-                className="h-9 border border-input bg-background px-2 text-sm"
+                className="h-9 rounded-xl border border-input bg-background px-2 text-sm"
                 value={model}
                 onChange={(event) => onModelChange(event.target.value)}
               >
@@ -301,7 +301,7 @@ export function ControlBar({
                 <label className="flex flex-col gap-1 text-sm">
                   <span className="text-xs text-muted-foreground">Quality</span>
                   <select
-                    className="h-9 border border-input bg-background px-2 text-sm"
+                    className="h-9 rounded-xl border border-input bg-background px-2 text-sm"
                     value={quality}
                     onChange={(event) => onQualityChange(event.target.value as typeof quality)}
                   >
@@ -316,7 +316,7 @@ export function ControlBar({
                 <label className="flex flex-col gap-1 text-sm">
                   <span className="text-xs text-muted-foreground">Output Format</span>
                   <select
-                    className="h-9 border border-input bg-background px-2 text-sm"
+                    className="h-9 rounded-xl border border-input bg-background px-2 text-sm"
                     value={outputFormat}
                     onChange={(event) => onOutputFormatChange(event.target.value as typeof outputFormat)}
                   >
@@ -334,7 +334,7 @@ export function ControlBar({
               <label className="flex flex-col gap-1 text-sm">
                 <span className="text-xs text-muted-foreground">Output Format</span>
                 <select
-                  className="h-9 border border-input bg-background px-2 text-sm"
+                  className="h-9 rounded-xl border border-input bg-background px-2 text-sm"
                   value={model === 'lyria-3-pro-preview' && (outputFormat === 'mp3' || outputFormat === 'wav') ? outputFormat : 'mp3'}
                   onChange={(event) => onOutputFormatChange(event.target.value as typeof outputFormat)}
                   disabled={model !== 'lyria-3-pro-preview'}
@@ -349,7 +349,7 @@ export function ControlBar({
               <label className="flex flex-col gap-1 text-sm">
                 <span className="text-xs text-muted-foreground">Resolution</span>
                 <select
-                  className="h-9 border border-input bg-background px-2 text-sm"
+                  className="h-9 rounded-xl border border-input bg-background px-2 text-sm"
                   value={imageSize}
                   onChange={(event) => onImageSizeChange(event.target.value)}
                 >
@@ -366,7 +366,7 @@ export function ControlBar({
               <label className="flex flex-col gap-1 text-sm">
                 <span className="text-xs text-muted-foreground">Background</span>
                 <select
-                  className="h-9 border border-input bg-background px-2 text-sm"
+                  className="h-9 rounded-xl border border-input bg-background px-2 text-sm"
                   value={background}
                   onChange={(event) => onBackgroundChange(event.target.value as typeof background)}
                 >

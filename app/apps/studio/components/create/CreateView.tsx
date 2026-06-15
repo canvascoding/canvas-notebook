@@ -202,8 +202,8 @@ function PreviewChip({ path, kind }: { path: string; kind: 'image' | 'video' }) 
   const name = path.split('/').pop() || path;
 
   return (
-      <div className="flex items-center gap-2 border border-border bg-background px-2 py-1.5 sm:py-1">
-        <div className="relative h-12 w-16 sm:h-10 sm:w-14 overflow-hidden bg-muted flex-shrink-0">
+      <div className="flex min-w-0 items-center gap-2 rounded-2xl border border-border/70 bg-background/80 px-2 py-1 shadow-sm">
+        <div className="relative h-8 w-11 flex-shrink-0 overflow-hidden rounded-xl bg-muted">
           <StudioMediaThumbnail
             src={toPreviewUrl(path, 200, { preset: 'mini' })}
             alt={name}
@@ -213,7 +213,6 @@ function PreviewChip({ path, kind }: { path: string; kind: 'image' | 'video' }) 
         </div>
         <div className="min-w-0 flex-1">
           <p className="truncate text-xs font-medium">{name}</p>
-          <p className="truncate text-xs text-muted-foreground hidden sm:block">{path}</p>
         </div>
       </div>
   );
@@ -305,7 +304,7 @@ export function CreateView({ initialProviderConfig = EMPTY_STUDIO_PROVIDER_CONFI
   const openedRouteReferenceRef = useRef<string | null>(null);
   const startedPendingGenerateRequestRef = useRef<string | null>(null);
   const isMountedRef = useRef(false);
-  const [promptOverlayHeight, setPromptOverlayHeight] = useState(220);
+  const [promptOverlayHeight, setPromptOverlayHeight] = useState(180);
   const [providerConfig, setProviderConfig] = useState<StudioProviderConfig>(initialProviderConfig);
   const [providerConfigStatus, setProviderConfigStatus] = useState<StudioProviderConfigStatus>('checking');
   const [startingPoints, setStartingPoints] = useState<StartingPoint[]>([]);
@@ -782,7 +781,7 @@ export function CreateView({ initialProviderConfig = EMPTY_STUDIO_PROVIDER_CONFI
         <div className="flex h-full min-h-0 flex-col">
           <div
             className="flex-1 min-h-0 overflow-y-auto bg-[radial-gradient(circle_at_top_left,_rgba(125,167,255,0.12),_transparent_28%),radial-gradient(circle_at_bottom_right,_rgba(255,166,107,0.12),_transparent_32%)]"
-            style={{ paddingBottom: promptOverlayHeight + 32 }}
+            style={{ paddingBottom: promptOverlayHeight + 16 }}
           >
             <FilterBar
               mediaFilter={mediaFilter}
@@ -905,36 +904,38 @@ export function CreateView({ initialProviderConfig = EMPTY_STUDIO_PROVIDER_CONFI
 
       <div
         ref={promptOverlayRef}
-        className="pointer-events-none absolute inset-x-0 bottom-0 z-40 px-4 py-4 md:px-6"
+        className="pointer-events-none absolute inset-x-0 bottom-0 z-40 bg-gradient-to-t from-background via-background/85 to-transparent px-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] pt-14 md:px-6"
       >
-        <div className="pointer-events-auto mx-auto flex w-full max-w-4xl flex-col gap-3">
+        <div className="pointer-events-auto mx-auto flex w-full max-w-5xl flex-col gap-2 rounded-[28px] border border-border/80 bg-card/95 p-3 shadow-2xl backdrop-blur-xl">
           {store.mode === 'video' ? (
-            <div className="space-y-2 border border-border bg-background p-3">
-              <p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">{t('sections.frames.title')}</p>
-              <div className="flex flex-col gap-2 sm:flex-row">
-                <Button variant="outline" className="w-full sm:w-auto" onClick={() => openPicker('start')}>
-                  {t('sections.frames.startFrame')}
-                </Button>
-                {!store.isLooping && (
-                  <Button variant="outline" className="w-full sm:w-auto" onClick={() => openPicker('end')}>
-                    {t('sections.frames.endFrame')}
+            <div className="flex flex-col gap-2 rounded-2xl border border-border/70 bg-background/70 px-3 py-2">
+              <div className="flex flex-col gap-2 lg:flex-row lg:items-center">
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">{t('sections.frames.title')}</p>
+                <div className="flex flex-wrap items-center gap-2 lg:ml-auto">
+                  <Button variant="outline" size="sm" className="h-8 rounded-full" onClick={() => openPicker('start')}>
+                    {t('sections.frames.startFrame')}
                   </Button>
-                )}
+                  {!store.isLooping && (
+                    <Button variant="outline" size="sm" className="h-8 rounded-full" onClick={() => openPicker('end')}>
+                      {t('sections.frames.endFrame')}
+                    </Button>
+                  )}
+                  <label className="flex items-center gap-2 rounded-full border border-border/70 bg-card/80 px-3 py-1.5 text-xs font-medium">
+                    <input
+                      type="checkbox"
+                      checked={store.isLooping}
+                      onChange={(event) => {
+                        store.setIsLooping(event.target.checked);
+                        if (event.target.checked) {
+                          store.setEndFramePath(null);
+                        }
+                      }}
+                    />
+                    {t('sections.frames.loopVideo')}
+                  </label>
+                </div>
               </div>
-              <label className="flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  checked={store.isLooping}
-                  onChange={(event) => {
-                    store.setIsLooping(event.target.checked);
-                    if (event.target.checked) {
-                      store.setEndFramePath(null);
-                    }
-                  }}
-                />
-                {t('sections.frames.loopVideo')}
-              </label>
-              <div className="grid gap-2 grid-cols-1 sm:grid-cols-2">
+              <div className="grid gap-2 sm:grid-cols-2">
                 {store.startFramePath && <PreviewChip path={store.startFramePath} kind="image" />}
                 {!store.isLooping && store.endFramePath && <PreviewChip path={store.endFramePath} kind="image" />}
               </div>

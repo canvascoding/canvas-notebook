@@ -5,7 +5,6 @@ import { useTranslations } from 'next-intl';
 import { cn } from '@/lib/utils';
 import { toPreviewUrl } from '@/app/lib/utils/media-url';
 import {
-  AtSign,
   LayoutTemplate,
   Package2,
   UserRound,
@@ -23,6 +22,7 @@ import {
   Layers,
   FileVideo,
   Music,
+  Plus,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ReferencePickerDialog } from './ReferencePickerDialog';
@@ -120,8 +120,15 @@ interface ReferenceChipProps {
 
 function ReferenceChip({ label, borderColor, bgColor, onRemove, thumbnailUrl, icon, isLoading }: ReferenceChipProps) {
   return (
-    <div className="relative inline-flex" title={label}>
-      <div className={cn('h-9 w-9 rounded-md border-2 flex items-center justify-center overflow-hidden', borderColor, bgColor)}>
+    <div
+      className={cn(
+        'inline-flex h-8 max-w-[12rem] items-center gap-1.5 rounded-full border px-1.5 py-1 pr-1 text-foreground shadow-sm',
+        borderColor,
+        bgColor,
+      )}
+      title={label}
+    >
+      <span className={cn('flex h-6 w-6 shrink-0 items-center justify-center overflow-hidden rounded-full border', borderColor, bgColor)}>
         {isLoading ? (
           <Loader2 className="h-4 w-4 animate-spin" />
         ) : thumbnailUrl ? (
@@ -135,13 +142,18 @@ function ReferenceChip({ label, borderColor, bgColor, onRemove, thumbnailUrl, ic
         ) : (
           icon
         )}
-      </div>
+      </span>
+      <span className="min-w-0 truncate text-xs font-medium leading-none">{label}</span>
       <button
         type="button"
-        onClick={onRemove}
-        className="absolute -top-1.5 -right-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-background text-foreground shadow-sm border border-border/50 hover:bg-accent"
+        onClick={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          onRemove();
+        }}
+        className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-muted-foreground transition hover:bg-background/80 hover:text-foreground"
       >
-        <X className="h-2.5 w-2.5" />
+        <X className="h-3 w-3" />
       </button>
     </div>
   );
@@ -219,27 +231,21 @@ export function PromptBar({
     const model = styleMap.get(style.id);
     return getModelPreviewImagePaths(model, model?.thumbnailPath ?? style.thumbnailPath);
   }, [styleMap]);
+  const hasReferences = (
+    value.productRefs.length > 0 ||
+    value.personaRefs.length > 0 ||
+    value.styleRefs.length > 0 ||
+    Boolean(value.presetRef) ||
+    value.fileRefs.length > 0 ||
+    videoReferenceRefs.length > 0 ||
+    audioReferenceRefs.length > 0 ||
+    Boolean(videoExtendSourceRef)
+  );
 
   return (
-    <div className="rounded-[28px] border border-border/80 bg-card/95 p-4 shadow-2xl">
-      <div className="mb-3 flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
-          <AtSign className="h-3.5 w-3.5" />
-          {t('title')}
-        </div>
-        <div className="flex items-center gap-2">
-          <Button type="button" variant="outline" size="sm" className="rounded-full" onClick={() => {
-            setReferenceDialogOpen(true);
-          }}>
-            <AtSign className="h-4 w-4" />
-            {t('addReference')}
-          </Button>
-        </div>
-      </div>
-
-      {/* Unified references above textarea */}
-      {(value.productRefs.length > 0 || value.personaRefs.length > 0 || value.styleRefs.length > 0 || value.presetRef || value.fileRefs.length > 0 || videoReferenceRefs.length > 0 || audioReferenceRefs.length > 0 || videoExtendSourceRef) ? (
-        <div className="mb-3 flex flex-wrap gap-2">
+    <div id="studio-prompt-bar" className="space-y-2">
+      {hasReferences ? (
+        <div className="flex max-h-[76px] flex-wrap gap-1.5 overflow-y-auto pr-1">
           {value.productRefs.map((product) => (
             <ReferenceHoverCard
               key={product.id}
@@ -415,21 +421,43 @@ export function PromptBar({
         </div>
       ) : null}
 
-      <textarea value={value.rawPrompt} onChange={(event) => onRawPromptChange(event.target.value)} onPaste={handlePaste} placeholder={t('placeholder')} className="min-h-24 w-full resize-y rounded-3xl border border-border/80 bg-background/95 px-4 py-4 text-sm leading-6 text-foreground outline-none transition focus:border-ring focus:ring-4 focus:ring-ring/15" />
+      <div className="flex items-start gap-2">
+        <textarea
+          value={value.rawPrompt}
+          onChange={(event) => onRawPromptChange(event.target.value)}
+          onPaste={handlePaste}
+          placeholder={t('placeholder')}
+          rows={2}
+          className="max-h-32 min-h-[52px] flex-1 resize-none rounded-2xl border border-border/80 bg-background/85 px-3 py-2.5 text-sm leading-5 text-foreground outline-none transition placeholder:text-muted-foreground/70 focus:border-ring focus:ring-4 focus:ring-ring/15"
+        />
+        <Button
+          type="button"
+          variant="outline"
+          size="icon-sm"
+          className="mt-1 rounded-full"
+          aria-label={t('addReference')}
+          title={t('addReference')}
+          onClick={() => {
+            setReferenceDialogOpen(true);
+          }}
+        >
+          <Plus className="h-4 w-4" />
+        </Button>
+      </div>
 
       {isSeedanceVideo ? (
-        <div className="mt-3 grid gap-2 sm:grid-cols-3">
-          <Button type="button" variant="outline" size="sm" className="justify-start rounded-xl" onClick={() => { setMediaPicker('image'); setCloseReferenceDialogOnPickerConfirm(false); setPickerOpen(true); }}>
+        <div className="flex flex-wrap gap-2">
+          <Button type="button" variant="outline" size="sm" className="h-8 justify-start rounded-full" onClick={() => { setMediaPicker('image'); setCloseReferenceDialogOnPickerConfirm(false); setPickerOpen(true); }}>
             <ImageIcon className="h-4 w-4" />
             Image refs
             <span className="ml-auto text-xs text-muted-foreground">{value.fileRefs.length}/9</span>
           </Button>
-          <Button type="button" variant="outline" size="sm" className="justify-start rounded-xl" onClick={() => { setMediaPicker('video'); setCloseReferenceDialogOnPickerConfirm(false); setPickerOpen(true); }}>
+          <Button type="button" variant="outline" size="sm" className="h-8 justify-start rounded-full" onClick={() => { setMediaPicker('video'); setCloseReferenceDialogOnPickerConfirm(false); setPickerOpen(true); }}>
             <FileVideo className="h-4 w-4" />
             Video refs
             <span className="ml-auto text-xs text-muted-foreground">{videoReferenceRefs.length}/3</span>
           </Button>
-          <Button type="button" variant="outline" size="sm" className="justify-start rounded-xl" onClick={() => { setMediaPicker('audio'); setCloseReferenceDialogOnPickerConfirm(false); setPickerOpen(true); }}>
+          <Button type="button" variant="outline" size="sm" className="h-8 justify-start rounded-full" onClick={() => { setMediaPicker('audio'); setCloseReferenceDialogOnPickerConfirm(false); setPickerOpen(true); }}>
             <Music className="h-4 w-4" />
             Audio refs
             <span className="ml-auto text-xs text-muted-foreground">{audioReferenceRefs.length}/3</span>
@@ -438,8 +466,8 @@ export function PromptBar({
       ) : null}
 
       {isVeoVideo ? (
-        <div className="mt-3">
-          <Button type="button" variant="outline" size="sm" className="w-full justify-start rounded-xl sm:w-auto" onClick={() => { setMediaPicker('extendVideo'); setCloseReferenceDialogOnPickerConfirm(false); setPickerOpen(true); }}>
+        <div>
+          <Button type="button" variant="outline" size="sm" className="h-8 w-full justify-start rounded-full sm:w-auto" onClick={() => { setMediaPicker('extendVideo'); setCloseReferenceDialogOnPickerConfirm(false); setPickerOpen(true); }}>
             <FileVideo className="h-4 w-4" />
             Extend source
             <span className="ml-auto text-xs text-muted-foreground">{videoExtendSourceRef ? '1/1' : '0/1'}</span>
