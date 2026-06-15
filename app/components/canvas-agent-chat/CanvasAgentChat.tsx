@@ -18,13 +18,11 @@ import {
   Settings,
   ArrowLeft,
 } from 'lucide-react';
-import type { ComposerReferencePickerItem } from '@/app/components/canvas-agent-chat/ComposerReferencePicker';
-import { ChatComposer, type FilePickerFile, type ReferencePickerValue, type SkillPickerSkill } from '@/app/components/canvas-agent-chat/ChatComposer';
+import { ChatComposer } from '@/app/components/canvas-agent-chat/ChatComposer';
 import { ChatAgentSelector } from '@/app/components/canvas-agent-chat/ChatAgentSelector';
 import { ChatHistoryPanel, type ChatHistoryPanelLabels, type ChatHistoryPanelProps } from '@/app/components/canvas-agent-chat/ChatHistoryPanel';
 import { ChatMessageList } from '@/app/components/canvas-agent-chat/ChatMessageList';
 import { ChatStarterScreen } from '@/app/components/canvas-agent-chat/ChatStarterScreen';
-import { getFileIconComponent } from '@/app/lib/files/file-icons';
 import { toUploadMediaUrl } from '@/app/lib/utils/media-url';
 import { useFileStore } from '@/app/store/file-store';
 import { Link } from '@/i18n/navigation';
@@ -36,7 +34,6 @@ import { Button } from '@/components/ui/button';
 
 import { ThemeToggle } from '@/app/components/ThemeToggle';
 
-import { findActiveComposerReference, replaceComposerReference, type ComposerReferenceMatch } from '@/app/lib/chat/composer-references';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { BUSINESS_STARTER_PROMPTS, STUDIO_STARTER_PROMPTS } from '@/app/lib/chat/starter-prompts';
 import { ChatRuntimeActivityBadge } from '@/app/components/canvas-agent-chat/ChatRuntimeActivityBadge';
@@ -91,8 +88,6 @@ import {
 } from '@/app/lib/chat/session-api';
 import { getSessionDisplayTitle, isAutomaticSessionTitle } from '@/app/lib/pi/session-titles';
 import { type CompactBreakMessage, isComposioAuthRequiredMessage, isRuntimeContinuationMessage, type ComposioAuthRequiredMessage } from '@/app/lib/pi/custom-messages';
-import { renderSkillIcon } from '@/app/lib/skills/skill-icons';
-import { searchSkillReferenceEntries } from '@/app/lib/skills/skill-reference-search';
 import { useWebSocket } from '@/app/hooks/useWebSocket';
 import { ImagePreprocessDialog } from '@/app/components/shared/ImagePreprocessDialog';
 import type { ConvertParams } from '@/app/components/shared/ImagePreprocessDialog';
@@ -107,6 +102,7 @@ import { applySessionUnreadUpdate } from '@/app/lib/chat/unread';
 import { fetchChatAgentConfig, fetchChatAgents } from '@/app/lib/chat/agent-api';
 import { getAgentDisplayName } from '@/app/lib/chat/agent-display';
 import { useChatComposerDraft } from '@/app/components/canvas-agent-chat/useChatComposerDraft';
+import { useComposerReferences } from '@/app/components/canvas-agent-chat/useComposerReferences';
 import type {
   AgentConfig,
   AgentProfile,
@@ -523,11 +519,6 @@ export default function CanvasAgentChat({
   });
   const [expandedRunKeys, setExpandedRunKeys] = useState<Set<string>>(() => new Set());
 
-  const [activeReferenceMatch, setActiveReferenceMatch] = useState<ComposerReferenceMatch | null>(null);
-  const [referencePickerItems, setReferencePickerItems] = useState<ComposerReferencePickerItem<ReferencePickerValue>[]>([]);
-  const [selectedReferenceIndex, setSelectedReferenceIndex] = useState(0);
-  const [availableSkills, setAvailableSkills] = useState<SkillPickerSkill[] | null>(null);
-
   const isStudioChatContext = Boolean(requestContext?.currentPage?.startsWith('/studio') || pathname?.startsWith('/studio'));
   const starterPromptSource = isStudioChatContext ? STUDIO_STARTER_PROMPTS : BUSINESS_STARTER_PROMPTS;
   const starterPromptTranslationKey = isStudioChatContext ? 'studioStarterPrompts' : 'starterPrompts';
@@ -537,7 +528,6 @@ export default function CanvasAgentChat({
     description: t(`${starterPromptTranslationKey}.${prompt.id}.description`),
     prompt: t(`${starterPromptTranslationKey}.${prompt.id}.prompt`),
   }));
-  const [isLoadingReferenceItems, setIsLoadingReferenceItems] = useState(false);
   const [showComposerHint, setShowComposerHint] = useState(false);
 
   // Upload states
@@ -550,7 +540,6 @@ export default function CanvasAgentChat({
   const isUploading = pendingUploads > 0;
   const isWebSocketUnavailable = wsError?.code === 'AUTH_ERROR';
 
-  const referencePickerRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const sessionIdRef = useRef<string | null>(null);
   const {
@@ -584,7 +573,6 @@ export default function CanvasAgentChat({
   const surfaceVisibleRef = useRef(isSurfaceVisible);
   const lastCompactionMarkerRef = useRef<string | null>(null);
   const userStartedNewChatRef = useRef(false);
-  const referenceRequestIdRef = useRef(0);
   const messagesRef = useRef<ChatMessage[]>([]);
   const refreshSavedMessagesRef = useRef<((sessionId: string) => void) | null>(null);
   const deferredSavedMessageRefreshSessionRef = useRef<string | null>(null);
@@ -604,6 +592,23 @@ export default function CanvasAgentChat({
     input,
     messages,
     sessionIdRef,
+    setInput,
+    textareaRef,
+  });
+  const {
+    activeReferenceMatch,
+    closeReferencePicker,
+    handleInputChange,
+    handleReferenceSelect,
+    isLoadingReferenceItems,
+    referencePickerItems,
+    referencePickerRef,
+    selectedReferenceIndex,
+    selectNextReference,
+    selectPreviousReference,
+  } = useComposerReferences({
+    input,
+    resetInputHistoryNavigation,
     setInput,
     textareaRef,
   });
@@ -2668,133 +2673,6 @@ export default function CanvasAgentChat({
     }
   }, [preprocessAndUpload]);
 
-  const closeReferencePicker = useCallback(() => {
-    setActiveReferenceMatch(null);
-    setReferencePickerItems([]);
-    setSelectedReferenceIndex(0);
-    referenceRequestIdRef.current += 1;
-  }, []);
-
-  const fetchFiles = useCallback(async (query: string = '', requestId: number) => {
-    try {
-      const res = await fetch(`/api/files/list?q=${encodeURIComponent(query)}&limit=50`);
-      const data = await safeFetchJson<{ success: boolean; files?: FilePickerFile[] }>(res);
-      if (requestId !== referenceRequestIdRef.current) {
-        return;
-      }
-
-      if (data?.success) {
-        const items = (data.files as FilePickerFile[]).map((file) => ({
-          id: `file:${file.path}`,
-          kind: 'file' as const,
-          icon: getFileIconComponent({ name: file.name, path: file.path, type: file.type }),
-          label: file.path,
-          payload: file,
-        }));
-        setReferencePickerItems(items);
-        setSelectedReferenceIndex(0);
-      }
-    } catch (err) {
-      console.error('Failed to fetch files', err);
-    }
-  }, []);
-
-  const setSkillReferenceItems = useCallback((skills: SkillPickerSkill[], query: string) => {
-    const items = searchSkillReferenceEntries(skills, query).map((skill) => ({
-      id: `skill:${skill.name}`,
-      kind: 'skill' as const,
-      icon: renderSkillIcon(skill.name, skill.description),
-      label: skill.title,
-      secondaryLabel: `/${skill.name}`,
-      payload: skill,
-    }));
-    setReferencePickerItems(items);
-    setSelectedReferenceIndex(0);
-  }, []);
-
-  const fetchSkills = useCallback(async () => {
-    if (availableSkills) {
-      return availableSkills;
-    }
-
-    try {
-      const res = await fetch('/api/skills');
-      const data = await safeFetchJson<{ success: boolean; skills?: Array<SkillPickerSkill & { path?: string }> }>(res);
-      if (!data?.success) {
-        return [];
-      }
-
-      const nextSkills = (data.skills || []).filter((skill) => skill.enabled).map((skill) => ({
-        description: skill.description,
-        enabled: skill.enabled,
-        name: skill.name,
-        title: skill.title,
-      }));
-      setAvailableSkills(nextSkills);
-      return nextSkills;
-    } catch (err) {
-      console.error('Failed to fetch skills', err);
-      return [];
-    }
-  }, [availableSkills]);
-
-  const handleInputChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    const value = e.target.value;
-    const cursorPos = e.target.selectionStart;
-    resetInputHistoryNavigation();
-    setInput(value);
-
-    const match = findActiveComposerReference(value, cursorPos);
-    if (!match) {
-      setIsLoadingReferenceItems(false);
-      closeReferencePicker();
-      return;
-    }
-
-    setActiveReferenceMatch(match);
-    setIsLoadingReferenceItems(true);
-    const requestId = referenceRequestIdRef.current + 1;
-    referenceRequestIdRef.current = requestId;
-
-    if (match.kind === 'file') {
-      void fetchFiles(match.query, requestId).finally(() => {
-        if (referenceRequestIdRef.current === requestId) {
-          setIsLoadingReferenceItems(false);
-        }
-      });
-      return;
-    }
-
-    void fetchSkills().then((skills) => {
-      if (referenceRequestIdRef.current !== requestId) {
-        return;
-      }
-
-      setSkillReferenceItems(skills, match.query);
-      setIsLoadingReferenceItems(false);
-    });
-  }, [closeReferencePicker, fetchFiles, fetchSkills, resetInputHistoryNavigation, setSkillReferenceItems]);
-
-  const handleReferenceSelect = useCallback((item: ComposerReferencePickerItem<ReferencePickerValue>) => {
-    if (!activeReferenceMatch) {
-      return;
-    }
-
-    const replacement = item.kind === 'file'
-      ? `@"${(item.payload as FilePickerFile).path}" `
-      : `/${(item.payload as SkillPickerSkill).name} `;
-    const { nextValue, nextCursorPosition } = replaceComposerReference(input, activeReferenceMatch, replacement);
-
-    resetInputHistoryNavigation();
-    setInput(nextValue);
-    closeReferencePicker();
-
-    setTimeout(() => {
-      textareaRef.current?.focus();
-      textareaRef.current?.setSelectionRange(nextCursorPosition, nextCursorPosition);
-    }, 0);
-  }, [activeReferenceMatch, closeReferencePicker, input, resetInputHistoryNavigation, textareaRef]);
-
   const removeAttachment = useCallback((index: number) => {
     setAttachments((prev) => prev.filter((_, itemIndex) => itemIndex !== index));
   }, []);
@@ -2853,11 +2731,11 @@ export default function CanvasAgentChat({
       switch (e.key) {
         case 'ArrowDown':
           e.preventDefault();
-          setSelectedReferenceIndex((prev) => (prev < referencePickerItems.length - 1 ? prev + 1 : prev));
+          selectNextReference();
           return;
         case 'ArrowUp':
           e.preventDefault();
-          setSelectedReferenceIndex((prev) => (prev > 0 ? prev - 1 : 0));
+          selectPreviousReference();
           return;
         case 'Enter':
         case 'Tab':
@@ -2881,7 +2759,7 @@ export default function CanvasAgentChat({
       e.preventDefault();
       void handleSend();
     }
-  }, [activeReferenceMatch, closeReferencePicker, handleReferenceSelect, handleSend, handleStop, isWebSocketUnavailable, navigateInputHistory, referencePickerItems, selectedReferenceIndex, togglePlanningMode]);
+  }, [activeReferenceMatch, closeReferencePicker, handleReferenceSelect, handleSend, handleStop, isWebSocketUnavailable, navigateInputHistory, referencePickerItems, selectNextReference, selectedReferenceIndex, selectPreviousReference, togglePlanningMode]);
 
   useEffect(() => {
     let cancelled = false;

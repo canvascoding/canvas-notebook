@@ -4,6 +4,8 @@ export interface SkillReferenceEntry {
   description: string;
 }
 
+const MIN_DESCRIPTION_MATCH_QUERY_LENGTH = 4;
+
 function normalizeSearchValue(value: string): string {
   return value.trim().toLowerCase();
 }
@@ -41,7 +43,7 @@ function getMatchRank(entry: SkillReferenceEntry, normalizedQuery: string): numb
     return 5;
   }
 
-  if (normalizedDescription.includes(normalizedQuery)) {
+  if (normalizedQuery.length >= MIN_DESCRIPTION_MATCH_QUERY_LENGTH && normalizedDescription.includes(normalizedQuery)) {
     return 6;
   }
 
