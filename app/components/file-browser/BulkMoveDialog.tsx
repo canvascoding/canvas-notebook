@@ -13,6 +13,7 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { useFileStore } from '@/app/store/file-store';
+import { getWorkspacePathName, isMoveIntoSelf, resolveMoveDestination } from '@/app/lib/files/operation-flows';
 import { toast } from 'sonner';
 import { DirectoryBrowser } from './DirectoryBrowser';
 
@@ -76,15 +77,14 @@ export function BulkMoveDialog() {
 
     for (let index = 0; index < pathsToMove.length; index++) {
       const path = pathsToMove[index];
-      const name = path.split('/').pop() || path;
-      const destination = moveTarget === '.' ? name : `${moveTarget}/${name}`;
+      const destination = resolveMoveDestination(moveTarget, getWorkspacePathName(path));
 
       if (path === destination) {
         successCount++;
         continue;
       }
 
-      if (destination.startsWith(`${path}/`)) {
+      if (isMoveIntoSelf(path, destination)) {
         toast.error(t('moveIntoSelf'));
         setIsMoving(false);
         return;
@@ -233,7 +233,7 @@ export function BulkMoveDialog() {
             </DialogTitle>
             <DialogDescription>
               {t('fileConflictDescription', { 
-                source: conflict?.sourcePath?.split('/').pop() || '',
+                source: conflict?.sourcePath ? getWorkspacePathName(conflict.sourcePath) : '',
                 destination: conflict?.destPath || '' 
               })}
             </DialogDescription>

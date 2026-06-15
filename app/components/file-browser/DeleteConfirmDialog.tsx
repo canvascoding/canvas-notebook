@@ -14,6 +14,7 @@ import {
   AlertDialogMedia,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import { getWorkspacePathName } from '@/app/lib/files/operation-flows';
 
 interface DeleteConfirmDialogProps {
   open: boolean;
@@ -50,11 +51,11 @@ export function DeleteConfirmDialog({ open, onOpenChange, paths, skippedCount, o
 
   const title = isMultiple
     ? t('deleteMultipleTitle', { count: paths.length })
-    : t('deleteSingleTitle', { name: paths[0]?.split('/').pop() ?? '' });
+    : t('deleteSingleTitle', { name: paths[0] ? getWorkspacePathName(paths[0]) : '' });
 
   let description = isMultiple
     ? t('deleteMultipleDescription', { count: paths.length })
-    : t('deleteSingleConfirm', { name: paths[0]?.split('/').pop() ?? '' });
+    : t('deleteSingleConfirm', { name: paths[0] ? getWorkspacePathName(paths[0]) : '' });
 
   if (skippedCount > 0) {
     description += ' ' + t('deleteSkippedInfo', { count: skippedCount });

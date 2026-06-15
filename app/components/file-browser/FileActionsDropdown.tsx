@@ -40,11 +40,17 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { isProtectedAppOutputFolder } from '@/app/lib/filesystem/app-output-folders';
 import { hasMarpFileName } from '@/app/lib/marp/detect';
 import { useFileStore } from '@/app/store/file-store';
 import type { FileNode } from '@/app/lib/files/types';
 import { getParentDirectory, joinWorkspacePath } from '@/app/lib/files/path-utils';
+import {
+  getWorkspacePathName,
+  isMoveIntoSelf,
+  isProtectedDirectoryNode,
+  resolveMoveDestination,
+  splitProtectedWorkspacePaths,
+} from '@/app/lib/files/operation-flows';
 import { CreateItemDialog } from './CreateItemDialog';
 import { DeleteConfirmDialog } from './DeleteConfirmDialog';
 import { DirectoryBrowser } from './DirectoryBrowser';
@@ -123,9 +129,7 @@ export function FileActionsDropdown({
     return getParentDirectory(node.path);
   }, [node]);
 
-  const isProtectedOutputFolder = node
-    ? node.type === 'directory' && isProtectedAppOutputFolder(node.path)
-    : false;
+  const isProtectedOutputFolder = isProtectedDirectoryNode(node);
   const nodePath = node?.path ?? null;
 
   const isMarkdown = node
@@ -250,8 +254,8 @@ export function FileActionsDropdown({
   const handleMoveMultiple = () => {
     if (multiSelectPaths.size === 0) return;
 
-    const hasProtected = Array.from(multiSelectPaths).some(path => isProtectedAppOutputFolder(path));
-    if (hasProtected) {
+    const selectedProtection = splitProtectedWorkspacePaths(multiSelectPaths);
+    if (selectedProtection.hasProtected) {
       toast.error(t('protectedFolderMove'));
       return;
     }
@@ -352,8 +356,7 @@ export function FileActionsDropdown({
       let successCount = 0;
 
       for (const path of pathsToMove) {
-        const name = path.split('/').pop() || path;
-        const destination = moveTarget === '.' ? name : `${moveTarget}/${name}`;
+        const destination = resolveMoveDestination(moveTarget, getWorkspacePathName(path));
 
         if (path === destination) {
           successCount++;
@@ -377,12 +380,12 @@ export function FileActionsDropdown({
         toast.error(t('pleaseEnterName'));
         return;
       }
-      const destination = moveTarget === '.' ? trimmedName : `${moveTarget}/${trimmedName}`;
+      const destination = resolveMoveDestination(moveTarget, trimmedName);
       if (destination === node.path) {
         setMoveOpen(false);
         return;
       }
-      if (node.type === 'directory' && destination.startsWith(`${node.path}/`)) {
+      if (node.type === 'directory' && isMoveIntoSelf(node.path, destination)) {
         toast.error(t('moveIntoSelf'));
         return;
       }

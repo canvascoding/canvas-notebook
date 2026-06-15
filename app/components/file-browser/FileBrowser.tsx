@@ -17,7 +17,7 @@ import { FileBreadcrumb } from './FileBreadcrumb';
 import { CreateItemDialog } from './CreateItemDialog';
 import { UploadDialog } from './UploadDialog';
 import { DeleteConfirmDialog } from './DeleteConfirmDialog';
-import { isProtectedAppOutputFolder } from '@/app/lib/filesystem/app-output-folders';
+import { isProtectedDirectoryNode, splitProtectedWorkspacePaths } from '@/app/lib/files/operation-flows';
 import { useImagePreprocess } from '@/app/hooks/useImagePreprocess';
 import { ImagePreprocessDialog } from '@/app/components/shared/ImagePreprocessDialog';
 import { getDroppedFiles } from '@/app/lib/drop-traverse';
@@ -153,15 +153,16 @@ export function FileBrowser({ variant = 'default', onFileSelect }: FileBrowserPr
 
   const handleDeleteClick = () => {
     if (isMultiSelectMode) {
-      const pathsToDelete = Array.from(multiSelectPaths).filter((path) => !isProtectedAppOutputFolder(path));
-      const skippedCount = multiSelectPaths.size - pathsToDelete.length;
-      if (pathsToDelete.length === 0) {
-        if (skippedCount > 0) toast.error(t('protectedFoldersDeleteOnly'));
+      const deleteSelection = splitProtectedWorkspacePaths(multiSelectPaths);
+      if (deleteSelection.allowedPaths.length === 0) {
+        if (deleteSelection.skippedCount > 0) toast.error(t('protectedFoldersDeleteOnly'));
         return;
       }
-      setDeletePaths(pathsToDelete); setDeleteSkippedCount(skippedCount); setDeleteOpen(true);
+      setDeletePaths(deleteSelection.allowedPaths);
+      setDeleteSkippedCount(deleteSelection.skippedCount);
+      setDeleteOpen(true);
     } else if (selectedNode) {
-      if (selectedNode.type === 'directory' && isProtectedAppOutputFolder(selectedNode.path)) {
+      if (isProtectedDirectoryNode(selectedNode)) {
         toast.error(t('protectedFolderDelete')); return;
       }
       setDeletePaths([selectedNode.path]); setDeleteSkippedCount(0); setDeleteOpen(true);
@@ -174,12 +175,12 @@ export function FileBrowser({ variant = 'default', onFileSelect }: FileBrowserPr
     clearMultiSelect();
   };
 
-  const deletableMultiSelectCount = Array.from(multiSelectPaths).filter((path) => !isProtectedAppOutputFolder(path)).length;
-  const hasProtectedSelected = Array.from(multiSelectPaths).some(path => isProtectedAppOutputFolder(path));
-  const isDeleteDisabled = (!selectedNode && multiSelectPaths.size === 0) || (isMultiSelectMode ? deletableMultiSelectCount === 0 : selectedNode?.type === 'directory' && isProtectedAppOutputFolder(selectedNode.path));
+  const multiSelectProtection = splitProtectedWorkspacePaths(multiSelectPaths);
+  const isDeleteDisabled = (!selectedNode && multiSelectPaths.size === 0)
+    || (isMultiSelectMode ? multiSelectProtection.allowedPaths.length === 0 : isProtectedDirectoryNode(selectedNode));
 
   const handleBulkMove = () => {
-    if (hasProtectedSelected) { toast.error(t('protectedFolderMove')); return; }
+    if (multiSelectProtection.hasProtected) { toast.error(t('protectedFolderMove')); return; }
     setBulkMoveOpen(true);
   };
 
@@ -327,7 +328,7 @@ export function FileBrowser({ variant = 'default', onFileSelect }: FileBrowserPr
             <div className="flex items-center gap-1">
               {multiSelectPaths.size > 0 && (
                 <>
-                  <Button variant="ghost" size="icon-sm" onClick={handleBulkMove} disabled={hasProtectedSelected} title={t('move')}>
+                  <Button variant="ghost" size="icon-sm" onClick={handleBulkMove} disabled={multiSelectProtection.hasProtected} title={t('move')}>
                     <Move className="h-3.5 w-3.5" />
                   </Button>
                   <Button variant="ghost" size="icon-sm" onClick={() => void handleBulkDownload()} title={t('download')}>
