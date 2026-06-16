@@ -1,5 +1,5 @@
 import type { Root, Element, Text, Parent } from 'hast';
-import { INLINE_HEX_REGEX } from './color-swatch';
+import { createInlineColorRegex } from './color-code';
 
 const SKIPPED_TAGS = new Set(['code', 'a', 'pre', 'script', 'style']);
 
@@ -26,7 +26,7 @@ export function rehypeInlineColorSwatch() {
         const value = node.value;
         if (!value) return;
 
-        const regex = new RegExp(INLINE_HEX_REGEX.source, INLINE_HEX_REGEX.flags);
+        const regex = createInlineColorRegex();
         const matches = [...value.matchAll(regex)];
         if (matches.length === 0) return;
 

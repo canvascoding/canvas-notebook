@@ -1,4 +1,5 @@
 import { readFile } from '@/app/lib/filesystem/workspace-files';
+import { createInlineColorRegex, isColorCode } from '@/app/lib/markdown/color-code';
 import { marked } from 'marked';
 import path from 'path';
 import fs from 'fs/promises';
@@ -111,23 +112,6 @@ function escapeHtml(str: string): string {
     .replace(/"/g, '&quot;');
 }
 
-// Regex patterns for color detection (same as in color-swatch.tsx)
-const HEX_REGEX = /^#([0-9A-Fa-f]{3,4}|[0-9A-Fa-f]{6}|[0-9A-Fa-f]{8})$/;
-const INLINE_HEX_REGEX = /#([0-9A-Fa-f]{6}|[0-9A-Fa-f]{8})\b/g;
-const RGB_REGEX = /^rgb\(\s*\d+\s*,\s*\d+\s*,\s*\d+\s*\)$/;
-const RGBA_REGEX = /^rgba\(\s*\d+\s*,\s*\d+\s*,\s*\d+\s*,\s*[\d.]+\s*\)$/;
-const HSL_REGEX = /^hsl\(\s*\d+\s*,\s*\d+%?\s*,\s*\d+%?\s*\)$/;
-const HSLA_REGEX = /^hsla\(\s*\d+\s*,\s*\d+%?\s*,\s*\d+%?\s*,\s*[\d.]+\s*\)$/;
-
-function isColorCode(str: string): boolean {
-  const trimmed = str.trim();
-  return HEX_REGEX.test(trimmed) || 
-         RGB_REGEX.test(trimmed) || 
-         RGBA_REGEX.test(trimmed) || 
-         HSL_REGEX.test(trimmed) || 
-         HSLA_REGEX.test(trimmed);
-}
-
 function processColorCodes(htmlContent: string): string {
   let result = htmlContent.replace(/<code>([^<]*)<\/code>/g, (match, codeContent) => {
     const decodedContent = codeContent
@@ -152,13 +136,12 @@ function processColorCodes(htmlContent: string): string {
 
 function processInlineHexColors(htmlContent: string): string {
   return htmlContent.replace(/>([^<]*)</g, (match, textBetweenTags) => {
-    const hasHex = INLINE_HEX_REGEX.test(textBetweenTags);
-    INLINE_HEX_REGEX.lastIndex = 0;
-    if (!hasHex) return match;
+    const colorRegex = createInlineColorRegex();
+    if (!colorRegex.test(textBetweenTags)) return match;
 
-    const replaced = textBetweenTags.replace(INLINE_HEX_REGEX, (hexColor: string) => {
-      const swatchStyle = `display:inline-block;width:14px;height:14px;border-radius:2px;border:1px solid rgba(0,0,0,0.2);margin-left:4px;vertical-align:middle;background-color:${hexColor};`;
-      return `<span style="display:inline-flex;align-items:center;gap:4px;"><code style="font-size:0.75rem;">${hexColor}</code><span style="${swatchStyle}"></span></span>`;
+    const replaced = textBetweenTags.replace(createInlineColorRegex(), (colorCode: string) => {
+      const swatchStyle = `display:inline-block;width:14px;height:14px;border-radius:2px;border:1px solid rgba(0,0,0,0.2);margin-left:4px;vertical-align:middle;background-color:${colorCode};`;
+      return `<span style="display:inline-flex;align-items:center;gap:4px;"><code style="font-size:0.75rem;">${colorCode}</code><span style="${swatchStyle}"></span></span>`;
     });
 
     return `>${replaced}<`;

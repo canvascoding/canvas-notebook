@@ -21,7 +21,8 @@ import { TaskItem } from '@tiptap/extension-task-item';
 import { TableKit } from '@tiptap/extension-table';
 import { CodeBlock } from '@tiptap/extension-code-block';
 import { Suggestion, type SuggestionKeyDownProps, type SuggestionProps } from '@tiptap/suggestion';
-import { PluginKey } from '@tiptap/pm/state';
+import { Plugin, PluginKey } from '@tiptap/pm/state';
+import { Decoration, DecorationSet } from '@tiptap/pm/view';
 import {
   Bold,
   Code,
@@ -50,6 +51,7 @@ import { Command, CommandEmpty, CommandGroup, CommandItem, CommandList } from '@
 import { MermaidDiagram } from '@/components/ui/mermaid-diagram';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { SafeMarkdownImage } from '@/app/components/shared/SafeMarkdownImage';
+import { createInlineColorRegex, isColorCode } from '@/app/lib/markdown/color-code';
 import { resolveMarkdownImageUrl } from '@/app/lib/markdown/markdown-image-url';
 import { cn } from '@/lib/utils';
 
@@ -125,6 +127,7 @@ const EMPTY_TOOLBAR_STATE: ToolbarState = {
 
 const FRONTMATTER_REGEX = /^---\s*\n[\s\S]*?\n---(?:\s*\n|$)/;
 const SLASH_COMMAND_PLUGIN_KEY = new PluginKey('markdownSlashCommands');
+const COLOR_SWATCH_PLUGIN_KEY = new PluginKey('markdownColorSwatches');
 
 function shouldDefaultToSource(value: string, readOnly: boolean, filePath?: string) {
   if (readOnly) return false;
@@ -177,6 +180,85 @@ function TooltipIconButton({
 function ToolbarDivider() {
   return <span aria-hidden="true" className="mx-1 h-5 w-px shrink-0 bg-border" />;
 }
+
+function copyTextToClipboard(value: string) {
+  void navigator.clipboard?.writeText(value).catch(() => {});
+}
+
+function createColorSwatchWidget(colorCode: string) {
+  const swatch = document.createElement('button');
+  swatch.type = 'button';
+  swatch.className = 'tiptap-color-swatch-widget';
+  swatch.style.backgroundColor = colorCode;
+  swatch.title = `Copy ${colorCode}`;
+  swatch.setAttribute('aria-label', `Copy color ${colorCode}`);
+  swatch.addEventListener('click', (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    copyTextToClipboard(colorCode);
+  });
+  return swatch;
+}
+
+const ColorSwatchDecorations = Extension.create({
+  name: 'colorSwatchDecorations',
+
+  addProseMirrorPlugins() {
+    return [
+      new Plugin({
+        key: COLOR_SWATCH_PLUGIN_KEY,
+        props: {
+          decorations(state) {
+            const decorations: Decoration[] = [];
+
+            state.doc.descendants((node, pos, parent) => {
+              if (!node.isText || !node.text || parent?.type.name === 'codeBlock') {
+                return;
+              }
+
+              const isInlineCode = node.marks.some((mark) => mark.type.name === 'code');
+
+              if (isInlineCode) {
+                const colorCode = node.text.trim();
+                if (isColorCode(colorCode)) {
+                  decorations.push(Decoration.widget(
+                    pos + node.nodeSize,
+                    () => createColorSwatchWidget(colorCode),
+                    {
+                      key: `color-swatch-${pos}-${colorCode}`,
+                      side: 1,
+                      ignoreSelection: true,
+                      stopEvent: () => true,
+                    },
+                  ));
+                }
+                return;
+              }
+
+              const colorRegex = createInlineColorRegex();
+              for (const match of node.text.matchAll(colorRegex)) {
+                const colorCode = match[0];
+                const matchIndex = match.index ?? 0;
+                decorations.push(Decoration.widget(
+                  pos + matchIndex + colorCode.length,
+                  () => createColorSwatchWidget(colorCode),
+                  {
+                    key: `color-swatch-${pos + matchIndex}-${colorCode}`,
+                    side: 1,
+                    ignoreSelection: true,
+                    stopEvent: () => true,
+                  },
+                ));
+              }
+            });
+
+            return DecorationSet.create(state.doc, decorations);
+          },
+        },
+      }),
+    ];
+  },
+});
 
 function runAfterSlashDelete({ editor, range }: SlashCommandContext) {
   return editor.chain().focus().deleteRange(range);
@@ -584,6 +666,7 @@ function createEditorExtensions(filePath?: string) {
         resizable: false,
       },
     }),
+    ColorSwatchDecorations,
     SlashCommands,
     Markdown.configure({
       markedOptions: {
