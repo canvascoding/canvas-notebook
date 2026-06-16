@@ -16,6 +16,7 @@ export interface ReferenceTag {
   thumbnailPath?: string;
   status?: 'loading' | string;
   mediaKind?: 'image' | 'video' | 'audio';
+  imageCount?: number;
 }
 
 export interface PendingStudioGenerateRequest {

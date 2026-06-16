@@ -1,7 +1,7 @@
 import type { StudioGeneratePayload } from '../types/generation';
 import type { StudioGenerationState } from '@/app/store/studio-generation-store';
 import { toMediaUrl } from '@/app/lib/utils/media-url';
-import { getFileReferenceLimitForMode } from './video-reference-limits';
+import { getAcceptedFileReferenceCountForMode } from './video-reference-limits';
 
 type StudioGenerateInput = Pick<
   StudioGenerationState,
@@ -40,8 +40,8 @@ function getReferenceRequestValue(ref: { id: string }) {
 }
 
 export function buildStudioGeneratePayload(input: StudioGenerateInput): StudioGeneratePayload {
-  const fileReferenceLimit = getFileReferenceLimitForMode(input.mode, input.provider);
-  const fileUrls = input.fileRefs.map(getReferenceRequestValue).slice(0, fileReferenceLimit);
+  const acceptedFileReferenceCount = getAcceptedFileReferenceCountForMode(input);
+  const fileUrls = input.fileRefs.map(getReferenceRequestValue).slice(0, acceptedFileReferenceCount);
   const videoReferenceUrls = input.videoReferenceRefs.map(getReferenceRequestValue).slice(0, 3);
   const audioReferenceUrls = input.audioReferenceRefs.map(getReferenceRequestValue).slice(0, 3);
   const videoExtendSourcePath = input.videoExtendSourceRef

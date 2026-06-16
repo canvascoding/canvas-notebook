@@ -12,6 +12,7 @@ interface VideoReferenceControlsProps {
   mode?: 'image' | 'video' | 'sound';
   provider?: string;
   imageReferenceCount: number;
+  imageReferenceRemaining: number;
   videoReferenceCount: number;
   audioReferenceCount: number;
   hasExtendSource: boolean;
@@ -19,13 +20,14 @@ interface VideoReferenceControlsProps {
 }
 
 function CountBadge({ value, max }: { value: number; max: number }) {
-  return <span className="ml-auto text-xs text-muted-foreground">{value}/{max}</span>;
+  return <span className="ml-auto text-xs text-muted-foreground">{Math.min(value, max)}/{max}</span>;
 }
 
 export function VideoReferenceControls({
   mode,
   provider,
   imageReferenceCount,
+  imageReferenceRemaining,
   videoReferenceCount,
   audioReferenceCount,
   hasExtendSource,
@@ -39,7 +41,7 @@ export function VideoReferenceControls({
   if (provider === 'bytedance') {
     return (
       <div className="flex flex-wrap gap-2">
-        <Button type="button" variant="outline" size="sm" className="h-8 justify-start rounded-full" onClick={() => onPick('image')}>
+        <Button type="button" variant="outline" size="sm" className="h-8 justify-start rounded-full" disabled={imageReferenceRemaining <= 0} onClick={() => onPick('image')}>
           <ImageIcon className="h-4 w-4" />
           {t('imageReferences')}
           <CountBadge value={imageReferenceCount} max={imageReferenceLimit} />
@@ -61,7 +63,7 @@ export function VideoReferenceControls({
   if (provider === 'veo') {
     return (
       <div className="flex flex-wrap gap-2">
-        <Button type="button" variant="outline" size="sm" className="h-8 justify-start rounded-full" onClick={() => onPick('image')}>
+        <Button type="button" variant="outline" size="sm" className="h-8 justify-start rounded-full" disabled={imageReferenceRemaining <= 0} onClick={() => onPick('image')}>
           <ImageIcon className="h-4 w-4" />
           {t('imageReferences')}
           <CountBadge value={imageReferenceCount} max={imageReferenceLimit} />

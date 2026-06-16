@@ -32,13 +32,14 @@ import { VideoReferenceControls, type VideoReferencePickerTarget } from './Video
 import type { StudioPreset } from '../../types/presets';
 import type { StudioPersona, StudioProduct, StudioStyle } from '../../types/models';
 import { StudioMediaThumbnail } from '../StudioMediaThumbnail';
-import { DEFAULT_IMAGE_REFERENCE_LIMIT, getVideoImageReferenceLimit } from '../../utils/video-reference-limits';
+import { DEFAULT_IMAGE_REFERENCE_LIMIT, getVideoImageReferenceBudget } from '../../utils/video-reference-limits';
 
 interface ReferenceTag {
   id: string;
   name: string;
   thumbnailPath?: string;
   status?: string;
+  imageCount?: number;
 }
 
 interface PromptBarValue {
@@ -235,7 +236,21 @@ export function PromptBar({
   const [pickerOpen, setPickerOpen] = useState(false);
   const [closeReferenceDialogOnPickerConfirm, setCloseReferenceDialogOnPickerConfirm] = useState(false);
   const [mediaPicker, setMediaPicker] = useState<VideoReferencePickerTarget>('image');
-  const imageReferenceLimit = mode === 'video' ? getVideoImageReferenceLimit(provider) : DEFAULT_IMAGE_REFERENCE_LIMIT;
+  const videoImageReferenceBudget = useMemo(() => (
+    mode === 'video'
+      ? getVideoImageReferenceBudget({
+        mode,
+        provider,
+        productRefs: value.productRefs,
+        personaRefs: value.personaRefs,
+        styleRefs: value.styleRefs,
+        fileRefs: value.fileRefs,
+      })
+      : null
+  ), [mode, provider, value.fileRefs, value.personaRefs, value.productRefs, value.styleRefs]);
+  const imageReferenceLimit = videoImageReferenceBudget?.limit ?? DEFAULT_IMAGE_REFERENCE_LIMIT;
+  const imageReferenceCount = videoImageReferenceBudget?.used ?? Math.min(value.fileRefs.length, imageReferenceLimit);
+  const imageReferenceRemaining = videoImageReferenceBudget?.remaining ?? Math.max(imageReferenceLimit - value.fileRefs.length, 0);
 
   const handlePaste = useCallback((event: React.ClipboardEvent) => {
     if (!onPasteImage) return;
@@ -243,6 +258,7 @@ export function PromptBar({
     if (!items) return;
     for (let i = 0; i < items.length; i += 1) {
       if (items[i].type.indexOf('image') !== -1) {
+        if (mode === 'video' && imageReferenceRemaining <= 0) return;
         const file = items[i].getAsFile();
         if (file) {
           event.preventDefault();
@@ -252,7 +268,7 @@ export function PromptBar({
         }
       }
     }
-  }, [onPasteImage]);
+  }, [imageReferenceRemaining, mode, onPasteImage]);
 
   const productMap = useMemo(() => new Map((products ?? []).map((p) => [p.id, p])), [products]);
   const personaMap = useMemo(() => new Map((personas ?? []).map((p) => [p.id, p])), [personas]);
@@ -433,7 +449,8 @@ export function PromptBar({
       <VideoReferenceControls
         mode={mode}
         provider={provider}
-        imageReferenceCount={value.fileRefs.length}
+        imageReferenceCount={imageReferenceCount}
+        imageReferenceRemaining={imageReferenceRemaining}
         videoReferenceCount={videoReferenceRefs.length}
         audioReferenceCount={audioReferenceRefs.length}
         hasExtendSource={Boolean(videoExtendSourceRef)}
@@ -459,8 +476,9 @@ export function PromptBar({
         fetchProducts={fetchProducts}
         fetchPersonas={fetchPersonas}
         fetchStyles={fetchStyles}
-        fileReferenceCount={value.fileRefs.length}
+        fileReferenceCount={imageReferenceCount}
         fileReferenceLimit={imageReferenceLimit}
+        imageReferenceDisabled={imageReferenceRemaining <= 0}
         onImageReferenceClick={() => {
           setMediaPicker('image');
           setCloseReferenceDialogOnPickerConfirm(true);
@@ -479,7 +497,7 @@ export function PromptBar({
         }}
         mediaKind={mediaPicker === 'audio' ? 'audio' : mediaPicker === 'image' ? 'image' : 'video'}
         multiple={mediaPicker !== 'extendVideo'}
-        maxSelection={mediaPicker === 'extendVideo' ? 1 : mediaPicker === 'image' ? imageReferenceLimit : 3}
+        maxSelection={mediaPicker === 'extendVideo' ? 1 : mediaPicker === 'image' ? imageReferenceRemaining : 3}
         studioOnly={mediaPicker === 'extendVideo'}
         veoGeneratedOnly={mediaPicker === 'extendVideo'}
         onConfirm={(paths) => {

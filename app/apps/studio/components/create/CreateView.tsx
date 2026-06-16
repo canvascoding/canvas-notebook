@@ -12,7 +12,7 @@ import { useStudioPresets } from '../../hooks/useStudioPresets';
 import { useStudioProducts } from '../../hooks/useStudioProducts';
 import { useStudioStyles } from '../../hooks/useStudioStyles';
 import { useStudioBatchActions } from '../../hooks/useStudioBatchActions';
-import type { StudioGeneration, StudioGenerationOutput } from '../../types/generation';
+import type { StudioGeneration, StudioGenerationMode, StudioGenerationOutput } from '../../types/generation';
 import { SaveToWorkspaceDialog } from './SaveToWorkspaceDialog';
 import { StudioPreview } from './StudioPreview';
 import { ImageEditSelectionView } from './ImageEditSelectionView';
@@ -26,11 +26,11 @@ import { BatchDeleteDialog } from './BatchDeleteDialog';
 import { getDefaultModelForProvider, getAspectRatiosForProvider, getVideoResolutionsForModel, getVideoDurationsForModel, getImageSizesForModel, normalizeGeminiImageModelId, type VideoResolution, type StudioVideoDuration } from '@/app/lib/integrations/image-generation-constants';
 import { toPreviewUrl, toWorkspaceMediaUrl } from '@/app/lib/utils/media-url';
 import { useSetStudioChatContext } from '@/app/apps/studio/context/studio-chat-context';
-import { useStudioGenerationStore } from '@/app/store/studio-generation-store';
+import { useStudioGenerationStore, type ReferenceTag } from '@/app/store/studio-generation-store';
 import { buildStudioGeneratePayload } from '../../utils/studio-generate-payload';
 import { clearStudioGenerateHandoff, consumeStudioGenerateHandoff } from '../../utils/studio-generate-handoff';
 import { getStudioUserPrompt } from '../../utils/studio-generation-prompt';
-import { getFileReferenceLimitForMode } from '../../utils/video-reference-limits';
+import { getFileReferenceLimitForMode, getVideoImageReferenceBudget } from '../../utils/video-reference-limits';
 import { EMPTY_STUDIO_PROVIDER_CONFIG, type StudioProviderConfig } from '../../types/config';
 import { StudioMediaThumbnail } from '../StudioMediaThumbnail';
 
@@ -44,6 +44,43 @@ interface StartingPoint {
   category: string;
   prompt: string;
   presetId: string | null;
+}
+
+type StudioReferenceModel = {
+  id: string;
+  name: string;
+  thumbnailPath?: string | null;
+  imageCount?: number;
+  images?: { filePath?: string | null }[];
+};
+
+function getModelReferenceImageCount(model: StudioReferenceModel): number {
+  if (typeof model.imageCount === 'number' && Number.isFinite(model.imageCount)) {
+    return Math.max(0, Math.floor(model.imageCount));
+  }
+
+  if (Array.isArray(model.images) && model.images.length > 0) {
+    return model.images.filter((image) => Boolean(image.filePath)).length;
+  }
+
+  return model.thumbnailPath ? 1 : 0;
+}
+
+function createModelReferenceTag(model: StudioReferenceModel): ReferenceTag {
+  return {
+    id: model.id,
+    name: model.name,
+    thumbnailPath: model.thumbnailPath ?? undefined,
+    imageCount: getModelReferenceImageCount(model),
+  };
+}
+
+function upsertReferenceTag(refs: ReferenceTag[], ref: ReferenceTag): ReferenceTag[] {
+  if (!refs.some((item) => item.id === ref.id)) {
+    return [...refs, ref];
+  }
+
+  return refs.map((item) => (item.id === ref.id ? { ...item, ...ref } : item));
 }
 
 function EmptyState({ inspirationPanel }: { inspirationPanel?: ReactNode }) {
@@ -329,6 +366,32 @@ export function CreateView({ initialProviderConfig = EMPTY_STUDIO_PROVIDER_CONFI
     }
   };
 
+  const trimFileRefsToVideoBudget = useCallback((overrides: {
+    mode?: StudioGenerationMode;
+    provider?: string;
+    productRefs?: ReferenceTag[];
+    personaRefs?: ReferenceTag[];
+    styleRefs?: ReferenceTag[];
+    fileRefs?: ReferenceTag[];
+  } = {}) => {
+    const mode = overrides.mode ?? store.mode;
+    if (mode !== 'video') return;
+
+    const fileRefs = overrides.fileRefs ?? store.fileRefs;
+    const budget = getVideoImageReferenceBudget({
+      mode,
+      provider: overrides.provider ?? store.provider,
+      productRefs: overrides.productRefs ?? store.productRefs,
+      personaRefs: overrides.personaRefs ?? store.personaRefs,
+      styleRefs: overrides.styleRefs ?? store.styleRefs,
+      fileRefs,
+    });
+
+    if (fileRefs.length > budget.acceptedFileCount) {
+      store.setFileRefs(fileRefs.slice(0, budget.acceptedFileCount));
+    }
+  }, [store]);
+
   const resolvedSelectedGeneration = selectedGenerationId
     ? generations.find((g) => g.id === selectedGenerationId) ?? null
     : null;
@@ -468,19 +531,24 @@ export function CreateView({ initialProviderConfig = EMPTY_STUDIO_PROVIDER_CONFI
   }, []);
 
   const applyGenerationReferencesToPrompt = useCallback((generation: StudioGeneration) => {
-    store.setProductRefs((generation.product_ids ?? []).map((id) => {
+    const productRefs = (generation.product_ids ?? []).map((id) => {
       const p = products.find((product) => product.id === id);
-      return { id, name: p?.name || id };
-    }));
-    store.setPersonaRefs((generation.persona_ids ?? []).map((id) => {
+      return p ? createModelReferenceTag(p) : { id, name: id };
+    });
+    const personaRefs = (generation.persona_ids ?? []).map((id) => {
       const p = personas.find((persona) => persona.id === id);
-      return { id, name: p?.name || id };
-    }));
-    store.setStyleRefs((generation.style_ids ?? []).map((id) => {
+      return p ? createModelReferenceTag(p) : { id, name: id };
+    });
+    const styleRefs = (generation.style_ids ?? []).map((id) => {
       const s = styles.find((style) => style.id === id);
-      return { id, name: s?.name || id };
-    }));
+      return s ? createModelReferenceTag(s) : { id, name: id };
+    });
+
+    store.setProductRefs(productRefs);
+    store.setPersonaRefs(personaRefs);
+    store.setStyleRefs(styleRefs);
     store.setPresetRef(presets.find((p) => p.id === generation.studioPresetId) ?? null);
+    return { productRefs, personaRefs, styleRefs };
   }, [personas, presets, products, store, styles]);
 
   const applyGenerationSettingsToPrompt = useCallback((generation: StudioGeneration) => {
@@ -507,13 +575,21 @@ export function CreateView({ initialProviderConfig = EMPTY_STUDIO_PROVIDER_CONFI
   const applyOutputAsVideoSource = useCallback((generation: StudioGeneration, output: StudioGenerationOutput) => {
     store.setMode('video');
     store.setRawPrompt(getStudioUserPrompt(generation));
-    applyGenerationReferencesToPrompt(generation);
+    const referenceRefs = applyGenerationReferencesToPrompt(generation);
     store.setAspectRatio(['16:9', '9:16'].includes(generation.aspectRatio) ? generation.aspectRatio : '16:9');
     store.setProvider('veo');
     store.setModel(getDefaultModelForProvider('video', 'veo'));
-    replaceFileRefsWithOutput(output);
+    const outputRef = getOutputReference(output);
+    const fileRefs = outputRef ? [outputRef] : [];
+    store.setFileRefs(fileRefs);
+    trimFileRefsToVideoBudget({
+      mode: 'video',
+      provider: 'veo',
+      ...referenceRefs,
+      fileRefs,
+    });
     clearSelectedOutput();
-  }, [applyGenerationReferencesToPrompt, clearSelectedOutput, replaceFileRefsWithOutput, store]);
+  }, [applyGenerationReferencesToPrompt, clearSelectedOutput, store, trimFileRefsToVideoBudget]);
 
   const handleUseAspectRatio = useCallback((generation: StudioGeneration, output: StudioGenerationOutput, aspectRatio: string) => {
     applyGenerationSettingsToPrompt(generation);
@@ -786,14 +862,26 @@ export function CreateView({ initialProviderConfig = EMPTY_STUDIO_PROVIDER_CONFI
       const payload = await res.json();
       if (!res.ok || !payload.success) throw new Error(payload.error || 'Upload failed');
       if (payload.files?.length) {
-        for (const f of payload.files) {
-          store.addFileRef({ id: f.path, name: f.path.split('/').pop() || f.path, thumbnailPath: f.path });
+        const currentState = useStudioGenerationStore.getState();
+        const files = currentState.mode === 'video'
+          ? payload.files.slice(0, getVideoImageReferenceBudget({
+            mode: currentState.mode,
+            provider: currentState.provider,
+            productRefs: currentState.productRefs,
+            personaRefs: currentState.personaRefs,
+            styleRefs: currentState.styleRefs,
+            fileRefs: currentState.fileRefs,
+          }).remaining)
+          : payload.files;
+
+        for (const f of files) {
+          currentState.addFileRef({ id: f.path, name: f.path.split('/').pop() || f.path, thumbnailPath: f.path });
         }
       }
     } catch (err) {
       console.error('Failed to upload pasted image', err);
     }
-  }, [store]);
+  }, []);
 
   const promptBarValue = useMemo(() => ({
     rawPrompt: store.rawPrompt,
@@ -953,9 +1041,24 @@ export function CreateView({ initialProviderConfig = EMPTY_STUDIO_PROVIDER_CONFI
             fetchPersonas={fetchPersonas}
             fetchStyles={fetchStyles}
             onRawPromptChange={store.setRawPrompt}
-            onProductAdd={(product) => store.addProductRef({ id: product.id, name: product.name, thumbnailPath: product.thumbnailPath ?? undefined })}
-            onPersonaAdd={(persona) => store.addPersonaRef({ id: persona.id, name: persona.name, thumbnailPath: persona.thumbnailPath ?? undefined })}
-            onStyleAdd={(style) => store.addStyleRef({ id: style.id, name: style.name, thumbnailPath: style.thumbnailPath ?? undefined })}
+            onProductAdd={(product) => {
+              const productRef = createModelReferenceTag(product);
+              const productRefs = upsertReferenceTag(store.productRefs, productRef);
+              store.setProductRefs(productRefs);
+              trimFileRefsToVideoBudget({ productRefs });
+            }}
+            onPersonaAdd={(persona) => {
+              const personaRef = createModelReferenceTag(persona);
+              const personaRefs = upsertReferenceTag(store.personaRefs, personaRef);
+              store.setPersonaRefs(personaRefs);
+              trimFileRefsToVideoBudget({ personaRefs });
+            }}
+            onStyleAdd={(style) => {
+              const styleRef = createModelReferenceTag(style);
+              const styleRefs = upsertReferenceTag(store.styleRefs, styleRef);
+              store.setStyleRefs(styleRefs);
+              trimFileRefsToVideoBudget({ styleRefs });
+            }}
             onPresetSelect={store.setPresetRef}
             onReferenceRemove={(type, id) => {
               if (type === 'product') store.removeProductRef(id);
@@ -968,6 +1071,21 @@ export function CreateView({ initialProviderConfig = EMPTY_STUDIO_PROVIDER_CONFI
               else if (type === 'preset') store.removePresetRef();
             }}
             onFileAdd={(paths) => {
+              if (store.mode === 'video') {
+                const budget = getVideoImageReferenceBudget({
+                  mode: store.mode,
+                  provider: store.provider,
+                  productRefs: store.productRefs,
+                  personaRefs: store.personaRefs,
+                  styleRefs: store.styleRefs,
+                  fileRefs: store.fileRefs,
+                });
+                for (const path of paths.slice(0, budget.remaining)) {
+                  store.addFileRef({ id: path, name: path.split('/').pop() || path, thumbnailPath: path });
+                }
+                return;
+              }
+
               const limit = getFileReferenceLimitForMode(store.mode, store.provider);
               const allowedPaths = typeof limit === 'number'
                 ? paths.slice(0, Math.max(limit - store.fileRefs.length, 0))
@@ -1013,6 +1131,7 @@ export function CreateView({ initialProviderConfig = EMPTY_STUDIO_PROVIDER_CONFI
                 store.setVideoGenerateAudio(true);
                 store.setVideoWebSearch(false);
                 store.setVideoNsfwChecker(false);
+                trimFileRefsToVideoBudget({ mode: 'video', provider: 'veo' });
               } else if (nextMode === 'sound') {
                 store.setProvider('gemini');
                 store.setModel(getDefaultModelForProvider('sound', 'gemini'));
@@ -1050,6 +1169,7 @@ export function CreateView({ initialProviderConfig = EMPTY_STUDIO_PROVIDER_CONFI
                 store.setVideoResolution(validRes.includes(store.videoResolution) ? store.videoResolution : validRes[0] as VideoResolution);
                 const validDur = getVideoDurationsForModel(nextModel);
                 store.setVideoDuration(validDur.includes(store.videoDuration) ? store.videoDuration : validDur.includes(6) ? 6 : validDur[0] as StudioVideoDuration);
+                trimFileRefsToVideoBudget({ provider: nextProvider });
               }
               if (store.mode === 'sound') {
                 store.setOutputFormat('mp3');

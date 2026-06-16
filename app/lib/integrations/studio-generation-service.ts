@@ -17,7 +17,7 @@ import {
   studioGenerationPersonas,
   studioGenerationStyles,
 } from '@/app/lib/db/schema';
-import { eq, and, desc, count } from 'drizzle-orm';
+import { eq, and, desc, count, asc } from 'drizzle-orm';
 import { getImageGenerationProvider } from '@/app/lib/integrations/image-generation-providers';
 import { StudioServiceError } from '@/app/lib/integrations/studio-errors';
 import {
@@ -166,7 +166,8 @@ async function loadProductImages(userId: string, productIds: string[]): Promise<
 
     const productImages = await db.select()
       .from(studioProductImages)
-      .where(eq(studioProductImages.productId, productId));
+      .where(eq(studioProductImages.productId, productId))
+      .orderBy(asc(studioProductImages.sortOrder));
 
     for (const img of productImages) {
       let buffer: Buffer;
@@ -217,7 +218,8 @@ async function loadPersonaImages(userId: string, personaIds: string[]): Promise<
 
     const personaImages = await db.select()
       .from(studioPersonaImages)
-      .where(eq(studioPersonaImages.personaId, personaId));
+      .where(eq(studioPersonaImages.personaId, personaId))
+      .orderBy(asc(studioPersonaImages.sortOrder));
 
     for (const img of personaImages) {
       let buffer: Buffer;
@@ -268,7 +270,8 @@ async function loadStyleImages(userId: string, styleIds: string[]): Promise<Load
 
     const styleImages = await db.select()
       .from(studioStyleImages)
-      .where(eq(studioStyleImages.styleId, styleId));
+      .where(eq(studioStyleImages.styleId, styleId))
+      .orderBy(asc(studioStyleImages.sortOrder));
 
     for (const img of styleImages) {
       let buffer: Buffer;

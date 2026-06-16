@@ -71,6 +71,7 @@ interface ModelReferencePickerDialogProps {
   fetchStyles: () => Promise<void>;
   fileReferenceCount: number;
   fileReferenceLimit: number;
+  imageReferenceDisabled?: boolean;
   onImageReferenceClick: () => void;
   onProductAdd: (product: StudioProduct) => void;
   onPersonaAdd: (persona: StudioPersona) => void;
@@ -277,6 +278,7 @@ export function ModelReferencePickerDialog({
   fetchStyles,
   fileReferenceCount,
   fileReferenceLimit,
+  imageReferenceDisabled = false,
   onImageReferenceClick,
   onProductAdd,
   onPersonaAdd,
@@ -361,6 +363,7 @@ export function ModelReferencePickerDialog({
           type="button"
           variant="outline"
           className="h-12 w-full justify-start rounded-md"
+          disabled={imageReferenceDisabled}
           onClick={onImageReferenceClick}
         >
           <ImageIcon className="h-4 w-4" />
