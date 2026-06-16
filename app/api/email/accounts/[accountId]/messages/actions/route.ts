@@ -15,6 +15,7 @@ import {
   summarizeEmailMessage,
   trashEmailMessage,
 } from '@/app/lib/email/service';
+import { normalizeEmailAttachmentInputs } from '@/app/lib/email/attachments';
 import { logEmailClientEvent } from '@/app/lib/email/logging';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 
@@ -177,6 +178,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     if (operation === 'draft') {
       if (!mode) throw new Error('Unsupported email draft mode.');
       data = await createEmailDerivedDraft(session.user.id, accountId, messageId, folder, mode, {
+        attachments: normalizeEmailAttachmentInputs((body as { attachments?: unknown }).attachments),
         bodyOverride: optionalStringValue((body as { bodyOverride?: unknown }).bodyOverride),
         cc: stringListValue((body as { cc?: unknown }).cc),
         subject: optionalStringValue((body as { subject?: unknown }).subject),
@@ -187,6 +189,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     if (operation === 'send') {
       if (!mode) throw new Error('Unsupported email send mode.');
       data = await sendEmailDerivedMessage(session.user.id, accountId, messageId, folder, mode, {
+        attachments: normalizeEmailAttachmentInputs((body as { attachments?: unknown }).attachments),
         bodyOverride: optionalStringValue((body as { bodyOverride?: unknown }).bodyOverride),
         cc: stringListValue((body as { cc?: unknown }).cc),
         subject: optionalStringValue((body as { subject?: unknown }).subject),

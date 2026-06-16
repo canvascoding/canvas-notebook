@@ -1,8 +1,11 @@
 import 'server-only';
 
+import type { EmailAttachmentInput } from '@/app/lib/email/attachment-types';
+
 export type EmailDerivedDraftMode = 'forward' | 'reply' | 'reply-all';
 
 export type EmailDerivedDraftOverrides = {
+  attachments?: EmailAttachmentInput[];
   bodyOverride?: string;
   cc?: string[];
   subject?: string;
@@ -17,6 +20,7 @@ type EmailDraftInput = {
   subject: string;
   body: string;
   is_HTML?: boolean;
+  attachments?: EmailAttachmentInput[];
 };
 
 type BuildEmailDerivedDraftInput = {
@@ -160,5 +164,6 @@ export function buildEmailDerivedDraft(input: BuildEmailDerivedDraftInput): Emai
     subject: input.subject?.trim() || (isForward ? forwardSubject(subject) : replySubject(subject)),
     body,
     is_HTML: false,
+    attachments: input.attachments,
   };
 }

@@ -76,6 +76,7 @@ export const emailDrafts = sqliteTable("email_drafts", {
   subject: text("subject").notNull(),
   body: text("body").notNull(),
   isHtml: integer("is_html", { mode: "boolean" }).notNull().default(false),
+  attachmentsJson: text("attachments_json").notNull().default("[]"),
   providerDraftId: text("provider_draft_id"),
   sentAt: integer("sent_at", { mode: "timestamp" }),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),

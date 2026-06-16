@@ -37,6 +37,7 @@ import {
 } from 'lucide-react';
 import { useLocale, useTranslations } from 'next-intl';
 
+import { EmailAttachmentPanel } from '@/app/apps/email/components/EmailAttachmentPanel';
 import { useSetEmailChatContext } from '@/app/apps/email/context/email-chat-context';
 import {
   ComposerReferencePicker,
@@ -46,6 +47,7 @@ import type { FilePickerFile } from '@/app/components/canvas-agent-chat/ChatComp
 import { MarkdownMessage } from '@/app/components/canvas-agent-chat/ChatMarkdownMessage';
 import { EmailAccountsCard } from '@/app/components/settings/IntegrationsSettingsClient';
 import { findActiveComposerReference, replaceComposerReference, type ComposerReferenceMatch } from '@/app/lib/chat/composer-references';
+import type { EmailAttachmentDraft } from '@/app/lib/email/attachment-types';
 import { isLikelyHtmlEmailContent, normalizeEmailHtmlContent } from '@/app/lib/email/html-content';
 import { getFileIconComponent } from '@/app/lib/files/file-icons';
 import { getToolDisplayInfo } from '@/app/lib/pi/tool-display';
@@ -144,6 +146,7 @@ type EmailComposeDraft = {
   aiMode: EmailComposeAiMode;
   aiPrompt: string;
   aiTone: EmailComposeTone;
+  attachments: EmailAttachmentDraft[];
   body: string;
   ccText: string;
   contextFiles: EmailComposeContextFile[];
@@ -712,6 +715,24 @@ type EmailMessageViewerLabels = {
 
 type EmailComposeDialogLabels = Pick<EmailMessageViewerLabels, 'cc' | 'date' | 'emptyBody' | 'from' | 'noSubject' | 'remoteImagesBlocked' | 'showRemoteImages' | 'to'> & {
   addRecipientToSendPolicy(email: string): string;
+  attachmentsAdd: string;
+  attachmentsAttached: string;
+  attachmentsCancel: string;
+  attachmentsConfirm: string;
+  attachmentsDialogDescription: string;
+  attachmentsDialogTitle: string;
+  attachmentsEmpty: string;
+  attachmentsLimitExceeded: string;
+  attachmentsLoading: string;
+  attachmentsRefresh: string;
+  attachmentsRemove: string;
+  attachmentsSearchPlaceholder: string;
+  attachmentsSelectFiles: string;
+  attachmentsTabUpload: string;
+  attachmentsTabWorkspace: string;
+  attachmentsUploadDrop: string;
+  attachmentsUploadHint: string;
+  attachmentsUsageLabel: string;
   cancel: string;
   composeAiReplyTitle: string;
   composeAiPromptLabel: string;
@@ -1224,7 +1245,7 @@ function EmailComposeDialog({
   onClose(): void;
   onGenerateAi(): void;
   onSubmit(): void;
-  onUpdate(updates: Partial<Pick<EmailComposeDraft, 'aiMode' | 'aiPrompt' | 'aiTone' | 'body' | 'ccText' | 'contextFiles' | 'subject' | 'toText' | 'usedContext'>>): void;
+  onUpdate(updates: Partial<Pick<EmailComposeDraft, 'aiMode' | 'aiPrompt' | 'aiTone' | 'attachments' | 'body' | 'ccText' | 'contextFiles' | 'subject' | 'toText' | 'usedContext'>>): void;
 }) {
   const blockedRecipient = useMemo(() => extractBlockedSendPolicyRecipient(error), [error]);
   const [isReferencePickerOpen, setIsReferencePickerOpen] = useState(false);
@@ -1579,6 +1600,12 @@ function EmailComposeDialog({
                       disabled={isSubmitting}
                     />
                   </div>
+                  <EmailAttachmentPanel
+                    attachments={draft.attachments}
+                    disabled={isSubmitting}
+                    labels={labels}
+                    onChange={(attachments) => onUpdate({ attachments })}
+                  />
                   {error && (
                     <div className="space-y-2 border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
                       <p className="break-words">{error}</p>
@@ -2061,6 +2088,7 @@ export function EmailClient() {
       aiMode: 'workspace-agent',
       aiPrompt: '',
       aiTone: 'casual',
+      attachments: [],
       body,
       ccText: composeRecipientText(cc),
       contextFiles: [],
@@ -2094,6 +2122,7 @@ export function EmailClient() {
       aiMode: 'workspace-agent',
       aiPrompt: '',
       aiTone: 'casual',
+      attachments: [],
       body: '',
       ccText: '',
       contextFiles: [],
@@ -2106,7 +2135,7 @@ export function EmailClient() {
     setMessageDialogOpen(false);
   }, [activeFolder]);
 
-  const updateComposeDraft = useCallback((updates: Partial<Pick<EmailComposeDraft, 'aiMode' | 'aiPrompt' | 'aiTone' | 'body' | 'ccText' | 'contextFiles' | 'subject' | 'toText' | 'usedContext'>>) => {
+  const updateComposeDraft = useCallback((updates: Partial<Pick<EmailComposeDraft, 'aiMode' | 'aiPrompt' | 'aiTone' | 'attachments' | 'body' | 'ccText' | 'contextFiles' | 'subject' | 'toText' | 'usedContext'>>) => {
     if (Object.prototype.hasOwnProperty.call(updates, 'aiMode') || Object.prototype.hasOwnProperty.call(updates, 'contextFiles')) {
       setComposeAgentEvents([]);
       setComposeAgentStatus(null);
@@ -2306,6 +2335,7 @@ export function EmailClient() {
         body: JSON.stringify(isNewCompose
           ? {
               accountId: activeAccount.id,
+              attachments: composeDraft.attachments,
               body: composeDraft.body,
               cc: splitRecipientInput(composeDraft.ccText),
               subject: composeDraft.subject,
@@ -2313,6 +2343,7 @@ export function EmailClient() {
             }
           : {
               bodyOverride: composeDraft.body,
+              attachments: composeDraft.attachments,
               cc: splitRecipientInput(composeDraft.ccText),
               folder: composeDraft.folder,
               messageId: composeDraft.message?.id,
@@ -2536,6 +2567,24 @@ export function EmailClient() {
   };
   const composeDialogLabels: EmailComposeDialogLabels = {
     addRecipientToSendPolicy: (email: string) => t('addRecipientToSendPolicy', { email }),
+    attachmentsAdd: t('attachmentsAdd'),
+    attachmentsAttached: t('attachmentsAttached'),
+    attachmentsCancel: t('attachmentsCancel'),
+    attachmentsConfirm: t('attachmentsConfirm'),
+    attachmentsDialogDescription: t('attachmentsDialogDescription'),
+    attachmentsDialogTitle: t('attachmentsDialogTitle'),
+    attachmentsEmpty: t('attachmentsEmpty'),
+    attachmentsLimitExceeded: t('attachmentsLimitExceeded'),
+    attachmentsLoading: t('attachmentsLoading'),
+    attachmentsRefresh: t('attachmentsRefresh'),
+    attachmentsRemove: t('attachmentsRemove'),
+    attachmentsSearchPlaceholder: t('attachmentsSearchPlaceholder'),
+    attachmentsSelectFiles: t('attachmentsSelectFiles'),
+    attachmentsTabUpload: t('attachmentsTabUpload'),
+    attachmentsTabWorkspace: t('attachmentsTabWorkspace'),
+    attachmentsUploadDrop: t('attachmentsUploadDrop'),
+    attachmentsUploadHint: t('attachmentsUploadHint'),
+    attachmentsUsageLabel: t('attachmentsUsageLabel'),
     cancel: t('composeCancel'),
     cc: t('cc'),
     composeAiReplyTitle: t('composeAiReplyTitle'),

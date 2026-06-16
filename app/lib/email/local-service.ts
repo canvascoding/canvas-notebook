@@ -26,6 +26,8 @@ import {
   summarizeEmailWithAi,
   summarizeEmailWithAiStream,
 } from '@/app/lib/email/ai-service';
+import { resolveEmailAttachments } from '@/app/lib/email/attachments';
+import type { EmailAttachmentInput } from '@/app/lib/email/attachment-types';
 import {
   buildEmailDerivedDraft,
   htmlToPlainText,
@@ -74,6 +76,7 @@ export type EmailDraftInput = {
   body: string;
   is_HTML?: boolean;
   headers?: EmailCustomHeaders;
+  attachments?: EmailAttachmentInput[];
 };
 
 export type EmailComposeAiInput = {
@@ -726,8 +729,17 @@ function gmailBodyByMime(payload: Record<string, unknown> | undefined, mimeType:
   return parts.map((part) => gmailBodyByMime(part, mimeType)).filter(Boolean).join('\n\n');
 }
 
-function encodeRawEmail(input: EmailDraftInput) {
+function encodeMimeParameterValue(value: string) {
+  return sanitizeEmailHeaderValue(value).replace(/[^\x20-\x7e"\\;]/gu, '_').replace(/["\\;]/gu, '_') || 'attachment';
+}
+
+function base64MimeContent(value: Buffer) {
+  return value.toString('base64').replace(/.{1,76}/gu, '$&\r\n').trimEnd();
+}
+
+async function encodeRawEmail(input: EmailDraftInput) {
   const contentType = input.is_HTML ? 'text/html' : 'text/plain';
+  const attachments = await resolveEmailAttachments(input.attachments);
   const headers = [
     `To: ${input.to.map(sanitizeEmailHeaderValue).join(', ')}`,
     ...(input.cc?.length ? [`Cc: ${input.cc.map(sanitizeEmailHeaderValue).join(', ')}`] : []),
@@ -735,18 +747,53 @@ function encodeRawEmail(input: EmailDraftInput) {
     `Subject: ${encodeMimeHeaderValue(input.subject)}`,
     ...emailCustomHeaderEntries(input.headers).map((header) => `${header.name}: ${sanitizeEmailHeaderValue(header.value)}`),
     'MIME-Version: 1.0',
-    `Content-Type: ${contentType}; charset=UTF-8`,
   ];
-  return base64Url(Buffer.from(`${headers.join('\r\n')}\r\n\r\n${input.body}`, 'utf8'));
+
+  if (attachments.length === 0) {
+    return base64Url(Buffer.from(`${[...headers, `Content-Type: ${contentType}; charset=UTF-8`].join('\r\n')}\r\n\r\n${input.body}`, 'utf8'));
+  }
+
+  const boundary = `canvas-email-${crypto.randomUUID()}`;
+  const parts = [
+    `--${boundary}`,
+    `Content-Type: ${contentType}; charset=UTF-8`,
+    'Content-Transfer-Encoding: 8bit',
+    '',
+    input.body,
+    ...attachments.flatMap((attachment) => {
+      const filename = encodeMimeParameterValue(attachment.name);
+      return [
+        `--${boundary}`,
+        `Content-Type: ${attachment.mimeType}; name="${filename}"`,
+        `Content-Disposition: attachment; filename="${filename}"`,
+        'Content-Transfer-Encoding: base64',
+        '',
+        base64MimeContent(attachment.content),
+      ];
+    }),
+    `--${boundary}--`,
+    '',
+  ];
+
+  return base64Url(Buffer.from(`${[...headers, `Content-Type: multipart/mixed; boundary="${boundary}"`].join('\r\n')}\r\n\r\n${parts.join('\r\n')}`, 'utf8'));
 }
 
-function microsoftMessagePayload(input: EmailDraftInput) {
+async function microsoftMessagePayload(input: EmailDraftInput) {
+  const attachments = await resolveEmailAttachments(input.attachments);
   return {
     subject: input.subject,
     body: { contentType: input.is_HTML ? 'HTML' : 'Text', content: input.body },
     toRecipients: input.to.map((address) => ({ emailAddress: { address } })),
     ccRecipients: (input.cc || []).map((address) => ({ emailAddress: { address } })),
     bccRecipients: (input.bcc || []).map((address) => ({ emailAddress: { address } })),
+    ...(attachments.length > 0 ? {
+      attachments: attachments.map((attachment) => ({
+        '@odata.type': '#microsoft.graph.fileAttachment',
+        name: attachment.name,
+        contentType: attachment.mimeType,
+        contentBytes: attachment.content.toString('base64'),
+      })),
+    } : {}),
   };
 }
 
@@ -1199,13 +1246,13 @@ export async function createLocalEmailDraft(userId: string, input: EmailDraftInp
   if (account.provider === 'google') {
     const result = await gmailFetch('drafts', token, {
       method: 'POST',
-      body: JSON.stringify({ message: { raw: encodeRawEmail(normalizedInput) } }),
+      body: JSON.stringify({ message: { raw: await encodeRawEmail(normalizedInput) } }),
     });
     draft = { id: String(result.id || ''), providerDraft: result };
   } else {
     const result = await microsoftFetch('messages', token, {
       method: 'POST',
-      body: JSON.stringify(microsoftMessagePayload(normalizedInput)),
+      body: JSON.stringify(await microsoftMessagePayload(normalizedInput)),
     });
     draft = { id: String(result.id || ''), providerDraft: result };
   }
@@ -1223,12 +1270,12 @@ export async function updateLocalEmailDraft(userId: string, draftId: string, inp
   if (account.provider === 'google') {
     await gmailFetch(`drafts/${encodeURIComponent(draftId)}`, token, {
       method: 'PUT',
-      body: JSON.stringify({ id: draftId, message: { raw: encodeRawEmail(normalizedInput) } }),
+      body: JSON.stringify({ id: draftId, message: { raw: await encodeRawEmail(normalizedInput) } }),
     });
   } else {
     await microsoftFetch(`messages/${encodeURIComponent(draftId)}`, token, {
       method: 'PATCH',
-      body: JSON.stringify(microsoftMessagePayload(normalizedInput)),
+      body: JSON.stringify(await microsoftMessagePayload(normalizedInput)),
     });
   }
   return { account: await publicLocalEmailAccount(account), draft: { id: draftId } };
@@ -1248,13 +1295,13 @@ export async function sendLocalEmailMessage(userId: string, input: EmailDraftInp
   if (account.provider === 'google') {
     const providerMessage = await gmailFetch('messages/send', token, {
       method: 'POST',
-      body: JSON.stringify({ raw: encodeRawEmail(normalizedInput) }),
+      body: JSON.stringify({ raw: await encodeRawEmail(normalizedInput) }),
     });
     messageId = typeof providerMessage.id === 'string' ? providerMessage.id : null;
   } else {
     await microsoftFetch('sendMail', token, {
       method: 'POST',
-      body: JSON.stringify({ message: microsoftMessagePayload(normalizedInput), saveToSentItems: true }),
+      body: JSON.stringify({ message: await microsoftMessagePayload(normalizedInput), saveToSentItems: true }),
     });
   }
 

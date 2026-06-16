@@ -1,5 +1,6 @@
 import 'server-only';
 
+import type { EmailAttachmentInput } from '@/app/lib/email/attachment-types';
 import { getManagedControlPlaneBaseUrl } from '@/app/lib/managed/control-plane-url';
 
 export type EmailPolicy = {
@@ -15,6 +16,7 @@ export type EmailDraftInput = {
   subject: string;
   body: string;
   is_HTML?: boolean;
+  attachments?: EmailAttachmentInput[];
 };
 
 export type ManagedEmailAccount = {

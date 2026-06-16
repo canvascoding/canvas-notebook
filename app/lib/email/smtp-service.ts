@@ -17,6 +17,7 @@ import {
   updateStoredEmailDraft,
   type LocalEmailDraftInput,
 } from '@/app/lib/email/draft-store';
+import { resolveEmailAttachments } from '@/app/lib/email/attachments';
 import {
   assertEmailRecipientsAllowed,
   normalizeEmailPolicyList,
@@ -293,6 +294,7 @@ export async function updateSmtpEmailDraft(userId: string, draftId: string, inpu
 async function sendSmtpMessage(secret: EmailAccountSmtpSecret, from: { name?: string | null; address: string }, input: SmtpEmailInput) {
   const transporter = smtpTransportFactory(smtpTransportOptions(secret));
   try {
+    const attachments = await resolveEmailAttachments(input.attachments);
     return await transporter.sendMail({
       from: from.name ? { name: from.name, address: from.address } : from.address,
       to: input.to,
@@ -301,6 +303,13 @@ async function sendSmtpMessage(secret: EmailAccountSmtpSecret, from: { name?: st
       subject: input.subject,
       headers: normalizeEmailCustomHeaders(input.headers),
       ...(input.is_HTML ? { html: input.body } : { text: input.body }),
+      ...(attachments.length > 0 ? {
+        attachments: attachments.map((attachment) => ({
+          content: attachment.content,
+          contentType: attachment.mimeType,
+          filename: attachment.name,
+        })),
+      } : {}),
       disableFileAccess: true,
       disableUrlAccess: true,
     });

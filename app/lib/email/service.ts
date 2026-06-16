@@ -193,6 +193,9 @@ function managedDraftInput(input: EmailDraftInput): ManagedEmailDraftInput {
   if (!input.accountId) {
     throw new Error('Managed email requires an accountId.');
   }
+  if (input.attachments?.length) {
+    throw new Error('Attachments are not supported for managed email accounts yet.');
+  }
   return {
     accountId: input.accountId,
     to: input.to,

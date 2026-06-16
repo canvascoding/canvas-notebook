@@ -87,6 +87,7 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       subject TEXT NOT NULL,
       body TEXT NOT NULL,
       is_html INTEGER NOT NULL DEFAULT 0,
+      attachments_json TEXT NOT NULL DEFAULT '[]',
       provider_draft_id TEXT,
       sent_at INTEGER,
       created_at INTEGER NOT NULL,
@@ -892,6 +893,10 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
 
   addColumns(sqlite, 'automation_jobs', {
     target_output_path: 'TEXT',
+  });
+
+  addColumns(sqlite, 'email_drafts', {
+    attachments_json: "TEXT NOT NULL DEFAULT '[]'",
   });
 
   addColumns(sqlite, 'todo_items', {

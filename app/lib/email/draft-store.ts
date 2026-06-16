@@ -5,6 +5,8 @@ import { and, eq } from 'drizzle-orm';
 
 import { db } from '@/app/lib/db';
 import { emailDrafts } from '@/app/lib/db/schema';
+import { normalizeEmailAttachmentInputs } from '@/app/lib/email/attachments';
+import type { EmailAttachmentInput } from '@/app/lib/email/attachment-types';
 
 export type LocalEmailDraftInput = {
   accountId: string;
@@ -14,6 +16,7 @@ export type LocalEmailDraftInput = {
   subject: string;
   body: string;
   is_HTML?: boolean;
+  attachments?: EmailAttachmentInput[];
 };
 
 export type StoredEmailDraft = typeof emailDrafts.$inferSelect;
@@ -31,6 +34,18 @@ function parseJsonArray(value: string): string[] {
   }
 }
 
+function jsonAttachments(value?: EmailAttachmentInput[]): string {
+  return JSON.stringify(normalizeEmailAttachmentInputs(value || []));
+}
+
+function parseAttachments(value: string): EmailAttachmentInput[] {
+  try {
+    return normalizeEmailAttachmentInputs(JSON.parse(value));
+  } catch {
+    return [];
+  }
+}
+
 export function publicEmailDraft(draft: StoredEmailDraft) {
   return {
     id: draft.id,
@@ -42,6 +57,7 @@ export function publicEmailDraft(draft: StoredEmailDraft) {
     subject: draft.subject,
     body: draft.body,
     is_HTML: draft.isHtml,
+    attachments: parseAttachments(draft.attachmentsJson || '[]'),
     sentAt: draft.sentAt?.toISOString() || null,
     createdAt: draft.createdAt.toISOString(),
     updatedAt: draft.updatedAt.toISOString(),
@@ -62,6 +78,7 @@ export async function createStoredEmailDraft(userId: string, input: LocalEmailDr
     subject: input.subject,
     body: input.body,
     isHtml: Boolean(input.is_HTML),
+    attachmentsJson: jsonAttachments(input.attachments),
     providerDraftId: null,
     sentAt: null,
     createdAt: now,
@@ -91,6 +108,7 @@ export async function updateStoredEmailDraft(userId: string, draftId: string, in
       subject: input.subject,
       body: input.body,
       isHtml: Boolean(input.is_HTML),
+      attachmentsJson: jsonAttachments(input.attachments),
       updatedAt: new Date(),
     })
     .where(and(eq(emailDrafts.userId, userId), eq(emailDrafts.id, draftId)));
