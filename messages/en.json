@@ -1385,24 +1385,6 @@
         "emailKey": "Login email",
         "passwordKey": "Login password",
         "nameKey": "Display name (optional, default: Administrator)"
-      },
-      "passwordChange": {
-        "title": "Change password",
-        "description": "Change your password directly on this instance. No email will be sent.",
-        "currentPassword": "Current password",
-        "newPassword": "New password",
-        "confirmPassword": "Confirm new password",
-        "showPasswords": "Show passwords",
-        "hidePasswords": "Hide passwords",
-        "revokeOtherSessions": "Sign out other sessions",
-        "revokeOtherSessionsDescription": "Recommended after a recovery reset or when you used a shared device.",
-        "submit": "Save password",
-        "saving": "Saving...",
-        "passwordMismatch": "The new passwords do not match",
-        "passwordLength": "The new password must be between 8 and 128 characters.",
-        "failed": "Could not change password",
-        "success": "Password changed",
-        "unexpectedError": "An unexpected error occurred"
       }
     },
     "users": {

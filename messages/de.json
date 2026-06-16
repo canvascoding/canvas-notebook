@@ -1384,24 +1384,6 @@
         "emailKey": "Login-E-Mail",
         "passwordKey": "Login-Passwort",
         "nameKey": "Anzeigename (optional, Standard: Administrator)"
-      },
-      "passwordChange": {
-        "title": "Passwort ändern",
-        "description": "Ändere dein Passwort direkt in dieser Instanz. Es wird keine E-Mail verschickt.",
-        "currentPassword": "Aktuelles Passwort",
-        "newPassword": "Neues Passwort",
-        "confirmPassword": "Neues Passwort bestätigen",
-        "showPasswords": "Passwörter anzeigen",
-        "hidePasswords": "Passwörter verbergen",
-        "revokeOtherSessions": "Andere Sitzungen abmelden",
-        "revokeOtherSessionsDescription": "Empfohlen, wenn du dein Passwort nach einem Recovery-Reset oder auf einem geteilten Gerät änderst.",
-        "submit": "Passwort speichern",
-        "saving": "Wird gespeichert...",
-        "passwordMismatch": "Die neuen Passwörter stimmen nicht überein",
-        "passwordLength": "Das neue Passwort muss zwischen 8 und 128 Zeichen lang sein.",
-        "failed": "Passwort konnte nicht geändert werden",
-        "success": "Passwort wurde geändert",
-        "unexpectedError": "Ein unerwarteter Fehler ist aufgetreten"
       }
     },
     "users": {
