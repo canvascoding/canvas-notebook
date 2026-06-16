@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type KeyboardEvent } from 'react';
 import DOMPurify from 'dompurify';
 import {
   Archive,
@@ -45,6 +45,7 @@ import {
 import type { FilePickerFile } from '@/app/components/canvas-agent-chat/ChatComposer';
 import { MarkdownMessage } from '@/app/components/canvas-agent-chat/ChatMarkdownMessage';
 import { EmailAccountsCard } from '@/app/components/settings/IntegrationsSettingsClient';
+import { findActiveComposerReference, replaceComposerReference, type ComposerReferenceMatch } from '@/app/lib/chat/composer-references';
 import { isLikelyHtmlEmailContent, normalizeEmailHtmlContent } from '@/app/lib/email/html-content';
 import { getFileIconComponent } from '@/app/lib/files/file-icons';
 import { getToolDisplayInfo } from '@/app/lib/pi/tool-display';
@@ -1147,18 +1148,41 @@ function EmailComposeDialog({
 }) {
   const blockedRecipient = useMemo(() => extractBlockedSendPolicyRecipient(error), [error]);
   const [isReferencePickerOpen, setIsReferencePickerOpen] = useState(false);
+  const [activeReferenceMatch, setActiveReferenceMatch] = useState<ComposerReferenceMatch | null>(null);
   const [referencePickerItems, setReferencePickerItems] = useState<ComposerReferencePickerItem<FilePickerFile>[]>([]);
+  const [referenceSearchQuery, setReferenceSearchQuery] = useState('');
+  const [isReferencePickerLoading, setIsReferencePickerLoading] = useState(false);
   const [selectedReferenceIndex, setSelectedReferenceIndex] = useState(0);
+  const aiPromptTextareaRef = useRef<HTMLTextAreaElement>(null);
   const referencePickerRef = useRef<HTMLDivElement>(null);
+  const referenceSearchInputRef = useRef<HTMLInputElement>(null);
+  const referenceRequestIdRef = useRef(0);
   const selectedContextPaths = useMemo(() => new Set((draft?.contextFiles || []).map((file) => file.path)), [draft?.contextFiles]);
 
-  const loadReferenceFiles = useCallback(async () => {
+  const closeReferencePicker = useCallback(() => {
+    referenceRequestIdRef.current += 1;
+    setIsReferencePickerOpen(false);
+    setActiveReferenceMatch(null);
+    setReferencePickerItems([]);
+    setReferenceSearchQuery('');
+    setSelectedReferenceIndex(0);
+    setIsReferencePickerLoading(false);
+  }, []);
+
+  const loadReferenceFiles = useCallback(async (query = '') => {
+    const requestId = referenceRequestIdRef.current + 1;
+    referenceRequestIdRef.current = requestId;
+    setIsReferencePickerLoading(true);
     try {
-      const response = await fetch('/api/files/list?limit=50', { credentials: 'include', cache: 'no-store' });
+      const params = new URLSearchParams({ limit: '50' });
+      if (query.trim()) params.set('q', query.trim());
+      const response = await fetch(`/api/files/list?${params.toString()}`, { credentials: 'include', cache: 'no-store' });
       const payload = await response.json().catch(() => ({}));
+      if (requestId !== referenceRequestIdRef.current) return;
       const files = Array.isArray(payload.files) ? payload.files as FilePickerFile[] : [];
       const items = files
         .filter(isSupportedEmailContextFile)
+        .filter((file) => !selectedContextPaths.has(file.path))
         .map((file) => ({
           id: `file:${file.path}`,
           kind: 'file' as const,
@@ -1170,32 +1194,119 @@ function EmailComposeDialog({
       setReferencePickerItems(items);
       setSelectedReferenceIndex(0);
     } catch {
+      if (requestId !== referenceRequestIdRef.current) return;
       setReferencePickerItems([]);
       setSelectedReferenceIndex(0);
+    } finally {
+      if (requestId === referenceRequestIdRef.current) {
+        setIsReferencePickerLoading(false);
+      }
     }
-  }, []);
+  }, [selectedContextPaths]);
 
   const selectReferenceFile = useCallback((item: ComposerReferencePickerItem<FilePickerFile>) => {
     const file = item.payload;
     if (!draft || !isSupportedEmailContextFile(file)) return;
-    if (selectedContextPaths.has(file.path)) {
-      setIsReferencePickerOpen(false);
-      return;
+    const currentAiPrompt = aiPromptTextareaRef.current?.value ?? draft.aiPrompt;
+    let nextAiPrompt = currentAiPrompt;
+    let nextCursorPosition: number | null = null;
+
+    if (activeReferenceMatch) {
+      const replacement = `+"${file.path}" `;
+      const nextPrompt = replaceComposerReference(currentAiPrompt, activeReferenceMatch, replacement);
+      nextAiPrompt = nextPrompt.nextValue;
+      nextCursorPosition = nextPrompt.nextCursorPosition;
     }
+
     onUpdate({
-      contextFiles: [
-        ...draft.contextFiles,
-        {
-          isImage: file.isImage,
-          name: file.name,
-          path: file.path,
-          type: file.type,
-        },
-      ],
+      aiPrompt: nextAiPrompt,
+      contextFiles: selectedContextPaths.has(file.path)
+        ? draft.contextFiles
+        : [
+            ...draft.contextFiles,
+            {
+              isImage: file.isImage,
+              name: file.name,
+              path: file.path,
+              type: file.type,
+            },
+          ],
       usedContext: [],
     });
-    setIsReferencePickerOpen(false);
-  }, [draft, onUpdate, selectedContextPaths]);
+    closeReferencePicker();
+
+    if (nextCursorPosition !== null) {
+      window.setTimeout(() => {
+        aiPromptTextareaRef.current?.focus();
+        aiPromptTextareaRef.current?.setSelectionRange(nextCursorPosition, nextCursorPosition);
+      }, 0);
+    }
+  }, [activeReferenceMatch, closeReferencePicker, draft, onUpdate, selectedContextPaths]);
+
+  const openManualReferencePicker = useCallback(() => {
+    const nextOpen = !isReferencePickerOpen;
+    if (!nextOpen) {
+      closeReferencePicker();
+      return;
+    }
+    setActiveReferenceMatch(null);
+    setReferenceSearchQuery('');
+    setIsReferencePickerOpen(true);
+    void loadReferenceFiles('');
+    window.setTimeout(() => referenceSearchInputRef.current?.focus(), 0);
+  }, [closeReferencePicker, isReferencePickerOpen, loadReferenceFiles]);
+
+  const updateReferenceSearch = useCallback((value: string) => {
+    setReferenceSearchQuery(value);
+    void loadReferenceFiles(value);
+  }, [loadReferenceFiles]);
+
+  const handleReferenceSearchKeyDown = useCallback((event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      setSelectedReferenceIndex((current) => Math.min(referencePickerItems.length - 1, current + 1));
+      return;
+    }
+    if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      setSelectedReferenceIndex((current) => Math.max(0, current - 1));
+      return;
+    }
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      const item = referencePickerItems[selectedReferenceIndex];
+      if (item) selectReferenceFile(item);
+      return;
+    }
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      closeReferencePicker();
+    }
+  }, [closeReferencePicker, referencePickerItems, selectReferenceFile, selectedReferenceIndex]);
+
+  const handleAiPromptChange = useCallback((event: ChangeEvent<HTMLTextAreaElement>) => {
+    const value = event.target.value;
+    const cursorPosition = event.target.selectionStart;
+    onUpdate({ aiPrompt: value });
+
+    if (!draft || draft.aiMode !== 'workspace-agent') {
+      closeReferencePicker();
+      return;
+    }
+
+    const match = findActiveComposerReference(value, cursorPosition);
+    if (match?.kind === 'file' && match.trigger === '+') {
+      setActiveReferenceMatch(match);
+      setReferenceSearchQuery(match.query);
+      setIsReferencePickerOpen(true);
+      void loadReferenceFiles(match.query);
+      return;
+    }
+
+    if (activeReferenceMatch) {
+      closeReferencePicker();
+    }
+  }, [activeReferenceMatch, closeReferencePicker, draft, loadReferenceFiles, onUpdate]);
 
   return (
     <Dialog
@@ -1267,13 +1378,14 @@ function EmailComposeDialog({
                     </div>
                     <Textarea
                       id="email-compose-ai-prompt"
+                      ref={aiPromptTextareaRef}
                       value={draft.aiPrompt}
-                      onChange={(event) => onUpdate({ aiPrompt: event.target.value })}
+                      onChange={handleAiPromptChange}
                       placeholder={labels.composeAiPromptPlaceholder}
                       className="min-h-20 resize-y bg-background"
                       disabled={isSubmitting || isGeneratingAi}
                     />
-                    <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+                    <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
                       <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                         <label className="flex items-center gap-2 text-xs text-muted-foreground">
                           <span>{labels.composeToneLabel}</span>
@@ -1289,17 +1401,13 @@ function EmailComposeDialog({
                           </select>
                         </label>
                         {draft.aiMode === 'workspace-agent' ? (
-                          <div className="relative w-full sm:w-72">
+                          <div className="relative w-full sm:w-auto">
                             <Button
                               type="button"
                               variant="outline"
                               size="sm"
                               className="w-full justify-start sm:w-auto"
-                              onClick={() => {
-                                const nextOpen = !isReferencePickerOpen;
-                                setIsReferencePickerOpen(nextOpen);
-                                if (nextOpen) void loadReferenceFiles();
-                              }}
+                              onClick={openManualReferencePicker}
                               disabled={isSubmitting || isGeneratingAi}
                             >
                               <Plus className="mr-2 h-4 w-4" />
@@ -1307,11 +1415,19 @@ function EmailComposeDialog({
                             </Button>
                             {isReferencePickerOpen ? (
                               <ComposerReferencePicker
+                                className="min-w-[20rem] max-w-[min(32rem,calc(100vw-3rem))]"
                                 emptyState={labels.composeReferencePickerEmpty}
                                 header={labels.composeReferencePickerHeader}
+                                isLoading={isReferencePickerLoading}
                                 items={referencePickerItems}
                                 onSelect={selectReferenceFile}
+                                onSearchKeyDown={handleReferenceSearchKeyDown}
+                                onSearchValueChange={updateReferenceSearch}
                                 pickerRef={referencePickerRef}
+                                searchAutoFocus={!activeReferenceMatch}
+                                searchInputRef={referenceSearchInputRef}
+                                searchPlaceholder={labels.composeReferencePickerSearchPlaceholder}
+                                searchValue={referenceSearchQuery}
                                 selectedIndex={selectedReferenceIndex}
                               />
                             ) : null}
@@ -1322,6 +1438,7 @@ function EmailComposeDialog({
                         type="button"
                         variant="outline"
                         size="sm"
+                        className="w-full sm:w-auto"
                         onClick={onGenerateAi}
                         disabled={isSubmitting || isGeneratingAi || !draft.aiPrompt.trim()}
                       >

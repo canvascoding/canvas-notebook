@@ -1,6 +1,6 @@
 'use client';
 
-import type { ReactNode } from 'react';
+import type { KeyboardEvent, ReactNode, RefObject } from 'react';
 import { ImageThumbnailIcon } from '@/app/components/shared/ImageThumbnailIcon';
 import { isImageFile } from '@/app/lib/files/file-icons';
 
@@ -14,10 +14,18 @@ export interface ComposerReferencePickerItem<T = unknown> {
 }
 
 interface ComposerReferencePickerProps<T = unknown> {
+  className?: string;
   emptyState: string;
+  isLoading?: boolean;
   header: string;
   items: ComposerReferencePickerItem<T>[];
   onSelect: (item: ComposerReferencePickerItem<T>) => void;
+  onSearchKeyDown?: (event: KeyboardEvent<HTMLInputElement>) => void;
+  onSearchValueChange?: (value: string) => void;
+  searchAutoFocus?: boolean;
+  searchInputRef?: RefObject<HTMLInputElement | null>;
+  searchPlaceholder?: string;
+  searchValue?: string;
   pickerRef?: React.RefObject<HTMLDivElement | null>;
   selectedIndex: number;
 }
@@ -68,21 +76,43 @@ function ReferencePickerIcon<T>({ item }: { item: ComposerReferencePickerItem<T>
 }
 
 export function ComposerReferencePicker<T = unknown>({
+  className,
   emptyState,
+  isLoading = false,
   header,
   items,
   onSelect,
+  onSearchKeyDown,
+  onSearchValueChange,
   pickerRef,
+  searchAutoFocus = false,
+  searchInputRef,
+  searchPlaceholder,
+  searchValue,
   selectedIndex,
 }: ComposerReferencePickerProps<T>) {
+  const showSearch = Boolean(onSearchValueChange);
+
   return (
     <div
       ref={pickerRef}
       data-testid="chat-reference-picker"
-      className="absolute bottom-full left-0 z-50 mb-1 max-h-48 w-full overflow-y-auto border border-border bg-background shadow-lg"
+      className={`absolute bottom-full left-0 z-50 mb-1 max-h-60 w-full overflow-y-auto border border-border bg-background shadow-lg ${className || ''}`}
     >
-      <div className="border-b border-border p-2 text-xs text-muted-foreground">
-        {header}
+      <div className="border-b border-border p-2">
+        <div className="text-xs text-muted-foreground">{header}</div>
+        {showSearch ? (
+          <input
+            ref={searchInputRef}
+            type="search"
+            value={searchValue || ''}
+            onChange={(event) => onSearchValueChange?.(event.target.value)}
+            onKeyDown={onSearchKeyDown}
+            autoFocus={searchAutoFocus}
+            placeholder={searchPlaceholder}
+            className="mt-2 h-8 w-full border border-input bg-background px-2 text-sm text-foreground outline-none focus:border-primary"
+          />
+        ) : null}
       </div>
       {items.map((item, index) => (
         <button
@@ -109,7 +139,7 @@ export function ComposerReferencePicker<T = unknown>({
       ))}
       {items.length === 0 ? (
         <div className="p-3 text-center text-sm text-muted-foreground">
-          {emptyState}
+          {isLoading ? '...' : emptyState}
         </div>
       ) : null}
     </div>

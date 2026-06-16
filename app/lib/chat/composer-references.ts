@@ -1,5 +1,5 @@
 export type ComposerReferenceKind = 'file' | 'skill';
-export type ComposerReferenceTrigger = '@' | '/';
+export type ComposerReferenceTrigger = '@' | '+' | '/';
 
 export interface ComposerReferenceMatch {
   kind: ComposerReferenceKind;
@@ -13,28 +13,48 @@ function isSlashBoundaryCharacter(character: string | undefined): boolean {
   return !character || /\s|[\(\[\{"'`,;]/.test(character);
 }
 
-function getFileReferenceMatch(value: string, cursorPosition: number): ComposerReferenceMatch | null {
-  const lastAtIndex = value.lastIndexOf('@', cursorPosition);
-  if (lastAtIndex === -1 || cursorPosition <= lastAtIndex) {
+function isFileBoundaryCharacter(character: string | undefined): boolean {
+  return !character || /\s|[\(\[\{"'`,;]/.test(character);
+}
+
+function getFileReferenceMatchForTrigger(value: string, cursorPosition: number, trigger: '@' | '+'): ComposerReferenceMatch | null {
+  const lastTriggerIndex = value.lastIndexOf(trigger, cursorPosition);
+  if (lastTriggerIndex === -1 || cursorPosition <= lastTriggerIndex) {
     return null;
   }
 
-  const query = value.slice(lastAtIndex + 1, cursorPosition);
+  if (trigger === '+' && !isFileBoundaryCharacter(value[lastTriggerIndex - 1])) {
+    return null;
+  }
+
+  const query = value.slice(lastTriggerIndex + 1, cursorPosition);
   const hasSpace = query.includes(' ');
   const hasCompletedQuote = query.includes('"') && query.indexOf('"') < query.length - 1;
   const hasAnotherAt = query.includes('@');
+  const hasAnotherPlus = query.includes('+');
 
-  if (hasSpace || hasCompletedQuote || hasAnotherAt) {
+  if (hasSpace || hasCompletedQuote || hasAnotherAt || hasAnotherPlus) {
     return null;
   }
 
   return {
     kind: 'file',
-    trigger: '@',
+    trigger,
     query,
-    startIndex: lastAtIndex,
+    startIndex: lastTriggerIndex,
     endIndex: cursorPosition,
   };
+}
+
+function getFileReferenceMatch(value: string, cursorPosition: number): ComposerReferenceMatch | null {
+  const atMatch = getFileReferenceMatchForTrigger(value, cursorPosition, '@');
+  const plusMatch = getFileReferenceMatchForTrigger(value, cursorPosition, '+');
+
+  if (atMatch && plusMatch) {
+    return atMatch.startIndex > plusMatch.startIndex ? atMatch : plusMatch;
+  }
+
+  return atMatch || plusMatch;
 }
 
 function getSkillReferenceMatch(value: string, cursorPosition: number): ComposerReferenceMatch | null {
