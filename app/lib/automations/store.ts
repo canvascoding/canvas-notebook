@@ -1,6 +1,6 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 
-import { and, asc, desc, eq, inArray, lte, notInArray, or } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, lte, notInArray, or, sql } from 'drizzle-orm';
 
 import { db } from '@/app/lib/db';
 import { automationJobs, automationRuns, automationWebhookEvents, automationWebhookTriggers, composioWebhookEvents, piSessions } from '@/app/lib/db/schema';
@@ -31,6 +31,8 @@ const DEFAULT_DELIVERY_MODE: AutomationDeliveryMode = 'web';
 const DEFAULT_DELIVERY_SESSION_MODE: AutomationDeliverySessionMode = 'new_session';
 const DELIVERY_MODES = new Set<AutomationDeliveryMode>(['web', 'origin', 'session', 'channel_home', 'last_active', 'silent']);
 const DELIVERY_SESSION_MODES = new Set<AutomationDeliverySessionMode>(['new_session', 'channel_active', 'fixed_session']);
+const AUTOMATION_RUN_RESULT_PREVIEW_LENGTH = 1000;
+const AUTOMATION_RUN_LOG_MAX_JSON_LENGTH = 250_000;
 
 function stripLeadingPathDecorators(value: string): string {
   let next = value;
@@ -57,6 +59,10 @@ type AutomationSessionMetadata = {
 };
 
 type AutomationWebhookTriggerRow = typeof automationWebhookTriggers.$inferSelect;
+type AutomationRunMappableRow = Omit<typeof automationRuns.$inferSelect, 'eventsLog' | 'metadataJson'> & {
+  eventsLog?: string | null;
+  metadataJson?: string | null;
+};
 
 export type AutomationWebhookTriggerRecord = {
   id: string;
@@ -247,7 +253,7 @@ function mapJobRow(
 }
 
 function mapRunRow(
-  row: typeof automationRuns.$inferSelect,
+  row: AutomationRunMappableRow,
   sessionMetadata?: AutomationSessionMetadata | null,
 ): AutomationRunRecord {
   return {
@@ -301,7 +307,7 @@ async function loadAutomationSessionMetadata(sessionIds: string[]): Promise<Map<
   );
 }
 
-async function mapRunRows(rows: Array<typeof automationRuns.$inferSelect>): Promise<AutomationRunRecord[]> {
+async function mapRunRows(rows: AutomationRunMappableRow[]): Promise<AutomationRunRecord[]> {
   const sessionMetadata = await loadAutomationSessionMetadata(
     rows.map((row) => row.piSessionId).filter((value): value is string => Boolean(value)),
   );
@@ -365,7 +371,27 @@ export async function getAutomationJob(jobId: string): Promise<AutomationJobReco
 
 export async function listAutomationRuns(jobId: string): Promise<AutomationRunRecord[]> {
   const rows = await db
-    .select()
+    .select({
+      id: automationRuns.id,
+      jobId: automationRuns.jobId,
+      status: automationRuns.status,
+      triggerType: automationRuns.triggerType,
+      scheduledFor: automationRuns.scheduledFor,
+      startedAt: automationRuns.startedAt,
+      finishedAt: automationRuns.finishedAt,
+      attemptNumber: automationRuns.attemptNumber,
+      outputDir: automationRuns.outputDir,
+      targetOutputPath: automationRuns.targetOutputPath,
+      effectiveTargetOutputPath: automationRuns.effectiveTargetOutputPath,
+      logPath: automationRuns.logPath,
+      resultPath: automationRuns.resultPath,
+      errorMessage: automationRuns.errorMessage,
+      piSessionId: automationRuns.piSessionId,
+      resultText: sql<string | null>`substr(${automationRuns.resultText}, 1, ${AUTOMATION_RUN_RESULT_PREVIEW_LENGTH})`,
+      eventsLog: sql<string | null>`NULL`,
+      metadataJson: sql<string | null>`NULL`,
+      createdAt: automationRuns.createdAt,
+    })
     .from(automationRuns)
     .where(eq(automationRuns.jobId, jobId))
     .orderBy(desc(automationRuns.createdAt))
@@ -375,9 +401,31 @@ export async function listAutomationRuns(jobId: string): Promise<AutomationRunRe
 }
 
 export async function getAutomationRun(runId: string): Promise<AutomationRunRecord | null> {
-  const row = await db.query.automationRuns.findFirst({
-    where: eq(automationRuns.id, runId),
-  });
+  const [row] = await db
+    .select({
+      id: automationRuns.id,
+      jobId: automationRuns.jobId,
+      status: automationRuns.status,
+      triggerType: automationRuns.triggerType,
+      scheduledFor: automationRuns.scheduledFor,
+      startedAt: automationRuns.startedAt,
+      finishedAt: automationRuns.finishedAt,
+      attemptNumber: automationRuns.attemptNumber,
+      outputDir: automationRuns.outputDir,
+      targetOutputPath: automationRuns.targetOutputPath,
+      effectiveTargetOutputPath: automationRuns.effectiveTargetOutputPath,
+      logPath: automationRuns.logPath,
+      resultPath: automationRuns.resultPath,
+      errorMessage: automationRuns.errorMessage,
+      piSessionId: automationRuns.piSessionId,
+      resultText: automationRuns.resultText,
+      eventsLog: sql<string | null>`NULL`,
+      metadataJson: automationRuns.metadataJson,
+      createdAt: automationRuns.createdAt,
+    })
+    .from(automationRuns)
+    .where(eq(automationRuns.id, runId))
+    .limit(1);
 
   if (!row) {
     return null;
@@ -385,6 +433,47 @@ export async function getAutomationRun(runId: string): Promise<AutomationRunReco
 
   const sessionMetadata = row.piSessionId ? await loadAutomationSessionMetadata([row.piSessionId]) : new Map();
   return mapRunRow(row, row.piSessionId ? sessionMetadata.get(row.piSessionId) ?? null : null);
+}
+
+export async function getAutomationRunLogSnapshot(runId: string): Promise<{
+  logPath: string | null;
+  content: string;
+  truncated: boolean;
+} | null> {
+  const [row] = await db
+    .select({
+      logPath: automationRuns.logPath,
+      eventsLogLength: sql<number | null>`length(${automationRuns.eventsLog})`,
+      eventsLog: sql<string | null>`
+        CASE
+          WHEN length(${automationRuns.eventsLog}) <= ${AUTOMATION_RUN_LOG_MAX_JSON_LENGTH}
+          THEN ${automationRuns.eventsLog}
+          ELSE NULL
+        END
+      `,
+    })
+    .from(automationRuns)
+    .where(eq(automationRuns.id, runId))
+    .limit(1);
+
+  if (!row) {
+    return null;
+  }
+
+  const isOversized = Boolean(row.eventsLogLength && row.eventsLogLength > AUTOMATION_RUN_LOG_MAX_JSON_LENGTH);
+  if (isOversized) {
+    return {
+      logPath: row.logPath,
+      content: `Run log is too large to load safely in the browser (${row.eventsLogLength} characters stored in SQLite).\nOpen the persisted chat session for the full conversation, or inspect the database directly.\n`,
+      truncated: true,
+    };
+  }
+
+  return {
+    logPath: row.logPath,
+    content: row.eventsLog ? (JSON.parse(row.eventsLog) as string[]).join('\n') + '\n' : '',
+    truncated: false,
+  };
 }
 
 export async function createAutomationJob(input: CreateAutomationJobInput, userId: string): Promise<AutomationJobRecord> {

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { requireAutomationSession, applyAutomationRateLimit } from '@/app/lib/automations/api';
-import { getAutomationRun } from '@/app/lib/automations/store';
+import { getAutomationRunLogSnapshot } from '@/app/lib/automations/store';
 
 type RouteContext = {
   params: Promise<{ runId: string }>;
@@ -19,19 +19,17 @@ export async function GET(request: NextRequest, context: RouteContext) {
   }
 
   const { runId } = await context.params;
-  const run = await getAutomationRun(runId);
-  if (!run) {
+  const snapshot = await getAutomationRunLogSnapshot(runId);
+  if (!snapshot) {
     return NextResponse.json({ success: false, error: 'Automation run not found.' }, { status: 404 });
   }
-
-  // Return events log from database instead of file
-  const content = run.eventsLog ? run.eventsLog.join('\n') + '\n' : '';
 
   return NextResponse.json({
     success: true,
     data: {
-      logPath: run.logPath,
-      content,
+      logPath: snapshot.logPath,
+      content: snapshot.content,
+      truncated: snapshot.truncated,
     },
   });
 }

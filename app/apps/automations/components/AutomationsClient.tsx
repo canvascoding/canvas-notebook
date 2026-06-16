@@ -692,6 +692,7 @@ export function AutomationsClient({ initialJobId = null }: AutomationsClientProp
   const [triggerDraft, setTriggerDraft] = useState<TriggerComposerDraft>(() => defaultTriggerDraft());
   const [customWebhookDraft, setCustomWebhookDraft] = useState<CustomWebhookDraft>(() => defaultCustomWebhookDraft());
   const [runs, setRuns] = useState<AutomationRunRecord[]>([]);
+  const [runDetailsById, setRunDetailsById] = useState<Record<string, AutomationRunRecord>>({});
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const [logContent, setLogContent] = useState('');
   const [sessionMessages, setSessionMessages] = useState<PersistedAutomationSessionMessage[]>([]);
@@ -724,7 +725,11 @@ export function AutomationsClient({ initialJobId = null }: AutomationsClientProp
   const [isRunSheetOpen, setIsRunSheetOpen] = useState(false);
 
   const selectedJob = useMemo(() => jobs.find((job) => job.id === selectedJobId) || null, [jobs, selectedJobId]);
-  const selectedRun = useMemo(() => runs.find((run) => run.id === selectedRunId) || null, [runs, selectedRunId]);
+  const selectedRunSummary = useMemo(() => runs.find((run) => run.id === selectedRunId) || null, [runs, selectedRunId]);
+  const selectedRun = useMemo(
+    () => (selectedRunId ? runDetailsById[selectedRunId] || selectedRunSummary : null),
+    [runDetailsById, selectedRunId, selectedRunSummary],
+  );
   const templates = useMemo(() => getAutomationTemplates(locale), [locale]);
   const enabledSkills = useMemo(() => skills.filter((skill) => skill.enabled !== false), [skills]);
   const agentOptions = agents.length > 0
@@ -850,15 +855,32 @@ export function AutomationsClient({ initialJobId = null }: AutomationsClientProp
 
       const nextRuns = payload.data as AutomationRunRecord[];
       setRuns(nextRuns);
+      setRunDetailsById((current) => {
+        const nextIds = new Set(nextRuns.map((run) => run.id));
+        return Object.fromEntries(Object.entries(current).filter(([runId]) => nextIds.has(runId)));
+      });
       const runToSelect = nextRuns.find((run) => run.id === preferredRunId) || nextRuns[0] || null;
       setSelectedRunId(runToSelect?.id || null);
     } catch (error) {
       setRuns([]);
+      setRunDetailsById({});
       setSelectedRunId(null);
       setLogContent('');
       toast.error(error instanceof Error ? error.message : t('errors.loadRuns'));
     } finally {
       setIsRefreshingRuns(false);
+    }
+  }
+
+  async function loadRunDetails(runId: string) {
+    try {
+      const response = await fetch(`/api/automations/runs/${runId}`, { cache: 'no-store', credentials: 'include' });
+      const payload = await response.json();
+      if (!response.ok || !payload.success) throw new Error(payload.error || t('errors.loadRuns'));
+      const run = payload.data as AutomationRunRecord;
+      setRunDetailsById((current) => ({ ...current, [run.id]: run }));
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : t('errors.loadRuns'));
     }
   }
 
@@ -1049,6 +1071,7 @@ export function AutomationsClient({ initialJobId = null }: AutomationsClientProp
     if (!selectedJobId) {
       /* eslint-disable react-hooks/set-state-in-effect */
       setRuns([]);
+      setRunDetailsById({});
       setSelectedRunId(null);
       setLogContent('');
       /* eslint-enable react-hooks/set-state-in-effect */
@@ -1059,17 +1082,21 @@ export function AutomationsClient({ initialJobId = null }: AutomationsClientProp
   }, [selectedJobId]);
 
   useEffect(() => {
-    if (!selectedRunId) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (!selectedRunId || !isRunSheetOpen) {
+      /* eslint-disable react-hooks/set-state-in-effect */
       setLogContent('');
+      setSessionMessages([]);
+      setIsLoadingSessionMessages(false);
+      /* eslint-enable react-hooks/set-state-in-effect */
       return;
     }
+    void loadRunDetails(selectedRunId);
     void loadLogs(selectedRunId);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- loadLogs takes the run id as an argument
-  }, [selectedRunId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- loaders take the run id as an argument
+  }, [selectedRunId, isRunSheetOpen]);
 
   useEffect(() => {
-    if (!selectedRun?.piSessionId || !selectedRun.hasPersistedSession) {
+    if (!isRunSheetOpen || !selectedRun?.piSessionId || !selectedRun.hasPersistedSession) {
       /* eslint-disable react-hooks/set-state-in-effect */
       setSessionMessages([]);
       setIsLoadingSessionMessages(false);
@@ -1079,7 +1106,7 @@ export function AutomationsClient({ initialJobId = null }: AutomationsClientProp
 
     void loadSessionMessages(selectedRun.piSessionId);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- loadSessionMessages takes the session id as an argument
-  }, [selectedRun?.piSessionId, selectedRun?.hasPersistedSession, selectedRun?.status, selectedRun?.finishedAt]);
+  }, [isRunSheetOpen, selectedRun?.piSessionId, selectedRun?.hasPersistedSession, selectedRun?.status, selectedRun?.finishedAt]);
 
   useEffect(() => {
     if (!selectedJobId) return undefined;
