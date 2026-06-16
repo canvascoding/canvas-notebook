@@ -6,7 +6,7 @@ import { isImageFile } from '@/app/lib/files/file-icons';
 
 export interface ComposerReferencePickerItem<T = unknown> {
   id: string;
-  kind: 'file' | 'skill';
+  kind: 'file' | 'plugin' | 'skill';
   icon: ReactNode;
   label: string;
   payload: T;

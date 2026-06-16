@@ -966,15 +966,15 @@ export default function CanvasAgentChat({
   const activeReferenceKind = activeReferenceMatch?.kind;
   const referencePickerHeader = activeReferenceKind === 'skill'
     ? isLoadingReferenceItems
-      ? t('loadingSkills')
-      : t('skillsFound', { count: referencePickerItems.length })
+      ? t('loadingCapabilities')
+      : t('capabilitiesFound', { count: referencePickerItems.length })
     : isLoadingReferenceItems
       ? t('loadingFiles')
       : t('filesFound', { count: referencePickerItems.length });
   const referencePickerEmptyState = activeReferenceKind === 'skill'
     ? activeReferenceMatch?.query
-      ? t('noSkillsFoundMatching', { query: activeReferenceMatch.query })
-      : t('noSkillsAvailable')
+      ? t('noCapabilitiesFoundMatching', { query: activeReferenceMatch.query })
+      : t('noCapabilitiesAvailable')
     : activeReferenceMatch?.query
       ? t('noFilesFoundMatching', { query: activeReferenceMatch.query })
       : t('noFilesInWorkspace');

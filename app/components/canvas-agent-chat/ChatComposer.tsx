@@ -32,8 +32,29 @@ export type FilePickerFile = {
   isImage: boolean;
 };
 
+export type PluginPickerPlugin = {
+  name: string;
+  version: string;
+  description: string;
+  enabled?: boolean;
+  interface?: {
+    displayName?: string;
+    shortDescription?: string;
+    category?: string;
+    brandColor?: string;
+    icon?: string;
+    logo?: string;
+    defaultPrompt?: string[];
+  };
+  skills?: Array<{
+    name: string;
+    title: string;
+    description: string;
+  }>;
+};
+
 export type SkillPickerSkill = Pick<CanvasSkill, 'name' | 'title' | 'description' | 'enabled' | 'interface' | 'plugin'>;
-export type ReferencePickerValue = FilePickerFile | SkillPickerSkill;
+export type ReferencePickerValue = FilePickerFile | PluginPickerPlugin | SkillPickerSkill;
 
 export const ChatComposer = forwardRef<HTMLDivElement, {
   ariaHidden: boolean;

@@ -73,6 +73,9 @@ async function main() {
       listCanvasPlugins,
       setCanvasPluginEnabled,
     } = await import('../app/lib/plugins/canvas-plugin-registry');
+    const {
+      buildReferencedPluginRuntimeContext,
+    } = await import('../app/lib/plugins/plugin-reference-context');
     const { loadSkillsFromDisk } = await import('../app/lib/skills/skill-loader');
 
     const install = await installCanvasPluginFromPath(pluginRoot, { enable: true });
@@ -85,6 +88,10 @@ async function main() {
 
     let skills = await loadSkillsFromDisk();
     assert.equal(skills.some((skill) => skill.name === 'test-plugin-skill' && skill.plugin?.name === 'test-plugin'), true);
+
+    const pluginRuntimeContext = await buildReferencedPluginRuntimeContext('Use /test-plugin for this workflow.');
+    assert.match(pluginRuntimeContext || '', /Referenced Canvas Plugins/);
+    assert.match(pluginRuntimeContext || '', /test-plugin-skill/);
 
     const disable = await setCanvasPluginEnabled('test-plugin', false);
     assert.equal(disable.success, true, disable.error);

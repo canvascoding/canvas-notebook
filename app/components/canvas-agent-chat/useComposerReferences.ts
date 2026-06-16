@@ -11,10 +11,11 @@ import {
   type SetStateAction,
 } from 'react';
 import type { ComposerReferencePickerItem } from '@/app/components/canvas-agent-chat/ComposerReferencePicker';
-import type { FilePickerFile, ReferencePickerValue, SkillPickerSkill } from '@/app/components/canvas-agent-chat/ChatComposer';
+import type { FilePickerFile, PluginPickerPlugin, ReferencePickerValue, SkillPickerSkill } from '@/app/components/canvas-agent-chat/ChatComposer';
 import { findActiveComposerReference, replaceComposerReference, type ComposerReferenceMatch } from '@/app/lib/chat/composer-references';
 import { safeFetchJson } from '@/app/lib/chat/fetch-json';
 import { getFileIconComponent } from '@/app/lib/files/file-icons';
+import { CanvasPluginIcon } from '@/app/lib/plugins/plugin-icons';
 import { CanvasSkillIcon } from '@/app/lib/skills/skill-icons';
 import { searchSkillReferenceEntries } from '@/app/lib/skills/skill-reference-search';
 
@@ -35,6 +36,7 @@ export function useComposerReferences({
   const [referencePickerItems, setReferencePickerItems] = useState<ComposerReferencePickerItem<ReferencePickerValue>[]>([]);
   const [selectedReferenceIndex, setSelectedReferenceIndex] = useState(0);
   const [availableSkills, setAvailableSkills] = useState<SkillPickerSkill[] | null>(null);
+  const [availablePlugins, setAvailablePlugins] = useState<PluginPickerPlugin[] | null>(null);
   const [isLoadingReferenceItems, setIsLoadingReferenceItems] = useState(false);
   const referencePickerRef = useRef<HTMLDivElement>(null);
   const referenceRequestIdRef = useRef(0);
@@ -44,6 +46,7 @@ export function useComposerReferences({
     setReferencePickerItems([]);
     setSelectedReferenceIndex(0);
     setAvailableSkills(null);
+    setAvailablePlugins(null);
     referenceRequestIdRef.current += 1;
   }, []);
 
@@ -71,18 +74,65 @@ export function useComposerReferences({
     }
   }, []);
 
-  const setSkillReferenceItems = useCallback((skills: SkillPickerSkill[], query: string) => {
-    const items = searchSkillReferenceEntries(skills, query).map((skill) => ({
+  const setCapabilityReferenceItems = useCallback((plugins: PluginPickerPlugin[], skills: SkillPickerSkill[], query: string) => {
+    const pluginItems = searchSkillReferenceEntries(
+      plugins.map((plugin) => ({
+        ...plugin,
+        title: plugin.interface?.displayName || plugin.name,
+        description: plugin.interface?.shortDescription || plugin.description,
+      })),
+      query,
+    ).map((plugin) => ({
+      id: `plugin:${plugin.name}`,
+      kind: 'plugin' as const,
+      icon: createElement(CanvasPluginIcon, { plugin, className: 'h-5 w-5 text-[10px]' }),
+      label: plugin.interface?.displayName || plugin.name,
+      secondaryLabel: `/${plugin.name} · Plugin`,
+      payload: plugin,
+    }));
+
+    const skillItems = searchSkillReferenceEntries(skills, query).map((skill) => ({
       id: `skill:${skill.name}`,
       kind: 'skill' as const,
       icon: createElement(CanvasSkillIcon, { skill, className: 'h-5 w-5 text-[10px]' }),
       label: skill.title,
-      secondaryLabel: `/${skill.name}`,
+      secondaryLabel: `/${skill.name} · Skill`,
       payload: skill,
     }));
-    setReferencePickerItems(items);
+
+    setReferencePickerItems([...pluginItems, ...skillItems]);
     setSelectedReferenceIndex(0);
   }, []);
+
+  const fetchPlugins = useCallback(async () => {
+    if (availablePlugins) {
+      return availablePlugins;
+    }
+
+    try {
+      const res = await fetch('/api/plugins');
+      const data = await safeFetchJson<{ success: boolean; plugins?: PluginPickerPlugin[] }>(res);
+      if (!data?.success) {
+        return [];
+      }
+
+      const nextPlugins = (data.plugins || [])
+        .filter((plugin) => plugin.enabled !== false)
+        .map((plugin) => ({
+          description: plugin.description,
+          enabled: plugin.enabled,
+          interface: plugin.interface,
+          name: plugin.name,
+          skills: plugin.skills,
+          version: plugin.version,
+        }));
+      setAvailablePlugins(nextPlugins);
+      return nextPlugins;
+    } catch (err) {
+      console.error('Failed to fetch plugins', err);
+      return [];
+    }
+  }, [availablePlugins]);
 
   const fetchSkills = useCallback(async () => {
     if (availableSkills) {
@@ -112,6 +162,11 @@ export function useComposerReferences({
     }
   }, [availableSkills]);
 
+  const fetchCapabilities = useCallback(async () => {
+    const [plugins, skills] = await Promise.all([fetchPlugins(), fetchSkills()]);
+    return { plugins, skills };
+  }, [fetchPlugins, fetchSkills]);
+
   const handleInputChange = useCallback((e: ChangeEvent<HTMLTextAreaElement>) => {
     const value = e.target.value;
     const cursorPos = e.target.selectionStart;
@@ -139,15 +194,15 @@ export function useComposerReferences({
       return;
     }
 
-    void fetchSkills().then((skills) => {
+    void fetchCapabilities().then(({ plugins, skills }) => {
       if (referenceRequestIdRef.current !== requestId) {
         return;
       }
 
-      setSkillReferenceItems(skills, match.query);
+      setCapabilityReferenceItems(plugins, skills, match.query);
       setIsLoadingReferenceItems(false);
     });
-  }, [closeReferencePicker, fetchFiles, fetchSkills, resetInputHistoryNavigation, setInput, setSkillReferenceItems]);
+  }, [closeReferencePicker, fetchCapabilities, fetchFiles, resetInputHistoryNavigation, setCapabilityReferenceItems, setInput]);
 
   const handleReferenceSelect = useCallback((item: ComposerReferencePickerItem<ReferencePickerValue>) => {
     if (!activeReferenceMatch) {
@@ -156,7 +211,7 @@ export function useComposerReferences({
 
     const replacement = item.kind === 'file'
       ? `@"${(item.payload as FilePickerFile).path}" `
-      : `/${(item.payload as SkillPickerSkill).name} `;
+      : `/${(item.payload as PluginPickerPlugin | SkillPickerSkill).name} `;
     const { nextValue, nextCursorPosition } = replaceComposerReference(input, activeReferenceMatch, replacement);
 
     resetInputHistoryNavigation();

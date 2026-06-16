@@ -39,6 +39,7 @@ import { STUDIO_SYSTEM_PROMPT_BLOCK } from '@/app/lib/agents/studio-prompt-block
 import { persistPiUsageEvents } from '@/app/lib/pi/usage-events';
 import { getStudioOutputsRoot, STUDIO_OUTPUTS_ROOT_DIR } from '@/app/lib/integrations/studio-workspace';
 import { DEFAULT_AGENT_ID } from '@/app/lib/channels/constants';
+import { buildReferencedPluginRuntimeContext } from '@/app/lib/plugins/plugin-reference-context';
 import { createToolLoopGuard } from '@/app/lib/pi/tool-loop-guard';
 import {
   createToolTailContinuationDecision,
@@ -827,7 +828,7 @@ class LivePiRuntime {
     return null;
   }
 
-  private getRuntimeContextBlock(): string | null {
+  private async getRuntimeContextBlock(latestUserMessageText?: string): Promise<string | null> {
     const sections: string[] = [];
 
     if (this.timeZoneContext) {
@@ -870,6 +871,17 @@ class LivePiRuntime {
       sections.push(emailBlock);
     }
 
+    if (latestUserMessageText) {
+      try {
+        const pluginBlock = await buildReferencedPluginRuntimeContext(latestUserMessageText);
+        if (pluginBlock) {
+          sections.push(pluginBlock);
+        }
+      } catch (error) {
+        console.warn('[LiveRuntime] Failed to build plugin reference context:', error);
+      }
+    }
+
     if (sections.length === 0) {
       return null;
     }
@@ -883,8 +895,17 @@ class LivePiRuntime {
     ].join('\n');
   }
 
-  private injectRuntimeContext(messages: AgentMessage[]): AgentMessage[] {
-    const runtimeContext = this.getRuntimeContextBlock();
+  private async injectRuntimeContext(messages: AgentMessage[]): Promise<AgentMessage[]> {
+    let latestUserMessageText = '';
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+      const message = messages[index];
+      if (isUserMessage(message)) {
+        latestUserMessageText = extractUserMessageText(message);
+        break;
+      }
+    }
+
+    const runtimeContext = await this.getRuntimeContextBlock(latestUserMessageText);
     if (!runtimeContext) {
       return messages;
     }

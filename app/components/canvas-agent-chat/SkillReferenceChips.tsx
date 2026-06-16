@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 
+import { CanvasPluginIcon } from '@/app/lib/plugins/plugin-icons';
 import { CanvasSkillIcon } from '@/app/lib/skills/skill-icons';
 import type { CanvasSkillInterface } from '@/app/lib/skills/canvas-skill-manifest';
 import { cn } from '@/lib/utils';
@@ -18,46 +19,84 @@ export type SkillReferenceChipSkill = {
   };
 };
 
+export type SkillReferenceChipPlugin = {
+  name: string;
+  version: string;
+  description: string;
+  enabled?: boolean;
+  interface?: {
+    displayName?: string;
+    shortDescription?: string;
+    brandColor?: string;
+    icon?: string;
+    logo?: string;
+  };
+};
+
+export type CapabilityReferenceChipItem =
+  | ({ kind: 'plugin' } & SkillReferenceChipPlugin)
+  | ({ kind: 'skill' } & SkillReferenceChipSkill);
+
 type SkillApiResponse = {
   success: boolean;
   skills?: SkillReferenceChipSkill[];
 };
 
-let cachedSkills: SkillReferenceChipSkill[] | null = null;
-let pendingSkillsRequest: Promise<SkillReferenceChipSkill[]> | null = null;
+type PluginApiResponse = {
+  success: boolean;
+  plugins?: SkillReferenceChipPlugin[];
+};
+
+let cachedReferences: CapabilityReferenceChipItem[] | null = null;
+let pendingReferencesRequest: Promise<CapabilityReferenceChipItem[]> | null = null;
 
 const SKILL_REFERENCE_PATTERN = /(^|[\s([{"'`,;])\/([a-z0-9]+(?:-[a-z0-9]+)*)(?=$|[\s)\]}",.;:!?])/g;
 
-async function loadSkillReferences(): Promise<SkillReferenceChipSkill[]> {
-  if (cachedSkills) {
-    return cachedSkills;
+async function loadSkillReferences(): Promise<CapabilityReferenceChipItem[]> {
+  if (cachedReferences) {
+    return cachedReferences;
   }
 
-  pendingSkillsRequest ??= fetch('/api/skills')
-    .then(async (response) => {
-      if (!response.ok) return [];
-      const data = (await response.json()) as SkillApiResponse;
-      const skills = (data.success && Array.isArray(data.skills) ? data.skills : [])
-        .filter((skill) => skill.enabled !== false);
-      cachedSkills = skills;
-      return skills;
+  pendingReferencesRequest ??= Promise.all([
+    fetch('/api/plugins')
+      .then(async (response) => {
+        if (!response.ok) return [];
+        const data = (await response.json()) as PluginApiResponse;
+        return (data.success && Array.isArray(data.plugins) ? data.plugins : [])
+          .filter((plugin) => plugin.enabled !== false)
+          .map((plugin) => ({ ...plugin, kind: 'plugin' as const }));
+      })
+      .catch(() => []),
+    fetch('/api/skills')
+      .then(async (response) => {
+        if (!response.ok) return [];
+        const data = (await response.json()) as SkillApiResponse;
+        return (data.success && Array.isArray(data.skills) ? data.skills : [])
+          .filter((skill) => skill.enabled !== false)
+          .map((skill) => ({ ...skill, kind: 'skill' as const }));
+      })
+      .catch(() => []),
+  ])
+    .then(([plugins, skills]) => {
+      cachedReferences = [...plugins, ...skills];
+      return cachedReferences;
     })
     .catch(() => [])
     .finally(() => {
-      pendingSkillsRequest = null;
+      pendingReferencesRequest = null;
     });
 
-  return pendingSkillsRequest;
+  return pendingReferencesRequest;
 }
 
-export function useSkillReferenceCatalog(): Map<string, SkillReferenceChipSkill> {
-  const [skills, setSkills] = useState<SkillReferenceChipSkill[]>(cachedSkills || []);
+export function useSkillReferenceCatalog(): Map<string, CapabilityReferenceChipItem> {
+  const [references, setReferences] = useState<CapabilityReferenceChipItem[]>(cachedReferences || []);
 
   useEffect(() => {
     let cancelled = false;
-    void loadSkillReferences().then((nextSkills) => {
+    void loadSkillReferences().then((nextReferences) => {
       if (!cancelled) {
-        setSkills(nextSkills);
+        setReferences(nextReferences);
       }
     });
     return () => {
@@ -66,8 +105,14 @@ export function useSkillReferenceCatalog(): Map<string, SkillReferenceChipSkill>
   }, []);
 
   return useMemo(() => {
-    return new Map(skills.map((skill) => [skill.name, skill]));
-  }, [skills]);
+    const catalog = new Map<string, CapabilityReferenceChipItem>();
+    for (const reference of references) {
+      if (!catalog.has(reference.name)) {
+        catalog.set(reference.name, reference);
+      }
+    }
+    return catalog;
+  }, [references]);
 }
 
 export function extractSkillReferenceNames(content: string): string[] {
@@ -85,20 +130,24 @@ export function extractSkillReferenceNames(content: string): string[] {
 
 function getReferencedSkills(
   content: string,
-  skillsByName: Map<string, SkillReferenceChipSkill>,
-): SkillReferenceChipSkill[] {
+  skillsByName: Map<string, CapabilityReferenceChipItem>,
+): CapabilityReferenceChipItem[] {
   return extractSkillReferenceNames(content)
     .map((name) => skillsByName.get(name))
-    .filter((skill): skill is SkillReferenceChipSkill => Boolean(skill));
+    .filter((reference): reference is CapabilityReferenceChipItem => Boolean(reference));
 }
 
 function SkillReferenceChip({
-  skill,
+  reference,
   variant,
 }: {
-  skill: SkillReferenceChipSkill;
+  reference: CapabilityReferenceChipItem;
   variant: 'composer' | 'message' | 'user';
 }) {
+  const description = reference.kind === 'plugin'
+    ? reference.interface?.shortDescription || reference.description
+    : reference.description;
+
   return (
     <span
       className={cn(
@@ -108,10 +157,14 @@ function SkillReferenceChip({
           : 'border-border bg-background/80 text-foreground',
         variant === 'composer' ? 'bg-muted/50 text-muted-foreground' : null,
       )}
-      title={skill.description}
+      title={description}
     >
-      <CanvasSkillIcon skill={skill} className="h-4 w-4 border-0 text-[7px]" />
-      <span className="min-w-0 truncate">/{skill.name}</span>
+      {reference.kind === 'plugin' ? (
+        <CanvasPluginIcon plugin={reference} className="h-4 w-4 border-0 text-[7px]" />
+      ) : (
+        <CanvasSkillIcon skill={reference} className="h-4 w-4 border-0 text-[7px]" />
+      )}
+      <span className="min-w-0 truncate">/{reference.name}</span>
     </span>
   );
 }
@@ -124,7 +177,7 @@ export function SkillReferenceChipRow({
 }: {
   className?: string;
   content: string;
-  skillsByName?: Map<string, SkillReferenceChipSkill>;
+  skillsByName?: Map<string, CapabilityReferenceChipItem>;
   variant?: 'composer' | 'message' | 'user';
 }) {
   const catalog = useSkillReferenceCatalog();
@@ -140,8 +193,8 @@ export function SkillReferenceChipRow({
 
   return (
     <div className={cn('flex flex-wrap items-center gap-1.5', className)}>
-      {referencedSkills.map((skill) => (
-        <SkillReferenceChip key={skill.name} skill={skill} variant={variant} />
+      {referencedSkills.map((reference) => (
+        <SkillReferenceChip key={`${reference.kind}:${reference.name}`} reference={reference} variant={variant} />
       ))}
     </div>
   );
