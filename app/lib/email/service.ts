@@ -23,6 +23,7 @@ import {
   setLocalEmailMessageRead,
   setPrimaryLocalEmailAccount,
   startLocalEmailOAuth,
+  streamLocalEmailMessageSummary,
   summarizeLocalEmailMessage,
   trashLocalEmailMessage,
   updateLocalEmailDraft,
@@ -393,6 +394,16 @@ export async function deleteEmailMessagePermanently(userId: string, accountId: s
 
 export async function summarizeEmailMessage(userId: string, accountId: string, messageId: string, folder?: string, options?: EmailReadPolicyOptions) {
   return summarizeLocalEmailMessage(userId, accountId, messageId, folder, options);
+}
+
+export async function streamEmailMessageSummary(
+  userId: string,
+  accountId: string,
+  messageId: string,
+  folder?: string,
+  options?: EmailReadPolicyOptions & { signal?: AbortSignal },
+) {
+  return streamLocalEmailMessageSummary(userId, accountId, messageId, folder, options);
 }
 
 export async function createEmailDerivedDraft(

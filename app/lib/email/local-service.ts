@@ -24,6 +24,7 @@ import {
   draftEmailComposeWithAi,
   draftEmailReplyWithAi,
   summarizeEmailWithAi,
+  summarizeEmailWithAiStream,
 } from '@/app/lib/email/ai-service';
 import {
   buildEmailDerivedDraft,
@@ -1101,6 +1102,23 @@ export async function summarizeLocalEmailMessage(userId: string, accountId: stri
     account: result.account,
     messageId,
     summary,
+  };
+}
+
+export async function streamLocalEmailMessageSummary(
+  userId: string,
+  accountId: string,
+  messageId: string,
+  folder?: string,
+  options?: EmailReadPolicyOptions & { signal?: AbortSignal },
+) {
+  const { signal, ...readOptions } = options || {};
+  const result = await readLocalEmailMessage(userId, accountId, messageId, folder, readOptions);
+  const events = await summarizeEmailWithAiStream(result.message as Record<string, unknown>, { signal });
+  return {
+    account: result.account,
+    events,
+    messageId,
   };
 }
 

@@ -335,6 +335,77 @@ function isFetchNetworkError(error: unknown): boolean {
   return error instanceof TypeError && /failed to fetch|fetch failed|networkerror/iu.test(error.message);
 }
 
+type EmailSummaryStreamEvent =
+  | { type: 'start'; messageId?: string }
+  | { type: 'delta'; delta: string }
+  | { type: 'done'; summary?: string }
+  | { type: 'error'; error: string };
+
+function parseEmailSummaryStreamEvent(rawEvent: string): EmailSummaryStreamEvent | null {
+  const data = rawEvent
+    .split(/\r?\n/u)
+    .filter((line) => line.startsWith('data:'))
+    .map((line) => line.slice(5).trimStart())
+    .join('\n')
+    .trim();
+
+  if (!data) return null;
+
+  const parsed = JSON.parse(data) as Partial<EmailSummaryStreamEvent>;
+  if (parsed.type === 'start') return { type: 'start', messageId: typeof parsed.messageId === 'string' ? parsed.messageId : undefined };
+  if (parsed.type === 'delta' && typeof parsed.delta === 'string') return { type: 'delta', delta: parsed.delta };
+  if (parsed.type === 'done') return { type: 'done', summary: typeof parsed.summary === 'string' ? parsed.summary : undefined };
+  if (parsed.type === 'error' && typeof parsed.error === 'string') return { type: 'error', error: parsed.error };
+  return null;
+}
+
+async function readEmailSummaryStream(response: Response, onDelta: (delta: string) => void): Promise<string> {
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({}));
+    throw new Error(String((payload as { error?: unknown }).error || 'Failed to summarize email message'));
+  }
+
+  if (!response.body) {
+    throw new Error('Email summary stream did not return a readable body.');
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let summary = '';
+
+  const processEvent = (rawEvent: string) => {
+    const event = parseEmailSummaryStreamEvent(rawEvent);
+    if (!event || event.type === 'start') return;
+    if (event.type === 'delta') {
+      summary += event.delta;
+      onDelta(event.delta);
+      return;
+    }
+    if (event.type === 'done') {
+      if (event.summary) summary = event.summary;
+      return;
+    }
+    if (event.type === 'error') {
+      throw new Error(event.error);
+    }
+  };
+
+  for (;;) {
+    const { done, value } = await reader.read();
+    buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
+
+    const events = buffer.split('\n\n');
+    buffer = events.pop() || '';
+    for (const event of events) processEvent(event);
+
+    if (done) break;
+  }
+
+  if (buffer.trim()) processEvent(buffer);
+  return summary;
+}
+
 function fileExtension(filePath: string): string {
   return filePath.split('.').pop()?.toLowerCase() || '';
 }
@@ -923,6 +994,7 @@ function EmailMessageViewer({
   allowedRemoteResourceSenders,
   className,
   isLoading,
+  isSummaryStreaming = false,
   labels,
   message,
   onAllowRemoteResourcesForSender,
@@ -933,6 +1005,7 @@ function EmailMessageViewer({
   allowedRemoteResourceSenders: string[];
   className?: string;
   isLoading: boolean;
+  isSummaryStreaming?: boolean;
   labels: EmailMessageViewerLabels;
   message: EmailMessageDetail | null;
   onAllowRemoteResourcesForSender(sender: string): void;
@@ -992,10 +1065,17 @@ function EmailMessageViewer({
             </select>
           </div>
         )}
-        {summary && (
+        {(summary || isSummaryStreaming) && (
           <div className="mt-3 border border-primary/25 bg-primary/5 px-3 py-2 text-sm leading-6">
-            <div className="mb-1 text-xs font-semibold uppercase tracking-[0.14em] text-primary">{labels.aiSummary}</div>
-            <MarkdownMessage content={summary} variant="assistant" />
+            <div className="mb-1 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.14em] text-primary">
+              <span>{labels.aiSummary}</span>
+              {isSummaryStreaming ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
+            </div>
+            {summary ? (
+              <MarkdownMessage content={summary} variant="assistant" />
+            ) : (
+              <div className="my-1 h-4 w-32 animate-pulse rounded-sm bg-primary/15" />
+            )}
           </div>
         )}
       </header>
@@ -1601,7 +1681,9 @@ export function EmailClient() {
   const [isSubmittingCompose, setIsSubmittingCompose] = useState(false);
   const [messageActionNotice, setMessageActionNotice] = useState<string | null>(null);
   const [messageSummary, setMessageSummary] = useState('');
+  const [streamingSummaryMessageId, setStreamingSummaryMessageId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const summaryAbortControllerRef = useRef<AbortController | null>(null);
 
   const activeAccount = useMemo(
     () => accounts.find((account) => account.id === activeAccountId) || accounts[0] || null,
@@ -1618,6 +1700,20 @@ export function EmailClient() {
     && blockedSendPolicyRecipient
     && !sendPolicyAllowsEmail(blockedSendPolicyRecipient, activeAccount.policy?.sendTo || []),
   );
+  const isStreamingSelectedMessageSummary = Boolean(selectedMessage && streamingSummaryMessageId === selectedMessage.id);
+
+  const stopMessageSummaryStream = useCallback(() => {
+    summaryAbortControllerRef.current?.abort();
+    summaryAbortControllerRef.current = null;
+    setStreamingSummaryMessageId(null);
+  }, []);
+
+  const clearMessageSummary = useCallback(() => {
+    stopMessageSummaryStream();
+    setMessageSummary('');
+  }, [stopMessageSummaryStream]);
+
+  useEffect(() => () => stopMessageSummaryStream(), [stopMessageSummaryStream]);
 
   useEffect(() => {
     setEmailChatContext({
@@ -1775,20 +1871,20 @@ export function EmailClient() {
       setSelectedMessageId((current) => current && nextMessages.some((message) => message.id === current) ? current : '');
       setSelectedMessage(null);
       setMessageActionNotice(null);
-      setMessageSummary('');
+      clearMessageSummary();
       setMessageDialogOpen(false);
     } catch (loadError) {
       setMessages([]);
       setMessageTotal(null);
       setSelectedMessage(null);
       setMessageActionNotice(null);
-      setMessageSummary('');
+      clearMessageSummary();
       setMessageDialogOpen(false);
       setError(loadError instanceof Error ? loadError.message : t('errors.loadMessages'));
     } finally {
       setIsLoadingMessages(false);
     }
-  }, [activeAccount, activeFolder, canReadActiveAccount, messageFilter, messagePage, submittedQuery, t]);
+  }, [activeAccount, activeFolder, canReadActiveAccount, clearMessageSummary, messageFilter, messagePage, submittedQuery, t]);
 
   const updateMessageReadState = useCallback((messageId: string, isRead: boolean) => {
     setMessages((current) => current.map((message) => message.id === messageId ? { ...message, isRead } : message));
@@ -1821,7 +1917,7 @@ export function EmailClient() {
     setIsLoadingMessage(true);
     setError(null);
     setMessageActionNotice(null);
-    setMessageSummary('');
+    clearMessageSummary();
     if (isCompactViewport || options?.openDialog) setMessageDialogOpen(true);
     try {
       const params = new URLSearchParams();
@@ -1843,7 +1939,7 @@ export function EmailClient() {
     } finally {
       setIsLoadingMessage(false);
     }
-  }, [activeAccount, activeFolder, isCompactViewport, markMessageReadOnOpen, t]);
+  }, [activeAccount, activeFolder, clearMessageSummary, isCompactViewport, markMessageReadOnOpen, t]);
 
   useEffect(() => {
     const timeout = window.setTimeout(() => {
@@ -1881,14 +1977,14 @@ export function EmailClient() {
       setSelectedMessage(null);
       setSelectedMessageId('');
       setMessageActionNotice(null);
-      setMessageSummary('');
+      clearMessageSummary();
       setMessageDialogOpen(false);
       if (!activeAccount) return;
       if (!canReadActiveAccount) return;
       void loadFolders(activeAccount.id);
     }, 0);
     return () => window.clearTimeout(timeout);
-  }, [activeAccount, canReadActiveAccount, loadFolders]);
+  }, [activeAccount, canReadActiveAccount, clearMessageSummary, loadFolders]);
 
   useEffect(() => {
     const timeout = window.setTimeout(() => {
@@ -2252,21 +2348,55 @@ export function EmailClient() {
     if (action === 'permanent-delete' && !window.confirm(t('confirmPermanentDelete'))) return;
 
     const folder = selectedMessage.folder || activeFolder;
-    const endpoint = `/api/email/accounts/${encodeURIComponent(activeAccount.id)}/messages/actions`;
     setActiveMessageAction(action);
     setMessageActionNotice(null);
     setError(null);
 
     try {
-      let body: Record<string, unknown>;
       if (action === 'summary') {
-        body = { folder, messageId: selectedMessage.id, operation: 'summary' };
-      } else if (action === 'ai-reply') {
+        const controller = new AbortController();
+        summaryAbortControllerRef.current?.abort();
+        summaryAbortControllerRef.current = controller;
+        setStreamingSummaryMessageId(selectedMessage.id);
+        setMessageSummary('');
+
+        try {
+          const summaryEndpoint = `/api/email/accounts/${encodeURIComponent(activeAccount.id)}/messages/${encodeURIComponent(selectedMessage.id)}/summary?stream=1`;
+          const response = await fetch(summaryEndpoint, {
+            method: 'POST',
+            headers: {
+              Accept: 'text/event-stream',
+              'Content-Type': 'application/json',
+            },
+            credentials: 'include',
+            cache: 'no-store',
+            signal: controller.signal,
+            body: JSON.stringify({ folder }),
+          });
+          const summary = await readEmailSummaryStream(response, (delta) => {
+            if (summaryAbortControllerRef.current !== controller) return;
+            setMessageSummary((current) => current + delta);
+          });
+          if (summaryAbortControllerRef.current === controller) {
+            setMessageSummary(summary);
+          }
+        } finally {
+          if (summaryAbortControllerRef.current === controller) {
+            summaryAbortControllerRef.current = null;
+            setStreamingSummaryMessageId(null);
+          }
+        }
+        return;
+      }
+
+      let body: Record<string, unknown>;
+      if (action === 'ai-reply') {
         body = { folder, messageId: selectedMessage.id, operation: 'ai-reply-preview' };
       } else {
         body = { action, destination, folder, messageId: selectedMessage.id, operation: 'action' };
       }
 
+      const endpoint = `/api/email/accounts/${encodeURIComponent(activeAccount.id)}/messages/actions`;
       const response = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -2276,11 +2406,6 @@ export function EmailClient() {
 
       const payload = await response.json().catch(() => ({}));
       if (!response.ok || !payload.success) throw new Error(payload.error || t('errors.updateMessage'));
-
-      if (action === 'summary') {
-        setMessageSummary(String(payload.data?.summary || ''));
-        return;
-      }
 
       if (action === 'ai-reply') {
         openComposeDraft('reply', selectedMessage, String(payload.data?.body || ''), true);
@@ -2306,18 +2431,19 @@ export function EmailClient() {
       setMessages((current) => current.filter((message) => message.id !== selectedMessage.id));
       setSelectedMessage(null);
       setSelectedMessageId('');
-      setMessageSummary('');
+      clearMessageSummary();
       setMessageDialogOpen(false);
       setMessageActionNotice(t('messageMoved'));
       void loadFolders(activeAccount.id);
     } catch (actionError) {
+      if (action === 'summary' && actionError instanceof DOMException && actionError.name === 'AbortError') return;
       setError(isFetchNetworkError(actionError)
         ? t('errors.actionRequest')
         : actionError instanceof Error ? actionError.message : t('errors.updateMessage'));
     } finally {
       setActiveMessageAction(null);
     }
-  }, [activeAccount, activeFolder, loadFolders, openComposeDraft, selectedMessage, t]);
+  }, [activeAccount, activeFolder, clearMessageSummary, loadFolders, openComposeDraft, selectedMessage, t]);
 
   const handleMessageListAction = useCallback(async (message: EmailMessageSummary, action: EmailMessageListActionName, destination?: string) => {
     if (!activeAccount) return;
@@ -2352,7 +2478,7 @@ export function EmailClient() {
       if (selectedMessageId === message.id) {
         setSelectedMessage(null);
         setSelectedMessageId('');
-        setMessageSummary('');
+        clearMessageSummary();
         setMessageDialogOpen(false);
       }
       setMessageActionNotice(t('messageMoved'));
@@ -2364,7 +2490,7 @@ export function EmailClient() {
     } finally {
       setActiveMessageListAction(null);
     }
-  }, [activeAccount, activeFolder, loadFolders, selectedMessageId, t]);
+  }, [activeAccount, activeFolder, clearMessageSummary, loadFolders, selectedMessageId, t]);
 
   const messageOffset = messagePage * MESSAGE_PAGE_SIZE;
   const messageStart = messages.length > 0 ? messageOffset + 1 : 0;
@@ -2817,6 +2943,7 @@ export function EmailClient() {
               allowRemoteResourcesByDefault={emailAllowRemoteImages}
               allowedRemoteResourceSenders={emailRemoteImageAllowedSenders}
               isLoading={isLoadingMessage}
+              isSummaryStreaming={isStreamingSelectedMessageSummary}
               labels={messageViewerLabels}
               message={selectedMessage}
               onAllowRemoteResourcesForSender={allowRemoteImagesForSender}
@@ -2841,6 +2968,7 @@ export function EmailClient() {
               allowedRemoteResourceSenders={emailRemoteImageAllowedSenders}
               className="bg-card"
               isLoading={isLoadingMessage}
+              isSummaryStreaming={isStreamingSelectedMessageSummary}
               labels={messageViewerLabels}
               message={selectedMessage}
               onAllowRemoteResourcesForSender={allowRemoteImagesForSender}

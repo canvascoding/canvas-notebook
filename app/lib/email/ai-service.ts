@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { completeSimple, type AssistantMessage, type Message } from '@earendil-works/pi-ai';
+import { completeSimple, streamSimple, type AssistantMessage, type AssistantMessageEvent, type Message } from '@earendil-works/pi-ai';
 
 import { resolveAgentRuntimeConfig } from '@/app/lib/agents/effective-runtime-config';
 import { DEFAULT_MANAGED_AGENT_ID } from '@/app/lib/agents/storage';
@@ -89,6 +89,36 @@ async function completeEmailAi(params: {
   return text;
 }
 
+async function streamEmailAi(params: {
+  maxTokens: number;
+  messages: Message[];
+  sessionId: string;
+  signal?: AbortSignal;
+  systemPrompt: string;
+  temperature: number;
+}): Promise<AsyncIterable<AssistantMessageEvent>> {
+  const effectiveConfig = await resolveAgentRuntimeConfig(DEFAULT_MANAGED_AGENT_ID);
+  const apiKey = await resolvePiApiKey(effectiveConfig.model.provider);
+  if (!apiKey) {
+    throw new Error(`API key not configured for ${effectiveConfig.model.provider}. Configure it in Settings > Integrations.`);
+  }
+
+  return streamSimple(
+    effectiveConfig.model,
+    {
+      systemPrompt: params.systemPrompt,
+      messages: params.messages,
+    },
+    {
+      apiKey,
+      temperature: params.temperature,
+      maxTokens: Math.max(256, Math.min(effectiveConfig.model.maxTokens, params.maxTokens)),
+      sessionId: params.sessionId,
+      signal: params.signal,
+    },
+  );
+}
+
 export async function summarizeEmailWithAi(message: AiEmailMessage): Promise<string> {
   const body = emailBodyForAi(message);
   if (!body) throw new Error('Email has no readable body for AI summary.');
@@ -97,6 +127,29 @@ export async function summarizeEmailWithAi(message: AiEmailMessage): Promise<str
     temperature: 0.2,
     maxTokens: 350,
     sessionId: `email-summary:${Date.now()}`,
+    systemPrompt: 'Summarize the email for a busy operator. Keep it factual, concise, and action-oriented. Do not invent details.',
+    messages: [
+      {
+        role: 'user',
+        content: messageContext(message),
+        timestamp: Date.now(),
+      },
+    ],
+  });
+}
+
+export async function summarizeEmailWithAiStream(
+  message: AiEmailMessage,
+  options: { signal?: AbortSignal } = {},
+): Promise<AsyncIterable<AssistantMessageEvent>> {
+  const body = emailBodyForAi(message);
+  if (!body) throw new Error('Email has no readable body for AI summary.');
+
+  return streamEmailAi({
+    temperature: 0.2,
+    maxTokens: 350,
+    sessionId: `email-summary:${Date.now()}`,
+    signal: options.signal,
     systemPrompt: 'Summarize the email for a busy operator. Keep it factual, concise, and action-oriented. Do not invent details.',
     messages: [
       {
