@@ -2,8 +2,6 @@ import type { Metadata, Viewport } from 'next';
 import { Geist, Geist_Mono } from 'next/font/google';
 import { NextIntlClientProvider } from 'next-intl';
 
-import '@uiw/react-md-editor/markdown-editor.css';
-import '@uiw/react-markdown-preview/markdown.css';
 import '@excalidraw/excalidraw/index.css';
 import '../globals.css';
 import { AppThemeProvider } from '@/app/components/ThemeProvider';

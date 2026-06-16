@@ -879,7 +879,7 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
             isMarpMarkdownFile && markdownViewMode === 'slides' ? (
               <MarpPreview path={currentFile.path} content={draft} refreshKey={marpRefreshKey} />
             ) : (
-              <MarkdownEditor value={draft} onChange={updateDraft} filePath={currentFile.path} />
+              <MarkdownEditor key={currentFile.path} value={draft} onChange={updateDraft} filePath={currentFile.path} />
             )
           ) : (
             <CodeEditor value={draft} onChange={updateDraft} readOnly={false} />

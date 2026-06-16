@@ -328,39 +328,174 @@
   min-width: 100%;
 }
 
-/* Markdown editor mobile fixes */
-.w-md-editor {
-  overflow: hidden;
+/* tiptap markdown editor */
+.tiptap-editor-shell {
+  min-height: 100%;
 }
 
-.w-md-editor .w-md-editor-preview,
-.w-md-editor .w-md-editor-input {
-  box-sizing: border-box;
+.tiptap-editor-shell .ProseMirror {
+  min-height: 100%;
+  padding: 20px;
+  outline: none;
+  color: var(--foreground);
 }
 
-.wmde-markdown {
-  padding-left: 16px !important;
-  padding-right: 16px !important;
-  word-wrap: break-word;
-  overflow-wrap: break-word;
+.tiptap-editor-shell .ProseMirror > * + * {
+  margin-top: 0.75rem;
 }
 
-.wmde-markdown pre,
-.wmde-markdown code {
-  max-width: 100%;
+.tiptap-editor-shell h1 {
+  font-size: 2rem;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.tiptap-editor-shell h2 {
+  font-size: 1.5rem;
+  font-weight: 650;
+  line-height: 1.25;
+}
+
+.tiptap-editor-shell h3 {
+  font-size: 1.25rem;
+  font-weight: 650;
+  line-height: 1.3;
+}
+
+.tiptap-editor-shell h4,
+.tiptap-editor-shell h5,
+.tiptap-editor-shell h6 {
+  font-weight: 650;
+  line-height: 1.35;
+}
+
+.tiptap-editor-shell p {
+  line-height: 1.65;
+}
+
+.tiptap-editor-shell a {
+  color: var(--primary);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.tiptap-editor-shell blockquote {
+  border-left: 3px solid var(--border);
+  color: var(--muted-foreground);
+  padding-left: 1rem;
+}
+
+.tiptap-editor-shell ul,
+.tiptap-editor-shell ol {
+  padding-left: 1.5rem;
+}
+
+.tiptap-editor-shell ul {
+  list-style: disc;
+}
+
+.tiptap-editor-shell ol {
+  list-style: decimal;
+}
+
+.tiptap-editor-shell li {
+  margin-top: 0.25rem;
+}
+
+.tiptap-editor-shell ul[data-type='taskList'] {
+  list-style: none;
+  padding-left: 0;
+}
+
+.tiptap-editor-shell li[data-type='taskItem'] {
+  align-items: flex-start;
+  display: flex;
+  gap: 0.5rem;
+}
+
+.tiptap-editor-shell li[data-type='taskItem'] > label {
+  margin-top: 0.25rem;
+}
+
+.tiptap-editor-shell li[data-type='taskItem'] > div {
+  flex: 1;
+  min-width: 0;
+}
+
+.tiptap-editor-shell :not(pre) > code {
+  background: var(--muted);
+  border-radius: 0.25rem;
+  font-size: 0.875em;
+  padding: 0.15rem 0.3rem;
+}
+
+.tiptap-code-block,
+.tiptap-editor-shell pre {
+  background: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  color: var(--foreground);
   overflow-x: auto;
-  word-break: break-all;
+  padding: 0.875rem 1rem;
 }
 
-@media (max-width: 640px) {
-  .w-md-editor-content {
-    max-width: 100vw;
-    overflow-x: hidden;
-  }
+.tiptap-code-block code,
+.tiptap-editor-shell pre code {
+  background: transparent;
+  border-radius: 0;
+  color: inherit;
+  display: block;
+  font-family: var(--font-geist-mono), 'SF Mono', Monaco, Consolas, monospace;
+  font-size: 0.875rem;
+  padding: 0;
+  white-space: pre;
+}
 
-  .wmde-markdown {
-    max-width: 100%;
-  }
+.tiptap-mermaid-node {
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  cursor: text;
+  padding: 0.75rem;
+}
+
+.tiptap-editor-shell table {
+  border-collapse: collapse;
+  margin: 1rem 0;
+  table-layout: fixed;
+  width: 100%;
+}
+
+.tiptap-editor-shell th,
+.tiptap-editor-shell td {
+  border: 1px solid var(--border);
+  min-width: 1em;
+  padding: 0.5rem 0.625rem;
+  position: relative;
+  vertical-align: top;
+}
+
+.tiptap-editor-shell th {
+  background: var(--muted);
+  font-weight: 650;
+}
+
+.tiptap-editor-shell .selectedCell::after {
+  background: color-mix(in oklab, var(--primary) 18%, transparent);
+  content: '';
+  inset: 0;
+  pointer-events: none;
+  position: absolute;
+  z-index: 2;
+}
+
+.tiptap-editor-shell hr {
+  border: 0;
+  border-top: 1px solid var(--border);
+  margin: 1.5rem 0;
+}
+
+.tiptap-editor-shell img {
+  display: block;
 }
 
 @keyframes studioOutputFadeIn {
