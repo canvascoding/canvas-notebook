@@ -74,6 +74,7 @@ type ChatDockShellProps = {
   defaultChatVisible?: boolean;
   chatVisibleStorageKey?: string;
   chatWidthStorageKey?: string;
+  headerCenter?: ReactNode;
   headerActions?: ReactNode;
   mainClassName?: string;
   titleClassName?: string;
@@ -91,6 +92,7 @@ export function ChatDockShell({
   defaultChatVisible = true,
   chatVisibleStorageKey = `${storageKeyPrefix}.chatVisible`,
   chatWidthStorageKey = `${storageKeyPrefix}.chatWidth`,
+  headerCenter,
   headerActions,
   mainClassName,
   titleClassName,
@@ -345,8 +347,8 @@ export function ChatDockShell({
     <HintProvider page={hintPage} enabled={hintEnabled}>
       <div className="fixed inset-0 flex flex-col overflow-hidden bg-background text-foreground">
         <header className="z-40 h-16 flex-shrink-0 border-b border-border bg-background/95 pt-[env(safe-area-inset-top)] backdrop-blur supports-[backdrop-filter]:bg-background/85">
-          <div className="flex h-full items-center justify-between gap-3 px-4 md:px-6">
-            <div className="min-w-0 flex items-center gap-2 sm:gap-3">
+          <div className="relative flex h-full items-center justify-between gap-3 px-4 md:px-6">
+            <div className="relative z-10 min-w-0 flex items-center gap-2 sm:gap-3">
               <Button asChild variant="outline" size="sm" className="gap-2 px-2 sm:px-3">
                 <Link href={backHref}>
                   <ArrowLeft className="h-4 w-4" />
@@ -358,7 +360,13 @@ export function ChatDockShell({
               </h1>
             </div>
 
-            <div className="ml-auto flex min-w-0 items-center gap-1.5 md:gap-3">
+            {headerCenter ? (
+              <div className="pointer-events-none absolute left-1/2 top-1/2 z-0 hidden -translate-x-1/2 -translate-y-1/2 xl:flex">
+                <div className="pointer-events-auto">{headerCenter}</div>
+              </div>
+            ) : null}
+
+            <div className="relative z-10 ml-auto flex min-w-0 items-center gap-1.5 md:gap-3">
               {headerActions}
               <NotificationBell />
               <AppLauncher />

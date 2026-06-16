@@ -64,7 +64,8 @@ export function StudioShell({ children, hintEnabled = true }: { children: ReactN
       storageKeyPrefix="studio"
       chatVisibleStorageKey={chatVisibleStorageKey}
       defaultChatVisible={!isAspectRatioEditor}
-      headerActions={<StudioRouteNav />}
+      headerCenter={<StudioRouteNav variant="desktop" />}
+      headerActions={<StudioRouteNav variant="mobile" />}
       hintPage="studio"
       hintEnabled={hintEnabled}
     >
