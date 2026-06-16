@@ -32,7 +32,7 @@ export type FilePickerFile = {
   isImage: boolean;
 };
 
-export type SkillPickerSkill = Pick<CanvasSkill, 'name' | 'title' | 'description' | 'enabled' | 'interface'>;
+export type SkillPickerSkill = Pick<CanvasSkill, 'name' | 'title' | 'description' | 'enabled' | 'interface' | 'plugin'>;
 export type ReferencePickerValue = FilePickerFile | SkillPickerSkill;
 
 export const ChatComposer = forwardRef<HTMLDivElement, {

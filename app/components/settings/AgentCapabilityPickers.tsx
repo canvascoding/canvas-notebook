@@ -18,6 +18,10 @@ export type SkillOption = {
   description?: string;
   enabled?: boolean;
   interface?: CanvasSkillInterface;
+  plugin?: {
+    name: string;
+    skillAssetPath?: string;
+  };
 };
 
 export type AgentConnectionOption = {

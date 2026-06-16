@@ -101,6 +101,7 @@ export function useComposerReferences({
           enabled: skill.enabled,
           interface: skill.interface,
           name: skill.name,
+          plugin: skill.plugin,
           title: skill.title,
       }));
       setAvailableSkills(nextSkills);

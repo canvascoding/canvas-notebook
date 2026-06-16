@@ -3,6 +3,10 @@ import path from 'path';
 import { CanvasSkill, parseSkillFile, getSkillsDir, createDefaultSkillMd } from './canvas-skill-manifest';
 import { readPiRuntimeConfig, writePiRuntimeConfig } from '@/app/lib/agents/storage';
 import { enableSkillInConfig, disableSkillInConfig, areAllSkillsEnabled } from './enabled-skills';
+import {
+  getAllKnownSkillNames,
+  loadEnabledPluginSkills,
+} from '@/app/lib/plugins/canvas-plugin-registry';
 // Re-export the Canvas skill manifest API for existing call sites.
 export type { CanvasSkill, ValidationResult } from './canvas-skill-manifest';
 export {
@@ -25,62 +29,80 @@ export async function loadSkillsFromDisk(enabledSkills?: string[]): Promise<Canv
   
   try {
     // Check if skills directory exists
+    let hasStandaloneSkillsDir = true;
     try {
       await fs.access(skillsDir);
     } catch {
-      console.log(`[SkillLoader] Skills directory not found: ${skillsDir}`);
-      return skills;
+      hasStandaloneSkillsDir = false;
     }
-    
-    // Read all subdirectories in skills folder
-    const entries = await fs.readdir(skillsDir, { withFileTypes: true });
-    
-    for (const entry of entries) {
-      if (entry.isDirectory()) {
-        const skillMdPath = path.join(skillsDir, entry.name, 'SKILL.md');
-        
-        // Check if SKILL.md exists before trying to parse
-        try {
-          await fs.access(skillMdPath);
-        } catch {
-          // SKILL.md doesn't exist - skip this directory silently
-          continue;
-        }
-        
-        try {
-          // Try to parse SKILL.md
-          const skill = await parseSkillFile(skillMdPath);
-          if (skill) {
-            // Check if skill is enabled
-            // If enabledSkills is empty or not provided, all skills are enabled
-            // If enabledSkills is provided and not empty, only those skills are enabled
-            if (!enabledSkills || enabledSkills.length === 0) {
-              skill.enabled = true;
-            } else {
-              skill.enabled = enabledSkills.includes(skill.name);
-            }
-            
-            skills.push(skill);
-            if (process.env.DEBUG === 'true') {
-      console.log(`[SkillLoader] Loaded skill: ${skill.name} (enabled: ${skill.enabled})`);
-    }
+
+    if (hasStandaloneSkillsDir) {
+      // Read all subdirectories in skills folder
+      const entries = await fs.readdir(skillsDir, { withFileTypes: true });
+      
+      for (const entry of entries) {
+        if (entry.isDirectory()) {
+          const skillMdPath = path.join(skillsDir, entry.name, 'SKILL.md');
+          
+          // Check if SKILL.md exists before trying to parse
+          try {
+            await fs.access(skillMdPath);
+          } catch {
+            // SKILL.md doesn't exist - skip this directory silently
+            continue;
           }
-        } catch (error) {
-          // Log error but don't crash
-          console.warn(`[SkillLoader] Error loading skill ${entry.name}:`, error);
+          
+          try {
+            // Try to parse SKILL.md
+            const skill = await parseSkillFile(skillMdPath);
+            if (skill) {
+              // Check if skill is enabled
+              // If enabledSkills is empty or not provided, all skills are enabled
+              // If enabledSkills is provided and not empty, only those skills are enabled
+              if (!enabledSkills || enabledSkills.length === 0) {
+                skill.enabled = true;
+              } else {
+                skill.enabled = enabledSkills.includes(skill.name);
+              }
+              
+              skills.push(skill);
+              if (process.env.DEBUG === 'true') {
+                console.log(`[SkillLoader] Loaded skill: ${skill.name} (enabled: ${skill.enabled})`);
+              }
+            }
+          } catch (error) {
+            // Log error but don't crash
+            console.warn(`[SkillLoader] Error loading skill ${entry.name}:`, error);
+          }
         }
       }
+    } else if (process.env.DEBUG === 'true') {
+      console.log(`[SkillLoader] Skills directory not found: ${skillsDir}`);
     }
-    
-    if (process.env.DEBUG === 'true') {
-      console.log(`[SkillLoader] Loaded ${skills.length} skills from disk`);
-    }
-    return skills;
-    
   } catch (error) {
     console.error('[SkillLoader] Error loading skills:', error);
-    return skills;
   }
+
+  const standaloneSkillNames = new Set(skills.map((skill) => skill.name));
+  const pluginSkills = await loadEnabledPluginSkills(enabledSkills).catch((error) => {
+    console.warn('[SkillLoader] Error loading plugin skills:', error);
+    return [];
+  });
+
+  for (const pluginSkill of pluginSkills) {
+    if (standaloneSkillNames.has(pluginSkill.name)) {
+      console.warn(`[SkillLoader] Skipping plugin skill "${pluginSkill.name}" because a standalone skill with that name exists.`);
+      continue;
+    }
+    skills.push(pluginSkill);
+  }
+
+  skills.sort((left, right) => left.name.localeCompare(right.name));
+
+  if (process.env.DEBUG === 'true') {
+    console.log(`[SkillLoader] Loaded ${skills.length} skills from disk and plugins`);
+  }
+  return skills;
 }
 
 /**
@@ -89,48 +111,32 @@ export async function loadSkillsFromDisk(enabledSkills?: string[]): Promise<Canv
 export async function loadSkillByName(name: string): Promise<CanvasSkill | null> {
   const skillsDir = getSkillsDir();
   const skillMdPath = path.join(skillsDir, name, 'SKILL.md');
-  return parseSkillFile(skillMdPath);
+  try {
+    await fs.access(skillMdPath);
+    const standaloneSkill = await parseSkillFile(skillMdPath);
+    if (standaloneSkill) {
+      return standaloneSkill;
+    }
+  } catch {
+    // Fall through to plugin-managed skills.
+  }
+
+  const pluginSkills = await loadEnabledPluginSkills();
+  return pluginSkills.find((skill) => skill.name === name) || null;
 }
 
 /**
  * Check if a skill exists
  */
 export async function skillExists(name: string): Promise<boolean> {
-  const skillsDir = getSkillsDir();
-  const skillMdPath = path.join(skillsDir, name, 'SKILL.md');
-  try {
-    await fs.access(skillMdPath);
-    return true;
-  } catch {
-    return false;
-  }
+  return Boolean(await loadSkillByName(name));
 }
 
 /**
  * Get all skill names
  */
 export async function getSkillNames(): Promise<string[]> {
-  const skillsDir = getSkillsDir();
-  try {
-    const entries = await fs.readdir(skillsDir, { withFileTypes: true });
-    const names: string[] = [];
-    
-    for (const entry of entries) {
-      if (entry.isDirectory()) {
-        const skillMdPath = path.join(skillsDir, entry.name, 'SKILL.md');
-        try {
-          await fs.access(skillMdPath);
-          names.push(entry.name);
-        } catch {
-          // No SKILL.md, skip
-        }
-      }
-    }
-    
-    return names;
-  } catch {
-    return [];
-  }
+  return getAllKnownSkillNames();
 }
 
 /**
@@ -268,15 +274,21 @@ export async function deleteSkillDirectory(
   name: string
 ): Promise<{ success: boolean; error?: string }> {
   try {
-    if (!(await skillExists(name))) {
+    const skillsDir = getSkillsDir();
+    const skillPath = path.join(skillsDir, name);
+    const skillMdPath = path.join(skillPath, 'SKILL.md');
+    const hasStandaloneSkill = await fs.access(skillMdPath).then(() => true).catch(() => false);
+
+    if (!hasStandaloneSkill) {
+      if (await skillExists(name)) {
+        return { success: false, error: `Skill "${name}" is managed by a plugin. Disable or remove the plugin instead.` };
+      }
       return { success: false, error: `Skill "${name}" not found` };
     }
 
-    const skillsDir = getSkillsDir();
-    const skillPath = path.join(skillsDir, name);
     const resolvedSkillPath = path.resolve(/*turbopackIgnore: true*/ skillPath);
     const resolvedSkillsDir = path.resolve(/*turbopackIgnore: true*/ skillsDir);
-    if (!resolvedSkillPath.startsWith(resolvedSkillsDir)) {
+    if (!resolvedSkillPath.startsWith(`${resolvedSkillsDir}${path.sep}`)) {
       return { success: false, error: 'Invalid skill name: path traversal detected' };
     }
 

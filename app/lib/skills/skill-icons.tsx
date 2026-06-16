@@ -24,6 +24,10 @@ export type CanvasSkillIconSource = {
   title?: string;
   description?: string;
   interface?: CanvasSkillInterface;
+  plugin?: {
+    name: string;
+    skillAssetPath?: string;
+  };
 };
 
 const SKILL_ICON_BY_NAME: Record<string, ComponentType<{ className?: string }>> = {
@@ -79,7 +83,7 @@ function normalizeAssetPath(assetPath?: string): string | null {
   return normalized.replace(/^\.\//, '').replace(/^\/+/, '');
 }
 
-function resolveSkillAssetUrl(skillName: string, assetPath?: string): string | null {
+function resolveSkillAssetUrl(skill: CanvasSkillIconSource, assetPath?: string): string | null {
   const normalized = normalizeAssetPath(assetPath);
   if (!normalized) return null;
 
@@ -87,7 +91,11 @@ function resolveSkillAssetUrl(skillName: string, assetPath?: string): string | n
     return normalized;
   }
 
-  return `/api/skills/asset?path=${encodeURIComponent(`${skillName}/${normalized}`)}`;
+  if (skill.plugin?.name && skill.plugin.skillAssetPath !== undefined) {
+    return `/api/plugins/asset?plugin=${encodeURIComponent(skill.plugin.name)}&path=${encodeURIComponent(`${skill.plugin.skillAssetPath}/${normalized}`)}`;
+  }
+
+  return `/api/skills/asset?path=${encodeURIComponent(`${skill.name}/${normalized}`)}`;
 }
 
 function getSkillInitials(skill: CanvasSkillIconSource): string {
@@ -151,7 +159,7 @@ export function CanvasSkillIcon({
 }) {
   const [failed, setFailed] = useState(false);
   const iconPath = skill.interface?.iconSmall || skill.interface?.iconLarge;
-  const iconUrl = failed ? null : resolveSkillAssetUrl(skill.name, iconPath);
+  const iconUrl = failed ? null : resolveSkillAssetUrl(skill, iconPath);
 
   if (iconUrl) {
     return (

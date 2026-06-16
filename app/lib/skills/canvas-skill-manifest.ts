@@ -39,6 +39,12 @@ export interface CanvasSkill {
   enabled: boolean;
   isCustom?: boolean;
   interface?: CanvasSkillInterface;
+  plugin?: {
+    name: string;
+    version: string;
+    displayName?: string;
+    skillAssetPath?: string;
+  };
 }
 
 export interface ValidationResult {

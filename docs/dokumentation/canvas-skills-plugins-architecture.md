@@ -2,6 +2,18 @@
 
 Stand: 2026-06-16
 
+## Implementierter Stand
+
+Die Canvas-Skill-Runtime und die lokale Canvas-Plugin-Runtime sind implementiert.
+
+- Skills werden aus `/data/skills` und aktivierten Plugin-Paketen geladen.
+- Plugins werden unter `/data/plugins/installed/<plugin-name>/<version>/` installiert.
+- Die lokale Plugin-Registry liegt unter `/data/plugins/registry.json`.
+- Plugin-Skills bleiben im Plugin-Paket und werden nicht nach `/data/skills` kopiert.
+- Plugin-Skills erhalten ein `plugin`-Mapping im Skill-Modell, damit Runtime, UI und spaetere Chat-Referenzen den Ursprung kennen.
+- Skill- und Plugin-Assets werden ueber authentifizierte Asset-Endpunkte ausgeliefert.
+- MCP- und Composio-Angaben werden als Metadaten gespeichert, enthalten aber keine Secrets und werden noch nicht automatisch in Connector-Konfigurationen geschrieben.
+
 ## Zielbild
 
 Canvas Notebook nutzt eigene, produktneutrale Begriffe und Formate:
@@ -83,8 +95,10 @@ Vorgesehenes Manifest:
     "name": "Canvas Studios"
   },
   "skills": "./skills/",
-  "mcpServers": "./.mcp.json",
-  "composio": "./.composio.json",
+  "connectors": {
+    "mcpServers": "./.mcp.json",
+    "composio": ["google-drive"]
+  },
   "interface": {
     "displayName": "Plugin Name",
     "shortDescription": "User-facing summary",
@@ -118,14 +132,27 @@ canvas-skills/
       1.0.0/
 ```
 
-`registry.json` listet Name, Version, Beschreibung, Lizenz, Checksums, Download-Pfad, Kategorien und Icon-Metadaten. Canvas Notebook installiert daraus nach:
+`registry.json` listet Name, Version, Beschreibung, Lizenz, Checksums, Download-Pfad, Kategorien und Icon-Metadaten. Canvas Notebook installiert lokale Plugin-Pakete nach:
 
 ```text
 /data/plugins/installed/<plugin-name>/<version>/
-/data/skills/<skill-name>/
+/data/plugins/registry.json
 ```
 
-Standalone Skills bleiben moeglich. Plugin-Skills sollten intern aber ihrem Plugin zugeordnet bleiben, damit Updates, Entfernen und Lizenzinformationen konsistent sind.
+Standalone Skills bleiben moeglich. Plugin-Skills bleiben intern ihrem Plugin zugeordnet, damit Updates, Entfernen und Lizenzinformationen konsistent sind.
+
+## Lokale API
+
+Die lokale Runtime stellt diese authentifizierten Endpunkte bereit:
+
+- `GET /api/plugins` — installierte Plugins listen
+- `GET /api/plugins/[name]` — Plugin-Details lesen
+- `POST /api/plugins/validate` — lokales Plugin-Paket validieren (`sourcePath`)
+- `POST /api/plugins/install` — lokales Plugin-Paket installieren (`sourcePath`, optional `enable`, `replace`)
+- `POST /api/plugins/[name]/enable` — Plugin aktivieren
+- `POST /api/plugins/[name]/disable` — Plugin deaktivieren
+- `DELETE /api/plugins/[name]` — Plugin entfernen
+- `GET /api/plugins/asset?plugin=<name>&path=<relative-image-path>` — Plugin-Bilder laden
 
 ## Versionierung
 
@@ -154,7 +181,10 @@ Seed-Pakete muessen vor dem Veröffentlichen auditierbar sein:
 1. Canvas Skill Runtime auf `CanvasSkill` und `agents/canvas.yaml` normalisieren.
 2. UI-Icon-Fallback fuer Skills einfuehren.
 3. Seed-Skills mit Canvas-Metadaten ausstatten.
-4. Plugin-Manifest-Schema und Validator implementieren.
-5. Lokale Plugin-Registry unter `/data/plugins` einfuehren.
-6. Plugin-Installer fuer lokale Pakete und Remote Registry bauen.
+4. Plugin-Manifest-Schema und Validator implementieren. ✅
+5. Lokale Plugin-Registry unter `/data/plugins` einfuehren. ✅
+6. Plugin-Installer fuer lokale Pakete bauen. ✅
 7. Settings-UI um Plugin Store, Details, Installieren, Update und Entfernen erweitern.
+8. `/`-Picker im Chat um Plugins priorisiert vor Skills erweitern.
+9. Plugin-Referenzen im Chat in zusaetzlichen Agent-Runtime-Kontext uebersetzen.
+10. Remote Registry/Public Store und Update-Pruefung bauen.

@@ -49,6 +49,18 @@ export function resolveSkillsDataDir(cwd?: string): string {
   return path.join(/* turbopackIgnore: true */ resolveCanvasDataRoot(cwd), 'skills');
 }
 
+export function resolvePluginsDataDir(cwd?: string): string {
+  return path.join(/* turbopackIgnore: true */ resolveCanvasDataRoot(cwd), 'plugins');
+}
+
+export function resolveInstalledPluginsDir(cwd?: string): string {
+  return path.join(/* turbopackIgnore: true */ resolvePluginsDataDir(cwd), 'installed');
+}
+
+export function resolvePluginRegistryPath(cwd?: string): string {
+  return path.join(/* turbopackIgnore: true */ resolvePluginsDataDir(cwd), 'registry.json');
+}
+
 export function resolveDefaultIntegrationsEnvPath(cwd?: string): string {
   return path.join(/* turbopackIgnore: true */ resolveSecretsDir(cwd), 'Canvas-Integrations.env');
 }

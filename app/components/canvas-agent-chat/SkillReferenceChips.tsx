@@ -12,6 +12,10 @@ export type SkillReferenceChipSkill = {
   description: string;
   enabled?: boolean;
   interface?: CanvasSkillInterface;
+  plugin?: {
+    name: string;
+    skillAssetPath?: string;
+  };
 };
 
 type SkillApiResponse = {

@@ -9,6 +9,7 @@ import {
   parseFrontmatter,
   type CanvasSkillInterface,
 } from './canvas-skill-manifest';
+import { loadEnabledPluginSkills } from '@/app/lib/plugins/canvas-plugin-registry';
 
 export type SkillSummary = {
   name: string;
@@ -16,6 +17,12 @@ export type SkillSummary = {
   description: string;
   enabled: boolean;
   interface?: CanvasSkillInterface;
+  plugin?: {
+    name: string;
+    version: string;
+    displayName?: string;
+    skillAssetPath?: string;
+  };
 };
 
 function parseSkillSummary(content: string, fallbackName: string): Omit<SkillSummary, 'enabled'> | null {
@@ -61,6 +68,21 @@ export async function loadSkillSummaries(enabledSkills?: string[]): Promise<Skil
     const validSummaries: SkillSummary[] = [];
     for (const summary of summaries) {
       if (summary) validSummaries.push(summary);
+    }
+    const standaloneNames = new Set(validSummaries.map((summary) => summary.name));
+    const pluginSkills = await loadEnabledPluginSkills(enabledSkills).catch(() => []);
+    for (const skill of pluginSkills) {
+      if (standaloneNames.has(skill.name)) {
+        continue;
+      }
+      validSummaries.push({
+        name: skill.name,
+        title: skill.title,
+        description: skill.description,
+        enabled: skill.enabled,
+        interface: skill.interface,
+        plugin: skill.plugin,
+      });
     }
     return validSummaries.sort((a, b) => a.name.localeCompare(b.name));
   } catch {

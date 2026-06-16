@@ -4,6 +4,7 @@ import { promises as fs } from 'fs';
 import path from 'path';
 import { headers } from 'next/headers';
 import { getSkillsDir } from '@/app/lib/skills/canvas-skill-manifest';
+import { loadSkillByName } from '@/app/lib/skills/skill-loader';
 
 const SKILLS_DIR = getSkillsDir();
 
@@ -22,7 +23,14 @@ export async function GET(
     }
 
     const { name } = await params;
-    const skillMdPath = path.join(SKILLS_DIR, name, 'SKILL.md');
+    const skill = await loadSkillByName(name);
+    if (!skill) {
+      return NextResponse.json(
+        { success: false, error: 'Skill not found' },
+        { status: 404 },
+      );
+    }
+    const skillMdPath = skill.path;
     
     // Read SKILL.md file
     const content = await fs.readFile(skillMdPath, 'utf-8');
@@ -67,8 +75,8 @@ export async function PUT(
     const resolvedSkillsDir = path.resolve(/*turbopackIgnore: true*/ SKILLS_DIR);
     if (!resolvedPath.startsWith(`${resolvedSkillsDir}${path.sep}`)) {
       return NextResponse.json(
-        { success: false, error: 'Invalid path' },
-        { status: 400 }
+        { success: false, error: 'Plugin-managed skills cannot be edited from the standalone skill editor' },
+        { status: 409 }
       );
     }
 
