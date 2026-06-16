@@ -1,0 +1,5 @@
+interface:
+  display_name: "Doc Co-authoring"
+  short_description: "Plan, draft, refine, and fresh-reader test documents"
+  brand_color: "#2563EB"
+  default_prompt: "Use $doc-coauthoring to plan, draft, refine, or review a structured document."

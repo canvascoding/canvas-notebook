@@ -1,0 +1,5 @@
+interface:
+  display_name: "Remotion Best Practices"
+  short_description: "Build and verify deterministic React video compositions"
+  brand_color: "#7C3AED"
+  default_prompt: "Use $remotion-best-practices to implement or debug a Remotion video composition."
