@@ -86,6 +86,8 @@ const TOOL_DISPLAY: Record<string, ToolDisplayEntry> = {
   email_create_draft: { label: 'Created email draft', labelDe: 'E-Mail-Entwurf erstellt', tone: 'emailDraftCreate' },
   email_update_draft: { label: 'Updated email draft', labelDe: 'E-Mail-Entwurf aktualisiert', tone: 'emailDraftUpdate' },
   email_send_draft: { label: 'Sent email draft', labelDe: 'E-Mail-Entwurf gesendet', tone: 'emailSend' },
+  email_workspace_search: { label: 'Searched workspace', labelDe: 'Workspace durchsucht', tone: 'search' },
+  email_workspace_read: { label: 'Read workspace file', labelDe: 'Workspace-Datei gelesen', tone: 'file' },
   mcp: { label: 'Used MCP', labelDe: 'MCP verwendet', tone: 'mcp' },
   memory: { label: 'Updated memory', labelDe: 'Memory aktualisiert', tone: 'memory' },
   session_search: { label: 'Searched sessions', labelDe: 'Sessions durchsucht', tone: 'session' },

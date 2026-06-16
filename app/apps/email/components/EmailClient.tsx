@@ -9,6 +9,7 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
+  FileText,
   Folder,
   Forward,
   FolderInput,
@@ -21,6 +22,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   PenLine,
+  Plus,
   RefreshCw,
   Reply,
   ReplyAll,
@@ -29,13 +31,22 @@ import {
   Star,
   Settings,
   Trash2,
+  Wrench,
+  X,
   XCircle,
 } from 'lucide-react';
-import { useTranslations } from 'next-intl';
+import { useLocale, useTranslations } from 'next-intl';
 
 import { useSetEmailChatContext } from '@/app/apps/email/context/email-chat-context';
+import {
+  ComposerReferencePicker,
+  type ComposerReferencePickerItem,
+} from '@/app/components/canvas-agent-chat/ComposerReferencePicker';
+import type { FilePickerFile } from '@/app/components/canvas-agent-chat/ChatComposer';
 import { EmailAccountsCard } from '@/app/components/settings/IntegrationsSettingsClient';
 import { isLikelyHtmlEmailContent, normalizeEmailHtmlContent } from '@/app/lib/email/html-content';
+import { getFileIconComponent } from '@/app/lib/files/file-icons';
+import { getToolDisplayInfo } from '@/app/lib/pi/tool-display';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -46,6 +57,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
+import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
 
@@ -101,22 +113,50 @@ type EmailMessageDetail = EmailMessageSummary & {
 };
 
 type EmailComposeMode = 'compose' | 'forward' | 'reply' | 'reply-all';
+type EmailComposeAiMode = 'workspace-agent' | 'quick';
+type EmailComposeTone = 'formal' | 'casual' | 'very-casual';
+
+type EmailComposeContextFile = {
+  isImage?: boolean;
+  name?: string;
+  path: string;
+  type?: 'file' | 'directory';
+};
+
+type EmailComposeAgentUsedContext = {
+  path: string;
+  reason?: string;
+};
+
+type EmailComposeAgentToolEvent = {
+  args?: unknown;
+  contextPath?: string;
+  id: string;
+  resultPreview?: string;
+  status: 'running' | 'done';
+  toolName: string;
+};
 
 type EmailComposeDraft = {
   aiGenerated?: boolean;
+  aiMode: EmailComposeAiMode;
   aiPrompt: string;
+  aiTone: EmailComposeTone;
   body: string;
   ccText: string;
+  contextFiles: EmailComposeContextFile[];
   folder?: string;
   message?: EmailMessageDetail;
   mode: EmailComposeMode;
   subject: string;
   toText: string;
+  usedContext: EmailComposeAgentUsedContext[];
 };
 
 const MESSAGE_PAGE_SIZE = 20;
 const COMPACT_VIEWPORT_QUERY = '(max-width: 1023px)';
 const SEND_POLICY_ERROR_PATTERN = /send policy:\s*([^\s,;]+)/iu;
+const EMAIL_CONTEXT_FILE_EXTENSIONS = new Set(['txt', 'md', 'markdown', 'csv', 'json', 'pdf']);
 const EMAIL_HTML_SANITIZE_CONFIG = {
   ALLOWED_TAGS: [
     'a',
@@ -291,6 +331,42 @@ function sendPolicyAllowsEmail(email: string, sendTo: string[]): boolean {
 
 function isFetchNetworkError(error: unknown): boolean {
   return error instanceof TypeError && /failed to fetch|fetch failed|networkerror/iu.test(error.message);
+}
+
+function fileExtension(filePath: string): string {
+  return filePath.split('.').pop()?.toLowerCase() || '';
+}
+
+function isSupportedEmailContextFile(file: FilePickerFile | EmailComposeContextFile): boolean {
+  return file.type !== 'directory' && EMAIL_CONTEXT_FILE_EXTENSIONS.has(fileExtension(file.path || file.name || ''));
+}
+
+function contextFileName(file: EmailComposeContextFile): string {
+  return file.name || file.path.split('/').pop() || file.path;
+}
+
+function normalizeAgentUsedContext(value: unknown): EmailComposeAgentUsedContext[] {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
+  const output: EmailComposeAgentUsedContext[] = [];
+  for (const entry of value) {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) continue;
+    const record = entry as Record<string, unknown>;
+    const path = String(record.path || '').trim();
+    if (!path || seen.has(path)) continue;
+    seen.add(path);
+    const reason = String(record.reason || '').trim();
+    output.push(reason ? { path, reason } : { path });
+  }
+  return output;
+}
+
+function formatToolPreview(value: unknown): string {
+  if (!value || typeof value !== 'object') return '';
+  return Object.entries(value as Record<string, unknown>)
+    .slice(0, 4)
+    .map(([key, entry]) => `${key}: ${String(entry).slice(0, 80)}`)
+    .join(', ');
 }
 
 function sanitizeEmailCss(value: string, allowRemoteResources: boolean) {
@@ -571,14 +647,30 @@ type EmailComposeDialogLabels = Pick<EmailMessageViewerLabels, 'cc' | 'date' | '
   composeBodyPlaceholder: string;
   composeDescription: string;
   composeForwardTitle: string;
+  composeAddContext: string;
+  composeAgentReady: string;
+  composeAgentToolDetails: string;
+  composeAgentWorking: string;
+  composeAiModeQuick: string;
+  composeAiModeWorkspaceAgent: string;
   composeGenerateWithAi: string;
   composeGeneratingWithAi: string;
+  composeContextFiles: string;
+  composeNoContextFiles: string;
   composeNewTitle: string;
   composeOriginalTitle: string;
+  composeReferencePickerEmpty: string;
+  composeReferencePickerHeader: string;
+  composeRemoveContextFile: string;
   composeReplyAllTitle: string;
   composeReplyTitle: string;
   composeSend: string;
   composeSending: string;
+  composeToneCasual: string;
+  composeToneFormal: string;
+  composeToneLabel: string;
+  composeToneVeryCasual: string;
+  composeUsedContext: string;
   subject: string;
 };
 
@@ -940,7 +1032,83 @@ function composeDialogTitle(draft: EmailComposeDraft, labels: EmailComposeDialog
   return labels.composeReplyTitle;
 }
 
+function EmailComposeAgentProgress({
+  events,
+  labels,
+  locale,
+  status,
+  usedContext,
+}: {
+  events: EmailComposeAgentToolEvent[];
+  labels: EmailComposeDialogLabels;
+  locale: string;
+  status: string | null;
+  usedContext: EmailComposeAgentUsedContext[];
+}) {
+  if (!status && events.length === 0 && usedContext.length === 0) return null;
+
+  return (
+    <div className="space-y-2 border border-border bg-background px-3 py-2 text-xs">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex min-w-0 items-center gap-2 font-medium">
+          <Sparkles className="h-3.5 w-3.5 shrink-0 text-primary" />
+          <span className="min-w-0 truncate">{status || labels.composeAgentReady}</span>
+        </div>
+        {events.some((event) => event.status === 'running') ? (
+          <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-muted-foreground" />
+        ) : null}
+      </div>
+      {events.length > 0 ? (
+        <div className="space-y-1.5">
+          {events.map((event) => {
+            const display = getToolDisplayInfo(event.toolName, locale);
+            const preview = event.resultPreview || event.contextPath || formatToolPreview(event.args);
+            return (
+              <div key={event.id} className="flex items-start gap-2 border border-border/70 bg-muted/35 px-2 py-1.5">
+                <div className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center border border-border bg-background">
+                  {event.status === 'running' ? (
+                    <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
+                  ) : (
+                    <Wrench className="h-3 w-3 text-muted-foreground" />
+                  )}
+                </div>
+                <div className="min-w-0">
+                  <div className="font-medium text-foreground">{display.label}</div>
+                  {preview ? (
+                    <div className="mt-0.5 line-clamp-2 break-words text-muted-foreground" title={preview}>
+                      {preview}
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      ) : null}
+      {usedContext.length > 0 ? (
+        <div className="border-t border-border pt-2">
+          <div className="mb-1 font-medium text-muted-foreground">{labels.composeUsedContext}</div>
+          <div className="flex flex-wrap gap-1.5">
+            {usedContext.map((entry) => (
+              <span
+                key={entry.path}
+                className="inline-flex max-w-full items-center gap-1 border border-border bg-muted/40 px-2 py-1"
+                title={entry.reason || entry.path}
+              >
+                <FileText className="h-3 w-3 shrink-0 text-muted-foreground" />
+                <span className="min-w-0 truncate">{entry.path}</span>
+              </span>
+            ))}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function EmailComposeDialog({
+  agentEvents,
+  agentStatus,
   allowRemoteResourcesByDefault,
   allowedRemoteResourceSenders,
   draft,
@@ -949,6 +1117,7 @@ function EmailComposeDialog({
   isGeneratingAi,
   isSubmitting,
   labels,
+  locale,
   onAddSendPolicyRecipient,
   onAllowRemoteResourcesForSender,
   onClose,
@@ -956,6 +1125,8 @@ function EmailComposeDialog({
   onSubmit,
   onUpdate,
 }: {
+  agentEvents: EmailComposeAgentToolEvent[];
+  agentStatus: string | null;
   allowRemoteResourcesByDefault: boolean;
   allowedRemoteResourceSenders: string[];
   draft: EmailComposeDraft | null;
@@ -964,14 +1135,65 @@ function EmailComposeDialog({
   isGeneratingAi: boolean;
   isSubmitting: boolean;
   labels: EmailComposeDialogLabels;
+  locale: string;
   onAddSendPolicyRecipient(email: string): void;
   onAllowRemoteResourcesForSender(sender: string): void;
   onClose(): void;
   onGenerateAi(): void;
   onSubmit(): void;
-  onUpdate(updates: Partial<Pick<EmailComposeDraft, 'aiPrompt' | 'body' | 'ccText' | 'subject' | 'toText'>>): void;
+  onUpdate(updates: Partial<Pick<EmailComposeDraft, 'aiMode' | 'aiPrompt' | 'aiTone' | 'body' | 'ccText' | 'contextFiles' | 'subject' | 'toText' | 'usedContext'>>): void;
 }) {
   const blockedRecipient = useMemo(() => extractBlockedSendPolicyRecipient(error), [error]);
+  const [isReferencePickerOpen, setIsReferencePickerOpen] = useState(false);
+  const [referencePickerItems, setReferencePickerItems] = useState<ComposerReferencePickerItem<FilePickerFile>[]>([]);
+  const [selectedReferenceIndex, setSelectedReferenceIndex] = useState(0);
+  const referencePickerRef = useRef<HTMLDivElement>(null);
+  const selectedContextPaths = useMemo(() => new Set((draft?.contextFiles || []).map((file) => file.path)), [draft?.contextFiles]);
+
+  const loadReferenceFiles = useCallback(async () => {
+    try {
+      const response = await fetch('/api/files/list?limit=50', { credentials: 'include', cache: 'no-store' });
+      const payload = await response.json().catch(() => ({}));
+      const files = Array.isArray(payload.files) ? payload.files as FilePickerFile[] : [];
+      const items = files
+        .filter(isSupportedEmailContextFile)
+        .map((file) => ({
+          id: `file:${file.path}`,
+          kind: 'file' as const,
+          icon: getFileIconComponent({ name: file.name, path: file.path, type: file.type }),
+          label: file.path,
+          payload: file,
+          secondaryLabel: file.name,
+        }));
+      setReferencePickerItems(items);
+      setSelectedReferenceIndex(0);
+    } catch {
+      setReferencePickerItems([]);
+      setSelectedReferenceIndex(0);
+    }
+  }, []);
+
+  const selectReferenceFile = useCallback((item: ComposerReferencePickerItem<FilePickerFile>) => {
+    const file = item.payload;
+    if (!draft || !isSupportedEmailContextFile(file)) return;
+    if (selectedContextPaths.has(file.path)) {
+      setIsReferencePickerOpen(false);
+      return;
+    }
+    onUpdate({
+      contextFiles: [
+        ...draft.contextFiles,
+        {
+          isImage: file.isImage,
+          name: file.name,
+          path: file.path,
+          type: file.type,
+        },
+      ],
+      usedContext: [],
+    });
+    setIsReferencePickerOpen(false);
+  }, [draft, onUpdate, selectedContextPaths]);
 
   return (
     <Dialog
@@ -1024,9 +1246,23 @@ function EmailComposeDialog({
                     />
                   </div>
                   <div className="space-y-2 border border-border bg-muted/30 px-3 py-3">
-                    <label className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground" htmlFor="email-compose-ai-prompt">
-                      {labels.composeAiPromptLabel}
-                    </label>
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                      <label className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground" htmlFor="email-compose-ai-prompt">
+                        {labels.composeAiPromptLabel}
+                      </label>
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                        <span>{draft.aiMode === 'workspace-agent' ? labels.composeAiModeWorkspaceAgent : labels.composeAiModeQuick}</span>
+                        <Switch
+                          checked={draft.aiMode === 'workspace-agent'}
+                          onCheckedChange={(checked) => onUpdate({
+                            aiMode: checked ? 'workspace-agent' : 'quick',
+                            usedContext: [],
+                          })}
+                          disabled={isSubmitting || isGeneratingAi}
+                          aria-label={labels.composeAiModeWorkspaceAgent}
+                        />
+                      </div>
+                    </div>
                     <Textarea
                       id="email-compose-ai-prompt"
                       value={draft.aiPrompt}
@@ -1035,16 +1271,101 @@ function EmailComposeDialog({
                       className="min-h-20 resize-y bg-background"
                       disabled={isSubmitting || isGeneratingAi}
                     />
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={onGenerateAi}
-                      disabled={isSubmitting || isGeneratingAi || !draft.aiPrompt.trim()}
-                    >
-                      {isGeneratingAi ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Sparkles className="mr-2 h-4 w-4" />}
-                      {isGeneratingAi ? labels.composeGeneratingWithAi : labels.composeGenerateWithAi}
-                    </Button>
+                    <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                        <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                          <span>{labels.composeToneLabel}</span>
+                          <select
+                            className="h-8 border border-input bg-background px-2 text-sm text-foreground"
+                            value={draft.aiTone}
+                            onChange={(event) => onUpdate({ aiTone: event.target.value as EmailComposeTone })}
+                            disabled={isSubmitting || isGeneratingAi}
+                          >
+                            <option value="formal">{labels.composeToneFormal}</option>
+                            <option value="casual">{labels.composeToneCasual}</option>
+                            <option value="very-casual">{labels.composeToneVeryCasual}</option>
+                          </select>
+                        </label>
+                        {draft.aiMode === 'workspace-agent' ? (
+                          <div className="relative w-full sm:w-72">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="w-full justify-start sm:w-auto"
+                              onClick={() => {
+                                const nextOpen = !isReferencePickerOpen;
+                                setIsReferencePickerOpen(nextOpen);
+                                if (nextOpen) void loadReferenceFiles();
+                              }}
+                              disabled={isSubmitting || isGeneratingAi}
+                            >
+                              <Plus className="mr-2 h-4 w-4" />
+                              {labels.composeAddContext}
+                            </Button>
+                            {isReferencePickerOpen ? (
+                              <ComposerReferencePicker
+                                emptyState={labels.composeReferencePickerEmpty}
+                                header={labels.composeReferencePickerHeader}
+                                items={referencePickerItems}
+                                onSelect={selectReferenceFile}
+                                pickerRef={referencePickerRef}
+                                selectedIndex={selectedReferenceIndex}
+                              />
+                            ) : null}
+                          </div>
+                        ) : null}
+                      </div>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={onGenerateAi}
+                        disabled={isSubmitting || isGeneratingAi || !draft.aiPrompt.trim()}
+                      >
+                        {isGeneratingAi ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Sparkles className="mr-2 h-4 w-4" />}
+                        {isGeneratingAi ? labels.composeGeneratingWithAi : labels.composeGenerateWithAi}
+                      </Button>
+                    </div>
+                    {draft.aiMode === 'workspace-agent' && draft.contextFiles.length > 0 ? (
+                      <div className="space-y-1.5">
+                        <div className="text-xs font-medium text-muted-foreground">{labels.composeContextFiles}</div>
+                        <div className="flex flex-wrap gap-1.5">
+                          {draft.contextFiles.map((file) => (
+                            <span
+                              key={file.path}
+                              className="inline-flex max-w-full items-center gap-1.5 border border-border bg-background px-2 py-1 text-xs"
+                              title={file.path}
+                            >
+                              <FileText className="h-3 w-3 shrink-0 text-muted-foreground" />
+                              <span className="min-w-0 truncate">{contextFileName(file)}</span>
+                              <button
+                                type="button"
+                                className="shrink-0 text-muted-foreground hover:text-foreground"
+                                aria-label={labels.composeRemoveContextFile}
+                                title={labels.composeRemoveContextFile}
+                                onClick={() => onUpdate({
+                                  contextFiles: draft.contextFiles.filter((entry) => entry.path !== file.path),
+                                  usedContext: [],
+                                })}
+                                disabled={isSubmitting || isGeneratingAi}
+                              >
+                                <X className="h-3 w-3" />
+                              </button>
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
+                    {draft.aiMode === 'workspace-agent' ? (
+                      <EmailComposeAgentProgress
+                        events={agentEvents}
+                        labels={labels}
+                        locale={locale}
+                        status={agentStatus || (isGeneratingAi ? labels.composeAgentWorking : null)}
+                        usedContext={draft.usedContext}
+                      />
+                    ) : null}
                   </div>
                   <div className="space-y-1.5">
                     <label className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground" htmlFor="email-compose-body">
@@ -1126,6 +1447,7 @@ function EmailComposeDialog({
 
 export function EmailClient() {
   const t = useTranslations('emails');
+  const locale = useLocale();
   const setEmailChatContext = useSetEmailChatContext();
   const [accountsOpen, setAccountsOpen] = useState(false);
   const [accounts, setAccounts] = useState<EmailAccount[]>([]);
@@ -1154,6 +1476,8 @@ export function EmailClient() {
   const [isAddingSendPolicyRecipient, setIsAddingSendPolicyRecipient] = useState(false);
   const [composeDraft, setComposeDraft] = useState<EmailComposeDraft | null>(null);
   const [composeError, setComposeError] = useState<string | null>(null);
+  const [composeAgentEvents, setComposeAgentEvents] = useState<EmailComposeAgentToolEvent[]>([]);
+  const [composeAgentStatus, setComposeAgentStatus] = useState<string | null>(null);
   const [isGeneratingComposeAi, setIsGeneratingComposeAi] = useState(false);
   const [isSubmittingCompose, setIsSubmittingCompose] = useState(false);
   const [messageActionNotice, setMessageActionNotice] = useState<string | null>(null);
@@ -1519,14 +1843,18 @@ export function EmailClient() {
 
     return {
       aiGenerated,
+      aiMode: 'workspace-agent',
       aiPrompt: '',
+      aiTone: 'casual',
       body,
       ccText: composeRecipientText(cc),
+      contextFiles: [],
       folder: message.folder || activeFolder,
       message,
       mode,
       subject,
       toText: composeRecipientText(to),
+      usedContext: [],
     };
   }, [accounts, activeFolder]);
 
@@ -1534,6 +1862,8 @@ export function EmailClient() {
     setComposeError(null);
     setError(null);
     setMessageActionNotice(null);
+    setComposeAgentEvents([]);
+    setComposeAgentStatus(null);
     setComposeDraft(buildComposeDraft(mode, message, body, aiGenerated));
     setMessageDialogOpen(false);
   }, [buildComposeDraft]);
@@ -1542,20 +1872,30 @@ export function EmailClient() {
     setComposeError(null);
     setError(null);
     setMessageActionNotice(null);
+    setComposeAgentEvents([]);
+    setComposeAgentStatus(null);
     setComposeDraft({
       aiGenerated: false,
+      aiMode: 'workspace-agent',
       aiPrompt: '',
+      aiTone: 'casual',
       body: '',
       ccText: '',
+      contextFiles: [],
       folder: activeFolder,
       mode: 'compose',
       subject: '',
       toText: '',
+      usedContext: [],
     });
     setMessageDialogOpen(false);
   }, [activeFolder]);
 
-  const updateComposeDraft = useCallback((updates: Partial<Pick<EmailComposeDraft, 'aiPrompt' | 'body' | 'ccText' | 'subject' | 'toText'>>) => {
+  const updateComposeDraft = useCallback((updates: Partial<Pick<EmailComposeDraft, 'aiMode' | 'aiPrompt' | 'aiTone' | 'body' | 'ccText' | 'contextFiles' | 'subject' | 'toText' | 'usedContext'>>) => {
+    if (Object.prototype.hasOwnProperty.call(updates, 'aiMode') || Object.prototype.hasOwnProperty.call(updates, 'contextFiles')) {
+      setComposeAgentEvents([]);
+      setComposeAgentStatus(null);
+    }
     setComposeDraft((current) => current ? { ...current, ...updates } : current);
   }, []);
 
@@ -1563,6 +1903,8 @@ export function EmailClient() {
     if (isSubmittingCompose || isGeneratingComposeAi) return;
     setComposeDraft(null);
     setComposeError(null);
+    setComposeAgentEvents([]);
+    setComposeAgentStatus(null);
   }, [isGeneratingComposeAi, isSubmittingCompose]);
 
   const generateComposeAiBody = useCallback(async () => {
@@ -1571,35 +1913,163 @@ export function EmailClient() {
     setComposeError(null);
     setError(null);
     setMessageActionNotice(null);
+    setComposeAgentEvents([]);
+    setComposeAgentStatus(composeDraft.aiMode === 'workspace-agent' ? t('composeAgentWorking') : null);
 
     try {
-      const response = await fetch('/api/email/compose/ai', {
+      const requestBody = {
+        accountId: activeAccount.id,
+        cc: splitRecipientInput(composeDraft.ccText),
+        contextFiles: composeDraft.contextFiles.map((file) => ({ name: file.name, path: file.path })),
+        currentBody: composeDraft.body,
+        folder: composeDraft.folder,
+        instruction: composeDraft.aiPrompt,
+        messageId: composeDraft.message?.id,
+        mode: composeDraft.mode,
+        subject: composeDraft.subject,
+        to: splitRecipientInput(composeDraft.toText),
+        tone: composeDraft.aiTone,
+      };
+
+      if (composeDraft.aiMode === 'quick') {
+        const response = await fetch('/api/email/compose/ai', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify(requestBody),
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok || !payload.success) throw new Error(payload.error || t('errors.generateCompose'));
+        const body = String(payload.data?.body || '').trim();
+        if (!body) throw new Error(t('errors.generateCompose'));
+        setComposeDraft((current) => current ? { ...current, aiGenerated: true, body, usedContext: [] } : current);
+        return;
+      }
+
+      const response = await fetch('/api/email/compose/agent', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({
-          accountId: activeAccount.id,
-          cc: splitRecipientInput(composeDraft.ccText),
-          currentBody: composeDraft.body,
-          folder: composeDraft.folder,
-          instruction: composeDraft.aiPrompt,
-          messageId: composeDraft.message?.id,
-          mode: composeDraft.mode,
-          subject: composeDraft.subject,
-          to: splitRecipientInput(composeDraft.toText),
-        }),
+        body: JSON.stringify(requestBody),
       });
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok || !payload.success) throw new Error(payload.error || t('errors.generateCompose'));
-      const body = String(payload.data?.body || '').trim();
-      if (!body) throw new Error(t('errors.generateCompose'));
-      setComposeDraft((current) => current ? { ...current, aiGenerated: true, body } : current);
+
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(payload.error || t('errors.generateCompose'));
+      }
+      if (!response.body) throw new Error(t('errors.generateCompose'));
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let receivedFinal = false;
+
+      const applyAgentEvent = (event: Record<string, unknown>) => {
+        if (event.type === 'status') {
+          setComposeAgentStatus(String(event.label || ''));
+          return;
+        }
+        if (event.type === 'tool_start') {
+          const id = String(event.id || '');
+          const toolName = String(event.toolName || '');
+          if (!id || !toolName) return;
+          setComposeAgentEvents((current) => [
+            ...current.filter((entry) => entry.id !== id),
+            {
+              args: event.args,
+              id,
+              status: 'running',
+              toolName,
+            },
+          ]);
+          return;
+        }
+        if (event.type === 'tool_end') {
+          const id = String(event.id || '');
+          const toolName = String(event.toolName || '');
+          if (!id || !toolName) return;
+          const nextEvent: EmailComposeAgentToolEvent = {
+            contextPath: typeof event.contextPath === 'string' ? event.contextPath : undefined,
+            id,
+            resultPreview: typeof event.resultPreview === 'string' ? event.resultPreview : undefined,
+            status: 'done',
+            toolName,
+          };
+          setComposeAgentEvents((current) => (
+            current.some((entry) => entry.id === id)
+              ? current.map((entry) => entry.id === id ? { ...entry, ...nextEvent } : entry)
+              : [...current, nextEvent]
+          ));
+          return;
+        }
+        if (event.type === 'final') {
+          const result = event.result && typeof event.result === 'object' && !Array.isArray(event.result)
+            ? event.result as Record<string, unknown>
+            : {};
+          const body = String(result.body || '').trim();
+          if (!body) throw new Error(t('errors.generateCompose'));
+          const subjectSuggestion = String(result.subjectSuggestion || '').trim();
+          const usedContext = normalizeAgentUsedContext(result.usedContext);
+          setComposeDraft((current) => current ? {
+            ...current,
+            aiGenerated: true,
+            body,
+            subject: subjectSuggestion || current.subject,
+            usedContext,
+          } : current);
+          setComposeAgentStatus(t('composeAgentReady'));
+          receivedFinal = true;
+          return;
+        }
+        if (event.type === 'error') {
+          throw new Error(String(event.message || t('errors.generateCompose')));
+        }
+      };
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) {
+          buffer += decoder.decode();
+          break;
+        }
+        if (value) buffer += decoder.decode(value, { stream: true });
+        let separatorIndex = buffer.indexOf('\n\n');
+        while (separatorIndex >= 0) {
+          const rawEvent = buffer.slice(0, separatorIndex);
+          buffer = buffer.slice(separatorIndex + 2);
+          const data = rawEvent
+            .split('\n')
+            .filter((line) => line.startsWith('data:'))
+            .map((line) => line.slice(5).trim())
+            .join('');
+          if (data) {
+            const parsed = JSON.parse(data) as Record<string, unknown>;
+            applyAgentEvent(parsed);
+          }
+          separatorIndex = buffer.indexOf('\n\n');
+        }
+      }
+
+      if (buffer.trim()) {
+        const data = buffer
+          .split('\n')
+          .filter((line) => line.startsWith('data:'))
+          .map((line) => line.slice(5).trim())
+          .join('');
+        if (data) {
+          const parsed = JSON.parse(data) as Record<string, unknown>;
+          applyAgentEvent(parsed);
+        }
+      }
+
+      if (!receivedFinal) throw new Error(t('errors.generateCompose'));
     } catch (generateError) {
       const message = isFetchNetworkError(generateError)
         ? t('errors.actionRequest')
         : generateError instanceof Error ? generateError.message : t('errors.generateCompose');
       setComposeError(message);
       setError(message);
+      setComposeAgentStatus(null);
     } finally {
       setIsGeneratingComposeAi(false);
     }
@@ -1830,14 +2300,30 @@ export function EmailClient() {
     composeBodyPlaceholder: t('composeBodyPlaceholder'),
     composeDescription: t('composeDescription'),
     composeForwardTitle: t('composeForwardTitle'),
+    composeAddContext: t('composeAddContext'),
+    composeAgentReady: t('composeAgentReady'),
+    composeAgentToolDetails: t('composeAgentToolDetails'),
+    composeAgentWorking: t('composeAgentWorking'),
+    composeAiModeQuick: t('composeAiModeQuick'),
+    composeAiModeWorkspaceAgent: t('composeAiModeWorkspaceAgent'),
     composeGenerateWithAi: t('composeGenerateWithAi'),
     composeGeneratingWithAi: t('composeGeneratingWithAi'),
+    composeContextFiles: t('composeContextFiles'),
+    composeNoContextFiles: t('composeNoContextFiles'),
     composeNewTitle: t('composeNewTitle'),
     composeOriginalTitle: t('composeOriginalTitle'),
+    composeReferencePickerEmpty: t('composeReferencePickerEmpty'),
+    composeReferencePickerHeader: t('composeReferencePickerHeader'),
+    composeRemoveContextFile: t('composeRemoveContextFile'),
     composeReplyAllTitle: t('composeReplyAllTitle'),
     composeReplyTitle: t('composeReplyTitle'),
     composeSend: t('composeSend'),
     composeSending: t('composeSending'),
+    composeToneCasual: t('composeToneCasual'),
+    composeToneFormal: t('composeToneFormal'),
+    composeToneLabel: t('composeToneLabel'),
+    composeToneVeryCasual: t('composeToneVeryCasual'),
+    composeUsedContext: t('composeUsedContext'),
     date: t('date'),
     emptyBody: t('emptyBody'),
     from: t('from'),
@@ -2245,6 +2731,8 @@ export function EmailClient() {
       )}
 
       <EmailComposeDialog
+        agentEvents={composeAgentEvents}
+        agentStatus={composeAgentStatus}
         allowRemoteResourcesByDefault={emailAllowRemoteImages}
         allowedRemoteResourceSenders={emailRemoteImageAllowedSenders}
         draft={composeDraft}
@@ -2253,6 +2741,7 @@ export function EmailClient() {
         isGeneratingAi={isGeneratingComposeAi}
         isSubmitting={isSubmittingCompose}
         labels={composeDialogLabels}
+        locale={locale}
         onAddSendPolicyRecipient={(email) => void addRecipientToSendPolicy(email)}
         onAllowRemoteResourcesForSender={allowRemoteImagesForSender}
         onClose={closeComposeDialog}
