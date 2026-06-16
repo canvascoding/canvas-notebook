@@ -3,6 +3,7 @@ import Module from 'node:module';
 import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { GEMINI_FLASH_IMAGE_MODEL_ID } from '../app/lib/integrations/image-generation-constants';
 
 async function exists(filePath: string): Promise<boolean> {
   try {
@@ -82,7 +83,7 @@ async function main() {
 
     const updated = await generatePresetPreview(userId, presetId, {
       provider: 'gemini',
-      model: 'gemini-2.5-flash-image',
+      model: GEMINI_FLASH_IMAGE_MODEL_ID,
       aspectRatio: '1:1',
     });
 

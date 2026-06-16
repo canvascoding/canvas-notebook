@@ -75,7 +75,7 @@ export function buildStudioGeneratePayload(input: StudioGenerateInput): StudioGe
         ? (['png', 'jpeg', 'webp'].includes(input.outputFormat) ? input.outputFormat as 'png' | 'jpeg' | 'webp' : 'png')
         : undefined,
     background: input.provider === 'openai' ? input.background : undefined,
-    image_size: input.mode === 'image' && input.provider === 'gemini' && input.model !== 'gemini-2.5-flash-image' ? input.imageSize : undefined,
+    image_size: input.mode === 'image' && input.provider === 'gemini' ? input.imageSize : undefined,
     extra_reference_urls: isVeoExtend ? undefined : fileUrls,
     video_reference_urls: !isVeoExtend && input.mode === 'video' && input.provider === 'bytedance' ? videoReferenceUrls : undefined,
     audio_reference_urls: !isVeoExtend && input.mode === 'video' && input.provider === 'bytedance' ? audioReferenceUrls : undefined,

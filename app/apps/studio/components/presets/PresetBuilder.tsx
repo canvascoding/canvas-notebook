@@ -4,6 +4,7 @@ import { useTranslations } from 'next-intl';
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from '@/i18n/navigation';
 import { useStudioPresets } from '../../hooks/useStudioPresets';
+import { GEMINI_FLASH_IMAGE_MODEL_ID } from '@/app/lib/integrations/image-generation-constants';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -248,7 +249,7 @@ export function PresetBuilder({ presetId }: PresetBuilderProps) {
     if (!presetId) return;
     setPreviewGenerating(true);
     try {
-      const updated = await generatePreview(presetId, { provider: 'gemini', model: 'gemini-2.5-flash-image' });
+      const updated = await generatePreview(presetId, { provider: 'gemini', model: GEMINI_FLASH_IMAGE_MODEL_ID });
       if (updated?.previewImageUrl) {
         setPreviewImageUrl(updated.previewImageUrl);
       }

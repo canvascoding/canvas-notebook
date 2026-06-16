@@ -19,7 +19,8 @@ export const GEMINI_LEGACY_IMAGE_MODEL_ALIASES: Record<string, string> = {
   'gemini-3-pro-image-preview': GEMINI_PRO_IMAGE_MODEL_ID,
   'gemini-3.1-pro-image': GEMINI_PRO_IMAGE_MODEL_ID,
   'gemini-3.1-pro-image-preview': GEMINI_PRO_IMAGE_MODEL_ID,
-  'gemini-2.5-flash-image-preview': 'gemini-2.5-flash-image',
+  'gemini-2.5-flash-image': GEMINI_FLASH_IMAGE_MODEL_ID,
+  'gemini-2.5-flash-image-preview': GEMINI_FLASH_IMAGE_MODEL_ID,
   'gemini-2.0-flash-preview-image-generation': GEMINI_FLASH_IMAGE_MODEL_ID,
   'gemini-2.0-flash-exp-image-generation': GEMINI_FLASH_IMAGE_MODEL_ID,
 };
@@ -32,7 +33,6 @@ export function normalizeGeminiImageModelId(model: string): string {
 export const GEMINI_MODELS = [
   { id: GEMINI_FLASH_IMAGE_MODEL_ID, optionKey: 'bestQuality' as const },
   { id: GEMINI_PRO_IMAGE_MODEL_ID, optionKey: 'proQuality' as const },
-  { id: 'gemini-2.5-flash-image', optionKey: 'fastAffordable' as const },
 ] as const;
 
 export const GEMINI_IMAGE_SIZES = ['1K', '2K', '4K'] as const;
@@ -40,7 +40,6 @@ export const GEMINI_FLASH_IMAGE_SIZES = ['512', '1K', '2K', '4K'] as const;
 
 export function getImageSizesForModel(model: string): readonly string[] {
   const normalizedModel = normalizeGeminiImageModelId(model);
-  if (normalizedModel === 'gemini-2.5-flash-image') return [];
   if (normalizedModel === GEMINI_FLASH_IMAGE_MODEL_ID) return GEMINI_FLASH_IMAGE_SIZES;
   return GEMINI_IMAGE_SIZES;
 }
@@ -210,7 +209,7 @@ export function getMaxImageCountForProvider(mode: 'image' | 'video' | 'sound', p
   return provider === 'openai' ? OPENAI_MAX_IMAGE_COUNT : GEMINI_MAX_IMAGE_COUNT;
 }
 
-export function getMaxReferenceImages(mode: 'image' | 'video' | 'sound', provider: string, model: string): number {
+export function getMaxReferenceImages(mode: 'image' | 'video' | 'sound', provider: string, _model: string): number {
   if (mode === 'sound') {
     return 10;
   }
@@ -219,9 +218,6 @@ export function getMaxReferenceImages(mode: 'image' | 'video' | 'sound', provide
   }
   if (provider === 'openai') {
     return OPENAI_MAX_REFERENCE_IMAGES;
-  }
-  if (normalizeGeminiImageModelId(model) === 'gemini-2.5-flash-image') {
-    return 3;
   }
   return 14;
 }

@@ -68,12 +68,6 @@ const GEMINI_MODELS: ImageModelOption[] = [
     shortLabel: 'Nano Banana Pro',
     description: 'Professional asset production model with advanced reasoning for complex instructions and high-fidelity text rendering. Supports up to 14 reference images and 2K resolution output.',
   },
-  {
-    id: 'gemini-2.5-flash-image',
-    label: '⚡ Fast & Affordable',
-    shortLabel: 'Gemini 2.5 Flash Image',
-    description: 'Faster generation at lower cost. Supports up to 3 reference images. Great for quick drafts, simple visuals, and faster iteration.',
-  },
 ];
 
 const OPENAI_MODELS: ImageModelOption[] = [
@@ -157,9 +151,6 @@ class GeminiImageProvider implements ImageGenerationProvider {
     if (normalizedModel === GEMINI_PRO_IMAGE_MODEL_ID) {
       return 14;
     }
-    if (normalizedModel === 'gemini-2.5-flash-image') {
-      return 3;
-    }
     return this.maxReferenceImages;
   }
 
@@ -229,7 +220,7 @@ class GeminiImageProvider implements ImageGenerationProvider {
         responseModalities: ['IMAGE', 'TEXT'],
         imageConfig: {
           aspectRatio: params.aspectRatio,
-          ...(model !== 'gemini-2.5-flash-image' && params.imageSize ? { imageSize: params.imageSize } : {}),
+          ...(params.imageSize ? { imageSize: params.imageSize } : {}),
         },
       },
     });

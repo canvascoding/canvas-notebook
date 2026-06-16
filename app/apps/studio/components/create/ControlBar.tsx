@@ -301,7 +301,7 @@ export function ControlBar({
                         ? 'Gemini 3.1 Flash — Best Quality & Features'
                         : m.id === GEMINI_PRO_IMAGE_MODEL_ID
                           ? 'Nano Banana Pro — Pro Quality & Reasoning'
-                          : 'Gemini 2.5 Flash — Fast & Affordable'}
+                          : m.id}
                 </option>
               ))}
             </SelectField>

@@ -1053,13 +1053,9 @@ export function CreateView({ initialProviderConfig = EMPTY_STUDIO_PROVIDER_CONFI
             model={store.model}
             onModelChange={(nextModel) => {
               store.setModel(nextModel);
-              if (nextModel === 'gemini-2.5-flash-image') {
-                store.setImageSize('1K');
-              } else {
-                const validSizes = getImageSizesForModel(nextModel);
-                if (validSizes.length > 0 && !validSizes.includes(store.imageSize)) {
-                  store.setImageSize(validSizes[0]);
-                }
+              const validSizes = getImageSizesForModel(nextModel);
+              if (validSizes.length > 0 && !validSizes.includes(store.imageSize)) {
+                store.setImageSize(validSizes[0]);
               }
               if (store.mode === 'video') {
                 const validRes = getVideoResolutionsForModel(nextModel);
