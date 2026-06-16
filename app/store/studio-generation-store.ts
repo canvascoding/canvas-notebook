@@ -2,13 +2,23 @@ import { create } from 'zustand';
 import type { StudioGeneratePayload, StudioGenerationMode } from '@/app/apps/studio/types/generation';
 import type { StudioPreset } from '@/app/apps/studio/types/presets';
 import {
-  GEMINI_FLASH_IMAGE_MODEL_ID,
+  BACKGROUND_OPTIONS,
+  OUTPUT_FORMAT_OPTIONS,
+  QUALITY_OPTIONS,
+  getAspectRatiosForProvider,
+  getDefaultModelForProvider,
+  getImageSizesForModel,
+  getModelsForProvider,
+  getProvidersForMode,
+  getVideoDurationsForModel,
+  getVideoResolutionsForModel,
   type VideoResolution,
   type StudioVideoDuration,
 } from '@/app/lib/integrations/image-generation-constants';
 
 const STUDIO_INSPIRATION_COLLAPSED_STORAGE_KEY = 'studio-inspiration-collapsed';
 const STUDIO_SHOW_MORE_OPTIONS_STORAGE_KEY = 'studio-show-more-options';
+const STUDIO_GENERATION_OPTIONS_STORAGE_KEY = 'studio-generation-options';
 
 export interface ReferenceTag {
   id: string;
@@ -130,6 +140,27 @@ export interface StudioGenerationState {
   resetAfterGenerate: () => void;
 }
 
+type PersistedStudioGenerationOptions = Pick<
+  StudioGenerationState,
+  | 'mode'
+  | 'aspectRatio'
+  | 'count'
+  | 'provider'
+  | 'model'
+  | 'quality'
+  | 'outputFormat'
+  | 'background'
+  | 'imageSize'
+  | 'showMoreOptions'
+  | 'videoResolution'
+  | 'videoDuration'
+  | 'videoGenerateAudio'
+  | 'videoWebSearch'
+  | 'videoNsfwChecker'
+>;
+
+type StoredStudioGenerationOptions = Partial<PersistedStudioGenerationOptions>;
+
 function createPendingGenerateRequestId() {
   if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
     return crypto.randomUUID();
@@ -155,62 +186,222 @@ function writeStoredBoolean(key: string, value: boolean) {
   }
 }
 
-export const useStudioGenerationStore = create<StudioGenerationState>((set) => ({
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function hasOption<T extends readonly unknown[]>(options: T, value: unknown): value is T[number] {
+  return options.includes(value as never);
+}
+
+function isGenerationMode(value: unknown): value is StudioGenerationMode {
+  return value === 'image' || value === 'video' || value === 'sound';
+}
+
+function getDefaultProviderForMode(mode: StudioGenerationMode) {
+  return getProvidersForMode(mode)[0]?.id ?? 'gemini';
+}
+
+function readStoredGenerationOptions(): StoredStudioGenerationOptions {
+  if (typeof window === 'undefined') return {};
+
+  try {
+    const raw = window.localStorage.getItem(STUDIO_GENERATION_OPTIONS_STORAGE_KEY);
+    if (!raw) {
+      return {
+        showMoreOptions: readStoredBoolean(STUDIO_SHOW_MORE_OPTIONS_STORAGE_KEY),
+      };
+    }
+
+    const parsed: unknown = JSON.parse(raw);
+    if (!isRecord(parsed)) return {};
+
+    const options: StoredStudioGenerationOptions = {};
+
+    if (isGenerationMode(parsed.mode)) {
+      options.mode = parsed.mode;
+    }
+    const mode = options.mode ?? 'image';
+
+    const providers = getProvidersForMode(mode);
+    if (typeof parsed.provider === 'string' && providers.some((provider) => provider.id === parsed.provider)) {
+      options.provider = parsed.provider;
+    }
+    const provider = options.provider ?? getDefaultProviderForMode(mode);
+
+    const models = getModelsForProvider(mode, provider);
+    if (typeof parsed.model === 'string' && models.some((model) => model.id === parsed.model)) {
+      options.model = parsed.model;
+    }
+    const model = options.model ?? getDefaultModelForProvider(mode, provider);
+
+    const aspectRatios = getAspectRatiosForProvider(mode, provider);
+    if (typeof parsed.aspectRatio === 'string' && aspectRatios.includes(parsed.aspectRatio as never)) {
+      options.aspectRatio = parsed.aspectRatio;
+    }
+
+    if (typeof parsed.count === 'number' && Number.isInteger(parsed.count) && parsed.count >= 1 && parsed.count <= 4) {
+      options.count = parsed.count;
+    }
+
+    if (hasOption(QUALITY_OPTIONS, parsed.quality)) {
+      options.quality = parsed.quality;
+    }
+
+    const imageOutputFormats = OUTPUT_FORMAT_OPTIONS as readonly unknown[];
+    const soundOutputFormats = ['mp3', 'wav'] as const;
+    if (mode === 'sound') {
+      if (hasOption(soundOutputFormats, parsed.outputFormat)) {
+        options.outputFormat = model === 'lyria-3-pro-preview' ? parsed.outputFormat : 'mp3';
+      }
+    } else if (hasOption(imageOutputFormats, parsed.outputFormat)) {
+      options.outputFormat = parsed.outputFormat as PersistedStudioGenerationOptions['outputFormat'];
+    }
+
+    if (hasOption(BACKGROUND_OPTIONS, parsed.background)) {
+      options.background = parsed.background;
+    }
+
+    const imageSizes = getImageSizesForModel(model);
+    if (typeof parsed.imageSize === 'string' && imageSizes.includes(parsed.imageSize)) {
+      options.imageSize = parsed.imageSize;
+    }
+
+    if (typeof parsed.showMoreOptions === 'boolean') {
+      options.showMoreOptions = parsed.showMoreOptions;
+    } else {
+      options.showMoreOptions = readStoredBoolean(STUDIO_SHOW_MORE_OPTIONS_STORAGE_KEY);
+    }
+
+    const videoResolutions = getVideoResolutionsForModel(model);
+    if (typeof parsed.videoResolution === 'string' && videoResolutions.includes(parsed.videoResolution as VideoResolution)) {
+      options.videoResolution = parsed.videoResolution as VideoResolution;
+    }
+
+    const videoDurations = getVideoDurationsForModel(model);
+    if (typeof parsed.videoDuration === 'number' && videoDurations.includes(parsed.videoDuration as StudioVideoDuration)) {
+      options.videoDuration = parsed.videoDuration as StudioVideoDuration;
+    }
+
+    if (typeof parsed.videoGenerateAudio === 'boolean') {
+      options.videoGenerateAudio = parsed.videoGenerateAudio;
+    }
+    if (typeof parsed.videoWebSearch === 'boolean') {
+      options.videoWebSearch = parsed.videoWebSearch;
+    }
+    if (typeof parsed.videoNsfwChecker === 'boolean') {
+      options.videoNsfwChecker = parsed.videoNsfwChecker;
+    }
+
+    return options;
+  } catch {
+    return {
+      showMoreOptions: readStoredBoolean(STUDIO_SHOW_MORE_OPTIONS_STORAGE_KEY),
+    };
+  }
+}
+
+function writeStoredGenerationOptions(state: PersistedStudioGenerationOptions | StudioGenerationState) {
+  if (typeof window === 'undefined') return;
+
+  try {
+    const options: PersistedStudioGenerationOptions = {
+      mode: state.mode,
+      aspectRatio: state.aspectRatio,
+      count: state.count,
+      provider: state.provider,
+      model: state.model,
+      quality: state.quality,
+      outputFormat: state.outputFormat,
+      background: state.background,
+      imageSize: state.imageSize,
+      showMoreOptions: state.showMoreOptions,
+      videoResolution: state.videoResolution,
+      videoDuration: state.videoDuration,
+      videoGenerateAudio: state.videoGenerateAudio,
+      videoWebSearch: state.videoWebSearch,
+      videoNsfwChecker: state.videoNsfwChecker,
+    };
+    window.localStorage.setItem(STUDIO_GENERATION_OPTIONS_STORAGE_KEY, JSON.stringify(options));
+  } catch {
+    // Studio controls should still work for the current session if storage is blocked.
+  }
+}
+
+function persistGenerationOptionPatch(
+  state: StudioGenerationState,
+  patch: Partial<PersistedStudioGenerationOptions>,
+) {
+  writeStoredGenerationOptions({ ...state, ...patch });
+  return patch;
+}
+
+export const useStudioGenerationStore = create<StudioGenerationState>((set) => {
+  const storedOptions = readStoredGenerationOptions();
+  const initialMode = storedOptions.mode ?? 'image';
+  const initialProvider = storedOptions.provider ?? getDefaultProviderForMode(initialMode);
+  const initialModel = storedOptions.model ?? getDefaultModelForProvider(initialMode, initialProvider);
+  const initialAspectRatio = storedOptions.aspectRatio ?? (initialMode === 'video' ? '16:9' : '1:1');
+  const initialOutputFormat = storedOptions.outputFormat ?? (initialMode === 'sound' ? 'mp3' : 'png');
+
+  return {
   inspirationCollapsed: readStoredBoolean(STUDIO_INSPIRATION_COLLAPSED_STORAGE_KEY),
   setInspirationCollapsed: (collapsed: boolean) => {
     writeStoredBoolean(STUDIO_INSPIRATION_COLLAPSED_STORAGE_KEY, collapsed);
     set({ inspirationCollapsed: collapsed });
   },
 
-  mode: 'image',
+  mode: initialMode,
   setMode: (mode) => set((state) => (
-    mode === 'sound' && state.presetRef ? { mode, presetRef: null } : { mode }
+    mode === 'sound' && state.presetRef
+      ? { ...persistGenerationOptionPatch(state, { mode }), presetRef: null }
+      : persistGenerationOptionPatch(state, { mode })
   )),
 
-  aspectRatio: '1:1',
-  setAspectRatio: (aspectRatio) => set({ aspectRatio }),
+  aspectRatio: initialAspectRatio,
+  setAspectRatio: (aspectRatio) => set((state) => persistGenerationOptionPatch(state, { aspectRatio })),
 
-  count: 1,
-  setCount: (count) => set({ count }),
+  count: storedOptions.count ?? 1,
+  setCount: (count) => set((state) => persistGenerationOptionPatch(state, { count })),
 
-  provider: 'gemini',
-  setProvider: (provider) => set({ provider }),
+  provider: initialProvider,
+  setProvider: (provider) => set((state) => persistGenerationOptionPatch(state, { provider })),
 
-  model: GEMINI_FLASH_IMAGE_MODEL_ID,
-  setModel: (model) => set({ model }),
+  model: initialModel,
+  setModel: (model) => set((state) => persistGenerationOptionPatch(state, { model })),
 
-  quality: 'auto',
-  setQuality: (quality) => set({ quality }),
+  quality: storedOptions.quality ?? 'auto',
+  setQuality: (quality) => set((state) => persistGenerationOptionPatch(state, { quality })),
 
-  outputFormat: 'png',
-  setOutputFormat: (outputFormat) => set({ outputFormat }),
+  outputFormat: initialOutputFormat,
+  setOutputFormat: (outputFormat) => set((state) => persistGenerationOptionPatch(state, { outputFormat })),
 
-  background: 'auto',
-  setBackground: (background) => set({ background }),
+  background: storedOptions.background ?? 'auto',
+  setBackground: (background) => set((state) => persistGenerationOptionPatch(state, { background })),
 
-  imageSize: '1K',
-  setImageSize: (imageSize) => set({ imageSize }),
+  imageSize: storedOptions.imageSize ?? '1K',
+  setImageSize: (imageSize) => set((state) => persistGenerationOptionPatch(state, { imageSize })),
 
-  showMoreOptions: readStoredBoolean(STUDIO_SHOW_MORE_OPTIONS_STORAGE_KEY),
+  showMoreOptions: storedOptions.showMoreOptions ?? readStoredBoolean(STUDIO_SHOW_MORE_OPTIONS_STORAGE_KEY),
   setShowMoreOptions: (showMoreOptions) => {
     writeStoredBoolean(STUDIO_SHOW_MORE_OPTIONS_STORAGE_KEY, showMoreOptions);
-    set({ showMoreOptions });
+    set((state) => persistGenerationOptionPatch(state, { showMoreOptions }));
   },
 
-  videoResolution: '720p',
-  setVideoResolution: (videoResolution) => set({ videoResolution }),
+  videoResolution: storedOptions.videoResolution ?? '720p',
+  setVideoResolution: (videoResolution) => set((state) => persistGenerationOptionPatch(state, { videoResolution })),
 
-  videoDuration: 6,
-  setVideoDuration: (videoDuration) => set({ videoDuration }),
+  videoDuration: storedOptions.videoDuration ?? 6,
+  setVideoDuration: (videoDuration) => set((state) => persistGenerationOptionPatch(state, { videoDuration })),
 
-  videoGenerateAudio: true,
-  setVideoGenerateAudio: (videoGenerateAudio) => set({ videoGenerateAudio }),
+  videoGenerateAudio: storedOptions.videoGenerateAudio ?? true,
+  setVideoGenerateAudio: (videoGenerateAudio) => set((state) => persistGenerationOptionPatch(state, { videoGenerateAudio })),
 
-  videoWebSearch: false,
-  setVideoWebSearch: (videoWebSearch) => set({ videoWebSearch }),
+  videoWebSearch: storedOptions.videoWebSearch ?? false,
+  setVideoWebSearch: (videoWebSearch) => set((state) => persistGenerationOptionPatch(state, { videoWebSearch })),
 
-  videoNsfwChecker: false,
-  setVideoNsfwChecker: (videoNsfwChecker) => set({ videoNsfwChecker }),
+  videoNsfwChecker: storedOptions.videoNsfwChecker ?? false,
+  setVideoNsfwChecker: (videoNsfwChecker) => set((state) => persistGenerationOptionPatch(state, { videoNsfwChecker })),
 
   isLooping: false,
   setIsLooping: (isLooping) => set({ isLooping }),
@@ -322,4 +513,5 @@ export const useStudioGenerationStore = create<StudioGenerationState>((set) => (
       startFramePath: null,
       endFramePath: null,
     }),
-}));
+  };
+});

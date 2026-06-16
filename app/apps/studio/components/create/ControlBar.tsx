@@ -11,6 +11,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { cn } from '@/lib/utils';
 import type { StudioGenerationMode } from '../../types/generation';
 import type { StudioPreset } from '../../types/presets';
 import { ModeToggle } from './ModeToggle';
@@ -45,14 +46,15 @@ interface SelectFieldProps {
   onChange: (value: string) => void;
   children: ReactNode;
   disabled?: boolean;
+  className?: string;
 }
 
-function SelectField({ label, value, onChange, children, disabled }: SelectFieldProps) {
+function SelectField({ label, value, onChange, children, disabled, className }: SelectFieldProps) {
   return (
-    <label className="flex flex-col gap-1 text-sm">
-      <span className="text-xs text-muted-foreground">{label}</span>
+    <label className={cn('flex min-w-0 flex-col gap-1 text-sm', className)}>
+      <span className="truncate text-[11px] text-muted-foreground sm:text-xs">{label}</span>
       <select
-        className="h-9 rounded-xl border border-input bg-background px-2 text-sm"
+        className="h-8 w-full min-w-0 truncate rounded-lg border border-input bg-background px-2 text-xs sm:h-9 sm:rounded-xl sm:text-sm"
         value={value}
         onChange={(event) => onChange(event.target.value)}
         disabled={disabled}
@@ -275,8 +277,8 @@ export function ControlBar({
       </div>
 
       {showMoreOptions && (
-        <div className="rounded-2xl border border-border/70 bg-background/70 px-3 py-2 shadow-sm">
-          <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="rounded-xl border border-border/70 bg-background/70 px-2 py-2 shadow-sm sm:rounded-2xl sm:px-3">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-2 sm:gap-3 lg:grid-cols-4">
             <SelectField label="Provider" value={provider} onChange={onProviderChange}>
               {(mode === 'sound' ? SOUND_PROVIDERS : mode === 'video' ? VIDEO_PROVIDERS : PROVIDERS).map((p) => (
                 <option key={p.id} value={p.id}>
@@ -357,29 +359,29 @@ export function ControlBar({
 
             {isSeedance ? (
               <>
-                <label className="flex items-center gap-2 text-sm">
+                <label className="flex min-w-0 items-center gap-2 rounded-lg border border-border/60 bg-background/60 px-2 py-1.5 text-xs sm:text-sm">
                   <input
                     type="checkbox"
                     checked={videoGenerateAudio}
                     onChange={(event) => onVideoGenerateAudioChange(event.target.checked)}
                   />
-                  <span>Generate audio</span>
+                  <span className="truncate">Generate audio</span>
                 </label>
-                <label className="flex items-center gap-2 text-sm">
+                <label className="flex min-w-0 items-center gap-2 rounded-lg border border-border/60 bg-background/60 px-2 py-1.5 text-xs sm:text-sm">
                   <input
                     type="checkbox"
                     checked={videoWebSearch}
                     onChange={(event) => onVideoWebSearchChange(event.target.checked)}
                   />
-                  <span>Web search</span>
+                  <span className="truncate">Web search</span>
                 </label>
-                <label className="flex items-center gap-2 text-sm">
+                <label className="flex min-w-0 items-center gap-2 rounded-lg border border-border/60 bg-background/60 px-2 py-1.5 text-xs sm:text-sm">
                   <input
                     type="checkbox"
                     checked={videoNsfwChecker}
                     onChange={(event) => onVideoNsfwCheckerChange(event.target.checked)}
                   />
-                  <span>NSFW checker</span>
+                  <span className="truncate">NSFW checker</span>
                 </label>
               </>
             ) : null}
