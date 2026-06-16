@@ -17,13 +17,12 @@ import { getGeminiApiKeyFromIntegrations } from '@/app/lib/integrations/env-conf
 import { IntegrationServiceError } from '@/app/lib/integrations/integration-service-error';
 import {
   getVideoModelCapabilities,
+  VEO_MAX_REFERENCE_IMAGES,
   type VideoResolution,
   type VideoDuration,
 } from '@/app/lib/integrations/image-generation-constants';
 import { loadMediaReference } from '@/app/lib/integrations/media-reference-resolver';
 import { generateManagedMedia, isManagedMediaFallbackAvailable, type ManagedMediaReference } from '@/app/lib/integrations/managed-media-client';
-
-const MAX_REFERENCE_IMAGES = 3;
 
 export type GenerationMode = 'text_to_video' | 'frames_to_video' | 'references_to_video' | 'extend_video';
 
@@ -211,12 +210,12 @@ export async function generateVideo(
       references.push({ ...(await loadImageBytes(body.startFramePath)), role: 'start_frame' });
       const endFramePath = body.isLooping ? null : body.endFramePath;
       if (endFramePath) references.push({ ...(await loadImageBytes(endFramePath)), role: 'end_frame' });
-      for (const sourcePath of (body.referenceImagePaths || []).slice(0, MAX_REFERENCE_IMAGES)) {
+      for (const sourcePath of (body.referenceImagePaths || []).slice(0, VEO_MAX_REFERENCE_IMAGES)) {
         references.push({ ...(await loadImageBytes(sourcePath)), role: 'reference' });
       }
     }
     if (mode === 'references_to_video') {
-      for (const sourcePath of (body.referenceImagePaths || []).slice(0, MAX_REFERENCE_IMAGES)) {
+      for (const sourcePath of (body.referenceImagePaths || []).slice(0, VEO_MAX_REFERENCE_IMAGES)) {
         references.push({ ...(await loadImageBytes(sourcePath)), role: 'reference' });
       }
     }
@@ -344,7 +343,7 @@ export async function generateVideo(
       config.lastFrame = endFrame;
     }
 
-    const sourcePaths = (body.referenceImagePaths || []).slice(0, MAX_REFERENCE_IMAGES);
+    const sourcePaths = (body.referenceImagePaths || []).slice(0, VEO_MAX_REFERENCE_IMAGES);
     if (sourcePaths.length > 0 && caps.references) {
       const referenceImages: VideoGenerationReferenceImage[] = [];
       for (const sourcePath of sourcePaths) {
@@ -362,7 +361,7 @@ export async function generateVideo(
   }
 
   if (mode === 'references_to_video') {
-    const sourcePaths = (body.referenceImagePaths || []).slice(0, MAX_REFERENCE_IMAGES);
+    const sourcePaths = (body.referenceImagePaths || []).slice(0, VEO_MAX_REFERENCE_IMAGES);
     if (!prompt || sourcePaths.length === 0) {
       throw new IntegrationServiceError('Prompt and at least one reference image are required.', 400);
     }

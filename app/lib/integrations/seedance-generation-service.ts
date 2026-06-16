@@ -9,6 +9,7 @@ import {
 } from '@/app/lib/integrations/studio-workspace';
 import { toMediaUrl } from '@/app/lib/utils/media-url';
 import { generateManagedMedia, isManagedMediaFallbackAvailable } from '@/app/lib/integrations/managed-media-client';
+import { SEEDANCE_MAX_REFERENCE_IMAGES } from '@/app/lib/integrations/image-generation-constants';
 
 export const SEEDANCE_PROVIDER_ID = 'bytedance';
 export const SEEDANCE_MODEL_ID = 'bytedance/seedance-2';
@@ -366,7 +367,7 @@ export async function generateSeedanceVideo(
   }
 
   const hasFrameScenario = Boolean(request.firstFrame || request.lastFrame);
-  const referenceImages = (request.referenceImages || []).slice(0, 9);
+  const referenceImages = (request.referenceImages || []).slice(0, SEEDANCE_MAX_REFERENCE_IMAGES);
   const referenceVideos = (request.referenceVideos || []).slice(0, 3);
   const referenceAudios = (request.referenceAudios || []).slice(0, 3);
   const multimodalReferenceCount = referenceImages.length + referenceVideos.length + referenceAudios.length;

@@ -41,6 +41,8 @@ import { classifyMediaReference, loadMediaReference, loadMediaReferences } from 
 import { generateSound, LYRIA_CLIP_MODEL_ID, LYRIA_PRO_MODEL_ID, type SoundOutputFormat } from '@/app/lib/integrations/sound-generation-service';
 import {
   GEMINI_FLASH_IMAGE_MODEL_ID,
+  SEEDANCE_MAX_REFERENCE_IMAGES,
+  VEO_MAX_REFERENCE_IMAGES,
   normalizeGeminiImageModelId,
 } from '@/app/lib/integrations/image-generation-constants';
 
@@ -134,6 +136,14 @@ function sanitizePrompt(prompt: string): string {
 
 function extensionFromMime(mimeType: string): string {
   return MIME_EXTENSION[mimeType] || (mimeType.startsWith('image/') ? 'png' : 'bin');
+}
+
+function getVideoProviderImageReferenceLimit(providerId: string): number {
+  return providerId === SEEDANCE_PROVIDER_ID ? SEEDANCE_MAX_REFERENCE_IMAGES : VEO_MAX_REFERENCE_IMAGES;
+}
+
+function limitVideoProviderReferenceImages(providerId: string, referenceImages: ProviderReferenceImage[]): ProviderReferenceImage[] {
+  return referenceImages.slice(0, getVideoProviderImageReferenceLimit(providerId));
 }
 
 async function loadProductImages(userId: string, productIds: string[]): Promise<LoadedReferenceImage[]> {
@@ -1251,15 +1261,23 @@ async function generateStudioVideo(
     );
   }
 
-  const videoMode = videoExtendSourcePath ? 'extend_video' : (startFramePath || endFramePath) ? 'frames_to_video' : (referenceImages.length > 0 ? 'references_to_video' : 'text_to_video');
-  console.log(`[Studio Generation] Generating video: provider=${providerId}, model=${videoModel || 'default'}, mode=${videoMode}, aspect=${aspectRatio}, refs=${referenceImages.length}, startFrame=${startFramePath ? 'yes' : 'no'}, endFrame=${endFramePath ? 'yes' : 'no'}`);
+  const hasFrameScenario = Boolean(startFramePath || endFramePath);
+  const providerReferenceImages = hasFrameScenario ? [] : limitVideoProviderReferenceImages(providerId, referenceImages);
+  const imageReferenceLimit = getVideoProviderImageReferenceLimit(providerId);
+  if (referenceImages.length > providerReferenceImages.length) {
+    const reason = hasFrameScenario ? 'first/last-frame mode is active' : `provider limit is ${imageReferenceLimit}`;
+    console.log(`[Studio Generation] Video image references limited: provider=${providerId}, kept=${providerReferenceImages.length}, dropped=${referenceImages.length - providerReferenceImages.length}, reason=${reason}`);
+  }
+
+  const videoMode = videoExtendSourcePath ? 'extend_video' : hasFrameScenario ? 'frames_to_video' : (providerReferenceImages.length > 0 ? 'references_to_video' : 'text_to_video');
+  console.log(`[Studio Generation] Generating video: provider=${providerId}, model=${videoModel || 'default'}, mode=${videoMode}, aspect=${aspectRatio}, refs=${providerReferenceImages.length}, startFrame=${startFramePath ? 'yes' : 'no'}, endFrame=${endFramePath ? 'yes' : 'no'}`);
 
   if (providerId === SEEDANCE_PROVIDER_ID) {
     return generateStudioSeedanceVideo(
       generationId,
       prompt,
       aspectRatio,
-      referenceImages,
+      providerReferenceImages,
       videoResolution,
       videoDuration,
       startFramePath,
@@ -1299,10 +1317,10 @@ async function generateStudioVideo(
     generateAudio: videoOptions?.generateAudio,
   };
 
-  if (referenceImages.length > 0) {
+  if (providerReferenceImages.length > 0) {
     const tempPaths: string[] = [];
-    for (let i = 0; i < referenceImages.length; i++) {
-      const ref = referenceImages[i];
+    for (let i = 0; i < providerReferenceImages.length; i++) {
+      const ref = providerReferenceImages[i];
       const ext = extensionFromMime(ref.mimeType);
       const tempPath = `temp-ref-${generationId}-${i}.${ext}`;
       const buffer = Buffer.from(ref.imageBytes, 'base64');

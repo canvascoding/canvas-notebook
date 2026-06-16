@@ -30,6 +30,7 @@ import { useStudioGenerationStore } from '@/app/store/studio-generation-store';
 import { buildStudioGeneratePayload } from '../../utils/studio-generate-payload';
 import { clearStudioGenerateHandoff, consumeStudioGenerateHandoff } from '../../utils/studio-generate-handoff';
 import { getStudioUserPrompt } from '../../utils/studio-generation-prompt';
+import { getFileReferenceLimitForMode } from '../../utils/video-reference-limits';
 import { EMPTY_STUDIO_PROVIDER_CONFIG, type StudioProviderConfig } from '../../types/config';
 import { StudioMediaThumbnail } from '../StudioMediaThumbnail';
 
@@ -967,7 +968,11 @@ export function CreateView({ initialProviderConfig = EMPTY_STUDIO_PROVIDER_CONFI
               else if (type === 'preset') store.removePresetRef();
             }}
             onFileAdd={(paths) => {
-              for (const path of paths) {
+              const limit = getFileReferenceLimitForMode(store.mode, store.provider);
+              const allowedPaths = typeof limit === 'number'
+                ? paths.slice(0, Math.max(limit - store.fileRefs.length, 0))
+                : paths;
+              for (const path of allowedPaths) {
                 store.addFileRef({ id: path, name: path.split('/').pop() || path, thumbnailPath: path });
               }
             }}

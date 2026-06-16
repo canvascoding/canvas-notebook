@@ -28,9 +28,11 @@ import { Button } from '@/components/ui/button';
 import { ReferencePickerDialog } from './ReferencePickerDialog';
 import { ReferenceHoverCard, type ReferenceType } from './ReferenceHoverCard';
 import { ModelReferencePickerDialog } from './ModelReferencePickerDialog';
+import { VideoReferenceControls, type VideoReferencePickerTarget } from './VideoReferenceControls';
 import type { StudioPreset } from '../../types/presets';
 import type { StudioPersona, StudioProduct, StudioStyle } from '../../types/models';
 import { StudioMediaThumbnail } from '../StudioMediaThumbnail';
+import { DEFAULT_IMAGE_REFERENCE_LIMIT, getVideoImageReferenceLimit } from '../../utils/video-reference-limits';
 
 interface ReferenceTag {
   id: string;
@@ -232,9 +234,8 @@ export function PromptBar({
   const [referenceDialogOpen, setReferenceDialogOpen] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [closeReferenceDialogOnPickerConfirm, setCloseReferenceDialogOnPickerConfirm] = useState(false);
-  const [mediaPicker, setMediaPicker] = useState<'image' | 'video' | 'audio' | 'extendVideo'>('image');
-  const isSeedanceVideo = mode === 'video' && provider === 'bytedance';
-  const isVeoVideo = mode === 'video' && provider === 'veo';
+  const [mediaPicker, setMediaPicker] = useState<VideoReferencePickerTarget>('image');
+  const imageReferenceLimit = mode === 'video' ? getVideoImageReferenceLimit(provider) : DEFAULT_IMAGE_REFERENCE_LIMIT;
 
   const handlePaste = useCallback((event: React.ClipboardEvent) => {
     if (!onPasteImage) return;
@@ -429,35 +430,19 @@ export function PromptBar({
         </Button>
       </div>
 
-      {isSeedanceVideo ? (
-        <div className="flex flex-wrap gap-2">
-          <Button type="button" variant="outline" size="sm" className="h-8 justify-start rounded-full" onClick={() => { setMediaPicker('image'); setCloseReferenceDialogOnPickerConfirm(false); setPickerOpen(true); }}>
-            <ImageIcon className="h-4 w-4" />
-            Image refs
-            <span className="ml-auto text-xs text-muted-foreground">{value.fileRefs.length}/9</span>
-          </Button>
-          <Button type="button" variant="outline" size="sm" className="h-8 justify-start rounded-full" onClick={() => { setMediaPicker('video'); setCloseReferenceDialogOnPickerConfirm(false); setPickerOpen(true); }}>
-            <FileVideo className="h-4 w-4" />
-            Video refs
-            <span className="ml-auto text-xs text-muted-foreground">{videoReferenceRefs.length}/3</span>
-          </Button>
-          <Button type="button" variant="outline" size="sm" className="h-8 justify-start rounded-full" onClick={() => { setMediaPicker('audio'); setCloseReferenceDialogOnPickerConfirm(false); setPickerOpen(true); }}>
-            <Music className="h-4 w-4" />
-            Audio refs
-            <span className="ml-auto text-xs text-muted-foreground">{audioReferenceRefs.length}/3</span>
-          </Button>
-        </div>
-      ) : null}
-
-      {isVeoVideo ? (
-        <div>
-          <Button type="button" variant="outline" size="sm" className="h-8 w-full justify-start rounded-full sm:w-auto" onClick={() => { setMediaPicker('extendVideo'); setCloseReferenceDialogOnPickerConfirm(false); setPickerOpen(true); }}>
-            <FileVideo className="h-4 w-4" />
-            Extend source
-            <span className="ml-auto text-xs text-muted-foreground">{videoExtendSourceRef ? '1/1' : '0/1'}</span>
-          </Button>
-        </div>
-      ) : null}
+      <VideoReferenceControls
+        mode={mode}
+        provider={provider}
+        imageReferenceCount={value.fileRefs.length}
+        videoReferenceCount={videoReferenceRefs.length}
+        audioReferenceCount={audioReferenceRefs.length}
+        hasExtendSource={Boolean(videoExtendSourceRef)}
+        onPick={(target) => {
+          setMediaPicker(target);
+          setCloseReferenceDialogOnPickerConfirm(false);
+          setPickerOpen(true);
+        }}
+      />
 
       <ModelReferencePickerDialog
         open={referenceDialogOpen}
@@ -475,6 +460,7 @@ export function PromptBar({
         fetchPersonas={fetchPersonas}
         fetchStyles={fetchStyles}
         fileReferenceCount={value.fileRefs.length}
+        fileReferenceLimit={imageReferenceLimit}
         onImageReferenceClick={() => {
           setMediaPicker('image');
           setCloseReferenceDialogOnPickerConfirm(true);
@@ -493,7 +479,7 @@ export function PromptBar({
         }}
         mediaKind={mediaPicker === 'audio' ? 'audio' : mediaPicker === 'image' ? 'image' : 'video'}
         multiple={mediaPicker !== 'extendVideo'}
-        maxSelection={mediaPicker === 'extendVideo' ? 1 : mediaPicker === 'image' ? 9 : 3}
+        maxSelection={mediaPicker === 'extendVideo' ? 1 : mediaPicker === 'image' ? imageReferenceLimit : 3}
         studioOnly={mediaPicker === 'extendVideo'}
         veoGeneratedOnly={mediaPicker === 'extendVideo'}
         onConfirm={(paths) => {

@@ -146,6 +146,9 @@ export const BACKGROUND_OPTIONS = ['auto', 'opaque', 'transparent'] as const;
 export const GEMINI_MAX_IMAGE_COUNT = 4;
 export const OPENAI_MAX_IMAGE_COUNT = 10;
 export const OPENAI_MAX_REFERENCE_IMAGES = 16;
+export const VEO_MAX_REFERENCE_IMAGES = 3;
+export const SEEDANCE_MAX_REFERENCE_IMAGES = 9;
+export const SOUND_MAX_REFERENCE_FILES = 10;
 
 export function getProvidersForMode(mode: 'image' | 'video' | 'sound') {
   if (mode === 'sound') return SOUND_PROVIDERS;

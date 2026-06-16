@@ -70,6 +70,7 @@ interface ModelReferencePickerDialogProps {
   fetchPersonas: () => Promise<void>;
   fetchStyles: () => Promise<void>;
   fileReferenceCount: number;
+  fileReferenceLimit: number;
   onImageReferenceClick: () => void;
   onProductAdd: (product: StudioProduct) => void;
   onPersonaAdd: (persona: StudioPersona) => void;
@@ -275,6 +276,7 @@ export function ModelReferencePickerDialog({
   fetchPersonas,
   fetchStyles,
   fileReferenceCount,
+  fileReferenceLimit,
   onImageReferenceClick,
   onProductAdd,
   onPersonaAdd,
@@ -363,7 +365,7 @@ export function ModelReferencePickerDialog({
         >
           <ImageIcon className="h-4 w-4" />
           {t('imageReference')}
-          <span className="ml-auto text-xs text-muted-foreground">{fileReferenceCount}/9</span>
+          <span className="ml-auto text-xs text-muted-foreground">{fileReferenceCount}/{fileReferenceLimit}</span>
         </Button>
 
         <div className="relative shrink-0">
