@@ -43,6 +43,7 @@ import {
   type ComposerReferencePickerItem,
 } from '@/app/components/canvas-agent-chat/ComposerReferencePicker';
 import type { FilePickerFile } from '@/app/components/canvas-agent-chat/ChatComposer';
+import { MarkdownMessage } from '@/app/components/canvas-agent-chat/ChatMarkdownMessage';
 import { EmailAccountsCard } from '@/app/components/settings/IntegrationsSettingsClient';
 import { isLikelyHtmlEmailContent, normalizeEmailHtmlContent } from '@/app/lib/email/html-content';
 import { getFileIconComponent } from '@/app/lib/files/file-icons';
@@ -661,6 +662,7 @@ type EmailComposeDialogLabels = Pick<EmailMessageViewerLabels, 'cc' | 'date' | '
   composeOriginalTitle: string;
   composeReferencePickerEmpty: string;
   composeReferencePickerHeader: string;
+  composeReferencePickerSearchPlaceholder: string;
   composeRemoveContextFile: string;
   composeReplyAllTitle: string;
   composeReplyTitle: string;
@@ -992,7 +994,7 @@ function EmailMessageViewer({
         {summary && (
           <div className="mt-3 border border-primary/25 bg-primary/5 px-3 py-2 text-sm leading-6">
             <div className="mb-1 text-xs font-semibold uppercase tracking-[0.14em] text-primary">{labels.aiSummary}</div>
-            <p className="whitespace-pre-wrap">{summary}</p>
+            <MarkdownMessage content={summary} variant="assistant" />
           </div>
         )}
       </header>
@@ -2314,6 +2316,7 @@ export function EmailClient() {
     composeOriginalTitle: t('composeOriginalTitle'),
     composeReferencePickerEmpty: t('composeReferencePickerEmpty'),
     composeReferencePickerHeader: t('composeReferencePickerHeader'),
+    composeReferencePickerSearchPlaceholder: t('composeReferencePickerSearchPlaceholder'),
     composeRemoveContextFile: t('composeRemoveContextFile'),
     composeReplyAllTitle: t('composeReplyAllTitle'),
     composeReplyTitle: t('composeReplyTitle'),

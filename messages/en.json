@@ -1040,6 +1040,7 @@
     "composeNoContextFiles": "No files selected",
     "composeRemoveContextFile": "Remove context file",
     "composeReferencePickerHeader": "Workspace files",
+    "composeReferencePickerSearchPlaceholder": "Search files...",
     "composeReferencePickerEmpty": "No matching files",
     "composeAgentWorking": "Workspace Agent is working",
     "composeAgentReady": "Workspace Agent ready",
