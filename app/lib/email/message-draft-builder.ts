@@ -1,13 +1,16 @@
 import 'server-only';
 
 import type { EmailAttachmentInput } from '@/app/lib/email/attachment-types';
+import { escapeEmailHtml, htmlToPlainText, plainTextToEmailHtml } from '@/app/lib/email/html-conversion';
 
 export type EmailDerivedDraftMode = 'forward' | 'reply' | 'reply-all';
 
 export type EmailDerivedDraftOverrides = {
   attachments?: EmailAttachmentInput[];
   bodyOverride?: string;
+  bodyOverrideHtml?: string;
   cc?: string[];
+  is_HTML?: boolean;
   subject?: string;
   to?: string[];
 };
@@ -30,24 +33,11 @@ type BuildEmailDerivedDraftInput = {
   ownAddresses: Set<string>;
 } & EmailDerivedDraftOverrides;
 
-export function htmlToPlainText(value: string): string {
-  return value
-    .replace(/<br\s*\/?>/giu, '\n')
-    .replace(/<\/p>/giu, '\n\n')
-    .replace(/<[^>]+>/gu, ' ')
-    .replace(/&nbsp;/gu, ' ')
-    .replace(/&amp;/gu, '&')
-    .replace(/&lt;/gu, '<')
-    .replace(/&gt;/gu, '>')
-    .replace(/\n{3,}/gu, '\n\n')
-    .replace(/[ \t]+/gu, ' ')
-    .trim();
-}
-
 function textFromMessage(message: Record<string, unknown>): string {
   const body = typeof message.body === 'string' ? message.body : '';
+  const bodyHtml = typeof message.bodyHtml === 'string' ? message.bodyHtml : '';
   const snippet = typeof message.snippet === 'string' ? message.snippet : '';
-  return htmlToPlainText(body || snippet);
+  return body.trim() || htmlToPlainText(bodyHtml) || htmlToPlainText(snippet);
 }
 
 function subjectFromMessage(message: Record<string, unknown>): string {
@@ -140,6 +130,26 @@ function forwardedBody(message: Record<string, unknown>): string {
   ].join('\n');
 }
 
+function quotedBodyHtml(message: Record<string, unknown>): string {
+  const from = String(message.from || '').trim();
+  const date = String(message.date || '').trim();
+  const body = plainTextToEmailHtml(textFromMessage(message));
+  const intro = date && from ? `On ${escapeEmailHtml(date)}, ${escapeEmailHtml(from)} wrote:` : from ? `${escapeEmailHtml(from)} wrote:` : 'Original message:';
+  return `<p>${intro}</p><blockquote>${body}</blockquote>`;
+}
+
+function forwardedBodyHtml(message: Record<string, unknown>): string {
+  const to = extractEmailAddresses(message.to).join(', ');
+  return [
+    '<p>---------- Forwarded message ----------<br>',
+    `From: ${escapeEmailHtml(String(message.from || '').trim())}<br>`,
+    `Date: ${escapeEmailHtml(String(message.date || '').trim())}<br>`,
+    `Subject: ${escapeEmailHtml(subjectFromMessage(message))}<br>`,
+    `To: ${escapeEmailHtml(to)}</p>`,
+    plainTextToEmailHtml(textFromMessage(message)),
+  ].join('');
+}
+
 export function buildEmailDerivedDraft(input: BuildEmailDerivedDraftInput): EmailDraftInput {
   const subject = subjectFromMessage(input.message);
   const isForward = input.mode === 'forward';
@@ -153,9 +163,19 @@ export function buildEmailDerivedDraft(input: BuildEmailDerivedDraftInput): Emai
   const to = overrideAddresses(input.to) ?? defaultTo;
   const cc = overrideAddresses(input.cc) ?? defaultCc;
   const intro = input.bodyOverride?.trim() || '';
-  const body = isForward
-    ? [intro, forwardedBody(input.message)].filter(Boolean).join('\n\n')
-    : [intro, quotedBody(input.message)].filter(Boolean).join('\n\n');
+  const wantsHtml = input.is_HTML || Boolean(input.bodyOverrideHtml?.trim());
+  const introHtml = input.bodyOverrideHtml?.trim() || plainTextToEmailHtml(intro);
+  const body = wantsHtml
+    ? (
+        isForward
+          ? [introHtml, forwardedBodyHtml(input.message)].filter(Boolean).join('<br>')
+          : [introHtml, quotedBodyHtml(input.message)].filter(Boolean).join('<br>')
+      )
+    : (
+        isForward
+          ? [intro, forwardedBody(input.message)].filter(Boolean).join('\n\n')
+          : [intro, quotedBody(input.message)].filter(Boolean).join('\n\n')
+      );
 
   return {
     accountId: input.accountId,
@@ -163,7 +183,7 @@ export function buildEmailDerivedDraft(input: BuildEmailDerivedDraftInput): Emai
     cc,
     subject: input.subject?.trim() || (isForward ? forwardSubject(subject) : replySubject(subject)),
     body,
-    is_HTML: false,
+    is_HTML: wantsHtml,
     attachments: input.attachments,
   };
 }

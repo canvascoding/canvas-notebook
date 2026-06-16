@@ -180,7 +180,9 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       data = await createEmailDerivedDraft(session.user.id, accountId, messageId, folder, mode, {
         attachments: normalizeEmailAttachmentInputs((body as { attachments?: unknown }).attachments),
         bodyOverride: optionalStringValue((body as { bodyOverride?: unknown }).bodyOverride),
+        bodyOverrideHtml: optionalStringValue((body as { bodyOverrideHtml?: unknown }).bodyOverrideHtml),
         cc: stringListValue((body as { cc?: unknown }).cc),
+        is_HTML: Boolean((body as { is_HTML?: unknown }).is_HTML),
         subject: optionalStringValue((body as { subject?: unknown }).subject),
         to: stringListValue((body as { to?: unknown }).to),
       }, { enforceReadPolicy: false });
@@ -191,7 +193,9 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       data = await sendEmailDerivedMessage(session.user.id, accountId, messageId, folder, mode, {
         attachments: normalizeEmailAttachmentInputs((body as { attachments?: unknown }).attachments),
         bodyOverride: optionalStringValue((body as { bodyOverride?: unknown }).bodyOverride),
+        bodyOverrideHtml: optionalStringValue((body as { bodyOverrideHtml?: unknown }).bodyOverrideHtml),
         cc: stringListValue((body as { cc?: unknown }).cc),
+        is_HTML: Boolean((body as { is_HTML?: unknown }).is_HTML),
         subject: optionalStringValue((body as { subject?: unknown }).subject),
         to: stringListValue((body as { to?: unknown }).to),
       }, { enforceReadPolicy: false });

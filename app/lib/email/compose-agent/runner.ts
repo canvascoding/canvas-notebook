@@ -4,6 +4,8 @@ import { Agent, type AgentEvent, type AgentMessage } from '@earendil-works/pi-ag
 
 import { resolveAgentRuntimeConfig } from '@/app/lib/agents/effective-runtime-config';
 import { DEFAULT_MANAGED_AGENT_ID } from '@/app/lib/agents/storage';
+import { htmlToPlainText, plainTextToEmailHtml } from '@/app/lib/email/html-conversion';
+import { isLikelyHtmlEmailContent, normalizeEmailHtmlContent } from '@/app/lib/email/html-content';
 import { readEmailMessage } from '@/app/lib/email/service';
 import { resolvePiApiKey } from '@/app/lib/pi/api-key-resolver';
 import { buildEmailComposeAgentSystemPrompt, buildEmailComposeAgentUserPrompt } from '@/app/lib/email/compose-agent/prompt';
@@ -99,17 +101,27 @@ function normalizeUsedContext(value: unknown): EmailComposeAgentUsedContext[] {
 function parseFinalResult(text: string): EmailComposeAgentResult {
   const parsed = extractJsonObject(text);
   if (!parsed) {
+    const rawBody = text.trim();
+    const bodyHtml = isLikelyHtmlEmailContent(rawBody)
+      ? normalizeEmailHtmlContent(rawBody)
+      : plainTextToEmailHtml(rawBody);
     return {
-      body: text.trim(),
+      body: htmlToPlainText(bodyHtml) || rawBody,
+      bodyHtml,
       usedContext: [],
     };
   }
 
-  const body = String(parsed.body || '').trim();
-  if (!body) throw new Error('Workspace Agent returned no email body.');
+  const rawBodyHtml = String(parsed.bodyHtml || '').trim();
+  const bodyHtml = rawBodyHtml
+    ? normalizeEmailHtmlContent(rawBodyHtml)
+    : plainTextToEmailHtml(String(parsed.body || '').trim());
+  const body = String(parsed.body || '').trim() || htmlToPlainText(bodyHtml);
+  if (!body && !bodyHtml) throw new Error('Workspace Agent returned no email body.');
   const subjectSuggestion = String(parsed.subjectSuggestion || '').trim();
   return {
     body,
+    bodyHtml,
     ...(subjectSuggestion ? { subjectSuggestion } : {}),
     usedContext: normalizeUsedContext(parsed.usedContext),
   };

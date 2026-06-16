@@ -525,6 +525,54 @@
   outline-offset: 1px;
 }
 
+/* tiptap email html editor */
+.email-html-editor-shell {
+  min-height: 13rem;
+}
+
+.email-html-editor-shell .ProseMirror {
+  min-height: 13rem;
+  outline: none;
+  padding: 0.75rem;
+}
+
+.email-html-editor-shell .ProseMirror > * + * {
+  margin-top: 0.65rem;
+}
+
+.email-html-editor-shell p {
+  line-height: 1.55;
+}
+
+.email-html-editor-shell a {
+  color: var(--primary);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.email-html-editor-shell blockquote {
+  border-left: 3px solid var(--border);
+  color: var(--muted-foreground);
+  padding-left: 0.875rem;
+}
+
+.email-html-editor-shell ul,
+.email-html-editor-shell ol {
+  padding-left: 1.5rem;
+}
+
+.email-html-editor-shell ul {
+  list-style: disc;
+}
+
+.email-html-editor-shell ol {
+  list-style: decimal;
+}
+
+.email-html-editor-shell li {
+  margin-top: 0.25rem;
+}
+
 @keyframes studioOutputFadeIn {
   from {
     opacity: 0;

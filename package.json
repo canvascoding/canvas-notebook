@@ -52,6 +52,8 @@
     "test:automation:delivery": "tsx --conditions react-server scripts/automation-delivery-test.ts",
     "test:automation:webhook": "tsx --conditions react-server scripts/automation-custom-webhook-test.ts",
     "test:email:html-content": "tsx scripts/email-html-content-test.ts",
+    "test:email:html-conversion": "tsx scripts/email-html-conversion-test.ts",
+    "test:email:derived-draft": "tsx scripts/email-derived-draft-html-test.ts",
     "test:email:mime": "tsx scripts/email-mime-header-test.ts",
     "test:email:accounts": "tsx scripts/email-accounts-service-test.ts",
     "test:auth:setup": "tsx --conditions react-server scripts/auth-setup-test.ts",

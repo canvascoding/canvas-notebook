@@ -48,6 +48,12 @@ import { MarkdownMessage } from '@/app/components/canvas-agent-chat/ChatMarkdown
 import { EmailAccountsCard } from '@/app/components/settings/IntegrationsSettingsClient';
 import { findActiveComposerReference, replaceComposerReference, type ComposerReferenceMatch } from '@/app/lib/chat/composer-references';
 import type { EmailAttachmentDraft } from '@/app/lib/email/attachment-types';
+import { plainTextToEmailHtml } from '@/app/lib/email/html-conversion';
+import {
+  composeEmailEditorBodyValues,
+  composeEmailEditorBodyValuesFromAiResult,
+  sanitizeEmailEditorHtml,
+} from '@/app/lib/email/html-editor-content';
 import { isLikelyHtmlEmailContent, normalizeEmailHtmlContent } from '@/app/lib/email/html-content';
 import { getFileIconComponent } from '@/app/lib/files/file-icons';
 import { getToolDisplayInfo } from '@/app/lib/pi/tool-display';
@@ -64,6 +70,8 @@ import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
+
+import { EmailHtmlEditor } from './EmailHtmlEditor';
 
 type EmailAccount = {
   id: string;
@@ -148,6 +156,7 @@ type EmailComposeDraft = {
   aiTone: EmailComposeTone;
   attachments: EmailAttachmentDraft[];
   body: string;
+  bodyHtml: string;
   ccText: string;
   contextFiles: EmailComposeContextFile[];
   folder?: string;
@@ -1245,7 +1254,7 @@ function EmailComposeDialog({
   onClose(): void;
   onGenerateAi(): void;
   onSubmit(): void;
-  onUpdate(updates: Partial<Pick<EmailComposeDraft, 'aiMode' | 'aiPrompt' | 'aiTone' | 'attachments' | 'body' | 'ccText' | 'contextFiles' | 'subject' | 'toText' | 'usedContext'>>): void;
+  onUpdate(updates: Partial<Pick<EmailComposeDraft, 'aiMode' | 'aiPrompt' | 'aiTone' | 'attachments' | 'body' | 'bodyHtml' | 'ccText' | 'contextFiles' | 'subject' | 'toText' | 'usedContext'>>): void;
 }) {
   const blockedRecipient = useMemo(() => extractBlockedSendPolicyRecipient(error), [error]);
   const [isReferencePickerOpen, setIsReferencePickerOpen] = useState(false);
@@ -1591,12 +1600,11 @@ function EmailComposeDialog({
                     <label className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground" htmlFor="email-compose-body">
                       {labels.composeBodyLabel}
                     </label>
-                    <Textarea
+                    <EmailHtmlEditor
                       id="email-compose-body"
-                      value={draft.body}
-                      onChange={(event) => onUpdate({ body: event.target.value })}
+                      value={draft.bodyHtml}
+                      onChange={({ html, text }) => onUpdate({ body: text, bodyHtml: html })}
                       placeholder={labels.composeBodyPlaceholder}
-                      className="min-h-52 resize-y"
                       disabled={isSubmitting}
                     />
                   </div>
@@ -2071,6 +2079,7 @@ export function EmailClient() {
   }, [addRecipientToSendPolicy, blockedSendPolicyRecipient]);
 
   const buildComposeDraft = useCallback((mode: EmailComposeMode, message: EmailMessageDetail, body = '', aiGenerated = false): EmailComposeDraft => {
+    const bodyValues = composeEmailEditorBodyValues(body);
     const ownAddresses = new Set(accounts.map((account) => account.emailAddress.trim().toLowerCase()).filter(Boolean));
     const from = extractEmailAddressForCompose(message.from);
     const originalTo = extractRecipientEmailsForCompose(message.to);
@@ -2089,7 +2098,7 @@ export function EmailClient() {
       aiPrompt: '',
       aiTone: 'casual',
       attachments: [],
-      body,
+      ...bodyValues,
       ccText: composeRecipientText(cc),
       contextFiles: [],
       folder: message.folder || activeFolder,
@@ -2124,6 +2133,7 @@ export function EmailClient() {
       aiTone: 'casual',
       attachments: [],
       body: '',
+      bodyHtml: '',
       ccText: '',
       contextFiles: [],
       folder: activeFolder,
@@ -2135,7 +2145,7 @@ export function EmailClient() {
     setMessageDialogOpen(false);
   }, [activeFolder]);
 
-  const updateComposeDraft = useCallback((updates: Partial<Pick<EmailComposeDraft, 'aiMode' | 'aiPrompt' | 'aiTone' | 'attachments' | 'body' | 'ccText' | 'contextFiles' | 'subject' | 'toText' | 'usedContext'>>) => {
+  const updateComposeDraft = useCallback((updates: Partial<Pick<EmailComposeDraft, 'aiMode' | 'aiPrompt' | 'aiTone' | 'attachments' | 'body' | 'bodyHtml' | 'ccText' | 'contextFiles' | 'subject' | 'toText' | 'usedContext'>>) => {
     if (Object.prototype.hasOwnProperty.call(updates, 'aiMode') || Object.prototype.hasOwnProperty.call(updates, 'contextFiles')) {
       setComposeAgentEvents([]);
       setComposeAgentStatus(null);
@@ -2166,6 +2176,7 @@ export function EmailClient() {
         cc: splitRecipientInput(composeDraft.ccText),
         contextFiles: composeDraft.contextFiles.map((file) => ({ name: file.name, path: file.path })),
         currentBody: composeDraft.body,
+        currentBodyHtml: composeDraft.bodyHtml,
         folder: composeDraft.folder,
         instruction: composeDraft.aiPrompt,
         messageId: composeDraft.message?.id,
@@ -2185,8 +2196,10 @@ export function EmailClient() {
         const payload = await response.json().catch(() => ({}));
         if (!response.ok || !payload.success) throw new Error(payload.error || t('errors.generateCompose'));
         const body = String(payload.data?.body || '').trim();
-        if (!body) throw new Error(t('errors.generateCompose'));
-        setComposeDraft((current) => current ? { ...current, aiGenerated: true, body, usedContext: [] } : current);
+        const bodyHtml = String(payload.data?.bodyHtml || '').trim();
+        const bodyValues = composeEmailEditorBodyValuesFromAiResult(body, bodyHtml);
+        if (!bodyValues.body && !bodyValues.bodyHtml) throw new Error(t('errors.generateCompose'));
+        setComposeDraft((current) => current ? { ...current, aiGenerated: true, ...bodyValues, usedContext: [] } : current);
         return;
       }
 
@@ -2251,13 +2264,15 @@ export function EmailClient() {
             ? event.result as Record<string, unknown>
             : {};
           const body = String(result.body || '').trim();
-          if (!body) throw new Error(t('errors.generateCompose'));
+          const bodyHtml = String(result.bodyHtml || '').trim();
+          const bodyValues = composeEmailEditorBodyValuesFromAiResult(body, bodyHtml);
+          if (!bodyValues.body && !bodyValues.bodyHtml) throw new Error(t('errors.generateCompose'));
           const subjectSuggestion = String(result.subjectSuggestion || '').trim();
           const usedContext = normalizeAgentUsedContext(result.usedContext);
           setComposeDraft((current) => current ? {
             ...current,
             aiGenerated: true,
-            body,
+            ...bodyValues,
             subject: subjectSuggestion || current.subject,
             usedContext,
           } : current);
@@ -2328,6 +2343,7 @@ export function EmailClient() {
 
     try {
       const isNewCompose = composeDraft.mode === 'compose';
+      const bodyHtml = sanitizeEmailEditorHtml(composeDraft.bodyHtml) || plainTextToEmailHtml(composeDraft.body);
       const response = await fetch(isNewCompose ? '/api/email/send' : `/api/email/accounts/${encodeURIComponent(activeAccount.id)}/messages/actions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -2336,16 +2352,19 @@ export function EmailClient() {
           ? {
               accountId: activeAccount.id,
               attachments: composeDraft.attachments,
-              body: composeDraft.body,
+              body: bodyHtml,
               cc: splitRecipientInput(composeDraft.ccText),
+              is_HTML: true,
               subject: composeDraft.subject,
               to: splitRecipientInput(composeDraft.toText),
             }
           : {
               bodyOverride: composeDraft.body,
+              bodyOverrideHtml: bodyHtml,
               attachments: composeDraft.attachments,
               cc: splitRecipientInput(composeDraft.ccText),
               folder: composeDraft.folder,
+              is_HTML: true,
               messageId: composeDraft.message?.id,
               mode: composeDraft.mode,
               operation: 'send',

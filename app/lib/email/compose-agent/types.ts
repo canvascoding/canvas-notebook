@@ -12,6 +12,7 @@ export type EmailComposeAgentInput = {
   cc?: unknown;
   contextFiles?: EmailComposeContextFile[];
   currentBody?: string;
+  currentBodyHtml?: string;
   folder?: string;
   instruction: string;
   messageId?: string;
@@ -28,6 +29,7 @@ export type EmailComposeAgentUsedContext = {
 
 export type EmailComposeAgentResult = {
   body: string;
+  bodyHtml?: string;
   subjectSuggestion?: string;
   usedContext: EmailComposeAgentUsedContext[];
 };

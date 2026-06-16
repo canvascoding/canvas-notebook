@@ -20,6 +20,7 @@ import {
   type StoredEmailAccount,
 } from '@/app/lib/email/account-store';
 import { isLikelyHtmlEmailContent, normalizeEmailHtmlContent } from '@/app/lib/email/html-content';
+import { htmlToPlainText, plainTextToEmailHtml } from '@/app/lib/email/html-conversion';
 import {
   draftEmailComposeWithAi,
   draftEmailReplyWithAi,
@@ -30,7 +31,6 @@ import { resolveEmailAttachments } from '@/app/lib/email/attachments';
 import type { EmailAttachmentInput } from '@/app/lib/email/attachment-types';
 import {
   buildEmailDerivedDraft,
-  htmlToPlainText,
   type EmailDerivedDraftOverrides,
   type EmailDerivedDraftMode,
 } from '@/app/lib/email/message-draft-builder';
@@ -1231,7 +1231,11 @@ export async function generateLocalEmailComposeBody(userId: string, input: Email
 
 export async function createLocalEmailAiReplyDraft(userId: string, accountId: string, messageId: string, folder?: string, instruction?: string, options?: EmailReadPolicyOptions) {
   const result = await generateLocalEmailAiReplyBody(userId, accountId, messageId, folder, instruction, options);
-  return createLocalEmailDerivedDraft(userId, accountId, messageId, folder, 'reply', { bodyOverride: result.body }, options);
+  return createLocalEmailDerivedDraft(userId, accountId, messageId, folder, 'reply', {
+    bodyOverride: result.body,
+    bodyOverrideHtml: plainTextToEmailHtml(result.body),
+    is_HTML: true,
+  }, options);
 }
 
 export async function createLocalEmailDraft(userId: string, input: EmailDraftInput) {
