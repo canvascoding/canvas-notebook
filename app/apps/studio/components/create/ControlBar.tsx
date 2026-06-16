@@ -108,9 +108,6 @@ for (const m of VIDEO_MODELS) {
     case 'highQuality': MODEL_LABELS[m.id] = 'Veo 3.1 — Best Quality'; break;
     case 'fast': MODEL_LABELS[m.id] = 'Veo 3.1 Fast — Fast & Affordable'; break;
     case 'lite': MODEL_LABELS[m.id] = 'Veo 3.1 Lite — Budget'; break;
-    case 'veo3': MODEL_LABELS[m.id] = 'Veo 3 — Stable'; break;
-    case 'veo3Fast': MODEL_LABELS[m.id] = 'Veo 3 Fast — Stable'; break;
-    case 'veo2': MODEL_LABELS[m.id] = 'Veo 2 — Legacy (No Audio)'; break;
   }
 }
 for (const m of SEEDANCE_VIDEO_MODELS) {

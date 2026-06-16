@@ -877,7 +877,7 @@ export function createStudioGenerateVideoTool(
     description:
       'Generates videos using the Studio system. The preferred tool for all video creation. Takes 3-10 minutes. ' +
       'Supports products, personas, styles, and presets for branded content. ' +
-      'Providers: veo (default, Veo 3.x models) or bytedance (Seedance). ' +
+      'Providers: veo (default, Veo 3.1 models) or bytedance (Seedance). ' +
       'For visual reference images from file paths, put one or more image paths in extra_reference_urls. For Seedance video/audio references, use reference_video_urls and reference_audio_urls. Use start_frame_path/end_frame_path only for explicit start/end frame animation. ' +
       'Output files are saved to /data/studio/outputs/ — absolute paths are returned so the agent can copy results to the workspace.',
     parameters: Type.Object({
@@ -888,9 +888,9 @@ export function createStudioGenerateVideoTool(
       preset_id: Type.Optional(Type.String({ description: 'ID of a studio preset to apply.' })),
       aspect_ratio: Type.Optional(Type.String({ description: 'Aspect ratio: 16:9 (default) or 9:16.' })),
       provider: Type.Optional(Type.String({ description: 'Provider: veo (default) or bytedance.' })),
-      model: Type.Optional(Type.String({ description: 'Model ID. Veo: veo-3.1-fast-generate-preview (default), veo-3.1-generate-preview, veo-3.1-lite-generate-preview, veo-3.0-generate-001, veo-3.0-fast-generate-001, veo-2.0-generate-001. Bytedance: bytedance/seedance-2.' })),
+      model: Type.Optional(Type.String({ description: 'Model ID. Veo: veo-3.1-fast-generate-preview (default), veo-3.1-generate-preview, veo-3.1-lite-generate-preview. Bytedance: bytedance/seedance-2.' })),
       resolution: Type.Optional(Type.Union([Type.Literal('480p'), Type.Literal('720p'), Type.Literal('1080p'), Type.Literal('4k')], { description: 'Resolution. Veo: 720p, 1080p, 4k. Bytedance: 480p, 720p, 1080p. Default: 720p.' })),
-      duration: Type.Optional(Type.Number({ description: 'Duration in seconds. Veo: 4, 5, 6, or 8. Bytedance: 4–15. Default: 6.', minimum: 4, maximum: 15 })),
+      duration: Type.Optional(Type.Number({ description: 'Duration in seconds. Veo: 4, 6, or 8. Bytedance: 4–15. Default: 6.', minimum: 4, maximum: 15 })),
       start_frame_path: Type.Optional(Type.String({ description: 'Path or URL to the start frame. Accepts workspace-relative paths, /api/media/... URLs, Studio media paths, and /api/studio/media/... URLs. Use this only when the video should animate from a specific first frame; it enables frames_to_video mode.' })),
       end_frame_path: Type.Optional(Type.String({ description: 'Path or URL to the end frame. Accepts workspace-relative paths, /api/media/... URLs, Studio media paths, and /api/studio/media/... URLs. Optional for frames_to_video when the video should animate toward a specific final frame.' })),
       is_looping: Type.Optional(Type.Boolean({ description: 'Loop the video back to the start frame. Only for frames_to_video. Default: false.' })),

@@ -52,9 +52,6 @@ export const VIDEO_MODELS = [
   { id: 'veo-3.1-generate-preview', optionKey: 'highQuality' as const },
   { id: 'veo-3.1-fast-generate-preview', optionKey: 'fast' as const },
   { id: 'veo-3.1-lite-generate-preview', optionKey: 'lite' as const },
-  { id: 'veo-3.0-generate-001', optionKey: 'veo3' as const },
-  { id: 'veo-3.0-fast-generate-001', optionKey: 'veo3Fast' as const },
-  { id: 'veo-2.0-generate-001', optionKey: 'veo2' as const },
 ] as const;
 
 export const SEEDANCE_VIDEO_MODELS = [
@@ -74,7 +71,7 @@ export const VIDEO_ASPECT_RATIOS = ['16:9', '9:16'] as const;
 export const SEEDANCE_VIDEO_ASPECT_RATIOS = ['1:1', '4:3', '3:4', '16:9', '9:16', '21:9', 'adaptive'] as const;
 export const VIDEO_RESOLUTIONS = ['720p', '1080p', '4k'] as const;
 export const SEEDANCE_VIDEO_RESOLUTIONS = ['480p', '720p', '1080p'] as const;
-export const VIDEO_DURATIONS = [4, 5, 6, 8] as const;
+export const VIDEO_DURATIONS = [4, 6, 8] as const;
 export const SEEDANCE_VIDEO_DURATIONS = [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15] as const;
 export type VideoDuration = (typeof VIDEO_DURATIONS)[number];
 export type SeedanceVideoDuration = (typeof SEEDANCE_VIDEO_DURATIONS)[number];
@@ -118,33 +115,6 @@ export const VEO_MODEL_CAPABILITIES: Record<VideoModelId, VideoModelCapabilities
     durations: [4, 6, 8],
     audio: true,
     personGeneration: ['allow_all', 'allow_adult'],
-  },
-  'veo-3.0-generate-001': {
-    extension: false,
-    references: false,
-    firstLastFrame: true,
-    resolutions: ['720p', '1080p'],
-    durations: [8],
-    audio: true,
-    personGeneration: ['allow_all', 'allow_adult'],
-  },
-  'veo-3.0-fast-generate-001': {
-    extension: false,
-    references: false,
-    firstLastFrame: true,
-    resolutions: ['720p', '1080p'],
-    durations: [8],
-    audio: true,
-    personGeneration: ['allow_all', 'allow_adult'],
-  },
-  'veo-2.0-generate-001': {
-    extension: false,
-    references: false,
-    firstLastFrame: true,
-    resolutions: ['720p'],
-    durations: [5, 6, 8],
-    audio: false,
-    personGeneration: ['allow_all', 'allow_adult', 'dont_allow'],
   },
 };
 
