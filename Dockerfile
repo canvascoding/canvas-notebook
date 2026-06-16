@@ -84,7 +84,7 @@ COPY --from=builder /app/seed_sys_prompts ./seed_sys_prompts
 COPY --from=builder /app/node_modules ./node_modules
 
 # Ensure scripts are executable
-RUN mkdir -p /data/workspace /data/canvas-agent /data/pi-oauth-states /data/secrets /data/skills /data/cache /tmp
+RUN mkdir -p /data/workspace /data/canvas-agent /data/pi-oauth-states /data/secrets /data/skills /data/plugins /data/cache /tmp
 RUN chmod +x ./scripts/docker-entrypoint.sh ./scripts/start-services.sh
 RUN printf '%s\n' \
   'NPM_GLOBAL_BIN="/home/node/.npm-global/bin"' \

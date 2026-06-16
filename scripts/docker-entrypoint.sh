@@ -156,6 +156,7 @@ step "Preparing data directories"
   mkdir -p /data/pi-oauth-states
   mkdir -p /data/secrets
   mkdir -p /data/skills
+  mkdir -p /data/plugins
   mkdir -p /data/workspace
   mkdir -p /data/temp/skills
   if [ -d "${CANVAS_APP_ROOT}/node_modules" ]; then

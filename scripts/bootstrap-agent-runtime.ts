@@ -80,6 +80,8 @@ const LEGACY_AGENTS_ENV_PATH = '/home/node/Canvas-Agents.env';
 
 // Seed system prompts directory (relative to project root)
 const SEED_SYS_PROMPTS_DIR = path.join(process.cwd(), 'seed_sys_prompts');
+const SEED_SKILLS_DIR = path.join(process.cwd(), 'seed_skills');
+const SKILLS_STORAGE_DIR = path.join(resolveCanvasDataRoot(), 'skills');
 
 // All managed files (excluding BOOTSTRAP.md which is only for initial setup)
 const MANAGED_FILE_NAMES = ['AGENTS.md', 'USER.md', 'MEMORY.md', 'SOUL.md', 'TOOLS.md', 'HEARTBEAT.md'] as const;
@@ -359,6 +361,41 @@ async function ensureAgentStorageBootstrap(): Promise<void> {
   }
 }
 
+async function ensureSeedSkillsBootstrap(): Promise<void> {
+  if (!(await fileExists(SEED_SKILLS_DIR))) {
+    console.log(`[bootstrap-agent-runtime] Seed skills directory not found: ${SEED_SKILLS_DIR}.`);
+    return;
+  }
+
+  await fs.mkdir(SKILLS_STORAGE_DIR, { recursive: true });
+  const entries = await fs.readdir(SEED_SKILLS_DIR, { withFileTypes: true });
+  let copiedCount = 0;
+
+  for (const entry of entries) {
+    if (!entry.isDirectory() || entry.name.startsWith('.')) {
+      continue;
+    }
+
+    const sourcePath = path.join(SEED_SKILLS_DIR, entry.name);
+    const targetPath = path.join(SKILLS_STORAGE_DIR, entry.name);
+    const sourceSkillPath = path.join(sourcePath, 'SKILL.md');
+
+    if (!(await fileExists(sourceSkillPath)) || await fileExists(targetPath)) {
+      continue;
+    }
+
+    await fs.cp(sourcePath, targetPath, { recursive: true, preserveTimestamps: true });
+    copiedCount += 1;
+    console.log(`[bootstrap-agent-runtime] Installed seed skill ${entry.name}.`);
+  }
+
+  if (copiedCount === 0) {
+    console.log('[bootstrap-agent-runtime] Seed skills already present or no valid seed skills found.');
+  } else {
+    console.log(`[bootstrap-agent-runtime] Installed ${copiedCount} seed skills.`);
+  }
+}
+
 async function runLegacySessionCleanupIfNeeded(): Promise<void> {
   if (await fileExists(WIPE_MARKER_PATH)) {
     console.log(`[bootstrap-agent-runtime] Legacy wipe skipped (marker exists: ${WIPE_MARKER_PATH}).`);
@@ -432,6 +469,7 @@ async function main() {
   // Then ensure new files exist
   await ensureIntegrationsEnvBootstrap();
   await ensureAgentStorageBootstrap();
+  await ensureSeedSkillsBootstrap();
   await runLegacySessionCleanupIfNeeded();
 
   console.log('[bootstrap-agent-runtime] Agent runtime bootstrap complete.');
