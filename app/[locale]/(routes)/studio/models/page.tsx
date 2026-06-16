@@ -5,7 +5,7 @@ export default async function StudioModelsPage() {
   await requirePageSession();
 
   return (
-    <div className="p-4 md:p-6">
+    <div className="min-w-0 overflow-x-hidden px-3 py-4 sm:px-4 md:p-6">
       <ModelLibrary />
     </div>
   );
