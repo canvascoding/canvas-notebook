@@ -35,6 +35,7 @@ async function collectFilesRecursive(dirPath: string): Promise<FileReferenceEntr
         type: 'file',
         extension,
         isImage: extension ? IMAGE_EXTENSIONS.has(extension) : false,
+        size: entry.size,
       });
     }
 

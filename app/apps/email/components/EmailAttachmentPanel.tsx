@@ -1,9 +1,10 @@
 'use client';
 
 import { useCallback, useMemo, useRef, useState, type DragEvent } from 'react';
-import { CheckSquare2, FileText, Loader2, Paperclip, RefreshCw, Search, Square, Upload, X } from 'lucide-react';
+import { CheckSquare2, Loader2, Paperclip, RefreshCw, Search, Square, Upload, X } from 'lucide-react';
 
 import type { FilePickerFile } from '@/app/components/canvas-agent-chat/ChatComposer';
+import { ImageThumbnailIcon } from '@/app/components/shared/ImageThumbnailIcon';
 import {
   EMAIL_ATTACHMENT_TOTAL_LIMIT_BYTES,
   emailAttachmentLimitUsageBytes,
@@ -11,6 +12,8 @@ import {
   inferEmailAttachmentMimeType,
   type EmailAttachmentDraft,
 } from '@/app/lib/email/attachment-types';
+import { getFileIconComponent, isImageFile } from '@/app/lib/files/file-icons';
+import { toUploadPreviewUrl } from '@/app/lib/utils/media-url';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -80,6 +83,53 @@ function mergeAttachments(current: EmailAttachmentDraft[], additions: EmailAttac
   return Array.from(byKey.values());
 }
 
+function isImageAttachment(attachment: EmailAttachmentDraft): boolean {
+  return attachment.mimeType.startsWith('image/') || isImageFile(attachment.name) || Boolean(attachment.path && isImageFile(attachment.path));
+}
+
+function AttachmentIcon({ attachment }: { attachment: EmailAttachmentDraft }) {
+  const [hasUploadPreviewError, setHasUploadPreviewError] = useState(false);
+  const fallbackIcon = getFileIconComponent({
+    name: attachment.name,
+    path: attachment.path || attachment.name,
+    type: 'file',
+    className: 'h-4 w-4',
+  });
+
+  if (attachment.source === 'workspace' && attachment.path && isImageAttachment(attachment)) {
+    return (
+      <ImageThumbnailIcon
+        path={attachment.path}
+        name={attachment.name}
+        className="h-7 w-7"
+        fallbackIcon={fallbackIcon}
+      />
+    );
+  }
+
+  if (attachment.source === 'upload' && attachment.uploadId && isImageAttachment(attachment) && !hasUploadPreviewError) {
+    return (
+      <span className="block h-7 w-7 shrink-0 overflow-hidden border border-border/70 bg-muted/40">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={toUploadPreviewUrl(attachment.uploadId, 64, { preset: 'mini' })}
+          alt={attachment.name}
+          className="h-full w-full object-cover"
+          loading="lazy"
+          decoding="async"
+          onError={() => setHasUploadPreviewError(true)}
+        />
+      </span>
+    );
+  }
+
+  return (
+    <span className="flex h-7 w-7 shrink-0 items-center justify-center border border-border/70 bg-muted/30">
+      {fallbackIcon}
+    </span>
+  );
+}
+
 function AttachmentRow({
   attachment,
   isSelected,
@@ -99,7 +149,7 @@ function AttachmentRow({
       {onClick ? (
         isSelected ? <CheckSquare2 className="h-4 w-4 shrink-0" /> : <Square className="h-4 w-4 shrink-0 text-muted-foreground" />
       ) : null}
-      <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
+      <AttachmentIcon attachment={attachment} />
       <span className="min-w-0 flex-1 truncate">{attachment.name}</span>
       <span className="shrink-0 text-[11px] text-muted-foreground">{formatEmailAttachmentSize(attachment.size)}</span>
     </>

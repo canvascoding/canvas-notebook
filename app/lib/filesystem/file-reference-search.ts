@@ -4,6 +4,7 @@ export interface FileReferenceEntry {
   type: 'file' | 'directory';
   extension?: string;
   isImage: boolean;
+  size?: number;
 }
 
 function normalizeSearchValue(value: string): string {
