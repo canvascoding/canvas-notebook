@@ -34,6 +34,7 @@ import {
   type EmailComposeAiInput,
   type EmailPolicy,
 } from '@/app/lib/email/local-service';
+import { resolveEmailAttachments } from '@/app/lib/email/attachments';
 import {
   getManagedEmailOAuthRedirectUri,
   isManagedEmailAvailable,
@@ -189,13 +190,11 @@ function normalizeManagedMessage(message: unknown, folder = 'INBOX') {
   };
 }
 
-function managedDraftInput(input: EmailDraftInput): ManagedEmailDraftInput {
+async function managedDraftInput(input: EmailDraftInput): Promise<ManagedEmailDraftInput> {
   if (!input.accountId) {
     throw new Error('Managed email requires an accountId.');
   }
-  if (input.attachments?.length) {
-    throw new Error('Attachments are not supported for managed email accounts yet.');
-  }
+  const attachments = await resolveEmailAttachments(input.attachments);
   return {
     accountId: input.accountId,
     to: input.to,
@@ -204,6 +203,14 @@ function managedDraftInput(input: EmailDraftInput): ManagedEmailDraftInput {
     subject: input.subject,
     body: input.body,
     is_HTML: input.is_HTML,
+    ...(attachments.length > 0 ? {
+      attachments: attachments.map((attachment) => ({
+        name: attachment.name,
+        mimeType: attachment.mimeType,
+        size: attachment.size,
+        contentBase64: attachment.content.toString('base64'),
+      })),
+    } : {}),
   };
 }
 
@@ -449,7 +456,7 @@ export async function createEmailDraft(userId: string, input: EmailDraftInput) {
   if (await findManagedEmailAccount(input.accountId)) {
     return managedEmailRequest('/v1/managed/email/drafts', {
       method: 'POST',
-      body: JSON.stringify(managedDraftInput(input)),
+      body: JSON.stringify(await managedDraftInput(input)),
     });
   }
   return createLocalEmailDraft(userId, input);
@@ -459,7 +466,7 @@ export async function updateEmailDraft(userId: string, draftId: string, input: E
   if (await findManagedEmailAccount(input.accountId)) {
     return managedEmailRequest(`/v1/managed/email/drafts/${encodeURIComponent(draftId)}`, {
       method: 'PATCH',
-      body: JSON.stringify(managedDraftInput(input)),
+      body: JSON.stringify(await managedDraftInput(input)),
     });
   }
   return updateLocalEmailDraft(userId, draftId, input);
