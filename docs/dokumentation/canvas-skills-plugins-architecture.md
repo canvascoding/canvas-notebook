@@ -15,6 +15,7 @@ Die Canvas-Skill-Runtime und die lokale Canvas-Plugin-Runtime sind implementiert
 - Der Chat-Composer nutzt `/` als gemeinsamen Picker fuer Plugins und Skills. Aktive Plugins werden zuerst angezeigt, danach aktive Skills.
 - Referenzierte Plugins werden im Composer und in der Chat-History mit Plugin-Icon oder Initialen-Fallback gerendert.
 - Wenn ein Nutzer `/plugin-name` referenziert, erzeugt die Agent-Runtime fuer diesen Turn einen Canvas-Kontextblock mit Pluginbeschreibung, gebuendelten Skills und Connector-Hinweisen.
+- Der Skills-Tab in den Settings zeigt installierte Canvas Plugins, kann lokale Plugin-Pakete ueber einen Serverpfad installieren, Plugins aktivieren/deaktivieren und entfernen.
 - MCP- und Composio-Angaben werden als Metadaten gespeichert, enthalten aber keine Secrets und werden noch nicht automatisch in Connector-Konfigurationen geschrieben.
 
 ## Zielbild
@@ -187,7 +188,7 @@ Seed-Pakete muessen vor dem Veröffentlichen auditierbar sein:
 4. Plugin-Manifest-Schema und Validator implementieren. ✅
 5. Lokale Plugin-Registry unter `/data/plugins` einfuehren. ✅
 6. Plugin-Installer fuer lokale Pakete bauen. ✅
-7. Settings-UI um Plugin Store, Details, Installieren, Update und Entfernen erweitern.
+7. Settings-UI um lokale Plugin-Installation, Aktivieren/Deaktivieren und Entfernen erweitern. ✅
 8. `/`-Picker im Chat um Plugins priorisiert vor Skills erweitern. ✅
 9. Plugin-Referenzen im Chat in zusaetzlichen Agent-Runtime-Kontext uebersetzen. ✅
 10. Remote Registry/Public Store und Update-Pruefung bauen.

@@ -2653,6 +2653,27 @@
       "enableAll": "Enable All",
       "disableAll": "Disable All"
     },
+    "plugins": {
+      "title": "Canvas Plugins",
+      "description": "Install and manage plugin bundles. A plugin can provide multiple skills plus connector metadata.",
+      "stats": "{enabled}/{total} enabled",
+      "reload": "Reload",
+      "sourcePathPlaceholder": "/absolute/path/to/plugin-package",
+      "install": "Install plugin",
+      "empty": "No Canvas Plugins installed yet.",
+      "enabled": "Enabled",
+      "disabled": "Disabled",
+      "toggle": "Toggle plugin {name}",
+      "delete": "Remove",
+      "deleteConfirm": "Remove plugin \"{name}\" and its bundled skills?",
+      "errors": {
+        "load": "Failed to load plugins.",
+        "install": "Failed to install plugin.",
+        "toggle": "Failed to update plugin.",
+        "delete": "Failed to remove plugin.",
+        "sourcePathRequired": "Enter the absolute path to a local plugin package."
+      }
+    },
     "integrationsHint": {
       "label": "Note:",
       "body": "If skills require environment variables, they must be stored in the integrations tab.",

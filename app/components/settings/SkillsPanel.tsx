@@ -9,6 +9,9 @@ import {
   XCircle,
   Loader2,
   Upload,
+  Package,
+  RefreshCw,
+  Trash2,
   FolderOpen,
   Folder,
   FileText,
@@ -20,9 +23,11 @@ import {
 import { cn } from '@/lib/utils';
 import { SkillDetailDialog } from '@/app/components/skills/SkillDetailDialog';
 import { SkillUploadDialog } from '@/app/components/skills/SkillUploadDialog';
+import { CanvasPluginIcon } from '@/app/lib/plugins/plugin-icons';
 import { CanvasSkillIcon } from '@/app/lib/skills/skill-icons';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
 import type { CanvasSkill } from '@/app/lib/skills/canvas-skill-manifest';
@@ -37,6 +42,255 @@ interface SkillFileNode {
 }
 
 type RightPanelView = 'info' | 'preview';
+
+type CanvasPluginSettingsRecord = {
+  name: string;
+  version: string;
+  description: string;
+  license?: string;
+  enabled: boolean;
+  interface?: {
+    displayName?: string;
+    shortDescription?: string;
+    category?: string;
+    brandColor?: string;
+    icon?: string;
+    logo?: string;
+  };
+  connectors?: {
+    mcpServers?: string;
+    composioToolkits?: string[];
+  };
+  skills: Array<{
+    name: string;
+    title: string;
+    description: string;
+  }>;
+};
+
+function CanvasPluginsSection({ onPluginsChanged }: { onPluginsChanged: () => void }) {
+  const t = useTranslations('skills.plugins');
+  const [plugins, setPlugins] = useState<CanvasPluginSettingsRecord[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [sourcePath, setSourcePath] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [isInstalling, setIsInstalling] = useState(false);
+  const [pendingPluginName, setPendingPluginName] = useState<string | null>(null);
+
+  const loadPlugins = useCallback(async () => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      const response = await fetch('/api/plugins', { credentials: 'include', cache: 'no-store' });
+      const data = await response.json();
+      if (!data.success) {
+        throw new Error(data.error || t('errors.load'));
+      }
+      setPlugins(Array.isArray(data.plugins) ? data.plugins : []);
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : t('errors.load'));
+    } finally {
+      setIsLoading(false);
+    }
+  }, [t]);
+
+  useEffect(() => {
+    startTransition(() => {
+      void loadPlugins();
+    });
+  }, [loadPlugins]);
+
+  async function installPlugin() {
+    const trimmedPath = sourcePath.trim();
+    if (!trimmedPath) {
+      setError(t('errors.sourcePathRequired'));
+      return;
+    }
+
+    setIsInstalling(true);
+    setError(null);
+    try {
+      const response = await fetch('/api/plugins/install', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sourcePath: trimmedPath, enable: true, replace: true }),
+      });
+      const data = await response.json();
+      if (!data.success) {
+        const details = data.validation?.errors?.length ? ` ${data.validation.errors.join(' ')}` : '';
+        throw new Error(`${data.error || t('errors.install')}${details}`);
+      }
+      setSourcePath('');
+      await loadPlugins();
+      onPluginsChanged();
+    } catch (installError) {
+      setError(installError instanceof Error ? installError.message : t('errors.install'));
+    } finally {
+      setIsInstalling(false);
+    }
+  }
+
+  async function setPluginEnabled(pluginName: string, enabled: boolean) {
+    setPendingPluginName(pluginName);
+    setError(null);
+    try {
+      const response = await fetch(`/api/plugins/${pluginName}/${enabled ? 'enable' : 'disable'}`, { method: 'POST' });
+      const data = await response.json();
+      if (!data.success) {
+        throw new Error(data.error || t('errors.toggle'));
+      }
+      await loadPlugins();
+      onPluginsChanged();
+    } catch (toggleError) {
+      setError(toggleError instanceof Error ? toggleError.message : t('errors.toggle'));
+    } finally {
+      setPendingPluginName(null);
+    }
+  }
+
+  async function deletePlugin(pluginName: string) {
+    if (!window.confirm(t('deleteConfirm', { name: pluginName }))) {
+      return;
+    }
+
+    setPendingPluginName(pluginName);
+    setError(null);
+    try {
+      const response = await fetch(`/api/plugins/${pluginName}`, { method: 'DELETE' });
+      const data = await response.json();
+      if (!data.success) {
+        throw new Error(data.error || t('errors.delete'));
+      }
+      await loadPlugins();
+      onPluginsChanged();
+    } catch (deleteError) {
+      setError(deleteError instanceof Error ? deleteError.message : t('errors.delete'));
+    } finally {
+      setPendingPluginName(null);
+    }
+  }
+
+  const enabledCount = plugins.filter((plugin) => plugin.enabled).length;
+
+  return (
+    <section className="space-y-3">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h2 className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+            <Package className="h-4 w-4" />
+            {t('title')}
+          </h2>
+          <p className="mt-1 max-w-3xl text-sm text-muted-foreground">{t('description')}</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Badge variant="secondary" className="shrink-0">
+            {t('stats', { enabled: enabledCount, total: plugins.length })}
+          </Badge>
+          <Button variant="outline" size="sm" onClick={() => void loadPlugins()} disabled={isLoading} className="gap-1.5">
+            {isLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+            {t('reload')}
+          </Button>
+        </div>
+      </div>
+
+      <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+        <Input
+          value={sourcePath}
+          onChange={(event) => setSourcePath(event.target.value)}
+          placeholder={t('sourcePathPlaceholder')}
+          disabled={isInstalling}
+        />
+        <Button onClick={() => void installPlugin()} disabled={isInstalling || !sourcePath.trim()} className="gap-1.5">
+          {isInstalling ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
+          {t('install')}
+        </Button>
+      </div>
+
+      {error ? (
+        <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          {error}
+        </div>
+      ) : null}
+
+      {isLoading ? (
+        <div className="flex items-center justify-center rounded-lg border border-dashed py-8 text-muted-foreground">
+          <Loader2 className="h-5 w-5 animate-spin" />
+        </div>
+      ) : plugins.length === 0 ? (
+        <div className="rounded-lg border border-dashed px-4 py-6 text-sm text-muted-foreground">
+          {t('empty')}
+        </div>
+      ) : (
+        <div className="grid gap-3 md:grid-cols-2">
+          {plugins.map((plugin) => {
+            const displayName = plugin.interface?.displayName || plugin.name;
+            const description = plugin.interface?.shortDescription || plugin.description;
+            const connectorLabels = [
+              plugin.connectors?.mcpServers ? 'MCP' : null,
+              plugin.connectors?.composioToolkits?.length ? `Composio: ${plugin.connectors.composioToolkits.join(', ')}` : null,
+            ].filter(Boolean);
+            const isPending = pendingPluginName === plugin.name;
+
+            return (
+              <div key={plugin.name} className="rounded-lg border bg-background p-4">
+                <div className="flex items-start gap-3">
+                  <CanvasPluginIcon plugin={plugin} className="h-10 w-10 text-sm" />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h3 className="truncate text-sm font-semibold">{displayName}</h3>
+                      <Badge variant={plugin.enabled ? 'default' : 'secondary'} className="text-[10px]">
+                        {plugin.enabled ? t('enabled') : t('disabled')}
+                      </Badge>
+                      <Badge variant="outline" className="text-[10px]">v{plugin.version}</Badge>
+                      {plugin.license ? <Badge variant="outline" className="text-[10px]">{plugin.license}</Badge> : null}
+                    </div>
+                    <div className="mt-1 font-mono text-xs text-muted-foreground">/{plugin.name}</div>
+                    <p className="mt-2 line-clamp-3 text-sm text-muted-foreground">{description}</p>
+                    <div className="mt-3 flex flex-wrap gap-1.5">
+                      {plugin.skills.map((skill) => (
+                        <Badge key={skill.name} variant="secondary" className="max-w-full text-[10px]">
+                          <span className="truncate">/{skill.name}</span>
+                        </Badge>
+                      ))}
+                    </div>
+                    {connectorLabels.length > 0 ? (
+                      <div className="mt-3 flex flex-wrap gap-1.5 text-[11px] text-muted-foreground">
+                        {connectorLabels.map((label) => (
+                          <span key={label} className="rounded-full border px-2 py-0.5">{label}</span>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+                <div className="mt-4 flex items-center justify-between gap-3 border-t pt-3">
+                  <label className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <Switch
+                      checked={plugin.enabled}
+                      disabled={isPending}
+                      onCheckedChange={(checked) => void setPluginEnabled(plugin.name, checked)}
+                      aria-label={t('toggle', { name: plugin.name })}
+                    />
+                    {plugin.enabled ? t('enabled') : t('disabled')}
+                  </label>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    disabled={isPending}
+                    onClick={() => void deletePlugin(plugin.name)}
+                    className="gap-1.5 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                  >
+                    {isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                    {t('delete')}
+                  </Button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </section>
+  );
+}
 
 export function SkillsPanel() {
   const t = useTranslations('skills');
@@ -303,6 +557,13 @@ export function SkillsPanel() {
   return (
     <>
       <div className="flex flex-col gap-4">
+        <CanvasPluginsSection
+          onPluginsChanged={() => {
+            void loadSkills();
+            void loadSkillTree();
+          }}
+        />
+
         <div className="flex items-center gap-2 flex-wrap">
           <div className="flex items-center gap-3 text-sm text-muted-foreground">
             <span>{stats.total} {t('stats.total').toLowerCase()}</span>

@@ -2652,6 +2652,27 @@
       "enableAll": "Alle aktivieren",
       "disableAll": "Alle deaktivieren"
     },
+    "plugins": {
+      "title": "Canvas Plugins",
+      "description": "Installiere und verwalte Plugin-Bundles. Ein Plugin kann mehrere Skills plus Connector-Metadaten bereitstellen.",
+      "stats": "{enabled}/{total} aktiviert",
+      "reload": "Neu laden",
+      "sourcePathPlaceholder": "/absoluter/pfad/zum/plugin-paket",
+      "install": "Plugin installieren",
+      "empty": "Noch keine Canvas Plugins installiert.",
+      "enabled": "Aktiviert",
+      "disabled": "Deaktiviert",
+      "toggle": "Plugin {name} umschalten",
+      "delete": "Entfernen",
+      "deleteConfirm": "Plugin \"{name}\" und die gebündelten Skills entfernen?",
+      "errors": {
+        "load": "Plugins konnten nicht geladen werden.",
+        "install": "Plugin konnte nicht installiert werden.",
+        "toggle": "Plugin konnte nicht aktualisiert werden.",
+        "delete": "Plugin konnte nicht entfernt werden.",
+        "sourcePathRequired": "Gib den absoluten Pfad zu einem lokalen Plugin-Paket ein."
+      }
+    },
     "integrationsHint": {
       "label": "Hinweis:",
       "body": "Wenn Skills Env-Variablen benötigen, müssen diese im Integrations-Tab gespeichert werden.",
