@@ -11,6 +11,36 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.6.16.1] - 2026-06-16
+
+### Added
+
+- Added Canvas plugin runtime management, plugin references in chat, skill metadata, and icon fallback handling.
+- Added Studio route navigation, Veo image reference controls, persistent generation controls, and improved Studio image sharing.
+- Added email attachments, managed attachment forwarding, an HTML composer, recipient chips, and workspace agent draft mode.
+- Added Markdown editor slash commands, inline color swatches, and Tiptap markdown roundtrip coverage.
+- Added clean-room document seed skills and migration upload chunk sizing coverage.
+
+### Changed
+
+- Refactored Canvas agent chat into focused runtime, session, composer, history, message, and tool rendering modules.
+- Refactored file browser path, tree, API, create, and operation helpers to reduce repeated logic.
+- Made Studio home the create workspace and compacted the composer/control layout.
+- Made plugins the primary settings view and seeded missing Canvas skills on startup.
+- Updated managed service control-plane domains and refreshed npm lockfile dependencies, including Google GenAI SDK, Nodemailer, and Sharp.
+
+### Fixed
+
+- Fixed onboarding profile completion races and managed model test timeout diagnostics.
+- Fixed Studio chat dock state, composer overlay state, models mobile layout, prompt/reference deduplication, video reference budgets, and aspect-ratio outpaint masking.
+- Fixed email HTML preview rendering, touch row actions, compose reference picker, AI summary rendering/streaming, and attachment workspace metadata.
+- Fixed automation markdown preview height and automation run OOM behavior on detail refresh.
+- Fixed usage filter responsive overflow and migration upload chunk sizing.
+
+### Verification
+
+- `npm run build`
+
 ## [2026.6.11.1] - 2026-06-11
 
 ### Added
