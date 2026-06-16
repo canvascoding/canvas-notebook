@@ -1,8 +1,17 @@
 'use client';
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { Editor } from '@tiptap/core';
-import { EditorContent, NodeViewContent, NodeViewWrapper, ReactNodeViewRenderer, useEditor, type NodeViewProps } from '@tiptap/react';
+import React, { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
+import { Extension, type Editor, type Range } from '@tiptap/core';
+import {
+  EditorContent,
+  NodeViewContent,
+  NodeViewWrapper,
+  ReactNodeViewRenderer,
+  ReactRenderer,
+  useEditor,
+  useEditorState,
+  type NodeViewProps,
+} from '@tiptap/react';
 import { StarterKit } from '@tiptap/starter-kit';
 import { Markdown } from '@tiptap/markdown';
 import { Link } from '@tiptap/extension-link';
@@ -11,6 +20,8 @@ import { TaskList } from '@tiptap/extension-task-list';
 import { TaskItem } from '@tiptap/extension-task-item';
 import { TableKit } from '@tiptap/extension-table';
 import { CodeBlock } from '@tiptap/extension-code-block';
+import { Suggestion, type SuggestionKeyDownProps, type SuggestionProps } from '@tiptap/suggestion';
+import { PluginKey } from '@tiptap/pm/state';
 import {
   Bold,
   Code,
@@ -27,11 +38,15 @@ import {
   ListOrdered,
   Minus,
   Quote,
+  Redo2,
   Strikethrough,
   Table2,
+  Type,
+  Undo2,
 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
+import { Command, CommandEmpty, CommandGroup, CommandItem, CommandList } from '@/components/ui/command';
 import { MermaidDiagram } from '@/components/ui/mermaid-diagram';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { SafeMarkdownImage } from '@/app/components/shared/SafeMarkdownImage';
@@ -53,7 +68,63 @@ type MarkdownEditorWithMarkdown = Editor & {
   getMarkdown: () => string;
 };
 
+type ToolbarState = {
+  canUndo: boolean;
+  canRedo: boolean;
+  isBold: boolean;
+  isItalic: boolean;
+  isStrike: boolean;
+  isCode: boolean;
+  isHeading1: boolean;
+  isHeading2: boolean;
+  isHeading3: boolean;
+  isBulletList: boolean;
+  isOrderedList: boolean;
+  isTaskList: boolean;
+  isBlockquote: boolean;
+  isLink: boolean;
+  isCodeBlock: boolean;
+};
+
+type SlashCommandContext = {
+  editor: Editor;
+  range: Range;
+};
+
+type SlashCommandItem = {
+  title: string;
+  description: string;
+  keywords: string[];
+  Icon: React.ComponentType;
+  command: (context: SlashCommandContext) => void;
+};
+
+type SlashCommandListHandle = {
+  onKeyDown: (props: SuggestionKeyDownProps) => boolean;
+};
+
+type SlashCommandListProps = SuggestionProps<SlashCommandItem, SlashCommandItem>;
+
+const EMPTY_TOOLBAR_STATE: ToolbarState = {
+  canUndo: false,
+  canRedo: false,
+  isBold: false,
+  isItalic: false,
+  isStrike: false,
+  isCode: false,
+  isHeading1: false,
+  isHeading2: false,
+  isHeading3: false,
+  isBulletList: false,
+  isOrderedList: false,
+  isTaskList: false,
+  isBlockquote: false,
+  isLink: false,
+  isCodeBlock: false,
+};
+
 const FRONTMATTER_REGEX = /^---\s*\n[\s\S]*?\n---(?:\s*\n|$)/;
+const SLASH_COMMAND_PLUGIN_KEY = new PluginKey('markdownSlashCommands');
 
 function shouldDefaultToSource(value: string, readOnly: boolean, filePath?: string) {
   if (readOnly) return false;
@@ -106,6 +177,300 @@ function TooltipIconButton({
 function ToolbarDivider() {
   return <span aria-hidden="true" className="mx-1 h-5 w-px shrink-0 bg-border" />;
 }
+
+function runAfterSlashDelete({ editor, range }: SlashCommandContext) {
+  return editor.chain().focus().deleteRange(range);
+}
+
+const SLASH_COMMAND_ITEMS: SlashCommandItem[] = [
+  {
+    title: 'Text',
+    description: 'Plain paragraph',
+    keywords: ['paragraph', 'plain'],
+    Icon: Type,
+    command: (context) => runAfterSlashDelete(context).setParagraph().run(),
+  },
+  {
+    title: 'Heading 1',
+    description: 'Large section heading',
+    keywords: ['h1', 'title'],
+    Icon: Heading1,
+    command: (context) => runAfterSlashDelete(context).setNode('heading', { level: 1 }).run(),
+  },
+  {
+    title: 'Heading 2',
+    description: 'Medium section heading',
+    keywords: ['h2', 'subtitle'],
+    Icon: Heading2,
+    command: (context) => runAfterSlashDelete(context).setNode('heading', { level: 2 }).run(),
+  },
+  {
+    title: 'Heading 3',
+    description: 'Small section heading',
+    keywords: ['h3'],
+    Icon: Heading3,
+    command: (context) => runAfterSlashDelete(context).setNode('heading', { level: 3 }).run(),
+  },
+  {
+    title: 'Bullet list',
+    description: 'Unordered list',
+    keywords: ['ul', 'list'],
+    Icon: List,
+    command: (context) => runAfterSlashDelete(context).toggleBulletList().run(),
+  },
+  {
+    title: 'Numbered list',
+    description: 'Ordered list',
+    keywords: ['ol', 'ordered'],
+    Icon: ListOrdered,
+    command: (context) => runAfterSlashDelete(context).toggleOrderedList().run(),
+  },
+  {
+    title: 'Task list',
+    description: 'Checklist',
+    keywords: ['todo', 'checklist'],
+    Icon: ListChecks,
+    command: (context) => runAfterSlashDelete(context).toggleTaskList().run(),
+  },
+  {
+    title: 'Quote',
+    description: 'Blockquote',
+    keywords: ['blockquote', 'citation'],
+    Icon: Quote,
+    command: (context) => runAfterSlashDelete(context).toggleBlockquote().run(),
+  },
+  {
+    title: 'Code block',
+    description: 'Fenced code block',
+    keywords: ['pre', 'fence'],
+    Icon: Code2,
+    command: (context) => runAfterSlashDelete(context).setCodeBlock().run(),
+  },
+  {
+    title: 'Table',
+    description: '3 x 3 table',
+    keywords: ['grid'],
+    Icon: Table2,
+    command: (context) => runAfterSlashDelete(context).insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run(),
+  },
+  {
+    title: 'Image',
+    description: 'Image by URL or workspace path',
+    keywords: ['photo', 'picture'],
+    Icon: ImageIcon,
+    command: ({ editor, range }) => {
+      const src = window.prompt('Image URL or workspace path');
+      if (!src?.trim()) {
+        editor.chain().focus().deleteRange(range).run();
+        return;
+      }
+
+      const alt = window.prompt('Alt text') || '';
+      editor.chain().focus().deleteRange(range).setImage({ src: src.trim(), alt: alt.trim() }).run();
+    },
+  },
+  {
+    title: 'Divider',
+    description: 'Horizontal rule',
+    keywords: ['hr', 'separator', 'line'],
+    Icon: Minus,
+    command: (context) => runAfterSlashDelete(context).setHorizontalRule().run(),
+  },
+  {
+    title: 'Bold',
+    description: 'Bold text from here',
+    keywords: ['strong'],
+    Icon: Bold,
+    command: (context) => runAfterSlashDelete(context).toggleBold().run(),
+  },
+  {
+    title: 'Italic',
+    description: 'Italic text from here',
+    keywords: ['emphasis'],
+    Icon: Italic,
+    command: (context) => runAfterSlashDelete(context).toggleItalic().run(),
+  },
+  {
+    title: 'Strike',
+    description: 'Strikethrough text from here',
+    keywords: ['delete', 'cross'],
+    Icon: Strikethrough,
+    command: (context) => runAfterSlashDelete(context).toggleStrike().run(),
+  },
+  {
+    title: 'Inline code',
+    description: 'Inline code from here',
+    keywords: ['monospace'],
+    Icon: Code,
+    command: (context) => runAfterSlashDelete(context).toggleCode().run(),
+  },
+];
+
+function getSlashCommandItems(query: string) {
+  const normalizedQuery = query.trim().toLowerCase();
+
+  if (!normalizedQuery) {
+    return SLASH_COMMAND_ITEMS.slice(0, 10);
+  }
+
+  return SLASH_COMMAND_ITEMS
+    .filter((item) => {
+      const searchableText = [item.title, item.description, ...item.keywords].join(' ').toLowerCase();
+      return searchableText.includes(normalizedQuery);
+    })
+    .slice(0, 10);
+}
+
+const SlashCommandList = React.forwardRef<SlashCommandListHandle, SlashCommandListProps>(
+  ({ items, command }, ref) => {
+    const [selectedIndex, setSelectedIndex] = useState(0);
+    const activeIndex = items.length ? selectedIndex % items.length : 0;
+
+    const selectItem = useCallback((index: number) => {
+      const item = items[index];
+      if (!item) return;
+      command(item);
+    }, [command, items]);
+
+    const selectPrevious = useCallback(() => {
+      setSelectedIndex((currentIndex) => (currentIndex + items.length - 1) % items.length);
+    }, [items.length]);
+
+    const selectNext = useCallback(() => {
+      setSelectedIndex((currentIndex) => (currentIndex + 1) % items.length);
+    }, [items.length]);
+
+    useImperativeHandle(ref, () => ({
+      onKeyDown: ({ event }) => {
+        if (!items.length) return false;
+
+        if (event.key === 'ArrowUp') {
+          selectPrevious();
+          return true;
+        }
+
+        if (event.key === 'ArrowDown') {
+          selectNext();
+          return true;
+        }
+
+        if (event.key === 'Enter') {
+          selectItem(activeIndex);
+          return true;
+        }
+
+        return false;
+      },
+    }), [activeIndex, items.length, selectItem, selectNext, selectPrevious]);
+
+    return (
+      <Command className="w-72 rounded-md border border-border bg-popover text-popover-foreground shadow-lg" shouldFilter={false}>
+        <CommandList className="max-h-72">
+          <CommandEmpty>No command found.</CommandEmpty>
+          <CommandGroup heading="Markdown">
+            {items.map((item, index) => (
+              <CommandItem
+                key={item.title}
+                value={item.title}
+                data-selected={index === activeIndex ? 'true' : undefined}
+                onMouseEnter={() => setSelectedIndex(index)}
+                onMouseDown={(event) => {
+                  event.preventDefault();
+                  selectItem(index);
+                }}
+              >
+                <item.Icon />
+                <span className="flex min-w-0 flex-col">
+                  <span className="truncate">{item.title}</span>
+                  <span className="truncate text-xs text-muted-foreground">{item.description}</span>
+                </span>
+              </CommandItem>
+            ))}
+          </CommandGroup>
+        </CommandList>
+      </Command>
+    );
+  },
+);
+
+SlashCommandList.displayName = 'SlashCommandList';
+
+function updateSlashCommandPosition(element: HTMLElement, props: SlashCommandListProps) {
+  const rect = props.clientRect?.();
+  if (!rect) return;
+
+  const menuWidth = 288;
+  const menuHeight = 288;
+  const padding = 8;
+  const left = Math.max(padding, Math.min(rect.left, window.innerWidth - menuWidth - padding));
+  const opensBelow = rect.bottom + menuHeight + padding <= window.innerHeight;
+  const top = opensBelow
+    ? rect.bottom + 6
+    : Math.max(padding, rect.top - menuHeight - 6);
+
+  Object.assign(element.style, {
+    position: 'fixed',
+    left: `${left}px`,
+    top: `${top}px`,
+    width: `${menuWidth}px`,
+  });
+}
+
+const SlashCommands = Extension.create({
+  name: 'slashCommands',
+
+  addProseMirrorPlugins() {
+    return [
+      Suggestion<SlashCommandItem, SlashCommandItem>({
+        editor: this.editor,
+        pluginKey: SLASH_COMMAND_PLUGIN_KEY,
+        char: '/',
+        startOfLine: true,
+        allowedPrefixes: null,
+        decorationClass: 'tiptap-slash-suggestion',
+        items: ({ query }) => getSlashCommandItems(query),
+        allow: ({ editor, range }) => {
+          if (!editor.isEditable || editor.isActive('codeBlock')) return false;
+
+          const $from = editor.state.doc.resolve(range.from);
+          return $from.parent.type.name === 'paragraph';
+        },
+        command: ({ editor, range, props }) => {
+          props.command({ editor, range });
+        },
+        render: () => {
+          let component: ReactRenderer<SlashCommandListHandle, SlashCommandListProps> | null = null;
+
+          return {
+            onStart: (props) => {
+              component = new ReactRenderer(SlashCommandList, {
+                props,
+                editor: props.editor,
+              });
+
+              component.element.classList.add('tiptap-slash-menu');
+              document.body.appendChild(component.element);
+              updateSlashCommandPosition(component.element, props);
+            },
+            onUpdate: (props) => {
+              component?.updateProps(props);
+
+              if (component) {
+                updateSlashCommandPosition(component.element, props);
+              }
+            },
+            onKeyDown: (props) => component?.ref?.onKeyDown(props) ?? false,
+            onExit: () => {
+              component?.element.remove();
+              component?.destroy();
+              component = null;
+            },
+          };
+        },
+      }),
+    ];
+  },
+});
 
 function MarkdownImageNodeView({
   node,
@@ -219,6 +584,7 @@ function createEditorExtensions(filePath?: string) {
         resizable: false,
       },
     }),
+    SlashCommands,
     Markdown.configure({
       markedOptions: {
         gfm: true,
@@ -252,6 +618,30 @@ function MarkdownToolbar({
   onSourceMode: () => void;
 }) {
   const canUseCommands = Boolean(editor?.isEditable);
+  const toolbarState = useEditorState({
+    editor,
+    selector: ({ editor: currentEditor }) => {
+      if (!currentEditor) return EMPTY_TOOLBAR_STATE;
+
+      return {
+        canUndo: currentEditor.can().undo(),
+        canRedo: currentEditor.can().redo(),
+        isBold: currentEditor.isActive('bold'),
+        isItalic: currentEditor.isActive('italic'),
+        isStrike: currentEditor.isActive('strike'),
+        isCode: currentEditor.isActive('code'),
+        isHeading1: currentEditor.isActive('heading', { level: 1 }),
+        isHeading2: currentEditor.isActive('heading', { level: 2 }),
+        isHeading3: currentEditor.isActive('heading', { level: 3 }),
+        isBulletList: currentEditor.isActive('bulletList'),
+        isOrderedList: currentEditor.isActive('orderedList'),
+        isTaskList: currentEditor.isActive('taskList'),
+        isBlockquote: currentEditor.isActive('blockquote'),
+        isLink: currentEditor.isActive('link'),
+        isCodeBlock: currentEditor.isActive('codeBlock'),
+      };
+    },
+  }) ?? EMPTY_TOOLBAR_STATE;
 
   const setLink = useCallback(() => {
     if (!editor) return;
@@ -288,8 +678,25 @@ function MarkdownToolbar({
     <TooltipProvider>
       <div className="flex h-9 shrink-0 items-center gap-1 overflow-x-auto border-b border-border bg-background px-2">
         <TooltipIconButton
+          label="Undo"
+          disabled={!canUseCommands || !toolbarState.canUndo}
+          onClick={() => editor?.chain().focus().undo().run()}
+        >
+          <Undo2 />
+        </TooltipIconButton>
+        <TooltipIconButton
+          label="Redo"
+          disabled={!canUseCommands || !toolbarState.canRedo}
+          onClick={() => editor?.chain().focus().redo().run()}
+        >
+          <Redo2 />
+        </TooltipIconButton>
+
+        <ToolbarDivider />
+
+        <TooltipIconButton
           label="Bold"
-          active={editor?.isActive('bold')}
+          active={toolbarState.isBold}
           disabled={!canUseCommands}
           onClick={() => editor?.chain().focus().toggleBold().run()}
         >
@@ -297,7 +704,7 @@ function MarkdownToolbar({
         </TooltipIconButton>
         <TooltipIconButton
           label="Italic"
-          active={editor?.isActive('italic')}
+          active={toolbarState.isItalic}
           disabled={!canUseCommands}
           onClick={() => editor?.chain().focus().toggleItalic().run()}
         >
@@ -305,7 +712,7 @@ function MarkdownToolbar({
         </TooltipIconButton>
         <TooltipIconButton
           label="Strike"
-          active={editor?.isActive('strike')}
+          active={toolbarState.isStrike}
           disabled={!canUseCommands}
           onClick={() => editor?.chain().focus().toggleStrike().run()}
         >
@@ -313,7 +720,7 @@ function MarkdownToolbar({
         </TooltipIconButton>
         <TooltipIconButton
           label="Inline code"
-          active={editor?.isActive('code')}
+          active={toolbarState.isCode}
           disabled={!canUseCommands}
           onClick={() => editor?.chain().focus().toggleCode().run()}
         >
@@ -324,7 +731,7 @@ function MarkdownToolbar({
 
         <TooltipIconButton
           label="Heading 1"
-          active={editor?.isActive('heading', { level: 1 })}
+          active={toolbarState.isHeading1}
           disabled={!canUseCommands}
           onClick={() => editor?.chain().focus().toggleHeading({ level: 1 }).run()}
         >
@@ -332,7 +739,7 @@ function MarkdownToolbar({
         </TooltipIconButton>
         <TooltipIconButton
           label="Heading 2"
-          active={editor?.isActive('heading', { level: 2 })}
+          active={toolbarState.isHeading2}
           disabled={!canUseCommands}
           onClick={() => editor?.chain().focus().toggleHeading({ level: 2 }).run()}
         >
@@ -340,7 +747,7 @@ function MarkdownToolbar({
         </TooltipIconButton>
         <TooltipIconButton
           label="Heading 3"
-          active={editor?.isActive('heading', { level: 3 })}
+          active={toolbarState.isHeading3}
           disabled={!canUseCommands}
           onClick={() => editor?.chain().focus().toggleHeading({ level: 3 }).run()}
         >
@@ -351,7 +758,7 @@ function MarkdownToolbar({
 
         <TooltipIconButton
           label="Bullet list"
-          active={editor?.isActive('bulletList')}
+          active={toolbarState.isBulletList}
           disabled={!canUseCommands}
           onClick={() => editor?.chain().focus().toggleBulletList().run()}
         >
@@ -359,7 +766,7 @@ function MarkdownToolbar({
         </TooltipIconButton>
         <TooltipIconButton
           label="Ordered list"
-          active={editor?.isActive('orderedList')}
+          active={toolbarState.isOrderedList}
           disabled={!canUseCommands}
           onClick={() => editor?.chain().focus().toggleOrderedList().run()}
         >
@@ -367,7 +774,7 @@ function MarkdownToolbar({
         </TooltipIconButton>
         <TooltipIconButton
           label="Task list"
-          active={editor?.isActive('taskList')}
+          active={toolbarState.isTaskList}
           disabled={!canUseCommands}
           onClick={() => editor?.chain().focus().toggleTaskList().run()}
         >
@@ -375,7 +782,7 @@ function MarkdownToolbar({
         </TooltipIconButton>
         <TooltipIconButton
           label="Quote"
-          active={editor?.isActive('blockquote')}
+          active={toolbarState.isBlockquote}
           disabled={!canUseCommands}
           onClick={() => editor?.chain().focus().toggleBlockquote().run()}
         >
@@ -384,7 +791,7 @@ function MarkdownToolbar({
 
         <ToolbarDivider />
 
-        <TooltipIconButton label="Link" active={editor?.isActive('link')} disabled={!canUseCommands} onClick={setLink}>
+        <TooltipIconButton label="Link" active={toolbarState.isLink} disabled={!canUseCommands} onClick={setLink}>
           <LinkIcon />
         </TooltipIconButton>
         <TooltipIconButton label="Image" disabled={!canUseCommands} onClick={setImage}>
@@ -399,7 +806,7 @@ function MarkdownToolbar({
         </TooltipIconButton>
         <TooltipIconButton
           label="Code block"
-          active={editor?.isActive('codeBlock')}
+          active={toolbarState.isCodeBlock}
           disabled={!canUseCommands}
           onClick={() => editor?.chain().focus().toggleCodeBlock().run()}
         >

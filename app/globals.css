@@ -498,6 +498,15 @@
   display: block;
 }
 
+.tiptap-slash-menu {
+  z-index: 50;
+}
+
+.tiptap-slash-suggestion {
+  background: var(--muted);
+  border-radius: 0.25rem;
+}
+
 @keyframes studioOutputFadeIn {
   from {
     opacity: 0;
