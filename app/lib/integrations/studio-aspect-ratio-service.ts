@@ -172,32 +172,50 @@ async function renderCrop(sourceBytes: Buffer, frame: AspectRatioFrame, targetWi
   return pipeline.toBuffer();
 }
 
-async function renderExtendReference(sourceBytes: Buffer, frame: AspectRatioFrame, sourceWidth: number, sourceHeight: number, targetWidth: number, targetHeight: number) {
-  const scale = targetWidth / frame.width;
+interface ExtendArtifacts {
+  baseCanvas: Buffer;
+  geminiGuideCanvas: Buffer;
+  openAiMask: Buffer;
+  lockedLayer: Buffer;
+}
+
+const GEMINI_GUIDE_FILL = { r: 255, g: 0, b: 170, alpha: 1 };
+
+async function renderExtendArtifacts(sourceBytes: Buffer, frame: AspectRatioFrame, sourceWidth: number, sourceHeight: number, targetWidth: number, targetHeight: number): Promise<ExtendArtifacts> {
+  const scaleX = targetWidth / frame.width;
+  const scaleY = targetHeight / frame.height;
   const sx = Math.max(frame.x, 0);
   const sy = Math.max(frame.y, 0);
   const ex = Math.min(frame.x + frame.width, sourceWidth);
   const ey = Math.min(frame.y + frame.height, sourceHeight);
-  const visibleWidth = Math.max(1, ex - sx);
-  const visibleHeight = Math.max(1, ey - sy);
-  const left = Math.round((sx - frame.x) * scale);
-  const top = Math.round((sy - frame.y) * scale);
-  const width = Math.max(1, Math.round(visibleWidth * scale));
-  const height = Math.max(1, Math.round(visibleHeight * scale));
+  if (ex <= sx || ey <= sy) {
+    throw new Error('Frame must overlap the source image for AI extend');
+  }
+
+  const visibleWidth = ex - sx;
+  const visibleHeight = ey - sy;
+  const left = Math.max(0, Math.min(targetWidth - 1, Math.round((sx - frame.x) * scaleX)));
+  const top = Math.max(0, Math.min(targetHeight - 1, Math.round((sy - frame.y) * scaleY)));
+  const width = Math.max(1, Math.min(targetWidth - left, Math.round(visibleWidth * scaleX)));
+  const height = Math.max(1, Math.min(targetHeight - top, Math.round(visibleHeight * scaleY)));
+  const sourceLeft = Math.max(0, Math.min(sourceWidth - 1, Math.floor(sx)));
+  const sourceTop = Math.max(0, Math.min(sourceHeight - 1, Math.floor(sy)));
+  const sourceRight = Math.max(sourceLeft + 1, Math.min(sourceWidth, Math.ceil(ex)));
+  const sourceBottom = Math.max(sourceTop + 1, Math.min(sourceHeight, Math.ceil(ey)));
 
   const cropped = await sharp(sourceBytes, { limitInputPixels: false })
     .rotate()
     .extract({
-      left: Math.round(sx),
-      top: Math.round(sy),
-      width: Math.round(visibleWidth),
-      height: Math.round(visibleHeight),
+      left: sourceLeft,
+      top: sourceTop,
+      width: sourceRight - sourceLeft,
+      height: sourceBottom - sourceTop,
     })
     .resize(width, height, { fit: 'fill' })
     .png()
     .toBuffer();
 
-  return sharp({
+  const lockedLayer = await sharp({
     create: {
       width: targetWidth,
       height: targetHeight,
@@ -208,17 +226,77 @@ async function renderExtendReference(sourceBytes: Buffer, frame: AspectRatioFram
     .composite([{ input: cropped, left, top }])
     .png()
     .toBuffer();
+
+  // Gemini currently gets a visual guide, so the fill area is intentionally loud instead of transparent.
+  const geminiGuideCanvas = await sharp({
+    create: {
+      width: targetWidth,
+      height: targetHeight,
+      channels: 4,
+      background: GEMINI_GUIDE_FILL,
+    },
+  })
+    .composite([{ input: cropped, left, top }])
+    .png()
+    .toBuffer();
+
+  const preserveMask = await sharp({
+    create: {
+      width,
+      height,
+      channels: 4,
+      background: { r: 0, g: 0, b: 0, alpha: 1 },
+    },
+  })
+    .png()
+    .toBuffer();
+  const openAiMask = await sharp({
+    create: {
+      width: targetWidth,
+      height: targetHeight,
+      channels: 4,
+      background: { r: 0, g: 0, b: 0, alpha: 0 },
+    },
+  })
+    .composite([{ input: preserveMask, left, top }])
+    .png()
+    .toBuffer();
+
+  return {
+    baseCanvas: lockedLayer,
+    geminiGuideCanvas,
+    openAiMask,
+    lockedLayer,
+  };
 }
 
-function buildExtendPrompt(aspectRatio: string) {
+function buildExtendPrompt(aspectRatio: string, providerId: string) {
+  if (providerId === 'gemini') {
+    return [
+      `Extend this image to the requested ${aspectRatio} composition.`,
+      'The reference image is a final-canvas layout guide.',
+      'Real image pixels are locked context. Bright magenta areas are placeholders for missing content and must be fully replaced.',
+      'Do not restore or invent content that was cropped out of the visible context.',
+      'Keep the locked context visually unchanged and generate only a natural continuation in the magenta areas.',
+      'Return one complete image with no magenta guide color, no labels, no border, no watermark, and no explanation.',
+    ].join(' ');
+  }
+
   return [
     `Extend this image to the requested ${aspectRatio} composition.`,
     'The provided reference image is already placed on the final canvas.',
-    'Transparent empty areas are the only regions that must be generated.',
+    'The mask marks the only regions that must be generated.',
     'Preserve the original visible image exactly: do not repaint, reinterpret, crop, distort, or replace it.',
     'Only fill the missing outside areas naturally, continuing perspective, lighting, texture, color, depth of field, and scene logic.',
     'Return one complete image with no labels, no guides, no border, no watermark, and no explanation.',
   ].join(' ');
+}
+
+function buildExtendContextPrompt(providerId: string) {
+  if (providerId === 'gemini') {
+    return 'You are performing image outpainting for an aspect-ratio editor. Use the magenta guide areas as the missing generated regions and keep the visible original pixels unchanged.';
+  }
+  return 'You are performing image outpainting for an aspect-ratio editor. Use the edit mask as the source of truth for missing regions and keep the original pixels visually unchanged.';
 }
 
 function buildEditFileName(mode: AspectRatioMode, sourcePath: string, format: string) {
@@ -294,7 +372,7 @@ export async function createAspectRatioPreview(input: AspectRatioPreviewRequest)
     throw new Error(`Aspect ratio ${request.aspectRatio} is not supported by ${provider.name}. Supported ratios: ${supportedList}.`);
   }
 
-  const referenceCanvas = await renderExtendReference(
+  const extendArtifacts = await renderExtendArtifacts(
     sourceBytes,
     request.frame,
     sourceWidth,
@@ -302,21 +380,37 @@ export async function createAspectRatioPreview(input: AspectRatioPreviewRequest)
     request.targetWidth,
     request.targetHeight,
   );
+  const isGemini = provider.id === 'gemini';
   const generated = await provider.generate({
-    prompt: buildExtendPrompt(request.aspectRatio),
+    prompt: buildExtendPrompt(request.aspectRatio, provider.id),
     model,
     aspectRatio: request.aspectRatio,
-    referenceImages: [{ imageBytes: referenceCanvas.toString('base64'), mimeType: 'image/png' }],
+    referenceImages: [
+      {
+        imageBytes: (isGemini ? extendArtifacts.geminiGuideCanvas : extendArtifacts.baseCanvas).toString('base64'),
+        mimeType: 'image/png',
+        fileName: isGemini ? 'outpaint-layout-guide.png' : 'outpaint-base.png',
+      },
+    ],
+    editMask: isGemini
+      ? undefined
+      : {
+        imageBytes: extendArtifacts.openAiMask.toString('base64'),
+        mimeType: 'image/png',
+        fileName: 'outpaint-mask.png',
+      },
     quality: request.quality,
     outputFormat,
     background: request.background,
     imageSize: request.imageSize,
-    contextPrompt: 'You are performing image outpainting for an aspect-ratio editor. Treat transparent canvas regions as the missing generated areas and keep the original pixels visually unchanged.',
+    contextPrompt: buildExtendContextPrompt(provider.id),
   });
 
   const generatedBytes = Buffer.from(generated.imageBytes, 'base64');
+  // The model may drift on preserved pixels; this pins the exact visible crop back onto the final image.
   const normalizedOutput = await sharp(generatedBytes, { limitInputPixels: false })
     .resize(request.targetWidth, request.targetHeight, { fit: 'cover' })
+    .composite([{ input: extendArtifacts.lockedLayer, left: 0, top: 0 }])
     .toFormat(outputFormat === 'jpeg' ? 'jpeg' : outputFormat)
     .toBuffer();
 

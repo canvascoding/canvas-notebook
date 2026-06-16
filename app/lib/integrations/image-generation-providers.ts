@@ -33,11 +33,18 @@ export interface ImageGenerationProvider {
   generate(params: ProviderGenerateParams): Promise<ProviderGenerateResult>;
 }
 
+export interface ProviderImageInput {
+  imageBytes: string;
+  mimeType: string;
+  fileName?: string;
+}
+
 export interface ProviderGenerateParams {
   prompt: string;
   model: string;
   aspectRatio: string;
-  referenceImages: Array<{ imageBytes: string; mimeType: string }>;
+  referenceImages: ProviderImageInput[];
+  editMask?: ProviderImageInput;
   quality?: 'low' | 'medium' | 'high' | 'auto';
   outputFormat?: 'png' | 'jpeg' | 'webp';
   background?: 'transparent' | 'opaque' | 'auto';
@@ -169,6 +176,7 @@ class GeminiImageProvider implements ImageGenerationProvider {
             aspectRatio: params.aspectRatio,
             contextPrompt: params.contextPrompt,
             imageSize: params.imageSize,
+            hasEditMask: Boolean(params.editMask),
           },
           references: params.referenceImages,
         });
@@ -268,8 +276,11 @@ class OpenAIImageProvider implements ImageGenerationProvider {
             quality: params.quality,
             outputFormat: params.outputFormat,
             background: params.background,
+            editMaskReferenceIndex: params.editMask ? params.referenceImages.length : undefined,
           },
-          references: params.referenceImages,
+          references: params.editMask
+            ? [...params.referenceImages, { ...params.editMask, role: 'reference_image' }]
+            : params.referenceImages,
         });
         const output = result.outputs[0];
         if (!output) throw new Error('No image was returned by managed OpenAI');
@@ -297,13 +308,21 @@ class OpenAIImageProvider implements ImageGenerationProvider {
     if (hasReferences) {
       const imageBuffers = params.referenceImages.map((img) => {
         const buffer = Buffer.from(img.imageBytes, 'base64');
-        return new File([buffer], `image.${img.mimeType.split('/')[1] || 'png'}`, { type: img.mimeType });
+        return new File([buffer], img.fileName || `image.${img.mimeType.split('/')[1] || 'png'}`, { type: img.mimeType });
       });
+      const maskFile = params.editMask
+        ? new File(
+          [Buffer.from(params.editMask.imageBytes, 'base64')],
+          params.editMask.fileName || `mask.${params.editMask.mimeType.split('/')[1] || 'png'}`,
+          { type: params.editMask.mimeType },
+        )
+        : undefined;
 
       const result = await openai.images.edit({
         model: params.model,
         prompt: fullPrompt,
         image: imageBuffers.length === 1 ? imageBuffers[0] : imageBuffers,
+        ...(maskFile ? { mask: maskFile } : {}),
         size,
         quality: params.quality || 'auto',
         output_format: params.outputFormat || 'png',
