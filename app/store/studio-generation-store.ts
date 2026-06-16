@@ -7,6 +7,9 @@ import {
   type StudioVideoDuration,
 } from '@/app/lib/integrations/image-generation-constants';
 
+const STUDIO_INSPIRATION_COLLAPSED_STORAGE_KEY = 'studio-inspiration-collapsed';
+const STUDIO_SHOW_MORE_OPTIONS_STORAGE_KEY = 'studio-show-more-options';
+
 export interface ReferenceTag {
   id: string;
   name: string;
@@ -133,10 +136,28 @@ function createPendingGenerateRequestId() {
   return `studio-generate-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
+function readStoredBoolean(key: string, fallback = false) {
+  if (typeof window === 'undefined') return fallback;
+  try {
+    return window.localStorage.getItem(key) === 'true';
+  } catch {
+    return fallback;
+  }
+}
+
+function writeStoredBoolean(key: string, value: boolean) {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(key, String(value));
+  } catch {
+    // Keep the in-memory toggle usable when localStorage is unavailable.
+  }
+}
+
 export const useStudioGenerationStore = create<StudioGenerationState>((set) => ({
-  inspirationCollapsed: typeof window !== 'undefined' ? window.localStorage.getItem('studio-inspiration-collapsed') === 'true' : false,
+  inspirationCollapsed: readStoredBoolean(STUDIO_INSPIRATION_COLLAPSED_STORAGE_KEY),
   setInspirationCollapsed: (collapsed: boolean) => {
-    if (typeof window !== 'undefined') window.localStorage.setItem('studio-inspiration-collapsed', String(collapsed));
+    writeStoredBoolean(STUDIO_INSPIRATION_COLLAPSED_STORAGE_KEY, collapsed);
     set({ inspirationCollapsed: collapsed });
   },
 
@@ -169,8 +190,11 @@ export const useStudioGenerationStore = create<StudioGenerationState>((set) => (
   imageSize: '1K',
   setImageSize: (imageSize) => set({ imageSize }),
 
-  showMoreOptions: false,
-  setShowMoreOptions: (showMoreOptions) => set({ showMoreOptions }),
+  showMoreOptions: readStoredBoolean(STUDIO_SHOW_MORE_OPTIONS_STORAGE_KEY),
+  setShowMoreOptions: (showMoreOptions) => {
+    writeStoredBoolean(STUDIO_SHOW_MORE_OPTIONS_STORAGE_KEY, showMoreOptions);
+    set({ showMoreOptions });
+  },
 
   videoResolution: '720p',
   setVideoResolution: (videoResolution) => set({ videoResolution }),
