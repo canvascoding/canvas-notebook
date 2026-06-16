@@ -18,7 +18,6 @@ import { StudioPicker } from './StudioPicker';
 import { AspectRatioPicker } from './AspectRatioPicker';
 import {
   PROVIDERS,
-  OPENAI_MODELS,
   QUALITY_OPTIONS,
   OUTPUT_FORMAT_OPTIONS,
   BACKGROUND_OPTIONS,
@@ -295,9 +294,9 @@ export function ControlBar({
                   {isVideo || isSound
                     ? (MODEL_LABELS[m.id] || m.id)
                     : provider === 'openai'
-                      ? OPENAI_MODELS.find((om) => om.id === m.id)?.optionKey === 'gptImage2'
+                      ? m.id === 'gpt-image-2'
                         ? 'GPT Image 2 — Best Quality'
-                        : 'GPT Image 1.5 — Best Quality'
+                        : m.id
                       : m.id === GEMINI_FLASH_IMAGE_MODEL_ID
                         ? 'Gemini 3.1 Flash — Best Quality & Features'
                         : m.id === GEMINI_PRO_IMAGE_MODEL_ID
