@@ -7,6 +7,7 @@ import { useTranslations } from 'next-intl';
 import { AttachmentPreviewItem } from '@/app/components/canvas-agent-chat/AttachmentPreviewItem';
 import { FileReferenceCard } from '@/app/components/canvas-agent-chat/FileReferenceCard';
 import { getRecentStudioImageMediaUrls, MarkdownMessage } from '@/app/components/canvas-agent-chat/ChatMarkdownMessage';
+import { SkillReferenceChipRow, useSkillReferenceCatalog } from '@/app/components/canvas-agent-chat/SkillReferenceChips';
 import {
   AgentRunDisclosure,
   buildToolImagePreviewGroups,
@@ -107,6 +108,7 @@ export function ChatMessageList({
   onAttachmentOpen: AttachmentOpenHandler;
 }) {
   const t = useTranslations('chat');
+  const skillReferenceCatalog = useSkillReferenceCatalog();
   const collapsedRunMap = useMemo(() => buildCollapsedRunMap(messages, isRuntimeBusy), [messages, isRuntimeBusy]);
   const toolImagePreviewGroups = useMemo(() => buildToolImagePreviewGroups(messages), [messages]);
   const hiddenStepIds = useMemo(() => {
@@ -311,13 +313,27 @@ export function ChatMessageList({
                   ) : null}
 
                   {isUser ? (
-                    <MarkdownMessage content={bodyContent} variant="user" onMediaClick={onMediaClick} />
+                    <>
+                      <MarkdownMessage content={bodyContent} variant="user" onMediaClick={onMediaClick} />
+                      <SkillReferenceChipRow
+                        content={bodyContent}
+                        skillsByName={skillReferenceCatalog}
+                        variant="user"
+                        className="mt-2"
+                      />
+                    </>
                   ) : isAssistant ? (
                     isStreamingAssistant && !rawBodyContent ? (
                       <StreamingMessageIndicator />
                     ) : (
                       <>
                         <MarkdownMessage content={displayBodyContent} variant="assistant" onMediaClick={onMediaClick} />
+                        <SkillReferenceChipRow
+                          content={bodyContent}
+                          skillsByName={skillReferenceCatalog}
+                          variant="message"
+                          className="mt-2"
+                        />
                         {isStreamingAssistant ? (
                           <div className="mt-2 inline-flex items-center gap-1 text-muted-foreground/70">
                             {[0, 160, 320].map((delay) => (

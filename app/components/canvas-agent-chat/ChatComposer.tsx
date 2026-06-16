@@ -18,6 +18,7 @@ import {
   type ComposerReferencePickerItem,
 } from '@/app/components/canvas-agent-chat/ComposerReferencePicker';
 import { PlanModeToggle } from '@/app/components/canvas-agent-chat/PlanModeToggle';
+import { SkillReferenceChipRow } from '@/app/components/canvas-agent-chat/SkillReferenceChips';
 import type { CanvasSkill } from '@/app/lib/skills/canvas-skill-manifest';
 import type { AgentConfig, Attachment, AttachmentOpenHandler, QueuePreviewItem } from '@/app/lib/chat/types';
 import type { PiThinkingLevel } from '@/app/lib/pi/config';
@@ -252,6 +253,12 @@ export const ChatComposer = forwardRef<HTMLDivElement, {
             style={{ height: `${textareaHeight}px` }}
             disabled={isWebSocketUnavailable}
             className={`w-full resize-none border bg-background p-2.5 text-base placeholder:text-xs placeholder:text-muted-foreground focus:outline-none focus:ring-1 md:text-sm sm:placeholder:text-sm ${planningMode ? 'border-amber-500 focus:ring-amber-500' : 'border-border focus:ring-ring'}`}
+          />
+
+          <SkillReferenceChipRow
+            content={input}
+            variant="composer"
+            className="mt-1.5"
           />
 
           {showReferencePicker ? (
