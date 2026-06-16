@@ -1,0 +1,5 @@
+interface:
+  display_name: QMD
+  short_description: Use semantic search over local documents
+  brand_color: "#0F766E"
+  default_prompt: Use $qmd to search local knowledge semantically.

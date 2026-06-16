@@ -1,0 +1,5 @@
+interface:
+  display_name: Internal Comms
+  short_description: Draft internal company communications
+  brand_color: "#475569"
+  default_prompt: Use $internal-comms to draft or refine internal communications.

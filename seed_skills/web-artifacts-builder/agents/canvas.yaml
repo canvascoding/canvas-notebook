@@ -1,0 +1,5 @@
+interface:
+  display_name: Web Artifacts Builder
+  short_description: Build complex React/Tailwind artifacts
+  brand_color: "#0284C7"
+  default_prompt: Use $web-artifacts-builder to create a complex web artifact.

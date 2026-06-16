@@ -1,0 +1,5 @@
+interface:
+  display_name: Brand Guidelines
+  short_description: Apply brand colors and typography
+  brand_color: "#111827"
+  default_prompt: Use $brand-guidelines to apply brand styling to this artifact.

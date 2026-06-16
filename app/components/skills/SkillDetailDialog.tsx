@@ -22,12 +22,13 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Power, Loader2, X, Save, AlertCircle, Trash2 } from 'lucide-react';
+import { Loader2, X, Save, AlertCircle, Trash2 } from 'lucide-react';
 import { MarkdownEditor } from '@/app/components/editor/MarkdownEditor';
-import type { AnthropicSkill } from '@/app/lib/skills/skill-manifest-anthropic';
+import type { CanvasSkill } from '@/app/lib/skills/canvas-skill-manifest';
+import { CanvasSkillIcon } from '@/app/lib/skills/skill-icons';
 
 interface SkillDetailDialogProps {
-  skill: AnthropicSkill | null;
+  skill: CanvasSkill | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onDeleted?: () => void;
@@ -158,7 +159,7 @@ export function SkillDetailDialog({ skill, open, onOpenChange, onDeleted }: Skil
           </DialogDescription>
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <Power className={`h-7 w-7 ${skill.enabled ? 'text-green-500' : 'text-muted-foreground'}`} />
+              <CanvasSkillIcon skill={skill} className="h-10 w-10 text-sm" />
               <div>
                 <DialogTitle className="text-2xl font-bold">{skill.title}</DialogTitle>
                 <div className="flex items-center gap-2 mt-1.5">
@@ -261,7 +262,7 @@ export function SkillDetailDialog({ skill, open, onOpenChange, onDeleted }: Skil
                   )}
                   {!isSaving && !saveError && !isDirty && savedTime && (
                     <span className="flex items-center gap-1 text-xs text-primary" title={t('savedAt', { time: savedTime })}>
-                      <Power className="h-3.5 w-3.5" />
+                      <Save className="h-3.5 w-3.5" />
                       <span className="hidden sm:inline">{t('savedAt', { time: savedTime })}</span>
                     </span>
                   )}

@@ -1,4 +1,6 @@
-import type { ComponentType, ReactNode } from 'react';
+'use client';
+
+import { useState, type ComponentType, type ReactNode } from 'react';
 import {
   BookOpen,
   CalendarDays,
@@ -7,13 +9,22 @@ import {
   FileSpreadsheet,
   FileText,
   Globe,
- 
   Languages,
   Palette,
   Presentation,
   Sparkles,
   Wrench,
 } from 'lucide-react';
+
+import { cn } from '@/lib/utils';
+import type { CanvasSkillInterface } from './canvas-skill-manifest';
+
+export type CanvasSkillIconSource = {
+  name: string;
+  title?: string;
+  description?: string;
+  interface?: CanvasSkillInterface;
+};
 
 const SKILL_ICON_BY_NAME: Record<string, ComponentType<{ className?: string }>> = {
   'ad-localization': Languages,
@@ -62,11 +73,118 @@ export function getSkillIcon(skillName: string, description?: string): Component
   return keywordMatch?.Icon || Wrench;
 }
 
+function normalizeAssetPath(assetPath?: string): string | null {
+  const normalized = assetPath?.trim();
+  if (!normalized) return null;
+  return normalized.replace(/^\.\//, '').replace(/^\/+/, '');
+}
+
+function resolveSkillAssetUrl(skillName: string, assetPath?: string): string | null {
+  const normalized = normalizeAssetPath(assetPath);
+  if (!normalized) return null;
+
+  if (/^https?:\/\//i.test(normalized) || normalized.startsWith('data:')) {
+    return normalized;
+  }
+
+  return `/api/skills/asset?path=${encodeURIComponent(`${skillName}/${normalized}`)}`;
+}
+
+function getSkillInitials(skill: CanvasSkillIconSource): string {
+  const label = skill.interface?.displayName || skill.title || skill.name;
+  const words = label
+    .replace(/[^a-z0-9]+/gi, ' ')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+
+  if (words.length === 0) {
+    return '?';
+  }
+
+  if (words.length === 1) {
+    return words[0].slice(0, 2).toUpperCase();
+  }
+
+  return `${words[0][0]}${words[1][0]}`.toUpperCase();
+}
+
+function isSafeHexColor(value?: string): value is string {
+  return Boolean(value && /^#[0-9a-f]{6}$/i.test(value));
+}
+
+function CanvasSkillInitialsIcon({
+  skill,
+  className,
+}: {
+  skill: CanvasSkillIconSource;
+  className?: string;
+}) {
+  const brandColor = skill.interface?.brandColor;
+  const colorStyle = isSafeHexColor(brandColor)
+    ? { backgroundColor: brandColor, color: '#fff', borderColor: brandColor }
+    : undefined;
+
+  return (
+    <span
+      className={cn(
+        'inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border bg-primary/10 text-xs font-semibold uppercase text-primary',
+        'leading-none',
+        className,
+      )}
+      style={colorStyle}
+      aria-hidden="true"
+    >
+      {getSkillInitials(skill)}
+    </span>
+  );
+}
+
+export function CanvasSkillIcon({
+  skill,
+  className,
+  imageClassName,
+}: {
+  skill: CanvasSkillIconSource;
+  className?: string;
+  imageClassName?: string;
+}) {
+  const [failed, setFailed] = useState(false);
+  const iconPath = skill.interface?.iconSmall || skill.interface?.iconLarge;
+  const iconUrl = failed ? null : resolveSkillAssetUrl(skill.name, iconPath);
+
+  if (iconUrl) {
+    return (
+      <span
+        className={cn(
+          'inline-flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full border bg-background',
+          className,
+        )}
+        aria-hidden="true"
+      >
+        {/* eslint-disable-next-line @next/next/no-img-element -- Skill assets are local runtime files served through an authenticated API route. */}
+        <img
+          src={iconUrl}
+          alt=""
+          className={cn('h-full w-full object-cover', imageClassName)}
+          onError={() => setFailed(true)}
+        />
+      </span>
+    );
+  }
+
+  return <CanvasSkillInitialsIcon skill={skill} className={className} />;
+}
+
 export function renderSkillIcon(
   skillName: string,
   description?: string,
   className: string = 'h-4 w-4 text-primary',
 ): ReactNode {
-  const Icon = getSkillIcon(skillName, description);
-  return <Icon className={className} />;
+  return (
+    <CanvasSkillIcon
+      skill={{ name: skillName, description }}
+      className={className}
+    />
+  );
 }

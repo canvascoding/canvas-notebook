@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { headers } from 'next/headers';
 import { auth } from '@/app/lib/auth';
-import { parseFrontmatter, validateFrontmatter } from '@/app/lib/skills/skill-manifest-anthropic';
+import { parseFrontmatter, validateFrontmatter } from '@/app/lib/skills/canvas-skill-manifest';
 
 export async function POST(request: Request) {
   const session = await auth.api.getSession({ headers: await headers() });

@@ -4,7 +4,7 @@ import { useState, useCallback, useRef } from 'react';
 import { useTranslations } from 'next-intl';
 import { Upload, X, CheckCircle2, AlertCircle, FileText, Info } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import type { ValidationResult } from '@/app/lib/skills/skill-manifest-anthropic';
+import type { ValidationResult } from '@/app/lib/skills/canvas-skill-manifest';
 
 interface SkillUploadDialogProps {
   open: boolean;

@@ -20,11 +20,12 @@ import {
 import { cn } from '@/lib/utils';
 import { SkillDetailDialog } from '@/app/components/skills/SkillDetailDialog';
 import { SkillUploadDialog } from '@/app/components/skills/SkillUploadDialog';
+import { CanvasSkillIcon } from '@/app/lib/skills/skill-icons';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
-import type { AnthropicSkill } from '@/app/lib/skills/skill-manifest-anthropic';
+import type { CanvasSkill } from '@/app/lib/skills/canvas-skill-manifest';
 
 interface SkillFileNode {
   name: string;
@@ -39,10 +40,10 @@ type RightPanelView = 'info' | 'preview';
 
 export function SkillsPanel() {
   const t = useTranslations('skills');
-  const [skills, setSkills] = useState<AnthropicSkill[]>([]);
+  const [skills, setSkills] = useState<CanvasSkill[]>([]);
   const [stats, setStats] = useState({ total: 0, enabled: 0, disabled: 0 });
   const [isLoading, setIsLoading] = useState(true);
-  const [selectedSkill, setSelectedSkill] = useState<AnthropicSkill | null>(null);
+  const [selectedSkill, setSelectedSkill] = useState<CanvasSkill | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [uploadOpen, setUploadOpen] = useState(false);
   const [skillTree, setSkillTree] = useState<SkillFileNode[]>([]);
@@ -64,16 +65,16 @@ export function SkillsPanel() {
       const statusData = await statusRes.json();
 
       if (skillsData.success) {
-        const allSkills: AnthropicSkill[] = skillsData.skills;
+        const allSkills: CanvasSkill[] = skillsData.skills;
         const enabledNames: string[] = statusData.success ? (statusData.enabledSkills || []) : [];
         const allEnabled = statusData.success && statusData.allEnabled === true;
 
-        const merged = allSkills.map((skill: AnthropicSkill) => ({
+        const merged = allSkills.map((skill: CanvasSkill) => ({
           ...skill,
           enabled: allEnabled || enabledNames.includes(skill.name),
         }));
 
-        const enabledCount = merged.filter((s: AnthropicSkill) => s.enabled).length;
+        const enabledCount = merged.filter((s: CanvasSkill) => s.enabled).length;
         setSkills(merged);
         setStats({
           total: merged.length,
@@ -195,7 +196,11 @@ export function SkillsPanel() {
     }
   }
 
-  function getFileIcon(node: SkillFileNode) {
+  function getFileIcon(node: SkillFileNode, skill?: CanvasSkill | null) {
+    if (skill) {
+      return <CanvasSkillIcon skill={skill} className="h-5 w-5 text-[10px]" />;
+    }
+
     if (node.type === 'directory') {
       return expandedDirs.has(node.path) ? (
         <FolderOpen className="h-4 w-4 text-amber-500 shrink-0" />
@@ -260,7 +265,7 @@ export function SkillsPanel() {
               )} />
             )}
             {node.type === 'file' && <span className="w-3 shrink-0" />}
-            {getFileIcon(node)}
+            {getFileIcon(node, skill)}
             <span className="truncate flex-1">{node.name}</span>
             {isSkillDir && skill && (
               <Switch
@@ -344,13 +349,16 @@ export function SkillsPanel() {
             {rightView === 'info' && selectedSkillData ? (
               <div className="p-5 space-y-4">
                 <div className="flex items-start justify-between gap-4">
-                  <div className="flex-1 min-w-0">
-                    <h2 className="text-xl font-bold">{selectedSkillData.title}</h2>
+                  <div className="flex min-w-0 flex-1 items-start gap-3">
+                    <CanvasSkillIcon skill={selectedSkillData} className="h-12 w-12 text-sm" />
+                    <div className="min-w-0">
+                      <h2 className="text-xl font-bold">{selectedSkillData.title}</h2>
                     <div className="flex items-center gap-2 mt-1">
                       <span className="text-sm font-mono text-muted-foreground">{selectedSkillData.name}</span>
                       <Badge variant={selectedSkillData.enabled ? 'default' : 'secondary'} className="text-xs">
                         {selectedSkillData.enabled ? t('detail.enabled') : t('detail.disabled')}
                       </Badge>
+                    </div>
                     </div>
                   </div>
                   <Switch

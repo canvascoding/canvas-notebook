@@ -3,46 +3,29 @@ import 'server-only';
 import { promises as fs } from 'fs';
 import path from 'path';
 
+import {
+  getSkillsDir,
+  loadCanvasSkillInterface,
+  parseFrontmatter,
+  type CanvasSkillInterface,
+} from './canvas-skill-manifest';
+
 export type SkillSummary = {
   name: string;
   title: string;
   description: string;
   enabled: boolean;
+  interface?: CanvasSkillInterface;
 };
 
-function getSkillsDir(): string {
-  return path.join(process.env.DATA || '/data', 'skills');
-}
-
 function parseSkillSummary(content: string, fallbackName: string): Omit<SkillSummary, 'enabled'> | null {
-  const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
-  if (!match) return null;
-
-  let name = fallbackName;
-  let description = '';
-
-  for (const rawLine of match[1].split(/\r?\n/)) {
-    const line = rawLine.trim();
-    const colonIndex = line.indexOf(':');
-    if (colonIndex <= 0) continue;
-
-    const key = line.slice(0, colonIndex).trim();
-    let value = line.slice(colonIndex + 1).trim();
-    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
-      value = value.slice(1, -1);
-    }
-
-    if (key === 'name' && value) {
-      name = value;
-    } else if (key === 'description') {
-      description = value;
-    }
-  }
+  const { frontmatter } = parseFrontmatter(content);
+  if (!frontmatter?.name || !frontmatter.description) return null;
 
   return {
-    name,
-    title: name,
-    description,
+    name: frontmatter.name || fallbackName,
+    title: frontmatter.name || fallbackName,
+    description: frontmatter.description || '',
   };
 }
 
@@ -53,7 +36,7 @@ export async function loadSkillSummaries(enabledSkills?: string[]): Promise<Skil
 
   try {
     const entries = await fs.readdir(skillsDir, { withFileTypes: true });
-    const summaries = await Promise.all(entries
+    const summaries: Array<SkillSummary | null> = await Promise.all(entries
       .filter((entry) => entry.isDirectory())
       .map(async (entry) => {
         const skillMdPath = path.join(skillsDir, entry.name, 'SKILL.md');
@@ -61,18 +44,25 @@ export async function loadSkillSummaries(enabledSkills?: string[]): Promise<Skil
           const content = await fs.readFile(skillMdPath, 'utf-8');
           const summary = parseSkillSummary(content, entry.name);
           if (!summary) return null;
-          return {
+          const skillDir = path.join(skillsDir, entry.name);
+          const iface = await loadCanvasSkillInterface(skillDir);
+          const skillSummary: SkillSummary = {
             ...summary,
+            title: iface?.displayName || summary.title,
             enabled: allEnabled || enabledSet.has(summary.name),
           };
+          if (iface) skillSummary.interface = iface;
+          return skillSummary;
         } catch {
           return null;
         }
       }));
 
-    return summaries
-      .filter((summary): summary is SkillSummary => Boolean(summary))
-      .sort((a, b) => a.name.localeCompare(b.name));
+    const validSummaries: SkillSummary[] = [];
+    for (const summary of summaries) {
+      if (summary) validSummaries.push(summary);
+    }
+    return validSummaries.sort((a, b) => a.name.localeCompare(b.name));
   } catch {
     return [];
   }

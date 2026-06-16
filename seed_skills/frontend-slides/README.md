@@ -123,7 +123,7 @@ This skill uses **progressive disclosure** — the main `SKILL.md` is a concise 
 | `scripts/deploy.sh`       | Deploy to Vercel               | Phase 6 (sharing)         |
 | `scripts/export-pdf.sh`   | Export slides to PDF           | Phase 6 (sharing)         |
 
-This design follows [OpenAI's harness engineering](https://openai.com/index/harness-engineering/) principle: "give the agent a map, not a 1,000-page instruction manual."
+This design follows a harness-style principle: give the agent a practical map, not a 1,000-page instruction manual.
 
 ## Philosophy
 

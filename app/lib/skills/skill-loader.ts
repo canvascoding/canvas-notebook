@@ -1,26 +1,26 @@
 import { promises as fs } from 'fs';
 import path from 'path';
-import { AnthropicSkill, parseSkillFile, getSkillsDir, createDefaultSkillMd } from './skill-manifest-anthropic';
+import { CanvasSkill, parseSkillFile, getSkillsDir, createDefaultSkillMd } from './canvas-skill-manifest';
 import { readPiRuntimeConfig, writePiRuntimeConfig } from '@/app/lib/agents/storage';
 import { enableSkillInConfig, disableSkillInConfig, areAllSkillsEnabled } from './enabled-skills';
-// Re-export types and functions from the new anthropic module
-export type { AnthropicSkill, ValidationResult } from './skill-manifest-anthropic';
+// Re-export the Canvas skill manifest API for existing call sites.
+export type { CanvasSkill, ValidationResult } from './canvas-skill-manifest';
 export {
   parseSkillFile,
   getSkillsDir,
   createDefaultSkillMd,
   parseFrontmatter,
   validateFrontmatter,
-} from './skill-manifest-anthropic';
+} from './canvas-skill-manifest';
 export { getSkillsContext } from './skill-context';
 
 /**
  * Load all skills from the skills directory
- * Only supports Anthropic-style SKILL.md format
+ * Only supports Canvas SKILL.md format
  * Optionally filter by enabled skills list
  */
-export async function loadSkillsFromDisk(enabledSkills?: string[]): Promise<AnthropicSkill[]> {
-  const skills: AnthropicSkill[] = [];
+export async function loadSkillsFromDisk(enabledSkills?: string[]): Promise<CanvasSkill[]> {
+  const skills: CanvasSkill[] = [];
   const skillsDir = getSkillsDir();
   
   try {
@@ -86,7 +86,7 @@ export async function loadSkillsFromDisk(enabledSkills?: string[]): Promise<Anth
 /**
  * Load a single skill by name
  */
-export async function loadSkillByName(name: string): Promise<AnthropicSkill | null> {
+export async function loadSkillByName(name: string): Promise<CanvasSkill | null> {
   const skillsDir = getSkillsDir();
   const skillMdPath = path.join(skillsDir, name, 'SKILL.md');
   return parseSkillFile(skillMdPath);
@@ -204,7 +204,7 @@ export async function getSkillStats(): Promise<{
 export async function validateSkillByName(name: string): Promise<{
   valid: boolean;
   errors: string[];
-  skill?: AnthropicSkill;
+  skill?: CanvasSkill;
 }> {
   try {
     const skill = await loadSkillByName(name);
@@ -232,7 +232,7 @@ export async function validateSkillByName(name: string): Promise<{
  */
 export async function createSkillReadme(
   name: string,
-  skill: AnthropicSkill
+  skill: CanvasSkill
 ): Promise<void> {
   const skillsDir = getSkillsDir();
   const readmePath = path.join(skillsDir, name, 'README.md');
@@ -257,7 +257,7 @@ ${skill.content}
 
 ---
 
-*This skill uses the Anthropic SKILL.md format.*
+*This skill uses the Canvas SKILL.md format.*
 `;
 
   await fs.writeFile(readmePath, readmeContent, 'utf-8');

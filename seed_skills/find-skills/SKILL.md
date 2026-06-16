@@ -49,10 +49,7 @@ When a user asks for help with something, identify:
 
 Before running a CLI search, check the skills.sh leaderboard to see if a well-known skill already exists for the domain. The leaderboard ranks skills by total installs, surfacing the most popular and battle-tested options.
 
-For example, top skills for web development include:
-
-- `vercel-labs/agent-skills` — React, Next.js, web design (100K+ installs each)
-- `anthropics/skills` — Frontend design, document processing (100K+ installs)
+For example, top skills for web development often include React, Next.js, design, testing, and document-processing packages from well-known maintainers.
 
 ### Step 3: Search for Skills
 
@@ -73,7 +70,7 @@ Examples:
 Do not recommend a skill based solely on search results. Always verify:
 
 - **Install count** — Prefer skills with 1K+ installs. Be cautious with anything under 100.
-- **Source reputation** — Official sources (vercel-labs, anthropics, microsoft) are more trustworthy than unknown authors.
+- **Source reputation** — Prefer well-known maintainers, active repositories, and clearly documented provenance over unknown authors.
 - **GitHub stars** — Check the source repository. A skill from a repo with <100 stars should be treated with skepticism.
 
 ### Step 5: Present Options to the User
@@ -184,5 +181,5 @@ npx skills init my-xyz-skill
 
 - Canvas Notebook scans `/data/skills/` at startup and loads any directory containing a `SKILL.md` file
 - New skills are initially disabled by default; the user must enable them in Settings → Skills
-- Skills follow the Anthropic Agent Skills specification with YAML frontmatter (`name`, `description`, etc.)
+- Skills follow the Canvas Skills format with YAML frontmatter (`name`, `description`, etc.) and optional `agents/canvas.yaml` UI metadata
 - No `manifest.json` or `bin/` wrappers are needed in Canvas Notebook — skills are pure instruction files

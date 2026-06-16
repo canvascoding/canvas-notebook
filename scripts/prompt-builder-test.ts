@@ -4,7 +4,7 @@ import {
   composeManagedAgentSystemPrompt,
 } from '../app/lib/agents/system-prompt-shared';
 import type { ManagedPromptFiles } from '../app/lib/agents/system-prompt-shared';
-import type { AnthropicSkill } from '../app/lib/skills/skill-manifest-anthropic';
+import type { CanvasSkill } from '../app/lib/skills/canvas-skill-manifest';
 import { getSkillsContext } from '../app/lib/skills/skill-context';
 
 function createFiles(overrides: Partial<ManagedPromptFiles> = {}): ManagedPromptFiles {
@@ -47,13 +47,14 @@ assert.match(populated.systemPrompt, /## File Access for Uploaded Attachments/);
 assert.match(populated.systemPrompt, /\*\*PDF\*\*: Use the `read` tool first for ordinary text extraction/);
 assert.doesNotMatch(populated.systemPrompt, /Use the `pdf` skill to read and extract content/);
 
-const skills: AnthropicSkill[] = [
+const skills: CanvasSkill[] = [
   {
     name: 'pdf',
     description: 'Use when working with PDF files.',
     title: 'PDF',
     content: 'FULL PDF SKILL BODY SHOULD NOT BE INCLUDED',
     path: '/data/skills/pdf/SKILL.md',
+    directory: '/data/skills/pdf',
     enabled: true,
   },
   {
@@ -62,6 +63,7 @@ const skills: AnthropicSkill[] = [
     title: 'Disabled Skill',
     content: 'DISABLED SKILL BODY',
     path: '/data/skills/disabled-skill/SKILL.md',
+    directory: '/data/skills/disabled-skill',
     enabled: false,
   },
 ];

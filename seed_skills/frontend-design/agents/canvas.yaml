@@ -1,0 +1,5 @@
+interface:
+  display_name: Frontend Design
+  short_description: Create production-grade frontend UI
+  brand_color: "#EC4899"
+  default_prompt: Use $frontend-design to design or improve this frontend interface.

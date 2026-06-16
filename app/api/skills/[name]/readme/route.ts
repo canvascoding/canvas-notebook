@@ -3,10 +3,9 @@ import { auth } from '@/app/lib/auth';
 import { promises as fs } from 'fs';
 import path from 'path';
 import { headers } from 'next/headers';
+import { getSkillsDir } from '@/app/lib/skills/canvas-skill-manifest';
 
-// Skills directory is relative to DATA
-const DATA = process.env.DATA || '/data';
-const SKILLS_DIR = path.join(DATA, 'skills');
+const SKILLS_DIR = getSkillsDir();
 
 function sanitizeSkillName(name: string): string {
   return name.replace(/[^a-z0-9-]/g, '');
@@ -66,7 +65,7 @@ export async function PUT(
     // Verify the path is within the skills directory (path traversal protection)
     const resolvedPath = path.resolve(/*turbopackIgnore: true*/ skillMdPath);
     const resolvedSkillsDir = path.resolve(/*turbopackIgnore: true*/ SKILLS_DIR);
-    if (!resolvedPath.startsWith(resolvedSkillsDir)) {
+    if (!resolvedPath.startsWith(`${resolvedSkillsDir}${path.sep}`)) {
       return NextResponse.json(
         { success: false, error: 'Invalid path' },
         { status: 400 }

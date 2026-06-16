@@ -3,13 +3,12 @@ import { headers } from 'next/headers';
 import { auth } from '@/app/lib/auth';
 import { promises as fs } from 'fs';
 import path from 'path';
-import { parseFrontmatter, validateFrontmatter } from '@/app/lib/skills/skill-manifest-anthropic';
+import { getSkillsDir, parseFrontmatter, validateFrontmatter } from '@/app/lib/skills/canvas-skill-manifest';
 import { readPiRuntimeConfig, writePiRuntimeConfig } from '@/app/lib/agents/storage';
 import { enableSkillInConfig } from '@/app/lib/skills/enabled-skills';
 import { getSkillNames } from '@/app/lib/skills/skill-loader';
 
-const DATA = process.env.DATA || '/data';
-const SKILLS_DIR = path.join(DATA, 'skills');
+const SKILLS_DIR = getSkillsDir();
 
 function sanitizeSkillName(name: string): string {
   return name.replace(/[^a-z0-9-]/g, '');
@@ -77,7 +76,7 @@ export async function POST(request: Request) {
     const skillDir = path.join(SKILLS_DIR, skillName);
     const resolvedSkillDir = path.resolve(skillDir);
     const resolvedSkillsDir = path.resolve(SKILLS_DIR);
-    if (!resolvedSkillDir.startsWith(resolvedSkillsDir)) {
+    if (!resolvedSkillDir.startsWith(`${resolvedSkillsDir}${path.sep}`)) {
       return NextResponse.json(
         { success: false, error: 'Invalid skill name: path traversal detected' },
         { status: 400 }

@@ -1,0 +1,5 @@
+interface:
+  display_name: Theme Factory
+  short_description: Apply reusable artifact themes
+  brand_color: "#D97706"
+  default_prompt: Use $theme-factory to apply or create a reusable visual theme.

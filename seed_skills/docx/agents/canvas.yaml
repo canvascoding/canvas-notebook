@@ -1,0 +1,5 @@
+interface:
+  display_name: DOCX
+  short_description: Create, edit, review, and verify Word documents
+  brand_color: "#2563EB"
+  default_prompt: Use $docx to create, edit, review, or visually verify a Word document.

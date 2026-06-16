@@ -1,0 +1,5 @@
+interface:
+  display_name: Gmail CLI
+  short_description: Work with Gmail from the CLI
+  brand_color: "#EA4335"
+  default_prompt: Use $gmcli to search, read, or draft Gmail messages.

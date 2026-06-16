@@ -1,0 +1,5 @@
+interface:
+  display_name: Skill Creator
+  short_description: Create, test, and package Canvas skills
+  brand_color: "#0F172A"
+  default_prompt: Use $skill-creator to create or improve a Canvas skill.

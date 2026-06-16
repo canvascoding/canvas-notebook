@@ -1,0 +1,5 @@
+interface:
+  display_name: Google Drive CLI
+  short_description: Work with Google Drive from the CLI
+  brand_color: "#34A853"
+  default_prompt: Use $gdcli to inspect or update Google Drive files.

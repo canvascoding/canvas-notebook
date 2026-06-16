@@ -1,0 +1,5 @@
+interface:
+  display_name: YouTube Transcript
+  short_description: Fetch and use YouTube transcripts
+  brand_color: "#FF0000"
+  default_prompt: Use $youtube-transcript to fetch and analyze a YouTube transcript.

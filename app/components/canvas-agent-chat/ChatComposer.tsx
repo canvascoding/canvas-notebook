@@ -18,7 +18,7 @@ import {
   type ComposerReferencePickerItem,
 } from '@/app/components/canvas-agent-chat/ComposerReferencePicker';
 import { PlanModeToggle } from '@/app/components/canvas-agent-chat/PlanModeToggle';
-import type { AnthropicSkill } from '@/app/lib/skills/skill-manifest-anthropic';
+import type { CanvasSkill } from '@/app/lib/skills/canvas-skill-manifest';
 import type { AgentConfig, Attachment, AttachmentOpenHandler, QueuePreviewItem } from '@/app/lib/chat/types';
 import type { PiThinkingLevel } from '@/app/lib/pi/config';
 import { Link } from '@/i18n/navigation';
@@ -31,7 +31,7 @@ export type FilePickerFile = {
   isImage: boolean;
 };
 
-export type SkillPickerSkill = Pick<AnthropicSkill, 'name' | 'title' | 'description' | 'enabled'>;
+export type SkillPickerSkill = Pick<CanvasSkill, 'name' | 'title' | 'description' | 'enabled' | 'interface'>;
 export type ReferencePickerValue = FilePickerFile | SkillPickerSkill;
 
 export const ChatComposer = forwardRef<HTMLDivElement, {

@@ -8,6 +8,8 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
+import { CanvasSkillIcon } from '@/app/lib/skills/skill-icons';
+import type { CanvasSkillInterface } from '@/app/lib/skills/canvas-skill-manifest';
 import { cn } from '@/lib/utils';
 
 export type SkillOption = {
@@ -15,6 +17,7 @@ export type SkillOption = {
   title?: string;
   description?: string;
   enabled?: boolean;
+  interface?: CanvasSkillInterface;
 };
 
 export type AgentConnectionOption = {
@@ -371,6 +374,7 @@ export function AgentRelevantSkillsPicker({
                 )}
                 aria-pressed={selected}
               >
+                <CanvasSkillIcon skill={skill} className="mt-0.5 h-9 w-9" />
                 <span className={cn(
                   'mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded border',
                   selected ? 'border-primary bg-primary text-primary-foreground' : 'border-border',

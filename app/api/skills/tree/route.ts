@@ -2,9 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { promises as fs } from 'fs';
 import path from 'path';
 import { auth } from '@/app/lib/auth';
+import { getSkillsDir } from '@/app/lib/skills/canvas-skill-manifest';
 
-const DATA = process.env.DATA || '/data';
-const SKILLS_DIR = path.join(DATA, 'skills');
+const SKILLS_DIR = getSkillsDir();
 
 interface SkillFileNode {
   name: string;

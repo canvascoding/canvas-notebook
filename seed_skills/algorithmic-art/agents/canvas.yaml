@@ -1,0 +1,5 @@
+interface:
+  display_name: Algorithmic Art
+  short_description: Create seeded generative p5.js artwork
+  brand_color: "#7C3AED"
+  default_prompt: Use $algorithmic-art to create a seeded generative art piece.

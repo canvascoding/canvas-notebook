@@ -1,0 +1,5 @@
+interface:
+  display_name: Frontend Slides
+  short_description: Create animated HTML presentations
+  brand_color: "#8B5CF6"
+  default_prompt: Use $frontend-slides to create or convert an HTML presentation.

@@ -1,0 +1,5 @@
+interface:
+  display_name: PPTX
+  short_description: Create, edit, review, and verify PowerPoint decks
+  brand_color: "#C43E1C"
+  default_prompt: Use $pptx to create, edit, review, or visually verify a PowerPoint deck.

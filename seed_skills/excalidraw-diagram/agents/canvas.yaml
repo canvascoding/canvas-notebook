@@ -1,0 +1,5 @@
+interface:
+  display_name: Excalidraw Diagram
+  short_description: Create editable Excalidraw diagrams
+  brand_color: "#F59E0B"
+  default_prompt: Use $excalidraw-diagram to create or edit an Excalidraw diagram.

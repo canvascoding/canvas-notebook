@@ -1,0 +1,5 @@
+interface:
+  display_name: Google Calendar CLI
+  short_description: Work with Google Calendar from the CLI
+  brand_color: "#4285F4"
+  default_prompt: Use $gccli to inspect or update Google Calendar data.

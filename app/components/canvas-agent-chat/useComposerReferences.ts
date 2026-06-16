@@ -2,6 +2,7 @@
 
 import {
   useCallback,
+  createElement,
   useRef,
   useState,
   type ChangeEvent,
@@ -14,7 +15,7 @@ import type { FilePickerFile, ReferencePickerValue, SkillPickerSkill } from '@/a
 import { findActiveComposerReference, replaceComposerReference, type ComposerReferenceMatch } from '@/app/lib/chat/composer-references';
 import { safeFetchJson } from '@/app/lib/chat/fetch-json';
 import { getFileIconComponent } from '@/app/lib/files/file-icons';
-import { renderSkillIcon } from '@/app/lib/skills/skill-icons';
+import { CanvasSkillIcon } from '@/app/lib/skills/skill-icons';
 import { searchSkillReferenceEntries } from '@/app/lib/skills/skill-reference-search';
 
 type UseComposerReferencesParams = {
@@ -74,7 +75,7 @@ export function useComposerReferences({
     const items = searchSkillReferenceEntries(skills, query).map((skill) => ({
       id: `skill:${skill.name}`,
       kind: 'skill' as const,
-      icon: renderSkillIcon(skill.name, skill.description),
+      icon: createElement(CanvasSkillIcon, { skill, className: 'h-5 w-5 text-[10px]' }),
       label: skill.title,
       secondaryLabel: `/${skill.name}`,
       payload: skill,
@@ -96,10 +97,11 @@ export function useComposerReferences({
       }
 
       const nextSkills = (data.skills || []).filter((skill) => skill.enabled).map((skill) => ({
-        description: skill.description,
-        enabled: skill.enabled,
-        name: skill.name,
-        title: skill.title,
+          description: skill.description,
+          enabled: skill.enabled,
+          interface: skill.interface,
+          name: skill.name,
+          title: skill.title,
       }));
       setAvailableSkills(nextSkills);
       return nextSkills;

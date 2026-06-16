@@ -1,0 +1,5 @@
+interface:
+  display_name: MCP Builder
+  short_description: Build and evaluate MCP servers
+  brand_color: "#16A34A"
+  default_prompt: Use $mcp-builder to design, build, or evaluate an MCP server.
