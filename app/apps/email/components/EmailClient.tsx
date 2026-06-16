@@ -293,6 +293,27 @@ function splitRecipientInput(value: string): string[] {
     .filter(Boolean);
 }
 
+function isValidComposeRecipient(value: string): boolean {
+  return /^[^\s@<>",;]+@[^\s@<>",;]+\.[^\s@<>",;]+$/u.test(value.trim());
+}
+
+function normalizeComposeRecipient(value: string): string {
+  return extractEmailAddressForCompose(value) || value.trim();
+}
+
+function appendComposeRecipients(current: string[], additions: string[]): string[] {
+  const seen = new Set(current.map((recipient) => recipient.trim().toLowerCase()).filter(Boolean));
+  const next = [...current];
+  for (const addition of additions) {
+    const recipient = normalizeComposeRecipient(addition);
+    const key = recipient.toLowerCase();
+    if (!recipient || seen.has(key)) continue;
+    seen.add(key);
+    next.push(recipient);
+  }
+  return next;
+}
+
 function extractRecipientEmailsForCompose(value: string[] | string | undefined): string[] {
   if (!value) return [];
   if (Array.isArray(value)) return value.flatMap(extractRecipientEmailsForCompose);
@@ -1219,6 +1240,123 @@ function EmailComposeAgentProgress({
   );
 }
 
+function EmailRecipientChipInput({
+  disabled,
+  id,
+  onChange,
+  value,
+}: {
+  disabled?: boolean;
+  id: string;
+  onChange: (value: string) => void;
+  value: string;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [draftValue, setDraftValue] = useState('');
+  const recipients = useMemo(() => splitRecipientInput(value), [value]);
+
+  const setRecipients = useCallback((nextRecipients: string[]) => {
+    onChange(composeRecipientText(nextRecipients));
+  }, [onChange]);
+
+  const commitRecipients = useCallback((rawValue = draftValue) => {
+    const additions = splitRecipientInput(rawValue);
+    if (additions.length === 0) return false;
+    setRecipients(appendComposeRecipients(recipients, additions));
+    setDraftValue('');
+    return true;
+  }, [draftValue, recipients, setRecipients]);
+
+  const handleDraftChange = useCallback((event: ChangeEvent<HTMLInputElement>) => {
+    const nextValue = event.target.value;
+    if (!/[,\n;]/u.test(nextValue)) {
+      setDraftValue(nextValue);
+      return;
+    }
+
+    const hasTrailingDelimiter = /[,\n;]\s*$/u.test(nextValue);
+    const parts = nextValue.split(/[,\n;]/u);
+    const pendingValue = hasTrailingDelimiter ? '' : parts.pop() || '';
+    const additions = parts.map(normalizeComposeRecipient).filter(Boolean);
+    if (additions.length > 0) {
+      setRecipients(appendComposeRecipients(recipients, additions));
+    }
+    setDraftValue(pendingValue);
+  }, [recipients, setRecipients]);
+
+  const handleKeyDown = useCallback((event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'Enter' || event.key === 'Tab' || event.key === ',' || event.key === ';') {
+      if (draftValue.trim()) {
+        event.preventDefault();
+        commitRecipients();
+      }
+      return;
+    }
+
+    if (event.key === 'Backspace' && !draftValue && recipients.length > 0) {
+      event.preventDefault();
+      setRecipients(recipients.slice(0, -1));
+    }
+  }, [commitRecipients, draftValue, recipients, setRecipients]);
+
+  const removeRecipient = useCallback((index: number) => {
+    setRecipients(recipients.filter((_, recipientIndex) => recipientIndex !== index));
+    window.setTimeout(() => inputRef.current?.focus(), 0);
+  }, [recipients, setRecipients]);
+
+  return (
+    <div
+      className={cn(
+        'flex min-h-10 w-full flex-wrap items-center gap-1 border border-input bg-background px-2 py-1.5 text-sm focus-within:ring-1 focus-within:ring-ring',
+        disabled && 'opacity-50',
+      )}
+      onClick={() => inputRef.current?.focus()}
+    >
+      {recipients.map((recipient, index) => {
+        const isValid = isValidComposeRecipient(recipient);
+        return (
+          <span
+            key={`${recipient}:${index}`}
+            className={cn(
+              'inline-flex max-w-full items-center gap-1 border bg-muted/40 px-2 py-1 text-xs',
+              isValid ? 'border-border text-foreground' : 'border-destructive/60 bg-destructive/10 text-destructive',
+            )}
+            aria-invalid={!isValid}
+            title={recipient}
+          >
+            <span className="min-w-0 truncate">{recipient}</span>
+            <button
+              type="button"
+              className="shrink-0 text-muted-foreground hover:text-foreground disabled:pointer-events-none"
+              aria-label={`Remove ${recipient}`}
+              onClick={(event) => {
+                event.stopPropagation();
+                removeRecipient(index);
+              }}
+              disabled={disabled}
+            >
+              <X className="h-3 w-3" />
+            </button>
+          </span>
+        );
+      })}
+      <input
+        id={id}
+        ref={inputRef}
+        value={draftValue}
+        onBlur={() => {
+          if (draftValue.trim()) commitRecipients();
+        }}
+        onChange={handleDraftChange}
+        onKeyDown={handleKeyDown}
+        placeholder={recipients.length === 0 ? 'email@example.com' : ''}
+        disabled={disabled}
+        className="min-w-[11rem] flex-1 bg-transparent py-1 text-sm outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed"
+      />
+    </div>
+  );
+}
+
 function EmailComposeDialog({
   agentEvents,
   agentStatus,
@@ -1439,10 +1577,10 @@ function EmailComposeDialog({
                     <label className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground" htmlFor="email-compose-to">
                       {labels.to}
                     </label>
-                    <Input
+                    <EmailRecipientChipInput
                       id="email-compose-to"
                       value={draft.toText}
-                      onChange={(event) => onUpdate({ toText: event.target.value })}
+                      onChange={(value) => onUpdate({ toText: value })}
                       disabled={isSubmitting}
                     />
                   </div>
@@ -1450,10 +1588,10 @@ function EmailComposeDialog({
                     <label className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground" htmlFor="email-compose-cc">
                       {labels.cc}
                     </label>
-                    <Input
+                    <EmailRecipientChipInput
                       id="email-compose-cc"
                       value={draft.ccText}
-                      onChange={(event) => onUpdate({ ccText: event.target.value })}
+                      onChange={(value) => onUpdate({ ccText: value })}
                       disabled={isSubmitting}
                     />
                   </div>
