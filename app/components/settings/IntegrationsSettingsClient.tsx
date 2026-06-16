@@ -378,6 +378,7 @@ function isSettingsTab(value: string | null): value is SettingsTab {
 function normalizeSettingsTab(value: string | null): SettingsTab | null {
   if (isSettingsTab(value)) return value;
   if (value === 'agent' || value === 'agentSettings') return 'agent-settings';
+  if (value === 'plugins') return 'skills';
   return null;
 }
 
@@ -406,6 +407,14 @@ function getStoredEnvCardOpenState(): EnvCardOpenState {
   } catch {
     return DEFAULT_ENV_CARD_OPEN_STATE;
   }
+}
+
+function normalizeIntegrationsSection(value: string | null): IntegrationsSectionId | null {
+  if (value === 'connectedApps' || value === 'composio') return 'connectedApps';
+  if (value === 'mcpConfig' || value === 'mcp') return 'mcpConfig';
+  if (value === 'emailAccounts' || value === 'email') return 'emailAccounts';
+  if (value === 'search') return 'search';
+  return null;
 }
 
 function getStoredIntegrationsSectionOpenState(): IntegrationsSectionOpenState {
@@ -2903,6 +2912,20 @@ export function IntegrationsSettingsClient({
       setIntegrationsSectionOpenById(getStoredIntegrationsSectionOpenState());
     });
   }, []);
+
+  useEffect(() => {
+    const section = normalizeIntegrationsSection(searchParams.get('section'));
+    if (!section) {
+      return;
+    }
+
+    startTransition(() => {
+      setIntegrationsSectionOpenById((current) => ({
+        ...current,
+        [section]: true,
+      }));
+    });
+  }, [searchParams]);
 
   const saveScope = async (scope: EnvScope, payload: { mode: 'kv'; entries: Array<{ key: string; value: string }> } | { mode: 'raw'; rawContent: string }) => {
     setEditors((current) => ({

@@ -610,8 +610,8 @@
     "modelLabel": "Model",
     "newChatTitle": "New chat",
     "newChatShort": "New",
-    "viewSkills": "View skills",
-    "skills": "Skills",
+    "viewSkills": "View plugins",
+    "skills": "Plugins",
     "queuedCount": "{count} queued",
     "summary": "Summary",
     "stop": "Stop",
@@ -1361,7 +1361,7 @@
       "userManagement": "Users",
       "channels": "Channels",
       "usage": "Usage",
-      "skills": "Skills",
+      "skills": "Plugins",
       "license": "License"
     },
     "sections": {
@@ -2641,9 +2641,13 @@
     }
   },
   "skills": {
-    "title": "Skill Gallery",
-    "metadataTitle": "Skill Gallery | Canvas Notebook",
-    "metadataDescription": "Browse and manage Canvas Notebook skills.",
+    "title": "Plugins & Skills",
+    "metadataTitle": "Plugins & Skills | Canvas Notebook",
+    "metadataDescription": "Browse and manage Canvas Notebook plugins and skills.",
+    "tabs": {
+      "plugins": "Plugins",
+      "skills": "Skills"
+    },
     "stats": {
       "total": "Total Skills",
       "enabled": "Enabled",
@@ -2666,6 +2670,8 @@
       "toggle": "Toggle plugin {name}",
       "delete": "Remove",
       "deleteConfirm": "Remove plugin \"{name}\" and its bundled skills?",
+      "openMcp": "Configure MCP",
+      "openComposio": "Connect Composio",
       "errors": {
         "load": "Failed to load plugins.",
         "install": "Failed to install plugin.",
@@ -2722,6 +2728,8 @@
       "status": "Status:",
       "license": "License:",
       "compatibility": "Compatibility:",
+      "viewDocumentation": "View documentation",
+      "selectPrompt": "Select a skill or file to view details",
       "deleteSkill": "Delete skill",
       "deleteConfirmTitle": "Delete skill?",
       "deleteConfirmDescription": "This will permanently delete the skill \"{name}\" and all its files. This action cannot be undone.",

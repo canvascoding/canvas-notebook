@@ -19,6 +19,7 @@ import {
   File,
   ChevronRight,
   Info,
+  Plug,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { SkillDetailDialog } from '@/app/components/skills/SkillDetailDialog';
@@ -30,6 +31,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import type { CanvasSkill } from '@/app/lib/skills/canvas-skill-manifest';
 
 interface SkillFileNode {
@@ -42,6 +44,7 @@ interface SkillFileNode {
 }
 
 type RightPanelView = 'info' | 'preview';
+type SkillsPanelTab = 'plugins' | 'skills';
 
 type CanvasPluginSettingsRecord = {
   name: string;
@@ -283,6 +286,26 @@ function CanvasPluginsSection({ onPluginsChanged }: { onPluginsChanged: () => vo
                     {t('delete')}
                   </Button>
                 </div>
+                {(plugin.connectors?.mcpServers || plugin.connectors?.composioToolkits?.length) ? (
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {plugin.connectors?.mcpServers ? (
+                      <Button asChild variant="outline" size="sm" className="gap-1.5">
+                        <Link href="/settings?tab=integrations&section=mcp">
+                          <Plug className="h-3.5 w-3.5" />
+                          {t('openMcp')}
+                        </Link>
+                      </Button>
+                    ) : null}
+                    {plugin.connectors?.composioToolkits?.length ? (
+                      <Button asChild variant="outline" size="sm" className="gap-1.5">
+                        <Link href="/settings?tab=integrations&section=composio">
+                          <Plug className="h-3.5 w-3.5" />
+                          {t('openComposio')}
+                        </Link>
+                      </Button>
+                    ) : null}
+                  </div>
+                ) : null}
               </div>
             );
           })}
@@ -300,6 +323,7 @@ export function SkillsPanel() {
   const [selectedSkill, setSelectedSkill] = useState<CanvasSkill | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [uploadOpen, setUploadOpen] = useState(false);
+  const [panelTab, setPanelTab] = useState<SkillsPanelTab>('plugins');
   const [skillTree, setSkillTree] = useState<SkillFileNode[]>([]);
   const [expandedDirs, setExpandedDirs] = useState<Set<string>>(new Set());
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
@@ -556,173 +580,196 @@ export function SkillsPanel() {
 
   return (
     <>
-      <div className="flex flex-col gap-4">
-        <CanvasPluginsSection
-          onPluginsChanged={() => {
-            void loadSkills();
-            void loadSkillTree();
-          }}
-        />
+      <Tabs
+        value={panelTab}
+        onValueChange={(value) => {
+          if (value === 'plugins' || value === 'skills') {
+            setPanelTab(value);
+          }
+        }}
+        className="space-y-4"
+      >
+        <TabsList className="bg-transparent p-0">
+          <TabsTrigger value="plugins" className="rounded-full px-4 data-[state=active]:bg-muted">
+            {t('tabs.plugins')}
+          </TabsTrigger>
+          <TabsTrigger value="skills" className="rounded-full px-4 data-[state=active]:bg-muted">
+            {t('tabs.skills')}
+          </TabsTrigger>
+        </TabsList>
 
-        <div className="flex items-center gap-2 flex-wrap">
-          <div className="flex items-center gap-3 text-sm text-muted-foreground">
-            <span>{stats.total} {t('stats.total').toLowerCase()}</span>
-            <span className="text-green-600">{stats.enabled} {t('stats.enabled').toLowerCase()}</span>
-            <span>{stats.disabled} {t('stats.disabled').toLowerCase()}</span>
-          </div>
-          <div className="flex-1" />
-          <Button variant="outline" size="sm" onClick={enableAllSkills} disabled={stats.enabled === stats.total} className="gap-1.5">
-            <CheckCircle2 className="h-3.5 w-3.5 text-green-600" />
-            {t('actions.enableAll')}
-          </Button>
-          <Button variant="outline" size="sm" onClick={disableAllSkills} disabled={stats.disabled === stats.total} className="gap-1.5">
-            <XCircle className="h-3.5 w-3.5 text-muted-foreground" />
-            {t('actions.disableAll')}
-          </Button>
-          <Button variant="outline" size="sm" onClick={() => setUploadOpen(true)} className="gap-1.5">
-            <Upload className="h-3.5 w-3.5" />
-            {t('upload.button')}
-          </Button>
-        </div>
+        <TabsContent value="plugins" className="space-y-4">
+          <CanvasPluginsSection
+            onPluginsChanged={() => {
+              void loadSkills();
+              void loadSkillTree();
+            }}
+          />
+        </TabsContent>
 
-        <div className="grid grid-cols-1 lg:grid-cols-[280px_1fr] gap-4 min-h-[500px] border rounded-lg overflow-hidden">
-          {/* Left: File Tree */}
-          <div className="border-b lg:border-b-0 lg:border-r bg-muted/30 overflow-y-auto max-h-[600px] lg:max-h-none">
-            <div className="p-2 border-b bg-muted/50">
-              <div className="flex items-center gap-1.5 px-2 py-1 text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                {t('stats.total')}
+        <TabsContent value="skills" className="space-y-4">
+          <div className="flex flex-col gap-4">
+            <div className="flex items-center gap-2 flex-wrap">
+              <div className="flex items-center gap-3 text-sm text-muted-foreground">
+                <span>{stats.total} {t('stats.total').toLowerCase()}</span>
+                <span className="text-green-600">{stats.enabled} {t('stats.enabled').toLowerCase()}</span>
+                <span>{stats.disabled} {t('stats.disabled').toLowerCase()}</span>
               </div>
+              <div className="flex-1" />
+              <Button variant="outline" size="sm" onClick={enableAllSkills} disabled={stats.enabled === stats.total} className="gap-1.5">
+                <CheckCircle2 className="h-3.5 w-3.5 text-green-600" />
+                {t('actions.enableAll')}
+              </Button>
+              <Button variant="outline" size="sm" onClick={disableAllSkills} disabled={stats.disabled === stats.total} className="gap-1.5">
+                <XCircle className="h-3.5 w-3.5 text-muted-foreground" />
+                {t('actions.disableAll')}
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => setUploadOpen(true)} className="gap-1.5">
+                <Upload className="h-3.5 w-3.5" />
+                {t('upload.button')}
+              </Button>
             </div>
-            <div className="p-1 text-sm">
-              {skillTree.length === 0 ? (
-                <div className="px-3 py-8 text-center text-muted-foreground text-sm">
-                  <Wrench className="h-8 w-8 mx-auto mb-2 opacity-50" />
-                  {t('emptyState.title')}
-                </div>
-              ) : (
-                renderTree(skillTree)
-              )}
-            </div>
-          </div>
 
-          {/* Right: Info Panel or Preview */}
-          <div className="overflow-y-auto max-h-[600px] lg:max-h-none">
-            {rightView === 'info' && selectedSkillData ? (
-              <div className="p-5 space-y-4">
-                <div className="flex items-start justify-between gap-4">
-                  <div className="flex min-w-0 flex-1 items-start gap-3">
-                    <CanvasSkillIcon skill={selectedSkillData} className="h-12 w-12 text-sm" />
-                    <div className="min-w-0">
-                      <h2 className="text-xl font-bold">{selectedSkillData.title}</h2>
-                    <div className="flex items-center gap-2 mt-1">
-                      <span className="text-sm font-mono text-muted-foreground">{selectedSkillData.name}</span>
-                      <Badge variant={selectedSkillData.enabled ? 'default' : 'secondary'} className="text-xs">
-                        {selectedSkillData.enabled ? t('detail.enabled') : t('detail.disabled')}
-                      </Badge>
-                    </div>
-                    </div>
+            <div className="grid grid-cols-1 lg:grid-cols-[280px_1fr] gap-4 min-h-[500px] border rounded-lg overflow-hidden">
+              {/* Left: File Tree */}
+              <div className="border-b lg:border-b-0 lg:border-r bg-muted/30 overflow-y-auto max-h-[600px] lg:max-h-none">
+                <div className="p-2 border-b bg-muted/50">
+                  <div className="flex items-center gap-1.5 px-2 py-1 text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                    {t('stats.total')}
                   </div>
-                  <Switch
-                    checked={selectedSkillData.enabled}
-                    onCheckedChange={(checked) => toggleSkill(selectedSkillData.name, checked)}
-                    aria-label={t('toggleSkill', { name: selectedSkillData.name })}
-                  />
                 </div>
-
-                <div className="bg-muted/30 rounded-lg p-4">
-                  <p className="text-sm text-muted-foreground whitespace-pre-wrap leading-relaxed">
-                    {selectedSkillData.description}
-                  </p>
+                <div className="p-1 text-sm">
+                  {skillTree.length === 0 ? (
+                    <div className="px-3 py-8 text-center text-muted-foreground text-sm">
+                      <Wrench className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                      {t('emptyState.title')}
+                    </div>
+                  ) : (
+                    renderTree(skillTree)
+                  )}
                 </div>
+              </div>
 
-                {(selectedSkillData.compatibility || selectedSkillData.license) && (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
-                    {selectedSkillData.compatibility && (
-                      <div>
-                        <span className="font-medium text-foreground">{t('detail.compatibility')}</span>
-                        <p className="text-muted-foreground mt-0.5">{selectedSkillData.compatibility}</p>
+              {/* Right: Info Panel or Preview */}
+              <div className="overflow-y-auto max-h-[600px] lg:max-h-none">
+                {rightView === 'info' && selectedSkillData ? (
+                  <div className="p-5 space-y-4">
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="flex min-w-0 flex-1 items-start gap-3">
+                        <CanvasSkillIcon skill={selectedSkillData} className="h-12 w-12 text-sm" />
+                        <div className="min-w-0">
+                          <h2 className="text-xl font-bold">{selectedSkillData.title}</h2>
+                          <div className="flex items-center gap-2 mt-1">
+                            <span className="text-sm font-mono text-muted-foreground">{selectedSkillData.name}</span>
+                            <Badge variant={selectedSkillData.enabled ? 'default' : 'secondary'} className="text-xs">
+                              {selectedSkillData.enabled ? t('detail.enabled') : t('detail.disabled')}
+                            </Badge>
+                          </div>
+                        </div>
+                      </div>
+                      <Switch
+                        checked={selectedSkillData.enabled}
+                        onCheckedChange={(checked) => toggleSkill(selectedSkillData.name, checked)}
+                        aria-label={t('toggleSkill', { name: selectedSkillData.name })}
+                      />
+                    </div>
+
+                    <div className="bg-muted/30 rounded-lg p-4">
+                      <p className="text-sm text-muted-foreground whitespace-pre-wrap leading-relaxed">
+                        {selectedSkillData.description}
+                      </p>
+                    </div>
+
+                    {(selectedSkillData.compatibility || selectedSkillData.license) && (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+                        {selectedSkillData.compatibility && (
+                          <div>
+                            <span className="font-medium text-foreground">{t('detail.compatibility')}</span>
+                            <p className="text-muted-foreground mt-0.5">{selectedSkillData.compatibility}</p>
+                          </div>
+                        )}
+                        {selectedSkillData.license && (
+                          <div>
+                            <span className="font-medium text-foreground">{t('detail.license')}</span>
+                            <p className="text-muted-foreground mt-0.5">{selectedSkillData.license}</p>
+                          </div>
+                        )}
                       </div>
                     )}
-                    {selectedSkillData.license && (
-                      <div>
-                        <span className="font-medium text-foreground">{t('detail.license')}</span>
-                        <p className="text-muted-foreground mt-0.5">{selectedSkillData.license}</p>
-                      </div>
-                    )}
-                  </div>
-                )}
 
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    setSelectedSkill(selectedSkillData);
-                    setDialogOpen(true);
-                  }}
-                  className="gap-1.5"
-                >
-                  <Info className="h-4 w-4" />
-                  View documentation
-                </Button>
-              </div>
-            ) : rightView === 'preview' && selectedPath ? (
-              <div className="p-4">
-                <div className="flex items-center gap-2 mb-3 text-sm font-mono text-muted-foreground">
-                  <FileText className="h-4 w-4" />
-                  {selectedPath.split('/').pop()}
-                </div>
-                {previewLoading ? (
-                  <div className="flex items-center justify-center py-12">
-                    <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        setSelectedSkill(selectedSkillData);
+                        setDialogOpen(true);
+                      }}
+                      className="gap-1.5"
+                    >
+                      <Info className="h-4 w-4" />
+                      {t('detail.viewDocumentation')}
+                    </Button>
                   </div>
-                ) : previewError ? (
-                  <div className="text-sm text-destructive bg-destructive/10 p-4 rounded-lg">
-                    {previewError}
+                ) : rightView === 'preview' && selectedPath ? (
+                  <div className="p-4">
+                    <div className="flex items-center gap-2 mb-3 text-sm font-mono text-muted-foreground">
+                      <FileText className="h-4 w-4" />
+                      {selectedPath.split('/').pop()}
+                    </div>
+                    {previewLoading ? (
+                      <div className="flex items-center justify-center py-12">
+                        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                      </div>
+                    ) : previewError ? (
+                      <div className="text-sm text-destructive bg-destructive/10 p-4 rounded-lg">
+                        {previewError}
+                      </div>
+                    ) : (
+                      <pre className="text-sm font-mono whitespace-pre-wrap break-words bg-muted/30 p-4 rounded-lg overflow-x-auto max-h-[500px] overflow-y-auto">
+                        {previewContent}
+                      </pre>
+                    )}
                   </div>
                 ) : (
-                  <pre className="text-sm font-mono whitespace-pre-wrap break-words bg-muted/30 p-4 rounded-lg overflow-x-auto max-h-[500px] overflow-y-auto">
-                    {previewContent}
-                  </pre>
+                  <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
+                    <FolderOpen className="h-10 w-10 mb-3 opacity-50" />
+                    <p className="text-sm">{t('detail.selectPrompt')}</p>
+                  </div>
                 )}
               </div>
-            ) : (
-              <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
-                <FolderOpen className="h-10 w-10 mb-3 opacity-50" />
-                <p className="text-sm">Select a skill or file to view details</p>
-              </div>
-            )}
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <Card className="border-dashed border-muted-foreground/30 bg-muted/30">
+                <CardContent className="px-4 py-4 sm:px-6">
+                  <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                    <p className="text-sm text-muted-foreground">
+                      <span className="font-medium">{t('integrationsHint.label')}</span> {t('integrationsHint.body')}
+                    </p>
+                    <Button asChild variant="outline" size="sm" className="w-full sm:w-auto">
+                      <Link href="/settings?tab=integrations">{t('integrationsHint.openSettings')}</Link>
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card className="border-dashed border-blue-500/30 bg-blue-50/30 dark:bg-blue-950/20">
+                <CardContent className="px-4 py-4 sm:px-6">
+                  <div className="flex items-start gap-3">
+                    <div className="flex-1">
+                      <p className="text-sm text-foreground">
+                        <span className="font-medium">{t('creationHint.label')}</span> {t('creationHint.bodyBefore')}{' '}
+                        <span className="font-semibold text-blue-600 dark:text-blue-400">{t('creationHint.creatorSkill')}</span>
+                        {t('creationHint.bodyAfter')}
+                      </p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
           </div>
-        </div>
-
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-          <Card className="border-dashed border-muted-foreground/30 bg-muted/30">
-            <CardContent className="px-4 py-4 sm:px-6">
-              <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                <p className="text-sm text-muted-foreground">
-                  <span className="font-medium">{t('integrationsHint.label')}</span> {t('integrationsHint.body')}
-                </p>
-                <Button asChild variant="outline" size="sm" className="w-full sm:w-auto">
-                  <Link href="/settings?tab=integrations">{t('integrationsHint.openSettings')}</Link>
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="border-dashed border-blue-500/30 bg-blue-50/30 dark:bg-blue-950/20">
-            <CardContent className="px-4 py-4 sm:px-6">
-              <div className="flex items-start gap-3">
-                <div className="flex-1">
-                  <p className="text-sm text-foreground">
-                    <span className="font-medium">{t('creationHint.label')}</span> {t('creationHint.bodyBefore')}{' '}
-                    <span className="font-semibold text-blue-600 dark:text-blue-400">{t('creationHint.creatorSkill')}</span>
-                    {t('creationHint.bodyAfter')}
-                  </p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-      </div>
+        </TabsContent>
+      </Tabs>
 
       <SkillDetailDialog
         skill={selectedSkill}

@@ -609,8 +609,8 @@
     "modelLabel": "Modell",
     "newChatTitle": "Neuer Chat",
     "newChatShort": "Neu",
-    "viewSkills": "Skills anzeigen",
-    "skills": "Skills",
+    "viewSkills": "Plugins anzeigen",
+    "skills": "Plugins",
     "queuedCount": "{count} in Queue",
     "summary": "Zusammenfassung",
     "stop": "Stop",
@@ -1360,7 +1360,7 @@
       "userManagement": "Benutzer",
       "channels": "Channels",
       "usage": "Nutzung",
-      "skills": "Skills",
+      "skills": "Plugins",
       "license": "Lizenz"
     },
     "sections": {
@@ -2640,9 +2640,13 @@
     }
   },
   "skills": {
-    "title": "Skill-Galerie",
-    "metadataTitle": "Skill-Galerie | Canvas Notebook",
-    "metadataDescription": "Canvas-Notebook-Skills durchsuchen und verwalten.",
+    "title": "Plugins & Skills",
+    "metadataTitle": "Plugins & Skills | Canvas Notebook",
+    "metadataDescription": "Canvas-Notebook-Plugins und Skills durchsuchen und verwalten.",
+    "tabs": {
+      "plugins": "Plugins",
+      "skills": "Skills"
+    },
     "stats": {
       "total": "Skills gesamt",
       "enabled": "Aktiviert",
@@ -2665,6 +2669,8 @@
       "toggle": "Plugin {name} umschalten",
       "delete": "Entfernen",
       "deleteConfirm": "Plugin \"{name}\" und die gebündelten Skills entfernen?",
+      "openMcp": "MCP konfigurieren",
+      "openComposio": "Composio verbinden",
       "errors": {
         "load": "Plugins konnten nicht geladen werden.",
         "install": "Plugin konnte nicht installiert werden.",
@@ -2721,6 +2727,8 @@
       "status": "Status:",
       "license": "Lizenz:",
       "compatibility": "Kompatibilität:",
+      "viewDocumentation": "Dokumentation anzeigen",
+      "selectPrompt": "Waehle einen Skill oder eine Datei aus, um Details anzuzeigen",
       "deleteSkill": "Skill löschen",
       "deleteConfirmTitle": "Skill löschen?",
       "deleteConfirmDescription": "Der Skill \"{name}\" und alle seine Dateien werden dauerhaft gelöscht. Diese Aktion kann nicht rückgängig gemacht werden.",

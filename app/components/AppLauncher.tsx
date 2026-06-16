@@ -90,7 +90,7 @@ function getQuickActions(
       { label: tSettings('tabs.agentSettings'), href: '/settings?tab=agentSettings' },
       { label: tSettings('tabs.workspace'), href: '/settings?tab=workspace' },
       { label: tSettings('tabs.integrations'), href: '/settings?tab=integrations' },
-      { label: tSettings('tabs.skills'), href: '/settings?tab=skills' },
+      { label: tSettings('tabs.skills'), href: '/settings?tab=plugins' },
     ];
   }
 

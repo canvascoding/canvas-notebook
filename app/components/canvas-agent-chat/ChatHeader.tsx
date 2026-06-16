@@ -176,7 +176,7 @@ export function ChatHeader({
             </button>
             {showSkillsLink && (
               <Link
-                href="/settings?tab=skills"
+                href="/settings?tab=plugins"
                 aria-label={t('viewSkills')}
                 className="group inline-flex h-8 items-center gap-1 rounded-md border border-border bg-muted/50 px-2.5 text-muted-foreground transition-all hover:bg-accent hover:text-foreground"
                 title={t('viewSkills')}
