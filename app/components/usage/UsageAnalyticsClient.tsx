@@ -33,6 +33,10 @@ type UsageAnalyticsClientProps = {
   isAdmin: boolean;
 };
 
+const FILTER_FIELD_CLASS_NAME = 'min-w-0 space-y-1 text-sm';
+const FILTER_LABEL_CLASS_NAME = 'block truncate text-xs font-bold uppercase tracking-[0.18em] text-muted-foreground';
+const FILTER_SELECT_CLASS_NAME = 'flex h-10 w-full min-w-0 max-w-full border border-border bg-background px-3 text-sm';
+
 function formatDateInput(date: Date): string {
   return date.toISOString().slice(0, 10);
 }
@@ -265,9 +269,9 @@ export function UsageAnalyticsClient({ isAdmin }: UsageAnalyticsClientProps) {
   };
 
   return (
-    <div data-testid="usage-page" className="mx-auto flex w-full max-w-7xl flex-col gap-5 px-4 py-5 md:px-6 md:gap-6 md:py-8">
-      <div className="grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
-        <Card className="border-border/70 bg-card/95">
+    <div data-testid="usage-page" className="mx-auto flex w-full min-w-0 max-w-7xl flex-col gap-5 px-4 py-5 md:px-6 md:gap-6 md:py-8">
+      <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)]">
+        <Card className="min-w-0 border-border/70 bg-card/95">
           <CardHeader className="px-4 pb-4 sm:px-6">
             <div className="flex items-start gap-3">
               <div className="flex h-10 w-10 items-center justify-center border border-border bg-muted">
@@ -296,51 +300,51 @@ export function UsageAnalyticsClient({ isAdmin }: UsageAnalyticsClientProps) {
               ))}
             </div>
 
-            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-              <label className="space-y-1 text-sm">
-                <span className="text-xs font-bold uppercase tracking-[0.18em] text-muted-foreground">{t('filters.from')}</span>
+            <div className="grid min-w-0 gap-3 md:grid-cols-2 xl:grid-cols-4">
+              <label className={FILTER_FIELD_CLASS_NAME}>
+                <span className={FILTER_LABEL_CLASS_NAME}>{t('filters.from')}</span>
                 <Input
                   type="date"
                   value={draftFilters.from}
                   onChange={(event) => setDraftFilters((prev) => ({ ...prev, from: event.target.value }))}
                 />
               </label>
-              <label className="space-y-1 text-sm">
-                <span className="text-xs font-bold uppercase tracking-[0.18em] text-muted-foreground">{t('filters.to')}</span>
+              <label className={FILTER_FIELD_CLASS_NAME}>
+                <span className={FILTER_LABEL_CLASS_NAME}>{t('filters.to')}</span>
                 <Input
                   type="date"
                   value={draftFilters.to}
                   onChange={(event) => setDraftFilters((prev) => ({ ...prev, to: event.target.value }))}
                 />
               </label>
-              <label className="space-y-1 text-sm">
-                <span className="text-xs font-bold uppercase tracking-[0.18em] text-muted-foreground">{t('filters.provider')}</span>
+              <label className={FILTER_FIELD_CLASS_NAME}>
+                <span className={FILTER_LABEL_CLASS_NAME}>{t('filters.provider')}</span>
                 <Input
                   placeholder={t('filters.providerPlaceholder')}
                   value={draftFilters.provider}
                   onChange={(event) => setDraftFilters((prev) => ({ ...prev, provider: event.target.value }))}
                 />
               </label>
-              <label className="space-y-1 text-sm">
-                <span className="text-xs font-bold uppercase tracking-[0.18em] text-muted-foreground">{t('filters.model')}</span>
+              <label className={FILTER_FIELD_CLASS_NAME}>
+                <span className={FILTER_LABEL_CLASS_NAME}>{t('filters.model')}</span>
                 <Input
                   placeholder={t('filters.modelPlaceholder')}
                   value={draftFilters.model}
                   onChange={(event) => setDraftFilters((prev) => ({ ...prev, model: event.target.value }))}
                 />
               </label>
-              <label className="space-y-1 text-sm">
-                <span className="text-xs font-bold uppercase tracking-[0.18em] text-muted-foreground">{t('filters.session')}</span>
+              <label className={FILTER_FIELD_CLASS_NAME}>
+                <span className={FILTER_LABEL_CLASS_NAME}>{t('filters.session')}</span>
                 <Input
                   placeholder={t('filters.sessionPlaceholder')}
                   value={draftFilters.sessionQuery}
                   onChange={(event) => setDraftFilters((prev) => ({ ...prev, sessionQuery: event.target.value }))}
                 />
               </label>
-              <label className="space-y-1 text-sm">
-                <span className="text-xs font-bold uppercase tracking-[0.18em] text-muted-foreground">{t('filters.stopReason')}</span>
+              <label className={FILTER_FIELD_CLASS_NAME}>
+                <span className={FILTER_LABEL_CLASS_NAME}>{t('filters.stopReason')}</span>
                 <select
-                  className="flex h-10 w-full border border-border bg-background px-3 text-sm"
+                  className={FILTER_SELECT_CLASS_NAME}
                   value={draftFilters.stopReason}
                   onChange={(event) => setDraftFilters((prev) => ({ ...prev, stopReason: event.target.value }))}
                 >
@@ -351,10 +355,10 @@ export function UsageAnalyticsClient({ isAdmin }: UsageAnalyticsClientProps) {
                   ))}
                 </select>
               </label>
-              <label className="space-y-1 text-sm">
-                <span className="text-xs font-bold uppercase tracking-[0.18em] text-muted-foreground">{t('filters.groupBy')}</span>
+              <label className={FILTER_FIELD_CLASS_NAME}>
+                <span className={FILTER_LABEL_CLASS_NAME}>{t('filters.groupBy')}</span>
                 <select
-                  className="flex h-10 w-full border border-border bg-background px-3 text-sm"
+                  className={FILTER_SELECT_CLASS_NAME}
                   value={draftFilters.groupBy}
                   onChange={(event) =>
                     setDraftFilters((prev) => ({
@@ -371,10 +375,10 @@ export function UsageAnalyticsClient({ isAdmin }: UsageAnalyticsClientProps) {
                 </select>
               </label>
               {isAdmin ? (
-                <label className="space-y-1 text-sm">
-                  <span className="text-xs font-bold uppercase tracking-[0.18em] text-muted-foreground">{t('filters.user')}</span>
+                <label className={FILTER_FIELD_CLASS_NAME}>
+                  <span className={FILTER_LABEL_CLASS_NAME}>{t('filters.user')}</span>
                   <select
-                    className="flex h-10 w-full border border-border bg-background px-3 text-sm"
+                    className={FILTER_SELECT_CLASS_NAME}
                     value={draftFilters.userId}
                     onChange={(event) => setDraftFilters((prev) => ({ ...prev, userId: event.target.value }))}
                   >
@@ -402,7 +406,7 @@ export function UsageAnalyticsClient({ isAdmin }: UsageAnalyticsClientProps) {
           </CardContent>
         </Card>
 
-        <Card className="border-border/70 bg-card/95">
+        <Card className="min-w-0 border-border/70 bg-card/95">
           <CardHeader className="px-4 pb-4 sm:px-6">
             <CardTitle className="flex items-center gap-2 text-base">
               <Layers3 className="h-4 w-4" />
@@ -470,7 +474,7 @@ export function UsageAnalyticsClient({ isAdmin }: UsageAnalyticsClientProps) {
       </div>
 
       <div className="grid gap-4 xl:grid-cols-[0.95fr_1.05fr]">
-        <Card className="border-border/70 bg-card/95">
+        <Card className="min-w-0 border-border/70 bg-card/95">
           <CardHeader className="px-4 pb-3 sm:px-6">
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
               <CardTitle className="text-base">{t('summary.title')}</CardTitle>
@@ -554,7 +558,7 @@ export function UsageAnalyticsClient({ isAdmin }: UsageAnalyticsClientProps) {
           </CardContent>
         </Card>
 
-        <Card className="border-border/70 bg-card/95">
+        <Card className="min-w-0 border-border/70 bg-card/95">
           <CardHeader className="px-4 pb-3 sm:px-6">
             <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
               <CardTitle className="text-base">{t('events.title')}</CardTitle>
