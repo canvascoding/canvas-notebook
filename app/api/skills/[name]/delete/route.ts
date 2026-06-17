@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { headers } from 'next/headers';
 import { auth } from '@/app/lib/auth';
 import { deleteSkillDirectory } from '@/app/lib/skills/skill-loader';
+import { removeCanvasSkillRegistryRecord } from '@/app/lib/skills/canvas-skill-store';
 
 export async function DELETE(
   request: Request,
@@ -25,12 +26,20 @@ export async function DELETE(
     const result = await deleteSkillDirectory(name);
 
     if (!result.success) {
-      const status = result.error?.includes('not found') ? 404 : 500;
+      const status = result.error?.includes('not found')
+        ? 404
+        : result.error?.includes('managed by a plugin')
+          ? 409
+          : 500;
       return NextResponse.json(
         { success: false, error: result.error },
         { status }
       );
     }
+
+    await removeCanvasSkillRegistryRecord(name).catch((registryError) => {
+      console.warn('[Skills API] Deleted skill directory but failed to remove registry record:', registryError);
+    });
 
     return NextResponse.json({
       success: true,

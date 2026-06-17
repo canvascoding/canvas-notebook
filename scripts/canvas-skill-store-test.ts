@@ -144,9 +144,10 @@ async function main() {
       installCanvasSkillFromStore,
       listCanvasSkillStore,
       readCanvasSkillRegistry,
+      removeCanvasSkillRegistryRecord,
       restoreCanvasSkill,
     } = await import('../app/lib/skills/canvas-skill-store');
-    const { loadSkillsFromDisk } = await import('../app/lib/skills/skill-loader');
+    const { deleteSkillDirectory, loadSkillsFromDisk } = await import('../app/lib/skills/skill-loader');
 
     const checksum = await computeCanvasPluginChecksum(skillRoot);
     const registryPath = await createStoreArchive(skillRoot, checksum);
@@ -194,6 +195,16 @@ async function main() {
     assert.equal(restoredContent.includes('Local test edit.'), false);
     skillRegistry = await readCanvasSkillRegistry();
     assert.equal(skillRegistry.skills['test-library-skill'].sourceType, 'store');
+
+    const deleteResult = await deleteSkillDirectory('test-library-skill');
+    assert.equal(deleteResult.success, true, deleteResult.error);
+    await removeCanvasSkillRegistryRecord('test-library-skill');
+    skillRegistry = await readCanvasSkillRegistry();
+    assert.equal(skillRegistry.skills['test-library-skill'], undefined);
+
+    store = await listCanvasSkillStore();
+    assert.equal(store.skills[0].installed.installed, false);
+    assert.equal(store.skills[0].installed.version, undefined);
 
     console.log('canvas skill store test passed');
   } finally {

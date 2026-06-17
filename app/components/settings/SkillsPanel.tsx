@@ -38,6 +38,17 @@ import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
 import type { CanvasSkill } from '@/app/lib/skills/canvas-skill-manifest';
 
 interface SkillFileNode {
@@ -1574,6 +1585,28 @@ export function SkillsPanel() {
     }
   }
 
+  async function deleteSkill(skillName: string) {
+    setPendingSkillAction(`delete:${skillName}`);
+    setSkillActionError(null);
+    try {
+      const response = await fetch(`/api/skills/${encodeURIComponent(skillName)}/delete`, { method: 'DELETE' });
+      const data = await response.json();
+      if (!data.success) {
+        throw new Error(data.error || t('detail.errors.deleteFailed'));
+      }
+      setSelectedSkill((current) => current?.name === skillName ? null : current);
+      setSelectedPath((current) => current === skillName || current?.startsWith(`${skillName}/`) ? null : current);
+      setRightView('info');
+      await loadSkills();
+      await loadSkillTree();
+      await loadSkillStore();
+    } catch (error) {
+      setSkillActionError(error instanceof Error ? error.message : t('detail.errors.deleteFailed'));
+    } finally {
+      setPendingSkillAction(null);
+    }
+  }
+
   function getFileIcon(node: SkillFileNode, skill?: CanvasSkill | null) {
     if (skill) {
       return <CanvasSkillIcon skill={skill} className="h-5 w-5 text-[10px]" />;
@@ -1817,6 +1850,9 @@ export function SkillsPanel() {
   const selectedSkillData = selectedPath
     ? skills.find(s => s.name === selectedPath)
     : null;
+  const selectedSkillDeleting = selectedSkillData
+    ? pendingSkillAction === `delete:${selectedSkillData.name}`
+    : false;
 
   return (
     <>
@@ -1995,6 +2031,42 @@ export function SkillsPanel() {
                               )}
                               {t('skillLibrary.restore')}
                             </Button>
+                          ) : null}
+                          {!selectedSkillData.plugin ? (
+                            <AlertDialog>
+                              <AlertDialogTrigger asChild>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  disabled={selectedSkillDeleting}
+                                  className="gap-1.5 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                                >
+                                  {selectedSkillDeleting ? (
+                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                  ) : (
+                                    <Trash2 className="h-4 w-4" />
+                                  )}
+                                  {t('detail.deleteSkill')}
+                                </Button>
+                              </AlertDialogTrigger>
+                              <AlertDialogContent>
+                                <AlertDialogHeader>
+                                  <AlertDialogTitle>{t('detail.deleteConfirmTitle')}</AlertDialogTitle>
+                                  <AlertDialogDescription>
+                                    {t('detail.deleteConfirmDescription', { name: selectedSkillData.name })}
+                                  </AlertDialogDescription>
+                                </AlertDialogHeader>
+                                <AlertDialogFooter>
+                                  <AlertDialogCancel>{t('detail.deleteCancel')}</AlertDialogCancel>
+                                  <AlertDialogAction
+                                    variant="destructive"
+                                    onClick={() => void deleteSkill(selectedSkillData.name)}
+                                  >
+                                    {t('detail.deleteConfirm')}
+                                  </AlertDialogAction>
+                                </AlertDialogFooter>
+                              </AlertDialogContent>
+                            </AlertDialog>
                           ) : null}
                         </div>
                       </div>

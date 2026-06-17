@@ -378,6 +378,15 @@ export async function writeCanvasSkillRegistry(registry: CanvasSkillRegistry): P
   await fs.rename(tmpPath, registryPath);
 }
 
+export async function removeCanvasSkillRegistryRecord(skillName: string): Promise<void> {
+  const registry = await readCanvasSkillRegistry();
+  if (!registry.skills[skillName]) {
+    return;
+  }
+  delete registry.skills[skillName];
+  await writeCanvasSkillRegistry(registry);
+}
+
 async function listStandaloneSkillSummaries(enabledSkills?: string[]): Promise<SkillSummary[]> {
   const summaries = await loadSkillSummaries(enabledSkills);
   return summaries.filter((skill) => !skill.plugin);

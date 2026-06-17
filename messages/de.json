@@ -2960,7 +2960,8 @@
       "deleteConfirm": "Löschen",
       "errors": {
         "loadContent": "Skill-Inhalt konnte nicht geladen werden",
-        "saveFailed": "Skill-Inhalt konnte nicht gespeichert werden"
+        "saveFailed": "Skill-Inhalt konnte nicht gespeichert werden",
+        "deleteFailed": "Skill konnte nicht gelöscht werden"
       }
     }
   },

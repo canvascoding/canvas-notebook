@@ -2961,7 +2961,8 @@
       "deleteConfirm": "Delete",
       "errors": {
         "loadContent": "Failed to load skill content",
-        "saveFailed": "Failed to save skill content"
+        "saveFailed": "Failed to save skill content",
+        "deleteFailed": "Failed to delete skill"
       }
     }
   },
