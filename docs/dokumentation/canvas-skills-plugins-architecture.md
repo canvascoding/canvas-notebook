@@ -17,7 +17,7 @@ Die Canvas-Skill-Runtime und die lokale Canvas-Plugin-Runtime sind implementiert
 - Wenn ein Nutzer `/plugin-name` referenziert, erzeugt die Agent-Runtime fuer diesen Turn einen Canvas-Kontextblock mit Pluginbeschreibung, gebuendelten Skills und Connector-Hinweisen.
 - Der Settings-Bereich heisst nutzerseitig **Plugins** und enthaelt interne Tabs fuer **Plugins** und **Skills**. Standard ist die Plugin-Ansicht; Skills bleiben als Detail- und Verwaltungsansicht erreichbar.
 - Die Plugin-Ansicht zeigt installierte Canvas Plugins, kann lokale Plugin-Pakete ueber einen Serverpfad installieren, Plugins aktivieren/deaktivieren und entfernen.
-- Plugins mit MCP- oder Composio-Metadaten verlinken direkt in die passenden Integrationsbereiche. Die Connector-Angaben werden als Metadaten gespeichert, enthalten aber keine Secrets und werden noch nicht automatisch in Connector-Konfigurationen geschrieben.
+- Plugins mit MCP-, E-Mail- oder Composio-Empfehlungen zeigen Connector-Karten mit Status/CTA. Die Connector-Angaben werden als Metadaten gespeichert, enthalten keine Secrets und werden nicht automatisch in Connector-Konfigurationen geschrieben.
 - Beim Containerstart werden fehlende Seed-Skills aus `/app/seed_skills` nach `/data/skills` kopiert. Bestehende Skills werden nicht ueberschrieben.
 
 ## Zielbild
@@ -102,8 +102,34 @@ Vorgesehenes Manifest:
   },
   "skills": "./skills/",
   "connectors": {
-    "mcpServers": "./.mcp.json",
-    "composio": ["google-drive"]
+    "composio": [
+      {
+        "toolkit": "hubspot",
+        "label": "HubSpot",
+        "recommended": true,
+        "reason": "Use CRM records and company data during sales workflows."
+      }
+    ],
+    "email": [
+      {
+        "kind": "mailbox",
+        "label": "Sales inbox",
+        "providers": ["gmail", "imap-smtp"],
+        "recommended": true,
+        "reason": "Read and send sales emails through Canvas Email."
+      }
+    ],
+    "mcp": [
+      {
+        "name": "sales-research",
+        "label": "Sales Research MCP",
+        "configPath": "./connectors/sales-research.mcp.json",
+        "recommended": true,
+        "env": ["SALES_RESEARCH_API_KEY"],
+        "oauth": true,
+        "reason": "Optional external research tools."
+      }
+    ]
   },
   "interface": {
     "displayName": "Plugin Name",
@@ -119,7 +145,17 @@ Vorgesehenes Manifest:
 }
 ```
 
-MCP- und Composio-Konfigurationen duerfen keine Secrets enthalten. Sie referenzieren Umgebungsvariablen, die zentral ueber `/data/secrets/Canvas-Integrations.env` verwaltet werden.
+Connectoren sind Empfehlungen und Setup-Hinweise. Ein Plugin installiert oder aktiviert keine Composio-Verbindung, kein E-Mail-Konto und keinen MCP-Server automatisch. Der Nutzer entscheidet im UI selbst, welche Connectoren eingerichtet werden.
+
+MCP- und Composio-Konfigurationen duerfen keine Secrets enthalten. Sie referenzieren Umgebungsvariablen, die zentral ueber `/data/secrets/Canvas-Integrations.env` verwaltet werden. E-Mail-Empfehlungen laufen ueber die interne Canvas-E-Mail-Konfiguration; Gmail soll nicht ueber Composio empfohlen werden.
+
+## Connector-Empfehlungen
+
+Version 1 behandelt Connectoren als lesbare Empfehlungen mit Statusanzeige:
+
+- **Composio:** Ein Plugin nennt Toolkit-Slugs wie `hubspot`. Canvas gleicht sie mit der Composio-Toolkit-Liste ab, zeigt Logo und Verbindungsstatus und verlinkt in `Settings -> Integrations -> Connected Apps`. Triggers werden in Version 1 nicht vom Plugin-Modell erfasst.
+- **Canvas Email:** Ein Plugin kann ein Postfach empfehlen. Der Nutzer verbindet Gmail, SMTP/IMAP oder spaeter weitere Provider ueber die interne E-Mail-Integration.
+- **MCP:** Ein Plugin kann eine Beispielkonfiguration referenzieren. Canvas zeigt Pfad, benoetigte Env-Variablen und OAuth-Hinweise und verlinkt in die bestehende MCP-Konfiguration. Die Konfiguration wird nicht automatisch gemerged.
 
 ## Marketplace-Quellen
 
@@ -188,7 +224,7 @@ Remote-Installation laeuft immer ueber diesen Ablauf:
 6. Paket nach `/data/plugins/installed/<name>/<version>/` kopieren.
 7. Lokale Plugin-Registry atomar aktualisieren.
 8. Plugin-Skills aktivieren, wenn der Nutzer `Install` bestaetigt.
-9. Falls Connector-Metadaten vorhanden sind, einen Setup-Schritt fuer MCP oder Composio anzeigen.
+9. Falls Connector-Empfehlungen vorhanden sind, Status und Setup-CTAs fuer Composio, Canvas Email oder MCP anzeigen.
 
 ## Lokale API
 
@@ -269,6 +305,8 @@ Seed-Pakete muessen vor dem Veröffentlichen auditierbar sein:
 11. Seed-Skill-Bootstrap fuer frische `/data`-Volumes ergaenzen. ✅
 12. Separates oeffentliches Marketplace-Repository scaffolden. ✅
 13. Marketplace-Source-Modell mit official, third-party, system und local definieren.
-14. Remote Registry/Public Store und Update-Pruefung bauen.
-15. Plugin-Store-UI mit Discover, Installed, Updates, Sources und Advanced Local Install bauen.
-16. Create-Plugin-Skill fuer Scaffold, Manifest, Validierung und Marketplace-Submit vorbereiten.
+14. Connector-Empfehlungen fuer Composio, Canvas Email und MCP definieren. ✅
+15. Plugin-UI um Composio-Status/Logo und Connector-CTAs erweitern. ✅
+16. Remote Registry/Public Store und Update-Pruefung bauen.
+17. Plugin-Store-UI mit Discover, Installed, Updates, Sources und Advanced Local Install bauen.
+18. Create-Plugin-Skill fuer Scaffold, Manifest, Validierung und Marketplace-Submit vorbereiten.

@@ -19,8 +19,46 @@ export interface CanvasPluginInterface {
 }
 
 export interface CanvasPluginConnectorManifest {
+  composio?: CanvasPluginComposioConnector[];
+  email?: CanvasPluginEmailConnector[];
+  mcp?: CanvasPluginMcpConnector[];
+  /**
+   * @deprecated Use mcp[].configPath. Kept for older local plugin packages.
+   */
   mcpServers?: string;
+  /**
+   * @deprecated Use composio[].toolkit. Kept for older local plugin packages.
+   */
   composioToolkits?: string[];
+}
+
+export interface CanvasPluginComposioConnector {
+  toolkit: string;
+  label?: string;
+  reason?: string;
+  recommended?: boolean;
+  required?: boolean;
+  tools?: string[];
+}
+
+export interface CanvasPluginEmailConnector {
+  kind?: 'mailbox';
+  label?: string;
+  reason?: string;
+  recommended?: boolean;
+  required?: boolean;
+  providers?: Array<'gmail' | 'imap-smtp'>;
+}
+
+export interface CanvasPluginMcpConnector {
+  name: string;
+  label?: string;
+  reason?: string;
+  recommended?: boolean;
+  required?: boolean;
+  configPath?: string;
+  env?: string[];
+  oauth?: boolean;
 }
 
 export interface CanvasPluginManifest {
@@ -73,6 +111,10 @@ function stringArrayValue(value: unknown): string[] | undefined {
   return single ? [single] : undefined;
 }
 
+function booleanValue(value: unknown): boolean | undefined {
+  return typeof value === 'boolean' ? value : undefined;
+}
+
 function normalizeAuthor(value: unknown): CanvasPluginAuthor | undefined {
   if (!isRecord(value)) return undefined;
   const author: CanvasPluginAuthor = {
@@ -99,6 +141,87 @@ function normalizeInterface(value: unknown): CanvasPluginInterface | undefined {
   return Object.values(iface).some(Boolean) ? iface : undefined;
 }
 
+function normalizeComposioConnector(value: unknown): CanvasPluginComposioConnector | null {
+  const legacyToolkit = stringValue(value);
+  if (legacyToolkit) {
+    return { toolkit: legacyToolkit, recommended: true };
+  }
+
+  if (!isRecord(value)) return null;
+  const toolkit = stringValue(value.toolkit ?? value.slug ?? value.toolkitSlug);
+  if (!toolkit) return null;
+
+  return {
+    toolkit,
+    label: stringValue(value.label ?? value.name),
+    reason: stringValue(value.reason),
+    recommended: booleanValue(value.recommended),
+    required: booleanValue(value.required),
+    tools: stringArrayValue(value.tools),
+  };
+}
+
+function normalizeComposioConnectors(value: unknown): CanvasPluginComposioConnector[] | undefined {
+  const entries = Array.isArray(value) ? value : value === undefined ? [] : [value];
+  const connectors = entries
+    .map(normalizeComposioConnector)
+    .filter((connector): connector is CanvasPluginComposioConnector => Boolean(connector));
+  return connectors.length > 0 ? connectors : undefined;
+}
+
+function normalizeEmailConnector(value: unknown): CanvasPluginEmailConnector | null {
+  if (!isRecord(value)) return null;
+  const providers = stringArrayValue(value.providers)
+    ?.filter((provider): provider is 'gmail' | 'imap-smtp' => provider === 'gmail' || provider === 'imap-smtp');
+
+  return {
+    kind: stringValue(value.kind) === 'mailbox' ? 'mailbox' : undefined,
+    label: stringValue(value.label ?? value.name),
+    reason: stringValue(value.reason),
+    recommended: booleanValue(value.recommended),
+    required: booleanValue(value.required),
+    providers,
+  };
+}
+
+function normalizeEmailConnectors(value: unknown): CanvasPluginEmailConnector[] | undefined {
+  const entries = Array.isArray(value) ? value : value === undefined ? [] : [value];
+  const connectors = entries
+    .map(normalizeEmailConnector)
+    .filter((connector): connector is CanvasPluginEmailConnector => Boolean(connector));
+  return connectors.length > 0 ? connectors : undefined;
+}
+
+function normalizeMcpConnector(value: unknown): CanvasPluginMcpConnector | null {
+  const legacyName = stringValue(value);
+  if (legacyName) {
+    return { name: legacyName, label: legacyName, recommended: true };
+  }
+
+  if (!isRecord(value)) return null;
+  const name = stringValue(value.name ?? value.id);
+  if (!name) return null;
+
+  return {
+    name,
+    label: stringValue(value.label),
+    reason: stringValue(value.reason),
+    recommended: booleanValue(value.recommended),
+    required: booleanValue(value.required),
+    configPath: stringValue(value.configPath ?? value.config_path),
+    env: stringArrayValue(value.env),
+    oauth: booleanValue(value.oauth),
+  };
+}
+
+function normalizeMcpConnectors(value: unknown): CanvasPluginMcpConnector[] | undefined {
+  const entries = Array.isArray(value) ? value : value === undefined ? [] : [value];
+  const connectors = entries
+    .map(normalizeMcpConnector)
+    .filter((connector): connector is CanvasPluginMcpConnector => Boolean(connector));
+  return connectors.length > 0 ? connectors : undefined;
+}
+
 function normalizeConnectors(parsed: Record<string, unknown>): CanvasPluginConnectorManifest | undefined {
   const connectors = isRecord(parsed.connectors) ? parsed.connectors : {};
   const mcpServers = stringValue(
@@ -115,12 +238,31 @@ function normalizeConnectors(parsed: Record<string, unknown>): CanvasPluginConne
       ?? parsed.composioToolkits
       ?? parsed.composio,
   );
+  const composio = normalizeComposioConnectors(
+    connectors.composio
+      ?? connectors.composio_recommendations
+      ?? connectors.composioRecommendations
+      ?? composioToolkits,
+  );
+  const email = normalizeEmailConnectors(
+    connectors.email
+      ?? connectors.email_recommendations
+      ?? connectors.emailRecommendations,
+  );
+  const mcp = normalizeMcpConnectors(
+    connectors.mcp
+      ?? connectors.mcp_recommendations
+      ?? connectors.mcpRecommendations,
+  );
 
   const result: CanvasPluginConnectorManifest = {
+    composio,
+    email,
+    mcp,
     mcpServers,
     composioToolkits,
   };
-  return Object.values(result).some(Boolean) ? result : undefined;
+  return Object.values(result).some((value) => Array.isArray(value) ? value.length > 0 : Boolean(value)) ? result : undefined;
 }
 
 function normalizeManifest(parsed: unknown): CanvasPluginManifest | null {
@@ -254,15 +396,29 @@ export async function validateCanvasPluginPackage(sourcePath: string): Promise<C
       }
     }
 
-    const mcpPath = validateRelativePath('connectors.mcpServers', rootDir, manifest.connectors?.mcpServers, errors);
-    if (mcpPath) {
+    const legacyMcpPath = validateRelativePath('connectors.mcpServers', rootDir, manifest.connectors?.mcpServers, errors);
+    if (legacyMcpPath) {
       try {
-        const stat = await fs.stat(mcpPath);
+        const stat = await fs.stat(legacyMcpPath);
         if (!stat.isFile()) {
           errors.push('connectors.mcpServers: Must point to a file.');
         }
       } catch {
         warnings.push('connectors.mcpServers: File does not exist yet.');
+      }
+    }
+
+    for (const [index, connector] of (manifest.connectors?.mcp || []).entries()) {
+      if (!connector.configPath) continue;
+      const mcpPath = validateRelativePath(`connectors.mcp[${index}].configPath`, rootDir, connector.configPath, errors);
+      if (!mcpPath) continue;
+      try {
+        const stat = await fs.stat(mcpPath);
+        if (!stat.isFile()) {
+          errors.push(`connectors.mcp[${index}].configPath: Must point to a file.`);
+        }
+      } catch {
+        errors.push(`connectors.mcp[${index}].configPath: File does not exist.`);
       }
     }
 
