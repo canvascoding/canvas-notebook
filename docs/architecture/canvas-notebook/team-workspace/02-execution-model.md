@@ -230,12 +230,12 @@ Minimal je Change:
 
 ## Naechster konkreter Schritt
 
-Als naechstes sollte die Scope-Matrix entstehen. Sie muss jede bestehende Funktion einem Ziel-Scope zuordnen:
+Als naechstes sollte die Datenmodellentscheidung entstehen. Sie muss festlegen:
 
-- `user`
-- `workspace`
-- `organization`
-- `instance`
-- `system/managed`
+- welche Better-Auth-Mechanik oder eigenen Tabellen fuer Membership/Rollen genutzt werden,
+- wie genau ein Owner und mindestens ein Admin erzwungen werden,
+- wie `CANVAS_ORGANIZATION_ID` persistiert und gegen License Claims abgeglichen wird,
+- wie der Legacy-Workspace `data/workspace` gemappt wird,
+- welche Tabellen in der ersten Migration `workspaceId` und `organizationId` erhalten.
 
-Diese Matrix entscheidet danach, welche Datenbankspalten, Services und API-Gates zuerst gebaut werden muessen.
+Die Scope-Matrix in `03-scope-matrix.md` ist die Grundlage dafuer.

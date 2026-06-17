@@ -12,8 +12,9 @@
     {
       "id": 2,
       "title": "Bestehende Canvas Notebook Funktionen nach Scope klassifizieren: user, workspace, organization oder instance",
-      "status": "pending",
-      "repo": "canvasstudios-notebook"
+      "status": "completed",
+      "repo": "canvasstudios-notebook",
+      "artifact": "docs/architecture/canvas-notebook/team-workspace/03-scope-matrix.md"
     },
     {
       "id": 3,

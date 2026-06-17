@@ -9,6 +9,7 @@ Dieses Verzeichnis ist der zentrale Arbeitsbereich fuer den Team-Workspace-Umbau
 - `00-full-plan.md`: vollstaendiger Plan aus der Control-Plane-Abstimmung, unverkuerzt abgelegt.
 - `01-inventory.md`: Ist-Inventar der aktuellen Datei-, Workspace- und Scope-Annahmen in diesem Repository.
 - `02-execution-model.md`: Vorgehensmodell mit Unterprojekten, Reihenfolge, Commit-Strategie und Test-Gates.
+- `03-scope-matrix.md`: Ziel-Scope-Matrix fuer bestehende Funktionen.
 - `../todo.json`: Aufgabenindex fuer Agenten und Fortschrittsverfolgung.
 
 ## Arbeitsregeln
@@ -24,4 +25,5 @@ Dieses Verzeichnis ist der zentrale Arbeitsbereich fuer den Team-Workspace-Umbau
 ## Aktueller Stand
 
 - Schritt 1 ist abgeschlossen: Ist-Inventar erstellt.
-- Naechster Schritt: Scope-Matrix fuer bestehende Funktionen erstellen.
+- Schritt 2 ist abgeschlossen: Scope-Matrix erstellt.
+- Naechster Schritt: Datenmodellentscheidung fuer Organization, Workspace, Rollen und Permissions.
