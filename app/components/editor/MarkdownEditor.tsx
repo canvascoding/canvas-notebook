@@ -73,6 +73,11 @@ import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { SafeMarkdownImage } from '@/app/components/shared/SafeMarkdownImage';
+import {
+  clampEditorRangeToDoc,
+  isEditorPositionInsideDoc,
+  isEditorRangeInsideDoc,
+} from '@/app/lib/editor/prosemirror-ranges';
 import { createInlineColorRegex, isColorCode } from '@/app/lib/markdown/color-code';
 import { makeLinkPreviewImageAlt, parseLinkPreviewImageAlt } from '@/app/lib/markdown/link-preview-markdown';
 import {
@@ -400,7 +405,14 @@ const ColorSwatchDecorations = Extension.create({
 });
 
 function runAfterSlashDelete({ editor, range }: SlashCommandContext) {
-  return editor.chain().focus().deleteRange(range);
+  const chain = editor.chain().focus();
+  const safeRange = clampEditorRangeToDoc(editor, range);
+
+  if (!safeRange || safeRange.from === safeRange.to) {
+    return chain;
+  }
+
+  return chain.deleteRange(safeRange);
 }
 
 const SLASH_COMMAND_DEFINITIONS: SlashCommandDefinition[] = [
@@ -680,6 +692,7 @@ function createSlashCommands(labels: SlashCommandLabels, actions?: SlashCommandA
           items: ({ query }) => getSlashCommandItems(query, labels),
           allow: ({ editor, range }) => {
             if (!editor.isEditable || editor.isActive('codeBlock')) return false;
+            if (!isEditorRangeInsideDoc(editor, range)) return false;
 
             const $from = editor.state.doc.resolve(range.from);
             return $from.parent.type.name === 'paragraph';
@@ -1204,6 +1217,8 @@ function createLinkPreviewImageContent(imageUrl: string, label: string): JSONCon
 }
 
 function findAdjacentLinkPreviewImageRange(editor: Editor, from: number): Range | null {
+  if (!isEditorPositionInsideDoc(editor, from)) return null;
+
   const { doc } = editor.state;
   const $from = doc.resolve(from);
   const parent = $from.parent;
@@ -1526,8 +1541,14 @@ function insertMarkdownImagesIntoEditor(
   if (content.length === 0) return;
 
   const chain = editor.chain().focus();
-  if (range) {
-    chain.deleteRange(range);
+  const safeRange = range ? clampEditorRangeToDoc(editor, range) : null;
+
+  if (safeRange) {
+    if (safeRange.from < safeRange.to) {
+      chain.deleteRange(safeRange);
+    }
+    chain.insertContentAt(safeRange.from, content).run();
+    return;
   }
 
   chain.insertContent(content).run();
@@ -2129,15 +2150,30 @@ function RichMarkdownEditor({
     setImageDialogOpen(open);
   }, []);
   const openImageDialogFromSlash = useCallback((slashEditor: Editor, range: Range) => {
-    slashEditor.chain().focus().deleteRange(range).run();
+    const safeRange = clampEditorRangeToDoc(slashEditor, range);
+    const insertPosition = safeRange?.from ?? slashEditor.state.selection.from;
+
+    if (safeRange && safeRange.from !== safeRange.to) {
+      slashEditor.chain().focus().deleteRange(safeRange).run();
+    } else {
+      slashEditor.chain().focus().setTextSelection(insertPosition).run();
+    }
+
     setImageDialogSeed((current) => ({
       id: current.id + 1,
-      range: { from: range.from, to: range.from },
+      range: { from: insertPosition, to: insertPosition },
     }));
     setImageDialogOpen(true);
   }, []);
   const openTableDialogFromSlash = useCallback((slashEditor: Editor, range: Range) => {
-    slashEditor.chain().focus().deleteRange(range).run();
+    const safeRange = clampEditorRangeToDoc(slashEditor, range);
+
+    if (safeRange && safeRange.from !== safeRange.to) {
+      slashEditor.chain().focus().deleteRange(safeRange).run();
+    } else if (safeRange) {
+      slashEditor.chain().focus().setTextSelection(safeRange.from).run();
+    }
+
     setTableDialogOpen(true);
   }, []);
   const slashCommandActions = useMemo<SlashCommandActions>(

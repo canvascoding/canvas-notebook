@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 
 import { JSDOM } from 'jsdom';
 
+import { clampEditorRangeToDoc, isEditorRangeInsideDoc } from '../app/lib/editor/prosemirror-ranges';
+
 const dom = new JSDOM('<!doctype html><html><body></body></html>');
 
 for (const key of ['window', 'document', 'DOMParser', 'navigator', 'Node', 'HTMLElement'] as const) {
@@ -125,6 +127,22 @@ async function main() {
   assert.ok(nodeTypes.includes('image'), 'Markdown images should parse as image nodes');
   assert.ok(nodeTypes.includes('codeBlock'), 'Mermaid fences should remain code blocks');
 
+  const smallEditor = new Editor({
+    content: 'x',
+    extensions: [StarterKit],
+  });
+  assert.equal(
+    isEditorRangeInsideDoc(smallEditor, { from: 48, to: 48 }),
+    false,
+    'stale slash command ranges should be rejected before doc.resolve',
+  );
+  assert.deepEqual(
+    clampEditorRangeToDoc(smallEditor, { from: 48, to: 48 }),
+    { from: smallEditor.state.doc.content.size, to: smallEditor.state.doc.content.size },
+    'stale insertion ranges should clamp to a valid document position',
+  );
+
+  smallEditor.destroy();
   editor.destroy();
 
   console.log('tiptap-markdown-roundtrip-test: ok');
