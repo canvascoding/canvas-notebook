@@ -11,15 +11,17 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
-## [2026.6.16.1] - 2026-06-16
+## [2026.6.17.1] - 2026-06-17
 
 ### Added
 
 - Added Canvas plugin runtime management, plugin references in chat, skill metadata, and icon fallback handling.
 - Added Studio route navigation, Veo image reference controls, persistent generation controls, and improved Studio image sharing.
-- Added email attachments, managed attachment forwarding, an HTML composer, recipient chips, and workspace agent draft mode.
-- Added Markdown editor slash commands, inline color swatches, and Tiptap markdown roundtrip coverage.
+- Added email attachments, managed attachment forwarding, an HTML composer, recipient chips, inline email images, and workspace agent draft mode.
+- Added Markdown editor slash commands, inline color swatches, image upload/import, link previews, table tools, and Tiptap markdown roundtrip coverage.
+- Added Canvas plugin and skill store flows, including plugin store preflight, connector recommendations, standalone skill materialization, and skill deletion.
 - Added clean-room document seed skills and migration upload chunk sizing coverage.
+- Added Marp slides, document-suite seed plugins, and team workspace planning artifacts.
 
 ### Changed
 
@@ -28,18 +30,29 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 - Made Studio home the create workspace and compacted the composer/control layout.
 - Made plugins the primary settings view and seeded missing Canvas skills on startup.
 - Updated managed service control-plane domains and refreshed npm lockfile dependencies, including Google GenAI SDK, Nodemailer, and Sharp.
+- Shared secure remote image fetching across Markdown and email image import flows.
 
 ### Fixed
 
 - Fixed onboarding profile completion races and managed model test timeout diagnostics.
 - Fixed Studio chat dock state, composer overlay state, models mobile layout, prompt/reference deduplication, video reference budgets, and aspect-ratio outpaint masking.
-- Fixed email HTML preview rendering, touch row actions, compose reference picker, AI summary rendering/streaming, and attachment workspace metadata.
+- Fixed email HTML preview rendering, touch row actions, compose reference picker, AI summary rendering/streaming, attachment workspace metadata, and inline image attachment pruning.
 - Fixed automation markdown preview height and automation run OOM behavior on detail refresh.
-- Fixed usage filter responsive overflow and migration upload chunk sizing.
+- Fixed usage filter responsive overflow, skills browser scrolling, markdown block insert behavior, and migration upload chunk sizing.
+
+### Security
+
+- Hardened license JWT validation for issuer, audience, active status, expiration, future issue time, and trusted public-key fingerprints.
+- Added license entitlement guard helpers for feature, plan, and quota enforcement.
+- Blocked private, localhost, and unresolved hosts for server-side remote image imports, including redirect targets.
 
 ### Verification
 
 - `npm run build`
+- `npm run test:email:attachments`
+- `npm run test:email:html-content`
+- `npm run test:license`
+- GitHub Actions `Build and Push` on `main`: `27694619880`, `27696295464`
 
 ## [2026.6.11.1] - 2026-06-11
 
