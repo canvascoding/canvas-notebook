@@ -203,22 +203,25 @@ System-/Built-in-Skills brauchen keine Remote-Quelle. Sie werden aus dem App-Ima
 - `skill-creator` — neue Canvas Skills erstellen oder bestehende Skills verbessern.
 - `find-skills` — passende installierbare Skills fuer eine Aufgabe finden.
 - `frontend-slides` — webbasierte, visuell anspruchsvolle Slide-Artefakte erstellen.
+- `marp-slides` — Markdown-native Marp-Decks erstellen, pruefen und fuer Canvas Preview/Export vorbereiten.
+
+Der Bootstrap installiert Default-Seed-Plugins vor Standalone-Seed-Skills. Wenn ein installiertes Default-Plugin denselben Skill bereits bereitstellt, wird der Standalone-Seed uebersprungen. Dadurch kann ein Skill wie `marp-slides` sowohl als einzeln wiederherstellbares Seed-Paket als auch innerhalb der `document-suite` existieren, ohne doppelte Skill-Namen in neuen Instanzen zu erzeugen.
 
 Alle anderen Skills duerfen weiterhin in `seed_skills/` liegen, werden aber nicht automatisch nach `/data/skills` kopiert. Sie sollen bevorzugt ueber die Canvas Skill Library im Marketplace oder ueber Seed-Plugins angeboten werden. Bestehende Installationen werden nicht bereinigt; die neue Regel betrifft nur Bootstrap-Laeufe, bei denen ein Skill im Zielverzeichnis noch fehlt.
 
 Admins koennen die Bootstrap-Auswahl bei Bedarf mit `CANVAS_BOOTSTRAP_SEED_SKILLS` als kommaseparierte Liste ueberschreiben, zum Beispiel:
 
 ```text
-CANVAS_BOOTSTRAP_SEED_SKILLS=create-plugin,skill-creator,find-skills,frontend-slides
+CANVAS_BOOTSTRAP_SEED_SKILLS=create-plugin,skill-creator,find-skills,frontend-slides,marp-slides
 ```
 
 ## Default Seed Plugins
 
 `seed_plugins/` ist das App-interne Quellverzeichnis fuer Plugin-Bundles, die mit dem Image ausgeliefert und bei frischen Installationen direkt installiert werden sollen. Der Bootstrap installiert aktuell:
 
-- `document-suite` — Buendelt die Skills `pdf`, `pptx`, `xlsx`, `docx` und `excalidraw-diagram` als ein Office-/Dokumenten-Plugin.
+- `document-suite` — Buendelt die Skills `pdf`, `pptx`, `xlsx`, `docx`, `marp-slides` und `excalidraw-diagram` als ein Office-/Dokumenten-Plugin.
 
-Seed-Plugins werden nach `/data/plugins/installed/<plugin-name>/<version>/` kopiert und in `/data/plugins/registry.json` registriert. Wenn ein Plugin bereits installiert ist, wird es nicht ueberschrieben. Wenn einer seiner Skill-Namen bereits als Standalone-Skill unter `/data/skills` existiert, wird das Seed-Plugin uebersprungen, damit bestehende Installationen nicht automatisch umgebaut werden.
+Seed-Plugins werden nach `/data/plugins/installed/<plugin-name>/<version>/` kopiert und in `/data/plugins/registry.json` registriert. Wenn ein Plugin bereits installiert ist, wird es nicht ueberschrieben. Wenn einer seiner Skill-Namen bereits als Standalone-Skill unter `/data/skills` existiert, wird das Seed-Plugin uebersprungen, damit bestehende Installationen nicht automatisch umgebaut werden. Bei frischen Installationen laufen Seed-Plugins vor Standalone-Seed-Skills, damit Kernpakete wie `document-suite` ihre Skills als Plugin bereitstellen koennen.
 
 Admins koennen die Bootstrap-Auswahl bei Bedarf mit `CANVAS_BOOTSTRAP_SEED_PLUGINS` als kommaseparierte Liste ueberschreiben, zum Beispiel:
 
@@ -236,8 +239,8 @@ canvas-notebook-plugin-marketplace/
   schemas/
     registry.schema.json
   plugins/
-    pdf/
-      1.0.0/
+    document-suite/
+      1.1.0/
         .canvas-plugin/plugin.json
         skills/
         assets/
@@ -336,24 +339,19 @@ Empfohlenes Modell:
 Remote-Registries duerfen eine Version nicht in-place veraendern. Ein Plugin-Update erzeugt immer einen neuen Ordner:
 
 ```text
-plugins/pdf/1.0.0/
-plugins/pdf/1.1.0/
+plugins/document-suite/1.0.0/
+plugins/document-suite/1.1.0/
 ```
 
 Die lokale Registry zeigt nur eine aktive Version pro Plugin. Alte Versionen koennen fuer Rollback erhalten bleiben.
 
 ## Seed Collection
 
-Canvas Notebook liefert eine kleine Seed Collection direkt mit. Beim ersten Start koennen Basisskills bereitstehen; weitere Pakete kommen aus dem offiziellen Remote Store.
+Canvas Notebook liefert eine kleine Seed Collection direkt mit. Beim ersten Start werden kuratierte Default-Plugins und danach kuratierte Standalone-Skills installiert, sofern sie im Zielverzeichnis noch fehlen.
 
-Aktuell liefert das Docker-Image `seed_skills/` unter `/app/seed_skills` mit. Der Bootstrap kopiert beim Start nur fehlende Skill-Ordner nach `/data/skills`; dadurch bleiben lokale Anpassungen erhalten und neue Installationen bekommen weiterhin die Basisskills. Dazu gehoert jetzt auch `/create-plugin` fuer Plugin-Scaffolding und Marketplace-Vorbereitung. Seed-Plugins sind vorbereitet durch `/data/plugins`, aber noch nicht als automatische Erstinstallation aktiviert.
+Aktuell liefert das Docker-Image `seed_plugins/` unter `/app/seed_plugins` und `seed_skills/` unter `/app/seed_skills` mit. Der Bootstrap kopiert Default-Plugins nach `/data/plugins/installed` und registriert sie in `/data/plugins/registry.json`; danach kopiert er Default-Standalone-Skills nach `/data/skills`. Dadurch bleiben lokale Anpassungen erhalten, und neue Installationen bekommen die Document Suite als Plugin plus Creator-/Discovery-Skills als Standalone-Basis.
 
-Ziel fuer die naechste Iteration:
-
-- `seed_plugins/` fuer nicht-loeschbare oder vorinstallierte Canvas-Plugins einfuehren.
-- System-Skills und System-Plugins im UI klar mit `System` markieren.
-- Official-Marketplace-Plugins nicht automatisch alle installieren, sondern im Store sichtbar machen.
-- Eine kleine kuratierte Startauswahl anbieten, z. B. Dokumente, PDF, Praesentationen, Tabellen, Browser, GitHub.
+Der offizielle Remote Store bleibt trotzdem die Update- und Erweiterungsquelle: `document-suite` ist dort als versioniertes Marketplace-Paket enthalten, waehrend weitere Plugins nicht automatisch installiert, sondern im Store sichtbar gemacht werden.
 
 Seed-Pakete muessen vor dem Veröffentlichen auditierbar sein:
 
@@ -385,4 +383,4 @@ Seed-Pakete muessen vor dem Veröffentlichen auditierbar sein:
 18. Store-Pagination und lazy Connector-Preflight vor Download/Installation ergaenzen. ✅
 19. Create-Plugin-Skill fuer Scaffold, Manifest, Validierung und Marketplace-Submit vorbereiten. ✅
 20. Mehrere Marketplace-Quellen mit Sources-Verwaltung ergaenzen.
-21. Seed-Plugins bzw. nicht-loeschbare System-Plugins einfuehren, falls Basispakete nicht nur als Skills ausgeliefert werden sollen.
+21. Seed-Plugins bzw. nicht-loeschbare System-Plugins einfuehren, falls Basispakete nicht nur als Skills ausgeliefert werden sollen. ✅

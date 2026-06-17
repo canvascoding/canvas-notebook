@@ -2,6 +2,7 @@ export const DEFAULT_BOOTSTRAP_SEED_SKILL_NAMES = [
   'create-plugin',
   'skill-creator',
   'frontend-slides',
+  'marp-slides',
   'find-skills',
 ] as const;
 

@@ -22,7 +22,7 @@ async function main() {
   const validation = await validateCanvasPluginPackage(pluginRoot);
   assert.equal(validation.valid, true, validation.errors.join('\n'));
   assert.equal(validation.manifest?.name, 'document-suite');
-  assert.equal(validation.manifest?.version, '1.0.0');
+  assert.equal(validation.manifest?.version, '1.1.0');
 
   const skillNames: string[] = [];
   const skillRoot = path.join(pluginRoot, 'skills');
@@ -39,6 +39,7 @@ async function main() {
   assert.deepEqual(skillNames.sort(), [
     'docx',
     'excalidraw-diagram',
+    'marp-slides',
     'pdf',
     'pptx',
     'xlsx',

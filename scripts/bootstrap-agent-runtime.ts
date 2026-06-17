@@ -369,6 +369,36 @@ async function ensureAgentStorageBootstrap(): Promise<void> {
   }
 }
 
+async function getInstalledPluginSkillNames(): Promise<Set<string>> {
+  const names = new Set<string>();
+
+  try {
+    const parsed = JSON.parse(await fs.readFile(PLUGIN_REGISTRY_PATH, 'utf8')) as unknown;
+    if (!isRecord(parsed) || !isRecord(parsed.plugins)) {
+      return names;
+    }
+
+    for (const plugin of Object.values(parsed.plugins)) {
+      if (!isRecord(plugin) || !Array.isArray(plugin.skills)) {
+        continue;
+      }
+
+      for (const skill of plugin.skills) {
+        if (isRecord(skill)) {
+          const name = stringValue(skill.name);
+          if (name) {
+            names.add(name);
+          }
+        }
+      }
+    }
+  } catch {
+    // No plugin registry yet.
+  }
+
+  return names;
+}
+
 async function ensureSeedSkillsBootstrap(): Promise<void> {
   if (!(await fileExists(SEED_SKILLS_DIR))) {
     console.log(`[bootstrap-agent-runtime] Seed skills directory not found: ${SEED_SKILLS_DIR}.`);
@@ -377,9 +407,11 @@ async function ensureSeedSkillsBootstrap(): Promise<void> {
 
   await fs.mkdir(SKILLS_STORAGE_DIR, { recursive: true });
   const bootstrapSeedSkillNames = parseBootstrapSeedSkillNames(process.env.CANVAS_BOOTSTRAP_SEED_SKILLS);
+  const pluginProvidedSkillNames = await getInstalledPluginSkillNames();
   const entries = await fs.readdir(SEED_SKILLS_DIR, { withFileTypes: true });
   let copiedCount = 0;
   let skippedNonDefaultCount = 0;
+  let skippedPluginProvidedCount = 0;
 
   for (const entry of entries) {
     if (!entry.isDirectory() || entry.name.startsWith('.')) {
@@ -388,6 +420,11 @@ async function ensureSeedSkillsBootstrap(): Promise<void> {
 
     if (!bootstrapSeedSkillNames.has(entry.name)) {
       skippedNonDefaultCount += 1;
+      continue;
+    }
+
+    if (pluginProvidedSkillNames.has(entry.name)) {
+      skippedPluginProvidedCount += 1;
       continue;
     }
 
@@ -411,6 +448,9 @@ async function ensureSeedSkillsBootstrap(): Promise<void> {
   }
   if (skippedNonDefaultCount > 0) {
     console.log(`[bootstrap-agent-runtime] Skipped ${skippedNonDefaultCount} non-default seed skills.`);
+  }
+  if (skippedPluginProvidedCount > 0) {
+    console.log(`[bootstrap-agent-runtime] Skipped ${skippedPluginProvidedCount} seed skills already provided by installed plugins.`);
   }
 }
 
@@ -783,8 +823,8 @@ async function main() {
   // Then ensure new files exist
   await ensureIntegrationsEnvBootstrap();
   await ensureAgentStorageBootstrap();
-  await ensureSeedSkillsBootstrap();
   await ensureSeedPluginsBootstrap();
+  await ensureSeedSkillsBootstrap();
   await runLegacySessionCleanupIfNeeded();
 
   console.log('[bootstrap-agent-runtime] Agent runtime bootstrap complete.');

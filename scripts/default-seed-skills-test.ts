@@ -12,12 +12,14 @@ async function main() {
     'create-plugin',
     'find-skills',
     'frontend-slides',
+    'marp-slides',
     'skill-creator',
   ]);
 
   const defaultSet = parseBootstrapSeedSkillNames();
   assert.equal(defaultSet.has('create-plugin'), true);
   assert.equal(defaultSet.has('frontend-slides'), true);
+  assert.equal(defaultSet.has('marp-slides'), true);
   assert.equal(defaultSet.has('pdf'), false);
   assert.equal(defaultSet.has('docx'), false);
   assert.equal(defaultSet.has('youtube-transcript'), false);
