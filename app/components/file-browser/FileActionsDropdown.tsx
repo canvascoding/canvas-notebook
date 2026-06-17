@@ -44,6 +44,7 @@ import { hasMarpFileName } from '@/app/lib/marp/detect';
 import { useFileStore } from '@/app/store/file-store';
 import type { FileNode } from '@/app/lib/files/types';
 import { getParentDirectory, joinWorkspacePath } from '@/app/lib/files/path-utils';
+import { isWorkspaceImageFileName, shareWorkspaceImageFile } from '@/app/lib/files/workspace-image-share';
 import {
   getWorkspacePathName,
   isMoveIntoSelf,
@@ -58,8 +59,6 @@ import { ShareMarkdownDialog } from './ShareMarkdownDialog';
 import { PublicShareDialog } from './PublicShareDialog';
 import { MarpExportDialog } from './MarpExportDialog';
 import { useCreateItemDialog } from './useCreateItemDialog';
-
-const IMAGE_EXTENSIONS = /\.(png|jpe?g|webp|gif|svg|bmp|tiff?)$/i;
 
 type DropdownMenuContentProps = ComponentProps<typeof DropdownMenuContent>;
 
@@ -141,7 +140,7 @@ export function FileActionsDropdown({
     : false;
 
   const isImageFile = node
-    ? node.type === 'file' && IMAGE_EXTENSIONS.test(node.name)
+    ? node.type === 'file' && isWorkspaceImageFileName(node.name)
     : false;
 
   const showMultiSelectOptions = showMultiSelectActions && multiSelectPaths.size > 0;
@@ -284,6 +283,19 @@ export function FileActionsDropdown({
     if (!node) return;
     await downloadFile(node.path);
     closeMenu();
+  };
+
+  const handleShareImage = async () => {
+    if (!node || node.type !== 'file') return;
+    closeMenu();
+    const shareResult = await shareWorkspaceImageFile({
+      path: node.path,
+      fileName: node.name,
+    });
+
+    if (shareResult === 'shared' || shareResult === 'cancelled') return;
+
+    await downloadFile(node.path);
   };
 
   const handleCopyPath = async () => {
@@ -478,6 +490,10 @@ export function FileActionsDropdown({
           )}
           {isImageFile && (
             <>
+              <DropdownMenuItem onSelect={handleShareImage}>
+                <Share2 className="h-4 w-4" />
+                {t('shareImage')}
+              </DropdownMenuItem>
               <DropdownMenuItem onSelect={handleOpenInStudio}>
                 <ImagePlus className="h-4 w-4" />
                 {t('openInStudio')}

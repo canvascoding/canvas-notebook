@@ -1,6 +1,7 @@
 'use client';
 
 import type { StudioGenerationOutput } from '../types/generation';
+import { shareFileFromUrl } from '@/app/lib/files/native-file-share';
 
 function getDownloadFilename(response: Response, fallback: string): string {
   const header = response.headers.get('Content-Disposition');
@@ -22,10 +23,6 @@ function getOutputFileName(output: Pick<StudioGenerationOutput, 'fileName' | 'fi
   return output.fileName || output.filePath.split('/').pop() || fallback;
 }
 
-function isShareCancellation(error: unknown) {
-  return error instanceof DOMException && error.name === 'AbortError';
-}
-
 function canTryNativeFileShare(output: Pick<StudioGenerationOutput, 'type' | 'mediaUrl' | 'mimeType'>) {
   if (output.type !== 'image' || !output.mediaUrl) return false;
   if (output.mimeType && !output.mimeType.startsWith('image/')) return false;
@@ -34,25 +31,12 @@ function canTryNativeFileShare(output: Pick<StudioGenerationOutput, 'type' | 'me
 
 async function shareStudioImageOutput(output: StudioGenerationOutput): Promise<'shared' | 'cancelled' | 'unsupported' | 'failed'> {
   if (!canTryNativeFileShare(output)) return 'unsupported';
-
-  try {
-    const response = await fetch(output.mediaUrl!, { credentials: 'include' });
-    if (!response.ok) throw new Error('Failed to load image for sharing');
-
-    const blob = await response.blob();
-    const mimeType = output.mimeType || blob.type || 'image/png';
-    const fileName = getOutputFileName(output, 'studio-output.png');
-    const file = new File([blob], fileName, { type: mimeType });
-    const shareData = { files: [file] };
-
-    if (!navigator.canShare(shareData)) return 'unsupported';
-
-    await navigator.share(shareData);
-    return 'shared';
-  } catch (error) {
-    if (isShareCancellation(error)) return 'cancelled';
-    return 'failed';
-  }
+  return shareFileFromUrl({
+    url: output.mediaUrl!,
+    fileName: getOutputFileName(output, 'studio-output.png'),
+    mimeType: output.mimeType,
+    fallbackMimeType: 'image/png',
+  });
 }
 
 export async function downloadStudioOutputs(outputIds: string[]): Promise<boolean> {
