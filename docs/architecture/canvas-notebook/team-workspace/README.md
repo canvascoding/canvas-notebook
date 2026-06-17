@@ -17,6 +17,7 @@ Dieses Verzeichnis ist der zentrale Arbeitsbereich fuer den Team-Workspace-Umbau
 - `08-user-scoped-secrets-runtime.md`: User-/Organization-/System-Scope fuer Secrets, MCP, Skills, Plugins, Mailboxen und Agent-Runtime.
 - `09-initial-setup-and-update-migration.md`: Fresh Install, erstes Admin-/Owner-Setup, Onboarding und Update-Migration bestehender Instanzen.
 - `10-agent-tool-execution-policy.md`: Capability-Modell fuer Agent-Turns, Tool-Calls, Cross-Workspace-Reads, Shell, MCP, Gateways und Revocation.
+- `11-automation-execution-model.md`: Personal/Organization Automations, Service Actor, Workspace-Scope, Webhooks, Approval, Offboarding und Retry.
 - `../todo.json`: Aufgabenindex fuer Agenten und Fortschrittsverfolgung.
 
 ## Arbeitsregeln
@@ -40,4 +41,5 @@ Dieses Verzeichnis ist der zentrale Arbeitsbereich fuer den Team-Workspace-Umbau
 - User-scoped Secrets, Runtime, MCP, Skills, Plugins und Mailbox-Regeln sind dokumentiert.
 - Initial Setup, Onboarding und Update-Migration bestehender Instanzen sind dokumentiert.
 - Agent Tool Execution Policy mit Capability-Kontext, Cross-Workspace-Read-Regeln und Revocation-Verhalten ist dokumentiert.
+- Automation Execution Model fuer Personal und Organization Automations ist dokumentiert.
 - Naechster Schritt: Initiales Admin-/Owner-Setup und Admin-only Gates absichern.

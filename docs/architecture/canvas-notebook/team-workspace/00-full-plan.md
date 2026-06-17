@@ -256,11 +256,16 @@ Automations:
 
 - Automations duerfen nicht implizit global fuer die ganze Instanz laufen.
 - Eine Automation gehoert entweder einem User oder explizit der Organization.
+- Personal Automations laufen im Auftrag eines `ownerUserId`.
+- Organization Automations laufen ueber einen Organization Service Actor und brauchen Owner/Admin-Erstellung plus Approval.
 - Beim Erstellen muss ausgewaehlt werden, ob sie im persoenlichen Workspace des Owners oder im Team Workspace laufen soll.
-- Jede Automation braucht `ownerUserId`, optional `organizationId`, `workspaceId`, `workspaceType`, Trigger, Berechtigungen und aktiven Agent-/Tool-Kontext.
+- Jede Automation braucht genau einen primaeren `workspaceId`, Trigger, Berechtigungen und aktiven Agent-/Tool-Kontext.
+- Multi-Workspace-Reads sind nicht normaler V1-Scope; wenn spaeter noetig, nur admin-created, read-only, explizit und auditpflichtig.
 - Automations, die im Team Workspace laufen, brauchen Rollen- oder Admin-Freigabe.
 - Automation-Ausfuehrungen muessen mit `userId`/Owner, `workspaceId`, Agent, verwendeten Tools und Ergebnis auditiert werden.
 - Wenn ein User deaktiviert oder entfernt wird, muss geregelt sein, ob seine Automations pausieren, uebertragen oder geloescht werden.
+- Automations duerfen keine Automations erstellen, aendern, aktivieren oder loeschen.
+- Webhook-getriggerte Automations brauchen Signaturpruefung, Rate Limits, Replay-Schutz und Payload-Validierung.
 
 Agent-Definitionen:
 

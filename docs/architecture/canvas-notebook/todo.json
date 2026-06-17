@@ -184,7 +184,8 @@
       "planningArtifacts": [
         "docs/architecture/canvas-notebook/team-workspace/06-workspace-switching-ux.md",
         "docs/architecture/canvas-notebook/team-workspace/08-user-scoped-secrets-runtime.md",
-        "docs/architecture/canvas-notebook/team-workspace/10-agent-tool-execution-policy.md"
+        "docs/architecture/canvas-notebook/team-workspace/10-agent-tool-execution-policy.md",
+        "docs/architecture/canvas-notebook/team-workspace/11-automation-execution-model.md"
       ]
     },
     {
@@ -194,7 +195,8 @@
       "repo": "canvasstudios-notebook",
       "planningArtifacts": [
         "docs/architecture/canvas-notebook/team-workspace/08-user-scoped-secrets-runtime.md",
-        "docs/architecture/canvas-notebook/team-workspace/09-initial-setup-and-update-migration.md"
+        "docs/architecture/canvas-notebook/team-workspace/09-initial-setup-and-update-migration.md",
+        "docs/architecture/canvas-notebook/team-workspace/11-automation-execution-model.md"
       ]
     },
     {
@@ -225,7 +227,10 @@
       "title": "Background Jobs und Usage mit userId, organizationId, workspaceId und Job-Scope versehen",
       "status": "pending",
       "repo": "canvasstudios-notebook",
-      "planningArtifact": "docs/architecture/canvas-notebook/team-workspace/05-actor-audit-retention.md"
+      "planningArtifacts": [
+        "docs/architecture/canvas-notebook/team-workspace/05-actor-audit-retention.md",
+        "docs/architecture/canvas-notebook/team-workspace/11-automation-execution-model.md"
+      ]
     },
     {
       "id": 27,
@@ -257,7 +262,8 @@
       "planningArtifacts": [
         "docs/architecture/canvas-notebook/team-workspace/05-actor-audit-retention.md",
         "docs/architecture/canvas-notebook/team-workspace/08-user-scoped-secrets-runtime.md",
-        "docs/architecture/canvas-notebook/team-workspace/10-agent-tool-execution-policy.md"
+        "docs/architecture/canvas-notebook/team-workspace/10-agent-tool-execution-policy.md",
+        "docs/architecture/canvas-notebook/team-workspace/11-automation-execution-model.md"
       ]
     },
     {
@@ -265,7 +271,10 @@
       "title": "Retention, Trash und Datenloeschung fuer Teamdaten planen",
       "status": "pending",
       "repo": "canvasstudios-notebook",
-      "planningArtifact": "docs/architecture/canvas-notebook/team-workspace/05-actor-audit-retention.md"
+      "planningArtifacts": [
+        "docs/architecture/canvas-notebook/team-workspace/05-actor-audit-retention.md",
+        "docs/architecture/canvas-notebook/team-workspace/11-automation-execution-model.md"
+      ]
     },
     {
       "id": 31,

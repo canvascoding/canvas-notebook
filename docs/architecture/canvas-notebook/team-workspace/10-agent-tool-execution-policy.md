@@ -185,17 +185,15 @@ Wenn das Mapping nicht eindeutig ist, wird kein Agent-Turn gestartet.
 
 ## Automations
 
-Automations werden separat weiter ausgearbeitet.
+Automations folgen dem separaten Modell aus `11-automation-execution-model.md`.
 
-Vorlaeufige Invarianten:
+Invarianten:
 
 - Keine Automation darf ohne gespeicherten Execution Owner laufen.
 - Personal Automations laufen im Auftrag eines konkreten `ownerUserId`.
-- Organization Automations brauchen ein eigenes Modell fuer Organization Actor, Admin-Freigabe, Secret-Scope und Audit.
-- Bis dieses Modell entschieden ist, duerfen Organization Automations nicht stillschweigend als irgendein User oder als globaler System-Actor laufen.
+- Organization Automations laufen ueber einen Organization Service Actor.
+- Jede Automation hat genau einen primaeren `workspaceId`.
 - Jeder Automation Run erzeugt einen eigenen `AgentExecutionContext` aus gespeicherter Job-Konfiguration und aktuellen Permissions.
-
-Offene Anschlussfrage fuer das naechste Plan-Dokument: Wie unterscheiden wir Personal Automations, Organization Automations, Service-Actors, Transfer bei Offboarding und Secret Ownership?
 
 ## Prompt Injection und Parameter-Validierung
 

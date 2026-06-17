@@ -166,7 +166,7 @@ Zweck: Bestehende fachliche Features auf user/workspace/organization/instance mi
 Teilbereiche:
 
 - Public Links.
-- Automations.
+- Automations mit Personal/Organization Scope, Service Actor, Webhook-Sicherheit, Approval, Offboarding und Retry-Policy.
 - Todos.
 - Studio Assets, Produkte, Personas, Styles.
 - Skills, Plugins und Agent-Definitionen.
@@ -180,6 +180,7 @@ Tests:
 - Pro Feature eigene API-/Store-Tests.
 - E-Mail-Tests: User A kann User-B-Mailbox nicht senden, lesen oder als Draft-Ziel verwenden.
 - MCP-/Plugin-/Skill-Tests: gleichnamige Konfigurationen bleiben pro User getrennt.
+- Automation-Tests fuer Personal vs Organization Scope, Webhook-Signatur, Rate Limits, Offboarding und Risk-Approval.
 - UI-Test nur bei sichtbaren UI-Aenderungen und nach Freigabe.
 - `npm run build`.
 

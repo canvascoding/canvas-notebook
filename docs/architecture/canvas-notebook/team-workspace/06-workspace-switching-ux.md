@@ -147,7 +147,7 @@ Der Save-Dialog muss auch bei Batch-Auswahl explizit zeigen, wohin kopiert wird.
 
 ### Automations
 
-Automations muessen beim Erstellen einen Workspace bekommen. Der aktive globale Workspace kann vorausgewaehlt werden, aber der gespeicherte Job besitzt seinen eigenen `workspaceId`.
+Automations muessen beim Erstellen genau einen primaeren Workspace bekommen. Der aktive globale Workspace kann vorausgewaehlt werden, aber der gespeicherte Job besitzt seinen eigenen `workspaceId`. Organization Automations liegen in einem separaten Admin-/Organization-Kontext und duerfen nicht mit privaten Automations vermischt werden.
 
 ### Todos
 

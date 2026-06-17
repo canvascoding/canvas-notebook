@@ -50,9 +50,10 @@ Dieses Dokument schliesst Umsetzungsschritt 2 ab: bestehende Canvas Notebook Fun
 | Agent Definitionen | globale `agents.agentId` | `user` Agenten plus `organization` Templates | Owner/Visibility/Template-Modell einfuehren | P6 |
 | Agent Runtime Config | instanzweite Defaults/Agent Config | `organization` Defaults, `user` Preferences, `workspace` Policy, Session Override, mit sessiongebundener Revision | Effective Config Resolver mit `organizationId`, `userId`, `workspaceId`, `sessionId`, `agentId` erweitern | P5/P6 |
 | Usage Events | `user`, `sessionId`, Provider/Model | `organization`, `user`, `workspace`, `session` | Usage Attribution erweitern | P5/P6 |
-| Automations Jobs | `createdByUserId`, Pfade als Workspace-Strings | `user` oder `organization`, expliziter `workspace` | OwnerScope, WorkspaceScope, Team-Permission | P6 |
+| Automations Jobs | `createdByUserId`, Pfade als Workspace-Strings | `personal` Owner-User oder `organization` Service Actor, genau ein primaerer `workspace` | OwnerScope, ServiceActor, WorkspaceScope, Team-Permission, Approval | P6 |
 | Automations Runs | Job-basiert, Result-Pfade global | erbt Job plus Run-Audit | Run-Metadaten mit Workspace/Actor speichern | P6/P7 |
 | Custom Webhooks | Job-basiert | Job/Organization Scope | Secrets und Permissions an Job-Scope koppeln | P6 |
+| Automation Webhooks | Trigger ohne Team-Sicherheitsmodell | signiert, rate-limited, replay-geschuetzt, schema-validiert | Webhook Secret, Dedupe und Abuse Protection einfuehren | P6 |
 | Todos | `user`-owned | `organization` mit `createdByUserId`, optional `assigneeUserId`, `workspaceId` | Assignment und Visibility-Modell | P6 |
 | Todo Categories | `user` | `user`, optional Organization Defaults spaeter | Erst User-Scope beibehalten | P6 |
 | Todo File Links | `user` plus `workspacePath` | `workspace` plus path, optional Revision | `workspaceId` hinzufuegen | P6 |
@@ -111,6 +112,7 @@ Dieses Dokument schliesst Umsetzungsschritt 2 ab: bestehende Canvas Notebook Fun
 12. Secrets, MCP, Skills, Plugins und Agent Runtime duerfen in Team-Instanzen nicht aus globalen Instanz-Dateien als aktive User-Konfiguration aufgeloest werden.
 13. Fresh Install und Update-Migration muessen denselben scoped Zielzustand erzeugen; mehrdeutige Owner- oder Secret-Zuordnung stoppt mit Admin-Review.
 14. Agent-Tools duerfen nur ueber einen serverseitig erzeugten Execution Context laufen; Tool-Parameter aus dem LLM sind untrusted.
+15. Automations haben genau einen primaeren Workspace; Organization Automations laufen ueber Service Actor und brauchen Admin-Approval.
 
 ## Migrationsreihenfolge fuer Datenmodell
 

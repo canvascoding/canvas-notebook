@@ -74,6 +74,8 @@ Optionale technische Felder:
 - Team-Workspace-Schreibzugriffe muessen zusaetzlich Organization-Rolle oder Permission pruefen.
 - Studio-Generierungen muessen mindestens `organizationId`, `createdByUserId`, `sessionId` und `agentId` speichern; `workspaceId` wird gespeichert, wenn die Generierung aus einem Workspace-Kontext entstand.
 - Automations speichern den Owner am Job und den effektiven Actor Context am Run.
+- Organization Automations speichern `serviceActorId`, `createdByUserId`, `approvedByUserId` und `lastEditedByUserId`.
+- Automation Runs speichern Trigger, Webhook/Schedule-Quelle, Retry-Entscheidung, Workspace und Risk-Approval.
 - Secret-, MCP-, Plugin- und Skill-Verwendung darf erst nach Context-Aufloesung passieren und speichert im Audit nur Ref/Scope/Provider, nie Secret-Werte.
 - Agent-Tool-Calls muessen den `executionContextId` und die verwendeten Read-/Write-Capabilities auditieren.
 
