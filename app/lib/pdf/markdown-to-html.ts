@@ -319,6 +319,19 @@ export async function markdownFileToHtmlDocument(filePath: string): Promise<stri
       margin: 1em auto;
     }
 
+    img[alt^="Link preview:"] {
+      background: #f6f8fa;
+      border: 1px solid #d0d7de;
+      border-radius: 6px;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+      display: inline-block;
+      height: 44px;
+      margin: 0 0.35em;
+      object-fit: cover;
+      vertical-align: middle;
+      width: 76px;
+    }
+
     blockquote {
       border-left: 4px solid #ddd;
       margin: 1em 0;

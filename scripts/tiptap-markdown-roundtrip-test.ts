@@ -33,7 +33,7 @@ function collectTableAlignments(node: JsonNode): string[] {
 
 const sampleMarkdown = `# Title
 
-Paragraph with **bold**, *italic*, ~~strike~~, \`code\`, emoji 😄, and [link](https://example.com).
+Paragraph with **bold**, *italic*, ~~strike~~, \`code\`, emoji 😄, and [link](https://example.com). ![Link preview: example.com](https://cdn.example.com/og.png)
 
 ![Alt](images/pic.png)
 
@@ -102,6 +102,7 @@ async function main() {
   assert.match(output, /~~strike~~/);
   assert.match(output, /`code`/);
   assert.match(output, /\[link\]\(https:\/\/example\.com\)/);
+  assert.match(output, /!\[Link preview: example\.com\]\(https:\/\/cdn\.example\.com\/og\.png\)/);
   assert.match(output, /!\[Alt\]\(images\/pic\.png\)/);
   assert.match(output, /^> Quote/m);
   assert.match(output, /^- Item/m);

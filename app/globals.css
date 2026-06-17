@@ -534,6 +534,49 @@
   outline-offset: 1px;
 }
 
+.tiptap-link-preview-node {
+  display: inline-flex;
+  margin-left: 0.35rem;
+  max-width: 7rem;
+  vertical-align: middle;
+}
+
+.tiptap-link-preview-node-selected,
+.tiptap-link-preview-node:hover {
+  filter: drop-shadow(0 4px 10px color-mix(in oklab, var(--foreground) 18%, transparent));
+}
+
+.tiptap-link-preview-image-wrap {
+  background: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 0.375rem;
+  display: inline-flex;
+  height: 2.75rem;
+  min-height: 2.75rem !important;
+  overflow: hidden;
+  width: 4.75rem;
+}
+
+.tiptap-link-preview-image {
+  height: 100%;
+  object-fit: cover;
+  width: 100%;
+}
+
+.tiptap-link-preview-error {
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: 0.375rem;
+  color: var(--muted-foreground);
+  display: inline-flex;
+  font-size: 0.6875rem;
+  height: 2.75rem;
+  max-width: 7rem;
+  overflow: hidden;
+  padding: 0.25rem;
+  text-overflow: ellipsis;
+}
+
 /* tiptap email html editor */
 .email-html-editor-shell {
   min-height: 13rem;

@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
-import { Extension, type Editor, type Range } from '@tiptap/core';
+import { Extension, getMarkRange, type Editor, type JSONContent, type Range } from '@tiptap/core';
 import {
   EditorContent,
   NodeViewContent,
@@ -72,6 +72,7 @@ import { Switch } from '@/components/ui/switch';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { SafeMarkdownImage } from '@/app/components/shared/SafeMarkdownImage';
 import { createInlineColorRegex, isColorCode } from '@/app/lib/markdown/color-code';
+import { makeLinkPreviewImageAlt, parseLinkPreviewImageAlt } from '@/app/lib/markdown/link-preview-markdown';
 import { resolveMarkdownImageUrl } from '@/app/lib/markdown/markdown-image-url';
 import { cn } from '@/lib/utils';
 
@@ -652,6 +653,38 @@ function MarkdownImageNodeView({
   const src = typeof node.attrs.src === 'string' ? node.attrs.src : '';
   const alt = typeof node.attrs.alt === 'string' ? node.attrs.alt : '';
   const resolvedImage = resolveMarkdownImageUrl(src, filePath);
+  const linkPreviewLabel = parseLinkPreviewImageAlt(alt);
+
+  if (linkPreviewLabel) {
+    return (
+      <NodeViewWrapper
+        as="span"
+        className={cn(
+          'tiptap-link-preview-node',
+          selected && 'tiptap-link-preview-node-selected',
+        )}
+        contentEditable={false}
+        title={linkPreviewLabel}
+      >
+        {resolvedImage.ok ? (
+          <SafeMarkdownImage
+            src={src}
+            previewSrc={resolvedImage.src}
+            alt={alt}
+            wrapperClassName="tiptap-link-preview-image-wrap"
+            imageClassName="tiptap-link-preview-image"
+            showError
+            errorClassName="tiptap-link-preview-error"
+            errorLabel={`Preview could not be loaded: ${src}`}
+          />
+        ) : (
+          <span className="tiptap-link-preview-error" title={src}>
+            {resolvedImage.error}
+          </span>
+        )}
+      </NodeViewWrapper>
+    );
+  }
 
   return (
     <NodeViewWrapper
@@ -970,6 +1003,67 @@ function getSelectedText(editor: Editor) {
   return editor.state.doc.textBetween(from, to, ' ');
 }
 
+function getLinkPreviewInsertPosition(editor: Editor) {
+  const { selection, schema } = editor.state;
+  if (!selection.empty) return selection.to;
+
+  const linkRange = getMarkRange(selection.$from, schema.marks.link);
+  return linkRange?.to ?? selection.to;
+}
+
+function createLinkPreviewImageContent(imageUrl: string, label: string): JSONContent {
+  return {
+    type: 'image',
+    attrs: {
+      src: imageUrl,
+      alt: makeLinkPreviewImageAlt(label),
+    },
+  };
+}
+
+function findAdjacentLinkPreviewImageRange(editor: Editor, from: number): Range | null {
+  const { doc } = editor.state;
+  const $from = doc.resolve(from);
+  const parent = $from.parent;
+  const parentStart = $from.start();
+  const parentEnd = $from.end();
+  let whitespaceStart: number | null = null;
+  let offset = 0;
+
+  for (let index = 0; index < parent.childCount; index += 1) {
+    const child = parent.child(index);
+    const childStart = parentStart + offset;
+    const childEnd = childStart + child.nodeSize;
+    offset += child.nodeSize;
+
+    if (childEnd <= from) continue;
+    if (childStart >= parentEnd) break;
+
+    if (child.isText) {
+      const text = child.text ?? '';
+      const textOffset = Math.max(0, from - childStart);
+      const trailingText = text.slice(textOffset);
+
+      if (!trailingText) continue;
+      if (trailingText.trim().length > 0) return null;
+
+      whitespaceStart ??= childStart + textOffset;
+      continue;
+    }
+
+    if (child.type.name === 'image' && parseLinkPreviewImageAlt(child.attrs.alt)) {
+      return {
+        from: whitespaceStart ?? childStart,
+        to: childEnd,
+      };
+    }
+
+    return null;
+  }
+
+  return null;
+}
+
 function MarkdownLinkDialog({
   editor,
   open,
@@ -1043,22 +1137,49 @@ function MarkdownLinkDialog({
       return;
     }
 
+    const previewImage = previewEnabled && previewState.status === 'loaded' && previewState.imageUrl
+      ? createLinkPreviewImageContent(previewState.imageUrl, previewState.host)
+      : null;
+
     if (editor.isActive('link') || !editor.state.selection.empty) {
-      editor.chain().focus().extendMarkRange('link').setLink({ href: normalizedHref }).run();
+      const insertPosition = getLinkPreviewInsertPosition(editor);
+      const existingPreviewRange = findAdjacentLinkPreviewImageRange(editor, insertPosition);
+      const previewInsertPosition = existingPreviewRange?.from ?? insertPosition;
+      const previewContent: JSONContent[] = [{ type: 'text', text: ' ' }];
+
+      if (previewImage) {
+        previewContent.push(previewImage);
+      }
+
+      const chain = editor.chain().focus().extendMarkRange('link').setLink({ href: normalizedHref });
+
+      if (existingPreviewRange) {
+        chain.deleteRange(existingPreviewRange);
+      }
+
+      if (previewImage) {
+        chain.insertContentAt(previewInsertPosition, previewContent);
+      }
+
+      chain.run();
     } else {
-      editor
-        .chain()
-        .focus()
-        .insertContent({
+      const content: JSONContent[] = [
+        {
           type: 'text',
           text: text.trim() || normalizedHref,
           marks: [{ type: 'link', attrs: { href: normalizedHref } }],
-        })
-        .run();
+        },
+      ];
+
+      if (previewImage) {
+        content.push({ type: 'text', text: ' ' }, previewImage);
+      }
+
+      editor.chain().focus().insertContent(content).run();
     }
 
     onOpenChange(false);
-  }, [editor, href, onOpenChange, text]);
+  }, [editor, href, onOpenChange, previewEnabled, previewState, text]);
 
   const removeLink = useCallback(() => {
     editor?.chain().focus().extendMarkRange('link').unsetLink().run();
