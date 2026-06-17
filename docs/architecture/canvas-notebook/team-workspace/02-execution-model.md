@@ -230,12 +230,11 @@ Minimal je Change:
 
 ## Naechster konkreter Schritt
 
-Als naechstes sollte die Datenmodellentscheidung entstehen. Sie muss festlegen:
+Als naechstes sollte die Bootstrap-/Admin-Gate-Umsetzung vorbereitet werden. Sie muss festlegen:
 
-- welche Better-Auth-Mechanik oder eigenen Tabellen fuer Membership/Rollen genutzt werden,
-- wie genau ein Owner und mindestens ein Admin erzwungen werden,
-- wie `CANVAS_ORGANIZATION_ID` persistiert und gegen License Claims abgeglichen wird,
-- wie der Legacy-Workspace `data/workspace` gemappt wird,
-- welche Tabellen in der ersten Migration `workspaceId` und `organizationId` erhalten.
+- welche bestehenden `isAdminUser()`-Checks instanzweit bleiben,
+- welche Checks auf Organization Role/Permission wechseln,
+- wie der Erstnutzer Organization Owner wird,
+- welche Tests Bootstrap, Owner-Invariant und Last-Admin-Schutz abdecken.
 
-Die Scope-Matrix in `03-scope-matrix.md` ist die Grundlage dafuer.
+Das Rollenmodell in `04-auth-roles-model.md` ist die Grundlage dafuer.

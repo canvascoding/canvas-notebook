@@ -19,8 +19,9 @@
     {
       "id": 3,
       "title": "Better-Auth-basiertes Rollenmodell mit genau einem Owner, Admins, Members und optional Externals festlegen",
-      "status": "pending",
-      "repo": "canvasstudios-notebook"
+      "status": "completed",
+      "repo": "canvasstudios-notebook",
+      "artifact": "docs/architecture/canvas-notebook/team-workspace/04-auth-roles-model.md"
     },
     {
       "id": 4,
