@@ -1,0 +1,5 @@
+interface:
+  display_name: Create Plugin
+  short_description: Scaffold and package Canvas Plugins
+  brand_color: "#111827"
+  default_prompt: Use /create-plugin to create or update a Canvas Plugin.

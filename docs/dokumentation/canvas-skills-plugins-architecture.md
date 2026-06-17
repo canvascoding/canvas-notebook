@@ -4,7 +4,7 @@ Stand: 2026-06-17
 
 ## Implementierter Stand
 
-Die Canvas-Skill-Runtime und die lokale Canvas-Plugin-Runtime sind implementiert.
+Die Canvas-Skill-Runtime, die Canvas-Plugin-Runtime und der erste offizielle Canvas Plugin Store sind implementiert.
 
 - Skills werden aus `/data/skills` und aktivierten Plugin-Paketen geladen.
 - Plugins werden unter `/data/plugins/installed/<plugin-name>/<version>/` installiert.
@@ -16,9 +16,12 @@ Die Canvas-Skill-Runtime und die lokale Canvas-Plugin-Runtime sind implementiert
 - Referenzierte Plugins werden im Composer und in der Chat-History mit Plugin-Icon oder Initialen-Fallback gerendert.
 - Wenn ein Nutzer `/plugin-name` referenziert, erzeugt die Agent-Runtime fuer diesen Turn einen Canvas-Kontextblock mit Pluginbeschreibung, gebuendelten Skills und Connector-Hinweisen.
 - Der Settings-Bereich heisst nutzerseitig **Plugins** und enthaelt interne Tabs fuer **Plugins** und **Skills**. Standard ist die Plugin-Ansicht; Skills bleiben als Detail- und Verwaltungsansicht erreichbar.
-- Die Plugin-Ansicht zeigt installierte Canvas Plugins, kann lokale Plugin-Pakete ueber einen Serverpfad installieren, Plugins aktivieren/deaktivieren und entfernen.
+- Die Plugin-Ansicht ist Store-first: **Discover**, **Installed**, **Updates** und **Advanced**. Der offizielle Store wird aus `registry.json` geladen; lokale Serverpfad-Installation bleibt als Advanced-Entwickleroption erhalten.
+- Store-Plugins koennen direkt aus der Registry installiert werden. Canvas laedt das Archiv, extrahiert den in `packagePath` angegebenen Plugin-Ordner, prueft die Package-Checksumme und installiert danach ueber denselben lokalen Installer.
+- Installierte Store-Plugins zeigen Update-Status, wenn die Registry eine hoehere `latestVersion` kennt.
 - Plugins mit MCP-, E-Mail- oder Composio-Empfehlungen zeigen Connector-Karten mit Status/CTA. Die Connector-Angaben werden als Metadaten gespeichert, enthalten keine Secrets und werden nicht automatisch in Connector-Konfigurationen geschrieben.
 - Beim Containerstart werden fehlende Seed-Skills aus `/app/seed_skills` nach `/data/skills` kopiert. Bestehende Skills werden nicht ueberschrieben.
+- Der Seed-Skill `/create-plugin` beschreibt Scaffold, Manifest, Connector-Empfehlungen, Validierung und Marketplace-Vorbereitung fuer neue Canvas Plugins.
 
 ## Zielbild
 
@@ -188,7 +191,7 @@ System-/Built-in-Skills brauchen keine Remote-Quelle. Sie werden aus dem App-Ima
 
 ## Remote Registry und Installation
 
-Das offizielle Marketplace-Repository ist als separates oeffentliches Repository vorgesehen: `canvas-notebook-plugin-marketplace`.
+Das offizielle Marketplace-Repository ist als separates oeffentliches Repository angelegt: `canvas-notebook-plugin-marketplace`.
 
 ```text
 canvas-notebook-plugin-marketplace/
@@ -214,11 +217,11 @@ canvas-notebook-plugin-marketplace/
 
 Standalone Skills bleiben moeglich. Plugin-Skills bleiben intern ihrem Plugin zugeordnet, damit Updates, Entfernen und Lizenzinformationen konsistent sind.
 
-Remote-Installation laeuft immer ueber diesen Ablauf:
+Remote-Installation laeuft aktuell ueber diesen Ablauf:
 
-1. Marketplace-Quellen laden und cachen.
-2. Plugin-Version auswaehlen, standardmaessig die hoechste stabile Version.
-3. Paket aus `downloadUrl` oder GitHub-Raw-Pfad herunterladen.
+1. Offizielle Registry aus `CANVAS_PLUGIN_STORE_REGISTRY_URL` laden; falls nicht gesetzt, wird die Canvas-GitHub-Registry verwendet.
+2. Plugin-Version auswaehlen, standardmaessig `latestVersion`.
+3. Paket aus `downloadUrl` herunterladen.
 4. Checksum gegen Registry pruefen.
 5. `.canvas-plugin/plugin.json` validieren.
 6. Paket nach `/data/plugins/installed/<name>/<version>/` kopieren.
@@ -226,11 +229,15 @@ Remote-Installation laeuft immer ueber diesen Ablauf:
 8. Plugin-Skills aktivieren, wenn der Nutzer `Install` bestaetigt.
 9. Falls Connector-Empfehlungen vorhanden sind, Status und Setup-CTAs fuer Composio, Canvas Email oder MCP anzeigen.
 
+Mehrere Marketplace-Quellen bleiben ein geplanter Ausbau. Das Datenmodell und die Store-UI sind so gehalten, dass spaeter zusaetzliche Quellen neben dem offiziellen Store angebunden werden koennen.
+
 ## Lokale API
 
 Die lokale Runtime stellt diese authentifizierten Endpunkte bereit:
 
 - `GET /api/plugins` — installierte Plugins listen
+- `GET /api/plugins/store` — offiziellen Plugin Store mit Installations- und Update-Status listen
+- `POST /api/plugins/store/install` — Plugin aus dem Store installieren (`name`, optional `version`, `enable`, `replace`)
 - `GET /api/plugins/[name]` — Plugin-Details lesen
 - `POST /api/plugins/validate` — lokales Plugin-Paket validieren (`sourcePath`)
 - `POST /api/plugins/install` — lokales Plugin-Paket installieren (`sourcePath`, optional `enable`, `replace`)
@@ -271,9 +278,9 @@ Die lokale Registry zeigt nur eine aktive Version pro Plugin. Alte Versionen koe
 
 ## Seed Collection
 
-Canvas Notebook kann eine kleine Seed Collection direkt mitliefern. Beim ersten Start sollten Nutzer auswaehlen koennen, welche Skills oder Plugins installiert und aktiviert werden. Weitere Pakete kommen spaeter aus dem Remote Store.
+Canvas Notebook liefert eine kleine Seed Collection direkt mit. Beim ersten Start koennen Basisskills bereitstehen; weitere Pakete kommen aus dem offiziellen Remote Store.
 
-Aktuell liefert das Docker-Image `seed_skills/` unter `/app/seed_skills` mit. Der Bootstrap kopiert beim Start nur fehlende Skill-Ordner nach `/data/skills`; dadurch bleiben lokale Anpassungen erhalten und neue Installationen bekommen weiterhin die Basisskills. Seed-Plugins sind vorbereitet durch `/data/plugins`, aber noch nicht als automatische Erstinstallation aktiviert.
+Aktuell liefert das Docker-Image `seed_skills/` unter `/app/seed_skills` mit. Der Bootstrap kopiert beim Start nur fehlende Skill-Ordner nach `/data/skills`; dadurch bleiben lokale Anpassungen erhalten und neue Installationen bekommen weiterhin die Basisskills. Dazu gehoert jetzt auch `/create-plugin` fuer Plugin-Scaffolding und Marketplace-Vorbereitung. Seed-Plugins sind vorbereitet durch `/data/plugins`, aber noch nicht als automatische Erstinstallation aktiviert.
 
 Ziel fuer die naechste Iteration:
 
@@ -307,6 +314,8 @@ Seed-Pakete muessen vor dem Veröffentlichen auditierbar sein:
 13. Marketplace-Source-Modell mit official, third-party, system und local definieren.
 14. Connector-Empfehlungen fuer Composio, Canvas Email und MCP definieren. ✅
 15. Plugin-UI um Composio-Status/Logo und Connector-CTAs erweitern. ✅
-16. Remote Registry/Public Store und Update-Pruefung bauen.
-17. Plugin-Store-UI mit Discover, Installed, Updates, Sources und Advanced Local Install bauen.
-18. Create-Plugin-Skill fuer Scaffold, Manifest, Validierung und Marketplace-Submit vorbereiten.
+16. Remote Registry/Public Store und Update-Pruefung bauen. ✅
+17. Plugin-Store-UI mit Discover, Installed, Updates und Advanced Local Install bauen. ✅
+18. Create-Plugin-Skill fuer Scaffold, Manifest, Validierung und Marketplace-Submit vorbereiten. ✅
+19. Mehrere Marketplace-Quellen mit Sources-Verwaltung ergaenzen.
+20. Seed-Plugins bzw. nicht-loeschbare System-Plugins einfuehren, falls Basispakete nicht nur als Skills ausgeliefert werden sollen.

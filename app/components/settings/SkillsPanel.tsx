@@ -9,7 +9,9 @@ import {
   XCircle,
   Loader2,
   Upload,
+  Download,
   Package,
+  Search,
   RefreshCw,
   Trash2,
   FolderOpen,
@@ -22,6 +24,7 @@ import {
   Plug,
   Mail,
   Server,
+  ArrowUpCircle,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { SkillDetailDialog } from '@/app/components/skills/SkillDetailDialog';
@@ -47,6 +50,7 @@ interface SkillFileNode {
 
 type RightPanelView = 'info' | 'preview';
 type SkillsPanelTab = 'plugins' | 'skills';
+type PluginStoreTab = 'discover' | 'installed' | 'updates' | 'advanced';
 
 type CanvasPluginComposioConnector = {
   toolkit: string;
@@ -83,6 +87,8 @@ type CanvasPluginSettingsRecord = {
   description: string;
   license?: string;
   enabled: boolean;
+  sourceRegistryId?: string;
+  sourceRegistryUrl?: string;
   interface?: {
     displayName?: string;
     shortDescription?: string;
@@ -103,6 +109,36 @@ type CanvasPluginSettingsRecord = {
     title: string;
     description: string;
   }>;
+};
+
+type CanvasPluginStoreEntry = {
+  name: string;
+  displayName: string;
+  description: string;
+  category?: string;
+  latestVersion: string;
+  icon?: string;
+  iconUrl?: string;
+  brandColor?: string;
+  publisher?: {
+    name?: string;
+    url?: string;
+  };
+  connectors?: CanvasPluginSettingsRecord['connectors'];
+  skills?: string[];
+  installed: {
+    installed: boolean;
+    enabled: boolean;
+    version?: string;
+    updateAvailable: boolean;
+  };
+};
+
+type CanvasPluginStoreMetadata = {
+  id: string;
+  name: string;
+  updatedAt: string;
+  homepage?: string;
 };
 
 type ComposioToolkitSummary = {
@@ -166,23 +202,48 @@ function getMcpRecommendations(connectors: CanvasPluginSettingsRecord['connector
 function CanvasPluginsSection({ onPluginsChanged }: { onPluginsChanged: () => void }) {
   const t = useTranslations('skills.plugins');
   const [plugins, setPlugins] = useState<CanvasPluginSettingsRecord[]>([]);
+  const [storePlugins, setStorePlugins] = useState<CanvasPluginStoreEntry[]>([]);
+  const [storeMetadata, setStoreMetadata] = useState<CanvasPluginStoreMetadata | null>(null);
+  const [storeTab, setStoreTab] = useState<PluginStoreTab>('discover');
+  const [searchQuery, setSearchQuery] = useState('');
   const [isLoading, setIsLoading] = useState(true);
   const [sourcePath, setSourcePath] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [storeError, setStoreError] = useState<string | null>(null);
   const [isInstalling, setIsInstalling] = useState(false);
   const [pendingPluginName, setPendingPluginName] = useState<string | null>(null);
   const [composioConnectorState, setComposioConnectorState] = useState<ComposioConnectorState>(EMPTY_COMPOSIO_CONNECTOR_STATE);
 
-  const loadPlugins = useCallback(async () => {
+  const loadPluginData = useCallback(async () => {
     setIsLoading(true);
     setError(null);
+    setStoreError(null);
     try {
-      const response = await fetch('/api/plugins', { credentials: 'include', cache: 'no-store' });
-      const data = await response.json();
-      if (!data.success) {
-        throw new Error(data.error || t('errors.load'));
+      const [pluginsResult, storeResult] = await Promise.allSettled([
+        fetch('/api/plugins', { credentials: 'include', cache: 'no-store' }).then((response) => response.json()),
+        fetch('/api/plugins/store', { credentials: 'include', cache: 'no-store' }).then((response) => response.json()),
+      ]);
+
+      if (pluginsResult.status === 'fulfilled' && pluginsResult.value?.success) {
+        setPlugins(Array.isArray(pluginsResult.value.plugins) ? pluginsResult.value.plugins : []);
+      } else {
+        const message = pluginsResult.status === 'rejected'
+          ? pluginsResult.reason
+          : pluginsResult.value?.error;
+        throw new Error(message instanceof Error ? message.message : message || t('errors.load'));
       }
-      setPlugins(Array.isArray(data.plugins) ? data.plugins : []);
+
+      if (storeResult.status === 'fulfilled' && storeResult.value?.success) {
+        setStorePlugins(Array.isArray(storeResult.value.plugins) ? storeResult.value.plugins : []);
+        setStoreMetadata(storeResult.value.registry || null);
+      } else {
+        const message = storeResult.status === 'rejected'
+          ? storeResult.reason
+          : storeResult.value?.error;
+        setStorePlugins([]);
+        setStoreMetadata(null);
+        setStoreError(message instanceof Error ? message.message : message || t('errors.storeLoad'));
+      }
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : t('errors.load'));
     } finally {
@@ -192,13 +253,16 @@ function CanvasPluginsSection({ onPluginsChanged }: { onPluginsChanged: () => vo
 
   useEffect(() => {
     startTransition(() => {
-      void loadPlugins();
+      void loadPluginData();
     });
-  }, [loadPlugins]);
+  }, [loadPluginData]);
 
   useEffect(() => {
     const requiredToolkits = uniqueByKey(
-      plugins.flatMap((plugin) => getComposioRecommendations(plugin.connectors)),
+      [
+        ...plugins.flatMap((plugin) => getComposioRecommendations(plugin.connectors)),
+        ...storePlugins.flatMap((plugin) => getComposioRecommendations(plugin.connectors)),
+      ],
       (connector) => connector.toolkit,
     );
 
@@ -273,9 +337,9 @@ function CanvasPluginsSection({ onPluginsChanged }: { onPluginsChanged: () => vo
     return () => {
       cancelled = true;
     };
-  }, [plugins, t]);
+  }, [plugins, storePlugins, t]);
 
-  async function installPlugin() {
+  async function installLocalPlugin() {
     const trimmedPath = sourcePath.trim();
     if (!trimmedPath) {
       setError(t('errors.sourcePathRequired'));
@@ -296,12 +360,35 @@ function CanvasPluginsSection({ onPluginsChanged }: { onPluginsChanged: () => vo
         throw new Error(`${data.error || t('errors.install')}${details}`);
       }
       setSourcePath('');
-      await loadPlugins();
+      await loadPluginData();
       onPluginsChanged();
     } catch (installError) {
       setError(installError instanceof Error ? installError.message : t('errors.install'));
     } finally {
       setIsInstalling(false);
+    }
+  }
+
+  async function installStorePlugin(pluginName: string, version?: string) {
+    setPendingPluginName(`store:${pluginName}`);
+    setError(null);
+    try {
+      const response = await fetch('/api/plugins/store/install', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: pluginName, version, enable: true, replace: true }),
+      });
+      const data = await response.json();
+      if (!data.success) {
+        const details = data.validation?.errors?.length ? ` ${data.validation.errors.join(' ')}` : '';
+        throw new Error(`${data.error || t('errors.install')}${details}`);
+      }
+      await loadPluginData();
+      onPluginsChanged();
+    } catch (installError) {
+      setError(installError instanceof Error ? installError.message : t('errors.install'));
+    } finally {
+      setPendingPluginName(null);
     }
   }
 
@@ -314,7 +401,7 @@ function CanvasPluginsSection({ onPluginsChanged }: { onPluginsChanged: () => vo
       if (!data.success) {
         throw new Error(data.error || t('errors.toggle'));
       }
-      await loadPlugins();
+      await loadPluginData();
       onPluginsChanged();
     } catch (toggleError) {
       setError(toggleError instanceof Error ? toggleError.message : t('errors.toggle'));
@@ -336,7 +423,7 @@ function CanvasPluginsSection({ onPluginsChanged }: { onPluginsChanged: () => vo
       if (!data.success) {
         throw new Error(data.error || t('errors.delete'));
       }
-      await loadPlugins();
+      await loadPluginData();
       onPluginsChanged();
     } catch (deleteError) {
       setError(deleteError instanceof Error ? deleteError.message : t('errors.delete'));
@@ -462,10 +549,10 @@ function CanvasPluginsSection({ onPluginsChanged }: { onPluginsChanged: () => vo
     );
   }
 
-  function renderConnectorRecommendations(plugin: CanvasPluginSettingsRecord) {
-    const composio = getComposioRecommendations(plugin.connectors);
-    const email = plugin.connectors?.email || [];
-    const mcp = getMcpRecommendations(plugin.connectors);
+  function renderConnectorRecommendations(connectors: CanvasPluginSettingsRecord['connectors']) {
+    const composio = getComposioRecommendations(connectors);
+    const email = connectors?.email || [];
+    const mcp = getMcpRecommendations(connectors);
 
     if (composio.length === 0 && email.length === 0 && mcp.length === 0) {
       return null;
@@ -486,10 +573,199 @@ function CanvasPluginsSection({ onPluginsChanged }: { onPluginsChanged: () => vo
     );
   }
 
+  function renderStoreIcon(plugin: CanvasPluginStoreEntry) {
+    const initials = plugin.displayName
+      .split(/\s+/)
+      .map((part) => part[0])
+      .join('')
+      .slice(0, 2)
+      .toUpperCase();
+
+    if (plugin.iconUrl) {
+      return (
+        <span className="flex h-10 w-10 shrink-0 overflow-hidden rounded-lg border bg-muted">
+          {/* eslint-disable-next-line @next/next/no-img-element -- Store icons are remote marketplace assets. */}
+          <img src={plugin.iconUrl} alt="" className="h-full w-full object-cover" />
+        </span>
+      );
+    }
+
+    return (
+      <span
+        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border text-sm font-semibold text-white"
+        style={{ backgroundColor: plugin.brandColor || '#64748b' }}
+      >
+        {initials || 'CP'}
+      </span>
+    );
+  }
+
+  const storeByName = new Map(storePlugins.map((plugin) => [plugin.name, plugin]));
+
+  function isStoreEntry(plugin: CanvasPluginStoreEntry | CanvasPluginSettingsRecord): plugin is CanvasPluginStoreEntry {
+    return 'latestVersion' in plugin;
+  }
+
+  function matchesSearch(plugin: CanvasPluginStoreEntry | CanvasPluginSettingsRecord) {
+    const query = searchQuery.trim().toLowerCase();
+    if (!query) return true;
+    const storeEntry = isStoreEntry(plugin);
+    const displayName = storeEntry
+      ? plugin.displayName
+      : plugin.interface?.displayName || plugin.name;
+    const category = storeEntry ? plugin.category : plugin.interface?.category;
+    const skillNames = Array.isArray(plugin.skills)
+      ? plugin.skills.map((skill) => typeof skill === 'string' ? skill : skill.name).join(' ')
+      : '';
+    return [
+      plugin.name,
+      displayName,
+      plugin.description,
+      category,
+      skillNames,
+    ].filter(Boolean).join(' ').toLowerCase().includes(query);
+  }
+
+  function renderStorePluginCard(plugin: CanvasPluginStoreEntry) {
+    const isPending = pendingPluginName === `store:${plugin.name}`;
+    const isInstalled = plugin.installed.installed;
+    const updateAvailable = plugin.installed.updateAvailable;
+    const buttonLabel = updateAvailable
+      ? t('update')
+      : isInstalled
+        ? t('installed')
+        : t('addPlugin');
+    const buttonIcon = updateAvailable
+      ? <ArrowUpCircle className="h-3.5 w-3.5" />
+      : <Download className="h-3.5 w-3.5" />;
+
+    return (
+      <div key={plugin.name} className="rounded-lg border bg-background p-4">
+        <div className="flex items-start gap-3">
+          {renderStoreIcon(plugin)}
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <h3 className="truncate text-sm font-semibold">{plugin.displayName}</h3>
+              {plugin.category ? <Badge variant="secondary" className="text-[10px]">{plugin.category}</Badge> : null}
+              <Badge variant="outline" className="text-[10px]">v{plugin.latestVersion}</Badge>
+              {isInstalled ? (
+                <Badge variant={updateAvailable ? 'destructive' : 'default'} className="text-[10px]">
+                  {updateAvailable ? t('updateAvailable') : t('installed')}
+                </Badge>
+              ) : null}
+            </div>
+            <div className="mt-1 font-mono text-xs text-muted-foreground">/{plugin.name}</div>
+            <p className="mt-2 line-clamp-3 text-sm text-muted-foreground">{plugin.description}</p>
+            {plugin.skills?.length ? (
+              <div className="mt-3 flex flex-wrap gap-1.5">
+                {plugin.skills.map((skill) => (
+                  <Badge key={skill} variant="secondary" className="max-w-full text-[10px]">
+                    <span className="truncate">/{skill}</span>
+                  </Badge>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        </div>
+        {renderConnectorRecommendations(plugin.connectors)}
+        <div className="mt-4 flex items-center justify-between gap-3 border-t pt-3">
+          <span className="text-xs text-muted-foreground">
+            {plugin.publisher?.name || storeMetadata?.name || t('officialStore')}
+          </span>
+          <Button
+            variant={updateAvailable || !isInstalled ? 'default' : 'outline'}
+            size="sm"
+            disabled={isPending || (isInstalled && !updateAvailable)}
+            onClick={() => void installStorePlugin(plugin.name, plugin.latestVersion)}
+            className="gap-1.5"
+          >
+            {isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : buttonIcon}
+            {buttonLabel}
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  function renderInstalledPluginCard(plugin: CanvasPluginSettingsRecord) {
+    const displayName = plugin.interface?.displayName || plugin.name;
+    const description = plugin.interface?.shortDescription || plugin.description;
+    const isPending = pendingPluginName === plugin.name || pendingPluginName === `store:${plugin.name}`;
+    const storePlugin = storeByName.get(plugin.name);
+    const updateAvailable = Boolean(storePlugin?.installed.updateAvailable);
+
+    return (
+      <div key={plugin.name} className="rounded-lg border bg-background p-4">
+        <div className="flex items-start gap-3">
+          <CanvasPluginIcon plugin={plugin} className="h-10 w-10 text-sm" />
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <h3 className="truncate text-sm font-semibold">{displayName}</h3>
+              <Badge variant={plugin.enabled ? 'default' : 'secondary'} className="text-[10px]">
+                {plugin.enabled ? t('enabled') : t('disabled')}
+              </Badge>
+              <Badge variant="outline" className="text-[10px]">v{plugin.version}</Badge>
+              {updateAvailable ? <Badge variant="destructive" className="text-[10px]">{t('updateAvailable')}</Badge> : null}
+              {plugin.license ? <Badge variant="outline" className="text-[10px]">{plugin.license}</Badge> : null}
+            </div>
+            <div className="mt-1 font-mono text-xs text-muted-foreground">/{plugin.name}</div>
+            <p className="mt-2 line-clamp-3 text-sm text-muted-foreground">{description}</p>
+            <div className="mt-3 flex flex-wrap gap-1.5">
+              {plugin.skills.map((skill) => (
+                <Badge key={skill.name} variant="secondary" className="max-w-full text-[10px]">
+                  <span className="truncate">/{skill.name}</span>
+                </Badge>
+              ))}
+            </div>
+          </div>
+        </div>
+        {renderConnectorRecommendations(plugin.connectors)}
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t pt-3">
+          <label className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Switch
+              checked={plugin.enabled}
+              disabled={isPending}
+              onCheckedChange={(checked) => void setPluginEnabled(plugin.name, checked)}
+              aria-label={t('toggle', { name: plugin.name })}
+            />
+            {plugin.enabled ? t('enabled') : t('disabled')}
+          </label>
+          <div className="flex items-center gap-2">
+            {updateAvailable ? (
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={isPending}
+                onClick={() => void installStorePlugin(plugin.name, storePlugin?.latestVersion)}
+                className="gap-1.5"
+              >
+                {isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ArrowUpCircle className="h-3.5 w-3.5" />}
+                {t('update')}
+              </Button>
+            ) : null}
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={isPending}
+              onClick={() => void deletePlugin(plugin.name)}
+              className="gap-1.5 text-destructive hover:bg-destructive/10 hover:text-destructive"
+            >
+              {isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+              {t('delete')}
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   const enabledCount = plugins.filter((plugin) => plugin.enabled).length;
+  const filteredStorePlugins = storePlugins.filter(matchesSearch);
+  const filteredInstalledPlugins = plugins.filter(matchesSearch);
+  const updatePlugins = storePlugins.filter((plugin) => plugin.installed.updateAvailable && matchesSearch(plugin));
 
   return (
-    <section className="space-y-3">
+    <section className="space-y-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h2 className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
@@ -502,24 +778,21 @@ function CanvasPluginsSection({ onPluginsChanged }: { onPluginsChanged: () => vo
           <Badge variant="secondary" className="shrink-0">
             {t('stats', { enabled: enabledCount, total: plugins.length })}
           </Badge>
-          <Button variant="outline" size="sm" onClick={() => void loadPlugins()} disabled={isLoading} className="gap-1.5">
+          <Button variant="outline" size="sm" onClick={() => void loadPluginData()} disabled={isLoading} className="gap-1.5">
             {isLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
             {t('reload')}
           </Button>
         </div>
       </div>
 
-      <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+      <div className="relative">
+        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
         <Input
-          value={sourcePath}
-          onChange={(event) => setSourcePath(event.target.value)}
-          placeholder={t('sourcePathPlaceholder')}
-          disabled={isInstalling}
+          value={searchQuery}
+          onChange={(event) => setSearchQuery(event.target.value)}
+          placeholder={t('searchPlaceholder')}
+          className="pl-9"
         />
-        <Button onClick={() => void installPlugin()} disabled={isInstalling || !sourcePath.trim()} className="gap-1.5">
-          {isInstalling ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
-          {t('install')}
-        </Button>
       </div>
 
       {error ? (
@@ -528,72 +801,106 @@ function CanvasPluginsSection({ onPluginsChanged }: { onPluginsChanged: () => vo
         </div>
       ) : null}
 
-      {isLoading ? (
-        <div className="flex items-center justify-center rounded-lg border border-dashed py-8 text-muted-foreground">
-          <Loader2 className="h-5 w-5 animate-spin" />
+      {storeError ? (
+        <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-300">
+          {storeError}
         </div>
-      ) : plugins.length === 0 ? (
-        <div className="rounded-lg border border-dashed px-4 py-6 text-sm text-muted-foreground">
-          {t('empty')}
-        </div>
-      ) : (
-        <div className="grid gap-3 md:grid-cols-2">
-          {plugins.map((plugin) => {
-            const displayName = plugin.interface?.displayName || plugin.name;
-            const description = plugin.interface?.shortDescription || plugin.description;
-            const isPending = pendingPluginName === plugin.name;
+      ) : null}
 
-            return (
-              <div key={plugin.name} className="rounded-lg border bg-background p-4">
-                <div className="flex items-start gap-3">
-                  <CanvasPluginIcon plugin={plugin} className="h-10 w-10 text-sm" />
-                  <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <h3 className="truncate text-sm font-semibold">{displayName}</h3>
-                      <Badge variant={plugin.enabled ? 'default' : 'secondary'} className="text-[10px]">
-                        {plugin.enabled ? t('enabled') : t('disabled')}
-                      </Badge>
-                      <Badge variant="outline" className="text-[10px]">v{plugin.version}</Badge>
-                      {plugin.license ? <Badge variant="outline" className="text-[10px]">{plugin.license}</Badge> : null}
-                    </div>
-                    <div className="mt-1 font-mono text-xs text-muted-foreground">/{plugin.name}</div>
-                    <p className="mt-2 line-clamp-3 text-sm text-muted-foreground">{description}</p>
-                    <div className="mt-3 flex flex-wrap gap-1.5">
-                      {plugin.skills.map((skill) => (
-                        <Badge key={skill.name} variant="secondary" className="max-w-full text-[10px]">
-                          <span className="truncate">/{skill.name}</span>
-                        </Badge>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-                {renderConnectorRecommendations(plugin)}
-                <div className="mt-4 flex items-center justify-between gap-3 border-t pt-3">
-                  <label className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <Switch
-                      checked={plugin.enabled}
-                      disabled={isPending}
-                      onCheckedChange={(checked) => void setPluginEnabled(plugin.name, checked)}
-                      aria-label={t('toggle', { name: plugin.name })}
-                    />
-                    {plugin.enabled ? t('enabled') : t('disabled')}
-                  </label>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    disabled={isPending}
-                    onClick={() => void deletePlugin(plugin.name)}
-                    className="gap-1.5 text-destructive hover:bg-destructive/10 hover:text-destructive"
-                  >
-                    {isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
-                    {t('delete')}
-                  </Button>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
+      <Tabs
+        value={storeTab}
+        onValueChange={(value) => {
+          if (value === 'discover' || value === 'installed' || value === 'updates' || value === 'advanced') {
+            setStoreTab(value);
+          }
+        }}
+        className="space-y-4"
+      >
+        <TabsList className="flex h-auto flex-wrap justify-start bg-muted/60 p-1">
+          <TabsTrigger value="discover" className="rounded-md px-3">
+            {t('storeTabs.discover')}
+          </TabsTrigger>
+          <TabsTrigger value="installed" className="rounded-md px-3">
+            {t('storeTabs.installed')}
+          </TabsTrigger>
+          <TabsTrigger value="updates" className="rounded-md px-3">
+            {t('storeTabs.updates', { count: updatePlugins.length })}
+          </TabsTrigger>
+          <TabsTrigger value="advanced" className="rounded-md px-3">
+            {t('storeTabs.advanced')}
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="discover" className="space-y-3">
+          {storeMetadata ? (
+            <div className="text-xs text-muted-foreground">
+              {t('storeSource', { name: storeMetadata.name })}
+            </div>
+          ) : null}
+          {isLoading ? (
+            <div className="flex items-center justify-center rounded-lg border border-dashed py-8 text-muted-foreground">
+              <Loader2 className="h-5 w-5 animate-spin" />
+            </div>
+          ) : filteredStorePlugins.length === 0 ? (
+            <div className="rounded-lg border border-dashed px-4 py-6 text-sm text-muted-foreground">
+              {t('emptyStore')}
+            </div>
+          ) : (
+            <div className="grid gap-3 md:grid-cols-2">
+              {filteredStorePlugins.map((plugin) => renderStorePluginCard(plugin))}
+            </div>
+          )}
+        </TabsContent>
+
+        <TabsContent value="installed" className="space-y-3">
+          {isLoading ? (
+            <div className="flex items-center justify-center rounded-lg border border-dashed py-8 text-muted-foreground">
+              <Loader2 className="h-5 w-5 animate-spin" />
+            </div>
+          ) : filteredInstalledPlugins.length === 0 ? (
+            <div className="rounded-lg border border-dashed px-4 py-6 text-sm text-muted-foreground">
+              {t('empty')}
+            </div>
+          ) : (
+            <div className="grid gap-3 md:grid-cols-2">
+              {filteredInstalledPlugins.map((plugin) => renderInstalledPluginCard(plugin))}
+            </div>
+          )}
+        </TabsContent>
+
+        <TabsContent value="updates" className="space-y-3">
+          {updatePlugins.length === 0 ? (
+            <div className="rounded-lg border border-dashed px-4 py-6 text-sm text-muted-foreground">
+              {t('noUpdates')}
+            </div>
+          ) : (
+            <div className="grid gap-3 md:grid-cols-2">
+              {updatePlugins.map((plugin) => renderStorePluginCard(plugin))}
+            </div>
+          )}
+        </TabsContent>
+
+        <TabsContent value="advanced" className="space-y-3">
+          <div className="rounded-lg border bg-muted/20 p-4">
+            <div className="mb-3">
+              <h3 className="text-sm font-semibold">{t('advancedLocalTitle')}</h3>
+              <p className="mt-1 text-sm text-muted-foreground">{t('advancedLocalDescription')}</p>
+            </div>
+            <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+              <Input
+                value={sourcePath}
+                onChange={(event) => setSourcePath(event.target.value)}
+                placeholder={t('sourcePathPlaceholder')}
+                disabled={isInstalling}
+              />
+              <Button onClick={() => void installLocalPlugin()} disabled={isInstalling || !sourcePath.trim()} className="gap-1.5">
+                {isInstalling ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
+                {t('install')}
+              </Button>
+            </div>
+          </div>
+        </TabsContent>
+      </Tabs>
     </section>
   );
 }

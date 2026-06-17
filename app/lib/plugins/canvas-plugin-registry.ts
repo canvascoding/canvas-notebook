@@ -50,6 +50,8 @@ export interface CanvasPluginInstallRecord {
   updatedAt: string;
   enabled: boolean;
   checksum: string;
+  sourceRegistryId?: string;
+  sourceRegistryUrl?: string;
   installDir: string;
   manifestPath: string;
   skillsDir: string;
@@ -68,6 +70,9 @@ export interface CanvasPluginInstallOptions {
   enable?: boolean;
   replace?: boolean;
   installedBy?: string;
+  sourcePathLabel?: string;
+  sourceRegistryId?: string;
+  sourceRegistryUrl?: string;
 }
 
 export interface CanvasPluginInstallResult {
@@ -317,6 +322,7 @@ async function buildPluginRecordFromInstalledPackage(
   sourceRoot: string,
   installDir: string,
   enabled: boolean,
+  options: CanvasPluginInstallOptions = {},
 ): Promise<{ record?: CanvasPluginInstallRecord; errors: string[] }> {
   const installedValidation = await validateCanvasPluginPackage(installDir);
   const errors = [...installedValidation.errors];
@@ -346,11 +352,13 @@ async function buildPluginRecordFromInstalledPackage(
     license: installedValidation.manifest.license,
     author: installedValidation.manifest.author,
     source: installedValidation.manifest.source,
-    sourcePath: sourceRoot,
+    sourcePath: options.sourcePathLabel || sourceRoot,
     installedAt: timestamp,
     updatedAt: timestamp,
     enabled,
     checksum,
+    sourceRegistryId: options.sourceRegistryId,
+    sourceRegistryUrl: options.sourceRegistryUrl,
     installDir,
     manifestPath: installedValidation.manifestPath || path.join(installDir, '.canvas-plugin', 'plugin.json'),
     skillsDir: installedValidation.skillsDir,
@@ -452,6 +460,7 @@ export async function installCanvasPluginFromPath(
       validation.rootDir,
       installDir,
       options.enable !== false,
+      options,
     );
 
     if (!built.record) {

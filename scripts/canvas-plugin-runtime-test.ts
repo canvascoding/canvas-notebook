@@ -2,6 +2,9 @@ import assert from 'node:assert/strict';
 import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
+
+import JSZip from 'jszip';
 
 async function writeFile(filePath: string, content: string): Promise<void> {
   await fs.mkdir(path.dirname(filePath), { recursive: true });
@@ -55,9 +58,64 @@ This is a temporary test skill.
   return pluginRoot;
 }
 
+async function createStoreArchive(pluginRoot: string, checksum: string): Promise<string> {
+  const storeRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'canvas-plugin-store-'));
+  const packagePrefix = 'canvas-plugin-marketplace-test/plugins/test-plugin/1.0.0';
+  const zip = new JSZip();
+
+  async function addDirectory(currentDir: string) {
+    const entries = await fs.readdir(currentDir, { withFileTypes: true });
+    for (const entry of entries) {
+      const fullPath = path.join(currentDir, entry.name);
+      if (entry.isDirectory()) {
+        await addDirectory(fullPath);
+      } else if (entry.isFile()) {
+        const relativePath = path.relative(pluginRoot, fullPath).split(path.sep).join('/');
+        zip.file(`${packagePrefix}/${relativePath}`, await fs.readFile(fullPath));
+      }
+    }
+  }
+
+  await addDirectory(pluginRoot);
+  const zipPath = path.join(storeRoot, 'test-plugin.zip');
+  await fs.writeFile(zipPath, await zip.generateAsync({ type: 'nodebuffer' }));
+
+  const registryPath = path.join(storeRoot, 'registry.json');
+  await writeFile(registryPath, JSON.stringify({
+    schemaVersion: 1,
+    id: 'test-store',
+    name: 'Test Plugin Store',
+    updatedAt: '2026-06-17T00:00:00.000Z',
+    plugins: [
+      {
+        name: 'test-plugin',
+        displayName: 'Test Plugin',
+        description: 'Temporary plugin store test.',
+        latestVersion: '1.0.0',
+        icon: 'plugins/test-plugin/1.0.0/assets/icon.svg',
+        brandColor: '#2563EB',
+        skills: ['test-plugin-skill'],
+        versions: {
+          '1.0.0': {
+            version: '1.0.0',
+            downloadUrl: pathToFileURL(zipPath).toString(),
+            packagePath: packagePrefix,
+            checksum: `sha256:${checksum}`,
+            manifestPath: '.canvas-plugin/plugin.json',
+            releasedAt: '2026-06-17T00:00:00.000Z',
+          },
+        },
+      },
+    ],
+  }, null, 2));
+
+  return registryPath;
+}
+
 async function main() {
   const dataRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'canvas-plugin-test-data-'));
   const pluginRoot = await createTestPluginPackage();
+  let storeRoot: string | null = null;
   process.env.CANVAS_DATA_ROOT = dataRoot;
 
   try {
@@ -69,10 +127,15 @@ async function main() {
 
     const {
       deleteCanvasPlugin,
+      computeCanvasPluginChecksum,
       installCanvasPluginFromPath,
       listCanvasPlugins,
       setCanvasPluginEnabled,
     } = await import('../app/lib/plugins/canvas-plugin-registry');
+    const {
+      installCanvasPluginFromStore,
+      listCanvasPluginStore,
+    } = await import('../app/lib/plugins/canvas-plugin-store');
     const {
       buildReferencedPluginRuntimeContext,
     } = await import('../app/lib/plugins/plugin-reference-context');
@@ -108,10 +171,30 @@ async function main() {
     plugins = await listCanvasPlugins();
     assert.equal(plugins.length, 0);
 
+    const checksum = await computeCanvasPluginChecksum(pluginRoot);
+    const registryPath = await createStoreArchive(pluginRoot, checksum);
+    storeRoot = path.dirname(registryPath);
+    process.env.CANVAS_PLUGIN_STORE_REGISTRY_URL = pathToFileURL(registryPath).toString();
+
+    let store = await listCanvasPluginStore();
+    assert.equal(store.plugins.length, 1);
+    assert.equal(store.plugins[0].name, 'test-plugin');
+    assert.equal(store.plugins[0].installed.installed, false);
+
+    const storeInstall = await installCanvasPluginFromStore('test-plugin', undefined, { enable: true });
+    assert.equal(storeInstall.success, true, storeInstall.error || JSON.stringify(storeInstall.validation));
+
+    store = await listCanvasPluginStore();
+    assert.equal(store.plugins[0].installed.installed, true);
+    assert.equal(store.plugins[0].installed.version, '1.0.0');
+
     console.log('canvas plugin runtime test passed');
   } finally {
     await fs.rm(dataRoot, { recursive: true, force: true });
     await fs.rm(pluginRoot, { recursive: true, force: true });
+    if (storeRoot) {
+      await fs.rm(storeRoot, { recursive: true, force: true });
+    }
   }
 }
 
