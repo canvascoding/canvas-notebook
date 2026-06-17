@@ -345,6 +345,9 @@ Grundregel:
 - Der Agent arbeitet immer im aktiven Workspace der Session.
 - Eine private Session nutzt standardmaessig den persoenlichen Workspace des Users.
 - Eine Team-Session nutzt nur dann den Team Workspace, wenn der User diesen aktiv ausgewaehlt hat oder die Session explizit als Team-Session gestartet wurde.
+- Die App hat einen globalen aktiven Workspace pro User-Oberflaeche. Ein Wechsel auf Startseite, Chat Header oder File Browser muss denselben globalen Workspace-Status aktualisieren.
+- Ein Workspace-Wechsel im Chat Header verhaelt sich wie ein Agent-Wechsel: Es wird eine neue Chat-Session im Ziel-Workspace gestartet.
+- Bestehende Agent-Sessions behalten ihren gespeicherten `workspaceId` und werden nicht stillschweigend in einen anderen Workspace migriert.
 - Team-Dateien werden nicht automatisch vollstaendig als Modellkontext geladen.
 - Der User kann konkrete Team-Dateien oder Ordner explizit in den Kontext nehmen.
 - Die Team Knowledge Base kann als separate Retrieval-Quelle genutzt werden, sofern die Lizenz und die Rolle das erlauben.

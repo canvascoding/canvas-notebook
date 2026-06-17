@@ -28,13 +28,15 @@ Dieses Dokument schliesst Umsetzungsschritt 2 ab: bestehende Canvas Notebook Fun
 | Managed Control Plane Config | `system/managed` Env/Instance Token | `system/managed`, liefert Organization/License Claims | Notebook liest Claims, vertraut final nicht auf lokale Booleans | P1 |
 | Workspace-Dateien | globaler `data/workspace` Ordner | `workspace` mit `personal/team/project` Typ | Workspace-Service, Root Resolver, Legacy-Kompatibilitaet | P3 |
 | File-API | Authenticated User, nur `path` | `workspace` plus User-Permissions | File-Routen auf WorkspaceContext umstellen | P4 |
-| File Browser UI | ein globaler Workspace | aktiver `workspace` pro User/Session | Workspace-Switcher erst nach serverseitiger Isolation | P4 |
+| Globaler Workspace UI State | nicht vorhanden | `user` aktiver Workspace plus servervalidierte Berechtigungen | Workspace Store/Provider aus Server-Resolver initialisieren | P4 |
+| Workspace Switcher | nicht vorhanden | globaler aktiver Workspace, sichtbar in Startseite, Chat und File Browser | Shared Switcher/Badge, Wechsel aktualisiert App-Kontext | P4 |
+| File Browser UI | ein globaler Workspace | aktiver `workspace` pro User/UI State | Workspace-Switcher erst nach serverseitiger Isolation; Tree bei Wechsel neu laden | P4 |
 | File Watcher/Cache/Search Cache | globaler Workspace Tree | `workspace`-spezifischer Cache | Cache Keys und Events um `workspaceId` erweitern | P4/P5 |
 | Uploads/Attachments | globales `data/user-uploads` Intake | `user` Intake mit optionalem `workspace` Ziel | Upload-Metadaten und Copy-to-Workspace workspace-aware machen | P4/P6 |
 | Public File Links | `workspacePath` plus `createdByUserId` | `organization`, `workspace`, `createdByUserId`, optional Revision | `workspaceId`, Access Policy, Revision-Pinning, Revocation | P6/P7 |
 | Markdown/PDF/HTML Preview | globaler Workspace-Pfad | `workspace` Datei und Preview Policy | Preview-Token und Cache um Workspace erweitern | P4/P6 |
 | Terminal Sessions | runtime/session-nah, potentiell globaler Prozesskontext | `user` Session mit aktivem `workspace` CWD/Policy | Terminal-CWD und erlaubte Pfade an Workspace koppeln | P5 |
-| PI Chat Sessions | `user` plus `agentId` | `user`, `organization`, `workspace`, `agentId` | `workspaceId` an Sessions und Usage-Kontext ergaenzen | P5 |
+| PI Chat Sessions | `user` plus `agentId` | `user`, `organization`, `workspace`, `agentId` | `workspaceId` an Sessions und Usage-Kontext ergaenzen; Workspace-Wechsel startet neue Session | P5 |
 | PI Messages | Chat-Session | erbt Session-Scope | Keine eigene Workspace-Spalte zwingend, ueber Session relationieren | P5 |
 | Agent System Prompt | global `/data/workspace` | aktiver Workspace der Session | Prompt aus WorkspaceContext generieren | P5 |
 | Agent File Tools | globaler Agent Workspace Root, absolute Pfade erlaubt | aktiver `workspace`, plus sichere Runtime-Ausnahmen | Resolver und Write-Gates vereinheitlichen | P5 |
@@ -93,18 +95,20 @@ Dieses Dokument schliesst Umsetzungsschritt 2 ab: bestehende Canvas Notebook Fun
 6. Studio darf erst organizationweit sichtbar werden, wenn Visibility und Delete/Audit geklaert sind.
 7. Export/Import darf erst granular werden, wenn Daten `organizationId`, `userId` und `workspaceId` konsistent speichern.
 8. Breiter Tool-/File-Audit darf erst umgesetzt werden, wenn Actor Context, Retention, Cleanup/Rollup und Storage-Monitoring mitgeplant sind.
+9. Workspace-Wechsel darf laufende Agent-Sessions nicht stillschweigend migrieren; Chat-Wechsel startet eine neue Session.
 
 ## Migrationsreihenfolge fuer Datenmodell
 
 1. Organization/Membership/Role/Permission Tabellen.
 2. Workspace Tabelle und Legacy Workspace Mapping.
-3. `workspaceId` an PI Sessions, File/Public-Link-Metadaten und Automations.
-4. Actor Context Resolver fuer Web, Gateways, Agent Runtime und Automations.
-5. Audit Event und Tool-Run Tabellen mit kleinen Metadaten, Hashes und Artefakt-Referenzen.
-6. `organizationId` und `createdByUserId` an teamfaehige Feature-Tabellen.
-7. Revision/Lock/Trash Tabellen.
-8. Retention-/Cleanup-/Usage-Rollup-Jobs.
-9. Export/Import Manifest-Version erhoehen.
+3. Workspace Resolver API und globaler Workspace UI State.
+4. `workspaceId` an PI Sessions, File/Public-Link-Metadaten und Automations.
+5. Actor Context Resolver fuer Web, Gateways, Agent Runtime und Automations.
+6. Audit Event und Tool-Run Tabellen mit kleinen Metadaten, Hashes und Artefakt-Referenzen.
+7. `organizationId` und `createdByUserId` an teamfaehige Feature-Tabellen.
+8. Revision/Lock/Trash Tabellen.
+9. Retention-/Cleanup-/Usage-Rollup-Jobs.
+10. Export/Import Manifest-Version erhoehen.
 
 ## Minimaler V1-Scope
 
@@ -113,7 +117,9 @@ Fuer eine erste robuste Team-Version sollten diese Bereiche enthalten sein:
 - Owner/Admin/Member Rollen.
 - Personal Workspace pro User.
 - Ein Team Workspace pro Organization.
-- Workspace-Switcher und Copy Personal <-> Team.
+- Globaler Workspace-Switcher auf Startseite, Chat Header und File Browser.
+- Workspace-Wechsel im Chat startet eine neue Session im Ziel-Workspace.
+- Copy Personal <-> Team als explizite Aktion.
 - File-API serverseitig workspace-aware.
 - Agent-Sessions und Agent-Dateioperationen im aktiven Workspace.
 - Public Links mit `workspaceId`.

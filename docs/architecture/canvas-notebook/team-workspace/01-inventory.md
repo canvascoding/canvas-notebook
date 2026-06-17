@@ -157,8 +157,10 @@ V1-Teamlogik braucht einen klaren Split:
 3. `WorkspaceContext` definieren: `organizationId`, `workspaceId`, `type`, `ownerUserId`, `rootPath`, `userId`, `permissions`.
 4. `workspace-files.ts` so vorbereiten, dass bestehende Funktionen einen optionalen Workspace-Kontext akzeptieren, waehrend Community/Legacy weiter auf `data/workspace` faellt.
 5. API-Vertrag fuer File-Routen erweitern: aktiver Workspace serverseitig aus Session/Preference oder explizitem `workspaceId` aufloesen.
-6. Agent-Dateioperationen auf denselben Workspace Resolver umstellen.
-7. Erst danach UI-Switcher fuer Personal/Team Workspace bauen, damit die UI nicht vor der serverseitigen Isolation existiert.
+6. Globalen Workspace UI State planen: Startseite, Chat Header und File Browser duerfen denselben aktiven Workspace setzen.
+7. Agent-Session-Regel festlegen: Workspace-Wechsel im Chat startet eine neue Session; bestehende Sessions behalten ihren gespeicherten `workspaceId`.
+8. Agent-Dateioperationen auf denselben Workspace Resolver umstellen.
+9. Erst danach UI-Switcher fuer Personal/Team Workspace bauen, damit die UI nicht vor der serverseitigen Isolation existiert.
 
 ## Offene technische Fragen fuer V1
 

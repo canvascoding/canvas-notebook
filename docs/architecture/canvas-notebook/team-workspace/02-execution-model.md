@@ -12,6 +12,7 @@ Der Team-Workspace-Umbau soll nicht als ein grosser Change landen. Die Arbeit wi
 - Erst Workspace-Service und Path-Security, dann Agent-Schreibzugriffe.
 - Erst eindeutige Scopes, dann Migration bestehender Features.
 - Erst Actor Context und Retention-Regeln, dann breiter Tool-/File-Audit.
+- Workspace-Wechsel ist globaler UI-State, aber Agent-Sessions behalten ihren gespeicherten Workspace.
 - Legacy-/Community-Betrieb muss waehrend der Migration weiter funktionieren.
 - Jeder Schritt muss rueckbaubar oder klar eingegrenzt sein.
 - Keine parallelen grossen Umbauten an Auth, Files und Agent Runtime im selben Commit.
@@ -80,6 +81,7 @@ Lieferumfang:
 - Personal Workspace pro User.
 - Team Workspace pro Organization.
 - Resolver fuer aktive Workspace-Auswahl.
+- API fuer verfuegbare Workspaces und serverseitigen Default Workspace.
 - Root-Boundary-Pruefung inklusive Symlink-Sicherheit.
 - Legacy-Kompatibilitaet fuer bestehende `data/workspace`-Installationen.
 
@@ -97,13 +99,18 @@ Lieferumfang:
 
 - File-Routen mit `workspaceId` oder serverseitig aktivem Workspace.
 - File Browser zeigt aktiven Workspace.
-- Workspace-Switcher.
+- Globaler Workspace Store/Provider.
+- Shared `WorkspaceSwitcher` und `WorkspaceBadge`.
+- Workspace-Switcher in Startseite, Chat Header und File Browser.
+- Workspace-Wechsel im File Browser aktualisiert den globalen State und laedt den passenden Tree.
 - Kopieren zwischen Personal und Team Workspace.
 - Public-Share-Anzeigen workspace-aware.
 
 Tests:
 
 - API-Integrationstests fuer list/read/write/copy/delete/rename.
+- Store-/Component-Tests fuer globalen Workspace-Wechsel.
+- Chat-Header-Test: Workspace-Wechsel startet neue Session oder setzt den Chat auf neue Session.
 - UI-Test nur nach Freigabe, da Workspace-Auswahl sichtbar ist.
 - `npm run build`.
 
@@ -114,6 +121,9 @@ Zweck: Agenten arbeiten im aktiven Workspace, nicht im globalen Ordner.
 Lieferumfang:
 
 - PI Sessions speichern `workspaceId`.
+- Neue PI Sessions erben den global aktiven Workspace.
+- Workspace-Wechsel im Chat Header erzeugt eine neue Session im Ziel-Workspace.
+- Bestehende PI Sessions behalten ihren gespeicherten Workspace und werden nicht stillschweigend migriert.
 - System-Prompt beschreibt aktiven Workspace statt hart `/data/workspace`.
 - Agent File Tools erzwingen Workspace Root.
 - Agent-Dateiaenderungen tragen `userId`, `sessionId`, `workspaceId`.
@@ -124,6 +134,7 @@ Tests:
 - Agent-File-Operation-Script-Tests.
 - Tool-Registry-Tests fuer blockierte Writes.
 - Session-Persistenz-Tests.
+- Tests fuer Workspace-Wechsel: neue Session im Ziel-Workspace, alte Session bleibt im Ursprungs-Workspace.
 - `npm run build`.
 
 ### P6 Feature-Migrationen nach Scope
@@ -230,8 +241,8 @@ Minimal je Change:
 1. P0 abschliessen: Scope-Matrix und Datenmodellentscheidung.
 2. P1/P2: Deployment Mode, Lizenz, Organization, Rollen und Permissions.
 3. P3: Workspace-Service und Path-Security.
-4. P4: File-API und UI-Switcher.
-5. P5: Agent Runtime und Agent-Dateioperationen.
+4. P4: File-API, globaler Workspace Store und UI-Switcher.
+5. P5: Agent Runtime, Session-Workspace und Agent-Dateioperationen.
 6. P6: Feature-Migrationen einzeln.
 7. P7/P8: Audit, Revisionen, Retention, Export/Import, Backup/Restore.
 8. P9: Hardening und Release Readiness.
@@ -248,3 +259,5 @@ Als naechstes sollte die Bootstrap-/Admin-Gate-Umsetzung vorbereitet werden. Sie
 Das Rollenmodell in `04-auth-roles-model.md` ist die Grundlage dafuer.
 
 Die Querschnittsentscheidung in `05-actor-audit-retention.md` ist verbindlich, sobald Agent-, Tool-, File-, Gateway-, Studio- oder Automation-Audit implementiert wird. Audit darf erst breit ausgerollt werden, wenn Actor Context, Retention Defaults, Cleanup/Rollup und Storage-Monitoring mitgeplant sind.
+
+Die Workspace-Switching-Entscheidung in `06-workspace-switching-ux.md` ist verbindlich fuer Startseite, Chat Header, File Browser und Agent Runtime: Ein Wechsel an einer UI-Stelle aktualisiert den globalen aktiven Workspace, aber laufende oder historische Agent-Sessions behalten ihren gespeicherten `workspaceId`; ein Wechsel im Chat startet eine neue Session im Ziel-Workspace.

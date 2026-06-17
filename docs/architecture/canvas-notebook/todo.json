@@ -63,7 +63,8 @@
       "id": 10,
       "title": "Workspace-Modell und Workspace-Service in Canvas Notebook einfuehren",
       "status": "pending",
-      "repo": "canvasstudios-notebook"
+      "repo": "canvasstudios-notebook",
+      "planningArtifact": "docs/architecture/canvas-notebook/team-workspace/06-workspace-switching-ux.md"
     },
     {
       "id": 11,
@@ -75,32 +76,39 @@
       "id": 12,
       "title": "User-spezifische persoenliche Workspaces anlegen",
       "status": "pending",
-      "repo": "canvasstudios-notebook"
+      "repo": "canvasstudios-notebook",
+      "planningArtifact": "docs/architecture/canvas-notebook/team-workspace/06-workspace-switching-ux.md"
     },
     {
       "id": 13,
       "title": "Team Workspace fuer Team-/Managed-Lizenzen anlegen",
       "status": "pending",
-      "repo": "canvasstudios-notebook"
+      "repo": "canvasstudios-notebook",
+      "planningArtifact": "docs/architecture/canvas-notebook/team-workspace/06-workspace-switching-ux.md"
     },
     {
       "id": 14,
-      "title": "UI zum Wechsel zwischen Personal Workspace und Team Workspace bauen",
+      "title": "Globalen Workspace-Switcher fuer Startseite, Chat Header und File Browser bauen",
       "status": "pending",
-      "repo": "canvasstudios-notebook"
+      "repo": "canvasstudios-notebook",
+      "planningArtifact": "docs/architecture/canvas-notebook/team-workspace/06-workspace-switching-ux.md"
     },
     {
       "id": 15,
       "title": "Kopieraktionen zwischen Personal und Team Workspace implementieren",
       "status": "pending",
-      "repo": "canvasstudios-notebook"
+      "repo": "canvasstudios-notebook",
+      "planningArtifact": "docs/architecture/canvas-notebook/team-workspace/06-workspace-switching-ux.md"
     },
     {
       "id": 16,
       "title": "Agent-Runtime-Einstellungen und Agent-Sessions an User-/Workspace-Kontext binden",
       "status": "pending",
       "repo": "canvasstudios-notebook",
-      "planningArtifact": "docs/architecture/canvas-notebook/team-workspace/05-actor-audit-retention.md"
+      "planningArtifacts": [
+        "docs/architecture/canvas-notebook/team-workspace/05-actor-audit-retention.md",
+        "docs/architecture/canvas-notebook/team-workspace/06-workspace-switching-ux.md"
+      ]
     },
     {
       "id": 17,
@@ -130,7 +138,8 @@
       "id": 21,
       "title": "Automations an Owner, Workspace-Auswahl und Ausfuehrungskontext binden",
       "status": "pending",
-      "repo": "canvasstudios-notebook"
+      "repo": "canvasstudios-notebook",
+      "planningArtifact": "docs/architecture/canvas-notebook/team-workspace/06-workspace-switching-ux.md"
     },
     {
       "id": 22,
@@ -142,13 +151,15 @@
       "id": 23,
       "title": "Public Links workspace- und revisionsbewusst neu modellieren",
       "status": "pending",
-      "repo": "canvasstudios-notebook"
+      "repo": "canvasstudios-notebook",
+      "planningArtifact": "docs/architecture/canvas-notebook/team-workspace/06-workspace-switching-ux.md"
     },
     {
       "id": 24,
       "title": "Studio Route auf Organization-geteilte Bibliotheken und user-filterbare Asset-Sammlung umbauen",
       "status": "pending",
-      "repo": "canvasstudios-notebook"
+      "repo": "canvasstudios-notebook",
+      "planningArtifact": "docs/architecture/canvas-notebook/team-workspace/06-workspace-switching-ux.md"
     },
     {
       "id": 25,
