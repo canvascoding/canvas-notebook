@@ -44,15 +44,20 @@ Eine Team-Instanz ist eine Canvas Notebook Installation fuer genau eine Organiza
 Die Instanz enthaelt mehrere Workspace-Typen:
 
 ```txt
-/workspaces/
-  users/
+/data/workspaces/
+  personal/
     {userId}/
-      ...
+      files/
+      trash/
+      revisions/
   team/
-    ...
+    {organizationId}/
+      files/
+      trash/
+      revisions/
 ```
 
-Die konkrete physische Pfadstruktur kann spaeter angepasst werden. Wichtig ist die fachliche Abstraktion:
+Die konkrete physische Pfadstruktur wird in `07-filesystem-migration-and-write-policy.md` verbindlich konkretisiert. Wichtig ist die fachliche Abstraktion:
 
 - `personal`: privater Workspace eines einzelnen Users.
 - `team`: geteilter Workspace fuer alle berechtigten User der Organization.
@@ -351,6 +356,8 @@ Grundregel:
 - Team-Dateien werden nicht automatisch vollstaendig als Modellkontext geladen.
 - Der User kann konkrete Team-Dateien oder Ordner explizit in den Kontext nehmen.
 - Die Team Knowledge Base kann als separate Retrieval-Quelle genutzt werden, sofern die Lizenz und die Rolle das erlauben.
+- Schreiben ist nur in den Workspace erlaubt, der an der Agent-Session gespeichert ist.
+- Lesen aus anderen erlaubten Workspaces ist nur fuer explizit referenzierte Dateien/Ordner erlaubt; fremde Personal Workspaces sind immer tabu.
 
 Jede Agent-Aenderung muss dem ausloesenden User zuordenbar sein:
 

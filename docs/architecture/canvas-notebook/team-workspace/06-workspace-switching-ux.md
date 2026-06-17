@@ -129,6 +129,8 @@ Der System Prompt beschreibt:
 
 Die Datei-Tools erzwingen denselben Workspace serverseitig. Der Prompt ist Orientierung, nicht Sicherheit.
 
+Schreiben ist immer an den gespeicherten Workspace der Session gebunden. Explizite Cross-Workspace Reads koennen erlaubt sein, wenn sie auf den eigenen Personal Workspace oder einen berechtigten Team Workspace zeigen; fremde Personal Workspaces bleiben vollstaendig gesperrt.
+
 ## Andere Flows
 
 ### Studio
@@ -138,6 +140,8 @@ Studio-Outputs brauchen eine klare Zielauswahl:
 - Save to active workspace,
 - Save to personal workspace,
 - Save to team workspace, wenn erlaubt.
+
+Der Save-Dialog muss auch bei Batch-Auswahl explizit zeigen, wohin kopiert wird. In Team-Instanzen darf die API nicht mehr nur `targetPath` akzeptieren, sondern muss `targetWorkspaceId` und `targetPath` serverseitig validieren.
 
 ### Automations
 

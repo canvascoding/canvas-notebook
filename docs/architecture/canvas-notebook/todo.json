@@ -33,7 +33,8 @@
       "id": 5,
       "title": "Per-User Permissions fuer Team Workspace, Public Links, Team-Automations, Plugin-/Skill-Freigabe und Exporte bauen",
       "status": "pending",
-      "repo": "canvasstudios-notebook"
+      "repo": "canvasstudios-notebook",
+      "planningArtifact": "docs/architecture/canvas-notebook/team-workspace/07-filesystem-migration-and-write-policy.md"
     },
     {
       "id": 6,
@@ -64,7 +65,10 @@
       "title": "Workspace-Modell und Workspace-Service in Canvas Notebook einfuehren",
       "status": "pending",
       "repo": "canvasstudios-notebook",
-      "planningArtifact": "docs/architecture/canvas-notebook/team-workspace/06-workspace-switching-ux.md"
+      "planningArtifacts": [
+        "docs/architecture/canvas-notebook/team-workspace/06-workspace-switching-ux.md",
+        "docs/architecture/canvas-notebook/team-workspace/07-filesystem-migration-and-write-policy.md"
+      ]
     },
     {
       "id": 11,
@@ -77,14 +81,20 @@
       "title": "User-spezifische persoenliche Workspaces anlegen",
       "status": "pending",
       "repo": "canvasstudios-notebook",
-      "planningArtifact": "docs/architecture/canvas-notebook/team-workspace/06-workspace-switching-ux.md"
+      "planningArtifacts": [
+        "docs/architecture/canvas-notebook/team-workspace/06-workspace-switching-ux.md",
+        "docs/architecture/canvas-notebook/team-workspace/07-filesystem-migration-and-write-policy.md"
+      ]
     },
     {
       "id": 13,
       "title": "Team Workspace fuer Team-/Managed-Lizenzen anlegen",
       "status": "pending",
       "repo": "canvasstudios-notebook",
-      "planningArtifact": "docs/architecture/canvas-notebook/team-workspace/06-workspace-switching-ux.md"
+      "planningArtifacts": [
+        "docs/architecture/canvas-notebook/team-workspace/06-workspace-switching-ux.md",
+        "docs/architecture/canvas-notebook/team-workspace/07-filesystem-migration-and-write-policy.md"
+      ]
     },
     {
       "id": 14,
@@ -98,7 +108,10 @@
       "title": "Kopieraktionen zwischen Personal und Team Workspace implementieren",
       "status": "pending",
       "repo": "canvasstudios-notebook",
-      "planningArtifact": "docs/architecture/canvas-notebook/team-workspace/06-workspace-switching-ux.md"
+      "planningArtifacts": [
+        "docs/architecture/canvas-notebook/team-workspace/06-workspace-switching-ux.md",
+        "docs/architecture/canvas-notebook/team-workspace/07-filesystem-migration-and-write-policy.md"
+      ]
     },
     {
       "id": 16,
@@ -107,7 +120,8 @@
       "repo": "canvasstudios-notebook",
       "planningArtifacts": [
         "docs/architecture/canvas-notebook/team-workspace/05-actor-audit-retention.md",
-        "docs/architecture/canvas-notebook/team-workspace/06-workspace-switching-ux.md"
+        "docs/architecture/canvas-notebook/team-workspace/06-workspace-switching-ux.md",
+        "docs/architecture/canvas-notebook/team-workspace/07-filesystem-migration-and-write-policy.md"
       ]
     },
     {
@@ -159,7 +173,10 @@
       "title": "Studio Route auf Organization-geteilte Bibliotheken und user-filterbare Asset-Sammlung umbauen",
       "status": "pending",
       "repo": "canvasstudios-notebook",
-      "planningArtifact": "docs/architecture/canvas-notebook/team-workspace/06-workspace-switching-ux.md"
+      "planningArtifacts": [
+        "docs/architecture/canvas-notebook/team-workspace/06-workspace-switching-ux.md",
+        "docs/architecture/canvas-notebook/team-workspace/07-filesystem-migration-and-write-policy.md"
+      ]
     },
     {
       "id": 25,
@@ -178,13 +195,15 @@
       "id": 27,
       "title": "Admin-only Export mit granularer Auswahl fuer Migrationen implementieren",
       "status": "pending",
-      "repo": "canvasstudios-notebook"
+      "repo": "canvasstudios-notebook",
+      "planningArtifact": "docs/architecture/canvas-notebook/team-workspace/07-filesystem-migration-and-write-policy.md"
     },
     {
       "id": 28,
       "title": "Import-Flow mit User-/Workspace-Mapping, Dry-Run und Reconnect fuer Secrets/OAuth vorbereiten",
       "status": "pending",
-      "repo": "canvasstudios-notebook"
+      "repo": "canvasstudios-notebook",
+      "planningArtifact": "docs/architecture/canvas-notebook/team-workspace/07-filesystem-migration-and-write-policy.md"
     },
     {
       "id": 29,
@@ -204,7 +223,8 @@
       "id": 31,
       "title": "Path Security fuer alle Workspace- und Agent-Dateioperationen erzwingen",
       "status": "pending",
-      "repo": "canvasstudios-notebook"
+      "repo": "canvasstudios-notebook",
+      "planningArtifact": "docs/architecture/canvas-notebook/team-workspace/07-filesystem-migration-and-write-policy.md"
     },
     {
       "id": 32,
@@ -217,7 +237,10 @@
       "title": "Agent-Dateiaenderungen mit User, Session, Workspace und Revision auditieren",
       "status": "pending",
       "repo": "canvasstudios-notebook",
-      "planningArtifact": "docs/architecture/canvas-notebook/team-workspace/05-actor-audit-retention.md"
+      "planningArtifacts": [
+        "docs/architecture/canvas-notebook/team-workspace/05-actor-audit-retention.md",
+        "docs/architecture/canvas-notebook/team-workspace/07-filesystem-migration-and-write-policy.md"
+      ]
     },
     {
       "id": 34,
@@ -236,7 +259,8 @@
       "id": 36,
       "title": "Backup- und Restore-Konzept fuer Team-Instanzen implementieren",
       "status": "pending",
-      "repo": "cross-repo"
+      "repo": "cross-repo",
+      "planningArtifact": "docs/architecture/canvas-notebook/team-workspace/07-filesystem-migration-and-write-policy.md"
     }
   ]
 }

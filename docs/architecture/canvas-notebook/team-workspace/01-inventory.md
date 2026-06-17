@@ -54,7 +54,7 @@ Noch fehlende Team-Scope-Grundlagen:
 
 Agent-Dateioperationen sind der kritischste Bereich fuer Teamfaehigkeit:
 
-- Pfadauflösung: relative Pfade gehen nach `data/workspace`; absolute Pfade bleiben moeglich.
+- Pfadaufloesung: relative Pfade gehen nach `data/workspace`; absolute Pfade bleiben moeglich.
 - Schutzmodell: `assertAgentPathAllowed()` blockiert bekannte Schutzbereiche, erzwingt aber keinen aktiven Workspace Root.
 - Nebenwirkungen: Agent-Dateioperationen synchronisieren Public Shares nach Writes, Moves und Deletes.
 - Audit: Snapshot-Metadaten enthalten Pfad, Operation und Hashes, aber keinen `organizationId`, `workspaceId`, `userId` oder `sessionId` als harte Audit-Relation.
@@ -116,6 +116,8 @@ Der Runner erstellt Zielordner ueber `createDirectory()` aus `workspace-files.ts
 
 Der Export ist fuer Single-Instance-Migrationen sinnvoll, aber noch nicht organization-granular. Fuer Team-Instanzen muessen Export-Manifeste `organizationId`, `workspaceId`, User-Mapping und Secret-Redaction/Reconnect-Verhalten enthalten.
 
+V1-Regel: Ein normaler User darf nur den eigenen Personal Workspace exportieren. Team-Workspace- und Organization-Exporte sind admin- oder permission-gated.
+
 ## Studio und generierte Assets
 
 Studio-Tabellen sind user-scoped, aber nicht organization-scoped. Das passt fuer Community/Single-User, kollidiert aber mit dem Zielbild "Organization-geteilte Bibliotheken":
@@ -125,6 +127,8 @@ Studio-Tabellen sind user-scoped, aber nicht organization-scoped. Das passt fuer
 - Output-Dateipfade zeigen auf Studio-Data-Pfade, nicht auf Workspaces.
 
 V1 sollte nicht blind alle Studio-Daten teamweit sichtbar machen. Erst braucht es Organization-Scope und eine Policy, ob eigene oder alle Assets sichtbar sind.
+
+Der aktuelle Save-to-Workspace-Flow schreibt noch in den globalen Workspace. Fuer Team-Instanzen muss der Dialog einen Ziel-Workspace abfragen und die API `targetWorkspaceId` plus `targetPath` validieren. Speichern in den Team Workspace ist nur mit Team-Write-Permission erlaubt.
 
 ## Skills, Plugins, Agents und Runtime Config
 
@@ -160,11 +164,12 @@ V1-Teamlogik braucht einen klaren Split:
 6. Globalen Workspace UI State planen: Startseite, Chat Header und File Browser duerfen denselben aktiven Workspace setzen.
 7. Agent-Session-Regel festlegen: Workspace-Wechsel im Chat startet eine neue Session; bestehende Sessions behalten ihren gespeicherten `workspaceId`.
 8. Agent-Dateioperationen auf denselben Workspace Resolver umstellen.
-9. Erst danach UI-Switcher fuer Personal/Team Workspace bauen, damit die UI nicht vor der serverseitigen Isolation existiert.
+9. Studio Save-to-Workspace auf Ziel-Workspace-Auswahl und Workspace Resolver umstellen.
+10. Erst danach UI-Switcher fuer Personal/Team Workspace bauen, damit die UI nicht vor der serverseitigen Isolation existiert.
 
 ## Offene technische Fragen fuer V1
 
-- Soll `data/workspace` als Legacy-Alias fuer den ersten Personal Workspace oder fuer den Team Workspace migriert werden?
+- Soll `data/workspace` physisch in den Owner-Personal-Workspace kopiert werden oder zunaechst als read-only Legacy-Root fuer den Owner gemappt bleiben?
 - Wird `CANVAS_ORGANIZATION_ID` als Env gebootstrappt und in der DB persistiert, oder nur aus dem License Cert gelesen?
 - Soll `workspaceId` schon in V1 an Public Links, Todos, Automations, PI Sessions und Studio Generations migriert werden, oder gibt es eine Kompatibilitaetsschicht?
 - Werden Agent-absolute Pfade in Team-Instanzen komplett verboten oder nur fuer bekannte Runtime-Pfade erlaubt?

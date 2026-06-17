@@ -82,12 +82,14 @@ Lieferumfang:
 - Team Workspace pro Organization.
 - Resolver fuer aktive Workspace-Auswahl.
 - API fuer verfuegbare Workspaces und serverseitigen Default Workspace.
+- Physisches `/data/workspaces/...`-Layout und Legacy-Migration aus `data/workspace`.
 - Root-Boundary-Pruefung inklusive Symlink-Sicherheit.
 - Legacy-Kompatibilitaet fuer bestehende `data/workspace`-Installationen.
 
 Tests:
 
 - Path-Traversal- und Symlink-Tests.
+- Legacy-Migrationstest: `data/workspace` wird nicht automatisch teamweit sichtbar.
 - File-Service-Tests fuer personal/team Roots.
 - `npm run build`.
 
@@ -104,6 +106,7 @@ Lieferumfang:
 - Workspace-Switcher in Startseite, Chat Header und File Browser.
 - Workspace-Wechsel im File Browser aktualisiert den globalen State und laedt den passenden Tree.
 - Kopieren zwischen Personal und Team Workspace.
+- Studio Save-to-Workspace Dialog fragt Personal- oder Team-Ziel ab und nutzt `targetWorkspaceId`.
 - Public-Share-Anzeigen workspace-aware.
 
 Tests:
@@ -111,6 +114,7 @@ Tests:
 - API-Integrationstests fuer list/read/write/copy/delete/rename.
 - Store-/Component-Tests fuer globalen Workspace-Wechsel.
 - Chat-Header-Test: Workspace-Wechsel startet neue Session oder setzt den Chat auf neue Session.
+- Studio Save-to-Workspace-Test fuer Personal-Ziel, Team-Ziel und fehlende Team-Write-Permission.
 - UI-Test nur nach Freigabe, da Workspace-Auswahl sichtbar ist.
 - `npm run build`.
 
@@ -126,6 +130,8 @@ Lieferumfang:
 - Bestehende PI Sessions behalten ihren gespeicherten Workspace und werden nicht stillschweigend migriert.
 - System-Prompt beschreibt aktiven Workspace statt hart `/data/workspace`.
 - Agent File Tools erzwingen Workspace Root.
+- Agent File Tools erlauben Schreiben nur in den Session-Workspace.
+- Optional erlaubte Cross-Workspace Reads muessen explizit referenziert und permission-geprueft sein.
 - Agent-Dateiaenderungen tragen `userId`, `sessionId`, `workspaceId`.
 - Shell-/Tool-Ausfuehrungen koennen fremde Personal Workspaces nicht lesen.
 
@@ -135,6 +141,7 @@ Tests:
 - Tool-Registry-Tests fuer blockierte Writes.
 - Session-Persistenz-Tests.
 - Tests fuer Workspace-Wechsel: neue Session im Ziel-Workspace, alte Session bleibt im Ursprungs-Workspace.
+- Tests fuer blockierte Cross-Workspace-Writes und fremde Personal-Workspace-Reads.
 - `npm run build`.
 
 ### P6 Feature-Migrationen nach Scope
@@ -188,6 +195,8 @@ Zweck: Team-Instanzen sicher migrieren und wiederherstellen koennen.
 Lieferumfang:
 
 - Admin-only granularer Export.
+- Self-service Export nur fuer den eigenen Personal Workspace.
+- Team-/Organization-Export nur fuer Admins oder User mit Export-Permission.
 - Organization/User/Workspace-Mapping im Manifest.
 - Secret-Redaction und Reconnect-Strategie.
 - Import Dry-Run.
@@ -197,6 +206,7 @@ Lieferumfang:
 Tests:
 
 - Export-/Import-Fixtures.
+- Export-Permission-Tests fuer Personal, Team und Organization.
 - Restore-Dry-Run-Tests.
 - SQLite-Snapshot-Tests.
 - `npm run build`.
@@ -261,3 +271,5 @@ Das Rollenmodell in `04-auth-roles-model.md` ist die Grundlage dafuer.
 Die Querschnittsentscheidung in `05-actor-audit-retention.md` ist verbindlich, sobald Agent-, Tool-, File-, Gateway-, Studio- oder Automation-Audit implementiert wird. Audit darf erst breit ausgerollt werden, wenn Actor Context, Retention Defaults, Cleanup/Rollup und Storage-Monitoring mitgeplant sind.
 
 Die Workspace-Switching-Entscheidung in `06-workspace-switching-ux.md` ist verbindlich fuer Startseite, Chat Header, File Browser und Agent Runtime: Ein Wechsel an einer UI-Stelle aktualisiert den globalen aktiven Workspace, aber laufende oder historische Agent-Sessions behalten ihren gespeicherten `workspaceId`; ein Wechsel im Chat startet eine neue Session im Ziel-Workspace.
+
+Die Filesystem- und Write-Policy in `07-filesystem-migration-and-write-policy.md` ist verbindlich fuer Workspace-Service, Studio Save-to-Workspace, Export/Import und Agent-Dateitools: Physische Roots werden nur ueber Workspace-Metadaten aufgeloest, bestehendes `data/workspace` wird nicht automatisch teamweit geteilt, und Agenten duerfen nur in den Session-Workspace schreiben.

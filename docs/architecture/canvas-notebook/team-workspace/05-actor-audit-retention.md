@@ -64,6 +64,7 @@ Optionale technische Felder:
 
 - Ein Agent darf kein Tool ausfuehren, bevor der Actor Context aufgeloest ist.
 - Der Actor Context eines Agent-Turns muss aus dem gespeicherten Session-Workspace kommen, nicht nur aus dem aktuellen Client-UI-State.
+- File-Write-Events duerfen nur fuer den Workspace entstehen, der an der Session gespeichert ist; Cross-Workspace-Reads muessen als explizite Referenz auditiert werden.
 - Ein Gateway darf keine Nachricht an die Agent Runtime weitergeben, bevor der externe Channel-User eindeutig auf einen internen `userId` gemappt wurde.
 - Datei- und Workspace-Operationen muessen immer `workspaceId` und `userId` kennen.
 - Team-Workspace-Schreibzugriffe muessen zusaetzlich Organization-Rolle oder Permission pruefen.
