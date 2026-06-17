@@ -11,6 +11,7 @@ Dieses Verzeichnis ist der zentrale Arbeitsbereich fuer den Team-Workspace-Umbau
 - `02-execution-model.md`: Vorgehensmodell mit Unterprojekten, Reihenfolge, Commit-Strategie und Test-Gates.
 - `03-scope-matrix.md`: Ziel-Scope-Matrix fuer bestehende Funktionen.
 - `04-auth-roles-model.md`: Better-Auth-basiertes Organization-, Rollen- und Permission-Modell.
+- `05-actor-audit-retention.md`: Actor Context, Audit-Modell, Retention und Storage-Wachstum.
 - `../todo.json`: Aufgabenindex fuer Agenten und Fortschrittsverfolgung.
 
 ## Arbeitsregeln
@@ -28,4 +29,5 @@ Dieses Verzeichnis ist der zentrale Arbeitsbereich fuer den Team-Workspace-Umbau
 - Schritt 1 ist abgeschlossen: Ist-Inventar erstellt.
 - Schritt 2 ist abgeschlossen: Scope-Matrix erstellt.
 - Schritt 3 ist abgeschlossen: Rollenmodell festgelegt.
+- Querschnittsentscheidung fuer Actor Context, Audit und Retention ist dokumentiert.
 - Naechster Schritt: Initiales Admin-/Owner-Setup und Admin-only Gates absichern.

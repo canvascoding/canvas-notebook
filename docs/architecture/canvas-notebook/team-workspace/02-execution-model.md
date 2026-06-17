@@ -11,6 +11,7 @@ Der Team-Workspace-Umbau soll nicht als ein grosser Change landen. Die Arbeit wi
 - Erst Datenmodell und serverseitige Rechte, dann UI.
 - Erst Workspace-Service und Path-Security, dann Agent-Schreibzugriffe.
 - Erst eindeutige Scopes, dann Migration bestehender Features.
+- Erst Actor Context und Retention-Regeln, dann breiter Tool-/File-Audit.
 - Legacy-/Community-Betrieb muss waehrend der Migration weiter funktionieren.
 - Jeder Schritt muss rueckbaubar oder klar eingegrenzt sein.
 - Keine parallelen grossen Umbauten an Auth, Files und Agent Runtime im selben Commit.
@@ -27,6 +28,7 @@ Lieferumfang:
 - Ist-Inventar.
 - Scope-Matrix fuer bestehende Funktionen.
 - Datenmodell-Entscheidungen fuer Organization, Workspace, Rollen und Permissions.
+- Querschnittsentscheidung fuer Actor Context, Audit, Retention und Storage-Wachstum.
 - Kompatibilitaetsentscheidung fuer Legacy-Workspace `data/workspace`.
 
 Tests:
@@ -150,14 +152,20 @@ Zweck: Team-Aenderungen nachvollziehbar und konfliktarm machen.
 
 Lieferumfang:
 
+- Actor Context wird fuer Web, Gateways, Agent Runtime, Automations und Tool-Ausfuehrungen durchgereicht.
+- Audit Events bleiben klein und referenziell; grosse Payloads werden nicht dauerhaft in der DB gespeichert.
+- Tool-Run-Summaries werden getrennt von kurzlebigen Raw-Debug-Daten behandelt.
 - Audit Trail fuer Admin, Auth, Files, Agenten, Automations, Plugins, Integrationen, Export/Import und Studio.
 - File-Revisions- oder Checkpoint-Modell.
 - Einfache Locks oder Revision-Checks fuer Team-Dateien.
-- Trash/Retention-Konzept.
+- Trash/Retention-Konzept inklusive Cleanup- und Rollup-Jobs.
+- DB-/WAL-/Runtime-Artefakte werden in Storage-Monitoring und Wartung beruecksichtigt.
 
 Tests:
 
 - Audit-Insert-Tests.
+- Retention-/Cleanup-Tests fuer Raw Tool Payloads, Runtime Events und Trash.
+- Usage-Rollup-Tests.
 - Konflikt-/Locking-Tests.
 - Regressionstests fuer Delete/Move/Public-Link-Sync.
 - `npm run build`.
@@ -225,7 +233,7 @@ Minimal je Change:
 4. P4: File-API und UI-Switcher.
 5. P5: Agent Runtime und Agent-Dateioperationen.
 6. P6: Feature-Migrationen einzeln.
-7. P7/P8: Audit, Revisionen, Export/Import, Backup/Restore.
+7. P7/P8: Audit, Revisionen, Retention, Export/Import, Backup/Restore.
 8. P9: Hardening und Release Readiness.
 
 ## Naechster konkreter Schritt
@@ -238,3 +246,5 @@ Als naechstes sollte die Bootstrap-/Admin-Gate-Umsetzung vorbereitet werden. Sie
 - welche Tests Bootstrap, Owner-Invariant und Last-Admin-Schutz abdecken.
 
 Das Rollenmodell in `04-auth-roles-model.md` ist die Grundlage dafuer.
+
+Die Querschnittsentscheidung in `05-actor-audit-retention.md` ist verbindlich, sobald Agent-, Tool-, File-, Gateway-, Studio- oder Automation-Audit implementiert wird. Audit darf erst breit ausgerollt werden, wenn Actor Context, Retention Defaults, Cleanup/Rollup und Storage-Monitoring mitgeplant sind.

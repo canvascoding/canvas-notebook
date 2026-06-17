@@ -79,6 +79,9 @@ Dieses Dokument schliesst Umsetzungsschritt 2 ab: bestehende Canvas Notebook Fun
 | Backups | aktuell Migration/Filesystem-nahe | `organization` Backup plus system-managed Host Backup | Backup Manifest nach Scopes | P8 |
 | Audit Trail | nicht als zentrale Domain vorhanden | `organization` zentral, mit User/Workspace/Session | Audit-Domain einfuehren | P7 |
 | Retention/Trash | geloeschte Dateien oft direkt entfernt | `organization` Policy, `workspace` Trash | Trash/Retention vor Team-Datei-Loeschung | P7 |
+| Raw Tool/Runtime Logs | in Messages/Runtime-Events oder gar nicht zentral | kurzlebiger technischer Debug-Scope mit Retention | Nicht als dauerhafter Audit-Ersatz speichern; Summary/Hash/Ref behalten | P7 |
+| Usage Rollups | Einzelereignisse mit User/Session | `organization`, `user`, `workspace`, `agent`, Zeitraum | Tagesrollups erzeugen und Einzelereignisse nach Retention bereinigen | P7/P9 |
+| Storage Metrics | Host-/Control-Plane-nah, fachlich nicht aufgeteilt | `instance/system` plus Workspace-/DB-/Asset-Kategorien | DB, WAL, Workspace, Studio, Temp und Backups getrennt melden | P9 |
 
 ## Kritische Abhaengigkeiten
 
@@ -89,16 +92,19 @@ Dieses Dokument schliesst Umsetzungsschritt 2 ab: bestehende Canvas Notebook Fun
 5. Agent-Dateioperationen duerfen erst auf Team-Workspaces schreiben, wenn absolute Pfade kontrolliert sind.
 6. Studio darf erst organizationweit sichtbar werden, wenn Visibility und Delete/Audit geklaert sind.
 7. Export/Import darf erst granular werden, wenn Daten `organizationId`, `userId` und `workspaceId` konsistent speichern.
+8. Breiter Tool-/File-Audit darf erst umgesetzt werden, wenn Actor Context, Retention, Cleanup/Rollup und Storage-Monitoring mitgeplant sind.
 
 ## Migrationsreihenfolge fuer Datenmodell
 
 1. Organization/Membership/Role/Permission Tabellen.
 2. Workspace Tabelle und Legacy Workspace Mapping.
 3. `workspaceId` an PI Sessions, File/Public-Link-Metadaten und Automations.
-4. Audit Event Tabelle.
-5. `organizationId` und `createdByUserId` an teamfaehige Feature-Tabellen.
-6. Revision/Lock/Trash Tabellen.
-7. Export/Import Manifest-Version erhoehen.
+4. Actor Context Resolver fuer Web, Gateways, Agent Runtime und Automations.
+5. Audit Event und Tool-Run Tabellen mit kleinen Metadaten, Hashes und Artefakt-Referenzen.
+6. `organizationId` und `createdByUserId` an teamfaehige Feature-Tabellen.
+7. Revision/Lock/Trash Tabellen.
+8. Retention-/Cleanup-/Usage-Rollup-Jobs.
+9. Export/Import Manifest-Version erhoehen.
 
 ## Minimaler V1-Scope
 
@@ -111,7 +117,8 @@ Fuer eine erste robuste Team-Version sollten diese Bereiche enthalten sein:
 - File-API serverseitig workspace-aware.
 - Agent-Sessions und Agent-Dateioperationen im aktiven Workspace.
 - Public Links mit `workspaceId`.
-- Audit fuer Admin-Aktionen, File Writes, Agent File Writes und Public Links.
+- Audit fuer Admin-Aktionen, File Writes, Agent File Writes und Public Links, ohne grosse Payloads dauerhaft in der DB zu speichern.
+- Retention Defaults fuer Raw Tool Payloads, Runtime Events, Trash/Revisions und Usage-Einzelereignisse.
 - Export mindestens fuer Workspaces, DB, Audit und Team-relevante Metadaten mit Secret-Redaction.
 
 Nicht zwingend fuer V1:
