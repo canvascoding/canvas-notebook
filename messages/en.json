@@ -1210,6 +1210,8 @@
     "attachmentsUploadDrop": "Drop files to upload",
     "attachmentsSelectFiles": "Select files",
     "attachmentsRemove": "Remove attachment",
+    "attachmentsSendMarkdownAsPdf": "Send {name} as PDF",
+    "attachmentsSendMarkdownAsPdfShort": "PDF",
     "attachmentsCancel": "Cancel",
     "attachmentsConfirm": "Attach selected",
     "attachmentsLimitExceeded": "Email attachments exceed the 20 MB total limit.",

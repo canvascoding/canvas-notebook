@@ -7,6 +7,9 @@ import {
   EMAIL_ATTACHMENT_TOTAL_LIMIT_BYTES,
   estimateEmailAttachmentTransferBytes,
   inferEmailAttachmentMimeType,
+  isMarkdownEmailAttachmentName,
+  markdownEmailAttachmentPdfName,
+  type EmailAttachmentDeliveryFormat,
   type EmailAttachmentInput,
   type EmailAttachmentSource,
 } from '@/app/lib/email/attachment-types';
@@ -28,6 +31,7 @@ export type ResolvedEmailAttachment = {
 };
 
 type EmailAttachmentMetadata = Omit<ResolvedEmailAttachment, 'content'> & {
+  deliveryFormat: EmailAttachmentDeliveryFormat;
   input: EmailAttachmentInput;
 };
 
@@ -57,6 +61,7 @@ export function normalizeEmailAttachmentInputs(value: unknown): EmailAttachmentI
       size: typeof record.size === 'number' && Number.isFinite(record.size) && record.size >= 0 ? record.size : undefined,
       path: cleanString(record.path) || undefined,
       uploadId: cleanString(record.uploadId) || undefined,
+      deliveryFormat: record.deliveryFormat === 'pdf' || record.deliveryFormat === 'original' ? record.deliveryFormat : undefined,
     };
     output.push(normalized);
   }
@@ -64,7 +69,7 @@ export function normalizeEmailAttachmentInputs(value: unknown): EmailAttachmentI
   return output;
 }
 
-function assertAttachmentLimit(metadata: EmailAttachmentMetadata[]) {
+function assertAttachmentLimit(metadata: Array<{ size: number }>) {
   if (metadata.length > EMAIL_ATTACHMENT_MAX_FILES) {
     throw new Error(`Maximum ${EMAIL_ATTACHMENT_MAX_FILES} attachments per email.`);
   }
@@ -81,7 +86,24 @@ async function resolveWorkspaceAttachmentMetadata(input: EmailAttachmentInput): 
   const stats = await getWorkspaceFileStats(workspacePath);
   if (!stats.isFile) throw new Error(`Attachment "${workspacePath}" is not a file.`);
   const name = cleanFileName(input.name || workspacePath);
+  const wantsPdf = input.deliveryFormat === 'pdf';
+  if (wantsPdf) {
+    const markdownName = isMarkdownEmailAttachmentName(name) ? name : path.basename(workspacePath);
+    if (!isMarkdownEmailAttachmentName(workspacePath) && !isMarkdownEmailAttachmentName(markdownName)) {
+      throw new Error(`Attachment "${name}" cannot be sent as PDF because it is not a markdown file.`);
+    }
+    return {
+      deliveryFormat: 'pdf',
+      input: { ...input, path: workspacePath },
+      mimeType: 'application/pdf',
+      name: cleanFileName(markdownEmailAttachmentPdfName(markdownName)),
+      size: stats.size,
+      source: 'workspace',
+    };
+  }
+
   return {
+    deliveryFormat: 'original',
     input: { ...input, path: workspacePath },
     mimeType: inferEmailAttachmentMimeType(name, input.mimeType),
     name,
@@ -96,7 +118,12 @@ async function resolveUploadAttachmentMetadata(input: EmailAttachmentInput): Pro
   const info = await getUploadedFileInfo(uploadId);
   if (!info) throw new Error(`Uploaded attachment "${uploadId}" was not found.`);
   const name = cleanFileName(input.name || info.originalName || uploadId);
+  if (input.deliveryFormat === 'pdf') {
+    throw new Error(`Uploaded attachment "${name}" cannot be sent as PDF. Attach a workspace markdown file to use PDF conversion.`);
+  }
+
   return {
+    deliveryFormat: 'original',
     input: { ...input, uploadId },
     mimeType: inferEmailAttachmentMimeType(name, input.mimeType || info.mimeType),
     name,
@@ -111,9 +138,11 @@ async function resolveAttachmentMetadata(input: EmailAttachmentInput): Promise<E
 }
 
 async function readAttachmentContent(metadata: EmailAttachmentMetadata): Promise<ResolvedEmailAttachment> {
-  const content = metadata.source === 'workspace'
-    ? await readWorkspaceFile(metadata.input.path || '')
-    : await readUploadedFile(metadata.input.uploadId || '');
+  const content = metadata.deliveryFormat === 'pdf'
+    ? await renderWorkspaceMarkdownPdf(metadata)
+    : metadata.source === 'workspace'
+      ? await readWorkspaceFile(metadata.input.path || '')
+      : await readUploadedFile(metadata.input.uploadId || '');
 
   if (!content) throw new Error(`Attachment "${metadata.name}" could not be read.`);
   if (estimateEmailAttachmentTransferBytes(content.length) > EMAIL_ATTACHMENT_TOTAL_LIMIT_BYTES) {
@@ -129,6 +158,15 @@ async function readAttachmentContent(metadata: EmailAttachmentMetadata): Promise
   };
 }
 
+async function renderWorkspaceMarkdownPdf(metadata: EmailAttachmentMetadata): Promise<Buffer> {
+  if (metadata.source !== 'workspace' || !metadata.input.path) {
+    throw new Error(`Attachment "${metadata.name}" cannot be rendered as PDF.`);
+  }
+
+  const { renderMarkdownWorkspaceFileToPdf } = await import('@/app/lib/pdf/markdown-pdf');
+  return renderMarkdownWorkspaceFileToPdf(metadata.input.path);
+}
+
 export async function resolveEmailAttachments(value: unknown): Promise<ResolvedEmailAttachment[]> {
   const inputs = normalizeEmailAttachmentInputs(value);
   if (inputs.length === 0) return [];
@@ -137,6 +175,6 @@ export async function resolveEmailAttachments(value: unknown): Promise<ResolvedE
   assertAttachmentLimit(metadata);
 
   const resolved = await Promise.all(metadata.map(readAttachmentContent));
-  assertAttachmentLimit(resolved.map((attachment) => ({ ...attachment, input: { source: attachment.source } })));
+  assertAttachmentLimit(resolved);
   return resolved;
 }

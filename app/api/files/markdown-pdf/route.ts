@@ -1,10 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/app/lib/auth';
-import { getCachedMarkdownHtmlDocument } from '@/app/lib/pdf/markdown-export-cache';
-import { generatePdfFromHtml } from '@/app/lib/pdf/browser';
-import path from 'path';
-
-const PDF_TIMEOUT_MS = 30_000;
+import { assertMarkdownPdfExportPath, getMarkdownPdfAttachmentName, renderMarkdownWorkspaceFileToPdf } from '@/app/lib/pdf/markdown-pdf';
 
 export async function POST(request: NextRequest) {
   const session = await auth.api.getSession({ headers: request.headers });
@@ -23,30 +19,22 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const ext = path.extname(filePath).toLowerCase();
-    if (!['.md', '.mdx', '.markdown'].includes(ext)) {
+    try {
+      assertMarkdownPdfExportPath(filePath);
+    } catch (error) {
       return NextResponse.json(
-        { success: false, error: 'File must be a markdown file (.md, .mdx, .markdown)' },
+        { success: false, error: error instanceof Error ? error.message : 'File must be a markdown file (.md, .mdx, .markdown)' },
         { status: 400 }
       );
     }
 
-    const fileName = path.basename(filePath, ext);
-
-    const html = await getCachedMarkdownHtmlDocument(filePath);
-
-    const pdfBuffer = await Promise.race([
-      generatePdfFromHtml(html),
-      new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error('PDF_TIMEOUT')), PDF_TIMEOUT_MS)
-      ),
-    ]);
+    const pdfBuffer = await renderMarkdownWorkspaceFileToPdf(filePath);
 
     return new NextResponse(new Uint8Array(pdfBuffer), {
       status: 200,
       headers: {
         'Content-Type': 'application/pdf',
-        'Content-Disposition': `attachment; filename="${fileName}.pdf"`,
+        'Content-Disposition': `attachment; filename="${getMarkdownPdfAttachmentName(filePath)}"`,
         'Content-Length': pdfBuffer.length.toString(),
         'Cache-Control': 'private, no-cache',
       },

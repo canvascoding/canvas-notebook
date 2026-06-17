@@ -58,6 +58,7 @@
     "test:email:html-conversion": "tsx scripts/email-html-conversion-test.ts",
     "test:email:derived-draft": "tsx scripts/email-derived-draft-html-test.ts",
     "test:email:mime": "tsx scripts/email-mime-header-test.ts",
+    "test:email:attachments": "tsx scripts/email-attachments-test.ts",
     "test:email:accounts": "tsx scripts/email-accounts-service-test.ts",
     "test:auth:setup": "tsx --conditions react-server scripts/auth-setup-test.ts",
     "test:cli:admin": "bash scripts/cli-admin-command-test.sh",

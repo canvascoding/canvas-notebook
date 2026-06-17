@@ -10,13 +10,18 @@ import {
   emailAttachmentLimitUsageBytes,
   formatEmailAttachmentSize,
   inferEmailAttachmentMimeType,
+  isMarkdownEmailAttachmentName,
   type EmailAttachmentDraft,
+  type EmailAttachmentDeliveryFormat,
 } from '@/app/lib/email/attachment-types';
+import { getFileDisplayName } from '@/app/lib/files/display-name';
 import { getFileIconComponent, isImageFile } from '@/app/lib/files/file-icons';
 import { toUploadPreviewUrl } from '@/app/lib/utils/media-url';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { cn } from '@/lib/utils';
 
@@ -38,6 +43,8 @@ export type EmailAttachmentPanelLabels = {
   attachmentsRemove: string;
   attachmentsSearchPlaceholder: string;
   attachmentsSelectFiles: string;
+  attachmentsSendMarkdownAsPdf: string;
+  attachmentsSendMarkdownAsPdfShort: string;
   attachmentsTabUpload: string;
   attachmentsTabWorkspace: string;
   attachmentsUploadDrop: string;
@@ -78,13 +85,26 @@ function makeWorkspaceAttachment(file: WorkspaceAttachmentFile): EmailAttachment
 function mergeAttachments(current: EmailAttachmentDraft[], additions: EmailAttachmentDraft[]): EmailAttachmentDraft[] {
   const byKey = new Map(current.map((attachment) => [attachmentKey(attachment), attachment]));
   for (const attachment of additions) {
-    byKey.set(attachmentKey(attachment), attachment);
+    const key = attachmentKey(attachment);
+    const existing = byKey.get(key);
+    byKey.set(key, existing ? {
+      ...existing,
+      ...attachment,
+      deliveryFormat: attachment.deliveryFormat ?? existing.deliveryFormat,
+    } : attachment);
   }
   return Array.from(byKey.values());
 }
 
 function isImageAttachment(attachment: EmailAttachmentDraft): boolean {
   return attachment.mimeType.startsWith('image/') || isImageFile(attachment.name) || Boolean(attachment.path && isImageFile(attachment.path));
+}
+
+function isWorkspaceMarkdownAttachment(attachment: EmailAttachmentDraft): boolean {
+  if (attachment.source !== 'workspace') return false;
+  return isMarkdownEmailAttachmentName(attachment.path)
+    || isMarkdownEmailAttachmentName(attachment.name)
+    || attachment.mimeType === 'text/markdown';
 }
 
 function AttachmentIcon({ attachment }: { attachment: EmailAttachmentDraft }) {
@@ -144,13 +164,15 @@ function AttachmentRow({
     onClick ? 'transition hover:border-primary/50 hover:bg-muted/60' : null,
     isSelected ? 'border-primary bg-primary/5 text-primary' : null,
   );
+  const displayName = getFileDisplayName({ name: attachment.name, type: 'file' });
   const rowContent = (
     <>
       {onClick ? (
         isSelected ? <CheckSquare2 className="h-4 w-4 shrink-0" /> : <Square className="h-4 w-4 shrink-0 text-muted-foreground" />
       ) : null}
       <AttachmentIcon attachment={attachment} />
-      <span className="min-w-0 flex-1 truncate">{attachment.name}</span>
+      <span className="min-w-0 flex-1 truncate">{displayName}</span>
+      {!onClick && attachment.deliveryFormat === 'pdf' ? <Badge variant="secondary" className="h-5 shrink-0 px-1.5 text-[10px]">PDF</Badge> : null}
       <span className="shrink-0 text-[11px] text-muted-foreground">{formatEmailAttachmentSize(attachment.size)}</span>
     </>
   );
@@ -283,6 +305,13 @@ export function EmailAttachmentPanel({ attachments, disabled = false, labels, on
     onChange(attachments.filter((item) => attachmentKey(item) !== key));
   }, [attachments, onChange]);
 
+  const updateAttachmentDeliveryFormat = useCallback((attachment: EmailAttachmentDraft, deliveryFormat: EmailAttachmentDeliveryFormat) => {
+    const key = attachmentKey(attachment);
+    onChange(attachments.map((item) => (
+      attachmentKey(item) === key ? { ...item, deliveryFormat } : item
+    )));
+  }, [attachments, onChange]);
+
   const confirmSelection = useCallback(() => {
     const next = mergeAttachments(attachments, selected);
     if (emailAttachmentLimitUsageBytes(next) > EMAIL_ATTACHMENT_TOTAL_LIMIT_BYTES) {
@@ -313,6 +342,21 @@ export function EmailAttachmentPanel({ attachments, disabled = false, labels, on
           {attachments.map((attachment) => (
             <div key={attachmentKey(attachment)} className="flex min-w-0 items-center gap-1">
               <AttachmentRow attachment={attachment} />
+              {isWorkspaceMarkdownAttachment(attachment) ? (
+                <div
+                  className="flex h-7 shrink-0 items-center gap-1.5 border border-border bg-background px-2 text-[11px] text-muted-foreground"
+                  title={labels.attachmentsSendMarkdownAsPdf.replace('{name}', getFileDisplayName({ name: attachment.name, type: 'file' }))}
+                >
+                  <Switch
+                    size="sm"
+                    checked={attachment.deliveryFormat === 'pdf'}
+                    onCheckedChange={(checked) => updateAttachmentDeliveryFormat(attachment, checked ? 'pdf' : 'original')}
+                    disabled={disabled}
+                    aria-label={labels.attachmentsSendMarkdownAsPdf.replace('{name}', getFileDisplayName({ name: attachment.name, type: 'file' }))}
+                  />
+                  <span>{labels.attachmentsSendMarkdownAsPdfShort}</span>
+                </div>
+              ) : null}
               <button
                 type="button"
                 className="flex h-7 w-7 shrink-0 items-center justify-center border border-border bg-background text-muted-foreground hover:text-destructive disabled:opacity-50"

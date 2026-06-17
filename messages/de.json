@@ -1209,6 +1209,8 @@
     "attachmentsUploadDrop": "Dateien zum Hochladen ablegen",
     "attachmentsSelectFiles": "Dateien auswählen",
     "attachmentsRemove": "Anhang entfernen",
+    "attachmentsSendMarkdownAsPdf": "{name} als PDF senden",
+    "attachmentsSendMarkdownAsPdfShort": "PDF",
     "attachmentsCancel": "Abbrechen",
     "attachmentsConfirm": "Auswahl anhängen",
     "attachmentsLimitExceeded": "E-Mail-Anhänge überschreiten das Gesamtlimit von 20 MB.",

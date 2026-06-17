@@ -758,6 +758,8 @@ type EmailComposeDialogLabels = Pick<EmailMessageViewerLabels, 'cc' | 'date' | '
   attachmentsRemove: string;
   attachmentsSearchPlaceholder: string;
   attachmentsSelectFiles: string;
+  attachmentsSendMarkdownAsPdf: string;
+  attachmentsSendMarkdownAsPdfShort: string;
   attachmentsTabUpload: string;
   attachmentsTabWorkspace: string;
   attachmentsUploadDrop: string;
@@ -2737,6 +2739,8 @@ export function EmailClient() {
     attachmentsRemove: t('attachmentsRemove'),
     attachmentsSearchPlaceholder: t('attachmentsSearchPlaceholder'),
     attachmentsSelectFiles: t('attachmentsSelectFiles'),
+    attachmentsSendMarkdownAsPdf: t('attachmentsSendMarkdownAsPdf'),
+    attachmentsSendMarkdownAsPdfShort: t('attachmentsSendMarkdownAsPdfShort'),
     attachmentsTabUpload: t('attachmentsTabUpload'),
     attachmentsTabWorkspace: t('attachmentsTabWorkspace'),
     attachmentsUploadDrop: t('attachmentsUploadDrop'),

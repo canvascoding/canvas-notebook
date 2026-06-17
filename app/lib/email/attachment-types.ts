@@ -2,6 +2,7 @@ export const EMAIL_ATTACHMENT_TOTAL_LIMIT_BYTES = 20 * 1024 * 1024;
 export const EMAIL_ATTACHMENT_MAX_FILES = 25;
 
 export type EmailAttachmentSource = 'workspace' | 'upload';
+export type EmailAttachmentDeliveryFormat = 'original' | 'pdf';
 
 export type EmailAttachmentInput = {
   source: EmailAttachmentSource;
@@ -10,6 +11,7 @@ export type EmailAttachmentInput = {
   size?: number;
   path?: string;
   uploadId?: string;
+  deliveryFormat?: EmailAttachmentDeliveryFormat;
 };
 
 export type EmailAttachmentDraft = {
@@ -20,6 +22,7 @@ export type EmailAttachmentDraft = {
   size: number;
   path?: string;
   uploadId?: string;
+  deliveryFormat?: EmailAttachmentDeliveryFormat;
 };
 
 const MIME_BY_EXTENSION: Record<string, string> = {
@@ -33,6 +36,8 @@ const MIME_BY_EXTENSION: Record<string, string> = {
   '.jpg': 'image/jpeg',
   '.json': 'application/json',
   '.md': 'text/markdown',
+  '.markdown': 'text/markdown',
+  '.mdx': 'text/markdown',
   '.pdf': 'application/pdf',
   '.png': 'image/png',
   '.rtf': 'application/rtf',
@@ -43,6 +48,18 @@ const MIME_BY_EXTENSION: Record<string, string> = {
   '.xml': 'text/xml',
   '.zip': 'application/zip',
 };
+
+const MARKDOWN_ATTACHMENT_EXTENSION_PATTERN = /\.(md|mdx|markdown)$/iu;
+
+export function isMarkdownEmailAttachmentName(name?: string): boolean {
+  return typeof name === 'string' && MARKDOWN_ATTACHMENT_EXTENSION_PATTERN.test(name.trim());
+}
+
+export function markdownEmailAttachmentPdfName(name: string): string {
+  const normalized = name.trim();
+  const converted = normalized.replace(MARKDOWN_ATTACHMENT_EXTENSION_PATTERN, '.pdf');
+  return converted === normalized ? `${normalized || 'attachment'}.pdf` : converted;
+}
 
 export function inferEmailAttachmentMimeType(name: string, fallback?: string): string {
   const normalizedFallback = typeof fallback === 'string' ? fallback.trim().toLowerCase() : '';

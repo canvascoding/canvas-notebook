@@ -6,12 +6,14 @@ type FileDisplayNode = {
 export function getFileDisplayName(node: FileDisplayNode): string {
   if (node.type !== 'file') return node.name;
 
-  const markdownExtension = '.md';
-  if (
-    node.name.length > markdownExtension.length &&
-    node.name.toLowerCase().endsWith(markdownExtension)
-  ) {
-    return node.name.slice(0, -markdownExtension.length);
+  const markdownExtensions = ['.markdown', '.mdx', '.md'];
+  const lowerName = node.name.toLowerCase();
+  const extension = markdownExtensions.find((item) => (
+    node.name.length > item.length && lowerName.endsWith(item)
+  ));
+
+  if (extension) {
+    return node.name.slice(0, -extension.length);
   }
 
   return node.name;
