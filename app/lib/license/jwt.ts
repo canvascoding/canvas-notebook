@@ -4,6 +4,10 @@ import crypto from 'crypto';
 import { resolveLicensePublicKeys } from './public-key';
 import type { LicenseCert } from './types';
 
+const LICENSE_ISSUER = 'canvas-control-plane';
+const LICENSE_AUDIENCE = 'canvas-notebook';
+const MAX_IAT_SKEW_MS = 5 * 60 * 1000;
+
 function base64UrlDecode(value: string): Buffer {
   const normalized = value.replace(/-/g, '+').replace(/_/g, '/');
   const padded = normalized.padEnd(normalized.length + ((4 - (normalized.length % 4)) % 4), '=');
@@ -34,8 +38,11 @@ export async function verifyLicenseJwt(token: string, expectedInstanceId: string
 
   const payload = decodeLicenseJwt(token);
   if (!payload || payload.sub !== expectedInstanceId) return null;
-  if (payload.aud && payload.aud !== 'canvas-notebook') return null;
-  if (payload.exp && payload.exp * 1000 <= Date.now()) return null;
+  if (payload.iss !== LICENSE_ISSUER) return null;
+  if (payload.aud !== LICENSE_AUDIENCE) return null;
+  if (payload.status !== 'active') return null;
+  if (payload.iat && payload.iat * 1000 > Date.now() + MAX_IAT_SKEW_MS) return null;
+  if (!payload.exp || payload.exp * 1000 <= Date.now()) return null;
   if (!['community', 'pro', 'managed'].includes(payload.plan)) return null;
 
   const signed = `${encodedHeader}.${encodedPayload}`;

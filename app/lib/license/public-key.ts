@@ -13,7 +13,9 @@ const CONTROL_PLANE_TIMEOUT_MS = 5000;
 const LICENSE_KEY_ALG = 'RS256';
 
 const BUNDLED_PUBLIC_KEYS: string[] = [];
-const BUNDLED_TRUSTED_FINGERPRINTS: string[] = [];
+const BUNDLED_TRUSTED_FINGERPRINTS: string[] = [
+  '5cdaa9e29bb12ad9061c672b5aa547ad777d8095ceb2bd9705c9207e0b2e7133',
+];
 const LOG_PREFIX = '[license/public-key]';
 
 export type LicensePublicKeySource = 'env' | 'bundled' | 'control_plane' | 'sqlite' | 'none';
@@ -109,12 +111,15 @@ function parseFingerprintConfig(configured?: string): string[] {
   return normalized.split(',').map((entry) => entry.trim().toLowerCase()).filter(Boolean);
 }
 
-function resolveFromEnv(): LicensePublicKey[] {
+function resolveFromEnv(): LicensePublicKeyResolution | null {
   const configured = process.env.CANVAS_LICENSE_PUBLIC_KEY?.trim();
-  if (!configured) return [];
-  return parseKeyConfig(configured)
+  if (!configured) return null;
+  const keys = parseKeyConfig(configured)
     .map((key) => toLicensePublicKey(key))
-    .filter((key): key is LicensePublicKey => Boolean(key));
+    .filter((key): key is LicensePublicKey => Boolean(key && isTrustedConfiguredKey(key)));
+  if (keys.length > 0) return { keys, source: 'env' };
+  console.warn(`${LOG_PREFIX} rejected untrusted env public key`);
+  return { keys: [], source: 'none', error: 'untrusted_key' };
 }
 
 function resolveBundled(): LicensePublicKey[] {
@@ -132,6 +137,11 @@ function trustedFingerprintSet(): Set<string> {
 }
 
 function isTrustedFetchedKey(key: LicensePublicKey): boolean {
+  const trusted = trustedFingerprintSet();
+  return trusted.has(key.fingerprint.toLowerCase());
+}
+
+function isTrustedConfiguredKey(key: LicensePublicKey): boolean {
   const trusted = trustedFingerprintSet();
   return trusted.size === 0 || trusted.has(key.fingerprint.toLowerCase());
 }
@@ -285,13 +295,14 @@ async function persistToSQLite(key: LicensePublicKey): Promise<void> {
 }
 
 export async function resolveLicensePublicKeys(): Promise<LicensePublicKeyResolution> {
-  const envKeys = resolveFromEnv();
-  if (envKeys.length > 0) {
+  const env = resolveFromEnv();
+  if (env) {
+    if (env.keys.length === 0) return env;
     logLicenseInfoThrottled(LOG_PREFIX, 'resolved from env', {
-      count: envKeys.length,
-      kids: envKeys.map((key) => key.kid),
+      count: env.keys.length,
+      kids: env.keys.map((key) => key.kid),
     });
-    return { keys: envKeys, source: 'env' };
+    return env;
   }
 
   const bundledKeys = resolveBundled();

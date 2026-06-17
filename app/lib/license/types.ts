@@ -1,8 +1,13 @@
 export type LicensePlan = 'unregistered' | 'community' | 'pro' | 'managed';
+export type LicenseDeploymentMode = 'community' | 'managed-single' | 'managed-team' | 'enterprise-onprem' | string;
 
 export interface LicenseCert {
   sub: string;
   plan: LicensePlan;
+  status?: 'active' | 'issued' | string;
+  deploymentMode?: LicenseDeploymentMode;
+  organizationId?: string;
+  entitlementsVersion?: number;
   features?: Record<string, boolean>;
   quotas?: Record<string, number>;
   iss?: string;
@@ -15,6 +20,9 @@ export interface LicenseStatus {
   plan: LicensePlan;
   licensed: boolean;
   instanceId: string;
+  deploymentMode: LicenseDeploymentMode | null;
+  organizationId: string | null;
+  entitlementsVersion: number | null;
   expiresAt: string | null;
   features: Record<string, boolean>;
   quotas: Record<string, number>;
