@@ -3,8 +3,37 @@ import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import Module from 'node:module';
 
 import JSZip from 'jszip';
+
+const moduleInternals = Module as typeof Module & {
+  _load: (request: string, parent: NodeModule | null, isMain: boolean) => unknown;
+};
+const originalLoad = moduleInternals._load;
+moduleInternals._load = (request, parent, isMain) => {
+  if (request === 'server-only') {
+    return {};
+  }
+  if (request === '@earendil-works/pi-ai') {
+    return {
+      completeSimple: async () => {
+        throw new Error('pi-ai should not be called by the Canvas plugin runtime test.');
+      },
+      streamSimple: async function* () {
+        throw new Error('pi-ai should not be streamed by the Canvas plugin runtime test.');
+      },
+      getModels: () => [],
+      getProviders: () => [],
+      isContextOverflow: () => false,
+      registerBuiltInApiProviders: () => undefined,
+    };
+  }
+  if (request === '@earendil-works/pi-ai/oauth') {
+    return {};
+  }
+  return originalLoad(request, parent, isMain);
+};
 
 async function writeFile(filePath: string, content: string): Promise<void> {
   await fs.mkdir(path.dirname(filePath), { recursive: true });
@@ -94,6 +123,9 @@ async function createStoreArchive(pluginRoot: string, checksum: string): Promise
         latestVersion: '1.0.0',
         icon: 'plugins/test-plugin/1.0.0/assets/icon.svg',
         brandColor: '#2563EB',
+        connectors: {
+          composio: ['google-drive'],
+        },
         skills: ['test-plugin-skill'],
         versions: {
           '1.0.0': {
@@ -135,6 +167,7 @@ async function main() {
     const {
       installCanvasPluginFromStore,
       listCanvasPluginStore,
+      preflightCanvasPluginFromStore,
     } = await import('../app/lib/plugins/canvas-plugin-store');
     const {
       buildReferencedPluginRuntimeContext,
@@ -180,6 +213,18 @@ async function main() {
     assert.equal(store.plugins.length, 1);
     assert.equal(store.plugins[0].name, 'test-plugin');
     assert.equal(store.plugins[0].installed.installed, false);
+    assert.equal(store.pagination.totalItems, 1);
+    assert.equal(store.stats.available, 1);
+
+    const paginatedStore = await listCanvasPluginStore({ page: 1, pageSize: 1, query: 'test', state: 'available' });
+    assert.equal(paginatedStore.plugins.length, 1);
+    assert.equal(paginatedStore.pagination.pageSize, 1);
+    assert.equal(paginatedStore.pagination.totalItems, 1);
+
+    const preflight = await preflightCanvasPluginFromStore('test-plugin', undefined, 'test-user');
+    assert.equal(preflight.pluginName, 'test-plugin');
+    assert.equal(preflight.summary.total, 1);
+    assert.equal(preflight.items[0].type, 'composio');
 
     const storeInstall = await installCanvasPluginFromStore('test-plugin', undefined, { enable: true });
     assert.equal(storeInstall.success, true, storeInstall.error || JSON.stringify(storeInstall.validation));

@@ -2772,6 +2772,7 @@
       "emptyStore": "Keine Plugins im Store gefunden.",
       "noUpdates": "Alle installierten Store-Plugins sind aktuell.",
       "addPlugin": "Plugin hinzufügen",
+      "checkApps": "Apps prüfen",
       "installed": "Installiert",
       "update": "Aktualisieren",
       "updateAvailable": "Update verfügbar",
@@ -2782,6 +2783,20 @@
         "installed": "Installiert",
         "updates": "Updates ({count})",
         "advanced": "Advanced"
+      },
+      "pagination": {
+        "status": "Seite {page} von {totalPages} · {totalItems} Plugins",
+        "previous": "Zurück",
+        "next": "Weiter"
+      },
+      "preflight": {
+        "checking": "Apps und Connectoren werden geprüft...",
+        "title": "App-Check",
+        "ready": "Bereit",
+        "needsSetup": "Setup offen",
+        "summary": "{ready}/{total} bereit. Erforderlich offen: {required}, empfohlen offen: {recommended}.",
+        "setup": "Einrichten",
+        "noConnectors": "Keine Connector-Empfehlungen hinterlegt."
       },
       "sourcePathPlaceholder": "/absoluter/pfad/zum/plugin-paket",
       "install": "Plugin installieren",
@@ -2818,6 +2833,7 @@
       "errors": {
         "load": "Plugins konnten nicht geladen werden.",
         "storeLoad": "Canvas Plugin Store konnte nicht geladen werden.",
+        "preflight": "Plugin-Apps konnten nicht geprüft werden.",
         "install": "Plugin konnte nicht installiert werden.",
         "toggle": "Plugin konnte nicht aktualisiert werden.",
         "delete": "Plugin konnte nicht entfernt werden.",

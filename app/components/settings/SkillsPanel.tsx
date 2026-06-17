@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, startTransition } from 'react';
+import { useState, useEffect, useCallback, startTransition, useDeferredValue } from 'react';
 import { useTranslations } from 'next-intl';
 import { Link } from '@/i18n/navigation';
 import {
@@ -19,6 +19,7 @@ import {
   FileText,
   FileCode,
   File,
+  ChevronLeft,
   ChevronRight,
   Info,
   Plug,
@@ -141,6 +142,58 @@ type CanvasPluginStoreMetadata = {
   homepage?: string;
 };
 
+type CanvasPluginStorePagination = {
+  page: number;
+  pageSize: number;
+  totalItems: number;
+  totalPages: number;
+  hasNextPage: boolean;
+  hasPreviousPage: boolean;
+};
+
+type CanvasPluginStoreStats = {
+  total: number;
+  installed: number;
+  available: number;
+  updates: number;
+  filteredTotal: number;
+};
+
+type PluginPreflightItem = {
+  type: 'composio' | 'email' | 'mcp';
+  key: string;
+  label: string;
+  required: boolean;
+  ready: boolean;
+  available?: boolean;
+  connected?: boolean;
+  configured?: boolean;
+  logo?: string;
+  reason?: string;
+  details?: string[];
+  action: 'none' | 'configure-composio' | 'connect-composio' | 'configure-email' | 'configure-mcp';
+};
+
+type PluginPreflight = {
+  pluginName: string;
+  version: string;
+  ready: boolean;
+  hasRequiredMissing: boolean;
+  items: PluginPreflightItem[];
+  summary: {
+    total: number;
+    ready: number;
+    requiredMissing: number;
+    recommendedMissing: number;
+  };
+};
+
+type PluginPreflightState = {
+  isLoading?: boolean;
+  error?: string;
+  result?: PluginPreflight;
+};
+
 type ComposioToolkitSummary = {
   slug: string;
   name: string;
@@ -165,6 +218,23 @@ const EMPTY_COMPOSIO_CONNECTOR_STATE: ComposioConnectorState = {
   apiKeyValid: false,
   toolkitsBySlug: {},
   connectedSlugs: {},
+};
+
+const PLUGIN_STORE_PAGE_SIZE = 12;
+const EMPTY_STORE_PAGINATION: CanvasPluginStorePagination = {
+  page: 1,
+  pageSize: PLUGIN_STORE_PAGE_SIZE,
+  totalItems: 0,
+  totalPages: 1,
+  hasNextPage: false,
+  hasPreviousPage: false,
+};
+const EMPTY_STORE_STATS: CanvasPluginStoreStats = {
+  total: 0,
+  installed: 0,
+  available: 0,
+  updates: 0,
+  filteredTotal: 0,
 };
 
 function uniqueByKey<T>(entries: T[], getKey: (entry: T) => string): T[] {
@@ -199,12 +269,25 @@ function getMcpRecommendations(connectors: CanvasPluginSettingsRecord['connector
   );
 }
 
+function hasConnectorRecommendations(connectors: CanvasPluginSettingsRecord['connectors']): boolean {
+  return getComposioRecommendations(connectors).length > 0
+    || (connectors?.email?.length || 0) > 0
+    || getMcpRecommendations(connectors).length > 0;
+}
+
+function getPreflightKey(pluginName: string, version?: string): string {
+  return `${pluginName}@${version || 'latest'}`;
+}
+
 function CanvasPluginsSection({ onPluginsChanged }: { onPluginsChanged: () => void }) {
   const t = useTranslations('skills.plugins');
   const [plugins, setPlugins] = useState<CanvasPluginSettingsRecord[]>([]);
   const [storePlugins, setStorePlugins] = useState<CanvasPluginStoreEntry[]>([]);
   const [storeMetadata, setStoreMetadata] = useState<CanvasPluginStoreMetadata | null>(null);
+  const [storePagination, setStorePagination] = useState<CanvasPluginStorePagination>(EMPTY_STORE_PAGINATION);
+  const [storeStats, setStoreStats] = useState<CanvasPluginStoreStats>(EMPTY_STORE_STATS);
   const [storeTab, setStoreTab] = useState<PluginStoreTab>('discover');
+  const [storePage, setStorePage] = useState(1);
   const [searchQuery, setSearchQuery] = useState('');
   const [isLoading, setIsLoading] = useState(true);
   const [sourcePath, setSourcePath] = useState('');
@@ -212,16 +295,26 @@ function CanvasPluginsSection({ onPluginsChanged }: { onPluginsChanged: () => vo
   const [storeError, setStoreError] = useState<string | null>(null);
   const [isInstalling, setIsInstalling] = useState(false);
   const [pendingPluginName, setPendingPluginName] = useState<string | null>(null);
+  const [preflightByPlugin, setPreflightByPlugin] = useState<Record<string, PluginPreflightState>>({});
   const [composioConnectorState, setComposioConnectorState] = useState<ComposioConnectorState>(EMPTY_COMPOSIO_CONNECTOR_STATE);
+  const deferredSearchQuery = useDeferredValue(searchQuery);
 
   const loadPluginData = useCallback(async () => {
+    const storeState = storeTab === 'updates' ? 'updates' : storeTab === 'installed' ? 'installed' : 'all';
+    const storeParams = new URLSearchParams({
+      page: String(storePage),
+      pageSize: String(PLUGIN_STORE_PAGE_SIZE),
+      q: deferredSearchQuery.trim(),
+      state: storeState,
+    });
+
     setIsLoading(true);
     setError(null);
     setStoreError(null);
     try {
       const [pluginsResult, storeResult] = await Promise.allSettled([
         fetch('/api/plugins', { credentials: 'include', cache: 'no-store' }).then((response) => response.json()),
-        fetch('/api/plugins/store', { credentials: 'include', cache: 'no-store' }).then((response) => response.json()),
+        fetch(`/api/plugins/store?${storeParams.toString()}`, { credentials: 'include', cache: 'no-store' }).then((response) => response.json()),
       ]);
 
       if (pluginsResult.status === 'fulfilled' && pluginsResult.value?.success) {
@@ -236,12 +329,16 @@ function CanvasPluginsSection({ onPluginsChanged }: { onPluginsChanged: () => vo
       if (storeResult.status === 'fulfilled' && storeResult.value?.success) {
         setStorePlugins(Array.isArray(storeResult.value.plugins) ? storeResult.value.plugins : []);
         setStoreMetadata(storeResult.value.registry || null);
+        setStorePagination(storeResult.value.pagination || EMPTY_STORE_PAGINATION);
+        setStoreStats(storeResult.value.stats || EMPTY_STORE_STATS);
       } else {
         const message = storeResult.status === 'rejected'
           ? storeResult.reason
           : storeResult.value?.error;
         setStorePlugins([]);
         setStoreMetadata(null);
+        setStorePagination(EMPTY_STORE_PAGINATION);
+        setStoreStats(EMPTY_STORE_STATS);
         setStoreError(message instanceof Error ? message.message : message || t('errors.storeLoad'));
       }
     } catch (loadError) {
@@ -249,7 +346,7 @@ function CanvasPluginsSection({ onPluginsChanged }: { onPluginsChanged: () => vo
     } finally {
       setIsLoading(false);
     }
-  }, [t]);
+  }, [deferredSearchQuery, storePage, storeTab, t]);
 
   useEffect(() => {
     startTransition(() => {
@@ -259,14 +356,12 @@ function CanvasPluginsSection({ onPluginsChanged }: { onPluginsChanged: () => vo
 
   useEffect(() => {
     const requiredToolkits = uniqueByKey(
-      [
-        ...plugins.flatMap((plugin) => getComposioRecommendations(plugin.connectors)),
-        ...storePlugins.flatMap((plugin) => getComposioRecommendations(plugin.connectors)),
-      ],
+      plugins.flatMap((plugin) => getComposioRecommendations(plugin.connectors)),
       (connector) => connector.toolkit,
     );
 
     if (requiredToolkits.length === 0) {
+      setComposioConnectorState(EMPTY_COMPOSIO_CONNECTOR_STATE);
       return;
     }
 
@@ -337,7 +432,7 @@ function CanvasPluginsSection({ onPluginsChanged }: { onPluginsChanged: () => vo
     return () => {
       cancelled = true;
     };
-  }, [plugins, storePlugins, t]);
+  }, [plugins, t]);
 
   async function installLocalPlugin() {
     const trimmedPath = sourcePath.trim();
@@ -369,7 +464,52 @@ function CanvasPluginsSection({ onPluginsChanged }: { onPluginsChanged: () => vo
     }
   }
 
+  async function checkStorePluginPreflight(pluginName: string, version?: string) {
+    const preflightKey = getPreflightKey(pluginName, version);
+    setPreflightByPlugin((current) => ({
+      ...current,
+      [preflightKey]: { ...current[preflightKey], isLoading: true, error: undefined },
+    }));
+    setError(null);
+    try {
+      const response = await fetch('/api/plugins/store/preflight', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: pluginName, version }),
+      });
+      const data = await response.json();
+      if (!data.success) {
+        throw new Error(data.error || t('errors.preflight'));
+      }
+      setPreflightByPlugin((current) => ({
+        ...current,
+        [preflightKey]: { isLoading: false, result: data.preflight },
+      }));
+    } catch (preflightError) {
+      setPreflightByPlugin((current) => ({
+        ...current,
+        [preflightKey]: {
+          isLoading: false,
+          error: preflightError instanceof Error ? preflightError.message : t('errors.preflight'),
+        },
+      }));
+    }
+  }
+
   async function installStorePlugin(pluginName: string, version?: string) {
+    const storePlugin = storePlugins.find((plugin) => plugin.name === pluginName);
+    const preflightKey = getPreflightKey(pluginName, version);
+    const shouldPreflight = Boolean(
+      storePlugin
+      && hasConnectorRecommendations(storePlugin.connectors)
+      && !preflightByPlugin[preflightKey]?.result,
+    );
+
+    if (shouldPreflight) {
+      await checkStorePluginPreflight(pluginName, version);
+      return;
+    }
+
     setPendingPluginName(`store:${pluginName}`);
     setError(null);
     try {
@@ -384,6 +524,11 @@ function CanvasPluginsSection({ onPluginsChanged }: { onPluginsChanged: () => vo
         throw new Error(`${data.error || t('errors.install')}${details}`);
       }
       await loadPluginData();
+      setPreflightByPlugin((current) => {
+        const next = { ...current };
+        delete next[preflightKey];
+        return next;
+      });
       onPluginsChanged();
     } catch (installError) {
       setError(installError instanceof Error ? installError.message : t('errors.install'));
@@ -432,12 +577,14 @@ function CanvasPluginsSection({ onPluginsChanged }: { onPluginsChanged: () => vo
     }
   }
 
-  function renderComposioConnector(connector: CanvasPluginComposioConnector) {
+  function renderComposioConnector(connector: CanvasPluginComposioConnector, showLiveStatus = true) {
     const toolkit = composioConnectorState.toolkitsBySlug[connector.toolkit];
     const isConnected = Boolean(toolkit?.connected || composioConnectorState.connectedSlugs[connector.toolkit]);
     const label = connector.label || toolkit?.name || connector.toolkit;
     const logo = toolkit?.logo;
-    const statusLabel = composioConnectorState.isLoading
+    const statusLabel = !showLiveStatus
+      ? t('connectors.recommended')
+      : composioConnectorState.isLoading
       ? t('connectors.checking')
       : !composioConnectorState.configured || !composioConnectorState.apiKeyValid
         ? t('connectors.composioNotConfigured')
@@ -446,7 +593,7 @@ function CanvasPluginsSection({ onPluginsChanged }: { onPluginsChanged: () => vo
             ? t('connectors.connected')
             : t('connectors.notConnected')
           : t('connectors.unavailable');
-    const statusVariant = isConnected ? 'default' : 'secondary';
+    const statusVariant = showLiveStatus && isConnected ? 'default' : 'secondary';
     const actionLabel = !composioConnectorState.configured || !composioConnectorState.apiKeyValid
       ? t('connectors.configureComposio')
       : isConnected
@@ -479,11 +626,13 @@ function CanvasPluginsSection({ onPluginsChanged }: { onPluginsChanged: () => vo
               </div>
             ) : null}
           </div>
-          <Button asChild variant="outline" size="sm" className="shrink-0">
-            <Link href={`/settings?tab=integrations&section=composio&connected=${encodeURIComponent(connector.toolkit)}`}>
-              {actionLabel}
-            </Link>
-          </Button>
+          {showLiveStatus ? (
+            <Button asChild variant="outline" size="sm" className="shrink-0">
+              <Link href={`/settings?tab=integrations&section=composio&connected=${encodeURIComponent(connector.toolkit)}`}>
+                {actionLabel}
+              </Link>
+            </Button>
+          ) : null}
         </div>
       </div>
     );
@@ -549,10 +698,11 @@ function CanvasPluginsSection({ onPluginsChanged }: { onPluginsChanged: () => vo
     );
   }
 
-  function renderConnectorRecommendations(connectors: CanvasPluginSettingsRecord['connectors']) {
+  function renderConnectorRecommendations(connectors: CanvasPluginSettingsRecord['connectors'], options: { showLiveStatus?: boolean } = {}) {
     const composio = getComposioRecommendations(connectors);
     const email = connectors?.email || [];
     const mcp = getMcpRecommendations(connectors);
+    const showLiveStatus = options.showLiveStatus ?? true;
 
     if (composio.length === 0 && email.length === 0 && mcp.length === 0) {
       return null;
@@ -565,7 +715,7 @@ function CanvasPluginsSection({ onPluginsChanged }: { onPluginsChanged: () => vo
           {t('connectors.title')}
         </div>
         <div className="space-y-2">
-          {composio.map((connector) => renderComposioConnector(connector))}
+          {composio.map((connector) => renderComposioConnector(connector, showLiveStatus))}
           {email.map((connector, index) => renderEmailConnector(connector, index))}
           {mcp.map((connector) => renderMcpConnector(connector))}
         </div>
@@ -600,6 +750,133 @@ function CanvasPluginsSection({ onPluginsChanged }: { onPluginsChanged: () => vo
     );
   }
 
+  function getPreflightActionHref(item: PluginPreflightItem): string | null {
+    if (item.action === 'configure-composio' || item.action === 'connect-composio') {
+      return `/settings?tab=integrations&section=composio&connected=${encodeURIComponent(item.key)}`;
+    }
+    if (item.action === 'configure-email') {
+      return '/settings?tab=integrations&section=email';
+    }
+    if (item.action === 'configure-mcp') {
+      return '/settings?tab=integrations&section=mcp';
+    }
+    return null;
+  }
+
+  function renderPreflightTypeIcon(item: PluginPreflightItem) {
+    if (item.logo) {
+      return (
+        <span
+          className="flex h-7 w-7 shrink-0 rounded-md border bg-background bg-center bg-contain bg-no-repeat"
+          style={{ backgroundImage: `url(${item.logo})` }}
+        />
+      );
+    }
+    if (item.type === 'email') {
+      return (
+        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border bg-background text-muted-foreground">
+          <Mail className="h-3.5 w-3.5" />
+        </span>
+      );
+    }
+    if (item.type === 'mcp') {
+      return (
+        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border bg-background text-muted-foreground">
+          <Server className="h-3.5 w-3.5" />
+        </span>
+      );
+    }
+    return (
+      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border bg-background text-muted-foreground">
+        <Plug className="h-3.5 w-3.5" />
+      </span>
+    );
+  }
+
+  function renderPluginPreflight(plugin: CanvasPluginStoreEntry) {
+    const preflight = preflightByPlugin[getPreflightKey(plugin.name, plugin.latestVersion)];
+    if (!preflight) return null;
+
+    if (preflight.isLoading) {
+      return (
+        <div className="mt-3 flex items-center gap-2 rounded-md border bg-muted/20 px-3 py-2 text-sm text-muted-foreground">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          {t('preflight.checking')}
+        </div>
+      );
+    }
+
+    if (preflight.error) {
+      return (
+        <div className="mt-3 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          {preflight.error}
+        </div>
+      );
+    }
+
+    if (!preflight.result) return null;
+
+    const result = preflight.result;
+    return (
+      <div className="mt-3 space-y-2 rounded-md border bg-muted/20 p-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+            {result.hasRequiredMissing ? <Info className="h-3.5 w-3.5" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
+            {t('preflight.title')}
+          </div>
+          <Badge variant={result.hasRequiredMissing ? 'destructive' : 'secondary'} className="text-[10px]">
+            {result.hasRequiredMissing ? t('preflight.needsSetup') : t('preflight.ready')}
+          </Badge>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          {t('preflight.summary', {
+            ready: result.summary.ready,
+            total: result.summary.total,
+            required: result.summary.requiredMissing,
+            recommended: result.summary.recommendedMissing,
+          })}
+        </p>
+        {result.items.length ? (
+          <div className="space-y-1.5">
+            {result.items.map((item) => {
+              const actionHref = getPreflightActionHref(item);
+              return (
+                <div key={`${item.type}-${item.key}`} className="flex items-start gap-2 rounded-md bg-background/70 px-2 py-2">
+                  {renderPreflightTypeIcon(item)}
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span className="truncate text-xs font-medium">{item.label}</span>
+                      <Badge variant="outline" className="text-[9px]">{item.type}</Badge>
+                      <Badge variant={item.required ? 'destructive' : 'secondary'} className="text-[9px]">
+                        {item.required ? t('connectors.required') : t('connectors.recommended')}
+                      </Badge>
+                      <Badge variant={item.ready ? 'default' : 'secondary'} className="text-[9px]">
+                        {item.ready ? t('connectors.connected') : t('connectors.notConnected')}
+                      </Badge>
+                    </div>
+                    {item.reason ? <p className="mt-1 text-[11px] text-muted-foreground">{item.reason}</p> : null}
+                    {item.details?.length ? (
+                      <p className="mt-1 text-[11px] text-muted-foreground">{item.details.join(' · ')}</p>
+                    ) : null}
+                  </div>
+                  {actionHref ? (
+                    <Button asChild variant="outline" size="sm" className="h-7 shrink-0 px-2 text-xs">
+                      <Link href={actionHref}>{t('preflight.setup')}</Link>
+                    </Button>
+                  ) : null}
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="rounded-md bg-background/70 px-2 py-2 text-xs text-muted-foreground">
+            {t('preflight.noConnectors')}
+          </div>
+        )}
+      </div>
+    );
+  }
+
   const storeByName = new Map(storePlugins.map((plugin) => [plugin.name, plugin]));
 
   function isStoreEntry(plugin: CanvasPluginStoreEntry | CanvasPluginSettingsRecord): plugin is CanvasPluginStoreEntry {
@@ -630,12 +907,22 @@ function CanvasPluginsSection({ onPluginsChanged }: { onPluginsChanged: () => vo
     const isPending = pendingPluginName === `store:${plugin.name}`;
     const isInstalled = plugin.installed.installed;
     const updateAvailable = plugin.installed.updateAvailable;
-    const buttonLabel = updateAvailable
+    const preflightKey = getPreflightKey(plugin.name, plugin.latestVersion);
+    const preflightState = preflightByPlugin[preflightKey];
+    const needsPreflight = hasConnectorRecommendations(plugin.connectors)
+      && !preflightState?.result
+      && (!isInstalled || updateAvailable);
+    const isChecking = Boolean(preflightState?.isLoading);
+    const buttonLabel = needsPreflight
+      ? t('checkApps')
+      : updateAvailable
       ? t('update')
       : isInstalled
         ? t('installed')
         : t('addPlugin');
-    const buttonIcon = updateAvailable
+    const buttonIcon = needsPreflight
+      ? <Plug className="h-3.5 w-3.5" />
+      : updateAvailable
       ? <ArrowUpCircle className="h-3.5 w-3.5" />
       : <Download className="h-3.5 w-3.5" />;
 
@@ -667,7 +954,8 @@ function CanvasPluginsSection({ onPluginsChanged }: { onPluginsChanged: () => vo
             ) : null}
           </div>
         </div>
-        {renderConnectorRecommendations(plugin.connectors)}
+        {renderConnectorRecommendations(plugin.connectors, { showLiveStatus: false })}
+        {renderPluginPreflight(plugin)}
         <div className="mt-4 flex items-center justify-between gap-3 border-t pt-3">
           <span className="text-xs text-muted-foreground">
             {plugin.publisher?.name || storeMetadata?.name || t('officialStore')}
@@ -675,11 +963,11 @@ function CanvasPluginsSection({ onPluginsChanged }: { onPluginsChanged: () => vo
           <Button
             variant={updateAvailable || !isInstalled ? 'default' : 'outline'}
             size="sm"
-            disabled={isPending || (isInstalled && !updateAvailable)}
+            disabled={isPending || isChecking || (isInstalled && !updateAvailable)}
             onClick={() => void installStorePlugin(plugin.name, plugin.latestVersion)}
             className="gap-1.5"
           >
-            {isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : buttonIcon}
+            {isPending || isChecking ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : buttonIcon}
             {buttonLabel}
           </Button>
         </div>
@@ -760,9 +1048,48 @@ function CanvasPluginsSection({ onPluginsChanged }: { onPluginsChanged: () => vo
   }
 
   const enabledCount = plugins.filter((plugin) => plugin.enabled).length;
-  const filteredStorePlugins = storePlugins.filter(matchesSearch);
   const filteredInstalledPlugins = plugins.filter(matchesSearch);
-  const updatePlugins = storePlugins.filter((plugin) => plugin.installed.updateAvailable && matchesSearch(plugin));
+  const updatePlugins = storeTab === 'updates' ? storePlugins : [];
+
+  function renderStorePagination() {
+    if (storeTab === 'installed' || storeTab === 'advanced' || storePagination.totalItems === 0) {
+      return null;
+    }
+
+    return (
+      <div className="flex flex-wrap items-center justify-between gap-2 pt-1 text-xs text-muted-foreground">
+        <span>
+          {t('pagination.status', {
+            page: storePagination.page,
+            totalPages: storePagination.totalPages,
+            totalItems: storePagination.totalItems,
+          })}
+        </span>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={isLoading || !storePagination.hasPreviousPage}
+            onClick={() => setStorePage((page) => Math.max(1, page - 1))}
+            className="h-8 gap-1.5"
+          >
+            <ChevronLeft className="h-3.5 w-3.5" />
+            {t('pagination.previous')}
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={isLoading || !storePagination.hasNextPage}
+            onClick={() => setStorePage((page) => page + 1)}
+            className="h-8 gap-1.5"
+          >
+            {t('pagination.next')}
+            <ChevronRight className="h-3.5 w-3.5" />
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <section className="space-y-4">
@@ -789,7 +1116,10 @@ function CanvasPluginsSection({ onPluginsChanged }: { onPluginsChanged: () => vo
         <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
         <Input
           value={searchQuery}
-          onChange={(event) => setSearchQuery(event.target.value)}
+          onChange={(event) => {
+            setStorePage(1);
+            setSearchQuery(event.target.value);
+          }}
           placeholder={t('searchPlaceholder')}
           className="pl-9"
         />
@@ -811,6 +1141,7 @@ function CanvasPluginsSection({ onPluginsChanged }: { onPluginsChanged: () => vo
         value={storeTab}
         onValueChange={(value) => {
           if (value === 'discover' || value === 'installed' || value === 'updates' || value === 'advanced') {
+            setStorePage(1);
             setStoreTab(value);
           }
         }}
@@ -824,7 +1155,7 @@ function CanvasPluginsSection({ onPluginsChanged }: { onPluginsChanged: () => vo
             {t('storeTabs.installed')}
           </TabsTrigger>
           <TabsTrigger value="updates" className="rounded-md px-3">
-            {t('storeTabs.updates', { count: updatePlugins.length })}
+            {t('storeTabs.updates', { count: storeStats.updates })}
           </TabsTrigger>
           <TabsTrigger value="advanced" className="rounded-md px-3">
             {t('storeTabs.advanced')}
@@ -841,14 +1172,17 @@ function CanvasPluginsSection({ onPluginsChanged }: { onPluginsChanged: () => vo
             <div className="flex items-center justify-center rounded-lg border border-dashed py-8 text-muted-foreground">
               <Loader2 className="h-5 w-5 animate-spin" />
             </div>
-          ) : filteredStorePlugins.length === 0 ? (
+          ) : storePlugins.length === 0 ? (
             <div className="rounded-lg border border-dashed px-4 py-6 text-sm text-muted-foreground">
               {t('emptyStore')}
             </div>
           ) : (
-            <div className="grid gap-3 md:grid-cols-2">
-              {filteredStorePlugins.map((plugin) => renderStorePluginCard(plugin))}
-            </div>
+            <>
+              <div className="grid gap-3 md:grid-cols-2">
+                {storePlugins.map((plugin) => renderStorePluginCard(plugin))}
+              </div>
+              {renderStorePagination()}
+            </>
           )}
         </TabsContent>
 
@@ -869,14 +1203,21 @@ function CanvasPluginsSection({ onPluginsChanged }: { onPluginsChanged: () => vo
         </TabsContent>
 
         <TabsContent value="updates" className="space-y-3">
-          {updatePlugins.length === 0 ? (
+          {isLoading ? (
+            <div className="flex items-center justify-center rounded-lg border border-dashed py-8 text-muted-foreground">
+              <Loader2 className="h-5 w-5 animate-spin" />
+            </div>
+          ) : updatePlugins.length === 0 ? (
             <div className="rounded-lg border border-dashed px-4 py-6 text-sm text-muted-foreground">
               {t('noUpdates')}
             </div>
           ) : (
-            <div className="grid gap-3 md:grid-cols-2">
-              {updatePlugins.map((plugin) => renderStorePluginCard(plugin))}
-            </div>
+            <>
+              <div className="grid gap-3 md:grid-cols-2">
+                {updatePlugins.map((plugin) => renderStorePluginCard(plugin))}
+              </div>
+              {renderStorePagination()}
+            </>
           )}
         </TabsContent>
 

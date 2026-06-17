@@ -17,9 +17,10 @@ Die Canvas-Skill-Runtime, die Canvas-Plugin-Runtime und der erste offizielle Can
 - Wenn ein Nutzer `/plugin-name` referenziert, erzeugt die Agent-Runtime fuer diesen Turn einen Canvas-Kontextblock mit Pluginbeschreibung, gebuendelten Skills und Connector-Hinweisen.
 - Der Settings-Bereich heisst nutzerseitig **Plugins** und enthaelt interne Tabs fuer **Plugins** und **Skills**. Standard ist die Plugin-Ansicht; Skills bleiben als Detail- und Verwaltungsansicht erreichbar.
 - Die Plugin-Ansicht ist Store-first: **Discover**, **Installed**, **Updates** und **Advanced**. Der offizielle Store wird aus `registry.json` geladen; lokale Serverpfad-Installation bleibt als Advanced-Entwickleroption erhalten.
+- Der Store wird paginiert und serverseitig nach Query/State gefiltert. Die UI laedt standardmaessig nur die aktuelle Seite, damit grosse Marketplace-Registries nicht komplett in den Browserzustand geladen werden.
 - Store-Plugins koennen direkt aus der Registry installiert werden. Canvas laedt das Archiv, extrahiert den in `packagePath` angegebenen Plugin-Ordner, prueft die Package-Checksumme und installiert danach ueber denselben lokalen Installer.
 - Installierte Store-Plugins zeigen Update-Status, wenn die Registry eine hoehere `latestVersion` kennt.
-- Plugins mit MCP-, E-Mail- oder Composio-Empfehlungen zeigen Connector-Karten mit Status/CTA. Die Connector-Angaben werden als Metadaten gespeichert, enthalten keine Secrets und werden nicht automatisch in Connector-Konfigurationen geschrieben.
+- Plugins mit MCP-, E-Mail- oder Composio-Empfehlungen zeigen Connector-Karten mit Setup-CTA. Store-Plugins laden App-/Connector-Status erst per explizitem Preflight fuer das konkrete Plugin; installierte Plugins duerfen ihren Connector-Status anzeigen. Die Connector-Angaben werden als Metadaten gespeichert, enthalten keine Secrets und werden nicht automatisch in Connector-Konfigurationen geschrieben.
 - Beim Containerstart werden fehlende Seed-Skills aus `/app/seed_skills` nach `/data/skills` kopiert. Bestehende Skills werden nicht ueberschrieben.
 - Der Seed-Skill `/create-plugin` beschreibt Scaffold, Manifest, Connector-Empfehlungen, Validierung und Marketplace-Vorbereitung fuer neue Canvas Plugins.
 
@@ -160,6 +161,8 @@ Version 1 behandelt Connectoren als lesbare Empfehlungen mit Statusanzeige:
 - **Canvas Email:** Ein Plugin kann ein Postfach empfehlen. Der Nutzer verbindet Gmail, SMTP/IMAP oder spaeter weitere Provider ueber die interne E-Mail-Integration.
 - **MCP:** Ein Plugin kann eine Beispielkonfiguration referenzieren. Canvas zeigt Pfad, benoetigte Env-Variablen und OAuth-Hinweise und verlinkt in die bestehende MCP-Konfiguration. Die Konfiguration wird nicht automatisch gemerged.
 
+Der Store fuehrt diese Checks lazy aus: Beim Listen der Plugins wird keine globale Composio-Toolkit-Liste und keine MCP-/E-Mail-Konfiguration fuer alle Store-Eintraege geladen. Sobald der Nutzer bei einem konkreten Plugin **Apps pruefen** ausloest, ruft Canvas einen Preflight auf. Dieser Preflight prueft nur die Connector-Empfehlungen dieses Plugins, gibt Logos/Status zurueck, wenn verfuegbar, und blockiert die Installation nicht dauerhaft. Der Nutzer kann die empfohlenen Verbindungen einrichten oder das Plugin trotzdem installieren.
+
 ## Marketplace-Quellen
 
 Canvas Notebook unterscheidet kuenftig vier Quellenklassen:
@@ -220,14 +223,15 @@ Standalone Skills bleiben moeglich. Plugin-Skills bleiben intern ihrem Plugin zu
 Remote-Installation laeuft aktuell ueber diesen Ablauf:
 
 1. Offizielle Registry aus `CANVAS_PLUGIN_STORE_REGISTRY_URL` laden; falls nicht gesetzt, wird die Canvas-GitHub-Registry verwendet.
-2. Plugin-Version auswaehlen, standardmaessig `latestVersion`.
-3. Paket aus `downloadUrl` herunterladen.
-4. Checksum gegen Registry pruefen.
-5. `.canvas-plugin/plugin.json` validieren.
-6. Paket nach `/data/plugins/installed/<name>/<version>/` kopieren.
-7. Lokale Plugin-Registry atomar aktualisieren.
-8. Plugin-Skills aktivieren, wenn der Nutzer `Install` bestaetigt.
-9. Falls Connector-Empfehlungen vorhanden sind, Status und Setup-CTAs fuer Composio, Canvas Email oder MCP anzeigen.
+2. Plugin-Liste serverseitig paginiert und gefiltert ausliefern (`page`, `pageSize`, `q`, `state`).
+3. Plugin-Version auswaehlen, standardmaessig `latestVersion`.
+4. Falls Connector-Empfehlungen vorhanden sind, vor dem Download per Preflight Status und Setup-CTAs fuer Composio, Canvas Email oder MCP anzeigen.
+5. Paket erst nach Nutzerbestaetigung aus `downloadUrl` herunterladen.
+6. Checksum gegen Registry pruefen.
+7. `.canvas-plugin/plugin.json` validieren.
+8. Paket nach `/data/plugins/installed/<name>/<version>/` kopieren.
+9. Lokale Plugin-Registry atomar aktualisieren.
+10. Plugin-Skills aktivieren, wenn der Nutzer `Install` bestaetigt.
 
 Mehrere Marketplace-Quellen bleiben ein geplanter Ausbau. Das Datenmodell und die Store-UI sind so gehalten, dass spaeter zusaetzliche Quellen neben dem offiziellen Store angebunden werden koennen.
 
@@ -236,7 +240,8 @@ Mehrere Marketplace-Quellen bleiben ein geplanter Ausbau. Das Datenmodell und di
 Die lokale Runtime stellt diese authentifizierten Endpunkte bereit:
 
 - `GET /api/plugins` — installierte Plugins listen
-- `GET /api/plugins/store` — offiziellen Plugin Store mit Installations- und Update-Status listen
+- `GET /api/plugins/store` — offiziellen Plugin Store mit Installations- und Update-Status listen; Query: `page`, `pageSize`, `q`, `state=all|available|installed|updates`
+- `POST /api/plugins/store/preflight` — Connector-Preflight fuer ein Store-Plugin ausfuehren (`name`, optional `version`)
 - `POST /api/plugins/store/install` — Plugin aus dem Store installieren (`name`, optional `version`, `enable`, `replace`)
 - `GET /api/plugins/[name]` — Plugin-Details lesen
 - `POST /api/plugins/validate` — lokales Plugin-Paket validieren (`sourcePath`)
@@ -316,6 +321,7 @@ Seed-Pakete muessen vor dem Veröffentlichen auditierbar sein:
 15. Plugin-UI um Composio-Status/Logo und Connector-CTAs erweitern. ✅
 16. Remote Registry/Public Store und Update-Pruefung bauen. ✅
 17. Plugin-Store-UI mit Discover, Installed, Updates und Advanced Local Install bauen. ✅
-18. Create-Plugin-Skill fuer Scaffold, Manifest, Validierung und Marketplace-Submit vorbereiten. ✅
-19. Mehrere Marketplace-Quellen mit Sources-Verwaltung ergaenzen.
-20. Seed-Plugins bzw. nicht-loeschbare System-Plugins einfuehren, falls Basispakete nicht nur als Skills ausgeliefert werden sollen.
+18. Store-Pagination und lazy Connector-Preflight vor Download/Installation ergaenzen. ✅
+19. Create-Plugin-Skill fuer Scaffold, Manifest, Validierung und Marketplace-Submit vorbereiten. ✅
+20. Mehrere Marketplace-Quellen mit Sources-Verwaltung ergaenzen.
+21. Seed-Plugins bzw. nicht-loeschbare System-Plugins einfuehren, falls Basispakete nicht nur als Skills ausgeliefert werden sollen.

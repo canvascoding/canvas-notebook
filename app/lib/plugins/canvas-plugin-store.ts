@@ -16,8 +16,14 @@ import {
   isPathInside,
   isValidCanvasPluginName,
   isValidCanvasPluginVersion,
+  type CanvasPluginComposioConnector,
   type CanvasPluginConnectorManifest,
+  type CanvasPluginEmailConnector,
+  type CanvasPluginMcpConnector,
 } from '@/app/lib/plugins/canvas-plugin-manifest';
+import { getGatewayStatus, getGatewayToolkits } from '@/app/lib/composio/composio-gateway';
+import { listEmailAccounts } from '@/app/lib/email/service';
+import { readMcpConfig } from '@/app/lib/mcp/config';
 
 export const DEFAULT_CANVAS_PLUGIN_STORE_REGISTRY_URL =
   'https://raw.githubusercontent.com/canvascoding/canvas-notebook-plugin-marketplace/main/registry.json';
@@ -79,11 +85,68 @@ export type CanvasPluginStorePluginWithState = CanvasPluginStorePlugin & {
 export interface CanvasPluginStoreList {
   registry: Omit<CanvasPluginStoreRegistry, 'plugins'>;
   plugins: CanvasPluginStorePluginWithState[];
+  pagination: CanvasPluginStorePagination;
+  stats: CanvasPluginStoreStats;
 }
 
 export interface CanvasPluginStoreInstallResult extends CanvasPluginInstallResult {
   storePlugin?: CanvasPluginStorePlugin;
   storeVersion?: CanvasPluginStoreVersion;
+}
+
+export type CanvasPluginStoreStateFilter = 'all' | 'available' | 'installed' | 'updates';
+
+export interface CanvasPluginStoreListOptions {
+  page?: number;
+  pageSize?: number;
+  query?: string;
+  state?: CanvasPluginStoreStateFilter;
+}
+
+export interface CanvasPluginStorePagination {
+  page: number;
+  pageSize: number;
+  totalItems: number;
+  totalPages: number;
+  hasNextPage: boolean;
+  hasPreviousPage: boolean;
+}
+
+export interface CanvasPluginStoreStats {
+  total: number;
+  installed: number;
+  available: number;
+  updates: number;
+  filteredTotal: number;
+}
+
+export interface CanvasPluginStorePreflightItem {
+  type: 'composio' | 'email' | 'mcp';
+  key: string;
+  label: string;
+  required: boolean;
+  ready: boolean;
+  available?: boolean;
+  connected?: boolean;
+  configured?: boolean;
+  logo?: string;
+  reason?: string;
+  details?: string[];
+  action: 'none' | 'configure-composio' | 'connect-composio' | 'configure-email' | 'configure-mcp';
+}
+
+export interface CanvasPluginStorePreflight {
+  pluginName: string;
+  version: string;
+  ready: boolean;
+  hasRequiredMissing: boolean;
+  items: CanvasPluginStorePreflightItem[];
+  summary: {
+    total: number;
+    ready: number;
+    requiredMissing: number;
+    recommendedMissing: number;
+  };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -135,6 +198,78 @@ function compareVersions(left: string | undefined, right: string | undefined): n
   }
 
   return left.localeCompare(right);
+}
+
+function clampPositiveInteger(value: number | undefined, fallback: number, max: number): number {
+  if (!value || !Number.isFinite(value)) return fallback;
+  return Math.max(1, Math.min(Math.floor(value), max));
+}
+
+function normalizeComposioConnectors(connectors: CanvasPluginConnectorManifest | undefined): CanvasPluginComposioConnector[] {
+  const values = Array.isArray(connectors?.composio) ? connectors.composio as unknown[] : [];
+  const legacy = (connectors?.composioToolkits || []).map((toolkit) => ({ toolkit, recommended: true }));
+  return [...values, ...legacy]
+    .map((connector): CanvasPluginComposioConnector | null => {
+      const legacyToolkit = stringValue(connector);
+      if (legacyToolkit) return { toolkit: legacyToolkit, recommended: true };
+      if (!isRecord(connector)) return null;
+      const toolkit = stringValue(connector.toolkit ?? connector.slug ?? connector.toolkitSlug);
+      if (!toolkit) return null;
+      return {
+        toolkit,
+        label: stringValue(connector.label ?? connector.name),
+        reason: stringValue(connector.reason),
+        recommended: connector.recommended === true,
+        required: connector.required === true,
+        tools: stringArrayValue(connector.tools),
+      };
+    })
+    .filter((connector): connector is CanvasPluginComposioConnector => Boolean(connector?.toolkit));
+}
+
+function normalizeEmailConnectors(connectors: CanvasPluginConnectorManifest | undefined): CanvasPluginEmailConnector[] {
+  const values = Array.isArray(connectors?.email) ? connectors.email as unknown[] : [];
+  return values
+    .map((connector): CanvasPluginEmailConnector | null => {
+      if (!isRecord(connector)) return null;
+      const providers = stringArrayValue(connector.providers)
+        ?.filter((provider): provider is 'gmail' | 'imap-smtp' => provider === 'gmail' || provider === 'imap-smtp');
+      return {
+        kind: stringValue(connector.kind) === 'mailbox' ? 'mailbox' as const : undefined,
+        label: stringValue(connector.label ?? connector.name),
+        reason: stringValue(connector.reason),
+        recommended: connector.recommended === true,
+        required: connector.required === true,
+        providers,
+      };
+    })
+    .filter((connector): connector is CanvasPluginEmailConnector => Boolean(connector));
+}
+
+function normalizeMcpConnectors(connectors: CanvasPluginConnectorManifest | undefined): CanvasPluginMcpConnector[] {
+  const values = Array.isArray(connectors?.mcp) ? connectors.mcp as unknown[] : [];
+  const legacy = connectors?.mcpServers
+    ? [{ name: 'mcp', label: 'MCP', configPath: connectors.mcpServers, recommended: true }]
+    : [];
+  return [...values, ...legacy]
+    .map((connector): CanvasPluginMcpConnector | null => {
+      const legacyName = stringValue(connector);
+      if (legacyName) return { name: legacyName, label: legacyName, recommended: true };
+      if (!isRecord(connector)) return null;
+      const name = stringValue(connector.name ?? connector.id);
+      if (!name) return null;
+      return {
+        name,
+        label: stringValue(connector.label),
+        reason: stringValue(connector.reason),
+        recommended: connector.recommended === true,
+        required: connector.required === true,
+        configPath: stringValue(connector.configPath ?? connector.config_path),
+        env: stringArrayValue(connector.env),
+        oauth: connector.oauth === true,
+      };
+    })
+    .filter((connector): connector is CanvasPluginMcpConnector => Boolean(connector?.name));
 }
 
 function getRegistryUrl(): string {
@@ -276,7 +411,7 @@ export async function readCanvasPluginStoreRegistry(): Promise<CanvasPluginStore
 function enrichStorePluginsWithInstalledState(
   registry: CanvasPluginStoreRegistry,
   installedPlugins: CanvasPluginInstallRecord[],
-): CanvasPluginStoreList {
+): { registry: Omit<CanvasPluginStoreRegistry, 'plugins'>; plugins: CanvasPluginStorePluginWithState[]; stats: Omit<CanvasPluginStoreStats, 'filteredTotal'> } {
   const installedByName = new Map(installedPlugins.map((plugin) => [plugin.name, plugin]));
   const plugins = registry.plugins.map((plugin) => {
     const installedPlugin = installedByName.get(plugin.name);
@@ -300,15 +435,67 @@ function enrichStorePluginsWithInstalledState(
   return {
     registry: registryMetadata,
     plugins,
+    stats: {
+      total: plugins.length,
+      installed: plugins.filter((plugin) => plugin.installed.installed).length,
+      available: plugins.filter((plugin) => !plugin.installed.installed).length,
+      updates: plugins.filter((plugin) => plugin.installed.updateAvailable).length,
+    },
   };
 }
 
-export async function listCanvasPluginStore(): Promise<CanvasPluginStoreList> {
+function matchesStoreQuery(plugin: CanvasPluginStorePluginWithState, query: string): boolean {
+  const normalizedQuery = query.trim().toLowerCase();
+  if (!normalizedQuery) return true;
+  return [
+    plugin.name,
+    plugin.displayName,
+    plugin.description,
+    plugin.category,
+    plugin.skills?.join(' '),
+    normalizeComposioConnectors(plugin.connectors).map((connector) => connector.toolkit).join(' '),
+    normalizeMcpConnectors(plugin.connectors).map((connector) => connector.name).join(' '),
+  ].filter(Boolean).join(' ').toLowerCase().includes(normalizedQuery);
+}
+
+function matchesState(plugin: CanvasPluginStorePluginWithState, state: CanvasPluginStoreStateFilter): boolean {
+  if (state === 'available') return !plugin.installed.installed;
+  if (state === 'installed') return plugin.installed.installed;
+  if (state === 'updates') return plugin.installed.updateAvailable;
+  return true;
+}
+
+export async function listCanvasPluginStore(options: CanvasPluginStoreListOptions = {}): Promise<CanvasPluginStoreList> {
   const [registry, installedPlugins] = await Promise.all([
     readCanvasPluginStoreRegistry(),
     listCanvasPlugins(),
   ]);
-  return enrichStorePluginsWithInstalledState(registry, installedPlugins);
+  const enriched = enrichStorePluginsWithInstalledState(registry, installedPlugins);
+  const pageSize = clampPositiveInteger(options.pageSize, 12, 50);
+  const page = clampPositiveInteger(options.page, 1, 100000);
+  const state = options.state || 'all';
+  const filtered = enriched.plugins.filter((plugin) => (
+    matchesState(plugin, state) && matchesStoreQuery(plugin, options.query || '')
+  ));
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const normalizedPage = Math.min(page, totalPages);
+  const offset = (normalizedPage - 1) * pageSize;
+  return {
+    registry: enriched.registry,
+    plugins: filtered.slice(offset, offset + pageSize),
+    pagination: {
+      page: normalizedPage,
+      pageSize,
+      totalItems: filtered.length,
+      totalPages,
+      hasNextPage: normalizedPage < totalPages,
+      hasPreviousPage: normalizedPage > 1,
+    },
+    stats: {
+      ...enriched.stats,
+      filteredTotal: filtered.length,
+    },
+  };
 }
 
 function sanitizeArchivePath(archivePath: string): string {
@@ -436,4 +623,148 @@ export async function installCanvasPluginFromStore(
       await fs.rm(tempRoot, { recursive: true, force: true }).catch(() => undefined);
     }
   }
+}
+
+function getStorePluginOrThrow(registry: CanvasPluginStoreRegistry, pluginName: string, version?: string) {
+  const plugin = registry.plugins.find((entry) => entry.name === pluginName);
+  if (!plugin) {
+    throw new Error(`Plugin "${pluginName}" not found in the Canvas Plugin Store.`);
+  }
+  const selectedVersion = version || plugin.latestVersion;
+  if (!plugin.versions[selectedVersion]) {
+    throw new Error(`Version ${selectedVersion} is not available for plugin "${pluginName}".`);
+  }
+  return { plugin, version: selectedVersion };
+}
+
+export async function preflightCanvasPluginFromStore(
+  pluginName: string,
+  version: string | undefined,
+  userId: string,
+): Promise<CanvasPluginStorePreflight> {
+  if (!isValidCanvasPluginName(pluginName)) {
+    throw new Error('Invalid plugin name');
+  }
+  if (version && !isValidCanvasPluginVersion(version)) {
+    throw new Error('Invalid plugin version');
+  }
+
+  const registry = await readCanvasPluginStoreRegistry();
+  const { plugin, version: selectedVersion } = getStorePluginOrThrow(registry, pluginName, version);
+  const items: CanvasPluginStorePreflightItem[] = [];
+
+  const composioConnectors = normalizeComposioConnectors(plugin.connectors);
+  if (composioConnectors.length > 0) {
+    const status = await getGatewayStatus().catch(() => ({
+      configured: false,
+      apiKeyValid: false,
+      connectedAccounts: [],
+    }));
+    const connectedBySlug = new Set(
+      (status.connectedAccounts || [])
+        .map((account) => account.toolkit?.slug)
+        .filter((slug): slug is string => Boolean(slug)),
+    );
+    let toolkitBySlug = new Map<string, { name?: string; logo?: string }>();
+    if (status.configured && status.apiKeyValid) {
+      const toolkitResult = await getGatewayToolkits().catch(() => ({ toolkits: [] }));
+      if (Array.isArray(toolkitResult.toolkits)) {
+        toolkitBySlug = new Map(
+          toolkitResult.toolkits
+            .map((toolkit) => isRecord(toolkit) ? toolkit : {})
+            .map((toolkit) => [stringValue(toolkit.slug) || '', {
+              name: stringValue(toolkit.name),
+              logo: stringValue(toolkit.logo),
+            }] as const)
+            .filter(([slug]) => Boolean(slug)),
+        );
+      }
+    }
+
+    for (const connector of composioConnectors) {
+      const toolkit = toolkitBySlug.get(connector.toolkit);
+      const configured = Boolean(status.configured && status.apiKeyValid);
+      const available = configured && Boolean(toolkit);
+      const connected = connectedBySlug.has(connector.toolkit);
+      items.push({
+        type: 'composio',
+        key: connector.toolkit,
+        label: connector.label || toolkit?.name || connector.toolkit,
+        required: connector.required === true,
+        ready: available && connected,
+        available,
+        connected,
+        configured,
+        logo: toolkit?.logo,
+        reason: connector.reason,
+        details: connector.tools?.length ? [`Tools: ${connector.tools.join(', ')}`] : undefined,
+        action: !configured ? 'configure-composio' : connected ? 'none' : 'connect-composio',
+      });
+    }
+  }
+
+  const emailConnectors = normalizeEmailConnectors(plugin.connectors);
+  if (emailConnectors.length > 0) {
+    const accountsResult = await listEmailAccounts(userId).catch(() => ({ accounts: [] }));
+    const accountCount = Array.isArray(accountsResult.accounts) ? accountsResult.accounts.length : 0;
+    for (const [index, connector] of emailConnectors.entries()) {
+      const providers = connector.providers?.length ? connector.providers.join(', ') : 'gmail, imap-smtp';
+      items.push({
+        type: 'email',
+        key: connector.label || `email-${index}`,
+        label: connector.label || 'Email account',
+        required: connector.required === true,
+        ready: accountCount > 0,
+        configured: accountCount > 0,
+        connected: accountCount > 0,
+        reason: connector.reason,
+        details: [`Providers: ${providers}`, `Connected accounts: ${accountCount}`],
+        action: accountCount > 0 ? 'none' : 'configure-email',
+      });
+    }
+  }
+
+  const mcpConnectors = normalizeMcpConnectors(plugin.connectors);
+  if (mcpConnectors.length > 0) {
+    const config = await readMcpConfig().catch(() => ({ mcpServers: {} }));
+    const mcpServers = config.mcpServers as Record<string, { enabled?: boolean } | undefined>;
+    for (const connector of mcpConnectors) {
+      const server = mcpServers[connector.name];
+      const configured = Boolean(server);
+      const enabled = configured && server?.enabled !== false;
+      const details = [
+        connector.configPath ? `Example config: ${connector.configPath}` : null,
+        connector.env?.length ? `Env: ${connector.env.join(', ')}` : null,
+        connector.oauth ? 'OAuth may be required' : null,
+      ].filter((detail): detail is string => Boolean(detail));
+      items.push({
+        type: 'mcp',
+        key: connector.name,
+        label: connector.label || connector.name,
+        required: connector.required === true,
+        ready: configured && enabled,
+        configured,
+        connected: enabled,
+        reason: connector.reason,
+        details,
+        action: configured && enabled ? 'none' : 'configure-mcp',
+      });
+    }
+  }
+
+  const requiredMissing = items.filter((item) => item.required && !item.ready).length;
+  const recommendedMissing = items.filter((item) => !item.required && !item.ready).length;
+  return {
+    pluginName: plugin.name,
+    version: selectedVersion,
+    ready: requiredMissing === 0,
+    hasRequiredMissing: requiredMissing > 0,
+    items,
+    summary: {
+      total: items.length,
+      ready: items.filter((item) => item.ready).length,
+      requiredMissing,
+      recommendedMissing,
+    },
+  };
 }
