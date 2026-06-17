@@ -54,6 +54,8 @@ async function main() {
   ]), [
     {
       source: 'workspace',
+      contentId: undefined,
+      disposition: 'attachment',
       name: 'note.md',
       mimeType: undefined,
       path: 'notes/note.md',
@@ -63,6 +65,8 @@ async function main() {
     },
     {
       source: 'upload',
+      contentId: undefined,
+      disposition: 'attachment',
       name: 'raw.md',
       mimeType: undefined,
       path: undefined,
@@ -72,10 +76,52 @@ async function main() {
     },
     {
       source: 'workspace',
+      contentId: undefined,
+      disposition: 'attachment',
       name: 'ignored.txt',
       mimeType: undefined,
       path: 'ignored.txt',
       uploadId: undefined,
+      deliveryFormat: undefined,
+      size: undefined,
+    },
+  ]);
+
+  assert.deepEqual(normalizeEmailAttachmentInputs([
+    {
+      source: 'upload',
+      uploadId: 'upload-2',
+      name: 'inline.png',
+      contentId: 'cid:<hero-image>',
+      disposition: 'inline',
+    },
+    {
+      source: 'upload',
+      uploadId: 'upload-3',
+      name: 'bad-inline.png',
+      contentId: 'bad id',
+      disposition: 'inline',
+    },
+  ]), [
+    {
+      source: 'upload',
+      contentId: 'hero-image',
+      disposition: 'inline',
+      name: 'inline.png',
+      mimeType: undefined,
+      path: undefined,
+      uploadId: 'upload-2',
+      deliveryFormat: undefined,
+      size: undefined,
+    },
+    {
+      source: 'upload',
+      contentId: undefined,
+      disposition: 'attachment',
+      name: 'bad-inline.png',
+      mimeType: undefined,
+      path: undefined,
+      uploadId: 'upload-3',
       deliveryFormat: undefined,
       size: undefined,
     },

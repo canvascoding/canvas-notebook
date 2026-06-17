@@ -9,6 +9,7 @@ import {
   inferEmailAttachmentMimeType,
   isMarkdownEmailAttachmentName,
   markdownEmailAttachmentPdfName,
+  type EmailAttachmentDisposition,
   type EmailAttachmentDeliveryFormat,
   type EmailAttachmentInput,
   type EmailAttachmentSource,
@@ -28,6 +29,8 @@ export type ResolvedEmailAttachment = {
   name: string;
   size: number;
   source: EmailAttachmentSource;
+  contentId?: string;
+  disposition: EmailAttachmentDisposition;
 };
 
 type EmailAttachmentMetadata = Omit<ResolvedEmailAttachment, 'content'> & {
@@ -44,6 +47,21 @@ function cleanFileName(value: string): string {
   return base || 'attachment';
 }
 
+function cleanContentId(value: unknown): string | undefined {
+  const contentId = cleanString(value)
+    .replace(/^cid:/iu, '')
+    .replace(/^<|>$/gu, '')
+    .replace(/[\r\n"<>]/gu, '')
+    .trim();
+
+  if (!contentId || /\s/u.test(contentId)) return undefined;
+  return contentId.slice(0, 180);
+}
+
+function normalizeAttachmentDisposition(record: Record<string, unknown>, contentId?: string): EmailAttachmentDisposition {
+  return record.disposition === 'inline' && contentId ? 'inline' : 'attachment';
+}
+
 export function normalizeEmailAttachmentInputs(value: unknown): EmailAttachmentInput[] {
   if (!Array.isArray(value)) return [];
   const output: EmailAttachmentInput[] = [];
@@ -53,9 +71,12 @@ export function normalizeEmailAttachmentInputs(value: unknown): EmailAttachmentI
     const record = item as Record<string, unknown>;
     const source = record.source === 'workspace' || record.source === 'upload' ? record.source : null;
     if (!source) continue;
+    const contentId = cleanContentId(record.contentId);
 
     const normalized: EmailAttachmentInput = {
       source,
+      contentId,
+      disposition: normalizeAttachmentDisposition(record, contentId),
       name: cleanString(record.name) || undefined,
       mimeType: cleanString(record.mimeType) || undefined,
       size: typeof record.size === 'number' && Number.isFinite(record.size) && record.size >= 0 ? record.size : undefined,
@@ -95,6 +116,7 @@ async function resolveWorkspaceAttachmentMetadata(input: EmailAttachmentInput): 
     return {
       deliveryFormat: 'pdf',
       input: { ...input, path: workspacePath },
+      disposition: 'attachment',
       mimeType: 'application/pdf',
       name: cleanFileName(markdownEmailAttachmentPdfName(markdownName)),
       size: stats.size,
@@ -105,6 +127,8 @@ async function resolveWorkspaceAttachmentMetadata(input: EmailAttachmentInput): 
   return {
     deliveryFormat: 'original',
     input: { ...input, path: workspacePath },
+    contentId: input.contentId,
+    disposition: input.disposition === 'inline' && input.contentId ? 'inline' : 'attachment',
     mimeType: inferEmailAttachmentMimeType(name, input.mimeType),
     name,
     size: stats.size,
@@ -125,6 +149,8 @@ async function resolveUploadAttachmentMetadata(input: EmailAttachmentInput): Pro
   return {
     deliveryFormat: 'original',
     input: { ...input, uploadId },
+    contentId: input.contentId,
+    disposition: input.disposition === 'inline' && input.contentId ? 'inline' : 'attachment',
     mimeType: inferEmailAttachmentMimeType(name, input.mimeType || info.mimeType),
     name,
     size: info.size,
@@ -151,6 +177,8 @@ async function readAttachmentContent(metadata: EmailAttachmentMetadata): Promise
 
   return {
     content,
+    contentId: metadata.contentId,
+    disposition: metadata.disposition,
     mimeType: metadata.mimeType,
     name: metadata.name,
     size: content.length,

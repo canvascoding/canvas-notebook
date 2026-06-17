@@ -301,6 +301,38 @@ function normalizeComposeRecipient(value: string): string {
   return extractEmailAddressForCompose(value) || value.trim();
 }
 
+function visibleEmailAttachments(attachments: EmailAttachmentDraft[]): EmailAttachmentDraft[] {
+  return attachments.filter((attachment) => attachment.disposition !== 'inline');
+}
+
+function mergeVisibleEmailAttachments(current: EmailAttachmentDraft[], visible: EmailAttachmentDraft[]): EmailAttachmentDraft[] {
+  return [
+    ...current.filter((attachment) => attachment.disposition === 'inline'),
+    ...visible,
+  ];
+}
+
+function referencedInlineContentIds(html: string): Set<string> {
+  const ids = new Set<string>();
+  const imagePattern = /<img\b[^>]*\ssrc\s*=\s*("cid:([^"]+)"|'cid:([^']+)'|cid:([^\s"'>]+))/giu;
+  let match: RegExpExecArray | null;
+
+  while ((match = imagePattern.exec(html)) !== null) {
+    const contentId = (match[2] || match[3] || match[4] || '').trim();
+    if (contentId) ids.add(contentId);
+  }
+
+  return ids;
+}
+
+function pruneUnreferencedInlineEmailAttachments(attachments: EmailAttachmentDraft[], html: string): EmailAttachmentDraft[] {
+  const referencedIds = referencedInlineContentIds(html);
+  return attachments.filter((attachment) => (
+    attachment.disposition !== 'inline'
+    || (attachment.contentId && referencedIds.has(attachment.contentId))
+  ));
+}
+
 function appendComposeRecipients(current: string[], additions: string[]): string[] {
   const seen = new Set(current.map((recipient) => recipient.trim().toLowerCase()).filter(Boolean));
   const next = [...current];
@@ -1408,6 +1440,11 @@ function EmailComposeDialog({
   const referenceSearchInputRef = useRef<HTMLInputElement>(null);
   const referenceRequestIdRef = useRef(0);
   const selectedContextPaths = useMemo(() => new Set((draft?.contextFiles || []).map((file) => file.path)), [draft?.contextFiles]);
+  const displayedAttachments = useMemo(() => visibleEmailAttachments(draft?.attachments || []), [draft?.attachments]);
+  const updateDisplayedAttachments = useCallback((attachments: EmailAttachmentDraft[]) => {
+    if (!draft) return;
+    onUpdate({ attachments: mergeVisibleEmailAttachments(draft.attachments, attachments) });
+  }, [draft, onUpdate]);
 
   const closeReferencePicker = useCallback(() => {
     referenceRequestIdRef.current += 1;
@@ -1741,18 +1778,20 @@ function EmailComposeDialog({
                       {labels.composeBodyLabel}
                     </label>
                     <EmailHtmlEditor
+                      attachments={draft.attachments}
                       id="email-compose-body"
                       value={draft.bodyHtml}
                       onChange={({ html, text }) => onUpdate({ body: text, bodyHtml: html })}
+                      onAttachmentsChange={(attachments) => onUpdate({ attachments })}
                       placeholder={labels.composeBodyPlaceholder}
                       disabled={isSubmitting}
                     />
                   </div>
                   <EmailAttachmentPanel
-                    attachments={draft.attachments}
+                    attachments={displayedAttachments}
                     disabled={isSubmitting}
                     labels={labels}
-                    onChange={(attachments) => onUpdate({ attachments })}
+                    onChange={updateDisplayedAttachments}
                   />
                   {error && (
                     <div className="space-y-2 border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
@@ -2484,6 +2523,7 @@ export function EmailClient() {
     try {
       const isNewCompose = composeDraft.mode === 'compose';
       const bodyHtml = sanitizeEmailEditorHtml(composeDraft.bodyHtml) || plainTextToEmailHtml(composeDraft.body);
+      const attachments = pruneUnreferencedInlineEmailAttachments(composeDraft.attachments, bodyHtml);
       const response = await fetch(isNewCompose ? '/api/email/send' : `/api/email/accounts/${encodeURIComponent(activeAccount.id)}/messages/actions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -2491,7 +2531,7 @@ export function EmailClient() {
         body: JSON.stringify(isNewCompose
           ? {
               accountId: activeAccount.id,
-              attachments: composeDraft.attachments,
+              attachments,
               body: bodyHtml,
               cc: splitRecipientInput(composeDraft.ccText),
               is_HTML: true,
@@ -2501,7 +2541,7 @@ export function EmailClient() {
           : {
               bodyOverride: composeDraft.body,
               bodyOverrideHtml: bodyHtml,
-              attachments: composeDraft.attachments,
+              attachments,
               cc: splitRecipientInput(composeDraft.ccText),
               folder: composeDraft.folder,
               is_HTML: true,

@@ -3,9 +3,12 @@ export const EMAIL_ATTACHMENT_MAX_FILES = 25;
 
 export type EmailAttachmentSource = 'workspace' | 'upload';
 export type EmailAttachmentDeliveryFormat = 'original' | 'pdf';
+export type EmailAttachmentDisposition = 'attachment' | 'inline';
 
 export type EmailAttachmentInput = {
   source: EmailAttachmentSource;
+  contentId?: string;
+  disposition?: EmailAttachmentDisposition;
   name?: string;
   mimeType?: string;
   size?: number;
@@ -17,6 +20,8 @@ export type EmailAttachmentInput = {
 export type EmailAttachmentDraft = {
   id: string;
   source: EmailAttachmentSource;
+  contentId?: string;
+  disposition?: EmailAttachmentDisposition;
   name: string;
   mimeType: string;
   size: number;

@@ -12,6 +12,8 @@ export type ManagedEmailAttachmentInput = {
   mimeType: string;
   size: number;
   contentBase64: string;
+  contentId?: string;
+  disposition?: 'attachment' | 'inline';
 };
 
 export type EmailDraftInput = {

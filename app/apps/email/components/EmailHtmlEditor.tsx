@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import type { Editor } from '@tiptap/core';
 import { EditorContent, useEditor, useEditorState } from '@tiptap/react';
 import { StarterKit } from '@tiptap/starter-kit';
+import { Image } from '@tiptap/extension-image';
 import { Link } from '@tiptap/extension-link';
 import { TableKit } from '@tiptap/extension-table';
 import {
@@ -13,6 +14,7 @@ import {
   Bold,
   Columns3,
   Italic,
+  Image as ImageIcon,
   Link as LinkIcon,
   List,
   ListOrdered,
@@ -28,6 +30,11 @@ import {
 import { useTranslations } from 'next-intl';
 
 import { emailEditorHtmlToText, sanitizeEmailEditorHtml } from '@/app/lib/email/html-editor-content';
+import {
+  EMAIL_ATTACHMENT_TOTAL_LIMIT_BYTES,
+  emailAttachmentLimitUsageBytes,
+  type EmailAttachmentDraft,
+} from '@/app/lib/email/attachment-types';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -40,13 +47,16 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 
 type EmailHtmlEditorProps = {
+  attachments?: EmailAttachmentDraft[];
   disabled?: boolean;
   id?: string;
   onChange?: (value: { html: string; text: string }) => void;
+  onAttachmentsChange?: (attachments: EmailAttachmentDraft[]) => void;
   placeholder?: string;
   value: string;
 };
@@ -98,6 +108,12 @@ type TableInsertOptions = {
   withHeaderRow: boolean;
 };
 
+type EmailImageUploadResponse = {
+  success?: boolean;
+  files?: EmailAttachmentDraft[];
+  error?: string;
+};
+
 function normalizeEmailLinkUrl(value: string): string {
   const trimmed = value.trim();
   if (!trimmed) return '';
@@ -143,6 +159,9 @@ function createEmailEditorExtensions() {
       },
       linkOnPaste: true,
       openOnClick: false,
+    }),
+    Image.configure({
+      allowBase64: false,
     }),
     TableKit.configure({
       table: {
@@ -405,6 +424,188 @@ function EmailLinkDialog({
   );
 }
 
+function createInlineContentId(name: string) {
+  const base = name
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/gu, '-')
+    .replace(/^-+|-+$/gu, '')
+    .slice(0, 48) || 'image';
+  const random = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  return `${base}.${random}@canvas-inline`;
+}
+
+function insertInlineImages(editor: Editor, attachments: EmailAttachmentDraft[], alt: string) {
+  const content = attachments
+    .filter((attachment) => attachment.contentId)
+    .map((attachment) => ({
+      type: 'image',
+      attrs: {
+        alt: alt.trim() || attachment.name,
+        src: `cid:${attachment.contentId}`,
+      },
+    }));
+
+  if (content.length === 0) return;
+  editor.chain().focus().insertContent(content).run();
+}
+
+function EmailImageDialog({
+  attachments,
+  editor,
+  onAttachmentsChange,
+  open,
+  onOpenChange,
+}: {
+  attachments: EmailAttachmentDraft[];
+  editor: Editor | null;
+  onAttachmentsChange?: (attachments: EmailAttachmentDraft[]) => void;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const t = useTranslations('emails');
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [mode, setMode] = useState<'upload' | 'url'>('upload');
+  const [source, setSource] = useState('');
+  const [alt, setAlt] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const submit = useCallback(async () => {
+    if (!editor || !onAttachmentsChange || submitting) return;
+
+    setError(null);
+
+    const formData = new FormData();
+    if (mode === 'upload') {
+      const files = Array.from(fileInputRef.current?.files || []);
+      if (files.length === 0) {
+        setError(t('editorImageNoFile'));
+        return;
+      }
+      files.forEach((file) => formData.append('files', file));
+    } else {
+      const trimmedSource = source.trim();
+      if (!trimmedSource) {
+        setError(t('editorImageSourceRequired'));
+        return;
+      }
+      formData.set('url', trimmedSource);
+    }
+
+    setSubmitting(true);
+    try {
+      const response = await fetch('/api/email/attachments/upload', {
+        method: 'POST',
+        body: formData,
+      });
+      const payload = await response.json().catch(() => null) as EmailImageUploadResponse | null;
+
+      if (!response.ok || !payload?.success || !payload.files?.length) {
+        throw new Error(payload?.error || t('editorImageImportError'));
+      }
+
+      const inlineAttachments = payload.files
+        .filter((attachment) => attachment.mimeType.toLowerCase().startsWith('image/'))
+        .map((attachment) => ({
+          ...attachment,
+          contentId: createInlineContentId(attachment.name),
+          disposition: 'inline' as const,
+        }));
+
+      if (inlineAttachments.length === 0) {
+        throw new Error(t('editorImageImportError'));
+      }
+
+      if (emailAttachmentLimitUsageBytes([...attachments, ...inlineAttachments]) > EMAIL_ATTACHMENT_TOTAL_LIMIT_BYTES) {
+        throw new Error(t('attachmentsLimitExceeded'));
+      }
+
+      onAttachmentsChange([...attachments, ...inlineAttachments]);
+      insertInlineImages(editor, inlineAttachments, alt);
+      onOpenChange(false);
+    } catch (uploadError) {
+      setError(uploadError instanceof Error ? uploadError.message : t('editorImageImportError'));
+    } finally {
+      setSubmitting(false);
+    }
+  }, [alt, attachments, editor, mode, onAttachmentsChange, onOpenChange, source, submitting, t]);
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>{t('editorImageDialogTitle')}</DialogTitle>
+          <DialogDescription>{t('editorImageDialogDescription')}</DialogDescription>
+        </DialogHeader>
+
+        <div className="grid gap-4">
+          <Tabs value={mode} onValueChange={(value) => setMode(value as 'upload' | 'url')}>
+            <TabsList className="grid w-full grid-cols-2">
+              <TabsTrigger value="upload">{t('editorImageTabUpload')}</TabsTrigger>
+              <TabsTrigger value="url">{t('editorImageTabUrl')}</TabsTrigger>
+            </TabsList>
+            <TabsContent value="upload" className="mt-4">
+              <div className="grid gap-2">
+                <Label htmlFor="email-editor-image-upload">{t('editorImageUploadLabel')}</Label>
+                <Input
+                  id="email-editor-image-upload"
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  disabled={submitting}
+                />
+              </div>
+            </TabsContent>
+            <TabsContent value="url" className="mt-4">
+              <div className="grid gap-2">
+                <Label htmlFor="email-editor-image-source">{t('editorImageUrlLabel')}</Label>
+                <Input
+                  id="email-editor-image-source"
+                  value={source}
+                  disabled={submitting}
+                  placeholder="https://example.com/image.png"
+                  onChange={(event) => setSource(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') {
+                      event.preventDefault();
+                      void submit();
+                    }
+                  }}
+                />
+              </div>
+            </TabsContent>
+          </Tabs>
+
+          <div className="grid gap-2">
+            <Label htmlFor="email-editor-image-alt">{t('editorImageAltLabel')}</Label>
+            <Input
+              id="email-editor-image-alt"
+              value={alt}
+              disabled={submitting}
+              placeholder={t('editorImageAltPlaceholder')}
+              onChange={(event) => setAlt(event.target.value)}
+            />
+          </div>
+
+          {error ? <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</div> : null}
+        </div>
+
+        <DialogFooter>
+          <Button type="button" variant="outline" disabled={submitting} onClick={() => onOpenChange(false)}>
+            {t('composeCancel')}
+          </Button>
+          <Button type="button" disabled={submitting} onClick={() => void submit()}>
+            {submitting ? t('editorImageImporting') : t('editorImageInsert')}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function EmailTableDialog({
   open,
   onOpenChange,
@@ -484,8 +685,19 @@ function EmailTableDialog({
   );
 }
 
-function EmailHtmlToolbar({ disabled, editor }: { disabled: boolean; editor: Editor | null }) {
+function EmailHtmlToolbar({
+  attachments,
+  disabled,
+  editor,
+  onAttachmentsChange,
+}: {
+  attachments: EmailAttachmentDraft[];
+  disabled: boolean;
+  editor: Editor | null;
+  onAttachmentsChange?: (attachments: EmailAttachmentDraft[]) => void;
+}) {
   const t = useTranslations('emails');
+  const [imageDialogOpen, setImageDialogOpen] = useState(false);
   const [linkDialogOpen, setLinkDialogOpen] = useState(false);
   const [tableDialogOpen, setTableDialogOpen] = useState(false);
   const [linkDialogSeed, setLinkDialogSeed] = useState<LinkDialogSeed>({
@@ -610,6 +822,13 @@ function EmailHtmlToolbar({ disabled, editor }: { disabled: boolean; editor: Edi
           <LinkIcon />
         </TooltipIconButton>
         <TooltipIconButton
+          label={t('editorImageDialogTitle')}
+          disabled={!canUseCommands || !onAttachmentsChange}
+          onClick={() => setImageDialogOpen(true)}
+        >
+          <ImageIcon />
+        </TooltipIconButton>
+        <TooltipIconButton
           label={t('editorTableInsert')}
           disabled={!canUseCommands}
           onClick={() => setTableDialogOpen(true)}
@@ -722,14 +941,23 @@ function EmailHtmlToolbar({ disabled, editor }: { disabled: boolean; editor: Edi
         initialText={linkDialogSeed.text}
         canEditText={linkDialogSeed.canEditText}
       />
+      <EmailImageDialog
+        attachments={attachments}
+        editor={editor}
+        onAttachmentsChange={onAttachmentsChange}
+        open={imageDialogOpen}
+        onOpenChange={setImageDialogOpen}
+      />
       <EmailTableDialog open={tableDialogOpen} onOpenChange={setTableDialogOpen} onInsert={insertTable} />
     </TooltipProvider>
   );
 }
 
 export function EmailHtmlEditor({
+  attachments = [],
   disabled = false,
   id,
+  onAttachmentsChange,
   onChange,
   placeholder,
   value,
@@ -785,7 +1013,12 @@ export function EmailHtmlEditor({
         disabled && 'opacity-70',
       )}
     >
-      <EmailHtmlToolbar disabled={disabled} editor={editor} />
+      <EmailHtmlToolbar
+        attachments={attachments}
+        disabled={disabled}
+        editor={editor}
+        onAttachmentsChange={onAttachmentsChange}
+      />
       <div className="relative min-h-0 flex-1">
         {isEmpty && placeholder ? (
           <div className="pointer-events-none absolute left-3 top-3 text-sm text-muted-foreground">

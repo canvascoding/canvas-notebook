@@ -209,6 +209,10 @@ async function managedDraftInput(input: EmailDraftInput): Promise<ManagedEmailDr
         mimeType: attachment.mimeType,
         size: attachment.size,
         contentBase64: attachment.content.toString('base64'),
+        ...(attachment.disposition === 'inline' && attachment.contentId ? {
+          contentId: attachment.contentId,
+          disposition: 'inline' as const,
+        } : {}),
       })),
     } : {}),
   };

@@ -737,6 +737,36 @@ function base64MimeContent(value: Buffer) {
   return value.toString('base64').replace(/.{1,76}/gu, '$&\r\n').trimEnd();
 }
 
+function encodeMimeContentId(value: string | undefined) {
+  return sanitizeEmailHeaderValue(value || '').replace(/[<>]/gu, '').trim();
+}
+
+function bodyMimePart(contentType: string, body: string) {
+  return [
+    `Content-Type: ${contentType}; charset=UTF-8`,
+    'Content-Transfer-Encoding: 8bit',
+    '',
+    body,
+  ];
+}
+
+function attachmentMimePart(
+  attachment: Awaited<ReturnType<typeof resolveEmailAttachments>>[number],
+  disposition: 'attachment' | 'inline',
+) {
+  const filename = encodeMimeParameterValue(attachment.name);
+  const contentId = disposition === 'inline' ? encodeMimeContentId(attachment.contentId) : '';
+
+  return [
+    `Content-Type: ${attachment.mimeType}; name="${filename}"`,
+    ...(contentId ? [`Content-ID: <${contentId}>`] : []),
+    `Content-Disposition: ${disposition}; filename="${filename}"`,
+    'Content-Transfer-Encoding: base64',
+    '',
+    base64MimeContent(attachment.content),
+  ];
+}
+
 async function encodeRawEmail(input: EmailDraftInput) {
   const contentType = input.is_HTML ? 'text/html' : 'text/plain';
   const attachments = await resolveEmailAttachments(input.attachments);
@@ -753,29 +783,52 @@ async function encodeRawEmail(input: EmailDraftInput) {
     return base64Url(Buffer.from(`${[...headers, `Content-Type: ${contentType}; charset=UTF-8`].join('\r\n')}\r\n\r\n${input.body}`, 'utf8'));
   }
 
-  const boundary = `canvas-email-${crypto.randomUUID()}`;
-  const parts = [
-    `--${boundary}`,
-    `Content-Type: ${contentType}; charset=UTF-8`,
-    'Content-Transfer-Encoding: 8bit',
-    '',
-    input.body,
-    ...attachments.flatMap((attachment) => {
-      const filename = encodeMimeParameterValue(attachment.name);
-      return [
+  const inlineAttachments = attachments.filter((attachment) => attachment.disposition === 'inline' && attachment.contentId);
+  const regularAttachments = attachments.filter((attachment) => attachment.disposition !== 'inline' || !attachment.contentId);
+
+  if (inlineAttachments.length > 0 && regularAttachments.length === 0) {
+    const boundary = `canvas-email-related-${crypto.randomUUID()}`;
+    const parts = [
+      `--${boundary}`,
+      ...bodyMimePart(contentType, input.body),
+      ...inlineAttachments.flatMap((attachment) => [
         `--${boundary}`,
-        `Content-Type: ${attachment.mimeType}; name="${filename}"`,
-        `Content-Disposition: attachment; filename="${filename}"`,
-        'Content-Transfer-Encoding: base64',
+        ...attachmentMimePart(attachment, 'inline'),
+      ]),
+      `--${boundary}--`,
+      '',
+    ];
+
+    return base64Url(Buffer.from(`${[...headers, `Content-Type: multipart/related; boundary="${boundary}"`].join('\r\n')}\r\n\r\n${parts.join('\r\n')}`, 'utf8'));
+  }
+
+  const mixedBoundary = `canvas-email-mixed-${crypto.randomUUID()}`;
+  const relatedBoundary = `canvas-email-related-${crypto.randomUUID()}`;
+  const bodyParts = inlineAttachments.length > 0
+    ? [
+        `Content-Type: multipart/related; boundary="${relatedBoundary}"`,
         '',
-        base64MimeContent(attachment.content),
-      ];
-    }),
-    `--${boundary}--`,
+        `--${relatedBoundary}`,
+        ...bodyMimePart(contentType, input.body),
+        ...inlineAttachments.flatMap((attachment) => [
+          `--${relatedBoundary}`,
+          ...attachmentMimePart(attachment, 'inline'),
+        ]),
+        `--${relatedBoundary}--`,
+      ]
+    : bodyMimePart(contentType, input.body);
+  const parts = [
+    `--${mixedBoundary}`,
+    ...bodyParts,
+    ...regularAttachments.flatMap((attachment) => [
+      `--${mixedBoundary}`,
+      ...attachmentMimePart(attachment, 'attachment'),
+    ]),
+    `--${mixedBoundary}--`,
     '',
   ];
 
-  return base64Url(Buffer.from(`${[...headers, `Content-Type: multipart/mixed; boundary="${boundary}"`].join('\r\n')}\r\n\r\n${parts.join('\r\n')}`, 'utf8'));
+  return base64Url(Buffer.from(`${[...headers, `Content-Type: multipart/mixed; boundary="${mixedBoundary}"`].join('\r\n')}\r\n\r\n${parts.join('\r\n')}`, 'utf8'));
 }
 
 async function microsoftMessagePayload(input: EmailDraftInput) {
@@ -792,6 +845,10 @@ async function microsoftMessagePayload(input: EmailDraftInput) {
         name: attachment.name,
         contentType: attachment.mimeType,
         contentBytes: attachment.content.toString('base64'),
+        ...(attachment.disposition === 'inline' && attachment.contentId ? {
+          contentId: attachment.contentId,
+          isInline: true,
+        } : {}),
       })),
     } : {}),
   };

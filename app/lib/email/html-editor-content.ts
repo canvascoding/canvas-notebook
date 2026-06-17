@@ -9,6 +9,7 @@ const EMAIL_EDITOR_ALLOWED_TAGS = [
   'br',
   'em',
   'i',
+  'img',
   'li',
   'ol',
   'p',
@@ -30,12 +31,17 @@ const EMAIL_EDITOR_ALLOWED_ATTRS = [
   'cellspacing',
   'colspan',
   'href',
+  'height',
   'rel',
   'rowspan',
   'scope',
+  'src',
   'target',
+  'title',
+  'width',
 ];
 const EMAIL_EDITOR_ALLOWED_HREF_REGEXP = /^(?:https?:|mailto:)/iu;
+const EMAIL_EDITOR_ALLOWED_IMG_SRC_REGEXP = /^(?:cid:[^\s"'<>]+|https?:\/\/)/iu;
 
 export type EmailEditorBodyValues = {
   body: string;
@@ -57,7 +63,7 @@ export function sanitizeEmailEditorHtml(value: string): string {
     ALLOWED_TAGS: EMAIL_EDITOR_ALLOWED_TAGS,
   });
 
-  return sanitizeEmailEditorLinks(sanitized).trim();
+  return sanitizeEmailEditorImages(sanitizeEmailEditorLinks(sanitized)).trim();
 }
 
 export function emailEditorHtmlToText(html: string): string {
@@ -116,6 +122,18 @@ function sanitizeEmailEditorLinks(value: string): string {
     if (EMAIL_EDITOR_ALLOWED_HREF_REGEXP.test(hrefValue)) return match;
 
     return `<a${rawAttrs.replace(hrefMatch[0], '')}>`;
+  });
+}
+
+function sanitizeEmailEditorImages(value: string): string {
+  return value.replace(/<img\b([^>]*)>/giu, (match, rawAttrs: string) => {
+    const srcMatch = rawAttrs.match(/\ssrc\s*=\s*("([^"]*)"|'([^']*)'|([^\s"'>]+))/iu);
+    if (!srcMatch) return '';
+
+    const srcValue = (srcMatch[2] ?? srcMatch[3] ?? srcMatch[4] ?? '').trim();
+    if (EMAIL_EDITOR_ALLOWED_IMG_SRC_REGEXP.test(srcValue)) return match;
+
+    return '';
   });
 }
 

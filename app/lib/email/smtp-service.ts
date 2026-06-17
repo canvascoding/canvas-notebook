@@ -305,6 +305,10 @@ async function sendSmtpMessage(secret: EmailAccountSmtpSecret, from: { name?: st
       ...(input.is_HTML ? { html: input.body } : { text: input.body }),
       ...(attachments.length > 0 ? {
         attachments: attachments.map((attachment) => ({
+          ...(attachment.disposition === 'inline' && attachment.contentId ? {
+            cid: attachment.contentId,
+            contentDisposition: 'inline' as const,
+          } : {}),
           content: attachment.content,
           contentType: attachment.mimeType,
           filename: attachment.name,

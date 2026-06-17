@@ -53,6 +53,13 @@ async function main() {
     '<p><a target="_blank">bad</a> <a href="https://example.com">ok</a></p>',
   );
 
+  assert.equal(
+    sanitizeEmailEditorHtml('<p><img src="cid:hero-image" width="320" onerror="alert(1)"> <img src="https://example.com/hero.png" title="Hero"></p>'),
+    '<p><img src="cid:hero-image" width="320"> <img src="https://example.com/hero.png" title="Hero"></p>',
+  );
+  assert.equal(sanitizeEmailEditorHtml('<p><img src="file:///etc/passwd"> <img src="javascript:alert(1)"></p>'), '<p> </p>');
+  assert.equal(sanitizeEmailEditorHtml('<p><img src="data:image/png;base64,abcd" alt="Bad"></p>'), '<p></p>');
+
   console.log('Email HTML content normalization test passed.');
 }
 
