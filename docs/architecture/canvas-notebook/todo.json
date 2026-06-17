@@ -1,0 +1,223 @@
+{
+  "updatedAt": "2026-06-17",
+  "source": "Canvas Notebook Team Workspace Plan",
+  "tasks": [
+    {
+      "id": 1,
+      "title": "Bestehende Canvas Notebook Datei- und Workspace-Zugriffe inventarisieren",
+      "status": "completed",
+      "repo": "canvasstudios-notebook",
+      "artifact": "docs/architecture/canvas-notebook/team-workspace-inventory.md"
+    },
+    {
+      "id": 2,
+      "title": "Bestehende Canvas Notebook Funktionen nach Scope klassifizieren: user, workspace, organization oder instance",
+      "status": "pending",
+      "repo": "canvasstudios-notebook"
+    },
+    {
+      "id": 3,
+      "title": "Better-Auth-basiertes Rollenmodell mit genau einem Owner, Admins, Members und optional Externals festlegen",
+      "status": "pending",
+      "repo": "canvasstudios-notebook"
+    },
+    {
+      "id": 4,
+      "title": "Initiales Admin-/Owner-Setup und Admin-only Rechte fuer kritische App-Funktionen absichern",
+      "status": "pending",
+      "repo": "canvasstudios-notebook"
+    },
+    {
+      "id": 5,
+      "title": "Per-User Permissions fuer Team Workspace, Public Links, Team-Automations, Plugin-/Skill-Freigabe und Exporte bauen",
+      "status": "pending",
+      "repo": "canvasstudios-notebook"
+    },
+    {
+      "id": 6,
+      "title": "Control Plane Managed Mode in Lizenz-Claims und Deployment Modes aufteilen",
+      "status": "pending",
+      "repo": "canvas-control-plane"
+    },
+    {
+      "id": 7,
+      "title": "managedFeatures und managedQuotas im Control Plane um Teamrechte erweitern",
+      "status": "pending",
+      "repo": "canvas-control-plane"
+    },
+    {
+      "id": 8,
+      "title": "applyManagedEnvToVmConfig() und ensureManagedEnvForVmConfig() um Team-ENV-Werte erweitern",
+      "status": "pending",
+      "repo": "canvas-control-plane"
+    },
+    {
+      "id": 9,
+      "title": "Control Plane Provisioning so anpassen, dass Team-Instanzen als Organization-Runtime verstanden werden",
+      "status": "pending",
+      "repo": "canvas-control-plane"
+    },
+    {
+      "id": 10,
+      "title": "Workspace-Modell und Workspace-Service in Canvas Notebook einfuehren",
+      "status": "pending",
+      "repo": "canvasstudios-notebook"
+    },
+    {
+      "id": 11,
+      "title": "Community-Lizenz auf Single-User-Betrieb begrenzen",
+      "status": "pending",
+      "repo": "canvasstudios-notebook"
+    },
+    {
+      "id": 12,
+      "title": "User-spezifische persoenliche Workspaces anlegen",
+      "status": "pending",
+      "repo": "canvasstudios-notebook"
+    },
+    {
+      "id": 13,
+      "title": "Team Workspace fuer Team-/Managed-Lizenzen anlegen",
+      "status": "pending",
+      "repo": "canvasstudios-notebook"
+    },
+    {
+      "id": 14,
+      "title": "UI zum Wechsel zwischen Personal Workspace und Team Workspace bauen",
+      "status": "pending",
+      "repo": "canvasstudios-notebook"
+    },
+    {
+      "id": 15,
+      "title": "Kopieraktionen zwischen Personal und Team Workspace implementieren",
+      "status": "pending",
+      "repo": "canvasstudios-notebook"
+    },
+    {
+      "id": 16,
+      "title": "Agent-Runtime-Einstellungen und Agent-Sessions an User-/Workspace-Kontext binden",
+      "status": "pending",
+      "repo": "canvasstudios-notebook"
+    },
+    {
+      "id": 17,
+      "title": "Plugins, Skills und Agent-Definitionen auf User-Scope mit optionaler Organization-Teilung migrieren",
+      "status": "pending",
+      "repo": "canvasstudios-notebook"
+    },
+    {
+      "id": 18,
+      "title": "Secrets/Credentials pro User, Organization und Managed/System isolieren",
+      "status": "pending",
+      "repo": "canvasstudios-notebook"
+    },
+    {
+      "id": 19,
+      "title": "Composio-Management, E-Mail-OAuth, Notifications und Channels auf User-/Organization-Scope migrieren",
+      "status": "pending",
+      "repo": "canvasstudios-notebook"
+    },
+    {
+      "id": 20,
+      "title": "To-do-Management mit Organization-Scope, User-Zuweisung und Status-Tracking bauen",
+      "status": "pending",
+      "repo": "canvasstudios-notebook"
+    },
+    {
+      "id": 21,
+      "title": "Automations an Owner, Workspace-Auswahl und Ausfuehrungskontext binden",
+      "status": "pending",
+      "repo": "canvasstudios-notebook"
+    },
+    {
+      "id": 22,
+      "title": "Offboarding-Flow fuer User mit Workspace-Sicherung, Automation-Review, To-do-Behandlung und Credential-Revocation bauen",
+      "status": "pending",
+      "repo": "canvasstudios-notebook"
+    },
+    {
+      "id": 23,
+      "title": "Public Links workspace- und revisionsbewusst neu modellieren",
+      "status": "pending",
+      "repo": "canvasstudios-notebook"
+    },
+    {
+      "id": 24,
+      "title": "Studio Route auf Organization-geteilte Bibliotheken und user-filterbare Asset-Sammlung umbauen",
+      "status": "pending",
+      "repo": "canvasstudios-notebook"
+    },
+    {
+      "id": 25,
+      "title": "Search/Retrieval-Scope fuer spaetere Embeddings vorbereiten",
+      "status": "pending",
+      "repo": "canvasstudios-notebook"
+    },
+    {
+      "id": 26,
+      "title": "Background Jobs und Usage mit userId, organizationId, workspaceId und Job-Scope versehen",
+      "status": "pending",
+      "repo": "canvasstudios-notebook"
+    },
+    {
+      "id": 27,
+      "title": "Admin-only Export mit granularer Auswahl fuer Migrationen implementieren",
+      "status": "pending",
+      "repo": "canvasstudios-notebook"
+    },
+    {
+      "id": 28,
+      "title": "Import-Flow mit User-/Workspace-Mapping, Dry-Run und Reconnect fuer Secrets/OAuth vorbereiten",
+      "status": "pending",
+      "repo": "canvasstudios-notebook"
+    },
+    {
+      "id": 29,
+      "title": "Vollstaendigen Audit Trail fuer Admin, Auth, Files, Agenten, Automations, Plugins, Integrationen, Export/Import und Studio umsetzen",
+      "status": "pending",
+      "repo": "canvasstudios-notebook"
+    },
+    {
+      "id": 30,
+      "title": "Retention, Trash und Datenloeschung fuer Teamdaten planen",
+      "status": "pending",
+      "repo": "canvasstudios-notebook"
+    },
+    {
+      "id": 31,
+      "title": "Path Security fuer alle Workspace- und Agent-Dateioperationen erzwingen",
+      "status": "pending",
+      "repo": "canvasstudios-notebook"
+    },
+    {
+      "id": 32,
+      "title": "Projekt-/Kundenebene im Datenmodell vorbereiten",
+      "status": "pending",
+      "repo": "canvasstudios-notebook"
+    },
+    {
+      "id": 33,
+      "title": "Agent-Dateiaenderungen mit User, Session, Workspace und Revision auditieren",
+      "status": "pending",
+      "repo": "canvasstudios-notebook"
+    },
+    {
+      "id": 34,
+      "title": "Einfache Locks oder Revision-Checks fuer Team-Dateien einfuehren",
+      "status": "pending",
+      "repo": "canvasstudios-notebook"
+    },
+    {
+      "id": 35,
+      "title": "Storage-Monitoring und Alerts fuer Team-Instanzen im Control Plane absichern",
+      "status": "pending",
+      "repo": "canvas-control-plane"
+    },
+    {
+      "id": 36,
+      "title": "Backup- und Restore-Konzept fuer Team-Instanzen implementieren",
+      "status": "pending",
+      "repo": "cross-repo"
+    }
+  ]
+}
