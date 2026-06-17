@@ -1,0 +1,5 @@
+interface:
+  display_name: XLSX
+  short_description: Create, edit, analyze, and verify spreadsheets
+  brand_color: "#107C41"
+  default_prompt: Use $xlsx to create, edit, analyze, or verify a spreadsheet workbook.

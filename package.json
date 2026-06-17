@@ -37,6 +37,7 @@
     "test:studio:veo": "tsx scripts/veo-generation-test.ts",
     "test:skills:runtime": "tsx scripts/skills-runtime-test.ts",
     "test:skills:seed-bootstrap": "tsx scripts/default-seed-skills-test.ts",
+    "test:plugins:seed-bootstrap": "tsx scripts/default-seed-plugins-test.ts",
     "test:skills:store": "tsx --conditions react-server scripts/canvas-skill-store-test.ts",
     "test:plugins:runtime": "tsx --conditions react-server scripts/canvas-plugin-runtime-test.ts",
     "test:browser-start": "tsx scripts/browser-runtime-test.ts",

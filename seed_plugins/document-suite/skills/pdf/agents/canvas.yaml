@@ -1,0 +1,5 @@
+interface:
+  display_name: PDF
+  short_description: Read, create, extract, transform, and verify PDFs
+  brand_color: "#DC2626"
+  default_prompt: Use $pdf to read, create, extract, transform, or visually verify a PDF.

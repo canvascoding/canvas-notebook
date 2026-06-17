@@ -10,19 +10,16 @@ import {
 async function main() {
   assert.deepEqual([...DEFAULT_BOOTSTRAP_SEED_SKILL_NAMES].sort(), [
     'create-plugin',
-    'docx',
-    'excalidraw-diagram',
     'find-skills',
     'frontend-slides',
-    'pdf',
-    'pptx',
     'skill-creator',
-    'xlsx',
   ]);
 
   const defaultSet = parseBootstrapSeedSkillNames();
-  assert.equal(defaultSet.has('pdf'), true);
-  assert.equal(defaultSet.has('docx'), true);
+  assert.equal(defaultSet.has('create-plugin'), true);
+  assert.equal(defaultSet.has('frontend-slides'), true);
+  assert.equal(defaultSet.has('pdf'), false);
+  assert.equal(defaultSet.has('docx'), false);
   assert.equal(defaultSet.has('youtube-transcript'), false);
 
   const customSet = parseBootstrapSeedSkillNames('pdf, qmd, docx');

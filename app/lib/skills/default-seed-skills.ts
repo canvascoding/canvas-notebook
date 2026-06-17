@@ -1,11 +1,6 @@
 export const DEFAULT_BOOTSTRAP_SEED_SKILL_NAMES = [
   'create-plugin',
   'skill-creator',
-  'excalidraw-diagram',
-  'pdf',
-  'pptx',
-  'xlsx',
-  'docx',
   'frontend-slides',
   'find-skills',
 ] as const;

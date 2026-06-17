@@ -1,9 +1,11 @@
 import { promises as fs } from 'node:fs';
 import { statSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { loadAppEnv } from '../server/load-app-env';
 import { isOnboardingComplete } from '../app/lib/onboarding/status';
 import { parseBootstrapSeedSkillNames } from '../app/lib/skills/default-seed-skills';
+import { parseBootstrapSeedPluginNames } from '../app/lib/plugins/default-seed-plugins';
 
 // Database imports are optional - they may not be available in Docker container
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -82,7 +84,12 @@ const LEGACY_AGENTS_ENV_PATH = '/home/node/Canvas-Agents.env';
 // Seed system prompts directory (relative to project root)
 const SEED_SYS_PROMPTS_DIR = path.join(process.cwd(), 'seed_sys_prompts');
 const SEED_SKILLS_DIR = path.join(process.cwd(), 'seed_skills');
+const SEED_PLUGINS_DIR = path.join(process.cwd(), 'seed_plugins');
 const SKILLS_STORAGE_DIR = path.join(resolveCanvasDataRoot(), 'skills');
+const PLUGINS_STORAGE_DIR = path.join(resolveCanvasDataRoot(), 'plugins');
+const INSTALLED_PLUGINS_DIR = path.join(PLUGINS_STORAGE_DIR, 'installed');
+const PLUGIN_REGISTRY_PATH = path.join(PLUGINS_STORAGE_DIR, 'registry.json');
+const PI_RUNTIME_CONFIG_PATH = path.join(SETTINGS_STORAGE_DIR, 'pi-runtime-config.json');
 
 // All managed files (excluding BOOTSTRAP.md which is only for initial setup)
 const MANAGED_FILE_NAMES = ['AGENTS.md', 'USER.md', 'MEMORY.md', 'SOUL.md', 'TOOLS.md', 'HEARTBEAT.md'] as const;
@@ -407,6 +414,302 @@ async function ensureSeedSkillsBootstrap(): Promise<void> {
   }
 }
 
+type SeedPluginManifest = {
+  name: string;
+  version: string;
+  description: string;
+  license?: string;
+  author?: unknown;
+  source?: string;
+  skills?: string;
+  interface?: unknown;
+  connectors?: unknown;
+};
+
+type SeedPluginSkillRecord = {
+  name: string;
+  title: string;
+  description: string;
+  version?: string;
+  path: string;
+  directory: string;
+};
+
+type SeedPluginRegistry = {
+  version: 1;
+  updatedAt: string;
+  plugins: Record<string, unknown>;
+};
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
+}
+
+function stringValue(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
+function isValidCanvasPackageName(name: string): boolean {
+  return /^[a-z0-9]+([a-z0-9-]*[a-z0-9]+)?$/.test(name);
+}
+
+function isValidCanvasVersion(version: string): boolean {
+  return /^[0-9]+(?:\.[0-9]+){0,2}(?:[-+][a-z0-9.-]+)?$/i.test(version);
+}
+
+function parseSimpleSkillFrontmatter(content: string): { name?: string; description?: string; version?: string } {
+  const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+  if (!match) return {};
+  const frontmatter = match[1];
+  const readField = (fieldName: string) => {
+    const fieldMatch = frontmatter.match(new RegExp(`^${fieldName}:\\s*["']?([^"'\\n]+)["']?\\s*$`, 'm'));
+    return fieldMatch?.[1]?.trim();
+  };
+  const metadataVersionMatch = frontmatter.match(/^\s+version:\s*["']?([^"'\n]+)["']?\s*$/m);
+  return {
+    name: readField('name'),
+    description: readField('description'),
+    version: metadataVersionMatch?.[1]?.trim(),
+  };
+}
+
+async function listFilesForChecksum(rootDir: string, currentDir = rootDir): Promise<string[]> {
+  const entries = await fs.readdir(currentDir, { withFileTypes: true });
+  const files: string[] = [];
+
+  for (const entry of entries) {
+    if (['.git', 'node_modules', '.DS_Store'].includes(entry.name)) {
+      continue;
+    }
+
+    const fullPath = path.join(currentDir, entry.name);
+    if (entry.isDirectory()) {
+      files.push(...await listFilesForChecksum(rootDir, fullPath));
+    } else if (entry.isFile()) {
+      files.push(path.relative(rootDir, fullPath));
+    }
+  }
+
+  return files.sort((left, right) => left.localeCompare(right));
+}
+
+async function computeSeedPluginChecksum(rootDir: string): Promise<string> {
+  const hash = createHash('sha256');
+  const files = await listFilesForChecksum(rootDir);
+  for (const relativeFile of files) {
+    hash.update(relativeFile);
+    hash.update('\0');
+    hash.update(await fs.readFile(path.join(rootDir, relativeFile)));
+    hash.update('\0');
+  }
+  return hash.digest('hex');
+}
+
+async function readSeedPluginRegistry(): Promise<SeedPluginRegistry> {
+  try {
+    const raw = await fs.readFile(PLUGIN_REGISTRY_PATH, 'utf8');
+    const parsed = JSON.parse(raw) as SeedPluginRegistry;
+    if (parsed?.version === 1 && isRecord(parsed.plugins)) {
+      return parsed;
+    }
+  } catch {
+    // Missing or invalid registry is recreated below.
+  }
+  return {
+    version: 1,
+    updatedAt: new Date().toISOString(),
+    plugins: {},
+  };
+}
+
+async function readSeedPluginManifest(pluginRoot: string): Promise<SeedPluginManifest | null> {
+  const manifestPath = path.join(pluginRoot, '.canvas-plugin', 'plugin.json');
+  try {
+    const parsed = JSON.parse(await fs.readFile(manifestPath, 'utf8')) as unknown;
+    if (!isRecord(parsed)) return null;
+    const manifest: SeedPluginManifest = {
+      name: stringValue(parsed.name) || '',
+      version: stringValue(parsed.version) || '',
+      description: stringValue(parsed.description) || '',
+      license: stringValue(parsed.license),
+      author: parsed.author,
+      source: stringValue(parsed.source),
+      skills: stringValue(parsed.skills) || './skills',
+      interface: parsed.interface,
+      connectors: parsed.connectors,
+    };
+    if (!isValidCanvasPackageName(manifest.name) || !isValidCanvasVersion(manifest.version) || !manifest.description) {
+      return null;
+    }
+    return manifest;
+  } catch {
+    return null;
+  }
+}
+
+async function discoverSeedPluginSkills(pluginRoot: string, manifest: SeedPluginManifest): Promise<SeedPluginSkillRecord[]> {
+  const skillsDir = path.resolve(pluginRoot, manifest.skills || './skills');
+  const entries = await fs.readdir(skillsDir, { withFileTypes: true }).catch(() => []);
+  const records: SeedPluginSkillRecord[] = [];
+
+  for (const entry of entries) {
+    if (!entry.isDirectory() || entry.name.startsWith('.')) continue;
+    const skillDir = path.join(skillsDir, entry.name);
+    const skillPath = path.join(skillDir, 'SKILL.md');
+    const stat = await fs.stat(skillPath).catch(() => null);
+    if (!stat?.isFile()) continue;
+
+    const skillFrontmatter = parseSimpleSkillFrontmatter(await fs.readFile(skillPath, 'utf8'));
+    const skillName = skillFrontmatter.name || entry.name;
+    if (!isValidCanvasPackageName(skillName)) continue;
+
+    records.push({
+      name: skillName,
+      title: skillName
+        .split('-')
+        .filter(Boolean)
+        .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+        .join(' '),
+      description: skillFrontmatter.description || '',
+      version: skillFrontmatter.version,
+      path: path.join(INSTALLED_PLUGINS_DIR, manifest.name, manifest.version, path.relative(pluginRoot, skillPath)),
+      directory: path.join(INSTALLED_PLUGINS_DIR, manifest.name, manifest.version, path.relative(pluginRoot, skillDir)),
+    });
+  }
+
+  return records.sort((left, right) => left.name.localeCompare(right.name));
+}
+
+async function hasStandaloneSkillConflict(skillNames: string[]): Promise<string[]> {
+  const conflicts: string[] = [];
+  for (const skillName of skillNames) {
+    if (await fileExists(path.join(SKILLS_STORAGE_DIR, skillName, 'SKILL.md'))) {
+      conflicts.push(skillName);
+    }
+  }
+  return conflicts;
+}
+
+async function enableSeedPluginSkillsInPiConfig(skillNames: string[]): Promise<void> {
+  if (!(await fileExists(PI_RUNTIME_CONFIG_PATH))) return;
+
+  try {
+    const config = JSON.parse(await fs.readFile(PI_RUNTIME_CONFIG_PATH, 'utf8')) as { enabledSkills?: unknown; updatedAt?: string };
+    if (!Array.isArray(config.enabledSkills) || config.enabledSkills.length === 0) {
+      return;
+    }
+
+    const nextEnabled = new Set(
+      config.enabledSkills
+        .filter((entry): entry is string => typeof entry === 'string' && entry !== '__none__'),
+    );
+    for (const skillName of skillNames) {
+      nextEnabled.add(skillName);
+    }
+    config.enabledSkills = [...nextEnabled].sort((left, right) => left.localeCompare(right));
+    config.updatedAt = new Date().toISOString();
+    await writeJsonAtomic(PI_RUNTIME_CONFIG_PATH, config);
+  } catch (error) {
+    console.warn('[bootstrap-agent-runtime] Failed to update PI runtime config for seed plugin skills:', error);
+  }
+}
+
+async function ensureSeedPluginsBootstrap(): Promise<void> {
+  if (!(await fileExists(SEED_PLUGINS_DIR))) {
+    console.log(`[bootstrap-agent-runtime] Seed plugins directory not found: ${SEED_PLUGINS_DIR}.`);
+    return;
+  }
+
+  await fs.mkdir(INSTALLED_PLUGINS_DIR, { recursive: true });
+  const bootstrapSeedPluginNames = parseBootstrapSeedPluginNames(process.env.CANVAS_BOOTSTRAP_SEED_PLUGINS);
+  const entries = await fs.readdir(SEED_PLUGINS_DIR, { withFileTypes: true });
+  const registry = await readSeedPluginRegistry();
+  let installedCount = 0;
+  let skippedNonDefaultCount = 0;
+
+  for (const entry of entries) {
+    if (!entry.isDirectory() || entry.name.startsWith('.')) continue;
+    if (!bootstrapSeedPluginNames.has(entry.name)) {
+      skippedNonDefaultCount += 1;
+      continue;
+    }
+
+    const sourcePath = path.join(SEED_PLUGINS_DIR, entry.name);
+    const manifest = await readSeedPluginManifest(sourcePath);
+    if (!manifest) {
+      console.warn(`[bootstrap-agent-runtime] Invalid seed plugin skipped: ${entry.name}.`);
+      continue;
+    }
+    if (registry.plugins[manifest.name]) {
+      continue;
+    }
+
+    const skills = await discoverSeedPluginSkills(sourcePath, manifest);
+    if (skills.length === 0) {
+      console.warn(`[bootstrap-agent-runtime] Seed plugin ${manifest.name} has no valid skills.`);
+      continue;
+    }
+
+    const conflicts = await hasStandaloneSkillConflict(skills.map((skill) => skill.name));
+    if (conflicts.length > 0) {
+      console.warn(
+        `[bootstrap-agent-runtime] Seed plugin ${manifest.name} skipped because standalone skills already exist: ${conflicts.join(', ')}.`,
+      );
+      continue;
+    }
+
+    const installDir = path.join(INSTALLED_PLUGINS_DIR, manifest.name, manifest.version);
+    await fs.rm(installDir, { recursive: true, force: true });
+    await fs.mkdir(path.dirname(installDir), { recursive: true });
+    await fs.cp(sourcePath, installDir, {
+      recursive: true,
+      preserveTimestamps: true,
+      filter: (source) => !['.git', 'node_modules', '.DS_Store'].includes(path.basename(source)),
+    });
+
+    const installedSkillsDir = path.join(installDir, manifest.skills || './skills');
+    const checksum = await computeSeedPluginChecksum(installDir);
+    const timestamp = new Date().toISOString();
+    registry.plugins[manifest.name] = {
+      name: manifest.name,
+      version: manifest.version,
+      description: manifest.description,
+      license: manifest.license,
+      author: manifest.author,
+      source: manifest.source || 'seed',
+      sourcePath,
+      installedAt: timestamp,
+      updatedAt: timestamp,
+      enabled: true,
+      checksum,
+      installDir,
+      manifestPath: path.join(installDir, '.canvas-plugin', 'plugin.json'),
+      skillsDir: installedSkillsDir,
+      skills,
+      interface: manifest.interface,
+      connectors: manifest.connectors,
+    };
+    await enableSeedPluginSkillsInPiConfig(skills.map((skill) => skill.name));
+    installedCount += 1;
+    console.log(`[bootstrap-agent-runtime] Installed seed plugin ${manifest.name}.`);
+  }
+
+  if (installedCount > 0) {
+    await fs.mkdir(PLUGINS_STORAGE_DIR, { recursive: true });
+    await writeJsonAtomic(PLUGIN_REGISTRY_PATH, {
+      ...registry,
+      version: 1,
+      updatedAt: new Date().toISOString(),
+    });
+    console.log(`[bootstrap-agent-runtime] Installed ${installedCount} seed plugins.`);
+  } else {
+    console.log('[bootstrap-agent-runtime] Seed plugins already present or no valid seed plugins found.');
+  }
+  if (skippedNonDefaultCount > 0) {
+    console.log(`[bootstrap-agent-runtime] Skipped ${skippedNonDefaultCount} non-default seed plugins.`);
+  }
+}
+
 async function runLegacySessionCleanupIfNeeded(): Promise<void> {
   if (await fileExists(WIPE_MARKER_PATH)) {
     console.log(`[bootstrap-agent-runtime] Legacy wipe skipped (marker exists: ${WIPE_MARKER_PATH}).`);
@@ -481,6 +784,7 @@ async function main() {
   await ensureIntegrationsEnvBootstrap();
   await ensureAgentStorageBootstrap();
   await ensureSeedSkillsBootstrap();
+  await ensureSeedPluginsBootstrap();
   await runLegacySessionCleanupIfNeeded();
 
   console.log('[bootstrap-agent-runtime] Agent runtime bootstrap complete.');
