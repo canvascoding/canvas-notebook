@@ -22,7 +22,7 @@ import { TaskList } from '@tiptap/extension-task-list';
 import { TaskItem } from '@tiptap/extension-task-item';
 import { TableKit } from '@tiptap/extension-table';
 import { CodeBlock } from '@tiptap/extension-code-block';
-import { Suggestion, type SuggestionKeyDownProps, type SuggestionProps } from '@tiptap/suggestion';
+import { Suggestion, type SuggestionProps } from '@tiptap/suggestion';
 import { Plugin, PluginKey } from '@tiptap/pm/state';
 import { Decoration, DecorationSet } from '@tiptap/pm/view';
 import {
@@ -166,11 +166,23 @@ type SlashCommandDefinition = {
 type SlashCommandItem = SlashCommandDefinition & SlashCommandItemLabel;
 
 type SlashCommandListHandle = {
-  onKeyDown: (props: SuggestionKeyDownProps) => boolean;
+  onKeyDown: (event: KeyboardEvent | React.KeyboardEvent) => boolean;
 };
 
-type SlashCommandListProps = SuggestionProps<SlashCommandItem, SlashCommandItem> & {
+type SlashCommandListProps = {
+  command: (item: SlashCommandItem) => void;
+  items: SlashCommandItem[];
   labels: Pick<SlashCommandLabels, 'empty' | 'group'>;
+};
+
+type BlockCommandMenuState = {
+  id: number;
+  range: Range;
+  position: {
+    left: number;
+    top: number;
+    width: number;
+  };
 };
 
 type ColorSwatchWidgetHost = HTMLSpanElement & {
@@ -542,7 +554,7 @@ const SlashCommandList = React.forwardRef<SlashCommandListHandle, SlashCommandLi
     }, [itemKey, items.length]);
 
     useImperativeHandle(ref, () => ({
-      onKeyDown: ({ event }) => {
+      onKeyDown: (event) => {
         if (!items.length) return false;
 
         if (event.key === 'ArrowUp') {
@@ -586,6 +598,7 @@ const SlashCommandList = React.forwardRef<SlashCommandListHandle, SlashCommandLi
                 onMouseEnter={() => setSelectionState({ index, itemKey })}
                 onMouseDown={(event) => {
                   event.preventDefault();
+                  event.stopPropagation();
                   selectItem(index);
                 }}
               >
@@ -605,10 +618,7 @@ const SlashCommandList = React.forwardRef<SlashCommandListHandle, SlashCommandLi
 
 SlashCommandList.displayName = 'SlashCommandList';
 
-function updateSlashCommandPosition(element: HTMLElement, props: SuggestionProps<SlashCommandItem, SlashCommandItem>) {
-  const rect = props.clientRect?.();
-  if (!rect) return;
-
+function getSlashCommandMenuPosition(rect: Pick<DOMRect, 'bottom' | 'left' | 'top'>) {
   const menuWidth = 288;
   const menuHeight = 288;
   const padding = 8;
@@ -618,11 +628,23 @@ function updateSlashCommandPosition(element: HTMLElement, props: SuggestionProps
     ? rect.bottom + 6
     : Math.max(padding, rect.top - menuHeight - 6);
 
+  return {
+    left,
+    top,
+    width: menuWidth,
+  };
+}
+
+function updateSlashCommandPosition(element: HTMLElement, props: SuggestionProps<SlashCommandItem, SlashCommandItem>) {
+  const rect = props.clientRect?.();
+  if (!rect) return;
+  const position = getSlashCommandMenuPosition(rect);
+
   Object.assign(element.style, {
     position: 'fixed',
-    left: `${left}px`,
-    top: `${top}px`,
-    width: `${menuWidth}px`,
+    left: `${position.left}px`,
+    top: `${position.top}px`,
+    width: `${position.width}px`,
   });
 }
 
@@ -636,7 +658,7 @@ function createSlashCommands(labels: SlashCommandLabels, actions?: SlashCommandA
           editor: this.editor,
           pluginKey: SLASH_COMMAND_PLUGIN_KEY,
           char: '/',
-          startOfLine: true,
+          startOfLine: false,
           allowedPrefixes: null,
           decorationClass: 'tiptap-slash-suggestion',
           items: ({ query }) => getSlashCommandItems(query, labels),
@@ -670,7 +692,7 @@ function createSlashCommands(labels: SlashCommandLabels, actions?: SlashCommandA
                   updateSlashCommandPosition(component.element, props);
                 }
               },
-              onKeyDown: (props) => component?.ref?.onKeyDown(props) ?? false,
+              onKeyDown: ({ event }) => component?.ref?.onKeyDown(event) ?? false,
               onExit: () => {
                 component?.element.remove();
                 component?.destroy();
@@ -838,29 +860,45 @@ function findActiveTextblockDepth(editor: Editor): number | null {
   return null;
 }
 
-function openSlashMenuFromCurrentBlock(editor: Editor) {
-  if (!editor.isEditable || editor.isActive('codeBlock')) return;
+function createBlockCommandTarget(editor: Editor): Range | null {
+  if (!editor.isEditable || editor.isActive('codeBlock')) return null;
 
   const { $from } = editor.state.selection;
   const textblockDepth = findActiveTextblockDepth(editor);
-  if (!textblockDepth) return;
+  if (!textblockDepth) return null;
 
-  const node = $from.node(textblockDepth);
-  if (node.type.name === 'paragraph' && node.content.size === 0) {
-    editor.chain().focus().setTextSelection($from.start(textblockDepth)).insertContent('/').run();
-    return;
+  const topLevelDepth = $from.depth >= 1 ? 1 : textblockDepth;
+  const topLevelNode = $from.node(topLevelDepth);
+
+  if (topLevelNode.type.name === 'paragraph' && topLevelNode.content.size === 0) {
+    const position = $from.start(topLevelDepth);
+    editor.chain().focus().setTextSelection(position).run();
+    return { from: position, to: position };
   }
 
-  const insertPosition = $from.after(textblockDepth);
+  const insertPosition = $from.after(topLevelDepth);
+  const cursorPosition = insertPosition + 1;
   editor
     .chain()
     .focus()
-    .insertContentAt(insertPosition, {
-      type: 'paragraph',
-      content: [{ type: 'text', text: '/' }],
-    })
-    .setTextSelection(insertPosition + 2)
+    .insertContentAt(insertPosition, { type: 'paragraph' })
+    .setTextSelection(cursorPosition)
     .run();
+
+  return { from: cursorPosition, to: cursorPosition };
+}
+
+function createBlockCommandMenuState(editor: Editor, range: Range): BlockCommandMenuState | null {
+  try {
+    const coords = editor.view.coordsAtPos(range.from);
+    return {
+      id: Date.now(),
+      range,
+      position: getSlashCommandMenuPosition(coords),
+    };
+  } catch {
+    return null;
+  }
 }
 
 function getBlockInsertButtonPosition(editor: Editor, container: HTMLDivElement): { top: number } | null {
@@ -871,22 +909,33 @@ function getBlockInsertButtonPosition(editor: Editor, container: HTMLDivElement)
   if (!textblockDepth) return null;
 
   const blockStart = $from.before(textblockDepth);
-  const positionForCoords = Math.min(blockStart + 1, editor.state.doc.content.size);
-  const coords = editor.view.coordsAtPos(positionForCoords);
+  const blockDom = editor.view.nodeDOM(blockStart);
   const containerRect = container.getBoundingClientRect();
 
+  if (blockDom instanceof HTMLElement) {
+    const blockRect = blockDom.getBoundingClientRect();
+    return {
+      top: Math.max(6, blockRect.top - containerRect.top + container.scrollTop + (blockRect.height / 2) - 12),
+    };
+  }
+
+  const positionForCoords = Math.min(blockStart + 1, editor.state.doc.content.size);
+  const coords = editor.view.coordsAtPos(positionForCoords);
+
   return {
-    top: Math.max(6, coords.top - containerRect.top + container.scrollTop - 2),
+    top: Math.max(6, coords.top - containerRect.top + container.scrollTop),
   };
 }
 
 function MarkdownBlockInsertButton({
   editor,
   label,
+  onOpenCommandMenu,
   scrollContainerRef,
 }: {
   editor: Editor | null;
   label: string;
+  onOpenCommandMenu: (editor: Editor) => void;
   scrollContainerRef: React.RefObject<HTMLDivElement | null>;
 }) {
   const [position, setPosition] = useState<{ top: number } | null>(null);
@@ -941,12 +990,12 @@ function MarkdownBlockInsertButton({
           size="icon-xs"
           aria-label={label}
           title={label}
-          className="absolute left-1 z-10 opacity-70 hover:opacity-100"
+          className="tiptap-block-insert-button absolute z-10 opacity-70 hover:opacity-100"
           style={{ top: position.top }}
           onMouseDown={(event) => {
             event.preventDefault();
             event.stopPropagation();
-            openSlashMenuFromCurrentBlock(editor);
+            onOpenCommandMenu(editor);
           }}
         >
           <Plus />
@@ -954,6 +1003,84 @@ function MarkdownBlockInsertButton({
       </TooltipTrigger>
       <TooltipContent>{label}</TooltipContent>
     </Tooltip>
+  );
+}
+
+function MarkdownBlockCommandMenu({
+  actions,
+  editor,
+  labels,
+  menu,
+  onClose,
+}: {
+  actions?: SlashCommandActions;
+  editor: Editor;
+  labels: SlashCommandLabels;
+  menu: BlockCommandMenuState;
+  onClose: () => void;
+}) {
+  const menuRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<SlashCommandListHandle>(null);
+  const items = useMemo(() => getSlashCommandItems('', labels), [labels]);
+
+  const runCommand = useCallback((item: SlashCommandItem) => {
+    onClose();
+    item.command({
+      actions,
+      editor,
+      labels,
+      range: menu.range,
+    });
+  }, [actions, editor, labels, menu.range, onClose]);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        event.stopPropagation();
+        onClose();
+        editor.chain().focus().run();
+        return;
+      }
+
+      if (listRef.current?.onKeyDown(event)) {
+        event.stopPropagation();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown, true);
+    return () => window.removeEventListener('keydown', handleKeyDown, true);
+  }, [editor, onClose]);
+
+  useEffect(() => {
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (target instanceof Node && menuRef.current?.contains(target)) return;
+      onClose();
+    };
+
+    window.addEventListener('pointerdown', handlePointerDown, true);
+    return () => window.removeEventListener('pointerdown', handlePointerDown, true);
+  }, [onClose]);
+
+  return (
+    <div
+      ref={menuRef}
+      className="tiptap-slash-menu"
+      style={{
+        left: menu.position.left,
+        position: 'fixed',
+        top: menu.position.top,
+        width: menu.position.width,
+      }}
+    >
+      <SlashCommandList
+        ref={listRef}
+        command={runCommand}
+        items={items}
+        labels={{ empty: labels.empty, group: labels.group }}
+      />
+    </div>
   );
 }
 
@@ -1761,14 +1888,19 @@ function RichMarkdownEditor({
   const applyingExternalValueRef = useRef(false);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [tableDialogOpen, setTableDialogOpen] = useState(false);
+  const [blockCommandMenu, setBlockCommandMenu] = useState<BlockCommandMenuState | null>(null);
   const labels = useMemo(() => createSlashCommandLabels(t), [t]);
   const openTableDialogFromSlash = useCallback((slashEditor: Editor, range: Range) => {
     slashEditor.chain().focus().deleteRange(range).run();
     setTableDialogOpen(true);
   }, []);
+  const slashCommandActions = useMemo<SlashCommandActions>(
+    () => ({ openTableDialog: openTableDialogFromSlash }),
+    [openTableDialogFromSlash],
+  );
   const extensions = useMemo(
-    () => createEditorExtensions(filePath, labels, { openTableDialog: openTableDialogFromSlash }),
-    [filePath, labels, openTableDialogFromSlash],
+    () => createEditorExtensions(filePath, labels, slashCommandActions),
+    [filePath, labels, slashCommandActions],
   );
 
   useEffect(() => {
@@ -1801,6 +1933,22 @@ function RichMarkdownEditor({
     setTableDialogOpen(false);
   }, [editor]);
 
+  const closeBlockCommandMenu = useCallback(() => {
+    setBlockCommandMenu(null);
+  }, []);
+
+  const openBlockCommandMenu = useCallback((blockEditor: Editor) => {
+    const range = createBlockCommandTarget(blockEditor);
+    if (!range) return;
+
+    window.requestAnimationFrame(() => {
+      const menuState = createBlockCommandMenuState(blockEditor, range);
+      if (menuState) {
+        setBlockCommandMenu(menuState);
+      }
+    });
+  }, []);
+
   useEffect(() => {
     if (!markdownEditor) return;
 
@@ -1819,6 +1967,16 @@ function RichMarkdownEditor({
     editor?.setEditable(!readOnly);
   }, [editor, readOnly]);
 
+  useEffect(() => {
+    if (!readOnly) return undefined;
+
+    const frame = window.requestAnimationFrame(() => {
+      setBlockCommandMenu(null);
+    });
+
+    return () => window.cancelAnimationFrame(frame);
+  }, [readOnly]);
+
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden bg-background">
       {!readOnly ? (
@@ -1834,10 +1992,25 @@ function RichMarkdownEditor({
       <div ref={scrollContainerRef} className="relative min-h-0 flex-1 overflow-auto">
         {!readOnly ? (
           <TooltipProvider>
-            <MarkdownBlockInsertButton editor={editor} label={labels.addBlock} scrollContainerRef={scrollContainerRef} />
+            <MarkdownBlockInsertButton
+              editor={editor}
+              label={labels.addBlock}
+              onOpenCommandMenu={openBlockCommandMenu}
+              scrollContainerRef={scrollContainerRef}
+            />
           </TooltipProvider>
         ) : null}
         <EditorContent editor={editor} className="tiptap-editor-shell" />
+        {!readOnly && editor && blockCommandMenu ? (
+          <MarkdownBlockCommandMenu
+            key={blockCommandMenu.id}
+            actions={slashCommandActions}
+            editor={editor}
+            labels={labels}
+            menu={blockCommandMenu}
+            onClose={closeBlockCommandMenu}
+          />
+        ) : null}
       </div>
     </div>
   );

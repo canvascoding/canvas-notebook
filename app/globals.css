@@ -335,7 +335,7 @@
 
 .tiptap-editor-shell .ProseMirror {
   min-height: 100%;
-  padding: 20px;
+  padding: 20px 20px 20px 3rem;
   outline: none;
   color: var(--foreground);
 }
@@ -514,6 +514,10 @@
 .tiptap-slash-suggestion {
   background: var(--muted);
   border-radius: 0.25rem;
+}
+
+.tiptap-block-insert-button {
+  left: 0.625rem;
 }
 
 .tiptap-color-swatch-widget-root {
