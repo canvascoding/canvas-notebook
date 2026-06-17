@@ -129,7 +129,9 @@ Der System Prompt beschreibt:
 
 Die Datei-Tools erzwingen denselben Workspace serverseitig. Der Prompt ist Orientierung, nicht Sicherheit.
 
-Schreiben ist immer an den gespeicherten Workspace der Session gebunden. Explizite Cross-Workspace Reads koennen erlaubt sein, wenn sie auf den eigenen Personal Workspace oder einen berechtigten Team Workspace zeigen; fremde Personal Workspaces bleiben vollstaendig gesperrt.
+Schreiben ist immer an den gespeicherten Workspace der Session gebunden. Explizite Cross-Workspace Reads koennen erlaubt sein, wenn sie auf den eigenen Personal Workspace oder einen berechtigten Team Workspace zeigen; sie duerfen mehrere explizit ausgewaehlte Dateien oder Ordner umfassen. Fremde Personal Workspaces bleiben vollstaendig gesperrt.
+
+Shell-/Terminal-Tools nutzen keine Cross-Workspace-Read-Grants. Wenn der Agent Dateien aus einem anderen erlaubten Workspace lesen soll, muss das ueber dedizierte File-Tools mit serverseitigen Read-Grants passieren.
 
 ## Andere Flows
 

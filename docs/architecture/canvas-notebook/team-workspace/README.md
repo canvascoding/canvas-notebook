@@ -16,6 +16,7 @@ Dieses Verzeichnis ist der zentrale Arbeitsbereich fuer den Team-Workspace-Umbau
 - `07-filesystem-migration-and-write-policy.md`: Filesystem-Layout, Legacy-Migration, Studio-Copy-Ziele, Exportrechte und Agent-Write-Policy.
 - `08-user-scoped-secrets-runtime.md`: User-/Organization-/System-Scope fuer Secrets, MCP, Skills, Plugins, Mailboxen und Agent-Runtime.
 - `09-initial-setup-and-update-migration.md`: Fresh Install, erstes Admin-/Owner-Setup, Onboarding und Update-Migration bestehender Instanzen.
+- `10-agent-tool-execution-policy.md`: Capability-Modell fuer Agent-Turns, Tool-Calls, Cross-Workspace-Reads, Shell, MCP, Gateways und Revocation.
 - `../todo.json`: Aufgabenindex fuer Agenten und Fortschrittsverfolgung.
 
 ## Arbeitsregeln
@@ -38,4 +39,5 @@ Dieses Verzeichnis ist der zentrale Arbeitsbereich fuer den Team-Workspace-Umbau
 - Filesystem-Migration und Agent-Write-Policy fuer Personal-/Team-Workspaces sind dokumentiert.
 - User-scoped Secrets, Runtime, MCP, Skills, Plugins und Mailbox-Regeln sind dokumentiert.
 - Initial Setup, Onboarding und Update-Migration bestehender Instanzen sind dokumentiert.
+- Agent Tool Execution Policy mit Capability-Kontext, Cross-Workspace-Read-Regeln und Revocation-Verhalten ist dokumentiert.
 - Naechster Schritt: Initiales Admin-/Owner-Setup und Admin-only Gates absichern.

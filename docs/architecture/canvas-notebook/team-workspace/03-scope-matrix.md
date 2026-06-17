@@ -42,8 +42,10 @@ Dieses Dokument schliesst Umsetzungsschritt 2 ab: bestehende Canvas Notebook Fun
 | PI Chat Sessions | `user` plus `agentId` | `user`, `organization`, `workspace`, `agentId` | `workspaceId` an Sessions und Usage-Kontext ergaenzen; Workspace-Wechsel startet neue Session | P5 |
 | PI Messages | Chat-Session | erbt Session-Scope | Keine eigene Workspace-Spalte zwingend, ueber Session relationieren | P5 |
 | Agent System Prompt | global `/data/workspace` | aktiver Workspace der Session | Prompt aus WorkspaceContext generieren | P5 |
+| Agent Execution Context | nicht zentral modelliert | serverseitige Capability pro Turn mit User, Workspace, Tools, Secrets, MCP und Revisions | `AgentExecutionContext` einfuehren und an Tool-Calls binden | P5/P7 |
 | Agent File Tools | globaler Agent Workspace Root, absolute Pfade erlaubt | aktiver `workspace`, plus sichere Runtime-Ausnahmen | Resolver und Write-Gates vereinheitlichen | P5 |
 | Cross-Workspace Agent Reads/Writes | nicht modelliert | Write nur Session-Workspace, Read nur explizit und berechtigt | Tool-Layer mit `writeWorkspaceId` und `readAllowedWorkspaceIds` | P5 |
+| Agent Shell/Terminal Tools | Prozesskontext mit globalem Zugriffspotential | Session-Workspace-only, keine Cross-Workspace-ReadGrants | Shell-CWD, Env-Allowlist und Pfadblocker erzwingen | P5 |
 | Agent Snapshots/Diffs | technische Snapshot-Metadaten ohne Actor-Scope | `user`, `session`, `workspace`, `agent` | Snapshot/Audit verknuepfen | P5/P7 |
 | Agent Definitionen | globale `agents.agentId` | `user` Agenten plus `organization` Templates | Owner/Visibility/Template-Modell einfuehren | P6 |
 | Agent Runtime Config | instanzweite Defaults/Agent Config | `organization` Defaults, `user` Preferences, `workspace` Policy, Session Override, mit sessiongebundener Revision | Effective Config Resolver mit `organizationId`, `userId`, `workspaceId`, `sessionId`, `agentId` erweitern | P5/P6 |
@@ -108,6 +110,7 @@ Dieses Dokument schliesst Umsetzungsschritt 2 ab: bestehende Canvas Notebook Fun
 11. Agent-Dateitools duerfen nur in den Session-Workspace schreiben; fremde Personal Workspaces sind fuer Read und Write verboten.
 12. Secrets, MCP, Skills, Plugins und Agent Runtime duerfen in Team-Instanzen nicht aus globalen Instanz-Dateien als aktive User-Konfiguration aufgeloest werden.
 13. Fresh Install und Update-Migration muessen denselben scoped Zielzustand erzeugen; mehrdeutige Owner- oder Secret-Zuordnung stoppt mit Admin-Review.
+14. Agent-Tools duerfen nur ueber einen serverseitig erzeugten Execution Context laufen; Tool-Parameter aus dem LLM sind untrusted.
 
 ## Migrationsreihenfolge fuer Datenmodell
 
@@ -140,6 +143,9 @@ Fuer eine erste robuste Team-Version sollten diese Bereiche enthalten sein:
 - File-API serverseitig workspace-aware.
 - Agent-Sessions und Agent-Dateioperationen im aktiven Workspace.
 - Agent-Schreibzugriffe nur in den Session-Workspace; fremde Personal Workspaces komplett gesperrt.
+- Agent-ExecutionContext fuer Tool-Allowlist, Cross-Workspace-Read-Grants, Secret-Refs und Revocation.
+- Multi-File-Cross-Workspace-Reads fuer explizit ausgewaehlte Dateien/Ordner.
+- Shell bleibt Session-Workspace-only.
 - Studio Save-to-Workspace mit Zielauswahl fuer eigenen Personal Workspace oder berechtigten Team Workspace.
 - User-scoped Secrets, MCP-Konfiguration, Skills, Plugins und Agent-Runtime-Einstellungen.
 - E-Mail bleibt strikt user-scoped; Organization-Team-Mailboxen sind kein impliziter Fallback.

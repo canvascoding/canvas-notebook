@@ -151,10 +151,11 @@ V1-Regeln:
 - Schreiben ist nur im Session-Workspace erlaubt.
 - Lesen aus dem eigenen Personal Workspace ist erlaubt, wenn die Session dort arbeitet.
 - Lesen aus dem Team Workspace ist erlaubt, wenn der User Team-Leserechte hat.
-- Lesen aus dem Team Workspace waehrend einer Personal-Session ist nur fuer explizit referenzierte Dateien oder Ordner erlaubt.
-- Lesen aus dem eigenen Personal Workspace waehrend einer Team-Session ist nur fuer explizit referenzierte Dateien erlaubt.
+- Lesen aus dem Team Workspace waehrend einer Personal-Session ist fuer mehrere explizit referenzierte Dateien oder ausgewaehlte Ordner erlaubt.
+- Lesen aus dem eigenen Personal Workspace waehrend einer Team-Session ist fuer mehrere explizit referenzierte Dateien oder ausgewaehlte Ordner erlaubt.
 - Automatisches breites Indexing oder Durchsuchen eines anderen Workspace ist nicht erlaubt.
 - Lesen oder Schreiben in fremden Personal Workspaces ist immer verboten.
+- Shell-/Terminal-Tools duerfen keine Cross-Workspace-Reads ausfuehren.
 
 Der Tool-Layer muss deshalb zwischen `readAllowedWorkspaceIds` und `writeWorkspaceId` unterscheiden.
 

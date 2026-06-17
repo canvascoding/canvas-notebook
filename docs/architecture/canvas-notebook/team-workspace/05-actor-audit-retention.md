@@ -59,6 +59,7 @@ Optionale technische Felder:
 - `toolCallId`
 - `jobId`
 - `runId`
+- `executionContextId`
 - `secretRef`
 - `secretScope`
 - `toolStackRevision`
@@ -74,6 +75,7 @@ Optionale technische Felder:
 - Studio-Generierungen muessen mindestens `organizationId`, `createdByUserId`, `sessionId` und `agentId` speichern; `workspaceId` wird gespeichert, wenn die Generierung aus einem Workspace-Kontext entstand.
 - Automations speichern den Owner am Job und den effektiven Actor Context am Run.
 - Secret-, MCP-, Plugin- und Skill-Verwendung darf erst nach Context-Aufloesung passieren und speichert im Audit nur Ref/Scope/Provider, nie Secret-Werte.
+- Agent-Tool-Calls muessen den `executionContextId` und die verwendeten Read-/Write-Capabilities auditieren.
 
 ## Audit Event Modell
 
@@ -117,6 +119,7 @@ Empfohlenes Minimalmodell fuer `agent_tool_runs`:
 - `sessionId`
 - `agentId`
 - `toolCallId`
+- `executionContextId`
 - `toolName`
 - `status`
 - `startedAt`
@@ -129,9 +132,12 @@ Empfohlenes Minimalmodell fuer `agent_tool_runs`:
 - `rawOutputRef`
 - `errorCode`
 - `secretRefsJson`
+- `readGrantsJson`
+- `permissionDecision`
 
 `rawInputRef` und `rawOutputRef` duerfen nur auf kurzlebige Debug-Artefakte zeigen. Wenn keine Debug-Retention aktiv ist, bleiben diese Felder leer.
 `secretRefsJson` darf nur Secret-Refs, Scope, Provider und Zugriffszweck enthalten, niemals Secret-Werte.
+`readGrantsJson` darf nur Workspace IDs, Pfade, Grant-Art und kurze Metadaten enthalten, keine Datei-Inhalte.
 
 ## Datei- und Revisionsmodell
 

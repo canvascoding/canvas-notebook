@@ -379,6 +379,7 @@ Grundregel:
 - Eine private Session nutzt standardmaessig den persoenlichen Workspace des Users.
 - Eine Team-Session nutzt nur dann den Team Workspace, wenn der User diesen aktiv ausgewaehlt hat oder die Session explizit als Team-Session gestartet wurde.
 - Eine Agent-Session nutzt den Tool-Stack, die MCP-Verbindungen, Skills, Plugins, Mailboxen und Secrets des ausloesenden Users.
+- Jeder Agent-Turn bekommt serverseitig einen `AgentExecutionContext`, der erlaubte Tools, Read-Grants, Write-Workspace, Secret-Refs, MCP-Server und Runtime-/Tool-Stack-Revisionen fixiert.
 - Die App hat einen globalen aktiven Workspace pro User-Oberflaeche. Ein Wechsel auf Startseite, Chat Header oder File Browser muss denselben globalen Workspace-Status aktualisieren.
 - Ein Workspace-Wechsel im Chat Header verhaelt sich wie ein Agent-Wechsel: Es wird eine neue Chat-Session im Ziel-Workspace gestartet.
 - Bestehende Agent-Sessions behalten ihren gespeicherten `workspaceId` und werden nicht stillschweigend in einen anderen Workspace migriert.
@@ -386,7 +387,8 @@ Grundregel:
 - Der User kann konkrete Team-Dateien oder Ordner explizit in den Kontext nehmen.
 - Die Team Knowledge Base kann als separate Retrieval-Quelle genutzt werden, sofern die Lizenz und die Rolle das erlauben.
 - Schreiben ist nur in den Workspace erlaubt, der an der Agent-Session gespeichert ist.
-- Lesen aus anderen erlaubten Workspaces ist nur fuer explizit referenzierte Dateien/Ordner erlaubt; fremde Personal Workspaces sind immer tabu.
+- Lesen aus anderen erlaubten Workspaces ist fuer mehrere explizit referenzierte Dateien oder ausgewaehlte Ordner erlaubt; fremde Personal Workspaces sind immer tabu.
+- Shell-/Terminal-Tools duerfen keine Cross-Workspace-Read-Grants nutzen; sie bleiben auf den Session-Workspace begrenzt.
 
 Jede Agent-Aenderung muss dem ausloesenden User zuordenbar sein:
 
@@ -405,6 +407,8 @@ AuditEvent
 ```
 
 Der Agent schreibt technisch als Prozess, fachlich aber im Auftrag eines Users. Dieses Mapping ist Pflicht fuer Teamfaehigkeit.
+
+Die detaillierte Tool-Ausfuehrungspolitik ist in `10-agent-tool-execution-policy.md` verbindlich beschrieben. Besonders wichtig: Blockierte Tool-Calls duerfen textlich Alternativen vorschlagen, aber keinen automatischen Retry in einem anderen Workspace ausfuehren.
 
 ## Collaboration-Modell
 

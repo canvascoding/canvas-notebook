@@ -140,6 +140,9 @@ Lieferumfang:
 - Agent File Tools erzwingen Workspace Root.
 - Agent File Tools erlauben Schreiben nur in den Session-Workspace.
 - Optional erlaubte Cross-Workspace Reads muessen explizit referenziert und permission-geprueft sein.
+- Cross-Workspace Reads duerfen mehrere explizit ausgewaehlte Dateien oder Ordner umfassen.
+- Jeder Agent-Turn erzeugt einen serverseitigen `AgentExecutionContext`.
+- Shell-/Terminal-Tools bleiben auf den Session-Workspace begrenzt und nutzen keine Cross-Workspace-Read-Grants.
 - Agent-Dateiaenderungen tragen `userId`, `sessionId`, `workspaceId`.
 - Shell-/Tool-Ausfuehrungen koennen fremde Personal Workspaces nicht lesen.
 - Agent Runtime Resolver bekommt `organizationId`, `userId`, `workspaceId`, `sessionId` und `agentId`.
@@ -150,6 +153,7 @@ Tests:
 - Agent-File-Operation-Script-Tests.
 - Tool-Registry-Tests fuer blockierte Writes.
 - Secret-Resolver-Tests fuer blockierte fremde User-Secrets.
+- ExecutionContext-Tests fuer Tool-Allowlist, Read-Grants und Revocation.
 - Session-Persistenz-Tests.
 - Tests fuer Workspace-Wechsel: neue Session im Ziel-Workspace, alte Session bleibt im Ursprungs-Workspace.
 - Tests fuer blockierte Cross-Workspace-Writes und fremde Personal-Workspace-Reads.

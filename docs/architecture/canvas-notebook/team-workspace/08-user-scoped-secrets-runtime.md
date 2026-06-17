@@ -6,7 +6,7 @@ Stand: 2026-06-17
 
 Dieses Dokument konkretisiert die Credential- und Runtime-Isolation fuer Team-Instanzen. Es ergaenzt die Aufgaben `5`, `16`, `17`, `18`, `19`, `21`, `22`, `27`, `28`, `29`, `31`, `33` und `36` im Aufgabenindex.
 
-Kernregel: Alles, was im Auftrag eines Users ausgefuehrt wird, muss den effektiven `userId`, `organizationId`, `workspaceId`, `sessionId` und optional `agentId` kennen, bevor Secrets, MCP-Server, Skills, Plugins, Mailboxen oder Agent-Runtime-Einstellungen aufgeloest werden.
+Kernregel: Alles, was im Auftrag eines Users ausgefuehrt wird, muss den effektiven `userId`, `organizationId`, `workspaceId`, `sessionId` und optional `agentId` kennen, bevor Secrets, MCP-Server, Skills, Plugins, Mailboxen oder Agent-Runtime-Einstellungen aufgeloest werden. Agent-Tools nutzen dafuer den `AgentExecutionContext` aus `10-agent-tool-execution-policy.md`.
 
 Fresh-Install- und Update-Migrationsablaeufe fuer bestehende globale Env-/MCP-/Skill-/Plugin- und Runtime-Dateien sind in `09-initial-setup-and-update-migration.md` beschrieben. Dieses Dokument definiert den Ziel-Scope; `09` definiert die Migrationsreihenfolge und Review-Zustaende.
 

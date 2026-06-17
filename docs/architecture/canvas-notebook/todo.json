@@ -134,7 +134,8 @@
         "docs/architecture/canvas-notebook/team-workspace/06-workspace-switching-ux.md",
         "docs/architecture/canvas-notebook/team-workspace/07-filesystem-migration-and-write-policy.md",
         "docs/architecture/canvas-notebook/team-workspace/08-user-scoped-secrets-runtime.md",
-        "docs/architecture/canvas-notebook/team-workspace/09-initial-setup-and-update-migration.md"
+        "docs/architecture/canvas-notebook/team-workspace/09-initial-setup-and-update-migration.md",
+        "docs/architecture/canvas-notebook/team-workspace/10-agent-tool-execution-policy.md"
       ]
     },
     {
@@ -144,7 +145,8 @@
       "repo": "canvasstudios-notebook",
       "planningArtifacts": [
         "docs/architecture/canvas-notebook/team-workspace/08-user-scoped-secrets-runtime.md",
-        "docs/architecture/canvas-notebook/team-workspace/09-initial-setup-and-update-migration.md"
+        "docs/architecture/canvas-notebook/team-workspace/09-initial-setup-and-update-migration.md",
+        "docs/architecture/canvas-notebook/team-workspace/10-agent-tool-execution-policy.md"
       ]
     },
     {
@@ -154,7 +156,8 @@
       "repo": "canvasstudios-notebook",
       "planningArtifacts": [
         "docs/architecture/canvas-notebook/team-workspace/08-user-scoped-secrets-runtime.md",
-        "docs/architecture/canvas-notebook/team-workspace/09-initial-setup-and-update-migration.md"
+        "docs/architecture/canvas-notebook/team-workspace/09-initial-setup-and-update-migration.md",
+        "docs/architecture/canvas-notebook/team-workspace/10-agent-tool-execution-policy.md"
       ]
     },
     {
@@ -180,7 +183,8 @@
       "repo": "canvasstudios-notebook",
       "planningArtifacts": [
         "docs/architecture/canvas-notebook/team-workspace/06-workspace-switching-ux.md",
-        "docs/architecture/canvas-notebook/team-workspace/08-user-scoped-secrets-runtime.md"
+        "docs/architecture/canvas-notebook/team-workspace/08-user-scoped-secrets-runtime.md",
+        "docs/architecture/canvas-notebook/team-workspace/10-agent-tool-execution-policy.md"
       ]
     },
     {
@@ -252,7 +256,8 @@
       "repo": "canvasstudios-notebook",
       "planningArtifacts": [
         "docs/architecture/canvas-notebook/team-workspace/05-actor-audit-retention.md",
-        "docs/architecture/canvas-notebook/team-workspace/08-user-scoped-secrets-runtime.md"
+        "docs/architecture/canvas-notebook/team-workspace/08-user-scoped-secrets-runtime.md",
+        "docs/architecture/canvas-notebook/team-workspace/10-agent-tool-execution-policy.md"
       ]
     },
     {
@@ -270,7 +275,8 @@
       "planningArtifacts": [
         "docs/architecture/canvas-notebook/team-workspace/07-filesystem-migration-and-write-policy.md",
         "docs/architecture/canvas-notebook/team-workspace/08-user-scoped-secrets-runtime.md",
-        "docs/architecture/canvas-notebook/team-workspace/09-initial-setup-and-update-migration.md"
+        "docs/architecture/canvas-notebook/team-workspace/09-initial-setup-and-update-migration.md",
+        "docs/architecture/canvas-notebook/team-workspace/10-agent-tool-execution-policy.md"
       ]
     },
     {
@@ -287,7 +293,8 @@
       "planningArtifacts": [
         "docs/architecture/canvas-notebook/team-workspace/05-actor-audit-retention.md",
         "docs/architecture/canvas-notebook/team-workspace/07-filesystem-migration-and-write-policy.md",
-        "docs/architecture/canvas-notebook/team-workspace/08-user-scoped-secrets-runtime.md"
+        "docs/architecture/canvas-notebook/team-workspace/08-user-scoped-secrets-runtime.md",
+        "docs/architecture/canvas-notebook/team-workspace/10-agent-tool-execution-policy.md"
       ]
     },
     {
