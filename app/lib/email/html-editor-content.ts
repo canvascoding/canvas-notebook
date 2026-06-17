@@ -3,24 +3,61 @@ import DOMPurify from 'dompurify';
 import { htmlToPlainText, plainTextToEmailHtml } from '@/app/lib/email/html-conversion';
 import { isLikelyHtmlEmailContent, normalizeEmailHtmlContent } from '@/app/lib/email/html-content';
 
-const EMAIL_EDITOR_ALLOWED_TAGS = ['a', 'blockquote', 'br', 'em', 'i', 'li', 'ol', 'p', 's', 'strong', 'b', 'ul'];
-const EMAIL_EDITOR_ALLOWED_ATTRS = ['href', 'rel', 'target'];
-const EMAIL_EDITOR_ALLOWED_URI_REGEXP = /^(?:(?:https?|mailto):)/iu;
+const EMAIL_EDITOR_ALLOWED_TAGS = [
+  'a',
+  'blockquote',
+  'br',
+  'em',
+  'i',
+  'li',
+  'ol',
+  'p',
+  's',
+  'strong',
+  'b',
+  'table',
+  'tbody',
+  'td',
+  'th',
+  'thead',
+  'tr',
+  'ul',
+];
+const EMAIL_EDITOR_ALLOWED_ATTRS = [
+  'align',
+  'border',
+  'cellpadding',
+  'cellspacing',
+  'colspan',
+  'href',
+  'rel',
+  'rowspan',
+  'scope',
+  'target',
+];
+const EMAIL_EDITOR_ALLOWED_HREF_REGEXP = /^(?:https?:|mailto:)/iu;
 
 export type EmailEditorBodyValues = {
   body: string;
   bodyHtml: string;
 };
 
+type EmailDomPurify = {
+  sanitize: (value: string, config: Record<string, unknown>) => string;
+};
+
+type EmailDomPurifyFactory = ((window: Window) => EmailDomPurify) & Partial<EmailDomPurify>;
+
 export function sanitizeEmailEditorHtml(value: string): string {
   const normalized = normalizeEmailHtmlContent(value);
   if (!normalized) return '';
 
-  return DOMPurify.sanitize(normalized, {
+  const sanitized = getEmailDomPurify().sanitize(normalizeEmailTableCellAlignment(normalized), {
     ALLOWED_ATTR: EMAIL_EDITOR_ALLOWED_ATTRS,
     ALLOWED_TAGS: EMAIL_EDITOR_ALLOWED_TAGS,
-    ALLOWED_URI_REGEXP: EMAIL_EDITOR_ALLOWED_URI_REGEXP,
-  }).trim();
+  });
+
+  return sanitizeEmailEditorLinks(sanitized).trim();
 }
 
 export function emailEditorHtmlToText(html: string): string {
@@ -49,4 +86,42 @@ export function composeEmailEditorBodyValuesFromAiResult(body: string, bodyHtml:
     return composeEmailEditorBodyValues(bodyHtml, body);
   }
   return composeEmailEditorBodyValues(body);
+}
+
+function normalizeEmailTableCellAlignment(value: string): string {
+  return value.replace(/<(td|th)(\s[^>]*)?>/giu, (match, tag: string, rawAttrs = '') => {
+    const styleMatch = rawAttrs.match(/\sstyle\s*=\s*("([^"]*)"|'([^']*)'|([^\s"'>]+))/iu);
+    if (!styleMatch) return match;
+
+    const styleValue = styleMatch[2] ?? styleMatch[3] ?? styleMatch[4] ?? '';
+    const align = styleValue.match(/(?:^|;)\s*text-align\s*:\s*(left|center|right)\b/iu)?.[1]?.toLowerCase();
+    const attrsWithoutStyle = rawAttrs.replace(styleMatch[0], '');
+    if (!align) return `<${tag}${attrsWithoutStyle}>`;
+
+    const attrsWithoutAlign = attrsWithoutStyle.replace(
+      /\salign\s*=\s*("([^"]*)"|'([^']*)'|([^\s"'>]+))/iu,
+      '',
+    );
+
+    return `<${tag}${attrsWithoutAlign} align="${align}">`;
+  });
+}
+
+function sanitizeEmailEditorLinks(value: string): string {
+  return value.replace(/<a\b([^>]*)>/giu, (match, rawAttrs: string) => {
+    const hrefMatch = rawAttrs.match(/\shref\s*=\s*("([^"]*)"|'([^']*)'|([^\s"'>]+))/iu);
+    if (!hrefMatch) return match;
+
+    const hrefValue = (hrefMatch[2] ?? hrefMatch[3] ?? hrefMatch[4] ?? '').trim();
+    if (EMAIL_EDITOR_ALLOWED_HREF_REGEXP.test(hrefValue)) return match;
+
+    return `<a${rawAttrs.replace(hrefMatch[0], '')}>`;
+  });
+}
+
+function getEmailDomPurify(): EmailDomPurify {
+  const purifier = DOMPurify as unknown as EmailDomPurifyFactory;
+  if (typeof window !== 'undefined' && typeof purifier === 'function') return purifier(window);
+  if (typeof purifier.sanitize === 'function') return purifier as EmailDomPurify;
+  throw new Error('DOMPurify requires a DOM window.');
 }

@@ -582,6 +582,30 @@
   margin-top: 0.25rem;
 }
 
+.email-html-editor-shell table {
+  border-collapse: collapse;
+  margin: 0.75rem 0;
+  table-layout: fixed;
+  width: 100%;
+}
+
+.email-html-editor-shell th,
+.email-html-editor-shell td {
+  border: 1px solid var(--border);
+  min-width: 4rem;
+  padding: 0.375rem 0.5rem;
+  vertical-align: top;
+}
+
+.email-html-editor-shell th {
+  background: var(--muted);
+  font-weight: 600;
+}
+
+.email-html-editor-shell .selectedCell {
+  background: color-mix(in oklab, var(--primary) 12%, transparent);
+}
+
 @keyframes studioOutputFadeIn {
   from {
     opacity: 0;

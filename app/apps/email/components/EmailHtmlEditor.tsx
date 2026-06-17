@@ -5,20 +5,41 @@ import type { Editor } from '@tiptap/core';
 import { EditorContent, useEditor, useEditorState } from '@tiptap/react';
 import { StarterKit } from '@tiptap/starter-kit';
 import { Link } from '@tiptap/extension-link';
+import { TableKit } from '@tiptap/extension-table';
 import {
+  AlignCenter,
+  AlignLeft,
+  AlignRight,
   Bold,
+  Columns3,
   Italic,
   Link as LinkIcon,
   List,
   ListOrdered,
+  Plus,
   Quote,
   Redo2,
+  Rows3,
   Strikethrough,
+  Table2,
+  Trash2,
   Undo2,
 } from 'lucide-react';
+import { useTranslations } from 'next-intl';
 
 import { emailEditorHtmlToText, sanitizeEmailEditorHtml } from '@/app/lib/email/html-editor-content';
 import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 
@@ -40,6 +61,8 @@ type ToolbarState = {
   isLink: boolean;
   isOrderedList: boolean;
   isStrike: boolean;
+  isTable: boolean;
+  cellAlign: 'left' | 'center' | 'right' | null;
 };
 
 const EMPTY_TOOLBAR_STATE: ToolbarState = {
@@ -52,6 +75,27 @@ const EMPTY_TOOLBAR_STATE: ToolbarState = {
   isLink: false,
   isOrderedList: false,
   isStrike: false,
+  isTable: false,
+  cellAlign: null,
+};
+
+type LinkPreviewState =
+  | { status: 'idle'; error?: undefined; imageUrl?: undefined; host?: undefined }
+  | { status: 'loading'; error?: undefined; imageUrl?: undefined; host?: undefined }
+  | { status: 'loaded'; error?: undefined; imageUrl: string | null; host: string }
+  | { status: 'error'; error: string; imageUrl?: undefined; host?: undefined };
+
+type LinkDialogSeed = {
+  id: number;
+  href: string;
+  text: string;
+  canEditText: boolean;
+};
+
+type TableInsertOptions = {
+  rows: number;
+  cols: number;
+  withHeaderRow: boolean;
 };
 
 function normalizeEmailLinkUrl(value: string): string {
@@ -64,6 +108,22 @@ function normalizeEmailLinkUrl(value: string): string {
 
 function emailEditorText(html: string): string {
   return emailEditorHtmlToText(html);
+}
+
+function getSelectedText(editor: Editor) {
+  const { from, to, empty } = editor.state.selection;
+  if (empty) return '';
+  return editor.state.doc.textBetween(from, to, ' ');
+}
+
+function getActiveTableCellAlign(editor: Editor): ToolbarState['cellAlign'] {
+  const align = (
+    editor.getAttributes('tableCell').align ||
+    editor.getAttributes('tableHeader').align ||
+    null
+  ) as string | null;
+
+  return align === 'left' || align === 'center' || align === 'right' ? align : null;
 }
 
 function createEmailEditorExtensions() {
@@ -83,6 +143,16 @@ function createEmailEditorExtensions() {
       },
       linkOnPaste: true,
       openOnClick: false,
+    }),
+    TableKit.configure({
+      table: {
+        resizable: false,
+        HTMLAttributes: {
+          border: '1',
+          cellpadding: '6',
+          cellspacing: '0',
+        },
+      },
     }),
   ];
 }
@@ -124,7 +194,306 @@ function ToolbarDivider() {
   return <span aria-hidden="true" className="mx-1 h-5 w-px shrink-0 bg-border" />;
 }
 
+function EmailLinkDialog({
+  editor,
+  open,
+  onOpenChange,
+  initialHref,
+  initialText,
+  canEditText,
+}: {
+  editor: Editor | null;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  initialHref: string;
+  initialText: string;
+  canEditText: boolean;
+}) {
+  const t = useTranslations('emails');
+  const [href, setHref] = useState(initialHref);
+  const [text, setText] = useState(initialText);
+  const [previewEnabled, setPreviewEnabled] = useState(true);
+  const [previewState, setPreviewState] = useState<LinkPreviewState>({ status: 'idle' });
+  const linkActive = Boolean(editor?.isActive('link'));
+
+  useEffect(() => {
+    if (!open || !previewEnabled) return;
+
+    const previewUrl = normalizeEmailLinkUrl(href);
+    if (!/^https?:\/\//iu.test(previewUrl)) return;
+
+    const controller = new AbortController();
+    const timeout = window.setTimeout(async () => {
+      setPreviewState({ status: 'loading' });
+      try {
+        const response = await fetch(`/api/markdown/link-preview?url=${encodeURIComponent(previewUrl)}`, {
+          signal: controller.signal,
+        });
+        const payload = await response.json().catch(() => null) as
+          | { success?: boolean; data?: { imageUrl?: string | null; host?: string }; error?: string }
+          | null;
+
+        if (!response.ok || !payload?.success) {
+          throw new Error(payload?.error || t('editorLinkPreviewError'));
+        }
+
+        setPreviewState({
+          status: 'loaded',
+          imageUrl: payload.data?.imageUrl ?? null,
+          host: payload.data?.host ?? new URL(previewUrl).hostname,
+        });
+      } catch (error) {
+        if (controller.signal.aborted) return;
+        setPreviewState({
+          status: 'error',
+          error: error instanceof Error ? error.message : t('editorLinkPreviewError'),
+        });
+      }
+    }, 350);
+
+    return () => {
+      window.clearTimeout(timeout);
+      controller.abort();
+    };
+  }, [href, open, previewEnabled, t]);
+
+  const applyLink = useCallback(() => {
+    if (!editor) return;
+
+    const url = normalizeEmailLinkUrl(href);
+    if (!url) {
+      editor.chain().focus().unsetLink().run();
+      onOpenChange(false);
+      return;
+    }
+
+    if (editor.isActive('link') || !editor.state.selection.empty) {
+      editor.chain().focus().extendMarkRange('link').setLink({ href: url }).run();
+    } else {
+      editor
+        .chain()
+        .focus()
+        .insertContent({
+          type: 'text',
+          text: text.trim() || url,
+          marks: [{ type: 'link', attrs: { href: url } }],
+        })
+        .run();
+    }
+
+    onOpenChange(false);
+  }, [editor, href, onOpenChange, text]);
+
+  const removeLink = useCallback(() => {
+    editor?.chain().focus().extendMarkRange('link').unsetLink().run();
+    onOpenChange(false);
+  }, [editor, onOpenChange]);
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>{t('editorLinkDialogTitle')}</DialogTitle>
+          <DialogDescription>{t('editorLinkDialogDescription')}</DialogDescription>
+        </DialogHeader>
+
+        <div className="grid gap-4">
+          <div className="grid gap-2">
+            <Label htmlFor="email-editor-link-url">{t('editorLinkUrl')}</Label>
+            <Input
+              id="email-editor-link-url"
+              value={href}
+              placeholder="https://example.com"
+              onChange={(event) => {
+                setHref(event.target.value);
+                setPreviewState({ status: 'idle' });
+              }}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  event.preventDefault();
+                  applyLink();
+                }
+              }}
+            />
+          </div>
+
+          {canEditText ? (
+            <div className="grid gap-2">
+              <Label htmlFor="email-editor-link-text">{t('editorLinkText')}</Label>
+              <Input
+                id="email-editor-link-text"
+                value={text}
+                placeholder={t('editorLinkTextPlaceholder')}
+                onChange={(event) => setText(event.target.value)}
+              />
+            </div>
+          ) : null}
+
+          <div className="flex items-center justify-between gap-3 rounded-md border px-3 py-2">
+            <div className="min-w-0">
+              <Label htmlFor="email-editor-link-preview-toggle">{t('editorLinkPreviewToggle')}</Label>
+              <p className="mt-1 text-xs text-muted-foreground">{t('editorLinkPreviewHint')}</p>
+            </div>
+            <Switch
+              id="email-editor-link-preview-toggle"
+              checked={previewEnabled}
+              onCheckedChange={(checked) => {
+                setPreviewEnabled(checked);
+                if (!checked) setPreviewState({ status: 'idle' });
+              }}
+            />
+          </div>
+
+          {previewEnabled ? (
+            <div className="min-h-20 rounded-md border bg-muted/20 p-2">
+              {previewState.status === 'loading' ? (
+                <div className="flex h-16 items-center text-sm text-muted-foreground">
+                  {t('editorLinkPreviewLoading')}
+                </div>
+              ) : null}
+
+              {previewState.status === 'loaded' ? (
+                previewState.imageUrl ? (
+                  <div className="flex items-center gap-3">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={previewState.imageUrl}
+                      alt=""
+                      referrerPolicy="no-referrer"
+                      className="h-16 w-24 shrink-0 rounded-sm border bg-background object-cover"
+                    />
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-medium">{previewState.host}</div>
+                      <div className="truncate text-xs text-muted-foreground">{t('editorLinkPreviewImageLoaded')}</div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex h-16 items-center text-sm text-muted-foreground">
+                    {t('editorLinkPreviewNoImage')}
+                  </div>
+                )
+              ) : null}
+
+              {previewState.status === 'error' ? (
+                <div className="flex h-16 items-center text-sm text-destructive">{previewState.error}</div>
+              ) : null}
+
+              {previewState.status === 'idle' ? (
+                <div className="flex h-16 items-center text-sm text-muted-foreground">
+                  {t('editorLinkPreviewIdle')}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+
+        <DialogFooter>
+          {linkActive ? (
+            <Button type="button" variant="outline" onClick={removeLink}>
+              {t('editorLinkRemove')}
+            </Button>
+          ) : null}
+          <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+            {t('composeCancel')}
+          </Button>
+          <Button type="button" onClick={applyLink}>
+            {t('editorLinkApply')}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function EmailTableDialog({
+  open,
+  onOpenChange,
+  onInsert,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onInsert: (options: TableInsertOptions) => void;
+}) {
+  const t = useTranslations('emails');
+  const [rows, setRows] = useState(3);
+  const [cols, setCols] = useState(3);
+  const [withHeaderRow, setWithHeaderRow] = useState(true);
+
+  const submit = useCallback(() => {
+    onInsert({
+      rows: Math.min(20, Math.max(1, rows || 1)),
+      cols: Math.min(12, Math.max(1, cols || 1)),
+      withHeaderRow,
+    });
+  }, [cols, onInsert, rows, withHeaderRow]);
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-sm">
+        <DialogHeader>
+          <DialogTitle>{t('editorTableDialogTitle')}</DialogTitle>
+          <DialogDescription>{t('editorTableDialogDescription')}</DialogDescription>
+        </DialogHeader>
+
+        <div className="grid gap-4">
+          <div className="grid grid-cols-2 gap-3">
+            <div className="grid gap-2">
+              <Label htmlFor="email-editor-table-rows">{t('editorTableRows')}</Label>
+              <Input
+                id="email-editor-table-rows"
+                type="number"
+                min={1}
+                max={20}
+                value={rows}
+                onChange={(event) => setRows(Number(event.target.value))}
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="email-editor-table-cols">{t('editorTableColumns')}</Label>
+              <Input
+                id="email-editor-table-cols"
+                type="number"
+                min={1}
+                max={12}
+                value={cols}
+                onChange={(event) => setCols(Number(event.target.value))}
+              />
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between gap-3 rounded-md border px-3 py-2">
+            <Label htmlFor="email-editor-table-header-row">{t('editorTableHeaderRow')}</Label>
+            <Switch
+              id="email-editor-table-header-row"
+              checked={withHeaderRow}
+              onCheckedChange={setWithHeaderRow}
+            />
+          </div>
+        </div>
+
+        <DialogFooter>
+          <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+            {t('composeCancel')}
+          </Button>
+          <Button type="button" onClick={submit}>
+            {t('editorTableInsert')}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function EmailHtmlToolbar({ disabled, editor }: { disabled: boolean; editor: Editor | null }) {
+  const t = useTranslations('emails');
+  const [linkDialogOpen, setLinkDialogOpen] = useState(false);
+  const [tableDialogOpen, setTableDialogOpen] = useState(false);
+  const [linkDialogSeed, setLinkDialogSeed] = useState<LinkDialogSeed>({
+    id: 0,
+    href: '',
+    text: '',
+    canEditText: true,
+  });
   const canUseCommands = Boolean(editor?.isEditable) && !disabled;
   const toolbarState = useEditorState({
     editor,
@@ -141,29 +510,26 @@ function EmailHtmlToolbar({ disabled, editor }: { disabled: boolean; editor: Edi
         isLink: currentEditor.isActive('link'),
         isOrderedList: currentEditor.isActive('orderedList'),
         isStrike: currentEditor.isActive('strike'),
+        isTable: currentEditor.isActive('table'),
+        cellAlign: getActiveTableCellAlign(currentEditor),
       };
     },
   }) ?? EMPTY_TOOLBAR_STATE;
 
   const setLink = useCallback(() => {
     if (!editor) return;
+    setLinkDialogSeed((current) => ({
+      id: current.id + 1,
+      href: (editor.getAttributes('link').href as string | undefined) || '',
+      text: getSelectedText(editor),
+      canEditText: editor.state.selection.empty && !editor.isActive('link'),
+    }));
+    setLinkDialogOpen(true);
+  }, [editor]);
 
-    if (editor.isActive('link')) {
-      editor.chain().focus().unsetLink().run();
-      return;
-    }
-
-    const previousUrl = editor.getAttributes('link').href as string | undefined;
-    const rawUrl = window.prompt('URL', previousUrl || 'https://');
-    if (rawUrl === null) return;
-
-    const url = normalizeEmailLinkUrl(rawUrl);
-    if (!url) {
-      editor.chain().focus().unsetLink().run();
-      return;
-    }
-
-    editor.chain().focus().extendMarkRange('link').setLink({ href: url }).run();
+  const insertTable = useCallback((options: TableInsertOptions) => {
+    editor?.chain().focus().insertTable(options).run();
+    setTableDialogOpen(false);
   }, [editor]);
 
   return (
@@ -243,7 +609,120 @@ function EmailHtmlToolbar({ disabled, editor }: { disabled: boolean; editor: Edi
         <TooltipIconButton label="Link" active={toolbarState.isLink} disabled={!canUseCommands} onClick={setLink}>
           <LinkIcon />
         </TooltipIconButton>
+        <TooltipIconButton
+          label={t('editorTableInsert')}
+          disabled={!canUseCommands}
+          onClick={() => setTableDialogOpen(true)}
+        >
+          <Table2 />
+        </TooltipIconButton>
       </div>
+      {toolbarState.isTable ? (
+        <div className="flex h-9 shrink-0 items-center gap-1 overflow-x-auto border-b border-border bg-muted/30 px-2">
+          <span className="mr-1 shrink-0 text-xs font-medium text-muted-foreground">
+            {t('editorTableTools')}
+          </span>
+          <TooltipIconButton
+            label={t('editorTableAddColumnBefore')}
+            disabled={!canUseCommands || !editor?.can().addColumnBefore()}
+            onClick={() => editor?.chain().focus().addColumnBefore().run()}
+          >
+            <Columns3 />
+          </TooltipIconButton>
+          <TooltipIconButton
+            label={t('editorTableAddColumnAfter')}
+            disabled={!canUseCommands || !editor?.can().addColumnAfter()}
+            onClick={() => editor?.chain().focus().addColumnAfter().run()}
+          >
+            <Plus />
+          </TooltipIconButton>
+          <TooltipIconButton
+            label={t('editorTableDeleteColumn')}
+            disabled={!canUseCommands || !editor?.can().deleteColumn()}
+            onClick={() => editor?.chain().focus().deleteColumn().run()}
+          >
+            <Trash2 />
+          </TooltipIconButton>
+
+          <ToolbarDivider />
+
+          <TooltipIconButton
+            label={t('editorTableAddRowBefore')}
+            disabled={!canUseCommands || !editor?.can().addRowBefore()}
+            onClick={() => editor?.chain().focus().addRowBefore().run()}
+          >
+            <Rows3 />
+          </TooltipIconButton>
+          <TooltipIconButton
+            label={t('editorTableAddRowAfter')}
+            disabled={!canUseCommands || !editor?.can().addRowAfter()}
+            onClick={() => editor?.chain().focus().addRowAfter().run()}
+          >
+            <Plus />
+          </TooltipIconButton>
+          <TooltipIconButton
+            label={t('editorTableDeleteRow')}
+            disabled={!canUseCommands || !editor?.can().deleteRow()}
+            onClick={() => editor?.chain().focus().deleteRow().run()}
+          >
+            <Trash2 />
+          </TooltipIconButton>
+
+          <ToolbarDivider />
+
+          <TooltipIconButton
+            label={t('editorTableToggleHeaderRow')}
+            disabled={!canUseCommands || !editor?.can().toggleHeaderRow()}
+            onClick={() => editor?.chain().focus().toggleHeaderRow().run()}
+          >
+            <Table2 />
+          </TooltipIconButton>
+          <TooltipIconButton
+            label={t('editorTableAlignLeft')}
+            active={toolbarState.cellAlign === 'left'}
+            disabled={!canUseCommands}
+            onClick={() => editor?.chain().focus().setCellAttribute('align', 'left').run()}
+          >
+            <AlignLeft />
+          </TooltipIconButton>
+          <TooltipIconButton
+            label={t('editorTableAlignCenter')}
+            active={toolbarState.cellAlign === 'center'}
+            disabled={!canUseCommands}
+            onClick={() => editor?.chain().focus().setCellAttribute('align', 'center').run()}
+          >
+            <AlignCenter />
+          </TooltipIconButton>
+          <TooltipIconButton
+            label={t('editorTableAlignRight')}
+            active={toolbarState.cellAlign === 'right'}
+            disabled={!canUseCommands}
+            onClick={() => editor?.chain().focus().setCellAttribute('align', 'right').run()}
+          >
+            <AlignRight />
+          </TooltipIconButton>
+
+          <ToolbarDivider />
+
+          <TooltipIconButton
+            label={t('editorTableDelete')}
+            disabled={!canUseCommands || !editor?.can().deleteTable()}
+            onClick={() => editor?.chain().focus().deleteTable().run()}
+          >
+            <Trash2 />
+          </TooltipIconButton>
+        </div>
+      ) : null}
+      <EmailLinkDialog
+        key={linkDialogSeed.id}
+        editor={editor}
+        open={linkDialogOpen}
+        onOpenChange={setLinkDialogOpen}
+        initialHref={linkDialogSeed.href}
+        initialText={linkDialogSeed.text}
+        canEditText={linkDialogSeed.canEditText}
+      />
+      <EmailTableDialog open={tableDialogOpen} onOpenChange={setTableDialogOpen} onInsert={insertTable} />
     </TooltipProvider>
   );
 }

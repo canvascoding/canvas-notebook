@@ -11,6 +11,12 @@ export function htmlToPlainText(value: string): string {
   return value
     .replace(/<script\b[\s\S]*?<\/script>/giu, '')
     .replace(/<style\b[\s\S]*?<\/style>/giu, '')
+    .replace(/<\/t[dh]>/giu, '\t')
+    .replace(/<\/tr>/giu, '\n')
+    .replace(/<\/(?:thead|tbody|table)>/giu, '\n')
+    .replace(/<t[dh]\b[^>]*>/giu, '')
+    .replace(/<tr\b[^>]*>/giu, '')
+    .replace(/<(?:thead|tbody|table)\b[^>]*>/giu, '')
     .replace(/<br\s*\/?>/giu, '\n')
     .replace(/<\/p>/giu, '\n\n')
     .replace(/<\/li>/giu, '\n')
@@ -23,9 +29,12 @@ export function htmlToPlainText(value: string): string {
     .replace(/&gt;/gu, '>')
     .replace(/&quot;/gu, '"')
     .replace(/&#39;/gu, "'")
+    .replace(/[ \t]+\n/gu, '\n')
+    .replace(/\t[ \t]*/gu, '\t')
+    .replace(/\t\n/gu, '\n')
     .replace(/[ \t]*\n[ \t]*/gu, '\n')
     .replace(/\n{3,}/gu, '\n\n')
-    .replace(/[ \t]+/gu, ' ')
+    .replace(/ {2,}/gu, ' ')
     .trim();
 }
 
