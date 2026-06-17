@@ -7,7 +7,7 @@
       "title": "Bestehende Canvas Notebook Datei- und Workspace-Zugriffe inventarisieren",
       "status": "completed",
       "repo": "canvasstudios-notebook",
-      "artifact": "docs/architecture/canvas-notebook/team-workspace-inventory.md"
+      "artifact": "docs/architecture/canvas-notebook/team-workspace/01-inventory.md"
     },
     {
       "id": 2,
