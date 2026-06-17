@@ -1,5 +1,0 @@
-interface:
-  display_name: Slack GIF Creator
-  short_description: Create Slack-optimized animated GIFs
-  brand_color: "#611F69"
-  default_prompt: Use $slack-gif-creator to create a Slack-ready animated GIF.
