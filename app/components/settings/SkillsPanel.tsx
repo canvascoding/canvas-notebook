@@ -630,15 +630,18 @@ export function SkillsPanel() {
               </Button>
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-[280px_1fr] gap-4 min-h-[500px] border rounded-lg overflow-hidden">
+            <div
+              className="grid h-[calc(100dvh-16rem)] min-h-[420px] grid-cols-1 grid-rows-[minmax(12rem,35%)_minmax(0,1fr)] overflow-hidden rounded-lg border lg:grid-cols-[minmax(260px,320px)_minmax(0,1fr)] lg:grid-rows-1"
+              data-testid="skills-browser"
+            >
               {/* Left: File Tree */}
-              <div className="border-b lg:border-b-0 lg:border-r bg-muted/30 overflow-y-auto max-h-[600px] lg:max-h-none">
-                <div className="p-2 border-b bg-muted/50">
+              <div className="flex min-h-0 flex-col border-b bg-muted/30 lg:border-b-0 lg:border-r">
+                <div className="shrink-0 border-b bg-muted/50 p-2">
                   <div className="flex items-center gap-1.5 px-2 py-1 text-xs font-medium text-muted-foreground uppercase tracking-wider">
                     {t('stats.total')}
                   </div>
                 </div>
-                <div className="p-1 text-sm">
+                <div className="min-h-0 flex-1 overflow-y-auto p-1 text-sm" data-testid="skills-tree-scroll">
                   {skillTree.length === 0 ? (
                     <div className="px-3 py-8 text-center text-muted-foreground text-sm">
                       <Wrench className="h-8 w-8 mx-auto mb-2 opacity-50" />
@@ -651,7 +654,7 @@ export function SkillsPanel() {
               </div>
 
               {/* Right: Info Panel or Preview */}
-              <div className="overflow-y-auto max-h-[600px] lg:max-h-none">
+              <div className="min-h-0 overflow-y-auto" data-testid="skills-detail-scroll">
                 {rightView === 'info' && selectedSkillData ? (
                   <div className="p-5 space-y-4">
                     <div className="flex items-start justify-between gap-4">
@@ -725,13 +728,13 @@ export function SkillsPanel() {
                         {previewError}
                       </div>
                     ) : (
-                      <pre className="text-sm font-mono whitespace-pre-wrap break-words bg-muted/30 p-4 rounded-lg overflow-x-auto max-h-[500px] overflow-y-auto">
+                      <pre className="overflow-x-auto rounded-lg bg-muted/30 p-4 font-mono text-sm whitespace-pre-wrap break-words">
                         {previewContent}
                       </pre>
                     )}
                   </div>
                 ) : (
-                  <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
+                  <div className="flex h-full flex-col items-center justify-center py-16 text-muted-foreground">
                     <FolderOpen className="h-10 w-10 mb-3 opacity-50" />
                     <p className="text-sm">{t('detail.selectPrompt')}</p>
                   </div>
