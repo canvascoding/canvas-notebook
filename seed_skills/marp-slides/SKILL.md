@@ -1,6 +1,9 @@
 ---
 name: marp-slides
 description: Create, edit, review, and export polished Marp Markdown slide decks in Canvas Notebook. Use when the user wants Markdown-based presentations, `.marp.md` or `.slides.md` files, fast version-controlled decks, Marp PDF/image/PPTX export, speaker notes, presentation outlines, or better looking slides that should stay close to plain text.
+license: "MIT"
+metadata:
+  version: "1.1.0"
 ---
 
 # Marp Slides

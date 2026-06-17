@@ -3,69 +3,9 @@ import { promises as fs } from 'fs';
 import path from 'path';
 import { auth } from '@/app/lib/auth';
 import { getSkillsDir } from '@/app/lib/skills/canvas-skill-manifest';
+import { buildSkillTree } from '@/app/lib/skills/skill-tree';
 
 const SKILLS_DIR = getSkillsDir();
-
-interface SkillFileNode {
-  name: string;
-  path: string;
-  type: 'file' | 'directory';
-  size?: number;
-  modified?: number;
-  children?: SkillFileNode[];
-}
-
-const IGNORED_ENTRIES = new Set(['node_modules', '.cache']);
-
-async function buildSkillTree(dirPath: string, depth: number, maxDepth: number, isRoot: boolean = false): Promise<SkillFileNode[]> {
-  if (depth > maxDepth) return [];
-
-  let entries;
-  try {
-    entries = await fs.readdir(dirPath, { withFileTypes: true });
-  } catch {
-    return [];
-  }
-
-  const nodes: SkillFileNode[] = [];
-
-  for (const entry of entries) {
-    if (entry.name.startsWith('.') && entry.name !== '.agents') continue;
-    if (IGNORED_ENTRIES.has(entry.name)) continue;
-    if (isRoot && entry.name === 'README.md') continue;
-
-    const fullPath = path.join(dirPath, entry.name);
-    const relativePath = path.relative(SKILLS_DIR, fullPath);
-
-    if (entry.isDirectory()) {
-      const children = await buildSkillTree(fullPath, depth + 1, maxDepth, false);
-      const stat = await fs.stat(fullPath).catch(() => null);
-      nodes.push({
-        name: entry.name,
-        path: relativePath,
-        type: 'directory',
-        modified: stat?.mtimeMs,
-        children,
-      });
-    } else {
-      const stat = await fs.stat(fullPath).catch(() => null);
-      nodes.push({
-        name: entry.name,
-        path: relativePath,
-        type: 'file',
-        size: stat?.size,
-        modified: stat?.mtimeMs,
-      });
-    }
-  }
-
-  nodes.sort((a, b) => {
-    if (a.type !== b.type) return a.type === 'directory' ? -1 : 1;
-    return a.name.localeCompare(b.name);
-  });
-
-  return nodes;
-}
 
 export async function GET(request: NextRequest) {
   const session = await auth.api.getSession({ headers: request.headers });
@@ -85,7 +25,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ success: true, data: [] });
     }
 
-    const tree = await buildSkillTree(resolvedSkillsDir, 0, depth, true);
+    const tree = await buildSkillTree(resolvedSkillsDir, { maxDepth: depth });
 
     return NextResponse.json({ success: true, data: tree });
   } catch (error) {
