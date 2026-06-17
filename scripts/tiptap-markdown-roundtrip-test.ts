@@ -13,6 +13,7 @@ for (const key of ['window', 'document', 'DOMParser', 'navigator', 'Node', 'HTML
 
 type JsonNode = {
   type?: string;
+  attrs?: Record<string, unknown>;
   content?: JsonNode[];
 };
 
@@ -20,6 +21,13 @@ function collectNodeTypes(node: JsonNode): string[] {
   return [
     ...(node.type ? [node.type] : []),
     ...(node.content ?? []).flatMap(collectNodeTypes),
+  ];
+}
+
+function collectTableAlignments(node: JsonNode): string[] {
+  return [
+    ...(typeof node.attrs?.align === 'string' ? [node.attrs.align] : []),
+    ...(node.content ?? []).flatMap(collectTableAlignments),
   ];
 }
 
@@ -41,6 +49,10 @@ Paragraph with **bold**, *italic*, ~~strike~~, \`code\`, emoji 😄, and [link](
 | A | B |
 | --- | --- |
 | 1 | 2 |
+
+| Left | Center | Right |
+| :--- | :---: | ---: |
+| L | C | R |
 
 \`\`\`mermaid
 graph LR
@@ -80,7 +92,9 @@ async function main() {
   });
 
   const output = editor.getMarkdown();
-  const nodeTypes = collectNodeTypes(editor.getJSON());
+  const json = editor.getJSON();
+  const nodeTypes = collectNodeTypes(json);
+  const tableAlignments = collectTableAlignments(json);
 
   assert.match(output, /^# Title/m);
   assert.match(output, /\*\*bold\*\*/);
@@ -96,12 +110,17 @@ async function main() {
   assert.match(output, /^1\. One/m);
   assert.match(output, /^2\. Two/m);
   assert.match(output, /^\| A\s+\| B\s+\|/m);
+  assert.match(output, /^\| Left\s+\| Center\s+\| Right\s+\|/m);
+  assert.match(output, /^\| :---+\s+\| :---+:\s+\| ---+:\s+\|/m);
   assert.match(output, /^```mermaid\ngraph LR\n  A-->B\n```/m);
   assert.match(output, /^---$/m);
 
   assert.ok(nodeTypes.includes('bulletList'), 'mixed GFM lists should keep normal bullet items');
   assert.ok(nodeTypes.includes('taskList'), 'mixed GFM lists should keep task items');
   assert.ok(nodeTypes.includes('table'), 'GFM tables should parse as table nodes');
+  assert.ok(tableAlignments.includes('left'), 'GFM table alignment should preserve left cells');
+  assert.ok(tableAlignments.includes('center'), 'GFM table alignment should preserve center cells');
+  assert.ok(tableAlignments.includes('right'), 'GFM table alignment should preserve right cells');
   assert.ok(nodeTypes.includes('image'), 'Markdown images should parse as image nodes');
   assert.ok(nodeTypes.includes('codeBlock'), 'Mermaid fences should remain code blocks');
 

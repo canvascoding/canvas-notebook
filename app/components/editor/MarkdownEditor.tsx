@@ -25,9 +25,13 @@ import { Suggestion, type SuggestionKeyDownProps, type SuggestionProps } from '@
 import { Plugin, PluginKey } from '@tiptap/pm/state';
 import { Decoration, DecorationSet } from '@tiptap/pm/view';
 import {
+  AlignCenter,
+  AlignLeft,
+  AlignRight,
   Bold,
   Code,
   Code2,
+  Columns3,
   Eye,
   Heading1,
   Heading2,
@@ -42,8 +46,10 @@ import {
   Plus,
   Quote,
   Redo2,
+  Rows3,
   Strikethrough,
   Table2,
+  Trash2,
   Type,
   Undo2,
 } from 'lucide-react';
@@ -51,7 +57,18 @@ import { useTranslations } from 'next-intl';
 
 import { Button } from '@/components/ui/button';
 import { Command, CommandEmpty, CommandGroup, CommandItem, CommandList } from '@/components/ui/command';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { MermaidDiagram } from '@/components/ui/mermaid-diagram';
+import { Switch } from '@/components/ui/switch';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { SafeMarkdownImage } from '@/app/components/shared/SafeMarkdownImage';
 import { createInlineColorRegex, isColorCode } from '@/app/lib/markdown/color-code';
@@ -89,12 +106,19 @@ type ToolbarState = {
   isBlockquote: boolean;
   isLink: boolean;
   isCodeBlock: boolean;
+  isTable: boolean;
+  cellAlign: 'left' | 'center' | 'right' | null;
+};
+
+type SlashCommandActions = {
+  openTableDialog?: (editor: Editor, range: Range) => void;
 };
 
 type SlashCommandContext = {
   editor: Editor;
   labels: SlashCommandLabels;
   range: Range;
+  actions?: SlashCommandActions;
 };
 
 type SlashCommandItemId =
@@ -163,6 +187,8 @@ const EMPTY_TOOLBAR_STATE: ToolbarState = {
   isBlockquote: false,
   isLink: false,
   isCodeBlock: false,
+  isTable: false,
+  cellAlign: null,
 };
 
 const FRONTMATTER_REGEX = /^---\s*\n[\s\S]*?\n---(?:\s*\n|$)/;
@@ -182,6 +208,16 @@ function asMarkdownEditor(editor: Editor | null): MarkdownEditorWithMarkdown | n
   }
 
   return editor as MarkdownEditorWithMarkdown;
+}
+
+function getActiveTableCellAlign(editor: Editor): ToolbarState['cellAlign'] {
+  const align = (
+    editor.getAttributes('tableCell').align ||
+    editor.getAttributes('tableHeader').align ||
+    null
+  ) as string | null;
+
+  return align === 'left' || align === 'center' || align === 'right' ? align : null;
 }
 
 function TooltipIconButton({
@@ -363,7 +399,14 @@ const SLASH_COMMAND_DEFINITIONS: SlashCommandDefinition[] = [
     id: 'table',
     keywords: ['grid'],
     Icon: Table2,
-    command: (context) => runAfterSlashDelete(context).insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run(),
+    command: (context) => {
+      if (context.actions?.openTableDialog) {
+        context.actions.openTableDialog(context.editor, context.range);
+        return;
+      }
+
+      runAfterSlashDelete(context).insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run();
+    },
   },
   {
     id: 'image',
@@ -543,7 +586,7 @@ function updateSlashCommandPosition(element: HTMLElement, props: SuggestionProps
   });
 }
 
-function createSlashCommands(labels: SlashCommandLabels) {
+function createSlashCommands(labels: SlashCommandLabels, actions?: SlashCommandActions) {
   return Extension.create({
     name: 'slashCommands',
 
@@ -564,7 +607,7 @@ function createSlashCommands(labels: SlashCommandLabels) {
             return $from.parent.type.name === 'paragraph';
           },
           command: ({ editor, range, props }) => {
-            props.command({ editor, labels, range });
+            props.command({ editor, labels, range, actions });
           },
           render: () => {
             let component: ReactRenderer<SlashCommandListHandle, SlashCommandListProps> | null = null;
@@ -842,7 +885,7 @@ function MarkdownBlockInsertButton({
   );
 }
 
-function createEditorExtensions(filePath: string | undefined, labels: SlashCommandLabels) {
+function createEditorExtensions(filePath: string | undefined, labels: SlashCommandLabels, actions?: SlashCommandActions) {
   return [
     StarterKit.configure({
       codeBlock: false,
@@ -869,7 +912,7 @@ function createEditorExtensions(filePath: string | undefined, labels: SlashComma
       },
     }),
     ColorSwatchDecorations,
-    createSlashCommands(labels),
+    createSlashCommands(labels, actions),
     Markdown.configure({
       markedOptions: {
         gfm: true,
@@ -895,13 +938,347 @@ function MarkdownSourceToolbar({ onRichMode }: { onRichMode: () => void }) {
   );
 }
 
+type LinkPreviewState =
+  | { status: 'idle'; error?: undefined; imageUrl?: undefined; host?: undefined }
+  | { status: 'loading'; error?: undefined; imageUrl?: undefined; host?: undefined }
+  | { status: 'loaded'; error?: undefined; imageUrl: string | null; host: string }
+  | { status: 'error'; error: string; imageUrl?: undefined; host?: undefined };
+
+type LinkDialogSeed = {
+  id: number;
+  href: string;
+  text: string;
+  canEditText: boolean;
+};
+
+type TableInsertOptions = {
+  rows: number;
+  cols: number;
+  withHeaderRow: boolean;
+};
+
+function normalizeLinkHref(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) return '';
+  if (/^[a-z][a-z\d+.-]*:/iu.test(trimmed)) return trimmed;
+  return `https://${trimmed}`;
+}
+
+function getSelectedText(editor: Editor) {
+  const { from, to, empty } = editor.state.selection;
+  if (empty) return '';
+  return editor.state.doc.textBetween(from, to, ' ');
+}
+
+function MarkdownLinkDialog({
+  editor,
+  open,
+  onOpenChange,
+  initialHref,
+  initialText,
+  canEditText,
+}: {
+  editor: MarkdownEditorWithMarkdown | null;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  initialHref: string;
+  initialText: string;
+  canEditText: boolean;
+}) {
+  const t = useTranslations('notebook');
+  const [href, setHref] = useState(initialHref);
+  const [text, setText] = useState(initialText);
+  const [previewEnabled, setPreviewEnabled] = useState(true);
+  const [previewState, setPreviewState] = useState<LinkPreviewState>({ status: 'idle' });
+  const linkActive = Boolean(editor?.isActive('link'));
+
+  useEffect(() => {
+    if (!open || !previewEnabled) return;
+
+    const previewUrl = normalizeLinkHref(href);
+    if (!/^https?:\/\//iu.test(previewUrl)) return;
+
+    const controller = new AbortController();
+    const timeout = window.setTimeout(async () => {
+      setPreviewState({ status: 'loading' });
+      try {
+        const response = await fetch(`/api/markdown/link-preview?url=${encodeURIComponent(previewUrl)}`, {
+          signal: controller.signal,
+        });
+        const payload = await response.json().catch(() => null) as
+          | { success?: boolean; data?: { imageUrl?: string | null; host?: string }; error?: string }
+          | null;
+
+        if (!response.ok || !payload?.success) {
+          throw new Error(payload?.error || t('markdownEditorLinkPreviewError'));
+        }
+
+        setPreviewState({
+          status: 'loaded',
+          imageUrl: payload.data?.imageUrl ?? null,
+          host: payload.data?.host ?? new URL(previewUrl).hostname,
+        });
+      } catch (error) {
+        if (controller.signal.aborted) return;
+        setPreviewState({
+          status: 'error',
+          error: error instanceof Error ? error.message : t('markdownEditorLinkPreviewError'),
+        });
+      }
+    }, 350);
+
+    return () => {
+      window.clearTimeout(timeout);
+      controller.abort();
+    };
+  }, [href, open, previewEnabled, t]);
+
+  const applyLink = useCallback(() => {
+    if (!editor) return;
+
+    const normalizedHref = normalizeLinkHref(href);
+    if (!normalizedHref) {
+      editor.chain().focus().unsetLink().run();
+      onOpenChange(false);
+      return;
+    }
+
+    if (editor.isActive('link') || !editor.state.selection.empty) {
+      editor.chain().focus().extendMarkRange('link').setLink({ href: normalizedHref }).run();
+    } else {
+      editor
+        .chain()
+        .focus()
+        .insertContent({
+          type: 'text',
+          text: text.trim() || normalizedHref,
+          marks: [{ type: 'link', attrs: { href: normalizedHref } }],
+        })
+        .run();
+    }
+
+    onOpenChange(false);
+  }, [editor, href, onOpenChange, text]);
+
+  const removeLink = useCallback(() => {
+    editor?.chain().focus().extendMarkRange('link').unsetLink().run();
+    onOpenChange(false);
+  }, [editor, onOpenChange]);
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>{t('markdownEditorLinkDialogTitle')}</DialogTitle>
+          <DialogDescription>{t('markdownEditorLinkDialogDescription')}</DialogDescription>
+        </DialogHeader>
+
+        <div className="grid gap-4">
+          <div className="grid gap-2">
+            <Label htmlFor="markdown-link-url">{t('markdownEditorLinkUrl')}</Label>
+            <Input
+              id="markdown-link-url"
+              value={href}
+              placeholder="https://example.com"
+              onChange={(event) => {
+                setHref(event.target.value);
+                setPreviewState({ status: 'idle' });
+              }}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  event.preventDefault();
+                  applyLink();
+                }
+              }}
+            />
+          </div>
+
+          {canEditText ? (
+            <div className="grid gap-2">
+              <Label htmlFor="markdown-link-text">{t('markdownEditorLinkText')}</Label>
+              <Input
+                id="markdown-link-text"
+                value={text}
+                placeholder={t('markdownEditorLinkTextPlaceholder')}
+                onChange={(event) => setText(event.target.value)}
+              />
+            </div>
+          ) : null}
+
+          <div className="flex items-center justify-between gap-3 rounded-md border px-3 py-2">
+            <div className="min-w-0">
+              <Label htmlFor="markdown-link-preview-toggle">{t('markdownEditorLinkPreviewToggle')}</Label>
+              <p className="mt-1 text-xs text-muted-foreground">{t('markdownEditorLinkPreviewHint')}</p>
+            </div>
+            <Switch
+              id="markdown-link-preview-toggle"
+              checked={previewEnabled}
+              onCheckedChange={(checked) => {
+                setPreviewEnabled(checked);
+                if (!checked) setPreviewState({ status: 'idle' });
+              }}
+            />
+          </div>
+
+          {previewEnabled ? (
+            <div className="min-h-20 rounded-md border bg-muted/20 p-2">
+              {previewState.status === 'loading' ? (
+                <div className="flex h-16 items-center text-sm text-muted-foreground">
+                  {t('markdownEditorLinkPreviewLoading')}
+                </div>
+              ) : null}
+
+              {previewState.status === 'loaded' ? (
+                previewState.imageUrl ? (
+                  <div className="flex items-center gap-3">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={previewState.imageUrl}
+                      alt=""
+                      referrerPolicy="no-referrer"
+                      className="h-16 w-24 shrink-0 rounded-sm border bg-background object-cover"
+                    />
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-medium">{previewState.host}</div>
+                      <div className="truncate text-xs text-muted-foreground">
+                        {t('markdownEditorLinkPreviewImageLoaded')}
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex h-16 items-center text-sm text-muted-foreground">
+                    {t('markdownEditorLinkPreviewNoImage')}
+                  </div>
+                )
+              ) : null}
+
+              {previewState.status === 'error' ? (
+                <div className="flex h-16 items-center text-sm text-destructive">{previewState.error}</div>
+              ) : null}
+
+              {previewState.status === 'idle' ? (
+                <div className="flex h-16 items-center text-sm text-muted-foreground">
+                  {t('markdownEditorLinkPreviewIdle')}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+
+        <DialogFooter>
+          {linkActive ? (
+            <Button type="button" variant="outline" onClick={removeLink}>
+              {t('markdownEditorLinkRemove')}
+            </Button>
+          ) : null}
+          <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+            {t('cancel')}
+          </Button>
+          <Button type="button" onClick={applyLink}>
+            {t('markdownEditorLinkApply')}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function MarkdownTableDialog({
+  open,
+  onOpenChange,
+  onInsert,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onInsert: (options: TableInsertOptions) => void;
+}) {
+  const t = useTranslations('notebook');
+  const [rows, setRows] = useState(3);
+  const [cols, setCols] = useState(3);
+  const [withHeaderRow, setWithHeaderRow] = useState(true);
+
+  const submit = useCallback(() => {
+    onInsert({
+      rows: Math.min(20, Math.max(1, rows || 1)),
+      cols: Math.min(12, Math.max(1, cols || 1)),
+      withHeaderRow,
+    });
+  }, [cols, onInsert, rows, withHeaderRow]);
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-sm">
+        <DialogHeader>
+          <DialogTitle>{t('markdownEditorTableDialogTitle')}</DialogTitle>
+          <DialogDescription>{t('markdownEditorTableDialogDescription')}</DialogDescription>
+        </DialogHeader>
+
+        <div className="grid gap-4">
+          <div className="grid grid-cols-2 gap-3">
+            <div className="grid gap-2">
+              <Label htmlFor="markdown-table-rows">{t('markdownEditorTableRows')}</Label>
+              <Input
+                id="markdown-table-rows"
+                type="number"
+                min={1}
+                max={20}
+                value={rows}
+                onChange={(event) => setRows(Number(event.target.value))}
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="markdown-table-cols">{t('markdownEditorTableColumns')}</Label>
+              <Input
+                id="markdown-table-cols"
+                type="number"
+                min={1}
+                max={12}
+                value={cols}
+                onChange={(event) => setCols(Number(event.target.value))}
+              />
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between gap-3 rounded-md border px-3 py-2">
+            <Label htmlFor="markdown-table-header-row">{t('markdownEditorTableHeaderRow')}</Label>
+            <Switch
+              id="markdown-table-header-row"
+              checked={withHeaderRow}
+              onCheckedChange={setWithHeaderRow}
+            />
+          </div>
+        </div>
+
+        <DialogFooter>
+          <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+            {t('cancel')}
+          </Button>
+          <Button type="button" onClick={submit}>
+            {t('markdownEditorTableInsert')}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function MarkdownToolbar({
   editor,
   onSourceMode,
+  onOpenTableDialog,
 }: {
   editor: MarkdownEditorWithMarkdown | null;
   onSourceMode: () => void;
+  onOpenTableDialog: () => void;
 }) {
+  const t = useTranslations('notebook');
+  const [linkDialogOpen, setLinkDialogOpen] = useState(false);
+  const [linkDialogSeed, setLinkDialogSeed] = useState<LinkDialogSeed>({
+    id: 0,
+    href: '',
+    text: '',
+    canEditText: true,
+  });
   const canUseCommands = Boolean(editor?.isEditable);
   const toolbarState = useEditorState({
     editor,
@@ -924,29 +1301,21 @@ function MarkdownToolbar({
         isBlockquote: currentEditor.isActive('blockquote'),
         isLink: currentEditor.isActive('link'),
         isCodeBlock: currentEditor.isActive('codeBlock'),
+        isTable: currentEditor.isActive('table'),
+        cellAlign: getActiveTableCellAlign(currentEditor),
       };
     },
   }) ?? EMPTY_TOOLBAR_STATE;
 
   const setLink = useCallback(() => {
     if (!editor) return;
-
-    if (editor.isActive('link')) {
-      editor.chain().focus().unsetLink().run();
-      return;
-    }
-
-    const previousUrl = editor.getAttributes('link').href as string | undefined;
-    const url = window.prompt('URL', previousUrl || 'https://');
-    if (url === null) return;
-
-    const trimmedUrl = url.trim();
-    if (!trimmedUrl) {
-      editor.chain().focus().unsetLink().run();
-      return;
-    }
-
-    editor.chain().focus().extendMarkRange('link').setLink({ href: trimmedUrl }).run();
+    setLinkDialogSeed((current) => ({
+      id: current.id + 1,
+      href: (editor.getAttributes('link').href as string | undefined) || '',
+      text: getSelectedText(editor),
+      canEditText: editor.state.selection.empty && !editor.isActive('link'),
+    }));
+    setLinkDialogOpen(true);
   }, [editor]);
 
   const setImage = useCallback(() => {
@@ -1083,9 +1452,9 @@ function MarkdownToolbar({
           <ImageIcon />
         </TooltipIconButton>
         <TooltipIconButton
-          label="Table"
+          label={t('markdownEditorTableInsert')}
           disabled={!canUseCommands}
-          onClick={() => editor?.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()}
+          onClick={onOpenTableDialog}
         >
           <Table2 />
         </TooltipIconButton>
@@ -1111,6 +1480,111 @@ function MarkdownToolbar({
           </TooltipIconButton>
         </div>
       </div>
+      {toolbarState.isTable ? (
+        <div className="flex h-9 shrink-0 items-center gap-1 overflow-x-auto border-b border-border bg-muted/30 px-2">
+          <span className="mr-1 shrink-0 text-xs font-medium text-muted-foreground">
+            {t('markdownEditorTableTools')}
+          </span>
+          <TooltipIconButton
+            label={t('markdownEditorTableAddColumnBefore')}
+            disabled={!canUseCommands || !editor?.can().addColumnBefore()}
+            onClick={() => editor?.chain().focus().addColumnBefore().run()}
+          >
+            <Columns3 />
+          </TooltipIconButton>
+          <TooltipIconButton
+            label={t('markdownEditorTableAddColumnAfter')}
+            disabled={!canUseCommands || !editor?.can().addColumnAfter()}
+            onClick={() => editor?.chain().focus().addColumnAfter().run()}
+          >
+            <Plus />
+          </TooltipIconButton>
+          <TooltipIconButton
+            label={t('markdownEditorTableDeleteColumn')}
+            disabled={!canUseCommands || !editor?.can().deleteColumn()}
+            onClick={() => editor?.chain().focus().deleteColumn().run()}
+          >
+            <Trash2 />
+          </TooltipIconButton>
+
+          <ToolbarDivider />
+
+          <TooltipIconButton
+            label={t('markdownEditorTableAddRowBefore')}
+            disabled={!canUseCommands || !editor?.can().addRowBefore()}
+            onClick={() => editor?.chain().focus().addRowBefore().run()}
+          >
+            <Rows3 />
+          </TooltipIconButton>
+          <TooltipIconButton
+            label={t('markdownEditorTableAddRowAfter')}
+            disabled={!canUseCommands || !editor?.can().addRowAfter()}
+            onClick={() => editor?.chain().focus().addRowAfter().run()}
+          >
+            <Plus />
+          </TooltipIconButton>
+          <TooltipIconButton
+            label={t('markdownEditorTableDeleteRow')}
+            disabled={!canUseCommands || !editor?.can().deleteRow()}
+            onClick={() => editor?.chain().focus().deleteRow().run()}
+          >
+            <Trash2 />
+          </TooltipIconButton>
+
+          <ToolbarDivider />
+
+          <TooltipIconButton
+            label={t('markdownEditorTableToggleHeaderRow')}
+            disabled={!canUseCommands || !editor?.can().toggleHeaderRow()}
+            onClick={() => editor?.chain().focus().toggleHeaderRow().run()}
+          >
+            <Table2 />
+          </TooltipIconButton>
+          <TooltipIconButton
+            label={t('markdownEditorTableAlignLeft')}
+            active={toolbarState.cellAlign === 'left'}
+            disabled={!canUseCommands}
+            onClick={() => editor?.chain().focus().setCellAttribute('align', 'left').run()}
+          >
+            <AlignLeft />
+          </TooltipIconButton>
+          <TooltipIconButton
+            label={t('markdownEditorTableAlignCenter')}
+            active={toolbarState.cellAlign === 'center'}
+            disabled={!canUseCommands}
+            onClick={() => editor?.chain().focus().setCellAttribute('align', 'center').run()}
+          >
+            <AlignCenter />
+          </TooltipIconButton>
+          <TooltipIconButton
+            label={t('markdownEditorTableAlignRight')}
+            active={toolbarState.cellAlign === 'right'}
+            disabled={!canUseCommands}
+            onClick={() => editor?.chain().focus().setCellAttribute('align', 'right').run()}
+          >
+            <AlignRight />
+          </TooltipIconButton>
+
+          <ToolbarDivider />
+
+          <TooltipIconButton
+            label={t('markdownEditorTableDelete')}
+            disabled={!canUseCommands || !editor?.can().deleteTable()}
+            onClick={() => editor?.chain().focus().deleteTable().run()}
+          >
+            <Trash2 />
+          </TooltipIconButton>
+        </div>
+      ) : null}
+      <MarkdownLinkDialog
+        key={linkDialogSeed.id}
+        editor={editor}
+        open={linkDialogOpen}
+        onOpenChange={setLinkDialogOpen}
+        initialHref={linkDialogSeed.href}
+        initialText={linkDialogSeed.text}
+        canEditText={linkDialogSeed.canEditText}
+      />
     </TooltipProvider>
   );
 }
@@ -1126,8 +1600,16 @@ function RichMarkdownEditor({
   const latestValueRef = useRef(value);
   const applyingExternalValueRef = useRef(false);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const [tableDialogOpen, setTableDialogOpen] = useState(false);
   const labels = useMemo(() => createSlashCommandLabels(t), [t]);
-  const extensions = useMemo(() => createEditorExtensions(filePath, labels), [filePath, labels]);
+  const openTableDialogFromSlash = useCallback((slashEditor: Editor, range: Range) => {
+    slashEditor.chain().focus().deleteRange(range).run();
+    setTableDialogOpen(true);
+  }, []);
+  const extensions = useMemo(
+    () => createEditorExtensions(filePath, labels, { openTableDialog: openTableDialogFromSlash }),
+    [filePath, labels, openTableDialogFromSlash],
+  );
 
   useEffect(() => {
     latestValueRef.current = value;
@@ -1153,6 +1635,12 @@ function RichMarkdownEditor({
 
   const markdownEditor = asMarkdownEditor(editor);
 
+  const insertTable = useCallback((options: TableInsertOptions) => {
+    if (!editor) return;
+    editor.chain().focus().insertTable(options).run();
+    setTableDialogOpen(false);
+  }, [editor]);
+
   useEffect(() => {
     if (!markdownEditor) return;
 
@@ -1173,7 +1661,16 @@ function RichMarkdownEditor({
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden bg-background">
-      {!readOnly ? <MarkdownToolbar editor={markdownEditor} onSourceMode={onSourceMode} /> : null}
+      {!readOnly ? (
+        <MarkdownToolbar
+          editor={markdownEditor}
+          onSourceMode={onSourceMode}
+          onOpenTableDialog={() => setTableDialogOpen(true)}
+        />
+      ) : null}
+      {!readOnly ? (
+        <MarkdownTableDialog open={tableDialogOpen} onOpenChange={setTableDialogOpen} onInsert={insertTable} />
+      ) : null}
       <div ref={scrollContainerRef} className="relative min-h-0 flex-1 overflow-auto">
         {!readOnly ? (
           <TooltipProvider>
