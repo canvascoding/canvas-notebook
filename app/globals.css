@@ -344,6 +344,15 @@
   margin-top: 0.75rem;
 }
 
+.tiptap-editor-shell .ProseMirror p.is-empty::before {
+  color: var(--muted-foreground);
+  content: attr(data-placeholder);
+  float: left;
+  height: 0;
+  opacity: 0.72;
+  pointer-events: none;
+}
+
 .tiptap-editor-shell h1 {
   font-size: 2rem;
   font-weight: 700;

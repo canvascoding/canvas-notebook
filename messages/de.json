@@ -376,6 +376,7 @@
     "move": "Verschieben",
     "download": "Herunterladen",
     "share": "Teilen",
+    "shareImage": "Bild teilen",
     "openInStudio": "Als Referenz in Studio öffnen",
     "resizeInStudio": "Bild im AR Editor öffnen",
     "protectedFolderRename": "Dieser App-Output-Ordner kann nicht umbenannt werden.",
@@ -482,6 +483,78 @@
     "htmlPreviewBlockedDescription": "\"{fileName}\" wird erst geladen, wenn du die Vorschau ausdrücklich öffnest.",
     "slidesPreview": "Slides",
     "markdownEditor": "Markdown",
+    "markdownEditorAddBlock": "Block hinzufügen",
+    "markdownEditorImageAltPrompt": "Alt-Text",
+    "markdownEditorImageSrcPrompt": "Bild-URL oder Workspace-Pfad",
+    "markdownEditorNoCommandFound": "Kein Befehl gefunden.",
+    "markdownEditorPlaceholder": "Drücke /, um Formatierung hinzuzufügen",
+    "markdownEditorSlashGroup": "Markdown",
+    "markdownEditorCommands": {
+      "text": {
+        "title": "Text",
+        "description": "Normaler Absatz"
+      },
+      "heading1": {
+        "title": "Überschrift 1",
+        "description": "Große Abschnittsüberschrift"
+      },
+      "heading2": {
+        "title": "Überschrift 2",
+        "description": "Mittlere Abschnittsüberschrift"
+      },
+      "heading3": {
+        "title": "Überschrift 3",
+        "description": "Kleine Abschnittsüberschrift"
+      },
+      "bulletList": {
+        "title": "Aufzählung",
+        "description": "Ungeordnete Liste"
+      },
+      "numberedList": {
+        "title": "Nummerierte Liste",
+        "description": "Geordnete Liste"
+      },
+      "taskList": {
+        "title": "Aufgabenliste",
+        "description": "Checkliste"
+      },
+      "quote": {
+        "title": "Zitat",
+        "description": "Blockzitat"
+      },
+      "codeBlock": {
+        "title": "Codeblock",
+        "description": "Codeblock mit Backticks"
+      },
+      "table": {
+        "title": "Tabelle",
+        "description": "3 x 3 Tabelle"
+      },
+      "image": {
+        "title": "Bild",
+        "description": "Bild per URL oder Workspace-Pfad"
+      },
+      "divider": {
+        "title": "Trennlinie",
+        "description": "Horizontale Linie"
+      },
+      "bold": {
+        "title": "Fett",
+        "description": "Text ab hier fett schreiben"
+      },
+      "italic": {
+        "title": "Kursiv",
+        "description": "Text ab hier kursiv schreiben"
+      },
+      "strike": {
+        "title": "Durchstreichen",
+        "description": "Text ab hier durchstreichen"
+      },
+      "inlineCode": {
+        "title": "Inline-Code",
+        "description": "Text ab hier als Inline-Code schreiben"
+      }
+    },
     "refreshPreview": "Vorschau aktualisieren",
     "refreshingPreview": "Aktualisiert...",
     "marpPreviewTitle": "Marp-Vorschau von {fileName}",

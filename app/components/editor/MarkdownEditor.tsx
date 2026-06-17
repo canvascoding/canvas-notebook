@@ -16,6 +16,7 @@ import { StarterKit } from '@tiptap/starter-kit';
 import { Markdown } from '@tiptap/markdown';
 import { Link } from '@tiptap/extension-link';
 import { Image } from '@tiptap/extension-image';
+import { Placeholder } from '@tiptap/extension-placeholder';
 import { TaskList } from '@tiptap/extension-task-list';
 import { TaskItem } from '@tiptap/extension-task-item';
 import { TableKit } from '@tiptap/extension-table';
@@ -38,6 +39,7 @@ import {
   ListChecks,
   ListOrdered,
   Minus,
+  Plus,
   Quote,
   Redo2,
   Strikethrough,
@@ -45,6 +47,7 @@ import {
   Type,
   Undo2,
 } from 'lucide-react';
+import { useTranslations } from 'next-intl';
 
 import { Button } from '@/components/ui/button';
 import { Command, CommandEmpty, CommandGroup, CommandItem, CommandList } from '@/components/ui/command';
@@ -90,22 +93,59 @@ type ToolbarState = {
 
 type SlashCommandContext = {
   editor: Editor;
+  labels: SlashCommandLabels;
   range: Range;
 };
 
-type SlashCommandItem = {
+type SlashCommandItemId =
+  | 'text'
+  | 'heading1'
+  | 'heading2'
+  | 'heading3'
+  | 'bulletList'
+  | 'numberedList'
+  | 'taskList'
+  | 'quote'
+  | 'codeBlock'
+  | 'table'
+  | 'image'
+  | 'divider'
+  | 'bold'
+  | 'italic'
+  | 'strike'
+  | 'inlineCode';
+
+type SlashCommandItemLabel = {
   title: string;
   description: string;
+};
+
+type SlashCommandLabels = {
+  addBlock: string;
+  empty: string;
+  group: string;
+  imageAltPrompt: string;
+  imageSrcPrompt: string;
+  items: Record<SlashCommandItemId, SlashCommandItemLabel>;
+  placeholder: string;
+};
+
+type SlashCommandDefinition = {
+  id: SlashCommandItemId;
   keywords: string[];
   Icon: React.ComponentType;
   command: (context: SlashCommandContext) => void;
 };
 
+type SlashCommandItem = SlashCommandDefinition & SlashCommandItemLabel;
+
 type SlashCommandListHandle = {
   onKeyDown: (props: SuggestionKeyDownProps) => boolean;
 };
 
-type SlashCommandListProps = SuggestionProps<SlashCommandItem, SlashCommandItem>;
+type SlashCommandListProps = SuggestionProps<SlashCommandItem, SlashCommandItem> & {
+  labels: Pick<SlashCommandLabels, 'empty' | 'group'>;
+};
 
 const EMPTY_TOOLBAR_STATE: ToolbarState = {
   canUndo: false,
@@ -264,138 +304,126 @@ function runAfterSlashDelete({ editor, range }: SlashCommandContext) {
   return editor.chain().focus().deleteRange(range);
 }
 
-const SLASH_COMMAND_ITEMS: SlashCommandItem[] = [
+const SLASH_COMMAND_DEFINITIONS: SlashCommandDefinition[] = [
   {
-    title: 'Text',
-    description: 'Plain paragraph',
+    id: 'text',
     keywords: ['paragraph', 'plain'],
     Icon: Type,
     command: (context) => runAfterSlashDelete(context).setParagraph().run(),
   },
   {
-    title: 'Heading 1',
-    description: 'Large section heading',
+    id: 'heading1',
     keywords: ['h1', 'title'],
     Icon: Heading1,
     command: (context) => runAfterSlashDelete(context).setNode('heading', { level: 1 }).run(),
   },
   {
-    title: 'Heading 2',
-    description: 'Medium section heading',
+    id: 'heading2',
     keywords: ['h2', 'subtitle'],
     Icon: Heading2,
     command: (context) => runAfterSlashDelete(context).setNode('heading', { level: 2 }).run(),
   },
   {
-    title: 'Heading 3',
-    description: 'Small section heading',
+    id: 'heading3',
     keywords: ['h3'],
     Icon: Heading3,
     command: (context) => runAfterSlashDelete(context).setNode('heading', { level: 3 }).run(),
   },
   {
-    title: 'Bullet list',
-    description: 'Unordered list',
+    id: 'bulletList',
     keywords: ['ul', 'list'],
     Icon: List,
     command: (context) => runAfterSlashDelete(context).toggleBulletList().run(),
   },
   {
-    title: 'Numbered list',
-    description: 'Ordered list',
+    id: 'numberedList',
     keywords: ['ol', 'ordered'],
     Icon: ListOrdered,
     command: (context) => runAfterSlashDelete(context).toggleOrderedList().run(),
   },
   {
-    title: 'Task list',
-    description: 'Checklist',
+    id: 'taskList',
     keywords: ['todo', 'checklist'],
     Icon: ListChecks,
     command: (context) => runAfterSlashDelete(context).toggleTaskList().run(),
   },
   {
-    title: 'Quote',
-    description: 'Blockquote',
+    id: 'quote',
     keywords: ['blockquote', 'citation'],
     Icon: Quote,
     command: (context) => runAfterSlashDelete(context).toggleBlockquote().run(),
   },
   {
-    title: 'Code block',
-    description: 'Fenced code block',
+    id: 'codeBlock',
     keywords: ['pre', 'fence'],
     Icon: Code2,
     command: (context) => runAfterSlashDelete(context).setCodeBlock().run(),
   },
   {
-    title: 'Table',
-    description: '3 x 3 table',
+    id: 'table',
     keywords: ['grid'],
     Icon: Table2,
     command: (context) => runAfterSlashDelete(context).insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run(),
   },
   {
-    title: 'Image',
-    description: 'Image by URL or workspace path',
+    id: 'image',
     keywords: ['photo', 'picture'],
     Icon: ImageIcon,
-    command: ({ editor, range }) => {
-      const src = window.prompt('Image URL or workspace path');
+    command: ({ editor, labels, range }) => {
+      const src = window.prompt(labels.imageSrcPrompt);
       if (!src?.trim()) {
         editor.chain().focus().deleteRange(range).run();
         return;
       }
 
-      const alt = window.prompt('Alt text') || '';
+      const alt = window.prompt(labels.imageAltPrompt) || '';
       editor.chain().focus().deleteRange(range).setImage({ src: src.trim(), alt: alt.trim() }).run();
     },
   },
   {
-    title: 'Divider',
-    description: 'Horizontal rule',
+    id: 'divider',
     keywords: ['hr', 'separator', 'line'],
     Icon: Minus,
     command: (context) => runAfterSlashDelete(context).setHorizontalRule().run(),
   },
   {
-    title: 'Bold',
-    description: 'Bold text from here',
+    id: 'bold',
     keywords: ['strong'],
     Icon: Bold,
     command: (context) => runAfterSlashDelete(context).toggleBold().run(),
   },
   {
-    title: 'Italic',
-    description: 'Italic text from here',
+    id: 'italic',
     keywords: ['emphasis'],
     Icon: Italic,
     command: (context) => runAfterSlashDelete(context).toggleItalic().run(),
   },
   {
-    title: 'Strike',
-    description: 'Strikethrough text from here',
+    id: 'strike',
     keywords: ['delete', 'cross'],
     Icon: Strikethrough,
     command: (context) => runAfterSlashDelete(context).toggleStrike().run(),
   },
   {
-    title: 'Inline code',
-    description: 'Inline code from here',
+    id: 'inlineCode',
     keywords: ['monospace'],
     Icon: Code,
     command: (context) => runAfterSlashDelete(context).toggleCode().run(),
   },
 ];
 
-function getSlashCommandItems(query: string) {
+function getSlashCommandItems(query: string, labels: SlashCommandLabels): SlashCommandItem[] {
   const normalizedQuery = query.trim().toLowerCase();
+  const localizedItems = SLASH_COMMAND_DEFINITIONS.map((definition) => ({
+    ...definition,
+    ...labels.items[definition.id],
+  }));
 
   if (!normalizedQuery) {
-    return SLASH_COMMAND_ITEMS.slice(0, 10);
+    return localizedItems.slice(0, 10);
   }
 
-  return SLASH_COMMAND_ITEMS
+  return localizedItems
     .filter((item) => {
       const searchableText = [item.title, item.description, ...item.keywords].join(' ').toLowerCase();
       return searchableText.includes(normalizedQuery);
@@ -404,8 +432,10 @@ function getSlashCommandItems(query: string) {
 }
 
 const SlashCommandList = React.forwardRef<SlashCommandListHandle, SlashCommandListProps>(
-  ({ items, command }, ref) => {
-    const [selectedIndex, setSelectedIndex] = useState(0);
+  ({ items, command, labels }, ref) => {
+    const [selectionState, setSelectionState] = useState({ index: 0, itemKey: '' });
+    const itemKey = items.map((item) => item.id).join('|');
+    const selectedIndex = selectionState.itemKey === itemKey ? selectionState.index : 0;
     const activeIndex = items.length ? selectedIndex % items.length : 0;
 
     const selectItem = useCallback((index: number) => {
@@ -415,28 +445,37 @@ const SlashCommandList = React.forwardRef<SlashCommandListHandle, SlashCommandLi
     }, [command, items]);
 
     const selectPrevious = useCallback(() => {
-      setSelectedIndex((currentIndex) => (currentIndex + items.length - 1) % items.length);
-    }, [items.length]);
+      setSelectionState((current) => ({
+        itemKey,
+        index: ((current.itemKey === itemKey ? current.index : 0) + items.length - 1) % items.length,
+      }));
+    }, [itemKey, items.length]);
 
     const selectNext = useCallback(() => {
-      setSelectedIndex((currentIndex) => (currentIndex + 1) % items.length);
-    }, [items.length]);
+      setSelectionState((current) => ({
+        itemKey,
+        index: ((current.itemKey === itemKey ? current.index : 0) + 1) % items.length,
+      }));
+    }, [itemKey, items.length]);
 
     useImperativeHandle(ref, () => ({
       onKeyDown: ({ event }) => {
         if (!items.length) return false;
 
         if (event.key === 'ArrowUp') {
+          event.preventDefault();
           selectPrevious();
           return true;
         }
 
         if (event.key === 'ArrowDown') {
+          event.preventDefault();
           selectNext();
           return true;
         }
 
         if (event.key === 'Enter') {
+          event.preventDefault();
           selectItem(activeIndex);
           return true;
         }
@@ -448,14 +487,20 @@ const SlashCommandList = React.forwardRef<SlashCommandListHandle, SlashCommandLi
     return (
       <Command className="w-72 rounded-md border border-border bg-popover text-popover-foreground shadow-lg" shouldFilter={false}>
         <CommandList className="max-h-72">
-          <CommandEmpty>No command found.</CommandEmpty>
-          <CommandGroup heading="Markdown">
+          <CommandEmpty>{labels.empty}</CommandEmpty>
+          <CommandGroup heading={labels.group}>
             {items.map((item, index) => (
               <CommandItem
-                key={item.title}
+                key={item.id}
                 value={item.title}
+                aria-selected={index === activeIndex}
                 data-selected={index === activeIndex ? 'true' : undefined}
-                onMouseEnter={() => setSelectedIndex(index)}
+                ref={(element) => {
+                  if (index === activeIndex) {
+                    element?.scrollIntoView({ block: 'nearest' });
+                  }
+                }}
+                onMouseEnter={() => setSelectionState({ index, itemKey })}
                 onMouseDown={(event) => {
                   event.preventDefault();
                   selectItem(index);
@@ -477,7 +522,7 @@ const SlashCommandList = React.forwardRef<SlashCommandListHandle, SlashCommandLi
 
 SlashCommandList.displayName = 'SlashCommandList';
 
-function updateSlashCommandPosition(element: HTMLElement, props: SlashCommandListProps) {
+function updateSlashCommandPosition(element: HTMLElement, props: SuggestionProps<SlashCommandItem, SlashCommandItem>) {
   const rect = props.clientRect?.();
   if (!rect) return;
 
@@ -498,61 +543,63 @@ function updateSlashCommandPosition(element: HTMLElement, props: SlashCommandLis
   });
 }
 
-const SlashCommands = Extension.create({
-  name: 'slashCommands',
+function createSlashCommands(labels: SlashCommandLabels) {
+  return Extension.create({
+    name: 'slashCommands',
 
-  addProseMirrorPlugins() {
-    return [
-      Suggestion<SlashCommandItem, SlashCommandItem>({
-        editor: this.editor,
-        pluginKey: SLASH_COMMAND_PLUGIN_KEY,
-        char: '/',
-        startOfLine: true,
-        allowedPrefixes: null,
-        decorationClass: 'tiptap-slash-suggestion',
-        items: ({ query }) => getSlashCommandItems(query),
-        allow: ({ editor, range }) => {
-          if (!editor.isEditable || editor.isActive('codeBlock')) return false;
+    addProseMirrorPlugins() {
+      return [
+        Suggestion<SlashCommandItem, SlashCommandItem>({
+          editor: this.editor,
+          pluginKey: SLASH_COMMAND_PLUGIN_KEY,
+          char: '/',
+          startOfLine: true,
+          allowedPrefixes: null,
+          decorationClass: 'tiptap-slash-suggestion',
+          items: ({ query }) => getSlashCommandItems(query, labels),
+          allow: ({ editor, range }) => {
+            if (!editor.isEditable || editor.isActive('codeBlock')) return false;
 
-          const $from = editor.state.doc.resolve(range.from);
-          return $from.parent.type.name === 'paragraph';
-        },
-        command: ({ editor, range, props }) => {
-          props.command({ editor, range });
-        },
-        render: () => {
-          let component: ReactRenderer<SlashCommandListHandle, SlashCommandListProps> | null = null;
+            const $from = editor.state.doc.resolve(range.from);
+            return $from.parent.type.name === 'paragraph';
+          },
+          command: ({ editor, range, props }) => {
+            props.command({ editor, labels, range });
+          },
+          render: () => {
+            let component: ReactRenderer<SlashCommandListHandle, SlashCommandListProps> | null = null;
 
-          return {
-            onStart: (props) => {
-              component = new ReactRenderer(SlashCommandList, {
-                props,
-                editor: props.editor,
-              });
+            return {
+              onStart: (props) => {
+                component = new ReactRenderer(SlashCommandList, {
+                  props: { ...props, labels },
+                  editor: props.editor,
+                });
 
-              component.element.classList.add('tiptap-slash-menu');
-              document.body.appendChild(component.element);
-              updateSlashCommandPosition(component.element, props);
-            },
-            onUpdate: (props) => {
-              component?.updateProps(props);
-
-              if (component) {
+                component.element.classList.add('tiptap-slash-menu');
+                document.body.appendChild(component.element);
                 updateSlashCommandPosition(component.element, props);
-              }
-            },
-            onKeyDown: (props) => component?.ref?.onKeyDown(props) ?? false,
-            onExit: () => {
-              component?.element.remove();
-              component?.destroy();
-              component = null;
-            },
-          };
-        },
-      }),
-    ];
-  },
-});
+              },
+              onUpdate: (props) => {
+                component?.updateProps({ ...props, labels });
+
+                if (component) {
+                  updateSlashCommandPosition(component.element, props);
+                }
+              },
+              onKeyDown: (props) => component?.ref?.onKeyDown(props) ?? false,
+              onExit: () => {
+                component?.element.remove();
+                component?.destroy();
+                component = null;
+              },
+            };
+          },
+        }),
+      ];
+    },
+  });
+}
 
 function MarkdownImageNodeView({
   node,
@@ -644,11 +691,166 @@ const CodeBlockWithMermaid = CodeBlock.extend({
   },
 });
 
-function createEditorExtensions(filePath?: string) {
+function createSlashCommandLabels(t: (key: string) => string): SlashCommandLabels {
+  const itemLabels = Object.fromEntries(
+    SLASH_COMMAND_DEFINITIONS.map((definition) => [
+      definition.id,
+      {
+        title: t(`markdownEditorCommands.${definition.id}.title`),
+        description: t(`markdownEditorCommands.${definition.id}.description`),
+      },
+    ]),
+  ) as Record<SlashCommandItemId, SlashCommandItemLabel>;
+
+  return {
+    addBlock: t('markdownEditorAddBlock'),
+    empty: t('markdownEditorNoCommandFound'),
+    group: t('markdownEditorSlashGroup'),
+    imageAltPrompt: t('markdownEditorImageAltPrompt'),
+    imageSrcPrompt: t('markdownEditorImageSrcPrompt'),
+    items: itemLabels,
+    placeholder: t('markdownEditorPlaceholder'),
+  };
+}
+
+function findActiveTextblockDepth(editor: Editor): number | null {
+  const { $from } = editor.state.selection;
+
+  for (let depth = $from.depth; depth > 0; depth -= 1) {
+    if ($from.node(depth).isTextblock) return depth;
+  }
+
+  return null;
+}
+
+function openSlashMenuFromCurrentBlock(editor: Editor) {
+  if (!editor.isEditable || editor.isActive('codeBlock')) return;
+
+  const { $from } = editor.state.selection;
+  const textblockDepth = findActiveTextblockDepth(editor);
+  if (!textblockDepth) return;
+
+  const node = $from.node(textblockDepth);
+  if (node.type.name === 'paragraph' && node.content.size === 0) {
+    editor.chain().focus().setTextSelection($from.start(textblockDepth)).insertContent('/').run();
+    return;
+  }
+
+  const insertPosition = $from.after(textblockDepth);
+  editor
+    .chain()
+    .focus()
+    .insertContentAt(insertPosition, {
+      type: 'paragraph',
+      content: [{ type: 'text', text: '/' }],
+    })
+    .setTextSelection(insertPosition + 2)
+    .run();
+}
+
+function getBlockInsertButtonPosition(editor: Editor, container: HTMLDivElement): { top: number } | null {
+  if (!editor.isEditable || editor.isActive('codeBlock')) return null;
+
+  const { $from } = editor.state.selection;
+  const textblockDepth = findActiveTextblockDepth(editor);
+  if (!textblockDepth) return null;
+
+  const blockStart = $from.before(textblockDepth);
+  const positionForCoords = Math.min(blockStart + 1, editor.state.doc.content.size);
+  const coords = editor.view.coordsAtPos(positionForCoords);
+  const containerRect = container.getBoundingClientRect();
+
+  return {
+    top: Math.max(6, coords.top - containerRect.top + container.scrollTop - 2),
+  };
+}
+
+function MarkdownBlockInsertButton({
+  editor,
+  label,
+  scrollContainerRef,
+}: {
+  editor: Editor | null;
+  label: string;
+  scrollContainerRef: React.RefObject<HTMLDivElement | null>;
+}) {
+  const [position, setPosition] = useState<{ top: number } | null>(null);
+
+  const updatePosition = useCallback(() => {
+    const container = scrollContainerRef.current;
+    if (!editor || !container) {
+      setPosition(null);
+      return;
+    }
+
+    setPosition(getBlockInsertButtonPosition(editor, container));
+  }, [editor, scrollContainerRef]);
+
+  useEffect(() => {
+    if (!editor) return;
+
+    const frame = window.requestAnimationFrame(updatePosition);
+    editor.on('selectionUpdate', updatePosition);
+    editor.on('transaction', updatePosition);
+    editor.on('focus', updatePosition);
+
+    return () => {
+      window.cancelAnimationFrame(frame);
+      editor.off('selectionUpdate', updatePosition);
+      editor.off('transaction', updatePosition);
+      editor.off('focus', updatePosition);
+    };
+  }, [editor, updatePosition]);
+
+  useEffect(() => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+
+    container.addEventListener('scroll', updatePosition, { passive: true });
+    window.addEventListener('resize', updatePosition);
+
+    return () => {
+      container.removeEventListener('scroll', updatePosition);
+      window.removeEventListener('resize', updatePosition);
+    };
+  }, [scrollContainerRef, updatePosition]);
+
+  if (!editor?.isEditable || !position) return null;
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-xs"
+          aria-label={label}
+          title={label}
+          className="absolute left-1 z-10 opacity-70 hover:opacity-100"
+          style={{ top: position.top }}
+          onMouseDown={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            openSlashMenuFromCurrentBlock(editor);
+          }}
+        >
+          <Plus />
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent>{label}</TooltipContent>
+    </Tooltip>
+  );
+}
+
+function createEditorExtensions(filePath: string | undefined, labels: SlashCommandLabels) {
   return [
     StarterKit.configure({
       codeBlock: false,
       link: false,
+    }),
+    Placeholder.configure({
+      placeholder: ({ node }) => node.type.name === 'paragraph' ? labels.placeholder : '',
+      showOnlyCurrent: true,
     }),
     CodeBlockWithMermaid,
     Link.configure({
@@ -667,7 +869,7 @@ function createEditorExtensions(filePath?: string) {
       },
     }),
     ColorSwatchDecorations,
-    SlashCommands,
+    createSlashCommands(labels),
     Markdown.configure({
       markedOptions: {
         gfm: true,
@@ -920,9 +1122,12 @@ function RichMarkdownEditor({
   filePath,
   onSourceMode,
 }: MarkdownEditorProps & { onSourceMode: () => void }) {
+  const t = useTranslations('notebook');
   const latestValueRef = useRef(value);
   const applyingExternalValueRef = useRef(false);
-  const extensions = useMemo(() => createEditorExtensions(filePath), [filePath]);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const labels = useMemo(() => createSlashCommandLabels(t), [t]);
+  const extensions = useMemo(() => createEditorExtensions(filePath, labels), [filePath, labels]);
 
   useEffect(() => {
     latestValueRef.current = value;
@@ -969,7 +1174,12 @@ function RichMarkdownEditor({
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden bg-background">
       {!readOnly ? <MarkdownToolbar editor={markdownEditor} onSourceMode={onSourceMode} /> : null}
-      <div className="min-h-0 flex-1 overflow-auto">
+      <div ref={scrollContainerRef} className="relative min-h-0 flex-1 overflow-auto">
+        {!readOnly ? (
+          <TooltipProvider>
+            <MarkdownBlockInsertButton editor={editor} label={labels.addBlock} scrollContainerRef={scrollContainerRef} />
+          </TooltipProvider>
+        ) : null}
         <EditorContent editor={editor} className="tiptap-editor-shell" />
       </div>
     </div>

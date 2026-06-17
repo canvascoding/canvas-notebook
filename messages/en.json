@@ -377,6 +377,7 @@
     "move": "Move",
     "download": "Download",
     "share": "Share",
+    "shareImage": "Share image",
     "openInStudio": "Open as reference in Studio",
     "resizeInStudio": "Open image in AR Editor",
     "protectedFolderRename": "This app output folder cannot be renamed.",
@@ -483,6 +484,78 @@
     "htmlPreviewBlockedDescription": "\"{fileName}\" will only load after you explicitly open the preview.",
     "slidesPreview": "Slides",
     "markdownEditor": "Markdown",
+    "markdownEditorAddBlock": "Add block",
+    "markdownEditorImageAltPrompt": "Alt text",
+    "markdownEditorImageSrcPrompt": "Image URL or workspace path",
+    "markdownEditorNoCommandFound": "No command found.",
+    "markdownEditorPlaceholder": "Press / to add formatting",
+    "markdownEditorSlashGroup": "Markdown",
+    "markdownEditorCommands": {
+      "text": {
+        "title": "Text",
+        "description": "Plain paragraph"
+      },
+      "heading1": {
+        "title": "Heading 1",
+        "description": "Large section heading"
+      },
+      "heading2": {
+        "title": "Heading 2",
+        "description": "Medium section heading"
+      },
+      "heading3": {
+        "title": "Heading 3",
+        "description": "Small section heading"
+      },
+      "bulletList": {
+        "title": "Bullet list",
+        "description": "Unordered list"
+      },
+      "numberedList": {
+        "title": "Numbered list",
+        "description": "Ordered list"
+      },
+      "taskList": {
+        "title": "Task list",
+        "description": "Checklist"
+      },
+      "quote": {
+        "title": "Quote",
+        "description": "Blockquote"
+      },
+      "codeBlock": {
+        "title": "Code block",
+        "description": "Fenced code block"
+      },
+      "table": {
+        "title": "Table",
+        "description": "3 x 3 table"
+      },
+      "image": {
+        "title": "Image",
+        "description": "Image by URL or workspace path"
+      },
+      "divider": {
+        "title": "Divider",
+        "description": "Horizontal rule"
+      },
+      "bold": {
+        "title": "Bold",
+        "description": "Bold text from here"
+      },
+      "italic": {
+        "title": "Italic",
+        "description": "Italic text from here"
+      },
+      "strike": {
+        "title": "Strike",
+        "description": "Strikethrough text from here"
+      },
+      "inlineCode": {
+        "title": "Inline code",
+        "description": "Inline code from here"
+      }
+    },
     "refreshPreview": "Refresh preview",
     "refreshingPreview": "Refreshing...",
     "marpPreviewTitle": "Marp preview of {fileName}",
