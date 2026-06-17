@@ -185,6 +185,11 @@ type CanvasSkillStoreEntry = {
     name?: string;
     url?: string;
   };
+  sourcePlugin?: {
+    name: string;
+    displayName?: string;
+    version?: string;
+  };
   installed: {
     installed: boolean;
     enabled: boolean;
@@ -1755,6 +1760,11 @@ export function SkillsPanel() {
               ) : null}
               {isModified ? <Badge variant="secondary" className="text-[10px]">{t('skillLibrary.modified')}</Badge> : null}
               {skill.license ? <Badge variant="outline" className="text-[10px]">{skill.license}</Badge> : null}
+              {skill.sourcePlugin ? (
+                <Badge variant="secondary" className="text-[10px]">
+                  {t('skillLibrary.fromPlugin', { name: skill.sourcePlugin.displayName || skill.sourcePlugin.name })}
+                </Badge>
+              ) : null}
             </div>
             <div className="mt-1 font-mono text-xs text-muted-foreground">/{skill.name}</div>
             <p className="mt-2 line-clamp-3 text-sm text-muted-foreground">{skill.description}</p>

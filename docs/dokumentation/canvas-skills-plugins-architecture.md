@@ -9,8 +9,9 @@ Die Canvas-Skill-Runtime, die Canvas-Plugin-Runtime und der erste offizielle Can
 - Skills werden aus `/data/skills` und aktivierten Plugin-Paketen geladen.
 - Plugins werden unter `/data/plugins/installed/<plugin-name>/<version>/` installiert.
 - Die lokale Plugin-Registry liegt unter `/data/plugins/registry.json`.
-- Plugin-Skills bleiben im Plugin-Paket und werden nicht nach `/data/skills` kopiert.
-- Plugin-Skills erhalten ein `plugin`-Mapping im Skill-Modell, damit Runtime, UI und spaetere Chat-Referenzen den Ursprung kennen.
+- Plugin-Skills werden beim Installieren eines Plugins nach `/data/skills/<skill-name>/` materialisiert, sofern dort noch kein Standalone-Skill mit diesem Namen existiert.
+- Wenn ein Skill-Name bereits als Standalone-Skill existiert, ueberschreibt das Plugin ihn nicht. Das Plugin wird trotzdem installiert und merkt im Plugin-Record, dass dieser Skill bereits vorhanden war.
+- Plugin-Skills koennen weiterhin aus dem Plugin-Paket als Fallback geladen werden, falls ein aelteres Plugin noch nicht materialisiert wurde oder der Standalone-Skill spaeter entfernt wurde.
 - Skill- und Plugin-Assets werden ueber authentifizierte Asset-Endpunkte ausgeliefert.
 - Der Chat-Composer nutzt `/` als gemeinsamen Picker fuer Plugins und Skills. Aktive Plugins werden zuerst angezeigt, danach aktive Skills.
 - Referenzierte Plugins werden im Composer und in der Chat-History mit Plugin-Icon oder Initialen-Fallback gerendert.
@@ -24,7 +25,7 @@ Die Canvas-Skill-Runtime, die Canvas-Plugin-Runtime und der erste offizielle Can
 - Reine Store-Skills werden nach `/data/skills/<skill-name>/` installiert, in `/data/skills/registry.json` versioniert und vor Ueberschreiben unter `/data/skills/.backups/<skill-name>/` gesichert.
 - Installierte Library-Skills zeigen Update- und Modified-Status. Standalone-Skills koennen aus der Store-Version oder, falls vorhanden, aus `/app/seed_skills/<skill-name>/` wiederhergestellt werden.
 - Die interne Datei `/data/skills/registry.json` ist Runtime-Status und wird nicht im Skill-Dateibaum angezeigt.
-- Die offizielle Marketplace-Registry enthaelt neben `plugins[]` jetzt auch `skills[]`; `marp-slides` ist als erster Standalone-Skill der Skill Library veroeffentlicht.
+- Die offizielle Marketplace-Registry enthaelt neben `plugins[]` auch `skills[]`. Kuratierte Plugin-Skills werden dort einzeln veroeffentlicht und tragen `sourcePlugin`, damit die Skill Library anzeigen kann, aus welchem Plugin sie stammen.
 - Plugins mit MCP-, E-Mail- oder Composio-Empfehlungen zeigen Connector-Karten mit Setup-CTA. Store-Plugins laden App-/Connector-Status erst per explizitem Preflight fuer das konkrete Plugin; installierte Plugins duerfen ihren Connector-Status anzeigen. Die Connector-Angaben werden als Metadaten gespeichert, enthalten keine Secrets und werden nicht automatisch in Connector-Konfigurationen geschrieben.
 - Beim Containerstart werden nur kuratierte Default-Seed-Skills aus `/app/seed_skills` nach `/data/skills` kopiert. Zusaetzlich werden kuratierte Default-Seed-Plugins aus `/app/seed_plugins` nach `/data/plugins/installed` installiert. Bestehende Skills und Plugins werden nicht ueberschrieben.
 - Der Seed-Skill `/create-plugin` beschreibt Scaffold, Manifest, Connector-Empfehlungen, Validierung und Marketplace-Vorbereitung fuer neue Canvas Plugins.
@@ -207,7 +208,7 @@ System-/Built-in-Skills brauchen keine Remote-Quelle. Sie werden aus dem App-Ima
 - `frontend-slides` — webbasierte, visuell anspruchsvolle Slide-Artefakte erstellen.
 - `marp-slides` — Markdown-native Marp-Decks erstellen, pruefen und fuer Canvas Preview/Export vorbereiten.
 
-Der Bootstrap installiert Default-Seed-Plugins vor Standalone-Seed-Skills. Wenn ein installiertes Default-Plugin denselben Skill bereits bereitstellt, wird der Standalone-Seed uebersprungen. Dadurch kann ein Skill wie `marp-slides` sowohl als einzeln wiederherstellbares Seed-Paket als auch innerhalb der `document-suite` existieren, ohne doppelte Skill-Namen in neuen Instanzen zu erzeugen.
+Der Bootstrap installiert Default-Seed-Plugins vor Standalone-Seed-Skills. Beim Installieren eines Seed-Plugins werden dessen Skills nach `/data/skills/<skill-name>/` materialisiert, falls sie dort noch nicht existieren. Danach werden Standalone-Seed-Skills mit gleichem Namen uebersprungen. Dadurch kann ein Skill wie `marp-slides` sowohl als einzeln wiederherstellbares Seed-Paket als auch innerhalb der `document-suite` existieren, ohne doppelte Skill-Namen in neuen Instanzen zu erzeugen.
 
 Alle anderen Skills duerfen weiterhin in `seed_skills/` liegen, werden aber nicht automatisch nach `/data/skills` kopiert. Sie sollen bevorzugt ueber die Canvas Skill Library im Marketplace oder ueber Seed-Plugins angeboten werden. Bestehende Installationen werden nicht bereinigt; die neue Regel betrifft nur Bootstrap-Laeufe, bei denen ein Skill im Zielverzeichnis noch fehlt.
 
@@ -223,7 +224,7 @@ CANVAS_BOOTSTRAP_SEED_SKILLS=create-plugin,skill-creator,find-skills,frontend-sl
 
 - `document-suite` — Buendelt die Skills `pdf`, `pptx`, `xlsx`, `docx`, `marp-slides` und `excalidraw-diagram` als ein Office-/Dokumenten-Plugin.
 
-Seed-Plugins werden nach `/data/plugins/installed/<plugin-name>/<version>/` kopiert und in `/data/plugins/registry.json` registriert. Wenn ein Plugin bereits installiert ist, wird es nicht ueberschrieben. Wenn einer seiner Skill-Namen bereits als Standalone-Skill unter `/data/skills` existiert, wird das Seed-Plugin uebersprungen, damit bestehende Installationen nicht automatisch umgebaut werden. Bei frischen Installationen laufen Seed-Plugins vor Standalone-Seed-Skills, damit Kernpakete wie `document-suite` ihre Skills als Plugin bereitstellen koennen.
+Seed-Plugins werden nach `/data/plugins/installed/<plugin-name>/<version>/` kopiert und in `/data/plugins/registry.json` registriert. Wenn ein Plugin bereits installiert ist, wird es nicht ueberschrieben. Wenn einer seiner Skill-Namen bereits als Standalone-Skill unter `/data/skills` existiert, wird nur dieser einzelne Skill nicht materialisiert; das Plugin selbst wird trotzdem installiert. Bei frischen Installationen laufen Seed-Plugins vor Standalone-Seed-Skills, damit Kernpakete wie `document-suite` ihre Skills als Plugin bereitstellen und gleichzeitig einzeln in `/data/skills` sichtbar machen koennen.
 
 Admins koennen die Bootstrap-Auswahl bei Bedarf mit `CANVAS_BOOTSTRAP_SEED_PLUGINS` als kommaseparierte Liste ueberschreiben, zum Beispiel:
 
@@ -256,7 +257,7 @@ canvas-notebook-plugin-marketplace/
         assets/
 ```
 
-`registry.json` listet Marketplace-Metadaten, Plugin-Versionen, Skill-Versionen, Download-Pfade, Checksums, Kategorien, Icons, Publisher und Connector-Hinweise. Plugins bleiben der primaere Distributionsweg; die optionale `skills`-Sektion ist fuer einzelne Standalone-Skills vorgesehen, zum Beispiel Creator-/Repair-Skills oder Basis-Skills, die Nutzer separat zuruecksetzen wollen.
+`registry.json` listet Marketplace-Metadaten, Plugin-Versionen, Skill-Versionen, Download-Pfade, Checksums, Kategorien, Icons, Publisher und Connector-Hinweise. Plugins bleiben der primaere Distributionsweg; die `skills`-Sektion bietet kuratierte Einzel-Skills an. Ein Skill-Eintrag kann entweder auf ein reines Skill-Paket zeigen oder ueber `sourcePlugin` auf einen Skill-Unterordner innerhalb eines Plugin-Archives.
 
 Canvas Notebook installiert Pakete nach:
 
@@ -268,7 +269,7 @@ Canvas Notebook installiert Pakete nach:
 /data/skills/.backups/<skill-name>/<timestamp>/
 ```
 
-Standalone Skills bleiben moeglich. Plugin-Skills bleiben intern ihrem Plugin zugeordnet, damit Updates, Entfernen und Lizenzinformationen konsistent sind.
+Standalone Skills bleiben moeglich. Plugin-Skills werden bei der Installation als Standalone-Skills materialisiert und im lokalen Skill-Registry-Eintrag mit `sourceType: "plugin"`, `sourcePluginName` und `sourcePluginVersion` markiert. Das Plugin bleibt weiterhin das Bundle fuer Connector-Kontext, Kuration und Marketplace-Installation.
 
 Plugin-Installation laeuft aktuell ueber diesen Ablauf:
 
@@ -280,8 +281,11 @@ Plugin-Installation laeuft aktuell ueber diesen Ablauf:
 6. Checksum gegen Registry pruefen.
 7. `.canvas-plugin/plugin.json` validieren.
 8. Paket nach `/data/plugins/installed/<name>/<version>/` kopieren.
-9. Lokale Plugin-Registry atomar aktualisieren.
-10. Plugin-Skills aktivieren, wenn der Nutzer `Install` bestaetigt.
+9. Jeden enthaltenen Skill nach `/data/skills/<skill-name>/` materialisieren, falls dort noch kein Standalone-Skill existiert.
+10. Bereits vorhandene Standalone-Skills nicht ueberschreiben; sie werden im Plugin-Record als `preexistingStandalone` markiert.
+11. Neu materialisierte Skills in `/data/skills/registry.json` mit `sourceType: "plugin"` registrieren.
+12. Lokale Plugin-Registry atomar aktualisieren.
+13. Neu materialisierte Skills aktivieren, wenn der Nutzer `Install` bestaetigt. Spaeteres Deaktivieren oder Entfernen des Plugins deaktiviert oder loescht diese Standalone-Skills nicht automatisch.
 
 Standalone-Skill-Installation nutzt denselben Grundablauf mit einem kleineren Paketformat:
 
@@ -351,9 +355,9 @@ Die lokale Registry zeigt nur eine aktive Version pro Plugin. Alte Versionen koe
 
 Canvas Notebook liefert eine kleine Seed Collection direkt mit. Beim ersten Start werden kuratierte Default-Plugins und danach kuratierte Standalone-Skills installiert, sofern sie im Zielverzeichnis noch fehlen.
 
-Aktuell liefert das Docker-Image `seed_plugins/` unter `/app/seed_plugins` und `seed_skills/` unter `/app/seed_skills` mit. Der Bootstrap kopiert Default-Plugins nach `/data/plugins/installed` und registriert sie in `/data/plugins/registry.json`; danach kopiert er Default-Standalone-Skills nach `/data/skills`. Dadurch bleiben lokale Anpassungen erhalten, und neue Installationen bekommen die Document Suite als Plugin plus Creator-/Discovery-Skills als Standalone-Basis.
+Aktuell liefert das Docker-Image `seed_plugins/` unter `/app/seed_plugins` und `seed_skills/` unter `/app/seed_skills` mit. Der Bootstrap kopiert Default-Plugins nach `/data/plugins/installed`, materialisiert deren Skills nach `/data/skills` und registriert beides in `/data/plugins/registry.json` bzw. `/data/skills/registry.json`; danach kopiert er Default-Standalone-Skills nach `/data/skills`, sofern sie noch fehlen. Dadurch bleiben lokale Anpassungen erhalten, und neue Installationen bekommen die Document Suite als Plugin plus einzeln sichtbare Document-Skills und Creator-/Discovery-Skills als Standalone-Basis.
 
-Der offizielle Remote Store bleibt trotzdem die Update- und Erweiterungsquelle: `document-suite` ist dort als versioniertes Marketplace-Paket enthalten. Zusaetzlich kann dieselbe Registry reine Standalone-Skills in `skills[]` anbieten, aktuell `marp-slides`, damit Nutzer Basis-Skills separat installieren oder wiederherstellen koennen. Weitere Plugins und Skills werden nicht automatisch installiert, sondern im Store sichtbar gemacht.
+Der offizielle Remote Store bleibt trotzdem die Update- und Erweiterungsquelle: `document-suite` ist dort als versioniertes Marketplace-Paket enthalten. Zusaetzlich bietet dieselbe Registry kuratierte Plugin-Skills in `skills[]` einzeln an, darunter `pdf`, `pptx`, `xlsx`, `docx`, `marp-slides` und `excalidraw-diagram`. Weitere Plugins und Skills werden nicht automatisch installiert, sondern im Store sichtbar gemacht.
 
 Seed-Pakete muessen vor dem Veröffentlichen auditierbar sein:
 

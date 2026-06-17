@@ -2892,6 +2892,7 @@
       "restore": "Restore",
       "reload": "Reload",
       "modified": "Modified",
+      "fromPlugin": "From {name}",
       "updateAvailable": "Update available",
       "pagination": {
         "status": "Page {page} of {totalPages} · {totalItems} skills",

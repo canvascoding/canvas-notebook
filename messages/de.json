@@ -2891,6 +2891,7 @@
       "restore": "Zurücksetzen",
       "reload": "Neu laden",
       "modified": "Geändert",
+      "fromPlugin": "Aus {name}",
       "updateAvailable": "Update verfügbar",
       "pagination": {
         "status": "Seite {page} von {totalPages} · {totalItems} Skills",

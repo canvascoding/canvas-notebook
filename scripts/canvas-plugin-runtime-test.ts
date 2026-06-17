@@ -181,9 +181,15 @@ async function main() {
     assert.equal(plugins.length, 1);
     assert.equal(plugins[0].name, 'test-plugin');
     assert.equal(plugins[0].skills[0].name, 'test-plugin-skill');
+    assert.equal(plugins[0].skills[0].materialized, true);
+    assert.equal(plugins[0].skills[0].preexistingStandalone, false);
+    assert.equal(
+      await fs.stat(path.join(dataRoot, 'skills', 'test-plugin-skill', 'SKILL.md')).then((stat) => stat.isFile()),
+      true,
+    );
 
     let skills = await loadSkillsFromDisk();
-    assert.equal(skills.some((skill) => skill.name === 'test-plugin-skill' && skill.plugin?.name === 'test-plugin'), true);
+    assert.equal(skills.some((skill) => skill.name === 'test-plugin-skill' && !skill.plugin), true);
 
     const pluginRuntimeContext = await buildReferencedPluginRuntimeContext('Use /test-plugin for this workflow.');
     assert.match(pluginRuntimeContext || '', /Referenced Canvas Plugins/);
@@ -192,7 +198,7 @@ async function main() {
     const disable = await setCanvasPluginEnabled('test-plugin', false);
     assert.equal(disable.success, true, disable.error);
     skills = await loadSkillsFromDisk();
-    assert.equal(skills.some((skill) => skill.name === 'test-plugin-skill'), false);
+    assert.equal(skills.some((skill) => skill.name === 'test-plugin-skill' && !skill.plugin), true);
 
     const enable = await setCanvasPluginEnabled('test-plugin', true);
     assert.equal(enable.success, true, enable.error);
@@ -203,6 +209,8 @@ async function main() {
     assert.equal(deleted.success, true, deleted.error);
     plugins = await listCanvasPlugins();
     assert.equal(plugins.length, 0);
+    skills = await loadSkillsFromDisk();
+    assert.equal(skills.some((skill) => skill.name === 'test-plugin-skill' && !skill.plugin), true);
 
     const checksum = await computeCanvasPluginChecksum(pluginRoot);
     const registryPath = await createStoreArchive(pluginRoot, checksum);
@@ -228,6 +236,8 @@ async function main() {
 
     const storeInstall = await installCanvasPluginFromStore('test-plugin', undefined, { enable: true });
     assert.equal(storeInstall.success, true, storeInstall.error || JSON.stringify(storeInstall.validation));
+    assert.equal(storeInstall.plugin?.skills[0].materialized, false);
+    assert.equal(storeInstall.plugin?.skills[0].preexistingStandalone, true);
 
     store = await listCanvasPluginStore();
     assert.equal(store.plugins[0].installed.installed, true);

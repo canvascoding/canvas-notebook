@@ -32,6 +32,12 @@ export interface CanvasSkillStorePublisher {
   url?: string;
 }
 
+export interface CanvasSkillStoreSourcePlugin {
+  name: string;
+  displayName?: string;
+  version?: string;
+}
+
 export interface CanvasSkillStoreVersion {
   version: string;
   downloadUrl: string;
@@ -53,6 +59,7 @@ export interface CanvasSkillStoreSkill {
   iconUrl?: string;
   brandColor?: string;
   license?: string;
+  sourcePlugin?: CanvasSkillStoreSourcePlugin;
   versions: Record<string, CanvasSkillStoreVersion>;
 }
 
@@ -72,10 +79,12 @@ export interface CanvasSkillInstallRecord {
   version: string;
   description: string;
   license?: string;
-  sourceType: 'store' | 'seed' | 'local';
+  sourceType: 'store' | 'seed' | 'local' | 'plugin';
   sourcePath?: string;
   sourceRegistryId?: string;
   sourceRegistryUrl?: string;
+  sourcePluginName?: string;
+  sourcePluginVersion?: string;
   installedAt: string;
   updatedAt: string;
   checksum: string;
@@ -165,6 +174,17 @@ function normalizePublisher(value: unknown): CanvasSkillStorePublisher | undefin
     url: stringValue(value.url),
   };
   return publisher.name || publisher.url ? publisher : undefined;
+}
+
+function normalizeSourcePlugin(value: unknown): CanvasSkillStoreSourcePlugin | undefined {
+  if (!isRecord(value)) return undefined;
+  const name = stringValue(value.name);
+  if (!name || !isValidCanvasSkillName(name)) return undefined;
+  return {
+    name,
+    displayName: stringValue(value.displayName ?? value.display_name),
+    version: stringValue(value.version),
+  };
 }
 
 function normalizeChecksum(value: string): string {
@@ -297,6 +317,7 @@ function normalizeStoreSkill(value: unknown, registryUrl: string): CanvasSkillSt
     iconUrl: resolveRegistryRelativeUrl(registryUrl, icon),
     brandColor: stringValue(value.brandColor ?? value.brand_color),
     license: stringValue(value.license),
+    sourcePlugin: normalizeSourcePlugin(value.sourcePlugin ?? value.source_plugin),
     versions,
   };
 }

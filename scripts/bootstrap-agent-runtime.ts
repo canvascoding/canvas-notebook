@@ -89,6 +89,7 @@ const SKILLS_STORAGE_DIR = path.join(resolveCanvasDataRoot(), 'skills');
 const PLUGINS_STORAGE_DIR = path.join(resolveCanvasDataRoot(), 'plugins');
 const INSTALLED_PLUGINS_DIR = path.join(PLUGINS_STORAGE_DIR, 'installed');
 const PLUGIN_REGISTRY_PATH = path.join(PLUGINS_STORAGE_DIR, 'registry.json');
+const SKILL_REGISTRY_PATH = path.join(SKILLS_STORAGE_DIR, 'registry.json');
 const PI_RUNTIME_CONFIG_PATH = path.join(SETTINGS_STORAGE_DIR, 'pi-runtime-config.json');
 
 // All managed files (excluding BOOTSTRAP.md which is only for initial setup)
@@ -473,12 +474,21 @@ type SeedPluginSkillRecord = {
   version?: string;
   path: string;
   directory: string;
+  materialized?: boolean;
+  preexistingStandalone?: boolean;
+  standaloneDir?: string;
 };
 
 type SeedPluginRegistry = {
   version: 1;
   updatedAt: string;
   plugins: Record<string, unknown>;
+};
+
+type SeedSkillRegistry = {
+  version: 1;
+  updatedAt: string;
+  skills: Record<string, unknown>;
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -497,7 +507,7 @@ function isValidCanvasVersion(version: string): boolean {
   return /^[0-9]+(?:\.[0-9]+){0,2}(?:[-+][a-z0-9.-]+)?$/i.test(version);
 }
 
-function parseSimpleSkillFrontmatter(content: string): { name?: string; description?: string; version?: string } {
+function parseSimpleSkillFrontmatter(content: string): { name?: string; description?: string; license?: string; version?: string } {
   const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
   if (!match) return {};
   const frontmatter = match[1];
@@ -509,6 +519,7 @@ function parseSimpleSkillFrontmatter(content: string): { name?: string; descript
   return {
     name: readField('name'),
     description: readField('description'),
+    license: readField('license'),
     version: metadataVersionMatch?.[1]?.trim(),
   };
 }
@@ -559,6 +570,23 @@ async function readSeedPluginRegistry(): Promise<SeedPluginRegistry> {
     version: 1,
     updatedAt: new Date().toISOString(),
     plugins: {},
+  };
+}
+
+async function readSeedSkillRegistry(): Promise<SeedSkillRegistry> {
+  try {
+    const raw = await fs.readFile(SKILL_REGISTRY_PATH, 'utf8');
+    const parsed = JSON.parse(raw) as SeedSkillRegistry;
+    if (parsed?.version === 1 && isRecord(parsed.skills)) {
+      return parsed;
+    }
+  } catch {
+    // Missing or invalid registry is recreated below.
+  }
+  return {
+    version: 1,
+    updatedAt: new Date().toISOString(),
+    skills: {},
   };
 }
 
@@ -620,14 +648,90 @@ async function discoverSeedPluginSkills(pluginRoot: string, manifest: SeedPlugin
   return records.sort((left, right) => left.name.localeCompare(right.name));
 }
 
-async function hasStandaloneSkillConflict(skillNames: string[]): Promise<string[]> {
-  const conflicts: string[] = [];
-  for (const skillName of skillNames) {
-    if (await fileExists(path.join(SKILLS_STORAGE_DIR, skillName, 'SKILL.md'))) {
-      conflicts.push(skillName);
+async function materializeSeedPluginSkills(
+  manifest: SeedPluginManifest,
+  skills: SeedPluginSkillRecord[],
+): Promise<SeedPluginSkillRecord[]> {
+  const registry = await readSeedSkillRegistry();
+  const updatedSkills: SeedPluginSkillRecord[] = [];
+  let registryChanged = false;
+
+  await fs.mkdir(SKILLS_STORAGE_DIR, { recursive: true });
+
+  for (const skill of skills) {
+    const standaloneDir = path.join(SKILLS_STORAGE_DIR, skill.name);
+    const standaloneSkillPath = path.join(standaloneDir, 'SKILL.md');
+    if (await fileExists(standaloneSkillPath)) {
+      updatedSkills.push({
+        ...skill,
+        materialized: false,
+        preexistingStandalone: true,
+        standaloneDir,
+      });
+      continue;
     }
+
+    if (await fileExists(standaloneDir)) {
+      console.warn(`[bootstrap-agent-runtime] Skill target exists but is not a valid skill, skipping materialization: ${standaloneDir}`);
+      updatedSkills.push({
+        ...skill,
+        materialized: false,
+        preexistingStandalone: true,
+        standaloneDir,
+      });
+      continue;
+    }
+
+    await fs.cp(skill.directory, standaloneDir, {
+      recursive: true,
+      preserveTimestamps: true,
+      filter: (source) => !['.git', 'node_modules', '.DS_Store'].includes(path.basename(source)),
+    });
+    const skillFrontmatter = parseSimpleSkillFrontmatter(await fs.readFile(standaloneSkillPath, 'utf8'));
+    const timestamp = new Date().toISOString();
+    const existing = isRecord(registry.skills[skill.name])
+      ? registry.skills[skill.name] as Record<string, unknown>
+      : undefined;
+    registry.skills[skill.name] = {
+      name: skill.name,
+      version: skillFrontmatter.version || skill.version || manifest.version,
+      description: skillFrontmatter.description || skill.description,
+      license: skillFrontmatter.license,
+      sourceType: 'plugin',
+      sourcePath: skill.directory,
+      sourcePluginName: manifest.name,
+      sourcePluginVersion: manifest.version,
+      installedAt: stringValue(existing?.installedAt) || timestamp,
+      updatedAt: timestamp,
+      checksum: await computeSeedPluginChecksum(standaloneDir),
+      installDir: standaloneDir,
+      skillPath: standaloneSkillPath,
+    };
+    registryChanged = true;
+    updatedSkills.push({
+      ...skill,
+      materialized: true,
+      preexistingStandalone: false,
+      standaloneDir,
+    });
   }
-  return conflicts;
+
+  if (registryChanged) {
+    await fs.mkdir(SKILLS_STORAGE_DIR, { recursive: true });
+    await writeJsonAtomic(SKILL_REGISTRY_PATH, {
+      ...registry,
+      version: 1,
+      updatedAt: new Date().toISOString(),
+    });
+  }
+
+  return updatedSkills;
+}
+
+function getSeedPluginInstallEnabledSkillNames(skills: SeedPluginSkillRecord[]): string[] {
+  return skills
+    .filter((skill) => skill.materialized || (!skill.materialized && !skill.preexistingStandalone))
+    .map((skill) => skill.name);
 }
 
 async function enableSeedPluginSkillsInPiConfig(skillNames: string[]): Promise<void> {
@@ -690,14 +794,6 @@ async function ensureSeedPluginsBootstrap(): Promise<void> {
       continue;
     }
 
-    const conflicts = await hasStandaloneSkillConflict(skills.map((skill) => skill.name));
-    if (conflicts.length > 0) {
-      console.warn(
-        `[bootstrap-agent-runtime] Seed plugin ${manifest.name} skipped because standalone skills already exist: ${conflicts.join(', ')}.`,
-      );
-      continue;
-    }
-
     const installDir = path.join(INSTALLED_PLUGINS_DIR, manifest.name, manifest.version);
     await fs.rm(installDir, { recursive: true, force: true });
     await fs.mkdir(path.dirname(installDir), { recursive: true });
@@ -708,6 +804,7 @@ async function ensureSeedPluginsBootstrap(): Promise<void> {
     });
 
     const installedSkillsDir = path.join(installDir, manifest.skills || './skills');
+    const materializedSkills = await materializeSeedPluginSkills(manifest, skills);
     const checksum = await computeSeedPluginChecksum(installDir);
     const timestamp = new Date().toISOString();
     registry.plugins[manifest.name] = {
@@ -725,11 +822,11 @@ async function ensureSeedPluginsBootstrap(): Promise<void> {
       installDir,
       manifestPath: path.join(installDir, '.canvas-plugin', 'plugin.json'),
       skillsDir: installedSkillsDir,
-      skills,
+      skills: materializedSkills,
       interface: manifest.interface,
       connectors: manifest.connectors,
     };
-    await enableSeedPluginSkillsInPiConfig(skills.map((skill) => skill.name));
+    await enableSeedPluginSkillsInPiConfig(getSeedPluginInstallEnabledSkillNames(materializedSkills));
     installedCount += 1;
     console.log(`[bootstrap-agent-runtime] Installed seed plugin ${manifest.name}.`);
   }
