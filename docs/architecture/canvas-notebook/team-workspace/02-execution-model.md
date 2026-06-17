@@ -32,6 +32,7 @@ Lieferumfang:
 - Querschnittsentscheidung fuer Actor Context, Audit, Retention und Storage-Wachstum.
 - Kompatibilitaetsentscheidung fuer Legacy-Workspace `data/workspace`.
 - Querschnittsentscheidung fuer user-scoped Secrets, MCP, Skills, Plugins, Mailboxen und Agent Runtime.
+- Querschnittsentscheidung fuer Fresh Install, Onboarding und Update-Migration bestehender Instanzen.
 
 Tests:
 
@@ -63,12 +64,17 @@ Lieferumfang:
 - Organization-/Membership-Modell.
 - Genau ein Owner.
 - Mindestens ein Admin bleibt erhalten.
+- Fresh Install erzeugt Organization, Owner Membership, Owner Permissions und Personal Workspace.
+- `/setup` und `bootstrap-admin` fuehren zum gleichen Zielzustand.
+- Unvollstaendige Bootstrap-Zustaende werden idempotent fertiggestellt.
 - Per-user Permissions fuer Team Workspace, Public Links, Team-Automations, Skill-/Plugin-Freigabe und Exporte.
 - Serverseitige Admin-Gates.
 
 Tests:
 
 - Auth-/Setup-Script-Tests.
+- Fresh-Install-Test fuer `/setup` und `bootstrap-admin`.
+- Idempotenztest fuer teilweise erstellte Bootstrap-Objekte.
 - API-Tests fuer Admin-only Aktionen.
 - `npm run build`.
 
@@ -86,6 +92,7 @@ Lieferumfang:
 - Physisches `/data/workspaces/...`-Layout und Legacy-Migration aus `data/workspace`.
 - Root-Boundary-Pruefung inklusive Symlink-Sicherheit.
 - Legacy-Kompatibilitaet fuer bestehende `data/workspace`-Installationen.
+- Update-Migration ordnet bestehendes `data/workspace` dem Owner-Personal-Workspace zu, nicht dem Team Workspace.
 
 Tests:
 
@@ -210,12 +217,14 @@ Lieferumfang:
 - Import Dry-Run.
 - Restore einzelner Dateien/Ordner/Revisions.
 - Backup-relevante Datenbereiche dokumentiert und technisch angebunden.
+- Update-Migration bestehender Datei- und Runtime-Formate ist versioniert, idempotent und wiederaufnehmbar.
 
 Tests:
 
 - Export-/Import-Fixtures.
 - Export-Permission-Tests fuer Personal, Team und Organization.
 - Restore-Dry-Run-Tests.
+- Update-Migrations-Fixtures fuer Single-User, eindeutigen Bootstrap-Admin und mehrdeutige Multi-User-Instanzen.
 - SQLite-Snapshot-Tests.
 - `npm run build`.
 
@@ -283,3 +292,5 @@ Die Workspace-Switching-Entscheidung in `06-workspace-switching-ux.md` ist verbi
 Die Filesystem- und Write-Policy in `07-filesystem-migration-and-write-policy.md` ist verbindlich fuer Workspace-Service, Studio Save-to-Workspace, Export/Import und Agent-Dateitools: Physische Roots werden nur ueber Workspace-Metadaten aufgeloest, bestehendes `data/workspace` wird nicht automatisch teamweit geteilt, und Agenten duerfen nur in den Session-Workspace schreiben.
 
 Die Secret-/Runtime-Entscheidung in `08-user-scoped-secrets-runtime.md` ist verbindlich fuer Integrations-Env, Agent-Env, MCP, Skills, Plugins, E-Mail, Composio und Agent Runtime: Aktive Tool-Ausfuehrungen nutzen immer den Tool- und Secret-Scope des ausloesenden Users; Organization- und System-Secrets werden nur ueber explizite Policies injiziert.
+
+Die Initial-Setup- und Update-Migrationsentscheidung in `09-initial-setup-and-update-migration.md` ist verbindlich fuer `/setup`, `bootstrap-admin`, Onboarding und bestehende Instanzen: Fresh Install und Migration muessen denselben Zielzustand erzeugen; globale Legacy-Dateien werden nicht automatisch als Team- oder Organization-Ressourcen aktiviert.

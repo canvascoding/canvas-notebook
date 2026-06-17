@@ -22,13 +22,14 @@ Dieses Dokument schliesst Umsetzungsschritt 2 ab: bestehende Canvas Notebook Fun
 |---|---|---|---|---|
 | Better Auth User | `user` mit globalem `role` Feld | `organization` Membership plus `user` Profil | Membership-/Role-Modell ergaenzen, Better Auth weiter nutzen | P2 |
 | Sessions/Auth Accounts | `user` | `user`, optional `organization` Context | Session muss aktuelle Organization/Workspace aufloesen koennen | P2/P3 |
-| Bootstrap Owner/Admin | `instance`, Bootstrap-E-Mail als Admin-Fallback | `organization` Owner/Admin, Community Single Admin | Initial Owner erzeugen, genau einen Owner und mindestens einen Admin erzwingen | P2 |
-| Onboarding | `instance` Completion plus `user` Hints | `user` Onboarding, `organization` Setup-State | Setup-State von User-Hints trennen | P2 |
+| Bootstrap Owner/Admin | `instance`, Bootstrap-E-Mail als Admin-Fallback | `organization` Owner/Admin, Community Single Admin, Personal Workspace und User Runtime Root | Initial Owner erzeugen, genau einen Owner und mindestens einen Admin erzwingen, scoped Roots anlegen | P2 |
+| Onboarding | `instance` Completion plus `user` Hints | `user` Onboarding, `organization` Setup-/Review-State | Setup-State von User-Hints trennen; Legacy Review fuer Admins separat fuehren | P2 |
 | License Status | `instance` mit Plan `community/pro/managed` | `instance` Deployment Mode plus signierte Feature-/Quota-Claims | Deployment Modes und Team-Feature-Resolution einfuehren | P1 |
 | Managed Control Plane Config | `system/managed` Env/Instance Token | `system/managed`, liefert Organization/License Claims | Notebook liest Claims, vertraut final nicht auf lokale Booleans | P1 |
 | Workspace-Dateien | globaler `data/workspace` Ordner | `workspace` mit `personal/team/project` Typ | Workspace-Service, Root Resolver, Legacy-Kompatibilitaet | P3 |
 | Workspace Filesystem Layout | implizit `data/workspace` | `/data/workspaces/personal/{userId}/files` und `/data/workspaces/team/{organizationId}/files` | DB-Workspace-Mapping plus physische Roots einfuehren | P3 |
 | Legacy Workspace Migration | globaler Workspace wird weiterverwendet | Owner-Personal-Legacy-Import, Team Workspace initial leer | Keine automatische Team-Freigabe alter Daten | P3/P8 |
+| Initial Setup Filesystem | Setup erstellt nur Auth-User | Erstes Setup erzeugt Organization, Owner, Personal Workspace, scoped User-/Org-/System-Roots | `/setup` und `bootstrap-admin` auf gemeinsamen Bootstrap-Service bringen | P2/P3 |
 | File-API | Authenticated User, nur `path` | `workspace` plus User-Permissions | File-Routen auf WorkspaceContext umstellen | P4 |
 | Globaler Workspace UI State | nicht vorhanden | `user` aktiver Workspace plus servervalidierte Berechtigungen | Workspace Store/Provider aus Server-Resolver initialisieren | P4 |
 | Workspace Switcher | nicht vorhanden | globaler aktiver Workspace, sichtbar in Startseite, Chat und File Browser | Shared Switcher/Badge, Wechsel aktualisiert App-Kontext | P4 |
@@ -77,6 +78,7 @@ Dieses Dokument schliesst Umsetzungsschritt 2 ab: bestehende Canvas Notebook Fun
 | Personal Workspace Export | globaler Export/adminnah | User darf eigenen Personal Workspace exportieren | Self-service Export ohne Team-/Org-Daten | P8 |
 | Migration Export | `instance` Komponenten | Admin-only `organization` Export mit User/Workspace Mapping | Manifest und Component Paths erweitern; Team/Org Export permission-gated | P8 |
 | Migration Restore/Import | `instance` Restore | Organization/User/Workspace Mapping, Dry Run | Import Preview und Reconnect-Flows | P8 |
+| Update-Migration File Formats | Legacy-Dateien werden beim Start teilweise kopiert | versionierte, idempotente Migration mit Owner-Aufloesung und Review-State | Migration State Manifest/DB-Tabelle, keine automatische Team-Aktivierung globaler Dateien | P8/P9 |
 | Secrets Export | optional globale Secrets | redacted/reconnect/encrypted bewusst pro Scope | Keine Default-Klartext-Exports | P8 |
 | QMD/Search/Retrieval | global `/data/workspace` Collection | `organization`, `workspace`, optional `user`, Visibility | Collection Metadata und Zugriff pruefen | P6 |
 | File Reference Ranking | globaler Workspace Tree | workspace-spezifisch | Ranking-Index pro Workspace | P4/P6 |
@@ -105,27 +107,31 @@ Dieses Dokument schliesst Umsetzungsschritt 2 ab: bestehende Canvas Notebook Fun
 10. `data/workspace` darf bei Migration nicht automatisch zum Team Workspace werden.
 11. Agent-Dateitools duerfen nur in den Session-Workspace schreiben; fremde Personal Workspaces sind fuer Read und Write verboten.
 12. Secrets, MCP, Skills, Plugins und Agent Runtime duerfen in Team-Instanzen nicht aus globalen Instanz-Dateien als aktive User-Konfiguration aufgeloest werden.
+13. Fresh Install und Update-Migration muessen denselben scoped Zielzustand erzeugen; mehrdeutige Owner- oder Secret-Zuordnung stoppt mit Admin-Review.
 
 ## Migrationsreihenfolge fuer Datenmodell
 
 1. Organization/Membership/Role/Permission Tabellen.
-2. Workspace Tabelle und Legacy Workspace Mapping.
-3. Workspace Resolver API und globaler Workspace UI State.
-4. Filesystem-Layout unter `/data/workspaces/...` und Legacy-Import-Strategie.
-5. `workspaceId` an PI Sessions, File/Public-Link-Metadaten und Automations.
-6. Actor Context Resolver fuer Web, Gateways, Agent Runtime und Automations.
-7. Secret-/Runtime-Resolver fuer User-, Organization- und System-Scopes.
-8. Audit Event und Tool-Run Tabellen mit kleinen Metadaten, Hashes und Artefakt-Referenzen.
-9. `organizationId` und `createdByUserId` an teamfaehige Feature-Tabellen.
-10. Revision/Lock/Trash Tabellen.
-11. Retention-/Cleanup-/Usage-Rollup-Jobs.
-12. Export/Import Manifest-Version erhoehen.
+2. Bootstrap-/Migration-State fuer Fresh Install und Update-Migration.
+3. Workspace Tabelle und Legacy Workspace Mapping.
+4. Workspace Resolver API und globaler Workspace UI State.
+5. Filesystem-Layout unter `/data/workspaces/...` und Legacy-Import-Strategie.
+6. `workspaceId` an PI Sessions, File/Public-Link-Metadaten und Automations.
+7. Actor Context Resolver fuer Web, Gateways, Agent Runtime und Automations.
+8. Secret-/Runtime-Resolver fuer User-, Organization- und System-Scopes.
+9. Audit Event und Tool-Run Tabellen mit kleinen Metadaten, Hashes und Artefakt-Referenzen.
+10. `organizationId` und `createdByUserId` an teamfaehige Feature-Tabellen.
+11. Revision/Lock/Trash Tabellen.
+12. Retention-/Cleanup-/Usage-Rollup-Jobs.
+13. Export/Import Manifest-Version erhoehen.
 
 ## Minimaler V1-Scope
 
 Fuer eine erste robuste Team-Version sollten diese Bereiche enthalten sein:
 
 - Owner/Admin/Member Rollen.
+- Fresh Install erzeugt sofort Organization, Owner, Personal Workspace und scoped User Runtime.
+- Bestehende Single-User-Instanzen werden versioniert in denselben Zielzustand migriert.
 - Personal Workspace pro User.
 - Ein Team Workspace pro Organization.
 - Globaler Workspace-Switcher auf Startseite, Chat Header und File Browser.

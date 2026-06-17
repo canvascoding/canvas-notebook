@@ -27,7 +27,11 @@
       "id": 4,
       "title": "Initiales Admin-/Owner-Setup und Admin-only Rechte fuer kritische App-Funktionen absichern",
       "status": "pending",
-      "repo": "canvasstudios-notebook"
+      "repo": "canvasstudios-notebook",
+      "planningArtifacts": [
+        "docs/architecture/canvas-notebook/team-workspace/04-auth-roles-model.md",
+        "docs/architecture/canvas-notebook/team-workspace/09-initial-setup-and-update-migration.md"
+      ]
     },
     {
       "id": 5,
@@ -70,14 +74,16 @@
       "repo": "canvasstudios-notebook",
       "planningArtifacts": [
         "docs/architecture/canvas-notebook/team-workspace/06-workspace-switching-ux.md",
-        "docs/architecture/canvas-notebook/team-workspace/07-filesystem-migration-and-write-policy.md"
+        "docs/architecture/canvas-notebook/team-workspace/07-filesystem-migration-and-write-policy.md",
+        "docs/architecture/canvas-notebook/team-workspace/09-initial-setup-and-update-migration.md"
       ]
     },
     {
       "id": 11,
       "title": "Community-Lizenz auf Single-User-Betrieb begrenzen",
       "status": "pending",
-      "repo": "canvasstudios-notebook"
+      "repo": "canvasstudios-notebook",
+      "planningArtifact": "docs/architecture/canvas-notebook/team-workspace/09-initial-setup-and-update-migration.md"
     },
     {
       "id": 12,
@@ -86,7 +92,8 @@
       "repo": "canvasstudios-notebook",
       "planningArtifacts": [
         "docs/architecture/canvas-notebook/team-workspace/06-workspace-switching-ux.md",
-        "docs/architecture/canvas-notebook/team-workspace/07-filesystem-migration-and-write-policy.md"
+        "docs/architecture/canvas-notebook/team-workspace/07-filesystem-migration-and-write-policy.md",
+        "docs/architecture/canvas-notebook/team-workspace/09-initial-setup-and-update-migration.md"
       ]
     },
     {
@@ -96,7 +103,8 @@
       "repo": "canvasstudios-notebook",
       "planningArtifacts": [
         "docs/architecture/canvas-notebook/team-workspace/06-workspace-switching-ux.md",
-        "docs/architecture/canvas-notebook/team-workspace/07-filesystem-migration-and-write-policy.md"
+        "docs/architecture/canvas-notebook/team-workspace/07-filesystem-migration-and-write-policy.md",
+        "docs/architecture/canvas-notebook/team-workspace/09-initial-setup-and-update-migration.md"
       ]
     },
     {
@@ -125,7 +133,8 @@
         "docs/architecture/canvas-notebook/team-workspace/05-actor-audit-retention.md",
         "docs/architecture/canvas-notebook/team-workspace/06-workspace-switching-ux.md",
         "docs/architecture/canvas-notebook/team-workspace/07-filesystem-migration-and-write-policy.md",
-        "docs/architecture/canvas-notebook/team-workspace/08-user-scoped-secrets-runtime.md"
+        "docs/architecture/canvas-notebook/team-workspace/08-user-scoped-secrets-runtime.md",
+        "docs/architecture/canvas-notebook/team-workspace/09-initial-setup-and-update-migration.md"
       ]
     },
     {
@@ -133,21 +142,30 @@
       "title": "Plugins, Skills und Agent-Definitionen auf User-Scope mit optionaler Organization-Teilung migrieren",
       "status": "pending",
       "repo": "canvasstudios-notebook",
-      "planningArtifact": "docs/architecture/canvas-notebook/team-workspace/08-user-scoped-secrets-runtime.md"
+      "planningArtifacts": [
+        "docs/architecture/canvas-notebook/team-workspace/08-user-scoped-secrets-runtime.md",
+        "docs/architecture/canvas-notebook/team-workspace/09-initial-setup-and-update-migration.md"
+      ]
     },
     {
       "id": 18,
       "title": "Secrets/Credentials pro User, Organization und Managed/System isolieren",
       "status": "pending",
       "repo": "canvasstudios-notebook",
-      "planningArtifact": "docs/architecture/canvas-notebook/team-workspace/08-user-scoped-secrets-runtime.md"
+      "planningArtifacts": [
+        "docs/architecture/canvas-notebook/team-workspace/08-user-scoped-secrets-runtime.md",
+        "docs/architecture/canvas-notebook/team-workspace/09-initial-setup-and-update-migration.md"
+      ]
     },
     {
       "id": 19,
       "title": "Composio-Management, E-Mail-OAuth, Notifications und Channels auf User-/Organization-Scope migrieren",
       "status": "pending",
       "repo": "canvasstudios-notebook",
-      "planningArtifact": "docs/architecture/canvas-notebook/team-workspace/08-user-scoped-secrets-runtime.md"
+      "planningArtifacts": [
+        "docs/architecture/canvas-notebook/team-workspace/08-user-scoped-secrets-runtime.md",
+        "docs/architecture/canvas-notebook/team-workspace/09-initial-setup-and-update-migration.md"
+      ]
     },
     {
       "id": 20,
@@ -170,7 +188,10 @@
       "title": "Offboarding-Flow fuer User mit Workspace-Sicherung, Automation-Review, To-do-Behandlung und Credential-Revocation bauen",
       "status": "pending",
       "repo": "canvasstudios-notebook",
-      "planningArtifact": "docs/architecture/canvas-notebook/team-workspace/08-user-scoped-secrets-runtime.md"
+      "planningArtifacts": [
+        "docs/architecture/canvas-notebook/team-workspace/08-user-scoped-secrets-runtime.md",
+        "docs/architecture/canvas-notebook/team-workspace/09-initial-setup-and-update-migration.md"
+      ]
     },
     {
       "id": 23,
@@ -209,7 +230,8 @@
       "repo": "canvasstudios-notebook",
       "planningArtifacts": [
         "docs/architecture/canvas-notebook/team-workspace/07-filesystem-migration-and-write-policy.md",
-        "docs/architecture/canvas-notebook/team-workspace/08-user-scoped-secrets-runtime.md"
+        "docs/architecture/canvas-notebook/team-workspace/08-user-scoped-secrets-runtime.md",
+        "docs/architecture/canvas-notebook/team-workspace/09-initial-setup-and-update-migration.md"
       ]
     },
     {
@@ -219,7 +241,8 @@
       "repo": "canvasstudios-notebook",
       "planningArtifacts": [
         "docs/architecture/canvas-notebook/team-workspace/07-filesystem-migration-and-write-policy.md",
-        "docs/architecture/canvas-notebook/team-workspace/08-user-scoped-secrets-runtime.md"
+        "docs/architecture/canvas-notebook/team-workspace/08-user-scoped-secrets-runtime.md",
+        "docs/architecture/canvas-notebook/team-workspace/09-initial-setup-and-update-migration.md"
       ]
     },
     {
@@ -246,7 +269,8 @@
       "repo": "canvasstudios-notebook",
       "planningArtifacts": [
         "docs/architecture/canvas-notebook/team-workspace/07-filesystem-migration-and-write-policy.md",
-        "docs/architecture/canvas-notebook/team-workspace/08-user-scoped-secrets-runtime.md"
+        "docs/architecture/canvas-notebook/team-workspace/08-user-scoped-secrets-runtime.md",
+        "docs/architecture/canvas-notebook/team-workspace/09-initial-setup-and-update-migration.md"
       ]
     },
     {
@@ -286,7 +310,8 @@
       "repo": "cross-repo",
       "planningArtifacts": [
         "docs/architecture/canvas-notebook/team-workspace/07-filesystem-migration-and-write-policy.md",
-        "docs/architecture/canvas-notebook/team-workspace/08-user-scoped-secrets-runtime.md"
+        "docs/architecture/canvas-notebook/team-workspace/08-user-scoped-secrets-runtime.md",
+        "docs/architecture/canvas-notebook/team-workspace/09-initial-setup-and-update-migration.md"
       ]
     }
   ]

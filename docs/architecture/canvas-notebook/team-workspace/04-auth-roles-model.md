@@ -202,6 +202,7 @@ Community/Single-User:
 - Erstnutzer bleibt globaler `admin`.
 - Eine lokale Default-Organization kann trotzdem angelegt werden, aber Team-Features bleiben per Lizenz/Deployment Mode gesperrt.
 - Personal Workspace kann spaeter aus `data/workspace` gemappt werden.
+- `/setup` und `bootstrap-admin` muessen denselben Zielzustand erzeugen: User, lokale Organization, Owner Membership, Owner Permissions, Personal Workspace und scoped User-Runtime-Verzeichnisse.
 
 Managed-Team:
 
@@ -210,6 +211,9 @@ Managed-Team:
 - Organization wird aus `CANVAS_ORGANIZATION_ID` oder License Claim initialisiert.
 - Default Permissions fuer Owner/Admin werden gesetzt.
 - Weitere User entstehen ueber Admin/Invitation-Flows, nicht ueber offenes Signup.
+- Team Workspace wird initial leer angelegt; bestehende `data/workspace`-Daten werden nicht automatisch Team-Daten.
+
+Die detaillierte Fresh-Install- und Update-Migrationslogik ist in `09-initial-setup-and-update-migration.md` verbindlich dokumentiert. Besonders wichtig: Wenn bei einem Update mehrere moegliche Owner-Kandidaten existieren, muss die Migration stoppen und Admin-Review verlangen, statt zufaellig einen Owner zu waehlen.
 
 ## Umsetzungsschritte fuer Todo 4/5
 
@@ -217,15 +221,22 @@ Managed-Team:
 2. `organizationClient()` in `app/lib/auth-client.ts` ergaenzen.
 3. Drizzle-Schema/Migration fuer Organization-Plugin-Tabellen und Canvas-Permission-Tabellen ergaenzen.
 4. Bootstrap-Setup so erweitern, dass Erstnutzer Organization Owner wird.
-5. Guards fuer Instance Admin, Organization Role und Organization Permission bauen.
-6. Bestehende Admin-Gates klassifizieren und nur passende Gates ersetzen.
-7. User Management UI spaeter von globalen `admin/user` Rollen auf Organization Membership umstellen.
+5. Bootstrap-Setup so erweitern, dass Personal Workspace und scoped User-Runtime-Verzeichnisse entstehen.
+6. Update-Migration fuer bestehende Single-User-Instanzen mit eindeutiger Owner-Aufloesung bauen.
+7. Guards fuer Instance Admin, Organization Role und Organization Permission bauen.
+8. Bestehende Admin-Gates klassifizieren und nur passende Gates ersetzen.
+9. User Management UI spaeter von globalen `admin/user` Rollen auf Organization Membership umstellen.
 
 ## Tests fuer die erste Implementierung
 
 - Bootstrap erzeugt Erstnutzer, Organization, Owner Membership und Owner Settings.
+- Bootstrap erzeugt Personal Workspace, User-Runtime-Root und aktiven Default Workspace.
+- `/setup` und `bootstrap-admin` erzeugen denselben Zielzustand.
+- Unvollstaendiger Bootstrap wird beim naechsten Start idempotent vervollstaendigt.
 - Community Mode laesst nur Single-User-Teamfunktionen zu.
 - Managed-Team Mode verlangt Organization-ID aus Env oder License Claim.
+- Bestehende Single-User-Instanz migriert `data/workspace` in den Owner-Personal-Workspace.
+- Mehrdeutige bestehende Multi-User-Instanz stoppt mit Admin-Review.
 - Member darf keine Admin-/Export-/Team-Policy-Aktion ausfuehren.
 - Admin darf Member-Permissions aendern.
 - Owner kann nicht entfernt oder herabgestuft werden.

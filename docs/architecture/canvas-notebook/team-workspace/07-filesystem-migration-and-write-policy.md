@@ -8,6 +8,8 @@ Dieses Dokument konkretisiert, wie Canvas Notebook von einem globalen `data/work
 
 Diese Entscheidung ergaenzt die Aufgaben `10`, `12`, `13`, `15`, `16`, `24`, `27`, `28`, `31`, `33` und `36` im Aufgabenindex.
 
+Fresh-Install- und Update-Migrationsablaeufe werden in `09-initial-setup-and-update-migration.md` verbindlich konkretisiert. Dieses Dokument beschreibt die Zielpfade und Zugriffspolitik; `09` beschreibt, wann und wie sie angelegt oder aus Legacy-Daten befuellt werden.
+
 ## Physisches Layout unter `/data`
 
 Die fachliche Wahrheit liegt in der Datenbank. Das Dateisystem ist nur die physische Ablage. Trotzdem braucht die Ablage eine stabile, backup- und debugfreundliche Struktur.
@@ -102,6 +104,8 @@ Alternative fuer sehr grosse Installationen:
 - Eine spaetere Maintenance-Migration verschiebt die Dateien in das neue Layout.
 
 Diese Alternative ist nur zulaessig, wenn der Resolver trotzdem garantiert, dass `data/workspace` nicht als globaler Team-Root interpretiert wird.
+
+Wenn der Owner bei einem Update nicht eindeutig bestimmbar ist, wird kein Workspace-Import gestartet. Die App bleibt in einem Admin-Review-/Maintenance-Zustand, bis ein Owner festgelegt wurde.
 
 ## Exportrechte
 

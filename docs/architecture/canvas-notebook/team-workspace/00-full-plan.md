@@ -157,6 +157,8 @@ Admin-Bootstrap und Administration:
 - Beim initialen Setup muss ein erster Admin-User gesetzt werden.
 - In Community/Single-User-Installationen ist dieser Admin zugleich der einzige produktive User.
 - In Team-/Managed-Instanzen ist dieser Admin der initiale Owner der Canvas Notebook Organization.
+- Das initiale Setup muss sofort Organization, Owner Membership, Owner Permissions, Personal Workspace und scoped User-Runtime-Verzeichnisse erzeugen.
+- `/setup` und `bootstrap-admin` muessen denselben Zielzustand erzeugen.
 - Es gibt genau einen Owner, aber mehrere Admins sind erlaubt.
 - Der Owner oder ein Admin kann andere User zu Admins machen.
 - Es muss immer mindestens ein Admin in der Organization verbleiben.
@@ -164,6 +166,15 @@ Admin-Bootstrap und Administration:
 - Administrative Aktionen duerfen nicht nur durch UI-Ausblendung geschuetzt sein, sondern muessen serverseitig Rollen pruefen.
 - Nur Admins duerfen kritische Instanz- und Organization-Einstellungen verwalten, z. B. User, Rollen, Team Policies, globale Runtime Defaults, Team Workspace Policies, Export, Backup/Restore, Organization Channels und Organization-geteilte Integrationen.
 - Billing-Rollen sind in Canvas Notebook nicht noetig, weil Billing ueber das Control Plane laeuft.
+
+Fresh Install und Update-Migration:
+
+- Neuinstallationen und bestehende Instanzen nach Update muessen denselben scoped Zielzustand erreichen.
+- Bestehende globale `data/workspace`-Daten werden dem Owner-Personal-Workspace zugeordnet, nicht dem Team Workspace.
+- Team Workspace startet bei Migration leer; Team-Freigaben alter Daten passieren spaeter explizit.
+- Bestehende globale Env-, MCP-, Skill-/Plugin- und Runtime-Dateien werden nicht automatisch fuer alle User aktiviert.
+- Wenn der Owner bei einem Update nicht eindeutig bestimmbar ist, muss die Migration stoppen und Admin-Review verlangen.
+- Die Migrationslogik muss versioniert, idempotent und wiederaufnehmbar sein.
 
 Rollen und User-Permissions:
 
@@ -325,6 +336,14 @@ Import:
 - OAuth-Tokens und externe Credentials sollten beim Import nicht blind importiert werden. In der Regel braucht es Reconnect-Flows.
 - Ein Import sollte einen Dry-Run oder Preview-Modus haben, bevor Daten geschrieben werden.
 - Import-Aktionen muessen auditiert werden.
+
+Update-Migration bestehender Instanzen:
+
+- Bestehende Single-User-Instanzen werden in eine lokale Organization mit genau einem Owner migriert.
+- `/data/workspace` wird als Owner-Personal-Workspace importiert oder gemappt.
+- `/data/settings/*.json`, `/data/secrets/*.env`, `/data/skills`, `/data/plugins`, MCP-OAuth-State und Agent-Markdown-Dateien bekommen Review- oder Scope-Metadaten.
+- Dotenv- und OAuth-Dateien werden bei Mehruser-/Team-Migration nicht blind als Organization-Secrets aktiviert.
+- Ein Migration-State-Manifest oder eine DB-Tabelle muss festhalten, welche Schritte abgeschlossen, wiederaufnehmbar oder reviewpflichtig sind.
 
 Audit, Retention und Datenloeschung:
 

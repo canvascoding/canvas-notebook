@@ -15,6 +15,7 @@ Dieses Verzeichnis ist der zentrale Arbeitsbereich fuer den Team-Workspace-Umbau
 - `06-workspace-switching-ux.md`: Globaler Workspace-Switcher, Chat-Session-Verhalten und Agent-Kontext.
 - `07-filesystem-migration-and-write-policy.md`: Filesystem-Layout, Legacy-Migration, Studio-Copy-Ziele, Exportrechte und Agent-Write-Policy.
 - `08-user-scoped-secrets-runtime.md`: User-/Organization-/System-Scope fuer Secrets, MCP, Skills, Plugins, Mailboxen und Agent-Runtime.
+- `09-initial-setup-and-update-migration.md`: Fresh Install, erstes Admin-/Owner-Setup, Onboarding und Update-Migration bestehender Instanzen.
 - `../todo.json`: Aufgabenindex fuer Agenten und Fortschrittsverfolgung.
 
 ## Arbeitsregeln
@@ -36,4 +37,5 @@ Dieses Verzeichnis ist der zentrale Arbeitsbereich fuer den Team-Workspace-Umbau
 - Workspace-Switching-UX fuer Startseite, Chat, File Browser und Agent-Kontext ist dokumentiert.
 - Filesystem-Migration und Agent-Write-Policy fuer Personal-/Team-Workspaces sind dokumentiert.
 - User-scoped Secrets, Runtime, MCP, Skills, Plugins und Mailbox-Regeln sind dokumentiert.
+- Initial Setup, Onboarding und Update-Migration bestehender Instanzen sind dokumentiert.
 - Naechster Schritt: Initiales Admin-/Owner-Setup und Admin-only Gates absichern.

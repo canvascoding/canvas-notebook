@@ -8,6 +8,8 @@ Dieses Dokument konkretisiert die Credential- und Runtime-Isolation fuer Team-In
 
 Kernregel: Alles, was im Auftrag eines Users ausgefuehrt wird, muss den effektiven `userId`, `organizationId`, `workspaceId`, `sessionId` und optional `agentId` kennen, bevor Secrets, MCP-Server, Skills, Plugins, Mailboxen oder Agent-Runtime-Einstellungen aufgeloest werden.
 
+Fresh-Install- und Update-Migrationsablaeufe fuer bestehende globale Env-/MCP-/Skill-/Plugin- und Runtime-Dateien sind in `09-initial-setup-and-update-migration.md` beschrieben. Dieses Dokument definiert den Ziel-Scope; `09` definiert die Migrationsreihenfolge und Review-Zustaende.
+
 ## Aktueller Befund
 
 Bereits gute Ausgangslage:
