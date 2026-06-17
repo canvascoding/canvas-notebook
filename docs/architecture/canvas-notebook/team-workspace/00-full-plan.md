@@ -65,6 +65,8 @@ Die konkrete physische Pfadstruktur wird in `07-filesystem-migration-and-write-p
 
 Die App darf nicht mehr davon ausgehen, dass es genau einen globalen Workspace gibt.
 
+User-nahe Runtime-, Secret-, MCP-, Skill- und Plugin-Daten werden separat unter `/data/users/{userId}/...` gespeichert. Organization-Templates, geteilte Organization-Secrets und Policies liegen unter `/data/organizations/{organizationId}/...`; Managed-/System-Secrets liegen unter `/data/system/...`. Diese Trennung ist in `08-user-scoped-secrets-runtime.md` verbindlich.
+
 ## Workspace-Regeln
 
 Persoenlicher Workspace:
@@ -142,6 +144,7 @@ Scope-Matrix fuer bestehende Funktionen:
 | Notifications | instanzweite Einstellungen | Notification Preferences pro User; Team-/Admin-Alerts optional auf Organization-Ebene |
 | Notification Channels | aktuell nur ein Telegram Channel | Channels pro User und optional Organization-Channels fuer Team-Alerts |
 | Plugins und Skills | instanzweit installierter Tool-Stack | User-spezifische Tool-Stacks; optional Organization-geteilte Plugins/Skills mit Freigabe |
+| MCP-Konfiguration | instanzweite Settings-Datei | User-spezifische MCP-Konfiguration und Tokens; Organization-Templates nur als Freigabe/Default |
 | To-dos | unklar/global oder sessionnah | Organization-To-dos mit `assigneeUserId`, `createdByUserId`, Status und optional Workspace/Projekt |
 | Automations | instanzweit oder usernah ohne Workspace-Scope | Automations gehoeren einem User oder der Organization und laufen explizit in Personal oder Team Workspace |
 | Agent-Definitionen | instanzweit wiederverwendbar | Agenten pro User; optional als Organization-Templates teilbar |
@@ -193,6 +196,7 @@ Agent-Runtime-Einstellungen:
 - Technische Defaults wie verfuegbare Runtime, Tool-Policies oder globale Limits koennen auf Organization-/Instanz-Ebene liegen.
 - User-nahe Defaults wie bevorzugte Agent-Konfiguration, Modus, erlaubte Tools oder Standard-Kontext sollten pro User oder Workspace gespeichert werden.
 - Eine Session muss eine aufgeloeste Runtime-Konfiguration bekommen, die aus Organization Policy, User Preferences, Workspace Policy und Session-Auswahl zusammengesetzt wird.
+- Der Runtime Resolver muss `organizationId`, `userId`, `workspaceId`, `sessionId` und `agentId` erhalten und eine revisionsfaehige Effective Config liefern.
 - Agent-Schreibzugriffe muessen immer in den aktiven Workspace gehen, nicht in einen impliziten globalen Arbeitsordner.
 
 Plugins und Skills:
@@ -217,6 +221,8 @@ E-Mail-OAuth:
 - Jeder User verbindet eigene Mail-Accounts per OAuth.
 - Team-Mailboxen koennen spaeter als Organization-Ressource modelliert werden, brauchen dann aber Rollen, Freigabe und Audit.
 - E-Mail-Aktionen des Agenten muessen im Namen des ausloesenden Users oder einer explizit geteilten Team-Mailbox laufen.
+- Managed-/Gateway-E-Mail-Aufrufe muessen vor dem Senden oder Empfangen auf einen internen `userId` oder eine erlaubte Organization-Mailbox gemappt werden.
+- Eine Organization- oder Team-Mailbox darf niemals als Fallback fuer fehlende User-Mail-Credentials dienen.
 
 Notifications und Channels:
 
@@ -304,9 +310,12 @@ Secrets und Credentials:
 - Secrets muessen strikt nach Scope getrennt werden: user-owned, organization-owned und managed/system-owned.
 - Canvas Notebook muss verhindern, dass ein Agent versehentlich Credentials eines anderen Users verwendet.
 - Geteilte Agenten, Skills oder Plugins duerfen keine privaten Secrets des Erstellers mitkopieren.
-- Fuer User-spezifische lokale Secrets kann eine eigene User-Env-Schicht genutzt werden, z. B. eine Env-Datei pro User.
-- Die Aufloesung sollte kaskadierend erfolgen: zuerst User-Secret/User-Env, dann explizit freigegebene Organization-Secret/Organization-Env, dann technische Instanz-Env, dann Managed-Control-Plane-Env im Container.
+- User-spezifische lokale Secrets liegen unter `/data/users/{userId}/secrets`.
+- Organization-Secrets liegen unter `/data/organizations/{organizationId}/secrets` und werden nur bei expliziter Policy-Freigabe injiziert.
+- System-/Managed-Secrets liegen unter `/data/system/secrets` und duerfen nicht in normale User-Tool-Stacks durchsickern.
+- Die Aufloesung erfolgt serverseitig ueber einen Context mit `userId`, `organizationId`, `workspaceId`, `sessionId`, `agentId` und Zweck. Der Client darf keine Secret-Pfade oder Scope-Roots bestimmen.
 - Jede Secret-Verwendung durch Agenten, Automations oder Integrationen muss den aktiven User- und Workspace-Kontext kennen.
+- Audit speichert Secret-Refs und Scope, aber niemals Secret-Werte.
 
 Import:
 
@@ -350,6 +359,7 @@ Grundregel:
 - Der Agent arbeitet immer im aktiven Workspace der Session.
 - Eine private Session nutzt standardmaessig den persoenlichen Workspace des Users.
 - Eine Team-Session nutzt nur dann den Team Workspace, wenn der User diesen aktiv ausgewaehlt hat oder die Session explizit als Team-Session gestartet wurde.
+- Eine Agent-Session nutzt den Tool-Stack, die MCP-Verbindungen, Skills, Plugins, Mailboxen und Secrets des ausloesenden Users.
 - Die App hat einen globalen aktiven Workspace pro User-Oberflaeche. Ein Wechsel auf Startseite, Chat Header oder File Browser muss denselben globalen Workspace-Status aktualisieren.
 - Ein Workspace-Wechsel im Chat Header verhaelt sich wie ein Agent-Wechsel: Es wird eine neue Chat-Session im Ziel-Workspace gestartet.
 - Bestehende Agent-Sessions behalten ihren gespeicherten `workspaceId` und werden nicht stillschweigend in einen anderen Workspace migriert.

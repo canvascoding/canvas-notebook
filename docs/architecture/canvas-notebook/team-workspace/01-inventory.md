@@ -43,6 +43,26 @@ Bestehende user-aware Tabellen:
 - Studio: Produkte, Personas, Styles, Generations und Bulk Jobs sind user-scoped.
 - Channels: Telegram/Web-Channel-Bindings sind user-scoped.
 
+## Credentials, E-Mail, MCP und Runtime Settings
+
+E-Mail hat bereits eine gute user-scoped Ausgangslage:
+
+- `email_accounts` und `email_drafts` enthalten `userId`.
+- Lokale E-Mail-OAuth-States speichern `userId` und validieren den Callback gegen denselben User.
+- E-Mail-Account-Secrets liegen bereits unter einem Pfad mit `userId` und `accountId`.
+- SMTP- und Local-Mail-Services laden Accounts ueber `userId`; ein fremdes `accountId` darf dadurch nicht als eigenes Konto funktionieren.
+- Legacy-E-Mail-Migration wird nur in sicheren Single-User-Situationen automatisch versucht.
+
+Noch globale Credential-/Runtime-Pfade:
+
+- `app/lib/integrations/env-config.ts` verwaltet `Canvas-Integrations.env` und `Canvas-Agents.env` global.
+- `app/lib/mcp/config.ts` nutzt eine globale `data/settings/mcp.json`.
+- `app/lib/mcp/manager.ts` loest Env aus globalen Integration-/Agent-ENV-Dateien und `process.env` auf; Verbindungen sind nicht nach `userId` getrennt.
+- `app/lib/runtime-data-paths.ts` stellt globale Roots fuer `data/settings`, `data/secrets`, `data/skills`, `data/plugins`, `data/agents` und `data/canvas-agent` bereit.
+- `app/lib/agents/storage.ts` speichert Agent Runtime Config global in `pi-runtime-config.json` und Agent-Dateien unter `data/agents/{agentId}`.
+
+Konsequenz: Vor Team-Runtime muessen Secret-, MCP-, Plugin-/Skill- und Agent-Runtime-Resolver serverseitig einen User-/Organization-/Workspace-Kontext verlangen. E-Mail kann als Referenz fuer user-scoped Ownership dienen, muss aber fuer Gateway-/Managed-Mail und spaetere Team-Mailboxen explizit gegen Organization-Fallbacks abgesichert werden.
+
 Noch fehlende Team-Scope-Grundlagen:
 
 - Keine `organizations`- oder `workspaces`-Tabellen.
@@ -137,6 +157,8 @@ Der aktuelle Save-to-Workspace-Flow schreibt noch in den globalen Workspace. Fue
 - Agent-Dateien und Runtime-Konfiguration liegen unter `data/agents`, `data/settings` und `data/canvas-agent`.
 - `agents` in der DB sind global; relevante Skills/Connections sind JSON-Felder an der Agent-Definition.
 - `resolveAgentRuntimeConfig()` wird derzeit mit `agentId` aufgerufen, nicht mit User/Workspace/Organization.
+- MCP-Konfiguration und MCP-Verbindungen sind global und duerfen in Team-Instanzen nicht als aktive User-Konfiguration weiterlaufen.
+- Integrations-ENV und Agent-ENV sind global und brauchen eine Admin-Review-Migration nach User-, Organization- oder System-Scope.
 
 V1-Teamlogik braucht einen klaren Split:
 
@@ -144,6 +166,7 @@ V1-Teamlogik braucht einen klaren Split:
 - User Tool-Stack und User Runtime Preferences.
 - Workspace Policy.
 - Session-Auswahl als finaler Override.
+- User-Secrets, Organization-Secrets und System-/Managed-Secrets als getrennte Resolver-Schichten.
 
 ## Bereiche mit guter Ausgangslage
 

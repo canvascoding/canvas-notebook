@@ -31,6 +31,7 @@ Lieferumfang:
 - Datenmodell-Entscheidungen fuer Organization, Workspace, Rollen und Permissions.
 - Querschnittsentscheidung fuer Actor Context, Audit, Retention und Storage-Wachstum.
 - Kompatibilitaetsentscheidung fuer Legacy-Workspace `data/workspace`.
+- Querschnittsentscheidung fuer user-scoped Secrets, MCP, Skills, Plugins, Mailboxen und Agent Runtime.
 
 Tests:
 
@@ -134,11 +135,14 @@ Lieferumfang:
 - Optional erlaubte Cross-Workspace Reads muessen explizit referenziert und permission-geprueft sein.
 - Agent-Dateiaenderungen tragen `userId`, `sessionId`, `workspaceId`.
 - Shell-/Tool-Ausfuehrungen koennen fremde Personal Workspaces nicht lesen.
+- Agent Runtime Resolver bekommt `organizationId`, `userId`, `workspaceId`, `sessionId` und `agentId`.
+- Tool-Env und Credentials werden nur ueber den user-/organization-/system-scoped Secret Resolver injiziert.
 
 Tests:
 
 - Agent-File-Operation-Script-Tests.
 - Tool-Registry-Tests fuer blockierte Writes.
+- Secret-Resolver-Tests fuer blockierte fremde User-Secrets.
 - Session-Persistenz-Tests.
 - Tests fuer Workspace-Wechsel: neue Session im Ziel-Workspace, alte Session bleibt im Ursprungs-Workspace.
 - Tests fuer blockierte Cross-Workspace-Writes und fremde Personal-Workspace-Reads.
@@ -156,11 +160,15 @@ Teilbereiche:
 - Studio Assets, Produkte, Personas, Styles.
 - Skills, Plugins und Agent-Definitionen.
 - Composio, E-Mail-OAuth, Notifications und Channels.
+- User-/Organization-/System-Secrets.
+- MCP-Konfiguration und MCP-Transport-State.
 - Search/Retrieval-Vorbereitung.
 
 Tests:
 
 - Pro Feature eigene API-/Store-Tests.
+- E-Mail-Tests: User A kann User-B-Mailbox nicht senden, lesen oder als Draft-Ziel verwenden.
+- MCP-/Plugin-/Skill-Tests: gleichnamige Konfigurationen bleiben pro User getrennt.
 - UI-Test nur bei sichtbaren UI-Aenderungen und nach Freigabe.
 - `npm run build`.
 
@@ -273,3 +281,5 @@ Die Querschnittsentscheidung in `05-actor-audit-retention.md` ist verbindlich, s
 Die Workspace-Switching-Entscheidung in `06-workspace-switching-ux.md` ist verbindlich fuer Startseite, Chat Header, File Browser und Agent Runtime: Ein Wechsel an einer UI-Stelle aktualisiert den globalen aktiven Workspace, aber laufende oder historische Agent-Sessions behalten ihren gespeicherten `workspaceId`; ein Wechsel im Chat startet eine neue Session im Ziel-Workspace.
 
 Die Filesystem- und Write-Policy in `07-filesystem-migration-and-write-policy.md` ist verbindlich fuer Workspace-Service, Studio Save-to-Workspace, Export/Import und Agent-Dateitools: Physische Roots werden nur ueber Workspace-Metadaten aufgeloest, bestehendes `data/workspace` wird nicht automatisch teamweit geteilt, und Agenten duerfen nur in den Session-Workspace schreiben.
+
+Die Secret-/Runtime-Entscheidung in `08-user-scoped-secrets-runtime.md` ist verbindlich fuer Integrations-Env, Agent-Env, MCP, Skills, Plugins, E-Mail, Composio und Agent Runtime: Aktive Tool-Ausfuehrungen nutzen immer den Tool- und Secret-Scope des ausloesenden Users; Organization- und System-Secrets werden nur ueber explizite Policies injiziert.

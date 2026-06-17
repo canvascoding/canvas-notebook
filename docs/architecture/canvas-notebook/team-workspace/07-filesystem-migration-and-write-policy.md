@@ -39,12 +39,16 @@ Empfohlenes V1-Layout:
   user-uploads/
   backups/
   secrets/
+  users/
+  organizations/
+  system/
 ```
 
 Regeln:
 
 - `userId`, `organizationId` und `projectId` sind technische IDs, keine E-Mail-Adressen oder Anzeigenamen.
 - Workspace-Dateien liegen immer unter einem `files/` Root.
+- User-nahe Runtime-, Secret-, MCP-, Skill- und Plugin-Daten liegen nicht unter `workspaces/`, sondern unter den scoped Roots aus `08-user-scoped-secrets-runtime.md`.
 - Trash und Revisions liegen unter demselben Workspace-Scope, damit Restore und Export scope-sicher bleiben.
 - `data/workspace` bleibt nur Legacy-Quelle oder Legacy-Alias, nicht die fachliche Wahrheit.
 - Direkte Pfadannahmen wie `/data/workspace` muessen aus Agent-Prompts, Tool-Implementierungen, File-APIs und Studio-Copy-Flows entfernt werden.
@@ -214,6 +218,7 @@ Vor produktivem Team Workspace muessen diese Gates erfuellt sein:
 6. Agent-Tools trennen Read-Allowlist und Write-Workspace.
 7. Studio Save-to-Workspace verlangt einen Ziel-Workspace.
 8. Personal Workspace Export ist user-self-service; Team-/Organization-Export ist admin/permission-gated.
+9. Secret-, MCP-, Skill-/Plugin- und Agent-Runtime-Pfade werden ueber User-/Organization-/System-Resolver aufgeloest, nicht ueber globale Settings-Dateien.
 
 ## Tests
 

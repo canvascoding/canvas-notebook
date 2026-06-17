@@ -45,7 +45,7 @@ Dieses Dokument schliesst Umsetzungsschritt 2 ab: bestehende Canvas Notebook Fun
 | Cross-Workspace Agent Reads/Writes | nicht modelliert | Write nur Session-Workspace, Read nur explizit und berechtigt | Tool-Layer mit `writeWorkspaceId` und `readAllowedWorkspaceIds` | P5 |
 | Agent Snapshots/Diffs | technische Snapshot-Metadaten ohne Actor-Scope | `user`, `session`, `workspace`, `agent` | Snapshot/Audit verknuepfen | P5/P7 |
 | Agent Definitionen | globale `agents.agentId` | `user` Agenten plus `organization` Templates | Owner/Visibility/Template-Modell einfuehren | P6 |
-| Agent Runtime Config | instanzweite Defaults/Agent Config | `organization` Defaults, `user` Preferences, `workspace` Policy, Session Override | Effective Config Resolver erweitern | P5/P6 |
+| Agent Runtime Config | instanzweite Defaults/Agent Config | `organization` Defaults, `user` Preferences, `workspace` Policy, Session Override, mit sessiongebundener Revision | Effective Config Resolver mit `organizationId`, `userId`, `workspaceId`, `sessionId`, `agentId` erweitern | P5/P6 |
 | Usage Events | `user`, `sessionId`, Provider/Model | `organization`, `user`, `workspace`, `session` | Usage Attribution erweitern | P5/P6 |
 | Automations Jobs | `createdByUserId`, Pfade als Workspace-Strings | `user` oder `organization`, expliziter `workspace` | OwnerScope, WorkspaceScope, Team-Permission | P6 |
 | Automations Runs | Job-basiert, Result-Pfade global | erbt Job plus Run-Audit | Run-Metadaten mit Workspace/Actor speichern | P6/P7 |
@@ -53,15 +53,16 @@ Dieses Dokument schliesst Umsetzungsschritt 2 ab: bestehende Canvas Notebook Fun
 | Todos | `user`-owned | `organization` mit `createdByUserId`, optional `assigneeUserId`, `workspaceId` | Assignment und Visibility-Modell | P6 |
 | Todo Categories | `user` | `user`, optional Organization Defaults spaeter | Erst User-Scope beibehalten | P6 |
 | Todo File Links | `user` plus `workspacePath` | `workspace` plus path, optional Revision | `workspaceId` hinzufuegen | P6 |
-| E-Mail Accounts/OAuth | bereits `user` | `user`, optional Organization Team-Mailbox spaeter | User-Scope beibehalten, Organization-Mailbox separat modellieren | P6 |
+| E-Mail Accounts/OAuth | bereits `user` | `user`, optional Organization Team-Mailbox spaeter | User-Scope beibehalten, Managed/Gateway-Mail user-bound halten, Organization-Mailbox separat modellieren | P6 |
 | E-Mail Drafts/Attachments | `user`, Account | `user`, optional `workspace` fuer Attachments | Attachment-Referenzen workspace-aware machen | P6 |
 | Composio Identity/Connections | gemischt, teils User-ID/Fallbacks | `user` Connections, optional `organization` Connections | Connection-Scope und Audit erzwingen | P6 |
-| MCP Config | instanzweite Settings-Datei | `user` Tool Stack plus `organization` erlaubte Defaults | Config-Schichtung einfuehren | P6 |
-| Skills | globales `data/skills` und globale Runtime Config | `user` installierter Stack, `organization` Registry/Templates | Installationspfade/Registry nach Scope trennen | P6 |
-| Plugins | globales `data/plugins` | `user` installierter Stack, `organization` Freigabe/Empfehlung | Plugin Registry und Preflight user-aware machen | P6 |
-| Integrations Env | globale `data/secrets/Canvas-Integrations.env` | User-, Organization- und Managed/System-Secrets | Secret Resolver mit Scope-Kaskade | P6 |
+| MCP Config | instanzweite Settings-Datei | `user` Tool Stack plus `organization` erlaubte Defaults/Templates | Config-Schichtung einfuehren; Manager-Key um `organizationId` und `userId` erweitern | P6 |
+| MCP Runtime/Transport State | geteilte Manager-Verbindungen nach Servername/Hash | `user` isolierte Verbindung, Cache, Logs und Tokens | Connection Pool und Env-Aufloesung user-aware machen | P6 |
+| Skills | globales `data/skills` und globale Runtime Config | installierter Stack unter `/data/users/{userId}/skills`, `organization` Registry/Templates | Installationspfade/Registry nach Scope trennen | P6 |
+| Plugins | globales `data/plugins` | installierter Stack unter `/data/users/{userId}/plugins`, `organization` Freigabe/Empfehlung | Plugin Registry, Config und Preflight user-aware machen | P6 |
+| Integrations Env | globale `data/secrets/Canvas-Integrations.env` | `/data/users/{userId}/secrets`, `/data/organizations/{organizationId}/secrets`, `/data/system/secrets` | Secret Resolver mit Scope-Kaskade und Admin-Review fuer Legacy-Keys | P6 |
 | User Preferences | JSON-Datei mit `users` Map | `user` | Beibehalten, optional DB-Migration spaeter | P2/P6 |
-| Settings Storage | globale Dateien in `data/settings` | je Setting `user`, `organization`, `instance` klassifizieren | Settings nicht pauschal global weiterverwenden | P0/P6 |
+| Settings Storage | globale Dateien in `data/settings` | je Setting `user`, `organization`, `instance/system` klassifizieren | Settings nicht pauschal global weiterverwenden; User-Settings unter `/data/users/{userId}/settings` | P0/P6 |
 | Notifications Summary | globaler Aggregator | `user`, Admin/Organization Alerts optional | Preferences und Channels trennen | P6 |
 | Channel Bindings | `user` Channel Binding | `user`, Organization Channels fuer Team Alerts | User-Scope beibehalten, Org-Channels separat | P6 |
 | Telegram Active Session | `user`, chat/session | `user`, optional Workspace-Session | Active Session mit WorkspaceContext verbinden | P5/P6 |
@@ -103,6 +104,7 @@ Dieses Dokument schliesst Umsetzungsschritt 2 ab: bestehende Canvas Notebook Fun
 9. Workspace-Wechsel darf laufende Agent-Sessions nicht stillschweigend migrieren; Chat-Wechsel startet eine neue Session.
 10. `data/workspace` darf bei Migration nicht automatisch zum Team Workspace werden.
 11. Agent-Dateitools duerfen nur in den Session-Workspace schreiben; fremde Personal Workspaces sind fuer Read und Write verboten.
+12. Secrets, MCP, Skills, Plugins und Agent Runtime duerfen in Team-Instanzen nicht aus globalen Instanz-Dateien als aktive User-Konfiguration aufgeloest werden.
 
 ## Migrationsreihenfolge fuer Datenmodell
 
@@ -112,11 +114,12 @@ Dieses Dokument schliesst Umsetzungsschritt 2 ab: bestehende Canvas Notebook Fun
 4. Filesystem-Layout unter `/data/workspaces/...` und Legacy-Import-Strategie.
 5. `workspaceId` an PI Sessions, File/Public-Link-Metadaten und Automations.
 6. Actor Context Resolver fuer Web, Gateways, Agent Runtime und Automations.
-7. Audit Event und Tool-Run Tabellen mit kleinen Metadaten, Hashes und Artefakt-Referenzen.
-8. `organizationId` und `createdByUserId` an teamfaehige Feature-Tabellen.
-9. Revision/Lock/Trash Tabellen.
-10. Retention-/Cleanup-/Usage-Rollup-Jobs.
-11. Export/Import Manifest-Version erhoehen.
+7. Secret-/Runtime-Resolver fuer User-, Organization- und System-Scopes.
+8. Audit Event und Tool-Run Tabellen mit kleinen Metadaten, Hashes und Artefakt-Referenzen.
+9. `organizationId` und `createdByUserId` an teamfaehige Feature-Tabellen.
+10. Revision/Lock/Trash Tabellen.
+11. Retention-/Cleanup-/Usage-Rollup-Jobs.
+12. Export/Import Manifest-Version erhoehen.
 
 ## Minimaler V1-Scope
 
@@ -132,6 +135,8 @@ Fuer eine erste robuste Team-Version sollten diese Bereiche enthalten sein:
 - Agent-Sessions und Agent-Dateioperationen im aktiven Workspace.
 - Agent-Schreibzugriffe nur in den Session-Workspace; fremde Personal Workspaces komplett gesperrt.
 - Studio Save-to-Workspace mit Zielauswahl fuer eigenen Personal Workspace oder berechtigten Team Workspace.
+- User-scoped Secrets, MCP-Konfiguration, Skills, Plugins und Agent-Runtime-Einstellungen.
+- E-Mail bleibt strikt user-scoped; Organization-Team-Mailboxen sind kein impliziter Fallback.
 - Public Links mit `workspaceId`.
 - Audit fuer Admin-Aktionen, File Writes, Agent File Writes und Public Links, ohne grosse Payloads dauerhaft in der DB zu speichern.
 - Retention Defaults fuer Raw Tool Payloads, Runtime Events, Trash/Revisions und Usage-Einzelereignisse.

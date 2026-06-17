@@ -59,6 +59,9 @@ Optionale technische Felder:
 - `toolCallId`
 - `jobId`
 - `runId`
+- `secretRef`
+- `secretScope`
+- `toolStackRevision`
 
 ### Invarianten
 
@@ -70,6 +73,7 @@ Optionale technische Felder:
 - Team-Workspace-Schreibzugriffe muessen zusaetzlich Organization-Rolle oder Permission pruefen.
 - Studio-Generierungen muessen mindestens `organizationId`, `createdByUserId`, `sessionId` und `agentId` speichern; `workspaceId` wird gespeichert, wenn die Generierung aus einem Workspace-Kontext entstand.
 - Automations speichern den Owner am Job und den effektiven Actor Context am Run.
+- Secret-, MCP-, Plugin- und Skill-Verwendung darf erst nach Context-Aufloesung passieren und speichert im Audit nur Ref/Scope/Provider, nie Secret-Werte.
 
 ## Audit Event Modell
 
@@ -94,9 +98,11 @@ Empfohlenes Minimalmodell fuer `audit_events`:
 - `inputHash`
 - `outputHash`
 - `artifactRef`
+- `secretRef`
+- `secretScope`
 - `createdAt`
 
-`metadataJson` muss klein bleiben. Es darf IDs, kurze Namen, Pfade, Hashes, Groessen, MIME Types, Fehlercodes und Policy-Entscheidungen enthalten. Es darf keine grossen Payloads, Secrets oder vollstaendigen Outputs enthalten.
+`metadataJson` muss klein bleiben. Es darf IDs, kurze Namen, Pfade, Hashes, Groessen, MIME Types, Fehlercodes, Secret-Refs und Policy-Entscheidungen enthalten. Es darf keine grossen Payloads, Secrets, OAuth Tokens, API Keys oder vollstaendigen Outputs enthalten.
 
 ## Tool Run Modell
 
@@ -122,8 +128,10 @@ Empfohlenes Minimalmodell fuer `agent_tool_runs`:
 - `rawInputRef`
 - `rawOutputRef`
 - `errorCode`
+- `secretRefsJson`
 
 `rawInputRef` und `rawOutputRef` duerfen nur auf kurzlebige Debug-Artefakte zeigen. Wenn keine Debug-Retention aktiv ist, bleiben diese Felder leer.
+`secretRefsJson` darf nur Secret-Refs, Scope, Provider und Zugriffszweck enthalten, niemals Secret-Werte.
 
 ## Datei- und Revisionsmodell
 
@@ -206,5 +214,6 @@ Vor breiter Audit-Implementierung muessen diese Grundlagen stehen:
 3. File-Event-/Revision-Metadaten ohne grosse Inhalte in der DB.
 4. Cleanup-/Rollup-Jobs als Teil der ersten Audit-Migration.
 5. Storage-Metriken fuer DB, Workspace, Studio, Temp und Backups.
+6. Secret-/Runtime-Resolver, damit Tool-Audit keine globalen Instanz-Credentials protokolliert.
 
 Ohne diese Gates darf kein vollstaendiger Tool-/File-Audit breit ausgerollt werden, weil sonst Datenbank- und Storage-Wachstum nicht kontrolliert sind.

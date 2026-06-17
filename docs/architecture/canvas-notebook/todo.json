@@ -34,7 +34,10 @@
       "title": "Per-User Permissions fuer Team Workspace, Public Links, Team-Automations, Plugin-/Skill-Freigabe und Exporte bauen",
       "status": "pending",
       "repo": "canvasstudios-notebook",
-      "planningArtifact": "docs/architecture/canvas-notebook/team-workspace/07-filesystem-migration-and-write-policy.md"
+      "planningArtifacts": [
+        "docs/architecture/canvas-notebook/team-workspace/07-filesystem-migration-and-write-policy.md",
+        "docs/architecture/canvas-notebook/team-workspace/08-user-scoped-secrets-runtime.md"
+      ]
     },
     {
       "id": 6,
@@ -121,26 +124,30 @@
       "planningArtifacts": [
         "docs/architecture/canvas-notebook/team-workspace/05-actor-audit-retention.md",
         "docs/architecture/canvas-notebook/team-workspace/06-workspace-switching-ux.md",
-        "docs/architecture/canvas-notebook/team-workspace/07-filesystem-migration-and-write-policy.md"
+        "docs/architecture/canvas-notebook/team-workspace/07-filesystem-migration-and-write-policy.md",
+        "docs/architecture/canvas-notebook/team-workspace/08-user-scoped-secrets-runtime.md"
       ]
     },
     {
       "id": 17,
       "title": "Plugins, Skills und Agent-Definitionen auf User-Scope mit optionaler Organization-Teilung migrieren",
       "status": "pending",
-      "repo": "canvasstudios-notebook"
+      "repo": "canvasstudios-notebook",
+      "planningArtifact": "docs/architecture/canvas-notebook/team-workspace/08-user-scoped-secrets-runtime.md"
     },
     {
       "id": 18,
       "title": "Secrets/Credentials pro User, Organization und Managed/System isolieren",
       "status": "pending",
-      "repo": "canvasstudios-notebook"
+      "repo": "canvasstudios-notebook",
+      "planningArtifact": "docs/architecture/canvas-notebook/team-workspace/08-user-scoped-secrets-runtime.md"
     },
     {
       "id": 19,
       "title": "Composio-Management, E-Mail-OAuth, Notifications und Channels auf User-/Organization-Scope migrieren",
       "status": "pending",
-      "repo": "canvasstudios-notebook"
+      "repo": "canvasstudios-notebook",
+      "planningArtifact": "docs/architecture/canvas-notebook/team-workspace/08-user-scoped-secrets-runtime.md"
     },
     {
       "id": 20,
@@ -153,13 +160,17 @@
       "title": "Automations an Owner, Workspace-Auswahl und Ausfuehrungskontext binden",
       "status": "pending",
       "repo": "canvasstudios-notebook",
-      "planningArtifact": "docs/architecture/canvas-notebook/team-workspace/06-workspace-switching-ux.md"
+      "planningArtifacts": [
+        "docs/architecture/canvas-notebook/team-workspace/06-workspace-switching-ux.md",
+        "docs/architecture/canvas-notebook/team-workspace/08-user-scoped-secrets-runtime.md"
+      ]
     },
     {
       "id": 22,
       "title": "Offboarding-Flow fuer User mit Workspace-Sicherung, Automation-Review, To-do-Behandlung und Credential-Revocation bauen",
       "status": "pending",
-      "repo": "canvasstudios-notebook"
+      "repo": "canvasstudios-notebook",
+      "planningArtifact": "docs/architecture/canvas-notebook/team-workspace/08-user-scoped-secrets-runtime.md"
     },
     {
       "id": 23,
@@ -196,21 +207,30 @@
       "title": "Admin-only Export mit granularer Auswahl fuer Migrationen implementieren",
       "status": "pending",
       "repo": "canvasstudios-notebook",
-      "planningArtifact": "docs/architecture/canvas-notebook/team-workspace/07-filesystem-migration-and-write-policy.md"
+      "planningArtifacts": [
+        "docs/architecture/canvas-notebook/team-workspace/07-filesystem-migration-and-write-policy.md",
+        "docs/architecture/canvas-notebook/team-workspace/08-user-scoped-secrets-runtime.md"
+      ]
     },
     {
       "id": 28,
       "title": "Import-Flow mit User-/Workspace-Mapping, Dry-Run und Reconnect fuer Secrets/OAuth vorbereiten",
       "status": "pending",
       "repo": "canvasstudios-notebook",
-      "planningArtifact": "docs/architecture/canvas-notebook/team-workspace/07-filesystem-migration-and-write-policy.md"
+      "planningArtifacts": [
+        "docs/architecture/canvas-notebook/team-workspace/07-filesystem-migration-and-write-policy.md",
+        "docs/architecture/canvas-notebook/team-workspace/08-user-scoped-secrets-runtime.md"
+      ]
     },
     {
       "id": 29,
       "title": "Vollstaendigen Audit Trail fuer Admin, Auth, Files, Agenten, Automations, Plugins, Integrationen, Export/Import und Studio umsetzen",
       "status": "pending",
       "repo": "canvasstudios-notebook",
-      "planningArtifact": "docs/architecture/canvas-notebook/team-workspace/05-actor-audit-retention.md"
+      "planningArtifacts": [
+        "docs/architecture/canvas-notebook/team-workspace/05-actor-audit-retention.md",
+        "docs/architecture/canvas-notebook/team-workspace/08-user-scoped-secrets-runtime.md"
+      ]
     },
     {
       "id": 30,
@@ -224,7 +244,10 @@
       "title": "Path Security fuer alle Workspace- und Agent-Dateioperationen erzwingen",
       "status": "pending",
       "repo": "canvasstudios-notebook",
-      "planningArtifact": "docs/architecture/canvas-notebook/team-workspace/07-filesystem-migration-and-write-policy.md"
+      "planningArtifacts": [
+        "docs/architecture/canvas-notebook/team-workspace/07-filesystem-migration-and-write-policy.md",
+        "docs/architecture/canvas-notebook/team-workspace/08-user-scoped-secrets-runtime.md"
+      ]
     },
     {
       "id": 32,
@@ -239,7 +262,8 @@
       "repo": "canvasstudios-notebook",
       "planningArtifacts": [
         "docs/architecture/canvas-notebook/team-workspace/05-actor-audit-retention.md",
-        "docs/architecture/canvas-notebook/team-workspace/07-filesystem-migration-and-write-policy.md"
+        "docs/architecture/canvas-notebook/team-workspace/07-filesystem-migration-and-write-policy.md",
+        "docs/architecture/canvas-notebook/team-workspace/08-user-scoped-secrets-runtime.md"
       ]
     },
     {
@@ -260,7 +284,10 @@
       "title": "Backup- und Restore-Konzept fuer Team-Instanzen implementieren",
       "status": "pending",
       "repo": "cross-repo",
-      "planningArtifact": "docs/architecture/canvas-notebook/team-workspace/07-filesystem-migration-and-write-policy.md"
+      "planningArtifacts": [
+        "docs/architecture/canvas-notebook/team-workspace/07-filesystem-migration-and-write-policy.md",
+        "docs/architecture/canvas-notebook/team-workspace/08-user-scoped-secrets-runtime.md"
+      ]
     }
   ]
 }
