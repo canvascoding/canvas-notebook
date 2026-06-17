@@ -52,6 +52,7 @@ interface SkillFileNode {
 type RightPanelView = 'info' | 'preview';
 type SkillsPanelTab = 'plugins' | 'skills';
 type PluginStoreTab = 'discover' | 'installed' | 'updates' | 'advanced';
+type SkillLibraryTab = 'installed' | 'library' | 'updates';
 
 type CanvasPluginComposioConnector = {
   toolkit: string;
@@ -159,6 +160,54 @@ type CanvasPluginStoreStats = {
   filteredTotal: number;
 };
 
+type CanvasSkillStoreEntry = {
+  name: string;
+  displayName: string;
+  description: string;
+  category?: string;
+  latestVersion: string;
+  icon?: string;
+  iconUrl?: string;
+  brandColor?: string;
+  license?: string;
+  publisher?: {
+    name?: string;
+    url?: string;
+  };
+  installed: {
+    installed: boolean;
+    enabled: boolean;
+    version?: string;
+    updateAvailable: boolean;
+    modified: boolean;
+    restoreAvailable: boolean;
+  };
+};
+
+type CanvasSkillStoreMetadata = {
+  id: string;
+  name: string;
+  updatedAt: string;
+  homepage?: string;
+};
+
+type CanvasSkillStorePagination = {
+  page: number;
+  pageSize: number;
+  totalItems: number;
+  totalPages: number;
+  hasNextPage: boolean;
+  hasPreviousPage: boolean;
+};
+
+type CanvasSkillStoreStats = {
+  total: number;
+  installed: number;
+  available: number;
+  updates: number;
+  filteredTotal: number;
+};
+
 type PluginPreflightItem = {
   type: 'composio' | 'email' | 'mcp';
   key: string;
@@ -230,6 +279,23 @@ const EMPTY_STORE_PAGINATION: CanvasPluginStorePagination = {
   hasPreviousPage: false,
 };
 const EMPTY_STORE_STATS: CanvasPluginStoreStats = {
+  total: 0,
+  installed: 0,
+  available: 0,
+  updates: 0,
+  filteredTotal: 0,
+};
+
+const SKILL_STORE_PAGE_SIZE = 12;
+const EMPTY_SKILL_STORE_PAGINATION: CanvasSkillStorePagination = {
+  page: 1,
+  pageSize: SKILL_STORE_PAGE_SIZE,
+  totalItems: 0,
+  totalPages: 1,
+  hasNextPage: false,
+  hasPreviousPage: false,
+};
+const EMPTY_SKILL_STORE_STATS: CanvasSkillStoreStats = {
   total: 0,
   installed: 0,
   available: 0,
@@ -1255,6 +1321,7 @@ export function SkillsPanel() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [uploadOpen, setUploadOpen] = useState(false);
   const [panelTab, setPanelTab] = useState<SkillsPanelTab>('plugins');
+  const [skillLibraryTab, setSkillLibraryTab] = useState<SkillLibraryTab>('installed');
   const [skillTree, setSkillTree] = useState<SkillFileNode[]>([]);
   const [expandedDirs, setExpandedDirs] = useState<Set<string>>(new Set());
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
@@ -1262,6 +1329,17 @@ export function SkillsPanel() {
   const [previewContent, setPreviewContent] = useState<string>('');
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
+  const [skillStoreSkills, setSkillStoreSkills] = useState<CanvasSkillStoreEntry[]>([]);
+  const [skillStoreMetadata, setSkillStoreMetadata] = useState<CanvasSkillStoreMetadata | null>(null);
+  const [skillStorePagination, setSkillStorePagination] = useState<CanvasSkillStorePagination>(EMPTY_SKILL_STORE_PAGINATION);
+  const [skillStoreStats, setSkillStoreStats] = useState<CanvasSkillStoreStats>(EMPTY_SKILL_STORE_STATS);
+  const [skillStorePage, setSkillStorePage] = useState(1);
+  const [skillStoreQuery, setSkillStoreQuery] = useState('');
+  const deferredSkillStoreQuery = useDeferredValue(skillStoreQuery);
+  const [skillStoreLoading, setSkillStoreLoading] = useState(false);
+  const [skillStoreError, setSkillStoreError] = useState<string | null>(null);
+  const [skillActionError, setSkillActionError] = useState<string | null>(null);
+  const [pendingSkillAction, setPendingSkillAction] = useState<string | null>(null);
 
   async function loadSkills() {
     try {
@@ -1310,12 +1388,55 @@ export function SkillsPanel() {
     }
   }
 
+  const loadSkillStore = useCallback(async () => {
+    const storeState = skillLibraryTab === 'updates' ? 'updates' : 'all';
+    const params = new URLSearchParams({
+      page: String(skillStorePage),
+      pageSize: String(SKILL_STORE_PAGE_SIZE),
+      q: deferredSkillStoreQuery.trim(),
+      state: storeState,
+    });
+
+    setSkillStoreLoading(true);
+    setSkillStoreError(null);
+    try {
+      const response = await fetch(`/api/skills/store?${params.toString()}`, {
+        credentials: 'include',
+        cache: 'no-store',
+      });
+      const data = await response.json();
+      if (!data.success) {
+        throw new Error(data.error || t('skillLibrary.errors.storeLoad'));
+      }
+      setSkillStoreSkills(Array.isArray(data.skills) ? data.skills : []);
+      setSkillStoreMetadata(data.registry || null);
+      setSkillStorePagination(data.pagination || EMPTY_SKILL_STORE_PAGINATION);
+      setSkillStoreStats(data.stats || EMPTY_SKILL_STORE_STATS);
+    } catch (error) {
+      setSkillStoreSkills([]);
+      setSkillStoreMetadata(null);
+      setSkillStorePagination(EMPTY_SKILL_STORE_PAGINATION);
+      setSkillStoreStats(EMPTY_SKILL_STORE_STATS);
+      setSkillStoreError(error instanceof Error ? error.message : t('skillLibrary.errors.storeLoad'));
+    } finally {
+      setSkillStoreLoading(false);
+    }
+  }, [deferredSkillStoreQuery, skillLibraryTab, skillStorePage, t]);
+
   useEffect(() => {
     startTransition(() => {
       loadSkills();
       loadSkillTree();
     });
   }, []);
+
+  useEffect(() => {
+    if (skillLibraryTab === 'library' || skillLibraryTab === 'updates') {
+      startTransition(() => {
+        void loadSkillStore();
+      });
+    }
+  }, [loadSkillStore, skillLibraryTab]);
 
   const toggleDirectory = useCallback((dirPath: string) => {
     setExpandedDirs(prev => {
@@ -1402,6 +1523,54 @@ export function SkillsPanel() {
       }
     } catch (error) {
       console.error('Failed to disable all skills:', error);
+    }
+  }
+
+  async function installStoreSkill(skillName: string, version?: string) {
+    setPendingSkillAction(`install:${skillName}`);
+    setSkillActionError(null);
+    try {
+      const response = await fetch('/api/skills/store/install', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: skillName, version, enable: true, replace: true }),
+      });
+      const data = await response.json();
+      if (!data.success) {
+        throw new Error(data.error || t('skillLibrary.errors.install'));
+      }
+      await loadSkills();
+      await loadSkillTree();
+      await loadSkillStore();
+    } catch (error) {
+      setSkillActionError(error instanceof Error ? error.message : t('skillLibrary.errors.install'));
+    } finally {
+      setPendingSkillAction(null);
+    }
+  }
+
+  async function restoreSkill(skillName: string, prefer?: 'store' | 'seed') {
+    setPendingSkillAction(`restore:${skillName}`);
+    setSkillActionError(null);
+    try {
+      const response = await fetch(`/api/skills/${encodeURIComponent(skillName)}/restore`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prefer, enable: true }),
+      });
+      const data = await response.json();
+      if (!data.success) {
+        throw new Error(data.error || t('skillLibrary.errors.restore'));
+      }
+      await loadSkills();
+      await loadSkillTree();
+      if (skillLibraryTab === 'library' || skillLibraryTab === 'updates') {
+        await loadSkillStore();
+      }
+    } catch (error) {
+      setSkillActionError(error instanceof Error ? error.message : t('skillLibrary.errors.restore'));
+    } finally {
+      setPendingSkillAction(null);
     }
   }
 
@@ -1497,6 +1666,146 @@ export function SkillsPanel() {
     });
   }
 
+  function renderSkillStoreIcon(skill: CanvasSkillStoreEntry) {
+    const initials = skill.displayName
+      .split(/\s+/)
+      .map((part) => part[0])
+      .join('')
+      .slice(0, 2)
+      .toUpperCase();
+
+    if (skill.iconUrl) {
+      return (
+        <span className="flex h-10 w-10 shrink-0 overflow-hidden rounded-lg border bg-muted">
+          {/* eslint-disable-next-line @next/next/no-img-element -- Store icons are remote marketplace assets. */}
+          <img src={skill.iconUrl} alt="" className="h-full w-full object-cover" />
+        </span>
+      );
+    }
+
+    return (
+      <span
+        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border text-sm font-semibold text-white"
+        style={{ backgroundColor: skill.brandColor || '#64748b' }}
+      >
+        {initials || 'CS'}
+      </span>
+    );
+  }
+
+  function renderSkillStoreCard(skill: CanvasSkillStoreEntry) {
+    const isInstalled = skill.installed.installed;
+    const updateAvailable = skill.installed.updateAvailable;
+    const isModified = skill.installed.modified;
+    const isInstalling = pendingSkillAction === `install:${skill.name}`;
+    const isRestoring = pendingSkillAction === `restore:${skill.name}`;
+    const canInstall = !isInstalled || updateAvailable;
+    const installLabel = updateAvailable
+      ? t('skillLibrary.update')
+      : isInstalled
+        ? t('skillLibrary.installed')
+        : t('skillLibrary.install');
+
+    return (
+      <div key={skill.name} className="rounded-lg border bg-background p-4">
+        <div className="flex items-start gap-3">
+          {renderSkillStoreIcon(skill)}
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <h3 className="truncate text-sm font-semibold">{skill.displayName}</h3>
+              {skill.category ? <Badge variant="secondary" className="text-[10px]">{skill.category}</Badge> : null}
+              <Badge variant="outline" className="text-[10px]">v{skill.latestVersion}</Badge>
+              {isInstalled ? (
+                <Badge variant={updateAvailable ? 'destructive' : 'default'} className="text-[10px]">
+                  {updateAvailable ? t('skillLibrary.updateAvailable') : t('skillLibrary.installed')}
+                </Badge>
+              ) : null}
+              {isModified ? <Badge variant="secondary" className="text-[10px]">{t('skillLibrary.modified')}</Badge> : null}
+              {skill.license ? <Badge variant="outline" className="text-[10px]">{skill.license}</Badge> : null}
+            </div>
+            <div className="mt-1 font-mono text-xs text-muted-foreground">/{skill.name}</div>
+            <p className="mt-2 line-clamp-3 text-sm text-muted-foreground">{skill.description}</p>
+          </div>
+        </div>
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t pt-3">
+          <span className="text-xs text-muted-foreground">
+            {skill.publisher?.name || skillStoreMetadata?.name || t('skillLibrary.officialStore')}
+          </span>
+          <div className="flex flex-wrap items-center gap-2">
+            {isInstalled && skill.installed.restoreAvailable ? (
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={isRestoring || isInstalling}
+                onClick={() => void restoreSkill(skill.name)}
+                className="gap-1.5"
+              >
+                {isRestoring ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+                {t('skillLibrary.restore')}
+              </Button>
+            ) : null}
+            <Button
+              variant={canInstall ? 'default' : 'outline'}
+              size="sm"
+              disabled={isInstalling || isRestoring || !canInstall}
+              onClick={() => void installStoreSkill(skill.name, skill.latestVersion)}
+              className="gap-1.5"
+            >
+              {isInstalling ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : updateAvailable ? (
+                <ArrowUpCircle className="h-3.5 w-3.5" />
+              ) : (
+                <Download className="h-3.5 w-3.5" />
+              )}
+              {installLabel}
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  function renderSkillStorePagination() {
+    if (skillStorePagination.totalItems === 0) {
+      return null;
+    }
+
+    return (
+      <div className="flex flex-wrap items-center justify-between gap-2 pt-1 text-xs text-muted-foreground">
+        <span>
+          {t('skillLibrary.pagination.status', {
+            page: skillStorePagination.page,
+            totalPages: skillStorePagination.totalPages,
+            totalItems: skillStorePagination.totalItems,
+          })}
+        </span>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={skillStoreLoading || !skillStorePagination.hasPreviousPage}
+            onClick={() => setSkillStorePage((page) => Math.max(1, page - 1))}
+            className="h-8 gap-1.5"
+          >
+            <ChevronLeft className="h-3.5 w-3.5" />
+            {t('skillLibrary.pagination.previous')}
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={skillStoreLoading || !skillStorePagination.hasNextPage}
+            onClick={() => setSkillStorePage((page) => page + 1)}
+            className="h-8 gap-1.5"
+          >
+            {t('skillLibrary.pagination.next')}
+            <ChevronRight className="h-3.5 w-3.5" />
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-12">
@@ -1539,169 +1848,305 @@ export function SkillsPanel() {
         </TabsContent>
 
         <TabsContent value="skills" className="space-y-4">
-          <div className="flex flex-col gap-4">
-            <div className="flex items-center gap-2 flex-wrap">
-              <div className="flex items-center gap-3 text-sm text-muted-foreground">
-                <span>{stats.total} {t('stats.total').toLowerCase()}</span>
-                <span className="text-green-600">{stats.enabled} {t('stats.enabled').toLowerCase()}</span>
-                <span>{stats.disabled} {t('stats.disabled').toLowerCase()}</span>
-              </div>
-              <div className="flex-1" />
-              <Button variant="outline" size="sm" onClick={enableAllSkills} disabled={stats.enabled === stats.total} className="gap-1.5">
-                <CheckCircle2 className="h-3.5 w-3.5 text-green-600" />
-                {t('actions.enableAll')}
-              </Button>
-              <Button variant="outline" size="sm" onClick={disableAllSkills} disabled={stats.disabled === stats.total} className="gap-1.5">
-                <XCircle className="h-3.5 w-3.5 text-muted-foreground" />
-                {t('actions.disableAll')}
-              </Button>
-              <Button variant="outline" size="sm" onClick={() => setUploadOpen(true)} className="gap-1.5">
-                <Upload className="h-3.5 w-3.5" />
-                {t('upload.button')}
-              </Button>
-            </div>
+          <Tabs
+            value={skillLibraryTab}
+            onValueChange={(value) => {
+              if (value === 'installed' || value === 'library' || value === 'updates') {
+                setSkillStorePage(1);
+                setSkillLibraryTab(value);
+              }
+            }}
+            className="space-y-4"
+          >
+            <TabsList className="flex h-auto flex-wrap justify-start bg-muted/60 p-1">
+              <TabsTrigger value="installed" className="rounded-md px-3">
+                {t('skillLibrary.tabs.installed')}
+              </TabsTrigger>
+              <TabsTrigger value="library" className="rounded-md px-3">
+                {t('skillLibrary.tabs.library')}
+              </TabsTrigger>
+              <TabsTrigger value="updates" className="rounded-md px-3">
+                {t('skillLibrary.tabs.updates', { count: skillStoreStats.updates })}
+              </TabsTrigger>
+            </TabsList>
 
-            <div
-              className="grid h-[calc(100dvh-16rem)] min-h-[420px] grid-cols-1 grid-rows-[minmax(12rem,35%)_minmax(0,1fr)] overflow-hidden rounded-lg border lg:grid-cols-[minmax(260px,320px)_minmax(0,1fr)] lg:grid-rows-1"
-              data-testid="skills-browser"
-            >
-              {/* Left: File Tree */}
-              <div className="flex min-h-0 flex-col border-b bg-muted/30 lg:border-b-0 lg:border-r">
-                <div className="shrink-0 border-b bg-muted/50 p-2">
-                  <div className="flex items-center gap-1.5 px-2 py-1 text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                    {t('stats.total')}
+            {skillActionError ? (
+              <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                {skillActionError}
+              </div>
+            ) : null}
+
+            <TabsContent value="installed" className="space-y-4">
+              <div className="flex flex-col gap-4">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <div className="flex items-center gap-3 text-sm text-muted-foreground">
+                    <span>{stats.total} {t('stats.total').toLowerCase()}</span>
+                    <span className="text-green-600">{stats.enabled} {t('stats.enabled').toLowerCase()}</span>
+                    <span>{stats.disabled} {t('stats.disabled').toLowerCase()}</span>
                   </div>
+                  <div className="flex-1" />
+                  <Button variant="outline" size="sm" onClick={enableAllSkills} disabled={stats.enabled === stats.total} className="gap-1.5">
+                    <CheckCircle2 className="h-3.5 w-3.5 text-green-600" />
+                    {t('actions.enableAll')}
+                  </Button>
+                  <Button variant="outline" size="sm" onClick={disableAllSkills} disabled={stats.disabled === stats.total} className="gap-1.5">
+                    <XCircle className="h-3.5 w-3.5 text-muted-foreground" />
+                    {t('actions.disableAll')}
+                  </Button>
+                  <Button variant="outline" size="sm" onClick={() => setUploadOpen(true)} className="gap-1.5">
+                    <Upload className="h-3.5 w-3.5" />
+                    {t('upload.button')}
+                  </Button>
                 </div>
-                <div className="min-h-0 flex-1 overflow-y-auto p-1 text-sm" data-testid="skills-tree-scroll">
-                  {skillTree.length === 0 ? (
-                    <div className="px-3 py-8 text-center text-muted-foreground text-sm">
-                      <Wrench className="h-8 w-8 mx-auto mb-2 opacity-50" />
-                      {t('emptyState.title')}
-                    </div>
-                  ) : (
-                    renderTree(skillTree)
-                  )}
-                </div>
-              </div>
 
-              {/* Right: Info Panel or Preview */}
-              <div className="min-h-0 overflow-y-auto" data-testid="skills-detail-scroll">
-                {rightView === 'info' && selectedSkillData ? (
-                  <div className="p-5 space-y-4">
-                    <div className="flex items-start justify-between gap-4">
-                      <div className="flex min-w-0 flex-1 items-start gap-3">
-                        <CanvasSkillIcon skill={selectedSkillData} className="h-12 w-12 text-sm" />
-                        <div className="min-w-0">
-                          <h2 className="text-xl font-bold">{selectedSkillData.title}</h2>
-                          <div className="flex items-center gap-2 mt-1">
-                            <span className="text-sm font-mono text-muted-foreground">{selectedSkillData.name}</span>
-                            <Badge variant={selectedSkillData.enabled ? 'default' : 'secondary'} className="text-xs">
-                              {selectedSkillData.enabled ? t('detail.enabled') : t('detail.disabled')}
-                            </Badge>
+                <div
+                  className="grid h-[calc(100dvh-16rem)] min-h-[420px] grid-cols-1 grid-rows-[minmax(12rem,35%)_minmax(0,1fr)] overflow-hidden rounded-lg border lg:grid-cols-[minmax(260px,320px)_minmax(0,1fr)] lg:grid-rows-1"
+                  data-testid="skills-browser"
+                >
+                  <div className="flex min-h-0 flex-col border-b bg-muted/30 lg:border-b-0 lg:border-r">
+                    <div className="shrink-0 border-b bg-muted/50 p-2">
+                      <div className="flex items-center gap-1.5 px-2 py-1 text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                        {t('stats.total')}
+                      </div>
+                    </div>
+                    <div className="min-h-0 flex-1 overflow-y-auto p-1 text-sm" data-testid="skills-tree-scroll">
+                      {skillTree.length === 0 ? (
+                        <div className="px-3 py-8 text-center text-muted-foreground text-sm">
+                          <Wrench className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                          {t('emptyState.title')}
+                        </div>
+                      ) : (
+                        renderTree(skillTree)
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="min-h-0 overflow-y-auto" data-testid="skills-detail-scroll">
+                    {rightView === 'info' && selectedSkillData ? (
+                      <div className="p-5 space-y-4">
+                        <div className="flex items-start justify-between gap-4">
+                          <div className="flex min-w-0 flex-1 items-start gap-3">
+                            <CanvasSkillIcon skill={selectedSkillData} className="h-12 w-12 text-sm" />
+                            <div className="min-w-0">
+                              <h2 className="text-xl font-bold">{selectedSkillData.title}</h2>
+                              <div className="flex items-center gap-2 mt-1">
+                                <span className="text-sm font-mono text-muted-foreground">{selectedSkillData.name}</span>
+                                <Badge variant={selectedSkillData.enabled ? 'default' : 'secondary'} className="text-xs">
+                                  {selectedSkillData.enabled ? t('detail.enabled') : t('detail.disabled')}
+                                </Badge>
+                              </div>
+                            </div>
                           </div>
+                          <Switch
+                            checked={selectedSkillData.enabled}
+                            onCheckedChange={(checked) => toggleSkill(selectedSkillData.name, checked)}
+                            aria-label={t('toggleSkill', { name: selectedSkillData.name })}
+                          />
+                        </div>
+
+                        <div className="bg-muted/30 rounded-lg p-4">
+                          <p className="text-sm text-muted-foreground whitespace-pre-wrap leading-relaxed">
+                            {selectedSkillData.description}
+                          </p>
+                        </div>
+
+                        {(selectedSkillData.compatibility || selectedSkillData.license) && (
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+                            {selectedSkillData.compatibility && (
+                              <div>
+                                <span className="font-medium text-foreground">{t('detail.compatibility')}</span>
+                                <p className="text-muted-foreground mt-0.5">{selectedSkillData.compatibility}</p>
+                              </div>
+                            )}
+                            {selectedSkillData.license && (
+                              <div>
+                                <span className="font-medium text-foreground">{t('detail.license')}</span>
+                                <p className="text-muted-foreground mt-0.5">{selectedSkillData.license}</p>
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                        <div className="flex flex-wrap gap-2">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                              setSelectedSkill(selectedSkillData);
+                              setDialogOpen(true);
+                            }}
+                            className="gap-1.5"
+                          >
+                            <Info className="h-4 w-4" />
+                            {t('detail.viewDocumentation')}
+                          </Button>
+                          {!selectedSkillData.plugin ? (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              disabled={pendingSkillAction === `restore:${selectedSkillData.name}`}
+                              onClick={() => void restoreSkill(selectedSkillData.name)}
+                              className="gap-1.5"
+                            >
+                              {pendingSkillAction === `restore:${selectedSkillData.name}` ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                              ) : (
+                                <RefreshCw className="h-4 w-4" />
+                              )}
+                              {t('skillLibrary.restore')}
+                            </Button>
+                          ) : null}
                         </div>
                       </div>
-                      <Switch
-                        checked={selectedSkillData.enabled}
-                        onCheckedChange={(checked) => toggleSkill(selectedSkillData.name, checked)}
-                        aria-label={t('toggleSkill', { name: selectedSkillData.name })}
-                      />
-                    </div>
-
-                    <div className="bg-muted/30 rounded-lg p-4">
-                      <p className="text-sm text-muted-foreground whitespace-pre-wrap leading-relaxed">
-                        {selectedSkillData.description}
-                      </p>
-                    </div>
-
-                    {(selectedSkillData.compatibility || selectedSkillData.license) && (
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
-                        {selectedSkillData.compatibility && (
-                          <div>
-                            <span className="font-medium text-foreground">{t('detail.compatibility')}</span>
-                            <p className="text-muted-foreground mt-0.5">{selectedSkillData.compatibility}</p>
+                    ) : rightView === 'preview' && selectedPath ? (
+                      <div className="p-4">
+                        <div className="flex items-center gap-2 mb-3 text-sm font-mono text-muted-foreground">
+                          <FileText className="h-4 w-4" />
+                          {selectedPath.split('/').pop()}
+                        </div>
+                        {previewLoading ? (
+                          <div className="flex items-center justify-center py-12">
+                            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
                           </div>
-                        )}
-                        {selectedSkillData.license && (
-                          <div>
-                            <span className="font-medium text-foreground">{t('detail.license')}</span>
-                            <p className="text-muted-foreground mt-0.5">{selectedSkillData.license}</p>
+                        ) : previewError ? (
+                          <div className="text-sm text-destructive bg-destructive/10 p-4 rounded-lg">
+                            {previewError}
                           </div>
+                        ) : (
+                          <pre className="overflow-x-auto rounded-lg bg-muted/30 p-4 font-mono text-sm whitespace-pre-wrap break-words">
+                            {previewContent}
+                          </pre>
                         )}
-                      </div>
-                    )}
-
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => {
-                        setSelectedSkill(selectedSkillData);
-                        setDialogOpen(true);
-                      }}
-                      className="gap-1.5"
-                    >
-                      <Info className="h-4 w-4" />
-                      {t('detail.viewDocumentation')}
-                    </Button>
-                  </div>
-                ) : rightView === 'preview' && selectedPath ? (
-                  <div className="p-4">
-                    <div className="flex items-center gap-2 mb-3 text-sm font-mono text-muted-foreground">
-                      <FileText className="h-4 w-4" />
-                      {selectedPath.split('/').pop()}
-                    </div>
-                    {previewLoading ? (
-                      <div className="flex items-center justify-center py-12">
-                        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-                      </div>
-                    ) : previewError ? (
-                      <div className="text-sm text-destructive bg-destructive/10 p-4 rounded-lg">
-                        {previewError}
                       </div>
                     ) : (
-                      <pre className="overflow-x-auto rounded-lg bg-muted/30 p-4 font-mono text-sm whitespace-pre-wrap break-words">
-                        {previewContent}
-                      </pre>
+                      <div className="flex h-full flex-col items-center justify-center py-16 text-muted-foreground">
+                        <FolderOpen className="h-10 w-10 mb-3 opacity-50" />
+                        <p className="text-sm">{t('detail.selectPrompt')}</p>
+                      </div>
                     )}
                   </div>
-                ) : (
-                  <div className="flex h-full flex-col items-center justify-center py-16 text-muted-foreground">
-                    <FolderOpen className="h-10 w-10 mb-3 opacity-50" />
-                    <p className="text-sm">{t('detail.selectPrompt')}</p>
-                  </div>
-                )}
+                </div>
+
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                  <Card className="border-dashed border-muted-foreground/30 bg-muted/30">
+                    <CardContent className="px-4 py-4 sm:px-6">
+                      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                        <p className="text-sm text-muted-foreground">
+                          <span className="font-medium">{t('integrationsHint.label')}</span> {t('integrationsHint.body')}
+                        </p>
+                        <Button asChild variant="outline" size="sm" className="w-full sm:w-auto">
+                          <Link href="/settings?tab=integrations">{t('integrationsHint.openSettings')}</Link>
+                        </Button>
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  <Card className="border-dashed border-blue-500/30 bg-blue-50/30 dark:bg-blue-950/20">
+                    <CardContent className="px-4 py-4 sm:px-6">
+                      <div className="flex items-start gap-3">
+                        <div className="flex-1">
+                          <p className="text-sm text-foreground">
+                            <span className="font-medium">{t('creationHint.label')}</span> {t('creationHint.bodyBefore')}{' '}
+                            <span className="font-semibold text-blue-600 dark:text-blue-400">{t('creationHint.creatorSkill')}</span>
+                            {t('creationHint.bodyAfter')}
+                          </p>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </div>
               </div>
-            </div>
+            </TabsContent>
 
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-              <Card className="border-dashed border-muted-foreground/30 bg-muted/30">
-                <CardContent className="px-4 py-4 sm:px-6">
-                  <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                    <p className="text-sm text-muted-foreground">
-                      <span className="font-medium">{t('integrationsHint.label')}</span> {t('integrationsHint.body')}
-                    </p>
-                    <Button asChild variant="outline" size="sm" className="w-full sm:w-auto">
-                      <Link href="/settings?tab=integrations">{t('integrationsHint.openSettings')}</Link>
-                    </Button>
+            <TabsContent value="library" className="space-y-3">
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <div className="relative flex-1">
+                  <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    value={skillStoreQuery}
+                    onChange={(event) => {
+                      setSkillStorePage(1);
+                      setSkillStoreQuery(event.target.value);
+                    }}
+                    placeholder={t('skillLibrary.searchPlaceholder')}
+                    className="pl-9"
+                  />
+                </div>
+                <Button variant="outline" size="sm" onClick={() => void loadSkillStore()} disabled={skillStoreLoading} className="gap-1.5">
+                  {skillStoreLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+                  {t('skillLibrary.reload')}
+                </Button>
+              </div>
+              {skillStoreMetadata ? (
+                <div className="text-xs text-muted-foreground">
+                  {t('skillLibrary.storeSource', { name: skillStoreMetadata.name })}
+                </div>
+              ) : null}
+              {skillStoreError ? (
+                <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-300">
+                  {skillStoreError}
+                </div>
+              ) : null}
+              {skillStoreLoading ? (
+                <div className="flex items-center justify-center rounded-lg border border-dashed py-8 text-muted-foreground">
+                  <Loader2 className="h-5 w-5 animate-spin" />
+                </div>
+              ) : skillStoreSkills.length === 0 ? (
+                <div className="rounded-lg border border-dashed px-4 py-6 text-sm text-muted-foreground">
+                  {t('skillLibrary.emptyStore')}
+                </div>
+              ) : (
+                <>
+                  <div className="grid gap-3 md:grid-cols-2">
+                    {skillStoreSkills.map((skill) => renderSkillStoreCard(skill))}
                   </div>
-                </CardContent>
-              </Card>
+                  {renderSkillStorePagination()}
+                </>
+              )}
+            </TabsContent>
 
-              <Card className="border-dashed border-blue-500/30 bg-blue-50/30 dark:bg-blue-950/20">
-                <CardContent className="px-4 py-4 sm:px-6">
-                  <div className="flex items-start gap-3">
-                    <div className="flex-1">
-                      <p className="text-sm text-foreground">
-                        <span className="font-medium">{t('creationHint.label')}</span> {t('creationHint.bodyBefore')}{' '}
-                        <span className="font-semibold text-blue-600 dark:text-blue-400">{t('creationHint.creatorSkill')}</span>
-                        {t('creationHint.bodyAfter')}
-                      </p>
-                    </div>
+            <TabsContent value="updates" className="space-y-3">
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <div className="relative flex-1">
+                  <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    value={skillStoreQuery}
+                    onChange={(event) => {
+                      setSkillStorePage(1);
+                      setSkillStoreQuery(event.target.value);
+                    }}
+                    placeholder={t('skillLibrary.searchPlaceholder')}
+                    className="pl-9"
+                  />
+                </div>
+                <Button variant="outline" size="sm" onClick={() => void loadSkillStore()} disabled={skillStoreLoading} className="gap-1.5">
+                  {skillStoreLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+                  {t('skillLibrary.reload')}
+                </Button>
+              </div>
+              {skillStoreError ? (
+                <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-300">
+                  {skillStoreError}
+                </div>
+              ) : null}
+              {skillStoreLoading ? (
+                <div className="flex items-center justify-center rounded-lg border border-dashed py-8 text-muted-foreground">
+                  <Loader2 className="h-5 w-5 animate-spin" />
+                </div>
+              ) : skillStoreSkills.length === 0 ? (
+                <div className="rounded-lg border border-dashed px-4 py-6 text-sm text-muted-foreground">
+                  {t('skillLibrary.noUpdates')}
+                </div>
+              ) : (
+                <>
+                  <div className="grid gap-3 md:grid-cols-2">
+                    {skillStoreSkills.map((skill) => renderSkillStoreCard(skill))}
                   </div>
-                </CardContent>
-              </Card>
-            </div>
-          </div>
+                  {renderSkillStorePagination()}
+                </>
+              )}
+            </TabsContent>
+          </Tabs>
         </TabsContent>
       </Tabs>
 

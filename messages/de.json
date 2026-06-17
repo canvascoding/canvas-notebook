@@ -2872,6 +2872,35 @@
         "sourcePathRequired": "Gib den absoluten Pfad zu einem lokalen Plugin-Paket ein."
       }
     },
+    "skillLibrary": {
+      "tabs": {
+        "installed": "Installiert",
+        "library": "Skill Library",
+        "updates": "Updates ({count})"
+      },
+      "searchPlaceholder": "Skills suchen",
+      "storeSource": "Quelle: {name}",
+      "officialStore": "Canvas Skill Library",
+      "emptyStore": "Keine Skills in der Library gefunden.",
+      "noUpdates": "Alle installierten Library-Skills sind aktuell.",
+      "install": "Skill hinzufügen",
+      "update": "Aktualisieren",
+      "installed": "Installiert",
+      "restore": "Zurücksetzen",
+      "reload": "Neu laden",
+      "modified": "Geändert",
+      "updateAvailable": "Update verfügbar",
+      "pagination": {
+        "status": "Seite {page} von {totalPages} · {totalItems} Skills",
+        "previous": "Zurück",
+        "next": "Weiter"
+      },
+      "errors": {
+        "storeLoad": "Canvas Skill Library konnte nicht geladen werden.",
+        "install": "Skill konnte nicht installiert werden.",
+        "restore": "Skill konnte nicht zurückgesetzt werden."
+      }
+    },
     "integrationsHint": {
       "label": "Hinweis:",
       "body": "Wenn Skills Env-Variablen benötigen, müssen diese im Integrations-Tab gespeichert werden.",

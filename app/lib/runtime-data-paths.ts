@@ -49,6 +49,14 @@ export function resolveSkillsDataDir(cwd?: string): string {
   return path.join(/* turbopackIgnore: true */ resolveCanvasDataRoot(cwd), 'skills');
 }
 
+export function resolveSkillRegistryPath(cwd?: string): string {
+  return path.join(/* turbopackIgnore: true */ resolveSkillsDataDir(cwd), 'registry.json');
+}
+
+export function resolveSkillBackupsDir(cwd?: string): string {
+  return path.join(/* turbopackIgnore: true */ resolveSkillsDataDir(cwd), '.backups');
+}
+
 export function resolvePluginsDataDir(cwd?: string): string {
   return path.join(/* turbopackIgnore: true */ resolveCanvasDataRoot(cwd), 'plugins');
 }

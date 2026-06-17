@@ -2873,6 +2873,35 @@
         "sourcePathRequired": "Enter the absolute path to a local plugin package."
       }
     },
+    "skillLibrary": {
+      "tabs": {
+        "installed": "Installed",
+        "library": "Skill Library",
+        "updates": "Updates ({count})"
+      },
+      "searchPlaceholder": "Search skills",
+      "storeSource": "Source: {name}",
+      "officialStore": "Canvas Skill Library",
+      "emptyStore": "No library skills found.",
+      "noUpdates": "All installed library skills are up to date.",
+      "install": "Add skill",
+      "update": "Update",
+      "installed": "Installed",
+      "restore": "Restore",
+      "reload": "Reload",
+      "modified": "Modified",
+      "updateAvailable": "Update available",
+      "pagination": {
+        "status": "Page {page} of {totalPages} · {totalItems} skills",
+        "previous": "Previous",
+        "next": "Next"
+      },
+      "errors": {
+        "storeLoad": "Failed to load Canvas Skill Library.",
+        "install": "Failed to install skill.",
+        "restore": "Failed to restore skill."
+      }
+    },
     "integrationsHint": {
       "label": "Note:",
       "body": "If skills require environment variables, they must be stored in the integrations tab.",

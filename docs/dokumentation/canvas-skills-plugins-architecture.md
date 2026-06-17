@@ -20,6 +20,9 @@ Die Canvas-Skill-Runtime, die Canvas-Plugin-Runtime und der erste offizielle Can
 - Der Store wird paginiert und serverseitig nach Query/State gefiltert. Die UI laedt standardmaessig nur die aktuelle Seite, damit grosse Marketplace-Registries nicht komplett in den Browserzustand geladen werden.
 - Store-Plugins koennen direkt aus der Registry installiert werden. Canvas laedt das Archiv, extrahiert den in `packagePath` angegebenen Plugin-Ordner, prueft die Package-Checksumme und installiert danach ueber denselben lokalen Installer.
 - Installierte Store-Plugins zeigen Update-Status, wenn die Registry eine hoehere `latestVersion` kennt.
+- Der Skills-Tab hat intern **Installiert**, **Skill Library** und **Updates**. Installiert bleibt die lokale Datei-/Detailverwaltung; Library und Updates laden reine Standalone-Skills aus derselben Registry-Quelle wie der Plugin Store.
+- Reine Store-Skills werden nach `/data/skills/<skill-name>/` installiert, in `/data/skills/registry.json` versioniert und vor Ueberschreiben unter `/data/skills/.backups/<skill-name>/` gesichert.
+- Installierte Library-Skills zeigen Update- und Modified-Status. Standalone-Skills koennen aus der Store-Version oder, falls vorhanden, aus `/app/seed_skills/<skill-name>/` wiederhergestellt werden.
 - Plugins mit MCP-, E-Mail- oder Composio-Empfehlungen zeigen Connector-Karten mit Setup-CTA. Store-Plugins laden App-/Connector-Status erst per explizitem Preflight fuer das konkrete Plugin; installierte Plugins duerfen ihren Connector-Status anzeigen. Die Connector-Angaben werden als Metadaten gespeichert, enthalten keine Secrets und werden nicht automatisch in Connector-Konfigurationen geschrieben.
 - Beim Containerstart werden fehlende Seed-Skills aus `/app/seed_skills` nach `/data/skills` kopiert. Bestehende Skills werden nicht ueberschrieben.
 - Der Seed-Skill `/create-plugin` beschreibt Scaffold, Manifest, Connector-Empfehlungen, Validierung und Marketplace-Vorbereitung fuer neue Canvas Plugins.
@@ -209,18 +212,29 @@ canvas-notebook-plugin-marketplace/
         assets/
     google-workspace/
       1.0.0/
+  skills/
+    create-plugin/
+      1.0.0/
+        SKILL.md
+        agents/canvas.yaml
+        assets/
 ```
 
-`registry.json` listet Marketplace-Metadaten, Plugin-Versionen, Download-Pfade, Checksums, Kategorien, Icons, Publisher und Connector-Hinweise. Canvas Notebook installiert Pakete nach:
+`registry.json` listet Marketplace-Metadaten, Plugin-Versionen, Skill-Versionen, Download-Pfade, Checksums, Kategorien, Icons, Publisher und Connector-Hinweise. Plugins bleiben der primaere Distributionsweg; die optionale `skills`-Sektion ist fuer einzelne Standalone-Skills vorgesehen, zum Beispiel Creator-/Repair-Skills oder Basis-Skills, die Nutzer separat zuruecksetzen wollen.
+
+Canvas Notebook installiert Pakete nach:
 
 ```text
 /data/plugins/installed/<plugin-name>/<version>/
 /data/plugins/registry.json
+/data/skills/<skill-name>/
+/data/skills/registry.json
+/data/skills/.backups/<skill-name>/<timestamp>/
 ```
 
 Standalone Skills bleiben moeglich. Plugin-Skills bleiben intern ihrem Plugin zugeordnet, damit Updates, Entfernen und Lizenzinformationen konsistent sind.
 
-Remote-Installation laeuft aktuell ueber diesen Ablauf:
+Plugin-Installation laeuft aktuell ueber diesen Ablauf:
 
 1. Offizielle Registry aus `CANVAS_PLUGIN_STORE_REGISTRY_URL` laden; falls nicht gesetzt, wird die Canvas-GitHub-Registry verwendet.
 2. Plugin-Liste serverseitig paginiert und gefiltert ausliefern (`page`, `pageSize`, `q`, `state`).
@@ -232,6 +246,19 @@ Remote-Installation laeuft aktuell ueber diesen Ablauf:
 8. Paket nach `/data/plugins/installed/<name>/<version>/` kopieren.
 9. Lokale Plugin-Registry atomar aktualisieren.
 10. Plugin-Skills aktivieren, wenn der Nutzer `Install` bestaetigt.
+
+Standalone-Skill-Installation nutzt denselben Grundablauf mit einem kleineren Paketformat:
+
+1. Offizielle Registry aus `CANVAS_PLUGIN_STORE_REGISTRY_URL` laden und die optionale `skills`-Sektion normalisieren.
+2. Skill-Liste serverseitig paginiert und gefiltert ausliefern (`page`, `pageSize`, `q`, `state`).
+3. Skill-Version auswaehlen, standardmaessig `latestVersion`.
+4. Paket aus `downloadUrl` herunterladen und den in `packagePath` angegebenen Skill-Ordner extrahieren.
+5. Checksum gegen Registry pruefen.
+6. `SKILL.md` am Paket-Root validieren und sicherstellen, dass der Skill-Name zum Registry-Eintrag passt.
+7. Falls ein Standalone-Skill bereits existiert, ihn nach `/data/skills/.backups/<skill-name>/<timestamp>/` sichern.
+8. Paket nach `/data/skills/<skill-name>/` kopieren.
+9. Lokale Skill-Registry atomar aktualisieren.
+10. Skill aktivieren, wenn der Nutzer `Install` oder `Restore` bestaetigt.
 
 Mehrere Marketplace-Quellen bleiben ein geplanter Ausbau. Das Datenmodell und die Store-UI sind so gehalten, dass spaeter zusaetzliche Quellen neben dem offiziellen Store angebunden werden koennen.
 
@@ -250,6 +277,9 @@ Die lokale Runtime stellt diese authentifizierten Endpunkte bereit:
 - `POST /api/plugins/[name]/disable` — Plugin deaktivieren
 - `DELETE /api/plugins/[name]` — Plugin entfernen
 - `GET /api/plugins/asset?plugin=<name>&path=<relative-image-path>` — Plugin-Bilder laden
+- `GET /api/skills/store` — offizielle Skill Library mit Installations-, Update- und Modified-Status listen; Query: `page`, `pageSize`, `q`, `state=all|available|installed|updates`
+- `POST /api/skills/store/install` — Standalone-Skill aus der Library installieren (`name`, optional `version`, `enable`, `replace`)
+- `POST /api/skills/[name]/restore` — Standalone-Skill aus Store oder Seed wiederherstellen (`prefer=store|seed`, optional `version`, `enable`)
 
 Fuer den Marketplace werden zusaetzlich benoetigt:
 
