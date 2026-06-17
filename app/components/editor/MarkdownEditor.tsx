@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
+import { createRoot, type Root } from 'react-dom/client';
 import { Extension, getMarkRange, type Editor, type JSONContent, type Range } from '@tiptap/core';
 import {
   EditorContent,
@@ -172,6 +173,10 @@ type SlashCommandListProps = SuggestionProps<SlashCommandItem, SlashCommandItem>
   labels: Pick<SlashCommandLabels, 'empty' | 'group'>;
 };
 
+type ColorSwatchWidgetHost = HTMLSpanElement & {
+  colorSwatchRoot?: Root;
+};
+
 const EMPTY_TOOLBAR_STATE: ToolbarState = {
   canUndo: false,
   canRedo: false,
@@ -262,19 +267,51 @@ function copyTextToClipboard(value: string) {
   void navigator.clipboard?.writeText(value).catch(() => {});
 }
 
+function getCopyActionLabel() {
+  const language = document.documentElement.lang || navigator.language || '';
+  return language.toLowerCase().startsWith('de') ? 'Kopieren' : 'Copy';
+}
+
+function MarkdownColorSwatchWidget({ colorCode }: { colorCode: string }) {
+  const actionLabel = getCopyActionLabel();
+
+  return (
+    <TooltipProvider delayDuration={150}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            className="tiptap-color-swatch-widget"
+            style={{ backgroundColor: colorCode }}
+            aria-label={`${actionLabel}: ${colorCode}`}
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              copyTextToClipboard(colorCode);
+            }}
+            onMouseDown={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+            }}
+          />
+        </TooltipTrigger>
+        <TooltipContent>{actionLabel}</TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
+}
+
 function createColorSwatchWidget(colorCode: string) {
-  const swatch = document.createElement('button');
-  swatch.type = 'button';
-  swatch.className = 'tiptap-color-swatch-widget';
-  swatch.style.backgroundColor = colorCode;
-  swatch.title = `Copy ${colorCode}`;
-  swatch.setAttribute('aria-label', `Copy color ${colorCode}`);
-  swatch.addEventListener('click', (event) => {
-    event.preventDefault();
-    event.stopPropagation();
-    copyTextToClipboard(colorCode);
-  });
-  return swatch;
+  const host = document.createElement('span') as ColorSwatchWidgetHost;
+  host.className = 'tiptap-color-swatch-widget-root';
+  host.colorSwatchRoot = createRoot(host);
+  host.colorSwatchRoot.render(<MarkdownColorSwatchWidget colorCode={colorCode} />);
+  return host;
+}
+
+function destroyColorSwatchWidget(node: Node) {
+  if (!(node instanceof HTMLSpanElement)) return;
+  (node as ColorSwatchWidgetHost).colorSwatchRoot?.unmount();
 }
 
 const ColorSwatchDecorations = Extension.create({
@@ -306,6 +343,7 @@ const ColorSwatchDecorations = Extension.create({
                       side: 1,
                       ignoreSelection: true,
                       stopEvent: () => true,
+                      destroy: destroyColorSwatchWidget,
                     },
                   ));
                 }
@@ -324,6 +362,7 @@ const ColorSwatchDecorations = Extension.create({
                     side: 1,
                     ignoreSelection: true,
                     stopEvent: () => true,
+                    destroy: destroyColorSwatchWidget,
                   },
                 ));
               }

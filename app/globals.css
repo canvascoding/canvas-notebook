@@ -516,6 +516,11 @@
   border-radius: 0.25rem;
 }
 
+.tiptap-color-swatch-widget-root {
+  display: inline-flex;
+  vertical-align: -0.125rem;
+}
+
 .tiptap-color-swatch-widget {
   border: 1px solid color-mix(in oklab, var(--foreground) 30%, transparent);
   border-radius: 0.25rem;
@@ -529,7 +534,8 @@
   width: 0.875rem;
 }
 
-.tiptap-color-swatch-widget:hover {
+.tiptap-color-swatch-widget:hover,
+.tiptap-color-swatch-widget:focus-visible {
   outline: 2px solid color-mix(in oklab, var(--ring) 70%, transparent);
   outline-offset: 1px;
 }
