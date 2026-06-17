@@ -1,6 +1,6 @@
 # Canvas Skills and Plugins Architecture
 
-Stand: 2026-06-16
+Stand: 2026-06-17
 
 ## Implementierter Stand
 
@@ -26,7 +26,7 @@ Canvas Notebook nutzt eigene, produktneutrale Begriffe und Formate:
 
 - **Canvas Skill:** Ein einzelner wiederverwendbarer Agent-Workflow mit `SKILL.md`, optionalen Ressourcen und UI-Metadaten.
 - **Canvas Plugin:** Ein installierbares Bundle aus einem oder mehreren Canvas Skills plus optionalen Konnektoren, Store-Metadaten und Assets.
-- **Canvas Skill Store:** Eine Registry, aus der Nutzer kuratierte Skills und Plugins installieren oder aktualisieren koennen.
+- **Canvas Plugin Marketplace:** Eine oder mehrere Registry-Quellen, aus denen Nutzer kuratierte Plugins installieren oder aktualisieren koennen.
 
 Die Runtime darf intern keine Skill-Modellnamen verwenden, die auf einzelne Anbieter verweisen. Importer fuer fremde Formate koennen spaeter ergaenzt werden, normalisieren aber immer in das Canvas-Modell.
 
@@ -121,24 +121,55 @@ Vorgesehenes Manifest:
 
 MCP- und Composio-Konfigurationen duerfen keine Secrets enthalten. Sie referenzieren Umgebungsvariablen, die zentral ueber `/data/secrets/Canvas-Integrations.env` verwaltet werden.
 
-## Registry und Installation
+## Marketplace-Quellen
 
-Langfristig sollte es ein separates oeffentliches Repository geben, z. B. `canvas-skills`, das nur kuratierte Skill- und Plugin-Pakete enthaelt:
+Canvas Notebook unterscheidet kuenftig vier Quellenklassen:
+
+1. **System / Built-in:** Skills oder Plugins, die mit der App ausgeliefert werden, immer verfuegbar sind und nicht geloescht werden koennen. Diese Pakete sind fuer Basisfunktionen wie Dokumente, PDFs, Praesentationen und Tabellen geeignet.
+2. **Canvas Official:** Der offizielle Canvas Marketplace. Die erste Implementierung nutzt ein oeffentliches GitHub-Repository als Registry- und Paketquelle. Nutzer sehen nur "Canvas Plugin Store"; GitHub bleibt ein Implementierungsdetail.
+3. **Third-party Marketplaces:** Administratoren koennen weitere Registry-URLs hinzufuegen. Plugins aus diesen Quellen werden mit Publisher- und Source-Badge angezeigt.
+4. **Developer / Local:** Installation aus einem absoluten Serverpfad bleibt fuer Entwicklung und Tests moeglich, wird aber in der UI unter "Advanced" verschoben.
+
+Die lokale Konfiguration der Marketplace-Quellen sollte unter `/data/plugins/sources.json` liegen:
+
+```json
+{
+  "version": 1,
+  "sources": [
+    {
+      "id": "canvas-official",
+      "type": "official",
+      "name": "Canvas Plugin Store",
+      "registryUrl": "https://raw.githubusercontent.com/canvascoding/canvas-notebook-plugin-marketplace/main/registry.json",
+      "enabled": true,
+      "trusted": true
+    }
+  ]
+}
+```
+
+System-/Built-in-Skills brauchen keine Remote-Quelle. Sie werden aus dem App-Image oder aus expliziten Seed-Verzeichnissen geladen und im UI mit einem nicht loeschbaren `System`-Badge angezeigt.
+
+## Remote Registry und Installation
+
+Das offizielle Marketplace-Repository ist als separates oeffentliches Repository vorgesehen: `canvas-notebook-plugin-marketplace`.
 
 ```text
-canvas-skills/
+canvas-notebook-plugin-marketplace/
   registry.json
+  schemas/
+    registry.schema.json
   plugins/
     pdf/
       1.0.0/
+        .canvas-plugin/plugin.json
+        skills/
+        assets/
     google-workspace/
-      1.0.0/
-  skills/
-    standalone-skill/
       1.0.0/
 ```
 
-`registry.json` listet Name, Version, Beschreibung, Lizenz, Checksums, Download-Pfad, Kategorien und Icon-Metadaten. Canvas Notebook installiert lokale Plugin-Pakete nach:
+`registry.json` listet Marketplace-Metadaten, Plugin-Versionen, Download-Pfade, Checksums, Kategorien, Icons, Publisher und Connector-Hinweise. Canvas Notebook installiert Pakete nach:
 
 ```text
 /data/plugins/installed/<plugin-name>/<version>/
@@ -146,6 +177,18 @@ canvas-skills/
 ```
 
 Standalone Skills bleiben moeglich. Plugin-Skills bleiben intern ihrem Plugin zugeordnet, damit Updates, Entfernen und Lizenzinformationen konsistent sind.
+
+Remote-Installation laeuft immer ueber diesen Ablauf:
+
+1. Marketplace-Quellen laden und cachen.
+2. Plugin-Version auswaehlen, standardmaessig die hoechste stabile Version.
+3. Paket aus `downloadUrl` oder GitHub-Raw-Pfad herunterladen.
+4. Checksum gegen Registry pruefen.
+5. `.canvas-plugin/plugin.json` validieren.
+6. Paket nach `/data/plugins/installed/<name>/<version>/` kopieren.
+7. Lokale Plugin-Registry atomar aktualisieren.
+8. Plugin-Skills aktivieren, wenn der Nutzer `Install` bestaetigt.
+9. Falls Connector-Metadaten vorhanden sind, einen Setup-Schritt fuer MCP oder Composio anzeigen.
 
 ## Lokale API
 
@@ -160,6 +203,17 @@ Die lokale Runtime stellt diese authentifizierten Endpunkte bereit:
 - `DELETE /api/plugins/[name]` — Plugin entfernen
 - `GET /api/plugins/asset?plugin=<name>&path=<relative-image-path>` — Plugin-Bilder laden
 
+Fuer den Marketplace werden zusaetzlich benoetigt:
+
+- `GET /api/plugin-marketplaces` — konfigurierte Quellen und Sync-Status listen
+- `POST /api/plugin-marketplaces` — Admin fuegt eine Registry-Quelle hinzu
+- `DELETE /api/plugin-marketplaces/[sourceId]` — Admin entfernt eine Registry-Quelle
+- `POST /api/plugin-marketplaces/[sourceId]/sync` — Registry neu laden und cachen
+- `GET /api/plugin-store` — aggregierte installierbare Plugins aus allen aktivierten Quellen
+- `POST /api/plugins/install-from-store` — Plugin aus einer Marketplace-Quelle installieren
+- `POST /api/plugins/check-updates` — installierte Plugins mit Store-Versionen vergleichen
+- `POST /api/plugins/[name]/update` — neue Version installieren und aktiv umschalten
+
 ## Versionierung
 
 Empfohlenes Modell:
@@ -170,11 +224,27 @@ Empfohlenes Modell:
 - Updates installieren eine neue Version neben die alte und schalten danach atomar um.
 - Nutzerkoepien oder lokale Edits markieren ein Paket als `modified`, damit Updates nicht still lokale Aenderungen ueberschreiben.
 
+Remote-Registries duerfen eine Version nicht in-place veraendern. Ein Plugin-Update erzeugt immer einen neuen Ordner:
+
+```text
+plugins/pdf/1.0.0/
+plugins/pdf/1.1.0/
+```
+
+Die lokale Registry zeigt nur eine aktive Version pro Plugin. Alte Versionen koennen fuer Rollback erhalten bleiben.
+
 ## Seed Collection
 
 Canvas Notebook kann eine kleine Seed Collection direkt mitliefern. Beim ersten Start sollten Nutzer auswaehlen koennen, welche Skills oder Plugins installiert und aktiviert werden. Weitere Pakete kommen spaeter aus dem Remote Store.
 
 Aktuell liefert das Docker-Image `seed_skills/` unter `/app/seed_skills` mit. Der Bootstrap kopiert beim Start nur fehlende Skill-Ordner nach `/data/skills`; dadurch bleiben lokale Anpassungen erhalten und neue Installationen bekommen weiterhin die Basisskills. Seed-Plugins sind vorbereitet durch `/data/plugins`, aber noch nicht als automatische Erstinstallation aktiviert.
+
+Ziel fuer die naechste Iteration:
+
+- `seed_plugins/` fuer nicht-loeschbare oder vorinstallierte Canvas-Plugins einfuehren.
+- System-Skills und System-Plugins im UI klar mit `System` markieren.
+- Official-Marketplace-Plugins nicht automatisch alle installieren, sondern im Store sichtbar machen.
+- Eine kleine kuratierte Startauswahl anbieten, z. B. Dokumente, PDF, Praesentationen, Tabellen, Browser, GitHub.
 
 Seed-Pakete muessen vor dem Veröffentlichen auditierbar sein:
 
@@ -197,4 +267,8 @@ Seed-Pakete muessen vor dem Veröffentlichen auditierbar sein:
 9. Plugin-Referenzen im Chat in zusaetzlichen Agent-Runtime-Kontext uebersetzen. ✅
 10. Settings-UI auf Plugin-first Tabs umstellen und Connector-Deep-Links ergaenzen. ✅
 11. Seed-Skill-Bootstrap fuer frische `/data`-Volumes ergaenzen. ✅
-12. Remote Registry/Public Store und Update-Pruefung bauen.
+12. Separates oeffentliches Marketplace-Repository scaffolden. ✅
+13. Marketplace-Source-Modell mit official, third-party, system und local definieren.
+14. Remote Registry/Public Store und Update-Pruefung bauen.
+15. Plugin-Store-UI mit Discover, Installed, Updates, Sources und Advanced Local Install bauen.
+16. Create-Plugin-Skill fuer Scaffold, Manifest, Validierung und Marketplace-Submit vorbereiten.
