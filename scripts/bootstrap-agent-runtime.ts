@@ -3,6 +3,7 @@ import { statSync } from 'node:fs';
 import path from 'node:path';
 import { loadAppEnv } from '../server/load-app-env';
 import { isOnboardingComplete } from '../app/lib/onboarding/status';
+import { parseBootstrapSeedSkillNames } from '../app/lib/skills/default-seed-skills';
 
 // Database imports are optional - they may not be available in Docker container
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -368,11 +369,18 @@ async function ensureSeedSkillsBootstrap(): Promise<void> {
   }
 
   await fs.mkdir(SKILLS_STORAGE_DIR, { recursive: true });
+  const bootstrapSeedSkillNames = parseBootstrapSeedSkillNames(process.env.CANVAS_BOOTSTRAP_SEED_SKILLS);
   const entries = await fs.readdir(SEED_SKILLS_DIR, { withFileTypes: true });
   let copiedCount = 0;
+  let skippedNonDefaultCount = 0;
 
   for (const entry of entries) {
     if (!entry.isDirectory() || entry.name.startsWith('.')) {
+      continue;
+    }
+
+    if (!bootstrapSeedSkillNames.has(entry.name)) {
+      skippedNonDefaultCount += 1;
       continue;
     }
 
@@ -393,6 +401,9 @@ async function ensureSeedSkillsBootstrap(): Promise<void> {
     console.log('[bootstrap-agent-runtime] Seed skills already present or no valid seed skills found.');
   } else {
     console.log(`[bootstrap-agent-runtime] Installed ${copiedCount} seed skills.`);
+  }
+  if (skippedNonDefaultCount > 0) {
+    console.log(`[bootstrap-agent-runtime] Skipped ${skippedNonDefaultCount} non-default seed skills.`);
   }
 }
 

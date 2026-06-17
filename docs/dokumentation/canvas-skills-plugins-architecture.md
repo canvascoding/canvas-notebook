@@ -24,7 +24,7 @@ Die Canvas-Skill-Runtime, die Canvas-Plugin-Runtime und der erste offizielle Can
 - Reine Store-Skills werden nach `/data/skills/<skill-name>/` installiert, in `/data/skills/registry.json` versioniert und vor Ueberschreiben unter `/data/skills/.backups/<skill-name>/` gesichert.
 - Installierte Library-Skills zeigen Update- und Modified-Status. Standalone-Skills koennen aus der Store-Version oder, falls vorhanden, aus `/app/seed_skills/<skill-name>/` wiederhergestellt werden.
 - Plugins mit MCP-, E-Mail- oder Composio-Empfehlungen zeigen Connector-Karten mit Setup-CTA. Store-Plugins laden App-/Connector-Status erst per explizitem Preflight fuer das konkrete Plugin; installierte Plugins duerfen ihren Connector-Status anzeigen. Die Connector-Angaben werden als Metadaten gespeichert, enthalten keine Secrets und werden nicht automatisch in Connector-Konfigurationen geschrieben.
-- Beim Containerstart werden fehlende Seed-Skills aus `/app/seed_skills` nach `/data/skills` kopiert. Bestehende Skills werden nicht ueberschrieben.
+- Beim Containerstart werden nur kuratierte Default-Seed-Skills aus `/app/seed_skills` nach `/data/skills` kopiert. Bestehende Skills werden nicht ueberschrieben.
 - Der Seed-Skill `/create-plugin` beschreibt Scaffold, Manifest, Connector-Empfehlungen, Validierung und Marketplace-Vorbereitung fuer neue Canvas Plugins.
 
 ## Zielbild
@@ -194,6 +194,28 @@ Die lokale Konfiguration der Marketplace-Quellen sollte unter `/data/plugins/sou
 ```
 
 System-/Built-in-Skills brauchen keine Remote-Quelle. Sie werden aus dem App-Image oder aus expliziten Seed-Verzeichnissen geladen und im UI mit einem nicht loeschbaren `System`-Badge angezeigt.
+
+## Default Seed Skills
+
+`seed_skills/` bleibt das App-interne Quellverzeichnis fuer Skills, die mit dem Image ausgeliefert werden. Damit neue Installationen nicht mit zu vielen Spezial-Skills starten, installiert der Bootstrap aber nur eine explizite Basisliste automatisch:
+
+- `create-plugin` — Canvas Plugins scaffolden und marketplace-faehig vorbereiten.
+- `skill-creator` — neue Canvas Skills erstellen oder bestehende Skills verbessern.
+- `find-skills` — passende installierbare Skills fuer eine Aufgabe finden.
+- `excalidraw-diagram` — Diagramme als editierbare Excalidraw-Dateien erstellen.
+- `pdf` — PDF lesen, erstellen, rendern und pruefen.
+- `pptx` — PowerPoint-Dateien erstellen und bearbeiten.
+- `xlsx` — Excel-/Spreadsheet-Dateien erstellen und bearbeiten.
+- `docx` — Word-/DOCX-Dateien erstellen und bearbeiten.
+- `frontend-slides` — webbasierte, visuell anspruchsvolle Slide-Artefakte erstellen.
+
+Alle anderen Skills duerfen weiterhin in `seed_skills/` liegen, werden aber nicht automatisch nach `/data/skills` kopiert. Sie sollen bevorzugt ueber die Canvas Skill Library im Marketplace angeboten werden. Bestehende Installationen werden nicht bereinigt; die neue Regel betrifft nur Bootstrap-Laeufe, bei denen ein Skill im Zielverzeichnis noch fehlt.
+
+Admins koennen die Bootstrap-Auswahl bei Bedarf mit `CANVAS_BOOTSTRAP_SEED_SKILLS` als kommaseparierte Liste ueberschreiben, zum Beispiel:
+
+```text
+CANVAS_BOOTSTRAP_SEED_SKILLS=pdf,pptx,xlsx,docx,frontend-slides,create-plugin,skill-creator,find-skills,excalidraw-diagram
+```
 
 ## Remote Registry und Installation
 
