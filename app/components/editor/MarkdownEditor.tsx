@@ -70,10 +70,15 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { MermaidDiagram } from '@/components/ui/mermaid-diagram';
 import { Switch } from '@/components/ui/switch';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { SafeMarkdownImage } from '@/app/components/shared/SafeMarkdownImage';
 import { createInlineColorRegex, isColorCode } from '@/app/lib/markdown/color-code';
 import { makeLinkPreviewImageAlt, parseLinkPreviewImageAlt } from '@/app/lib/markdown/link-preview-markdown';
+import {
+  getWorkspaceTargetDirForMarkdown,
+  markdownImageSrcForWorkspacePath,
+} from '@/app/lib/markdown/markdown-image-path';
 import { resolveMarkdownImageUrl } from '@/app/lib/markdown/markdown-image-url';
 import { cn } from '@/lib/utils';
 
@@ -113,6 +118,7 @@ type ToolbarState = {
 };
 
 type SlashCommandActions = {
+  openImageDialog?: (editor: Editor, range: Range) => void;
   openTableDialog?: (editor: Editor, range: Range) => void;
 };
 
@@ -183,6 +189,11 @@ type BlockCommandMenuState = {
     top: number;
     width: number;
   };
+};
+
+type ImageDialogSeed = {
+  id: number;
+  range?: Range;
 };
 
 type ColorSwatchWidgetHost = HTMLSpanElement & {
@@ -464,7 +475,12 @@ const SLASH_COMMAND_DEFINITIONS: SlashCommandDefinition[] = [
     id: 'image',
     keywords: ['photo', 'picture'],
     Icon: ImageIcon,
-    command: ({ editor, labels, range }) => {
+    command: ({ actions, editor, labels, range }) => {
+      if (actions?.openImageDialog) {
+        actions.openImageDialog(editor, range);
+        return;
+      }
+
       const src = window.prompt(labels.imageSrcPrompt);
       if (!src?.trim()) {
         editor.chain().focus().deleteRange(range).run();
@@ -1470,6 +1486,210 @@ function MarkdownLinkDialog({
   );
 }
 
+type ImportedMarkdownImageResult = {
+  markdownSrc: string;
+  name: string;
+};
+
+type MarkdownImageImportResponse = {
+  success?: boolean;
+  files?: ImportedMarkdownImageResult[];
+  error?: string;
+};
+
+function isRemoteImageImportSource(value: string) {
+  return /^https?:\/\//iu.test(value);
+}
+
+function directMarkdownImageSrc(value: string, filePath?: string) {
+  const source = value.trim();
+  if (!source.startsWith('/')) return source;
+  return markdownImageSrcForWorkspacePath(source.slice(1), filePath);
+}
+
+function insertMarkdownImagesIntoEditor(
+  editor: Editor,
+  images: ImportedMarkdownImageResult[],
+  alt: string,
+  range?: Range,
+) {
+  const content = images
+    .filter((image) => image.markdownSrc)
+    .map<JSONContent>((image) => ({
+      type: 'image',
+      attrs: {
+        alt: alt.trim() || image.name,
+        src: image.markdownSrc,
+      },
+    }));
+
+  if (content.length === 0) return;
+
+  const chain = editor.chain().focus();
+  if (range) {
+    chain.deleteRange(range);
+  }
+
+  chain.insertContent(content).run();
+}
+
+function MarkdownImageDialog({
+  editor,
+  filePath,
+  open,
+  onOpenChange,
+  range,
+}: {
+  editor: MarkdownEditorWithMarkdown | null;
+  filePath?: string;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  range?: Range;
+}) {
+  const t = useTranslations('notebook');
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [mode, setMode] = useState<'upload' | 'url'>('upload');
+  const [source, setSource] = useState('');
+  const [alt, setAlt] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const submit = useCallback(async () => {
+    if (!editor || submitting) return;
+
+    setError(null);
+
+    try {
+      if (mode === 'url') {
+        const trimmedSource = source.trim();
+        if (!trimmedSource) {
+          setError(t('markdownEditorImageSourceRequired'));
+          return;
+        }
+
+        if (!isRemoteImageImportSource(trimmedSource)) {
+          insertMarkdownImagesIntoEditor(
+            editor,
+            [{ markdownSrc: directMarkdownImageSrc(trimmedSource, filePath), name: trimmedSource.split('/').pop() || 'image' }],
+            alt,
+            range,
+          );
+          onOpenChange(false);
+          return;
+        }
+      } else if (!fileInputRef.current?.files?.length) {
+        setError(t('markdownEditorImageNoFile'));
+        return;
+      }
+
+      setSubmitting(true);
+      const formData = new FormData();
+      formData.set('targetDir', getWorkspaceTargetDirForMarkdown(filePath));
+      if (filePath) formData.set('markdownPath', filePath);
+
+      if (mode === 'upload') {
+        Array.from(fileInputRef.current?.files || []).forEach((file) => {
+          formData.append('files', file);
+        });
+      } else {
+        formData.set('url', source.trim());
+      }
+
+      const response = await fetch('/api/markdown/images/import', {
+        method: 'POST',
+        body: formData,
+      });
+      const payload = await response.json().catch(() => null) as MarkdownImageImportResponse | null;
+
+      if (!response.ok || !payload?.success || !payload.files?.length) {
+        throw new Error(payload?.error || t('markdownEditorImageImportError'));
+      }
+
+      insertMarkdownImagesIntoEditor(editor, payload.files, alt, range);
+      onOpenChange(false);
+    } catch (importError) {
+      setError(importError instanceof Error ? importError.message : t('markdownEditorImageImportError'));
+    } finally {
+      setSubmitting(false);
+    }
+  }, [alt, editor, filePath, mode, onOpenChange, range, source, submitting, t]);
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>{t('markdownEditorImageDialogTitle')}</DialogTitle>
+          <DialogDescription>{t('markdownEditorImageDialogDescription')}</DialogDescription>
+        </DialogHeader>
+
+        <div className="grid gap-4">
+          <Tabs value={mode} onValueChange={(value) => setMode(value as 'upload' | 'url')}>
+            <TabsList className="grid w-full grid-cols-2">
+              <TabsTrigger value="upload">{t('markdownEditorImageTabUpload')}</TabsTrigger>
+              <TabsTrigger value="url">{t('markdownEditorImageTabUrl')}</TabsTrigger>
+            </TabsList>
+            <TabsContent value="upload" className="mt-4">
+              <div className="grid gap-2">
+                <Label htmlFor="markdown-image-upload">{t('markdownEditorImageUploadLabel')}</Label>
+                <Input
+                  id="markdown-image-upload"
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  disabled={submitting}
+                />
+                <p className="text-xs text-muted-foreground">{t('markdownEditorImageUploadHint')}</p>
+              </div>
+            </TabsContent>
+            <TabsContent value="url" className="mt-4">
+              <div className="grid gap-2">
+                <Label htmlFor="markdown-image-source">{t('markdownEditorImageUrlLabel')}</Label>
+                <Input
+                  id="markdown-image-source"
+                  value={source}
+                  disabled={submitting}
+                  placeholder={t('markdownEditorImageUrlPlaceholder')}
+                  onChange={(event) => setSource(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') {
+                      event.preventDefault();
+                      void submit();
+                    }
+                  }}
+                />
+                <p className="text-xs text-muted-foreground">{t('markdownEditorImageUrlHint')}</p>
+              </div>
+            </TabsContent>
+          </Tabs>
+
+          <div className="grid gap-2">
+            <Label htmlFor="markdown-image-alt">{t('markdownEditorImageAltLabel')}</Label>
+            <Input
+              id="markdown-image-alt"
+              value={alt}
+              disabled={submitting}
+              placeholder={t('markdownEditorImageAltPlaceholder')}
+              onChange={(event) => setAlt(event.target.value)}
+            />
+          </div>
+
+          {error ? <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</div> : null}
+        </div>
+
+        <DialogFooter>
+          <Button type="button" variant="outline" disabled={submitting} onClick={() => onOpenChange(false)}>
+            {t('cancel')}
+          </Button>
+          <Button type="button" disabled={submitting} onClick={() => void submit()}>
+            {submitting ? t('markdownEditorImageImporting') : t('markdownEditorImageInsert')}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function MarkdownTableDialog({
   open,
   onOpenChange,
@@ -1551,11 +1771,19 @@ function MarkdownTableDialog({
 
 function MarkdownToolbar({
   editor,
+  filePath,
+  imageDialogSeed,
+  imageDialogOpen,
   onSourceMode,
+  onImageDialogOpenChange,
   onOpenTableDialog,
 }: {
   editor: MarkdownEditorWithMarkdown | null;
+  filePath?: string;
+  imageDialogSeed: ImageDialogSeed;
+  imageDialogOpen: boolean;
   onSourceMode: () => void;
+  onImageDialogOpenChange: (open: boolean) => void;
   onOpenTableDialog: () => void;
 }) {
   const t = useTranslations('notebook');
@@ -1603,16 +1831,6 @@ function MarkdownToolbar({
       canEditText: editor.state.selection.empty && !editor.isActive('link'),
     }));
     setLinkDialogOpen(true);
-  }, [editor]);
-
-  const setImage = useCallback(() => {
-    if (!editor) return;
-
-    const src = window.prompt('Image URL or workspace path');
-    if (!src?.trim()) return;
-
-    const alt = window.prompt('Alt text') || '';
-    editor.chain().focus().setImage({ src: src.trim(), alt: alt.trim() }).run();
   }, [editor]);
 
   return (
@@ -1735,7 +1953,11 @@ function MarkdownToolbar({
         <TooltipIconButton label="Link" active={toolbarState.isLink} disabled={!canUseCommands} onClick={setLink}>
           <LinkIcon />
         </TooltipIconButton>
-        <TooltipIconButton label="Image" disabled={!canUseCommands} onClick={setImage}>
+        <TooltipIconButton
+          label={t('markdownEditorImageDialogTitle')}
+          disabled={!canUseCommands}
+          onClick={() => onImageDialogOpenChange(true)}
+        >
           <ImageIcon />
         </TooltipIconButton>
         <TooltipIconButton
@@ -1872,6 +2094,14 @@ function MarkdownToolbar({
         initialText={linkDialogSeed.text}
         canEditText={linkDialogSeed.canEditText}
       />
+      <MarkdownImageDialog
+        key={imageDialogSeed.id}
+        editor={editor}
+        filePath={filePath}
+        open={imageDialogOpen}
+        onOpenChange={onImageDialogOpenChange}
+        range={imageDialogSeed.range}
+      />
     </TooltipProvider>
   );
 }
@@ -1888,15 +2118,34 @@ function RichMarkdownEditor({
   const applyingExternalValueRef = useRef(false);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [tableDialogOpen, setTableDialogOpen] = useState(false);
+  const [imageDialogOpen, setImageDialogOpen] = useState(false);
+  const [imageDialogSeed, setImageDialogSeed] = useState<ImageDialogSeed>({ id: 0 });
   const [blockCommandMenu, setBlockCommandMenu] = useState<BlockCommandMenuState | null>(null);
   const labels = useMemo(() => createSlashCommandLabels(t), [t]);
+  const openImageDialogFromToolbar = useCallback((open: boolean) => {
+    if (open) {
+      setImageDialogSeed((current) => ({ id: current.id + 1 }));
+    }
+    setImageDialogOpen(open);
+  }, []);
+  const openImageDialogFromSlash = useCallback((slashEditor: Editor, range: Range) => {
+    slashEditor.chain().focus().deleteRange(range).run();
+    setImageDialogSeed((current) => ({
+      id: current.id + 1,
+      range: { from: range.from, to: range.from },
+    }));
+    setImageDialogOpen(true);
+  }, []);
   const openTableDialogFromSlash = useCallback((slashEditor: Editor, range: Range) => {
     slashEditor.chain().focus().deleteRange(range).run();
     setTableDialogOpen(true);
   }, []);
   const slashCommandActions = useMemo<SlashCommandActions>(
-    () => ({ openTableDialog: openTableDialogFromSlash }),
-    [openTableDialogFromSlash],
+    () => ({
+      openImageDialog: openImageDialogFromSlash,
+      openTableDialog: openTableDialogFromSlash,
+    }),
+    [openImageDialogFromSlash, openTableDialogFromSlash],
   );
   const extensions = useMemo(
     () => createEditorExtensions(filePath, labels, slashCommandActions),
@@ -1982,7 +2231,11 @@ function RichMarkdownEditor({
       {!readOnly ? (
         <MarkdownToolbar
           editor={markdownEditor}
+          filePath={filePath}
+          imageDialogOpen={imageDialogOpen}
+          imageDialogSeed={imageDialogSeed}
           onSourceMode={onSourceMode}
+          onImageDialogOpenChange={openImageDialogFromToolbar}
           onOpenTableDialog={() => setTableDialogOpen(true)}
         />
       ) : null}
