@@ -78,7 +78,6 @@ import { SafeMarkdownImage } from '@/app/components/shared/SafeMarkdownImage';
 import {
   clampEditorRangeToDoc,
   isEditorPositionInsideDoc,
-  isEditorRangeInsideDoc,
 } from '@/app/lib/editor/prosemirror-ranges';
 import { createInlineColorRegex, isColorCode } from '@/app/lib/markdown/color-code';
 import { makeLinkPreviewImageAlt, parseLinkPreviewImageAlt } from '@/app/lib/markdown/link-preview-markdown';
@@ -709,11 +708,19 @@ function createSlashCommands(labels: SlashCommandLabels, actions?: SlashCommandA
           allowedPrefixes: null,
           decorationClass: 'tiptap-slash-suggestion',
           items: ({ query }) => getSlashCommandItems(query, labels),
-          allow: ({ editor, range }) => {
+          allow: ({ editor, state, range }) => {
             if (!editor.isEditable || editor.isActive('codeBlock')) return false;
-            if (!isEditorRangeInsideDoc(editor, range)) return false;
+            if (
+              !Number.isInteger(range.from) ||
+              !Number.isInteger(range.to) ||
+              range.from < 0 ||
+              range.to < range.from ||
+              range.to > state.doc.content.size
+            ) {
+              return false;
+            }
 
-            const $from = editor.state.doc.resolve(range.from);
+            const $from = state.doc.resolve(range.from);
             return $from.parent.type.name === 'paragraph';
           },
           command: ({ editor, range, props }) => {
