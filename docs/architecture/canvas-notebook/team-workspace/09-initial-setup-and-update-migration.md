@@ -8,6 +8,8 @@ Dieses Dokument konkretisiert den ersten Start einer neuen Canvas Notebook Insta
 
 Kernregel: Fresh Install und Update-Migration muessen denselben Zielzustand erzeugen. Es darf keine zweite Alt-Logik geben, in der der erste Admin, globale Env-Dateien, globale Skills/Plugins oder `data/workspace` dauerhaft anders behandelt werden.
 
+Die Database-Provider-Entscheidung ist in `17-database-provider-postgres-rag-collaboration-policy.md` verbindlich: SQLite bleibt fuer Community/Single-User; Team-/Advanced-/RAG-Installationen muessen Postgres mit pgvector verwenden.
+
 ## Aktueller Befund
 
 Heute gibt es zwei Setup-Pfade:
@@ -41,6 +43,7 @@ Pflichtobjekte:
 - User-scoped Runtime-/Secret-/Tool-Verzeichnisse fuer den Owner,
 - Organization-scoped Template-/Policy-Verzeichnisse,
 - System-/Managed-Verzeichnisse.
+- erlaubter Database Provider fuer den Deployment Mode.
 
 Empfohlene physische Mindeststruktur:
 
@@ -73,24 +76,33 @@ Empfohlene physische Mindeststruktur:
 
 Der Team Workspace wird nur angelegt, wenn Team-Features in Lizenz/Deployment Mode aktiv sind. In Community/Single-User wird eine lokale Organization trotzdem angelegt, aber Team-Features bleiben gesperrt und nur der Personal Workspace ist produktiv sichtbar.
 
+Team-Features duerfen nur angelegt und aktiviert werden, wenn der Provider-Gate bestanden ist:
+
+- Community/Single-User: `CANVAS_DATABASE_PROVIDER=sqlite` ist erlaubt.
+- Managed Single: SQLite ist erlaubt, solange Team Knowledge, Team Workspace, produktives RAG und Collaboration gesperrt bleiben.
+- Managed Team/Enterprise Team: `CANVAS_DATABASE_PROVIDER=postgres` ist Pflicht.
+- Wenn ein Teamplan mit SQLite startet, bleibt die App im Setup-/Health-Blocker und fordert Postgres-Provisioning oder Migration.
+
 ## First-Run Ablauf
 
 Empfohlener Ablauf fuer `/setup` und `bootstrap-admin`:
 
 1. DB-Migrationen laufen.
-2. Deployment Mode und `organizationId` werden aufgeloest.
-3. Setup prueft, ob bereits ein Auth-User existiert.
-4. Wenn kein User existiert, wird der erste User erstellt.
-5. In derselben Transaktion oder einem wiederaufnehmbaren Bootstrap-Job werden Organization, Owner Membership, Permissions und Workspace-Metadaten erstellt.
-6. Scoped Verzeichnisse werden angelegt.
-7. Seed-Agent-Dateien, BOOTSTRAP.md, Default-Skills und Default-Plugins werden in den Owner-User-Scope oder Organization-Template-Scope geschrieben, nicht in globale aktive Runtime-Pfade.
-8. Aktiver Default Workspace des Owners wird auf den Personal Workspace gesetzt.
-9. Onboarding startet im Owner-Personal-Workspace.
-10. Onboarding schreibt User-/Agent-Profil in den Owner-User-Agent-Scope.
+2. Database Provider, Deployment Mode und `organizationId` werden aufgeloest.
+3. Provider-Gate prueft, ob SQLite fuer den Deployment Mode erlaubt ist oder Postgres/pgvector erforderlich ist.
+4. Setup prueft, ob bereits ein Auth-User existiert.
+5. Wenn kein User existiert, wird der erste User erstellt.
+6. In derselben Transaktion oder einem wiederaufnehmbaren Bootstrap-Job werden Organization, Owner Membership, Permissions und Workspace-Metadaten erstellt.
+7. Scoped Verzeichnisse werden angelegt.
+8. Seed-Agent-Dateien, BOOTSTRAP.md, Default-Skills und Default-Plugins werden in den Owner-User-Scope oder Organization-Template-Scope geschrieben, nicht in globale aktive Runtime-Pfade.
+9. Aktiver Default Workspace des Owners wird auf den Personal Workspace gesetzt.
+10. Onboarding startet im Owner-Personal-Workspace.
+11. Onboarding schreibt User-/Agent-Profil in den Owner-User-Agent-Scope.
 
 Invarianten:
 
 - Kein UI-Schritt darf Team- oder Runtime-Features zeigen, bevor Organization, Owner und Personal Workspace existieren.
+- Kein Team-/RAG-UI-Schritt darf sichtbar aktiv werden, bevor der Database Provider zum Deployment Mode passt.
 - `/setup` und `bootstrap-admin` muessen denselben Servicepfad nutzen oder denselben Zielzustand garantieren.
 - Wenn der Bootstrap nach User-Erstellung, aber vor Workspace-Erstellung abstuerzt, muss der naechste Start die fehlenden Objekte idempotent nachziehen.
 - `BOOTSTRAP_ADMIN_EMAIL` und `BOOTSTRAP_ADMIN_PASSWORD` bleiben Bootstrap-Secrets und werden nicht in User-/Organization-Secret-Stores geschrieben.
@@ -109,6 +121,22 @@ Update:
 1. Wenn bereits eine persistierte Canvas Organization existiert, muss sie mit Env/Lizenz abgeglichen werden.
 2. Wenn keine existiert, wird sie gemaess Migration erzeugt.
 3. Ein Konflikt zwischen persistierter Organization-ID und Managed Claim ist ein Start-/Health-Problem und darf nicht still repariert werden.
+
+## Database Provider Aufloesung
+
+Fresh Install:
+
+1. Canvas Notebook CLI oder Control Plane Provisioning setzt `CANVAS_DATABASE_PROVIDER`.
+2. Wenn der Installer Team/Advanced/RAG auswaehlt, wird Postgres erzwungen.
+3. Bei Postgres muss `DATABASE_URL` gesetzt sein und der Healthcheck muss die Verbindung sowie pgvector pruefen.
+4. Bei SQLite nutzt die App weiterhin `/data/sqlite.db`.
+
+Update:
+
+1. Bestehende Instanzen ohne Provider-Angabe werden als `sqlite` interpretiert.
+2. Wenn eine bestehende Instanz auf Team/Advanced/RAG wechseln soll, muss zuerst der SQLite-zu-Postgres-Migrationsflow laufen.
+3. Team-Lizenz plus SQLite ohne laufenden Migrationsflow ist ein blockierender Health-/Setup-Fehler.
+4. Provider-Wechsel wird im Migration-State protokolliert und ist nicht nur eine Env-Aenderung.
 
 ## Update-Migration bestehender Instanzen
 
@@ -230,6 +258,8 @@ Die Migration muss stoppen oder Team-Features gesperrt halten, wenn:
 - globale Env-Dateien Secrets enthalten, die keinem Scope zugeordnet wurden,
 - MCP-OAuth-State nicht eindeutig einem User zugeordnet werden kann,
 - DB-Migration teilweise fehlgeschlagen ist,
+- Team-/Advanced-/RAG-Deployment mit SQLite statt Postgres startet,
+- Postgres erreichbar ist, aber pgvector oder Schema-Version fehlt,
 - scoped Root-Verzeichnisse nicht mit sicheren Permissions angelegt werden koennen.
 
 In diesen Faellen bleibt die App im Legacy-/Maintenance-Modus oder zeigt Admin-Review an. Es darf keinen stillen Fallback auf globale Team-Runtime geben.
@@ -242,6 +272,9 @@ Pflichttests:
 - `bootstrap-admin` erzeugt denselben Zielzustand wie `/setup`.
 - Bootstrap ist idempotent, wenn User existiert, aber Organization oder Workspace noch fehlen.
 - Community Fresh Install erstellt lokale Organization, aber keine sichtbaren Team-Features.
+- Community/Single-User Fresh Install darf mit SQLite starten.
+- Managed-Team Fresh Install mit SQLite blockiert vor Team-Feature-Aktivierung.
+- Managed-Team Fresh Install mit Postgres prueft `DATABASE_URL`, Schema-Version und pgvector-Status.
 - Managed-Team Fresh Install verlangt stabile `organizationId`.
 - Single-User-Update migriert `data/workspace` in den Owner-Personal-Workspace, nicht in den Team Workspace.
 - Multi-User-Update mit mehreren Owner-Kandidaten stoppt mit Admin-Review.
@@ -249,3 +282,5 @@ Pflichttests:
 - Globale `mcp.json` wird als Template/Review importiert, nicht als aktive User-Konfig fuer alle.
 - Seed-Skills/Plugins werden in User- oder Organization-Template-Scope geschrieben, nicht global aktiv fuer alle.
 - Migration kann nach Abbruch erneut laufen, ohne doppelte Workspaces oder doppelte Owner Memberships zu erzeugen.
+- Update ohne Provider-Angabe wird als SQLite erkannt.
+- SQLite-zu-Postgres-Migration laeuft nur im Maintenance Mode und protokolliert Provider-Wechsel.

@@ -67,6 +67,41 @@ Die App darf nicht mehr davon ausgehen, dass es genau einen globalen Workspace g
 
 User-nahe Runtime-, Secret-, MCP-, Skill- und Plugin-Daten werden separat unter `/data/users/{userId}/...` gespeichert. Organization-Templates, geteilte Organization-Secrets und Policies liegen unter `/data/organizations/{organizationId}/...`; Managed-/System-Secrets liegen unter `/data/system/...`. Diese Trennung ist in `08-user-scoped-secrets-runtime.md` verbindlich.
 
+## Datenbank- und Installer-Grundentscheidung
+
+Canvas Notebook laeuft heute mit SQLite unter `/data/sqlite.db`. Das bleibt fuer Community, lokale Entwicklung und einfache Single-User-Installationen erlaubt. Fuer Team-/Advanced-Features wird Postgres Pflicht.
+
+Produktentscheidung:
+
+- SQLite: Community/Free, lokale Entwicklung, einfache Single-User-Installationen und optional `managed-single` ohne Team-RAG/Collaboration.
+- Postgres: Pflicht fuer `managed-team`, Team Workspace als produktiver Shared Workspace, Team/Organization Knowledge, Embeddings, RAG, Knowledge Graph, echte Collaboration und Managed/Enterprise-Backups.
+- pgvector: vorgesehener Vektorpfad fuer produktive Embeddings und RAG.
+
+Empfohlene Provider-ENV:
+
+```env
+CANVAS_DATABASE_PROVIDER=sqlite
+```
+
+oder:
+
+```env
+CANVAS_DATABASE_PROVIDER=postgres
+DATABASE_URL=postgresql://canvas:<password>@postgres:5432/canvas_notebook
+CANVAS_POSTGRES_VECTOR_ENABLED=true
+```
+
+Team-/Advanced-Lizenzen duerfen nicht nur durch lokale Boolean-ENV aktiviert werden. Canvas Notebook muss `CANVAS_DATABASE_PROVIDER`, `CANVAS_DEPLOYMENT_MODE` und `CANVAS_LICENSE_CERT` zusammen auswerten. Wenn ein Teamplan mit SQLite startet, muss Setup/Health blockieren und Postgres-Provisioning oder SQLite-zu-Postgres-Migration verlangen.
+
+Die Installation betrifft zwei Codebasen:
+
+- Canvas Notebook CLI und App in diesem Repository.
+- Control Plane Provisioning im Repository `../canvas-control-plane`.
+
+Beide Installer muessen dieselbe Entscheidung umsetzen: sobald Team/Advanced/RAG gewaehlt wird, wird eine Compose-Konfiguration mit App-Container plus Postgres-Container und pgvector-faehiger Datenbank erzeugt. Produktions-Compose soll kein ungebundenes `latest`-Tag fuer Postgres verwenden, sondern eine aktuell unterstuetzte, gepinnte Version.
+
+Die Detailpolicy steht in `17-database-provider-postgres-rag-collaboration-policy.md`.
+
 ## Workspace-Regeln
 
 Persoenlicher Workspace:
@@ -316,6 +351,8 @@ Offboarding:
 Search, Embeddings und Retrieval:
 
 - Ein Embeddings-/Search-Layer ist aktuell noch nicht Kernbestandteil, soll aber als spaetere Schicht vorbereitet werden.
+- Produktive Team Knowledge, Embeddings, RAG und Knowledge Graph werden nur im Postgres/pgvector-Mode freigeschaltet.
+- SQLite darf Knowledge-Metadaten, Scan-Status und einfache lokale Suche vorbereiten, aber keine produktive Team-RAG-Funktion tragen.
 - Jeder Such- oder Retrieval-Eintrag muss `organizationId`, `workspaceId`, optional `userId`, Sichtbarkeit und Source-Referenz speichern.
 - Retrieval darf keine Inhalte aus fremden persoenlichen Workspaces leaken.
 - Team Knowledge Base, Team Workspace und persoenliche Workspaces muessen getrennte Sichtbarkeitsregeln fuer Search/Embeddings haben.
@@ -468,6 +505,12 @@ Fuer viele Marketing-Dateien ist Locking besser als Live-Merging:
 
 Fuer Textdateien, Markdown und Knowledge-Base-Inhalte kann spaeter echte Real-Time Collaboration ergaenzt werden. Dafuer sollte dann eine dedizierte Collaboration Engine wie CRDT/OT genutzt werden, nicht ein simples gemeinsames Schreiben auf dieselbe Datei.
 
+Datenbank-Folge:
+
+- SQLite reicht fuer einfache Revision Checks in Single-User-/Community-Installationen.
+- Produktive Multi-User-Collaboration mit Presence, Edit Events, CRDT/OT-State oder vielen parallelen Writes braucht Postgres.
+- Redis ist fuer V1 keine Pflicht. Leichte Events koennen zunaechst ueber App-WebSockets und Postgres-Tabellen/Notifications geplant werden; Multi-Node oder hohe Eventlast wird spaeter separat entschieden.
+
 ## Lizenz- und Feature-Gating
 
 Die bestehende Lizenzlogik sollte Teamfunktionen freischalten oder sperren.
@@ -558,6 +601,9 @@ Zusaetzliche ENV-Werte fuer Team-Instanzen:
 ```env
 CANVAS_DEPLOYMENT_MODE=managed-team
 CANVAS_ORGANIZATION_ID=<organizationId>
+CANVAS_DATABASE_PROVIDER=postgres
+DATABASE_URL=postgresql://canvas:<password>@postgres:5432/canvas_notebook
+CANVAS_POSTGRES_VECTOR_ENABLED=true
 CANVAS_TEAM_FEATURES_ENABLED=true
 CANVAS_MULTI_USER_ENABLED=true
 CANVAS_PERSONAL_WORKSPACES_ENABLED=true
@@ -583,6 +629,10 @@ Verantwortlichkeiten im Control Plane:
 - Managed Models und Usage auf Organization-Ebene abrechnen.
 - Optional zentrale Policies fuer Teamfunktionen setzen.
 - Beim Provisioning den richtigen `CANVAS_DEPLOYMENT_MODE` und die Organization-ID an Canvas Notebook uebergeben.
+- Beim Provisioning den richtigen `CANVAS_DATABASE_PROVIDER` setzen.
+- Fuer Teamplaene Postgres mit pgvector-faehiger Datenbank als separaten Compose-Service bereitstellen.
+- DB-Secrets sicher erzeugen und an Canvas Notebook uebergeben, ohne sie Agent-Tools verfuegbar zu machen.
+- Postgres-/pgvector-Health, DB-Wachstum, WAL/Volume-Wachstum und Backup-Status ueberwachen.
 - Managed-Lizenz-Features und Quotas fuer Team-/Enterprise-Instanzen ausstellen.
 - `vm_config.env` so erweitern, dass Team-Instanzen beim Installieren und spaeter per Agent-Config-Sync dieselben Feature- und Identitaetswerte erhalten.
 
@@ -617,6 +667,7 @@ Verantwortlichkeiten in Canvas Notebook:
 - Studio-Produkte, Personas, Stile und generierte Assets teamfaehig modellieren.
 - Audit Trail fuer User-/Agent-Aenderungen.
 - Knowledge-Base-Integration.
+- Database-Provider-Gates fuer SQLite/Postgres, pgvector-Status und RAG-/Collaboration-Freischaltung.
 
 ## Backup- und Restore-Anforderungen
 
@@ -624,6 +675,7 @@ Backups sind fuer Team Workspaces kritisch, weil mehrere Nutzer und Agents an ge
 
 Mindestens zu sichern:
 
+- Datenbank provider-spezifisch: SQLite Snapshot/WAL oder Postgres Dump/Snapshot inklusive pgvector-/Extension-/Schema-Informationen,
 - persoenliche Workspaces,
 - Team Workspace,
 - Knowledge Base,
@@ -663,7 +715,8 @@ Full-Backup-Anforderungen:
 - Full Backup sichert die komplette Instanz fuer Disaster Recovery, nicht nur exportierbare User-Daten.
 - Backups muessen ueber Admin-Kontext, Control Plane, Host-/Container-CLI oder spaeter Schedule getriggert werden koennen.
 - Taegliche Backups sollen vorbereitet werden; konkrete Retention/Schedule wird spaeter planabhaengig festgelegt.
-- DB, WAL/Journal, `/data/workspaces`, `/data/studio`, scoped Settings, Runtime-Konfiguration und Secrets/OAuth-State muessen konsistent und verschluesselt gesichert werden.
+- DB, WAL/Journal oder Postgres Dump/Snapshot, `/data/workspaces`, `/data/studio`, scoped Settings, Runtime-Konfiguration und Secrets/OAuth-State muessen konsistent und verschluesselt gesichert werden.
+- Im Postgres-Mode reicht ein `/data`-Backup nicht aus; Postgres-Dump oder Postgres-Volume-Snapshot ist zwingend Teil des Full Backups.
 - Workspace-Dateien selbst bleiben in V1 im Container-Dateisystem unverschluesselt; App-Rechte und Audit sind die Zugriffskontrolle, Backup-Artefakte werden verschluesselt.
 - Public Links und Tokens duerfen in Full Backups fuer gleiche Disaster-Recovery-Ziele enthalten sein, aber nicht in Migration Exports.
 - Backup-Jobs brauchen Resource Budget, Logging, Integritaetschecks und Schutz gegen parallele Laeufe.
@@ -731,6 +784,7 @@ Die verbindliche Detailregel steht in `13-resource-aware-ingestion-and-job-backp
 - Ob der Agent im Team Workspace nur nach expliziter Auswahl schreiben darf oder ob Admins Default-Policies setzen koennen.
 - Welche Dateitypen in V1 Locks bekommen und welche nur per Revision/Konflikt behandelt werden.
 - Ob Team Knowledge Base als Teil des Team Workspace oder als eigene Datenquelle modelliert wird.
+- Welche gepinnte Postgres-/pgvector-Image-Linie fuer den ersten produktiven Installer verwendet wird.
 - Ob `CANVAS_TEAM_FEATURES_ENABLED` und verwandte Boolean-ENV-Keys langfristig benoetigt werden oder ob Canvas Notebook vollstaendig ueber `CANVAS_DEPLOYMENT_MODE` plus `CANVAS_LICENSE_CERT` entscheidet.
 - Ob `CANVAS_ORGANIZATION_ID` aus dem Control Plane direkt in Canvas Notebook gespeichert wird oder nur als Claim im License Cert vorkommt.
 - Ob Managed-Instance-Token neue Scopes fuer Backup-/Policy-Reporting brauchen, z. B. `backup:report`, `backup:restore`, `team:config` oder `usage:report`.
@@ -755,7 +809,7 @@ Die verbindliche Detailregel steht in `13-resource-aware-ingestion-and-job-backp
 - Welche per-User Permissions als Booleans starten und welche spaeter rollenbasiert werden.
 - Welche Offboarding-Schritte blockierend bestaetigt werden muessen und welche nachtraeglich korrigierbar bleiben.
 - Ob reaktivierte User ihren alten Personal Workspace direkt wiederbekommen oder ob ein Restore-Schritt noetig ist.
-- Wie Search/Embeddings vorbereitet werden, obwohl Embeddings erst spaeter integriert werden.
+- Wie Search/Embeddings im Postgres/pgvector-Mode konkret indiziert werden, nachdem der Provider-Gate steht.
 - Welche Background-Job-Typen User-owned, Organization-owned oder System-owned sind.
 - Wie User-Env, Organization-Env, Instanz-Env und Managed-Control-Plane-Env technisch zusammengefuehrt werden.
 - Welche Import-Konflikte per Dry-Run erkannt werden muessen.
@@ -801,6 +855,13 @@ Die verbindliche Detailregel steht in `13-resource-aware-ingestion-and-job-backp
 34. Einfache Locks oder Revision-Checks fuer Team-Dateien einfuehren.
 35. Storage-Monitoring und Alerts fuer Team-Instanzen im Control Plane absichern.
 36. Backup- und Restore-Konzept fuer Team-Instanzen implementieren.
+37. Knowledge-/Parsing-Settings mit Default-off Toggles, Resource-Status und redacted Logging umsetzen.
+38. Database-Provider-Abstraktion fuer SQLite/Postgres in Canvas Notebook einfuehren.
+39. Canvas Notebook CLI Installer um SQLite/Postgres-Auswahl, Team-Postgres-Zwang und Compose-Generierung erweitern.
+40. Control Plane VM-Provisioning in `../canvas-control-plane` um Postgres/pgvector-Service, DB-ENV und DB-Secrets fuer Teamplaene erweitern.
+41. SQLite-zu-Postgres-Migrationstool mit Maintenance Mode, Snapshot, Referenzpruefung und Reindex-Status bauen.
+42. Export/Import/Backup/Restore provider-aware machen, inklusive Postgres-Dump und Provider-Kompatibilitaetspruefung.
+43. RAG, Embeddings, Knowledge Graph und echte Collaboration serverseitig an Postgres/pgvector-Gates binden.
 
 ## Bezug zu bestehenden Control-Plane-Dokumenten
 

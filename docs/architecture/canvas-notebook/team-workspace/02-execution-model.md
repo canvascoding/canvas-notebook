@@ -34,6 +34,7 @@ Lieferumfang:
 - Querschnittsentscheidung fuer user-scoped Secrets, MCP, Skills, Plugins, Mailboxen und Agent Runtime.
 - Querschnittsentscheidung fuer Fresh Install, Onboarding und Update-Migration bestehender Instanzen.
 - Querschnittsentscheidung fuer Resource Profile, Backpressure und Degradation bei schweren Jobs.
+- Querschnittsentscheidung fuer Database Provider, Postgres-Pflicht bei Team/Advanced/RAG, pgvector, Installer, Control Plane Provisioning und SQLite-zu-Postgres-Migration.
 
 Tests:
 
@@ -47,13 +48,17 @@ Zweck: Community, managed-single, managed-team und enterprise-onprem technisch u
 Lieferumfang:
 
 - Notebook-seitige Auswertung von `CANVAS_DEPLOYMENT_MODE`.
+- Notebook-seitige Auswertung von `CANVAS_DATABASE_PROVIDER`.
 - Lizenzclaims fuer Teamfunktionen lesen und nicht nur Env-Booleans vertrauen.
+- Team-/Advanced-Features serverseitig blockieren, wenn `CANVAS_DATABASE_PROVIDER=sqlite` aktiv ist.
 - Single-User-Verhalten fuer Community absichern.
 - Feature-Gates fuer Team-UI und Team-APIs vorbereiten.
+- Control-Plane- und Notebook-CLI-Installer-Anforderungen fuer Postgres/pgvector festlegen.
 
 Tests:
 
 - Unit-/Script-Tests fuer License-Parsing und Feature-Resolution.
+- Tests fuer blockierte Team-/RAG-Features im SQLite-Mode.
 - `npm run build`.
 
 ### P2 Auth, Organization, Rollen und Permissions
@@ -181,6 +186,7 @@ Teilbereiche:
 - Search/Retrieval-Vorbereitung.
 - Resource Budget und Backpressure fuer Parsing, OCR, Embeddings, Reindex und schwere Background Jobs.
 - Settings-Toggles mit Default-off fuer Knowledge Auto-Ingestion, Heavy Parsing, Docling, OCR, Embeddings und Remote Parsing.
+- RAG-/Embedding-/Knowledge-Graph-Features nur im Postgres-Mode freischalten; SQLite darf nur Metadaten, einfache Suche oder Prototypen tragen.
 - Strukturierte redacted Operational Logs fuer schwere Jobs.
 
 Tests:
@@ -230,15 +236,18 @@ Lieferumfang:
 - Self-service Export nur fuer den eigenen Personal Workspace.
 - Team-/Organization-Export nur fuer Admins oder User mit Export-Permission.
 - Organization/User/Workspace-Mapping im Manifest.
+- Export-/Import-Manifeste speichern `databaseProvider`, Schema-Version und Provider-Kompatibilitaet.
 - Chat-/Session-/Agent-/Automation-/To-do-Referenzen im Manifest und Import-Dry-Run mappen.
 - Public Links aus Migration Exports auslassen; im Zielsystem neu setzen.
 - Secret-Redaction und Reconnect-Strategie.
 - Import Dry-Run.
 - Restore einzelner Dateien/Ordner/Revisions.
-- Full Backup inklusive DB, Workspaces, Studio, Runtime, Secrets/OAuth verschluesselt und Public Links fuer Disaster Recovery.
+- Full Backup inklusive provider-spezifischer DB-Sicherung, Workspaces, Studio, Runtime, Secrets/OAuth verschluesselt und Public Links fuer Disaster Recovery.
+- Postgres-Backups enthalten konsistenten DB-Dump bzw. Snapshot plus pgvector-/Extension-/Schema-Informationen; `/data` allein reicht im Postgres-Mode nicht.
 - Backup-Trigger ueber Admin/API/CLI/Control Plane vorbereiten; taeglichen Schedule spaeter ermoeglichen.
 - Verschluesselungsgrenzen dokumentieren: App-Exportrechte sind keine kryptografische Isolation gegen Root-/Container-Admins.
 - Update-Migration bestehender Datei- und Runtime-Formate ist versioniert, idempotent und wiederaufnehmbar.
+- SQLite-zu-Postgres-Migration als eigener Maintenance-Flow mit Snapshot, Referenzpruefung, Provider-Wechsel und Reindex-Status.
 
 Tests:
 
@@ -250,6 +259,8 @@ Tests:
 - Backup-Trigger- und Parallel-Run-Blocker-Tests.
 - Update-Migrations-Fixtures fuer Single-User, eindeutigen Bootstrap-Admin und mehrdeutige Multi-User-Instanzen.
 - SQLite-Snapshot-Tests.
+- Postgres-Backup-Tests fuer DB-Dump plus `/data`.
+- SQLite-zu-Postgres-Migrations-Fixture mit Referenzpruefung und `requires_reindex`.
 - `npm run build`.
 
 ### P9 Hardening und Release Readiness
@@ -323,3 +334,5 @@ Die Initial-Setup- und Update-Migrationsentscheidung in `09-initial-setup-and-up
 Die Resource-Entscheidung in `13-resource-aware-ingestion-and-job-backpressure.md` ist verbindlich fuer Knowledge-Ingestion, Docling/OCR, Embeddings, Reindex, Import/Export, Backup-Vorbereitung und Maintenance: Schwere Jobs starten nur mit Resource Budget; bei knappen Ressourcen wird deferiert oder degradiert statt die VM zu ueberlasten.
 
 Die Settings- und Logging-Entscheidung ist Teil dieser Resource-Policy: Schwere Knowledge-/Parsing-Funktionen sind default `off`, muessen sichtbar aktivierbar/deaktivierbar sein und brauchen strukturierte redacted Logs fuer Diagnose.
+
+Die Database-Provider-Entscheidung in `17-database-provider-postgres-rag-collaboration-policy.md` ist verbindlich fuer Deployment Mode, Notebook CLI, Control Plane Provisioning, RAG/Embeddings, Collaboration und Backup: SQLite bleibt fuer Community/Single-User; Team/Advanced/RAG braucht Postgres mit pgvector und einen provider-aware Backup-/Migration-Flow.

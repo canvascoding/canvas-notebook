@@ -10,6 +10,8 @@ Es ergaenzt die Aufgaben `25`, `26`, `29`, `30`, `31` und `36` im Aufgabenindex.
 
 Resource- und Backpressure-Regeln fuer kleine VMs sind verbindlich in `13-resource-aware-ingestion-and-job-backpressure.md` beschrieben.
 
+Die Datenbankentscheidung fuer produktive Embeddings, RAG und Knowledge Graph ist verbindlich in `17-database-provider-postgres-rag-collaboration-policy.md` beschrieben.
+
 ## Grundentscheidung
 
 Die Knowledge Base soll automatisch aufgebaut werden koennen, aber nicht ungeprueft scope-uebergreifend und nicht unbemerkt ressourcenintensiv. In V1 ist schwere automatische Ingestion default `off`; nach Admin-Aktivierung laeuft sie automatisch, ohne dass User Dateien manuell in eine Knowledge Base hochladen muessen.
@@ -25,6 +27,7 @@ Regeln:
 - Remote Docling ist kein V1-Default; V1 nutzt lokale Verarbeitung oder Sidecar/CLI mit harten Limits.
 - Docling, OCR, Embedding-Indexing und Remote Parsing haben eigene Admin-Toggles und starten default `off`.
 - Alle Ingestion-/Parser-/Embedding-Jobs schreiben strukturierte Operational Logs ohne Dokumentinhalte oder Secrets.
+- Produktive Embeddings, Team-RAG und Knowledge Graph werden nur im Postgres/pgvector-Mode freigeschaltet. SQLite darf Knowledge-Metadaten und einfache lokale Suche vorbereiten, aber keine produktive Team-RAG-Funktion tragen.
 
 ## Knowledge Scopes
 
@@ -41,6 +44,8 @@ Physische oder logische Trennung:
 - Fuer V1 bevorzugt getrennte Tabellen/Collections oder zumindest harte Partitionierung pro User und Team/Organization.
 - Ein gemeinsamer Vektorindex ist nur zulaessig, wenn jeder Eintrag `organizationId`, `workspaceId`, `userId`, `visibility` und `sourceRef` besitzt und Retrieval serverseitig filtert.
 - Wenn Zweifel bestehen, wird staerker getrennt: pro User ein privater Index/Store und eigene Team-/Organization-Stores.
+- Im SQLite-Mode werden keine produktiven Vektorindizes fuer Team Knowledge angelegt.
+- Im Postgres-Mode koennen Chunks, Embeddings und Graph-Metadaten relational gespeichert werden; pgvector ist der vorgesehene Vektorpfad.
 
 ## Quellen
 
@@ -206,6 +211,14 @@ Zum Docling-Plan werden zusaetzlich benoetigt:
 - `indexVersion`
 - `revokedAt`
 - `lastAccessCheckedAt`
+- `databaseProvider`: `sqlite` | `postgres`
+- `embeddingIndexStatus`: `disabled` | `pending` | `indexed` | `requires_reindex` | `revoked`
+
+Provider-Regeln:
+
+- SQLite-Ziele duerfen Team-RAG-Imports blockieren oder als `requires_postgres` markieren.
+- SQLite-zu-Postgres-Migration markiert bestehende Knowledge-Artefakte als `requires_reindex`, wenn Embeddings nicht provider-sicher uebernommen werden koennen.
+- Postgres-Retrieval muss neben Vektorsuche immer relationale Scope- und ACL-Filter anwenden.
 
 ## Compute und Remote Parsing
 
@@ -245,3 +258,5 @@ Pflichttests:
 - Low-Resource-Profil erzwingt Backpressure oder Degradation ohne Embedding ungescannter Inhalte.
 - Default-off: Frische und migrierte Instanzen starten keine schweren Ingestion-Jobs ohne explizite Aktivierung.
 - Logging: Job-Status, Resource-Entscheidung und Parser-Fehler werden strukturiert geloggt, ohne Rohinhalt oder Secrets.
+- SQLite-Mode blockiert produktive Team-RAG-/Embedding-Aktivierung.
+- Postgres/pgvector-Mode erlaubt Embedding-Indexing erst nach bestandenem Provider-, pgvector-, Scan- und ACL-Gate.

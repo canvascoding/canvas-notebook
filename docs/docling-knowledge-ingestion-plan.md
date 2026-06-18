@@ -8,7 +8,7 @@ Canvas Notebook soll eine robuste Dokumenten-Ingestion fuer Knowledge Base, Retr
 
 Der Plan ist bewusst noch keine Implementierung. Er beschreibt Architektur, Settings, Risiken und einen moeglichen Rollout.
 
-Team-/Workspace-Scope, automatische Indexierung, Secret-/PII-Scan, Knowledge Stores und Retrieval-Berechtigungen werden im Team-Workspace-Plan unter `docs/architecture/canvas-notebook/team-workspace/12-knowledge-ingestion-retrieval-policy.md` verbindlich konkretisiert. Resource Profile, Memory-/CPU-Grenzen, Queue-Backpressure und Degradation fuer kleine VMs werden unter `docs/architecture/canvas-notebook/team-workspace/13-resource-aware-ingestion-and-job-backpressure.md` konkretisiert.
+Team-/Workspace-Scope, automatische Indexierung, Secret-/PII-Scan, Knowledge Stores und Retrieval-Berechtigungen werden im Team-Workspace-Plan unter `docs/architecture/canvas-notebook/team-workspace/12-knowledge-ingestion-retrieval-policy.md` verbindlich konkretisiert. Resource Profile, Memory-/CPU-Grenzen, Queue-Backpressure und Degradation fuer kleine VMs werden unter `docs/architecture/canvas-notebook/team-workspace/13-resource-aware-ingestion-and-job-backpressure.md` konkretisiert. Die Database-Provider-Entscheidung fuer SQLite, Postgres, pgvector, RAG und Knowledge Graph steht unter `docs/architecture/canvas-notebook/team-workspace/17-database-provider-postgres-rag-collaboration-policy.md`.
 
 ## Ausgangslage in Canvas
 
@@ -35,7 +35,7 @@ Gemeint ist IBM Docling bzw. das Docling-Projekt:
 - API Server / `docling-serve`: https://docling-project.github.io/docling/usage/api_server/
 - Advanced Options / Threading: https://docling-project.github.io/docling/usage/advanced_options/
 
-Docling ist in dieser Architektur nicht die Vektor-Datenbank. Docling ist der Dokumentenparser und optional Chunker. Die Vektor-Datenbank, Metadaten, Berechtigungen und das Knowledge-Graph-Modell bleiben Canvas-eigene Schichten.
+Docling ist in dieser Architektur nicht die Vektor-Datenbank. Docling ist der Dokumentenparser und optional Chunker. Die Vektor-Datenbank, Metadaten, Berechtigungen und das Knowledge-Graph-Modell bleiben Canvas-eigene Schichten. Produktive Team-RAG-Funktionen, Embeddings und Knowledge Graph brauchen Postgres mit pgvector; SQLite darf nur Metadaten, Scan-Status und einfache lokale Suche vorbereiten.
 
 ## Grundsatzentscheidung
 

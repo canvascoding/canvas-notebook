@@ -23,6 +23,7 @@ Dieses Verzeichnis ist der zentrale Arbeitsbereich fuer den Team-Workspace-Umbau
 - `14-public-links-and-studio-assets-policy.md`: Public-Link-Regeln, Latest-Verhalten, Passwortschutz-Vorbereitung, organizationweite Studio Assets und Studio-Copy-Zielauswahl.
 - `15-export-import-backup-restore-policy.md`: Personal/Admin Export, Import-Mapping, Public-Link-Ausschluss, Full Backup, Restore und Verschluesselungsgrenzen.
 - `16-offboarding-and-recovery-policy.md`: User-Archivierung, Offboarding-Preflight, Credential-Revocation, Automation-/To-do-Review und Personal-Workspace-Recovery.
+- `17-database-provider-postgres-rag-collaboration-policy.md`: SQLite/Postgres-Entscheidung, pgvector, RAG-/Collaboration-Gates, Installer, Control Plane Provisioning, DB-Migration und DB-aware Backup.
 - `../todo.json`: Aufgabenindex fuer Agenten und Fortschrittsverfolgung.
 
 ## Arbeitsregeln
@@ -52,4 +53,5 @@ Dieses Verzeichnis ist der zentrale Arbeitsbereich fuer den Team-Workspace-Umbau
 - Public-Link- und Studio-Asset-Policy ist dokumentiert.
 - Export-/Import-/Backup-/Restore-Policy ist dokumentiert.
 - Offboarding- und Recovery-Policy ist dokumentiert.
+- Database-Provider-Policy fuer SQLite, Postgres, RAG, Collaboration, Installer und Control Plane ist dokumentiert.
 - Naechster Schritt: Initiales Admin-/Owner-Setup und Admin-only Gates absichern.

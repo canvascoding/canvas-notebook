@@ -8,6 +8,8 @@ Dieses Dokument trennt User-Export, Admin-/Migration-Export, Import, Full Backup
 
 Es ergaenzt die Aufgaben `27`, `28` und `36` im Aufgabenindex.
 
+Database-Provider-Regeln fuer SQLite, Postgres, pgvector und SQLite-zu-Postgres-Migration stehen verbindlich in `17-database-provider-postgres-rag-collaboration-policy.md`.
+
 ## Grundentscheidung
 
 Canvas Notebook braucht drei klar getrennte Datenbewegungen:
@@ -63,6 +65,8 @@ Regeln:
 - Public-Link-Tokens werden nie migriert.
 - Nach Import muessen Public Links neu gesetzt werden.
 - Vollstaendige aktive Public Links werden nur in Full Backups fuer gleiche Disaster-Recovery-Ziele gesichert.
+- Jeder Admin-/Migration-Export enthaelt `databaseProvider`, Schema-Version, App-Version und Feature-Gates im Manifest.
+- Wenn Postgres genutzt wird, kann ein bewusst aktivierter Full Technical Export einen verschluesselten Postgres-Dump enthalten. Normale Migration Exports bleiben logisch und provider-aware.
 
 ## Zuweisungen und Referenzen
 
@@ -76,6 +80,7 @@ Betroffene Referenzen:
 - `agentId` und Agent Template IDs.
 - `automationId`, `todoId`, `sourceStudioOutputId`.
 - File References mit Workspace, Pfad und optional Revision/Hash.
+- Datenbankprovider und Schema-Version fuer Quelle und Ziel.
 
 Regeln:
 
@@ -86,6 +91,7 @@ Regeln:
 - Unaufloesbare Referenzen werden nicht stillschweigend auf den importierenden Admin gesetzt.
 - Unaufloesbare Referenzen bekommen Status `unresolved` und muessen im Import-Report sichtbar sein.
 - To-dos, Automations und Agent-Verknuepfungen duerfen erst aktiviert werden, wenn ihre User-/Workspace-/Secret-Referenzen aufgeloest sind.
+- Team-RAG-/Embedding-/Knowledge-Graph-Daten duerfen nicht in ein SQLite-Ziel importiert werden; der Dry Run muss `requires_postgres` oder `requires_reindex` melden.
 
 ## Full Backup
 
@@ -93,7 +99,7 @@ Full Backup ist fuer Betrieb und Disaster Recovery. Es soll die komplette Instan
 
 Mindestinhalt:
 
-- Datenbank inklusive WAL/Journal konsistent gesichert,
+- Datenbank provider-spezifisch konsistent gesichert,
 - `/data/workspaces`,
 - `/data/studio`,
 - scoped User-/Organization-/System-Konfiguration,
@@ -112,7 +118,9 @@ Trigger:
 
 Anforderungen:
 
-- Backup muss konsistent sein: DB Snapshot/WAL-Checkpoint oder kontrollierter Maintenance-Modus.
+- Backup muss konsistent sein: SQLite Snapshot/WAL-Checkpoint, Postgres Dump/Snapshot oder kontrollierter Maintenance-Modus.
+- Im Postgres-Mode reicht ein Backup von `/data` nicht aus. Der Postgres-Dump bzw. das Postgres-Volume gehoert zwingend zum Full Backup.
+- Postgres-Backups muessen Rollen-/Extension-/Schema-Informationen enthalten, damit pgvector beim Restore vorhanden ist.
 - Backup-Jobs laufen als schwere Jobs mit Resource Budget und Logging.
 - Backup darf nie mehrere alte Test-/Backup-Jobs parallel unkontrolliert starten.
 - Backup-Status und letzte Fehler muessen sichtbar sein.
@@ -134,6 +142,7 @@ Regeln:
 - Secrets/OAuth brauchen Reconnect oder entschluesselten Full-Backup-Kontext.
 - Public Links aus Migration Imports werden nicht automatisch reaktiviert.
 - Public Links aus Full Disaster Restore koennen erhalten bleiben, wenn Source und Ziel dieselbe kontrollierte Instanz-/Backup-Domain sind.
+- Provider-Mismatch ist ein Restore-/Import-Konflikt. SQLite-Quellen koennen ueber den definierten Migration-Flow nach Postgres gehoben werden; Postgres-Team-RAG-Daten duerfen nicht in SQLite downgraded werden.
 
 ## Admin-Zugriff und Verschluesselung
 
@@ -177,3 +186,5 @@ Pflichttests:
 - Backup kann via Admin/API/CLI getriggert werden.
 - Geplanter Backup-Job blockiert parallele Backup-Laeufe.
 - Restore Preview erkennt Konflikte vor dem Schreiben.
+- Postgres-Full-Backup enthaelt DB-Dump/Snapshot plus `/data`.
+- Import-Dry-Run erkennt Provider-Mismatch und blockiert Team-RAG-Downgrade nach SQLite.

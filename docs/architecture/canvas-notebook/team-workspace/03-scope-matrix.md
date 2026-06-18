@@ -27,6 +27,8 @@ Dieses Dokument schliesst Umsetzungsschritt 2 ab: bestehende Canvas Notebook Fun
 | Offboarding | nicht zentral modelliert | `organization` Workflow mit archiviertem `user` und Recovery-locked Personal Workspace | Preflight, Credential-Revocation, Automation-/To-do-Review, Personal-Workspace-Recovery mit Audit | P6/P7 |
 | License Status | `instance` mit Plan `community/pro/managed` | `instance` Deployment Mode plus signierte Feature-/Quota-Claims | Deployment Modes und Team-Feature-Resolution einfuehren | P1 |
 | Managed Control Plane Config | `system/managed` Env/Instance Token | `system/managed`, liefert Organization/License Claims | Notebook liest Claims, vertraut final nicht auf lokale Booleans | P1 |
+| Database Provider | implizit SQLite unter `/data/sqlite.db` | `instance/system` Provider: SQLite fuer Community/Single-User, Postgres Pflicht fuer Team/Advanced/RAG | `CANVAS_DATABASE_PROVIDER` plus Lizenz-/Deployment-Gate einfuehren | P1/P8 |
+| Postgres/pgvector Runtime | nicht vorhanden | `system/managed` DB-Service neben App-Container | Notebook CLI und Control Plane Provisioning erzeugen Compose/Secrets/Health fuer Postgres mit pgvector | P1/P8 |
 | Workspace-Dateien | globaler `data/workspace` Ordner | `workspace` mit `personal/team/project` Typ | Workspace-Service, Root Resolver, Legacy-Kompatibilitaet | P3 |
 | Workspace Filesystem Layout | implizit `data/workspace` | `/data/workspaces/personal/{userId}/files` und `/data/workspaces/team/{organizationId}/files` | DB-Workspace-Mapping plus physische Roots einfuehren | P3 |
 | Legacy Workspace Migration | globaler Workspace wird weiterverwendet | Owner-Personal-Legacy-Import, Team Workspace initial leer | Keine automatische Team-Freigabe alter Daten | P3/P8 |
@@ -84,8 +86,9 @@ Dieses Dokument schliesst Umsetzungsschritt 2 ab: bestehende Canvas Notebook Fun
 | Migration Restore/Import | `instance` Restore | Organization/User/Workspace/Chat/Agent Mapping, Dry Run | Import Preview, unresolved References und Reconnect-Flows | P8 |
 | Update-Migration File Formats | Legacy-Dateien werden beim Start teilweise kopiert | versionierte, idempotente Migration mit Owner-Aufloesung und Review-State | Migration State Manifest/DB-Tabelle, keine automatische Team-Aktivierung globaler Dateien | P8/P9 |
 | Secrets Export | optional globale Secrets | redacted/reconnect/encrypted bewusst pro Scope | Keine Default-Klartext-Exports | P8 |
-| QMD/Search/Retrieval | global `/data/workspace` Collection | getrennte Knowledge Stores fuer `personal_user`, `team_workspace`, optional `organization` | Collection Metadata, Secret-/PII-Scan, ACL-Filter und Delete-Propagation erzwingen | P6 |
+| QMD/Search/Retrieval | global `/data/workspace` Collection | getrennte Knowledge Stores fuer `personal_user`, `team_workspace`, optional `organization`; produktive Embeddings/RAG nur mit Postgres/pgvector | Collection Metadata, Secret-/PII-Scan, ACL-Filter, Provider-Gates und Delete-Propagation erzwingen | P6 |
 | Docling Knowledge Ingestion | separater Plan, noch nicht team-scoped | automatische Ingestion mit lokalen Parsern, Scope-Metadaten und Scan vor Embedding | Docling-Plan mit Knowledge Policy verbinden | P6 |
+| Knowledge Graph / Vektorindex | nicht vorhanden | Postgres/pgvector fuer produktive Team Knowledge, RAG und Graph-Metadaten | SQLite nur fuer Metadaten/einfache Suche; Team-RAG blockieren, wenn Postgres fehlt | P6/P8 |
 | Resource Budget und Backpressure | nicht zentral modelliert | `instance/system`, mit Job-Scope fuer `user`, `workspace`, `organization` | Memory/CPU/Disk/Queue-Limits vor schweren Jobs pruefen; Degradation und Control-Plane-Metriken | P6/P9 |
 | Knowledge/Parsing Settings | nicht vorhanden | `organization`/`instance`, Admin-only | Schwere Ingestion, Docling, OCR, Embeddings und Remote Parsing default `off`, aktivierbar im Settings UI | P6 |
 | Heavy Job Operational Logs | nicht zentral modelliert | kurzlebiger technischer `instance/system` Scope mit Actor-/Job-Referenz | Resource-Entscheidung, Queue, Parser-Exit und Crash redacted loggen | P7/P9 |
@@ -94,7 +97,8 @@ Dieses Dokument schliesst Umsetzungsschritt 2 ab: bestehende Canvas Notebook Fun
 | Admin Cleanup | admin-only, Studio Assets global | `organization` Admin Operation | Admin-Gate plus Audit | P7 |
 | Health Endpoint | `instance` | `instance/system` | Bleibt Instanz-Health fuer Control Plane | P9 |
 | Runtime Data Paths | `instance` Data Root | `instance`, mit scoped Unterpfaden | Nicht alles unter Data Root fachlich global behandeln | P3/P6 |
-| Backups | aktuell Migration/Filesystem-nahe | Full Instance Backup plus system-managed Host/Control-Plane Backup | Konsistenter DB-/Data-Snapshot, verschluesselt, extern triggerbar, Schedule vorbereitet | P8 |
+| Backups | aktuell Migration/Filesystem-nahe | Full Instance Backup plus system-managed Host/Control-Plane Backup | SQLite Snapshot oder Postgres Dump/Snapshot plus `/data`, verschluesselt, extern triggerbar, Schedule vorbereitet | P8 |
+| SQLite -> Postgres Migration | nicht vorhanden | provider-aware Maintenance Flow | SQLite-Snapshot, Postgres-Init, Datenkopie, Referenzpruefung, `requires_reindex` fuer Embeddings | P8/P9 |
 | Audit Trail | nicht als zentrale Domain vorhanden | `organization` zentral, mit User/Workspace/Session | Audit-Domain einfuehren | P7 |
 | Retention/Trash | geloeschte Dateien oft direkt entfernt | `organization` Policy, `workspace` Trash | Trash/Retention vor Team-Datei-Loeschung | P7 |
 | Raw Tool/Runtime Logs | in Messages/Runtime-Events oder gar nicht zentral | kurzlebiger technischer Debug-Scope mit Retention | Nicht als dauerhafter Audit-Ersatz speichern; Summary/Hash/Ref behalten | P7 |
@@ -107,36 +111,38 @@ Dieses Dokument schliesst Umsetzungsschritt 2 ab: bestehende Canvas Notebook Fun
 1. `WorkspaceContext` muss vor Workspace-UI, Public Links, Automations und Agent-Dateioperationen stehen.
 2. Rollen und per-user Permissions muessen vor Team-Workspace-Schreibzugriffen stehen.
 3. Lizenz-/Deployment-Mode-Gates muessen vor sichtbaren Teamfunktionen stehen.
-4. Public Links duerfen erst workspace-aware migriert werden, wenn Files eindeutig Workspace-Roots haben und Move/Delete-Revocation implementiert ist.
-5. Agent-Dateioperationen duerfen erst auf Team-Workspaces schreiben, wenn absolute Pfade kontrolliert sind.
-6. Studio darf erst organizationweit sichtbar werden, wenn `organizationId`, `createdByUserId`, Creator-Filter, Delete/Audit und Save/Copy-Zielauswahl umgesetzt sind.
-7. Export/Import darf erst granular werden, wenn Daten `organizationId`, `userId` und `workspaceId` konsistent speichern.
-8. Breiter Tool-/File-Audit darf erst umgesetzt werden, wenn Actor Context, Retention, Cleanup/Rollup und Storage-Monitoring mitgeplant sind.
-9. Workspace-Wechsel darf laufende Agent-Sessions nicht stillschweigend migrieren; Chat-Wechsel startet eine neue Session.
-10. `data/workspace` darf bei Migration nicht automatisch zum Team Workspace werden.
-11. Agent-Dateitools duerfen nur in den Session-Workspace schreiben; fremde Personal Workspaces sind fuer Read und Write verboten.
-12. Secrets, MCP, Skills, Plugins und Agent Runtime duerfen in Team-Instanzen nicht aus globalen Instanz-Dateien als aktive User-Konfiguration aufgeloest werden.
-13. Fresh Install und Update-Migration muessen denselben scoped Zielzustand erzeugen; mehrdeutige Owner- oder Secret-Zuordnung stoppt mit Admin-Review.
-14. Agent-Tools duerfen nur ueber einen serverseitig erzeugten Execution Context laufen; Tool-Parameter aus dem LLM sind untrusted.
-15. Automations haben genau einen primaeren Workspace; Organization Automations laufen ueber Service Actor und brauchen Admin-Approval.
-16. Knowledge-Ingestion darf nur nach Scope und Scan-Policy indexieren; Retrieval muss ACLs vor Rueckgabe erzwingen.
-17. Offboarding darf Personal Workspaces nicht normal fuer Admins sichtbar machen; Zugriff nur ueber Recovery-Flow mit Audit.
+4. Team-/Advanced-/RAG-Features duerfen erst freigeschaltet werden, wenn Postgres/pgvector im Provider-Gate bestanden ist.
+5. Public Links duerfen erst workspace-aware migriert werden, wenn Files eindeutig Workspace-Roots haben und Move/Delete-Revocation implementiert ist.
+6. Agent-Dateioperationen duerfen erst auf Team-Workspaces schreiben, wenn absolute Pfade kontrolliert sind.
+7. Studio darf erst organizationweit sichtbar werden, wenn `organizationId`, `createdByUserId`, Creator-Filter, Delete/Audit und Save/Copy-Zielauswahl umgesetzt sind.
+8. Export/Import darf erst granular werden, wenn Daten `organizationId`, `userId` und `workspaceId` konsistent speichern.
+9. Breiter Tool-/File-Audit darf erst umgesetzt werden, wenn Actor Context, Retention, Cleanup/Rollup und Storage-Monitoring mitgeplant sind.
+10. Workspace-Wechsel darf laufende Agent-Sessions nicht stillschweigend migrieren; Chat-Wechsel startet eine neue Session.
+11. `data/workspace` darf bei Migration nicht automatisch zum Team Workspace werden.
+12. Agent-Dateitools duerfen nur in den Session-Workspace schreiben; fremde Personal Workspaces sind fuer Read und Write verboten.
+13. Secrets, MCP, Skills, Plugins und Agent Runtime duerfen in Team-Instanzen nicht aus globalen Instanz-Dateien als aktive User-Konfiguration aufgeloest werden.
+14. Fresh Install und Update-Migration muessen denselben scoped Zielzustand erzeugen; mehrdeutige Owner- oder Secret-Zuordnung stoppt mit Admin-Review.
+15. Agent-Tools duerfen nur ueber einen serverseitig erzeugten Execution Context laufen; Tool-Parameter aus dem LLM sind untrusted.
+16. Automations haben genau einen primaeren Workspace; Organization Automations laufen ueber Service Actor und brauchen Admin-Approval.
+17. Knowledge-Ingestion darf nur nach Scope, Scan-Policy und Provider-Gate indexieren; Retrieval muss ACLs vor Rueckgabe erzwingen.
+18. Offboarding darf Personal Workspaces nicht normal fuer Admins sichtbar machen; Zugriff nur ueber Recovery-Flow mit Audit.
 
 ## Migrationsreihenfolge fuer Datenmodell
 
 1. Organization/Membership/Role/Permission Tabellen.
 2. Bootstrap-/Migration-State fuer Fresh Install und Update-Migration.
-3. Workspace Tabelle und Legacy Workspace Mapping.
-4. Workspace Resolver API und globaler Workspace UI State.
-5. Filesystem-Layout unter `/data/workspaces/...` und Legacy-Import-Strategie.
-6. `workspaceId` an PI Sessions, File/Public-Link-Metadaten und Automations.
-7. Actor Context Resolver fuer Web, Gateways, Agent Runtime und Automations.
-8. Secret-/Runtime-Resolver fuer User-, Organization- und System-Scopes.
-9. Audit Event und Tool-Run Tabellen mit kleinen Metadaten, Hashes und Artefakt-Referenzen.
-10. `organizationId` und `createdByUserId` an teamfaehige Feature-Tabellen.
-11. Revision/Lock/Trash Tabellen.
-12. Retention-/Cleanup-/Usage-Rollup-Jobs.
-13. Export/Import Manifest-Version erhoehen.
+3. Database Provider Gate und DB-Migration-State.
+4. Workspace Tabelle und Legacy Workspace Mapping.
+5. Workspace Resolver API und globaler Workspace UI State.
+6. Filesystem-Layout unter `/data/workspaces/...` und Legacy-Import-Strategie.
+7. `workspaceId` an PI Sessions, File/Public-Link-Metadaten und Automations.
+8. Actor Context Resolver fuer Web, Gateways, Agent Runtime und Automations.
+9. Secret-/Runtime-Resolver fuer User-, Organization- und System-Scopes.
+10. Audit Event und Tool-Run Tabellen mit kleinen Metadaten, Hashes und Artefakt-Referenzen.
+11. `organizationId` und `createdByUserId` an teamfaehige Feature-Tabellen.
+12. Revision/Lock/Trash Tabellen.
+13. Retention-/Cleanup-/Usage-Rollup-Jobs.
+14. Export/Import Manifest-Version erhoehen.
 
 ## Minimaler V1-Scope
 
@@ -160,6 +166,7 @@ Fuer eine erste robuste Team-Version sollten diese Bereiche enthalten sein:
 - User-scoped Secrets, MCP-Konfiguration, Skills, Plugins und Agent-Runtime-Einstellungen.
 - E-Mail bleibt strikt user-scoped; Organization-Team-Mailboxen sind kein impliziter Fallback.
 - Automatische Personal Knowledge und policy-gesteuerte Team Knowledge mit Secret-/PII-Scan vor Embedding.
+- SQLite bleibt nur fuer Community/Single-User; produktive Team Knowledge, Embeddings, RAG und Knowledge Graph brauchen Postgres/pgvector.
 - Public Links mit `workspaceId`, Latest-Verhalten und Deaktivierung bei Move/Delete.
 - Audit fuer Admin-Aktionen, File Writes, Agent File Writes und Public Links, ohne grosse Payloads dauerhaft in der DB zu speichern.
 - Retention Defaults fuer Raw Tool Payloads, Runtime Events, Trash/Revisions und Usage-Einzelereignisse.

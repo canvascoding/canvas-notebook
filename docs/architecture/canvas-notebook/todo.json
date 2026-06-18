@@ -47,7 +47,11 @@
       "id": 6,
       "title": "Control Plane Managed Mode in Lizenz-Claims und Deployment Modes aufteilen",
       "status": "pending",
-      "repo": "canvas-control-plane"
+      "repo": "canvas-control-plane",
+      "planningArtifacts": [
+        "docs/architecture/canvas-notebook/team-workspace/00-full-plan.md",
+        "docs/architecture/canvas-notebook/team-workspace/17-database-provider-postgres-rag-collaboration-policy.md"
+      ]
     },
     {
       "id": 7,
@@ -59,13 +63,21 @@
       "id": 8,
       "title": "applyManagedEnvToVmConfig() und ensureManagedEnvForVmConfig() um Team-ENV-Werte erweitern",
       "status": "pending",
-      "repo": "canvas-control-plane"
+      "repo": "canvas-control-plane",
+      "planningArtifacts": [
+        "docs/architecture/canvas-notebook/team-workspace/00-full-plan.md",
+        "docs/architecture/canvas-notebook/team-workspace/17-database-provider-postgres-rag-collaboration-policy.md"
+      ]
     },
     {
       "id": 9,
       "title": "Control Plane Provisioning so anpassen, dass Team-Instanzen als Organization-Runtime verstanden werden",
       "status": "pending",
-      "repo": "canvas-control-plane"
+      "repo": "canvas-control-plane",
+      "planningArtifacts": [
+        "docs/architecture/canvas-notebook/team-workspace/00-full-plan.md",
+        "docs/architecture/canvas-notebook/team-workspace/17-database-provider-postgres-rag-collaboration-policy.md"
+      ]
     },
     {
       "id": 10,
@@ -230,7 +242,8 @@
       "planningArtifacts": [
         "docs/docling-knowledge-ingestion-plan.md",
         "docs/architecture/canvas-notebook/team-workspace/12-knowledge-ingestion-retrieval-policy.md",
-        "docs/architecture/canvas-notebook/team-workspace/13-resource-aware-ingestion-and-job-backpressure.md"
+        "docs/architecture/canvas-notebook/team-workspace/13-resource-aware-ingestion-and-job-backpressure.md",
+        "docs/architecture/canvas-notebook/team-workspace/17-database-provider-postgres-rag-collaboration-policy.md"
       ]
     },
     {
@@ -331,7 +344,11 @@
       "id": 34,
       "title": "Einfache Locks oder Revision-Checks fuer Team-Dateien einfuehren",
       "status": "pending",
-      "repo": "canvasstudios-notebook"
+      "repo": "canvasstudios-notebook",
+      "planningArtifacts": [
+        "docs/architecture/canvas-notebook/team-workspace/05-actor-audit-retention.md",
+        "docs/architecture/canvas-notebook/team-workspace/17-database-provider-postgres-rag-collaboration-policy.md"
+      ]
     },
     {
       "id": 35,
@@ -352,7 +369,8 @@
         "docs/architecture/canvas-notebook/team-workspace/07-filesystem-migration-and-write-policy.md",
         "docs/architecture/canvas-notebook/team-workspace/08-user-scoped-secrets-runtime.md",
         "docs/architecture/canvas-notebook/team-workspace/09-initial-setup-and-update-migration.md",
-        "docs/architecture/canvas-notebook/team-workspace/15-export-import-backup-restore-policy.md"
+        "docs/architecture/canvas-notebook/team-workspace/15-export-import-backup-restore-policy.md",
+        "docs/architecture/canvas-notebook/team-workspace/17-database-provider-postgres-rag-collaboration-policy.md"
       ]
     },
     {
@@ -364,7 +382,69 @@
         "docs/docling-knowledge-ingestion-plan.md",
         "docs/architecture/canvas-notebook/team-workspace/05-actor-audit-retention.md",
         "docs/architecture/canvas-notebook/team-workspace/12-knowledge-ingestion-retrieval-policy.md",
-        "docs/architecture/canvas-notebook/team-workspace/13-resource-aware-ingestion-and-job-backpressure.md"
+        "docs/architecture/canvas-notebook/team-workspace/13-resource-aware-ingestion-and-job-backpressure.md",
+        "docs/architecture/canvas-notebook/team-workspace/17-database-provider-postgres-rag-collaboration-policy.md"
+      ]
+    },
+    {
+      "id": 38,
+      "title": "Database-Provider-Abstraktion fuer SQLite und Postgres in Canvas Notebook einfuehren",
+      "status": "pending",
+      "repo": "canvasstudios-notebook",
+      "planningArtifacts": [
+        "docs/architecture/canvas-notebook/team-workspace/09-initial-setup-and-update-migration.md",
+        "docs/architecture/canvas-notebook/team-workspace/17-database-provider-postgres-rag-collaboration-policy.md"
+      ]
+    },
+    {
+      "id": 39,
+      "title": "Canvas Notebook CLI Installer um SQLite/Postgres-Auswahl und Team-Postgres-Zwang erweitern",
+      "status": "pending",
+      "repo": "canvasstudios-notebook",
+      "planningArtifacts": [
+        "docs/architecture/canvas-notebook/team-workspace/02-execution-model.md",
+        "docs/architecture/canvas-notebook/team-workspace/17-database-provider-postgres-rag-collaboration-policy.md"
+      ]
+    },
+    {
+      "id": 40,
+      "title": "Control Plane VM-Provisioning um Postgres/pgvector-Service, DB-ENV und DB-Secrets fuer Teamplaene erweitern",
+      "status": "pending",
+      "repo": "canvas-control-plane",
+      "planningArtifacts": [
+        "docs/architecture/canvas-notebook/team-workspace/00-full-plan.md",
+        "docs/architecture/canvas-notebook/team-workspace/17-database-provider-postgres-rag-collaboration-policy.md"
+      ]
+    },
+    {
+      "id": 41,
+      "title": "SQLite-zu-Postgres-Migrationstool mit Maintenance Mode, Snapshot, Referenzpruefung und Reindex-Status bauen",
+      "status": "pending",
+      "repo": "cross-repo",
+      "planningArtifacts": [
+        "docs/architecture/canvas-notebook/team-workspace/09-initial-setup-and-update-migration.md",
+        "docs/architecture/canvas-notebook/team-workspace/15-export-import-backup-restore-policy.md",
+        "docs/architecture/canvas-notebook/team-workspace/17-database-provider-postgres-rag-collaboration-policy.md"
+      ]
+    },
+    {
+      "id": 42,
+      "title": "Export, Import, Backup und Restore provider-aware machen inklusive Postgres-Dump",
+      "status": "pending",
+      "repo": "cross-repo",
+      "planningArtifacts": [
+        "docs/architecture/canvas-notebook/team-workspace/15-export-import-backup-restore-policy.md",
+        "docs/architecture/canvas-notebook/team-workspace/17-database-provider-postgres-rag-collaboration-policy.md"
+      ]
+    },
+    {
+      "id": 43,
+      "title": "RAG, Embeddings, Knowledge Graph und echte Collaboration an Postgres/pgvector-Gates binden",
+      "status": "pending",
+      "repo": "canvasstudios-notebook",
+      "planningArtifacts": [
+        "docs/architecture/canvas-notebook/team-workspace/12-knowledge-ingestion-retrieval-policy.md",
+        "docs/architecture/canvas-notebook/team-workspace/17-database-provider-postgres-rag-collaboration-policy.md"
       ]
     }
   ]
