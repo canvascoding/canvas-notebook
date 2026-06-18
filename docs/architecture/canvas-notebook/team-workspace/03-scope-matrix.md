@@ -36,7 +36,7 @@ Dieses Dokument schliesst Umsetzungsschritt 2 ab: bestehende Canvas Notebook Fun
 | File Browser UI | ein globaler Workspace | aktiver `workspace` pro User/UI State | Workspace-Switcher erst nach serverseitiger Isolation; Tree bei Wechsel neu laden | P4 |
 | File Watcher/Cache/Search Cache | globaler Workspace Tree | `workspace`-spezifischer Cache | Cache Keys und Events um `workspaceId` erweitern | P4/P5 |
 | Uploads/Attachments | globales `data/user-uploads` Intake | `user` Intake mit optionalem `workspace` Ziel | Upload-Metadaten und Copy-to-Workspace workspace-aware machen | P4/P6 |
-| Public File Links | `workspacePath` plus `createdByUserId` | `organization`, `workspace`, `createdByUserId`, optional Revision | `workspaceId`, Access Policy, Revision-Pinning, Revocation | P6/P7 |
+| Public File Links | `workspacePath` plus `createdByUserId` | `organization`, `workspace`, `createdByUserId`, latest target | Personal Share fuer Owner; Team Share nur Admin/Permission; Latest-Link; Revocation bei Move/Delete; Passwortschutz spaeter | P6/P7 |
 | Markdown/PDF/HTML Preview | globaler Workspace-Pfad | `workspace` Datei und Preview Policy | Preview-Token und Cache um Workspace erweitern | P4/P6 |
 | Terminal Sessions | runtime/session-nah, potentiell globaler Prozesskontext | `user` Session mit aktivem `workspace` CWD/Policy | Terminal-CWD und erlaubte Pfade an Workspace koppeln | P5 |
 | PI Chat Sessions | `user` plus `agentId` | `user`, `organization`, `workspace`, `agentId` | `workspaceId` an Sessions und Usage-Kontext ergaenzen; Workspace-Wechsel startet neue Session | P5 |
@@ -74,9 +74,9 @@ Dieses Dokument schliesst Umsetzungsschritt 2 ab: bestehende Canvas Notebook Fun
 | Studio Personas | `user` | `organization` Bibliothek mit `createdByUserId` und Visibility | analog Produkte | P6 |
 | Studio Styles | `user` | `organization` Bibliothek mit `createdByUserId` und Visibility | analog Produkte | P6 |
 | Studio Presets | default oder `user` | `user`, `organization` Templates, Defaults | Visibility/Template-Scope ergaenzen | P6 |
-| Studio Generations | `user` | `organization`, `createdByUserId`, optional `workspaceId` | Team-Asset-Sammlung und Filter | P6 |
-| Studio Outputs/Assets Files | globale `data/studio/...` Pfade | `organization` Asset Store, optional Workspace-Verknuepfung | Pfad-/Metadata-Scope ergaenzen | P6 |
-| Studio Save to Workspace | globaler Workspace, `targetPath` | expliziter `targetWorkspaceId` plus `targetPath` | Dialog fuer Personal/Team-Ziel und serverseitige Permission | P4/P6 |
+| Studio Generations | `user` | `organization`, `createdByUserId`, optional `workspaceId` | Organizationweit sichtbar; Creator-Filter; keine privaten Studio Generations | P6 |
+| Studio Outputs/Assets Files | globale `data/studio/...` Pfade | `organization` Asset Store, optional Workspace-Verknuepfung | Organizationweite Asset-Sammlung, Creator bleibt erhalten, Offboarding loescht Assets nicht | P6 |
+| Studio Save to Workspace | globaler Workspace, `targetPath` | expliziter `targetWorkspaceId` plus `targetPath` | Pflichtdialog fuer Personal/Team-Ziel und serverseitige Permission | P4/P6 |
 | Studio References | globale Upload-/Reference-Bereiche | `user` Intake, `organization` Asset Visibility | Reference Ownership speichern | P6 |
 | Personal Workspace Export | globaler Export/adminnah | User darf eigenen Personal Workspace exportieren | Self-service Export ohne Team-/Org-Daten | P8 |
 | Migration Export | `instance` Komponenten | Admin-only `organization` Export mit User/Workspace Mapping | Manifest und Component Paths erweitern; Team/Org Export permission-gated | P8 |
@@ -106,9 +106,9 @@ Dieses Dokument schliesst Umsetzungsschritt 2 ab: bestehende Canvas Notebook Fun
 1. `WorkspaceContext` muss vor Workspace-UI, Public Links, Automations und Agent-Dateioperationen stehen.
 2. Rollen und per-user Permissions muessen vor Team-Workspace-Schreibzugriffen stehen.
 3. Lizenz-/Deployment-Mode-Gates muessen vor sichtbaren Teamfunktionen stehen.
-4. Public Links duerfen erst workspace-aware migriert werden, wenn Files eindeutig Workspace-Roots haben.
+4. Public Links duerfen erst workspace-aware migriert werden, wenn Files eindeutig Workspace-Roots haben und Move/Delete-Revocation implementiert ist.
 5. Agent-Dateioperationen duerfen erst auf Team-Workspaces schreiben, wenn absolute Pfade kontrolliert sind.
-6. Studio darf erst organizationweit sichtbar werden, wenn Visibility und Delete/Audit geklaert sind.
+6. Studio darf erst organizationweit sichtbar werden, wenn `organizationId`, `createdByUserId`, Creator-Filter, Delete/Audit und Save/Copy-Zielauswahl umgesetzt sind.
 7. Export/Import darf erst granular werden, wenn Daten `organizationId`, `userId` und `workspaceId` konsistent speichern.
 8. Breiter Tool-/File-Audit darf erst umgesetzt werden, wenn Actor Context, Retention, Cleanup/Rollup und Storage-Monitoring mitgeplant sind.
 9. Workspace-Wechsel darf laufende Agent-Sessions nicht stillschweigend migrieren; Chat-Wechsel startet eine neue Session.
@@ -154,11 +154,11 @@ Fuer eine erste robuste Team-Version sollten diese Bereiche enthalten sein:
 - Agent-ExecutionContext fuer Tool-Allowlist, Cross-Workspace-Read-Grants, Secret-Refs und Revocation.
 - Multi-File-Cross-Workspace-Reads fuer explizit ausgewaehlte Dateien/Ordner.
 - Shell bleibt Session-Workspace-only.
-- Studio Save-to-Workspace mit Zielauswahl fuer eigenen Personal Workspace oder berechtigten Team Workspace.
+- Studio Save-to-Workspace mit verpflichtender Zielauswahl fuer eigenen Personal Workspace oder berechtigten Team Workspace.
 - User-scoped Secrets, MCP-Konfiguration, Skills, Plugins und Agent-Runtime-Einstellungen.
 - E-Mail bleibt strikt user-scoped; Organization-Team-Mailboxen sind kein impliziter Fallback.
 - Automatische Personal Knowledge und policy-gesteuerte Team Knowledge mit Secret-/PII-Scan vor Embedding.
-- Public Links mit `workspaceId`.
+- Public Links mit `workspaceId`, Latest-Verhalten und Deaktivierung bei Move/Delete.
 - Audit fuer Admin-Aktionen, File Writes, Agent File Writes und Public Links, ohne grosse Payloads dauerhaft in der DB zu speichern.
 - Retention Defaults fuer Raw Tool Payloads, Runtime Events, Trash/Revisions und Usage-Einzelereignisse.
 - Export mindestens fuer Workspaces, DB, Audit und Team-relevante Metadaten mit Secret-Redaction.

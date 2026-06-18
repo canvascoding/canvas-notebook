@@ -146,7 +146,7 @@ Studio-Tabellen sind user-scoped, aber nicht organization-scoped. Das passt fuer
 - Generations und Bulk Jobs haben `userId`.
 - Output-Dateipfade zeigen auf Studio-Data-Pfade, nicht auf Workspaces.
 
-V1 sollte nicht blind alle Studio-Daten teamweit sichtbar machen. Erst braucht es Organization-Scope und eine Policy, ob eigene oder alle Assets sichtbar sind.
+Nachtraegliche Zielentscheidung: In Team-Instanzen sind generierte Studio Assets organizationweit sichtbar. Es gibt in V1 keine privaten Studio Generations. Die UI braucht aber einen Filter nach `createdByUserId`, damit Assets eines bestimmten Users gefunden werden koennen.
 
 Der aktuelle Save-to-Workspace-Flow schreibt noch in den globalen Workspace. Fuer Team-Instanzen muss der Dialog einen Ziel-Workspace abfragen und die API `targetWorkspaceId` plus `targetPath` validieren. Speichern in den Team Workspace ist nur mit Team-Write-Permission erlaubt.
 

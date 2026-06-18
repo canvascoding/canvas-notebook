@@ -190,6 +190,7 @@ Studio-Outputs bleiben zunaechst im Studio Asset/Output Store. Eine Save-/Copy-A
 UI-Anforderung:
 
 - Save-to-Workspace Dialog fuer ein oder mehrere Outputs.
+- Der Dialog ist in Team-Instanzen verpflichtend und fragt explizit ab, in welchen Workspace kopiert werden soll.
 - Zielauswahl:
   - aktiver Workspace,
   - eigener Personal Workspace,
@@ -203,7 +204,7 @@ API-Anforderung:
 - Server prueft, ob der User die Outputs lesen darf.
 - Server prueft, ob der User in den Ziel-Workspace schreiben darf.
 - Server schreibt ueber den Workspace Resolver, nicht ueber globale `writeFile(path, ...)`.
-- Server speichert `sourceStudioOutputId`, `createdByUserId`, `workspaceId` und optional `sessionId`.
+- Server speichert `sourceStudioOutputId`, `createdByUserId`, `copiedByUserId`, `workspaceId` und optional `sessionId`.
 
 Nicht erlaubt:
 

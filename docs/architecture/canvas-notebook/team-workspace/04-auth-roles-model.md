@@ -88,7 +88,7 @@ Default-Regeln:
 | Personal Workspace lesen/schreiben | ja | eigener | eigener | eigener/limitiert |
 | Team Workspace lesen | ja | ja | ja | nein, bis Projekt-Scope existiert |
 | Team Workspace schreiben | ja | ja | nur wenn erlaubt | nein |
-| Public Links aus Personal Workspace | ja | eigener | wenn erlaubt | nein |
+| Public Links aus Personal Workspace | ja | eigener | eigener | nein |
 | Public Links aus Team Workspace | ja | ja | nur wenn erlaubt | nein |
 | Team-Automations erstellen | ja | ja | nur wenn erlaubt | nein |
 | Plugins/Skills teilen/freigeben | ja | ja | nur wenn erlaubt | nein |
@@ -97,6 +97,12 @@ Default-Regeln:
 | Offboarding starten | ja | ja | nein | nein |
 
 Diese Permissions sind Organization-spezifisch und duerfen nicht im globalen `user.role` gespeichert werden.
+
+Public-Link-Details:
+
+- Eigene Personal-Workspace-Dateien duerfen public geteilt werden.
+- Team-Dateien duerfen nur Owner/Admins oder User mit `canCreatePublicLinks` public teilen.
+- Public Links folgen in V1 der neuesten Dateiversion und werden bei Move/Delete deaktiviert.
 
 ## Organization-Identitaet
 

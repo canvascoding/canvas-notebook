@@ -204,7 +204,11 @@
       "title": "Public Links workspace- und revisionsbewusst neu modellieren",
       "status": "pending",
       "repo": "canvasstudios-notebook",
-      "planningArtifact": "docs/architecture/canvas-notebook/team-workspace/06-workspace-switching-ux.md"
+      "planningArtifacts": [
+        "docs/architecture/canvas-notebook/team-workspace/04-auth-roles-model.md",
+        "docs/architecture/canvas-notebook/team-workspace/06-workspace-switching-ux.md",
+        "docs/architecture/canvas-notebook/team-workspace/14-public-links-and-studio-assets-policy.md"
+      ]
     },
     {
       "id": 24,
@@ -213,7 +217,8 @@
       "repo": "canvasstudios-notebook",
       "planningArtifacts": [
         "docs/architecture/canvas-notebook/team-workspace/06-workspace-switching-ux.md",
-        "docs/architecture/canvas-notebook/team-workspace/07-filesystem-migration-and-write-policy.md"
+        "docs/architecture/canvas-notebook/team-workspace/07-filesystem-migration-and-write-policy.md",
+        "docs/architecture/canvas-notebook/team-workspace/14-public-links-and-studio-assets-policy.md"
       ]
     },
     {
@@ -271,7 +276,8 @@
         "docs/architecture/canvas-notebook/team-workspace/08-user-scoped-secrets-runtime.md",
         "docs/architecture/canvas-notebook/team-workspace/10-agent-tool-execution-policy.md",
         "docs/architecture/canvas-notebook/team-workspace/11-automation-execution-model.md",
-        "docs/architecture/canvas-notebook/team-workspace/12-knowledge-ingestion-retrieval-policy.md"
+        "docs/architecture/canvas-notebook/team-workspace/12-knowledge-ingestion-retrieval-policy.md",
+        "docs/architecture/canvas-notebook/team-workspace/14-public-links-and-studio-assets-policy.md"
       ]
     },
     {

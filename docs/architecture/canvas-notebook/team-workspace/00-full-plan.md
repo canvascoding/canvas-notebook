@@ -278,10 +278,13 @@ Agent-Definitionen:
 Public Links:
 
 - Public Links muessen fuer mehrere Workspaces neu modelliert werden.
-- Ein Link auf eine Datei aus einem persoenlichen Workspace darf nur vom Owner erstellt oder verwaltet werden.
-- Ein Link auf eine Datei aus dem Team Workspace darf nur von Usern mit passender Rolle erstellt werden.
-- Links muessen widerrufbar sein und sollten optional Ablaufdatum, Passwort/Token, Revision Pinning und Download/View Policy haben.
-- Public-Link-Audit muss speichern, wer den Link erstellt hat und auf welche Revision oder Datei er zeigt.
+- Ein Link auf eine Datei aus dem eigenen persoenlichen Workspace darf vom Owner erstellt oder verwaltet werden.
+- Ein Link auf eine Datei aus dem Team Workspace darf nur von Owner/Admin oder Usern mit `canCreatePublicLinks` erstellt werden.
+- V1-Links zeigen auf die jeweils neueste Version der Datei.
+- Links muessen widerrufbar sein und bei Move/Rename/Delete der Ziel-Datei deaktiviert werden.
+- Ablaufdatum bleibt aktiv; optionaler Passwortschutz wird als spaetere Erweiterung vorbereitet.
+- Public bedeutet in V1 View und Download.
+- Public-Link-Audit muss speichern, wer den Link erstellt hat und auf welche Datei, letzte bekannte Revision oder letzten Content Hash er zeigt.
 
 Studio Route:
 
@@ -289,8 +292,9 @@ Studio Route:
 - Generierte Assets sollen ebenfalls in einer gemeinsamen Organization-Sammlung sichtbar sein.
 - Jedes generierte Asset muss `createdByUserId`, `organizationId`, optional `workspaceId`, Prompt-/Generator-Metadaten und Zeitstempel speichern.
 - Die Studio Route braucht Filter: alle Assets, eigene Assets, Assets eines bestimmten Users, optional Workspace/Projekt.
-- Teammitglieder duerfen generierte Assets anderer User sehen und herunterladen, sofern die Organization-Policy das erlaubt.
-- Loeschen, Verbergen oder Freigeben von Assets braucht Rollenlogik und Audit.
+- Teammitglieder duerfen generierte Assets anderer User sehen und herunterladen.
+- In V1 gibt es keine privaten Studio Generations.
+- Organization User mit Studio-Zugriff duerfen Assets loeschen, sofern keine restriktivere Organization Policy gesetzt ist; Loeschungen brauchen Audit und sollten Soft Delete/Trash nutzen.
 
 Offboarding:
 
@@ -360,6 +364,8 @@ Audit, Retention und Datenloeschung:
 - Zu auditieren sind mindestens: Login-/Admin-Aktionen, User-/Rollen-Aenderungen, Plugin-/Skill-Aenderungen, OAuth connect/disconnect, Public Link create/revoke, Export/Import, Automation create/run/change, Agent-Ausfuehrung, Datei-Aenderung, To-do-Aenderung und Studio-Asset-Erzeugung.
 - Geloeschte Dateien sollten fuer Teamplaene mindestens eine Retention-/Trash-Strategie haben, statt sofort unkontrolliert zu verschwinden.
 - Public Links muessen bei Datei-/Workspace-Loeschung automatisch widerrufen oder deaktiviert werden.
+- Public Links auf eigene Personal-Workspace-Dateien sind erlaubt; Public Links auf Team-Dateien brauchen Owner/Admin oder explizite `canCreatePublicLinks` Permission.
+- V1-Public-Links folgen der neuesten Dateiversion. Bei Move/Rename/Delete der Ziel-Datei wird der Link deaktiviert. Public bedeutet in V1 View und Download; optionaler Passwortschutz wird fuer spaeter vorbereitet.
 - Offboarding sollte User-Daten archivieren, private Credentials loeschen und historische Creator-/Audit-Referenzen erhalten.
 - Retention fuer Audit Logs, Studio Assets, Trash und Backups muss spaeter konfigurierbar sein.
 
@@ -377,6 +383,19 @@ Projekt-/Kundenebene:
 - `project` Workspaces sollten optional unterhalb der Organization liegen und koennen externe User gezielt einladen.
 - Produkte, Personas, Stile, Knowledge, To-dos und Assets sollten spaeter projekt-/kundenspezifisch gefiltert oder zugeordnet werden koennen.
 - Das Datenmodell sollte diese Ebene nicht blockieren, auch wenn V1 mit Personal Workspace und Team Workspace startet.
+
+## Studio Assets
+
+Generierte Studio Assets sind in Team-Instanzen organizationweit sichtbar.
+
+Regeln:
+
+- Es gibt in V1 keine privaten Studio Generations.
+- Studio Generations, Outputs und Assets speichern `organizationId` und `createdByUserId`.
+- Die Studio UI zeigt organizationweite Assets und bietet einen Filter nach Creator/User.
+- Offboarding archiviert den User, loescht aber seine Studio Assets nicht automatisch.
+- Studio Asset Deletes sind fuer Organization User mit Studio-Zugriff erlaubt, sofern keine restriktivere Policy gesetzt ist; sie muessen auditiert und moeglichst als Soft Delete/Trash umgesetzt werden.
+- Save/Copy-to-Workspace fuer Studio Outputs muss immer einen Ziel-Workspace abfragen: eigener Personal Workspace oder berechtigter Team Workspace.
 
 ## KI-Agent Kontext
 
@@ -706,8 +725,8 @@ Die verbindliche Detailregel steht in `13-resource-aware-ingestion-and-job-backp
 - Ob Composio nur user-scoped startet oder ob Organization-geteilte Connections direkt in V1 benoetigt werden.
 - Ob E-Mail Team-Mailboxen in V1 Teil des Teamplans sind oder ob zuerst nur User-Mailboxen unterstuetzt werden.
 - Welche Notification Channels user-scoped, organization-scoped oder beides sein sollen.
-- Welche Rollen Public Links aus Team Workspaces erstellen, widerrufen oder einsehen duerfen.
-- Ob Studio Assets standardmaessig organizationweit sichtbar sind oder ob User/Projekt-Sichtbarkeit konfigurierbar sein muss.
+- Wie optionaler Public-Link-Passwortschutz technisch und im UI umgesetzt wird.
+- Ob Studio Assets spaeter zusaetzlich projekt-/kundenspezifische Sichtbarkeit bekommen.
 - Welche administrativen Aktionen nur Admins duerfen und welche an feinere Rollen delegiert werden koennen.
 - Welche Export-Bereiche fuer V1 enthalten sein muessen und wie Secrets/OAuth-Tokens im Export behandelt werden.
 - Ob User-Plugins/Skills nur individuell installierbar sind oder ob eine Organization Registry direkt in V1 benoetigt wird.

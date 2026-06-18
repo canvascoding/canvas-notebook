@@ -117,6 +117,8 @@ Lieferumfang:
 - Kopieren zwischen Personal und Team Workspace.
 - Studio Save-to-Workspace Dialog fragt Personal- oder Team-Ziel ab und nutzt `targetWorkspaceId`.
 - Public-Share-Anzeigen workspace-aware.
+- Public Links auf Personal-Dateien sind fuer den Owner erlaubt; Team-Public-Links brauchen Admin oder `canCreatePublicLinks`.
+- Public Links folgen der neuesten Dateiversion und werden bei Move/Delete deaktiviert.
 
 Tests:
 
@@ -124,6 +126,7 @@ Tests:
 - Store-/Component-Tests fuer globalen Workspace-Wechsel.
 - Chat-Header-Test: Workspace-Wechsel startet neue Session oder setzt den Chat auf neue Session.
 - Studio Save-to-Workspace-Test fuer Personal-Ziel, Team-Ziel und fehlende Team-Write-Permission.
+- Public-Link-Tests fuer Personal Share, Team Permission, Latest-Version und Deaktivierung bei Move/Delete.
 - UI-Test nur nach Freigabe, da Workspace-Auswahl sichtbar ist.
 - `npm run build`.
 
@@ -170,6 +173,7 @@ Teilbereiche:
 - Automations mit Personal/Organization Scope, Service Actor, Webhook-Sicherheit, Approval, Offboarding und Retry-Policy.
 - Todos.
 - Studio Assets, Produkte, Personas, Styles.
+- Organizationweite Studio Assets mit Creator-Filter und ohne private Studio Generations.
 - Skills, Plugins und Agent-Definitionen.
 - Composio, E-Mail-OAuth, Notifications und Channels.
 - User-/Organization-/System-Secrets.
