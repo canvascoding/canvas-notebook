@@ -245,8 +245,7 @@ const COLOR_SWATCH_PLUGIN_KEY = new PluginKey('markdownColorSwatches');
 
 function shouldDefaultToSource(value: string, readOnly: boolean, filePath?: string) {
   if (readOnly) return false;
-  if (!filePath) return true;
-  if (/\.mdx$/i.test(filePath)) return true;
+  if (filePath && /\.mdx$/i.test(filePath)) return true;
   return FRONTMATTER_REGEX.test(value.trimStart());
 }
 
