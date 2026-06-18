@@ -491,7 +491,7 @@
     "markdownEditorAddBlockBelowHint": "Klicken, um darunter hinzuzufügen",
     "markdownEditorAddBlockAboveHint": "Option-Klick, um darüber hinzuzufügen",
     "markdownEditorDragBlockHint": "Ziehen, um zu verschieben",
-    "markdownEditorOpenBlockMenuHint": "Klicken oder ⌘/, um das Menü zu öffnen",
+    "markdownEditorOpenBlockMenuHint": "Klicken, um das Menü zu öffnen",
     "markdownEditorImageAltPrompt": "Alt-Text",
     "markdownEditorImageSrcPrompt": "Bild-URL oder Workspace-Pfad",
     "markdownEditorImageDialogTitle": "Bild einfügen",

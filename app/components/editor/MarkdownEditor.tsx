@@ -210,6 +210,12 @@ type TopLevelBlockRange = {
   to: number;
 };
 
+type BlockControlPosition = {
+  blockRange: TopLevelBlockRange;
+  menuRange: Range;
+  top: number;
+};
+
 type ImageDialogSeed = {
   id: number;
   range?: Range;
@@ -927,13 +933,25 @@ function getTopLevelBlockRangeAt(editor: Editor, position: number): TopLevelBloc
   return range;
 }
 
-function getActiveTopLevelBlockRange(editor: Editor): TopLevelBlockRange | null {
+function createInsertedBlockCommandTarget(
+  editor: Editor,
+  placement: BlockInsertPlacement,
+  blockRange?: TopLevelBlockRange,
+): Range | null {
   if (!editor.isEditable || editor.isActive('codeBlock')) return null;
-  return getTopLevelBlockRangeAt(editor, editor.state.selection.from);
-}
 
-function createInsertedBlockCommandTarget(editor: Editor, placement: BlockInsertPlacement): Range | null {
-  if (!editor.isEditable || editor.isActive('codeBlock')) return null;
+  if (blockRange) {
+    const insertPosition = placement === 'above' ? blockRange.from : blockRange.to;
+    const cursorPosition = insertPosition + 1;
+    editor
+      .chain()
+      .focus()
+      .insertContentAt(insertPosition, { type: 'paragraph' })
+      .setTextSelection(cursorPosition)
+      .run();
+
+    return { from: cursorPosition, to: cursorPosition };
+  }
 
   const { $from } = editor.state.selection;
   const textblockDepth = findActiveTextblockDepth(editor);
@@ -952,8 +970,13 @@ function createInsertedBlockCommandTarget(editor: Editor, placement: BlockInsert
   return { from: cursorPosition, to: cursorPosition };
 }
 
-function createCurrentBlockCommandTarget(editor: Editor): Range | null {
+function createCurrentBlockCommandTarget(editor: Editor, menuRange?: Range): Range | null {
   if (!editor.isEditable || editor.isActive('codeBlock')) return null;
+
+  if (menuRange) {
+    editor.chain().focus().setTextSelection(menuRange.from).run();
+    return menuRange;
+  }
 
   const { $from } = editor.state.selection;
   const textblockDepth = findActiveTextblockDepth(editor);
@@ -977,20 +1000,27 @@ function createBlockCommandMenuState(editor: Editor, range: Range): BlockCommand
   }
 }
 
-function getBlockInsertButtonPosition(editor: Editor, container: HTMLDivElement): { top: number } | null {
+function getBlockInsertButtonPosition(editor: Editor, container: HTMLDivElement): BlockControlPosition | null {
   if (!editor.isEditable || editor.isActive('codeBlock')) return null;
 
   const { $from } = editor.state.selection;
   const textblockDepth = findActiveTextblockDepth(editor);
   if (!textblockDepth) return null;
 
+  const blockRange = getTopLevelBlockRangeAt(editor, editor.state.selection.from);
+  if (!blockRange) return null;
+
   const blockStart = $from.before(textblockDepth);
   const blockDom = editor.view.nodeDOM(blockStart);
   const containerRect = container.getBoundingClientRect();
+  const menuPosition = $from.start(textblockDepth);
+  const menuRange = { from: menuPosition, to: menuPosition };
 
   if (blockDom instanceof HTMLElement) {
     const blockRect = blockDom.getBoundingClientRect();
     return {
+      blockRange,
+      menuRange,
       top: Math.max(6, blockRect.top - containerRect.top + container.scrollTop + (blockRect.height / 2) - 12),
     };
   }
@@ -999,6 +1029,8 @@ function getBlockInsertButtonPosition(editor: Editor, container: HTMLDivElement)
   const coords = editor.view.coordsAtPos(positionForCoords);
 
   return {
+    blockRange,
+    menuRange,
     top: Math.max(6, coords.top - containerRect.top + container.scrollTop),
   };
 }
@@ -1063,11 +1095,11 @@ function MarkdownBlockControls({
 }: {
   editor: Editor | null;
   labels: SlashCommandLabels;
-  onAddBlock: (editor: Editor, placement: BlockInsertPlacement) => void;
-  onOpenCommandMenu: (editor: Editor) => void;
+  onAddBlock: (editor: Editor, placement: BlockInsertPlacement, blockRange: TopLevelBlockRange) => void;
+  onOpenCommandMenu: (editor: Editor, menuRange: Range) => void;
   scrollContainerRef: React.RefObject<HTMLDivElement | null>;
 }) {
-  const [position, setPosition] = useState<{ top: number } | null>(null);
+  const [position, setPosition] = useState<BlockControlPosition | null>(null);
   const dragStateRef = useRef<TopLevelBlockRange | null>(null);
 
   const updatePosition = useCallback(() => {
@@ -1169,7 +1201,7 @@ function MarkdownBlockControls({
             onClick={(event) => {
               event.preventDefault();
               event.stopPropagation();
-              onAddBlock(editor, event.altKey ? 'above' : 'below');
+              onAddBlock(editor, event.altKey ? 'above' : 'below', position.blockRange);
             }}
           >
             <Plus />
@@ -1192,13 +1224,13 @@ function MarkdownBlockControls({
             onClick={(event) => {
               event.preventDefault();
               event.stopPropagation();
-              onOpenCommandMenu(editor);
+              onOpenCommandMenu(editor, position.menuRange);
             }}
             onDragEnd={() => {
               dragStateRef.current = null;
             }}
             onDragStart={(event) => {
-              const source = getActiveTopLevelBlockRange(editor);
+              const source = position.blockRange;
               if (!source || !event.dataTransfer) {
                 event.preventDefault();
                 return;
@@ -2420,15 +2452,19 @@ function RichMarkdownEditor({
     });
   }, []);
 
-  const openInsertedBlockCommandMenu = useCallback((blockEditor: Editor, placement: BlockInsertPlacement) => {
-    const range = createInsertedBlockCommandTarget(blockEditor, placement);
+  const openInsertedBlockCommandMenu = useCallback((
+    blockEditor: Editor,
+    placement: BlockInsertPlacement,
+    blockRange?: TopLevelBlockRange,
+  ) => {
+    const range = createInsertedBlockCommandTarget(blockEditor, placement, blockRange);
     if (!range) return;
 
     openBlockCommandMenuAtRange(blockEditor, range);
   }, [openBlockCommandMenuAtRange]);
 
-  const openCurrentBlockCommandMenu = useCallback((blockEditor: Editor) => {
-    const range = createCurrentBlockCommandTarget(blockEditor);
+  const openCurrentBlockCommandMenu = useCallback((blockEditor: Editor, menuRange?: Range) => {
+    const range = createCurrentBlockCommandTarget(blockEditor, menuRange);
     if (!range) return;
 
     openBlockCommandMenuAtRange(blockEditor, range);
