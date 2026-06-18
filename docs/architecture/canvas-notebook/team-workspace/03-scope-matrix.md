@@ -39,7 +39,7 @@ Dieses Dokument schliesst Umsetzungsschritt 2 ab: bestehende Canvas Notebook Fun
 | File Browser UI | ein globaler Workspace | aktiver `workspace` pro User/UI State | Workspace-Switcher erst nach serverseitiger Isolation; Tree bei Wechsel neu laden | P4 |
 | File Watcher/Cache/Search Cache | globaler Workspace Tree | `workspace`-spezifischer Cache | Cache Keys und Events um `workspaceId` erweitern | P4/P5 |
 | Uploads/Attachments | globales `data/user-uploads` Intake | `user` Intake mit optionalem `workspace` Ziel | Upload-Metadaten und Copy-to-Workspace workspace-aware machen | P4/P6 |
-| Public File Links | `workspacePath` plus `createdByUserId` | `organization`, `workspace`, `createdByUserId`, latest target | Personal Share fuer Owner; Team Share in V1 nur Owner/Admin; optional spaeter delegierbares/folder-scoped Recht; Latest-Link; Revocation bei Move/Delete; Passwortschutz spaeter | P6/P7 |
+| Public File Links | `workspacePath` plus `createdByUserId` | `organization`, `workspace`, `createdByUserId`, latest target | Personal Share fuer Owner; Team Share fuer aktive interne User mit Team-Zugriff und default-aktivem `canCreatePublicLinks`; spaeter policy-/folder-scoped einschraenkbar; Latest-Link; Revocation bei Move/Delete; Passwortschutz spaeter | P6/P7 |
 | Markdown/PDF/HTML Preview | globaler Workspace-Pfad | `workspace` Datei und Preview Policy | Preview-Token und Cache um Workspace erweitern | P4/P6 |
 | Terminal Sessions | runtime/session-nah, potentiell globaler Prozesskontext | `user` Session mit aktivem `workspace` CWD/Policy | Terminal-CWD und erlaubte Pfade an Workspace koppeln | P5 |
 | PI Chat Sessions | `user` plus `agentId` | `user`, `organization`, `workspace`, `agentId` | `workspaceId` an Sessions und Usage-Kontext ergaenzen; Workspace-Wechsel startet neue Session | P5 |
@@ -171,7 +171,7 @@ Fuer eine erste robuste Team-Version sollten diese Bereiche enthalten sein:
 - Automatische Personal Knowledge und policy-gesteuerte Team Knowledge mit Secret-/PII-Scan vor Embedding.
 - SQLite bleibt nur fuer Community/Single-User; produktive Team Knowledge, Embeddings, RAG und Knowledge Graph brauchen Postgres/pgvector.
 - Public Links mit `workspaceId`, Latest-Verhalten und Deaktivierung bei Move/Delete.
-- Team-Public-Links in V1 nur fuer Owner/Admin; Member duerfen Team-Dateien bearbeiten/loeschen, aber keine Team-Public-Links erstellen.
+- Team-Public-Links in V1 fuer aktive interne User mit Team-Workspace-Zugriff; Member ohne Team-Zugriff, Externals oder User mit deaktiviertem `canCreatePublicLinks` sind blockiert.
 - Markdown/Text bekommt CRDT-/Yjs-Grundlage oder harte Revision-Checks; Office/PDF/Assets bekommen Lock-/Revision-Policy.
 - Audit fuer Admin-Aktionen, File Writes, Agent File Writes und Public Links, ohne grosse Payloads dauerhaft in der DB zu speichern.
 - Retention Defaults fuer Raw Tool Payloads, Runtime Events, Trash/Revisions und Usage-Einzelereignisse.

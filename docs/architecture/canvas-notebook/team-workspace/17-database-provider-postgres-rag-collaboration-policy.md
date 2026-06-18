@@ -118,6 +118,85 @@ Konkrete Control-Plane-Aenderungspunkte:
 - VM-Detailseite um einen Tab `Database` oder `Migration` erweitern. Der Tab soll den aktuellen Provider, Team-Gate-Status, Postgres-/pgvector-Status, Backup-Status und Migration-Runs anzeigen.
 - `maintenance-tab.tsx` kann als UI-Muster dienen, aber die DB-Migration bekommt eigene Validierungen, Rollenpruefung und gefuehrte Warnungen.
 
+## Control Plane API Vertrag
+
+Es gibt drei unterschiedliche Secret-/Token-Ebenen. Sie duerfen nicht vermischt werden.
+
+| Ebene | Aktueller Mechanismus | Zweck | Darf fuer DB-Migration/Backup genutzt werden? |
+|---|---|---|---|
+| VM-Agent-Control | `API_KEY` in `/etc/canvas-control-agent.env`, WebSocket `Authorization: Bearer <API_KEY>` | Control Plane steuert den Host-Agenten, Actions, Terminal, Health und Metriken | ja, fuer Host-/Docker-/Compose-Operationen ueber den verbundenen Agent |
+| Managed Instance Token | `CANVAS_INSTANCE_TOKEN` im Notebook-Container, gespeichert als Hash in `vmManagedAccessTokens` mit Scopes | Notebook ruft Managed Services der Control Plane auf, z. B. Models, Media, Email, License | nein, nicht fuer Host-Level-Migration oder Backup-Orchestrierung |
+| Notebook Internal API | `CANVAS_INTERNAL_API_KEY` lokal in der Notebook-Instanz | interne Scheduler-/App-Endpunkte innerhalb der Notebook-Runtime | nein, nicht fuer Control-Plane-Agent-Steuerung |
+
+Identitaeten:
+
+- `vmId` ist die Control-Plane-VM-/Agent-ID und entspricht im Managed Notebook `CANVAS_INSTANCE_ID`.
+- `organizationId` kommt in der Control Plane aus der VM-/Billing-/Organization-Zuordnung und im Notebook aus `CANVAS_ORGANIZATION_ID` oder License Claim.
+- User-/Rollenrechte werden bei Control-Plane-API-Aufrufen serverseitig ueber Session, Organization Membership und VM Access geprueft.
+
+Neue Control-Plane-API-Kanten:
+
+```txt
+GET  /v1/vms/:id/database/status
+GET  /v1/vms/:id/database/runs
+POST /v1/vms/:id/database/prepare-postgres
+POST /v1/vms/:id/database/migrate-sqlite-to-postgres
+POST /v1/vms/:id/database/backup
+POST /v1/vms/:id/database/runs/:runId/cancel
+```
+
+Autorisierung:
+
+- `status` braucht VM-Read-Zugriff.
+- `prepare-postgres` braucht Owner/Admin oder explizite VM-Manage-Rechte.
+- `migrate-sqlite-to-postgres`, `backup`, `cancel` brauchen Owner/Admin.
+- Teamplan-Aktivierung darf Migration/Prepare nicht ueber Client-Flags erzwingen; der Server prueft Plan, License/Feature Claims, Organization und VM-Zuordnung.
+
+Agent-Nachrichten:
+
+```txt
+database:status:request
+database:prepare-postgres
+database:migrate-sqlite-to-postgres
+database:backup
+database:run:cancel
+```
+
+Agent-Antworten:
+
+```txt
+database:status
+database:run:started
+database:run:progress
+database:run:completed
+database:run:failed
+database:run:cancelled
+```
+
+Mindest-Payload fuer Runs:
+
+```json
+{
+  "runId": "<uuid>",
+  "operation": "migrate_sqlite_to_postgres",
+  "vmId": "<vmId>",
+  "organizationId": "<organizationId>",
+  "requestedByUserId": "<userId>",
+  "phase": "snapshot_created",
+  "progress": 35,
+  "message": "SQLite snapshot created",
+  "errorCode": null,
+  "rollbackAvailable": true
+}
+```
+
+Sicherheitsregeln:
+
+- `DATABASE_URL`, Postgres-Passwort, `CANVAS_INSTANCE_TOKEN`, Agent `API_KEY` und interne Notebook-Keys duerfen nie an die Web-UI gesendet werden.
+- UI sieht nur redacted Status, Provider, Versionen, Volumes, letzte Fehlercodes und Run IDs.
+- Freie Shell-Commands sind nicht der primaere Migrationsvertrag. Migration/Backup laufen ueber typisierte Agent-Operationen mit festen Parametern.
+- Jede Operation schreibt Lifecycle-/Audit-Events mit `vmId`, `organizationId`, `requestedByUserId`, Run-ID, Phase und Error Code.
+
 ## Version Pinning
 
 Stand 2026-06-18:
@@ -185,7 +264,8 @@ V1 startet nicht mit echter Realtime-Collaboration fuer alle Dateitypen. Fuer Ma
 
 V1-Regeln:
 
-- Markdown-, Text-, QMD-, JSON- und YAML-Dateien bekommen eine CRDT/Yjs- oder kompatible Operation-Log-Grundlage fuer Live-/Near-Live-Collaboration.
+- Markdown- und reine Textdateien bekommen eine CRDT/Yjs- oder kompatible Operation-Log-Grundlage fuer Live-/Near-Live-Collaboration.
+- QMD-, JSON-, YAML- und Code-Dateien bleiben in V1 revision- und konfliktgeschuetzt, aber nicht live kollaborativ.
 - Office-Dateien, PDFs, Bilder, Videos, Audio und sonstige Binary Assets werden nicht live gemerged.
 - Office-/PDF-/Asset-Bearbeitung nutzt Locks, Check-out, Revision Checks und Konfliktkopien.
 - Team-Dateien bekommen Revision Checks auch dann, wenn der konkrete Editor noch kein CRDT nutzt.

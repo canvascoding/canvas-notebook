@@ -1,6 +1,6 @@
 # Automation Execution Model
 
-Stand: 2026-06-17
+Stand: 2026-06-18
 
 ## Zweck
 
@@ -45,8 +45,10 @@ Regeln:
 - Der Owner ist der fachliche Actor.
 - Secrets kommen aus dem User-Scope des Owners.
 - Personal Automations pausieren beim Offboarding oder Deaktivieren des Owners.
-- Wenn eine Personal Automation im Team Workspace laufen soll, braucht der Owner `canCreateTeamAutomations` und die passende Team-Workspace-Permission.
+- Interne User duerfen Personal Automations fuer ihren eigenen Personal Workspace erstellen.
+- Wenn eine Automation in den Team Workspace schreiben soll, ist sie keine normale Member-Personal-Automation mehr, sondern braucht Owner/Admin-Rechte und Team-Workspace-Permission.
 - Ohne Team-Permission darf eine Personal Automation keinen Team Workspace schreiben.
+- Lesen aus dem Team Workspace ist fuer Personal Automations nur nach der normalen Cross-Workspace-Read-Policy erlaubt und bleibt auditpflichtig.
 - Personal Automations duerfen Organization-Secrets nicht nutzen.
 
 ### Organization Automation
@@ -88,7 +90,7 @@ V1-Default:
 
 Team Workspace:
 
-- Personal Automation im Team Workspace braucht Owner-Permission.
+- Personal Automations von Membern schreiben nicht in den Team Workspace.
 - Organization Automation ist Team-Workspace-only und braucht Owner/Admin-Erstellung und Approval.
 - Team Workspace Delete/Overwrite braucht riskante Aktion mit finalem Permission-Check.
 

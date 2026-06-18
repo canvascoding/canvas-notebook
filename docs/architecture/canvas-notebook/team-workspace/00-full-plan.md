@@ -228,7 +228,7 @@ Rollen und User-Permissions:
 - `external`: externer Kunde oder Projektgast mit eingeschraenktem Zugriff auf freigegebene Projekte/Workspaces.
 - Jeder normale Mitarbeiter darf grundsaetzlich Agenten ausfuehren.
 - Pro User sollen Admins einstellen koennen, ob der User in den Team Workspace schreiben darf.
-- Public Links fuer Team-Dateien duerfen in V1 nur Owner/Admins erstellen; ein optionales delegierbares Recht wie `canCreatePublicLinks` bleibt fuer spaeter vorbereitet und kann folder-scoped werden.
+- Public Links fuer Team-Dateien duerfen in V1 alle aktiven internen User mit Team-Workspace-Zugriff erstellen und verwalten; `canCreatePublicLinks` bleibt als explizites Recht erhalten und ist fuer diese User standardmaessig aktiv, kann aber spaeter policy- oder folder-scoped eingeschraenkt werden.
 - Pro User sollen Admins einstellen koennen, ob der User Automations im Team Workspace anlegen darf.
 - Pro User sollen Admins einstellen koennen, ob der User Plugins/Skills freigeben oder teilen darf.
 - Pro User sollen Admins einstellen koennen, ob der User Exporte ausfuehren darf. Vollstaendige App-/Organization-Exporte bleiben standardmaessig Admin-only.
@@ -327,7 +327,7 @@ Public Links:
 
 - Public Links muessen fuer mehrere Workspaces neu modelliert werden.
 - Ein Link auf eine Datei aus dem eigenen persoenlichen Workspace darf vom Owner erstellt oder verwaltet werden.
-- Ein Link auf eine Datei aus dem Team Workspace darf nur von Owner/Admin oder Usern mit `canCreatePublicLinks` erstellt werden.
+- Ein Link auf eine Datei aus dem Team Workspace darf von aktiven internen Usern mit Team-Workspace-Zugriff und aktivem `canCreatePublicLinks` erstellt oder verwaltet werden; der V1-Default setzt dieses Recht fuer teamfaehige Member, Admins und Owner auf `true`.
 - V1-Links zeigen auf die jeweils neueste Version der Datei.
 - Links muessen widerrufbar sein und bei Move/Rename/Delete der Ziel-Datei deaktiviert werden.
 - Ablaufdatum bleibt aktiv; optionaler Passwortschutz wird als spaetere Erweiterung vorbereitet.
@@ -418,7 +418,7 @@ Audit, Retention und Datenloeschung:
 - Zu auditieren sind mindestens: Login-/Admin-Aktionen, User-/Rollen-Aenderungen, Plugin-/Skill-Aenderungen, OAuth connect/disconnect, Public Link create/revoke, Export/Import, Automation create/run/change, Agent-Ausfuehrung, Datei-Aenderung, To-do-Aenderung und Studio-Asset-Erzeugung.
 - Geloeschte Dateien sollten fuer Teamplaene mindestens eine Retention-/Trash-Strategie haben, statt sofort unkontrolliert zu verschwinden.
 - Public Links muessen bei Datei-/Workspace-Loeschung automatisch widerrufen oder deaktiviert werden.
-- Public Links auf eigene Personal-Workspace-Dateien sind erlaubt; Public Links auf Team-Dateien brauchen Owner/Admin oder explizite `canCreatePublicLinks` Permission.
+- Public Links auf eigene Personal-Workspace-Dateien sind erlaubt; Public Links auf Team-Dateien brauchen Team-Workspace-Zugriff und `canCreatePublicLinks`, das fuer interne Team-User in V1 standardmaessig aktiv ist.
 - V1-Public-Links folgen der neuesten Dateiversion. Bei Move/Rename/Delete der Ziel-Datei wird der Link deaktiviert. Public bedeutet in V1 View und Download; optionaler Passwortschutz wird fuer spaeter vorbereitet.
 - Offboarding sollte User-Daten archivieren, private Credentials loeschen und historische Creator-/Audit-Referenzen erhalten.
 - Retention fuer Audit Logs, Studio Assets, Trash und Backups muss spaeter konfigurierbar sein.

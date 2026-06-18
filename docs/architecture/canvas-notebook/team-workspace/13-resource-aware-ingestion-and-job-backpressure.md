@@ -35,6 +35,41 @@ Die Instanz bekommt ein effektives Resource Profile. Dieses kann vom Control Pla
 
 Die konkreten Schwellenwerte muessen konfigurierbar sein. Wichtiger als fixe Zahlen ist, dass der Runtime-Resolver den tatsaechlichen Container- und Host-Zustand beruecksichtigt.
 
+## Konkrete V1-Schwellen
+
+V1 startet mit konservativen Mindestwerten. Diese Werte sind Default-Gates und koennen spaeter pro Managed Plan angepasst werden.
+
+RAM:
+
+- Unter 1.5 GiB effektivem Container-Memory oder Host-RAM: schwere Jobs, Knowledge-Ingestion, Docling/OCR, Chromium-basierte Verarbeitung und Embeddings bleiben blockiert.
+- 1.5 bis 1.8 GiB: App darf laufen, aber nur `metadata-only` oder Native-Parser-Fallback; keine automatische Knowledge-Ingestion.
+- Ab 2 GiB: Mindestniveau fuer kleine Single-User-/Team-Instanzen mit Postgres, aber schwere Jobs bleiben default `off` und laufen nur nach Preflight.
+- Ab 4 GiB: empfohlener Standard fuer Team Knowledge mit einem schweren Job gleichzeitig.
+- Ab 8 GiB: `large`-Profil moeglich; Concurrency darf erhoeht werden, bleibt aber budgetiert.
+
+Swap:
+
+- Managed kleine VMs sollen mindestens 2 GiB Swap haben.
+- Swap ersetzt kein RAM-Gate fuer Docling/OCR/Chromium, verhindert aber harte Crashs bei Lastspitzen.
+
+CPU:
+
+- 1 vCPU ist erlaubt, aber alle schweren Jobs laufen seriell und niedrig priorisiert.
+- 2 vCPU sind empfohlen fuer Team Knowledge mit einem schweren Job.
+- 4+ vCPU erlauben hoehere Queue-Durchsatzwerte, aber nur wenn RAM und Disk ebenfalls passen.
+
+Disk:
+
+- Unter 10 GiB freiem Speicher werden Backup, Restore, Migration, Reindex, OCR und grosse Parse-Jobs blockiert oder brauchen Owner/Admin-Bestaetigung.
+- Backup-Jobs brauchen geschaetzte Artefaktgroesse plus 20 Prozent Puffer.
+- SQLite-zu-Postgres-Migration braucht Platz fuer SQLite-Snapshot, `/data`-Backup, Postgres-Daten, WAL/Temp und Migrationslogs. Wenn diese Schaetzung nicht moeglich ist, gilt als konservativer Default: mindestens `max(10 GiB, 2.5x aktuelle SQLite-DB + relevante /data-Aenderungsmenge)`.
+
+Runtime-Preflight:
+
+- Teamplan + Postgres darf installiert werden, wenn die VM unter dem 2-GiB-Niveau liegt, muss aber im Control Plane und in Canvas Notebook als `resource_degraded` sichtbar sein.
+- Knowledge-Aktivierung wird blockiert, wenn RAM-, Disk- oder Postgres-/pgvector-Preflight nicht bestanden ist.
+- Chromium-/Browser-Tools und schwere Parser duerfen pro Job nur starten, wenn der aktuelle freie Speicher oberhalb des Job-Budgets liegt.
+
 ## Default-off und Settings Toggle
 
 Damit kleine Server nicht unerwartet durch Parsing/OCR/Embedding abstuerzen, startet V1 konservativ.

@@ -123,7 +123,7 @@ Lieferumfang:
 - Kopieren zwischen Personal und Team Workspace.
 - Studio Save-to-Workspace Dialog fragt Personal- oder Team-Ziel ab und nutzt `targetWorkspaceId`.
 - Public-Share-Anzeigen workspace-aware.
-- Public Links auf Personal-Dateien sind fuer den Owner erlaubt; Team-Public-Links brauchen Admin oder `canCreatePublicLinks`.
+- Public Links auf Personal-Dateien sind fuer den Owner erlaubt; Team-Public-Links brauchen Team-Workspace-Zugriff und `canCreatePublicLinks`, das fuer interne Team-User in V1 standardmaessig aktiv ist.
 - Public Links folgen der neuesten Dateiversion und werden bei Move/Delete deaktiviert.
 
 Tests:

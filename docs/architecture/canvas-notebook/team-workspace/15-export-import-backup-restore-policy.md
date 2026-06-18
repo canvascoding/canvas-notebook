@@ -69,6 +69,72 @@ Regeln:
 - Wenn Postgres genutzt wird, kann ein bewusst aktivierter Full Technical Export einen Postgres-Dump enthalten. Normale Migration Exports bleiben logisch und provider-aware.
 - V1-Technical-Exports und lokale Backup-Artefakte werden nicht automatisch verschluesselt. Die UI muss deshalb warnen, dass ein Host-/Container-Admin sie lesen kann.
 
+## Bestehendes Migration Manifest
+
+Im aktuellen Code existiert bereits ein Migration-Bundle-Manifest:
+
+- Typen: `app/lib/migration/types.ts`
+- Export: `app/lib/migration/export-service.ts`
+- Inspection: `app/lib/migration/inspect-service.ts`
+- Restore-Anwendung: `scripts/apply-pending-migration-restore.ts`
+
+V1-Manifest heute:
+
+- `format = "canvas-notebook-migration"`
+- `bundleSchemaVersion = 1`
+- `appVersion`
+- `exportedAt`
+- `exportId`
+- `components`
+- `fileCount`
+- `totalBytes`
+- `warnings`
+- `files`
+
+Aktuell ist das ein SQLite-/Datei-Migration-Manifest, kein vollstaendiges Postgres-/Disaster-Recovery-Manifest.
+
+Erweiterung fuer Bundle Schema Version 2:
+
+```txt
+database:
+- provider: sqlite | postgres
+- logicalSchemaVersion
+- migrationVersion
+- backupKind: sqlite_snapshot | postgres_dump | none
+- artifactPath
+- artifactSha256
+- compressedBytes?
+- pgvectorEnabled?
+- pgvectorVersion?
+- postgresVersion?
+
+source:
+- instanceId
+- organizationId
+- deploymentMode
+- managedServicesEnabled
+- createdByUserId
+
+features:
+- teamWorkspaceEnabled
+- knowledgeEnabled
+- embeddingsEnabled
+- collaborationEnabled
+
+restore:
+- requiresPostgres
+- requiresReindex
+- preservesTargetInstanceAndLicense
+- publicLinksIncluded: false fuer Migration Export, true nur fuer Full Backup
+```
+
+Regeln:
+
+- `bundleSchemaVersion=1` bleibt fuer bestehende SQLite-Migrationen lesbar.
+- Postgres-Dumps duerfen nicht in ein V1-Manifest ohne Provider-Felder geschrieben werden.
+- Import/Restore muss Provider-Mismatch im Dry Run anzeigen, bevor Dateien oder Datenbank geschrieben werden.
+- Full Backup darf ein anderes Format wie `canvas-notebook-full-backup` nutzen, soll aber dieselben Provider-, Source-, Feature- und Checksum-Felder enthalten.
+
 ## Zuweisungen und Referenzen
 
 Import/Export muss Zuweisungen und Referenzen korrekt behandeln.
@@ -148,6 +214,29 @@ Regeln:
 - Public Links aus Full Disaster Restore koennen erhalten bleiben, wenn Source und Ziel dieselbe kontrollierte Instanz-/Backup-Domain sind.
 - Provider-Mismatch ist ein Restore-/Import-Konflikt. SQLite-Quellen koennen ueber den definierten Migration-Flow nach Postgres gehoben werden; Postgres-Team-RAG-Daten duerfen nicht in SQLite downgraded werden.
 
+## Rollback-Regeln
+
+Rollback folgt Phasen. Automatischer Rollback ist nur erlaubt, solange keine neuen produktiven Writes auf dem neuen Zielsystem akzeptiert wurden.
+
+Phasen:
+
+1. `preflight`: keine Aenderung, Fehler bricht ohne Rollback ab.
+2. `snapshot_created`: SQLite-Snapshot, `/data`-Backup und Manifest wurden erstellt. Rollback besteht aus Nicht-Anwenden und Aufbewahrung des Snapshots.
+3. `postgres_prepared`: Postgres-Container, Volume, User und Extension sind angelegt, App laeuft aber noch auf SQLite. Fehler duerfen automatisch auf `sqlite_active` zurueckgehen; Postgres bleibt optional fuer Diagnose erhalten.
+4. `data_copied`: Daten liegen in Postgres, App ist noch nicht umgeschaltet. Fehler duerfen automatisch neu kopieren oder abbrechen; SQLite bleibt Quelle der Wahrheit.
+5. `validated`: Referenzen, Counts, Checksums, Schema und Health sind geprueft. Noch kein User-Traffic auf Postgres.
+6. `cutover_started`: Env/Compose/App werden auf Postgres umgeschaltet. Wenn Health vor Freigabe fehlschlaegt und keine User-Writes zugelassen wurden, darf automatisch auf SQLite-Env/Compose zurueckgeschaltet werden.
+7. `cutover_completed`: Team-Features und User-Writes sind freigegeben. Ab hier kein automatischer Rollback mehr.
+8. `post_cutover_failed`: Fehler nach produktiven Writes fuehrt zu Maintenance Mode und Owner-/Admin-Recovery-Flow mit Warnung, Audit und manueller Entscheidung.
+
+Best-Practice-Regeln:
+
+- Quelle wird nie destruktiv geloescht, bevor Retention und mindestens ein erfolgreiches Postgres-Backup vorhanden sind.
+- Jeder Schritt schreibt `migration_state` mit Phase, Zeit, Actor, Checksums, Counts und letzter erfolgreicher Aktion.
+- Rollback darf keine neueren Writes verlieren, ohne explizite Owner/Admin-Bestaetigung.
+- Bei Post-Cutover-Fehlern gibt es nur Recovery-Optionen: Postgres reparieren, aus Full Backup wiederherstellen oder manuell aus SQLite-Snapshot plus Postgres-Diff rekonstruieren.
+- Recovery-Aktionen sind Owner/Admin-only, auditpflichtig und zeigen klar, welche Daten verloren gehen koennten.
+
 ## Admin-Zugriff und Verschluesselung
 
 Solange Workspace-Dateien im Container im Klartext liegen und die App sie lesen kann, kann ein Host-/Container-Admin mit ausreichenden Rechten die Dateien technisch lesen. App-Level Exportrechte sind dann Policy-, UI- und Audit-Grenzen, aber keine kryptografische Abschottung gegen Root-/Container-Admins.
@@ -190,6 +279,7 @@ Pflichttests:
 - Backup kann via Admin/API/CLI getriggert werden.
 - Geplanter Backup-Job blockiert parallele Backup-Laeufe.
 - Restore Preview erkennt Konflikte vor dem Schreiben.
+- Restore-/Migration-Manifest V2 enthaelt Provider-, Schema-, Source-, Feature- und Checksum-Felder.
 - Postgres-Full-Backup enthaelt DB-Dump/Snapshot plus `/data`.
 - Import-Dry-Run erkennt Provider-Mismatch und blockiert Team-RAG-Downgrade nach SQLite.
 - V1-Backup-Artefakte liegen lokal und unverschluesselt auf der VM.

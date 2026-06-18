@@ -14,7 +14,8 @@ Team Workspace bedeutet nicht, dass jede Dateiart live kollaborativ bearbeitet w
 
 V1-Ziel:
 
-- Markdown, Text und notebook-nahe Textformate bekommen eine echte kollaborative Grundlage auf CRDT-Basis, bevorzugt Yjs.
+- Markdown und reine Textdateien (`.md`, `.markdown`, `.txt`) bekommen eine echte kollaborative Grundlage auf CRDT-Basis, bevorzugt Yjs.
+- QMD-, JSON-, YAML- und Code-Dateien bleiben in V1 revision- und konfliktgeschuetzt, aber nicht live kollaborativ.
 - Office-Dateien, PDFs, Bilder, Videos, Audio und andere binaere Assets bekommen Lock-/Check-out-, Revision- und Konfliktlogik.
 - Agenten duerfen keine aktive menschliche Bearbeitung ueberschreiben.
 - Alle Speicherpfade bleiben workspace-aware und auditierbar.
@@ -23,7 +24,8 @@ V1-Ziel:
 
 | Dateiart | V1-Strategie | Begruendung |
 |---|---|---|
-| Markdown/Text/QMD/JSON/YAML | CRDT/Yjs-basierte Live-Collaboration vorbereiten oder direkt nutzen | Autosave und haeufige kleine Edits kollidieren sonst schnell. |
+| Markdown/Text | CRDT/Yjs-basierte Live-Collaboration vorbereiten oder direkt nutzen | Autosave und haeufige kleine Edits kollidieren sonst schnell. |
+| QMD/JSON/YAML | Revision Check plus Konfliktanzeige | Seltener fuer nicht-technische Team-Workflows; V1 bleibt konservativ. |
 | Code-Dateien | optional CRDT/Yjs oder Revision Check plus Konfliktanzeige | Haengt vom Editor ab; sicherer Default ist Revision Check. |
 | Word/Excel/PowerPoint | exklusiver Lock/Check-out plus Revision | Serverseitiges Live-Merge ist nicht verlaesslich ohne spezialisierten Editor. |
 | PDF | Lock/Revision, keine Live-Collaboration | PDF wird meist generiert oder annotiert, nicht sauber gemerged. |
@@ -77,6 +79,8 @@ Regeln:
 - Bei lockpflichtigen Dateien blockiert der Agent Write, wenn ein anderer User aktiv bearbeitet.
 - Bei CRDT-faehigen Textdateien darf der Agent nur ueber einen serverseitig kontrollierten Patch-/Operation-Flow schreiben, nicht durch blindes Overwrite.
 - Wenn die Datei aktiv von Menschen bearbeitet wird, soll der Agent Aenderungen vorschlagen oder als Review-Patch bereitstellen, sofern kein sicherer Merge moeglich ist.
+- Der Review-Patch-Flow ist ein eigenes Editor-Feature: Patch-Vorschlag, Diff-Anzeige, Annahme/Ablehnung und anschliessende serverseitige Anwendung auf die aktuelle Revision.
+- Bis dieser Review-Patch-Flow existiert, darf der Agent bei aktiv geoeffneten CRDT-Dateien keine stillen Direktwrites ausfuehren.
 - Jede Agent-Aenderung speichert `userId`, `sessionId`, `agentId`, `workspaceId`, `previousRevision` und `nextRevision`.
 
 ## Revisionen und Konflikte

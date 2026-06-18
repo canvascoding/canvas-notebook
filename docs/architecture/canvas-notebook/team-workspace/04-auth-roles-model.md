@@ -1,6 +1,6 @@
 # Auth, Organization and Role Model
 
-Stand: 2026-06-17
+Stand: 2026-06-18
 
 ## Zweck
 
@@ -92,8 +92,9 @@ Default-Regeln:
 | Team Workspace schreiben | ja | ja | ja, wenn Team-Zugriff aktiv | nein |
 | Team Workspace Dateien loeschen | ja | ja | ja, wenn Team-Zugriff aktiv | nein |
 | Public Links aus Personal Workspace | ja | eigener | eigener | nein |
-| Public Links aus Team Workspace | ja | ja | nein in V1, optional delegierbar | nein |
+| Public Links aus Team Workspace | ja | ja | ja, wenn Team-Zugriff aktiv | nein |
 | Team-Automations erstellen | ja | ja | nein in V1 | nein |
+| Personal Automations erstellen | ja | ja | ja, im eigenen Personal Workspace | nein/limitiert |
 | Plugins/Skills teilen/freigeben | ja | ja | nur wenn erlaubt | nein |
 | Vollstaendige Exporte | ja | ja | nur wenn explizit erlaubt, default nein | nein |
 | Postgres Migration / Full Backup | ja | ja | nein | nein |
@@ -110,9 +111,17 @@ Owner-Regel:
 Public-Link-Details:
 
 - Eigene Personal-Workspace-Dateien duerfen public geteilt werden.
-- Team-Dateien duerfen in V1 nur Owner/Admins public teilen.
-- `canCreatePublicLinks` bleibt als optionales spaeteres Delegationsrecht vorbereitet und kann folder-/workspace-scoped werden.
+- Team-Dateien duerfen in V1 von allen aktiven internen Usern public geteilt und verwaltet werden, die im Team Workspace arbeiten duerfen.
+- `canCreatePublicLinks` bleibt als explizites Permission-Feld erhalten, default ist fuer Owner/Admin und teamfaehige Member aber `true`.
+- Eine spaetere restriktivere Organization Policy kann Public Links global oder folder-/workspace-scoped einschraenken.
 - Public Links folgen in V1 der neuesten Dateiversion und werden bei Move/Delete deaktiviert.
+
+Automations-Details:
+
+- Personal Automations duerfen alle internen User in ihrem eigenen Personal Workspace erstellen.
+- Personal Automations duerfen den Team Workspace nur lesen, wenn die normale Cross-Workspace-Read-Policy das erlaubt.
+- Automations mit Team-Workspace-Schreibrechten oder Organization-Scope duerfen nur Owner/Admins erstellen.
+- Jede Automation hat einen verantwortlichen User; beim Archivieren/Deaktivieren dieses Users wird die Automation pausiert und muss neu zugeordnet werden.
 
 External-Regel:
 
@@ -261,7 +270,7 @@ Die detaillierte Fresh-Install- und Update-Migrationslogik ist in `09-initial-se
 - Bestehende Single-User-Instanz migriert `data/workspace` in den Owner-Personal-Workspace.
 - Mehrdeutige bestehende Multi-User-Instanz stoppt mit Admin-Review.
 - Member darf keine Admin-/Export-/Team-Policy-Aktion ausfuehren.
-- Member mit Team-Zugriff darf Team-Dateien schreiben und loeschen, aber keine Team-Public-Links erstellen.
+- Member mit Team-Zugriff darf Team-Dateien schreiben, loeschen und Public Links verwalten, solange `canCreatePublicLinks` durch keine Organization Policy deaktiviert ist.
 - External darf den Team Workspace nicht lesen.
 - Admin darf Member-Permissions aendern.
 - Nur Owner/Admin darf Postgres Migration oder Full Backup starten.

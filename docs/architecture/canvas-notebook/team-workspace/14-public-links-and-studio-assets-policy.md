@@ -23,8 +23,9 @@ Personal Workspace:
 
 Team Workspace:
 
-- Team-Dateien duerfen nur oeffentlich geteilt werden, wenn der User Owner/Admin ist oder die explizite Permission `canCreatePublicLinks` hat.
-- Team-Share-Erstellung muss serverseitig gegen Organization Membership, Workspace-Zugriff und Permission geprueft werden.
+- Team-Dateien duerfen von allen aktiven internen Usern oeffentlich geteilt und verwaltet werden, die im Team Workspace arbeiten duerfen.
+- Team-Share-Erstellung muss serverseitig gegen Organization Membership, Team-Workspace-Zugriff und `canCreatePublicLinks` geprueft werden. Der V1-Default setzt diese Permission fuer Owner/Admin und teamfaehige Member auf `true`.
+- External User bekommen keinen Team-Public-Link-Zugriff, bis Projekt-/Kunden-Workspaces separat eingefuehrt sind.
 - Ein Team-Public-Link speichert immer `organizationId`, `workspaceId`, `createdByUserId` und Zielreferenz.
 
 ### Latest-Verhalten
@@ -153,7 +154,9 @@ Pflichttests:
 - User kann eigene Personal-Workspace-Datei public teilen.
 - User kann fremde Personal-Workspace-Datei nicht public teilen.
 - Team-Datei public teilen ist fuer Admin/Owner erlaubt.
-- Team-Datei public teilen ist fuer Member ohne `canCreatePublicLinks` blockiert.
+- Team-Datei public teilen ist fuer teamfaehige Member erlaubt, solange die Organization Policy Public Links nicht sperrt.
+- Team-Datei public teilen ist fuer External blockiert.
+- Team-Datei public teilen ist fuer Member ohne Team-Workspace-Zugriff oder ohne `canCreatePublicLinks` blockiert.
 - Public Link liefert nach Datei-Update die neueste Version.
 - Delete der Datei deaktiviert Public Link.
 - Move/Rename der Datei deaktiviert Public Link.
