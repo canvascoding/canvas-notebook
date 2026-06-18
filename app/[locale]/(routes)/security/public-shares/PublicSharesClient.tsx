@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { type ReactNode, useEffect, useMemo, useState } from 'react';
 import { Copy, ExternalLink, FileText, Filter, Globe2, Loader2, Menu, RefreshCw, Search, ShieldAlert, XCircle } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { toast } from 'sonner';
@@ -228,58 +228,91 @@ export function PublicSharesClient() {
     );
   };
 
+  const renderFilterGroup = (
+    label: string,
+    children: ReactNode,
+    icon?: ReactNode,
+    compact = false,
+  ) => (
+    <div
+      className={cn(compact ? 'space-y-2' : 'grid min-w-0 gap-2 lg:grid-cols-[7rem_minmax(0,1fr)] lg:items-start')}
+      role="group"
+      aria-label={label}
+    >
+      <div className={cn(
+        'flex h-8 items-center gap-2 text-xs font-medium uppercase text-muted-foreground',
+        compact ? 'mb-2' : 'lg:mb-0',
+      )}>
+        {icon}
+        {label}
+      </div>
+      <div className={cn(compact ? 'grid grid-cols-2 gap-2' : 'flex min-w-0 flex-wrap gap-2')}>
+        {children}
+      </div>
+    </div>
+  );
+
   const renderFilterControls = (compact = false) => (
-    <div className={cn('min-w-0', compact ? 'space-y-5' : 'contents')}>
-      <div className={cn(compact ? 'space-y-2' : 'flex min-w-0 flex-wrap items-center gap-2')}>
-        {compact ? <div className="text-xs font-medium uppercase text-muted-foreground">{t('statusLabel')}</div> : <Filter className="h-4 w-4 text-muted-foreground" />}
-        <div className={cn(compact ? 'grid grid-cols-2 gap-2' : 'flex flex-wrap gap-2')}>
+    <div className={cn('min-w-0', compact ? 'space-y-5' : 'w-full space-y-3')}>
+      {renderFilterGroup(
+        t('statusLabel'),
+        <>
           {STATUS_FILTERS.map((item) => (
             <Button
               key={item}
               size="sm"
               variant={status === item ? 'default' : 'outline'}
-              className={compact ? 'justify-start' : undefined}
+              className="justify-start"
               onClick={() => setStatus(item)}
+              aria-pressed={status === item}
             >
               {t(`status.${item}`)}
             </Button>
           ))}
-        </div>
-      </div>
+        </>,
+        <Filter className="h-4 w-4" />,
+        compact,
+      )}
 
-      <div className={cn(compact ? 'space-y-2' : 'flex min-w-0 flex-wrap gap-2')}>
-        {compact ? <div className="text-xs font-medium uppercase text-muted-foreground">{t('typeLabel')}</div> : null}
-        <div className={cn(compact ? 'grid grid-cols-2 gap-2' : 'flex flex-wrap gap-2')}>
+      {renderFilterGroup(
+        t('typeLabel'),
+        <>
           {TYPE_FILTERS.map((item) => (
             <Button
               key={item}
               size="sm"
               variant={type === item ? 'secondary' : 'ghost'}
-              className={compact ? 'justify-start' : undefined}
+              className="justify-start"
               onClick={() => setType(item)}
+              aria-pressed={type === item}
             >
               {t(`type.${item}`)}
             </Button>
           ))}
-        </div>
-      </div>
+        </>,
+        undefined,
+        compact,
+      )}
 
-      <div className={cn(compact ? 'space-y-2' : 'flex w-full flex-wrap gap-2 lg:ml-auto lg:w-auto')}>
-        {compact ? <div className="text-xs font-medium uppercase text-muted-foreground">{t('sourceLabel')}</div> : null}
-        <div className={cn(compact ? 'grid grid-cols-2 gap-2' : 'flex flex-wrap gap-2')}>
+      {renderFilterGroup(
+        t('sourceLabel'),
+        <>
           {SOURCE_FILTERS.map((item) => (
             <Button
               key={item}
               size="sm"
               variant={source === item ? 'secondary' : 'ghost'}
-              className={compact ? 'justify-start' : undefined}
+              className="justify-start"
               onClick={() => setSource(item)}
+              aria-pressed={source === item}
             >
               {t(`source.${item}`)}
             </Button>
           ))}
-        </div>
-      </div>
+        </>,
+        undefined,
+        compact,
+      )}
     </div>
   );
 
@@ -339,13 +372,13 @@ export function PublicSharesClient() {
               <RefreshCw className={cn('h-4 w-4', loading && 'animate-spin')} />
             </Button>
           </div>
-        </div>
-        <div className="hidden min-w-0 flex-wrap gap-2 border-b border-border p-3 md:flex">
-          {renderFilterControls(false)}
-          <Button size="sm" variant="outline" onClick={() => void loadShares()} disabled={loading}>
+          <Button size="sm" variant="outline" className="hidden shrink-0 md:inline-flex" onClick={() => void loadShares()} disabled={loading}>
             <RefreshCw className={cn('h-4 w-4', loading && 'animate-spin')} />
             {t('refresh')}
           </Button>
+        </div>
+        <div className="hidden min-w-0 border-b border-border bg-muted/20 p-3 md:block">
+          {renderFilterControls(false)}
         </div>
 
         <Sheet open={filtersOpen} onOpenChange={setFiltersOpen}>

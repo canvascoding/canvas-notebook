@@ -1312,7 +1312,7 @@
       "emptyDescription": "Publish a file from the file browser to create a public URL.",
       "file": "File",
       "statusLabel": "Status",
-      "typeLabel": "Type",
+      "typeLabel": "File type",
       "sourceLabel": "Source",
       "filePath": "Workspace path",
       "publicUrl": "Public URL",

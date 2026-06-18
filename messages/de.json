@@ -1311,7 +1311,7 @@
       "emptyDescription": "Veröffentliche eine Datei im Dateibrowser, um eine öffentliche URL zu erstellen.",
       "file": "Datei",
       "statusLabel": "Status",
-      "typeLabel": "Typ",
+      "typeLabel": "Dateityp",
       "sourceLabel": "Quelle",
       "filePath": "Workspace-Pfad",
       "publicUrl": "Öffentliche URL",
