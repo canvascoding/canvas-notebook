@@ -39,6 +39,13 @@ import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -64,6 +71,7 @@ type RightPanelView = 'info' | 'preview';
 type SkillsPanelTab = 'plugins' | 'skills';
 type PluginStoreTab = 'discover' | 'installed' | 'updates' | 'advanced';
 type SkillLibraryTab = 'installed' | 'library' | 'updates';
+type SelectedPluginDetail = { source: 'store' | 'installed'; name: string };
 
 type CanvasPluginComposioConnector = {
   toolkit: string;
@@ -144,6 +152,7 @@ type CanvasPluginStoreEntry = {
     enabled: boolean;
     version?: string;
     updateAvailable: boolean;
+    installedPlugin?: CanvasPluginSettingsRecord;
   };
 };
 
@@ -379,6 +388,7 @@ function CanvasPluginsSection({ onPluginsChanged }: { onPluginsChanged: () => vo
   const [pendingPluginName, setPendingPluginName] = useState<string | null>(null);
   const [preflightByPlugin, setPreflightByPlugin] = useState<Record<string, PluginPreflightState>>({});
   const [composioConnectorState, setComposioConnectorState] = useState<ComposioConnectorState>(EMPTY_COMPOSIO_CONNECTOR_STATE);
+  const [selectedPluginDetail, setSelectedPluginDetail] = useState<SelectedPluginDetail | null>(null);
   const deferredSearchQuery = useDeferredValue(searchQuery);
 
   const loadPluginData = useCallback(async () => {
@@ -438,7 +448,10 @@ function CanvasPluginsSection({ onPluginsChanged }: { onPluginsChanged: () => vo
 
   useEffect(() => {
     const requiredToolkits = uniqueByKey(
-      plugins.flatMap((plugin) => getComposioRecommendations(plugin.connectors)),
+      [
+        ...plugins.flatMap((plugin) => getComposioRecommendations(plugin.connectors)),
+        ...storePlugins.flatMap((plugin) => getComposioRecommendations(plugin.connectors)),
+      ],
       (connector) => connector.toolkit,
     );
 
@@ -514,7 +527,7 @@ function CanvasPluginsSection({ onPluginsChanged }: { onPluginsChanged: () => vo
     return () => {
       cancelled = true;
     };
-  }, [plugins, t]);
+  }, [plugins, storePlugins, t]);
 
   async function installLocalPlugin() {
     const trimmedPath = sourcePath.trim();
@@ -960,6 +973,7 @@ function CanvasPluginsSection({ onPluginsChanged }: { onPluginsChanged: () => vo
   }
 
   const storeByName = new Map(storePlugins.map((plugin) => [plugin.name, plugin]));
+  const installedByName = new Map(plugins.map((plugin) => [plugin.name, plugin]));
 
   function isStoreEntry(plugin: CanvasPluginStoreEntry | CanvasPluginSettingsRecord): plugin is CanvasPluginStoreEntry {
     return 'latestVersion' in plugin;
@@ -985,6 +999,266 @@ function CanvasPluginsSection({ onPluginsChanged }: { onPluginsChanged: () => vo
     ].filter(Boolean).join(' ').toLowerCase().includes(query);
   }
 
+  function maybeCheckStorePluginPreflight(plugin: CanvasPluginStoreEntry) {
+    if (!hasConnectorRecommendations(plugin.connectors)) return;
+    const preflight = preflightByPlugin[getPreflightKey(plugin.name, plugin.latestVersion)];
+    if (preflight?.isLoading || preflight?.result) return;
+    void checkStorePluginPreflight(plugin.name, plugin.latestVersion);
+  }
+
+  function openStorePluginDetail(plugin: CanvasPluginStoreEntry) {
+    setSelectedPluginDetail({ source: 'store', name: plugin.name });
+    maybeCheckStorePluginPreflight(plugin);
+  }
+
+  function openInstalledPluginDetail(plugin: CanvasPluginSettingsRecord) {
+    setSelectedPluginDetail({ source: 'installed', name: plugin.name });
+    const storePlugin = storeByName.get(plugin.name);
+    if (storePlugin) {
+      maybeCheckStorePluginPreflight(storePlugin);
+    }
+  }
+
+  function renderPluginDetailIcon(
+    storePlugin: CanvasPluginStoreEntry | undefined,
+    installedPlugin: CanvasPluginSettingsRecord | undefined,
+  ) {
+    if (storePlugin) return renderStoreIcon(storePlugin);
+    if (installedPlugin) return <CanvasPluginIcon plugin={installedPlugin} className="h-10 w-10 text-sm" />;
+    return (
+      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border bg-muted text-sm font-semibold text-muted-foreground">
+        CP
+      </span>
+    );
+  }
+
+  function renderPluginDetailsDialog() {
+    if (!selectedPluginDetail) return null;
+
+    const storePlugin = storeByName.get(selectedPluginDetail.name);
+    const installedPlugin = installedByName.get(selectedPluginDetail.name) || storePlugin?.installed.installedPlugin;
+    const displayName = storePlugin?.displayName || installedPlugin?.interface?.displayName || selectedPluginDetail.name;
+    const description = storePlugin?.description
+      || installedPlugin?.interface?.shortDescription
+      || installedPlugin?.description
+      || t('details.descriptionFallback');
+    const category = storePlugin?.category || installedPlugin?.interface?.category;
+    const publisherName = storePlugin?.publisher?.name || storeMetadata?.name || t('officialStore');
+    const connectors = storePlugin?.connectors || installedPlugin?.connectors;
+    const skillItems = installedPlugin?.skills?.length
+      ? installedPlugin.skills.map((skill) => ({
+        name: skill.name,
+        title: skill.title || skill.name,
+        description: skill.description,
+      }))
+      : (storePlugin?.skills || []).map((skill) => ({
+        name: skill,
+        title: skill,
+        description: '',
+      }));
+    const isInstalled = Boolean(installedPlugin || storePlugin?.installed.installed);
+    const installedEnabled = Boolean(installedPlugin?.enabled ?? storePlugin?.installed.enabled);
+    const updateAvailable = Boolean(storePlugin?.installed.updateAvailable);
+    const isPending = pendingPluginName === selectedPluginDetail.name || pendingPluginName === `store:${selectedPluginDetail.name}`;
+    const preflight = storePlugin ? preflightByPlugin[getPreflightKey(storePlugin.name, storePlugin.latestVersion)] : undefined;
+    const isChecking = Boolean(preflight?.isLoading);
+    const hasRequiredMissing = Boolean(preflight?.result?.hasRequiredMissing);
+    const canInstallFromStore = Boolean(storePlugin && (!isInstalled || updateAvailable));
+
+    return (
+      <Dialog
+        open
+        onOpenChange={(open) => {
+          if (!open) setSelectedPluginDetail(null);
+        }}
+      >
+        <DialogContent layout="viewport" className="gap-0 p-0">
+          <DialogHeader className="shrink-0 border-b px-5 py-4 pr-12 text-left">
+            <div className="flex items-start gap-3">
+              {renderPluginDetailIcon(storePlugin, installedPlugin)}
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <DialogTitle className="truncate text-xl">{displayName}</DialogTitle>
+                  {category ? <Badge variant="secondary" className="text-[10px]">{category}</Badge> : null}
+                  {storePlugin ? <Badge variant="outline" className="text-[10px]">v{storePlugin.latestVersion}</Badge> : null}
+                  {installedPlugin ? <Badge variant="outline" className="text-[10px]">v{installedPlugin.version}</Badge> : null}
+                  {isInstalled ? (
+                    <Badge variant={updateAvailable ? 'destructive' : 'default'} className="text-[10px]">
+                      {updateAvailable ? t('updateAvailable') : t('installed')}
+                    </Badge>
+                  ) : null}
+                  {installedPlugin ? (
+                    <Badge variant={installedEnabled ? 'default' : 'secondary'} className="text-[10px]">
+                      {installedEnabled ? t('enabled') : t('disabled')}
+                    </Badge>
+                  ) : null}
+                </div>
+                <DialogDescription className="mt-1 font-mono text-xs">/{selectedPluginDetail.name}</DialogDescription>
+              </div>
+            </div>
+          </DialogHeader>
+
+          <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+            <div className="mx-auto max-w-4xl space-y-5">
+              <section className="space-y-2">
+                <h3 className="text-sm font-semibold">{t('details.description')}</h3>
+                <p className="text-sm leading-6 text-muted-foreground">{description}</p>
+              </section>
+
+              <section className="grid gap-3 rounded-lg border bg-muted/20 p-4 text-sm sm:grid-cols-2 lg:grid-cols-3">
+                <div>
+                  <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{t('details.pluginId')}</div>
+                  <div className="mt-1 font-mono text-xs">{selectedPluginDetail.name}</div>
+                </div>
+                <div>
+                  <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{t('details.publisher')}</div>
+                  <div className="mt-1">{publisherName}</div>
+                </div>
+                {storePlugin ? (
+                  <div>
+                    <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{t('details.latestVersion')}</div>
+                    <div className="mt-1">v{storePlugin.latestVersion}</div>
+                  </div>
+                ) : null}
+                {installedPlugin ? (
+                  <div>
+                    <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{t('details.installedVersion')}</div>
+                    <div className="mt-1">v{installedPlugin.version}</div>
+                  </div>
+                ) : null}
+                {installedPlugin?.sourceRegistryId ? (
+                  <div>
+                    <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{t('details.source')}</div>
+                    <div className="mt-1">{installedPlugin.sourceRegistryId}</div>
+                  </div>
+                ) : null}
+                {installedPlugin?.license ? (
+                  <div>
+                    <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{t('details.license')}</div>
+                    <div className="mt-1">{installedPlugin.license}</div>
+                  </div>
+                ) : null}
+              </section>
+
+              <section className="space-y-2">
+                <h3 className="text-sm font-semibold">{t('details.includedSkills')}</h3>
+                {skillItems.length ? (
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    {skillItems.map((skill) => (
+                      <div key={skill.name} className="rounded-md border bg-background p-3">
+                        <div className="flex items-center gap-2">
+                          <CanvasSkillIcon
+                            skill={{ name: skill.name, title: skill.title, enabled: true } as CanvasSkill}
+                            className="h-7 w-7 text-[10px]"
+                          />
+                          <div className="min-w-0">
+                            <div className="truncate text-sm font-medium">{skill.title}</div>
+                            <div className="font-mono text-[11px] text-muted-foreground">/{skill.name}</div>
+                          </div>
+                        </div>
+                        {skill.description ? <p className="mt-2 line-clamp-2 text-xs text-muted-foreground">{skill.description}</p> : null}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="rounded-md border border-dashed px-3 py-2 text-sm text-muted-foreground">
+                    {t('details.noSkills')}
+                  </div>
+                )}
+              </section>
+
+              <section className="space-y-2">
+                <h3 className="text-sm font-semibold">{t('details.recommendedConnectors')}</h3>
+                {hasConnectorRecommendations(connectors) ? (
+                  <div className="[&>div]:mt-0 [&>div]:border-t-0 [&>div]:pt-0">
+                    {renderConnectorRecommendations(connectors)}
+                  </div>
+                ) : (
+                  <div className="rounded-md border border-dashed px-3 py-2 text-sm text-muted-foreground">
+                    {t('details.noConnectors')}
+                  </div>
+                )}
+              </section>
+
+              {storePlugin ? (
+                <section className="space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <h3 className="text-sm font-semibold">{t('details.appCheck')}</h3>
+                    {hasConnectorRecommendations(storePlugin.connectors) ? (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => void checkStorePluginPreflight(storePlugin.name, storePlugin.latestVersion)}
+                        disabled={isChecking}
+                        className="h-8 gap-1.5"
+                      >
+                        {isChecking ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+                        {t('details.refreshCheck')}
+                      </Button>
+                    ) : null}
+                  </div>
+                  {renderPluginPreflight(storePlugin) || (
+                    <div className="rounded-md border border-dashed px-3 py-2 text-sm text-muted-foreground">
+                      {t('preflight.noConnectors')}
+                    </div>
+                  )}
+                </section>
+              ) : null}
+            </div>
+          </div>
+
+          <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-t px-5 py-3">
+            {installedPlugin ? (
+              <label className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Switch
+                  checked={installedEnabled}
+                  disabled={isPending}
+                  onCheckedChange={(checked) => void setPluginEnabled(installedPlugin.name, checked)}
+                  aria-label={t('toggle', { name: installedPlugin.name })}
+                />
+                {installedEnabled ? t('enabled') : t('disabled')}
+              </label>
+            ) : (
+              <span className="text-sm text-muted-foreground">{t('details.notInstalled')}</span>
+            )}
+            <div className="flex flex-wrap items-center gap-2">
+              {installedPlugin ? (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  disabled={isPending}
+                  onClick={() => void deletePlugin(installedPlugin.name)}
+                  className="gap-1.5 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                >
+                  {isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                  {t('delete')}
+                </Button>
+              ) : null}
+              {storePlugin ? (
+                <Button
+                  variant={canInstallFromStore ? 'default' : 'outline'}
+                  size="sm"
+                  disabled={isPending || isChecking || hasRequiredMissing || !canInstallFromStore}
+                  onClick={() => void installStorePlugin(storePlugin.name, storePlugin.latestVersion)}
+                  className="gap-1.5"
+                >
+                  {isPending || isChecking ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : updateAvailable ? (
+                    <ArrowUpCircle className="h-3.5 w-3.5" />
+                  ) : (
+                    <Download className="h-3.5 w-3.5" />
+                  )}
+                  {updateAvailable ? t('update') : isInstalled ? t('installed') : t('addPlugin')}
+                </Button>
+              ) : null}
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+    );
+  }
+
   function renderStorePluginCard(plugin: CanvasPluginStoreEntry) {
     const isPending = pendingPluginName === `store:${plugin.name}`;
     const isInstalled = plugin.installed.installed;
@@ -996,20 +1270,32 @@ function CanvasPluginsSection({ onPluginsChanged }: { onPluginsChanged: () => vo
       && (!isInstalled || updateAvailable);
     const isChecking = Boolean(preflightState?.isLoading);
     const buttonLabel = needsPreflight
-      ? t('checkApps')
+      ? t('details.openDetails')
       : updateAvailable
       ? t('update')
       : isInstalled
         ? t('installed')
         : t('addPlugin');
     const buttonIcon = needsPreflight
-      ? <Plug className="h-3.5 w-3.5" />
+      ? <Info className="h-3.5 w-3.5" />
       : updateAvailable
       ? <ArrowUpCircle className="h-3.5 w-3.5" />
       : <Download className="h-3.5 w-3.5" />;
 
     return (
-      <div key={plugin.name} className="rounded-lg border bg-background p-4">
+      <div
+        key={plugin.name}
+        role="button"
+        tabIndex={0}
+        onClick={() => openStorePluginDetail(plugin)}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            openStorePluginDetail(plugin);
+          }
+        }}
+        className="rounded-lg border bg-background p-4 text-left transition-colors hover:border-primary/40 hover:bg-muted/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      >
         <div className="flex items-start gap-3">
           {renderStoreIcon(plugin)}
           <div className="min-w-0 flex-1">
@@ -1036,8 +1322,6 @@ function CanvasPluginsSection({ onPluginsChanged }: { onPluginsChanged: () => vo
             ) : null}
           </div>
         </div>
-        {renderConnectorRecommendations(plugin.connectors, { showLiveStatus: false })}
-        {renderPluginPreflight(plugin)}
         <div className="mt-4 flex items-center justify-between gap-3 border-t pt-3">
           <span className="text-xs text-muted-foreground">
             {plugin.publisher?.name || storeMetadata?.name || t('officialStore')}
@@ -1046,7 +1330,14 @@ function CanvasPluginsSection({ onPluginsChanged }: { onPluginsChanged: () => vo
             variant={updateAvailable || !isInstalled ? 'default' : 'outline'}
             size="sm"
             disabled={isPending || isChecking || (isInstalled && !updateAvailable)}
-            onClick={() => void installStorePlugin(plugin.name, plugin.latestVersion)}
+            onClick={(event) => {
+              event.stopPropagation();
+              if (needsPreflight) {
+                openStorePluginDetail(plugin);
+                return;
+              }
+              void installStorePlugin(plugin.name, plugin.latestVersion);
+            }}
             className="gap-1.5"
           >
             {isPending || isChecking ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : buttonIcon}
@@ -1063,9 +1354,29 @@ function CanvasPluginsSection({ onPluginsChanged }: { onPluginsChanged: () => vo
     const isPending = pendingPluginName === plugin.name || pendingPluginName === `store:${plugin.name}`;
     const storePlugin = storeByName.get(plugin.name);
     const updateAvailable = Boolean(storePlugin?.installed.updateAvailable);
+    const updatePreflightState = storePlugin
+      ? preflightByPlugin[getPreflightKey(storePlugin.name, storePlugin.latestVersion)]
+      : undefined;
+    const updateNeedsPreflight = Boolean(
+      storePlugin
+      && hasConnectorRecommendations(storePlugin.connectors)
+      && !updatePreflightState?.result,
+    );
 
     return (
-      <div key={plugin.name} className="rounded-lg border bg-background p-4">
+      <div
+        key={plugin.name}
+        role="button"
+        tabIndex={0}
+        onClick={() => openInstalledPluginDetail(plugin)}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            openInstalledPluginDetail(plugin);
+          }
+        }}
+        className="rounded-lg border bg-background p-4 text-left transition-colors hover:border-primary/40 hover:bg-muted/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      >
         <div className="flex items-start gap-3">
           <CanvasPluginIcon plugin={plugin} className="h-10 w-10 text-sm" />
           <div className="min-w-0 flex-1">
@@ -1089,12 +1400,15 @@ function CanvasPluginsSection({ onPluginsChanged }: { onPluginsChanged: () => vo
             </div>
           </div>
         </div>
-        {renderConnectorRecommendations(plugin.connectors)}
         <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t pt-3">
-          <label className="flex items-center gap-2 text-sm text-muted-foreground">
+          <label
+            className="flex items-center gap-2 text-sm text-muted-foreground"
+            onClick={(event) => event.stopPropagation()}
+          >
             <Switch
               checked={plugin.enabled}
               disabled={isPending}
+              onClick={(event) => event.stopPropagation()}
               onCheckedChange={(checked) => void setPluginEnabled(plugin.name, checked)}
               aria-label={t('toggle', { name: plugin.name })}
             />
@@ -1106,18 +1420,34 @@ function CanvasPluginsSection({ onPluginsChanged }: { onPluginsChanged: () => vo
                 variant="outline"
                 size="sm"
                 disabled={isPending}
-                onClick={() => void installStorePlugin(plugin.name, storePlugin?.latestVersion)}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  if (updateNeedsPreflight) {
+                    openInstalledPluginDetail(plugin);
+                    return;
+                  }
+                  void installStorePlugin(plugin.name, storePlugin?.latestVersion);
+                }}
                 className="gap-1.5"
               >
-                {isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ArrowUpCircle className="h-3.5 w-3.5" />}
-                {t('update')}
+                {isPending ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : updateNeedsPreflight ? (
+                  <Info className="h-3.5 w-3.5" />
+                ) : (
+                  <ArrowUpCircle className="h-3.5 w-3.5" />
+                )}
+                {updateNeedsPreflight ? t('details.openDetails') : t('update')}
               </Button>
             ) : null}
             <Button
               variant="ghost"
               size="sm"
               disabled={isPending}
-              onClick={() => void deletePlugin(plugin.name)}
+              onClick={(event) => {
+                event.stopPropagation();
+                void deletePlugin(plugin.name);
+              }}
               className="gap-1.5 text-destructive hover:bg-destructive/10 hover:text-destructive"
             >
               {isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
@@ -1322,8 +1652,10 @@ function CanvasPluginsSection({ onPluginsChanged }: { onPluginsChanged: () => vo
               </Button>
             </div>
           </div>
-        </TabsContent>
-      </Tabs>
+          </TabsContent>
+        </Tabs>
+
+      {renderPluginDetailsDialog()}
     </section>
   );
 }
