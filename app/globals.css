@@ -328,6 +328,33 @@
   min-width: 100%;
 }
 
+ul.contains-task-list {
+  list-style: none;
+  padding-left: 0;
+}
+
+li.task-list-item {
+  list-style: none;
+}
+
+li.task-list-item > input[type="checkbox"] {
+  accent-color: var(--primary);
+  height: 1rem;
+  margin: 0 0.625rem 0 0;
+  opacity: 1;
+  vertical-align: -0.125em;
+  width: 1rem;
+}
+
+li.task-list-item > p:first-of-type {
+  display: inline;
+}
+
+li.task-list-item > p {
+  margin-bottom: 0;
+  margin-top: 0;
+}
+
 /* tiptap markdown editor */
 .tiptap-editor-shell {
   min-height: 100%;
@@ -417,18 +444,36 @@
 }
 
 .tiptap-editor-shell li[data-type='taskItem'] {
-  align-items: flex-start;
-  display: flex;
-  gap: 0.5rem;
+  align-items: start;
+  column-gap: 0.625rem;
+  display: grid;
+  grid-template-columns: 1.25rem minmax(0, 1fr);
 }
 
 .tiptap-editor-shell li[data-type='taskItem'] > label {
-  margin-top: 0.25rem;
+  align-items: center;
+  display: flex;
+  justify-content: center;
+  margin: 0;
+  min-height: 1.5em;
+  user-select: none;
+}
+
+.tiptap-editor-shell li[data-type='taskItem'] > label input[type='checkbox'] {
+  accent-color: var(--primary);
+  height: 1rem;
+  margin: 0;
+  width: 1rem;
 }
 
 .tiptap-editor-shell li[data-type='taskItem'] > div {
   flex: 1;
   min-width: 0;
+}
+
+.tiptap-editor-shell li[data-type='taskItem'] > div > p {
+  margin-bottom: 0;
+  margin-top: 0;
 }
 
 .tiptap-editor-shell :not(pre) > code {
