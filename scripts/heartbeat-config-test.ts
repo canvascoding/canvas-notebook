@@ -15,6 +15,7 @@ async function main() {
   const { advanceAutomationJobSchedule, getHeartbeatJob } = await import('../app/lib/automations/store');
   const { buildHeartbeatPrompt } = await import('../app/lib/automations/heartbeat');
   const { writeManagedAgentFile } = await import('../app/lib/agents/storage');
+  const { DEFAULT_USER_TIME_ZONE } = await import('../app/lib/time-zones');
 
   const now = new Date();
   const userId = 'user-heartbeat-config';
@@ -96,6 +97,8 @@ async function main() {
   assert.equal(defaultHeartbeat.deliveryChannelId, null);
   assert.equal(defaultHeartbeat.deliverySessionMode, 'channel_active');
   assert.equal(defaultHeartbeat.schedule?.kind, 'interval');
+  assert.equal(defaultHeartbeat.schedule?.timeZone, DEFAULT_USER_TIME_ZONE);
+  assert.equal(defaultHeartbeat.schedule?.workingHours?.timeZone, DEFAULT_USER_TIME_ZONE);
   assert.equal(defaultHeartbeat.schedule?.workingHours?.enabled, true);
   assert.deepEqual(defaultHeartbeat.schedule?.workingHours?.days, ['mon', 'tue', 'wed', 'thu', 'fri']);
   if (defaultHeartbeat.schedule?.kind === 'interval') {

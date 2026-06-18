@@ -2590,12 +2590,14 @@ export function IntegrationsSettingsClient({
   userName = '',
   userEmail = '',
   isManagedControlPlane = false,
+  initialTimeZone,
 }: {
   isAdmin?: boolean;
   currentUserId?: string;
   userName?: string;
   userEmail?: string;
   isManagedControlPlane?: boolean;
+  initialTimeZone?: string;
 }) {
   const t = useTranslations('settings');
   const searchParams = useSearchParams();
@@ -3336,6 +3338,7 @@ export function IntegrationsSettingsClient({
             userName={userName}
             userEmail={userEmail}
             isManagedControlPlane={isManagedControlPlane}
+            initialTimeZone={initialTimeZone}
           />,
         )}
 

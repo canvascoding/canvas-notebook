@@ -2,6 +2,7 @@ import { redirect } from '@/i18n/navigation';
 import { getLocale } from 'next-intl/server';
 import { requirePageSession } from '@/app/lib/auth-guards';
 import { isOnboardingEnabled, isOnboardingComplete } from '@/app/lib/onboarding/status';
+import { getUserPreferredTimeZone } from '@/app/lib/user-preferences';
 import OnboardingWizard from './onboarding-wizard';
 
 export const dynamic = 'force-dynamic';
@@ -29,5 +30,13 @@ export default async function OnboardingPage({ searchParams }: OnboardingPagePro
     redirect({ href: '/', locale });
   }
 
-  return <OnboardingWizard defaultEmail={session.user.email ?? ''} initialLicenseKey={getInitialLicenseKey(params.key)} />;
+  const initialTimeZone = await getUserPreferredTimeZone(session.user.id);
+
+  return (
+    <OnboardingWizard
+      defaultEmail={session.user.email ?? ''}
+      initialLicenseKey={getInitialLicenseKey(params.key)}
+      initialTimeZone={initialTimeZone}
+    />
+  );
 }

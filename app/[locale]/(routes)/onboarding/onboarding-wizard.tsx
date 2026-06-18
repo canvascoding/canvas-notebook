@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState, useTransition } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from 'react';
 import Image from 'next/image';
 import { useTranslations } from 'next-intl';
 import { useParams, useSearchParams } from 'next/navigation';
@@ -10,13 +10,14 @@ import { routing } from '@/i18n/routing';
 import CanvasAgentChat from '@/app/components/canvas-agent-chat/CanvasAgentChat';
 import { PiProviderSetupCard } from '@/app/components/settings/PiProviderSetupCard';
 import { ThemeToggle } from '@/app/components/ThemeToggle';
+import { DEFAULT_USER_TIME_ZONE, getSupportedTimeZones, normalizeTimeZone } from '@/app/lib/time-zones';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { toast } from 'sonner';
-import { CheckCircle2, KeyRound, Languages, Loader2, Mail, RefreshCw, ShieldAlert } from 'lucide-react';
+import { CheckCircle2, Clock3, KeyRound, Languages, Loader2, Mail, RefreshCw, ShieldAlert } from 'lucide-react';
 
 type Step = 'language' | 'license' | 'provider' | 'profile' | 'done';
 type OnboardingRuntimePhase = 'idle' | 'streaming' | 'running_tool' | 'aborting';
@@ -101,12 +102,27 @@ function getLicenseRegistrationActivationPath(fallback: string) {
   return `${url.pathname}${url.search}` || fallback;
 }
 
+async function saveOnboardingPreferences(locale: string, timeZone: string): Promise<void> {
+  const response = await fetch('/api/user-preferences', {
+    method: 'PATCH',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ locale, timeZone }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to save onboarding preferences (${response.status}).`);
+  }
+}
+
 export default function OnboardingWizard({
   defaultEmail,
   initialLicenseKey,
+  initialTimeZone,
 }: {
   defaultEmail: string;
   initialLicenseKey: string;
+  initialTimeZone: string;
 }) {
   const t = useTranslations('onboarding');
   const params = useParams();
@@ -228,6 +244,7 @@ export default function OnboardingWizard({
 
               {step === 'language' && (
                 <LanguageStep
+                  initialTimeZone={initialTimeZone}
                   onContinue={() => setStep('license')}
                 />
               )}
@@ -611,20 +628,45 @@ function LicenseStep({
   );
 }
 
-function LanguageStep({ onContinue }: { onContinue: () => void }) {
+function LanguageStep({
+  initialTimeZone,
+  onContinue,
+}: {
+  initialTimeZone: string;
+  onContinue: () => void;
+}) {
   const t = useTranslations('onboarding');
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
+  const [isSaving, setIsSaving] = useState(false);
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const params = useParams();
   const currentLocale = (params.locale as string) || routing.defaultLocale;
+  const [pendingLocale, setPendingLocale] = useState<string | null>(null);
+  const [timeZone, setTimeZone] = useState(() => normalizeTimeZone(initialTimeZone, DEFAULT_USER_TIME_ZONE));
+  const timeZoneOptions = useMemo(() => getSupportedTimeZones(timeZone), [timeZone]);
+  const selectedLocale = pendingLocale ?? currentLocale;
 
   function handleSelectLocale(locale: string) {
+    setPendingLocale(locale);
     startTransition(() => {
       const query = searchParams.toString();
       router.replace(query ? `${pathname}?${query}` : pathname, { locale });
     });
+  }
+
+  async function handleContinue() {
+    setIsSaving(true);
+    try {
+      await saveOnboardingPreferences(selectedLocale, normalizeTimeZone(timeZone));
+      onContinue();
+    } catch (error) {
+      console.warn('[Onboarding] Failed to save language/time zone preferences:', error);
+      toast.error(t('preferencesSaveFailed'));
+    } finally {
+      setIsSaving(false);
+    }
   }
 
   return (
@@ -643,9 +685,9 @@ function LanguageStep({ onContinue }: { onContinue: () => void }) {
             key={locale}
             type="button"
             onClick={() => handleSelectLocale(locale)}
-            disabled={isPending}
+            disabled={isPending || isSaving}
             className={`flex flex-col items-center gap-2 rounded-lg border-2 p-6 transition-colors ${
-              locale === currentLocale
+              locale === selectedLocale
                 ? 'border-primary bg-primary/5 text-primary'
                 : 'border-border bg-card hover:border-muted-foreground/40 hover:bg-muted/50'
             }`}
@@ -654,15 +696,39 @@ function LanguageStep({ onContinue }: { onContinue: () => void }) {
             <span className="text-lg font-semibold">
               {locale === 'de' ? 'Deutsch' : 'English'}
             </span>
-            {locale === currentLocale && (
+            {locale === selectedLocale && (
               <span className="text-xs font-medium text-primary">{t('languageActive')}</span>
             )}
           </button>
         ))}
       </div>
 
+      <div className="rounded-lg border border-border bg-muted/20 p-4">
+        <div className="mb-3 flex items-center gap-2">
+          <Clock3 className="h-4 w-4 text-muted-foreground" />
+          <div>
+            <h3 className="text-sm font-semibold">{t('timeZoneTitle')}</h3>
+            <p className="text-xs text-muted-foreground">{t('timeZoneDescription')}</p>
+          </div>
+        </div>
+        <label className="flex flex-col gap-1 text-sm">
+          <span className="text-xs text-muted-foreground">{t('timeZoneLabel')}</span>
+          <select
+            className="h-10 rounded-md border border-input bg-background px-3 text-sm"
+            value={timeZone}
+            onChange={(event) => setTimeZone(normalizeTimeZone(event.target.value))}
+            disabled={isSaving}
+          >
+            {timeZoneOptions.map((option) => (
+              <option key={option} value={option}>{option}</option>
+            ))}
+          </select>
+        </label>
+      </div>
+
       <div className="flex justify-center">
-        <Button onClick={onContinue} className="min-w-[200px]">
+        <Button onClick={handleContinue} className="min-w-[200px]" disabled={isSaving}>
+          {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
           {t('languageContinue')}
         </Button>
       </div>

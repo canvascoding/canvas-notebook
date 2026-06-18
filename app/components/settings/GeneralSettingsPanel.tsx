@@ -1,15 +1,16 @@
 'use client';
 
-import { useTransition } from 'react';
+import { useMemo, useState, useTransition } from 'react';
 import { useParams } from 'next/navigation';
 import { usePathname, useRouter } from '@/i18n/navigation';
 import { routing } from '@/i18n/routing';
 import { useTranslations } from 'next-intl';
-import { ExternalLink, KeyRound, Info, Languages, Mail, User } from 'lucide-react';
+import { Clock3, ExternalLink, KeyRound, Info, Languages, Mail, User } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { getSupportedTimeZones, normalizeTimeZone } from '@/app/lib/time-zones';
 
 const CONTROL_PANEL_DASHBOARD_URL = 'https://canvasnotebook.app/dashboard';
 
@@ -19,16 +20,16 @@ const LOGIN_ENV_KEYS = [
   { key: 'BOOTSTRAP_ADMIN_NAME', translationKey: 'general.loginInfo.nameKey' },
 ] as const;
 
-async function savePreferredLocale(locale: string): Promise<void> {
+async function saveUserPreferences(payload: { locale?: string; timeZone?: string }): Promise<void> {
   const response = await fetch('/api/user-preferences', {
     method: 'PATCH',
     credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ locale }),
+    body: JSON.stringify(payload),
   });
 
   if (!response.ok) {
-    throw new Error(`Failed to save preferred locale (${response.status}).`);
+    throw new Error(`Failed to save user preferences (${response.status}).`);
   }
 }
 
@@ -36,10 +37,12 @@ export function GeneralSettingsPanel({
   userName = '',
   userEmail = '',
   isManagedControlPlane = false,
+  initialTimeZone,
 }: {
   userName?: string;
   userEmail?: string;
   isManagedControlPlane?: boolean;
+  initialTimeZone?: string;
 }) {
   const t = useTranslations('settings');
   const router = useRouter();
@@ -47,14 +50,27 @@ export function GeneralSettingsPanel({
   const pathname = usePathname();
   const params = useParams();
   const currentLocale = (params.locale as string) || routing.defaultLocale;
+  const [timeZone, setTimeZone] = useState(() => normalizeTimeZone(initialTimeZone));
+  const timeZoneOptions = useMemo(() => getSupportedTimeZones(timeZone), [timeZone]);
 
   function handleSelectLocale(locale: string) {
     startTransition(() => {
-      void savePreferredLocale(locale).catch((error) => {
+      void saveUserPreferences({ locale }).catch((error) => {
         console.warn('[Settings] Failed to save preferred locale:', error);
         toast.error(t('general.languageSaveFailed'));
       });
       router.replace(pathname, { locale });
+    });
+  }
+
+  function handleSelectTimeZone(nextTimeZone: string) {
+    const normalizedTimeZone = normalizeTimeZone(nextTimeZone);
+    setTimeZone(normalizedTimeZone);
+    startTransition(() => {
+      void saveUserPreferences({ timeZone: normalizedTimeZone }).catch((error) => {
+        console.warn('[Settings] Failed to save preferred time zone:', error);
+        toast.error(t('general.timeZoneSaveFailed'));
+      });
     });
   }
 
@@ -154,6 +170,32 @@ export function GeneralSettingsPanel({
               </button>
             ))}
           </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="px-4 sm:px-6">
+          <div className="flex items-center gap-2">
+            <Clock3 className="h-5 w-5 text-muted-foreground" />
+            <CardTitle>{t('general.timeZone')}</CardTitle>
+          </div>
+          <CardDescription>{t('general.timeZoneDescription')}</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3 px-4 pb-4 sm:px-6 sm:pb-6">
+          <label className="flex max-w-md flex-col gap-1 text-sm">
+            <span className="text-xs text-muted-foreground">{t('general.timeZone')}</span>
+            <select
+              className="h-10 rounded-md border border-input bg-background px-3 text-sm"
+              value={timeZone}
+              onChange={(event) => handleSelectTimeZone(event.target.value)}
+              disabled={isPending}
+            >
+              {timeZoneOptions.map((option) => (
+                <option key={option} value={option}>{option}</option>
+              ))}
+            </select>
+          </label>
+          <p className="text-xs text-muted-foreground">{t('general.timeZoneDefault')}</p>
         </CardContent>
       </Card>
     </div>

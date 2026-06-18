@@ -4,6 +4,7 @@ import {
   type AutomationWeekday,
   type FriendlySchedule,
 } from './types';
+import { normalizeTimeZone } from '@/app/lib/time-zones';
 
 const WEEKDAYS: AutomationWeekday[] = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
 
@@ -56,20 +57,6 @@ function parseTimeInput(value: string): { hour: number; minute: number } | null 
 
 function timePartsToMinutes(value: { hour: number; minute: number }): number {
   return value.hour * 60 + value.minute;
-}
-
-function normalizeTimeZone(value: string | undefined): string {
-  const fallback = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
-  if (!value) {
-    return fallback;
-  }
-
-  try {
-    Intl.DateTimeFormat('en-US', { timeZone: value }).format(new Date());
-    return value;
-  } catch {
-    return fallback;
-  }
 }
 
 function getZonedDateParts(date: Date, timeZone: string): ZonedDateParts {

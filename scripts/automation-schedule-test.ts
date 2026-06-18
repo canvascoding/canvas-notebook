@@ -4,6 +4,7 @@ import { getDefaultAutomationTargetOutputPath, getEffectiveAutomationTargetOutpu
 import { buildAutomationPrompt } from '../app/lib/automations/prompt';
 import { computeNextRunAt, validateFriendlySchedule } from '../app/lib/automations/schedule';
 import { type FriendlySchedule } from '../app/lib/automations/types';
+import { DEFAULT_USER_TIME_ZONE } from '../app/lib/time-zones';
 
 function assertDate(value: Date | null, message: string): Date {
   assert.ok(value instanceof Date, message);
@@ -21,6 +22,13 @@ const dailyRun = assertDate(
   'Daily schedule should produce a next run.',
 );
 assert.equal(dailyRun.toISOString(), '2026-03-14T09:15:00.000Z');
+
+const defaultTimeZoneSchedule = validateFriendlySchedule({
+  kind: 'daily',
+  time: '09:15',
+});
+assert.equal(defaultTimeZoneSchedule.error, null);
+assert.equal(defaultTimeZoneSchedule.schedule?.timeZone, DEFAULT_USER_TIME_ZONE);
 
 const weeklySchedule: FriendlySchedule = {
   kind: 'weekly',

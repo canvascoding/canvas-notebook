@@ -40,6 +40,7 @@ import type {
   AutomationWeekday,
   FriendlySchedule,
 } from '@/app/lib/automations/types';
+import { DEFAULT_USER_TIME_ZONE } from '@/app/lib/time-zones';
 
 function buildAgentQuery(agentId: string): string {
   return new URLSearchParams({ agentId }).toString();
@@ -126,7 +127,7 @@ async function fetchJson<T>(input: string, init?: RequestInit): Promise<T> {
 }
 
 function defaultHeartbeatScheduleDraft(): AgentHeartbeatScheduleDraft {
-  const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+  const timeZone = DEFAULT_USER_TIME_ZONE;
   return {
     kind: 'interval',
     timeZone,

@@ -6,6 +6,7 @@ import { db } from '@/app/lib/db';
 import { automationJobs, automationRuns, automationWebhookEvents, automationWebhookTriggers, composioWebhookEvents, piSessions } from '@/app/lib/db/schema';
 import { DEFAULT_MANAGED_AGENT_ID } from '@/app/lib/agents/storage';
 import { validatePath } from '@/app/lib/filesystem/workspace-files';
+import { getUserPreferredTimeZone } from '@/app/lib/user-preferences';
 
 import { getEffectiveAutomationTargetOutputPath } from './paths';
 import { computeNextRunAt, validateFriendlySchedule } from './schedule';
@@ -190,6 +191,19 @@ function parseOptionalJsonObject(value: string | null | undefined): Record<strin
   } catch {
     return null;
   }
+}
+
+function applyDefaultScheduleTimeZone(input: unknown, timeZone: string): unknown {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) {
+    return input;
+  }
+
+  const schedule = input as Record<string, unknown>;
+  const existingTimeZone = typeof schedule.timeZone === 'string' ? schedule.timeZone.trim() : '';
+  return {
+    ...schedule,
+    timeZone: existingTimeZone || timeZone,
+  };
 }
 
 function mapAutomationWebhookTriggerRow(row: AutomationWebhookTriggerRow): AutomationWebhookTriggerRecord {
@@ -485,7 +499,8 @@ export async function createAutomationJob(input: CreateAutomationJobInput, userI
   const deliverySessionMode = normalizeDeliverySessionMode(input.deliverySessionMode);
   const workspaceContextPaths = normalizeWorkspaceContextPaths(input.workspaceContextPaths);
   const targetOutputPath = normalizeTargetOutputPath(input.targetOutputPath);
-  const { schedule, error } = validateFriendlySchedule(input.schedule);
+  const preferredTimeZone = await getUserPreferredTimeZone(userId);
+  const { schedule, error } = validateFriendlySchedule(applyDefaultScheduleTimeZone(input.schedule, preferredTimeZone));
   if (!schedule || error) {
     throw new Error(error || 'Schedule is invalid.');
   }
@@ -542,9 +557,10 @@ export async function createWebhookAutomationJob(input: CreateWebhookAutomationJ
   const composioUserId = normalizeString(input.composioUserId, 'Composio user ID', 500);
   const now = new Date();
   const id = `job-${randomUUID()}`;
+  const preferredTimeZone = await getUserPreferredTimeZone(userId);
   const schedule: FriendlySchedule = {
     kind: 'webhook',
-    timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
+    timeZone: preferredTimeZone,
   };
 
   const [inserted] = await db
@@ -602,9 +618,10 @@ export async function createCustomWebhookAutomationJob(
   const id = `job-${randomUUID()}`;
   const webhookId = generateAutomationWebhookId();
   const secret = generateAutomationWebhookSecret();
+  const preferredTimeZone = await getUserPreferredTimeZone(userId);
   const schedule: FriendlySchedule = {
     kind: 'webhook',
-    timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
+    timeZone: preferredTimeZone,
   };
 
   return db.transaction((tx) => {
@@ -672,7 +689,8 @@ export async function updateAutomationJob(jobId: string, input: UpdateAutomation
 
   const currentSchedule = JSON.parse(existing.scheduleConfigJson) as FriendlySchedule;
   const scheduleCandidate = input.schedule ?? currentSchedule;
-  const { schedule, error } = validateFriendlySchedule(scheduleCandidate);
+  const defaultTimeZone = currentSchedule.timeZone || await getUserPreferredTimeZone(existing.createdByUserId);
+  const { schedule, error } = validateFriendlySchedule(applyDefaultScheduleTimeZone(scheduleCandidate, defaultTimeZone));
   if (!schedule || error) {
     throw new Error(error || 'Schedule is invalid.');
   }
@@ -1367,7 +1385,8 @@ export async function upsertHeartbeatJob(data: {
   const existing = await getHeartbeatJob({ userId: data.userId, agentId });
 
   const status: AutomationJobStatus = data.enabled ? 'active' : 'paused';
-  const { schedule, error } = validateFriendlySchedule(data.schedule);
+  const defaultTimeZone = existing?.timeZone || await getUserPreferredTimeZone(data.userId);
+  const { schedule, error } = validateFriendlySchedule(applyDefaultScheduleTimeZone(data.schedule, defaultTimeZone));
   if (!schedule || error) {
     throw new Error(error || 'Schedule is invalid.');
   }

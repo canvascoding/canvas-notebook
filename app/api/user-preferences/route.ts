@@ -4,6 +4,7 @@ import { auth } from '@/app/lib/auth';
 import {
   getUserPreferences,
   normalizeUserLocale,
+  normalizeUserTimeZone,
   setUserPreferredLocale,
   updateUserPreferences,
   type UserPreferences,
@@ -34,6 +35,14 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ success: false, error: 'Unsupported locale.' }, { status: 400 });
     }
     updates.locale = locale;
+  }
+
+  if (payload && typeof payload === 'object' && 'timeZone' in payload) {
+    const timeZone = normalizeUserTimeZone(payload.timeZone);
+    if (!timeZone) {
+      return NextResponse.json({ success: false, error: 'Unsupported time zone.' }, { status: 400 });
+    }
+    updates.timeZone = timeZone;
   }
 
   if (payload && typeof payload === 'object' && 'emailAllowRemoteImages' in payload) {

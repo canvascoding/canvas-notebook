@@ -64,6 +64,7 @@ import {
   type AutomationWeekday,
   type FriendlySchedule,
 } from '../automations/types';
+import { getUserPreferredTimeZone } from '@/app/lib/user-preferences';
 import {
   executeStudioGeneration,
   type StudioGenerateRequest,
@@ -721,8 +722,8 @@ function normalizeAutomationSchedule(schedule: {
   every?: number;
   unit?: string;
   timeZone?: string;
-}): FriendlySchedule {
-  const timeZone = schedule.timeZone?.trim() || 'UTC';
+}, defaultTimeZone: string): FriendlySchedule {
+  const timeZone = schedule.timeZone?.trim() || defaultTimeZone;
 
   switch (schedule.kind) {
     case 'once':
@@ -2922,7 +2923,7 @@ function createUserScopedTools(userId?: string, agentId?: string | null, session
           days: Type.Optional(Type.Array(Type.String(), { description: 'For weekly: array of days (mon, tue, wed, thu, fri, sat, sun)' })),
           every: Type.Optional(Type.Number({ description: 'For interval: number of units' })),
           unit: Type.Optional(Type.String({ description: 'For interval: minutes, hours, or days' })),
-          timeZone: Type.Optional(Type.String({ description: 'Timezone (default: UTC)' })),
+          timeZone: Type.Optional(Type.String({ description: 'Timezone (default: user preference, initially Europe/Berlin)' })),
         }),
         targetOutputPath: Type.Optional(Type.String({ description: 'Where to save job outputs (relative to workspace)' })),
         workspaceContextPaths: Type.Optional(Type.Array(Type.String(), { description: 'Array of file paths to include as context' })),
@@ -2947,11 +2948,12 @@ function createUserScopedTools(userId?: string, agentId?: string | null, session
         };
         try {
           const scopedUserId = requireToolUserId(userId, 'automation tools');
+          const preferredTimeZone = await getUserPreferredTimeZone(scopedUserId);
           const job = await createAutomationJob(
             {
               name: name.trim().slice(0, 120),
               prompt: prompt.trim().slice(0, 12000),
-              schedule: normalizeAutomationSchedule(schedule),
+              schedule: normalizeAutomationSchedule(schedule, preferredTimeZone),
               targetOutputPath: normalizeOptionalString(targetOutputPath)?.replace(/^\/+|^\.\/+/, '') || null,
               workspaceContextPaths: normalizeAutomationWorkspacePaths(workspaceContextPaths),
               status: normalizeAutomationStatus(status) || 'active',
@@ -3027,6 +3029,7 @@ function createUserScopedTools(userId?: string, agentId?: string | null, session
           if (expectedUpdatedAt !== undefined && existingJob.updatedAt !== expectedUpdatedAt) {
             throw new Error('Automation changed since inspection. Inspect the automation again before updating.');
           }
+          const preferredTimeZone = await getUserPreferredTimeZone(scopedUserId);
           const updatedJob = await updateAutomationJob(jobId, {
             name: normalizeOptionalString(name)?.slice(0, 120),
             prompt: normalizedPrompt,
@@ -3035,7 +3038,7 @@ function createUserScopedTools(userId?: string, agentId?: string | null, session
               : normalizeOptionalString(targetOutputPath)?.replace(/^\/+|^\.\/+/, '') || null,
             workspaceContextPaths: normalizeAutomationWorkspacePathsForUpdate(workspaceContextPaths),
             status: normalizeAutomationStatus(status),
-            schedule: schedule ? normalizeAutomationSchedule(schedule) : undefined,
+            schedule: schedule ? normalizeAutomationSchedule(schedule, existingJob.timeZone || preferredTimeZone) : undefined,
           });
           if (!updatedJob) {
             throw new Error(`Automation job "${jobId}" not found.`);

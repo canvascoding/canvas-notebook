@@ -5,6 +5,7 @@ import {
   readSettingsTextFileIfExists,
   writeSettingsJsonFileAtomic,
 } from '@/app/lib/settings-storage';
+import { DEFAULT_USER_TIME_ZONE, isValidTimeZone, normalizeTimeZone } from '@/app/lib/time-zones';
 
 const USER_PREFERENCES_FILE = 'user-preferences.json';
 const SUPPORTED_LOCALES = routing.locales as readonly string[];
@@ -15,6 +16,7 @@ export type UserPreferences = {
   emailAllowRemoteImages?: boolean;
   emailRemoteImageAllowedSenders?: string[];
   locale?: UserLocale;
+  timeZone?: string;
 };
 
 type UserPreferencesFile = {
@@ -60,15 +62,27 @@ export function normalizeUserLocale(value: unknown): UserLocale | null {
   return normalized as UserLocale;
 }
 
+export function normalizeUserTimeZone(value: unknown): string | null {
+  if (typeof value !== 'string' || !value.trim()) return null;
+  return isValidTimeZone(value) ? value.trim() : null;
+}
+
 function normalizePreferences(value: unknown): UserPreferences {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
-  const record = value as { emailAllowRemoteImages?: unknown; emailRemoteImageAllowedSenders?: unknown; locale?: unknown };
+  const record = value as {
+    emailAllowRemoteImages?: unknown;
+    emailRemoteImageAllowedSenders?: unknown;
+    locale?: unknown;
+    timeZone?: unknown;
+  };
   const locale = normalizeUserLocale(record.locale);
+  const timeZone = normalizeUserTimeZone(record.timeZone);
   const emailRemoteImageAllowedSenders = normalizeEmailAddressList(record.emailRemoteImageAllowedSenders);
   return {
     ...(typeof record.emailAllowRemoteImages === 'boolean' ? { emailAllowRemoteImages: record.emailAllowRemoteImages } : {}),
     ...(emailRemoteImageAllowedSenders.length > 0 ? { emailRemoteImageAllowedSenders } : {}),
     ...(locale ? { locale } : {}),
+    ...(timeZone ? { timeZone } : {}),
   };
 }
 
@@ -117,6 +131,11 @@ export async function getUserPreferredLocale(userId: string): Promise<UserLocale
   return preferences.locale ?? routing.defaultLocale;
 }
 
+export async function getUserPreferredTimeZone(userId: string): Promise<string> {
+  const preferences = await getUserPreferences(userId);
+  return normalizeTimeZone(preferences.timeZone, DEFAULT_USER_TIME_ZONE);
+}
+
 export async function updateUserPreferences(
   userId: string,
   updates: UserPreferences,
@@ -136,6 +155,18 @@ export async function updateUserPreferences(
         throw new Error('Unsupported locale.');
       }
       nextPreferences.locale = locale;
+    }
+  }
+
+  if ('timeZone' in updates) {
+    if (updates.timeZone === undefined) {
+      delete nextPreferences.timeZone;
+    } else {
+      const timeZone = normalizeUserTimeZone(updates.timeZone);
+      if (!timeZone) {
+        throw new Error('Unsupported time zone.');
+      }
+      nextPreferences.timeZone = timeZone;
     }
   }
 
@@ -167,4 +198,12 @@ export async function setUserPreferredLocale(userId: string, locale: unknown): P
     throw new Error('Unsupported locale.');
   }
   return updateUserPreferences(userId, { locale: normalizedLocale });
+}
+
+export async function setUserPreferredTimeZone(userId: string, timeZone: unknown): Promise<UserPreferences> {
+  const normalizedTimeZone = normalizeUserTimeZone(timeZone);
+  if (!normalizedTimeZone) {
+    throw new Error('Unsupported time zone.');
+  }
+  return updateUserPreferences(userId, { timeZone: normalizedTimeZone });
 }

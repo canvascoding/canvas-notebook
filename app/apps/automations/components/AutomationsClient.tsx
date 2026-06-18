@@ -37,6 +37,7 @@ import { toast } from 'sonner';
 import { WorkspaceDirectoryPickerDialog } from '@/app/apps/automations/components/WorkspaceDirectoryPickerDialog';
 import { AgentAvatar, AgentIcon } from '@/app/components/agents/AgentAvatar';
 import { getEffectiveAutomationTargetOutputPath } from '@/app/lib/automations/paths';
+import { normalizeTimeZone } from '@/app/lib/time-zones';
 import type {
   AutomationJobRecord,
   AutomationDeliveryMode,
@@ -190,6 +191,7 @@ type ComposioStatus = {
 
 type AutomationsClientProps = {
   initialJobId?: string | null;
+  initialTimeZone?: string;
 };
 
 type AgentOption = {
@@ -228,10 +230,10 @@ function AutomationPromptEditor({ value, onChange, heightClassName, testId }: Au
   );
 }
 
-function defaultDraft(): JobDraft {
+function defaultDraft(defaultTimeZone?: string): JobDraft {
   const now = new Date();
   const today = now.toISOString().slice(0, 10);
-  const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'Europe/Berlin';
+  const timeZone = normalizeTimeZone(defaultTimeZone);
 
   return {
     id: null,
@@ -648,7 +650,7 @@ function getWebhookMetadata(run: AutomationRunRecord | null): Record<string, unk
 }
 
 function mapJobToDraft(job: AutomationJobRecord): JobDraft {
-  const draft = defaultDraft();
+  const draft = defaultDraft(job.timeZone);
   draft.id = job.id;
   draft.name = job.name;
   draft.prompt = job.prompt;
@@ -681,14 +683,15 @@ function mapJobToDraft(job: AutomationJobRecord): JobDraft {
   return draft;
 }
 
-export function AutomationsClient({ initialJobId = null }: AutomationsClientProps) {
+export function AutomationsClient({ initialJobId = null, initialTimeZone }: AutomationsClientProps) {
   const t = useTranslations('automationen');
   const locale = useLocale();
   const router = useRouter();
   const isDetailPage = Boolean(initialJobId);
+  const defaultTimeZone = normalizeTimeZone(initialTimeZone);
   const [jobs, setJobs] = useState<AutomationJobRecord[]>([]);
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
-  const [draft, setDraft] = useState<JobDraft>(() => defaultDraft());
+  const [draft, setDraft] = useState<JobDraft>(() => defaultDraft(defaultTimeZone));
   const [triggerDraft, setTriggerDraft] = useState<TriggerComposerDraft>(() => defaultTriggerDraft());
   const [customWebhookDraft, setCustomWebhookDraft] = useState<CustomWebhookDraft>(() => defaultCustomWebhookDraft());
   const [runs, setRuns] = useState<AutomationRunRecord[]>([]);
@@ -828,7 +831,7 @@ export function AutomationsClient({ initialJobId = null }: AutomationsClientProp
       if (!options?.keepSelection) {
         const nextSelected = initialJobId ? nextJobs.find((job) => job.id === initialJobId) || null : null;
         setSelectedJobId(nextSelected?.id || null);
-        setDraft(nextSelected ? mapJobToDraft(nextSelected) : defaultDraft());
+        setDraft(nextSelected ? mapJobToDraft(nextSelected) : defaultDraft(defaultTimeZone));
       } else if (selectedJobId) {
         const nextSelected = nextJobs.find((job) => job.id === selectedJobId);
         if (!nextSelected) {
@@ -1347,7 +1350,7 @@ export function AutomationsClient({ initialJobId = null }: AutomationsClientProp
       if (!response.ok || !payload.success) throw new Error(payload.error || t('errors.deleteJob'));
       toast.success(t('toasts.jobDeleted'));
       setSelectedJobId(null);
-      setDraft(defaultDraft());
+      setDraft(defaultDraft(defaultTimeZone));
       setRuns([]);
       setSelectedRunId(null);
       setLogContent('');
@@ -1365,7 +1368,7 @@ export function AutomationsClient({ initialJobId = null }: AutomationsClientProp
     setRuns([]);
     setSelectedRunId(null);
     setLogContent('');
-    setDraft(defaultDraft());
+    setDraft(defaultDraft(defaultTimeZone));
     setTriggerDraft(defaultTriggerDraft());
     setCustomWebhookDraft(defaultCustomWebhookDraft());
     setComposerMode('scheduled');
