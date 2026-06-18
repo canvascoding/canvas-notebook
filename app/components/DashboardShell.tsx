@@ -11,7 +11,6 @@ import {
   Maximize2,
   MessageSquare,
   PanelRight,
-  Terminal as TerminalIcon,
   X,
 } from 'lucide-react';
 import { useTranslations } from 'next-intl';
@@ -790,26 +789,6 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
               >
                 <Files className="h-4 w-4" />
                 <span className="hidden sm:inline">{tCommon('explorer')}</span>
-              </Button>
-
-              {/* Terminal toggle */}
-              <Button
-                variant={isMobileViewport ? (mobileSurface === 'terminal' ? 'default' : 'ghost') : (terminalVisible ? 'default' : 'ghost')}
-                size="sm"
-                className="gap-2 rounded-full"
-                onClick={() => {
-                  if (isMobileViewport) {
-                    setMobileExplorerOpen(false);
-                    setMobileChatOpen(false);
-                    setMobileSurface((current) => (current === 'terminal' ? 'editor' : 'terminal'));
-                  } else {
-                    setTerminalVisible((prev) => !prev);
-                  }
-                }}
-                aria-label={tNav('showTerminal')}
-              >
-                <TerminalIcon className="h-4 w-4" />
-                <span className="hidden sm:inline">{tCommon('terminal')}</span>
               </Button>
 
               {/* Chat toggle */}
