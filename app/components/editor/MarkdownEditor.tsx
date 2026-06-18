@@ -1376,10 +1376,12 @@ function createEditorExtensions(filePath: string | undefined, labels: SlashComma
 }
 
 function MarkdownSourceToolbar({ onRichMode }: { onRichMode: () => void }) {
+  const t = useTranslations('notebook');
+
   return (
     <TooltipProvider>
       <div className="flex h-9 shrink-0 items-center justify-end gap-1 border-b border-border bg-background px-2">
-        <TooltipIconButton label="WYSIWYG" onClick={onRichMode}>
+        <TooltipIconButton label={t('markdownEditorEditVisually')} onClick={onRichMode}>
           <Eye />
         </TooltipIconButton>
       </div>
@@ -2226,7 +2228,7 @@ function MarkdownToolbar({
         </TooltipIconButton>
 
         <div className="ml-auto shrink-0">
-          <TooltipIconButton label="Markdown source" onClick={onSourceMode}>
+          <TooltipIconButton label={t('markdownEditorEditAsText')} onClick={onSourceMode}>
             <Code2 />
           </TooltipIconButton>
         </div>

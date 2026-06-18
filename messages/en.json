@@ -493,6 +493,8 @@
     "markdownEditorAddBlockAboveHint": "Option-click to add above",
     "markdownEditorDragBlockHint": "Drag to move",
     "markdownEditorOpenBlockMenuHint": "Click to open menu",
+    "markdownEditorEditAsText": "Edit as text",
+    "markdownEditorEditVisually": "Edit visually",
     "markdownEditorImageAltPrompt": "Alt text",
     "markdownEditorImageSrcPrompt": "Image URL or workspace path",
     "markdownEditorImageDialogTitle": "Insert image",
