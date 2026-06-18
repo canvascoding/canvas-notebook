@@ -312,6 +312,10 @@ Search, Embeddings und Retrieval:
 - Retrieval darf keine Inhalte aus fremden persoenlichen Workspaces leaken.
 - Team Knowledge Base, Team Workspace und persoenliche Workspaces muessen getrennte Sichtbarkeitsregeln fuer Search/Embeddings haben.
 - Agent-Kontext aus Search/Retrieval muss dieselben Rechte pruefen wie normale Datei- und Knowledge-Base-Zugriffe.
+- Knowledge-Ingestion soll automatisch laufen, aber nach Scope getrennt: Personal Knowledge pro User und policy-gesteuerte Team Knowledge.
+- E-Mail-Inhalte werden in V1 nicht automatisch indexiert.
+- Studio-Medien werden in V1 nicht als Vollinhalt indexiert; nur explizite Textartefakte oder Metadaten koennen nach Policy aufgenommen werden.
+- Secret-/PII-Scan laeuft vor Chunking und Embedding; Embeddings gelten als abgeleitete sensible Daten.
 
 Background Jobs und Usage:
 

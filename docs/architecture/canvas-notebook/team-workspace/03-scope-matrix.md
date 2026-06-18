@@ -83,7 +83,8 @@ Dieses Dokument schliesst Umsetzungsschritt 2 ab: bestehende Canvas Notebook Fun
 | Migration Restore/Import | `instance` Restore | Organization/User/Workspace Mapping, Dry Run | Import Preview und Reconnect-Flows | P8 |
 | Update-Migration File Formats | Legacy-Dateien werden beim Start teilweise kopiert | versionierte, idempotente Migration mit Owner-Aufloesung und Review-State | Migration State Manifest/DB-Tabelle, keine automatische Team-Aktivierung globaler Dateien | P8/P9 |
 | Secrets Export | optional globale Secrets | redacted/reconnect/encrypted bewusst pro Scope | Keine Default-Klartext-Exports | P8 |
-| QMD/Search/Retrieval | global `/data/workspace` Collection | `organization`, `workspace`, optional `user`, Visibility | Collection Metadata und Zugriff pruefen | P6 |
+| QMD/Search/Retrieval | global `/data/workspace` Collection | getrennte Knowledge Stores fuer `personal_user`, `team_workspace`, optional `organization` | Collection Metadata, Secret-/PII-Scan, ACL-Filter und Delete-Propagation erzwingen | P6 |
+| Docling Knowledge Ingestion | separater Plan, noch nicht team-scoped | automatische Ingestion mit lokalen Parsern, Scope-Metadaten und Scan vor Embedding | Docling-Plan mit Knowledge Policy verbinden | P6 |
 | File Reference Ranking | globaler Workspace Tree | workspace-spezifisch | Ranking-Index pro Workspace | P4/P6 |
 | Public Media Routes | Data-/Studio-Pfade | scoped Asset/File Access | Keine absoluten Serverpfade leaken | P6/P7 |
 | Admin Cleanup | admin-only, Studio Assets global | `organization` Admin Operation | Admin-Gate plus Audit | P7 |
@@ -113,6 +114,7 @@ Dieses Dokument schliesst Umsetzungsschritt 2 ab: bestehende Canvas Notebook Fun
 13. Fresh Install und Update-Migration muessen denselben scoped Zielzustand erzeugen; mehrdeutige Owner- oder Secret-Zuordnung stoppt mit Admin-Review.
 14. Agent-Tools duerfen nur ueber einen serverseitig erzeugten Execution Context laufen; Tool-Parameter aus dem LLM sind untrusted.
 15. Automations haben genau einen primaeren Workspace; Organization Automations laufen ueber Service Actor und brauchen Admin-Approval.
+16. Knowledge-Ingestion darf nur nach Scope und Scan-Policy indexieren; Retrieval muss ACLs vor Rueckgabe erzwingen.
 
 ## Migrationsreihenfolge fuer Datenmodell
 
@@ -151,6 +153,7 @@ Fuer eine erste robuste Team-Version sollten diese Bereiche enthalten sein:
 - Studio Save-to-Workspace mit Zielauswahl fuer eigenen Personal Workspace oder berechtigten Team Workspace.
 - User-scoped Secrets, MCP-Konfiguration, Skills, Plugins und Agent-Runtime-Einstellungen.
 - E-Mail bleibt strikt user-scoped; Organization-Team-Mailboxen sind kein impliziter Fallback.
+- Automatische Personal Knowledge und policy-gesteuerte Team Knowledge mit Secret-/PII-Scan vor Embedding.
 - Public Links mit `workspaceId`.
 - Audit fuer Admin-Aktionen, File Writes, Agent File Writes und Public Links, ohne grosse Payloads dauerhaft in der DB zu speichern.
 - Retention Defaults fuer Raw Tool Payloads, Runtime Events, Trash/Revisions und Usage-Einzelereignisse.

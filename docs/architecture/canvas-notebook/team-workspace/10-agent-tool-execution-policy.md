@@ -123,7 +123,7 @@ Begruendung: Shell-Kommandos sind schwer granular zu begrenzen. Fuer Cross-Works
 | E-Mail | eigene User-Mailbox oder erlaubte Team-Mailbox | senden nur erlaubter Account | Mail Secret-Refs | AccountId anderer User gilt als nicht vorhanden |
 | Studio | erlaubte Source Assets | Ziel nur erlaubter Workspace/Asset-Scope | Provider Secret-Refs | Save-to-Workspace braucht `targetWorkspaceId` |
 | Public Links | erlaubter Workspace | Link nur mit Permission | nein | Team Workspace braucht Public-Link-Permission |
-| Search/Retrieval | erlaubte Quellen | nein | nein | keine fremden Personal Workspaces |
+| Search/Retrieval | erlaubte Knowledge Stores | nein | nein | keine fremden Personal Workspaces; ACL-Filter vor Rueckgabe |
 | Automation Runner | siehe Automation-Scope | siehe gespeicherter Job-Workspace | Owner/Org nach Policy | separates Automations-Modell erforderlich |
 
 ## Revocation und laufende Runs

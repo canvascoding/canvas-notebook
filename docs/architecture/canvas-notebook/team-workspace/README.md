@@ -18,6 +18,7 @@ Dieses Verzeichnis ist der zentrale Arbeitsbereich fuer den Team-Workspace-Umbau
 - `09-initial-setup-and-update-migration.md`: Fresh Install, erstes Admin-/Owner-Setup, Onboarding und Update-Migration bestehender Instanzen.
 - `10-agent-tool-execution-policy.md`: Capability-Modell fuer Agent-Turns, Tool-Calls, Cross-Workspace-Reads, Shell, MCP, Gateways und Revocation.
 - `11-automation-execution-model.md`: Personal/Organization Automations, Service Actor, Workspace-Scope, Webhooks, Approval, Offboarding und Retry.
+- `12-knowledge-ingestion-retrieval-policy.md`: automatische Knowledge-Ingestion, Docling-Abgleich, Secret-/PII-Scan, Knowledge Stores und Retrieval-ACLs.
 - `../todo.json`: Aufgabenindex fuer Agenten und Fortschrittsverfolgung.
 
 ## Arbeitsregeln
@@ -42,4 +43,5 @@ Dieses Verzeichnis ist der zentrale Arbeitsbereich fuer den Team-Workspace-Umbau
 - Initial Setup, Onboarding und Update-Migration bestehender Instanzen sind dokumentiert.
 - Agent Tool Execution Policy mit Capability-Kontext, Cross-Workspace-Read-Regeln und Revocation-Verhalten ist dokumentiert.
 - Automation Execution Model fuer Personal und Organization Automations ist dokumentiert.
+- Knowledge-Ingestion- und Retrieval-Policy ist dokumentiert.
 - Naechster Schritt: Initiales Admin-/Owner-Setup und Admin-only Gates absichern.

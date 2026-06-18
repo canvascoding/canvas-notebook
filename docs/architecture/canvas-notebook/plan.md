@@ -14,6 +14,7 @@ Der aktive Architekturplan fuer den Team-Workspace-Umbau liegt im Unterprojekt:
 - `team-workspace/09-initial-setup-and-update-migration.md`: verbindliche Regeln fuer Fresh Install, erstes Admin-/Owner-Setup, Onboarding und Update-Migration bestehender Instanzen.
 - `team-workspace/10-agent-tool-execution-policy.md`: verbindliche Regeln fuer AgentExecutionContext, Tool-Capabilities, Cross-Workspace-Reads, Shell, MCP, Gateways und Revocation.
 - `team-workspace/11-automation-execution-model.md`: verbindliche Regeln fuer Personal/Organization Automations, Service Actor, Workspace-Scope, Webhooks, Approval, Offboarding und Retry.
+- `team-workspace/12-knowledge-ingestion-retrieval-policy.md`: verbindliche Regeln fuer automatische Knowledge-Ingestion, Docling-Abgleich, Secret-/PII-Scan, Knowledge Stores und Retrieval-ACLs.
 - `todo.json`: maschinenlesbarer Aufgabenindex ueber Notebook-, Control-Plane- und Cross-Repo-Aufgaben.
 
-Dieses Unterprojekt ist bewusst getrennt, weil der Umbau Fresh Install, Update-Migration, Auth, Rollen, Workspaces, Agent-Dateioperationen, Tool-Capabilities, Credentials, MCP, Plugins/Skills, Public Links, Automations, Webhooks, Studio, Export/Import, Audit und Backup/Restore beruehrt.
+Dieses Unterprojekt ist bewusst getrennt, weil der Umbau Fresh Install, Update-Migration, Auth, Rollen, Workspaces, Agent-Dateioperationen, Tool-Capabilities, Credentials, MCP, Plugins/Skills, Knowledge/Retrieval, Public Links, Automations, Webhooks, Studio, Export/Import, Audit und Backup/Restore beruehrt.

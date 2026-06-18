@@ -8,6 +8,8 @@ Canvas Notebook soll eine robuste Dokumenten-Ingestion fuer Knowledge Base, Retr
 
 Der Plan ist bewusst noch keine Implementierung. Er beschreibt Architektur, Settings, Risiken und einen moeglichen Rollout.
 
+Team-/Workspace-Scope, automatische Indexierung, Secret-/PII-Scan, Knowledge Stores und Retrieval-Berechtigungen werden im Team-Workspace-Plan unter `docs/architecture/canvas-notebook/team-workspace/12-knowledge-ingestion-retrieval-policy.md` verbindlich konkretisiert.
+
 ## Ausgangslage in Canvas
 
 Die aktuelle PDF-Logik ist leichtgewichtig und direkt in Agent-Tools eingebaut:
@@ -171,12 +173,15 @@ Das Muster ist aehnlich wie beim Browser-Tool: nur aktivieren, wenn der Host gen
 Fuer organisationsweite Knowledge Base gelten harte Regeln:
 
 - Keine Secrets in Chunks oder Embeddings speichern.
+- Secret-/PII-Scan laeuft vor Chunking und Embedding; Treffer fuehren je nach Policy zu `redact`, `quarantine`, `metadata-only` oder `block`.
 - Prompt-Injection-Inhalte aus Dokumenten als untrusted source text behandeln.
 - Retrieval muss vor der Rueckgabe nach Scope und ACL filtern.
 - Jeder Chunk braucht `organizationId`, optional `workspaceId`, optional `userId`, `visibility`, `sourceRef`.
 - Loeschen einer Source muss auch Chunks, Embeddings und Graph-Derivate entfernen.
 - Admins brauchen Audit-Logs fuer Upload, Parse, Reindex, Search und Delete.
 - Persoenliche Workspaces duerfen nicht in Team- oder Org-Retrieval leaken.
+- E-Mail-Inhalte werden in V1 nicht automatisch in Knowledge aufgenommen.
+- Studio-Medien werden in V1 nicht als Vollinhalt indexiert; nur explizite Textartefakte oder Metadaten nach Policy.
 
 ## Datenmodell-Skizze
 
@@ -316,10 +321,11 @@ Konservativer V1-Default:
 
 - Native Parser bleibt Standard.
 - Docling nur fuer Knowledge-Ingestion.
+- Docling lokal/CLI/Sidecar, nicht remote als Default.
 - OCR default `off`, Option `auto when no text`.
 - Max concurrent Docling jobs: `1`.
 - Harte Timeouts und Dateigroessenlimits.
 - Native Fallback bei Fehler.
 - Statusanzeige in Settings.
 - Keine organisationsweite Vektor-Suche ohne Scope-/ACL-Metadaten.
-
+- Automatische Indexierung fuer Personal Knowledge und policy-gesteuerte Team Knowledge.

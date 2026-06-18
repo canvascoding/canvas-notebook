@@ -220,7 +220,11 @@
       "id": 25,
       "title": "Search/Retrieval-Scope fuer spaetere Embeddings vorbereiten",
       "status": "pending",
-      "repo": "canvasstudios-notebook"
+      "repo": "canvasstudios-notebook",
+      "planningArtifacts": [
+        "docs/docling-knowledge-ingestion-plan.md",
+        "docs/architecture/canvas-notebook/team-workspace/12-knowledge-ingestion-retrieval-policy.md"
+      ]
     },
     {
       "id": 26,
@@ -229,7 +233,8 @@
       "repo": "canvasstudios-notebook",
       "planningArtifacts": [
         "docs/architecture/canvas-notebook/team-workspace/05-actor-audit-retention.md",
-        "docs/architecture/canvas-notebook/team-workspace/11-automation-execution-model.md"
+        "docs/architecture/canvas-notebook/team-workspace/11-automation-execution-model.md",
+        "docs/architecture/canvas-notebook/team-workspace/12-knowledge-ingestion-retrieval-policy.md"
       ]
     },
     {
@@ -263,7 +268,8 @@
         "docs/architecture/canvas-notebook/team-workspace/05-actor-audit-retention.md",
         "docs/architecture/canvas-notebook/team-workspace/08-user-scoped-secrets-runtime.md",
         "docs/architecture/canvas-notebook/team-workspace/10-agent-tool-execution-policy.md",
-        "docs/architecture/canvas-notebook/team-workspace/11-automation-execution-model.md"
+        "docs/architecture/canvas-notebook/team-workspace/11-automation-execution-model.md",
+        "docs/architecture/canvas-notebook/team-workspace/12-knowledge-ingestion-retrieval-policy.md"
       ]
     },
     {
@@ -273,7 +279,8 @@
       "repo": "canvasstudios-notebook",
       "planningArtifacts": [
         "docs/architecture/canvas-notebook/team-workspace/05-actor-audit-retention.md",
-        "docs/architecture/canvas-notebook/team-workspace/11-automation-execution-model.md"
+        "docs/architecture/canvas-notebook/team-workspace/11-automation-execution-model.md",
+        "docs/architecture/canvas-notebook/team-workspace/12-knowledge-ingestion-retrieval-policy.md"
       ]
     },
     {
@@ -285,7 +292,8 @@
         "docs/architecture/canvas-notebook/team-workspace/07-filesystem-migration-and-write-policy.md",
         "docs/architecture/canvas-notebook/team-workspace/08-user-scoped-secrets-runtime.md",
         "docs/architecture/canvas-notebook/team-workspace/09-initial-setup-and-update-migration.md",
-        "docs/architecture/canvas-notebook/team-workspace/10-agent-tool-execution-policy.md"
+        "docs/architecture/canvas-notebook/team-workspace/10-agent-tool-execution-policy.md",
+        "docs/architecture/canvas-notebook/team-workspace/12-knowledge-ingestion-retrieval-policy.md"
       ]
     },
     {
