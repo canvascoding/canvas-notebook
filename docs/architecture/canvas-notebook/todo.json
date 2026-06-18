@@ -415,6 +415,13 @@
       "planningArtifacts": [
         "docs/architecture/canvas-notebook/team-workspace/00-full-plan.md",
         "docs/architecture/canvas-notebook/team-workspace/17-database-provider-postgres-rag-collaboration-policy.md"
+      ],
+      "controlPlaneTargets": [
+        "../canvas-control-plane/apps/api/src/services/managedSecrets.ts",
+        "../canvas-control-plane/apps/api/src/services/agentArtifacts.ts",
+        "../canvas-control-plane/packages/agent/src/ws-client.ts",
+        "../canvas-control-plane/packages/agent/src/metrics/docker.ts",
+        "../canvas-control-plane/apps/web/src/app/dashboard/vms/[id]/page.tsx"
       ]
     },
     {
@@ -426,6 +433,13 @@
         "docs/architecture/canvas-notebook/team-workspace/09-initial-setup-and-update-migration.md",
         "docs/architecture/canvas-notebook/team-workspace/15-export-import-backup-restore-policy.md",
         "docs/architecture/canvas-notebook/team-workspace/17-database-provider-postgres-rag-collaboration-policy.md"
+      ],
+      "controlPlaneTargets": [
+        "../canvas-control-plane/apps/api/src/routes/actions.ts",
+        "../canvas-control-plane/apps/api/src/lib/actionCatalog.ts",
+        "../canvas-control-plane/packages/agent/src/ws-client.ts",
+        "../canvas-control-plane/apps/web/src/components/vm/maintenance-tab.tsx",
+        "../canvas-control-plane/apps/web/src/app/dashboard/vms/[id]/page.tsx"
       ]
     },
     {

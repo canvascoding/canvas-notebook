@@ -1,6 +1,6 @@
 # Canvas Notebook Team Workspace
 
-Stand: 2026-06-17
+Stand: 2026-06-18
 
 Dieses Verzeichnis ist der zentrale Arbeitsbereich fuer den Team-Workspace-Umbau in Canvas Notebook.
 
@@ -56,4 +56,5 @@ Dieses Verzeichnis ist der zentrale Arbeitsbereich fuer den Team-Workspace-Umbau
 - Offboarding- und Recovery-Policy ist dokumentiert.
 - Database-Provider-Policy fuer SQLite, Postgres, RAG, Collaboration, Installer und Control Plane ist dokumentiert.
 - Collaboration- und File-Conflict-Policy fuer Text, Office/PDF und Assets ist dokumentiert.
+- Control-Plane-Status-Quo fuer Managed Env, Installer-Artefakte, VM-Agent, VM-Actions und VM-Detailseite ist in der Database-Provider-Policy mit konkreten Zielpfaden abgeglichen.
 - Naechster Schritt: Initiales Admin-/Owner-Setup und Admin-only Gates absichern.

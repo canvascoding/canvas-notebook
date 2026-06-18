@@ -95,6 +95,29 @@ Control Plane Provisioning in `../canvas-control-plane`:
 
 Die Compose-Datei darf kein ungebundenes `latest`-Tag fuer produktive Postgres-Images verwenden. Sie soll eine aktuell unterstuetzte, gepinnte Major-/Minor-Linie verwenden und Upgrades bewusst ueber den Update-Flow fahren.
 
+## Control Plane Status Quo
+
+Lesender Abgleich mit `../canvas-control-plane` am 2026-06-18:
+
+- `apps/api/src/services/managedSecrets.ts` enthaelt heute `MANAGED_SERVICE_ENV_KEYS` mit `CANVAS_MANAGED_SERVICES_ENABLED`, `CANVAS_CONTROL_PLANE_URL`, `CANVAS_INSTANCE_ID`, `CANVAS_INSTANCE_TOKEN` und `CANVAS_LICENSE_CERT`.
+- `applyManagedEnvToVmConfig()` und `ensureManagedEnvForVmConfig()` schreiben aktuell nur diese Managed-Service-Env-Werte in `vmConfig.env`.
+- `apps/api/src/services/agentArtifacts.ts` erzeugt den Canvas-Control-CLI-Installer und den VM-Install-Script-Pfad. Dort wird der Canvas-Notebook-Installer mit `notebookEnv` ausgefuehrt.
+- `packages/agent/src/ws-client.ts` kann bereits `config:apply` empfangen, `canvas-notebook config-set env.<KEY>` ausfuehren und danach `canvas-notebook env --sync` starten.
+- `apps/api/src/lib/actionCatalog.ts` definiert die VM-Actions, `apps/api/src/routes/actions.ts` schickt Actions an den VM-Agenten.
+- `apps/web/src/app/dashboard/vms/[id]/page.tsx` enthaelt die VM-Detailseite mit Tabs fuer Metrics, Logs, Terminal, Health, Lifecycle, Alerts, Actions, Maintenance, Setup, Account und Users.
+- `apps/web/src/components/vm/maintenance-tab.tsx` ist ein vorhandenes Muster fuer laengere Host-/VM-Operationen mit Status, Runs und Output.
+- `packages/agent/src/metrics/docker.ts` sammelt vorhandene Docker-Metriken; fuer Postgres braucht es zusaetzliche Container-/Volume-/DB-Health-Metriken.
+
+Konkrete Control-Plane-Aenderungspunkte:
+
+- `MANAGED_SERVICE_ENV_KEYS` um `CANVAS_DEPLOYMENT_MODE`, `CANVAS_ORGANIZATION_ID`, `CANVAS_DATABASE_PROVIDER`, `DATABASE_URL`, `CANVAS_POSTGRES_VECTOR_ENABLED`, `CANVAS_POSTGRES_IMAGE` und `CANVAS_POSTGRES_DATA_VOLUME` erweitern.
+- `applyManagedEnvToVmConfig()` und `ensureManagedEnvForVmConfig()` provider-aware machen und Teamplaene auf `CANVAS_DATABASE_PROVIDER=postgres` setzen.
+- `getInstallScript()`/Notebook-Installer-Uebergabe in `agentArtifacts.ts` so erweitern, dass Team-VMs direkt Postgres/pgvector-Compose und DB-Secrets bekommen.
+- VM-Agent in `ws-client.ts` um eine explizite `database:migrate`- oder `database:prepare-postgres`-Operation erweitern, statt die Migration nur als freie Shell-Action abzuwickeln.
+- `VM_ACTIONS` nur fuer einfache Bedienaktionen verwenden; fuer SQLite-zu-Postgres-Migration ist ein eigener API-/Run-Typ sinnvoll, damit Fortschritt, Error Codes und Rollback-Hinweise strukturiert gespeichert werden.
+- VM-Detailseite um einen Tab `Database` oder `Migration` erweitern. Der Tab soll den aktuellen Provider, Team-Gate-Status, Postgres-/pgvector-Status, Backup-Status und Migration-Runs anzeigen.
+- `maintenance-tab.tsx` kann als UI-Muster dienen, aber die DB-Migration bekommt eigene Validierungen, Rollenpruefung und gefuehrte Warnungen.
+
 ## Version Pinning
 
 Stand 2026-06-18:
@@ -158,13 +181,14 @@ Postgres/pgvector-Mode:
 
 ## Collaboration und Multi-User-Edits
 
-V1 startet nicht mit echter Realtime-Collaboration fuer alle Dateitypen.
+V1 startet nicht mit echter Realtime-Collaboration fuer alle Dateitypen. Fuer Markdown/Text soll aber direkt die richtige Grundlage gelegt werden, damit Team-Arbeit nicht auf reine Last-Write-Wins-Revisionen reduziert wird.
 
 V1-Regeln:
 
-- Team-Dateien bekommen Revision Checks und Locks fuer riskante Bearbeitung.
-- Binary Assets werden nicht live gemerged.
-- Text-/Markdown-Dateien koennen spaeter CRDT/OT bekommen.
+- Markdown-, Text-, QMD-, JSON- und YAML-Dateien bekommen eine CRDT/Yjs- oder kompatible Operation-Log-Grundlage fuer Live-/Near-Live-Collaboration.
+- Office-Dateien, PDFs, Bilder, Videos, Audio und sonstige Binary Assets werden nicht live gemerged.
+- Office-/PDF-/Asset-Bearbeitung nutzt Locks, Check-out, Revision Checks und Konfliktkopien.
+- Team-Dateien bekommen Revision Checks auch dann, wenn der konkrete Editor noch kein CRDT nutzt.
 - Konflikte werden sichtbar, wenn zwei Sessions auf unterschiedlichen Revisionen speichern.
 
 Postgres-Abhaengigkeit:
