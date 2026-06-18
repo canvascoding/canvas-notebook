@@ -77,6 +77,8 @@ organization_user_permissions
 - canCreateTeamAutomations
 - canSharePluginsAndSkills
 - canExport
+- canDeleteTeamFiles
+- canDeleteStudioAssets
 - createdAt
 - updatedAt
 ```
@@ -87,22 +89,35 @@ Default-Regeln:
 |---|---:|---:|---:|---:|
 | Personal Workspace lesen/schreiben | ja | eigener | eigener | eigener/limitiert |
 | Team Workspace lesen | ja | ja | ja | nein, bis Projekt-Scope existiert |
-| Team Workspace schreiben | ja | ja | nur wenn erlaubt | nein |
+| Team Workspace schreiben | ja | ja | ja, wenn Team-Zugriff aktiv | nein |
+| Team Workspace Dateien loeschen | ja | ja | ja, wenn Team-Zugriff aktiv | nein |
 | Public Links aus Personal Workspace | ja | eigener | eigener | nein |
-| Public Links aus Team Workspace | ja | ja | nur wenn erlaubt | nein |
-| Team-Automations erstellen | ja | ja | nur wenn erlaubt | nein |
+| Public Links aus Team Workspace | ja | ja | nein in V1, optional delegierbar | nein |
+| Team-Automations erstellen | ja | ja | nein in V1 | nein |
 | Plugins/Skills teilen/freigeben | ja | ja | nur wenn erlaubt | nein |
 | Vollstaendige Exporte | ja | ja | nur wenn explizit erlaubt, default nein | nein |
+| Postgres Migration / Full Backup | ja | ja | nein | nein |
+| Studio Assets loeschen | ja | ja | ja, wenn Studio-Zugriff aktiv | nein |
 | Andere User-To-dos sehen/bearbeiten | ja | ja | nein, ausser spaetere Delegation | nein |
 | Offboarding starten | ja | ja | nein | nein |
 
 Diese Permissions sind Organization-spezifisch und duerfen nicht im globalen `user.role` gespeichert werden.
 
+Owner-Regel:
+
+- Der Owner hat immer Team-Workspace-Rechte, inklusive Lesen, Schreiben, Loeschen, Public-Link-Verwaltung, Migration und Full Backup.
+
 Public-Link-Details:
 
 - Eigene Personal-Workspace-Dateien duerfen public geteilt werden.
-- Team-Dateien duerfen nur Owner/Admins oder User mit `canCreatePublicLinks` public teilen.
+- Team-Dateien duerfen in V1 nur Owner/Admins public teilen.
+- `canCreatePublicLinks` bleibt als optionales spaeteres Delegationsrecht vorbereitet und kann folder-/workspace-scoped werden.
 - Public Links folgen in V1 der neuesten Dateiversion und werden bei Move/Delete deaktiviert.
+
+External-Regel:
+
+- `external` bekommt in V1 keinen direkten Team-Workspace-Zugriff.
+- Externe Mitarbeit ist fuer spaetere Projekt-/Kunden-Workspaces vorgesehen.
 
 ## Organization-Identitaet
 
@@ -165,6 +180,8 @@ organization_user_permissions
 - canCreateTeamAutomations
 - canSharePluginsAndSkills
 - canExport
+- canDeleteTeamFiles
+- canDeleteStudioAssets
 - createdAt
 - updatedAt
 ```
@@ -244,7 +261,11 @@ Die detaillierte Fresh-Install- und Update-Migrationslogik ist in `09-initial-se
 - Bestehende Single-User-Instanz migriert `data/workspace` in den Owner-Personal-Workspace.
 - Mehrdeutige bestehende Multi-User-Instanz stoppt mit Admin-Review.
 - Member darf keine Admin-/Export-/Team-Policy-Aktion ausfuehren.
+- Member mit Team-Zugriff darf Team-Dateien schreiben und loeschen, aber keine Team-Public-Links erstellen.
+- External darf den Team Workspace nicht lesen.
 - Admin darf Member-Permissions aendern.
+- Nur Owner/Admin darf Postgres Migration oder Full Backup starten.
+- User mit Studio-Zugriff darf Studio Assets loeschen; Loeschung wird auditiert.
 - Owner kann nicht entfernt oder herabgestuft werden.
 - Letzter admin-faehiger User kann nicht deaktiviert, geloescht oder gebannt werden.
 - `npm run build` nach Code-Aenderungen.

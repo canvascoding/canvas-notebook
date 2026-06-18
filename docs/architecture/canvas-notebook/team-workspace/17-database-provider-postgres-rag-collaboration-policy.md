@@ -40,19 +40,27 @@ Canvas Notebook bekommt einen expliziten Database Provider.
 Empfohlene ENV:
 
 ```env
+CANVAS_MANAGED_SERVICES_ENABLED=false
+CANVAS_DEPLOYMENT_MODE=community
 CANVAS_DATABASE_PROVIDER=sqlite
 ```
 
 oder:
 
 ```env
+CANVAS_MANAGED_SERVICES_ENABLED=true
+CANVAS_DEPLOYMENT_MODE=managed-team
+CANVAS_ORGANIZATION_ID=<organizationId>
 CANVAS_DATABASE_PROVIDER=postgres
 DATABASE_URL=postgresql://canvas:<password>@postgres:5432/canvas_notebook
 CANVAS_POSTGRES_VECTOR_ENABLED=true
+CANVAS_POSTGRES_IMAGE=<pinned-postgres-pgvector-image>
+CANVAS_POSTGRES_DATA_VOLUME=canvas-postgres-data
 ```
 
 Regeln:
 
+- `CANVAS_MANAGED_SERVICES_ENABLED=true|false` bleibt als bestehender Managed-Services-Schalter erhalten.
 - `CANVAS_DATABASE_PROVIDER` ist die lokale technische Auswahl.
 - `CANVAS_DEPLOYMENT_MODE` und `CANVAS_LICENSE_CERT` entscheiden, ob diese Auswahl erlaubt ist.
 - Wenn Lizenz/Deployment Team-Features verlangen und `CANVAS_DATABASE_PROVIDER=sqlite` gesetzt ist, startet die App nicht im Team-Modus. Sie muss Setup/Health mit klarer Fehlermeldung blockieren.
@@ -78,12 +86,29 @@ Control Plane Provisioning in `../canvas-control-plane`:
 
 - setzt `CANVAS_DEPLOYMENT_MODE`, `CANVAS_ORGANIZATION_ID`, `CANVAS_DATABASE_PROVIDER` und die DB-Secrets beim VM-Install,
 - erzeugt bei Teamplaenen automatisch einen Postgres-Service in der Docker-Compose-Datei,
+- laesst den Postgres-Container auf derselben VM wie Canvas Notebook laufen, aber getrennt vom App-Container,
+- legt ein eigenes Docker Volume fuer Postgres an,
 - installiert/aktiviert pgvector fuer die Datenbank,
 - gibt dieselbe Provider-Auswahl auch bei Agent-Config-Sync und Updates weiter,
 - verhindert Team-Provisioning ohne Postgres, ausser ein expliziter Maintenance-/Migration-Flow laeuft,
 - sammelt DB-Health, Disk-/WAL-Wachstum, Backup-Status und Migrationsstatus fuer das Control-Plane-Dashboard.
 
 Die Compose-Datei darf kein ungebundenes `latest`-Tag fuer produktive Postgres-Images verwenden. Sie soll eine aktuell unterstuetzte, gepinnte Major-/Minor-Linie verwenden und Upgrades bewusst ueber den Update-Flow fahren.
+
+## Version Pinning
+
+Stand 2026-06-18:
+
+- PostgreSQL 18.4 ist die aktuelle stabile Minor-Version der 18er Linie.
+- PostgreSQL 19 ist Beta und nicht fuer produktive Team-Installationen vorgesehen.
+- pgvector 0.8.3 ist im aktuellen Changelog als neueste Version ausgewiesen.
+
+Installer-Regel:
+
+- Die Control Plane fuehrt eine gepflegte Versionstabelle fuer empfohlene Postgres-/pgvector-Kombinationen.
+- Neue Team-Installationen nutzen die aktuelle stabile, getestete Kombination aus dieser Tabelle.
+- Produktive Compose-Dateien pinnen Image und Extension-Version.
+- Upgrades laufen ueber den normalen Control-Plane-Update-Flow mit Healthcheck, Backup-Hinweis und Rollback-Strategie.
 
 ## Postgres Service
 
@@ -152,6 +177,18 @@ Postgres-Abhaengigkeit:
 
 Es braucht ein eigenes Migrationswerkzeug fuer bestehende Instanzen.
 
+Der Migrationsassistent gehoert fachlich in den Control-Plane-Agenten auf der VM. Dieser Agent liegt im Repository `../canvas-control-plane` und muss um eine versionierte Migration API erweitert werden.
+
+Control-Plane-Ablauf fuer ein Upgrade von SQLite auf Team:
+
+1. Control Plane erkennt Teamplan fuer eine bisherige SQLite-Instanz.
+2. VM-Detailseite zeigt einen Tab `Migration` oder `Database Migration`.
+3. Admin/Owner startet den Assistenten manuell.
+4. Agent prueft Docker, Compose-Datei, App-Container, Postgres-Service und vorhandene SQLite-Datei.
+5. Wenn Postgres fehlt, erzeugt der Agent zuerst den Postgres-Service, Volume, DB-User, DB-Secret und `DATABASE_URL`.
+6. Erst danach wird die eigentliche Datenmigration gestartet.
+7. Team-Features bleiben blockiert, bis Migration und Healthcheck erfolgreich sind.
+
 Pflichtablauf:
 
 1. Maintenance Mode aktivieren.
@@ -165,6 +202,20 @@ Pflichtablauf:
 9. `CANVAS_DATABASE_PROVIDER=postgres` und `DATABASE_URL` setzen.
 10. App-Health pruefen.
 11. SQLite-Snapshot fuer Rollback aufbewahren.
+
+Der Agent muss Error Handling und Fortschritt granular melden:
+
+- `postgres_missing`
+- `docker_unavailable`
+- `compose_update_failed`
+- `sqlite_not_found`
+- `snapshot_failed`
+- `schema_migration_failed`
+- `data_copy_failed`
+- `reference_check_failed`
+- `pgvector_missing`
+- `healthcheck_failed`
+- `rollback_available`
 
 Nicht erlaubt:
 
@@ -183,7 +234,7 @@ Migration Export:
 - exportiert ausgewaehlte App-Daten logisch mit User-/Workspace-/Reference-Mapping,
 - enthaelt keine aktiven Public-Link-Tokens,
 - enthaelt Knowledge-Metadaten und Source-Refs, aber keine Garantie, dass ein Vektorindex providerunabhaengig portabel ist,
-- kann bei Postgres optional einen verschluesselten technischen DB-Dump enthalten, wenn Admin "Full Technical Export" auswaehlt.
+- kann bei Postgres optional einen technischen DB-Dump enthalten, wenn Admin "Full Technical Export" auswaehlt.
 
 Import:
 
@@ -199,6 +250,31 @@ Full Backup:
 - Postgres-Backups enthalten Rollen-/Extension-/Schema-Informationen, damit pgvector beim Restore vorhanden ist.
 - Full Backup wird ueber Admin/API/CLI/Control Plane triggerbar.
 - Control Plane muss bei Postgres nicht nur `/data`, sondern auch das Postgres Volume bzw. den DB-Dump erfassen.
+- V1 legt Backup-Artefakte lokal auf derselben VM ab.
+- V1 startet mit manuellen Backups; kein automatischer Schedule als Pflicht.
+- V1 verschluesselt lokale Backup-Artefakte und Postgres-Dumps nicht automatisch. Die UI muss klar warnen, dass Host-/Container-Admins diese Dateien lesen koennen.
+
+## Control Plane UI und Health
+
+Die VM-Detailseite im Control Plane braucht einen Database-/Migration-Bereich.
+
+Anzuzeigen:
+
+- Database Provider: `sqlite` oder `postgres`.
+- Deployment Mode und Team-Gate-Status.
+- Postgres Container Status.
+- Postgres Version.
+- pgvector Version und Extension Status.
+- DB-Verbindungsstatus aus Canvas Notebook Health.
+- Postgres Volume Groesse und freier Host-Speicher.
+- letzter DB-Dump / letztes Full Backup.
+- Migration Status, Fortschritt, letzte Fehler und Rollback-Hinweis.
+
+Teamplan ohne Postgres:
+
+- Control Plane zeigt `postgres_required`.
+- Canvas Notebook Setup/Homepage zeigt einen blockierenden Fehler.
+- Team Workspace, Team Knowledge, RAG und Collaboration bleiben gesperrt.
 
 ## Tests
 
@@ -208,8 +284,11 @@ Pflichttests:
 - Managed-Team-Provisioning ohne Postgres blockiert mit klarer Health-/Setup-Meldung.
 - CLI-Installer erzeugt fuer Team/Advanced Features eine Compose-Datei mit Postgres-Service.
 - Control Plane Provisioning setzt `CANVAS_DATABASE_PROVIDER=postgres` und DB-Secrets fuer Teamplaene.
+- Control-Plane-Agent kann fehlenden Postgres-Service vor SQLite-zu-Postgres-Migration anlegen.
+- VM-Detailseite zeigt Migration-Status und konkrete Error Codes.
 - pgvector-Healthcheck erkennt fehlende Extension.
 - Backup im Postgres-Mode enthaelt DB-Dump und `/data`.
+- Backup im Postgres-Mode zeigt Warnung fuer lokal unverschluesselten DB-Dump.
 - Migration Export schreibt `databaseProvider` und Schema-Version ins Manifest.
 - Import-Dry-Run blockiert Team-RAG-Daten in SQLite-Ziel.
 - SQLite-zu-Postgres-Migration prueft Referenzen und markiert Embeddings als `requires_reindex`.

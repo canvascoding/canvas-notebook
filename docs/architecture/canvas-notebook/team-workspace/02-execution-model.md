@@ -54,6 +54,7 @@ Lieferumfang:
 - Single-User-Verhalten fuer Community absichern.
 - Feature-Gates fuer Team-UI und Team-APIs vorbereiten.
 - Control-Plane- und Notebook-CLI-Installer-Anforderungen fuer Postgres/pgvector festlegen.
+- Control-Plane-Agent-Migrationsassistent und VM-Detailseite fuer SQLite-zu-Postgres-Migration planen.
 
 Tests:
 
@@ -214,6 +215,8 @@ Lieferumfang:
 - Audit Trail fuer Admin, Auth, Files, Agenten, Automations, Plugins, Integrationen, Export/Import und Studio.
 - File-Revisions- oder Checkpoint-Modell.
 - Einfache Locks oder Revision-Checks fuer Team-Dateien.
+- CRDT/Yjs-Grundlage fuer Markdown/Text-Collaboration oder mindestens harte Revision-Checks fuer Autosave.
+- Lock-/Check-out-Policy fuer Word, Excel, PowerPoint, PDF, Bilder, Videos und Audio.
 - Trash/Retention-Konzept inklusive Cleanup- und Rollup-Jobs.
 - DB-/WAL-/Runtime-Artefakte werden in Storage-Monitoring und Wartung beruecksichtigt.
 
@@ -223,6 +226,8 @@ Tests:
 - Retention-/Cleanup-Tests fuer Raw Tool Payloads, Runtime Events und Trash.
 - Usage-Rollup-Tests.
 - Konflikt-/Locking-Tests.
+- Markdown-Autosave-Konflikttests.
+- Office/PDF/Binary-Lock-Tests.
 - Regressionstests fuer Delete/Move/Public-Link-Sync.
 - `npm run build`.
 
@@ -242,9 +247,10 @@ Lieferumfang:
 - Secret-Redaction und Reconnect-Strategie.
 - Import Dry-Run.
 - Restore einzelner Dateien/Ordner/Revisions.
-- Full Backup inklusive provider-spezifischer DB-Sicherung, Workspaces, Studio, Runtime, Secrets/OAuth verschluesselt und Public Links fuer Disaster Recovery.
+- Full Backup inklusive provider-spezifischer DB-Sicherung, Workspaces, Studio, Runtime, Secrets/OAuth und Public Links fuer Disaster Recovery.
 - Postgres-Backups enthalten konsistenten DB-Dump bzw. Snapshot plus pgvector-/Extension-/Schema-Informationen; `/data` allein reicht im Postgres-Mode nicht.
-- Backup-Trigger ueber Admin/API/CLI/Control Plane vorbereiten; taeglichen Schedule spaeter ermoeglichen.
+- V1-Backup-Artefakte liegen lokal auf der VM und werden nicht automatisch verschluesselt.
+- Backup-Trigger ueber Admin/API/CLI/Control Plane vorbereiten; V1 manuell, taeglichen Schedule spaeter ermoeglichen.
 - Verschluesselungsgrenzen dokumentieren: App-Exportrechte sind keine kryptografische Isolation gegen Root-/Container-Admins.
 - Update-Migration bestehender Datei- und Runtime-Formate ist versioniert, idempotent und wiederaufnehmbar.
 - SQLite-zu-Postgres-Migration als eigener Maintenance-Flow mit Snapshot, Referenzpruefung, Provider-Wechsel und Reindex-Status.
@@ -261,6 +267,7 @@ Tests:
 - SQLite-Snapshot-Tests.
 - Postgres-Backup-Tests fuer DB-Dump plus `/data`.
 - SQLite-zu-Postgres-Migrations-Fixture mit Referenzpruefung und `requires_reindex`.
+- Test fuer lokale unverschluesselte Backup-Warnung in Admin/Control Plane.
 - `npm run build`.
 
 ### P9 Hardening und Release Readiness

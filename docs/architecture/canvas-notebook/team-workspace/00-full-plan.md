@@ -80,15 +80,22 @@ Produktentscheidung:
 Empfohlene Provider-ENV:
 
 ```env
+CANVAS_MANAGED_SERVICES_ENABLED=false
+CANVAS_DEPLOYMENT_MODE=community
 CANVAS_DATABASE_PROVIDER=sqlite
 ```
 
 oder:
 
 ```env
+CANVAS_MANAGED_SERVICES_ENABLED=true
+CANVAS_DEPLOYMENT_MODE=managed-team
+CANVAS_ORGANIZATION_ID=<organizationId>
 CANVAS_DATABASE_PROVIDER=postgres
 DATABASE_URL=postgresql://canvas:<password>@postgres:5432/canvas_notebook
 CANVAS_POSTGRES_VECTOR_ENABLED=true
+CANVAS_POSTGRES_IMAGE=<pinned-postgres-pgvector-image>
+CANVAS_POSTGRES_DATA_VOLUME=canvas-postgres-data
 ```
 
 Team-/Advanced-Lizenzen duerfen nicht nur durch lokale Boolean-ENV aktiviert werden. Canvas Notebook muss `CANVAS_DATABASE_PROVIDER`, `CANVAS_DEPLOYMENT_MODE` und `CANVAS_LICENSE_CERT` zusammen auswerten. Wenn ein Teamplan mit SQLite startet, muss Setup/Health blockieren und Postgres-Provisioning oder SQLite-zu-Postgres-Migration verlangen.
@@ -98,7 +105,7 @@ Die Installation betrifft zwei Codebasen:
 - Canvas Notebook CLI und App in diesem Repository.
 - Control Plane Provisioning im Repository `../canvas-control-plane`.
 
-Beide Installer muessen dieselbe Entscheidung umsetzen: sobald Team/Advanced/RAG gewaehlt wird, wird eine Compose-Konfiguration mit App-Container plus Postgres-Container und pgvector-faehiger Datenbank erzeugt. Produktions-Compose soll kein ungebundenes `latest`-Tag fuer Postgres verwenden, sondern eine aktuell unterstuetzte, gepinnte Version.
+Beide Installer muessen dieselbe Entscheidung umsetzen: sobald Team/Advanced/RAG gewaehlt wird, wird eine Compose-Konfiguration mit App-Container plus Postgres-Container und pgvector-faehiger Datenbank erzeugt. Produktions-Compose soll kein ungebundenes `latest`-Tag fuer Postgres verwenden, sondern eine aktuell unterstuetzte, gepinnte Version. Stand 2026-06-18 ist PostgreSQL 18.4 die aktuelle stabile 18er Minor-Version, PostgreSQL 19 ist Beta, und pgvector 0.8.3 ist im aktuellen Changelog als neueste Version ausgewiesen.
 
 Die Detailpolicy steht in `17-database-provider-postgres-rag-collaboration-policy.md`.
 
@@ -221,7 +228,7 @@ Rollen und User-Permissions:
 - `external`: externer Kunde oder Projektgast mit eingeschraenktem Zugriff auf freigegebene Projekte/Workspaces.
 - Jeder normale Mitarbeiter darf grundsaetzlich Agenten ausfuehren.
 - Pro User sollen Admins einstellen koennen, ob der User in den Team Workspace schreiben darf.
-- Pro User sollen Admins einstellen koennen, ob der User Public Links erstellen darf.
+- Public Links fuer Team-Dateien duerfen in V1 nur Owner/Admins erstellen; ein optionales delegierbares Recht wie `canCreatePublicLinks` bleibt fuer spaeter vorbereitet und kann folder-scoped werden.
 - Pro User sollen Admins einstellen koennen, ob der User Automations im Team Workspace anlegen darf.
 - Pro User sollen Admins einstellen koennen, ob der User Plugins/Skills freigeben oder teilen darf.
 - Pro User sollen Admins einstellen koennen, ob der User Exporte ausfuehren darf. Vollstaendige App-/Organization-Exporte bleiben standardmaessig Admin-only.
@@ -295,7 +302,10 @@ Automations:
 - Automations duerfen nicht implizit global fuer die ganze Instanz laufen.
 - Eine Automation gehoert entweder einem User oder explizit der Organization.
 - Personal Automations laufen im Auftrag eines `ownerUserId`.
-- Organization Automations laufen ueber einen Organization Service Actor und brauchen Owner/Admin-Erstellung plus Approval.
+- Organization Automations duerfen nur Owner/Admins anlegen.
+- Organization Automations laufen in V1 nur im Team Workspace.
+- Jede Automation bleibt einem verantwortlichen User zugeordnet; ein Service Actor ist nur der technische Runtime-Actor.
+- Wenn der verantwortliche User archiviert wird, pausiert die Automation und muss einem neuen User zugeordnet oder bewusst deaktiviert werden.
 - Beim Erstellen muss ausgewaehlt werden, ob sie im persoenlichen Workspace des Owners oder im Team Workspace laufen soll.
 - Jede Automation braucht genau einen primaeren `workspaceId`, Trigger, Berechtigungen und aktiven Agent-/Tool-Kontext.
 - Multi-Workspace-Reads sind nicht normaler V1-Scope; wenn spaeter noetig, nur admin-created, read-only, explizit und auditpflichtig.
@@ -509,7 +519,11 @@ Datenbank-Folge:
 
 - SQLite reicht fuer einfache Revision Checks in Single-User-/Community-Installationen.
 - Produktive Multi-User-Collaboration mit Presence, Edit Events, CRDT/OT-State oder vielen parallelen Writes braucht Postgres.
+- Markdown/Text soll eine CRDT-Grundlage bekommen, bevorzugt Yjs, weil autosave-/dirty-basierte Komplettdatei-Saves im Team riskant sind.
+- Word, Excel, PowerPoint, PDF, Bilder, Videos und Audio werden in V1 ueber Locks, Check-out, Revisionen und Konfliktanzeige behandelt, nicht live gemerged.
 - Redis ist fuer V1 keine Pflicht. Leichte Events koennen zunaechst ueber App-WebSockets und Postgres-Tabellen/Notifications geplant werden; Multi-Node oder hohe Eventlast wird spaeter separat entschieden.
+
+Die Detailpolicy steht in `18-collaboration-and-file-conflict-policy.md`.
 
 ## Lizenz- und Feature-Gating
 
@@ -633,6 +647,8 @@ Verantwortlichkeiten im Control Plane:
 - Fuer Teamplaene Postgres mit pgvector-faehiger Datenbank als separaten Compose-Service bereitstellen.
 - DB-Secrets sicher erzeugen und an Canvas Notebook uebergeben, ohne sie Agent-Tools verfuegbar zu machen.
 - Postgres-/pgvector-Health, DB-Wachstum, WAL/Volume-Wachstum und Backup-Status ueberwachen.
+- Control-Plane-Agent im Repository `../canvas-control-plane` um einen SQLite-zu-Postgres-Migrationsassistenten erweitern.
+- VM-Detailseite um Database-/Migration-Tab mit Provider, Postgres-Status, pgvector-Version, Backup-Status, Migrationsfortschritt und Fehlercodes erweitern.
 - Managed-Lizenz-Features und Quotas fuer Team-/Enterprise-Instanzen ausstellen.
 - `vm_config.env` so erweitern, dass Team-Instanzen beim Installieren und spaeter per Agent-Config-Sync dieselben Feature- und Identitaetswerte erhalten.
 
@@ -713,11 +729,12 @@ Restore-Anforderungen:
 Full-Backup-Anforderungen:
 
 - Full Backup sichert die komplette Instanz fuer Disaster Recovery, nicht nur exportierbare User-Daten.
-- Backups muessen ueber Admin-Kontext, Control Plane, Host-/Container-CLI oder spaeter Schedule getriggert werden koennen.
-- Taegliche Backups sollen vorbereitet werden; konkrete Retention/Schedule wird spaeter planabhaengig festgelegt.
-- DB, WAL/Journal oder Postgres Dump/Snapshot, `/data/workspaces`, `/data/studio`, scoped Settings, Runtime-Konfiguration und Secrets/OAuth-State muessen konsistent und verschluesselt gesichert werden.
+- Backups muessen ueber Admin-Kontext, Control Plane oder Host-/Container-CLI manuell getriggert werden koennen.
+- V1 startet ohne verpflichtenden Schedule; taegliche Backups und externer Bucket-Upload bleiben spaeter vorbereitbar.
+- DB, WAL/Journal oder Postgres Dump/Snapshot, `/data/workspaces`, `/data/studio`, scoped Settings, Runtime-Konfiguration und Secrets/OAuth-State muessen konsistent gesichert werden.
 - Im Postgres-Mode reicht ein `/data`-Backup nicht aus; Postgres-Dump oder Postgres-Volume-Snapshot ist zwingend Teil des Full Backups.
-- Workspace-Dateien selbst bleiben in V1 im Container-Dateisystem unverschluesselt; App-Rechte und Audit sind die Zugriffskontrolle, Backup-Artefakte werden verschluesselt.
+- Workspace-Dateien selbst bleiben in V1 im Container-Dateisystem unverschluesselt; lokale Backup-Artefakte und Postgres-Dumps werden ebenfalls nicht automatisch verschluesselt.
+- Backup-Artefakte liegen in V1 lokal auf derselben VM. UI und Control Plane muessen warnen, dass Host-/Container-Admins sie lesen koennen.
 - Public Links und Tokens duerfen in Full Backups fuer gleiche Disaster-Recovery-Ziele enthalten sein, aber nicht in Migration Exports.
 - Backup-Jobs brauchen Resource Budget, Logging, Integritaetschecks und Schutz gegen parallele Laeufe.
 
@@ -862,6 +879,7 @@ Die verbindliche Detailregel steht in `13-resource-aware-ingestion-and-job-backp
 41. SQLite-zu-Postgres-Migrationstool mit Maintenance Mode, Snapshot, Referenzpruefung und Reindex-Status bauen.
 42. Export/Import/Backup/Restore provider-aware machen, inklusive Postgres-Dump und Provider-Kompatibilitaetspruefung.
 43. RAG, Embeddings, Knowledge Graph und echte Collaboration serverseitig an Postgres/pgvector-Gates binden.
+44. Markdown-/Text-Collaboration mit CRDT/Yjs-Grundlage und File-Lock-/Revision-Policy fuer Office/PDF/Assets implementieren.
 
 ## Bezug zu bestehenden Control-Plane-Dokumenten
 

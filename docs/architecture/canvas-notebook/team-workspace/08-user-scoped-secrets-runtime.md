@@ -66,7 +66,8 @@ Regeln:
 - User-Secrets duerfen nicht in Organization-Verzeichnisse verschoben werden.
 - Organization-Secrets sind explizit geteilte Ressourcen und niemals automatische Kopien aus User-Secrets.
 - System-/Managed-Secrets sind nur fuer Infrastruktur, Lizenz, Provisioning und verwaltete Provider gedacht.
-- Exportpfade und Backups muessen Scope-Metadaten speichern, duerfen aber Secrets standardmaessig nur redacted oder als Reconnect-Manifest enthalten.
+- Migration-Exports muessen Scope-Metadaten speichern und Secrets standardmaessig nur redacted oder als Reconnect-Manifest enthalten.
+- Lokale Full Backups fuer Disaster Recovery koennen Secret-/OAuth-State enthalten; in V1 werden lokale Backup-Artefakte nicht automatisch verschluesselt und muessen deshalb Admin-Warnung, restriktive Dateirechte und Audit bekommen.
 
 ## Secret Scopes
 
@@ -248,7 +249,7 @@ Empfohlene Migration:
 - Doppelte MCP-/Plugin-Namen: erlaubt, solange sie in getrennten User-Scopes liegen.
 - Organization-Secret geloescht: abhaengige Automations/Agents werden disabled oder verlangen Reconnect, kein User-Secret-Fallback.
 - Import in neue Organization: Secrets bleiben redacted; User und Admins muessen Reconnect bestaetigen.
-- Backup/Restore: Restore stellt Secret-Metadaten und verschluesselte Blobs nur innerhalb desselben Schluessel-/Scope-Kontexts wieder her oder erzwingt Reconnect.
+- Backup/Restore: Restore stellt Secret-Metadaten und Full-Backup-State nur innerhalb desselben Scope-Kontexts wieder her oder erzwingt Reconnect. Bei lokal unverschluesselten V1-Backups muss der Admin-Kontext explizit warnen.
 
 ## Tests
 

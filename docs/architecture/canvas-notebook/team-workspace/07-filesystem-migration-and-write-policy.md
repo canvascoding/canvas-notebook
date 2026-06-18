@@ -10,6 +10,8 @@ Diese Entscheidung ergaenzt die Aufgaben `10`, `12`, `13`, `15`, `16`, `24`, `27
 
 Fresh-Install- und Update-Migrationsablaeufe werden in `09-initial-setup-and-update-migration.md` verbindlich konkretisiert. Dieses Dokument beschreibt die Zielpfade und Zugriffspolitik; `09` beschreibt, wann und wie sie angelegt oder aus Legacy-Daten befuellt werden.
 
+Kollaboration, File Locks, Revision Checks und Konfliktverhalten fuer Markdown, Office/PDF und Assets werden in `18-collaboration-and-file-conflict-policy.md` konkretisiert.
+
 ## Physisches Layout unter `/data`
 
 Die fachliche Wahrheit liegt in der Datenbank. Das Dateisystem ist nur die physische Ablage. Trotzdem braucht die Ablage eine stabile, backup- und debugfreundliche Struktur.
@@ -205,6 +207,7 @@ API-Anforderung:
 - Request enthaelt `outputIds`, `targetWorkspaceId`, `targetPath`.
 - Server prueft, ob der User die Outputs lesen darf.
 - Server prueft, ob der User in den Ziel-Workspace schreiben darf.
+- Server prueft aktive Locks und aktuelle Revision, wenn eine bestehende Datei ueberschrieben wird.
 - Server schreibt ueber den Workspace Resolver, nicht ueber globale `writeFile(path, ...)`.
 - Server speichert `sourceStudioOutputId`, `createdByUserId`, `copiedByUserId`, `workspaceId` und optional `sessionId`.
 

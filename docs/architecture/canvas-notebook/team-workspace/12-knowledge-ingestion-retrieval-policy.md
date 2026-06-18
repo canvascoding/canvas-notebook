@@ -28,6 +28,8 @@ Regeln:
 - Docling, OCR, Embedding-Indexing und Remote Parsing haben eigene Admin-Toggles und starten default `off`.
 - Alle Ingestion-/Parser-/Embedding-Jobs schreiben strukturierte Operational Logs ohne Dokumentinhalte oder Secrets.
 - Produktive Embeddings, Team-RAG und Knowledge Graph werden nur im Postgres/pgvector-Mode freigeschaltet. SQLite darf Knowledge-Metadaten und einfache lokale Suche vorbereiten, aber keine produktive Team-RAG-Funktion tragen.
+- In Teamplaenen darf Owner/Admin Knowledge direkt im Setup/Settings aktivieren, aber erst nach bestandenem Postgres-, pgvector- und Resource-Preflight.
+- Wenn Knowledge aktiviert wird, gilt die Aktivierung fuer Personal Knowledge und Team Knowledge. Die Stores und ACLs bleiben trotzdem getrennt.
 
 ## Knowledge Scopes
 
@@ -158,6 +160,24 @@ Regeln:
 - Fremde Personal Knowledge ist immer tabu.
 - Cross-Workspace Retrieval folgt den Read-Grant-Regeln aus `10-agent-tool-execution-policy.md`.
 
+## UI und Knowledge Route
+
+Settings bekommt einen Bereich `Knowledge / Parsing / Database`.
+
+Pflichtfunktionen:
+
+- Knowledge global fuer die Organization aktivieren/deaktivieren.
+- Resource-Preflight anzeigen: Memory, CPU, Disk, Queue, Postgres, pgvector.
+- Personal- und Team-Indexstatus getrennt anzeigen.
+- Reindex und Pause/Resume nur fuer Owner/Admin.
+- SQLite-Ziele zeigen `Postgres erforderlich` statt RAG-Schalter.
+
+Zusatzroute:
+
+- Eine eigene Knowledge-Route zeigt Knowledge Sources, Indexstatus, Quellen und spaeter Knowledge Graph.
+- Fuer den Knowledge Graph kann eine 3D-Graph-Komponente mit Knoten/Kanten verwendet werden.
+- Die Graph-Ansicht darf keine ACLs umgehen; jeder angezeigte Knoten muss aus erlaubten Quellen stammen.
+
 ## Source References
 
 Jeder Chunk muss zur Quelle zurueckfuehren.
@@ -245,6 +265,9 @@ Pflichttests:
 
 - Personal Workspace Datei wird in private User Knowledge indexiert.
 - Team Workspace Datei wird nur bei aktivierter Team Knowledge Policy indexiert.
+- Teamplan aktiviert Knowledge nur nach bestandenem Resource-Preflight.
+- Owner/Admin kann Knowledge fuer Personal und Team gemeinsam aktivieren.
+- Member kann Knowledge nicht organizationweit aktivieren.
 - E-Mail-Inhalt wird nicht automatisch indexiert.
 - Studio Medien werden nicht als Vollinhalt indexiert.
 - `.env`/Secret-Dateien werden blockiert oder quarantined.
@@ -260,3 +283,4 @@ Pflichttests:
 - Logging: Job-Status, Resource-Entscheidung und Parser-Fehler werden strukturiert geloggt, ohne Rohinhalt oder Secrets.
 - SQLite-Mode blockiert produktive Team-RAG-/Embedding-Aktivierung.
 - Postgres/pgvector-Mode erlaubt Embedding-Indexing erst nach bestandenem Provider-, pgvector-, Scan- und ACL-Gate.
+- Knowledge-Graph-/3D-Route zeigt nur Quellen, fuer die der User Retrieval-Rechte hat.

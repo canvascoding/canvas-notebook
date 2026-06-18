@@ -39,7 +39,7 @@ Dieses Dokument schliesst Umsetzungsschritt 2 ab: bestehende Canvas Notebook Fun
 | File Browser UI | ein globaler Workspace | aktiver `workspace` pro User/UI State | Workspace-Switcher erst nach serverseitiger Isolation; Tree bei Wechsel neu laden | P4 |
 | File Watcher/Cache/Search Cache | globaler Workspace Tree | `workspace`-spezifischer Cache | Cache Keys und Events um `workspaceId` erweitern | P4/P5 |
 | Uploads/Attachments | globales `data/user-uploads` Intake | `user` Intake mit optionalem `workspace` Ziel | Upload-Metadaten und Copy-to-Workspace workspace-aware machen | P4/P6 |
-| Public File Links | `workspacePath` plus `createdByUserId` | `organization`, `workspace`, `createdByUserId`, latest target | Personal Share fuer Owner; Team Share nur Admin/Permission; Latest-Link; Revocation bei Move/Delete; Passwortschutz spaeter | P6/P7 |
+| Public File Links | `workspacePath` plus `createdByUserId` | `organization`, `workspace`, `createdByUserId`, latest target | Personal Share fuer Owner; Team Share in V1 nur Owner/Admin; optional spaeter delegierbares/folder-scoped Recht; Latest-Link; Revocation bei Move/Delete; Passwortschutz spaeter | P6/P7 |
 | Markdown/PDF/HTML Preview | globaler Workspace-Pfad | `workspace` Datei und Preview Policy | Preview-Token und Cache um Workspace erweitern | P4/P6 |
 | Terminal Sessions | runtime/session-nah, potentiell globaler Prozesskontext | `user` Session mit aktivem `workspace` CWD/Policy | Terminal-CWD und erlaubte Pfade an Workspace koppeln | P5 |
 | PI Chat Sessions | `user` plus `agentId` | `user`, `organization`, `workspace`, `agentId` | `workspaceId` an Sessions und Usage-Kontext ergaenzen; Workspace-Wechsel startet neue Session | P5 |
@@ -53,7 +53,7 @@ Dieses Dokument schliesst Umsetzungsschritt 2 ab: bestehende Canvas Notebook Fun
 | Agent Definitionen | globale `agents.agentId` | `user` Agenten plus `organization` Templates | Owner/Visibility/Template-Modell einfuehren | P6 |
 | Agent Runtime Config | instanzweite Defaults/Agent Config | `organization` Defaults, `user` Preferences, `workspace` Policy, Session Override, mit sessiongebundener Revision | Effective Config Resolver mit `organizationId`, `userId`, `workspaceId`, `sessionId`, `agentId` erweitern | P5/P6 |
 | Usage Events | `user`, `sessionId`, Provider/Model | `organization`, `user`, `workspace`, `session` | Usage Attribution erweitern | P5/P6 |
-| Automations Jobs | `createdByUserId`, Pfade als Workspace-Strings | `personal` Owner-User oder `organization` Service Actor, genau ein primaerer `workspace` | OwnerScope, ServiceActor, WorkspaceScope, Team-Permission, Approval | P6 |
+| Automations Jobs | `createdByUserId`, Pfade als Workspace-Strings | `personal` Owner-User oder `organization` Service Actor plus `responsibleUserId`, genau ein primaerer `workspace` | Organization Automations nur Owner/Admin und Team Workspace; Pause bei archiviertem Responsible User | P6 |
 | Automations Runs | Job-basiert, Result-Pfade global | erbt Job plus Run-Audit | Run-Metadaten mit Workspace/Actor speichern | P6/P7 |
 | Custom Webhooks | Job-basiert | Job/Organization Scope | Secrets und Permissions an Job-Scope koppeln | P6 |
 | Automation Webhooks | Trigger ohne Team-Sicherheitsmodell | signiert, rate-limited, replay-geschuetzt, schema-validiert | Webhook Secret, Dedupe und Abuse Protection einfuehren | P6 |
@@ -81,6 +81,8 @@ Dieses Dokument schliesst Umsetzungsschritt 2 ab: bestehende Canvas Notebook Fun
 | Studio Outputs/Assets Files | globale `data/studio/...` Pfade | `organization` Asset Store, optional Workspace-Verknuepfung | Organizationweite Asset-Sammlung, Creator bleibt erhalten, Offboarding loescht Assets nicht | P6 |
 | Studio Save to Workspace | globaler Workspace, `targetPath` | expliziter `targetWorkspaceId` plus `targetPath` | Pflichtdialog fuer Personal/Team-Ziel und serverseitige Permission | P4/P6 |
 | Studio References | globale Upload-/Reference-Bereiche | `user` Intake, `organization` Asset Visibility | Reference Ownership speichern | P6 |
+| Text Collaboration | nicht vorhanden | `workspace` Datei plus Collaboration-Dokument | CRDT/Yjs fuer Markdown/Text vorbereiten, Snapshots als Revisionen speichern | P7/P9 |
+| Office/PDF/Asset Konflikte | nicht vorhanden | `workspace` Datei mit Lock/Revision | Word/Excel/PPT/PDF/Bilder/Videos ueber Lock, Check-out, Revision und Konfliktkopie schuetzen | P7 |
 | Personal Workspace Export | globaler Export/adminnah | User darf eigenen Personal Workspace exportieren | Self-service Export ohne Team-/Org-Daten und ohne Secrets | P8 |
 | Migration Export | `instance` Komponenten | Admin-only `organization` Export mit User/Workspace/Reference Mapping | Public Links auslassen, Secrets redacted, Personal Workspaces nur expliziter Full/Admin Export | P8 |
 | Migration Restore/Import | `instance` Restore | Organization/User/Workspace/Chat/Agent Mapping, Dry Run | Import Preview, unresolved References und Reconnect-Flows | P8 |
@@ -97,7 +99,7 @@ Dieses Dokument schliesst Umsetzungsschritt 2 ab: bestehende Canvas Notebook Fun
 | Admin Cleanup | admin-only, Studio Assets global | `organization` Admin Operation | Admin-Gate plus Audit | P7 |
 | Health Endpoint | `instance` | `instance/system` | Bleibt Instanz-Health fuer Control Plane | P9 |
 | Runtime Data Paths | `instance` Data Root | `instance`, mit scoped Unterpfaden | Nicht alles unter Data Root fachlich global behandeln | P3/P6 |
-| Backups | aktuell Migration/Filesystem-nahe | Full Instance Backup plus system-managed Host/Control-Plane Backup | SQLite Snapshot oder Postgres Dump/Snapshot plus `/data`, verschluesselt, extern triggerbar, Schedule vorbereitet | P8 |
+| Backups | aktuell Migration/Filesystem-nahe | Full Instance Backup plus system-managed Host/Control-Plane Backup | SQLite Snapshot oder Postgres Dump/Snapshot plus `/data`, lokal auf VM, V1 manuell und nicht automatisch verschluesselt | P8 |
 | SQLite -> Postgres Migration | nicht vorhanden | provider-aware Maintenance Flow | SQLite-Snapshot, Postgres-Init, Datenkopie, Referenzpruefung, `requires_reindex` fuer Embeddings | P8/P9 |
 | Audit Trail | nicht als zentrale Domain vorhanden | `organization` zentral, mit User/Workspace/Session | Audit-Domain einfuehren | P7 |
 | Retention/Trash | geloeschte Dateien oft direkt entfernt | `organization` Policy, `workspace` Trash | Trash/Retention vor Team-Datei-Loeschung | P7 |
@@ -126,6 +128,7 @@ Dieses Dokument schliesst Umsetzungsschritt 2 ab: bestehende Canvas Notebook Fun
 16. Automations haben genau einen primaeren Workspace; Organization Automations laufen ueber Service Actor und brauchen Admin-Approval.
 17. Knowledge-Ingestion darf nur nach Scope, Scan-Policy und Provider-Gate indexieren; Retrieval muss ACLs vor Rueckgabe erzwingen.
 18. Offboarding darf Personal Workspaces nicht normal fuer Admins sichtbar machen; Zugriff nur ueber Recovery-Flow mit Audit.
+19. Markdown-/Text-Collaboration braucht CRDT-/Revision-Schutz; Office/PDF/Binary-Dateien duerfen nicht still gemerged werden.
 
 ## Migrationsreihenfolge fuer Datenmodell
 
@@ -168,6 +171,8 @@ Fuer eine erste robuste Team-Version sollten diese Bereiche enthalten sein:
 - Automatische Personal Knowledge und policy-gesteuerte Team Knowledge mit Secret-/PII-Scan vor Embedding.
 - SQLite bleibt nur fuer Community/Single-User; produktive Team Knowledge, Embeddings, RAG und Knowledge Graph brauchen Postgres/pgvector.
 - Public Links mit `workspaceId`, Latest-Verhalten und Deaktivierung bei Move/Delete.
+- Team-Public-Links in V1 nur fuer Owner/Admin; Member duerfen Team-Dateien bearbeiten/loeschen, aber keine Team-Public-Links erstellen.
+- Markdown/Text bekommt CRDT-/Yjs-Grundlage oder harte Revision-Checks; Office/PDF/Assets bekommen Lock-/Revision-Policy.
 - Audit fuer Admin-Aktionen, File Writes, Agent File Writes und Public Links, ohne grosse Payloads dauerhaft in der DB zu speichern.
 - Retention Defaults fuer Raw Tool Payloads, Runtime Events, Trash/Revisions und Usage-Einzelereignisse.
 - Export mindestens fuer Workspaces, DB, Audit und Team-relevante Metadaten mit Secret-Redaction.

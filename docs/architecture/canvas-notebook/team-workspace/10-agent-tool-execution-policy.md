@@ -8,6 +8,8 @@ Dieses Dokument konkretisiert, wie Canvas Notebook jeden Agent-Turn und jeden To
 
 Es ergaenzt die Aufgaben `16`, `17`, `18`, `19`, `21`, `29`, `31` und `33` im Aufgabenindex.
 
+File Locks, CRDT-/Yjs-Collaboration und Konfliktverhalten fuer aktive Team-Dateien werden in `18-collaboration-and-file-conflict-policy.md` konkretisiert.
+
 ## Grundentscheidung
 
 Ein Agent darf nie direkt aus UI-State, Prompt-Text oder Tool-Parametern ableiten, was erlaubt ist. Vor jedem Agent-Turn erzeugt der Server einen `AgentExecutionContext`. Tools erhalten nur diesen Context und validierte Parameter.
@@ -117,7 +119,7 @@ Begruendung: Shell-Kommandos sind schwer granular zu begrenzen. Fuer Cross-Works
 | Tool-Klasse | Read | Write | Secret-Zugriff | Besondere Regeln |
 |---|---|---|---|---|
 | File Read | Session Workspace plus `readGrants` | nein | nein | mehrere explizite Dateien/Ordner erlaubt |
-| File Write/Edit/Delete | nur Session Workspace | nur Session Workspace | nein | vor Commit Workspace und Revision pruefen |
+| File Write/Edit/Delete | nur Session Workspace | nur Session Workspace | nein | vor Commit Workspace, Revision, Lock und Collaboration-State pruefen |
 | Shell/Terminal | nur Session Workspace | nur Session Workspace | nur Allowlist | keine Cross-Workspace-Reads |
 | MCP | tool-spezifisch | tool-spezifisch | User/Org Secret-Refs | Connection ist user-scoped; jeder Call revalidiert |
 | E-Mail | eigene User-Mailbox oder erlaubte Team-Mailbox | senden nur erlaubter Account | Mail Secret-Refs | AccountId anderer User gilt als nicht vorhanden |
@@ -139,6 +141,7 @@ Permission-Entzug:
 - Ein bereits gestarteter einzelner Tool-Call darf fertig werden, wenn er nicht vor dem finalen Commit erneut pruefen muss.
 - Jeder neue Tool-Call muss Permission neu pruefen und bei Entzug blockieren.
 - Riskante Write-/Send-/Delete-Tools pruefen direkt vor dem finalen Commit erneut.
+- File-Write-Tools pruefen direkt vor Commit aktive Locks, aktuelle Revision und bei kollaborativen Textdateien den erlaubten Patch-/Operation-Flow.
 
 Secret-Rotation oder Secret-Revocation:
 

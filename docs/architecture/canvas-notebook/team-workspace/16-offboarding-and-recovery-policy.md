@@ -28,7 +28,7 @@ Vor dem finalen Offboarding muss die App mindestens pruefen:
 
 - Ist der User letzter Owner/Admin oder letzter admin-faehiger Recovery-User?
 - Hat der User aktive Personal Automations?
-- Ist der User `createdByUserId`, `approvedByUserId` oder `lastEditedByUserId` von Organization Automations?
+- Ist der User `responsibleUserId`, `createdByUserId`, `approvedByUserId` oder `lastEditedByUserId` von Organization Automations?
 - Hat der User aktive Agent-Sessions oder laufende Tool-/Background-Jobs?
 - Hat der User offene To-dos oder zugewiesene Aufgaben?
 - Besitzt der User user-owned Agents, Prompts oder Tool-Stacks?
@@ -99,7 +99,9 @@ Personal Automations:
 
 Organization Automations:
 
-- laufen ueber Service Actor weiter, wenn sie keine privaten User-Secrets des offboarded Users brauchen.
+- pausieren, wenn der User `responsibleUserId` ist.
+- zeigen Admins, dass ein neuer verantwortlicher User zugeordnet werden muss.
+- koennen erst nach Neuzuordnung und Review reaktiviert werden.
 - werden reviewpflichtig, wenn der User Creator, Approver oder letzter Editor war.
 - werden pausiert, wenn Approval, Secret oder Workspace-Permission nicht mehr gueltig ist.
 
@@ -158,7 +160,7 @@ Pflichttests:
 - User wird deaktiviert und kann sich nicht mehr einloggen.
 - User-Secrets/OAuth werden revoked oder disabled.
 - Personal Automations pausieren.
-- Organization Automations werden reviewpflichtig, wenn Creator/Approver/Editor offboarded wird.
+- Organization Automations pausieren, wenn der verantwortliche User offboarded wird, und werden reviewpflichtig, wenn Creator/Approver/Editor offboarded wird.
 - To-dos werden nicht stillschweigend dem Admin zugewiesen.
 - Studio Assets bleiben sichtbar und zeigen archivierten Creator.
 - Archivierter Personal Workspace ist nicht normal sichtbar.

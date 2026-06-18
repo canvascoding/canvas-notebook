@@ -42,7 +42,8 @@ Damit kleine Server nicht unerwartet durch Parsing/OCR/Embedding abstuerzen, sta
 Defaults:
 
 - Bestehende Instanzen nach Update: schwere Knowledge-Ingestion, Docling, OCR und Embedding-Indexing bleiben `off`, bis ein Admin sie aktiviert.
-- Fresh Install: schwere Ingestion bleibt `off`, ausser ein Managed Plan oder Onboarding setzt sie explizit mit sichtbarer Bestaetigung.
+- Fresh Install: schwere Ingestion bleibt `off`, ausser ein Owner/Admin aktiviert sie explizit im Setup/Onboarding oder eine Managed Policy setzt sie mit sichtbarer Bestaetigung.
+- Teamplan: Knowledge darf direkt im Setup angeboten und aktiviert werden, aber nur nach bestandenem Resource-Preflight und Postgres/pgvector-Check.
 - Normale Agent-`read`-Tools und leichte native Text-Extraktion bleiben von diesem Toggle getrennt.
 - Resource Guards sind immer aktiv und koennen nicht ausgeschaltet werden.
 
@@ -148,6 +149,7 @@ Admin-UI fuer Knowledge/Parsing muss Resource-Zustand zeigen:
 Admin-Settings:
 
 - Knowledge Auto-Ingestion aktiv/inaktiv; Default `off`.
+- Team Knowledge und Personal Knowledge koennen durch einen gemeinsamen Knowledge-Aktivierungsschalter gestartet werden; intern bleiben Stores und ACLs getrennt.
 - Heavy Document Parsing aktiv/inaktiv; Default `off`.
 - Docling aktiv/inaktiv.
 - OCR `off`, `auto when no text`, `force` nur mit Warnung; Default `off`.
@@ -263,6 +265,7 @@ Pflichttests:
 - ACL-/Scope-Filter bleiben auch bei degradierter Ingestion aktiv.
 - Admin-UI zeigt Queue Depth, Parser Status und letzten Resource-Grund.
 - Control Plane Report enthaelt Memory/CPU/Queue/Parser-Status.
+- Team-Knowledge-Aktivierung wird blockiert, wenn Resource-Preflight nicht bestanden ist.
 - Cleanup entfernt Temp-Dateien nach erfolgreichen und abgebrochenen Jobs.
 - Operational Logs enthalten Budget-Entscheidung, `reasonCode`, Job-Korrelation und Parser-Exit, aber keine Dokumentinhalte oder Secrets.
 

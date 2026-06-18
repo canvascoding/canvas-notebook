@@ -20,6 +20,7 @@ Der aktive Architekturplan fuer den Team-Workspace-Umbau liegt im Unterprojekt:
 - `team-workspace/15-export-import-backup-restore-policy.md`: verbindliche Regeln fuer Personal/Admin Export, Import-Mapping, Public-Link-Ausschluss, Full Backup, Restore und Verschluesselungsgrenzen.
 - `team-workspace/16-offboarding-and-recovery-policy.md`: verbindliche Regeln fuer User-Archivierung, Offboarding-Preflight, Credential-Revocation, Automation-/To-do-Review und Personal-Workspace-Recovery.
 - `team-workspace/17-database-provider-postgres-rag-collaboration-policy.md`: verbindliche Regeln fuer SQLite/Postgres-Provider, Postgres-Pflicht bei Team/Advanced/RAG, pgvector, Installer, Control Plane Provisioning, Migration und DB-aware Backup.
+- `team-workspace/18-collaboration-and-file-conflict-policy.md`: verbindliche Regeln fuer CRDT/Yjs bei Markdown/Text, Locks/Revisionen fuer Office/PDF/Assets, Agent-Konflikte und Collaboration-UI.
 - `todo.json`: maschinenlesbarer Aufgabenindex ueber Notebook-, Control-Plane- und Cross-Repo-Aufgaben.
 
 Dieses Unterprojekt ist bewusst getrennt, weil der Umbau Fresh Install, Update-Migration, Auth, Rollen, Workspaces, Agent-Dateioperationen, Tool-Capabilities, Credentials, MCP, Plugins/Skills, Knowledge/Retrieval, Database Provider, Public Links, Automations, Webhooks, Studio, Export/Import, Audit und Backup/Restore beruehrt.

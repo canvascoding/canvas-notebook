@@ -14,6 +14,7 @@ Canvas Notebook hat einen aktiven Workspace pro User-Oberflaeche. Dieser aktive 
 
 Relevante Oberflaechen:
 
+- globale obere NavBar auf Startseite und Unterseiten,
 - Startseite Header,
 - Chat Header,
 - Notebook/File Browser Header,
@@ -23,6 +24,8 @@ Relevante Oberflaechen:
 - Public-Share-Verwaltung.
 
 Wenn der aktive Workspace an einer Stelle gewechselt wird, muessen alle anderen Oberflaechen denselben globalen Workspace-Status sehen.
+
+Der Switcher ist kein rein lokales Control: Wenn er in der NavBar, im File Tree oder im Chat geaendert wird, wechselt der aktive Workspace fuer den User global.
 
 ## Globaler Workspace State
 
@@ -76,6 +79,7 @@ Mindestfunktionen:
 - Team Workspace sichtbar deaktivieren, wenn Lizenz oder Permission fehlt,
 - bei Wechsel neue Chat-Session starten,
 - bestehende Session mit Workspace-Badge kennzeichnen.
+- im Agent-Chat eine sichtbare Workspace-Komponente anzeigen, damit klar ist, wohin der Agent schreibt.
 
 UI-Verhalten:
 
@@ -89,10 +93,11 @@ Die Startseite ist der primaere Ort, an dem der User seinen Arbeitskontext bewus
 
 Anforderungen:
 
-- Workspace Switcher im oberen Header.
+- Workspace Switcher in der oberen NavBar/Header-Flaeche.
 - Aktiver Workspace beeinflusst alle Tool Cards und Starter Prompts.
 - Oeffnet der User Notebook, Chat, Studio oder Automations, wird der aktive Workspace mitgenommen.
 - Bei Community/Single-User Betrieb wird der Switcher ausgeblendet oder zeigt nur Personal Workspace.
+- Wenn ein Teamplan ohne gueltige Postgres-Installation startet, zeigt Startseite oder Setup einen blockierenden Fehler mit Hinweis auf Control-Plane-/Installer-Migration.
 
 ## File Browser
 
@@ -101,6 +106,7 @@ Der File Browser ist die sichtbarste Workspace-Flaeche und muss den globalen Wor
 Anforderungen:
 
 - Workspace Selector im File Browser Header/Toolbar.
+- File Tree zeigt den aktiven Workspace als Badge/Info.
 - Wechsel laedt den Dateibaum des neuen Workspace.
 - `currentDirectory`, Search Query, Selection, Multi-Select und Preview werden beim Wechsel zurueckgesetzt oder workspace-spezifisch gespeichert.
 - Uploads, Create, Rename, Delete, Copy und Public Share verwenden den aktiven `workspaceId`.
@@ -144,6 +150,18 @@ Studio-Outputs brauchen eine klare Zielauswahl:
 - Save to team workspace, wenn erlaubt.
 
 Der Save-Dialog muss auch bei Batch-Auswahl explizit zeigen, wohin kopiert wird. In Team-Instanzen darf die API nicht mehr nur `targetPath` akzeptieren, sondern muss `targetWorkspaceId` und `targetPath` serverseitig validieren.
+
+Die bestehende Copy-/Save-to-Workspace-Komponente wird erweitert, statt einen zweiten parallelen Flow zu bauen.
+
+### Settings
+
+Settings bekommt einen neuen Bereich fuer:
+
+- Knowledge,
+- Parsing,
+- Database.
+
+SQLite-Installationen muessen bereits im Installer und im Control Plane darauf hingewiesen werden, dass Team/RAG/Postgres-Funktionen erst nach Postgres-Provisioning verfuegbar sind.
 
 ### Automations
 

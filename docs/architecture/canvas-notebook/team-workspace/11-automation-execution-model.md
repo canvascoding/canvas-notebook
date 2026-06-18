@@ -20,6 +20,7 @@ Regeln:
 - Multi-Workspace-Reads sind fuer V1 keine normale Member-Funktion.
 - Wenn Multi-Workspace-Reads spaeter noetig werden, duerfen sie nur admin-created, explizit genehmigt, read-only und auditpflichtig sein.
 - Fremde Personal Workspaces sind immer tabu.
+- Jede Automation bleibt einem verantwortlichen User zugeordnet, auch wenn eine Organization Automation technisch ueber Service Actor laeuft.
 
 ## Automation-Typen
 
@@ -57,6 +58,7 @@ Pflichtfelder:
 - `scope = "organization"`
 - `organizationId`
 - `serviceActorId`
+- `responsibleUserId`
 - `workspaceId`
 - `agentId`
 - `status`
@@ -68,11 +70,12 @@ Pflichtfelder:
 Regeln:
 
 - Nur Owner/Admins duerfen Organization Automations erstellen.
+- Organization Automations duerfen in V1 nur im Team Workspace laufen.
 - Der Runtime Actor ist ein Organization Service Actor.
-- `createdByUserId`, `approvedByUserId` und `lastEditedByUserId` bleiben fuer Audit sichtbar.
+- `responsibleUserId`, `createdByUserId`, `approvedByUserId` und `lastEditedByUserId` bleiben fuer Audit sichtbar.
 - Secrets kommen nur aus Organization- oder erlaubtem System-/Managed-Scope.
 - Organization Automations duerfen keine privaten User-Secrets verwenden.
-- Organization Automations laufen nach Offboarding eines Admins weiter, solange sie keine User-Secret-Abhaengigkeit haben.
+- Wenn der verantwortliche User archiviert oder deaktiviert wird, pausiert die Automation und zeigt an, dass sie einem neuen User zugeordnet werden muss.
 
 ## Workspace Policy
 
@@ -86,7 +89,7 @@ V1-Default:
 Team Workspace:
 
 - Personal Automation im Team Workspace braucht Owner-Permission.
-- Organization Automation im Team Workspace braucht Admin-Erstellung und Approval.
+- Organization Automation ist Team-Workspace-only und braucht Owner/Admin-Erstellung und Approval.
 - Team Workspace Delete/Overwrite braucht riskante Aktion mit finalem Permission-Check.
 
 Multi-Workspace-Ausnahme:
@@ -196,7 +199,8 @@ Personal Automations:
 
 Organization Automations:
 
-- laufen weiter, wenn sie nur Organization-/System-Secrets nutzen.
+- pausieren, wenn `responsibleUserId` archiviert oder deaktiviert wird.
+- zeigen Admins an, dass ein neuer verantwortlicher User zugeordnet werden muss.
 - werden reviewpflichtig, wenn `createdByUserId`, `approvedByUserId` oder `lastEditedByUserId` offboarded wird.
 - werden pausiert, wenn Approval nicht mehr gueltig ist oder benoetigte Organization-Secrets revoked sind.
 
@@ -235,6 +239,7 @@ Regeln:
 - Normale User sehen und verwalten eigene Personal Automations.
 - Owner/Admins sehen Organization Automations.
 - Organization Automation Editor zeigt Service Actor, Workspace, Secrets, Trigger, riskante Aktionen und Approval-Status.
+- Organization Automation Editor zeigt den verantwortlichen User und blockiert Aktivierung ohne gueltigen `responsibleUserId`.
 - Team-/Organization-Automations duerfen nicht in derselben UI-Flaeche wie private Automations unklar vermischt werden.
 
 ## Audit
@@ -249,6 +254,7 @@ Zu auditieren:
 - Secret-Refs,
 - WorkspaceId,
 - ServiceActorId oder ownerUserId,
+- responsibleUserId,
 - riskante Aktion und finaler Permission-Check,
 - Offboarding-Entscheidung.
 
@@ -264,8 +270,10 @@ Pflichttests:
 - Personal Automation nutzt nur User-Secrets des Owners.
 - Organization Automation nutzt keine User-Secrets.
 - Personal Automation pausiert beim Offboarding des Owners.
-- Organization Automation laeuft nach Admin-Offboarding weiter, wenn Service Actor und Organization-Secrets gueltig sind.
+- Organization Automation pausiert, wenn der verantwortliche User archiviert wird.
+- Organization Automation kann erst nach Zuordnung eines neuen verantwortlichen Users reaktiviert werden.
 - Organization Automation wird reviewpflichtig, wenn Approval-User offboarded wird.
+- Organization Automation kann nur Team Workspace als primaeren Workspace speichern.
 - Automation hat genau einen Schreib-Workspace.
 - Multi-Workspace Read ist fuer normale User blockiert.
 - Webhook ohne gueltige Signatur wird blockiert.

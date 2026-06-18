@@ -66,7 +66,8 @@ Regeln:
 - Nach Import muessen Public Links neu gesetzt werden.
 - Vollstaendige aktive Public Links werden nur in Full Backups fuer gleiche Disaster-Recovery-Ziele gesichert.
 - Jeder Admin-/Migration-Export enthaelt `databaseProvider`, Schema-Version, App-Version und Feature-Gates im Manifest.
-- Wenn Postgres genutzt wird, kann ein bewusst aktivierter Full Technical Export einen verschluesselten Postgres-Dump enthalten. Normale Migration Exports bleiben logisch und provider-aware.
+- Wenn Postgres genutzt wird, kann ein bewusst aktivierter Full Technical Export einen Postgres-Dump enthalten. Normale Migration Exports bleiben logisch und provider-aware.
+- V1-Technical-Exports und lokale Backup-Artefakte werden nicht automatisch verschluesselt. Die UI muss deshalb warnen, dass ein Host-/Container-Admin sie lesen kann.
 
 ## Zuweisungen und Referenzen
 
@@ -103,7 +104,7 @@ Mindestinhalt:
 - `/data/workspaces`,
 - `/data/studio`,
 - scoped User-/Organization-/System-Konfiguration,
-- Secrets/OAuth-State nur verschluesselt,
+- Secrets/OAuth-State fuer Full Disaster Recovery, mit klarer Warnung wenn lokale V1-Backups unverschluesselt sind,
 - Agent-/Runtime-Konfiguration,
 - Public Links inklusive Tokens nur fuer gleiche Disaster-Recovery-Ziele,
 - Audit/Usage/Retention-Metadaten,
@@ -114,7 +115,7 @@ Trigger:
 - manuell durch Owner/Admin im Admin-Kontext,
 - durch Control Plane,
 - durch Host-/Container-CLI,
-- spaeter geplant: Schedule, z. B. taeglich.
+- spaeter geplant: Schedule, z. B. taeglich. V1 startet mit manuellem Backup.
 
 Anforderungen:
 
@@ -124,7 +125,10 @@ Anforderungen:
 - Backup-Jobs laufen als schwere Jobs mit Resource Budget und Logging.
 - Backup darf nie mehrere alte Test-/Backup-Jobs parallel unkontrolliert starten.
 - Backup-Status und letzte Fehler muessen sichtbar sein.
-- Backup-Archive brauchen Verschluesselung, Integritaetscheck und Retention/Prune-Policy.
+- V1 legt Backup-Artefakte lokal auf der VM ab.
+- V1-Backup-Artefakte und Postgres-Dumps werden nicht automatisch verschluesselt.
+- Backup-Archive brauchen Checksums, Integritaetscheck und Retention/Prune-Policy.
+- Spaeterer externer Bucket-Upload bleibt vorbereitet und sollte dann Verschluesselung/Transport-Sicherheit bekommen.
 
 ## Restore
 
@@ -161,7 +165,7 @@ Empfehlung fuer V1:
 - Dateien bleiben im Container-Dateisystem lesbar.
 - App erzwingt strikte User-/Workspace-/Exportrechte.
 - Admin-Full-Export ist erlaubt, aber explizit, auditiert und nicht mit normalem User-Export vermischt.
-- Backups werden verschluesselt.
+- Lokale V1-Backups und Postgres-Dumps werden nicht automatisch verschluesselt; Admin-UI und Control Plane muessen diesen Umstand sichtbar machen.
 - Keine falsche Sicherheitsbehauptung machen, dass Admins technisch keine Dateien sehen koennen.
 
 Option fuer spaeter:
@@ -182,9 +186,10 @@ Pflichttests:
 - Import-Dry-Run zeigt User-, Workspace-, Chat-/Session- und Agent-Referenz-Mapping.
 - Unaufloesbare Zuweisungen werden als `unresolved` reportet und nicht stillschweigend umgebogen.
 - Secrets/OAuth werden im Migration Export nur als Reconnect-Manifest exportiert.
-- Full Backup enthaelt Public Links und Secrets nur verschluesselt.
+- Full Backup enthaelt Public Links und kann Secrets/OAuth-State enthalten; bei lokal unverschluesseltem V1-Backup muss die Admin-Warnung sichtbar sein.
 - Backup kann via Admin/API/CLI getriggert werden.
 - Geplanter Backup-Job blockiert parallele Backup-Laeufe.
 - Restore Preview erkennt Konflikte vor dem Schreiben.
 - Postgres-Full-Backup enthaelt DB-Dump/Snapshot plus `/data`.
 - Import-Dry-Run erkennt Provider-Mismatch und blockiert Team-RAG-Downgrade nach SQLite.
+- V1-Backup-Artefakte liegen lokal und unverschluesselt auf der VM.

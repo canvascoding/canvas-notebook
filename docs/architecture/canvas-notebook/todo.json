@@ -347,7 +347,8 @@
       "repo": "canvasstudios-notebook",
       "planningArtifacts": [
         "docs/architecture/canvas-notebook/team-workspace/05-actor-audit-retention.md",
-        "docs/architecture/canvas-notebook/team-workspace/17-database-provider-postgres-rag-collaboration-policy.md"
+        "docs/architecture/canvas-notebook/team-workspace/17-database-provider-postgres-rag-collaboration-policy.md",
+        "docs/architecture/canvas-notebook/team-workspace/18-collaboration-and-file-conflict-policy.md"
       ]
     },
     {
@@ -444,7 +445,18 @@
       "repo": "canvasstudios-notebook",
       "planningArtifacts": [
         "docs/architecture/canvas-notebook/team-workspace/12-knowledge-ingestion-retrieval-policy.md",
-        "docs/architecture/canvas-notebook/team-workspace/17-database-provider-postgres-rag-collaboration-policy.md"
+        "docs/architecture/canvas-notebook/team-workspace/17-database-provider-postgres-rag-collaboration-policy.md",
+        "docs/architecture/canvas-notebook/team-workspace/18-collaboration-and-file-conflict-policy.md"
+      ]
+    },
+    {
+      "id": 44,
+      "title": "Markdown-/Text-Collaboration mit CRDT/Yjs und Lock-/Revision-Policy fuer Office/PDF/Assets bauen",
+      "status": "pending",
+      "repo": "canvasstudios-notebook",
+      "planningArtifacts": [
+        "docs/architecture/canvas-notebook/team-workspace/10-agent-tool-execution-policy.md",
+        "docs/architecture/canvas-notebook/team-workspace/18-collaboration-and-file-conflict-policy.md"
       ]
     }
   ]
