@@ -24,6 +24,8 @@ import {
 import { getGatewayStatus, getGatewayToolkits } from '@/app/lib/composio/composio-gateway';
 import { listEmailAccounts } from '@/app/lib/email/service';
 import { readMcpConfig } from '@/app/lib/mcp/config';
+import { readCanvasSkillRegistry, type CanvasSkillInstallRecord } from '@/app/lib/skills/canvas-skill-store';
+import { resolveSkillsDataDir } from '@/app/lib/runtime-data-paths';
 
 export const DEFAULT_CANVAS_PLUGIN_STORE_REGISTRY_URL =
   'https://raw.githubusercontent.com/canvascoding/canvas-notebook-plugin-marketplace/main/registry.json';
@@ -76,6 +78,8 @@ export interface CanvasPluginStoreInstalledState {
   version?: string;
   updateAvailable: boolean;
   installedPlugin?: CanvasPluginInstallRecord;
+  skills: CanvasPluginStoreSkillState[];
+  skillSummary: CanvasPluginStoreSkillSummary;
 }
 
 export type CanvasPluginStorePluginWithState = CanvasPluginStorePlugin & {
@@ -135,18 +139,54 @@ export interface CanvasPluginStorePreflightItem {
   action: 'none' | 'configure-composio' | 'connect-composio' | 'configure-email' | 'configure-mcp';
 }
 
+export type CanvasPluginStoreSkillStatus =
+  | 'ok'
+  | 'missing'
+  | 'plugin-update-available'
+  | 'skill-update-available'
+  | 'modified'
+  | 'standalone'
+  | 'untracked';
+
+export interface CanvasPluginStoreSkillState {
+  name: string;
+  title?: string;
+  expectedVersion?: string;
+  installed: boolean;
+  enabled?: boolean;
+  version?: string;
+  sourceType?: CanvasSkillInstallRecord['sourceType'];
+  sourcePluginName?: string;
+  status: CanvasPluginStoreSkillStatus;
+  updateAvailable: boolean;
+  modified: boolean;
+  repairable: boolean;
+}
+
+export interface CanvasPluginStoreSkillSummary {
+  total: number;
+  installed: number;
+  missing: number;
+  updateAvailable: number;
+  modified: number;
+  repairable: number;
+}
+
 export interface CanvasPluginStorePreflight {
   pluginName: string;
   version: string;
   ready: boolean;
   hasRequiredMissing: boolean;
+  hasSkillIssues: boolean;
   items: CanvasPluginStorePreflightItem[];
+  skills: CanvasPluginStoreSkillState[];
   summary: {
     total: number;
     ready: number;
     requiredMissing: number;
     recommendedMissing: number;
   };
+  skillSummary: CanvasPluginStoreSkillSummary;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -203,6 +243,129 @@ function compareVersions(left: string | undefined, right: string | undefined): n
 function clampPositiveInteger(value: number | undefined, fallback: number, max: number): number {
   if (!value || !Number.isFinite(value)) return fallback;
   return Math.max(1, Math.min(Math.floor(value), max));
+}
+
+function emptySkillSummary(): CanvasPluginStoreSkillSummary {
+  return {
+    total: 0,
+    installed: 0,
+    missing: 0,
+    updateAvailable: 0,
+    modified: 0,
+    repairable: 0,
+  };
+}
+
+function summarizeSkillStates(skills: CanvasPluginStoreSkillState[]): CanvasPluginStoreSkillSummary {
+  return {
+    total: skills.length,
+    installed: skills.filter((skill) => skill.installed).length,
+    missing: skills.filter((skill) => skill.status === 'missing').length,
+    updateAvailable: skills.filter((skill) => skill.updateAvailable).length,
+    modified: skills.filter((skill) => skill.modified).length,
+    repairable: skills.filter((skill) => skill.repairable).length,
+  };
+}
+
+async function skillFileExists(skillName: string): Promise<boolean> {
+  const stat = await fs.stat(path.join(resolveSkillsDataDir(), skillName, 'SKILL.md')).catch(() => null);
+  return Boolean(stat?.isFile());
+}
+
+async function computeInstalledSkillModified(
+  skillName: string,
+  installedSkill: CanvasSkillInstallRecord | undefined,
+): Promise<boolean> {
+  if (!installedSkill?.checksum) return false;
+  const installDir = path.join(resolveSkillsDataDir(), skillName);
+  const currentChecksum = await computeCanvasPluginChecksum(installDir).catch(() => '');
+  return Boolean(currentChecksum && currentChecksum !== installedSkill.checksum);
+}
+
+async function buildInstalledPluginSkillState(
+  storePlugin: CanvasPluginStorePlugin,
+  installedPlugin: CanvasPluginInstallRecord | undefined,
+  targetVersion: string | undefined,
+  skillRegistry: Awaited<ReturnType<typeof readCanvasSkillRegistry>>,
+): Promise<{ skills: CanvasPluginStoreSkillState[]; summary: CanvasPluginStoreSkillSummary }> {
+  if (!installedPlugin) {
+    return { skills: [], summary: emptySkillSummary() };
+  }
+
+  const expectedByName = new Map(
+    installedPlugin.skills.map((skill) => [skill.name, {
+      name: skill.name,
+      title: skill.title,
+      version: skill.version || installedPlugin.version,
+    }]),
+  );
+
+  for (const skillName of storePlugin.skills || []) {
+    if (!expectedByName.has(skillName)) {
+      expectedByName.set(skillName, {
+        name: skillName,
+        title: skillName,
+        version: targetVersion || storePlugin.latestVersion,
+      });
+    }
+  }
+
+  const pluginUpdateAvailable = Boolean(
+    targetVersion && compareVersions(targetVersion, installedPlugin.version) > 0,
+  );
+
+  const skills = await Promise.all(Array.from(expectedByName.values()).map(async (skill) => {
+    const installedSkill = skillRegistry.skills[skill.name];
+    const installed = await skillFileExists(skill.name);
+    const pluginOwned = Boolean(
+      installedSkill?.sourceType === 'plugin'
+      && installedSkill.sourcePluginName === installedPlugin.name,
+    );
+    const expectedVersion = skill.version || installedPlugin.version;
+    const skillVersionUpdateAvailable = Boolean(
+      installed
+      && expectedVersion
+      && installedSkill?.version
+      && compareVersions(expectedVersion, installedSkill.version) > 0,
+    );
+    const updateAvailable = pluginUpdateAvailable || skillVersionUpdateAvailable;
+    const modified = installed && pluginOwned
+      ? await computeInstalledSkillModified(skill.name, installedSkill)
+      : false;
+    let status: CanvasPluginStoreSkillStatus = 'ok';
+
+    if (!installed) {
+      status = pluginUpdateAvailable ? 'plugin-update-available' : 'missing';
+    } else if (pluginUpdateAvailable) {
+      status = 'plugin-update-available';
+    } else if (skillVersionUpdateAvailable) {
+      status = 'skill-update-available';
+    } else if (modified) {
+      status = 'modified';
+    } else if (!installedSkill) {
+      status = 'untracked';
+    } else if (!pluginOwned) {
+      status = 'standalone';
+    }
+
+    const repairable = !installed || (pluginOwned && (updateAvailable || modified));
+
+    return {
+      name: skill.name,
+      title: skill.title,
+      expectedVersion,
+      installed,
+      version: installedSkill?.version,
+      sourceType: installedSkill?.sourceType,
+      sourcePluginName: installedSkill?.sourcePluginName,
+      status,
+      updateAvailable,
+      modified,
+      repairable,
+    };
+  }));
+
+  return { skills, summary: summarizeSkillStates(skills) };
 }
 
 function normalizeComposioConnectors(connectors: CanvasPluginConnectorManifest | undefined): CanvasPluginComposioConnector[] {
@@ -408,15 +571,22 @@ export async function readCanvasPluginStoreRegistry(): Promise<CanvasPluginStore
   };
 }
 
-function enrichStorePluginsWithInstalledState(
+async function enrichStorePluginsWithInstalledState(
   registry: CanvasPluginStoreRegistry,
   installedPlugins: CanvasPluginInstallRecord[],
-): { registry: Omit<CanvasPluginStoreRegistry, 'plugins'>; plugins: CanvasPluginStorePluginWithState[]; stats: Omit<CanvasPluginStoreStats, 'filteredTotal'> } {
+): Promise<{ registry: Omit<CanvasPluginStoreRegistry, 'plugins'>; plugins: CanvasPluginStorePluginWithState[]; stats: Omit<CanvasPluginStoreStats, 'filteredTotal'> }> {
   const installedByName = new Map(installedPlugins.map((plugin) => [plugin.name, plugin]));
-  const plugins = registry.plugins.map((plugin) => {
+  const skillRegistry = await readCanvasSkillRegistry();
+  const plugins = await Promise.all(registry.plugins.map(async (plugin) => {
     const installedPlugin = installedByName.get(plugin.name);
     const updateAvailable = Boolean(
       installedPlugin && compareVersions(plugin.latestVersion, installedPlugin.version) > 0,
+    );
+    const skillState = await buildInstalledPluginSkillState(
+      plugin,
+      installedPlugin,
+      plugin.latestVersion,
+      skillRegistry,
     );
 
     return {
@@ -427,9 +597,11 @@ function enrichStorePluginsWithInstalledState(
         version: installedPlugin?.version,
         updateAvailable,
         installedPlugin,
+        skills: skillState.skills,
+        skillSummary: skillState.summary,
       },
     };
-  });
+  }));
 
   const { plugins: _plugins, ...registryMetadata } = registry;
   return {
@@ -470,7 +642,7 @@ export async function listCanvasPluginStore(options: CanvasPluginStoreListOption
     readCanvasPluginStoreRegistry(),
     listCanvasPlugins(),
   ]);
-  const enriched = enrichStorePluginsWithInstalledState(registry, installedPlugins);
+  const enriched = await enrichStorePluginsWithInstalledState(registry, installedPlugins);
   const pageSize = clampPositiveInteger(options.pageSize, 12, 50);
   const page = clampPositiveInteger(options.page, 1, 100000);
   const state = options.state || 'all';
@@ -651,6 +823,9 @@ export async function preflightCanvasPluginFromStore(
 
   const registry = await readCanvasPluginStoreRegistry();
   const { plugin, version: selectedVersion } = getStorePluginOrThrow(registry, pluginName, version);
+  const installedPlugin = (await listCanvasPlugins()).find((entry) => entry.name === plugin.name);
+  const skillRegistry = await readCanvasSkillRegistry();
+  const skillState = await buildInstalledPluginSkillState(plugin, installedPlugin, selectedVersion, skillRegistry);
   const items: CanvasPluginStorePreflightItem[] = [];
 
   const composioConnectors = normalizeComposioConnectors(plugin.connectors);
@@ -759,12 +934,15 @@ export async function preflightCanvasPluginFromStore(
     version: selectedVersion,
     ready: requiredMissing === 0,
     hasRequiredMissing: requiredMissing > 0,
+    hasSkillIssues: skillState.summary.repairable > 0 || skillState.summary.modified > 0,
     items,
+    skills: skillState.skills,
     summary: {
       total: items.length,
       ready: items.filter((item) => item.ready).length,
       requiredMissing,
       recommendedMissing,
     },
+    skillSummary: skillState.summary,
   };
 }

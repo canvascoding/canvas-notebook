@@ -132,6 +132,39 @@ type CanvasPluginSettingsRecord = {
   }>;
 };
 
+type PluginSkillStatus =
+  | 'ok'
+  | 'missing'
+  | 'plugin-update-available'
+  | 'skill-update-available'
+  | 'modified'
+  | 'standalone'
+  | 'untracked';
+
+type PluginSkillState = {
+  name: string;
+  title?: string;
+  expectedVersion?: string;
+  installed: boolean;
+  enabled?: boolean;
+  version?: string;
+  sourceType?: 'store' | 'seed' | 'local' | 'plugin';
+  sourcePluginName?: string;
+  status: PluginSkillStatus;
+  updateAvailable: boolean;
+  modified: boolean;
+  repairable: boolean;
+};
+
+type PluginSkillSummary = {
+  total: number;
+  installed: number;
+  missing: number;
+  updateAvailable: number;
+  modified: number;
+  repairable: number;
+};
+
 type CanvasPluginStoreEntry = {
   name: string;
   displayName: string;
@@ -153,6 +186,8 @@ type CanvasPluginStoreEntry = {
     version?: string;
     updateAvailable: boolean;
     installedPlugin?: CanvasPluginSettingsRecord;
+    skills?: PluginSkillState[];
+    skillSummary?: PluginSkillSummary;
   };
 };
 
@@ -253,13 +288,16 @@ type PluginPreflight = {
   version: string;
   ready: boolean;
   hasRequiredMissing: boolean;
+  hasSkillIssues?: boolean;
   items: PluginPreflightItem[];
+  skills?: PluginSkillState[];
   summary: {
     total: number;
     ready: number;
     requiredMissing: number;
     recommendedMissing: number;
   };
+  skillSummary?: PluginSkillSummary;
 };
 
 type PluginPreflightState = {
@@ -888,6 +926,88 @@ function CanvasPluginsSection({ onPluginsChanged }: { onPluginsChanged: () => vo
     );
   }
 
+  function getPluginSkillStatusLabel(status: PluginSkillStatus): string {
+    if (status === 'ok') return t('skillCheck.status.ok');
+    if (status === 'missing') return t('skillCheck.status.missing');
+    if (status === 'plugin-update-available') return t('skillCheck.status.pluginUpdateAvailable');
+    if (status === 'skill-update-available') return t('skillCheck.status.skillUpdateAvailable');
+    if (status === 'modified') return t('skillCheck.status.modified');
+    if (status === 'standalone') return t('skillCheck.status.standalone');
+    return t('skillCheck.status.untracked');
+  }
+
+  function getPluginSkillStatusVariant(status: PluginSkillStatus): 'default' | 'secondary' | 'destructive' | 'outline' {
+    if (status === 'ok') return 'default';
+    if (status === 'missing' || status === 'plugin-update-available' || status === 'skill-update-available') return 'destructive';
+    if (status === 'modified') return 'secondary';
+    return 'outline';
+  }
+
+  function renderPluginSkillCheck(skills: PluginSkillState[] | undefined, summary: PluginSkillSummary | undefined) {
+    if (!summary || summary.total === 0) {
+      return (
+        <div className="rounded-md border border-dashed px-3 py-2 text-sm text-muted-foreground">
+          {t('skillCheck.noInstalledSkills')}
+        </div>
+      );
+    }
+
+    return (
+      <div className="space-y-2 rounded-md border bg-muted/20 p-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+            {summary.repairable > 0 ? <Info className="h-3.5 w-3.5" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
+            {t('skillCheck.title')}
+          </div>
+          <Badge variant={summary.repairable > 0 ? 'destructive' : 'secondary'} className="text-[10px]">
+            {summary.repairable > 0 ? t('skillCheck.needsRepair') : t('skillCheck.ready')}
+          </Badge>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          {t('skillCheck.summary', {
+            installed: summary.installed,
+            total: summary.total,
+            missing: summary.missing,
+            updates: summary.updateAvailable,
+            modified: summary.modified,
+          })}
+        </p>
+        {skills?.length ? (
+          <div className="grid gap-2 sm:grid-cols-2">
+            {skills.map((skill) => (
+              <div key={skill.name} className="rounded-md bg-background/70 px-3 py-2">
+                <div className="flex items-start gap-2">
+                  <CanvasSkillIcon
+                    skill={{ name: skill.name, title: skill.title || skill.name } as CanvasSkill}
+                    className="h-7 w-7 text-[10px]"
+                  />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span className="truncate text-xs font-medium">{skill.title || skill.name}</span>
+                      <Badge variant={getPluginSkillStatusVariant(skill.status)} className="text-[9px]">
+                        {getPluginSkillStatusLabel(skill.status)}
+                      </Badge>
+                      {skill.repairable ? (
+                        <Badge variant="secondary" className="text-[9px]">{t('skillCheck.repairable')}</Badge>
+                      ) : null}
+                    </div>
+                    <div className="mt-1 font-mono text-[11px] text-muted-foreground">/{skill.name}</div>
+                    <p className="mt-1 text-[11px] text-muted-foreground">
+                      {t('skillCheck.versionLine', {
+                        installed: skill.version || '-',
+                        expected: skill.expectedVersion || '-',
+                      })}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : null}
+      </div>
+    );
+  }
+
   function renderPluginPreflight(plugin: CanvasPluginStoreEntry) {
     const preflight = preflightByPlugin[getPreflightKey(plugin.name, plugin.latestVersion)];
     if (!preflight) return null;
@@ -1000,7 +1120,7 @@ function CanvasPluginsSection({ onPluginsChanged }: { onPluginsChanged: () => vo
   }
 
   function maybeCheckStorePluginPreflight(plugin: CanvasPluginStoreEntry) {
-    if (!hasConnectorRecommendations(plugin.connectors)) return;
+    if (!hasConnectorRecommendations(plugin.connectors) && !plugin.installed.installed) return;
     const preflight = preflightByPlugin[getPreflightKey(plugin.name, plugin.latestVersion)];
     if (preflight?.isLoading || preflight?.result) return;
     void checkStorePluginPreflight(plugin.name, plugin.latestVersion);
@@ -1062,8 +1182,17 @@ function CanvasPluginsSection({ onPluginsChanged }: { onPluginsChanged: () => vo
     const isPending = pendingPluginName === selectedPluginDetail.name || pendingPluginName === `store:${selectedPluginDetail.name}`;
     const preflight = storePlugin ? preflightByPlugin[getPreflightKey(storePlugin.name, storePlugin.latestVersion)] : undefined;
     const isChecking = Boolean(preflight?.isLoading);
-    const hasRequiredMissing = Boolean(preflight?.result?.hasRequiredMissing);
-    const canInstallFromStore = Boolean(storePlugin && (!isInstalled || updateAvailable));
+    const skillSummary = preflight?.result?.skillSummary || storePlugin?.installed.skillSummary;
+    const skillStates = preflight?.result?.skills || storePlugin?.installed.skills || [];
+    const skillRepairAvailable = Boolean(isInstalled && skillSummary && skillSummary.repairable > 0);
+    const canInstallFromStore = Boolean(storePlugin && (!isInstalled || updateAvailable || skillRepairAvailable));
+    const storeActionLabel = updateAvailable
+      ? t('update')
+      : skillRepairAvailable
+        ? t('repair')
+        : isInstalled
+          ? t('installed')
+          : t('addPlugin');
 
     return (
       <Dialog
@@ -1184,7 +1313,7 @@ function CanvasPluginsSection({ onPluginsChanged }: { onPluginsChanged: () => vo
                 <section className="space-y-2">
                   <div className="flex items-center justify-between gap-2">
                     <h3 className="text-sm font-semibold">{t('details.appCheck')}</h3>
-                    {hasConnectorRecommendations(storePlugin.connectors) ? (
+                    {hasConnectorRecommendations(storePlugin.connectors) || isInstalled ? (
                       <Button
                         variant="outline"
                         size="sm"
@@ -1202,6 +1331,12 @@ function CanvasPluginsSection({ onPluginsChanged }: { onPluginsChanged: () => vo
                       {t('preflight.noConnectors')}
                     </div>
                   )}
+                </section>
+              ) : null}
+
+              {storePlugin && isInstalled ? (
+                <section>
+                  {renderPluginSkillCheck(skillStates, skillSummary)}
                 </section>
               ) : null}
             </div>
@@ -1238,7 +1373,7 @@ function CanvasPluginsSection({ onPluginsChanged }: { onPluginsChanged: () => vo
                 <Button
                   variant={canInstallFromStore ? 'default' : 'outline'}
                   size="sm"
-                  disabled={isPending || isChecking || hasRequiredMissing || !canInstallFromStore}
+                  disabled={isPending || isChecking || !canInstallFromStore}
                   onClick={() => void installStorePlugin(storePlugin.name, storePlugin.latestVersion)}
                   className="gap-1.5"
                 >
@@ -1249,7 +1384,7 @@ function CanvasPluginsSection({ onPluginsChanged }: { onPluginsChanged: () => vo
                   ) : (
                     <Download className="h-3.5 w-3.5" />
                   )}
-                  {updateAvailable ? t('update') : isInstalled ? t('installed') : t('addPlugin')}
+                  {storeActionLabel}
                 </Button>
               ) : null}
             </div>
@@ -1263,16 +1398,19 @@ function CanvasPluginsSection({ onPluginsChanged }: { onPluginsChanged: () => vo
     const isPending = pendingPluginName === `store:${plugin.name}`;
     const isInstalled = plugin.installed.installed;
     const updateAvailable = plugin.installed.updateAvailable;
+    const skillRepairAvailable = Boolean(isInstalled && plugin.installed.skillSummary && plugin.installed.skillSummary.repairable > 0);
     const preflightKey = getPreflightKey(plugin.name, plugin.latestVersion);
     const preflightState = preflightByPlugin[preflightKey];
-    const needsPreflight = hasConnectorRecommendations(plugin.connectors)
+    const needsPreflight = (hasConnectorRecommendations(plugin.connectors) || skillRepairAvailable)
       && !preflightState?.result
-      && (!isInstalled || updateAvailable);
+      && (!isInstalled || updateAvailable || skillRepairAvailable);
     const isChecking = Boolean(preflightState?.isLoading);
     const buttonLabel = needsPreflight
       ? t('details.openDetails')
       : updateAvailable
       ? t('update')
+      : skillRepairAvailable
+        ? t('repair')
       : isInstalled
         ? t('installed')
         : t('addPlugin');
@@ -1280,6 +1418,8 @@ function CanvasPluginsSection({ onPluginsChanged }: { onPluginsChanged: () => vo
       ? <Info className="h-3.5 w-3.5" />
       : updateAvailable
       ? <ArrowUpCircle className="h-3.5 w-3.5" />
+      : skillRepairAvailable
+        ? <Wrench className="h-3.5 w-3.5" />
       : <Download className="h-3.5 w-3.5" />;
 
     return (
@@ -1308,6 +1448,7 @@ function CanvasPluginsSection({ onPluginsChanged }: { onPluginsChanged: () => vo
                   {updateAvailable ? t('updateAvailable') : t('installed')}
                 </Badge>
               ) : null}
+              {skillRepairAvailable ? <Badge variant="destructive" className="text-[10px]">{t('repairNeeded')}</Badge> : null}
             </div>
             <div className="mt-1 font-mono text-xs text-muted-foreground">/{plugin.name}</div>
             <p className="mt-2 line-clamp-3 text-sm text-muted-foreground">{plugin.description}</p>
@@ -1327,9 +1468,9 @@ function CanvasPluginsSection({ onPluginsChanged }: { onPluginsChanged: () => vo
             {plugin.publisher?.name || storeMetadata?.name || t('officialStore')}
           </span>
           <Button
-            variant={updateAvailable || !isInstalled ? 'default' : 'outline'}
+            variant={updateAvailable || !isInstalled || skillRepairAvailable ? 'default' : 'outline'}
             size="sm"
-            disabled={isPending || isChecking || (isInstalled && !updateAvailable)}
+            disabled={isPending || isChecking || (isInstalled && !updateAvailable && !skillRepairAvailable)}
             onClick={(event) => {
               event.stopPropagation();
               if (needsPreflight) {
@@ -1354,12 +1495,13 @@ function CanvasPluginsSection({ onPluginsChanged }: { onPluginsChanged: () => vo
     const isPending = pendingPluginName === plugin.name || pendingPluginName === `store:${plugin.name}`;
     const storePlugin = storeByName.get(plugin.name);
     const updateAvailable = Boolean(storePlugin?.installed.updateAvailable);
+    const skillRepairAvailable = Boolean(storePlugin?.installed.skillSummary && storePlugin.installed.skillSummary.repairable > 0);
     const updatePreflightState = storePlugin
       ? preflightByPlugin[getPreflightKey(storePlugin.name, storePlugin.latestVersion)]
       : undefined;
     const updateNeedsPreflight = Boolean(
       storePlugin
-      && hasConnectorRecommendations(storePlugin.connectors)
+      && (hasConnectorRecommendations(storePlugin.connectors) || skillRepairAvailable)
       && !updatePreflightState?.result,
     );
 
@@ -1387,6 +1529,7 @@ function CanvasPluginsSection({ onPluginsChanged }: { onPluginsChanged: () => vo
               </Badge>
               <Badge variant="outline" className="text-[10px]">v{plugin.version}</Badge>
               {updateAvailable ? <Badge variant="destructive" className="text-[10px]">{t('updateAvailable')}</Badge> : null}
+              {skillRepairAvailable ? <Badge variant="destructive" className="text-[10px]">{t('repairNeeded')}</Badge> : null}
               {plugin.license ? <Badge variant="outline" className="text-[10px]">{plugin.license}</Badge> : null}
             </div>
             <div className="mt-1 font-mono text-xs text-muted-foreground">/{plugin.name}</div>
@@ -1415,7 +1558,7 @@ function CanvasPluginsSection({ onPluginsChanged }: { onPluginsChanged: () => vo
             {plugin.enabled ? t('enabled') : t('disabled')}
           </label>
           <div className="flex items-center gap-2">
-            {updateAvailable ? (
+            {updateAvailable || skillRepairAvailable ? (
               <Button
                 variant="outline"
                 size="sm"
@@ -1434,10 +1577,12 @@ function CanvasPluginsSection({ onPluginsChanged }: { onPluginsChanged: () => vo
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
                 ) : updateNeedsPreflight ? (
                   <Info className="h-3.5 w-3.5" />
+                ) : skillRepairAvailable ? (
+                  <Wrench className="h-3.5 w-3.5" />
                 ) : (
                   <ArrowUpCircle className="h-3.5 w-3.5" />
                 )}
-                {updateNeedsPreflight ? t('details.openDetails') : t('update')}
+                {updateNeedsPreflight ? t('details.openDetails') : skillRepairAvailable ? t('repair') : t('update')}
               </Button>
             ) : null}
             <Button

@@ -173,6 +173,7 @@ async function main() {
       buildReferencedPluginRuntimeContext,
     } = await import('../app/lib/plugins/plugin-reference-context');
     const { loadSkillsFromDisk } = await import('../app/lib/skills/skill-loader');
+    const { removeCanvasSkillRegistryRecord } = await import('../app/lib/skills/canvas-skill-store');
 
     const install = await installCanvasPluginFromPath(pluginRoot, { enable: true });
     assert.equal(install.success, true, install.error || JSON.stringify(install.validation));
@@ -236,12 +237,37 @@ async function main() {
 
     const storeInstall = await installCanvasPluginFromStore('test-plugin', undefined, { enable: true });
     assert.equal(storeInstall.success, true, storeInstall.error || JSON.stringify(storeInstall.validation));
-    assert.equal(storeInstall.plugin?.skills[0].materialized, false);
-    assert.equal(storeInstall.plugin?.skills[0].preexistingStandalone, true);
+    assert.equal(storeInstall.plugin?.skills[0].materialized, true);
+    assert.equal(storeInstall.plugin?.skills[0].preexistingStandalone, false);
 
     store = await listCanvasPluginStore();
     assert.equal(store.plugins[0].installed.installed, true);
     assert.equal(store.plugins[0].installed.version, '1.0.0');
+    assert.equal(store.plugins[0].installed.skillSummary.total, 1);
+    assert.equal(store.plugins[0].installed.skillSummary.repairable, 0);
+
+    await fs.rm(path.join(dataRoot, 'skills', 'test-plugin-skill'), { recursive: true, force: true });
+    await removeCanvasSkillRegistryRecord('test-plugin-skill');
+
+    store = await listCanvasPluginStore();
+    assert.equal(store.plugins[0].installed.skillSummary.missing, 1);
+    assert.equal(store.plugins[0].installed.skillSummary.repairable, 1);
+
+    const skillRepairPreflight = await preflightCanvasPluginFromStore('test-plugin', undefined, 'test-user');
+    assert.equal(skillRepairPreflight.hasSkillIssues, true);
+    assert.equal(skillRepairPreflight.skillSummary.missing, 1);
+    assert.equal(skillRepairPreflight.skills[0].status, 'missing');
+
+    const repairInstall = await installCanvasPluginFromStore('test-plugin', undefined, { enable: true });
+    assert.equal(repairInstall.success, true, repairInstall.error || JSON.stringify(repairInstall.validation));
+    assert.equal(
+      await fs.stat(path.join(dataRoot, 'skills', 'test-plugin-skill', 'SKILL.md')).then((stat) => stat.isFile()),
+      true,
+    );
+
+    store = await listCanvasPluginStore();
+    assert.equal(store.plugins[0].installed.skillSummary.missing, 0);
+    assert.equal(store.plugins[0].installed.skillSummary.repairable, 0);
 
     console.log('canvas plugin runtime test passed');
   } finally {

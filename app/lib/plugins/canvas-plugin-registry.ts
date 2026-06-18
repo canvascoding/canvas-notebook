@@ -402,6 +402,7 @@ async function materializePluginSkills(record: CanvasPluginInstallRecord): Promi
   const skillsDir = resolveSkillsDataDir();
   await fs.mkdir(skillsDir, { recursive: true });
   const materializedSkills: CanvasPluginSkillRecord[] = [];
+  const standaloneRegistry = await readStandaloneSkillRegistry();
 
   for (const skill of record.skills) {
     const standaloneDir = resolveStandaloneSkillDir(skill.name);
@@ -410,7 +411,13 @@ async function materializePluginSkills(record: CanvasPluginInstallRecord): Promi
       throw new Error(`Invalid skill name "${skill.name}": path traversal detected.`);
     }
 
-    if (await hasStandaloneSkill(skill.name)) {
+    const standaloneRecord = standaloneRegistry.skills[skill.name];
+    const pluginOwnedStandalone = Boolean(
+      standaloneRecord?.sourceType === 'plugin'
+      && standaloneRecord.sourcePluginName === record.name,
+    );
+
+    if (await hasStandaloneSkill(skill.name) && !pluginOwnedStandalone) {
       materializedSkills.push({
         ...skill,
         materialized: false,
@@ -421,13 +428,17 @@ async function materializePluginSkills(record: CanvasPluginInstallRecord): Promi
     }
 
     const existingTarget = await fs.stat(standaloneDir).catch(() => null);
-    if (existingTarget) {
+    if (existingTarget && !pluginOwnedStandalone) {
       throw new Error(`Cannot install skill "${skill.name}" because ${standaloneDir} already exists but is not a valid skill.`);
     }
 
     const resolvedSourceDir = path.resolve(/*turbopackIgnore: true*/ skill.directory);
     if (!isPathInside(record.installDir, resolvedSourceDir)) {
       throw new Error(`Plugin skill "${skill.name}" points outside the plugin package.`);
+    }
+
+    if (pluginOwnedStandalone) {
+      await fs.rm(standaloneDir, { recursive: true, force: true });
     }
 
     await fs.cp(skill.directory, standaloneDir, {
