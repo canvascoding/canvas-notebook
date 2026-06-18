@@ -276,7 +276,12 @@ export function SkillDetailDialog({ skill, open, onOpenChange, onDeleted }: Skil
                 <div className="text-sm text-destructive bg-destructive/10 p-4 rounded-lg">{error}</div>
               ) : (
                 <div className="h-[400px] border rounded-lg overflow-hidden">
-                  <MarkdownEditor key={skill.name} value={draft} onChange={setDraft} />
+                  <MarkdownEditor
+                    key={skill.name}
+                    value={draft}
+                    onChange={setDraft}
+                    externalValueSync="when-blurred"
+                  />
                 </div>
               )}
             </div>

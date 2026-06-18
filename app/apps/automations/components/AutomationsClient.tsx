@@ -242,7 +242,7 @@ function AutomationPromptEditor({ value, onChange, heightClassName, testId }: Au
       data-testid={testId}
       className={cn('min-w-0 overflow-hidden rounded-md border border-input bg-background', heightClassName)}
     >
-      <MarkdownEditor value={value} onChange={onChange} />
+      <MarkdownEditor value={value} onChange={onChange} externalValueSync="when-blurred" />
     </div>
   );
 }

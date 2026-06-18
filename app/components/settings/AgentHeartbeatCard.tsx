@@ -610,6 +610,7 @@ export function AgentHeartbeatCard({
                     <MarkdownEditor
                       value={heartbeatFileDraft}
                       onChange={onHeartbeatFileDraftChange}
+                      externalValueSync="when-blurred"
                     />
                     {controlsDisabled && (
                       <div

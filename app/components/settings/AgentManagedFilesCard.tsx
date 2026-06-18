@@ -139,6 +139,7 @@ export function AgentManagedFilesEditor({
         <MarkdownEditor
           value={fileDrafts[activeFile] ?? ''}
           onChange={(nextValue) => onDraftChange(activeFile, nextValue)}
+          externalValueSync="when-blurred"
         />
       </div>
     </div>

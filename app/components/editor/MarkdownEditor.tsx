@@ -99,6 +99,7 @@ interface MarkdownEditorProps {
   onChange?: (value: string) => void;
   readOnly?: boolean;
   filePath?: string;
+  externalValueSync?: 'always' | 'when-blurred';
 }
 
 type EditorMode = 'rich' | 'source';
@@ -2642,10 +2643,12 @@ function RichMarkdownEditor({
   onChange,
   readOnly,
   filePath,
+  externalValueSync = 'always',
   onSourceMode,
 }: MarkdownEditorProps & { onSourceMode: () => void }) {
   const t = useTranslations('notebook');
   const latestValueRef = useRef(value);
+  const acceptedExternalValueRef = useRef(value);
   const applyingExternalValueRef = useRef(false);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [tableDialogOpen, setTableDialogOpen] = useState(false);
@@ -2697,10 +2700,6 @@ function RichMarkdownEditor({
     () => createEditorExtensions(filePath, labels, slashCommandActions),
     [filePath, labels, slashCommandActions],
   );
-
-  useEffect(() => {
-    latestValueRef.current = value;
-  }, [value]);
 
   const editor = useEditor({
     extensions,
@@ -2763,6 +2762,20 @@ function RichMarkdownEditor({
     if (!markdownEditor) return;
 
     const currentMarkdown = markdownEditor.getMarkdown();
+    const hasLocalChanges = currentMarkdown !== acceptedExternalValueRef.current;
+    const parentAcceptedLocalChanges = value === latestValueRef.current;
+    const shouldDeferExternalSync =
+      externalValueSync === 'when-blurred' &&
+      !readOnly &&
+      markdownEditor.isFocused &&
+      hasLocalChanges &&
+      !parentAcceptedLocalChanges;
+
+    if (shouldDeferExternalSync) return;
+
+    acceptedExternalValueRef.current = value;
+    latestValueRef.current = value;
+
     if (currentMarkdown === value) return;
 
     applyingExternalValueRef.current = true;
@@ -2771,7 +2784,7 @@ function RichMarkdownEditor({
       emitUpdate: false,
     });
     applyingExternalValueRef.current = false;
-  }, [markdownEditor, value]);
+  }, [externalValueSync, markdownEditor, readOnly, value]);
 
   useEffect(() => {
     editor?.setEditable(!readOnly);
@@ -2872,7 +2885,13 @@ function SourceMarkdownEditor({
   );
 }
 
-export function MarkdownEditor({ value, onChange, readOnly = false, filePath }: MarkdownEditorProps) {
+export function MarkdownEditor({
+  value,
+  onChange,
+  readOnly = false,
+  filePath,
+  externalValueSync = 'always',
+}: MarkdownEditorProps) {
   const defaultMode = shouldDefaultToSource(value, readOnly, filePath) ? 'source' : 'rich';
   const [mode, setMode] = useState<EditorMode>(defaultMode);
 
@@ -2894,6 +2913,7 @@ export function MarkdownEditor({ value, onChange, readOnly = false, filePath }: 
       onChange={onChange}
       readOnly={readOnly}
       filePath={filePath}
+      externalValueSync={externalValueSync}
       onSourceMode={() => setMode('source')}
     />
   );
