@@ -33,6 +33,7 @@ import { loadPiSessionWithSummary, savePiSession } from '@/app/lib/pi/session-st
 import { getPiTools } from '@/app/lib/pi/tool-registry';
 import { filterToolsForPlanningMode } from '@/app/lib/pi/planning-mode';
 import { getChannelSystemPromptBlock } from '@/app/lib/agents/channel-system-prompt';
+import { formatZonedDateTimeForPrompt } from '@/app/lib/time-zones';
 import { EMAIL_SYSTEM_PROMPT_BLOCK } from '@/app/lib/agents/email-prompt-block';
 import { PLANNING_MODE_GUIDANCE } from '@/app/lib/agents/system-prompt-shared';
 import { STUDIO_SYSTEM_PROMPT_BLOCK } from '@/app/lib/agents/studio-prompt-block';
@@ -833,19 +834,8 @@ class LivePiRuntime {
 
     if (this.timeZoneContext) {
       const { timeZone, currentTime } = this.timeZoneContext;
-      const localDate = new Date(currentTime);
-
-      // Calculate UTC offset
-      const utcOffset = localDate.getTimezoneOffset();
-      const offsetHours = Math.abs(Math.floor(utcOffset / 60));
-      const offsetMinutes = Math.abs(utcOffset % 60);
-      const offsetSign = utcOffset <= 0 ? '+' : '-';
-      const offsetStr = `${offsetSign}${String(offsetHours).padStart(2, '0')}:${String(offsetMinutes).padStart(2, '0')}`;
-
-      // Format local time
-      const localTimeStr = localDate.toLocaleString('sv-SE'); // ISO-like format: YYYY-MM-DD HH:MM:SS
-
-      sections.push(`Current Date & Time: ${localTimeStr} (${timeZone}, UTC${offsetStr})`);
+      const formatted = formatZonedDateTimeForPrompt(currentTime, timeZone);
+      sections.push(`Current Date & Time: ${formatted.localDateTime} (${formatted.timeZone}, ${formatted.utcOffset})`);
     }
 
     if (this.activeFileContext) {

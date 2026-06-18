@@ -14,6 +14,8 @@ import {
   type PiRuntimeStatus,
 } from '@/app/lib/pi/live-runtime';
 import { getStudioOutputsRoot } from '@/app/lib/integrations/studio-workspace';
+import { normalizeTimeZone } from '@/app/lib/time-zones';
+import { getUserPreferredTimeZone } from '@/app/lib/user-preferences';
 
 export type UserAgentMessage = Extract<AgentMessage, { role: 'user' }>;
 
@@ -93,11 +95,19 @@ export function resolveChatRequestContext(payload: unknown): ChatRequestContext 
     : record as ChatRequestContext;
 }
 
-function normalizeContext(context?: ChatRequestContext): ChatRequestContext {
+async function normalizeContext(context: ChatRequestContext | undefined, userId: string): Promise<ChatRequestContext> {
+  let userTimeZone: string;
+  try {
+    userTimeZone = await getUserPreferredTimeZone(userId);
+  } catch (error) {
+    console.warn('[RuntimeService] Failed to resolve user time zone preference:', getErrorMessage(error));
+    userTimeZone = normalizeTimeZone(context?.userTimeZone);
+  }
+
   return {
     channelId: typeof context?.channelId === 'string' ? context.channelId : undefined,
-    userTimeZone: typeof context?.userTimeZone === 'string' ? context.userTimeZone : undefined,
-    currentTime: typeof context?.currentTime === 'string' ? context.currentTime : undefined,
+    userTimeZone,
+    currentTime: typeof context?.currentTime === 'string' ? context.currentTime : new Date().toISOString(),
     activeFilePath: typeof context?.activeFilePath === 'string' ? context.activeFilePath : null,
     workingDirectory: typeof context?.workingDirectory === 'string' ? context.workingDirectory : undefined,
     planningMode: context?.planningMode === true,
@@ -203,7 +213,7 @@ export async function prepareRuntimePrompt(
   status: PiRuntimeStatus;
   context: ChatRequestContext;
 }> {
-  const context = normalizeContext(resolveChatRequestContext(payload));
+  const context = await normalizeContext(resolveChatRequestContext(payload), userId);
   const runtimeInstance = await getOrCreatePiRuntime(sessionId, userId);
   const promptMessage = await injectStudioImage(resolvePromptMessage(payload), context);
   const status = runtimeInstance.getStatus();

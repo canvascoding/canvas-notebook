@@ -53,6 +53,54 @@ export function resolveRuntimeTimeZone(fallback = DEFAULT_USER_TIME_ZONE): strin
   return normalizeTimeZone(runtimeTimeZone, fallback);
 }
 
+function getTimeZoneOffset(date: Date, timeZone: string): string {
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone,
+      hour: '2-digit',
+      minute: '2-digit',
+      timeZoneName: 'longOffset',
+    }).formatToParts(date);
+    const offset = parts.find((part) => part.type === 'timeZoneName')?.value;
+    if (offset === 'GMT') {
+      return 'UTC+00:00';
+    }
+    if (offset?.startsWith('GMT')) {
+      return offset.replace('GMT', 'UTC');
+    }
+  } catch {
+    // Fall through to UTC if offset formatting is unavailable.
+  }
+
+  return 'UTC+00:00';
+}
+
+export function formatZonedDateTimeForPrompt(value: string | number | Date, timeZone: string): {
+  localDateTime: string;
+  timeZone: string;
+  utcOffset: string;
+} {
+  const normalizedTimeZone = normalizeTimeZone(timeZone);
+  const date = new Date(value);
+  const validDate = Number.isNaN(date.getTime()) ? new Date() : date;
+  const localDateTime = new Intl.DateTimeFormat('sv-SE', {
+    timeZone: normalizedTimeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  }).format(validDate);
+
+  return {
+    localDateTime,
+    timeZone: normalizedTimeZone,
+    utcOffset: getTimeZoneOffset(validDate, normalizedTimeZone),
+  };
+}
+
 export function getSupportedTimeZones(currentTimeZone?: string): string[] {
   const supported = typeof Intl.supportedValuesOf === 'function'
     ? Intl.supportedValuesOf('timeZone')

@@ -4,7 +4,7 @@ import { getDefaultAutomationTargetOutputPath, getEffectiveAutomationTargetOutpu
 import { buildAutomationPrompt } from '../app/lib/automations/prompt';
 import { computeNextRunAt, validateFriendlySchedule } from '../app/lib/automations/schedule';
 import { type FriendlySchedule } from '../app/lib/automations/types';
-import { DEFAULT_USER_TIME_ZONE } from '../app/lib/time-zones';
+import { DEFAULT_USER_TIME_ZONE, formatZonedDateTimeForPrompt } from '../app/lib/time-zones';
 
 function assertDate(value: Date | null, message: string): Date {
   assert.ok(value instanceof Date, message);
@@ -29,6 +29,10 @@ const defaultTimeZoneSchedule = validateFriendlySchedule({
 });
 assert.equal(defaultTimeZoneSchedule.error, null);
 assert.equal(defaultTimeZoneSchedule.schedule?.timeZone, DEFAULT_USER_TIME_ZONE);
+
+const berlinPromptTime = formatZonedDateTimeForPrompt('2026-06-18T10:00:00.000Z', DEFAULT_USER_TIME_ZONE);
+assert.equal(berlinPromptTime.localDateTime, '2026-06-18 12:00:00');
+assert.equal(berlinPromptTime.utcOffset, 'UTC+02:00');
 
 const weeklySchedule: FriendlySchedule = {
   kind: 'weekly',
