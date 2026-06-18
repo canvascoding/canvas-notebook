@@ -4,6 +4,7 @@ import { channelActiveSessions, sessionChannelLinks } from '@/app/lib/db/schema'
 import { DEFAULT_AGENT_ID, normalizeChannelThreadKey } from './constants';
 
 export type ChannelContextKey = {
+  userId: string;
   channelId: string;
   channelSessionKey: string;
   channelThreadKey?: string | null;
@@ -17,6 +18,7 @@ function resolveAgentId(agentId?: string | null): string {
 export async function getActiveChannelSession(input: ChannelContextKey): Promise<string | null> {
   const row = await db.query.channelActiveSessions.findFirst({
     where: and(
+      eq(channelActiveSessions.userId, input.userId),
       eq(channelActiveSessions.agentId, resolveAgentId(input.agentId)),
       eq(channelActiveSessions.channelId, input.channelId),
       eq(channelActiveSessions.channelSessionKey, input.channelSessionKey),
@@ -75,13 +77,13 @@ export async function getRecentActiveChannelSessions(input: {
 }
 
 export async function setActiveChannelSession(input: ChannelContextKey & {
-  userId: string;
   sessionId: string;
 }): Promise<void> {
   const channelThreadKey = normalizeChannelThreadKey(input.channelThreadKey);
   const agentId = resolveAgentId(input.agentId);
   const existing = await db.query.channelActiveSessions.findFirst({
     where: and(
+      eq(channelActiveSessions.userId, input.userId),
       eq(channelActiveSessions.agentId, agentId),
       eq(channelActiveSessions.channelId, input.channelId),
       eq(channelActiveSessions.channelSessionKey, input.channelSessionKey),
@@ -116,7 +118,7 @@ export async function setActiveChannelSession(input: ChannelContextKey & {
 }
 
 async function markPrimaryChannelLinkForActiveSession(
-  input: ChannelContextKey & { userId: string; sessionId: string },
+  input: ChannelContextKey & { sessionId: string },
   channelThreadKey: string,
 ): Promise<void> {
   await db.update(sessionChannelLinks)

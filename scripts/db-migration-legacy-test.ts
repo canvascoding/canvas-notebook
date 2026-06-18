@@ -108,8 +108,9 @@ try {
     sqlite.prepare('PRAGMA index_list(channel_active_sessions)').all()
       .map((index) => (index as { name: string }).name),
   );
-  assert.ok(indexes.has('idx_channel_active_sessions_context_agent'));
+  assert.ok(indexes.has('idx_channel_active_sessions_user_context_agent'));
   assert.equal(indexes.has('idx_channel_active_sessions_context'), false);
+  assert.equal(indexes.has('idx_channel_active_sessions_context_agent'), false);
 
   const channelLinkIndexes = new Set(
     sqlite.prepare('PRAGMA index_list(session_channel_links)').all()

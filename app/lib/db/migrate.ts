@@ -1046,7 +1046,7 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     CREATE UNIQUE INDEX IF NOT EXISTS idx_channel_link_tokens_token ON channel_link_tokens (token);
 
     CREATE UNIQUE INDEX IF NOT EXISTS idx_tg_active_session_chat ON telegram_active_session (chat_id);
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_session_channel_links_unique ON session_channel_links (session_id, channel_id, channel_session_key, channel_thread_key);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_session_channel_links_unique ON session_channel_links (user_id, session_id, channel_id, channel_session_key, channel_thread_key);
     CREATE INDEX IF NOT EXISTS idx_session_channel_links_session ON session_channel_links (session_id);
     CREATE INDEX IF NOT EXISTS idx_session_channel_links_user_channel ON session_channel_links (user_id, channel_id);
     CREATE INDEX IF NOT EXISTS idx_session_channel_links_user_context ON session_channel_links (user_id, channel_id, channel_session_key, channel_thread_key);
@@ -1083,9 +1083,14 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     SET agent_id = 'canvas-agent'
     WHERE agent_id IS NULL OR agent_id = '';
 
+    DROP INDEX IF EXISTS idx_session_channel_links_unique;
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_session_channel_links_unique
+      ON session_channel_links (user_id, session_id, channel_id, channel_session_key, channel_thread_key);
+
     DROP INDEX IF EXISTS idx_channel_active_sessions_context;
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_channel_active_sessions_context_agent
-      ON channel_active_sessions (agent_id, channel_id, channel_session_key, channel_thread_key);
+    DROP INDEX IF EXISTS idx_channel_active_sessions_context_agent;
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_channel_active_sessions_user_context_agent
+      ON channel_active_sessions (user_id, agent_id, channel_id, channel_session_key, channel_thread_key);
   `);
 
   const now = Date.now();

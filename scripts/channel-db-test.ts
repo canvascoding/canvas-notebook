@@ -25,6 +25,11 @@ async function main() {
     getActiveChannelSession,
     setActiveChannelSession,
   } = await import('../app/lib/channels/active-sessions');
+  const {
+    createBinding,
+    getBinding,
+    getBindingByUser,
+  } = await import('../app/lib/channels/telegram/link-token');
   const { loadPiSessionByChannelKey } = await import('../app/lib/pi/session-store');
   const {
     createAgentProfile,
@@ -152,7 +157,7 @@ async function main() {
     sessionId: linkedSessionId,
   });
   assert.equal(
-    await getActiveChannelSession({ channelId: 'telegram', channelSessionKey: 'telegram:42' }),
+    await getActiveChannelSession({ userId, channelId: 'telegram', channelSessionKey: 'telegram:42' }),
     linkedSessionId,
   );
 
@@ -188,6 +193,65 @@ async function main() {
     ),
   });
   assert.equal(activeRows.length, 1);
+
+  const secondUserId = 'user-channel-db-second';
+  const secondUserSessionId = 'sess-second-user-active';
+  await db.insert(user).values({
+    id: secondUserId,
+    name: 'Second Channel Tester',
+    email: 'second-channel-tester@example.test',
+    emailVerified: true,
+    image: null,
+    role: null,
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(piSessions).values({
+    sessionId: secondUserSessionId,
+    userId: secondUserId,
+    provider: 'test-provider',
+    model: 'test-model',
+    title: 'Second User Active Session',
+    channelId: 'app',
+    channelSessionKey: null,
+    createdAt: now,
+    updatedAt: now,
+  });
+  await createBinding(userId, 'telegram', '42', 'channel-tester');
+  await createBinding(secondUserId, 'telegram', '84', 'second-channel-tester');
+  assert.equal((await getBinding('telegram', '42'))?.userId, userId);
+  assert.equal((await getBinding('telegram', '84'))?.userId, secondUserId);
+  assert.equal((await getBindingByUser('telegram', userId))?.channelUserId, '42');
+  assert.equal((await getBindingByUser('telegram', secondUserId))?.channelUserId, '84');
+  await ensureSessionChannelLink({
+    sessionId: secondUserSessionId,
+    userId: secondUserId,
+    channelId: 'telegram',
+    channelSessionKey: 'telegram:42',
+    displayName: 'Second Telegram DM',
+    inboundAt: now,
+  });
+  await setActiveChannelSession({
+    userId: secondUserId,
+    channelId: 'telegram',
+    channelSessionKey: 'telegram:42',
+    sessionId: secondUserSessionId,
+  });
+  assert.equal(
+    await getActiveChannelSession({ userId, channelId: 'telegram', channelSessionKey: 'telegram:42' }),
+    linkedSessionId,
+  );
+  assert.equal(
+    await getActiveChannelSession({ userId: secondUserId, channelId: 'telegram', channelSessionKey: 'telegram:42' }),
+    secondUserSessionId,
+  );
+  const sharedChannelActiveRows = await db.query.channelActiveSessions.findMany({
+    where: and(
+      eq(channelActiveSessions.channelId, 'telegram'),
+      eq(channelActiveSessions.channelSessionKey, 'telegram:42'),
+    ),
+  });
+  assert.equal(sharedChannelActiveRows.length, 2);
 
   const missingLegacyFallback = await loadPiSessionByChannelKey('telegram', 'telegram:legacy');
   assert.equal(missingLegacyFallback, null);

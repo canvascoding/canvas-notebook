@@ -773,7 +773,7 @@ export const sessionChannelLinks = sqliteTable("session_channel_links", {
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
 }, (table) => ({
-  uniqueLink: uniqueIndex("idx_session_channel_links_unique").on(table.sessionId, table.channelId, table.channelSessionKey, table.channelThreadKey),
+  uniqueLink: uniqueIndex("idx_session_channel_links_unique").on(table.userId, table.sessionId, table.channelId, table.channelSessionKey, table.channelThreadKey),
   sessionIdx: index("idx_session_channel_links_session").on(table.sessionId),
   userChannelIdx: index("idx_session_channel_links_user_channel").on(table.userId, table.channelId),
   userContextIdx: index("idx_session_channel_links_user_context").on(table.userId, table.channelId, table.channelSessionKey, table.channelThreadKey),
@@ -790,7 +790,7 @@ export const channelActiveSessions = sqliteTable("channel_active_sessions", {
   sessionId: text("session_id").notNull(),
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
 }, (table) => ({
-  uniqueContext: uniqueIndex("idx_channel_active_sessions_context_agent").on(table.agentId, table.channelId, table.channelSessionKey, table.channelThreadKey),
+  uniqueContext: uniqueIndex("idx_channel_active_sessions_user_context_agent").on(table.userId, table.agentId, table.channelId, table.channelSessionKey, table.channelThreadKey),
   userChannelIdx: index("idx_channel_active_sessions_user_channel").on(table.userId, table.channelId),
 }));
 

@@ -39,6 +39,7 @@ export async function ensureSessionChannelLink(input: ChannelLinkInput): Promise
 
   const existing = await db.query.sessionChannelLinks.findFirst({
     where: and(
+      eq(sessionChannelLinks.userId, input.userId),
       eq(sessionChannelLinks.sessionId, input.sessionId),
       eq(sessionChannelLinks.channelId, input.channelId),
       eq(sessionChannelLinks.channelSessionKey, input.channelSessionKey),
