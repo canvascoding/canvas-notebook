@@ -265,6 +265,25 @@ function normalizeDeliveryChannel(entry: unknown): AgentHeartbeatDeliveryChannel
   };
 }
 
+function normalizeDeliveryChannels(channels: unknown[], telegramStatus: Record<string, unknown> | null): AgentHeartbeatDeliveryChannelOption[] {
+  const telegramReady = Boolean(
+    telegramStatus?.configured &&
+    telegramStatus.enabled &&
+    telegramStatus.linked,
+  );
+
+  return channels
+    .map(normalizeDeliveryChannel)
+    .filter((channel): channel is AgentHeartbeatDeliveryChannelOption => Boolean(channel))
+    .map((channel) => {
+      if (channel.id !== 'telegram' || !telegramStatus) return channel;
+      return {
+        ...channel,
+        connected: channel.connected && telegramReady,
+      };
+    });
+}
+
 export function AgentSettingsPanel() {
   const t = useTranslations('settings');
   const searchParams = useSearchParams();
@@ -622,12 +641,10 @@ export function AgentSettingsPanel() {
       const payload = (await response.json().catch(() => ({}))) as {
         success?: boolean;
         channels?: unknown[];
+        telegram?: Record<string, unknown>;
       };
       if (response.ok && payload.success && Array.isArray(payload.channels)) {
-        const channels = payload.channels
-          .map(normalizeDeliveryChannel)
-          .filter((channel): channel is AgentHeartbeatDeliveryChannelOption => Boolean(channel));
-        setHeartbeatDeliveryChannels(channels);
+        setHeartbeatDeliveryChannels(normalizeDeliveryChannels(payload.channels, payload.telegram ?? null));
         return;
       }
     } catch {

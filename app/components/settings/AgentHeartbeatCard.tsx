@@ -240,6 +240,11 @@ export function AgentHeartbeatCard({
   const connectedChannelOptions = deliveryChannels.length > 0
     ? deliveryChannels
     : [{ id: 'web', label: isGerman ? 'Web-Chat' : 'Web chat', connected: true, running: true }];
+  const visibleChannelOptions = connectedChannelOptions.filter((channel) => (
+    channel.id === 'web' ||
+    channel.connected ||
+    channel.id === selectedDeliveryChannel
+  ));
   const channelOptions = [
     {
       id: 'last_active',
@@ -247,7 +252,7 @@ export function AgentHeartbeatCard({
       connected: true,
       running: true,
     },
-    ...connectedChannelOptions.filter((channel) => channel.id !== 'last_active'),
+    ...visibleChannelOptions.filter((channel) => channel.id !== 'last_active'),
   ];
   const scheduleTimeZoneOptions = getSupportedTimeZones(scheduleDraft.timeZone);
   const workingHoursTimeZoneOptions = getSupportedTimeZones(scheduleDraft.workingHoursTimeZone);

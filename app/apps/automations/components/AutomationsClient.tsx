@@ -220,6 +220,12 @@ type DeliveryChannelOption = {
   running: boolean;
 };
 
+type TelegramDeliveryStatus = {
+  configured?: boolean;
+  enabled?: boolean;
+  linked?: boolean;
+};
+
 const WEEKDAY_OPTIONS: AutomationWeekday[] = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
 const DEFAULT_AGENT_ID = 'canvas-agent';
 
@@ -577,6 +583,21 @@ function normalizeDeliveryChannel(value: unknown): DeliveryChannelOption | null 
   };
 }
 
+function normalizeDeliveryChannels(channels: unknown[], telegramStatus: TelegramDeliveryStatus | null): DeliveryChannelOption[] {
+  const telegramReady = Boolean(telegramStatus?.configured && telegramStatus.enabled && telegramStatus.linked);
+
+  return channels
+    .map(normalizeDeliveryChannel)
+    .filter((channel: DeliveryChannelOption | null): channel is DeliveryChannelOption => Boolean(channel))
+    .map((channel) => {
+      if (channel.id !== 'telegram' || !telegramStatus) return channel;
+      return {
+        ...channel,
+        connected: channel.connected && telegramReady,
+      };
+    });
+}
+
 function mergeDeliveryChannelOptions(
   channels: DeliveryChannelOption[],
   currentChannelIds: string[],
@@ -599,6 +620,10 @@ function mergeDeliveryChannelOptions(
     if (b.id === 'web') return 1;
     return a.label.localeCompare(b.label);
   });
+}
+
+function getVisibleDeliveryChannelOptions(channels: DeliveryChannelOption[], selectedChannelId: string): DeliveryChannelOption[] {
+  return channels.filter((channel) => channel.id === 'web' || channel.connected || channel.id === selectedChannelId);
 }
 
 function getSchemaProperties(schema: Record<string, unknown> | null): Array<{
@@ -1070,11 +1095,8 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
       const response = await fetch('/api/channels/status', { cache: 'no-store', credentials: 'include' });
       const payload = await response.json();
       if (response.ok && payload.success && Array.isArray(payload.channels)) {
-        setDeliveryChannels(
-          payload.channels
-            .map(normalizeDeliveryChannel)
-            .filter((channel: DeliveryChannelOption | null): channel is DeliveryChannelOption => Boolean(channel)),
-        );
+        const telegramStatus = payload.telegram === undefined ? null : asRecord(payload.telegram) as TelegramDeliveryStatus;
+        setDeliveryChannels(normalizeDeliveryChannels(payload.channels, telegramStatus));
       }
     } catch {
       setDeliveryChannels([]);
@@ -1592,6 +1614,7 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
         : draft;
     const isGerman = locale.startsWith('de');
     const selectedDeliveryChannel = getDeliveryChannelSelection(state);
+    const visibleDeliveryChannelOptions = getVisibleDeliveryChannelOptions(deliveryChannelOptions, selectedDeliveryChannel);
     const selectedAgent = agentOptions.find((agent) => agent.agentId === state.agentId)
       || agentOptions.find((agent) => agent.agentId === DEFAULT_AGENT_ID)
       || agentOptions[0];
@@ -1647,7 +1670,7 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
               updateDeliveryChannel(event.target.value);
             }}
           >
-            {deliveryChannelOptions.map((channel) => (
+            {visibleDeliveryChannelOptions.map((channel) => (
               <option key={channel.id} value={channel.id}>
                 {deliveryChannelDisplayLabel(channel.id)}{channel.connected ? '' : ` · ${isGerman ? 'nicht verbunden' : 'not connected'}`}
               </option>
