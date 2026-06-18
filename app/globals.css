@@ -335,7 +335,7 @@
 
 .tiptap-editor-shell .ProseMirror {
   min-height: 100%;
-  padding: 20px 20px 20px 3rem;
+  padding: 20px 20px 20px 4.75rem;
   outline: none;
   color: var(--foreground);
 }
@@ -516,8 +516,20 @@
   border-radius: 0.25rem;
 }
 
-.tiptap-block-insert-button {
-  left: 0.625rem;
+.tiptap-block-controls {
+  left: 0.75rem;
+}
+
+.tiptap-block-control-button {
+  cursor: pointer;
+}
+
+.tiptap-block-drag-handle {
+  cursor: grab;
+}
+
+.tiptap-block-drag-handle:active {
+  cursor: grabbing;
 }
 
 .tiptap-color-swatch-widget-root {

@@ -23,6 +23,7 @@ import { TaskItem } from '@tiptap/extension-task-item';
 import { TableKit } from '@tiptap/extension-table';
 import { CodeBlock } from '@tiptap/extension-code-block';
 import { Suggestion, type SuggestionProps } from '@tiptap/suggestion';
+import { Node as ProseMirrorNode } from '@tiptap/pm/model';
 import { Plugin, PluginKey } from '@tiptap/pm/state';
 import { Decoration, DecorationSet } from '@tiptap/pm/view';
 import {
@@ -34,6 +35,7 @@ import {
   Code2,
   Columns3,
   Eye,
+  GripVertical,
   Heading1,
   Heading2,
   Heading3,
@@ -159,11 +161,15 @@ type SlashCommandItemLabel = {
 
 type SlashCommandLabels = {
   addBlock: string;
+  addBlockAboveHint: string;
+  addBlockBelowHint: string;
+  dragBlockHint: string;
   empty: string;
   group: string;
   imageAltPrompt: string;
   imageSrcPrompt: string;
   items: Record<SlashCommandItemId, SlashCommandItemLabel>;
+  openBlockMenuHint: string;
   placeholder: string;
 };
 
@@ -194,6 +200,14 @@ type BlockCommandMenuState = {
     top: number;
     width: number;
   };
+};
+
+type BlockInsertPlacement = 'above' | 'below';
+
+type TopLevelBlockRange = {
+  from: number;
+  node: ProseMirrorNode;
+  to: number;
 };
 
 type ImageDialogSeed = {
@@ -870,11 +884,15 @@ function createSlashCommandLabels(t: (key: string) => string): SlashCommandLabel
 
   return {
     addBlock: t('markdownEditorAddBlock'),
+    addBlockAboveHint: t('markdownEditorAddBlockAboveHint'),
+    addBlockBelowHint: t('markdownEditorAddBlockBelowHint'),
+    dragBlockHint: t('markdownEditorDragBlockHint'),
     empty: t('markdownEditorNoCommandFound'),
     group: t('markdownEditorSlashGroup'),
     imageAltPrompt: t('markdownEditorImageAltPrompt'),
     imageSrcPrompt: t('markdownEditorImageSrcPrompt'),
     items: itemLabels,
+    openBlockMenuHint: t('markdownEditorOpenBlockMenuHint'),
     placeholder: t('markdownEditorPlaceholder'),
   };
 }
@@ -889,7 +907,33 @@ function findActiveTextblockDepth(editor: Editor): number | null {
   return null;
 }
 
-function createBlockCommandTarget(editor: Editor): Range | null {
+function getTopLevelBlockRangeAt(editor: Editor, position: number): TopLevelBlockRange | null {
+  const docEnd = editor.state.doc.content.size;
+  const safePosition = Math.max(0, Math.min(position, docEnd));
+  let range: TopLevelBlockRange | null = null;
+
+  editor.state.doc.forEach((node, offset) => {
+    if (range) return;
+
+    const from = offset;
+    const to = offset + node.nodeSize;
+    const isInsideNode = safePosition >= from && safePosition < to;
+    const isAtDocumentEnd = safePosition === docEnd && safePosition === to;
+
+    if (isInsideNode || isAtDocumentEnd) {
+      range = { from, node, to };
+    }
+  });
+
+  return range;
+}
+
+function getActiveTopLevelBlockRange(editor: Editor): TopLevelBlockRange | null {
+  if (!editor.isEditable || editor.isActive('codeBlock')) return null;
+  return getTopLevelBlockRangeAt(editor, editor.state.selection.from);
+}
+
+function createInsertedBlockCommandTarget(editor: Editor, placement: BlockInsertPlacement): Range | null {
   if (!editor.isEditable || editor.isActive('codeBlock')) return null;
 
   const { $from } = editor.state.selection;
@@ -897,15 +941,7 @@ function createBlockCommandTarget(editor: Editor): Range | null {
   if (!textblockDepth) return null;
 
   const topLevelDepth = $from.depth >= 1 ? 1 : textblockDepth;
-  const topLevelNode = $from.node(topLevelDepth);
-
-  if (topLevelNode.type.name === 'paragraph' && topLevelNode.content.size === 0) {
-    const position = $from.start(topLevelDepth);
-    editor.chain().focus().setTextSelection(position).run();
-    return { from: position, to: position };
-  }
-
-  const insertPosition = $from.after(topLevelDepth);
+  const insertPosition = placement === 'above' ? $from.before(topLevelDepth) : $from.after(topLevelDepth);
   const cursorPosition = insertPosition + 1;
   editor
     .chain()
@@ -915,6 +951,18 @@ function createBlockCommandTarget(editor: Editor): Range | null {
     .run();
 
   return { from: cursorPosition, to: cursorPosition };
+}
+
+function createCurrentBlockCommandTarget(editor: Editor): Range | null {
+  if (!editor.isEditable || editor.isActive('codeBlock')) return null;
+
+  const { $from } = editor.state.selection;
+  const textblockDepth = findActiveTextblockDepth(editor);
+  if (!textblockDepth) return null;
+
+  const position = $from.start(textblockDepth);
+  editor.chain().focus().setTextSelection(position).run();
+  return { from: position, to: position };
 }
 
 function createBlockCommandMenuState(editor: Editor, range: Range): BlockCommandMenuState | null {
@@ -956,18 +1004,72 @@ function getBlockInsertButtonPosition(editor: Editor, container: HTMLDivElement)
   };
 }
 
-function MarkdownBlockInsertButton({
+function getBlockDropInsertPosition(
+  editor: Editor,
+  event: DragEvent,
+  source: TopLevelBlockRange,
+): number | null {
+  const positionAtCoords = editor.view.posAtCoords({
+    left: event.clientX,
+    top: event.clientY,
+  });
+
+  if (!positionAtCoords) {
+    return editor.state.doc.content.size;
+  }
+
+  const target = getTopLevelBlockRangeAt(editor, positionAtCoords.pos);
+  if (!target) {
+    return editor.state.doc.content.size;
+  }
+
+  const targetDom = editor.view.nodeDOM(target.from);
+  const targetRect = targetDom instanceof HTMLElement ? targetDom.getBoundingClientRect() : null;
+  const insertPosition = targetRect
+    ? event.clientY < targetRect.top + targetRect.height / 2
+      ? target.from
+      : target.to
+    : positionAtCoords.pos <= target.from
+      ? target.from
+      : target.to;
+
+  if (insertPosition >= source.from && insertPosition <= source.to) {
+    return null;
+  }
+
+  return insertPosition;
+}
+
+function moveTopLevelBlock(editor: Editor, source: TopLevelBlockRange, insertPosition: number) {
+  const sourceSize = source.to - source.from;
+  const adjustedInsertPosition = insertPosition > source.from ? insertPosition - sourceSize : insertPosition;
+
+  if (adjustedInsertPosition === source.from) return;
+
+  const transaction = editor.state.tr
+    .delete(source.from, source.to)
+    .insert(adjustedInsertPosition, source.node)
+    .scrollIntoView();
+
+  editor.view.dispatch(transaction);
+  editor.commands.focus();
+}
+
+function MarkdownBlockControls({
   editor,
-  label,
+  labels,
+  onAddBlock,
   onOpenCommandMenu,
   scrollContainerRef,
 }: {
   editor: Editor | null;
-  label: string;
+  labels: SlashCommandLabels;
+  onAddBlock: (editor: Editor, placement: BlockInsertPlacement) => void;
   onOpenCommandMenu: (editor: Editor) => void;
   scrollContainerRef: React.RefObject<HTMLDivElement | null>;
 }) {
   const [position, setPosition] = useState<{ top: number } | null>(null);
+  const dragStateRef = useRef<TopLevelBlockRange | null>(null);
 
   const updatePosition = useCallback(() => {
     const container = scrollContainerRef.current;
@@ -1008,30 +1110,118 @@ function MarkdownBlockInsertButton({
     };
   }, [scrollContainerRef, updatePosition]);
 
+  useEffect(() => {
+    if (!editor) return;
+
+    const editorElement = editor.view.dom;
+
+    const handleDragOver = (event: DragEvent) => {
+      if (!dragStateRef.current) return;
+
+      event.preventDefault();
+      if (event.dataTransfer) {
+        event.dataTransfer.dropEffect = 'move';
+      }
+    };
+
+    const handleDrop = (event: DragEvent) => {
+      const source = dragStateRef.current;
+      dragStateRef.current = null;
+
+      if (!source) return;
+
+      event.preventDefault();
+      event.stopPropagation();
+
+      const insertPosition = getBlockDropInsertPosition(editor, event, source);
+      if (insertPosition === null) return;
+
+      moveTopLevelBlock(editor, source, insertPosition);
+    };
+
+    editorElement.addEventListener('dragover', handleDragOver);
+    editorElement.addEventListener('drop', handleDrop);
+
+    return () => {
+      editorElement.removeEventListener('dragover', handleDragOver);
+      editorElement.removeEventListener('drop', handleDrop);
+    };
+  }, [editor]);
+
   if (!editor?.isEditable || !position) return null;
 
   return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-xs"
-          aria-label={label}
-          title={label}
-          className="tiptap-block-insert-button absolute z-10 opacity-70 hover:opacity-100"
-          style={{ top: position.top }}
-          onMouseDown={(event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            onOpenCommandMenu(editor);
-          }}
-        >
-          <Plus />
-        </Button>
-      </TooltipTrigger>
-      <TooltipContent>{label}</TooltipContent>
-    </Tooltip>
+    <div
+      className="tiptap-block-controls absolute z-10 flex items-center gap-1 opacity-70 hover:opacity-100 focus-within:opacity-100"
+      style={{ top: position.top }}
+    >
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-xs"
+            aria-label={labels.addBlock}
+            className="tiptap-block-control-button"
+            onMouseDown={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+            }}
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              onAddBlock(editor, event.altKey ? 'above' : 'below');
+            }}
+          >
+            <Plus />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent side="bottom" className="flex flex-col gap-1 text-left">
+          <span>{labels.addBlockBelowHint}</span>
+          <span>{labels.addBlockAboveHint}</span>
+        </TooltipContent>
+      </Tooltip>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-xs"
+            aria-label={labels.openBlockMenuHint}
+            className="tiptap-block-control-button tiptap-block-drag-handle"
+            draggable
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              onOpenCommandMenu(editor);
+            }}
+            onDragEnd={() => {
+              dragStateRef.current = null;
+            }}
+            onDragStart={(event) => {
+              const source = getActiveTopLevelBlockRange(editor);
+              if (!source || !event.dataTransfer) {
+                event.preventDefault();
+                return;
+              }
+
+              dragStateRef.current = source;
+              event.dataTransfer.effectAllowed = 'move';
+              event.dataTransfer.setData('text/plain', 'canvas-editor-block');
+            }}
+            onMouseDown={(event) => {
+              event.stopPropagation();
+            }}
+          >
+            <GripVertical />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent side="bottom" className="flex flex-col gap-1 text-left">
+          <span>{labels.dragBlockHint}</span>
+          <span>{labels.openBlockMenuHint}</span>
+        </TooltipContent>
+      </Tooltip>
+    </div>
   );
 }
 
@@ -2222,10 +2412,7 @@ function RichMarkdownEditor({
     setBlockCommandMenu(null);
   }, []);
 
-  const openBlockCommandMenu = useCallback((blockEditor: Editor) => {
-    const range = createBlockCommandTarget(blockEditor);
-    if (!range) return;
-
+  const openBlockCommandMenuAtRange = useCallback((blockEditor: Editor, range: Range) => {
     window.requestAnimationFrame(() => {
       const menuState = createBlockCommandMenuState(blockEditor, range);
       if (menuState) {
@@ -2233,6 +2420,20 @@ function RichMarkdownEditor({
       }
     });
   }, []);
+
+  const openInsertedBlockCommandMenu = useCallback((blockEditor: Editor, placement: BlockInsertPlacement) => {
+    const range = createInsertedBlockCommandTarget(blockEditor, placement);
+    if (!range) return;
+
+    openBlockCommandMenuAtRange(blockEditor, range);
+  }, [openBlockCommandMenuAtRange]);
+
+  const openCurrentBlockCommandMenu = useCallback((blockEditor: Editor) => {
+    const range = createCurrentBlockCommandTarget(blockEditor);
+    if (!range) return;
+
+    openBlockCommandMenuAtRange(blockEditor, range);
+  }, [openBlockCommandMenuAtRange]);
 
   useEffect(() => {
     if (!markdownEditor) return;
@@ -2251,6 +2452,23 @@ function RichMarkdownEditor({
   useEffect(() => {
     editor?.setEditable(!readOnly);
   }, [editor, readOnly]);
+
+  useEffect(() => {
+    if (!editor || readOnly) return undefined;
+
+    const editorElement = editor.view.dom;
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (!(event.metaKey || event.ctrlKey) || event.key !== '/') return;
+
+      event.preventDefault();
+      event.stopPropagation();
+      openCurrentBlockCommandMenu(editor);
+    };
+
+    editorElement.addEventListener('keydown', handleKeyDown, true);
+    return () => editorElement.removeEventListener('keydown', handleKeyDown, true);
+  }, [editor, openCurrentBlockCommandMenu, readOnly]);
 
   useEffect(() => {
     if (!readOnly) return undefined;
@@ -2281,10 +2499,11 @@ function RichMarkdownEditor({
       <div ref={scrollContainerRef} className="relative min-h-0 flex-1 overflow-auto">
         {!readOnly ? (
           <TooltipProvider>
-            <MarkdownBlockInsertButton
+            <MarkdownBlockControls
               editor={editor}
-              label={labels.addBlock}
-              onOpenCommandMenu={openBlockCommandMenu}
+              labels={labels}
+              onAddBlock={openInsertedBlockCommandMenu}
+              onOpenCommandMenu={openCurrentBlockCommandMenu}
               scrollContainerRef={scrollContainerRef}
             />
           </TooltipProvider>
