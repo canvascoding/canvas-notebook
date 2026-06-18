@@ -328,6 +328,7 @@ function AgentProfileStep({
   const [profileCompleteDetected, setProfileCompleteDetected] = useState(false);
   const [runtimePhase, setRuntimePhase] = useState<OnboardingRuntimePhase>('idle');
   const completedRef = useRef(false);
+  const skipRequestInFlightRef = useRef(false);
 
   useEffect(() => {
     if (!profileCompleteDetected || runtimePhase !== 'idle' || completedRef.current) {
@@ -363,6 +364,11 @@ function AgentProfileStep({
   }, [onComplete, t]);
 
   async function handleSkip() {
+    if (skipRequestInFlightRef.current) {
+      return;
+    }
+
+    skipRequestInFlightRef.current = true;
     setSkipping(true);
     try {
       const response = await fetch('/api/onboarding/profile-skip', {
@@ -377,6 +383,7 @@ function AgentProfileStep({
     } catch (error) {
       toast.error(error instanceof Error ? error.message : t('profileSkipError'));
     } finally {
+      skipRequestInFlightRef.current = false;
       setSkipping(false);
     }
   }

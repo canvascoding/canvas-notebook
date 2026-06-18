@@ -19,18 +19,12 @@ import {
 } from '@/app/lib/agents/storage';
 import { isOnboardingComplete, markOnboardingComplete } from '@/app/lib/onboarding/status';
 import { savePiSession } from '@/app/lib/pi/session-store';
-import type { AgentModelTestResult } from '@/app/lib/agents/model-test';
 
 export const ONBOARDING_BOOTSTRAP_FILE_NAME = 'BOOTSTRAP.md';
 export const ONBOARDING_PROFILE_SESSION_TITLE = 'Canvas Agent Onboarding';
 export const ONBOARDING_PROFILE_TOOL_NAME = 'complete_onboarding_profile';
 
 const MAX_PROFILE_FILE_CHARS = 16_000;
-
-type TestModelConnection = (params?: {
-  agentId?: string | null;
-  timeoutMs?: number;
-}) => Promise<AgentModelTestResult>;
 
 const SECRET_PATTERNS = [
   /\b(?:api[_ -]?key|secret|token|password|passwd|credential)s?\b\s*[:=]/i,
@@ -231,18 +225,9 @@ export async function completeOnboardingProfile(params: {
 
 export async function skipOnboardingProfile(params: {
   userId: string;
-  testModel?: TestModelConnection;
-}): Promise<{ success: true; deletedBootstrap: boolean; modelTest: AgentModelTestResult }> {
-  await assertOnboardingStillOpen();
-
-  const testModel = params.testModel ?? (await import('@/app/lib/agents/model-test')).testAgentModelConnection;
-  const modelTest = await testModel({ agentId: DEFAULT_AGENT_ID });
-  if (!modelTest.success) {
-    throw new OnboardingProfileError(
-      modelTest.error || 'Model test failed.',
-      modelTest.code || 'MODEL_TEST_FAILED',
-      modelTest.code === 'API_KEY_MISSING' ? 400 : 502,
-    );
+}): Promise<{ success: true; deletedBootstrap: boolean; alreadyComplete: boolean }> {
+  if (await isOnboardingComplete()) {
+    return { success: true, deletedBootstrap: false, alreadyComplete: true };
   }
 
   const deletedBootstrap = await deleteOnboardingBootstrapFile();
@@ -252,7 +237,7 @@ export async function skipOnboardingProfile(params: {
     notes: 'profile_skipped',
   });
 
-  return { success: true, deletedBootstrap, modelTest };
+  return { success: true, deletedBootstrap, alreadyComplete: false };
 }
 
 export async function isOnboardingProfileToolAvailable(params: {

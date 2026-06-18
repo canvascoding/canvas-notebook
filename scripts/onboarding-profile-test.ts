@@ -247,18 +247,21 @@ async function main() {
     await fs.writeFile(path.join(dataDir, 'agents', 'canvas-agent', 'USER.md'), '', 'utf8');
     await fs.writeFile(path.join(dataDir, 'agents', 'canvas-agent', 'SOUL.md'), 'Default soul.\n', 'utf8');
 
-    const skipped = await skipOnboardingProfile({
-      userId,
-      testModel: async () => ({ success: true, provider: 'google', model: fakeModel.id }),
-    });
+    const skipped = await skipOnboardingProfile({ userId });
     assert.equal(skipped.success, true);
     assert.equal(skipped.deletedBootstrap, true);
+    assert.equal(skipped.alreadyComplete, false);
     assert.equal(await fs.readFile(path.join(dataDir, 'agents', 'canvas-agent', 'USER.md'), 'utf8'), '');
     assert.equal(await fs.readFile(path.join(dataDir, 'agents', 'canvas-agent', 'SOUL.md'), 'utf8'), 'Default soul.\n');
     const skipLog = await db.query.onboardingLog.findFirst({
       where: eq(onboardingLog.method, 'ui'),
     });
     assert.equal(skipLog?.notes, 'profile_skipped');
+
+    const skippedAgain = await skipOnboardingProfile({ userId });
+    assert.equal(skippedAgain.success, true);
+    assert.equal(skippedAgain.deletedBootstrap, false);
+    assert.equal(skippedAgain.alreadyComplete, true);
 
     console.log('onboarding-profile-test: ok');
   } finally {
