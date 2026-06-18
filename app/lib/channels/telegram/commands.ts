@@ -40,6 +40,10 @@ function isPrivateChat(ctx: Context): boolean {
   return ctx.chat?.type === 'private';
 }
 
+function getTelegramUserId(ctx: Context, fallbackChatId: string): string {
+  return ctx.from?.id ? String(ctx.from.id) : fallbackChatId;
+}
+
 async function rejectNonPrivateChat(ctx: Context): Promise<boolean> {
   if (isPrivateChat(ctx)) return false;
   await ctx.reply('Telegram ist nur in direkten Chats mit dem Bot verfügbar.');
@@ -70,7 +74,15 @@ async function handleStartCommand(ctx: Context): Promise<void> {
     }
 
     const userName = ctx.from?.username ?? ctx.from?.first_name ?? undefined;
-    await createBinding(result.userId, 'telegram', chatId, userName);
+    const telegramUserId = ctx.from?.id ? String(ctx.from.id) : chatId;
+    await createBinding(result.userId, 'telegram', telegramUserId, userName, {
+      chatId,
+      telegramFirstName: ctx.from?.first_name,
+      telegramLastName: ctx.from?.last_name,
+      linkedVia: 'start_token',
+      linkedAt: new Date().toISOString(),
+      lastSeenAt: new Date().toISOString(),
+    });
 
     const sessionId = await resolveTelegramSession(chatId, result.userId);
     await ctx.reply(`Willkommen! Dein Account ist jetzt verknüpft. Session: ${sessionId}\n\nVerfügbare Commands:\n${COMMANDS_LIST.join('\n')}`);
@@ -84,7 +96,7 @@ async function handleNewCommand(ctx: Context): Promise<void> {
     if (await rejectNonPrivateChat(ctx)) return;
 
     const chatId = String(ctx.chat?.id);
-    const binding = await getBinding('telegram', chatId);
+    const binding = await getBinding('telegram', getTelegramUserId(ctx, chatId));
     if (!binding) {
       await ctx.reply('Bitte verknüpfe zuerst deinen Account mit /start TOKEN');
       return;
@@ -102,7 +114,7 @@ async function handleStopCommand(ctx: Context): Promise<void> {
     if (await rejectNonPrivateChat(ctx)) return;
 
     const chatId = String(ctx.chat?.id);
-    const binding = await getBinding('telegram', chatId);
+    const binding = await getBinding('telegram', getTelegramUserId(ctx, chatId));
     if (!binding) {
       await ctx.reply('Bitte verknüpfe zuerst deinen Account mit /start TOKEN');
       return;
@@ -121,7 +133,7 @@ async function handleCompactCommand(ctx: Context): Promise<void> {
     if (await rejectNonPrivateChat(ctx)) return;
 
     const chatId = String(ctx.chat?.id);
-    const binding = await getBinding('telegram', chatId);
+    const binding = await getBinding('telegram', getTelegramUserId(ctx, chatId));
     if (!binding) {
       await ctx.reply('Bitte verknüpfe zuerst deinen Account mit /start TOKEN');
       return;
@@ -140,7 +152,7 @@ async function handleSessionsCommand(ctx: Context): Promise<void> {
     if (await rejectNonPrivateChat(ctx)) return;
 
     const chatId = String(ctx.chat?.id);
-    const binding = await getBinding('telegram', chatId);
+    const binding = await getBinding('telegram', getTelegramUserId(ctx, chatId));
     if (!binding) {
       await ctx.reply('Bitte verknüpfe zuerst deinen Account mit /start TOKEN');
       return;
@@ -180,7 +192,7 @@ async function handleSwitchCommand(ctx: Context): Promise<void> {
     if (await rejectNonPrivateChat(ctx)) return;
 
     const chatId = String(ctx.chat?.id);
-    const binding = await getBinding('telegram', chatId);
+    const binding = await getBinding('telegram', getTelegramUserId(ctx, chatId));
     if (!binding) {
       await ctx.reply('Bitte verknüpfe zuerst deinen Account mit /start TOKEN');
       return;
@@ -208,7 +220,7 @@ async function handleStatusCommand(ctx: Context): Promise<void> {
     if (await rejectNonPrivateChat(ctx)) return;
 
     const chatId = String(ctx.chat?.id);
-    const binding = await getBinding('telegram', chatId);
+    const binding = await getBinding('telegram', getTelegramUserId(ctx, chatId));
     if (!binding) {
       await ctx.reply('Bitte verknüpfe zuerst deinen Account mit /start TOKEN');
       return;

@@ -296,7 +296,8 @@ export function setupInboundHandler(bot: Bot, onInbound: (message: InboundMessag
     if ((!text && !caption && !hasPhoto && !hasDocument && !hasVoice && !hasAudio && !hasVideo && !hasVideoNote) || !from) return;
     if (text.startsWith('/')) return;
 
-    const binding = await getBinding('telegram', chatId);
+    const telegramUserId = String(from.id);
+    const binding = await getBinding('telegram', telegramUserId);
     if (!binding) {
       await ctx.reply('Bitte verknüpfe zuerst deinen Account: /start TOKEN');
       return;

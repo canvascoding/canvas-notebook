@@ -3399,7 +3399,7 @@ export function IntegrationsSettingsClient({
           <UserManagementPanel currentUserId={currentUserId} isAdmin={isAdmin} />,
         )}
 
-        {renderLazyTabContent('channels', <ChannelsPanel />)}
+        {renderLazyTabContent('channels', <ChannelsPanel isAdmin={isAdmin} />)}
 
         {renderLazyTabContent('usage', <UsageAnalyticsClient isAdmin={isAdmin} />, { id: 'onboarding-settings-usage' })}
 

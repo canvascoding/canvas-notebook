@@ -1,10 +1,12 @@
 'use client';
 
-import { Check, Copy, ExternalLink, Eye, EyeOff, Link2, Loader2, RefreshCw, Terminal, Unlink } from 'lucide-react';
+import { Check, Copy, ExternalLink, Eye, EyeOff, Link2, Loader2, RefreshCw, Terminal, Trash2, Unlink, UserPlus } from 'lucide-react';
 import { useTranslations } from 'next-intl';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 
 export type TelegramStatus = {
   configured: boolean;
@@ -13,7 +15,37 @@ export type TelegramStatus = {
   linkedUserName: string | null;
 };
 
+export type TelegramBindingUser = {
+  id: string;
+  name: string | null;
+  email: string | null;
+  role: string | null;
+};
+
+export type TelegramBinding = {
+  id: number;
+  userId: string;
+  userName: string | null;
+  userEmail: string | null;
+  telegramUserId: string;
+  telegramUserName: string | null;
+  metadata: {
+    chatId?: string;
+    linkedVia?: string;
+    linkedAt?: string;
+  } | null;
+  enabled: boolean;
+  createdAt: string | Date;
+};
+
+export type TelegramBindingDraft = {
+  telegramUserId: string;
+  telegramUserName: string;
+  userId: string;
+};
+
 type TelegramChannelCardProps = {
+  isAdmin: boolean;
   status: TelegramStatus | null;
   isLoading: boolean;
   error: string | null;
@@ -28,6 +60,16 @@ type TelegramChannelCardProps = {
   isGeneratingToken: boolean;
   isUnlinking: boolean;
   isRegistering: boolean;
+  telegramBindings: TelegramBinding[];
+  telegramBindingUsers: TelegramBindingUser[];
+  telegramBindingDraft: TelegramBindingDraft;
+  isLoadingTelegramBindings: boolean;
+  isSavingTelegramBinding: boolean;
+  deletingTelegramBindingId: number | null;
+  onTelegramBindingDraftChange: (patch: Partial<TelegramBindingDraft>) => void;
+  onSaveTelegramBinding: () => void;
+  onDeleteTelegramBinding: (id: number) => void;
+  onRefreshTelegramBindings: () => void;
   onToggleEnabled: () => void;
   onBotTokenChange: (value: string) => void;
   onShowTokenChange: (value: boolean) => void;
@@ -40,7 +82,30 @@ type TelegramChannelCardProps = {
   onRestart: () => void;
 };
 
+function formatUserLabel(user: TelegramBindingUser | TelegramBinding): string {
+  if ('userId' in user) {
+    return [user.userName, user.userEmail].filter(Boolean).join(' · ') || user.userId;
+  }
+  return [user.name, user.email].filter(Boolean).join(' · ') || user.id;
+}
+
+function formatTelegramLabel(binding: TelegramBinding): string {
+  return binding.telegramUserName
+    ? `@${binding.telegramUserName} · ${binding.telegramUserId}`
+    : binding.telegramUserId;
+}
+
+function formatBindingDate(value: string | Date): string {
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return '-';
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  }).format(date);
+}
+
 export function TelegramChannelCard({
+  isAdmin,
   status,
   isLoading,
   error,
@@ -55,6 +120,16 @@ export function TelegramChannelCard({
   isGeneratingToken,
   isUnlinking,
   isRegistering,
+  telegramBindings,
+  telegramBindingUsers,
+  telegramBindingDraft,
+  isLoadingTelegramBindings,
+  isSavingTelegramBinding,
+  deletingTelegramBindingId,
+  onTelegramBindingDraftChange,
+  onSaveTelegramBinding,
+  onDeleteTelegramBinding,
+  onRefreshTelegramBindings,
   onToggleEnabled,
   onBotTokenChange,
   onShowTokenChange,
@@ -283,6 +358,196 @@ export function TelegramChannelCard({
                     </div>
                   )}
                 </div>
+
+                {isAdmin && (
+                  <div className="flex flex-col gap-4 rounded-md border p-4">
+                    <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                      <div className="min-w-0">
+                        <p className="font-medium">{t('channels.telegram.bindingsTitle')}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {t('channels.telegram.bindingsDescription')}
+                        </p>
+                      </div>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={onRefreshTelegramBindings}
+                        disabled={isLoadingTelegramBindings}
+                      >
+                        {isLoadingTelegramBindings ? (
+                          <Loader2 data-icon="inline-start" className="animate-spin" />
+                        ) : (
+                          <RefreshCw data-icon="inline-start" />
+                        )}
+                        {t('channels.telegram.refreshBindings')}
+                      </Button>
+                    </div>
+
+                    <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.4fr)_auto]">
+                      <div className="flex min-w-0 flex-col gap-2">
+                        <label className="text-sm font-medium" htmlFor="telegram-user-id">
+                          {t('channels.telegram.telegramUserIdLabel')}
+                        </label>
+                        <Input
+                          id="telegram-user-id"
+                          inputMode="numeric"
+                          value={telegramBindingDraft.telegramUserId}
+                          onChange={(event) => onTelegramBindingDraftChange({ telegramUserId: event.target.value })}
+                          placeholder={t('channels.telegram.telegramUserIdPlaceholder')}
+                          disabled={isSavingTelegramBinding}
+                        />
+                      </div>
+                      <div className="flex min-w-0 flex-col gap-2">
+                        <label className="text-sm font-medium" htmlFor="telegram-user-name">
+                          {t('channels.telegram.telegramUserNameLabel')}
+                        </label>
+                        <Input
+                          id="telegram-user-name"
+                          value={telegramBindingDraft.telegramUserName}
+                          onChange={(event) => onTelegramBindingDraftChange({ telegramUserName: event.target.value })}
+                          placeholder={t('channels.telegram.telegramUserNamePlaceholder')}
+                          disabled={isSavingTelegramBinding}
+                        />
+                      </div>
+                      <div className="flex min-w-0 flex-col gap-2">
+                        <label className="text-sm font-medium" htmlFor="telegram-app-user">
+                          {t('channels.telegram.appUserLabel')}
+                        </label>
+                        <select
+                          id="telegram-app-user"
+                          value={telegramBindingDraft.userId}
+                          onChange={(event) => onTelegramBindingDraftChange({ userId: event.target.value })}
+                          disabled={isSavingTelegramBinding || telegramBindingUsers.length === 0}
+                          className="h-10 min-w-0 rounded-md border border-input bg-background px-3 py-2 text-sm outline-none ring-offset-background focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          {telegramBindingUsers.length === 0 ? (
+                            <option value="">{t('channels.telegram.noUsers')}</option>
+                          ) : (
+                            telegramBindingUsers.map((user) => (
+                              <option key={user.id} value={user.id}>
+                                {formatUserLabel(user)}
+                              </option>
+                            ))
+                          )}
+                        </select>
+                      </div>
+                      <div className="flex items-end">
+                        <Button
+                          type="button"
+                          className="w-full lg:w-auto"
+                          onClick={onSaveTelegramBinding}
+                          disabled={isSavingTelegramBinding || telegramBindingUsers.length === 0}
+                        >
+                          {isSavingTelegramBinding ? (
+                            <Loader2 data-icon="inline-start" className="animate-spin" />
+                          ) : (
+                            <UserPlus data-icon="inline-start" />
+                          )}
+                          {t('channels.telegram.addBinding')}
+                        </Button>
+                      </div>
+                    </div>
+
+                    {isLoadingTelegramBindings ? (
+                      <div className="rounded-md border px-3 py-6 text-center text-sm text-muted-foreground">
+                        <span className="inline-flex items-center gap-2">
+                          <Loader2 className="animate-spin" />
+                          {t('channels.telegram.bindingsLoading')}
+                        </span>
+                      </div>
+                    ) : telegramBindings.length === 0 ? (
+                      <div className="rounded-md border px-3 py-6 text-center text-sm text-muted-foreground">
+                        {t('channels.telegram.bindingsEmpty')}
+                      </div>
+                    ) : (
+                      <>
+                        <div className="hidden rounded-md border md:block">
+                          <Table>
+                            <TableHeader>
+                              <TableRow>
+                                <TableHead>{t('channels.telegram.telegramAccountColumn')}</TableHead>
+                                <TableHead>{t('channels.telegram.appUserColumn')}</TableHead>
+                                <TableHead>{t('channels.telegram.createdColumn')}</TableHead>
+                                <TableHead className="text-right">{t('channels.telegram.actionsColumn')}</TableHead>
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              {telegramBindings.map((binding) => (
+                                <TableRow key={binding.id}>
+                                  <TableCell className="whitespace-normal">
+                                    <div className="flex min-w-0 flex-col gap-1">
+                                      <span className="break-all font-medium">{formatTelegramLabel(binding)}</span>
+                                      {binding.metadata?.chatId && binding.metadata.chatId !== binding.telegramUserId && (
+                                        <span className="break-all text-xs text-muted-foreground">
+                                          {t('channels.telegram.chatIdLabel', { chatId: binding.metadata.chatId })}
+                                        </span>
+                                      )}
+                                    </div>
+                                  </TableCell>
+                                  <TableCell className="whitespace-normal">
+                                    <div className="flex min-w-0 flex-col gap-1">
+                                      <span className="break-words">{formatUserLabel(binding)}</span>
+                                      <Badge variant={binding.enabled ? 'secondary' : 'outline'} className="w-fit">
+                                        {binding.enabled ? t('channels.telegram.bindingActive') : t('channels.telegram.bindingDisabled')}
+                                      </Badge>
+                                    </div>
+                                  </TableCell>
+                                  <TableCell className="text-muted-foreground">
+                                    {formatBindingDate(binding.createdAt)}
+                                  </TableCell>
+                                  <TableCell className="text-right">
+                                    <Button
+                                      type="button"
+                                      variant="destructive"
+                                      size="sm"
+                                      onClick={() => onDeleteTelegramBinding(binding.id)}
+                                      disabled={deletingTelegramBindingId !== null}
+                                    >
+                                      {deletingTelegramBindingId === binding.id ? (
+                                        <Loader2 data-icon="inline-start" className="animate-spin" />
+                                      ) : (
+                                        <Trash2 data-icon="inline-start" />
+                                      )}
+                                      {t('channels.telegram.deleteBinding')}
+                                    </Button>
+                                  </TableCell>
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+                        </div>
+                        <div className="flex flex-col gap-3 md:hidden">
+                          {telegramBindings.map((binding) => (
+                            <div key={binding.id} className="rounded-md border bg-background p-3">
+                              <div className="flex min-w-0 flex-col gap-1">
+                                <span className="break-all font-medium">{formatTelegramLabel(binding)}</span>
+                                <span className="break-words text-sm text-muted-foreground">{formatUserLabel(binding)}</span>
+                              </div>
+                              <div className="mt-3 flex items-center justify-between gap-3">
+                                <span className="text-xs text-muted-foreground">{formatBindingDate(binding.createdAt)}</span>
+                                <Button
+                                  type="button"
+                                  variant="destructive"
+                                  size="sm"
+                                  onClick={() => onDeleteTelegramBinding(binding.id)}
+                                  disabled={deletingTelegramBindingId !== null}
+                                >
+                                  {deletingTelegramBindingId === binding.id ? (
+                                    <Loader2 data-icon="inline-start" className="animate-spin" />
+                                  ) : (
+                                    <Trash2 data-icon="inline-start" />
+                                  )}
+                                  {t('channels.telegram.deleteBinding')}
+                                </Button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )}
 
                 <div className="flex items-center gap-2">
                   <label className="text-sm font-medium">

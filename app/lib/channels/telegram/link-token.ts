@@ -5,6 +5,19 @@ import { eq, and } from 'drizzle-orm';
 
 const TOKEN_EXPIRY_MS = 15 * 60 * 1000;
 
+export type TelegramBindingMetadata = {
+  chatId?: string;
+  telegramFirstName?: string;
+  telegramLastName?: string;
+  linkedVia?: 'start_token' | 'admin_settings';
+  linkedAt?: string;
+  lastSeenAt?: string;
+};
+
+function serializeMetadata(metadata?: TelegramBindingMetadata | null): string | null {
+  return metadata ? JSON.stringify(metadata) : null;
+}
+
 export async function generateLinkToken(userId: string): Promise<string> {
   const token = crypto.randomBytes(24).toString('hex');
   const now = new Date();
@@ -48,7 +61,13 @@ export async function validateLinkToken(token: string): Promise<{ userId: string
   return { userId: record.userId };
 }
 
-export async function createBinding(userId: string, channelId: string, channelUserId: string, channelUserName?: string): Promise<void> {
+export async function createBinding(
+  userId: string,
+  channelId: string,
+  channelUserId: string,
+  channelUserName?: string,
+  metadata?: TelegramBindingMetadata | null,
+): Promise<void> {
   const existing = await db.query.channelUserBindings.findFirst({
     where: and(
       eq(channelUserBindings.channelId, channelId),
@@ -58,7 +77,12 @@ export async function createBinding(userId: string, channelId: string, channelUs
 
   if (existing) {
     await db.update(channelUserBindings)
-      .set({ userId, channelUserName: channelUserName ?? null, createdAt: new Date() })
+      .set({
+        userId,
+        channelUserName: channelUserName ?? null,
+        metadataJson: metadata === undefined ? undefined : serializeMetadata(metadata),
+        createdAt: new Date(),
+      })
       .where(eq(channelUserBindings.id, existing.id));
     return;
   }
@@ -68,6 +92,7 @@ export async function createBinding(userId: string, channelId: string, channelUs
     channelId,
     channelUserId,
     channelUserName: channelUserName ?? null,
+    metadataJson: serializeMetadata(metadata),
     createdAt: new Date(),
   });
 }

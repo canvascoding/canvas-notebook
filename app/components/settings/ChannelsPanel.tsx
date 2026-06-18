@@ -3,9 +3,23 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { ChannelOverviewSection } from './channels/ChannelOverviewSection';
-import { TelegramChannelCard, type TelegramStatus } from './channels/TelegramChannelCard';
+import {
+  TelegramChannelCard,
+  type TelegramBinding,
+  type TelegramBindingDraft,
+  type TelegramBindingUser,
+  type TelegramStatus,
+} from './channels/TelegramChannelCard';
 
-export function ChannelsPanel() {
+function createEmptyTelegramBindingDraft(): TelegramBindingDraft {
+  return {
+    telegramUserId: '',
+    telegramUserName: '',
+    userId: '',
+  };
+}
+
+export function ChannelsPanel({ isAdmin = false }: { isAdmin?: boolean }) {
   const t = useTranslations('settings');
 
   const [isLoading, setIsLoading] = useState(true);
@@ -17,6 +31,12 @@ export function ChannelsPanel() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [telegramStatus, setTelegramStatus] = useState<TelegramStatus | null>(null);
+  const [telegramBindings, setTelegramBindings] = useState<TelegramBinding[]>([]);
+  const [telegramBindingUsers, setTelegramBindingUsers] = useState<TelegramBindingUser[]>([]);
+  const [telegramBindingDraft, setTelegramBindingDraft] = useState<TelegramBindingDraft>(() => createEmptyTelegramBindingDraft());
+  const [isLoadingTelegramBindings, setIsLoadingTelegramBindings] = useState(false);
+  const [isSavingTelegramBinding, setIsSavingTelegramBinding] = useState(false);
+  const [deletingTelegramBindingId, setDeletingTelegramBindingId] = useState<number | null>(null);
 
   const [botToken, setBotToken] = useState('');
   const [showToken, setShowToken] = useState(false);
@@ -73,12 +93,39 @@ export function ChannelsPanel() {
     }
   }, []);
 
+  const loadTelegramBindings = useCallback(async () => {
+    if (!isAdmin) return;
+
+    setIsLoadingTelegramBindings(true);
+    try {
+      const res = await fetch('/api/channels/telegram/bindings', {
+        credentials: 'include',
+        cache: 'no-store',
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Failed to load Telegram bindings');
+      }
+      const users = Array.isArray(data.users) ? data.users as TelegramBindingUser[] : [];
+      setTelegramBindings(Array.isArray(data.bindings) ? data.bindings as TelegramBinding[] : []);
+      setTelegramBindingUsers(users);
+      setTelegramBindingDraft((current) => current.userId || users.length === 0
+        ? current
+        : { ...current, userId: users[0].id });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load Telegram bindings');
+    } finally {
+      setIsLoadingTelegramBindings(false);
+    }
+  }, [isAdmin]);
+
   useEffect(() => {
     void Promise.resolve().then(() => {
       void loadEnvValues();
       void loadStatus();
+      void loadTelegramBindings();
     });
-  }, [loadEnvValues, loadStatus]);
+  }, [loadEnvValues, loadStatus, loadTelegramBindings]);
 
   const saveEnv = async (key: string, value: string) => {
     setIsSaving(true);
@@ -196,6 +243,63 @@ export function ChannelsPanel() {
     }
   };
 
+  const handleSaveTelegramBinding = async () => {
+    setIsSavingTelegramBinding(true);
+    setError(null);
+    setSuccess(null);
+    try {
+      const res = await fetch('/api/channels/telegram/bindings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          telegramUserId: telegramBindingDraft.telegramUserId,
+          telegramUserName: telegramBindingDraft.telegramUserName,
+          userId: telegramBindingDraft.userId,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Failed to save Telegram binding');
+      }
+      setSuccess(t('channels.telegram.bindingSaved'));
+      setTelegramBindingDraft((current) => ({
+        telegramUserId: '',
+        telegramUserName: '',
+        userId: current.userId || telegramBindingUsers[0]?.id || '',
+      }));
+      await Promise.all([loadTelegramBindings(), loadStatus()]);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to save Telegram binding');
+    } finally {
+      setIsSavingTelegramBinding(false);
+    }
+  };
+
+  const handleDeleteTelegramBinding = async (id: number) => {
+    setDeletingTelegramBindingId(id);
+    setError(null);
+    setSuccess(null);
+    try {
+      const res = await fetch('/api/channels/telegram/bindings', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ id }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Failed to delete Telegram binding');
+      }
+      setSuccess(t('channels.telegram.bindingDeleted'));
+      await Promise.all([loadTelegramBindings(), loadStatus()]);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to delete Telegram binding');
+    } finally {
+      setDeletingTelegramBindingId(null);
+    }
+  };
+
   const restartBot = async () => {
     setIsRestarting(true);
     setError(null);
@@ -246,6 +350,7 @@ export function ChannelsPanel() {
     <ChannelOverviewSection telegramLinked={telegramStatus?.linked === true} />
 
     <TelegramChannelCard
+      isAdmin={isAdmin}
       status={telegramStatus}
       isLoading={isLoading}
       error={error}
@@ -260,6 +365,16 @@ export function ChannelsPanel() {
       isGeneratingToken={isGeneratingToken}
       isUnlinking={isUnlinking}
       isRegistering={isRegistering}
+      telegramBindings={telegramBindings}
+      telegramBindingUsers={telegramBindingUsers}
+      telegramBindingDraft={telegramBindingDraft}
+      isLoadingTelegramBindings={isLoadingTelegramBindings}
+      isSavingTelegramBinding={isSavingTelegramBinding}
+      deletingTelegramBindingId={deletingTelegramBindingId}
+      onTelegramBindingDraftChange={(patch) => setTelegramBindingDraft((current) => ({ ...current, ...patch }))}
+      onSaveTelegramBinding={() => void handleSaveTelegramBinding()}
+      onDeleteTelegramBinding={(id) => void handleDeleteTelegramBinding(id)}
+      onRefreshTelegramBindings={() => void loadTelegramBindings()}
       onToggleEnabled={() => void handleToggleEnabled()}
       onBotTokenChange={setBotToken}
       onShowTokenChange={setShowToken}
@@ -274,6 +389,7 @@ export function ChannelsPanel() {
       onRefresh={() => {
         void loadStatus();
         void loadEnvValues();
+        void loadTelegramBindings();
       }}
       onRestart={() => void restartBot()}
     />
