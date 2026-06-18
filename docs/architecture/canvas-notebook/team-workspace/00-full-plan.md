@@ -663,6 +663,7 @@ Full-Backup-Anforderungen:
 - Backups muessen ueber Admin-Kontext, Control Plane, Host-/Container-CLI oder spaeter Schedule getriggert werden koennen.
 - Taegliche Backups sollen vorbereitet werden; konkrete Retention/Schedule wird spaeter planabhaengig festgelegt.
 - DB, WAL/Journal, `/data/workspaces`, `/data/studio`, scoped Settings, Runtime-Konfiguration und Secrets/OAuth-State muessen konsistent und verschluesselt gesichert werden.
+- Workspace-Dateien selbst bleiben in V1 im Container-Dateisystem unverschluesselt; App-Rechte und Audit sind die Zugriffskontrolle, Backup-Artefakte werden verschluesselt.
 - Public Links und Tokens duerfen in Full Backups fuer gleiche Disaster-Recovery-Ziele enthalten sein, aber nicht in Migration Exports.
 - Backup-Jobs brauchen Resource Budget, Logging, Integritaetschecks und Schutz gegen parallele Laeufe.
 

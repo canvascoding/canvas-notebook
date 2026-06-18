@@ -148,6 +148,7 @@ Moegliche Verschluesselungsmodelle:
 
 Empfehlung fuer V1:
 
+- Keine Dateisystem- oder per-Workspace-Verschluesselung fuer Workspace-Dateien in V1.
 - Dateien bleiben im Container-Dateisystem lesbar.
 - App erzwingt strikte User-/Workspace-/Exportrechte.
 - Admin-Full-Export ist erlaubt, aber explizit, auditiert und nicht mit normalem User-Export vermischt.
