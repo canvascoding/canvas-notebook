@@ -325,7 +325,7 @@
     },
     {
       "id": 35,
-      "title": "Storage-Monitoring und Alerts fuer Team-Instanzen im Control Plane absichern",
+      "title": "Storage-, Compute- und Resource-Monitoring mit Alerts fuer Team-Instanzen im Control Plane absichern",
       "status": "pending",
       "repo": "canvas-control-plane",
       "planningArtifacts": [
@@ -342,6 +342,18 @@
         "docs/architecture/canvas-notebook/team-workspace/07-filesystem-migration-and-write-policy.md",
         "docs/architecture/canvas-notebook/team-workspace/08-user-scoped-secrets-runtime.md",
         "docs/architecture/canvas-notebook/team-workspace/09-initial-setup-and-update-migration.md"
+      ]
+    },
+    {
+      "id": 37,
+      "title": "Knowledge-/Parsing-Settings mit Default-off Toggles, Resource-Status und redacted Logging umsetzen",
+      "status": "pending",
+      "repo": "canvasstudios-notebook",
+      "planningArtifacts": [
+        "docs/docling-knowledge-ingestion-plan.md",
+        "docs/architecture/canvas-notebook/team-workspace/05-actor-audit-retention.md",
+        "docs/architecture/canvas-notebook/team-workspace/12-knowledge-ingestion-retrieval-policy.md",
+        "docs/architecture/canvas-notebook/team-workspace/13-resource-aware-ingestion-and-job-backpressure.md"
       ]
     }
   ]

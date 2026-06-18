@@ -176,6 +176,8 @@ Teilbereiche:
 - MCP-Konfiguration und MCP-Transport-State.
 - Search/Retrieval-Vorbereitung.
 - Resource Budget und Backpressure fuer Parsing, OCR, Embeddings, Reindex und schwere Background Jobs.
+- Settings-Toggles mit Default-off fuer Knowledge Auto-Ingestion, Heavy Parsing, Docling, OCR, Embeddings und Remote Parsing.
+- Strukturierte redacted Operational Logs fuer schwere Jobs.
 
 Tests:
 
@@ -184,6 +186,8 @@ Tests:
 - MCP-/Plugin-/Skill-Tests: gleichnamige Konfigurationen bleiben pro User getrennt.
 - Automation-Tests fuer Personal vs Organization Scope, Webhook-Signatur, Rate Limits, Offboarding und Risk-Approval.
 - Resource-Tests fuer Low-Resource-Profil, Queue-Backpressure, Parser-Timeouts und fehlende Embeddings bei nicht abgeschlossenem Scan.
+- Settings-Tests: Default-off nach Fresh Install/Update, Aktivierung nur durch Admin/Managed Policy und korrektes Pausieren beim Ausschalten.
+- Logging-Tests: Resource- und Parser-Logs enthalten Korrelation und `reasonCode`, aber keine Dokumentinhalte oder Secrets.
 - UI-Test nur bei sichtbaren UI-Aenderungen und nach Freigabe.
 - `npm run build`.
 
@@ -305,3 +309,5 @@ Die Secret-/Runtime-Entscheidung in `08-user-scoped-secrets-runtime.md` ist verb
 Die Initial-Setup- und Update-Migrationsentscheidung in `09-initial-setup-and-update-migration.md` ist verbindlich fuer `/setup`, `bootstrap-admin`, Onboarding und bestehende Instanzen: Fresh Install und Migration muessen denselben Zielzustand erzeugen; globale Legacy-Dateien werden nicht automatisch als Team- oder Organization-Ressourcen aktiviert.
 
 Die Resource-Entscheidung in `13-resource-aware-ingestion-and-job-backpressure.md` ist verbindlich fuer Knowledge-Ingestion, Docling/OCR, Embeddings, Reindex, Import/Export, Backup-Vorbereitung und Maintenance: Schwere Jobs starten nur mit Resource Budget; bei knappen Ressourcen wird deferiert oder degradiert statt die VM zu ueberlasten.
+
+Die Settings- und Logging-Entscheidung ist Teil dieser Resource-Policy: Schwere Knowledge-/Parsing-Funktionen sind default `off`, muessen sichtbar aktivierbar/deaktivierbar sein und brauchen strukturierte redacted Logs fuer Diagnose.

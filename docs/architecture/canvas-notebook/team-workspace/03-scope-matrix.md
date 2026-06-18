@@ -86,6 +86,8 @@ Dieses Dokument schliesst Umsetzungsschritt 2 ab: bestehende Canvas Notebook Fun
 | QMD/Search/Retrieval | global `/data/workspace` Collection | getrennte Knowledge Stores fuer `personal_user`, `team_workspace`, optional `organization` | Collection Metadata, Secret-/PII-Scan, ACL-Filter und Delete-Propagation erzwingen | P6 |
 | Docling Knowledge Ingestion | separater Plan, noch nicht team-scoped | automatische Ingestion mit lokalen Parsern, Scope-Metadaten und Scan vor Embedding | Docling-Plan mit Knowledge Policy verbinden | P6 |
 | Resource Budget und Backpressure | nicht zentral modelliert | `instance/system`, mit Job-Scope fuer `user`, `workspace`, `organization` | Memory/CPU/Disk/Queue-Limits vor schweren Jobs pruefen; Degradation und Control-Plane-Metriken | P6/P9 |
+| Knowledge/Parsing Settings | nicht vorhanden | `organization`/`instance`, Admin-only | Schwere Ingestion, Docling, OCR, Embeddings und Remote Parsing default `off`, aktivierbar im Settings UI | P6 |
+| Heavy Job Operational Logs | nicht zentral modelliert | kurzlebiger technischer `instance/system` Scope mit Actor-/Job-Referenz | Resource-Entscheidung, Queue, Parser-Exit und Crash redacted loggen | P7/P9 |
 | File Reference Ranking | globaler Workspace Tree | workspace-spezifisch | Ranking-Index pro Workspace | P4/P6 |
 | Public Media Routes | Data-/Studio-Pfade | scoped Asset/File Access | Keine absoluten Serverpfade leaken | P6/P7 |
 | Admin Cleanup | admin-only, Studio Assets global | `organization` Admin Operation | Admin-Gate plus Audit | P7 |

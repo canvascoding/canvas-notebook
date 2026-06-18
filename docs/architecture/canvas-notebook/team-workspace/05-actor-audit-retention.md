@@ -234,6 +234,25 @@ Warnungen:
 - `resource_critical`: neue schwere Jobs werden blockiert, bis Ressourcen frei sind.
 - `parser_disabled`: Docling/OCR wurde wegen fehlender Dependencies oder wiederholter Crashes deaktiviert.
 
+## Operational Logging fuer schwere Jobs
+
+Neben Audit Events braucht es strukturierte technische Logs fuer Diagnose. Audit beantwortet, wer was getan hat; Operational Logs beantworten, warum ein Job langsam, blockiert, degradiert oder abgestuerzt ist.
+
+Zu loggen:
+
+- Settings-Aenderungen fuer schwere Ingestion, Docling, OCR, Embeddings, Remote Parsing und Limits.
+- Resource-Budget-Entscheidungen mit `reasonCode`.
+- Queue-State-Wechsel und Backpressure.
+- Parser-/OCR-/Embedding-Worker Start, Exit-Code, Signal, Timeout, OOM/Crash und automatische Deaktivierung.
+- Cleanup-Ergebnis fuer Temp, Cache und abgebrochene Jobs.
+
+Grenzen:
+
+- Keine Dokumentinhalte, Chunks, Prompts, Tool-Ausgaben oder Secrets in Operational Logs.
+- Pfade und Source-Namen nach Moeglichkeit hashen oder kuerzen.
+- Raw Debug Logs kurzlebig halten und redacted speichern.
+- Dauerhafte Audit Events bleiben klein und referenziell.
+
 ## Umsetzungsgates
 
 Vor breiter Audit-Implementierung muessen diese Grundlagen stehen:
@@ -244,6 +263,7 @@ Vor breiter Audit-Implementierung muessen diese Grundlagen stehen:
 4. Cleanup-/Rollup-Jobs als Teil der ersten Audit-Migration.
 5. Storage-Metriken fuer DB, Workspace, Studio, Temp und Backups.
 6. Compute-/Memory-/Queue-Metriken fuer schwere Jobs.
-7. Secret-/Runtime-Resolver, damit Tool-Audit keine globalen Instanz-Credentials protokolliert.
+7. Strukturierte redacted Operational Logs fuer schwere Jobs.
+8. Secret-/Runtime-Resolver, damit Tool-Audit keine globalen Instanz-Credentials protokolliert.
 
 Ohne diese Gates darf kein vollstaendiger Tool-/File-Audit breit ausgerollt werden, weil sonst Datenbank- und Storage-Wachstum nicht kontrolliert sind.

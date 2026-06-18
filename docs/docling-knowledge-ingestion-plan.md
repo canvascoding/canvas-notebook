@@ -106,8 +106,9 @@ Neuer Settings-Bereich: `Settings -> Knowledge` oder `Settings -> Document Parsi
 
 Empfohlener Default fuer V1:
 
-- `auto`
-- Docling nur fuer Knowledge-Ingestion
+- Document Parsing fuer schwere Ingestion: `off`, bis Admin oder Managed Policy explizit aktiviert.
+- Nach Aktivierung: `auto`.
+- Docling nur fuer Knowledge-Ingestion.
 - Native Fallback aktiv
 - OCR aus, aber "auto when no text" optional
 
@@ -144,6 +145,7 @@ Empfohlener Default fuer V1:
 
 Settings sollten einen Statusblock zeigen:
 
+- Feature enabled/disabled fuer Knowledge Auto-Ingestion, Docling, OCR, Embeddings und Remote Parsing.
 - Docling installed: yes/no
 - Docling version
 - Tesseract installed: yes/no
@@ -153,6 +155,8 @@ Settings sollten einen Statusblock zeigen:
 - Last error
 - Current queue depth
 - Estimated resource profile: `available`, `degraded`, `disabled`
+- Last resource/log reason code
+- Link auf relevante Job-/Operational-Logs, redacted
 
 ## Compute-Risiken
 
@@ -181,6 +185,7 @@ Fuer organisationsweite Knowledge Base gelten harte Regeln:
 - Jeder Chunk braucht `organizationId`, optional `workspaceId`, optional `userId`, `visibility`, `sourceRef`.
 - Loeschen einer Source muss auch Chunks, Embeddings und Graph-Derivate entfernen.
 - Admins brauchen Audit-Logs fuer Upload, Parse, Reindex, Search und Delete.
+- Zusaetzlich braucht es strukturierte Operational Logs fuer Settings-Aenderungen, Resource-Budget-Entscheidungen, Parser-Starts, Timeouts, OOM/Crashes, Queue-State-Wechsel und Cleanup; diese Logs duerfen keine Dokumentinhalte, Prompts oder Secrets enthalten.
 - Persoenliche Workspaces duerfen nicht in Team- oder Org-Retrieval leaken.
 - E-Mail-Inhalte werden in V1 nicht automatisch in Knowledge aufgenommen.
 - Studio-Medien werden in V1 nicht als Vollinhalt indexiert; nur explizite Textartefakte oder Metadaten nach Policy.
@@ -276,15 +281,18 @@ Docling sollte daher nicht einfach nur Markdown in `/data/cache/qmd/derived` sch
 ### Phase 3: Docling hinter Feature Flag
 
 - `docling-cli` als experimentellen Provider anbinden.
+- Default `off`, Aktivierung nur ueber Admin-Setting oder Managed Policy.
 - Health Check und Statusdaten einbauen.
 - Harte Limits fuer Timeout, Dateigroesse, Seitenzahl und Concurrency.
 - Resource Budget Resolver fuer Memory, CPU, Disk, Queue-Tiefe und Container-Limits anbinden.
 - Backpressure-Zustaende wie `deferred_low_resources`, `metadata_only` und `failed_resource_limit` persistieren.
+- Strukturierte Logs fuer Resource-Entscheidungen, Parser-Exit, Timeout, Crash und automatische Deaktivierung schreiben.
 - Native Fallback aktivieren.
 
 ### Phase 4: Settings UI
 
 - Parser-Modus, OCR, Limits und Status sichtbar machen.
+- Toggles fuer Knowledge Auto-Ingestion, Heavy Parsing, Docling, OCR, Embeddings und Remote Parsing sichtbar machen.
 - Direkter Hinweis, wenn Host-Ressourcen oder Dependencies fehlen.
 - Remote-Service/API-Key nur ueber zentrale Integrations-Env verwalten, falls benoetigt.
 
@@ -323,15 +331,19 @@ Docling zuerst als optionale Knowledge-Ingestion-Pipeline einbauen, nicht als De
 
 Konservativer V1-Default:
 
+- Schwere Knowledge-Ingestion default `off`.
 - Native Parser bleibt Standard.
 - Docling nur fuer Knowledge-Ingestion.
+- Docling default `off`, Aktivierung ueber Admin-Setting oder Managed Policy.
 - Docling lokal/CLI/Sidecar, nicht remote als Default.
 - OCR default `off`, Option `auto when no text`.
+- Embedding-Indexing default `off`, bis Scan, ACL und Store bereit sind.
 - Max concurrent Docling jobs: `1`.
 - Harte Timeouts und Dateigroessenlimits.
 - Resource Profile `low` muss Docling/OCR automatisch deaktivieren oder stark begrenzen koennen.
 - Queue-Backpressure statt synchroner Verarbeitung oder paralleler schwerer Jobs.
 - Native Fallback bei Fehler.
 - Statusanzeige in Settings.
+- Strukturierte redacted Logs fuer Settings, Resource-Entscheidungen, Queue, Parser und Cleanup.
 - Keine organisationsweite Vektor-Suche ohne Scope-/ACL-Metadaten.
 - Automatische Indexierung fuer Personal Knowledge und policy-gesteuerte Team Knowledge.

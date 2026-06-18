@@ -12,17 +12,19 @@ Resource- und Backpressure-Regeln fuer kleine VMs sind verbindlich in `13-resour
 
 ## Grundentscheidung
 
-Die Knowledge Base soll automatisch aufgebaut werden, aber nicht ungeprueft scope-uebergreifend.
+Die Knowledge Base soll automatisch aufgebaut werden koennen, aber nicht ungeprueft scope-uebergreifend und nicht unbemerkt ressourcenintensiv. In V1 ist schwere automatische Ingestion default `off`; nach Admin-Aktivierung laeuft sie automatisch, ohne dass User Dateien manuell in eine Knowledge Base hochladen muessen.
 
 Regeln:
 
-- Personal Workspace Inhalte werden automatisch in eine private User Knowledge Base indexiert.
-- Team Workspace Inhalte werden automatisch in eine Team Knowledge Base indexiert, wenn die Organization Policy dies erlaubt.
+- Personal Workspace Inhalte werden automatisch in eine private User Knowledge Base indexiert, wenn `knowledgeAutoIngestionEnabled` fuer diesen Scope aktiv ist.
+- Team Workspace Inhalte werden automatisch in eine Team Knowledge Base indexiert, wenn die Organization Policy dies erlaubt und `knowledgeAutoIngestionEnabled` aktiv ist.
 - Organization Knowledge ist fuer V1 nicht zwingend getrennt vom Team Workspace, bleibt aber als spaetere Governance-Ebene vorbereitet.
 - E-Mail-Inhalte werden in V1 nicht in die Knowledge Base aufgenommen.
 - Studio-Medien wie Bilder, Videos und Audio werden in V1 nicht als Vollinhalt indexiert; hoechstens Metadaten oder explizit erzeugte Textartefakte.
 - Public Links bedeuten keine automatische Knowledge-Freigabe.
 - Remote Docling ist kein V1-Default; V1 nutzt lokale Verarbeitung oder Sidecar/CLI mit harten Limits.
+- Docling, OCR, Embedding-Indexing und Remote Parsing haben eigene Admin-Toggles und starten default `off`.
+- Alle Ingestion-/Parser-/Embedding-Jobs schreiben strukturierte Operational Logs ohne Dokumentinhalte oder Secrets.
 
 ## Knowledge Scopes
 
@@ -210,6 +212,7 @@ Zum Docling-Plan werden zusaetzlich benoetigt:
 V1:
 
 - Docling lokal/CLI/Sidecar, nicht remote als Default.
+- Schwere Ingestion, Docling, OCR und Embeddings default `off`, bis ein Admin oder Managed Policy sie aktiviert.
 - Max concurrent parse jobs: `1`.
 - Harte Limits fuer Dateigroesse, Seitenzahl, OCR-Seiten, Timeout und Speicher.
 - Resource Budget vor jedem schweren Parse-/Embedding-Job pruefen.
@@ -240,3 +243,5 @@ Pflichttests:
 - Treffer enthalten Source, Pfad, Workspace und Seite/Abschnitt.
 - Remote Docling ist im V1-Default deaktiviert.
 - Low-Resource-Profil erzwingt Backpressure oder Degradation ohne Embedding ungescannter Inhalte.
+- Default-off: Frische und migrierte Instanzen starten keine schweren Ingestion-Jobs ohne explizite Aktivierung.
+- Logging: Job-Status, Resource-Entscheidung und Parser-Fehler werden strukturiert geloggt, ohne Rohinhalt oder Secrets.

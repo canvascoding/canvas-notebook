@@ -676,11 +676,13 @@ Neben Storage sind RAM und CPU bei Team-Instanzen ein zentrales Bottleneck. Beso
 Mindestanforderung:
 
 - Schwere Jobs laufen nur in Background Queues, nie synchron im Request-Pfad.
+- Schwere Knowledge-Ingestion, Docling, OCR, Embeddings und Remote Parsing starten in V1 default `off` und muessen ueber Admin-Setting, Onboarding oder Managed Policy explizit aktiviert werden.
 - Vor schweren Jobs wird ein Resource Budget aus Memory, CPU, Disk, Queue-Tiefe, Container-Limits und Admin-/Managed-Policy berechnet.
 - V1-Default fuer Docling/OCR bleibt max. ein schwerer Parse-Job gleichzeitig.
 - Bei knappen Ressourcen werden Jobs deferiert, nativ/degradiert verarbeitet, nur als Metadaten registriert oder kontrolliert abgebrochen.
 - Sicherheitspruefungen bleiben hart: Ohne erfolgreichen Secret-/PII-/ACL-Check werden keine Embeddings erzeugt.
 - Admin-UI und Control Plane zeigen Parser-Status, Queue-Tiefe, Resource Profile, OOM-/Timeout-Zaehler und Backpressure-Gruende.
+- Strukturierte Operational Logs erfassen Settings-Aenderungen, Resource-Entscheidungen, Queue-State, Parser-Exit, Timeout, Crash und Cleanup, aber keine Dokumentinhalte oder Secrets.
 
 Die verbindliche Detailregel steht in `13-resource-aware-ingestion-and-job-backpressure.md`.
 
@@ -699,6 +701,7 @@ Die verbindliche Detailregel steht in `13-resource-aware-ingestion-and-job-backp
 - Welche Storage-Schwellen fuer Teamplaene gelten und ob Storage-Quotas weich oder hart durchgesetzt werden.
 - Ob Workspace-spezifische Speicherbelegung von Canvas Notebook gemeldet wird oder ob das Control Plane nur Host-Disk-Metriken aus dem Agent nutzt.
 - Welche Compute-/Memory-Profile in Managed Plans angeboten werden und welche Defaults fuer Docling/OCR/Reindex daraus folgen.
+- Welche schweren Knowledge-/Parsing-Features in welchem Plan durch Onboarding aktiviert werden duerfen und welche explizit Admin-only bleiben.
 - Welche bestehenden Canvas Notebook Tabellen und Settings aktuell implizit global sind und auf `userId`, `workspaceId` oder `organizationId` migriert werden muessen.
 - Ob Composio nur user-scoped startet oder ob Organization-geteilte Connections direkt in V1 benoetigt werden.
 - Ob E-Mail Team-Mailboxen in V1 Teil des Teamplans sind oder ob zuerst nur User-Mailboxen unterstuetzt werden.

@@ -16,6 +16,7 @@ Regeln:
 
 - Schwere Dokumentenverarbeitung laeuft ausschliesslich ueber Background Jobs.
 - Docling/OCR laeuft isoliert als Child Process, lokaler Service oder Sidecar, nicht eingebettet im Next.js/Node-Hauptprozess.
+- Schwere automatische Ingestion ist in V1 standardmaessig ausgeschaltet und muss durch Admin-Setting, Onboarding oder Managed Policy explizit aktiviert werden.
 - Default fuer V1 ist konservativ: ein schwerer Parse-Job gleichzeitig.
 - Bei knappen Ressourcen wird nicht geraten oder trotzdem gestartet, sondern Jobs werden pausiert, degradiert oder kontrolliert abgebrochen.
 - Resource-Entscheidungen werden sichtbar im UI, im Job-Status und im Control Plane gemeldet.
@@ -33,6 +34,34 @@ Die Instanz bekommt ein effektives Resource Profile. Dieses kann vom Control Pla
 | `disabled` | Dependencies fehlen oder wiederholte Crashes | nur Metadata/Native-Fallback, kein Docling/OCR, klare Admin-Warnung |
 
 Die konkreten Schwellenwerte muessen konfigurierbar sein. Wichtiger als fixe Zahlen ist, dass der Runtime-Resolver den tatsaechlichen Container- und Host-Zustand beruecksichtigt.
+
+## Default-off und Settings Toggle
+
+Damit kleine Server nicht unerwartet durch Parsing/OCR/Embedding abstuerzen, startet V1 konservativ.
+
+Defaults:
+
+- Bestehende Instanzen nach Update: schwere Knowledge-Ingestion, Docling, OCR und Embedding-Indexing bleiben `off`, bis ein Admin sie aktiviert.
+- Fresh Install: schwere Ingestion bleibt `off`, ausser ein Managed Plan oder Onboarding setzt sie explizit mit sichtbarer Bestaetigung.
+- Normale Agent-`read`-Tools und leichte native Text-Extraktion bleiben von diesem Toggle getrennt.
+- Resource Guards sind immer aktiv und koennen nicht ausgeschaltet werden.
+
+Settings muessen mindestens diese Schalter haben:
+
+- `knowledgeAutoIngestionEnabled`: automatische Inhalts-Ingestion fuer Knowledge Sources.
+- `heavyDocumentParsingEnabled`: schwere Parser-Jobs generell erlauben.
+- `doclingEnabled`: Docling Provider aktivieren.
+- `ocrEnabled`: OCR aktivieren.
+- `embeddingIndexingEnabled`: Embeddings fuer erlaubte und gescannte Chunks erzeugen.
+- `remoteParsingEnabled`: remote Parser erlauben; Default immer `false`.
+
+Verhalten beim Ausschalten:
+
+- Neue Jobs werden nicht gestartet.
+- Wartende Jobs werden auf `disabled_by_policy` oder `paused_by_admin` gesetzt.
+- Laufende Jobs duerfen kontrolliert fertiglaufen oder werden durch Admin-Aktion abgebrochen; das Verhalten muss im UI sichtbar sein.
+- Bereits erzeugte Indizes bleiben bestehen, werden aber nicht weiter aktualisiert, bis Reindex/Resume explizit gestartet wird.
+- Jede Aenderung an diesen Settings erzeugt Audit- und Operational-Log-Eintraege mit Actor, Scope, altem Wert, neuem Wert und Grund.
 
 ## Resource Budget Resolver
 
@@ -118,8 +147,12 @@ Admin-UI fuer Knowledge/Parsing muss Resource-Zustand zeigen:
 
 Admin-Settings:
 
+- Knowledge Auto-Ingestion aktiv/inaktiv; Default `off`.
+- Heavy Document Parsing aktiv/inaktiv; Default `off`.
 - Docling aktiv/inaktiv.
-- OCR `off`, `auto when no text`, `force` nur mit Warnung.
+- OCR `off`, `auto when no text`, `force` nur mit Warnung; Default `off`.
+- Embedding Indexing aktiv/inaktiv; Default `off`, bis Scan, ACL und Store bereit sind.
+- Remote Parsing aktiv/inaktiv; Default `off`.
 - Max concurrent heavy jobs.
 - Max document size.
 - Max pages.
@@ -134,6 +167,29 @@ Normale User sollen keinen technischen Debug-Dump sehen, aber klar erkennen:
 - Datei wartet auf Ressourcen.
 - Datei wurde nur als Metadaten aufgenommen.
 - Datei wurde wegen Limits nicht verarbeitet.
+- Feature ist durch Admin-Setting ausgeschaltet.
+
+## Logging und Diagnose
+
+Resource- und Parser-Verhalten muss strukturiert geloggt werden. Ohne diese Logs ist nicht nachvollziehbar, ob ein Problem aus wenig RAM, CPU-Last, Dateigroesse, Parser-Crash, Policy oder fehlenden Dependencies kommt.
+
+Pflicht-Logs:
+
+- Settings-Aenderungen fuer Ingestion, Docling, OCR, Embeddings, Remote Parsing und Limits.
+- Resource-Budget-Entscheidung vor jedem schweren Job.
+- Queue-State-Wechsel: `queued`, `deferred_low_resources`, `running_degraded`, `metadata_only`, `failed_resource_limit`, `disabled_by_policy`, `paused_by_admin`.
+- Child-Process-Start, Timeout, Exit-Code, Signal, OOM-/Crash-Erkennung und automatische Parser-Deaktivierung.
+- Parser Provider, Parser Version, OCR Mode, Resource Profile und `reasonCode`.
+- Job-Korrelation: `jobId`, `requestId`, `actorUserId`, `organizationId`, `workspaceId`, `sourceId`, `sourcePathHash`, `sessionId` falls vorhanden.
+- Dauer, Seitenzahl, Dateigroesse, Peak-Memory falls messbar, Retry Count und Cleanup-Resultat.
+
+Log-Sicherheitsregeln:
+
+- Keine Rohinhalte von Dokumenten, Chunks, Prompts, Tool-Ausgaben oder Secrets in Operational Logs schreiben.
+- Pfade fuer normale Diagnose duerfen gekuerzt oder gehasht werden; vollstaendige Pfade bleiben Audit-/Admin-Kontext vorbehalten.
+- Secret-/PII-Treffer werden als Kategorie und Policy-Entscheidung geloggt, nicht mit Inhalt.
+- Raw Debug Logs bekommen kurze Retention und muessen redacted sein.
+- Admin-UI zeigt letzte Fehler, `reasonCode`, Job-Referenz und Empfehlung, nicht grosse Raw Logs.
 
 ## Control Plane und Managed Mode
 
@@ -150,12 +206,14 @@ Der Agent sollte melden:
 - Parser Status: `available`, `degraded`, `disabled`.
 - OOM-/Timeout-/Crash-Zaehler.
 - Letzte `reasonCode`s fuer Backpressure.
+- Aggregierte Log-/Error-Counter fuer Parser, OCR, Embedding und Cleanup.
 
 Managed Config kann daraus Defaults setzen:
 
 - `CANVAS_RESOURCE_PROFILE`.
 - Max concurrent heavy jobs.
 - Parser/OCR Feature Flags.
+- Default-off/Default-on nur mit sichtbarer Managed-Policy und Onboarding-Hinweis.
 - Max file/page limits.
 - Maintenance Window.
 - Alerts fuer `resource_degraded`, `resource_critical`, `parser_disabled`.
@@ -193,6 +251,9 @@ Diese Jobs muessen Scope, Actor und Resource-Budget speichern. Organization-weit
 Pflichttests:
 
 - Low-Resource-Profil deaktiviert Docling/OCR oder setzt Jobs auf `deferred_low_resources`.
+- Fresh Install und Update-Migration lassen schwere Ingestion default `off`, bis ein Admin oder Managed Policy sie aktiviert.
+- Settings-Toggles fuer Ingestion, Docling, OCR, Embeddings und Remote Parsing blockieren neue Jobs.
+- Ausschalten pausiert oder deaktiviert wartende Jobs nachvollziehbar.
 - Max concurrent heavy jobs wird eingehalten.
 - Datei ueber Seiten-/Groessenlimit wird nicht voll geparst.
 - OCR wird bei `low` Profile nicht automatisch gestartet.
@@ -203,17 +264,20 @@ Pflichttests:
 - Admin-UI zeigt Queue Depth, Parser Status und letzten Resource-Grund.
 - Control Plane Report enthaelt Memory/CPU/Queue/Parser-Status.
 - Cleanup entfernt Temp-Dateien nach erfolgreichen und abgebrochenen Jobs.
+- Operational Logs enthalten Budget-Entscheidung, `reasonCode`, Job-Korrelation und Parser-Exit, aber keine Dokumentinhalte oder Secrets.
 
 ## Umsetzungsgate
 
 Vor produktiver automatischer Knowledge-Ingestion muessen diese Bausteine stehen:
 
 1. Background Job Queue mit Scope, Actor und Resource-Metadaten.
-2. Resource Budget Resolver.
-3. Harte Parser-/OCR-Limits.
-4. Degradation und Backpressure-Zustaende.
-5. Admin-Statusanzeige.
-6. Control-Plane-Metriken fuer Memory, CPU, Queue und Parser-Status.
-7. Tests fuer Low-Resource- und Crash-Faelle.
+2. Default-off Settings und Admin-Toggles fuer schwere Ingestion, Docling, OCR, Embeddings und Remote Parsing.
+3. Resource Budget Resolver.
+4. Harte Parser-/OCR-Limits.
+5. Degradation und Backpressure-Zustaende.
+6. Strukturierte Operational Logs mit Redaction und Retention.
+7. Admin-Statusanzeige.
+8. Control-Plane-Metriken fuer Memory, CPU, Queue und Parser-Status.
+9. Tests fuer Low-Resource-, Toggle-, Logging- und Crash-Faelle.
 
 Ohne diese Gates darf automatische Ingestion nur fuer kleine Native-Parser-Faelle aktiviert werden.
