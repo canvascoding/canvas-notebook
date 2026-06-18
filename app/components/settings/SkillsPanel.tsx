@@ -73,6 +73,29 @@ type PluginStoreTab = 'discover' | 'installed' | 'updates' | 'advanced';
 type SkillLibraryTab = 'installed' | 'library' | 'updates';
 type SelectedPluginDetail = { source: 'store' | 'installed'; name: string };
 
+const PANEL_TAB_STORAGE_KEY = 'canvas.skills.panelTab';
+const PLUGIN_STORE_TAB_STORAGE_KEY = 'canvas.skills.pluginStoreTab';
+const SKILL_LIBRARY_TAB_STORAGE_KEY = 'canvas.skills.skillLibraryTab';
+
+function readStoredTab<T extends string>(key: string, allowedValues: readonly T[], fallback: T): T {
+  if (typeof window === 'undefined') return fallback;
+  try {
+    const stored = window.localStorage.getItem(key);
+    return allowedValues.includes(stored as T) ? stored as T : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function writeStoredTab(key: string, value: string) {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(key, value);
+  } catch {
+    // Ignore unavailable storage; tabs still work for the current render.
+  }
+}
+
 type CanvasPluginComposioConnector = {
   toolkit: string;
   label?: string;
@@ -415,7 +438,11 @@ function CanvasPluginsSection({ onPluginsChanged }: { onPluginsChanged: () => vo
   const [storeMetadata, setStoreMetadata] = useState<CanvasPluginStoreMetadata | null>(null);
   const [storePagination, setStorePagination] = useState<CanvasPluginStorePagination>(EMPTY_STORE_PAGINATION);
   const [storeStats, setStoreStats] = useState<CanvasPluginStoreStats>(EMPTY_STORE_STATS);
-  const [storeTab, setStoreTab] = useState<PluginStoreTab>('discover');
+  const [storeTab, setStoreTab] = useState<PluginStoreTab>(() => readStoredTab(
+    PLUGIN_STORE_TAB_STORAGE_KEY,
+    ['discover', 'installed', 'updates', 'advanced'] as const,
+    'discover',
+  ));
   const [storePage, setStorePage] = useState(1);
   const [searchQuery, setSearchQuery] = useState('');
   const [isLoading, setIsLoading] = useState(true);
@@ -1700,6 +1727,7 @@ function CanvasPluginsSection({ onPluginsChanged }: { onPluginsChanged: () => vo
           if (value === 'discover' || value === 'installed' || value === 'updates' || value === 'advanced') {
             setStorePage(1);
             setStoreTab(value);
+            writeStoredTab(PLUGIN_STORE_TAB_STORAGE_KEY, value);
           }
         }}
         className="space-y-4"
@@ -1813,8 +1841,16 @@ export function SkillsPanel() {
   const [selectedSkill, setSelectedSkill] = useState<CanvasSkill | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [uploadOpen, setUploadOpen] = useState(false);
-  const [panelTab, setPanelTab] = useState<SkillsPanelTab>('plugins');
-  const [skillLibraryTab, setSkillLibraryTab] = useState<SkillLibraryTab>('installed');
+  const [panelTab, setPanelTab] = useState<SkillsPanelTab>(() => readStoredTab(
+    PANEL_TAB_STORAGE_KEY,
+    ['plugins', 'skills'] as const,
+    'plugins',
+  ));
+  const [skillLibraryTab, setSkillLibraryTab] = useState<SkillLibraryTab>(() => readStoredTab(
+    SKILL_LIBRARY_TAB_STORAGE_KEY,
+    ['installed', 'library', 'updates'] as const,
+    'installed',
+  ));
   const [skillTree, setSkillTree] = useState<SkillFileNode[]>([]);
   const [expandedDirs, setExpandedDirs] = useState<Set<string>>(new Set());
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
@@ -2348,6 +2384,7 @@ export function SkillsPanel() {
         onValueChange={(value) => {
           if (value === 'plugins' || value === 'skills') {
             setPanelTab(value);
+            writeStoredTab(PANEL_TAB_STORAGE_KEY, value);
           }
         }}
         className="space-y-4"
@@ -2377,6 +2414,7 @@ export function SkillsPanel() {
               if (value === 'installed' || value === 'library' || value === 'updates') {
                 setSkillStorePage(1);
                 setSkillLibraryTab(value);
+                writeStoredTab(SKILL_LIBRARY_TAB_STORAGE_KEY, value);
               }
             }}
             className="space-y-4"
