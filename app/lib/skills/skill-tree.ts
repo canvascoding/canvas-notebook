@@ -13,6 +13,15 @@ export interface SkillFileNode {
 const IGNORED_ENTRIES = new Set(['node_modules', '.cache']);
 const IGNORED_ROOT_ENTRIES = new Set(['README.md', 'registry.json', 'registry.json.tmp']);
 
+async function hasDirectSkillFile(dirPath: string): Promise<boolean> {
+  try {
+    const stat = await fs.stat(path.join(dirPath, 'SKILL.md'));
+    return stat.isFile();
+  } catch {
+    return false;
+  }
+}
+
 async function buildSkillTreeFromDir(
   rootDir: string,
   dirPath: string,
@@ -40,6 +49,8 @@ async function buildSkillTreeFromDir(
     const relativePath = path.relative(rootDir, fullPath);
 
     if (entry.isDirectory()) {
+      if (isRoot && !(await hasDirectSkillFile(fullPath))) continue;
+
       const children = await buildSkillTreeFromDir(rootDir, fullPath, depth + 1, maxDepth, false);
       const stat = await fs.stat(fullPath).catch(() => null);
       nodes.push({

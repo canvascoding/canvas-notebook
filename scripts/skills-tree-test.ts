@@ -20,6 +20,9 @@ async function main() {
     await writeFile(path.join(root, 'alpha', 'SKILL.md'), '# Alpha\n');
     await writeFile(path.join(root, 'alpha', '.agents', 'canvas.yaml'), 'interface: {}\n');
     await writeFile(path.join(root, 'beta', 'SKILL.md'), '# Beta\n');
+    await writeFile(path.join(root, 'bin', 'alpha'), 'legacy command\n');
+    await writeFile(path.join(root, '_shared', 'helpers.js'), 'export {};\n');
+    await writeFile(path.join(root, 'legacy-assets', 'notes.md'), '# Not a skill\n');
 
     const tree = await buildSkillTree(root, { maxDepth: 4 });
     const rootNames = tree.map((node) => node.name);
