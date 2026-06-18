@@ -253,7 +253,7 @@ function EmailLinkDialog({
           | null;
 
         if (!response.ok || !payload?.success) {
-          throw new Error(payload?.error || t('editorLinkPreviewError'));
+          throw new Error(t('editorLinkPreviewError'));
         }
 
         setPreviewState({
@@ -261,11 +261,11 @@ function EmailLinkDialog({
           imageUrl: payload.data?.imageUrl ?? null,
           host: payload.data?.host ?? new URL(previewUrl).hostname,
         });
-      } catch (error) {
+      } catch {
         if (controller.signal.aborted) return;
         setPreviewState({
           status: 'error',
-          error: error instanceof Error ? error.message : t('editorLinkPreviewError'),
+          error: t('editorLinkPreviewError'),
         });
       }
     }, 350);

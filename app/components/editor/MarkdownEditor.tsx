@@ -34,7 +34,9 @@ import {
   Code,
   Code2,
   Columns3,
+  Copy,
   Eye,
+  ExternalLink,
   GripVertical,
   Heading1,
   Heading2,
@@ -47,6 +49,7 @@ import {
   ListOrdered,
   Minus,
   Plus,
+  Pencil,
   Quote,
   Redo2,
   Rows3,
@@ -55,6 +58,7 @@ import {
   Trash2,
   Type,
   Undo2,
+  Unlink,
 } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 
@@ -721,6 +725,8 @@ function createSlashCommands(labels: SlashCommandLabels, actions?: SlashCommandA
             }
 
             const $from = state.doc.resolve(range.from);
+            if ($from.marks().some((mark) => mark.type.name === 'link')) return false;
+
             return $from.parent.type.name === 'paragraph';
           },
           command: ({ editor, range, props }) => {
@@ -1409,6 +1415,18 @@ type LinkDialogSeed = {
   canEditText: boolean;
 };
 
+type LinkPopoverState = {
+  id: number;
+  href: string;
+  text: string;
+  range: Range;
+  position: {
+    left: number;
+    top: number;
+    width: number;
+  };
+};
+
 type TableInsertOptions = {
   rows: number;
   cols: number;
@@ -1426,6 +1444,85 @@ function getSelectedText(editor: Editor) {
   const { from, to, empty } = editor.state.selection;
   if (empty) return '';
   return editor.state.doc.textBetween(from, to, ' ');
+}
+
+function isEditorRangeInsideCurrentDoc(editor: Editor, range: Range) {
+  return (
+    Number.isInteger(range.from) &&
+    Number.isInteger(range.to) &&
+    range.from >= 0 &&
+    range.to >= range.from &&
+    range.to <= editor.state.doc.content.size
+  );
+}
+
+function getActiveLinkDetails(editor: Editor): Pick<LinkPopoverState, 'href' | 'text' | 'range'> | null {
+  const linkMarkType = editor.schema.marks.link;
+  if (!linkMarkType) return null;
+
+  const { selection } = editor.state;
+  let range = getMarkRange(selection.$from, linkMarkType);
+  if (!range && selection.empty && selection.from > 0) {
+    range = getMarkRange(editor.state.doc.resolve(selection.from - 1), linkMarkType);
+  }
+
+  if (!range || !isEditorRangeInsideCurrentDoc(editor, range)) return null;
+
+  let href = typeof editor.getAttributes('link').href === 'string'
+    ? (editor.getAttributes('link').href as string)
+    : '';
+
+  if (!href) {
+    editor.state.doc.nodesBetween(range.from, range.to, (node) => {
+      const linkMark = node.marks.find((mark) => mark.type === linkMarkType && typeof mark.attrs.href === 'string');
+      if (!linkMark) return true;
+
+      href = linkMark.attrs.href as string;
+      return false;
+    });
+  }
+
+  if (!href) return null;
+
+  return {
+    href,
+    text: editor.state.doc.textBetween(range.from, range.to, ' '),
+    range,
+  };
+}
+
+function getEditorRangeRect(editor: Editor, range: Range) {
+  if (!isEditorRangeInsideCurrentDoc(editor, range)) return null;
+
+  try {
+    const start = editor.view.coordsAtPos(range.from);
+    const end = editor.view.coordsAtPos(range.to);
+    return {
+      left: Math.min(start.left, end.left),
+      right: Math.max(start.right, end.right),
+      top: Math.min(start.top, end.top),
+      bottom: Math.max(start.bottom, end.bottom),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function getLinkPopoverPosition(rect: Pick<DOMRect, 'bottom' | 'left' | 'top'>) {
+  const width = 344;
+  const height = 148;
+  const padding = 8;
+  const left = Math.max(padding, Math.min(rect.left, window.innerWidth - width - padding));
+  const opensBelow = rect.bottom + height + padding <= window.innerHeight;
+  const top = opensBelow
+    ? rect.bottom + 8
+    : Math.max(padding, rect.top - height - 8);
+
+  return {
+    left,
+    top,
+    width,
+  };
 }
 
 function getLinkPreviewInsertPosition(editor: Editor) {
@@ -1531,7 +1628,7 @@ function MarkdownLinkDialog({
           | null;
 
         if (!response.ok || !payload?.success) {
-          throw new Error(payload?.error || t('markdownEditorLinkPreviewError'));
+          throw new Error(t('markdownEditorLinkPreviewError'));
         }
 
         setPreviewState({
@@ -1539,11 +1636,11 @@ function MarkdownLinkDialog({
           imageUrl: payload.data?.imageUrl ?? null,
           host: payload.data?.host ?? new URL(previewUrl).hostname,
         });
-      } catch (error) {
+      } catch {
         if (controller.signal.aborted) return;
         setPreviewState({
           status: 'error',
-          error: error instanceof Error ? error.message : t('markdownEditorLinkPreviewError'),
+          error: t('markdownEditorLinkPreviewError'),
         });
       }
     }, 350);
@@ -1728,6 +1825,102 @@ function MarkdownLinkDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function MarkdownLinkPopover({
+  editor,
+  state,
+  onClose,
+  onEdit,
+}: {
+  editor: MarkdownEditorWithMarkdown | null;
+  state: LinkPopoverState | null;
+  onClose: () => void;
+  onEdit: (state: LinkPopoverState) => void;
+}) {
+  const t = useTranslations('notebook');
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!state) return;
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (target instanceof Node && containerRef.current?.contains(target)) return;
+      onClose();
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose();
+    };
+
+    document.addEventListener('pointerdown', handlePointerDown, true);
+    document.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown, true);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [onClose, state]);
+
+  const openLink = useCallback(() => {
+    if (!state?.href) return;
+    const openedWindow = window.open(state.href, '_blank', 'noopener,noreferrer');
+    if (openedWindow) openedWindow.opener = null;
+  }, [state]);
+
+  const copyLink = useCallback(() => {
+    if (!state?.href) return;
+    copyTextToClipboard(state.href);
+  }, [state]);
+
+  const removeLink = useCallback(() => {
+    if (!editor || !state || !isEditorRangeInsideCurrentDoc(editor, state.range)) {
+      onClose();
+      return;
+    }
+
+    editor.chain().focus().setTextSelection(state.range).unsetLink().run();
+    onClose();
+  }, [editor, onClose, state]);
+
+  if (!state) return null;
+
+  return (
+    <div
+      ref={containerRef}
+      className="fixed z-50 rounded-md border bg-popover p-2 text-popover-foreground shadow-lg"
+      style={{
+        left: state.position.left,
+        top: state.position.top,
+        width: state.position.width,
+      }}
+      role="dialog"
+      aria-label={t('markdownEditorLinkMenu')}
+    >
+      <div className="truncate px-1 pb-2 text-xs text-muted-foreground" title={state.href}>
+        {state.href}
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <Button type="button" size="sm" onClick={openLink}>
+          <ExternalLink />
+          {t('markdownEditorLinkOpen')}
+        </Button>
+        <Button type="button" size="sm" variant="outline" onClick={() => onEdit(state)}>
+          <Pencil />
+          {t('markdownEditorLinkEdit')}
+        </Button>
+        <Button type="button" size="sm" variant="outline" onClick={copyLink}>
+          <Copy />
+          {t('markdownEditorLinkCopy')}
+        </Button>
+        <Button type="button" size="sm" variant="outline" onClick={removeLink}>
+          <Unlink />
+          {t('markdownEditorLinkRemove')}
+        </Button>
+      </div>
+    </div>
   );
 }
 
@@ -2045,6 +2238,7 @@ function MarkdownToolbar({
     text: '',
     canEditText: true,
   });
+  const [linkPopover, setLinkPopover] = useState<LinkPopoverState | null>(null);
   const canUseCommands = Boolean(editor?.isEditable);
   const toolbarState = useEditorState({
     editor,
@@ -2073,16 +2267,91 @@ function MarkdownToolbar({
     },
   }) ?? EMPTY_TOOLBAR_STATE;
 
-  const setLink = useCallback(() => {
+  const closeLinkPopover = useCallback(() => {
+    setLinkPopover(null);
+  }, []);
+
+  const handleLinkDialogOpenChange = useCallback((open: boolean) => {
+    setLinkDialogOpen(open);
+    if (open) setLinkPopover(null);
+  }, []);
+
+  const openToolbarLinkDialog = useCallback(() => {
     if (!editor) return;
+    const activeLink = getActiveLinkDetails(editor);
     setLinkDialogSeed((current) => ({
       id: current.id + 1,
-      href: (editor.getAttributes('link').href as string | undefined) || '',
-      text: getSelectedText(editor),
-      canEditText: editor.state.selection.empty && !editor.isActive('link'),
+      href: activeLink?.href || (editor.getAttributes('link').href as string | undefined) || '',
+      text: activeLink?.text || getSelectedText(editor),
+      canEditText: editor.state.selection.empty && !activeLink,
     }));
-    setLinkDialogOpen(true);
-  }, [editor]);
+    handleLinkDialogOpenChange(true);
+  }, [editor, handleLinkDialogOpenChange]);
+
+  const openLinkPopoverFromSelection = useCallback(() => {
+    if (!editor || linkDialogOpen) return;
+
+    const activeLink = getActiveLinkDetails(editor);
+    const rect = activeLink ? getEditorRangeRect(editor, activeLink.range) : null;
+    if (!activeLink || !rect) {
+      setLinkPopover(null);
+      return;
+    }
+
+    setLinkPopover((current) => ({
+      id: (current?.id ?? 0) + 1,
+      ...activeLink,
+      position: getLinkPopoverPosition(rect),
+    }));
+  }, [editor, linkDialogOpen]);
+
+  const editLinkFromPopover = useCallback((state: LinkPopoverState) => {
+    if (!editor || !isEditorRangeInsideCurrentDoc(editor, state.range)) return;
+
+    editor.chain().focus().setTextSelection(state.range).run();
+    setLinkDialogSeed((current) => ({
+      id: current.id + 1,
+      href: state.href,
+      text: state.text,
+      canEditText: false,
+    }));
+    handleLinkDialogOpenChange(true);
+  }, [editor, handleLinkDialogOpenChange]);
+
+  useEffect(() => {
+    if (!editor) return;
+
+    const editorElement = editor.view.dom;
+
+    const handleEditorClick = (event: MouseEvent) => {
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+
+      const anchor = target.closest('a[href]');
+      if (!anchor || !editorElement.contains(anchor)) return;
+
+      event.preventDefault();
+      event.stopPropagation();
+
+      const position = editor.view.posAtCoords({ left: event.clientX, top: event.clientY });
+      if (!position) return;
+
+      editor.chain().focus().setTextSelection(position.pos).run();
+      window.requestAnimationFrame(openLinkPopoverFromSelection);
+    };
+
+    const handleSelectionUpdate = () => {
+      if (!editor.isActive('link')) setLinkPopover(null);
+    };
+
+    editorElement.addEventListener('click', handleEditorClick);
+    editor.on('selectionUpdate', handleSelectionUpdate);
+
+    return () => {
+      editorElement.removeEventListener('click', handleEditorClick);
+      editor.off('selectionUpdate', handleSelectionUpdate);
+    };
+  }, [editor, openLinkPopoverFromSelection]);
 
   return (
     <TooltipProvider>
@@ -2201,7 +2470,12 @@ function MarkdownToolbar({
 
         <ToolbarDivider />
 
-        <TooltipIconButton label="Link" active={toolbarState.isLink} disabled={!canUseCommands} onClick={setLink}>
+        <TooltipIconButton
+          label="Link"
+          active={toolbarState.isLink}
+          disabled={!canUseCommands}
+          onClick={openToolbarLinkDialog}
+        >
           <LinkIcon />
         </TooltipIconButton>
         <TooltipIconButton
@@ -2336,11 +2610,17 @@ function MarkdownToolbar({
           </TooltipIconButton>
         </div>
       ) : null}
+      <MarkdownLinkPopover
+        editor={editor}
+        state={editor ? linkPopover : null}
+        onClose={closeLinkPopover}
+        onEdit={editLinkFromPopover}
+      />
       <MarkdownLinkDialog
         key={linkDialogSeed.id}
         editor={editor}
         open={linkDialogOpen}
-        onOpenChange={setLinkDialogOpen}
+        onOpenChange={handleLinkDialogOpenChange}
         initialHref={linkDialogSeed.href}
         initialText={linkDialogSeed.text}
         canEditText={linkDialogSeed.canEditText}

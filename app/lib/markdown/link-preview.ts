@@ -3,7 +3,7 @@ import 'server-only';
 import dns from 'node:dns/promises';
 import net from 'node:net';
 
-const HTML_BYTE_LIMIT = 160 * 1024;
+const HTML_BYTE_LIMIT = 512 * 1024;
 const LINK_PREVIEW_TIMEOUT_MS = 4_000;
 const MAX_REDIRECTS = 3;
 const FETCH_USER_AGENT = 'Canvas Notebook Link Preview/1.0';
@@ -37,23 +37,33 @@ export async function loadMarkdownLinkPreview(inputUrl: string): Promise<Markdow
   const targetUrl = parseRemoteHttpUrl(inputUrl);
   await assertSafeRemoteUrl(targetUrl);
 
-  const response = await fetchWithValidatedRedirects(targetUrl, {
-    headers: {
-      Accept: 'text/html,application/xhtml+xml',
-      'User-Agent': FETCH_USER_AGENT,
-    },
-  });
+  let response: Awaited<ReturnType<typeof fetchWithValidatedRedirects>>;
+  try {
+    response = await fetchWithValidatedRedirects(targetUrl, {
+      headers: {
+        Accept: 'text/html,application/xhtml+xml',
+        'User-Agent': FETCH_USER_AGENT,
+      },
+    });
+  } catch (error) {
+    const providerImageUrl = await resolveProviderPreviewImageUrl(targetUrl);
+    if (providerImageUrl) return buildPreviewResult(targetUrl, providerImageUrl);
+    throw error;
+  }
 
   if (!response.response.ok) {
+    const providerImageUrl = await resolveProviderPreviewImageUrl(response.url);
+    if (providerImageUrl) return buildPreviewResult(response.url, providerImageUrl);
     throw new MarkdownLinkPreviewError('Could not load link metadata', 502);
   }
 
   const contentType = response.response.headers.get('content-type')?.toLowerCase() || '';
   if (!contentType.includes('text/html') && !contentType.includes('application/xhtml+xml')) {
-    return buildPreviewResult(response.url, null);
+    const providerImageUrl = await resolveProviderPreviewImageUrl(response.url);
+    return buildPreviewResult(response.url, providerImageUrl);
   }
 
-  const html = await readLimitedText(response.response, HTML_BYTE_LIMIT);
+  const html = await readMetadataHtml(response.response, HTML_BYTE_LIMIT);
   const imageUrl = await resolvePreviewImageUrl(html, response.url);
 
   return buildPreviewResult(response.url, imageUrl);
@@ -159,22 +169,24 @@ async function fetchWithValidatedRedirects(inputUrl: URL, init: RequestInit) {
 
 async function resolvePreviewImageUrl(html: string, baseUrl: URL) {
   const rawImageUrl = extractOgImageUrl(html);
-  if (!rawImageUrl) return null;
+  if (!rawImageUrl) return resolveProviderPreviewImageUrl(baseUrl);
 
   let imageUrl: URL;
   try {
     imageUrl = parseRemoteHttpUrl(new URL(rawImageUrl, baseUrl).toString());
   } catch {
-    return null;
+    return resolveProviderPreviewImageUrl(baseUrl);
   }
 
   try {
     await assertSafeRemoteUrl(imageUrl);
     const valid = await validateRemoteImage(imageUrl);
-    return valid ? imageUrl.toString() : null;
+    if (valid) return imageUrl.toString();
   } catch {
-    return null;
+    return resolveProviderPreviewImageUrl(baseUrl);
   }
+
+  return resolveProviderPreviewImageUrl(baseUrl);
 }
 
 function extractOgImageUrl(html: string) {
@@ -237,11 +249,12 @@ function isImageResponse(response: Response) {
   return (response.headers.get('content-type') || '').toLowerCase().startsWith('image/');
 }
 
-async function readLimitedText(response: Response, byteLimit: number) {
+async function readMetadataHtml(response: Response, byteLimit: number) {
   if (!response.body) return '';
 
   const reader = response.body.getReader();
-  const chunks: Uint8Array[] = [];
+  const decoder = new TextDecoder();
+  let html = '';
   let totalBytes = 0;
 
   try {
@@ -250,18 +263,75 @@ async function readLimitedText(response: Response, byteLimit: number) {
       if (done) break;
       if (!value) continue;
 
-      totalBytes += value.byteLength;
-      if (totalBytes > byteLimit) {
+      const remainingBytes = byteLimit - totalBytes;
+      if (remainingBytes <= 0) {
         await reader.cancel();
-        throw new MarkdownLinkPreviewError('Link metadata is too large', 413);
+        break;
       }
-      chunks.push(value);
+
+      const chunk = value.byteLength > remainingBytes ? value.slice(0, remainingBytes) : value;
+      totalBytes += chunk.byteLength;
+      html += decoder.decode(chunk, { stream: true });
+
+      const lowerHtml = html.toLowerCase();
+      if (lowerHtml.includes('</head>') || extractOgImageUrl(html)) {
+        await reader.cancel();
+        break;
+      }
+
+      if (value.byteLength > remainingBytes) {
+        await reader.cancel();
+        break;
+      }
     }
   } finally {
     reader.releaseLock();
   }
 
-  return Buffer.concat(chunks).toString('utf8');
+  return html + decoder.decode();
+}
+
+async function resolveProviderPreviewImageUrl(url: URL) {
+  const youtubeVideoId = extractYoutubeVideoId(url);
+  if (!youtubeVideoId) return null;
+
+  const candidates = [
+    `https://img.youtube.com/vi/${youtubeVideoId}/maxresdefault.jpg`,
+    `https://img.youtube.com/vi/${youtubeVideoId}/hqdefault.jpg`,
+  ];
+
+  for (const candidate of candidates) {
+    try {
+      const imageUrl = parseRemoteHttpUrl(candidate);
+      await assertSafeRemoteUrl(imageUrl);
+      if (await validateRemoteImage(imageUrl)) {
+        return imageUrl.toString();
+      }
+    } catch {
+      // Try the next provider-specific thumbnail candidate.
+    }
+  }
+
+  return null;
+}
+
+function extractYoutubeVideoId(url: URL) {
+  const hostname = normalizeHostname(url.hostname).replace(/^www\./u, '');
+  const pathParts = url.pathname.split('/').filter(Boolean);
+  let candidate: string | null = null;
+
+  if (hostname === 'youtu.be') {
+    candidate = pathParts[0] ?? null;
+  } else if (hostname === 'youtube.com' || hostname.endsWith('.youtube.com')) {
+    if (url.pathname === '/watch') {
+      candidate = url.searchParams.get('v');
+    } else if (pathParts[0] === 'shorts' || pathParts[0] === 'embed' || pathParts[0] === 'live') {
+      candidate = pathParts[1] ?? null;
+    }
+  }
+
+  const normalized = candidate?.match(/^[A-Za-z0-9_-]{11}$/u)?.[0] ?? null;
+  return normalized;
 }
 
 function normalizeHostname(hostname: string) {
