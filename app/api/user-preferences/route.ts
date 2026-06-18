@@ -3,12 +3,14 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/app/lib/auth';
 import {
   getUserPreferences,
+  normalizeUserLastActiveAgentId,
   normalizeUserLocale,
   normalizeUserTimeZone,
   setUserPreferredLocale,
   updateUserPreferences,
   type UserPreferences,
 } from '@/app/lib/user-preferences';
+import { getAgentProfile } from '@/app/lib/agents/registry';
 
 export async function GET(request: NextRequest) {
   const session = await auth.api.getSession({ headers: request.headers });
@@ -57,6 +59,18 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ success: false, error: 'Unsupported email remote image sender setting.' }, { status: 400 });
     }
     updates.emailRemoteImageAllowedSenders = payload.emailRemoteImageAllowedSenders;
+  }
+
+  if (payload && typeof payload === 'object' && 'lastActiveAgentId' in payload) {
+    const lastActiveAgentId = normalizeUserLastActiveAgentId(payload.lastActiveAgentId);
+    if (!lastActiveAgentId) {
+      return NextResponse.json({ success: false, error: 'Unsupported agent ID.' }, { status: 400 });
+    }
+    const agent = await getAgentProfile(lastActiveAgentId);
+    if (!agent) {
+      return NextResponse.json({ success: false, error: 'Agent not found.' }, { status: 404 });
+    }
+    updates.lastActiveAgentId = lastActiveAgentId;
   }
 
   if (Object.keys(updates).length === 0) {

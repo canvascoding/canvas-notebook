@@ -12,6 +12,7 @@ import { useTranslations } from 'next-intl';
 import { deriveUploadAttachmentPreview } from '@/app/lib/chat/attachment-preview';
 import { CANVAS_CHAT_ACTIVE_SESSION_STORAGE_KEY } from '@/app/lib/chat/constants';
 import { loadComposerDraft, removeComposerDraft, saveComposerDraft } from '@/app/lib/chat/draft-storage';
+import { saveLastActiveAgentId } from '@/app/lib/chat/agent-preferences';
 import type { RuntimeStatus } from '@/app/lib/chat/runtime-status';
 import { createChatSession } from '@/app/lib/chat/session-api';
 import type {
@@ -581,6 +582,7 @@ export function useChatControlActions({
     }
     setSelectedAgentId(agentId);
     setHistoryAgentFilter(agentId);
+    void saveLastActiveAgentId(agentId);
     resetHistoryState();
     startNewChat(agentId);
     void fetchHistory();

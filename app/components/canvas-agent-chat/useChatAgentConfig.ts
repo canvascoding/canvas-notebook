@@ -1,7 +1,8 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { fetchChatAgentConfig, fetchChatAgents } from '@/app/lib/chat/agent-api';
+import { fetchLastActiveAgentId, saveLastActiveAgentId } from '@/app/lib/chat/agent-preferences';
 import type {
   AgentConfig,
   AgentProfile,
@@ -69,6 +70,7 @@ export function useChatAgentConfig({
   const [isAgentConfigLoading, setIsAgentConfigLoading] = useState(true);
   const [availableAgents, setAvailableAgents] = useState<AgentProfile[]>([]);
   const [selectedAgentId, setSelectedAgentId] = useState(initialAgentId);
+  const preferredAgentLoadedRef = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -109,6 +111,41 @@ export function useChatAgentConfig({
 
     void fetchAgents();
   }, []);
+
+  useEffect(() => {
+    if (sessionId || preferredAgentLoadedRef.current) {
+      return;
+    }
+    preferredAgentLoadedRef.current = true;
+    let cancelled = false;
+
+    const fetchPreferredAgent = async () => {
+      const preferredAgentId = await fetchLastActiveAgentId();
+      if (cancelled) return;
+      setSelectedAgentId((current) => (
+        current === initialAgentId ? preferredAgentId : current
+      ));
+    };
+
+    void fetchPreferredAgent();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [initialAgentId, sessionId]);
+
+  useEffect(() => {
+    if (availableAgents.length === 0) {
+      return;
+    }
+    const selectedAgentExists = availableAgents.some((agent) => agent.agentId === selectedAgentId);
+    if (!selectedAgentExists) {
+      Promise.resolve().then(() => {
+        setSelectedAgentId(initialAgentId);
+        void saveLastActiveAgentId(initialAgentId);
+      });
+    }
+  }, [availableAgents, initialAgentId, selectedAgentId]);
 
   useEffect(() => {
     if (sessionId) {

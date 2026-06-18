@@ -9,6 +9,7 @@ import {
 import { useTranslations } from 'next-intl';
 import { deriveUploadAttachmentPreview } from '@/app/lib/chat/attachment-preview';
 import { CANVAS_CHAT_ACTIVE_SESSION_STORAGE_KEY } from '@/app/lib/chat/constants';
+import { saveLastActiveAgentId } from '@/app/lib/chat/agent-preferences';
 import { isRecord } from '@/app/lib/chat/message-content';
 import { readLatestCachedChatSession } from '@/app/lib/chat/session-cache';
 import type {
@@ -197,6 +198,7 @@ export function useChatSessionBootstrap({
     const targetAgentId = parsed.agentId || CHAT_AGENT_ID;
     if (targetAgentId !== selectedAgentId) {
       sessionAgentIdRef.current = targetAgentId;
+      void saveLastActiveAgentId(targetAgentId);
       Promise.resolve().then(() => {
         setHistoryAgentFilter(targetAgentId);
         setSelectedAgentId(targetAgentId);

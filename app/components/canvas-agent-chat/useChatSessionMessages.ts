@@ -21,6 +21,7 @@ import {
 } from '@/app/lib/chat/session-cache';
 import { fetchChatSessionMessages, patchChatSessions } from '@/app/lib/chat/session-api';
 import { loadComposerDraft } from '@/app/lib/chat/draft-storage';
+import { saveLastActiveAgentId } from '@/app/lib/chat/agent-preferences';
 import type {
   AgentConfig,
   AISession,
@@ -302,6 +303,7 @@ export function useChatSessionMessages({
 
     resetStreamConnection();
     setSelectedAgentId(sessionAgentId);
+    void saveLastActiveAgentId(sessionAgentId);
     setSessionId(session.sessionId);
     setSessionTitle(resolveSessionTitle(session.sessionId, session.title));
     sessionIdRef.current = session.sessionId;

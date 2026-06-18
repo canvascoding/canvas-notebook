@@ -15,6 +15,7 @@ export type UserLocale = typeof routing.locales[number];
 export type UserPreferences = {
   emailAllowRemoteImages?: boolean;
   emailRemoteImageAllowedSenders?: string[];
+  lastActiveAgentId?: string;
   locale?: UserLocale;
   timeZone?: string;
 };
@@ -67,20 +68,30 @@ export function normalizeUserTimeZone(value: unknown): string | null {
   return isValidTimeZone(value) ? value.trim() : null;
 }
 
+export function normalizeUserLastActiveAgentId(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const normalized = value.trim().toLowerCase();
+  if (!/^[a-z0-9][a-z0-9_-]{0,63}$/u.test(normalized)) return null;
+  return normalized;
+}
+
 function normalizePreferences(value: unknown): UserPreferences {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
   const record = value as {
     emailAllowRemoteImages?: unknown;
     emailRemoteImageAllowedSenders?: unknown;
+    lastActiveAgentId?: unknown;
     locale?: unknown;
     timeZone?: unknown;
   };
   const locale = normalizeUserLocale(record.locale);
   const timeZone = normalizeUserTimeZone(record.timeZone);
+  const lastActiveAgentId = normalizeUserLastActiveAgentId(record.lastActiveAgentId);
   const emailRemoteImageAllowedSenders = normalizeEmailAddressList(record.emailRemoteImageAllowedSenders);
   return {
     ...(typeof record.emailAllowRemoteImages === 'boolean' ? { emailAllowRemoteImages: record.emailAllowRemoteImages } : {}),
     ...(emailRemoteImageAllowedSenders.length > 0 ? { emailRemoteImageAllowedSenders } : {}),
+    ...(lastActiveAgentId ? { lastActiveAgentId } : {}),
     ...(locale ? { locale } : {}),
     ...(timeZone ? { timeZone } : {}),
   };
@@ -184,6 +195,18 @@ export async function updateUserPreferences(
       delete nextPreferences.emailRemoteImageAllowedSenders;
     } else {
       nextPreferences.emailRemoteImageAllowedSenders = emailRemoteImageAllowedSenders;
+    }
+  }
+
+  if ('lastActiveAgentId' in updates) {
+    if (updates.lastActiveAgentId === undefined) {
+      delete nextPreferences.lastActiveAgentId;
+    } else {
+      const lastActiveAgentId = normalizeUserLastActiveAgentId(updates.lastActiveAgentId);
+      if (!lastActiveAgentId) {
+        throw new Error('Unsupported agent ID.');
+      }
+      nextPreferences.lastActiveAgentId = lastActiveAgentId;
     }
   }
 

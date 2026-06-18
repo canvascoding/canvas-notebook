@@ -15,6 +15,8 @@ export function ChatAgentSelector({
   activeAgentName,
   activeAgentIconId,
   agents,
+  className,
+  testId = 'chat-agent-id',
   onSelectAgent,
 }: {
   variant: 'desktop' | 'mobile';
@@ -22,6 +24,8 @@ export function ChatAgentSelector({
   activeAgentName: string;
   activeAgentIconId?: string | null;
   agents: AgentProfile[];
+  className?: string;
+  testId?: string;
   onSelectAgent: (agentId: string) => void;
 }) {
   const t = useTranslations('chat');
@@ -32,12 +36,13 @@ export function ChatAgentSelector({
       <PopoverTrigger asChild>
         <button
           type="button"
-          data-testid="chat-agent-id"
+          data-testid={testId}
           aria-label={`${t('agentSelectTitle')}: ${activeAgentName}`}
           title={t('agentSelectTitle')}
           className={cn(
             'inline-flex h-8 min-w-0 items-center gap-1.5 rounded-md border border-border/60 bg-muted/50 px-2 font-medium text-foreground transition-colors hover:bg-accent',
             compact ? 'max-w-[12rem] text-[10px]' : 'max-w-[min(14rem,100%)] text-[11px]',
+            className,
           )}
         >
           {!compact ? (

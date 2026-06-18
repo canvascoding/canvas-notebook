@@ -22,6 +22,72 @@ async function login(page: Page) {
 }
 
 test.describe('Home chat prompt', () => {
+  test('stores the selected home agent for the initial notebook prompt', async ({ page }) => {
+    await login(page);
+
+    let savedLastActiveAgentId: string | null = null;
+    await page.route('**/api/agents', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: true,
+          data: {
+            agents: [
+              { agentId: 'canvas-agent', name: 'Canvas Agent', iconId: 'bot', type: 'main', removable: false },
+              { agentId: 'linkedin-agent', name: 'LinkedIn Agent', iconId: 'briefcase', type: 'special', removable: true },
+            ],
+          },
+        }),
+      });
+    });
+    await page.route('**/api/user-preferences', async (route) => {
+      if (route.request().method() === 'PATCH') {
+        const payload = route.request().postDataJSON() as { lastActiveAgentId?: string };
+        savedLastActiveAgentId = payload.lastActiveAgentId || null;
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: true,
+          data: {
+            lastActiveAgentId: savedLastActiveAgentId || 'canvas-agent',
+          },
+        }),
+      });
+    });
+    await page.route('**/notebook**', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'text/html',
+        body: '<!doctype html><title>Notebook route held</title>',
+      });
+    });
+
+    await page.goto('/', { waitUntil: 'networkidle' });
+
+    await expect(page.getByTestId('home-agent-id')).toContainText('Canvas Agent');
+    await page.getByTestId('home-agent-id').click();
+    await page.getByRole('button', { name: /LinkedIn Agent\s+linkedin-agent/i }).click();
+
+    await expect(page.getByTestId('home-agent-id')).toContainText('LinkedIn Agent');
+    expect(savedLastActiveAgentId).toBe('linkedin-agent');
+
+    await page.locator('form textarea').first().fill('Bitte mit LinkedIn Agent starten');
+    await page.locator('form').first().evaluate((form) => {
+      form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    });
+
+    await expect(page).toHaveURL(/\/(?:en\/)?notebook(?:\?.*)?$/, { timeout: 15_000 });
+    const storedPrompt = await page.evaluate(() => window.sessionStorage.getItem('canvas.chat.initialPrompt'));
+    expect(storedPrompt).not.toBeNull();
+    expect(JSON.parse(storedPrompt!)).toMatchObject({
+      prompt: 'Bitte mit LinkedIn Agent starten',
+      agentId: 'linkedin-agent',
+    });
+  });
+
   test('redirects into notebook after submitting a prompt on the home page', async ({ page }) => {
     await login(page);
     await page.goto('/', { waitUntil: 'networkidle' });

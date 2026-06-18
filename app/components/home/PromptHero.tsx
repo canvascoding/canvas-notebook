@@ -1,17 +1,22 @@
 'use client';
 
-import React, { FormEvent, useState, useRef, useCallback, useEffect } from 'react';
+import React, { FormEvent, useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { getPathname } from '@/i18n/navigation';
 import { useLocale, useTranslations } from 'next-intl';
 import { Send, Paperclip, Loader2 } from 'lucide-react';
 import { getFileIconComponent } from '@/app/lib/files/file-icons';
 import { CANVAS_CHAT_ACTIVE_SESSION_STORAGE_KEY, CANVAS_CHAT_INITIAL_PROMPT_STORAGE_KEY } from '@/app/lib/chat/constants';
 import { DEFAULT_AGENT_ID } from '@/app/lib/channels/constants';
+import { ChatAgentSelector } from '@/app/components/canvas-agent-chat/ChatAgentSelector';
 import { AttachmentPreviewDialog } from '@/app/components/canvas-agent-chat/AttachmentPreviewDialog';
 import { AttachmentPreviewItem } from '@/app/components/canvas-agent-chat/AttachmentPreviewItem';
 import { deriveUploadAttachmentPreview, type ChatAttachment } from '@/app/lib/chat/attachment-preview';
 import { ImagePreprocessDialog } from '@/app/components/shared/ImagePreprocessDialog';
 import type { ConvertParams } from '@/app/components/shared/ImagePreprocessDialog';
+import { fetchChatAgents } from '@/app/lib/chat/agent-api';
+import { fetchLastActiveAgentId, saveLastActiveAgentId } from '@/app/lib/chat/agent-preferences';
+import { getAgentDisplayName } from '@/app/lib/chat/agent-display';
+import type { AgentProfile } from '@/app/lib/chat/types';
 
 type Attachment = ChatAttachment;
 
@@ -22,6 +27,14 @@ interface FilePickerFile {
   isImage: boolean;
 }
 
+const DEFAULT_AGENT_PROFILE: AgentProfile = {
+  agentId: DEFAULT_AGENT_ID,
+  name: 'Canvas Agent',
+  iconId: 'bot',
+  type: 'main',
+  removable: false,
+};
+
 export function PromptHero({ licenseLocked = false }: { licenseLocked?: boolean }) {
   const locale = useLocale();
   const tHome = useTranslations('home');
@@ -29,6 +42,8 @@ export function PromptHero({ licenseLocked = false }: { licenseLocked?: boolean 
   const [prompt, setPrompt] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const [availableAgents, setAvailableAgents] = useState<AgentProfile[]>([]);
+  const [selectedAgentId, setSelectedAgentId] = useState(DEFAULT_AGENT_ID);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -46,6 +61,47 @@ export function PromptHero({ licenseLocked = false }: { licenseLocked?: boolean 
   const [previewAttachment, setPreviewAttachment] = useState<Attachment | null>(null);
   const isUploading = pendingUploads > 0;
   const notebookHref = getPathname({ href: '/notebook', locale });
+  const agentOptions = useMemo(() => (
+    availableAgents.length > 0 ? availableAgents : [DEFAULT_AGENT_PROFILE]
+  ), [availableAgents]);
+  const selectedAgent = agentOptions.find((agent) => agent.agentId === selectedAgentId);
+  const selectedAgentName = selectedAgent?.name || getAgentDisplayName(selectedAgentId);
+
+  useEffect(() => {
+    let isActive = true;
+
+    const loadAgentState = async () => {
+      try {
+        const [agents, lastActiveAgentId] = await Promise.all([
+          fetchChatAgents(),
+          fetchLastActiveAgentId(),
+        ]);
+        if (!isActive) return;
+
+        setAvailableAgents(agents);
+        const hasStoredAgent = agents.length === 0 || agents.some((agent) => agent.agentId === lastActiveAgentId);
+        setSelectedAgentId(hasStoredAgent ? lastActiveAgentId : DEFAULT_AGENT_ID);
+      } catch (error) {
+        console.error('Failed to load home agent selector state', error);
+        if (isActive) {
+          setAvailableAgents([DEFAULT_AGENT_PROFILE]);
+          setSelectedAgentId(DEFAULT_AGENT_ID);
+        }
+      }
+    };
+
+    void loadAgentState();
+
+    return () => {
+      isActive = false;
+    };
+  }, []);
+
+  const handleAgentSelect = useCallback((agentId: string) => {
+    if (licenseLocked) return;
+    setSelectedAgentId(agentId);
+    void saveLastActiveAgentId(agentId);
+  }, [licenseLocked]);
 
   const handleFileUploadMultiple = useCallback(async (files: File[], convertParams?: (ConvertParams | null)[]) => {
     if (licenseLocked) return;
@@ -297,7 +353,7 @@ export function PromptHero({ licenseLocked = false }: { licenseLocked?: boolean 
       const data = {
         prompt: normalizedPrompt,
         attachments: attachments,
-        agentId: DEFAULT_AGENT_ID,
+        agentId: selectedAgentId,
       };
       window.sessionStorage.setItem(
         CANVAS_CHAT_INITIAL_PROMPT_STORAGE_KEY,
@@ -394,22 +450,34 @@ export function PromptHero({ licenseLocked = false }: { licenseLocked?: boolean 
         </div>
 
         <div className="flex items-center justify-between gap-3">
-          <button
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            className="border border-transparent p-2 text-muted-foreground transition-colors hover:border-border hover:bg-accent rounded-md"
-            title={tChat('attachImage')}
-            disabled={licenseLocked}
-          >
-            <Paperclip className="h-5 w-5" />
-          </button>
-          <input
-            type="file"
-            ref={fileInputRef}
-            onChange={onFileChange}
-            className="hidden"
-            multiple
-          />
+          <div className="flex min-w-0 items-center gap-2">
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              className="rounded-md border border-transparent p-2 text-muted-foreground transition-colors hover:border-border hover:bg-accent"
+              title={tChat('attachImage')}
+              disabled={licenseLocked}
+            >
+              <Paperclip className="h-5 w-5" />
+            </button>
+            <input
+              type="file"
+              ref={fileInputRef}
+              onChange={onFileChange}
+              className="hidden"
+              multiple
+            />
+            <ChatAgentSelector
+              variant="desktop"
+              activeAgentId={selectedAgentId}
+              activeAgentName={selectedAgentName}
+              activeAgentIconId={selectedAgent?.iconId}
+              agents={agentOptions}
+              className="max-w-[11rem] bg-background"
+              testId="home-agent-id"
+              onSelectAgent={handleAgentSelect}
+            />
+          </div>
 
           <button
             type="submit"
