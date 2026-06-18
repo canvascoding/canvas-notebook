@@ -304,6 +304,7 @@ Offboarding:
 - User sollen in Team-Instanzen bevorzugt archiviert/deaktiviert werden, nicht hart geloescht.
 - Vor dem Entfernen oder Deaktivieren eines Users muss ein Offboarding-Flow durchlaufen werden.
 - Der Flow muss anbieten, den persoenlichen Workspace des Users vorher zu sichern oder zu exportieren.
+- Der archivierte Personal Workspace ist danach nicht normal sichtbar; Zugriff ist nur ueber Owner-/Admin-Recovery-Flow mit Warnung und Audit erlaubt.
 - Agenten, die der User angelegt hat, werden standardmaessig geloescht, sofern sie nicht vorher als Organization-Template kopiert oder uebertragen werden.
 - Automations des Users muessen reviewed werden. Admins waehlen pro Automation: auf anderen User migrieren, pausieren oder loeschen.
 - To-dos, die dem User zugewiesen sind, muessen im Offboarding bestaetigt und entweder geloescht, neu zugewiesen oder archiviert werden.
@@ -752,8 +753,8 @@ Die verbindliche Detailregel steht in `13-resource-aware-ingestion-and-job-backp
 - Welche Better-Auth-Rollen/Metadaten fuer `owner`, `admin`, `member` und `external` genutzt werden.
 - Ob externe User direkt in V1 kommen oder erst mit Projekt-/Kunden-Workspaces.
 - Welche per-User Permissions als Booleans starten und welche spaeter rollenbasiert werden.
-- Wie der Offboarding-Flow technisch aufgebaut wird und welche Schritte blockierend bestaetigt werden muessen.
-- Welche Daten archivierter User sichtbar bleiben und welche anonymisiert werden.
+- Welche Offboarding-Schritte blockierend bestaetigt werden muessen und welche nachtraeglich korrigierbar bleiben.
+- Ob reaktivierte User ihren alten Personal Workspace direkt wiederbekommen oder ob ein Restore-Schritt noetig ist.
 - Wie Search/Embeddings vorbereitet werden, obwohl Embeddings erst spaeter integriert werden.
 - Welche Background-Job-Typen User-owned, Organization-owned oder System-owned sind.
 - Wie User-Env, Organization-Env, Instanz-Env und Managed-Control-Plane-Env technisch zusammengefuehrt werden.

@@ -189,6 +189,7 @@ Tests:
 - E-Mail-Tests: User A kann User-B-Mailbox nicht senden, lesen oder als Draft-Ziel verwenden.
 - MCP-/Plugin-/Skill-Tests: gleichnamige Konfigurationen bleiben pro User getrennt.
 - Automation-Tests fuer Personal vs Organization Scope, Webhook-Signatur, Rate Limits, Offboarding und Risk-Approval.
+- Offboarding-Tests fuer Preflight, Credential-Revocation, Automation-/To-do-Review und Recovery-Flow fuer archivierte Personal Workspaces.
 - Resource-Tests fuer Low-Resource-Profil, Queue-Backpressure, Parser-Timeouts und fehlende Embeddings bei nicht abgeschlossenem Scan.
 - Settings-Tests: Default-off nach Fresh Install/Update, Aktivierung nur durch Admin/Managed Policy und korrektes Pausieren beim Ausschalten.
 - Logging-Tests: Resource- und Parser-Logs enthalten Korrelation und `reasonCode`, aber keine Dokumentinhalte oder Secrets.

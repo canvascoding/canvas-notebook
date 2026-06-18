@@ -196,7 +196,8 @@
       "planningArtifacts": [
         "docs/architecture/canvas-notebook/team-workspace/08-user-scoped-secrets-runtime.md",
         "docs/architecture/canvas-notebook/team-workspace/09-initial-setup-and-update-migration.md",
-        "docs/architecture/canvas-notebook/team-workspace/11-automation-execution-model.md"
+        "docs/architecture/canvas-notebook/team-workspace/11-automation-execution-model.md",
+        "docs/architecture/canvas-notebook/team-workspace/16-offboarding-and-recovery-policy.md"
       ]
     },
     {
@@ -279,7 +280,8 @@
         "docs/architecture/canvas-notebook/team-workspace/10-agent-tool-execution-policy.md",
         "docs/architecture/canvas-notebook/team-workspace/11-automation-execution-model.md",
         "docs/architecture/canvas-notebook/team-workspace/12-knowledge-ingestion-retrieval-policy.md",
-        "docs/architecture/canvas-notebook/team-workspace/14-public-links-and-studio-assets-policy.md"
+        "docs/architecture/canvas-notebook/team-workspace/14-public-links-and-studio-assets-policy.md",
+        "docs/architecture/canvas-notebook/team-workspace/16-offboarding-and-recovery-policy.md"
       ]
     },
     {

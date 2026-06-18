@@ -24,6 +24,7 @@ Dieses Dokument schliesst Umsetzungsschritt 2 ab: bestehende Canvas Notebook Fun
 | Sessions/Auth Accounts | `user` | `user`, optional `organization` Context | Session muss aktuelle Organization/Workspace aufloesen koennen | P2/P3 |
 | Bootstrap Owner/Admin | `instance`, Bootstrap-E-Mail als Admin-Fallback | `organization` Owner/Admin, Community Single Admin, Personal Workspace und User Runtime Root | Initial Owner erzeugen, genau einen Owner und mindestens einen Admin erzwingen, scoped Roots anlegen | P2 |
 | Onboarding | `instance` Completion plus `user` Hints | `user` Onboarding, `organization` Setup-/Review-State | Setup-State von User-Hints trennen; Legacy Review fuer Admins separat fuehren | P2 |
+| Offboarding | nicht zentral modelliert | `organization` Workflow mit archiviertem `user` und Recovery-locked Personal Workspace | Preflight, Credential-Revocation, Automation-/To-do-Review, Personal-Workspace-Recovery mit Audit | P6/P7 |
 | License Status | `instance` mit Plan `community/pro/managed` | `instance` Deployment Mode plus signierte Feature-/Quota-Claims | Deployment Modes und Team-Feature-Resolution einfuehren | P1 |
 | Managed Control Plane Config | `system/managed` Env/Instance Token | `system/managed`, liefert Organization/License Claims | Notebook liest Claims, vertraut final nicht auf lokale Booleans | P1 |
 | Workspace-Dateien | globaler `data/workspace` Ordner | `workspace` mit `personal/team/project` Typ | Workspace-Service, Root Resolver, Legacy-Kompatibilitaet | P3 |
@@ -119,6 +120,7 @@ Dieses Dokument schliesst Umsetzungsschritt 2 ab: bestehende Canvas Notebook Fun
 14. Agent-Tools duerfen nur ueber einen serverseitig erzeugten Execution Context laufen; Tool-Parameter aus dem LLM sind untrusted.
 15. Automations haben genau einen primaeren Workspace; Organization Automations laufen ueber Service Actor und brauchen Admin-Approval.
 16. Knowledge-Ingestion darf nur nach Scope und Scan-Policy indexieren; Retrieval muss ACLs vor Rueckgabe erzwingen.
+17. Offboarding darf Personal Workspaces nicht normal fuer Admins sichtbar machen; Zugriff nur ueber Recovery-Flow mit Audit.
 
 ## Migrationsreihenfolge fuer Datenmodell
 

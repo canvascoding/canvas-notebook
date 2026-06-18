@@ -186,6 +186,8 @@ Automation-Verwaltung bleibt UI/API-Aktion eines berechtigten Users oder Admins.
 
 ## Offboarding
 
+Der allgemeine Offboarding- und Recovery-Flow ist in `16-offboarding-and-recovery-policy.md` verbindlich beschrieben. Dieses Dokument konkretisiert nur die Automation-Folgen.
+
 Personal Automations:
 
 - pausieren sofort, wenn der Owner deaktiviert oder offboarded wird.

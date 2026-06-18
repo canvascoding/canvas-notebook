@@ -242,7 +242,7 @@ Empfohlene Migration:
 
 ## Edge Cases
 
-- Offboarding: User-Secrets und OAuth Tokens revoken; User-MCP deaktivieren; User-Automations pausieren, transferieren oder loeschen; Audit-Metadaten behalten.
+- Offboarding: User-Secrets und OAuth Tokens revoken; User-MCP deaktivieren; User-Automations pausieren, transferieren oder loeschen; Audit-Metadaten behalten. Details stehen in `16-offboarding-and-recovery-policy.md`.
 - User-E-Mail-Aenderung: Dateipfade bleiben stabil, weil sie technische `userId` verwenden.
 - Secret-Rotation waehrend Agent-Run: bestehende Tool-Calls laufen nicht mit neuem Secret weiter; neue Tool-Calls muessen neu resolven und bei Revocation failen.
 - Doppelte MCP-/Plugin-Namen: erlaubt, solange sie in getrennten User-Scopes liegen.
@@ -261,6 +261,6 @@ Pflichttests fuer die Umsetzung:
 - Plugin-/Skill-Konfiguration eines Users beeinflusst andere User nicht.
 - Geteiltes Agent-Template enthaelt keine privaten Secret-Refs des Erstellers.
 - Organization-Secret wird nur bei erlaubtem Organization-Scope injiziert.
-- Offboarding revokt User-OAuth und deaktiviert User-MCP/Automations.
+- Offboarding revokt User-OAuth und deaktiviert User-MCP/Automations; archivierte Personal Workspaces sind nur ueber Recovery-Flow mit Audit erreichbar.
 - Export eines normalen Users enthaelt keine Organization- oder System-Secrets.
 - Audit Events speichern Secret-Refs und Tool-Metadaten, aber keine Secret-Werte.
