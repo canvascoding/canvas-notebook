@@ -357,10 +357,16 @@ li.task-list-item > p {
 
 /* tiptap markdown editor */
 .tiptap-editor-shell {
+  background: #fff;
   min-height: 100%;
 }
 
+.dark .tiptap-editor-shell {
+  background: #050505;
+}
+
 .tiptap-editor-shell .ProseMirror {
+  background: inherit;
   min-height: 100%;
   padding: 20px 20px 20px 4.75rem;
   outline: none;
@@ -646,10 +652,16 @@ li.task-list-item > p {
 
 /* tiptap email html editor */
 .email-html-editor-shell {
+  background: #fff;
   min-height: 13rem;
 }
 
+.dark .email-html-editor-shell {
+  background: #050505;
+}
+
 .email-html-editor-shell .ProseMirror {
+  background: inherit;
   min-height: 13rem;
   outline: none;
   padding: 0.75rem;
