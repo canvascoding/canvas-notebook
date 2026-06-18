@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { extractFilePaths, normalizeChatFilePath } from '../app/lib/chat/extract-file-paths';
 import { validateFileExists } from '../app/lib/chat/validate-file-paths';
+import { getFileDisplayName, getFileDisplayPath } from '../app/lib/files/display-name';
 import { useFileStore } from '../app/store/file-store';
 import type { FileNode } from '../app/store/file-store';
 
@@ -71,6 +72,11 @@ async function main() {
     assert.equal(await validateFileExists('missing/nope.md', fileTree), false);
     const missingFetchMatches = fetchCalls.join('\n').match(new RegExp(encodeURIComponent('missing/nope.md'), 'g')) ?? [];
     assert.equal(missingFetchMatches.length, 1);
+
+    assert.equal(getFileDisplayName({ name: 'loaded.md', type: 'file' }), 'loaded');
+    assert.equal(getFileDisplayPath('docs/loaded.md'), 'docs/loaded');
+    assert.equal(getFileDisplayPath('/data/workspace/docs/loaded.md'), '/data/workspace/docs/loaded');
+    assert.equal(getFileDisplayPath('assets/photo.jpg'), 'assets/photo.jpg');
 
     const revealFetchCalls: string[] = [];
     useFileStore.setState({

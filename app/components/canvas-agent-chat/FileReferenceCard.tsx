@@ -7,6 +7,7 @@ import { useFileStore } from '@/app/store/file-store';
 import { usePathname as useLocalePathname, getPathname } from '@/i18n/navigation';
 import { useLocale } from 'next-intl';
 import { ImageThumbnailIcon } from '@/app/components/shared/ImageThumbnailIcon';
+import { getFileDisplayPath } from '@/app/lib/files/display-name';
 import { getFileIconComponent, isImageFile } from '@/app/lib/files/file-icons';
 import { normalizeChatFilePath, type FilePathEntry } from '@/app/lib/chat/extract-file-paths';
 import { notifyChatFileReferenceOpened } from '@/app/lib/chat/file-reference-events';
@@ -94,6 +95,8 @@ export function FileReferenceCard({ paths }: FileReferenceCardProps) {
       <div className="flex flex-col gap-1">
         {validPaths.map((entry) => {
           const fileName = entry.label || entry.path.split('/').pop() || entry.path;
+          const displayName = getFileDisplayPath(fileName);
+          const displayPath = getFileDisplayPath(entry.path);
           const fallbackIcon = getFileIconComponent({ name: fileName, path: entry.path, type: 'file' });
           return (
             <button
@@ -115,10 +118,10 @@ export function FileReferenceCard({ paths }: FileReferenceCardProps) {
               </span>
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-xs font-medium text-foreground group-hover:text-primary">
-                  {fileName}
+                  {displayName}
                 </span>
                 <span className="block truncate text-[10px] text-muted-foreground">
-                  {entry.path}
+                  {displayPath}
                 </span>
               </span>
               <ExternalLink className="h-3 w-3 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 group-hover:text-primary" />

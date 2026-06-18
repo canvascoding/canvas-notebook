@@ -14,6 +14,7 @@ import type { ComposerReferencePickerItem } from '@/app/components/canvas-agent-
 import type { FilePickerFile, PluginPickerPlugin, ReferencePickerValue, SkillPickerSkill } from '@/app/components/canvas-agent-chat/ChatComposer';
 import { findActiveComposerReference, replaceComposerReference, type ComposerReferenceMatch } from '@/app/lib/chat/composer-references';
 import { safeFetchJson } from '@/app/lib/chat/fetch-json';
+import { getFileDisplayPath } from '@/app/lib/files/display-name';
 import { getFileIconComponent } from '@/app/lib/files/file-icons';
 import { CanvasPluginIcon } from '@/app/lib/plugins/plugin-icons';
 import { CanvasSkillIcon } from '@/app/lib/skills/skill-icons';
@@ -63,7 +64,7 @@ export function useComposerReferences({
           id: `file:${file.path}`,
           kind: 'file' as const,
           icon: getFileIconComponent({ name: file.name, path: file.path, type: file.type }),
-          label: file.path,
+          label: getFileDisplayPath(file.path),
           payload: file,
         }));
         setReferencePickerItems(items);

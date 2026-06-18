@@ -83,7 +83,8 @@ test.describe('Chat File Reference Picker', () => {
 
       const pickerButtons = page.locator('textarea[data-testid="chat-input"] + div button');
       await expect(pickerButtons.first()).toBeVisible({ timeout: 15000 });
-      await expect(pickerButtons.first()).toContainText(`${fixtureId}/Elsewhere/${query}.md`);
+      await expect(pickerButtons.first()).toContainText(`${fixtureId}/Elsewhere/${query}`);
+      await expect(pickerButtons.first()).not.toContainText(`${query}.md`);
       await expect(pickerButtons.first()).not.toContainText(`/${query}/unrelated-notes.md`);
     } finally {
       await rm(fixtureRoot, { recursive: true, force: true });

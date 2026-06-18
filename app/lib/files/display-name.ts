@@ -18,3 +18,17 @@ export function getFileDisplayName(node: FileDisplayNode): string {
 
   return node.name;
 }
+
+export function getFileDisplayPath(filePath: string): string {
+  const segments = filePath.split('/');
+  const fileName = segments.pop();
+
+  if (!fileName) {
+    return filePath;
+  }
+
+  return [
+    ...segments,
+    getFileDisplayName({ name: fileName, type: 'file' }),
+  ].join('/');
+}

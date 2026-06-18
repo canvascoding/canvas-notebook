@@ -14,6 +14,7 @@ import { notifyChatFileReferenceOpened } from '@/app/lib/chat/file-reference-eve
 import { extractStudioImageMediaUrls } from '@/app/lib/chat/studio-image-markdown';
 import { validateFileExists } from '@/app/lib/chat/validate-file-paths';
 import type { ChatMessage } from '@/app/lib/chat/types';
+import { getFileDisplayPath } from '@/app/lib/files/display-name';
 import { getFileIconComponent } from '@/app/lib/files/file-icons';
 import { toMediaUrl, toWorkspaceMediaUrl } from '@/app/lib/utils/media-url';
 import { useFileStore } from '@/app/store/file-store';
@@ -64,6 +65,42 @@ function resolveMarkdownImageSrc(src: string): string {
   }
 
   return trimmed;
+}
+
+function getPlainText(children: React.ReactNode): string | null {
+  const childArray = React.Children.toArray(children);
+  if (childArray.length === 0) {
+    return null;
+  }
+
+  let text = '';
+  for (const child of childArray) {
+    if (typeof child !== 'string' && typeof child !== 'number') {
+      return null;
+    }
+    text += String(child);
+  }
+
+  return text;
+}
+
+function getFileReferenceLabel(href: string, children: React.ReactNode): React.ReactNode {
+  const label = getPlainText(children)?.trim();
+  if (!label) {
+    return children;
+  }
+
+  if (isFilePath(label)) {
+    return getFileDisplayPath(label);
+  }
+
+  const normalizedHref = normalizeChatFilePath(href);
+  const normalizedLabel = normalizeChatFilePath(label);
+  const labelMatchesHref =
+    normalizedLabel === normalizedHref ||
+    normalizedHref.endsWith(`/${normalizedLabel}`);
+
+  return labelMatchesHref ? getFileDisplayPath(label) : children;
 }
 
 export function getRecentStudioImageMediaUrls(messages: ChatMessage[], messageIndex: number): string[] {
@@ -119,6 +156,7 @@ function FileLink({ href, children, showIcon = false }: { href: string; children
   };
 
   const isNotFound = isValid === false;
+  const displayChildren = getFileReferenceLabel(href, children);
 
   if (showIcon) {
     const fileName = href.split('/').pop() || href;
@@ -132,7 +170,7 @@ function FileLink({ href, children, showIcon = false }: { href: string; children
           className={`underline underline-offset-2 transition-colors ${isNotFound ? 'text-muted-foreground cursor-not-allowed' : 'cursor-pointer text-primary hover:text-primary/80'}`}
           title={isNotFound ? `File not found: ${href}` : `Open ${href}`}
         >
-          {children}
+          {displayChildren}
         </button>
       </span>
     );
@@ -148,7 +186,7 @@ function FileLink({ href, children, showIcon = false }: { href: string; children
       }`}
       title={isNotFound ? `File not found: ${href}` : `Open ${href}`}
     >
-      {children}
+      {displayChildren}
     </button>
   );
 }
