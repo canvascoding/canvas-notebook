@@ -3174,6 +3174,8 @@
     },
     "skills": {
       "auto": "Choose automatically",
+      "searchPlaceholder": "Search skills...",
+      "empty": "No matching skills found.",
       "description": "Optional. The agent receives this skill preference for every run."
     },
     "runDetails": {

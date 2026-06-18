@@ -3173,6 +3173,8 @@
     },
     "skills": {
       "auto": "Automatisch wählen",
+      "searchPlaceholder": "Skills suchen...",
+      "empty": "Keine passenden Skills gefunden.",
       "description": "Optional. Der Agent bekommt diese Skill-Präferenz bei jedem Lauf."
     },
     "runDetails": {
