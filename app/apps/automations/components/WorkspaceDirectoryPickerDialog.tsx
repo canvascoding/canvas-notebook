@@ -59,6 +59,19 @@ function collectAncestorPaths(path: string | undefined): Set<string> {
   return ancestors;
 }
 
+function toDirectoryTree(nodes: FileNode[]): FileNode[] {
+  return nodes.flatMap((node) => {
+    if (node.type !== 'directory') {
+      return [];
+    }
+
+    return [{
+      ...node,
+      children: node.children ? toDirectoryTree(node.children) : undefined,
+    }];
+  });
+}
+
 function filterDirectoryTree(nodes: FileNode[], query: string): FileNode[] {
   if (!query) {
     return nodes;
@@ -130,7 +143,7 @@ export function WorkspaceDirectoryPickerDialog({
         throw new Error(payload.error || t('errors.loadDirectories'));
       }
 
-      const nextDirectories = (payload.data || []).filter((node: FileNode) => node.type === 'directory');
+      const nextDirectories = toDirectoryTree(payload.data || []);
       setDirectories(nextDirectories);
     } catch (loadError) {
       setDirectories([]);
@@ -202,7 +215,7 @@ export function WorkspaceDirectoryPickerDialog({
   }
 
   function renderDirectoryNodes(nodes: FileNode[], depth = 0): ReactNode {
-    return nodes.map((directory) => {
+    return nodes.filter((node) => node.type === 'directory').map((directory) => {
       const hasChildren = Boolean(directory.children?.length);
       const isExpanded = visibleExpandedPaths.has(directory.path);
       const normalizedPath = normalizeSelectionPath(directory.path);
