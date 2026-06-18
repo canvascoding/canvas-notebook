@@ -78,9 +78,9 @@ Dieses Dokument schliesst Umsetzungsschritt 2 ab: bestehende Canvas Notebook Fun
 | Studio Outputs/Assets Files | globale `data/studio/...` Pfade | `organization` Asset Store, optional Workspace-Verknuepfung | Organizationweite Asset-Sammlung, Creator bleibt erhalten, Offboarding loescht Assets nicht | P6 |
 | Studio Save to Workspace | globaler Workspace, `targetPath` | expliziter `targetWorkspaceId` plus `targetPath` | Pflichtdialog fuer Personal/Team-Ziel und serverseitige Permission | P4/P6 |
 | Studio References | globale Upload-/Reference-Bereiche | `user` Intake, `organization` Asset Visibility | Reference Ownership speichern | P6 |
-| Personal Workspace Export | globaler Export/adminnah | User darf eigenen Personal Workspace exportieren | Self-service Export ohne Team-/Org-Daten | P8 |
-| Migration Export | `instance` Komponenten | Admin-only `organization` Export mit User/Workspace Mapping | Manifest und Component Paths erweitern; Team/Org Export permission-gated | P8 |
-| Migration Restore/Import | `instance` Restore | Organization/User/Workspace Mapping, Dry Run | Import Preview und Reconnect-Flows | P8 |
+| Personal Workspace Export | globaler Export/adminnah | User darf eigenen Personal Workspace exportieren | Self-service Export ohne Team-/Org-Daten und ohne Secrets | P8 |
+| Migration Export | `instance` Komponenten | Admin-only `organization` Export mit User/Workspace/Reference Mapping | Public Links auslassen, Secrets redacted, Personal Workspaces nur expliziter Full/Admin Export | P8 |
+| Migration Restore/Import | `instance` Restore | Organization/User/Workspace/Chat/Agent Mapping, Dry Run | Import Preview, unresolved References und Reconnect-Flows | P8 |
 | Update-Migration File Formats | Legacy-Dateien werden beim Start teilweise kopiert | versionierte, idempotente Migration mit Owner-Aufloesung und Review-State | Migration State Manifest/DB-Tabelle, keine automatische Team-Aktivierung globaler Dateien | P8/P9 |
 | Secrets Export | optional globale Secrets | redacted/reconnect/encrypted bewusst pro Scope | Keine Default-Klartext-Exports | P8 |
 | QMD/Search/Retrieval | global `/data/workspace` Collection | getrennte Knowledge Stores fuer `personal_user`, `team_workspace`, optional `organization` | Collection Metadata, Secret-/PII-Scan, ACL-Filter und Delete-Propagation erzwingen | P6 |
@@ -93,7 +93,7 @@ Dieses Dokument schliesst Umsetzungsschritt 2 ab: bestehende Canvas Notebook Fun
 | Admin Cleanup | admin-only, Studio Assets global | `organization` Admin Operation | Admin-Gate plus Audit | P7 |
 | Health Endpoint | `instance` | `instance/system` | Bleibt Instanz-Health fuer Control Plane | P9 |
 | Runtime Data Paths | `instance` Data Root | `instance`, mit scoped Unterpfaden | Nicht alles unter Data Root fachlich global behandeln | P3/P6 |
-| Backups | aktuell Migration/Filesystem-nahe | `organization` Backup plus system-managed Host Backup | Backup Manifest nach Scopes | P8 |
+| Backups | aktuell Migration/Filesystem-nahe | Full Instance Backup plus system-managed Host/Control-Plane Backup | Konsistenter DB-/Data-Snapshot, verschluesselt, extern triggerbar, Schedule vorbereitet | P8 |
 | Audit Trail | nicht als zentrale Domain vorhanden | `organization` zentral, mit User/Workspace/Session | Audit-Domain einfuehren | P7 |
 | Retention/Trash | geloeschte Dateien oft direkt entfernt | `organization` Policy, `workspace` Trash | Trash/Retention vor Team-Datei-Loeschung | P7 |
 | Raw Tool/Runtime Logs | in Messages/Runtime-Events oder gar nicht zentral | kurzlebiger technischer Debug-Scope mit Retention | Nicht als dauerhafter Audit-Ersatz speichern; Summary/Hash/Ref behalten | P7 |

@@ -200,6 +200,9 @@ Export und Migration:
 - Exportierbare Bereiche sollten einzeln waehlbar sein: persoenliche Workspaces, Team Workspace, Knowledge Base, Agenten, Skills/Plugins, Automations, To-dos, Studio Assets, Produkte/Personas/Stile, Composio-/Integration-Metadaten, E-Mail-Connection-Metadaten, Notification Settings, Public Links, Audit Trail und App-Konfiguration.
 - Secrets und OAuth-Tokens duerfen nicht unkontrolliert im Klartext exportiert werden. Fuer sensible Daten braucht es bewusstes Redaction-, Reconnect- oder verschluesseltes Export-Verhalten.
 - Der Export muss `organizationId`, `userId`, `workspaceId` und relevante Relationen erhalten, damit Imports spaeter korrekt gemappt werden koennen.
+- Migration Exports enthalten keine aktiven Public Links oder Public-Link-Tokens; Links muessen im Zielsystem neu gesetzt werden.
+- Full/Admin Export darf Personal Workspaces enthalten, muss aber explizit gewaehlt, gewarnt und auditiert werden.
+- Export-/Import-Manifeste muessen User-, Workspace-, Chat-/Session-, Agent-, Automation-, To-do- und Studio-Referenzen so beschreiben, dass sie im Import-Dry-Run gemappt oder als `unresolved` gemeldet werden koennen.
 - Export-Aktionen muessen auditiert werden.
 
 Agent-Runtime-Einstellungen:
@@ -346,6 +349,9 @@ Import:
 - Der Export-Plan braucht einen passenden Import-Flow.
 - Import muss User korrekt anlegen oder auf bestehende User mappen koennen.
 - Workspaces, Agenten, To-dos, Automations, Studio Assets, Public Links und Audit-/Historienreferenzen brauchen stabile Mapping-Strategien.
+- Public Links werden bei Migration nicht aktiv importiert; sie werden im Import-Report als neu zu erstellen markiert.
+- Zuweisungen zu Usern, Chats/Sessions, Agenten, Workspaces, To-dos und Automations muessen explizit gemappt werden.
+- Unaufloesbare Referenzen duerfen nicht stillschweigend auf den importierenden Admin oder Owner umgebogen werden.
 - OAuth-Tokens und externe Credentials sollten beim Import nicht blind importiert werden. In der Regel braucht es Reconnect-Flows.
 - Ein Import sollte einen Dry-Run oder Preview-Modus haben, bevor Daten geschrieben werden.
 - Import-Aktionen muessen auditiert werden.
@@ -650,6 +656,15 @@ Restore-Anforderungen:
 - User-Mapping beim Import in bestehende oder neue Organizations.
 - Reconnect-Flows fuer OAuth/Credentials nach Import.
 - Nachvollziehbarkeit, welcher User oder Agent eine Revision erzeugt hat.
+
+Full-Backup-Anforderungen:
+
+- Full Backup sichert die komplette Instanz fuer Disaster Recovery, nicht nur exportierbare User-Daten.
+- Backups muessen ueber Admin-Kontext, Control Plane, Host-/Container-CLI oder spaeter Schedule getriggert werden koennen.
+- Taegliche Backups sollen vorbereitet werden; konkrete Retention/Schedule wird spaeter planabhaengig festgelegt.
+- DB, WAL/Journal, `/data/workspaces`, `/data/studio`, scoped Settings, Runtime-Konfiguration und Secrets/OAuth-State muessen konsistent und verschluesselt gesichert werden.
+- Public Links und Tokens duerfen in Full Backups fuer gleiche Disaster-Recovery-Ziele enthalten sein, aber nicht in Migration Exports.
+- Backup-Jobs brauchen Resource Budget, Logging, Integritaetschecks und Schutz gegen parallele Laeufe.
 
 ## Storage-Monitoring und Kapazitaetsmanagement
 

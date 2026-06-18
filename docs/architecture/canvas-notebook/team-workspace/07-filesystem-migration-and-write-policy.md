@@ -116,7 +116,9 @@ Regeln:
 - Jeder User darf den eigenen Personal Workspace exportieren.
 - Ein User darf keinen fremden Personal Workspace exportieren.
 - Team Workspace Export erfordert Organization-Admin oder explizite Export-Permission.
-- Vollstaendiger Organization Export inklusive DB, Team Workspace, Team-Metadaten, Audit, Automations, Public Links und Studio-Metadaten ist admin-only.
+- Vollstaendiger Organization Export inklusive DB, Team Workspace, Team-Metadaten, Audit, Automations und Studio-Metadaten ist admin-only.
+- Public Links werden in Migration Exports nicht aktiv exportiert; sie muessen im Zielsystem neu gesetzt werden.
+- Full/Admin Export kann Personal Workspaces enthalten, muss aber explizit gewaehlt, gewarnt und auditiert werden.
 - Secret-Exports bleiben redacted oder werden als Reconnect-Manifest exportiert.
 - Settings-UI fuer normale User zeigt nur Personal-Workspace-Export und eigene Daten.
 - Organization-/Team-Export darf nicht in derselben UI-Flaeche wie normaler User-Export erscheinen, sondern braucht Admin-/Security-Kontext.

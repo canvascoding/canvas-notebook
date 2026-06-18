@@ -21,6 +21,7 @@ Dieses Verzeichnis ist der zentrale Arbeitsbereich fuer den Team-Workspace-Umbau
 - `12-knowledge-ingestion-retrieval-policy.md`: automatische Knowledge-Ingestion, Docling-Abgleich, Secret-/PII-Scan, Knowledge Stores und Retrieval-ACLs.
 - `13-resource-aware-ingestion-and-job-backpressure.md`: Resource Profile, Memory-/CPU-Grenzen, Queue-Backpressure, Degradation und Control-Plane-Metriken fuer schwere Jobs.
 - `14-public-links-and-studio-assets-policy.md`: Public-Link-Regeln, Latest-Verhalten, Passwortschutz-Vorbereitung, organizationweite Studio Assets und Studio-Copy-Zielauswahl.
+- `15-export-import-backup-restore-policy.md`: Personal/Admin Export, Import-Mapping, Public-Link-Ausschluss, Full Backup, Restore und Verschluesselungsgrenzen.
 - `../todo.json`: Aufgabenindex fuer Agenten und Fortschrittsverfolgung.
 
 ## Arbeitsregeln
@@ -48,4 +49,5 @@ Dieses Verzeichnis ist der zentrale Arbeitsbereich fuer den Team-Workspace-Umbau
 - Knowledge-Ingestion- und Retrieval-Policy ist dokumentiert.
 - Resource-aware Ingestion und Job Backpressure fuer kleine VMs ist dokumentiert.
 - Public-Link- und Studio-Asset-Policy ist dokumentiert.
+- Export-/Import-/Backup-/Restore-Policy ist dokumentiert.
 - Naechster Schritt: Initiales Admin-/Owner-Setup und Admin-only Gates absichern.

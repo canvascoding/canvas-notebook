@@ -229,17 +229,24 @@ Lieferumfang:
 - Self-service Export nur fuer den eigenen Personal Workspace.
 - Team-/Organization-Export nur fuer Admins oder User mit Export-Permission.
 - Organization/User/Workspace-Mapping im Manifest.
+- Chat-/Session-/Agent-/Automation-/To-do-Referenzen im Manifest und Import-Dry-Run mappen.
+- Public Links aus Migration Exports auslassen; im Zielsystem neu setzen.
 - Secret-Redaction und Reconnect-Strategie.
 - Import Dry-Run.
 - Restore einzelner Dateien/Ordner/Revisions.
-- Backup-relevante Datenbereiche dokumentiert und technisch angebunden.
+- Full Backup inklusive DB, Workspaces, Studio, Runtime, Secrets/OAuth verschluesselt und Public Links fuer Disaster Recovery.
+- Backup-Trigger ueber Admin/API/CLI/Control Plane vorbereiten; taeglichen Schedule spaeter ermoeglichen.
+- Verschluesselungsgrenzen dokumentieren: App-Exportrechte sind keine kryptografische Isolation gegen Root-/Container-Admins.
 - Update-Migration bestehender Datei- und Runtime-Formate ist versioniert, idempotent und wiederaufnehmbar.
 
 Tests:
 
 - Export-/Import-Fixtures.
 - Export-Permission-Tests fuer Personal, Team und Organization.
+- Tests fuer Public-Link-Ausschluss in Migration Exports.
+- Import-Dry-Run-Tests fuer User-/Workspace-/Chat-/Agent-Referenzen und `unresolved` Mapping.
 - Restore-Dry-Run-Tests.
+- Backup-Trigger- und Parallel-Run-Blocker-Tests.
 - Update-Migrations-Fixtures fuer Single-User, eindeutigen Bootstrap-Admin und mehrdeutige Multi-User-Instanzen.
 - SQLite-Snapshot-Tests.
 - `npm run build`.

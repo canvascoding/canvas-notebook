@@ -252,7 +252,8 @@
       "planningArtifacts": [
         "docs/architecture/canvas-notebook/team-workspace/07-filesystem-migration-and-write-policy.md",
         "docs/architecture/canvas-notebook/team-workspace/08-user-scoped-secrets-runtime.md",
-        "docs/architecture/canvas-notebook/team-workspace/09-initial-setup-and-update-migration.md"
+        "docs/architecture/canvas-notebook/team-workspace/09-initial-setup-and-update-migration.md",
+        "docs/architecture/canvas-notebook/team-workspace/15-export-import-backup-restore-policy.md"
       ]
     },
     {
@@ -263,7 +264,8 @@
       "planningArtifacts": [
         "docs/architecture/canvas-notebook/team-workspace/07-filesystem-migration-and-write-policy.md",
         "docs/architecture/canvas-notebook/team-workspace/08-user-scoped-secrets-runtime.md",
-        "docs/architecture/canvas-notebook/team-workspace/09-initial-setup-and-update-migration.md"
+        "docs/architecture/canvas-notebook/team-workspace/09-initial-setup-and-update-migration.md",
+        "docs/architecture/canvas-notebook/team-workspace/15-export-import-backup-restore-policy.md"
       ]
     },
     {
@@ -347,7 +349,8 @@
       "planningArtifacts": [
         "docs/architecture/canvas-notebook/team-workspace/07-filesystem-migration-and-write-policy.md",
         "docs/architecture/canvas-notebook/team-workspace/08-user-scoped-secrets-runtime.md",
-        "docs/architecture/canvas-notebook/team-workspace/09-initial-setup-and-update-migration.md"
+        "docs/architecture/canvas-notebook/team-workspace/09-initial-setup-and-update-migration.md",
+        "docs/architecture/canvas-notebook/team-workspace/15-export-import-backup-restore-policy.md"
       ]
     },
     {
