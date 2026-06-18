@@ -85,6 +85,7 @@ Dieses Dokument schliesst Umsetzungsschritt 2 ab: bestehende Canvas Notebook Fun
 | Secrets Export | optional globale Secrets | redacted/reconnect/encrypted bewusst pro Scope | Keine Default-Klartext-Exports | P8 |
 | QMD/Search/Retrieval | global `/data/workspace` Collection | getrennte Knowledge Stores fuer `personal_user`, `team_workspace`, optional `organization` | Collection Metadata, Secret-/PII-Scan, ACL-Filter und Delete-Propagation erzwingen | P6 |
 | Docling Knowledge Ingestion | separater Plan, noch nicht team-scoped | automatische Ingestion mit lokalen Parsern, Scope-Metadaten und Scan vor Embedding | Docling-Plan mit Knowledge Policy verbinden | P6 |
+| Resource Budget und Backpressure | nicht zentral modelliert | `instance/system`, mit Job-Scope fuer `user`, `workspace`, `organization` | Memory/CPU/Disk/Queue-Limits vor schweren Jobs pruefen; Degradation und Control-Plane-Metriken | P6/P9 |
 | File Reference Ranking | globaler Workspace Tree | workspace-spezifisch | Ranking-Index pro Workspace | P4/P6 |
 | Public Media Routes | Data-/Studio-Pfade | scoped Asset/File Access | Keine absoluten Serverpfade leaken | P6/P7 |
 | Admin Cleanup | admin-only, Studio Assets global | `organization` Admin Operation | Admin-Gate plus Audit | P7 |
@@ -96,6 +97,7 @@ Dieses Dokument schliesst Umsetzungsschritt 2 ab: bestehende Canvas Notebook Fun
 | Raw Tool/Runtime Logs | in Messages/Runtime-Events oder gar nicht zentral | kurzlebiger technischer Debug-Scope mit Retention | Nicht als dauerhafter Audit-Ersatz speichern; Summary/Hash/Ref behalten | P7 |
 | Usage Rollups | Einzelereignisse mit User/Session | `organization`, `user`, `workspace`, `agent`, Zeitraum | Tagesrollups erzeugen und Einzelereignisse nach Retention bereinigen | P7/P9 |
 | Storage Metrics | Host-/Control-Plane-nah, fachlich nicht aufgeteilt | `instance/system` plus Workspace-/DB-/Asset-Kategorien | DB, WAL, Workspace, Studio, Temp und Backups getrennt melden | P9 |
+| Compute/Memory Metrics | Host-/Control-Plane-nah, nicht app-spezifisch | `instance/system`, mit Parser-/Queue-Status | RAM/CPU/Queue/Parser-Degradation melden und Alerts ausloesen | P9 |
 
 ## Kritische Abhaengigkeiten
 

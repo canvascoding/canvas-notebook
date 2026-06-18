@@ -19,6 +19,7 @@ Dieses Verzeichnis ist der zentrale Arbeitsbereich fuer den Team-Workspace-Umbau
 - `10-agent-tool-execution-policy.md`: Capability-Modell fuer Agent-Turns, Tool-Calls, Cross-Workspace-Reads, Shell, MCP, Gateways und Revocation.
 - `11-automation-execution-model.md`: Personal/Organization Automations, Service Actor, Workspace-Scope, Webhooks, Approval, Offboarding und Retry.
 - `12-knowledge-ingestion-retrieval-policy.md`: automatische Knowledge-Ingestion, Docling-Abgleich, Secret-/PII-Scan, Knowledge Stores und Retrieval-ACLs.
+- `13-resource-aware-ingestion-and-job-backpressure.md`: Resource Profile, Memory-/CPU-Grenzen, Queue-Backpressure, Degradation und Control-Plane-Metriken fuer schwere Jobs.
 - `../todo.json`: Aufgabenindex fuer Agenten und Fortschrittsverfolgung.
 
 ## Arbeitsregeln
@@ -44,4 +45,5 @@ Dieses Verzeichnis ist der zentrale Arbeitsbereich fuer den Team-Workspace-Umbau
 - Agent Tool Execution Policy mit Capability-Kontext, Cross-Workspace-Read-Regeln und Revocation-Verhalten ist dokumentiert.
 - Automation Execution Model fuer Personal und Organization Automations ist dokumentiert.
 - Knowledge-Ingestion- und Retrieval-Policy ist dokumentiert.
+- Resource-aware Ingestion und Job Backpressure fuer kleine VMs ist dokumentiert.
 - Naechster Schritt: Initiales Admin-/Owner-Setup und Admin-only Gates absichern.

@@ -1,5 +1,5 @@
 {
-  "updatedAt": "2026-06-17",
+  "updatedAt": "2026-06-18",
   "source": "Canvas Notebook Team Workspace Plan",
   "tasks": [
     {
@@ -223,7 +223,8 @@
       "repo": "canvasstudios-notebook",
       "planningArtifacts": [
         "docs/docling-knowledge-ingestion-plan.md",
-        "docs/architecture/canvas-notebook/team-workspace/12-knowledge-ingestion-retrieval-policy.md"
+        "docs/architecture/canvas-notebook/team-workspace/12-knowledge-ingestion-retrieval-policy.md",
+        "docs/architecture/canvas-notebook/team-workspace/13-resource-aware-ingestion-and-job-backpressure.md"
       ]
     },
     {
@@ -234,7 +235,8 @@
       "planningArtifacts": [
         "docs/architecture/canvas-notebook/team-workspace/05-actor-audit-retention.md",
         "docs/architecture/canvas-notebook/team-workspace/11-automation-execution-model.md",
-        "docs/architecture/canvas-notebook/team-workspace/12-knowledge-ingestion-retrieval-policy.md"
+        "docs/architecture/canvas-notebook/team-workspace/12-knowledge-ingestion-retrieval-policy.md",
+        "docs/architecture/canvas-notebook/team-workspace/13-resource-aware-ingestion-and-job-backpressure.md"
       ]
     },
     {
@@ -280,7 +282,8 @@
       "planningArtifacts": [
         "docs/architecture/canvas-notebook/team-workspace/05-actor-audit-retention.md",
         "docs/architecture/canvas-notebook/team-workspace/11-automation-execution-model.md",
-        "docs/architecture/canvas-notebook/team-workspace/12-knowledge-ingestion-retrieval-policy.md"
+        "docs/architecture/canvas-notebook/team-workspace/12-knowledge-ingestion-retrieval-policy.md",
+        "docs/architecture/canvas-notebook/team-workspace/13-resource-aware-ingestion-and-job-backpressure.md"
       ]
     },
     {
@@ -325,7 +328,10 @@
       "title": "Storage-Monitoring und Alerts fuer Team-Instanzen im Control Plane absichern",
       "status": "pending",
       "repo": "canvas-control-plane",
-      "planningArtifact": "docs/architecture/canvas-notebook/team-workspace/05-actor-audit-retention.md"
+      "planningArtifacts": [
+        "docs/architecture/canvas-notebook/team-workspace/05-actor-audit-retention.md",
+        "docs/architecture/canvas-notebook/team-workspace/13-resource-aware-ingestion-and-job-backpressure.md"
+      ]
     },
     {
       "id": 36,

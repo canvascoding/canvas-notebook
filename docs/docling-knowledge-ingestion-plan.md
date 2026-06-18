@@ -8,7 +8,7 @@ Canvas Notebook soll eine robuste Dokumenten-Ingestion fuer Knowledge Base, Retr
 
 Der Plan ist bewusst noch keine Implementierung. Er beschreibt Architektur, Settings, Risiken und einen moeglichen Rollout.
 
-Team-/Workspace-Scope, automatische Indexierung, Secret-/PII-Scan, Knowledge Stores und Retrieval-Berechtigungen werden im Team-Workspace-Plan unter `docs/architecture/canvas-notebook/team-workspace/12-knowledge-ingestion-retrieval-policy.md` verbindlich konkretisiert.
+Team-/Workspace-Scope, automatische Indexierung, Secret-/PII-Scan, Knowledge Stores und Retrieval-Berechtigungen werden im Team-Workspace-Plan unter `docs/architecture/canvas-notebook/team-workspace/12-knowledge-ingestion-retrieval-policy.md` verbindlich konkretisiert. Resource Profile, Memory-/CPU-Grenzen, Queue-Backpressure und Degradation fuer kleine VMs werden unter `docs/architecture/canvas-notebook/team-workspace/13-resource-aware-ingestion-and-job-backpressure.md` konkretisiert.
 
 ## Ausgangslage in Canvas
 
@@ -168,6 +168,8 @@ Deshalb sollte Docling nicht synchron im Request-Pfad der Haupt-App laufen. Fuer
 
 Das Muster ist aehnlich wie beim Browser-Tool: nur aktivieren, wenn der Host genug Ressourcen hat; sonst klar als nicht verfuegbar anzeigen.
 
+Bei knappen Ressourcen gilt die Resource-Policy aus `13-resource-aware-ingestion-and-job-backpressure.md`: Jobs werden deferiert, nativ/degradiert verarbeitet, nur als Metadaten registriert oder kontrolliert abgebrochen. Sicherheitspruefungen duerfen dabei nicht uebersprungen werden; wenn Secret-/PII-Scan nicht erfolgreich laufen kann, entstehen keine Embeddings.
+
 ## Sicherheits- und Organisationsregeln
 
 Fuer organisationsweite Knowledge Base gelten harte Regeln:
@@ -276,6 +278,8 @@ Docling sollte daher nicht einfach nur Markdown in `/data/cache/qmd/derived` sch
 - `docling-cli` als experimentellen Provider anbinden.
 - Health Check und Statusdaten einbauen.
 - Harte Limits fuer Timeout, Dateigroesse, Seitenzahl und Concurrency.
+- Resource Budget Resolver fuer Memory, CPU, Disk, Queue-Tiefe und Container-Limits anbinden.
+- Backpressure-Zustaende wie `deferred_low_resources`, `metadata_only` und `failed_resource_limit` persistieren.
 - Native Fallback aktivieren.
 
 ### Phase 4: Settings UI
@@ -325,6 +329,8 @@ Konservativer V1-Default:
 - OCR default `off`, Option `auto when no text`.
 - Max concurrent Docling jobs: `1`.
 - Harte Timeouts und Dateigroessenlimits.
+- Resource Profile `low` muss Docling/OCR automatisch deaktivieren oder stark begrenzen koennen.
+- Queue-Backpressure statt synchroner Verarbeitung oder paralleler schwerer Jobs.
 - Native Fallback bei Fehler.
 - Statusanzeige in Settings.
 - Keine organisationsweite Vektor-Suche ohne Scope-/ACL-Metadaten.

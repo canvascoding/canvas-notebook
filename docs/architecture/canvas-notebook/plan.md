@@ -15,6 +15,7 @@ Der aktive Architekturplan fuer den Team-Workspace-Umbau liegt im Unterprojekt:
 - `team-workspace/10-agent-tool-execution-policy.md`: verbindliche Regeln fuer AgentExecutionContext, Tool-Capabilities, Cross-Workspace-Reads, Shell, MCP, Gateways und Revocation.
 - `team-workspace/11-automation-execution-model.md`: verbindliche Regeln fuer Personal/Organization Automations, Service Actor, Workspace-Scope, Webhooks, Approval, Offboarding und Retry.
 - `team-workspace/12-knowledge-ingestion-retrieval-policy.md`: verbindliche Regeln fuer automatische Knowledge-Ingestion, Docling-Abgleich, Secret-/PII-Scan, Knowledge Stores und Retrieval-ACLs.
+- `team-workspace/13-resource-aware-ingestion-and-job-backpressure.md`: verbindliche Regeln fuer Resource Profile, Memory-/CPU-Grenzen, Queue-Backpressure, Degradation und Control-Plane-Metriken bei schweren Jobs.
 - `todo.json`: maschinenlesbarer Aufgabenindex ueber Notebook-, Control-Plane- und Cross-Repo-Aufgaben.
 
 Dieses Unterprojekt ist bewusst getrennt, weil der Umbau Fresh Install, Update-Migration, Auth, Rollen, Workspaces, Agent-Dateioperationen, Tool-Capabilities, Credentials, MCP, Plugins/Skills, Knowledge/Retrieval, Public Links, Automations, Webhooks, Studio, Export/Import, Audit und Backup/Restore beruehrt.

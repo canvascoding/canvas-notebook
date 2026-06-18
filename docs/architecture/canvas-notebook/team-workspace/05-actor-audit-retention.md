@@ -213,6 +213,27 @@ Warnungen:
 - `storage_warning`: Schreibzugriffe bleiben erlaubt, Admins werden informiert.
 - `storage_critical`: riskante grosse Schreibaktionen, Backups, Imports und Studio-Generierungen duerfen blockiert oder nur mit Admin-Bestaetigung fortgesetzt werden.
 
+## Compute und Memory Monitoring
+
+Fuer Team-Instanzen muss das Control Plane auch Compute-/Memory-Risiken sehen, weil Parsing, OCR, Embeddings, Reindex, Backup-Vorbereitung und Studio-Batch-Jobs kleine VMs ueberlasten koennen.
+
+Zu melden:
+
+- Host RAM total/available.
+- Container Memory Limit und aktuelle Nutzung, falls verfuegbar.
+- CPU Count und Load.
+- Queue Depth nach Job-Typ.
+- Aktive schwere Parser-/Embedding-/Maintenance-Jobs.
+- Parser Status: `available`, `degraded`, `disabled`.
+- OOM-/Timeout-/Crash-Zaehler.
+- Letzte Backpressure-Gruende.
+
+Warnungen:
+
+- `resource_degraded`: schwere Jobs laufen nur degradiert oder werden deferiert.
+- `resource_critical`: neue schwere Jobs werden blockiert, bis Ressourcen frei sind.
+- `parser_disabled`: Docling/OCR wurde wegen fehlender Dependencies oder wiederholter Crashes deaktiviert.
+
 ## Umsetzungsgates
 
 Vor breiter Audit-Implementierung muessen diese Grundlagen stehen:
@@ -222,6 +243,7 @@ Vor breiter Audit-Implementierung muessen diese Grundlagen stehen:
 3. File-Event-/Revision-Metadaten ohne grosse Inhalte in der DB.
 4. Cleanup-/Rollup-Jobs als Teil der ersten Audit-Migration.
 5. Storage-Metriken fuer DB, Workspace, Studio, Temp und Backups.
-6. Secret-/Runtime-Resolver, damit Tool-Audit keine globalen Instanz-Credentials protokolliert.
+6. Compute-/Memory-/Queue-Metriken fuer schwere Jobs.
+7. Secret-/Runtime-Resolver, damit Tool-Audit keine globalen Instanz-Credentials protokolliert.
 
 Ohne diese Gates darf kein vollstaendiger Tool-/File-Audit breit ausgerollt werden, weil sonst Datenbank- und Storage-Wachstum nicht kontrolliert sind.

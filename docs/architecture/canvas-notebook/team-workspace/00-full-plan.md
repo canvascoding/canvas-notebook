@@ -584,6 +584,7 @@ Verantwortlichkeiten in Canvas Notebook:
 - Admin-only Export mit granularer Auswahl fuer Migrationen bereitstellen.
 - Import-Flow mit User-/Workspace-Mapping und Reconnect fuer Secrets/OAuth vorbereiten.
 - Background Jobs, Search/Retrieval, Usage und Audit immer mit Actor- und Scope-Kontext speichern.
+- Schwere Background Jobs fuer Parsing, OCR, Embeddings, Reindex und Maintenance muessen Resource Budgets, Backpressure und Degradation beachten.
 - Secrets und Credentials nach User, Organization und Managed/System isolieren.
 - Path Security fuer alle Workspace- und Agent-Dateioperationen erzwingen.
 - Retention, Trash und Datenloeschung fuer Teamdaten planen.
@@ -668,6 +669,21 @@ Moegliche Massnahmen bei hoher Auslastung:
 
 Offen bleibt, ob Storage-Quotas in der ersten Team-Version nur als Anzeige/Warnung umgesetzt werden oder ob pro Organization/User harte Limits durchgesetzt werden.
 
+## Compute-, Memory- und Job-Backpressure
+
+Neben Storage sind RAM und CPU bei Team-Instanzen ein zentrales Bottleneck. Besonders Docling, OCR, Embedding-Erzeugung, Knowledge-Graph-Aufbau, Reindex, Bulk Import/Export, Backup-Vorbereitung und Studio-Batch-Jobs koennen kleine VMs blockieren oder OOM-Kills ausloesen.
+
+Mindestanforderung:
+
+- Schwere Jobs laufen nur in Background Queues, nie synchron im Request-Pfad.
+- Vor schweren Jobs wird ein Resource Budget aus Memory, CPU, Disk, Queue-Tiefe, Container-Limits und Admin-/Managed-Policy berechnet.
+- V1-Default fuer Docling/OCR bleibt max. ein schwerer Parse-Job gleichzeitig.
+- Bei knappen Ressourcen werden Jobs deferiert, nativ/degradiert verarbeitet, nur als Metadaten registriert oder kontrolliert abgebrochen.
+- Sicherheitspruefungen bleiben hart: Ohne erfolgreichen Secret-/PII-/ACL-Check werden keine Embeddings erzeugt.
+- Admin-UI und Control Plane zeigen Parser-Status, Queue-Tiefe, Resource Profile, OOM-/Timeout-Zaehler und Backpressure-Gruende.
+
+Die verbindliche Detailregel steht in `13-resource-aware-ingestion-and-job-backpressure.md`.
+
 ## Offene Entscheidungen
 
 - Ob der Team Workspace in der ersten Version nur ein lokaler Serverordner ist oder bereits eine interne Revisionstabelle fuer Dateien bekommt.
@@ -682,6 +698,7 @@ Offen bleibt, ob Storage-Quotas in der ersten Team-Version nur als Anzeige/Warnu
 - Ob Managed-Instance-Token neue Scopes fuer Backup-/Policy-Reporting brauchen, z. B. `backup:report`, `backup:restore`, `team:config` oder `usage:report`.
 - Welche Storage-Schwellen fuer Teamplaene gelten und ob Storage-Quotas weich oder hart durchgesetzt werden.
 - Ob Workspace-spezifische Speicherbelegung von Canvas Notebook gemeldet wird oder ob das Control Plane nur Host-Disk-Metriken aus dem Agent nutzt.
+- Welche Compute-/Memory-Profile in Managed Plans angeboten werden und welche Defaults fuer Docling/OCR/Reindex daraus folgen.
 - Welche bestehenden Canvas Notebook Tabellen und Settings aktuell implizit global sind und auf `userId`, `workspaceId` oder `organizationId` migriert werden muessen.
 - Ob Composio nur user-scoped startet oder ob Organization-geteilte Connections direkt in V1 benoetigt werden.
 - Ob E-Mail Team-Mailboxen in V1 Teil des Teamplans sind oder ob zuerst nur User-Mailboxen unterstuetzt werden.

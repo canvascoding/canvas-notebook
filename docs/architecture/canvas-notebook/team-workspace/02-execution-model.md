@@ -33,6 +33,7 @@ Lieferumfang:
 - Kompatibilitaetsentscheidung fuer Legacy-Workspace `data/workspace`.
 - Querschnittsentscheidung fuer user-scoped Secrets, MCP, Skills, Plugins, Mailboxen und Agent Runtime.
 - Querschnittsentscheidung fuer Fresh Install, Onboarding und Update-Migration bestehender Instanzen.
+- Querschnittsentscheidung fuer Resource Profile, Backpressure und Degradation bei schweren Jobs.
 
 Tests:
 
@@ -174,6 +175,7 @@ Teilbereiche:
 - User-/Organization-/System-Secrets.
 - MCP-Konfiguration und MCP-Transport-State.
 - Search/Retrieval-Vorbereitung.
+- Resource Budget und Backpressure fuer Parsing, OCR, Embeddings, Reindex und schwere Background Jobs.
 
 Tests:
 
@@ -181,6 +183,7 @@ Tests:
 - E-Mail-Tests: User A kann User-B-Mailbox nicht senden, lesen oder als Draft-Ziel verwenden.
 - MCP-/Plugin-/Skill-Tests: gleichnamige Konfigurationen bleiben pro User getrennt.
 - Automation-Tests fuer Personal vs Organization Scope, Webhook-Signatur, Rate Limits, Offboarding und Risk-Approval.
+- Resource-Tests fuer Low-Resource-Profil, Queue-Backpressure, Parser-Timeouts und fehlende Embeddings bei nicht abgeschlossenem Scan.
 - UI-Test nur bei sichtbaren UI-Aenderungen und nach Freigabe.
 - `npm run build`.
 
@@ -241,6 +244,7 @@ Lieferumfang:
 
 - Migrationen fuer bestehende Single-User-Installationen.
 - Performance- und Storage-Checks.
+- Memory-/CPU-/Queue-Checks und Control-Plane-Alerts fuer `resource_degraded`, `resource_critical` und `parser_disabled`.
 - Security Review.
 - Admin-Dokumentation.
 - Release Notes.
@@ -299,3 +303,5 @@ Die Filesystem- und Write-Policy in `07-filesystem-migration-and-write-policy.md
 Die Secret-/Runtime-Entscheidung in `08-user-scoped-secrets-runtime.md` ist verbindlich fuer Integrations-Env, Agent-Env, MCP, Skills, Plugins, E-Mail, Composio und Agent Runtime: Aktive Tool-Ausfuehrungen nutzen immer den Tool- und Secret-Scope des ausloesenden Users; Organization- und System-Secrets werden nur ueber explizite Policies injiziert.
 
 Die Initial-Setup- und Update-Migrationsentscheidung in `09-initial-setup-and-update-migration.md` ist verbindlich fuer `/setup`, `bootstrap-admin`, Onboarding und bestehende Instanzen: Fresh Install und Migration muessen denselben Zielzustand erzeugen; globale Legacy-Dateien werden nicht automatisch als Team- oder Organization-Ressourcen aktiviert.
+
+Die Resource-Entscheidung in `13-resource-aware-ingestion-and-job-backpressure.md` ist verbindlich fuer Knowledge-Ingestion, Docling/OCR, Embeddings, Reindex, Import/Export, Backup-Vorbereitung und Maintenance: Schwere Jobs starten nur mit Resource Budget; bei knappen Ressourcen wird deferiert oder degradiert statt die VM zu ueberlasten.

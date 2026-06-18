@@ -8,6 +8,8 @@ Dieses Dokument konkretisiert, wie Canvas Notebook Knowledge Sources automatisch
 
 Es ergaenzt die Aufgaben `25`, `26`, `29`, `30`, `31` und `36` im Aufgabenindex.
 
+Resource- und Backpressure-Regeln fuer kleine VMs sind verbindlich in `13-resource-aware-ingestion-and-job-backpressure.md` beschrieben.
+
 ## Grundentscheidung
 
 Die Knowledge Base soll automatisch aufgebaut werden, aber nicht ungeprueft scope-uebergreifend.
@@ -210,6 +212,9 @@ V1:
 - Docling lokal/CLI/Sidecar, nicht remote als Default.
 - Max concurrent parse jobs: `1`.
 - Harte Limits fuer Dateigroesse, Seitenzahl, OCR-Seiten, Timeout und Speicher.
+- Resource Budget vor jedem schweren Parse-/Embedding-Job pruefen.
+- Bei knappen Ressourcen Jobs auf `deferred_low_resources`, `metadata_only` oder `failed_resource_limit` setzen statt unkontrolliert zu starten.
+- OCR und layoutbewusste Extraktion bei `low` Resource Profile standardmaessig deaktivieren oder stark begrenzen.
 - Native Fallback bei Fehler.
 - Status in Settings.
 
@@ -234,3 +239,4 @@ Pflichttests:
 - Source Delete entfernt oder revoked Chunks und Embeddings.
 - Treffer enthalten Source, Pfad, Workspace und Seite/Abschnitt.
 - Remote Docling ist im V1-Default deaktiviert.
+- Low-Resource-Profil erzwingt Backpressure oder Degradation ohne Embedding ungescannter Inhalte.
