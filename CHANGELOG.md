@@ -11,6 +11,40 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.6.18.1] - 2026-06-18
+
+### Added
+
+- Added configurable user time zone support across onboarding, settings, automation scheduling, and agent prompt context.
+- Added home agent selector preferences for chat prompts.
+- Added plugin detail, plugin skill health repair, persisted skills settings tabs, and legacy folder hiding in the skills tree.
+- Added Telegram user binding management and multi-user Telegram channel sessions.
+- Added Docling ingestion planning and team-workspace architecture plans for audit retention, workspace switching, filesystem policy, user-scoped secrets, setup migration, agent tool execution, automation execution, retrieval, job backpressure, public links, backup/restore, offboarding, Postgres provider requirements, and collaboration conflict policy.
+
+### Changed
+
+- Improved Markdown editing with rich-mode defaults, rendered block controls, task list styling, link previews, range guards, hidden chat-reference extensions, renamed mode actions, and explicit-save reset protection.
+- Improved automation picker behavior, workspace directory picker closing, disconnected channel visibility, and editor surface backgrounds.
+- Refined control-plane migration and policy contracts, installer migration planning, and collaboration policy documentation.
+- Polished Studio inspiration selection behavior.
+
+### Fixed
+
+- Fixed onboarding profile skip handling.
+- Fixed agent prompt time zone context.
+- Fixed Markdown slash suggestion range crashes.
+- Fixed automation workspace picker closing behavior.
+- Fixed Studio inspiration selection state.
+
+### Security
+
+- Improved security share filters.
+- Documented public links, Studio asset policy, unencrypted workspace file handling for v1, user-scoped secrets, offboarding recovery, backup/restore, and Postgres provider requirements.
+
+### Verification
+
+- `npm run build`
+
 ## [2026.6.17.1] - 2026-06-17
 
 ### Added

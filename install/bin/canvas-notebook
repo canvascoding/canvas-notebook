@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-CANVAS_CLI_VERSION="2026.6.17.1"
+CANVAS_CLI_VERSION="2026.6.18.1"
 INSTALL_DIR="${CANVAS_INSTALL_DIR:-/opt/canvas-notebook}"
 COMPOSE_FILE="${CANVAS_COMPOSE_FILE:-${INSTALL_DIR}/canvas-notebook-compose.yaml}"
 DATA_DIR="${CANVAS_DATA_DIR:-${HOME:-/opt}/canvas-notebook-data}"
