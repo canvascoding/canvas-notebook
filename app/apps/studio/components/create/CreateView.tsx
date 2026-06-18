@@ -3,7 +3,23 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useTranslations } from 'next-intl';
-import { AlertTriangle, ChevronDown, ExternalLink, FileVideo, ImageIcon, KeyRound, Sparkles } from 'lucide-react';
+import {
+  AlertTriangle,
+  Building2,
+  Clapperboard,
+  Droplets,
+  ExternalLink,
+  FileVideo,
+  ImageIcon,
+  KeyRound,
+  Package,
+  Shapes,
+  Shirt,
+  Sparkles,
+  Sun,
+  Utensils,
+  type LucideIcon,
+} from 'lucide-react';
 import { Link, useRouter } from '@/i18n/navigation';
 import { Button } from '@/components/ui/button';
 import { useStudioGeneration } from '../../hooks/useStudioGeneration';
@@ -45,6 +61,17 @@ interface StartingPoint {
   prompt: string;
   presetId: string | null;
 }
+
+const STARTING_POINT_CATEGORY_ICONS: Record<string, LucideIcon> = {
+  abstract: Shapes,
+  architecture: Building2,
+  beauty: Droplets,
+  fashion: Shirt,
+  food: Utensils,
+  lifestyle: Sun,
+  product: Package,
+  video: Clapperboard,
+};
 
 type StudioReferenceModel = {
   id: string;
@@ -106,14 +133,31 @@ function EmptyState({ inspirationPanel }: { inspirationPanel?: ReactNode }) {
   );
 }
 
+function FilteredEmptyState({ inspirationPanel }: { inspirationPanel?: ReactNode }) {
+  const t = useTranslations('studio');
+  return (
+    <div className="flex min-h-[320px] flex-col items-center justify-center gap-6 px-4 py-12 text-center">
+      <div className="flex flex-col items-center gap-3">
+        <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-muted text-muted-foreground">
+          <Sparkles className="h-6 w-6" />
+        </div>
+        <div>
+          <h2 className="text-lg font-semibold text-foreground">{t('dashboard.filteredEmptyState.title')}</h2>
+          <p className="mt-1 max-w-md text-sm leading-6 text-muted-foreground">
+            {t('dashboard.filteredEmptyState.subtitle')}
+          </p>
+        </div>
+      </div>
+
+      {inspirationPanel}
+    </div>
+  );
+}
+
 function StartingPointsPanel({
-  collapsed,
-  onCollapsedChange,
   onSelect,
   startingPoints,
 }: {
-  collapsed: boolean;
-  onCollapsedChange: (collapsed: boolean) => void;
   onSelect: (startingPoint: StartingPoint) => void;
   startingPoints: StartingPoint[];
 }) {
@@ -125,23 +169,16 @@ function StartingPointsPanel({
 
   return (
     <section className="w-full rounded-3xl border border-border/70 bg-card/90 p-4 shadow-sm">
-      <button
-        type="button"
-        aria-expanded={!collapsed}
-        onClick={() => onCollapsedChange(!collapsed)}
-        className="flex w-full items-center gap-2 text-left"
-      >
-        <ChevronDown
-          className={`h-4 w-4 shrink-0 text-muted-foreground transition-transform ${collapsed ? '-rotate-90' : ''}`}
-        />
+      <div className="flex items-center gap-2">
         <Badge variant="secondary" className="rounded-full px-3 py-1 text-xs uppercase tracking-[0.18em]">
           {t('dashboard.startingPointsTitle')}
         </Badge>
-      </button>
+      </div>
 
-      {!collapsed ? (
-        <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-          {startingPoints.map((item) => (
+      <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        {startingPoints.map((item) => {
+          const Icon = STARTING_POINT_CATEGORY_ICONS[item.category.toLowerCase()] ?? Sparkles;
+          return (
             <button
               key={item.id}
               type="button"
@@ -150,7 +187,7 @@ function StartingPointsPanel({
             >
               <div className="mb-3 flex items-center gap-2">
                 <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/10 text-primary">
-                  <Sparkles className="h-4 w-4" />
+                  <Icon className="h-4 w-4" />
                 </span>
                 <span className="rounded-full border border-border px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
                   {item.category}
@@ -159,9 +196,9 @@ function StartingPointsPanel({
               <h3 className="mb-1.5 text-sm font-semibold text-foreground">{item.title}</h3>
               <p className="line-clamp-2 text-xs leading-5 text-muted-foreground">{item.description}</p>
             </button>
-          ))}
-        </div>
-      ) : null}
+          );
+        })}
+      </div>
     </section>
   );
 }
@@ -447,7 +484,6 @@ export function CreateView({ initialProviderConfig = EMPTY_STUDIO_PROVIDER_CONFI
         store.setPresetRef(preset);
       }
     }
-    store.setInspirationCollapsed(true);
   }, [presets, store]);
 
   const findOutputPair = useCallback((outputId: string): { generationId: string; outputId: string } | null => {
@@ -809,16 +845,15 @@ export function CreateView({ initialProviderConfig = EMPTY_STUDIO_PROVIDER_CONFI
     )),
     [generations],
   );
+  const hasActiveOutputFilters = mediaFilter !== 'all' || dateFilter !== 'all';
+  const hasNoMatchingVisibleOutputs = visibleOutputList.length === 0;
   const shouldShowInspiration = (
     !startingPointsLoading &&
     completedOutputCount < INSPIRATION_OUTPUT_THRESHOLD &&
-    mediaFilter === 'all' &&
-    dateFilter === 'all'
+    (!hasActiveOutputFilters || hasNoMatchingVisibleOutputs)
   );
   const inspirationPanel = shouldShowInspiration ? (
     <StartingPointsPanel
-      collapsed={store.inspirationCollapsed}
-      onCollapsedChange={store.setInspirationCollapsed}
       onSelect={handleStartingPointSelect}
       startingPoints={startingPoints}
     />
@@ -925,7 +960,7 @@ export function CreateView({ initialProviderConfig = EMPTY_STUDIO_PROVIDER_CONFI
               onFavoriteSelected={handleBatchFavorite}
               onDownloadSelected={handleBatchDownload}
             />
-            {hasStudioActivity && inspirationPanel ? (
+            {hasStudioActivity && inspirationPanel && !hasNoMatchingVisibleOutputs ? (
               <div className="p-3 pb-0">
                 {inspirationPanel}
               </div>
@@ -935,6 +970,7 @@ export function CreateView({ initialProviderConfig = EMPTY_STUDIO_PROVIDER_CONFI
               initialLoading={isInitialGenerationLoad}
               recentlyCompletedIds={recentlyCompletedIds}
               emptyState={<EmptyState inspirationPanel={inspirationPanel} />}
+              filterEmptyState={<FilteredEmptyState inspirationPanel={inspirationPanel} />}
               mediaFilter={mediaFilter}
               dateFilter={dateFilter}
               sortOrder={sortOrder}

@@ -3447,6 +3447,10 @@
         "title": "Create your first image",
         "subtitle": "Type your idea below and let the AI work its magic. Your results will appear here – in real time."
       },
+      "filteredEmptyState": {
+        "title": "No results for these filters",
+        "subtitle": "Adjust the filters or start from an inspiration below."
+      },
       "startingPointsTitle": "Inspiration",
       "recreate": "Recreate",
       "recentGenerationsTitle": "Recent Generations",

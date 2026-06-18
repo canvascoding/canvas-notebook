@@ -16,7 +16,6 @@ import {
   type StudioVideoDuration,
 } from '@/app/lib/integrations/image-generation-constants';
 
-const STUDIO_INSPIRATION_COLLAPSED_STORAGE_KEY = 'studio-inspiration-collapsed';
 const STUDIO_SHOW_MORE_OPTIONS_STORAGE_KEY = 'studio-show-more-options';
 const STUDIO_GENERATION_OPTIONS_STORAGE_KEY = 'studio-generation-options';
 
@@ -35,9 +34,6 @@ export interface PendingStudioGenerateRequest {
 }
 
 export interface StudioGenerationState {
-  inspirationCollapsed: boolean;
-  setInspirationCollapsed: (collapsed: boolean) => void;
-
   mode: StudioGenerationMode;
   setMode: (mode: StudioGenerationMode) => void;
 
@@ -345,12 +341,6 @@ export const useStudioGenerationStore = create<StudioGenerationState>((set) => {
   const initialOutputFormat = storedOptions.outputFormat ?? (initialMode === 'sound' ? 'mp3' : 'png');
 
   return {
-  inspirationCollapsed: readStoredBoolean(STUDIO_INSPIRATION_COLLAPSED_STORAGE_KEY),
-  setInspirationCollapsed: (collapsed: boolean) => {
-    writeStoredBoolean(STUDIO_INSPIRATION_COLLAPSED_STORAGE_KEY, collapsed);
-    set({ inspirationCollapsed: collapsed });
-  },
-
   mode: initialMode,
   setMode: (mode) => set((state) => (
     mode === 'sound' && state.presetRef

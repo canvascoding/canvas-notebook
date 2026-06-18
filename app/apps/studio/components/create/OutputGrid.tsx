@@ -18,6 +18,7 @@ interface OutputGridProps {
   initialLoading?: boolean;
   recentlyCompletedIds?: Set<string>;
   emptyState: ReactNode;
+  filterEmptyState?: ReactNode;
   mediaFilter?: OutputMediaFilter;
   dateFilter?: OutputDateFilter;
   sortOrder?: OutputSortOrder;
@@ -42,6 +43,7 @@ export function OutputGrid({
   initialLoading = false,
   recentlyCompletedIds,
   emptyState,
+  filterEmptyState,
   mediaFilter = 'all',
   dateFilter = 'all',
   sortOrder = 'newest',
@@ -216,7 +218,9 @@ export function OutputGrid({
     .filter((section) => section.outputs.length > 0);
 
   if (visibleOutputs.length === 0 && visiblePendingGenerations.length === 0 && visibleFailedGenerations.length === 0) {
-    return (
+    return filterEmptyState ? (
+      <>{filterEmptyState}</>
+    ) : (
       <div className="flex min-h-[320px] items-center justify-center px-6 py-12 text-center text-sm text-muted-foreground">
         No generations match these filters.
       </div>

@@ -3446,6 +3446,10 @@
         "title": "Erstelle dein erstes Bild",
         "subtitle": "Gib deine Idee unten ein und lass die AI ihre Magie wirken. Deine Ergebnisse erscheinen hier – in Echtzeit."
       },
+      "filteredEmptyState": {
+        "title": "Keine Treffer für diese Filter",
+        "subtitle": "Passe die Filter an oder starte mit einer Inspiration unten."
+      },
       "startingPointsTitle": "Inspiration",
       "recreate": "Nachbilden",
       "recentGenerationsTitle": "Letzte Generierungen",
