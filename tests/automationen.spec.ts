@@ -50,7 +50,9 @@ test.describe('Automationen UI', () => {
     await page.getByTestId('automation-context-paths').fill('README.md');
     await page.getByTestId('automation-target-output-picker').click();
     await expect(page.getByTestId('automation-directory-picker')).toBeVisible();
-    await page.getByTestId('automation-directory-option-root').evaluate((element: HTMLElement) => element.click());
+    await page.getByTestId('automation-directory-option-root').click();
+    await expect(page.getByTestId('automation-directory-picker')).toBeVisible();
+    await page.getByTestId('automation-directory-picker-confirm').click();
     await page.getByTestId('automation-target-output-path').fill(targetDir);
     await page.getByTestId('automation-schedule-kind').selectOption('interval');
     await page.getByTestId('automation-interval-every').fill('1');

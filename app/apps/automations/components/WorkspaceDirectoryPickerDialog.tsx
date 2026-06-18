@@ -10,6 +10,7 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
@@ -89,6 +90,11 @@ function buildDirectoryLabel(path: string, rootLabel: string): string {
   return path === '.' ? rootLabel : path;
 }
 
+function normalizeSelectionPath(path: string | undefined): string {
+  const normalized = (path || '').trim().replace(/^\/+/, '').replace(/\/+$/, '');
+  return normalized === '.' ? '' : normalized;
+}
+
 type WorkspaceDirectoryPickerDialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -108,6 +114,7 @@ export function WorkspaceDirectoryPickerDialog({
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(new Set());
+  const [pendingSelectedPath, setPendingSelectedPath] = useState<string | null>(null);
 
   async function loadDirectories() {
     setIsLoading(true);
@@ -159,13 +166,47 @@ export function WorkspaceDirectoryPickerDialog({
     return next;
   }, [expandedPaths, filteredDirectories, search]);
 
+  const visibleSelectedPath = pendingSelectedPath ?? normalizeSelectionPath(selectedPath);
 
+  function handleOpenChange(nextOpen: boolean) {
+    if (!nextOpen) {
+      setPendingSelectedPath(null);
+      setSearch('');
+    }
+
+    onOpenChange(nextOpen);
+  }
+
+  function selectDirectory(path: string, hasChildren = false) {
+    const normalizedPath = normalizeSelectionPath(path);
+    setPendingSelectedPath(normalizedPath);
+
+    if (!hasChildren || normalizedPath === '') {
+      return;
+    }
+
+    setExpandedPaths((current) => {
+      if (current.has(path)) {
+        return current;
+      }
+
+      const next = new Set(current);
+      next.add(path);
+      return next;
+    });
+  }
+
+  function confirmSelection() {
+    onSelect(visibleSelectedPath);
+    handleOpenChange(false);
+  }
 
   function renderDirectoryNodes(nodes: FileNode[], depth = 0): ReactNode {
     return nodes.map((directory) => {
       const hasChildren = Boolean(directory.children?.length);
       const isExpanded = visibleExpandedPaths.has(directory.path);
-      const isSelected = (selectedPath || '') === (directory.path === '.' ? '' : directory.path);
+      const normalizedPath = normalizeSelectionPath(directory.path);
+      const isSelected = visibleSelectedPath === normalizedPath;
       const label = buildDirectoryLabel(directory.path, t('workspaceRoot'));
 
       return (
@@ -214,10 +255,8 @@ export function WorkspaceDirectoryPickerDialog({
               type="button"
               data-testid={`automation-directory-option-${directory.path === '.' ? 'root' : directory.path.replace(/[^a-z0-9]+/gi, '-')}`}
               className="flex min-w-0 flex-1 items-center gap-2 rounded-md px-1 py-1 text-left hover:bg-muted"
-              onClick={() => {
-                onSelect(directory.path === '.' ? '' : directory.path);
-                onOpenChange(false);
-              }}
+              aria-pressed={isSelected}
+              onClick={() => selectDirectory(directory.path, hasChildren)}
             >
               <Folder className="h-4 w-4 shrink-0 text-muted-foreground" />
               <span className="truncate font-mono text-xs">{label}</span>
@@ -235,7 +274,7 @@ export function WorkspaceDirectoryPickerDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent layout="viewport" className="mx-auto max-w-5xl">
         <DialogHeader className="shrink-0 border-b px-4 pt-5 pb-4 sm:px-6">
           <DialogTitle>{t('title')}</DialogTitle>
@@ -282,12 +321,10 @@ export function WorkspaceDirectoryPickerDialog({
                       type="button"
                       data-testid="automation-directory-option-root"
                       className={`flex w-full min-w-0 items-center gap-2 rounded-md px-3 py-2 text-left hover:bg-muted ${
-                        !selectedPath ? 'border border-primary bg-primary/5' : ''
+                        !visibleSelectedPath ? 'border border-primary bg-primary/5' : ''
                       }`}
-                      onClick={() => {
-                        onSelect('');
-                        onOpenChange(false);
-                      }}
+                      aria-pressed={!visibleSelectedPath}
+                      onClick={() => selectDirectory('')}
                     >
                       <Folder className="h-4 w-4 shrink-0 text-muted-foreground" />
                       <span className="min-w-0 truncate font-mono text-xs">{t('workspaceRoot')}</span>
@@ -303,7 +340,7 @@ export function WorkspaceDirectoryPickerDialog({
             <div>
               <p className="text-sm font-medium">{t('currentSelection')}</p>
               <p className="mt-2 break-all rounded-md border border-border bg-background px-3 py-2 font-mono text-xs text-muted-foreground">
-                {selectedPath || t('workspaceRoot')}
+                {visibleSelectedPath || t('workspaceRoot')}
               </p>
             </div>
 
@@ -313,6 +350,15 @@ export function WorkspaceDirectoryPickerDialog({
             </div>
           </div>
         </div>
+
+        <DialogFooter className="shrink-0 border-t px-4 py-3 sm:px-6">
+          <Button type="button" variant="outline" onClick={() => handleOpenChange(false)}>
+            {t('cancel')}
+          </Button>
+          <Button type="button" onClick={confirmSelection} data-testid="automation-directory-picker-confirm">
+            {t('confirmSelection')}
+          </Button>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );

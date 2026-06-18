@@ -3281,6 +3281,8 @@
       "helpLineTwo": "Wenn du keinen eigenen Pfad setzt, nutzt die Automation automatisch ihren Standardordner.",
       "toggleFolder": "Ordner auf- oder zuklappen",
       "noSubfolders": "Keine Unterordner",
+      "cancel": "Abbrechen",
+      "confirmSelection": "Auswahl übernehmen",
       "errors": {
         "loadDirectories": "Ordner konnten nicht geladen werden."
       }

@@ -3282,6 +3282,8 @@
       "helpLineTwo": "If you do not set your own path, the automation automatically uses its default folder.",
       "toggleFolder": "Expand or collapse folder",
       "noSubfolders": "No subfolders",
+      "cancel": "Cancel",
+      "confirmSelection": "Use selection",
       "errors": {
         "loadDirectories": "Folders could not be loaded."
       }
