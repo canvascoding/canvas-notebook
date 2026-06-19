@@ -1,17 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getFileStats } from '@/app/lib/filesystem/workspace-files';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
-import { auth } from '@/app/lib/auth';
+import { requireRequestWorkspace, workspaceFileOptions } from '@/app/lib/workspaces/request';
 
 function hasNodeErrorCode(error: unknown, code: string): boolean {
   return Boolean(error && typeof error === 'object' && 'code' in error && error.code === code);
 }
 
 export async function GET(request: NextRequest) {
-  const session = await auth.api.getSession({ headers: request.headers });
-  if (!session) {
-    return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
-  }
+  const workspaceResult = await requireRequestWorkspace(request, { permissions: 'canRead' });
+  if (workspaceResult.response) return workspaceResult.response;
+  const fileOptions = workspaceFileOptions(workspaceResult.workspace);
 
   try {
     const limited = rateLimit(request, {
@@ -33,7 +32,7 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const stats = await getFileStats(path);
+    const stats = await getFileStats(path, fileOptions);
 
     return NextResponse.json({
       success: true,

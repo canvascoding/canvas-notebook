@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { readFile, getFileStats } from '@/app/lib/filesystem/workspace-files';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
-import { auth } from '@/app/lib/auth';
 import { isExcalidrawFilePath } from '@/app/lib/excalidraw-file';
+import { requireRequestWorkspace, workspaceFileOptions } from '@/app/lib/workspaces/request';
 
 const READ_SIZE_LIMIT = 5 * 1024 * 1024; // 5MB
 const EXCALIDRAW_READ_SIZE_LIMIT = 25 * 1024 * 1024; // embedded image data can make scenes larger
@@ -12,10 +12,9 @@ function hasNodeErrorCode(error: unknown, code: string): boolean {
 }
 
 export async function GET(request: NextRequest) {
-  const session = await auth.api.getSession({ headers: request.headers });
-  if (!session) {
-    return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
-  }
+  const workspaceResult = await requireRequestWorkspace(request, { permissions: 'canRead' });
+  if (workspaceResult.response) return workspaceResult.response;
+  const fileOptions = workspaceFileOptions(workspaceResult.workspace);
 
   try {
     const limited = rateLimit(request, {
@@ -37,7 +36,7 @@ export async function GET(request: NextRequest) {
       );
     }
     
-    const stats = await getFileStats(path);
+    const stats = await getFileStats(path, fileOptions);
     const metaOnly = searchParams.get('meta') === '1';
 
     if (metaOnly) {
@@ -63,7 +62,7 @@ export async function GET(request: NextRequest) {
         );
     }
 
-    const content = await readFile(path);
+    const content = await readFile(path, fileOptions);
     
     return NextResponse.json({
       success: true,

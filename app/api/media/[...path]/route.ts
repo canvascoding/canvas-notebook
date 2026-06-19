@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getFileStats, createReadStream } from '@/app/lib/filesystem/workspace-files';
-import { auth } from '@/app/lib/auth';
 import { Readable } from 'stream';
+import { requireRequestWorkspace, workspaceFileOptions } from '@/app/lib/workspaces/request';
 
 const MEDIA_TYPES: Record<string, string> = {
   pdf: 'application/pdf',
@@ -49,17 +49,16 @@ export async function GET(
   request: NextRequest,
   context: { params: Promise<{ path: string[] }> }
 ) {
-  const session = await auth.api.getSession({ headers: request.headers });
-  if (!session) {
-    return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
-  }
+  const workspaceResult = await requireRequestWorkspace(request, { permissions: 'canRead' });
+  if (workspaceResult.response) return workspaceResult.response;
+  const fileOptions = workspaceFileOptions(workspaceResult.workspace);
 
   const { path: pathParts } = await context.params;
   const filePath = pathParts.join('/');
   const contentType = getContentType(filePath);
 
   try {
-    const stats = await getFileStats(filePath);
+    const stats = await getFileStats(filePath, fileOptions);
     const fileSize = stats.size;
     const range = request.headers.get('range');
 
@@ -81,7 +80,7 @@ export async function GET(
       }
       const chunksize = end - start + 1;
       
-      const { stream } = await createReadStream(filePath, { start, end });
+      const { stream } = await createReadStream(filePath, { start, end }, fileOptions);
       const webStream = Readable.toWeb(stream) as unknown as ReadableStream<Uint8Array>;
 
       const headers = new Headers({
@@ -97,7 +96,7 @@ export async function GET(
 
       return new NextResponse(webStream, { status: 206, headers });
     } else {
-      const { stream } = await createReadStream(filePath);
+      const { stream } = await createReadStream(filePath, undefined, fileOptions);
       const webStream = Readable.toWeb(stream) as unknown as ReadableStream<Uint8Array>;
       
       const headers = new Headers({

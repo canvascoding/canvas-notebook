@@ -1,4 +1,4 @@
-import { readFile } from '@/app/lib/filesystem/workspace-files';
+import { readFile, type WorkspaceFileOperationOptions } from '@/app/lib/filesystem/workspace-files';
 import { createInlineColorRegex, isColorCode } from '@/app/lib/markdown/color-code';
 import { marked } from 'marked';
 import path from 'path';
@@ -150,7 +150,8 @@ function processInlineHexColors(htmlContent: string): string {
 
 async function inlineImagesAsBase64(
   htmlContent: string,
-  markdownDir: string
+  markdownDir: string,
+  fileOptions?: WorkspaceFileOperationOptions
 ): Promise<string> {
   const imgRegex = /<img([^>]*)src="([^"]+)"([^>]*)>/g;
   const matches: Array<{ full: string; before: string; src: string; after: string }> = [];
@@ -177,7 +178,7 @@ async function inlineImagesAsBase64(
 
       imagePath = path.normalize(imagePath).replace(/\\/g, '/');
 
-      const imageBuffer = await readFile(imagePath);
+      const imageBuffer = await readFile(imagePath, fileOptions);
 
       if (imageBuffer.length > MAX_IMAGE_SIZE) {
         console.warn(`[Markdown Export] Image too large to inline: ${imagePath} (${(imageBuffer.length / 1024 / 1024).toFixed(2)}MB)`);
@@ -198,8 +199,11 @@ async function inlineImagesAsBase64(
   return processedHtml;
 }
 
-export async function markdownFileToHtmlDocument(filePath: string): Promise<string> {
-  const contentBuffer = await readFile(filePath);
+export async function markdownFileToHtmlDocument(
+  filePath: string,
+  fileOptions?: WorkspaceFileOperationOptions
+): Promise<string> {
+  const contentBuffer = await readFile(filePath, fileOptions);
 
   if (contentBuffer.length > READ_SIZE_LIMIT) {
     const err = new Error('File is too large to export') as NodeJS.ErrnoException;
@@ -221,7 +225,7 @@ export async function markdownFileToHtmlDocument(filePath: string): Promise<stri
   const ext = path.extname(filePath);
   const fileName = path.basename(filePath, ext);
 
-  htmlContent = await inlineImagesAsBase64(htmlContent, fileDir);
+  htmlContent = await inlineImagesAsBase64(htmlContent, fileDir, fileOptions);
 
   return `<!DOCTYPE html>
 <html lang="de">

@@ -14,11 +14,15 @@ async function main() {
     pathGuardModule,
     permissionsModule,
     workspaceFilesModule,
+    fileReferenceCacheModule,
+    fileTreeCacheModule,
   ] = await Promise.all([
     import('../app/lib/workspaces/context'),
     import('../app/lib/workspaces/path-guard'),
     import('../app/lib/workspaces/permissions'),
     import('../app/lib/filesystem/workspace-files'),
+    import('../app/lib/filesystem/file-reference-cache'),
+    import('../app/lib/utils/file-tree-cache'),
   ]);
 
   const workspace = contextModule.createLegacyPersonalWorkspaceContext({
@@ -106,6 +110,30 @@ async function main() {
     () => pathGuardModule.resolveExistingWorkspacePath(workspace, 'missing.txt'),
     (error: unknown) => Boolean(error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT')
   );
+
+  const workspaceA = {
+    ...workspace,
+    workspaceId: 'workspace-a',
+    rootPath: path.join(tempRoot, 'workspace-a'),
+  };
+  const workspaceB = {
+    ...workspace,
+    workspaceId: 'workspace-b',
+    rootPath: path.join(tempRoot, 'workspace-b'),
+  };
+  await workspaceFilesModule.writeFile('a.md', 'A', { workspace: workspaceA });
+  await workspaceFilesModule.writeFile('b.md', 'B', { workspace: workspaceB });
+
+  const treeKey = fileTreeCacheModule.buildFileTreeCacheKey('docs', 4, 'workspace-a');
+  const parsedTreeKey = fileTreeCacheModule.parseFileTreeCacheKey(treeKey);
+  assert.equal(parsedTreeKey.path, 'docs');
+  assert.equal(parsedTreeKey.depth, 4);
+
+  fileReferenceCacheModule.invalidateFileReferenceCache();
+  const workspaceAFiles = await fileReferenceCacheModule.getCachedFileReferenceEntries(false, { workspace: workspaceA });
+  const workspaceBFiles = await fileReferenceCacheModule.getCachedFileReferenceEntries(false, { workspace: workspaceB });
+  assert.deepEqual(workspaceAFiles.map((entry) => entry.path), ['a.md']);
+  assert.deepEqual(workspaceBFiles.map((entry) => entry.path), ['b.md']);
 
   await fs.rm(tempRoot, { recursive: true, force: true });
   console.log('workspace-context-foundation-test: ok');

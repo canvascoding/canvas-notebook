@@ -4,6 +4,7 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { inlineMarpMarkdownWorkspaceAssets } from './render';
+import type { WorkspaceFileOperationOptions } from '@/app/lib/filesystem/workspace-files';
 
 export const MARP_EXPORT_TIMEOUT_MS = 60_000;
 
@@ -60,10 +61,12 @@ export async function writeMarpCliInput(
     tempDir: string;
     filePath: string;
     markdown: string;
+    fileOptions?: WorkspaceFileOperationOptions;
   }
 ) {
   const markdown = await inlineMarpMarkdownWorkspaceAssets(options.markdown, {
     filePath: options.filePath,
+    fileOptions: options.fileOptions,
   });
   const inputPath = path.join(options.tempDir, 'deck.md');
 

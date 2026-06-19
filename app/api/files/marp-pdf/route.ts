@@ -2,19 +2,18 @@ import { NextRequest, NextResponse } from 'next/server';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { auth } from '@/app/lib/auth';
 import { getFileStats, readFile } from '@/app/lib/filesystem/workspace-files';
 import { getMarpExportBaseName, runMarpCli, writeMarpCliInput } from '@/app/lib/marp/cli';
 import { isMarpMarkdown } from '@/app/lib/marp/detect';
 import { findChromiumExecutable } from '@/app/lib/pdf/browser';
+import { requireRequestWorkspace, workspaceFileOptions } from '@/app/lib/workspaces/request';
 
 const READ_SIZE_LIMIT = 5 * 1024 * 1024;
 
 export async function POST(request: NextRequest) {
-  const session = await auth.api.getSession({ headers: request.headers });
-  if (!session) {
-    return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
-  }
+  const workspaceResult = await requireRequestWorkspace(request, { permissions: 'canRead' });
+  if (workspaceResult.response) return workspaceResult.response;
+  const fileOptions = workspaceFileOptions(workspaceResult.workspace);
 
   let tempDir: string | null = null;
 
@@ -31,12 +30,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: 'File must be a markdown file (.md, .markdown)' }, { status: 400 });
     }
 
-    const stats = await getFileStats(filePath);
+    const stats = await getFileStats(filePath, fileOptions);
     if (stats.size > READ_SIZE_LIMIT) {
       return NextResponse.json({ success: false, error: 'File is too large to export' }, { status: 413 });
     }
 
-    const markdown = (await readFile(filePath)).toString('utf-8');
+    const markdown = (await readFile(filePath, fileOptions)).toString('utf-8');
     if (!isMarpMarkdown(filePath, markdown)) {
       return NextResponse.json({ success: false, error: 'File is not a Marp slide deck' }, { status: 400 });
     }
@@ -46,6 +45,7 @@ export async function POST(request: NextRequest) {
       tempDir,
       filePath,
       markdown,
+      fileOptions,
     });
     const outputPath = path.join(tempDir, 'slides.pdf');
     const chromiumPath = findChromiumExecutable();

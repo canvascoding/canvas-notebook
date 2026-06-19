@@ -3,23 +3,24 @@ import { LruCache } from './lru-cache';
 
 export const fileTreeCache = new LruCache<FileNode[]>(50, 5 * 60 * 1000);
 
-export function buildFileTreeCacheKey(dirPath: string, depth: number) {
-  return `${dirPath}:${depth}`;
+export function buildFileTreeCacheKey(dirPath: string, depth: number, workspaceId = 'legacy') {
+  return `${workspaceId}\0${dirPath}:${depth}`;
 }
 
 export function parseFileTreeCacheKey(key: string) {
-  const separatorIndex = key.lastIndexOf(':');
+  const [, pathKey = key] = key.includes('\0') ? key.split('\0', 2) : [null, key];
+  const separatorIndex = pathKey.lastIndexOf(':');
   if (separatorIndex === -1) {
-    return { path: key, depth: null };
+    return { path: pathKey, depth: null };
   }
 
-  const depth = Number.parseInt(key.slice(separatorIndex + 1), 10);
+  const depth = Number.parseInt(pathKey.slice(separatorIndex + 1), 10);
   if (Number.isNaN(depth)) {
-    return { path: key, depth: null };
+    return { path: pathKey, depth: null };
   }
 
   return {
-    path: key.slice(0, separatorIndex),
+    path: pathKey.slice(0, separatorIndex),
     depth,
   };
 }

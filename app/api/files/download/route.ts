@@ -3,10 +3,10 @@ import { createReadStream as createNodeReadStream, promises as fs } from 'fs';
 import path from 'path';
 import { createReadStream, getFileStats, validatePath } from '@/app/lib/filesystem/workspace-files';
 import { Readable } from 'stream';
-import { auth } from '@/app/lib/auth';
 import ZipStream from 'zip-stream';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 import { isAdminUser } from '@/app/lib/admin-auth';
+import { requireRequestWorkspace, workspaceFileOptions } from '@/app/lib/workspaces/request';
 
 const MAX_ZIP_DOWNLOAD_SIZE = 1024 * 1024 * 1024;
 const MAX_SINGLE_FILE_SIZE = 2 * 1024 * 1024 * 1024;
@@ -101,10 +101,10 @@ function createZipResponse(fullPath: string, downloadName: string) {
 }
 
 export async function GET(request: NextRequest) {
-  const session = await auth.api.getSession({ headers: request.headers });
-  if (!session) {
-    return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
-  }
+  const workspaceResult = await requireRequestWorkspace(request, { permissions: 'canRead' });
+  if (workspaceResult.response) return workspaceResult.response;
+  const { session, workspace } = workspaceResult;
+  const fileOptions = workspaceFileOptions(workspace);
 
   const limited = rateLimit(request, {
     limit: 30,
@@ -144,7 +144,7 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const stats = await getFileStats(filePath);
+    const stats = await getFileStats(filePath, fileOptions);
     const downloadName = resolveDownloadName(filePath);
 
     if (stats.isDirectory) {
@@ -155,7 +155,7 @@ export async function GET(request: NextRequest) {
         );
       }
 
-      const fullPath = validatePath(filePath);
+      const fullPath = validatePath(filePath, fileOptions);
       return createZipResponse(fullPath, downloadName);
     } else {
       if (stats.size > MAX_SINGLE_FILE_SIZE) {
@@ -165,7 +165,7 @@ export async function GET(request: NextRequest) {
         );
       }
 
-      const { stream } = await createReadStream(filePath);
+      const { stream } = await createReadStream(filePath, undefined, fileOptions);
       const webStream = Readable.toWeb(stream) as ReadableStream<Uint8Array>;
 
       return new NextResponse(webStream, {

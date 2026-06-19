@@ -8,12 +8,13 @@ import {
   jsonServerError,
   jsonSuccess,
   readJsonBody,
-  requireApiSession,
 } from '@/app/lib/api/route-helpers';
+import { requireRequestWorkspace, workspaceFileOptions } from '@/app/lib/workspaces/request';
 
 export async function POST(request: NextRequest) {
-  const unauthorized = await requireApiSession(request);
-  if (unauthorized) return unauthorized;
+  const workspaceResult = await requireRequestWorkspace(request, { permissions: 'canWrite' });
+  if (workspaceResult.response) return workspaceResult.response;
+  const fileOptions = workspaceFileOptions(workspaceResult.workspace);
 
   try {
     const rateLimitResponse = applyRateLimit(request, {
@@ -35,13 +36,14 @@ export async function POST(request: NextRequest) {
     }
 
     if (type === 'directory') {
-      await createDirectory(path);
+      await createDirectory(path, fileOptions);
     } else if (type === 'file') {
       await writeFile(
         path,
         template === 'excalidraw' || isExcalidrawFilePath(path)
           ? createEmptyExcalidrawFileContent()
-          : ''
+          : '',
+        fileOptions
       );
     } else {
       return jsonError('Invalid type', 400);

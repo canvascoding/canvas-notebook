@@ -4,7 +4,11 @@ import { Marp } from '@marp-team/marp-core';
 import fs from 'node:fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'node:url';
-import { readFile, resolveExistingWorkspacePath } from '@/app/lib/filesystem/workspace-files';
+import {
+  readFile,
+  resolveExistingWorkspacePath,
+  type WorkspaceFileOperationOptions,
+} from '@/app/lib/filesystem/workspace-files';
 
 const MAX_ASSET_INLINE_SIZE = 5 * 1024 * 1024;
 
@@ -146,19 +150,23 @@ function decodeUrlPath(url: string): string {
   }
 }
 
-async function resolveWorkspaceAssetDataUri(assetUrl: string, baseDir: string): Promise<string | null> {
+async function resolveWorkspaceAssetDataUri(
+  assetUrl: string,
+  baseDir: string,
+  fileOptions?: WorkspaceFileOperationOptions
+): Promise<string | null> {
   const trimmedUrl = assetUrl.trim();
   if (!trimmedUrl) {
     return null;
   }
 
-  const normalizedWorkspacePath = await resolveWorkspaceAssetPath(trimmedUrl, baseDir);
+  const normalizedWorkspacePath = await resolveWorkspaceAssetPath(trimmedUrl, baseDir, fileOptions);
   if (!normalizedWorkspacePath) {
     return null;
   }
 
   try {
-    const buffer = await readFile(normalizedWorkspacePath);
+    const buffer = await readFile(normalizedWorkspacePath, fileOptions);
     if (buffer.length > MAX_ASSET_INLINE_SIZE) {
       console.warn(`[Marp] Asset too large to inline: ${normalizedWorkspacePath}`);
       return null;
@@ -171,7 +179,11 @@ async function resolveWorkspaceAssetDataUri(assetUrl: string, baseDir: string): 
   }
 }
 
-async function resolveWorkspaceAssetPath(assetUrl: string, baseDir: string): Promise<string | null> {
+async function resolveWorkspaceAssetPath(
+  assetUrl: string,
+  baseDir: string,
+  fileOptions?: WorkspaceFileOperationOptions
+): Promise<string | null> {
   const appMediaPath = parseWorkspacePathFromAppMediaUrl(assetUrl);
   if (appMediaPath) {
     return normalizeWorkspacePath(appMediaPath);
@@ -179,7 +191,7 @@ async function resolveWorkspaceAssetPath(assetUrl: string, baseDir: string): Pro
 
   if (/^file:\/\//i.test(assetUrl)) {
     try {
-      return resolveAbsoluteWorkspaceAssetPath(fileURLToPath(assetUrl));
+      return resolveAbsoluteWorkspaceAssetPath(fileURLToPath(assetUrl), fileOptions);
     } catch {
       return null;
     }
@@ -191,7 +203,7 @@ async function resolveWorkspaceAssetPath(assetUrl: string, baseDir: string): Pro
   }
 
   if (path.isAbsolute(cleanUrl)) {
-    const absoluteWorkspacePath = await resolveAbsoluteWorkspaceAssetPath(cleanUrl);
+    const absoluteWorkspacePath = await resolveAbsoluteWorkspaceAssetPath(cleanUrl, fileOptions);
     if (absoluteWorkspacePath) {
       return absoluteWorkspacePath;
     }
@@ -230,9 +242,12 @@ function parseWorkspacePathFromAppMediaUrl(assetUrl: string): string | null {
   return null;
 }
 
-async function resolveAbsoluteWorkspaceAssetPath(filePath: string): Promise<string | null> {
+async function resolveAbsoluteWorkspaceAssetPath(
+  filePath: string,
+  fileOptions?: WorkspaceFileOperationOptions
+): Promise<string | null> {
   try {
-    const realWorkspaceRoot = await resolveExistingWorkspacePath('.');
+    const realWorkspaceRoot = await resolveExistingWorkspacePath('.', fileOptions);
     const realFilePath = await fs.realpath(filePath);
     const relativePath = path.relative(realWorkspaceRoot, realFilePath);
 
@@ -277,6 +292,7 @@ export async function inlineMarpMarkdownWorkspaceAssets(
   markdown: string,
   options: {
     filePath: string;
+    fileOptions?: WorkspaceFileOperationOptions;
   }
 ): Promise<string> {
   const baseDir = path.dirname(options.filePath);
@@ -290,7 +306,7 @@ export async function inlineMarpMarkdownWorkspaceAssets(
       const after = match[3] ?? '';
       const isAngled = rawSource.startsWith('<') && rawSource.endsWith('>');
       const source = isAngled ? rawSource.slice(1, -1) : rawSource;
-      const dataUri = await resolveWorkspaceAssetDataUri(source, baseDir);
+      const dataUri = await resolveWorkspaceAssetDataUri(source, baseDir, options.fileOptions);
 
       if (!dataUri) {
         return match[0];
@@ -300,7 +316,7 @@ export async function inlineMarpMarkdownWorkspaceAssets(
     }
   );
 
-  nextMarkdown = await inlineCssUrls(nextMarkdown, baseDir);
+  nextMarkdown = await inlineCssUrls(nextMarkdown, baseDir, options.fileOptions);
 
   nextMarkdown = await replaceAsync(
     nextMarkdown,
@@ -309,7 +325,7 @@ export async function inlineMarpMarkdownWorkspaceAssets(
       const before = match[1] ?? '';
       const source = match[2] ?? '';
       const after = match[3] ?? '';
-      const dataUri = await resolveWorkspaceAssetDataUri(source, baseDir);
+      const dataUri = await resolveWorkspaceAssetDataUri(source, baseDir, options.fileOptions);
 
       if (!dataUri) {
         return match[0];
@@ -322,14 +338,18 @@ export async function inlineMarpMarkdownWorkspaceAssets(
   return nextMarkdown;
 }
 
-async function inlineHtmlAssetSources(html: string, baseDir: string): Promise<string> {
+async function inlineHtmlAssetSources(
+  html: string,
+  baseDir: string,
+  fileOptions?: WorkspaceFileOperationOptions
+): Promise<string> {
   const sourceRegex = /(<(?:img|source|video|audio)\b[^>]*\b(?:src|poster)=["'])([^"']+)(["'][^>]*>)/gi;
   const matches = Array.from(html.matchAll(sourceRegex));
   let nextHtml = html;
 
   for (const match of matches) {
     const [fullMatch, before, source, after] = match;
-    const dataUri = await resolveWorkspaceAssetDataUri(source, baseDir);
+    const dataUri = await resolveWorkspaceAssetDataUri(source, baseDir, fileOptions);
     if (dataUri) {
       nextHtml = nextHtml.replace(fullMatch, `${before}${dataUri}${after}`);
     }
@@ -338,14 +358,18 @@ async function inlineHtmlAssetSources(html: string, baseDir: string): Promise<st
   return nextHtml;
 }
 
-async function inlineCssUrls(css: string, baseDir: string): Promise<string> {
+async function inlineCssUrls(
+  css: string,
+  baseDir: string,
+  fileOptions?: WorkspaceFileOperationOptions
+): Promise<string> {
   const urlRegex = /url\(\s*(["']?)([^"')]+)\1\s*\)/gi;
   const matches = Array.from(css.matchAll(urlRegex));
   let nextCss = css;
 
   for (const match of matches) {
     const [fullMatch, _quote, source] = match;
-    const dataUri = await resolveWorkspaceAssetDataUri(source, baseDir);
+    const dataUri = await resolveWorkspaceAssetDataUri(source, baseDir, fileOptions);
     if (dataUri) {
       nextCss = nextCss.replace(fullMatch, `url("${dataUri}")`);
     }
@@ -375,13 +399,14 @@ export async function renderMarpMarkdownToHtmlDocument(
   options: {
     filePath: string;
     title?: string;
+    fileOptions?: WorkspaceFileOperationOptions;
   }
 ): Promise<string> {
   const baseDir = path.dirname(options.filePath);
   const marp = createMarpRenderer();
   const rendered = marp.render(markdown);
-  const html = wrapMarpSlides(await inlineHtmlAssetSources(rendered.html, baseDir));
-  const css = await inlineCssUrls(rendered.css, baseDir);
+  const html = wrapMarpSlides(await inlineHtmlAssetSources(rendered.html, baseDir, options.fileOptions));
+  const css = await inlineCssUrls(rendered.css, baseDir, options.fileOptions);
   const title = options.title || path.basename(options.filePath);
 
   return `<!DOCTYPE html>
