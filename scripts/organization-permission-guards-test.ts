@@ -100,9 +100,9 @@ async function main() {
 
   assert.equal(automationInputRequiresTeamPermission({ scope: 'personal' }), false);
   assert.equal(automationInputRequiresTeamPermission({ scope: 'team' }), true);
-  assert.doesNotThrow(() => assertCanCreateRequestedAutomation({ scope: 'personal' }, memberId));
+  assert.doesNotThrow(() => assertCanCreateRequestedAutomation({ scope: 'personal' }, { id: memberId }));
   assert.throws(
-    () => assertCanCreateRequestedAutomation({ workspaceType: 'team' }, memberId),
+    () => assertCanCreateRequestedAutomation({ workspaceType: 'team' }, { id: memberId }),
     /Team automation permission required/,
   );
 
@@ -115,7 +115,21 @@ async function main() {
   permissionsDb.close();
 
   assert.doesNotThrow(() => assertUserOrganizationPermission(memberId, 'canExport'));
-  assert.doesNotThrow(() => assertCanCreateRequestedAutomation({ teamAutomation: true }, memberId));
+  assert.doesNotThrow(() => assertCanCreateRequestedAutomation({ teamAutomation: true }, { id: memberId }));
+
+  const legacyDb = new Database(path.join(dataDir, 'sqlite.db'));
+  legacyDb.prepare('DELETE FROM organization_user_permissions').run();
+  legacyDb.prepare('DELETE FROM canvas_organization_settings').run();
+  legacyDb.close();
+
+  assert.doesNotThrow(() => assertCanCreateRequestedAutomation(
+    { scope: 'team' },
+    { id: owner.id, role: 'admin', email: owner.email },
+  ));
+  assert.throws(
+    () => assertCanCreateRequestedAutomation({ scope: 'team' }, { id: memberId, role: 'user', email: 'member@example.test' }),
+    /Team automation permission required/,
+  );
 
   console.log('organization permission guard tests passed');
 }

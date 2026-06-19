@@ -20,6 +20,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useHintContext } from '@/app/components/onboarding/HintProvider';
+import type { OrganizationPermissionSnapshot } from '@/app/lib/organization/bootstrap';
 
 type EnvScope = 'integrations' | 'agents';
 
@@ -341,20 +342,7 @@ const WorkspaceSettingsPanel = dynamic(
   { loading: SettingsTabLoader },
 );
 
-type WorkspaceOrganizationPermission = {
-  role: string;
-  canWriteTeamWorkspace: boolean;
-  canCreatePublicLinks: boolean;
-  canCreateTeamAutomations: boolean;
-  canSharePluginsAndSkills: boolean;
-  canExport: boolean;
-  canDeleteTeamFiles: boolean;
-  canDeleteStudioAssets: boolean;
-  canManageBackups: boolean;
-  canMigrateDatabase: boolean;
-  canEnableKnowledge: boolean;
-  canRecoverWorkspaces: boolean;
-} | null;
+type WorkspaceOrganizationPermission = OrganizationPermissionSnapshot | null;
 
 const UserManagementPanel = dynamic<UserManagementPanelProps>(
   () => import('@/app/components/settings/UserManagementPanel').then((module) => module.UserManagementPanel),

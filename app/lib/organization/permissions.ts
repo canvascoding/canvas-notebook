@@ -132,6 +132,12 @@ export async function requireOrganizationPermission(
 
   const state = readOrganizationPermissionForUser(session.user.id);
   if (!state.configured && options.legacyAdminFallback !== false && isAdminUser(session.user)) {
+    console.warn('[OrganizationPermission] Legacy admin fallback granted organization permission.', {
+      userId: session.user.id,
+      permission: key,
+      databaseProvider: state.databaseProvider,
+    });
+
     return {
       ok: true,
       session,

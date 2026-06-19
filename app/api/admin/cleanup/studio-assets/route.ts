@@ -3,8 +3,8 @@ import { cleanupOrphanedStudioAssets } from '@/app/lib/cleanup/orphaned-assets';
 import { requireOrganizationPermission } from '@/app/lib/organization/permissions';
 
 export async function POST(request: NextRequest) {
-  const studioPermission = await requireOrganizationPermission(request, 'canDeleteStudioAssets', {
-    errorMessage: 'Forbidden: Studio asset delete permission required',
+  const studioPermission = await requireOrganizationPermission(request, 'canManageBackups', {
+    errorMessage: 'Forbidden: admin cleanup permission required',
   });
   if (!studioPermission.ok) return studioPermission.response;
 
