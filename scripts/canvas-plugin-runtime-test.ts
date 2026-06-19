@@ -87,6 +87,25 @@ This is a temporary test skill.
   return pluginRoot;
 }
 
+async function createSeedRefPluginPackage(): Promise<string> {
+  const pluginRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'canvas-plugin-seed-ref-package-'));
+
+  await writeFile(path.join(pluginRoot, '.canvas-plugin', 'plugin.json'), JSON.stringify({
+    name: 'seed-ref-plugin',
+    version: '1.0.0',
+    description: 'Temporary plugin runtime test for seed skill references.',
+    license: 'MIT',
+    skillRefs: ['pdf'],
+    interface: {
+      displayName: 'Seed Ref Plugin',
+      shortDescription: 'Runtime seed ref test plugin',
+      brandColor: '#2563EB',
+    },
+  }, null, 2));
+
+  return pluginRoot;
+}
+
 async function createStoreArchive(pluginRoot: string, checksum: string): Promise<string> {
   const storeRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'canvas-plugin-store-'));
   const packagePrefix = 'canvas-plugin-marketplace-test/plugins/test-plugin/1.0.0';
@@ -147,6 +166,7 @@ async function createStoreArchive(pluginRoot: string, checksum: string): Promise
 async function main() {
   const dataRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'canvas-plugin-test-data-'));
   const pluginRoot = await createTestPluginPackage();
+  const seedRefPluginRoot = await createSeedRefPluginPackage();
   let storeRoot: string | null = null;
   process.env.CANVAS_DATA_ROOT = dataRoot;
 
@@ -213,6 +233,19 @@ async function main() {
     skills = await loadSkillsFromDisk();
     assert.equal(skills.some((skill) => skill.name === 'test-plugin-skill' && !skill.plugin), true);
 
+    const seedRefInstall = await installCanvasPluginFromPath(seedRefPluginRoot, { enable: true });
+    assert.equal(seedRefInstall.success, true, seedRefInstall.error || JSON.stringify(seedRefInstall.validation));
+    assert.equal(seedRefInstall.plugin?.skills[0].name, 'pdf');
+    assert.equal(seedRefInstall.plugin?.skills[0].sourceType, 'seed');
+    assert.equal(seedRefInstall.plugin?.skills[0].materialized, true);
+    assert.equal(
+      await fs.stat(path.join(dataRoot, 'skills', 'pdf', 'SKILL.md')).then((stat) => stat.isFile()),
+      true,
+    );
+
+    const seedRefDeleted = await deleteCanvasPlugin('seed-ref-plugin');
+    assert.equal(seedRefDeleted.success, true, seedRefDeleted.error);
+
     const checksum = await computeCanvasPluginChecksum(pluginRoot);
     const registryPath = await createStoreArchive(pluginRoot, checksum);
     storeRoot = path.dirname(registryPath);
@@ -273,6 +306,7 @@ async function main() {
   } finally {
     await fs.rm(dataRoot, { recursive: true, force: true });
     await fs.rm(pluginRoot, { recursive: true, force: true });
+    await fs.rm(seedRefPluginRoot, { recursive: true, force: true });
     if (storeRoot) {
       await fs.rm(storeRoot, { recursive: true, force: true });
     }

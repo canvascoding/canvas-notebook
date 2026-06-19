@@ -463,8 +463,14 @@ type SeedPluginManifest = {
   author?: unknown;
   source?: string;
   skills?: string;
+  skillRefs?: SeedPluginSkillReference[];
   interface?: unknown;
   connectors?: unknown;
+};
+
+type SeedPluginSkillReference = {
+  name: string;
+  source?: 'seed';
 };
 
 type SeedPluginSkillRecord = {
@@ -474,6 +480,7 @@ type SeedPluginSkillRecord = {
   version?: string;
   path: string;
   directory: string;
+  sourceType?: 'bundled' | 'seed';
   materialized?: boolean;
   preexistingStandalone?: boolean;
   standaloneDir?: string;
@@ -497,6 +504,30 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function stringValue(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
+function normalizeSeedPluginSkillReference(value: unknown): SeedPluginSkillReference | null {
+  const name = stringValue(value);
+  if (name) {
+    return { name, source: 'seed' };
+  }
+
+  if (!isRecord(value)) return null;
+  const objectName = stringValue(value.name);
+  if (!objectName) return null;
+  const source = stringValue(value.source);
+  return {
+    name: objectName,
+    source: source === 'seed' ? 'seed' : undefined,
+  };
+}
+
+function normalizeSeedPluginSkillReferences(value: unknown): SeedPluginSkillReference[] | undefined {
+  const entries = Array.isArray(value) ? value : value === undefined ? [] : [value];
+  const refs = entries
+    .map(normalizeSeedPluginSkillReference)
+    .filter((ref): ref is SeedPluginSkillReference => Boolean(ref));
+  return refs.length > 0 ? refs : undefined;
 }
 
 function isValidCanvasPackageName(name: string): boolean {
@@ -595,6 +626,12 @@ async function readSeedPluginManifest(pluginRoot: string): Promise<SeedPluginMan
   try {
     const parsed = JSON.parse(await fs.readFile(manifestPath, 'utf8')) as unknown;
     if (!isRecord(parsed)) return null;
+    const skillRefs = normalizeSeedPluginSkillReferences(
+      parsed.skillRefs
+        ?? parsed.skill_refs
+        ?? parsed.seedSkills
+        ?? parsed.seed_skills,
+    );
     const manifest: SeedPluginManifest = {
       name: stringValue(parsed.name) || '',
       version: stringValue(parsed.version) || '',
@@ -602,7 +639,8 @@ async function readSeedPluginManifest(pluginRoot: string): Promise<SeedPluginMan
       license: stringValue(parsed.license),
       author: parsed.author,
       source: stringValue(parsed.source),
-      skills: stringValue(parsed.skills) || './skills',
+      skills: stringValue(parsed.skills) || (skillRefs?.length ? undefined : './skills'),
+      skillRefs,
       interface: parsed.interface,
       connectors: parsed.connectors,
     };
@@ -616,20 +654,52 @@ async function readSeedPluginManifest(pluginRoot: string): Promise<SeedPluginMan
 }
 
 async function discoverSeedPluginSkills(pluginRoot: string, manifest: SeedPluginManifest): Promise<SeedPluginSkillRecord[]> {
-  const skillsDir = path.resolve(pluginRoot, manifest.skills || './skills');
-  const entries = await fs.readdir(skillsDir, { withFileTypes: true }).catch(() => []);
   const records: SeedPluginSkillRecord[] = [];
+  const seen = new Set<string>();
 
-  for (const entry of entries) {
-    if (!entry.isDirectory() || entry.name.startsWith('.')) continue;
-    const skillDir = path.join(skillsDir, entry.name);
+  if (manifest.skills) {
+    const skillsDir = path.resolve(pluginRoot, manifest.skills);
+    const entries = await fs.readdir(skillsDir, { withFileTypes: true }).catch(() => []);
+
+    for (const entry of entries) {
+      if (!entry.isDirectory() || entry.name.startsWith('.')) continue;
+      const skillDir = path.join(skillsDir, entry.name);
+      const skillPath = path.join(skillDir, 'SKILL.md');
+      const stat = await fs.stat(skillPath).catch(() => null);
+      if (!stat?.isFile()) continue;
+
+      const skillFrontmatter = parseSimpleSkillFrontmatter(await fs.readFile(skillPath, 'utf8'));
+      const skillName = skillFrontmatter.name || entry.name;
+      if (!isValidCanvasPackageName(skillName) || seen.has(skillName)) continue;
+      seen.add(skillName);
+
+      records.push({
+        name: skillName,
+        title: skillName
+          .split('-')
+          .filter(Boolean)
+          .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+          .join(' '),
+        description: skillFrontmatter.description || '',
+        version: skillFrontmatter.version,
+        path: path.join(INSTALLED_PLUGINS_DIR, manifest.name, manifest.version, path.relative(pluginRoot, skillPath)),
+        directory: path.join(INSTALLED_PLUGINS_DIR, manifest.name, manifest.version, path.relative(pluginRoot, skillDir)),
+        sourceType: 'bundled',
+      });
+    }
+  }
+
+  for (const ref of manifest.skillRefs || []) {
+    if (!isValidCanvasPackageName(ref.name) || seen.has(ref.name)) continue;
+    const skillDir = path.join(SEED_SKILLS_DIR, ref.name);
     const skillPath = path.join(skillDir, 'SKILL.md');
     const stat = await fs.stat(skillPath).catch(() => null);
     if (!stat?.isFile()) continue;
 
     const skillFrontmatter = parseSimpleSkillFrontmatter(await fs.readFile(skillPath, 'utf8'));
-    const skillName = skillFrontmatter.name || entry.name;
-    if (!isValidCanvasPackageName(skillName)) continue;
+    const skillName = skillFrontmatter.name || ref.name;
+    if (!isValidCanvasPackageName(skillName) || seen.has(skillName)) continue;
+    seen.add(skillName);
 
     records.push({
       name: skillName,
@@ -640,8 +710,9 @@ async function discoverSeedPluginSkills(pluginRoot: string, manifest: SeedPlugin
         .join(' '),
       description: skillFrontmatter.description || '',
       version: skillFrontmatter.version,
-      path: path.join(INSTALLED_PLUGINS_DIR, manifest.name, manifest.version, path.relative(pluginRoot, skillPath)),
-      directory: path.join(INSTALLED_PLUGINS_DIR, manifest.name, manifest.version, path.relative(pluginRoot, skillDir)),
+      path: skillPath,
+      directory: skillDir,
+      sourceType: 'seed',
     });
   }
 
@@ -803,7 +874,7 @@ async function ensureSeedPluginsBootstrap(): Promise<void> {
       filter: (source) => !['.git', 'node_modules', '.DS_Store'].includes(path.basename(source)),
     });
 
-    const installedSkillsDir = path.join(installDir, manifest.skills || './skills');
+    const installedSkillsDir = manifest.skills ? path.join(installDir, manifest.skills) : undefined;
     const materializedSkills = await materializeSeedPluginSkills(manifest, skills);
     const checksum = await computeSeedPluginChecksum(installDir);
     const timestamp = new Date().toISOString();

@@ -22,7 +22,6 @@ import { readPiRuntimeConfig, writePiRuntimeConfig } from '@/app/lib/agents/stor
 import {
   isPathInside,
   isValidCanvasPluginName,
-  resolvePluginRelativePath,
   validateCanvasPluginPackage,
   type CanvasPluginConnectorManifest,
   type CanvasPluginInterface,
@@ -37,6 +36,7 @@ export interface CanvasPluginSkillRecord {
   version?: string;
   path: string;
   directory: string;
+  sourceType?: 'bundled' | 'seed';
   materialized?: boolean;
   preexistingStandalone?: boolean;
   standaloneDir?: string;
@@ -58,7 +58,7 @@ export interface CanvasPluginInstallRecord {
   sourceRegistryUrl?: string;
   installDir: string;
   manifestPath: string;
-  skillsDir: string;
+  skillsDir?: string;
   skills: CanvasPluginSkillRecord[];
   interface?: CanvasPluginInterface;
   connectors?: CanvasPluginConnectorManifest;
@@ -112,6 +112,7 @@ export interface CanvasPluginInstallResult {
 }
 
 const IGNORED_CHECKSUM_ENTRIES = new Set(['.git', 'node_modules', '.DS_Store']);
+const SEED_SKILLS_DIR = path.join(process.cwd(), 'seed_skills');
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -265,22 +266,22 @@ async function parsePluginSkills(
   pluginVersion: string,
   pluginDisplayName: string | undefined,
   pluginRoot: string,
-  skillsDir: string,
+  skillsDir: string | undefined,
 ): Promise<{ skills: CanvasSkill[]; records: CanvasPluginSkillRecord[]; errors: string[] }> {
   const skills: CanvasSkill[] = [];
   const records: CanvasPluginSkillRecord[] = [];
   const errors: string[] = [];
-  const skillFiles = await discoverPluginSkillFiles(skillsDir);
+  const skillFiles = skillsDir ? await discoverPluginSkillFiles(skillsDir) : [];
   const seen = new Set<string>();
 
-  if (skillFiles.length === 0) {
+  if (skillsDir && skillFiles.length === 0) {
     errors.push('Plugin must contain at least one SKILL.md under its skills directory.');
   }
 
   for (const skillFile of skillFiles) {
     const skill = await parseSkillFile(skillFile);
     if (!skill) {
-      errors.push(`Invalid skill file: ${path.relative(skillsDir, skillFile)}`);
+      errors.push(`Invalid skill file: ${skillsDir ? path.relative(skillsDir, skillFile) : skillFile}`);
       continue;
     }
 
@@ -304,10 +305,102 @@ async function parsePluginSkills(
       version: skill.version,
       path: skill.path,
       directory: skill.directory,
+      sourceType: 'bundled',
     });
   }
 
   return { skills, records, errors };
+}
+
+async function parseReferencedPluginSkills(
+  pluginName: string,
+  pluginVersion: string,
+  pluginDisplayName: string | undefined,
+  skillRefs: CanvasPluginManifest['skillRefs'],
+  seen: Set<string>,
+): Promise<{ skills: CanvasSkill[]; records: CanvasPluginSkillRecord[]; errors: string[] }> {
+  const skills: CanvasSkill[] = [];
+  const records: CanvasPluginSkillRecord[] = [];
+  const errors: string[] = [];
+
+  for (const [index, skillRef] of (skillRefs || []).entries()) {
+    if (skillRef.source && skillRef.source !== 'seed') {
+      errors.push(`skillRefs[${index}].source: Only "seed" is supported.`);
+      continue;
+    }
+
+    const skillDir = path.join(SEED_SKILLS_DIR, skillRef.name);
+    const resolvedSkillDir = path.resolve(/*turbopackIgnore: true*/ skillDir);
+    if (!isPathInside(SEED_SKILLS_DIR, resolvedSkillDir)) {
+      errors.push(`skillRefs[${index}].name: Invalid seed skill reference.`);
+      continue;
+    }
+
+    const skillPath = path.join(skillDir, 'SKILL.md');
+    const skill = await parseSkillFile(skillPath);
+    if (!skill) {
+      errors.push(`skillRefs[${index}]: Seed skill "${skillRef.name}" does not exist or is invalid.`);
+      continue;
+    }
+
+    if (seen.has(skill.name)) {
+      errors.push(`Duplicate skill name in plugin: ${skill.name}`);
+      continue;
+    }
+
+    seen.add(skill.name);
+    skill.plugin = {
+      name: pluginName,
+      version: pluginVersion,
+      displayName: pluginDisplayName,
+    };
+    skills.push(skill);
+    records.push({
+      name: skill.name,
+      title: skill.title,
+      description: skill.description,
+      version: skill.version,
+      path: skill.path,
+      directory: skill.directory,
+      sourceType: 'seed',
+    });
+  }
+
+  return { skills, records, errors };
+}
+
+async function parsePluginSkillsFromManifest(
+  manifest: CanvasPluginManifest,
+  pluginRoot: string,
+  skillsDir?: string,
+): Promise<{ skills: CanvasSkill[]; records: CanvasPluginSkillRecord[]; errors: string[] }> {
+  const bundled = await parsePluginSkills(
+    manifest.name,
+    manifest.version,
+    manifest.interface?.displayName,
+    pluginRoot,
+    skillsDir,
+  );
+  const seen = new Set(bundled.records.map((record) => record.name));
+  const referenced = await parseReferencedPluginSkills(
+    manifest.name,
+    manifest.version,
+    manifest.interface?.displayName,
+    manifest.skillRefs,
+    seen,
+  );
+  const records = [...bundled.records, ...referenced.records];
+  const errors = [...bundled.errors, ...referenced.errors];
+
+  if (records.length === 0) {
+    errors.push('Plugin must contain at least one bundled skill or skillRef.');
+  }
+
+  return {
+    skills: [...bundled.skills, ...referenced.skills],
+    records,
+    errors,
+  };
 }
 
 async function getStandaloneSkillNames(): Promise<Set<string>> {
@@ -433,8 +526,13 @@ async function materializePluginSkills(record: CanvasPluginInstallRecord): Promi
     }
 
     const resolvedSourceDir = path.resolve(/*turbopackIgnore: true*/ skill.directory);
-    if (!isPathInside(record.installDir, resolvedSourceDir)) {
-      throw new Error(`Plugin skill "${skill.name}" points outside the plugin package.`);
+    const allowedSourceRoot = skill.sourceType === 'seed' ? SEED_SKILLS_DIR : record.installDir;
+    if (!isPathInside(allowedSourceRoot, resolvedSourceDir)) {
+      throw new Error(
+        skill.sourceType === 'seed'
+          ? `Plugin skill "${skill.name}" points outside seed_skills.`
+          : `Plugin skill "${skill.name}" points outside the plugin package.`,
+      );
     }
 
     if (pluginOwnedStandalone) {
@@ -479,6 +577,30 @@ function getPluginInstallEnabledSkillNames(plugin: CanvasPluginInstallRecord): s
     .map((skill) => skill.name);
 }
 
+async function parseInstalledPluginRecordSkill(
+  plugin: CanvasPluginInstallRecord,
+  record: CanvasPluginSkillRecord,
+): Promise<CanvasSkill | null> {
+  const skillPath = record.path || path.join(record.directory, 'SKILL.md');
+  const skill = await parseSkillFile(skillPath);
+  if (!skill) return null;
+
+  const resolvedDirectory = path.resolve(/*turbopackIgnore: true*/ skill.directory);
+  const resolvedInstallDir = path.resolve(/*turbopackIgnore: true*/ plugin.installDir);
+  const bundledAssetPath = isPathInside(resolvedInstallDir, resolvedDirectory)
+    ? path.relative(plugin.installDir, skill.directory)
+    : undefined;
+
+  skill.plugin = {
+    name: plugin.name,
+    version: plugin.version,
+    displayName: plugin.interface?.displayName,
+    skillAssetPath: bundledAssetPath,
+  };
+
+  return skill;
+}
+
 async function buildPluginRecordFromInstalledPackage(
   manifest: CanvasPluginManifest,
   sourceRoot: string,
@@ -488,16 +610,13 @@ async function buildPluginRecordFromInstalledPackage(
 ): Promise<{ record?: CanvasPluginInstallRecord; errors: string[] }> {
   const installedValidation = await validateCanvasPluginPackage(installDir);
   const errors = [...installedValidation.errors];
-  if (!installedValidation.valid || !installedValidation.manifest || !installedValidation.skillsDir) {
+  if (!installedValidation.valid || !installedValidation.manifest || !installedValidation.rootDir) {
     return { errors };
   }
 
-  const pluginDisplayName = installedValidation.manifest.interface?.displayName;
-  const parsedSkills = await parsePluginSkills(
-    installedValidation.manifest.name,
-    installedValidation.manifest.version,
-    pluginDisplayName,
-    installDir,
+  const parsedSkills = await parsePluginSkillsFromManifest(
+    installedValidation.manifest,
+    installedValidation.rootDir,
     installedValidation.skillsDir,
   );
   errors.push(...parsedSkills.errors);
@@ -561,7 +680,7 @@ export async function installCanvasPluginFromPath(
   options: CanvasPluginInstallOptions = {},
 ): Promise<CanvasPluginInstallResult> {
   const validation = await validateCanvasPluginPackage(sourcePath);
-  if (!validation.valid || !validation.manifest || !validation.skillsDir || !validation.rootDir) {
+  if (!validation.valid || !validation.manifest || !validation.rootDir) {
     return {
       success: false,
       error: 'Plugin validation failed',
@@ -583,10 +702,8 @@ export async function installCanvasPluginFromPath(
     };
   }
 
-  const candidateSkills = await parsePluginSkills(
-    manifest.name,
-    manifest.version,
-    manifest.interface?.displayName,
+  const candidateSkills = await parsePluginSkillsFromManifest(
+    manifest,
     validation.rootDir,
     validation.skillsDir,
   );
@@ -731,16 +848,12 @@ export async function loadEnabledPluginSkills(enabledSkills?: string[]): Promise
       continue;
     }
 
-    const skillsDir = plugin.skillsDir || resolvePluginRelativePath(plugin.installDir, 'skills');
-    const parsedSkills = await parsePluginSkills(
-      plugin.name,
-      plugin.version,
-      plugin.interface?.displayName,
-      plugin.installDir,
-      skillsDir,
+    const parsedSkills = await Promise.all(
+      plugin.skills.map((skillRecord) => parseInstalledPluginRecordSkill(plugin, skillRecord)),
     );
 
-    for (const skill of parsedSkills.skills) {
+    for (const skill of parsedSkills) {
+      if (!skill) continue;
       skill.enabled = enabledSkillNameSet.has(skill.name);
       pluginSkills.push(skill);
     }

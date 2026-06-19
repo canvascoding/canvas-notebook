@@ -32,6 +32,11 @@ export interface CanvasPluginConnectorManifest {
   composioToolkits?: string[];
 }
 
+export interface CanvasPluginSkillReference {
+  name: string;
+  source?: 'seed';
+}
+
 export interface CanvasPluginComposioConnector {
   toolkit: string;
   label?: string;
@@ -68,7 +73,8 @@ export interface CanvasPluginManifest {
   license?: string;
   author?: CanvasPluginAuthor;
   source?: string;
-  skills: string;
+  skills?: string;
+  skillRefs?: CanvasPluginSkillReference[];
   interface?: CanvasPluginInterface;
   connectors?: CanvasPluginConnectorManifest;
 }
@@ -265,8 +271,38 @@ function normalizeConnectors(parsed: Record<string, unknown>): CanvasPluginConne
   return Object.values(result).some((value) => Array.isArray(value) ? value.length > 0 : Boolean(value)) ? result : undefined;
 }
 
+function normalizeSkillReference(value: unknown): CanvasPluginSkillReference | null {
+  const legacyName = stringValue(value);
+  if (legacyName) {
+    return { name: legacyName, source: 'seed' };
+  }
+
+  if (!isRecord(value)) return null;
+  const name = stringValue(value.name);
+  if (!name) return null;
+  const source = stringValue(value.source);
+  return {
+    name,
+    source: source === 'seed' ? 'seed' : undefined,
+  };
+}
+
+function normalizeSkillReferences(value: unknown): CanvasPluginSkillReference[] | undefined {
+  const entries = Array.isArray(value) ? value : value === undefined ? [] : [value];
+  const refs = entries
+    .map(normalizeSkillReference)
+    .filter((ref): ref is CanvasPluginSkillReference => Boolean(ref));
+  return refs.length > 0 ? refs : undefined;
+}
+
 function normalizeManifest(parsed: unknown): CanvasPluginManifest | null {
   if (!isRecord(parsed)) return null;
+  const skillRefs = normalizeSkillReferences(
+    parsed.skillRefs
+      ?? parsed.skill_refs
+      ?? parsed.seedSkills
+      ?? parsed.seed_skills,
+  );
 
   const manifest: CanvasPluginManifest = {
     name: stringValue(parsed.name) || '',
@@ -275,7 +311,8 @@ function normalizeManifest(parsed: unknown): CanvasPluginManifest | null {
     license: stringValue(parsed.license),
     author: normalizeAuthor(parsed.author),
     source: stringValue(parsed.source),
-    skills: stringValue(parsed.skills) || './skills',
+    skills: stringValue(parsed.skills) || (skillRefs?.length ? undefined : './skills'),
+    skillRefs,
     interface: normalizeInterface(parsed.interface),
     connectors: normalizeConnectors(parsed),
   };
@@ -384,6 +421,10 @@ export async function validateCanvasPluginPackage(sourcePath: string): Promise<C
       errors.push('description: Maximum length is 1024 characters.');
     }
 
+    if (!manifest.skills && (!manifest.skillRefs || manifest.skillRefs.length === 0)) {
+      errors.push('skills: Missing required field. Provide a skills directory or skillRefs.');
+    }
+
     const skillsDir = validateRelativePath('skills', rootDir, manifest.skills, errors);
     if (skillsDir) {
       try {
@@ -393,6 +434,15 @@ export async function validateCanvasPluginPackage(sourcePath: string): Promise<C
         }
       } catch {
         errors.push('skills: Directory does not exist.');
+      }
+    }
+
+    for (const [index, skillRef] of (manifest.skillRefs || []).entries()) {
+      if (!isValidCanvasPluginName(skillRef.name)) {
+        errors.push(`skillRefs[${index}].name: Must be lowercase letters, numbers, and hyphens only.`);
+      }
+      if (skillRef.source && skillRef.source !== 'seed') {
+        errors.push(`skillRefs[${index}].source: Only "seed" is supported.`);
       }
     }
 
@@ -433,6 +483,6 @@ export async function validateCanvasPluginPackage(sourcePath: string): Promise<C
     manifest: manifest || undefined,
     rootDir,
     manifestPath,
-    skillsDir: manifest ? resolvePluginRelativePath(rootDir, manifest.skills) : undefined,
+    skillsDir: manifest?.skills ? resolvePluginRelativePath(rootDir, manifest.skills) : undefined,
   };
 }

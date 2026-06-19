@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict';
-import { promises as fs } from 'node:fs';
 import path from 'node:path';
 
 import {
@@ -22,21 +21,10 @@ async function main() {
   const validation = await validateCanvasPluginPackage(pluginRoot);
   assert.equal(validation.valid, true, validation.errors.join('\n'));
   assert.equal(validation.manifest?.name, 'document-suite');
-  assert.equal(validation.manifest?.version, '1.1.0');
+  assert.equal(validation.manifest?.version, '1.2.0');
 
-  const skillNames: string[] = [];
-  const skillRoot = path.join(pluginRoot, 'skills');
-  const entries = await fs.readdir(skillRoot, { withFileTypes: true });
-  for (const entry of entries) {
-    if (!entry.isDirectory()) continue;
-    const skillPath = path.join(skillRoot, entry.name, 'SKILL.md');
-    const stat = await fs.stat(skillPath).catch(() => null);
-    if (stat?.isFile()) {
-      skillNames.push(entry.name);
-    }
-  }
-
-  assert.deepEqual(skillNames.sort(), [
+  const skillNames = validation.manifest?.skillRefs?.map((skill) => skill.name).sort() || [];
+  assert.deepEqual(skillNames, [
     'docx',
     'excalidraw-diagram',
     'marp-slides',
@@ -44,6 +32,7 @@ async function main() {
     'pptx',
     'xlsx',
   ]);
+  assert.equal(validation.skillsDir, undefined);
 
   console.log('default seed plugins test passed');
 }
