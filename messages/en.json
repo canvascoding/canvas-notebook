@@ -3011,6 +3011,14 @@
       "modified": "Modified",
       "fromPlugin": "From {name}",
       "updateAvailable": "Update available",
+      "resetAll": {
+        "button": "Reset skills",
+        "title": "Reset all skills?",
+        "description": "This deletes the entire skills folder, including installed skills, local skill files, registry data, and backups. Installed plugins are not removed, but their bundled skills can appear again through the plugin.",
+        "confirmLabel": "Type {confirmation} to continue.",
+        "cancel": "Cancel",
+        "confirm": "Delete skills folder"
+      },
       "pagination": {
         "status": "Page {page} of {totalPages} · {totalItems} skills",
         "previous": "Previous",
@@ -3019,7 +3027,8 @@
       "errors": {
         "storeLoad": "Failed to load Canvas Skill Library.",
         "install": "Failed to install skill.",
-        "restore": "Failed to restore skill."
+        "restore": "Failed to restore skill.",
+        "resetAll": "Failed to reset skills."
       }
     },
     "integrationsHint": {

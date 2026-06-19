@@ -3010,6 +3010,14 @@
       "modified": "Geändert",
       "fromPlugin": "Aus {name}",
       "updateAvailable": "Update verfügbar",
+      "resetAll": {
+        "button": "Skills zurücksetzen",
+        "title": "Alle Skills zurücksetzen?",
+        "description": "Dadurch wird der gesamte Skills-Ordner gelöscht, inklusive installierter Skills, lokaler Skill-Dateien, Registry-Daten und Backups. Installierte Plugins werden nicht entfernt, ihre gebündelten Skills können aber wieder über das Plugin erscheinen.",
+        "confirmLabel": "Gib {confirmation} ein, um fortzufahren.",
+        "cancel": "Abbrechen",
+        "confirm": "Skills-Ordner löschen"
+      },
       "pagination": {
         "status": "Seite {page} von {totalPages} · {totalItems} Skills",
         "previous": "Zurück",
@@ -3018,7 +3026,8 @@
       "errors": {
         "storeLoad": "Canvas Skill Library konnte nicht geladen werden.",
         "install": "Skill konnte nicht installiert werden.",
-        "restore": "Skill konnte nicht zurückgesetzt werden."
+        "restore": "Skill konnte nicht zurückgesetzt werden.",
+        "resetAll": "Skills konnten nicht zurückgesetzt werden."
       }
     },
     "integrationsHint": {

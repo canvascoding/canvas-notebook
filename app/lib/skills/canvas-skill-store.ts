@@ -22,7 +22,7 @@ import {
 import { loadSkillByName, getSkillNames } from '@/app/lib/skills/skill-loader';
 import { loadSkillSummaries, type SkillSummary } from '@/app/lib/skills/skill-summaries';
 import { readPiRuntimeConfig, writePiRuntimeConfig } from '@/app/lib/agents/storage';
-import { enableSkillInConfig } from '@/app/lib/skills/enabled-skills';
+import { DISABLED_ALL_SKILLS_SENTINEL, enableSkillInConfig } from '@/app/lib/skills/enabled-skills';
 
 export const DEFAULT_CANVAS_SKILL_STORE_REGISTRY_URL =
   'https://raw.githubusercontent.com/canvascoding/canvas-notebook-plugin-marketplace/main/registry.json';
@@ -153,6 +153,12 @@ export interface CanvasSkillStoreInstallResult {
   storeSkill?: CanvasSkillStoreSkill;
   storeVersion?: CanvasSkillStoreVersion;
   backupPath?: string;
+}
+
+export interface CanvasSkillsResetResult {
+  success: boolean;
+  skillsDir: string;
+  deletedAt: string;
 }
 
 function nowIso(): string {
@@ -408,6 +414,27 @@ export async function removeCanvasSkillRegistryRecord(skillName: string): Promis
   await writeCanvasSkillRegistry(registry);
 }
 
+export async function resetCanvasSkillsDirectory(updatedBy = 'unknown'): Promise<CanvasSkillsResetResult> {
+  const skillsDir = resolveSkillsDataDir();
+  const deletedAt = nowIso();
+
+  await fs.rm(skillsDir, { recursive: true, force: true });
+  await fs.mkdir(skillsDir, { recursive: true });
+  await writeCanvasSkillRegistry(createEmptySkillRegistry());
+
+  const config = await readPiRuntimeConfig();
+  config.enabledSkills = [DISABLED_ALL_SKILLS_SENTINEL];
+  config.updatedAt = deletedAt;
+  config.updatedBy = updatedBy;
+  await writePiRuntimeConfig(config);
+
+  return {
+    success: true,
+    skillsDir,
+    deletedAt,
+  };
+}
+
 async function listStandaloneSkillSummaries(enabledSkills?: string[]): Promise<SkillSummary[]> {
   const summaries = await loadSkillSummaries(enabledSkills);
   return summaries.filter((skill) => !skill.plugin);
@@ -432,7 +459,7 @@ async function enrichStoreSkillsWithInstalledState(
   const skills = registry.skills.map((skill) => {
     const installedSummary = standaloneByName.get(skill.name);
     const installedSkill = localRegistry.skills[skill.name];
-    const installedVersion = installedSkill?.version;
+    const installedVersion = installedSkill?.version || installedSummary?.version;
     const updateAvailable = Boolean(
       installedSummary && installedVersion && compareVersions(skill.latestVersion, installedVersion) > 0,
     );

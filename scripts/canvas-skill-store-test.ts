@@ -40,7 +40,7 @@ async function writeFile(filePath: string, content: string): Promise<void> {
   await fs.writeFile(filePath, content, 'utf-8');
 }
 
-async function createTestSkillPackage(): Promise<string> {
+async function createTestSkillPackage(version = '1.0.0'): Promise<string> {
   const skillRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'canvas-skill-package-'));
 
   await writeFile(path.join(skillRoot, 'SKILL.md'), `---
@@ -48,12 +48,12 @@ name: test-library-skill
 description: "Use this temporary library skill for Canvas skill store tests."
 license: "MIT"
 metadata:
-  version: "1.0.0"
+  version: "${version}"
 ---
 
 # Test Library Skill
 
-This is a temporary test skill.
+This is a temporary test skill at version ${version}.
 `);
 
   await writeFile(path.join(skillRoot, 'agents', 'canvas.yaml'), `interface:
@@ -71,9 +71,9 @@ This is a temporary test skill.
   return skillRoot;
 }
 
-async function createStoreArchive(skillRoot: string, checksum: string): Promise<string> {
+async function createStoreArchive(skillRoot: string, checksum: string, version = '1.0.0'): Promise<string> {
   const storeRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'canvas-skill-store-'));
-  const packagePrefix = 'canvas-plugin-marketplace-test/skills/test-library-skill/1.0.0';
+  const packagePrefix = `canvas-plugin-marketplace-test/skills/test-library-skill/${version}`;
   const zip = new JSZip();
 
   async function addDirectory(currentDir: string) {
@@ -106,13 +106,13 @@ async function createStoreArchive(skillRoot: string, checksum: string): Promise<
         displayName: 'Test Library Skill',
         description: 'Temporary skill store test.',
         category: 'Testing',
-        latestVersion: '1.0.0',
-        icon: 'skills/test-library-skill/1.0.0/icon.svg',
+        latestVersion: version,
+        icon: `skills/test-library-skill/${version}/icon.svg`,
         brandColor: '#2563EB',
         license: 'MIT',
         versions: {
-          '1.0.0': {
-            version: '1.0.0',
+          [version]: {
+            version,
             downloadUrl: pathToFileURL(zipPath).toString(),
             packagePath: packagePrefix,
             checksum: `sha256:${checksum}`,
@@ -129,6 +129,7 @@ async function createStoreArchive(skillRoot: string, checksum: string): Promise<
 async function main() {
   const dataRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'canvas-skill-test-data-'));
   const skillRoot = await createTestSkillPackage();
+  const tempPaths: string[] = [];
   let storeRoot: string | null = null;
   process.env.CANVAS_DATA_ROOT = dataRoot;
 
@@ -145,8 +146,11 @@ async function main() {
       listCanvasSkillStore,
       readCanvasSkillRegistry,
       removeCanvasSkillRegistryRecord,
+      resetCanvasSkillsDirectory,
       restoreCanvasSkill,
     } = await import('../app/lib/skills/canvas-skill-store');
+    const { readPiRuntimeConfig } = await import('../app/lib/agents/storage');
+    const { DISABLED_ALL_SKILLS_SENTINEL, resolveEnabledSkillNames } = await import('../app/lib/skills/enabled-skills');
     const { deleteSkillDirectory, loadSkillsFromDisk } = await import('../app/lib/skills/skill-loader');
 
     const checksum = await computeCanvasPluginChecksum(skillRoot);
@@ -196,6 +200,26 @@ async function main() {
     skillRegistry = await readCanvasSkillRegistry();
     assert.equal(skillRegistry.skills['test-library-skill'].sourceType, 'store');
 
+    const upgradedSkillRoot = await createTestSkillPackage('1.1.0');
+    tempPaths.push(upgradedSkillRoot);
+    const upgradedChecksum = await computeCanvasPluginChecksum(upgradedSkillRoot);
+    const upgradedRegistryPath = await createStoreArchive(upgradedSkillRoot, upgradedChecksum, '1.1.0');
+    tempPaths.push(path.dirname(upgradedRegistryPath));
+    process.env.CANVAS_PLUGIN_STORE_REGISTRY_URL = pathToFileURL(upgradedRegistryPath).toString();
+
+    await removeCanvasSkillRegistryRecord('test-library-skill');
+    store = await listCanvasSkillStore();
+    assert.equal(store.skills[0].installed.installed, true);
+    assert.equal(store.skills[0].installed.version, '1.0.0');
+    assert.equal(store.skills[0].installed.updateAvailable, true);
+
+    const update = await installCanvasSkillFromStore('test-library-skill', undefined, { enable: true });
+    assert.equal(update.success, true, update.error);
+    skillRegistry = await readCanvasSkillRegistry();
+    assert.equal(skillRegistry.skills['test-library-skill'].version, '1.1.0');
+    store = await listCanvasSkillStore();
+    assert.equal(store.skills[0].installed.updateAvailable, false);
+
     const deleteResult = await deleteSkillDirectory('test-library-skill');
     assert.equal(deleteResult.success, true, deleteResult.error);
     await removeCanvasSkillRegistryRecord('test-library-skill');
@@ -206,10 +230,23 @@ async function main() {
     assert.equal(store.skills[0].installed.installed, false);
     assert.equal(store.skills[0].installed.version, undefined);
 
+    const reinstall = await installCanvasSkillFromStore('test-library-skill', undefined, { enable: true });
+    assert.equal(reinstall.success, true, reinstall.error);
+    assert.equal(resolveEnabledSkillNames(['alpha', 'beta'], [DISABLED_ALL_SKILLS_SENTINEL]).size, 0);
+
+    const reset = await resetCanvasSkillsDirectory('test@example.com');
+    assert.equal(reset.success, true);
+    await assert.rejects(fs.stat(path.join(dataRoot, 'skills', 'test-library-skill')));
+    skillRegistry = await readCanvasSkillRegistry();
+    assert.deepEqual(skillRegistry.skills, {});
+    const resetConfig = await readPiRuntimeConfig();
+    assert.deepEqual(resetConfig.enabledSkills, [DISABLED_ALL_SKILLS_SENTINEL]);
+
     console.log('canvas skill store test passed');
   } finally {
     await fs.rm(dataRoot, { recursive: true, force: true });
     await fs.rm(skillRoot, { recursive: true, force: true });
+    await Promise.all(tempPaths.map((tempPath) => fs.rm(tempPath, { recursive: true, force: true })));
     if (storeRoot) {
       await fs.rm(storeRoot, { recursive: true, force: true });
     }
