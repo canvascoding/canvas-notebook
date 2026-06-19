@@ -334,25 +334,32 @@ ul.contains-task-list {
 }
 
 li.task-list-item {
+  align-items: start;
+  column-gap: 0.625rem;
+  display: grid;
+  grid-template-columns: 1.25rem minmax(0, 1fr);
   list-style: none;
 }
 
 li.task-list-item > input[type="checkbox"] {
   accent-color: var(--primary);
+  grid-column: 1;
+  grid-row: 1;
   height: 1rem;
-  margin: 0 0.625rem 0 0;
+  margin: 0.25em 0 0;
   opacity: 1;
-  vertical-align: -0.125em;
   width: 1rem;
 }
 
 li.task-list-item > p:first-of-type {
-  display: inline;
+  display: block;
 }
 
 li.task-list-item > p {
+  grid-column: 2;
   margin-bottom: 0;
   margin-top: 0;
+  min-width: 0;
 }
 
 /* tiptap markdown editor */
@@ -459,6 +466,8 @@ li.task-list-item > p {
 .tiptap-editor-shell li[data-type='taskItem'] > label {
   align-items: center;
   display: flex;
+  grid-column: 1;
+  grid-row: 1;
   justify-content: center;
   margin: 0;
   min-height: 1.5em;
@@ -474,6 +483,8 @@ li.task-list-item > p {
 
 .tiptap-editor-shell li[data-type='taskItem'] > div {
   flex: 1;
+  grid-column: 2;
+  grid-row: 1;
   min-width: 0;
 }
 
