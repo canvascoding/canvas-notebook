@@ -34,6 +34,44 @@ const berlinPromptTime = formatZonedDateTimeForPrompt('2026-06-18T10:00:00.000Z'
 assert.equal(berlinPromptTime.localDateTime, '2026-06-18 12:00:00');
 assert.equal(berlinPromptTime.utcOffset, 'UTC+02:00');
 
+const berlinDailySchedule: FriendlySchedule = {
+  kind: 'daily',
+  times: ['15:30'],
+  timeZone: DEFAULT_USER_TIME_ZONE,
+};
+
+const berlinDailyRun = assertDate(
+  computeNextRunAt(berlinDailySchedule, { from: new Date('2026-06-18T10:00:00.000Z') }),
+  'Daily Berlin schedule should convert local summer time to UTC.',
+);
+assert.equal(berlinDailyRun.toISOString(), '2026-06-18T13:30:00.000Z');
+
+const berlinWeeklySchedule: FriendlySchedule = {
+  kind: 'weekly',
+  days: ['thu'],
+  times: ['15:30'],
+  timeZone: DEFAULT_USER_TIME_ZONE,
+};
+
+const berlinWeeklyRun = assertDate(
+  computeNextRunAt(berlinWeeklySchedule, { from: new Date('2026-06-18T10:00:00.000Z') }),
+  'Weekly Berlin schedule should convert local summer time to UTC.',
+);
+assert.equal(berlinWeeklyRun.toISOString(), '2026-06-18T13:30:00.000Z');
+
+const berlinOnceSchedule: FriendlySchedule = {
+  kind: 'once',
+  date: '2026-06-18',
+  time: '15:30',
+  timeZone: DEFAULT_USER_TIME_ZONE,
+};
+
+const berlinOnceRun = assertDate(
+  computeNextRunAt(berlinOnceSchedule, { from: new Date('2026-06-18T10:00:00.000Z') }),
+  'One-time Berlin schedule should convert local summer time to UTC.',
+);
+assert.equal(berlinOnceRun.toISOString(), '2026-06-18T13:30:00.000Z');
+
 const weeklySchedule: FriendlySchedule = {
   kind: 'weekly',
   days: ['mon', 'wed'],

@@ -75,6 +75,27 @@ function getTimeZoneOffset(date: Date, timeZone: string): string {
   return 'UTC+00:00';
 }
 
+export function formatTimeZoneOffset(timeZone: string, date = new Date()): string | null {
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone,
+      hour: '2-digit',
+      minute: '2-digit',
+      timeZoneName: 'shortOffset',
+    }).formatToParts(date);
+    return parts.find((part) => part.type === 'timeZoneName')?.value.replace('GMT', 'UTC') ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export function formatTimeZoneLabel(timeZone: string, options: { isGerman?: boolean; date?: Date } = {}): string {
+  const offset = formatTimeZoneOffset(timeZone, options.date);
+  const city = timeZone.includes('/') ? timeZone.split('/').slice(1).join('/').replace(/_/g, ' ') : timeZone;
+  const label = options.isGerman ? city.replace('Vienna', 'Wien') : city;
+  return offset ? `${timeZone} (${offset}, ${label})` : timeZone;
+}
+
 export function formatZonedDateTimeForPrompt(value: string | number | Date, timeZone: string): {
   localDateTime: string;
   timeZone: string;

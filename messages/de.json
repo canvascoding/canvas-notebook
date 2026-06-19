@@ -3141,6 +3141,7 @@
         "kind": "Rhythmus",
         "date": "Datum",
         "time": "Uhrzeit",
+        "timeZone": "Zeitzone",
         "intervalEvery": "Wiederholen alle",
         "intervalUnit": "Einheit"
       },
@@ -3156,6 +3157,7 @@
       "daily": "Täglich um {time}",
       "weekly": "Wöchentlich ({days}) um {time}",
       "interval": "Alle {every} {unit}",
+      "withTimeZone": "{schedule} ({timeZone})",
       "notScheduled": "Noch nicht geplant"
     },
     "actions": {

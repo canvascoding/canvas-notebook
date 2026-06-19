@@ -3142,6 +3142,7 @@
         "kind": "Cadence",
         "date": "Date",
         "time": "Time",
+        "timeZone": "Time zone",
         "intervalEvery": "Repeat every",
         "intervalUnit": "Unit"
       },
@@ -3157,6 +3158,7 @@
       "daily": "Daily at {time}",
       "weekly": "Weekly ({days}) at {time}",
       "interval": "Every {every} {unit}",
+      "withTimeZone": "{schedule} ({timeZone})",
       "notScheduled": "Not scheduled yet"
     },
     "actions": {

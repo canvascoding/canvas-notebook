@@ -39,7 +39,7 @@ import { toast } from 'sonner';
 import { WorkspaceDirectoryPickerDialog } from '@/app/apps/automations/components/WorkspaceDirectoryPickerDialog';
 import { AgentAvatar, AgentIcon } from '@/app/components/agents/AgentAvatar';
 import { getEffectiveAutomationTargetOutputPath } from '@/app/lib/automations/paths';
-import { normalizeTimeZone } from '@/app/lib/time-zones';
+import { formatTimeZoneLabel, getSupportedTimeZones, normalizeTimeZone } from '@/app/lib/time-zones';
 import { CanvasSkillIcon, type CanvasSkillIconSource } from '@/app/lib/skills/skill-icons';
 import type {
   AutomationJobRecord,
@@ -748,16 +748,23 @@ function describeFriendlyScheduleLocalized(
   translate: (key: string, values?: Record<string, string | number>) => string,
   weekdayLabels: Record<AutomationWeekday, string>,
 ): string {
-  if (schedule.kind === 'once') return translate('scheduleSummary.once', { date: schedule.date, time: schedule.time });
-  if (schedule.kind === 'daily') return translate('scheduleSummary.daily', { time: schedule.times.join(', ') });
-  if (schedule.kind === 'weekly') {
-    return translate('scheduleSummary.weekly', {
+  let summary: string;
+  if (schedule.kind === 'once') {
+    summary = translate('scheduleSummary.once', { date: schedule.date, time: schedule.time });
+  } else if (schedule.kind === 'daily') {
+    summary = translate('scheduleSummary.daily', { time: schedule.times.join(', ') });
+  } else if (schedule.kind === 'weekly') {
+    summary = translate('scheduleSummary.weekly', {
       days: schedule.days.map((day) => weekdayLabels[day]).join(', '),
       time: schedule.times.join(', '),
     });
+  } else if (schedule.kind === 'webhook') {
+    summary = 'Webhook';
+  } else {
+    summary = translate('scheduleSummary.interval', { every: schedule.every, unit: translate(`intervalUnits.${schedule.unit}`) });
   }
-  if (schedule.kind === 'webhook') return 'Webhook';
-  return translate('scheduleSummary.interval', { every: schedule.every, unit: translate(`intervalUnits.${schedule.unit}`) });
+
+  return translate('scheduleSummary.withTimeZone', { schedule: summary, timeZone: schedule.timeZone });
 }
 
 function formatRunStatus(status: AutomationRunStatus, translate: (key: string) => string): string {
@@ -802,7 +809,8 @@ function getWebhookMetadata(run: AutomationRunRecord | null): Record<string, unk
 }
 
 function mapJobToDraft(job: AutomationJobRecord): JobDraft {
-  const draft = defaultDraft(job.timeZone);
+  const jobTimeZone = normalizeTimeZone(job.schedule.timeZone || job.timeZone);
+  const draft = defaultDraft(jobTimeZone);
   draft.id = job.id;
   draft.name = job.name;
   draft.prompt = job.prompt;
@@ -817,7 +825,7 @@ function mapJobToDraft(job: AutomationJobRecord): JobDraft {
   draft.deliverySessionId = job.deliverySessionId || '';
   draft.deliveryChannelSessionKey = job.deliveryChannelSessionKey || '';
   draft.scheduleKind = job.schedule.kind === 'webhook' ? 'interval' : job.schedule.kind;
-  draft.timeZone = job.timeZone;
+  draft.timeZone = jobTimeZone;
 
   if (job.schedule.kind === 'once') {
     draft.onceDate = job.schedule.date;
@@ -1898,7 +1906,7 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
                       </div>
                     </div>
                   ) : (
-                    <ScheduleEditor draft={draft} setDraft={setDraft} t={t} weekdayLabels={weekdayLabels} />
+                    <ScheduleEditor draft={draft} setDraft={setDraft} t={t} weekdayLabels={weekdayLabels} locale={locale} />
                   )}
                   <div className="flex flex-wrap gap-2 border-t pt-4">
                     <Button variant="outline" onClick={handleDelete} disabled={isDeleting}>
@@ -1922,6 +1930,8 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
                     <span className="text-right text-xs">{formatDateTime(selectedJob.nextRunAt, locale, t('scheduleSummary.notScheduled'))}</span>
                     <span className="text-muted-foreground">{t('schedule.fields.kind')}</span>
                     <span className="min-w-0 max-w-[12rem] truncate text-right text-xs">{describeFriendlyScheduleLocalized(selectedJob.schedule, t, weekdayLabels)}</span>
+                    <span className="text-muted-foreground">{t('schedule.fields.timeZone')}</span>
+                    <span className="min-w-0 max-w-[12rem] truncate text-right font-mono text-xs">{selectedJob.schedule.timeZone}</span>
                     <span className="text-muted-foreground">{t('results.title')}</span>
                     <span className="min-w-0 max-w-[12rem] truncate text-right font-mono text-xs">{selectedJob.effectiveTargetOutputPath || t('output.none')}</span>
                     <span className="text-muted-foreground">{locale.startsWith('de') ? 'Agent' : 'Agent'}</span>
@@ -2104,7 +2114,7 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
                     value={draft.prompt}
                     onChange={(value) => setDraft((current) => ({ ...current, prompt: value }))}
                   />
-                  <ScheduleEditor draft={draft} setDraft={setDraft} t={t} weekdayLabels={weekdayLabels} compact />
+                  <ScheduleEditor draft={draft} setDraft={setDraft} t={t} weekdayLabels={weekdayLabels} locale={locale} compact />
                   {renderAgentDeliveryControls('scheduled')}
                   <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
                     {renderSkillSelect('automation-composer-preferred-skill')}
@@ -2513,24 +2523,29 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
 
 function ScheduleEditor({
   draft,
+  locale,
   setDraft,
   t,
   weekdayLabels,
   compact = false,
 }: {
   draft: JobDraft;
+  locale: string;
   setDraft: Dispatch<SetStateAction<JobDraft>>;
   t: (key: string, values?: Record<string, string | number>) => string;
   weekdayLabels: Record<AutomationWeekday, string>;
   compact?: boolean;
 }) {
+  const isGerman = locale.startsWith('de');
+  const timeZoneOptions = useMemo(() => getSupportedTimeZones(draft.timeZone), [draft.timeZone]);
+
   return (
     <div className="space-y-3 rounded-md border bg-muted/20 p-3">
       <div className="flex items-center gap-2">
         <Clock3 className="h-4 w-4 text-muted-foreground" />
         <p className="text-sm font-medium">{t('schedule.title')}</p>
       </div>
-      <div className={`grid gap-4 ${compact ? 'sm:grid-cols-3' : 'md:grid-cols-3'}`}>
+      <div className={`grid gap-4 ${compact ? 'sm:grid-cols-3' : 'md:grid-cols-4'}`}>
         <label className="flex flex-col gap-1 text-sm">
           <span className="text-xs text-muted-foreground">{t('schedule.fields.kind')}</span>
           <select data-testid="automation-schedule-kind" className="h-10 rounded-md border border-input bg-background px-3 text-sm" value={draft.scheduleKind} onChange={(event) => setDraft((current) => ({ ...current, scheduleKind: event.target.value as ScheduleKind }))}>
@@ -2538,6 +2553,21 @@ function ScheduleEditor({
             <option value="daily">{t('schedule.kind.daily')}</option>
             <option value="weekly">{t('schedule.kind.weekly')}</option>
             <option value="interval">{t('schedule.kind.interval')}</option>
+          </select>
+        </label>
+        <label className="flex min-w-0 flex-col gap-1 text-sm">
+          <span className="text-xs text-muted-foreground">{t('schedule.fields.timeZone')}</span>
+          <select
+            data-testid="automation-time-zone"
+            className="h-10 min-w-0 rounded-md border border-input bg-background px-3 text-sm"
+            value={draft.timeZone}
+            onChange={(event) => setDraft((current) => ({ ...current, timeZone: event.target.value }))}
+          >
+            {timeZoneOptions.map((timeZone) => (
+              <option key={timeZone} value={timeZone}>
+                {formatTimeZoneLabel(timeZone, { isGerman })}
+              </option>
+            ))}
           </select>
         </label>
         {draft.scheduleKind === 'once' ? (
