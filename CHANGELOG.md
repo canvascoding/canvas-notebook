@@ -11,6 +11,18 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.6.19.1] - 2026-06-19
+
+### Fixed
+
+- Fixed production container runtime source contents so Canvas Agent Chat status checks can resolve root app modules such as `@/i18n/routing` when loaded through `tsx server.js`.
+- Prevented the missing runtime module failure from surfacing as WebSocket request timeouts in Canvas Agent Chat.
+
+### Verification
+
+- `npm run build`
+- GitHub Actions `Build and Push` on `main`: `27831720600`
+
 ## [2026.6.18.1] - 2026-06-18
 
 ### Added
