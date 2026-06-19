@@ -58,7 +58,19 @@ async function main() {
     /directory traversal/i
   );
   assert.throws(
+    () => workspaceFilesModule.validatePath('nested/../notes.md'),
+    /directory traversal/i
+  );
+  assert.throws(
     () => workspaceFilesModule.validatePath('/etc/passwd'),
+    /directory traversal/i
+  );
+  assert.throws(
+    () => workspaceFilesModule.validatePath('C:/Windows/System32/drivers/etc/hosts'),
+    /directory traversal/i
+  );
+  assert.throws(
+    () => workspaceFilesModule.validatePath('C:/'),
     /directory traversal/i
   );
   assert.throws(

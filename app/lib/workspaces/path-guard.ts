@@ -5,6 +5,11 @@ import path from 'node:path';
 
 import type { WorkspaceContext, WorkspacePathResolution } from './types';
 
+interface NormalizedWorkspacePath {
+  relativePath: string;
+  segments: string[];
+}
+
 export interface WorkspacePathError extends Error {
   code: 'WORKSPACE_PATH_OUTSIDE_ROOT' | 'WORKSPACE_PARENT_OUTSIDE_ROOT';
   status: number;
@@ -20,15 +25,31 @@ function createWorkspacePathError(
   return error;
 }
 
-function normalizeRelativeWorkspacePath(userPath: string): string {
+function normalizeRelativeWorkspacePath(userPath: string): NormalizedWorkspacePath {
   const trimmed = userPath.trim();
-  if (!trimmed) return '.';
+  if (!trimmed) {
+    return { relativePath: '.', segments: [] };
+  }
+
   if (trimmed.includes('\0') || path.isAbsolute(trimmed) || /^[A-Za-z]:[\\/]/.test(trimmed)) {
     throw createWorkspacePathError('WORKSPACE_PATH_OUTSIDE_ROOT');
   }
 
-  const normalized = trimmed.replace(/\\/g, '/');
-  return normalized || '.';
+  const segments: string[] = [];
+  for (const segment of trimmed.replace(/\\/g, '/').split('/')) {
+    if (!segment || segment === '.') {
+      continue;
+    }
+
+    if (segment === '..' || /^[A-Za-z]:$/.test(segment)) {
+      throw createWorkspacePathError('WORKSPACE_PATH_OUTSIDE_ROOT');
+    }
+
+    segments.push(segment);
+  }
+
+  const relativePath = segments.join('/') || '.';
+  return { relativePath, segments };
 }
 
 function assertWithinBase(candidatePath: string, basePath: string, code: WorkspacePathError['code']): void {
@@ -42,14 +63,14 @@ export function resolveWorkspacePath(
   userPath: string
 ): WorkspacePathResolution {
   const normalizedBase = path.resolve(workspace.rootPath);
-  const relativePath = normalizeRelativeWorkspacePath(userPath);
-  const absolutePath = path.resolve(normalizedBase, relativePath);
+  const normalizedPath = normalizeRelativeWorkspacePath(userPath);
+  const absolutePath = path.join(normalizedBase, ...normalizedPath.segments);
 
   assertWithinBase(absolutePath, normalizedBase, 'WORKSPACE_PATH_OUTSIDE_ROOT');
 
   return {
     workspace,
-    relativePath,
+    relativePath: normalizedPath.relativePath,
     absolutePath,
   };
 }
