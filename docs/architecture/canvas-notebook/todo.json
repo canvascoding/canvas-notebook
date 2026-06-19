@@ -1,5 +1,5 @@
 {
-  "updatedAt": "2026-06-19",
+  "updatedAt": "2026-06-20",
   "source": "Canvas Notebook Team Workspace Plan",
   "tasks": [
     {
@@ -56,37 +56,57 @@
     {
       "id": 6,
       "title": "Control Plane Managed Mode in Lizenz-Claims und Deployment Modes aufteilen",
-      "status": "pending",
+      "status": "completed",
       "repo": "canvas-control-plane",
       "planningArtifacts": [
         "docs/architecture/canvas-notebook/team-workspace/00-full-plan.md",
         "docs/architecture/canvas-notebook/team-workspace/17-database-provider-postgres-rag-collaboration-policy.md"
+      ],
+      "implementationArtifacts": [
+        "../canvas-control-plane/apps/api/src/services/licenses.ts",
+        "../canvas-control-plane/docs/team-workspace-plan.md"
       ]
     },
     {
       "id": 7,
       "title": "managedFeatures und managedQuotas im Control Plane um Teamrechte erweitern",
-      "status": "pending",
-      "repo": "canvas-control-plane"
+      "status": "completed",
+      "repo": "canvas-control-plane",
+      "implementationArtifacts": [
+        "../canvas-control-plane/apps/api/src/services/licenses.ts"
+      ]
     },
     {
       "id": 8,
       "title": "applyManagedEnvToVmConfig() und ensureManagedEnvForVmConfig() um Team-ENV-Werte erweitern",
-      "status": "pending",
+      "status": "completed",
       "repo": "canvas-control-plane",
       "planningArtifacts": [
         "docs/architecture/canvas-notebook/team-workspace/00-full-plan.md",
         "docs/architecture/canvas-notebook/team-workspace/17-database-provider-postgres-rag-collaboration-policy.md"
+      ],
+      "implementationArtifacts": [
+        "../canvas-control-plane/apps/api/src/services/managedSecrets.ts",
+        "../canvas-control-plane/apps/api/src/services/agentConfig.ts",
+        "../canvas-control-plane/apps/api/src/routes/config.ts",
+        "../canvas-control-plane/apps/web/src/app/dashboard/vms/[id]/page.tsx"
       ]
     },
     {
       "id": 9,
       "title": "Control Plane Provisioning so anpassen, dass Team-Instanzen als Organization-Runtime verstanden werden",
-      "status": "pending",
+      "status": "completed",
       "repo": "canvas-control-plane",
       "planningArtifacts": [
         "docs/architecture/canvas-notebook/team-workspace/00-full-plan.md",
         "docs/architecture/canvas-notebook/team-workspace/17-database-provider-postgres-rag-collaboration-policy.md"
+      ],
+      "implementationArtifacts": [
+        "../canvas-control-plane/apps/api/src/routes/vms.ts",
+        "../canvas-control-plane/apps/api/src/services/ionosProvisioningRecovery.ts",
+        "../canvas-control-plane/apps/api/src/services/cloudflare.ts",
+        "../canvas-control-plane/apps/proxy-api/src/server.ts",
+        "../canvas-control-plane/scripts/deploy-remote.sh"
       ]
     },
     {

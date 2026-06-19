@@ -57,4 +57,5 @@ Dieses Verzeichnis ist der zentrale Arbeitsbereich fuer den Team-Workspace-Umbau
 - Database-Provider-Policy fuer SQLite, Postgres, RAG, Collaboration, Installer und Control Plane ist dokumentiert.
 - Collaboration- und File-Conflict-Policy fuer Text, Office/PDF und Assets ist dokumentiert.
 - Control-Plane-Status-Quo fuer Managed Env, Installer-Artefakte, VM-Agent, VM-Actions und VM-Detailseite ist in der Database-Provider-Policy mit konkreten Zielpfaden abgeglichen.
-- Naechster Schritt: Initiales Admin-/Owner-Setup und Admin-only Gates absichern.
+- Control Plane Managed Mode, Team-Claims, Managed ENV und Organization-Runtime-Provisioning sind umgesetzt und in PR #3 gemerged.
+- Naechster Schritt: Workspace-Modell und Workspace-Service in Canvas Notebook einfuehren.
