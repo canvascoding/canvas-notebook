@@ -149,8 +149,8 @@ export async function POST(request: NextRequest) {
     }
 
     await syncPublicSharesAfterWrite(uploadedPaths);
-    clearFileTreeCache();
-    invalidateFileReferenceCache();
+    clearFileTreeCache(fileOptions.workspace?.workspaceId);
+    invalidateFileReferenceCache(fileOptions);
 
     return NextResponse.json({ success: true, count: files.length, files: uploadedFiles });
   } catch (error) {

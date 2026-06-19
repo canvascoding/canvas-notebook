@@ -45,6 +45,7 @@ export async function DELETE(request: NextRequest) {
     await syncPublicSharesAfterDelete(result.deleted);
 
     invalidateWorkspaceFileViews({
+      fileOptions,
       subtreeDirs: result.deleted.map(getParentDirectory),
     });
 

@@ -22,7 +22,7 @@ export function resolveWorkspaceDataRoot(cwd: string = getRuntimeCwd()): string 
     return configuredDataDir;
   }
 
-  return path.join(cwd, 'data');
+  return path.join(cwd, configuredDataDir);
 }
 
 export function resolveLegacyWorkspaceRoot(cwd?: string): string {

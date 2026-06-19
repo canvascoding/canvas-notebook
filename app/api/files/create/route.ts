@@ -49,7 +49,7 @@ export async function POST(request: NextRequest) {
       return jsonError('Invalid type', 400);
     }
 
-    invalidateWorkspaceFileViews({ fullTree: true });
+    invalidateWorkspaceFileViews({ fileOptions, fullTree: true });
 
     return jsonSuccess();
   } catch (error) {

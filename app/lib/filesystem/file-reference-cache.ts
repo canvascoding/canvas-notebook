@@ -52,9 +52,16 @@ async function collectFilesRecursive(
   }
 }
 
-export function invalidateFileReferenceCache(): void {
-  cacheEntries.clear();
-  pendingBuilds.clear();
+export function invalidateFileReferenceCache(options?: WorkspaceFileOperationOptions): void {
+  if (!options?.workspace) {
+    cacheEntries.clear();
+    pendingBuilds.clear();
+    return;
+  }
+
+  const cacheKey = getWorkspaceCacheKey(options);
+  cacheEntries.delete(cacheKey);
+  pendingBuilds.delete(cacheKey);
 }
 
 export async function getCachedFileReferenceEntries(

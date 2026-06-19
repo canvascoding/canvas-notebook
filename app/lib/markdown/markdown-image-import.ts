@@ -4,7 +4,12 @@ import path from 'path';
 import { getImageConversionErrorMessage } from '@/app/lib/images/convert';
 import { fetchRemoteImageBuffer } from '@/app/lib/images/remote-image-fetch';
 import { normalizeUploadImageBuffer, type UploadConvertParams } from '@/app/lib/images/upload-conversion';
-import { createDirectory, getFileStats, writeFile } from '@/app/lib/filesystem/workspace-files';
+import {
+  createDirectory,
+  getFileStats,
+  writeFile,
+  type WorkspaceFileOperationOptions,
+} from '@/app/lib/filesystem/workspace-files';
 import { invalidateFileReferenceCache } from '@/app/lib/filesystem/file-reference-cache';
 import { clearFileTreeCache } from '@/app/lib/utils/file-tree-cache';
 import { syncPublicSharesAfterWrite } from '@/app/lib/public-sharing/public-file-shares';
@@ -69,7 +74,11 @@ function sanitizeImageFileName(value: string, mimeType?: string): string {
   return `${cleanBase}${cleanExt}`;
 }
 
-async function allocateImagePath(targetDir: string, filename: string) {
+async function allocateImagePath(
+  targetDir: string,
+  filename: string,
+  fileOptions?: WorkspaceFileOperationOptions
+) {
   const ext = path.posix.extname(filename);
   const base = ext ? filename.slice(0, -ext.length) : filename;
   let candidate = filename;
@@ -79,7 +88,7 @@ async function allocateImagePath(targetDir: string, filename: string) {
     const candidatePath = targetDir === '.' ? candidate : path.posix.join(targetDir, candidate);
 
     try {
-      await getFileStats(candidatePath);
+      await getFileStats(candidatePath, fileOptions);
       candidate = ext ? `${base}-${index}${ext}` : `${base}-${index}`;
       index += 1;
     } catch (error) {
@@ -112,6 +121,7 @@ export async function fetchMarkdownImageUrl(rawUrl: string): Promise<MarkdownIma
 }
 
 export async function importMarkdownImages(params: {
+  fileOptions?: WorkspaceFileOperationOptions;
   images: MarkdownImageImportInput[];
   markdownFilePath?: string | null;
   targetDir?: string | null;
@@ -137,7 +147,7 @@ export async function importMarkdownImages(params: {
 
   const targetDir = normalizeWorkspaceMarkdownPath(params.targetDir || '.') || '.';
   if (targetDir !== '.') {
-    await createDirectory(targetDir);
+    await createDirectory(targetDir, params.fileOptions);
   }
 
   const imported: ImportedMarkdownImage[] = [];
@@ -160,8 +170,12 @@ export async function importMarkdownImages(params: {
       throw new Error(`"${image.sourceName}" is not a supported image.`);
     }
 
-    const allocated = await allocateImagePath(targetDir, sanitizeImageFileName(normalized.filename, normalized.mimeType));
-    await writeFile(allocated.workspacePath, normalized.buffer);
+    const allocated = await allocateImagePath(
+      targetDir,
+      sanitizeImageFileName(normalized.filename, normalized.mimeType),
+      params.fileOptions
+    );
+    await writeFile(allocated.workspacePath, normalized.buffer, params.fileOptions);
     writtenPaths.push(allocated.workspacePath);
 
     imported.push({
@@ -174,8 +188,8 @@ export async function importMarkdownImages(params: {
   }
 
   await syncPublicSharesAfterWrite(writtenPaths);
-  clearFileTreeCache();
-  invalidateFileReferenceCache();
+  clearFileTreeCache(params.fileOptions?.workspace?.workspaceId);
+  invalidateFileReferenceCache(params.fileOptions);
 
   return imported;
 }

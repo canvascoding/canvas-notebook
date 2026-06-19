@@ -47,7 +47,7 @@ export async function POST(request: NextRequest) {
 
     const result = await batchCopy(sources, destDir, overwrite, renameOnCollision, fileOptions);
 
-    invalidateWorkspaceFileViews({ subtreeDirs: [destDir] });
+    invalidateWorkspaceFileViews({ fileOptions, subtreeDirs: [destDir] });
 
     return jsonSuccess({
       copied: result.copied,

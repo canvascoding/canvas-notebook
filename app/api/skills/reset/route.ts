@@ -1,6 +1,7 @@
 import { headers } from 'next/headers';
 import { NextResponse } from 'next/server';
 
+import { isAdminUser } from '@/app/lib/admin-auth';
 import { auth } from '@/app/lib/auth';
 import { resetCanvasSkillsDirectory } from '@/app/lib/skills/canvas-skill-store';
 
@@ -10,6 +11,9 @@ export async function POST(request: Request) {
   const session = await auth.api.getSession({ headers: await headers() });
   if (!session) {
     return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
+  }
+  if (!isAdminUser(session.user)) {
+    return NextResponse.json({ success: false, error: 'Forbidden: admin only' }, { status: 403 });
   }
 
   try {

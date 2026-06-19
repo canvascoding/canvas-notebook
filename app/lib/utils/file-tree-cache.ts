@@ -8,31 +8,45 @@ export function buildFileTreeCacheKey(dirPath: string, depth: number, workspaceI
 }
 
 export function parseFileTreeCacheKey(key: string) {
-  const [, pathKey = key] = key.includes('\0') ? key.split('\0', 2) : [null, key];
+  const [workspaceId, pathKey = key] = key.includes('\0') ? key.split('\0', 2) : ['legacy', key];
   const separatorIndex = pathKey.lastIndexOf(':');
   if (separatorIndex === -1) {
-    return { path: pathKey, depth: null };
+    return { workspaceId, path: pathKey, depth: null };
   }
 
   const depth = Number.parseInt(pathKey.slice(separatorIndex + 1), 10);
   if (Number.isNaN(depth)) {
-    return { path: pathKey, depth: null };
+    return { workspaceId, path: pathKey, depth: null };
   }
 
   return {
+    workspaceId,
     path: pathKey.slice(0, separatorIndex),
     depth,
   };
 }
 
-export function clearFileTreeCache() {
-  fileTreeCache.clear();
+export function clearFileTreeCache(workspaceId?: string) {
+  if (!workspaceId) {
+    fileTreeCache.clear();
+    return;
+  }
+
+  for (const key of fileTreeCache.keys()) {
+    if (parseFileTreeCacheKey(key).workspaceId === workspaceId) {
+      fileTreeCache.delete(key);
+    }
+  }
 }
 
-export function clearSubtreeCache(dirPath: string) {
+export function clearSubtreeCache(dirPath: string, workspaceId?: string) {
   const keys = fileTreeCache.keys();
   for (const key of keys) {
-    const { path: cachedPath } = parseFileTreeCacheKey(key);
+    const { workspaceId: cachedWorkspaceId, path: cachedPath } = parseFileTreeCacheKey(key);
+    if (workspaceId && cachedWorkspaceId !== workspaceId) {
+      continue;
+    }
+
     const shouldDelete =
       dirPath === '.'
       || cachedPath === '.'

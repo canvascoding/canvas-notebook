@@ -39,7 +39,7 @@ export async function POST(request: NextRequest) {
     }
 
     await writeFile(path, finalContent, fileOptions);
-    invalidateWorkspaceFileViews({ subtreeDirs: [getParentDirectory(path)] });
+    invalidateWorkspaceFileViews({ fileOptions, subtreeDirs: [getParentDirectory(path)] });
     queuePublicSharesAfterWrite([path]);
 
     return jsonSuccess();

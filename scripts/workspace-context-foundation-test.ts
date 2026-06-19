@@ -25,6 +25,14 @@ async function main() {
     import('../app/lib/utils/file-tree-cache'),
   ]);
 
+  const previousData = process.env.DATA;
+  process.env.DATA = 'custom-data';
+  assert.equal(
+    contextModule.resolveWorkspaceDataRoot(path.join(tempRoot, 'runtime')),
+    path.join(tempRoot, 'runtime', 'custom-data')
+  );
+  process.env.DATA = previousData;
+
   const workspace = contextModule.createLegacyPersonalWorkspaceContext({
     userId: 'user-1',
     email: 'user@example.com',
@@ -138,6 +146,7 @@ async function main() {
 
   const treeKey = fileTreeCacheModule.buildFileTreeCacheKey('docs', 4, 'workspace-a');
   const parsedTreeKey = fileTreeCacheModule.parseFileTreeCacheKey(treeKey);
+  assert.equal(parsedTreeKey.workspaceId, 'workspace-a');
   assert.equal(parsedTreeKey.path, 'docs');
   assert.equal(parsedTreeKey.depth, 4);
 
@@ -146,6 +155,14 @@ async function main() {
   const workspaceBFiles = await fileReferenceCacheModule.getCachedFileReferenceEntries(false, { workspace: workspaceB });
   assert.deepEqual(workspaceAFiles.map((entry) => entry.path), ['a.md']);
   assert.deepEqual(workspaceBFiles.map((entry) => entry.path), ['b.md']);
+
+  await workspaceFilesModule.writeFile('a-2.md', 'A2', { workspace: workspaceA });
+  await workspaceFilesModule.writeFile('b-2.md', 'B2', { workspace: workspaceB });
+  fileReferenceCacheModule.invalidateFileReferenceCache({ workspace: workspaceA });
+  const refreshedWorkspaceAFiles = await fileReferenceCacheModule.getCachedFileReferenceEntries(false, { workspace: workspaceA });
+  const cachedWorkspaceBFiles = await fileReferenceCacheModule.getCachedFileReferenceEntries(false, { workspace: workspaceB });
+  assert.deepEqual(refreshedWorkspaceAFiles.map((entry) => entry.path).sort(), ['a-2.md', 'a.md']);
+  assert.deepEqual(cachedWorkspaceBFiles.map((entry) => entry.path), ['b.md']);
 
   await fs.rm(tempRoot, { recursive: true, force: true });
   console.log('workspace-context-foundation-test: ok');
