@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server';
-import { headers } from 'next/headers';
-import { auth } from '@/app/lib/auth';
+import { requireOrganizationPermission } from '@/app/lib/organization/permissions';
 import { deleteSkillDirectory } from '@/app/lib/skills/skill-loader';
 import { removeCanvasSkillRegistryRecord } from '@/app/lib/skills/canvas-skill-store';
 
@@ -9,10 +8,10 @@ export async function DELETE(
   { params }: { params: Promise<{ name: string }> }
 ) {
   try {
-    const session = await auth.api.getSession({ headers: await headers() });
-    if (!session) {
-      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
-    }
+    const skillPermission = await requireOrganizationPermission(request, 'canSharePluginsAndSkills', {
+      errorMessage: 'Forbidden: plugin and skill sharing permission required',
+    });
+    if (!skillPermission.ok) return skillPermission.response;
 
     const { name } = await params;
 

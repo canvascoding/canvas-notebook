@@ -5,6 +5,7 @@ import { getTranslations } from 'next-intl/server';
 import { isOnboardingHintsEnabled } from '@/app/lib/onboarding/status';
 import { isManagedControlPlaneAvailable } from '@/app/lib/agents/storage';
 import { isAdminUser } from '@/app/lib/admin-auth';
+import { readOrganizationPermissionForUser } from '@/app/lib/organization/permissions';
 import { getUserPreferredTimeZone } from '@/app/lib/user-preferences';
 
 export default async function SettingsPage() {
@@ -17,6 +18,14 @@ export default async function SettingsPage() {
   const userEmail = session?.user?.email || '';
   const isManagedControlPlane = isManagedControlPlaneAvailable();
   const initialTimeZone = currentUserId ? await getUserPreferredTimeZone(currentUserId) : undefined;
+  let organizationPermission = null;
+  if (currentUserId) {
+    try {
+      organizationPermission = readOrganizationPermissionForUser(currentUserId).permission;
+    } catch (error) {
+      console.warn('[Settings] Failed to read organization permission for current user:', error);
+    }
+  }
 
   return (
     <SuitePageLayout title={t('title')} hintPage="settings" hintEnabled={isOnboardingHintsEnabled()}>
@@ -27,6 +36,7 @@ export default async function SettingsPage() {
           userEmail={userEmail}
           isManagedControlPlane={isManagedControlPlane}
           initialTimeZone={initialTimeZone}
+          organizationPermission={organizationPermission}
         />
     </SuitePageLayout>
   );

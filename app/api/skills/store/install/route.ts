@@ -1,14 +1,13 @@
-import { headers } from 'next/headers';
 import { NextResponse } from 'next/server';
 
-import { auth } from '@/app/lib/auth';
+import { requireOrganizationPermission } from '@/app/lib/organization/permissions';
 import { installCanvasSkillFromStore } from '@/app/lib/skills/canvas-skill-store';
 
 export async function POST(request: Request) {
-  const session = await auth.api.getSession({ headers: await headers() });
-  if (!session) {
-    return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
-  }
+  const skillPermission = await requireOrganizationPermission(request, 'canSharePluginsAndSkills', {
+    errorMessage: 'Forbidden: plugin and skill sharing permission required',
+  });
+  if (!skillPermission.ok) return skillPermission.response;
 
   try {
     const body = await request.json() as {

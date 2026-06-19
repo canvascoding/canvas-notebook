@@ -46,6 +46,7 @@ interface WorkspaceStats {
 
 interface WorkspaceSettingsPanelProps {
   isAdmin?: boolean;
+  organizationPermission?: OrganizationBootstrapStatus['permission'];
 }
 
 type DownloadScope = 'workspace' | 'data';
@@ -107,7 +108,7 @@ function progressPercent(processed: number, total: number): number {
   return Math.min(100, Math.round((processed / total) * 100));
 }
 
-export function WorkspaceSettingsPanel({ isAdmin = false }: WorkspaceSettingsPanelProps) {
+export function WorkspaceSettingsPanel({ isAdmin = false, organizationPermission = null }: WorkspaceSettingsPanelProps) {
   const t = useTranslations('settings');
   const [stats, setStats] = useState<WorkspaceStats | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -135,6 +136,8 @@ export function WorkspaceSettingsPanel({ isAdmin = false }: WorkspaceSettingsPan
   );
 
   const inspection: MigrationInspection | undefined = uploadStatus?.inspection;
+  const canExportData = organizationPermission?.canExport ?? isAdmin;
+  const canRecoverWorkspaces = organizationPermission?.canRecoverWorkspaces ?? isAdmin;
 
   const loadOrganizationStatus = useCallback(async () => {
     if (!isAdmin) return;
@@ -233,7 +236,7 @@ export function WorkspaceSettingsPanel({ isAdmin = false }: WorkspaceSettingsPan
   };
 
   const createMigrationExport = async () => {
-    if (!isAdmin) {
+    if (!canExportData) {
       setMigrationError(t('workspacePanel.migration.adminOnly'));
       return;
     }
@@ -273,7 +276,7 @@ export function WorkspaceSettingsPanel({ isAdmin = false }: WorkspaceSettingsPan
   };
 
   const uploadMigrationArchive = async (file: File) => {
-    if (!isAdmin) {
+    if (!canRecoverWorkspaces) {
       setMigrationError(t('workspacePanel.migration.adminOnly'));
       return;
     }
@@ -452,6 +455,11 @@ export function WorkspaceSettingsPanel({ isAdmin = false }: WorkspaceSettingsPan
                         ['canMigrateDatabase', organizationStatus.permission.canMigrateDatabase],
                         ['canEnableKnowledge', organizationStatus.permission.canEnableKnowledge],
                         ['canRecoverWorkspaces', organizationStatus.permission.canRecoverWorkspaces],
+                        ['canExport', organizationStatus.permission.canExport],
+                        ['canCreatePublicLinks', organizationStatus.permission.canCreatePublicLinks],
+                        ['canWriteTeamWorkspace', organizationStatus.permission.canWriteTeamWorkspace],
+                        ['canDeleteTeamFiles', organizationStatus.permission.canDeleteTeamFiles],
+                        ['canDeleteStudioAssets', organizationStatus.permission.canDeleteStudioAssets],
                         ['canCreateTeamAutomations', organizationStatus.permission.canCreateTeamAutomations],
                         ['canSharePluginsAndSkills', organizationStatus.permission.canSharePluginsAndSkills],
                       ].map(([key, enabled]) => (
@@ -553,7 +561,7 @@ export function WorkspaceSettingsPanel({ isAdmin = false }: WorkspaceSettingsPan
                   variant="outline"
                   className="w-full justify-center sm:w-auto"
                   onClick={() => handleDownload('data')}
-                  disabled={activeDownload !== null || !isAdmin}
+                  disabled={activeDownload !== null || !canExportData}
                 >
                   {activeDownload === 'data' ? (
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -573,7 +581,7 @@ export function WorkspaceSettingsPanel({ isAdmin = false }: WorkspaceSettingsPan
                   {t('workspacePanel.refresh')}
                 </Button>
               </div>
-              <p className="text-sm text-muted-foreground">{t(isAdmin ? 'workspacePanel.dataZipHint' : 'workspacePanel.adminOnlyHint')}</p>
+              <p className="text-sm text-muted-foreground">{t(canExportData ? 'workspacePanel.dataZipHint' : 'workspacePanel.adminOnlyHint')}</p>
 
               {stats.fileCount === 0 && (
                 <p className="text-sm text-muted-foreground">{t('workspacePanel.emptyWorkspace')}</p>
@@ -589,7 +597,7 @@ export function WorkspaceSettingsPanel({ isAdmin = false }: WorkspaceSettingsPan
           <CardDescription>{t('workspacePanel.migration.description')}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-5 px-4 pb-4 sm:px-6 sm:pb-6">
-          {!isAdmin ? (
+          {!canExportData && !canRecoverWorkspaces ? (
             <div className="flex items-start gap-2 rounded-lg border border-border bg-muted/40 p-3 text-sm text-muted-foreground">
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
               <span>{t('workspacePanel.migration.adminOnly')}</span>
@@ -608,7 +616,7 @@ export function WorkspaceSettingsPanel({ isAdmin = false }: WorkspaceSettingsPan
                 type="button"
                 className="w-full justify-center sm:w-auto"
                 onClick={() => void createMigrationExport()}
-                disabled={!isAdmin || isCreatingExport || selectedComponentCount === 0 || exportJob?.status === 'running' || exportJob?.status === 'queued'}
+                disabled={!canExportData || isCreatingExport || selectedComponentCount === 0 || exportJob?.status === 'running' || exportJob?.status === 'queued'}
               >
                 {isCreatingExport || exportJob?.status === 'running' || exportJob?.status === 'queued' ? (
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -628,7 +636,7 @@ export function WorkspaceSettingsPanel({ isAdmin = false }: WorkspaceSettingsPan
                       type="checkbox"
                       checked={migrationComponents[key]}
                       onChange={() => toggleMigrationComponent(key)}
-                      disabled={!isAdmin}
+                      disabled={!canExportData}
                       className="h-4 w-4 accent-primary"
                     />
                     <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
@@ -684,7 +692,7 @@ export function WorkspaceSettingsPanel({ isAdmin = false }: WorkspaceSettingsPan
             <input
               type="file"
               accept=".zip,application/zip"
-              disabled={!isAdmin || isUploading || isRestoring}
+              disabled={!canRecoverWorkspaces || isUploading || isRestoring}
               onChange={(event) => {
                 const file = event.currentTarget.files?.[0];
                 event.currentTarget.value = '';
@@ -746,7 +754,7 @@ export function WorkspaceSettingsPanel({ isAdmin = false }: WorkspaceSettingsPan
                   type="button"
                   variant="destructive"
                   onClick={() => void restoreMigration()}
-                  disabled={!inspection.canRestore || isRestoring}
+                  disabled={!inspection.canRestore || !canRecoverWorkspaces || isRestoring}
                 >
                   {isRestoring ? (
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createReadStream, promises as fs } from 'fs';
 import { Readable } from 'stream';
 
-import { requireMigrationAdmin } from '@/app/lib/migration/auth';
+import { requireMigrationExportPermission } from '@/app/lib/migration/auth';
 import { getMigrationExportJob } from '@/app/lib/migration/export-service';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 
@@ -33,7 +33,7 @@ export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const admin = await requireMigrationAdmin(request);
+  const admin = await requireMigrationExportPermission(request);
   if (!admin.ok) return admin.response;
 
   const limited = rateLimit(request, {

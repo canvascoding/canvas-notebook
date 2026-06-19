@@ -1,15 +1,14 @@
 import { NextResponse } from 'next/server';
-import { auth } from '@/app/lib/auth';
+import { requireOrganizationPermission } from '@/app/lib/organization/permissions';
 import { readPiRuntimeConfig, writePiRuntimeConfig } from '@/app/lib/agents/storage';
-import { headers } from 'next/headers';
 import { loadSkillsFromDisk } from '@/app/lib/skills/skill-loader';
 
-export async function POST() {
+export async function POST(request: Request) {
   try {
-    const session = await auth.api.getSession({ headers: await headers() });
-    if (!session) {
-      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
-    }
+    const skillPermission = await requireOrganizationPermission(request, 'canSharePluginsAndSkills', {
+      errorMessage: 'Forbidden: plugin and skill sharing permission required',
+    });
+    if (!skillPermission.ok) return skillPermission.response;
 
     // Read current config
     const config = await readPiRuntimeConfig();
@@ -23,7 +22,7 @@ export async function POST() {
     // Let's add a dummy entry that won't match any real skill
     config.enabledSkills = ['__none__'];
     config.updatedAt = new Date().toISOString();
-    config.updatedBy = session.user.email || 'unknown';
+    config.updatedBy = skillPermission.session.user.email || 'unknown';
     
     // Write updated config
     await writePiRuntimeConfig(config);

@@ -36,11 +36,21 @@
     {
       "id": 5,
       "title": "Per-User Permissions fuer Team Workspace, Public Links, Team-Automations, Plugin-/Skill-Freigabe und Exporte bauen",
-      "status": "pending",
+      "status": "completed",
       "repo": "canvasstudios-notebook",
       "planningArtifacts": [
         "docs/architecture/canvas-notebook/team-workspace/07-filesystem-migration-and-write-policy.md",
         "docs/architecture/canvas-notebook/team-workspace/08-user-scoped-secrets-runtime.md"
+      ],
+      "implementationArtifacts": [
+        "app/lib/organization/permissions.ts",
+        "app/lib/migration/auth.ts",
+        "app/lib/automations/api.ts",
+        "app/api/plugins/* mutation routes",
+        "app/api/skills/* mutation routes",
+        "app/api/studio/* delete routes",
+        "app/api/security/public-shares/*",
+        "scripts/organization-permission-guards-test.ts"
       ]
     },
     {

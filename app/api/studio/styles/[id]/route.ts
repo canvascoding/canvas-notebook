@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/app/lib/auth';
 import { getStyle, updateStyle, deleteStyle, reorderStyleImages } from '@/app/lib/integrations/studio-style-service';
 import { StudioServiceError } from '@/app/lib/integrations/studio-errors';
+import { requireOrganizationPermission } from '@/app/lib/organization/permissions';
 
 export async function GET(
   _request: NextRequest,
@@ -66,13 +67,14 @@ export async function DELETE(
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const session = await auth.api.getSession({ headers: _request.headers });
-  if (!session) {
-    return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
-  }
+  const studioPermission = await requireOrganizationPermission(_request, 'canDeleteStudioAssets', {
+    errorMessage: 'Forbidden: Studio asset delete permission required',
+  });
+  if (!studioPermission.ok) return studioPermission.response;
+
   const { id } = await params;
   try {
-    const result = await deleteStyle(id, session.user.id);
+    const result = await deleteStyle(id, studioPermission.session.user.id);
     return NextResponse.json({ success: result.success, warnings: result.warnings });
   } catch (err) {
     if (err instanceof StudioServiceError) {

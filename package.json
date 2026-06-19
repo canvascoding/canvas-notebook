@@ -61,6 +61,7 @@
     "test:email:attachments": "tsx scripts/email-attachments-test.ts",
     "test:email:accounts": "tsx scripts/email-accounts-service-test.ts",
     "test:auth:setup": "tsx --conditions react-server scripts/auth-setup-test.ts",
+    "test:organization:permissions": "tsx --conditions react-server scripts/organization-permission-guards-test.ts",
     "test:license": "tsx --conditions react-server scripts/license-security-test.ts",
     "test:cli:admin": "bash scripts/cli-admin-command-test.sh",
     "test:channels": "tsx scripts/channel-architecture-test.ts",

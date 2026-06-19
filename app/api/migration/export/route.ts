@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-import { requireMigrationAdmin } from '@/app/lib/migration/auth';
+import { requireMigrationExportPermission } from '@/app/lib/migration/auth';
 import { createMigrationExportJob, normalizeMigrationComponents } from '@/app/lib/migration/export-service';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 
 export async function POST(request: NextRequest) {
-  const admin = await requireMigrationAdmin(request);
+  const admin = await requireMigrationExportPermission(request);
   if (!admin.ok) return admin.response;
 
   const limited = rateLimit(request, {

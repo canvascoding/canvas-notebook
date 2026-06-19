@@ -4,20 +4,21 @@ import { auth } from '@/app/lib/auth';
 import { db } from '@/app/lib/db';
 import { studioGenerationOutputs, studioGenerations } from '@/app/lib/db/schema';
 import { deleteStudioOutput } from '@/app/lib/integrations/studio-generation-service';
+import { requireOrganizationPermission } from '@/app/lib/organization/permissions';
 
 export async function DELETE(
   request: NextRequest,
   { params }: { params: Promise<{ id: string; outId: string }> },
 ) {
-  const session = await auth.api.getSession({ headers: request.headers });
-  if (!session) {
-    return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
-  }
+  const studioPermission = await requireOrganizationPermission(request, 'canDeleteStudioAssets', {
+    errorMessage: 'Forbidden: Studio asset delete permission required',
+  });
+  if (!studioPermission.ok) return studioPermission.response;
 
   const { id: _id, outId } = await params;
 
   try {
-    const result = await deleteStudioOutput(outId, session.user.id);
+    const result = await deleteStudioOutput(outId, studioPermission.session.user.id);
     return NextResponse.json({ success: true, generationDeleted: result.generationDeleted });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to delete output';

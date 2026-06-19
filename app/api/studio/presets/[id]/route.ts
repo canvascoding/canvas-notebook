@@ -7,6 +7,7 @@ import {
   updatePreset,
 } from '@/app/lib/integrations/studio-preset-service';
 import { StudioServiceError } from '@/app/lib/integrations/studio-errors';
+import { requireOrganizationPermission } from '@/app/lib/organization/permissions';
 
 interface PresetPatchBody {
   name?: string;
@@ -97,14 +98,14 @@ export async function DELETE(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const session = await auth.api.getSession({ headers: request.headers });
-  if (!session) {
-    return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
-  }
+  const studioPermission = await requireOrganizationPermission(request, 'canDeleteStudioAssets', {
+    errorMessage: 'Forbidden: Studio asset delete permission required',
+  });
+  if (!studioPermission.ok) return studioPermission.response;
 
   const { id } = await params;
   try {
-    await assertPresetEditableByUser(id, session.user.id);
+    await assertPresetEditableByUser(id, studioPermission.session.user.id);
     await deletePreset(id);
     return NextResponse.json({ success: true });
   } catch (error) {

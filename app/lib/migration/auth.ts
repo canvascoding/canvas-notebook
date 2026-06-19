@@ -1,8 +1,16 @@
 import 'server-only';
 
 import { NextRequest } from 'next/server';
-import { requireInstanceAdmin } from '@/app/lib/admin-auth';
+import { requireOrganizationPermission } from '@/app/lib/organization/permissions';
 
-export async function requireMigrationAdmin(request: NextRequest) {
-  return requireInstanceAdmin(request);
+export async function requireMigrationExportPermission(request: NextRequest) {
+  return requireOrganizationPermission(request, 'canExport', {
+    errorMessage: 'Forbidden: export permission required',
+  });
+}
+
+export async function requireMigrationRestorePermission(request: NextRequest) {
+  return requireOrganizationPermission(request, 'canRecoverWorkspaces', {
+    errorMessage: 'Forbidden: recovery permission required',
+  });
 }

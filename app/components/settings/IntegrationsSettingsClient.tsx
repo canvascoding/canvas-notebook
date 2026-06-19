@@ -20,6 +20,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useHintContext } from '@/app/components/onboarding/HintProvider';
+import type { OrganizationPermissionSnapshot } from '@/app/lib/organization/bootstrap';
 
 type EnvScope = 'integrations' | 'agents';
 
@@ -340,6 +341,8 @@ const WorkspaceSettingsPanel = dynamic(
   () => import('@/app/components/settings/WorkspaceSettingsPanel').then((module) => module.WorkspaceSettingsPanel),
   { loading: SettingsTabLoader },
 );
+
+type WorkspaceOrganizationPermission = OrganizationPermissionSnapshot | null;
 
 const UserManagementPanel = dynamic<UserManagementPanelProps>(
   () => import('@/app/components/settings/UserManagementPanel').then((module) => module.UserManagementPanel),
@@ -2591,6 +2594,7 @@ export function IntegrationsSettingsClient({
   userEmail = '',
   isManagedControlPlane = false,
   initialTimeZone,
+  organizationPermission = null,
 }: {
   isAdmin?: boolean;
   currentUserId?: string;
@@ -2598,6 +2602,7 @@ export function IntegrationsSettingsClient({
   userEmail?: string;
   isManagedControlPlane?: boolean;
   initialTimeZone?: string;
+  organizationPermission?: WorkspaceOrganizationPermission;
 }) {
   const t = useTranslations('settings');
   const searchParams = useSearchParams();
@@ -3393,7 +3398,12 @@ export function IntegrationsSettingsClient({
 
         {renderLazyTabContent('agent-settings', <AgentSettingsPanel />)}
 
-        {renderLazyTabContent('workspace', <WorkspaceSettingsPanel isAdmin={isAdmin} />)}
+        {renderLazyTabContent('workspace', (
+          <WorkspaceSettingsPanel
+            isAdmin={isAdmin}
+            organizationPermission={organizationPermission}
+          />
+        ))}
 
         {renderLazyTabContent('user-management',
           <UserManagementPanel currentUserId={currentUserId} isAdmin={isAdmin} />,

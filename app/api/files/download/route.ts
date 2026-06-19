@@ -5,7 +5,7 @@ import { createReadStream, getFileStats, validatePath } from '@/app/lib/filesyst
 import { Readable } from 'stream';
 import ZipStream from 'zip-stream';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
-import { isAdminUser } from '@/app/lib/admin-auth';
+import { requireOrganizationPermission } from '@/app/lib/organization/permissions';
 import { requireRequestWorkspace, workspaceFileOptions } from '@/app/lib/workspaces/request';
 
 const MAX_ZIP_DOWNLOAD_SIZE = 1024 * 1024 * 1024;
@@ -103,7 +103,7 @@ function createZipResponse(fullPath: string, downloadName: string) {
 export async function GET(request: NextRequest) {
   const workspaceResult = await requireRequestWorkspace(request, { permissions: 'canRead' });
   if (workspaceResult.response) return workspaceResult.response;
-  const { session, workspace } = workspaceResult;
+  const { workspace } = workspaceResult;
   const fileOptions = workspaceFileOptions(workspace);
 
   const limited = rateLimit(request, {
@@ -120,9 +120,10 @@ export async function GET(request: NextRequest) {
   const scope = searchParams.get('scope');
 
   if (scope === 'data') {
-    if (!isAdminUser(session.user)) {
-      return NextResponse.json({ success: false, error: 'Forbidden: admin only' }, { status: 403 });
-    }
+    const exportPermission = await requireOrganizationPermission(request, 'canExport', {
+      errorMessage: 'Forbidden: export permission required',
+    });
+    if (!exportPermission.ok) return exportPermission.response;
 
     try {
       const dataRoot = getDataRoot();

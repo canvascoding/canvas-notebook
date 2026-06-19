@@ -291,15 +291,16 @@ function assertOrganizationIdMatchesEnvironment(organizationId) {
 
 function permissionDefaults(role) {
   const isAdminLike = role === 'owner' || role === 'admin';
+  const isInternal = role !== 'external';
   return {
     role,
     canWriteTeamWorkspace: isAdminLike,
-    canCreatePublicLinks: true,
+    canCreatePublicLinks: isInternal,
     canCreateTeamAutomations: isAdminLike,
     canSharePluginsAndSkills: isAdminLike,
     canExport: isAdminLike,
     canDeleteTeamFiles: isAdminLike,
-    canDeleteStudioAssets: true,
+    canDeleteStudioAssets: isInternal,
     canManageBackups: isAdminLike,
     canMigrateDatabase: isAdminLike,
     canEnableKnowledge: isAdminLike,

@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireInstanceAdmin } from '@/app/lib/admin-auth';
 import { cleanupOrphanedStudioAssets } from '@/app/lib/cleanup/orphaned-assets';
+import { requireOrganizationPermission } from '@/app/lib/organization/permissions';
 
 export async function POST(request: NextRequest) {
-  const admin = await requireInstanceAdmin(request);
-  if (!admin.ok) return admin.response;
+  const studioPermission = await requireOrganizationPermission(request, 'canManageBackups', {
+    errorMessage: 'Forbidden: admin cleanup permission required',
+  });
+  if (!studioPermission.ok) return studioPermission.response;
 
   try {
     const result = await cleanupOrphanedStudioAssets();
