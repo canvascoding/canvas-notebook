@@ -59,4 +59,6 @@ Dieses Verzeichnis ist der zentrale Arbeitsbereich fuer den Team-Workspace-Umbau
 - Control-Plane-Status-Quo fuer Managed Env, Installer-Artefakte, VM-Agent, VM-Actions und VM-Detailseite ist in der Database-Provider-Policy mit konkreten Zielpfaden abgeglichen.
 - Control Plane Managed Mode, Team-Claims, Managed ENV und Organization-Runtime-Provisioning sind umgesetzt und in PR #3 gemerged.
 - Workspace-Modell, Workspace-Service, Bootstrap-Erzeugung und `/api/workspaces` in Canvas Notebook sind eingefuehrt.
-- Naechster Schritt: Community-Lizenz auf Single-User-Betrieb begrenzen.
+- Community-/Single-User-Installationen bleiben auch bei gesetztem Team-Flag auf Personal Workspace begrenzt.
+- Personal Workspaces werden pro User angelegt; Team Workspace wird nur in teamfaehigen Deployment Modes angelegt.
+- Naechster Schritt: Globalen Workspace-Switcher fuer Startseite, Chat Header und File Browser bauen.

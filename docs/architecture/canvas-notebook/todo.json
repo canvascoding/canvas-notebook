@@ -133,30 +133,48 @@
     {
       "id": 11,
       "title": "Community-Lizenz auf Single-User-Betrieb begrenzen",
-      "status": "pending",
+      "status": "completed",
       "repo": "canvasstudios-notebook",
-      "planningArtifact": "docs/architecture/canvas-notebook/team-workspace/09-initial-setup-and-update-migration.md"
+      "planningArtifact": "docs/architecture/canvas-notebook/team-workspace/09-initial-setup-and-update-migration.md",
+      "implementationArtifacts": [
+        "app/lib/organization/bootstrap.ts",
+        "scripts/bootstrap-admin.js",
+        "scripts/auth-setup-test.ts"
+      ]
     },
     {
       "id": 12,
       "title": "User-spezifische persoenliche Workspaces anlegen",
-      "status": "pending",
+      "status": "completed",
       "repo": "canvasstudios-notebook",
       "planningArtifacts": [
         "docs/architecture/canvas-notebook/team-workspace/06-workspace-switching-ux.md",
         "docs/architecture/canvas-notebook/team-workspace/07-filesystem-migration-and-write-policy.md",
         "docs/architecture/canvas-notebook/team-workspace/09-initial-setup-and-update-migration.md"
+      ],
+      "implementationArtifacts": [
+        "app/lib/workspaces/service.ts",
+        "app/lib/organization/bootstrap.ts",
+        "scripts/bootstrap-admin.js",
+        "scripts/workspace-model-service-test.ts",
+        "scripts/auth-setup-test.ts"
       ]
     },
     {
       "id": 13,
       "title": "Team Workspace fuer Team-/Managed-Lizenzen anlegen",
-      "status": "pending",
+      "status": "completed",
       "repo": "canvasstudios-notebook",
       "planningArtifacts": [
         "docs/architecture/canvas-notebook/team-workspace/06-workspace-switching-ux.md",
         "docs/architecture/canvas-notebook/team-workspace/07-filesystem-migration-and-write-policy.md",
         "docs/architecture/canvas-notebook/team-workspace/09-initial-setup-and-update-migration.md"
+      ],
+      "implementationArtifacts": [
+        "app/lib/workspaces/service.ts",
+        "app/lib/organization/bootstrap.ts",
+        "scripts/bootstrap-admin.js",
+        "scripts/workspace-model-service-test.ts"
       ]
     },
     {

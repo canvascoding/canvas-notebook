@@ -108,6 +108,33 @@ function isTruthyEnv(value: string | undefined): boolean {
   return value === 'true' || value === '1' || value === 'yes';
 }
 
+function normalizeDeploymentMode(value: string): string {
+  return value.trim().toLowerCase().replace(/_/g, '-');
+}
+
+export function isSingleUserDeploymentMode(deploymentMode = getDeploymentMode()): boolean {
+  const normalized = normalizeDeploymentMode(deploymentMode);
+  return normalized === 'community' ||
+    normalized === 'single-user' ||
+    normalized === 'singleuser' ||
+    normalized === 'managed-single' ||
+    normalized === 'local' ||
+    normalized === 'development' ||
+    normalized === 'dev';
+}
+
+export function isTeamDeploymentMode(deploymentMode = getDeploymentMode()): boolean {
+  const normalized = normalizeDeploymentMode(deploymentMode);
+  if (isSingleUserDeploymentMode(normalized)) return false;
+  return normalized.includes('team') ||
+    normalized.includes('enterprise') ||
+    normalized.includes('advanced');
+}
+
+export function canEnableTeamFeaturesForDeployment(deploymentMode = getDeploymentMode()): boolean {
+  return isTeamDeploymentMode(deploymentMode);
+}
+
 export function getConfiguredOrganizationId(): string | null {
   const value = process.env.CANVAS_ORGANIZATION_ID?.trim();
   return value || null;
@@ -127,7 +154,8 @@ export function getDeploymentMode(): string {
 }
 
 export function areTeamFeaturesEnabled(deploymentMode = getDeploymentMode()): boolean {
-  return isTruthyEnv(process.env.CANVAS_TEAM_FEATURES_ENABLED) || deploymentMode.toLowerCase().includes('team');
+  if (!canEnableTeamFeaturesForDeployment(deploymentMode)) return false;
+  return isTruthyEnv(process.env.CANVAS_TEAM_FEATURES_ENABLED) || isTeamDeploymentMode(deploymentMode);
 }
 
 function booleanFromDb(value: number | null | undefined): boolean {
@@ -434,6 +462,10 @@ function buildStatus(
     ? buildScopedPaths(organizationId, ownerUserId, teamFeaturesEnabled)
     : null;
   const warnings: string[] = [];
+
+  if (isTruthyEnv(process.env.CANVAS_TEAM_FEATURES_ENABLED) && !canEnableTeamFeaturesForDeployment(deploymentMode)) {
+    warnings.push('CANVAS_TEAM_FEATURES_ENABLED is ignored for this single-user deployment mode.');
+  }
 
   if (teamFeaturesEnabled && databaseProvider !== 'postgres') {
     warnings.push('Team features are enabled but CANVAS_DATABASE_PROVIDER is not postgres.');

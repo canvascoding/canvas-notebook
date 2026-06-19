@@ -14,6 +14,8 @@ function assertOrganizationBootstrapState(
   expectedUserId: string,
   expectedEmail: string,
   expectedPermissionOverrides: Partial<{ canManageBackups: number }> = {},
+  rootDir = dataDir,
+  expectedDeploymentMode = 'single_user',
 ) {
   const organization = sqlite.prepare(`
     SELECT organization_id AS organizationId, owner_user_id AS ownerUserId, deployment_mode AS deploymentMode,
@@ -28,7 +30,7 @@ function assertOrganizationBootstrapState(
 
   assert.ok(organization.organizationId.startsWith('org_'));
   assert.equal(organization.ownerUserId, expectedUserId);
-  assert.equal(organization.deploymentMode, 'single_user');
+  assert.equal(organization.deploymentMode, expectedDeploymentMode);
   assert.equal(organization.teamFeaturesEnabled, 0);
 
   const permission = sqlite.prepare(`
@@ -57,12 +59,29 @@ function assertOrganizationBootstrapState(
   const owner = sqlite.prepare('SELECT email FROM user WHERE id = ?').get(expectedUserId) as { email: string };
   assert.equal(owner.email, expectedEmail);
 
-  assert.equal(existsSync(path.join(dataDir, 'workspaces', 'personal', expectedUserId, 'files')), true);
-  assert.equal(existsSync(path.join(dataDir, 'users', expectedUserId, 'settings')), true);
-  assert.equal(existsSync(path.join(dataDir, 'users', expectedUserId, 'secrets')), true);
-  assert.equal(existsSync(path.join(dataDir, 'organizations', organization.organizationId, 'policies')), true);
-  assert.equal(existsSync(path.join(dataDir, 'system', 'backups')), true);
-  assert.equal(existsSync(path.join(dataDir, 'workspaces', 'team', organization.organizationId, 'files')), false);
+  const workspaces = sqlite.prepare(`
+    SELECT type, owner_user_id AS ownerUserId, root_relative_path AS rootRelativePath, display_name AS displayName, status
+    FROM canvas_workspaces
+    ORDER BY type ASC
+  `).all() as Array<{
+    type: string;
+    ownerUserId: string | null;
+    rootRelativePath: string;
+    displayName: string;
+    status: string;
+  }>;
+  assert.deepEqual(workspaces.map((workspace) => workspace.type), ['personal']);
+  assert.equal(workspaces[0].ownerUserId, expectedUserId);
+  assert.equal(workspaces[0].rootRelativePath, path.posix.join('workspaces', 'personal', expectedUserId, 'files'));
+  assert.equal(workspaces[0].displayName, 'Personal Workspace');
+  assert.equal(workspaces[0].status, 'active');
+
+  assert.equal(existsSync(path.join(rootDir, 'workspaces', 'personal', expectedUserId, 'files')), true);
+  assert.equal(existsSync(path.join(rootDir, 'users', expectedUserId, 'settings')), true);
+  assert.equal(existsSync(path.join(rootDir, 'users', expectedUserId, 'secrets')), true);
+  assert.equal(existsSync(path.join(rootDir, 'organizations', organization.organizationId, 'policies')), true);
+  assert.equal(existsSync(path.join(rootDir, 'system', 'backups')), true);
+  assert.equal(existsSync(path.join(rootDir, 'workspaces', 'team', organization.organizationId, 'files')), false);
 }
 
 async function main() {
@@ -224,6 +243,44 @@ async function main() {
   assert.equal(await verifyPassword({ hash: cliResetAccount.password!, password: 'CliResetPassword123!' }), true);
   assertOrganizationBootstrapState(cliReset, owner.id, 'cli-reset@example.test', { canManageBackups: 0 });
   cliReset.close();
+
+  const communityBootstrapDir = mkdtempSync(path.join(tmpdir(), 'canvas-auth-community-bootstrap-'));
+  try {
+    execFileSync('node', ['scripts/bootstrap-admin.js'], {
+      cwd: process.cwd(),
+      stdio: 'pipe',
+      env: {
+        ...process.env,
+        DATA: communityBootstrapDir,
+        CANVAS_DEPLOYMENT_MODE: 'community',
+        CANVAS_TEAM_FEATURES_ENABLED: 'true',
+        CANVAS_DATABASE_PROVIDER: 'sqlite',
+        BOOTSTRAP_ADMIN_EMAIL: 'community@example.test',
+        BOOTSTRAP_ADMIN_PASSWORD: 'CommunityPassword123!',
+        BOOTSTRAP_ADMIN_NAME: 'Community Admin',
+      },
+    });
+
+    const communityBootstrap = new Database(path.join(communityBootstrapDir, 'sqlite.db'));
+    const communityUser = communityBootstrap.prepare('SELECT id, email, role FROM user').get() as {
+      id: string;
+      email: string;
+      role: string | null;
+    };
+    assert.equal(communityUser.email, 'community@example.test');
+    assert.equal(communityUser.role, 'admin');
+    assertOrganizationBootstrapState(
+      communityBootstrap,
+      communityUser.id,
+      'community@example.test',
+      {},
+      communityBootstrapDir,
+      'community',
+    );
+    communityBootstrap.close();
+  } finally {
+    rmSync(communityBootstrapDir, { recursive: true, force: true });
+  }
 
   console.log('auth setup tests passed');
 }
