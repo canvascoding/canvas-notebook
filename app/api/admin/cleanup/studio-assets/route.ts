@@ -1,17 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { auth } from '@/app/lib/auth';
-import { isAdminUser } from '@/app/lib/admin-auth';
+import { requireInstanceAdmin } from '@/app/lib/admin-auth';
 import { cleanupOrphanedStudioAssets } from '@/app/lib/cleanup/orphaned-assets';
 
 export async function POST(request: NextRequest) {
-  const session = await auth.api.getSession({ headers: request.headers });
-  if (!session) {
-    return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
-  }
-
-  if (!isAdminUser(session.user)) {
-    return NextResponse.json({ success: false, error: 'Forbidden: admin only' }, { status: 403 });
-  }
+  const admin = await requireInstanceAdmin(request);
+  if (!admin.ok) return admin.response;
 
   try {
     const result = await cleanupOrphanedStudioAssets();

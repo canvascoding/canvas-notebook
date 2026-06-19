@@ -1,5 +1,5 @@
 {
-  "updatedAt": "2026-06-18",
+  "updatedAt": "2026-06-19",
   "source": "Canvas Notebook Team Workspace Plan",
   "tasks": [
     {
@@ -26,7 +26,7 @@
     {
       "id": 4,
       "title": "Initiales Admin-/Owner-Setup und Admin-only Rechte fuer kritische App-Funktionen absichern",
-      "status": "pending",
+      "status": "completed",
       "repo": "canvasstudios-notebook",
       "planningArtifacts": [
         "docs/architecture/canvas-notebook/team-workspace/04-auth-roles-model.md",

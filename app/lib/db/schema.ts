@@ -96,6 +96,41 @@ export const verification = sqliteTable("verification", {
   updatedAt: integer("updated_at", { mode: "timestamp" })
 });
 
+export const canvasOrganizationSettings = sqliteTable("canvas_organization_settings", {
+  organizationId: text("organization_id").primaryKey(),
+  ownerUserId: text("owner_user_id").notNull().references(() => user.id),
+  deploymentMode: text("deployment_mode").notNull().default("single_user"),
+  teamFeaturesEnabled: integer("team_features_enabled", { mode: "boolean" }).notNull().default(false),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+}, (table) => ({
+  ownerIdx: index("idx_canvas_org_settings_owner").on(table.ownerUserId),
+}));
+
+export const organizationUserPermissions = sqliteTable("organization_user_permissions", {
+  organizationId: text("organization_id").notNull().references(() => canvasOrganizationSettings.organizationId, { onDelete: 'cascade' }),
+  userId: text("user_id").notNull().references(() => user.id),
+  role: text("role").notNull().default("member"),
+  canWriteTeamWorkspace: integer("can_write_team_workspace", { mode: "boolean" }).notNull().default(false),
+  canCreatePublicLinks: integer("can_create_public_links", { mode: "boolean" }).notNull().default(true),
+  canCreateTeamAutomations: integer("can_create_team_automations", { mode: "boolean" }).notNull().default(false),
+  canSharePluginsAndSkills: integer("can_share_plugins_and_skills", { mode: "boolean" }).notNull().default(false),
+  canExport: integer("can_export", { mode: "boolean" }).notNull().default(false),
+  canDeleteTeamFiles: integer("can_delete_team_files", { mode: "boolean" }).notNull().default(false),
+  canDeleteStudioAssets: integer("can_delete_studio_assets", { mode: "boolean" }).notNull().default(true),
+  canManageBackups: integer("can_manage_backups", { mode: "boolean" }).notNull().default(false),
+  canMigrateDatabase: integer("can_migrate_database", { mode: "boolean" }).notNull().default(false),
+  canEnableKnowledge: integer("can_enable_knowledge", { mode: "boolean" }).notNull().default(false),
+  canRecoverWorkspaces: integer("can_recover_workspaces", { mode: "boolean" }).notNull().default(false),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+}, (table) => ({
+  pk: primaryKey(table.organizationId, table.userId),
+  userIdx: index("idx_org_user_permissions_user").on(table.userId),
+  roleIdx: index("idx_org_user_permissions_role").on(table.organizationId, table.role),
+  singleOwnerIdx: uniqueIndex("idx_org_user_permissions_single_owner").on(table.organizationId).where(sql`${table.role} = 'owner'`),
+}));
+
 export const aiSessions = sqliteTable("ai_sessions", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   sessionId: text("session_id").notNull(),

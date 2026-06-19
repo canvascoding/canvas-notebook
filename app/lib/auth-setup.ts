@@ -7,6 +7,7 @@ import { randomUUID } from 'node:crypto';
 import { hashPassword } from 'better-auth/crypto';
 
 import { runMigrations } from '@/app/lib/db/migrate';
+import { ensureOrganizationBootstrapForUser } from '@/app/lib/organization/bootstrap';
 
 export const SETUP_PASSWORD_MIN_LENGTH = 8;
 export const SETUP_PASSWORD_MAX_LENGTH = 128;
@@ -151,6 +152,8 @@ export async function createInitialOwner(input: unknown): Promise<InitialOwner> 
         id, account_id, provider_id, user_id, password, created_at, updated_at
       ) VALUES (?, ?, ?, ?, ?, ?, ?)
     `).run(accountId, userId, 'credential', userId, passwordHash, now, now);
+
+    ensureOrganizationBootstrapForUser(sqlite, userId);
 
     sqlite.exec('COMMIT');
     return { id: userId, name, email };

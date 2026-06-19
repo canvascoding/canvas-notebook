@@ -2025,6 +2025,40 @@
       "downloading": "Download wird vorbereitet...",
       "refresh": "Aktualisieren",
       "emptyWorkspace": "Dein Workspace ist leer.",
+      "organization": {
+        "title": "Organisations-Setup",
+        "description": "Zeigt lokalen Owner, Deployment-Modus, kritische Admin-Rechte und die fuer Team-Workspaces vorbereiteten Datenpfade.",
+        "refresh": "Aktualisieren",
+        "loading": "Organisations-Setup wird geprüft...",
+        "ready": "Bereit",
+        "notReady": "Unvollständig",
+        "teamEnabled": "Team aktiv",
+        "teamDisabled": "Team aus",
+        "organizationId": "Organisations-ID",
+        "owner": "Owner",
+        "criticalRights": "Kritische Rechte",
+        "scopedPaths": "Scoped Datenpfade",
+        "notCreated": "In diesem Modus nicht angelegt",
+        "permissions": {
+          "canManageBackups": "Full Backup",
+          "canMigrateDatabase": "Datenbank-Migration",
+          "canEnableKnowledge": "Knowledge aktivieren",
+          "canRecoverWorkspaces": "Recovery-Flow",
+          "canCreateTeamAutomations": "Team-Automationen",
+          "canSharePluginsAndSkills": "Plugin- und Skill-Freigabe"
+        },
+        "paths": {
+          "personalWorkspace": "Persönlicher Workspace",
+          "userSettings": "User-Settings",
+          "userSecrets": "User-Secrets",
+          "organizationRoot": "Organisations-Root",
+          "teamWorkspace": "Team-Workspace",
+          "systemBackups": "System-Backups"
+        },
+        "errors": {
+          "load": "Organisations-Setup-Status konnte nicht geladen werden."
+        }
+      },
       "migration": {
         "title": "VM-Migration",
         "description": "Erstelle ein versioniertes Migrations-Bundle oder stelle eines in dieser VM wieder her.",
