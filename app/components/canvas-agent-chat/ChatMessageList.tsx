@@ -14,7 +14,8 @@ import {
   getToolStatusLabel,
   ToolCallPill,
 } from '@/app/components/canvas-agent-chat/ChatToolRunMessages';
-import { ToolDataView, ToolDataViewFromJson } from '@/app/components/canvas-agent-chat/ToolDataView';
+import { ToolDataViewFromJson } from '@/app/components/canvas-agent-chat/ToolDataView';
+import { ToolOutputView } from '@/app/components/canvas-agent-chat/ToolOutputView';
 import { extractFilePaths } from '@/app/lib/chat/extract-file-paths';
 import { buildCollapsedRunMap } from '@/app/lib/chat/run-collapse';
 import { rewriteRelativeStudioImageMarkdown } from '@/app/lib/chat/studio-image-markdown';
@@ -281,22 +282,7 @@ export function ChatMessageList({
                           </div>
                         </div>
                       ) : null}
-                      {(() => {
-                        const trimmed = bodyContent.trim();
-                        if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
-                          try {
-                            const parsed = JSON.parse(bodyContent);
-                            return (
-                              <div className="max-h-52 overflow-auto pr-1">
-                                <ToolDataView data={parsed} />
-                              </div>
-                            );
-                          } catch {
-                            /* fall through to Markdown */
-                          }
-                        }
-                        return <MarkdownMessage content={bodyContent} variant="tool" onMediaClick={onMediaClick} />;
-                      })()}
+                      <ToolOutputView content={bodyContent} onMediaClick={onMediaClick} />
                     </div>
                   ) : null}
                 </div>

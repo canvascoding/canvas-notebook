@@ -46,8 +46,8 @@ import {
   XCircle,
 } from 'lucide-react';
 import { AttachmentPreviewItem } from '@/app/components/canvas-agent-chat/AttachmentPreviewItem';
-import { MarkdownMessage } from '@/app/components/canvas-agent-chat/ChatMarkdownMessage';
-import { ToolDataView, ToolDataViewFromJson } from '@/app/components/canvas-agent-chat/ToolDataView';
+import { ToolDataViewFromJson } from '@/app/components/canvas-agent-chat/ToolDataView';
+import { ToolOutputView } from '@/app/components/canvas-agent-chat/ToolOutputView';
 import { deriveUploadAttachmentPreview, getAttachmentMediaUrl } from '@/app/lib/chat/attachment-preview';
 import { dedupeAttachments, contentToString, getPiMessageDetails, truncatePreview } from '@/app/lib/chat/message-content';
 import { formatRunDuration } from '@/app/lib/chat/run-collapse';
@@ -296,22 +296,7 @@ export function ToolCallPill({
             </div>
           ) : null}
           <div className="max-h-52 overflow-auto pr-1">
-            {(() => {
-              const trimmed = bodyContent.trim();
-              if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
-                const parsed = (() => {
-                  try {
-                    return JSON.parse(bodyContent);
-                  } catch {
-                    return null;
-                  }
-                })();
-                if (parsed) {
-                  return <ToolDataView data={parsed} />;
-                }
-              }
-              return <MarkdownMessage content={bodyContent} variant="tool" onMediaClick={onMediaClick} />;
-            })()}
+            <ToolOutputView content={bodyContent} onMediaClick={onMediaClick} />
           </div>
         </div>
       </div>

@@ -861,6 +861,106 @@ contentKind: document
     await expect(page.getByText('Input')).toBeVisible();
   });
 
+  test('should present file write tool output as markdown preview and diff', async ({ page }) => {
+    const sessionId = 'sess-file-write-output';
+    const writeOutput = [
+      'Created file: notes/plan.md',
+      'Snapshot: 2026-06-19T16-19-03-006Z-6818b8cf',
+      'Before SHA-256: new file',
+      'After SHA-256: 30a0ff2e8e2918f7cc038f7a8aec9d5354ee730cbf8d6f20cf7166ac7c9acf0e',
+      'Size: 6775 bytes',
+      'Validation: passed',
+      '- OK markdown-tables: Markdown table structure OK (0 tables checked).',
+      '',
+      'Diff:',
+      '```diff',
+      '--- /dev/null',
+      '+++ notes/plan.md',
+      '@@ -0,0 +1,8 @@',
+      '+# Fix Plan',
+      '+',
+      '+- Docker online',
+      '+- Host agent offline',
+      '+',
+      '+| Status | Value |',
+      '+| --- | --- |',
+      '+| Agent | offline |',
+      '```',
+    ].join('\n');
+
+    await setupMockWebSocket(page, {
+      sessionId,
+      agentEvents: [
+        {
+          type: 'tool_execution_start',
+          toolCallId: 'tool-call-write-1',
+          toolName: 'write',
+          args: {
+            path: 'notes/plan.md',
+            content: '# Fix Plan\n\n- Docker online\n- Host agent offline',
+          },
+        },
+        {
+          type: 'tool_execution_end',
+          toolCallId: 'tool-call-write-1',
+          toolName: 'write',
+          result: {
+            content: [{ type: 'text', text: writeOutput }],
+          },
+        },
+        {
+          type: 'agent_end',
+          messages: [
+            {
+              role: 'user',
+              content: 'Create a markdown plan.',
+              timestamp: Date.now(),
+            },
+            {
+              role: 'toolResult',
+              content: [{ type: 'text', text: writeOutput }],
+              timestamp: Date.now(),
+            },
+            {
+              role: 'assistant',
+              content: [{ type: 'text', text: 'Created the markdown plan.' }],
+              api: 'mock',
+              provider: 'mock',
+              model: 'mock-model',
+              usage: EMPTY_USAGE,
+              stopReason: 'stop',
+              timestamp: Date.now(),
+            },
+          ],
+        },
+      ],
+    });
+
+    await mockEmptyChatBootstrap(page, { sessionId });
+    await page.addInitScript(() => window.localStorage.setItem('canvas-tool-verbosity', 'subtle'));
+    await page.goto('/chat');
+    await startFreshChat(page);
+    const input = page.getByTestId('chat-input');
+    await input.fill('Create a markdown plan.');
+    await input.press('Enter');
+
+    const runDisclosure = page.getByTestId('chat-run-disclosure').first();
+    await expect(runDisclosure).toBeVisible();
+    await runDisclosure.getByTestId('chat-run-disclosure-toggle').click();
+    const toolPill = runDisclosure.getByTestId('chat-tool-subtle').first();
+    await expect(toolPill).toBeVisible();
+    await toolPill.locator('button').click();
+
+    const fileChange = page.getByTestId('tool-file-change');
+    await expect(fileChange).toContainText('File created');
+    await expect(fileChange).toContainText('notes/plan.md');
+    await expect(fileChange).toContainText('Validation passed');
+    await expect(page.getByTestId('tool-markdown-preview').locator('h1')).toHaveText('Fix Plan');
+    await expect(page.getByTestId('tool-markdown-preview').locator('li')).toHaveCount(2);
+    await expect(page.getByTestId('tool-markdown-preview').locator('table')).toContainText('Agent');
+    await expect(page.getByTestId('tool-file-diff')).toContainText('+# Fix Plan');
+  });
+
   test('should show studio media tool inputs for image and video generation calls', async ({ page }) => {
     const sessionId = 'sess-studio-media';
     const imageReferencePath = 'public/images/examples/aura_serum_produktfoto.png';
