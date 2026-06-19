@@ -56,6 +56,9 @@ eröffne ausschließlich auf localhost 3000 einen dev server. starte keine neuen
 - Git history has a single initial commit; no enforced convention.
 - Use short, descriptive commit messages (e.g., `Fix terminal copy on iPad`).
 - PRs should include: summary, screenshots for UI changes, and steps to verify.
+- Before any PR is merged into `main`, run a `greploop` review for that PR and document the resulting score in the PR.
+- Only PRs with a `greploop` score of 4 or 5 may be merged into `main`; scores 1-3 block the merge until the issues are fixed and `greploop` is rerun.
+- If `greploop` is unavailable or cannot produce a score, treat the PR as blocked for merge into `main`.
 
 ## Security & Configuration Tips
 - Production uses `systemd` (`canvas-notebook.service`).
