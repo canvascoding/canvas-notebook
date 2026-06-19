@@ -1,20 +1,14 @@
-import { headers } from 'next/headers';
+import type { NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
 
-import { isAdminUser } from '@/app/lib/admin-auth';
-import { auth } from '@/app/lib/auth';
 import { resetCanvasSkillsDirectory } from '@/app/lib/skills/canvas-skill-store';
+import { requireRequestWorkspace } from '@/app/lib/workspaces/request';
 
 const RESET_CONFIRMATION = 'DELETE_SKILLS';
 
-export async function POST(request: Request) {
-  const session = await auth.api.getSession({ headers: await headers() });
-  if (!session) {
-    return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
-  }
-  if (!isAdminUser(session.user)) {
-    return NextResponse.json({ success: false, error: 'Forbidden: admin only' }, { status: 403 });
-  }
+export async function POST(request: NextRequest) {
+  const workspaceResult = await requireRequestWorkspace(request, { permissions: 'canManageWorkspace' });
+  if (workspaceResult.response) return workspaceResult.response;
 
   try {
     const body = await request.json().catch(() => ({})) as { confirm?: unknown };
@@ -25,7 +19,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const result = await resetCanvasSkillsDirectory(session.user.email || 'unknown');
+    const result = await resetCanvasSkillsDirectory(workspaceResult.session.user.email || 'unknown');
     return NextResponse.json(result);
   } catch (error) {
     console.error('[Skills API] Error resetting skills directory:', error);

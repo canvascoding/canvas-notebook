@@ -3,9 +3,12 @@ import path from 'path';
 import { clearFileTreeCache, clearSubtreeCache } from '@/app/lib/utils/file-tree-cache';
 import { invalidateFileReferenceCache } from '@/app/lib/filesystem/file-reference-cache';
 import { validatePath } from '@/app/lib/filesystem/workspace-files';
+import { createLegacyPersonalWorkspaceContext } from '@/app/lib/workspaces/context';
 
 const DATA = process.env.DATA || path.join(process.cwd(), 'data');
 const WORKSPACE_BASE_DIR = path.join(DATA, 'workspace');
+const LEGACY_WORKSPACE_FILE_OPTIONS = { workspace: createLegacyPersonalWorkspaceContext() };
+const LEGACY_WORKSPACE_ID = LEGACY_WORKSPACE_FILE_OPTIONS.workspace.workspaceId;
 
 const IGNORED_PATTERNS = [
   'node_modules',
@@ -299,8 +302,8 @@ class FileWatcherService {
       const dirPath = event.relativePath.includes('/')
         ? event.relativePath.substring(0, event.relativePath.lastIndexOf('/'))
         : '.';
-      clearSubtreeCache(dirPath);
-      invalidateFileReferenceCache();
+      clearSubtreeCache(dirPath, LEGACY_WORKSPACE_ID);
+      invalidateFileReferenceCache(LEGACY_WORKSPACE_FILE_OPTIONS);
       this.broadcastEvent({ ...event, dir: dirPath });
     }
 
@@ -395,7 +398,7 @@ class FileWatcherService {
   }
 
   public forceRefresh(): void {
-    clearFileTreeCache();
+    clearFileTreeCache(LEGACY_WORKSPACE_ID);
     this.broadcastEvent({
       type: 'change',
       path: WORKSPACE_BASE_DIR,
