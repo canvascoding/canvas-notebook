@@ -90,6 +90,6 @@ export function assertCanCreateRequestedAutomation(input: unknown, user: Automat
   }
 }
 
-export function getAutomationRouteErrorStatus(error: unknown, fallbackStatus = 400): number {
+export function getAutomationRouteErrorStatus(error: unknown, fallbackStatus = 500): number {
   return error instanceof OrganizationPermissionError ? error.status : fallbackStatus;
 }

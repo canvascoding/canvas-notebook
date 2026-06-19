@@ -2,7 +2,7 @@ import 'server-only';
 
 import { NextResponse } from 'next/server';
 
-import { isAdminUser } from '@/app/lib/admin-auth';
+import { isAdminUser, type AdminUserCandidate } from '@/app/lib/admin-auth';
 import { auth } from '@/app/lib/auth';
 import {
   getOrganizationPermissionForUser,
@@ -28,6 +28,10 @@ export type OrganizationPermissionGuardResult =
 type PermissionGuardOptions = {
   errorMessage?: string;
   legacyAdminFallback?: boolean;
+};
+
+type PermissionUserCandidate = AdminUserCandidate & {
+  id?: string | null;
 };
 
 const LEGACY_ADMIN_PERMISSION: OrganizationPermissionSnapshot = {
@@ -96,12 +100,44 @@ export function readOrganizationPermissionForUser(userId: string): OrganizationP
   }
 }
 
+function readPermissionUserCandidate(userId: string): PermissionUserCandidate | null {
+  const sqlite = openOrganizationBootstrapDatabase();
+  try {
+    const candidate = sqlite.prepare(`
+      SELECT id, email, role
+      FROM user
+      WHERE id = ?
+      LIMIT 1
+    `).get(userId) as PermissionUserCandidate | undefined;
+    return candidate ?? null;
+  } finally {
+    sqlite.close();
+  }
+}
+
+function warnLegacyAdminFallback(userId: string, key: OrganizationPermissionKey, databaseProvider: string): void {
+  console.warn('[OrganizationPermission] Legacy admin fallback granted organization permission.', {
+    userId,
+    permission: key,
+    databaseProvider,
+  });
+}
+
 export function assertUserOrganizationPermission(
   userId: string,
   key: OrganizationPermissionKey,
   message?: string,
+  user?: PermissionUserCandidate | null,
 ): OrganizationPermissionState {
   const state = readOrganizationPermissionForUser(userId);
+  if (!state.configured) {
+    const candidate = user ?? readPermissionUserCandidate(userId);
+    if (isAdminUser(candidate)) {
+      warnLegacyAdminFallback(userId, key, state.databaseProvider);
+      return legacyFallbackState();
+    }
+  }
+
   assertOrganizationPermission(state.permission, key, message);
   return state;
 }
@@ -132,11 +168,7 @@ export async function requireOrganizationPermission(
 
   const state = readOrganizationPermissionForUser(session.user.id);
   if (!state.configured && options.legacyAdminFallback !== false && isAdminUser(session.user)) {
-    console.warn('[OrganizationPermission] Legacy admin fallback granted organization permission.', {
-      userId: session.user.id,
-      permission: key,
-      databaseProvider: state.databaseProvider,
-    });
+    warnLegacyAdminFallback(session.user.id, key, state.databaseProvider);
 
     return {
       ok: true,

@@ -14,7 +14,3 @@ export async function requireMigrationRestorePermission(request: NextRequest) {
     errorMessage: 'Forbidden: recovery permission required',
   });
 }
-
-export async function requireMigrationAdmin(request: NextRequest) {
-  return requireMigrationExportPermission(request);
-}

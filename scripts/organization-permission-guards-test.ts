@@ -122,6 +122,11 @@ async function main() {
   legacyDb.prepare('DELETE FROM canvas_organization_settings').run();
   legacyDb.close();
 
+  assert.doesNotThrow(() => assertUserOrganizationPermission(owner.id, 'canCreatePublicLinks'));
+  assert.throws(
+    () => assertUserOrganizationPermission(memberId, 'canCreatePublicLinks'),
+    /Missing organization permission: canCreatePublicLinks/,
+  );
   assert.doesNotThrow(() => assertCanCreateRequestedAutomation(
     { scope: 'team' },
     { id: owner.id, role: 'admin', email: owner.email },
