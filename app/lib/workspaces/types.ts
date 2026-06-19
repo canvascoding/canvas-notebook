@@ -1,0 +1,37 @@
+import 'server-only';
+
+export type WorkspaceType = 'personal' | 'team';
+
+export type WorkspaceUserRole = 'owner' | 'admin' | 'member' | 'external';
+
+export interface WorkspaceActor {
+  userId: string;
+  email?: string | null;
+  role: WorkspaceUserRole;
+}
+
+export interface WorkspacePermissions {
+  canRead: boolean;
+  canWrite: boolean;
+  canDelete: boolean;
+  canCreatePublicLinks: boolean;
+  canManageWorkspace: boolean;
+  canRunAgent: boolean;
+}
+
+export interface WorkspaceContext {
+  workspaceId: string;
+  workspaceType: WorkspaceType;
+  rootPath: string;
+  actor?: WorkspaceActor;
+  organizationId?: string | null;
+  ownerUserId?: string | null;
+  permissions: WorkspacePermissions;
+  legacy: boolean;
+}
+
+export interface WorkspacePathResolution {
+  workspace: WorkspaceContext;
+  relativePath: string;
+  absolutePath: string;
+}

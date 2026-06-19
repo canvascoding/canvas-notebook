@@ -4,11 +4,11 @@ import { writeFile, createDirectory } from '@/app/lib/filesystem/workspace-files
 import { clearFileTreeCache } from '@/app/lib/utils/file-tree-cache';
 import { invalidateFileReferenceCache } from '@/app/lib/filesystem/file-reference-cache';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
-import { auth } from '@/app/lib/auth';
 import { parseMultipartFormData } from '@/app/lib/api/form-data';
 import { getImageConversionErrorMessage } from '@/app/lib/images/convert';
 import { normalizeUploadImageBuffer, parseUploadConvertParams } from '@/app/lib/images/upload-conversion';
 import { syncPublicSharesAfterWrite } from '@/app/lib/public-sharing/public-file-shares';
+import { requireRequestWorkspace, workspaceFileOptions } from '@/app/lib/workspaces/request';
 
 const MAX_FILE_SIZE = 100 * 1024 * 1024;
 const MAX_TOTAL_SIZE = 500 * 1024 * 1024;
@@ -34,10 +34,9 @@ function sanitizeFilePath(filePath: string): string {
 }
 
 export async function POST(request: NextRequest) {
-  const session = await auth.api.getSession({ headers: request.headers });
-  if (!session) {
-    return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
-  }
+  const workspaceResult = await requireRequestWorkspace(request, { permissions: 'canWrite' });
+  if (workspaceResult.response) return workspaceResult.response;
+  const fileOptions = workspaceFileOptions(workspaceResult.workspace);
 
   try {
     const limited = rateLimit(request, {
@@ -97,7 +96,7 @@ export async function POST(request: NextRequest) {
     const convertParamsList = parsedConvertParams.params;
 
     if (targetDir && targetDir !== '.') {
-      await createDirectory(targetDir);
+      await createDirectory(targetDir, fileOptions);
     }
 
     const uploadedFiles: string[] = [];
@@ -141,17 +140,17 @@ export async function POST(request: NextRequest) {
 
       const parentDir = path.posix.dirname(targetPath);
       if (parentDir !== '.' && parentDir !== targetDir && parentDir !== '/') {
-        await createDirectory(parentDir);
+        await createDirectory(parentDir, fileOptions);
       }
 
-      await writeFile(targetPath, normalized.buffer);
+      await writeFile(targetPath, normalized.buffer, fileOptions);
       uploadedFiles.push(filename);
       uploadedPaths.push(targetPath);
     }
 
     await syncPublicSharesAfterWrite(uploadedPaths);
-    clearFileTreeCache();
-    invalidateFileReferenceCache();
+    clearFileTreeCache(fileOptions.workspace?.workspaceId);
+    invalidateFileReferenceCache(fileOptions);
 
     return NextResponse.json({ success: true, count: files.length, files: uploadedFiles });
   } catch (error) {

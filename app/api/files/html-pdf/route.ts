@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { auth } from '@/app/lib/auth';
 import { getFileStats } from '@/app/lib/filesystem/workspace-files';
 import { generatePdfFromUrl } from '@/app/lib/pdf/browser';
 import { toHtmlPreviewUrl } from '@/app/lib/utils/media-url';
 import path from 'path';
+import { requireRequestWorkspace, workspaceFileOptions } from '@/app/lib/workspaces/request';
 
 const PDF_TIMEOUT_MS = 30_000;
 
@@ -18,10 +18,9 @@ function getInternalRenderOrigin(requestUrl: string) {
 }
 
 export async function POST(request: NextRequest) {
-  const session = await auth.api.getSession({ headers: request.headers });
-  if (!session) {
-    return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
-  }
+  const workspaceResult = await requireRequestWorkspace(request, { permissions: 'canRead' });
+  if (workspaceResult.response) return workspaceResult.response;
+  const fileOptions = workspaceFileOptions(workspaceResult.workspace);
 
   try {
     const body = await request.json().catch(() => null);
@@ -42,7 +41,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    await getFileStats(filePath);
+    await getFileStats(filePath, fileOptions);
 
     const origin = getInternalRenderOrigin(request.url);
     const fileName = path.basename(filePath, ext);

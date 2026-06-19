@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { auth } from '@/app/lib/auth';
 import { parseMultipartFormData } from '@/app/lib/api/form-data';
 import {
   fetchMarkdownImageUrl,
@@ -9,6 +8,7 @@ import {
 } from '@/app/lib/markdown/markdown-image-import';
 import { parseUploadConvertParams } from '@/app/lib/images/upload-conversion';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
+import { requireRequestWorkspace, workspaceFileOptions } from '@/app/lib/workspaces/request';
 
 export const runtime = 'nodejs';
 
@@ -17,10 +17,9 @@ function isUploadFile(value: FormDataEntryValue): value is File {
 }
 
 export async function POST(request: NextRequest) {
-  const session = await auth.api.getSession({ headers: request.headers });
-  if (!session) {
-    return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
-  }
+  const workspaceResult = await requireRequestWorkspace(request, { permissions: 'canWrite' });
+  if (workspaceResult.response) return workspaceResult.response;
+  const fileOptions = workspaceFileOptions(workspaceResult.workspace);
 
   try {
     const limited = rateLimit(request, {
@@ -72,6 +71,7 @@ export async function POST(request: NextRequest) {
       images,
       markdownFilePath,
       targetDir,
+      fileOptions,
     });
 
     return NextResponse.json({ success: true, files: imported });

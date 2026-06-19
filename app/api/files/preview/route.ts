@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import path from 'node:path';
 import { promises as fs } from 'fs';
-import { auth } from '@/app/lib/auth';
 import { resolveExistingWorkspacePath, validatePath } from '@/app/lib/filesystem/workspace-files';
 import { 
   resolveValidatedStudioEditPath,
@@ -17,6 +16,7 @@ import {
   renderCachedMediaPreview,
   resolvePreviewWidth,
 } from '@/app/lib/files/media-preview';
+import { requireRequestWorkspace, workspaceFileOptions } from '@/app/lib/workspaces/request';
 
 function buildMediaUrl(filePath: string) {
   const encodedPath = filePath
@@ -50,10 +50,9 @@ export async function GET(request: NextRequest) {
       return limited.response;
     }
 
-    const session = await auth.api.getSession({ headers: request.headers });
-    if (!session) {
-      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
-    }
+    const workspaceResult = await requireRequestWorkspace(request, { permissions: 'canRead' });
+    if (workspaceResult.response) return workspaceResult.response;
+    const fileOptions = workspaceFileOptions(workspaceResult.workspace);
 
     const { searchParams } = new URL(request.url);
     const filePath = searchParams.get('path');
@@ -121,12 +120,12 @@ export async function GET(request: NextRequest) {
       fullPath = resolved;
     } else {
       try {
-        fullPath = await resolveExistingWorkspacePath(filePath);
+        fullPath = await resolveExistingWorkspacePath(filePath, fileOptions);
       } catch (error) {
         if (!(error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT')) {
           throw error;
         }
-        fullPath = validatePath(filePath);
+        fullPath = validatePath(filePath, fileOptions);
       }
     }
 

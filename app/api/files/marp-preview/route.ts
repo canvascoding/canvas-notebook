@@ -1,17 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
 import path from 'path';
-import { auth } from '@/app/lib/auth';
 import { getFileStats } from '@/app/lib/filesystem/workspace-files';
 import { isMarpMarkdown } from '@/app/lib/marp/detect';
 import { renderMarpMarkdownToHtmlDocument } from '@/app/lib/marp/render';
+import { requireRequestWorkspace, workspaceFileOptions } from '@/app/lib/workspaces/request';
 
 const READ_SIZE_LIMIT = 5 * 1024 * 1024;
 
 export async function POST(request: NextRequest) {
-  const session = await auth.api.getSession({ headers: request.headers });
-  if (!session) {
-    return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
-  }
+  const workspaceResult = await requireRequestWorkspace(request, { permissions: 'canRead' });
+  if (workspaceResult.response) return workspaceResult.response;
+  const fileOptions = workspaceFileOptions(workspaceResult.workspace);
 
   try {
     const body = await request.json().catch(() => null);
@@ -39,11 +38,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: 'File is too large to preview' }, { status: 413 });
     }
 
-    await getFileStats(filePath);
+    await getFileStats(filePath, fileOptions);
 
     const html = await renderMarpMarkdownToHtmlDocument(markdown, {
       filePath,
       title: path.basename(filePath),
+      fileOptions,
     });
 
     return new NextResponse(html, {

@@ -1,12 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { auth } from '@/app/lib/auth';
 import { assertMarkdownPdfExportPath, getMarkdownPdfAttachmentName, renderMarkdownWorkspaceFileToPdf } from '@/app/lib/pdf/markdown-pdf';
+import { requireRequestWorkspace, workspaceFileOptions } from '@/app/lib/workspaces/request';
 
 export async function POST(request: NextRequest) {
-  const session = await auth.api.getSession({ headers: request.headers });
-  if (!session) {
-    return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
-  }
+  const workspaceResult = await requireRequestWorkspace(request, { permissions: 'canRead' });
+  if (workspaceResult.response) return workspaceResult.response;
+  const fileOptions = workspaceFileOptions(workspaceResult.workspace);
 
   try {
     const body = await request.json().catch(() => null);
@@ -28,7 +27,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const pdfBuffer = await renderMarkdownWorkspaceFileToPdf(filePath);
+    const pdfBuffer = await renderMarkdownWorkspaceFileToPdf(filePath, fileOptions);
 
     return new NextResponse(new Uint8Array(pdfBuffer), {
       status: 200,

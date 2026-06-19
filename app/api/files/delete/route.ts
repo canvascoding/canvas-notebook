@@ -10,12 +10,13 @@ import {
   jsonServerError,
   jsonSuccess,
   readJsonBody,
-  requireApiSession,
 } from '@/app/lib/api/route-helpers';
+import { requireRequestWorkspace, workspaceFileOptions } from '@/app/lib/workspaces/request';
 
 export async function DELETE(request: NextRequest) {
-  const unauthorized = await requireApiSession(request);
-  if (unauthorized) return unauthorized;
+  const workspaceResult = await requireRequestWorkspace(request, { permissions: 'canDelete' });
+  if (workspaceResult.response) return workspaceResult.response;
+  const fileOptions = workspaceFileOptions(workspaceResult.workspace);
 
   try {
     const rateLimitResponse = applyRateLimit(request, {
@@ -40,10 +41,11 @@ export async function DELETE(request: NextRequest) {
       return jsonError(`Protected app output folder(s) cannot be deleted: ${protectedPaths.join(', ')}`, 403);
     }
 
-    const result = await batchDelete(pathsToDelete);
+    const result = await batchDelete(pathsToDelete, fileOptions);
     await syncPublicSharesAfterDelete(result.deleted);
 
     invalidateWorkspaceFileViews({
+      fileOptions,
       subtreeDirs: result.deleted.map(getParentDirectory),
     });
 

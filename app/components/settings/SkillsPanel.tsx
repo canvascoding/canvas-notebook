@@ -1841,6 +1841,8 @@ export function SkillsPanel() {
   const [selectedSkill, setSelectedSkill] = useState<CanvasSkill | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [uploadOpen, setUploadOpen] = useState(false);
+  const [resetSkillsOpen, setResetSkillsOpen] = useState(false);
+  const [resetSkillsConfirm, setResetSkillsConfirm] = useState('');
   const [panelTab, setPanelTab] = useState<SkillsPanelTab>(() => readStoredTab(
     PANEL_TAB_STORAGE_KEY,
     ['plugins', 'skills'] as const,
@@ -2120,6 +2122,37 @@ export function SkillsPanel() {
       await loadSkillStore();
     } catch (error) {
       setSkillActionError(error instanceof Error ? error.message : t('detail.errors.deleteFailed'));
+    } finally {
+      setPendingSkillAction(null);
+    }
+  }
+
+  async function resetAllSkills() {
+    if (resetSkillsConfirm !== 'DELETE_SKILLS') return;
+
+    setPendingSkillAction('reset:all');
+    setSkillActionError(null);
+    try {
+      const response = await fetch('/api/skills/reset', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ confirm: resetSkillsConfirm }),
+      });
+      const data = await response.json();
+      if (!data.success) {
+        throw new Error(data.error || t('skillLibrary.errors.resetAll'));
+      }
+      setSelectedSkill(null);
+      setSelectedPath(null);
+      setRightView('info');
+      setExpandedDirs(new Set());
+      setResetSkillsOpen(false);
+      setResetSkillsConfirm('');
+      await loadSkills();
+      await loadSkillTree();
+      await loadSkillStore();
+    } catch (error) {
+      setSkillActionError(error instanceof Error ? error.message : t('skillLibrary.errors.resetAll'));
     } finally {
       setPendingSkillAction(null);
     }
@@ -2458,6 +2491,64 @@ export function SkillsPanel() {
                     <Upload className="h-3.5 w-3.5" />
                     {t('upload.button')}
                   </Button>
+                  <AlertDialog
+                    open={resetSkillsOpen}
+                    onOpenChange={(open) => {
+                      setResetSkillsOpen(open);
+                      if (!open) setResetSkillsConfirm('');
+                    }}
+                  >
+                    <AlertDialogTrigger asChild>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={pendingSkillAction === 'reset:all'}
+                        className="gap-1.5 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                      >
+                        {pendingSkillAction === 'reset:all' ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <Trash2 className="h-3.5 w-3.5" />
+                        )}
+                        {t('skillLibrary.resetAll.button')}
+                      </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>{t('skillLibrary.resetAll.title')}</AlertDialogTitle>
+                        <AlertDialogDescription>
+                          {t('skillLibrary.resetAll.description')}
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <div className="space-y-2">
+                        <p className="text-sm text-muted-foreground">
+                          {t('skillLibrary.resetAll.confirmLabel', { confirmation: 'DELETE_SKILLS' })}
+                        </p>
+                        <Input
+                          value={resetSkillsConfirm}
+                          onChange={(event) => setResetSkillsConfirm(event.target.value)}
+                          placeholder="DELETE_SKILLS"
+                          autoComplete="off"
+                        />
+                      </div>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>{t('skillLibrary.resetAll.cancel')}</AlertDialogCancel>
+                        <AlertDialogAction
+                          variant="destructive"
+                          disabled={resetSkillsConfirm !== 'DELETE_SKILLS' || pendingSkillAction === 'reset:all'}
+                          onClick={(event) => {
+                            event.preventDefault();
+                            void resetAllSkills();
+                          }}
+                        >
+                          {pendingSkillAction === 'reset:all' ? (
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          ) : null}
+                          {t('skillLibrary.resetAll.confirm')}
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
                 </div>
 
                 <div

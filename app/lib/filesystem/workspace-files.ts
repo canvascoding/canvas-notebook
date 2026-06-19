@@ -2,105 +2,60 @@ import {createReadStream as createLocalReadStream, promises as fs, accessSync} f
 import path from 'path';
 import {Readable} from 'stream';
 import type { FileNode } from '@/app/lib/files/types';
+import { createLegacyPersonalWorkspaceContext, resolveWorkspaceDataRoot } from '@/app/lib/workspaces/context';
+import {
+  ensureWorkspaceRoot,
+  resolveDirectoryCreationPath as resolveDirectoryCreationPathForContext,
+  resolveExistingWorkspacePath as resolveExistingWorkspacePathForContext,
+  resolveWritableWorkspacePath as resolveWritableWorkspacePathForContext,
+  resolveWorkspacePath,
+} from '@/app/lib/workspaces/path-guard';
+import type { WorkspaceContext } from '@/app/lib/workspaces/types';
 
 export type { FileNode } from '@/app/lib/files/types';
 
-function getRuntimeCwd(): string {
-  return Reflect.apply(process.cwd, process, []) as string;
+export interface WorkspaceFileOperationOptions {
+  workspace?: WorkspaceContext;
 }
 
 function getDataDir(): string {
-  const configuredDataDir = process.env.DATA?.trim();
-  if (!configuredDataDir || configuredDataDir === './data' || configuredDataDir === 'data') {
-    return path.join(getRuntimeCwd(), 'data');
-  }
-
-  if (path.isAbsolute(configuredDataDir)) {
-    return configuredDataDir;
-  }
-
-  return path.join(getRuntimeCwd(), 'data');
+  return resolveWorkspaceDataRoot();
 }
 
-function getWorkspaceBaseDir(): string {
-  return path.join(getDataDir(), 'workspace');
+function getWorkspace(options?: WorkspaceFileOperationOptions): WorkspaceContext {
+  return options?.workspace ?? createLegacyPersonalWorkspaceContext();
 }
 
 const IGNORED_WORKSPACE_DIRS = new Set(['node_modules', '.next', '.git', 'dist', 'build', '.cache']);
 const HIDDEN_WORKSPACE_METADATA_FILES = new Set(['.gitkeep', '.keep']);
 
-export function validatePath(userPath: string): string {
-  const normalizedBase = path.resolve(getWorkspaceBaseDir());
-  const normalizedPath = path.resolve(normalizedBase, userPath);
-
-  if (normalizedPath !== normalizedBase && !normalizedPath.startsWith(`${normalizedBase}${path.sep}`)) {
-    throw new Error('Invalid path: directory traversal attempt detected');
-  }
-
-  return normalizedPath;
+export function validatePath(userPath: string, options?: WorkspaceFileOperationOptions): string {
+  return resolveWorkspacePath(getWorkspace(options), userPath).absolutePath;
 }
 
-function assertWithinBase(candidatePath: string, basePath: string) {
-  if (candidatePath !== basePath && !candidatePath.startsWith(`${basePath}${path.sep}`)) {
-    throw new Error('Invalid path: directory traversal attempt detected');
-  }
+async function getWorkspaceRealBase(options?: WorkspaceFileOperationOptions): Promise<string> {
+  return ensureWorkspaceRoot(getWorkspace(options));
 }
 
-async function getWorkspaceRealBase(): Promise<string> {
-  const basePath = validatePath('.');
-  await fs.mkdir(basePath, {recursive: true});
-  return fs.realpath(basePath);
+export async function resolveExistingWorkspacePath(
+  userPath: string,
+  options?: WorkspaceFileOperationOptions
+): Promise<string> {
+  return resolveExistingWorkspacePathForContext(getWorkspace(options), userPath);
 }
 
-export async function resolveExistingWorkspacePath(userPath: string): Promise<string> {
-  const candidatePath = validatePath(userPath);
-  const realBase = await getWorkspaceRealBase();
-  const realPath = await fs.realpath(candidatePath);
-  assertWithinBase(realPath, realBase);
-  return realPath;
+async function resolveWritableWorkspacePath(
+  userPath: string,
+  options?: WorkspaceFileOperationOptions
+): Promise<string> {
+  return resolveWritableWorkspacePathForContext(getWorkspace(options), userPath);
 }
 
-async function resolveWritableWorkspacePath(userPath: string): Promise<string> {
-  const candidatePath = validatePath(userPath);
-  const realBase = await getWorkspaceRealBase();
-  const parentPath = path.dirname(candidatePath);
-  const realParent = await fs.realpath(parentPath);
-  assertWithinBase(realParent, realBase);
-
-  try {
-    const realExistingPath = await fs.realpath(candidatePath);
-    assertWithinBase(realExistingPath, realBase);
-  } catch (error) {
-    if (error && typeof error === 'object' && 'code' in error && error.code !== 'ENOENT') {
-      throw error;
-    }
-  }
-
-  return candidatePath;
-}
-
-async function resolveDirectoryCreationPath(userPath: string): Promise<string> {
-  const candidatePath = validatePath(userPath);
-  const realBase = await getWorkspaceRealBase();
-  let current = path.dirname(candidatePath);
-
-  while (current !== path.dirname(current)) {
-    try {
-      const realCurrent = await fs.realpath(current);
-      assertWithinBase(realCurrent, realBase);
-      return candidatePath;
-    } catch (error) {
-      if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') {
-        const next = path.dirname(current);
-        if (next === current) break;
-        current = next;
-        continue;
-      }
-      throw error;
-    }
-  }
-
-  throw new Error('Invalid path: parent directory is outside workspace');
+async function resolveDirectoryCreationPath(
+  userPath: string,
+  options?: WorkspaceFileOperationOptions
+): Promise<string> {
+  return resolveDirectoryCreationPathForContext(getWorkspace(options), userPath);
 }
 
 function isAppOutputMetadataFile(_filePath: string, fileName: string): boolean {
@@ -108,8 +63,11 @@ function isAppOutputMetadataFile(_filePath: string, fileName: string): boolean {
   return false;
 }
 
-export async function listDirectory(dirPath: string = '.'): Promise<FileNode[]> {
-  const fullPath = await resolveExistingWorkspacePath(dirPath);
+export async function listDirectory(
+  dirPath: string = '.',
+  options?: WorkspaceFileOperationOptions
+): Promise<FileNode[]> {
+  const fullPath = await resolveExistingWorkspacePath(dirPath, options);
   const entries = await fs.readdir(fullPath, {withFileTypes: true});
 
   return Promise.all(
@@ -147,8 +105,8 @@ export async function listDirectory(dirPath: string = '.'): Promise<FileNode[]> 
   );
 }
 
-export async function readFile(filePath: string): Promise<Buffer> {
-  const fullPath = await resolveExistingWorkspacePath(filePath);
+export async function readFile(filePath: string, options?: WorkspaceFileOperationOptions): Promise<Buffer> {
+  const fullPath = await resolveExistingWorkspacePath(filePath, options);
   return fs.readFile(fullPath);
 }
 
@@ -177,17 +135,22 @@ export async function getDataFileStats(filePath: string) {
 
 export async function createReadStream(
   filePath: string,
-  options?: {start?: number; end?: number; highWaterMark?: number}
+  options?: {start?: number; end?: number; highWaterMark?: number},
+  workspaceOptions?: WorkspaceFileOperationOptions
 ): Promise<{stream: Readable; close: () => Promise<void>}> {
-  const fullPath = await resolveExistingWorkspacePath(filePath);
+  const fullPath = await resolveExistingWorkspacePath(filePath, workspaceOptions);
   return {
     stream: createLocalReadStream(fullPath, options) as unknown as Readable,
     close: async () => {},
   };
 }
 
-export async function writeFile(filePath: string, content: Buffer | string): Promise<void> {
-  const fullPath = await resolveWritableWorkspacePath(filePath);
+export async function writeFile(
+  filePath: string,
+  content: Buffer | string,
+  options?: WorkspaceFileOperationOptions
+): Promise<void> {
+  const fullPath = await resolveWritableWorkspacePath(filePath, options);
   const buffer = Buffer.isBuffer(content) ? content : Buffer.from(content);
   await fs.writeFile(fullPath, buffer);
 }
@@ -198,17 +161,19 @@ export async function writeDataFile(filePath: string, content: Buffer | string):
   await fs.writeFile(fullPath, buffer);
 }
 
-export async function createDirectory(dirPath: string): Promise<void> {
-  const fullPath = await resolveDirectoryCreationPath(dirPath);
+export async function createDirectory(dirPath: string, options?: WorkspaceFileOperationOptions): Promise<void> {
+  const fullPath = await resolveDirectoryCreationPath(dirPath, options);
   await fs.mkdir(fullPath, {recursive: true});
 
-  const realBase = await getWorkspaceRealBase();
+  const realBase = await getWorkspaceRealBase(options);
   const realCreatedPath = await fs.realpath(fullPath);
-  assertWithinBase(realCreatedPath, realBase);
+  if (realCreatedPath !== realBase && !realCreatedPath.startsWith(`${realBase}${path.sep}`)) {
+    throw new Error('Invalid path: directory traversal attempt detected');
+  }
 }
 
-export async function deleteFile(filePath: string): Promise<void> {
-  const fullPath = await resolveExistingWorkspacePath(filePath);
+export async function deleteFile(filePath: string, options?: WorkspaceFileOperationOptions): Promise<void> {
+  const fullPath = await resolveExistingWorkspacePath(filePath, options);
   await fs.rm(fullPath, {recursive: true, force: true});
 }
 
@@ -219,13 +184,17 @@ export interface RenameConflictError extends Error {
   destPath: string;
 }
 
-export async function checkRenameConflict(oldPath: string, newPath: string): Promise<null | RenameConflictError> {
-  validatePath(oldPath);
-  validatePath(newPath);
+export async function checkRenameConflict(
+  oldPath: string,
+  newPath: string,
+  options?: WorkspaceFileOperationOptions
+): Promise<null | RenameConflictError> {
+  validatePath(oldPath, options);
+  validatePath(newPath, options);
 
   // Check if source exists
   try {
-    await resolveExistingWorkspacePath(oldPath);
+    await resolveExistingWorkspacePath(oldPath, options);
   } catch (cause) {
     if (!(cause && typeof cause === 'object' && 'code' in cause && cause.code === 'ENOENT')) {
       throw cause;
@@ -240,9 +209,9 @@ export async function checkRenameConflict(oldPath: string, newPath: string): Pro
 
   // Check if destination already exists
   try {
-    const realNewPath = await resolveExistingWorkspacePath(newPath);
+    const realNewPath = await resolveExistingWorkspacePath(newPath, options);
     const destStat = await fs.stat(realNewPath);
-    const realOldPath = await resolveExistingWorkspacePath(oldPath);
+    const realOldPath = await resolveExistingWorkspacePath(oldPath, options);
     const isSourceDirectory = (await fs.stat(realOldPath)).isDirectory();
 
     if (destStat.isDirectory()) {
@@ -271,19 +240,24 @@ export async function checkRenameConflict(oldPath: string, newPath: string): Pro
   }
 }
 
-export async function renameFile(oldPath: string, newPath: string, overwrite = false): Promise<void> {
-  const fullOldPath = await resolveExistingWorkspacePath(oldPath);
-  const fullNewPath = validatePath(newPath);
+export async function renameFile(
+  oldPath: string,
+  newPath: string,
+  overwrite = false,
+  options?: WorkspaceFileOperationOptions
+): Promise<void> {
+  const fullOldPath = await resolveExistingWorkspacePath(oldPath, options);
+  const fullNewPath = validatePath(newPath, options);
 
   // Ensure parent directory exists
   const parentDir = path.dirname(newPath);
   if (parentDir && parentDir !== '.') {
-    await createDirectory(parentDir);
+    await createDirectory(parentDir, options);
   }
-  await resolveWritableWorkspacePath(newPath);
+  await resolveWritableWorkspacePath(newPath, options);
 
   // Check for conflicts
-  const conflict = await checkRenameConflict(oldPath, newPath);
+  const conflict = await checkRenameConflict(oldPath, newPath, options);
   if (conflict) {
     if (conflict.code === 'FILE_EXISTS' && overwrite) {
       // Delete existing file and proceed
@@ -296,8 +270,8 @@ export async function renameFile(oldPath: string, newPath: string, overwrite = f
   await fs.rename(fullOldPath, fullNewPath);
 }
 
-export async function getFileStats(filePath: string) {
-  const fullPath = await resolveExistingWorkspacePath(filePath);
+export async function getFileStats(filePath: string, options?: WorkspaceFileOperationOptions) {
+  const fullPath = await resolveExistingWorkspacePath(filePath, options);
   const stats = await fs.stat(fullPath);
 
   // Calculate total size for directories
@@ -337,13 +311,14 @@ async function calculateDirectorySize(dirPath: string): Promise<number> {
 export async function buildFileTree(
   dirPath: string = '.',
   depth: number = 4,
-  currentDepth: number = 0
+  currentDepth: number = 0,
+  options?: WorkspaceFileOperationOptions
 ): Promise<FileNode[]> {
   if (currentDepth > depth) {
     return [];
   }
 
-  const files = await listDirectory(dirPath);
+  const files = await listDirectory(dirPath, options);
 
   files.sort((a, b) => {
     if (a.type === b.type) {
@@ -357,7 +332,7 @@ export async function buildFileTree(
       files.map(async (file) => {
         if (file.type === 'directory') {
           try {
-            file.children = await buildFileTree(file.path, depth, currentDepth + 1);
+            file.children = await buildFileTree(file.path, depth, currentDepth + 1, options);
           } catch (error) {
             console.warn(`Failed to read directory ${file.path}:`, error);
             file.children = [];
@@ -401,10 +376,11 @@ export async function copyFile(
   sourcePath: string,
   destDir: string,
   overwrite = false,
-  renameOnCollision = false
+  renameOnCollision = false,
+  options?: WorkspaceFileOperationOptions
 ): Promise<{copied: string; skipped: boolean}> {
-  const fullSource = await resolveExistingWorkspacePath(sourcePath);
-  const fullDestDir = await resolveExistingWorkspacePath(destDir);
+  const fullSource = await resolveExistingWorkspacePath(sourcePath, options);
+  const fullDestDir = await resolveExistingWorkspacePath(destDir, options);
   const fileName = path.basename(fullSource);
   let destFileName = fileName;
 
@@ -439,14 +415,15 @@ export async function batchCopy(
   sources: string[],
   destDir: string,
   overwrite = false,
-  renameOnCollision = false
+  renameOnCollision = false,
+  options?: WorkspaceFileOperationOptions
 ): Promise<CopyResult> {
   const results: CopyResult = {copied: [], failed: [], skipped: []};
 
   await Promise.allSettled(
     sources.map(async (sourcePath) => {
       try {
-        const result = await copyFile(sourcePath, destDir, overwrite, renameOnCollision);
+        const result = await copyFile(sourcePath, destDir, overwrite, renameOnCollision, options);
         if (result.skipped) {
           results.skipped.push(sourcePath);
         } else {
@@ -465,14 +442,15 @@ export async function batchCopy(
 }
 
 export async function batchDelete(
-  paths: string[]
+  paths: string[],
+  options?: WorkspaceFileOperationOptions
 ): Promise<{deleted: string[]; failed: {path: string; error: string}[]}> {
   const results = {deleted: [] as string[], failed: [] as {path: string; error: string}[]};
 
   await Promise.allSettled(
     paths.map(async (filePath) => {
       try {
-        await deleteFile(filePath);
+        await deleteFile(filePath, options);
         results.deleted.push(filePath);
       } catch (error) {
         results.failed.push({

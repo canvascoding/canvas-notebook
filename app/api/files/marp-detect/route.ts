@@ -1,16 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import path from 'path';
-import { auth } from '@/app/lib/auth';
 import { getFileStats, readFile } from '@/app/lib/filesystem/workspace-files';
 import { isMarpMarkdown } from '@/app/lib/marp/detect';
+import { requireRequestWorkspace, workspaceFileOptions } from '@/app/lib/workspaces/request';
 
 const READ_SIZE_LIMIT = 512 * 1024;
 
 export async function GET(request: NextRequest) {
-  const session = await auth.api.getSession({ headers: request.headers });
-  if (!session) {
-    return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
-  }
+  const workspaceResult = await requireRequestWorkspace(request, { permissions: 'canRead' });
+  if (workspaceResult.response) return workspaceResult.response;
+  const fileOptions = workspaceFileOptions(workspaceResult.workspace);
 
   try {
     const { searchParams } = new URL(request.url);
@@ -25,12 +24,12 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ success: true, isMarp: false });
     }
 
-    const stats = await getFileStats(filePath);
+    const stats = await getFileStats(filePath, fileOptions);
     if (stats.size > READ_SIZE_LIMIT) {
       return NextResponse.json({ success: true, isMarp: isMarpMarkdown(filePath) });
     }
 
-    const content = (await readFile(filePath)).toString('utf-8');
+    const content = (await readFile(filePath, fileOptions)).toString('utf-8');
     return NextResponse.json({ success: true, isMarp: isMarpMarkdown(filePath, content) });
   } catch (error) {
     console.error('[API] Marp detect error:', error);

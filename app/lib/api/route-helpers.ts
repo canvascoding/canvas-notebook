@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/app/lib/auth';
 import { invalidateFileReferenceCache } from '@/app/lib/filesystem/file-reference-cache';
+import type { WorkspaceFileOperationOptions } from '@/app/lib/filesystem/workspace-files';
 import { clearFileTreeCache, clearSubtreeCache } from '@/app/lib/utils/file-tree-cache';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 
@@ -11,6 +12,7 @@ interface RateLimitOptions {
 }
 
 interface InvalidateWorkspaceFileViewsOptions {
+  fileOptions?: WorkspaceFileOperationOptions;
   fullTree?: boolean;
   subtreeDirs?: Iterable<string>;
   references?: boolean;
@@ -45,19 +47,21 @@ export function jsonServerError(scope: string, error: unknown, fallbackMessage: 
 }
 
 export function invalidateWorkspaceFileViews({
+  fileOptions,
   fullTree = false,
   subtreeDirs = [],
   references = true,
 }: InvalidateWorkspaceFileViewsOptions = {}): void {
+  const workspaceId = fileOptions?.workspace?.workspaceId;
   if (fullTree) {
-    clearFileTreeCache();
+    clearFileTreeCache(workspaceId);
   }
 
   for (const dirPath of subtreeDirs) {
-    clearSubtreeCache(dirPath);
+    clearSubtreeCache(dirPath, workspaceId);
   }
 
   if (references) {
-    invalidateFileReferenceCache();
+    invalidateFileReferenceCache(fileOptions);
   }
 }

@@ -15,6 +15,7 @@ export type SkillSummary = {
   name: string;
   title: string;
   description: string;
+  version?: string;
   enabled: boolean;
   interface?: CanvasSkillInterface;
   plugin?: {
@@ -33,6 +34,7 @@ function parseSkillSummary(content: string, fallbackName: string): Omit<SkillSum
     name: frontmatter.name || fallbackName,
     title: frontmatter.name || fallbackName,
     description: frontmatter.description || '',
+    version: frontmatter.metadata?.version,
   };
 }
 
@@ -79,6 +81,7 @@ export async function loadSkillSummaries(enabledSkills?: string[]): Promise<Skil
         name: skill.name,
         title: skill.title,
         description: skill.description,
+        version: skill.version,
         enabled: skill.enabled,
         interface: skill.interface,
         plugin: skill.plugin,

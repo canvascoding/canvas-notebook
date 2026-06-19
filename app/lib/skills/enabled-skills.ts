@@ -31,7 +31,13 @@ export function resolveEnabledSkillNames(
 ): Set<string> {
   const canonicalSkillNames = normalizeSkillNames(allSkillNames);
   const canonicalSkillSet = new Set(canonicalSkillNames);
-  const configuredSkills = normalizeEnabledSkillsConfig(enabledSkills).filter((skillName) => skillName !== DISABLED_ALL_SKILLS_SENTINEL);
+  const normalizedConfig = normalizeEnabledSkillsConfig(enabledSkills);
+
+  if (normalizedConfig.includes(DISABLED_ALL_SKILLS_SENTINEL)) {
+    return new Set();
+  }
+
+  const configuredSkills = normalizedConfig.filter((skillName) => skillName !== DISABLED_ALL_SKILLS_SENTINEL);
 
   if (configuredSkills.length === 0) {
     return new Set(canonicalSkillNames);

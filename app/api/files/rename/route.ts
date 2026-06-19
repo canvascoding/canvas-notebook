@@ -9,8 +9,8 @@ import {
   jsonServerError,
   jsonSuccess,
   readJsonBody,
-  requireApiSession,
 } from '@/app/lib/api/route-helpers';
+import { requireRequestWorkspace, workspaceFileOptions } from '@/app/lib/workspaces/request';
 
 interface RenameRequestBody {
   oldPath: string;
@@ -19,8 +19,9 @@ interface RenameRequestBody {
 }
 
 export async function POST(request: NextRequest) {
-  const unauthorized = await requireApiSession(request);
-  if (unauthorized) return unauthorized;
+  const workspaceResult = await requireRequestWorkspace(request, { permissions: ['canWrite', 'canDelete'] });
+  if (workspaceResult.response) return workspaceResult.response;
+  const fileOptions = workspaceFileOptions(workspaceResult.workspace);
 
   try {
     const rateLimitResponse = applyRateLimit(request, {
@@ -44,13 +45,13 @@ export async function POST(request: NextRequest) {
     }
 
     // Check for conflicts first (for better error messages)
-    const conflict = await checkRenameConflict(oldPath, newPath);
+    const conflict = await checkRenameConflict(oldPath, newPath, fileOptions);
     if (conflict) {
       const conflictError = conflict as RenameConflictError;
       if (overwrite && conflictError.code === 'FILE_EXISTS' && conflictError.type === 'file') {
-        await renameFile(oldPath, newPath, true);
+        await renameFile(oldPath, newPath, true, fileOptions);
         await syncPublicSharesAfterMove(oldPath, newPath);
-        invalidateWorkspaceFileViews({ fullTree: true });
+        invalidateWorkspaceFileViews({ fileOptions, fullTree: true });
         return jsonSuccess();
       }
 
@@ -62,9 +63,9 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    await renameFile(oldPath, newPath, overwrite);
+    await renameFile(oldPath, newPath, overwrite, fileOptions);
     await syncPublicSharesAfterMove(oldPath, newPath);
-    invalidateWorkspaceFileViews({ fullTree: true });
+    invalidateWorkspaceFileViews({ fileOptions, fullTree: true });
 
     return jsonSuccess();
   } catch (error) {

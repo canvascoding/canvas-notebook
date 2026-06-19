@@ -73,6 +73,7 @@
     "test:todos:email": "tsx --conditions react-server scripts/todo-email-notification-test.ts",
     "test:agents:runtime": "tsx --conditions react-server scripts/agent-runtime-config-test.ts",
     "test:onboarding:profile": "tsx --conditions react-server scripts/onboarding-profile-test.ts",
+    "test:workspace:foundation": "tsx --conditions react-server scripts/workspace-context-foundation-test.ts",
     "test:e2e": "playwright test --pass-with-no-tests",
     "test:all": "node scripts/test-all.mjs",
     "test:websocket:connection": "node scripts/test-websocket-connection.js",

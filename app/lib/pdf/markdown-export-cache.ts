@@ -1,5 +1,5 @@
 import { markdownFileToHtmlDocument } from '@/app/lib/pdf/markdown-to-html';
-import { resolveExistingWorkspacePath } from '@/app/lib/filesystem/workspace-files';
+import { resolveExistingWorkspacePath, type WorkspaceFileOperationOptions } from '@/app/lib/filesystem/workspace-files';
 import fs from 'fs/promises';
 
 const CACHE_TTL_MS = 5 * 60 * 1000;
@@ -13,15 +13,16 @@ type CacheEntry = {
 
 const markdownHtmlCache = new Map<string, CacheEntry>();
 
-async function getCacheKey(filePath: string): Promise<string> {
-  const fullPath = await resolveExistingWorkspacePath(filePath);
+async function getCacheKey(filePath: string, fileOptions?: WorkspaceFileOperationOptions): Promise<string> {
+  const fullPath = await resolveExistingWorkspacePath(filePath, fileOptions);
   const stats = await fs.stat(fullPath);
 
   if (!stats.isFile()) {
     throw new Error('Path must point to a file');
   }
 
-  return `${filePath}\0${stats.size}\0${stats.mtimeMs}`;
+  const workspaceId = fileOptions?.workspace?.workspaceId ?? 'legacy';
+  return `${workspaceId}\0${filePath}\0${stats.size}\0${stats.mtimeMs}`;
 }
 
 function pruneCache(now: number) {
@@ -43,11 +44,14 @@ function pruneCache(now: number) {
   }
 }
 
-export async function getCachedMarkdownHtmlDocument(filePath: string): Promise<string> {
+export async function getCachedMarkdownHtmlDocument(
+  filePath: string,
+  fileOptions?: WorkspaceFileOperationOptions
+): Promise<string> {
   const now = Date.now();
   pruneCache(now);
 
-  const cacheKey = await getCacheKey(filePath);
+  const cacheKey = await getCacheKey(filePath, fileOptions);
   const cached = markdownHtmlCache.get(cacheKey);
 
   if (cached && cached.expiresAt > now) {
@@ -55,7 +59,7 @@ export async function getCachedMarkdownHtmlDocument(filePath: string): Promise<s
     return cached.html;
   }
 
-  const html = await markdownFileToHtmlDocument(filePath);
+  const html = await markdownFileToHtmlDocument(filePath, fileOptions);
   markdownHtmlCache.set(cacheKey, {
     html,
     expiresAt: now + CACHE_TTL_MS,

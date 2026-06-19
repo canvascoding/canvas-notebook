@@ -1,10 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import path from 'path';
 import { promises as fs } from 'fs';
-import { auth } from '@/app/lib/auth';
-
-const DATA = process.env.DATA || path.join(process.cwd(), 'data');
-const WORKSPACE_BASE_DIR = path.join(DATA, 'workspace');
+import { requireRequestWorkspace } from '@/app/lib/workspaces/request';
 
 const IGNORED_DIRS = new Set(['node_modules', '.next', '.git', 'dist', 'build', '.cache']);
 
@@ -47,13 +44,11 @@ function formatSize(bytes: number): string {
 }
 
 export async function GET(request: NextRequest) {
-  const session = await auth.api.getSession({ headers: request.headers });
-  if (!session) {
-    return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
-  }
+  const workspaceResult = await requireRequestWorkspace(request, { permissions: 'canRead' });
+  if (workspaceResult.response) return workspaceResult.response;
 
   try {
-    const { fileCount, totalSize } = await calculateStats(WORKSPACE_BASE_DIR);
+    const { fileCount, totalSize } = await calculateStats(workspaceResult.workspace.rootPath);
     return NextResponse.json({
       success: true,
       data: {

@@ -9,13 +9,14 @@ import {
   jsonServerError,
   jsonSuccess,
   readJsonBody,
-  requireApiSession,
 } from '@/app/lib/api/route-helpers';
+import { requireRequestWorkspace, workspaceFileOptions } from '@/app/lib/workspaces/request';
 
 export async function POST(request: NextRequest) {
   try {
-    const unauthorized = await requireApiSession(request);
-    if (unauthorized) return unauthorized;
+    const workspaceResult = await requireRequestWorkspace(request, { permissions: 'canWrite' });
+    if (workspaceResult.response) return workspaceResult.response;
+    const fileOptions = workspaceFileOptions(workspaceResult.workspace);
 
     const rateLimitResponse = applyRateLimit(request, {
       limit: 20,
@@ -37,8 +38,8 @@ export async function POST(request: NextRequest) {
       finalContent = Buffer.from(content.substring(7), 'base64');
     }
 
-    await writeFile(path, finalContent);
-    invalidateWorkspaceFileViews({ subtreeDirs: [getParentDirectory(path)] });
+    await writeFile(path, finalContent, fileOptions);
+    invalidateWorkspaceFileViews({ fileOptions, subtreeDirs: [getParentDirectory(path)] });
     queuePublicSharesAfterWrite([path]);
 
     return jsonSuccess();

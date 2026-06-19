@@ -1,13 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { auth } from '@/app/lib/auth';
 import { getCachedMarkdownHtmlDocument } from '@/app/lib/pdf/markdown-export-cache';
 import path from 'path';
+import { requireRequestWorkspace, workspaceFileOptions } from '@/app/lib/workspaces/request';
 
 export async function GET(request: NextRequest) {
-  const session = await auth.api.getSession({ headers: request.headers });
-  if (!session) {
-    return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
-  }
+  const workspaceResult = await requireRequestWorkspace(request, { permissions: 'canRead' });
+  if (workspaceResult.response) return workspaceResult.response;
+  const fileOptions = workspaceFileOptions(workspaceResult.workspace);
 
   try {
     const { searchParams } = new URL(request.url);
@@ -28,7 +27,7 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const htmlDocument = await getCachedMarkdownHtmlDocument(filePath);
+    const htmlDocument = await getCachedMarkdownHtmlDocument(filePath, fileOptions);
 
     return new NextResponse(htmlDocument, {
       status: 200,

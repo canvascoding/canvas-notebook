@@ -8,12 +8,13 @@ import {
   jsonServerError,
   jsonSuccess,
   readJsonBody,
-  requireApiSession,
 } from '@/app/lib/api/route-helpers';
+import { requireRequestWorkspace, workspaceFileOptions } from '@/app/lib/workspaces/request';
 
 export async function POST(request: NextRequest) {
-  const unauthorized = await requireApiSession(request);
-  if (unauthorized) return unauthorized;
+  const workspaceResult = await requireRequestWorkspace(request, { permissions: 'canWrite' });
+  if (workspaceResult.response) return workspaceResult.response;
+  const fileOptions = workspaceFileOptions(workspaceResult.workspace);
 
   try {
     const rateLimitResponse = applyRateLimit(request, {
@@ -44,9 +45,9 @@ export async function POST(request: NextRequest) {
       return jsonError(`Protected app output folder(s) cannot be copied: ${protectedPaths.join(', ')}`, 403);
     }
 
-    const result = await batchCopy(sources, destDir, overwrite, renameOnCollision);
+    const result = await batchCopy(sources, destDir, overwrite, renameOnCollision, fileOptions);
 
-    invalidateWorkspaceFileViews({ subtreeDirs: [destDir] });
+    invalidateWorkspaceFileViews({ fileOptions, subtreeDirs: [destDir] });
 
     return jsonSuccess({
       copied: result.copied,
