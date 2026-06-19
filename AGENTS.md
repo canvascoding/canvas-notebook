@@ -57,9 +57,9 @@ eröffne ausschließlich auf localhost 3000 einen dev server. starte keine neuen
 - Use short, descriptive commit messages (e.g., `Fix terminal copy on iPad`).
 - PRs should include: summary, screenshots for UI changes, and steps to verify.
 - Before any PR is merged into `main`, run a `greploop` review for that PR and document the resulting score in the PR.
-- Trigger Greptile/greploop at most once per PR head SHA. If Greptile accepts the trigger but does not publish an updated score, wait and report the PR as pending or blocked; do not post another `@greptile review` for the same head.
+- Trigger Greptile/greploop at most once per PR head SHA. If Greptile accepts the trigger but does not publish an updated score, wait and treat the PR as blocked; do not post another `@greptile review` for the same head.
 - After addressing review feedback and pushing a new commit, the new head SHA may be reviewed once.
-- Only PRs with a `greploop` score of 4 or 5 and zero unresolved review threads may be merged into `main`; scores 1-3 block the merge until the issues are fixed and a new head SHA is reviewed.
+- Only PRs with a `greploop` score of 4 or 5 and zero unresolved review threads may be merged into `main`; scores 0-3 block the merge until the issues are fixed and a new head SHA is reviewed.
 - If `greploop` is unavailable or cannot produce a score for the current head SHA, treat the PR as blocked for merge into `main`.
 
 ## Security & Configuration Tips
