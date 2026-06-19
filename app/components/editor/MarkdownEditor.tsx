@@ -208,14 +208,20 @@ type BlockCommandMenuState = {
 
 type BlockInsertPlacement = 'above' | 'below';
 
-type TopLevelBlockRange = {
+type ReorderableBlockKind = 'topLevel' | 'listItem';
+
+type ReorderableBlockRange = {
+  depth: number;
   from: number;
+  kind: ReorderableBlockKind;
   node: ProseMirrorNode;
+  parentFrom: number;
+  parentTo: number;
   to: number;
 };
 
 type BlockControlPosition = {
-  blockRange: TopLevelBlockRange;
+  blockRange: ReorderableBlockRange;
   menuRange: Range;
   top: number;
 };
@@ -926,10 +932,10 @@ function findActiveTextblockDepth(editor: Editor): number | null {
   return null;
 }
 
-function getTopLevelBlockRangeAt(editor: Editor, position: number): TopLevelBlockRange | null {
+function getTopLevelBlockRangeAt(editor: Editor, position: number): ReorderableBlockRange | null {
   const docEnd = editor.state.doc.content.size;
   const safePosition = Math.max(0, Math.min(position, docEnd));
-  let range: TopLevelBlockRange | null = null;
+  let range: ReorderableBlockRange | null = null;
 
   editor.state.doc.forEach((node, offset) => {
     if (range) return;
@@ -940,29 +946,99 @@ function getTopLevelBlockRangeAt(editor: Editor, position: number): TopLevelBloc
     const isAtDocumentEnd = safePosition === docEnd && safePosition === to;
 
     if (isInsideNode || isAtDocumentEnd) {
-      range = { from, node, to };
+      range = {
+        depth: 1,
+        from,
+        kind: 'topLevel',
+        node,
+        parentFrom: 0,
+        parentTo: docEnd,
+        to,
+      };
     }
   });
 
   return range;
 }
 
+function getListItemBlockRangeAt(
+  editor: Editor,
+  position: number,
+  requiredParent?: Pick<ReorderableBlockRange, 'parentFrom' | 'parentTo'>,
+): ReorderableBlockRange | null {
+  const doc = editor.state.doc;
+  const docEnd = doc.content.size;
+  if (docEnd <= 0) return null;
+
+  const safePosition = Math.max(0, Math.min(position, docEnd));
+  const resolvePosition = Math.max(0, Math.min(safePosition, docEnd - 1));
+  const $position = doc.resolve(resolvePosition);
+
+  for (let depth = $position.depth; depth > 0; depth -= 1) {
+    const node = $position.node(depth);
+    if (node.type.name !== 'listItem') continue;
+
+    const parentDepth = depth - 1;
+    const parentNode = $position.node(parentDepth);
+    if (parentNode.type.name !== 'bulletList' && parentNode.type.name !== 'orderedList' && parentNode.type.name !== 'taskList') {
+      continue;
+    }
+
+    const parentFrom = $position.start(parentDepth);
+    const parentTo = $position.end(parentDepth);
+    if (requiredParent && (parentFrom !== requiredParent.parentFrom || parentTo !== requiredParent.parentTo)) {
+      continue;
+    }
+
+    return {
+      depth,
+      from: $position.before(depth),
+      kind: 'listItem',
+      node,
+      parentFrom,
+      parentTo,
+      to: $position.after(depth),
+    };
+  }
+
+  return null;
+}
+
+function getReorderableBlockRangeAt(
+  editor: Editor,
+  position: number,
+  source?: ReorderableBlockRange,
+): ReorderableBlockRange | null {
+  if (source?.kind === 'listItem') {
+    return getListItemBlockRangeAt(editor, position, source);
+  }
+
+  if (source?.kind === 'topLevel') {
+    return getTopLevelBlockRangeAt(editor, position);
+  }
+
+  return getListItemBlockRangeAt(editor, position) ?? getTopLevelBlockRangeAt(editor, position);
+}
+
+function createEmptyListItemNode(editor: Editor, source: ReorderableBlockRange) {
+  const paragraph = editor.schema.nodes.paragraph.create();
+  return source.node.type.createAndFill(null, paragraph) ?? source.node.type.create(null, paragraph);
+}
+
 function createInsertedBlockCommandTarget(
   editor: Editor,
   placement: BlockInsertPlacement,
-  blockRange?: TopLevelBlockRange,
+  blockRange?: ReorderableBlockRange,
 ): Range | null {
   if (!editor.isEditable || editor.isActive('codeBlock')) return null;
 
   if (blockRange) {
     const insertPosition = placement === 'above' ? blockRange.from : blockRange.to;
-    const cursorPosition = insertPosition + 1;
-    editor
-      .chain()
-      .focus()
-      .insertContentAt(insertPosition, { type: 'paragraph' })
-      .setTextSelection(cursorPosition)
-      .run();
+    const isListItem = blockRange.kind === 'listItem';
+    const cursorPosition = insertPosition + (isListItem ? 2 : 1);
+    const content = isListItem ? createEmptyListItemNode(editor, blockRange) : { type: 'paragraph' };
+
+    editor.chain().focus().insertContentAt(insertPosition, content).setTextSelection(cursorPosition).run();
 
     return { from: cursorPosition, to: cursorPosition };
   }
@@ -1021,11 +1097,10 @@ function getBlockInsertButtonPosition(editor: Editor, container: HTMLDivElement)
   const textblockDepth = findActiveTextblockDepth(editor);
   if (!textblockDepth) return null;
 
-  const blockRange = getTopLevelBlockRangeAt(editor, editor.state.selection.from);
+  const blockRange = getReorderableBlockRangeAt(editor, editor.state.selection.from);
   if (!blockRange) return null;
 
-  const blockStart = $from.before(textblockDepth);
-  const blockDom = editor.view.nodeDOM(blockStart);
+  const blockDom = editor.view.nodeDOM(blockRange.from);
   const containerRect = container.getBoundingClientRect();
   const menuPosition = $from.start(textblockDepth);
   const menuRange = { from: menuPosition, to: menuPosition };
@@ -1039,7 +1114,7 @@ function getBlockInsertButtonPosition(editor: Editor, container: HTMLDivElement)
     };
   }
 
-  const positionForCoords = Math.min(blockStart + 1, editor.state.doc.content.size);
+  const positionForCoords = Math.min(blockRange.from + 1, editor.state.doc.content.size);
   const coords = editor.view.coordsAtPos(positionForCoords);
 
   return {
@@ -1052,7 +1127,7 @@ function getBlockInsertButtonPosition(editor: Editor, container: HTMLDivElement)
 function getBlockDropInsertPosition(
   editor: Editor,
   event: DragEvent,
-  source: TopLevelBlockRange,
+  source: ReorderableBlockRange,
 ): number | null {
   const positionAtCoords = editor.view.posAtCoords({
     left: event.clientX,
@@ -1060,12 +1135,12 @@ function getBlockDropInsertPosition(
   });
 
   if (!positionAtCoords) {
-    return editor.state.doc.content.size;
+    return source.kind === 'topLevel' ? editor.state.doc.content.size : null;
   }
 
-  const target = getTopLevelBlockRangeAt(editor, positionAtCoords.pos);
+  const target = getReorderableBlockRangeAt(editor, positionAtCoords.pos, source);
   if (!target) {
-    return editor.state.doc.content.size;
+    return null;
   }
 
   const targetDom = editor.view.nodeDOM(target.from);
@@ -1085,19 +1160,24 @@ function getBlockDropInsertPosition(
   return insertPosition;
 }
 
-function moveTopLevelBlock(editor: Editor, source: TopLevelBlockRange, insertPosition: number) {
+function moveReorderableBlock(editor: Editor, source: ReorderableBlockRange, insertPosition: number) {
   const sourceSize = source.to - source.from;
   const adjustedInsertPosition = insertPosition > source.from ? insertPosition - sourceSize : insertPosition;
 
   if (adjustedInsertPosition === source.from) return;
 
-  const transaction = editor.state.tr
-    .delete(source.from, source.to)
-    .insert(adjustedInsertPosition, source.node)
-    .scrollIntoView();
+  try {
+    const transaction = editor.state.tr
+      .delete(source.from, source.to)
+      .insert(adjustedInsertPosition, source.node)
+      .scrollIntoView();
 
-  editor.view.dispatch(transaction);
-  editor.commands.focus();
+    editor.view.dispatch(transaction);
+    editor.commands.focus();
+  } catch {
+    // Ignore invalid drops, for example when the browser reports coordinates
+    // outside the reorderable parent list.
+  }
 }
 
 function MarkdownBlockControls({
@@ -1109,12 +1189,12 @@ function MarkdownBlockControls({
 }: {
   editor: Editor | null;
   labels: SlashCommandLabels;
-  onAddBlock: (editor: Editor, placement: BlockInsertPlacement, blockRange: TopLevelBlockRange) => void;
+  onAddBlock: (editor: Editor, placement: BlockInsertPlacement, blockRange: ReorderableBlockRange) => void;
   onOpenCommandMenu: (editor: Editor, menuRange: Range) => void;
   scrollContainerRef: React.RefObject<HTMLDivElement | null>;
 }) {
   const [position, setPosition] = useState<BlockControlPosition | null>(null);
-  const dragStateRef = useRef<TopLevelBlockRange | null>(null);
+  const dragStateRef = useRef<ReorderableBlockRange | null>(null);
 
   const updatePosition = useCallback(() => {
     const container = scrollContainerRef.current;
@@ -1181,7 +1261,7 @@ function MarkdownBlockControls({
       const insertPosition = getBlockDropInsertPosition(editor, event, source);
       if (insertPosition === null) return;
 
-      moveTopLevelBlock(editor, source, insertPosition);
+      moveReorderableBlock(editor, source, insertPosition);
     };
 
     editorElement.addEventListener('dragover', handleDragOver);
@@ -2743,7 +2823,7 @@ function RichMarkdownEditor({
   const openInsertedBlockCommandMenu = useCallback((
     blockEditor: Editor,
     placement: BlockInsertPlacement,
-    blockRange?: TopLevelBlockRange,
+    blockRange?: ReorderableBlockRange,
   ) => {
     const range = createInsertedBlockCommandTarget(blockEditor, placement, blockRange);
     if (!range) return;
