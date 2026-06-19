@@ -8,6 +8,7 @@ import path from 'node:path';
 import { getBootstrapAdminEmail } from '@/app/lib/bootstrap-admin';
 import { runMigrations } from '@/app/lib/db/migrate';
 import { resolveWorkspaceDataRoot } from '@/app/lib/workspaces/context';
+import { ensureDefaultWorkspaceRecords } from '@/app/lib/workspaces/service';
 
 export const LOCAL_ORGANIZATION_ID_PREFIX = 'org_';
 
@@ -381,8 +382,18 @@ export function ensureOrganizationBootstrapForUser(
   }
 
   ensureScopedDirectories(organization.organization_id, ownerUser.id, teamFeaturesEnabled);
+  ensureDefaultWorkspaceRecords(sqlite, {
+    organizationId: organization.organization_id,
+    userId: ownerUser.id,
+    teamFeaturesEnabled,
+  });
   if (targetUser.id !== ownerUser.id) {
     ensureScopedDirectories(organization.organization_id, targetUser.id, teamFeaturesEnabled);
+    ensureDefaultWorkspaceRecords(sqlite, {
+      organizationId: organization.organization_id,
+      userId: targetUser.id,
+      teamFeaturesEnabled,
+    });
   }
 
   return buildStatus(sqlite, organization, ownerUser, ownerPermission);

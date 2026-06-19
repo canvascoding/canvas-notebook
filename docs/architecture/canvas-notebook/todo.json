@@ -112,12 +112,22 @@
     {
       "id": 10,
       "title": "Workspace-Modell und Workspace-Service in Canvas Notebook einfuehren",
-      "status": "pending",
+      "status": "completed",
       "repo": "canvasstudios-notebook",
       "planningArtifacts": [
         "docs/architecture/canvas-notebook/team-workspace/06-workspace-switching-ux.md",
         "docs/architecture/canvas-notebook/team-workspace/07-filesystem-migration-and-write-policy.md",
         "docs/architecture/canvas-notebook/team-workspace/09-initial-setup-and-update-migration.md"
+      ],
+      "implementationArtifacts": [
+        "app/lib/db/schema.ts",
+        "app/lib/db/migrate.ts",
+        "app/lib/workspaces/types.ts",
+        "app/lib/workspaces/permissions.ts",
+        "app/lib/workspaces/service.ts",
+        "app/lib/organization/bootstrap.ts",
+        "app/api/workspaces/route.ts",
+        "scripts/workspace-model-service-test.ts"
       ]
     },
     {

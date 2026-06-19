@@ -107,6 +107,24 @@ export const canvasOrganizationSettings = sqliteTable("canvas_organization_setti
   ownerIdx: index("idx_canvas_org_settings_owner").on(table.ownerUserId),
 }));
 
+export const canvasWorkspaces = sqliteTable("canvas_workspaces", {
+  id: text("id").primaryKey(),
+  organizationId: text("organization_id").notNull().references(() => canvasOrganizationSettings.organizationId, { onDelete: 'cascade' }),
+  type: text("type").notNull(),
+  ownerUserId: text("owner_user_id").references(() => user.id),
+  rootRelativePath: text("root_relative_path").notNull(),
+  displayName: text("display_name").notNull(),
+  status: text("status").notNull().default("active"),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+}, (table) => ({
+  organizationIdx: index("idx_canvas_workspaces_organization").on(table.organizationId),
+  ownerIdx: index("idx_canvas_workspaces_owner").on(table.ownerUserId),
+  organizationTypeIdx: index("idx_canvas_workspaces_organization_type").on(table.organizationId, table.type),
+  personalOwnerIdx: uniqueIndex("idx_canvas_workspaces_personal_owner").on(table.ownerUserId).where(sql`${table.type} = 'personal'`),
+  teamOrganizationIdx: uniqueIndex("idx_canvas_workspaces_team_organization").on(table.organizationId).where(sql`${table.type} = 'team'`),
+}));
+
 export const organizationUserPermissions = sqliteTable("organization_user_permissions", {
   organizationId: text("organization_id").notNull().references(() => canvasOrganizationSettings.organizationId, { onDelete: 'cascade' }),
   userId: text("user_id").notNull().references(() => user.id),

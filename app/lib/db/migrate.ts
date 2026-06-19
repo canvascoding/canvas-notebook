@@ -115,6 +115,20 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       FOREIGN KEY (owner_user_id) REFERENCES user(id)
     );
 
+    CREATE TABLE IF NOT EXISTS canvas_workspaces (
+      id TEXT PRIMARY KEY NOT NULL,
+      organization_id TEXT NOT NULL,
+      type TEXT NOT NULL,
+      owner_user_id TEXT,
+      root_relative_path TEXT NOT NULL,
+      display_name TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'active',
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      FOREIGN KEY (organization_id) REFERENCES canvas_organization_settings(organization_id) ON DELETE CASCADE,
+      FOREIGN KEY (owner_user_id) REFERENCES user(id)
+    );
+
     CREATE TABLE IF NOT EXISTS organization_user_permissions (
       organization_id TEXT NOT NULL,
       user_id TEXT NOT NULL,
@@ -1000,6 +1014,11 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
   // ── Deferred indexes on columns added via ALTER TABLE ──────────────────────
   sqlite.exec(`
     CREATE INDEX IF NOT EXISTS idx_canvas_org_settings_owner ON canvas_organization_settings (owner_user_id);
+    CREATE INDEX IF NOT EXISTS idx_canvas_workspaces_organization ON canvas_workspaces (organization_id);
+    CREATE INDEX IF NOT EXISTS idx_canvas_workspaces_owner ON canvas_workspaces (owner_user_id);
+    CREATE INDEX IF NOT EXISTS idx_canvas_workspaces_organization_type ON canvas_workspaces (organization_id, type);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_canvas_workspaces_personal_owner ON canvas_workspaces (owner_user_id) WHERE type = 'personal';
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_canvas_workspaces_team_organization ON canvas_workspaces (organization_id) WHERE type = 'team';
     CREATE INDEX IF NOT EXISTS idx_org_user_permissions_user ON organization_user_permissions (user_id);
     CREATE INDEX IF NOT EXISTS idx_org_user_permissions_role ON organization_user_permissions (organization_id, role);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_org_user_permissions_single_owner ON organization_user_permissions (organization_id) WHERE role = 'owner';
