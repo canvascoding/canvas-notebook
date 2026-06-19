@@ -341,6 +341,21 @@ const WorkspaceSettingsPanel = dynamic(
   { loading: SettingsTabLoader },
 );
 
+type WorkspaceOrganizationPermission = {
+  role: string;
+  canWriteTeamWorkspace: boolean;
+  canCreatePublicLinks: boolean;
+  canCreateTeamAutomations: boolean;
+  canSharePluginsAndSkills: boolean;
+  canExport: boolean;
+  canDeleteTeamFiles: boolean;
+  canDeleteStudioAssets: boolean;
+  canManageBackups: boolean;
+  canMigrateDatabase: boolean;
+  canEnableKnowledge: boolean;
+  canRecoverWorkspaces: boolean;
+} | null;
+
 const UserManagementPanel = dynamic<UserManagementPanelProps>(
   () => import('@/app/components/settings/UserManagementPanel').then((module) => module.UserManagementPanel),
   { loading: SettingsTabLoader },
@@ -2591,6 +2606,7 @@ export function IntegrationsSettingsClient({
   userEmail = '',
   isManagedControlPlane = false,
   initialTimeZone,
+  organizationPermission = null,
 }: {
   isAdmin?: boolean;
   currentUserId?: string;
@@ -2598,6 +2614,7 @@ export function IntegrationsSettingsClient({
   userEmail?: string;
   isManagedControlPlane?: boolean;
   initialTimeZone?: string;
+  organizationPermission?: WorkspaceOrganizationPermission;
 }) {
   const t = useTranslations('settings');
   const searchParams = useSearchParams();
@@ -3393,7 +3410,12 @@ export function IntegrationsSettingsClient({
 
         {renderLazyTabContent('agent-settings', <AgentSettingsPanel />)}
 
-        {renderLazyTabContent('workspace', <WorkspaceSettingsPanel isAdmin={isAdmin} />)}
+        {renderLazyTabContent('workspace', (
+          <WorkspaceSettingsPanel
+            isAdmin={isAdmin}
+            organizationPermission={organizationPermission}
+          />
+        ))}
 
         {renderLazyTabContent('user-management',
           <UserManagementPanel currentUserId={currentUserId} isAdmin={isAdmin} />,

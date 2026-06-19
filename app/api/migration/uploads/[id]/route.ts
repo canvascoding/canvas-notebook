@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-import { requireMigrationAdmin } from '@/app/lib/migration/auth';
+import { requireMigrationRestorePermission } from '@/app/lib/migration/auth';
 import { readMigrationUpload, writeMigrationUploadPart } from '@/app/lib/migration/upload-service';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 
@@ -17,7 +17,7 @@ export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const admin = await requireMigrationAdmin(request);
+  const admin = await requireMigrationRestorePermission(request);
   if (!admin.ok) return admin.response;
 
   const { id } = await params;
@@ -32,7 +32,7 @@ export async function PUT(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const admin = await requireMigrationAdmin(request);
+  const admin = await requireMigrationRestorePermission(request);
   if (!admin.ok) return admin.response;
 
   const limited = rateLimit(request, {

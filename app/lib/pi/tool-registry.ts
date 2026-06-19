@@ -39,6 +39,7 @@ import {
   type MemoryReadResult,
   type MemoryTarget,
 } from '@/app/lib/agents/memory-store';
+import { assertUserOrganizationPermission } from '@/app/lib/organization/permissions';
 
 function assertBashCommandAllowed(command: string): void {
   const blockedReason = detectUnsafeBashCommand(command);
@@ -2653,6 +2654,7 @@ function createPublicShareTool(userId?: string, agentId?: string | null, session
         }
 
         if (p.action === 'revoke') {
+          assertUserOrganizationPermission(scopedUserId, 'canCreatePublicLinks', 'Public link permission required.');
           if (!p.shareId) throw new Error('shareId is required for revoke.');
           const share = await revokePublicFileShare({
             id: p.shareId,
@@ -2666,6 +2668,7 @@ function createPublicShareTool(userId?: string, agentId?: string | null, session
         }
 
         if (p.action === 'create') {
+          assertUserOrganizationPermission(scopedUserId, 'canCreatePublicLinks', 'Public link permission required.');
           if (p.confirmPublicExposure !== true) {
             throw new Error('Refusing to publish: confirmPublicExposure must be true after the user explicitly asks for public sharing.');
           }

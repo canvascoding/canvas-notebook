@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-import { requireMigrationAdmin } from '@/app/lib/migration/auth';
+import { requireMigrationRestorePermission } from '@/app/lib/migration/auth';
 import { inspectMigrationArchive } from '@/app/lib/migration/inspect-service';
 import {
   attachInspectionToUpload,
@@ -12,7 +12,7 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const admin = await requireMigrationAdmin(request);
+  const admin = await requireMigrationRestorePermission(request);
   if (!admin.ok) return admin.response;
 
   const limited = rateLimit(request, {

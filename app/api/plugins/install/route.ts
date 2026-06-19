@@ -1,14 +1,13 @@
 import { NextResponse } from 'next/server';
-import { headers } from 'next/headers';
 
-import { auth } from '@/app/lib/auth';
+import { requireOrganizationPermission } from '@/app/lib/organization/permissions';
 import { installCanvasPluginFromPath } from '@/app/lib/plugins/canvas-plugin-registry';
 
 export async function POST(request: Request) {
-  const session = await auth.api.getSession({ headers: await headers() });
-  if (!session) {
-    return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
-  }
+  const pluginPermission = await requireOrganizationPermission(request, 'canSharePluginsAndSkills', {
+    errorMessage: 'Forbidden: plugin and skill sharing permission required',
+  });
+  if (!pluginPermission.ok) return pluginPermission.response;
 
   try {
     const body = await request.json() as {
@@ -27,7 +26,7 @@ export async function POST(request: Request) {
     const result = await installCanvasPluginFromPath(body.sourcePath, {
       enable: body.enable !== false,
       replace: body.replace === true,
-      installedBy: session.user.email || session.user.id,
+      installedBy: pluginPermission.session.user.email || pluginPermission.session.user.id,
     });
 
     if (!result.success) {

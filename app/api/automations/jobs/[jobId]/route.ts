@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-import { requireAutomationSession, applyAutomationRateLimit } from '@/app/lib/automations/api';
+import { assertCanCreateRequestedAutomation, requireAutomationSession, applyAutomationRateLimit } from '@/app/lib/automations/api';
 import { deleteAutomationJob, getAutomationJob, updateAutomationJob } from '@/app/lib/automations/store';
 import { deleteGatewayTrigger, updateGatewayTrigger } from '@/app/lib/composio/composio-gateway';
 
@@ -46,6 +46,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     if (!existing || existing.createdByUserId !== session.user.id) {
       return NextResponse.json({ success: false, error: 'Automation not found.' }, { status: 404 });
     }
+    assertCanCreateRequestedAutomation(payload, session.user.id);
     if (existing.composioTriggerId && (payload?.status === 'active' || payload?.status === 'paused')) {
       await updateGatewayTrigger(existing.composioTriggerId, { status: payload.status });
     }
@@ -55,9 +56,10 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     }
     return NextResponse.json({ success: true, data: updated });
   } catch (error) {
+    const status = error && typeof error === 'object' && 'status' in error ? Number(error.status) : 400;
     return NextResponse.json(
       { success: false, error: error instanceof Error ? error.message : 'Failed to update automation.' },
-      { status: 400 },
+      { status },
     );
   }
 }

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-import { requireAutomationSession, applyAutomationRateLimit } from '@/app/lib/automations/api';
+import { assertCanCreateRequestedAutomation, requireAutomationSession, applyAutomationRateLimit } from '@/app/lib/automations/api';
 import { createAutomationJob, listAutomationJobs } from '@/app/lib/automations/store';
 
 export async function GET(request: NextRequest) {
@@ -31,12 +31,14 @@ export async function POST(request: NextRequest) {
 
   try {
     const payload = await request.json();
+    assertCanCreateRequestedAutomation(payload, session.user.id);
     const job = await createAutomationJob(payload, session.user.id);
     return NextResponse.json({ success: true, data: job }, { status: 201 });
   } catch (error) {
+    const status = error && typeof error === 'object' && 'status' in error ? Number(error.status) : 400;
     return NextResponse.json(
       { success: false, error: error instanceof Error ? error.message : 'Failed to create automation.' },
-      { status: 400 },
+      { status },
     );
   }
 }

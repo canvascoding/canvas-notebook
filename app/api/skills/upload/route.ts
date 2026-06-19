@@ -1,8 +1,7 @@
 import { NextResponse } from 'next/server';
-import { headers } from 'next/headers';
-import { auth } from '@/app/lib/auth';
 import { promises as fs } from 'fs';
 import path from 'path';
+import { requireOrganizationPermission } from '@/app/lib/organization/permissions';
 import { getSkillsDir, parseFrontmatter, validateFrontmatter } from '@/app/lib/skills/canvas-skill-manifest';
 import { readPiRuntimeConfig, writePiRuntimeConfig } from '@/app/lib/agents/storage';
 import { enableSkillInConfig } from '@/app/lib/skills/enabled-skills';
@@ -15,10 +14,10 @@ function sanitizeSkillName(name: string): string {
 }
 
 export async function POST(request: Request) {
-  const session = await auth.api.getSession({ headers: await headers() });
-  if (!session) {
-    return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
-  }
+  const skillPermission = await requireOrganizationPermission(request, 'canSharePluginsAndSkills', {
+    errorMessage: 'Forbidden: plugin and skill sharing permission required',
+  });
+  if (!skillPermission.ok) return skillPermission.response;
 
   try {
     const body = await request.json();

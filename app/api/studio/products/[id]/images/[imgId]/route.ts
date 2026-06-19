@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/app/lib/auth';
 import { getProductImageBuffer, deleteProductImage } from '@/app/lib/integrations/studio-product-service';
 import { StudioServiceError } from '@/app/lib/integrations/studio-errors';
+import { requireOrganizationPermission } from '@/app/lib/organization/permissions';
 import sharp from 'sharp';
 
 const THUMB_MAX_WIDTH = 256;
@@ -51,13 +52,14 @@ export async function DELETE(
   _request: NextRequest,
   { params }: { params: Promise<{ id: string; imgId: string }> }
 ) {
-  const session = await auth.api.getSession({ headers: _request.headers });
-  if (!session) {
-    return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
-  }
+  const studioPermission = await requireOrganizationPermission(_request, 'canDeleteStudioAssets', {
+    errorMessage: 'Forbidden: Studio asset delete permission required',
+  });
+  if (!studioPermission.ok) return studioPermission.response;
+
   const { id, imgId } = await params;
   try {
-    await deleteProductImage(id, session.user.id, imgId);
+    await deleteProductImage(id, studioPermission.session.user.id, imgId);
     return NextResponse.json({ success: true });
   } catch (err) {
     if (err instanceof StudioServiceError) {

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-import { requireAutomationSession } from '@/app/lib/automations/api';
+import { assertCanCreateRequestedAutomation, requireAutomationSession } from '@/app/lib/automations/api';
 import type { AutomationDeliveryMode, AutomationDeliverySessionMode } from '@/app/lib/automations/types';
 import { createWebhookAutomationJob } from '@/app/lib/automations/store';
 import { createGatewayTrigger, getGatewayTriggerTypes, listGatewayTriggers } from '@/app/lib/composio/composio-gateway';
@@ -64,6 +64,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const payload = recordValue(await request.json());
+    assertCanCreateRequestedAutomation(payload, session.user.id);
     const name = stringValue(payload.name);
     const prompt = stringValue(payload.prompt);
     const triggerSlug = stringValue(payload.triggerSlug);
@@ -119,9 +120,10 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: true, data: { trigger, job } }, { status: 201 });
   } catch (error) {
     logTriggerRouteError('POST failed', error);
+    const status = error && typeof error === 'object' && 'status' in error ? Number(error.status) : 400;
     return NextResponse.json(
       { success: false, error: error instanceof Error ? error.message : 'Failed to create Composio trigger.' },
-      { status: 400 },
+      { status },
     );
   }
 }

@@ -3,6 +3,7 @@ import { auth } from '@/app/lib/auth';
 import { promises as fs } from 'fs';
 import path from 'path';
 import { headers } from 'next/headers';
+import { requireOrganizationPermission } from '@/app/lib/organization/permissions';
 import { getSkillsDir } from '@/app/lib/skills/canvas-skill-manifest';
 import { loadSkillByName } from '@/app/lib/skills/skill-loader';
 
@@ -53,10 +54,10 @@ export async function PUT(
   { params }: { params: Promise<{ name: string }> }
 ) {
   try {
-    const session = await auth.api.getSession({ headers: await headers() });
-    if (!session) {
-      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
-    }
+    const skillPermission = await requireOrganizationPermission(request, 'canSharePluginsAndSkills', {
+      errorMessage: 'Forbidden: plugin and skill sharing permission required',
+    });
+    if (!skillPermission.ok) return skillPermission.response;
 
     const { name } = await params;
     const sanitizedName = sanitizeSkillName(name);

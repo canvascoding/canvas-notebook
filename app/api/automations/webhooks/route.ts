@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-import { applyAutomationRateLimit, requireAutomationSession } from '@/app/lib/automations/api';
+import { applyAutomationRateLimit, assertCanCreateRequestedAutomation, requireAutomationSession } from '@/app/lib/automations/api';
 import { createCustomWebhookAutomationJob } from '@/app/lib/automations/store';
 
 function webhookUrlForRequest(request: NextRequest, webhookId: string): string {
@@ -20,6 +20,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const payload = await request.json();
+    assertCanCreateRequestedAutomation(payload, session.user.id);
     const created = await createCustomWebhookAutomationJob(payload, session.user.id);
     const webhookId = created.job.customWebhookId;
     return NextResponse.json({
@@ -31,9 +32,10 @@ export async function POST(request: NextRequest) {
       },
     }, { status: 201 });
   } catch (error) {
+    const status = error && typeof error === 'object' && 'status' in error ? Number(error.status) : 400;
     return NextResponse.json(
       { success: false, error: error instanceof Error ? error.message : 'Failed to create webhook automation.' },
-      { status: 400 },
+      { status },
     );
   }
 }

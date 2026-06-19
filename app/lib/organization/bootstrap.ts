@@ -48,6 +48,15 @@ export type OrganizationBootstrapStatus = {
   warnings: string[];
 };
 
+export type OrganizationPermissionState = {
+  configured: boolean;
+  organizationId: string | null;
+  ownerUserId: string | null;
+  teamFeaturesEnabled: boolean;
+  databaseProvider: string;
+  permission: OrganizationPermissionSnapshot | null;
+};
+
 type UserRow = {
   id: string;
   email: string | null;
@@ -220,15 +229,16 @@ function assertOrganizationIdMatchesEnvironment(organizationId: string): void {
 
 function permissionDefaults(role: OrganizationRole): OrganizationPermissionSnapshot {
   const isAdminLike = role === 'owner' || role === 'admin';
+  const isInternal = role !== 'external';
   return {
     role,
     canWriteTeamWorkspace: isAdminLike,
-    canCreatePublicLinks: true,
+    canCreatePublicLinks: isInternal,
     canCreateTeamAutomations: isAdminLike,
     canSharePluginsAndSkills: isAdminLike,
     canExport: isAdminLike,
     canDeleteTeamFiles: isAdminLike,
-    canDeleteStudioAssets: true,
+    canDeleteStudioAssets: isInternal,
     canManageBackups: isAdminLike,
     canMigrateDatabase: isAdminLike,
     canEnableKnowledge: isAdminLike,
@@ -455,6 +465,26 @@ export function getOrganizationBootstrapStatus(sqlite: Database.Database): Organ
     ? getPermissionRow(sqlite, organization.organization_id, ownerUser.id)
     : null;
   return buildStatus(sqlite, organization, ownerUser, permission);
+}
+
+export function getOrganizationPermissionForUser(
+  sqlite: Database.Database,
+  userId: string,
+): OrganizationPermissionState {
+  const organization = getPrimaryOrganization(sqlite);
+  const deploymentMode = organization?.deployment_mode || getDeploymentMode();
+  const teamFeaturesEnabled = organization
+    ? booleanFromDb(organization.team_features_enabled)
+    : areTeamFeaturesEnabled(deploymentMode);
+
+  return {
+    configured: Boolean(organization),
+    organizationId: organization?.organization_id || null,
+    ownerUserId: organization?.owner_user_id || null,
+    teamFeaturesEnabled,
+    databaseProvider: getDatabaseProvider(),
+    permission: organization ? getPermissionRow(sqlite, organization.organization_id, userId) : null,
+  };
 }
 
 function getSqlitePath(): string {

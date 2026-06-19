@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/app/lib/auth';
 import { getBulkJob, deleteBulkJob } from '@/app/lib/integrations/studio-bulk-service';
 import { StudioServiceError } from '@/app/lib/integrations/studio-errors';
+import { requireOrganizationPermission } from '@/app/lib/organization/permissions';
 
 export async function GET(
   _request: NextRequest,
@@ -66,16 +67,16 @@ export async function DELETE(
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const session = await auth.api.getSession({ headers: _request.headers });
-  if (!session) {
-    return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
-  }
+  const studioPermission = await requireOrganizationPermission(_request, 'canDeleteStudioAssets', {
+    errorMessage: 'Forbidden: Studio asset delete permission required',
+  });
+  if (!studioPermission.ok) return studioPermission.response;
 
   const { id } = await params;
 
   try {
     const job = await getBulkJob(id);
-    if (!job || job.userId !== session.user.id) {
+    if (!job || job.userId !== studioPermission.session.user.id) {
       return NextResponse.json({ success: false, error: 'Bulk job not found' }, { status: 404 });
     }
 
