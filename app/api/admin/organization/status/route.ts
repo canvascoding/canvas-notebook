@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { requireInstanceAdmin } from '@/app/lib/admin-auth';
 import {
-  ensureOrganizationBootstrapStatus,
+  getOrganizationBootstrapStatus,
+  openOrganizationBootstrapDatabase,
   OrganizationBootstrapError,
 } from '@/app/lib/organization/bootstrap';
 
@@ -11,8 +12,13 @@ export async function GET(request: NextRequest) {
   if (!admin.ok) return admin.response;
 
   try {
-    const status = ensureOrganizationBootstrapStatus();
-    return NextResponse.json({ success: true, data: status });
+    const sqlite = openOrganizationBootstrapDatabase();
+    try {
+      const status = getOrganizationBootstrapStatus(sqlite);
+      return NextResponse.json({ success: true, data: status });
+    } finally {
+      sqlite.close();
+    }
   } catch (error) {
     if (error instanceof OrganizationBootstrapError) {
       const status = error.code === 'ORGANIZATION_ID_CONFLICT' ? 409 : 400;

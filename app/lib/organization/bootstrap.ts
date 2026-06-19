@@ -192,7 +192,7 @@ function getOwnerCandidate(sqlite: Database.Database): UserRow | null {
     const bootstrapUser = sqlite.prepare(`
       SELECT id, email, role, created_at
       FROM user
-      WHERE lower(email) = ?
+      WHERE lower(email) = lower(?)
       LIMIT 1
     `).get(bootstrapEmail) as UserRow | undefined;
     if (bootstrapUser) return bootstrapUser;

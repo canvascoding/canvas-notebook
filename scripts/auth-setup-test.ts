@@ -65,6 +65,7 @@ async function main() {
     hasAnyAuthUser,
     InitialOwnerSetupError,
   } = await import('../app/lib/auth-setup');
+  const { getOrganizationBootstrapStatus } = await import('../app/lib/organization/bootstrap');
 
   assert.equal(hasAnyAuthUser(), false);
 
@@ -109,6 +110,21 @@ async function main() {
   assert.ok(accounts[0].password);
   assert.equal(await verifyPassword({ hash: accounts[0].password!, password: 'SetupPassword123!' }), true);
   assertOrganizationBootstrapState(sqlite, owner.id, 'setup@example.test');
+
+  sqlite.prepare(`
+    UPDATE organization_user_permissions
+    SET can_manage_backups = 0
+    WHERE user_id = ?
+  `).run(owner.id);
+  const readOnlyStatus = getOrganizationBootstrapStatus(sqlite);
+  assert.equal(readOnlyStatus.permission?.canManageBackups, false);
+  const customizedPermission = sqlite.prepare(`
+    SELECT can_manage_backups AS canManageBackups
+    FROM organization_user_permissions
+    WHERE user_id = ?
+  `).get(owner.id) as { canManageBackups: number };
+  assert.equal(customizedPermission.canManageBackups, 0);
+
   sqlite.close();
 
   await assert.rejects(
