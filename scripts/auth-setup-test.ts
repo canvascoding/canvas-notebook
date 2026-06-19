@@ -9,7 +9,12 @@ import { verifyPassword } from 'better-auth/crypto';
 const dataDir = mkdtempSync(path.join(tmpdir(), 'canvas-auth-setup-'));
 process.env.DATA = dataDir;
 
-function assertOrganizationBootstrapState(sqlite: Database.Database, expectedUserId: string, expectedEmail: string) {
+function assertOrganizationBootstrapState(
+  sqlite: Database.Database,
+  expectedUserId: string,
+  expectedEmail: string,
+  expectedPermissionOverrides: Partial<{ canManageBackups: number }> = {},
+) {
   const organization = sqlite.prepare(`
     SELECT organization_id AS organizationId, owner_user_id AS ownerUserId, deployment_mode AS deploymentMode,
       team_features_enabled AS teamFeaturesEnabled
@@ -41,8 +46,9 @@ function assertOrganizationBootstrapState(sqlite: Database.Database, expectedUse
     canCreateTeamAutomations: number;
   };
 
+  const expectedCanManageBackups = expectedPermissionOverrides.canManageBackups ?? 1;
   assert.equal(permission.role, 'owner');
-  assert.equal(permission.canManageBackups, 1);
+  assert.equal(permission.canManageBackups, expectedCanManageBackups);
   assert.equal(permission.canMigrateDatabase, 1);
   assert.equal(permission.canEnableKnowledge, 1);
   assert.equal(permission.canRecoverWorkspaces, 1);
@@ -65,7 +71,7 @@ async function main() {
     hasAnyAuthUser,
     InitialOwnerSetupError,
   } = await import('../app/lib/auth-setup');
-  const { getOrganizationBootstrapStatus } = await import('../app/lib/organization/bootstrap');
+  const { ensureOrganizationBootstrapForUser, getOrganizationBootstrapStatus } = await import('../app/lib/organization/bootstrap');
 
   assert.equal(hasAnyAuthUser(), false);
 
@@ -124,6 +130,14 @@ async function main() {
     WHERE user_id = ?
   `).get(owner.id) as { canManageBackups: number };
   assert.equal(customizedPermission.canManageBackups, 0);
+  const rebootstrapStatus = ensureOrganizationBootstrapForUser(sqlite, owner.id);
+  assert.equal(rebootstrapStatus.permission?.canManageBackups, false);
+  const preservedPermission = sqlite.prepare(`
+    SELECT can_manage_backups AS canManageBackups
+    FROM organization_user_permissions
+    WHERE user_id = ?
+  `).get(owner.id) as { canManageBackups: number };
+  assert.equal(preservedPermission.canManageBackups, 0);
 
   sqlite.close();
 
@@ -170,7 +184,7 @@ async function main() {
   assert.equal(migratedAccount.userId, owner.id);
   assert.ok(migratedAccount.password);
   assert.equal(await verifyPassword({ hash: migratedAccount.password!, password: 'OverridePassword123!' }), true);
-  assertOrganizationBootstrapState(migrated, owner.id, 'override@example.test');
+  assertOrganizationBootstrapState(migrated, owner.id, 'override@example.test', { canManageBackups: 0 });
   migrated.close();
 
   execFileSync('node', ['scripts/bootstrap-admin.js', '--email', 'cli-reset@example.test', '--name', 'CLI Reset Admin', '--password-stdin'], {
@@ -208,7 +222,7 @@ async function main() {
   assert.equal(cliResetAccount.userId, owner.id);
   assert.ok(cliResetAccount.password);
   assert.equal(await verifyPassword({ hash: cliResetAccount.password!, password: 'CliResetPassword123!' }), true);
-  assertOrganizationBootstrapState(cliReset, owner.id, 'cli-reset@example.test');
+  assertOrganizationBootstrapState(cliReset, owner.id, 'cli-reset@example.test', { canManageBackups: 0 });
   cliReset.close();
 
   console.log('auth setup tests passed');

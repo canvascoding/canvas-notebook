@@ -262,17 +262,6 @@ function ensurePermissionRow(
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(organization_id, user_id) DO UPDATE SET
       role = excluded.role,
-      can_write_team_workspace = excluded.can_write_team_workspace,
-      can_create_public_links = excluded.can_create_public_links,
-      can_create_team_automations = excluded.can_create_team_automations,
-      can_share_plugins_and_skills = excluded.can_share_plugins_and_skills,
-      can_export = excluded.can_export,
-      can_delete_team_files = excluded.can_delete_team_files,
-      can_delete_studio_assets = excluded.can_delete_studio_assets,
-      can_manage_backups = excluded.can_manage_backups,
-      can_migrate_database = excluded.can_migrate_database,
-      can_enable_knowledge = excluded.can_enable_knowledge,
-      can_recover_workspaces = excluded.can_recover_workspaces,
       updated_at = excluded.updated_at
   `).run(
     organizationId,
@@ -293,7 +282,7 @@ function ensurePermissionRow(
     now,
   );
 
-  return defaults;
+  return getPermissionRow(sqlite, organizationId, userId) || defaults;
 }
 
 function getPermissionRow(
