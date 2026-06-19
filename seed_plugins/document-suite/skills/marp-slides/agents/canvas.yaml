@@ -1,5 +1,5 @@
 interface:
   display_name: Marp Slides
-  short_description: Create polished Markdown slide decks with Marp
+  short_description: Create polished Canvas-native Marp decks
   brand_color: "#2563EB"
-  default_prompt: Use $marp-slides to create or improve a Marp Markdown slide deck.
+  default_prompt: Use $marp-slides to create or improve a polished Marp Markdown slide deck in Canvas Notebook.
