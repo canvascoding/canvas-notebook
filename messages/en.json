@@ -2026,6 +2026,40 @@
       "downloading": "Preparing download...",
       "refresh": "Refresh",
       "emptyWorkspace": "Your workspace is empty.",
+      "organization": {
+        "title": "Organization setup",
+        "description": "Shows the local owner, deployment mode, critical admin rights, and scoped data roots prepared for team workspaces.",
+        "refresh": "Refresh",
+        "loading": "Checking organization setup...",
+        "ready": "Ready",
+        "notReady": "Incomplete",
+        "teamEnabled": "Team enabled",
+        "teamDisabled": "Team disabled",
+        "organizationId": "Organization ID",
+        "owner": "Owner",
+        "criticalRights": "Critical rights",
+        "scopedPaths": "Scoped data paths",
+        "notCreated": "Not created in this mode",
+        "permissions": {
+          "canManageBackups": "Full backup",
+          "canMigrateDatabase": "Database migration",
+          "canEnableKnowledge": "Knowledge enable",
+          "canRecoverWorkspaces": "Recovery flow",
+          "canCreateTeamAutomations": "Team automations",
+          "canSharePluginsAndSkills": "Plugin and skill sharing"
+        },
+        "paths": {
+          "personalWorkspace": "Personal workspace",
+          "userSettings": "User settings",
+          "userSecrets": "User secrets",
+          "organizationRoot": "Organization root",
+          "teamWorkspace": "Team workspace",
+          "systemBackups": "System backups"
+        },
+        "errors": {
+          "load": "Failed to load organization setup status."
+        }
+      },
       "migration": {
         "title": "VM Migration",
         "description": "Create a versioned migration bundle or restore one into this VM.",

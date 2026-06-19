@@ -6,6 +6,7 @@ import {
   AlertTriangle,
   Bot,
   CheckCircle2,
+  Building2,
   Database,
   Download,
   FileArchive,
@@ -20,6 +21,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import {
@@ -47,6 +49,39 @@ interface WorkspaceSettingsPanelProps {
 }
 
 type DownloadScope = 'workspace' | 'data';
+
+interface OrganizationBootstrapStatus {
+  configured: boolean;
+  organizationId: string | null;
+  ownerUserId: string | null;
+  ownerEmail: string | null;
+  deploymentMode: string;
+  teamFeaturesEnabled: boolean;
+  databaseProvider: string;
+  permission: {
+    role: string;
+    canWriteTeamWorkspace: boolean;
+    canCreatePublicLinks: boolean;
+    canCreateTeamAutomations: boolean;
+    canSharePluginsAndSkills: boolean;
+    canExport: boolean;
+    canDeleteTeamFiles: boolean;
+    canDeleteStudioAssets: boolean;
+    canManageBackups: boolean;
+    canMigrateDatabase: boolean;
+    canEnableKnowledge: boolean;
+    canRecoverWorkspaces: boolean;
+  } | null;
+  paths: {
+    personalWorkspace: string | null;
+    userSettings: string | null;
+    userSecrets: string | null;
+    organizationRoot: string | null;
+    teamWorkspace: string | null;
+    systemBackups: string;
+  };
+  warnings: string[];
+}
 
 const COMPONENT_ICONS: Record<MigrationComponentKey, LucideIcon> = {
   database: Database,
@@ -76,6 +111,9 @@ export function WorkspaceSettingsPanel({ isAdmin = false }: WorkspaceSettingsPan
   const t = useTranslations('settings');
   const [stats, setStats] = useState<WorkspaceStats | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [organizationStatus, setOrganizationStatus] = useState<OrganizationBootstrapStatus | null>(null);
+  const [isOrganizationLoading, setIsOrganizationLoading] = useState(isAdmin);
+  const [organizationError, setOrganizationError] = useState<string | null>(null);
   const [activeDownload, setActiveDownload] = useState<DownloadScope | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [migrationComponents, setMigrationComponents] = useState<MigrationComponents>(() => ({
@@ -98,6 +136,28 @@ export function WorkspaceSettingsPanel({ isAdmin = false }: WorkspaceSettingsPan
 
   const inspection: MigrationInspection | undefined = uploadStatus?.inspection;
 
+  const loadOrganizationStatus = useCallback(async () => {
+    if (!isAdmin) return;
+    setIsOrganizationLoading(true);
+    setOrganizationError(null);
+    try {
+      const response = await fetch('/api/admin/organization/status', {
+        credentials: 'include',
+        cache: 'no-store',
+      });
+      const payload = await response.json();
+      if (!response.ok || !payload.success) {
+        throw new Error(payload.error || t('workspacePanel.organization.errors.load'));
+      }
+      setOrganizationStatus(payload.data);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : t('workspacePanel.organization.errors.load');
+      setOrganizationError(message);
+    } finally {
+      setIsOrganizationLoading(false);
+    }
+  }, [isAdmin, t]);
+
   const loadStats = useCallback(async () => {
     setIsLoading(true);
     setError(null);
@@ -119,6 +179,11 @@ export function WorkspaceSettingsPanel({ isAdmin = false }: WorkspaceSettingsPan
   useEffect(() => {
     startTransition(() => { void loadStats(); });
   }, [loadStats]);
+
+  useEffect(() => {
+    if (!isAdmin) return;
+    startTransition(() => { void loadOrganizationStatus(); });
+  }, [isAdmin, loadOrganizationStatus]);
 
   useEffect(() => {
     if (!exportJob || !['queued', 'running'].includes(exportJob.status)) return;
@@ -314,6 +379,126 @@ export function WorkspaceSettingsPanel({ isAdmin = false }: WorkspaceSettingsPan
 
   return (
     <div className="space-y-4">
+      {isAdmin ? (
+        <Card>
+          <CardHeader className="px-4 sm:px-6">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div className="min-w-0">
+                <CardTitle className="flex min-w-0 items-center gap-2">
+                  <Building2 className="h-5 w-5 shrink-0 text-muted-foreground" />
+                  <span className="min-w-0 truncate">{t('workspacePanel.organization.title')}</span>
+                </CardTitle>
+                <CardDescription>{t('workspacePanel.organization.description')}</CardDescription>
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full justify-center sm:w-auto"
+                onClick={() => void loadOrganizationStatus()}
+                disabled={isOrganizationLoading}
+              >
+                {isOrganizationLoading ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <RefreshCw className="mr-2 h-4 w-4" />
+                )}
+                {t('workspacePanel.organization.refresh')}
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-4 px-4 pb-4 sm:px-6 sm:pb-6">
+            {isOrganizationLoading && !organizationStatus ? (
+              <div className="flex items-center text-sm text-muted-foreground">
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                {t('workspacePanel.organization.loading')}
+              </div>
+            ) : organizationError ? (
+              <div className="flex items-start gap-2 rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                <span>{organizationError}</span>
+              </div>
+            ) : organizationStatus ? (
+              <>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge variant={organizationStatus.configured ? 'default' : 'outline'}>
+                    {t(organizationStatus.configured ? 'workspacePanel.organization.ready' : 'workspacePanel.organization.notReady')}
+                  </Badge>
+                  <Badge variant="outline">{organizationStatus.deploymentMode}</Badge>
+                  <Badge variant={organizationStatus.databaseProvider === 'postgres' ? 'default' : 'outline'}>
+                    {organizationStatus.databaseProvider}
+                  </Badge>
+                  <Badge variant={organizationStatus.teamFeaturesEnabled ? 'default' : 'outline'}>
+                    {t(organizationStatus.teamFeaturesEnabled ? 'workspacePanel.organization.teamEnabled' : 'workspacePanel.organization.teamDisabled')}
+                  </Badge>
+                </div>
+
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="min-w-0 rounded-lg border border-border p-3">
+                    <p className="text-xs font-medium uppercase text-muted-foreground">{t('workspacePanel.organization.organizationId')}</p>
+                    <p className="mt-1 truncate font-mono text-sm">{organizationStatus.organizationId || '-'}</p>
+                  </div>
+                  <div className="min-w-0 rounded-lg border border-border p-3">
+                    <p className="text-xs font-medium uppercase text-muted-foreground">{t('workspacePanel.organization.owner')}</p>
+                    <p className="mt-1 truncate text-sm">{organizationStatus.ownerEmail || organizationStatus.ownerUserId || '-'}</p>
+                  </div>
+                </div>
+
+                {organizationStatus.permission ? (
+                  <div className="space-y-2">
+                    <p className="text-sm font-semibold">{t('workspacePanel.organization.criticalRights')}</p>
+                    <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                      {[
+                        ['canManageBackups', organizationStatus.permission.canManageBackups],
+                        ['canMigrateDatabase', organizationStatus.permission.canMigrateDatabase],
+                        ['canEnableKnowledge', organizationStatus.permission.canEnableKnowledge],
+                        ['canRecoverWorkspaces', organizationStatus.permission.canRecoverWorkspaces],
+                        ['canCreateTeamAutomations', organizationStatus.permission.canCreateTeamAutomations],
+                        ['canSharePluginsAndSkills', organizationStatus.permission.canSharePluginsAndSkills],
+                      ].map(([key, enabled]) => (
+                        <div key={String(key)} className="flex min-w-0 items-center gap-2 rounded-md border border-border px-3 py-2 text-sm">
+                          <CheckCircle2 className={`h-4 w-4 shrink-0 ${enabled ? 'text-green-600' : 'text-muted-foreground'}`} />
+                          <span className="min-w-0 truncate">{t(`workspacePanel.organization.permissions.${key}`)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+
+                <div className="space-y-2">
+                  <p className="text-sm font-semibold">{t('workspacePanel.organization.scopedPaths')}</p>
+                  <div className="grid gap-2">
+                    {[
+                      ['personalWorkspace', organizationStatus.paths.personalWorkspace],
+                      ['userSettings', organizationStatus.paths.userSettings],
+                      ['userSecrets', organizationStatus.paths.userSecrets],
+                      ['organizationRoot', organizationStatus.paths.organizationRoot],
+                      ['teamWorkspace', organizationStatus.paths.teamWorkspace],
+                      ['systemBackups', organizationStatus.paths.systemBackups],
+                    ].map(([key, value]) => (
+                      <div key={String(key)} className="grid gap-1 rounded-md border border-border px-3 py-2 text-sm sm:grid-cols-[11rem_minmax(0,1fr)]">
+                        <span className="text-muted-foreground">{t(`workspacePanel.organization.paths.${key}`)}</span>
+                        <span className="min-w-0 truncate font-mono text-xs">{value || t('workspacePanel.organization.notCreated')}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {organizationStatus.warnings.length > 0 ? (
+                  <div className="space-y-2">
+                    {organizationStatus.warnings.map((warning) => (
+                      <div key={warning} className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-200">
+                        <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                        <span>{warning}</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+              </>
+            ) : null}
+          </CardContent>
+        </Card>
+      ) : null}
+
       <Card>
         <CardHeader className="px-4 sm:px-6">
           <CardTitle>{t('workspacePanel.title')}</CardTitle>
