@@ -326,7 +326,7 @@ export async function loadManagedAgentSystemPrompt(
         systemPrompt += '\n\n' + MCP_SYSTEM_PROMPT;
       }
 
-      if ((await isComposioConfigured()) && isComposioGatewayEnabled(enabledTools)) {
+      if ((await isComposioConfigured(scope)) && isComposioGatewayEnabled(enabledTools)) {
         systemPrompt += '\n\n' + COMPOSIO_SYSTEM_PROMPT;
       }
 

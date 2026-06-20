@@ -844,7 +844,8 @@ export async function preflightCanvasPluginFromStore(
 
   const composioConnectors = normalizeComposioConnectors(plugin.connectors);
   if (composioConnectors.length > 0) {
-    const status = await getGatewayStatus().catch(() => ({
+    const composioScope = scope?.userId ? { userId: scope.userId } : undefined;
+    const status = await getGatewayStatus(composioScope).catch(() => ({
       configured: false,
       apiKeyValid: false,
       connectedAccounts: [],
@@ -856,7 +857,7 @@ export async function preflightCanvasPluginFromStore(
     );
     let toolkitBySlug = new Map<string, { name?: string; logo?: string }>();
     if (status.configured && status.apiKeyValid) {
-      const toolkitResult = await getGatewayToolkits().catch(() => ({ toolkits: [] }));
+      const toolkitResult = await getGatewayToolkits(composioScope).catch(() => ({ toolkits: [] }));
       if (Array.isArray(toolkitResult.toolkits)) {
         toolkitBySlug = new Map(
           toolkitResult.toolkits

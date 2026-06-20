@@ -53,7 +53,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     }
     assertCanCreateRequestedAutomation(payload, session.user);
     if (existing.composioTriggerId && (payload?.status === 'active' || payload?.status === 'paused')) {
-      await updateGatewayTrigger(existing.composioTriggerId, { status: payload.status });
+      await updateGatewayTrigger(existing.composioTriggerId, { status: payload.status }, { userId: session.user.id });
     }
     const updated = await updateAutomationJob(jobId, payload);
     if (!updated) {
@@ -86,7 +86,7 @@ export async function DELETE(request: NextRequest, context: RouteContext) {
     return NextResponse.json({ success: false, error: 'Automation not found.' }, { status: 404 });
   }
   if (existing.composioTriggerId) {
-    await deleteGatewayTrigger(existing.composioTriggerId);
+    await deleteGatewayTrigger(existing.composioTriggerId, { userId: session.user.id });
   }
   const deleted = await deleteAutomationJob(jobId);
   if (!deleted) {

@@ -3282,8 +3282,9 @@ export async function buildPiToolRegistryAsync(userId?: string, agentId?: string
   const userScopedTools = createUserScopedTools(userId, agentId, sessionId);
   const overriddenNames = new Set(userScopedTools.map((t) => t.name));
   const coreTools = piTools.filter((t) => !overriddenNames.has(t.name));
-  const composioConfigured = await isComposioConfigured();
-  const composioTools = composioConfigured ? createComposioTools() : [];
+  const composioStorageScope = userId ? { userId } : undefined;
+  const composioConfigured = await isComposioConfigured(composioStorageScope);
+  const composioTools = composioConfigured ? createComposioTools(composioStorageScope) : [];
   const directMcpTools = await buildDirectMcpTools().then((result) => result.tools).catch((error) => {
     console.error('[ToolRegistry] Error building direct MCP tools:', error);
     return [];

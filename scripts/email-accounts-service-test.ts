@@ -81,7 +81,7 @@ async function main() {
   secretsDir = path.join(tmpRoot, 'secrets');
   integrationsEnvPath = path.join(secretsDir, 'Canvas-Integrations.env');
   accountsPath = path.join(secretsDir, 'email-oauth', 'accounts.json');
-  stateDir = path.join(secretsDir, 'email-oauth', '.state');
+  stateDir = path.join(tmpRoot, 'users', 'owner-user', 'secrets', 'email-oauth', '.state');
 
   process.env.DATA = tmpRoot;
   process.env.CANVAS_DATA_ROOT = tmpRoot;
@@ -91,6 +91,7 @@ async function main() {
 
   const { createEmailDraft, disconnectEmailAccount, getEmailOAuthStatus, listEmailAccounts, listEmailFolders, listEmailMessages, readEmailMessage, saveEmailSmtpAccount, searchEmail, sendEmailDraft, sendEmailMessage, setEmailMainAccount, startEmailOAuth, testEmailAccount, testEmailSmtpConnection } = await import('../app/lib/email/service');
   const { upsertOAuthEmailAccount } = await import('../app/lib/email/account-store');
+  const { emailAccountSecretRef, readEmailAccountSecret, writeEmailAccountSecret } = await import('../app/lib/email/secret-store');
   const { setSmtpTransportFactoryForTests } = await import('../app/lib/email/smtp-service');
   const { setImapClientFactoryForTests } = await import('../app/lib/email/imap-service');
 
@@ -129,10 +130,33 @@ async function main() {
   const otherAccounts = await listEmailAccounts('other-user');
   assert.deepEqual(ownerAccounts.accounts.map((account) => (account as { emailAddress: string }).emailAddress), ['owner@example.test']);
   assert.deepEqual(otherAccounts.accounts.map((account) => (account as { emailAddress: string }).emailAddress), ['other@example.test']);
+  await fs.access(path.join(tmpRoot, 'users', 'owner-user', 'secrets', 'email-accounts', 'local_google_test.json.enc'));
+  await fs.access(path.join(tmpRoot, 'users', 'other-user', 'secrets', 'email-accounts', `${(otherAccounts.accounts[0] as { id: string }).id}.json.enc`));
   const otherPolicy = (otherAccounts.accounts[0] as { policy: { readFrom: string[]; sendTo: string[] } }).policy;
   assert.deepEqual(otherPolicy.readFrom, ['other@example.test']);
   assert.deepEqual(otherPolicy.sendTo, ['other@example.test']);
   await assert.rejects(() => disconnectEmailAccount('other-user', 'local_google_test'), /not found/i);
+
+  const fallbackSecretRef = emailAccountSecretRef('owner-user', 'fallback-test');
+  const fallbackPrimaryPath = path.join(tmpRoot, 'users', 'owner-user', 'secrets', 'email-accounts', 'fallback-test.json.enc');
+  const fallbackLegacyPath = path.join(secretsDir, 'email-accounts', 'owner-user', 'fallback-test.json.enc');
+  await writeEmailAccountSecret(fallbackSecretRef, {
+    authType: 'oauth',
+    tokenType: 'Bearer',
+    accessToken: 'primary-access',
+  });
+  await fs.mkdir(path.dirname(fallbackLegacyPath), { recursive: true });
+  await fs.writeFile(fallbackLegacyPath, JSON.stringify({
+    authType: 'oauth',
+    tokenType: 'Bearer',
+    accessToken: 'legacy-access',
+  }), 'utf8');
+  await fs.writeFile(fallbackPrimaryPath, 'enc:v1:broken', 'utf8');
+  await assert.rejects(() => readEmailAccountSecret(fallbackSecretRef), /Invalid email account secret format|Unable to decrypt|Unsupported email account secret|auth/i);
+  await fs.rm(fallbackPrimaryPath, { force: true });
+  const legacyFallbackSecret = await readEmailAccountSecret(fallbackSecretRef);
+  assert.equal(legacyFallbackSecret.authType, 'oauth');
+  assert.equal(legacyFallbackSecret.accessToken, 'legacy-access');
 
   await disconnectEmailAccount('owner-user', 'local_google_test');
   const ownerAfterDisconnect = await listEmailAccounts('owner-user');
@@ -151,7 +175,7 @@ async function main() {
   const oauthStartUrl = new URL(oauthStart.authorizationUrl);
   assert.equal(oauthStartUrl.searchParams.get('redirect_uri'), 'https://canvas.example.com/api/email/oauth/callback');
   assert.ok((oauthStartUrl.searchParams.get('scope') || '').split(' ').includes('https://www.googleapis.com/auth/gmail.send'));
-  const oauthStatus = await getEmailOAuthStatus({ requestOrigin: 'https://canvas.example.com' });
+  const oauthStatus = await getEmailOAuthStatus({ userId: 'owner-user', requestOrigin: 'https://canvas.example.com' });
   assert.equal(oauthStatus.redirectUri, 'https://canvas.example.com/api/email/oauth/callback');
   assert.equal(oauthStatus.providers.google.configured, true);
   assert.equal(oauthStatus.providers.microsoft.configured, false);

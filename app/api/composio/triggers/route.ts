@@ -37,18 +37,19 @@ export async function GET(request: NextRequest) {
   const { session, response } = await requireAutomationSession(request);
   if (!session || response) return response;
 
+  const storageScope = { userId: session.user.id };
   const toolkit = request.nextUrl.searchParams.get('toolkit') || '';
   try {
     logTriggerRoute('GET started', { toolkit: toolkit || null });
     if (toolkit) {
-      const result = await getGatewayTriggerTypes(toolkit);
+      const result = await getGatewayTriggerTypes(toolkit, storageScope);
       logTriggerRoute('GET trigger types completed', {
         toolkit,
         count: Array.isArray(result.triggerTypes) ? result.triggerTypes.length : 0,
       });
       return NextResponse.json({ success: true, data: result });
     }
-    const result = await listGatewayTriggers();
+    const result = await listGatewayTriggers(storageScope);
     logTriggerRoute('GET active triggers completed', {
       count: Array.isArray(result.triggers) ? result.triggers.length : 0,
     });
@@ -66,6 +67,7 @@ export async function POST(request: NextRequest) {
   const { session, response } = await requireAutomationSession(request);
   if (!session || response) return response;
 
+  const storageScope = { userId: session.user.id };
   try {
     const payload = recordValue(await request.json());
     assertCanCreateRequestedAutomation(payload, session.user);
@@ -91,7 +93,7 @@ export async function POST(request: NextRequest) {
       connectedAccountId: connectedAccountId || undefined,
       triggerConfig,
       notebookWebhookUrl: stringValue(payload.notebookWebhookUrl) || null,
-    });
+    }, storageScope);
     const trigger = recordValue(created.trigger);
     const triggerId = stringValue(trigger.triggerId) || stringValue(trigger.trigger_id);
     if (!triggerId) {
@@ -116,7 +118,7 @@ export async function POST(request: NextRequest) {
       composioTriggerSlug: stringValue(trigger.triggerSlug) || triggerSlug,
       composioToolkitSlug: stringValue(trigger.toolkitSlug) || toolkitSlug || triggerSlug.split('_')[0]?.toLowerCase() || 'unknown',
       composioConnectedAccountId: stringValue(trigger.connectedAccountId) || connectedAccountId || '',
-      composioUserId: stringValue(trigger.composioUserId) || await getComposioUserId(),
+      composioUserId: stringValue(trigger.composioUserId) || await getComposioUserId(storageScope),
       webhookTriggerConfig: triggerConfig,
     }, session.user.id);
 

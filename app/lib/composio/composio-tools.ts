@@ -11,6 +11,7 @@ import {
   searchGatewayTools,
 } from './composio-gateway';
 import type { AgentTool } from '@earendil-works/pi-agent-core';
+import type { EnvStorageScope } from '../integrations/env-config';
 
 const COMPOSIO_TOOL_DESCRIPTIONS = {
   SEARCH_TOOLS: 'Search for available tools across connected external apps (GitHub, Gmail, Slack, etc.). Returns tool name, description, and toolkit. Use this to discover which actions are available before executing. Always search before executing — don\'t guess action names.',
@@ -48,7 +49,7 @@ function textResult(text: string) {
   return { content: [{ type: 'text' as const, text }], details: {} };
 }
 
-export function createComposioSearchToolsTool(): AgentTool {
+export function createComposioSearchToolsTool(storageScope?: EnvStorageScope | null): AgentTool {
   return {
     name: 'COMPOSIO_SEARCH_TOOLS',
     label: 'Search External Tools',
@@ -59,7 +60,7 @@ export function createComposioSearchToolsTool(): AgentTool {
         const p = params as { query: string; toolkits?: string[] };
         const query = String(p.query || '');
         const toolkits = Array.isArray(p.toolkits) ? p.toolkits : undefined;
-        return textResult(JSON.stringify(await searchGatewayTools(query, toolkits)));
+        return textResult(JSON.stringify(await searchGatewayTools(query, toolkits, storageScope)));
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Unknown error searching tools';
         return textResult(JSON.stringify({ error: message }));
@@ -68,7 +69,7 @@ export function createComposioSearchToolsTool(): AgentTool {
   };
 }
 
-export function createComposioGetToolSchemasTool(): AgentTool {
+export function createComposioGetToolSchemasTool(storageScope?: EnvStorageScope | null): AgentTool {
   return {
     name: 'COMPOSIO_GET_TOOL_SCHEMAS',
     label: 'Get External Tool Schemas',
@@ -78,7 +79,7 @@ export function createComposioGetToolSchemasTool(): AgentTool {
       try {
         const p = params as { tools: string[] };
         const tools = Array.isArray(p.tools) ? p.tools : [];
-        return textResult(truncateResult(await getGatewayToolSchemas(tools)));
+        return textResult(truncateResult(await getGatewayToolSchemas(tools, storageScope)));
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Unknown error getting tool schemas';
         return textResult(JSON.stringify({ error: message }));
@@ -87,7 +88,7 @@ export function createComposioGetToolSchemasTool(): AgentTool {
   };
 }
 
-export function createComposioExecuteTool(): AgentTool {
+export function createComposioExecuteTool(storageScope?: EnvStorageScope | null): AgentTool {
   return {
     name: 'composio_execute',
     label: 'Execute External Tool',
@@ -99,7 +100,7 @@ export function createComposioExecuteTool(): AgentTool {
       const toolParams = (p.params && typeof p.params === 'object') ? p.params as Record<string, unknown> : {};
       const toolkitName = action.split('_')[0]?.toLowerCase() ?? '';
       try {
-        const result = await executeGatewayTool(action, toolParams);
+        const result = await executeGatewayTool(action, toolParams, storageScope);
 
         return textResult(truncateResult(result));
       } catch (error: unknown) {
@@ -107,7 +108,7 @@ export function createComposioExecuteTool(): AgentTool {
         if (err?.statusCode === 401 || err?.code === 'NOT_CONNECTED' || err?.message?.includes('not connected') || err?.message?.includes('not authenticated')) {
           let redirectUrl = '';
           try {
-            redirectUrl = await getGatewayAuthRedirect(toolkitName);
+            redirectUrl = await getGatewayAuthRedirect(toolkitName, storageScope);
           } catch {
             redirectUrl = '';
           }
@@ -129,7 +130,7 @@ export function createComposioExecuteTool(): AgentTool {
   };
 }
 
-export function createComposioManageConnectionsTool(): AgentTool {
+export function createComposioManageConnectionsTool(storageScope?: EnvStorageScope | null): AgentTool {
   return {
     name: 'COMPOSIO_MANAGE_CONNECTIONS',
     label: 'Manage App Connections',
@@ -143,7 +144,7 @@ export function createComposioManageConnectionsTool(): AgentTool {
 
         switch (action) {
           case 'connect': {
-            const connectionRequest = await connectGatewayToolkit(toolkit);
+            const connectionRequest = await connectGatewayToolkit(toolkit, storageScope);
             return textResult(JSON.stringify({
               redirect_url: connectionRequest.redirectUrl,
               message: `Open this URL to connect ${toolkit}. After connecting, return to the chat.`,
@@ -151,12 +152,12 @@ export function createComposioManageConnectionsTool(): AgentTool {
           }
 
           case 'disconnect': {
-            await disconnectGatewayToolkit(toolkit);
+            await disconnectGatewayToolkit(toolkit, storageScope);
             return textResult(JSON.stringify({ success: true, message: `${toolkit} disconnected successfully.` }));
           }
 
           case 'status': {
-            const account = await refreshGatewayToolkit(toolkit);
+            const account = await refreshGatewayToolkit(toolkit, storageScope);
             if (account.status && account.status !== 'NOT_CONNECTED') {
               return textResult(JSON.stringify({
                 connected: true,
@@ -179,11 +180,11 @@ export function createComposioManageConnectionsTool(): AgentTool {
   };
 }
 
-export function createComposioTools(): AgentTool[] {
+export function createComposioTools(storageScope?: EnvStorageScope | null): AgentTool[] {
   return [
-    createComposioSearchToolsTool(),
-    createComposioGetToolSchemasTool(),
-    createComposioExecuteTool(),
-    createComposioManageConnectionsTool(),
+    createComposioSearchToolsTool(storageScope),
+    createComposioGetToolSchemasTool(storageScope),
+    createComposioExecuteTool(storageScope),
+    createComposioManageConnectionsTool(storageScope),
   ];
 }
