@@ -105,6 +105,8 @@ function assertCanCreateOrganizationAutomation(user: AutomationPolicyUser): void
 
 export function getAutomationListAccess(userId: string): AutomationListAccess {
   const state = readOrganizationPermissionForUser(userId);
+  // Organization automations expose shared prompts, schedules, and run history;
+  // keep read visibility aligned with the team-automation authoring permission.
   const canReadOrganizationAutomations = Boolean(
     state.organizationId &&
     hasOrganizationPermission(state.permission, 'canCreateTeamAutomations'),
