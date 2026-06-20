@@ -886,9 +886,9 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
   }, [activeWorkspace, automationWorkspaces]);
   const [jobs, setJobs] = useState<AutomationJobRecord[]>([]);
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
-  const [draft, setDraft] = useState<JobDraft>(() => defaultDraft(defaultTimeZone));
-  const [triggerDraft, setTriggerDraft] = useState<TriggerComposerDraft>(() => defaultTriggerDraft());
-  const [customWebhookDraft, setCustomWebhookDraft] = useState<CustomWebhookDraft>(() => defaultCustomWebhookDraft());
+  const [draft, setDraft] = useState<JobDraft>(() => defaultDraft(defaultTimeZone, defaultAutomationWorkspaceId));
+  const [triggerDraft, setTriggerDraft] = useState<TriggerComposerDraft>(() => defaultTriggerDraft(defaultAutomationWorkspaceId));
+  const [customWebhookDraft, setCustomWebhookDraft] = useState<CustomWebhookDraft>(() => defaultCustomWebhookDraft(defaultAutomationWorkspaceId));
   const [runs, setRuns] = useState<AutomationRunRecord[]>([]);
   const [runDetailsById, setRunDetailsById] = useState<Record<string, AutomationRunRecord>>({});
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
@@ -924,10 +924,16 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
 
   const selectedJob = useMemo(() => jobs.find((job) => job.id === selectedJobId) || null, [jobs, selectedJobId]);
   const workspaceById = useMemo(() => new Map(workspaces.map((workspace) => [workspace.id, workspace])), [workspaces]);
-  const selectedDraftWorkspace = draft.workspaceId ? workspaceById.get(draft.workspaceId) || null : null;
-  const selectedTriggerWorkspace = triggerDraft.workspaceId ? workspaceById.get(triggerDraft.workspaceId) || null : null;
-  const selectedCustomWebhookWorkspace = customWebhookDraft.workspaceId ? workspaceById.get(customWebhookDraft.workspaceId) || null : null;
+  const draftWorkspaceId = draft.workspaceId || defaultAutomationWorkspaceId;
+  const triggerWorkspaceId = triggerDraft.workspaceId || defaultAutomationWorkspaceId;
+  const customWebhookWorkspaceId = customWebhookDraft.workspaceId || defaultAutomationWorkspaceId;
+  const selectedDraftWorkspace = draftWorkspaceId ? workspaceById.get(draftWorkspaceId) || null : null;
+  const selectedTriggerWorkspace = triggerWorkspaceId ? workspaceById.get(triggerWorkspaceId) || null : null;
+  const selectedCustomWebhookWorkspace = customWebhookWorkspaceId ? workspaceById.get(customWebhookWorkspaceId) || null : null;
   const selectedJobWorkspace = selectedJob?.workspaceId ? workspaceById.get(selectedJob.workspaceId) || null : null;
+  const scheduledWorkspaceReady = Boolean(draft.id) || (workspaceInitialized && Boolean(draftWorkspaceId));
+  const triggerWorkspaceReady = workspaceInitialized && Boolean(triggerWorkspaceId);
+  const customWebhookWorkspaceReady = workspaceInitialized && Boolean(customWebhookWorkspaceId);
   const selectedRunSummary = useMemo(() => runs.find((run) => run.id === selectedRunId) || null, [runs, selectedRunId]);
   const selectedRun = useMemo(
     () => (selectedRunId ? runDetailsById[selectedRunId] || selectedRunSummary : null),
@@ -1334,25 +1340,26 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
   async function handleSave() {
     setIsSaving(true);
     try {
+      const effectiveDraft = draftWorkspaceId ? { ...draft, workspaceId: draftWorkspaceId } : draft;
       const payload = selectedJob?.jobType === 'webhook'
         ? (() => {
-            const deliveryChannelId = normalizeDeliveryChannelIdForPayload(draft.deliveryMode, draft.deliveryChannelId);
+            const deliveryChannelId = normalizeDeliveryChannelIdForPayload(effectiveDraft.deliveryMode, effectiveDraft.deliveryChannelId);
             return {
-              name: draft.name,
-              prompt: draft.prompt,
-              preferredSkill: draft.preferredSkill || 'auto',
-              workspaceContextPaths: parseWorkspaceContext(draft.workspaceContextText),
-              targetOutputPath: draft.targetOutputPath.trim() || null,
-              status: draft.status,
-              agentId: draft.agentId,
-              deliveryMode: draft.deliveryMode,
+              name: effectiveDraft.name,
+              prompt: effectiveDraft.prompt,
+              preferredSkill: effectiveDraft.preferredSkill || 'auto',
+              workspaceContextPaths: parseWorkspaceContext(effectiveDraft.workspaceContextText),
+              targetOutputPath: effectiveDraft.targetOutputPath.trim() || null,
+              status: effectiveDraft.status,
+              agentId: effectiveDraft.agentId,
+              deliveryMode: effectiveDraft.deliveryMode,
               deliveryChannelId,
-              deliverySessionMode: draft.deliverySessionMode,
-              deliverySessionId: draft.deliverySessionId.trim() || null,
-              deliveryChannelSessionKey: normalizeDeliveryChannelSessionKeyForPayload(deliveryChannelId, draft.deliveryChannelSessionKey),
+              deliverySessionMode: effectiveDraft.deliverySessionMode,
+              deliverySessionId: effectiveDraft.deliverySessionId.trim() || null,
+              deliveryChannelSessionKey: normalizeDeliveryChannelSessionKeyForPayload(deliveryChannelId, effectiveDraft.deliveryChannelSessionKey),
             };
           })()
-        : buildPayload(draft);
+        : buildPayload(effectiveDraft);
       const response = await fetch(draft.id ? `/api/automations/jobs/${draft.id}` : '/api/automations/jobs', {
         method: draft.id ? 'PATCH' : 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1393,7 +1400,7 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
         body: JSON.stringify({
           name: triggerDraft.name.trim(),
           prompt: triggerDraft.prompt.trim(),
-          workspaceId: triggerDraft.workspaceId || null,
+          workspaceId: triggerWorkspaceId || null,
           preferredSkill: triggerDraft.preferredSkill || 'auto',
           toolkitSlug: selectedTriggerApp.slug,
           triggerSlug: selectedTriggerType.slug,
@@ -1441,7 +1448,7 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
         body: JSON.stringify({
           name: customWebhookDraft.name.trim(),
           prompt: customWebhookDraft.prompt.trim(),
-          workspaceId: customWebhookDraft.workspaceId || null,
+          workspaceId: customWebhookWorkspaceId || null,
           preferredSkill: customWebhookDraft.preferredSkill || 'auto',
           workspaceContextPaths: parseWorkspaceContext(customWebhookDraft.workspaceContextText),
           targetOutputPath: customWebhookDraft.targetOutputPath.trim() || null,
@@ -1663,8 +1670,8 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
         ? selectedCustomWebhookWorkspace
         : selectedDraftWorkspace;
     const isExistingScheduledJob = target === 'scheduled' && Boolean(draft.id);
-    const isGerman = locale.startsWith('de');
-    const label = isGerman ? 'Workspace' : 'Workspace';
+    const isGermanLocale = locale.startsWith('de');
+    const label = 'Workspace';
     const scopeLabel = workspaceScopeLabel(selectedWorkspace, locale);
     const updateWorkspaceId = (workspaceId: string) => {
       if (target === 'trigger') {
@@ -1691,7 +1698,7 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
             disabled={isExistingScheduledJob || automationWorkspaces.length === 0}
           >
             {automationWorkspaces.length === 0 ? (
-              <option value="">{isGerman ? 'Kein Workspace verfügbar' : 'No workspace available'}</option>
+              <option value="">{isGermanLocale ? 'Kein Workspace verfügbar' : 'No workspace available'}</option>
             ) : automationWorkspaces.map((workspace) => (
               <option key={workspace.id} value={workspace.id}>
                 {workspaceOptionLabel(workspace, locale)}
@@ -1888,7 +1895,7 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
                   {isRunningNow ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Play className="mr-2 h-4 w-4" />}
                   {t('actions.runNow')}
                 </Button>
-                <Button onClick={() => void handleSave()} disabled={isSaving} data-testid="automation-save">
+                <Button onClick={() => void handleSave()} disabled={isSaving || !scheduledWorkspaceReady} data-testid="automation-save">
                   {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
                   {t('actions.save')}
                 </Button>
@@ -2244,7 +2251,7 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
                         <Folder className="mr-2 h-4 w-4" />
                         {t('output.pickInWorkspace')}
                       </Button>
-                      <Button onClick={() => void handleSave()} disabled={isSaving}>
+                      <Button onClick={() => void handleSave()} disabled={isSaving || !scheduledWorkspaceReady}>
                         {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
                         {t('actions.save')}
                       </Button>
@@ -2335,7 +2342,7 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
                           <Folder className="mr-2 h-4 w-4" />
                           {t('output.pickInWorkspace')}
                         </Button>
-                        <Button onClick={() => void handleCreateCustomWebhookAutomation()} disabled={isSaving || !customWebhookDraft.name.trim() || !customWebhookDraft.prompt.trim()}>
+                        <Button onClick={() => void handleCreateCustomWebhookAutomation()} disabled={isSaving || !customWebhookWorkspaceReady || !customWebhookDraft.name.trim() || !customWebhookDraft.prompt.trim()}>
                           {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <KeyRound className="mr-2 h-4 w-4" />}
                           {t('triggers.custom.create')}
                         </Button>
@@ -2496,7 +2503,7 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
                           <Folder className="mr-2 h-4 w-4" />
                           {t('output.pickInWorkspace')}
                         </Button>
-                        <Button onClick={() => void handleCreateTriggerAutomation()} disabled={isSaving || !selectedTriggerApp?.connected || !triggerDraft.name.trim() || !triggerDraft.prompt.trim() || !triggerDraft.triggerSlug}>
+                        <Button onClick={() => void handleCreateTriggerAutomation()} disabled={isSaving || !triggerWorkspaceReady || !selectedTriggerApp?.connected || !triggerDraft.name.trim() || !triggerDraft.prompt.trim() || !triggerDraft.triggerSlug}>
                           {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Link2 className="mr-2 h-4 w-4" />}
                           {t('triggers.create')}
                         </Button>

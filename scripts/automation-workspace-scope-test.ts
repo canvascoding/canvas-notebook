@@ -18,12 +18,13 @@ type WorkspaceRow = {
 async function main() {
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'canvas-automation-scope-'));
   const dataRoot = path.join(tempRoot, 'data');
+  const dbPath = path.join(dataRoot, 'sqlite.db');
   process.env.DATA = dataRoot;
   process.env.CANVAS_DEPLOYMENT_MODE = 'managed-team';
   process.env.CANVAS_DATABASE_PROVIDER = 'postgres';
 
   await fs.mkdir(dataRoot, { recursive: true });
-  const sqlite = new Database(path.join(dataRoot, 'sqlite.db'));
+  const sqlite = new Database(dbPath);
 
   try {
     runMigrations(sqlite);
@@ -89,6 +90,19 @@ async function main() {
 
     sqlite.close();
 
+    const setMemberCanCreateTeamAutomations = (enabled: boolean) => {
+      const permissionsDb = new Database(dbPath);
+      try {
+        permissionsDb.prepare(`
+          UPDATE organization_user_permissions
+          SET can_create_team_automations = ?, updated_at = ?
+          WHERE organization_id = ? AND user_id = ?
+        `).run(enabled ? 1 : 0, Date.now(), organizationId, 'user-member');
+      } finally {
+        permissionsDb.close();
+      }
+    };
+
     const {
       createAutomationJob,
       getAutomationRun,
@@ -118,6 +132,22 @@ async function main() {
       }, 'user-member'),
       /Organization automation permission required/,
     );
+
+    setMemberCanCreateTeamAutomations(true);
+    const memberOrganizationJob = await createAutomationJob({
+      name: 'Member organization job',
+      prompt: 'Summarize the team workspace as a temporary automation owner.',
+      workspaceId: teamWorkspace.id,
+      schedule: { kind: 'daily', times: ['10:30'], timeZone: 'UTC' },
+    }, { id: 'user-member', role: 'member', email: 'member@example.test' });
+
+    assert.equal(memberOrganizationJob.scope, 'organization');
+    assert.equal(memberOrganizationJob.createdByUserId, 'user-member');
+    assert.equal(memberOrganizationJob.ownerUserId, null);
+    const memberJobsWithOrgAccess = await listAutomationJobs('user-member');
+    assert.ok(memberJobsWithOrgAccess.some((job) => job.id === memberOrganizationJob.id));
+
+    setMemberCanCreateTeamAutomations(false);
 
     const ownerOrganizationJob = await createAutomationJob({
       name: 'Owner organization job',

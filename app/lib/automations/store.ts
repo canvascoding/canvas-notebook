@@ -1,6 +1,6 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 
-import { and, asc, desc, eq, inArray, lte, notInArray, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, lte, ne, notInArray, or, sql } from 'drizzle-orm';
 
 import { db } from '@/app/lib/db';
 import { automationJobs, automationRuns, automationWebhookEvents, automationWebhookTriggers, composioWebhookEvents, piSessions } from '@/app/lib/db/schema';
@@ -393,9 +393,12 @@ async function mapJobRowWithWebhookTrigger(row: typeof automationJobs.$inferSele
 
 export async function listAutomationJobs(userId: string): Promise<AutomationJobRecord[]> {
   const access = getAutomationListAccess(userId);
-  const personalAccess = or(
-    eq(automationJobs.ownerUserId, userId),
-    eq(automationJobs.createdByUserId, userId),
+  const personalAccess = and(
+    or(
+      eq(automationJobs.ownerUserId, userId),
+      eq(automationJobs.createdByUserId, userId),
+    ),
+    ne(automationJobs.scope, 'organization'),
   );
   const organizationAccess = access.canReadOrganizationAutomations && access.organizationId
     ? and(
