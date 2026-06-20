@@ -24,7 +24,7 @@ const HIDDEN_TOOLKIT_SLUGS = new Set([
 
 const TRIGGER_APP_CACHE_TTL_MS = 30 * 60 * 1000;
 
-let triggerAppCache: {
+type TriggerAppCacheEntry = {
   expiresAt: number;
   apps: Array<{
     slug: string;
@@ -33,7 +33,9 @@ let triggerAppCache: {
     description?: string;
     triggerCount: number;
   }>;
-} | null = null;
+};
+
+const triggerAppCache = new Map<string, TriggerAppCacheEntry>();
 
 export interface ComposioConnectedAccount {
   id: string;
@@ -109,6 +111,13 @@ function logComposioTriggerError(message: string, error: unknown, details?: Reco
     ...details,
     error: error instanceof Error ? error.message : String(error),
   });
+}
+
+function storageScopeCacheKey(storageScope?: EnvStorageScope | null): string {
+  const userId = storageScope?.userId?.trim() || '';
+  const organizationId = storageScope?.organizationId?.trim() || '';
+  const secretScope = storageScope?.secretScope || (userId ? 'user' : organizationId ? 'organization' : 'legacy');
+  return `${secretScope}:${userId}:${organizationId}`;
 }
 
 function normalizeLocalTriggerInstance(
@@ -254,7 +263,9 @@ export async function getGatewayTriggerApps(storageScope?: EnvStorageScope | nul
   }
 
   const now = Date.now();
-  let baseApps = triggerAppCache && triggerAppCache.expiresAt > now ? triggerAppCache.apps : null;
+  const cacheKey = storageScopeCacheKey(storageScope);
+  const cached = triggerAppCache.get(cacheKey);
+  let baseApps = cached && cached.expiresAt > now ? cached.apps : null;
   if (!baseApps) {
     const result = await getGatewayTriggerTypes('', storageScope);
     const bySlug = new Map<string, {
@@ -284,10 +295,10 @@ export async function getGatewayTriggerApps(storageScope?: EnvStorageScope | nul
     }
 
     baseApps = Array.from(bySlug.values()).sort((a, b) => a.name.localeCompare(b.name));
-    triggerAppCache = {
+    triggerAppCache.set(cacheKey, {
       apps: baseApps,
       expiresAt: now + TRIGGER_APP_CACHE_TTL_MS,
-    };
+    });
   }
 
   const status = await getGatewayStatus(storageScope);
@@ -770,5 +781,5 @@ export async function deleteGatewayTrigger(triggerId: string, storageScope?: Env
 
 export function clearComposioGatewayCaches(): void {
   clearToolkitCache();
-  triggerAppCache = null;
+  triggerAppCache.clear();
 }
