@@ -105,6 +105,7 @@ export async function adoptLegacyStandaloneSkillsForScope(
   }
 
   const entries = await fs.readdir(legacySkillsDir, { withFileTypes: true }).catch(() => []);
+  const failedSkillCopies = new Set<string>();
   await fs.mkdir(scopedSkillsDir, { recursive: true });
 
   for (const entry of entries) {
@@ -125,17 +126,22 @@ export async function adoptLegacyStandaloneSkillsForScope(
       continue;
     }
 
-    await fs.cp(sourceDir, targetDir, {
-      recursive: true,
-      preserveTimestamps: true,
-      filter: (source) => !IGNORED_SKILL_COPY_ENTRIES.has(path.basename(source)),
-    });
+    try {
+      await fs.cp(sourceDir, targetDir, {
+        recursive: true,
+        preserveTimestamps: true,
+        filter: (source) => !IGNORED_SKILL_COPY_ENTRIES.has(path.basename(source)),
+      });
+    } catch (error) {
+      failedSkillCopies.add(entry.name);
+      console.warn(`[LegacySkillAdoption] Failed to adopt legacy skill "${entry.name}" for user scope:`, error);
+    }
   }
 
   const legacyRegistry = await readStandaloneSkillRegistryFile(resolveScopedSkillRegistryPath()) || createEmptyRegistry();
   const scopedRegistry = await readStandaloneSkillRegistryFile(resolveScopedSkillRegistryPath(scope)) || createEmptyRegistry();
   for (const [skillName, record] of Object.entries(legacyRegistry.skills)) {
-    if (scopedRegistry.skills[skillName]) {
+    if (scopedRegistry.skills[skillName] || failedSkillCopies.has(skillName)) {
       continue;
     }
     scopedRegistry.skills[skillName] = rebaseLegacyStandaloneSkillRecord(record, legacySkillsDir, scopedSkillsDir);
