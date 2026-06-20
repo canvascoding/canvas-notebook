@@ -40,7 +40,7 @@ export function resolveWorkspacePermissions(params: {
   const isAdminLike = role === 'owner' || role === 'admin';
 
   if (workspaceType === 'personal') {
-    const canUsePersonalWorkspace = isAdminLike || ownsPersonalWorkspace;
+    const canUsePersonalWorkspace = ownsPersonalWorkspace;
     return {
       canRead: canUsePersonalWorkspace,
       canWrite: canUsePersonalWorkspace,

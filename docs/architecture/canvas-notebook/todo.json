@@ -1,5 +1,5 @@
 {
-  "updatedAt": "2026-06-19",
+  "updatedAt": "2026-06-20",
   "source": "Canvas Notebook Team Workspace Plan",
   "tasks": [
     {
@@ -56,77 +56,125 @@
     {
       "id": 6,
       "title": "Control Plane Managed Mode in Lizenz-Claims und Deployment Modes aufteilen",
-      "status": "pending",
+      "status": "completed",
       "repo": "canvas-control-plane",
       "planningArtifacts": [
         "docs/architecture/canvas-notebook/team-workspace/00-full-plan.md",
         "docs/architecture/canvas-notebook/team-workspace/17-database-provider-postgres-rag-collaboration-policy.md"
+      ],
+      "implementationArtifacts": [
+        "../canvas-control-plane/apps/api/src/services/licenses.ts",
+        "../canvas-control-plane/docs/team-workspace-plan.md"
       ]
     },
     {
       "id": 7,
       "title": "managedFeatures und managedQuotas im Control Plane um Teamrechte erweitern",
-      "status": "pending",
-      "repo": "canvas-control-plane"
+      "status": "completed",
+      "repo": "canvas-control-plane",
+      "implementationArtifacts": [
+        "../canvas-control-plane/apps/api/src/services/licenses.ts"
+      ]
     },
     {
       "id": 8,
       "title": "applyManagedEnvToVmConfig() und ensureManagedEnvForVmConfig() um Team-ENV-Werte erweitern",
-      "status": "pending",
+      "status": "completed",
       "repo": "canvas-control-plane",
       "planningArtifacts": [
         "docs/architecture/canvas-notebook/team-workspace/00-full-plan.md",
         "docs/architecture/canvas-notebook/team-workspace/17-database-provider-postgres-rag-collaboration-policy.md"
+      ],
+      "implementationArtifacts": [
+        "../canvas-control-plane/apps/api/src/services/managedSecrets.ts",
+        "../canvas-control-plane/apps/api/src/services/agentConfig.ts",
+        "../canvas-control-plane/apps/api/src/routes/config.ts",
+        "../canvas-control-plane/apps/web/src/app/dashboard/vms/[id]/page.tsx"
       ]
     },
     {
       "id": 9,
       "title": "Control Plane Provisioning so anpassen, dass Team-Instanzen als Organization-Runtime verstanden werden",
-      "status": "pending",
+      "status": "completed",
       "repo": "canvas-control-plane",
       "planningArtifacts": [
         "docs/architecture/canvas-notebook/team-workspace/00-full-plan.md",
         "docs/architecture/canvas-notebook/team-workspace/17-database-provider-postgres-rag-collaboration-policy.md"
+      ],
+      "implementationArtifacts": [
+        "../canvas-control-plane/apps/api/src/routes/vms.ts",
+        "../canvas-control-plane/apps/api/src/services/ionosProvisioningRecovery.ts",
+        "../canvas-control-plane/apps/api/src/services/cloudflare.ts",
+        "../canvas-control-plane/apps/proxy-api/src/server.ts",
+        "../canvas-control-plane/scripts/deploy-remote.sh"
       ]
     },
     {
       "id": 10,
       "title": "Workspace-Modell und Workspace-Service in Canvas Notebook einfuehren",
-      "status": "pending",
+      "status": "completed",
       "repo": "canvasstudios-notebook",
       "planningArtifacts": [
         "docs/architecture/canvas-notebook/team-workspace/06-workspace-switching-ux.md",
         "docs/architecture/canvas-notebook/team-workspace/07-filesystem-migration-and-write-policy.md",
         "docs/architecture/canvas-notebook/team-workspace/09-initial-setup-and-update-migration.md"
+      ],
+      "implementationArtifacts": [
+        "app/lib/db/schema.ts",
+        "app/lib/db/migrate.ts",
+        "app/lib/workspaces/types.ts",
+        "app/lib/workspaces/permissions.ts",
+        "app/lib/workspaces/service.ts",
+        "app/lib/organization/bootstrap.ts",
+        "app/api/workspaces/route.ts",
+        "scripts/workspace-model-service-test.ts"
       ]
     },
     {
       "id": 11,
       "title": "Community-Lizenz auf Single-User-Betrieb begrenzen",
-      "status": "pending",
+      "status": "completed",
       "repo": "canvasstudios-notebook",
-      "planningArtifact": "docs/architecture/canvas-notebook/team-workspace/09-initial-setup-and-update-migration.md"
+      "planningArtifact": "docs/architecture/canvas-notebook/team-workspace/09-initial-setup-and-update-migration.md",
+      "implementationArtifacts": [
+        "app/lib/organization/bootstrap.ts",
+        "scripts/bootstrap-admin.js",
+        "scripts/auth-setup-test.ts"
+      ]
     },
     {
       "id": 12,
       "title": "User-spezifische persoenliche Workspaces anlegen",
-      "status": "pending",
+      "status": "completed",
       "repo": "canvasstudios-notebook",
       "planningArtifacts": [
         "docs/architecture/canvas-notebook/team-workspace/06-workspace-switching-ux.md",
         "docs/architecture/canvas-notebook/team-workspace/07-filesystem-migration-and-write-policy.md",
         "docs/architecture/canvas-notebook/team-workspace/09-initial-setup-and-update-migration.md"
+      ],
+      "implementationArtifacts": [
+        "app/lib/workspaces/service.ts",
+        "app/lib/organization/bootstrap.ts",
+        "scripts/bootstrap-admin.js",
+        "scripts/workspace-model-service-test.ts",
+        "scripts/auth-setup-test.ts"
       ]
     },
     {
       "id": 13,
       "title": "Team Workspace fuer Team-/Managed-Lizenzen anlegen",
-      "status": "pending",
+      "status": "completed",
       "repo": "canvasstudios-notebook",
       "planningArtifacts": [
         "docs/architecture/canvas-notebook/team-workspace/06-workspace-switching-ux.md",
         "docs/architecture/canvas-notebook/team-workspace/07-filesystem-migration-and-write-policy.md",
         "docs/architecture/canvas-notebook/team-workspace/09-initial-setup-and-update-migration.md"
+      ],
+      "implementationArtifacts": [
+        "app/lib/workspaces/service.ts",
+        "app/lib/organization/bootstrap.ts",
+        "scripts/bootstrap-admin.js",
+        "scripts/workspace-model-service-test.ts"
       ]
     },
     {

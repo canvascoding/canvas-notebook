@@ -19,7 +19,7 @@
 - immer ein npm run build testen bevor ein container gebaut wird.
 - Sicherstellen, dass nie mehrere Test-Container parallel laufen.
 - Test-Container bei neuem Testlauf immer mit aktuellem Stand neu laden (recreate/rebuild), statt alte Container weiterzuverwenden.
-- commmit sauber die einzelnen fertigen to dos, aber nicht pushen. 
+- committe sauber die einzelnen fertigen to dos; pushen ist erlaubt, wenn ein PR erstellt/aktualisiert werden soll oder der User es explizit fordert.
 - container auf nur bauen wenn es explizit gefordert wird 
 - login für die app über `BOOTSTRAP_ADMIN_EMAIL` und `BOOTSTRAP_ADMIN_PASSWORD` aus der lokalen Env-Konfiguration
 - mach mit keinem to do weiter wenn der vorherige to do noch nicht fertig ist
@@ -57,8 +57,12 @@ eröffne ausschließlich auf localhost 3000 einen dev server. starte keine neuen
 - Use short, descriptive commit messages (e.g., `Fix terminal copy on iPad`).
 - PRs should include: summary, screenshots for UI changes, and steps to verify.
 - Before any PR is merged into `main`, run a `greploop` review for that PR and document the resulting score in the PR.
-- Only PRs with a `greploop` score of 4 or 5 may be merged into `main`; scores 1-3 block the merge until the issues are fixed and `greploop` is rerun.
-- If `greploop` is unavailable or cannot produce a score, treat the PR as blocked for merge into `main`.
+- Trigger Greptile/greploop at most once per PR head SHA. If Greptile accepts the trigger but does not publish an updated score, wait and treat the PR as blocked; do not post another `@greptile review` for the same head.
+- After addressing review feedback and pushing a new commit, the new head SHA may be reviewed once.
+- A `greploop` score of 4 out of 5 is sufficient for merge; a perfect 5 out of 5 is not required.
+- Every Greptile/greploop comment must still be reviewed. Actionable comments must be fixed; non-actionable or false-positive comments must be documented and resolved.
+- Only PRs with a `greploop` score of 4 or 5 and zero unresolved review threads may be merged into `main`; scores 0-3 block the merge until the issues are fixed and a new head SHA is reviewed.
+- If `greploop` is unavailable or cannot produce a score for the current head SHA, treat the PR as blocked for merge into `main`.
 
 ## Security & Configuration Tips
 - Production uses `systemd` (`canvas-notebook.service`).

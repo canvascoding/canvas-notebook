@@ -181,6 +181,20 @@ CREATE TABLE IF NOT EXISTS canvas_organization_settings (
   FOREIGN KEY (owner_user_id) REFERENCES user(id)
 );
 
+CREATE TABLE IF NOT EXISTS canvas_workspaces (
+  id TEXT PRIMARY KEY NOT NULL,
+  organization_id TEXT NOT NULL,
+  type TEXT NOT NULL,
+  owner_user_id TEXT,
+  root_relative_path TEXT NOT NULL,
+  display_name TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'active',
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  FOREIGN KEY (organization_id) REFERENCES canvas_organization_settings(organization_id) ON DELETE CASCADE,
+  FOREIGN KEY (owner_user_id) REFERENCES user(id)
+);
+
 CREATE TABLE IF NOT EXISTS organization_user_permissions (
   organization_id TEXT NOT NULL,
   user_id TEXT NOT NULL,
@@ -204,6 +218,11 @@ CREATE TABLE IF NOT EXISTS organization_user_permissions (
 );
 
 CREATE INDEX IF NOT EXISTS idx_canvas_org_settings_owner ON canvas_organization_settings (owner_user_id);
+CREATE INDEX IF NOT EXISTS idx_canvas_workspaces_organization ON canvas_workspaces (organization_id);
+CREATE INDEX IF NOT EXISTS idx_canvas_workspaces_owner ON canvas_workspaces (owner_user_id);
+CREATE INDEX IF NOT EXISTS idx_canvas_workspaces_organization_type ON canvas_workspaces (organization_id, type);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_canvas_workspaces_personal_owner ON canvas_workspaces (owner_user_id) WHERE type = 'personal';
+CREATE UNIQUE INDEX IF NOT EXISTS idx_canvas_workspaces_team_organization ON canvas_workspaces (organization_id) WHERE type = 'team';
 CREATE INDEX IF NOT EXISTS idx_org_user_permissions_user ON organization_user_permissions (user_id);
 CREATE INDEX IF NOT EXISTS idx_org_user_permissions_role ON organization_user_permissions (organization_id, role);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_org_user_permissions_single_owner ON organization_user_permissions (organization_id) WHERE role = 'owner';
@@ -264,9 +283,40 @@ function getDeploymentMode() {
   return 'single_user';
 }
 
+function normalizeDeploymentMode(value) {
+  return value.trim().toLowerCase().replace(/_/g, '-');
+}
+
+function isTruthyEnv(value) {
+  return value === 'true' || value === '1' || value === 'yes';
+}
+
+function isSingleUserDeploymentMode(deploymentMode) {
+  const normalized = normalizeDeploymentMode(deploymentMode);
+  return normalized === 'community' ||
+    normalized === 'single-user' ||
+    normalized === 'singleuser' ||
+    normalized === 'managed-single' ||
+    normalized === 'local' ||
+    normalized === 'development' ||
+    normalized === 'dev';
+}
+
+function isTeamDeploymentMode(deploymentMode) {
+  const normalized = normalizeDeploymentMode(deploymentMode);
+  if (isSingleUserDeploymentMode(normalized)) return false;
+  return normalized.includes('team') ||
+    normalized.includes('enterprise') ||
+    normalized.includes('advanced');
+}
+
+function canEnableTeamFeaturesForDeployment(deploymentMode) {
+  return !isSingleUserDeploymentMode(deploymentMode);
+}
+
 function teamFeaturesEnabled(deploymentMode) {
-  const explicit = process.env.CANVAS_TEAM_FEATURES_ENABLED;
-  return explicit === 'true' || explicit === '1' || explicit === 'yes' || deploymentMode.toLowerCase().includes('team');
+  if (!canEnableTeamFeaturesForDeployment(deploymentMode)) return false;
+  return isTruthyEnv(process.env.CANVAS_TEAM_FEATURES_ENABLED) || isTeamDeploymentMode(deploymentMode);
 }
 
 function getPrimaryOrganization(db) {
@@ -379,6 +429,84 @@ function ensureScopedDirectories(organizationId, userId, includeTeamWorkspace) {
   }
 }
 
+function workspaceAbsoluteRoot(rootRelativePath) {
+  if (path.isAbsolute(rootRelativePath) || rootRelativePath.includes('\0')) {
+    throw new Error('Invalid workspace root path.');
+  }
+  const segments = rootRelativePath.replace(/\\/g, '/').split('/').filter(Boolean);
+  if (segments.some((segment) => segment === '..' || segment === '.')) {
+    throw new Error('Invalid workspace root path.');
+  }
+  return path.join(getDataRoot(), ...segments);
+}
+
+function ensureWorkspaceDirectory(rootRelativePath) {
+  mkdirSync(workspaceAbsoluteRoot(rootRelativePath), { recursive: true });
+}
+
+function ensureWorkspaceRecord(db, input) {
+  const now = Date.now();
+  const existing = input.type === 'personal'
+    ? db.prepare(`
+        SELECT id, root_relative_path, display_name, status
+        FROM canvas_workspaces
+        WHERE type = 'personal' AND owner_user_id = ?
+        LIMIT 1
+      `).get(input.ownerUserId)
+    : db.prepare(`
+        SELECT id, root_relative_path, display_name, status
+        FROM canvas_workspaces
+        WHERE type = 'team' AND organization_id = ?
+        LIMIT 1
+      `).get(input.organizationId);
+
+  if (existing) {
+    db.prepare(`
+      UPDATE canvas_workspaces
+      SET root_relative_path = ?, display_name = ?, updated_at = ?
+      WHERE id = ?
+    `).run(input.rootRelativePath, input.displayName, now, existing.id);
+    ensureWorkspaceDirectory(input.rootRelativePath);
+    return;
+  }
+
+  db.prepare(`
+    INSERT INTO canvas_workspaces (
+      id, organization_id, type, owner_user_id, root_relative_path, display_name, status, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?)
+  `).run(
+    `ws_${randomUUID()}`,
+    input.organizationId,
+    input.type,
+    input.ownerUserId,
+    input.rootRelativePath,
+    input.displayName,
+    now,
+    now,
+  );
+  ensureWorkspaceDirectory(input.rootRelativePath);
+}
+
+function ensureDefaultWorkspaceRecords(db, organizationId, userId, includeTeamWorkspace) {
+  ensureWorkspaceRecord(db, {
+    organizationId,
+    type: 'personal',
+    ownerUserId: userId,
+    rootRelativePath: path.posix.join('workspaces', 'personal', userId, 'files'),
+    displayName: 'Personal Workspace',
+  });
+
+  if (includeTeamWorkspace) {
+    ensureWorkspaceRecord(db, {
+      organizationId,
+      type: 'team',
+      ownerUserId: null,
+      rootRelativePath: path.posix.join('workspaces', 'team', organizationId, 'files'),
+      displayName: 'Team Workspace',
+    });
+  }
+}
+
 function ensureOrganizationBootstrap(db, userId) {
   const targetUser = findUserById(db, userId);
   if (!targetUser) {
@@ -418,8 +546,10 @@ function ensureOrganizationBootstrap(db, userId) {
     ensurePermissionRow(db, organization.organization_id, targetUser.id, 'admin');
   }
   ensureScopedDirectories(organization.organization_id, ownerUser.id, includeTeamWorkspace);
+  ensureDefaultWorkspaceRecords(db, organization.organization_id, ownerUser.id, includeTeamWorkspace);
   if (targetUser.id !== ownerUser.id) {
     ensureScopedDirectories(organization.organization_id, targetUser.id, includeTeamWorkspace);
+    ensureDefaultWorkspaceRecords(db, organization.organization_id, targetUser.id, includeTeamWorkspace);
   }
 }
 

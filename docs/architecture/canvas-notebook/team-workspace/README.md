@@ -1,6 +1,6 @@
 # Canvas Notebook Team Workspace
 
-Stand: 2026-06-18
+Stand: 2026-06-20
 
 Dieses Verzeichnis ist der zentrale Arbeitsbereich fuer den Team-Workspace-Umbau in Canvas Notebook.
 
@@ -57,4 +57,8 @@ Dieses Verzeichnis ist der zentrale Arbeitsbereich fuer den Team-Workspace-Umbau
 - Database-Provider-Policy fuer SQLite, Postgres, RAG, Collaboration, Installer und Control Plane ist dokumentiert.
 - Collaboration- und File-Conflict-Policy fuer Text, Office/PDF und Assets ist dokumentiert.
 - Control-Plane-Status-Quo fuer Managed Env, Installer-Artefakte, VM-Agent, VM-Actions und VM-Detailseite ist in der Database-Provider-Policy mit konkreten Zielpfaden abgeglichen.
-- Naechster Schritt: Initiales Admin-/Owner-Setup und Admin-only Gates absichern.
+- Control Plane Managed Mode, Team-Claims, Managed ENV und Organization-Runtime-Provisioning sind umgesetzt und in PR #3 gemerged.
+- Workspace-Modell, Workspace-Service, Bootstrap-Erzeugung und `/api/workspaces` in Canvas Notebook sind eingefuehrt.
+- Community-/Single-User-Installationen bleiben auch bei gesetztem Team-Flag auf Personal Workspace begrenzt.
+- Personal Workspaces werden pro User angelegt; Team Workspace wird nur in teamfaehigen Deployment Modes angelegt.
+- Naechster Schritt: Globalen Workspace-Switcher fuer Startseite, Chat Header und File Browser bauen.

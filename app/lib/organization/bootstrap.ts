@@ -8,6 +8,7 @@ import path from 'node:path';
 import { getBootstrapAdminEmail } from '@/app/lib/bootstrap-admin';
 import { runMigrations } from '@/app/lib/db/migrate';
 import { resolveWorkspaceDataRoot } from '@/app/lib/workspaces/context';
+import { ensureDefaultWorkspaceRecords } from '@/app/lib/workspaces/service';
 
 export const LOCAL_ORGANIZATION_ID_PREFIX = 'org_';
 
@@ -107,6 +108,33 @@ function isTruthyEnv(value: string | undefined): boolean {
   return value === 'true' || value === '1' || value === 'yes';
 }
 
+function normalizeDeploymentMode(value: string): string {
+  return value.trim().toLowerCase().replace(/_/g, '-');
+}
+
+export function isSingleUserDeploymentMode(deploymentMode = getDeploymentMode()): boolean {
+  const normalized = normalizeDeploymentMode(deploymentMode);
+  return normalized === 'community' ||
+    normalized === 'single-user' ||
+    normalized === 'singleuser' ||
+    normalized === 'managed-single' ||
+    normalized === 'local' ||
+    normalized === 'development' ||
+    normalized === 'dev';
+}
+
+export function isTeamDeploymentMode(deploymentMode = getDeploymentMode()): boolean {
+  const normalized = normalizeDeploymentMode(deploymentMode);
+  if (isSingleUserDeploymentMode(normalized)) return false;
+  return normalized.includes('team') ||
+    normalized.includes('enterprise') ||
+    normalized.includes('advanced');
+}
+
+export function canEnableTeamFeaturesForDeployment(deploymentMode = getDeploymentMode()): boolean {
+  return !isSingleUserDeploymentMode(deploymentMode);
+}
+
 export function getConfiguredOrganizationId(): string | null {
   const value = process.env.CANVAS_ORGANIZATION_ID?.trim();
   return value || null;
@@ -126,7 +154,8 @@ export function getDeploymentMode(): string {
 }
 
 export function areTeamFeaturesEnabled(deploymentMode = getDeploymentMode()): boolean {
-  return isTruthyEnv(process.env.CANVAS_TEAM_FEATURES_ENABLED) || deploymentMode.toLowerCase().includes('team');
+  if (!canEnableTeamFeaturesForDeployment(deploymentMode)) return false;
+  return isTruthyEnv(process.env.CANVAS_TEAM_FEATURES_ENABLED) || isTeamDeploymentMode(deploymentMode);
 }
 
 function booleanFromDb(value: number | null | undefined): boolean {
@@ -381,8 +410,18 @@ export function ensureOrganizationBootstrapForUser(
   }
 
   ensureScopedDirectories(organization.organization_id, ownerUser.id, teamFeaturesEnabled);
+  ensureDefaultWorkspaceRecords(sqlite, {
+    organizationId: organization.organization_id,
+    userId: ownerUser.id,
+    teamFeaturesEnabled,
+  });
   if (targetUser.id !== ownerUser.id) {
     ensureScopedDirectories(organization.organization_id, targetUser.id, teamFeaturesEnabled);
+    ensureDefaultWorkspaceRecords(sqlite, {
+      organizationId: organization.organization_id,
+      userId: targetUser.id,
+      teamFeaturesEnabled,
+    });
   }
 
   return buildStatus(sqlite, organization, ownerUser, ownerPermission);
@@ -423,6 +462,10 @@ function buildStatus(
     ? buildScopedPaths(organizationId, ownerUserId, teamFeaturesEnabled)
     : null;
   const warnings: string[] = [];
+
+  if (isTruthyEnv(process.env.CANVAS_TEAM_FEATURES_ENABLED) && !canEnableTeamFeaturesForDeployment(deploymentMode)) {
+    warnings.push('CANVAS_TEAM_FEATURES_ENABLED is ignored for this single-user deployment mode.');
+  }
 
   if (teamFeaturesEnabled && databaseProvider !== 'postgres') {
     warnings.push('Team features are enabled but CANVAS_DATABASE_PROVIDER is not postgres.');
