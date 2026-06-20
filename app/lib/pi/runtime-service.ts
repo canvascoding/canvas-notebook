@@ -16,6 +16,11 @@ import {
 import { getStudioOutputsRoot } from '@/app/lib/integrations/studio-workspace';
 import { normalizeTimeZone } from '@/app/lib/time-zones';
 import { getUserPreferredTimeZone } from '@/app/lib/user-preferences';
+import {
+  ensurePiSessionWorkspaceSnapshot,
+  requestedWorkspaceIdFromChatContext,
+  workspaceToChatRequestWorkspace,
+} from '@/app/lib/pi/session-workspace-context';
 
 export type UserAgentMessage = Extract<AgentMessage, { role: 'user' }>;
 
@@ -95,7 +100,11 @@ export function resolveChatRequestContext(payload: unknown): ChatRequestContext 
     : record as ChatRequestContext;
 }
 
-async function normalizeContext(context: ChatRequestContext | undefined, userId: string): Promise<ChatRequestContext> {
+async function normalizeContext(
+  context: ChatRequestContext | undefined,
+  userId: string,
+  sessionId: string,
+): Promise<ChatRequestContext> {
   let userTimeZone: string;
   try {
     userTimeZone = await getUserPreferredTimeZone(userId);
@@ -104,12 +113,29 @@ async function normalizeContext(context: ChatRequestContext | undefined, userId:
     userTimeZone = normalizeTimeZone(context?.userTimeZone);
   }
 
+  let workspace: ChatRequestContext['workspace'] | undefined;
+  try {
+    const resolvedWorkspace = await ensurePiSessionWorkspaceSnapshot({
+      sessionId,
+      userId,
+      requestedWorkspaceId: requestedWorkspaceIdFromChatContext(context),
+    });
+    workspace = workspaceToChatRequestWorkspace(resolvedWorkspace);
+  } catch (error) {
+    console.warn('[RuntimeService] Failed to resolve session workspace context:', {
+      sessionId,
+      userId,
+      error: getErrorMessage(error),
+    });
+  }
+
   return {
     channelId: typeof context?.channelId === 'string' ? context.channelId : undefined,
     userTimeZone,
     currentTime: typeof context?.currentTime === 'string' ? context.currentTime : new Date().toISOString(),
     activeFilePath: typeof context?.activeFilePath === 'string' ? context.activeFilePath : null,
     workingDirectory: typeof context?.workingDirectory === 'string' ? context.workingDirectory : undefined,
+    workspace,
     planningMode: context?.planningMode === true,
     currentPage: typeof context?.currentPage === 'string' ? context.currentPage : undefined,
     studioContext: context?.studioContext,
@@ -201,6 +227,7 @@ function applyPromptContext(runtimeInstance: RuntimeInstance, context: ChatReque
   runtimeInstance.setPlanningMode(context.planningMode === true);
   runtimeInstance.setPageContext(context.currentPage);
   runtimeInstance.setStudioContext(context.studioContext);
+  runtimeInstance.setWorkspaceContext(context.workspace);
 }
 
 export async function prepareRuntimePrompt(
@@ -213,7 +240,7 @@ export async function prepareRuntimePrompt(
   status: PiRuntimeStatus;
   context: ChatRequestContext;
 }> {
-  const context = await normalizeContext(resolveChatRequestContext(payload), userId);
+  const context = await normalizeContext(resolveChatRequestContext(payload), userId, sessionId);
   const runtimeInstance = await getOrCreatePiRuntime(sessionId, userId);
   const promptMessage = await injectStudioImage(resolvePromptMessage(payload), context);
   const status = runtimeInstance.getStatus();
@@ -223,6 +250,9 @@ export async function prepareRuntimePrompt(
   }
 
   applyPromptContext(runtimeInstance, context);
+  if (!status.canAbort) {
+    await runtimeInstance.reloadTools();
+  }
 
   console.log('[RuntimeService] Runtime status:', {
     sessionId,
@@ -230,6 +260,8 @@ export async function prepareRuntimePrompt(
     contextWindow: status.contextWindow,
     hasStudioContext: !!context.studioContext,
     hasEmailContext: !!context.emailContext,
+    workspaceId: context.workspace?.workspaceId,
+    workspaceType: context.workspace?.workspaceType,
     studioOutputPath: context.studioContext?.outputFilePath,
   });
 

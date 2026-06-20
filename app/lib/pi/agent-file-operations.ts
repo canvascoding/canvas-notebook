@@ -9,6 +9,7 @@ import {
   syncPublicSharesAfterMove,
   syncPublicSharesAfterWrite,
 } from '@/app/lib/public-sharing/public-file-shares';
+import { getAgentExecutionContext } from '@/app/lib/pi/agent-execution-context';
 
 const SNAPSHOT_DIR_NAME = 'agent-file-snapshots';
 const MAX_DIFF_CHARS = 24_000;
@@ -111,6 +112,11 @@ export function getAgentDataRoot(): string {
 }
 
 export function getAgentWorkspaceRoot(): string {
+  const executionContext = getAgentExecutionContext();
+  if (executionContext?.workspaceRoot) {
+    return executionContext.workspaceRoot;
+  }
+
   return path.join(getAgentDataRoot(), 'workspace');
 }
 
@@ -139,6 +145,62 @@ function isPathWithin(candidatePath: string, basePath: string): boolean {
   return normalizedCandidate === normalizedBase || normalizedCandidate.startsWith(`${normalizedBase}${path.sep}`);
 }
 
+function getManagedWorkspaceRoots(): string[] {
+  const dataRoot = getAgentDataRoot();
+  return [
+    path.join(dataRoot, 'workspace'),
+    path.join(dataRoot, 'workspaces'),
+    '/data/workspace',
+    '/data/workspaces',
+  ];
+}
+
+function isManagedWorkspacePath(candidatePath: string): boolean {
+  return getManagedWorkspaceRoots().some((workspaceRoot) => isPathWithin(candidatePath, workspaceRoot));
+}
+
+function assertContextWorkspaceReadAllowed(candidatePath: string): void {
+  const executionContext = getAgentExecutionContext();
+  if (!executionContext) return;
+
+  const resolvedPath = path.resolve(candidatePath);
+  if (isManagedWorkspacePath(resolvedPath) && !isPathWithin(resolvedPath, executionContext.workspaceRoot)) {
+    throw new Error('Agent file access is limited to the workspace bound to this chat session.');
+  }
+}
+
+async function assertContextWorkspaceWriteAllowed(candidatePath: string): Promise<void> {
+  const executionContext = getAgentExecutionContext();
+  if (!executionContext) return;
+
+  const workspaceRoot = path.resolve(executionContext.workspaceRoot);
+  const resolvedPath = path.resolve(candidatePath);
+  if (!isPathWithin(resolvedPath, workspaceRoot)) {
+    throw new Error('Agent file writes are limited to the workspace bound to this chat session.');
+  }
+
+  if (!executionContext.canWrite) {
+    throw new Error('Agent file writes are disabled for the active workspace.');
+  }
+
+  const workspaceRootRealPath = await resolveWorkspaceRootRealPath(workspaceRoot);
+  try {
+    const realPath = await fs.realpath(resolvedPath);
+    if (!isPathWithin(realPath, workspaceRootRealPath)) {
+      throw new Error('Agent file writes are limited to the workspace bound to this chat session.');
+    }
+  } catch (error) {
+    if (!isEnoent(error)) {
+      throw error;
+    }
+
+    const realParent = await resolveNearestExistingParentPath(resolvedPath);
+    if (!isPathWithin(realParent, workspaceRootRealPath)) {
+      throw new Error('Agent file writes are limited to the workspace bound to this chat session.');
+    }
+  }
+}
+
 function getProtectedAgentPaths(): string[] {
   const dataRoot = getAgentDataRoot();
   return [
@@ -157,12 +219,15 @@ export function isProtectedAgentPath(candidatePath: string): boolean {
 }
 
 export async function assertAgentPathAllowed(candidatePath: string): Promise<void> {
+  assertContextWorkspaceReadAllowed(candidatePath);
+
   if (isProtectedAgentPath(candidatePath)) {
     throw new Error('Access to this path is restricted for security reasons.');
   }
 
   try {
     const realPath = await fs.realpath(candidatePath);
+    assertContextWorkspaceReadAllowed(realPath);
     if (isProtectedAgentPath(realPath)) {
       throw new Error('Access to this path is restricted for security reasons.');
     }
@@ -174,16 +239,12 @@ export async function assertAgentPathAllowed(candidatePath: string): Promise<voi
   }
 }
 
-async function assertNearestWritableParentAllowed(candidatePath: string): Promise<void> {
+async function resolveNearestExistingParentPath(candidatePath: string): Promise<string> {
   let current = path.dirname(path.resolve(candidatePath));
 
   while (current !== path.dirname(current)) {
     try {
-      const realCurrent = await fs.realpath(current);
-      if (isProtectedAgentPath(realCurrent)) {
-        throw new Error('Access to this path is restricted for security reasons.');
-      }
-      return;
+      return await fs.realpath(current);
     } catch (error) {
       if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') {
         current = path.dirname(current);
@@ -196,7 +257,26 @@ async function assertNearestWritableParentAllowed(candidatePath: string): Promis
   throw new Error('Unable to resolve a writable parent directory.');
 }
 
+async function resolveWorkspaceRootRealPath(workspaceRoot: string): Promise<string> {
+  try {
+    return await fs.realpath(workspaceRoot);
+  } catch (error) {
+    if (isEnoent(error)) {
+      return path.resolve(workspaceRoot);
+    }
+    throw error;
+  }
+}
+
+async function assertNearestWritableParentAllowed(candidatePath: string): Promise<void> {
+  const realParent = await resolveNearestExistingParentPath(candidatePath);
+  if (isProtectedAgentPath(realParent)) {
+    throw new Error('Access to this path is restricted for security reasons.');
+  }
+}
+
 export async function assertAgentWritablePathAllowed(candidatePath: string): Promise<void> {
+  await assertContextWorkspaceWriteAllowed(candidatePath);
   await assertAgentPathAllowed(candidatePath);
   await assertNearestWritableParentAllowed(candidatePath);
 }
@@ -1243,7 +1323,21 @@ export async function deleteAgentPaths(params: {
 }
 
 function isManagedDataPath(target: string): boolean {
-  return /^\/data\/(?:workspace|agents)(?:\/|$)/.test(target);
+  const normalized = path.isAbsolute(target) ? path.resolve(target) : target;
+  if (/^\/data\/(?:workspace|workspaces|agents)(?:\/|$)/.test(normalized)) {
+    return true;
+  }
+  if (!path.isAbsolute(normalized)) {
+    return false;
+  }
+
+  const dataRoot = getAgentDataRoot();
+  const candidateRoots = [
+    getAgentWorkspaceRoot(),
+    path.join(dataRoot, 'workspaces'),
+    path.join(dataRoot, 'agents'),
+  ];
+  return candidateRoots.some((candidateRoot) => isPathWithin(normalized, candidateRoot));
 }
 
 function stripShellTokenQuotes(token: string): string {
@@ -1299,8 +1393,10 @@ export function detectUnsafeBashCommand(command: string): string | null {
   }
 
   const normalized = command.replace(/\s+/g, ' ').trim();
-  const mentionsManagedPath = /\/data\/(?:workspace|agents)(?:\/|$)/.test(normalized);
-  const cdsIntoManagedPath = /\bcd\s+\/data\/(?:workspace|agents)(?:\/|$|\s)/.test(normalized);
+  const executionContext = getAgentExecutionContext();
+  const mentionsManagedPath = /\/data\/(?:workspace|workspaces|agents)(?:\/|$)/.test(normalized) ||
+    Boolean(executionContext?.workspaceRoot && normalized.includes(executionContext.workspaceRoot));
+  const cdsIntoManagedPath = /\bcd\s+\/data\/(?:workspace|workspaces|agents)(?:\/|$|\s)/.test(normalized);
 
   if (/\bsed\b(?=[^;&|]*\s-[A-Za-z]*i(?:\b|\.|['"]|$))/.test(normalized)) {
     return 'Unsafe in-place file edits with sed are blocked. Use edit_file or apply_patch instead.';
@@ -1311,7 +1407,7 @@ export function detectUnsafeBashCommand(command: string): string | null {
   }
 
   if ((mentionsManagedPath || cdsIntoManagedPath) && /\btee\b/.test(normalized)) {
-    return 'Shell file writes with tee in /data/workspace or /data/agents are blocked. Use write, edit_file, or apply_patch instead.';
+    return 'Shell file writes with tee in workspace or agent paths are blocked. Use write, edit_file, or apply_patch instead.';
   }
 
   if ((mentionsManagedPath || cdsIntoManagedPath) && shellRedirectWritesManagedPath(normalized, cdsIntoManagedPath)) {

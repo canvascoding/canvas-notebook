@@ -14,6 +14,7 @@ import { getActiveAiAgentEngine } from '@/app/lib/agents/runtime';
 import { DEFAULT_SESSION_TITLE } from '@/app/lib/pi/session-titles';
 import { CANVAS_CONTROL_PLANE_PROVIDER_ID, getCanvasControlPlaneModels, getPiModels, OLLAMA_PROVIDER_ID, OPENAI_COMPATIBLE_PROVIDER_ID } from '@/app/lib/pi/model-resolver';
 import type { PiThinkingLevel } from '@/app/lib/pi/config';
+import type { ChatRequestContext } from '@/app/lib/chat/types';
 import { getActiveRuntimeStatusSummaries, getStatus, invalidateRuntime } from '@/app/lib/pi/runtime-service';
 import { DEFAULT_AGENT_ID, WEB_CHANNEL_ID, normalizeStoredChannelId, webChannelSessionKey } from '@/app/lib/channels/constants';
 import { ensureDefaultAgent } from '@/app/lib/channels/agents';
@@ -23,6 +24,11 @@ import { getAgentProfile, normalizeManagedAgentId } from '@/app/lib/agents/regis
 import { deletePiSessionsByDbIds } from '@/app/lib/pi/session-deletion';
 import { createPiSystemPromptSnapshot, piSystemPromptSnapshotDbFields } from '@/app/lib/pi/system-prompt-snapshot';
 import { markPiSessionAsReadForUser, markPiSessionAsUnreadForUser } from '@/app/lib/chat/session-read-state';
+import {
+  resolveAgentSessionWorkspaceForUser,
+  storedPiSessionWorkspaceToSummary,
+  workspaceToPiSessionFields,
+} from '@/app/lib/pi/session-workspace-context';
 
 type CreateSessionPayload = {
   title?: string;
@@ -31,6 +37,8 @@ type CreateSessionPayload = {
   agentId?: string;
   channelId?: string;
   channelSessionKey?: string;
+  workspaceId?: string;
+  workspace?: ChatRequestContext['workspace'];
 };
 
 type RenameSessionPayload = {
@@ -84,6 +92,10 @@ function normalizeOptionalString(value: unknown): string | null {
 
 function normalizeSessionAgentId(value: unknown): string {
   return normalizeManagedAgentId(normalizeOptionalString(value));
+}
+
+function resolveCreateSessionWorkspaceId(payload: CreateSessionPayload): string | null {
+  return normalizeOptionalString(payload.workspaceId) ?? normalizeOptionalString(payload.workspace?.workspaceId);
 }
 
 function normalizeThinkingLevel(value: unknown): PiThinkingLevel | null {
@@ -259,6 +271,11 @@ export async function GET(request: NextRequest) {
           createdAt: piSessions.createdAt,
           lastMessageAt: piSessions.lastMessageAt,
           lastViewedAt: piSessions.lastViewedAt,
+          organizationId: piSessions.organizationId,
+          workspaceId: piSessions.workspaceId,
+          workspaceType: piSessions.workspaceType,
+          workspaceName: piSessions.workspaceName,
+          workspaceRootRelativePath: piSessions.workspaceRootRelativePath,
           creatorName: user.name,
           creatorEmail: user.email,
         })
@@ -316,6 +333,15 @@ export async function GET(request: NextRequest) {
         runtimeActiveToolName: runtimeStatus?.activeToolName ?? null,
         channelId: item.channelId,
         hasUnread,
+        workspace: item.engine === 'pi'
+          ? storedPiSessionWorkspaceToSummary({
+            workspaceId: 'workspaceId' in item ? item.workspaceId : null,
+            workspaceType: 'workspaceType' in item ? item.workspaceType : null,
+            workspaceName: 'workspaceName' in item ? item.workspaceName : null,
+            workspaceRootRelativePath: 'workspaceRootRelativePath' in item ? item.workspaceRootRelativePath : null,
+            organizationId: 'organizationId' in item ? item.organizationId : null,
+          })
+          : null,
         creator: {
           name: item.creatorName || null,
           email: item.creatorEmail || null,
@@ -402,6 +428,11 @@ export async function POST(request: NextRequest) {
         : normalizedChannelId === WEB_CHANNEL_ID
           ? webChannelSessionKey(session.user.id)
           : null;
+      const workspace = await resolveAgentSessionWorkspaceForUser({
+        userId: session.user.id,
+        workspaceId: resolveCreateSessionWorkspaceId(payload),
+      });
+      const workspaceFields = workspaceToPiSessionFields(workspace);
 
       const inserted = await db
         .insert(piSessions)
@@ -415,6 +446,7 @@ export async function POST(request: NextRequest) {
           title,
           channelId: 'app',
           channelSessionKey: null,
+          ...workspaceFields,
           ...piSystemPromptSnapshotDbFields(promptSnapshot),
           createdAt: new Date(),
           updatedAt: new Date(),
@@ -435,6 +467,7 @@ export async function POST(request: NextRequest) {
         session: {
           ...inserted[0],
           engine: 'pi',
+          workspace: storedPiSessionWorkspaceToSummary(inserted[0]),
           creator: {
             name: session.user.name || null,
             email: session.user.email || null,

@@ -63,4 +63,5 @@ Dieses Verzeichnis ist der zentrale Arbeitsbereich fuer den Team-Workspace-Umbau
 - Personal Workspaces werden pro User angelegt; Team Workspace wird nur in teamfaehigen Deployment Modes angelegt.
 - Globaler Workspace-Switcher, Workspace-Badge, clientseitiger Workspace-Store und Chat-Neustart bei Workspace-Wechsel sind eingefuehrt.
 - Kopieraktionen zwischen Personal und Team Workspace sind fuer File Browser und Studio-Importe umgesetzt.
-- Naechster Schritt: Agent-Runtime-Einstellungen und Agent-Sessions an User-/Workspace-Kontext binden.
+- Agent-Runtime-Einstellungen und Agent-Sessions sind an User-/Workspace-Kontext gebunden.
+- Naechster Schritt: Plugins, Skills und Agent-Definitionen auf User-Scope mit optionaler Organization-Teilung migrieren.

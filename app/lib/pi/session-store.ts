@@ -13,6 +13,10 @@ import {
 import { parsePersistedPiMessage, type PiMessageProjectionMode } from './message-projection';
 import { ensureSessionChannelLink } from '@/app/lib/channels/channel-links';
 import { DEFAULT_AGENT_ID, normalizeChannelThreadKey, normalizeStoredChannelId, WEB_CHANNEL_ID, webChannelSessionKey } from '@/app/lib/channels/constants';
+import {
+  resolveAgentSessionWorkspaceForUser,
+  workspaceToPiSessionFields,
+} from '@/app/lib/pi/session-workspace-context';
 
 /**
  * Handles persistence for PI session snapshots (AgentMessage context).
@@ -131,6 +135,7 @@ export async function savePiSession(
 
   if (!session) {
     const promptSnapshot = options?.systemPromptSnapshot ?? await createPiSystemPromptSnapshot(agentId);
+    const workspace = await resolveAgentSessionWorkspaceForUser({ userId });
     const [inserted] = await db.insert(piSessions).values({
       sessionId,
       userId,
@@ -144,6 +149,7 @@ export async function savePiSession(
       updatedAt: new Date(),
       lastMessageAt: lastMessageAt,
       lastViewedAt: null,
+      ...workspaceToPiSessionFields(workspace),
       ...piSystemPromptSnapshotDbFields(promptSnapshot),
       ...summaryFields,
     }).returning({ id: piSessions.id });
@@ -154,6 +160,9 @@ export async function savePiSession(
     const promptSnapshotFields = session.systemPromptSnapshot
       ? {}
       : piSystemPromptSnapshotDbFields(options?.systemPromptSnapshot ?? await createPiSystemPromptSnapshot(agentId));
+    const workspaceFields = session.workspaceId
+      ? {}
+      : workspaceToPiSessionFields(await resolveAgentSessionWorkspaceForUser({ userId }));
 
     await db.update(piSessions)
       .set({ 
@@ -162,6 +171,7 @@ export async function savePiSession(
         provider,
         model,
         lastMessageAt: lastMessageAt,
+        ...workspaceFields,
         ...promptSnapshotFields,
         ...summaryFields 
       })

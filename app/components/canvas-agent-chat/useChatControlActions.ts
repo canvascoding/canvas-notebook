@@ -270,12 +270,17 @@ export function useChatControlActions({
       : configuredModelState?.thinkingLevel || activeThinkingLevel;
     const optimisticTitle = getOptimisticSessionTitle(preferredTitle ?? input, t('newChatTitle'));
     const requestedTitle = isAutomaticSessionTitle(optimisticTitle) ? undefined : optimisticTitle;
+    const requestContext = buildRequestContext(currentFilePath);
 
     const createSessionPayload = await createChatSession({
       agentId,
       ...(requestedTitle ? { title: requestedTitle } : {}),
       ...(requestedModel ? { model: requestedModel } : {}),
       ...(requestedThinkingLevel ? { thinkingLevel: requestedThinkingLevel } : {}),
+      ...(requestContext.workspace ? {
+        workspaceId: requestContext.workspace.workspaceId,
+        workspace: requestContext.workspace,
+      } : {}),
     });
 
     if (!createSessionPayload?.success || !createSessionPayload.session?.sessionId) {
@@ -314,13 +319,14 @@ export function useChatControlActions({
       engine: createSessionPayload.session.engine || 'pi',
       lastMessageAt: new Date().toISOString(),
       hasUnread: false,
+      workspace: createSessionPayload.session.workspace ?? null,
       creator: createSessionPayload.session.creator,
     };
 
     addSessionToHistory(newSession);
 
     return nextSessionId;
-  }, [activeModel, activeProvider, activeThinkingLevel, addSessionToHistory, agentConfig, input, optimisticSessionTitlesRef, selectedAgentId, sessionAgentIdRef, sessionIdRef, setActiveModel, setActiveProvider, setActiveThinkingLevel, setSessionId, setSessionTitle, skipNextSessionStatusRefreshRef, t]);
+  }, [activeModel, activeProvider, activeThinkingLevel, addSessionToHistory, agentConfig, buildRequestContext, currentFilePath, input, optimisticSessionTitlesRef, selectedAgentId, sessionAgentIdRef, sessionIdRef, setActiveModel, setActiveProvider, setActiveThinkingLevel, setSessionId, setSessionTitle, skipNextSessionStatusRefreshRef, t]);
 
   const postControl = useCallback(async (
     targetSessionId: string,

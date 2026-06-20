@@ -56,7 +56,9 @@ eröffne ausschließlich auf localhost 3000 einen dev server. starte keine neuen
 - Git history has a single initial commit; no enforced convention.
 - Use short, descriptive commit messages (e.g., `Fix terminal copy on iPad`).
 - PRs should include: summary, screenshots for UI changes, and steps to verify.
-- Before any PR is merged into `main`, run a `greploop` review for that PR and document the resulting score in the PR.
+- After opening a PR, stop the tool loop and do not manually trigger Greptile/greploop. Greptile performs the first review automatically after PR creation. Wait for the user to say that the first Greptile review has completed or explicitly trigger `/greploop`.
+- Use the `greploop` skill only after the user confirms the automatic Greptile review is available or explicitly asks for it.
+- Before any PR is merged into `main`, review the Greptile/greploop result for that PR and document the resulting score in the PR.
 - Trigger Greptile/greploop at most once per PR head SHA. If Greptile accepts the trigger but does not publish an updated score, wait and treat the PR as blocked; do not post another `@greptile review` for the same head.
 - After addressing review feedback and pushing a new commit, the new head SHA may be reviewed once.
 - A `greploop` score of 4 out of 5 is sufficient for merge; a perfect 5 out of 5 is not required.
