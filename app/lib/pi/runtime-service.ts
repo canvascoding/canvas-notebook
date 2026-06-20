@@ -113,11 +113,21 @@ async function normalizeContext(
     userTimeZone = normalizeTimeZone(context?.userTimeZone);
   }
 
-  const workspace = await ensurePiSessionWorkspaceSnapshot({
-    sessionId,
-    userId,
-    requestedWorkspaceId: requestedWorkspaceIdFromChatContext(context),
-  });
+  let workspace: ChatRequestContext['workspace'] | undefined;
+  try {
+    const resolvedWorkspace = await ensurePiSessionWorkspaceSnapshot({
+      sessionId,
+      userId,
+      requestedWorkspaceId: requestedWorkspaceIdFromChatContext(context),
+    });
+    workspace = workspaceToChatRequestWorkspace(resolvedWorkspace);
+  } catch (error) {
+    console.warn('[RuntimeService] Failed to resolve session workspace context:', {
+      sessionId,
+      userId,
+      error: getErrorMessage(error),
+    });
+  }
 
   return {
     channelId: typeof context?.channelId === 'string' ? context.channelId : undefined,
@@ -125,7 +135,7 @@ async function normalizeContext(
     currentTime: typeof context?.currentTime === 'string' ? context.currentTime : new Date().toISOString(),
     activeFilePath: typeof context?.activeFilePath === 'string' ? context.activeFilePath : null,
     workingDirectory: typeof context?.workingDirectory === 'string' ? context.workingDirectory : undefined,
-    workspace: workspaceToChatRequestWorkspace(workspace),
+    workspace,
     planningMode: context?.planningMode === true,
     currentPage: typeof context?.currentPage === 'string' ? context.currentPage : undefined,
     studioContext: context?.studioContext,

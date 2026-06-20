@@ -3365,11 +3365,18 @@ export async function getPiTools(userId?: string, agentId?: string | null, sessi
   }
 
   if (userId && sessionId) {
-    const executionContext = await resolveAgentExecutionContextForSession({
-      userId,
-      sessionId,
-      agentId,
-    });
+    let executionContext: AgentExecutionContext;
+    try {
+      executionContext = await resolveAgentExecutionContextForSession({
+        userId,
+        sessionId,
+        agentId,
+      });
+    } catch (error) {
+      console.error('[ToolRegistry] Failed to resolve workspace execution context; disabling tools for this session:', error);
+      return [];
+    }
+
     return allTools.map((tool) => wrapToolWithExecutionContext(tool, executionContext));
   }
 
