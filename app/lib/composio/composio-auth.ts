@@ -3,6 +3,7 @@ import 'server-only';
 import { getComposio } from './composio-client';
 import { getComposioSession, getComposioUserId } from './composio-session';
 import { getAvailableToolkitsRaw } from './composio-toolkit-registry';
+import type { EnvStorageScope } from '../integrations/env-config';
 
 export type ComposioConnectedAccountStatus =
   | 'INITIALIZING'
@@ -17,11 +18,11 @@ type ConnectedAccountListOptions = {
   statuses?: ComposioConnectedAccountStatus[];
 };
 
-export async function initiateConnection(toolkit: string): Promise<{ redirectUrl: string | null; noAuth?: boolean }> {
-  const composio = await getComposio();
+export async function initiateConnection(toolkit: string, storageScope?: EnvStorageScope | null): Promise<{ redirectUrl: string | null; noAuth?: boolean }> {
+  const composio = await getComposio(storageScope);
   if (!composio) throw new Error('Composio not configured');
 
-  const rawItems = await getAvailableToolkitsRaw();
+  const rawItems = await getAvailableToolkitsRaw(storageScope);
   const toolkitInfo = rawItems.find((item) => {
     const t = item as Record<string, unknown>;
     return t.slug === toolkit;
@@ -33,7 +34,7 @@ export async function initiateConnection(toolkit: string): Promise<{ redirectUrl
     return { redirectUrl: null, noAuth: true };
   }
 
-  const session = await getComposioSession();
+  const session = await getComposioSession(storageScope);
   if (!session) throw new Error('Composio not configured');
 
   const callbackUrl = `${getAppBaseUrl()}/api/composio/callback`;
@@ -41,19 +42,19 @@ export async function initiateConnection(toolkit: string): Promise<{ redirectUrl
   return { redirectUrl: connectionRequest.redirectUrl };
 }
 
-export async function disconnectTool(toolkit: string): Promise<void> {
-  const accounts = await getConnectedAccounts();
+export async function disconnectTool(toolkit: string, storageScope?: EnvStorageScope | null): Promise<void> {
+  const accounts = await getConnectedAccounts({}, storageScope);
   const account = accounts.find((a) => a.toolkit?.slug === toolkit);
 
   if (account) {
-    const composio = await getComposio();
+    const composio = await getComposio(storageScope);
     if (!composio) throw new Error('Composio not configured');
     await composio.connectedAccounts.delete((account as { id: string }).id);
   }
 }
 
-export async function getAuthConfigs(): Promise<Array<Record<string, unknown>>> {
-  const composio = await getComposio();
+export async function getAuthConfigs(storageScope?: EnvStorageScope | null): Promise<Array<Record<string, unknown>>> {
+  const composio = await getComposio(storageScope);
   if (!composio) return [];
 
   try {
@@ -67,11 +68,14 @@ export async function getAuthConfigs(): Promise<Array<Record<string, unknown>>> 
   }
 }
 
-export async function getConnectedAccounts(options: ConnectedAccountListOptions = {}) {
-  const composio = await getComposio();
+export async function getConnectedAccounts(
+  options: ConnectedAccountListOptions = {},
+  storageScope?: EnvStorageScope | null,
+) {
+  const composio = await getComposio(storageScope);
   if (!composio) return [];
 
-  const userId = await getComposioUserId();
+  const userId = await getComposioUserId(storageScope);
   const allItems: Array<{ id: string; toolkit?: { slug?: string; name?: string }; status?: string; createdAt?: string; [key: string]: unknown }> = [];
   let cursor: string | undefined;
 
@@ -88,12 +92,12 @@ export async function getConnectedAccounts(options: ConnectedAccountListOptions 
   return allItems;
 }
 
-export async function getActiveConnectedAccounts() {
-  return getConnectedAccounts({ statuses: ['ACTIVE'] });
+export async function getActiveConnectedAccounts(storageScope?: EnvStorageScope | null) {
+  return getConnectedAccounts({ statuses: ['ACTIVE'] }, storageScope);
 }
 
-export async function getToolkitsWithStatus() {
-  const session = await getComposioSession();
+export async function getToolkitsWithStatus(storageScope?: EnvStorageScope | null) {
+  const session = await getComposioSession(storageScope);
   if (!session) return [];
 
   const { items } = await session.toolkits();

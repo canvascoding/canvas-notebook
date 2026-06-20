@@ -233,6 +233,7 @@ export async function startEmailOAuth(userId: string, params: {
 }
 
 export async function getEmailOAuthStatus(params: {
+  userId?: string | null;
   requestOrigin?: string | null;
 }): Promise<EmailOAuthStatusResponse> {
   if (isManagedEmailAvailable()) {
@@ -246,7 +247,7 @@ export async function getEmailOAuthStatus(params: {
       managedAvailable: true,
     };
   }
-  return getLocalEmailOAuthStatus(params.requestOrigin);
+  return getLocalEmailOAuthStatus(params.requestOrigin, params.userId);
 }
 
 export async function listEmailAccounts(userId: string) {

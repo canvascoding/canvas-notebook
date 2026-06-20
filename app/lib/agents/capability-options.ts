@@ -55,15 +55,16 @@ async function loadMcpConnectionOptions(): Promise<AgentConnectionOption[]> {
     }));
 }
 
-async function loadComposioConnectionOptions(): Promise<AgentConnectionOption[]> {
-  const status = await getGatewayStatus();
+async function loadComposioConnectionOptions(userId?: string | null): Promise<AgentConnectionOption[]> {
+  const storageScope = userId ? { userId } : undefined;
+  const status = await getGatewayStatus(storageScope);
   if (!status.configured || !status.apiKeyValid || status.connectedAccounts.length === 0) {
     return [];
   }
 
   let toolkitSummaryBySlug = new Map<string, ReturnType<typeof toToolkitSummary>>();
   try {
-    const result = await getGatewayToolkits();
+    const result = await getGatewayToolkits(storageScope);
     if (Array.isArray(result.toolkits)) {
       toolkitSummaryBySlug = new Map(
         result.toolkits
@@ -90,11 +91,11 @@ async function loadComposioConnectionOptions(): Promise<AgentConnectionOption[]>
     });
 }
 
-export async function loadAgentConnectionOptions(params: { query?: string } = {}): Promise<AgentConnectionOption[]> {
+export async function loadAgentConnectionOptions(params: { query?: string; userId?: string | null } = {}): Promise<AgentConnectionOption[]> {
   const query = params.query?.trim().toLowerCase() || '';
   const [mcpResult, composioResult] = await Promise.allSettled([
     loadMcpConnectionOptions(),
-    loadComposioConnectionOptions(),
+    loadComposioConnectionOptions(params.userId),
   ]);
 
   return [

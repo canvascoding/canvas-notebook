@@ -32,6 +32,7 @@ export async function PATCH(
     return NextResponse.json({ success: false, error: 'Trigger not found.' }, { status: 404 });
   }
 
+  const storageScope = { userId: session.user.id };
   try {
     const payload = await request.json();
     const status = payload?.status === 'paused' ? 'paused' : payload?.status === 'active' ? 'active' : undefined;
@@ -40,7 +41,7 @@ export async function PATCH(
       status,
       triggerConfig: payload?.triggerConfig && typeof payload.triggerConfig === 'object' && !Array.isArray(payload.triggerConfig) ? payload.triggerConfig : undefined,
       notebookWebhookUrl: typeof payload?.notebookWebhookUrl === 'string' ? payload.notebookWebhookUrl : undefined,
-    });
+    }, storageScope);
     const updatedJob = status ? await updateAutomationJob(job.id, { status }) : job;
     logTriggerRoute('PATCH completed', { triggerId, jobId: job.id, status: status || null });
     return NextResponse.json({ success: true, data: { trigger: updatedTrigger.trigger, job: updatedJob } });
@@ -66,9 +67,10 @@ export async function DELETE(
     return NextResponse.json({ success: false, error: 'Trigger not found.' }, { status: 404 });
   }
 
+  const storageScope = { userId: session.user.id };
   try {
     logTriggerRoute('DELETE started', { triggerId, jobId: job.id });
-    await deleteGatewayTrigger(triggerId);
+    await deleteGatewayTrigger(triggerId, storageScope);
     await deleteAutomationJob(job.id);
     logTriggerRoute('DELETE completed', { triggerId, jobId: job.id });
     return NextResponse.json({ success: true });

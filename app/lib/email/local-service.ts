@@ -61,7 +61,7 @@ import {
   type EmailFolder,
 } from '@/app/lib/email/imap-service';
 import { readScopedEnvState } from '@/app/lib/integrations/env-config';
-import { resolveSecretsDir } from '@/app/lib/runtime-data-paths';
+import { resolveSecretsDir, resolveUserSecretsDir } from '@/app/lib/runtime-data-paths';
 import { normalizePublicOrigin } from '@/app/lib/utils/request-origin';
 
 export type EmailProvider = 'google' | 'microsoft';
@@ -197,16 +197,24 @@ function normalizeProvider(value: string | undefined): EmailProvider {
   throw new Error(`Unsupported email provider: ${value}`);
 }
 
-function emailRoot(): string {
+function legacyEmailRoot(): string {
   return path.join(resolveSecretsDir(), 'email-oauth');
 }
 
 function accountsPath(): string {
-  return path.join(emailRoot(), 'accounts.json');
+  return path.join(legacyEmailRoot(), 'accounts.json');
 }
 
-function statePath(state: string): string {
-  return path.join(emailRoot(), '.state', `${state.replace(/[^A-Za-z0-9_.-]/g, '_')}.json`);
+function legacyStatePath(state: string): string {
+  return path.join(legacyEmailRoot(), '.state', `${state.replace(/[^A-Za-z0-9_.-]/g, '_')}.json`);
+}
+
+function userEmailRoot(userId: string): string {
+  return path.join(resolveUserSecretsDir(userId), 'email-oauth');
+}
+
+function statePath(userId: string, state: string): string {
+  return path.join(userEmailRoot(userId), '.state', `${state.replace(/[^A-Za-z0-9_.-]/g, '_')}.json`);
 }
 
 async function ensurePrivateDir(dirPath: string): Promise<void> {
@@ -250,7 +258,7 @@ async function singleWorkspaceUserId(): Promise<string | null> {
 
 async function backupOrRemoveLegacyAccountsFile(): Promise<void> {
   const legacyPath = accountsPath();
-  const backupPath = path.join(emailRoot(), 'accounts.legacy.json');
+  const backupPath = path.join(legacyEmailRoot(), 'accounts.legacy.json');
   try {
     await fs.access(backupPath);
     await fs.rm(legacyPath, { force: true });
@@ -297,13 +305,19 @@ async function migrateLegacyEmailAccountsIfSafe(userId: string): Promise<void> {
   legacyMigrationCheckedForUser.add(userId);
 }
 
-async function integrationEnvMap(): Promise<Map<string, string>> {
-  const state = await readScopedEnvState('integrations');
-  return new Map(state.entries.map((entry) => [entry.key, entry.value]));
+async function integrationEnvMap(userId?: string | null): Promise<Map<string, string>> {
+  const legacyState = await readScopedEnvState('integrations', { secretScope: 'legacy' }).catch(() => ({ entries: [] }));
+  const scopedState = userId?.trim()
+    ? await readScopedEnvState('integrations', { userId }).catch(() => ({ entries: [] }))
+    : { entries: [] };
+  return new Map([
+    ...legacyState.entries.map((entry) => [entry.key, entry.value] as const),
+    ...scopedState.entries.map((entry) => [entry.key, entry.value] as const),
+  ]);
 }
 
-async function getOAuthConfig(provider: EmailProvider): Promise<OAuthConfig | null> {
-  const env = await integrationEnvMap();
+async function getOAuthConfig(provider: EmailProvider, userId?: string | null): Promise<OAuthConfig | null> {
+  const env = await integrationEnvMap(userId);
   if (provider === 'google') {
     const clientId = env.get('GOOGLE_OAUTH_CLIENT_ID')?.trim();
     const clientSecret = env.get('GOOGLE_OAUTH_CLIENT_SECRET')?.trim();
@@ -330,9 +344,9 @@ async function getOAuthConfig(provider: EmailProvider): Promise<OAuthConfig | nu
   };
 }
 
-export async function hasLocalEmailOAuthCredentials(provider?: string): Promise<boolean> {
-  if (provider) return Boolean(await getOAuthConfig(normalizeProvider(provider)));
-  const [google, microsoft] = await Promise.all([getOAuthConfig('google'), getOAuthConfig('microsoft')]);
+export async function hasLocalEmailOAuthCredentials(provider?: string, userId?: string | null): Promise<boolean> {
+  if (provider) return Boolean(await getOAuthConfig(normalizeProvider(provider), userId));
+  const [google, microsoft] = await Promise.all([getOAuthConfig('google', userId), getOAuthConfig('microsoft', userId)]);
   return Boolean(google || microsoft);
 }
 
@@ -350,8 +364,8 @@ export function getLocalEmailOAuthRedirectUri(requestOrigin?: string | null): st
   return `${getOrigin(requestOrigin)}/api/email/oauth/callback`;
 }
 
-export async function getLocalEmailOAuthStatus(requestOrigin?: string | null) {
-  const [google, microsoft] = await Promise.all([getOAuthConfig('google'), getOAuthConfig('microsoft')]);
+export async function getLocalEmailOAuthStatus(requestOrigin?: string | null, userId?: string | null) {
+  const [google, microsoft] = await Promise.all([getOAuthConfig('google', userId), getOAuthConfig('microsoft', userId)]);
   return {
     mode: 'local' as const,
     redirectUri: getLocalEmailOAuthRedirectUri(requestOrigin),
@@ -369,7 +383,7 @@ export async function startLocalEmailOAuth(params: {
   returnUrl?: string;
 }) {
   const provider = normalizeProvider(params.provider);
-  const config = await getOAuthConfig(provider);
+  const config = await getOAuthConfig(provider, params.userId);
   if (!config) {
     throw new Error(`${provider === 'google' ? 'Google' : 'Microsoft'} OAuth Client ID and Client Secret are required before connecting.`);
   }
@@ -380,7 +394,7 @@ export async function startLocalEmailOAuth(params: {
   const redirectUri = getLocalEmailOAuthRedirectUri(params.requestOrigin);
   const expiresAt = new Date(Date.now() + 10 * 60_000).toISOString();
 
-  await writeJsonPrivate(statePath(state), {
+  await writeJsonPrivate(statePath(params.userId, state), {
     state,
     userId: params.userId,
     provider,
@@ -444,14 +458,16 @@ async function microsoftProfile(accessToken: string) {
 }
 
 export async function completeLocalEmailOAuth(userId: string, code: string, state: string) {
-  const stored = await readJsonIfExists<OAuthState>(statePath(state));
+  const userStatePath = statePath(userId, state);
+  const stored = await readJsonIfExists<OAuthState>(userStatePath)
+    || await readJsonIfExists<OAuthState>(legacyStatePath(state));
   if (!stored || stored.state !== state || Date.parse(stored.expiresAt) <= Date.now()) {
     throw new Error('Invalid or expired email OAuth state.');
   }
   if (stored.userId !== userId) {
     throw new Error('Email OAuth state does not belong to the current user.');
   }
-  const config = await getOAuthConfig(stored.provider);
+  const config = await getOAuthConfig(stored.provider, userId);
   if (!config) throw new Error('Email OAuth credentials are no longer configured.');
   const params = new URLSearchParams();
   params.set('grant_type', 'authorization_code');
@@ -476,7 +492,8 @@ export async function completeLocalEmailOAuth(userId: string, code: string, stat
       expiresAt: token.expires_in ? new Date(Date.now() + token.expires_in * 1000).toISOString() : undefined,
     },
   });
-  await fs.rm(statePath(state), { force: true }).catch(() => undefined);
+  await fs.rm(userStatePath, { force: true }).catch(() => undefined);
+  await fs.rm(legacyStatePath(state), { force: true }).catch(() => undefined);
   return { account: await publicLocalEmailAccount(account), returnUrl: stored.returnUrl };
 }
 
@@ -503,7 +520,7 @@ async function validAccessToken(account: StoredEmailAccount): Promise<string> {
     await setStoredEmailAccountStatus(account, 'expired');
     throw new Error('Email account authorization expired. Reconnect the account.');
   }
-  const config = await getOAuthConfig(account.provider as EmailProvider);
+  const config = await getOAuthConfig(account.provider as EmailProvider, account.userId);
   if (!config) throw new Error('Email OAuth credentials are no longer configured.');
   const params = new URLSearchParams();
   params.set('grant_type', 'refresh_token');

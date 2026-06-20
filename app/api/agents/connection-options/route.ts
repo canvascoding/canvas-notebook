@@ -13,12 +13,12 @@ async function requireSession(request: NextRequest) {
   if (!session) {
     return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
   }
-  return null;
+  return session;
 }
 
 export async function GET(request: NextRequest) {
-  const unauthorized = await requireSession(request);
-  if (unauthorized) return unauthorized;
+  const session = await requireSession(request);
+  if (session instanceof NextResponse) return session;
 
   const limited = rateLimit(request, {
     limit: 60,
@@ -31,7 +31,7 @@ export async function GET(request: NextRequest) {
     const query = request.nextUrl.searchParams.get('query')?.trim().toLowerCase() || '';
     const page = parsePositiveInteger(request.nextUrl.searchParams.get('page'), 1);
     const limit = parsePositiveInteger(request.nextUrl.searchParams.get('limit'), DEFAULT_LIMIT, MAX_LIMIT);
-    const options = await loadAgentConnectionOptions({ query });
+    const options = await loadAgentConnectionOptions({ query, userId: session.user.id });
     const { items, pagination } = paginateItems(options, page, limit);
 
     return NextResponse.json({

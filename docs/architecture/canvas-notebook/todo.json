@@ -300,11 +300,28 @@
     {
       "id": 19,
       "title": "Composio-Management, E-Mail-OAuth, Notifications und Channels auf User-/Organization-Scope migrieren",
-      "status": "pending",
+      "status": "completed",
       "repo": "canvasstudios-notebook",
       "planningArtifacts": [
         "docs/architecture/canvas-notebook/team-workspace/08-user-scoped-secrets-runtime.md",
         "docs/architecture/canvas-notebook/team-workspace/09-initial-setup-and-update-migration.md"
+      ],
+      "implementationArtifacts": [
+        "app/lib/composio/composio-identity.ts",
+        "app/lib/composio/composio-client.ts",
+        "app/lib/composio/composio-session.ts",
+        "app/lib/composio/composio-auth.ts",
+        "app/lib/composio/composio-gateway.ts",
+        "app/lib/composio/composio-tools.ts",
+        "app/api/composio/*",
+        "app/lib/email/secret-store.ts",
+        "app/lib/email/local-service.ts",
+        "app/api/email/oauth/status/route.ts",
+        "app/lib/agents/capability-options.ts",
+        "app/api/agents/connection-options/route.ts",
+        "app/lib/plugins/canvas-plugin-store.ts",
+        "scripts/composio-user-scope-test.ts",
+        "scripts/email-accounts-service-test.ts"
       ]
     },
     {
