@@ -1,7 +1,14 @@
 import crypto from 'crypto';
 import path from 'path';
 import { promises as fs } from 'fs';
-import { resolveDefaultAgentsEnvPath, resolveDefaultIntegrationsEnvPath } from '../runtime-data-paths';
+import {
+  createAtomicTempPath,
+  resolveDefaultAgentsEnvPath,
+  resolveDefaultIntegrationsEnvPath,
+  resolveScopedAgentsEnvPath,
+  resolveScopedIntegrationsEnvPath,
+  type SecretDataStorageScope,
+} from '../runtime-data-paths';
 
 const ENCRYPTED_PREFIX = 'enc:v1';
 
@@ -9,6 +16,7 @@ export const DEFAULT_INTEGRATIONS_ENV_PATH = resolveDefaultIntegrationsEnvPath()
 export const DEFAULT_AGENTS_ENV_PATH = resolveDefaultAgentsEnvPath();
 
 export type EnvScope = 'integrations' | 'agents';
+export type EnvStorageScope = SecretDataStorageScope;
 
 type EnvScopeConfig = {
   defaultPath: string;
@@ -54,7 +62,21 @@ function getScopeConfig(scope: EnvScope): EnvScopeConfig {
   return ENV_SCOPE_CONFIG[scope];
 }
 
-export function getEnvFilePath(scope: EnvScope): string {
+function hasExplicitStorageScope(storageScope?: EnvStorageScope | null): boolean {
+  return Boolean(
+    storageScope?.secretScope ||
+    storageScope?.userId?.trim() ||
+    storageScope?.organizationId?.trim(),
+  );
+}
+
+export function getEnvFilePath(scope: EnvScope, storageScope?: EnvStorageScope | null): string {
+  if (hasExplicitStorageScope(storageScope)) {
+    return scope === 'agents'
+      ? resolveScopedAgentsEnvPath(storageScope)
+      : resolveScopedIntegrationsEnvPath(storageScope);
+  }
+
   const { defaultPath, pathEnvName } = getScopeConfig(scope);
   const configuredPath = process.env[pathEnvName]?.trim();
   return configuredPath || defaultPath;
@@ -175,19 +197,26 @@ async function ensureParentDirectory(filePath: string): Promise<void> {
   await fs.mkdir(path.dirname(filePath), { recursive: true });
 }
 
-export async function writeScopedEnvRaw(scope: EnvScope, rawContent: string): Promise<void> {
-  const filePath = getEnvFilePath(scope);
+export async function writeScopedEnvRaw(
+  scope: EnvScope,
+  rawContent: string,
+  storageScope?: EnvStorageScope | null,
+): Promise<void> {
+  const filePath = getEnvFilePath(scope, storageScope);
   await ensureParentDirectory(filePath);
 
-  const tmpPath = `${filePath}.tmp-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const tmpPath = createAtomicTempPath(filePath);
   const content = rawContent.endsWith('\n') || rawContent.length === 0 ? rawContent : `${rawContent}\n`;
   await fs.writeFile(tmpPath, content, { encoding: 'utf8', mode: 0o600 });
   await fs.chmod(tmpPath, 0o600);
   await fs.rename(tmpPath, filePath);
 }
 
-export async function readScopedEnvState(scope: EnvScope): Promise<IntegrationEnvState> {
-  const filePath = getEnvFilePath(scope);
+export async function readScopedEnvState(
+  scope: EnvScope,
+  storageScope?: EnvStorageScope | null,
+): Promise<IntegrationEnvState> {
+  const filePath = getEnvFilePath(scope, storageScope);
   let rawContent = '';
   let exists = true;
 
@@ -241,7 +270,8 @@ export async function readScopedEnvState(scope: EnvScope): Promise<IntegrationEn
 
 export async function replaceScopedEnvEntries(
   scope: EnvScope,
-  entries: Array<{ key: string; value: string }>
+  entries: Array<{ key: string; value: string }>,
+  storageScope?: EnvStorageScope | null,
 ): Promise<IntegrationEnvState> {
   const secret = getMasterSecret(scope);
   const normalized: ParsedEnvEntry[] = [];
@@ -266,8 +296,8 @@ export async function replaceScopedEnvEntries(
   }
 
   const sorted = Array.from(byKey.values()).sort((a, b) => a.key.localeCompare(b.key));
-  await writeScopedEnvRaw(scope, serializeEntries(sorted));
-  return readScopedEnvState(scope);
+  await writeScopedEnvRaw(scope, serializeEntries(sorted), storageScope);
+  return readScopedEnvState(scope, storageScope);
 }
 
 function generateNumericFallback(length = 24): string {
@@ -277,9 +307,9 @@ function generateNumericFallback(length = 24): string {
 export async function ensureGeneratedScopedEnvEntry(
   scope: EnvScope,
   key: string,
-  options?: { length?: number }
+  options?: { length?: number; storageScope?: EnvStorageScope | null },
 ): Promise<string> {
-  const state = await readScopedEnvState(scope);
+  const state = await readScopedEnvState(scope, options?.storageScope);
   const existing = state.entries.find((entry) => entry.key === key)?.value.trim();
   if (existing) {
     return existing;
@@ -291,41 +321,43 @@ export async function ensureGeneratedScopedEnvEntry(
     .map((entry) => ({ key: entry.key, value: entry.value }));
   nextEntries.push({ key, value: generatedValue });
 
-  await replaceScopedEnvEntries(scope, nextEntries);
+  await replaceScopedEnvEntries(scope, nextEntries, options?.storageScope);
   return generatedValue;
 }
 
-export async function writeIntegrationsRaw(rawContent: string): Promise<void> {
-  await writeScopedEnvRaw('integrations', rawContent);
+export async function writeIntegrationsRaw(rawContent: string, storageScope?: EnvStorageScope | null): Promise<void> {
+  await writeScopedEnvRaw('integrations', rawContent, storageScope);
 }
 
-export async function readIntegrationsEnvState(): Promise<IntegrationEnvState> {
-  return readScopedEnvState('integrations');
+export async function readIntegrationsEnvState(storageScope?: EnvStorageScope | null): Promise<IntegrationEnvState> {
+  return readScopedEnvState('integrations', storageScope);
 }
 
 export async function replaceIntegrationsEntries(
-  entries: Array<{ key: string; value: string }>
+  entries: Array<{ key: string; value: string }>,
+  storageScope?: EnvStorageScope | null,
 ): Promise<IntegrationEnvState> {
-  return replaceScopedEnvEntries('integrations', entries);
+  return replaceScopedEnvEntries('integrations', entries, storageScope);
 }
 
-export async function writeAgentsRaw(rawContent: string): Promise<void> {
-  await writeScopedEnvRaw('agents', rawContent);
+export async function writeAgentsRaw(rawContent: string, storageScope?: EnvStorageScope | null): Promise<void> {
+  await writeScopedEnvRaw('agents', rawContent, storageScope);
 }
 
-export async function readAgentsEnvState(): Promise<IntegrationEnvState> {
-  return readScopedEnvState('agents');
+export async function readAgentsEnvState(storageScope?: EnvStorageScope | null): Promise<IntegrationEnvState> {
+  return readScopedEnvState('agents', storageScope);
 }
 
 export async function replaceAgentsEntries(
-  entries: Array<{ key: string; value: string }>
+  entries: Array<{ key: string; value: string }>,
+  storageScope?: EnvStorageScope | null,
 ): Promise<IntegrationEnvState> {
-  return replaceScopedEnvEntries('agents', entries);
+  return replaceScopedEnvEntries('agents', entries, storageScope);
 }
 
-export async function getGeminiApiKeyFromIntegrations(): Promise<string | null> {
+export async function getGeminiApiKeyFromIntegrations(storageScope?: EnvStorageScope | null): Promise<string | null> {
   try {
-    const state = await readScopedEnvState('integrations');
+    const state = await readScopedEnvState('integrations', storageScope);
     const byKey = new Map(state.entries.map((entry) => [entry.key, entry.value]));
     
     const envKey = byKey.get('GEMINI_API_KEY');
@@ -348,9 +380,9 @@ export async function getGeminiApiKeyFromIntegrations(): Promise<string | null> 
   }
 }
 
-export async function getOpenAIApiKeyFromIntegrations(): Promise<string | null> {
+export async function getOpenAIApiKeyFromIntegrations(storageScope?: EnvStorageScope | null): Promise<string | null> {
   try {
-    const state = await readScopedEnvState('integrations');
+    const state = await readScopedEnvState('integrations', storageScope);
     const byKey = new Map(state.entries.map((entry) => [entry.key, entry.value]));
     
     const envKey = byKey.get('OPENAI_API_KEY');
@@ -373,9 +405,9 @@ export async function getOpenAIApiKeyFromIntegrations(): Promise<string | null> 
   }
 }
 
-export async function getGroqApiKeyFromIntegrations(): Promise<string | null> {
+export async function getGroqApiKeyFromIntegrations(storageScope?: EnvStorageScope | null): Promise<string | null> {
   try {
-    const state = await readScopedEnvState('integrations');
+    const state = await readScopedEnvState('integrations', storageScope);
     const byKey = new Map(state.entries.map((entry) => [entry.key, entry.value]));
 
     const envKey = byKey.get('GROQ_API_KEY');
@@ -398,9 +430,9 @@ export async function getGroqApiKeyFromIntegrations(): Promise<string | null> {
   }
 }
 
-export async function getKieApiKeyFromIntegrations(): Promise<string | null> {
+export async function getKieApiKeyFromIntegrations(storageScope?: EnvStorageScope | null): Promise<string | null> {
   try {
-    const state = await readScopedEnvState('integrations');
+    const state = await readScopedEnvState('integrations', storageScope);
     const byKey = new Map(state.entries.map((entry) => [entry.key, entry.value]));
 
     const envKey = byKey.get('KIE_API_KEY');
@@ -423,12 +455,12 @@ export async function getKieApiKeyFromIntegrations(): Promise<string | null> {
   }
 }
 
-export async function getTelegramConfigFromIntegrations(): Promise<{
+export async function getTelegramConfigFromIntegrations(storageScope?: EnvStorageScope | null): Promise<{
   botToken: string | null;
   channelEnabled: boolean;
 }> {
   try {
-    const state = await readScopedEnvState('integrations');
+    const state = await readScopedEnvState('integrations', storageScope);
     const byKey = new Map(state.entries.map((entry) => [entry.key, entry.value]));
 
     const botToken = byKey.get('TELEGRAM_BOT_TOKEN') || process.env.TELEGRAM_BOT_TOKEN || null;

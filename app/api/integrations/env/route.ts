@@ -28,30 +28,34 @@ function parseScope(value: string | null | undefined): EnvScope {
 async function requireSession(request: NextRequest) {
   const session = await auth.api.getSession({ headers: request.headers });
   if (!session) {
-    return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
+    return {
+      ok: false as const,
+      response: NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 }),
+    };
   }
-  return null;
+  return { ok: true as const, session };
 }
 
 export async function GET(request: NextRequest) {
-  const unauthorized = await requireSession(request);
-  if (unauthorized) {
-    return unauthorized;
+  const authResult = await requireSession(request);
+  if (!authResult.ok) {
+    return authResult.response;
   }
 
   try {
     const scope = parseScope(request.nextUrl.searchParams.get('scope'));
+    const storageScope = { userId: authResult.session.user.id };
     const limited = rateLimit(request, {
       limit: 60,
       windowMs: 60_000,
-      keyPrefix: `integrations-env-get:${scope}`,
+      keyPrefix: `integrations-env-get:${scope}:${authResult.session.user.id}`,
     });
     if (!limited.ok) {
       return limited.response;
     }
 
     await migrateLegacyAgentEnvIfNeeded();
-    const state = await readScopedEnvState(scope);
+    const state = await readScopedEnvState(scope, storageScope);
     return NextResponse.json({ success: true, data: state });
   } catch (error) {
     console.error('[API] integrations/env GET error:', error);
@@ -61,17 +65,18 @@ export async function GET(request: NextRequest) {
 }
 
 export async function PUT(request: NextRequest) {
-  const unauthorized = await requireSession(request);
-  if (unauthorized) {
-    return unauthorized;
+  const authResult = await requireSession(request);
+  if (!authResult.ok) {
+    return authResult.response;
   }
 
   try {
     const requestScope = parseScope(request.nextUrl.searchParams.get('scope'));
+    const storageScope = { userId: authResult.session.user.id };
     const limited = rateLimit(request, {
       limit: 30,
       windowMs: 60_000,
-      keyPrefix: `integrations-env-put:${requestScope}`,
+      keyPrefix: `integrations-env-put:${requestScope}:${authResult.session.user.id}`,
     });
     if (!limited.ok) {
       return limited.response;
@@ -84,13 +89,13 @@ export async function PUT(request: NextRequest) {
     await migrateLegacyAgentEnvIfNeeded();
 
     if (mode === 'raw') {
-      await writeScopedEnvRaw(scope, payload.rawContent ?? '');
-      const updated = await readScopedEnvState(scope);
+      await writeScopedEnvRaw(scope, payload.rawContent ?? '', storageScope);
+      const updated = await readScopedEnvState(scope, storageScope);
       return NextResponse.json({ success: true, data: updated });
     }
 
     const entries = Array.isArray(payload.entries) ? payload.entries : [];
-    const updated = await replaceScopedEnvEntries(scope, entries);
+    const updated = await replaceScopedEnvEntries(scope, entries, storageScope);
     return NextResponse.json({ success: true, data: updated });
   } catch (error) {
     console.error('[API] integrations/env PUT error:', error);

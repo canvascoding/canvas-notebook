@@ -24,9 +24,12 @@ async function main() {
       resolveOrganizationSkillTemplatesDir,
       resolveOrganizationDataRoot,
       resolveScopedInstalledPluginsDir,
+      resolveScopedAgentsEnvPath,
+      resolveScopedIntegrationsEnvPath,
       resolveScopedPluginRegistryPath,
       resolveScopedPluginsDataDir,
       resolveScopedSettingsDir,
+      resolveScopedSecretsDir,
       resolveScopedSkillBackupsDir,
       resolveScopedSkillRegistryPath,
       resolveScopedSkillsDataDir,
@@ -61,6 +64,9 @@ async function main() {
     assert.equal(resolveUserMcpDir('user_a'), path.join(dataDir, 'users', 'user_a', 'mcp'));
     assert.equal(resolveUserMailDir('user_a'), path.join(dataDir, 'users', 'user_a', 'mail'));
     assert.equal(resolveScopedSettingsDir({ userId: 'user_a' }), path.join(dataDir, 'users', 'user_a', 'settings'));
+    assert.equal(resolveScopedSecretsDir({ userId: 'user_a' }), path.join(dataDir, 'users', 'user_a', 'secrets'));
+    assert.equal(resolveScopedIntegrationsEnvPath({ userId: 'user_a' }), path.join(dataDir, 'users', 'user_a', 'secrets', 'Canvas-Integrations.env'));
+    assert.equal(resolveScopedAgentsEnvPath({ userId: 'user_a' }), path.join(dataDir, 'users', 'user_a', 'secrets', 'Canvas-Agents.env'));
     assert.equal(resolveScopedSkillsDataDir({ userId: 'user_a' }), path.join(dataDir, 'users', 'user_a', 'skills'));
     assert.equal(resolveScopedSkillRegistryPath({ userId: 'user_a' }), path.join(dataDir, 'users', 'user_a', 'skills', 'registry.json'));
     assert.equal(resolveScopedSkillBackupsDir({ userId: 'user_a' }), path.join(dataDir, 'users', 'user_a', 'skills', '.backups'));
@@ -77,6 +83,10 @@ async function main() {
     assert.equal(resolveOrganizationMcpTemplatesDir('org_1'), path.join(dataDir, 'organizations', 'org_1', 'mcp-templates'));
 
     assert.equal(resolveSystemSecretsDir(), path.join(dataDir, 'system', 'secrets'));
+    assert.equal(resolveScopedSecretsDir({ secretScope: 'system' }), path.join(dataDir, 'system', 'secrets'));
+    assert.equal(resolveScopedSecretsDir({ organizationId: 'org_1' }), path.join(dataDir, 'organizations', 'org_1', 'secrets'));
+    assert.equal(resolveScopedIntegrationsEnvPath({ organizationId: 'org_1' }), path.join(dataDir, 'organizations', 'org_1', 'secrets', 'Canvas-Integrations.env'));
+    assert.equal(resolveScopedAgentsEnvPath({ secretScope: 'system' }), path.join(dataDir, 'system', 'secrets', 'Canvas-Agents.env'));
     assert.equal(resolveSystemManagedDir(), path.join(dataDir, 'system', 'managed'));
     assert.equal(resolveSystemBackupsDir(), path.join(dataDir, 'system', 'backups'));
     assert.equal(resolveSystemMigrationDir(), path.join(dataDir, 'system', 'migration'));
