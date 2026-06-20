@@ -42,6 +42,7 @@ import { AppLayout } from '@/app/components/layout/AppLayout';
 import CanvasAgentChat from '@/app/components/canvas-agent-chat/CanvasAgentChat';
 import { ThemeToggle } from '@/app/components/ThemeToggle';
 import { NotificationBell } from '@/app/components/notifications/NotificationBell';
+import { WorkspaceSwitcher } from '@/app/components/workspaces/WorkspaceSwitcher';
 
 import { useFileStore } from '@/app/store/file-store';
 import { FileWatcherProvider } from '@/app/hooks/FileWatcherContext';
@@ -859,6 +860,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
 
           {/* Right side: help, theme, logout */}
           <div className="relative z-50 flex items-center gap-1.5 md:gap-4">
+            <WorkspaceSwitcher source="notebook" variant="compact" />
             <NotificationBell />
             <AppLauncher />
             <ThemeToggle />

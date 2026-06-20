@@ -13,6 +13,7 @@ import { AppLauncher } from '@/app/components/AppLauncher';
 import { NotificationBell } from '@/app/components/notifications/NotificationBell';
 import { ThemeToggle } from '@/app/components/ThemeToggle';
 import { HintProvider } from '@/app/components/onboarding/HintProvider';
+import { WorkspaceSwitcher } from '@/app/components/workspaces/WorkspaceSwitcher';
 
 import { Button } from '@/components/ui/button';
 
@@ -83,6 +84,7 @@ export function SuitePageLayout({
             </div>
 
             <div className="ml-auto flex items-center gap-2 md:gap-3">
+              <WorkspaceSwitcher source="navbar" variant="compact" />
               <NotificationBell />
               <AppLauncher />
               <ThemeToggle />

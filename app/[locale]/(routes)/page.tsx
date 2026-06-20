@@ -14,6 +14,7 @@ import { isOnboardingHintsEnabled } from '@/app/lib/onboarding/status';
 import { LogoutButton } from '@/app/components/LogoutButton';
 import { ThemeToggle } from '@/app/components/ThemeToggle';
 import { VersionUpdateIndicator } from '@/app/components/VersionUpdateIndicator';
+import { WorkspaceSwitcher } from '@/app/components/workspaces/WorkspaceSwitcher';
 
 const repositoryUrl = 'https://github.com/canvascoding/canvas-notebook';
 const releaseVersion = packageJson.version;
@@ -42,6 +43,7 @@ export default async function Home() {
             </div>
 
             <div className="ml-auto flex items-center gap-2 md:gap-3">
+              <WorkspaceSwitcher source="home" variant="compact" />
               <NotificationBell />
               <AppLauncher />
               <ThemeToggle />

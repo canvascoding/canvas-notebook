@@ -180,9 +180,24 @@
     {
       "id": 14,
       "title": "Globalen Workspace-Switcher fuer Startseite, Chat Header und File Browser bauen",
-      "status": "pending",
+      "status": "completed",
       "repo": "canvasstudios-notebook",
-      "planningArtifact": "docs/architecture/canvas-notebook/team-workspace/06-workspace-switching-ux.md"
+      "planningArtifact": "docs/architecture/canvas-notebook/team-workspace/06-workspace-switching-ux.md",
+      "implementationArtifacts": [
+        "app/store/workspace-store.ts",
+        "app/lib/workspaces/client-types.ts",
+        "app/components/workspaces/WorkspaceSwitcher.tsx",
+        "app/components/workspaces/WorkspaceBadge.tsx",
+        "app/[locale]/(routes)/page.tsx",
+        "app/[locale]/(routes)/chat/chat-shell.tsx",
+        "app/components/SuitePageLayout.tsx",
+        "app/components/DashboardShell.tsx",
+        "app/components/canvas-agent-chat/ChatHeader.tsx",
+        "app/components/canvas-agent-chat/CanvasAgentChat.tsx",
+        "app/components/file-browser/FileBrowser.tsx",
+        "app/components/file-browser/FileToolbar.tsx",
+        "scripts/workspace-switcher-ui-test.ts"
+      ]
     },
     {
       "id": 15,

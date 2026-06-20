@@ -14,6 +14,7 @@ import { ThemeToggle } from '@/app/components/ThemeToggle';
 import { AppLauncher } from '@/app/components/AppLauncher';
 import { NotificationBell } from '@/app/components/notifications/NotificationBell';
 import { CANVAS_CHAT_INITIAL_PROMPT_STORAGE_KEY } from '@/app/lib/chat/constants';
+import { WorkspaceSwitcher } from '@/app/components/workspaces/WorkspaceSwitcher';
 
 export function ChatShell() {
   const t = useTranslations('chat');
@@ -33,6 +34,7 @@ export function ChatShell() {
             <h1 className="hidden md:block text-lg md:text-2xl font-bold truncate">{t('title')}</h1>
           </div>
             <div className="flex items-center gap-1.5 md:gap-4">
+              <WorkspaceSwitcher source="navbar" variant="compact" />
               <NotificationBell />
               <AppLauncher />
               <ThemeToggle />

@@ -219,6 +219,7 @@ interface FileStoreState {
   toggleDirectory: (path: string) => void;
   collapseAllDirectories: () => void;
   clearCurrentFile: () => void;
+  resetWorkspaceView: () => void;
   setSearchQuery: (query: string) => void;
   setCurrentDirectory: (path: string) => void;
   toggleAutoRefresh: () => void;
@@ -904,6 +905,41 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
       fileError: null,
       fileLoadRequestId: state.fileLoadRequestId + 1,
     }));
+  },
+  resetWorkspaceView: () => {
+    const nextExpandedDirs = new Set<string>();
+    set((state) => ({
+      fileTree: [],
+      isLoadingTree: false,
+      treeError: null,
+      selectedNode: null,
+      currentFile: null,
+      isLoadingFile: false,
+      loadingFilePath: null,
+      fileLoadRequestId: state.fileLoadRequestId + 1,
+      fileError: null,
+      expandedDirs: nextExpandedDirs,
+      currentDirectory: '.',
+      uploadProgress: null,
+      searchQuery: '',
+      loadingDirs: new Set<string>(),
+      isMultiSelectMode: false,
+      multiSelectPaths: new Set<string>(),
+      lastSelectedPath: null,
+      contextMenuNode: null,
+      contextMenuPosition: null,
+      isContextMenuOpen: false,
+      backgroundContextMenuPosition: null,
+      backgroundContextMenuDirectory: '.',
+      isBackgroundContextMenuOpen: false,
+      clipboardPaths: new Set<string>(),
+      clipboardMode: null,
+      bulkMoveOpen: false,
+    }));
+    persistExplorerState({
+      currentDirectory: '.',
+      expandedDirs: nextExpandedDirs,
+    });
   },
   setSearchQuery: (query: string) => {
     set({ searchQuery: query });
