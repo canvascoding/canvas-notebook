@@ -27,10 +27,12 @@ import { ThemeToggle } from '@/app/components/ThemeToggle';
 import { notifyWorkspaceFileOpened } from '@/app/lib/files/workspace-file-events';
 import { PublicShareDialog } from './PublicShareDialog';
 import { useCreateItemDialog } from './useCreateItemDialog';
+import { useWorkspaceStore } from '@/app/store/workspace-store';
 
 
 import { AppLauncher } from '@/app/components/AppLauncher';
 import { NotificationBell } from '@/app/components/notifications/NotificationBell';
+import { WorkspaceSwitcher } from '@/app/components/workspaces/WorkspaceSwitcher';
 
 interface FileBrowserProps {
   variant?: 'default' | 'mobile-sheet' | 'fullscreen';
@@ -44,6 +46,7 @@ export function FileBrowser({ variant = 'default', onFileSelect }: FileBrowserPr
   const dragCounter = useRef(0);
   const openedPathParamRef = useRef<string | null>(null);
   const pendingPathParamRef = useRef<string | null>(null);
+  const activeWorkspaceIdRef = useRef<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [uploadOpen, setUploadOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -76,7 +79,10 @@ export function FileBrowser({ variant = 'default', onFileSelect }: FileBrowserPr
     downloadFile,
     revealAndLoadFile,
     setBulkMoveOpen,
+    resetWorkspaceView,
+    loadFileTree,
   } = useFileStore();
+  const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
 
   useEffect(() => {
     const handle = window.setTimeout(() => {
@@ -84,6 +90,26 @@ export function FileBrowser({ variant = 'default', onFileSelect }: FileBrowserPr
     }, 0);
     return () => window.clearTimeout(handle);
   }, [hydrateClientPreferences]);
+
+  useEffect(() => {
+    if (!activeWorkspaceId) return;
+    const previousWorkspaceId = activeWorkspaceIdRef.current;
+    activeWorkspaceIdRef.current = activeWorkspaceId;
+
+    if (!previousWorkspaceId || previousWorkspaceId === activeWorkspaceId) return;
+
+    openedPathParamRef.current = null;
+    pendingPathParamRef.current = null;
+    setActiveFilePath(null);
+    setPublicShareOpen(false);
+    setPublicSharePaths([]);
+    setUploadOpen(false);
+    setDeleteOpen(false);
+    setDeletePaths([]);
+    setDeleteSkippedCount(0);
+    resetWorkspaceView();
+    void loadFileTree('.', undefined, true);
+  }, [activeWorkspaceId, loadFileTree, resetWorkspaceView]);
 
   const isDirectoryReachableInTree = useCallback(
     (dirPath: string) => {
@@ -413,6 +439,7 @@ export function FileBrowser({ variant = 'default', onFileSelect }: FileBrowserPr
             <h1 className="hidden md:block text-lg md:text-2xl font-bold truncate">{t('filesTitle')}</h1>
           </div>
           <div className="flex items-center gap-1.5 md:gap-4">
+            <WorkspaceSwitcher source="navbar" variant="compact" />
             <NotificationBell />
             <AppLauncher />
             <ThemeToggle />

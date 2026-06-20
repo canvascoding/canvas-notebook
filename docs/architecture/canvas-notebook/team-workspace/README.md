@@ -61,4 +61,5 @@ Dieses Verzeichnis ist der zentrale Arbeitsbereich fuer den Team-Workspace-Umbau
 - Workspace-Modell, Workspace-Service, Bootstrap-Erzeugung und `/api/workspaces` in Canvas Notebook sind eingefuehrt.
 - Community-/Single-User-Installationen bleiben auch bei gesetztem Team-Flag auf Personal Workspace begrenzt.
 - Personal Workspaces werden pro User angelegt; Team Workspace wird nur in teamfaehigen Deployment Modes angelegt.
-- Naechster Schritt: Globalen Workspace-Switcher fuer Startseite, Chat Header und File Browser bauen.
+- Globaler Workspace-Switcher, Workspace-Badge, clientseitiger Workspace-Store und Chat-Neustart bei Workspace-Wechsel sind eingefuehrt.
+- Naechster Schritt: Kopieraktionen zwischen Personal und Team Workspace implementieren.

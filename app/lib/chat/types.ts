@@ -12,6 +12,14 @@ export interface ChatRequestContext {
   currentTime?: string;
   activeFilePath?: string | null;
   workingDirectory?: string;
+  workspace?: {
+    workspaceId: string;
+    workspaceType: 'personal' | 'team' | 'project';
+    workspaceName: string;
+    organizationId?: string | null;
+    canWrite: boolean;
+    canShare: boolean;
+  };
   planningMode?: boolean;
   currentPage?: string;
   studioContext?: {

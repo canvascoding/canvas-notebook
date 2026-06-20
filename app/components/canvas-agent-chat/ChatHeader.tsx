@@ -17,6 +17,8 @@ import { Button } from '@/components/ui/button';
 import { ThemeToggle } from '@/app/components/ThemeToggle';
 import { ChatAgentSelector } from '@/app/components/canvas-agent-chat/ChatAgentSelector';
 import { ChatRuntimeActivityBadge } from '@/app/components/canvas-agent-chat/ChatRuntimeActivityBadge';
+import { WorkspaceBadge } from '@/app/components/workspaces/WorkspaceBadge';
+import { WorkspaceSwitcher } from '@/app/components/workspaces/WorkspaceSwitcher';
 import type { RuntimeStatus } from '@/app/lib/chat/runtime-status';
 import type { AgentProfile } from '@/app/lib/chat/types';
 import type { ToolVerbosity } from '@/app/store/tool-verbosity-store';
@@ -159,11 +161,13 @@ export function ChatHeader({
                     agents={chatAgentOptions}
                     onSelectAgent={onSelectAgent}
                   />
+                  <WorkspaceBadge compact className="hidden lg:inline-flex" />
                 </div>
               )}
             </div>
           </div>
           <div className="ml-auto flex shrink-0 items-center gap-1">
+            <WorkspaceSwitcher source="chat" variant="compact" className="hidden sm:inline-flex" />
             <button
               type="button"
               aria-label={t('newChatTitle')}
@@ -202,6 +206,7 @@ export function ChatHeader({
                   onSelectAgent={onSelectAgent}
                 />
               ) : null}
+              {isMobile ? <WorkspaceSwitcher source="chat" variant="compact" /> : null}
 
               {runtimeStatus && totalQueuedMessages > 0 && (
                 <span className="inline-flex items-center gap-1 border border-border/60 bg-muted/40 px-1.5 py-0.5 text-[10px] text-muted-foreground">
@@ -314,6 +319,7 @@ export function ChatHeader({
                     {t('summary')}
                   </span>
                 )}
+                <WorkspaceBadge compact />
                 {runtimeStatus?.activeTool && toolVerbosity !== 'minimal' && (
                   <span className="inline-flex items-center gap-1 border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-[10px] text-amber-600">
                     <Wrench size={9} />

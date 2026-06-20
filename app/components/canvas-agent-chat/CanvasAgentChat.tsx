@@ -35,6 +35,11 @@ import { useWebSocket } from '@/app/hooks/useWebSocket';
 import { ImagePreprocessDialog } from '@/app/components/shared/ImagePreprocessDialog';
 import { usePlanModeStore } from '@/app/store/plan-mode-store';
 import { useToolVerbosityStore } from '@/app/store/tool-verbosity-store';
+import {
+  selectActiveWorkspace,
+  useWorkspaceStore,
+  WORKSPACE_CHANGED_EVENT,
+} from '@/app/store/workspace-store';
 import { getToolDisplayInfo } from '@/app/lib/pi/tool-display';
 
 import { CANVAS_CHAT_ACTIVE_SESSION_STORAGE_KEY } from '@/app/lib/chat/constants';
@@ -128,6 +133,7 @@ export default function CanvasAgentChat({
   const currentFile = useFileStore((s) => s.currentFile);
   const { planningMode, togglePlanningMode } = usePlanModeStore();
   const toolVerbosity = useToolVerbosityStore((s) => s.toolVerbosity);
+  const activeWorkspace = useWorkspaceStore(selectActiveWorkspace);
 
   // Container width detection for history layout
   const containerRef = useRef<HTMLDivElement>(null);
@@ -395,10 +401,20 @@ export default function CanvasAgentChat({
     activeFilePath,
     userTimeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
     currentTime: new Date().toISOString(),
+    workspace: activeWorkspace
+      ? {
+        workspaceId: activeWorkspace.id,
+        workspaceType: activeWorkspace.type,
+        workspaceName: activeWorkspace.name,
+        organizationId: activeWorkspace.organizationId,
+        canWrite: activeWorkspace.permissions.canWrite,
+        canShare: activeWorkspace.permissions.canCreatePublicLinks,
+      }
+      : undefined,
     planningMode,
     currentPage: typeof window !== 'undefined' ? window.location.pathname : undefined,
     ...requestContext,
-  }), [planningMode, requestContext]);
+  }), [activeWorkspace, planningMode, requestContext]);
 
   const ensureSessionSubscribed = useCallback(async (targetSessionId: string) => {
     if (subscribedSessionAckRef.current === targetSessionId) {
@@ -586,6 +602,15 @@ export default function CanvasAgentChat({
     userStartedNewChatRef,
     wsRequest,
   });
+
+  useEffect(() => {
+    const handleWorkspaceChange = () => {
+      startNewChat();
+    };
+
+    window.addEventListener(WORKSPACE_CHANGED_EVENT, handleWorkspaceChange);
+    return () => window.removeEventListener(WORKSPACE_CHANGED_EVENT, handleWorkspaceChange);
+  }, [startNewChat]);
 
   const { loadOlderMessages, loadSession } = useChatSessionMessages({
     activeModel,
