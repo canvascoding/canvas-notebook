@@ -73,6 +73,9 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       ...(payload?.priority !== undefined ? { priority: parsePriority(payload.priority) } : {}),
       ...(payload?.dueAt !== undefined ? { dueAt: parseOptionalDate(payload.dueAt) ?? null } : {}),
       ...(payload?.status !== undefined ? { status: parseStatus(payload.status) } : {}),
+      ...(payload?.assigneeUserId !== undefined ? {
+        assigneeUserId: typeof payload.assigneeUserId === 'string' ? payload.assigneeUserId : null,
+      } : {}),
       ...(payload?.markSeen === true ? { seenAt: new Date() } : {}),
       ...(payload?.seenAt !== undefined ? { seenAt: parseOptionalDate(payload.seenAt) ?? null } : {}),
       ...(payload?.completionComment !== undefined ? {

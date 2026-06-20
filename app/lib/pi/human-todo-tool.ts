@@ -7,6 +7,7 @@ import {
   type TodoPriority,
 } from '@/app/lib/todos/store';
 import { normalizeManagedAgentId } from '@/app/lib/agents/registry';
+import { getAgentExecutionContext } from '@/app/lib/pi/agent-execution-context';
 
 function parseDueAt(value: unknown): Date | null {
   if (value === undefined || value === null || value === '') {
@@ -62,6 +63,7 @@ export function createHumanTodoTool(deps: { userId?: string; agentId?: string | 
         description: 'Optional workspace-relative file paths relevant to the task. Absolute paths, URLs, and traversal are rejected.',
         maxItems: 20,
       })),
+      assigneeUserId: Type.Optional(Type.String({ description: 'Optional user ID to assign the to-do to. For team workspace to-dos the assignee must be a member of the organization.' })),
       sourceSessionId: Type.Optional(Type.String({ description: 'Optional Canvas Agent session ID. Usually set automatically by Canvas when this tool runs inside a chat session.' })),
     }),
     execute: async (_toolCallId, params) => {
@@ -71,12 +73,22 @@ export function createHumanTodoTool(deps: { userId?: string; agentId?: string | 
         }
 
         const input = params as Record<string, unknown>;
+        const executionContext = getAgentExecutionContext();
+        const workspaceScope = executionContext?.workspaceType === 'team'
+          ? {
+              workspaceType: 'team' as const,
+              organizationId: executionContext.organizationId,
+              workspaceId: executionContext.workspaceId,
+            }
+          : { workspaceType: 'personal' as const };
         const todo = await createTodo(deps.userId, {
+          ...workspaceScope,
           title: String(input.title ?? ''),
           description: typeof input.description === 'string' ? input.description : null,
           categoryName: typeof input.categoryName === 'string' ? input.categoryName : null,
           priority: normalizePriority(input.priority),
           dueAt: parseDueAt(input.dueAt),
+          assigneeUserId: typeof input.assigneeUserId === 'string' ? input.assigneeUserId : null,
           sourceType: 'agent',
           sourceAgentId,
           sourceSessionId: sourceSessionId || (typeof input.sourceSessionId === 'string' ? input.sourceSessionId : null),
@@ -90,8 +102,10 @@ export function createHumanTodoTool(deps: { userId?: string; agentId?: string | 
           `Title: ${todo.title}`,
           `Category: ${todo.category?.name ?? 'To-do'}`,
           `Priority: ${todo.priority}`,
+          `Workspace: ${todo.workspaceType === 'team' ? 'Team' : 'Personal'}`,
+          todo.assignee ? `Assignee: ${todo.assignee.name || todo.assignee.email || todo.assignee.id}` : null,
           `Visible in UI: /todos`,
-        ];
+        ].filter((line): line is string => Boolean(line));
 
         if (todo.fileLinks.length > 0) {
           lines.push('Linked files:');

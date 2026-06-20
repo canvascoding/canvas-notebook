@@ -327,8 +327,25 @@
     {
       "id": 20,
       "title": "To-do-Management mit Organization-Scope, User-Zuweisung und Status-Tracking bauen",
-      "status": "pending",
-      "repo": "canvasstudios-notebook"
+      "status": "completed",
+      "repo": "canvasstudios-notebook",
+      "planningArtifacts": [
+        "docs/architecture/canvas-notebook/team-workspace/05-actor-audit-retention.md",
+        "docs/architecture/canvas-notebook/team-workspace/06-workspace-switching-ux.md",
+        "docs/architecture/canvas-notebook/team-workspace/10-agent-tool-execution-policy.md"
+      ],
+      "implementationArtifacts": [
+        "app/lib/db/schema.ts",
+        "app/lib/db/migrate.ts",
+        "app/lib/todos/store.ts",
+        "app/api/todos/route.ts",
+        "app/api/todos/[id]/route.ts",
+        "app/api/todos/assignees/route.ts",
+        "app/apps/todos/components/TodosClient.tsx",
+        "app/lib/pi/human-todo-tool.ts",
+        "scripts/todo-store-test.ts",
+        "scripts/todo-email-notification-test.ts"
+      ]
     },
     {
       "id": 21,

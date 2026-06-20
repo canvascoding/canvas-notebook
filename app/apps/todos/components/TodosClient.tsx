@@ -26,6 +26,7 @@ import {
   Search,
   Send,
   Trash2,
+  Users,
   X,
 } from 'lucide-react';
 
@@ -75,12 +76,31 @@ type TodoCategory = {
 
 type TodoFileLink = {
   id: string;
+  workspaceId: string | null;
+  workspaceType: TodoWorkspaceType;
   workspacePath: string;
   label: string | null;
 };
 
+type TodoWorkspaceType = 'personal' | 'team';
+
+type TodoUserSummary = {
+  id: string;
+  name: string | null;
+  email: string | null;
+};
+
+type AssigneeOption = TodoUserSummary & {
+  role?: string | null;
+};
+
 type TodoItem = {
   id: string;
+  createdByUserId: string | null;
+  assigneeUserId: string | null;
+  organizationId: string | null;
+  workspaceId: string | null;
+  workspaceType: TodoWorkspaceType;
   title: string;
   description: string | null;
   status: TodoStatus;
@@ -100,6 +120,8 @@ type TodoItem = {
   updatedAt: string;
   category: TodoCategory | null;
   fileLinks: TodoFileLink[];
+  createdBy: TodoUserSummary | null;
+  assignee: TodoUserSummary | null;
 };
 
 type WorkspaceFileEntry = {
@@ -114,6 +136,17 @@ type ApiResponse<T> = {
   error?: string;
 };
 
+type WorkspaceOption = {
+  id: string;
+  type: TodoWorkspaceType | 'project';
+  name: string;
+  organizationId: string | null;
+  permissions?: {
+    canRead?: boolean;
+    canWrite?: boolean;
+  };
+};
+
 type TodoFollowUpResponse = {
   todo: TodoItem;
   sessionId: string;
@@ -125,6 +158,7 @@ type TodoFormState = {
   categoryId: string;
   priority: TodoPriority;
   dueAt: string;
+  assigneeUserId: string;
   fileLinks: Array<{ workspacePath: string; label: string | null }>;
 };
 
@@ -137,6 +171,7 @@ const emptyForm: TodoFormState = {
   categoryId: '',
   priority: 'normal',
   dueAt: '',
+  assigneeUserId: '',
   fileLinks: [],
 };
 
@@ -179,6 +214,7 @@ function todoToForm(todo: TodoItem): TodoFormState {
     categoryId: todo.category?.id ?? '',
     priority: todo.priority,
     dueAt: toDateInput(todo.dueAt),
+    assigneeUserId: todo.assigneeUserId ?? '',
     fileLinks: todo.fileLinks.map((link) => ({
       workspacePath: link.workspacePath,
       label: link.label,
@@ -186,8 +222,14 @@ function todoToForm(todo: TodoItem): TodoFormState {
   };
 }
 
-function fileLinkHref(workspacePath: string) {
-  return `/files?path=${encodeURIComponent(workspacePath)}`;
+function fileLinkHref(link: Pick<TodoFileLink, 'workspacePath' | 'workspaceId'>) {
+  const params = new URLSearchParams({ path: link.workspacePath });
+  if (link.workspaceId) params.set('workspaceId', link.workspaceId);
+  return `/files?${params.toString()}`;
+}
+
+function formatTodoUser(user: TodoUserSummary | null | undefined, fallback: string) {
+  return user?.name || user?.email || user?.id || fallback;
 }
 
 function pushTodoChatState(todo: Pick<TodoItem, 'id' | 'sourceSessionId'>) {
@@ -284,6 +326,18 @@ function TodoDetailPanel({
 
       <div className="grid gap-2 text-sm">
         <div className="flex min-w-0 items-center justify-between gap-3">
+          <span className="shrink-0 text-muted-foreground">{t('fields.workspace')}</span>
+          <span className="min-w-0 truncate text-right font-medium">
+            {todo.workspaceType === 'team' ? t('scope.team') : t('scope.personal')}
+          </span>
+        </div>
+        <div className="flex min-w-0 items-center justify-between gap-3">
+          <span className="shrink-0 text-muted-foreground">{t('fields.assignee')}</span>
+          <span className="min-w-0 truncate text-right font-medium">
+            {formatTodoUser(todo.assignee, t('labels.unassigned'))}
+          </span>
+        </div>
+        <div className="flex min-w-0 items-center justify-between gap-3">
           <span className="shrink-0 text-muted-foreground">{t('fields.category')}</span>
           <span className="min-w-0 truncate text-right font-medium">{formatCategoryName(todo.category)}</span>
         </div>
@@ -353,7 +407,7 @@ function TodoDetailPanel({
           <div className="space-y-2">
             {todo.fileLinks.map((link) => (
               <Button key={link.id} asChild variant="outline" className="h-auto w-full min-w-0 justify-start overflow-hidden whitespace-normal py-2 text-left">
-                <Link href={fileLinkHref(link.workspacePath)}>
+                <Link href={fileLinkHref(link)}>
                   <FileText className="h-4 w-4" />
                   <span className="min-w-0 flex-1 truncate">{link.label || link.workspacePath}</span>
                 </Link>
@@ -450,6 +504,9 @@ export function TodosClient({ title }: { title: string }) {
   const pendingTodoParamRef = useRef<string | null>(null);
   const [todos, setTodos] = useState<TodoItem[]>([]);
   const [categories, setCategories] = useState<TodoCategory[]>([]);
+  const [workspaces, setWorkspaces] = useState<WorkspaceOption[]>([]);
+  const [assignees, setAssignees] = useState<AssigneeOption[]>([]);
+  const [selectedWorkspaceId, setSelectedWorkspaceId] = useState('');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('open');
   const [categoryFilter, setCategoryFilter] = useState<string>('');
   const [selectedTodoId, setSelectedTodoId] = useState<string | null>(null);
@@ -513,6 +570,15 @@ export function TodosClient({ title }: { title: string }) {
 
   const openCount = useMemo(() => todos.filter((todo) => todo.status === 'open').length, [todos]);
   const doneCount = useMemo(() => todos.filter((todo) => todo.status === 'done').length, [todos]);
+  const teamWorkspaces = useMemo(
+    () => workspaces.filter((workspace) => workspace.type === 'team' && workspace.permissions?.canRead !== false),
+    [workspaces],
+  );
+  const selectedWorkspace = useMemo(
+    () => workspaces.find((workspace) => workspace.id === selectedWorkspaceId) ?? null,
+    [selectedWorkspaceId, workspaces],
+  );
+  const selectedWorkspaceLabel = selectedWorkspace?.name || t('scope.personal');
 
   const formatCategoryName = useCallback((category: Pick<TodoCategory, 'name' | 'icon'> | null | undefined) => {
     if (!category) return t('filters.noCategory');
@@ -527,9 +593,24 @@ export function TodosClient({ title }: { title: string }) {
   }, [categories, categoryFilter, formatCategoryName, t]);
 
   const filterSummary = useMemo(
-    () => `${t(`filters.status.${statusFilter}`)} · ${selectedCategoryName}`,
-    [selectedCategoryName, statusFilter, t],
+    () => `${selectedWorkspaceLabel} · ${t(`filters.status.${statusFilter}`)} · ${selectedCategoryName}`,
+    [selectedCategoryName, selectedWorkspaceLabel, statusFilter, t],
   );
+
+  const loadWorkspaces = useCallback(async () => {
+    const response = await fetch('/api/workspaces', { credentials: 'include', cache: 'no-store' });
+    const payload = await response.json().catch(() => null) as { success?: boolean; workspaces?: WorkspaceOption[] } | null;
+    if (!response.ok || !payload?.success) {
+      setWorkspaces([]);
+      return [];
+    }
+    const readable = (payload.workspaces ?? []).filter((workspace) => workspace.type === 'personal' || workspace.type === 'team');
+    setWorkspaces(readable as WorkspaceOption[]);
+    setSelectedWorkspaceId((current) => (
+      current && readable.some((workspace) => workspace.id === current) ? current : ''
+    ));
+    return readable;
+  }, []);
 
   const loadCategories = useCallback(async () => {
     const response = await fetch('/api/todo-categories', { credentials: 'include', cache: 'no-store' });
@@ -538,9 +619,27 @@ export function TodosClient({ title }: { title: string }) {
     return data;
   }, []);
 
+  const loadAssignees = useCallback(async () => {
+    const params = new URLSearchParams();
+    if (selectedWorkspaceId) params.set('workspaceId', selectedWorkspaceId);
+    const response = await fetch(`/api/todos/assignees?${params.toString()}`, {
+      credentials: 'include',
+      cache: 'no-store',
+    });
+    const data = await readApiData<AssigneeOption[]>(response);
+    setAssignees(data);
+    setForm((current) => (
+      current.assigneeUserId && !data.some((candidate) => candidate.id === current.assigneeUserId)
+        ? { ...current, assigneeUserId: '' }
+        : current
+    ));
+    return data;
+  }, [selectedWorkspaceId]);
+
   const loadTodos = useCallback(async () => {
     const params = new URLSearchParams({ status: statusFilter });
     if (categoryFilter) params.set('categoryId', categoryFilter);
+    if (selectedWorkspaceId) params.set('workspaceId', selectedWorkspaceId);
     const response = await fetch(`/api/todos?${params.toString()}`, {
       credentials: 'include',
       cache: 'no-store',
@@ -549,25 +648,25 @@ export function TodosClient({ title }: { title: string }) {
     setTodos(data);
     setSelectedTodoId((current) => (current && data.some((todo) => todo.id === current) ? current : null));
     return data;
-  }, [categoryFilter, statusFilter]);
+  }, [categoryFilter, selectedWorkspaceId, statusFilter]);
 
   const refreshAll = useCallback(async () => {
     setIsLoading(true);
     try {
-      await Promise.all([loadCategories(), loadTodos()]);
+      await Promise.all([loadAssignees(), loadCategories(), loadTodos(), loadWorkspaces()]);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : t('errors.loadFailed'));
     } finally {
       setIsLoading(false);
     }
-  }, [loadCategories, loadTodos, t]);
+  }, [loadAssignees, loadCategories, loadTodos, loadWorkspaces, t]);
 
   useEffect(() => {
     let cancelled = false;
 
     async function loadInitialData() {
       try {
-        await Promise.all([loadCategories(), loadTodos()]);
+        await Promise.all([loadAssignees(), loadCategories(), loadTodos(), loadWorkspaces()]);
       } catch (error) {
         toast.error(error instanceof Error ? error.message : t('errors.loadFailed'));
       } finally {
@@ -581,7 +680,7 @@ export function TodosClient({ title }: { title: string }) {
     return () => {
       cancelled = true;
     };
-  }, [loadCategories, loadTodos, t]);
+  }, [loadAssignees, loadCategories, loadTodos, loadWorkspaces, t]);
 
   useEffect(() => {
     if (!editorOpen) return;
@@ -590,7 +689,9 @@ export function TodosClient({ title }: { title: string }) {
     const handle = window.setTimeout(async () => {
       setIsFileSearching(true);
       try {
-        const response = await fetch(`/api/files/list?q=${encodeURIComponent(fileQuery)}&limit=20`, {
+        const params = new URLSearchParams({ q: fileQuery, limit: '20' });
+        if (selectedWorkspaceId) params.set('workspaceId', selectedWorkspaceId);
+        const response = await fetch(`/api/files/list?${params.toString()}`, {
           credentials: 'include',
           cache: 'no-store',
           signal: controller.signal,
@@ -612,7 +713,7 @@ export function TodosClient({ title }: { title: string }) {
       window.clearTimeout(handle);
       controller.abort();
     };
-  }, [editorOpen, fileQuery]);
+  }, [editorOpen, fileQuery, selectedWorkspaceId]);
 
   const updateTodo = useCallback(async (todoId: string, payload: Record<string, unknown>) => {
     setIsMutating(true);
@@ -746,7 +847,9 @@ export function TodosClient({ title }: { title: string }) {
         categoryId: form.categoryId || null,
         priority: form.priority,
         dueAt: form.dueAt || null,
+        assigneeUserId: form.assigneeUserId || null,
         fileLinks: form.fileLinks,
+        ...(!editingTodoId && selectedWorkspaceId ? { workspaceId: selectedWorkspaceId } : {}),
       };
       const response = await fetch(editingTodoId ? `/api/todos/${encodeURIComponent(editingTodoId)}` : '/api/todos', {
         method: editingTodoId ? 'PATCH' : 'POST',
@@ -765,7 +868,7 @@ export function TodosClient({ title }: { title: string }) {
     } finally {
       setIsMutating(false);
     }
-  }, [editingTodoId, form, loadTodos, t]);
+  }, [editingTodoId, form, loadTodos, selectedWorkspaceId, t]);
 
   const archiveTodo = useCallback(async (todo: TodoItem) => {
     setIsMutating(true);
@@ -956,6 +1059,48 @@ export function TodosClient({ title }: { title: string }) {
     </div>
   );
 
+  const renderWorkspaceFilters = (closeOnSelect = false) => (
+    <div className="grid grid-cols-2 gap-1 md:grid-cols-1">
+      <button
+        type="button"
+        className={cn(
+          'flex h-9 min-w-0 items-center gap-2 rounded-md px-3 text-sm transition-colors',
+          !selectedWorkspaceId
+            ? 'bg-primary text-primary-foreground'
+            : 'text-muted-foreground hover:bg-accent hover:text-foreground',
+        )}
+        onClick={() => {
+          setSelectedWorkspaceId('');
+          setSelectedTodoId(null);
+          if (closeOnSelect) setFilterSheetOpen(false);
+        }}
+      >
+        <Circle className="h-3.5 w-3.5 shrink-0" />
+        <span className="min-w-0 truncate">{t('scope.personal')}</span>
+      </button>
+      {teamWorkspaces.map((workspace) => (
+        <button
+          key={workspace.id}
+          type="button"
+          className={cn(
+            'flex h-9 min-w-0 items-center gap-2 rounded-md px-3 text-sm transition-colors',
+            selectedWorkspaceId === workspace.id
+              ? 'bg-primary text-primary-foreground'
+              : 'text-muted-foreground hover:bg-accent hover:text-foreground',
+          )}
+          onClick={() => {
+            setSelectedWorkspaceId(workspace.id);
+            setSelectedTodoId(null);
+            if (closeOnSelect) setFilterSheetOpen(false);
+          }}
+        >
+          <Users className="h-3.5 w-3.5 shrink-0" />
+          <span className="min-w-0 truncate">{workspace.name || t('scope.team')}</span>
+        </button>
+      ))}
+    </div>
+  );
+
   const renderCategoryFilters = (closeOnSelect = false) => (
     <div className="flex min-w-0 flex-col gap-1">
       <button
@@ -1075,6 +1220,13 @@ export function TodosClient({ title }: { title: string }) {
         </div>
 
         <aside className="hidden min-w-0 space-y-4 md:block">
+          <section className="space-y-3">
+            <h3 className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+              {t('sections.workspace')}
+            </h3>
+            {renderWorkspaceFilters()}
+          </section>
+
           <section className="space-y-3">
             <div className="flex items-center justify-between gap-2">
               <h3 className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
@@ -1283,10 +1435,17 @@ export function TodosClient({ title }: { title: string }) {
             <SheetDescription>{filterSummary}</SheetDescription>
           </SheetHeader>
           <div className="min-h-0 overflow-y-auto px-4 py-4">
-            <section className="space-y-3">
-              <div className="flex items-center justify-between gap-2">
+              <section className="space-y-3">
                 <h3 className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-                  {t('sections.status')}
+                  {t('sections.workspace')}
+                </h3>
+                {renderWorkspaceFilters(true)}
+              </section>
+
+              <section className="mt-5 space-y-3">
+                <div className="flex items-center justify-between gap-2">
+                  <h3 className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                    {t('sections.status')}
                 </h3>
                 <Badge variant="outline">{visibleUnreadCount > 99 ? '99+' : visibleUnreadCount}</Badge>
               </div>
@@ -1382,6 +1541,22 @@ export function TodosClient({ title }: { title: string }) {
                     />
                   </div>
                 </div>
+                <label className="space-y-2 text-sm">
+                  <span className="font-medium">{t('fields.assignee')}</span>
+                  <select
+                    id="todo-assignee"
+                    className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+                    value={form.assigneeUserId}
+                    onChange={(event) => setForm((current) => ({ ...current, assigneeUserId: event.target.value }))}
+                  >
+                    <option value="">{t('labels.unassigned')}</option>
+                    {assignees.map((candidate) => (
+                      <option key={candidate.id} value={candidate.id}>
+                        {formatTodoUser(candidate, candidate.id)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
               </div>
 
               <div className="space-y-3">
