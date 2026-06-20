@@ -5,6 +5,7 @@ import path from 'path';
 
 import { readPiRuntimeConfig, writePiRuntimeConfig } from '@/app/lib/agents/storage';
 import {
+  createAtomicTempPath,
   resolveScopedSettingsDir,
   type UserScopedDataStorageScope,
 } from '@/app/lib/runtime-data-paths';
@@ -69,7 +70,7 @@ async function readUserSkillSettings(scope: SkillSettingsScope): Promise<CanvasS
 async function writeUserSkillSettings(settings: CanvasSkillSettings, scope: SkillSettingsScope): Promise<void> {
   const settingsPath = resolveSkillSettingsPath(scope);
   await fs.mkdir(path.dirname(settingsPath), { recursive: true });
-  const tmpPath = `${settingsPath}.tmp-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const tmpPath = createAtomicTempPath(settingsPath);
   await fs.writeFile(tmpPath, `${JSON.stringify(settings, null, 2)}\n`, 'utf-8');
   await fs.rename(tmpPath, settingsPath);
 }

@@ -19,6 +19,10 @@ export async function directoryExists(targetPath: string): Promise<boolean> {
   return fsPromises.stat(targetPath).then((stat) => stat.isDirectory()).catch(() => false);
 }
 
+export function createAtomicTempPath(targetPath: string): string {
+  return `${targetPath}.tmp-${Date.now()}-${process.pid}-${Math.random().toString(16).slice(2)}`;
+}
+
 function resolveProjectDataRoot(cwd?: string): string {
   const resolvedCwd = cwd ?? process.cwd();
   return path.resolve(/* turbopackIgnore: true */ resolvedCwd, 'data');

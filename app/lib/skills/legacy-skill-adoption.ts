@@ -2,6 +2,7 @@ import { promises as fs } from 'fs';
 import path from 'path';
 
 import {
+  createAtomicTempPath,
   resolveScopedSkillRegistryPath,
   resolveScopedSkillsDataDir,
   shouldUseLegacyScopedSkillsFallback,
@@ -63,7 +64,7 @@ async function readStandaloneSkillRegistryFile(registryPath: string): Promise<St
 
 async function writeStandaloneSkillRegistryFile(registryPath: string, registry: StandaloneSkillRegistry): Promise<void> {
   await fs.mkdir(path.dirname(registryPath), { recursive: true });
-  const tmpPath = `${registryPath}.tmp`;
+  const tmpPath = createAtomicTempPath(registryPath);
   await fs.writeFile(tmpPath, `${JSON.stringify({
     ...registry,
     version: 1,

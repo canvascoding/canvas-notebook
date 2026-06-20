@@ -8,6 +8,7 @@ import { fileURLToPath } from 'url';
 import JSZip from 'jszip';
 
 import {
+  createAtomicTempPath,
   resolveReadableScopedSkillsDataDir,
   resolveScopedSkillBackupsDir,
   resolveScopedSkillRegistryPath,
@@ -420,7 +421,7 @@ export async function writeCanvasSkillRegistry(
 ): Promise<void> {
   await ensureSkillRoot(scope);
   const registryPath = resolveScopedSkillRegistryPath(scope);
-  const tmpPath = `${registryPath}.tmp`;
+  const tmpPath = createAtomicTempPath(registryPath);
   const nextRegistry: CanvasSkillRegistry = {
     ...registry,
     version: 1,

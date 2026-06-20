@@ -3,6 +3,7 @@ import { promises as fs } from 'fs';
 import path from 'path';
 
 import {
+  createAtomicTempPath,
   resolveReadableScopedSkillsDataDir,
   resolveScopedInstalledPluginsDir,
   resolveScopedPluginRegistryPath,
@@ -186,7 +187,7 @@ export async function writeCanvasPluginRegistry(
 ): Promise<void> {
   await ensurePluginsRoot(scope);
   const registryPath = resolveScopedPluginRegistryPath(scope);
-  const tmpPath = `${registryPath}.tmp`;
+  const tmpPath = createAtomicTempPath(registryPath);
   const nextRegistry: CanvasPluginRegistry = {
     ...registry,
     version: 1,
@@ -326,7 +327,7 @@ async function writeStandaloneSkillRegistry(
 ): Promise<void> {
   await fs.mkdir(resolveScopedSkillsDataDir(scope), { recursive: true });
   const registryPath = resolveScopedSkillRegistryPath(scope);
-  const tmpPath = `${registryPath}.tmp`;
+  const tmpPath = createAtomicTempPath(registryPath);
   await fs.writeFile(tmpPath, `${JSON.stringify({
     ...registry,
     version: 1,
