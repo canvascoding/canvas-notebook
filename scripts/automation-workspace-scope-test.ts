@@ -108,6 +108,7 @@ async function main() {
       getAutomationRun,
       listAutomationJobs,
       scheduleAutomationJobRun,
+      upsertHeartbeatJob,
     } = await import('../app/lib/automations/store');
 
     const memberPersonalJob = await createAutomationJob({
@@ -127,16 +128,29 @@ async function main() {
       () => createAutomationJob({
         name: 'Blocked team job',
         prompt: 'Write to team workspace.',
+        scope: 'team',
         workspaceId: teamWorkspace.id,
         schedule: { kind: 'daily', times: ['10:00'], timeZone: 'UTC' },
       }, 'user-member'),
       /Organization automation permission required/,
     );
 
+    await assert.rejects(
+      () => createAutomationJob({
+        name: 'Blocked personal job in team workspace',
+        prompt: 'This should stay personal.',
+        scope: 'personal',
+        workspaceId: teamWorkspace.id,
+        schedule: { kind: 'daily', times: ['10:15'], timeZone: 'UTC' },
+      }, 'user-member'),
+      /Personal automations require a personal workspace/,
+    );
+
     setMemberCanCreateTeamAutomations(true);
     const memberOrganizationJob = await createAutomationJob({
       name: 'Member organization job',
       prompt: 'Summarize the team workspace as a temporary automation owner.',
+      scope: 'team',
       workspaceId: teamWorkspace.id,
       schedule: { kind: 'daily', times: ['10:30'], timeZone: 'UTC' },
     }, { id: 'user-member', role: 'member', email: 'member@example.test' });
@@ -152,6 +166,7 @@ async function main() {
     const ownerOrganizationJob = await createAutomationJob({
       name: 'Owner organization job',
       prompt: 'Summarize the team workspace.',
+      scope: 'team',
       workspaceId: teamWorkspace.id,
       schedule: { kind: 'daily', times: ['11:00'], timeZone: 'UTC' },
     }, { id: 'user-owner', role: 'admin', email: 'owner@example.test' });
@@ -184,6 +199,18 @@ async function main() {
     const loadedRun = await getAutomationRun(run.id);
     assert.equal(loadedRun?.workspaceId, teamWorkspace.id);
     assert.equal(loadedRun?.scope, 'organization');
+
+    const heartbeatJob = await upsertHeartbeatJob({
+      userId: 'user-member',
+      agentId: 'agent-member',
+      enabled: true,
+      schedule: { kind: 'interval', every: 30, unit: 'minutes', timeZone: 'UTC' },
+    });
+    assert.equal(heartbeatJob.scope, 'personal');
+    assert.equal(heartbeatJob.workspaceType, 'personal');
+    assert.equal(heartbeatJob.ownerUserId, 'user-member');
+    assert.equal(heartbeatJob.responsibleUserId, 'user-member');
+    assert.equal(heartbeatJob.lastEditedByUserId, 'user-member');
   } finally {
     if (sqlite.open) {
       sqlite.close();

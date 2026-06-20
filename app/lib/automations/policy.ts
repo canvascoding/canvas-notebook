@@ -152,6 +152,10 @@ export async function resolveAutomationScopeForCreate(input: unknown, user: Auto
     throw new AutomationPolicyError('Automations are only supported in personal and team workspaces.');
   }
 
+  if (requestedScope === 'personal') {
+    throw new AutomationPolicyError('Personal automations require a personal workspace. Please select a personal workspace before creating a personal automation.');
+  }
+
   assertCanCreateOrganizationAutomation(user);
   if (!workspace.organizationId) {
     throw new AutomationPolicyError('Organization automations require a configured organization workspace.');
