@@ -36,6 +36,10 @@ async function main() {
       INSERT INTO user (id, name, email, email_verified, role, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?)
     `).run('user-member', 'Member', 'member@example.com', 1, 'member', now, now);
+    sqlite.prepare(`
+      INSERT INTO user (id, name, email, email_verified, role, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run('user-no-permission', 'No Permission', 'no-permission@example.com', 1, 'member', now, now);
 
     sqlite.exec('BEGIN IMMEDIATE');
     const ownerStatus = ensureOrganizationBootstrapForUser(sqlite, 'user-owner');
@@ -126,6 +130,23 @@ async function main() {
     assert.equal(disabledEnsure.personal.displayName, 'Personal Workspace');
     const memberWorkspacesAfterDisable = listWorkspaceContextsForUser(sqlite, { actor: memberActor, organizationId });
     assert.deepEqual(memberWorkspacesAfterDisable.map((workspace) => workspace.workspaceType), ['team']);
+
+    ensureDefaultWorkspaceRecords(sqlite, {
+      organizationId,
+      userId: 'user-no-permission',
+      teamFeaturesEnabled: true,
+    });
+    const actorWithoutPermission = resolveWorkspaceActor({
+      id: 'user-no-permission',
+      email: 'no-permission@example.com',
+      role: 'member',
+    });
+    const noPermissionWorkspaces = listWorkspaceContextsForUser(sqlite, {
+      actor: actorWithoutPermission,
+      organizationId,
+    });
+    assert.deepEqual(noPermissionWorkspaces.map((workspace) => workspace.workspaceType), ['personal']);
+    assert.equal(noPermissionWorkspaces[0].permissions.canCreatePublicLinks, false);
     assert.throws(() => workspaceAbsoluteRoot('../outside'), /Invalid workspace root path/);
   } finally {
     sqlite.close();

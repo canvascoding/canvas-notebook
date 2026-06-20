@@ -277,7 +277,38 @@ async function main() {
       communityBootstrapDir,
       'community',
     );
+
+    communityBootstrap.prepare(`
+      UPDATE canvas_workspaces
+      SET status = 'disabled', display_name = 'Outdated Name'
+      WHERE owner_user_id = ?
+    `).run(communityUser.id);
     communityBootstrap.close();
+
+    execFileSync('node', ['scripts/bootstrap-admin.js'], {
+      cwd: process.cwd(),
+      stdio: 'pipe',
+      env: {
+        ...process.env,
+        DATA: communityBootstrapDir,
+        CANVAS_DEPLOYMENT_MODE: 'community',
+        CANVAS_TEAM_FEATURES_ENABLED: 'true',
+        CANVAS_DATABASE_PROVIDER: 'sqlite',
+        BOOTSTRAP_ADMIN_EMAIL: 'community@example.test',
+        BOOTSTRAP_ADMIN_PASSWORD: 'CommunityPassword123!',
+        BOOTSTRAP_ADMIN_NAME: 'Community Admin',
+      },
+    });
+
+    const rebootstrap = new Database(path.join(communityBootstrapDir, 'sqlite.db'));
+    const personalWorkspace = rebootstrap.prepare(`
+      SELECT status, display_name AS displayName
+      FROM canvas_workspaces
+      WHERE owner_user_id = ?
+    `).get(communityUser.id) as { status: string; displayName: string };
+    assert.equal(personalWorkspace.status, 'disabled');
+    assert.equal(personalWorkspace.displayName, 'Personal Workspace');
+    rebootstrap.close();
   } finally {
     rmSync(communityBootstrapDir, { recursive: true, force: true });
   }

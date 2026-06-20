@@ -463,7 +463,7 @@ function ensureWorkspaceRecord(db, input) {
   if (existing) {
     db.prepare(`
       UPDATE canvas_workspaces
-      SET root_relative_path = ?, display_name = ?, status = 'active', updated_at = ?
+      SET root_relative_path = ?, display_name = ?, updated_at = ?
       WHERE id = ?
     `).run(input.rootRelativePath, input.displayName, now, existing.id);
     ensureWorkspaceDirectory(input.rootRelativePath);

@@ -273,7 +273,7 @@ export function workspaceContextFromRecord(
       ownsPersonalWorkspace,
       canAccessTeamWorkspace,
       canWriteTeamWorkspace,
-      canCreatePublicLinks: permission?.can_create_public_links !== 0,
+      canCreatePublicLinks: permission?.can_create_public_links === 1,
     }),
     legacy: false,
   };
