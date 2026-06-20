@@ -1,7 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { applyTodoRateLimit, parseOptionalDate, requireTodoSession, todoErrorResponse } from '@/app/lib/todos/api';
-import { requireSessionWorkspace, type RequestWorkspaceSession } from '@/app/lib/workspaces/request';
+import {
+  requireSessionWorkspace,
+  type RequestWorkspacePermission,
+  type RequestWorkspaceSession,
+} from '@/app/lib/workspaces/request';
 import {
   TODO_PRIORITIES,
   TODO_SOURCE_TYPES,
@@ -58,9 +62,10 @@ function todoWorkspaceScope(workspace: WorkspaceContext | null) {
 async function resolveRequestedWorkspace(
   session: RequestWorkspaceSession,
   workspaceId: string | null | undefined,
+  permissions?: RequestWorkspacePermission | RequestWorkspacePermission[],
 ) {
   if (!workspaceId) return { workspace: null, response: null };
-  return requireSessionWorkspace(session, { workspaceId });
+  return requireSessionWorkspace(session, { workspaceId, permissions });
 }
 
 export async function GET(request: NextRequest) {
@@ -75,7 +80,7 @@ export async function GET(request: NextRequest) {
   }
 
   const { searchParams } = new URL(request.url);
-  const workspaceResult = await resolveRequestedWorkspace(session, searchParams.get('workspaceId'));
+  const workspaceResult = await resolveRequestedWorkspace(session, searchParams.get('workspaceId'), 'canRead');
   if (workspaceResult.response) {
     return workspaceResult.response;
   }
@@ -109,6 +114,7 @@ export async function POST(request: NextRequest) {
     const workspaceResult = await resolveRequestedWorkspace(
       session,
       typeof payload?.workspaceId === 'string' ? payload.workspaceId : null,
+      'canWrite',
     );
     if (workspaceResult.response) {
       return workspaceResult.response;

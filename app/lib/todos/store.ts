@@ -215,10 +215,23 @@ async function assertAssignableUser(organizationId: string, assigneeUserId: stri
   }
 }
 
+async function assertTeamWorkspaceInOrganization(organizationId: string, workspaceId: string): Promise<void> {
+  const workspace = await db.query.canvasWorkspaces.findFirst({
+    where: and(
+      eq(canvasWorkspaces.id, workspaceId),
+      eq(canvasWorkspaces.organizationId, organizationId),
+      eq(canvasWorkspaces.type, 'team'),
+    ),
+  });
+  if (!workspace) {
+    throw new TodoStoreError('Team workspace not found.', 'INVALID_INPUT');
+  }
+}
+
 async function resolveTodoScope(userId: string, input: Pick<CreateTodoInput, 'organizationId' | 'workspaceId' | 'workspaceType'>): Promise<TodoScope> {
   const workspaceType = normalizeWorkspaceType(input.workspaceType);
   if (workspaceType === 'personal') {
-    return { organizationId: null, workspaceId: normalizeOptionalId(input.workspaceId), workspaceType };
+    return { organizationId: null, workspaceId: null, workspaceType };
   }
 
   const organizationId = normalizeOptionalId(input.organizationId);
@@ -229,16 +242,7 @@ async function resolveTodoScope(userId: string, input: Pick<CreateTodoInput, 'or
 
   const workspaceId = normalizeOptionalId(input.workspaceId);
   if (workspaceId) {
-    const workspace = await db.query.canvasWorkspaces.findFirst({
-      where: and(
-        eq(canvasWorkspaces.id, workspaceId),
-        eq(canvasWorkspaces.organizationId, organizationId),
-        eq(canvasWorkspaces.type, 'team'),
-      ),
-    });
-    if (!workspace) {
-      throw new TodoStoreError('Team workspace not found.', 'INVALID_INPUT');
-    }
+    await assertTeamWorkspaceInOrganization(organizationId, workspaceId);
   }
 
   return { organizationId, workspaceId, workspaceType };
@@ -583,8 +587,10 @@ export async function listTodos(userId: string, options: ListTodosOptions = {}):
     }
     await assertOrganizationMember(organizationId, userId);
     conditions.push(eq(todoItems.organizationId, organizationId), eq(todoItems.workspaceType, 'team'));
-    if (options.workspaceId) {
-      conditions.push(eq(todoItems.workspaceId, options.workspaceId));
+    const workspaceId = normalizeOptionalId(options.workspaceId);
+    if (workspaceId) {
+      await assertTeamWorkspaceInOrganization(organizationId, workspaceId);
+      conditions.push(eq(todoItems.workspaceId, workspaceId));
     }
   } else if (workspaceType === 'all') {
     const organizationId = normalizeOptionalId(options.organizationId);

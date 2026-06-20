@@ -662,11 +662,23 @@ export function TodosClient({ title }: { title: string }) {
   }, [loadAssignees, loadCategories, loadTodos, loadWorkspaces, t]);
 
   useEffect(() => {
+    async function loadStaticData() {
+      try {
+        await Promise.all([loadCategories(), loadWorkspaces()]);
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : t('errors.loadFailed'));
+      }
+    }
+
+    void loadStaticData();
+  }, [loadCategories, loadWorkspaces, t]);
+
+  useEffect(() => {
     let cancelled = false;
 
-    async function loadInitialData() {
+    async function loadScopedData() {
       try {
-        await Promise.all([loadAssignees(), loadCategories(), loadTodos(), loadWorkspaces()]);
+        await Promise.all([loadAssignees(), loadTodos()]);
       } catch (error) {
         toast.error(error instanceof Error ? error.message : t('errors.loadFailed'));
       } finally {
@@ -676,11 +688,11 @@ export function TodosClient({ title }: { title: string }) {
       }
     }
 
-    void loadInitialData();
+    void loadScopedData();
     return () => {
       cancelled = true;
     };
-  }, [loadAssignees, loadCategories, loadTodos, loadWorkspaces, t]);
+  }, [loadAssignees, loadTodos, t]);
 
   useEffect(() => {
     if (!editorOpen) return;

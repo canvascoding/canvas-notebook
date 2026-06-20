@@ -155,6 +155,7 @@ async function main() {
     sourceType: 'agent',
     sourceAgentId: 'canvas-agent',
     sourceSessionId: 'sess-test',
+    workspaceId: 'team-workspace',
     fileLinks: [
       { workspacePath: './docs/brief.md', label: 'Brief' },
       'docs/brief.md',
@@ -166,8 +167,11 @@ async function main() {
   assert.equal(created.sourceType, 'agent');
   assert.equal(created.category?.name, 'Review');
   assert.equal(getDefaultTodoCategoryKey(created.category), 'review');
+  assert.equal(created.workspaceType, 'personal');
+  assert.equal(created.workspaceId, null);
   assert.equal(created.fileLinks.length, 1);
   assert.equal(created.fileLinks[0].workspacePath, 'docs/brief.md');
+  assert.equal(created.fileLinks[0].workspaceId, null);
 
   const todos = await listTodos('todo-user');
   assert.equal(todos.length, 1);
@@ -215,6 +219,16 @@ async function main() {
       workspaceId: 'team-workspace',
     }),
     (error) => error instanceof TodoStoreError && error.code === 'ORGANIZATION_ACCESS_DENIED',
+  );
+
+  await assert.rejects(
+    () => listTodos('todo-user', {
+      status: 'all',
+      workspaceType: 'team',
+      organizationId: 'org-test',
+      workspaceId: 'missing-team-workspace',
+    }),
+    (error) => error instanceof TodoStoreError && error.code === 'INVALID_INPUT',
   );
 
   await assert.rejects(
