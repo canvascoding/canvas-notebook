@@ -3373,7 +3373,7 @@ export async function getPiTools(userId?: string, agentId?: string | null, sessi
         agentId,
       });
     } catch (error) {
-      console.error('[ToolRegistry] Failed to resolve workspace execution context; disabling tools for this session:', error);
+      console.error('[ToolRegistry] Failed to resolve workspace execution context; disabling tools until the next reload:', error);
       return [];
     }
 

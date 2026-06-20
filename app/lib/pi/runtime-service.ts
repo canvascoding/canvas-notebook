@@ -250,6 +250,9 @@ export async function prepareRuntimePrompt(
   }
 
   applyPromptContext(runtimeInstance, context);
+  if (!status.canAbort) {
+    await runtimeInstance.reloadTools();
+  }
 
   console.log('[RuntimeService] Runtime status:', {
     sessionId,
