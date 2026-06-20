@@ -9,6 +9,7 @@ import {
   syncPublicSharesAfterMove,
   syncPublicSharesAfterWrite,
 } from '@/app/lib/public-sharing/public-file-shares';
+import { getAgentExecutionContext } from '@/app/lib/pi/agent-execution-context';
 
 const SNAPSHOT_DIR_NAME = 'agent-file-snapshots';
 const MAX_DIFF_CHARS = 24_000;
@@ -111,6 +112,11 @@ export function getAgentDataRoot(): string {
 }
 
 export function getAgentWorkspaceRoot(): string {
+  const executionContext = getAgentExecutionContext();
+  if (executionContext?.workspaceRoot) {
+    return executionContext.workspaceRoot;
+  }
+
   return path.join(getAgentDataRoot(), 'workspace');
 }
 
@@ -139,6 +145,44 @@ function isPathWithin(candidatePath: string, basePath: string): boolean {
   return normalizedCandidate === normalizedBase || normalizedCandidate.startsWith(`${normalizedBase}${path.sep}`);
 }
 
+function getManagedWorkspaceRoots(): string[] {
+  const dataRoot = getAgentDataRoot();
+  return [
+    path.join(dataRoot, 'workspace'),
+    path.join(dataRoot, 'workspaces'),
+    '/data/workspace',
+    '/data/workspaces',
+  ];
+}
+
+function isManagedWorkspacePath(candidatePath: string): boolean {
+  return getManagedWorkspaceRoots().some((workspaceRoot) => isPathWithin(candidatePath, workspaceRoot));
+}
+
+function assertContextWorkspaceReadAllowed(candidatePath: string): void {
+  const executionContext = getAgentExecutionContext();
+  if (!executionContext) return;
+
+  const resolvedPath = path.resolve(candidatePath);
+  if (isManagedWorkspacePath(resolvedPath) && !isPathWithin(resolvedPath, executionContext.workspaceRoot)) {
+    throw new Error('Agent file access is limited to the workspace bound to this chat session.');
+  }
+}
+
+function assertContextWorkspaceWriteAllowed(candidatePath: string): void {
+  const executionContext = getAgentExecutionContext();
+  if (!executionContext) return;
+
+  const resolvedPath = path.resolve(candidatePath);
+  if (!isPathWithin(resolvedPath, executionContext.workspaceRoot)) {
+    throw new Error('Agent file writes are limited to the workspace bound to this chat session.');
+  }
+
+  if (!executionContext.canWrite) {
+    throw new Error('Agent file writes are disabled for the active workspace.');
+  }
+}
+
 function getProtectedAgentPaths(): string[] {
   const dataRoot = getAgentDataRoot();
   return [
@@ -157,12 +201,15 @@ export function isProtectedAgentPath(candidatePath: string): boolean {
 }
 
 export async function assertAgentPathAllowed(candidatePath: string): Promise<void> {
+  assertContextWorkspaceReadAllowed(candidatePath);
+
   if (isProtectedAgentPath(candidatePath)) {
     throw new Error('Access to this path is restricted for security reasons.');
   }
 
   try {
     const realPath = await fs.realpath(candidatePath);
+    assertContextWorkspaceReadAllowed(realPath);
     if (isProtectedAgentPath(realPath)) {
       throw new Error('Access to this path is restricted for security reasons.');
     }
@@ -197,6 +244,7 @@ async function assertNearestWritableParentAllowed(candidatePath: string): Promis
 }
 
 export async function assertAgentWritablePathAllowed(candidatePath: string): Promise<void> {
+  assertContextWorkspaceWriteAllowed(candidatePath);
   await assertAgentPathAllowed(candidatePath);
   await assertNearestWritableParentAllowed(candidatePath);
 }
@@ -215,6 +263,10 @@ export function sha256Text(content: string): string {
 
 function isEnoent(error: unknown): boolean {
   return Boolean(error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT');
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 function countOccurrences(content: string, needle: string): number {
@@ -1243,7 +1295,21 @@ export async function deleteAgentPaths(params: {
 }
 
 function isManagedDataPath(target: string): boolean {
-  return /^\/data\/(?:workspace|agents)(?:\/|$)/.test(target);
+  const normalized = path.isAbsolute(target) ? path.resolve(target) : target;
+  if (/^\/data\/(?:workspace|workspaces|agents)(?:\/|$)/.test(normalized)) {
+    return true;
+  }
+  if (!path.isAbsolute(normalized)) {
+    return false;
+  }
+
+  const dataRoot = getAgentDataRoot();
+  const candidateRoots = [
+    getAgentWorkspaceRoot(),
+    path.join(dataRoot, 'workspaces'),
+    path.join(dataRoot, 'agents'),
+  ];
+  return candidateRoots.some((candidateRoot) => isPathWithin(normalized, candidateRoot));
 }
 
 function stripShellTokenQuotes(token: string): string {
@@ -1272,11 +1338,12 @@ function findShellWriteRedirectTargets(command: string): string[] {
 function shellRedirectWritesManagedPath(command: string, cdsIntoManagedPath: boolean): boolean {
   const targets = findShellWriteRedirectTargets(command);
   if (targets.length === 0) return false;
+  const executionContext = getAgentExecutionContext();
 
   return targets.some((target) => {
     if (isManagedDataPath(target)) return true;
     if (path.isAbsolute(target)) return false;
-    return cdsIntoManagedPath;
+    return cdsIntoManagedPath || Boolean(executionContext);
   });
 }
 
@@ -1299,8 +1366,11 @@ export function detectUnsafeBashCommand(command: string): string | null {
   }
 
   const normalized = command.replace(/\s+/g, ' ').trim();
-  const mentionsManagedPath = /\/data\/(?:workspace|agents)(?:\/|$)/.test(normalized);
-  const cdsIntoManagedPath = /\bcd\s+\/data\/(?:workspace|agents)(?:\/|$|\s)/.test(normalized);
+  const executionContext = getAgentExecutionContext();
+  const mentionsManagedPath = /\/data\/(?:workspace|workspaces|agents)(?:\/|$)/.test(normalized) ||
+    Boolean(executionContext?.workspaceRoot && normalized.includes(executionContext.workspaceRoot));
+  const cdsIntoManagedPath = /\bcd\s+\/data\/(?:workspace|workspaces|agents)(?:\/|$|\s)/.test(normalized) ||
+    Boolean(executionContext?.workspaceRoot && new RegExp(`\\bcd\\s+${escapeRegExp(executionContext.workspaceRoot)}(?:$|\\s)`).test(normalized));
 
   if (/\bsed\b(?=[^;&|]*\s-[A-Za-z]*i(?:\b|\.|['"]|$))/.test(normalized)) {
     return 'Unsafe in-place file edits with sed are blocked. Use edit_file or apply_patch instead.';
@@ -1310,11 +1380,11 @@ export function detectUnsafeBashCommand(command: string): string | null {
     return 'Unsafe in-place file edits with perl are blocked. Use edit_file or apply_patch instead.';
   }
 
-  if ((mentionsManagedPath || cdsIntoManagedPath) && /\btee\b/.test(normalized)) {
-    return 'Shell file writes with tee in /data/workspace or /data/agents are blocked. Use write, edit_file, or apply_patch instead.';
+  if ((mentionsManagedPath || cdsIntoManagedPath || executionContext) && /\btee\b/.test(normalized)) {
+    return 'Shell file writes with tee in workspace or agent paths are blocked. Use write, edit_file, or apply_patch instead.';
   }
 
-  if ((mentionsManagedPath || cdsIntoManagedPath) && shellRedirectWritesManagedPath(normalized, cdsIntoManagedPath)) {
+  if ((mentionsManagedPath || cdsIntoManagedPath || executionContext) && shellRedirectWritesManagedPath(normalized, cdsIntoManagedPath)) {
     return 'Shell redirects that write workspace or agent files are blocked. Use write, edit_file, or apply_patch instead.';
   }
 

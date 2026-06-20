@@ -195,12 +195,19 @@ export const piSessions = sqliteTable("pi_sessions", {
   lastViewedAt: integer("last_viewed_at", { mode: "timestamp" }),
   channelId: text("channel_id").notNull().default('app'),
   channelSessionKey: text("channel_session_key"),
+  organizationId: text("organization_id"),
+  workspaceId: text("workspace_id"),
+  workspaceType: text("workspace_type"),
+  workspaceName: text("workspace_name"),
+  workspaceRootRelativePath: text("workspace_root_relative_path"),
 }, (table) => ({
   channelIdx: index("idx_pi_sessions_channel").on(table.channelId, table.channelSessionKey),
   userCreatedIdx: index("idx_pi_sessions_user_created").on(table.userId, table.createdAt),
   userSessionIdx: index("idx_pi_sessions_user_session").on(table.userId, table.sessionId),
   userChannelIdx: index("idx_pi_sessions_user_channel_created").on(table.userId, table.channelId, table.createdAt),
   agentIdx: index("idx_pi_sessions_agent").on(table.agentId),
+  workspaceIdx: index("idx_pi_sessions_workspace").on(table.workspaceId),
+  userWorkspaceCreatedIdx: index("idx_pi_sessions_user_workspace_created").on(table.userId, table.workspaceId, table.createdAt),
 }));
 
 export const agents = sqliteTable("agents", {

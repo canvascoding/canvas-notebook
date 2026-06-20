@@ -221,7 +221,7 @@
     {
       "id": 16,
       "title": "Agent-Runtime-Einstellungen und Agent-Sessions an User-/Workspace-Kontext binden",
-      "status": "pending",
+      "status": "completed",
       "repo": "canvasstudios-notebook",
       "planningArtifacts": [
         "docs/architecture/canvas-notebook/team-workspace/05-actor-audit-retention.md",
@@ -230,6 +230,17 @@
         "docs/architecture/canvas-notebook/team-workspace/08-user-scoped-secrets-runtime.md",
         "docs/architecture/canvas-notebook/team-workspace/09-initial-setup-and-update-migration.md",
         "docs/architecture/canvas-notebook/team-workspace/10-agent-tool-execution-policy.md"
+      ],
+      "implementationArtifacts": [
+        "app/lib/pi/session-workspace-context.ts",
+        "app/lib/pi/agent-execution-context.ts",
+        "app/lib/pi/agent-file-operations.ts",
+        "app/lib/pi/runtime-service.ts",
+        "app/lib/pi/live-runtime.ts",
+        "app/lib/pi/tool-registry.ts",
+        "app/lib/channels/session-resolver.ts",
+        "app/api/sessions/route.ts",
+        "scripts/agent-session-workspace-context-test.ts"
       ]
     },
     {

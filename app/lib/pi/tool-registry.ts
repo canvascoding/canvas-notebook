@@ -125,9 +125,22 @@ import {
   MAX_AUDIO_TRANSCRIPTION_BYTES,
   transcribeAudio,
 } from '@/app/lib/integrations/audio-transcription-service';
+import { runWithAgentExecutionContext, type AgentExecutionContext } from '@/app/lib/pi/agent-execution-context';
+import { resolveAgentExecutionContextForSession } from '@/app/lib/pi/session-workspace-context';
 
 
 const execAsync = promisify(exec);
+
+function wrapToolWithExecutionContext(tool: AgentTool, context: AgentExecutionContext): AgentTool {
+  const execute = tool.execute;
+  return {
+    ...tool,
+    execute: (toolCallId, params, signal) => runWithAgentExecutionContext(
+      context,
+      () => execute(toolCallId, params, signal),
+    ),
+  };
+}
 
 const DEFAULT_READ_TEXT_LIMIT = 40_000;
 const MAX_READ_TEXT_LIMIT = 120_000;
@@ -2390,9 +2403,7 @@ export const piTools: AgentTool[] = [
   {
     name: 'bash',
     label: 'Executing command',
-    // NOTE: cwd is intentionally '/' (not restricted to workspace) so the agent
-    // can run commands in /data/agents/canvas-agent or any other path it needs.
-    description: 'Executes a bash command. Not restricted to workspace — use cd or absolute paths as needed.',
+    description: 'Executes a bash command from the workspace bound to the current chat session. Prefer file tools for writes.',
     parameters: Type.Object({
       command: Type.String({ description: 'The command to execute.' }),
     }),
@@ -2402,7 +2413,7 @@ export const piTools: AgentTool[] = [
         throwIfAborted(signal);
         assertBashCommandAllowed(command);
         const { stdout, stderr } = await execAsync(command, {
-          cwd: '/',
+          cwd: getAgentWorkspaceRoot(),
           env: filterSafeEnv(process.env) as NodeJS.ProcessEnv,
           signal,
         });
@@ -3351,6 +3362,15 @@ export async function getPiTools(userId?: string, agentId?: string | null, sessi
     if (onboardingProfileToolAvailable && !allTools.some((tool) => tool.name === ONBOARDING_PROFILE_TOOL_NAME)) {
       allTools.push(createOnboardingProfileTool(userId, agentId, sessionId));
     }
+  }
+
+  if (userId && sessionId) {
+    const executionContext = await resolveAgentExecutionContextForSession({
+      userId,
+      sessionId,
+      agentId,
+    });
+    return allTools.map((tool) => wrapToolWithExecutionContext(tool, executionContext));
   }
 
   return allTools;

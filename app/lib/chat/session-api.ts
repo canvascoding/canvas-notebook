@@ -1,5 +1,5 @@
 import { safeFetchJson } from '@/app/lib/chat/fetch-json';
-import type { AISession, PersistedChatMessage } from '@/app/lib/chat/types';
+import type { AISession, ChatRequestContext, PersistedChatMessage } from '@/app/lib/chat/types';
 import type { PiThinkingLevel } from '@/app/lib/pi/config';
 
 export type ChatSessionMessagesPayload = {
@@ -16,6 +16,8 @@ export type CreateChatSessionPayload = {
   title?: string;
   model?: string;
   thinkingLevel?: PiThinkingLevel;
+  workspaceId?: string;
+  workspace?: ChatRequestContext['workspace'];
 };
 
 export type CreateChatSessionResponse = {

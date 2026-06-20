@@ -9,6 +9,10 @@ import { DEFAULT_AGENT_ID, normalizeChannelThreadKey, WEB_CHANNEL_ID, webChannel
 import { ensureDefaultAgent } from './agents';
 import { getActiveChannelSession, setActiveChannelSession } from './active-sessions';
 import { ensureSessionChannelLink } from './channel-links';
+import {
+  resolveAgentSessionWorkspaceForUser,
+  workspaceToPiSessionFields,
+} from '@/app/lib/pi/session-workspace-context';
 
 export type ResolveChannelSessionInput = {
   userId: string;
@@ -18,6 +22,7 @@ export type ResolveChannelSessionInput = {
   requestedSessionId?: string | null;
   displayName?: string | null;
   agentId?: string;
+  workspaceId?: string | null;
 };
 
 function resolveAgentId(agentId?: string | null): string {
@@ -43,6 +48,10 @@ export async function createChannelSession(input: ResolveChannelSessionInput): P
   const sessionId = input.requestedSessionId || `sess-${Date.now()}-${randomUUID()}`;
   const effectiveConfig = await resolveAgentRuntimeConfig(agentId);
   const promptSnapshot = await createPiSystemPromptSnapshot(agentId);
+  const workspace = await resolveAgentSessionWorkspaceForUser({
+    userId: input.userId,
+    workspaceId: input.workspaceId,
+  });
   const now = new Date();
 
   await db.insert(piSessions).values({
@@ -60,6 +69,7 @@ export async function createChannelSession(input: ResolveChannelSessionInput): P
     updatedAt: now,
     lastMessageAt: null,
     lastViewedAt: null,
+    ...workspaceToPiSessionFields(workspace),
   }).onConflictDoNothing();
 
   await ensureSessionChannelLink({
@@ -84,6 +94,10 @@ export async function resolveChannelSession(input: ResolveChannelSessionInput): 
     const exists = await userOwnsPiSession(input.requestedSessionId, input.userId, agentId);
     if (!exists && input.channelId !== WEB_CHANNEL_ID) {
       throw new Error('Session not found');
+    }
+    if (!exists) {
+      await createChannelSession({ ...input, agentId, channelThreadKey });
+      return input.requestedSessionId;
     }
 
     await ensureSessionChannelLink({

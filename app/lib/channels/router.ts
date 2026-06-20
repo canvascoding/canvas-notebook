@@ -4,6 +4,7 @@ import type { InboundMessage } from './types';
 import { resolveChannelSession } from './session-resolver';
 import { buildUserAgentMessageFromInbound } from './message-normalization';
 import { buildChannelChatContext } from './chat-context';
+import { requestedWorkspaceIdFromChatContext } from '@/app/lib/pi/session-workspace-context';
 
 export type RoutedChannelMessageResult = {
   sessionId: string;
@@ -21,6 +22,7 @@ export async function handleInboundChannelMessage(
     channelThreadKey: message.channelThreadKey,
     requestedSessionId: message.requestedSessionId,
     displayName: typeof message.metadata?.displayName === 'string' ? message.metadata.displayName : null,
+    workspaceId: requestedWorkspaceIdFromChatContext(context),
   });
 
   const status = await sendMessage(

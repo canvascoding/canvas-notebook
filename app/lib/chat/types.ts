@@ -114,6 +114,14 @@ export interface AISession {
   runtimePhase?: SessionRuntimePhase | null;
   runtimeActiveToolName?: string | null;
   hasUnread?: boolean;
+  workspace?: {
+    workspaceId: string;
+    workspaceType: 'personal' | 'team' | 'project';
+    workspaceName: string;
+    organizationId?: string | null;
+    rootRelativePath?: string | null;
+    legacy?: boolean;
+  } | null;
   creator?: {
     name?: string | null;
     email?: string | null;

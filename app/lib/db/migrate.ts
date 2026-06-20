@@ -173,6 +173,11 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       last_viewed_at INTEGER,
       channel_id TEXT NOT NULL DEFAULT 'app',
       channel_session_key TEXT,
+      organization_id TEXT,
+      workspace_id TEXT,
+      workspace_type TEXT,
+      workspace_name TEXT,
+      workspace_root_relative_path TEXT,
       FOREIGN KEY (user_id) REFERENCES user(id)
     );
 
@@ -992,6 +997,11 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     system_prompt_snapshot: 'TEXT',
     system_prompt_snapshot_hash: 'TEXT',
     system_prompt_snapshot_created_at: 'INTEGER',
+    organization_id: 'TEXT',
+    workspace_id: 'TEXT',
+    workspace_type: 'TEXT',
+    workspace_name: 'TEXT',
+    workspace_root_relative_path: 'TEXT',
   });
 
   addColumns(sqlite, 'automation_jobs', {
@@ -1029,6 +1039,8 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     CREATE INDEX IF NOT EXISTS idx_pi_sessions_user_channel_created ON pi_sessions (user_id, channel_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_pi_sessions_agent ON pi_sessions (agent_id);
     CREATE INDEX IF NOT EXISTS idx_pi_sessions_channel ON pi_sessions (channel_id, channel_session_key);
+    CREATE INDEX IF NOT EXISTS idx_pi_sessions_workspace ON pi_sessions (workspace_id);
+    CREATE INDEX IF NOT EXISTS idx_pi_sessions_user_workspace_created ON pi_sessions (user_id, workspace_id, created_at);
   `);
 
   sqlite.exec(`

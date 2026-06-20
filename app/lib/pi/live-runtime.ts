@@ -135,6 +135,14 @@ export type PiRuntimePromptContext = {
   activeFilePath?: string | null;
   userTimeZone?: string;
   currentTime?: string;
+  workspace?: {
+    workspaceId: string;
+    workspaceType: 'personal' | 'team' | 'project';
+    workspaceName: string;
+    organizationId?: string | null;
+    canWrite: boolean;
+    canShare: boolean;
+  };
   planningMode?: boolean;
   currentPage?: string;
   studioContext?: {
@@ -351,6 +359,7 @@ type PiRuntimePromptDispatchTarget = {
   setPageContext: (page: string | undefined) => void;
   setStudioContext: (context: PiRuntimePromptContext['studioContext']) => void;
   setEmailContext: (context: PiRuntimePromptContext['emailContext']) => void;
+  setWorkspaceContext: (context: PiRuntimePromptContext['workspace']) => void;
   reloadTools: () => Promise<void>;
   startPrompt: (message: Extract<AgentMessage, { role: 'user' }>) => void;
 };
@@ -370,6 +379,7 @@ function applyPiRuntimePromptContext(
   runtime.setPageContext(context?.currentPage);
   runtime.setStudioContext(context?.studioContext);
   runtime.setEmailContext(context?.emailContext);
+  runtime.setWorkspaceContext(context?.workspace);
 }
 
 class LivePiRuntime {
@@ -403,6 +413,7 @@ class LivePiRuntime {
   private pageContext: string | null = null;
   private studioContext: PiRuntimePromptContext['studioContext'] | null = null;
   private emailContext: PiRuntimePromptContext['emailContext'] | null = null;
+  private workspaceContext: PiRuntimePromptContext['workspace'] | null = null;
   private persistLock = false;
   private persistPending: 'turn_end' | 'agent_end' | 'error' | null = null;
   private lastBroadcastStatusSignature: string | null = null;
@@ -705,6 +716,10 @@ class LivePiRuntime {
     this.emailContext = context ?? null;
   }
 
+  setWorkspaceContext(context: PiRuntimePromptContext['workspace']) {
+    this.workspaceContext = context ?? null;
+  }
+
   async reloadTools() {
     this.tools = await getPiTools(this.userId, this.agentId, this.sessionId);
     this.lastComposition = null;
@@ -712,12 +727,43 @@ class LivePiRuntime {
   }
 
   private getEffectiveSystemPrompt(): string {
+    const blocks: string[] = [];
     const channelBlock = getChannelSystemPromptBlock(this.channelId);
-    if (!channelBlock || this.systemPrompt.includes(channelBlock)) {
-      return this.systemPrompt;
+    if (channelBlock && !this.systemPrompt.includes(channelBlock)) {
+      blocks.push(channelBlock);
     }
 
-    return `${this.systemPrompt}\n\n${channelBlock}`;
+    const workspaceBlock = this.getWorkspaceContextBlock();
+    if (workspaceBlock) {
+      blocks.push(workspaceBlock);
+    }
+
+    return blocks.length > 0 ? `${this.systemPrompt}\n\n${blocks.join('\n\n')}` : this.systemPrompt;
+  }
+
+  private getWorkspaceContextBlock(): string | null {
+    if (!this.workspaceContext) {
+      return null;
+    }
+
+    const lines = [
+      '## Active Workspace Context',
+      `This chat session is bound to the ${this.workspaceContext.workspaceType} workspace "${this.workspaceContext.workspaceName}".`,
+      `Workspace ID: ${this.workspaceContext.workspaceId}`,
+      'All workspace-relative file paths resolve inside this workspace. Do not switch workspace inside this session; a workspace switch requires a new chat session.',
+    ];
+
+    if (this.workspaceContext.organizationId) {
+      lines.push(`Organization ID: ${this.workspaceContext.organizationId}`);
+    }
+    if (!this.workspaceContext.canWrite) {
+      lines.push('Workspace writes are disabled for this session. Read files only unless the user switches to a workspace with write permission.');
+    }
+    if (!this.workspaceContext.canShare) {
+      lines.push('Public sharing is disabled for this session.');
+    }
+
+    return lines.join('\n');
   }
 
   private getStudioContextBlock(): string | null {
