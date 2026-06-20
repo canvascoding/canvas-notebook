@@ -14,6 +14,7 @@ export async function DELETE(
     if (!skillPermission.ok) return skillPermission.response;
 
     const { name } = await params;
+    const scope = { userId: skillPermission.session.user.id };
 
     if (!name || !/^[a-z0-9]+([a-z0-9-]*[a-z0-9]+)?$/.test(name)) {
       return NextResponse.json(
@@ -22,7 +23,7 @@ export async function DELETE(
       );
     }
 
-    const result = await deleteSkillDirectory(name);
+    const result = await deleteSkillDirectory(name, scope);
 
     if (!result.success) {
       const status = result.error?.includes('not found')
@@ -36,7 +37,7 @@ export async function DELETE(
       );
     }
 
-    await removeCanvasSkillRegistryRecord(name).catch((registryError) => {
+    await removeCanvasSkillRegistryRecord(name, scope).catch((registryError) => {
       console.warn('[Skills API] Deleted skill directory but failed to remove registry record:', registryError);
     });
 

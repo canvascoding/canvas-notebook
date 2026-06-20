@@ -3,12 +3,11 @@ import { promises as fs } from 'fs';
 import path from 'path';
 import { headers } from 'next/headers';
 import { auth } from '@/app/lib/auth';
-import { getSkillsDir } from '@/app/lib/skills/canvas-skill-manifest';
-
-const SKILLS_DIR = getSkillsDir();
+import { resolveReadableScopedSkillsDataDir } from '@/app/lib/runtime-data-paths';
 
 function sanitizeFilePath(filePath: string): string {
   let clean = filePath;
+  clean = clean.replace(/\0/g, '');
   clean = clean.replace(/\.\./g, '');
   clean = clean.replace(/\/\/+/g, '/');
   clean = clean.replace(/^\//, '');
@@ -31,9 +30,10 @@ export async function GET(request: NextRequest) {
     }
 
     const sanitizedPath = sanitizeFilePath(filePath);
-    const fullPath = path.join(SKILLS_DIR, sanitizedPath);
+    const skillsDir = await resolveReadableScopedSkillsDataDir({ userId: session.user.id });
+    const fullPath = path.join(skillsDir, sanitizedPath);
     const resolvedPath = path.resolve(fullPath);
-    const resolvedSkillsDir = path.resolve(SKILLS_DIR);
+    const resolvedSkillsDir = path.resolve(skillsDir);
 
     if (!resolvedPath.startsWith(`${resolvedSkillsDir}${path.sep}`)) {
       return NextResponse.json({ success: false, error: 'Invalid path' }, { status: 400 });

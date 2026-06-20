@@ -60,6 +60,7 @@ eröffne ausschließlich auf localhost 3000 einen dev server. starte keine neuen
 - Use the `greploop` skill only after the user confirms the automatic Greptile review is available or explicitly asks for it.
 - Before any PR is merged into `main`, review the Greptile/greploop result for that PR and document the resulting score in the PR.
 - Trigger Greptile/greploop at most once per PR head SHA. If Greptile accepts the trigger but does not publish an updated score, wait and treat the PR as blocked; do not post another `@greptile review` for the same head.
+- To detect whether Greptile accepted a manual `@greptile review` trigger, inspect the trigger comment reactions. An `eyes` reaction from `greptile-apps[bot]` or another Greptile bot means Greptile is working; wait for the result and do not post another trigger for the same head SHA.
 - After addressing review feedback and pushing a new commit, the new head SHA may be reviewed once.
 - A `greploop` score of 4 out of 5 is sufficient for merge; a perfect 5 out of 5 is not required.
 - Every Greptile/greploop comment must still be reviewed. Actionable comments must be fixed; non-actionable or false-positive comments must be documented and resolved.

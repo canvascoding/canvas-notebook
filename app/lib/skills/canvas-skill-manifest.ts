@@ -2,7 +2,10 @@ import { promises as fs } from 'fs';
 import path from 'path';
 import YAML from 'yaml';
 
-import { resolveSkillsDataDir } from '@/app/lib/runtime-data-paths';
+import {
+  resolveScopedSkillsDataDir,
+  type UserScopedDataStorageScope,
+} from '@/app/lib/runtime-data-paths';
 
 export { getSkillsContext } from './skill-context';
 
@@ -262,6 +265,8 @@ ${content || 'Add your Canvas skill instructions here...'}
 `;
 }
 
-export function getSkillsDir(): string {
-  return resolveSkillsDataDir();
+export type CanvasSkillStorageScope = UserScopedDataStorageScope;
+
+export function getSkillsDir(scope?: CanvasSkillStorageScope | null): string {
+  return resolveScopedSkillsDataDir(scope);
 }

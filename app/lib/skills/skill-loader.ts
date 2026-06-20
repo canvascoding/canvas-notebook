@@ -1,12 +1,20 @@
 import { promises as fs } from 'fs';
 import path from 'path';
-import { CanvasSkill, parseSkillFile, getSkillsDir, createDefaultSkillMd } from './canvas-skill-manifest';
-import { readPiRuntimeConfig, writePiRuntimeConfig } from '@/app/lib/agents/storage';
+import {
+  CanvasSkill,
+  parseSkillFile,
+  getSkillsDir,
+  createDefaultSkillMd,
+  type CanvasSkillStorageScope,
+} from './canvas-skill-manifest';
 import { enableSkillInConfig, disableSkillInConfig, areAllSkillsEnabled } from './enabled-skills';
+import { resolveReadableScopedSkillsDataDir } from '@/app/lib/runtime-data-paths';
 import {
   getAllKnownSkillNames,
   loadEnabledPluginSkills,
 } from '@/app/lib/plugins/canvas-plugin-registry';
+import { adoptLegacyStandaloneSkillsForScope } from '@/app/lib/skills/legacy-skill-adoption';
+import { readEnabledSkillsForScope, writeEnabledSkillsForScope } from './skill-settings';
 // Re-export the Canvas skill manifest API for existing call sites.
 export type { CanvasSkill, ValidationResult } from './canvas-skill-manifest';
 export {
@@ -23,9 +31,12 @@ export { getSkillsContext } from './skill-context';
  * Only supports Canvas SKILL.md format
  * Optionally filter by enabled skills list
  */
-export async function loadSkillsFromDisk(enabledSkills?: string[]): Promise<CanvasSkill[]> {
+export async function loadSkillsFromDisk(
+  enabledSkills?: string[],
+  scope?: CanvasSkillStorageScope | null,
+): Promise<CanvasSkill[]> {
   const skills: CanvasSkill[] = [];
-  const skillsDir = getSkillsDir();
+  const skillsDir = await resolveReadableScopedSkillsDataDir(scope);
   
   try {
     // Check if skills directory exists
@@ -84,7 +95,7 @@ export async function loadSkillsFromDisk(enabledSkills?: string[]): Promise<Canv
   }
 
   const standaloneSkillNames = new Set(skills.map((skill) => skill.name));
-  const pluginSkills = await loadEnabledPluginSkills(enabledSkills).catch((error) => {
+  const pluginSkills = await loadEnabledPluginSkills(enabledSkills, scope).catch((error) => {
     console.warn('[SkillLoader] Error loading plugin skills:', error);
     return [];
   });
@@ -108,8 +119,14 @@ export async function loadSkillsFromDisk(enabledSkills?: string[]): Promise<Canv
 /**
  * Load a single skill by name
  */
-export async function loadSkillByName(name: string): Promise<CanvasSkill | null> {
-  const skillsDir = getSkillsDir();
+export async function loadSkillByName(
+  name: string,
+  scope?: CanvasSkillStorageScope | null,
+  options: { legacyFallback?: boolean } = {},
+): Promise<CanvasSkill | null> {
+  const skillsDir = options.legacyFallback === false
+    ? getSkillsDir(scope)
+    : await resolveReadableScopedSkillsDataDir(scope);
   const skillMdPath = path.join(skillsDir, name, 'SKILL.md');
   try {
     await fs.access(skillMdPath);
@@ -121,22 +138,26 @@ export async function loadSkillByName(name: string): Promise<CanvasSkill | null>
     // Fall through to plugin-managed skills.
   }
 
-  const pluginSkills = await loadEnabledPluginSkills();
+  const pluginSkills = await loadEnabledPluginSkills(undefined, scope);
   return pluginSkills.find((skill) => skill.name === name) || null;
 }
 
 /**
  * Check if a skill exists
  */
-export async function skillExists(name: string): Promise<boolean> {
-  return Boolean(await loadSkillByName(name));
+export async function skillExists(
+  name: string,
+  scope?: CanvasSkillStorageScope | null,
+  options: { legacyFallback?: boolean } = {},
+): Promise<boolean> {
+  return Boolean(await loadSkillByName(name, scope, options));
 }
 
 /**
  * Get all skill names
  */
-export async function getSkillNames(): Promise<string[]> {
-  return getAllKnownSkillNames();
+export async function getSkillNames(scope?: CanvasSkillStorageScope | null): Promise<string[]> {
+  return getAllKnownSkillNames(scope);
 }
 
 /**
@@ -145,16 +166,19 @@ export async function getSkillNames(): Promise<string[]> {
 export async function createSkillDirectory(
   name: string,
   description: string,
-  content?: string
+  content?: string,
+  scope?: CanvasSkillStorageScope | null,
 ): Promise<{ success: boolean; error?: string; path?: string }> {
   try {
+    await adoptLegacyStandaloneSkillsForScope(scope);
+
     // Check if skill already exists
-    if (await skillExists(name)) {
+    if (await skillExists(name, scope, { legacyFallback: false })) {
       return { success: false, error: `Skill "${name}" already exists` };
     }
 
     // Create skill directory
-    const skillsDir = getSkillsDir();
+    const skillsDir = getSkillsDir(scope);
     const skillPath = path.join(skillsDir, name);
     await fs.mkdir(skillPath, { recursive: true });
 
@@ -165,11 +189,11 @@ export async function createSkillDirectory(
 
     // Auto-enable the new skill in pi-runtime-config
     try {
-      const config = await readPiRuntimeConfig();
-      if (!areAllSkillsEnabled(config.enabledSkills)) {
-        const allSkillNames = await getSkillNames();
-        config.enabledSkills = enableSkillInConfig(name, config.enabledSkills, allSkillNames);
-        await writePiRuntimeConfig(config);
+      const enabledSkills = await readEnabledSkillsForScope(scope);
+      if (!areAllSkillsEnabled(enabledSkills)) {
+        const allSkillNames = await getSkillNames(scope);
+        const nextEnabledSkills = enableSkillInConfig(name, enabledSkills, allSkillNames);
+        await writeEnabledSkillsForScope(nextEnabledSkills, { scope });
         console.log(`[SkillLoader] Auto-enabled skill "${name}" in config`);
       }
     } catch (cfgError) {
@@ -189,12 +213,12 @@ export async function createSkillDirectory(
 /**
  * Get skill statistics
  */
-export async function getSkillStats(): Promise<{
+export async function getSkillStats(scope?: CanvasSkillStorageScope | null): Promise<{
   total: number;
   enabled: number;
   disabled: number;
 }> {
-  const skills = await loadSkillsFromDisk();
+  const skills = await loadSkillsFromDisk(undefined, scope);
   
   return {
     total: skills.length,
@@ -207,13 +231,13 @@ export async function getSkillStats(): Promise<{
  * Validate a skill by name
  * Returns validation result with any errors
  */
-export async function validateSkillByName(name: string): Promise<{
+export async function validateSkillByName(name: string, scope?: CanvasSkillStorageScope | null): Promise<{
   valid: boolean;
   errors: string[];
   skill?: CanvasSkill;
 }> {
   try {
-    const skill = await loadSkillByName(name);
+    const skill = await loadSkillByName(name, scope);
     
     if (!skill) {
       return { 
@@ -238,9 +262,10 @@ export async function validateSkillByName(name: string): Promise<{
  */
 export async function createSkillReadme(
   name: string,
-  skill: CanvasSkill
+  skill: CanvasSkill,
+  scope?: CanvasSkillStorageScope | null,
 ): Promise<void> {
-  const skillsDir = getSkillsDir();
+  const skillsDir = getSkillsDir(scope);
   const readmePath = path.join(skillsDir, name, 'README.md');
   
   const readmeContent = `# ${skill.title}
@@ -271,16 +296,19 @@ ${skill.content}
 }
 
 export async function deleteSkillDirectory(
-  name: string
+  name: string,
+  scope?: CanvasSkillStorageScope | null,
 ): Promise<{ success: boolean; error?: string }> {
   try {
-    const skillsDir = getSkillsDir();
+    await adoptLegacyStandaloneSkillsForScope(scope);
+
+    const skillsDir = getSkillsDir(scope);
     const skillPath = path.join(skillsDir, name);
     const skillMdPath = path.join(skillPath, 'SKILL.md');
     const hasStandaloneSkill = await fs.access(skillMdPath).then(() => true).catch(() => false);
 
     if (!hasStandaloneSkill) {
-      if (await skillExists(name)) {
+      if (await skillExists(name, scope, { legacyFallback: false })) {
         return { success: false, error: `Skill "${name}" is managed by a plugin. Disable or remove the plugin instead.` };
       }
       return { success: false, error: `Skill "${name}" not found` };
@@ -295,10 +323,10 @@ export async function deleteSkillDirectory(
     await fs.rm(skillPath, { recursive: true, force: true });
 
     try {
-      const config = await readPiRuntimeConfig();
-      const allSkillNames = await getSkillNames();
-      config.enabledSkills = disableSkillInConfig(name, config.enabledSkills, allSkillNames);
-      await writePiRuntimeConfig(config);
+      const enabledSkills = await readEnabledSkillsForScope(scope);
+      const allSkillNames = await getSkillNames(scope);
+      const nextEnabledSkills = disableSkillInConfig(name, enabledSkills, allSkillNames);
+      await writeEnabledSkillsForScope(nextEnabledSkills, { scope });
       console.log(`[SkillLoader] Removed skill "${name}" from enabled-skills config`);
     } catch (cfgError) {
       console.warn(`[SkillLoader] Could not remove skill "${name}" from config:`, cfgError);

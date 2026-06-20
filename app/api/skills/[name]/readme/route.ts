@@ -5,9 +5,8 @@ import path from 'path';
 import { headers } from 'next/headers';
 import { requireOrganizationPermission } from '@/app/lib/organization/permissions';
 import { getSkillsDir } from '@/app/lib/skills/canvas-skill-manifest';
+import { adoptLegacyStandaloneSkillsForScope } from '@/app/lib/skills/legacy-skill-adoption';
 import { loadSkillByName } from '@/app/lib/skills/skill-loader';
-
-const SKILLS_DIR = getSkillsDir();
 
 function sanitizeSkillName(name: string): string {
   return name.replace(/[^a-z0-9-]/g, '');
@@ -24,7 +23,7 @@ export async function GET(
     }
 
     const { name } = await params;
-    const skill = await loadSkillByName(name);
+    const skill = await loadSkillByName(name, { userId: session.user.id });
     if (!skill) {
       return NextResponse.json(
         { success: false, error: 'Skill not found' },
@@ -69,11 +68,14 @@ export async function PUT(
       );
     }
 
-    const skillMdPath = path.join(SKILLS_DIR, sanitizedName, 'SKILL.md');
+    const scope = { userId: skillPermission.session.user.id };
+    await adoptLegacyStandaloneSkillsForScope(scope);
+    const skillsDir = getSkillsDir(scope);
+    const skillMdPath = path.join(skillsDir, sanitizedName, 'SKILL.md');
     
     // Verify the path is within the skills directory (path traversal protection)
     const resolvedPath = path.resolve(/*turbopackIgnore: true*/ skillMdPath);
-    const resolvedSkillsDir = path.resolve(/*turbopackIgnore: true*/ SKILLS_DIR);
+    const resolvedSkillsDir = path.resolve(/*turbopackIgnore: true*/ skillsDir);
     if (!resolvedPath.startsWith(`${resolvedSkillsDir}${path.sep}`)) {
       return NextResponse.json(
         { success: false, error: 'Plugin-managed skills cannot be edited from the standalone skill editor' },

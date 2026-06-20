@@ -9,6 +9,7 @@ import {
   computeCanvasPluginChecksum,
   installCanvasPluginFromPath,
   listCanvasPlugins,
+  type CanvasPluginStorageScope,
   type CanvasPluginInstallRecord,
   type CanvasPluginInstallResult,
 } from '@/app/lib/plugins/canvas-plugin-registry';
@@ -25,7 +26,7 @@ import { getGatewayStatus, getGatewayToolkits } from '@/app/lib/composio/composi
 import { listEmailAccounts } from '@/app/lib/email/service';
 import { readMcpConfig } from '@/app/lib/mcp/config';
 import { readCanvasSkillRegistry, type CanvasSkillInstallRecord } from '@/app/lib/skills/canvas-skill-store';
-import { resolveSkillsDataDir } from '@/app/lib/runtime-data-paths';
+import { resolveReadableScopedSkillsDataDir } from '@/app/lib/runtime-data-paths';
 
 export const DEFAULT_CANVAS_PLUGIN_STORE_REGISTRY_URL =
   'https://raw.githubusercontent.com/canvascoding/canvas-notebook-plugin-marketplace/main/registry.json';
@@ -105,6 +106,7 @@ export interface CanvasPluginStoreListOptions {
   pageSize?: number;
   query?: string;
   state?: CanvasPluginStoreStateFilter;
+  scope?: CanvasPluginStorageScope | null;
 }
 
 export interface CanvasPluginStorePagination {
@@ -267,17 +269,19 @@ function summarizeSkillStates(skills: CanvasPluginStoreSkillState[]): CanvasPlug
   };
 }
 
-async function skillFileExists(skillName: string): Promise<boolean> {
-  const stat = await fs.stat(path.join(resolveSkillsDataDir(), skillName, 'SKILL.md')).catch(() => null);
+async function skillFileExists(skillName: string, scope?: CanvasPluginStorageScope | null): Promise<boolean> {
+  const skillsDir = await resolveReadableScopedSkillsDataDir(scope);
+  const stat = await fs.stat(path.join(skillsDir, skillName, 'SKILL.md')).catch(() => null);
   return Boolean(stat?.isFile());
 }
 
 async function computeInstalledSkillModified(
   skillName: string,
   installedSkill: CanvasSkillInstallRecord | undefined,
+  scope?: CanvasPluginStorageScope | null,
 ): Promise<boolean> {
   if (!installedSkill?.checksum) return false;
-  const installDir = path.join(resolveSkillsDataDir(), skillName);
+  const installDir = path.join(await resolveReadableScopedSkillsDataDir(scope), skillName);
   const currentChecksum = await computeCanvasPluginChecksum(installDir).catch(() => '');
   return Boolean(currentChecksum && currentChecksum !== installedSkill.checksum);
 }
@@ -287,6 +291,7 @@ async function buildInstalledPluginSkillState(
   installedPlugin: CanvasPluginInstallRecord | undefined,
   targetVersion: string | undefined,
   skillRegistry: Awaited<ReturnType<typeof readCanvasSkillRegistry>>,
+  scope?: CanvasPluginStorageScope | null,
 ): Promise<{ skills: CanvasPluginStoreSkillState[]; summary: CanvasPluginStoreSkillSummary }> {
   if (!installedPlugin) {
     return { skills: [], summary: emptySkillSummary() };
@@ -316,7 +321,7 @@ async function buildInstalledPluginSkillState(
 
   const skills = await Promise.all(Array.from(expectedByName.values()).map(async (skill) => {
     const installedSkill = skillRegistry.skills[skill.name];
-    const installed = await skillFileExists(skill.name);
+    const installed = await skillFileExists(skill.name, scope);
     const pluginOwned = Boolean(
       installedSkill?.sourceType === 'plugin'
       && installedSkill.sourcePluginName === installedPlugin.name,
@@ -330,7 +335,7 @@ async function buildInstalledPluginSkillState(
     );
     const updateAvailable = pluginUpdateAvailable || skillVersionUpdateAvailable;
     const modified = installed && pluginOwned
-      ? await computeInstalledSkillModified(skill.name, installedSkill)
+      ? await computeInstalledSkillModified(skill.name, installedSkill, scope)
       : false;
     let status: CanvasPluginStoreSkillStatus = 'ok';
 
@@ -574,9 +579,10 @@ export async function readCanvasPluginStoreRegistry(): Promise<CanvasPluginStore
 async function enrichStorePluginsWithInstalledState(
   registry: CanvasPluginStoreRegistry,
   installedPlugins: CanvasPluginInstallRecord[],
+  scope?: CanvasPluginStorageScope | null,
 ): Promise<{ registry: Omit<CanvasPluginStoreRegistry, 'plugins'>; plugins: CanvasPluginStorePluginWithState[]; stats: Omit<CanvasPluginStoreStats, 'filteredTotal'> }> {
   const installedByName = new Map(installedPlugins.map((plugin) => [plugin.name, plugin]));
-  const skillRegistry = await readCanvasSkillRegistry();
+  const skillRegistry = await readCanvasSkillRegistry(scope);
   const plugins = await Promise.all(registry.plugins.map(async (plugin) => {
     const installedPlugin = installedByName.get(plugin.name);
     const updateAvailable = Boolean(
@@ -587,6 +593,7 @@ async function enrichStorePluginsWithInstalledState(
       installedPlugin,
       plugin.latestVersion,
       skillRegistry,
+      scope,
     );
 
     return {
@@ -640,9 +647,9 @@ function matchesState(plugin: CanvasPluginStorePluginWithState, state: CanvasPlu
 export async function listCanvasPluginStore(options: CanvasPluginStoreListOptions = {}): Promise<CanvasPluginStoreList> {
   const [registry, installedPlugins] = await Promise.all([
     readCanvasPluginStoreRegistry(),
-    listCanvasPlugins(),
+    listCanvasPlugins(options.scope),
   ]);
-  const enriched = await enrichStorePluginsWithInstalledState(registry, installedPlugins);
+  const enriched = await enrichStorePluginsWithInstalledState(registry, installedPlugins, options.scope);
   const pageSize = clampPositiveInteger(options.pageSize, 12, 50);
   const page = clampPositiveInteger(options.page, 1, 100000);
   const state = options.state || 'all';
@@ -741,7 +748,12 @@ async function verifyPackageChecksum(packageRoot: string, expectedChecksum: stri
 export async function installCanvasPluginFromStore(
   pluginName: string,
   version?: string,
-  options: { enable?: boolean; replace?: boolean; installedBy?: string } = {},
+  options: {
+    enable?: boolean;
+    replace?: boolean;
+    installedBy?: string;
+    scope?: CanvasPluginStorageScope | null;
+  } = {},
 ): Promise<CanvasPluginStoreInstallResult> {
   if (!isValidCanvasPluginName(pluginName)) {
     return { success: false, error: 'Invalid plugin name' };
@@ -776,6 +788,7 @@ export async function installCanvasPluginFromStore(
       sourcePathLabel: storeVersion.downloadUrl,
       sourceRegistryId: registry.id,
       sourceRegistryUrl: registry.registryUrl,
+      scope: options.scope,
     });
 
     return {
@@ -813,6 +826,7 @@ export async function preflightCanvasPluginFromStore(
   pluginName: string,
   version: string | undefined,
   userId: string,
+  scope?: CanvasPluginStorageScope | null,
 ): Promise<CanvasPluginStorePreflight> {
   if (!isValidCanvasPluginName(pluginName)) {
     throw new Error('Invalid plugin name');
@@ -823,9 +837,9 @@ export async function preflightCanvasPluginFromStore(
 
   const registry = await readCanvasPluginStoreRegistry();
   const { plugin, version: selectedVersion } = getStorePluginOrThrow(registry, pluginName, version);
-  const installedPlugin = (await listCanvasPlugins()).find((entry) => entry.name === plugin.name);
-  const skillRegistry = await readCanvasSkillRegistry();
-  const skillState = await buildInstalledPluginSkillState(plugin, installedPlugin, selectedVersion, skillRegistry);
+  const installedPlugin = (await listCanvasPlugins(scope)).find((entry) => entry.name === plugin.name);
+  const skillRegistry = await readCanvasSkillRegistry(scope);
+  const skillState = await buildInstalledPluginSkillState(plugin, installedPlugin, selectedVersion, skillRegistry, scope);
   const items: CanvasPluginStorePreflightItem[] = [];
 
   const composioConnectors = normalizeComposioConnectors(plugin.connectors);

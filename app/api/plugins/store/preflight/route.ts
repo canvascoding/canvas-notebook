@@ -27,6 +27,7 @@ export async function POST(request: Request) {
       body.name.trim(),
       typeof body.version === 'string' ? body.version.trim() : undefined,
       session.user.id,
+      { userId: session.user.id },
     );
 
     return NextResponse.json({ success: true, preflight });

@@ -27,6 +27,7 @@ export async function POST(request: Request) {
       enable: body.enable !== false,
       replace: body.replace === true,
       installedBy: pluginPermission.session.user.email || pluginPermission.session.user.id,
+      scope: { userId: pluginPermission.session.user.id },
     });
 
     if (!result.success) {

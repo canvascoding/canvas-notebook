@@ -2,8 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { headers } from 'next/headers';
 
 import { auth } from '@/app/lib/auth';
-import { readPiRuntimeConfig } from '@/app/lib/agents/storage';
 import { loadSkillSummaries, matchesSkillSummaryQuery, type SkillSummary } from '@/app/lib/skills/skill-summaries';
+import { readEnabledSkillsForScope } from '@/app/lib/skills/skill-settings';
 import { paginateItems, parsePositiveInteger } from '@/app/lib/utils/pagination';
 
 const DEFAULT_SUMMARY_LIMIT = 50;
@@ -16,11 +16,12 @@ export async function GET(request: NextRequest) {
   }
 
   try {
+    const scope = { userId: session.user.id };
     const summaryOnly = request.nextUrl.searchParams.get('summary') === '1';
-    const config = await readPiRuntimeConfig();
+    const enabledSkills = await readEnabledSkillsForScope(scope);
     const skills = summaryOnly
-      ? await loadSkillSummaries(config.enabledSkills)
-      : await (await import('@/app/lib/skills/skill-loader')).loadSkillsFromDisk(config.enabledSkills);
+      ? await loadSkillSummaries(enabledSkills, scope)
+      : await (await import('@/app/lib/skills/skill-loader')).loadSkillsFromDisk(enabledSkills, scope);
     const query = request.nextUrl.searchParams.get('query')?.trim().toLowerCase() || '';
     const enabledOnly = request.nextUrl.searchParams.get('enabledOnly') === '1';
     const paginated = summaryOnly && (

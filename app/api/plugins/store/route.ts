@@ -22,11 +22,13 @@ export async function GET(request: NextRequest) {
   }
 
   try {
+    const scope = { userId: session.user.id };
     const store = await listCanvasPluginStore({
       page: parsePositiveInteger(request.nextUrl.searchParams.get('page')),
       pageSize: parsePositiveInteger(request.nextUrl.searchParams.get('pageSize')),
       query: request.nextUrl.searchParams.get('q') || '',
       state: parseState(request.nextUrl.searchParams.get('state')),
+      scope,
     });
     return NextResponse.json({
       success: true,

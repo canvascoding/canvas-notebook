@@ -25,7 +25,10 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const result = await resetCanvasSkillsDirectory(workspaceResult.session.user.email || 'unknown');
+    const result = await resetCanvasSkillsDirectory(
+      workspaceResult.session.user.email || workspaceResult.session.user.id,
+      { userId: workspaceResult.session.user.id },
+    );
     return NextResponse.json(result);
   } catch (error) {
     console.error('[Skills API] Error resetting skills directory:', error);

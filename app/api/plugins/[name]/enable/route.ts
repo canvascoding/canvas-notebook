@@ -13,7 +13,12 @@ export async function POST(
   if (!pluginPermission.ok) return pluginPermission.response;
 
   const { name } = await params;
-  const result = await setCanvasPluginEnabled(name, true);
+  const result = await setCanvasPluginEnabled(
+    name,
+    true,
+    { userId: pluginPermission.session.user.id },
+    pluginPermission.session.user.email || pluginPermission.session.user.id,
+  );
   if (!result.success) {
     return NextResponse.json(
       { success: false, error: result.error },

@@ -4,12 +4,13 @@ import { promises as fs } from 'fs';
 import path from 'path';
 
 import {
-  getSkillsDir,
   loadCanvasSkillInterface,
   parseFrontmatter,
   type CanvasSkillInterface,
+  type CanvasSkillStorageScope,
 } from './canvas-skill-manifest';
 import { loadEnabledPluginSkills } from '@/app/lib/plugins/canvas-plugin-registry';
+import { resolveReadableScopedSkillsDataDir } from '@/app/lib/runtime-data-paths';
 
 export type SkillSummary = {
   name: string;
@@ -38,8 +39,11 @@ function parseSkillSummary(content: string, fallbackName: string): Omit<SkillSum
   };
 }
 
-export async function loadSkillSummaries(enabledSkills?: string[]): Promise<SkillSummary[]> {
-  const skillsDir = getSkillsDir();
+export async function loadSkillSummaries(
+  enabledSkills?: string[],
+  scope?: CanvasSkillStorageScope | null,
+): Promise<SkillSummary[]> {
+  const skillsDir = await resolveReadableScopedSkillsDataDir(scope);
   const enabledSet = new Set(enabledSkills || []);
   const allEnabled = !enabledSkills || enabledSkills.length === 0;
 
@@ -72,7 +76,7 @@ export async function loadSkillSummaries(enabledSkills?: string[]): Promise<Skil
       if (summary) validSummaries.push(summary);
     }
     const standaloneNames = new Set(validSummaries.map((summary) => summary.name));
-    const pluginSkills = await loadEnabledPluginSkills(enabledSkills).catch(() => []);
+    const pluginSkills = await loadEnabledPluginSkills(enabledSkills, scope).catch(() => []);
     for (const skill of pluginSkills) {
       if (standaloneNames.has(skill.name)) {
         continue;

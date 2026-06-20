@@ -4,7 +4,7 @@ import path from 'path';
 import { headers } from 'next/headers';
 
 import { auth } from '@/app/lib/auth';
-import { getSkillsDir } from '@/app/lib/skills/canvas-skill-manifest';
+import { resolveReadableScopedSkillsDataDir } from '@/app/lib/runtime-data-paths';
 
 const IMAGE_CONTENT_TYPES: Record<string, string> = {
   '.gif': 'image/gif',
@@ -43,7 +43,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ success: false, error: 'Only image assets are supported' }, { status: 400 });
   }
 
-  const skillsDir = getSkillsDir();
+  const skillsDir = await resolveReadableScopedSkillsDataDir({ userId: session.user.id });
   const fullPath = path.join(skillsDir, sanitizedPath);
   const resolvedPath = path.resolve(/*turbopackIgnore: true*/ fullPath);
   const resolvedSkillsDir = path.resolve(/*turbopackIgnore: true*/ skillsDir);

@@ -4,7 +4,6 @@ import {
   CANVAS_INHERITED_FILE_NAMES,
   DEFAULT_MANAGED_AGENT_ID,
   readRuntimeManagedAgentFiles,
-  readPiRuntimeConfig,
   type AgentStorageScope,
 } from './storage';
 import { resolveAgentRuntimeConfig } from './effective-runtime-config';
@@ -14,6 +13,7 @@ import {
 } from './system-prompt-shared';
 import { getAgentProfile } from './registry';
 import { loadSkillsFromDisk, getSkillsContext } from '../skills/skill-loader';
+import { readEnabledSkillsForScope } from '../skills/skill-settings';
 import { isComposioConfigured } from '../composio/composio-client';
 import {
   isDefaultToolsConfig,
@@ -281,12 +281,12 @@ export async function loadManagedAgentSystemPrompt(
     const files = await readRuntimeManagedAgentFiles(normalizedAgentId, scope);
     const agentProfile = await getAgentProfile(normalizedAgentId);
     
-    // Load PI config to get enabled skills and check composio tools
-    const piConfig = await readPiRuntimeConfig();
+    // Load enabled skills for the effective user scope.
+    const enabledSkills = await readEnabledSkillsForScope(scope);
     
     // The Canvas Agent receives all globally enabled skills. Specialized agents
     // receive only their selected relevant skills, intersected with global enablement.
-    const skills = await loadSkillsFromDisk(piConfig.enabledSkills);
+    const skills = await loadSkillsFromDisk(enabledSkills, scope);
     const promptSkills = getPromptSkillsForAgent(normalizedAgentId, skills, agentProfile?.relevantSkills);
     const skillsContext = getSkillsContext(promptSkills);
     

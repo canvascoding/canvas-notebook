@@ -30,6 +30,8 @@ export async function POST(request: Request) {
       {
         enable: body.enable !== false,
         replace: body.replace !== false,
+        scope: { userId: skillPermission.session.user.id },
+        updatedBy: skillPermission.session.user.email || skillPermission.session.user.id,
       },
     );
 

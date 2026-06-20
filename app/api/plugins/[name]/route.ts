@@ -20,7 +20,7 @@ export async function GET(
     return NextResponse.json({ success: false, error: 'Invalid plugin name' }, { status: 400 });
   }
 
-  const plugin = await getCanvasPlugin(name);
+  const plugin = await getCanvasPlugin(name, { userId: session.user.id });
   if (!plugin) {
     return NextResponse.json({ success: false, error: 'Plugin not found' }, { status: 404 });
   }
@@ -38,7 +38,11 @@ export async function DELETE(
   if (!pluginPermission.ok) return pluginPermission.response;
 
   const { name } = await params;
-  const result = await deleteCanvasPlugin(name);
+  const result = await deleteCanvasPlugin(
+    name,
+    { userId: pluginPermission.session.user.id },
+    pluginPermission.session.user.email || pluginPermission.session.user.id,
+  );
   if (!result.success) {
     return NextResponse.json(
       { success: false, error: result.error },

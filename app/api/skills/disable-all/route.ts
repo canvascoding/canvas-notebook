@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server';
 import { requireOrganizationPermission } from '@/app/lib/organization/permissions';
-import { readPiRuntimeConfig, writePiRuntimeConfig } from '@/app/lib/agents/storage';
 import { loadSkillsFromDisk } from '@/app/lib/skills/skill-loader';
+import { DISABLED_ALL_SKILLS_SENTINEL } from '@/app/lib/skills/enabled-skills';
+import { writeEnabledSkillsForScope } from '@/app/lib/skills/skill-settings';
 
 export async function POST(request: Request) {
   try {
@@ -10,22 +11,16 @@ export async function POST(request: Request) {
     });
     if (!skillPermission.ok) return skillPermission.response;
 
-    // Read current config
-    const config = await readPiRuntimeConfig();
+    const scope = { userId: skillPermission.session.user.id };
     
     // Load all available skills
-    const allSkills = await loadSkillsFromDisk();
+    const allSkills = await loadSkillsFromDisk(undefined, scope);
     
-    // Disable all skills by adding all to enabledSkills (empty list = all enabled, so we need to add all)
-    // Actually, to disable all, we need to set enabledSkills to a list that doesn't include any
-    // But since empty list means "all enabled", we need a different approach
-    // Let's add a dummy entry that won't match any real skill
-    config.enabledSkills = ['__none__'];
-    config.updatedAt = new Date().toISOString();
-    config.updatedBy = skillPermission.session.user.email || 'unknown';
-    
-    // Write updated config
-    await writePiRuntimeConfig(config);
+    // Empty enabledSkills means "all enabled", so use the sentinel to disable every skill.
+    await writeEnabledSkillsForScope([DISABLED_ALL_SKILLS_SENTINEL], {
+      scope,
+      updatedBy: skillPermission.session.user.email || skillPermission.session.user.id,
+    });
     
     return NextResponse.json({
       success: true,

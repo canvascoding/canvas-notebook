@@ -24,6 +24,8 @@ export async function POST(
       prefer,
       version: typeof body.version === 'string' ? body.version.trim() : undefined,
       enable: body.enable !== false,
+      scope: { userId: skillPermission.session.user.id },
+      updatedBy: skillPermission.session.user.email || skillPermission.session.user.id,
     });
 
     if (!result.success) {
