@@ -59,13 +59,17 @@ export async function GET(request: NextRequest, context: RouteContext) {
     return limited.response;
   }
 
-  const { id } = await context.params;
-  const todo = await getTodo(session.user.id, id);
-  if (!todo) {
-    return NextResponse.json({ success: false, error: 'Todo not found.' }, { status: 404 });
-  }
+  try {
+    const { id } = await context.params;
+    const todo = await getTodo(session.user.id, id);
+    if (!todo) {
+      return NextResponse.json({ success: false, error: 'Todo not found.' }, { status: 404 });
+    }
 
-  return NextResponse.json({ success: true, data: todo });
+    return NextResponse.json({ success: true, data: todo });
+  } catch (error) {
+    return todoErrorResponse(error, 'Failed to load todo.');
+  }
 }
 
 export async function PATCH(request: NextRequest, context: RouteContext) {
@@ -130,20 +134,24 @@ export async function DELETE(request: NextRequest, context: RouteContext) {
     return limited.response;
   }
 
-  const { id } = await context.params;
-  const existingTodo = await getTodo(session.user.id, id);
-  if (!existingTodo) {
-    return NextResponse.json({ success: false, error: 'Todo not found.' }, { status: 404 });
-  }
-  const permissionResponse = await requireTodoWriteWorkspace(session, existingTodo);
-  if (permissionResponse) {
-    return permissionResponse;
-  }
+  try {
+    const { id } = await context.params;
+    const existingTodo = await getTodo(session.user.id, id);
+    if (!existingTodo) {
+      return NextResponse.json({ success: false, error: 'Todo not found.' }, { status: 404 });
+    }
+    const permissionResponse = await requireTodoWriteWorkspace(session, existingTodo);
+    if (permissionResponse) {
+      return permissionResponse;
+    }
 
-  const todo = await archiveTodo(session.user.id, id);
-  if (!todo) {
-    return NextResponse.json({ success: false, error: 'Todo not found.' }, { status: 404 });
-  }
+    const todo = await archiveTodo(session.user.id, id);
+    if (!todo) {
+      return NextResponse.json({ success: false, error: 'Todo not found.' }, { status: 404 });
+    }
 
-  return NextResponse.json({ success: true, data: todo });
+    return NextResponse.json({ success: true, data: todo });
+  } catch (error) {
+    return todoErrorResponse(error, 'Failed to delete todo.');
+  }
 }
