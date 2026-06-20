@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { requireAutomationSession } from '@/app/lib/automations/api';
+import { assertCanAccessAutomationJob } from '@/app/lib/automations/policy';
 import { deleteAutomationJob, getAutomationJobByComposioTriggerId, updateAutomationJob } from '@/app/lib/automations/store';
 import { deleteGatewayTrigger, updateGatewayTrigger } from '@/app/lib/composio/composio-gateway';
 
@@ -28,7 +29,12 @@ export async function PATCH(
 
   const { triggerId } = await params;
   const job = await getAutomationJobByComposioTriggerId(triggerId);
-  if (!job || job.createdByUserId !== session.user.id) {
+  if (!job) {
+    return NextResponse.json({ success: false, error: 'Trigger not found.' }, { status: 404 });
+  }
+  try {
+    assertCanAccessAutomationJob(session.user.id, job);
+  } catch {
     return NextResponse.json({ success: false, error: 'Trigger not found.' }, { status: 404 });
   }
 
@@ -42,7 +48,7 @@ export async function PATCH(
       triggerConfig: payload?.triggerConfig && typeof payload.triggerConfig === 'object' && !Array.isArray(payload.triggerConfig) ? payload.triggerConfig : undefined,
       notebookWebhookUrl: typeof payload?.notebookWebhookUrl === 'string' ? payload.notebookWebhookUrl : undefined,
     }, storageScope);
-    const updatedJob = status ? await updateAutomationJob(job.id, { status }) : job;
+    const updatedJob = status ? await updateAutomationJob(job.id, { status }, { actorUserId: session.user.id }) : job;
     logTriggerRoute('PATCH completed', { triggerId, jobId: job.id, status: status || null });
     return NextResponse.json({ success: true, data: { trigger: updatedTrigger.trigger, job: updatedJob } });
   } catch (error) {
@@ -63,7 +69,12 @@ export async function DELETE(
 
   const { triggerId } = await params;
   const job = await getAutomationJobByComposioTriggerId(triggerId);
-  if (!job || job.createdByUserId !== session.user.id) {
+  if (!job) {
+    return NextResponse.json({ success: false, error: 'Trigger not found.' }, { status: 404 });
+  }
+  try {
+    assertCanAccessAutomationJob(session.user.id, job);
+  } catch {
     return NextResponse.json({ success: false, error: 'Trigger not found.' }, { status: 404 });
   }
 

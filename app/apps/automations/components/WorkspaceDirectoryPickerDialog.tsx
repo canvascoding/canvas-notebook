@@ -113,6 +113,7 @@ type WorkspaceDirectoryPickerDialogProps = {
   onOpenChange: (open: boolean) => void;
   onSelect: (path: string) => void;
   selectedPath?: string;
+  workspaceId?: string | null;
 };
 
 export function WorkspaceDirectoryPickerDialog({
@@ -120,6 +121,7 @@ export function WorkspaceDirectoryPickerDialog({
   onOpenChange,
   onSelect,
   selectedPath,
+  workspaceId,
 }: WorkspaceDirectoryPickerDialogProps) {
   const t = useTranslations('automationen.directoryPicker');
   const [directories, setDirectories] = useState<FileNode[]>([]);
@@ -134,7 +136,11 @@ export function WorkspaceDirectoryPickerDialog({
     setError(null);
 
     try {
-      const response = await fetch('/api/files/tree?path=.&depth=6&noCache=1', {
+      const query = new URLSearchParams({ path: '.', depth: '6', noCache: '1' });
+      if (workspaceId) {
+        query.set('workspaceId', workspaceId);
+      }
+      const response = await fetch(`/api/files/tree?${query.toString()}`, {
         cache: 'no-store',
         credentials: 'include',
       });
@@ -163,7 +169,7 @@ export function WorkspaceDirectoryPickerDialog({
     setExpandedPaths(collectAncestorPaths(selectedPath));
     void loadDirectories();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- loadDirectories is a plain function, no stale closure risk
-  }, [open, selectedPath]);
+  }, [open, selectedPath, workspaceId]);
 
   const filteredDirectories = useMemo(() => {
     return filterDirectoryTree(directories, search.trim());

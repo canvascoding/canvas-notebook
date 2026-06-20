@@ -452,6 +452,15 @@ export const automationJobs = sqliteTable("automation_jobs", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
   status: text("status").notNull(),
+  scope: text("scope").notNull().default('personal'),
+  organizationId: text("organization_id").references(() => canvasOrganizationSettings.organizationId, { onDelete: 'cascade' }),
+  workspaceId: text("workspace_id").references(() => canvasWorkspaces.id, { onDelete: 'set null' }),
+  workspaceType: text("workspace_type").notNull().default('personal'),
+  ownerUserId: text("owner_user_id").references(() => user.id),
+  responsibleUserId: text("responsible_user_id").references(() => user.id),
+  serviceActorId: text("service_actor_id"),
+  approvedByUserId: text("approved_by_user_id").references(() => user.id),
+  lastEditedByUserId: text("last_edited_by_user_id").references(() => user.id),
   prompt: text("prompt").notNull(),
   preferredSkill: text("preferred_skill").notNull(),
   workspaceContextPathsJson: text("workspace_context_paths_json").notNull(),
@@ -480,6 +489,8 @@ export const automationJobs = sqliteTable("automation_jobs", {
   composioUserId: text("composio_user_id"),
   webhookTriggerConfigJson: text("webhook_trigger_config_json"),
 }, (table) => ({
+  ownerScopeIdx: index("idx_automation_jobs_owner_scope").on(table.ownerUserId, table.scope),
+  organizationWorkspaceIdx: index("idx_automation_jobs_org_workspace").on(table.organizationId, table.workspaceId),
   composioTriggerIdx: uniqueIndex("idx_automation_jobs_composio_trigger_id").on(table.composioTriggerId),
 }));
 
@@ -579,6 +590,13 @@ export const automationRuns = sqliteTable("automation_runs", {
   id: text("id").primaryKey(),
   jobId: text("job_id").notNull().references(() => automationJobs.id),
   status: text("status").notNull(),
+  scope: text("scope").notNull().default('personal'),
+  organizationId: text("organization_id").references(() => canvasOrganizationSettings.organizationId, { onDelete: 'cascade' }),
+  workspaceId: text("workspace_id").references(() => canvasWorkspaces.id, { onDelete: 'set null' }),
+  workspaceType: text("workspace_type").notNull().default('personal'),
+  actorType: text("actor_type").notNull().default('user'),
+  actorUserId: text("actor_user_id").references(() => user.id),
+  serviceActorId: text("service_actor_id"),
   triggerType: text("trigger_type").notNull(),
   scheduledFor: integer("scheduled_for", { mode: "timestamp" }),
   startedAt: integer("started_at", { mode: "timestamp" }),
@@ -596,7 +614,9 @@ export const automationRuns = sqliteTable("automation_runs", {
   eventsLog: text("events_log"), // JSON array of event strings (replaces events.log file)
   metadataJson: text("metadata_json"), // JSON with provider, model, status, etc. (replaces run.json)
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
-});
+}, (table) => ({
+  workspaceCreatedIdx: index("idx_automation_runs_workspace_created").on(table.workspaceId, table.createdAt),
+}));
 
 export const studioProducts = sqliteTable("studio_products", {
   id: text("id").primaryKey(),

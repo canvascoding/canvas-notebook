@@ -103,6 +103,7 @@ export async function savePiSession(
     channelSessionKey?: string | null;
     channelThreadKey?: string | null;
     agentId?: string | null;
+    workspaceId?: string | null;
     systemPromptSnapshot?: PiSystemPromptSnapshot;
   },
 ): Promise<void> {
@@ -135,7 +136,7 @@ export async function savePiSession(
 
   if (!session) {
     const promptSnapshot = options?.systemPromptSnapshot ?? await createPiSystemPromptSnapshot(agentId, { userId });
-    const workspace = await resolveAgentSessionWorkspaceForUser({ userId });
+    const workspace = await resolveAgentSessionWorkspaceForUser({ userId, workspaceId: options?.workspaceId ?? null });
     const [inserted] = await db.insert(piSessions).values({
       sessionId,
       userId,
@@ -162,7 +163,7 @@ export async function savePiSession(
       : piSystemPromptSnapshotDbFields(options?.systemPromptSnapshot ?? await createPiSystemPromptSnapshot(agentId, { userId }));
     const workspaceFields = session.workspaceId
       ? {}
-      : workspaceToPiSessionFields(await resolveAgentSessionWorkspaceForUser({ userId }));
+      : workspaceToPiSessionFields(await resolveAgentSessionWorkspaceForUser({ userId, workspaceId: options?.workspaceId ?? null }));
 
     await db.update(piSessions)
       .set({ 

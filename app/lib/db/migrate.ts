@@ -373,6 +373,15 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       id TEXT PRIMARY KEY NOT NULL,
       name TEXT NOT NULL,
       status TEXT NOT NULL,
+      scope TEXT NOT NULL DEFAULT 'personal',
+      organization_id TEXT,
+      workspace_id TEXT,
+      workspace_type TEXT NOT NULL DEFAULT 'personal',
+      owner_user_id TEXT,
+      responsible_user_id TEXT,
+      service_actor_id TEXT,
+      approved_by_user_id TEXT,
+      last_edited_by_user_id TEXT,
       prompt TEXT NOT NULL,
       preferred_skill TEXT NOT NULL,
       workspace_context_paths_json TEXT NOT NULL,
@@ -400,13 +409,26 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       composio_connected_account_id TEXT,
       composio_user_id TEXT,
       webhook_trigger_config_json TEXT,
-      FOREIGN KEY (created_by_user_id) REFERENCES user(id)
+      FOREIGN KEY (created_by_user_id) REFERENCES user(id),
+      FOREIGN KEY (organization_id) REFERENCES canvas_organization_settings(organization_id) ON DELETE CASCADE,
+      FOREIGN KEY (workspace_id) REFERENCES canvas_workspaces(id) ON DELETE SET NULL,
+      FOREIGN KEY (owner_user_id) REFERENCES user(id),
+      FOREIGN KEY (responsible_user_id) REFERENCES user(id),
+      FOREIGN KEY (approved_by_user_id) REFERENCES user(id),
+      FOREIGN KEY (last_edited_by_user_id) REFERENCES user(id)
     );
 
     CREATE TABLE IF NOT EXISTS automation_runs (
       id TEXT PRIMARY KEY NOT NULL,
       job_id TEXT NOT NULL,
       status TEXT NOT NULL,
+      scope TEXT NOT NULL DEFAULT 'personal',
+      organization_id TEXT,
+      workspace_id TEXT,
+      workspace_type TEXT NOT NULL DEFAULT 'personal',
+      actor_type TEXT NOT NULL DEFAULT 'user',
+      actor_user_id TEXT,
+      service_actor_id TEXT,
       trigger_type TEXT NOT NULL,
       scheduled_for INTEGER,
       started_at INTEGER,
@@ -423,7 +445,10 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       events_log TEXT,
       metadata_json TEXT,
       created_at INTEGER NOT NULL,
-      FOREIGN KEY (job_id) REFERENCES automation_jobs(id)
+      FOREIGN KEY (job_id) REFERENCES automation_jobs(id),
+      FOREIGN KEY (organization_id) REFERENCES canvas_organization_settings(organization_id) ON DELETE CASCADE,
+      FOREIGN KEY (workspace_id) REFERENCES canvas_workspaces(id) ON DELETE SET NULL,
+      FOREIGN KEY (actor_user_id) REFERENCES user(id)
     );
 
     CREATE TABLE IF NOT EXISTS composio_webhook_events (
@@ -840,8 +865,11 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     CREATE INDEX IF NOT EXISTS idx_pi_usage_events_model_assistant_timestamp ON pi_usage_events (model, assistant_timestamp);
     CREATE INDEX IF NOT EXISTS idx_automation_jobs_next_run_at ON automation_jobs (next_run_at);
     CREATE INDEX IF NOT EXISTS idx_automation_jobs_status ON automation_jobs (status);
+    CREATE INDEX IF NOT EXISTS idx_automation_jobs_owner_scope ON automation_jobs (owner_user_id, scope);
+    CREATE INDEX IF NOT EXISTS idx_automation_jobs_org_workspace ON automation_jobs (organization_id, workspace_id);
     CREATE INDEX IF NOT EXISTS idx_automation_runs_job_id_created_at ON automation_runs (job_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_automation_runs_status ON automation_runs (status);
+    CREATE INDEX IF NOT EXISTS idx_automation_runs_workspace_created ON automation_runs (workspace_id, created_at);
     CREATE TABLE IF NOT EXISTS composio_webhook_subscriptions (
       id TEXT PRIMARY KEY NOT NULL,
       subscription_id TEXT NOT NULL UNIQUE,
@@ -1039,6 +1067,15 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
   });
 
   addColumns(sqlite, 'automation_jobs', {
+    scope: "TEXT NOT NULL DEFAULT 'personal'",
+    organization_id: 'TEXT',
+    workspace_id: 'TEXT',
+    workspace_type: "TEXT NOT NULL DEFAULT 'personal'",
+    owner_user_id: 'TEXT',
+    responsible_user_id: 'TEXT',
+    service_actor_id: 'TEXT',
+    approved_by_user_id: 'TEXT',
+    last_edited_by_user_id: 'TEXT',
     agent_id: "TEXT NOT NULL DEFAULT 'canvas-agent'",
     delivery_mode: "TEXT NOT NULL DEFAULT 'web'",
     delivery_channel_id: 'TEXT',
@@ -1054,6 +1091,45 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     composio_user_id: 'TEXT',
     webhook_trigger_config_json: 'TEXT',
   });
+
+  addColumns(sqlite, 'automation_runs', {
+    scope: "TEXT NOT NULL DEFAULT 'personal'",
+    organization_id: 'TEXT',
+    workspace_id: 'TEXT',
+    workspace_type: "TEXT NOT NULL DEFAULT 'personal'",
+    actor_type: "TEXT NOT NULL DEFAULT 'user'",
+    actor_user_id: 'TEXT',
+    service_actor_id: 'TEXT',
+  });
+
+  sqlite.exec(`
+    UPDATE automation_jobs
+    SET
+      owner_user_id = COALESCE(owner_user_id, created_by_user_id),
+      responsible_user_id = COALESCE(responsible_user_id, created_by_user_id),
+      last_edited_by_user_id = COALESCE(last_edited_by_user_id, created_by_user_id),
+      scope = COALESCE(NULLIF(scope, ''), 'personal'),
+      workspace_type = COALESCE(NULLIF(workspace_type, ''), 'personal')
+    WHERE owner_user_id IS NULL
+      OR responsible_user_id IS NULL
+      OR last_edited_by_user_id IS NULL
+      OR scope IS NULL
+      OR scope = ''
+      OR workspace_type IS NULL
+      OR workspace_type = '';
+
+    UPDATE automation_runs
+    SET
+      scope = COALESCE(NULLIF(scope, ''), 'personal'),
+      workspace_type = COALESCE(NULLIF(workspace_type, ''), 'personal'),
+      actor_type = COALESCE(NULLIF(actor_type, ''), 'user')
+    WHERE scope IS NULL
+      OR scope = ''
+      OR workspace_type IS NULL
+      OR workspace_type = ''
+      OR actor_type IS NULL
+      OR actor_type = '';
+  `);
 
   // ── Deferred indexes on columns added via ALTER TABLE ──────────────────────
   sqlite.exec(`
@@ -1075,6 +1151,9 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     CREATE INDEX IF NOT EXISTS idx_pi_sessions_channel ON pi_sessions (channel_id, channel_session_key);
     CREATE INDEX IF NOT EXISTS idx_pi_sessions_workspace ON pi_sessions (workspace_id);
     CREATE INDEX IF NOT EXISTS idx_pi_sessions_user_workspace_created ON pi_sessions (user_id, workspace_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_automation_jobs_owner_scope ON automation_jobs (owner_user_id, scope);
+    CREATE INDEX IF NOT EXISTS idx_automation_jobs_org_workspace ON automation_jobs (organization_id, workspace_id);
+    CREATE INDEX IF NOT EXISTS idx_automation_runs_workspace_created ON automation_runs (workspace_id, created_at);
   `);
 
   sqlite.exec(`

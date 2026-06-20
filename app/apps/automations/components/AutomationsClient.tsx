@@ -51,6 +51,8 @@ import type {
   AutomationWeekday,
   FriendlySchedule,
 } from '@/app/lib/automations/types';
+import type { ClientWorkspaceSummary } from '@/app/lib/workspaces/client-types';
+import { selectActiveWorkspace, useWorkspaceStore } from '@/app/store/workspace-store';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -85,6 +87,7 @@ type TriggerSource = 'custom' | 'composio';
 
 type JobDraft = {
   id: string | null;
+  workspaceId: string;
   name: string;
   prompt: string;
   preferredSkill: string;
@@ -156,6 +159,7 @@ type TriggerCapableApp = Omit<ComposioToolkitInfo, 'connected' | 'connectedAccou
 };
 
 type TriggerComposerDraft = {
+  workspaceId: string;
   toolkitSlug: string;
   triggerSlug: string;
   name: string;
@@ -173,6 +177,7 @@ type TriggerComposerDraft = {
 };
 
 type CustomWebhookDraft = {
+  workspaceId: string;
   name: string;
   prompt: string;
   preferredSkill: string;
@@ -363,13 +368,14 @@ function SkillPicker({
   );
 }
 
-function defaultDraft(defaultTimeZone?: string): JobDraft {
+function defaultDraft(defaultTimeZone?: string, workspaceId = ''): JobDraft {
   const now = new Date();
   const today = now.toISOString().slice(0, 10);
   const timeZone = normalizeTimeZone(defaultTimeZone);
 
   return {
     id: null,
+    workspaceId,
     name: '',
     prompt: '',
     preferredSkill: 'auto',
@@ -394,8 +400,9 @@ function defaultDraft(defaultTimeZone?: string): JobDraft {
   };
 }
 
-function defaultTriggerDraft(): TriggerComposerDraft {
+function defaultTriggerDraft(workspaceId = ''): TriggerComposerDraft {
   return {
+    workspaceId,
     toolkitSlug: '',
     triggerSlug: '',
     name: '',
@@ -413,8 +420,9 @@ function defaultTriggerDraft(): TriggerComposerDraft {
   };
 }
 
-function defaultCustomWebhookDraft(): CustomWebhookDraft {
+function defaultCustomWebhookDraft(workspaceId = ''): CustomWebhookDraft {
   return {
+    workspaceId,
     name: '',
     prompt: '',
     preferredSkill: 'auto',
@@ -696,6 +704,7 @@ function buildPayload(draft: JobDraft) {
   return {
     name: draft.name,
     prompt: draft.prompt,
+    workspaceId: draft.workspaceId || null,
     preferredSkill: draft.preferredSkill || 'auto',
     workspaceContextPaths: parseWorkspaceContext(draft.workspaceContextText),
     targetOutputPath: draft.targetOutputPath.trim() || null,
@@ -775,6 +784,17 @@ function formatTriggerType(triggerType: AutomationTriggerType, translate: (key: 
   return translate(`triggerType.${triggerType}`);
 }
 
+function workspaceScopeLabel(workspace: Pick<ClientWorkspaceSummary, 'type'> | null | undefined, locale: string): string {
+  const isGerman = locale.startsWith('de');
+  if (workspace?.type === 'team') return isGerman ? 'Organisation' : 'Organization';
+  if (workspace?.type === 'project') return isGerman ? 'Projekt' : 'Project';
+  return isGerman ? 'Persönlich' : 'Personal';
+}
+
+function workspaceOptionLabel(workspace: ClientWorkspaceSummary, locale: string): string {
+  return `${workspace.name} · ${workspaceScopeLabel(workspace, locale)}`;
+}
+
 function toChatUrl(sessionId: string) {
   return `/chat?session=${encodeURIComponent(sessionId)}`;
 }
@@ -812,6 +832,7 @@ function mapJobToDraft(job: AutomationJobRecord): JobDraft {
   const jobTimeZone = normalizeTimeZone(job.schedule.timeZone || job.timeZone);
   const draft = defaultDraft(jobTimeZone);
   draft.id = job.id;
+  draft.workspaceId = job.workspaceId || '';
   draft.name = job.name;
   draft.prompt = job.prompt;
   draft.preferredSkill = job.preferredSkill || 'auto';
@@ -849,6 +870,20 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
   const router = useRouter();
   const isDetailPage = Boolean(initialJobId);
   const defaultTimeZone = normalizeTimeZone(initialTimeZone);
+  const workspaces = useWorkspaceStore((state) => state.workspaces);
+  const activeWorkspace = useWorkspaceStore(selectActiveWorkspace);
+  const hydrateWorkspaces = useWorkspaceStore((state) => state.hydrateWorkspaces);
+  const workspaceInitialized = useWorkspaceStore((state) => state.initialized);
+  const automationWorkspaces = useMemo(
+    () => workspaces.filter((workspace) => workspace.status === 'active' && workspace.permissions.canRead && workspace.permissions.canWrite && workspace.permissions.canRunAgent),
+    [workspaces],
+  );
+  const defaultAutomationWorkspaceId = useMemo(() => {
+    if (activeWorkspace && automationWorkspaces.some((workspace) => workspace.id === activeWorkspace.id)) {
+      return activeWorkspace.id;
+    }
+    return automationWorkspaces[0]?.id || '';
+  }, [activeWorkspace, automationWorkspaces]);
   const [jobs, setJobs] = useState<AutomationJobRecord[]>([]);
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
   const [draft, setDraft] = useState<JobDraft>(() => defaultDraft(defaultTimeZone));
@@ -888,6 +923,11 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
   const [isRunSheetOpen, setIsRunSheetOpen] = useState(false);
 
   const selectedJob = useMemo(() => jobs.find((job) => job.id === selectedJobId) || null, [jobs, selectedJobId]);
+  const workspaceById = useMemo(() => new Map(workspaces.map((workspace) => [workspace.id, workspace])), [workspaces]);
+  const selectedDraftWorkspace = draft.workspaceId ? workspaceById.get(draft.workspaceId) || null : null;
+  const selectedTriggerWorkspace = triggerDraft.workspaceId ? workspaceById.get(triggerDraft.workspaceId) || null : null;
+  const selectedCustomWebhookWorkspace = customWebhookDraft.workspaceId ? workspaceById.get(customWebhookDraft.workspaceId) || null : null;
+  const selectedJobWorkspace = selectedJob?.workspaceId ? workspaceById.get(selectedJob.workspaceId) || null : null;
   const selectedRunSummary = useMemo(() => runs.find((run) => run.id === selectedRunId) || null, [runs, selectedRunId]);
   const selectedRun = useMemo(
     () => (selectedRunId ? runDetailsById[selectedRunId] || selectedRunSummary : null),
@@ -991,7 +1031,7 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
       if (!options?.keepSelection) {
         const nextSelected = initialJobId ? nextJobs.find((job) => job.id === initialJobId) || null : null;
         setSelectedJobId(nextSelected?.id || null);
-        setDraft(nextSelected ? mapJobToDraft(nextSelected) : defaultDraft(defaultTimeZone));
+        setDraft(nextSelected ? mapJobToDraft(nextSelected) : defaultDraft(defaultTimeZone, defaultAutomationWorkspaceId));
       } else if (selectedJobId) {
         const nextSelected = nextJobs.find((job) => job.id === selectedJobId);
         if (!nextSelected) {
@@ -1179,6 +1219,19 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
   }
 
   useEffect(() => {
+    void hydrateWorkspaces();
+  }, [hydrateWorkspaces]);
+
+  useEffect(() => {
+    if (!workspaceInitialized || !defaultAutomationWorkspaceId || selectedJobId) return;
+    /* eslint-disable react-hooks/set-state-in-effect */
+    setDraft((current) => current.workspaceId ? current : { ...current, workspaceId: defaultAutomationWorkspaceId });
+    setTriggerDraft((current) => current.workspaceId ? current : { ...current, workspaceId: defaultAutomationWorkspaceId });
+    setCustomWebhookDraft((current) => current.workspaceId ? current : { ...current, workspaceId: defaultAutomationWorkspaceId });
+    /* eslint-enable react-hooks/set-state-in-effect */
+  }, [defaultAutomationWorkspaceId, selectedJobId, workspaceInitialized]);
+
+  useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     loadJobsEvent();
     void loadSkills();
@@ -1340,6 +1393,7 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
         body: JSON.stringify({
           name: triggerDraft.name.trim(),
           prompt: triggerDraft.prompt.trim(),
+          workspaceId: triggerDraft.workspaceId || null,
           preferredSkill: triggerDraft.preferredSkill || 'auto',
           toolkitSlug: selectedTriggerApp.slug,
           triggerSlug: selectedTriggerType.slug,
@@ -1364,7 +1418,7 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
       toast.success(t('toasts.jobCreated'));
       setIsComposerOpen(false);
       setComposerMode('scheduled');
-      setTriggerDraft(defaultTriggerDraft());
+      setTriggerDraft(defaultTriggerDraft(defaultAutomationWorkspaceId));
       setSelectedJobId(savedJob.id);
       setDraft(mapJobToDraft(savedJob));
       await loadJobs({ keepSelection: true });
@@ -1387,6 +1441,7 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
         body: JSON.stringify({
           name: customWebhookDraft.name.trim(),
           prompt: customWebhookDraft.prompt.trim(),
+          workspaceId: customWebhookDraft.workspaceId || null,
           preferredSkill: customWebhookDraft.preferredSkill || 'auto',
           workspaceContextPaths: parseWorkspaceContext(customWebhookDraft.workspaceContextText),
           targetOutputPath: customWebhookDraft.targetOutputPath.trim() || null,
@@ -1410,7 +1465,7 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
       setIsComposerOpen(false);
       setComposerMode('scheduled');
       setTriggerSource('custom');
-      setCustomWebhookDraft(defaultCustomWebhookDraft());
+      setCustomWebhookDraft(defaultCustomWebhookDraft(defaultAutomationWorkspaceId));
       setSelectedJobId(savedJob.id);
       setDraft(mapJobToDraft(savedJob));
       await loadJobs({ keepSelection: true });
@@ -1507,7 +1562,7 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
       if (!response.ok || !payload.success) throw new Error(payload.error || t('errors.deleteJob'));
       toast.success(t('toasts.jobDeleted'));
       setSelectedJobId(null);
-      setDraft(defaultDraft(defaultTimeZone));
+      setDraft(defaultDraft(defaultTimeZone, defaultAutomationWorkspaceId));
       setRuns([]);
       setSelectedRunId(null);
       setLogContent('');
@@ -1525,9 +1580,9 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
     setRuns([]);
     setSelectedRunId(null);
     setLogContent('');
-    setDraft(defaultDraft(defaultTimeZone));
-    setTriggerDraft(defaultTriggerDraft());
-    setCustomWebhookDraft(defaultCustomWebhookDraft());
+    setDraft(defaultDraft(defaultTimeZone, defaultAutomationWorkspaceId));
+    setTriggerDraft(defaultTriggerDraft(defaultAutomationWorkspaceId));
+    setCustomWebhookDraft(defaultCustomWebhookDraft(defaultAutomationWorkspaceId));
     setComposerMode('scheduled');
     setTriggerSource('custom');
     setAppSearch('');
@@ -1593,6 +1648,61 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
         emptyLabel={t('skills.empty')}
         description={t('skills.description')}
       />
+    );
+  }
+
+  function renderWorkspaceSelector(target: 'scheduled' | 'trigger' | 'customWebhook') {
+    const state = target === 'trigger'
+      ? triggerDraft
+      : target === 'customWebhook'
+        ? customWebhookDraft
+        : draft;
+    const selectedWorkspace = target === 'trigger'
+      ? selectedTriggerWorkspace
+      : target === 'customWebhook'
+        ? selectedCustomWebhookWorkspace
+        : selectedDraftWorkspace;
+    const isExistingScheduledJob = target === 'scheduled' && Boolean(draft.id);
+    const isGerman = locale.startsWith('de');
+    const label = isGerman ? 'Workspace' : 'Workspace';
+    const scopeLabel = workspaceScopeLabel(selectedWorkspace, locale);
+    const updateWorkspaceId = (workspaceId: string) => {
+      if (target === 'trigger') {
+        setTriggerDraft((current) => ({ ...current, workspaceId }));
+      } else if (target === 'customWebhook') {
+        setCustomWebhookDraft((current) => ({ ...current, workspaceId }));
+      } else {
+        setDraft((current) => ({ ...current, workspaceId }));
+      }
+    };
+
+    return (
+      <label className="flex min-w-0 flex-col gap-1 text-sm">
+        <span className="flex items-center gap-1 text-xs text-muted-foreground">
+          <Folder className="h-3.5 w-3.5" />
+          {label}
+        </span>
+        <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+          <select
+            data-testid={`automation-${target}-workspace`}
+            className="h-10 min-w-0 rounded-md border border-input bg-background px-3 text-sm"
+            value={state.workspaceId || defaultAutomationWorkspaceId}
+            onChange={(event) => updateWorkspaceId(event.target.value)}
+            disabled={isExistingScheduledJob || automationWorkspaces.length === 0}
+          >
+            {automationWorkspaces.length === 0 ? (
+              <option value="">{isGerman ? 'Kein Workspace verfügbar' : 'No workspace available'}</option>
+            ) : automationWorkspaces.map((workspace) => (
+              <option key={workspace.id} value={workspace.id}>
+                {workspaceOptionLabel(workspace, locale)}
+              </option>
+            ))}
+          </select>
+          <Badge variant={selectedWorkspace?.type === 'team' ? 'default' : 'secondary'} className="h-10 justify-center px-3">
+            {scopeLabel}
+          </Badge>
+        </div>
+      </label>
     );
   }
 
@@ -1807,6 +1917,7 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
                       </select>
                     </label>
                   </div>
+                  {renderWorkspaceSelector('scheduled')}
                   <label className="flex min-w-0 flex-col gap-1 text-sm">
                     <span className="text-xs text-muted-foreground">{t('editor.fields.prompt')}</span>
                     <AutomationPromptEditor
@@ -1926,6 +2037,12 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
                   <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2 text-sm">
                     <span className="text-muted-foreground">{t('editor.fields.status')}</span>
                     <Badge variant={selectedJob.status === 'active' ? 'default' : 'secondary'}>{t(`jobStatus.${selectedJob.status}`)}</Badge>
+                    <span className="text-muted-foreground">{locale.startsWith('de') ? 'Workspace' : 'Workspace'}</span>
+                    <span className="inline-flex min-w-0 max-w-[12rem] justify-end">
+                      <Badge variant={selectedJob.workspaceType === 'team' ? 'default' : 'secondary'} className="truncate">
+                        {selectedJobWorkspace?.name || selectedJob.workspaceId || workspaceScopeLabel(selectedJobWorkspace || { type: selectedJob.workspaceType }, locale)}
+                      </Badge>
+                    </span>
                     <span className="text-muted-foreground">{t('overview.nextRun')}</span>
                     <span className="text-right text-xs">{formatDateTime(selectedJob.nextRunAt, locale, t('scheduleSummary.notScheduled'))}</span>
                     <span className="text-muted-foreground">{t('schedule.fields.kind')}</span>
@@ -2063,6 +2180,9 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
                                   <div className="flex min-w-0 flex-wrap items-center gap-2">
                                     <p className="min-w-0 truncate text-sm font-medium">{job.name}</p>
                                     <Badge variant={job.status === 'active' ? 'default' : 'secondary'} className="shrink-0">{t(`jobStatus.${job.status}`)}</Badge>
+                                    <Badge variant={job.workspaceType === 'team' ? 'default' : 'outline'} className="shrink-0">
+                                      {workspaceById.get(job.workspaceId || '')?.name || workspaceScopeLabel({ type: job.workspaceType }, locale)}
+                                    </Badge>
                                   </div>
                                   <div className="mt-1 max-h-[2.5em] overflow-hidden text-xs text-muted-foreground">
                                     <MarkdownRenderer content={job.prompt} variant="muted" />
@@ -2107,6 +2227,7 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
             <TabsContent value="scheduled" className="m-0 min-h-0 flex-1 overflow-y-auto">
               <div className="grid min-h-0 gap-4 p-4 sm:p-6 lg:grid-cols-[minmax(0,1fr)_18rem]">
                 <div className="space-y-4">
+                  {renderWorkspaceSelector('scheduled')}
                   <input data-testid="automation-name" className="h-11 w-full rounded-md border border-input bg-background px-3 text-base font-medium" value={draft.name} onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))} placeholder={t('editor.placeholders.name')} />
                   <AutomationPromptEditor
                     testId="automation-prompt"
@@ -2181,6 +2302,7 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
                         onChange={(event) => setCustomWebhookDraft((current) => ({ ...current, name: event.target.value }))}
                         placeholder={t('triggers.custom.placeholders.name')}
                       />
+                      {renderWorkspaceSelector('customWebhook')}
                       <AutomationPromptEditor
                         heightClassName="h-[14rem] w-full"
                         value={customWebhookDraft.prompt}
@@ -2340,6 +2462,7 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
                         </div>
                       ) : null}
                       {visibleSelectedTriggerType?.description ? <p className="text-xs text-muted-foreground">{visibleSelectedTriggerType.description}</p> : null}
+                      {renderWorkspaceSelector('trigger')}
                       <input className="h-11 w-full rounded-md border border-input bg-background px-3 text-base font-medium" value={triggerDraft.name} onChange={(event) => setTriggerDraft((current) => ({ ...current, name: event.target.value }))} placeholder={t('triggers.placeholders.name')} />
                       <div className="rounded-md border border-primary/20 bg-primary/5 p-3 text-xs text-muted-foreground">
                         <p className="font-medium text-foreground">{t('triggers.promptHintTitle')}</p>
@@ -2500,6 +2623,13 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
       <WorkspaceDirectoryPickerDialog
         open={isDirectoryPickerOpen}
         onOpenChange={setIsDirectoryPickerOpen}
+        workspaceId={
+          directoryPickerTarget === 'trigger'
+            ? triggerDraft.workspaceId || defaultAutomationWorkspaceId
+            : directoryPickerTarget === 'customWebhook'
+              ? customWebhookDraft.workspaceId || defaultAutomationWorkspaceId
+              : draft.workspaceId || defaultAutomationWorkspaceId
+        }
         selectedPath={
           directoryPickerTarget === 'trigger'
             ? triggerDraft.targetOutputPath

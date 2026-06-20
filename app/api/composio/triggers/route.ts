@@ -120,7 +120,9 @@ export async function POST(request: NextRequest) {
       composioConnectedAccountId: stringValue(trigger.connectedAccountId) || connectedAccountId || '',
       composioUserId: stringValue(trigger.composioUserId) || await getComposioUserId(storageScope),
       webhookTriggerConfig: triggerConfig,
-    }, session.user.id);
+      scope: stringValue(payload.scope) as 'personal' | 'organization' | 'team' || undefined,
+      workspaceId: stringValue(payload.workspaceId) || null,
+    }, session.user);
 
     logTriggerRoute('POST completed', { triggerId, jobId: job.id, triggerSlug, toolkitSlug });
     return NextResponse.json({ success: true, data: { trigger, job } }, { status: 201 });

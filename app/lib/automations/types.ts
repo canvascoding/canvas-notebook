@@ -3,6 +3,9 @@ export type AutomationRunStatus = 'pending' | 'running' | 'success' | 'failed' |
 export type AutomationTriggerType = 'scheduled' | 'manual' | 'retry' | 'webhook';
 export type AutomationPreferredSkill = string;
 export type AutomationJobType = 'default' | 'heartbeat' | 'webhook';
+export type AutomationScope = 'personal' | 'organization';
+export type AutomationWorkspaceType = 'personal' | 'team' | 'project';
+export type AutomationActorType = 'user' | 'service';
 export type AutomationDeliveryMode = 'web' | 'origin' | 'session' | 'channel_home' | 'last_active' | 'silent';
 export type AutomationDeliverySessionMode = 'new_session' | 'channel_active' | 'fixed_session';
 export type AutomationScheduleKind = 'once' | 'daily' | 'weekly' | 'interval' | 'webhook';
@@ -55,6 +58,15 @@ export type AutomationJobRecord = {
   id: string;
   name: string;
   status: AutomationJobStatus;
+  scope: AutomationScope;
+  organizationId: string | null;
+  workspaceId: string | null;
+  workspaceType: AutomationWorkspaceType;
+  ownerUserId: string | null;
+  responsibleUserId: string | null;
+  serviceActorId: string | null;
+  approvedByUserId: string | null;
+  lastEditedByUserId: string | null;
   prompt: string;
   preferredSkill: AutomationPreferredSkill;
   workspaceContextPaths: string[];
@@ -93,6 +105,13 @@ export type AutomationRunRecord = {
   id: string;
   jobId: string;
   status: AutomationRunStatus;
+  scope: AutomationScope;
+  organizationId: string | null;
+  workspaceId: string | null;
+  workspaceType: AutomationWorkspaceType;
+  actorType: AutomationActorType;
+  actorUserId: string | null;
+  serviceActorId: string | null;
   triggerType: AutomationTriggerType;
   scheduledFor: string | null;
   startedAt: string | null;
@@ -117,6 +136,9 @@ export type AutomationRunRecord = {
 export type CreateAutomationJobInput = {
   name: string;
   prompt: string;
+  scope?: AutomationScope | 'team';
+  workspaceId?: string | null;
+  responsibleUserId?: string | null;
   workspaceContextPaths?: string[];
   targetOutputPath?: string | null;
   preferredSkill?: AutomationPreferredSkill;
@@ -133,6 +155,9 @@ export type CreateAutomationJobInput = {
 export type CreateWebhookAutomationJobInput = {
   name: string;
   prompt: string;
+  scope?: AutomationScope | 'team';
+  workspaceId?: string | null;
+  responsibleUserId?: string | null;
   workspaceContextPaths?: string[];
   targetOutputPath?: string | null;
   preferredSkill?: AutomationPreferredSkill;
@@ -154,6 +179,9 @@ export type CreateWebhookAutomationJobInput = {
 export type CreateCustomWebhookAutomationJobInput = {
   name: string;
   prompt: string;
+  scope?: AutomationScope | 'team';
+  workspaceId?: string | null;
+  responsibleUserId?: string | null;
   workspaceContextPaths?: string[];
   targetOutputPath?: string | null;
   preferredSkill?: AutomationPreferredSkill;

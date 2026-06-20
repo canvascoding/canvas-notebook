@@ -8,6 +8,8 @@ import { createDirectory } from '@/app/lib/filesystem/workspace-files';
 import { resolvePiApiKey } from '@/app/lib/pi/api-key-resolver';
 import { normalizePiMessagesForLlm } from '@/app/lib/pi/message-normalization';
 import { loadPiSessionWithSummary, savePiSession } from '@/app/lib/pi/session-store';
+import { runWithAgentExecutionContext } from '@/app/lib/pi/agent-execution-context';
+import { workspaceToAgentExecutionContext } from '@/app/lib/pi/session-workspace-context';
 import { loadPiSessionSystemPromptSnapshot } from '@/app/lib/pi/system-prompt-snapshot';
 import { getPiTools } from '@/app/lib/pi/tool-registry';
 
@@ -31,6 +33,7 @@ import {
   markAutomationRunStarted,
   updateAutomationJob,
 } from './store';
+import { resolveAutomationRunWorkspace } from './policy';
 import { type AutomationJobRecord, type AutomationRunRecord } from './types';
 
 const MAX_ATTEMPTS = 3;
@@ -189,40 +192,48 @@ export async function executeAutomationRun(runId: string): Promise<void> {
     return;
   }
 
-  console.log(`[Automationen] Starting run ${runId} for job "${job.name}" (type=${job.jobType})`);
+  const automationUserId = job.responsibleUserId || job.ownerUserId || job.createdByUserId;
+  console.log(`[Automationen] Starting run ${runId} for job "${job.name}" (type=${job.jobType}, scope=${job.scope}, workspace=${job.workspaceId ?? 'legacy'})`);
 
   try {
-    const effectiveTargetOutputPath = getEffectiveAutomationTargetOutputPath(job);
-
-    if (effectiveTargetOutputPath) {
-      const targetParentDir = path.posix.dirname(effectiveTargetOutputPath);
-      if (targetParentDir && targetParentDir !== '.') {
-        await createDirectory(targetParentDir);
-      }
-    }
-
-    const includeAutomatedHeartbeatContext = job.jobType === 'heartbeat' && run.triggerType !== 'manual';
-    const jobPrompt = job.jobType === 'heartbeat'
-      ? await buildHeartbeatPrompt(job, { includeAutomatedRuntimeContext: includeAutomatedHeartbeatContext })
-      : job.prompt;
-    const promptText = buildAutomationPrompt({
-      name: job.name,
-      workspaceContextPaths: job.workspaceContextPaths,
-      prompt: jobPrompt,
-      preferredSkill: job.preferredSkill,
-      executionKind: job.jobType === 'heartbeat' ? 'heartbeat' : 'automation',
-      effectiveTargetOutputPath,
-      webhookContext: run.triggerType === 'webhook' ? getWebhookPromptContext(run) : null,
-    });
-
     const defaultPiSessionId = buildAutomationSessionId(run.id);
     const deliveryResolution = await resolveAutomationDeliveryTarget({
       job,
-      userId: job.createdByUserId,
+      userId: automationUserId,
       defaultSessionId: defaultPiSessionId,
     });
     const piSessionId = deliveryResolution.sessionId;
     const piSessionTitle = buildAutomationSessionTitle(job.name);
+    const automationWorkspace = await resolveAutomationRunWorkspace(job);
+    const executionContext = workspaceToAgentExecutionContext({
+      workspace: automationWorkspace,
+      userId: automationUserId,
+      sessionId: piSessionId,
+    });
+
+    await runWithAgentExecutionContext(executionContext, async () => {
+      const effectiveTargetOutputPath = getEffectiveAutomationTargetOutputPath(job);
+
+      if (effectiveTargetOutputPath) {
+        const targetParentDir = path.posix.dirname(effectiveTargetOutputPath);
+        if (targetParentDir && targetParentDir !== '.') {
+          await createDirectory(targetParentDir, { workspace: automationWorkspace });
+        }
+      }
+
+      const includeAutomatedHeartbeatContext = job.jobType === 'heartbeat' && run.triggerType !== 'manual';
+      const jobPrompt = job.jobType === 'heartbeat'
+        ? await buildHeartbeatPrompt(job, { includeAutomatedRuntimeContext: includeAutomatedHeartbeatContext })
+        : job.prompt;
+      const promptText = buildAutomationPrompt({
+        name: job.name,
+        workspaceContextPaths: job.workspaceContextPaths,
+        prompt: jobPrompt,
+        preferredSkill: job.preferredSkill,
+        executionKind: job.jobType === 'heartbeat' ? 'heartbeat' : 'automation',
+        effectiveTargetOutputPath,
+        webhookContext: run.triggerType === 'webhook' ? getWebhookPromptContext(run) : null,
+      });
 
     const events: string[] = [];
     let finalMessages: AgentMessage[] = [];
@@ -230,7 +241,7 @@ export async function executeAutomationRun(runId: string): Promise<void> {
     let promptPersistedBeforeRun = false;
     const existingSession = deliveryResolution.mode === 'new_session'
       ? null
-      : await loadPiSessionWithSummary(piSessionId, job.createdByUserId, job.agentId);
+      : await loadPiSessionWithSummary(piSessionId, automationUserId, job.agentId);
     const existingMessages = existingSession?.messages ?? [];
 
     const effectiveConfig = await resolveAgentRuntimeConfig(job.agentId);
@@ -239,10 +250,10 @@ export async function executeAutomationRun(runId: string): Promise<void> {
     const model = effectiveConfig.model;
     console.log(`[Automationen] Run ${runId} using provider=${provider}, model=${model.id}`);
 
-    const tools = await getPiTools(job.createdByUserId, job.agentId, piSessionId);
+    const tools = await getPiTools(automationUserId, job.agentId, piSessionId);
     const promptSnapshot = await loadPiSessionSystemPromptSnapshot({
       sessionId: piSessionId,
-      userId: job.createdByUserId,
+      userId: automationUserId,
       agentId: job.agentId,
     });
     const systemPrompt = promptSnapshot.systemPrompt;
@@ -282,7 +293,7 @@ export async function executeAutomationRun(runId: string): Promise<void> {
     try {
       await savePiSession(
         piSessionId,
-        job.createdByUserId,
+        automationUserId,
         provider,
         model.id,
         [...existingMessages, promptMessage],
@@ -293,6 +304,7 @@ export async function executeAutomationRun(runId: string): Promise<void> {
           persistedLength: existingMessages.length,
           channelId: deliveryResolution.channelId,
           channelSessionKey: deliveryResolution.channelSessionKey || null,
+          workspaceId: automationWorkspace.workspaceId,
           systemPromptSnapshot: promptSnapshot,
         },
       );
@@ -327,7 +339,7 @@ export async function executeAutomationRun(runId: string): Promise<void> {
       const assistantText = extractAssistantText(finalMessages);
       dispatchResult = await dispatchAutomationResult({
         job,
-        userId: job.createdByUserId,
+        userId: automationUserId,
         resolution: deliveryResolution,
         text: assistantText,
       });
@@ -346,7 +358,7 @@ export async function executeAutomationRun(runId: string): Promise<void> {
       });
       await savePiSession(
         piSessionId,
-        job.createdByUserId,
+        automationUserId,
         provider,
         model.id,
         persistedFinalMessages,
@@ -357,6 +369,7 @@ export async function executeAutomationRun(runId: string): Promise<void> {
           persistedLength,
           channelId: deliveryResolution.channelId,
           channelSessionKey: deliveryResolution.channelSessionKey || null,
+          workspaceId: automationWorkspace.workspaceId,
         },
       );
       console.log(`[Automationen] Saved session ${piSessionId} for run ${runId}`);
@@ -396,7 +409,7 @@ export async function executeAutomationRun(runId: string): Promise<void> {
       });
       await savePiSession(
         piSessionId,
-        job.createdByUserId,
+        automationUserId,
         provider,
         model.id,
         persistedFailureMessages,
@@ -407,6 +420,7 @@ export async function executeAutomationRun(runId: string): Promise<void> {
           persistedLength,
           channelId: deliveryResolution.channelId,
           channelSessionKey: deliveryResolution.channelSessionKey || null,
+          workspaceId: automationWorkspace.workspaceId,
         },
       );
 
@@ -450,6 +464,7 @@ export async function executeAutomationRun(runId: string): Promise<void> {
       const duration = Date.now() - runStartTime;
       console.error(`[Automationen] Run ${runId} failed permanently (duration=${duration}ms): ${message}`);
     }
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Automation run preparation failed.';
     await markAutomationRunFinished(run.id, {

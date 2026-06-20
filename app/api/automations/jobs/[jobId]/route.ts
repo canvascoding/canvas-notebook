@@ -6,6 +6,7 @@ import {
   getAutomationRouteErrorStatus,
   requireAutomationSession,
 } from '@/app/lib/automations/api';
+import { assertCanAccessAutomationJob } from '@/app/lib/automations/policy';
 import { deleteAutomationJob, getAutomationJob, updateAutomationJob } from '@/app/lib/automations/store';
 import { deleteGatewayTrigger, updateGatewayTrigger } from '@/app/lib/composio/composio-gateway';
 
@@ -26,7 +27,12 @@ export async function GET(request: NextRequest, context: RouteContext) {
 
   const { jobId } = await context.params;
   const job = await getAutomationJob(jobId);
-  if (!job || job.createdByUserId !== session.user.id) {
+  if (!job) {
+    return NextResponse.json({ success: false, error: 'Automation not found.' }, { status: 404 });
+  }
+  try {
+    assertCanAccessAutomationJob(session.user.id, job);
+  } catch {
     return NextResponse.json({ success: false, error: 'Automation not found.' }, { status: 404 });
   }
 
@@ -48,14 +54,15 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     const payload = await request.json();
     const { jobId } = await context.params;
     const existing = await getAutomationJob(jobId);
-    if (!existing || existing.createdByUserId !== session.user.id) {
+    if (!existing) {
       return NextResponse.json({ success: false, error: 'Automation not found.' }, { status: 404 });
     }
+    assertCanAccessAutomationJob(session.user.id, existing);
     assertCanCreateRequestedAutomation(payload, session.user);
     if (existing.composioTriggerId && (payload?.status === 'active' || payload?.status === 'paused')) {
       await updateGatewayTrigger(existing.composioTriggerId, { status: payload.status }, { userId: session.user.id });
     }
-    const updated = await updateAutomationJob(jobId, payload);
+    const updated = await updateAutomationJob(jobId, payload, { actorUserId: session.user.id });
     if (!updated) {
       return NextResponse.json({ success: false, error: 'Automation not found.' }, { status: 404 });
     }
@@ -82,7 +89,12 @@ export async function DELETE(request: NextRequest, context: RouteContext) {
 
   const { jobId } = await context.params;
   const existing = await getAutomationJob(jobId);
-  if (!existing || existing.createdByUserId !== session.user.id) {
+  if (!existing) {
+    return NextResponse.json({ success: false, error: 'Automation not found.' }, { status: 404 });
+  }
+  try {
+    assertCanAccessAutomationJob(session.user.id, existing);
+  } catch {
     return NextResponse.json({ success: false, error: 'Automation not found.' }, { status: 404 });
   }
   if (existing.composioTriggerId) {
