@@ -837,6 +837,7 @@ export async function installCanvasPluginFromPath(
   }
 
   const manifest = validation.manifest;
+  await adoptLegacyStandaloneSkillsForScope(options.scope);
   const installDir = resolvePluginInstallDir(manifest.name, manifest.version, options.scope);
   const registry = await readCanvasPluginRegistryForWrite(options.scope);
   const existingRecord = registry.plugins[manifest.name];

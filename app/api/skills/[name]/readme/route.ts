@@ -5,6 +5,7 @@ import path from 'path';
 import { headers } from 'next/headers';
 import { requireOrganizationPermission } from '@/app/lib/organization/permissions';
 import { getSkillsDir } from '@/app/lib/skills/canvas-skill-manifest';
+import { adoptLegacyStandaloneSkillsForScope } from '@/app/lib/skills/legacy-skill-adoption';
 import { loadSkillByName } from '@/app/lib/skills/skill-loader';
 
 function sanitizeSkillName(name: string): string {
@@ -59,7 +60,6 @@ export async function PUT(
 
     const { name } = await params;
     const sanitizedName = sanitizeSkillName(name);
-    const skillsDir = getSkillsDir({ userId: skillPermission.session.user.id });
     
     if (!sanitizedName) {
       return NextResponse.json(
@@ -68,6 +68,9 @@ export async function PUT(
       );
     }
 
+    const scope = { userId: skillPermission.session.user.id };
+    await adoptLegacyStandaloneSkillsForScope(scope);
+    const skillsDir = getSkillsDir(scope);
     const skillMdPath = path.join(skillsDir, sanitizedName, 'SKILL.md');
     
     // Verify the path is within the skills directory (path traversal protection)
