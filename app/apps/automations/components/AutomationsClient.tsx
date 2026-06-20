@@ -784,15 +784,14 @@ function formatTriggerType(triggerType: AutomationTriggerType, translate: (key: 
   return translate(`triggerType.${triggerType}`);
 }
 
-function workspaceScopeLabel(workspace: Pick<ClientWorkspaceSummary, 'type'> | null | undefined, locale: string): string {
-  const isGerman = locale.startsWith('de');
-  if (workspace?.type === 'team') return isGerman ? 'Organisation' : 'Organization';
-  if (workspace?.type === 'project') return isGerman ? 'Projekt' : 'Project';
-  return isGerman ? 'Persönlich' : 'Personal';
+function workspaceScopeLabel(workspace: Pick<ClientWorkspaceSummary, 'type'> | null | undefined, translate: (key: string) => string): string {
+  if (workspace?.type === 'team') return translate('workspaceScope.team');
+  if (workspace?.type === 'project') return translate('workspaceScope.project');
+  return translate('workspaceScope.personal');
 }
 
-function workspaceOptionLabel(workspace: ClientWorkspaceSummary, locale: string): string {
-  return `${workspace.name} · ${workspaceScopeLabel(workspace, locale)}`;
+function workspaceOptionLabel(workspace: ClientWorkspaceSummary, translate: (key: string) => string): string {
+  return `${workspace.name} · ${workspaceScopeLabel(workspace, translate)}`;
 }
 
 function toChatUrl(sessionId: string) {
@@ -1672,7 +1671,7 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
     const isExistingScheduledJob = target === 'scheduled' && Boolean(draft.id);
     const isGermanLocale = locale.startsWith('de');
     const label = 'Workspace';
-    const scopeLabel = workspaceScopeLabel(selectedWorkspace, locale);
+    const scopeLabel = workspaceScopeLabel(selectedWorkspace, t);
     const updateWorkspaceId = (workspaceId: string) => {
       if (target === 'trigger') {
         setTriggerDraft((current) => ({ ...current, workspaceId }));
@@ -1701,7 +1700,7 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
               <option value="">{isGermanLocale ? 'Kein Workspace verfügbar' : 'No workspace available'}</option>
             ) : automationWorkspaces.map((workspace) => (
               <option key={workspace.id} value={workspace.id}>
-                {workspaceOptionLabel(workspace, locale)}
+                {workspaceOptionLabel(workspace, t)}
               </option>
             ))}
           </select>
@@ -2047,7 +2046,7 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
                     <span className="text-muted-foreground">{locale.startsWith('de') ? 'Workspace' : 'Workspace'}</span>
                     <span className="inline-flex min-w-0 max-w-[12rem] justify-end">
                       <Badge variant={selectedJob.workspaceType === 'team' ? 'default' : 'secondary'} className="truncate">
-                        {selectedJobWorkspace?.name || selectedJob.workspaceId || workspaceScopeLabel(selectedJobWorkspace || { type: selectedJob.workspaceType }, locale)}
+                        {selectedJobWorkspace?.name || selectedJob.workspaceId || workspaceScopeLabel(selectedJobWorkspace || { type: selectedJob.workspaceType }, t)}
                       </Badge>
                     </span>
                     <span className="text-muted-foreground">{t('overview.nextRun')}</span>
@@ -2188,7 +2187,7 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
                                     <p className="min-w-0 truncate text-sm font-medium">{job.name}</p>
                                     <Badge variant={job.status === 'active' ? 'default' : 'secondary'} className="shrink-0">{t(`jobStatus.${job.status}`)}</Badge>
                                     <Badge variant={job.workspaceType === 'team' ? 'default' : 'outline'} className="shrink-0">
-                                      {workspaceById.get(job.workspaceId || '')?.name || workspaceScopeLabel({ type: job.workspaceType }, locale)}
+                                      {workspaceById.get(job.workspaceId || '')?.name || workspaceScopeLabel({ type: job.workspaceType }, t)}
                                     </Badge>
                                   </div>
                                   <div className="mt-1 max-h-[2.5em] overflow-hidden text-xs text-muted-foreground">

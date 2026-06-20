@@ -194,6 +194,6 @@ export type CreateCustomWebhookAutomationJobInput = {
   status?: AutomationJobStatus;
 };
 
-export type UpdateAutomationJobInput = Partial<CreateAutomationJobInput> & {
+export type UpdateAutomationJobInput = Partial<Omit<CreateAutomationJobInput, 'scope' | 'workspaceId'>> & {
   lastRunStatus?: AutomationRunStatus | null;
 };

@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import {
   applyAutomationRateLimit,
-  assertCanCreateRequestedAutomation,
   getAutomationRouteErrorStatus,
   requireAutomationSession,
 } from '@/app/lib/automations/api';
@@ -62,7 +61,12 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     } catch {
       return NextResponse.json({ success: false, error: 'Automation not found.' }, { status: 404 });
     }
-    assertCanCreateRequestedAutomation(payload, session.user);
+    if (payload && typeof payload === 'object' && !Array.isArray(payload) && ('scope' in payload || 'workspaceId' in payload)) {
+      return NextResponse.json(
+        { success: false, error: 'Automation scope and workspace cannot be changed after creation.' },
+        { status: 400 },
+      );
+    }
     if (existing.composioTriggerId && (payload?.status === 'active' || payload?.status === 'paused')) {
       await updateGatewayTrigger(existing.composioTriggerId, { status: payload.status }, { userId: session.user.id });
     }

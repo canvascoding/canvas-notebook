@@ -3262,6 +3262,11 @@
     "templates": {
       "title": "Templates"
     },
+    "workspaceScope": {
+      "personal": "Personal",
+      "team": "Organization",
+      "project": "Project"
+    },
     "triggers": {
       "composioTab": "Composio app",
       "loadingApps": "Loading apps with webhook triggers...",

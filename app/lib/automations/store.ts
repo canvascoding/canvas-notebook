@@ -434,7 +434,10 @@ export async function listAutomationJobs(userId: string): Promise<AutomationJobR
   const personalAccess = and(
     or(
       eq(automationJobs.ownerUserId, userId),
-      eq(automationJobs.createdByUserId, userId),
+      and(
+        sql`${automationJobs.ownerUserId} IS NULL`,
+        eq(automationJobs.createdByUserId, userId),
+      ),
     ),
     ne(automationJobs.scope, 'organization'),
   );
