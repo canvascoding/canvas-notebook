@@ -153,10 +153,13 @@ export async function resolveAutomationScopeForCreate(input: unknown, user: Auto
   }
 
   assertCanCreateOrganizationAutomation(user);
+  if (!workspace.organizationId) {
+    throw new AutomationPolicyError('Organization automations require a configured organization workspace.');
+  }
 
   return {
     scope: 'organization',
-    organizationId: workspace.organizationId ?? null,
+    organizationId: workspace.organizationId,
     workspaceId: workspace.workspaceId,
     workspaceType: 'team',
     ownerUserId: null,
