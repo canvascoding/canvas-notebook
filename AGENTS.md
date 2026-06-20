@@ -19,7 +19,7 @@
 - immer ein npm run build testen bevor ein container gebaut wird.
 - Sicherstellen, dass nie mehrere Test-Container parallel laufen.
 - Test-Container bei neuem Testlauf immer mit aktuellem Stand neu laden (recreate/rebuild), statt alte Container weiterzuverwenden.
-- commmit sauber die einzelnen fertigen to dos, aber nicht pushen. 
+- committe sauber die einzelnen fertigen to dos; pushen ist erlaubt, wenn ein PR erstellt/aktualisiert werden soll oder der User es explizit fordert.
 - container auf nur bauen wenn es explizit gefordert wird 
 - login für die app über `BOOTSTRAP_ADMIN_EMAIL` und `BOOTSTRAP_ADMIN_PASSWORD` aus der lokalen Env-Konfiguration
 - mach mit keinem to do weiter wenn der vorherige to do noch nicht fertig ist
