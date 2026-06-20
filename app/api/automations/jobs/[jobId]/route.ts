@@ -57,7 +57,11 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     if (!existing) {
       return NextResponse.json({ success: false, error: 'Automation not found.' }, { status: 404 });
     }
-    assertCanAccessAutomationJob(session.user.id, existing);
+    try {
+      assertCanAccessAutomationJob(session.user.id, existing);
+    } catch {
+      return NextResponse.json({ success: false, error: 'Automation not found.' }, { status: 404 });
+    }
     assertCanCreateRequestedAutomation(payload, session.user);
     if (existing.composioTriggerId && (payload?.status === 'active' || payload?.status === 'paused')) {
       await updateGatewayTrigger(existing.composioTriggerId, { status: payload.status }, { userId: session.user.id });
