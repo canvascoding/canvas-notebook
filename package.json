@@ -77,6 +77,7 @@
     "test:workspace:foundation": "tsx --conditions react-server scripts/workspace-context-foundation-test.ts",
     "test:workspace:model": "tsx --conditions react-server scripts/workspace-model-service-test.ts",
     "test:workspace:switcher-ui": "tsx scripts/workspace-switcher-ui-test.ts",
+    "test:workspace:cross-copy": "tsx --conditions react-server scripts/workspace-cross-copy-test.ts",
     "test:e2e": "playwright test --pass-with-no-tests",
     "test:all": "node scripts/test-all.mjs",
     "test:websocket:connection": "node scripts/test-websocket-connection.js",

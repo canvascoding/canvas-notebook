@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/app/lib/auth';
 import { saveAspectRatioEdit, type AspectRatioSaveRequest } from '@/app/lib/integrations/studio-aspect-ratio-service';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
+import { requireSessionWorkspace, workspaceFileOptions } from '@/app/lib/workspaces/request';
 
 export async function POST(request: NextRequest) {
   const session = await auth.api.getSession({ headers: request.headers });
@@ -25,7 +26,19 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const result = await saveAspectRatioEdit(body, session.user.id);
+    const workspaceOptions = body.action === 'copy_workspace'
+      ? await requireSessionWorkspace(session, {
+          workspaceId: typeof body.targetWorkspaceId === 'string' ? body.targetWorkspaceId : null,
+          permissions: 'canWrite',
+        })
+      : null;
+    if (workspaceOptions?.response) return workspaceOptions.response;
+
+    const result = await saveAspectRatioEdit(
+      body,
+      session.user.id,
+      workspaceOptions?.workspace ? workspaceFileOptions(workspaceOptions.workspace) : undefined
+    );
     return NextResponse.json({ success: true, ...result });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Save failed';

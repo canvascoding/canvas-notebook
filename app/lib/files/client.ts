@@ -1,4 +1,6 @@
 import type { ConvertParams } from '@/app/components/shared/ImagePreprocessDialog';
+import { WORKSPACE_ID_HEADER } from '@/app/lib/workspaces/constants';
+import { useWorkspaceStore } from '@/app/store/workspace-store';
 import type { CurrentFile, FileNode } from './types';
 
 interface ApiErrorPayload {
@@ -15,6 +17,8 @@ export interface CopyWorkspacePathsResult {
   copied: string[];
   failed: Array<{ path: string; error: string }>;
   skipped: string[];
+  sourceWorkspaceId?: string;
+  targetWorkspaceId?: string;
 }
 
 export interface WorkspacePathConflictError extends Error {
@@ -43,6 +47,22 @@ function describeNonJsonResponse(response: Response, fallbackMessage: string, bo
     ? 'HTML'
     : 'a non-JSON response';
   return `${fallbackMessage}${formatResponseStatus(response)}: server returned ${responseKind} instead of JSON. Please retry when the server is responsive.`;
+}
+
+function getActiveWorkspaceId(): string | null {
+  return useWorkspaceStore.getState().activeWorkspaceId;
+}
+
+function workspaceHeaders(workspaceId?: string | null): HeadersInit {
+  const resolvedWorkspaceId = workspaceId ?? getActiveWorkspaceId();
+  return resolvedWorkspaceId ? { [WORKSPACE_ID_HEADER]: resolvedWorkspaceId } : {};
+}
+
+function withWorkspaceQuery(url: string, workspaceId?: string | null) {
+  const resolvedWorkspaceId = workspaceId ?? getActiveWorkspaceId();
+  if (!resolvedWorkspaceId) return url;
+  const separator = url.includes('?') ? '&' : '?';
+  return `${url}${separator}workspaceId=${encodeURIComponent(resolvedWorkspaceId)}`;
 }
 
 export async function readApiJson<T>(response: Response, fallbackMessage: string): Promise<T> {
@@ -78,12 +98,15 @@ export async function loadWorkspaceTree(
   path = '.',
   depth = 4,
   noCache = false,
-  fallbackMessage = 'Failed to load file tree'
+  fallbackMessage = 'Failed to load file tree',
+  workspaceId?: string | null
 ): Promise<FileNode[]> {
-  const url = `/api/files/tree?path=${encodeURIComponent(path)}&depth=${depth}${noCache ? `&noCache=${Date.now()}` : ''}`;
+  const baseUrl = `/api/files/tree?path=${encodeURIComponent(path)}&depth=${depth}${noCache ? `&noCache=${Date.now()}` : ''}`;
+  const url = withWorkspaceQuery(baseUrl, workspaceId);
   const response = await fetch(url, {
     credentials: 'include',
     cache: noCache ? 'no-store' : 'default',
+    headers: workspaceHeaders(workspaceId),
   });
 
   if (!response.ok) {
@@ -107,6 +130,7 @@ export async function readWorkspaceFile(
   const response = await fetch(url, {
     credentials: 'include',
     cache: 'no-store',
+    headers: workspaceHeaders(),
   });
 
   if (!response.ok) {
@@ -120,7 +144,7 @@ export async function readWorkspaceFile(
 export async function writeWorkspaceFile(path: string, content: string): Promise<void> {
   const response = await fetch('/api/files/write', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...workspaceHeaders() },
     credentials: 'include',
     body: JSON.stringify({ path, content }),
   });
@@ -137,7 +161,7 @@ export async function createWorkspacePath(
 ): Promise<void> {
   const response = await fetch('/api/files/create', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...workspaceHeaders() },
     credentials: 'include',
     body: JSON.stringify({ path, type, ...options }),
   });
@@ -150,7 +174,7 @@ export async function createWorkspacePath(
 export async function deleteWorkspacePaths(paths: string[]): Promise<DeleteWorkspacePathsResult> {
   const response = await fetch('/api/files/delete', {
     method: 'DELETE',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...workspaceHeaders() },
     credentials: 'include',
     body: JSON.stringify({ path: paths }),
   });
@@ -165,7 +189,7 @@ export async function deleteWorkspacePaths(paths: string[]): Promise<DeleteWorks
 export async function renameWorkspacePath(oldPath: string, newPath: string, overwrite = false): Promise<void> {
   const response = await fetch('/api/files/rename', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...workspaceHeaders() },
     credentials: 'include',
     body: JSON.stringify({ oldPath, newPath, overwrite }),
   });
@@ -194,10 +218,12 @@ export async function copyWorkspacePaths(params: {
   destDir: string;
   overwrite?: boolean;
   renameOnCollision?: boolean;
+  sourceWorkspaceId?: string | null;
+  targetWorkspaceId?: string | null;
 }, fallbackMessage = 'Failed to copy files'): Promise<CopyWorkspacePathsResult> {
   const response = await fetch('/api/files/copy', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...workspaceHeaders(params.sourceWorkspaceId) },
     credentials: 'include',
     body: JSON.stringify(params),
   });
@@ -236,6 +262,10 @@ export async function uploadWorkspaceFiles({
     const xhr = new XMLHttpRequest();
     xhr.open('POST', '/api/files/upload', true);
     xhr.withCredentials = true;
+    const workspaceId = getActiveWorkspaceId();
+    if (workspaceId) {
+      xhr.setRequestHeader(WORKSPACE_ID_HEADER, workspaceId);
+    }
 
     xhr.upload.onprogress = (event) => {
       if (event.lengthComputable) {
@@ -273,7 +303,7 @@ export async function uploadWorkspaceFiles({
 }
 
 export function triggerWorkspaceDownload(path: string): void {
-  const url = `/api/files/download?path=${encodeURIComponent(path)}&download=1`;
+  const url = withWorkspaceQuery(`/api/files/download?path=${encodeURIComponent(path)}&download=1`);
   const anchor = document.createElement('a');
   const name = path.split('/').pop() || 'download';
   anchor.href = url;

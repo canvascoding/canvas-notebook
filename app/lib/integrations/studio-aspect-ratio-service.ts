@@ -7,7 +7,7 @@ import sharp from 'sharp';
 
 import { db } from '@/app/lib/db';
 import { studioGenerationOutputs, studioGenerations } from '@/app/lib/db/schema';
-import { writeFile } from '@/app/lib/filesystem/workspace-files';
+import { writeFile, type WorkspaceFileOperationOptions } from '@/app/lib/filesystem/workspace-files';
 import { getImageGenerationProvider } from '@/app/lib/integrations/image-generation-providers';
 import { classifyMediaReference, loadMediaReference } from '@/app/lib/integrations/media-reference-resolver';
 import {
@@ -67,6 +67,7 @@ export interface AspectRatioSaveRequest {
   provider?: AspectRatioProvider;
   model?: string;
   targetDirectory?: string;
+  targetWorkspaceId?: string;
   fileName?: string;
   confirmOverwrite?: boolean;
 }
@@ -520,7 +521,11 @@ async function keepEditAsStudioOutput(
   };
 }
 
-export async function saveAspectRatioEdit(input: AspectRatioSaveRequest, userId: string): Promise<{ path: string; generationId?: string; outputId?: string }> {
+export async function saveAspectRatioEdit(
+  input: AspectRatioSaveRequest,
+  userId: string,
+  workspaceOptions?: WorkspaceFileOperationOptions
+): Promise<{ path: string; generationId?: string; outputId?: string }> {
   const editRelativePath = getEditRelativePath(input.previewPath);
   const buffer = await readEditFile(editRelativePath);
 
@@ -534,7 +539,7 @@ export async function saveAspectRatioEdit(input: AspectRatioSaveRequest, userId:
       : '.';
     const fileName = sanitizeFileName(input.fileName, path.posix.basename(editRelativePath));
     const targetPath = joinWorkspacePath(targetDirectory, fileName);
-    await writeFile(targetPath, buffer);
+    await writeFile(targetPath, buffer, workspaceOptions);
     return { path: targetPath };
   }
 

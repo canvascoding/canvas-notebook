@@ -54,6 +54,10 @@
     "loadingContext": "Workspace-Kontext wird geladen",
     "noWorkspaceAvailable": "Kein Workspace verfügbar",
     "refresh": "Workspaces aktualisieren",
+    "targetWorkspace": "Ziel-Workspace",
+    "targetFolder": "Zielordner",
+    "folderLoadFailed": "Workspace-Ordner konnten nicht geladen werden",
+    "noWritableWorkspace": "Kein beschreibbarer Workspace verfügbar.",
     "types": {
       "personal": "Persönlich",
       "team": "Team",
@@ -392,6 +396,14 @@
     "fileActions": "Dateiaktionen",
     "copyPath": "Pfad kopieren",
     "copy": "Kopieren",
+    "copyToWorkspace": "In Workspace kopieren",
+    "copyToWorkspaceTitle": "In Workspace kopieren",
+    "copyToWorkspaceDescription": "Wähle Ziel-Workspace und Zielordner für {count} ausgewählte Elemente.",
+    "copyToWorkspaceConfirm": "Kopieren",
+    "copyToWorkspaceSuccess": "{count} Elemente kopiert.",
+    "copyToWorkspacePartialSuccess": "{copied} Elemente kopiert. {failed} Elemente sind fehlgeschlagen oder wurden übersprungen.",
+    "copyToWorkspaceNoFilesCopied": "Keine Elemente wurden kopiert. {count} Elemente sind fehlgeschlagen oder wurden übersprungen.",
+    "copyToWorkspaceFailed": "Kopieren in Workspace fehlgeschlagen",
     "paste": "Einfügen",
     "duplicate": "Duplizieren",
     "rename": "Umbenennen",
@@ -403,6 +415,7 @@
     "resizeInStudio": "Bild im AR Editor öffnen",
     "protectedFolderRename": "Dieser App-Output-Ordner kann nicht umbenannt werden.",
     "protectedFolderMove": "Dieser App-Output-Ordner kann nicht verschoben werden.",
+    "protectedFolderCopy": "Dieser App-Output-Ordner kann nicht kopiert werden.",
     "renameTitle": "\"{name}\" umbenennen",
     "renameDescription": "Gib einen neuen Namen ein. Der Eintrag bleibt im gleichen Verzeichnis.",
     "newName": "Neuer Name",
@@ -3448,6 +3461,15 @@
     "comingSoon": "Coming Soon — Diese Funktion ist bald verfügbar.",
     "common": {
       "loading": "Lade..."
+    },
+    "saveToWorkspace": {
+      "title": "In Workspace importieren",
+      "description": "Kopiert {count} ausgewählte Studio-Datei(en) in einen Workspace-Ordner.",
+      "cancel": "Abbrechen",
+      "submit": "{count} Datei(en) importieren",
+      "saving": "Importiere...",
+      "success": "{count} Datei(en) in den Workspace importiert.",
+      "failed": "Import fehlgeschlagen"
     },
     "providerRequirements": {
       "openIntegrations": "Integrationen öffnen",

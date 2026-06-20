@@ -8,8 +8,9 @@ import { toast } from 'sonner';
 
 import { ReferencePickerDialog } from '@/app/apps/studio/components/create/ReferencePickerDialog';
 import { useSetStudioChatContext } from '@/app/apps/studio/context/studio-chat-context';
-import { DirectoryBrowser } from '@/app/components/file-browser/DirectoryBrowser';
 import { useFileStore } from '@/app/store/file-store';
+import { WorkspaceDestinationPicker } from '@/app/components/workspaces/WorkspaceDestinationPicker';
+import { selectActiveWorkspace, useWorkspaceStore } from '@/app/store/workspace-store';
 import { Button } from '@/components/ui/button';
 import {
   AlertDialog,
@@ -368,9 +369,10 @@ function WorkspaceCopyDialog({
   onCopied: (path: string) => void;
 }) {
   const t = useTranslations('studio.aspectRatioEditor');
-  const { fileTree, loadFileTree, refreshDirectory } = useFileStore();
+  const { refreshDirectory } = useFileStore();
+  const activeWorkspace = useWorkspaceStore(selectActiveWorkspace);
   const [selectedDir, setSelectedDir] = useState('.');
-  const [expandedDirs, setExpandedDirs] = useState(new Set<string>());
+  const [targetWorkspaceId, setTargetWorkspaceId] = useState<string | null>(activeWorkspace?.id ?? null);
   const [fileName, setFileName] = useState(buildDefaultFileName(preview));
   const [isSaving, setIsSaving] = useState(false);
 
@@ -378,21 +380,12 @@ function WorkspaceCopyDialog({
     if (!open) return;
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setFileName(buildDefaultFileName(preview));
-    void loadFileTree('.', 6, true);
-  }, [loadFileTree, open, preview]);
-
-  const handleToggleDir = (dirPath: string) => {
-    setExpandedDirs((prev) => {
-      const next = new Set(prev);
-      if (next.has(dirPath)) next.delete(dirPath);
-      else next.add(dirPath);
-      return next;
-    });
-    void refreshDirectory(dirPath, true);
-  };
+    setTargetWorkspaceId(activeWorkspace?.id ?? null);
+    setSelectedDir('.');
+  }, [activeWorkspace?.id, open, preview]);
 
   const handleSave = async () => {
-    if (!preview) return;
+    if (!preview || !targetWorkspaceId) return;
     setIsSaving(true);
     try {
       const response = await fetch('/api/studio/aspect-ratio/save', {
@@ -403,12 +396,15 @@ function WorkspaceCopyDialog({
           action: 'copy_workspace',
           previewPath: preview.path,
           targetDirectory: selectedDir,
+          targetWorkspaceId,
           fileName,
         }),
       });
       const payload = await response.json();
       if (!response.ok || !payload.success) throw new Error(payload.error || t('errors.copyFailed'));
-      await refreshDirectory(selectedDir, true);
+      if (targetWorkspaceId === activeWorkspace?.id) {
+        await refreshDirectory(selectedDir, true);
+      }
       onCopied(payload.path);
       onOpenChange(false);
     } catch (error) {
@@ -430,15 +426,16 @@ function WorkspaceCopyDialog({
             <span className="text-xs font-medium text-muted-foreground">{t('workspaceDialog.fileName')}</span>
             <Input value={fileName} onChange={(event) => setFileName(event.target.value)} />
           </label>
-          <div className="min-w-0 overflow-hidden rounded-md border border-border bg-muted/40 px-3 py-2">
-            <p className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">{t('workspaceDialog.targetFolder')}</p>
-            <p className="mt-1 truncate font-mono text-sm">{selectedDir === '.' ? t('workspaceDialog.workspaceRoot') : selectedDir}</p>
-          </div>
-          <DirectoryBrowser tree={fileTree} selectedPath={selectedDir} onSelect={setSelectedDir} expandedDirs={expandedDirs} onToggleDir={handleToggleDir} />
+          <WorkspaceDestinationPicker
+            selectedWorkspaceId={targetWorkspaceId}
+            selectedDir={selectedDir}
+            onWorkspaceChange={setTargetWorkspaceId}
+            onDirChange={setSelectedDir}
+          />
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>{t('cancel')}</Button>
-          <Button onClick={handleSave} disabled={!preview || isSaving || !fileName.trim()}>
+          <Button onClick={handleSave} disabled={!preview || isSaving || !fileName.trim() || !targetWorkspaceId}>
             {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <FolderInput className="h-4 w-4" />}
             {t('copy')}
           </Button>
