@@ -111,6 +111,21 @@ async function main() {
       workspaceAbsoluteRoot(ensured.personal.rootRelativePath),
       path.join(dataRoot, 'workspaces', 'personal', 'user-member', 'files')
     );
+
+    sqlite.prepare(`
+      UPDATE canvas_workspaces
+      SET status = 'disabled', display_name = 'Outdated Name'
+      WHERE id = ?
+    `).run(ensured.personal.id);
+    const disabledEnsure = ensureDefaultWorkspaceRecords(sqlite, {
+      organizationId,
+      userId: 'user-member',
+      teamFeaturesEnabled: true,
+    });
+    assert.equal(disabledEnsure.personal.status, 'disabled');
+    assert.equal(disabledEnsure.personal.displayName, 'Personal Workspace');
+    const memberWorkspacesAfterDisable = listWorkspaceContextsForUser(sqlite, { actor: memberActor, organizationId });
+    assert.deepEqual(memberWorkspacesAfterDisable.map((workspace) => workspace.workspaceType), ['team']);
     assert.throws(() => workspaceAbsoluteRoot('../outside'), /Invalid workspace root path/);
   } finally {
     sqlite.close();

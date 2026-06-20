@@ -171,14 +171,14 @@ function updateWorkspaceRoot(
     displayName: string;
   },
 ): WorkspaceRecord {
-  if (record.rootRelativePath === input.rootRelativePath && record.displayName === input.displayName && record.status === 'active') {
+  if (record.rootRelativePath === input.rootRelativePath && record.displayName === input.displayName) {
     ensureWorkspaceDirectory(record);
     return record;
   }
 
   sqlite.prepare(`
     UPDATE canvas_workspaces
-    SET root_relative_path = ?, display_name = ?, status = 'active', updated_at = ?
+    SET root_relative_path = ?, display_name = ?, updated_at = ?
     WHERE id = ?
   `).run(input.rootRelativePath, input.displayName, Date.now(), record.id);
 
@@ -290,8 +290,9 @@ export function listWorkspaceContextsForUser(
     SELECT id, organization_id, type, owner_user_id, root_relative_path, display_name, status, created_at, updated_at
     FROM canvas_workspaces
     WHERE organization_id = ? AND status = 'active'
+      AND (type != 'personal' OR owner_user_id = ?)
     ORDER BY CASE type WHEN 'personal' THEN 0 WHEN 'team' THEN 1 ELSE 2 END, created_at ASC
-  `).all(params.organizationId) as WorkspaceRow[];
+  `).all(params.organizationId, params.actor.userId) as WorkspaceRow[];
   const permission = getPermissionRow(sqlite, params.organizationId, params.actor.userId);
 
   return rows
