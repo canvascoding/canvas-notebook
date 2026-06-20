@@ -65,6 +65,16 @@ async function main() {
       createdAt: now,
       updatedAt: now,
     },
+    {
+      id: 'readonly-user',
+      name: 'Readonly User',
+      email: 'readonly-todo-user@example.test',
+      emailVerified: true,
+      image: null,
+      role: null,
+      createdAt: now,
+      updatedAt: now,
+    },
   ]);
 
   await db.insert(canvasOrganizationSettings).values({
@@ -141,6 +151,24 @@ async function main() {
       createdAt: now,
       updatedAt: now,
     },
+    {
+      organizationId: 'org-test',
+      userId: 'readonly-user',
+      role: 'member',
+      canWriteTeamWorkspace: false,
+      canCreatePublicLinks: true,
+      canCreateTeamAutomations: false,
+      canSharePluginsAndSkills: false,
+      canExport: false,
+      canDeleteTeamFiles: false,
+      canDeleteStudioAssets: true,
+      canManageBackups: false,
+      canMigrateDatabase: false,
+      canEnableKnowledge: false,
+      canRecoverWorkspaces: false,
+      createdAt: now,
+      updatedAt: now,
+    },
   ]);
 
   const categories = await ensureTodoCategories('todo-user');
@@ -205,6 +233,14 @@ async function main() {
   });
   assert.deepEqual(memberTeamTodos.map((todo) => todo.id), [teamTodo.id]);
 
+  const readonlyTeamTodos = await listTodos('readonly-user', {
+    status: 'all',
+    workspaceType: 'team',
+    organizationId: 'org-test',
+    workspaceId: 'team-workspace',
+  });
+  assert.deepEqual(readonlyTeamTodos.map((todo) => todo.id), [teamTodo.id]);
+
   const personalStillPrivate = await listTodos('other-user', {
     status: 'all',
     workspaceType: 'personal',
@@ -229,6 +265,21 @@ async function main() {
       workspaceId: 'missing-team-workspace',
     }),
     (error) => error instanceof TodoStoreError && error.code === 'INVALID_INPUT',
+  );
+
+  await assert.rejects(
+    () => createTodo('readonly-user', {
+      title: 'Read-only cannot create',
+      workspaceType: 'team',
+      organizationId: 'org-test',
+      workspaceId: 'team-workspace',
+    }),
+    (error) => error instanceof TodoStoreError && error.code === 'ORGANIZATION_ACCESS_DENIED',
+  );
+
+  await assert.rejects(
+    () => updateTodo('readonly-user', teamTodo.id, { status: 'done' }),
+    (error) => error instanceof TodoStoreError && error.code === 'ORGANIZATION_ACCESS_DENIED',
   );
 
   await assert.rejects(

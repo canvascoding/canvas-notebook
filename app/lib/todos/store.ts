@@ -209,6 +209,26 @@ async function assertOrganizationMember(organizationId: string, userId: string):
   }
 }
 
+async function isOrganizationWorkspaceWriter(organizationId: string, userId: string): Promise<boolean> {
+  const permission = await db.query.organizationUserPermissions.findFirst({
+    where: and(
+      eq(organizationUserPermissions.organizationId, organizationId),
+      eq(organizationUserPermissions.userId, userId),
+      ne(organizationUserPermissions.role, 'external'),
+    ),
+  });
+  return Boolean(
+    permission
+    && (permission.role === 'owner' || permission.role === 'admin' || permission.canWriteTeamWorkspace),
+  );
+}
+
+async function assertOrganizationWorkspaceWriter(organizationId: string, userId: string): Promise<void> {
+  if (!(await isOrganizationWorkspaceWriter(organizationId, userId))) {
+    throw new TodoStoreError('User cannot write to this team workspace.', 'ORGANIZATION_ACCESS_DENIED');
+  }
+}
+
 async function assertAssignableUser(organizationId: string, assigneeUserId: string): Promise<void> {
   if (!(await isOrganizationMember(organizationId, assigneeUserId))) {
     throw new TodoStoreError('Assignee is not a member of this organization.', 'ASSIGNEE_NOT_FOUND');
@@ -258,6 +278,21 @@ async function assertCanReadTodo(userId: string, todo: TodoItem): Promise<void> 
   if (!(await canReadTodo(userId, todo))) {
     throw new TodoStoreError('Todo not found', 'TODO_NOT_FOUND');
   }
+}
+
+async function assertCanWriteTodo(userId: string, todo: TodoItem): Promise<void> {
+  const workspaceType = normalizeWorkspaceType((todo.workspaceType as TodoWorkspaceType | null) ?? 'personal');
+  if (workspaceType === 'personal') {
+    if (todo.userId !== userId) {
+      throw new TodoStoreError('Todo not found', 'TODO_NOT_FOUND');
+    }
+    return;
+  }
+
+  if (!todo.organizationId) {
+    throw new TodoStoreError('Team todo is missing organization scope.', 'INVALID_INPUT');
+  }
+  await assertOrganizationWorkspaceWriter(todo.organizationId, userId);
 }
 
 function normalizeDate(value: Date | null | undefined): Date | null {
@@ -481,8 +516,11 @@ export async function createTodo(userId: string, input: CreateTodoInput): Promis
   const now = new Date();
   const scope = await resolveTodoScope(userId, input);
   const assigneeUserId = normalizeOptionalId(input.assigneeUserId);
-  if (scope.workspaceType === 'team' && assigneeUserId) {
-    await assertAssignableUser(scope.organizationId!, assigneeUserId);
+  if (scope.workspaceType === 'team') {
+    await assertOrganizationWorkspaceWriter(scope.organizationId!, userId);
+    if (assigneeUserId) {
+      await assertAssignableUser(scope.organizationId!, assigneeUserId);
+    }
   } else if (scope.workspaceType === 'personal' && assigneeUserId && assigneeUserId !== userId) {
     throw new TodoStoreError('Personal to-dos can only be assigned to the current user.', 'ASSIGNEE_NOT_FOUND');
   }
@@ -654,6 +692,7 @@ export async function updateTodo(userId: string, todoId: string, input: UpdateTo
   });
   if (!current) return null;
   await assertCanReadTodo(userId, current);
+  await assertCanWriteTodo(userId, current);
 
   const now = new Date();
   const updates: Partial<typeof todoItems.$inferInsert> = {
