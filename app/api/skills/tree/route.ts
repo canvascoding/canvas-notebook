@@ -2,20 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { promises as fs } from 'fs';
 import path from 'path';
 import { auth } from '@/app/lib/auth';
-import { getSkillsDir } from '@/app/lib/skills/canvas-skill-manifest';
+import { resolveReadableScopedSkillsDataDir } from '@/app/lib/runtime-data-paths';
 import { buildSkillTree } from '@/app/lib/skills/skill-tree';
-
-async function directoryExists(targetPath: string): Promise<boolean> {
-  return fs.stat(targetPath).then((stat) => stat.isDirectory()).catch(() => false);
-}
-
-async function resolveReadableSkillsDir(userId: string): Promise<string> {
-  const scopedDir = getSkillsDir({ userId });
-  if (!(await directoryExists(scopedDir))) {
-    return getSkillsDir();
-  }
-  return scopedDir;
-}
 
 export async function GET(request: NextRequest) {
   const session = await auth.api.getSession({ headers: request.headers });
@@ -27,7 +15,7 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const depth = parseInt(searchParams.get('depth') || '4');
 
-    const resolvedSkillsDir = path.resolve(await resolveReadableSkillsDir(session.user.id));
+    const resolvedSkillsDir = path.resolve(await resolveReadableScopedSkillsDataDir({ userId: session.user.id }));
 
     try {
       await fs.access(resolvedSkillsDir);

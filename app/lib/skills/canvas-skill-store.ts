@@ -8,9 +8,11 @@ import { fileURLToPath } from 'url';
 import JSZip from 'jszip';
 
 import {
+  resolveReadableScopedSkillsDataDir,
   resolveScopedSkillBackupsDir,
   resolveScopedSkillRegistryPath,
   resolveScopedSkillsDataDir,
+  shouldUseLegacyScopedSkillsFallback,
   type UserScopedDataStorageScope,
 } from '@/app/lib/runtime-data-paths';
 import { computeCanvasPluginChecksum } from '@/app/lib/plugins/canvas-plugin-registry';
@@ -377,18 +379,6 @@ async function ensureSkillRoot(scope?: CanvasSkillStoreScope | null): Promise<vo
   await fs.mkdir(resolveScopedSkillsDataDir(scope), { recursive: true });
 }
 
-async function directoryExists(targetPath: string): Promise<boolean> {
-  return fs.stat(targetPath).then((stat) => stat.isDirectory()).catch(() => false);
-}
-
-async function resolveReadableSkillsDataDir(scope?: CanvasSkillStoreScope | null): Promise<string> {
-  const scopedDir = resolveScopedSkillsDataDir(scope);
-  if (scope?.userId?.trim() && !(await directoryExists(scopedDir))) {
-    return resolveScopedSkillsDataDir();
-  }
-  return scopedDir;
-}
-
 async function readCanvasSkillRegistryFile(registryPath: string): Promise<CanvasSkillRegistry | null> {
   try {
     const raw = await fs.readFile(registryPath, 'utf-8');
@@ -413,7 +403,7 @@ export async function readCanvasSkillRegistry(scope?: CanvasSkillStoreScope | nu
     return registry;
   }
 
-  if (scope?.userId?.trim() && !(await directoryExists(resolveScopedSkillsDataDir(scope)))) {
+  if (await shouldUseLegacyScopedSkillsFallback(scope)) {
     const legacyRegistry = await readCanvasSkillRegistryFile(resolveScopedSkillRegistryPath());
     if (legacyRegistry) {
       return legacyRegistry;
@@ -555,7 +545,7 @@ async function addPageStateDetails(
 ): Promise<CanvasSkillStoreSkillWithState> {
   if (!skill.installed.installed) return skill;
 
-  const installDir = path.join(await resolveReadableSkillsDataDir(scope), skill.name);
+  const installDir = path.join(await resolveReadableScopedSkillsDataDir(scope), skill.name);
   const record = skill.installed.installedSkill;
   const [seedAvailable, currentChecksum] = await Promise.all([
     seedSkillExists(skill.name),

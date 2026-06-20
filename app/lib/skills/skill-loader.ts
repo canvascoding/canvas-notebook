@@ -8,6 +8,7 @@ import {
   type CanvasSkillStorageScope,
 } from './canvas-skill-manifest';
 import { enableSkillInConfig, disableSkillInConfig, areAllSkillsEnabled } from './enabled-skills';
+import { resolveReadableScopedSkillsDataDir } from '@/app/lib/runtime-data-paths';
 import {
   getAllKnownSkillNames,
   loadEnabledPluginSkills,
@@ -29,24 +30,12 @@ export { getSkillsContext } from './skill-context';
  * Only supports Canvas SKILL.md format
  * Optionally filter by enabled skills list
  */
-async function directoryExists(targetPath: string): Promise<boolean> {
-  return fs.stat(targetPath).then((stat) => stat.isDirectory()).catch(() => false);
-}
-
-async function resolveReadableSkillsDir(scope?: CanvasSkillStorageScope | null): Promise<string> {
-  const scopedDir = getSkillsDir(scope);
-  if (scope?.userId?.trim() && !(await directoryExists(scopedDir))) {
-    return getSkillsDir();
-  }
-  return scopedDir;
-}
-
 export async function loadSkillsFromDisk(
   enabledSkills?: string[],
   scope?: CanvasSkillStorageScope | null,
 ): Promise<CanvasSkill[]> {
   const skills: CanvasSkill[] = [];
-  const skillsDir = await resolveReadableSkillsDir(scope);
+  const skillsDir = await resolveReadableScopedSkillsDataDir(scope);
   
   try {
     // Check if skills directory exists
@@ -136,7 +125,7 @@ export async function loadSkillByName(
 ): Promise<CanvasSkill | null> {
   const skillsDir = options.legacyFallback === false
     ? getSkillsDir(scope)
-    : await resolveReadableSkillsDir(scope);
+    : await resolveReadableScopedSkillsDataDir(scope);
   const skillMdPath = path.join(skillsDir, name, 'SKILL.md');
   try {
     await fs.access(skillMdPath);

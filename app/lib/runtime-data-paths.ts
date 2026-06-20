@@ -1,4 +1,4 @@
-import fs from 'node:fs';
+import fs, { promises as fsPromises } from 'node:fs';
 import path from 'node:path';
 
 const CONTAINER_DATA_ROOT = '/data';
@@ -7,12 +7,16 @@ export type UserScopedDataStorageScope = {
   userId?: string | null;
 };
 
-function directoryExists(targetPath: string): boolean {
+function directoryExistsSync(targetPath: string): boolean {
   try {
     return fs.statSync(targetPath).isDirectory();
   } catch {
     return false;
   }
+}
+
+export async function directoryExists(targetPath: string): Promise<boolean> {
+  return fsPromises.stat(targetPath).then((stat) => stat.isDirectory()).catch(() => false);
 }
 
 function resolveProjectDataRoot(cwd?: string): string {
@@ -38,7 +42,7 @@ export function resolveCanvasDataRoot(cwd?: string): string {
       : path.resolve(cwd ?? process.cwd(), data);
   }
 
-  if (directoryExists(CONTAINER_DATA_ROOT)) {
+  if (directoryExistsSync(CONTAINER_DATA_ROOT)) {
     return CONTAINER_DATA_ROOT;
   }
 
@@ -206,6 +210,23 @@ export function resolveScopedSkillBackupsDir(scope?: UserScopedDataStorageScope 
   return path.join(/* turbopackIgnore: true */ resolveScopedSkillsDataDir(scope, cwd), '.backups');
 }
 
+export async function shouldUseLegacyScopedSkillsFallback(
+  scope?: UserScopedDataStorageScope | null,
+  cwd?: string,
+): Promise<boolean> {
+  const userId = resolveScopedUserId(scope);
+  return Boolean(userId) && !(await directoryExists(resolveScopedSkillsDataDir(scope, cwd)));
+}
+
+export async function resolveReadableScopedSkillsDataDir(
+  scope?: UserScopedDataStorageScope | null,
+  cwd?: string,
+): Promise<string> {
+  return await shouldUseLegacyScopedSkillsFallback(scope, cwd)
+    ? resolveScopedSkillsDataDir(null, cwd)
+    : resolveScopedSkillsDataDir(scope, cwd);
+}
+
 export function resolveSkillRegistryPath(cwd?: string): string {
   return path.join(/* turbopackIgnore: true */ resolveSkillsDataDir(cwd), 'registry.json');
 }
@@ -237,6 +258,23 @@ export function resolveScopedInstalledPluginsDir(scope?: UserScopedDataStorageSc
 
 export function resolveScopedPluginRegistryPath(scope?: UserScopedDataStorageScope | null, cwd?: string): string {
   return path.join(/* turbopackIgnore: true */ resolveScopedPluginsDataDir(scope, cwd), 'registry.json');
+}
+
+export async function shouldUseLegacyScopedPluginsFallback(
+  scope?: UserScopedDataStorageScope | null,
+  cwd?: string,
+): Promise<boolean> {
+  const userId = resolveScopedUserId(scope);
+  return Boolean(userId) && !(await directoryExists(resolveScopedPluginsDataDir(scope, cwd)));
+}
+
+export async function resolveReadableScopedPluginsDataDir(
+  scope?: UserScopedDataStorageScope | null,
+  cwd?: string,
+): Promise<string> {
+  return await shouldUseLegacyScopedPluginsFallback(scope, cwd)
+    ? resolveScopedPluginsDataDir(null, cwd)
+    : resolveScopedPluginsDataDir(scope, cwd);
 }
 
 export function resolveDefaultIntegrationsEnvPath(cwd?: string): string {

@@ -3,11 +3,13 @@ import { promises as fs } from 'fs';
 import path from 'path';
 
 import {
+  resolveReadableScopedSkillsDataDir,
   resolveScopedInstalledPluginsDir,
   resolveScopedPluginRegistryPath,
   resolveScopedPluginsDataDir,
   resolveScopedSkillRegistryPath,
   resolveScopedSkillsDataDir,
+  shouldUseLegacyScopedPluginsFallback,
   type UserScopedDataStorageScope,
 } from '@/app/lib/runtime-data-paths';
 import {
@@ -143,10 +145,6 @@ async function ensurePluginsRoot(scope?: CanvasPluginStorageScope | null): Promi
   await fs.mkdir(resolveScopedInstalledPluginsDir(scope), { recursive: true });
 }
 
-async function directoryExists(targetPath: string): Promise<boolean> {
-  return fs.stat(targetPath).then((stat) => stat.isDirectory()).catch(() => false);
-}
-
 async function readCanvasPluginRegistryFile(registryPath: string): Promise<CanvasPluginRegistry | null> {
   try {
     const raw = await fs.readFile(registryPath, 'utf-8');
@@ -171,7 +169,7 @@ export async function readCanvasPluginRegistry(scope?: CanvasPluginStorageScope 
     return registry;
   }
 
-  if (scope?.userId?.trim()) {
+  if (await shouldUseLegacyScopedPluginsFallback(scope)) {
     const legacyRegistry = await readCanvasPluginRegistryFile(resolveScopedPluginRegistryPath());
     if (legacyRegistry) {
       return legacyRegistry;
@@ -201,7 +199,109 @@ async function readCanvasPluginRegistryForWrite(
   scope?: CanvasPluginStorageScope | null,
 ): Promise<CanvasPluginRegistry> {
   const registry = await readCanvasPluginRegistryFile(resolveScopedPluginRegistryPath(scope));
-  return registry || createEmptyRegistry();
+  if (registry) {
+    return registry;
+  }
+
+  if (await shouldUseLegacyScopedPluginsFallback(scope)) {
+    const legacyRegistry = await readCanvasPluginRegistryFile(resolveScopedPluginRegistryPath());
+    if (legacyRegistry) {
+      return adoptLegacyPluginRegistryForScope(legacyRegistry, scope);
+    }
+  }
+
+  return createEmptyRegistry();
+}
+
+async function adoptLegacyPluginRegistryForScope(
+  legacyRegistry: CanvasPluginRegistry,
+  scope?: CanvasPluginStorageScope | null,
+): Promise<CanvasPluginRegistry> {
+  const scopedRegistry = createEmptyRegistry();
+
+  for (const [name, record] of Object.entries(legacyRegistry.plugins)) {
+    const adopted = await adoptLegacyPluginRecordForScope(record, scope).catch((error) => {
+      console.warn(`[CanvasPluginRegistry] Failed to adopt legacy plugin "${name}" for user scope:`, error);
+      return null;
+    });
+    if (adopted) {
+      scopedRegistry.plugins[name] = adopted;
+    }
+  }
+
+  return scopedRegistry;
+}
+
+async function adoptLegacyPluginRecordForScope(
+  record: CanvasPluginInstallRecord,
+  scope?: CanvasPluginStorageScope | null,
+): Promise<CanvasPluginInstallRecord> {
+  const installDir = resolvePluginInstallDir(record.name, record.version, scope);
+  if (path.resolve(/*turbopackIgnore: true*/ record.installDir) !== path.resolve(/*turbopackIgnore: true*/ installDir)) {
+    await copyPluginPackage(record.installDir, installDir);
+  }
+
+  const validation = await validateCanvasPluginPackage(installDir);
+  if (validation.valid && validation.manifest && validation.rootDir) {
+    const built = await buildPluginRecordFromInstalledPackage(
+      validation.manifest,
+      record.sourcePath || record.installDir,
+      installDir,
+      record.enabled,
+      {
+        sourcePathLabel: record.sourcePath,
+        sourceRegistryId: record.sourceRegistryId,
+        sourceRegistryUrl: record.sourceRegistryUrl,
+        scope,
+      },
+    );
+
+    if (built.record) {
+      built.record.skills = await materializePluginSkills(built.record, scope);
+      return {
+        ...built.record,
+        installedAt: record.installedAt,
+        updatedAt: record.updatedAt,
+      };
+    }
+  }
+
+  return rebaseLegacyPluginRecordPaths(record, installDir, scope);
+}
+
+function rebaseLegacyPluginRecordPaths(
+  record: CanvasPluginInstallRecord,
+  installDir: string,
+  scope?: CanvasPluginStorageScope | null,
+): CanvasPluginInstallRecord {
+  const rebasePluginPath = (value?: string): string | undefined => {
+    if (!value) return undefined;
+    return isPathInside(record.installDir, value)
+      ? path.join(installDir, path.relative(record.installDir, value))
+      : value;
+  };
+  const rebaseSkillPath = (value?: string): string | undefined => {
+    if (!value) return undefined;
+    const legacySkillsDir = resolveScopedSkillsDataDir();
+    if (!isPathInside(legacySkillsDir, value)) {
+      return value;
+    }
+    return path.join(resolveScopedSkillsDataDir(scope), path.relative(legacySkillsDir, value));
+  };
+
+  return {
+    ...record,
+    installDir,
+    manifestPath: rebasePluginPath(record.manifestPath) || path.join(installDir, '.canvas-plugin', 'plugin.json'),
+    skillsDir: rebasePluginPath(record.skillsDir),
+    skills: record.skills.map((skill) => ({
+      ...skill,
+      path: rebasePluginPath(skill.path) || skill.path,
+      directory: rebasePluginPath(skill.directory) || skill.directory,
+      standaloneDir: rebaseSkillPath(skill.standaloneDir),
+    })),
+    updatedAt: nowIso(),
+  };
 }
 
 async function readStandaloneSkillRegistry(scope?: CanvasPluginStorageScope | null): Promise<StandaloneSkillRegistry> {
@@ -443,16 +543,8 @@ async function parsePluginSkillsFromManifest(
   };
 }
 
-async function resolveReadableSkillsDataDir(scope?: CanvasPluginStorageScope | null): Promise<string> {
-  const scopedDir = resolveScopedSkillsDataDir(scope);
-  if (scope?.userId?.trim() && !(await directoryExists(scopedDir))) {
-    return resolveScopedSkillsDataDir();
-  }
-  return scopedDir;
-}
-
 async function getStandaloneSkillNames(scope?: CanvasPluginStorageScope | null): Promise<Set<string>> {
-  const skillsDir = await resolveReadableSkillsDataDir(scope);
+  const skillsDir = await resolveReadableScopedSkillsDataDir(scope);
   const names = new Set<string>();
 
   try {

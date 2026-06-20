@@ -201,7 +201,24 @@ async function main() {
     let plugins = await listCanvasPlugins();
     assert.equal(plugins.length, 1);
     assert.equal(plugins[0].name, 'test-plugin');
-    assert.equal((await listCanvasPlugins({ userId: 'legacy-plugin-user' })).some((plugin) => plugin.name === 'test-plugin'), true);
+    const globalPluginInstallDir = plugins[0].installDir;
+    const legacyPluginScope = { userId: 'legacy-plugin-user' };
+    assert.equal((await listCanvasPlugins(legacyPluginScope)).some((plugin) => plugin.name === 'test-plugin'), true);
+    const legacyDisable = await setCanvasPluginEnabled('test-plugin', false, legacyPluginScope, 'legacy-plugin-user@example.com');
+    assert.equal(legacyDisable.success, true, legacyDisable.error);
+    const legacyPlugins = await listCanvasPlugins(legacyPluginScope);
+    assert.equal(legacyPlugins.length, 1);
+    assert.equal(legacyPlugins[0].enabled, false);
+    assert.match(legacyPlugins[0].installDir, /users\/legacy-plugin-user\/plugins\/installed\/test-plugin\/1\.0\.0$/);
+    assert.equal(
+      await fs.stat(path.join(dataRoot, 'users', 'legacy-plugin-user', 'plugins', 'installed', 'test-plugin', '1.0.0', '.canvas-plugin', 'plugin.json')).then((stat) => stat.isFile()),
+      true,
+    );
+    assert.equal(await fs.stat(globalPluginInstallDir).then((stat) => stat.isDirectory()), true);
+    const legacyDeleted = await deleteCanvasPlugin('test-plugin', legacyPluginScope, 'legacy-plugin-user@example.com');
+    assert.equal(legacyDeleted.success, true, legacyDeleted.error);
+    assert.equal((await listCanvasPlugins(legacyPluginScope)).length, 0);
+    assert.equal(await fs.stat(globalPluginInstallDir).then((stat) => stat.isDirectory()), true);
     assert.equal(plugins[0].skills[0].name, 'test-plugin-skill');
     assert.equal(plugins[0].skills[0].materialized, true);
     assert.equal(plugins[0].skills[0].preexistingStandalone, false);

@@ -26,7 +26,7 @@ import { getGatewayStatus, getGatewayToolkits } from '@/app/lib/composio/composi
 import { listEmailAccounts } from '@/app/lib/email/service';
 import { readMcpConfig } from '@/app/lib/mcp/config';
 import { readCanvasSkillRegistry, type CanvasSkillInstallRecord } from '@/app/lib/skills/canvas-skill-store';
-import { resolveScopedSkillsDataDir } from '@/app/lib/runtime-data-paths';
+import { resolveReadableScopedSkillsDataDir } from '@/app/lib/runtime-data-paths';
 
 export const DEFAULT_CANVAS_PLUGIN_STORE_REGISTRY_URL =
   'https://raw.githubusercontent.com/canvascoding/canvas-notebook-plugin-marketplace/main/registry.json';
@@ -269,20 +269,8 @@ function summarizeSkillStates(skills: CanvasPluginStoreSkillState[]): CanvasPlug
   };
 }
 
-async function directoryExists(targetPath: string): Promise<boolean> {
-  return fs.stat(targetPath).then((stat) => stat.isDirectory()).catch(() => false);
-}
-
-async function resolveReadableSkillsDataDir(scope?: CanvasPluginStorageScope | null): Promise<string> {
-  const scopedDir = resolveScopedSkillsDataDir(scope);
-  if (scope?.userId?.trim() && !(await directoryExists(scopedDir))) {
-    return resolveScopedSkillsDataDir();
-  }
-  return scopedDir;
-}
-
 async function skillFileExists(skillName: string, scope?: CanvasPluginStorageScope | null): Promise<boolean> {
-  const skillsDir = await resolveReadableSkillsDataDir(scope);
+  const skillsDir = await resolveReadableScopedSkillsDataDir(scope);
   const stat = await fs.stat(path.join(skillsDir, skillName, 'SKILL.md')).catch(() => null);
   return Boolean(stat?.isFile());
 }
@@ -293,7 +281,7 @@ async function computeInstalledSkillModified(
   scope?: CanvasPluginStorageScope | null,
 ): Promise<boolean> {
   if (!installedSkill?.checksum) return false;
-  const installDir = path.join(await resolveReadableSkillsDataDir(scope), skillName);
+  const installDir = path.join(await resolveReadableScopedSkillsDataDir(scope), skillName);
   const currentChecksum = await computeCanvasPluginChecksum(installDir).catch(() => '');
   return Boolean(currentChecksum && currentChecksum !== installedSkill.checksum);
 }

@@ -3,7 +3,7 @@ import { promises as fs } from 'fs';
 import path from 'path';
 import { headers } from 'next/headers';
 import { auth } from '@/app/lib/auth';
-import { getSkillsDir } from '@/app/lib/skills/canvas-skill-manifest';
+import { resolveReadableScopedSkillsDataDir } from '@/app/lib/runtime-data-paths';
 
 function sanitizeFilePath(filePath: string): string {
   let clean = filePath;
@@ -12,18 +12,6 @@ function sanitizeFilePath(filePath: string): string {
   clean = clean.replace(/^\//, '');
   clean = clean.replace(/\/$/, '');
   return clean;
-}
-
-async function directoryExists(targetPath: string): Promise<boolean> {
-  return fs.stat(targetPath).then((stat) => stat.isDirectory()).catch(() => false);
-}
-
-async function resolveReadableSkillsDir(userId: string): Promise<string> {
-  const scopedDir = getSkillsDir({ userId });
-  if (!(await directoryExists(scopedDir))) {
-    return getSkillsDir();
-  }
-  return scopedDir;
 }
 
 export async function GET(request: NextRequest) {
@@ -41,7 +29,7 @@ export async function GET(request: NextRequest) {
     }
 
     const sanitizedPath = sanitizeFilePath(filePath);
-    const skillsDir = await resolveReadableSkillsDir(session.user.id);
+    const skillsDir = await resolveReadableScopedSkillsDataDir({ userId: session.user.id });
     const fullPath = path.join(skillsDir, sanitizedPath);
     const resolvedPath = path.resolve(fullPath);
     const resolvedSkillsDir = path.resolve(skillsDir);

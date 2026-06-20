@@ -4,13 +4,13 @@ import { promises as fs } from 'fs';
 import path from 'path';
 
 import {
-  getSkillsDir,
   loadCanvasSkillInterface,
   parseFrontmatter,
   type CanvasSkillInterface,
   type CanvasSkillStorageScope,
 } from './canvas-skill-manifest';
 import { loadEnabledPluginSkills } from '@/app/lib/plugins/canvas-plugin-registry';
+import { resolveReadableScopedSkillsDataDir } from '@/app/lib/runtime-data-paths';
 
 export type SkillSummary = {
   name: string;
@@ -39,23 +39,11 @@ function parseSkillSummary(content: string, fallbackName: string): Omit<SkillSum
   };
 }
 
-async function directoryExists(targetPath: string): Promise<boolean> {
-  return fs.stat(targetPath).then((stat) => stat.isDirectory()).catch(() => false);
-}
-
-async function resolveReadableSkillsDir(scope?: CanvasSkillStorageScope | null): Promise<string> {
-  const scopedDir = getSkillsDir(scope);
-  if (scope?.userId?.trim() && !(await directoryExists(scopedDir))) {
-    return getSkillsDir();
-  }
-  return scopedDir;
-}
-
 export async function loadSkillSummaries(
   enabledSkills?: string[],
   scope?: CanvasSkillStorageScope | null,
 ): Promise<SkillSummary[]> {
-  const skillsDir = await resolveReadableSkillsDir(scope);
+  const skillsDir = await resolveReadableScopedSkillsDataDir(scope);
   const enabledSet = new Set(enabledSkills || []);
   const allEnabled = !enabledSkills || enabledSkills.length === 0;
 
