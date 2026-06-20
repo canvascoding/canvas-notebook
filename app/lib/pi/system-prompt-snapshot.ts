@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto';
 import { and, eq } from 'drizzle-orm';
 
 import { loadManagedAgentSystemPrompt } from '@/app/lib/agents/system-prompt';
+import type { AgentStorageScope } from '@/app/lib/agents/storage';
 import { db } from '@/app/lib/db';
 import { piSessions } from '@/app/lib/db/schema';
 
@@ -35,7 +36,7 @@ export function buildPiSystemPromptSnapshotFromText(
 
 export async function createPiSystemPromptSnapshot(
   agentId?: string | null,
-  scope?: { userId?: string | null } | null,
+  scope?: AgentStorageScope | null,
 ): Promise<PiSystemPromptSnapshot> {
   const { systemPrompt } = await loadManagedAgentSystemPrompt(agentId, scope);
   return buildPiSystemPromptSnapshotFromText(systemPrompt);

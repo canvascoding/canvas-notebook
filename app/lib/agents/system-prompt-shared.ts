@@ -1,6 +1,6 @@
 import path from 'node:path';
 
-import { normalizeDataScopeId, resolveAgentsStorageRoot, resolveUserAgentsDir } from '../runtime-data-paths';
+import { resolveAgentsStorageRoot, resolveUserAgentsDir } from '../runtime-data-paths';
 import { CANVAS_BASE_SYSTEM_PROMPT, CANVAS_BASE_TOOL_GUIDANCE } from './base-system-prompt';
 import type { AgentStorageScope } from './storage';
 
@@ -90,7 +90,7 @@ function getPromptSourcePath(fileName: ManagedPromptFileName, source?: ManagedPr
   const agentId = normalizePromptAgentId(inherited ? 'canvas-agent' : source?.agentId);
   const userId = source?.scope?.userId?.trim();
   const storageRoot = userId
-    ? resolveUserAgentsDir(normalizeDataScopeId(userId, 'userId'))
+    ? resolveUserAgentsDir(userId)
     : AGENTS_STORAGE_ROOT;
   return path.join(/* turbopackIgnore: true */ storageRoot, agentId, fileName);
 }

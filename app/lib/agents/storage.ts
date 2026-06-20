@@ -6,7 +6,7 @@ import { type AgentId } from './catalog';
 import { DEFAULT_PI_CONFIG, normalizePiRuntimeConfig, type PiRuntimeConfig, validatePiConfig } from '../pi/config';
 import { CANVAS_CONTROL_PLANE_PROVIDER_ID, getCanvasControlPlaneModels } from '../managed/control-plane-models';
 import { getManagedControlPlaneBaseUrl } from '../managed/control-plane-url';
-import { normalizeDataScopeId, resolveAgentStorageDir, resolveAgentsStorageRoot, resolveUserAgentsDir } from '../runtime-data-paths';
+import { resolveAgentStorageDir, resolveAgentsStorageRoot, resolveUserAgentsDir } from '../runtime-data-paths';
 import {
   ensureSettingsStorageDirectory,
   readSettingsTextFileIfExists,
@@ -195,15 +195,27 @@ async function writeTextAtomic(filePath: string, content: string): Promise<void>
 
 function resolveAgentStorageRootForScope(scope?: AgentStorageScope | null): string {
   const userId = scope?.userId?.trim();
-  return userId ? resolveUserAgentsDir(normalizeDataScopeId(userId, 'userId')) : AGENTS_STORAGE_ROOT;
+  return userId ? resolveUserAgentsDir(userId) : AGENTS_STORAGE_ROOT;
+}
+
+function resolveScopedChildPath(root: string, childName: string, label: string): string {
+  const resolvedRoot = path.resolve(root);
+  const resolvedPath = path.resolve(resolvedRoot, childName);
+  const relativePath = path.relative(resolvedRoot, resolvedPath);
+
+  if (!relativePath || relativePath.startsWith('..') || path.isAbsolute(relativePath)) {
+    throw new AgentConfigValidationError(`Invalid ${label}.`);
+  }
+
+  return resolvedPath;
 }
 
 function resolveAgentScopedStorageDir(agentId?: string | null, scope?: AgentStorageScope | null): string {
-  return path.join(resolveAgentStorageRootForScope(scope), normalizeManagedAgentId(agentId));
+  return resolveScopedChildPath(resolveAgentStorageRootForScope(scope), normalizeManagedAgentId(agentId), 'agentId');
 }
 
 function resolveManagedFilePath(fileName: AgentManagedFileName, agentId?: string | null, scope?: AgentStorageScope | null): string {
-  return path.join(/* turbopackIgnore: true */ resolveAgentScopedStorageDir(agentId, scope), fileName);
+  return resolveScopedChildPath(resolveAgentScopedStorageDir(agentId, scope), fileName, 'agent managed file');
 }
 
 function resolveLegacyManagedFilePath(fileName: AgentManagedFileName): string {

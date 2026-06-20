@@ -16,6 +16,11 @@ function resolveProjectDataRoot(cwd?: string): string {
   return path.resolve(/* turbopackIgnore: true */ resolvedCwd, 'data');
 }
 
+export function isDefaultDataEnvValue(value: string): boolean {
+  const normalized = path.posix.normalize(value.replace(/\\/g, '/')).replace(/\/+$/, '');
+  return normalized === 'data';
+}
+
 export function resolveCanvasDataRoot(cwd?: string): string {
   const configured = process.env.CANVAS_DATA_ROOT?.trim();
   if (configured) {
@@ -23,7 +28,7 @@ export function resolveCanvasDataRoot(cwd?: string): string {
   }
 
   const data = process.env.DATA?.trim();
-  if (data && data !== './data' && data !== 'data') {
+  if (data && !isDefaultDataEnvValue(data)) {
     return path.isAbsolute(data)
       ? data
       : path.resolve(cwd ?? process.cwd(), data);

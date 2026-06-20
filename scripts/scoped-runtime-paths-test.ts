@@ -13,6 +13,7 @@ async function main() {
     process.env.DATA = '';
 
     const {
+      isDefaultDataEnvValue,
       normalizeDataScopeId,
       resolveCanvasDataRoot,
       resolveOrganizationAgentTemplatesDir,
@@ -37,6 +38,13 @@ async function main() {
     } = await import('../app/lib/runtime-data-paths');
 
     assert.equal(resolveCanvasDataRoot(), dataDir);
+    for (const defaultDataValue of ['data', './data', 'data/', './data/', 'data/.', './data/.']) {
+      assert.equal(isDefaultDataEnvValue(defaultDataValue), true);
+    }
+    for (const configuredDataValue of ['/data', 'canvas-data', './canvas-data', '../data']) {
+      assert.equal(isDefaultDataEnvValue(configuredDataValue), false);
+    }
+
     assert.equal(normalizeDataScopeId(' user_a ', 'userId'), 'user_a');
     assert.equal(resolveUserSettingsDir('user_a'), path.join(dataDir, 'users', 'user_a', 'settings'));
     assert.equal(resolveUserSecretsDir('user_a'), path.join(dataDir, 'users', 'user_a', 'secrets'));
