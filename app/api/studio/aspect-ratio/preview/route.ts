@@ -25,7 +25,7 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const preview = await createAspectRatioPreview(body);
+    const preview = await createAspectRatioPreview(body, { userId: session.user.id });
     return NextResponse.json({ success: true, preview }, { status: 201 });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Preview failed';

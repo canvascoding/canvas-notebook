@@ -3,6 +3,7 @@ import { getProviderApiKey, isOAuthProvider, type OAuthProviderId } from './oaut
 import { supportsBothAuthMethods } from './provider-help';
 import { readPiRuntimeConfig } from '@/app/lib/agents/storage';
 import { CANVAS_CONTROL_PLANE_PROVIDER_ID } from './model-resolver';
+import { getAgentExecutionContext } from '@/app/lib/pi/agent-execution-context';
 
 /**
  * Resolves API keys for PI providers using existing environment stores.
@@ -53,8 +54,10 @@ export async function resolvePiApiKey(provider: string): Promise<string | undefi
   }
 
   // Use existing agents scope for provider keys
-  const agentsState = await readScopedEnvState('agents');
-  const integrationsState = await readScopedEnvState('integrations');
+  const executionContext = getAgentExecutionContext();
+  const storageScope = executionContext ? { userId: executionContext.userId } : undefined;
+  const agentsState = await readScopedEnvState('agents', storageScope);
+  const integrationsState = await readScopedEnvState('integrations', storageScope);
 
   const allEntries = new Map<string, string>([
     ...(integrationsState.entries.map(e => [e.key, e.value]) as [string, string][]),
@@ -78,7 +81,7 @@ export async function resolvePiApiKey(provider: string): Promise<string | undefi
     case 'mistral':
       return allEntries.get('MISTRAL_API_KEY');
     case 'ollama':
-      return allEntries.get('OLLAMA_API_KEY') || await ensureGeneratedScopedEnvEntry('agents', 'OLLAMA_API_KEY');
+      return allEntries.get('OLLAMA_API_KEY') || await ensureGeneratedScopedEnvEntry('agents', 'OLLAMA_API_KEY', { storageScope });
     case 'openai-compatible':
       return allEntries.get('OPENAI_COMPATIBLE_API_KEY') || undefined;
     default:

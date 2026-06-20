@@ -2,7 +2,7 @@ import 'server-only';
 
 import { GoogleGenAI } from '@google/genai';
 import OpenAI from 'openai';
-import { getGeminiApiKeyFromIntegrations, getOpenAIApiKeyFromIntegrations } from './env-config';
+import { getGeminiApiKeyFromIntegrations, getOpenAIApiKeyFromIntegrations, type EnvStorageScope } from './env-config';
 import {
   GEMINI_FLASH_IMAGE_MODEL_ID,
   GEMINI_PRO_IMAGE_MODEL_ID,
@@ -50,6 +50,7 @@ export interface ProviderGenerateParams {
   background?: 'transparent' | 'opaque' | 'auto';
   contextPrompt?: string;
   imageSize?: string;
+  storageScope?: EnvStorageScope | null;
 }
 
 export interface ProviderGenerateResult {
@@ -163,7 +164,7 @@ class GeminiImageProvider implements ImageGenerationProvider {
 
   async generate(params: ProviderGenerateParams): Promise<ProviderGenerateResult> {
     const model = normalizeGeminiImageModelId(params.model);
-    const apiKey = await getGeminiApiKeyFromIntegrations();
+    const apiKey = await getGeminiApiKeyFromIntegrations(params.storageScope);
     if (!apiKey) {
       if (isManagedMediaFallbackAvailable()) {
         console.log(`[Gemini Image] Using managed fallback: model=${model}, aspectRatio=${params.aspectRatio}, refs=${params.referenceImages.length}`);
@@ -261,7 +262,7 @@ class OpenAIImageProvider implements ImageGenerationProvider {
   }
 
   async generate(params: ProviderGenerateParams): Promise<ProviderGenerateResult> {
-    const apiKey = await getOpenAIApiKeyFromIntegrations();
+    const apiKey = await getOpenAIApiKeyFromIntegrations(params.storageScope);
     if (!apiKey) {
       if (isManagedMediaFallbackAvailable()) {
         console.log(`[OpenAI Image] Using managed fallback: model=${params.model}, aspectRatio=${params.aspectRatio}, refs=${params.referenceImages.length}, quality=${params.quality || 'auto'}`);

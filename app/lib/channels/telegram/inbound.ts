@@ -10,6 +10,7 @@ import { handleInboundChannelMessage } from '@/app/lib/channels/router';
 import { TELEGRAM_CHANNEL_ID, telegramChannelSessionKey } from '@/app/lib/channels/constants';
 import { transcribeAudio } from '@/app/lib/integrations/audio-transcription-service';
 import { IntegrationServiceError } from '@/app/lib/integrations/integration-service-error';
+import type { EnvStorageScope } from '@/app/lib/integrations/env-config';
 
 const MAX_TELEGRAM_DOWNLOAD_SIZE = 20 * 1024 * 1024;
 const MEDIA_GROUP_WAIT_MS = 900;
@@ -120,6 +121,7 @@ async function saveAndTranscribeTelegramAudio(
   fileId: string,
   originalName: string,
   providedMimeType?: string,
+  storageScope?: EnvStorageScope | null,
 ): Promise<{ upload: SavedTelegramUpload; transcription: TelegramTranscription } | null> {
   const buffer = await downloadTelegramFile(bot, fileId);
   if (!buffer) return null;
@@ -129,6 +131,7 @@ async function saveAndTranscribeTelegramAudio(
     buffer,
     filename: upload.originalName,
     mimeType: upload.mimeType,
+    storageScope,
   });
 
   return {
@@ -345,6 +348,7 @@ export function setupInboundHandler(bot: Bot, onInbound: (message: InboundMessag
             document.file_id,
             filename,
             document.mime_type,
+            { userId: binding.userId },
           );
           if (audioResult) {
             uploads.push(audioResult.upload);
@@ -384,6 +388,7 @@ export function setupInboundHandler(bot: Bot, onInbound: (message: InboundMessag
           voice.file_id,
           `telegram-voice-${ctx.message.message_id}.ogg`,
           voice.mime_type || 'audio/ogg',
+          { userId: binding.userId },
         );
         if (audioResult) {
           uploads.push(audioResult.upload);
@@ -413,6 +418,7 @@ export function setupInboundHandler(bot: Bot, onInbound: (message: InboundMessag
           audio.file_id,
           filename,
           audio.mime_type || 'audio/mpeg',
+          { userId: binding.userId },
         );
         if (audioResult) {
           uploads.push(audioResult.upload);

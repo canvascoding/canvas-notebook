@@ -9,6 +9,6 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
   }
 
-  const config = await getStudioProviderConfig();
+  const config = await getStudioProviderConfig({ userId: session.user.id });
   return NextResponse.json({ success: true, config });
 }

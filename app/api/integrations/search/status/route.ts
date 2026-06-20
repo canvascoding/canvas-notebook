@@ -7,15 +7,18 @@ import { rateLimit } from '@/app/lib/utils/rate-limit';
 async function requireSession(request: NextRequest) {
   const session = await auth.api.getSession({ headers: request.headers });
   if (!session) {
-    return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
+    return {
+      ok: false as const,
+      response: NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 }),
+    };
   }
-  return null;
+  return { ok: true as const, session };
 }
 
 export async function GET(request: NextRequest) {
-  const unauthorized = await requireSession(request);
-  if (unauthorized) {
-    return unauthorized;
+  const authResult = await requireSession(request);
+  if (!authResult.ok) {
+    return authResult.response;
   }
 
   const limited = rateLimit(request, {
@@ -28,7 +31,7 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const status = await getBraveSearchStatus();
+    const status = await getBraveSearchStatus({ userId: authResult.session.user.id });
     return NextResponse.json({ success: true, data: status });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to load search integration status';

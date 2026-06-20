@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { getGroqApiKeyFromIntegrations, readScopedEnvState } from './env-config';
+import { getGroqApiKeyFromIntegrations, readScopedEnvState, type EnvStorageScope } from './env-config';
 import { IntegrationServiceError } from './integration-service-error';
 
 export const MAX_AUDIO_TRANSCRIPTION_BYTES = 25 * 1024 * 1024;
@@ -15,6 +15,7 @@ export interface TranscribeAudioRequest {
   language?: string;
   prompt?: string;
   signal?: AbortSignal;
+  storageScope?: EnvStorageScope | null;
 }
 
 export interface AudioTranscriptionResult {
@@ -36,9 +37,9 @@ function normalizeOptionalText(value: string | undefined): string | undefined {
   return normalized ? normalized : undefined;
 }
 
-async function getGroqTranscriptionModel(): Promise<string> {
+async function getGroqTranscriptionModel(storageScope?: EnvStorageScope | null): Promise<string> {
   try {
-    const state = await readScopedEnvState('integrations');
+    const state = await readScopedEnvState('integrations', storageScope);
     const byKey = new Map(state.entries.map((entry) => [entry.key, entry.value]));
     return (
       normalizeOptionalText(byKey.get('GROQ_TRANSCRIPTION_MODEL')) ||
@@ -83,7 +84,7 @@ export async function transcribeAudio(request: TranscribeAudioRequest): Promise<
     );
   }
 
-  const apiKey = await getGroqApiKeyFromIntegrations();
+  const apiKey = await getGroqApiKeyFromIntegrations(request.storageScope);
   if (!apiKey) {
     throw new IntegrationServiceError(
       'Voice transcription is not configured. Configure GROQ_API_KEY in /settings?tab=integrations.',
@@ -91,7 +92,7 @@ export async function transcribeAudio(request: TranscribeAudioRequest): Promise<
     );
   }
 
-  const model = await getGroqTranscriptionModel();
+  const model = await getGroqTranscriptionModel(request.storageScope);
   const formData = new FormData();
   formData.set(
     'file',

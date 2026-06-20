@@ -7,6 +7,11 @@ export type UserScopedDataStorageScope = {
   userId?: string | null;
 };
 
+export type SecretDataStorageScope = UserScopedDataStorageScope & {
+  organizationId?: string | null;
+  secretScope?: 'user' | 'organization' | 'system' | 'legacy';
+};
+
 function directoryExistsSync(targetPath: string): boolean {
   try {
     return fs.statSync(targetPath).isDirectory();
@@ -287,6 +292,49 @@ export function resolveDefaultIntegrationsEnvPath(cwd?: string): string {
 
 export function resolveDefaultAgentsEnvPath(cwd?: string): string {
   return path.join(/* turbopackIgnore: true */ resolveSecretsDir(cwd), 'Canvas-Agents.env');
+}
+
+function resolveSecretDataScope(scope?: SecretDataStorageScope | null): 'user' | 'organization' | 'system' | 'legacy' {
+  if (scope?.secretScope) {
+    return scope.secretScope;
+  }
+  if (scope?.userId?.trim()) {
+    return 'user';
+  }
+  if (scope?.organizationId?.trim()) {
+    return 'organization';
+  }
+  return 'legacy';
+}
+
+export function resolveScopedSecretsDir(scope?: SecretDataStorageScope | null, cwd?: string): string {
+  const secretScope = resolveSecretDataScope(scope);
+  if (secretScope === 'user') {
+    const userId = scope?.userId?.trim();
+    if (!userId) {
+      throw new Error('userId is required for user-scoped secrets.');
+    }
+    return resolveUserSecretsDir(userId, cwd);
+  }
+  if (secretScope === 'organization') {
+    const organizationId = scope?.organizationId?.trim();
+    if (!organizationId) {
+      throw new Error('organizationId is required for organization-scoped secrets.');
+    }
+    return resolveOrganizationSecretsDir(organizationId, cwd);
+  }
+  if (secretScope === 'system') {
+    return resolveSystemSecretsDir(cwd);
+  }
+  return resolveSecretsDir(cwd);
+}
+
+export function resolveScopedIntegrationsEnvPath(scope?: SecretDataStorageScope | null, cwd?: string): string {
+  return path.join(/* turbopackIgnore: true */ resolveScopedSecretsDir(scope, cwd), 'Canvas-Integrations.env');
+}
+
+export function resolveScopedAgentsEnvPath(scope?: SecretDataStorageScope | null, cwd?: string): string {
+  return path.join(/* turbopackIgnore: true */ resolveScopedSecretsDir(scope, cwd), 'Canvas-Agents.env');
 }
 
 export function getUserUploadsRoot(cwd?: string): string {

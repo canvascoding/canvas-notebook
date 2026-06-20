@@ -45,6 +45,7 @@ import {
   VEO_MAX_REFERENCE_IMAGES,
   normalizeGeminiImageModelId,
 } from '@/app/lib/integrations/image-generation-constants';
+import type { EnvStorageScope } from '@/app/lib/integrations/env-config';
 
 type ProviderReferenceImage = { imageBytes: string; mimeType: string };
 type ProviderReferenceMedia = { imageBytes: string; mimeType: string; fileName?: string };
@@ -882,6 +883,7 @@ async function executeStudioGenerationProcessing(
   const aspectRatio = generation.aspectRatio;
   const rawPrompt = generation.prompt || '';
   const model = generation.model;
+  const storageScope: EnvStorageScope = { userId };
 
   console.log(`[Studio Generation] Starting background processing: id=${generationId}, mode=${mode}, provider=${providerId}`);
 
@@ -977,6 +979,7 @@ async function executeStudioGenerationProcessing(
           webSearch: parsedMeta.videoWebSearch,
           nsfwChecker: parsedMeta.videoNsfwChecker,
         },
+        storageScope,
       );
     } else if (mode === 'sound') {
       outputs = await generateStudioSound(
@@ -987,6 +990,7 @@ async function executeStudioGenerationProcessing(
         model,
         parsedMeta.outputFormat,
         buildSoundContextPrompt(allReferenceImages),
+        storageScope,
       );
     } else {
       const count = Math.min(Math.max(parsedMeta.count || 1, 1), MAX_IMAGE_COUNT);
@@ -995,7 +999,7 @@ async function executeStudioGenerationProcessing(
         outputFormat: parsedMeta.outputFormat,
         background: parsedMeta.background,
         imageSize: parsedMeta.imageSize,
-      }, contextText);
+      }, contextText, storageScope);
     }
 
     await db.update(studioGenerations)
@@ -1029,6 +1033,7 @@ async function generateStudioImages(
   model: string,
   options?: { quality?: 'low' | 'medium' | 'high' | 'auto'; outputFormat?: 'png' | 'jpeg' | 'webp'; background?: 'transparent' | 'opaque' | 'auto'; imageSize?: string },
   contextText?: string,
+  storageScope?: EnvStorageScope | null,
 ): Promise<StudioGenerationOutput[]> {
   const provider = getImageGenerationProvider(providerId);
   if (!provider) {
@@ -1072,6 +1077,7 @@ async function generateStudioImages(
         background: options?.background,
         contextPrompt: contextText,
         imageSize: options?.imageSize,
+        storageScope,
       });
 
       const ext = extensionFromMime(result.mimeType);
@@ -1174,6 +1180,7 @@ async function generateStudioSound(
   model?: string,
   outputFormat?: string,
   contextText?: string,
+  storageScope?: EnvStorageScope | null,
 ): Promise<StudioGenerationOutput[]> {
   if (providerId !== 'gemini') {
     throw new StudioServiceError(
@@ -1196,6 +1203,7 @@ async function generateStudioSound(
     model: resolvedModel,
     outputFormat: resolvedOutputFormat,
     referenceImages: referenceImages.slice(0, 10),
+    storageScope,
   });
 
   await ensureStudioOutputsWorkspace();
@@ -1256,6 +1264,7 @@ async function generateStudioVideo(
     webSearch?: boolean;
     nsfwChecker?: boolean;
   },
+  storageScope?: EnvStorageScope | null,
 ): Promise<StudioGenerationOutput[]> {
   if (!prompt && !videoExtendSourcePath) {
     throw new StudioServiceError(
@@ -1289,6 +1298,7 @@ async function generateStudioVideo(
       referenceVideos,
       referenceAudios,
       videoOptions,
+      storageScope,
     );
   }
 
@@ -1318,6 +1328,7 @@ async function generateStudioVideo(
     inputVideoPath: videoExtendSourcePath || undefined,
     personGeneration: effectivePersonGeneration,
     generateAudio: videoOptions?.generateAudio,
+    storageScope,
   };
 
   if (providerReferenceImages.length > 0) {
@@ -1411,6 +1422,7 @@ async function generateStudioSeedanceVideo(
     webSearch?: boolean;
     nsfwChecker?: boolean;
   },
+  storageScope?: EnvStorageScope | null,
 ): Promise<StudioGenerationOutput[]> {
   console.log(`[Studio Generation] Seedance video: refs=${referenceImages.length}, startFrame=${startFramePath ? 'yes' : 'no'}, endFrame=${endFramePath ? 'yes' : 'no'}, duration=${videoDuration || 6}s`);
   const firstFrame = startFramePath ? await loadSeedanceFrame(startFramePath) : null;
@@ -1462,6 +1474,7 @@ async function generateStudioSeedanceVideo(
     webSearch: videoOptions?.webSearch,
     nsfwChecker: videoOptions?.nsfwChecker,
     caller: 'studio-generation',
+    storageScope,
   });
 
   const outputId = randomUUID();

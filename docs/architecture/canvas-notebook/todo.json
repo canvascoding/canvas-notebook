@@ -246,7 +246,7 @@
     {
       "id": 17,
       "title": "Plugins, Skills und Agent-Definitionen auf User-Scope mit optionaler Organization-Teilung migrieren",
-      "status": "in_progress",
+      "status": "completed",
       "repo": "canvasstudios-notebook",
       "planningArtifacts": [
         "docs/architecture/canvas-notebook/team-workspace/08-user-scoped-secrets-runtime.md",
@@ -282,12 +282,19 @@
     {
       "id": 18,
       "title": "Secrets/Credentials pro User, Organization und Managed/System isolieren",
-      "status": "pending",
+      "status": "completed",
       "repo": "canvasstudios-notebook",
       "planningArtifacts": [
         "docs/architecture/canvas-notebook/team-workspace/08-user-scoped-secrets-runtime.md",
         "docs/architecture/canvas-notebook/team-workspace/09-initial-setup-and-update-migration.md",
         "docs/architecture/canvas-notebook/team-workspace/10-agent-tool-execution-policy.md"
+      ],
+      "implementationArtifacts": [
+        "app/lib/runtime-data-paths.ts",
+        "app/lib/integrations/env-config.ts",
+        "app/api/integrations/env/route.ts",
+        "scripts/scoped-env-config-test.ts",
+        "scripts/scoped-runtime-paths-test.ts"
       ]
     },
     {

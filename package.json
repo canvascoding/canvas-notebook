@@ -28,6 +28,7 @@
     "test:pi:continuation": "tsx scripts/pi-run-continuation-guard-test.ts",
     "test:agent:memory": "tsx scripts/agent-memory-store-test.ts",
     "test:scoped-data-paths": "tsx scripts/scoped-runtime-paths-test.ts",
+    "test:integrations:env-scope": "tsx scripts/scoped-env-config-test.ts",
     "test:mcp:config": "tsx scripts/mcp-config-test.ts",
     "test:mcp:proxy": "tsx scripts/mcp-proxy-test.ts",
     "test:mcp:manager": "tsx scripts/mcp-manager-test.ts",

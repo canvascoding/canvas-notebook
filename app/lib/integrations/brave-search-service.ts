@@ -6,7 +6,7 @@ import { JSDOM } from 'jsdom';
 import TurndownService from 'turndown';
 import { gfm } from 'turndown-plugin-gfm';
 
-import { readScopedEnvState } from '@/app/lib/integrations/env-config';
+import { readScopedEnvState, type EnvStorageScope } from '@/app/lib/integrations/env-config';
 import { IntegrationServiceError } from '@/app/lib/integrations/integration-service-error';
 import { getManagedControlPlaneBaseUrl } from '@/app/lib/managed/control-plane-url';
 import { fetchExternalResourceSafely } from '@/app/lib/security/safe-external-fetch';
@@ -97,9 +97,9 @@ function throwIfAborted(signal?: AbortSignal): void {
   }
 }
 
-export async function getLocalBraveApiKey(): Promise<string | null> {
+export async function getLocalBraveApiKey(storageScope?: EnvStorageScope | null): Promise<string | null> {
   try {
-    const state = await readScopedEnvState('integrations');
+    const state = await readScopedEnvState('integrations', storageScope);
     const byKey = new Map(state.entries.map((entry) => [entry.key, entry.value]));
     const envKey = byKey.get('BRAVE_API_KEY')?.trim();
     if (envKey) return envKey;
@@ -110,13 +110,13 @@ export async function getLocalBraveApiKey(): Promise<string | null> {
   }
 }
 
-export async function getBraveSearchStatus(): Promise<{
+export async function getBraveSearchStatus(storageScope?: EnvStorageScope | null): Promise<{
   configured: boolean;
   mode: BraveSearchMode;
   localConfigured: boolean;
   managedAvailable: boolean;
 }> {
-  const localConfigured = Boolean(await getLocalBraveApiKey());
+  const localConfigured = Boolean(await getLocalBraveApiKey(storageScope));
   const managedAvailable = isManagedBraveSearchAvailable();
   const mode: BraveSearchMode = localConfigured ? 'local' : managedAvailable ? 'managed' : 'disabled';
   return {
@@ -312,7 +312,11 @@ async function searchWithManagedBrave(input: {
   return Array.isArray(record.results) ? record.results as WebSearchResult[] : [];
 }
 
-export async function searchWeb(input: WebSearchInput, signal?: AbortSignal): Promise<WebSearchResponse> {
+export async function searchWeb(
+  input: WebSearchInput,
+  signal?: AbortSignal,
+  storageScope?: EnvStorageScope | null,
+): Promise<WebSearchResponse> {
   throwIfAborted(signal);
   const query = input.query.trim();
   if (!query) {
@@ -323,7 +327,7 @@ export async function searchWeb(input: WebSearchInput, signal?: AbortSignal): Pr
   const freshness = normalizeFreshness(input.freshness);
   const includeContent = input.includeContent === true;
   const maxContentLength = normalizeContentLength(input.maxContentLength);
-  const localApiKey = await getLocalBraveApiKey();
+  const localApiKey = await getLocalBraveApiKey(storageScope);
   const mode: BraveSearchMode = localApiKey ? 'local' : isManagedBraveSearchAvailable() ? 'managed' : 'disabled';
 
   if (mode === 'disabled') {

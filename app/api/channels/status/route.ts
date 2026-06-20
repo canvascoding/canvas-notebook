@@ -15,7 +15,7 @@ export async function GET(request: NextRequest) {
     const manager = getChannelManager();
     const managerStatuses = manager.getChannelStatuses();
 
-    const telegramConfig = await getTelegramConfigFromIntegrations();
+    const telegramConfig = await getTelegramConfigFromIntegrations({ secretScope: 'legacy' });
     const telegramBinding = telegramConfig.botToken
       ? await getBindingByUser('telegram', session.user.id).catch(() => null)
       : null;
