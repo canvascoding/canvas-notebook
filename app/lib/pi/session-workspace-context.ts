@@ -158,6 +158,26 @@ export function workspaceToChatRequestWorkspace(workspace: WorkspaceContext): No
   };
 }
 
+export function workspaceToAgentExecutionContext(input: {
+  workspace: WorkspaceContext;
+  userId: string;
+  sessionId: string;
+}): AgentExecutionContext {
+  return {
+    userId: input.userId,
+    sessionId: input.sessionId,
+    workspaceId: input.workspace.workspaceId,
+    workspaceType: input.workspace.workspaceType,
+    workspaceName: input.workspace.displayName ?? null,
+    organizationId: input.workspace.organizationId ?? null,
+    workspaceRoot: input.workspace.rootPath,
+    workspaceRootRelativePath: input.workspace.rootRelativePath ?? null,
+    canWrite: input.workspace.permissions.canWrite,
+    canShare: input.workspace.permissions.canCreatePublicLinks,
+    legacy: input.workspace.legacy,
+  };
+}
+
 function piSessionWorkspaceFieldsChanged(
   session: PiSessionWorkspaceSnapshotRow,
   fields: PiSessionWorkspaceFields,
@@ -288,17 +308,9 @@ export async function resolveAgentExecutionContextForSession(input: {
     agentId: input.agentId,
   });
 
-  return {
+  return workspaceToAgentExecutionContext({
+    workspace,
     userId: input.userId,
     sessionId: input.sessionId,
-    workspaceId: workspace.workspaceId,
-    workspaceType: workspace.workspaceType,
-    workspaceName: workspace.displayName ?? null,
-    organizationId: workspace.organizationId ?? null,
-    workspaceRoot: workspace.rootPath,
-    workspaceRootRelativePath: workspace.rootRelativePath ?? null,
-    canWrite: workspace.permissions.canWrite,
-    canShare: workspace.permissions.canCreatePublicLinks,
-    legacy: workspace.legacy,
-  };
+  });
 }

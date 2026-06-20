@@ -350,13 +350,21 @@
     {
       "id": 21,
       "title": "Automations an Owner, Workspace-Auswahl und Ausfuehrungskontext binden",
-      "status": "pending",
+      "status": "completed",
       "repo": "canvasstudios-notebook",
       "planningArtifacts": [
         "docs/architecture/canvas-notebook/team-workspace/06-workspace-switching-ux.md",
         "docs/architecture/canvas-notebook/team-workspace/08-user-scoped-secrets-runtime.md",
         "docs/architecture/canvas-notebook/team-workspace/10-agent-tool-execution-policy.md",
         "docs/architecture/canvas-notebook/team-workspace/11-automation-execution-model.md"
+      ],
+      "implementationArtifacts": [
+        "app/lib/automations/policy.ts",
+        "app/lib/automations/store.ts",
+        "app/lib/automations/runner.ts",
+        "app/apps/automations/components/AutomationsClient.tsx",
+        "app/apps/automations/components/WorkspaceDirectoryPickerDialog.tsx",
+        "scripts/automation-workspace-scope-test.ts"
       ]
     },
     {

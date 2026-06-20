@@ -58,6 +58,7 @@ import {
   scheduleAutomationJobRun,
   updateAutomationJob,
 } from '../automations/store';
+import { assertCanAccessAutomationJob } from '../automations/policy';
 import {
   type AutomationIntervalUnit,
   type AutomationJobRecord,
@@ -698,6 +699,9 @@ function formatAutomationJob(job: AutomationJobRecord, options: { includeFullPro
     `ID: ${job.id}`,
     `Name: ${job.name}`,
     `Status: ${job.status}`,
+    `Scope: ${job.scope}`,
+    `Workspace: ${job.workspaceId || job.workspaceType}`,
+    `Responsible user: ${job.responsibleUserId || job.createdByUserId}`,
     `Preferred skill: ${job.preferredSkill || 'auto'}`,
     `Schedule: ${schedule}`,
     `Next run: ${job.nextRunAt || 'not scheduled'}`,
@@ -802,7 +806,12 @@ function normalizeAutomationWorkspacePathsForUpdate(paths: string[] | undefined)
 
 async function getUserOwnedAutomationJob(userId: string, jobId: string): Promise<AutomationJobRecord> {
   const job = await getAutomationJob(jobId);
-  if (!job || job.createdByUserId !== userId) {
+  if (!job) {
+    throw new Error(`Automation job "${jobId}" not found.`);
+  }
+  try {
+    assertCanAccessAutomationJob(userId, job);
+  } catch {
     throw new Error(`Automation job "${jobId}" not found.`);
   }
   return job;
@@ -2965,11 +2974,14 @@ function createUserScopedTools(userId?: string, agentId?: string | null, session
         };
         try {
           const scopedUserId = requireToolUserId(userId, 'automation tools');
+          const executionContext = getAgentExecutionContext();
           const preferredTimeZone = await getUserPreferredTimeZone(scopedUserId);
           const job = await createAutomationJob(
             {
               name: name.trim().slice(0, 120),
               prompt: prompt.trim().slice(0, 12000),
+              scope: executionContext?.workspaceType === 'team' ? 'organization' : 'personal',
+              workspaceId: executionContext?.workspaceId ?? null,
               schedule: normalizeAutomationSchedule(schedule, preferredTimeZone),
               targetOutputPath: normalizeOptionalString(targetOutputPath)?.replace(/^\/+|^\.\/+/, '') || null,
               workspaceContextPaths: normalizeAutomationWorkspacePaths(workspaceContextPaths),
@@ -3056,7 +3068,7 @@ function createUserScopedTools(userId?: string, agentId?: string | null, session
             workspaceContextPaths: normalizeAutomationWorkspacePathsForUpdate(workspaceContextPaths),
             status: normalizeAutomationStatus(status),
             schedule: schedule ? normalizeAutomationSchedule(schedule, existingJob.timeZone || preferredTimeZone) : undefined,
-          });
+          }, { actorUserId: scopedUserId });
           if (!updatedJob) {
             throw new Error(`Automation job "${jobId}" not found.`);
           }
@@ -3114,7 +3126,7 @@ function createUserScopedTools(userId?: string, agentId?: string | null, session
         try {
           const scopedUserId = requireToolUserId(userId, 'automation tools');
           await getUserOwnedAutomationJob(scopedUserId, jobId);
-          const run = await scheduleAutomationJobRun(jobId, 'manual', new Date());
+          const run = await scheduleAutomationJobRun(jobId, 'manual', new Date(), { actorUserId: scopedUserId });
           if (!run) {
             return {
               content: [{ type: 'text', text: 'Automation already has an in-flight run.' }],
@@ -3371,11 +3383,14 @@ export async function getPiTools(userId?: string, agentId?: string | null, sessi
   if (userId && sessionId) {
     let executionContext: AgentExecutionContext;
     try {
-      executionContext = await resolveAgentExecutionContextForSession({
-        userId,
-        sessionId,
-        agentId,
-      });
+      const ambientContext = getAgentExecutionContext();
+      executionContext = ambientContext?.userId === userId && ambientContext.sessionId === sessionId
+        ? ambientContext
+        : await resolveAgentExecutionContextForSession({
+            userId,
+            sessionId,
+            agentId,
+          });
     } catch (error) {
       console.error('[ToolRegistry] Failed to resolve workspace execution context; disabling tools until the next reload:', error);
       return [];

@@ -26,7 +26,7 @@ export async function POST(request: NextRequest) {
   try {
     const payload = await request.json();
     assertCanCreateRequestedAutomation(payload, session.user);
-    const created = await createCustomWebhookAutomationJob(payload, session.user.id);
+    const created = await createCustomWebhookAutomationJob(payload, session.user);
     const webhookId = created.job.customWebhookId;
     return NextResponse.json({
       success: true,

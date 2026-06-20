@@ -8,6 +8,7 @@ import {
   readOrganizationPermissionForUser,
 } from '@/app/lib/organization/permissions';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
+import { AutomationPolicyError, automationInputRequestsNonPersonalScope } from './policy';
 
 type AutomationPermissionUser = AdminUserCandidate & { id: string };
 type RequestedAutomationScope = 'personal' | 'team' | 'organization';
@@ -45,24 +46,20 @@ function stringField(record: Record<string, unknown>, key: string): string {
 }
 
 export function resolveRequestedAutomationScope(input: unknown): RequestedAutomationScope {
-  if (!input || typeof input !== 'object' || Array.isArray(input)) {
-    return 'personal';
-  }
-
-  const record = input as Record<string, unknown>;
-  // Current automation records are personal-only server-side; these fields are explicit future scope selectors.
-  if (record.organizationScope === true || stringField(record, 'scope') === 'organization') {
+  if (automationInputRequestsNonPersonalScope(input)) {
+    if (input && typeof input === 'object' && !Array.isArray(input)) {
+      const record = input as Record<string, unknown>;
+      if (
+        record.teamAutomation === true ||
+        stringField(record, 'scope') === 'team' ||
+        stringField(record, 'workspaceScope') === 'team' ||
+        stringField(record, 'workspaceType') === 'team'
+      ) {
+        return 'team';
+      }
+    }
     return 'organization';
   }
-  if (
-    record.teamAutomation === true ||
-    stringField(record, 'scope') === 'team' ||
-    stringField(record, 'workspaceScope') === 'team' ||
-    stringField(record, 'workspaceType') === 'team'
-  ) {
-    return 'team';
-  }
-
   return 'personal';
 }
 
@@ -91,5 +88,7 @@ export function assertCanCreateRequestedAutomation(input: unknown, user: Automat
 }
 
 export function getAutomationRouteErrorStatus(error: unknown, fallbackStatus = 500): number {
-  return error instanceof OrganizationPermissionError ? error.status : fallbackStatus;
+  return error instanceof OrganizationPermissionError || error instanceof AutomationPolicyError
+    ? error.status
+    : fallbackStatus;
 }

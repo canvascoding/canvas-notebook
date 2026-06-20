@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { requireAutomationSession, applyAutomationRateLimit } from '@/app/lib/automations/api';
+import { assertCanAccessAutomationJob } from '@/app/lib/automations/policy';
 import { dispatchAutomationRunExecution } from '@/app/lib/automations/dispatch';
 import { getAutomationJob, scheduleAutomationJobRun } from '@/app/lib/automations/store';
 
@@ -25,11 +26,13 @@ export async function POST(request: NextRequest, context: RouteContext) {
     if (!job) {
       return NextResponse.json({ success: false, error: 'Automation not found.' }, { status: 404 });
     }
-    if (job.createdByUserId !== session.user.id) {
+    try {
+      assertCanAccessAutomationJob(session.user.id, job);
+    } catch {
       return NextResponse.json({ success: false, error: 'Automation not found.' }, { status: 404 });
     }
 
-    const run = await scheduleAutomationJobRun(jobId, 'manual', new Date());
+    const run = await scheduleAutomationJobRun(jobId, 'manual', new Date(), { actorUserId: session.user.id });
     if (!run) {
       return NextResponse.json({ success: false, error: 'Automation already has an in-flight run.' }, { status: 409 });
     }

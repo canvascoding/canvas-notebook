@@ -37,7 +37,7 @@ export async function POST(request: NextRequest) {
   try {
     const payload = await request.json();
     assertCanCreateRequestedAutomation(payload, session.user);
-    const job = await createAutomationJob(payload, session.user.id);
+    const job = await createAutomationJob(payload, session.user);
     return NextResponse.json({ success: true, data: job }, { status: 201 });
   } catch (error) {
     const status = getAutomationRouteErrorStatus(error);
