@@ -8,7 +8,7 @@ import {
   readOrganizationPermissionForUser,
 } from '@/app/lib/organization/permissions';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
-import { AutomationPolicyError, automationInputRequestsOrganizationScope } from './policy';
+import { AutomationPolicyError, automationInputRequestsNonPersonalScope } from './policy';
 
 type AutomationPermissionUser = AdminUserCandidate & { id: string };
 type RequestedAutomationScope = 'personal' | 'team' | 'organization';
@@ -46,7 +46,7 @@ function stringField(record: Record<string, unknown>, key: string): string {
 }
 
 export function resolveRequestedAutomationScope(input: unknown): RequestedAutomationScope {
-  if (automationInputRequestsOrganizationScope(input)) {
+  if (automationInputRequestsNonPersonalScope(input)) {
     if (input && typeof input === 'object' && !Array.isArray(input)) {
       const record = input as Record<string, unknown>;
       if (

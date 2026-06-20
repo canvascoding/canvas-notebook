@@ -71,7 +71,7 @@ function normalizeRequestedScope(input: unknown): AutomationScope | 'team' {
   return 'personal';
 }
 
-export function automationInputRequestsOrganizationScope(input: unknown): boolean {
+export function automationInputRequestsNonPersonalScope(input: unknown): boolean {
   return normalizeRequestedScope(input) !== 'personal';
 }
 

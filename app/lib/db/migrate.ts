@@ -1129,6 +1129,19 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       OR workspace_type = ''
       OR actor_type IS NULL
       OR actor_type = '';
+
+    UPDATE automation_runs
+    SET actor_user_id = (
+      SELECT COALESCE(j.responsible_user_id, j.owner_user_id, j.created_by_user_id)
+      FROM automation_jobs j
+      WHERE j.id = automation_runs.job_id
+    )
+    WHERE actor_user_id IS NULL
+      AND EXISTS (
+        SELECT 1
+        FROM automation_jobs j
+        WHERE j.id = automation_runs.job_id
+      );
   `);
 
   // ── Deferred indexes on columns added via ALTER TABLE ──────────────────────
