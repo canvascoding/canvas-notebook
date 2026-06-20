@@ -129,6 +129,7 @@ export const organizationUserPermissions = sqliteTable("organization_user_permis
   organizationId: text("organization_id").notNull().references(() => canvasOrganizationSettings.organizationId, { onDelete: 'cascade' }),
   userId: text("user_id").notNull().references(() => user.id),
   role: text("role").notNull().default("member"),
+  status: text("status").notNull().default("active"),
   canWriteTeamWorkspace: integer("can_write_team_workspace", { mode: "boolean" }).notNull().default(false),
   canCreatePublicLinks: integer("can_create_public_links", { mode: "boolean" }).notNull().default(true),
   canCreateTeamAutomations: integer("can_create_team_automations", { mode: "boolean" }).notNull().default(false),
@@ -140,12 +141,18 @@ export const organizationUserPermissions = sqliteTable("organization_user_permis
   canMigrateDatabase: integer("can_migrate_database", { mode: "boolean" }).notNull().default(false),
   canEnableKnowledge: integer("can_enable_knowledge", { mode: "boolean" }).notNull().default(false),
   canRecoverWorkspaces: integer("can_recover_workspaces", { mode: "boolean" }).notNull().default(false),
+  disabledAt: integer("disabled_at", { mode: "timestamp" }),
+  archivedAt: integer("archived_at", { mode: "timestamp" }),
+  offboardedByUserId: text("offboarded_by_user_id").references(() => user.id),
+  offboardingReason: text("offboarding_reason"),
+  offboardingReportJson: text("offboarding_report_json"),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
 }, (table) => ({
   pk: primaryKey(table.organizationId, table.userId),
   userIdx: index("idx_org_user_permissions_user").on(table.userId),
   roleIdx: index("idx_org_user_permissions_role").on(table.organizationId, table.role),
+  statusIdx: index("idx_org_user_permissions_status").on(table.organizationId, table.status),
   singleOwnerIdx: uniqueIndex("idx_org_user_permissions_single_owner").on(table.organizationId).where(sql`${table.role} = 'owner'`),
 }));
 

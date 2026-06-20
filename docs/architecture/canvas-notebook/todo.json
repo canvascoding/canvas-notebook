@@ -370,13 +370,23 @@
     {
       "id": 22,
       "title": "Offboarding-Flow fuer User mit Workspace-Sicherung, Automation-Review, To-do-Behandlung und Credential-Revocation bauen",
-      "status": "pending",
+      "status": "completed",
       "repo": "canvasstudios-notebook",
       "planningArtifacts": [
         "docs/architecture/canvas-notebook/team-workspace/08-user-scoped-secrets-runtime.md",
         "docs/architecture/canvas-notebook/team-workspace/09-initial-setup-and-update-migration.md",
         "docs/architecture/canvas-notebook/team-workspace/11-automation-execution-model.md",
         "docs/architecture/canvas-notebook/team-workspace/16-offboarding-and-recovery-policy.md"
+      ],
+      "implementationArtifacts": [
+        "app/lib/organization/offboarding.ts",
+        "app/api/admin/organization/users/[userId]/offboarding/route.ts",
+        "app/components/settings/UserManagementPanel.tsx",
+        "app/lib/organization/bootstrap.ts",
+        "app/lib/organization/permissions.ts",
+        "app/lib/workspaces/service.ts",
+        "app/api/todos/assignees/route.ts",
+        "scripts/organization-offboarding-test.ts"
       ]
     },
     {

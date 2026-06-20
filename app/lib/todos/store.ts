@@ -197,6 +197,7 @@ async function isOrganizationMember(organizationId: string, userId: string): Pro
     where: and(
       eq(organizationUserPermissions.organizationId, organizationId),
       eq(organizationUserPermissions.userId, userId),
+      eq(organizationUserPermissions.status, 'active'),
       ne(organizationUserPermissions.role, 'external'),
     ),
   });
@@ -214,6 +215,7 @@ async function isOrganizationWorkspaceWriter(organizationId: string, userId: str
     where: and(
       eq(organizationUserPermissions.organizationId, organizationId),
       eq(organizationUserPermissions.userId, userId),
+      eq(organizationUserPermissions.status, 'active'),
       ne(organizationUserPermissions.role, 'external'),
     ),
   });

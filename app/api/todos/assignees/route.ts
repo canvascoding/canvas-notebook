@@ -1,4 +1,4 @@
-import { and, asc, eq, ne } from 'drizzle-orm';
+import { and, asc, eq, ne, sql } from 'drizzle-orm';
 import { NextRequest, NextResponse } from 'next/server';
 
 import { db } from '@/app/lib/db';
@@ -61,6 +61,8 @@ export async function GET(request: NextRequest) {
     .where(and(
       eq(organizationUserPermissions.organizationId, workspace.organizationId),
       ne(organizationUserPermissions.role, 'external'),
+      eq(organizationUserPermissions.status, 'active'),
+      sql`COALESCE(${user.banned}, 0) != 1`,
     ))
     .orderBy(asc(user.name), asc(user.email));
 

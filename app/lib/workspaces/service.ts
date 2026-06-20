@@ -40,6 +40,7 @@ type WorkspaceRow = {
 
 type PermissionRow = {
   role: string;
+  status: string;
   can_write_team_workspace: number;
   can_create_public_links: number;
 };
@@ -50,7 +51,7 @@ function normalizeWorkspaceType(value: string): WorkspaceType {
 }
 
 function normalizeWorkspaceStatus(value: string): WorkspaceStatus {
-  if (value === 'archived' || value === 'disabled') return value;
+  if (value === 'archived' || value === 'disabled' || value === 'recovery_locked') return value;
   return 'active';
 }
 
@@ -229,7 +230,7 @@ export function ensureDefaultWorkspaceRecords(
 
 function getPermissionRow(sqlite: Database.Database, organizationId: string, userId: string): PermissionRow | null {
   return sqlite.prepare(`
-    SELECT role, can_write_team_workspace, can_create_public_links
+    SELECT role, COALESCE(status, 'active') AS status, can_write_team_workspace, can_create_public_links
     FROM organization_user_permissions
     WHERE organization_id = ? AND user_id = ?
     LIMIT 1
@@ -239,7 +240,7 @@ function getPermissionRow(sqlite: Database.Database, organizationId: string, use
 function canReadWorkspace(record: WorkspaceRecord, actor: WorkspaceActor, permission: PermissionRow | null): boolean {
   if (record.status !== 'active') return false;
   if (record.type === 'personal') return record.ownerUserId === actor.userId;
-  if (record.type === 'team') return Boolean(permission && permission.role !== 'external');
+  if (record.type === 'team') return Boolean(permission && permission.status === 'active' && permission.role !== 'external');
   return false;
 }
 
@@ -250,11 +251,14 @@ export function workspaceContextFromRecord(
 ): WorkspaceContext {
   const role = actor.role;
   const ownsPersonalWorkspace = record.type === 'personal' && record.ownerUserId === actor.userId;
-  const canAccessTeamWorkspace = record.type === 'team' && Boolean(permission && permission.role !== 'external');
+  const canAccessTeamWorkspace = record.type === 'team' && Boolean(permission && permission.status === 'active' && permission.role !== 'external');
   const canWriteTeamWorkspace = record.type === 'team' && (
-    role === 'owner' ||
-    role === 'admin' ||
-    permission?.can_write_team_workspace === 1
+    permission?.status === 'active' &&
+    (
+      role === 'owner' ||
+      role === 'admin' ||
+      permission?.can_write_team_workspace === 1
+    )
   );
 
   return {

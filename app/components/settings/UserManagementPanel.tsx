@@ -2,7 +2,7 @@
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import { useLocale, useTranslations } from 'next-intl';
-import { Ban, CheckCircle2, KeyRound, Loader2, Plus, RefreshCw, Search, Shield, Trash2, UserCog } from 'lucide-react';
+import { AlertTriangle, Ban, CheckCircle2, KeyRound, Loader2, Plus, RefreshCw, Search, Shield, UserCog, UserMinus } from 'lucide-react';
 
 import { authClient } from '@/app/lib/auth-client';
 import {
@@ -69,6 +69,27 @@ type CreateUserDraft = {
 type RoleChangeTarget = {
   user: ManagedUser;
   nextRole: 'admin' | 'user';
+};
+
+type OffboardingFinding = {
+  severity: 'blocker' | 'warning' | 'info';
+  category: string;
+  message: string;
+  count?: number;
+  action?: string;
+};
+
+type OffboardingPreflight = {
+  canApply: boolean;
+  blockers: OffboardingFinding[];
+  warnings: OffboardingFinding[];
+  info: OffboardingFinding[];
+  counts: Record<string, number>;
+  personalWorkspace: {
+    id: string;
+    status: string;
+    rootRelativePath: string;
+  } | null;
 };
 
 function unwrapAuthResult<T>(result: unknown, fallbackMessage: string): T {
@@ -163,7 +184,11 @@ export function UserManagementPanel({
   const [roleTarget, setRoleTarget] = useState<RoleChangeTarget | null>(null);
   const [banTarget, setBanTarget] = useState<ManagedUser | null>(null);
   const [banReason, setBanReason] = useState('');
-  const [deleteTarget, setDeleteTarget] = useState<ManagedUser | null>(null);
+  const [offboardingTarget, setOffboardingTarget] = useState<ManagedUser | null>(null);
+  const [offboardingPreflight, setOffboardingPreflight] = useState<OffboardingPreflight | null>(null);
+  const [isOffboardingPreflightLoading, setIsOffboardingPreflightLoading] = useState(false);
+  const [offboardingAcknowledge, setOffboardingAcknowledge] = useState(false);
+  const [offboardingReason, setOffboardingReason] = useState('');
 
   const page = Math.floor(offset / PAGE_SIZE) + 1;
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
@@ -342,24 +367,106 @@ export function UserManagementPanel({
     );
   };
 
-  const deleteUser = async () => {
-    if (!deleteTarget) return;
-    const user = deleteTarget;
+  const loadOffboardingPreflight = async (user: ManagedUser) => {
+    setIsOffboardingPreflightLoading(true);
+    setError(null);
+    try {
+      const response = await fetch(`/api/admin/organization/users/${encodeURIComponent(user.id)}/offboarding`, {
+        credentials: 'include',
+        cache: 'no-store',
+      });
+      const payload = await response.json();
+      if (!response.ok || !payload.success) {
+        const preflight = payload.preflight || payload.data;
+        if (preflight) {
+          setOffboardingPreflight(preflight as OffboardingPreflight);
+        }
+        throw new Error(payload.error || t('errors.offboardingPreflight'));
+      }
+      setOffboardingPreflight(payload.data as OffboardingPreflight);
+    } catch (preflightError) {
+      setError(preflightError instanceof Error ? preflightError.message : t('errors.offboardingPreflight'));
+    } finally {
+      setIsOffboardingPreflightLoading(false);
+    }
+  };
+
+  const openOffboardingDialog = (user: ManagedUser) => {
+    setOffboardingTarget(user);
+    setOffboardingPreflight(null);
+    setOffboardingAcknowledge(false);
+    setOffboardingReason('');
+    resetTransientState();
+    void loadOffboardingPreflight(user);
+  };
+
+  const offboardUser = async () => {
+    if (!offboardingTarget) return;
+    const user = offboardingTarget;
     await runAction(
-      `delete:${user.id}`,
+      `offboard:${user.id}`,
       async () => {
-        unwrapAuthResult<unknown>(
-          await authClient.admin.removeUser({ userId: user.id }),
-          t('errors.delete'),
-        );
-        setDeleteTarget(null);
+        const response = await fetch(`/api/admin/organization/users/${encodeURIComponent(user.id)}/offboarding`, {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            reason: offboardingReason.trim() || undefined,
+            acknowledgeWarnings: offboardingAcknowledge,
+          }),
+        });
+        const payload = await response.json();
+        if (!response.ok || !payload.success) {
+          const preflight = payload.preflight || payload.data;
+          if (preflight) {
+            setOffboardingPreflight(preflight as OffboardingPreflight);
+          }
+          throw new Error(payload.error || t('errors.offboarding'));
+        }
+        setOffboardingTarget(null);
+        setOffboardingPreflight(null);
+        setOffboardingAcknowledge(false);
+        setOffboardingReason('');
       },
-      t('messages.deleted', { email: user.email }),
+      t('messages.offboarded', { email: user.email }),
     );
   };
 
   const userRows = useMemo(() => users, [users]);
   const roleDialogCopy = getRoleDialogCopy(locale, roleTarget);
+  const renderOffboardingFindings = (title: string, findings: OffboardingFinding[], tone: 'blocker' | 'warning' | 'info') => {
+    if (findings.length === 0) return null;
+    const toneClassName = tone === 'blocker'
+      ? 'border-destructive/40 bg-destructive/10 text-destructive'
+      : tone === 'warning'
+        ? 'border-amber-500/40 bg-amber-500/10 text-amber-800 dark:text-amber-200'
+        : 'border-border bg-muted/40 text-muted-foreground';
+
+    return (
+      <div className={`rounded-md border p-3 ${toneClassName}`}>
+        <p className="text-sm font-medium">{title}</p>
+        <ul className="mt-2 space-y-1 text-sm">
+          {findings.map((finding, index) => (
+            <li key={`${finding.category}:${index}`} className="flex gap-2">
+              <span aria-hidden="true">-</span>
+              <span>
+                {finding.message}
+                {typeof finding.count === 'number' ? ` (${finding.count})` : ''}
+              </span>
+            </li>
+          ))}
+        </ul>
+      </div>
+    );
+  };
+  const offboardingHasWarnings = Boolean(offboardingPreflight && offboardingPreflight.warnings.length > 0);
+  const offboardingCanSubmit = Boolean(
+    offboardingTarget &&
+    offboardingPreflight?.canApply &&
+    !isOffboardingPreflightLoading &&
+    !activeAction?.startsWith('offboard:') &&
+    (!offboardingHasWarnings || offboardingAcknowledge),
+  );
 
   const renderUserActions = (user: ManagedUser, options: { compact?: boolean } = {}) => {
     const role = normalizeRole(user.role);
@@ -436,14 +543,11 @@ export function UserManagementPanel({
           variant="destructive"
           size="sm"
           className={buttonClassName}
-          onClick={() => {
-            setDeleteTarget(user);
-            resetTransientState();
-          }}
+          onClick={() => openOffboardingDialog(user)}
           disabled={isSelf || isRowBusy || activeAction !== null}
         >
-          <Trash2 data-icon="inline-start" />
-          {t('actions.delete')}
+          <UserMinus data-icon="inline-start" />
+          {t('actions.offboard')}
         </Button>
       </div>
     );
@@ -799,22 +903,116 @@ export function UserManagementPanel({
         </DialogContent>
       </Dialog>
 
-      <AlertDialog open={Boolean(deleteTarget)} onOpenChange={(open) => !open && setDeleteTarget(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>{t('deleteDialog.title')}</AlertDialogTitle>
-            <AlertDialogDescription>
-              {deleteTarget ? t('deleteDialog.description', { email: deleteTarget.email }) : ''}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={activeAction?.startsWith('delete:')}>{t('cancel')}</AlertDialogCancel>
-            <AlertDialogAction variant="destructive" disabled={activeAction?.startsWith('delete:')} onClick={() => void deleteUser()}>
-              {t('deleteDialog.submit')}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <Dialog
+        open={Boolean(offboardingTarget)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setOffboardingTarget(null);
+            setOffboardingPreflight(null);
+            setOffboardingAcknowledge(false);
+            setOffboardingReason('');
+          }
+        }}
+      >
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>{t('offboardingDialog.title')}</DialogTitle>
+            <DialogDescription>
+              {offboardingTarget ? t('offboardingDialog.description', { email: offboardingTarget.email }) : ''}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex max-h-[70vh] flex-col gap-4 overflow-y-auto pr-1">
+            {isOffboardingPreflightLoading ? (
+              <div className="rounded-md border px-3 py-6 text-center text-sm text-muted-foreground">
+                <span className="inline-flex items-center gap-2">
+                  <Loader2 className="animate-spin" />
+                  {t('offboardingDialog.loading')}
+                </span>
+              </div>
+            ) : offboardingPreflight ? (
+              <>
+                <div className="rounded-md border bg-muted/40 p-3 text-sm text-muted-foreground">
+                  <p className="font-medium text-foreground">{t('offboardingDialog.summaryTitle')}</p>
+                  <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                    <span>{t('offboardingDialog.summary.sessions', { count: offboardingPreflight.counts.activeSessions || 0 })}</span>
+                    <span>{t('offboardingDialog.summary.automations', {
+                      count: (offboardingPreflight.counts.personalAutomations || 0)
+                        + (offboardingPreflight.counts.organizationResponsibleAutomations || 0)
+                        + (offboardingPreflight.counts.organizationReviewAutomations || 0),
+                    })}</span>
+                    <span>{t('offboardingDialog.summary.todos', { count: offboardingPreflight.counts.openAssignedTodos || 0 })}</span>
+                    <span>{t('offboardingDialog.summary.credentials', {
+                      count: (offboardingPreflight.counts.authAccounts || 0) + (offboardingPreflight.counts.activeEmailAccounts || 0),
+                    })}</span>
+                  </div>
+                </div>
+
+                {renderOffboardingFindings(t('offboardingDialog.blockers'), offboardingPreflight.blockers, 'blocker')}
+                {renderOffboardingFindings(t('offboardingDialog.warnings'), offboardingPreflight.warnings, 'warning')}
+                {renderOffboardingFindings(t('offboardingDialog.info'), offboardingPreflight.info, 'info')}
+
+                <div className="flex flex-col gap-2">
+                  <Label htmlFor="user-offboarding-reason">{t('offboardingDialog.reason')}</Label>
+                  <Input
+                    id="user-offboarding-reason"
+                    value={offboardingReason}
+                    onChange={(event) => setOffboardingReason(event.target.value)}
+                    placeholder={t('offboardingDialog.reasonPlaceholder')}
+                    disabled={activeAction?.startsWith('offboard:')}
+                  />
+                </div>
+
+                {offboardingHasWarnings && (
+                  <label className="flex items-start gap-3 rounded-md border p-3 text-sm">
+                    <input
+                      type="checkbox"
+                      className="mt-1"
+                      checked={offboardingAcknowledge}
+                      onChange={(event) => setOffboardingAcknowledge(event.target.checked)}
+                      disabled={activeAction?.startsWith('offboard:')}
+                    />
+                    <span className="text-muted-foreground">
+                      {t('offboardingDialog.acknowledgeWarnings')}
+                    </span>
+                  </label>
+                )}
+
+                {!offboardingPreflight.canApply && (
+                  <div className="inline-flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
+                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                    <span>{t('offboardingDialog.blockedHint')}</span>
+                  </div>
+                )}
+              </>
+            ) : (
+              <div className="rounded-md border px-3 py-6 text-center text-sm text-muted-foreground">
+                {t('offboardingDialog.empty')}
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setOffboardingTarget(null)}
+              disabled={activeAction?.startsWith('offboard:')}
+            >
+              {t('cancel')}
+            </Button>
+            {offboardingTarget && (
+              <Button
+                type="button"
+                variant="destructive"
+                onClick={() => void offboardUser()}
+                disabled={!offboardingCanSubmit}
+              >
+                {activeAction?.startsWith('offboard:') ? <Loader2 data-icon="inline-start" className="animate-spin" /> : <UserMinus data-icon="inline-start" />}
+                {t('offboardingDialog.submit')}
+              </Button>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
