@@ -16,7 +16,7 @@ export async function POST(request: NextRequest) {
   if (!limited.ok) return limited.response;
 
   try {
-    const config = await getTelegramConfigFromIntegrations({ userId: session.user.id });
+    const config = await getTelegramConfigFromIntegrations({ secretScope: 'legacy' });
     if (!config.botToken) {
       return NextResponse.json({ success: false, error: 'TELEGRAM_BOT_TOKEN not configured' }, { status: 400 });
     }
