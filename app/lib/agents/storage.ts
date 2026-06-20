@@ -6,7 +6,7 @@ import { type AgentId } from './catalog';
 import { DEFAULT_PI_CONFIG, normalizePiRuntimeConfig, type PiRuntimeConfig, validatePiConfig } from '../pi/config';
 import { CANVAS_CONTROL_PLANE_PROVIDER_ID, getCanvasControlPlaneModels } from '../managed/control-plane-models';
 import { getManagedControlPlaneBaseUrl } from '../managed/control-plane-url';
-import { resolveAgentStorageDir, resolveAgentsStorageRoot } from '../runtime-data-paths';
+import { normalizeDataScopeId, resolveAgentStorageDir, resolveAgentsStorageRoot, resolveUserAgentsDir } from '../runtime-data-paths';
 import {
   ensureSettingsStorageDirectory,
   readSettingsTextFileIfExists,
@@ -25,6 +25,9 @@ export const CANVAS_INHERITED_FILE_NAMES = ['USER.md'] as const;
 
 export type AgentManagedFileName = (typeof AGENT_MANAGED_FILE_NAMES)[number];
 export type AgentManagedFiles = Record<AgentManagedFileName, string>;
+export type AgentStorageScope = {
+  userId?: string | null;
+};
 
 // Seed system prompts directory (relative to project root)
 const SEED_SYS_PROMPTS_DIR = path.join(process.cwd(), 'seed_sys_prompts');
@@ -190,12 +193,17 @@ async function writeTextAtomic(filePath: string, content: string): Promise<void>
   await fs.rename(tempPath, filePath);
 }
 
-function resolveAgentScopedStorageDir(agentId?: string | null): string {
-  return path.join(AGENTS_STORAGE_ROOT, normalizeManagedAgentId(agentId));
+function resolveAgentStorageRootForScope(scope?: AgentStorageScope | null): string {
+  const userId = scope?.userId?.trim();
+  return userId ? resolveUserAgentsDir(normalizeDataScopeId(userId, 'userId')) : AGENTS_STORAGE_ROOT;
 }
 
-function resolveManagedFilePath(fileName: AgentManagedFileName, agentId?: string | null): string {
-  return path.join(resolveAgentScopedStorageDir(agentId), fileName);
+function resolveAgentScopedStorageDir(agentId?: string | null, scope?: AgentStorageScope | null): string {
+  return path.join(resolveAgentStorageRootForScope(scope), normalizeManagedAgentId(agentId));
+}
+
+function resolveManagedFilePath(fileName: AgentManagedFileName, agentId?: string | null, scope?: AgentStorageScope | null): string {
+  return path.join(/* turbopackIgnore: true */ resolveAgentScopedStorageDir(agentId, scope), fileName);
 }
 
 function resolveLegacyManagedFilePath(fileName: AgentManagedFileName): string {
@@ -238,14 +246,15 @@ async function migrateLegacyCanvasAgentFileIfMissing(
   return legacyContent;
 }
 
-export async function ensureAgentManagedFilesExist(agentId?: string | null): Promise<void> {
-  await fs.mkdir(resolveAgentScopedStorageDir(agentId), { recursive: true });
-  if (shouldMigrateLegacyCanvasAgentFiles(agentId)) {
+export async function ensureAgentManagedFilesExist(agentId?: string | null, scope?: AgentStorageScope | null): Promise<void> {
+  await fs.mkdir(resolveAgentScopedStorageDir(agentId, scope), { recursive: true });
+  const shouldUseLegacyMigration = !scope?.userId && shouldMigrateLegacyCanvasAgentFiles(agentId);
+  if (shouldUseLegacyMigration) {
     await ensureLegacyAgentStorageDirectory();
   }
 
   for (const fileName of getOwnedManagedFileNames(agentId)) {
-    const filePath = resolveManagedFilePath(fileName, agentId);
+    const filePath = resolveManagedFilePath(fileName, agentId, scope);
     let existing = await readFileIfExists(filePath);
 
     // A present empty file is intentional, for example after resetting USER.md or MEMORY.md.
@@ -253,7 +262,7 @@ export async function ensureAgentManagedFilesExist(agentId?: string | null): Pro
       continue;
     }
 
-    if (shouldMigrateLegacyCanvasAgentFiles(agentId)) {
+    if (shouldUseLegacyMigration) {
       existing = await migrateLegacyCanvasAgentFileIfMissing(fileName, filePath, existing);
       if (existing !== null) {
         continue;
@@ -268,29 +277,37 @@ export async function ensureAgentManagedFilesExist(agentId?: string | null): Pro
   }
 }
 
-export async function readManagedAgentFile(fileName: AgentManagedFileName, agentId?: string | null): Promise<string> {
-  await ensureAgentManagedFilesExist(agentId);
-  const filePath = resolveManagedFilePath(fileName, agentId);
+export async function readManagedAgentFile(
+  fileName: AgentManagedFileName,
+  agentId?: string | null,
+  scope?: AgentStorageScope | null,
+): Promise<string> {
+  await ensureAgentManagedFilesExist(agentId, scope);
+  const filePath = resolveManagedFilePath(fileName, agentId, scope);
   const content = await readFileIfExists(filePath);
 
   return content ?? '';
 }
 
-export async function resetManagedAgentFile(fileName: AgentManagedFileName, agentId?: string | null): Promise<string> {
-  await fs.mkdir(resolveAgentScopedStorageDir(agentId), { recursive: true });
-  const filePath = resolveManagedFilePath(fileName, agentId);
+export async function resetManagedAgentFile(
+  fileName: AgentManagedFileName,
+  agentId?: string | null,
+  scope?: AgentStorageScope | null,
+): Promise<string> {
+  await fs.mkdir(resolveAgentScopedStorageDir(agentId, scope), { recursive: true });
+  const filePath = resolveManagedFilePath(fileName, agentId, scope);
   const seedContent = await readSeedFile(fileName);
 
   await writeTextAtomic(filePath, seedContent ?? '');
   return (await readFileIfExists(filePath)) ?? '';
 }
 
-export async function readManagedAgentFiles(agentId?: string | null): Promise<AgentManagedFiles> {
-  await ensureAgentManagedFilesExist(agentId);
+export async function readManagedAgentFiles(agentId?: string | null, scope?: AgentStorageScope | null): Promise<AgentManagedFiles> {
+  await ensureAgentManagedFilesExist(agentId, scope);
 
   const entries = await Promise.all(
     AGENT_MANAGED_FILE_NAMES.map(async (fileName) => {
-      const content = await readManagedAgentFile(fileName, agentId);
+      const content = await readManagedAgentFile(fileName, agentId, scope);
       return [fileName, content] as const;
     })
   );
@@ -298,17 +315,17 @@ export async function readManagedAgentFiles(agentId?: string | null): Promise<Ag
   return Object.fromEntries(entries) as AgentManagedFiles;
 }
 
-export async function readRuntimeManagedAgentFiles(agentId?: string | null): Promise<AgentManagedFiles> {
+export async function readRuntimeManagedAgentFiles(agentId?: string | null, scope?: AgentStorageScope | null): Promise<AgentManagedFiles> {
   const normalizedAgentId = normalizeManagedAgentId(agentId);
   if (normalizedAgentId === DEFAULT_MANAGED_AGENT_ID) {
-    return readManagedAgentFiles(DEFAULT_MANAGED_AGENT_ID);
+    return readManagedAgentFiles(DEFAULT_MANAGED_AGENT_ID, scope);
   }
 
   const entries = await Promise.all(
     AGENT_MANAGED_FILE_NAMES.map(async (fileName) => {
       const inherited = (CANVAS_INHERITED_FILE_NAMES as readonly string[]).includes(fileName);
       const sourceAgentId = inherited ? DEFAULT_MANAGED_AGENT_ID : normalizedAgentId;
-      const content = await readManagedAgentFile(fileName, sourceAgentId);
+      const content = await readManagedAgentFile(fileName, sourceAgentId, scope);
       return [fileName, content] as const;
     }),
   );
@@ -316,11 +333,16 @@ export async function readRuntimeManagedAgentFiles(agentId?: string | null): Pro
   return Object.fromEntries(entries) as AgentManagedFiles;
 }
 
-export async function writeManagedAgentFile(fileName: AgentManagedFileName, content: string, agentId?: string | null): Promise<string> {
-  await ensureAgentManagedFilesExist(agentId);
-  const filePath = resolveManagedFilePath(fileName, agentId);
+export async function writeManagedAgentFile(
+  fileName: AgentManagedFileName,
+  content: string,
+  agentId?: string | null,
+  scope?: AgentStorageScope | null,
+): Promise<string> {
+  await ensureAgentManagedFilesExist(agentId, scope);
+  const filePath = resolveManagedFilePath(fileName, agentId, scope);
   await writeTextAtomic(filePath, content);
-  return readManagedAgentFile(fileName, agentId);
+  return readManagedAgentFile(fileName, agentId, scope);
 }
 
 /**

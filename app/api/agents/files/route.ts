@@ -45,9 +45,12 @@ function isInheritedFileForAgent(fileName: AgentManagedFileName, agentId?: strin
 }
 
 export async function GET(request: NextRequest) {
-  const { response } = await requireSession(request);
+  const { session, response } = await requireSession(request);
   if (response) {
     return response;
+  }
+  if (!session) {
+    return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
   }
 
   const limited = rateLimit(request, {
@@ -61,7 +64,7 @@ export async function GET(request: NextRequest) {
 
   try {
     const agentId = request.nextUrl.searchParams.get('agentId');
-    const files = await readManagedAgentFiles(agentId);
+    const files = await readManagedAgentFiles(agentId, { userId: session.user.id });
     return NextResponse.json({
       success: true,
       data: { files },
@@ -74,9 +77,12 @@ export async function GET(request: NextRequest) {
 }
 
 export async function PUT(request: NextRequest) {
-  const { response } = await requireSession(request);
+  const { session, response } = await requireSession(request);
   if (response) {
     return response;
+  }
+  if (!session) {
+    return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
   }
 
   const limited = rateLimit(request, {
@@ -110,7 +116,7 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ success: false, error: `${fileName} is inherited from the Canvas Agent and cannot be edited for specialized agents.` }, { status: 400 });
     }
 
-    const content = await writeManagedAgentFile(fileName, payload.content, agentId);
+    const content = await writeManagedAgentFile(fileName, payload.content, agentId, { userId: session.user.id });
     return NextResponse.json({
       success: true,
       data: {
@@ -127,9 +133,12 @@ export async function PUT(request: NextRequest) {
 
 // POST /api/agents/files - Reset to seed
 export async function POST(request: NextRequest) {
-  const { response } = await requireSession(request);
+  const { session, response } = await requireSession(request);
   if (response) {
     return response;
+  }
+  if (!session) {
+    return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
   }
 
   const limited = rateLimit(request, {
@@ -169,7 +178,7 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ success: false, error: `${fileName} is inherited from the Canvas Agent and cannot be reset for specialized agents.` }, { status: 400 });
       }
 
-      const content = await resetManagedAgentFile(fileName, agentId);
+      const content = await resetManagedAgentFile(fileName, agentId, { userId: session.user.id });
 
       return NextResponse.json({
         success: true,
@@ -187,7 +196,7 @@ export async function POST(request: NextRequest) {
         : SPECIAL_AGENT_MANAGED_FILE_NAMES;
 
       for (const fileName of fileNames) {
-        const content = await resetManagedAgentFile(fileName, agentId);
+        const content = await resetManagedAgentFile(fileName, agentId, { userId: session.user.id });
         results.push({ fileName, content });
       }
 

@@ -38,6 +38,16 @@ async function main() {
     if (request === 'server-only') {
       return {};
     }
+    if (request === '@earendil-works/pi-ai') {
+      return {
+        registerBuiltInApiProviders: () => undefined,
+        getProviders: () => [],
+        getModels: () => [],
+      };
+    }
+    if (request === '@earendil-works/pi-ai/oauth') {
+      return {};
+    }
     return originalLoad.call(this, request, parent, isMain);
   };
 

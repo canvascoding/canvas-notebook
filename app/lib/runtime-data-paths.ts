@@ -22,6 +22,13 @@ export function resolveCanvasDataRoot(cwd?: string): string {
     return path.resolve(configured);
   }
 
+  const data = process.env.DATA?.trim();
+  if (data && data !== './data' && data !== 'data') {
+    return path.isAbsolute(data)
+      ? data
+      : path.resolve(cwd ?? process.cwd(), data);
+  }
+
   if (directoryExists(CONTAINER_DATA_ROOT)) {
     return CONTAINER_DATA_ROOT;
   }
@@ -35,6 +42,124 @@ export function resolveAgentStorageDir(cwd?: string): string {
 
 export function resolveAgentsStorageRoot(cwd?: string): string {
   return path.join(/* turbopackIgnore: true */ resolveCanvasDataRoot(cwd), 'agents');
+}
+
+export function normalizeDataScopeId(id: string, label = 'scope id'): string {
+  const normalized = id.trim();
+  if (
+    !normalized ||
+    normalized === '.' ||
+    normalized === '..' ||
+    normalized.includes('/') ||
+    normalized.includes('\\') ||
+    normalized.includes('\0')
+  ) {
+    throw new Error(`Invalid ${label}.`);
+  }
+  return normalized;
+}
+
+export function resolveUsersDataRoot(cwd?: string): string {
+  return path.join(/* turbopackIgnore: true */ resolveCanvasDataRoot(cwd), 'users');
+}
+
+export function resolveUserDataRoot(userId: string, cwd?: string): string {
+  return path.join(/* turbopackIgnore: true */ resolveUsersDataRoot(cwd), normalizeDataScopeId(userId, 'userId'));
+}
+
+export function resolveUserSettingsDir(userId: string, cwd?: string): string {
+  return path.join(/* turbopackIgnore: true */ resolveUserDataRoot(userId, cwd), 'settings');
+}
+
+export function resolveUserSecretsDir(userId: string, cwd?: string): string {
+  return path.join(/* turbopackIgnore: true */ resolveUserDataRoot(userId, cwd), 'secrets');
+}
+
+export function resolveUserAgentsDir(userId: string, cwd?: string): string {
+  return path.join(/* turbopackIgnore: true */ resolveUserDataRoot(userId, cwd), 'agents');
+}
+
+export function resolveUserSkillsDir(userId: string, cwd?: string): string {
+  return path.join(/* turbopackIgnore: true */ resolveUserDataRoot(userId, cwd), 'skills');
+}
+
+export function resolveUserPluginsDir(userId: string, cwd?: string): string {
+  return path.join(/* turbopackIgnore: true */ resolveUserDataRoot(userId, cwd), 'plugins');
+}
+
+export function resolveUserMcpDir(userId: string, cwd?: string): string {
+  return path.join(/* turbopackIgnore: true */ resolveUserDataRoot(userId, cwd), 'mcp');
+}
+
+export function resolveUserMailDir(userId: string, cwd?: string): string {
+  return path.join(/* turbopackIgnore: true */ resolveUserDataRoot(userId, cwd), 'mail');
+}
+
+export function resolveOrganizationsDataRoot(cwd?: string): string {
+  return path.join(/* turbopackIgnore: true */ resolveCanvasDataRoot(cwd), 'organizations');
+}
+
+export function resolveOrganizationDataRoot(organizationId: string, cwd?: string): string {
+  return path.join(
+    /* turbopackIgnore: true */ resolveOrganizationsDataRoot(cwd),
+    normalizeDataScopeId(organizationId, 'organizationId'),
+  );
+}
+
+export function resolveOrganizationSettingsDir(organizationId: string, cwd?: string): string {
+  return path.join(/* turbopackIgnore: true */ resolveOrganizationDataRoot(organizationId, cwd), 'settings');
+}
+
+export function resolveOrganizationSecretsDir(organizationId: string, cwd?: string): string {
+  return path.join(/* turbopackIgnore: true */ resolveOrganizationDataRoot(organizationId, cwd), 'secrets');
+}
+
+export function resolveOrganizationPoliciesDir(organizationId: string, cwd?: string): string {
+  return path.join(/* turbopackIgnore: true */ resolveOrganizationDataRoot(organizationId, cwd), 'policies');
+}
+
+export function resolveOrganizationAgentTemplatesDir(organizationId: string, cwd?: string): string {
+  return path.join(/* turbopackIgnore: true */ resolveOrganizationDataRoot(organizationId, cwd), 'agent-templates');
+}
+
+export function resolveOrganizationSkillTemplatesDir(organizationId: string, cwd?: string): string {
+  return path.join(/* turbopackIgnore: true */ resolveOrganizationDataRoot(organizationId, cwd), 'skill-templates');
+}
+
+export function resolveOrganizationPluginTemplatesDir(organizationId: string, cwd?: string): string {
+  return path.join(/* turbopackIgnore: true */ resolveOrganizationDataRoot(organizationId, cwd), 'plugin-templates');
+}
+
+export function resolveOrganizationMcpTemplatesDir(organizationId: string, cwd?: string): string {
+  return path.join(/* turbopackIgnore: true */ resolveOrganizationDataRoot(organizationId, cwd), 'mcp-templates');
+}
+
+export function resolveSystemDataRoot(cwd?: string): string {
+  return path.join(/* turbopackIgnore: true */ resolveCanvasDataRoot(cwd), 'system');
+}
+
+export function resolveSystemSettingsDir(cwd?: string): string {
+  return path.join(/* turbopackIgnore: true */ resolveSystemDataRoot(cwd), 'settings');
+}
+
+export function resolveSystemSecretsDir(cwd?: string): string {
+  return path.join(/* turbopackIgnore: true */ resolveSystemDataRoot(cwd), 'secrets');
+}
+
+export function resolveSystemManagedDir(cwd?: string): string {
+  return path.join(/* turbopackIgnore: true */ resolveSystemDataRoot(cwd), 'managed');
+}
+
+export function resolveSystemBackupsDir(cwd?: string): string {
+  return path.join(/* turbopackIgnore: true */ resolveSystemDataRoot(cwd), 'backups');
+}
+
+export function resolveSystemMigrationDir(cwd?: string): string {
+  return path.join(/* turbopackIgnore: true */ resolveSystemDataRoot(cwd), 'migration');
+}
+
+export function resolveSystemLogsDir(cwd?: string): string {
+  return path.join(/* turbopackIgnore: true */ resolveSystemDataRoot(cwd), 'logs');
 }
 
 export function resolveSettingsStorageDir(cwd?: string): string {

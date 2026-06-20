@@ -77,12 +77,13 @@ function managedFilesValue(value: unknown): Partial<Record<AgentManagedFileName,
 async function writeInitialAgentFiles(
   agentId: string,
   files: Partial<Record<AgentManagedFileName, string>>,
+  userId: string,
 ): Promise<void> {
   for (const [fileName, content] of Object.entries(files)) {
     if (!isManagedAgentFileName(fileName) || !isWritableManagedAgentFileName(fileName, agentId)) {
       continue;
     }
-    await writeManagedAgentFile(fileName, content ?? '', agentId);
+    await writeManagedAgentFile(fileName, content ?? '', agentId, { userId });
   }
 }
 
@@ -114,7 +115,7 @@ export async function POST(request: NextRequest) {
       relevantSkills: stringArrayValue(payload.relevantSkills),
       relevantConnections: stringArrayValue(payload.relevantConnections),
     });
-    await writeInitialAgentFiles(agent.agentId, managedFilesValue(payload.files));
+    await writeInitialAgentFiles(agent.agentId, managedFilesValue(payload.files), session.user.id);
     return NextResponse.json({ success: true, data: { agent } });
   } catch (error) {
     return NextResponse.json(

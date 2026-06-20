@@ -2716,7 +2716,7 @@ function createPublicShareTool(userId?: string, agentId?: string | null, session
   };
 }
 
-function createMemoryTool(agentId?: string | null): AgentTool {
+function createMemoryTool(userId?: string, agentId?: string | null): AgentTool {
   return {
     name: 'memory',
     label: 'Managing memory',
@@ -2753,7 +2753,7 @@ function createMemoryTool(agentId?: string | null): AgentTool {
         }
 
         if (input.action === 'read') {
-          const result = await readMemory({ target, agentId });
+          const result = await readMemory({ target, agentId, userId });
           return { content: [{ type: 'text', text: formatMemoryResult(result) }], details: result };
         }
 
@@ -2761,7 +2761,7 @@ function createMemoryTool(agentId?: string | null): AgentTool {
           if (typeof input.content !== 'string') {
             throw new Error('content is required for add.');
           }
-          const result = await addMemory({ target, agentId, content: input.content });
+          const result = await addMemory({ target, agentId, userId, content: input.content });
           const prefix = result.changed ? 'Memory entry added.' : 'Memory entry already existed.';
           return { content: [{ type: 'text', text: `${prefix}\n${formatMemoryResult(result)}` }], details: result };
         }
@@ -2773,7 +2773,7 @@ function createMemoryTool(agentId?: string | null): AgentTool {
           if (typeof input.content !== 'string') {
             throw new Error('content is required for update.');
           }
-          const result = await updateMemory({ target, agentId, id: input.id, content: input.content });
+          const result = await updateMemory({ target, agentId, userId, id: input.id, content: input.content });
           return { content: [{ type: 'text', text: `Memory entry updated.\n${formatMemoryResult(result)}` }], details: result };
         }
 
@@ -2781,7 +2781,7 @@ function createMemoryTool(agentId?: string | null): AgentTool {
           if (!input.id) {
             throw new Error('id is required for delete.');
           }
-          const result = await deleteMemory({ target, agentId, id: input.id });
+          const result = await deleteMemory({ target, agentId, userId, id: input.id });
           return { content: [{ type: 'text', text: `Memory entry deleted.\n${formatMemoryResult(result)}` }], details: result };
         }
 
@@ -2860,7 +2860,7 @@ function createOnboardingProfileTool(userId?: string, agentId?: string | null, s
 function createUserScopedTools(userId?: string, agentId?: string | null, sessionId?: string | null): AgentTool[] {
   const sourceAgentId = normalizeManagedAgentId(agentId);
   const tools: AgentTool[] = [
-    createMemoryTool(agentId),
+    createMemoryTool(userId, agentId),
     createSessionSearchTool({ userId, agentId }),
     createHumanTodoTool({ userId, agentId, sessionId }),
     createPublicShareTool(userId, agentId, sessionId),

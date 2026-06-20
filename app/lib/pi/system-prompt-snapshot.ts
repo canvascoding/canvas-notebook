@@ -9,7 +9,7 @@ import { piSessions } from '@/app/lib/db/schema';
 
 type PiSessionPromptSnapshotRow = Pick<
   typeof piSessions.$inferSelect,
-  'id' | 'agentId' | 'systemPromptSnapshot' | 'systemPromptSnapshotHash' | 'systemPromptSnapshotCreatedAt'
+  'id' | 'userId' | 'agentId' | 'systemPromptSnapshot' | 'systemPromptSnapshotHash' | 'systemPromptSnapshotCreatedAt'
 >;
 
 export type PiSystemPromptSnapshot = {
@@ -33,8 +33,11 @@ export function buildPiSystemPromptSnapshotFromText(
   };
 }
 
-export async function createPiSystemPromptSnapshot(agentId?: string | null): Promise<PiSystemPromptSnapshot> {
-  const { systemPrompt } = await loadManagedAgentSystemPrompt(agentId);
+export async function createPiSystemPromptSnapshot(
+  agentId?: string | null,
+  scope?: { userId?: string | null } | null,
+): Promise<PiSystemPromptSnapshot> {
+  const { systemPrompt } = await loadManagedAgentSystemPrompt(agentId, scope);
   return buildPiSystemPromptSnapshotFromText(systemPrompt);
 }
 
@@ -69,7 +72,7 @@ export async function ensurePiSessionSystemPromptSnapshot(
     return snapshot;
   }
 
-  const snapshot = await createPiSystemPromptSnapshot(session.agentId);
+  const snapshot = await createPiSystemPromptSnapshot(session.agentId, { userId: session.userId });
   await db
     .update(piSessions)
     .set(piSystemPromptSnapshotDbFields(snapshot))
@@ -95,5 +98,5 @@ export async function loadPiSessionSystemPromptSnapshot(input: {
     return ensurePiSessionSystemPromptSnapshot(session);
   }
 
-  return createPiSystemPromptSnapshot(input.agentId);
+  return createPiSystemPromptSnapshot(input.agentId, { userId: input.userId });
 }

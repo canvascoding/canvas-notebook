@@ -1458,7 +1458,7 @@ async function createRuntime(sessionId: string, userId: string): Promise<LivePiR
   };
   const promptSnapshot = sessionRecord
     ? await ensurePiSessionSystemPromptSnapshot(sessionRecord)
-    : await createPiSystemPromptSnapshot(agentId);
+    : await createPiSystemPromptSnapshot(agentId, { userId });
   const systemPrompt = promptSnapshot.systemPrompt;
   const tools = await getPiTools(userId, agentId, sessionId);
   const toolLoopGuard = createToolLoopGuard();

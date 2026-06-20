@@ -73,6 +73,43 @@ async function main() {
       /Europe\/Berlin/,
     );
 
+    const scopedAgentAdded = await addMemory({
+      target: 'agent',
+      agentId: 'research-agent',
+      userId: 'user_a',
+      content: 'Scoped agent memory belongs to user A.',
+    });
+    assert.equal(scopedAgentAdded.changed, true);
+    assert.equal(scopedAgentAdded.agentId, 'research-agent');
+    assert.match(
+      await fs.readFile(path.join(dataDir, 'users', 'user_a', 'agents', 'research-agent', 'MEMORY.md'), 'utf8'),
+      /Scoped agent memory belongs to user A/,
+    );
+    assert.doesNotMatch(await fs.readFile(agentMemoryPath, 'utf8'), /Scoped agent memory belongs to user A/);
+
+    const scopedOtherUser = await readMemory({
+      target: 'agent',
+      agentId: 'research-agent',
+      userId: 'user_b',
+    });
+    assert.deepEqual(scopedOtherUser.entries, []);
+
+    const scopedUserAdded = await addMemory({
+      target: 'user',
+      agentId: 'research-agent',
+      userId: 'user_a',
+      content: 'Scoped user memory belongs to user A.',
+    });
+    assert.equal(scopedUserAdded.agentId, 'canvas-agent');
+    assert.match(
+      await fs.readFile(path.join(dataDir, 'users', 'user_a', 'agents', 'canvas-agent', 'USER.md'), 'utf8'),
+      /Scoped user memory belongs to user A/,
+    );
+    assert.doesNotMatch(
+      await fs.readFile(path.join(dataDir, 'agents', 'canvas-agent', 'USER.md'), 'utf8'),
+      /Scoped user memory belongs to user A/,
+    );
+
     await assert.rejects(
       () => addMemory({
         target: 'user',
@@ -89,6 +126,7 @@ async function main() {
     assert.equal(deleted.changed, true);
     assert.deepEqual(deleted.entries, []);
 
+    await fs.rm(path.join(dataDir, 'agents', 'canvas-agent', 'MEMORY.md'), { force: true });
     await fs.mkdir(path.join(dataDir, 'canvas-agent'), { recursive: true });
     await fs.writeFile(path.join(dataDir, 'canvas-agent', 'MEMORY.md'), 'Legacy canvas memory.\n', 'utf8');
     const migrated = await readMemory({ target: 'agent', agentId: 'canvas-agent' });

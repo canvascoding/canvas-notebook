@@ -360,7 +360,9 @@ async function startEphemeralDelegatedRun(request: DelegateTaskRequest): Promise
   const model = effectiveConfig.model;
   const sessionId = buildDelegatedSessionId();
   const tools = await resolveEphemeralTools(request, sessionId);
-  const { systemPrompt: baseSystemPrompt } = await loadManagedAgentSystemPrompt(request.sourceAgentId);
+  const { systemPrompt: baseSystemPrompt } = await loadManagedAgentSystemPrompt(request.sourceAgentId, {
+    userId: request.userId,
+  });
   const systemPrompt = buildEphemeralSystemPrompt(baseSystemPrompt, request, tools);
   const promptMessage = buildDelegationPrompt(request);
 
@@ -438,7 +440,7 @@ async function ensureManagedDelegatedSession(request: DelegateTaskRequest): Prom
   const effectiveConfig = await resolveAgentRuntimeConfig(request.targetAgentId);
   const provider = effectiveConfig.activeProvider;
   const providerConfig = effectiveConfig.providerConfig;
-  const promptSnapshot = await createPiSystemPromptSnapshot(request.targetAgentId);
+  const promptSnapshot = await createPiSystemPromptSnapshot(request.targetAgentId, { userId: request.userId });
 
   await db.insert(piSessions).values({
     sessionId,

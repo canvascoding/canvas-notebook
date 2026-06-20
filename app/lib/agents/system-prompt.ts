@@ -5,6 +5,7 @@ import {
   DEFAULT_MANAGED_AGENT_ID,
   readRuntimeManagedAgentFiles,
   readPiRuntimeConfig,
+  type AgentStorageScope,
 } from './storage';
 import { resolveAgentRuntimeConfig } from './effective-runtime-config';
 import {
@@ -271,10 +272,13 @@ async function buildOnboardingBootstrapContext(normalizedAgentId: string): Promi
   }
 }
 
-export async function loadManagedAgentSystemPrompt(agentId?: string | null): Promise<ManagedSystemPromptResult> {
+export async function loadManagedAgentSystemPrompt(
+  agentId?: string | null,
+  scope?: AgentStorageScope | null,
+): Promise<ManagedSystemPromptResult> {
   try {
     const normalizedAgentId = agentId?.trim().toLowerCase() || DEFAULT_MANAGED_AGENT_ID;
-    const files = await readRuntimeManagedAgentFiles(normalizedAgentId);
+    const files = await readRuntimeManagedAgentFiles(normalizedAgentId, scope);
     const agentProfile = await getAgentProfile(normalizedAgentId);
     
     // Load PI config to get enabled skills and check composio tools
@@ -289,6 +293,7 @@ export async function loadManagedAgentSystemPrompt(agentId?: string | null): Pro
     const result = composeManagedAgentSystemPrompt(files, skillsContext, {
       agentId: normalizedAgentId,
       inheritedFiles: normalizedAgentId === DEFAULT_MANAGED_AGENT_ID ? [] : CANVAS_INHERITED_FILE_NAMES,
+      scope,
     });
     
     let systemPrompt = result.systemPrompt;

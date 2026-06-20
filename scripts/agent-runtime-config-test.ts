@@ -50,6 +50,9 @@ async function main() {
         },
       };
     }
+    if (request === '@earendil-works/pi-ai/oauth') {
+      return {};
+    }
     return originalLoad(request, parent, isMain);
   };
 
@@ -156,6 +159,31 @@ async function main() {
       expectedSeed,
     );
   }
+
+  await fs.writeFile(path.join(dataDir, 'canvas-agent', 'USER.md'), 'Legacy user profile should not leak.\n', 'utf8');
+  const scopedUserId = 'runtime-user-a';
+  assert.doesNotMatch(
+    await readManagedAgentFile('USER.md', DEFAULT_MANAGED_AGENT_ID, { userId: scopedUserId }),
+    /Legacy user profile should not leak/,
+  );
+  await writeManagedAgentFile('AGENTS.md', 'Scoped runtime prompt.\n', DEFAULT_MANAGED_AGENT_ID, {
+    userId: scopedUserId,
+  });
+  const scopedPrompt = await loadManagedAgentSystemPrompt(DEFAULT_MANAGED_AGENT_ID, { userId: scopedUserId });
+  assert.match(scopedPrompt.systemPrompt, /Scoped runtime prompt/);
+  assert.ok(scopedPrompt.systemPrompt.includes(
+    `Source: ${path.join(dataDir, 'users', scopedUserId, 'agents', 'canvas-agent', 'AGENTS.md')}`,
+  ));
+  assert.match(
+    await fs.readFile(path.join(dataDir, 'users', scopedUserId, 'agents', 'canvas-agent', 'AGENTS.md'), 'utf8'),
+    /Scoped runtime prompt/,
+  );
+  await assert.rejects(
+    () => writeManagedAgentFile('AGENTS.md', 'Invalid scoped prompt.\n', DEFAULT_MANAGED_AGENT_ID, {
+      userId: '../other-user',
+    }),
+    /Invalid userId/,
+  );
 
   const inheritedAgent = await createAgentProfile({ name: 'Inherited Agent' });
   assert.equal(inheritedAgent.iconId, 'bot');
@@ -336,6 +364,9 @@ async function main() {
   assert.equal(storedSnapshot.systemPrompt, originalSnapshot.systemPrompt);
   assert.doesNotMatch(storedSnapshot.systemPrompt, /Changed after session start/);
 
+  await writeManagedAgentFile('AGENTS.md', 'Snapshot user scoped prompt.\n', customAgent.agentId, {
+    userId: 'snapshot-user',
+  });
   await db.insert(piSessions).values({
     sessionId: 'legacy-unsnapshotted-session',
     userId: 'snapshot-user',
@@ -354,7 +385,8 @@ async function main() {
   });
   assert.ok(legacySession);
   const legacySnapshot = await ensurePiSessionSystemPromptSnapshot(legacySession);
-  assert.match(legacySnapshot.systemPrompt, /Changed after session start/);
+  assert.match(legacySnapshot.systemPrompt, /Snapshot user scoped prompt/);
+  assert.doesNotMatch(legacySnapshot.systemPrompt, /Changed after session start/);
   const updatedLegacySession = await db.query.piSessions.findFirst({
     where: eq(piSessions.sessionId, 'legacy-unsnapshotted-session'),
   });
