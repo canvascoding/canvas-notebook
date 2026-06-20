@@ -8,9 +8,10 @@ import { fileURLToPath } from 'url';
 import JSZip from 'jszip';
 
 import {
-  resolveSkillBackupsDir,
-  resolveSkillRegistryPath,
-  resolveSkillsDataDir,
+  resolveScopedSkillBackupsDir,
+  resolveScopedSkillRegistryPath,
+  resolveScopedSkillsDataDir,
+  type UserScopedDataStorageScope,
 } from '@/app/lib/runtime-data-paths';
 import { computeCanvasPluginChecksum } from '@/app/lib/plugins/canvas-plugin-registry';
 import { isPathInside, isValidCanvasPluginVersion } from '@/app/lib/plugins/canvas-plugin-manifest';
@@ -21,8 +22,8 @@ import {
 } from '@/app/lib/skills/canvas-skill-manifest';
 import { loadSkillByName, getSkillNames } from '@/app/lib/skills/skill-loader';
 import { loadSkillSummaries, type SkillSummary } from '@/app/lib/skills/skill-summaries';
-import { readPiRuntimeConfig, writePiRuntimeConfig } from '@/app/lib/agents/storage';
 import { DISABLED_ALL_SKILLS_SENTINEL, enableSkillInConfig } from '@/app/lib/skills/enabled-skills';
+import { readEnabledSkillsForScope, writeEnabledSkillsForScope } from '@/app/lib/skills/skill-settings';
 
 export const DEFAULT_CANVAS_SKILL_STORE_REGISTRY_URL =
   'https://raw.githubusercontent.com/canvascoding/canvas-notebook-plugin-marketplace/main/registry.json';
@@ -120,6 +121,7 @@ export interface CanvasSkillStoreListOptions {
   pageSize?: number;
   query?: string;
   state?: CanvasSkillStoreStateFilter;
+  scope?: CanvasSkillStoreScope | null;
 }
 
 export interface CanvasSkillStorePagination {
@@ -154,6 +156,8 @@ export interface CanvasSkillStoreInstallResult {
   storeVersion?: CanvasSkillStoreVersion;
   backupPath?: string;
 }
+
+export type CanvasSkillStoreScope = UserScopedDataStorageScope;
 
 export interface CanvasSkillsResetResult {
   success: boolean;
@@ -369,13 +373,23 @@ function createEmptySkillRegistry(): CanvasSkillRegistry {
   };
 }
 
-async function ensureSkillRoot(): Promise<void> {
-  await fs.mkdir(resolveSkillsDataDir(), { recursive: true });
+async function ensureSkillRoot(scope?: CanvasSkillStoreScope | null): Promise<void> {
+  await fs.mkdir(resolveScopedSkillsDataDir(scope), { recursive: true });
 }
 
-export async function readCanvasSkillRegistry(): Promise<CanvasSkillRegistry> {
-  await ensureSkillRoot();
-  const registryPath = resolveSkillRegistryPath();
+async function directoryExists(targetPath: string): Promise<boolean> {
+  return fs.stat(targetPath).then((stat) => stat.isDirectory()).catch(() => false);
+}
+
+async function resolveReadableSkillsDataDir(scope?: CanvasSkillStoreScope | null): Promise<string> {
+  const scopedDir = resolveScopedSkillsDataDir(scope);
+  if (scope?.userId?.trim() && !(await directoryExists(scopedDir))) {
+    return resolveScopedSkillsDataDir();
+  }
+  return scopedDir;
+}
+
+async function readCanvasSkillRegistryFile(registryPath: string): Promise<CanvasSkillRegistry | null> {
   try {
     const raw = await fs.readFile(registryPath, 'utf-8');
     const parsed = JSON.parse(raw) as CanvasSkillRegistry;
@@ -385,16 +399,36 @@ export async function readCanvasSkillRegistry(): Promise<CanvasSkillRegistry> {
     return parsed;
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-      return createEmptySkillRegistry();
+      return null;
     }
     console.warn('[CanvasSkillRegistry] Failed to read registry, using empty registry:', error);
     return createEmptySkillRegistry();
   }
 }
 
-export async function writeCanvasSkillRegistry(registry: CanvasSkillRegistry): Promise<void> {
-  await ensureSkillRoot();
-  const registryPath = resolveSkillRegistryPath();
+export async function readCanvasSkillRegistry(scope?: CanvasSkillStoreScope | null): Promise<CanvasSkillRegistry> {
+  const registryPath = resolveScopedSkillRegistryPath(scope);
+  const registry = await readCanvasSkillRegistryFile(registryPath);
+  if (registry) {
+    return registry;
+  }
+
+  if (scope?.userId?.trim() && !(await directoryExists(resolveScopedSkillsDataDir(scope)))) {
+    const legacyRegistry = await readCanvasSkillRegistryFile(resolveScopedSkillRegistryPath());
+    if (legacyRegistry) {
+      return legacyRegistry;
+    }
+  }
+
+  return createEmptySkillRegistry();
+}
+
+export async function writeCanvasSkillRegistry(
+  registry: CanvasSkillRegistry,
+  scope?: CanvasSkillStoreScope | null,
+): Promise<void> {
+  await ensureSkillRoot(scope);
+  const registryPath = resolveScopedSkillRegistryPath(scope);
   const tmpPath = `${registryPath}.tmp`;
   const nextRegistry: CanvasSkillRegistry = {
     ...registry,
@@ -405,28 +439,30 @@ export async function writeCanvasSkillRegistry(registry: CanvasSkillRegistry): P
   await fs.rename(tmpPath, registryPath);
 }
 
-export async function removeCanvasSkillRegistryRecord(skillName: string): Promise<void> {
-  const registry = await readCanvasSkillRegistry();
+export async function removeCanvasSkillRegistryRecord(
+  skillName: string,
+  scope?: CanvasSkillStoreScope | null,
+): Promise<void> {
+  const registry = await readCanvasSkillRegistry(scope);
   if (!registry.skills[skillName]) {
     return;
   }
   delete registry.skills[skillName];
-  await writeCanvasSkillRegistry(registry);
+  await writeCanvasSkillRegistry(registry, scope);
 }
 
-export async function resetCanvasSkillsDirectory(updatedBy = 'unknown'): Promise<CanvasSkillsResetResult> {
-  const skillsDir = resolveSkillsDataDir();
+export async function resetCanvasSkillsDirectory(
+  updatedBy = 'unknown',
+  scope?: CanvasSkillStoreScope | null,
+): Promise<CanvasSkillsResetResult> {
+  const skillsDir = resolveScopedSkillsDataDir(scope);
   const deletedAt = nowIso();
 
   await fs.rm(skillsDir, { recursive: true, force: true });
   await fs.mkdir(skillsDir, { recursive: true });
-  await writeCanvasSkillRegistry(createEmptySkillRegistry());
+  await writeCanvasSkillRegistry(createEmptySkillRegistry(), scope);
 
-  const config = await readPiRuntimeConfig();
-  config.enabledSkills = [DISABLED_ALL_SKILLS_SENTINEL];
-  config.updatedAt = deletedAt;
-  config.updatedBy = updatedBy;
-  await writePiRuntimeConfig(config);
+  await writeEnabledSkillsForScope([DISABLED_ALL_SKILLS_SENTINEL], { scope, updatedBy });
 
   return {
     success: true,
@@ -435,8 +471,11 @@ export async function resetCanvasSkillsDirectory(updatedBy = 'unknown'): Promise
   };
 }
 
-async function listStandaloneSkillSummaries(enabledSkills?: string[]): Promise<SkillSummary[]> {
-  const summaries = await loadSkillSummaries(enabledSkills);
+async function listStandaloneSkillSummaries(
+  enabledSkills?: string[],
+  scope?: CanvasSkillStoreScope | null,
+): Promise<SkillSummary[]> {
+  const summaries = await loadSkillSummaries(enabledSkills, scope);
   return summaries.filter((skill) => !skill.plugin);
 }
 
@@ -448,12 +487,13 @@ async function seedSkillExists(skillName: string): Promise<boolean> {
 
 async function enrichStoreSkillsWithInstalledState(
   registry: CanvasSkillStoreRegistry,
+  scope?: CanvasSkillStoreScope | null,
 ): Promise<{ registry: Omit<CanvasSkillStoreRegistry, 'skills'>; skills: CanvasSkillStoreSkillWithState[]; stats: Omit<CanvasSkillStoreStats, 'filteredTotal'> }> {
-  const [localRegistry, config] = await Promise.all([
-    readCanvasSkillRegistry(),
-    readPiRuntimeConfig(),
+  const [localRegistry, enabledSkills] = await Promise.all([
+    readCanvasSkillRegistry(scope),
+    readEnabledSkillsForScope(scope),
   ]);
-  const standaloneSkills = await listStandaloneSkillSummaries(config.enabledSkills);
+  const standaloneSkills = await listStandaloneSkillSummaries(enabledSkills, scope);
   const standaloneByName = new Map(standaloneSkills.map((skill) => [skill.name, skill]));
 
   const skills = registry.skills.map((skill) => {
@@ -509,10 +549,13 @@ function matchesState(skill: CanvasSkillStoreSkillWithState, state: CanvasSkillS
   return true;
 }
 
-async function addPageStateDetails(skill: CanvasSkillStoreSkillWithState): Promise<CanvasSkillStoreSkillWithState> {
+async function addPageStateDetails(
+  skill: CanvasSkillStoreSkillWithState,
+  scope?: CanvasSkillStoreScope | null,
+): Promise<CanvasSkillStoreSkillWithState> {
   if (!skill.installed.installed) return skill;
 
-  const installDir = path.join(resolveSkillsDataDir(), skill.name);
+  const installDir = path.join(await resolveReadableSkillsDataDir(scope), skill.name);
   const record = skill.installed.installedSkill;
   const [seedAvailable, currentChecksum] = await Promise.all([
     seedSkillExists(skill.name),
@@ -531,7 +574,7 @@ async function addPageStateDetails(skill: CanvasSkillStoreSkillWithState): Promi
 
 export async function listCanvasSkillStore(options: CanvasSkillStoreListOptions = {}): Promise<CanvasSkillStoreList> {
   const registry = await readCanvasSkillStoreRegistry();
-  const enriched = await enrichStoreSkillsWithInstalledState(registry);
+  const enriched = await enrichStoreSkillsWithInstalledState(registry, options.scope);
   const pageSize = clampPositiveInteger(options.pageSize, 12, 50);
   const page = clampPositiveInteger(options.page, 1, 100000);
   const state = options.state || 'all';
@@ -541,7 +584,7 @@ export async function listCanvasSkillStore(options: CanvasSkillStoreListOptions 
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   const normalizedPage = Math.min(page, totalPages);
   const offset = (normalizedPage - 1) * pageSize;
-  const pageSkills = await Promise.all(filtered.slice(offset, offset + pageSize).map(addPageStateDetails));
+  const pageSkills = await Promise.all(filtered.slice(offset, offset + pageSize).map((skill) => addPageStateDetails(skill, options.scope)));
 
   return {
     registry: enriched.registry,
@@ -646,19 +689,26 @@ async function validateSkillPackage(packageRoot: string, expectedName: string) {
   return skill;
 }
 
-async function backupExistingSkill(skillName: string): Promise<string | undefined> {
-  const skillDir = path.join(resolveSkillsDataDir(), skillName);
+async function backupExistingSkill(
+  skillName: string,
+  scope?: CanvasSkillStoreScope | null,
+): Promise<string | undefined> {
+  const skillDir = path.join(resolveScopedSkillsDataDir(scope), skillName);
   const stat = await fs.stat(skillDir).catch(() => null);
   if (!stat?.isDirectory()) return undefined;
 
-  const backupDir = path.join(resolveSkillBackupsDir(), skillName, nowIso().replace(/[:.]/g, '-'));
+  const backupDir = path.join(resolveScopedSkillBackupsDir(scope), skillName, nowIso().replace(/[:.]/g, '-'));
   await fs.mkdir(path.dirname(backupDir), { recursive: true });
   await fs.cp(skillDir, backupDir, { recursive: true, preserveTimestamps: true });
   return backupDir;
 }
 
-async function copySkillPackage(packageRoot: string, skillName: string): Promise<string> {
-  const skillsDir = resolveSkillsDataDir();
+async function copySkillPackage(
+  packageRoot: string,
+  skillName: string,
+  scope?: CanvasSkillStoreScope | null,
+): Promise<string> {
+  const skillsDir = resolveScopedSkillsDataDir(scope);
   const targetDir = path.join(skillsDir, skillName);
   const resolvedTarget = path.resolve(/*turbopackIgnore: true*/ targetDir);
   const resolvedSkillsDir = path.resolve(/*turbopackIgnore: true*/ skillsDir);
@@ -676,12 +726,15 @@ async function copySkillPackage(packageRoot: string, skillName: string): Promise
   return targetDir;
 }
 
-async function enableInstalledSkill(skillName: string): Promise<void> {
-  const config = await readPiRuntimeConfig();
-  const allSkillNames = await getSkillNames();
-  config.enabledSkills = enableSkillInConfig(skillName, config.enabledSkills, allSkillNames);
-  config.updatedAt = nowIso();
-  await writePiRuntimeConfig(config);
+async function enableInstalledSkill(
+  skillName: string,
+  scope?: CanvasSkillStoreScope | null,
+  updatedBy?: string,
+): Promise<void> {
+  const enabledSkills = await readEnabledSkillsForScope(scope);
+  const allSkillNames = await getSkillNames(scope);
+  const nextEnabledSkills = enableSkillInConfig(skillName, enabledSkills, allSkillNames);
+  await writeEnabledSkillsForScope(nextEnabledSkills, { scope, updatedBy });
 }
 
 async function writeInstalledSkillRecord(
@@ -691,10 +744,11 @@ async function writeInstalledSkillRecord(
   sourcePath: string,
   sourceRegistry: { id?: string; url?: string } | undefined,
   installDir: string,
+  scope?: CanvasSkillStoreScope | null,
 ): Promise<CanvasSkillInstallRecord> {
   const skill = await validateSkillPackage(installDir, skillName);
   const checksum = await computeCanvasPluginChecksum(installDir);
-  const registry = await readCanvasSkillRegistry();
+  const registry = await readCanvasSkillRegistry(scope);
   const existing = registry.skills[skillName];
   const record: CanvasSkillInstallRecord = {
     name: skill.name,
@@ -713,13 +767,17 @@ async function writeInstalledSkillRecord(
     interface: await loadCanvasSkillInterface(installDir),
   };
   registry.skills[skillName] = record;
-  await writeCanvasSkillRegistry(registry);
+  await writeCanvasSkillRegistry(registry, scope);
   return record;
 }
 
-async function ensureStandaloneSkillInstallAllowed(skillName: string, replace: boolean): Promise<void> {
-  const existing = await loadSkillByName(skillName);
-  const standalonePath = path.join(resolveSkillsDataDir(), skillName, 'SKILL.md');
+async function ensureStandaloneSkillInstallAllowed(
+  skillName: string,
+  replace: boolean,
+  scope?: CanvasSkillStoreScope | null,
+): Promise<void> {
+  const existing = await loadSkillByName(skillName, scope, { legacyFallback: false });
+  const standalonePath = path.join(resolveScopedSkillsDataDir(scope), skillName, 'SKILL.md');
   const hasStandalone = await fs.stat(standalonePath).then((stat) => stat.isFile()).catch(() => false);
   if (existing?.plugin) {
     throw new Error(`Skill "${skillName}" is managed by plugin "${existing.plugin.name}". Remove or disable that plugin first.`);
@@ -735,7 +793,12 @@ async function ensureStandaloneSkillInstallAllowed(skillName: string, replace: b
 export async function installCanvasSkillFromStore(
   skillName: string,
   version?: string,
-  options: { enable?: boolean; replace?: boolean } = {},
+  options: {
+    enable?: boolean;
+    replace?: boolean;
+    scope?: CanvasSkillStoreScope | null;
+    updatedBy?: string;
+  } = {},
 ): Promise<CanvasSkillStoreInstallResult> {
   if (!isValidCanvasSkillName(skillName)) {
     return { success: false, error: 'Invalid skill name' };
@@ -757,14 +820,14 @@ export async function installCanvasSkillFromStore(
       return { success: false, error: `Version ${selectedVersion} is not available for skill "${skillName}".`, storeSkill };
     }
 
-    await ensureStandaloneSkillInstallAllowed(skillName, options.replace ?? true);
+    await ensureStandaloneSkillInstallAllowed(skillName, options.replace ?? true, options.scope);
     const archiveBytes = await readUrlBytes(storeVersion.downloadUrl);
     const extracted = await extractPackageFromArchive(archiveBytes, storeVersion.packagePath);
     tempRoot = extracted.tempRoot;
     await verifyPackageChecksum(extracted.packageRoot, storeVersion.checksum);
     await validateSkillPackage(extracted.packageRoot, skillName);
-    const backupPath = await backupExistingSkill(skillName);
-    const installDir = await copySkillPackage(extracted.packageRoot, skillName);
+    const backupPath = await backupExistingSkill(skillName, options.scope);
+    const installDir = await copySkillPackage(extracted.packageRoot, skillName, options.scope);
     const record = await writeInstalledSkillRecord(
       skillName,
       selectedVersion,
@@ -772,10 +835,11 @@ export async function installCanvasSkillFromStore(
       storeVersion.downloadUrl,
       { id: registry.id, url: registry.registryUrl },
       installDir,
+      options.scope,
     );
 
     if (options.enable !== false) {
-      await enableInstalledSkill(skillName).catch((error) => {
+      await enableInstalledSkill(skillName, options.scope, options.updatedBy).catch((error) => {
         console.warn('[CanvasSkillStore] Failed to auto-enable skill:', error);
       });
     }
@@ -793,7 +857,15 @@ export async function installCanvasSkillFromStore(
   }
 }
 
-async function restoreSeedSkill(skillName: string, options: { enable?: boolean; replace?: boolean } = {}): Promise<CanvasSkillStoreInstallResult> {
+async function restoreSeedSkill(
+  skillName: string,
+  options: {
+    enable?: boolean;
+    replace?: boolean;
+    scope?: CanvasSkillStoreScope | null;
+    updatedBy?: string;
+  } = {},
+): Promise<CanvasSkillStoreInstallResult> {
   const seedRoot = path.join(process.cwd(), 'seed_skills', skillName);
   const skillPath = path.join(seedRoot, 'SKILL.md');
   const stat = await fs.stat(skillPath).catch(() => null);
@@ -802,10 +874,10 @@ async function restoreSeedSkill(skillName: string, options: { enable?: boolean; 
   }
 
   try {
-    await ensureStandaloneSkillInstallAllowed(skillName, options.replace ?? true);
+    await ensureStandaloneSkillInstallAllowed(skillName, options.replace ?? true, options.scope);
     await validateSkillPackage(seedRoot, skillName);
-    const backupPath = await backupExistingSkill(skillName);
-    const installDir = await copySkillPackage(seedRoot, skillName);
+    const backupPath = await backupExistingSkill(skillName, options.scope);
+    const installDir = await copySkillPackage(seedRoot, skillName, options.scope);
     const skill = await validateSkillPackage(installDir, skillName);
     const record = await writeInstalledSkillRecord(
       skillName,
@@ -814,10 +886,11 @@ async function restoreSeedSkill(skillName: string, options: { enable?: boolean; 
       seedRoot,
       undefined,
       installDir,
+      options.scope,
     );
 
     if (options.enable !== false) {
-      await enableInstalledSkill(skillName).catch((error) => {
+      await enableInstalledSkill(skillName, options.scope, options.updatedBy).catch((error) => {
         console.warn('[CanvasSkillStore] Failed to auto-enable restored seed skill:', error);
       });
     }
@@ -833,7 +906,13 @@ async function restoreSeedSkill(skillName: string, options: { enable?: boolean; 
 
 export async function restoreCanvasSkill(
   skillName: string,
-  options: { enable?: boolean; prefer?: 'store' | 'seed'; version?: string } = {},
+  options: {
+    enable?: boolean;
+    prefer?: 'store' | 'seed';
+    version?: string;
+    scope?: CanvasSkillStoreScope | null;
+    updatedBy?: string;
+  } = {},
 ): Promise<CanvasSkillStoreInstallResult> {
   if (!isValidCanvasSkillName(skillName)) {
     return { success: false, error: 'Invalid skill name' };
@@ -843,11 +922,18 @@ export async function restoreCanvasSkill(
     const storeResult = await installCanvasSkillFromStore(skillName, options.version, {
       enable: options.enable,
       replace: true,
+      scope: options.scope,
+      updatedBy: options.updatedBy,
     });
     if (storeResult.success || options.prefer === 'store') {
       return storeResult;
     }
   }
 
-  return restoreSeedSkill(skillName, { enable: options.enable, replace: true });
+  return restoreSeedSkill(skillName, {
+    enable: options.enable,
+    replace: true,
+    scope: options.scope,
+    updatedBy: options.updatedBy,
+  });
 }

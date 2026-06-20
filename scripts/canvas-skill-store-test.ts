@@ -151,6 +151,7 @@ async function main() {
     } = await import('../app/lib/skills/canvas-skill-store');
     const { readPiRuntimeConfig } = await import('../app/lib/agents/storage');
     const { DISABLED_ALL_SKILLS_SENTINEL, resolveEnabledSkillNames } = await import('../app/lib/skills/enabled-skills');
+    const { readEnabledSkillsForScope } = await import('../app/lib/skills/skill-settings');
     const { deleteSkillDirectory, loadSkillsFromDisk } = await import('../app/lib/skills/skill-loader');
 
     const checksum = await computeCanvasPluginChecksum(skillRoot);
@@ -219,6 +220,36 @@ async function main() {
     assert.equal(skillRegistry.skills['test-library-skill'].version, '1.1.0');
     store = await listCanvasSkillStore();
     assert.equal(store.skills[0].installed.updateAvailable, false);
+
+    const userScopeA = { userId: 'skill-user-a' };
+    const userScopeB = { userId: 'skill-user-b' };
+    const legacyUserScope = { userId: 'legacy-skill-user' };
+    assert.equal((await loadSkillsFromDisk(undefined, legacyUserScope)).some((skill) => skill.name === 'test-library-skill'), true);
+    await fs.mkdir(path.join(dataRoot, 'users', 'skill-user-a', 'skills'), { recursive: true });
+    await fs.mkdir(path.join(dataRoot, 'users', 'skill-user-b', 'skills'), { recursive: true });
+    let scopedStoreA = await listCanvasSkillStore({ scope: userScopeA });
+    let scopedStoreB = await listCanvasSkillStore({ scope: userScopeB });
+    assert.equal(scopedStoreA.skills[0].installed.installed, false);
+    assert.equal(scopedStoreB.skills[0].installed.installed, false);
+
+    const scopedInstall = await installCanvasSkillFromStore('test-library-skill', undefined, {
+      enable: true,
+      scope: userScopeA,
+      updatedBy: 'skill-user-a@example.com',
+    });
+    assert.equal(scopedInstall.success, true, scopedInstall.error);
+    assert.equal(
+      await fs.stat(path.join(dataRoot, 'users', 'skill-user-a', 'skills', 'test-library-skill', 'SKILL.md')).then((stat) => stat.isFile()),
+      true,
+    );
+    await assert.rejects(fs.stat(path.join(dataRoot, 'users', 'skill-user-b', 'skills', 'test-library-skill', 'SKILL.md')));
+    assert.equal((await loadSkillsFromDisk(undefined, userScopeA)).some((skill) => skill.name === 'test-library-skill'), true);
+    assert.equal((await loadSkillsFromDisk(undefined, userScopeB)).some((skill) => skill.name === 'test-library-skill'), false);
+    assert.deepEqual(await readEnabledSkillsForScope(userScopeA), []);
+    scopedStoreA = await listCanvasSkillStore({ scope: userScopeA });
+    scopedStoreB = await listCanvasSkillStore({ scope: userScopeB });
+    assert.equal(scopedStoreA.skills[0].installed.installed, true);
+    assert.equal(scopedStoreB.skills[0].installed.installed, false);
 
     const deleteResult = await deleteSkillDirectory('test-library-skill');
     assert.equal(deleteResult.success, true, deleteResult.error);

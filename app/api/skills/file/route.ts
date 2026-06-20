@@ -5,8 +5,6 @@ import { headers } from 'next/headers';
 import { auth } from '@/app/lib/auth';
 import { getSkillsDir } from '@/app/lib/skills/canvas-skill-manifest';
 
-const SKILLS_DIR = getSkillsDir();
-
 function sanitizeFilePath(filePath: string): string {
   let clean = filePath;
   clean = clean.replace(/\.\./g, '');
@@ -14,6 +12,18 @@ function sanitizeFilePath(filePath: string): string {
   clean = clean.replace(/^\//, '');
   clean = clean.replace(/\/$/, '');
   return clean;
+}
+
+async function directoryExists(targetPath: string): Promise<boolean> {
+  return fs.stat(targetPath).then((stat) => stat.isDirectory()).catch(() => false);
+}
+
+async function resolveReadableSkillsDir(userId: string): Promise<string> {
+  const scopedDir = getSkillsDir({ userId });
+  if (!(await directoryExists(scopedDir))) {
+    return getSkillsDir();
+  }
+  return scopedDir;
 }
 
 export async function GET(request: NextRequest) {
@@ -31,9 +41,10 @@ export async function GET(request: NextRequest) {
     }
 
     const sanitizedPath = sanitizeFilePath(filePath);
-    const fullPath = path.join(SKILLS_DIR, sanitizedPath);
+    const skillsDir = await resolveReadableSkillsDir(session.user.id);
+    const fullPath = path.join(skillsDir, sanitizedPath);
     const resolvedPath = path.resolve(fullPath);
-    const resolvedSkillsDir = path.resolve(SKILLS_DIR);
+    const resolvedSkillsDir = path.resolve(skillsDir);
 
     if (!resolvedPath.startsWith(`${resolvedSkillsDir}${path.sep}`)) {
       return NextResponse.json({ success: false, error: 'Invalid path' }, { status: 400 });

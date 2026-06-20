@@ -258,12 +258,25 @@
         "app/lib/agents/storage.ts",
         "app/lib/agents/memory-store.ts",
         "app/lib/agents/system-prompt.ts",
+        "app/lib/skills/skill-settings.ts",
+        "app/lib/skills/skill-loader.ts",
+        "app/lib/skills/skill-summaries.ts",
+        "app/lib/skills/canvas-skill-manifest.ts",
+        "app/lib/skills/canvas-skill-store.ts",
+        "app/lib/plugins/canvas-plugin-registry.ts",
+        "app/lib/plugins/canvas-plugin-store.ts",
+        "app/lib/plugins/plugin-reference-context.ts",
         "app/lib/pi/system-prompt-snapshot.ts",
+        "app/lib/pi/live-runtime.ts",
         "app/api/agents/files/route.ts",
+        "app/api/skills/*",
+        "app/api/plugins/*",
         "app/lib/onboarding/profile.ts",
         "scripts/scoped-runtime-paths-test.ts",
         "scripts/agent-memory-store-test.ts",
-        "scripts/agent-runtime-config-test.ts"
+        "scripts/agent-runtime-config-test.ts",
+        "scripts/canvas-skill-store-test.ts",
+        "scripts/canvas-plugin-runtime-test.ts"
       ]
     },
     {

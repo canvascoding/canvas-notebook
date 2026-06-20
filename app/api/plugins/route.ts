@@ -11,7 +11,7 @@ export async function GET() {
   }
 
   try {
-    const plugins = await listCanvasPlugins();
+    const plugins = await listCanvasPlugins({ userId: session.user.id });
     return NextResponse.json({
       success: true,
       plugins,

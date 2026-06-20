@@ -201,6 +201,7 @@ async function main() {
     let plugins = await listCanvasPlugins();
     assert.equal(plugins.length, 1);
     assert.equal(plugins[0].name, 'test-plugin');
+    assert.equal((await listCanvasPlugins({ userId: 'legacy-plugin-user' })).some((plugin) => plugin.name === 'test-plugin'), true);
     assert.equal(plugins[0].skills[0].name, 'test-plugin-skill');
     assert.equal(plugins[0].skills[0].materialized, true);
     assert.equal(plugins[0].skills[0].preexistingStandalone, false);
@@ -301,6 +302,42 @@ async function main() {
     store = await listCanvasPluginStore();
     assert.equal(store.plugins[0].installed.skillSummary.missing, 0);
     assert.equal(store.plugins[0].installed.skillSummary.repairable, 0);
+
+    const pluginScopeA = { userId: 'plugin-user-a' };
+    const pluginScopeB = { userId: 'plugin-user-b' };
+    await fs.mkdir(path.join(dataRoot, 'users', 'plugin-user-a', 'plugins'), { recursive: true });
+    await fs.mkdir(path.join(dataRoot, 'users', 'plugin-user-a', 'skills'), { recursive: true });
+    await fs.mkdir(path.join(dataRoot, 'users', 'plugin-user-b', 'plugins'), { recursive: true });
+    await fs.mkdir(path.join(dataRoot, 'users', 'plugin-user-b', 'skills'), { recursive: true });
+    await writeFile(path.join(dataRoot, 'users', 'plugin-user-b', 'plugins', 'registry.json'), JSON.stringify({
+      version: 1,
+      updatedAt: '2026-06-17T00:00:00.000Z',
+      plugins: {},
+    }, null, 2));
+    const scopedInstall = await installCanvasPluginFromPath(pluginRoot, {
+      enable: true,
+      installedBy: 'plugin-user-a@example.com',
+      scope: pluginScopeA,
+    });
+    assert.equal(scopedInstall.success, true, scopedInstall.error || JSON.stringify(scopedInstall.validation));
+    assert.equal((await listCanvasPlugins(pluginScopeA)).length, 1);
+    assert.equal((await listCanvasPlugins(pluginScopeB)).length, 0);
+    assert.equal(
+      await fs.stat(path.join(dataRoot, 'users', 'plugin-user-a', 'plugins', 'installed', 'test-plugin', '1.0.0', '.canvas-plugin', 'plugin.json')).then((stat) => stat.isFile()),
+      true,
+    );
+    assert.equal(
+      await fs.stat(path.join(dataRoot, 'users', 'plugin-user-a', 'skills', 'test-plugin-skill', 'SKILL.md')).then((stat) => stat.isFile()),
+      true,
+    );
+    await assert.rejects(fs.stat(path.join(dataRoot, 'users', 'plugin-user-b', 'skills', 'test-plugin-skill', 'SKILL.md')));
+    assert.equal((await loadSkillsFromDisk(undefined, pluginScopeA)).some((skill) => skill.name === 'test-plugin-skill'), true);
+    assert.equal((await loadSkillsFromDisk(undefined, pluginScopeB)).some((skill) => skill.name === 'test-plugin-skill'), false);
+    assert.match(
+      await buildReferencedPluginRuntimeContext('Use /test-plugin for this workflow.', pluginScopeA) || '',
+      /Referenced Canvas Plugins/,
+    );
+    assert.equal(await buildReferencedPluginRuntimeContext('Use /test-plugin for this workflow.', pluginScopeB), null);
 
     console.log('canvas plugin runtime test passed');
   } finally {

@@ -1,8 +1,8 @@
 import { NextResponse } from 'next/server';
 import { requireOrganizationPermission } from '@/app/lib/organization/permissions';
-import { readPiRuntimeConfig, writePiRuntimeConfig } from '@/app/lib/agents/storage';
 import { disableSkillInConfig, resolveEnabledSkillNames } from '@/app/lib/skills/enabled-skills';
 import { loadSkillsFromDisk } from '@/app/lib/skills/skill-loader';
+import { readEnabledSkillsForScope, writeEnabledSkillsForScope } from '@/app/lib/skills/skill-settings';
 
 export async function POST(
   request: Request,
@@ -15,24 +15,24 @@ export async function POST(
     if (!skillPermission.ok) return skillPermission.response;
 
     const { name } = await params;
+    const scope = { userId: skillPermission.session.user.id };
     
-    // Read current config
-    const config = await readPiRuntimeConfig();
-    const allSkills = await loadSkillsFromDisk();
+    const enabledSkills = await readEnabledSkillsForScope(scope);
+    const allSkills = await loadSkillsFromDisk(undefined, scope);
     const allSkillNames = allSkills.map((skill) => skill.name);
-    const nextEnabledSkills = disableSkillInConfig(name, config.enabledSkills, allSkillNames);
+    const nextEnabledSkills = disableSkillInConfig(name, enabledSkills, allSkillNames);
 
-    if (JSON.stringify(nextEnabledSkills) !== JSON.stringify(config.enabledSkills || [])) {
-      config.enabledSkills = nextEnabledSkills;
-      config.updatedAt = new Date().toISOString();
-      config.updatedBy = skillPermission.session.user.email || 'unknown';
-      await writePiRuntimeConfig(config);
+    if (JSON.stringify(nextEnabledSkills) !== JSON.stringify(enabledSkills || [])) {
+      await writeEnabledSkillsForScope(nextEnabledSkills, {
+        scope,
+        updatedBy: skillPermission.session.user.email || skillPermission.session.user.id,
+      });
     }
 
     return NextResponse.json({
       success: true,
       message: `Skill "${name}" disabled`,
-      enabledSkills: Array.from(resolveEnabledSkillNames(allSkillNames, config.enabledSkills)),
+      enabledSkills: Array.from(resolveEnabledSkillNames(allSkillNames, nextEnabledSkills)),
     });
   } catch (error) {
     console.error('[Skills API] Error disabling skill:', error);

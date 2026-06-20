@@ -909,7 +909,7 @@ class LivePiRuntime {
 
     if (latestUserMessageText) {
       try {
-        const pluginBlock = await buildReferencedPluginRuntimeContext(latestUserMessageText);
+        const pluginBlock = await buildReferencedPluginRuntimeContext(latestUserMessageText, { userId: this.userId });
         if (pluginBlock) {
           sections.push(pluginBlock);
         }

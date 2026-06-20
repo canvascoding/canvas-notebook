@@ -41,7 +41,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ success: false, error: 'path parameter is required' }, { status: 400 });
   }
 
-  const plugin = await getCanvasPlugin(pluginName);
+  const plugin = await getCanvasPlugin(pluginName, { userId: session.user.id });
   if (!plugin) {
     return NextResponse.json({ success: false, error: 'Plugin not found' }, { status: 404 });
   }

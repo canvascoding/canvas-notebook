@@ -23,6 +23,13 @@ async function main() {
       resolveOrganizationSecretsDir,
       resolveOrganizationSkillTemplatesDir,
       resolveOrganizationDataRoot,
+      resolveScopedInstalledPluginsDir,
+      resolveScopedPluginRegistryPath,
+      resolveScopedPluginsDataDir,
+      resolveScopedSettingsDir,
+      resolveScopedSkillBackupsDir,
+      resolveScopedSkillRegistryPath,
+      resolveScopedSkillsDataDir,
       resolveSystemBackupsDir,
       resolveSystemLogsDir,
       resolveSystemManagedDir,
@@ -53,6 +60,13 @@ async function main() {
     assert.equal(resolveUserPluginsDir('user_a'), path.join(dataDir, 'users', 'user_a', 'plugins'));
     assert.equal(resolveUserMcpDir('user_a'), path.join(dataDir, 'users', 'user_a', 'mcp'));
     assert.equal(resolveUserMailDir('user_a'), path.join(dataDir, 'users', 'user_a', 'mail'));
+    assert.equal(resolveScopedSettingsDir({ userId: 'user_a' }), path.join(dataDir, 'users', 'user_a', 'settings'));
+    assert.equal(resolveScopedSkillsDataDir({ userId: 'user_a' }), path.join(dataDir, 'users', 'user_a', 'skills'));
+    assert.equal(resolveScopedSkillRegistryPath({ userId: 'user_a' }), path.join(dataDir, 'users', 'user_a', 'skills', 'registry.json'));
+    assert.equal(resolveScopedSkillBackupsDir({ userId: 'user_a' }), path.join(dataDir, 'users', 'user_a', 'skills', '.backups'));
+    assert.equal(resolveScopedPluginsDataDir({ userId: 'user_a' }), path.join(dataDir, 'users', 'user_a', 'plugins'));
+    assert.equal(resolveScopedInstalledPluginsDir({ userId: 'user_a' }), path.join(dataDir, 'users', 'user_a', 'plugins', 'installed'));
+    assert.equal(resolveScopedPluginRegistryPath({ userId: 'user_a' }), path.join(dataDir, 'users', 'user_a', 'plugins', 'registry.json'));
 
     assert.equal(resolveOrganizationDataRoot('org_1'), path.join(dataDir, 'organizations', 'org_1'));
     assert.equal(resolveOrganizationSecretsDir('org_1'), path.join(dataDir, 'organizations', 'org_1', 'secrets'));

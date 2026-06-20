@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { requireOrganizationPermission } from '@/app/lib/organization/permissions';
-import { readPiRuntimeConfig, writePiRuntimeConfig } from '@/app/lib/agents/storage';
 import { loadSkillsFromDisk } from '@/app/lib/skills/skill-loader';
+import { writeEnabledSkillsForScope } from '@/app/lib/skills/skill-settings';
 
 export async function POST(request: Request) {
   try {
@@ -10,20 +10,17 @@ export async function POST(request: Request) {
     });
     if (!skillPermission.ok) return skillPermission.response;
 
-    // Read current config
-    const config = await readPiRuntimeConfig();
+    const scope = { userId: skillPermission.session.user.id };
     
     // Load all available skills
-    const allSkills = await loadSkillsFromDisk();
+    const allSkills = await loadSkillsFromDisk(undefined, scope);
     const allSkillNames = allSkills.map(s => s.name);
     
     // Enable all skills by setting enabledSkills to empty array (which means all enabled)
-    config.enabledSkills = [];
-    config.updatedAt = new Date().toISOString();
-    config.updatedBy = skillPermission.session.user.email || 'unknown';
-    
-    // Write updated config
-    await writePiRuntimeConfig(config);
+    await writeEnabledSkillsForScope([], {
+      scope,
+      updatedBy: skillPermission.session.user.email || skillPermission.session.user.id,
+    });
     
     return NextResponse.json({
       success: true,

@@ -1,6 +1,10 @@
 import 'server-only';
 
-import { listCanvasPlugins, type CanvasPluginInstallRecord } from '@/app/lib/plugins/canvas-plugin-registry';
+import {
+  listCanvasPlugins,
+  type CanvasPluginInstallRecord,
+  type CanvasPluginStorageScope,
+} from '@/app/lib/plugins/canvas-plugin-registry';
 import type { CanvasPluginComposioConnector, CanvasPluginMcpConnector } from '@/app/lib/plugins/canvas-plugin-manifest';
 
 const PLUGIN_REFERENCE_PATTERN = /(^|[\s([{"'`,;])\/([a-z0-9]+(?:-[a-z0-9]+)*)(?=$|[\s)\]}",.;:!?])/g;
@@ -119,13 +123,16 @@ function formatPluginContext(plugin: CanvasPluginInstallRecord): string {
   return lines.join('\n');
 }
 
-export async function buildReferencedPluginRuntimeContext(content: string): Promise<string | null> {
+export async function buildReferencedPluginRuntimeContext(
+  content: string,
+  scope?: CanvasPluginStorageScope | null,
+): Promise<string | null> {
   const referenceNames = extractSlashReferenceNames(content);
   if (referenceNames.length === 0) {
     return null;
   }
 
-  const plugins = await listCanvasPlugins();
+  const plugins = await listCanvasPlugins(scope);
   const enabledPluginsByName = new Map(
     plugins
       .filter((plugin) => plugin.enabled)

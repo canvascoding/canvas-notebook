@@ -1,8 +1,8 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@/app/lib/auth';
-import { readPiRuntimeConfig } from '@/app/lib/agents/storage';
 import { resolveEnabledSkillNames } from '@/app/lib/skills/enabled-skills';
 import { loadSkillsFromDisk } from '@/app/lib/skills/skill-loader';
+import { readEnabledSkillsForScope } from '@/app/lib/skills/skill-settings';
 import { headers } from 'next/headers';
 
 export async function GET() {
@@ -12,11 +12,11 @@ export async function GET() {
       return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Read current config
-    const config = await readPiRuntimeConfig();
-    const skills = await loadSkillsFromDisk();
+    const scope = { userId: session.user.id };
+    const enabledSkills = await readEnabledSkillsForScope(scope);
+    const skills = await loadSkillsFromDisk(undefined, scope);
     const allSkillNames = skills.map((skill) => skill.name);
-    const enabledSkillNames = Array.from(resolveEnabledSkillNames(allSkillNames, config.enabledSkills));
+    const enabledSkillNames = Array.from(resolveEnabledSkillNames(allSkillNames, enabledSkills));
 
     return NextResponse.json({
       success: true,

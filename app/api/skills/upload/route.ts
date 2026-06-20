@@ -3,11 +3,9 @@ import { promises as fs } from 'fs';
 import path from 'path';
 import { requireOrganizationPermission } from '@/app/lib/organization/permissions';
 import { getSkillsDir, parseFrontmatter, validateFrontmatter } from '@/app/lib/skills/canvas-skill-manifest';
-import { readPiRuntimeConfig, writePiRuntimeConfig } from '@/app/lib/agents/storage';
 import { enableSkillInConfig } from '@/app/lib/skills/enabled-skills';
 import { getSkillNames } from '@/app/lib/skills/skill-loader';
-
-const SKILLS_DIR = getSkillsDir();
+import { readEnabledSkillsForScope, writeEnabledSkillsForScope } from '@/app/lib/skills/skill-settings';
 
 function sanitizeSkillName(name: string): string {
   return name.replace(/[^a-z0-9-]/g, '');
@@ -20,6 +18,8 @@ export async function POST(request: Request) {
   if (!skillPermission.ok) return skillPermission.response;
 
   try {
+    const scope = { userId: skillPermission.session.user.id };
+    const skillsDir = getSkillsDir(scope);
     const body = await request.json();
     const { content, name: providedName } = body;
 
@@ -72,9 +72,9 @@ export async function POST(request: Request) {
       );
     }
 
-    const skillDir = path.join(SKILLS_DIR, skillName);
+    const skillDir = path.join(skillsDir, skillName);
     const resolvedSkillDir = path.resolve(skillDir);
-    const resolvedSkillsDir = path.resolve(SKILLS_DIR);
+    const resolvedSkillsDir = path.resolve(skillsDir);
     if (!resolvedSkillDir.startsWith(`${resolvedSkillsDir}${path.sep}`)) {
       return NextResponse.json(
         { success: false, error: 'Invalid skill name: path traversal detected' },
@@ -96,10 +96,13 @@ export async function POST(request: Request) {
     await fs.writeFile(skillMdPath, content, 'utf-8');
 
     try {
-      const config = await readPiRuntimeConfig();
-      const allSkillNames = await getSkillNames();
-      config.enabledSkills = enableSkillInConfig(skillName, config.enabledSkills, allSkillNames);
-      await writePiRuntimeConfig(config);
+      const enabledSkills = await readEnabledSkillsForScope(scope);
+      const allSkillNames = await getSkillNames(scope);
+      const nextEnabledSkills = enableSkillInConfig(skillName, enabledSkills, allSkillNames);
+      await writeEnabledSkillsForScope(nextEnabledSkills, {
+        scope,
+        updatedBy: skillPermission.session.user.email || skillPermission.session.user.id,
+      });
     } catch (cfgError) {
       console.warn('[Skills Upload API] Could not auto-enable skill:', skillName, cfgError);
     }
