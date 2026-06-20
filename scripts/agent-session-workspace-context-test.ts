@@ -21,6 +21,7 @@ async function main() {
       workspaceToPiSessionFields,
     } = await import('../app/lib/pi/session-workspace-context');
     const {
+      detectUnsafeBashCommand,
       getAgentWorkspaceRoot,
       writeAgentTextFile,
       assertAgentPathAllowed,
@@ -73,6 +74,8 @@ async function main() {
 
     await runWithAgentExecutionContext(executionContext, async () => {
       assert.equal(getAgentWorkspaceRoot(), workspace.rootPath);
+      assert.equal(detectUnsafeBashCommand('./run-tests.sh > results.txt'), null);
+      assert.equal(detectUnsafeBashCommand('npm run build 2>&1 | tee build.log'), null);
 
       const result = await writeAgentTextFile({
         path: 'notes/context.md',
@@ -89,6 +92,17 @@ async function main() {
       await assert.rejects(
         () => writeAgentTextFile({
           path: path.join(dataRoot, 'workspaces', 'personal', 'other-user', 'files', 'secret.md'),
+          content: 'blocked',
+        }),
+        /limited to the workspace bound to this chat session/,
+      );
+
+      const outsideRoot = path.join(tempRoot, 'outside');
+      await fs.mkdir(outsideRoot, { recursive: true });
+      await fs.symlink(outsideRoot, path.join(workspace.rootPath, 'evil-link'));
+      await assert.rejects(
+        () => writeAgentTextFile({
+          path: 'evil-link/secret.txt',
           content: 'blocked',
         }),
         /limited to the workspace bound to this chat session/,

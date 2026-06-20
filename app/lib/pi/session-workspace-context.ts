@@ -54,12 +54,32 @@ type StoredPiSessionWorkspace = {
   organizationId: string | null;
 };
 
+type PiSessionWorkspaceSnapshotRow = {
+  organizationId: string | null;
+  workspaceId: string | null;
+  workspaceType: string | null;
+  workspaceName: string | null;
+  workspaceRootRelativePath: string | null;
+};
+
 const DEFAULT_AGENT_SESSION_PERMISSIONS: WorkspacePermissionRequirement[] = ['canRead', 'canRunAgent'];
 
+let workspaceContextDatabase: { sqlitePath: string; sqlite: Database.Database } | null = null;
+
 function openWorkspaceContextDatabase(): Database.Database {
-  const sqlite = new Database(path.join(resolveWorkspaceDataRoot(), 'sqlite.db'));
+  const sqlitePath = path.join(resolveWorkspaceDataRoot(), 'sqlite.db');
+  if (workspaceContextDatabase?.sqlitePath === sqlitePath && workspaceContextDatabase.sqlite.open) {
+    return workspaceContextDatabase.sqlite;
+  }
+
+  if (workspaceContextDatabase?.sqlite.open) {
+    workspaceContextDatabase.sqlite.close();
+  }
+
+  const sqlite = new Database(sqlitePath);
   sqlite.pragma('foreign_keys = ON');
   sqlite.pragma('busy_timeout = 5000');
+  workspaceContextDatabase = { sqlitePath, sqlite };
   return sqlite;
 }
 
@@ -138,6 +158,17 @@ export function workspaceToChatRequestWorkspace(workspace: WorkspaceContext): No
   };
 }
 
+function piSessionWorkspaceFieldsChanged(
+  session: PiSessionWorkspaceSnapshotRow,
+  fields: PiSessionWorkspaceFields,
+): boolean {
+  return session.organizationId !== fields.organizationId ||
+    session.workspaceId !== fields.workspaceId ||
+    session.workspaceType !== fields.workspaceType ||
+    session.workspaceName !== fields.workspaceName ||
+    session.workspaceRootRelativePath !== fields.workspaceRootRelativePath;
+}
+
 export function storedPiSessionWorkspaceToSummary(row: StoredPiSessionWorkspace | null | undefined) {
   if (!row?.workspaceId) return null;
   return {
@@ -208,8 +239,6 @@ export async function resolveAgentSessionWorkspaceForUser(input: {
       sqlite.exec('ROLLBACK');
     }
     throw error;
-  } finally {
-    sqlite.close();
   }
 }
 
@@ -234,11 +263,12 @@ export async function ensurePiSessionWorkspaceSnapshot(input: {
     permissions: input.permissions,
   });
 
-  if (session) {
+  const workspaceFields = workspaceToPiSessionFields(workspace);
+  if (session && piSessionWorkspaceFieldsChanged(session, workspaceFields)) {
     await db
       .update(piSessions)
       .set({
-        ...workspaceToPiSessionFields(workspace),
+        ...workspaceFields,
         updatedAt: new Date(),
       })
       .where(eq(piSessions.id, session.id));
