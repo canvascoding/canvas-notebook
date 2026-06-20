@@ -1,7 +1,7 @@
 import 'server-only';
 
 import { GoogleGenAI } from '@google/genai';
-import { getGeminiApiKeyFromIntegrations } from './env-config';
+import { getGeminiApiKeyFromIntegrations, type EnvStorageScope } from './env-config';
 import { IntegrationServiceError } from './integration-service-error';
 import { generateManagedMedia, isManagedMediaFallbackAvailable } from './managed-media-client';
 
@@ -21,6 +21,7 @@ export interface GenerateSoundRequest {
   model?: string;
   outputFormat?: SoundOutputFormat;
   referenceImages?: GenerateSoundReferenceImage[];
+  storageScope?: EnvStorageScope | null;
 }
 
 export interface GenerateSoundResult {
@@ -84,7 +85,7 @@ export async function generateSound(request: GenerateSoundRequest): Promise<Gene
   const model = resolveModel(request.model);
   const outputFormat = resolveOutputFormat(model, request.outputFormat);
   const referenceImages = (request.referenceImages || []).slice(0, 10);
-  const apiKey = await getGeminiApiKeyFromIntegrations();
+  const apiKey = await getGeminiApiKeyFromIntegrations(request.storageScope);
   const useManagedFallback = !apiKey && isManagedMediaFallbackAvailable();
   if (!apiKey && !useManagedFallback) {
     throw new IntegrationServiceError('Gemini API key is missing. Configure GEMINI_API_KEY in /settings?tab=integrations.', 400);

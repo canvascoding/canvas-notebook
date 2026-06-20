@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { getKieApiKeyFromIntegrations } from '@/app/lib/integrations/env-config';
+import { getKieApiKeyFromIntegrations, type EnvStorageScope } from '@/app/lib/integrations/env-config';
 import { IntegrationServiceError } from '@/app/lib/integrations/integration-service-error';
 import {
   ensureStudioOutputsWorkspace,
@@ -50,6 +50,7 @@ export interface GenerateSeedanceVideoRequest {
   caller?: string;
   pollIntervalMs?: number;
   timeoutMs?: number;
+  storageScope?: EnvStorageScope | null;
 }
 
 export interface SeedanceVideoGenerationResult {
@@ -352,7 +353,7 @@ async function downloadVideo(url: string): Promise<{ bytes: Buffer; mimeType: st
 export async function generateSeedanceVideo(
   request: GenerateSeedanceVideoRequest,
 ): Promise<SeedanceVideoGenerationResult> {
-  const apiKey = await getKieApiKeyFromIntegrations();
+  const apiKey = await getKieApiKeyFromIntegrations(request.storageScope);
   const useManagedFallback = !apiKey && isManagedMediaFallbackAvailable();
   if (!apiKey && !useManagedFallback) {
     throw new IntegrationServiceError(

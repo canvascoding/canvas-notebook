@@ -5,15 +5,16 @@ import {
   getGeminiApiKeyFromIntegrations,
   getKieApiKeyFromIntegrations,
   getOpenAIApiKeyFromIntegrations,
+  type EnvStorageScope,
 } from '@/app/lib/integrations/env-config';
 import { isManagedMediaFallbackAvailable } from '@/app/lib/integrations/managed-media-client';
 
-export async function getStudioProviderConfig(): Promise<StudioProviderConfig> {
+export async function getStudioProviderConfig(storageScope?: EnvStorageScope | null): Promise<StudioProviderConfig> {
   try {
     const [geminiApiKey, openaiApiKey, kieApiKey] = await Promise.all([
-      getGeminiApiKeyFromIntegrations(),
-      getOpenAIApiKeyFromIntegrations(),
-      getKieApiKeyFromIntegrations(),
+      getGeminiApiKeyFromIntegrations(storageScope),
+      getOpenAIApiKeyFromIntegrations(storageScope),
+      getKieApiKeyFromIntegrations(storageScope),
     ]);
 
     return {

@@ -13,7 +13,7 @@ import {
   writeOutputFile,
 } from '@/app/lib/integrations/studio-workspace';
 import { toMediaUrl } from '@/app/lib/utils/media-url';
-import { getGeminiApiKeyFromIntegrations } from '@/app/lib/integrations/env-config';
+import { getGeminiApiKeyFromIntegrations, type EnvStorageScope } from '@/app/lib/integrations/env-config';
 import { IntegrationServiceError } from '@/app/lib/integrations/integration-service-error';
 import {
   getVideoModelCapabilities,
@@ -43,6 +43,7 @@ export interface GenerateVideoRequestBody {
   enhancePrompt?: boolean;
   generateAudio?: boolean;
   seed?: number;
+  storageScope?: EnvStorageScope | null;
 }
 
 export interface VideoGenerationResultData {
@@ -143,7 +144,7 @@ export async function generateVideo(
   body: GenerateVideoRequestBody,
   callerEmail = 'system',
 ): Promise<VideoGenerationResultData> {
-  const apiKey = await getGeminiApiKeyFromIntegrations();
+  const apiKey = await getGeminiApiKeyFromIntegrations(body.storageScope);
   const useManagedFallback = !apiKey && isManagedMediaFallbackAvailable();
   if (!apiKey && !useManagedFallback) {
     throw new IntegrationServiceError('Gemini API key is missing. Configure GEMINI_API_KEY in /settings.', 400);

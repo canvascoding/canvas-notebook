@@ -64,7 +64,7 @@ function getScopeConfig(scope: EnvScope): EnvScopeConfig {
 
 function hasExplicitStorageScope(storageScope?: EnvStorageScope | null): boolean {
   return Boolean(
-    storageScope?.secretScope ||
+    (storageScope?.secretScope && storageScope.secretScope !== 'legacy') ||
     storageScope?.userId?.trim() ||
     storageScope?.organizationId?.trim(),
   );

@@ -1161,6 +1161,7 @@ export async function generatePresetPreview(
       model,
       aspectRatio,
       referenceImages: [],
+      storageScope: { userId },
     });
 
     const previewPath = 'studio/assets/' + generatePresetPreviewPath(presetId, extensionFromMime(result.mimeType));

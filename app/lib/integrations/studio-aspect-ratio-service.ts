@@ -9,6 +9,7 @@ import { db } from '@/app/lib/db';
 import { studioGenerationOutputs, studioGenerations } from '@/app/lib/db/schema';
 import { writeFile, type WorkspaceFileOperationOptions } from '@/app/lib/filesystem/workspace-files';
 import { getImageGenerationProvider } from '@/app/lib/integrations/image-generation-providers';
+import type { EnvStorageScope } from '@/app/lib/integrations/env-config';
 import { classifyMediaReference, loadMediaReference } from '@/app/lib/integrations/media-reference-resolver';
 import {
   ensureStudioEditsWorkspace,
@@ -325,7 +326,10 @@ async function writeEditResult(buffer: Buffer, fileName: string, mode: AspectRat
   };
 }
 
-export async function createAspectRatioPreview(input: AspectRatioPreviewRequest): Promise<AspectRatioPreviewResult> {
+export async function createAspectRatioPreview(
+  input: AspectRatioPreviewRequest,
+  storageScope?: EnvStorageScope | null,
+): Promise<AspectRatioPreviewResult> {
   const request = validatePreviewRequest(input);
   const source = await loadMediaReference(request.sourcePath, { allowedTypes: ['image'] });
   const sourceBytes = source.bytes;
@@ -405,6 +409,7 @@ export async function createAspectRatioPreview(input: AspectRatioPreviewRequest)
     background: request.background,
     imageSize: request.imageSize,
     contextPrompt: buildExtendContextPrompt(provider.id),
+    storageScope,
   });
 
   const generatedBytes = Buffer.from(generated.imageBytes, 'base64');

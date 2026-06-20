@@ -26,7 +26,7 @@ export async function getChannelDeliveryReadiness(input: string | {
   }
 
   if (normalizedChannelId === TELEGRAM_CHANNEL_ID) {
-    const config = await getTelegramConfigFromIntegrations();
+    const config = await getTelegramConfigFromIntegrations(userId ? { userId } : undefined);
     if (!config.botToken) {
       return {
         ok: false,

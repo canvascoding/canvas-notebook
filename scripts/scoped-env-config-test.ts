@@ -85,12 +85,15 @@ async function main() {
     process.env.INTEGRATIONS_ENV_PATH = overridePath;
     await writeScopedEnvRaw('integrations', 'LEGACY_KEY=legacy\n');
     assert.equal(getEnvFilePath('integrations'), overridePath);
+    assert.equal(getEnvFilePath('integrations', { secretScope: 'legacy' }), overridePath);
     assert.equal(
       getEnvFilePath('integrations', userA),
       path.join(dataRoot, 'users', 'user_a', 'secrets', 'Canvas-Integrations.env'),
     );
     const legacyOverride = await readScopedEnvState('integrations');
+    const explicitLegacyOverride = await readScopedEnvState('integrations', { secretScope: 'legacy' });
     assert.equal(legacyOverride.entries.find((entry) => entry.key === 'LEGACY_KEY')?.value, 'legacy');
+    assert.equal(explicitLegacyOverride.entries.find((entry) => entry.key === 'LEGACY_KEY')?.value, 'legacy');
 
     console.log('scoped-env-config-test: ok');
   } finally {

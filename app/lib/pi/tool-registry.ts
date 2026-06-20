@@ -125,7 +125,7 @@ import {
   MAX_AUDIO_TRANSCRIPTION_BYTES,
   transcribeAudio,
 } from '@/app/lib/integrations/audio-transcription-service';
-import { runWithAgentExecutionContext, type AgentExecutionContext } from '@/app/lib/pi/agent-execution-context';
+import { getAgentExecutionContext, runWithAgentExecutionContext, type AgentExecutionContext } from '@/app/lib/pi/agent-execution-context';
 import { resolveAgentExecutionContextForSession } from '@/app/lib/pi/session-workspace-context';
 
 
@@ -1069,6 +1069,7 @@ export function createTranscribeAudioTool(): AgentTool {
         }
 
         const buffer = await fsPromises.readFile(fullPath);
+        const executionContext = getAgentExecutionContext();
         const result = await transcribeAudio({
           buffer,
           filename: path.basename(fullPath),
@@ -1076,6 +1077,7 @@ export function createTranscribeAudioTool(): AgentTool {
           language: input.language,
           prompt: input.prompt,
           signal,
+          storageScope: executionContext ? { userId: executionContext.userId } : undefined,
         });
 
         const text = [
@@ -1573,6 +1575,7 @@ export function createWebSearchTool(): AgentTool {
           include_content?: boolean;
           max_content_length?: number;
         };
+        const executionContext = getAgentExecutionContext();
         const response = await searchWeb({
           query: typeof input.query === 'string' ? input.query : '',
           count: input.count,
@@ -1580,7 +1583,7 @@ export function createWebSearchTool(): AgentTool {
           freshness: input.freshness,
           includeContent: input.include_content === true,
           maxContentLength: input.max_content_length,
-        }, signal);
+        }, signal, executionContext ? { userId: executionContext.userId } : undefined);
         return {
           content: [{ type: 'text', text: formatWebSearchResults(response) }],
           details: response,

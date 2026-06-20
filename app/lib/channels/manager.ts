@@ -35,7 +35,7 @@ class ChannelManager {
     registry.register(createWebChannel());
 
     const { getTelegramConfigFromIntegrations } = await import('@/app/lib/integrations/env-config');
-    const config = await getTelegramConfigFromIntegrations();
+    const config = await getTelegramConfigFromIntegrations({ secretScope: 'legacy' });
 
     if (!config.botToken) {
       console.log('[ChannelManager] TELEGRAM_BOT_TOKEN not configured — skipping Telegram channel');
