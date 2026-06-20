@@ -25,6 +25,7 @@ import {
 import { loadSkillByName, getSkillNames } from '@/app/lib/skills/skill-loader';
 import { loadSkillSummaries, type SkillSummary } from '@/app/lib/skills/skill-summaries';
 import { DISABLED_ALL_SKILLS_SENTINEL, enableSkillInConfig } from '@/app/lib/skills/enabled-skills';
+import { adoptLegacyStandaloneSkillsForScope } from '@/app/lib/skills/legacy-skill-adoption';
 import { readEnabledSkillsForScope, writeEnabledSkillsForScope } from '@/app/lib/skills/skill-settings';
 
 export const DEFAULT_CANVAS_SKILL_STORE_REGISTRY_URL =
@@ -683,7 +684,7 @@ async function backupExistingSkill(
   skillName: string,
   scope?: CanvasSkillStoreScope | null,
 ): Promise<string | undefined> {
-  const skillDir = path.join(resolveScopedSkillsDataDir(scope), skillName);
+  const skillDir = path.join(await resolveReadableScopedSkillsDataDir(scope), skillName);
   const stat = await fs.stat(skillDir).catch(() => null);
   if (!stat?.isDirectory()) return undefined;
 
@@ -799,6 +800,8 @@ export async function installCanvasSkillFromStore(
 
   let tempRoot: string | null = null;
   try {
+    await adoptLegacyStandaloneSkillsForScope(options.scope);
+
     const registry = await readCanvasSkillStoreRegistry();
     const storeSkill = registry.skills.find((skill) => skill.name === skillName);
     if (!storeSkill) {
@@ -864,6 +867,8 @@ async function restoreSeedSkill(
   }
 
   try {
+    await adoptLegacyStandaloneSkillsForScope(options.scope);
+
     await ensureStandaloneSkillInstallAllowed(skillName, options.replace ?? true, options.scope);
     await validateSkillPackage(seedRoot, skillName);
     const backupPath = await backupExistingSkill(skillName, options.scope);

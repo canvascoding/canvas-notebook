@@ -235,6 +235,34 @@ async function main() {
       await fs.stat(path.join(dataRoot, 'skills', 'test-library-skill', 'SKILL.md')).then((stat) => stat.isFile()),
       true,
     );
+    await writeFile(path.join(dataRoot, 'skills', 'legacy-other-skill', 'SKILL.md'), `---
+name: legacy-other-skill
+description: "Temporary legacy skill used to verify scoped store writes preserve legacy visibility."
+metadata:
+  version: "1.0.0"
+---
+
+# Legacy Other Skill
+
+This skill should remain visible after scoped store writes.
+`);
+    const legacyStoreScope = { userId: 'legacy-store-skill-user' };
+    const legacyStoreInstall = await installCanvasSkillFromStore('test-library-skill', undefined, {
+      enable: true,
+      scope: legacyStoreScope,
+      updatedBy: 'legacy-store-skill-user@example.com',
+    });
+    assert.equal(legacyStoreInstall.success, true, legacyStoreInstall.error);
+    assert.equal((await loadSkillsFromDisk(undefined, legacyStoreScope)).some((skill) => skill.name === 'legacy-other-skill'), true);
+    const legacyRestoreScope = { userId: 'legacy-restore-skill-user' };
+    const legacySeedRestore = await restoreCanvasSkill('pdf', {
+      enable: false,
+      prefer: 'seed',
+      scope: legacyRestoreScope,
+      updatedBy: 'legacy-restore-skill-user@example.com',
+    });
+    assert.equal(legacySeedRestore.success, true, legacySeedRestore.error);
+    assert.equal((await loadSkillsFromDisk(undefined, legacyRestoreScope)).some((skill) => skill.name === 'legacy-other-skill'), true);
     await fs.mkdir(path.join(dataRoot, 'users', 'skill-user-a', 'skills'), { recursive: true });
     await fs.mkdir(path.join(dataRoot, 'users', 'skill-user-b', 'skills'), { recursive: true });
     let scopedStoreA = await listCanvasSkillStore({ scope: userScopeA });

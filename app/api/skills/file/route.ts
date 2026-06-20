@@ -7,6 +7,7 @@ import { resolveReadableScopedSkillsDataDir } from '@/app/lib/runtime-data-paths
 
 function sanitizeFilePath(filePath: string): string {
   let clean = filePath;
+  clean = clean.replace(/\0/g, '');
   clean = clean.replace(/\.\./g, '');
   clean = clean.replace(/\/\/+/g, '/');
   clean = clean.replace(/^\//, '');
