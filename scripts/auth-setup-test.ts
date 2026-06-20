@@ -90,7 +90,23 @@ async function main() {
     hasAnyAuthUser,
     InitialOwnerSetupError,
   } = await import('../app/lib/auth-setup');
-  const { ensureOrganizationBootstrapForUser, getOrganizationBootstrapStatus } = await import('../app/lib/organization/bootstrap');
+  const {
+    areTeamFeaturesEnabled,
+    ensureOrganizationBootstrapForUser,
+    getOrganizationBootstrapStatus,
+  } = await import('../app/lib/organization/bootstrap');
+
+  const previousTeamFeaturesEnv = process.env.CANVAS_TEAM_FEATURES_ENABLED;
+  process.env.CANVAS_TEAM_FEATURES_ENABLED = 'true';
+  assert.equal(areTeamFeaturesEnabled('community'), false);
+  assert.equal(areTeamFeaturesEnabled('single_user'), false);
+  assert.equal(areTeamFeaturesEnabled('managed-single'), false);
+  assert.equal(areTeamFeaturesEnabled('production'), true);
+  if (previousTeamFeaturesEnv === undefined) {
+    delete process.env.CANVAS_TEAM_FEATURES_ENABLED;
+  } else {
+    process.env.CANVAS_TEAM_FEATURES_ENABLED = previousTeamFeaturesEnv;
+  }
 
   assert.equal(hasAnyAuthUser(), false);
 
@@ -311,6 +327,45 @@ async function main() {
     rebootstrap.close();
   } finally {
     rmSync(communityBootstrapDir, { recursive: true, force: true });
+  }
+
+  const genericTeamBootstrapDir = mkdtempSync(path.join(tmpdir(), 'canvas-auth-generic-team-bootstrap-'));
+  try {
+    execFileSync('node', ['scripts/bootstrap-admin.js'], {
+      cwd: process.cwd(),
+      stdio: 'pipe',
+      env: {
+        ...process.env,
+        DATA: genericTeamBootstrapDir,
+        CANVAS_DEPLOYMENT_MODE: 'production',
+        CANVAS_TEAM_FEATURES_ENABLED: 'true',
+        CANVAS_DATABASE_PROVIDER: 'postgres',
+        BOOTSTRAP_ADMIN_EMAIL: 'generic-team@example.test',
+        BOOTSTRAP_ADMIN_PASSWORD: 'GenericTeamPassword123!',
+        BOOTSTRAP_ADMIN_NAME: 'Generic Team Admin',
+      },
+    });
+
+    const genericTeamBootstrap = new Database(path.join(genericTeamBootstrapDir, 'sqlite.db'));
+    const organization = genericTeamBootstrap.prepare(`
+      SELECT organization_id AS organizationId, deployment_mode AS deploymentMode,
+        team_features_enabled AS teamFeaturesEnabled
+      FROM canvas_organization_settings
+    `).get() as {
+      organizationId: string;
+      deploymentMode: string;
+      teamFeaturesEnabled: number;
+    };
+    assert.equal(organization.deploymentMode, 'production');
+    assert.equal(organization.teamFeaturesEnabled, 1);
+    assert.equal(existsSync(path.join(genericTeamBootstrapDir, 'workspaces', 'team', organization.organizationId, 'files')), true);
+    const workspaceTypes = genericTeamBootstrap.prepare(`
+      SELECT type FROM canvas_workspaces ORDER BY type ASC
+    `).all() as Array<{ type: string }>;
+    assert.deepEqual(workspaceTypes.map((workspace) => workspace.type), ['personal', 'team']);
+    genericTeamBootstrap.close();
+  } finally {
+    rmSync(genericTeamBootstrapDir, { recursive: true, force: true });
   }
 
   console.log('auth setup tests passed');

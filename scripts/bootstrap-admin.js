@@ -311,7 +311,7 @@ function isTeamDeploymentMode(deploymentMode) {
 }
 
 function canEnableTeamFeaturesForDeployment(deploymentMode) {
-  return isTeamDeploymentMode(deploymentMode);
+  return !isSingleUserDeploymentMode(deploymentMode);
 }
 
 function teamFeaturesEnabled(deploymentMode) {

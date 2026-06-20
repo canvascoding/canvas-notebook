@@ -132,7 +132,7 @@ export function isTeamDeploymentMode(deploymentMode = getDeploymentMode()): bool
 }
 
 export function canEnableTeamFeaturesForDeployment(deploymentMode = getDeploymentMode()): boolean {
-  return isTeamDeploymentMode(deploymentMode);
+  return !isSingleUserDeploymentMode(deploymentMode);
 }
 
 export function getConfiguredOrganizationId(): string | null {
