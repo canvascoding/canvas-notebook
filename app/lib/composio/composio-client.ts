@@ -5,7 +5,7 @@ import { readScopedEnvState, type EnvStorageScope } from '../integrations/env-co
 import { getManagedControlPlaneBaseUrl } from '../managed/control-plane-url';
 import { getComposioUserId } from './composio-identity';
 
-let composioInstance: Composio | null = null;
+const composioInstances = new Map<string, Composio>();
 
 export type ComposioMode = 'local' | 'managed' | 'disabled';
 
@@ -44,19 +44,18 @@ export async function getComposioMode(storageScope?: EnvStorageScope | null): Pr
   return 'disabled';
 }
 
-let cachedApiKey: string | null = null;
-
 export async function getComposio(storageScope?: EnvStorageScope | null): Promise<Composio | null> {
   const apiKey = await getLocalComposioApiKey(storageScope);
   if (!apiKey) return null;
 
-  if (composioInstance && cachedApiKey === apiKey) {
-    return composioInstance;
+  const cached = composioInstances.get(apiKey);
+  if (cached) {
+    return cached;
   }
 
-  composioInstance = new Composio({ apiKey });
-  cachedApiKey = apiKey;
-  return composioInstance;
+  const composio = new Composio({ apiKey });
+  composioInstances.set(apiKey, composio);
+  return composio;
 }
 
 export async function verifyApiKey(storageScope?: EnvStorageScope | null): Promise<boolean> {
@@ -75,6 +74,5 @@ export async function isComposioConfigured(storageScope?: EnvStorageScope | null
 }
 
 export function resetComposioInstance(): void {
-  composioInstance = null;
-  cachedApiKey = null;
+  composioInstances.clear();
 }

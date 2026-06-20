@@ -111,7 +111,9 @@ async function readMasterSecretFromScope(userId: string | null, createIfMissing:
 
 async function getMasterSecretForRef(secretRef: string): Promise<string> {
   const userId = userIdFromSecretRef(secretRef);
-  return await readMasterSecretFromScope(userId, true) || await readMasterSecretFromScope(null, true) || crypto.randomBytes(32).toString('base64url');
+  const secret = await readMasterSecretFromScope(userId, true);
+  if (!secret) throw new Error('Unable to initialize email account secret encryption key.');
+  return secret;
 }
 
 async function encryptPayload(secretRef: string, payload: EmailAccountSecret): Promise<string> {
@@ -146,10 +148,12 @@ async function decryptPayload(secretRef: string, value: string): Promise<EmailAc
   }
 
   const userId = userIdFromSecretRef(secretRef);
-  const candidates = [
-    await readMasterSecretFromScope(userId, false),
-    await readMasterSecretFromScope(null, false),
-  ].filter((entry): entry is string => Boolean(entry));
+  const candidates = (
+    await Promise.all([
+      readMasterSecretFromScope(userId, false),
+      readMasterSecretFromScope(null, false),
+    ])
+  ).filter((entry): entry is string => Boolean(entry));
 
   let lastError: unknown = null;
   for (const secret of candidates) {
@@ -176,9 +180,10 @@ export async function readEmailAccountSecret(secretRef: string): Promise<EmailAc
   const primaryPath = secretPath(secretRef);
   const legacyPath = legacySecretPath(secretRef);
   try {
-    return await decryptPayload(secretRef, await fs.readFile(primaryPath, 'utf8'));
+    const primaryValue = await fs.readFile(primaryPath, 'utf8');
+    return await decryptPayload(secretRef, primaryValue);
   } catch (error) {
-    if (primaryPath === legacyPath) throw error;
+    if (primaryPath === legacyPath || (error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
     return decryptPayload(secretRef, await fs.readFile(legacyPath, 'utf8'));
   }
 }

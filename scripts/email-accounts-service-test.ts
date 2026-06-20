@@ -91,6 +91,7 @@ async function main() {
 
   const { createEmailDraft, disconnectEmailAccount, getEmailOAuthStatus, listEmailAccounts, listEmailFolders, listEmailMessages, readEmailMessage, saveEmailSmtpAccount, searchEmail, sendEmailDraft, sendEmailMessage, setEmailMainAccount, startEmailOAuth, testEmailAccount, testEmailSmtpConnection } = await import('../app/lib/email/service');
   const { upsertOAuthEmailAccount } = await import('../app/lib/email/account-store');
+  const { emailAccountSecretRef, readEmailAccountSecret, writeEmailAccountSecret } = await import('../app/lib/email/secret-store');
   const { setSmtpTransportFactoryForTests } = await import('../app/lib/email/smtp-service');
   const { setImapClientFactoryForTests } = await import('../app/lib/email/imap-service');
 
@@ -135,6 +136,27 @@ async function main() {
   assert.deepEqual(otherPolicy.readFrom, ['other@example.test']);
   assert.deepEqual(otherPolicy.sendTo, ['other@example.test']);
   await assert.rejects(() => disconnectEmailAccount('other-user', 'local_google_test'), /not found/i);
+
+  const fallbackSecretRef = emailAccountSecretRef('owner-user', 'fallback-test');
+  const fallbackPrimaryPath = path.join(tmpRoot, 'users', 'owner-user', 'secrets', 'email-accounts', 'fallback-test.json.enc');
+  const fallbackLegacyPath = path.join(secretsDir, 'email-accounts', 'owner-user', 'fallback-test.json.enc');
+  await writeEmailAccountSecret(fallbackSecretRef, {
+    authType: 'oauth',
+    tokenType: 'Bearer',
+    accessToken: 'primary-access',
+  });
+  await fs.mkdir(path.dirname(fallbackLegacyPath), { recursive: true });
+  await fs.writeFile(fallbackLegacyPath, JSON.stringify({
+    authType: 'oauth',
+    tokenType: 'Bearer',
+    accessToken: 'legacy-access',
+  }), 'utf8');
+  await fs.writeFile(fallbackPrimaryPath, 'enc:v1:broken', 'utf8');
+  await assert.rejects(() => readEmailAccountSecret(fallbackSecretRef), /Invalid email account secret format|Unable to decrypt|Unsupported email account secret|auth/i);
+  await fs.rm(fallbackPrimaryPath, { force: true });
+  const legacyFallbackSecret = await readEmailAccountSecret(fallbackSecretRef);
+  assert.equal(legacyFallbackSecret.authType, 'oauth');
+  assert.equal(legacyFallbackSecret.accessToken, 'legacy-access');
 
   await disconnectEmailAccount('owner-user', 'local_google_test');
   const ownerAfterDisconnect = await listEmailAccounts('owner-user');

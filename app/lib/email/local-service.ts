@@ -206,7 +206,7 @@ function accountsPath(): string {
 }
 
 function legacyStatePath(state: string): string {
-  return path.join(legacyEmailRoot(), '.state', `${state.replace(/[^A-Za-z0-9_.-]/g, '_')}.json`);
+  return path.join(legacyEmailRoot(), '.state', oauthStateFileName(state));
 }
 
 function userEmailRoot(userId: string): string {
@@ -214,7 +214,11 @@ function userEmailRoot(userId: string): string {
 }
 
 function statePath(userId: string, state: string): string {
-  return path.join(userEmailRoot(userId), '.state', `${state.replace(/[^A-Za-z0-9_.-]/g, '_')}.json`);
+  return path.join(userEmailRoot(userId), '.state', oauthStateFileName(state));
+}
+
+function oauthStateFileName(state: string): string {
+  return `${crypto.createHash('sha256').update(state).digest('hex')}.json`;
 }
 
 async function ensurePrivateDir(dirPath: string): Promise<void> {
