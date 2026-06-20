@@ -1,6 +1,7 @@
 'use client';
 
-import { Building2, Lock, UserRound, UsersRound } from 'lucide-react';
+import { Lock } from 'lucide-react';
+import { useTranslations } from 'next-intl';
 
 import { Badge } from '@/components/ui/badge';
 import {
@@ -11,6 +12,11 @@ import {
 } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import type { ClientWorkspaceSummary } from '@/app/lib/workspaces/client-types';
+import {
+  getWorkspaceKindLabel,
+  renderWorkspaceIcon,
+  type WorkspaceKindLabels,
+} from '@/app/components/workspaces/workspace-utils';
 import { selectActiveWorkspace, useWorkspaceStore } from '@/app/store/workspace-store';
 
 type WorkspaceBadgeProps = {
@@ -19,27 +25,21 @@ type WorkspaceBadgeProps = {
   className?: string;
 };
 
-function getWorkspaceKindLabel(workspace: ClientWorkspaceSummary | null) {
-  if (workspace?.type === 'team') return 'Team';
-  if (workspace?.type === 'project') return 'Project';
-  return 'Personal';
-}
-
-function renderWorkspaceIcon(workspace: ClientWorkspaceSummary | null, className: string) {
-  if (workspace?.type === 'team') return <UsersRound className={className} />;
-  if (workspace?.type === 'project') return <Building2 className={className} />;
-  return <UserRound className={className} />;
-}
-
 export function WorkspaceBadge({ workspace: providedWorkspace, compact = false, className }: WorkspaceBadgeProps) {
+  const t = useTranslations('workspaces');
   const activeWorkspace = useWorkspaceStore(selectActiveWorkspace);
   const workspace = providedWorkspace ?? activeWorkspace;
-  const label = workspace?.name || 'Workspace';
-  const kindLabel = getWorkspaceKindLabel(workspace);
+  const kindLabels = {
+    personal: t('types.personal'),
+    team: t('types.team'),
+    project: t('types.project'),
+  } satisfies WorkspaceKindLabels;
+  const label = workspace?.name || t('label');
+  const kindLabel = getWorkspaceKindLabel(workspace, kindLabels);
   const canWrite = Boolean(workspace?.permissions.canWrite);
   const title = workspace
-    ? `${label} · ${canWrite ? 'Write access' : 'Read only'}`
-    : 'Workspace context is loading';
+    ? `${label} · ${canWrite ? t('access.write') : t('access.readOnly')}`
+    : t('loadingContext');
 
   return (
     <TooltipProvider delayDuration={300}>

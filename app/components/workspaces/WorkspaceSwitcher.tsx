@@ -1,7 +1,8 @@
 'use client';
 
 import { useCallback, useEffect } from 'react';
-import { Building2, Check, ChevronsUpDown, Loader2, Lock, RefreshCw, UserRound, UsersRound } from 'lucide-react';
+import { Check, ChevronsUpDown, Loader2, Lock, RefreshCw } from 'lucide-react';
+import { useTranslations } from 'next-intl';
 
 import { Button } from '@/components/ui/button';
 import {
@@ -14,6 +15,11 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
 import type { ClientWorkspaceSummary } from '@/app/lib/workspaces/client-types';
+import {
+  getWorkspaceKindLabel,
+  renderWorkspaceIcon,
+  type WorkspaceKindLabels,
+} from '@/app/components/workspaces/workspace-utils';
 import {
   selectActiveWorkspace,
   useWorkspaceStore,
@@ -28,25 +34,20 @@ type WorkspaceSwitcherProps = {
   className?: string;
 };
 
-function getWorkspaceKindLabel(workspace: ClientWorkspaceSummary | null | undefined) {
-  if (workspace?.type === 'team') return 'Team';
-  if (workspace?.type === 'project') return 'Project';
-  return 'Personal';
-}
+type WorkspaceAccessLabels = {
+  readOnly: string;
+  teamWrite: string;
+  write: string;
+};
 
-function renderWorkspaceIcon(workspace: ClientWorkspaceSummary | null | undefined, className: string) {
-  if (workspace?.type === 'team') return <UsersRound className={className} />;
-  if (workspace?.type === 'project') return <Building2 className={className} />;
-  return <UserRound className={className} />;
-}
-
-function getAccessLabel(workspace: ClientWorkspaceSummary) {
-  if (!workspace.permissions.canWrite) return 'Read only';
-  if (workspace.type === 'team') return 'Team write access';
-  return 'Write access';
+function getAccessLabel(workspace: ClientWorkspaceSummary, labels: WorkspaceAccessLabels) {
+  if (!workspace.permissions.canWrite) return labels.readOnly;
+  if (workspace.type === 'team') return labels.teamWrite;
+  return labels.write;
 }
 
 export function WorkspaceSwitcher({ source, variant = 'default', className }: WorkspaceSwitcherProps) {
+  const t = useTranslations('workspaces');
   const workspaces = useWorkspaceStore((state) => state.workspaces);
   const activeWorkspace = useWorkspaceStore(selectActiveWorkspace);
   const isLoading = useWorkspaceStore((state) => state.isLoading);
@@ -69,7 +70,17 @@ export function WorkspaceSwitcher({ source, variant = 'default', className }: Wo
 
   const isCompact = variant === 'compact';
   const isToolbar = variant === 'toolbar';
-  const activeLabel = activeWorkspace?.name || (isLoading && !initialized ? 'Loading workspace' : 'Workspace');
+  const kindLabels = {
+    personal: t('types.personal'),
+    team: t('types.team'),
+    project: t('types.project'),
+  } satisfies WorkspaceKindLabels;
+  const accessLabels = {
+    readOnly: t('access.readOnly'),
+    teamWrite: t('access.teamWrite'),
+    write: t('access.write'),
+  } satisfies WorkspaceAccessLabels;
+  const activeLabel = activeWorkspace?.name || (isLoading && !initialized ? t('loadingWorkspace') : t('label'));
   const canSwitch = workspaces.length > 1;
 
   if (!canSwitch && activeWorkspace && isCompact) {
@@ -83,10 +94,10 @@ export function WorkspaceSwitcher({ source, variant = 'default', className }: Wo
         data-active-workspace-id={activeWorkspace.id}
         data-active-workspace-type={activeWorkspace.type}
         className={cn('h-8 min-w-0 gap-1.5 px-2 text-[11px] disabled:opacity-100', className)}
-        title={`${activeWorkspace.name} · ${getAccessLabel(activeWorkspace)}`}
+        title={`${activeWorkspace.name} · ${getAccessLabel(activeWorkspace, accessLabels)}`}
       >
         {renderWorkspaceIcon(activeWorkspace, 'h-3.5 w-3.5 shrink-0')}
-        <span className="hidden min-w-0 truncate sm:inline">{getWorkspaceKindLabel(activeWorkspace)}</span>
+        <span className="hidden min-w-0 truncate sm:inline">{getWorkspaceKindLabel(activeWorkspace, kindLabels)}</span>
         {!activeWorkspace.permissions.canWrite ? <Lock className="h-3 w-3 text-amber-500" /> : null}
       </Button>
     );
@@ -109,7 +120,7 @@ export function WorkspaceSwitcher({ source, variant = 'default', className }: Wo
             isToolbar && 'bg-background/70',
             className
           )}
-          title={activeWorkspace ? `${activeWorkspace.name} · ${getAccessLabel(activeWorkspace)}` : activeLabel}
+          title={activeWorkspace ? `${activeWorkspace.name} · ${getAccessLabel(activeWorkspace, accessLabels)}` : activeLabel}
         >
           {isLoading && !initialized ? (
             <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
@@ -117,7 +128,7 @@ export function WorkspaceSwitcher({ source, variant = 'default', className }: Wo
             renderWorkspaceIcon(activeWorkspace, 'h-3.5 w-3.5 shrink-0')
           )}
           <span className={cn('min-w-0 truncate', isCompact && 'hidden sm:inline')}>
-            {isCompact && activeWorkspace ? getWorkspaceKindLabel(activeWorkspace) : activeLabel}
+            {isCompact && activeWorkspace ? getWorkspaceKindLabel(activeWorkspace, kindLabels) : activeLabel}
           </span>
           {activeWorkspace && !activeWorkspace.permissions.canWrite ? <Lock className="h-3 w-3 shrink-0 text-amber-500" /> : null}
           <ChevronsUpDown className="h-3 w-3 shrink-0 text-muted-foreground" />
@@ -125,7 +136,7 @@ export function WorkspaceSwitcher({ source, variant = 'default', className }: Wo
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" sideOffset={8} className="w-72">
         <DropdownMenuLabel className="flex items-center justify-between gap-2">
-          <span>Workspace</span>
+          <span>{t('label')}</span>
           <button
             type="button"
             className="inline-flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
@@ -133,8 +144,8 @@ export function WorkspaceSwitcher({ source, variant = 'default', className }: Wo
               event.preventDefault();
               void refreshWorkspaces();
             }}
-            aria-label="Refresh workspaces"
-            title="Refresh workspaces"
+            aria-label={t('refresh')}
+            title={t('refresh')}
           >
             <RefreshCw className={cn('h-3.5 w-3.5', isLoading && 'animate-spin')} />
           </button>
@@ -145,7 +156,7 @@ export function WorkspaceSwitcher({ source, variant = 'default', className }: Wo
         ) : null}
         {workspaces.length === 0 && !error ? (
           <div className="px-2 py-1.5 text-xs text-muted-foreground">
-            {isLoading ? 'Loading workspaces...' : 'No workspace available'}
+            {isLoading ? t('loadingWorkspaces') : t('noWorkspaceAvailable')}
           </div>
         ) : null}
         {workspaces.map((workspace) => {
@@ -157,14 +168,14 @@ export function WorkspaceSwitcher({ source, variant = 'default', className }: Wo
               key={workspace.id}
               disabled={disabled}
               onSelect={() => handleSelect(workspace)}
-              data-testid={`workspace-option-${workspace.type}`}
+              data-testid={`workspace-option-${workspace.id}`}
               className="items-start gap-2"
             >
               {renderWorkspaceIcon(workspace, 'mt-0.5 h-4 w-4')}
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-sm font-medium">{workspace.name}</span>
                 <span className="block truncate text-[11px] text-muted-foreground">
-                  {getWorkspaceKindLabel(workspace)} · {getAccessLabel(workspace)}
+                  {getWorkspaceKindLabel(workspace, kindLabels)} · {getAccessLabel(workspace, accessLabels)}
                 </span>
               </span>
               {isActive ? <Check className="mt-0.5 h-4 w-4 text-primary" /> : null}

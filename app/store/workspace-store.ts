@@ -139,6 +139,8 @@ export function selectActiveWorkspace(state: Pick<WorkspaceStoreState, 'workspac
   return state.workspaces.find((workspace) => workspace.id === state.activeWorkspaceId) || null;
 }
 
+let workspaceHydrationPromise: Promise<void> | null = null;
+
 export const useWorkspaceStore = create<WorkspaceStoreState>((set, get) => ({
   workspaces: [],
   activeWorkspaceId: readCachedActiveWorkspaceId(),
@@ -152,40 +154,55 @@ export const useWorkspaceStore = create<WorkspaceStoreState>((set, get) => ({
   lastUpdatedAt: null,
 
   hydrateWorkspaces: async (options = {}) => {
-    if (get().isLoading) return;
-    if (get().initialized && !options.force) return;
+    const force = Boolean(options.force);
+    if (get().initialized && !force) return;
+    if (workspaceHydrationPromise) {
+      await workspaceHydrationPromise;
+      if (!force) return;
+    }
 
-    set({ isLoading: true, error: null });
+    const request = (async () => {
+      set({ isLoading: true, error: null });
 
+      try {
+        const response = await fetch('/api/workspaces', {
+          credentials: 'include',
+          cache: 'no-store',
+        });
+        const payload = (await response.json()) as ClientWorkspaceResponse;
+        if (!response.ok || !payload.success) {
+          throw new Error(payload.error || 'Could not load workspaces');
+        }
+
+        const normalized = normalizeWorkspaceResponse(payload);
+        if (normalized.activeWorkspaceId) {
+          writeCachedActiveWorkspaceId(normalized.activeWorkspaceId);
+        }
+
+        set({
+          ...normalized,
+          initialized: true,
+          isLoading: false,
+          error: null,
+          lastUpdatedAt: Date.now(),
+        });
+      } catch (error) {
+        set({
+          initialized: true,
+          isLoading: false,
+          error: error instanceof Error ? error.message : 'Could not load workspaces',
+          lastUpdatedAt: Date.now(),
+        });
+      }
+    })();
+
+    workspaceHydrationPromise = request;
     try {
-      const response = await fetch('/api/workspaces', {
-        credentials: 'include',
-        cache: 'no-store',
-      });
-      const payload = (await response.json()) as ClientWorkspaceResponse;
-      if (!response.ok || !payload.success) {
-        throw new Error(payload.error || 'Could not load workspaces');
+      await request;
+    } finally {
+      if (workspaceHydrationPromise === request) {
+        workspaceHydrationPromise = null;
       }
-
-      const normalized = normalizeWorkspaceResponse(payload);
-      if (normalized.activeWorkspaceId) {
-        writeCachedActiveWorkspaceId(normalized.activeWorkspaceId);
-      }
-
-      set({
-        ...normalized,
-        initialized: true,
-        isLoading: false,
-        error: null,
-        lastUpdatedAt: Date.now(),
-      });
-    } catch (error) {
-      set({
-        initialized: true,
-        isLoading: false,
-        error: error instanceof Error ? error.message : 'Could not load workspaces',
-        lastUpdatedAt: Date.now(),
-      });
     }
   },
 

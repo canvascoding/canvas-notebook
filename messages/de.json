@@ -47,6 +47,24 @@
     },
     "studio": "Studio"
   },
+  "workspaces": {
+    "label": "Workspace",
+    "loadingWorkspace": "Workspace wird geladen",
+    "loadingWorkspaces": "Workspaces werden geladen...",
+    "loadingContext": "Workspace-Kontext wird geladen",
+    "noWorkspaceAvailable": "Kein Workspace verfügbar",
+    "refresh": "Workspaces aktualisieren",
+    "types": {
+      "personal": "Persönlich",
+      "team": "Team",
+      "project": "Projekt"
+    },
+    "access": {
+      "readOnly": "Nur lesen",
+      "write": "Schreibzugriff",
+      "teamWrite": "Team-Schreibzugriff"
+    }
+  },
   "navigation": {
     "hideSidebar": "Sidebar ausblenden",
     "showSidebar": "Sidebar einblenden",
