@@ -13,7 +13,12 @@ async function main() {
   writeFileSync(path.join(workspaceDir, 'docs', 'brief.md'), '# Brief');
 
   const { db } = await import('../app/lib/db');
-  const { user } = await import('../app/lib/db/schema');
+  const {
+    canvasOrganizationSettings,
+    canvasWorkspaces,
+    organizationUserPermissions,
+    user,
+  } = await import('../app/lib/db/schema');
   const {
     DEFAULT_TODO_CATEGORY_NAME,
     getDefaultTodoCategoryKey,
@@ -50,6 +55,120 @@ async function main() {
       createdAt: now,
       updatedAt: now,
     },
+    {
+      id: 'external-user',
+      name: 'External User',
+      email: 'external-todo-user@example.test',
+      emailVerified: true,
+      image: null,
+      role: null,
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      id: 'readonly-user',
+      name: 'Readonly User',
+      email: 'readonly-todo-user@example.test',
+      emailVerified: true,
+      image: null,
+      role: null,
+      createdAt: now,
+      updatedAt: now,
+    },
+  ]);
+
+  await db.insert(canvasOrganizationSettings).values({
+    organizationId: 'org-test',
+    ownerUserId: 'todo-user',
+    deploymentMode: 'team',
+    teamFeaturesEnabled: true,
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(canvasWorkspaces).values({
+    id: 'team-workspace',
+    organizationId: 'org-test',
+    type: 'team',
+    ownerUserId: null,
+    rootRelativePath: 'organizations/org-test/team',
+    displayName: 'Team Workspace',
+    status: 'active',
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(organizationUserPermissions).values([
+    {
+      organizationId: 'org-test',
+      userId: 'todo-user',
+      role: 'owner',
+      canWriteTeamWorkspace: true,
+      canCreatePublicLinks: true,
+      canCreateTeamAutomations: true,
+      canSharePluginsAndSkills: true,
+      canExport: true,
+      canDeleteTeamFiles: true,
+      canDeleteStudioAssets: true,
+      canManageBackups: true,
+      canMigrateDatabase: true,
+      canEnableKnowledge: true,
+      canRecoverWorkspaces: true,
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      organizationId: 'org-test',
+      userId: 'other-user',
+      role: 'member',
+      canWriteTeamWorkspace: true,
+      canCreatePublicLinks: true,
+      canCreateTeamAutomations: false,
+      canSharePluginsAndSkills: false,
+      canExport: false,
+      canDeleteTeamFiles: true,
+      canDeleteStudioAssets: true,
+      canManageBackups: false,
+      canMigrateDatabase: false,
+      canEnableKnowledge: false,
+      canRecoverWorkspaces: false,
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      organizationId: 'org-test',
+      userId: 'external-user',
+      role: 'external',
+      canWriteTeamWorkspace: false,
+      canCreatePublicLinks: false,
+      canCreateTeamAutomations: false,
+      canSharePluginsAndSkills: false,
+      canExport: false,
+      canDeleteTeamFiles: false,
+      canDeleteStudioAssets: false,
+      canManageBackups: false,
+      canMigrateDatabase: false,
+      canEnableKnowledge: false,
+      canRecoverWorkspaces: false,
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      organizationId: 'org-test',
+      userId: 'readonly-user',
+      role: 'member',
+      canWriteTeamWorkspace: false,
+      canCreatePublicLinks: true,
+      canCreateTeamAutomations: false,
+      canSharePluginsAndSkills: false,
+      canExport: false,
+      canDeleteTeamFiles: false,
+      canDeleteStudioAssets: true,
+      canManageBackups: false,
+      canMigrateDatabase: false,
+      canEnableKnowledge: false,
+      canRecoverWorkspaces: false,
+      createdAt: now,
+      updatedAt: now,
+    },
   ]);
 
   const categories = await ensureTodoCategories('todo-user');
@@ -64,6 +183,7 @@ async function main() {
     sourceType: 'agent',
     sourceAgentId: 'canvas-agent',
     sourceSessionId: 'sess-test',
+    workspaceId: 'team-workspace',
     fileLinks: [
       { workspacePath: './docs/brief.md', label: 'Brief' },
       'docs/brief.md',
@@ -75,8 +195,11 @@ async function main() {
   assert.equal(created.sourceType, 'agent');
   assert.equal(created.category?.name, 'Review');
   assert.equal(getDefaultTodoCategoryKey(created.category), 'review');
+  assert.equal(created.workspaceType, 'personal');
+  assert.equal(created.workspaceId, null);
   assert.equal(created.fileLinks.length, 1);
   assert.equal(created.fileLinks[0].workspacePath, 'docs/brief.md');
+  assert.equal(created.fileLinks[0].workspaceId, null);
 
   const todos = await listTodos('todo-user');
   assert.equal(todos.length, 1);
@@ -84,6 +207,85 @@ async function main() {
 
   const otherUserTodos = await listTodos('other-user', { status: 'all' });
   assert.equal(otherUserTodos.length, 0);
+
+  const teamTodo = await createTodo('todo-user', {
+    title: 'Team handoff',
+    description: 'Shared org task',
+    workspaceType: 'team',
+    organizationId: 'org-test',
+    workspaceId: 'team-workspace',
+    assigneeUserId: 'other-user',
+    fileLinks: ['docs/brief.md'],
+  });
+  assert.equal(teamTodo.workspaceType, 'team');
+  assert.equal(teamTodo.organizationId, 'org-test');
+  assert.equal(teamTodo.workspaceId, 'team-workspace');
+  assert.equal(teamTodo.createdBy?.id, 'todo-user');
+  assert.equal(teamTodo.assignee?.id, 'other-user');
+  assert.equal(teamTodo.fileLinks[0].workspaceType, 'team');
+  assert.equal(teamTodo.fileLinks[0].workspaceId, 'team-workspace');
+
+  const memberTeamTodos = await listTodos('other-user', {
+    status: 'all',
+    workspaceType: 'team',
+    organizationId: 'org-test',
+    workspaceId: 'team-workspace',
+  });
+  assert.deepEqual(memberTeamTodos.map((todo) => todo.id), [teamTodo.id]);
+
+  const readonlyTeamTodos = await listTodos('readonly-user', {
+    status: 'all',
+    workspaceType: 'team',
+    organizationId: 'org-test',
+    workspaceId: 'team-workspace',
+  });
+  assert.deepEqual(readonlyTeamTodos.map((todo) => todo.id), [teamTodo.id]);
+
+  const personalStillPrivate = await listTodos('other-user', {
+    status: 'all',
+    workspaceType: 'personal',
+  });
+  assert.equal(personalStillPrivate.length, 0);
+
+  await assert.rejects(
+    () => listTodos('external-user', {
+      status: 'all',
+      workspaceType: 'team',
+      organizationId: 'org-test',
+      workspaceId: 'team-workspace',
+    }),
+    (error) => error instanceof TodoStoreError && error.code === 'ORGANIZATION_ACCESS_DENIED',
+  );
+
+  await assert.rejects(
+    () => listTodos('todo-user', {
+      status: 'all',
+      workspaceType: 'team',
+      organizationId: 'org-test',
+      workspaceId: 'missing-team-workspace',
+    }),
+    (error) => error instanceof TodoStoreError && error.code === 'INVALID_INPUT',
+  );
+
+  await assert.rejects(
+    () => createTodo('readonly-user', {
+      title: 'Read-only cannot create',
+      workspaceType: 'team',
+      organizationId: 'org-test',
+      workspaceId: 'team-workspace',
+    }),
+    (error) => error instanceof TodoStoreError && error.code === 'ORGANIZATION_ACCESS_DENIED',
+  );
+
+  await assert.rejects(
+    () => updateTodo('readonly-user', teamTodo.id, { status: 'done' }),
+    (error) => error instanceof TodoStoreError && error.code === 'ORGANIZATION_ACCESS_DENIED',
+  );
+
+  await assert.rejects(
+    () => updateTodo('todo-user', teamTodo.id, { assigneeUserId: 'external-user' }),
+    (error) => error instanceof TodoStoreError && error.code === 'ASSIGNEE_NOT_FOUND',
+  );
 
   const seen = await markTodoSeen('todo-user', created.id, new Date('2026-05-31T12:05:00.000Z'));
   assert.equal(seen?.seenAt?.toISOString(), '2026-05-31T12:05:00.000Z');

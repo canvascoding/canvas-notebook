@@ -126,11 +126,16 @@ async function main() {
     createdAt: now,
     updatedAt: now,
   }).returning();
+  const todoRelations = {
+    category: null,
+    fileLinks: [],
+    createdBy: { id: userId, name: 'Todo Email User', email: 'owner@example.test' },
+    assignee: null,
+  };
 
   const result = await sendTodoCreatedEmailNotification(userId, {
     ...agentTodo,
-    category: null,
-    fileLinks: [],
+    ...todoRelations,
   });
 
   assert.equal(result.status, 'sent');
@@ -183,8 +188,7 @@ async function main() {
 
   const englishResult = await sendTodoCreatedEmailNotification(userId, {
     ...englishTodo,
-    category: null,
-    fileLinks: [],
+    ...todoRelations,
   });
 
   assert.equal(englishResult.status, 'sent');
@@ -212,8 +216,7 @@ async function main() {
 
   const skipped = await sendTodoCreatedEmailNotification(userId, {
     ...skippedTodo,
-    category: null,
-    fileLinks: [],
+    ...todoRelations,
   });
 
   assert.equal(skipped.status, 'skipped');
@@ -242,8 +245,7 @@ async function main() {
 
   const policyAllowed = await sendTodoCreatedEmailNotification(userId, {
     ...policyTodo,
-    category: null,
-    fileLinks: [],
+    ...todoRelations,
   });
 
   assert.equal(policyAllowed.status, 'sent');

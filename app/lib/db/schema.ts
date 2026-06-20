@@ -282,6 +282,11 @@ export const todoCategories = sqliteTable("todo_categories", {
 export const todoItems = sqliteTable("todo_items", {
   id: text("id").primaryKey(),
   userId: text("user_id").notNull().references(() => user.id),
+  createdByUserId: text("created_by_user_id").references(() => user.id),
+  assigneeUserId: text("assignee_user_id").references(() => user.id),
+  organizationId: text("organization_id").references(() => canvasOrganizationSettings.organizationId, { onDelete: 'cascade' }),
+  workspaceId: text("workspace_id").references(() => canvasWorkspaces.id, { onDelete: 'set null' }),
+  workspaceType: text("workspace_type").notNull().default("personal"),
   categoryId: text("category_id").references(() => todoCategories.id),
   title: text("title").notNull(),
   description: text("description"),
@@ -306,6 +311,8 @@ export const todoItems = sqliteTable("todo_items", {
   userDueIdx: index("idx_todo_items_user_due").on(table.userId, table.dueAt),
   userSeenIdx: index("idx_todo_items_user_seen").on(table.userId, table.seenAt),
   sourceSessionIdx: index("idx_todo_items_source_session").on(table.userId, table.sourceSessionId),
+  orgWorkspaceStatusIdx: index("idx_todo_items_org_workspace_status").on(table.organizationId, table.workspaceId, table.status, table.updatedAt),
+  assigneeStatusIdx: index("idx_todo_items_assignee_status").on(table.assigneeUserId, table.status, table.updatedAt),
   categoryIdx: index("idx_todo_items_category").on(table.categoryId),
 }));
 
@@ -313,12 +320,16 @@ export const todoFileLinks = sqliteTable("todo_file_links", {
   id: text("id").primaryKey(),
   todoId: text("todo_id").notNull().references(() => todoItems.id),
   userId: text("user_id").notNull().references(() => user.id),
+  organizationId: text("organization_id").references(() => canvasOrganizationSettings.organizationId, { onDelete: 'cascade' }),
+  workspaceId: text("workspace_id").references(() => canvasWorkspaces.id, { onDelete: 'set null' }),
+  workspaceType: text("workspace_type").notNull().default("personal"),
   workspacePath: text("workspace_path").notNull(),
   label: text("label"),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 }, (table) => ({
   todoIdx: index("idx_todo_file_links_todo").on(table.todoId),
   userPathIdx: index("idx_todo_file_links_user_path").on(table.userId, table.workspacePath),
+  workspacePathIdx: index("idx_todo_file_links_workspace_path").on(table.organizationId, table.workspaceId, table.workspacePath),
 }));
 
 export const todoEmailReplyWatchers = sqliteTable("todo_email_reply_watchers", {

@@ -248,6 +248,11 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     CREATE TABLE IF NOT EXISTS todo_items (
       id TEXT PRIMARY KEY NOT NULL,
       user_id TEXT NOT NULL,
+      created_by_user_id TEXT,
+      assignee_user_id TEXT,
+      organization_id TEXT,
+      workspace_id TEXT,
+      workspace_type TEXT NOT NULL DEFAULT 'personal',
       category_id TEXT,
       title TEXT NOT NULL,
       description TEXT,
@@ -268,6 +273,10 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL,
       FOREIGN KEY (user_id) REFERENCES user(id),
+      FOREIGN KEY (created_by_user_id) REFERENCES user(id),
+      FOREIGN KEY (assignee_user_id) REFERENCES user(id),
+      FOREIGN KEY (organization_id) REFERENCES canvas_organization_settings(organization_id) ON DELETE CASCADE,
+      FOREIGN KEY (workspace_id) REFERENCES canvas_workspaces(id) ON DELETE SET NULL,
       FOREIGN KEY (category_id) REFERENCES todo_categories(id)
     );
 
@@ -275,11 +284,16 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       id TEXT PRIMARY KEY NOT NULL,
       todo_id TEXT NOT NULL,
       user_id TEXT NOT NULL,
+      organization_id TEXT,
+      workspace_id TEXT,
+      workspace_type TEXT NOT NULL DEFAULT 'personal',
       workspace_path TEXT NOT NULL,
       label TEXT,
       created_at INTEGER NOT NULL,
       FOREIGN KEY (todo_id) REFERENCES todo_items(id),
-      FOREIGN KEY (user_id) REFERENCES user(id)
+      FOREIGN KEY (user_id) REFERENCES user(id),
+      FOREIGN KEY (organization_id) REFERENCES canvas_organization_settings(organization_id) ON DELETE CASCADE,
+      FOREIGN KEY (workspace_id) REFERENCES canvas_workspaces(id) ON DELETE SET NULL
     );
 
     CREATE TABLE IF NOT EXISTS todo_email_reply_watchers (
@@ -731,9 +745,28 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     next_run_at: 'INTEGER',
   });
 
-    addColumns(sqlite, 'studio_generations', {
-      studio_preset_name: 'TEXT',
-    });
+  addColumns(sqlite, 'studio_generations', {
+    studio_preset_name: 'TEXT',
+  });
+
+  addColumns(sqlite, 'todo_items', {
+    created_by_user_id: 'TEXT',
+    assignee_user_id: 'TEXT',
+    organization_id: 'TEXT',
+    workspace_id: 'TEXT',
+    workspace_type: "TEXT NOT NULL DEFAULT 'personal'",
+    completion_comment: 'TEXT',
+    follow_up_sent_at: 'INTEGER',
+    follow_up_error: 'TEXT',
+    email_notification_sent_at: 'INTEGER',
+    email_notification_error: 'TEXT',
+  });
+
+  addColumns(sqlite, 'todo_file_links', {
+    organization_id: 'TEXT',
+    workspace_id: 'TEXT',
+    workspace_type: "TEXT NOT NULL DEFAULT 'personal'",
+  });
 
   sqlite.exec(`
     UPDATE email_accounts
@@ -880,9 +913,12 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     CREATE INDEX IF NOT EXISTS idx_todo_items_user_due ON todo_items (user_id, due_at);
     CREATE INDEX IF NOT EXISTS idx_todo_items_user_seen ON todo_items (user_id, seen_at);
     CREATE INDEX IF NOT EXISTS idx_todo_items_source_session ON todo_items (user_id, source_session_id);
+    CREATE INDEX IF NOT EXISTS idx_todo_items_org_workspace_status ON todo_items (organization_id, workspace_id, status, updated_at);
+    CREATE INDEX IF NOT EXISTS idx_todo_items_assignee_status ON todo_items (assignee_user_id, status, updated_at);
     CREATE INDEX IF NOT EXISTS idx_todo_items_category ON todo_items (category_id);
     CREATE INDEX IF NOT EXISTS idx_todo_file_links_todo ON todo_file_links (todo_id);
     CREATE INDEX IF NOT EXISTS idx_todo_file_links_user_path ON todo_file_links (user_id, workspace_path);
+    CREATE INDEX IF NOT EXISTS idx_todo_file_links_workspace_path ON todo_file_links (organization_id, workspace_id, workspace_path);
     CREATE INDEX IF NOT EXISTS idx_todo_email_reply_watchers_status_checked ON todo_email_reply_watchers (status, last_checked_at);
     CREATE INDEX IF NOT EXISTS idx_todo_email_reply_watchers_todo ON todo_email_reply_watchers (todo_id);
     CREATE INDEX IF NOT EXISTS idx_todo_email_reply_watchers_user_status ON todo_email_reply_watchers (user_id, status);
@@ -950,13 +986,11 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     attachments_json: "TEXT NOT NULL DEFAULT '[]'",
   });
 
-  addColumns(sqlite, 'todo_items', {
-    completion_comment: 'TEXT',
-    follow_up_sent_at: 'INTEGER',
-    follow_up_error: 'TEXT',
-    email_notification_sent_at: 'INTEGER',
-    email_notification_error: 'TEXT',
-  });
+  sqlite.exec(`
+    UPDATE todo_items
+    SET created_by_user_id = user_id
+    WHERE created_by_user_id IS NULL;
+  `);
 
   addColumns(sqlite, 'automation_runs', {
     target_output_path: 'TEXT',

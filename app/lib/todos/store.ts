@@ -1,9 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
-import { and, asc, desc, eq, inArray, ne, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, ne, or, sql } from 'drizzle-orm';
 
 import { db } from '@/app/lib/db';
-import { todoCategories, todoFileLinks, todoItems } from '@/app/lib/db/schema';
+import { canvasWorkspaces, organizationUserPermissions, todoCategories, todoFileLinks, todoItems, user } from '@/app/lib/db/schema';
 import { validatePath } from '@/app/lib/filesystem/workspace-files';
 import {
   DEFAULT_TODO_CATEGORIES,
@@ -27,6 +27,9 @@ export type TodoPriority = typeof TODO_PRIORITIES[number];
 export const TODO_SOURCE_TYPES = ['user', 'agent'] as const;
 export type TodoSourceType = typeof TODO_SOURCE_TYPES[number];
 
+export const TODO_WORKSPACE_TYPES = ['personal', 'team'] as const;
+export type TodoWorkspaceType = typeof TODO_WORKSPACE_TYPES[number];
+
 const TITLE_MAX_LENGTH = 180;
 const DESCRIPTION_MAX_LENGTH = 5000;
 const CATEGORY_NAME_MAX_LENGTH = 80;
@@ -40,7 +43,9 @@ export class TodoStoreError extends Error {
       | 'INVALID_INPUT'
       | 'INVALID_WORKSPACE_PATH'
       | 'CATEGORY_NOT_FOUND'
-      | 'TODO_NOT_FOUND',
+      | 'TODO_NOT_FOUND'
+      | 'ORGANIZATION_ACCESS_DENIED'
+      | 'ASSIGNEE_NOT_FOUND',
   ) {
     super(message);
     this.name = 'TodoStoreError';
@@ -54,6 +59,8 @@ export type TodoFileLink = typeof todoFileLinks.$inferSelect;
 export type TodoWithRelations = TodoItem & {
   category: TodoCategory | null;
   fileLinks: TodoFileLink[];
+  createdBy: TodoUserSummary | null;
+  assignee: TodoUserSummary | null;
 };
 
 export type TodoFileLinkInput = string | {
@@ -71,6 +78,10 @@ export type CreateTodoInput = {
   sourceType?: TodoSourceType;
   sourceAgentId?: string | null;
   sourceSessionId?: string | null;
+  organizationId?: string | null;
+  workspaceId?: string | null;
+  workspaceType?: TodoWorkspaceType | null;
+  assigneeUserId?: string | null;
   seenAt?: Date | null;
   fileLinks?: TodoFileLinkInput[];
 };
@@ -86,6 +97,7 @@ export type UpdateTodoInput = {
   completionComment?: string | null;
   followUpSentAt?: Date | null;
   followUpError?: string | null;
+  assigneeUserId?: string | null;
   fileLinks?: TodoFileLinkInput[];
 };
 
@@ -93,8 +105,24 @@ export type ListTodosOptions = {
   status?: TodoStatus | 'active' | 'all';
   categoryId?: string | null;
   sourceType?: TodoSourceType;
+  workspaceType?: TodoWorkspaceType | 'all';
+  organizationId?: string | null;
+  workspaceId?: string | null;
+  assigneeUserId?: string | 'me' | 'unassigned' | null;
   due?: 'overdue' | 'today' | 'upcoming';
   limit?: number;
+};
+
+export type TodoUserSummary = {
+  id: string;
+  name: string | null;
+  email: string | null;
+};
+
+type TodoScope = {
+  organizationId: string | null;
+  workspaceId: string | null;
+  workspaceType: TodoWorkspaceType;
 };
 
 async function sendTodoCreatedEmailNotificationIfNeeded(userId: string, todo: TodoWithRelations): Promise<void> {
@@ -148,6 +176,123 @@ function normalizeTodoSourceType(value: TodoSourceType | undefined): TodoSourceT
     throw new TodoStoreError('Invalid todo source type', 'INVALID_INPUT');
   }
   return value;
+}
+
+function normalizeWorkspaceType(value: TodoWorkspaceType | null | undefined): TodoWorkspaceType {
+  if (!value) return 'personal';
+  if (!TODO_WORKSPACE_TYPES.includes(value)) {
+    throw new TodoStoreError('Invalid todo workspace type', 'INVALID_INPUT');
+  }
+  return value;
+}
+
+function normalizeOptionalId(value: string | null | undefined, maxLength = 160): string | null {
+  if (typeof value !== 'string') return null;
+  const normalized = value.trim();
+  return normalized ? normalized.slice(0, maxLength) : null;
+}
+
+async function isOrganizationMember(organizationId: string, userId: string): Promise<boolean> {
+  const permission = await db.query.organizationUserPermissions.findFirst({
+    where: and(
+      eq(organizationUserPermissions.organizationId, organizationId),
+      eq(organizationUserPermissions.userId, userId),
+      ne(organizationUserPermissions.role, 'external'),
+    ),
+  });
+  return Boolean(permission);
+}
+
+async function assertOrganizationMember(organizationId: string, userId: string): Promise<void> {
+  if (!(await isOrganizationMember(organizationId, userId))) {
+    throw new TodoStoreError('User is not a member of this organization.', 'ORGANIZATION_ACCESS_DENIED');
+  }
+}
+
+async function isOrganizationWorkspaceWriter(organizationId: string, userId: string): Promise<boolean> {
+  const permission = await db.query.organizationUserPermissions.findFirst({
+    where: and(
+      eq(organizationUserPermissions.organizationId, organizationId),
+      eq(organizationUserPermissions.userId, userId),
+      ne(organizationUserPermissions.role, 'external'),
+    ),
+  });
+  return Boolean(
+    permission
+    && (permission.role === 'owner' || permission.role === 'admin' || permission.canWriteTeamWorkspace),
+  );
+}
+
+async function assertOrganizationWorkspaceWriter(organizationId: string, userId: string): Promise<void> {
+  if (!(await isOrganizationWorkspaceWriter(organizationId, userId))) {
+    throw new TodoStoreError('User cannot write to this team workspace.', 'ORGANIZATION_ACCESS_DENIED');
+  }
+}
+
+async function assertAssignableUser(organizationId: string, assigneeUserId: string): Promise<void> {
+  if (!(await isOrganizationMember(organizationId, assigneeUserId))) {
+    throw new TodoStoreError('Assignee is not a member of this organization.', 'ASSIGNEE_NOT_FOUND');
+  }
+}
+
+async function assertTeamWorkspaceInOrganization(organizationId: string, workspaceId: string): Promise<void> {
+  const workspace = await db.query.canvasWorkspaces.findFirst({
+    where: and(
+      eq(canvasWorkspaces.id, workspaceId),
+      eq(canvasWorkspaces.organizationId, organizationId),
+      eq(canvasWorkspaces.type, 'team'),
+    ),
+  });
+  if (!workspace) {
+    throw new TodoStoreError('Team workspace not found.', 'INVALID_INPUT');
+  }
+}
+
+async function resolveTodoScope(userId: string, input: Pick<CreateTodoInput, 'organizationId' | 'workspaceId' | 'workspaceType'>): Promise<TodoScope> {
+  const workspaceType = normalizeWorkspaceType(input.workspaceType);
+  if (workspaceType === 'personal') {
+    return { organizationId: null, workspaceId: null, workspaceType };
+  }
+
+  const organizationId = normalizeOptionalId(input.organizationId);
+  if (!organizationId) {
+    throw new TodoStoreError('organizationId is required for team to-dos.', 'INVALID_INPUT');
+  }
+  await assertOrganizationMember(organizationId, userId);
+
+  const workspaceId = normalizeOptionalId(input.workspaceId);
+  if (workspaceId) {
+    await assertTeamWorkspaceInOrganization(organizationId, workspaceId);
+  }
+
+  return { organizationId, workspaceId, workspaceType };
+}
+
+async function canReadTodo(userId: string, todo: TodoItem): Promise<boolean> {
+  const workspaceType = normalizeWorkspaceType((todo.workspaceType as TodoWorkspaceType | null) ?? 'personal');
+  if (workspaceType === 'personal') return todo.userId === userId;
+  return Boolean(todo.organizationId && await isOrganizationMember(todo.organizationId, userId));
+}
+
+async function assertCanReadTodo(userId: string, todo: TodoItem): Promise<void> {
+  if (!(await canReadTodo(userId, todo))) {
+    throw new TodoStoreError('Todo not found', 'TODO_NOT_FOUND');
+  }
+}
+
+async function assertCanWriteTodo(userId: string, todo: TodoItem): Promise<void> {
+  const workspaceType = normalizeWorkspaceType((todo.workspaceType as TodoWorkspaceType | null) ?? 'personal');
+  if (workspaceType === 'personal') {
+    if (todo.userId !== userId) {
+      throw new TodoStoreError('Todo not found', 'TODO_NOT_FOUND');
+    }
+    return;
+  }
+
+  if (!todo.organizationId) {
+    throw new TodoStoreError('Team todo is missing organization scope.', 'INVALID_INPUT');
+  }
+  await assertOrganizationWorkspaceWriter(todo.organizationId, userId);
 }
 
 function normalizeDate(value: Date | null | undefined): Date | null {
@@ -339,7 +484,13 @@ async function resolveCategoryId(userId: string, input: Pick<CreateTodoInput, 'c
   return matched?.id ?? null;
 }
 
-async function replaceFileLinks(todoId: string, userId: string, links: Array<{ workspacePath: string; label: string | null }>, now: Date) {
+async function replaceFileLinks(
+  todoId: string,
+  userId: string,
+  scope: TodoScope,
+  links: Array<{ workspacePath: string; label: string | null }>,
+  now: Date,
+) {
   await db.delete(todoFileLinks).where(and(eq(todoFileLinks.todoId, todoId), eq(todoFileLinks.userId, userId)));
 
   if (links.length === 0) {
@@ -351,6 +502,9 @@ async function replaceFileLinks(todoId: string, userId: string, links: Array<{ w
       id: randomUUID(),
       todoId,
       userId,
+      organizationId: scope.organizationId,
+      workspaceId: scope.workspaceId,
+      workspaceType: scope.workspaceType,
       workspacePath: link.workspacePath,
       label: link.label,
       createdAt: now,
@@ -360,11 +514,26 @@ async function replaceFileLinks(todoId: string, userId: string, links: Array<{ w
 
 export async function createTodo(userId: string, input: CreateTodoInput): Promise<TodoWithRelations> {
   const now = new Date();
+  const scope = await resolveTodoScope(userId, input);
+  const assigneeUserId = normalizeOptionalId(input.assigneeUserId);
+  if (scope.workspaceType === 'team') {
+    await assertOrganizationWorkspaceWriter(scope.organizationId!, userId);
+    if (assigneeUserId) {
+      await assertAssignableUser(scope.organizationId!, assigneeUserId);
+    }
+  } else if (scope.workspaceType === 'personal' && assigneeUserId && assigneeUserId !== userId) {
+    throw new TodoStoreError('Personal to-dos can only be assigned to the current user.', 'ASSIGNEE_NOT_FOUND');
+  }
   const categoryId = await resolveCategoryId(userId, input);
   const fileLinks = normalizeFileLinks(input.fileLinks);
   const [created] = await db.insert(todoItems).values({
     id: randomUUID(),
     userId,
+    createdByUserId: userId,
+    assigneeUserId: assigneeUserId || null,
+    organizationId: scope.organizationId,
+    workspaceId: scope.workspaceId,
+    workspaceType: scope.workspaceType,
     categoryId,
     title: normalizeRequiredText(input.title, 'Title', TITLE_MAX_LENGTH),
     description: normalizeOptionalText(input.description, DESCRIPTION_MAX_LENGTH),
@@ -386,7 +555,7 @@ export async function createTodo(userId: string, input: CreateTodoInput): Promis
     updatedAt: now,
   }).returning();
 
-  await replaceFileLinks(created.id, userId, fileLinks, now);
+  await replaceFileLinks(created.id, userId, scope, fileLinks, now);
   const hydrated = await getTodo(userId, created.id);
   if (!hydrated) {
     throw new TodoStoreError('Todo not found after creation', 'TODO_NOT_FOUND');
@@ -416,25 +585,64 @@ async function hydrateTodos(rows: TodoItem[]): Promise<TodoWithRelations[]> {
     linksByTodoId.set(link.todoId, current);
   }
 
+  const userIds = Array.from(new Set(rows.flatMap((row) => [
+    row.createdByUserId || row.userId,
+    row.assigneeUserId,
+  ]).filter(Boolean))) as string[];
+  const users = userIds.length
+    ? await db.select({ id: user.id, name: user.name, email: user.email }).from(user).where(inArray(user.id, userIds))
+    : [];
+  const userById = new Map(users.map((entry) => [entry.id, entry]));
+
   return rows.map((row) => ({
     ...row,
     category: row.categoryId ? categoryById.get(row.categoryId) ?? null : null,
     fileLinks: linksByTodoId.get(row.id) ?? [],
+    createdBy: userById.get(row.createdByUserId || row.userId) ?? null,
+    assignee: row.assigneeUserId ? userById.get(row.assigneeUserId) ?? null : null,
   }));
 }
 
 export async function getTodo(userId: string, todoId: string): Promise<TodoWithRelations | null> {
   const todo = await db.query.todoItems.findFirst({
-    where: and(eq(todoItems.id, todoId), eq(todoItems.userId, userId)),
+    where: eq(todoItems.id, todoId),
   });
   if (!todo) return null;
+  await assertCanReadTodo(userId, todo);
   const [hydrated] = await hydrateTodos([todo]);
   return hydrated;
 }
 
 export async function listTodos(userId: string, options: ListTodosOptions = {}): Promise<TodoWithRelations[]> {
   const limit = Math.min(Math.max(options.limit ?? 100, 1), 200);
-  const conditions = [eq(todoItems.userId, userId)];
+  const workspaceType = options.workspaceType || 'personal';
+  const conditions = [];
+
+  if (workspaceType === 'team') {
+    const organizationId = normalizeOptionalId(options.organizationId);
+    if (!organizationId) {
+      throw new TodoStoreError('organizationId is required for team to-dos.', 'INVALID_INPUT');
+    }
+    await assertOrganizationMember(organizationId, userId);
+    conditions.push(eq(todoItems.organizationId, organizationId), eq(todoItems.workspaceType, 'team'));
+    const workspaceId = normalizeOptionalId(options.workspaceId);
+    if (workspaceId) {
+      await assertTeamWorkspaceInOrganization(organizationId, workspaceId);
+      conditions.push(eq(todoItems.workspaceId, workspaceId));
+    }
+  } else if (workspaceType === 'all') {
+    const organizationId = normalizeOptionalId(options.organizationId);
+    if (organizationId && await isOrganizationMember(organizationId, userId)) {
+      conditions.push(or(
+        and(eq(todoItems.userId, userId), eq(todoItems.workspaceType, 'personal')),
+        and(eq(todoItems.organizationId, organizationId), eq(todoItems.workspaceType, 'team')),
+      )!);
+    } else {
+      conditions.push(eq(todoItems.userId, userId), eq(todoItems.workspaceType, 'personal'));
+    }
+  } else {
+    conditions.push(eq(todoItems.userId, userId), eq(todoItems.workspaceType, 'personal'));
+  }
 
   if (options.status && options.status !== 'all' && options.status !== 'active') {
     conditions.push(eq(todoItems.status, options.status));
@@ -447,6 +655,13 @@ export async function listTodos(userId: string, options: ListTodosOptions = {}):
   }
   if (options.sourceType) {
     conditions.push(eq(todoItems.sourceType, normalizeTodoSourceType(options.sourceType)));
+  }
+  if (options.assigneeUserId === 'me') {
+    conditions.push(eq(todoItems.assigneeUserId, userId));
+  } else if (options.assigneeUserId === 'unassigned') {
+    conditions.push(sql`${todoItems.assigneeUserId} IS NULL`);
+  } else if (typeof options.assigneeUserId === 'string' && options.assigneeUserId.trim()) {
+    conditions.push(eq(todoItems.assigneeUserId, options.assigneeUserId.trim()));
   }
   if (options.due) {
     const now = new Date();
@@ -473,9 +688,11 @@ export async function listTodos(userId: string, options: ListTodosOptions = {}):
 
 export async function updateTodo(userId: string, todoId: string, input: UpdateTodoInput): Promise<TodoWithRelations | null> {
   const current = await db.query.todoItems.findFirst({
-    where: and(eq(todoItems.id, todoId), eq(todoItems.userId, userId)),
+    where: eq(todoItems.id, todoId),
   });
   if (!current) return null;
+  await assertCanReadTodo(userId, current);
+  await assertCanWriteTodo(userId, current);
 
   const now = new Date();
   const updates: Partial<typeof todoItems.$inferInsert> = {
@@ -511,6 +728,17 @@ export async function updateTodo(userId: string, todoId: string, input: UpdateTo
   if (input.followUpError !== undefined) {
     updates.followUpError = normalizeOptionalText(input.followUpError, 1000);
   }
+  if (input.assigneeUserId !== undefined) {
+    const assigneeUserId = normalizeOptionalId(input.assigneeUserId);
+    const workspaceType = normalizeWorkspaceType((current.workspaceType as TodoWorkspaceType | null) ?? 'personal');
+    if (workspaceType === 'team' && assigneeUserId) {
+      if (!current.organizationId) throw new TodoStoreError('Team todo is missing organization scope.', 'INVALID_INPUT');
+      await assertAssignableUser(current.organizationId, assigneeUserId);
+    } else if (workspaceType === 'personal' && assigneeUserId && assigneeUserId !== userId) {
+      throw new TodoStoreError('Personal to-dos can only be assigned to the current user.', 'ASSIGNEE_NOT_FOUND');
+    }
+    updates.assigneeUserId = assigneeUserId;
+  }
   if (input.status !== undefined) {
     const nextStatus = normalizeTodoStatus(input.status);
     updates.status = nextStatus;
@@ -528,10 +756,14 @@ export async function updateTodo(userId: string, todoId: string, input: UpdateTo
   await db
     .update(todoItems)
     .set(updates)
-    .where(and(eq(todoItems.id, todoId), eq(todoItems.userId, userId)));
+    .where(eq(todoItems.id, todoId));
 
   if (input.fileLinks !== undefined) {
-    await replaceFileLinks(todoId, userId, normalizeFileLinks(input.fileLinks), now);
+    await replaceFileLinks(todoId, current.userId, {
+      organizationId: current.organizationId,
+      workspaceId: current.workspaceId,
+      workspaceType: normalizeWorkspaceType((current.workspaceType as TodoWorkspaceType | null) ?? 'personal'),
+    }, normalizeFileLinks(input.fileLinks), now);
   }
 
   return getTodo(userId, todoId);

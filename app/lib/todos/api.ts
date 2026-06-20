@@ -29,7 +29,11 @@ export function applyTodoRateLimit(request: NextRequest, keyPrefix: string, limi
 
 export function todoErrorResponse(error: unknown, fallback: string) {
   if (error instanceof TodoStoreError) {
-    const status = error.code === 'TODO_NOT_FOUND' || error.code === 'CATEGORY_NOT_FOUND' ? 404 : 400;
+    const status = error.code === 'TODO_NOT_FOUND' || error.code === 'CATEGORY_NOT_FOUND'
+      ? 404
+      : error.code === 'ORGANIZATION_ACCESS_DENIED'
+        ? 403
+        : 400;
     return NextResponse.json({ success: false, error: error.message, code: error.code }, { status });
   }
 

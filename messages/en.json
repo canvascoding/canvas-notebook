@@ -1459,11 +1459,16 @@
     "eyebrow": "Human in the loop",
     "summary": "{open} open · {done} done · {unread} unread",
     "sections": {
+      "workspace": "Workspace",
       "status": "Status",
       "categories": "Categories",
       "files": "Files",
       "session": "Session",
       "emailNotification": "Email notification"
+    },
+    "scope": {
+      "personal": "Personal",
+      "team": "Team"
     },
     "filters": {
       "allCategories": "All categories",
@@ -1525,6 +1530,8 @@
       "title": "Title",
       "description": "Description",
       "category": "Category",
+      "workspace": "Workspace",
+      "assignee": "Assignee",
       "priority": "Priority",
       "dueAt": "Due",
       "noDueAt": "No date",
@@ -1550,6 +1557,7 @@
     },
     "labels": {
       "unread": "Unread",
+      "unassigned": "Unassigned",
       "followUpSentAt": "Last sent to the agent: {date}",
       "emailNotificationSentAt": "Email notification sent: {date}",
       "emailNotificationBlocked": "Email notification not sent"
