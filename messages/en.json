@@ -402,6 +402,8 @@
     "copyToWorkspaceDescription": "Choose a target workspace and folder for {count} selected item(s).",
     "copyToWorkspaceConfirm": "Copy",
     "copyToWorkspaceSuccess": "{count} item(s) copied.",
+    "copyToWorkspacePartialSuccess": "{copied} item(s) copied. {failed} item(s) failed or were skipped.",
+    "copyToWorkspaceNoFilesCopied": "No items were copied. {count} item(s) failed or were skipped.",
     "copyToWorkspaceFailed": "Failed to copy to workspace",
     "paste": "Paste",
     "duplicate": "Duplicate",

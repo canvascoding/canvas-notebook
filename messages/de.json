@@ -401,6 +401,8 @@
     "copyToWorkspaceDescription": "Wähle Ziel-Workspace und Zielordner für {count} ausgewählte Elemente.",
     "copyToWorkspaceConfirm": "Kopieren",
     "copyToWorkspaceSuccess": "{count} Elemente kopiert.",
+    "copyToWorkspacePartialSuccess": "{copied} Elemente kopiert. {failed} Elemente sind fehlgeschlagen oder wurden übersprungen.",
+    "copyToWorkspaceNoFilesCopied": "Keine Elemente wurden kopiert. {count} Elemente sind fehlgeschlagen oder wurden übersprungen.",
     "copyToWorkspaceFailed": "Kopieren in Workspace fehlgeschlagen",
     "paste": "Einfügen",
     "duplicate": "Duplizieren",

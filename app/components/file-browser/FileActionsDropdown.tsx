@@ -369,7 +369,23 @@ export function FileActionsDropdown({
         clearMultiSelect();
       }
 
-      toast.success(t('copyToWorkspaceSuccess', { count: result.copied.length }));
+      const unresolvedCount = result.failed.length + result.skipped.length;
+      if (unresolvedCount > 0) {
+        console.warn('[FileActionsDropdown] Cross-workspace copy completed with unresolved paths', {
+          failed: result.failed,
+          skipped: result.skipped,
+        });
+        if (result.copied.length === 0) {
+          toast.error(t('copyToWorkspaceNoFilesCopied', { count: unresolvedCount }));
+          return;
+        }
+        toast.warning(t('copyToWorkspacePartialSuccess', {
+          copied: result.copied.length,
+          failed: unresolvedCount,
+        }));
+      } else {
+        toast.success(t('copyToWorkspaceSuccess', { count: result.copied.length }));
+      }
       setCopyToWorkspaceOpen(false);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : t('copyToWorkspaceFailed'));
