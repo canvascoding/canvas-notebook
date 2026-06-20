@@ -13,6 +13,7 @@ import {
   getAllKnownSkillNames,
   loadEnabledPluginSkills,
 } from '@/app/lib/plugins/canvas-plugin-registry';
+import { adoptLegacyStandaloneSkillsForScope } from '@/app/lib/skills/legacy-skill-adoption';
 import { readEnabledSkillsForScope, writeEnabledSkillsForScope } from './skill-settings';
 // Re-export the Canvas skill manifest API for existing call sites.
 export type { CanvasSkill, ValidationResult } from './canvas-skill-manifest';
@@ -169,6 +170,8 @@ export async function createSkillDirectory(
   scope?: CanvasSkillStorageScope | null,
 ): Promise<{ success: boolean; error?: string; path?: string }> {
   try {
+    await adoptLegacyStandaloneSkillsForScope(scope);
+
     // Check if skill already exists
     if (await skillExists(name, scope, { legacyFallback: false })) {
       return { success: false, error: `Skill "${name}" already exists` };
@@ -297,6 +300,8 @@ export async function deleteSkillDirectory(
   scope?: CanvasSkillStorageScope | null,
 ): Promise<{ success: boolean; error?: string }> {
   try {
+    await adoptLegacyStandaloneSkillsForScope(scope);
+
     const skillsDir = getSkillsDir(scope);
     const skillPath = path.join(skillsDir, name);
     const skillMdPath = path.join(skillPath, 'SKILL.md');

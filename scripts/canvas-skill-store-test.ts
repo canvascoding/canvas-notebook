@@ -152,7 +152,7 @@ async function main() {
     const { readPiRuntimeConfig } = await import('../app/lib/agents/storage');
     const { DISABLED_ALL_SKILLS_SENTINEL, resolveEnabledSkillNames } = await import('../app/lib/skills/enabled-skills');
     const { readEnabledSkillsForScope } = await import('../app/lib/skills/skill-settings');
-    const { deleteSkillDirectory, loadSkillsFromDisk } = await import('../app/lib/skills/skill-loader');
+    const { createSkillDirectory, deleteSkillDirectory, loadSkillsFromDisk } = await import('../app/lib/skills/skill-loader');
 
     const checksum = await computeCanvasPluginChecksum(skillRoot);
     const registryPath = await createStoreArchive(skillRoot, checksum);
@@ -225,6 +225,16 @@ async function main() {
     const userScopeB = { userId: 'skill-user-b' };
     const legacyUserScope = { userId: 'legacy-skill-user' };
     assert.equal((await loadSkillsFromDisk(undefined, legacyUserScope)).some((skill) => skill.name === 'test-library-skill'), true);
+    const legacyDuplicateCreate = await createSkillDirectory('test-library-skill', 'Duplicate legacy skill', '', legacyUserScope);
+    assert.equal(legacyDuplicateCreate.success, false);
+    assert.equal(legacyDuplicateCreate.error, 'Skill "test-library-skill" already exists');
+    const legacyDelete = await deleteSkillDirectory('test-library-skill', legacyUserScope);
+    assert.equal(legacyDelete.success, true, legacyDelete.error);
+    await assert.rejects(fs.stat(path.join(dataRoot, 'users', 'legacy-skill-user', 'skills', 'test-library-skill', 'SKILL.md')));
+    assert.equal(
+      await fs.stat(path.join(dataRoot, 'skills', 'test-library-skill', 'SKILL.md')).then((stat) => stat.isFile()),
+      true,
+    );
     await fs.mkdir(path.join(dataRoot, 'users', 'skill-user-a', 'skills'), { recursive: true });
     await fs.mkdir(path.join(dataRoot, 'users', 'skill-user-b', 'skills'), { recursive: true });
     let scopedStoreA = await listCanvasSkillStore({ scope: userScopeA });
