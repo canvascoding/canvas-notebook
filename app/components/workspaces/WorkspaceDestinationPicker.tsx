@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Check, ChevronsUpDown, Loader2 } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 
@@ -68,6 +68,7 @@ export function WorkspaceDestinationPicker({
   const [isLoadingTree, setIsLoadingTree] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [workspaceMenuOpen, setWorkspaceMenuOpen] = useState(false);
+  const latestWorkspaceIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     void hydrateWorkspaces();
@@ -100,9 +101,11 @@ export function WorkspaceDestinationPicker({
   }, [effectiveWorkspaceId, onDirChange, onWorkspaceChange, selectedWorkspaceId]);
 
   useEffect(() => {
+    latestWorkspaceIdRef.current = effectiveWorkspaceId;
     if (!effectiveWorkspaceId) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setTree([]);
+      setLoadingDirs(new Set<string>());
       return;
     }
 
@@ -110,6 +113,7 @@ export function WorkspaceDestinationPicker({
     setIsLoadingTree(true);
     setError(null);
     setExpandedDirs(new Set<string>());
+    setLoadingDirs(new Set<string>());
 
     loadWorkspaceTree('.', 6, true, t('folderLoadFailed'), effectiveWorkspaceId)
       .then((nextTree) => {
@@ -153,14 +157,18 @@ export function WorkspaceDestinationPicker({
   };
 
   const handleLoadSubdirectory = async (dirPath: string) => {
-    if (!effectiveWorkspaceId) return;
+    const requestWorkspaceId = effectiveWorkspaceId;
+    if (!requestWorkspaceId) return;
     setLoadingDirs((prev) => new Set(prev).add(dirPath));
     try {
-      const children = await loadWorkspaceTree(dirPath, 1, true, t('folderLoadFailed'), effectiveWorkspaceId);
+      const children = await loadWorkspaceTree(dirPath, 1, true, t('folderLoadFailed'), requestWorkspaceId);
+      if (latestWorkspaceIdRef.current !== requestWorkspaceId) return;
       setTree((prev) => mergeDirectoryChildren(prev, dirPath, children));
     } catch (loadError) {
+      if (latestWorkspaceIdRef.current !== requestWorkspaceId) return;
       setError(loadError instanceof Error ? loadError.message : t('folderLoadFailed'));
     } finally {
+      if (latestWorkspaceIdRef.current !== requestWorkspaceId) return;
       setLoadingDirs((prev) => {
         const next = new Set(prev);
         next.delete(dirPath);
