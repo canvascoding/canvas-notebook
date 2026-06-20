@@ -62,4 +62,5 @@ Dieses Verzeichnis ist der zentrale Arbeitsbereich fuer den Team-Workspace-Umbau
 - Community-/Single-User-Installationen bleiben auch bei gesetztem Team-Flag auf Personal Workspace begrenzt.
 - Personal Workspaces werden pro User angelegt; Team Workspace wird nur in teamfaehigen Deployment Modes angelegt.
 - Globaler Workspace-Switcher, Workspace-Badge, clientseitiger Workspace-Store und Chat-Neustart bei Workspace-Wechsel sind eingefuehrt.
-- Naechster Schritt: Kopieraktionen zwischen Personal und Team Workspace implementieren.
+- Kopieraktionen zwischen Personal und Team Workspace sind fuer File Browser und Studio-Importe umgesetzt.
+- Naechster Schritt: Agent-Runtime-Einstellungen und Agent-Sessions an User-/Workspace-Kontext binden.

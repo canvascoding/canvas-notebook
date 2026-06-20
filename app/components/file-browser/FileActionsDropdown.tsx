@@ -10,9 +10,11 @@ import {
   Download,
   FilePlus,
   FolderPlus,
+  FolderInput,
   Globe2,
   ImagePlus,
   Images,
+  Loader2,
   Maximize2,
   Move,
   Pencil,
@@ -42,6 +44,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { hasMarpFileName } from '@/app/lib/marp/detect';
 import { useFileStore } from '@/app/store/file-store';
+import { copyWorkspacePaths } from '@/app/lib/files/client';
 import type { FileNode } from '@/app/lib/files/types';
 import { getParentDirectory, joinWorkspacePath } from '@/app/lib/files/path-utils';
 import { isWorkspaceImageFileName, shareWorkspaceImageFile } from '@/app/lib/files/workspace-image-share';
@@ -59,6 +62,8 @@ import { ShareMarkdownDialog } from './ShareMarkdownDialog';
 import { PublicShareDialog } from './PublicShareDialog';
 import { MarpExportDialog } from './MarpExportDialog';
 import { useCreateItemDialog } from './useCreateItemDialog';
+import { WorkspaceDestinationPicker } from '@/app/components/workspaces/WorkspaceDestinationPicker';
+import { selectActiveWorkspace, useWorkspaceStore } from '@/app/store/workspace-store';
 
 type DropdownMenuContentProps = ComponentProps<typeof DropdownMenuContent>;
 
@@ -103,6 +108,11 @@ export function FileActionsDropdown({
   const [marpExportOpen, setMarpExportOpen] = useState(false);
   const [marpDetection, setMarpDetection] = useState<{ path: string; isMarp: boolean } | null>(null);
   const [publicShareOpen, setPublicShareOpen] = useState(false);
+  const [copyToWorkspaceOpen, setCopyToWorkspaceOpen] = useState(false);
+  const [copyTargetWorkspaceId, setCopyTargetWorkspaceId] = useState<string | null>(null);
+  const [copyTargetDir, setCopyTargetDir] = useState('.');
+  const [isCopyingToWorkspace, setIsCopyingToWorkspace] = useState(false);
+  const activeWorkspace = useWorkspaceStore(selectActiveWorkspace);
 
   const {
     deletePath,
@@ -144,6 +154,10 @@ export function FileActionsDropdown({
     : false;
 
   const showMultiSelectOptions = showMultiSelectActions && multiSelectPaths.size > 0;
+  const selectedCopyPaths = useMemo(() => {
+    if (showMultiSelectOptions) return Array.from(multiSelectPaths);
+    return node ? [node.path] : [];
+  }, [multiSelectPaths, node, showMultiSelectOptions]);
 
   useEffect(() => {
     if (!nodePath || !isMarkdown || hasMarpName) {
@@ -318,6 +332,52 @@ export function FileActionsDropdown({
     closeMenu();
   };
 
+  const handleCopyToWorkspace = () => {
+    if (selectedCopyPaths.length === 0) return;
+
+    const selectedProtection = splitProtectedWorkspacePaths(selectedCopyPaths);
+    if (selectedProtection.hasProtected) {
+      toast.error(t('protectedFolderCopy'));
+      return;
+    }
+
+    setCopyTargetWorkspaceId(activeWorkspace?.id ?? null);
+    setCopyTargetDir('.');
+    setCopyToWorkspaceOpen(true);
+    closeMenu();
+  };
+
+  const handleConfirmCopyToWorkspace = async () => {
+    if (selectedCopyPaths.length === 0 || !activeWorkspace?.id || !copyTargetWorkspaceId) return;
+    setIsCopyingToWorkspace(true);
+
+    try {
+      const result = await copyWorkspacePaths({
+        sources: selectedCopyPaths,
+        destDir: copyTargetDir,
+        overwrite: false,
+        renameOnCollision: true,
+        sourceWorkspaceId: activeWorkspace.id,
+        targetWorkspaceId: copyTargetWorkspaceId,
+      }, t('copyToWorkspaceFailed'));
+
+      if (copyTargetWorkspaceId === activeWorkspace.id) {
+        await refreshDirectory(copyTargetDir, true);
+      }
+
+      if (showMultiSelectOptions) {
+        clearMultiSelect();
+      }
+
+      toast.success(t('copyToWorkspaceSuccess', { count: result.copied.length }));
+      setCopyToWorkspaceOpen(false);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : t('copyToWorkspaceFailed'));
+    } finally {
+      setIsCopyingToWorkspace(false);
+    }
+  };
+
   const handlePaste = async () => {
     if (!node) return;
     const destDir = node.type === 'directory' ? node.path : getParentDirectory(node.path);
@@ -448,6 +508,10 @@ export function FileActionsDropdown({
           <DropdownMenuItem onSelect={handleCopy} disabled={!node}>
             <ClipboardCopy className="h-4 w-4" />
             {t('copy')}
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={handleCopyToWorkspace} disabled={selectedCopyPaths.length === 0}>
+            <FolderInput className="h-4 w-4" />
+            {t('copyToWorkspace')}
           </DropdownMenuItem>
           <DropdownMenuItem onSelect={handlePaste} disabled={clipboardMode !== 'copy' || clipboardPaths.size === 0}>
             <ClipboardPaste className="h-4 w-4" />
@@ -590,6 +654,34 @@ export function FileActionsDropdown({
             </Button>
             <Button variant="secondary" onClick={handleConfirmMove}>
               {t('move')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={copyToWorkspaceOpen} onOpenChange={setCopyToWorkspaceOpen}>
+        <DialogContent className="max-w-xl overflow-hidden">
+          <DialogHeader>
+            <DialogTitle>{t('copyToWorkspaceTitle')}</DialogTitle>
+            <DialogDescription>{t('copyToWorkspaceDescription', { count: selectedCopyPaths.length })}</DialogDescription>
+          </DialogHeader>
+          <WorkspaceDestinationPicker
+            selectedWorkspaceId={copyTargetWorkspaceId}
+            selectedDir={copyTargetDir}
+            onWorkspaceChange={setCopyTargetWorkspaceId}
+            onDirChange={setCopyTargetDir}
+          />
+          <DialogFooter className="gap-2">
+            <Button variant="ghost" onClick={() => setCopyToWorkspaceOpen(false)}>
+              {t('cancel')}
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={() => void handleConfirmCopyToWorkspace()}
+              disabled={isCopyingToWorkspace || !copyTargetWorkspaceId || selectedCopyPaths.length === 0}
+            >
+              {isCopyingToWorkspace ? <Loader2 className="h-4 w-4 animate-spin" /> : <FolderInput className="h-4 w-4" />}
+              {t('copyToWorkspaceConfirm')}
             </Button>
           </DialogFooter>
         </DialogContent>

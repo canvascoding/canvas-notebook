@@ -411,6 +411,48 @@ export async function copyFile(
   return {copied: destRelative, skipped: false};
 }
 
+export async function copyFileBetweenWorkspaces(
+  sourcePath: string,
+  destDir: string,
+  overwrite = false,
+  renameOnCollision = false,
+  options: {
+    source: WorkspaceFileOperationOptions;
+    target: WorkspaceFileOperationOptions;
+  }
+): Promise<{copied: string; skipped: boolean}> {
+  const fullSource = await resolveExistingWorkspacePath(sourcePath, options.source);
+  const fullDestDir = await resolveExistingWorkspacePath(destDir, options.target);
+  const fileName = path.basename(fullSource);
+  let destFileName = fileName;
+
+  if (renameOnCollision) {
+    const fullDest = path.join(fullDestDir, destFileName);
+    try {
+      await fs.access(fullDest);
+      destFileName = findAvailableDestName(fileName, fullDestDir);
+    } catch {
+      // Destination doesn't exist - use original name
+    }
+  } else {
+    const fullDest = path.join(fullDestDir, destFileName);
+    try {
+      await fs.access(fullDest);
+      if (!overwrite) {
+        return {copied: '', skipped: true};
+      }
+      await fs.rm(fullDest, {recursive: true, force: true});
+    } catch {
+      // Destination doesn't exist - good
+    }
+  }
+
+  const fullDest = path.join(fullDestDir, destFileName);
+  const destRelative = destDir === '.' ? destFileName : `${destDir}/${destFileName}`;
+  await fs.cp(fullSource, fullDest, {recursive: true});
+  return {copied: destRelative, skipped: false};
+}
+
 export async function batchCopy(
   sources: string[],
   destDir: string,
@@ -424,6 +466,45 @@ export async function batchCopy(
     sources.map(async (sourcePath) => {
       try {
         const result = await copyFile(sourcePath, destDir, overwrite, renameOnCollision, options);
+        if (result.skipped) {
+          results.skipped.push(sourcePath);
+        } else {
+          results.copied.push(result.copied);
+        }
+      } catch (error) {
+        results.failed.push({
+          path: sourcePath,
+          error: error instanceof Error ? error.message : 'Unknown error',
+        });
+      }
+    })
+  );
+
+  return results;
+}
+
+export async function batchCopyBetweenWorkspaces(
+  sources: string[],
+  destDir: string,
+  overwrite = false,
+  renameOnCollision = false,
+  options: {
+    source: WorkspaceFileOperationOptions;
+    target: WorkspaceFileOperationOptions;
+  }
+): Promise<CopyResult> {
+  const results: CopyResult = {copied: [], failed: [], skipped: []};
+
+  await Promise.allSettled(
+    sources.map(async (sourcePath) => {
+      try {
+        const result = await copyFileBetweenWorkspaces(
+          sourcePath,
+          destDir,
+          overwrite,
+          renameOnCollision,
+          options
+        );
         if (result.skipped) {
           results.skipped.push(sourcePath);
         } else {

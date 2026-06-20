@@ -202,11 +202,20 @@
     {
       "id": 15,
       "title": "Kopieraktionen zwischen Personal und Team Workspace implementieren",
-      "status": "pending",
+      "status": "completed",
       "repo": "canvasstudios-notebook",
       "planningArtifacts": [
         "docs/architecture/canvas-notebook/team-workspace/06-workspace-switching-ux.md",
         "docs/architecture/canvas-notebook/team-workspace/07-filesystem-migration-and-write-policy.md"
+      ],
+      "implementationArtifacts": [
+        "app/api/files/copy/route.ts",
+        "app/api/studio/outputs/save-to-workspace/route.ts",
+        "app/api/studio/aspect-ratio/save/route.ts",
+        "app/components/workspaces/WorkspaceDestinationPicker.tsx",
+        "app/components/file-browser/FileActionsDropdown.tsx",
+        "app/lib/filesystem/workspace-files.ts",
+        "scripts/workspace-cross-copy-test.ts"
       ]
     },
     {

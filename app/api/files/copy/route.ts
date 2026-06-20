@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server';
-import { batchCopy } from '@/app/lib/filesystem/workspace-files';
+import { auth } from '@/app/lib/auth';
+import { batchCopyBetweenWorkspaces } from '@/app/lib/filesystem/workspace-files';
 import { isProtectedAppOutputFolder } from '@/app/lib/filesystem/app-output-folders';
 import {
   applyRateLimit,
@@ -9,12 +10,17 @@ import {
   jsonSuccess,
   readJsonBody,
 } from '@/app/lib/api/route-helpers';
-import { requireRequestWorkspace, workspaceFileOptions } from '@/app/lib/workspaces/request';
+import {
+  requireSessionWorkspace,
+  workspaceFileOptions,
+} from '@/app/lib/workspaces/request';
+import { WORKSPACE_ID_HEADER } from '@/app/lib/workspaces/constants';
 
 export async function POST(request: NextRequest) {
-  const workspaceResult = await requireRequestWorkspace(request, { permissions: 'canWrite' });
-  if (workspaceResult.response) return workspaceResult.response;
-  const fileOptions = workspaceFileOptions(workspaceResult.workspace);
+  const session = await auth.api.getSession({ headers: request.headers });
+  if (!session) {
+    return jsonError('Unauthorized', 401);
+  }
 
   try {
     const rateLimitResponse = applyRateLimit(request, {
@@ -29,8 +35,17 @@ export async function POST(request: NextRequest) {
       destDir?: string;
       overwrite?: boolean;
       renameOnCollision?: boolean;
+      sourceWorkspaceId?: string | null;
+      targetWorkspaceId?: string | null;
     }>(request);
-    const { sources, destDir, overwrite = false, renameOnCollision = false } = body;
+    const {
+      sources,
+      destDir,
+      overwrite = false,
+      renameOnCollision = false,
+      sourceWorkspaceId,
+      targetWorkspaceId,
+    } = body;
 
     if (!sources || !Array.isArray(sources) || sources.length === 0) {
       return jsonError('Sources array is required and must not be empty', 400);
@@ -40,19 +55,47 @@ export async function POST(request: NextRequest) {
       return jsonError('destDir is required', 400);
     }
 
+    const requestWorkspaceId = request.headers.get(WORKSPACE_ID_HEADER)?.trim() || null;
+    const resolvedSourceWorkspaceId = typeof sourceWorkspaceId === 'string' && sourceWorkspaceId.trim()
+      ? sourceWorkspaceId.trim()
+      : requestWorkspaceId;
+    const resolvedTargetWorkspaceId = typeof targetWorkspaceId === 'string' && targetWorkspaceId.trim()
+      ? targetWorkspaceId.trim()
+      : resolvedSourceWorkspaceId;
+
+    const sourceWorkspaceResult = await requireSessionWorkspace(session, {
+      workspaceId: resolvedSourceWorkspaceId,
+      permissions: 'canRead',
+    });
+    if (sourceWorkspaceResult.response) return sourceWorkspaceResult.response;
+
+    const targetWorkspaceResult = await requireSessionWorkspace(session, {
+      workspaceId: resolvedTargetWorkspaceId,
+      permissions: 'canWrite',
+    });
+    if (targetWorkspaceResult.response) return targetWorkspaceResult.response;
+
+    const sourceFileOptions = workspaceFileOptions(sourceWorkspaceResult.workspace);
+    const targetFileOptions = workspaceFileOptions(targetWorkspaceResult.workspace);
+
     const protectedPaths = sources.filter((p) => isProtectedAppOutputFolder(p));
     if (protectedPaths.length > 0) {
       return jsonError(`Protected app output folder(s) cannot be copied: ${protectedPaths.join(', ')}`, 403);
     }
 
-    const result = await batchCopy(sources, destDir, overwrite, renameOnCollision, fileOptions);
+    const result = await batchCopyBetweenWorkspaces(sources, destDir, overwrite, renameOnCollision, {
+      source: sourceFileOptions,
+      target: targetFileOptions,
+    });
 
-    invalidateWorkspaceFileViews({ fileOptions, subtreeDirs: [destDir] });
+    invalidateWorkspaceFileViews({ fileOptions: targetFileOptions, subtreeDirs: [destDir] });
 
     return jsonSuccess({
       copied: result.copied,
       failed: result.failed,
       skipped: result.skipped,
+      sourceWorkspaceId: sourceWorkspaceResult.workspace.workspaceId,
+      targetWorkspaceId: targetWorkspaceResult.workspace.workspaceId,
     });
   } catch (error) {
     return jsonServerError('[API] File copy error:', error, 'Failed to copy files');

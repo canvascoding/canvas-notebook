@@ -12,16 +12,27 @@ interface DirectoryBrowserProps {
   onSelect: (path: string) => void;
   expandedDirs: Set<string>;
   onToggleDir: (path: string) => void;
+  loadingDirs?: Set<string>;
+  onLoadSubdirectory?: (path: string) => Promise<void>;
 }
 
-export function DirectoryBrowser({ tree, selectedPath, onSelect, expandedDirs, onToggleDir }: DirectoryBrowserProps) {
+export function DirectoryBrowser({
+  tree,
+  selectedPath,
+  onSelect,
+  expandedDirs,
+  onToggleDir,
+  loadingDirs: providedLoadingDirs,
+  onLoadSubdirectory,
+}: DirectoryBrowserProps) {
   const t = useTranslations('notebook');
-  const { loadSubdirectory, loadingDirs } = useFileStore();
+  const { loadSubdirectory, loadingDirs: storeLoadingDirs } = useFileStore();
+  const loadingDirs = providedLoadingDirs ?? storeLoadingDirs;
 
   const handleToggleDir = async (path: string, isExpanded: boolean) => {
     onToggleDir(path);
     if (!isExpanded) {
-      await loadSubdirectory(path, true);
+      await (onLoadSubdirectory ?? ((dirPath: string) => loadSubdirectory(dirPath, true)))(path);
     }
   };
 

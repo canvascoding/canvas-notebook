@@ -54,6 +54,10 @@
     "loadingContext": "Workspace context is loading",
     "noWorkspaceAvailable": "No workspace available",
     "refresh": "Refresh workspaces",
+    "targetWorkspace": "Target workspace",
+    "targetFolder": "Target folder",
+    "folderLoadFailed": "Could not load workspace folders",
+    "noWritableWorkspace": "No writable workspace available.",
     "types": {
       "personal": "Personal",
       "team": "Team",
@@ -393,6 +397,12 @@
     "fileActions": "File actions",
     "copyPath": "Copy path",
     "copy": "Copy",
+    "copyToWorkspace": "Copy to workspace",
+    "copyToWorkspaceTitle": "Copy to workspace",
+    "copyToWorkspaceDescription": "Choose a target workspace and folder for {count} selected item(s).",
+    "copyToWorkspaceConfirm": "Copy",
+    "copyToWorkspaceSuccess": "{count} item(s) copied.",
+    "copyToWorkspaceFailed": "Failed to copy to workspace",
     "paste": "Paste",
     "duplicate": "Duplicate",
     "rename": "Rename",
@@ -404,6 +414,7 @@
     "resizeInStudio": "Open image in AR Editor",
     "protectedFolderRename": "This app output folder cannot be renamed.",
     "protectedFolderMove": "This app output folder cannot be moved.",
+    "protectedFolderCopy": "This app output folder cannot be copied.",
     "renameTitle": "Rename \"{name}\"",
     "renameDescription": "Enter a new name for the item. The new name will be saved in the same directory.",
     "newName": "New name",
@@ -3449,6 +3460,15 @@
     "comingSoon": "Coming Soon — This feature will be available soon.",
     "common": {
       "loading": "Loading..."
+    },
+    "saveToWorkspace": {
+      "title": "Import to workspace",
+      "description": "Copy {count} selected Studio file(s) into a workspace folder.",
+      "cancel": "Cancel",
+      "submit": "Import {count} file(s)",
+      "saving": "Importing...",
+      "success": "{count} file(s) imported into the workspace.",
+      "failed": "Import failed"
     },
     "providerRequirements": {
       "openIntegrations": "Open integrations",
