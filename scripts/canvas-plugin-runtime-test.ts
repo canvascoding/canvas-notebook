@@ -197,6 +197,17 @@ async function main() {
 
     const install = await installCanvasPluginFromPath(pluginRoot, { enable: true });
     assert.equal(install.success, true, install.error || JSON.stringify(install.validation));
+    await writeFile(path.join(dataRoot, 'skills', 'legacy-standalone-skill', 'SKILL.md'), `---
+name: legacy-standalone-skill
+description: "Temporary legacy standalone skill for scoped plugin adoption tests."
+metadata:
+  version: "1.0.0"
+---
+
+# Legacy Standalone Skill
+
+This skill lives in the legacy global skills directory.
+`);
 
     let plugins = await listCanvasPlugins();
     assert.equal(plugins.length, 1);
@@ -204,6 +215,10 @@ async function main() {
     const globalPluginInstallDir = plugins[0].installDir;
     const legacyPluginScope = { userId: 'legacy-plugin-user' };
     assert.equal((await listCanvasPlugins(legacyPluginScope)).some((plugin) => plugin.name === 'test-plugin'), true);
+    assert.equal(
+      (await loadSkillsFromDisk(undefined, legacyPluginScope)).some((skill) => skill.name === 'legacy-standalone-skill'),
+      true,
+    );
     const legacyDisable = await setCanvasPluginEnabled('test-plugin', false, legacyPluginScope, 'legacy-plugin-user@example.com');
     assert.equal(legacyDisable.success, true, legacyDisable.error);
     const legacyPlugins = await listCanvasPlugins(legacyPluginScope);
@@ -212,6 +227,14 @@ async function main() {
     assert.match(legacyPlugins[0].installDir, /users\/legacy-plugin-user\/plugins\/installed\/test-plugin\/1\.0\.0$/);
     assert.equal(
       await fs.stat(path.join(dataRoot, 'users', 'legacy-plugin-user', 'plugins', 'installed', 'test-plugin', '1.0.0', '.canvas-plugin', 'plugin.json')).then((stat) => stat.isFile()),
+      true,
+    );
+    assert.equal(
+      await fs.stat(path.join(dataRoot, 'users', 'legacy-plugin-user', 'skills', 'legacy-standalone-skill', 'SKILL.md')).then((stat) => stat.isFile()),
+      true,
+    );
+    assert.equal(
+      (await loadSkillsFromDisk(undefined, legacyPluginScope)).some((skill) => skill.name === 'legacy-standalone-skill'),
       true,
     );
     assert.equal(await fs.stat(globalPluginInstallDir).then((stat) => stat.isDirectory()), true);

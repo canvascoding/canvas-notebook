@@ -10,6 +10,7 @@ import {
   resolveScopedSkillRegistryPath,
   resolveScopedSkillsDataDir,
   shouldUseLegacyScopedPluginsFallback,
+  shouldUseLegacyScopedSkillsFallback,
   type UserScopedDataStorageScope,
 } from '@/app/lib/runtime-data-paths';
 import {
@@ -218,6 +219,7 @@ async function adoptLegacyPluginRegistryForScope(
   scope?: CanvasPluginStorageScope | null,
 ): Promise<CanvasPluginRegistry> {
   const scopedRegistry = createEmptyRegistry();
+  await adoptLegacyStandaloneSkillsForScope(scope);
 
   for (const [name, record] of Object.entries(legacyRegistry.plugins)) {
     const adopted = await adoptLegacyPluginRecordForScope(record, scope).catch((error) => {
@@ -230,6 +232,74 @@ async function adoptLegacyPluginRegistryForScope(
   }
 
   return scopedRegistry;
+}
+
+async function adoptLegacyStandaloneSkillsForScope(scope?: CanvasPluginStorageScope | null): Promise<void> {
+  if (!(await shouldUseLegacyScopedSkillsFallback(scope))) {
+    return;
+  }
+
+  const legacySkillsDir = resolveScopedSkillsDataDir();
+  const scopedSkillsDir = resolveScopedSkillsDataDir(scope);
+  if (path.resolve(/*turbopackIgnore: true*/ legacySkillsDir) === path.resolve(/*turbopackIgnore: true*/ scopedSkillsDir)) {
+    return;
+  }
+
+  const entries = await fs.readdir(legacySkillsDir, { withFileTypes: true }).catch(() => []);
+  await fs.mkdir(scopedSkillsDir, { recursive: true });
+
+  for (const entry of entries) {
+    if (!entry.isDirectory() || entry.name === '.backups') {
+      continue;
+    }
+
+    const sourceDir = path.join(legacySkillsDir, entry.name);
+    const skillPath = path.join(sourceDir, 'SKILL.md');
+    const isSkillDir = await fs.stat(skillPath).then((stat) => stat.isFile()).catch(() => false);
+    if (!isSkillDir) {
+      continue;
+    }
+
+    const targetDir = path.join(scopedSkillsDir, entry.name);
+    const targetExists = await fs.stat(targetDir).then((stat) => stat.isDirectory()).catch(() => false);
+    if (targetExists) {
+      continue;
+    }
+
+    await fs.cp(sourceDir, targetDir, {
+      recursive: true,
+      preserveTimestamps: true,
+      filter: (source) => !IGNORED_CHECKSUM_ENTRIES.has(path.basename(source)),
+    });
+  }
+
+  const legacyRegistry = await readStandaloneSkillRegistry();
+  const scopedRegistry = await readStandaloneSkillRegistry(scope);
+  for (const [skillName, record] of Object.entries(legacyRegistry.skills)) {
+    if (scopedRegistry.skills[skillName]) {
+      continue;
+    }
+    scopedRegistry.skills[skillName] = rebaseLegacyStandaloneSkillRecord(record, legacySkillsDir, scopedSkillsDir);
+  }
+  await writeStandaloneSkillRegistry(scopedRegistry, scope);
+}
+
+function rebaseLegacyStandaloneSkillRecord(
+  record: StandaloneSkillRegistryRecord,
+  legacySkillsDir: string,
+  scopedSkillsDir: string,
+): StandaloneSkillRegistryRecord {
+  const rebaseSkillPath = (value: string): string => {
+    return isPathInside(legacySkillsDir, value)
+      ? path.join(scopedSkillsDir, path.relative(legacySkillsDir, value))
+      : value;
+  };
+
+  return {
+    ...record,
+    installDir: rebaseSkillPath(record.installDir),
+    skillPath: rebaseSkillPath(record.skillPath),
+  };
 }
 
 async function adoptLegacyPluginRecordForScope(
