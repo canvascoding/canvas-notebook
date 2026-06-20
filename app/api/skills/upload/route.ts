@@ -4,6 +4,7 @@ import path from 'path';
 import { requireOrganizationPermission } from '@/app/lib/organization/permissions';
 import { getSkillsDir, parseFrontmatter, validateFrontmatter } from '@/app/lib/skills/canvas-skill-manifest';
 import { enableSkillInConfig } from '@/app/lib/skills/enabled-skills';
+import { adoptLegacyStandaloneSkillsForScope } from '@/app/lib/skills/legacy-skill-adoption';
 import { getSkillNames } from '@/app/lib/skills/skill-loader';
 import { readEnabledSkillsForScope, writeEnabledSkillsForScope } from '@/app/lib/skills/skill-settings';
 
@@ -19,7 +20,6 @@ export async function POST(request: Request) {
 
   try {
     const scope = { userId: skillPermission.session.user.id };
-    const skillsDir = getSkillsDir(scope);
     const body = await request.json();
     const { content, name: providedName } = body;
 
@@ -72,6 +72,8 @@ export async function POST(request: Request) {
       );
     }
 
+    await adoptLegacyStandaloneSkillsForScope(scope);
+    const skillsDir = getSkillsDir(scope);
     const skillDir = path.join(skillsDir, skillName);
     const resolvedSkillDir = path.resolve(skillDir);
     const resolvedSkillsDir = path.resolve(skillsDir);
