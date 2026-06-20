@@ -170,14 +170,16 @@ async function main() {
     assert.ok(ownerJobs.some((job) => job.id === ownerOrganizationJob.id));
     assert.equal(ownerJobs.some((job) => job.id === memberPersonalJob.id), false);
 
-    const run = await scheduleAutomationJobRun(ownerOrganizationJob.id, 'manual', new Date('2026-06-20T09:00:00.000Z'));
+    const run = await scheduleAutomationJobRun(ownerOrganizationJob.id, 'manual', new Date('2026-06-20T09:00:00.000Z'), {
+      actorUserId: 'user-owner',
+    });
     assert.ok(run);
     assert.equal(run.scope, 'organization');
     assert.equal(run.workspaceId, teamWorkspace.id);
     assert.equal(run.workspaceType, 'team');
-    assert.equal(run.actorType, 'service');
+    assert.equal(run.actorType, 'user');
     assert.equal(run.actorUserId, 'user-owner');
-    assert.equal(run.serviceActorId, ownerOrganizationJob.serviceActorId);
+    assert.equal(run.serviceActorId, null);
 
     const loadedRun = await getAutomationRun(run.id);
     assert.equal(loadedRun?.workspaceId, teamWorkspace.id);

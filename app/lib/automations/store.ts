@@ -44,6 +44,44 @@ const DELIVERY_SESSION_MODES = new Set<AutomationDeliverySessionMode>(['new_sess
 const AUTOMATION_RUN_RESULT_PREVIEW_LENGTH = 1000;
 const AUTOMATION_RUN_LOG_MAX_JSON_LENGTH = 250_000;
 
+type AutomationRunCreateOptions = {
+  metadataJson?: Record<string, unknown>;
+  actorUserId?: string | null;
+};
+
+function resolveAutomationRunActor(
+  job: typeof automationJobs.$inferSelect,
+  jobScope: AutomationScope,
+  options: AutomationRunCreateOptions,
+): {
+  actorType: AutomationActorType;
+  actorUserId: string | null;
+  serviceActorId: string | null;
+} {
+  const explicitActorUserId = options.actorUserId?.trim() || null;
+  if (explicitActorUserId) {
+    return {
+      actorType: 'user',
+      actorUserId: explicitActorUserId,
+      serviceActorId: null,
+    };
+  }
+
+  if (jobScope === 'organization') {
+    return {
+      actorType: 'service',
+      actorUserId: job.responsibleUserId ?? job.ownerUserId ?? job.createdByUserId,
+      serviceActorId: job.serviceActorId ?? null,
+    };
+  }
+
+  return {
+    actorType: 'user',
+    actorUserId: job.ownerUserId ?? job.createdByUserId,
+    serviceActorId: null,
+  };
+}
+
 function stripLeadingPathDecorators(value: string): string {
   let next = value;
   while (next.startsWith('/')) {
@@ -875,7 +913,7 @@ export async function deleteAutomationJob(jobId: string): Promise<boolean> {
 export async function createPendingAutomationRun(
   jobId: string,
   triggerType: AutomationRunRecord['triggerType'],
-  options: { metadataJson?: Record<string, unknown> } = {},
+  options: AutomationRunCreateOptions = {},
 ): Promise<AutomationRunRecord> {
   return db.transaction((tx) => {
     const job = tx.query.automationJobs.findFirst({
@@ -887,6 +925,7 @@ export async function createPendingAutomationRun(
 
     const now = new Date();
     const jobScope = normalizeAutomationScope(job.scope);
+    const runActor = resolveAutomationRunActor(job, jobScope, options);
     const [inserted] = tx
       .insert(automationRuns)
       .values({
@@ -897,9 +936,9 @@ export async function createPendingAutomationRun(
         organizationId: job.organizationId ?? null,
         workspaceId: job.workspaceId ?? null,
         workspaceType: normalizeAutomationWorkspaceType(job.workspaceType),
-        actorType: jobScope === 'organization' ? 'service' : 'user',
-        actorUserId: job.responsibleUserId ?? job.ownerUserId ?? job.createdByUserId,
-        serviceActorId: jobScope === 'organization' ? job.serviceActorId ?? null : null,
+        actorType: runActor.actorType,
+        actorUserId: runActor.actorUserId,
+        serviceActorId: runActor.serviceActorId,
         triggerType,
         scheduledFor: now,
         startedAt: null,
@@ -1247,7 +1286,7 @@ export async function scheduleAutomationJobRun(
   jobId: string,
   triggerType: AutomationRunRecord['triggerType'],
   scheduledFor: Date,
-  options: { metadataJson?: Record<string, unknown> } = {},
+  options: AutomationRunCreateOptions = {},
 ): Promise<AutomationRunRecord | null> {
   await failStaleAutomationRuns(jobId);
 
@@ -1272,6 +1311,7 @@ export async function scheduleAutomationJobRun(
 
     const now = new Date();
     const jobScope = normalizeAutomationScope(job.scope);
+    const runActor = resolveAutomationRunActor(job, jobScope, options);
     const [inserted] = tx
       .insert(automationRuns)
       .values({
@@ -1282,9 +1322,9 @@ export async function scheduleAutomationJobRun(
         organizationId: job.organizationId ?? null,
         workspaceId: job.workspaceId ?? null,
         workspaceType: normalizeAutomationWorkspaceType(job.workspaceType),
-        actorType: jobScope === 'organization' ? 'service' : 'user',
-        actorUserId: job.responsibleUserId ?? job.ownerUserId ?? job.createdByUserId,
-        serviceActorId: jobScope === 'organization' ? job.serviceActorId ?? null : null,
+        actorType: runActor.actorType,
+        actorUserId: runActor.actorUserId,
+        serviceActorId: runActor.serviceActorId,
         triggerType,
         scheduledFor,
         startedAt: null,

@@ -3126,7 +3126,7 @@ function createUserScopedTools(userId?: string, agentId?: string | null, session
         try {
           const scopedUserId = requireToolUserId(userId, 'automation tools');
           await getUserOwnedAutomationJob(scopedUserId, jobId);
-          const run = await scheduleAutomationJobRun(jobId, 'manual', new Date());
+          const run = await scheduleAutomationJobRun(jobId, 'manual', new Date(), { actorUserId: scopedUserId });
           if (!run) {
             return {
               content: [{ type: 'text', text: 'Automation already has an in-flight run.' }],

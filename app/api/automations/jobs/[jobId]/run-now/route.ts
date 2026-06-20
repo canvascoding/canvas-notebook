@@ -32,7 +32,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
       return NextResponse.json({ success: false, error: 'Automation not found.' }, { status: 404 });
     }
 
-    const run = await scheduleAutomationJobRun(jobId, 'manual', new Date());
+    const run = await scheduleAutomationJobRun(jobId, 'manual', new Date(), { actorUserId: session.user.id });
     if (!run) {
       return NextResponse.json({ success: false, error: 'Automation already has an in-flight run.' }, { status: 409 });
     }
