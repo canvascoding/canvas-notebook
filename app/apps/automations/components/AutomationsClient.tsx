@@ -689,7 +689,14 @@ function AppLogo({ app }: { app: TriggerCapableApp }) {
   );
 }
 
-function buildPayload(draft: JobDraft) {
+function automationScopeForWorkspace(workspace: Pick<ClientWorkspaceSummary, 'type'> | null | undefined): 'personal' | 'organization' {
+  return workspace?.type === 'team' ? 'organization' : 'personal';
+}
+
+function buildPayload(
+  draft: JobDraft,
+  options: { includeScope?: boolean; workspace?: Pick<ClientWorkspaceSummary, 'type'> | null } = {},
+) {
   const deliveryChannelId = normalizeDeliveryChannelIdForPayload(draft.deliveryMode, draft.deliveryChannelId);
 
   const schedule =
@@ -701,7 +708,7 @@ function buildPayload(draft: JobDraft) {
           ? { kind: 'weekly' as const, days: draft.weeklyDays, times: draft.weeklyTime ? [draft.weeklyTime] : [], timeZone: draft.timeZone }
           : { kind: 'interval' as const, every: Number(draft.intervalEvery || '1'), unit: draft.intervalUnit, timeZone: draft.timeZone };
 
-  return {
+  const payload = {
     name: draft.name,
     prompt: draft.prompt,
     workspaceId: draft.workspaceId || null,
@@ -717,6 +724,10 @@ function buildPayload(draft: JobDraft) {
     deliveryChannelSessionKey: normalizeDeliveryChannelSessionKeyForPayload(deliveryChannelId, draft.deliveryChannelSessionKey),
     schedule,
   };
+
+  return options.includeScope
+    ? { ...payload, scope: automationScopeForWorkspace(options.workspace) }
+    : payload;
 }
 
 function normalizeDeliveryChannelIdForPayload(mode: AutomationDeliveryMode, channelId: string): string | null {
@@ -1358,7 +1369,7 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
               deliveryChannelSessionKey: normalizeDeliveryChannelSessionKeyForPayload(deliveryChannelId, effectiveDraft.deliveryChannelSessionKey),
             };
           })()
-        : buildPayload(effectiveDraft);
+        : buildPayload(effectiveDraft, { includeScope: !draft.id, workspace: selectedDraftWorkspace });
       const response = await fetch(draft.id ? `/api/automations/jobs/${draft.id}` : '/api/automations/jobs', {
         method: draft.id ? 'PATCH' : 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1399,6 +1410,7 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
         body: JSON.stringify({
           name: triggerDraft.name.trim(),
           prompt: triggerDraft.prompt.trim(),
+          scope: automationScopeForWorkspace(selectedTriggerWorkspace),
           workspaceId: triggerWorkspaceId || null,
           preferredSkill: triggerDraft.preferredSkill || 'auto',
           toolkitSlug: selectedTriggerApp.slug,
@@ -1447,6 +1459,7 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
         body: JSON.stringify({
           name: customWebhookDraft.name.trim(),
           prompt: customWebhookDraft.prompt.trim(),
+          scope: automationScopeForWorkspace(selectedCustomWebhookWorkspace),
           workspaceId: customWebhookWorkspaceId || null,
           preferredSkill: customWebhookDraft.preferredSkill || 'auto',
           workspaceContextPaths: parseWorkspaceContext(customWebhookDraft.workspaceContextText),
