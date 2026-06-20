@@ -246,12 +246,24 @@
     {
       "id": 17,
       "title": "Plugins, Skills und Agent-Definitionen auf User-Scope mit optionaler Organization-Teilung migrieren",
-      "status": "pending",
+      "status": "in_progress",
       "repo": "canvasstudios-notebook",
       "planningArtifacts": [
         "docs/architecture/canvas-notebook/team-workspace/08-user-scoped-secrets-runtime.md",
         "docs/architecture/canvas-notebook/team-workspace/09-initial-setup-and-update-migration.md",
         "docs/architecture/canvas-notebook/team-workspace/10-agent-tool-execution-policy.md"
+      ],
+      "implementationArtifacts": [
+        "app/lib/runtime-data-paths.ts",
+        "app/lib/agents/storage.ts",
+        "app/lib/agents/memory-store.ts",
+        "app/lib/agents/system-prompt.ts",
+        "app/lib/pi/system-prompt-snapshot.ts",
+        "app/api/agents/files/route.ts",
+        "app/lib/onboarding/profile.ts",
+        "scripts/scoped-runtime-paths-test.ts",
+        "scripts/agent-memory-store-test.ts",
+        "scripts/agent-runtime-config-test.ts"
       ]
     },
     {

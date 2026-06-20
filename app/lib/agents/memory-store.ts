@@ -5,6 +5,7 @@ import {
   readManagedAgentFile,
   writeManagedAgentFile,
   type AgentManagedFileName,
+  type AgentStorageScope,
 } from './storage';
 
 export type MemoryTarget = 'agent' | 'user';
@@ -28,6 +29,10 @@ export type MemoryMutationResult = MemoryReadResult & {
   changed: boolean;
   entry?: MemoryEntry;
   deletedEntry?: MemoryEntry;
+};
+
+type MemoryScopeParams = {
+  userId?: string | null;
 };
 
 type ParsedMemoryFile = {
@@ -153,10 +158,18 @@ function createMemoryId(content: string, existingIds: Set<string>): string {
   throw new Error('Could not create a unique memory id.');
 }
 
-async function readParsedMemory(target: MemoryTarget, agentId?: string | null) {
+function resolveMemoryStorageScope(params?: MemoryScopeParams | null): AgentStorageScope | null {
+  return params?.userId ? { userId: params.userId } : null;
+}
+
+async function readParsedMemory(
+  target: MemoryTarget,
+  agentId?: string | null,
+  scope?: AgentStorageScope | null,
+) {
   const { fileName, limit } = resolveMemoryFile(target);
   const storageAgentId = resolveStorageAgentId(target, agentId);
-  const rawContent = await readManagedAgentFile(fileName as AgentManagedFileName, storageAgentId);
+  const rawContent = await readManagedAgentFile(fileName as AgentManagedFileName, storageAgentId, scope);
   const parsed = parseMemoryFile(rawContent);
   return { fileName, limit, storageAgentId, parsed };
 }
@@ -166,10 +179,11 @@ async function writeParsedMemory(
   fileName: 'MEMORY.md' | 'USER.md',
   limit: number,
   parsed: ParsedMemoryFile,
+  scope?: AgentStorageScope | null,
 ): Promise<string> {
   const content = serializeMemoryFile(parsed);
   assertWithinLimit(content, limit);
-  return writeManagedAgentFile(fileName as AgentManagedFileName, content, agentId);
+  return writeManagedAgentFile(fileName as AgentManagedFileName, content, agentId, scope);
 }
 
 function toReadResult(
@@ -190,8 +204,12 @@ function toReadResult(
   };
 }
 
-export async function readMemory(params: { target: MemoryTarget; agentId?: string | null }): Promise<MemoryReadResult> {
-  const { fileName, limit, storageAgentId, parsed } = await readParsedMemory(params.target, params.agentId);
+export async function readMemory(params: {
+  target: MemoryTarget;
+  agentId?: string | null;
+} & MemoryScopeParams): Promise<MemoryReadResult> {
+  const scope = resolveMemoryStorageScope(params);
+  const { fileName, limit, storageAgentId, parsed } = await readParsedMemory(params.target, params.agentId, scope);
   return toReadResult(params.target, storageAgentId, fileName, limit, parsed);
 }
 
@@ -199,9 +217,10 @@ export async function addMemory(params: {
   target: MemoryTarget;
   agentId?: string | null;
   content: string;
-}): Promise<MemoryMutationResult> {
+} & MemoryScopeParams): Promise<MemoryMutationResult> {
   const content = assertValidEntryContent(params.content);
-  const { fileName, limit, storageAgentId, parsed } = await readParsedMemory(params.target, params.agentId);
+  const scope = resolveMemoryStorageScope(params);
+  const { fileName, limit, storageAgentId, parsed } = await readParsedMemory(params.target, params.agentId, scope);
   const normalized = normalizeForDedupe(content);
   const existing = parsed.entries.find((entry) => normalizeForDedupe(entry.content) === normalized);
 
@@ -221,7 +240,7 @@ export async function addMemory(params: {
     ...parsed,
     entries: [...parsed.entries, entry],
   };
-  const writtenContent = await writeParsedMemory(storageAgentId, fileName, limit, next);
+  const writtenContent = await writeParsedMemory(storageAgentId, fileName, limit, next, scope);
 
   return {
     ...toReadResult(params.target, storageAgentId, fileName, limit, next, writtenContent),
@@ -235,14 +254,15 @@ export async function updateMemory(params: {
   agentId?: string | null;
   id: string;
   content: string;
-}): Promise<MemoryMutationResult> {
+} & MemoryScopeParams): Promise<MemoryMutationResult> {
   const id = params.id.trim();
   if (!id) {
     throw new Error('Memory id is required.');
   }
 
   const content = assertValidEntryContent(params.content);
-  const { fileName, limit, storageAgentId, parsed } = await readParsedMemory(params.target, params.agentId);
+  const scope = resolveMemoryStorageScope(params);
+  const { fileName, limit, storageAgentId, parsed } = await readParsedMemory(params.target, params.agentId, scope);
   const index = parsed.entries.findIndex((entry) => entry.id === id);
   if (index < 0) {
     throw new Error(`Memory entry "${id}" was not found.`);
@@ -258,7 +278,7 @@ export async function updateMemory(params: {
   const nextEntries = [...parsed.entries];
   nextEntries[index] = entry;
   const next = { ...parsed, entries: nextEntries };
-  const writtenContent = await writeParsedMemory(storageAgentId, fileName, limit, next);
+  const writtenContent = await writeParsedMemory(storageAgentId, fileName, limit, next, scope);
 
   return {
     ...toReadResult(params.target, storageAgentId, fileName, limit, next, writtenContent),
@@ -271,13 +291,14 @@ export async function deleteMemory(params: {
   target: MemoryTarget;
   agentId?: string | null;
   id: string;
-}): Promise<MemoryMutationResult> {
+} & MemoryScopeParams): Promise<MemoryMutationResult> {
   const id = params.id.trim();
   if (!id) {
     throw new Error('Memory id is required.');
   }
 
-  const { fileName, limit, storageAgentId, parsed } = await readParsedMemory(params.target, params.agentId);
+  const scope = resolveMemoryStorageScope(params);
+  const { fileName, limit, storageAgentId, parsed } = await readParsedMemory(params.target, params.agentId, scope);
   const deletedEntry = parsed.entries.find((entry) => entry.id === id);
   if (!deletedEntry) {
     throw new Error(`Memory entry "${id}" was not found.`);
@@ -287,7 +308,7 @@ export async function deleteMemory(params: {
     ...parsed,
     entries: parsed.entries.filter((entry) => entry.id !== id),
   };
-  const writtenContent = await writeParsedMemory(storageAgentId, fileName, limit, next);
+  const writtenContent = await writeParsedMemory(storageAgentId, fileName, limit, next, scope);
 
   return {
     ...toReadResult(params.target, storageAgentId, fileName, limit, next, writtenContent),

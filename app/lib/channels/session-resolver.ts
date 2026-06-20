@@ -47,7 +47,7 @@ export async function createChannelSession(input: ResolveChannelSessionInput): P
   const agentId = resolveAgentId(input.agentId);
   const sessionId = input.requestedSessionId || `sess-${Date.now()}-${randomUUID()}`;
   const effectiveConfig = await resolveAgentRuntimeConfig(agentId);
-  const promptSnapshot = await createPiSystemPromptSnapshot(agentId);
+  const promptSnapshot = await createPiSystemPromptSnapshot(agentId, { userId: input.userId });
   const workspace = await resolveAgentSessionWorkspaceForUser({
     userId: input.userId,
     workspaceId: input.workspaceId,

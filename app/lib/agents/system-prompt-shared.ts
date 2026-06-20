@@ -1,7 +1,8 @@
 import path from 'node:path';
 
-import { resolveAgentsStorageRoot } from '../runtime-data-paths';
+import { resolveAgentsStorageRoot, resolveUserAgentsDir } from '../runtime-data-paths';
 import { CANVAS_BASE_SYSTEM_PROMPT, CANVAS_BASE_TOOL_GUIDANCE } from './base-system-prompt';
+import type { AgentStorageScope } from './storage';
 
 export const MANAGED_PROMPT_FILE_NAMES = ['AGENTS.md', 'USER.md', 'MEMORY.md', 'SOUL.md', 'TOOLS.md', 'HEARTBEAT.md'] as const;
 
@@ -58,7 +59,7 @@ You are currently operating in **Planning Mode**. This mode restricts you to rea
 Acknowledge the request, outline what you would do, then ask the user to **switch back to Standard Mode** (Shift+Tab) so you can execute the changes.`;
 
 const MANAGED_FILES_INTRO =
-  `The following editable agent-managed files add agent-specific role, memory, tone, and tool preferences. They are stored under ${AGENTS_STORAGE_ROOT}/<agent-id> and can be edited when the user asks.`;
+  `The following editable agent-managed files add agent-specific role, memory, tone, and tool preferences. They are stored under the active agent storage scope and can be edited when the user asks.`;
 
 export type ManagedPromptDiagnostics = {
   loadedFiles: ManagedPromptFileName[];
@@ -76,6 +77,7 @@ export type ManagedSystemPromptResult = {
 export type ManagedPromptSource = {
   agentId?: string | null;
   inheritedFiles?: readonly ManagedPromptFileName[];
+  scope?: AgentStorageScope | null;
 };
 
 function normalizePromptAgentId(agentId?: string | null): string {
@@ -86,7 +88,11 @@ function normalizePromptAgentId(agentId?: string | null): string {
 function getPromptSourcePath(fileName: ManagedPromptFileName, source?: ManagedPromptSource): string {
   const inherited = source?.inheritedFiles?.includes(fileName) ?? false;
   const agentId = normalizePromptAgentId(inherited ? 'canvas-agent' : source?.agentId);
-  return path.join(AGENTS_STORAGE_ROOT, agentId, fileName);
+  const userId = source?.scope?.userId?.trim();
+  const storageRoot = userId
+    ? resolveUserAgentsDir(userId)
+    : AGENTS_STORAGE_ROOT;
+  return path.join(/* turbopackIgnore: true */ storageRoot, agentId, fileName);
 }
 
 export function composeManagedAgentSystemPrompt(

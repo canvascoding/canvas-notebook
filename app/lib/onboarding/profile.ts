@@ -210,8 +210,8 @@ export async function completeOnboardingProfile(params: {
   const userMd = normalizeProfileContent(params.userMd, 'USER.md');
   const soulMd = normalizeProfileContent(params.soulMd, 'SOUL.md');
 
-  await writeManagedAgentFile('USER.md', userMd, DEFAULT_MANAGED_AGENT_ID);
-  await writeManagedAgentFile('SOUL.md', soulMd, DEFAULT_MANAGED_AGENT_ID);
+  await writeManagedAgentFile('USER.md', userMd, DEFAULT_MANAGED_AGENT_ID, { userId: params.userId });
+  await writeManagedAgentFile('SOUL.md', soulMd, DEFAULT_MANAGED_AGENT_ID, { userId: params.userId });
   const deletedBootstrap = await deleteOnboardingBootstrapFile();
 
   await markOnboardingComplete({

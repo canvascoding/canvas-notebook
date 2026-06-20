@@ -238,21 +238,22 @@ async function main() {
     assert.equal(completed.success, true);
     assert.equal(completed.deletedBootstrap, true);
     await assert.rejects(() => fs.stat(bootstrapPath), /ENOENT/);
-    assert.match(await fs.readFile(path.join(dataDir, 'agents', 'canvas-agent', 'USER.md'), 'utf8'), /Frank/);
-    assert.match(await fs.readFile(path.join(dataDir, 'agents', 'canvas-agent', 'SOUL.md'), 'utf8'), /Canvas Agent/);
+    const scopedCanvasAgentPath = path.join(dataDir, 'users', userId, 'agents', 'canvas-agent');
+    assert.match(await fs.readFile(path.join(scopedCanvasAgentPath, 'USER.md'), 'utf8'), /Frank/);
+    assert.match(await fs.readFile(path.join(scopedCanvasAgentPath, 'SOUL.md'), 'utf8'), /Canvas Agent/);
     assert.equal(await isOnboardingComplete(), true);
 
     await db.delete(onboardingLog).where(eq(onboardingLog.method, 'ui'));
     await fs.writeFile(bootstrapPath, 'Bootstrap setup instructions.\n', 'utf8');
-    await fs.writeFile(path.join(dataDir, 'agents', 'canvas-agent', 'USER.md'), '', 'utf8');
-    await fs.writeFile(path.join(dataDir, 'agents', 'canvas-agent', 'SOUL.md'), 'Default soul.\n', 'utf8');
+    await fs.writeFile(path.join(scopedCanvasAgentPath, 'USER.md'), '', 'utf8');
+    await fs.writeFile(path.join(scopedCanvasAgentPath, 'SOUL.md'), 'Default soul.\n', 'utf8');
 
     const skipped = await skipOnboardingProfile({ userId });
     assert.equal(skipped.success, true);
     assert.equal(skipped.deletedBootstrap, true);
     assert.equal(skipped.alreadyComplete, false);
-    assert.equal(await fs.readFile(path.join(dataDir, 'agents', 'canvas-agent', 'USER.md'), 'utf8'), '');
-    assert.equal(await fs.readFile(path.join(dataDir, 'agents', 'canvas-agent', 'SOUL.md'), 'utf8'), 'Default soul.\n');
+    assert.equal(await fs.readFile(path.join(scopedCanvasAgentPath, 'USER.md'), 'utf8'), '');
+    assert.equal(await fs.readFile(path.join(scopedCanvasAgentPath, 'SOUL.md'), 'utf8'), 'Default soul.\n');
     const skipLog = await db.query.onboardingLog.findFirst({
       where: eq(onboardingLog.method, 'ui'),
     });

@@ -134,7 +134,7 @@ export async function savePiSession(
   const lastMessageAt = assistantActivityAt ?? session?.lastMessageAt ?? null;
 
   if (!session) {
-    const promptSnapshot = options?.systemPromptSnapshot ?? await createPiSystemPromptSnapshot(agentId);
+    const promptSnapshot = options?.systemPromptSnapshot ?? await createPiSystemPromptSnapshot(agentId, { userId });
     const workspace = await resolveAgentSessionWorkspaceForUser({ userId });
     const [inserted] = await db.insert(piSessions).values({
       sessionId,
@@ -159,7 +159,7 @@ export async function savePiSession(
     const nextTitle = normalizedTitleOverride || (isAutomaticSessionTitle(session.title) ? derivedTitle : session.title);
     const promptSnapshotFields = session.systemPromptSnapshot
       ? {}
-      : piSystemPromptSnapshotDbFields(options?.systemPromptSnapshot ?? await createPiSystemPromptSnapshot(agentId));
+      : piSystemPromptSnapshotDbFields(options?.systemPromptSnapshot ?? await createPiSystemPromptSnapshot(agentId, { userId }));
     const workspaceFields = session.workspaceId
       ? {}
       : workspaceToPiSessionFields(await resolveAgentSessionWorkspaceForUser({ userId }));

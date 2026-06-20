@@ -30,9 +30,12 @@ async function requireSession(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const { response } = await requireSession(request);
+  const { session, response } = await requireSession(request);
   if (response) {
     return response;
+  }
+  if (!session) {
+    return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
   }
 
   const limited = rateLimit(request, {
@@ -50,7 +53,7 @@ export async function POST(request: NextRequest) {
     // buildAgentConfigReadiness no longer requires a config parameter
     const [readiness, promptResult, qmd] = await Promise.all([
       buildAgentConfigReadiness(),
-      loadManagedAgentSystemPrompt(agentId),
+      loadManagedAgentSystemPrompt(agentId, { userId: session.user.id }),
       getQmdDoctorStatus(),
     ]);
     const { diagnostics } = promptResult;

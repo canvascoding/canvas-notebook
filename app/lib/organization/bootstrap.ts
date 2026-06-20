@@ -7,8 +7,27 @@ import path from 'node:path';
 
 import { getBootstrapAdminEmail } from '@/app/lib/bootstrap-admin';
 import { runMigrations } from '@/app/lib/db/migrate';
-import { resolveWorkspaceDataRoot } from '@/app/lib/workspaces/context';
+import {
+  resolveOrganizationAgentTemplatesDir,
+  resolveOrganizationDataRoot,
+  resolveOrganizationMcpTemplatesDir,
+  resolveOrganizationPluginTemplatesDir,
+  resolveOrganizationPoliciesDir,
+  resolveOrganizationSecretsDir,
+  resolveOrganizationSkillTemplatesDir,
+  resolveSystemBackupsDir,
+  resolveSystemLogsDir,
+  resolveSystemMigrationDir,
+  resolveUserAgentsDir,
+  resolveUserMailDir,
+  resolveUserMcpDir,
+  resolveUserPluginsDir,
+  resolveUserSecretsDir,
+  resolveUserSettingsDir,
+  resolveUserSkillsDir,
+} from '@/app/lib/runtime-data-paths';
 import { ensureDefaultWorkspaceRecords } from '@/app/lib/workspaces/service';
+import { resolveWorkspaceDataRoot } from '@/app/lib/workspaces/context';
 
 export const LOCAL_ORGANIZATION_ID_PREFIX = 'org_';
 
@@ -174,26 +193,26 @@ function buildScopedPaths(organizationId: string, userId: string, teamFeaturesEn
   const dataRoot = getDataRoot();
   return {
     personalWorkspace: path.join(dataRoot, 'workspaces', 'personal', userId, 'files'),
-    userSettings: path.join(dataRoot, 'users', userId, 'settings'),
-    userSecrets: path.join(dataRoot, 'users', userId, 'secrets'),
-    userAgents: path.join(dataRoot, 'users', userId, 'agents'),
-    userSkills: path.join(dataRoot, 'users', userId, 'skills'),
-    userPlugins: path.join(dataRoot, 'users', userId, 'plugins'),
-    userMcp: path.join(dataRoot, 'users', userId, 'mcp'),
-    userMail: path.join(dataRoot, 'users', userId, 'mail'),
-    organizationRoot: path.join(dataRoot, 'organizations', organizationId),
-    organizationSecrets: path.join(dataRoot, 'organizations', organizationId, 'secrets'),
-    organizationPolicies: path.join(dataRoot, 'organizations', organizationId, 'policies'),
-    organizationAgentTemplates: path.join(dataRoot, 'organizations', organizationId, 'agent-templates'),
-    organizationMcpTemplates: path.join(dataRoot, 'organizations', organizationId, 'mcp-templates'),
-    organizationSkillTemplates: path.join(dataRoot, 'organizations', organizationId, 'skill-templates'),
-    organizationPluginTemplates: path.join(dataRoot, 'organizations', organizationId, 'plugin-templates'),
+    userSettings: resolveUserSettingsDir(userId),
+    userSecrets: resolveUserSecretsDir(userId),
+    userAgents: resolveUserAgentsDir(userId),
+    userSkills: resolveUserSkillsDir(userId),
+    userPlugins: resolveUserPluginsDir(userId),
+    userMcp: resolveUserMcpDir(userId),
+    userMail: resolveUserMailDir(userId),
+    organizationRoot: resolveOrganizationDataRoot(organizationId),
+    organizationSecrets: resolveOrganizationSecretsDir(organizationId),
+    organizationPolicies: resolveOrganizationPoliciesDir(organizationId),
+    organizationAgentTemplates: resolveOrganizationAgentTemplatesDir(organizationId),
+    organizationMcpTemplates: resolveOrganizationMcpTemplatesDir(organizationId),
+    organizationSkillTemplates: resolveOrganizationSkillTemplatesDir(organizationId),
+    organizationPluginTemplates: resolveOrganizationPluginTemplatesDir(organizationId),
     teamWorkspace: teamFeaturesEnabled
       ? path.join(dataRoot, 'workspaces', 'team', organizationId, 'files')
       : null,
-    systemBackups: path.join(dataRoot, 'system', 'backups'),
-    systemMigration: path.join(dataRoot, 'system', 'migration'),
-    systemLogs: path.join(dataRoot, 'system', 'logs'),
+    systemBackups: resolveSystemBackupsDir(),
+    systemMigration: resolveSystemMigrationDir(),
+    systemLogs: resolveSystemLogsDir(),
   };
 }
 
