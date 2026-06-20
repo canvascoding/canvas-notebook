@@ -1151,9 +1151,6 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     CREATE INDEX IF NOT EXISTS idx_pi_sessions_channel ON pi_sessions (channel_id, channel_session_key);
     CREATE INDEX IF NOT EXISTS idx_pi_sessions_workspace ON pi_sessions (workspace_id);
     CREATE INDEX IF NOT EXISTS idx_pi_sessions_user_workspace_created ON pi_sessions (user_id, workspace_id, created_at);
-    CREATE INDEX IF NOT EXISTS idx_automation_jobs_owner_scope ON automation_jobs (owner_user_id, scope);
-    CREATE INDEX IF NOT EXISTS idx_automation_jobs_org_workspace ON automation_jobs (organization_id, workspace_id);
-    CREATE INDEX IF NOT EXISTS idx_automation_runs_workspace_created ON automation_runs (workspace_id, created_at);
   `);
 
   sqlite.exec(`
