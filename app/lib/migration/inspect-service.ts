@@ -294,16 +294,35 @@ function buildUserMappings(params: {
   archivePaths: string[];
   target: LocalImportContext;
 }): MigrationImportUserMapping[] {
-  const candidates = new Map<string, { userId: string | null; email: string | null; required: boolean; reason: string }>();
+  type UserCandidate = { userId: string | null; email: string | null; required: boolean; reason: string };
+  const candidates = new Map<string, UserCandidate>();
+  const candidateKey = (input: Pick<UserCandidate, 'userId' | 'email'>) => {
+    if (input.userId) return `id:${input.userId}`;
+    if (input.email) return `email:${input.email.toLowerCase()}`;
+    return null;
+  };
+  const findExistingCandidateKey = (input: Pick<UserCandidate, 'userId' | 'email'>) => {
+    for (const [key, candidate] of candidates.entries()) {
+      if (input.userId && candidate.userId === input.userId) return key;
+      if (input.email && candidate.email?.toLowerCase() === input.email.toLowerCase()) return key;
+    }
+    return null;
+  };
   const addCandidate = (input: { userId: string | null; email: string | null; required: boolean; reason: string }) => {
     if (!input.userId && !input.email) return;
-    const key = `${input.userId || ''}:${input.email || ''}`;
-    const existing = candidates.get(key);
+    const existingKey = findExistingCandidateKey(input);
+    const existing = existingKey ? candidates.get(existingKey) : null;
     if (existing) {
+      existing.userId ||= input.userId;
+      existing.email ||= input.email;
       existing.required ||= input.required;
-      existing.reason = existing.required ? existing.reason : input.reason;
+      if (!existing.reason.includes(input.reason)) {
+        existing.reason = `${existing.reason} ${input.reason}`;
+      }
       return;
     }
+    const key = candidateKey(input);
+    if (!key) return;
     candidates.set(key, input);
   };
 
@@ -493,12 +512,17 @@ function buildDryRun(params: {
 
   for (const mapping of users) {
     if (mapping.required && mapping.status !== 'mapped') {
-      blockers.push(`User mapping unresolved: ${mapping.sourceEmail || mapping.sourceUserId || 'unknown user'}.`);
+      const label = mapping.sourceEmail || mapping.sourceUserId || 'unknown user';
+      blockers.push(mapping.status === 'proposed'
+        ? `User mapping proposed but cannot be auto-applied by the V1 restore engine: ${label}.`
+        : `User mapping unresolved: ${label}.`);
     }
   }
   for (const mapping of workspaces) {
     if (mapping.required && mapping.status !== 'mapped') {
-      blockers.push(`Workspace mapping unresolved: ${mapping.sourcePath}.`);
+      blockers.push(mapping.status === 'proposed'
+        ? `Workspace mapping proposed but cannot be auto-applied by the V1 restore engine: ${mapping.sourcePath}.`
+        : `Workspace mapping unresolved: ${mapping.sourcePath}.`);
     }
   }
 

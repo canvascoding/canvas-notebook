@@ -170,6 +170,8 @@ async function main() {
     assert.equal(matchingInspection.dryRun?.status, 'attention_required');
     assert.equal(matchingInspection.dryRun?.stats.blockers, 0);
     assert.equal(matchingInspection.dryRun?.stats.reconnectRequirements, 1);
+    assert.equal(matchingInspection.dryRun?.stats.userMappings, 1);
+    assert.equal(matchingInspection.dryRun?.users.length, 1);
     assert.equal(matchingInspection.dryRun?.users[0]?.status, 'mapped');
     assert.equal(matchingInspection.dryRun?.workspaces.every((mapping) => mapping.status === 'mapped'), true);
 

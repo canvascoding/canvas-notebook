@@ -820,8 +820,8 @@ export function WorkspaceSettingsPanel({ isAdmin = false, organizationPermission
                     {inspection.dryRun.blockers.length > 0 ? (
                       <div className="space-y-1 rounded-md border border-destructive/40 bg-destructive/5 p-2">
                         <p className="text-xs font-medium text-destructive">{t('workspacePanel.migration.dryRun.blockers')}</p>
-                        {inspection.dryRun.blockers.map((blocker) => (
-                          <p key={blocker} className="text-xs text-destructive">- {blocker}</p>
+                        {inspection.dryRun.blockers.map((blocker, blockerIndex) => (
+                          <p key={`${blockerIndex}:${blocker}`} className="text-xs text-destructive">- {blocker}</p>
                         ))}
                       </div>
                     ) : null}
