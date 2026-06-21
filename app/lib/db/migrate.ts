@@ -1501,14 +1501,14 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
         ORDER BY s.updated_at DESC
         LIMIT 1
       )),
-      agent_id = COALESCE(NULLIF(agent_id, ''), (
-        SELECT s.agent_id
+      agent_id = COALESCE((
+        SELECT NULLIF(s.agent_id, '')
         FROM pi_sessions s
         WHERE s.session_id = pi_usage_events.session_id
           AND s.user_id = pi_usage_events.user_id
         ORDER BY s.updated_at DESC
         LIMIT 1
-      ), 'canvas-agent')
+      ), NULLIF(agent_id, ''), 'canvas-agent')
     WHERE organization_id IS NULL
       OR workspace_id IS NULL
       OR workspace_type IS NULL

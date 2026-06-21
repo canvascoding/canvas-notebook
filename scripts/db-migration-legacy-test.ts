@@ -28,6 +28,7 @@ try {
       user_id TEXT NOT NULL,
       provider TEXT NOT NULL,
       model TEXT NOT NULL,
+      agent_id TEXT NOT NULL DEFAULT 'canvas-agent',
       title TEXT,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL,
@@ -44,6 +45,31 @@ try {
       content TEXT NOT NULL,
       timestamp INTEGER NOT NULL,
       FOREIGN KEY (pi_session_db_id) REFERENCES pi_sessions(id)
+    );
+
+    CREATE TABLE pi_usage_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+      fingerprint TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      session_id TEXT NOT NULL,
+      provider TEXT NOT NULL,
+      model TEXT NOT NULL,
+      message_id TEXT NOT NULL,
+      assistant_timestamp TEXT NOT NULL,
+      session_title_snapshot TEXT,
+      input_tokens INTEGER NOT NULL,
+      output_tokens INTEGER NOT NULL,
+      total_tokens INTEGER NOT NULL,
+      cache_read_tokens INTEGER NOT NULL,
+      cache_write_tokens INTEGER NOT NULL,
+      reasoning_tokens INTEGER NOT NULL,
+      stop_reason TEXT,
+      input_cost REAL NOT NULL,
+      output_cost REAL NOT NULL,
+      cache_read_cost REAL NOT NULL,
+      cache_write_cost REAL NOT NULL,
+      total_cost REAL NOT NULL,
+      created_at INTEGER NOT NULL
     );
 
     CREATE TABLE channel_active_sessions (
@@ -63,15 +89,64 @@ try {
     INSERT INTO user (id, name, email, email_verified, image, role, created_at, updated_at)
     VALUES ('user-migration', 'Migration User', 'migration@example.test', 1, NULL, NULL, 1700000000, 1700000000);
 
-    INSERT INTO pi_sessions (id, session_id, user_id, provider, model, title, created_at, updated_at)
+    INSERT INTO pi_sessions (id, session_id, user_id, provider, model, agent_id, title, created_at, updated_at)
     VALUES
-      (1, 'sess-migration', 'user-migration', 'test-provider', 'test-model', 'Migration Session', 1700000000, 1700000000),
-      (2, 'sess-migration-old', 'user-migration', 'test-provider', 'test-model', 'Old Migration Session', 1699990000, 1699990000);
+      (1, 'sess-migration', 'user-migration', 'test-provider', 'test-model', 'agent-legacy', 'Migration Session', 1700000000, 1700000000),
+      (2, 'sess-migration-old', 'user-migration', 'test-provider', 'test-model', 'canvas-agent', 'Old Migration Session', 1699990000, 1699990000);
 
     INSERT INTO pi_messages (id, pi_session_db_id, role, content, timestamp)
     VALUES
       (10, 1, 'user', '{"role":"user","content":"first","timestamp":2000}', 2000),
       (20, 1, 'user', '{"role":"user","content":"second","timestamp":1000}', 1000);
+
+    INSERT INTO pi_usage_events (
+      id,
+      fingerprint,
+      user_id,
+      session_id,
+      provider,
+      model,
+      message_id,
+      assistant_timestamp,
+      session_title_snapshot,
+      input_tokens,
+      output_tokens,
+      total_tokens,
+      cache_read_tokens,
+      cache_write_tokens,
+      reasoning_tokens,
+      stop_reason,
+      input_cost,
+      output_cost,
+      cache_read_cost,
+      cache_write_cost,
+      total_cost,
+      created_at
+    )
+    VALUES (
+      1,
+      'legacy-fingerprint',
+      'user-migration',
+      'sess-migration',
+      'test-provider',
+      'test-model',
+      'msg-legacy',
+      '2026-01-01T00:00:00.000Z',
+      'Migration Session',
+      10,
+      20,
+      30,
+      0,
+      0,
+      0,
+      NULL,
+      0.01,
+      0.02,
+      0,
+      0,
+      0.03,
+      1700000000
+    );
 
     INSERT INTO channel_active_sessions (user_id, channel_id, channel_session_key, channel_thread_key, session_id, updated_at)
     VALUES ('user-migration', 'web', 'web:user:user-migration', '', 'sess-migration', 1700000100);
@@ -135,6 +210,21 @@ try {
       .map((index) => (index as { name: string }).name),
   );
   assert.ok(messageIndexes.has('idx_pi_messages_session_sequence'));
+
+  const migratedUsage = sqlite.prepare(`
+    SELECT agent_id AS agentId, organization_id AS organizationId, workspace_id AS workspaceId, workspace_type AS workspaceType
+    FROM pi_usage_events
+    WHERE id = 1
+  `).get() as {
+    agentId: string;
+    organizationId: string | null;
+    workspaceId: string | null;
+    workspaceType: string | null;
+  };
+  assert.equal(migratedUsage.agentId, 'agent-legacy');
+  assert.equal(migratedUsage.organizationId, null);
+  assert.equal(migratedUsage.workspaceId, null);
+  assert.equal(migratedUsage.workspaceType, null);
 
   sqlite.close();
   console.log('legacy db migration tests passed');
