@@ -66,6 +66,7 @@ export type OffboardingPreflight = {
     personalAutomations: number;
     organizationResponsibleAutomations: number;
     organizationReviewAutomations: number;
+    affectedAutomations: number;
     inFlightAutomationRuns: number;
     openAssignedTodos: number;
     openCreatedTodos: number;
@@ -245,11 +246,12 @@ function buildAutomationAffectedWhere(): string {
   `;
 }
 
-async function buildPreflight(
+function buildPreflightFromScopedStorage(
   sqlite: Sqlite,
   targetUserId: string,
   requestedByUserId: string,
-): Promise<OffboardingPreflight> {
+  scopedStorage: OffboardingPreflight['scopedStorage'],
+): OffboardingPreflight {
   const organization = getOrganization(sqlite);
   const target = getTargetUser(sqlite, organization.organization_id, targetUserId);
   const personalWorkspace = getPersonalWorkspace(sqlite, targetUserId);
@@ -353,6 +355,12 @@ async function buildPreflight(
         OR last_edited_by_user_id = ?
       )
   `, [targetUserId, targetUserId, targetUserId]);
+  const affectedAutomations = count(sqlite, `
+    SELECT COUNT(*) AS count
+    FROM automation_jobs
+    WHERE status = 'active'
+      AND ${buildAutomationAffectedWhere()}
+  `, [{ targetUserId }]);
   const inFlightAutomationRuns = count(sqlite, `
     SELECT COUNT(*) AS count
     FROM automation_runs r
@@ -386,7 +394,6 @@ async function buildPreflight(
       AND status = 'active'
   `, [targetUserId]);
   const studioGenerations = count(sqlite, 'SELECT COUNT(*) AS count FROM studio_generations WHERE user_id = ?', [targetUserId]);
-  const scopedStorage = await getScopedStorageState(targetUserId);
 
   if (activeSessions > 0) {
     addFinding(warnings, {
@@ -408,7 +415,7 @@ async function buildPreflight(
     });
   }
 
-  const automationCount = personalAutomations + organizationResponsibleAutomations + organizationReviewAutomations;
+  const automationCount = affectedAutomations;
   if (automationCount > 0) {
     addFinding(warnings, {
       severity: 'warning',
@@ -523,6 +530,7 @@ async function buildPreflight(
       personalAutomations,
       organizationResponsibleAutomations,
       organizationReviewAutomations,
+      affectedAutomations,
       inFlightAutomationRuns,
       openAssignedTodos,
       openCreatedTodos,
@@ -536,6 +544,15 @@ async function buildPreflight(
     } : null,
     scopedStorage,
   };
+}
+
+async function buildPreflight(
+  sqlite: Sqlite,
+  targetUserId: string,
+  requestedByUserId: string,
+): Promise<OffboardingPreflight> {
+  const scopedStorage = await getScopedStorageState(targetUserId);
+  return buildPreflightFromScopedStorage(sqlite, targetUserId, requestedByUserId, scopedStorage);
 }
 
 function run(sqlite: Sqlite, sql: string, params: unknown[] = []): number {
@@ -591,8 +608,14 @@ export async function offboardUser(options: {
   let resultWithoutManifest: Omit<OffboardingApplyResult, 'manifestPath'> | null = null;
 
   try {
+    const scopedStorage = await getScopedStorageState(options.targetUserId);
     sqlite.exec('BEGIN IMMEDIATE');
-    const preflight = await buildPreflight(sqlite, options.targetUserId, options.requestedByUserId);
+    const preflight = buildPreflightFromScopedStorage(
+      sqlite,
+      options.targetUserId,
+      options.requestedByUserId,
+      scopedStorage,
+    );
     if (preflight.blockers.length > 0) {
       throw new OffboardingError('BLOCKED', 'Offboarding is blocked by preflight findings.', 409, preflight);
     }
@@ -782,6 +805,7 @@ export async function offboardUser(options: {
     if (error instanceof OffboardingError) {
       throw error;
     }
+    console.error('[OrganizationOffboarding] Unexpected error during offboarding:', error);
     throw new OffboardingError('DATABASE_ERROR', 'Could not offboard user.', 500);
   } finally {
     sqlite.close();

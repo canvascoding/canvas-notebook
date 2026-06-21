@@ -239,6 +239,8 @@ async function main() {
     assert.equal(memberPreflight.counts.activeEmailAccounts, 1);
     assert.equal(memberPreflight.counts.personalAutomations, 1);
     assert.equal(memberPreflight.counts.organizationResponsibleAutomations, 1);
+    assert.equal(memberPreflight.counts.organizationReviewAutomations, 1);
+    assert.equal(memberPreflight.counts.affectedAutomations, 2);
     assert.equal(memberPreflight.counts.openAssignedTodos, 1);
     assert.ok(memberPreflight.warnings.length >= 4);
 

@@ -79,7 +79,14 @@ export async function POST(request: NextRequest, context: RouteContext) {
       reason: typeof body.reason === 'string' ? body.reason : null,
       acknowledgeWarnings: body.acknowledgeWarnings === true,
     });
-    return NextResponse.json({ success: true, data: result });
+    return NextResponse.json({
+      success: true,
+      data: {
+        preflight: result.preflight,
+        appliedAt: result.appliedAt,
+        actions: result.actions,
+      },
+    });
   } catch (error) {
     return errorResponse(error);
   }

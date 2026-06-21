@@ -84,7 +84,9 @@ type OffboardingPreflight = {
   blockers: OffboardingFinding[];
   warnings: OffboardingFinding[];
   info: OffboardingFinding[];
-  counts: Record<string, number>;
+  counts: Record<string, number> & {
+    affectedAutomations?: number;
+  };
   personalWorkspace: {
     id: string;
     status: string;
@@ -936,9 +938,7 @@ export function UserManagementPanel({
                   <div className="mt-2 grid gap-2 sm:grid-cols-2">
                     <span>{t('offboardingDialog.summary.sessions', { count: offboardingPreflight.counts.activeSessions || 0 })}</span>
                     <span>{t('offboardingDialog.summary.automations', {
-                      count: (offboardingPreflight.counts.personalAutomations || 0)
-                        + (offboardingPreflight.counts.organizationResponsibleAutomations || 0)
-                        + (offboardingPreflight.counts.organizationReviewAutomations || 0),
+                      count: offboardingPreflight.counts.affectedAutomations || 0,
                     })}</span>
                     <span>{t('offboardingDialog.summary.todos', { count: offboardingPreflight.counts.openAssignedTodos || 0 })}</span>
                     <span>{t('offboardingDialog.summary.credentials', {
