@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server';
 import { recordAuditEvent } from '@/app/lib/audit/audit-service';
-import { batchDelete } from '@/app/lib/filesystem/workspace-files';
 import { isProtectedAppOutputFolder } from '@/app/lib/filesystem/app-output-folders';
+import { trashWorkspacePaths } from '@/app/lib/filesystem/workspace-trash';
 import { syncPublicSharesAfterDelete } from '@/app/lib/public-sharing/public-file-shares';
 import { getParentDirectory } from '@/app/lib/files/path-utils';
 import {
@@ -42,12 +42,17 @@ export async function DELETE(request: NextRequest) {
       return jsonError(`Protected app output folder(s) cannot be deleted: ${protectedPaths.join(', ')}`, 403);
     }
 
-    const result = await batchDelete(pathsToDelete, fileOptions);
-    await syncPublicSharesAfterDelete(result.deleted, workspaceResult.workspace);
+    const result = await trashWorkspacePaths({
+      workspace: workspaceResult.workspace,
+      paths: pathsToDelete,
+      deletedByUserId: workspaceResult.session.user.id,
+    });
+    const deletedPaths = result.trashed.map((entry) => entry.originalPath);
+    await syncPublicSharesAfterDelete(deletedPaths, workspaceResult.workspace);
 
     invalidateWorkspaceFileViews({
       fileOptions,
-      subtreeDirs: result.deleted.map(getParentDirectory),
+      subtreeDirs: deletedPaths.map(getParentDirectory),
     });
     await recordAuditEvent({
       organizationId: workspaceResult.workspace.organizationId,
@@ -56,20 +61,34 @@ export async function DELETE(request: NextRequest) {
       source: 'files',
       eventType: 'file',
       entityType: 'workspace_path',
-      entityId: result.deleted.join(','),
+      entityId: deletedPaths.join(','),
       action: 'file.delete',
       status: result.failed.length > 0 ? 'failure' : 'success',
-      summary: `${result.deleted.length} path(s) deleted; ${result.failed.length} failed.`,
+      summary: `${result.trashed.length} path(s) moved to trash; ${result.failed.length} failed.`,
       metadata: {
+        deleteMode: 'trash',
         requestedPaths: pathsToDelete,
-        deleted: result.deleted,
+        trashed: result.trashed.map((entry) => ({
+          id: entry.id,
+          originalPath: entry.originalPath,
+          itemType: entry.itemType,
+          sizeBytes: entry.sizeBytes,
+          expiresAt: entry.expiresAt.toISOString(),
+        })),
         failed: result.failed,
         workspaceType: workspaceResult.workspace.workspaceType,
       },
     });
 
     return jsonSuccess({
-      deleted: result.deleted,
+      deleted: deletedPaths,
+      trashEntries: result.trashed.map((entry) => ({
+        id: entry.id,
+        originalPath: entry.originalPath,
+        itemType: entry.itemType,
+        sizeBytes: entry.sizeBytes,
+        expiresAt: entry.expiresAt.toISOString(),
+      })),
       failed: result.failed,
     });
   } catch (error) {
