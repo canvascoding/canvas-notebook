@@ -62,10 +62,11 @@ export async function DELETE(request: NextRequest) {
       eventType: 'file',
       entityType: 'workspace_path',
       entityId: deletedPaths.join(','),
-      action: 'file.trash',
+      action: 'file.delete',
       status: result.failed.length > 0 ? 'failure' : 'success',
       summary: `${result.trashed.length} path(s) moved to trash; ${result.failed.length} failed.`,
       metadata: {
+        deleteMode: 'trash',
         requestedPaths: pathsToDelete,
         trashed: result.trashed.map((entry) => ({
           id: entry.id,

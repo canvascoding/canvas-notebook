@@ -69,8 +69,8 @@ function retentionDays(): number {
   return DEFAULT_WORKSPACE_TRASH_RETENTION_DAYS;
 }
 
-function expiresAtFrom(deletedAt: Date): Date {
-  return new Date(deletedAt.getTime() + retentionDays() * 24 * 60 * 60 * 1000);
+function expiresAtFrom(deletedAt: Date, days = retentionDays()): Date {
+  return new Date(deletedAt.getTime() + days * 24 * 60 * 60 * 1000);
 }
 
 function normalizeOriginalPath(workspace: WorkspaceContext, userPath: string): string {
@@ -255,7 +255,8 @@ export async function trashWorkspacePaths(params: {
 }): Promise<TrashWorkspacePathsResult> {
   await ensureWorkspaceRoot(params.workspace);
   const now = params.now ?? new Date();
-  const expiresAt = expiresAtFrom(now);
+  const days = retentionDays();
+  const expiresAt = expiresAtFrom(now, days);
   const result: TrashWorkspacePathsResult = { trashed: [], failed: [] };
 
   const { selected: candidates, failed: invalidPaths } = dedupeNestedPaths(params.workspace, params.paths);
@@ -290,7 +291,7 @@ export async function trashWorkspacePaths(params: {
           deletedAt: now,
           expiresAt,
           metadataJson: JSON.stringify({
-            retentionDays: retentionDays(),
+            retentionDays: days,
             workspaceType: params.workspace.workspaceType,
             requestedPath: candidate.requested,
           }),
