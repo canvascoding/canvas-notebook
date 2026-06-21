@@ -150,8 +150,72 @@ export interface MigrationInspection {
   compatibility: MigrationVersionCompatibility;
   canRestore: boolean;
   manifest: CanvasMigrationManifest | null;
+  dryRun?: MigrationImportDryRun;
   risks: string[];
   warnings: string[];
+}
+
+export type MigrationImportMappingStatus = 'mapped' | 'proposed' | 'unresolved' | 'not_required';
+
+export interface MigrationImportUserMapping {
+  sourceUserId: string | null;
+  sourceEmail: string | null;
+  targetUserId: string | null;
+  targetEmail: string | null;
+  status: MigrationImportMappingStatus;
+  required: boolean;
+  reason: string;
+}
+
+export interface MigrationImportWorkspaceMapping {
+  kind: 'legacy' | 'team' | 'personal' | 'project' | 'unknown';
+  sourcePath: string;
+  sourceWorkspaceId: string | null;
+  sourceOrganizationId: string | null;
+  sourceOwnerUserId: string | null;
+  targetWorkspaceId: string | null;
+  targetPath: string | null;
+  status: MigrationImportMappingStatus;
+  required: boolean;
+  reason: string;
+}
+
+export interface MigrationImportReconnectRequirement {
+  kind: 'env_file' | 'oauth_store' | 'secret_directory' | 'unknown';
+  scope: 'legacy' | 'user' | 'organization' | 'system' | 'unknown';
+  path: string;
+  secretNames: string[];
+  required: boolean;
+  reason: string;
+}
+
+export interface MigrationImportDryRun {
+  status: 'ready' | 'attention_required' | 'blocked';
+  canApply: boolean;
+  blockers: string[];
+  source: {
+    exportProfile: MigrationExportProfile | null;
+    databaseProvider: string | null;
+    deploymentMode: string | null;
+    organizationId: string | null;
+    createdByUserId: string | null;
+    createdByEmail: string | null;
+  };
+  target: {
+    databaseProvider: string;
+    deploymentMode: string;
+    organizationId: string | null;
+    teamFeaturesEnabled: boolean;
+  };
+  users: MigrationImportUserMapping[];
+  workspaces: MigrationImportWorkspaceMapping[];
+  reconnect: MigrationImportReconnectRequirement[];
+  stats: {
+    userMappings: number;
+    workspaceMappings: number;
+    reconnectRequirements: number;
+    blockers: number;
+  };
 }
 
 export interface PendingMigrationRestore {

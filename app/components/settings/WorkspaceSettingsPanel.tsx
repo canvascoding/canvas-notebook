@@ -801,6 +801,74 @@ export function WorkspaceSettingsPanel({ isAdmin = false, organizationPermission
                     <span>{t('workspacePanel.migration.exportedAt')}: {new Date(inspection.manifest.exportedAt).toLocaleString()}</span>
                   </div>
                 ) : null}
+                {inspection.dryRun ? (
+                  <div className="space-y-3 rounded-lg border border-border bg-muted/30 p-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="text-sm font-medium">
+                        {t(`workspacePanel.migration.dryRun.status.${inspection.dryRun.status}`)}
+                      </div>
+                      <div className="text-xs text-muted-foreground">
+                        {t('workspacePanel.migration.dryRun.summary', {
+                          users: inspection.dryRun.stats.userMappings,
+                          workspaces: inspection.dryRun.stats.workspaceMappings,
+                          reconnects: inspection.dryRun.stats.reconnectRequirements,
+                          blockers: inspection.dryRun.stats.blockers,
+                        })}
+                      </div>
+                    </div>
+
+                    {inspection.dryRun.blockers.length > 0 ? (
+                      <div className="space-y-1 rounded-md border border-destructive/40 bg-destructive/5 p-2">
+                        <p className="text-xs font-medium text-destructive">{t('workspacePanel.migration.dryRun.blockers')}</p>
+                        {inspection.dryRun.blockers.map((blocker, blockerIndex) => (
+                          <p key={`${blockerIndex}:${blocker}`} className="text-xs text-destructive">- {blocker}</p>
+                        ))}
+                      </div>
+                    ) : null}
+
+                    {inspection.dryRun.users.length > 0 ? (
+                      <div className="space-y-1">
+                        <p className="text-xs font-medium">{t('workspacePanel.migration.dryRun.users')}</p>
+                        {inspection.dryRun.users.map((mapping) => (
+                          <p key={`${mapping.sourceUserId || 'no-id'}:${mapping.sourceEmail || 'no-email'}`} className="text-xs text-muted-foreground">
+                            {mapping.sourceEmail || mapping.sourceUserId || t('workspacePanel.migration.dryRun.unknownSource')}
+                            {' -> '}
+                            {mapping.targetEmail || mapping.targetUserId || t('workspacePanel.migration.dryRun.unresolved')}
+                            {' · '}
+                            {t(`workspacePanel.migration.dryRun.mappingStatus.${mapping.status}`)}
+                          </p>
+                        ))}
+                      </div>
+                    ) : null}
+
+                    {inspection.dryRun.workspaces.length > 0 ? (
+                      <div className="space-y-1">
+                        <p className="text-xs font-medium">{t('workspacePanel.migration.dryRun.workspaces')}</p>
+                        {inspection.dryRun.workspaces.map((mapping) => (
+                          <p key={mapping.sourcePath} className="text-xs text-muted-foreground">
+                            {mapping.sourcePath}
+                            {' -> '}
+                            {mapping.targetPath || t('workspacePanel.migration.dryRun.unresolved')}
+                            {' · '}
+                            {t(`workspacePanel.migration.dryRun.mappingStatus.${mapping.status}`)}
+                          </p>
+                        ))}
+                      </div>
+                    ) : null}
+
+                    {inspection.dryRun.reconnect.length > 0 ? (
+                      <div className="space-y-1">
+                        <p className="text-xs font-medium">{t('workspacePanel.migration.dryRun.reconnect')}</p>
+                        {inspection.dryRun.reconnect.map((item) => (
+                          <p key={`${item.kind}:${item.scope}:${item.path}`} className="text-xs text-muted-foreground">
+                            {item.path}
+                            {item.secretNames.length > 0 ? ` · ${item.secretNames.join(', ')}` : ''}
+                          </p>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
                 <div className="space-y-1">
                   {inspection.risks.map((risk) => (
                     <p key={risk} className="text-sm text-muted-foreground">- {risk}</p>

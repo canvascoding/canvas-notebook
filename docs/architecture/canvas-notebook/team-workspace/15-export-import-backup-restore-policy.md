@@ -171,6 +171,16 @@ Regeln:
 - To-dos, Automations und Agent-Verknuepfungen duerfen erst aktiviert werden, wenn ihre User-/Workspace-/Secret-Referenzen aufgeloest sind.
 - Team-RAG-/Embedding-/Knowledge-Graph-Daten duerfen nicht in ein SQLite-Ziel importiert werden; der Dry Run muss `requires_postgres` oder `requires_reindex` melden.
 
+V1-Implementierungsstand:
+
+- Upload-Inspection erzeugt `inspection.dryRun` mit Zielkontext, User-Mappings, Workspace-Mappings, Reconnect-Anforderungen und Blockern.
+- Der Dry Run liest lokale Ziel-User, Ziel-Organisation und aktive Workspace-Records nur fuer Preflight; es werden keine Importdaten geschrieben.
+- `createdByUserId`/`createdByEmail` aus dem Export-Manifest und Personal-Workspace-Owner aus Archivpfaden werden als User-Mappings ausgewertet.
+- Team-, Personal-, Project- und Legacy-Workspace-Pfade werden aus Manifest-/Archivpfaden erkannt.
+- Restore wird serverseitig blockiert, wenn erforderliche User-/Workspace-Mappings nicht ohne Rewrite anwendbar sind.
+- Secret-/OAuth-Reconnects aus `data/reconnect-manifest.json` werden als Nacharbeit angezeigt, aber nicht als Dateisecrets importiert.
+- Die Settings-UI zeigt Dry-Run-Status, Blocker, User-/Workspace-Mappings und Reconnect-Schritte vor dem Restore-Button an.
+
 ## Full Backup
 
 Full Backup ist fuer Betrieb und Disaster Recovery. Es soll die komplette Instanz wiederherstellbar machen.

@@ -2166,6 +2166,26 @@
         "restore": "Start full restore",
         "restoreRestarting": "Restore staged. The app is restarting and will apply the migration before startup.",
         "restoreRestartRequired": "Restore staged. Restart the app/container to apply the migration before startup.",
+        "dryRun": {
+          "status": {
+            "ready": "Dry run passed",
+            "attention_required": "Dry run passed with reconnect steps",
+            "blocked": "Dry run blocked"
+          },
+          "summary": "{users} users · {workspaces} workspaces · {reconnects} reconnects · {blockers} blockers",
+          "blockers": "Blockers",
+          "users": "User mapping",
+          "workspaces": "Workspace mapping",
+          "reconnect": "Reconnect after restore",
+          "unknownSource": "Unknown source",
+          "unresolved": "Unresolved",
+          "mappingStatus": {
+            "mapped": "mapped",
+            "proposed": "needs explicit mapping",
+            "unresolved": "unresolved",
+            "not_required": "not required"
+          }
+        },
         "components": {
           "database": {
             "label": "SQLite database",

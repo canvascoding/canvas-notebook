@@ -460,7 +460,7 @@
     {
       "id": 28,
       "title": "Import-Flow mit User-/Workspace-Mapping, Dry-Run und Reconnect fuer Secrets/OAuth vorbereiten",
-      "status": "pending",
+      "status": "completed",
       "repo": "canvasstudios-notebook",
       "planningArtifacts": [
         "docs/architecture/canvas-notebook/team-workspace/07-filesystem-migration-and-write-policy.md",

@@ -2165,6 +2165,26 @@
         "restore": "Full Restore starten",
         "restoreRestarting": "Restore wurde vorbereitet. Die App startet neu und wendet die Migration vor dem Start an.",
         "restoreRestartRequired": "Restore wurde vorbereitet. Starte App/Container neu, damit die Migration vor dem Start angewendet wird.",
+        "dryRun": {
+          "status": {
+            "ready": "Dry Run bestanden",
+            "attention_required": "Dry Run bestanden mit Reconnect-Schritten",
+            "blocked": "Dry Run blockiert"
+          },
+          "summary": "{users} User · {workspaces} Workspaces · {reconnects} Reconnects · {blockers} Blocker",
+          "blockers": "Blocker",
+          "users": "User-Mapping",
+          "workspaces": "Workspace-Mapping",
+          "reconnect": "Nach Restore neu verbinden",
+          "unknownSource": "Unbekannte Quelle",
+          "unresolved": "Nicht aufgelöst",
+          "mappingStatus": {
+            "mapped": "gemappt",
+            "proposed": "braucht explizites Mapping",
+            "unresolved": "nicht aufgelöst",
+            "not_required": "nicht erforderlich"
+          }
+        },
         "components": {
           "database": {
             "label": "SQLite-Datenbank",
