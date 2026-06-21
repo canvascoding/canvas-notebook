@@ -79,8 +79,28 @@ function redactAuditValue(value: unknown, depth = 0, keyHint = ''): unknown {
   return String(value);
 }
 
+function canonicalizeAuditValue(value: unknown, seen = new WeakSet<object>()): unknown {
+  if (value === null || value === undefined) return value;
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') return value;
+  if (typeof value === 'bigint') return value.toString();
+  if (value instanceof Date) return value.toISOString();
+  if (Array.isArray(value)) return value.map((item) => canonicalizeAuditValue(item, seen));
+  if (typeof value === 'object') {
+    if (seen.has(value)) return '[CIRCULAR]';
+    seen.add(value);
+
+    const result: Record<string, unknown> = {};
+    for (const key of Object.keys(value as Record<string, unknown>).sort()) {
+      result[key] = canonicalizeAuditValue((value as Record<string, unknown>)[key], seen);
+    }
+    seen.delete(value);
+    return result;
+  }
+  return String(value);
+}
+
 function stableStringify(value: unknown): string {
-  return JSON.stringify(redactAuditValue(value));
+  return JSON.stringify(canonicalizeAuditValue(value)) ?? 'null';
 }
 
 export function hashAuditValue(value: unknown): string {

@@ -57,6 +57,8 @@ async function main() {
     assert.equal(rows[0].action, 'integration_secret.update');
     assert.equal(rows[0].input_hash, hashAuditValue({ value: 'input', password: 'hidden' }));
     assert.equal(rows[0].output_hash, hashAuditValue({ value: 'output', accessToken: 'hidden' }));
+    assert.equal(hashAuditValue({ a: 1, b: 2 }), hashAuditValue({ b: 2, a: 1 }));
+    assert.notEqual(hashAuditValue({ password: 'abc' }), hashAuditValue({ password: 'xyz' }));
     assert.doesNotMatch(rows[0].metadata_json, /must-not-leak/);
     assert.match(rows[0].metadata_json, /\[REDACTED\]/);
     assert.ok(rows[0].metadata_json.length <= 4096);
