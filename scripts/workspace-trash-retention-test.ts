@@ -197,6 +197,56 @@ async function main() {
     assert.equal(await exists(path.join(workspaceRoot, 'docs', 'report.md')), true);
     assert.equal(await fs.readFile(path.join(workspaceRoot, 'docs', 'report.md'), 'utf8'), '# Report\n');
 
+    await fs.writeFile(path.join(workspaceRoot, 'docs', 'overwrite.md'), '# Replacement\n');
+    const overwriteTrash = await trashWorkspacePaths({
+      workspace,
+      paths: ['docs/overwrite.md'],
+      deletedByUserId: 'user-admin',
+      now: new Date('2026-01-01T01:05:00.000Z'),
+    });
+    assert.equal(overwriteTrash.failed.length, 0);
+    assert.equal(overwriteTrash.trashed.length, 1);
+    const overwriteEntry = overwriteTrash.trashed[0];
+    await fs.writeFile(path.join(workspaceRoot, 'docs', 'overwrite.md'), '# Existing destination\n');
+    execSqlite(dataRoot, `
+      CREATE TRIGGER fail_workspace_trash_overwrite_restore_update
+      BEFORE UPDATE OF status ON workspace_trash_entries
+      WHEN NEW.status = 'restored'
+      BEGIN
+        SELECT RAISE(FAIL, 'overwrite restore update failed');
+      END;
+    `);
+    try {
+      await assert.rejects(
+        () => restoreWorkspaceTrashEntry({
+          workspace,
+          entryId: overwriteEntry.id,
+          restoredByUserId: 'user-admin',
+          overwrite: true,
+          now: new Date('2026-01-01T01:10:00.000Z'),
+        }),
+        /overwrite restore update failed/
+      );
+      assert.equal(await exists(path.join(dataRoot, overwriteEntry.trashRelativePath)), true);
+      assert.equal(
+        await fs.readFile(path.join(workspaceRoot, 'docs', 'overwrite.md'), 'utf8'),
+        '# Existing destination\n'
+      );
+    } finally {
+      execSqlite(dataRoot, 'DROP TRIGGER IF EXISTS fail_workspace_trash_overwrite_restore_update;');
+    }
+
+    const overwriteRestored = await restoreWorkspaceTrashEntry({
+      workspace,
+      entryId: overwriteEntry.id,
+      restoredByUserId: 'user-admin',
+      overwrite: true,
+      now: new Date('2026-01-01T01:15:00.000Z'),
+    });
+    assert.equal(overwriteRestored.status, 'restored');
+    assert.equal(await exists(path.join(dataRoot, overwriteEntry.trashRelativePath)), false);
+    assert.equal(await fs.readFile(path.join(workspaceRoot, 'docs', 'overwrite.md'), 'utf8'), '# Replacement\n');
+
     const pagedTrash = await listWorkspaceTrashEntries({ workspace, limit: 1 });
     assert.equal(pagedTrash.length, 1);
 
@@ -244,6 +294,7 @@ async function main() {
         { originalPath: 'docs/archive', status: 'purged' },
         { originalPath: 'docs/links', status: 'purged' },
         { originalPath: 'docs/mixed-valid.md', status: 'purged' },
+        { originalPath: 'docs/overwrite.md', status: 'restored' },
         { originalPath: 'docs/report.md', status: 'restored' },
       ]);
     } finally {

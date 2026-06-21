@@ -362,15 +362,32 @@ export async function restoreWorkspaceTrashEntry(params: {
   const restoreResolution = resolveWorkspacePath(params.workspace, row.originalPath);
   const destinationPath = restoreResolution.absolutePath;
   const destinationExists = await pathExists(destinationPath);
+  let overwrittenPath: string | null = null;
+  let overwrittenWasDirectory = false;
   if (destinationExists && params.overwrite !== true) {
     throw new Error(`Restore target already exists: ${row.originalPath}`);
   }
 
   if (destinationExists) {
-    await fs.rm(destinationPath, { recursive: true, force: true });
+    const destinationStats = await fs.lstat(destinationPath);
+    overwrittenWasDirectory = destinationStats.isDirectory();
+    overwrittenPath = absoluteDataPath(path.posix.join(
+      path.posix.dirname(row.trashRelativePath),
+      `overwritten-${randomUUID()}-${path.posix.basename(row.originalPath)}`,
+    ));
+    await movePath(destinationPath, overwrittenPath, overwrittenWasDirectory);
   }
 
-  await movePath(trashPath, destinationPath, row.itemType === 'directory');
+  try {
+    await movePath(trashPath, destinationPath, row.itemType === 'directory');
+  } catch (moveError) {
+    if (overwrittenPath && await pathExists(overwrittenPath)) {
+      await movePath(overwrittenPath, destinationPath, overwrittenWasDirectory);
+    }
+    throw moveError;
+  }
+
+  let restoredEntry: WorkspaceTrashEntry | null = null;
   try {
     const restoredAt = params.now ?? new Date();
     const restoredRows = await db.update(workspaceTrashEntries)
@@ -383,11 +400,14 @@ export async function restoreWorkspaceTrashEntry(params: {
       .returning();
     const restoredRow = restoredRows[0];
     if (!restoredRow) throw new Error('Trash entry was not marked restored.');
-    return mapTrashRow(restoredRow);
+    restoredEntry = mapTrashRow(restoredRow);
   } catch (dbError) {
     try {
       if (await pathExists(destinationPath)) {
         await movePath(destinationPath, trashPath, row.itemType === 'directory');
+      }
+      if (overwrittenPath && await pathExists(overwrittenPath)) {
+        await movePath(overwrittenPath, destinationPath, overwrittenWasDirectory);
       }
     } catch (rollbackError) {
       throw new Error(
@@ -396,6 +416,12 @@ export async function restoreWorkspaceTrashEntry(params: {
     }
     throw dbError;
   }
+
+  if (overwrittenPath) {
+    await fs.rm(overwrittenPath, { recursive: true, force: true }).catch(() => undefined);
+  }
+  if (!restoredEntry) throw new Error('Trash entry was not marked restored.');
+  return restoredEntry;
 }
 
 export async function purgeExpiredWorkspaceTrash(params: {
@@ -422,9 +448,12 @@ export async function purgeExpiredWorkspaceTrash(params: {
           purgedAt: now,
           purgedByUserId: params.purgedByUserId ?? null,
         })
-        .where(eq(workspaceTrashEntries.id, row.id))
+        .where(and(
+          eq(workspaceTrashEntries.id, row.id),
+          eq(workspaceTrashEntries.status, 'trashed'),
+        ))
         .returning({ id: workspaceTrashEntries.id });
-      if (!purgedRows[0]) throw new Error('Trash entry was not marked purged.');
+      if (!purgedRows[0]) continue;
 
       try {
         await fs.rm(absoluteDataPath(row.trashRelativePath), { recursive: true, force: true });
