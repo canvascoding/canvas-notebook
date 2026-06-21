@@ -385,6 +385,67 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       FOREIGN KEY (created_by_user_id) REFERENCES user(id)
     );
 
+    CREATE TABLE IF NOT EXISTS knowledge_sources (
+      id TEXT PRIMARY KEY NOT NULL,
+      organization_id TEXT,
+      workspace_id TEXT,
+      user_id TEXT,
+      created_by_user_id TEXT,
+      knowledge_store TEXT NOT NULL,
+      visibility TEXT NOT NULL,
+      source_type TEXT NOT NULL,
+      source_path TEXT NOT NULL,
+      source_title TEXT,
+      content_hash TEXT,
+      parser_provider TEXT NOT NULL DEFAULT 'native',
+      parser_version TEXT,
+      scan_status TEXT NOT NULL DEFAULT 'pending',
+      policy_decision TEXT NOT NULL DEFAULT 'metadata-only',
+      source_acl_version INTEGER NOT NULL DEFAULT 1,
+      index_version INTEGER NOT NULL DEFAULT 1,
+      embedding_index_status TEXT NOT NULL DEFAULT 'disabled',
+      database_provider TEXT NOT NULL DEFAULT 'sqlite',
+      metadata_json TEXT,
+      status TEXT NOT NULL DEFAULT 'pending',
+      last_access_checked_at INTEGER,
+      revoked_at INTEGER,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      FOREIGN KEY (organization_id) REFERENCES canvas_organization_settings(organization_id) ON DELETE CASCADE,
+      FOREIGN KEY (workspace_id) REFERENCES canvas_workspaces(id) ON DELETE SET NULL,
+      FOREIGN KEY (user_id) REFERENCES user(id) ON DELETE SET NULL,
+      FOREIGN KEY (created_by_user_id) REFERENCES user(id) ON DELETE SET NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS knowledge_chunks (
+      id TEXT PRIMARY KEY NOT NULL,
+      source_id TEXT NOT NULL,
+      organization_id TEXT,
+      workspace_id TEXT,
+      user_id TEXT,
+      knowledge_store TEXT NOT NULL,
+      visibility TEXT NOT NULL,
+      chunk_index INTEGER NOT NULL,
+      page_start INTEGER,
+      page_end INTEGER,
+      text TEXT,
+      markdown TEXT,
+      metadata_json TEXT,
+      content_hash TEXT,
+      scan_status TEXT NOT NULL DEFAULT 'pending',
+      policy_decision TEXT NOT NULL DEFAULT 'metadata-only',
+      source_acl_version INTEGER NOT NULL DEFAULT 1,
+      index_version INTEGER NOT NULL DEFAULT 1,
+      embedding_index_status TEXT NOT NULL DEFAULT 'disabled',
+      revoked_at INTEGER,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      FOREIGN KEY (source_id) REFERENCES knowledge_sources(id) ON DELETE CASCADE,
+      FOREIGN KEY (organization_id) REFERENCES canvas_organization_settings(organization_id) ON DELETE CASCADE,
+      FOREIGN KEY (workspace_id) REFERENCES canvas_workspaces(id) ON DELETE SET NULL,
+      FOREIGN KEY (user_id) REFERENCES user(id) ON DELETE SET NULL
+    );
+
     CREATE TABLE IF NOT EXISTS automation_jobs (
       id TEXT PRIMARY KEY NOT NULL,
       name TEXT NOT NULL,
@@ -1175,6 +1236,16 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     CREATE INDEX IF NOT EXISTS idx_public_file_shares_workspace_path ON public_file_shares (workspace_path);
     CREATE INDEX IF NOT EXISTS idx_public_file_shares_user_status ON public_file_shares (created_by_user_id, status);
     CREATE INDEX IF NOT EXISTS idx_public_file_shares_expires_at ON public_file_shares (expires_at);
+    CREATE INDEX IF NOT EXISTS idx_knowledge_sources_store_status ON knowledge_sources (knowledge_store, status);
+    CREATE INDEX IF NOT EXISTS idx_knowledge_sources_org_workspace ON knowledge_sources (organization_id, workspace_id, knowledge_store, status);
+    CREATE INDEX IF NOT EXISTS idx_knowledge_sources_user_store ON knowledge_sources (user_id, knowledge_store, status);
+    CREATE INDEX IF NOT EXISTS idx_knowledge_sources_workspace_path ON knowledge_sources (workspace_id, source_path);
+    CREATE INDEX IF NOT EXISTS idx_knowledge_sources_content_hash ON knowledge_sources (content_hash);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_knowledge_chunks_source_chunk ON knowledge_chunks (source_id, chunk_index);
+    CREATE INDEX IF NOT EXISTS idx_knowledge_chunks_org_workspace ON knowledge_chunks (organization_id, workspace_id, knowledge_store, embedding_index_status);
+    CREATE INDEX IF NOT EXISTS idx_knowledge_chunks_user_store ON knowledge_chunks (user_id, knowledge_store, embedding_index_status);
+    CREATE INDEX IF NOT EXISTS idx_knowledge_chunks_policy ON knowledge_chunks (policy_decision, scan_status, embedding_index_status);
+    CREATE INDEX IF NOT EXISTS idx_knowledge_chunks_content_hash ON knowledge_chunks (content_hash);
   `);
 
   if (tableExists(sqlite, 'ai_sessions') && tableExists(sqlite, 'ai_messages')) {

@@ -424,7 +424,7 @@
     {
       "id": 25,
       "title": "Search/Retrieval-Scope fuer spaetere Embeddings vorbereiten",
-      "status": "pending",
+      "status": "completed",
       "repo": "canvasstudios-notebook",
       "planningArtifacts": [
         "docs/docling-knowledge-ingestion-plan.md",
