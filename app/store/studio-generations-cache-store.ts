@@ -10,6 +10,7 @@ interface StudioGenerationsCacheState {
   activeGenerationId: string | null;
   recentlyCompletedIds: Set<string>;
   hasMoreGenerations: boolean;
+  loadedServerGenerationCount: number;
   creators: StudioCreator[];
 }
 
@@ -22,5 +23,6 @@ export const useStudioGenerationsCacheStore = create<StudioGenerationsCacheState
   activeGenerationId: null,
   recentlyCompletedIds: new Set<string>(),
   hasMoreGenerations: false,
+  loadedServerGenerationCount: 0,
   creators: [],
 }));
