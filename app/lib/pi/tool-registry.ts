@@ -877,9 +877,9 @@ export function createStudioGenerateImageTool(
         ...outputLines,
         '',
         'Important for the final answer: embed the generated image by copying the Markdown image line exactly. Do not invent, shorten, slugify, or rewrite the image URL; relative filenames like ente-statt-affe.jpg will not render in the chat.',
-        'Important for file operations: use the absolute copy source path when copying the generated file to /data/workspace. The browser render URL and thumbnail preview URL are not filesystem paths.',
+        'Important for file operations: use the absolute copy source path with copy_path when copying the generated file into the active workspace. The browser render URL and thumbnail preview URL are not filesystem paths.',
         '',
-        'To copy to workspace: bash cp <file-path> /data/workspace/<destination>',
+        'To copy to workspace: copy_path with sourcePath=<absolute copy source path> and destinationPath=<workspace-relative destination>.',
       ].join('\n');
       return {
         content: [{ type: 'text', text: summary }],
@@ -967,7 +967,7 @@ export function createStudioGenerateVideoTool(
         '',
         ...outputLines,
         '',
-        'To copy to workspace: bash cp <file-path> /data/workspace/<destination>',
+        'To copy to workspace: copy_path with sourcePath=<absolute copy source path> and destinationPath=<workspace-relative destination>.',
       ].join('\n');
       return {
         content: [{ type: 'text', text: summary }],
@@ -1031,7 +1031,7 @@ export function createStudioGenerateSoundTool(
         '',
         ...outputLines,
         '',
-        'To copy to workspace: bash cp <file-path> /data/workspace/<destination>',
+        'To copy to workspace: copy_path with sourcePath=<absolute copy source path> and destinationPath=<workspace-relative destination>.',
       ].join('\n');
       return {
         content: [{ type: 'text', text: summary }],
@@ -1687,7 +1687,7 @@ export function createRipgrepTool(): AgentTool {
     description: 'Searches file contents with ripgrep. Use this for fast text/content lookup across the workspace before falling back to bash.',
     parameters: Type.Object({
       pattern: Type.String({ description: 'Text or regex pattern to search for.' }),
-      path: Type.Optional(Type.String({ description: 'Directory or file to search in. Absolute or workspace-relative. Defaults to /data/workspace.' })),
+      path: Type.Optional(Type.String({ description: 'Directory or file to search in. Workspace-relative by default; trusted absolute runtime paths are validated server-side. Defaults to the active workspace.' })),
       glob: Type.Optional(Type.String({ description: 'Optional glob filter, for example "**/*.ts" or "*.md".' })),
       ignoreCase: Type.Optional(Type.Boolean({ description: 'Case-insensitive search when true.' })),
       hidden: Type.Optional(Type.Boolean({ description: 'Include hidden files when true.' })),
@@ -2007,14 +2007,14 @@ export const piTools: AgentTool[] = [
   {
     name: 'ls',
     label: 'Listing directory',
-    description: 'Lists files and directories. Use absolute paths (e.g. /data/agents/canvas-agent) or relative paths from /data/workspace.',
+    description: 'Lists files and directories in the active workspace. Prefer workspace-relative paths.',
     parameters: Type.Object({
-      path: Type.Optional(Type.String({ description: 'The path to list. Absolute or workspace-relative. Defaults to /data/workspace.' })),
+      path: Type.Optional(Type.String({ description: 'The path to list. Workspace-relative. Defaults to the active workspace root.' })),
     }),
     execute: async (toolCallId, params) => {
       try {
         const { path: dirPath } = params as { path?: string };
-        const effectiveDir = dirPath || '/data/workspace';
+        const effectiveDir = dirPath || '.';
         const fullPath = resolveAgentPath(effectiveDir);
         await assertAgentPathAllowed(fullPath);
         const entries = await fsPromises.readdir(fullPath, { withFileTypes: true });
@@ -2048,7 +2048,7 @@ export const piTools: AgentTool[] = [
   {
     name: 'read',
     label: 'Reading file',
-    description: 'Reads the content of a file. Use absolute paths (e.g. /data/agents/canvas-agent/AGENTS.md) or relative paths from /data/workspace. For PDFs, extracts text and can include limited rendered page images for vision-capable models.',
+    description: 'Reads the content of a file. Prefer workspace-relative paths. Trusted absolute Studio or upload paths returned by tools are validated server-side. For PDFs, extracts text and can include limited rendered page images for vision-capable models.',
     parameters: Type.Object({
       path: Type.String({ description: 'Absolute path or workspace-relative path.' }),
       maxChars: Type.Optional(Type.Number({ description: `Maximum text characters to return. Default ${DEFAULT_READ_TEXT_LIMIT}, max ${MAX_READ_TEXT_LIMIT}.` })),
@@ -2456,7 +2456,7 @@ export const piTools: AgentTool[] = [
     description: 'Legacy text search alias. Prefer the dedicated `rg` tool for new searches.',
     parameters: Type.Object({
       pattern: Type.String({ description: 'The regex pattern to search for.' }),
-      path: Type.Optional(Type.String({ description: 'The directory or file to search in. Absolute or workspace-relative. Defaults to /data/workspace.' })),
+      path: Type.Optional(Type.String({ description: 'The directory or file to search in. Workspace-relative by default. Defaults to the active workspace.' })),
     }),
     execute: async (toolCallId, params, signal) => {
       const { pattern, path: searchPath } = params as { pattern: string; path?: string };
@@ -2502,7 +2502,7 @@ export const piTools: AgentTool[] = [
     description: 'Finds files by name pattern. Use this or bash+find for path-based file discovery.',
     parameters: Type.Object({
       pattern: Type.String({ description: 'The glob pattern (e.g., "**/*.ts").' }),
-      path: Type.Optional(Type.String({ description: 'The directory to search in. Absolute or workspace-relative. Defaults to /data/workspace.' })),
+      path: Type.Optional(Type.String({ description: 'The directory to search in. Workspace-relative by default. Defaults to the active workspace.' })),
     }),
     execute: async (toolCallId, params, signal) => {
       const { pattern, path: searchPath } = params as { pattern: string; path?: string };
@@ -2636,7 +2636,7 @@ function createPublicShareTool(userId?: string, agentId?: string | null, session
         Type.Literal('create'),
         Type.Literal('revoke'),
       ], { description: 'Operation to perform.' }),
-      path: Type.Optional(Type.String({ description: 'Workspace-relative or /data/workspace file path for create.' })),
+      path: Type.Optional(Type.String({ description: 'Workspace-relative file path for create. Legacy /data/workspace aliases are mapped to the active workspace.' })),
       paths: Type.Optional(Type.Array(Type.String(), { description: 'Multiple concrete file paths for create. Folders are rejected.' })),
       shareId: Type.Optional(Type.String({ description: 'Public share ID for revoke.' })),
       status: Type.Optional(Type.String({ description: 'For list: all, active, expired, missing, stale, revoked.' })),

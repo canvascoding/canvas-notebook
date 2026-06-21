@@ -7,6 +7,7 @@ import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import { ClipboardAddon } from '@xterm/addon-clipboard';
 import { useTheme } from '@/app/components/ThemeProvider';
+import { useWorkspaceStore } from '@/app/store/workspace-store';
 
 interface XTerminalProps {
   sessionId: string;
@@ -68,6 +69,8 @@ function getTerminalTheme(isDark: boolean) {
 
 export function XTerminal({ sessionId }: XTerminalProps) {
   const t = useTranslations('terminal');
+  const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
+  const activeWorkspaceIdRef = useRef<string | null>(activeWorkspaceId);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const terminalRef = useRef<Terminal | null>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
@@ -79,6 +82,10 @@ export function XTerminal({ sessionId }: XTerminalProps) {
   const isReady = useRef(false);
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme !== 'light';
+
+  useEffect(() => {
+    activeWorkspaceIdRef.current = activeWorkspaceId;
+  }, [activeWorkspaceId]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -192,7 +199,7 @@ export function XTerminal({ sessionId }: XTerminalProps) {
         const createResponse = await fetch('/api/terminal/create', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ sessionId }),
+          body: JSON.stringify({ sessionId, workspaceId: activeWorkspaceIdRef.current }),
         });
 
         if (!createResponse.ok) {

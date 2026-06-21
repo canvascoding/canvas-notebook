@@ -57,6 +57,7 @@ const AUTH_TOKEN = process.env.CANVAS_TERMINAL_TOKEN || generateToken();
 const USE_UNIX_SOCKET = process.env.CANVAS_TERMINAL_USE_UNIX_SOCKET !== 'false';
 const DATA = path.resolve(process.cwd(), process.env.DATA || 'data');
 const WORKSPACE_DIR = path.join(DATA, 'workspace');
+const WORKSPACES_DIR = path.join(DATA, 'workspaces');
 
 // State
 const sessions = new Map<string, TerminalSession>();
@@ -154,6 +155,34 @@ function generateToken(): string {
   return randomBytes(32).toString('hex');
 }
 
+function isPathWithin(candidatePath: string, basePath: string): boolean {
+  const normalizedCandidate = path.resolve(candidatePath);
+  const normalizedBase = path.resolve(basePath);
+  return normalizedCandidate === normalizedBase || normalizedCandidate.startsWith(`${normalizedBase}${path.sep}`);
+}
+
+function resolveTerminalWorkspaceCwd(cwd: string | undefined): string {
+  const requestedCwd = cwd?.trim() || WORKSPACE_DIR;
+  if (!path.isAbsolute(requestedCwd) || requestedCwd.includes('\0')) {
+    throw new Error('Terminal workspace path must be an absolute path.');
+  }
+
+  const resolvedCwd = path.resolve(requestedCwd);
+  if (!isPathWithin(resolvedCwd, WORKSPACE_DIR) && !isPathWithin(resolvedCwd, WORKSPACES_DIR)) {
+    throw new Error('Terminal sessions are limited to managed workspace directories.');
+  }
+
+  fs.mkdirSync(resolvedCwd, { recursive: true });
+  const realCwd = fs.realpathSync(resolvedCwd);
+  const allowedRoots = [WORKSPACE_DIR, WORKSPACES_DIR]
+    .map((root) => fs.existsSync(root) ? fs.realpathSync(root) : path.resolve(root));
+  if (!allowedRoots.some((root) => isPathWithin(realCwd, root))) {
+    throw new Error('Terminal workspace path resolves outside managed workspace directories.');
+  }
+
+  return realCwd;
+}
+
 // Session Management
 function normalizeOwnerId(ownerId: string): string {
   return ownerId?.trim() || 'anonymous';
@@ -225,7 +254,7 @@ function createSession(sessionId: string, ownerId: string, cwd: string): Termina
   }
   
   // Create PTY
-  const finalCwd = fs.existsSync(cwd) ? cwd : WORKSPACE_DIR;
+  const finalCwd = resolveTerminalWorkspaceCwd(cwd);
   const shell = resolveShell();
   
   log(`Creating session ${sessionId} for ${normalizedOwnerId} in ${finalCwd}`);

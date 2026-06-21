@@ -11,7 +11,7 @@ Telegram can receive native attachments from local files. When a generated or sa
 
 \`MEDIA:/absolute/path/to/file\`
 
-- Use only exact absolute file paths that were returned by a trusted tool result, such as files under /data/studio/outputs, /data/user-uploads, or /data/workspace.
+- Use only exact absolute file paths that were returned by a trusted tool result, such as files under /data/studio/outputs, /data/user-uploads, or the active workspace.
 - For generated Studio images, videos, or audio, prefer \`MEDIA:\` with the absolute file path over Markdown image links.
 - Use \`[[audio_as_voice]]\` before \`MEDIA:\` only when an OGG/Opus audio file should be sent as a Telegram voice note.
 - Use \`[[as_document]]\` before \`MEDIA:\` when an image must be sent as an uncompressed file rather than as a Telegram photo.

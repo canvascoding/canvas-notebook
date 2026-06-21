@@ -536,7 +536,7 @@
     {
       "id": 31,
       "title": "Path Security fuer alle Workspace- und Agent-Dateioperationen erzwingen",
-      "status": "pending",
+      "status": "completed",
       "repo": "canvasstudios-notebook",
       "planningArtifacts": [
         "docs/architecture/canvas-notebook/team-workspace/07-filesystem-migration-and-write-policy.md",
