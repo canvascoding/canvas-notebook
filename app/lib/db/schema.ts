@@ -125,6 +125,36 @@ export const canvasWorkspaces = sqliteTable("canvas_workspaces", {
   teamOrganizationIdx: uniqueIndex("idx_canvas_workspaces_team_organization").on(table.organizationId).where(sql`${table.type} = 'team'`),
 }));
 
+export const workspaceTrashEntries = sqliteTable("workspace_trash_entries", {
+  id: text("id").primaryKey(),
+  organizationId: text("organization_id"),
+  workspaceId: text("workspace_id").notNull(),
+  workspaceType: text("workspace_type").notNull(),
+  ownerUserId: text("owner_user_id"),
+  originalPath: text("original_path").notNull(),
+  trashRelativePath: text("trash_relative_path").notNull(),
+  entryName: text("entry_name").notNull(),
+  itemType: text("item_type").notNull(),
+  sizeBytes: integer("size_bytes").notNull().default(0),
+  fileCount: integer("file_count").notNull().default(0),
+  directoryCount: integer("directory_count").notNull().default(0),
+  status: text("status").notNull().default("trashed"),
+  deletedByUserId: text("deleted_by_user_id"),
+  restoredByUserId: text("restored_by_user_id"),
+  purgedByUserId: text("purged_by_user_id"),
+  deletedAt: integer("deleted_at", { mode: "timestamp" }).notNull(),
+  expiresAt: integer("expires_at", { mode: "timestamp" }).notNull(),
+  restoredAt: integer("restored_at", { mode: "timestamp" }),
+  purgedAt: integer("purged_at", { mode: "timestamp" }),
+  metadataJson: text("metadata_json"),
+}, (table) => ({
+  workspaceStatusIdx: index("idx_workspace_trash_workspace_status").on(table.workspaceId, table.status, table.deletedAt),
+  expiresIdx: index("idx_workspace_trash_expires").on(table.status, table.expiresAt),
+  organizationStatusIdx: index("idx_workspace_trash_org_status").on(table.organizationId, table.status, table.deletedAt),
+  deletedByIdx: index("idx_workspace_trash_deleted_by").on(table.deletedByUserId, table.deletedAt),
+  originalPathIdx: index("idx_workspace_trash_original_path").on(table.workspaceId, table.originalPath, table.status),
+}));
+
 export const organizationUserPermissions = sqliteTable("organization_user_permissions", {
   organizationId: text("organization_id").notNull().references(() => canvasOrganizationSettings.organizationId, { onDelete: 'cascade' }),
   userId: text("user_id").notNull().references(() => user.id),

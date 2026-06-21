@@ -511,8 +511,21 @@
     {
       "id": 30,
       "title": "Retention, Trash und Datenloeschung fuer Teamdaten planen",
-      "status": "pending",
+      "status": "completed",
       "repo": "canvasstudios-notebook",
+      "implementationArtifacts": [
+        "app/lib/db/schema.ts",
+        "app/lib/db/migrate.ts",
+        "app/lib/filesystem/workspace-trash.ts",
+        "app/api/files/delete/route.ts",
+        "scripts/workspace-trash-retention-test.ts"
+      ],
+      "verification": [
+        "npx tsc --noEmit --pretty false",
+        "npx tsx --conditions react-server scripts/workspace-trash-retention-test.ts",
+        "npm run lint",
+        "npm run build"
+      ],
       "planningArtifacts": [
         "docs/architecture/canvas-notebook/team-workspace/05-actor-audit-retention.md",
         "docs/architecture/canvas-notebook/team-workspace/11-automation-execution-model.md",

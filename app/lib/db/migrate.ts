@@ -129,6 +129,30 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       FOREIGN KEY (owner_user_id) REFERENCES user(id)
     );
 
+    CREATE TABLE IF NOT EXISTS workspace_trash_entries (
+      id TEXT PRIMARY KEY NOT NULL,
+      organization_id TEXT,
+      workspace_id TEXT NOT NULL,
+      workspace_type TEXT NOT NULL,
+      owner_user_id TEXT,
+      original_path TEXT NOT NULL,
+      trash_relative_path TEXT NOT NULL,
+      entry_name TEXT NOT NULL,
+      item_type TEXT NOT NULL,
+      size_bytes INTEGER NOT NULL DEFAULT 0,
+      file_count INTEGER NOT NULL DEFAULT 0,
+      directory_count INTEGER NOT NULL DEFAULT 0,
+      status TEXT NOT NULL DEFAULT 'trashed',
+      deleted_by_user_id TEXT,
+      restored_by_user_id TEXT,
+      purged_by_user_id TEXT,
+      deleted_at INTEGER NOT NULL,
+      expires_at INTEGER NOT NULL,
+      restored_at INTEGER,
+      purged_at INTEGER,
+      metadata_json TEXT
+    );
+
     CREATE TABLE IF NOT EXISTS organization_user_permissions (
       organization_id TEXT NOT NULL,
       user_id TEXT NOT NULL,
@@ -1554,6 +1578,11 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     CREATE INDEX IF NOT EXISTS idx_canvas_workspaces_organization_type ON canvas_workspaces (organization_id, type);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_canvas_workspaces_personal_owner ON canvas_workspaces (owner_user_id) WHERE type = 'personal';
     CREATE UNIQUE INDEX IF NOT EXISTS idx_canvas_workspaces_team_organization ON canvas_workspaces (organization_id) WHERE type = 'team';
+    CREATE INDEX IF NOT EXISTS idx_workspace_trash_workspace_status ON workspace_trash_entries (workspace_id, status, deleted_at);
+    CREATE INDEX IF NOT EXISTS idx_workspace_trash_expires ON workspace_trash_entries (status, expires_at);
+    CREATE INDEX IF NOT EXISTS idx_workspace_trash_org_status ON workspace_trash_entries (organization_id, status, deleted_at);
+    CREATE INDEX IF NOT EXISTS idx_workspace_trash_deleted_by ON workspace_trash_entries (deleted_by_user_id, deleted_at);
+    CREATE INDEX IF NOT EXISTS idx_workspace_trash_original_path ON workspace_trash_entries (workspace_id, original_path, status);
     CREATE INDEX IF NOT EXISTS idx_org_user_permissions_user ON organization_user_permissions (user_id);
     CREATE INDEX IF NOT EXISTS idx_org_user_permissions_role ON organization_user_permissions (organization_id, role);
     CREATE INDEX IF NOT EXISTS idx_org_user_permissions_status ON organization_user_permissions (organization_id, status);
