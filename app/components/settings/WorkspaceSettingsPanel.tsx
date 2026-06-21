@@ -29,6 +29,7 @@ import {
   MIGRATION_COMPONENT_KEYS,
   type MigrationComponentKey,
   type MigrationComponents,
+  type MigrationExportProfile,
   type MigrationExportJob,
   type MigrationInspection,
   type MigrationUploadStatus,
@@ -121,6 +122,8 @@ export function WorkspaceSettingsPanel({ isAdmin = false, organizationPermission
     ...DEFAULT_MIGRATION_COMPONENTS,
     secrets: false,
   }));
+  const [migrationExportProfile, setMigrationExportProfile] = useState<MigrationExportProfile>('standard');
+  const [includePersonalWorkspaces, setIncludePersonalWorkspaces] = useState(false);
   const [migrationError, setMigrationError] = useState<string | null>(null);
   const [migrationMessage, setMigrationMessage] = useState<string | null>(null);
   const [exportJob, setExportJob] = useState<MigrationExportJob | null>(null);
@@ -235,6 +238,13 @@ export function WorkspaceSettingsPanel({ isAdmin = false, organizationPermission
     }));
   };
 
+  const selectMigrationExportProfile = (profile: MigrationExportProfile) => {
+    setMigrationExportProfile(profile);
+    if (profile !== 'full_admin') {
+      setIncludePersonalWorkspaces(false);
+    }
+  };
+
   const createMigrationExport = async () => {
     if (!canExportData) {
       setMigrationError(t('workspacePanel.migration.adminOnly'));
@@ -249,7 +259,11 @@ export function WorkspaceSettingsPanel({ isAdmin = false, organizationPermission
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ components: migrationComponents }),
+        body: JSON.stringify({
+          components: migrationComponents,
+          profile: migrationExportProfile,
+          includePersonalWorkspaces,
+        }),
       });
       const payload = await response.json();
       if (!response.ok || !payload.success) {
@@ -628,6 +642,51 @@ export function WorkspaceSettingsPanel({ isAdmin = false, organizationPermission
             </div>
 
             <div className="grid gap-2 sm:grid-cols-2">
+              {(['standard', 'full_admin'] as const).map((profile) => {
+                const selected = migrationExportProfile === profile;
+                return (
+                  <button
+                    key={profile}
+                    type="button"
+                    disabled={!canExportData}
+                    onClick={() => selectMigrationExportProfile(profile)}
+                    className={`rounded-lg border p-3 text-left text-sm transition ${
+                      selected
+                        ? 'border-primary bg-primary/5 text-foreground'
+                        : 'border-border bg-background text-muted-foreground hover:border-muted-foreground/50'
+                    }`}
+                  >
+                    <span className="block font-medium text-foreground">
+                      {t(`workspacePanel.migration.profiles.${profile}.label`)}
+                    </span>
+                    <span className="mt-1 block text-xs">
+                      {t(`workspacePanel.migration.profiles.${profile}.hint`)}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+
+            <label className="flex min-w-0 items-start gap-3 rounded-lg border border-border p-3 text-sm">
+              <input
+                type="checkbox"
+                checked={includePersonalWorkspaces}
+                onChange={() => setIncludePersonalWorkspaces((value) => !value)}
+                disabled={!canExportData || migrationExportProfile !== 'full_admin' || !migrationComponents.workspace}
+                className="mt-0.5 h-4 w-4 accent-primary"
+              />
+              <span className="min-w-0">
+                <span className="block font-medium">{t('workspacePanel.migration.includePersonalWorkspaces.label')}</span>
+                <span className="block text-xs text-muted-foreground">{t('workspacePanel.migration.includePersonalWorkspaces.hint')}</span>
+              </span>
+            </label>
+
+            <div className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-200">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+              <span>{t('workspacePanel.migration.unencryptedWarning')}</span>
+            </div>
+
+            <div className="grid gap-2 sm:grid-cols-2">
               {MIGRATION_COMPONENT_KEYS.map((key) => {
                 const Icon = COMPONENT_ICONS[key];
                 return (
@@ -650,7 +709,7 @@ export function WorkspaceSettingsPanel({ isAdmin = false, organizationPermission
             </div>
 
             {migrationComponents.secrets ? (
-              <div className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-200">
+              <div className="flex items-start gap-2 rounded-lg border border-border bg-muted/40 p-3 text-sm text-muted-foreground">
                 <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
                 <span>{t('workspacePanel.migration.secretsWarning')}</span>
               </div>

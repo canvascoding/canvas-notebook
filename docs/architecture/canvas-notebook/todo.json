@@ -448,7 +448,7 @@
     {
       "id": 27,
       "title": "Admin-only Export mit granularer Auswahl fuer Migrationen implementieren",
-      "status": "pending",
+      "status": "completed",
       "repo": "canvasstudios-notebook",
       "planningArtifacts": [
         "docs/architecture/canvas-notebook/team-workspace/07-filesystem-migration-and-write-policy.md",

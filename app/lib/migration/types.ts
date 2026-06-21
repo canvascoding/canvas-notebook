@@ -15,6 +15,10 @@ export type MigrationComponentKey = (typeof MIGRATION_COMPONENT_KEYS)[number];
 
 export type MigrationComponents = Record<MigrationComponentKey, boolean>;
 
+export const MIGRATION_EXPORT_PROFILES = ['standard', 'full_admin'] as const;
+
+export type MigrationExportProfile = (typeof MIGRATION_EXPORT_PROFILES)[number];
+
 export const DEFAULT_MIGRATION_COMPONENTS: MigrationComponents = {
   database: true,
   workspace: true,
@@ -52,22 +56,57 @@ export interface CanvasMigrationManifest {
   appVersion: string;
   exportedAt: string;
   exportId: string;
+  exportProfile?: MigrationExportProfile;
   components: MigrationComponents;
+  selection?: MigrationExportSelection;
+  source?: MigrationExportSource;
+  security?: MigrationExportSecurity;
   fileCount: number;
   totalBytes: number;
   warnings: string[];
   files: MigrationFileEntry[];
 }
 
+export interface MigrationExportSelection {
+  includePersonalWorkspaces: boolean;
+  includePublicLinks: false;
+  includeRawSecrets: false;
+}
+
+export interface MigrationExportSource {
+  databaseProvider: string;
+  deploymentMode: string;
+  teamFeaturesEnabled: boolean;
+  managedServicesEnabled: boolean;
+  organizationId: string | null;
+  createdByUserId: string | null;
+  createdByEmail: string | null;
+  createdByRole: string | null;
+}
+
+export interface MigrationExportSecurity {
+  publicLinksIncluded: false;
+  publicLinkTokensIncluded: false;
+  rawSecretsIncluded: false;
+  secretsMode: 'excluded' | 'reconnect_manifest';
+  unencryptedArchive: true;
+}
+
 export interface MigrationExportOptions {
   components: MigrationComponents;
+  profile?: MigrationExportProfile;
+  includePersonalWorkspaces?: boolean;
+  source?: Partial<MigrationExportSource>;
 }
 
 export interface MigrationExportJob {
   id: string;
   status: MigrationExportStatus;
   phase: string;
+  profile: MigrationExportProfile;
   components: MigrationComponents;
+  selection: MigrationExportSelection;
+  source: MigrationExportSource;
   createdAt: string;
   updatedAt: string;
   fileName: string;
