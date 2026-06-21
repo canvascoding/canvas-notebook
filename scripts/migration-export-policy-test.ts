@@ -196,8 +196,8 @@ async function main() {
         { encryptedSecret: 'redacted', secretPreview: 'redacted', status: 'paused' },
       );
       assert.deepEqual(
-        snapshot.prepare('SELECT secret_preview AS secretPreview, status FROM automation_webhook_triggers').get(),
-        { secretPreview: 'redacted', status: 'paused' },
+        snapshot.prepare('SELECT secret_hash AS secretHash, secret_preview AS secretPreview, status FROM automation_webhook_triggers').get(),
+        { secretHash: 'redacted', secretPreview: 'redacted', status: 'paused' },
       );
     } finally {
       snapshot.close();

@@ -69,8 +69,8 @@ function buildExportSelection(params: {
 
 function buildExportSource(source?: Partial<MigrationExportSource>): MigrationExportSource {
   return {
-    databaseProvider: source?.databaseProvider || getDatabaseProvider(),
-    deploymentMode: source?.deploymentMode || getDeploymentMode(),
+    databaseProvider: source?.databaseProvider ?? getDatabaseProvider(),
+    deploymentMode: source?.deploymentMode ?? getDeploymentMode(),
     teamFeaturesEnabled: source?.teamFeaturesEnabled ?? process.env.CANVAS_TEAM_FEATURES_ENABLED === 'true',
     managedServicesEnabled: source?.managedServicesEnabled ?? process.env.CANVAS_MANAGED_SERVICES_ENABLED === 'true',
     organizationId: source?.organizationId ?? (process.env.CANVAS_ORGANIZATION_ID?.trim() || null),
@@ -187,7 +187,34 @@ async function addZipEntry(
   });
 }
 
+const ALLOWED_SANITIZE_TABLES = new Set([
+  'public_file_shares',
+  'session',
+  'verification',
+  'channel_link_tokens',
+  'oauth_tokens',
+  'todo_email_reply_events',
+  'todo_email_reply_watchers',
+  'composio_webhook_subscriptions',
+  'automation_webhook_triggers',
+  'account',
+]);
+
+function assertAllowedSanitizeTable(tableName: string): void {
+  if (!ALLOWED_SANITIZE_TABLES.has(tableName)) {
+    throw new Error(`Unexpected migration sanitize table: ${tableName}`);
+  }
+}
+
+function quoteSqlIdentifier(identifier: string): string {
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/u.test(identifier)) {
+    throw new Error(`Unexpected SQL identifier: ${identifier}`);
+  }
+  return `"${identifier}"`;
+}
+
 function tableExists(sqlite: InstanceType<typeof Database>, tableName: string): boolean {
+  assertAllowedSanitizeTable(tableName);
   const row = sqlite.prepare(`
     SELECT 1
     FROM sqlite_master
@@ -198,18 +225,22 @@ function tableExists(sqlite: InstanceType<typeof Database>, tableName: string): 
 }
 
 function tableColumns(sqlite: InstanceType<typeof Database>, tableName: string): Set<string> {
+  assertAllowedSanitizeTable(tableName);
   return new Set(
-    sqlite.prepare(`PRAGMA table_info(${tableName})`).all()
+    sqlite.prepare(`PRAGMA table_info(${quoteSqlIdentifier(tableName)})`).all()
       .map((column) => (column as { name: string }).name),
   );
 }
 
 function nullColumns(sqlite: InstanceType<typeof Database>, tableName: string, columns: string[]): void {
+  assertAllowedSanitizeTable(tableName);
   if (!tableExists(sqlite, tableName)) return;
   const existing = tableColumns(sqlite, tableName);
-  const assignments = columns.filter((column) => existing.has(column)).map((column) => `${column} = NULL`);
+  const assignments = columns
+    .filter((column) => existing.has(column))
+    .map((column) => `${quoteSqlIdentifier(column)} = NULL`);
   if (assignments.length === 0) return;
-  sqlite.prepare(`UPDATE ${tableName} SET ${assignments.join(', ')}`).run();
+  sqlite.prepare(`UPDATE ${quoteSqlIdentifier(tableName)} SET ${assignments.join(', ')}`).run();
 }
 
 function sanitizeSqliteMigrationSnapshot(snapshotPath: string): void {
@@ -254,7 +285,7 @@ function sanitizeSqliteMigrationSnapshot(snapshotPath: string): void {
           values.push('paused');
         }
         if (assignments.length > 0) {
-          snapshot.prepare(`UPDATE composio_webhook_subscriptions SET ${assignments.join(', ')}`).run(...values);
+          snapshot.prepare(`UPDATE ${quoteSqlIdentifier('composio_webhook_subscriptions')} SET ${assignments.join(', ')}`).run(...values);
         }
       }
       if (tableExists(snapshot, 'automation_webhook_triggers')) {
@@ -269,8 +300,12 @@ function sanitizeSqliteMigrationSnapshot(snapshotPath: string): void {
           assignments.push('secret_preview = ?');
           values.push('redacted');
         }
+        if (columns.has('secret_hash')) {
+          assignments.push('secret_hash = ?');
+          values.push('redacted');
+        }
         if (assignments.length > 0) {
-          snapshot.prepare(`UPDATE automation_webhook_triggers SET ${assignments.join(', ')}`).run(...values);
+          snapshot.prepare(`UPDATE ${quoteSqlIdentifier('automation_webhook_triggers')} SET ${assignments.join(', ')}`).run(...values);
         }
       }
       nullColumns(snapshot, 'account', [
