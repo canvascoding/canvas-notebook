@@ -1,4 +1,4 @@
-export type UsageSummaryGroupBy = 'day' | 'provider' | 'model' | 'user' | 'session';
+export type UsageSummaryGroupBy = 'day' | 'provider' | 'model' | 'user' | 'session' | 'organization' | 'workspace' | 'agent';
 
 export type UsageFilters = {
   from: Date;
@@ -8,6 +8,10 @@ export type UsageFilters = {
   sessionId?: string;
   sessionQuery?: string;
   stopReason?: string;
+  organizationId?: string;
+  workspaceId?: string;
+  workspaceType?: string;
+  agentId?: string;
   groupBy: UsageSummaryGroupBy;
   userId?: string;
 };
@@ -42,6 +46,10 @@ export type SerializedUsageFilters = {
   sessionId: string | null;
   sessionQuery: string | null;
   stopReason: string | null;
+  organizationId: string | null;
+  workspaceId: string | null;
+  workspaceType: string | null;
+  agentId: string | null;
   groupBy: UsageSummaryGroupBy;
   userId: string | null;
 };
@@ -56,6 +64,10 @@ export type UsageEventRow = {
   id: number;
   userId: string;
   userLabel: string;
+  organizationId: string | null;
+  workspaceId: string | null;
+  workspaceType: string | null;
+  agentId: string;
   sessionId: string;
   sessionTitleSnapshot: string | null;
   provider: string;

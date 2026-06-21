@@ -15,6 +15,14 @@ type PersistPiUsageEventsParams = {
 
 export type PiUsageEventRow = typeof piUsageEvents.$inferSelect;
 
+type PiUsageSessionContext = {
+  sessionTitleSnapshot: string | null;
+  organizationId: string | null;
+  workspaceId: string | null;
+  workspaceType: string | null;
+  agentId: string;
+};
+
 function isAssistantMessage(message: AgentMessage): message is AssistantMessage {
   return message.role === 'assistant';
 }
@@ -49,6 +57,10 @@ export function extractPiUsageEventValues(params: {
   sessionId: string;
   userId: string;
   sessionTitleSnapshot?: string | null;
+  organizationId?: string | null;
+  workspaceId?: string | null;
+  workspaceType?: string | null;
+  agentId?: string | null;
   messages: AgentMessage[];
 }) {
   return params.messages
@@ -57,6 +69,10 @@ export function extractPiUsageEventValues(params: {
     .map((message) => ({
       fingerprint: buildPiUsageFingerprint(params.sessionId, message),
       userId: params.userId,
+      organizationId: params.organizationId ?? null,
+      workspaceId: params.workspaceId ?? null,
+      workspaceType: params.workspaceType ?? null,
+      agentId: params.agentId ?? 'canvas-agent',
       sessionId: params.sessionId,
       provider: message.provider,
       model: message.model,
@@ -77,15 +93,25 @@ export function extractPiUsageEventValues(params: {
     }));
 }
 
-async function loadSessionTitleSnapshot(sessionId: string, userId: string): Promise<string | null> {
+async function loadSessionUsageContext(sessionId: string, userId: string): Promise<PiUsageSessionContext> {
   const session = await db.query.piSessions.findFirst({
     columns: {
       title: true,
+      organizationId: true,
+      workspaceId: true,
+      workspaceType: true,
+      agentId: true,
     },
     where: and(eq(piSessions.sessionId, sessionId), eq(piSessions.userId, userId)),
   });
 
-  return session?.title ?? null;
+  return {
+    sessionTitleSnapshot: session?.title ?? null,
+    organizationId: session?.organizationId ?? null,
+    workspaceId: session?.workspaceId ?? null,
+    workspaceType: session?.workspaceType ?? null,
+    agentId: session?.agentId ?? 'canvas-agent',
+  };
 }
 
 export async function persistPiUsageEvents({
@@ -97,11 +123,11 @@ export async function persistPiUsageEvents({
     return 0;
   }
 
-  const sessionTitleSnapshot = await loadSessionTitleSnapshot(sessionId, userId);
+  const sessionContext = await loadSessionUsageContext(sessionId, userId);
   const values = extractPiUsageEventValues({
     sessionId,
     userId,
-    sessionTitleSnapshot,
+    ...sessionContext,
     messages,
   });
 

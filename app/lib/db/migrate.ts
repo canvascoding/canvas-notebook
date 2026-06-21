@@ -202,6 +202,10 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
       fingerprint TEXT NOT NULL,
       user_id TEXT NOT NULL,
+      organization_id TEXT,
+      workspace_id TEXT,
+      workspace_type TEXT,
+      agent_id TEXT NOT NULL DEFAULT 'canvas-agent',
       session_id TEXT NOT NULL,
       provider TEXT NOT NULL,
       model TEXT NOT NULL,
@@ -451,6 +455,7 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       name TEXT NOT NULL,
       status TEXT NOT NULL,
       scope TEXT NOT NULL DEFAULT 'personal',
+      job_scope TEXT NOT NULL DEFAULT 'personal:legacy:legacy',
       organization_id TEXT,
       workspace_id TEXT,
       workspace_type TEXT NOT NULL DEFAULT 'personal',
@@ -500,6 +505,7 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       job_id TEXT NOT NULL,
       status TEXT NOT NULL,
       scope TEXT NOT NULL DEFAULT 'personal',
+      job_scope TEXT NOT NULL DEFAULT 'personal:legacy:legacy',
       organization_id TEXT,
       workspace_id TEXT,
       workspace_type TEXT NOT NULL DEFAULT 'personal',
@@ -1363,8 +1369,16 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     workspace_root_relative_path: 'TEXT',
   });
 
+  addColumns(sqlite, 'pi_usage_events', {
+    organization_id: 'TEXT',
+    workspace_id: 'TEXT',
+    workspace_type: 'TEXT',
+    agent_id: "TEXT NOT NULL DEFAULT 'canvas-agent'",
+  });
+
   addColumns(sqlite, 'automation_jobs', {
     scope: "TEXT NOT NULL DEFAULT 'personal'",
+    job_scope: "TEXT NOT NULL DEFAULT 'personal:legacy:legacy'",
     organization_id: 'TEXT',
     workspace_id: 'TEXT',
     workspace_type: "TEXT NOT NULL DEFAULT 'personal'",
@@ -1391,6 +1405,7 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
 
   addColumns(sqlite, 'automation_runs', {
     scope: "TEXT NOT NULL DEFAULT 'personal'",
+    job_scope: "TEXT NOT NULL DEFAULT 'personal:legacy:legacy'",
     organization_id: 'TEXT',
     workspace_id: 'TEXT',
     workspace_type: "TEXT NOT NULL DEFAULT 'personal'",
@@ -1406,26 +1421,46 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       responsible_user_id = COALESCE(responsible_user_id, created_by_user_id),
       last_edited_by_user_id = COALESCE(last_edited_by_user_id, created_by_user_id),
       scope = COALESCE(NULLIF(scope, ''), 'personal'),
-      workspace_type = COALESCE(NULLIF(workspace_type, ''), 'personal')
+      workspace_type = COALESCE(NULLIF(workspace_type, ''), 'personal'),
+      job_scope = CASE
+        WHEN COALESCE(NULLIF(scope, ''), 'personal') = 'organization'
+          THEN 'organization:' || COALESCE(NULLIF(organization_id, ''), 'legacy') || ':' || COALESCE(NULLIF(workspace_id, ''), NULLIF(workspace_type, ''), 'legacy')
+        ELSE 'personal:' || COALESCE(NULLIF(owner_user_id, ''), NULLIF(responsible_user_id, ''), NULLIF(created_by_user_id, ''), 'unknown') || ':' || COALESCE(NULLIF(workspace_id, ''), NULLIF(workspace_type, ''), 'legacy')
+      END
     WHERE owner_user_id IS NULL
       OR responsible_user_id IS NULL
       OR last_edited_by_user_id IS NULL
       OR scope IS NULL
       OR scope = ''
       OR workspace_type IS NULL
-      OR workspace_type = '';
+      OR workspace_type = ''
+      OR job_scope IS NULL
+      OR job_scope = ''
+      OR job_scope = 'personal:legacy:legacy';
 
     UPDATE automation_runs
     SET
       scope = COALESCE(NULLIF(scope, ''), 'personal'),
       workspace_type = COALESCE(NULLIF(workspace_type, ''), 'personal'),
-      actor_type = COALESCE(NULLIF(actor_type, ''), 'user')
+      actor_type = COALESCE(NULLIF(actor_type, ''), 'user'),
+      job_scope = COALESCE((
+        SELECT NULLIF(j.job_scope, '')
+        FROM automation_jobs j
+        WHERE j.id = automation_runs.job_id
+      ), CASE
+        WHEN COALESCE(NULLIF(scope, ''), 'personal') = 'organization'
+          THEN 'organization:' || COALESCE(NULLIF(organization_id, ''), 'legacy') || ':' || COALESCE(NULLIF(workspace_id, ''), NULLIF(workspace_type, ''), 'legacy')
+        ELSE 'personal:' || COALESCE(NULLIF(actor_user_id, ''), 'unknown') || ':' || COALESCE(NULLIF(workspace_id, ''), NULLIF(workspace_type, ''), 'legacy')
+      END)
     WHERE scope IS NULL
       OR scope = ''
       OR workspace_type IS NULL
       OR workspace_type = ''
       OR actor_type IS NULL
-      OR actor_type = '';
+      OR actor_type = ''
+      OR job_scope IS NULL
+      OR job_scope = ''
+      OR job_scope = 'personal:legacy:legacy';
 
     UPDATE automation_runs
     SET actor_user_id = (
@@ -1439,6 +1474,47 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
         FROM automation_jobs j
         WHERE j.id = automation_runs.job_id
       );
+
+    UPDATE pi_usage_events
+    SET
+      organization_id = COALESCE(organization_id, (
+        SELECT s.organization_id
+        FROM pi_sessions s
+        WHERE s.session_id = pi_usage_events.session_id
+          AND s.user_id = pi_usage_events.user_id
+        ORDER BY s.updated_at DESC
+        LIMIT 1
+      )),
+      workspace_id = COALESCE(workspace_id, (
+        SELECT s.workspace_id
+        FROM pi_sessions s
+        WHERE s.session_id = pi_usage_events.session_id
+          AND s.user_id = pi_usage_events.user_id
+        ORDER BY s.updated_at DESC
+        LIMIT 1
+      )),
+      workspace_type = COALESCE(NULLIF(workspace_type, ''), (
+        SELECT s.workspace_type
+        FROM pi_sessions s
+        WHERE s.session_id = pi_usage_events.session_id
+          AND s.user_id = pi_usage_events.user_id
+        ORDER BY s.updated_at DESC
+        LIMIT 1
+      )),
+      agent_id = COALESCE((
+        SELECT NULLIF(s.agent_id, '')
+        FROM pi_sessions s
+        WHERE s.session_id = pi_usage_events.session_id
+          AND s.user_id = pi_usage_events.user_id
+        ORDER BY s.updated_at DESC
+        LIMIT 1
+      ), NULLIF(agent_id, ''), 'canvas-agent')
+    WHERE organization_id IS NULL
+      OR workspace_id IS NULL
+      OR workspace_type IS NULL
+      OR workspace_type = ''
+      OR agent_id IS NULL
+      OR agent_id = '';
   `);
 
   // ── Deferred indexes on columns added via ALTER TABLE ──────────────────────
@@ -1462,6 +1538,11 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     CREATE INDEX IF NOT EXISTS idx_pi_sessions_channel ON pi_sessions (channel_id, channel_session_key);
     CREATE INDEX IF NOT EXISTS idx_pi_sessions_workspace ON pi_sessions (workspace_id);
     CREATE INDEX IF NOT EXISTS idx_pi_sessions_user_workspace_created ON pi_sessions (user_id, workspace_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_pi_usage_events_org_workspace ON pi_usage_events (organization_id, workspace_id, assistant_timestamp);
+    CREATE INDEX IF NOT EXISTS idx_pi_usage_events_user_workspace ON pi_usage_events (user_id, workspace_id, assistant_timestamp);
+    CREATE INDEX IF NOT EXISTS idx_pi_usage_events_agent ON pi_usage_events (agent_id, assistant_timestamp);
+    CREATE INDEX IF NOT EXISTS idx_automation_jobs_job_scope_status ON automation_jobs (job_scope, status, next_run_at);
+    CREATE INDEX IF NOT EXISTS idx_automation_runs_job_scope_status ON automation_runs (job_scope, status, scheduled_for);
   `);
 
   sqlite.exec(`

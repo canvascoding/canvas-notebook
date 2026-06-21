@@ -436,7 +436,7 @@
     {
       "id": 26,
       "title": "Background Jobs und Usage mit userId, organizationId, workspaceId und Job-Scope versehen",
-      "status": "pending",
+      "status": "completed",
       "repo": "canvasstudios-notebook",
       "planningArtifacts": [
         "docs/architecture/canvas-notebook/team-workspace/05-actor-audit-retention.md",

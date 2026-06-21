@@ -252,6 +252,10 @@ export const piUsageEvents = sqliteTable("pi_usage_events", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   fingerprint: text("fingerprint").notNull().unique(),
   userId: text("user_id").notNull().references(() => user.id),
+  organizationId: text("organization_id"),
+  workspaceId: text("workspace_id"),
+  workspaceType: text("workspace_type"),
+  agentId: text("agent_id").notNull().default('canvas-agent'),
   sessionId: text("session_id").notNull(),
   provider: text("provider").notNull(),
   model: text("model").notNull(),
@@ -269,7 +273,19 @@ export const piUsageEvents = sqliteTable("pi_usage_events", {
   cacheWriteCost: real("cache_write_cost").notNull(),
   totalCost: real("total_cost").notNull(),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
-});
+}, (table) => ({
+  userCreatedIdx: index("idx_pi_usage_events_user_created_at").on(table.userId, table.createdAt),
+  sessionCreatedIdx: index("idx_pi_usage_events_session_created_at").on(table.sessionId, table.createdAt),
+  providerCreatedIdx: index("idx_pi_usage_events_provider_created_at").on(table.provider, table.createdAt),
+  modelCreatedIdx: index("idx_pi_usage_events_model_created_at").on(table.model, table.createdAt),
+  userAssistantTimestampIdx: index("idx_pi_usage_events_user_assistant_timestamp").on(table.userId, table.assistantTimestamp),
+  sessionAssistantTimestampIdx: index("idx_pi_usage_events_session_assistant_timestamp").on(table.sessionId, table.assistantTimestamp),
+  providerAssistantTimestampIdx: index("idx_pi_usage_events_provider_assistant_timestamp").on(table.provider, table.assistantTimestamp),
+  modelAssistantTimestampIdx: index("idx_pi_usage_events_model_assistant_timestamp").on(table.model, table.assistantTimestamp),
+  organizationWorkspaceIdx: index("idx_pi_usage_events_org_workspace").on(table.organizationId, table.workspaceId, table.assistantTimestamp),
+  userWorkspaceIdx: index("idx_pi_usage_events_user_workspace").on(table.userId, table.workspaceId, table.assistantTimestamp),
+  agentIdx: index("idx_pi_usage_events_agent").on(table.agentId, table.assistantTimestamp),
+}));
 
 export const todoCategories = sqliteTable("todo_categories", {
   id: text("id").primaryKey(),
@@ -536,6 +552,7 @@ export const automationJobs = sqliteTable("automation_jobs", {
   name: text("name").notNull(),
   status: text("status").notNull(),
   scope: text("scope").notNull().default('personal'),
+  jobScope: text("job_scope").notNull().default('personal:legacy:legacy'),
   organizationId: text("organization_id").references(() => canvasOrganizationSettings.organizationId, { onDelete: 'cascade' }),
   workspaceId: text("workspace_id").references(() => canvasWorkspaces.id, { onDelete: 'set null' }),
   workspaceType: text("workspace_type").notNull().default('personal'),
@@ -574,6 +591,7 @@ export const automationJobs = sqliteTable("automation_jobs", {
 }, (table) => ({
   ownerScopeIdx: index("idx_automation_jobs_owner_scope").on(table.ownerUserId, table.scope),
   organizationWorkspaceIdx: index("idx_automation_jobs_org_workspace").on(table.organizationId, table.workspaceId),
+  jobScopeStatusIdx: index("idx_automation_jobs_job_scope_status").on(table.jobScope, table.status, table.nextRunAt),
   composioTriggerIdx: uniqueIndex("idx_automation_jobs_composio_trigger_id").on(table.composioTriggerId),
 }));
 
@@ -674,6 +692,7 @@ export const automationRuns = sqliteTable("automation_runs", {
   jobId: text("job_id").notNull().references(() => automationJobs.id),
   status: text("status").notNull(),
   scope: text("scope").notNull().default('personal'),
+  jobScope: text("job_scope").notNull().default('personal:legacy:legacy'),
   organizationId: text("organization_id").references(() => canvasOrganizationSettings.organizationId, { onDelete: 'cascade' }),
   workspaceId: text("workspace_id").references(() => canvasWorkspaces.id, { onDelete: 'set null' }),
   workspaceType: text("workspace_type").notNull().default('personal'),
@@ -699,6 +718,7 @@ export const automationRuns = sqliteTable("automation_runs", {
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 }, (table) => ({
   workspaceCreatedIdx: index("idx_automation_runs_workspace_created").on(table.workspaceId, table.createdAt),
+  jobScopeStatusIdx: index("idx_automation_runs_job_scope_status").on(table.jobScope, table.status, table.scheduledFor),
 }));
 
 export const studioProducts = sqliteTable("studio_products", {

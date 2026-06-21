@@ -123,6 +123,7 @@ async function main() {
     assert.equal(memberPersonalJob.workspaceType, 'personal');
     assert.equal(memberPersonalJob.ownerUserId, 'user-member');
     assert.equal(memberPersonalJob.responsibleUserId, 'user-member');
+    assert.equal(memberPersonalJob.jobScope, `personal:user-member:${memberPersonalWorkspace.id}`);
 
     await assert.rejects(
       () => createAutomationJob({
@@ -158,6 +159,7 @@ async function main() {
     assert.equal(memberOrganizationJob.scope, 'organization');
     assert.equal(memberOrganizationJob.createdByUserId, 'user-member');
     assert.equal(memberOrganizationJob.ownerUserId, null);
+    assert.equal(memberOrganizationJob.jobScope, `organization:${organizationId}:${teamWorkspace.id}`);
     const memberJobsWithOrgAccess = await listAutomationJobs('user-member');
     assert.ok(memberJobsWithOrgAccess.some((job) => job.id === memberOrganizationJob.id));
 
@@ -177,6 +179,7 @@ async function main() {
     assert.equal(ownerOrganizationJob.ownerUserId, null);
     assert.equal(ownerOrganizationJob.responsibleUserId, 'user-owner');
     assert.equal(ownerOrganizationJob.approvedByUserId, 'user-owner');
+    assert.equal(ownerOrganizationJob.jobScope, `organization:${organizationId}:${teamWorkspace.id}`);
     assert.ok(ownerOrganizationJob.serviceActorId?.startsWith('org-service:'));
 
     const memberJobs = await listAutomationJobs('user-member');
@@ -192,6 +195,7 @@ async function main() {
     assert.equal(run.scope, 'organization');
     assert.equal(run.workspaceId, teamWorkspace.id);
     assert.equal(run.workspaceType, 'team');
+    assert.equal(run.jobScope, ownerOrganizationJob.jobScope);
     assert.equal(run.actorType, 'user');
     assert.equal(run.actorUserId, 'user-owner');
     assert.equal(run.serviceActorId, null);
@@ -199,6 +203,7 @@ async function main() {
     const loadedRun = await getAutomationRun(run.id);
     assert.equal(loadedRun?.workspaceId, teamWorkspace.id);
     assert.equal(loadedRun?.scope, 'organization');
+    assert.equal(loadedRun?.jobScope, ownerOrganizationJob.jobScope);
 
     const heartbeatJob = await upsertHeartbeatJob({
       userId: 'user-member',
@@ -211,6 +216,7 @@ async function main() {
     assert.equal(heartbeatJob.ownerUserId, 'user-member');
     assert.equal(heartbeatJob.responsibleUserId, 'user-member');
     assert.equal(heartbeatJob.lastEditedByUserId, 'user-member');
+    assert.equal(heartbeatJob.jobScope, 'personal:user-member:personal');
   } finally {
     if (sqlite.open) {
       sqlite.close();
