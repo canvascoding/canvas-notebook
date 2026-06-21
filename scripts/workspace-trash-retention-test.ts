@@ -17,6 +17,15 @@ async function exists(targetPath: string): Promise<boolean> {
   }
 }
 
+function execSqlite(dataRoot: string, sql: string) {
+  const sqlite = new Database(path.join(dataRoot, 'sqlite.db'));
+  try {
+    sqlite.exec(sql);
+  } finally {
+    sqlite.close();
+  }
+}
+
 async function main() {
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'canvas-workspace-trash-'));
   const dataRoot = path.join(tempRoot, 'data');
@@ -74,6 +83,46 @@ async function main() {
     assert.equal(blockedRoot.failed.length, 1);
     assert.match(blockedRoot.failed[0].error, /root/i);
 
+    await fs.writeFile(path.join(workspaceRoot, 'docs', 'mixed-valid.md'), '# Mixed\n');
+    const mixedBatch = await trashWorkspacePaths({
+      workspace,
+      paths: ['docs/mixed-valid.md', '../outside'],
+      deletedByUserId: 'user-admin',
+      now: new Date('2026-01-01T00:00:00.000Z'),
+    });
+    assert.equal(mixedBatch.trashed.length, 1);
+    assert.equal(mixedBatch.failed.length, 1);
+    assert.equal(mixedBatch.trashed[0].originalPath, 'docs/mixed-valid.md');
+    assert.match(mixedBatch.failed[0].error, /traversal|outside|invalid/i);
+    assert.equal(await exists(path.join(workspaceRoot, 'docs', 'mixed-valid.md')), false);
+
+    await fs.writeFile(path.join(workspaceRoot, 'docs', 'insert-rollback.md'), '# Insert rollback\n');
+    execSqlite(dataRoot, `
+      CREATE TRIGGER fail_workspace_trash_insert
+      BEFORE INSERT ON workspace_trash_entries
+      BEGIN
+        SELECT RAISE(FAIL, 'trash insert failed');
+      END;
+    `);
+    try {
+      const insertRollback = await trashWorkspacePaths({
+        workspace,
+        paths: ['docs/insert-rollback.md'],
+        deletedByUserId: 'user-admin',
+        now: new Date('2026-01-01T00:00:00.000Z'),
+      });
+      assert.equal(insertRollback.trashed.length, 0);
+      assert.equal(insertRollback.failed.length, 1);
+      assert.match(insertRollback.failed[0].error, /trash insert failed/);
+      assert.equal(await exists(path.join(workspaceRoot, 'docs', 'insert-rollback.md')), true);
+      assert.equal(
+        await fs.readFile(path.join(workspaceRoot, 'docs', 'insert-rollback.md'), 'utf8'),
+        '# Insert rollback\n'
+      );
+    } finally {
+      execSqlite(dataRoot, 'DROP TRIGGER IF EXISTS fail_workspace_trash_insert;');
+    }
+
     const trashed = await trashWorkspacePaths({
       workspace,
       paths: ['docs/report.md', 'docs/archive', 'docs/archive/old.md'],
@@ -94,6 +143,30 @@ async function main() {
 
     const reportEntry = trashed.trashed.find((entry) => entry.originalPath === 'docs/report.md');
     assert.ok(reportEntry);
+    execSqlite(dataRoot, `
+      CREATE TRIGGER fail_workspace_trash_restore_update
+      BEFORE UPDATE OF status ON workspace_trash_entries
+      WHEN NEW.status = 'restored'
+      BEGIN
+        SELECT RAISE(FAIL, 'restore update failed');
+      END;
+    `);
+    try {
+      await assert.rejects(
+        () => restoreWorkspaceTrashEntry({
+          workspace,
+          entryId: reportEntry.id,
+          restoredByUserId: 'user-admin',
+          now: new Date('2026-01-01T00:30:00.000Z'),
+        }),
+        /restore update failed/
+      );
+      assert.equal(await exists(path.join(workspaceRoot, 'docs', 'report.md')), false);
+      assert.equal(await exists(path.join(dataRoot, reportEntry.trashRelativePath)), true);
+    } finally {
+      execSqlite(dataRoot, 'DROP TRIGGER IF EXISTS fail_workspace_trash_restore_update;');
+    }
+
     const restored = await restoreWorkspaceTrashEntry({
       workspace,
       entryId: reportEntry.id,
@@ -109,7 +182,7 @@ async function main() {
       purgedByUserId: 'system-cleanup',
     });
     assert.equal(purge.failed.length, 0);
-    assert.equal(purge.purged.length, 1);
+    assert.equal(purge.purged.length, 2);
 
     const activeTrash = await listWorkspaceTrashEntries({ workspace });
     assert.equal(activeTrash.length, 0);
@@ -122,6 +195,7 @@ async function main() {
       }>;
       assert.deepEqual(rows, [
         { originalPath: 'docs/archive', status: 'purged' },
+        { originalPath: 'docs/mixed-valid.md', status: 'purged' },
         { originalPath: 'docs/report.md', status: 'restored' },
       ]);
     } finally {
