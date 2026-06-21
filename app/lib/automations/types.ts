@@ -59,6 +59,7 @@ export type AutomationJobRecord = {
   name: string;
   status: AutomationJobStatus;
   scope: AutomationScope;
+  jobScope: string;
   organizationId: string | null;
   workspaceId: string | null;
   workspaceType: AutomationWorkspaceType;
@@ -106,6 +107,7 @@ export type AutomationRunRecord = {
   jobId: string;
   status: AutomationRunStatus;
   scope: AutomationScope;
+  jobScope: string;
   organizationId: string | null;
   workspaceId: string | null;
   workspaceType: AutomationWorkspaceType;

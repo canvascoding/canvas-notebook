@@ -82,6 +82,41 @@ function resolveAutomationRunActor(
   };
 }
 
+function normalizeJobScopePart(value: string | null | undefined, fallback: string): string {
+  const normalized = value?.trim();
+  return (normalized || fallback).replace(/[:\s]+/g, '_');
+}
+
+function buildAutomationJobScope(input: {
+  scope: AutomationScope;
+  organizationId?: string | null;
+  workspaceId?: string | null;
+  workspaceType?: string | null;
+  ownerUserId?: string | null;
+  responsibleUserId?: string | null;
+  createdByUserId?: string | null;
+  actorUserId?: string | null;
+}): string {
+  const workspacePart = normalizeJobScopePart(input.workspaceId || input.workspaceType, 'legacy');
+  if (input.scope === 'organization') {
+    return `organization:${normalizeJobScopePart(input.organizationId, 'legacy')}:${workspacePart}`;
+  }
+
+  return `personal:${normalizeJobScopePart(input.ownerUserId || input.responsibleUserId || input.actorUserId || input.createdByUserId, 'unknown')}:${workspacePart}`;
+}
+
+function resolveStoredJobScope(job: typeof automationJobs.$inferSelect, scope = normalizeAutomationScope(job.scope)): string {
+  return job.jobScope || buildAutomationJobScope({
+    scope,
+    organizationId: job.organizationId ?? null,
+    workspaceId: job.workspaceId ?? null,
+    workspaceType: job.workspaceType ?? null,
+    ownerUserId: job.ownerUserId ?? null,
+    responsibleUserId: job.responsibleUserId ?? null,
+    createdByUserId: job.createdByUserId,
+  });
+}
+
 function stripLeadingPathDecorators(value: string): string {
   let next = value;
   while (next.startsWith('/')) {
@@ -297,6 +332,7 @@ function mapJobRow(
     name: row.name,
     status: row.status as AutomationJobRecord['status'],
     scope: normalizeAutomationScope(row.scope),
+    jobScope: resolveStoredJobScope(row),
     organizationId: row.organizationId ?? null,
     workspaceId: row.workspaceId ?? null,
     workspaceType: normalizeAutomationWorkspaceType(row.workspaceType),
@@ -349,6 +385,7 @@ function mapRunRow(
     jobId: row.jobId,
     status: row.status as AutomationRunRecord['status'],
     scope: normalizeAutomationScope(row.scope),
+    jobScope: row.jobScope,
     organizationId: row.organizationId ?? null,
     workspaceId: row.workspaceId ?? null,
     workspaceType: normalizeAutomationWorkspaceType(row.workspaceType),
@@ -489,6 +526,7 @@ export async function listAutomationRuns(jobId: string): Promise<AutomationRunRe
       jobId: automationRuns.jobId,
       status: automationRuns.status,
       scope: automationRuns.scope,
+      jobScope: automationRuns.jobScope,
       organizationId: automationRuns.organizationId,
       workspaceId: automationRuns.workspaceId,
       workspaceType: automationRuns.workspaceType,
@@ -527,6 +565,7 @@ export async function getAutomationRun(runId: string): Promise<AutomationRunReco
       jobId: automationRuns.jobId,
       status: automationRuns.status,
       scope: automationRuns.scope,
+      jobScope: automationRuns.jobScope,
       organizationId: automationRuns.organizationId,
       workspaceId: automationRuns.workspaceId,
       workspaceType: automationRuns.workspaceType,
@@ -621,6 +660,7 @@ export async function createAutomationJob(input: CreateAutomationJobInput, user:
   }
 
   const automationScope = await resolveAutomationScopeForCreate(input, policyUser);
+  const jobScope = buildAutomationJobScope({ ...automationScope, createdByUserId: userId });
   const now = new Date();
   const nextRunAt = input.status === 'paused' ? null : computeNextRunAt(schedule, { from: now });
   const id = `job-${randomUUID()}`;
@@ -632,6 +672,7 @@ export async function createAutomationJob(input: CreateAutomationJobInput, user:
       name,
       status: input.status || 'active',
       scope: automationScope.scope,
+      jobScope,
       organizationId: automationScope.organizationId,
       workspaceId: automationScope.workspaceId,
       workspaceType: automationScope.workspaceType,
@@ -686,6 +727,7 @@ export async function createWebhookAutomationJob(input: CreateWebhookAutomationJ
   const id = `job-${randomUUID()}`;
   const preferredTimeZone = await getUserPreferredTimeZone(userId);
   const automationScope = await resolveAutomationScopeForCreate(input, policyUser);
+  const jobScope = buildAutomationJobScope({ ...automationScope, createdByUserId: userId });
   const schedule: FriendlySchedule = {
     kind: 'webhook',
     timeZone: preferredTimeZone,
@@ -698,6 +740,7 @@ export async function createWebhookAutomationJob(input: CreateWebhookAutomationJ
       name,
       status: input.status || 'active',
       scope: automationScope.scope,
+      jobScope,
       organizationId: automationScope.organizationId,
       workspaceId: automationScope.workspaceId,
       workspaceType: automationScope.workspaceType,
@@ -759,6 +802,7 @@ export async function createCustomWebhookAutomationJob(
   const secret = generateAutomationWebhookSecret();
   const preferredTimeZone = await getUserPreferredTimeZone(userId);
   const automationScope = await resolveAutomationScopeForCreate(input, policyUser);
+  const jobScope = buildAutomationJobScope({ ...automationScope, createdByUserId: userId });
   const schedule: FriendlySchedule = {
     kind: 'webhook',
     timeZone: preferredTimeZone,
@@ -772,6 +816,7 @@ export async function createCustomWebhookAutomationJob(
         name,
         status: input.status || 'active',
         scope: automationScope.scope,
+        jobScope,
         organizationId: automationScope.organizationId,
         workspaceId: automationScope.workspaceId,
         workspaceType: automationScope.workspaceType,
@@ -928,6 +973,7 @@ export async function createPendingAutomationRun(
 
     const now = new Date();
     const jobScope = normalizeAutomationScope(job.scope);
+    const storedJobScope = resolveStoredJobScope(job, jobScope);
     const runActor = resolveAutomationRunActor(job, jobScope, options);
     const [inserted] = tx
       .insert(automationRuns)
@@ -936,6 +982,7 @@ export async function createPendingAutomationRun(
         jobId,
         status: 'pending',
         scope: jobScope,
+        jobScope: storedJobScope,
         organizationId: job.organizationId ?? null,
         workspaceId: job.workspaceId ?? null,
         workspaceType: normalizeAutomationWorkspaceType(job.workspaceType),
@@ -1314,6 +1361,7 @@ export async function scheduleAutomationJobRun(
 
     const now = new Date();
     const jobScope = normalizeAutomationScope(job.scope);
+    const storedJobScope = resolveStoredJobScope(job, jobScope);
     const runActor = resolveAutomationRunActor(job, jobScope, options);
     const [inserted] = tx
       .insert(automationRuns)
@@ -1322,6 +1370,7 @@ export async function scheduleAutomationJobRun(
         jobId,
         status: 'pending',
         scope: jobScope,
+        jobScope: storedJobScope,
         organizationId: job.organizationId ?? null,
         workspaceId: job.workspaceId ?? null,
         workspaceType: normalizeAutomationWorkspaceType(job.workspaceType),
@@ -1587,6 +1636,14 @@ export async function upsertHeartbeatJob(data: {
       .update(automationJobs)
       .set({
         status,
+        jobScope: existing.jobScope || buildAutomationJobScope({
+          scope: 'personal',
+          ownerUserId: data.userId,
+          responsibleUserId: data.userId,
+          createdByUserId: data.userId,
+          workspaceId: existing.workspaceId,
+          workspaceType: existing.workspaceType,
+        }),
         scheduleKind: schedule.kind,
         scheduleConfigJson: JSON.stringify(schedule),
         timeZone: schedule.timeZone,
@@ -1615,6 +1672,13 @@ export async function upsertHeartbeatJob(data: {
       name: 'Heartbeat',
       status,
       scope: 'personal',
+      jobScope: buildAutomationJobScope({
+        scope: 'personal',
+        ownerUserId: data.userId,
+        responsibleUserId: data.userId,
+        createdByUserId: data.userId,
+        workspaceType: 'personal',
+      }),
       workspaceType: 'personal',
       ownerUserId: data.userId,
       responsibleUserId: data.userId,

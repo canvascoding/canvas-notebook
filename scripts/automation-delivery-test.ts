@@ -43,6 +43,7 @@ async function main() {
     name: 'Delivery Test',
     status: 'active',
     scope: 'personal',
+    jobScope: `personal:${userId}:personal`,
     organizationId: null,
     workspaceId: null,
     workspaceType: 'personal',

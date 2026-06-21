@@ -64,6 +64,9 @@ function parseGroupBy(value: string | null): UsageSummaryGroupBy {
   switch (value) {
     case 'provider':
     case 'model':
+    case 'organization':
+    case 'workspace':
+    case 'agent':
     case 'user':
     case 'session':
       return value;
@@ -85,6 +88,10 @@ export function parseUsageFilters(searchParams: URLSearchParams): UsageFilters {
     sessionId: normalizeOptionalString(searchParams.get('sessionId')),
     sessionQuery: normalizeOptionalString(searchParams.get('sessionQuery')),
     stopReason: normalizeOptionalString(searchParams.get('stopReason')),
+    organizationId: normalizeOptionalString(searchParams.get('organizationId')),
+    workspaceId: normalizeOptionalString(searchParams.get('workspaceId')),
+    workspaceType: normalizeOptionalString(searchParams.get('workspaceType')),
+    agentId: normalizeOptionalString(searchParams.get('agentId')),
     groupBy: parseGroupBy(searchParams.get('groupBy')),
     userId: normalizeOptionalString(searchParams.get('userId')),
   };
@@ -121,6 +128,10 @@ function serializeUsageFilters(filters: UsageFilters, access: UsageAccess): Seri
     sessionId: filters.sessionId ?? null,
     sessionQuery: filters.sessionQuery ?? null,
     stopReason: filters.stopReason ?? null,
+    organizationId: filters.organizationId ?? null,
+    workspaceId: filters.workspaceId ?? null,
+    workspaceType: filters.workspaceType ?? null,
+    agentId: filters.agentId ?? null,
     groupBy: filters.groupBy,
     userId: access.effectiveUserId ?? null,
   };
@@ -170,6 +181,22 @@ function buildWhere(filters: UsageFilters, access: UsageAccess) {
 
   if (filters.stopReason) {
     conditions.push(eq(piUsageEvents.stopReason, filters.stopReason));
+  }
+
+  if (filters.organizationId) {
+    conditions.push(eq(piUsageEvents.organizationId, filters.organizationId));
+  }
+
+  if (filters.workspaceId) {
+    conditions.push(eq(piUsageEvents.workspaceId, filters.workspaceId));
+  }
+
+  if (filters.workspaceType) {
+    conditions.push(eq(piUsageEvents.workspaceType, filters.workspaceType));
+  }
+
+  if (filters.agentId) {
+    conditions.push(eq(piUsageEvents.agentId, filters.agentId));
   }
 
   if (filters.sessionQuery) {
@@ -237,6 +264,24 @@ function getGrouping(filters: UsageFilters) {
       return {
         groupKey: piUsageEvents.userId,
         label: sql<string>`coalesce(${user.name}, ${user.email}, ${piUsageEvents.userId})`,
+        orderBy: desc(sql<number>`coalesce(sum(${piUsageEvents.totalCost}), 0)`),
+      };
+    case 'organization':
+      return {
+        groupKey: sql<string>`coalesce(${piUsageEvents.organizationId}, 'unscoped')`,
+        label: sql<string>`coalesce(${piUsageEvents.organizationId}, 'Unscoped organization')`,
+        orderBy: desc(sql<number>`coalesce(sum(${piUsageEvents.totalCost}), 0)`),
+      };
+    case 'workspace':
+      return {
+        groupKey: sql<string>`coalesce(${piUsageEvents.workspaceId}, 'legacy')`,
+        label: sql<string>`coalesce(${piUsageEvents.workspaceId}, 'Legacy workspace')`,
+        orderBy: desc(sql<number>`coalesce(sum(${piUsageEvents.totalCost}), 0)`),
+      };
+    case 'agent':
+      return {
+        groupKey: sql<string>`${piUsageEvents.agentId}`,
+        label: sql<string>`${piUsageEvents.agentId}`,
         orderBy: desc(sql<number>`coalesce(sum(${piUsageEvents.totalCost}), 0)`),
       };
     case 'session':
@@ -328,6 +373,10 @@ export async function getUsageEvents(
       id: piUsageEvents.id,
       userId: piUsageEvents.userId,
       userLabel: sql<string>`coalesce(${user.name}, ${user.email}, ${piUsageEvents.userId})`,
+      organizationId: piUsageEvents.organizationId,
+      workspaceId: piUsageEvents.workspaceId,
+      workspaceType: piUsageEvents.workspaceType,
+      agentId: piUsageEvents.agentId,
       sessionId: piUsageEvents.sessionId,
       sessionTitleSnapshot: piUsageEvents.sessionTitleSnapshot,
       provider: piUsageEvents.provider,
@@ -356,6 +405,10 @@ export async function getUsageEvents(
       id: row.id,
       userId: row.userId,
       userLabel: row.userLabel,
+      organizationId: row.organizationId ?? null,
+      workspaceId: row.workspaceId ?? null,
+      workspaceType: row.workspaceType ?? null,
+      agentId: row.agentId,
       sessionId: row.sessionId,
       sessionTitleSnapshot: row.sessionTitleSnapshot,
       provider: row.provider,

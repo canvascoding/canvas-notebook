@@ -50,6 +50,9 @@ async function main() {
   const alphaSessionId = 'sess-alpha';
   const budgetSessionId = 'sess-budget';
   const otherSessionId = 'sess-other';
+  const organizationId = 'org-usage';
+  const personalWorkspaceId = 'ws-personal-usage';
+  const teamWorkspaceId = 'ws-team-usage';
   const now = new Date('2026-03-16T12:00:00.000Z');
 
   try {
@@ -93,6 +96,10 @@ async function main() {
         provider: 'openai',
         model: 'gpt-4o',
         title: 'Alpha Session',
+        agentId: 'agent-alpha',
+        organizationId,
+        workspaceId: personalWorkspaceId,
+        workspaceType: 'personal',
         createdAt: now,
         updatedAt: now,
       },
@@ -102,6 +109,10 @@ async function main() {
         provider: 'ollama',
         model: 'llama3.2',
         title: 'Budget Session',
+        agentId: 'agent-budget',
+        organizationId,
+        workspaceId: teamWorkspaceId,
+        workspaceType: 'team',
         createdAt: now,
         updatedAt: now,
       },
@@ -111,6 +122,10 @@ async function main() {
         provider: 'anthropic',
         model: 'claude-sonnet-4',
         title: 'Other Session',
+        agentId: 'agent-other',
+        organizationId: 'org-other',
+        workspaceId: 'ws-other',
+        workspaceType: 'personal',
         createdAt: now,
         updatedAt: now,
       },
@@ -217,6 +232,10 @@ async function main() {
       sessionId: alphaSessionId,
       userId,
       sessionTitleSnapshot: 'Alpha Session',
+      organizationId,
+      workspaceId: personalWorkspaceId,
+      workspaceType: 'personal',
+      agentId: 'agent-alpha',
       messages: [
         {
           role: 'user',
@@ -232,6 +251,10 @@ async function main() {
     assert.equal(extractionRows.length, 2);
     assert.equal(extractionRows[0]?.sessionTitleSnapshot, 'Alpha Session');
     assert.equal(extractionRows[0]?.provider, 'openai');
+    assert.equal(extractionRows[0]?.organizationId, organizationId);
+    assert.equal(extractionRows[0]?.workspaceId, personalWorkspaceId);
+    assert.equal(extractionRows[0]?.workspaceType, 'personal');
+    assert.equal(extractionRows[0]?.agentId, 'agent-alpha');
     assert.equal(extractionRows[0]?.totalTokens, 210);
     assert.equal(extractionRows[1]?.provider, 'ollama');
     assert.equal(extractionRows[1]?.totalCost, 0);
@@ -272,6 +295,40 @@ async function main() {
       .from(piUsageEvents);
 
     assert.equal(Number(countRow?.count ?? 0), 3);
+
+    const persistedUsageRows = await db
+      .select({
+        sessionId: piUsageEvents.sessionId,
+        organizationId: piUsageEvents.organizationId,
+        workspaceId: piUsageEvents.workspaceId,
+        workspaceType: piUsageEvents.workspaceType,
+        agentId: piUsageEvents.agentId,
+      })
+      .from(piUsageEvents)
+      .orderBy(piUsageEvents.sessionId);
+    assert.deepEqual(persistedUsageRows, [
+      {
+        sessionId: alphaSessionId,
+        organizationId,
+        workspaceId: personalWorkspaceId,
+        workspaceType: 'personal',
+        agentId: 'agent-alpha',
+      },
+      {
+        sessionId: budgetSessionId,
+        organizationId,
+        workspaceId: teamWorkspaceId,
+        workspaceType: 'team',
+        agentId: 'agent-budget',
+      },
+      {
+        sessionId: otherSessionId,
+        organizationId: 'org-other',
+        workspaceId: 'ws-other',
+        workspaceType: 'personal',
+        agentId: 'agent-other',
+      },
+    ]);
 
     const defaultFilters = parseUsageFilters(new URLSearchParams());
     assert.equal(defaultFilters.groupBy, 'day');
@@ -334,6 +391,29 @@ async function main() {
       sessionSummary.rows.map((row) => row.label).sort(),
       ['Alpha Session', 'Budget Session'],
     );
+
+    const workspaceSummary = await getUsageSummary(
+      {
+        from: new Date('2026-03-01T00:00:00.000Z'),
+        to: new Date('2026-03-31T23:59:59.999Z'),
+        groupBy: 'workspace',
+        workspaceId: teamWorkspaceId,
+      },
+      { id: userId, role: 'user' },
+    );
+    assert.deepEqual(workspaceSummary.rows.map((row) => row.groupKey), [teamWorkspaceId]);
+    assert.equal(workspaceSummary.totals.totalTokens, 50);
+
+    const agentSummary = await getUsageSummary(
+      {
+        from: new Date('2026-03-01T00:00:00.000Z'),
+        to: new Date('2026-03-31T23:59:59.999Z'),
+        groupBy: 'agent',
+        agentId: 'agent-alpha',
+      },
+      { id: userId, role: 'user' },
+    );
+    assert.deepEqual(agentSummary.rows.map((row) => row.groupKey), ['agent-alpha']);
 
     const adminUserSummary = await getUsageSummary(
       {
@@ -417,6 +497,10 @@ async function main() {
 
     assert.equal(filteredEvents.rows.length, 1);
     assert.equal(filteredEvents.rows[0]?.sessionId, alphaSessionId);
+    assert.equal(filteredEvents.rows[0]?.organizationId, organizationId);
+    assert.equal(filteredEvents.rows[0]?.workspaceId, personalWorkspaceId);
+    assert.equal(filteredEvents.rows[0]?.workspaceType, 'personal');
+    assert.equal(filteredEvents.rows[0]?.agentId, 'agent-alpha');
     assert.match(filteredEvents.rows[0]?.assistantTimestamp || '', /^2026-03-10T10:15:00/);
 
     assert.equal(hasRenderableUsage(alphaAssistant.usage), true);
