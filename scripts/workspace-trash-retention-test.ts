@@ -123,6 +123,26 @@ async function main() {
       execSqlite(dataRoot, 'DROP TRIGGER IF EXISTS fail_workspace_trash_insert;');
     }
 
+    await fs.mkdir(path.join(workspaceRoot, 'docs', 'links'), { recursive: true });
+    await fs.writeFile(path.join(workspaceRoot, 'docs', 'links', 'note.md'), '# Link note\n');
+    await fs.symlink(
+      path.join(workspaceRoot, 'docs', 'links'),
+      path.join(workspaceRoot, 'docs', 'links', 'self'),
+      'dir'
+    );
+    const symlinkBatch = await trashWorkspacePaths({
+      workspace,
+      paths: ['docs/links'],
+      deletedByUserId: 'user-admin',
+      now: new Date('2026-01-01T00:00:00.000Z'),
+    });
+    assert.equal(symlinkBatch.failed.length, 0);
+    assert.equal(symlinkBatch.trashed.length, 1);
+    assert.equal(symlinkBatch.trashed[0].originalPath, 'docs/links');
+    assert.equal(symlinkBatch.trashed[0].fileCount, 1);
+    assert.equal(symlinkBatch.trashed[0].directoryCount, 1);
+    assert.equal(await exists(path.join(workspaceRoot, 'docs', 'links')), false);
+
     const trashed = await trashWorkspacePaths({
       workspace,
       paths: ['docs/report.md', 'docs/archive', 'docs/archive/old.md'],
@@ -177,12 +197,39 @@ async function main() {
     assert.equal(await exists(path.join(workspaceRoot, 'docs', 'report.md')), true);
     assert.equal(await fs.readFile(path.join(workspaceRoot, 'docs', 'report.md'), 'utf8'), '# Report\n');
 
+    const pagedTrash = await listWorkspaceTrashEntries({ workspace, limit: 1 });
+    assert.equal(pagedTrash.length, 1);
+
+    const archiveEntry = trashed.trashed.find((entry) => entry.originalPath === 'docs/archive');
+    assert.ok(archiveEntry);
+    execSqlite(dataRoot, `
+      CREATE TRIGGER fail_workspace_trash_purge_update
+      BEFORE UPDATE OF status ON workspace_trash_entries
+      WHEN NEW.status = 'purged'
+      BEGIN
+        SELECT RAISE(FAIL, 'purge update failed');
+      END;
+    `);
+    try {
+      const failedPurge = await purgeExpiredWorkspaceTrash({
+        now: new Date('2026-01-03T00:00:00.000Z'),
+        purgedByUserId: 'system-cleanup',
+      });
+      assert.equal(failedPurge.purged.length, 0);
+      assert.equal(failedPurge.failed.length, 3);
+      assert.equal(await exists(path.join(dataRoot, mixedBatch.trashed[0].trashRelativePath)), true);
+      assert.equal(await exists(path.join(dataRoot, symlinkBatch.trashed[0].trashRelativePath)), true);
+      assert.equal(await exists(path.join(dataRoot, archiveEntry.trashRelativePath)), true);
+    } finally {
+      execSqlite(dataRoot, 'DROP TRIGGER IF EXISTS fail_workspace_trash_purge_update;');
+    }
+
     const purge = await purgeExpiredWorkspaceTrash({
       now: new Date('2026-01-03T00:00:00.000Z'),
       purgedByUserId: 'system-cleanup',
     });
     assert.equal(purge.failed.length, 0);
-    assert.equal(purge.purged.length, 2);
+    assert.equal(purge.purged.length, 3);
 
     const activeTrash = await listWorkspaceTrashEntries({ workspace });
     assert.equal(activeTrash.length, 0);
@@ -195,6 +242,7 @@ async function main() {
       }>;
       assert.deepEqual(rows, [
         { originalPath: 'docs/archive', status: 'purged' },
+        { originalPath: 'docs/links', status: 'purged' },
         { originalPath: 'docs/mixed-valid.md', status: 'purged' },
         { originalPath: 'docs/report.md', status: 'restored' },
       ]);

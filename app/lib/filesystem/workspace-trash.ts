@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 
-import { and, eq, lte } from 'drizzle-orm';
+import { and, desc, eq, lte } from 'drizzle-orm';
 
 import { db } from '@/app/lib/db';
 import { workspaceTrashEntries } from '@/app/lib/db/schema';
@@ -181,7 +181,16 @@ async function movePath(sourcePath: string, destinationPath: string, recursive: 
 }
 
 async function summarizePath(targetPath: string): Promise<PathSummary> {
-  const stats = await fs.stat(targetPath);
+  const stats = await fs.lstat(targetPath);
+  if (stats.isSymbolicLink()) {
+    return {
+      itemType: 'other',
+      sizeBytes: stats.size,
+      fileCount: 0,
+      directoryCount: 0,
+    };
+  }
+
   if (!stats.isDirectory()) {
     return {
       itemType: stats.isFile() ? 'file' : 'other',
@@ -196,7 +205,14 @@ async function summarizePath(targetPath: string): Promise<PathSummary> {
   let directoryCount = 1;
   const entries = await fs.readdir(targetPath, { withFileTypes: true });
   for (const entry of entries) {
-    const child = await summarizePath(path.join(targetPath, entry.name));
+    const childPath = path.join(targetPath, entry.name);
+    if (entry.isSymbolicLink()) {
+      const linkStats = await fs.lstat(childPath);
+      sizeBytes += linkStats.size;
+      continue;
+    }
+
+    const child = await summarizePath(childPath);
     sizeBytes += child.sizeBytes;
     fileCount += child.fileCount;
     directoryCount += child.directoryCount;
@@ -308,14 +324,21 @@ export async function trashWorkspacePaths(params: {
 export async function listWorkspaceTrashEntries(params: {
   workspace: WorkspaceContext;
   status?: WorkspaceTrashStatus;
+  limit?: number;
+  offset?: number;
 }): Promise<WorkspaceTrashEntry[]> {
   const status = params.status ?? 'trashed';
+  const limit = Math.max(1, Math.min(params.limit ?? 100, 1000));
+  const offset = Math.max(0, params.offset ?? 0);
   const rows = await db.select()
     .from(workspaceTrashEntries)
     .where(and(
       eq(workspaceTrashEntries.workspaceId, params.workspace.workspaceId),
       eq(workspaceTrashEntries.status, status),
-    ));
+    ))
+    .orderBy(desc(workspaceTrashEntries.deletedAt))
+    .limit(limit)
+    .offset(offset);
   return rows.map(mapTrashRow);
 }
 
@@ -393,14 +416,35 @@ export async function purgeExpiredWorkspaceTrash(params: {
   const result: PurgeWorkspaceTrashResult = { purged: [], failed: [] };
   for (const row of rows) {
     try {
-      await fs.rm(absoluteDataPath(row.trashRelativePath), { recursive: true, force: true });
-      await db.update(workspaceTrashEntries)
+      const purgedRows = await db.update(workspaceTrashEntries)
         .set({
           status: 'purged',
           purgedAt: now,
           purgedByUserId: params.purgedByUserId ?? null,
         })
-        .where(eq(workspaceTrashEntries.id, row.id));
+        .where(eq(workspaceTrashEntries.id, row.id))
+        .returning({ id: workspaceTrashEntries.id });
+      if (!purgedRows[0]) throw new Error('Trash entry was not marked purged.');
+
+      try {
+        await fs.rm(absoluteDataPath(row.trashRelativePath), { recursive: true, force: true });
+      } catch (fsError) {
+        try {
+          await db.update(workspaceTrashEntries)
+            .set({
+              status: 'trashed',
+              purgedAt: null,
+              purgedByUserId: null,
+            })
+            .where(eq(workspaceTrashEntries.id, row.id));
+        } catch (rollbackError) {
+          throw new Error(
+            `Failed to remove purged trash file (${formatErrorMessage(fsError)}); rollback failed: ${formatErrorMessage(rollbackError)}`
+          );
+        }
+        throw fsError;
+      }
+
       result.purged.push(row.id);
     } catch (error) {
       result.failed.push({
