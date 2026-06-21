@@ -5,7 +5,7 @@ import { promises as fs } from 'node:fs';
 import type { Stats } from 'node:fs';
 import path from 'node:path';
 
-import { and, desc, eq, inArray } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull, or, type SQL } from 'drizzle-orm';
 
 import { db } from '@/app/lib/db';
 import { publicFileShares } from '@/app/lib/db/schema';
@@ -206,6 +206,20 @@ function normalizeWorkspaceType(value: string | null | undefined): WorkspaceType
   return null;
 }
 
+function inferWorkspaceRootRelativePath(rootPath: string | null | undefined): string | undefined {
+  if (!rootPath) return undefined;
+  const dataRoot = path.resolve(getDataDir());
+  const resolvedRoot = path.resolve(rootPath);
+  if (!isPathWithin(resolvedRoot, dataRoot)) return undefined;
+  const relative = path.relative(dataRoot, resolvedRoot).split(path.sep).join('/');
+  if (!relative || relative === '.' || relative.startsWith('../')) return undefined;
+  return relative;
+}
+
+function workspaceRootRelativePath(workspace?: WorkspaceContext | null): string | null {
+  return workspace?.rootRelativePath ?? inferWorkspaceRootRelativePath(workspace?.rootPath) ?? null;
+}
+
 function implicitAgentWorkspace(): WorkspaceContext | undefined {
   const context = getAgentExecutionContext();
   if (!context) return undefined;
@@ -214,7 +228,7 @@ function implicitAgentWorkspace(): WorkspaceContext | undefined {
     workspaceId: context.workspaceId,
     workspaceType: context.workspaceType,
     rootPath: context.workspaceRoot,
-    rootRelativePath: context.workspaceRootRelativePath ?? undefined,
+    rootRelativePath: context.workspaceRootRelativePath ?? inferWorkspaceRootRelativePath(context.workspaceRoot),
     displayName: context.workspaceName ?? undefined,
     status: 'active',
     actor: {
@@ -263,6 +277,10 @@ function workspaceForRow(row: PublicShareRow): WorkspaceContext {
     };
   }
 
+  if (row.workspaceId && row.workspaceId !== LEGACY_PERSONAL_WORKSPACE_ID) {
+    throw new Error('Public share workspace root is missing.');
+  }
+
   return createLegacyPersonalWorkspaceContext();
 }
 
@@ -270,6 +288,18 @@ function workspaceMatches(row: PublicShareRow, workspace?: WorkspaceContext | nu
   if (!workspace) return !row.workspaceId || row.workspaceId === LEGACY_PERSONAL_WORKSPACE_ID;
   if (workspace.legacy) return !row.workspaceId || row.workspaceId === LEGACY_PERSONAL_WORKSPACE_ID;
   return row.workspaceId === workspace.workspaceId;
+}
+
+function workspaceScopePredicate(workspace?: WorkspaceContext | null): SQL {
+  if (workspace && !workspace.legacy) {
+    return eq(publicFileShares.workspaceId, workspace.workspaceId);
+  }
+  const legacyScope = or(
+    isNull(publicFileShares.workspaceId),
+    eq(publicFileShares.workspaceId, LEGACY_PERSONAL_WORKSPACE_ID)
+  );
+  if (!legacyScope) throw new Error('Could not create public share workspace scope.');
+  return legacyScope;
 }
 
 function isPathWithin(candidatePath: string, basePath: string): boolean {
@@ -513,12 +543,17 @@ async function reconcileRow(row: PublicShareRow): Promise<PublicShareRow> {
     details = await getWorkspaceFileDetails(row.workspacePath, workspaceForRow(row));
   } catch (error) {
     const message = error instanceof Error ? error.message : '';
-    const status = message.includes('blocked') ? 'stale' : 'missing';
+    const workspaceRootMissing = message.includes('workspace root');
+    const status = message.includes('blocked') || workspaceRootMissing ? 'stale' : 'missing';
     const revokedAt = status === 'missing' ? row.revokedAt ?? new Date() : row.revokedAt;
     return updateShare(row, {
       status,
       revokedAt,
-      revokedReason: status === 'missing' ? 'target_missing' : 'target_blocked',
+      revokedReason: status === 'missing'
+        ? 'target_missing'
+        : workspaceRootMissing
+          ? 'workspace_root_missing'
+          : 'target_blocked',
     });
   }
 
@@ -590,6 +625,7 @@ export async function createPublicFileShares(params: {
       const existingRows = await db.select()
         .from(publicFileShares)
         .where(and(
+          workspaceScopePredicate(workspace),
           eq(publicFileShares.workspacePath, details.workspacePath),
           eq(publicFileShares.status, 'active'),
         ));
@@ -622,7 +658,7 @@ export async function createPublicFileShares(params: {
           organizationId: workspace?.organizationId ?? null,
           workspaceId: workspace?.workspaceId ?? null,
           workspaceType: workspace?.workspaceType ?? null,
-          workspaceRootRelativePath: workspace?.rootRelativePath ?? null,
+          workspaceRootRelativePath: workspaceRootRelativePath(workspace),
           workspacePath: details.workspacePath,
           fileName: details.fileName,
           fileIdentity: details.fileIdentity,
@@ -707,8 +743,6 @@ export async function listPublicFileShares(params: {
   limit?: number;
   baseUrl?: string | null;
 }): Promise<PublicShareDto[]> {
-  const rows = await db.select().from(publicFileShares).orderBy(desc(publicFileShares.createdAt));
-  const reconciled = await Promise.all(rows.map(reconcileRow));
   const workspace = resolveOperationWorkspace(params.workspace);
   const query = params.query?.trim().toLowerCase() || '';
   const type = params.type ?? 'all';
@@ -722,6 +756,16 @@ export async function listPublicFileShares(params: {
       }
     }).filter((candidate): candidate is string => Boolean(candidate))
   );
+  const whereParts: SQL[] = [workspaceScopePredicate(workspace)];
+  if (pathFilter.size > 0) {
+    whereParts.push(inArray(publicFileShares.workspacePath, Array.from(pathFilter)));
+  }
+
+  const rows = await db.select()
+    .from(publicFileShares)
+    .where(and(...whereParts))
+    .orderBy(desc(publicFileShares.createdAt));
+  const reconciled = await Promise.all(rows.map(reconcileRow));
 
   const visibleRows = reconciled
     .filter((row) => {
@@ -762,7 +806,13 @@ export async function getPublicShareAnnotations(
 
   if (normalizedTargets.size === 0) return new Map();
 
-  const rows = await db.select().from(publicFileShares).where(eq(publicFileShares.status, 'active'));
+  const rows = await db.select()
+    .from(publicFileShares)
+    .where(and(
+      workspaceScopePredicate(resolvedWorkspace),
+      eq(publicFileShares.status, 'active'),
+      inArray(publicFileShares.workspacePath, Array.from(normalizedTargets)),
+    ));
   const result = new Map<string, PublicShareAnnotation>();
   for (const row of rows) {
     if (!workspaceMatches(row, resolvedWorkspace)) continue;
@@ -800,7 +850,12 @@ export async function syncPublicSharesAfterDelete(paths: string[], workspace?: W
 
   if (normalized.length === 0) return;
 
-  const rows = await db.select().from(publicFileShares).where(eq(publicFileShares.status, 'active'));
+  const rows = await db.select()
+    .from(publicFileShares)
+    .where(and(
+      workspaceScopePredicate(resolvedWorkspace),
+      eq(publicFileShares.status, 'active'),
+    ));
   await Promise.all(rows.map(async (row) => {
     if (!workspaceMatches(row, resolvedWorkspace)) return;
     if (!normalized.some((targetPath) => affectedByPath(row.workspacePath, targetPath))) return;
@@ -824,6 +879,7 @@ export async function syncPublicSharesAfterWrite(paths: string[], workspace?: Wo
   const rows = await db.select()
     .from(publicFileShares)
     .where(and(
+      workspaceScopePredicate(resolvedWorkspace),
       eq(publicFileShares.status, 'active'),
       inArray(publicFileShares.workspacePath, uniquePaths),
     ));
@@ -850,7 +906,12 @@ export async function syncPublicSharesAfterMove(oldPath: string, newPath: string
     return;
   }
 
-  const rows = await db.select().from(publicFileShares).where(eq(publicFileShares.status, 'active'));
+  const rows = await db.select()
+    .from(publicFileShares)
+    .where(and(
+      workspaceScopePredicate(resolvedWorkspace),
+      eq(publicFileShares.status, 'active'),
+    ));
   for (const row of rows) {
     if (!workspaceMatches(row, resolvedWorkspace)) continue;
     if (!affectedByPath(row.workspacePath, normalizedOld)) continue;

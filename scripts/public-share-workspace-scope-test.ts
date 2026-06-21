@@ -205,6 +205,25 @@ async function main() {
     assert.equal(personalCreate.shares[0].targetRevisionPolicy, 'latest');
     assert.equal(personalCreate.shares[0].passwordEnabled, false);
 
+    await writeFile(path.join(ownerTeam.rootPath, 'docs', 'agent-root.txt'), 'team agent root\n');
+    const ownerTeamWithoutRelativePath: WorkspaceContext = {
+      ...ownerTeam,
+      rootRelativePath: undefined,
+    };
+    const teamAgentCreate = await createPublicFileShares({
+      paths: ['docs/agent-root.txt'],
+      createdByUserId: 'user-owner',
+      workspace: ownerTeamWithoutRelativePath,
+      source: 'agent',
+      createdByAgentId: 'canvas-agent',
+      sourceSessionId: 'session-agent-root',
+      confirmPublicExposure: true,
+      baseUrl: 'https://notebook.example.test',
+    });
+    assert.equal(teamAgentCreate.skipped.length, 0);
+    assert.equal(teamAgentCreate.shares.length, 1);
+    assert.equal(teamAgentCreate.shares[0].workspaceId, ownerTeam.workspaceId);
+
     const personalScopedList = await listPublicFileShares({
       userId: 'user-owner',
       workspace: ownerPersonal,
@@ -219,9 +238,17 @@ async function main() {
       paths: ['docs/report.txt'],
       baseUrl: 'https://notebook.example.test',
     });
+    const teamAgentScopedList = await listPublicFileShares({
+      userId: 'user-owner',
+      workspace: ownerTeam,
+      status: 'active',
+      paths: ['docs/agent-root.txt'],
+      baseUrl: 'https://notebook.example.test',
+    });
     assert.deepEqual(personalScopedList.map((share) => share.workspaceId), [ownerPersonal.workspaceId]);
     assert.deepEqual(teamScopedList.map((share) => share.workspaceId), [ownerTeam.workspaceId]);
     assert.deepEqual(teamScopedList.map((share) => share.workspaceName), [ownerTeam.displayName]);
+    assert.deepEqual(teamAgentScopedList.map((share) => share.status), ['active']);
 
     const personalToken = tokenFromPublicUrl(personalCreate.shares[0].publicUrl);
     await writeFile(path.join(ownerPersonal.rootPath, 'docs', 'report.txt'), 'personal v2\n');
@@ -295,4 +322,12 @@ async function main() {
   console.log('public-share-workspace-scope-test: ok');
 }
 
-void assertLegacyPublicShareMigration().then(main);
+async function run() {
+  await assertLegacyPublicShareMigration();
+  await main();
+}
+
+run().catch((error) => {
+  console.error(error);
+  process.exitCode = 1;
+});
