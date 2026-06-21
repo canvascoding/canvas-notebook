@@ -7,13 +7,14 @@ import fs from 'node:fs/promises';
 import { auth } from '@/app/lib/auth';
 import type { FileNode } from '@/app/lib/filesystem/workspace-files';
 import { buildGenericFileTree } from '@/app/lib/filesystem/workspace-files';
-import { getStudioEditsRoot, getStudioOutputsRoot } from '@/app/lib/integrations/studio-workspace';
+import { getStudioEditsRoot } from '@/app/lib/integrations/studio-workspace';
 import { getUserUploadsStudioRefRoot } from '@/app/lib/runtime-data-paths';
 import { toMediaUrl, toPreviewUrl } from '@/app/lib/utils/media-url';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 import { db } from '@/app/lib/db';
 import { studioGenerationOutputs, studioGenerations } from '@/app/lib/db/schema';
 import { and, desc, eq } from 'drizzle-orm';
+import { resolveStudioScope, studioVisibilityCondition } from '@/app/lib/integrations/studio-scope';
 
 const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'webp', 'bmp', 'tif', 'tiff', 'gif']);
 const VIDEO_EXTENSIONS = new Set(['mp4', 'mov']);
@@ -124,6 +125,11 @@ export async function GET(request: NextRequest) {
     const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(limitRaw, 500)) : 300;
     const depthRaw = Number(searchParams.get('depth') || '8');
     const depth = Number.isFinite(depthRaw) ? Math.max(1, Math.min(depthRaw, 12)) : 8;
+    const studioVisibility = studioVisibilityCondition(resolveStudioScope(session.user.id), {
+      userId: studioGenerations.userId,
+      organizationId: studioGenerations.organizationId,
+      createdByUserId: studioGenerations.createdByUserId,
+    });
 
     if (veoOnly) {
       if (requestedKind !== 'video') {
@@ -143,7 +149,7 @@ export async function GET(request: NextRequest) {
         .from(studioGenerationOutputs)
         .innerJoin(studioGenerations, eq(studioGenerationOutputs.generationId, studioGenerations.id))
         .where(and(
-          eq(studioGenerations.userId, session.user.id),
+          studioVisibility,
           eq(studioGenerationOutputs.type, 'video'),
         ))
         .orderBy(desc(studioGenerationOutputs.createdAt))
@@ -169,17 +175,34 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    // Scan studio outputs (data/studio/outputs)
-    const outputsTree = await safeBuildGenericFileTree(getStudioOutputsRoot(), depth);
+    const outputType = requestedKind === 'audio' ? 'sound' : requestedKind;
+    const outputRows = await db.select({
+      filePath: studioGenerationOutputs.filePath,
+      fileName: studioGenerationOutputs.fileName,
+      fileSize: studioGenerationOutputs.fileSize,
+      createdAt: studioGenerationOutputs.createdAt,
+      type: studioGenerationOutputs.type,
+    })
+      .from(studioGenerationOutputs)
+      .innerJoin(studioGenerations, eq(studioGenerationOutputs.generationId, studioGenerations.id))
+      .where(and(
+        studioVisibility,
+        eq(studioGenerationOutputs.type, outputType),
+      ))
+      .orderBy(desc(studioGenerationOutputs.createdAt))
+      .limit(limit);
     // Scan aspect-ratio edits (data/studio/edits)
     const editsTree = await safeBuildGenericFileTree(getStudioEditsRoot(), depth);
     // Scan user-uploaded studio references (data/user-uploads/studio-references)
     const uploadsTree = await safeBuildGenericFileTree(getUserUploadsStudioRefRoot(), depth);
 
     const allFiles = [
-      ...walkFiles(outputsTree).map((n) => ({
-        ...n,
-        path: n.path.startsWith('studio/') ? n.path : `studio/outputs/${n.path}`,
+      ...outputRows.map((row): FileNode => ({
+        type: 'file',
+        name: row.fileName || row.filePath.split('/').pop() || row.filePath,
+        path: row.filePath.startsWith('studio/') ? row.filePath : `studio/outputs/${row.filePath}`,
+        size: row.fileSize ?? undefined,
+        modified: row.createdAt ? Math.floor(row.createdAt.getTime() / 1000) : undefined,
       })),
       ...walkFiles(editsTree).map((n) => ({
         ...n,

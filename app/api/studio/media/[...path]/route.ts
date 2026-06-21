@@ -9,6 +9,7 @@ import {
   resolveValidatedStudioOutputPath,
   resolveValidatedUserUploadStudioRefPath
 } from '@/app/lib/integrations/studio-paths';
+import { canReadStudioOutputPath } from '@/app/lib/integrations/studio-generation-service';
 
 const MEDIA_TYPES: Record<string, string> = {
   pdf: 'application/pdf',
@@ -84,6 +85,9 @@ export async function GET(
 
   const { path: pathParts } = await context.params;
   const encodedPath = pathParts.map((p) => decodeURIComponent(p)).join('/');
+  if (encodedPath.startsWith('studio/outputs/') && !(await canReadStudioOutputPath(encodedPath, session.user.id))) {
+    return NextResponse.json({ success: false, error: 'File not found or unreadable' }, { status: 404 });
+  }
   const fullPath = resolveStudioPath(encodedPath);
 
   if (!fullPath) {

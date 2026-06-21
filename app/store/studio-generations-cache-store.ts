@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { StudioGeneration } from '@/app/apps/studio/types/generation';
+import type { StudioCreator, StudioGeneration } from '@/app/apps/studio/types/generation';
 
 interface StudioGenerationsCacheState {
   generations: StudioGeneration[];
@@ -10,6 +10,7 @@ interface StudioGenerationsCacheState {
   activeGenerationId: string | null;
   recentlyCompletedIds: Set<string>;
   hasMoreGenerations: boolean;
+  creators: StudioCreator[];
 }
 
 export const useStudioGenerationsCacheStore = create<StudioGenerationsCacheState>(() => ({
@@ -21,4 +22,5 @@ export const useStudioGenerationsCacheStore = create<StudioGenerationsCacheState
   activeGenerationId: null,
   recentlyCompletedIds: new Set<string>(),
   hasMoreGenerations: false,
+  creators: [],
 }));

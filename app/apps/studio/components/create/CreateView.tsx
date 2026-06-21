@@ -326,7 +326,8 @@ export function CreateView({ initialProviderConfig = EMPTY_STUDIO_PROVIDER_CONFI
   const router = useRouter();
   const searchParams = useSearchParams();
   const setChatContext = useSetStudioChatContext();
-  const generationHook = useStudioGeneration();
+  const [creatorFilter, setCreatorFilter] = useState<string | null>(null);
+  const generationHook = useStudioGeneration(creatorFilter);
   const productsHook = useStudioProducts();
   const personasHook = useStudioPersonas();
   const stylesHook = useStudioStyles();
@@ -335,6 +336,7 @@ export function CreateView({ initialProviderConfig = EMPTY_STUDIO_PROVIDER_CONFI
   const {
     fetchGenerations,
     generations,
+    creators,
     recentlyCompletedIds,
     hasMoreGenerations,
     loadingMore,
@@ -845,7 +847,7 @@ export function CreateView({ initialProviderConfig = EMPTY_STUDIO_PROVIDER_CONFI
     )),
     [generations],
   );
-  const hasActiveOutputFilters = mediaFilter !== 'all' || dateFilter !== 'all';
+  const hasActiveOutputFilters = mediaFilter !== 'all' || dateFilter !== 'all' || creatorFilter !== null;
   const hasNoMatchingVisibleOutputs = visibleOutputList.length === 0;
   const shouldShowInspiration = (
     !startingPointsLoading &&
@@ -942,6 +944,9 @@ export function CreateView({ initialProviderConfig = EMPTY_STUDIO_PROVIDER_CONFI
               onDateFilterChange={setDateFilter}
               sortOrder={sortOrder}
               onSortOrderChange={setSortOrder}
+              creatorFilter={creatorFilter}
+              onCreatorFilterChange={setCreatorFilter}
+              creators={creators}
               selectionEnabled={selectionEnabled}
               onToggleSelection={() => {
                 setSelectionEnabled((current) => {

@@ -3,6 +3,12 @@ import type { StudioPreset } from './presets';
 export type StudioGenerationMode = 'image' | 'video' | 'sound';
 export type StudioGenerationStatus = 'pending' | 'generating' | 'completed' | 'failed';
 
+export interface StudioCreator {
+  id: string;
+  name: string;
+  email: string | null;
+}
+
 export interface StudioGenerationOutput {
   id: string;
   generationId: string;
@@ -23,6 +29,9 @@ export interface StudioGenerationOutput {
 export interface StudioGeneration {
   id: string;
   userId: string;
+  organizationId?: string | null;
+  createdByUserId?: string | null;
+  workspaceId?: string | null;
   mode: StudioGenerationMode;
   prompt: string | null;
   rawPrompt: string | null;

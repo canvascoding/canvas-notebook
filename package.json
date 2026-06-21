@@ -37,6 +37,7 @@
     "test:mcp:icons": "tsx scripts/mcp-icons-test.ts",
     "test:studio:seedance": "tsx scripts/seedance-generation-test.ts",
     "test:studio:veo": "tsx scripts/veo-generation-test.ts",
+    "test:studio:organization-scope": "tsx --conditions react-server scripts/studio-organization-scope-test.ts",
     "test:skills:runtime": "tsx scripts/skills-runtime-test.ts",
     "test:skills:seed-bootstrap": "tsx scripts/default-seed-skills-test.ts",
     "test:plugins:seed-bootstrap": "tsx scripts/default-seed-plugins-test.ts",

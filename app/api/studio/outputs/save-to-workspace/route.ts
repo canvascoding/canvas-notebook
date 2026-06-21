@@ -90,7 +90,7 @@ export async function POST(request: NextRequest) {
     const reservedPaths = new Set<string>();
 
     for (const id of uniqueOutputIds) {
-      // Verify output belongs to user before reading the studio output file.
+      // Verify the output is visible to the actor before reading the studio output file.
       const output = await getStudioOutputForUser(id, session.user.id);
 
       if (!output) {

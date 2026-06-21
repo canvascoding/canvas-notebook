@@ -6,6 +6,7 @@ import { listStudioGenerations } from '@/app/lib/integrations/studio-generation-
 import { db } from '@/app/lib/db';
 import { studioPresets } from '@/app/lib/db/schema';
 import { eq, or } from 'drizzle-orm';
+import { resolveStudioScope } from '@/app/lib/integrations/studio-scope';
 
 export async function GET(request: NextRequest) {
   const session = await auth.api.getSession({ headers: request.headers });
@@ -20,6 +21,11 @@ export async function GET(request: NextRequest) {
       listStudioGenerations(session.user.id),
     ]);
 
+    const scope = resolveStudioScope(session.user.id);
+    const presetVisibility = scope.organizationWide && scope.organizationId
+      ? or(eq(studioPresets.userId, session.user.id), eq(studioPresets.organizationId, scope.organizationId), eq(studioPresets.isDefault, true))
+      : or(eq(studioPresets.userId, session.user.id), eq(studioPresets.isDefault, true));
+
     const presets = await db.select({
       id: studioPresets.id,
       name: studioPresets.name,
@@ -28,7 +34,7 @@ export async function GET(request: NextRequest) {
       isDefault: studioPresets.isDefault,
     })
       .from(studioPresets)
-      .where(or(eq(studioPresets.userId, session.user.id), eq(studioPresets.isDefault, true)));
+      .where(presetVisibility);
 
     return NextResponse.json({
       success: true,
@@ -36,6 +42,7 @@ export async function GET(request: NextRequest) {
       personas,
       presets,
       generations: generationResult.generations,
+      creators: generationResult.creators,
     });
   } catch (error) {
     console.error('[Studio Library] Error:', error);

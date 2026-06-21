@@ -639,6 +639,9 @@ export const automationRuns = sqliteTable("automation_runs", {
 export const studioProducts = sqliteTable("studio_products", {
   id: text("id").primaryKey(),
   userId: text("user_id").notNull().references(() => user.id),
+  organizationId: text("organization_id").references(() => canvasOrganizationSettings.organizationId, { onDelete: 'cascade' }),
+  createdByUserId: text("created_by_user_id").references(() => user.id, { onDelete: 'set null' }),
+  visibility: text("visibility").notNull().default('organization'),
   name: text("name").notNull(),
   description: text("description"),
   thumbnailPath: text("thumbnail_path"),
@@ -647,6 +650,8 @@ export const studioProducts = sqliteTable("studio_products", {
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
 }, (table) => ({
   userIdx: index("idx_studio_products_user").on(table.userId),
+  organizationIdx: index("idx_studio_products_organization").on(table.organizationId, table.createdAt),
+  creatorIdx: index("idx_studio_products_creator").on(table.createdByUserId, table.createdAt),
   createdIdx: index("idx_studio_products_created").on(table.createdAt),
 }));
 
@@ -670,6 +675,9 @@ export const studioProductImages = sqliteTable("studio_product_images", {
 export const studioPersonas = sqliteTable("studio_personas", {
   id: text("id").primaryKey(),
   userId: text("user_id").notNull().references(() => user.id),
+  organizationId: text("organization_id").references(() => canvasOrganizationSettings.organizationId, { onDelete: 'cascade' }),
+  createdByUserId: text("created_by_user_id").references(() => user.id, { onDelete: 'set null' }),
+  visibility: text("visibility").notNull().default('organization'),
   name: text("name").notNull(),
   description: text("description"),
   thumbnailPath: text("thumbnail_path"),
@@ -678,6 +686,8 @@ export const studioPersonas = sqliteTable("studio_personas", {
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
 }, (table) => ({
   userIdx: index("idx_studio_personas_user").on(table.userId),
+  organizationIdx: index("idx_studio_personas_organization").on(table.organizationId, table.createdAt),
+  creatorIdx: index("idx_studio_personas_creator").on(table.createdByUserId, table.createdAt),
   createdIdx: index("idx_studio_personas_created").on(table.createdAt),
 }));
 
@@ -701,6 +711,9 @@ export const studioPersonaImages = sqliteTable("studio_persona_images", {
 export const studioStyles = sqliteTable("studio_styles", {
   id: text("id").primaryKey(),
   userId: text("user_id").notNull().references(() => user.id),
+  organizationId: text("organization_id").references(() => canvasOrganizationSettings.organizationId, { onDelete: 'cascade' }),
+  createdByUserId: text("created_by_user_id").references(() => user.id, { onDelete: 'set null' }),
+  visibility: text("visibility").notNull().default('organization'),
   name: text("name").notNull(),
   description: text("description"),
   thumbnailPath: text("thumbnail_path"),
@@ -709,6 +722,8 @@ export const studioStyles = sqliteTable("studio_styles", {
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
 }, (table) => ({
   userIdx: index("idx_studio_styles_user").on(table.userId),
+  organizationIdx: index("idx_studio_styles_organization").on(table.organizationId, table.createdAt),
+  creatorIdx: index("idx_studio_styles_creator").on(table.createdByUserId, table.createdAt),
   createdIdx: index("idx_studio_styles_created").on(table.createdAt),
 }));
 
@@ -732,6 +747,9 @@ export const studioStyleImages = sqliteTable("studio_style_images", {
 export const studioPresets = sqliteTable("studio_presets", {
   id: text("id").primaryKey(),
   userId: text("user_id").references(() => user.id, { onDelete: 'cascade' }),
+  organizationId: text("organization_id").references(() => canvasOrganizationSettings.organizationId, { onDelete: 'cascade' }),
+  createdByUserId: text("created_by_user_id").references(() => user.id, { onDelete: 'set null' }),
+  visibility: text("visibility").notNull().default('user'),
   isDefault: integer("is_default", { mode: "boolean" }).notNull().default(false),
   name: text("name").notNull(),
   description: text("description"),
@@ -743,6 +761,8 @@ export const studioPresets = sqliteTable("studio_presets", {
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
 }, (table) => ({
   userIdx: index("idx_studio_presets_user").on(table.userId),
+  organizationIdx: index("idx_studio_presets_organization").on(table.organizationId, table.createdAt),
+  creatorIdx: index("idx_studio_presets_creator").on(table.createdByUserId, table.createdAt),
   categoryIdx: index("idx_studio_presets_category").on(table.category),
   createdIdx: index("idx_studio_presets_created").on(table.createdAt),
 }));
@@ -750,6 +770,9 @@ export const studioPresets = sqliteTable("studio_presets", {
 export const studioGenerations = sqliteTable("studio_generations", {
   id: text("id").primaryKey(),
   userId: text("user_id").notNull().references(() => user.id),
+  organizationId: text("organization_id").references(() => canvasOrganizationSettings.organizationId, { onDelete: 'cascade' }),
+  createdByUserId: text("created_by_user_id").references(() => user.id, { onDelete: 'set null' }),
+  workspaceId: text("workspace_id").references(() => canvasWorkspaces.id, { onDelete: 'set null' }),
   mode: text("mode").notNull(),
   prompt: text("prompt"),
   rawPrompt: text("raw_prompt"),
@@ -766,6 +789,9 @@ export const studioGenerations = sqliteTable("studio_generations", {
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
 }, (table) => ({
   userIdx: index("idx_studio_generations_user").on(table.userId),
+  organizationIdx: index("idx_studio_generations_organization").on(table.organizationId, table.createdAt),
+  creatorIdx: index("idx_studio_generations_creator").on(table.createdByUserId, table.createdAt),
+  workspaceIdx: index("idx_studio_generations_workspace").on(table.workspaceId, table.createdAt),
   statusIdx: index("idx_studio_generations_status").on(table.status),
   createdIdx: index("idx_studio_generations_created").on(table.createdAt),
 }));
@@ -773,6 +799,9 @@ export const studioGenerations = sqliteTable("studio_generations", {
 export const studioGenerationOutputs = sqliteTable("studio_generation_outputs", {
   id: text("id").primaryKey(),
   generationId: text("generation_id").notNull().references(() => studioGenerations.id, { onDelete: 'cascade' }),
+  organizationId: text("organization_id").references(() => canvasOrganizationSettings.organizationId, { onDelete: 'cascade' }),
+  createdByUserId: text("created_by_user_id").references(() => user.id, { onDelete: 'set null' }),
+  workspaceId: text("workspace_id").references(() => canvasWorkspaces.id, { onDelete: 'set null' }),
   variationIndex: integer("variation_index").notNull(),
   type: text("type").notNull(),
   filePath: text("file_path").notNull(),
@@ -787,6 +816,9 @@ export const studioGenerationOutputs = sqliteTable("studio_generation_outputs", 
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 }, (table) => ({
   generationIdx: index("idx_studio_gen_outputs_generation").on(table.generationId),
+  organizationIdx: index("idx_studio_gen_outputs_organization").on(table.organizationId, table.createdAt),
+  creatorIdx: index("idx_studio_gen_outputs_creator").on(table.createdByUserId, table.createdAt),
+  workspaceIdx: index("idx_studio_gen_outputs_workspace").on(table.workspaceId, table.createdAt),
   createdIdx: index("idx_studio_gen_outputs_created").on(table.createdAt),
 }));
 
@@ -820,6 +852,9 @@ export const studioGenerationStyles = sqliteTable("studio_generation_styles", {
 export const studioBulkJobs = sqliteTable("studio_bulk_jobs", {
   id: text("id").primaryKey(),
   userId: text("user_id").notNull().references(() => user.id),
+  organizationId: text("organization_id").references(() => canvasOrganizationSettings.organizationId, { onDelete: 'cascade' }),
+  createdByUserId: text("created_by_user_id").references(() => user.id, { onDelete: 'set null' }),
+  workspaceId: text("workspace_id").references(() => canvasWorkspaces.id, { onDelete: 'set null' }),
   name: text("name"),
   studioPresetId: text("studio_preset_id").references(() => studioPresets.id, { onDelete: 'set null' }),
   additionalPrompt: text("additional_prompt"),
@@ -833,6 +868,9 @@ export const studioBulkJobs = sqliteTable("studio_bulk_jobs", {
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
 }, (table) => ({
   userIdx: index("idx_studio_bulk_jobs_user").on(table.userId),
+  organizationIdx: index("idx_studio_bulk_jobs_organization").on(table.organizationId, table.createdAt),
+  creatorIdx: index("idx_studio_bulk_jobs_creator").on(table.createdByUserId, table.createdAt),
+  workspaceIdx: index("idx_studio_bulk_jobs_workspace").on(table.workspaceId, table.createdAt),
   statusIdx: index("idx_studio_bulk_jobs_status").on(table.status),
   createdIdx: index("idx_studio_bulk_jobs_created").on(table.createdAt),
 }));
