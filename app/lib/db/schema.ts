@@ -128,7 +128,7 @@ export const canvasWorkspaces = sqliteTable("canvas_workspaces", {
 export const workspaceTrashEntries = sqliteTable("workspace_trash_entries", {
   id: text("id").primaryKey(),
   organizationId: text("organization_id"),
-  workspaceId: text("workspace_id").notNull(),
+  workspaceId: text("workspace_id").notNull().references(() => canvasWorkspaces.id, { onDelete: 'cascade' }),
   workspaceType: text("workspace_type").notNull(),
   ownerUserId: text("owner_user_id"),
   originalPath: text("original_path").notNull(),

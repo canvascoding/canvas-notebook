@@ -43,6 +43,41 @@ async function main() {
     const sqlite = new Database(path.join(dataRoot, 'sqlite.db'));
     try {
       runMigrations(sqlite);
+      sqlite.exec(`
+        INSERT INTO user (id, name, email, email_verified, created_at, updated_at)
+        VALUES ('user-admin', 'Admin', 'admin@example.test', 1, 1767225600000, 1767225600000);
+
+        INSERT INTO canvas_organization_settings (
+          organization_id,
+          owner_user_id,
+          deployment_mode,
+          team_features_enabled,
+          created_at,
+          updated_at
+        )
+        VALUES ('org-trash', 'user-admin', 'team', 1, 1767225600000, 1767225600000);
+
+        INSERT INTO canvas_workspaces (
+          id,
+          organization_id,
+          type,
+          root_relative_path,
+          display_name,
+          status,
+          created_at,
+          updated_at
+        )
+        VALUES (
+          'team-ws',
+          'org-trash',
+          'team',
+          'workspaces/team/org-trash/files',
+          'Team',
+          'active',
+          1767225600000,
+          1767225600000
+        );
+      `);
     } finally {
       sqlite.close();
     }

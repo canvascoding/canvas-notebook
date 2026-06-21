@@ -176,7 +176,12 @@ async function movePath(sourcePath: string, destinationPath: string, recursive: 
       throw error;
     }
     await fs.cp(sourcePath, destinationPath, { recursive, force: false, errorOnExist: true });
-    await fs.rm(sourcePath, { recursive, force: false });
+    try {
+      await fs.rm(sourcePath, { recursive, force: false });
+    } catch (rmError) {
+      await fs.rm(destinationPath, { recursive: true, force: true }).catch(() => undefined);
+      throw rmError;
+    }
   }
 }
 

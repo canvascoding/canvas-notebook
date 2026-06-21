@@ -150,7 +150,8 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       expires_at INTEGER NOT NULL,
       restored_at INTEGER,
       purged_at INTEGER,
-      metadata_json TEXT
+      metadata_json TEXT,
+      FOREIGN KEY (workspace_id) REFERENCES canvas_workspaces(id) ON DELETE CASCADE
     );
 
     CREATE TABLE IF NOT EXISTS organization_user_permissions (
