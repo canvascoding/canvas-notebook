@@ -1600,7 +1600,8 @@ async function listStudioGenerationCreators(userId: string) {
     createdByUserId: studioGenerations.createdByUserId,
   })
     .from(studioGenerations)
-    .where(generationVisibilityCondition(userId));
+    .where(generationVisibilityCondition(userId))
+    .groupBy(studioGenerations.userId, studioGenerations.createdByUserId);
 
   const creatorIds = [...new Set(
     rows
@@ -1644,11 +1645,12 @@ export async function listStudioGenerations(userId: string, options: ListStudioG
     query = query.offset(offset);
   }
 
-  const [generations, totalResult] = await Promise.all([
+  const [generations, totalResult, creators] = await Promise.all([
     query,
     db.select({ count: count() })
       .from(studioGenerations)
       .where(visibility),
+    listStudioGenerationCreators(userId),
   ]);
 
   const results = await Promise.all(generations.map(async (gen) => {
@@ -1682,7 +1684,7 @@ export async function listStudioGenerations(userId: string, options: ListStudioG
 
   return {
     generations: results,
-    creators: await listStudioGenerationCreators(userId),
+    creators,
     total: totalResult[0]?.count ?? results.length,
     limit: limit ?? null,
     offset: offset ?? 0,
@@ -1733,7 +1735,7 @@ export async function deleteStudioOutput(outputId: string, userId: string): Prom
   })
     .from(studioGenerationOutputs)
     .innerJoin(studioGenerations, eq(studioGenerationOutputs.generationId, studioGenerations.id))
-    .where(and(eq(studioGenerationOutputs.id, outputId), generationVisibilityCondition(userId)))
+    .where(and(eq(studioGenerationOutputs.id, outputId), eq(studioGenerations.userId, userId)))
     .limit(1);
 
   if (!outputRow) {
@@ -1766,7 +1768,7 @@ export async function deleteStudioOutput(outputId: string, userId: string): Prom
 export async function deleteStudioGeneration(generationId: string, userId: string) {
   const [generation] = await db.select()
     .from(studioGenerations)
-    .where(and(eq(studioGenerations.id, generationId), generationVisibilityCondition(userId)));
+    .where(and(eq(studioGenerations.id, generationId), eq(studioGenerations.userId, userId)));
 
   if (!generation) {
     throw new StudioServiceError('Generation not found', 'Generierung nicht gefunden', 'NOT_FOUND');

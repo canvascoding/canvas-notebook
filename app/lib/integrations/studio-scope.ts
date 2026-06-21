@@ -63,6 +63,7 @@ export function studioVisibilityCondition(
 ): SQL {
   if (scope.organizationWide && scope.organizationId) {
     const organizationVisible = withCreator(eq(columns.organizationId, scope.organizationId), columns, creatorUserId);
+    // Rows that could not be backfilled into an organization remain personal-only.
     const ownLegacy = withCreator(and(isNull(columns.organizationId), eq(columns.userId, scope.actorUserId))!, columns, creatorUserId);
     return or(organizationVisible, ownLegacy)!;
   }

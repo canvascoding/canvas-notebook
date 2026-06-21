@@ -52,6 +52,10 @@ function insertGeneration(sqlite: Database.Database, id: string, userId: string,
   `).run(`out-${id}`, id, organizationId, userId, `${id}.png`, `${id}.png`, `/api/studio/media/studio/outputs/${id}.png`, now);
 }
 
+function readCount(sqlite: Database.Database, statement: string, id: string) {
+  return (sqlite.prepare(statement).get(id) as { count: number }).count;
+}
+
 async function main() {
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'canvas-studio-organization-scope-'));
   const dataRoot = path.join(tempRoot, 'data');
@@ -84,11 +88,14 @@ async function main() {
 
     const {
       canReadStudioOutputPath,
+      deleteStudioGeneration,
+      deleteStudioOutput,
       getStudioGeneration,
       getStudioOutputForUser,
       listStudioGenerations,
     } = await import('../app/lib/integrations/studio-generation-service');
-    const { listProducts } = await import('../app/lib/integrations/studio-product-service');
+    const { deleteProduct, listProducts } = await import('../app/lib/integrations/studio-product-service');
+    const { StudioServiceError } = await import('../app/lib/integrations/studio-errors');
 
     const memberProducts = await listProducts('user-member');
     assert.deepEqual(memberProducts.map((product) => product.id).sort(), ['product-member', 'product-owner']);
@@ -110,6 +117,24 @@ async function main() {
     assert.equal(visibleOwnerOutput?.generationId, 'gen-owner');
     assert.equal(await canReadStudioOutputPath('studio/outputs/gen-owner.png', 'user-member'), true);
     assert.equal(await canReadStudioOutputPath('studio/outputs/gen-owner.png', 'user-outsider'), false);
+
+    await assert.rejects(
+      () => deleteProduct('product-owner', 'user-member'),
+      (error) => error instanceof StudioServiceError && error.code === 'NOT_FOUND',
+    );
+    assert.equal(readCount(sqlite, 'SELECT count(*) AS count FROM studio_products WHERE id = ?', 'product-owner'), 1);
+
+    await assert.rejects(
+      () => deleteStudioOutput('out-gen-owner', 'user-member'),
+      (error) => error instanceof StudioServiceError && error.code === 'NOT_FOUND',
+    );
+    assert.equal(readCount(sqlite, 'SELECT count(*) AS count FROM studio_generation_outputs WHERE id = ?', 'out-gen-owner'), 1);
+
+    await assert.rejects(
+      () => deleteStudioGeneration('gen-owner', 'user-member'),
+      (error) => error instanceof StudioServiceError && error.code === 'NOT_FOUND',
+    );
+    assert.equal(readCount(sqlite, 'SELECT count(*) AS count FROM studio_generations WHERE id = ?', 'gen-owner'), 1);
   } finally {
     sqlite.close();
     await fs.rm(tempRoot, { recursive: true, force: true });

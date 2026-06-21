@@ -289,7 +289,7 @@ export async function reorderPersonaImages(personaId: string, userId: string, im
 }
 
 export async function deletePersona(personaId: string, userId: string) {
-  const persona = await getVisiblePersona(personaId, userId);
+  const persona = await getOwnedPersona(personaId, userId);
   if (!persona) {
     throw new StudioServiceError('Persona not found', 'Persona nicht gefunden', 'NOT_FOUND');
   }

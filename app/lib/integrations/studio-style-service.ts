@@ -289,7 +289,7 @@ export async function reorderStyleImages(styleId: string, userId: string, imageO
 }
 
 export async function deleteStyle(styleId: string, userId: string) {
-  const style = await getVisibleStyle(styleId, userId);
+  const style = await getOwnedStyle(styleId, userId);
   if (!style) {
     throw new StudioServiceError('Style not found', 'Style nicht gefunden', 'NOT_FOUND');
   }

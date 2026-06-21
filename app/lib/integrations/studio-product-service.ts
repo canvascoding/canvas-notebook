@@ -289,7 +289,7 @@ export async function reorderProductImages(productId: string, userId: string, im
 }
 
 export async function deleteProduct(productId: string, userId: string) {
-  const product = await getVisibleProduct(productId, userId);
+  const product = await getOwnedProduct(productId, userId);
   if (!product) {
     throw new StudioServiceError('Product not found', 'Produkt nicht gefunden', 'NOT_FOUND');
   }
