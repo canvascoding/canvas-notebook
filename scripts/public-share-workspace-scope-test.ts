@@ -313,7 +313,7 @@ async function main() {
       baseUrl: 'https://notebook.example.test',
     });
     assert.equal(personalAfterDelete.length, 1);
-    assert.equal(personalAfterDelete[0].status, 'missing');
+    assert.equal(personalAfterDelete[0].status, 'revoked');
   } finally {
     sqlite.close();
     await rm(tempRoot, { recursive: true, force: true });

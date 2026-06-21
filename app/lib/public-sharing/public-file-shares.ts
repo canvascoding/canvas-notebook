@@ -326,7 +326,8 @@ function normalizeWorkspacePath(input: string, workspace?: WorkspaceContext | nu
       return relative;
     }
 
-    return resolveWorkspacePath(workspace, raw).relativePath;
+    const resolved = resolveWorkspacePath(workspace, raw);
+    return resolved.relativePath;
   }
 
   if (raw === '/data/workspace' || raw.startsWith('/data/workspace/')) {
@@ -859,7 +860,7 @@ export async function syncPublicSharesAfterDelete(paths: string[], workspace?: W
   await Promise.all(rows.map(async (row) => {
     if (!workspaceMatches(row, resolvedWorkspace)) return;
     if (!normalized.some((targetPath) => affectedByPath(row.workspacePath, targetPath))) return;
-    await updateShare(row, { status: 'missing', revokedAt: new Date(), revokedReason: 'target_deleted' });
+    await updateShare(row, { status: 'revoked', revokedAt: new Date(), revokedReason: 'target_deleted' });
   }));
 }
 
