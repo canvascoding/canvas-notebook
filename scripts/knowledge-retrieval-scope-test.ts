@@ -45,7 +45,10 @@ function workspace(input: {
   };
 }
 
-function organizationPermission(role: OrganizationPermissionSnapshot['role']): OrganizationPermissionSnapshot {
+function organizationPermission(
+  role: OrganizationPermissionSnapshot['role'],
+  overrides: Partial<OrganizationPermissionSnapshot> = {},
+): OrganizationPermissionSnapshot {
   return {
     role,
     status: 'active',
@@ -60,6 +63,7 @@ function organizationPermission(role: OrganizationPermissionSnapshot['role']): O
     canMigrateDatabase: role === 'owner' || role === 'admin',
     canEnableKnowledge: role === 'owner' || role === 'admin',
     canRecoverWorkspaces: role === 'owner' || role === 'admin',
+    ...overrides,
   };
 }
 
@@ -139,6 +143,7 @@ async function main() {
       ['src-team-a', 'team_workspace', 'team', 'ws-team-a', null, 'allow', 'clean', null],
       ['src-team-hidden', 'team_workspace', 'team', 'ws-team-hidden', null, 'allow', 'clean', null],
       ['src-org-a', 'organization', 'organization', null, null, 'allow', 'clean', null],
+      ['src-flagged', 'team_workspace', 'team', 'ws-team-a', null, 'allow', 'flagged', null],
       ['src-blocked', 'team_workspace', 'team', 'ws-team-a', null, 'block', 'blocked', null],
       ['src-revoked', 'team_workspace', 'team', 'ws-team-a', null, 'allow', 'clean', Date.now()],
     ] as const;
@@ -249,6 +254,28 @@ async function main() {
       .orderBy(knowledgeChunks.id);
 
     assert.deepEqual(personalOnlyAdminRows.map((row) => row.id), ['chunk-src-org-a', 'chunk-src-personal-a']);
+
+    const adminWithoutKnowledgeScope = resolveKnowledgeRetrievalScope({
+      actorUserId: 'user-a',
+      workspaces: [personalWorkspace, teamWorkspace],
+      organizationPermission: organizationPermission('admin', { canEnableKnowledge: false }),
+      includeOrganizationKnowledge: true,
+    });
+    const adminWithoutKnowledgeRows = await db.select({ id: knowledgeChunks.id })
+      .from(knowledgeChunks)
+      .where(knowledgeRetrievalCondition(adminWithoutKnowledgeScope, {
+        organizationId: knowledgeChunks.organizationId,
+        workspaceId: knowledgeChunks.workspaceId,
+        userId: knowledgeChunks.userId,
+        knowledgeStore: knowledgeChunks.knowledgeStore,
+        scanStatus: knowledgeChunks.scanStatus,
+        policyDecision: knowledgeChunks.policyDecision,
+        embeddingIndexStatus: knowledgeChunks.embeddingIndexStatus,
+        revokedAt: knowledgeChunks.revokedAt,
+      }))
+      .orderBy(knowledgeChunks.id);
+
+    assert.deepEqual(adminWithoutKnowledgeRows.map((row) => row.id), ['chunk-src-personal-a', 'chunk-src-team-a']);
   } finally {
     await fs.rm(tempRoot, { recursive: true, force: true });
   }

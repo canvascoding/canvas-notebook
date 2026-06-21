@@ -89,7 +89,7 @@ export function knowledgeSourceScopeForWorkspace(workspace: WorkspaceContext): K
 }
 
 function canUseOrganizationKnowledge(permission?: OrganizationPermissionSnapshot | null): boolean {
-  return permission?.status === 'active' && (permission.role === 'owner' || permission.role === 'admin');
+  return permission?.status === 'active' && permission.canEnableKnowledge === true;
 }
 
 export function resolveKnowledgeRetrievalScope(input: {
@@ -173,7 +173,7 @@ export function knowledgeRetrievalCondition(scope: KnowledgeRetrievalScope, colu
   return and(
     isNull(columns.revokedAt),
     inArray(columns.policyDecision, ['allow', 'redact'] satisfies KnowledgePolicyDecision[]),
-    inArray(columns.scanStatus, ['clean', 'flagged'] satisfies KnowledgeScanStatus[]),
+    inArray(columns.scanStatus, ['clean'] satisfies KnowledgeScanStatus[]),
     ne(columns.embeddingIndexStatus, 'revoked' satisfies KnowledgeEmbeddingIndexStatus),
     or(...scopeConditions)!,
   )!;
