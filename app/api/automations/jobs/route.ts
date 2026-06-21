@@ -7,6 +7,7 @@ import {
   requireAutomationSession,
 } from '@/app/lib/automations/api';
 import { createAutomationJob, listAutomationJobs } from '@/app/lib/automations/store';
+import { recordAuditEvent } from '@/app/lib/audit/audit-service';
 
 export async function GET(request: NextRequest) {
   const { session, response } = await requireAutomationSession(request);
@@ -38,6 +39,29 @@ export async function POST(request: NextRequest) {
     const payload = await request.json();
     assertCanCreateRequestedAutomation(payload, session.user);
     const job = await createAutomationJob(payload, session.user);
+    await recordAuditEvent({
+      organizationId: job.organizationId,
+      workspaceId: job.workspaceId,
+      userId: session.user.id,
+      agentId: job.agentId,
+      source: 'automations',
+      eventType: 'automation',
+      entityType: 'automation_job',
+      entityId: job.id,
+      action: 'automation_job.create',
+      status: 'success',
+      summary: `Automation job ${job.id} created.`,
+      metadata: {
+        scope: job.scope,
+        jobScope: job.jobScope,
+        workspaceType: job.workspaceType,
+        scheduleKind: job.schedule.kind,
+        status: job.status,
+        responsibleUserId: job.responsibleUserId,
+        serviceActorId: job.serviceActorId,
+        deliveryMode: job.deliveryMode,
+      },
+    });
     return NextResponse.json({ success: true, data: job }, { status: 201 });
   } catch (error) {
     const status = getAutomationRouteErrorStatus(error);

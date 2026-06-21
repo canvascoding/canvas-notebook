@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+import { recordAuditEvent } from '@/app/lib/audit/audit-service';
 import { requireMigrationRestorePermission } from '@/app/lib/migration/auth';
 import {
   scheduleMigrationRestartIfSupported,
@@ -48,6 +49,28 @@ export async function POST(request: NextRequest) {
       },
     });
     const restartScheduled = scheduleMigrationRestartIfSupported();
+    await recordAuditEvent({
+      organizationId: admin.state.organizationId,
+      userId: admin.session.user.id,
+      source: 'migration',
+      eventType: 'admin',
+      entityType: 'migration_restore',
+      entityId: pending.id,
+      action: 'migration_restore.stage',
+      status: restartScheduled ? 'queued' : 'success',
+      summary: `Migration restore ${pending.id} staged.`,
+      metadata: {
+        uploadId: upload.id,
+        components: pending.components,
+        invalidateSessions: pending.invalidateSessions,
+        pauseAutomations: pending.pauseAutomations,
+        clearOAuthTokens: pending.clearOAuthTokens,
+        preserveTargetInstanceAndLicense: pending.preserveTargetInstanceAndLicense,
+        restartScheduled,
+      },
+      artifactRef: pending.archivePath,
+      inputHash: upload.archiveSha256 ?? null,
+    });
     return NextResponse.json({ success: true, pending, restartScheduled });
   } catch (error) {
     console.error('[Migration Restore] Failed to stage restore:', error);

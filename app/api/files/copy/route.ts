@@ -1,4 +1,5 @@
 import { NextRequest } from 'next/server';
+import { recordAuditEvent } from '@/app/lib/audit/audit-service';
 import { auth } from '@/app/lib/auth';
 import { batchCopyBetweenWorkspaces } from '@/app/lib/filesystem/workspace-files';
 import { isProtectedAppOutputFolder } from '@/app/lib/filesystem/app-output-folders';
@@ -89,6 +90,31 @@ export async function POST(request: NextRequest) {
     });
 
     invalidateWorkspaceFileViews({ fileOptions: targetFileOptions, subtreeDirs: [destDir] });
+    await recordAuditEvent({
+      organizationId: targetWorkspaceResult.workspace.organizationId,
+      workspaceId: targetWorkspaceResult.workspace.workspaceId,
+      userId: session.user.id,
+      source: 'files',
+      eventType: 'file',
+      entityType: 'workspace_path',
+      entityId: destDir,
+      action: 'file.copy',
+      status: result.failed.length > 0 ? 'failure' : 'success',
+      summary: `${result.copied.length} path(s) copied; ${result.failed.length} failed.`,
+      metadata: {
+        sources,
+        destDir,
+        copied: result.copied,
+        failed: result.failed,
+        skipped: result.skipped,
+        sourceWorkspaceId: sourceWorkspaceResult.workspace.workspaceId,
+        sourceWorkspaceType: sourceWorkspaceResult.workspace.workspaceType,
+        targetWorkspaceId: targetWorkspaceResult.workspace.workspaceId,
+        targetWorkspaceType: targetWorkspaceResult.workspace.workspaceType,
+        overwrite,
+        renameOnCollision,
+      },
+    });
 
     return jsonSuccess({
       copied: result.copied,

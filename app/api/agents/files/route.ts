@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+import { recordAuditEvent } from '@/app/lib/audit/audit-service';
 import { auth } from '@/app/lib/auth';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 import {
@@ -117,6 +118,26 @@ export async function PUT(request: NextRequest) {
     }
 
     const content = await writeManagedAgentFile(fileName, payload.content, agentId, { userId: session.user.id });
+    const normalizedAgentId = normalizeManagedAgentId(agentId);
+    await recordAuditEvent({
+      userId: session.user.id,
+      agentId: normalizedAgentId,
+      source: 'agents',
+      eventType: 'agent',
+      entityType: 'agent_managed_file',
+      entityId: `${normalizedAgentId}:${fileName}`,
+      action: 'agent_file.write',
+      status: 'success',
+      summary: `Managed agent file ${fileName} written for ${normalizedAgentId}.`,
+      metadata: {
+        fileName,
+        contentLength: payload.content.length,
+      },
+      input: {
+        fileName,
+        contentLength: payload.content.length,
+      },
+    });
     return NextResponse.json({
       success: true,
       data: {
@@ -179,6 +200,21 @@ export async function POST(request: NextRequest) {
       }
 
       const content = await resetManagedAgentFile(fileName, agentId, { userId: session.user.id });
+      const normalizedAgentId = normalizeManagedAgentId(agentId);
+      await recordAuditEvent({
+        userId: session.user.id,
+        agentId: normalizedAgentId,
+        source: 'agents',
+        eventType: 'agent',
+        entityType: 'agent_managed_file',
+        entityId: `${normalizedAgentId}:${fileName}`,
+        action: 'agent_file.reset',
+        status: 'success',
+        summary: `Managed agent file ${fileName} reset for ${normalizedAgentId}.`,
+        metadata: {
+          fileName,
+        },
+      });
 
       return NextResponse.json({
         success: true,
@@ -199,6 +235,21 @@ export async function POST(request: NextRequest) {
         const content = await resetManagedAgentFile(fileName, agentId, { userId: session.user.id });
         results.push({ fileName, content });
       }
+      const normalizedAgentId = normalizeManagedAgentId(agentId);
+      await recordAuditEvent({
+        userId: session.user.id,
+        agentId: normalizedAgentId,
+        source: 'agents',
+        eventType: 'agent',
+        entityType: 'agent_managed_file',
+        entityId: normalizedAgentId,
+        action: 'agent_files.reset_all',
+        status: 'success',
+        summary: `Managed agent files reset for ${normalizedAgentId}.`,
+        metadata: {
+          fileNames,
+        },
+      });
 
       return NextResponse.json({
         success: true,

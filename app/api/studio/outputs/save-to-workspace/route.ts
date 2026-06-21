@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import path from 'node:path';
+import { recordAuditEvent } from '@/app/lib/audit/audit-service';
 import { auth } from '@/app/lib/auth';
 import { readOutputFile } from '@/app/lib/integrations/studio-workspace';
 import { getFileStats, writeFile } from '@/app/lib/filesystem/workspace-files';
@@ -103,6 +104,25 @@ export async function POST(request: NextRequest) {
       await writeFile(destinationPath, buffer, targetFileOptions);
       savedPaths.push(destinationPath);
     }
+    await recordAuditEvent({
+      organizationId: targetWorkspaceResult.workspace.organizationId,
+      workspaceId: targetWorkspaceResult.workspace.workspaceId,
+      userId: session.user.id,
+      source: 'studio',
+      eventType: 'file',
+      entityType: 'studio_generation_output',
+      entityId: uniqueOutputIds.join(','),
+      action: 'studio_output.copy_to_workspace',
+      status: 'success',
+      summary: `${savedPaths.length} studio output(s) copied to workspace.`,
+      metadata: {
+        outputIds: uniqueOutputIds,
+        targetPath,
+        savedPaths,
+        targetWorkspaceId: targetWorkspaceResult.workspace.workspaceId,
+        targetWorkspaceType: targetWorkspaceResult.workspace.workspaceType,
+      },
+    });
 
     return NextResponse.json({
       success: true,

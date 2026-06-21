@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import path from 'path';
+import { recordAuditEvent } from '@/app/lib/audit/audit-service';
 import { writeFile, createDirectory } from '@/app/lib/filesystem/workspace-files';
 import { clearFileTreeCache } from '@/app/lib/utils/file-tree-cache';
 import { invalidateFileReferenceCache } from '@/app/lib/filesystem/file-reference-cache';
@@ -151,6 +152,26 @@ export async function POST(request: NextRequest) {
     await syncPublicSharesAfterWrite(uploadedPaths, workspaceResult.workspace);
     clearFileTreeCache(fileOptions.workspace?.workspaceId);
     invalidateFileReferenceCache(fileOptions);
+    await recordAuditEvent({
+      organizationId: workspaceResult.workspace.organizationId,
+      workspaceId: workspaceResult.workspace.workspaceId,
+      userId: workspaceResult.session.user.id,
+      source: 'files',
+      eventType: 'file',
+      entityType: 'workspace_path',
+      entityId: targetDir,
+      action: 'file.upload',
+      status: 'success',
+      summary: `${uploadedPaths.length} file(s) uploaded.`,
+      metadata: {
+        targetDir,
+        uploadedPaths,
+        uploadedFiles,
+        totalSize,
+        workspaceType: workspaceResult.workspace.workspaceType,
+        converted: Boolean(convertParamsList),
+      },
+    });
 
     return NextResponse.json({ success: true, count: files.length, files: uploadedFiles });
   } catch (error) {

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { recordAuditEvent } from '@/app/lib/audit/audit-service';
 import { auth } from '@/app/lib/auth';
 import { createStudioGeneration, runStudioGeneration, type StudioGenerateRequest } from '@/app/lib/integrations/studio-generation-service';
 import { StudioServiceError } from '@/app/lib/integrations/studio-errors';
@@ -27,6 +28,31 @@ export async function POST(request: NextRequest) {
     const { generationId, mode, prompt } = await createStudioGeneration(session.user.id, body);
     runStudioGeneration(generationId).catch((err) => {
       console.error('[Studio Generate] Background generation failed:', err);
+    });
+    await recordAuditEvent({
+      userId: session.user.id,
+      source: 'studio',
+      eventType: 'studio',
+      entityType: 'studio_generation',
+      entityId: generationId,
+      action: 'studio_generation.create',
+      status: 'queued',
+      summary: `Studio generation ${generationId} queued.`,
+      metadata: {
+        mode,
+        promptLength: prompt.length,
+        productCount: body.product_ids?.length ?? 0,
+        personaCount: body.persona_ids?.length ?? 0,
+        styleCount: body.style_ids?.length ?? 0,
+        referenceCount: (body.extra_reference_urls?.length ?? 0) + (body.video_reference_urls?.length ?? 0) + (body.audio_reference_urls?.length ?? 0),
+      },
+      input: {
+        mode,
+        prompt,
+        productIds: body.product_ids,
+        personaIds: body.persona_ids,
+        styleIds: body.style_ids,
+      },
     });
     return NextResponse.json({
       success: true,

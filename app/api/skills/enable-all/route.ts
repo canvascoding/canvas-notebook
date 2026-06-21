@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { recordAuditEvent } from '@/app/lib/audit/audit-service';
 import { requireOrganizationPermission } from '@/app/lib/organization/permissions';
 import { loadSkillsFromDisk } from '@/app/lib/skills/skill-loader';
 import { writeEnabledSkillsForScope } from '@/app/lib/skills/skill-settings';
@@ -20,6 +21,19 @@ export async function POST(request: Request) {
     await writeEnabledSkillsForScope([], {
       scope,
       updatedBy: skillPermission.session.user.email || skillPermission.session.user.id,
+    });
+    await recordAuditEvent({
+      organizationId: skillPermission.state.organizationId,
+      userId: skillPermission.session.user.id,
+      source: 'skills',
+      eventType: 'plugin',
+      entityType: 'canvas_skill_settings',
+      action: 'skills.enable_all',
+      status: 'success',
+      summary: 'All skills enabled.',
+      metadata: {
+        skillCount: allSkillNames.length,
+      },
     });
     
     return NextResponse.json({

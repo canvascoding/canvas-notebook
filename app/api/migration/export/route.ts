@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+import { recordAuditEvent } from '@/app/lib/audit/audit-service';
 import { requireMigrationExportPermission } from '@/app/lib/migration/auth';
 import { createMigrationExportJob, normalizeMigrationExportOptions } from '@/app/lib/migration/export-service';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
@@ -27,6 +28,25 @@ export async function POST(request: NextRequest) {
         createdByUserId: admin.session.user.id,
         createdByEmail: admin.session.user.email,
         createdByRole: admin.permission.role,
+      },
+    });
+    await recordAuditEvent({
+      organizationId: admin.state.organizationId,
+      userId: admin.session.user.id,
+      source: 'migration',
+      eventType: 'admin',
+      entityType: 'migration_export',
+      entityId: job.id,
+      action: 'migration_export.create',
+      status: 'queued',
+      summary: `Migration export ${job.id} queued with ${job.profile} profile.`,
+      metadata: {
+        profile: job.profile,
+        components: job.components,
+        selection: job.selection,
+        fileName: job.fileName,
+        databaseProvider: admin.state.databaseProvider,
+        teamFeaturesEnabled: admin.state.teamFeaturesEnabled,
       },
     });
     return NextResponse.json({ success: true, job });

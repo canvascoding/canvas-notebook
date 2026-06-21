@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 
+import { recordAuditEvent } from '@/app/lib/audit/audit-service';
 import { requireOrganizationPermission } from '@/app/lib/organization/permissions';
 import { installCanvasSkillFromStore } from '@/app/lib/skills/canvas-skill-store';
 
@@ -38,6 +39,23 @@ export async function POST(request: Request) {
     if (!result.success) {
       return NextResponse.json(result, { status: 400 });
     }
+    await recordAuditEvent({
+      organizationId: skillPermission.state.organizationId,
+      userId: skillPermission.session.user.id,
+      source: 'skills',
+      eventType: 'plugin',
+      entityType: 'canvas_skill',
+      entityId: body.name.trim(),
+      action: 'skill.install_from_store',
+      status: 'success',
+      summary: `Skill ${body.name.trim()} installed from store.`,
+      metadata: {
+        skillName: body.name.trim(),
+        requestedVersion: typeof body.version === 'string' ? body.version.trim() : null,
+        enable: body.enable !== false,
+        replace: body.replace !== false,
+      },
+    });
 
     return NextResponse.json(result);
   } catch (error) {

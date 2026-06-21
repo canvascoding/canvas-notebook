@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+import { recordAuditEvent } from '@/app/lib/audit/audit-service';
 import { requireMigrationRestorePermission } from '@/app/lib/migration/auth';
 import { createMigrationUpload } from '@/app/lib/migration/upload-service';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
@@ -26,6 +27,23 @@ export async function POST(request: NextRequest) {
       fileName: typeof payload.fileName === 'string' ? payload.fileName : '',
       totalBytes: typeof payload.totalBytes === 'number' ? payload.totalBytes : 0,
       totalParts: typeof payload.totalParts === 'number' ? payload.totalParts : 0,
+    });
+    await recordAuditEvent({
+      organizationId: admin.state.organizationId,
+      userId: admin.session.user.id,
+      source: 'migration',
+      eventType: 'admin',
+      entityType: 'migration_upload',
+      entityId: status.id,
+      action: 'migration_upload.create',
+      status: 'started',
+      summary: `Migration upload ${status.id} created.`,
+      metadata: {
+        fileName: status.fileName,
+        totalBytes: status.totalBytes,
+        totalParts: status.totalParts,
+        databaseProvider: admin.state.databaseProvider,
+      },
     });
     return NextResponse.json({ success: true, upload: status });
   } catch (error) {

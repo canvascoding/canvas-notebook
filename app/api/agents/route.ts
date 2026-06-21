@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+import { recordAuditEvent } from '@/app/lib/audit/audit-service';
 import { auth } from '@/app/lib/auth';
 import {
   createAgentProfile,
@@ -115,7 +116,26 @@ export async function POST(request: NextRequest) {
       relevantSkills: stringArrayValue(payload.relevantSkills),
       relevantConnections: stringArrayValue(payload.relevantConnections),
     });
-    await writeInitialAgentFiles(agent.agentId, managedFilesValue(payload.files), session.user.id);
+    const managedFiles = managedFilesValue(payload.files);
+    await writeInitialAgentFiles(agent.agentId, managedFiles, session.user.id);
+    await recordAuditEvent({
+      userId: session.user.id,
+      agentId: agent.agentId,
+      source: 'agents',
+      eventType: 'agent',
+      entityType: 'agent_profile',
+      entityId: agent.agentId,
+      action: 'agent.create',
+      status: 'success',
+      summary: `Agent ${agent.agentId} created.`,
+      metadata: {
+        name: agent.name,
+        defaultProvider: agent.defaultProvider,
+        defaultModel: agent.defaultModel,
+        defaultThinking: agent.defaultThinking,
+        managedFiles: Object.keys(managedFiles),
+      },
+    });
     return NextResponse.json({ success: true, data: { agent } });
   } catch (error) {
     return NextResponse.json(
@@ -157,6 +177,23 @@ export async function PATCH(request: NextRequest) {
       relevantSkills: Object.hasOwn(payload, 'relevantSkills') ? stringArrayValue(payload.relevantSkills) : undefined,
       relevantConnections: Object.hasOwn(payload, 'relevantConnections') ? stringArrayValue(payload.relevantConnections) : undefined,
     });
+    await recordAuditEvent({
+      userId: session.user.id,
+      agentId: agent.agentId,
+      source: 'agents',
+      eventType: 'agent',
+      entityType: 'agent_profile',
+      entityId: agent.agentId,
+      action: 'agent.update',
+      status: 'success',
+      summary: `Agent ${agent.agentId} updated.`,
+      metadata: {
+        changedFields: Object.keys(payload).filter((key) => key !== 'files'),
+        defaultProvider: agent.defaultProvider,
+        defaultModel: agent.defaultModel,
+        defaultThinking: agent.defaultThinking,
+      },
+    });
     return NextResponse.json({ success: true, data: { agent } });
   } catch (error) {
     return NextResponse.json(
@@ -187,6 +224,17 @@ export async function DELETE(request: NextRequest) {
       throw new Error('agentId is required.');
     }
     await deleteAgentProfile(agentId);
+    await recordAuditEvent({
+      userId: session.user.id,
+      agentId,
+      source: 'agents',
+      eventType: 'agent',
+      entityType: 'agent_profile',
+      entityId: agentId,
+      action: 'agent.delete',
+      status: 'success',
+      summary: `Agent ${agentId} deleted.`,
+    });
     return NextResponse.json({ success: true });
   } catch (error) {
     return NextResponse.json(

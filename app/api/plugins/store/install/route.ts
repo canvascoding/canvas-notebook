@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 
+import { recordAuditEvent } from '@/app/lib/audit/audit-service';
 import { requireOrganizationPermission } from '@/app/lib/organization/permissions';
 import { installCanvasPluginFromStore } from '@/app/lib/plugins/canvas-plugin-store';
 
@@ -38,6 +39,24 @@ export async function POST(request: Request) {
     if (!result.success) {
       return NextResponse.json(result, { status: result.validation?.valid === false ? 400 : 409 });
     }
+    await recordAuditEvent({
+      organizationId: pluginPermission.state.organizationId,
+      userId: pluginPermission.session.user.id,
+      source: 'plugins',
+      eventType: 'plugin',
+      entityType: 'canvas_plugin',
+      entityId: result.plugin?.name ?? body.name.trim(),
+      action: 'plugin.install_from_store',
+      status: 'success',
+      summary: `Plugin ${result.plugin?.name ?? body.name.trim()} installed from store.`,
+      metadata: {
+        pluginName: result.plugin?.name ?? body.name.trim(),
+        requestedVersion: typeof body.version === 'string' ? body.version.trim() : null,
+        installedVersion: result.plugin?.version,
+        enabled: result.plugin?.enabled,
+        replace: body.replace !== false,
+      },
+    });
 
     return NextResponse.json(result);
   } catch (error) {

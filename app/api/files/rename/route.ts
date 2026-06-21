@@ -1,4 +1,5 @@
 import { NextRequest } from 'next/server';
+import { recordAuditEvent } from '@/app/lib/audit/audit-service';
 import { renameFile, checkRenameConflict, type RenameConflictError } from '@/app/lib/filesystem/workspace-files';
 import { isProtectedAppOutputFolder } from '@/app/lib/filesystem/app-output-folders';
 import { syncPublicSharesAfterMove } from '@/app/lib/public-sharing/public-file-shares';
@@ -52,6 +53,24 @@ export async function POST(request: NextRequest) {
         await renameFile(oldPath, newPath, true, fileOptions);
         await syncPublicSharesAfterMove(oldPath, newPath, workspaceResult.workspace);
         invalidateWorkspaceFileViews({ fileOptions, fullTree: true });
+        await recordAuditEvent({
+          organizationId: workspaceResult.workspace.organizationId,
+          workspaceId: workspaceResult.workspace.workspaceId,
+          userId: workspaceResult.session.user.id,
+          source: 'files',
+          eventType: 'file',
+          entityType: 'workspace_path',
+          entityId: newPath,
+          action: 'file.rename',
+          status: 'success',
+          summary: `Path renamed from ${oldPath} to ${newPath}.`,
+          metadata: {
+            oldPath,
+            newPath,
+            overwrite: true,
+            workspaceType: workspaceResult.workspace.workspaceType,
+          },
+        });
         return jsonSuccess();
       }
 
@@ -66,6 +85,24 @@ export async function POST(request: NextRequest) {
     await renameFile(oldPath, newPath, overwrite, fileOptions);
     await syncPublicSharesAfterMove(oldPath, newPath, workspaceResult.workspace);
     invalidateWorkspaceFileViews({ fileOptions, fullTree: true });
+    await recordAuditEvent({
+      organizationId: workspaceResult.workspace.organizationId,
+      workspaceId: workspaceResult.workspace.workspaceId,
+      userId: workspaceResult.session.user.id,
+      source: 'files',
+      eventType: 'file',
+      entityType: 'workspace_path',
+      entityId: newPath,
+      action: 'file.rename',
+      status: 'success',
+      summary: `Path renamed from ${oldPath} to ${newPath}.`,
+      metadata: {
+        oldPath,
+        newPath,
+        overwrite,
+        workspaceType: workspaceResult.workspace.workspaceType,
+      },
+    });
 
     return jsonSuccess();
   } catch (error) {

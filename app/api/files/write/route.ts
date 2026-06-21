@@ -1,4 +1,5 @@
 import { NextRequest } from 'next/server';
+import { recordAuditEvent } from '@/app/lib/audit/audit-service';
 import { writeFile } from '@/app/lib/filesystem/workspace-files';
 import { queuePublicSharesAfterWrite } from '@/app/lib/public-sharing/public-file-shares';
 import { getParentDirectory } from '@/app/lib/files/path-utils';
@@ -41,6 +42,28 @@ export async function POST(request: NextRequest) {
     await writeFile(path, finalContent, fileOptions);
     invalidateWorkspaceFileViews({ fileOptions, subtreeDirs: [getParentDirectory(path)] });
     queuePublicSharesAfterWrite([path], workspaceResult.workspace);
+    await recordAuditEvent({
+      organizationId: workspaceResult.workspace.organizationId,
+      workspaceId: workspaceResult.workspace.workspaceId,
+      userId: workspaceResult.session.user.id,
+      source: 'files',
+      eventType: 'file',
+      entityType: 'workspace_path',
+      entityId: path,
+      action: 'file.write',
+      status: 'success',
+      summary: `File written at ${path}.`,
+      metadata: {
+        path,
+        workspaceType: workspaceResult.workspace.workspaceType,
+        contentBytes: Buffer.isBuffer(finalContent) ? finalContent.byteLength : Buffer.byteLength(finalContent),
+        encoded: typeof content === 'string' && content.startsWith('base64:'),
+      },
+      input: {
+        path,
+        contentLength: typeof content === 'string' ? content.length : null,
+      },
+    });
 
     return jsonSuccess();
   } catch (error) {

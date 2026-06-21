@@ -450,6 +450,29 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       FOREIGN KEY (user_id) REFERENCES user(id) ON DELETE SET NULL
     );
 
+    CREATE TABLE IF NOT EXISTS audit_events (
+      id TEXT PRIMARY KEY NOT NULL,
+      organization_id TEXT,
+      workspace_id TEXT,
+      user_id TEXT,
+      session_id TEXT,
+      agent_id TEXT,
+      source TEXT NOT NULL,
+      event_type TEXT NOT NULL,
+      entity_type TEXT NOT NULL,
+      entity_id TEXT,
+      action TEXT NOT NULL,
+      status TEXT NOT NULL,
+      summary TEXT,
+      metadata_json TEXT,
+      input_hash TEXT,
+      output_hash TEXT,
+      artifact_ref TEXT,
+      secret_ref TEXT,
+      secret_scope TEXT,
+      created_at INTEGER NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS automation_jobs (
       id TEXT PRIMARY KEY NOT NULL,
       name TEXT NOT NULL,
@@ -1252,6 +1275,12 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     CREATE INDEX IF NOT EXISTS idx_knowledge_chunks_user_store ON knowledge_chunks (user_id, knowledge_store, embedding_index_status);
     CREATE INDEX IF NOT EXISTS idx_knowledge_chunks_policy ON knowledge_chunks (policy_decision, scan_status, embedding_index_status);
     CREATE INDEX IF NOT EXISTS idx_knowledge_chunks_content_hash ON knowledge_chunks (content_hash);
+    CREATE INDEX IF NOT EXISTS idx_audit_events_created ON audit_events (created_at);
+    CREATE INDEX IF NOT EXISTS idx_audit_events_org_created ON audit_events (organization_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_audit_events_workspace_created ON audit_events (workspace_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_audit_events_user_created ON audit_events (user_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_audit_events_entity_created ON audit_events (entity_type, entity_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_audit_events_source_action_created ON audit_events (source, action, created_at);
   `);
 
   if (tableExists(sqlite, 'ai_sessions') && tableExists(sqlite, 'ai_messages')) {
