@@ -1677,7 +1677,8 @@
         "password": "Password",
         "ban": "Ban",
         "unban": "Unban",
-        "delete": "Delete"
+        "delete": "Delete",
+        "offboard": "Offboard"
       },
       "fields": {
         "name": "Name",
@@ -1714,13 +1715,35 @@
         "description": "{email} will be permanently deleted with sessions and login accounts. This cannot be undone.",
         "submit": "Delete permanently"
       },
+      "offboardingDialog": {
+        "title": "Offboard user",
+        "description": "{email} will be archived instead of deleted. Sessions and credentials are revoked, automations are paused, and the personal workspace is locked for recovery-only access.",
+        "loading": "Running offboarding preflight...",
+        "empty": "No preflight result is available.",
+        "summaryTitle": "Preflight summary",
+        "blockers": "Blockers",
+        "warnings": "Warnings",
+        "info": "Notes",
+        "reason": "Reason",
+        "reasonPlaceholder": "Optional offboarding reason",
+        "acknowledgeWarnings": "I reviewed the warnings and understand that affected automations, credentials, to-dos, and workspaces will be changed.",
+        "blockedHint": "Resolve all blockers before this user can be offboarded.",
+        "submit": "Archive and revoke access",
+        "summary": {
+          "sessions": "{count} active sessions",
+          "automations": "{count} affected automations",
+          "todos": "{count} assigned open to-dos",
+          "credentials": "{count} login or email credentials"
+        }
+      },
       "messages": {
         "created": "{email} was created.",
         "roleUpdated": "Role for {email} was updated.",
         "passwordUpdated": "Password for {email} was updated.",
         "banned": "{email} was banned.",
         "unbanned": "{email} was unbanned.",
-        "deleted": "{email} was deleted."
+        "deleted": "{email} was deleted.",
+        "offboarded": "{email} was offboarded and archived."
       },
       "errors": {
         "load": "Could not load users.",
@@ -1733,7 +1756,9 @@
         "passwordLength": "Password must be at least 8 characters.",
         "ban": "Could not ban user.",
         "unban": "Could not unban user.",
-        "delete": "Could not delete user."
+        "delete": "Could not delete user.",
+        "offboardingPreflight": "Could not load offboarding preflight.",
+        "offboarding": "Could not offboard user."
       }
     },
     "scopes": {

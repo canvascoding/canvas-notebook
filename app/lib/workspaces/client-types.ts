@@ -1,6 +1,6 @@
 export type ClientWorkspaceType = 'personal' | 'team' | 'project';
 
-export type ClientWorkspaceStatus = 'active' | 'archived' | 'disabled';
+export type ClientWorkspaceStatus = 'active' | 'archived' | 'disabled' | 'recovery_locked';
 
 export interface ClientWorkspacePermissions {
   canRead: boolean;

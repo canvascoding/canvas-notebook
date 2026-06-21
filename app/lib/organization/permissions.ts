@@ -11,7 +11,7 @@ import {
   type OrganizationPermissionState,
 } from '@/app/lib/organization/bootstrap';
 
-export type OrganizationPermissionKey = Exclude<keyof OrganizationPermissionSnapshot, 'role'>;
+export type OrganizationPermissionKey = Exclude<keyof OrganizationPermissionSnapshot, 'role' | 'status'>;
 
 export type OrganizationPermissionGuardResult =
   | {
@@ -36,6 +36,7 @@ type PermissionUserCandidate = AdminUserCandidate & {
 
 const LEGACY_ADMIN_PERMISSION: OrganizationPermissionSnapshot = {
   role: 'admin',
+  status: 'active',
   canWriteTeamWorkspace: true,
   canCreatePublicLinks: true,
   canCreateTeamAutomations: true,
@@ -78,7 +79,7 @@ export function hasOrganizationPermission(
   permission: OrganizationPermissionSnapshot | null | undefined,
   key: OrganizationPermissionKey,
 ): boolean {
-  return permission?.[key] === true;
+  return permission?.status === 'active' && permission?.[key] === true;
 }
 
 export function assertOrganizationPermission(
@@ -195,5 +196,5 @@ export async function requireOrganizationPermission(
 }
 
 export function isOrganizationAdminLike(permission: OrganizationPermissionSnapshot | null | undefined): boolean {
-  return permission?.role === 'owner' || permission?.role === 'admin';
+  return permission?.status === 'active' && (permission?.role === 'owner' || permission?.role === 'admin');
 }

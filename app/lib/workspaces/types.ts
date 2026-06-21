@@ -2,7 +2,7 @@ import 'server-only';
 
 export type WorkspaceType = 'personal' | 'team' | 'project';
 
-export type WorkspaceStatus = 'active' | 'archived' | 'disabled';
+export type WorkspaceStatus = 'active' | 'archived' | 'disabled' | 'recovery_locked';
 
 export type WorkspaceUserRole = 'owner' | 'admin' | 'member' | 'external';
 

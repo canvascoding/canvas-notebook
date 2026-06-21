@@ -32,9 +32,11 @@ import { resolveWorkspaceDataRoot } from '@/app/lib/workspaces/context';
 export const LOCAL_ORGANIZATION_ID_PREFIX = 'org_';
 
 export type OrganizationRole = 'owner' | 'admin' | 'member' | 'external';
+export type OrganizationUserStatus = 'active' | 'disabled' | 'archived' | 'recovery_locked';
 
 export type OrganizationPermissionSnapshot = {
   role: OrganizationRole;
+  status: OrganizationUserStatus;
   canWriteTeamWorkspace: boolean;
   canCreatePublicLinks: boolean;
   canCreateTeamAutomations: boolean;
@@ -95,6 +97,7 @@ type OrganizationRow = {
 
 type PermissionRow = {
   role: string;
+  status: string | null;
   can_write_team_workspace: number;
   can_create_public_links: number;
   can_create_team_automations: number;
@@ -121,6 +124,11 @@ export class OrganizationBootstrapError extends Error {
 function normalizeRole(role: string | null | undefined): OrganizationRole {
   if (role === 'owner' || role === 'admin' || role === 'external') return role;
   return 'member';
+}
+
+function normalizeUserStatus(status: string | null | undefined): OrganizationUserStatus {
+  if (status === 'disabled' || status === 'archived' || status === 'recovery_locked') return status;
+  return 'active';
 }
 
 function isTruthyEnv(value: string | undefined): boolean {
@@ -280,6 +288,7 @@ function permissionDefaults(role: OrganizationRole): OrganizationPermissionSnaps
   const isInternal = role !== 'external';
   return {
     role,
+    status: 'active',
     canWriteTeamWorkspace: isAdminLike,
     canCreatePublicLinks: isInternal,
     canCreateTeamAutomations: isAdminLike,
@@ -349,7 +358,7 @@ function getPermissionRow(
   userId: string,
 ): OrganizationPermissionSnapshot | null {
   const row = sqlite.prepare(`
-    SELECT role, can_write_team_workspace, can_create_public_links, can_create_team_automations,
+    SELECT role, status, can_write_team_workspace, can_create_public_links, can_create_team_automations,
       can_share_plugins_and_skills, can_export, can_delete_team_files, can_delete_studio_assets,
       can_manage_backups, can_migrate_database, can_enable_knowledge, can_recover_workspaces
     FROM organization_user_permissions
@@ -358,20 +367,23 @@ function getPermissionRow(
   `).get(organizationId, userId) as PermissionRow | undefined;
 
   if (!row) return null;
+  const status = normalizeUserStatus(row.status);
+  const enabled = status === 'active';
 
   return {
     role: normalizeRole(row.role),
-    canWriteTeamWorkspace: booleanFromDb(row.can_write_team_workspace),
-    canCreatePublicLinks: booleanFromDb(row.can_create_public_links),
-    canCreateTeamAutomations: booleanFromDb(row.can_create_team_automations),
-    canSharePluginsAndSkills: booleanFromDb(row.can_share_plugins_and_skills),
-    canExport: booleanFromDb(row.can_export),
-    canDeleteTeamFiles: booleanFromDb(row.can_delete_team_files),
-    canDeleteStudioAssets: booleanFromDb(row.can_delete_studio_assets),
-    canManageBackups: booleanFromDb(row.can_manage_backups),
-    canMigrateDatabase: booleanFromDb(row.can_migrate_database),
-    canEnableKnowledge: booleanFromDb(row.can_enable_knowledge),
-    canRecoverWorkspaces: booleanFromDb(row.can_recover_workspaces),
+    status,
+    canWriteTeamWorkspace: enabled && booleanFromDb(row.can_write_team_workspace),
+    canCreatePublicLinks: enabled && booleanFromDb(row.can_create_public_links),
+    canCreateTeamAutomations: enabled && booleanFromDb(row.can_create_team_automations),
+    canSharePluginsAndSkills: enabled && booleanFromDb(row.can_share_plugins_and_skills),
+    canExport: enabled && booleanFromDb(row.can_export),
+    canDeleteTeamFiles: enabled && booleanFromDb(row.can_delete_team_files),
+    canDeleteStudioAssets: enabled && booleanFromDb(row.can_delete_studio_assets),
+    canManageBackups: enabled && booleanFromDb(row.can_manage_backups),
+    canMigrateDatabase: enabled && booleanFromDb(row.can_migrate_database),
+    canEnableKnowledge: enabled && booleanFromDb(row.can_enable_knowledge),
+    canRecoverWorkspaces: enabled && booleanFromDb(row.can_recover_workspaces),
   };
 }
 

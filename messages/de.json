@@ -1676,7 +1676,8 @@
         "password": "Passwort",
         "ban": "Sperren",
         "unban": "Entsperren",
-        "delete": "Löschen"
+        "delete": "Löschen",
+        "offboard": "Offboarden"
       },
       "fields": {
         "name": "Name",
@@ -1713,13 +1714,35 @@
         "description": "{email} wird dauerhaft mit Sitzungen und Login-Konten gelöscht. Diese Aktion kann nicht rückgängig gemacht werden.",
         "submit": "Dauerhaft löschen"
       },
+      "offboardingDialog": {
+        "title": "Benutzer offboarden",
+        "description": "{email} wird archiviert statt gelöscht. Sessions und Credentials werden widerrufen, Automations pausiert und der persönliche Workspace wird nur noch über Recovery zugänglich.",
+        "loading": "Offboarding-Preflight läuft...",
+        "empty": "Es ist kein Preflight-Ergebnis verfügbar.",
+        "summaryTitle": "Preflight-Zusammenfassung",
+        "blockers": "Blocker",
+        "warnings": "Warnungen",
+        "info": "Hinweise",
+        "reason": "Grund",
+        "reasonPlaceholder": "Optionaler Offboarding-Grund",
+        "acknowledgeWarnings": "Ich habe die Warnungen geprüft und verstehe, dass betroffene Automations, Credentials, To-dos und Workspaces geändert werden.",
+        "blockedHint": "Alle Blocker müssen behoben werden, bevor dieser Benutzer offboarded werden kann.",
+        "submit": "Archivieren und Zugriff widerrufen",
+        "summary": {
+          "sessions": "{count} aktive Sessions",
+          "automations": "{count} betroffene Automations",
+          "todos": "{count} offene zugewiesene To-dos",
+          "credentials": "{count} Login- oder E-Mail-Credentials"
+        }
+      },
       "messages": {
         "created": "{email} wurde angelegt.",
         "roleUpdated": "Rolle für {email} wurde aktualisiert.",
         "passwordUpdated": "Passwort für {email} wurde aktualisiert.",
         "banned": "{email} wurde gesperrt.",
         "unbanned": "{email} wurde entsperrt.",
-        "deleted": "{email} wurde gelöscht."
+        "deleted": "{email} wurde gelöscht.",
+        "offboarded": "{email} wurde offboarded und archiviert."
       },
       "errors": {
         "load": "Benutzer konnten nicht geladen werden.",
@@ -1732,7 +1755,9 @@
         "passwordLength": "Das Passwort muss mindestens 8 Zeichen lang sein.",
         "ban": "Benutzer konnte nicht gesperrt werden.",
         "unban": "Benutzer konnte nicht entsperrt werden.",
-        "delete": "Benutzer konnte nicht gelöscht werden."
+        "delete": "Benutzer konnte nicht gelöscht werden.",
+        "offboardingPreflight": "Offboarding-Preflight konnte nicht geladen werden.",
+        "offboarding": "Benutzer konnte nicht offboarded werden."
       }
     },
     "scopes": {

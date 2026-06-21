@@ -66,6 +66,7 @@
     "test:composio:user-scope": "tsx scripts/composio-user-scope-test.ts",
     "test:auth:setup": "tsx --conditions react-server scripts/auth-setup-test.ts",
     "test:organization:permissions": "tsx --conditions react-server scripts/organization-permission-guards-test.ts",
+    "test:organization:offboarding": "tsx --conditions react-server scripts/organization-offboarding-test.ts",
     "test:license": "tsx --conditions react-server scripts/license-security-test.ts",
     "test:cli:admin": "bash scripts/cli-admin-command-test.sh",
     "test:channels": "tsx scripts/channel-architecture-test.ts",

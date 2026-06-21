@@ -133,6 +133,7 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       organization_id TEXT NOT NULL,
       user_id TEXT NOT NULL,
       role TEXT NOT NULL DEFAULT 'member',
+      status TEXT NOT NULL DEFAULT 'active',
       can_write_team_workspace INTEGER NOT NULL DEFAULT 0,
       can_create_public_links INTEGER NOT NULL DEFAULT 1,
       can_create_team_automations INTEGER NOT NULL DEFAULT 0,
@@ -144,11 +145,17 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       can_migrate_database INTEGER NOT NULL DEFAULT 0,
       can_enable_knowledge INTEGER NOT NULL DEFAULT 0,
       can_recover_workspaces INTEGER NOT NULL DEFAULT 0,
+      disabled_at INTEGER,
+      archived_at INTEGER,
+      offboarded_by_user_id TEXT,
+      offboarding_reason TEXT,
+      offboarding_report_json TEXT,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL,
       PRIMARY KEY (organization_id, user_id),
       FOREIGN KEY (organization_id) REFERENCES canvas_organization_settings(organization_id) ON DELETE CASCADE,
-      FOREIGN KEY (user_id) REFERENCES user(id)
+      FOREIGN KEY (user_id) REFERENCES user(id),
+      FOREIGN KEY (offboarded_by_user_id) REFERENCES user(id)
     );
 
     CREATE TABLE IF NOT EXISTS pi_sessions (
@@ -770,6 +777,15 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     next_run_at: 'INTEGER',
   });
 
+  addColumns(sqlite, 'organization_user_permissions', {
+    status: "TEXT NOT NULL DEFAULT 'active'",
+    disabled_at: 'INTEGER',
+    archived_at: 'INTEGER',
+    offboarded_by_user_id: 'TEXT',
+    offboarding_reason: 'TEXT',
+    offboarding_report_json: 'TEXT',
+  });
+
   addColumns(sqlite, 'studio_generations', {
     studio_preset_name: 'TEXT',
   });
@@ -1154,6 +1170,7 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     CREATE UNIQUE INDEX IF NOT EXISTS idx_canvas_workspaces_team_organization ON canvas_workspaces (organization_id) WHERE type = 'team';
     CREATE INDEX IF NOT EXISTS idx_org_user_permissions_user ON organization_user_permissions (user_id);
     CREATE INDEX IF NOT EXISTS idx_org_user_permissions_role ON organization_user_permissions (organization_id, role);
+    CREATE INDEX IF NOT EXISTS idx_org_user_permissions_status ON organization_user_permissions (organization_id, status);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_org_user_permissions_single_owner ON organization_user_permissions (organization_id) WHERE role = 'owner';
 
     CREATE INDEX IF NOT EXISTS idx_pi_sessions_last_message ON pi_sessions (last_message_at);
