@@ -25,6 +25,9 @@ export async function writePendingMigrationRestore(params: {
   if (!params.inspection.canRestore || !params.inspection.manifest) {
     throw new Error('Migration archive cannot be restored.');
   }
+  if (params.inspection.dryRun && !params.inspection.dryRun.canApply) {
+    throw new Error('Migration dry run has unresolved blockers and cannot be restored.');
+  }
 
   const pending: PendingMigrationRestore = {
     id: crypto.randomUUID(),
