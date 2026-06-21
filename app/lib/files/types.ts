@@ -1,7 +1,10 @@
 export interface PublicShareState {
   id: string;
+  workspaceId?: string | null;
   status: string;
   publicUrl: string;
+  shortUrl?: string;
+  securityMode?: string;
   expiresAt: string | null;
   accessCount: number;
 }

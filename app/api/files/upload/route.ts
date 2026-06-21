@@ -148,7 +148,7 @@ export async function POST(request: NextRequest) {
       uploadedPaths.push(targetPath);
     }
 
-    await syncPublicSharesAfterWrite(uploadedPaths);
+    await syncPublicSharesAfterWrite(uploadedPaths, workspaceResult.workspace);
     clearFileTreeCache(fileOptions.workspace?.workspaceId);
     invalidateFileReferenceCache(fileOptions);
 

@@ -355,9 +355,15 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       token_hash TEXT NOT NULL UNIQUE,
       token_preview TEXT NOT NULL,
       short_code TEXT UNIQUE,
+      organization_id TEXT,
+      workspace_id TEXT,
+      workspace_type TEXT,
+      workspace_root_relative_path TEXT,
       workspace_path TEXT NOT NULL,
       file_name TEXT NOT NULL,
       file_identity TEXT NOT NULL,
+      target_revision_policy TEXT NOT NULL DEFAULT 'latest',
+      last_known_revision TEXT,
       mime_type TEXT NOT NULL,
       size_bytes INTEGER NOT NULL,
       status TEXT NOT NULL DEFAULT 'active',
@@ -371,6 +377,9 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       updated_at INTEGER NOT NULL,
       expires_at INTEGER,
       revoked_at INTEGER,
+      revoked_reason TEXT,
+      password_enabled INTEGER NOT NULL DEFAULT 0,
+      password_hash TEXT,
       last_accessed_at INTEGER,
       access_count INTEGER NOT NULL DEFAULT 0,
       FOREIGN KEY (created_by_user_id) REFERENCES user(id)
@@ -974,6 +983,8 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     CREATE UNIQUE INDEX IF NOT EXISTS idx_public_file_shares_token ON public_file_shares (token);
     CREATE INDEX IF NOT EXISTS idx_public_file_shares_status ON public_file_shares (status);
     CREATE INDEX IF NOT EXISTS idx_public_file_shares_workspace_path ON public_file_shares (workspace_path);
+    CREATE INDEX IF NOT EXISTS idx_public_file_shares_workspace_id_path ON public_file_shares (workspace_id, workspace_path, status);
+    CREATE INDEX IF NOT EXISTS idx_public_file_shares_org_status ON public_file_shares (organization_id, status);
     CREATE INDEX IF NOT EXISTS idx_public_file_shares_user_status ON public_file_shares (created_by_user_id, status);
     CREATE INDEX IF NOT EXISTS idx_public_file_shares_expires_at ON public_file_shares (expires_at);
   `);
@@ -1062,10 +1073,21 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
   addColumns(sqlite, 'public_file_shares', {
     short_code: 'TEXT',
     security_mode: "TEXT NOT NULL DEFAULT 'strict'",
+    organization_id: 'TEXT',
+    workspace_id: 'TEXT',
+    workspace_type: 'TEXT',
+    workspace_root_relative_path: 'TEXT',
+    target_revision_policy: "TEXT NOT NULL DEFAULT 'latest'",
+    last_known_revision: 'TEXT',
+    revoked_reason: 'TEXT',
+    password_enabled: 'INTEGER NOT NULL DEFAULT 0',
+    password_hash: 'TEXT',
   });
 
   sqlite.exec(`
     CREATE UNIQUE INDEX IF NOT EXISTS idx_public_file_shares_short_code ON public_file_shares (short_code);
+    CREATE INDEX IF NOT EXISTS idx_public_file_shares_workspace_id_path ON public_file_shares (workspace_id, workspace_path, status);
+    CREATE INDEX IF NOT EXISTS idx_public_file_shares_org_status ON public_file_shares (organization_id, status);
   `);
 
   addColumns(sqlite, 'pi_sessions', {

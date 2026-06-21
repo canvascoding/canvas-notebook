@@ -10,6 +10,7 @@ import { and, desc, eq, inArray } from 'drizzle-orm';
 import { db } from '@/app/lib/db';
 import { publicFileShares } from '@/app/lib/db/schema';
 import { resolveExistingWorkspacePath, validatePath } from '@/app/lib/filesystem/workspace-files';
+import { getAgentExecutionContext } from '@/app/lib/pi/agent-execution-context';
 import {
   INTERACTIVE_PUBLIC_HTML_CSP,
   isHtmlWorkspacePath,
@@ -18,6 +19,13 @@ import {
   STRICT_PUBLIC_HTML_CSP,
   type PublicShareSecurityMode,
 } from '@/app/lib/public-sharing/public-share-security';
+import {
+  LEGACY_PERSONAL_WORKSPACE_ID,
+  createLegacyPersonalWorkspaceContext,
+} from '@/app/lib/workspaces/context';
+import { resolveWorkspacePath } from '@/app/lib/workspaces/path-guard';
+import { workspaceAbsoluteRoot } from '@/app/lib/workspaces/service';
+import type { WorkspaceContext, WorkspaceType } from '@/app/lib/workspaces/types';
 
 export type PublicShareStatus = 'active' | 'revoked' | 'missing' | 'stale' | 'expired';
 export type PublicShareSource = 'ui' | 'agent';
@@ -25,11 +33,18 @@ export type PublicShareTypeFilter = 'all' | 'image' | 'html' | 'pdf' | 'media' |
 
 export interface PublicShareDto {
   id: string;
+  organizationId: string | null;
+  workspaceId: string | null;
+  workspaceType: WorkspaceType | null;
+  workspaceName: string | null;
   workspacePath: string;
   fileName: string;
   mimeType: string;
   sizeBytes: number;
   status: PublicShareStatus;
+  targetRevisionPolicy: 'latest' | 'fixed';
+  lastKnownRevision: string | null;
+  passwordEnabled: boolean;
   source: PublicShareSource;
   securityMode: PublicShareSecurityMode;
   createdByUserId: string;
@@ -52,6 +67,7 @@ export interface PublicShareDto {
 export interface PublicShareAnnotation {
   id: string;
   status: PublicShareStatus;
+  workspaceId: string | null;
   shortUrl: string;
   publicUrl: string;
   securityMode: PublicShareSecurityMode;
@@ -84,6 +100,7 @@ interface WorkspaceFileDetails {
   fullPath: string;
   fileName: string;
   fileIdentity: string;
+  lastKnownRevision: string;
   mimeType: string;
   sizeBytes: number;
   stats: Stats;
@@ -184,16 +201,102 @@ function workspaceBaseDir(): string {
   return path.resolve(getDataDir(), 'workspace');
 }
 
+function normalizeWorkspaceType(value: string | null | undefined): WorkspaceType | null {
+  if (value === 'personal' || value === 'team' || value === 'project') return value;
+  return null;
+}
+
+function implicitAgentWorkspace(): WorkspaceContext | undefined {
+  const context = getAgentExecutionContext();
+  if (!context) return undefined;
+
+  return {
+    workspaceId: context.workspaceId,
+    workspaceType: context.workspaceType,
+    rootPath: context.workspaceRoot,
+    rootRelativePath: context.workspaceRootRelativePath ?? undefined,
+    displayName: context.workspaceName ?? undefined,
+    status: 'active',
+    actor: {
+      userId: context.userId,
+      role: 'member',
+    },
+    organizationId: context.organizationId,
+    ownerUserId: context.workspaceType === 'personal' ? context.userId : null,
+    permissions: {
+      canRead: true,
+      canWrite: context.canWrite,
+      canDelete: context.canWrite,
+      canCreatePublicLinks: context.canShare,
+      canManageWorkspace: false,
+      canRunAgent: true,
+    },
+    legacy: context.legacy,
+  };
+}
+
+function resolveOperationWorkspace(workspace?: WorkspaceContext | null): WorkspaceContext | undefined {
+  return workspace ?? implicitAgentWorkspace();
+}
+
+function workspaceForRow(row: PublicShareRow): WorkspaceContext {
+  const workspaceType = normalizeWorkspaceType(row.workspaceType) ?? 'personal';
+  if (row.workspaceId && row.workspaceRootRelativePath) {
+    return {
+      workspaceId: row.workspaceId,
+      workspaceType,
+      rootPath: workspaceAbsoluteRoot(row.workspaceRootRelativePath),
+      rootRelativePath: row.workspaceRootRelativePath,
+      displayName: workspaceType === 'team' ? 'Team Workspace' : 'Personal Workspace',
+      status: 'active',
+      organizationId: row.organizationId,
+      ownerUserId: null,
+      permissions: {
+        canRead: true,
+        canWrite: false,
+        canDelete: false,
+        canCreatePublicLinks: false,
+        canManageWorkspace: false,
+        canRunAgent: false,
+      },
+      legacy: false,
+    };
+  }
+
+  return createLegacyPersonalWorkspaceContext();
+}
+
+function workspaceMatches(row: PublicShareRow, workspace?: WorkspaceContext | null): boolean {
+  if (!workspace) return !row.workspaceId || row.workspaceId === LEGACY_PERSONAL_WORKSPACE_ID;
+  if (workspace.legacy) return !row.workspaceId || row.workspaceId === LEGACY_PERSONAL_WORKSPACE_ID;
+  return row.workspaceId === workspace.workspaceId;
+}
+
 function isPathWithin(candidatePath: string, basePath: string): boolean {
   const normalizedCandidate = path.resolve(candidatePath);
   const normalizedBase = path.resolve(basePath);
   return normalizedCandidate === normalizedBase || normalizedCandidate.startsWith(`${normalizedBase}${path.sep}`);
 }
 
-function normalizeWorkspacePath(input: string): string {
+function normalizeWorkspacePath(input: string, workspace?: WorkspaceContext | null): string {
   const raw = input.trim().replace(/\0/g, '').replace(/\\/g, '/');
   if (!raw || raw === '.' || raw === '/') {
     throw new Error('A concrete file path is required.');
+  }
+
+  if (workspace) {
+    const base = path.resolve(workspace.rootPath);
+    if (path.isAbsolute(raw)) {
+      const resolved = path.resolve(raw);
+      if (!isPathWithin(resolved, base)) {
+        throw new Error('Public shares are restricted to workspace files.');
+      }
+      const relative = path.relative(base, resolved).split(path.sep).join('/');
+      if (!relative || relative === '.') throw new Error('A concrete file path is required.');
+      return relative;
+    }
+
+    return resolveWorkspacePath(workspace, raw).relativePath;
   }
 
   if (raw === '/data/workspace' || raw.startsWith('/data/workspace/')) {
@@ -225,6 +328,10 @@ function fileIdentity(stats: Stats): string {
   return `${stats.dev}:${stats.ino}`;
 }
 
+function latestRevision(stats: Stats): string {
+  return `${Math.trunc(stats.mtimeMs)}:${stats.size}:${fileIdentity(stats)}`;
+}
+
 export function getPublicShareMimeType(filePath: string): string {
   const extension = path.extname(filePath).slice(1).toLowerCase();
   return MIME_TYPES[extension] || 'application/octet-stream';
@@ -247,13 +354,13 @@ export function isSensitiveWorkspacePath(workspacePath: string): boolean {
   ));
 }
 
-async function getWorkspaceFileDetails(inputPath: string): Promise<WorkspaceFileDetails> {
-  const workspacePath = normalizeWorkspacePath(inputPath);
+async function getWorkspaceFileDetails(inputPath: string, workspace?: WorkspaceContext | null): Promise<WorkspaceFileDetails> {
+  const workspacePath = normalizeWorkspacePath(inputPath, workspace);
   if (isSensitiveWorkspacePath(workspacePath)) {
     throw new Error('This file path is blocked from public sharing because it looks sensitive.');
   }
 
-  const fullPath = await resolveExistingWorkspacePath(workspacePath);
+  const fullPath = await resolveExistingWorkspacePath(workspacePath, workspace ? { workspace } : undefined);
   const stats = await fs.stat(fullPath);
   if (!stats.isFile()) {
     throw new Error('Only files can be shared publicly. Folder sharing is disabled.');
@@ -264,6 +371,7 @@ async function getWorkspaceFileDetails(inputPath: string): Promise<WorkspaceFile
     fullPath,
     fileName: path.posix.basename(workspacePath),
     fileIdentity: fileIdentity(stats),
+    lastKnownRevision: latestRevision(stats),
     mimeType: getPublicShareMimeType(workspacePath),
     sizeBytes: stats.size,
     stats,
@@ -343,13 +451,21 @@ export function buildShortPublicFileUrl(row: PublicShareRow, baseUrl?: string | 
 }
 
 function toDto(row: PublicShareRow, baseUrl?: string | null): PublicShareDto {
+  const workspaceType = normalizeWorkspaceType(row.workspaceType);
   return {
     id: row.id,
+    organizationId: row.organizationId,
+    workspaceId: row.workspaceId,
+    workspaceType,
+    workspaceName: workspaceType === 'team' ? 'Team Workspace' : workspaceType === 'personal' ? 'Personal Workspace' : null,
     workspacePath: row.workspacePath,
     fileName: row.fileName,
     mimeType: row.mimeType,
     sizeBytes: row.sizeBytes,
     status: safeStatus(row.status),
+    targetRevisionPolicy: row.targetRevisionPolicy === 'fixed' ? 'fixed' : 'latest',
+    lastKnownRevision: row.lastKnownRevision,
+    passwordEnabled: row.passwordEnabled === 1,
     source: row.source === 'agent' ? 'agent' : 'ui',
     securityMode: normalizePublicShareSecurityMode(row.securityMode),
     createdByUserId: row.createdByUserId,
@@ -394,24 +510,27 @@ async function reconcileRow(row: PublicShareRow): Promise<PublicShareRow> {
 
   let details: WorkspaceFileDetails;
   try {
-    details = await getWorkspaceFileDetails(row.workspacePath);
+    details = await getWorkspaceFileDetails(row.workspacePath, workspaceForRow(row));
   } catch (error) {
     const message = error instanceof Error ? error.message : '';
     const status = message.includes('blocked') ? 'stale' : 'missing';
-    return updateShare(row, { status });
-  }
-
-  if (details.fileIdentity !== row.fileIdentity) {
     return updateShare(row, {
-      status: 'stale',
-      mimeType: details.mimeType,
-      sizeBytes: details.sizeBytes,
-      fileName: details.fileName,
+      status,
+      revokedAt: row.revokedAt ?? new Date(),
+      revokedReason: status === 'missing' ? 'target_missing' : 'target_blocked',
     });
   }
 
-  if (details.mimeType !== row.mimeType || details.sizeBytes !== row.sizeBytes || details.fileName !== row.fileName) {
+  if (
+    details.fileIdentity !== row.fileIdentity ||
+    details.lastKnownRevision !== row.lastKnownRevision ||
+    details.mimeType !== row.mimeType ||
+    details.sizeBytes !== row.sizeBytes ||
+    details.fileName !== row.fileName
+  ) {
     return updateShare(row, {
+      fileIdentity: details.fileIdentity,
+      lastKnownRevision: details.lastKnownRevision,
       mimeType: details.mimeType,
       sizeBytes: details.sizeBytes,
       fileName: details.fileName,
@@ -424,6 +543,7 @@ async function reconcileRow(row: PublicShareRow): Promise<PublicShareRow> {
 export async function createPublicFileShares(params: {
   paths: string[];
   createdByUserId: string;
+  workspace?: WorkspaceContext | null;
   source?: PublicShareSource;
   createdByAgentId?: string | null;
   sourceSessionId?: string | null;
@@ -441,6 +561,11 @@ export async function createPublicFileShares(params: {
   }
 
   const source = params.source ?? 'ui';
+  const workspace = resolveOperationWorkspace(params.workspace);
+  if (workspace && !workspace.permissions.canCreatePublicLinks) {
+    throw new Error('Workspace public link permission required.');
+  }
+
   const requestedSecurityMode = normalizePublicShareSecurityMode(params.securityMode);
   if (source !== 'ui' && requestedSecurityMode === 'interactive') {
     throw new Error('Interactive public HTML shares can only be created from the user interface.');
@@ -456,7 +581,7 @@ export async function createPublicFileShares(params: {
 
   for (const requestedPath of uniquePaths) {
     try {
-      const details = await getWorkspaceFileDetails(requestedPath);
+      const details = await getWorkspaceFileDetails(requestedPath, workspace);
       if (requestedSecurityMode === 'interactive' && !isHtmlWorkspacePath(details.workspacePath)) {
         throw new Error('Interactive public sharing is only available for HTML files.');
       }
@@ -469,7 +594,7 @@ export async function createPublicFileShares(params: {
         ));
 
       const reconciledExistingRows = await Promise.all(existingRows.map(reconcileRow));
-      const existing = reconciledExistingRows.find((row) => row.status === 'active' && row.fileIdentity === details.fileIdentity);
+      const existing = reconciledExistingRows.find((row) => row.status === 'active' && workspaceMatches(row, workspace));
       if (existing) {
         const existingSecurityMode = normalizePublicShareSecurityMode(existing.securityMode);
         const row = existingSecurityMode === requestedSecurityMode
@@ -493,9 +618,15 @@ export async function createPublicFileShares(params: {
           tokenHash: tokenHash(token),
           tokenPreview: token.slice(0, 8),
           shortCode,
+          organizationId: workspace?.organizationId ?? null,
+          workspaceId: workspace?.workspaceId ?? null,
+          workspaceType: workspace?.workspaceType ?? null,
+          workspaceRootRelativePath: workspace?.rootRelativePath ?? null,
           workspacePath: details.workspacePath,
           fileName: details.fileName,
           fileIdentity: details.fileIdentity,
+          targetRevisionPolicy: 'latest',
+          lastKnownRevision: details.lastKnownRevision,
           mimeType: details.mimeType,
           sizeBytes: details.sizeBytes,
           status: 'active',
@@ -509,6 +640,9 @@ export async function createPublicFileShares(params: {
           updatedAt: now,
           expiresAt: params.expiresAt ?? null,
           revokedAt: null,
+          revokedReason: null,
+          passwordEnabled: 0,
+          passwordHash: null,
           lastAccessedAt: null,
           accessCount: 0,
         })
@@ -529,16 +663,24 @@ export async function createPublicFileShares(params: {
 export async function revokePublicFileShare(params: {
   id: string;
   userId: string;
+  workspace?: WorkspaceContext | null;
   isAdmin?: boolean;
   baseUrl?: string | null;
 }): Promise<PublicShareDto | null> {
   const [row] = await db.select().from(publicFileShares).where(eq(publicFileShares.id, params.id)).limit(1);
   if (!row) return null;
-  if (!params.isAdmin && row.createdByUserId !== params.userId) {
+  const workspace = resolveOperationWorkspace(params.workspace);
+  const canManageWorkspaceShare = Boolean(
+    workspace &&
+    workspaceMatches(row, workspace) &&
+    normalizeWorkspaceType(row.workspaceType) === 'team' &&
+    workspace.permissions.canCreatePublicLinks
+  );
+  if (!params.isAdmin && row.createdByUserId !== params.userId && !canManageWorkspaceShare) {
     throw new Error('Forbidden');
   }
 
-  const updated = await updateShare(row, { status: 'revoked', revokedAt: new Date() });
+  const updated = await updateShare(row, { status: 'revoked', revokedAt: new Date(), revokedReason: 'manual' });
   return toDto(updated, params.baseUrl);
 }
 
@@ -554,6 +696,7 @@ function matchesTypeFilter(row: PublicShareRow, type: PublicShareTypeFilter): bo
 
 export async function listPublicFileShares(params: {
   userId: string;
+  workspace?: WorkspaceContext | null;
   isAdmin?: boolean;
   status?: PublicShareStatus | 'all';
   type?: PublicShareTypeFilter;
@@ -565,13 +708,14 @@ export async function listPublicFileShares(params: {
 }): Promise<PublicShareDto[]> {
   const rows = await db.select().from(publicFileShares).orderBy(desc(publicFileShares.createdAt));
   const reconciled = await Promise.all(rows.map(reconcileRow));
+  const workspace = resolveOperationWorkspace(params.workspace);
   const query = params.query?.trim().toLowerCase() || '';
   const type = params.type ?? 'all';
   const limit = Math.max(1, Math.min(params.limit ?? DEFAULT_SHARE_LIMIT, 1000));
   const pathFilter = new Set(
     (params.paths ?? []).map((candidate) => {
       try {
-        return normalizeWorkspacePath(candidate);
+        return normalizeWorkspacePath(candidate, workspace);
       } catch {
         return null;
       }
@@ -579,7 +723,16 @@ export async function listPublicFileShares(params: {
   );
 
   const visibleRows = reconciled
-    .filter((row) => params.isAdmin || row.createdByUserId === params.userId)
+    .filter((row) => {
+      if (workspace && !workspaceMatches(row, workspace)) return false;
+      if (params.isAdmin) return true;
+      if (row.createdByUserId === params.userId) return true;
+      return Boolean(
+        workspace &&
+        normalizeWorkspaceType(row.workspaceType) === 'team' &&
+        workspace.permissions.canCreatePublicLinks
+      );
+    })
     .filter((row) => pathFilter.size === 0 || pathFilter.has(row.workspacePath))
     .filter((row) => !params.status || params.status === 'all' || row.status === params.status)
     .filter((row) => !params.source || params.source === 'all' || row.source === params.source)
@@ -591,11 +744,16 @@ export async function listPublicFileShares(params: {
   return withShortCodes.map((row) => toDto(row, params.baseUrl));
 }
 
-export async function getPublicShareAnnotations(paths: string[], baseUrl?: string | null): Promise<Map<string, PublicShareAnnotation>> {
+export async function getPublicShareAnnotations(
+  paths: string[],
+  baseUrl?: string | null,
+  workspace?: WorkspaceContext | null,
+): Promise<Map<string, PublicShareAnnotation>> {
+  const resolvedWorkspace = resolveOperationWorkspace(workspace);
   const normalizedTargets = new Set<string>();
   for (const candidate of paths) {
     try {
-      normalizedTargets.add(normalizeWorkspacePath(candidate));
+      normalizedTargets.add(normalizeWorkspacePath(candidate, resolvedWorkspace));
     } catch {
       // Ignore invalid browser entries; the file APIs will report their own errors.
     }
@@ -606,6 +764,7 @@ export async function getPublicShareAnnotations(paths: string[], baseUrl?: strin
   const rows = await db.select().from(publicFileShares).where(eq(publicFileShares.status, 'active'));
   const result = new Map<string, PublicShareAnnotation>();
   for (const row of rows) {
+    if (!workspaceMatches(row, resolvedWorkspace)) continue;
     if (!normalizedTargets.has(row.workspacePath)) continue;
     const reconciled = await reconcileRow(row);
     if (reconciled.status !== 'active') continue;
@@ -613,6 +772,7 @@ export async function getPublicShareAnnotations(paths: string[], baseUrl?: strin
     result.set(withShortCode.workspacePath, {
       id: withShortCode.id,
       status: 'active',
+      workspaceId: withShortCode.workspaceId,
       shortUrl: buildShortPublicFileUrl(withShortCode, baseUrl),
       publicUrl: buildPublicFileUrl(withShortCode, baseUrl),
       securityMode: normalizePublicShareSecurityMode(withShortCode.securityMode),
@@ -627,10 +787,11 @@ function affectedByPath(rowPath: string, targetPath: string): boolean {
   return rowPath === targetPath || rowPath.startsWith(`${targetPath}/`);
 }
 
-export async function syncPublicSharesAfterDelete(paths: string[]): Promise<void> {
+export async function syncPublicSharesAfterDelete(paths: string[], workspace?: WorkspaceContext | null): Promise<void> {
+  const resolvedWorkspace = resolveOperationWorkspace(workspace);
   const normalized = paths.map((candidate) => {
     try {
-      return normalizeWorkspacePath(candidate);
+      return normalizeWorkspacePath(candidate, resolvedWorkspace);
     } catch {
       return null;
     }
@@ -640,15 +801,17 @@ export async function syncPublicSharesAfterDelete(paths: string[]): Promise<void
 
   const rows = await db.select().from(publicFileShares).where(eq(publicFileShares.status, 'active'));
   await Promise.all(rows.map(async (row) => {
+    if (!workspaceMatches(row, resolvedWorkspace)) return;
     if (!normalized.some((targetPath) => affectedByPath(row.workspacePath, targetPath))) return;
-    await updateShare(row, { status: 'missing' });
+    await updateShare(row, { status: 'missing', revokedAt: new Date(), revokedReason: 'target_deleted' });
   }));
 }
 
-export async function syncPublicSharesAfterWrite(paths: string[]): Promise<void> {
+export async function syncPublicSharesAfterWrite(paths: string[], workspace?: WorkspaceContext | null): Promise<void> {
+  const resolvedWorkspace = resolveOperationWorkspace(workspace);
   const normalized = paths.map((candidate) => {
     try {
-      return normalizeWorkspacePath(candidate);
+      return normalizeWorkspacePath(candidate, resolvedWorkspace);
     } catch {
       return null;
     }
@@ -663,49 +826,39 @@ export async function syncPublicSharesAfterWrite(paths: string[]): Promise<void>
       eq(publicFileShares.status, 'active'),
       inArray(publicFileShares.workspacePath, uniquePaths),
     ));
-  await Promise.all(rows.map(reconcileRow));
+  await Promise.all(rows.filter((row) => workspaceMatches(row, resolvedWorkspace)).map(reconcileRow));
 }
 
-export function queuePublicSharesAfterWrite(paths: string[]): void {
+export function queuePublicSharesAfterWrite(paths: string[], workspace?: WorkspaceContext | null): void {
+  const resolvedWorkspace = resolveOperationWorkspace(workspace);
   const timer = setTimeout(() => {
-    syncPublicSharesAfterWrite(paths).catch((error) => {
+    syncPublicSharesAfterWrite(paths, resolvedWorkspace).catch((error) => {
       console.warn('[public-sharing] Failed to sync public shares after write:', error);
     });
   }, 0) as ReturnType<typeof setTimeout> & { unref?: () => void };
   timer.unref?.();
 }
 
-function remapWorkspacePath(rowPath: string, oldPath: string, newPath: string): string {
-  if (rowPath === oldPath) return newPath;
-  return `${newPath}/${rowPath.slice(oldPath.length + 1)}`;
-}
-
-export async function syncPublicSharesAfterMove(oldPath: string, newPath: string): Promise<void> {
+export async function syncPublicSharesAfterMove(oldPath: string, newPath: string, workspace?: WorkspaceContext | null): Promise<void> {
+  const resolvedWorkspace = resolveOperationWorkspace(workspace);
   let normalizedOld: string;
-  let normalizedNew: string;
   try {
-    normalizedOld = normalizeWorkspacePath(oldPath);
-    normalizedNew = normalizeWorkspacePath(newPath);
+    normalizedOld = normalizeWorkspacePath(oldPath, resolvedWorkspace);
+    normalizeWorkspacePath(newPath, resolvedWorkspace);
   } catch {
     return;
   }
 
   const rows = await db.select().from(publicFileShares).where(eq(publicFileShares.status, 'active'));
   for (const row of rows) {
+    if (!workspaceMatches(row, resolvedWorkspace)) continue;
     if (!affectedByPath(row.workspacePath, normalizedOld)) continue;
-    const nextWorkspacePath = remapWorkspacePath(row.workspacePath, normalizedOld, normalizedNew);
     await updateShare(row, {
-      workspacePath: nextWorkspacePath,
-      fileName: path.posix.basename(nextWorkspacePath),
+      status: 'revoked',
+      revokedAt: new Date(),
+      revokedReason: 'target_moved',
     });
   }
-
-  const affectedRows = await db.select().from(publicFileShares).where(eq(publicFileShares.status, 'active'));
-  await Promise.all(
-    affectedRows
-      .filter((row) => affectedByPath(row.workspacePath, normalizedNew))
-      .map(reconcileRow)
-  );
 }
 
 async function resolvePublicShareRow(row: PublicShareRow, options: ResolvePublicShareOptions = {}): Promise<PublicShareResolution> {
@@ -719,17 +872,15 @@ async function resolvePublicShareRow(row: PublicShareRow, options: ResolvePublic
   }
 
   const withShortCode = await ensureShortCode(reconciled);
-  const details = await getWorkspaceFileDetails(withShortCode.workspacePath);
-  if (details.fileIdentity !== withShortCode.fileIdentity) {
-    await updateShare(withShortCode, { status: 'stale' });
-    return { ok: false, status: 404, error: 'Public file is no longer the same file.' };
-  }
+  const details = await getWorkspaceFileDetails(withShortCode.workspacePath, workspaceForRow(withShortCode));
 
   const updated = options.recordAccess === false
     ? withShortCode
     : await updateShare(withShortCode, {
       lastAccessedAt: new Date(),
       accessCount: withShortCode.accessCount + 1,
+      fileIdentity: details.fileIdentity,
+      lastKnownRevision: details.lastKnownRevision,
       mimeType: details.mimeType,
       sizeBytes: details.sizeBytes,
       fileName: details.fileName,

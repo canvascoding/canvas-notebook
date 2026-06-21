@@ -2,10 +2,11 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { auth } from '@/app/lib/auth';
 import { isAdminUser } from '@/app/lib/admin-auth';
-import { requireOrganizationPermission } from '@/app/lib/organization/permissions';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 import { clearFileTreeCache } from '@/app/lib/utils/file-tree-cache';
 import { getPublicRequestOrigin } from '@/app/lib/utils/request-origin';
+import { WORKSPACE_ID_HEADER } from '@/app/lib/workspaces/constants';
+import { requireRequestWorkspace, requireSessionWorkspace } from '@/app/lib/workspaces/request';
 import {
   createPublicFileShares,
   listPublicFileShares,
@@ -39,6 +40,12 @@ function parsePathFilters(searchParams: URLSearchParams): string[] {
     ...searchParams.getAll('path'),
     ...searchParams.getAll('paths').flatMap((value) => value.split('\n')),
   ].map((value) => value.trim()).filter(Boolean)));
+}
+
+function requestWorkspaceId(request: NextRequest): string | null {
+  return request.headers.get(WORKSPACE_ID_HEADER)?.trim()
+    || request.nextUrl.searchParams.get('workspaceId')?.trim()
+    || null;
 }
 
 function parseExpiry(body: Record<string, unknown>): Date | null {
@@ -76,9 +83,15 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const limit = Math.max(1, Math.min(Number.parseInt(searchParams.get('limit') || '500', 10), 1000));
   const isAdmin = isAdminUser(session.user);
+  const requestedWorkspaceId = requestWorkspaceId(request);
+  const workspaceResult = requestedWorkspaceId
+    ? await requireSessionWorkspace(session, { workspaceId: requestedWorkspaceId, permissions: 'canRead' })
+    : null;
+  if (workspaceResult?.response) return workspaceResult.response;
 
   const shares = await listPublicFileShares({
     userId: session.user.id,
+    workspace: workspaceResult?.workspace ?? null,
     isAdmin,
     status: parseStatus(searchParams.get('status')),
     type: parseType(searchParams.get('type')),
@@ -93,11 +106,9 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const linkPermission = await requireOrganizationPermission(request, 'canCreatePublicLinks', {
-    errorMessage: 'Forbidden: public link permission required',
-  });
-  if (!linkPermission.ok) return linkPermission.response;
-  const { session } = linkPermission;
+  const workspaceResult = await requireRequestWorkspace(request, { permissions: 'canCreatePublicLinks' });
+  if (workspaceResult.response) return workspaceResult.response;
+  const { session, workspace } = workspaceResult;
 
   const limited = rateLimit(request, {
     limit: 30,
@@ -122,6 +133,7 @@ export async function POST(request: NextRequest) {
     const result = await createPublicFileShares({
       paths,
       createdByUserId: session.user.id,
+      workspace,
       source: 'ui',
       expiresAt: parseExpiry(body),
       reason: typeof body.reason === 'string' ? body.reason : null,
@@ -130,7 +142,7 @@ export async function POST(request: NextRequest) {
       baseUrl: getPublicRequestOrigin(request),
     });
 
-    clearFileTreeCache();
+    clearFileTreeCache(workspace.workspaceId);
 
     return NextResponse.json({ success: true, ...result });
   } catch (error) {

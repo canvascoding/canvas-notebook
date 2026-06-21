@@ -62,7 +62,7 @@ export async function GET(request: NextRequest) {
     }
 
     const tree = await buildFileTree(path, depth, 0, fileOptions);
-    const annotations = await getPublicShareAnnotations(collectFilePaths(tree));
+    const annotations = await getPublicShareAnnotations(collectFilePaths(tree), null, workspaceResult.workspace);
     attachPublicShareAnnotations(tree, annotations);
     fileTreeCache.set(cacheKey, tree);
 

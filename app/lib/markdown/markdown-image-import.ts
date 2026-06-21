@@ -187,7 +187,7 @@ export async function importMarkdownImages(params: {
     });
   }
 
-  await syncPublicSharesAfterWrite(writtenPaths);
+  await syncPublicSharesAfterWrite(writtenPaths, params.fileOptions?.workspace);
   clearFileTreeCache(params.fileOptions?.workspace?.workspaceId);
   invalidateFileReferenceCache(params.fileOptions);
 

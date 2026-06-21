@@ -9,6 +9,8 @@ import { Link } from '@/i18n/navigation';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { WORKSPACE_ID_HEADER } from '@/app/lib/workspaces/constants';
+import { selectActiveWorkspace, useWorkspaceStore } from '@/app/store/workspace-store';
 import {
   Sheet,
   SheetClose,
@@ -22,6 +24,9 @@ import { cn } from '@/lib/utils';
 
 interface PublicShare {
   id: string;
+  workspaceId: string | null;
+  workspaceType: 'personal' | 'team' | 'project' | null;
+  workspaceName: string | null;
   workspacePath: string;
   fileName: string;
   mimeType: string;
@@ -83,6 +88,9 @@ function primaryShareUrl(share: PublicShare) {
 
 export function PublicSharesClient() {
   const t = useTranslations('security.publicShares');
+  const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
+  const activeWorkspace = useWorkspaceStore(selectActiveWorkspace);
+  const hydrateWorkspaces = useWorkspaceStore((state) => state.hydrateWorkspaces);
   const [shares, setShares] = useState<PublicShare[]>([]);
   const [query, setQuery] = useState('');
   const [status, setStatus] = useState<StatusFilter>('active');
@@ -97,6 +105,10 @@ export function PublicSharesClient() {
     setLoading(true);
     setError(null);
     try {
+      if (!activeWorkspaceId) {
+        await hydrateWorkspaces();
+      }
+      const workspaceId = useWorkspaceStore.getState().activeWorkspaceId;
       const params = new URLSearchParams({
         status,
         type,
@@ -107,6 +119,7 @@ export function PublicSharesClient() {
       const response = await fetch(`/api/security/public-shares?${params.toString()}`, {
         credentials: 'include',
         cache: 'no-store',
+        headers: workspaceId ? { [WORKSPACE_ID_HEADER]: workspaceId } : undefined,
       });
       const payload = await response.json();
       if (!response.ok || !payload.success) {
@@ -122,12 +135,16 @@ export function PublicSharesClient() {
   };
 
   useEffect(() => {
+    void hydrateWorkspaces();
+  }, [hydrateWorkspaces]);
+
+  useEffect(() => {
     const handle = window.setTimeout(() => {
       void loadShares();
     }, 150);
     return () => window.clearTimeout(handle);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [query, status, type, source]);
+  }, [activeWorkspaceId, query, status, type, source]);
 
   const summary = useMemo(() => {
     const active = shares.filter((share) => share.status === 'active').length;
@@ -159,6 +176,7 @@ export function PublicSharesClient() {
       const response = await fetch(`/api/security/public-shares/${encodeURIComponent(share.id)}`, {
         method: 'DELETE',
         credentials: 'include',
+        headers: activeWorkspaceId ? { [WORKSPACE_ID_HEADER]: activeWorkspaceId } : undefined,
       });
       const payload = await response.json();
       if (!response.ok || !payload.success) {
@@ -446,6 +464,7 @@ export function PublicSharesClient() {
                           <div className="mt-1 flex flex-wrap gap-1">
                             <Badge variant="outline" className={statusClass(share.status)}>{t(`status.${share.status}`)}</Badge>
                             <Badge variant="secondary">{t(`source.${share.source}`)}</Badge>
+                            {share.workspaceName ? <Badge variant="outline">{share.workspaceName}</Badge> : null}
                             <Badge variant={shareSecurityMode(share) === 'interactive' ? 'outline' : 'secondary'}>
                               {t(`securityMode.${shareSecurityMode(share)}`)}
                             </Badge>
@@ -460,6 +479,11 @@ export function PublicSharesClient() {
                     <div className="space-y-3 p-3">
                       <div className="min-w-0">
                         <div className="text-xs font-medium text-muted-foreground">{t('filePath')}</div>
+                        {share.workspaceName || activeWorkspace?.name ? (
+                          <div className="mb-1 text-xs text-muted-foreground">
+                            {share.workspaceName || activeWorkspace?.name}
+                          </div>
+                        ) : null}
                         <div className="mt-1 break-all bg-muted/40 px-2 py-1 font-mono text-xs" title={share.workspacePath}>
                           {share.workspacePath}
                         </div>
@@ -519,6 +543,11 @@ export function PublicSharesClient() {
                             <FileText className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
                             <div className="min-w-0">
                               <div className="truncate font-medium" title={share.fileName}>{share.fileName}</div>
+                              {share.workspaceName || activeWorkspace?.name ? (
+                                <div className="truncate text-xs text-muted-foreground" title={share.workspaceName || activeWorkspace?.name}>
+                                  {share.workspaceName || activeWorkspace?.name}
+                                </div>
+                              ) : null}
                               <div className="truncate font-mono text-xs text-muted-foreground" title={share.workspacePath}>{share.workspacePath}</div>
                               <div className="mt-1 truncate font-mono text-xs text-foreground" title={shareUrl}>{shareUrl}</div>
                               {hasLongUrl ? (

@@ -17,9 +17,14 @@ import {
 } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
+import { WORKSPACE_ID_HEADER } from '@/app/lib/workspaces/constants';
+import { useWorkspaceStore } from '@/app/store/workspace-store';
 
 interface PublicShareResult {
   id: string;
+  workspaceId?: string | null;
+  workspaceType?: 'personal' | 'team' | 'project' | null;
+  workspaceName?: string | null;
   workspacePath: string;
   fileName: string;
   mimeType?: string;
@@ -94,6 +99,7 @@ function dedupeShares(shares: PublicShareResult[]) {
 
 export function PublicShareDialog({ open, onOpenChange, paths, onPublished }: PublicShareDialogProps) {
   const t = useTranslations('notebook');
+  const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
   const [expiryDays, setExpiryDays] = useState<ExpiryOption>(30);
   const [isPublishing, setIsPublishing] = useState(false);
   const [isChecking, setIsChecking] = useState(false);
@@ -173,6 +179,7 @@ export function PublicShareDialog({ open, onOpenChange, paths, onPublished }: Pu
           credentials: 'include',
           cache: 'no-store',
           signal: controller.signal,
+          headers: activeWorkspaceId ? { [WORKSPACE_ID_HEADER]: activeWorkspaceId } : undefined,
         });
         const payload = await response.json();
         if (!response.ok || !payload.success) {
@@ -190,7 +197,7 @@ export function PublicShareDialog({ open, onOpenChange, paths, onPublished }: Pu
     void loadExistingShares();
 
     return () => controller.abort();
-  }, [open, uniquePaths, t, resetDialogState]);
+  }, [activeWorkspaceId, open, uniquePaths, t, resetDialogState]);
 
   const handlePublish = async () => {
     if (actionablePaths.length === 0) {
@@ -203,7 +210,10 @@ export function PublicShareDialog({ open, onOpenChange, paths, onPublished }: Pu
     try {
       const response = await fetch('/api/security/public-shares', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(activeWorkspaceId ? { [WORKSPACE_ID_HEADER]: activeWorkspaceId } : {}),
+        },
         credentials: 'include',
         body: JSON.stringify({
           paths: actionablePaths,
@@ -248,6 +258,7 @@ export function PublicShareDialog({ open, onOpenChange, paths, onPublished }: Pu
       const response = await fetch(`/api/security/public-shares/${encodeURIComponent(share.id)}`, {
         method: 'DELETE',
         credentials: 'include',
+        headers: activeWorkspaceId ? { [WORKSPACE_ID_HEADER]: activeWorkspaceId } : undefined,
       });
       const payload = await response.json();
       if (!response.ok || !payload.success) {
