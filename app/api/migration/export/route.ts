@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { requireMigrationExportPermission } from '@/app/lib/migration/auth';
-import { createMigrationExportJob, normalizeMigrationComponents } from '@/app/lib/migration/export-service';
+import { createMigrationExportJob, normalizeMigrationExportOptions } from '@/app/lib/migration/export-service';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 
 export async function POST(request: NextRequest) {
@@ -16,9 +16,19 @@ export async function POST(request: NextRequest) {
   if (!limited.ok) return limited.response;
 
   try {
-    const payload = await request.json().catch(() => ({})) as { components?: unknown };
-    const components = normalizeMigrationComponents(payload.components);
-    const job = await createMigrationExportJob({ components });
+    const payload = await request.json().catch(() => ({}));
+    const options = normalizeMigrationExportOptions(payload);
+    const job = await createMigrationExportJob({
+      ...options,
+      source: {
+        organizationId: admin.state.organizationId,
+        databaseProvider: admin.state.databaseProvider,
+        teamFeaturesEnabled: admin.state.teamFeaturesEnabled,
+        createdByUserId: admin.session.user.id,
+        createdByEmail: admin.session.user.email,
+        createdByRole: admin.permission.role,
+      },
+    });
     return NextResponse.json({ success: true, job });
   } catch (error) {
     console.error('[Migration Export] Failed to create export job:', error);

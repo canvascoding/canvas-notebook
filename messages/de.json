@@ -2139,7 +2139,22 @@
         "files": "Dateien",
         "size": "Größe",
         "exportedAt": "Exportiert",
-        "secretsWarning": "Secrets sind in diesem Export enthalten. Dieses ZIP muss wie ein Zugangsschlüssel gespeichert und übertragen werden.",
+        "unencryptedWarning": "Dieses V1-Migrations-ZIP wird lokal unverschlüsselt erstellt. Public Links, Public-Link-Tokens, OAuth-Tokens und rohe Secret-Dateien werden nicht exportiert.",
+        "secretsWarning": "Secrets werden nur als redacted Reconnect-Manifest exportiert. API-Keys, OAuth-Tokens und lokale Credentials müssen auf dem Zielsystem neu verbunden werden.",
+        "profiles": {
+          "standard": {
+            "label": "Standard-Migration",
+            "hint": "Exportiert ausgewählte App-Daten ohne persönliche Workspace-Verzeichnisse."
+          },
+          "full_admin": {
+            "label": "Full Admin Export",
+            "hint": "Erlaubt den expliziten Einschluss persönlicher Workspace-Verzeichnisse."
+          }
+        },
+        "includePersonalWorkspaces": {
+          "label": "Persönliche Workspaces einschließen",
+          "hint": "Nur für Full Admin Export. Normale Migrationen schließen persönliche Workspace-Verzeichnisse aus."
+        },
         "importTitle": "Bundle importieren",
         "importDescription": "Große ZIP-Dateien werden in Chunks hochgeladen, geprüft und nach einem kontrollierten App-Neustart wiederhergestellt.",
         "uploading": "Migrations-ZIP wird hochgeladen...",
@@ -2180,8 +2195,8 @@
             "hint": "Installierte Skill-Ordner"
           },
           "secrets": {
-            "label": "Secrets",
-            "hint": "Integrations-Env-Dateien und lokale Credentials"
+            "label": "Reconnect-Manifest",
+            "hint": "Redacted Secret-/OAuth-Hinweise ohne Credential-Werte"
           }
         },
         "compatibility": {

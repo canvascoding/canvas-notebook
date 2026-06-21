@@ -2140,7 +2140,22 @@
         "files": "Files",
         "size": "Size",
         "exportedAt": "Exported",
-        "secretsWarning": "Secrets are included in this export. Store and transfer this ZIP like a credential.",
+        "unencryptedWarning": "This V1 migration ZIP is created locally without encryption. Public links, public-link tokens, OAuth tokens, and raw secret files are not exported.",
+        "secretsWarning": "Secrets are exported only as a redacted reconnect manifest. API keys, OAuth tokens, and local credentials must be reconnected on the target system.",
+        "profiles": {
+          "standard": {
+            "label": "Standard migration",
+            "hint": "Exports selected app data without personal workspace directories."
+          },
+          "full_admin": {
+            "label": "Full Admin export",
+            "hint": "Allows explicit inclusion of personal workspace directories."
+          }
+        },
+        "includePersonalWorkspaces": {
+          "label": "Include personal workspaces",
+          "hint": "Only for Full Admin export. Normal migrations exclude personal workspace directories."
+        },
         "importTitle": "Import bundle",
         "importDescription": "Large ZIP files are uploaded in chunks, inspected, and restored after a controlled app restart.",
         "uploading": "Uploading migration ZIP...",
@@ -2181,8 +2196,8 @@
             "hint": "Installed skill folders"
           },
           "secrets": {
-            "label": "Secrets",
-            "hint": "Integration env files and local credentials"
+            "label": "Reconnect manifest",
+            "hint": "Redacted secret/OAuth hints without credential values"
           }
         },
         "compatibility": {

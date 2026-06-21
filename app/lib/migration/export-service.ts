@@ -12,11 +12,16 @@ import {
   DEFAULT_MIGRATION_COMPONENTS,
   MIGRATION_BUNDLE_SCHEMA_VERSION,
   MIGRATION_COMPONENT_KEYS,
+  MIGRATION_EXPORT_PROFILES,
   type CanvasMigrationManifest,
   type MigrationComponentKey,
   type MigrationComponents,
   type MigrationExportJob,
   type MigrationExportOptions,
+  type MigrationExportProfile,
+  type MigrationExportSecurity,
+  type MigrationExportSelection,
+  type MigrationExportSource,
   type MigrationFileEntry,
 } from '@/app/lib/migration/types';
 import {
@@ -25,13 +30,15 @@ import {
   getMigrationExportsRoot,
 } from '@/app/lib/migration/paths';
 import {
-  getSelectedMigrationComponentPaths,
+  getSelectedMigrationExportComponentPaths,
   resolveMigrationDataPath,
 } from '@/app/lib/migration/component-paths';
+import { getDatabaseProvider, getDeploymentMode } from '@/app/lib/organization/bootstrap';
 
 const EXPORT_STATUS_FILE = 'status.json';
 const SQLITE_FILE_NAME = 'sqlite.db';
 const EXPORT_WRITE_THROTTLE_MS = 750;
+const RECONNECT_MANIFEST_ARCHIVE_PATH = 'data/reconnect-manifest.json';
 
 type ZipArchive = InstanceType<typeof ZipStream>;
 
@@ -39,10 +46,48 @@ const activeExports = new Map<string, Promise<void>>();
 
 function cloneComponents(components?: Partial<MigrationComponents>): MigrationComponents {
   const next = { ...DEFAULT_MIGRATION_COMPONENTS, ...components };
-  if (!next.secrets) {
-    next.secrets = false;
-  }
+  next.secrets = next.secrets === true;
   return next;
+}
+
+function normalizeMigrationExportProfile(value: unknown): MigrationExportProfile {
+  return MIGRATION_EXPORT_PROFILES.includes(value as MigrationExportProfile)
+    ? value as MigrationExportProfile
+    : 'standard';
+}
+
+function buildExportSelection(params: {
+  profile: MigrationExportProfile;
+  includePersonalWorkspaces?: boolean;
+}): MigrationExportSelection {
+  return {
+    includePersonalWorkspaces: params.profile === 'full_admin' && params.includePersonalWorkspaces === true,
+    includePublicLinks: false,
+    includeRawSecrets: false,
+  };
+}
+
+function buildExportSource(source?: Partial<MigrationExportSource>): MigrationExportSource {
+  return {
+    databaseProvider: source?.databaseProvider || getDatabaseProvider(),
+    deploymentMode: source?.deploymentMode || getDeploymentMode(),
+    teamFeaturesEnabled: source?.teamFeaturesEnabled ?? process.env.CANVAS_TEAM_FEATURES_ENABLED === 'true',
+    managedServicesEnabled: source?.managedServicesEnabled ?? process.env.CANVAS_MANAGED_SERVICES_ENABLED === 'true',
+    organizationId: source?.organizationId ?? (process.env.CANVAS_ORGANIZATION_ID?.trim() || null),
+    createdByUserId: source?.createdByUserId ?? null,
+    createdByEmail: source?.createdByEmail ?? null,
+    createdByRole: source?.createdByRole ?? null,
+  };
+}
+
+function buildExportSecurity(components: MigrationComponents): MigrationExportSecurity {
+  return {
+    publicLinksIncluded: false,
+    publicLinkTokensIncluded: false,
+    rawSecretsIncluded: false,
+    secretsMode: components.secrets ? 'reconnect_manifest' : 'excluded',
+    unencryptedArchive: true,
+  };
 }
 
 function getExportDir(exportId: string): string {
@@ -142,6 +187,201 @@ async function addZipEntry(
   });
 }
 
+function tableExists(sqlite: InstanceType<typeof Database>, tableName: string): boolean {
+  const row = sqlite.prepare(`
+    SELECT 1
+    FROM sqlite_master
+    WHERE type = 'table' AND name = ?
+    LIMIT 1
+  `).get(tableName);
+  return Boolean(row);
+}
+
+function tableColumns(sqlite: InstanceType<typeof Database>, tableName: string): Set<string> {
+  return new Set(
+    sqlite.prepare(`PRAGMA table_info(${tableName})`).all()
+      .map((column) => (column as { name: string }).name),
+  );
+}
+
+function nullColumns(sqlite: InstanceType<typeof Database>, tableName: string, columns: string[]): void {
+  if (!tableExists(sqlite, tableName)) return;
+  const existing = tableColumns(sqlite, tableName);
+  const assignments = columns.filter((column) => existing.has(column)).map((column) => `${column} = NULL`);
+  if (assignments.length === 0) return;
+  sqlite.prepare(`UPDATE ${tableName} SET ${assignments.join(', ')}`).run();
+}
+
+function sanitizeSqliteMigrationSnapshot(snapshotPath: string): void {
+  const snapshot = new Database(snapshotPath);
+  try {
+    const transaction = snapshot.transaction(() => {
+      if (tableExists(snapshot, 'public_file_shares')) {
+        snapshot.prepare('DELETE FROM public_file_shares').run();
+      }
+      if (tableExists(snapshot, 'session')) {
+        snapshot.prepare('DELETE FROM session').run();
+      }
+      if (tableExists(snapshot, 'verification')) {
+        snapshot.prepare('DELETE FROM verification').run();
+      }
+      if (tableExists(snapshot, 'channel_link_tokens')) {
+        snapshot.prepare('DELETE FROM channel_link_tokens').run();
+      }
+      if (tableExists(snapshot, 'oauth_tokens')) {
+        snapshot.prepare('DELETE FROM oauth_tokens').run();
+      }
+      if (tableExists(snapshot, 'todo_email_reply_events')) {
+        snapshot.prepare('DELETE FROM todo_email_reply_events').run();
+      }
+      if (tableExists(snapshot, 'todo_email_reply_watchers')) {
+        snapshot.prepare('DELETE FROM todo_email_reply_watchers').run();
+      }
+      if (tableExists(snapshot, 'composio_webhook_subscriptions')) {
+        const columns = tableColumns(snapshot, 'composio_webhook_subscriptions');
+        const assignments: string[] = [];
+        const values: unknown[] = [];
+        if (columns.has('encrypted_secret')) {
+          assignments.push('encrypted_secret = ?');
+          values.push('redacted');
+        }
+        if (columns.has('secret_preview')) {
+          assignments.push('secret_preview = ?');
+          values.push('redacted');
+        }
+        if (columns.has('status')) {
+          assignments.push('status = ?');
+          values.push('paused');
+        }
+        if (assignments.length > 0) {
+          snapshot.prepare(`UPDATE composio_webhook_subscriptions SET ${assignments.join(', ')}`).run(...values);
+        }
+      }
+      if (tableExists(snapshot, 'automation_webhook_triggers')) {
+        const columns = tableColumns(snapshot, 'automation_webhook_triggers');
+        const assignments: string[] = [];
+        const values: unknown[] = [];
+        if (columns.has('status')) {
+          assignments.push('status = ?');
+          values.push('paused');
+        }
+        if (columns.has('secret_preview')) {
+          assignments.push('secret_preview = ?');
+          values.push('redacted');
+        }
+        if (assignments.length > 0) {
+          snapshot.prepare(`UPDATE automation_webhook_triggers SET ${assignments.join(', ')}`).run(...values);
+        }
+      }
+      nullColumns(snapshot, 'account', [
+        'access_token',
+        'refresh_token',
+        'id_token',
+        'access_token_expires_at',
+        'refresh_token_expires_at',
+        'password',
+      ]);
+    });
+    transaction();
+    snapshot.pragma('wal_checkpoint(TRUNCATE)');
+  } finally {
+    snapshot.close();
+  }
+}
+
+async function maybeStat(pathname: string): Promise<import('fs').Stats | null> {
+  try {
+    return await fs.stat(pathname);
+  } catch (error) {
+    if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') {
+      return null;
+    }
+    throw error;
+  }
+}
+
+function extractEnvKeys(raw: string): string[] {
+  const keys = new Set<string>();
+  for (const line of raw.split(/\r?\n/u)) {
+    const match = /^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=/u.exec(line);
+    if (match?.[1]) keys.add(match[1]);
+  }
+  return [...keys].sort((a, b) => a.localeCompare(b));
+}
+
+async function readRedactedEnvKeys(filePath: string): Promise<string[]> {
+  const raw = await fs.readFile(filePath, 'utf8').catch((error) => {
+    if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') {
+      return '';
+    }
+    throw error;
+  });
+  return raw ? extractEnvKeys(raw) : [];
+}
+
+async function buildReconnectManifest(params: {
+  dataRoot: string;
+  job: MigrationExportJob;
+}): Promise<{ content: string; entry: MigrationFileEntry } | null> {
+  if (!params.job.components.secrets) return null;
+
+  const entries: Array<{
+    kind: 'env_file' | 'oauth_store' | 'secret_directory';
+    scope: 'legacy' | 'user' | 'organization' | 'system';
+    path: string;
+    secretNames?: string[];
+    requiresReconnect: true;
+  }> = [];
+
+  const addEnvFile = async (scope: 'legacy' | 'system', relativePath: string) => {
+    const filePath = path.join(params.dataRoot, ...relativePath.split('/'));
+    const secretNames = await readRedactedEnvKeys(filePath);
+    const stat = await maybeStat(filePath);
+    if (secretNames.length === 0 && !stat) return;
+    entries.push({ kind: 'env_file', scope, path: relativePath, secretNames, requiresReconnect: true });
+  };
+
+  const addDirectory = async (
+    kind: 'oauth_store' | 'secret_directory',
+    scope: 'legacy' | 'user' | 'organization' | 'system',
+    relativePath: string,
+  ) => {
+    const stat = await maybeStat(path.join(params.dataRoot, ...relativePath.split('/')));
+    if (!stat?.isDirectory()) return;
+    entries.push({ kind, scope, path: relativePath, requiresReconnect: true });
+  };
+
+  await addEnvFile('legacy', 'secrets/Canvas-Integrations.env');
+  await addEnvFile('legacy', 'secrets/Canvas-Agents.env');
+  await addDirectory('oauth_store', 'legacy', 'settings/mcp-oauth');
+  await addDirectory('oauth_store', 'legacy', 'canvas-agent/mcp-oauth');
+  await addDirectory('oauth_store', 'legacy', 'pi-oauth-states');
+  await addDirectory('oauth_store', 'legacy', 'secrets/email-oauth');
+  await addDirectory('secret_directory', 'user', 'users');
+  await addDirectory('secret_directory', 'organization', 'organizations');
+  await addDirectory('secret_directory', 'system', 'system/secrets');
+
+  const manifest = {
+    format: 'canvas-notebook-reconnect-manifest',
+    generatedAt: new Date().toISOString(),
+    exportId: params.job.id,
+    rawSecretsIncluded: false,
+    note: 'Migration exports never include raw secrets or OAuth tokens. Reconnect these integrations on the target instance.',
+    entries,
+  };
+  const content = `${JSON.stringify(manifest, null, 2)}\n`;
+
+  return {
+    content,
+    entry: {
+      component: 'secrets',
+      archivePath: RECONNECT_MANIFEST_ARCHIVE_PATH,
+      size: Buffer.byteLength(content),
+      modifiedAt: new Date().toISOString(),
+    },
+  };
+}
+
 async function createSqliteSnapshot(dataRoot: string, exportDir: string): Promise<{
   filePath: string;
   entry: MigrationFileEntry;
@@ -156,6 +396,8 @@ async function createSqliteSnapshot(dataRoot: string, exportDir: string): Promis
   } finally {
     source.close();
   }
+
+  sanitizeSqliteMigrationSnapshot(snapshotPath);
 
   const snapshot = new Database(snapshotPath, { readonly: true, fileMustExist: true });
   try {
@@ -181,7 +423,11 @@ async function createSqliteSnapshot(dataRoot: string, exportDir: string): Promis
 
 function buildManifest(params: {
   exportId: string;
+  profile: MigrationExportProfile;
   components: MigrationComponents;
+  selection: MigrationExportSelection;
+  source: MigrationExportSource;
+  security: MigrationExportSecurity;
   files: MigrationFileEntry[];
 }): CanvasMigrationManifest {
   const warnings: string[] = [
@@ -189,8 +435,16 @@ function buildManifest(params: {
     'Automations are paused during restore and must be re-enabled after verification.',
     'OAuth-based integrations may require re-authentication on the target VM.',
     'Target VM license and instance identity are not overwritten during restore.',
+    'Migration exports do not include active public links or public-link tokens.',
+    'This V1 migration archive is stored locally without automatic encryption.',
   ];
 
+  if (params.profile === 'full_admin' && params.selection.includePersonalWorkspaces) {
+    warnings.push('Full Admin export includes selected personal workspace directories. Handle with elevated privacy controls.');
+  }
+  if (!params.selection.includePersonalWorkspaces) {
+    warnings.push('Personal workspace directories are excluded unless Full Admin export explicitly includes them.');
+  }
   if (!params.components.workspace) {
     warnings.push('Workspace files were not included. Existing file references may point to missing files.');
   }
@@ -202,6 +456,8 @@ function buildManifest(params: {
   }
   if (!params.components.secrets) {
     warnings.push('Secrets were not included. API keys and local integration credentials must be configured again.');
+  } else {
+    warnings.push('Only a redacted reconnect manifest is included for secrets; raw secret files and OAuth tokens are excluded.');
   }
 
   return {
@@ -210,7 +466,11 @@ function buildManifest(params: {
     appVersion: getCurrentAppVersion(),
     exportedAt: new Date().toISOString(),
     exportId: params.exportId,
+    exportProfile: params.profile,
     components: params.components,
+    selection: params.selection,
+    source: params.source,
+    security: params.security,
     fileCount: params.files.length,
     totalBytes: params.files.reduce((sum, entry) => sum + entry.size, 0),
     warnings,
@@ -254,11 +514,14 @@ async function runExport(job: MigrationExportJob): Promise<void> {
       files.push(sqliteSnapshot.entry);
     }
 
-    const componentRoots = getSelectedMigrationComponentPaths(job.components).map((mapping) => ({
+    const componentRoots = getSelectedMigrationExportComponentPaths(job.components, {
+      includePersonalWorkspaces: job.selection.includePersonalWorkspaces,
+    }).map((mapping) => ({
       component: mapping.component,
       sourcePath: resolveMigrationDataPath(dataRoot, mapping),
       archiveRoot: mapping.archiveRoot,
     }));
+    const virtualFileContents = new Map<string, string>();
 
     for (const root of componentRoots) {
       job.phase = `Scanning ${root.component}`;
@@ -266,7 +529,21 @@ async function runExport(job: MigrationExportJob): Promise<void> {
       files.push(...await collectFiles(root.component, root.sourcePath, root.archiveRoot));
     }
 
-    const manifest = buildManifest({ exportId: job.id, components: job.components, files });
+    const reconnectManifest = await buildReconnectManifest({ dataRoot, job });
+    if (reconnectManifest) {
+      files.push(reconnectManifest.entry);
+      virtualFileContents.set(reconnectManifest.entry.archivePath, reconnectManifest.content);
+    }
+
+    const manifest = buildManifest({
+      exportId: job.id,
+      profile: job.profile,
+      components: job.components,
+      selection: job.selection,
+      source: job.source,
+      security: buildExportSecurity(job.components),
+      files,
+    });
     job.manifest = manifest;
     job.progress.fileCount = manifest.fileCount;
     job.progress.totalBytes = manifest.totalBytes;
@@ -300,6 +577,14 @@ async function runExport(job: MigrationExportJob): Promise<void> {
     }
 
     for (const entry of files) {
+      const virtualContent = virtualFileContents.get(entry.archivePath);
+      if (virtualContent) {
+        await addZipEntry(archive, virtualContent, { name: entry.archivePath });
+        job.progress.bytesProcessed += Buffer.byteLength(virtualContent);
+        job.progress.filesProcessed++;
+        await persist();
+        continue;
+      }
       const sourcePath = filePathByArchivePath.get(entry.archivePath);
       if (!sourcePath) continue;
       const stats = await fs.stat(sourcePath);
@@ -333,12 +618,21 @@ async function runExport(job: MigrationExportJob): Promise<void> {
 export async function createMigrationExportJob(options: Partial<MigrationExportOptions>): Promise<MigrationExportJob> {
   const id = crypto.randomUUID();
   const components = cloneComponents(options.components);
+  const profile = normalizeMigrationExportProfile(options.profile);
+  const selection = buildExportSelection({
+    profile,
+    includePersonalWorkspaces: options.includePersonalWorkspaces,
+  });
+  const source = buildExportSource(options.source);
   const now = new Date().toISOString();
   const job: MigrationExportJob = {
     id,
     status: 'queued',
     phase: 'Queued',
+    profile,
     components,
+    selection,
+    source,
     createdAt: now,
     updatedAt: now,
     fileName: `canvas-migration-${getCurrentAppVersion()}-${new Date().toISOString().replace(/[:.]/g, '-')}.zip`,
@@ -371,6 +665,16 @@ export function normalizeMigrationComponents(input: unknown): MigrationComponent
     }
   }
   return components;
+}
+
+export function normalizeMigrationExportOptions(input: unknown): Pick<MigrationExportOptions, 'components' | 'profile' | 'includePersonalWorkspaces'> {
+  const source = input && typeof input === 'object' ? input as Record<string, unknown> : {};
+  const profile = normalizeMigrationExportProfile(source.profile);
+  return {
+    components: normalizeMigrationComponents(source.components),
+    profile,
+    includePersonalWorkspaces: profile === 'full_admin' && source.includePersonalWorkspaces === true,
+  };
 }
 
 export async function getMigrationArchiveSize(filePath: string): Promise<number> {

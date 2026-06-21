@@ -69,6 +69,17 @@ Regeln:
 - Wenn Postgres genutzt wird, kann ein bewusst aktivierter Full Technical Export einen Postgres-Dump enthalten. Normale Migration Exports bleiben logisch und provider-aware.
 - V1-Technical-Exports und lokale Backup-Artefakte werden nicht automatisch verschluesselt. Die UI muss deshalb warnen, dass ein Host-/Container-Admin sie lesen kann.
 
+V1-Implementierungsstand:
+
+- Exportprofile: `standard` und `full_admin`.
+- `standard` exportiert keine `/data/workspaces/personal/*`-Dateien, auch wenn der Client dies anfordert.
+- `full_admin` kann Personal Workspaces nur mit expliziter Auswahl exportieren.
+- Das Migration-Bundle enthaelt keine rohen Secret-Dateien aus `/data/secrets`.
+- Wenn die Komponente `secrets` ausgewaehlt ist, wird nur `data/reconnect-manifest.json` mit redacted Reconnect-Hinweisen geschrieben.
+- Der SQLite-Snapshot wird fuer Migration-Exports bereinigt: Public Shares, Session-/Verification-Tokens, OAuth-Tokens, Channel-Link-Tokens und E-Mail-Reply-Token werden entfernt oder redacted.
+- Composio-Webhooks und Automation-Webhooks werden im Snapshot pausiert bzw. ihre Secrets redacted.
+- Die UI zeigt Exportprofil, Personal-Workspace-Auswahl und unverschluesseltes V1-Archiv sichtbar an.
+
 ## Bestehendes Migration Manifest
 
 Im aktuellen Code existiert bereits ein Migration-Bundle-Manifest:
