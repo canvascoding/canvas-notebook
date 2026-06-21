@@ -22,7 +22,8 @@ export async function GET(request: NextRequest) {
   try {
     const limit = Math.min(parsePositiveInt(request.nextUrl.searchParams.get('limit'), DEFAULT_LIMIT), MAX_LIMIT);
     const offset = parsePositiveInt(request.nextUrl.searchParams.get('offset'), 0);
-    const result = await listStudioGenerations(session.user.id, { limit, offset });
+    const creatorUserId = request.nextUrl.searchParams.get('creatorUserId');
+    const result = await listStudioGenerations(session.user.id, { limit, offset, creatorUserId });
     return NextResponse.json({ success: true, ...result });
   } catch (error) {
     console.error('[Studio Generations] Error:', error);

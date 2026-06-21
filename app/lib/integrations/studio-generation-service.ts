@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { db } from '@/app/lib/db';
 import {
+  user,
   studioProducts,
   studioProductImages,
   studioPersonas,
@@ -17,7 +18,7 @@ import {
   studioGenerationPersonas,
   studioGenerationStyles,
 } from '@/app/lib/db/schema';
-import { eq, and, desc, count, asc } from 'drizzle-orm';
+import { eq, and, desc, count, asc, inArray, or } from 'drizzle-orm';
 import { getImageGenerationProvider } from '@/app/lib/integrations/image-generation-providers';
 import { StudioServiceError } from '@/app/lib/integrations/studio-errors';
 import {
@@ -46,6 +47,7 @@ import {
   normalizeGeminiImageModelId,
 } from '@/app/lib/integrations/image-generation-constants';
 import type { EnvStorageScope } from '@/app/lib/integrations/env-config';
+import { resolveStudioScope, studioInsertScope, studioVisibilityCondition } from '@/app/lib/integrations/studio-scope';
 
 type ProviderReferenceImage = { imageBytes: string; mimeType: string };
 type ProviderReferenceMedia = { imageBytes: string; mimeType: string; fileName?: string };
@@ -120,6 +122,38 @@ const MAX_IMAGE_COUNT = 4;
 const PRESET_BLOCK_ORDER = ['lighting', 'camera', 'background', 'props', 'subject'];
 const MAX_PROMPT_LENGTH = 4000;
 
+function generationVisibilityCondition(userId: string, creatorUserId?: string | null) {
+  return studioVisibilityCondition(resolveStudioScope(userId), {
+    userId: studioGenerations.userId,
+    organizationId: studioGenerations.organizationId,
+    createdByUserId: studioGenerations.createdByUserId,
+  }, creatorUserId);
+}
+
+function productVisibilityCondition(userId: string) {
+  return studioVisibilityCondition(resolveStudioScope(userId), {
+    userId: studioProducts.userId,
+    organizationId: studioProducts.organizationId,
+    createdByUserId: studioProducts.createdByUserId,
+  });
+}
+
+function personaVisibilityCondition(userId: string) {
+  return studioVisibilityCondition(resolveStudioScope(userId), {
+    userId: studioPersonas.userId,
+    organizationId: studioPersonas.organizationId,
+    createdByUserId: studioPersonas.createdByUserId,
+  });
+}
+
+function styleVisibilityCondition(userId: string) {
+  return studioVisibilityCondition(resolveStudioScope(userId), {
+    userId: studioStyles.userId,
+    organizationId: studioStyles.organizationId,
+    createdByUserId: studioStyles.createdByUserId,
+  });
+}
+
 const MIME_EXTENSION: Record<string, string> = {
   'image/png': 'png',
   'image/jpeg': 'jpg',
@@ -155,7 +189,7 @@ async function loadProductImages(userId: string, productIds: string[]): Promise<
   for (const productId of productIds) {
     const [product] = await db.select({ id: studioProducts.id, name: studioProducts.name, description: studioProducts.description })
       .from(studioProducts)
-      .where(and(eq(studioProducts.id, productId), eq(studioProducts.userId, userId)));
+      .where(and(eq(studioProducts.id, productId), productVisibilityCondition(userId)));
 
     if (!product) {
       throw new StudioServiceError(
@@ -207,7 +241,7 @@ async function loadPersonaImages(userId: string, personaIds: string[]): Promise<
   for (const personaId of personaIds) {
     const [persona] = await db.select({ id: studioPersonas.id, name: studioPersonas.name, description: studioPersonas.description })
       .from(studioPersonas)
-      .where(and(eq(studioPersonas.id, personaId), eq(studioPersonas.userId, userId)));
+      .where(and(eq(studioPersonas.id, personaId), personaVisibilityCondition(userId)));
 
     if (!persona) {
       throw new StudioServiceError(
@@ -259,7 +293,7 @@ async function loadStyleImages(userId: string, styleIds: string[]): Promise<Load
   for (const styleId of styleIds) {
     const [style] = await db.select({ id: studioStyles.id, name: studioStyles.name, description: studioStyles.description })
       .from(studioStyles)
-      .where(and(eq(studioStyles.id, styleId), eq(studioStyles.userId, userId)));
+      .where(and(eq(studioStyles.id, styleId), styleVisibilityCondition(userId)));
 
     if (!style) {
       throw new StudioServiceError(
@@ -319,10 +353,30 @@ export async function getStudioOutputForUser(outputId: string, userId: string) {
   })
     .from(studioGenerationOutputs)
     .innerJoin(studioGenerations, eq(studioGenerationOutputs.generationId, studioGenerations.id))
-    .where(and(eq(studioGenerationOutputs.id, outputId), eq(studioGenerations.userId, userId)))
+    .where(and(eq(studioGenerationOutputs.id, outputId), generationVisibilityCondition(userId)))
     .limit(1);
 
   return output ?? null;
+}
+
+export async function canReadStudioOutputPath(inputPath: string, userId: string): Promise<boolean> {
+  const normalizedPath = inputPath.startsWith('studio/outputs/')
+    ? inputPath.slice('studio/outputs/'.length)
+    : inputPath;
+
+  const [output] = await db.select({ id: studioGenerationOutputs.id })
+    .from(studioGenerationOutputs)
+    .innerJoin(studioGenerations, eq(studioGenerationOutputs.generationId, studioGenerations.id))
+    .where(and(
+      or(
+        eq(studioGenerationOutputs.filePath, normalizedPath),
+        eq(studioGenerationOutputs.filePath, `studio/outputs/${normalizedPath}`),
+      )!,
+      generationVisibilityCondition(userId),
+    ))
+    .limit(1);
+
+  return Boolean(output);
 }
 
 function isVeoGenerationOutput(output: {
@@ -391,7 +445,7 @@ async function getVeoVideoOutputByPathForUser(inputPath: string, userId: string)
     })
       .from(studioGenerationOutputs)
       .innerJoin(studioGenerations, eq(studioGenerationOutputs.generationId, studioGenerations.id))
-      .where(and(eq(studioGenerationOutputs.filePath, candidate), eq(studioGenerations.userId, userId)))
+      .where(and(eq(studioGenerationOutputs.filePath, candidate), generationVisibilityCondition(userId)))
       .limit(1);
 
     if (output) {
@@ -478,7 +532,7 @@ async function loadSourceOutputReferences(userId: string, sourceGenerationId: st
 }> {
   const [generation] = await db.select({ id: studioGenerations.id })
     .from(studioGenerations)
-    .where(and(eq(studioGenerations.id, sourceGenerationId), eq(studioGenerations.userId, userId)))
+    .where(and(eq(studioGenerations.id, sourceGenerationId), generationVisibilityCondition(userId)))
     .limit(1);
 
   if (!generation) {
@@ -676,6 +730,7 @@ export async function createStudioGeneration(
 
   const generationId = randomUUID();
   const now = new Date();
+  const scope = studioInsertScope(userId);
   let sourceGenerationId: string | null = null;
 
   const defaultModel = providerId === 'openai' ? 'gpt-image-2' : GEMINI_FLASH_IMAGE_MODEL_ID;
@@ -751,6 +806,9 @@ export async function createStudioGeneration(
   await db.insert(studioGenerations).values({
     id: generationId,
     userId,
+    organizationId: scope.organizationId,
+    createdByUserId: scope.createdByUserId,
+    workspaceId: null,
     mode,
     prompt: rawPrompt,
     rawPrompt: request.prompt,
@@ -867,6 +925,29 @@ interface GenerationRow {
   aspectRatio: string;
   prompt: string | null;
   metadata: string | null;
+}
+
+type StudioOutputInsert = typeof studioGenerationOutputs.$inferInsert;
+
+async function insertStudioGenerationOutput(
+  values: Omit<StudioOutputInsert, 'organizationId' | 'createdByUserId' | 'workspaceId'>,
+) {
+  const [scope] = await db.select({
+    userId: studioGenerations.userId,
+    organizationId: studioGenerations.organizationId,
+    createdByUserId: studioGenerations.createdByUserId,
+    workspaceId: studioGenerations.workspaceId,
+  })
+    .from(studioGenerations)
+    .where(eq(studioGenerations.id, values.generationId))
+    .limit(1);
+
+  await db.insert(studioGenerationOutputs).values({
+    ...values,
+    organizationId: scope?.organizationId ?? null,
+    createdByUserId: scope?.createdByUserId ?? scope?.userId ?? null,
+    workspaceId: scope?.workspaceId ?? null,
+  });
 }
 
 async function executeStudioGenerationProcessing(
@@ -1101,7 +1182,7 @@ async function generateStudioImages(
         imageSize: options?.imageSize,
         usage: result.usage,
       };
-      await db.insert(studioGenerationOutputs).values({
+      await insertStudioGenerationOutput({
         id: outputId,
         generationId,
         variationIndex: index,
@@ -1133,7 +1214,7 @@ async function generateStudioImages(
       console.error(`[Studio Generation] Image ${index + 1}/${count} failed: ${errorMsg}`, error instanceof Error ? error.stack : error);
       const errorOutputId = randomUUID();
       const now = new Date();
-      await db.insert(studioGenerationOutputs).values({
+      await insertStudioGenerationOutput({
         id: errorOutputId,
         generationId,
         variationIndex: index,
@@ -1215,7 +1296,7 @@ async function generateStudioSound(
 
   const outputId = randomUUID();
   const now = new Date();
-  await db.insert(studioGenerationOutputs).values({
+  await insertStudioGenerationOutput({
     id: outputId,
     generationId,
     variationIndex: 0,
@@ -1349,7 +1430,7 @@ async function generateStudioVideo(
   const outputId = randomUUID();
   const now = new Date();
 
-  await db.insert(studioGenerationOutputs).values({
+  await insertStudioGenerationOutput({
     id: outputId,
     generationId,
     variationIndex: 0,
@@ -1479,7 +1560,7 @@ async function generateStudioSeedanceVideo(
 
   const outputId = randomUUID();
   const now = new Date();
-  await db.insert(studioGenerationOutputs).values({
+  await insertStudioGenerationOutput({
     id: outputId,
     generationId,
     variationIndex: 0,
@@ -1510,15 +1591,50 @@ async function generateStudioSeedanceVideo(
 export interface ListStudioGenerationsOptions {
   limit?: number;
   offset?: number;
+  creatorUserId?: string | null;
+}
+
+async function listStudioGenerationCreators(userId: string) {
+  const rows = await db.select({
+    userId: studioGenerations.userId,
+    createdByUserId: studioGenerations.createdByUserId,
+  })
+    .from(studioGenerations)
+    .where(generationVisibilityCondition(userId))
+    .groupBy(studioGenerations.userId, studioGenerations.createdByUserId);
+
+  const creatorIds = [...new Set(
+    rows
+      .map((row) => row.createdByUserId ?? row.userId)
+      .filter((id): id is string => typeof id === 'string' && id.length > 0),
+  )];
+
+  if (creatorIds.length === 0) return [];
+
+  const users = await db.select({
+    id: user.id,
+    name: user.name,
+    email: user.email,
+  })
+    .from(user)
+    .where(inArray(user.id, creatorIds));
+  const usersById = new Map(users.map((row) => [row.id, row]));
+
+  return creatorIds.map((id) => ({
+    id,
+    name: usersById.get(id)?.name ?? usersById.get(id)?.email ?? id,
+    email: usersById.get(id)?.email ?? null,
+  }));
 }
 
 export async function listStudioGenerations(userId: string, options: ListStudioGenerationsOptions = {}) {
   const limit = options.limit && options.limit > 0 ? options.limit : undefined;
   const offset = options.offset && options.offset > 0 ? options.offset : undefined;
+  const visibility = generationVisibilityCondition(userId, options.creatorUserId);
 
   let query = db.select()
     .from(studioGenerations)
-    .where(eq(studioGenerations.userId, userId))
+    .where(visibility)
     .orderBy(desc(studioGenerations.createdAt))
     .$dynamic();
 
@@ -1529,11 +1645,12 @@ export async function listStudioGenerations(userId: string, options: ListStudioG
     query = query.offset(offset);
   }
 
-  const [generations, totalResult] = await Promise.all([
+  const [generations, totalResult, creators] = await Promise.all([
     query,
     db.select({ count: count() })
       .from(studioGenerations)
-      .where(eq(studioGenerations.userId, userId)),
+      .where(visibility),
+    listStudioGenerationCreators(userId),
   ]);
 
   const results = await Promise.all(generations.map(async (gen) => {
@@ -1567,6 +1684,7 @@ export async function listStudioGenerations(userId: string, options: ListStudioG
 
   return {
     generations: results,
+    creators,
     total: totalResult[0]?.count ?? results.length,
     limit: limit ?? null,
     offset: offset ?? 0,
@@ -1577,7 +1695,7 @@ export async function listStudioGenerations(userId: string, options: ListStudioG
 export async function getStudioGeneration(generationId: string, userId: string) {
   const [generation] = await db.select()
     .from(studioGenerations)
-    .where(and(eq(studioGenerations.id, generationId), eq(studioGenerations.userId, userId)));
+    .where(and(eq(studioGenerations.id, generationId), generationVisibilityCondition(userId)));
 
   if (!generation) return null;
 

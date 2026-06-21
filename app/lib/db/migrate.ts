@@ -581,6 +581,9 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     CREATE TABLE IF NOT EXISTS studio_products (
       id TEXT PRIMARY KEY NOT NULL,
       user_id TEXT NOT NULL,
+      organization_id TEXT,
+      created_by_user_id TEXT,
+      visibility TEXT NOT NULL DEFAULT 'organization',
       name TEXT NOT NULL,
       description TEXT,
       thumbnail_path TEXT,
@@ -609,6 +612,9 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     CREATE TABLE IF NOT EXISTS studio_personas (
       id TEXT PRIMARY KEY NOT NULL,
       user_id TEXT NOT NULL,
+      organization_id TEXT,
+      created_by_user_id TEXT,
+      visibility TEXT NOT NULL DEFAULT 'organization',
       name TEXT NOT NULL,
       description TEXT,
       thumbnail_path TEXT,
@@ -637,6 +643,9 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     CREATE TABLE IF NOT EXISTS studio_styles (
       id TEXT PRIMARY KEY NOT NULL,
       user_id TEXT NOT NULL,
+      organization_id TEXT,
+      created_by_user_id TEXT,
+      visibility TEXT NOT NULL DEFAULT 'organization',
       name TEXT NOT NULL,
       description TEXT,
       thumbnail_path TEXT,
@@ -665,6 +674,9 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     CREATE TABLE IF NOT EXISTS studio_presets (
       id TEXT PRIMARY KEY NOT NULL,
       user_id TEXT,
+      organization_id TEXT,
+      created_by_user_id TEXT,
+      visibility TEXT NOT NULL DEFAULT 'user',
       is_default INTEGER NOT NULL DEFAULT 0,
       name TEXT NOT NULL,
       description TEXT,
@@ -680,6 +692,9 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     CREATE TABLE IF NOT EXISTS studio_generations (
       id TEXT PRIMARY KEY NOT NULL,
       user_id TEXT NOT NULL,
+      organization_id TEXT,
+      created_by_user_id TEXT,
+      workspace_id TEXT,
       mode TEXT NOT NULL,
       prompt TEXT,
       raw_prompt TEXT,
@@ -702,6 +717,9 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     CREATE TABLE IF NOT EXISTS studio_generation_outputs (
       id TEXT PRIMARY KEY NOT NULL,
       generation_id TEXT NOT NULL,
+      organization_id TEXT,
+      created_by_user_id TEXT,
+      workspace_id TEXT,
       variation_index INTEGER NOT NULL DEFAULT 0,
       type TEXT NOT NULL DEFAULT 'image',
       file_path TEXT NOT NULL,
@@ -744,6 +762,9 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     CREATE TABLE IF NOT EXISTS studio_bulk_jobs (
       id TEXT PRIMARY KEY NOT NULL,
       user_id TEXT NOT NULL,
+      organization_id TEXT,
+      created_by_user_id TEXT,
+      workspace_id TEXT,
       name TEXT,
       studio_preset_id TEXT,
       additional_prompt TEXT,
@@ -797,6 +818,45 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
 
   addColumns(sqlite, 'studio_generations', {
     studio_preset_name: 'TEXT',
+    organization_id: 'TEXT',
+    created_by_user_id: 'TEXT',
+    workspace_id: 'TEXT',
+  });
+
+  addColumns(sqlite, 'studio_products', {
+    organization_id: 'TEXT',
+    created_by_user_id: 'TEXT',
+    visibility: "TEXT NOT NULL DEFAULT 'organization'",
+  });
+
+  addColumns(sqlite, 'studio_personas', {
+    organization_id: 'TEXT',
+    created_by_user_id: 'TEXT',
+    visibility: "TEXT NOT NULL DEFAULT 'organization'",
+  });
+
+  addColumns(sqlite, 'studio_styles', {
+    organization_id: 'TEXT',
+    created_by_user_id: 'TEXT',
+    visibility: "TEXT NOT NULL DEFAULT 'organization'",
+  });
+
+  addColumns(sqlite, 'studio_presets', {
+    organization_id: 'TEXT',
+    created_by_user_id: 'TEXT',
+    visibility: "TEXT NOT NULL DEFAULT 'user'",
+  });
+
+  addColumns(sqlite, 'studio_generation_outputs', {
+    organization_id: 'TEXT',
+    created_by_user_id: 'TEXT',
+    workspace_id: 'TEXT',
+  });
+
+  addColumns(sqlite, 'studio_bulk_jobs', {
+    organization_id: 'TEXT',
+    created_by_user_id: 'TEXT',
+    workspace_id: 'TEXT',
   });
 
   addColumns(sqlite, 'todo_items', {
@@ -819,6 +879,119 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
   });
 
   sqlite.exec(`
+    WITH primary_org AS (
+      SELECT organization_id
+      FROM canvas_organization_settings
+      ORDER BY created_at ASC
+      LIMIT 1
+    )
+    UPDATE studio_products
+    SET
+      created_by_user_id = COALESCE(created_by_user_id, user_id),
+      organization_id = COALESCE(organization_id, (SELECT organization_id FROM primary_org)),
+      visibility = CASE
+        WHEN COALESCE(organization_id, (SELECT organization_id FROM primary_org)) IS NULL THEN 'user'
+        ELSE COALESCE(visibility, 'organization')
+      END
+    WHERE created_by_user_id IS NULL OR organization_id IS NULL OR visibility IS NULL;
+
+    WITH primary_org AS (
+      SELECT organization_id
+      FROM canvas_organization_settings
+      ORDER BY created_at ASC
+      LIMIT 1
+    )
+    UPDATE studio_personas
+    SET
+      created_by_user_id = COALESCE(created_by_user_id, user_id),
+      organization_id = COALESCE(organization_id, (SELECT organization_id FROM primary_org)),
+      visibility = CASE
+        WHEN COALESCE(organization_id, (SELECT organization_id FROM primary_org)) IS NULL THEN 'user'
+        ELSE COALESCE(visibility, 'organization')
+      END
+    WHERE created_by_user_id IS NULL OR organization_id IS NULL OR visibility IS NULL;
+
+    WITH primary_org AS (
+      SELECT organization_id
+      FROM canvas_organization_settings
+      ORDER BY created_at ASC
+      LIMIT 1
+    )
+    UPDATE studio_styles
+    SET
+      created_by_user_id = COALESCE(created_by_user_id, user_id),
+      organization_id = COALESCE(organization_id, (SELECT organization_id FROM primary_org)),
+      visibility = CASE
+        WHEN COALESCE(organization_id, (SELECT organization_id FROM primary_org)) IS NULL THEN 'user'
+        ELSE COALESCE(visibility, 'organization')
+      END
+    WHERE created_by_user_id IS NULL OR organization_id IS NULL OR visibility IS NULL;
+
+    WITH primary_org AS (
+      SELECT organization_id
+      FROM canvas_organization_settings
+      ORDER BY created_at ASC
+      LIMIT 1
+    )
+    UPDATE studio_presets
+    SET
+      created_by_user_id = COALESCE(created_by_user_id, user_id),
+      organization_id = COALESCE(organization_id, (SELECT organization_id FROM primary_org)),
+      visibility = COALESCE(visibility, CASE WHEN user_id IS NULL THEN 'default' ELSE 'user' END)
+    WHERE created_by_user_id IS NULL OR organization_id IS NULL OR visibility IS NULL;
+
+    WITH primary_org AS (
+      SELECT organization_id
+      FROM canvas_organization_settings
+      ORDER BY created_at ASC
+      LIMIT 1
+    )
+    UPDATE studio_generations
+    SET
+      created_by_user_id = COALESCE(created_by_user_id, user_id),
+      organization_id = COALESCE(organization_id, (SELECT organization_id FROM primary_org))
+    WHERE created_by_user_id IS NULL OR organization_id IS NULL;
+
+    UPDATE studio_generation_outputs
+    SET
+      created_by_user_id = COALESCE(
+        created_by_user_id,
+        (
+          SELECT COALESCE(studio_generations.created_by_user_id, studio_generations.user_id)
+          FROM studio_generations
+          WHERE studio_generations.id = studio_generation_outputs.generation_id
+        )
+      ),
+      organization_id = COALESCE(
+        organization_id,
+        (
+          SELECT studio_generations.organization_id
+          FROM studio_generations
+          WHERE studio_generations.id = studio_generation_outputs.generation_id
+        )
+      ),
+      workspace_id = COALESCE(
+        workspace_id,
+        (
+          SELECT studio_generations.workspace_id
+          FROM studio_generations
+          WHERE studio_generations.id = studio_generation_outputs.generation_id
+        )
+      )
+    WHERE created_by_user_id IS NULL OR organization_id IS NULL OR workspace_id IS NULL;
+
+    WITH primary_org AS (
+      SELECT organization_id
+      FROM canvas_organization_settings
+      ORDER BY created_at ASC
+      LIMIT 1
+    )
+    UPDATE studio_bulk_jobs
+    SET
+      created_by_user_id = COALESCE(created_by_user_id, user_id),
+      organization_id = COALESCE(organization_id, (SELECT organization_id FROM primary_org))
+    WHERE created_by_user_id IS NULL OR organization_id IS NULL;
+
     UPDATE email_accounts
     SET is_primary = 0
     WHERE status != 'active';
@@ -931,21 +1104,35 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     CREATE UNIQUE INDEX IF NOT EXISTS idx_license_public_keys_fingerprint ON license_public_keys (fingerprint);
     CREATE INDEX IF NOT EXISTS idx_license_public_keys_fetched_at ON license_public_keys (fetched_at);
     CREATE INDEX IF NOT EXISTS idx_studio_products_user ON studio_products (user_id);
+    CREATE INDEX IF NOT EXISTS idx_studio_products_organization ON studio_products (organization_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_studio_products_creator ON studio_products (created_by_user_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_studio_products_created ON studio_products (created_at);
     CREATE INDEX IF NOT EXISTS idx_studio_product_images_product ON studio_product_images (product_id);
     CREATE INDEX IF NOT EXISTS idx_studio_personas_user ON studio_personas (user_id);
+    CREATE INDEX IF NOT EXISTS idx_studio_personas_organization ON studio_personas (organization_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_studio_personas_creator ON studio_personas (created_by_user_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_studio_personas_created ON studio_personas (created_at);
     CREATE INDEX IF NOT EXISTS idx_studio_persona_images_persona ON studio_persona_images (persona_id);
     CREATE INDEX IF NOT EXISTS idx_studio_styles_user ON studio_styles (user_id);
+    CREATE INDEX IF NOT EXISTS idx_studio_styles_organization ON studio_styles (organization_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_studio_styles_creator ON studio_styles (created_by_user_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_studio_styles_created ON studio_styles (created_at);
     CREATE INDEX IF NOT EXISTS idx_studio_style_images_style ON studio_style_images (style_id);
     CREATE INDEX IF NOT EXISTS idx_studio_presets_user ON studio_presets (user_id);
+    CREATE INDEX IF NOT EXISTS idx_studio_presets_organization ON studio_presets (organization_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_studio_presets_creator ON studio_presets (created_by_user_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_studio_presets_category ON studio_presets (category);
     CREATE INDEX IF NOT EXISTS idx_studio_presets_created ON studio_presets (created_at);
     CREATE INDEX IF NOT EXISTS idx_studio_generations_user ON studio_generations (user_id);
+    CREATE INDEX IF NOT EXISTS idx_studio_generations_organization ON studio_generations (organization_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_studio_generations_creator ON studio_generations (created_by_user_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_studio_generations_workspace ON studio_generations (workspace_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_studio_generations_status ON studio_generations (status);
     CREATE INDEX IF NOT EXISTS idx_studio_generations_created ON studio_generations (created_at);
     CREATE INDEX IF NOT EXISTS idx_studio_gen_outputs_generation ON studio_generation_outputs (generation_id);
+    CREATE INDEX IF NOT EXISTS idx_studio_gen_outputs_organization ON studio_generation_outputs (organization_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_studio_gen_outputs_creator ON studio_generation_outputs (created_by_user_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_studio_gen_outputs_workspace ON studio_generation_outputs (workspace_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_studio_gen_outputs_created ON studio_generation_outputs (created_at);
     CREATE INDEX IF NOT EXISTS idx_gen_products_generation ON studio_generation_products (generation_id);
     CREATE INDEX IF NOT EXISTS idx_gen_products_product ON studio_generation_products (product_id);
@@ -954,6 +1141,9 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     CREATE INDEX IF NOT EXISTS idx_gen_styles_generation ON studio_generation_styles (generation_id);
     CREATE INDEX IF NOT EXISTS idx_gen_styles_style ON studio_generation_styles (style_id);
     CREATE INDEX IF NOT EXISTS idx_studio_bulk_jobs_user ON studio_bulk_jobs (user_id);
+    CREATE INDEX IF NOT EXISTS idx_studio_bulk_jobs_organization ON studio_bulk_jobs (organization_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_studio_bulk_jobs_creator ON studio_bulk_jobs (created_by_user_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_studio_bulk_jobs_workspace ON studio_bulk_jobs (workspace_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_studio_bulk_jobs_status ON studio_bulk_jobs (status);
     CREATE INDEX IF NOT EXISTS idx_studio_bulk_jobs_created ON studio_bulk_jobs (created_at);
     CREATE INDEX IF NOT EXISTS idx_studio_bulk_job_line_items_bulk_job ON studio_bulk_job_line_items (bulk_job_id);

@@ -6,6 +6,7 @@ import { useStudioGenerationsCacheStore } from '@/app/store/studio-generations-c
 import type {
   StudioGeneratePayload,
   StudioGenerateResponse,
+  StudioCreator,
   StudioGeneration,
   StudioGenerationMode,
   StudioGenerationOutput,
@@ -26,6 +27,7 @@ interface UseStudioGenerationReturn {
   activeGenerationId: string | null;
   recentlyCompletedIds: Set<string>;
   hasMoreGenerations: boolean;
+  creators: StudioCreator[];
   fetchGenerations: () => Promise<void>;
   loadMoreGenerations: () => Promise<void>;
   fetchGeneration: (id: string, options?: { silent?: boolean }) => Promise<StudioGeneration | null>;
@@ -164,7 +166,24 @@ function preserveActiveGenerations(
   return mergeGenerationPages(optimistic, nextGenerations);
 }
 
-export function useStudioGeneration(): UseStudioGenerationReturn {
+function buildGenerationsUrl(limit: number, offset: number, creatorFilter?: string | null): string {
+  const params = new URLSearchParams({
+    limit: String(limit),
+    offset: String(offset),
+  });
+  if (creatorFilter) {
+    params.set('creatorUserId', creatorFilter);
+  }
+  return `/api/studio/generations?${params.toString()}`;
+}
+
+function decrementLoadedServerGenerationCount() {
+  useStudioGenerationsCacheStore.setState((state) => ({
+    loadedServerGenerationCount: Math.max(0, state.loadedServerGenerationCount - 1),
+  }));
+}
+
+export function useStudioGeneration(creatorFilter?: string | null): UseStudioGenerationReturn {
   const generations = useStudioGenerationsCacheStore((state) => state.generations);
   const currentGeneration = useStudioGenerationsCacheStore((state) => state.currentGeneration);
   const loading = useStudioGenerationsCacheStore((state) => state.loading);
@@ -173,6 +192,7 @@ export function useStudioGeneration(): UseStudioGenerationReturn {
   const activeGenerationId = useStudioGenerationsCacheStore((state) => state.activeGenerationId);
   const recentlyCompletedIds = useStudioGenerationsCacheStore((state) => state.recentlyCompletedIds);
   const hasMoreGenerations = useStudioGenerationsCacheStore((state) => state.hasMoreGenerations);
+  const creators = useStudioGenerationsCacheStore((state) => state.creators);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const stopPolling = useCallback(() => {
@@ -248,11 +268,15 @@ export function useStudioGeneration(): UseStudioGenerationReturn {
   const fetchGenerations = useCallback(async () => {
     useStudioGenerationsCacheStore.setState({ loading: true, error: null });
     try {
-      const response = await fetch(`/api/studio/generations?limit=${GENERATIONS_PAGE_SIZE}&offset=0`);
+      const response = await fetch(buildGenerationsUrl(GENERATIONS_PAGE_SIZE, 0, creatorFilter));
       const data = await parseJsonResponse(response);
       const nextGenerations = (data.generations ?? []) as StudioGeneration[];
       setGenerationsState((current) => preserveActiveGenerations(current, nextGenerations));
-      useStudioGenerationsCacheStore.setState({ hasMoreGenerations: Boolean(data.hasMore) });
+      useStudioGenerationsCacheStore.setState({
+        hasMoreGenerations: Boolean(data.hasMore),
+        loadedServerGenerationCount: nextGenerations.length,
+        creators: (data.creators ?? []) as StudioCreator[],
+      });
       setCurrentGenerationState((current) => {
         const latestGenerations = preserveActiveGenerations(
           useStudioGenerationsCacheStore.getState().generations,
@@ -268,28 +292,31 @@ export function useStudioGeneration(): UseStudioGenerationReturn {
     } finally {
       useStudioGenerationsCacheStore.setState({ loading: false });
     }
-  }, []);
+  }, [creatorFilter]);
 
   const loadMoreGenerations = useCallback(async () => {
-    const { generations, hasMoreGenerations, loadingMore } = useStudioGenerationsCacheStore.getState();
+    const { hasMoreGenerations, loadedServerGenerationCount, loadingMore } = useStudioGenerationsCacheStore.getState();
     if (loadingMore || !hasMoreGenerations) {
       return;
     }
 
     useStudioGenerationsCacheStore.setState({ loadingMore: true, error: null });
     try {
-      const loadedServerGenerationCount = generations.filter((generation) => !generation.id.startsWith('temp-')).length;
-      const response = await fetch(`/api/studio/generations?limit=${GENERATIONS_PAGE_SIZE}&offset=${loadedServerGenerationCount}`);
+      const response = await fetch(buildGenerationsUrl(GENERATIONS_PAGE_SIZE, loadedServerGenerationCount, creatorFilter));
       const data = await parseJsonResponse(response);
       const nextGenerations = (data.generations ?? []) as StudioGeneration[];
       setGenerationsState((current) => mergeGenerationPages(current, nextGenerations));
-      useStudioGenerationsCacheStore.setState({ hasMoreGenerations: Boolean(data.hasMore) });
+      useStudioGenerationsCacheStore.setState({
+        hasMoreGenerations: Boolean(data.hasMore),
+        loadedServerGenerationCount: loadedServerGenerationCount + nextGenerations.length,
+        creators: (data.creators ?? []) as StudioCreator[],
+      });
     } catch (err) {
       useStudioGenerationsCacheStore.setState({ error: toErrorMessage(err, 'Failed to load more generations') });
     } finally {
       useStudioGenerationsCacheStore.setState({ loadingMore: false });
     }
-  }, []);
+  }, [creatorFilter]);
 
   const watchGeneration = useCallback((id: string) => {
     useStudioGenerationsCacheStore.setState({ activeGenerationId: id });
@@ -367,7 +394,11 @@ export function useStudioGeneration(): UseStudioGenerationReturn {
     try {
       const response = await fetch(`/api/studio/generations/${id}`, { method: 'DELETE' });
       await parseJsonResponse(response);
+      const existed = useStudioGenerationsCacheStore.getState().generations.some((generation) => generation.id === id);
       setGenerationsState((current) => current.filter((generation) => generation.id !== id));
+      if (existed && !id.startsWith('temp-')) {
+        decrementLoadedServerGenerationCount();
+      }
       setCurrentGenerationState((current) => (current?.id === id ? null : current));
       if (activeGenerationId === id) {
         stopPolling();
@@ -387,7 +418,11 @@ export function useStudioGeneration(): UseStudioGenerationReturn {
       const generationDeleted = data.generationDeleted === true;
 
       if (generationDeleted) {
+        const existed = useStudioGenerationsCacheStore.getState().generations.some((g) => g.id === generationId);
         setGenerationsState((current) => current.filter((g) => g.id !== generationId));
+        if (existed && !generationId.startsWith('temp-')) {
+          decrementLoadedServerGenerationCount();
+        }
         setCurrentGenerationState((current) => (current?.id === generationId ? null : current));
         if (activeGenerationId === generationId) {
           stopPolling();
@@ -524,6 +559,7 @@ export function useStudioGeneration(): UseStudioGenerationReturn {
     activeGenerationId,
     recentlyCompletedIds,
     hasMoreGenerations,
+    creators,
     fetchGenerations,
     loadMoreGenerations,
     fetchGeneration,

@@ -413,7 +413,7 @@
     {
       "id": 24,
       "title": "Studio Route auf Organization-geteilte Bibliotheken und user-filterbare Asset-Sammlung umbauen",
-      "status": "pending",
+      "status": "completed",
       "repo": "canvasstudios-notebook",
       "planningArtifacts": [
         "docs/architecture/canvas-notebook/team-workspace/06-workspace-switching-ux.md",

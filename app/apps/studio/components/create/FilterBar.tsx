@@ -5,6 +5,7 @@ import { ArrowDownUp, CheckSquare, Download, Filter, SlidersHorizontal, Star, Tr
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet';
 import { Badge } from '@/components/ui/badge';
+import type { StudioCreator } from '../../types/generation';
 import type { OutputMediaFilter, OutputDateFilter, OutputSortOrder } from './OutputGrid';
 
 const MEDIA_OPTIONS: { value: OutputMediaFilter; label: string }[] = [
@@ -33,6 +34,9 @@ interface FilterBarProps {
   onDateFilterChange: (value: OutputDateFilter) => void;
   sortOrder: OutputSortOrder;
   onSortOrderChange: (value: OutputSortOrder) => void;
+  creatorFilter: string | null;
+  onCreatorFilterChange: (value: string | null) => void;
+  creators: StudioCreator[];
   selectionEnabled: boolean;
   onToggleSelection: () => void;
   selectedCount: number;
@@ -72,12 +76,20 @@ function FilterContent({
   onMediaFilterChange,
   dateFilter,
   onDateFilterChange,
+  creatorFilter,
+  onCreatorFilterChange,
+  creators,
 }: {
   mediaFilter: OutputMediaFilter;
   onMediaFilterChange: (value: OutputMediaFilter) => void;
   dateFilter: OutputDateFilter;
   onDateFilterChange: (value: OutputDateFilter) => void;
+  creatorFilter: string | null;
+  onCreatorFilterChange: (value: string | null) => void;
+  creators: StudioCreator[];
 }) {
+  const hasCreatorOptions = creators.length > 1 || creatorFilter !== null;
+
   return (
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center gap-2">
@@ -107,6 +119,26 @@ function FilterContent({
           </PillButton>
         ))}
       </div>
+
+      {hasCreatorOptions ? (
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="inline-flex items-center gap-1.5 text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">
+            Creator
+          </span>
+          <select
+            value={creatorFilter ?? ''}
+            onChange={(event) => onCreatorFilterChange(event.target.value || null)}
+            className="h-9 rounded-full border border-border bg-card/80 px-3 text-sm text-foreground outline-none transition hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <option value="">All creators</option>
+            {creators.map((creator) => (
+              <option key={creator.id} value={creator.id}>
+                {creator.name || creator.email || creator.id}
+              </option>
+            ))}
+          </select>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -118,6 +150,9 @@ export function FilterBar({
   onDateFilterChange,
   sortOrder,
   onSortOrderChange,
+  creatorFilter,
+  onCreatorFilterChange,
+  creators,
   selectionEnabled,
   onToggleSelection,
   selectedCount,
@@ -134,8 +169,9 @@ export function FilterBar({
     let count = 0;
     if (mediaFilter !== 'all') count++;
     if (dateFilter !== 'all') count++;
+    if (creatorFilter !== null) count++;
     return count;
-  }, [mediaFilter, dateFilter]);
+  }, [mediaFilter, dateFilter, creatorFilter]);
 
   const activeChips = useMemo(() => {
     const chips: { label: string; onRemove: () => void }[] = [];
@@ -147,8 +183,15 @@ export function FilterBar({
       const opt = DATE_OPTIONS.find((o) => o.value === dateFilter);
       if (opt) chips.push({ label: opt.label, onRemove: () => onDateFilterChange('all') });
     }
+    if (creatorFilter !== null) {
+      const creator = creators.find((item) => item.id === creatorFilter);
+      chips.push({
+        label: creator?.name || creator?.email || 'Creator',
+        onRemove: () => onCreatorFilterChange(null),
+      });
+    }
     return chips;
-  }, [mediaFilter, dateFilter, onMediaFilterChange, onDateFilterChange]);
+  }, [mediaFilter, dateFilter, creatorFilter, creators, onMediaFilterChange, onDateFilterChange, onCreatorFilterChange]);
 
   return (
     <>
@@ -214,6 +257,9 @@ export function FilterBar({
                 onMediaFilterChange={(v) => { onMediaFilterChange(v); }}
                 dateFilter={dateFilter}
                 onDateFilterChange={(v) => { onDateFilterChange(v); }}
+                creatorFilter={creatorFilter}
+                onCreatorFilterChange={onCreatorFilterChange}
+                creators={creators}
               />
             </div>
           </CollapsibleContent>
@@ -400,6 +446,9 @@ export function FilterBar({
               onDateFilterChange={(v) => {
                 onDateFilterChange(v);
               }}
+              creatorFilter={creatorFilter}
+              onCreatorFilterChange={onCreatorFilterChange}
+              creators={creators}
             />
           </div>
         </SheetContent>

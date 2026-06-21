@@ -3,7 +3,7 @@ import { and, eq } from 'drizzle-orm';
 import { auth } from '@/app/lib/auth';
 import { db } from '@/app/lib/db';
 import { studioGenerationOutputs, studioGenerations } from '@/app/lib/db/schema';
-import { deleteStudioOutput } from '@/app/lib/integrations/studio-generation-service';
+import { deleteStudioOutput, getStudioOutputForUser } from '@/app/lib/integrations/studio-generation-service';
 import { requireOrganizationPermission } from '@/app/lib/organization/permissions';
 
 export async function DELETE(
@@ -50,18 +50,24 @@ export async function PATCH(
   }
 
   try {
-    const [existing] = await db
+    const existing = await getStudioOutputForUser(outId, session.user.id);
+
+    if (!existing || existing.generationId !== id) {
+      return NextResponse.json({ success: false, error: 'Output not found' }, { status: 404 });
+    }
+
+    const [ownedOutput] = await db
       .select({ id: studioGenerationOutputs.id })
       .from(studioGenerationOutputs)
       .innerJoin(studioGenerations, eq(studioGenerationOutputs.generationId, studioGenerations.id))
       .where(and(
         eq(studioGenerationOutputs.id, outId),
-        eq(studioGenerationOutputs.generationId, id),
+        eq(studioGenerations.id, id),
         eq(studioGenerations.userId, session.user.id),
       ))
       .limit(1);
 
-    if (!existing) {
+    if (!ownedOutput) {
       return NextResponse.json({ success: false, error: 'Output not found' }, { status: 404 });
     }
 

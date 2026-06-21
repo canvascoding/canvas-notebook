@@ -16,6 +16,7 @@ import {
   HTML_PREVIEW_CSP,
   isHtmlFile,
 } from '@/app/lib/html-preview';
+import { canReadStudioOutputPath } from '@/app/lib/integrations/studio-generation-service';
 
 const STUDIO_HTML_PREVIEW_PREFIX = '/api/studio/media/preview';
 
@@ -62,6 +63,9 @@ export async function GET(
 
   const { path: pathParts } = await context.params;
   const encodedPath = pathParts.map((p) => decodeURIComponent(p)).join('/');
+  if (encodedPath.startsWith('studio/outputs/') && !(await canReadStudioOutputPath(encodedPath, session.user.id))) {
+    return NextResponse.json({ success: false, error: 'File not found or unreadable' }, { status: 404 });
+  }
   const fullPath = resolveStudioPath(encodedPath);
 
   if (!fullPath) {
