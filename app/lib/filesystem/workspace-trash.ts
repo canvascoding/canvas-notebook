@@ -383,7 +383,13 @@ export async function restoreWorkspaceTrashEntry(params: {
     await movePath(trashPath, destinationPath, row.itemType === 'directory');
   } catch (moveError) {
     if (overwrittenPath && await pathExists(overwrittenPath)) {
-      await movePath(overwrittenPath, destinationPath, overwrittenWasDirectory);
+      try {
+        await movePath(overwrittenPath, destinationPath, overwrittenWasDirectory);
+      } catch (rollbackError) {
+        throw new Error(
+          `Restore failed (${formatErrorMessage(moveError)}); rollback of overwritten file failed: ${formatErrorMessage(rollbackError)}`
+        );
+      }
     }
     throw moveError;
   }
