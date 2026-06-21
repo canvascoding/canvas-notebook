@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { recordAuditEvent } from '@/app/lib/audit/audit-service';
 import { auth } from '@/app/lib/auth';
 import {
   type EnvScope,
@@ -91,11 +92,43 @@ export async function PUT(request: NextRequest) {
     if (mode === 'raw') {
       await writeScopedEnvRaw(scope, payload.rawContent ?? '', storageScope);
       const updated = await readScopedEnvState(scope, storageScope);
+      await recordAuditEvent({
+        userId: authResult.session.user.id,
+        source: 'integrations',
+        eventType: 'secret',
+        entityType: 'env_scope',
+        entityId: scope,
+        action: 'env.update_raw',
+        status: 'success',
+        summary: `${scope} environment variables updated in raw mode.`,
+        metadata: {
+          scope,
+          mode,
+          rawContentLength: payload.rawContent?.length ?? 0,
+          keys: updated.entries.map((entry) => entry.key),
+        },
+      });
       return NextResponse.json({ success: true, data: updated });
     }
 
     const entries = Array.isArray(payload.entries) ? payload.entries : [];
     const updated = await replaceScopedEnvEntries(scope, entries, storageScope);
+    await recordAuditEvent({
+      userId: authResult.session.user.id,
+      source: 'integrations',
+      eventType: 'secret',
+      entityType: 'env_scope',
+      entityId: scope,
+      action: 'env.update',
+      status: 'success',
+      summary: `${scope} environment variables updated.`,
+      metadata: {
+        scope,
+        mode,
+        keys: updated.entries.map((entry) => entry.key),
+        entryCount: updated.entries.length,
+      },
+    });
     return NextResponse.json({ success: true, data: updated });
   } catch (error) {
     console.error('[API] integrations/env PUT error:', error);

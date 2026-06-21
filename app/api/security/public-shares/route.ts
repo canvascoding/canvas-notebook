@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+import { recordAuditEvent } from '@/app/lib/audit/audit-service';
 import { auth } from '@/app/lib/auth';
 import { isAdminUser } from '@/app/lib/admin-auth';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
@@ -141,6 +142,25 @@ export async function POST(request: NextRequest) {
     });
 
     clearFileTreeCache(workspace.workspaceId);
+    await recordAuditEvent({
+      organizationId: workspace.organizationId,
+      workspaceId: workspace.workspaceId,
+      userId: session.user.id,
+      source: 'public_shares',
+      eventType: 'file',
+      entityType: 'public_file_share',
+      entityId: result.shares.map((share) => share.id).join(','),
+      action: 'public_share.create',
+      status: 'success',
+      summary: `${result.shares.length} public file share(s) created.`,
+      metadata: {
+        workspaceType: workspace.workspaceType,
+        paths,
+        shareIds: result.shares.map((share) => share.id),
+        securityModes: result.shares.map((share) => share.securityMode),
+        expiresAt: result.shares.map((share) => share.expiresAt),
+      },
+    });
 
     return NextResponse.json({ success: true, ...result });
   } catch (error) {

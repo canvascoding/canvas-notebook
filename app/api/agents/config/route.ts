@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+import { recordAuditEvent } from '@/app/lib/audit/audit-service';
 import { auth } from '@/app/lib/auth';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 import {
@@ -249,6 +250,23 @@ export async function PATCH(request: NextRequest) {
         defaultThinking: thinkingLevel || providerConfig.thinking || 'off',
       });
       const effective = await resolveAgentRuntimeSettings(agentId);
+      await recordAuditEvent({
+        userId: session.user.id,
+        agentId,
+        source: 'agents',
+        eventType: 'agent',
+        entityType: 'agent_runtime_config',
+        entityId: agentId,
+        action: 'agent_runtime_config.patch',
+        status: 'success',
+        summary: `Runtime config patched for agent ${agentId}.`,
+        metadata: {
+          provider,
+          model: model || providerConfig.model,
+          thinkingLevel: thinkingLevel || providerConfig.thinking || 'off',
+          makeActiveProvider: false,
+        },
+      });
 
       return NextResponse.json({
         success: true,
@@ -269,6 +287,23 @@ export async function PATCH(request: NextRequest) {
       },
     });
     const effective = await resolveAgentRuntimeSettings(agentId);
+    await recordAuditEvent({
+      userId: session.user.id,
+      agentId,
+      source: 'agents',
+      eventType: 'agent',
+      entityType: 'agent_runtime_config',
+      entityId: agentId,
+      action: 'agent_runtime_config.patch',
+      status: 'success',
+      summary: `Runtime config patched for agent ${agentId}.`,
+      metadata: {
+        provider,
+        model: model || providerConfig.model,
+        thinkingLevel: thinkingLevel || providerConfig.thinking || 'off',
+        makeActiveProvider: payload.makeActiveProvider === true,
+      },
+    });
 
     return NextResponse.json({
       success: true,
@@ -328,6 +363,22 @@ export async function PUT(request: NextRequest) {
       });
 
       const effective = await resolveAgentRuntimeSettings(agentId);
+      await recordAuditEvent({
+        userId: session.user.id,
+        agentId,
+        source: 'agents',
+        eventType: 'agent',
+        entityType: 'agent_runtime_config',
+        entityId: agentId,
+        action: 'agent_runtime_config.replace',
+        status: 'success',
+        summary: `Runtime config replaced for agent ${agentId}.`,
+        metadata: {
+          provider,
+          model,
+          thinking,
+        },
+      });
 
       return NextResponse.json({
         success: true,
@@ -337,6 +388,21 @@ export async function PUT(request: NextRequest) {
 
     const piConfig = await writePiRuntimeConfig(piConfigInput);
     const effective = await resolveAgentRuntimeSettings(agentId);
+    await recordAuditEvent({
+      userId: session.user.id,
+      agentId,
+      source: 'agents',
+      eventType: 'agent',
+      entityType: 'agent_runtime_config',
+      entityId: agentId,
+      action: 'agent_runtime_config.replace',
+      status: 'success',
+      summary: `Runtime config replaced for agent ${agentId}.`,
+      metadata: {
+        activeProvider: piConfig.activeProvider,
+        providers: Object.keys(piConfig.providers || {}),
+      },
+    });
 
     return NextResponse.json({
       success: true,

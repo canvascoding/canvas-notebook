@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+import { recordAuditEvent } from '@/app/lib/audit/audit-service';
 import { isAdminUser } from '@/app/lib/admin-auth';
 import { revokePublicFileShare } from '@/app/lib/public-sharing/public-file-shares';
 import { clearFileTreeCache } from '@/app/lib/utils/file-tree-cache';
@@ -39,6 +40,25 @@ export async function DELETE(
     }
 
     clearFileTreeCache(workspace.workspaceId);
+    await recordAuditEvent({
+      organizationId: workspace.organizationId,
+      workspaceId: workspace.workspaceId,
+      userId: session.user.id,
+      source: 'public_shares',
+      eventType: 'file',
+      entityType: 'public_file_share',
+      entityId: share.id,
+      action: 'public_share.revoke',
+      status: 'success',
+      summary: `Public file share ${share.id} revoked.`,
+      metadata: {
+        workspaceType: workspace.workspaceType,
+        workspacePath: share.workspacePath,
+        status: share.status,
+        revokedAt: share.revokedAt,
+        isAdmin,
+      },
+    });
 
     return NextResponse.json({ success: true, share });
   } catch (error) {

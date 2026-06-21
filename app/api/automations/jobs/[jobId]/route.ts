@@ -7,6 +7,7 @@ import {
 } from '@/app/lib/automations/api';
 import { assertCanAccessAutomationJob } from '@/app/lib/automations/policy';
 import { deleteAutomationJob, getAutomationJob, updateAutomationJob } from '@/app/lib/automations/store';
+import { recordAuditEvent } from '@/app/lib/audit/audit-service';
 import { deleteGatewayTrigger, updateGatewayTrigger } from '@/app/lib/composio/composio-gateway';
 
 type RouteContext = {
@@ -74,6 +75,25 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     if (!updated) {
       return NextResponse.json({ success: false, error: 'Automation not found.' }, { status: 404 });
     }
+    await recordAuditEvent({
+      organizationId: updated.organizationId,
+      workspaceId: updated.workspaceId,
+      userId: session.user.id,
+      agentId: updated.agentId,
+      source: 'automations',
+      eventType: 'automation',
+      entityType: 'automation_job',
+      entityId: updated.id,
+      action: 'automation_job.update',
+      status: 'success',
+      summary: `Automation job ${updated.id} updated.`,
+      metadata: {
+        scope: updated.scope,
+        jobScope: updated.jobScope,
+        status: updated.status,
+        changedFields: payload && typeof payload === 'object' && !Array.isArray(payload) ? Object.keys(payload) : [],
+      },
+    });
     return NextResponse.json({ success: true, data: updated });
   } catch (error) {
     const status = getAutomationRouteErrorStatus(error);
@@ -112,6 +132,25 @@ export async function DELETE(request: NextRequest, context: RouteContext) {
   if (!deleted) {
     return NextResponse.json({ success: false, error: 'Automation not found.' }, { status: 404 });
   }
+  await recordAuditEvent({
+    organizationId: existing.organizationId,
+    workspaceId: existing.workspaceId,
+    userId: session.user.id,
+    agentId: existing.agentId,
+    source: 'automations',
+    eventType: 'automation',
+    entityType: 'automation_job',
+    entityId: existing.id,
+    action: 'automation_job.delete',
+    status: 'success',
+    summary: `Automation job ${existing.id} deleted.`,
+    metadata: {
+      scope: existing.scope,
+      jobScope: existing.jobScope,
+      status: existing.status,
+      hadComposioTrigger: Boolean(existing.composioTriggerId),
+    },
+  });
 
   return NextResponse.json({ success: true });
 }

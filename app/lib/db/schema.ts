@@ -1036,6 +1036,36 @@ export const channelLinkTokens = sqliteTable("channel_link_tokens", {
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 });
 
+export const auditEvents = sqliteTable("audit_events", {
+  id: text("id").primaryKey(),
+  organizationId: text("organization_id"),
+  workspaceId: text("workspace_id"),
+  userId: text("user_id"),
+  sessionId: text("session_id"),
+  agentId: text("agent_id"),
+  source: text("source").notNull(),
+  eventType: text("event_type").notNull(),
+  entityType: text("entity_type").notNull(),
+  entityId: text("entity_id"),
+  action: text("action").notNull(),
+  status: text("status").notNull(),
+  summary: text("summary"),
+  metadataJson: text("metadata_json"),
+  inputHash: text("input_hash"),
+  outputHash: text("output_hash"),
+  artifactRef: text("artifact_ref"),
+  secretRef: text("secret_ref"),
+  secretScope: text("secret_scope"),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+}, (table) => ({
+  createdIdx: index("idx_audit_events_created").on(table.createdAt),
+  organizationCreatedIdx: index("idx_audit_events_org_created").on(table.organizationId, table.createdAt),
+  workspaceCreatedIdx: index("idx_audit_events_workspace_created").on(table.workspaceId, table.createdAt),
+  userCreatedIdx: index("idx_audit_events_user_created").on(table.userId, table.createdAt),
+  entityCreatedIdx: index("idx_audit_events_entity_created").on(table.entityType, table.entityId, table.createdAt),
+  sourceActionCreatedIdx: index("idx_audit_events_source_action_created").on(table.source, table.action, table.createdAt),
+}));
+
 export const telegramActiveSession = sqliteTable("telegram_active_session", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   userId: text("user_id").notNull().references(() => user.id),

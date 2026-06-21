@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { recordAuditEvent } from '@/app/lib/audit/audit-service';
 import { requireOrganizationPermission } from '@/app/lib/organization/permissions';
 import { disableSkillInConfig, resolveEnabledSkillNames } from '@/app/lib/skills/enabled-skills';
 import { loadSkillsFromDisk } from '@/app/lib/skills/skill-loader';
@@ -29,6 +30,20 @@ export async function POST(
       });
     }
 
+    await recordAuditEvent({
+      organizationId: skillPermission.state.organizationId,
+      userId: skillPermission.session.user.id,
+      source: 'skills',
+      eventType: 'plugin',
+      entityType: 'canvas_skill',
+      entityId: name,
+      action: 'skill.disable',
+      status: 'success',
+      summary: `Skill ${name} disabled.`,
+      metadata: {
+        skillName: name,
+      },
+    });
     return NextResponse.json({
       success: true,
       message: `Skill "${name}" disabled`,

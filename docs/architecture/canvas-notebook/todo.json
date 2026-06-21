@@ -472,8 +472,32 @@
     {
       "id": 29,
       "title": "Vollstaendigen Audit Trail fuer Admin, Auth, Files, Agenten, Automations, Plugins, Integrationen, Export/Import und Studio umsetzen",
-      "status": "pending",
+      "status": "completed",
       "repo": "canvasstudios-notebook",
+      "implementationArtifacts": [
+        "app/lib/db/schema.ts",
+        "app/lib/db/migrate.ts",
+        "app/lib/audit/audit-service.ts",
+        "app/api/admin/organization/users/[userId]/offboarding/route.ts",
+        "app/api/agents/*",
+        "app/api/auth/[...all]/route.ts",
+        "app/api/automations/jobs/*",
+        "app/api/files/*",
+        "app/api/integrations/env/route.ts",
+        "app/api/migration/*",
+        "app/api/plugins/*",
+        "app/api/security/public-shares/*",
+        "app/api/setup/owner/route.ts",
+        "app/api/skills/*",
+        "app/api/studio/*",
+        "scripts/audit-service-test.ts"
+      ],
+      "verification": [
+        "npx tsc --noEmit --pretty false",
+        "tsx --conditions react-server scripts/audit-service-test.ts",
+        "npm run lint",
+        "npm run build"
+      ],
       "planningArtifacts": [
         "docs/architecture/canvas-notebook/team-workspace/05-actor-audit-retention.md",
         "docs/architecture/canvas-notebook/team-workspace/08-user-scoped-secrets-runtime.md",

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { headers } from 'next/headers';
 
+import { recordAuditEvent } from '@/app/lib/audit/audit-service';
 import { auth } from '@/app/lib/auth';
 import { requireOrganizationPermission } from '@/app/lib/organization/permissions';
 import { deleteCanvasPlugin, getCanvasPlugin } from '@/app/lib/plugins/canvas-plugin-registry';
@@ -49,6 +50,20 @@ export async function DELETE(
       { status: result.error?.includes('not found') ? 404 : 400 },
     );
   }
+  await recordAuditEvent({
+    organizationId: pluginPermission.state.organizationId,
+    userId: pluginPermission.session.user.id,
+    source: 'plugins',
+    eventType: 'plugin',
+    entityType: 'canvas_plugin',
+    entityId: name,
+    action: 'plugin.delete',
+    status: 'success',
+    summary: `Plugin ${name} deleted.`,
+    metadata: {
+      pluginName: name,
+    },
+  });
 
   return NextResponse.json({ success: true });
 }

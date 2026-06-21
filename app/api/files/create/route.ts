@@ -1,4 +1,5 @@
 import { NextRequest } from 'next/server';
+import { recordAuditEvent } from '@/app/lib/audit/audit-service';
 import { createDirectory, writeFile } from '@/app/lib/filesystem/workspace-files';
 import { createEmptyExcalidrawFileContent, isExcalidrawFilePath } from '@/app/lib/excalidraw-file';
 import {
@@ -50,6 +51,24 @@ export async function POST(request: NextRequest) {
     }
 
     invalidateWorkspaceFileViews({ fileOptions, fullTree: true });
+    await recordAuditEvent({
+      organizationId: workspaceResult.workspace.organizationId,
+      workspaceId: workspaceResult.workspace.workspaceId,
+      userId: workspaceResult.session.user.id,
+      source: 'files',
+      eventType: 'file',
+      entityType: 'workspace_path',
+      entityId: path,
+      action: type === 'directory' ? 'file.directory.create' : 'file.create',
+      status: 'success',
+      summary: `${type} created at ${path}.`,
+      metadata: {
+        path,
+        type,
+        template: template ?? null,
+        workspaceType: workspaceResult.workspace.workspaceType,
+      },
+    });
 
     return jsonSuccess();
   } catch (error) {

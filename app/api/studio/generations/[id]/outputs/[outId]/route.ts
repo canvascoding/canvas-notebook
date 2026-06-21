@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { and, eq } from 'drizzle-orm';
+import { recordAuditEvent } from '@/app/lib/audit/audit-service';
 import { auth } from '@/app/lib/auth';
 import { db } from '@/app/lib/db';
 import { studioGenerationOutputs, studioGenerations } from '@/app/lib/db/schema';
@@ -19,6 +20,22 @@ export async function DELETE(
 
   try {
     const result = await deleteStudioOutput(outId, studioPermission.session.user.id);
+    await recordAuditEvent({
+      organizationId: studioPermission.state.organizationId,
+      userId: studioPermission.session.user.id,
+      source: 'studio',
+      eventType: 'studio',
+      entityType: 'studio_generation_output',
+      entityId: outId,
+      action: 'studio_output.delete',
+      status: 'success',
+      summary: `Studio output ${outId} deleted.`,
+      metadata: {
+        generationId: _id,
+        generationDeleted: result.generationDeleted,
+        permissionRole: studioPermission.permission.role,
+      },
+    });
     return NextResponse.json({ success: true, generationDeleted: result.generationDeleted });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to delete output';
@@ -76,6 +93,22 @@ export async function PATCH(
       .set({ isFavorite: body.isFavorite })
       .where(eq(studioGenerationOutputs.id, outId))
       .returning();
+    await recordAuditEvent({
+      organizationId: updated.organizationId,
+      workspaceId: updated.workspaceId,
+      userId: session.user.id,
+      source: 'studio',
+      eventType: 'studio',
+      entityType: 'studio_generation_output',
+      entityId: outId,
+      action: 'studio_output.favorite.update',
+      status: 'success',
+      summary: `Studio output ${outId} favorite state updated.`,
+      metadata: {
+        generationId: id,
+        isFavorite: body.isFavorite,
+      },
+    });
 
     return NextResponse.json({ success: true, output: updated });
   } catch (error) {

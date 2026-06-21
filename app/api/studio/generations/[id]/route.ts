@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { recordAuditEvent } from '@/app/lib/audit/audit-service';
 import { auth } from '@/app/lib/auth';
 import { getStudioGeneration, deleteStudioGeneration } from '@/app/lib/integrations/studio-generation-service';
 import { StudioServiceError } from '@/app/lib/integrations/studio-errors';
@@ -38,6 +39,20 @@ export async function DELETE(
   const { id } = await params;
   try {
     await deleteStudioGeneration(id, studioPermission.session.user.id);
+    await recordAuditEvent({
+      organizationId: studioPermission.state.organizationId,
+      userId: studioPermission.session.user.id,
+      source: 'studio',
+      eventType: 'studio',
+      entityType: 'studio_generation',
+      entityId: id,
+      action: 'studio_generation.delete',
+      status: 'success',
+      summary: `Studio generation ${id} deleted.`,
+      metadata: {
+        permissionRole: studioPermission.permission.role,
+      },
+    });
     return NextResponse.json({ success: true });
   } catch (error) {
     if (error instanceof StudioServiceError) {

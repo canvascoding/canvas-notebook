@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+import { recordAuditEvent } from '@/app/lib/audit/audit-service';
 import {
   createOffboardingPreflight,
   offboardUser,
@@ -78,6 +79,25 @@ export async function POST(request: NextRequest, context: RouteContext) {
       requestedByUserId: guard.session.user.id,
       reason: typeof body.reason === 'string' ? body.reason : null,
       acknowledgeWarnings: body.acknowledgeWarnings === true,
+    });
+    await recordAuditEvent({
+      organizationId: guard.state.organizationId,
+      userId: guard.session.user.id,
+      source: 'admin',
+      eventType: 'admin',
+      entityType: 'user',
+      entityId: userId,
+      action: 'user.offboard',
+      status: 'success',
+      summary: `User ${userId} offboarded.`,
+      metadata: {
+        targetUserId: userId,
+        reasonProvided: typeof body.reason === 'string' && body.reason.trim().length > 0,
+        acknowledgeWarnings: body.acknowledgeWarnings === true,
+        actionCount: result.actions.length,
+        blockers: result.preflight.blockers.length,
+        warnings: result.preflight.warnings.length,
+      },
     });
     return NextResponse.json({
       success: true,
