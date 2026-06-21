@@ -50,7 +50,7 @@ export async function POST(request: NextRequest) {
       const conflictError = conflict as RenameConflictError;
       if (overwrite && conflictError.code === 'FILE_EXISTS' && conflictError.type === 'file') {
         await renameFile(oldPath, newPath, true, fileOptions);
-        await syncPublicSharesAfterMove(oldPath, newPath);
+        await syncPublicSharesAfterMove(oldPath, newPath, workspaceResult.workspace);
         invalidateWorkspaceFileViews({ fileOptions, fullTree: true });
         return jsonSuccess();
       }
@@ -64,7 +64,7 @@ export async function POST(request: NextRequest) {
     }
 
     await renameFile(oldPath, newPath, overwrite, fileOptions);
-    await syncPublicSharesAfterMove(oldPath, newPath);
+    await syncPublicSharesAfterMove(oldPath, newPath, workspaceResult.workspace);
     invalidateWorkspaceFileViews({ fileOptions, fullTree: true });
 
     return jsonSuccess();

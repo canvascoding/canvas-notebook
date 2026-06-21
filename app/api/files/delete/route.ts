@@ -42,7 +42,7 @@ export async function DELETE(request: NextRequest) {
     }
 
     const result = await batchDelete(pathsToDelete, fileOptions);
-    await syncPublicSharesAfterDelete(result.deleted);
+    await syncPublicSharesAfterDelete(result.deleted, workspaceResult.workspace);
 
     invalidateWorkspaceFileViews({
       fileOptions,

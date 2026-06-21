@@ -1,21 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { isAdminUser } from '@/app/lib/admin-auth';
-import { requireOrganizationPermission } from '@/app/lib/organization/permissions';
 import { revokePublicFileShare } from '@/app/lib/public-sharing/public-file-shares';
 import { clearFileTreeCache } from '@/app/lib/utils/file-tree-cache';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 import { getPublicRequestOrigin } from '@/app/lib/utils/request-origin';
+import { requireRequestWorkspace } from '@/app/lib/workspaces/request';
 
 export async function DELETE(
   request: NextRequest,
   context: { params: Promise<{ id: string }> }
 ) {
-  const linkPermission = await requireOrganizationPermission(request, 'canCreatePublicLinks', {
-    errorMessage: 'Forbidden: public link permission required',
-  });
-  if (!linkPermission.ok) return linkPermission.response;
-  const { session } = linkPermission;
+  const workspaceResult = await requireRequestWorkspace(request, { permissions: 'canCreatePublicLinks' });
+  if (workspaceResult.response) return workspaceResult.response;
+  const { session, workspace } = workspaceResult;
 
   const limited = rateLimit(request, {
     limit: 60,
@@ -31,6 +29,7 @@ export async function DELETE(
     const share = await revokePublicFileShare({
       id,
       userId: session.user.id,
+      workspace,
       isAdmin,
       baseUrl: getPublicRequestOrigin(request),
     });
@@ -39,7 +38,7 @@ export async function DELETE(
       return NextResponse.json({ success: false, error: 'Public share not found.' }, { status: 404 });
     }
 
-    clearFileTreeCache();
+    clearFileTreeCache(workspace.workspaceId);
 
     return NextResponse.json({ success: true, share });
   } catch (error) {

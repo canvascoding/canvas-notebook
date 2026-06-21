@@ -1,5 +1,5 @@
 {
-  "updatedAt": "2026-06-20",
+  "updatedAt": "2026-06-21",
   "source": "Canvas Notebook Team Workspace Plan",
   "tasks": [
     {
@@ -392,12 +392,22 @@
     {
       "id": 23,
       "title": "Public Links workspace- und revisionsbewusst neu modellieren",
-      "status": "pending",
+      "status": "completed",
       "repo": "canvasstudios-notebook",
       "planningArtifacts": [
         "docs/architecture/canvas-notebook/team-workspace/04-auth-roles-model.md",
         "docs/architecture/canvas-notebook/team-workspace/06-workspace-switching-ux.md",
         "docs/architecture/canvas-notebook/team-workspace/14-public-links-and-studio-assets-policy.md"
+      ],
+      "implementationArtifacts": [
+        "app/lib/db/schema.ts",
+        "app/lib/db/migrate.ts",
+        "app/lib/public-sharing/public-file-shares.ts",
+        "app/api/security/public-shares/*",
+        "app/api/files/* public share sync hooks",
+        "app/components/file-browser/PublicShareDialog.tsx",
+        "app/[locale]/(routes)/security/public-shares/PublicSharesClient.tsx",
+        "scripts/public-share-workspace-scope-test.ts"
       ]
     },
     {

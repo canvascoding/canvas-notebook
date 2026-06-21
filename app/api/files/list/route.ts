@@ -25,7 +25,9 @@ export async function GET(request: NextRequest) {
     // Apply limit
     const limitedFiles = filteredFiles.slice(0, limit);
     const annotations = await getPublicShareAnnotations(
-      limitedFiles.filter((file) => file.type === 'file').map((file) => file.path)
+      limitedFiles.filter((file) => file.type === 'file').map((file) => file.path),
+      null,
+      workspaceResult.workspace,
     );
     const filesWithShareState = limitedFiles.map((file) => ({
       ...file,
