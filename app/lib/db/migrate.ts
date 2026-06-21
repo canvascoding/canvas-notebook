@@ -983,8 +983,6 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     CREATE UNIQUE INDEX IF NOT EXISTS idx_public_file_shares_token ON public_file_shares (token);
     CREATE INDEX IF NOT EXISTS idx_public_file_shares_status ON public_file_shares (status);
     CREATE INDEX IF NOT EXISTS idx_public_file_shares_workspace_path ON public_file_shares (workspace_path);
-    CREATE INDEX IF NOT EXISTS idx_public_file_shares_workspace_id_path ON public_file_shares (workspace_id, workspace_path, status);
-    CREATE INDEX IF NOT EXISTS idx_public_file_shares_org_status ON public_file_shares (organization_id, status);
     CREATE INDEX IF NOT EXISTS idx_public_file_shares_user_status ON public_file_shares (created_by_user_id, status);
     CREATE INDEX IF NOT EXISTS idx_public_file_shares_expires_at ON public_file_shares (expires_at);
   `);

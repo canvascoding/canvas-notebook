@@ -43,9 +43,7 @@ function parsePathFilters(searchParams: URLSearchParams): string[] {
 }
 
 function requestWorkspaceId(request: NextRequest): string | null {
-  return request.headers.get(WORKSPACE_ID_HEADER)?.trim()
-    || request.nextUrl.searchParams.get('workspaceId')?.trim()
-    || null;
+  return request.headers.get(WORKSPACE_ID_HEADER)?.trim() || null;
 }
 
 function parseExpiry(body: Record<string, unknown>): Date | null {

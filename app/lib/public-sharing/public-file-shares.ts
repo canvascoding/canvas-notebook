@@ -450,14 +450,14 @@ export function buildShortPublicFileUrl(row: PublicShareRow, baseUrl?: string | 
   return `${baseUrl.replace(/\/+$/, '')}${relative}`;
 }
 
-function toDto(row: PublicShareRow, baseUrl?: string | null): PublicShareDto {
+function toDto(row: PublicShareRow, baseUrl?: string | null, workspaceName?: string | null): PublicShareDto {
   const workspaceType = normalizeWorkspaceType(row.workspaceType);
   return {
     id: row.id,
     organizationId: row.organizationId,
     workspaceId: row.workspaceId,
     workspaceType,
-    workspaceName: workspaceType === 'team' ? 'Team Workspace' : workspaceType === 'personal' ? 'Personal Workspace' : null,
+    workspaceName: workspaceName ?? null,
     workspacePath: row.workspacePath,
     fileName: row.fileName,
     mimeType: row.mimeType,
@@ -514,9 +514,10 @@ async function reconcileRow(row: PublicShareRow): Promise<PublicShareRow> {
   } catch (error) {
     const message = error instanceof Error ? error.message : '';
     const status = message.includes('blocked') ? 'stale' : 'missing';
+    const revokedAt = status === 'missing' ? row.revokedAt ?? new Date() : row.revokedAt;
     return updateShare(row, {
       status,
-      revokedAt: row.revokedAt ?? new Date(),
+      revokedAt,
       revokedReason: status === 'missing' ? 'target_missing' : 'target_blocked',
     });
   }
@@ -604,7 +605,7 @@ export async function createPublicFileShares(params: {
             expiresAt: params.expiresAt ?? existing.expiresAt,
             reason: params.reason?.trim().slice(0, 500) || existing.reason,
           });
-        shares.push(toDto(await ensureShortCode(await reconcileRow(row)), params.baseUrl));
+        shares.push(toDto(await ensureShortCode(await reconcileRow(row)), params.baseUrl, workspace?.displayName ?? null));
         continue;
       }
 
@@ -648,7 +649,7 @@ export async function createPublicFileShares(params: {
         })
         .returning();
 
-      shares.push(toDto(inserted, params.baseUrl));
+      shares.push(toDto(inserted, params.baseUrl, workspace?.displayName ?? null));
     } catch (error) {
       skipped.push({
         path: requestedPath,
@@ -681,7 +682,7 @@ export async function revokePublicFileShare(params: {
   }
 
   const updated = await updateShare(row, { status: 'revoked', revokedAt: new Date(), revokedReason: 'manual' });
-  return toDto(updated, params.baseUrl);
+  return toDto(updated, params.baseUrl, workspace?.displayName ?? null);
 }
 
 function matchesTypeFilter(row: PublicShareRow, type: PublicShareTypeFilter): boolean {
@@ -741,7 +742,7 @@ export async function listPublicFileShares(params: {
     .slice(0, limit);
 
   const withShortCodes = await Promise.all(visibleRows.map(ensureShortCode));
-  return withShortCodes.map((row) => toDto(row, params.baseUrl));
+  return withShortCodes.map((row) => toDto(row, params.baseUrl, workspace?.displayName ?? null));
 }
 
 export async function getPublicShareAnnotations(

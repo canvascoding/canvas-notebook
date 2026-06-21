@@ -44,6 +44,63 @@ function tokenFromPublicUrl(publicUrl: string): string {
   return decodeURIComponent(parts[tokenIndex]);
 }
 
+async function assertLegacyPublicShareMigration() {
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'canvas-public-share-legacy-migration-'));
+  const dataRoot = path.join(tempRoot, 'data');
+
+  await mkdir(dataRoot, { recursive: true });
+  const sqlite = new Database(path.join(dataRoot, 'sqlite.db'));
+  try {
+    sqlite.exec(`
+      CREATE TABLE public_file_shares (
+        id TEXT PRIMARY KEY NOT NULL,
+        token TEXT NOT NULL UNIQUE,
+        token_hash TEXT NOT NULL UNIQUE,
+        token_preview TEXT NOT NULL,
+        workspace_path TEXT NOT NULL,
+        file_name TEXT NOT NULL,
+        file_identity TEXT NOT NULL,
+        mime_type TEXT NOT NULL,
+        size_bytes INTEGER NOT NULL,
+        status TEXT NOT NULL DEFAULT 'active',
+        created_by_user_id TEXT NOT NULL,
+        created_by_agent_id TEXT,
+        source_session_id TEXT,
+        source TEXT NOT NULL DEFAULT 'ui',
+        reason TEXT,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        expires_at INTEGER,
+        revoked_at INTEGER,
+        last_accessed_at INTEGER,
+        access_count INTEGER NOT NULL DEFAULT 0
+      );
+    `);
+
+    process.env.DATA = dataRoot;
+    runMigrations(sqlite);
+
+    const columns = new Set(
+      (sqlite.prepare('PRAGMA table_info(public_file_shares)').all() as Array<{ name: string }>)
+        .map((column) => column.name)
+    );
+    assert.equal(columns.has('workspace_id'), true);
+    assert.equal(columns.has('organization_id'), true);
+    assert.equal(columns.has('target_revision_policy'), true);
+    assert.equal(columns.has('revoked_reason'), true);
+
+    const indexes = new Set(
+      (sqlite.prepare('PRAGMA index_list(public_file_shares)').all() as Array<{ name: string }>)
+        .map((index) => index.name)
+    );
+    assert.equal(indexes.has('idx_public_file_shares_workspace_id_path'), true);
+    assert.equal(indexes.has('idx_public_file_shares_org_status'), true);
+  } finally {
+    sqlite.close();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+}
+
 async function main() {
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'canvas-public-share-workspace-'));
   const dataRoot = path.join(tempRoot, 'data');
@@ -143,6 +200,8 @@ async function main() {
     assert.equal(teamCreate.shares.length, 1);
     assert.equal(personalCreate.shares[0].workspaceId, ownerPersonal.workspaceId);
     assert.equal(teamCreate.shares[0].workspaceId, ownerTeam.workspaceId);
+    assert.equal(personalCreate.shares[0].workspaceName, ownerPersonal.displayName);
+    assert.equal(teamCreate.shares[0].workspaceName, ownerTeam.displayName);
     assert.equal(personalCreate.shares[0].targetRevisionPolicy, 'latest');
     assert.equal(personalCreate.shares[0].passwordEnabled, false);
 
@@ -162,6 +221,7 @@ async function main() {
     });
     assert.deepEqual(personalScopedList.map((share) => share.workspaceId), [ownerPersonal.workspaceId]);
     assert.deepEqual(teamScopedList.map((share) => share.workspaceId), [ownerTeam.workspaceId]);
+    assert.deepEqual(teamScopedList.map((share) => share.workspaceName), [ownerTeam.displayName]);
 
     const personalToken = tokenFromPublicUrl(personalCreate.shares[0].publicUrl);
     await writeFile(path.join(ownerPersonal.rootPath, 'docs', 'report.txt'), 'personal v2\n');
@@ -235,4 +295,4 @@ async function main() {
   console.log('public-share-workspace-scope-test: ok');
 }
 
-void main();
+void assertLegacyPublicShareMigration().then(main);

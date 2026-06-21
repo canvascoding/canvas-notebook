@@ -11,7 +11,7 @@ export async function DELETE(
   request: NextRequest,
   context: { params: Promise<{ id: string }> }
 ) {
-  const workspaceResult = await requireRequestWorkspace(request, { permissions: 'canRead' });
+  const workspaceResult = await requireRequestWorkspace(request, { permissions: 'canCreatePublicLinks' });
   if (workspaceResult.response) return workspaceResult.response;
   const { session, workspace } = workspaceResult;
 
