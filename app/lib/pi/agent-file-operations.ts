@@ -5,6 +5,7 @@ import path from 'node:path';
 
 import { parseDocument } from 'yaml';
 import { recordAuditEvent } from '@/app/lib/audit/audit-service';
+import { logger } from '@/app/lib/logging';
 import {
   syncPublicSharesAfterDelete,
   syncPublicSharesAfterMove,
@@ -18,6 +19,8 @@ const DEFAULT_MAX_SNAPSHOT_COUNT = 500;
 const DEFAULT_MAX_SNAPSHOT_BYTES = 250 * 1024 * 1024;
 const MAX_PATH_SUMMARY_ENTRIES = 5_000;
 const MAX_AUDIT_PATH_ENTRIES = 100;
+const MAX_AUDIT_ENTITY_ID_LENGTH = 500;
+const agentFileAuditLogger = logger.module('AgentFileAudit');
 
 export type AgentFileValidationCheck = {
   name: string;
@@ -361,14 +364,22 @@ async function recordAgentFileChangeAudit(result: AgentFileChangeResult, operati
   if (!result.changed) return;
 
   const executionContext = getAgentExecutionContext();
+  if (!executionContext) {
+    agentFileAuditLogger.warn('Skipping agent file audit without execution context', {
+      operation,
+      path: result.path,
+    });
+    return;
+  }
+
   await recordAuditEvent({
-    organizationId: executionContext?.organizationId ?? null,
-    customerId: executionContext?.customerId ?? null,
-    projectId: executionContext?.projectId ?? null,
-    workspaceId: executionContext?.workspaceId ?? null,
-    userId: executionContext?.userId ?? null,
-    sessionId: executionContext?.sessionId ?? null,
-    agentId: executionContext?.agentId ?? null,
+    organizationId: executionContext.organizationId,
+    customerId: executionContext.customerId,
+    projectId: executionContext.projectId,
+    workspaceId: executionContext.workspaceId,
+    userId: executionContext.userId,
+    sessionId: executionContext.sessionId,
+    agentId: executionContext.agentId,
     source: 'agent_tool',
     eventType: 'file',
     entityType: 'workspace_file',
@@ -421,22 +432,43 @@ function summarizeAuditPathEntries(entries: AgentPathOperationEntry[], execution
   }));
 }
 
+function truncateAuditEntityId(entityId: string): string {
+  if (entityId.length <= MAX_AUDIT_ENTITY_ID_LENGTH) return entityId;
+  return `${entityId.slice(0, MAX_AUDIT_ENTITY_ID_LENGTH - 3)}...`;
+}
+
+function pathOperationEntityId(result: AgentPathOperationResult): string {
+  const paths = result.operation === 'delete_path'
+    ? result.entries.map((entry) => entry.sourcePath)
+    : result.entries.map((entry) => entry.destinationPath ?? entry.sourcePath);
+  return truncateAuditEntityId(paths.join(', '));
+}
+
 async function recordAgentPathOperationAudit(result: AgentPathOperationResult): Promise<void> {
   if (!result.changed) return;
 
   const executionContext = getAgentExecutionContext();
+  if (!executionContext) {
+    agentFileAuditLogger.warn('Skipping agent path audit without execution context', {
+      operation: result.operation,
+      sourcePath: result.sourcePath,
+      destinationPath: result.destinationPath,
+    });
+    return;
+  }
+
   await recordAuditEvent({
-    organizationId: executionContext?.organizationId ?? null,
-    customerId: executionContext?.customerId ?? null,
-    projectId: executionContext?.projectId ?? null,
-    workspaceId: executionContext?.workspaceId ?? null,
-    userId: executionContext?.userId ?? null,
-    sessionId: executionContext?.sessionId ?? null,
-    agentId: executionContext?.agentId ?? null,
+    organizationId: executionContext.organizationId,
+    customerId: executionContext.customerId,
+    projectId: executionContext.projectId,
+    workspaceId: executionContext.workspaceId,
+    userId: executionContext.userId,
+    sessionId: executionContext.sessionId,
+    agentId: executionContext.agentId,
     source: 'agent_tool',
     eventType: 'file',
     entityType: 'workspace_path',
-    entityId: result.destinationPath ?? result.sourcePath,
+    entityId: pathOperationEntityId(result),
     action: `agent_path.${result.operation}`,
     status: 'success',
     summary: `Agent path ${result.operation} changed ${result.destinationPath ?? result.sourcePath}.`,

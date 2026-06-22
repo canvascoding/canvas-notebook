@@ -25,6 +25,7 @@ async function main() {
       getAgentWorkspaceRoot,
       resolveAgentPath,
       copyAgentPaths,
+      deleteAgentPaths,
       moveAgentPaths,
       writeAgentTextFile,
       assertAgentPathAllowed,
@@ -169,6 +170,20 @@ async function main() {
       assert.equal(copyAuditMetadata.files, 1);
       assert.equal(copyAuditMetadata.entries?.[0]?.destinationResolvedPath, 'uploads/voice.ogg');
       assert.doesNotMatch(copyAudit.metadataJson || '', /audio input/);
+
+      await writeAgentTextFile({ path: 'bulk/a.txt', content: 'A\n' });
+      await writeAgentTextFile({ path: 'bulk/b.txt', content: 'B\n' });
+      const deletedBulk = await deleteAgentPaths({
+        paths: ['bulk/a.txt', 'bulk/b.txt'],
+      });
+      assert.equal(deletedBulk.sourcePath, '2 paths');
+      const deleteAuditRows = await db.select().from(auditEvents);
+      const deleteAudit = deleteAuditRows.find((row) => row.action === 'agent_path.delete_path' && row.entityId === 'bulk/a.txt, bulk/b.txt');
+      assert.ok(deleteAudit, 'Expected bulk delete audit event with concrete path entityId');
+      assert.equal(deleteAudit.userId, userId);
+      assert.equal(deleteAudit.sessionId, sessionId);
+      assert.equal(deleteAudit.agentId, 'canvas-agent');
+      assert.notEqual(deleteAudit.entityId, '2 paths');
       await assert.rejects(
         () => moveAgentPaths({
           sourcePaths: [userUploadPath],
