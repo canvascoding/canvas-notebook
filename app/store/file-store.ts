@@ -128,8 +128,47 @@ function areFileStatsEqual(left?: FileStats, right?: FileStats) {
   return (
     left?.size === right?.size &&
     left?.modified === right?.modified &&
-    left?.permissions === right?.permissions
+    left?.permissions === right?.permissions &&
+    left?.sha256 === right?.sha256
   );
+}
+
+function updateFileRevision(
+  revisions: Record<string, string>,
+  filePath: string,
+  stats?: FileStats,
+): Record<string, string> {
+  if (!stats?.sha256 || revisions[filePath] === stats.sha256) return revisions;
+  return {
+    ...revisions,
+    [filePath]: stats.sha256,
+  };
+}
+
+function removeFileRevisions(
+  revisions: Record<string, string>,
+  paths: string[],
+): Record<string, string> {
+  const entries = Object.entries(revisions).filter(([filePath]) => (
+    !paths.some((removedPath) => isSameOrDescendantPath(filePath, removedPath))
+  ));
+  return entries.length === Object.keys(revisions).length ? revisions : Object.fromEntries(entries);
+}
+
+function remapFileRevisions(
+  revisions: Record<string, string>,
+  oldPath: string,
+  newPath: string,
+): Record<string, string> {
+  let changed = false;
+  const remapped = Object.fromEntries(
+    Object.entries(revisions).map(([filePath, sha256]) => {
+      if (!isSameOrDescendantPath(filePath, oldPath)) return [filePath, sha256];
+      changed = true;
+      return [remapDescendantPath(filePath, oldPath, newPath), sha256];
+    }),
+  );
+  return changed ? remapped : revisions;
 }
 
 interface FileStoreState {
@@ -147,6 +186,7 @@ interface FileStoreState {
   loadingFilePath: string | null;
   fileLoadRequestId: number;
   fileError: string | null;
+  fileRevisions: Record<string, string>;
 
   // Browser mode
   browserMode: BrowserMode;
@@ -240,6 +280,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
   selectedNode: null,
 
   currentFile: null,
+  fileRevisions: {},
 
   browserMode: 'tree',
   setBrowserMode: (mode: BrowserMode) => {
@@ -527,7 +568,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
       if (get().fileLoadRequestId !== requestId) return;
 
       const fileName = path.split('/').pop() || path;
-      set({
+      set((state) => ({
         selectedNode: { path, type: 'file', name: fileName },
         currentFile: {
           path,
@@ -536,7 +577,8 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
         },
         isLoadingFile: false,
         loadingFilePath: null,
-      });
+        fileRevisions: updateFileRevision(state.fileRevisions, path, data.stats),
+      }));
     } catch (error) {
       if (error instanceof Response && error.status === 404) {
         if (get().fileLoadRequestId === requestId) {
@@ -585,14 +627,17 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
         content: data.content,
         stats: data.stats,
       };
+      const nextFileRevisions = updateFileRevision(get().fileRevisions, path, data.stats);
 
       if (
         currentFile.content !== refreshedFile.content ||
-        !areFileStatsEqual(currentFile.stats, refreshedFile.stats)
+        !areFileStatsEqual(currentFile.stats, refreshedFile.stats) ||
+        nextFileRevisions !== get().fileRevisions
       ) {
         set({
           currentFile: refreshedFile,
           fileError: null,
+          fileRevisions: nextFileRevisions,
         });
       }
 
@@ -658,17 +703,28 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
     set({ fileError: null });
 
     try {
-      await writeWorkspaceFile(path, content);
+      const { currentFile: currentFileBeforeSave, fileRevisions } = get();
+      const expectedSha256 = fileRevisions[path]
+        ?? (currentFileBeforeSave?.path === path ? currentFileBeforeSave.stats?.sha256 ?? null : null);
+      const result = await writeWorkspaceFile(path, content, {
+        expectedSha256,
+      });
 
       // Update current file if it's the same path
       const { currentFile } = get();
       if (currentFile?.path === path) {
-        set({
+        set((state) => ({
           currentFile: {
             ...currentFile,
             content,
+            stats: result.stats ?? currentFile.stats,
           },
-        });
+          fileRevisions: updateFileRevision(state.fileRevisions, path, result.stats),
+        }));
+      } else if (result.stats?.sha256) {
+        set((state) => ({
+          fileRevisions: updateFileRevision(state.fileRevisions, path, result.stats),
+        }));
       }
     } catch (error) {
       const message =
@@ -776,7 +832,11 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
         }
       }
 
-      set({ multiSelectPaths: new Set(), isMultiSelectMode: false });
+      set((state) => ({
+        multiSelectPaths: new Set(),
+        isMultiSelectMode: false,
+        fileRevisions: removeFileRevisions(state.fileRevisions, pathsToDelete),
+      }));
 
       const parentDirs = new Set(pathsToDelete.map((deletedPath) => getParentDirectory(deletedPath)));
       for (const parentDir of parentDirs) {
@@ -814,10 +874,11 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
       const updatedCurrentFile = currentFile && isSameOrDescendantPath(currentFile.path, oldPath)
         ? { ...currentFile, path: remapDescendantPath(currentFile.path, oldPath, newPath) }
         : currentFile;
-      set({
+      set((state) => ({
         selectedNode: updatedSelectedNode,
         ...(updatedCurrentFile !== currentFile ? { currentFile: updatedCurrentFile, fileError: null } : {}),
-      });
+        fileRevisions: remapFileRevisions(state.fileRevisions, oldPath, newPath),
+      }));
 
       const parentDirs = new Set([
         getParentDirectory(oldPath),
@@ -900,6 +961,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
   clearCurrentFile: () => {
     set((state) => ({
       currentFile: null,
+      fileRevisions: {},
       isLoadingFile: false,
       loadingFilePath: null,
       fileError: null,
@@ -914,6 +976,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
       treeError: null,
       selectedNode: null,
       currentFile: null,
+      fileRevisions: {},
       isLoadingFile: false,
       loadingFilePath: null,
       fileLoadRequestId: state.fileLoadRequestId + 1,

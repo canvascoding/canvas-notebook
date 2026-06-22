@@ -25,6 +25,7 @@ import {
   moveAgentPaths,
   resolveAgentPath,
   restoreAgentFileSnapshot,
+  sha256Buffer,
   type AgentFileChangeResult,
   type AgentFileValidationResult,
   type AgentPathOperationResult,
@@ -2093,6 +2094,7 @@ export const piTools: AgentTool[] = [
           };
         }
         const buffer = await fsPromises.readFile(fullPath);
+        const sha256 = sha256Buffer(buffer);
         const image = imageContentForBuffer(fullPath, buffer);
         if (image) {
           return {
@@ -2104,7 +2106,7 @@ export const piTools: AgentTool[] = [
                   displayPath: resolvedPath.displayPath,
                   mimeType: image.mimeType,
                   size: buffer.length,
-                }),
+                }) + `\nSHA-256: ${sha256}`,
               },
               image,
             ],
@@ -2113,6 +2115,7 @@ export const piTools: AgentTool[] = [
               requestedPath: filePath,
               resolvedPath: fullPath,
               size: buffer.length,
+              sha256,
               type: 'image',
               mimeType: image.mimeType,
               source: resolvedPath.source,
@@ -2140,8 +2143,8 @@ export const piTools: AgentTool[] = [
         const text = buffer.toString('utf8');
         const truncated = truncateReadText(text, readTextLimit);
         return {
-          content: [{ type: 'text', text: truncated.text }],
-          details: { filePath, size: buffer.length, type: 'text', textLength: text.length, truncated: truncated.truncated },
+          content: [{ type: 'text', text: `SHA-256: ${sha256}\n\n${truncated.text}` }],
+          details: { filePath, size: buffer.length, sha256, type: 'text', textLength: text.length, truncated: truncated.truncated },
         };
       } catch (error: unknown) {
         const message = getErrorMessage(error);
@@ -2155,7 +2158,7 @@ export const piTools: AgentTool[] = [
   {
     name: 'write',
     label: 'Writing file',
-    description: 'Writes text content to a file. Creates an undo snapshot, returns a diff, validates supported file types, and verifies the file after writing. Prefer edit_file or apply_patch for existing files when possible.',
+    description: 'Writes text content to a file. Creates an undo snapshot, returns a diff, validates supported file types, and verifies the file after writing. Prefer edit_file or apply_patch for existing files when possible. Existing shared workspace files require expectedSha256 from the read tool output.',
     parameters: Type.Object({
       path: Type.String({ description: 'Absolute path or workspace-relative path.' }),
       content: Type.String({ description: 'The content to write.' }),
@@ -2186,7 +2189,7 @@ export const piTools: AgentTool[] = [
   {
     name: 'edit_file',
     label: 'Editing file safely',
-    description: 'Safely edits an existing text file by exact oldText -> newText replacement. Refuses ambiguous matches, creates an undo snapshot, returns a diff, validates supported file types, and verifies the file after writing. Use this instead of sed, perl -pi, tee, or shell redirects.',
+    description: 'Safely edits an existing text file by exact oldText -> newText replacement. Refuses ambiguous matches, creates an undo snapshot, returns a diff, validates supported file types, and verifies the file after writing. Existing shared workspace files require expectedSha256 from the read tool output. Use this instead of sed, perl -pi, tee, or shell redirects.',
     parameters: Type.Object({
       path: Type.String({ description: 'Absolute path or workspace-relative path.' }),
       oldText: Type.String({ description: 'Exact text to replace. Must match expectedOccurrences.' }),
@@ -2226,7 +2229,7 @@ export const piTools: AgentTool[] = [
   {
     name: 'apply_patch',
     label: 'Applying safe patch',
-    description: 'Safely applies multiple exact text replacements across one or more existing files. All replacements are preflighted before any write. Creates undo snapshots, returns diffs, validates supported file types, and verifies files after writing.',
+    description: 'Safely applies multiple exact text replacements across one or more existing files. All replacements are preflighted before any write. Creates undo snapshots, returns diffs, validates supported file types, and verifies files after writing. Existing shared workspace files require expectedSha256 from the read tool output.',
     parameters: Type.Object({
       files: Type.Array(Type.Object({
         path: Type.String({ description: 'Absolute path or workspace-relative path.' }),

@@ -3,6 +3,11 @@ import { recordAuditEvent } from '@/app/lib/audit/audit-service';
 import { createDirectory, writeFile } from '@/app/lib/filesystem/workspace-files';
 import { createEmptyExcalidrawFileContent, isExcalidrawFilePath } from '@/app/lib/excalidraw-file';
 import {
+  WorkspaceFileRevisionError,
+  assertWorkspaceFileRevisionAllowed,
+  workspaceRequiresRevisionCheck,
+} from '@/app/lib/files/revision-guard';
+import {
   applyRateLimit,
   invalidateWorkspaceFileViews,
   jsonError,
@@ -39,6 +44,11 @@ export async function POST(request: NextRequest) {
     if (type === 'directory') {
       await createDirectory(path, fileOptions);
     } else if (type === 'file') {
+      await assertWorkspaceFileRevisionAllowed({
+        path,
+        options: fileOptions,
+        requireExpectedRevision: workspaceRequiresRevisionCheck(workspaceResult.workspace),
+      });
       await writeFile(
         path,
         template === 'excalidraw' || isExcalidrawFilePath(path)
@@ -72,6 +82,15 @@ export async function POST(request: NextRequest) {
 
     return jsonSuccess();
   } catch (error) {
+    if (error instanceof WorkspaceFileRevisionError) {
+      return jsonError(error.message, error.status, {
+        code: error.code,
+        path: error.path,
+        expectedSha256: error.expectedSha256,
+        currentSha256: error.currentSha256,
+        currentStats: error.currentStats,
+      });
+    }
     return jsonServerError('[API] File create error:', error, 'Failed to create path');
   }
 }

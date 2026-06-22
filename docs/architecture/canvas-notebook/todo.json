@@ -604,12 +604,31 @@
     {
       "id": 34,
       "title": "Einfache Locks oder Revision-Checks fuer Team-Dateien einfuehren",
-      "status": "pending",
+      "status": "completed",
       "repo": "canvasstudios-notebook",
       "planningArtifacts": [
         "docs/architecture/canvas-notebook/team-workspace/05-actor-audit-retention.md",
         "docs/architecture/canvas-notebook/team-workspace/17-database-provider-postgres-rag-collaboration-policy.md",
         "docs/architecture/canvas-notebook/team-workspace/18-collaboration-and-file-conflict-policy.md"
+      ],
+      "implementationArtifacts": [
+        "app/lib/files/revision-guard.ts",
+        "app/lib/files/types.ts",
+        "app/api/files/create/route.ts",
+        "app/api/files/read/route.ts",
+        "app/api/files/write/route.ts",
+        "app/lib/files/client.ts",
+        "app/store/file-store.ts",
+        "app/lib/pi/agent-file-operations.ts",
+        "app/lib/pi/tool-registry.ts",
+        "scripts/file-revision-guard-test.ts"
+      ],
+      "verification": [
+        "npx tsx --conditions react-server scripts/file-revision-guard-test.ts",
+        "npx tsx --conditions react-server scripts/agent-session-workspace-context-test.ts",
+        "npx tsc --noEmit --pretty false",
+        "npm run lint",
+        "npm run build"
       ]
     },
     {

@@ -6,6 +6,7 @@ import path from 'node:path';
 import { parseDocument } from 'yaml';
 import { recordAuditEvent } from '@/app/lib/audit/audit-service';
 import { logger } from '@/app/lib/logging';
+import { normalizeExpectedSha256 as normalizeAgentExpectedSha256 } from '@/app/lib/files/revision-guard';
 import {
   syncPublicSharesAfterDelete,
   syncPublicSharesAfterMove,
@@ -358,6 +359,25 @@ function auditWorkspaceMetadata(executionContext: AgentExecutionContext | null) 
     workspaceRootRelativePath: executionContext.workspaceRootRelativePath,
     legacy: executionContext.legacy,
   };
+}
+
+function activeWorkspaceRequiresRevisionGuard(): boolean {
+  const executionContext = getAgentExecutionContext();
+  return executionContext?.workspaceType === 'team' || executionContext?.workspaceType === 'project';
+}
+
+function assertAgentSharedWorkspaceRevision(params: {
+  operation: string;
+  path: string;
+  beforeExisted: boolean;
+  expectedSha256?: string | null;
+}): void {
+  if (!params.beforeExisted || !activeWorkspaceRequiresRevisionGuard()) return;
+  if (normalizeAgentExpectedSha256(params.expectedSha256)) return;
+
+  throw new Error(
+    `Refusing to ${params.operation} ${params.path}: existing shared workspace files require expectedSha256. Read the file first and retry with the current SHA-256 hash.`,
+  );
 }
 
 async function recordAgentFileChangeAudit(result: AgentFileChangeResult, operation: string): Promise<void> {
@@ -954,8 +974,15 @@ export async function writeAgentTextFile(params: {
   await assertAgentWritablePathAllowed(fullPath);
   const before = await readExistingFile(fullPath);
   const beforeSha256 = before.buffer ? sha256Buffer(before.buffer) : null;
+  const expectedSha256 = normalizeAgentExpectedSha256(params.expectedSha256);
+  assertAgentSharedWorkspaceRevision({
+    operation: params.operation ?? 'write',
+    path: params.path,
+    beforeExisted: before.existed,
+    expectedSha256,
+  });
 
-  if (params.expectedSha256 && beforeSha256 !== params.expectedSha256) {
+  if (expectedSha256 && beforeSha256 !== expectedSha256) {
     throw new Error(`Refusing to write ${params.path}: expectedSha256 did not match current file hash.`);
   }
 
@@ -985,7 +1012,15 @@ export async function editAgentFile(params: {
   }
 
   const beforeSha256 = sha256Buffer(before.buffer);
-  if (params.expectedSha256 && beforeSha256 !== params.expectedSha256) {
+  const expectedSha256 = normalizeAgentExpectedSha256(params.expectedSha256);
+  assertAgentSharedWorkspaceRevision({
+    operation: 'edit_file',
+    path: params.path,
+    beforeExisted: before.existed,
+    expectedSha256,
+  });
+
+  if (expectedSha256 && beforeSha256 !== expectedSha256) {
     throw new Error(`Refusing to edit ${params.path}: expectedSha256 did not match current file hash.`);
   }
 
@@ -1034,7 +1069,15 @@ export async function applyAgentFilePatch(params: { files: AgentPatchFileInput[]
     }
 
     const beforeSha256 = sha256Buffer(before.buffer);
-    if (file.expectedSha256 && beforeSha256 !== file.expectedSha256) {
+    const expectedSha256 = normalizeAgentExpectedSha256(file.expectedSha256);
+    assertAgentSharedWorkspaceRevision({
+      operation: 'patch',
+      path: file.path,
+      beforeExisted: before.existed,
+      expectedSha256,
+    });
+
+    if (expectedSha256 && beforeSha256 !== expectedSha256) {
       throw new Error(`Refusing to patch ${file.path}: expectedSha256 did not match current file hash.`);
     }
 
