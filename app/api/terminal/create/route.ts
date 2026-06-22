@@ -38,10 +38,10 @@ export async function POST(request: NextRequest) {
       });
       workspaceRoot = workspace.rootPath;
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Workspace not found or inaccessible';
+      console.error('[Terminal API] Workspace resolution error:', error);
       return NextResponse.json(
-        { error: message },
-        { status: message.includes('not found') || message.includes('inaccessible') ? 404 : 403 }
+        { error: 'Workspace not found or inaccessible' },
+        { status: 404 }
       );
     }
 

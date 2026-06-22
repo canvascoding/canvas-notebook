@@ -3224,7 +3224,7 @@ function getToolNotes(tool: AgentTool, group: PiToolGroup): string[] {
     notes.push('Starts another managed agent session and may call external models or tools through that agent.');
   }
   if (group === 'Memory') {
-    notes.push('May update durable agent or user memory files under /data/agents.');
+    notes.push('May update durable agent or user memory through the memory store. Direct /data/agents file access is not exposed through workspace file tools.');
   }
   if (group === 'Browser') {
     notes.push('Starts controlled headless Chromium and may interact with live webpages.');

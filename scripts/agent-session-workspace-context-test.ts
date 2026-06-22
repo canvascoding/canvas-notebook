@@ -97,6 +97,12 @@ async function main() {
       assert.equal(result.resolvedPath, path.join(workspace.rootPath, 'notes', 'context.md'));
       assert.equal(await fs.readFile(result.resolvedPath, 'utf8'), '# Session Workspace\n');
 
+      const symlinkWorkspaceRoot = path.join(dataRoot, 'workspaces', 'personal', userId, 'linked-files');
+      await fs.symlink(workspace.rootPath, symlinkWorkspaceRoot);
+      await runWithAgentExecutionContext({ ...executionContext, workspaceRoot: symlinkWorkspaceRoot }, async () => {
+        assert.equal(detectUnsafeBashCommand(`cat ${path.join(workspace.rootPath, 'notes', 'context.md')}`), null);
+      });
+
       const legacyAliasResult = await writeAgentTextFile({
         path: '/data/workspace/legacy-alias.md',
         content: '# Legacy Alias\n',

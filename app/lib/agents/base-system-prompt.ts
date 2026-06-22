@@ -18,8 +18,8 @@ When in doubt, inspect the relevant workspace context first, then do the smalles
 - Relative paths resolve inside the workspace bound to this chat session. Write final user-facing files and organized outputs there.
 - /data/workspace is a legacy alias only; do not treat it as a global workspace root.
 - /data/user-uploads is an intake area for uploaded files. Copy anything the user should keep into the active workspace using the file tools.
-- /data/agents/<agent-id> contains internal agent-managed files. Do not put user-facing deliverables there.
-- /data/skills contains installed skills. Create or update skills there, never inside a user workspace.
+- Agent memory and agent-managed configuration are internal runtime state; use the dedicated memory, agent, skill, or settings tools instead of reading or writing /data/agents directly with file tools.
+- Installed skills are managed through skill/settings tools. Do not read or write /data/skills directly with normal workspace file tools.
 - /data/secrets/Canvas-Integrations.env contains integration secrets managed through Settings -> Integrations. Do not edit secret files directly and do not create ad-hoc secret files.
 
 Use workspace-relative paths for normal file operations. Use absolute paths only when a trusted tool result returned that exact runtime path.

@@ -161,6 +161,42 @@ function isPathWithin(candidatePath: string, basePath: string): boolean {
   return normalizedCandidate === normalizedBase || normalizedCandidate.startsWith(`${normalizedBase}${path.sep}`);
 }
 
+function terminalAllowedRootRealpaths(): string[] {
+  return [WORKSPACE_DIR, WORKSPACES_DIR]
+    .map((root) => fs.existsSync(root) ? fs.realpathSync(root) : path.resolve(root));
+}
+
+function deepestExistingTerminalPath(candidatePath: string): string {
+  let currentPath = path.resolve(candidatePath);
+  while (true) {
+    try {
+      fs.lstatSync(currentPath);
+      return currentPath;
+    } catch {
+      const parentPath = path.dirname(currentPath);
+      if (parentPath === currentPath) {
+        return currentPath;
+      }
+      currentPath = parentPath;
+    }
+  }
+}
+
+function assertTerminalPathResolvesWithinAllowedRoots(candidatePath: string, allowedRoots: string[]): string {
+  let realPath: string;
+  try {
+    realPath = fs.realpathSync(candidatePath);
+  } catch {
+    throw new Error('Terminal workspace path contains an unresolved filesystem link.');
+  }
+
+  if (!allowedRoots.some((root) => isPathWithin(realPath, root))) {
+    throw new Error('Terminal workspace path resolves outside managed workspace directories.');
+  }
+
+  return realPath;
+}
+
 function resolveTerminalWorkspaceCwd(cwd: string | undefined): string {
   const requestedCwd = cwd?.trim() || WORKSPACE_DIR;
   if (!path.isAbsolute(requestedCwd) || requestedCwd.includes('\0')) {
@@ -172,15 +208,17 @@ function resolveTerminalWorkspaceCwd(cwd: string | undefined): string {
     throw new Error('Terminal sessions are limited to managed workspace directories.');
   }
 
-  fs.mkdirSync(resolvedCwd, { recursive: true });
-  const realCwd = fs.realpathSync(resolvedCwd);
-  const allowedRoots = [WORKSPACE_DIR, WORKSPACES_DIR]
-    .map((root) => fs.existsSync(root) ? fs.realpathSync(root) : path.resolve(root));
-  if (!allowedRoots.some((root) => isPathWithin(realCwd, root))) {
-    throw new Error('Terminal workspace path resolves outside managed workspace directories.');
+  const allowedRoots = terminalAllowedRootRealpaths();
+  assertTerminalPathResolvesWithinAllowedRoots(
+    deepestExistingTerminalPath(resolvedCwd),
+    allowedRoots
+  );
+
+  if (!fs.existsSync(resolvedCwd)) {
+    fs.mkdirSync(resolvedCwd, { recursive: true });
   }
 
-  return realCwd;
+  return assertTerminalPathResolvesWithinAllowedRoots(resolvedCwd, allowedRoots);
 }
 
 // Session Management

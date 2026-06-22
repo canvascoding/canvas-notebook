@@ -1438,9 +1438,22 @@ function shellDataPathMentionViolatesContext(command: string): boolean {
   const executionContext = getAgentExecutionContext();
   if (!executionContext) return false;
 
+  const workspaceRootVariants = rootPathVariants(executionContext.workspaceRoot);
   return findShellDataPathMentions(command).some((mention) => {
     const resolvedMention = path.resolve(mention);
-    if (isPathWithin(resolvedMention, executionContext.workspaceRoot)) return false;
+    try {
+      if (existsSync(resolvedMention)) {
+        const realMention = realpathSync(resolvedMention);
+        if (workspaceRootVariants.some((rootVariant) => isPathWithin(realMention, rootVariant))) {
+          return false;
+        }
+        return true;
+      }
+    } catch {
+      return true;
+    }
+
+    if (workspaceRootVariants.some((rootVariant) => isPathWithin(resolvedMention, rootVariant))) return false;
     if (resolveLegacyWorkspaceAlias(resolvedMention)) return false;
     return true;
   });
