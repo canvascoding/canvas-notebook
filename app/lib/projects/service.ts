@@ -209,33 +209,35 @@ export function createCanvasCustomer(
     createdByUserId?: string | null;
   },
 ): CanvasCustomerRecord {
-  const now = Date.now();
-  const id = createScopedId('cust');
-  const slug = reserveUniqueSlug(
-    sqlite,
-    'canvas_customers',
-    input.organizationId,
-    normalizeSlug(input.slug ?? input.name),
-  );
-  sqlite.prepare(`
-    INSERT INTO canvas_customers (
-      id, organization_id, name, slug, status, notes, metadata_json, created_by_user_id, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, 'active', ?, ?, ?, ?, ?)
-  `).run(
-    id,
-    input.organizationId,
-    input.name.trim(),
-    slug,
-    input.notes ?? null,
-    input.metadataJson ?? null,
-    input.createdByUserId ?? null,
-    now,
-    now,
-  );
+  return sqlite.transaction(() => {
+    const now = Date.now();
+    const id = createScopedId('cust');
+    const slug = reserveUniqueSlug(
+      sqlite,
+      'canvas_customers',
+      input.organizationId,
+      normalizeSlug(input.slug ?? input.name),
+    );
+    sqlite.prepare(`
+      INSERT INTO canvas_customers (
+        id, organization_id, name, slug, status, notes, metadata_json, created_by_user_id, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, 'active', ?, ?, ?, ?, ?)
+    `).run(
+      id,
+      input.organizationId,
+      input.name.trim(),
+      slug,
+      input.notes ?? null,
+      input.metadataJson ?? null,
+      input.createdByUserId ?? null,
+      now,
+      now,
+    );
 
-  const record = getCanvasCustomerById(sqlite, input.organizationId, id);
-  if (!record) throw new Error('Customer insert failed');
-  return record;
+    const record = getCanvasCustomerById(sqlite, input.organizationId, id);
+    if (!record) throw new Error('Customer insert failed');
+    return record;
+  })();
 }
 
 export function getCanvasCustomerById(
@@ -264,39 +266,41 @@ export function createCanvasProject(
     createdByUserId?: string | null;
   },
 ): CanvasProjectRecord {
-  const customerId = input.customerId ?? null;
-  if (customerId && !getCanvasCustomerById(sqlite, input.organizationId, customerId)) {
-    throw new Error('Project customer not found in this organization.');
-  }
+  return sqlite.transaction(() => {
+    const customerId = input.customerId ?? null;
+    if (customerId && !getCanvasCustomerById(sqlite, input.organizationId, customerId)) {
+      throw new Error('Project customer not found in this organization.');
+    }
 
-  const now = Date.now();
-  const id = createScopedId('prj');
-  const slug = reserveUniqueSlug(
-    sqlite,
-    'canvas_projects',
-    input.organizationId,
-    normalizeSlug(input.slug ?? input.name),
-  );
-  sqlite.prepare(`
-    INSERT INTO canvas_projects (
-      id, organization_id, customer_id, name, slug, status, description, metadata_json, created_by_user_id, archived_at, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?, NULL, ?, ?)
-  `).run(
-    id,
-    input.organizationId,
-    customerId,
-    input.name.trim(),
-    slug,
-    input.description ?? null,
-    input.metadataJson ?? null,
-    input.createdByUserId ?? null,
-    now,
-    now,
-  );
+    const now = Date.now();
+    const id = createScopedId('prj');
+    const slug = reserveUniqueSlug(
+      sqlite,
+      'canvas_projects',
+      input.organizationId,
+      normalizeSlug(input.slug ?? input.name),
+    );
+    sqlite.prepare(`
+      INSERT INTO canvas_projects (
+        id, organization_id, customer_id, name, slug, status, description, metadata_json, created_by_user_id, archived_at, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?, NULL, ?, ?)
+    `).run(
+      id,
+      input.organizationId,
+      customerId,
+      input.name.trim(),
+      slug,
+      input.description ?? null,
+      input.metadataJson ?? null,
+      input.createdByUserId ?? null,
+      now,
+      now,
+    );
 
-  const record = getCanvasProjectById(sqlite, input.organizationId, id);
-  if (!record) throw new Error('Project insert failed');
-  return record;
+    const record = getCanvasProjectById(sqlite, input.organizationId, id);
+    if (!record) throw new Error('Project insert failed');
+    return record;
+  })();
 }
 
 export function getCanvasProjectById(

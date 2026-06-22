@@ -46,6 +46,7 @@ async function main() {
       ['member-user', 'Member', 'member@example.test', 'member'],
       ['external-user', 'External', 'external@example.test', 'external'],
       ['blocked-user', 'Blocked', 'blocked@example.test', 'member'],
+      ['disabled-org-user', 'Disabled Org', 'disabled-org@example.test', 'member'],
     ]) {
       sqlite.prepare(`
         INSERT INTO user (id, name, email, email_verified, role, created_at, updated_at)
@@ -77,6 +78,12 @@ async function main() {
         can_create_public_links, created_at, updated_at
       ) VALUES (?, ?, 'member', 'active', 0, 1, ?, ?)
     `).run(organizationId, 'blocked-user', now, now);
+    sqlite.prepare(`
+      INSERT INTO organization_user_permissions (
+        organization_id, user_id, role, status, can_write_team_workspace,
+        can_create_public_links, created_at, updated_at
+      ) VALUES (?, ?, 'member', 'disabled', 1, 1, ?, ?)
+    `).run(organizationId, 'disabled-org-user', now, now);
 
     assert.equal(normalizeSlug('Kunde A / Sommer 2026'), 'kunde-a-sommer-2026');
 
@@ -190,6 +197,18 @@ async function main() {
     });
     const blockedActor = resolveWorkspaceActor({ id: 'blocked-user', email: 'blocked@example.test', role: 'member' });
     assert.equal(resolveWorkspaceContextById(sqlite, { actor: blockedActor, workspaceId: projectWorkspace.id }), null);
+
+    upsertCanvasProjectMember(sqlite, {
+      organizationId,
+      projectId: project.id,
+      userId: 'disabled-org-user',
+      role: 'member',
+      status: 'active',
+      canRead: true,
+      canWrite: true,
+    });
+    const disabledOrgActor = resolveWorkspaceActor({ id: 'disabled-org-user', email: 'disabled-org@example.test', role: 'member' });
+    assert.equal(resolveWorkspaceContextById(sqlite, { actor: disabledOrgActor, workspaceId: projectWorkspace.id }), null);
 
     for (const [table, columns] of [
       ['canvas_customers', ['organization_id', 'slug']],

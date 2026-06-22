@@ -362,7 +362,9 @@ function canReadWorkspace(
   if (record.type === 'personal') return record.ownerUserId === actor.userId;
   if (record.type === 'team') return Boolean(permission && permission.status === 'active' && permission.role !== 'external');
   if (record.type === 'project') {
+    if (permission && permission.status !== 'active') return false;
     if ((actor.role === 'owner' || actor.role === 'admin') && permission?.status === 'active') return true;
+    if (!permission && projectPermission?.role !== 'external') return false;
     return Boolean(projectPermission?.status === 'active' && projectPermission.can_read === 1);
   }
   return false;
