@@ -1,7 +1,12 @@
 'use client';
 
 import { useState, useCallback } from 'react';
-import type { PreprocessFileInfo, ConvertParams } from '@/app/components/shared/ImagePreprocessDialog';
+import type {
+  ConvertParams,
+  ImagePreprocessProgressItem,
+  ImagePreprocessProgressStatus,
+  PreprocessFileInfo,
+} from '@/app/components/shared/ImagePreprocessDialog';
 import { isHeicUploadFile, shouldPreprocessImageFile } from '@/app/lib/images/client-preprocess';
 
 export interface UseImagePreprocessOptions {
@@ -23,6 +28,7 @@ export interface UseImagePreprocessReturn {
   dialogState: ImagePreprocessDialogState | null;
   isProcessing: boolean;
   setDialogState: (state: ImagePreprocessDialogState | null) => void;
+  progressItems: ImagePreprocessProgressItem[];
   handleConfirm: (convertParams: (ConvertParams | null)[]) => Promise<void>;
   handleSkip: () => Promise<void>;
 }
@@ -41,15 +47,48 @@ function filterPathMap(files: File[], pathMap?: Map<File, string>): Map<File, st
   return filtered.size > 0 ? filtered : undefined;
 }
 
+function createProgressItems(files: File[]): ImagePreprocessProgressItem[] {
+  return files.map((file) => ({
+    fileName: file.name,
+    size: file.size,
+    status: 'queued',
+  }));
+}
+
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : 'Upload failed';
+}
+
 export function useImagePreprocess({ onUpload }: UseImagePreprocessOptions): UseImagePreprocessReturn {
   const [dialogState, setDialogState] = useState<ImagePreprocessDialogState | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [progressItems, setProgressItems] = useState<ImagePreprocessProgressItem[]>([]);
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const [pendingPreprocessFiles, setPendingPreprocessFiles] = useState<File[]>([]);
   const [pendingTargetDir, setPendingTargetDir] = useState<string | undefined>(undefined);
   const [pendingPathMap, setPendingPathMap] = useState<Map<File, string> | undefined>(undefined);
 
+  const updateProgressItem = useCallback((
+    index: number,
+    status: ImagePreprocessProgressStatus,
+    detail?: string,
+  ) => {
+    setProgressItems((current) => current.map((item, itemIndex) => (
+      itemIndex === index ? { ...item, status, detail } : item
+    )));
+  }, []);
+
+  const clearPreprocessState = useCallback(() => {
+    setDialogState(null);
+    setProgressItems([]);
+    setPendingFiles([]);
+    setPendingPreprocessFiles([]);
+    setPendingTargetDir(undefined);
+    setPendingPathMap(undefined);
+  }, []);
+
   const handleFiles = useCallback(async (files: File[], targetDir?: string, pathMap?: Map<File, string>) => {
+    setProgressItems([]);
     const preprocessFiles: PreprocessFileInfo[] = [];
     const normalFiles: File[] = [];
 
@@ -76,45 +115,71 @@ export function useImagePreprocess({ onUpload }: UseImagePreprocessOptions): Use
 
   const handleConfirm = useCallback(async (convertParams: (ConvertParams | null)[]) => {
     setIsProcessing(true);
+    setProgressItems(createProgressItems(pendingFiles));
     try {
       const convertParamsByFile = new Map<File, ConvertParams | null>();
       pendingPreprocessFiles.forEach((file, index) => {
         convertParamsByFile.set(file, convertParams[index] ?? null);
       });
-      const uploadConvertParams = pendingFiles.map((file) => convertParamsByFile.get(file) ?? null);
-      await onUpload(pendingFiles, uploadConvertParams, pendingTargetDir, pendingPathMap);
-    } finally {
-      setIsProcessing(false);
-      setDialogState(null);
-      setPendingFiles([]);
-      setPendingPreprocessFiles([]);
-      setPendingTargetDir(undefined);
-      setPendingPathMap(undefined);
-    }
-  }, [onUpload, pendingFiles, pendingPreprocessFiles, pendingTargetDir, pendingPathMap]);
 
-  const handleSkip = useCallback(async () => {
-    setIsProcessing(true);
-    try {
-      const nonHeicFiles = pendingFiles.filter((f) => !isHeicUploadFile(f));
-      if (nonHeicFiles.length > 0) {
-        await onUpload(nonHeicFiles, undefined, pendingTargetDir, filterPathMap(nonHeicFiles, pendingPathMap));
+      for (let index = 0; index < pendingFiles.length; index += 1) {
+        const file = pendingFiles[index];
+        const convertParam = convertParamsByFile.get(file) ?? null;
+        updateProgressItem(index, convertParam ? 'processing' : 'uploading');
+
+        try {
+          await onUpload(
+            [file],
+            [convertParam],
+            pendingTargetDir,
+            filterPathMap([file], pendingPathMap),
+          );
+          updateProgressItem(index, 'success');
+        } catch (error) {
+          updateProgressItem(index, 'error', getErrorMessage(error));
+        }
       }
     } finally {
       setIsProcessing(false);
-      setDialogState(null);
-      setPendingFiles([]);
-      setPendingPreprocessFiles([]);
-      setPendingTargetDir(undefined);
-      setPendingPathMap(undefined);
     }
-  }, [onUpload, pendingFiles, pendingTargetDir, pendingPathMap]);
+  }, [onUpload, pendingFiles, pendingPreprocessFiles, pendingTargetDir, pendingPathMap, updateProgressItem]);
+
+  const handleSkip = useCallback(async () => {
+    setIsProcessing(true);
+    setProgressItems(createProgressItems(pendingFiles));
+    try {
+      for (let index = 0; index < pendingFiles.length; index += 1) {
+        const file = pendingFiles[index];
+        if (isHeicUploadFile(file)) {
+          updateProgressItem(index, 'skipped');
+          continue;
+        }
+
+        updateProgressItem(index, 'uploading');
+        try {
+          await onUpload([file], undefined, pendingTargetDir, filterPathMap([file], pendingPathMap));
+          updateProgressItem(index, 'success');
+        } catch (error) {
+          updateProgressItem(index, 'error', getErrorMessage(error));
+        }
+      }
+    } finally {
+      setIsProcessing(false);
+    }
+  }, [onUpload, pendingFiles, pendingTargetDir, pendingPathMap, updateProgressItem]);
 
   return {
     handleFiles,
     dialogState,
     isProcessing,
-    setDialogState,
+    progressItems,
+    setDialogState: (state) => {
+      if (state === null) {
+        clearPreprocessState();
+        return;
+      }
+      setDialogState(state);
+    },
     handleConfirm,
     handleSkip,
   };

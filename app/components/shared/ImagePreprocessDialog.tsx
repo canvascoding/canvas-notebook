@@ -2,7 +2,7 @@
 
 import { useMemo, useState, useCallback } from 'react';
 import { useTranslations } from 'next-intl';
-import { AlertTriangle, Image as ImageIcon, Loader2 } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Clock3, Image as ImageIcon, Loader2, XCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -29,6 +29,21 @@ export interface ConvertParams {
   maxDimension?: number;
 }
 
+export type ImagePreprocessProgressStatus =
+  | 'queued'
+  | 'processing'
+  | 'uploading'
+  | 'success'
+  | 'error'
+  | 'skipped';
+
+export interface ImagePreprocessProgressItem {
+  fileName: string;
+  size: number;
+  status: ImagePreprocessProgressStatus;
+  detail?: string;
+}
+
 export interface ImagePreprocessDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -36,6 +51,7 @@ export interface ImagePreprocessDialogProps {
   onConfirm: (convertParams: (ConvertParams | null)[]) => void | Promise<void>;
   onSkip?: () => void;
   isProcessing?: boolean;
+  progressItems?: ImagePreprocessProgressItem[];
 }
 
 const QUALITY_PRESETS = [
@@ -63,6 +79,8 @@ function qualityButtonClass(active: boolean): string {
 
 type DimensionValue = number | 'original';
 
+const FINAL_PROGRESS_STATUSES = new Set<ImagePreprocessProgressStatus>(['success', 'error', 'skipped']);
+
 function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
@@ -85,6 +103,57 @@ function resolveDimensionValue(value: DimensionValue | null | undefined, default
   return value ?? defaultValue;
 }
 
+function getProgressPercent(items: ImagePreprocessProgressItem[]): number {
+  if (items.length === 0) return 0;
+  const completed = items.filter((item) => FINAL_PROGRESS_STATUSES.has(item.status)).length;
+  return Math.round((completed / items.length) * 100);
+}
+
+function getStatusClasses(status: ImagePreprocessProgressStatus): string {
+  switch (status) {
+    case 'success':
+      return 'border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-900/60 dark:bg-emerald-950/30 dark:text-emerald-200';
+    case 'error':
+      return 'border-destructive/30 bg-destructive/10 text-destructive';
+    case 'processing':
+    case 'uploading':
+      return 'border-primary/30 bg-primary/10 text-primary';
+    case 'skipped':
+      return 'border-muted bg-muted text-muted-foreground';
+    case 'queued':
+    default:
+      return 'border-border bg-background text-muted-foreground';
+  }
+}
+
+function ProgressStatusIcon({ status }: { status: ImagePreprocessProgressStatus }) {
+  if (status === 'success') return <CheckCircle2 className="h-4 w-4" />;
+  if (status === 'error') return <XCircle className="h-4 w-4" />;
+  if (status === 'processing' || status === 'uploading') return <Loader2 className="h-4 w-4 animate-spin" />;
+  return <Clock3 className="h-4 w-4" />;
+}
+
+function getProgressStatusLabel(
+  status: ImagePreprocessProgressStatus,
+  t: ReturnType<typeof useTranslations>,
+): string {
+  switch (status) {
+    case 'processing':
+      return t('imagePreprocessStatus.processing');
+    case 'uploading':
+      return t('imagePreprocessStatus.uploading');
+    case 'success':
+      return t('imagePreprocessStatus.success');
+    case 'error':
+      return t('imagePreprocessStatus.error');
+    case 'skipped':
+      return t('imagePreprocessStatus.skipped');
+    case 'queued':
+    default:
+      return t('imagePreprocessStatus.queued');
+  }
+}
+
 export function ImagePreprocessDialog({
   open,
   onOpenChange,
@@ -92,6 +161,7 @@ export function ImagePreprocessDialog({
   onConfirm,
   onSkip,
   isProcessing = false,
+  progressItems = [],
 }: ImagePreprocessDialogProps) {
   const t = useTranslations('notebook');
 
@@ -121,6 +191,11 @@ export function ImagePreprocessDialog({
   const effectiveGlobalQuality = globalCustomQuality ? globalCustomQualityValue : globalQuality;
   const effectiveGlobalFormat = globalFormat ?? defaultGlobalFormat;
   const effectiveGlobalDimension = resolveDimensionValue(globalDimension, defaultGlobalDimension);
+  const hasProgress = progressItems.length > 0;
+  const completedProgressCount = progressItems.filter((item) => FINAL_PROGRESS_STATUSES.has(item.status)).length;
+  const progressPercent = getProgressPercent(progressItems);
+  const activeProgressItem = progressItems.find((item) => item.status === 'processing' || item.status === 'uploading');
+  const hasProgressErrors = progressItems.some((item) => item.status === 'error');
 
   const resetState = useCallback(() => {
     setApplyToAll(false);
@@ -155,22 +230,81 @@ export function ImagePreprocessDialog({
 
   const showPerFileControls = !applyToAll && files.length > 1;
   const handleDialogOpenChange = useCallback((nextOpen: boolean) => {
+    if (!nextOpen && isProcessing) {
+      return;
+    }
     if (!nextOpen) {
       resetState();
     }
     onOpenChange(nextOpen);
-  }, [onOpenChange, resetState]);
+  }, [isProcessing, onOpenChange, resetState]);
 
   return (
     <Dialog open={open} onOpenChange={handleDialogOpenChange}>
-      <DialogContent className="!flex !max-h-[92dvh] !w-[calc(100vw-1rem)] !max-w-none !flex-col !gap-0 !overflow-hidden !p-0 sm:!w-[min(760px,calc(100vw-3rem))]">
+      <DialogContent
+        className="!flex !max-h-[92dvh] !w-[calc(100vw-1rem)] !max-w-none !flex-col !gap-0 !overflow-hidden !p-0 sm:!w-[min(760px,calc(100vw-3rem))]"
+        showCloseButton={!isProcessing}
+      >
         <DialogHeader className="shrink-0 border-b border-border px-4 py-4 pr-12 sm:px-6 sm:py-5">
           <DialogTitle className="text-xl leading-tight">{t('imagePreprocessTitle')}</DialogTitle>
           <DialogDescription className="text-sm leading-relaxed sm:text-base">{t('imagePreprocessDescription')}</DialogDescription>
         </DialogHeader>
 
         <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4 sm:px-6">
-          {files.map((f, i) => {
+          {hasProgress ? (
+            <>
+              <div className="rounded-md border border-border bg-card p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold">
+                      {isProcessing
+                        ? t('imagePreprocessProcessingTitle')
+                        : hasProgressErrors
+                          ? t('imagePreprocessProcessingFinishedWithErrors')
+                          : t('imagePreprocessProcessingFinished')}
+                    </p>
+                    <p className="mt-1 break-words text-xs text-muted-foreground">
+                      {activeProgressItem
+                        ? t('imagePreprocessProcessingCurrent', { file: activeProgressItem.fileName })
+                        : t('imagePreprocessProcessingComplete', {
+                            completed: completedProgressCount,
+                            total: progressItems.length,
+                          })}
+                    </p>
+                  </div>
+                  <span className="shrink-0 text-sm font-medium text-muted-foreground">
+                    {completedProgressCount}/{progressItems.length}
+                  </span>
+                </div>
+                <div className="mt-4 h-2 overflow-hidden rounded-full bg-muted">
+                  <div
+                    className="h-full rounded-full bg-primary transition-all duration-300"
+                    style={{ width: `${progressPercent}%` }}
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                {progressItems.map((item, index) => (
+                  <div key={`${item.fileName}-${index}`} className={`rounded-md border p-3 ${getStatusClasses(item.status)}`}>
+                    <div className="grid grid-cols-[1rem_minmax(0,1fr)_auto] items-start gap-2">
+                      <ProgressStatusIcon status={item.status} />
+                      <div className="min-w-0">
+                        <p className="break-words text-sm font-medium leading-snug">{item.fileName}</p>
+                        <p className="mt-1 text-xs opacity-80">{formatSize(item.size)}</p>
+                        {item.detail ? (
+                          <p className="mt-2 break-words text-xs opacity-90">{item.detail}</p>
+                        ) : null}
+                      </div>
+                      <span className="shrink-0 rounded-full border border-current/20 px-2 py-0.5 text-xs font-medium">
+                        {getProgressStatusLabel(item.status, t)}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </>
+          ) : files.map((f, i) => {
              const isHeic = f.isHeic;
              const isLarge = f.isLarge;
                const fileFormat = applyToAll
@@ -306,7 +440,7 @@ export function ImagePreprocessDialog({
             );
           })}
 
-          {files.length > 1 && (
+          {!hasProgress && files.length > 1 && (
             <div className="flex items-center gap-2 pt-3 border-t border-border">
               <label className="flex items-center gap-2 text-sm cursor-pointer">
                 <input
@@ -321,7 +455,7 @@ export function ImagePreprocessDialog({
             </div>
           )}
 
-          {applyToAll && (
+          {!hasProgress && applyToAll && (
             <div className={`${CONTROL_GRID_CLASS} rounded-md border border-border bg-card p-3 sm:p-4`}>
               <div className="min-w-0">
                 <label className="text-muted-foreground block mb-1">
@@ -396,7 +530,7 @@ export function ImagePreprocessDialog({
             </div>
           )}
 
-          {hasHeic && (
+          {!hasProgress && hasHeic && (
             <div className="flex items-start gap-2 rounded-lg bg-orange-50 dark:bg-orange-950/20 p-3 text-xs text-orange-800 dark:text-orange-200">
               <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
               <span>{t('imagePreprocessHeicWarning')}</span>
@@ -405,7 +539,12 @@ export function ImagePreprocessDialog({
         </div>
 
         <DialogFooter className="shrink-0 border-t border-border px-4 py-3 sm:flex-row sm:justify-end sm:px-6">
-          {canSkip && onSkip && (
+          {hasProgress && !isProcessing ? (
+            <Button className="w-full sm:w-auto" variant={hasProgressErrors ? 'outline' : 'default'} onClick={() => handleDialogOpenChange(false)}>
+              {t('close')}
+            </Button>
+          ) : null}
+          {!hasProgress && canSkip && onSkip && (
             <Button className="w-full min-w-0 !whitespace-normal sm:w-auto sm:!whitespace-nowrap" variant="ghost" disabled={isProcessing} onClick={() => {
 	              resetState();
 	              onSkip();
@@ -413,13 +552,13 @@ export function ImagePreprocessDialog({
               {t('imagePreprocessSkip')}
             </Button>
           )}
-	          <Button className="w-full min-w-0 !whitespace-normal sm:w-auto sm:!whitespace-nowrap" variant="outline" disabled={isProcessing} onClick={() => handleDialogOpenChange(false)}>
+	          {!hasProgress ? <Button className="w-full min-w-0 !whitespace-normal sm:w-auto sm:!whitespace-nowrap" variant="outline" disabled={isProcessing} onClick={() => handleDialogOpenChange(false)}>
 	            {t('cancel')}
-	          </Button>
-	          <Button className="w-full min-w-0 !whitespace-normal sm:w-auto sm:!whitespace-nowrap" disabled={isProcessing} onClick={handleConfirm}>
+	          </Button> : null}
+	          {!hasProgress ? <Button className="w-full min-w-0 !whitespace-normal sm:w-auto sm:!whitespace-nowrap" disabled={isProcessing} onClick={handleConfirm}>
 	            {isProcessing ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
 	            {t('imagePreprocessConfirm')}
-	          </Button>
+	          </Button> : null}
         </DialogFooter>
       </DialogContent>
     </Dialog>

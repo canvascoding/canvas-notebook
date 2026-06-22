@@ -7,7 +7,12 @@ import {
   type ChangeEvent,
   type ClipboardEvent,
 } from 'react';
-import type { ConvertParams, PreprocessFileInfo } from '@/app/components/shared/ImagePreprocessDialog';
+import type {
+  ConvertParams,
+  ImagePreprocessProgressItem,
+  ImagePreprocessProgressStatus,
+  PreprocessFileInfo,
+} from '@/app/components/shared/ImagePreprocessDialog';
 import { isHeicUploadFile, shouldPreprocessImageFile } from '@/app/lib/images/client-preprocess';
 import { prepareImageFilesForUpload, serializeUploadConvertParams } from '@/app/lib/images/client-upload-conversion';
 import {
@@ -36,6 +41,18 @@ type UseChatAttachmentsParams = {
   onMediaClick?: (mediaUrl: string) => void;
 };
 
+type UploadProgressOptions = {
+  progressIndex?: number;
+};
+
+function createProgressItems(files: File[]): ImagePreprocessProgressItem[] {
+  return files.map((file) => ({
+    fileName: file.name,
+    size: file.size,
+    status: 'queued',
+  }));
+}
+
 async function readUploadAttachmentResponse(res: Response): Promise<UploadAttachmentResponse | null> {
   const text = await res.text();
   if (!text) {
@@ -55,20 +72,47 @@ export function useChatAttachments({ onMediaClick }: UseChatAttachmentsParams) {
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [imagePreprocessFiles, setImagePreprocessFiles] = useState<PreprocessFileInfo[] | null>(null);
   const [imagePreprocessPendingFiles, setImagePreprocessPendingFiles] = useState<File[]>([]);
+  const [imagePreprocessProgressItems, setImagePreprocessProgressItems] = useState<ImagePreprocessProgressItem[]>([]);
   const [previewAttachment, setPreviewAttachment] = useState<Attachment | null>(null);
   const [previewAttachmentGroup, setPreviewAttachmentGroup] = useState<Attachment[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const isUploading = pendingUploads > 0;
 
-  const handleFileUploadMultiple = useCallback(async (files: File[], convertParams?: (ConvertParams | null)[]) => {
+  const updateImagePreprocessProgress = useCallback((
+    index: number,
+    status: ImagePreprocessProgressStatus,
+    detail?: string,
+  ) => {
+    setImagePreprocessProgressItems((current) => current.map((item, itemIndex) => (
+      itemIndex === index ? { ...item, status, detail } : item
+    )));
+  }, []);
+
+  const handleFileUploadMultiple = useCallback(async (
+    files: File[],
+    convertParams?: (ConvertParams | null)[],
+    options: UploadProgressOptions = {},
+  ): Promise<boolean> => {
     if (files.length === 0) {
-      return;
+      return true;
     }
     setPendingUploads((count) => count + 1);
     setUploadError(null);
 
     try {
-      const prepared = await prepareImageFilesForUpload(files, convertParams);
+      const prepared = await prepareImageFilesForUpload(files, convertParams, {
+        onProgress: (progress) => {
+          if (options.progressIndex === undefined) return;
+          if (progress.status === 'processing') {
+            updateImagePreprocessProgress(options.progressIndex, 'processing');
+          } else if (progress.status === 'prepared' || progress.status === 'server-fallback') {
+            updateImagePreprocessProgress(options.progressIndex, 'uploading');
+          }
+        },
+      });
+      if (options.progressIndex !== undefined) {
+        updateImagePreprocessProgress(options.progressIndex, 'uploading');
+      }
       const formData = new FormData();
       prepared.files.forEach((file) => formData.append('file', file));
 
@@ -101,13 +145,22 @@ export function useChatAttachments({ onMediaClick }: UseChatAttachmentsParams) {
       if (data.errors && data.errors.length > 0) {
         setUploadError(`Einige Dateien konnten nicht hochgeladen werden: ${data.errors.join(', ')}`);
       }
+      if (options.progressIndex !== undefined) {
+        updateImagePreprocessProgress(options.progressIndex, data.errors?.length ? 'error' : 'success', data.errors?.join(', '));
+      }
+      return !data.errors?.length;
     } catch (err) {
       console.error('Upload failed', err);
-      setUploadError(err instanceof Error ? err.message : 'Upload fehlgeschlagen. Netzwerkfehler oder Server nicht erreichbar.');
+      const message = err instanceof Error ? err.message : 'Upload fehlgeschlagen. Netzwerkfehler oder Server nicht erreichbar.';
+      setUploadError(message);
+      if (options.progressIndex !== undefined) {
+        updateImagePreprocessProgress(options.progressIndex, 'error', message);
+      }
+      return false;
     } finally {
       setPendingUploads((count) => Math.max(0, count - 1));
     }
-  }, []);
+  }, [updateImagePreprocessProgress]);
 
   const preprocessAndUpload = useCallback(async (files: File[]) => {
     const preprocessFiles: PreprocessFileInfo[] = [];
@@ -126,30 +179,52 @@ export function useChatAttachments({ onMediaClick }: UseChatAttachmentsParams) {
       await handleFileUploadMultiple(normalFiles);
     }
     if (preprocessFiles.length > 0) {
+      setImagePreprocessProgressItems([]);
       setImagePreprocessPendingFiles(preprocessFiles.map((fileInfo) => fileInfo.file));
       setImagePreprocessFiles(preprocessFiles);
     }
   }, [handleFileUploadMultiple]);
 
   const handleImagePreprocessConfirm = useCallback(async (convertParams: (ConvertParams | null)[]) => {
-    await handleFileUploadMultiple(imagePreprocessPendingFiles, convertParams);
-    setImagePreprocessFiles(null);
+    setImagePreprocessProgressItems(createProgressItems(imagePreprocessPendingFiles));
+    setPendingUploads((count) => count + 1);
+    try {
+      for (let index = 0; index < imagePreprocessPendingFiles.length; index += 1) {
+        await handleFileUploadMultiple(
+          [imagePreprocessPendingFiles[index]],
+          [convertParams[index] ?? null],
+          { progressIndex: index },
+        );
+      }
+    } finally {
+      setPendingUploads((count) => Math.max(0, count - 1));
+    }
     setImagePreprocessPendingFiles([]);
   }, [handleFileUploadMultiple, imagePreprocessPendingFiles]);
 
   const handleImagePreprocessSkip = useCallback(async () => {
-    const nonHeicFiles = imagePreprocessPendingFiles.filter((file) => !isHeicUploadFile(file));
-    if (nonHeicFiles.length > 0) {
-      await handleFileUploadMultiple(nonHeicFiles);
+    setImagePreprocessProgressItems(createProgressItems(imagePreprocessPendingFiles));
+    setPendingUploads((count) => count + 1);
+    try {
+      for (let index = 0; index < imagePreprocessPendingFiles.length; index += 1) {
+        const file = imagePreprocessPendingFiles[index];
+        if (isHeicUploadFile(file)) {
+          updateImagePreprocessProgress(index, 'skipped');
+          continue;
+        }
+        await handleFileUploadMultiple([file], undefined, { progressIndex: index });
+      }
+    } finally {
+      setPendingUploads((count) => Math.max(0, count - 1));
     }
-    setImagePreprocessFiles(null);
     setImagePreprocessPendingFiles([]);
-  }, [handleFileUploadMultiple, imagePreprocessPendingFiles]);
+  }, [handleFileUploadMultiple, imagePreprocessPendingFiles, updateImagePreprocessProgress]);
 
   const handleImagePreprocessOpenChange = useCallback((open: boolean) => {
     if (!open) {
       setImagePreprocessFiles(null);
       setImagePreprocessPendingFiles([]);
+      setImagePreprocessProgressItems([]);
     }
   }, []);
 
@@ -233,6 +308,7 @@ export function useChatAttachments({ onMediaClick }: UseChatAttachmentsParams) {
     handleMediaPreviewClick,
     handlePaste,
     imagePreprocessFiles,
+    imagePreprocessProgressItems,
     isUploading,
     onFileChange,
     previewAttachment,

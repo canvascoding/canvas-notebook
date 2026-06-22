@@ -12,7 +12,11 @@ import { AttachmentPreviewDialog } from '@/app/components/canvas-agent-chat/Atta
 import { AttachmentPreviewItem } from '@/app/components/canvas-agent-chat/AttachmentPreviewItem';
 import { deriveUploadAttachmentPreview, type ChatAttachment } from '@/app/lib/chat/attachment-preview';
 import { ImagePreprocessDialog } from '@/app/components/shared/ImagePreprocessDialog';
-import type { ConvertParams } from '@/app/components/shared/ImagePreprocessDialog';
+import type {
+  ConvertParams,
+  ImagePreprocessProgressItem,
+  ImagePreprocessProgressStatus,
+} from '@/app/components/shared/ImagePreprocessDialog';
 import { isHeicUploadFile, shouldPreprocessImageFile } from '@/app/lib/images/client-preprocess';
 import { prepareImageFilesForUpload, serializeUploadConvertParams } from '@/app/lib/images/client-upload-conversion';
 import { fetchChatAgents } from '@/app/lib/chat/agent-api';
@@ -21,6 +25,9 @@ import { getAgentDisplayName } from '@/app/lib/chat/agent-display';
 import type { AgentProfile } from '@/app/lib/chat/types';
 
 type Attachment = ChatAttachment;
+type UploadProgressOptions = {
+  progressIndex?: number;
+};
 
 interface FilePickerFile {
   name: string;
@@ -36,6 +43,14 @@ const DEFAULT_AGENT_PROFILE: AgentProfile = {
   type: 'main',
   removable: false,
 };
+
+function createProgressItems(files: File[]): ImagePreprocessProgressItem[] {
+  return files.map((file) => ({
+    fileName: file.name,
+    size: file.size,
+    status: 'queued',
+  }));
+}
 
 export function PromptHero({ licenseLocked = false }: { licenseLocked?: boolean }) {
   const locale = useLocale();
@@ -60,6 +75,7 @@ export function PromptHero({ licenseLocked = false }: { licenseLocked?: boolean 
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [imagePreprocessFiles, setImagePreprocessFiles] = useState<import('@/app/components/shared/ImagePreprocessDialog').PreprocessFileInfo[] | null>(null);
   const [imagePreprocessPendingFiles, setImagePreprocessPendingFiles] = useState<File[]>([]);
+  const [imagePreprocessProgressItems, setImagePreprocessProgressItems] = useState<ImagePreprocessProgressItem[]>([]);
   const [previewAttachment, setPreviewAttachment] = useState<Attachment | null>(null);
   const isUploading = pendingUploads > 0;
   const notebookHref = getPathname({ href: '/notebook', locale });
@@ -105,16 +121,42 @@ export function PromptHero({ licenseLocked = false }: { licenseLocked?: boolean 
     void saveLastActiveAgentId(agentId);
   }, [licenseLocked]);
 
-  const handleFileUploadMultiple = useCallback(async (files: File[], convertParams?: (ConvertParams | null)[]) => {
-    if (licenseLocked) return;
+  const updateImagePreprocessProgress = useCallback((
+    index: number,
+    status: ImagePreprocessProgressStatus,
+    detail?: string,
+  ) => {
+    setImagePreprocessProgressItems((current) => current.map((item, itemIndex) => (
+      itemIndex === index ? { ...item, status, detail } : item
+    )));
+  }, []);
+
+  const handleFileUploadMultiple = useCallback(async (
+    files: File[],
+    convertParams?: (ConvertParams | null)[],
+    options: UploadProgressOptions = {},
+  ): Promise<boolean> => {
+    if (licenseLocked) return false;
     if (files.length === 0) {
-      return;
+      return true;
     }
     setPendingUploads((count) => count + 1);
     setUploadError(null);
 
     try {
-      const prepared = await prepareImageFilesForUpload(files, convertParams);
+      const prepared = await prepareImageFilesForUpload(files, convertParams, {
+        onProgress: (progress) => {
+          if (options.progressIndex === undefined) return;
+          if (progress.status === 'processing') {
+            updateImagePreprocessProgress(options.progressIndex, 'processing');
+          } else if (progress.status === 'prepared' || progress.status === 'server-fallback') {
+            updateImagePreprocessProgress(options.progressIndex, 'uploading');
+          }
+        },
+      });
+      if (options.progressIndex !== undefined) {
+        updateImagePreprocessProgress(options.progressIndex, 'uploading');
+      }
       const formData = new FormData();
       prepared.files.forEach((file) => formData.append('file', file));
 
@@ -154,13 +196,22 @@ export function PromptHero({ licenseLocked = false }: { licenseLocked?: boolean 
       if (data.errors && data.errors.length > 0) {
         setUploadError(`Some files could not be uploaded: ${data.errors.join(', ')}`);
       }
+      if (options.progressIndex !== undefined) {
+        updateImagePreprocessProgress(options.progressIndex, data.errors?.length ? 'error' : 'success', data.errors?.join(', '));
+      }
+      return !data.errors?.length;
     } catch (err) {
       console.error('Upload failed', err);
-      setUploadError(err instanceof Error ? err.message : 'Upload failed. Network error or server unreachable.');
+      const message = err instanceof Error ? err.message : 'Upload failed. Network error or server unreachable.';
+      setUploadError(message);
+      if (options.progressIndex !== undefined) {
+        updateImagePreprocessProgress(options.progressIndex, 'error', message);
+      }
+      return false;
     } finally {
       setPendingUploads((count) => Math.max(0, count - 1));
     }
-  }, [licenseLocked]);
+  }, [licenseLocked, updateImagePreprocessProgress]);
 
   const preprocessAndUpload = useCallback(async (files: File[]) => {
     const preprocessFiles: import('@/app/components/shared/ImagePreprocessDialog').PreprocessFileInfo[] = [];
@@ -179,25 +230,46 @@ export function PromptHero({ licenseLocked = false }: { licenseLocked?: boolean 
       await handleFileUploadMultiple(normalFiles);
     }
     if (preprocessFiles.length > 0) {
+      setImagePreprocessProgressItems([]);
       setImagePreprocessPendingFiles(preprocessFiles.map((f) => f.file));
       setImagePreprocessFiles(preprocessFiles);
     }
   }, [handleFileUploadMultiple]);
 
   const handleImagePreprocessConfirm = useCallback(async (convertParams: (ConvertParams | null)[]) => {
-    await handleFileUploadMultiple(imagePreprocessPendingFiles, convertParams);
-    setImagePreprocessFiles(null);
+    setImagePreprocessProgressItems(createProgressItems(imagePreprocessPendingFiles));
+    setPendingUploads((count) => count + 1);
+    try {
+      for (let index = 0; index < imagePreprocessPendingFiles.length; index += 1) {
+        await handleFileUploadMultiple(
+          [imagePreprocessPendingFiles[index]],
+          [convertParams[index] ?? null],
+          { progressIndex: index },
+        );
+      }
+    } finally {
+      setPendingUploads((count) => Math.max(0, count - 1));
+    }
     setImagePreprocessPendingFiles([]);
   }, [handleFileUploadMultiple, imagePreprocessPendingFiles]);
 
   const handleImagePreprocessSkip = useCallback(async () => {
-    const nonHeicFiles = imagePreprocessPendingFiles.filter((f) => !isHeicUploadFile(f));
-    if (nonHeicFiles.length > 0) {
-      await handleFileUploadMultiple(nonHeicFiles);
+    setImagePreprocessProgressItems(createProgressItems(imagePreprocessPendingFiles));
+    setPendingUploads((count) => count + 1);
+    try {
+      for (let index = 0; index < imagePreprocessPendingFiles.length; index += 1) {
+        const file = imagePreprocessPendingFiles[index];
+        if (isHeicUploadFile(file)) {
+          updateImagePreprocessProgress(index, 'skipped');
+          continue;
+        }
+        await handleFileUploadMultiple([file], undefined, { progressIndex: index });
+      }
+    } finally {
+      setPendingUploads((count) => Math.max(0, count - 1));
     }
-    setImagePreprocessFiles(null);
     setImagePreprocessPendingFiles([]);
-  }, [handleFileUploadMultiple, imagePreprocessPendingFiles]);
+  }, [handleFileUploadMultiple, imagePreprocessPendingFiles, updateImagePreprocessProgress]);
 
   const onFileChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(event.target.files || []);
@@ -490,11 +562,18 @@ export function PromptHero({ licenseLocked = false }: { licenseLocked?: boolean 
     />
     <ImagePreprocessDialog
       open={imagePreprocessFiles !== null}
-      onOpenChange={(open) => { if (!open) { setImagePreprocessFiles(null); setImagePreprocessPendingFiles([]); } }}
+      onOpenChange={(open) => {
+        if (!open) {
+          setImagePreprocessFiles(null);
+          setImagePreprocessPendingFiles([]);
+          setImagePreprocessProgressItems([]);
+        }
+      }}
       files={imagePreprocessFiles ?? []}
       onConfirm={handleImagePreprocessConfirm}
       onSkip={handleImagePreprocessSkip}
       isProcessing={isUploading}
+      progressItems={imagePreprocessProgressItems}
     />
     </>
   );

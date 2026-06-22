@@ -408,7 +408,7 @@ export function FileBrowser({ variant = 'default', onFileSelect }: FileBrowserPr
         paths={publicSharePaths}
         onPublished={() => void refreshPublishedPaths(publicSharePaths)}
       />
-      <ImagePreprocessDialog open={imagePreprocess.dialogState !== null} onOpenChange={(open) => { if (!open) imagePreprocess.setDialogState(null); }} files={imagePreprocess.dialogState?.files ?? []} onConfirm={imagePreprocess.handleConfirm} onSkip={imagePreprocess.handleSkip} isProcessing={imagePreprocess.isProcessing} />
+      <ImagePreprocessDialog open={imagePreprocess.dialogState !== null} onOpenChange={(open) => { if (!open) imagePreprocess.setDialogState(null); }} files={imagePreprocess.dialogState?.files ?? []} onConfirm={imagePreprocess.handleConfirm} onSkip={imagePreprocess.handleSkip} isProcessing={imagePreprocess.isProcessing} progressItems={imagePreprocess.progressItems} />
 
       {isFullscreen && (
         <FilePreviewDialog
