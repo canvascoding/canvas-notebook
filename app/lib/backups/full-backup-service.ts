@@ -631,6 +631,15 @@ async function unzipText(args: string[], maxBuffer = 100 * 1024 * 1024): Promise
   return stdout;
 }
 
+async function unzipBuffer(args: string[], maxBuffer = 500 * 1024 * 1024): Promise<Buffer> {
+  const { stdout } = await execFileAsync('unzip', args, { encoding: 'buffer', maxBuffer });
+  return stdout;
+}
+
+function sha256Buffer(buffer: Buffer): string {
+  return crypto.createHash('sha256').update(buffer).digest('hex');
+}
+
 function parseManifest(raw: string): CanvasFullBackupManifest | null {
   let parsed: unknown;
   try {
@@ -685,6 +694,22 @@ export async function inspectFullBackupArchive(archivePath: string): Promise<Ful
   }
   if (!manifest.database.artifactPath || !manifest.database.artifactSha256) {
     risks.push('Backup database artifact is missing or has no checksum.');
+  } else {
+    try {
+      const artifactBytes = await unzipBuffer(['-p', archivePath, manifest.database.artifactPath]);
+      const actualSha256 = sha256Buffer(artifactBytes);
+      if (actualSha256 !== manifest.database.artifactSha256) {
+        risks.push('Backup database artifact checksum does not match the manifest.');
+      }
+    } catch (error) {
+      risks.push(`Backup database artifact could not be read: ${error instanceof Error ? error.message : 'unknown error'}`);
+    }
+  }
+  if (sourceProvider === 'sqlite' && manifest.database.backupKind !== 'sqlite_snapshot') {
+    risks.push('SQLite full backup manifest does not point to a SQLite snapshot.');
+  }
+  if (sourceProvider === 'postgres' && manifest.database.backupKind !== 'postgres_dump') {
+    risks.push('Postgres full backup manifest does not point to a Postgres dump.');
   }
 
   return {

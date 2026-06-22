@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
@@ -51,8 +51,12 @@ async function main() {
   const previousData = process.env.DATA;
   const previousCanvasDataRoot = process.env.CANVAS_DATA_ROOT;
   const previousDatabaseProvider = process.env.CANVAS_DATABASE_PROVIDER;
+  const previousDatabaseUrl = process.env.DATABASE_URL;
   const previousDeploymentMode = process.env.CANVAS_DEPLOYMENT_MODE;
   const previousTeamFeatures = process.env.CANVAS_TEAM_FEATURES_ENABLED;
+  const previousVectorEnabled = process.env.CANVAS_POSTGRES_VECTOR_ENABLED;
+  const previousVectorVersion = process.env.CANVAS_POSTGRES_VECTOR_VERSION;
+  const previousPath = process.env.PATH;
 
   process.env.DATA = dataRoot;
   process.env.CANVAS_DATA_ROOT = dataRoot;
@@ -145,6 +149,71 @@ async function main() {
     assert.ok(inspection.warnings.some((warning) => warning.includes('unencrypted')));
     assert.equal('archivePath' in serializeFullBackupInspection(inspection), false);
 
+    const fakeBin = path.join(dataRoot, 'fake-bin');
+    await mkdir(fakeBin, { recursive: true });
+    const fakePgDump = path.join(fakeBin, 'pg_dump');
+    await writeFile(fakePgDump, `#!/usr/bin/env bash
+set -euo pipefail
+if [[ "\${1:-}" == "--version" ]]; then
+  echo "pg_dump (PostgreSQL) 18.1"
+  exit 0
+fi
+out=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --file)
+      shift
+      out="$1"
+      ;;
+  esac
+  shift || true
+done
+if [[ -z "$out" ]]; then
+  echo "missing --file" >&2
+  exit 2
+fi
+printf 'fake-postgres-dump\\n' > "$out"
+`);
+    await chmod(fakePgDump, 0o700);
+    process.env.PATH = `${fakeBin}:${previousPath || ''}`;
+    process.env.CANVAS_DATABASE_PROVIDER = 'postgres';
+    process.env.DATABASE_URL = 'postgresql://canvas:secret@localhost:5432/canvas_notebook';
+    process.env.CANVAS_POSTGRES_VECTOR_ENABLED = 'true';
+    process.env.CANVAS_POSTGRES_VECTOR_VERSION = '0.8.3';
+
+    const postgresJob = await createFullBackupJob({
+      source: {
+        organizationId: 'org-backup',
+        createdByUserId: 'user-admin',
+        createdByEmail: 'admin@example.test',
+        createdByRole: 'admin',
+      },
+    });
+    const completedPostgres = await waitForBackup(getFullBackupJob, postgresJob.id);
+    assert.ok(completedPostgres.filePath);
+    const postgresEntries = await unzipList(completedPostgres.filePath);
+    assert.ok(postgresEntries.includes('manifest.json'));
+    assert.ok(postgresEntries.includes('database/postgres.dump'));
+    assert.equal(postgresEntries.includes('database/sqlite.db'), false);
+    assert.equal(postgresEntries.includes('data/sqlite.db'), false);
+    const postgresManifest = JSON.parse(await unzipEntryText(completedPostgres.filePath, 'manifest.json'));
+    assert.equal(postgresManifest.database.provider, 'postgres');
+    assert.equal(postgresManifest.database.backupKind, 'postgres_dump');
+    assert.equal(postgresManifest.database.artifactPath, 'database/postgres.dump');
+    assert.equal(postgresManifest.database.pgvectorEnabled, true);
+    assert.equal(postgresManifest.database.pgvectorVersion, '0.8.3');
+    assert.match(postgresManifest.database.postgresVersion, /PostgreSQL/u);
+    const dumpBytes = await unzipEntryBuffer(completedPostgres.filePath, 'database/postgres.dump');
+    assert.equal(createHash('sha256').update(dumpBytes).digest('hex'), postgresManifest.database.artifactSha256);
+    const postgresInspection = await inspectFullBackupArchive(completedPostgres.filePath);
+    assert.equal(postgresInspection.canRestore, true);
+    assert.equal(postgresInspection.sourceDatabaseProvider, 'postgres');
+    process.env.CANVAS_DATABASE_PROVIDER = 'sqlite';
+    const sqliteTargetInspection = await inspectFullBackupArchive(completedPostgres.filePath);
+    assert.equal(sqliteTargetInspection.canRestore, false);
+    assert.ok(sqliteTargetInspection.risks.some((risk) => risk.includes('SQLite target')));
+    process.env.CANVAS_DATABASE_PROVIDER = 'sqlite';
+
     await new Promise((resolve) => setTimeout(resolve, 50));
     const lockPath = path.join(dataRoot, 'system', 'backups', '.full-backup.lock');
     await writeFile(lockPath, `${JSON.stringify({
@@ -217,10 +286,18 @@ async function main() {
     else process.env.CANVAS_DATA_ROOT = previousCanvasDataRoot;
     if (previousDatabaseProvider === undefined) delete process.env.CANVAS_DATABASE_PROVIDER;
     else process.env.CANVAS_DATABASE_PROVIDER = previousDatabaseProvider;
+    if (previousDatabaseUrl === undefined) delete process.env.DATABASE_URL;
+    else process.env.DATABASE_URL = previousDatabaseUrl;
     if (previousDeploymentMode === undefined) delete process.env.CANVAS_DEPLOYMENT_MODE;
     else process.env.CANVAS_DEPLOYMENT_MODE = previousDeploymentMode;
     if (previousTeamFeatures === undefined) delete process.env.CANVAS_TEAM_FEATURES_ENABLED;
     else process.env.CANVAS_TEAM_FEATURES_ENABLED = previousTeamFeatures;
+    if (previousVectorEnabled === undefined) delete process.env.CANVAS_POSTGRES_VECTOR_ENABLED;
+    else process.env.CANVAS_POSTGRES_VECTOR_ENABLED = previousVectorEnabled;
+    if (previousVectorVersion === undefined) delete process.env.CANVAS_POSTGRES_VECTOR_VERSION;
+    else process.env.CANVAS_POSTGRES_VECTOR_VERSION = previousVectorVersion;
+    if (previousPath === undefined) delete process.env.PATH;
+    else process.env.PATH = previousPath;
     await rm(dataRoot, { recursive: true, force: true });
   }
 }

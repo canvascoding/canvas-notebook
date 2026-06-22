@@ -11,7 +11,10 @@ import {
   type CanvasMigrationManifest,
   type MigrationComponentKey,
   type MigrationComponents,
+  type MigrationExportDatabase,
+  type MigrationExportFeatures,
   type MigrationExportProfile,
+  type MigrationExportRestore,
   type MigrationExportSecurity,
   type MigrationExportSelection,
   type MigrationExportSource,
@@ -114,6 +117,51 @@ function parseExportSecurity(value: unknown): MigrationExportSecurity | undefine
   };
 }
 
+function parseExportDatabase(value: unknown): MigrationExportDatabase | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const database = value as Record<string, unknown>;
+  const provider = database.provider === 'sqlite' || database.provider === 'postgres' || database.provider === 'unknown'
+    ? database.provider
+    : 'unknown';
+  const backupKind = database.backupKind === 'sqlite_snapshot' || database.backupKind === 'postgres_dump' || database.backupKind === 'none'
+    ? database.backupKind
+    : 'none';
+  return {
+    provider,
+    logicalSchemaVersion: typeof database.logicalSchemaVersion === 'number' ? database.logicalSchemaVersion : null,
+    migrationVersion: typeof database.migrationVersion === 'number' ? database.migrationVersion : null,
+    backupKind,
+    artifactPath: optionalString(database.artifactPath),
+    artifactSha256: optionalString(database.artifactSha256),
+    compressedBytes: typeof database.compressedBytes === 'number' ? database.compressedBytes : null,
+    pgvectorEnabled: typeof database.pgvectorEnabled === 'boolean' ? database.pgvectorEnabled : null,
+    pgvectorVersion: optionalString(database.pgvectorVersion),
+    postgresVersion: optionalString(database.postgresVersion),
+  };
+}
+
+function parseExportFeatures(value: unknown): MigrationExportFeatures | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const features = value as Record<string, unknown>;
+  return {
+    teamWorkspaceEnabled: features.teamWorkspaceEnabled === true,
+    knowledgeEnabled: features.knowledgeEnabled === true,
+    embeddingsEnabled: features.embeddingsEnabled === true,
+    collaborationEnabled: features.collaborationEnabled === true,
+  };
+}
+
+function parseExportRestore(value: unknown): MigrationExportRestore | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const restore = value as Record<string, unknown>;
+  return {
+    requiresPostgres: restore.requiresPostgres === true,
+    requiresReindex: restore.requiresReindex === true,
+    preservesTargetInstanceAndLicense: true,
+    publicLinksIncluded: false,
+  };
+}
+
 function parseManifest(raw: string): CanvasMigrationManifest | null {
   let parsed: unknown;
   try {
@@ -148,6 +196,9 @@ function parseManifest(raw: string): CanvasMigrationManifest | null {
     selection: parseExportSelection(record.selection),
     source: parseExportSource(record.source),
     security: parseExportSecurity(record.security),
+    database: parseExportDatabase(record.database),
+    features: parseExportFeatures(record.features),
+    restore: parseExportRestore(record.restore),
     fileCount: record.fileCount,
     totalBytes: record.totalBytes,
     warnings: Array.isArray(record.warnings) ? record.warnings.filter((item): item is string => typeof item === 'string') : [],
@@ -501,13 +552,34 @@ function buildDryRun(params: {
   const blockers: string[] = [];
 
   if (params.manifest.components.database) {
-    const sourceProvider = params.manifest.source?.databaseProvider ?? 'sqlite';
-    if (sourceProvider !== 'sqlite') {
-      blockers.push(`Source database provider ${sourceProvider} is not supported by the V1 restore engine.`);
+    const sourceProvider = params.manifest.database?.provider ?? params.manifest.source?.databaseProvider ?? 'sqlite';
+    const backupKind = params.manifest.database?.backupKind ?? 'sqlite_snapshot';
+    const artifactPath = params.manifest.database?.artifactPath ?? 'data/sqlite.db';
+    if (sourceProvider === 'postgres') {
+      if (target.databaseProvider !== 'postgres') {
+        blockers.push('This export requires a Postgres target before database restore can be staged.');
+      }
+      blockers.push('Postgres database restore is not supported by the migration restore engine; use Full Backup restore or the SQLite-to-Postgres migration flow.');
+    } else if (sourceProvider !== 'sqlite') {
+      blockers.push(`Source database provider ${sourceProvider} is not supported by the restore engine.`);
+    } else {
+      if (backupKind !== 'sqlite_snapshot' || artifactPath !== 'data/sqlite.db') {
+        blockers.push('SQLite database restore requires a sanitized data/sqlite.db snapshot in the migration archive.');
+      }
+      if (target.databaseProvider !== 'sqlite') {
+        blockers.push(`Target database provider ${target.databaseProvider} requires a provider-aware import path before SQLite database restore.`);
+      }
     }
-    if (target.databaseProvider !== 'sqlite') {
-      blockers.push(`Target database provider ${target.databaseProvider} requires a provider-aware import path before database restore.`);
-    }
+  }
+
+  if (params.manifest.restore?.requiresPostgres && target.databaseProvider !== 'postgres') {
+    blockers.push('Manifest restore metadata requires Postgres on the target instance.');
+  }
+  if (
+    target.databaseProvider !== 'postgres' &&
+    (params.manifest.features?.knowledgeEnabled || params.manifest.features?.embeddingsEnabled || params.manifest.features?.collaborationEnabled)
+  ) {
+    blockers.push('Knowledge, embeddings, or collaboration metadata requires a Postgres target and reindex before restore.');
   }
 
   for (const mapping of users) {
@@ -583,6 +655,12 @@ function buildRisks(manifest: CanvasMigrationManifest | null): string[] {
   if (!manifest.components.secrets) {
     risks.push('Secrets are not included. API keys and local integration credentials must be configured again.');
   }
+  if (manifest.database?.provider === 'postgres') {
+    risks.push('Postgres database data cannot be restored by the V1 migration restore script; use Full Backup restore or a dedicated provider migration.');
+  }
+  if (manifest.restore?.requiresReindex) {
+    risks.push('Knowledge or embedding indexes require reindexing after restore.');
+  }
 
   return risks;
 }
@@ -616,7 +694,7 @@ export async function inspectMigrationArchive(params: {
   }
 
   const currentAppVersion = getCurrentAppVersion();
-  const bundleSchemaSupported = manifest?.bundleSchemaVersion === MIGRATION_BUNDLE_SCHEMA_VERSION;
+  const bundleSchemaSupported = Boolean(manifest && manifest.bundleSchemaVersion >= 1 && manifest.bundleSchemaVersion <= MIGRATION_BUNDLE_SCHEMA_VERSION);
   const compatibility = formatVersionCompatibilityMessage({
     exportVersion: manifest?.appVersion ?? null,
     currentVersion: currentAppVersion,

@@ -16,6 +16,8 @@ import {
   type CanvasMigrationManifest,
   type MigrationComponentKey,
   type MigrationComponents,
+  type MigrationExportDatabase,
+  type MigrationExportFeatures,
   type MigrationExportJob,
   type MigrationExportOptions,
   type MigrationExportProfile,
@@ -335,6 +337,17 @@ async function maybeStat(pathname: string): Promise<import('fs').Stats | null> {
   }
 }
 
+async function sha256File(filePath: string): Promise<string> {
+  const hash = crypto.createHash('sha256');
+  await new Promise<void>((resolve, reject) => {
+    const stream = createReadStream(filePath, { highWaterMark: 1024 * 1024 });
+    stream.on('data', (chunk) => hash.update(chunk));
+    stream.on('error', reject);
+    stream.on('end', resolve);
+  });
+  return hash.digest('hex');
+}
+
 function extractEnvKeys(raw: string): string[] {
   const keys = new Set<string>();
   for (const line of raw.split(/\r?\n/u)) {
@@ -420,6 +433,7 @@ async function buildReconnectManifest(params: {
 async function createSqliteSnapshot(dataRoot: string, exportDir: string): Promise<{
   filePath: string;
   entry: MigrationFileEntry;
+  sha256: string;
 }> {
   const sourcePath = path.join(dataRoot, SQLITE_FILE_NAME);
   const snapshotPath = path.join(exportDir, 'snapshot', SQLITE_FILE_NAME);
@@ -445,14 +459,64 @@ async function createSqliteSnapshot(dataRoot: string, exportDir: string): Promis
   }
 
   const stats = await fs.stat(snapshotPath);
+  const sha256 = await sha256File(snapshotPath);
   return {
     filePath: snapshotPath,
+    sha256,
     entry: {
       component: 'database',
       archivePath: `data/${SQLITE_FILE_NAME}`,
       size: stats.size,
       modifiedAt: stats.mtime.toISOString(),
     },
+  };
+}
+
+function normalizeDatabaseProvider(value: string | null | undefined): MigrationExportDatabase['provider'] {
+  const normalized = value?.trim().toLowerCase();
+  if (normalized === 'sqlite' || normalized === 'postgres') return normalized;
+  return 'unknown';
+}
+
+function buildFeatures(source: MigrationExportSource): MigrationExportFeatures {
+  const truthy = (value: string | undefined) => value === 'true' || value === '1' || value === 'yes';
+  return {
+    teamWorkspaceEnabled: source.teamFeaturesEnabled || truthy(process.env.CANVAS_TEAM_WORKSPACE_ENABLED),
+    knowledgeEnabled: truthy(process.env.CANVAS_KNOWLEDGE_ENABLED) || truthy(process.env.CANVAS_TEAM_KNOWLEDGE_BASE_ENABLED),
+    embeddingsEnabled: truthy(process.env.CANVAS_EMBEDDINGS_ENABLED) || truthy(process.env.CANVAS_POSTGRES_VECTOR_ENABLED),
+    collaborationEnabled: truthy(process.env.CANVAS_COLLABORATION_ENABLED),
+  };
+}
+
+function buildDatabaseManifest(params: {
+  source: MigrationExportSource;
+  sqliteSnapshot: { entry: MigrationFileEntry; sha256: string } | null;
+}): MigrationExportDatabase {
+  const provider = normalizeDatabaseProvider(params.source.databaseProvider);
+  if (provider === 'sqlite' && params.sqliteSnapshot) {
+    return {
+      provider,
+      logicalSchemaVersion: null,
+      migrationVersion: MIGRATION_BUNDLE_SCHEMA_VERSION,
+      backupKind: 'sqlite_snapshot',
+      artifactPath: params.sqliteSnapshot.entry.archivePath,
+      artifactSha256: params.sqliteSnapshot.sha256,
+      pgvectorEnabled: null,
+      pgvectorVersion: null,
+      postgresVersion: null,
+    };
+  }
+
+  return {
+    provider,
+    logicalSchemaVersion: null,
+    migrationVersion: MIGRATION_BUNDLE_SCHEMA_VERSION,
+    backupKind: 'none',
+    artifactPath: null,
+    artifactSha256: null,
+    pgvectorEnabled: provider === 'postgres' ? process.env.CANVAS_POSTGRES_VECTOR_ENABLED === 'true' : null,
+    pgvectorVersion: provider === 'postgres' ? process.env.CANVAS_POSTGRES_VECTOR_VERSION?.trim() || null : null,
+    postgresVersion: provider === 'postgres' ? process.env.CANVAS_POSTGRES_VERSION?.trim() || null : null,
   };
 }
 
@@ -463,6 +527,8 @@ function buildManifest(params: {
   selection: MigrationExportSelection;
   source: MigrationExportSource;
   security: MigrationExportSecurity;
+  database: MigrationExportDatabase;
+  features: MigrationExportFeatures;
   files: MigrationFileEntry[];
 }): CanvasMigrationManifest {
   const warnings: string[] = [
@@ -494,6 +560,9 @@ function buildManifest(params: {
   } else {
     warnings.push('Only a redacted reconnect manifest is included for secrets; raw secret files and OAuth tokens are excluded.');
   }
+  if (params.database.provider === 'postgres' && params.components.database) {
+    warnings.push('Postgres database contents are not embedded in normal migration exports. Use Full Backup for a Postgres dump.');
+  }
 
   return {
     format: 'canvas-notebook-migration',
@@ -506,6 +575,14 @@ function buildManifest(params: {
     selection: params.selection,
     source: params.source,
     security: params.security,
+    database: params.database,
+    features: params.features,
+    restore: {
+      requiresPostgres: params.database.provider === 'postgres',
+      requiresReindex: params.database.provider === 'postgres' || params.features.knowledgeEnabled || params.features.embeddingsEnabled,
+      preservesTargetInstanceAndLicense: true,
+      publicLinksIncluded: false,
+    },
     fileCount: params.files.length,
     totalBytes: params.files.reduce((sum, entry) => sum + entry.size, 0),
     warnings,
@@ -540,13 +617,16 @@ async function runExport(job: MigrationExportJob): Promise<void> {
 
     await ensureMigrationDir(exportDir);
     const files: MigrationFileEntry[] = [];
-    let sqliteSnapshot: { filePath: string; entry: MigrationFileEntry } | null = null;
+    let sqliteSnapshot: { filePath: string; entry: MigrationFileEntry; sha256: string } | null = null;
 
-    if (job.components.database) {
+    if (job.components.database && job.source.databaseProvider === 'sqlite') {
       job.phase = 'Creating SQLite backup';
       await persist(true);
       sqliteSnapshot = await createSqliteSnapshot(dataRoot, exportDir);
       files.push(sqliteSnapshot.entry);
+    } else if (job.components.database) {
+      job.phase = 'Recording database provider metadata';
+      await persist(true);
     }
 
     const componentRoots = getSelectedMigrationExportComponentPaths(job.components, {
@@ -577,6 +657,8 @@ async function runExport(job: MigrationExportJob): Promise<void> {
       selection: job.selection,
       source: job.source,
       security: buildExportSecurity(job.components),
+      database: buildDatabaseManifest({ source: job.source, sqliteSnapshot }),
+      features: buildFeatures(job.source),
       files,
     });
     job.manifest = manifest;
