@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 
-_MASKED_JSON_KEYS=("BETTER_AUTH_SECRET" "CANVAS_INTERNAL_API_KEY")
-
 _mask_json_secrets() {
   local input="$1"
   local jq_expr
-  jq_expr='.env.BETTER_AUTH_SECRET = (if .env.BETTER_AUTH_SECRET == "" then "(not set)" else (.env.BETTER_AUTH_SECRET | .[0:4] + "***") end)
-    | .env.CANVAS_INTERNAL_API_KEY = (if .env.CANVAS_INTERNAL_API_KEY == "" then "(not set)" else (.env.CANVAS_INTERNAL_API_KEY | .[0:4] + "***") end)'
+  jq_expr='.env.BETTER_AUTH_SECRET = (if (.env.BETTER_AUTH_SECRET == null or .env.BETTER_AUTH_SECRET == "") then "(not set)" else (.env.BETTER_AUTH_SECRET | .[0:4] + "***") end)
+    | .env.CANVAS_INTERNAL_API_KEY = (if (.env.CANVAS_INTERNAL_API_KEY == null or .env.CANVAS_INTERNAL_API_KEY == "") then "(not set)" else (.env.CANVAS_INTERNAL_API_KEY | .[0:4] + "***") end)
+    | .env.DATABASE_URL = (if (.env.DATABASE_URL == null or .env.DATABASE_URL == "") then "(not set)" else "postgresql://***" end)
+    | .env.CANVAS_POSTGRES_PASSWORD = (if (.env.CANVAS_POSTGRES_PASSWORD == null or .env.CANVAS_POSTGRES_PASSWORD == "") then "(not set)" else (.env.CANVAS_POSTGRES_PASSWORD | .[0:4] + "***") end)'
   printf '%s' "$input" | jq "$jq_expr"
 }
 
@@ -43,8 +43,11 @@ cmd_config_set() {
 
   local display_value="$value"
   case "$key" in
-    env.BETTER_AUTH_SECRET|env.CANVAS_INTERNAL_API_KEY)
+    env.BETTER_AUTH_SECRET|env.CANVAS_INTERNAL_API_KEY|env.CANVAS_POSTGRES_PASSWORD)
       display_value="${value:0:4}***"
+      ;;
+    env.DATABASE_URL)
+      display_value="postgresql://***"
       ;;
   esac
   ok "Set ${key} = ${display_value}"

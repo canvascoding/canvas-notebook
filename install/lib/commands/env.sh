@@ -22,7 +22,7 @@ cmd_env() {
     migrate_compose_file
     config_json_to_env
     sync_caddy
-    compose up -d --force-recreate "$SERVICE"
+    compose up -d --force-recreate
     follow_until_healthy
     return
   fi
@@ -51,7 +51,9 @@ cmd_env() {
     local env_key env_val
     while IFS= read -r env_key; do
       env_val="$(config_json_read "env.${env_key}")"
-      if [[ "$env_key" == *"SECRET"* || "$env_key" == *"PASSWORD"* || "$env_key" == *"API_KEY"* ]] && [[ -n "$env_val" ]]; then
+      if [[ "$env_key" == "DATABASE_URL" && -n "$env_val" ]]; then
+        env_val="postgresql://***"
+      elif [[ "$env_key" == *"SECRET"* || "$env_key" == *"PASSWORD"* || "$env_key" == *"API_KEY"* ]] && [[ -n "$env_val" ]]; then
         env_val="${env_val:0:4}***"
       fi
       printf '%-30s %s\n' "$env_key" "${env_val:-(not set)}"

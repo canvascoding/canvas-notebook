@@ -746,11 +746,32 @@
     {
       "id": 39,
       "title": "Canvas Notebook CLI Installer um SQLite/Postgres-Auswahl und Team-Postgres-Zwang erweitern",
-      "status": "pending",
+      "status": "completed",
       "repo": "canvasstudios-notebook",
       "planningArtifacts": [
         "docs/architecture/canvas-notebook/team-workspace/02-execution-model.md",
         "docs/architecture/canvas-notebook/team-workspace/17-database-provider-postgres-rag-collaboration-policy.md"
+      ],
+      "implementationArtifacts": [
+        "install.sh",
+        "install/bin/canvas-notebook",
+        "install/lib/shared/config_json.sh",
+        "install/lib/shared/compose.sh",
+        "install/lib/commands/env.sh",
+        "install/lib/commands/config_cmd.sh",
+        "install/lib/commands/lifecycle.sh",
+        "install/lib/shared/ui.sh",
+        "compose.hub.yaml",
+        ".env.docker.example",
+        "scripts/cli-database-provider-test.sh"
+      ],
+      "verification": [
+        "npm run test:cli:database-provider",
+        "npm run test:cli:admin",
+        "bash -n install.sh install/bin/canvas-notebook install/lib/shared/config_json.sh install/lib/shared/compose.sh install/lib/commands/env.sh install/lib/commands/config_cmd.sh install/lib/commands/lifecycle.sh install/lib/shared/ui.sh scripts/cli-database-provider-test.sh scripts/cli-admin-command-test.sh",
+        "npx tsc --noEmit --pretty false",
+        "npm run lint",
+        "npm run build"
       ]
     },
     {

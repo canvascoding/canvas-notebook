@@ -211,4 +211,8 @@ if ! declare -f "$cmd_fn" >/dev/null 2>&1; then
   fail "Command '${cmd}' is defined in ${cmd_file}.sh but function ${cmd_fn}() not found"
 fi
 
-"$cmd_fn" "${CMD_ARGS[@]}"
+if [[ "${#CMD_ARGS[@]}" -gt 0 ]]; then
+  "$cmd_fn" "${CMD_ARGS[@]}"
+else
+  "$cmd_fn"
+fi

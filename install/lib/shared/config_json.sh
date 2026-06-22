@@ -37,7 +37,16 @@ CONFIG_JSON_DEFAULTS='{
     "ONBOARDING": true,
     "ONBOARDING_HINTS": false,
     "ALLOW_SIGNUP": false,
-    "OLLAMA_CLI_AUTO_INSTALL": true
+    "OLLAMA_CLI_AUTO_INSTALL": true,
+    "CANVAS_DEPLOYMENT_MODE": "single_user",
+    "CANVAS_DATABASE_PROVIDER": "sqlite",
+    "DATABASE_URL": "",
+    "CANVAS_POSTGRES_VECTOR_ENABLED": false,
+    "CANVAS_POSTGRES_IMAGE": "pgvector/pgvector:0.8.3-pg18",
+    "CANVAS_POSTGRES_DATA_VOLUME": "canvas-postgres-data",
+    "CANVAS_POSTGRES_DB": "canvas_notebook",
+    "CANVAS_POSTGRES_USER": "canvas",
+    "CANVAS_POSTGRES_PASSWORD": ""
   }
 }'
 
@@ -190,6 +199,20 @@ config_json_write() {
         return
       fi
       ;;
+    env.CANVAS_DATABASE_PROVIDER)
+      value="$(printf '%s' "$value" | tr '[:upper:]' '[:lower:]' | xargs)"
+      if [[ "$value" != "sqlite" && "$value" != "postgres" ]]; then
+        fail "Invalid CANVAS_DATABASE_PROVIDER '${value}'. Expected sqlite or postgres."
+      fi
+      ;;
+    env.CANVAS_DEPLOYMENT_MODE)
+      value="$(printf '%s' "$value" | tr '[:upper:]' '[:lower:]' | xargs)"
+      ;;
+    env.DATABASE_URL)
+      if [[ -n "$value" && ! "$value" =~ ^postgres(ql)?:// ]]; then
+        fail "DATABASE_URL must use postgres:// or postgresql://"
+      fi
+      ;;
     env.*)
       ;;
   esac
@@ -207,6 +230,100 @@ config_json_write() {
     _config_json_write_raw "env.BETTER_AUTH_BASE_URL" "\"$base_url\""
     _config_json_write_raw "env.BASE_URL" "\"$base_url\""
   fi
+}
+
+config_json_normalize_database_provider() {
+  local value="$1"
+  value="$(printf '%s' "$value" | tr '[:upper:]' '[:lower:]' | xargs)"
+  case "$value" in
+    ""|sqlite) printf 'sqlite\n' ;;
+    postgres) printf 'postgres\n' ;;
+    *) fail "Invalid CANVAS_DATABASE_PROVIDER '${value}'. Expected sqlite or postgres." ;;
+  esac
+}
+
+config_json_deployment_requires_postgres() {
+  local deployment_mode="$1" team_features="${2:-}"
+  deployment_mode="$(printf '%s' "$deployment_mode" | tr '[:upper:]' '[:lower:]')"
+  team_features="$(printf '%s' "$team_features" | tr '[:upper:]' '[:lower:]')"
+
+  case "$deployment_mode" in
+    *team*|*enterprise*|*advanced*) return 0 ;;
+  esac
+
+  case "$team_features" in
+    true|1|yes|on) return 0 ;;
+  esac
+
+  return 1
+}
+
+config_json_generate_secret() {
+  if command -v openssl >/dev/null 2>&1; then
+    openssl rand -hex 32
+    return
+  fi
+  date +%s%N | sha256sum | awk '{print $1}'
+}
+
+config_json_ensure_database_config() {
+  local deployment_mode team_features provider database_url pg_image pg_volume pg_db pg_user pg_password
+  deployment_mode="$(config_json_read env.CANVAS_DEPLOYMENT_MODE)"
+  deployment_mode="${deployment_mode:-single_user}"
+  team_features="$(config_json_read env.CANVAS_TEAM_FEATURES_ENABLED)"
+  provider="$(config_json_normalize_database_provider "$(config_json_read env.CANVAS_DATABASE_PROVIDER)")"
+
+  if config_json_deployment_requires_postgres "$deployment_mode" "$team_features" && [[ "$provider" != "postgres" ]]; then
+    fail "Deployment mode '${deployment_mode}' requires CANVAS_DATABASE_PROVIDER=postgres. Set the provider to postgres before syncing or starting."
+  fi
+
+  config_json_write env.CANVAS_DEPLOYMENT_MODE "$deployment_mode"
+  config_json_write env.CANVAS_DATABASE_PROVIDER "$provider"
+
+  if [[ "$provider" != "postgres" ]]; then
+    config_json_write env.CANVAS_POSTGRES_VECTOR_ENABLED false
+    return 0
+  fi
+
+  pg_image="$(config_json_read env.CANVAS_POSTGRES_IMAGE)"
+  pg_image="${pg_image:-pgvector/pgvector:0.8.3-pg18}"
+  pg_volume="$(config_json_read env.CANVAS_POSTGRES_DATA_VOLUME)"
+  pg_volume="${pg_volume:-canvas-postgres-data}"
+  pg_db="$(config_json_read env.CANVAS_POSTGRES_DB)"
+  pg_db="${pg_db:-canvas_notebook}"
+  pg_user="$(config_json_read env.CANVAS_POSTGRES_USER)"
+  pg_user="${pg_user:-canvas}"
+  pg_password="$(config_json_read env.CANVAS_POSTGRES_PASSWORD)"
+  database_url="$(config_json_read env.DATABASE_URL)"
+
+  if [[ -z "$database_url" ]]; then
+    if [[ -z "$pg_password" ]]; then
+      pg_password="$(config_json_generate_secret)"
+      config_json_write env.CANVAS_POSTGRES_PASSWORD "$pg_password"
+    fi
+    for postgres_url_part in \
+      "CANVAS_POSTGRES_USER:$pg_user" \
+      "CANVAS_POSTGRES_PASSWORD:$pg_password" \
+      "CANVAS_POSTGRES_DB:$pg_db"; do
+      local postgres_part_key postgres_part_value
+      postgres_part_key="${postgres_url_part%%:*}"
+      postgres_part_value="${postgres_url_part#*:}"
+      if ! printf '%s' "$postgres_part_value" | grep -qE '^[A-Za-z0-9._~-]+$'; then
+        fail "${postgres_part_key} contains URL-reserved characters. Set DATABASE_URL explicitly or use URL-safe Postgres credentials."
+      fi
+    done
+    unset postgres_url_part postgres_part_key postgres_part_value
+    database_url="postgresql://${pg_user}:${pg_password}@postgres:5432/${pg_db}"
+    config_json_write env.DATABASE_URL "$database_url"
+  elif [[ ! "$database_url" =~ ^postgres(ql)?:// ]]; then
+    fail "DATABASE_URL must use postgres:// or postgresql://"
+  fi
+
+  config_json_write env.CANVAS_POSTGRES_VECTOR_ENABLED true
+  config_json_write env.CANVAS_POSTGRES_IMAGE "$pg_image"
+  config_json_write env.CANVAS_POSTGRES_DATA_VOLUME "$pg_volume"
+  config_json_write env.CANVAS_POSTGRES_DB "$pg_db"
+  config_json_write env.CANVAS_POSTGRES_USER "$pg_user"
 }
 
 _config_json_write_raw() {
@@ -237,6 +354,8 @@ config_json_to_env() {
     config_json_init
   fi
 
+  config_json_ensure_database_config
+
   local domain image host_port container_port data_dir
   domain="$(config_json_read domain)"
   image="$(config_json_read image)"
@@ -256,6 +375,27 @@ config_json_to_env() {
       printf 'DATA_DIR=%s\n' "$data_dir"
     fi
   } > "$compose_tmp"
+  local database_provider postgres_profile postgres_image postgres_volume postgres_db postgres_user postgres_password
+  database_provider="$(config_json_normalize_database_provider "$(config_json_read env.CANVAS_DATABASE_PROVIDER)")"
+  if [[ "$database_provider" == "postgres" ]]; then
+    postgres_profile="postgres"
+  else
+    postgres_profile=""
+  fi
+  postgres_image="$(config_json_read env.CANVAS_POSTGRES_IMAGE)"
+  postgres_volume="$(config_json_read env.CANVAS_POSTGRES_DATA_VOLUME)"
+  postgres_db="$(config_json_read env.CANVAS_POSTGRES_DB)"
+  postgres_user="$(config_json_read env.CANVAS_POSTGRES_USER)"
+  postgres_password="$(config_json_read env.CANVAS_POSTGRES_PASSWORD)"
+  {
+    printf 'COMPOSE_PROFILES=%s\n' "$postgres_profile"
+    printf 'CANVAS_DATABASE_PROVIDER=%s\n' "$database_provider"
+    printf 'CANVAS_POSTGRES_IMAGE=%s\n' "${postgres_image:-pgvector/pgvector:0.8.3-pg18}"
+    printf 'CANVAS_POSTGRES_DATA_VOLUME=%s\n' "${postgres_volume:-canvas-postgres-data}"
+    printf 'CANVAS_POSTGRES_DB=%s\n' "${postgres_db:-canvas_notebook}"
+    printf 'CANVAS_POSTGRES_USER=%s\n' "${postgres_user:-canvas}"
+    printf 'CANVAS_POSTGRES_PASSWORD=%s\n' "$postgres_password"
+  } >> "$compose_tmp"
   _write_owned_file "$COMPOSE_ENV_PATH" "$compose_tmp"
   rm -f "$compose_tmp"
 

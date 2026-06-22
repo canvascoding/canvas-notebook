@@ -75,6 +75,7 @@
     "test:organization:offboarding": "tsx --conditions react-server scripts/organization-offboarding-test.ts",
     "test:license": "tsx --conditions react-server scripts/license-security-test.ts",
     "test:cli:admin": "bash scripts/cli-admin-command-test.sh",
+    "test:cli:database-provider": "bash scripts/cli-database-provider-test.sh",
     "test:channels": "tsx scripts/channel-architecture-test.ts",
     "test:channels:media": "tsx scripts/channel-media-directives-test.ts",
     "test:channels:db": "tsx --conditions react-server scripts/channel-db-test.ts",

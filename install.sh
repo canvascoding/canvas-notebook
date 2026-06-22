@@ -267,6 +267,89 @@ configure_compose_values() {
   ok "Configuration is set"
 }
 
+configure_database_values() {
+  local current_deployment current_provider deployment_mode provider provider_choice deployment_choice team_features
+  local deployment_choice_default provider_choice_default database_env_key
+
+  current_deployment="$(config_json_read env.CANVAS_DEPLOYMENT_MODE)"
+  current_deployment="${current_deployment:-single_user}"
+  current_provider="$(config_json_read env.CANVAS_DATABASE_PROVIDER)"
+  current_provider="$(config_json_normalize_database_provider "${current_provider:-sqlite}")"
+
+  if [[ "$NONINTERACTIVE" == "true" ]]; then
+    deployment_mode="${CANVAS_DEPLOYMENT_MODE:-$current_deployment}"
+    provider="${CANVAS_DATABASE_PROVIDER:-$current_provider}"
+  else
+    section "Database"
+    echo "Choose the deployment scope:"
+    echo
+    echo "  1) Single-user / community  (SQLite allowed)"
+    echo "  2) Team / advanced          (Postgres + pgvector required)"
+    echo
+    if config_json_deployment_requires_postgres "$current_deployment" "$(config_json_read env.CANVAS_TEAM_FEATURES_ENABLED)"; then
+      deployment_choice_default="2"
+    else
+      deployment_choice_default="1"
+    fi
+    ask "Choice [1/2, default ${deployment_choice_default}]: " deployment_choice "$deployment_choice_default"
+    if [[ "$deployment_choice" == "2" ]]; then
+      deployment_mode="managed-team"
+      provider="postgres"
+      info "Team/advanced mode requires Postgres; configuring the local pgvector Postgres service."
+    else
+      deployment_mode="single_user"
+      echo
+      echo "Choose the database provider:"
+      echo
+      echo "  1) SQLite    (recommended for single-user installs)"
+      echo "  2) Postgres  (required later for team, RAG, and collaboration)"
+      echo
+      provider_choice_default="1"
+      [[ "$current_provider" == "postgres" ]] && provider_choice_default="2"
+      ask "Choice [1/2, default ${provider_choice_default}]: " provider_choice "$provider_choice_default"
+      if [[ "$provider_choice" == "2" ]]; then
+        provider="postgres"
+      else
+        provider="sqlite"
+      fi
+    fi
+  fi
+
+  provider="$(config_json_normalize_database_provider "$provider")"
+  team_features="${CANVAS_TEAM_FEATURES_ENABLED:-$(config_json_read env.CANVAS_TEAM_FEATURES_ENABLED)}"
+  if config_json_deployment_requires_postgres "$deployment_mode" "$team_features" && [[ "$provider" != "postgres" ]]; then
+    if [[ "$NONINTERACTIVE" == "true" ]]; then
+      info "Team/advanced deployment detected; forcing CANVAS_DATABASE_PROVIDER=postgres."
+    fi
+    provider="postgres"
+  fi
+
+  config_json_write env.CANVAS_DEPLOYMENT_MODE "$deployment_mode"
+  config_json_write env.CANVAS_DATABASE_PROVIDER "$provider"
+
+  for database_env_key in \
+    CANVAS_TEAM_FEATURES_ENABLED \
+    DATABASE_URL \
+    CANVAS_POSTGRES_IMAGE \
+    CANVAS_POSTGRES_DATA_VOLUME \
+    CANVAS_POSTGRES_DB \
+    CANVAS_POSTGRES_USER \
+    CANVAS_POSTGRES_PASSWORD; do
+    if [[ -n "${!database_env_key:-}" ]]; then
+      config_json_write "env.${database_env_key}" "${!database_env_key}"
+      ok "Set ${database_env_key}"
+    fi
+  done
+  unset database_env_key
+
+  config_json_ensure_database_config
+  ok "Database provider: $(config_json_read env.CANVAS_DATABASE_PROVIDER)"
+  if [[ "$(config_json_read env.CANVAS_DATABASE_PROVIDER)" == "postgres" ]]; then
+    ok "Postgres image: $(config_json_read env.CANVAS_POSTGRES_IMAGE)"
+    ok "Postgres volume: $(config_json_read env.CANVAS_POSTGRES_DATA_VOLUME)"
+  fi
+}
+
 apply_transient_admin_credentials() {
   if [[ -z "${ADMIN_EMAIL:-}" && -z "${ADMIN_PASSWORD:-}" ]]; then
     return 0
@@ -339,6 +422,7 @@ run_prebuilt_install() {
 
   configure_secrets
   configure_compose_values
+  configure_database_values
 
   if [[ -n "$DATA_DIR" ]]; then
     config_json_write dataDir "$DATA_DIR"

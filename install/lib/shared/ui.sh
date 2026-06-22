@@ -124,7 +124,7 @@ recreate_container() {
   local recreate_log spin='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
   local i=0
   recreate_log="$(mktemp)"
-  compose up -d --force-recreate "$SERVICE" >"$recreate_log" 2>&1 &
+  compose up -d --force-recreate >"$recreate_log" 2>&1 &
   local rec_pid=$!
   while kill -0 "$rec_pid" 2>/dev/null; do
     printf "\r  ${spin:$((i % ${#spin})):1} Recreating container..."
