@@ -5,8 +5,14 @@ import { createEmptyExcalidrawFileContent, isExcalidrawFilePath } from '@/app/li
 import {
   WorkspaceFileRevisionError,
   assertWorkspaceFileRevisionAllowed,
+  getWorkspaceFileRevision,
   workspaceRequiresRevisionCheck,
 } from '@/app/lib/files/revision-guard';
+import {
+  FileCollaborationPolicyError,
+  assertFileCollaborationWriteAllowed,
+  ensureFileRevisionForCurrentContent,
+} from '@/app/lib/files/collaboration-policy';
 import {
   applyRateLimit,
   invalidateWorkspaceFileViews,
@@ -49,6 +55,13 @@ export async function POST(request: NextRequest) {
         options: fileOptions,
         requireExpectedRevision: workspaceRequiresRevisionCheck(workspaceResult.workspace),
       });
+      assertFileCollaborationWriteAllowed({
+        workspace: workspaceResult.workspace,
+        path,
+        actorUserId: workspaceResult.session.user.id,
+        actorSessionId: null,
+        actorType: 'user',
+      });
       await writeFile(
         path,
         template === 'excalidraw' || isExcalidrawFilePath(path)
@@ -56,6 +69,18 @@ export async function POST(request: NextRequest) {
           : '',
         fileOptions
       );
+      const revision = await getWorkspaceFileRevision(path, fileOptions);
+      if (revision) {
+        ensureFileRevisionForCurrentContent({
+          workspace: workspaceResult.workspace,
+          path,
+          contentHash: revision.sha256,
+          sizeBytes: revision.stats.size,
+          actorUserId: workspaceResult.session.user.id,
+          actorType: 'user',
+          sourceSessionId: null,
+        });
+      }
     } else {
       return jsonError('Invalid type', 400);
     }
@@ -89,6 +114,15 @@ export async function POST(request: NextRequest) {
         expectedSha256: error.expectedSha256,
         currentSha256: error.currentSha256,
         currentStats: error.currentStats,
+      });
+    }
+    if (error instanceof FileCollaborationPolicyError) {
+      return jsonError(error.message, error.status, {
+        code: error.code,
+        path: error.path,
+        currentRevisionId: error.currentRevisionId,
+        baseRevisionId: error.baseRevisionId,
+        activeLock: error.activeLock,
       });
     }
     return jsonServerError('[API] File create error:', error, 'Failed to create path');

@@ -8,11 +8,16 @@ import { recordAuditEvent } from '@/app/lib/audit/audit-service';
 import { logger } from '@/app/lib/logging';
 import { normalizeExpectedSha256 as normalizeAgentExpectedSha256 } from '@/app/lib/files/revision-guard';
 import {
+  assertFileCollaborationWriteAllowed,
+  ensureFileRevisionForCurrentContent,
+} from '@/app/lib/files/collaboration-policy';
+import {
   syncPublicSharesAfterDelete,
   syncPublicSharesAfterMove,
   syncPublicSharesAfterWrite,
 } from '@/app/lib/public-sharing/public-file-shares';
 import { getAgentExecutionContext, type AgentExecutionContext } from '@/app/lib/pi/agent-execution-context';
+import type { WorkspaceContext } from '@/app/lib/workspaces/types';
 
 const SNAPSHOT_DIR_NAME = 'agent-file-snapshots';
 const MAX_DIFF_CHARS = 24_000;
@@ -364,6 +369,31 @@ function auditWorkspaceMetadata(executionContext: AgentExecutionContext | null) 
 function activeWorkspaceRequiresRevisionGuard(): boolean {
   const executionContext = getAgentExecutionContext();
   return executionContext?.workspaceType === 'team' || executionContext?.workspaceType === 'project';
+}
+
+function getAgentWorkspaceContext(): WorkspaceContext | null {
+  const executionContext = getAgentExecutionContext();
+  if (!executionContext) return null;
+
+  return {
+    workspaceId: executionContext.workspaceId,
+    workspaceType: executionContext.workspaceType,
+    rootPath: executionContext.workspaceRoot,
+    rootRelativePath: executionContext.workspaceRootRelativePath ?? undefined,
+    displayName: executionContext.workspaceName ?? undefined,
+    organizationId: executionContext.organizationId,
+    customerId: executionContext.customerId,
+    projectId: executionContext.projectId,
+    permissions: {
+      canRead: true,
+      canWrite: executionContext.canWrite,
+      canDelete: executionContext.canWrite,
+      canCreatePublicLinks: executionContext.canShare,
+      canManageWorkspace: false,
+      canRunAgent: true,
+    },
+    legacy: executionContext.legacy,
+  };
 }
 
 function assertAgentSharedWorkspaceRevision(params: {
@@ -933,6 +963,29 @@ async function commitTextChange(params: {
 
   await assertAgentWritablePathAllowed(params.fullPath);
   await fs.mkdir(path.dirname(params.fullPath), { recursive: true });
+  const executionContext = getAgentExecutionContext();
+  const workspaceContext = getAgentWorkspaceContext();
+  const baseRevision = workspaceContext && params.beforeBuffer
+    ? ensureFileRevisionForCurrentContent({
+        workspace: workspaceContext,
+        path: params.inputPath,
+        contentHash: sha256Buffer(params.beforeBuffer),
+        sizeBytes: params.beforeBuffer.length,
+        actorType: 'system',
+      })
+    : null;
+
+  if (workspaceContext) {
+    assertFileCollaborationWriteAllowed({
+      workspace: workspaceContext,
+      path: params.inputPath,
+      actorUserId: executionContext?.userId ?? null,
+      actorSessionId: executionContext?.sessionId ?? null,
+      actorType: 'agent',
+      baseRevisionId: baseRevision?.id ?? null,
+    });
+  }
+
   const snapshot = await createSnapshotFromBuffer({
     inputPath: params.inputPath,
     fullPath: params.fullPath,
@@ -946,6 +999,18 @@ async function commitTextChange(params: {
   const readBackText = readBack.toString('utf8');
   if (readBackText !== params.nextContent) {
     throw new Error(`Read-after-write verification failed for ${params.inputPath}.`);
+  }
+  if (workspaceContext) {
+    ensureFileRevisionForCurrentContent({
+      workspace: workspaceContext,
+      path: params.inputPath,
+      contentHash: sha256Buffer(readBack),
+      sizeBytes: readBack.length,
+      actorUserId: executionContext?.userId ?? null,
+      actorType: 'agent',
+      sourceSessionId: executionContext?.sessionId ?? null,
+      baseRevisionId: baseRevision?.id ?? null,
+    });
   }
   await syncPublicSharesAfterWrite([params.fullPath]);
 

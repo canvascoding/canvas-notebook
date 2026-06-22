@@ -687,6 +687,13 @@
     "unsavedChanges": "Ungespeicherte Änderungen",
     "saved": "Gespeichert",
     "savedAt": "Gespeichert {time}",
+    "collaboration": {
+      "crdtText": "Live-Text vorbereitet",
+      "revisionCheck": "Revision geprüft",
+      "lockRequired": "Lock erforderlich",
+      "locked": "Gesperrt",
+      "revisionShort": "Revision {revision}"
+    },
     "binaryPreviewUnavailable": "Für Binärdateien ist keine Vorschau verfügbar.",
     "downloadFile": "Datei herunterladen",
     "pdfLoading": "PDF wird geladen...",

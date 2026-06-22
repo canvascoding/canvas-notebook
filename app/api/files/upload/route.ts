@@ -10,6 +10,17 @@ import { getImageConversionErrorMessage } from '@/app/lib/images/convert';
 import { normalizeUploadImageBuffer, parseUploadConvertParams } from '@/app/lib/images/upload-conversion';
 import { syncPublicSharesAfterWrite } from '@/app/lib/public-sharing/public-file-shares';
 import { requireRequestWorkspace, workspaceFileOptions } from '@/app/lib/workspaces/request';
+import { getWorkspaceFileRevision } from '@/app/lib/files/revision-guard';
+import {
+  FileCollaborationPolicyError,
+  acquireFileLock,
+  assertFileCollaborationWriteAllowed,
+  detectFileCollaborationStrategy,
+  ensureFileRevisionForCurrentContent,
+  getFileCollaborationState,
+  releaseFileLock,
+  workspaceRequiresCollaborationPolicy,
+} from '@/app/lib/files/collaboration-policy';
 
 const MAX_FILE_SIZE = 100 * 1024 * 1024;
 const MAX_TOTAL_SIZE = 500 * 1024 * 1024;
@@ -144,7 +155,77 @@ export async function POST(request: NextRequest) {
         await createDirectory(parentDir, fileOptions);
       }
 
-      await writeFile(targetPath, normalized.buffer, fileOptions);
+      const beforeRevision = await getWorkspaceFileRevision(targetPath, fileOptions);
+      const storedBaseRevision = beforeRevision
+        ? ensureFileRevisionForCurrentContent({
+            workspace: workspaceResult.workspace,
+            path: targetPath,
+            contentHash: beforeRevision.sha256,
+            sizeBytes: beforeRevision.stats.size,
+            actorType: 'system',
+          })
+        : null;
+      let transientUploadLockId: string | null = null;
+      try {
+        const shouldAutoLockUpload =
+          Boolean(beforeRevision)
+          && workspaceRequiresCollaborationPolicy(workspaceResult.workspace)
+          && detectFileCollaborationStrategy(targetPath) === 'exclusive_lock';
+        if (shouldAutoLockUpload) {
+          const currentState = getFileCollaborationState({
+            workspace: workspaceResult.workspace,
+            path: targetPath,
+          });
+          if (!currentState.activeLock) {
+            // acquireFileLock re-checks in its own write transaction; a raced lock becomes FILE_LOCKED.
+            const acquired = acquireFileLock({
+              workspace: workspaceResult.workspace,
+              path: targetPath,
+              lockedByUserId: workspaceResult.session.user.id,
+              lockedBySessionId: null,
+              lockType: 'upload',
+              ttlMs: 5 * 60 * 1000,
+              baseRevisionId: storedBaseRevision?.id ?? null,
+            });
+            transientUploadLockId = acquired.lock.id;
+          }
+        }
+
+        assertFileCollaborationWriteAllowed({
+          workspace: workspaceResult.workspace,
+          path: targetPath,
+          actorUserId: workspaceResult.session.user.id,
+          actorType: 'user',
+          baseRevisionId: storedBaseRevision?.id ?? null,
+        });
+
+        await writeFile(targetPath, normalized.buffer, fileOptions);
+        const afterRevision = await getWorkspaceFileRevision(targetPath, fileOptions);
+        if (afterRevision) {
+          ensureFileRevisionForCurrentContent({
+            workspace: workspaceResult.workspace,
+            path: targetPath,
+            contentHash: afterRevision.sha256,
+            sizeBytes: afterRevision.stats.size,
+            actorUserId: workspaceResult.session.user.id,
+            actorType: 'user',
+            sourceSessionId: null,
+            baseRevisionId: storedBaseRevision?.id ?? null,
+          });
+        }
+      } finally {
+        if (transientUploadLockId) {
+          try {
+            releaseFileLock({
+              workspace: workspaceResult.workspace,
+              lockId: transientUploadLockId,
+              actorUserId: workspaceResult.session.user.id,
+            });
+          } catch (releaseError) {
+            console.warn('[API] Failed to release transient upload lock:', releaseError);
+          }
+        }
+      }
       uploadedFiles.push(filename);
       uploadedPaths.push(targetPath);
     }
@@ -175,6 +256,20 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ success: true, count: files.length, files: uploadedFiles });
   } catch (error) {
+    if (error instanceof FileCollaborationPolicyError) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: error.message,
+          code: error.code,
+          path: error.path,
+          currentRevisionId: error.currentRevisionId,
+          baseRevisionId: error.baseRevisionId,
+          activeLock: error.activeLock,
+        },
+        { status: error.status }
+      );
+    }
     console.error('[API] File upload error:', error);
     const message = error instanceof Error ? error.message : 'Failed to upload file';
     return NextResponse.json(

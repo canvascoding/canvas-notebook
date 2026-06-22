@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
-import { AlertCircle, CheckCircle2, ChevronLeft, ChevronRight, Code2, Download, Eye, FileText, Loader2, MoreVertical, Presentation, RefreshCw, Save, Share2, X } from 'lucide-react';
+import { AlertCircle, CheckCircle2, ChevronLeft, ChevronRight, Code2, Download, Eye, FileText, GitBranch, Loader2, Lock, MoreVertical, Presentation, RefreshCw, Save, Share2, UsersRound, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -421,6 +421,19 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
   const isVideo = VIDEO_EXTENSIONS.has(extension);
   const isText = extension === '' || TEXT_EXTENSIONS.has(extension);
   const isBinary = !isText && !isImage && !isPdf && !isMarkdown && !isHtml && !isExcalidraw && !isAudio && !isVideo && !isOffice;
+  const collaboration = currentFile?.collaboration ?? null;
+  const collaborationLabel = useMemo(() => {
+    if (!collaboration) return null;
+    if (collaboration.activeLock) return t('collaboration.locked');
+    if (collaboration.strategy === 'crdt_text') return t('collaboration.crdtText');
+    if (collaboration.strategy === 'exclusive_lock') return t('collaboration.lockRequired');
+    return collaboration.requiresRevisionCheck ? t('collaboration.revisionCheck') : null;
+  }, [collaboration, t]);
+  const revisionLabel = currentFile?.revision?.id
+    ? t('collaboration.revisionShort', { revision: currentFile.revision.id.slice(-8) })
+    : collaboration?.latestRevision?.id
+      ? t('collaboration.revisionShort', { revision: collaboration.latestRevision.id.slice(-8) })
+      : null;
   const markdownViewMode = isMarpMarkdownFile
     ? (markdownViewOverride.path === activePath ? markdownViewOverride.mode : 'slides')
     : 'markdown';
@@ -734,6 +747,30 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
             </>
           )}
           {isImage && <span className="bg-muted px-2 py-0.5 text-foreground shrink-0">{t('readOnly')}</span>}
+          {collaborationLabel ? (
+            <span
+              className="flex items-center gap-1 rounded-sm border border-border bg-muted px-2 py-0.5 text-xs text-muted-foreground shrink-0"
+              title={collaborationLabel}
+            >
+              {collaboration?.activeLock ? (
+                <Lock className="h-3.5 w-3.5" />
+              ) : collaboration?.strategy === 'crdt_text' ? (
+                <UsersRound className="h-3.5 w-3.5" />
+              ) : (
+                <GitBranch className="h-3.5 w-3.5" />
+              )}
+              <span className="hidden lg:inline">{collaborationLabel}</span>
+            </span>
+          ) : null}
+          {revisionLabel ? (
+            <span
+              className="hidden xl:flex items-center gap-1 rounded-sm border border-border bg-background px-2 py-0.5 text-xs text-muted-foreground shrink-0"
+              title={revisionLabel}
+            >
+              <GitBranch className="h-3.5 w-3.5" />
+              <span>{revisionLabel}</span>
+            </span>
+          ) : null}
           {(isMarkdown || isHtml || isPdf) && (
             <Button
               variant="ghost"

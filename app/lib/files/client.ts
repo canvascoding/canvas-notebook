@@ -1,7 +1,7 @@
 import type { ConvertParams } from '@/app/components/shared/ImagePreprocessDialog';
 import { WORKSPACE_ID_HEADER } from '@/app/lib/workspaces/constants';
 import { useWorkspaceStore } from '@/app/store/workspace-store';
-import type { CurrentFile, FileNode, FileStats } from './types';
+import type { CurrentFile, FileCollaborationState, FileNode, FileRevisionRecord, FileStats } from './types';
 
 interface ApiErrorPayload {
   error?: unknown;
@@ -31,6 +31,8 @@ export interface WorkspacePathConflictError extends Error {
 export interface WriteWorkspaceFileResult {
   path: string;
   stats?: FileStats;
+  revision?: FileRevisionRecord | null;
+  collaboration?: FileCollaborationState | null;
 }
 
 interface UploadWorkspaceFilesParams {
@@ -149,13 +151,18 @@ export async function readWorkspaceFile(
 export async function writeWorkspaceFile(
   path: string,
   content: string,
-  options: { expectedSha256?: string | null } = {}
+  options: { expectedSha256?: string | null; baseRevisionId?: string | null } = {}
 ): Promise<WriteWorkspaceFileResult> {
   const response = await fetch('/api/files/write', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...workspaceHeaders() },
     credentials: 'include',
-    body: JSON.stringify({ path, content, expectedSha256: options.expectedSha256 ?? null }),
+    body: JSON.stringify({
+      path,
+      content,
+      expectedSha256: options.expectedSha256 ?? null,
+      baseRevisionId: options.baseRevisionId ?? null,
+    }),
   });
 
   if (!response.ok) {

@@ -7,6 +7,12 @@ import {
   getWorkspaceFileRevision,
   workspaceRequiresRevisionCheck,
 } from '@/app/lib/files/revision-guard';
+import {
+  FileCollaborationPolicyError,
+  assertFileCollaborationWriteAllowed,
+  ensureFileRevisionForCurrentContent,
+  getFileCollaborationState,
+} from '@/app/lib/files/collaboration-policy';
 import { queuePublicSharesAfterWrite } from '@/app/lib/public-sharing/public-file-shares';
 import { getParentDirectory } from '@/app/lib/files/path-utils';
 import {
@@ -32,8 +38,13 @@ export async function POST(request: NextRequest) {
     });
     if (rateLimitResponse) return rateLimitResponse;
 
-    const body = await readJsonBody<{ path?: string; content?: string; expectedSha256?: string | null }>(request);
-    const { path, content, expectedSha256 } = body;
+    const body = await readJsonBody<{
+      path?: string;
+      content?: string;
+      expectedSha256?: string | null;
+      baseRevisionId?: string | null;
+    }>(request);
+    const { path, content, expectedSha256, baseRevisionId } = body;
 
     if (!path || content === undefined) {
       return jsonError('Path and content are required', 400);
@@ -45,11 +56,29 @@ export async function POST(request: NextRequest) {
       finalContent = Buffer.from(content.substring(7), 'base64');
     }
 
-    await assertWorkspaceFileRevisionAllowed({
+    const beforeRevision = await assertWorkspaceFileRevisionAllowed({
       path,
       expectedSha256,
       options: fileOptions,
       requireExpectedRevision: workspaceRequiresRevisionCheck(workspaceResult.workspace),
+    });
+    const storedBaseRevision = beforeRevision
+      ? ensureFileRevisionForCurrentContent({
+          workspace: workspaceResult.workspace,
+          path,
+          contentHash: beforeRevision.sha256,
+          sizeBytes: beforeRevision.stats.size,
+          actorType: 'system',
+        })
+      : null;
+
+    assertFileCollaborationWriteAllowed({
+      workspace: workspaceResult.workspace,
+      path,
+      actorUserId: workspaceResult.session.user.id,
+      actorSessionId: null,
+      actorType: 'user',
+      baseRevisionId: baseRevisionId ?? null,
     });
 
     await writeFile(path, finalContent, fileOptions);
@@ -60,6 +89,21 @@ export async function POST(request: NextRequest) {
     }
     const afterSha256 = afterRevision.sha256;
     const stats = afterRevision.stats;
+    const revision = ensureFileRevisionForCurrentContent({
+      workspace: workspaceResult.workspace,
+      path,
+      contentHash: afterSha256,
+      sizeBytes: stats.size,
+      actorUserId: workspaceResult.session.user.id,
+      actorType: 'user',
+      sourceSessionId: null,
+      baseRevisionId: baseRevisionId ?? storedBaseRevision?.id ?? null,
+    });
+    const collaboration = getFileCollaborationState({
+      workspace: workspaceResult.workspace,
+      path,
+      ensureDocument: true,
+    });
     invalidateWorkspaceFileViews({ fileOptions, subtreeDirs: [getParentDirectory(path)] });
     queuePublicSharesAfterWrite([path], workspaceResult.workspace);
     await recordAuditEvent({
@@ -80,6 +124,8 @@ export async function POST(request: NextRequest) {
         encoded: typeof content === 'string' && content.startsWith('base64:'),
         expectedSha256: expectedSha256 ?? null,
         afterSha256,
+        baseRevisionId: baseRevisionId ?? storedBaseRevision?.id ?? null,
+        revisionId: revision.id,
       },
       input: {
         path,
@@ -96,6 +142,8 @@ export async function POST(request: NextRequest) {
           permissions: stats.permissions,
           sha256: afterSha256,
         },
+        revision,
+        collaboration,
       },
     });
   } catch (error) {
@@ -106,6 +154,15 @@ export async function POST(request: NextRequest) {
         expectedSha256: error.expectedSha256,
         currentSha256: error.currentSha256,
         currentStats: error.currentStats,
+      });
+    }
+    if (error instanceof FileCollaborationPolicyError) {
+      return jsonError(error.message, error.status, {
+        code: error.code,
+        path: error.path,
+        currentRevisionId: error.currentRevisionId,
+        baseRevisionId: error.baseRevisionId,
+        activeLock: error.activeLock,
       });
     }
     return jsonServerError('[API] File write error:', error, 'Failed to write file');
