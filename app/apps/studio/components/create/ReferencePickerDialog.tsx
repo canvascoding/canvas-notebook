@@ -18,7 +18,11 @@ import { cn } from '@/lib/utils';
 import { toPreviewUrl, toMediaUrl } from '@/app/lib/utils/media-url';
 import type { FileNode } from '@/app/lib/filesystem/workspace-files';
 import { ImagePreprocessDialog } from '@/app/components/shared/ImagePreprocessDialog';
-import type { ConvertParams } from '@/app/components/shared/ImagePreprocessDialog';
+import type {
+  ConvertParams,
+  ImagePreprocessProgressItem,
+  ImagePreprocessProgressStatus,
+} from '@/app/components/shared/ImagePreprocessDialog';
 import { ImageThumbnailIcon } from '@/app/components/shared/ImageThumbnailIcon';
 import { isHeicUploadFile, shouldPreprocessImageFile } from '@/app/lib/images/client-preprocess';
 import { prepareImageFilesForUpload, serializeUploadConvertParams } from '@/app/lib/images/client-upload-conversion';
@@ -47,6 +51,14 @@ interface ReferencePickerDialogProps {
   mediaKind?: MediaKind;
   studioOnly?: boolean;
   veoGeneratedOnly?: boolean;
+}
+
+function createProgressItems(files: File[]): ImagePreprocessProgressItem[] {
+  return files.map((file) => ({
+    fileName: file.name,
+    size: file.size,
+    status: 'queued',
+  }));
 }
 
 const MEDIA_EXTS: Record<MediaKind, Set<string>> = {
@@ -326,6 +338,7 @@ export function ReferencePickerDialog({ open, onOpenChange, onConfirm, multiple 
     import('@/app/components/shared/ImagePreprocessDialog').PreprocessFileInfo[] | null
   >(null);
   const [imagePreprocessPendingFiles, setImagePreprocessPendingFiles] = useState<File[]>([]);
+  const [imagePreprocessProgressItems, setImagePreprocessProgressItems] = useState<ImagePreprocessProgressItem[]>([]);
 
   const [isDragOver, setIsDragOver] = useState(false);
 
@@ -453,6 +466,30 @@ export function ReferencePickerDialog({ open, onOpenChange, onConfirm, multiple 
       .filter(Boolean) as ImageAsset[];
   }, [assets, mediaKind, selectedPaths, tree]);
 
+  const addUploadedPathsToSelection = useCallback((newPaths: string[]) => {
+    setSelectedPaths((prev) => {
+      if (!multiple) {
+        return newPaths.length > 0 ? new Set([newPaths[0]]) : new Set<string>();
+      }
+      const next = new Set(prev);
+      for (const p of newPaths) {
+        if (next.size >= maxSelection) break;
+        next.add(p);
+      }
+      return next;
+    });
+  }, [maxSelection, multiple]);
+
+  const updateImagePreprocessProgress = useCallback((
+    index: number,
+    status: ImagePreprocessProgressStatus,
+    detail?: string,
+  ) => {
+    setImagePreprocessProgressItems((current) => current.map((item, itemIndex) => (
+      itemIndex === index ? { ...item, status, detail } : item
+    )));
+  }, []);
+
   const handleUploadFiles = useCallback(async (files: FileList | File[] | null, convertParams?: (ConvertParams | null)[]) => {
     const selectedFiles = files ? Array.from(files) : [];
     if (selectedFiles.length === 0) return;
@@ -476,24 +513,14 @@ export function ReferencePickerDialog({ open, onOpenChange, onConfirm, multiple 
       }
       if (payload.files?.length) {
         const newPaths = payload.files.map((f: { path: string }) => f.path);
-        setSelectedPaths((prev) => {
-          if (!multiple) {
-            return newPaths.length > 0 ? new Set([newPaths[0]]) : new Set<string>();
-          }
-          const next = new Set(prev);
-          for (const p of newPaths) {
-            if (next.size >= maxSelection) break;
-            next.add(p);
-          }
-          return next;
-        });
+        addUploadedPathsToSelection(newPaths);
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Upload failed');
     } finally {
       setIsUploading(false);
     }
-  }, [multiple, maxSelection, loadStudioAssets, t]);
+  }, [addUploadedPathsToSelection, loadStudioAssets, t]);
 
   const handleImagePreprocessConfirm = async (convertParams: (ConvertParams | null)[]) => {
     if (imagePreprocessPendingFiles.length === 0) return;
@@ -505,37 +532,56 @@ export function ReferencePickerDialog({ open, onOpenChange, onConfirm, multiple 
     const uploadConvertParams = files.map((file) => convertParamsByFile.get(file) ?? null);
     setIsUploading(true);
     setError(null);
+    setImagePreprocessProgressItems(createProgressItems(files));
+    const uploadErrors: string[] = [];
     try {
-      const prepared = await prepareImageFilesForUpload(files, uploadConvertParams);
-      const formData = new FormData();
-      prepared.files.forEach((file) => formData.append('files', file, file.name));
-      const serializedConvertParams = serializeUploadConvertParams(prepared.convertParams);
-      if (serializedConvertParams) {
-        formData.append('convertParams', serializedConvertParams);
+      for (let index = 0; index < files.length; index += 1) {
+        const file = files[index];
+        const convertParam = uploadConvertParams[index] ?? null;
+        try {
+          const prepared = await prepareImageFilesForUpload([file], [convertParam], {
+            onProgress: (progress) => {
+              if (progress.status === 'processing') {
+                updateImagePreprocessProgress(index, 'processing');
+              } else if (progress.status === 'prepared' || progress.status === 'server-fallback') {
+                updateImagePreprocessProgress(index, 'uploading');
+              }
+            },
+          });
+          updateImagePreprocessProgress(index, 'uploading');
+
+          const formData = new FormData();
+          prepared.files.forEach((preparedFile) => formData.append('files', preparedFile, preparedFile.name));
+          const serializedConvertParams = serializeUploadConvertParams(prepared.convertParams);
+          if (serializedConvertParams) {
+            formData.append('convertParams', serializedConvertParams);
+          }
+          const res = await fetch('/api/studio/references/upload', { method: 'POST', body: formData, credentials: 'include' });
+          const payload = await res.json();
+          if (!res.ok || !payload.success) throw new Error(payload.error || 'Upload failed');
+
+          if (payload.errors?.length) {
+            const message = payload.errors.join(', ');
+            uploadErrors.push(message);
+            updateImagePreprocessProgress(index, 'error', message);
+          } else {
+            updateImagePreprocessProgress(index, 'success');
+          }
+
+          if (payload.files?.length) {
+            addUploadedPathsToSelection(payload.files.map((f: { path: string }) => f.path));
+          }
+        } catch (e) {
+          const message = e instanceof Error ? e.message : 'Upload failed';
+          uploadErrors.push(message);
+          updateImagePreprocessProgress(index, 'error', message);
+        }
       }
-      const res = await fetch('/api/studio/references/upload', { method: 'POST', body: formData, credentials: 'include' });
-      const payload = await res.json();
-      if (!res.ok || !payload.success) throw new Error(payload.error || 'Upload failed');
       setTab('studio');
-      setImagePreprocessFiles(null);
       setImagePreprocessPendingFiles([]);
       await loadStudioAssets();
-      if (payload.errors?.length) {
-        setError(t('upload.partialFailure', { errors: payload.errors.join(', ') }));
-      }
-      if (payload.files?.length) {
-        const newPaths = payload.files.map((f: { path: string }) => f.path);
-        setSelectedPaths((prev) => {
-          if (!multiple) {
-            return newPaths.length > 0 ? new Set([newPaths[0]]) : new Set<string>();
-          }
-          const next = new Set(prev);
-          for (const p of newPaths) {
-            if (next.size >= maxSelection) break;
-            next.add(p);
-          }
-          return next;
-        });
+      if (uploadErrors.length > 0) {
+        setError(t('upload.partialFailure', { errors: uploadErrors.join(', ') }));
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Upload failed');
@@ -545,12 +591,53 @@ export function ReferencePickerDialog({ open, onOpenChange, onConfirm, multiple 
   };
 
   const handleImagePreprocessSkip = async () => {
-    const filesToUpload = imagePreprocessPendingFiles.filter((f) => !isHeicUploadFile(f));
-    if (filesToUpload.length > 0) {
-      await handleUploadFiles(filesToUpload);
+    const files = imagePreprocessPendingFiles;
+    setImagePreprocessProgressItems(createProgressItems(files));
+    const uploadErrors: string[] = [];
+    setIsUploading(true);
+    setError(null);
+    try {
+      for (let index = 0; index < files.length; index += 1) {
+        const file = files[index];
+        if (isHeicUploadFile(file)) {
+          updateImagePreprocessProgress(index, 'skipped');
+          continue;
+        }
+
+        updateImagePreprocessProgress(index, 'uploading');
+        try {
+          const formData = new FormData();
+          formData.append('files', file, file.name);
+          const res = await fetch('/api/studio/references/upload', { method: 'POST', body: formData, credentials: 'include' });
+          const payload = await res.json();
+          if (!res.ok || !payload.success) throw new Error(payload.error || 'Upload failed');
+
+          if (payload.errors?.length) {
+            const message = payload.errors.join(', ');
+            uploadErrors.push(message);
+            updateImagePreprocessProgress(index, 'error', message);
+          } else {
+            updateImagePreprocessProgress(index, 'success');
+          }
+
+          if (payload.files?.length) {
+            addUploadedPathsToSelection(payload.files.map((f: { path: string }) => f.path));
+          }
+        } catch (e) {
+          const message = e instanceof Error ? e.message : 'Upload failed';
+          uploadErrors.push(message);
+          updateImagePreprocessProgress(index, 'error', message);
+        }
+      }
+      setTab('studio');
+      setImagePreprocessPendingFiles([]);
+      await loadStudioAssets();
+      if (uploadErrors.length > 0) {
+        setError(t('upload.partialFailure', { errors: uploadErrors.join(', ') }));
+      }
+    } finally {
+      setIsUploading(false);
     }
-    setImagePreprocessFiles(null);
-    setImagePreprocessPendingFiles([]);
   };
 
   const preprocessFileSelection = useCallback(async (files: FileList) => {
@@ -567,6 +654,7 @@ export function ReferencePickerDialog({ open, onOpenChange, onConfirm, multiple 
     }
     if (preprocessList.length > 0) {
       setImagePreprocessPendingFiles(allFiles);
+      setImagePreprocessProgressItems([]);
       setImagePreprocessFiles(preprocessList);
     } else if (normalFiles.length > 0) {
       await handleUploadFiles(normalFiles);
@@ -847,12 +935,14 @@ export function ReferencePickerDialog({ open, onOpenChange, onConfirm, multiple 
           if (!o) {
             setImagePreprocessFiles(null);
             setImagePreprocessPendingFiles([]);
+            setImagePreprocessProgressItems([]);
           }
         }}
         files={imagePreprocessFiles ?? []}
         onConfirm={handleImagePreprocessConfirm}
         onSkip={handleImagePreprocessSkip}
         isProcessing={isUploading}
+        progressItems={imagePreprocessProgressItems}
       />
     </>
   );

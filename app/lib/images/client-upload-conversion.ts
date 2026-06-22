@@ -15,6 +15,24 @@ export interface PreparedImageUpload {
   serverFallbackCount: number;
 }
 
+export type ClientUploadPreparationStatus =
+  | 'queued'
+  | 'processing'
+  | 'prepared'
+  | 'server-fallback'
+  | 'error';
+
+export interface ClientUploadPreparationProgress {
+  index: number;
+  file: File;
+  status: ClientUploadPreparationStatus;
+  detail?: string;
+}
+
+export interface PrepareImageFilesForUploadOptions {
+  onProgress?: (progress: ClientUploadPreparationProgress) => void;
+}
+
 const MIME_BY_FORMAT: Record<ClientUploadConvertParams['format'], string> = {
   jpg: 'image/jpeg',
   png: 'image/png',
@@ -149,6 +167,7 @@ async function convertImageFileInBrowser(
 export async function prepareImageFilesForUpload(
   files: File[],
   convertParams?: (ClientUploadConvertParams | null)[],
+  options: PrepareImageFilesForUploadOptions = {},
 ): Promise<PreparedImageUpload> {
   if (!convertParams || convertParams.length !== files.length) {
     return {
@@ -171,14 +190,17 @@ export async function prepareImageFilesForUpload(
     if (!params || isHeicUploadFile(file) || !isImageUploadFile(file)) {
       preparedFiles.push(file);
       preparedParams.push(params);
+      options.onProgress?.({ index, file, status: 'prepared' });
       continue;
     }
 
     try {
+      options.onProgress?.({ index, file, status: 'processing' });
       const converted = await convertImageFileInBrowser(file, params);
       preparedFiles.push(converted);
       preparedParams.push(null);
       clientConvertedCount += 1;
+      options.onProgress?.({ index, file: converted, status: 'prepared' });
     } catch (error) {
       console.warn('[ImageUpload] Browser image conversion failed; falling back to server conversion', {
         fileName: file.name,
@@ -187,6 +209,12 @@ export async function prepareImageFilesForUpload(
       preparedFiles.push(file);
       preparedParams.push(params);
       serverFallbackCount += 1;
+      options.onProgress?.({
+        index,
+        file,
+        status: 'server-fallback',
+        detail: error instanceof Error ? error.message : 'Browser conversion failed',
+      });
     }
   }
 

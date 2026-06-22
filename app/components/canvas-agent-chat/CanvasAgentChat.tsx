@@ -251,6 +251,7 @@ export default function CanvasAgentChat({
     handleMediaPreviewClick,
     handlePaste,
     imagePreprocessFiles,
+    imagePreprocessProgressItems,
     isUploading,
     onFileChange,
     previewAttachment,
@@ -1232,6 +1233,7 @@ export default function CanvasAgentChat({
         onConfirm={handleImagePreprocessConfirm}
         onSkip={handleImagePreprocessSkip}
         isProcessing={isUploading}
+        progressItems={imagePreprocessProgressItems}
       />
     </div>
   );

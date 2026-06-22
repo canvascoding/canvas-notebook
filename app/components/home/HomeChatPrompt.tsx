@@ -16,11 +16,18 @@ import { AttachmentPreviewDialog } from '@/app/components/canvas-agent-chat/Atta
 import { AttachmentPreviewItem } from '@/app/components/canvas-agent-chat/AttachmentPreviewItem';
 import { deriveUploadAttachmentPreview, type ChatAttachment } from '@/app/lib/chat/attachment-preview';
 import { ImagePreprocessDialog } from '@/app/components/shared/ImagePreprocessDialog';
-import type { ConvertParams } from '@/app/components/shared/ImagePreprocessDialog';
+import type {
+  ConvertParams,
+  ImagePreprocessProgressItem,
+  ImagePreprocessProgressStatus,
+} from '@/app/components/shared/ImagePreprocessDialog';
 import { isHeicUploadFile, shouldPreprocessImageFile } from '@/app/lib/images/client-preprocess';
 import { prepareImageFilesForUpload, serializeUploadConvertParams } from '@/app/lib/images/client-upload-conversion';
 
 type Attachment = ChatAttachment;
+type UploadProgressOptions = {
+  progressIndex?: number;
+};
 
 interface FilePickerFile {
   name: string;
@@ -43,6 +50,14 @@ const STARTER_PROMPT_ICONS: Record<StarterPromptIcon, React.ComponentType<{ clas
   document: FileText,
   organize: FolderTree,
 };
+
+function createProgressItems(files: File[]): ImagePreprocessProgressItem[] {
+  return files.map((file) => ({
+    fileName: file.name,
+    size: file.size,
+    status: 'queued',
+  }));
+}
 
 function HomeStarterPromptButton({
   prompt,
@@ -137,19 +152,46 @@ export function HomeChatPrompt() {
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [imagePreprocessFiles, setImagePreprocessFiles] = useState<import('@/app/components/shared/ImagePreprocessDialog').PreprocessFileInfo[] | null>(null);
   const [imagePreprocessPendingFiles, setImagePreprocessPendingFiles] = useState<File[]>([]);
+  const [imagePreprocessProgressItems, setImagePreprocessProgressItems] = useState<ImagePreprocessProgressItem[]>([]);
   const [previewAttachment, setPreviewAttachment] = useState<Attachment | null>(null);
   const isUploading = pendingUploads > 0;
   const notebookHref = getPathname({ href: '/notebook', locale });
 
-  const handleFileUploadMultiple = useCallback(async (files: File[], convertParams?: (ConvertParams | null)[]) => {
+  const updateImagePreprocessProgress = useCallback((
+    index: number,
+    status: ImagePreprocessProgressStatus,
+    detail?: string,
+  ) => {
+    setImagePreprocessProgressItems((current) => current.map((item, itemIndex) => (
+      itemIndex === index ? { ...item, status, detail } : item
+    )));
+  }, [setImagePreprocessProgressItems]);
+
+  const handleFileUploadMultiple = useCallback(async (
+    files: File[],
+    convertParams?: (ConvertParams | null)[],
+    options: UploadProgressOptions = {},
+  ): Promise<boolean> => {
     if (files.length === 0) {
-      return;
+      return true;
     }
     setPendingUploads((count) => count + 1);
     setUploadError(null);
     
     try {
-      const prepared = await prepareImageFilesForUpload(files, convertParams);
+      const prepared = await prepareImageFilesForUpload(files, convertParams, {
+        onProgress: (progress) => {
+          if (options.progressIndex === undefined) return;
+          if (progress.status === 'processing') {
+            updateImagePreprocessProgress(options.progressIndex, 'processing');
+          } else if (progress.status === 'prepared' || progress.status === 'server-fallback') {
+            updateImagePreprocessProgress(options.progressIndex, 'uploading');
+          }
+        },
+      });
+      if (options.progressIndex !== undefined) {
+        updateImagePreprocessProgress(options.progressIndex, 'uploading');
+      }
       const formData = new FormData();
       prepared.files.forEach((file) => formData.append('file', file));
 
@@ -190,13 +232,22 @@ export function HomeChatPrompt() {
       if (data.errors && data.errors.length > 0) {
         setUploadError(`Einige Dateien konnten nicht hochgeladen werden: ${data.errors.join(', ')}`);
       }
+      if (options.progressIndex !== undefined) {
+        updateImagePreprocessProgress(options.progressIndex, data.errors?.length ? 'error' : 'success', data.errors?.join(', '));
+      }
+      return !data.errors?.length;
     } catch (err) {
       console.error('Upload failed', err);
-      setUploadError(err instanceof Error ? err.message : 'Upload fehlgeschlagen. Netzwerkfehler oder Server nicht erreichbar.');
+      const message = err instanceof Error ? err.message : 'Upload fehlgeschlagen. Netzwerkfehler oder Server nicht erreichbar.';
+      setUploadError(message);
+      if (options.progressIndex !== undefined) {
+        updateImagePreprocessProgress(options.progressIndex, 'error', message);
+      }
+      return false;
     } finally {
       setPendingUploads((count) => Math.max(0, count - 1));
     }
-  }, []);
+  }, [updateImagePreprocessProgress]);
 
   // eslint-disable-next-line react-hooks/preserve-manual-memoization
   const preprocessAndUpload = useCallback(async (files: File[]) => {
@@ -216,27 +267,46 @@ export function HomeChatPrompt() {
       await handleFileUploadMultiple(normalFiles);
     }
     if (preprocessFiles.length > 0) {
+      setImagePreprocessProgressItems([]);
       setImagePreprocessPendingFiles(preprocessFiles.map((f) => f.file));
       setImagePreprocessFiles(preprocessFiles);
     }
   }, [handleFileUploadMultiple]);
 
-  // eslint-disable-next-line react-hooks/preserve-manual-memoization
   const handleImagePreprocessConfirm = useCallback(async (convertParams: (ConvertParams | null)[]) => {
-    await handleFileUploadMultiple(imagePreprocessPendingFiles, convertParams);
-    setImagePreprocessFiles(null);
+    setImagePreprocessProgressItems(createProgressItems(imagePreprocessPendingFiles));
+    setPendingUploads((count) => count + 1);
+    try {
+      for (let index = 0; index < imagePreprocessPendingFiles.length; index += 1) {
+        await handleFileUploadMultiple(
+          [imagePreprocessPendingFiles[index]],
+          [convertParams[index] ?? null],
+          { progressIndex: index },
+        );
+      }
+    } finally {
+      setPendingUploads((count) => Math.max(0, count - 1));
+    }
     setImagePreprocessPendingFiles([]);
   }, [handleFileUploadMultiple, imagePreprocessPendingFiles]);
 
-  // eslint-disable-next-line react-hooks/preserve-manual-memoization
   const handleImagePreprocessSkip = useCallback(async () => {
-    const nonHeicFiles = imagePreprocessPendingFiles.filter((f) => !isHeicUploadFile(f));
-    if (nonHeicFiles.length > 0) {
-      await handleFileUploadMultiple(nonHeicFiles);
+    setImagePreprocessProgressItems(createProgressItems(imagePreprocessPendingFiles));
+    setPendingUploads((count) => count + 1);
+    try {
+      for (let index = 0; index < imagePreprocessPendingFiles.length; index += 1) {
+        const file = imagePreprocessPendingFiles[index];
+        if (isHeicUploadFile(file)) {
+          updateImagePreprocessProgress(index, 'skipped');
+          continue;
+        }
+        await handleFileUploadMultiple([file], undefined, { progressIndex: index });
+      }
+    } finally {
+      setPendingUploads((count) => Math.max(0, count - 1));
     }
-    setImagePreprocessFiles(null);
     setImagePreprocessPendingFiles([]);
-  }, [handleFileUploadMultiple, imagePreprocessPendingFiles]);
+  }, [handleFileUploadMultiple, imagePreprocessPendingFiles, updateImagePreprocessProgress]);
 
   const onFileChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(event.target.files || []);
@@ -574,11 +644,18 @@ export function HomeChatPrompt() {
     />
     <ImagePreprocessDialog
       open={imagePreprocessFiles !== null}
-      onOpenChange={(open) => { if (!open) { setImagePreprocessFiles(null); setImagePreprocessPendingFiles([]); } }}
+      onOpenChange={(open) => {
+        if (!open) {
+          setImagePreprocessFiles(null);
+          setImagePreprocessPendingFiles([]);
+          setImagePreprocessProgressItems([]);
+        }
+      }}
       files={imagePreprocessFiles ?? []}
       onConfirm={handleImagePreprocessConfirm}
       onSkip={handleImagePreprocessSkip}
       isProcessing={isUploading}
+      progressItems={imagePreprocessProgressItems}
     />
     </>
   );
