@@ -8,16 +8,14 @@ import {
   type ClipboardEvent,
 } from 'react';
 import type { ConvertParams, PreprocessFileInfo } from '@/app/components/shared/ImagePreprocessDialog';
+import { isHeicUploadFile, shouldPreprocessImageFile } from '@/app/lib/images/client-preprocess';
+import { prepareImageFilesForUpload, serializeUploadConvertParams } from '@/app/lib/images/client-upload-conversion';
 import {
   createImageAttachmentFromMediaUrl,
   deriveUploadAttachmentPreview,
   getAttachmentMediaUrl,
 } from '@/app/lib/chat/attachment-preview';
 import type { Attachment } from '@/app/lib/chat/types';
-
-const HEIC_TYPES = new Set(['image/heic', 'image/heif', 'image/heic-sequence']);
-const HEIC_EXTENSIONS = new Set(['heic', 'heif']);
-const LARGE_IMAGE_SIZE_THRESHOLD = 1_500_000;
 
 type UploadedAttachmentFile = {
   id: string;
@@ -37,18 +35,6 @@ type UploadAttachmentResponse = {
 type UseChatAttachmentsParams = {
   onMediaClick?: (mediaUrl: string) => void;
 };
-
-function getFileExtension(file: File): string {
-  return file.name.split('.').pop()?.toLowerCase() ?? '';
-}
-
-function isHeicFile(file: File): boolean {
-  return HEIC_TYPES.has(file.type.toLowerCase()) || HEIC_EXTENSIONS.has(getFileExtension(file));
-}
-
-function isImageFile(file: File): boolean {
-  return file.type.startsWith('image/') || HEIC_EXTENSIONS.has(getFileExtension(file));
-}
 
 async function readUploadAttachmentResponse(res: Response): Promise<UploadAttachmentResponse | null> {
   const text = await res.text();
@@ -82,14 +68,13 @@ export function useChatAttachments({ onMediaClick }: UseChatAttachmentsParams) {
     setUploadError(null);
 
     try {
+      const prepared = await prepareImageFilesForUpload(files, convertParams);
       const formData = new FormData();
-      files.forEach((file) => formData.append('file', file));
+      prepared.files.forEach((file) => formData.append('file', file));
 
-      if (convertParams && convertParams.length > 0) {
-        const paramsSerializable = convertParams.map((p) =>
-          p ? { format: p.format, quality: p.quality, maxDimension: p.maxDimension } : null,
-        );
-        formData.append('convertParams', JSON.stringify(paramsSerializable));
+      const serializedConvertParams = serializeUploadConvertParams(prepared.convertParams);
+      if (serializedConvertParams) {
+        formData.append('convertParams', serializedConvertParams);
       }
 
       const res = await fetch('/api/upload/attachment', { method: 'POST', body: formData });
@@ -129,10 +114,9 @@ export function useChatAttachments({ onMediaClick }: UseChatAttachmentsParams) {
     const normalFiles: File[] = [];
 
     for (const file of files) {
-      const heic = isHeicFile(file);
-      const large = isImageFile(file) && file.size > LARGE_IMAGE_SIZE_THRESHOLD;
-      if (heic || large) {
-        preprocessFiles.push({ file, isHeic: heic, isLarge: large });
+      const preprocessInfo = shouldPreprocessImageFile(file);
+      if (preprocessInfo) {
+        preprocessFiles.push({ file, ...preprocessInfo });
       } else {
         normalFiles.push(file);
       }
@@ -154,7 +138,7 @@ export function useChatAttachments({ onMediaClick }: UseChatAttachmentsParams) {
   }, [handleFileUploadMultiple, imagePreprocessPendingFiles]);
 
   const handleImagePreprocessSkip = useCallback(async () => {
-    const nonHeicFiles = imagePreprocessPendingFiles.filter((file) => !isHeicFile(file));
+    const nonHeicFiles = imagePreprocessPendingFiles.filter((file) => !isHeicUploadFile(file));
     if (nonHeicFiles.length > 0) {
       await handleFileUploadMultiple(nonHeicFiles);
     }

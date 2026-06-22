@@ -13,6 +13,8 @@ import { AttachmentPreviewItem } from '@/app/components/canvas-agent-chat/Attach
 import { deriveUploadAttachmentPreview, type ChatAttachment } from '@/app/lib/chat/attachment-preview';
 import { ImagePreprocessDialog } from '@/app/components/shared/ImagePreprocessDialog';
 import type { ConvertParams } from '@/app/components/shared/ImagePreprocessDialog';
+import { isHeicUploadFile, shouldPreprocessImageFile } from '@/app/lib/images/client-preprocess';
+import { prepareImageFilesForUpload, serializeUploadConvertParams } from '@/app/lib/images/client-upload-conversion';
 import { fetchChatAgents } from '@/app/lib/chat/agent-api';
 import { fetchLastActiveAgentId, saveLastActiveAgentId } from '@/app/lib/chat/agent-preferences';
 import { getAgentDisplayName } from '@/app/lib/chat/agent-display';
@@ -112,14 +114,13 @@ export function PromptHero({ licenseLocked = false }: { licenseLocked?: boolean 
     setUploadError(null);
 
     try {
+      const prepared = await prepareImageFilesForUpload(files, convertParams);
       const formData = new FormData();
-      files.forEach((file) => formData.append('file', file));
+      prepared.files.forEach((file) => formData.append('file', file));
 
-      if (convertParams && convertParams.length > 0) {
-        const paramsSerializable = convertParams.map((p) =>
-          p ? { format: p.format, quality: p.quality, maxDimension: p.maxDimension } : null
-        );
-        formData.append('convertParams', JSON.stringify(paramsSerializable));
+      const serializedConvertParams = serializeUploadConvertParams(prepared.convertParams);
+      if (serializedConvertParams) {
+        formData.append('convertParams', serializedConvertParams);
       }
 
       const res = await fetch('/api/upload/attachment', { method: 'POST', body: formData });
@@ -162,18 +163,13 @@ export function PromptHero({ licenseLocked = false }: { licenseLocked?: boolean 
   }, [licenseLocked]);
 
   const preprocessAndUpload = useCallback(async (files: File[]) => {
-    const HEIC_TYPES = new Set(['image/heic', 'image/heif', 'image/heic-sequence']);
-    const HEIC_EXTS = new Set(['heic', 'heif']);
-    const SIZE_THRESHOLD = 1_500_000;
     const preprocessFiles: import('@/app/components/shared/ImagePreprocessDialog').PreprocessFileInfo[] = [];
     const normalFiles: File[] = [];
 
     for (const file of files) {
-      const isHeic = HEIC_TYPES.has(file.type.toLowerCase()) || HEIC_EXTS.has(file.name.split('.').pop()?.toLowerCase() ?? '');
-      const isImage = file.type.startsWith('image/') || HEIC_EXTS.has(file.name.split('.').pop()?.toLowerCase() ?? '');
-      const isLarge = isImage && file.size > SIZE_THRESHOLD;
-      if (isHeic || isLarge) {
-        preprocessFiles.push({ file, isHeic, isLarge });
+      const preprocessInfo = shouldPreprocessImageFile(file);
+      if (preprocessInfo) {
+        preprocessFiles.push({ file, ...preprocessInfo });
       } else {
         normalFiles.push(file);
       }
@@ -195,11 +191,7 @@ export function PromptHero({ licenseLocked = false }: { licenseLocked?: boolean 
   }, [handleFileUploadMultiple, imagePreprocessPendingFiles]);
 
   const handleImagePreprocessSkip = useCallback(async () => {
-    const HEIC_TYPES = new Set(['image/heic', 'image/heif', 'image/heic-sequence']);
-    const HEIC_EXTS = new Set(['heic', 'heif']);
-    const nonHeicFiles = imagePreprocessPendingFiles.filter((f) => {
-      return !HEIC_TYPES.has(f.type.toLowerCase()) && !HEIC_EXTS.has(f.name.split('.').pop()?.toLowerCase() ?? '');
-    });
+    const nonHeicFiles = imagePreprocessPendingFiles.filter((f) => !isHeicUploadFile(f));
     if (nonHeicFiles.length > 0) {
       await handleFileUploadMultiple(nonHeicFiles);
     }
@@ -502,6 +494,7 @@ export function PromptHero({ licenseLocked = false }: { licenseLocked?: boolean 
       files={imagePreprocessFiles ?? []}
       onConfirm={handleImagePreprocessConfirm}
       onSkip={handleImagePreprocessSkip}
+      isProcessing={isUploading}
     />
     </>
   );

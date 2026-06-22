@@ -72,28 +72,30 @@ export async function POST(request: NextRequest) {
     }
     const convertParamsList = parsedConvertParams.params;
 
-    const preparedFiles: Array<{
-      buffer: Buffer;
-      filename: string;
+    const uploadRoot = getUserUploadsStudioRefRoot();
+    await fs.mkdir(uploadRoot, { recursive: true });
+
+    const results: Array<{
+      path: string;
+      name: string;
+      mediaUrl: string;
+      previewUrl: string;
       size: number;
     }> = [];
+    const errors: string[] = [];
 
     for (let i = 0; i < files.length; i += 1) {
       const file = files[i];
       const ext = path.extname(file.name).toLowerCase().replace('.', '');
       const maxFileSize = allowedFileSize(ext);
       if (!maxFileSize) {
-        return NextResponse.json(
-          { success: false, error: `File "${file.name}" is not supported. Allowed: PNG, JPG, JPEG, WebP, BMP, TIFF, GIF, HEIC, HEIF, MP4, MOV, MP3, WAV` },
-          { status: 400 },
-        );
+        errors.push(`File "${file.name}" is not supported. Allowed: PNG, JPG, JPEG, WebP, BMP, TIFF, GIF, HEIC, HEIF, MP4, MOV, MP3, WAV`);
+        continue;
       }
 
       if (file.size > maxFileSize) {
-        return NextResponse.json(
-          { success: false, error: `File "${file.name}" exceeds ${Math.floor(maxFileSize / (1024 * 1024))}MB limit` },
-          { status: 413 },
-        );
+        errors.push(`File "${file.name}" exceeds ${Math.floor(maxFileSize / (1024 * 1024))}MB limit`);
+        continue;
       }
 
       const sanitizedName = sanitizeFilename(file.name);
@@ -111,67 +113,57 @@ export async function POST(request: NextRequest) {
         });
       } catch (err) {
         console.error(`[API] Studio reference image conversion failed for ${file.name}:`, err);
-        return NextResponse.json(
-          { success: false, error: getImageConversionErrorMessage(file.name, err) },
-          { status: 400 },
-        );
+        errors.push(getImageConversionErrorMessage(file.name, err));
+        continue;
       }
 
       const normalizedExt = path.extname(normalized.filename).toLowerCase().replace('.', '');
       const normalizedMaxSize = allowedFileSize(normalizedExt);
       if (!normalizedMaxSize) {
-        return NextResponse.json(
-          { success: false, error: `File "${file.name}" could not be saved as a supported media type` },
-          { status: 400 },
-        );
+        errors.push(`File "${file.name}" could not be saved as a supported media type`);
+        continue;
       }
 
       if (normalized.size > normalizedMaxSize) {
-        return NextResponse.json(
-          { success: false, error: `File "${file.name}" exceeds ${Math.floor(normalizedMaxSize / (1024 * 1024))}MB limit after processing` },
-          { status: 413 },
-        );
+        errors.push(`File "${file.name}" exceeds ${Math.floor(normalizedMaxSize / (1024 * 1024))}MB limit after processing`);
+        continue;
       }
 
-      preparedFiles.push({
-        buffer: normalized.buffer,
-        filename: sanitizeFilename(normalized.filename),
-        size: normalized.size,
-      });
-    }
-
-    const uploadRoot = getUserUploadsStudioRefRoot();
-    await fs.mkdir(uploadRoot, { recursive: true });
-
-    const results: Array<{
-      path: string;
-      name: string;
-      mediaUrl: string;
-      previewUrl: string;
-      size: number;
-    }> = [];
-
-    for (const file of preparedFiles) {
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-      const uniqueName = `${timestamp}-${randomUUID()}-${file.filename}`;
+      const filename = sanitizeFilename(normalized.filename);
+      const uniqueName = `${timestamp}-${randomUUID()}-${filename}`;
       const fullPath = path.join(uploadRoot, uniqueName);
 
-      await fs.writeFile(fullPath, file.buffer);
+      try {
+        await fs.writeFile(fullPath, normalized.buffer);
+      } catch (err) {
+        console.error(`[API] Studio reference upload write failed for ${file.name}:`, err);
+        errors.push(`${file.name}: Upload could not be saved`);
+        continue;
+      }
 
       const relativePath = `user-uploads/studio-references/${uniqueName}`;
       results.push({
         path: relativePath,
-        name: file.filename,
+        name: filename,
         mediaUrl: toMediaUrl(relativePath),
         previewUrl: toPreviewUrl(relativePath, 480),
-        size: file.size,
+        size: normalized.size,
       });
+    }
+
+    if (results.length === 0) {
+      return NextResponse.json(
+        { success: false, error: errors.join('; ') || 'All uploads failed' },
+        { status: 400 },
+      );
     }
 
     return NextResponse.json({
       success: true,
       count: results.length,
       files: results,
+      errors: errors.length > 0 ? errors : undefined,
     });
   } catch (error) {
     console.error('[API] studio/references/upload error:', error);
