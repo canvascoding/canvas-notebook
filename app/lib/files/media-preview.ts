@@ -199,7 +199,7 @@ export async function renderCachedMediaPreview({
   await ensureDir(CACHE_ROOT);
 
   if (!(await fileExists(cacheFile))) {
-    const tmpFile = path.join(CACHE_ROOT, `${cacheKey}.tmp.${format}`);
+    const tmpFile = path.join(CACHE_ROOT, `${cacheKey}-${process.pid}-${crypto.randomUUID()}.tmp.${format}`);
     try {
       await generateThumbnail(inputPath, tmpFile, normalizedExtension, width, format, preset);
       await fs.rename(tmpFile, cacheFile);

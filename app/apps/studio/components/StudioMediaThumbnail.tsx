@@ -2,7 +2,7 @@
 
 /* eslint-disable @next/next/no-img-element */
 
-import { useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { ImageIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -27,6 +27,7 @@ export function StudioMediaThumbnail({
   loading = 'lazy',
   children,
 }: StudioMediaThumbnailProps) {
+  const imageRef = useRef<HTMLImageElement | null>(null);
   const [imageState, setImageState] = useState<{
     src: string | null;
     status: 'loading' | 'loaded' | 'error';
@@ -41,6 +42,16 @@ export function StudioMediaThumbnail({
       ? 'loading'
       : 'error';
 
+  useEffect(() => {
+    const image = imageRef.current;
+    if (!normalizedSrc || !image?.complete) return;
+
+    setImageState({
+      src: normalizedSrc,
+      status: image.naturalWidth > 0 ? 'loaded' : 'error',
+    });
+  }, [normalizedSrc]);
+
   return (
     <div className={cn('relative h-full w-full overflow-hidden bg-muted', className)}>
       {status === 'loading' ? (
@@ -54,6 +65,7 @@ export function StudioMediaThumbnail({
 
       {src && status !== 'error' ? (
         <img
+          ref={imageRef}
           src={src}
           alt={alt}
           className={cn(
