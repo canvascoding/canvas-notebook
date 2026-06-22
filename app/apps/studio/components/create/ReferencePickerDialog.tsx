@@ -21,6 +21,7 @@ import { ImagePreprocessDialog } from '@/app/components/shared/ImagePreprocessDi
 import type { ConvertParams } from '@/app/components/shared/ImagePreprocessDialog';
 import { ImageThumbnailIcon } from '@/app/components/shared/ImageThumbnailIcon';
 import { isHeicUploadFile, shouldPreprocessImageFile } from '@/app/lib/images/client-preprocess';
+import { prepareImageFilesForUpload, serializeUploadConvertParams } from '@/app/lib/images/client-upload-conversion';
 import { ReferenceHoverCard } from './ReferenceHoverCard';
 import { StudioMediaThumbnail } from '../StudioMediaThumbnail';
 
@@ -452,24 +453,27 @@ export function ReferencePickerDialog({ open, onOpenChange, onConfirm, multiple 
       .filter(Boolean) as ImageAsset[];
   }, [assets, mediaKind, selectedPaths, tree]);
 
-  const handleUploadFiles = useCallback(async (files: FileList | null, convertParams?: (ConvertParams | null)[]) => {
-    if (!files || files.length === 0) return;
+  const handleUploadFiles = useCallback(async (files: FileList | File[] | null, convertParams?: (ConvertParams | null)[]) => {
+    const selectedFiles = files ? Array.from(files) : [];
+    if (selectedFiles.length === 0) return;
     setIsUploading(true);
     setError(null);
     try {
+      const prepared = await prepareImageFilesForUpload(selectedFiles, convertParams);
       const formData = new FormData();
-      Array.from(files).forEach((file) => formData.append('files', file, file.name));
-      if (convertParams && convertParams.length > 0) {
-        const serializable = convertParams.map((p) =>
-          p ? { format: p.format, quality: p.quality, maxDimension: p.maxDimension } : null
-        );
-        formData.append('convertParams', JSON.stringify(serializable));
+      prepared.files.forEach((file) => formData.append('files', file, file.name));
+      const serializedConvertParams = serializeUploadConvertParams(prepared.convertParams);
+      if (serializedConvertParams) {
+        formData.append('convertParams', serializedConvertParams);
       }
       const res = await fetch('/api/studio/references/upload', { method: 'POST', body: formData, credentials: 'include' });
       const payload = await res.json();
       if (!res.ok || !payload.success) throw new Error(payload.error || 'Upload failed');
       setTab('studio');
       await loadStudioAssets();
+      if (payload.errors?.length) {
+        setError(t('upload.partialFailure', { errors: payload.errors.join(', ') }));
+      }
       if (payload.files?.length) {
         const newPaths = payload.files.map((f: { path: string }) => f.path);
         setSelectedPaths((prev) => {
@@ -489,7 +493,7 @@ export function ReferencePickerDialog({ open, onOpenChange, onConfirm, multiple 
     } finally {
       setIsUploading(false);
     }
-  }, [multiple, maxSelection, loadStudioAssets]);
+  }, [multiple, maxSelection, loadStudioAssets, t]);
 
   const handleImagePreprocessConfirm = async (convertParams: (ConvertParams | null)[]) => {
     if (imagePreprocessPendingFiles.length === 0) return;
@@ -502,13 +506,12 @@ export function ReferencePickerDialog({ open, onOpenChange, onConfirm, multiple 
     setIsUploading(true);
     setError(null);
     try {
+      const prepared = await prepareImageFilesForUpload(files, uploadConvertParams);
       const formData = new FormData();
-      files.forEach((file) => formData.append('files', file, file.name));
-      if (uploadConvertParams.length > 0) {
-        const serializable = uploadConvertParams.map((p) =>
-          p ? { format: p.format, quality: p.quality, maxDimension: p.maxDimension } : null
-        );
-        formData.append('convertParams', JSON.stringify(serializable));
+      prepared.files.forEach((file) => formData.append('files', file, file.name));
+      const serializedConvertParams = serializeUploadConvertParams(prepared.convertParams);
+      if (serializedConvertParams) {
+        formData.append('convertParams', serializedConvertParams);
       }
       const res = await fetch('/api/studio/references/upload', { method: 'POST', body: formData, credentials: 'include' });
       const payload = await res.json();
@@ -517,6 +520,9 @@ export function ReferencePickerDialog({ open, onOpenChange, onConfirm, multiple 
       setImagePreprocessFiles(null);
       setImagePreprocessPendingFiles([]);
       await loadStudioAssets();
+      if (payload.errors?.length) {
+        setError(t('upload.partialFailure', { errors: payload.errors.join(', ') }));
+      }
       if (payload.files?.length) {
         const newPaths = payload.files.map((f: { path: string }) => f.path);
         setSelectedPaths((prev) => {
@@ -541,9 +547,7 @@ export function ReferencePickerDialog({ open, onOpenChange, onConfirm, multiple 
   const handleImagePreprocessSkip = async () => {
     const filesToUpload = imagePreprocessPendingFiles.filter((f) => !isHeicUploadFile(f));
     if (filesToUpload.length > 0) {
-      const dt = new DataTransfer();
-      filesToUpload.forEach((f) => dt.items.add(f));
-      await handleUploadFiles(dt.files);
+      await handleUploadFiles(filesToUpload);
     }
     setImagePreprocessFiles(null);
     setImagePreprocessPendingFiles([]);
@@ -565,9 +569,7 @@ export function ReferencePickerDialog({ open, onOpenChange, onConfirm, multiple 
       setImagePreprocessPendingFiles(allFiles);
       setImagePreprocessFiles(preprocessList);
     } else if (normalFiles.length > 0) {
-      const dt = new DataTransfer();
-      normalFiles.forEach((f) => dt.items.add(f));
-      await handleUploadFiles(dt.files);
+      await handleUploadFiles(normalFiles);
     }
   }, [handleUploadFiles]);
 

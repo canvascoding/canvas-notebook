@@ -495,7 +495,6 @@ export const useStudioGenerationStore = create<StudioGenerationState>((set) => {
 
   resetAfterGenerate: () =>
     set({
-      rawPrompt: '',
       fileRefs: [],
       videoReferenceRefs: [],
       audioReferenceRefs: [],

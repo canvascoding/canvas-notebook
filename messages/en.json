@@ -1775,10 +1775,13 @@
       "preflightBlockedDescription": "Postgres, pgvector, memory, and disk preflight must pass before automatic Knowledge ingestion or embeddings can run.",
       "blockers": "Blockers",
       "warnings": "Warnings",
+      "requirements": "Requirements",
       "reasonCode": "Reason",
       "changedKeys": "Changed",
       "togglesTitle": "Feature toggles",
       "togglesDescription": "These controls only allow jobs to start. Resource guards remain active even when a feature is enabled.",
+      "featureGatesTitle": "Postgres feature gates",
+      "featureGatesDescription": "Advanced Knowledge, RAG, Graph, and Collaboration capabilities stay blocked until their provider, pgvector, ACL, and dependency gates pass.",
       "logsTitle": "Operational log",
       "logsDescription": "Redacted settings and resource decisions. Document contents, prompts, paths, and secrets are never written here.",
       "logsEmpty": "No Knowledge operational events recorded yet.",
@@ -1786,6 +1789,11 @@
         "available": "Available",
         "degraded": "Degraded",
         "disabled": "Disabled"
+      },
+      "gateStatus": {
+        "available": "Available",
+        "enabled": "Enabled",
+        "blocked": "Blocked"
       },
       "profiles": {
         "disabled": "Disabled profile",
@@ -1825,6 +1833,18 @@
           "label": "Embedding indexing",
           "description": "Generate embeddings only after scan, ACL, Postgres, and pgvector gates pass."
         },
+        "ragRetrievalEnabled": {
+          "label": "RAG retrieval",
+          "description": "Allow retrieval-augmented answers only when Postgres, pgvector, scope filters, and source rechecks are ready."
+        },
+        "knowledgeGraphEnabled": {
+          "label": "Knowledge Graph",
+          "description": "Prepare graph entities and relations only from source-referenced Knowledge data under Postgres gates."
+        },
+        "liveCollaborationEnabled": {
+          "label": "Live text collaboration",
+          "description": "Allow live Markdown/Text collaboration only for team instances with Postgres-backed revision and presence state."
+        },
         "remoteParsingEnabled": {
           "label": "Remote parsing",
           "description": "Allow remote parser providers. This stays off by default because documents leave the VM."
@@ -1852,6 +1872,28 @@
         "minimumFreeMemoryMb": {
           "label": "Minimum free memory (MB)",
           "description": "Jobs are degraded or deferred when free memory falls below this guard."
+        }
+      },
+      "featureGates": {
+        "knowledge_auto_ingestion": {
+          "label": "Knowledge auto-ingestion",
+          "description": "Requires Postgres, pgvector, resource budget, source policy, secret/PII scan, and ACL metadata before background ingestion can run."
+        },
+        "embedding_indexing": {
+          "label": "Embedding indexing",
+          "description": "Requires active Knowledge ingestion, clean or redacted chunks, source ACL metadata, Postgres, and pgvector."
+        },
+        "rag_retrieval": {
+          "label": "RAG retrieval",
+          "description": "Requires Knowledge ingestion, embedding indexing, retrieval scope filters, source ACL rechecks, citations, Postgres, and pgvector."
+        },
+        "knowledge_graph": {
+          "label": "Knowledge Graph",
+          "description": "Requires source-referenced Knowledge metadata in Postgres so graph nodes cannot bypass workspace permissions."
+        },
+        "live_collaboration": {
+          "label": "Live collaboration",
+          "description": "Requires team features and Postgres-backed revision, presence, and agent write guards before CRDT collaboration can be enabled."
         }
       },
       "errors": {
@@ -3816,7 +3858,8 @@
         "hint": "Upload images to use as references for studio generations.",
         "selectFiles": "Select files",
         "dragHint": "Or drag & drop files anywhere on this dialog.",
-        "dropHere": "Drop files to upload"
+        "dropHere": "Drop files to upload",
+        "partialFailure": "Some files could not be uploaded: {errors}"
       },
       "urlTabTitle": "Load image from URL",
       "urlTabDescription": "Enter an image URL. The image will be downloaded and saved as a reference.",

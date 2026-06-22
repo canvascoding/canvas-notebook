@@ -1231,6 +1231,7 @@ export default function CanvasAgentChat({
         files={imagePreprocessFiles ?? []}
         onConfirm={handleImagePreprocessConfirm}
         onSkip={handleImagePreprocessSkip}
+        isProcessing={isUploading}
       />
     </div>
   );

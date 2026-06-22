@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { recordAuditEvent } from '@/app/lib/audit/audit-service';
 import { auth } from '@/app/lib/auth';
-import { createStudioGeneration, runStudioGeneration, type StudioGenerateRequest } from '@/app/lib/integrations/studio-generation-service';
+import { createStudioGeneration, type StudioGenerateRequest } from '@/app/lib/integrations/studio-generation-service';
+import { assertStudioGenerationQueueCapacity, enqueueStudioGeneration } from '@/app/lib/integrations/studio-generation-queue';
 import { StudioServiceError } from '@/app/lib/integrations/studio-errors';
 import { IntegrationServiceError } from '@/app/lib/integrations/integration-service-error';
 
@@ -25,10 +26,9 @@ export async function POST(request: NextRequest) {
   }
 
   try {
+    await assertStudioGenerationQueueCapacity(session.user.id);
     const { generationId, mode, prompt } = await createStudioGeneration(session.user.id, body);
-    runStudioGeneration(generationId).catch((err) => {
-      console.error('[Studio Generate] Background generation failed:', err);
-    });
+    const queueStatus = enqueueStudioGeneration(generationId);
     await recordAuditEvent({
       userId: session.user.id,
       source: 'studio',
@@ -61,10 +61,12 @@ export async function POST(request: NextRequest) {
       mode,
       prompt,
       outputs: [],
+      queuePosition: queueStatus.queuePosition,
+      queueLength: queueStatus.queueLength,
     }, { status: 201 });
   } catch (error) {
     if (error instanceof StudioServiceError) {
-      return NextResponse.json({ success: false, error: error.userMessage }, { status: 400 });
+      return NextResponse.json({ success: false, error: error.userMessage }, { status: error.code === 'RATE_LIMIT' ? 429 : 400 });
     }
     if (error instanceof IntegrationServiceError) {
       return NextResponse.json({ success: false, error: error.message }, { status: error.statusCode >= 400 && error.statusCode < 500 ? error.statusCode : 400 });

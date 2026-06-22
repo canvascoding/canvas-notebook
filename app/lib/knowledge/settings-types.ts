@@ -1,6 +1,13 @@
 export type KnowledgeResourceProfile = 'disabled' | 'low' | 'standard' | 'large';
 export type KnowledgeResourceAvailability = 'available' | 'degraded' | 'disabled';
 export type KnowledgeParserAvailability = 'available' | 'disabled' | 'missing' | 'not_checked';
+export type KnowledgeFeatureGateKey =
+  | 'knowledge_auto_ingestion'
+  | 'embedding_indexing'
+  | 'rag_retrieval'
+  | 'knowledge_graph'
+  | 'live_collaboration';
+export type KnowledgeFeatureGateStatus = 'available' | 'enabled' | 'blocked';
 
 export interface KnowledgeParsingSettings {
   knowledgeAutoIngestionEnabled: boolean;
@@ -8,6 +15,9 @@ export interface KnowledgeParsingSettings {
   doclingEnabled: boolean;
   ocrEnabled: boolean;
   embeddingIndexingEnabled: boolean;
+  ragRetrievalEnabled: boolean;
+  knowledgeGraphEnabled: boolean;
+  liveCollaborationEnabled: boolean;
   remoteParsingEnabled: boolean;
   maxConcurrentHeavyJobs: number;
   maxDocumentSizeMb: number;
@@ -17,6 +27,18 @@ export interface KnowledgeParsingSettings {
   minimumFreeMemoryMb: number;
   updatedAt: string | null;
   updatedByUserId: string | null;
+}
+
+export interface KnowledgeFeatureGate {
+  key: KnowledgeFeatureGateKey;
+  enabled: boolean;
+  available: boolean;
+  status: KnowledgeFeatureGateStatus;
+  requiresPostgres: boolean;
+  requiresPgvector: boolean;
+  blockers: string[];
+  warnings: string[];
+  requirements: string[];
 }
 
 export interface KnowledgeResourceStatus {
@@ -51,6 +73,7 @@ export interface KnowledgeResourceStatus {
   canEnableKnowledge: boolean;
   blockers: string[];
   warnings: string[];
+  featureGates: KnowledgeFeatureGate[];
   checkedAt: string;
 }
 

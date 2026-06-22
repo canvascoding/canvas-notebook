@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { cn } from '@/lib/utils';
 import { toPreviewUrl } from '@/app/lib/utils/media-url';
 import { ChevronLeft, ChevronRight, Trash2 } from 'lucide-react';
@@ -80,6 +80,14 @@ function PreviewImage({
   fallbackIcon: React.ReactNode;
 }) {
   const [imageStatus, setImageStatus] = useState<'loading' | 'loaded' | 'error'>('loading');
+  const imageRef = useRef<HTMLImageElement | null>(null);
+
+  useEffect(() => {
+    const image = imageRef.current;
+    if (!image?.complete) return;
+
+    setImageStatus(image.naturalWidth > 0 ? 'loaded' : 'error');
+  }, [previewUrl]);
 
   if (imageStatus === 'error') {
     return (
@@ -94,13 +102,14 @@ function PreviewImage({
       {imageStatus === 'loading' ? <PreviewImageSkeleton /> : null}
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
+        ref={imageRef}
         src={previewUrl}
         alt={name}
         className={cn(
           'relative z-[1] block h-auto max-h-[min(52dvh,360px)] w-auto max-w-full object-contain transition-opacity duration-300',
           imageStatus === 'loaded' ? 'opacity-100' : 'opacity-0',
         )}
-        loading="lazy"
+        loading="eager"
         decoding="async"
         onLoad={() => setImageStatus('loaded')}
         onError={() => setImageStatus('error')}

@@ -73,7 +73,7 @@ async function main() {
 
   try {
     const { db } = await import('../app/lib/db');
-    const { knowledgeChunks, knowledgeSources, user, canvasOrganizationSettings, canvasWorkspaces } = await import('../app/lib/db/schema');
+    const { knowledgeChunks, knowledgeSources, user, canvasOrganizationSettings, canvasProjects, canvasWorkspaces } = await import('../app/lib/db/schema');
     const {
       knowledgeRetrievalCondition,
       knowledgeSourceScopeForWorkspace,
@@ -93,11 +93,21 @@ async function main() {
       createdAt: now,
       updatedAt: now,
     });
+    await db.insert(canvasProjects).values({
+      id: 'project-hidden',
+      organizationId: 'org-a',
+      name: 'Hidden Project',
+      slug: 'hidden-project',
+      status: 'active',
+      createdByUserId: 'user-a',
+      createdAt: now,
+      updatedAt: now,
+    });
     await db.insert(canvasWorkspaces).values([
       { id: 'ws-personal-a', organizationId: 'org-a', type: 'personal', ownerUserId: 'user-a', rootRelativePath: 'workspaces/personal/user-a/files', displayName: 'A', status: 'active', createdAt: now, updatedAt: now },
       { id: 'ws-personal-b', organizationId: 'org-a', type: 'personal', ownerUserId: 'user-b', rootRelativePath: 'workspaces/personal/user-b/files', displayName: 'B', status: 'active', createdAt: now, updatedAt: now },
       { id: 'ws-team-a', organizationId: 'org-a', type: 'team', ownerUserId: null, rootRelativePath: 'workspaces/team/org-a/files', displayName: 'Team', status: 'active', createdAt: now, updatedAt: now },
-      { id: 'ws-team-hidden', organizationId: 'org-a', type: 'project', ownerUserId: null, rootRelativePath: 'workspaces/project/hidden/files', displayName: 'Hidden', status: 'active', createdAt: now, updatedAt: now },
+      { id: 'ws-team-hidden', organizationId: 'org-a', type: 'project', ownerUserId: null, projectId: 'project-hidden', rootRelativePath: 'workspaces/project/hidden/files', displayName: 'Hidden', status: 'active', createdAt: now, updatedAt: now },
     ]);
 
     const personalWorkspace = workspace({
