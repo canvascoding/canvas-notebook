@@ -22,6 +22,10 @@ import {
   type KnowledgeResourceProfile,
   type KnowledgeResourceStatus,
 } from '@/app/lib/knowledge/settings-types';
+import {
+  collectEnabledKnowledgeFeatureGateBlockers,
+  resolveKnowledgeFeatureGates,
+} from '@/app/lib/knowledge/feature-gates';
 
 const SETTINGS_FILE = 'knowledge-parsing-settings.json';
 const LOG_FILE = 'knowledge-operational.jsonl';
@@ -47,6 +51,9 @@ const DEFAULT_KNOWLEDGE_SETTINGS: KnowledgeParsingSettings = {
   doclingEnabled: false,
   ocrEnabled: false,
   embeddingIndexingEnabled: false,
+  ragRetrievalEnabled: false,
+  knowledgeGraphEnabled: false,
+  liveCollaborationEnabled: false,
   remoteParsingEnabled: false,
   maxConcurrentHeavyJobs: 1,
   maxDocumentSizeMb: 25,
@@ -64,6 +71,9 @@ const BOOLEAN_SETTING_KEYS = [
   'doclingEnabled',
   'ocrEnabled',
   'embeddingIndexingEnabled',
+  'ragRetrievalEnabled',
+  'knowledgeGraphEnabled',
+  'liveCollaborationEnabled',
   'remoteParsingEnabled',
 ] as const;
 
@@ -210,7 +220,7 @@ export async function resolveKnowledgeResourceStatus(
   const availability = availabilityFor(blockers, warnings, profile);
   const canEnableKnowledge = blockers.length === 0 && profile !== 'disabled';
 
-  return {
+  const baseStatus: Omit<KnowledgeResourceStatus, 'featureGates'> = {
     availability,
     resourceProfile: profile,
     databaseProvider,
@@ -245,6 +255,14 @@ export async function resolveKnowledgeResourceStatus(
     blockers,
     warnings,
     checkedAt: new Date().toISOString(),
+  };
+  return {
+    ...baseStatus,
+    featureGates: resolveKnowledgeFeatureGates({
+      settings,
+      resourceStatus: baseStatus,
+      state,
+    }),
   };
 }
 
@@ -331,6 +349,7 @@ function collectChanges(
 function validateKnowledgeSettingsUpdate(
   next: KnowledgeParsingSettings,
   resourceStatus: KnowledgeResourceStatus,
+  state?: OrganizationPermissionState | null,
 ): string[] {
   const errors: string[] = [];
   if ((next.doclingEnabled || next.ocrEnabled) && !next.heavyDocumentParsingEnabled) {
@@ -345,6 +364,11 @@ function validateKnowledgeSettingsUpdate(
   if (next.heavyDocumentParsingEnabled && resourceStatus.memory.totalMb !== null && resourceStatus.memory.totalMb < MIN_ENABLE_MEMORY_MB) {
     errors.push('memory_below_2gb');
   }
+  errors.push(...collectEnabledKnowledgeFeatureGateBlockers(resolveKnowledgeFeatureGates({
+    settings: next,
+    resourceStatus,
+    state,
+  })));
   return Array.from(new Set(errors));
 }
 
@@ -380,7 +404,7 @@ export async function updateKnowledgeParsingSettings(input: {
   const changes = collectChanges(current.settings, next);
   const changedKeys = Object.keys(changes);
   const resourceStatus = await resolveKnowledgeResourceStatus(next, input.state);
-  const errors = validateKnowledgeSettingsUpdate(next, resourceStatus);
+  const errors = validateKnowledgeSettingsUpdate(next, resourceStatus, input.state);
   if (errors.length > 0) {
     const logEntry: KnowledgeOperationalLogEntry = {
       timestamp: new Date().toISOString(),

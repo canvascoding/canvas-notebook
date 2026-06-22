@@ -24,6 +24,7 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import type {
   KnowledgeOperationalLogEntry,
+  KnowledgeFeatureGate,
   KnowledgeParsingSettings,
   KnowledgeSettingsResponse,
 } from '@/app/lib/knowledge/settings-types';
@@ -34,6 +35,9 @@ const BOOLEAN_SETTING_KEYS = [
   'doclingEnabled',
   'ocrEnabled',
   'embeddingIndexingEnabled',
+  'ragRetrievalEnabled',
+  'knowledgeGraphEnabled',
+  'liveCollaborationEnabled',
   'remoteParsingEnabled',
 ] as const;
 
@@ -62,6 +66,13 @@ function availabilityVariant(availability: string): 'default' | 'secondary' | 'd
 function logLevelVariant(level: KnowledgeOperationalLogEntry['level']): 'default' | 'secondary' | 'destructive' | 'outline' {
   if (level === 'error') return 'destructive';
   if (level === 'warn') return 'secondary';
+  return 'outline';
+}
+
+function gateVariant(status: KnowledgeFeatureGate['status']): 'default' | 'secondary' | 'destructive' | 'outline' {
+  if (status === 'enabled') return 'default';
+  if (status === 'blocked') return 'destructive';
+  if (status === 'available') return 'secondary';
   return 'outline';
 }
 
@@ -263,6 +274,36 @@ export function KnowledgeSettingsPanel() {
               {t('save')}
             </Button>
           </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="px-4 sm:px-6">
+          <div className="flex items-center gap-2">
+            <Database className="h-5 w-5 text-muted-foreground" />
+            <CardTitle>{t('featureGatesTitle')}</CardTitle>
+          </div>
+          <CardDescription>{t('featureGatesDescription')}</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3 px-4 pb-4 sm:px-6 sm:pb-6">
+          {status.featureGates.map((gate) => (
+            <div key={gate.key} className="rounded-md border border-border p-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge variant={gateVariant(gate.status)}>{t(`gateStatus.${gate.status}`)}</Badge>
+                <span className="text-sm font-medium">{t(`featureGates.${gate.key}.label`)}</span>
+                {gate.requiresPostgres && <Badge variant="outline">Postgres</Badge>}
+                {gate.requiresPgvector && <Badge variant="outline">pgvector</Badge>}
+              </div>
+              <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+                {t(`featureGates.${gate.key}.description`)}
+              </p>
+              <div className="mt-3 grid gap-3 md:grid-cols-3">
+                <StatusList title={t('requirements')} items={gate.requirements} empty={t('none')} />
+                <StatusList title={t('blockers')} items={gate.blockers} empty={t('none')} destructive />
+                <StatusList title={t('warnings')} items={gate.warnings} empty={t('none')} />
+              </div>
+            </div>
+          ))}
         </CardContent>
       </Card>
 

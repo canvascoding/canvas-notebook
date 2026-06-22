@@ -861,12 +861,32 @@
     {
       "id": 43,
       "title": "RAG, Embeddings, Knowledge Graph und echte Collaboration an Postgres/pgvector-Gates binden",
-      "status": "pending",
+      "status": "completed",
       "repo": "canvasstudios-notebook",
       "planningArtifacts": [
         "docs/architecture/canvas-notebook/team-workspace/12-knowledge-ingestion-retrieval-policy.md",
         "docs/architecture/canvas-notebook/team-workspace/17-database-provider-postgres-rag-collaboration-policy.md",
         "docs/architecture/canvas-notebook/team-workspace/18-collaboration-and-file-conflict-policy.md"
+      ],
+      "implementationArtifacts": [
+        "app/lib/knowledge/feature-gates.ts",
+        "app/lib/knowledge/settings-types.ts",
+        "app/lib/knowledge/settings-service.ts",
+        "app/api/admin/knowledge-settings/route.ts",
+        "app/components/settings/KnowledgeSettingsPanel.tsx",
+        "messages/en.json",
+        "messages/de.json",
+        "scripts/knowledge-feature-gates-test.ts",
+        "scripts/knowledge-settings-test.ts"
+      ],
+      "verification": [
+        "npm run test:knowledge:gates",
+        "npm run test:knowledge:settings",
+        "npm run test:knowledge:retrieval-scope",
+        "npm run test:db:provider",
+        "npx tsc --noEmit --pretty false",
+        "npm run lint",
+        "npm run build"
       ]
     },
     {

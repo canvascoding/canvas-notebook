@@ -1774,16 +1774,25 @@
       "preflightBlockedDescription": "Postgres, pgvector, Arbeitsspeicher und Speicherplatz müssen den Preflight bestehen, bevor automatische Knowledge-Ingestion oder Embeddings laufen dürfen.",
       "blockers": "Blocker",
       "warnings": "Warnungen",
+      "requirements": "Voraussetzungen",
       "reasonCode": "Grund",
       "changedKeys": "Geändert",
       "togglesTitle": "Feature-Schalter",
       "togglesDescription": "Diese Schalter erlauben nur den Start von Jobs. Resource-Guards bleiben auch bei aktivierten Features aktiv.",
+      "featureGatesTitle": "Postgres Feature-Gates",
+      "featureGatesDescription": "Advanced Knowledge, RAG, Graph und Collaboration bleiben blockiert, bis Provider-, pgvector-, ACL- und Dependency-Gates bestanden sind.",
       "logsTitle": "Operational Log",
       "logsDescription": "Redacted Settings- und Resource-Entscheidungen. Dokumentinhalte, Prompts, Pfade und Secrets werden hier nie gespeichert.",
       "logsEmpty": "Noch keine Knowledge-Operational-Events aufgezeichnet.",
       "availability": {
         "available": "Verfügbar",
         "degraded": "Eingeschränkt",
+        "disabled": "Deaktiviert"
+      },
+      "gateStatus": {
+        "available": "Verfügbar",
+        "enabled": "Aktiv",
+        "blocked": "Blockiert",
         "disabled": "Deaktiviert"
       },
       "profiles": {
@@ -1824,6 +1833,18 @@
           "label": "Embedding Indexing",
           "description": "Embeddings nur erzeugen, wenn Scan, ACL, Postgres und pgvector-Gates bestanden sind."
         },
+        "ragRetrievalEnabled": {
+          "label": "RAG Retrieval",
+          "description": "Retrieval-augmented Antworten nur erlauben, wenn Postgres, pgvector, Scope-Filter und Source-Rechecks bereit sind."
+        },
+        "knowledgeGraphEnabled": {
+          "label": "Knowledge Graph",
+          "description": "Graph-Entities und Relations nur aus quellreferenzierten Knowledge-Daten unter Postgres-Gates vorbereiten."
+        },
+        "liveCollaborationEnabled": {
+          "label": "Live Text Collaboration",
+          "description": "Live Collaboration für Markdown/Text nur für Team-Instanzen mit Postgres-basierten Revisionen und Presence-State erlauben."
+        },
         "remoteParsingEnabled": {
           "label": "Remote Parsing",
           "description": "Remote Parser Provider erlauben. Bleibt standardmäßig aus, weil Dokumente die VM verlassen."
@@ -1851,6 +1872,28 @@
         "minimumFreeMemoryMb": {
           "label": "Minimal freier Speicher (MB)",
           "description": "Jobs werden degradiert oder deferred, wenn der freie Speicher unter diesen Guard fällt."
+        }
+      },
+      "featureGates": {
+        "knowledge_auto_ingestion": {
+          "label": "Knowledge Auto-Ingestion",
+          "description": "Benötigt Postgres, pgvector, Resource-Budget, Source-Policy, Secret-/PII-Scan und ACL-Metadaten, bevor Background-Ingestion laufen darf."
+        },
+        "embedding_indexing": {
+          "label": "Embedding Indexing",
+          "description": "Benötigt aktive Knowledge-Ingestion, saubere oder redacted Chunks, Source-ACL-Metadaten, Postgres und pgvector."
+        },
+        "rag_retrieval": {
+          "label": "RAG Retrieval",
+          "description": "Benötigt Knowledge-Ingestion, Embedding Indexing, Retrieval-Scope-Filter, Source-ACL-Rechecks, Quellenangaben, Postgres und pgvector."
+        },
+        "knowledge_graph": {
+          "label": "Knowledge Graph",
+          "description": "Benötigt quellreferenzierte Knowledge-Metadaten in Postgres, damit Graph-Knoten keine Workspace-Rechte umgehen."
+        },
+        "live_collaboration": {
+          "label": "Live Collaboration",
+          "description": "Benötigt Team-Features und Postgres-basierte Revision-, Presence- und Agent-Write-Guards, bevor CRDT-Collaboration aktiviert werden kann."
         }
       },
       "errors": {
