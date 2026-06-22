@@ -99,6 +99,9 @@ grep -q 'requires CANVAS_DATABASE_PROVIDER=postgres' "$TMP_DIR/team-sqlite.txt"
 "$cli" config-set env.CANVAS_DATABASE_PROVIDER postgres --no-banner > /dev/null
 "$cli" env --sync --no-banner > /dev/null
 grep -q '^COMPOSE_PROFILES=postgres$' "$CANVAS_COMPOSE_ENV"
+: > "$CANVAS_TEST_COMPOSE_LOG"
+"$cli" restart --no-banner > "$TMP_DIR/restart-postgres.txt"
+grep -q 'up -d --force-recreate' "$CANVAS_TEST_COMPOSE_LOG"
 
 grep -q 'canvas-notebook-postgres' "$CANVAS_COMPOSE_FILE"
 grep -q 'condition: service_healthy' "$CANVAS_COMPOSE_FILE"

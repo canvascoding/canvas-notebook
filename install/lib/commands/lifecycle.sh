@@ -14,7 +14,7 @@ cmd_restart() {
   migrate_compose_file
   config_json_to_env
   ensure_env_file
-  run_compose restart "$SERVICE"
+  run_compose up -d --force-recreate
   wait_until_healthy
 }
 
