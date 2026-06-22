@@ -87,6 +87,10 @@ async function main() {
       getFullBackupJob,
       inspectFullBackupArchive,
     } = await import('../app/lib/backups/full-backup-service');
+    const {
+      serializeFullBackupInspection,
+      serializeFullBackupJob,
+    } = await import('../app/lib/backups/serialize');
 
     const job = await createFullBackupJob({
       source: {
@@ -98,6 +102,9 @@ async function main() {
     });
     const completed = await waitForBackup(getFullBackupJob, job.id);
     assert.ok(completed.filePath);
+    const completedJob = await getFullBackupJob(job.id);
+    assert.ok(completedJob);
+    assert.equal('filePath' in serializeFullBackupJob(completedJob), false);
 
     const entries = await unzipList(completed.filePath);
     assert.ok(entries.includes('manifest.json'));
@@ -136,6 +143,7 @@ async function main() {
     assert.equal(inspection.backupId, job.id);
     assert.equal(inspection.sourceDatabaseProvider, 'sqlite');
     assert.ok(inspection.warnings.some((warning) => warning.includes('unencrypted')));
+    assert.equal('archivePath' in serializeFullBackupInspection(inspection), false);
 
     const lockPath = path.join(dataRoot, 'system', 'backups', '.full-backup.lock');
     await writeFile(lockPath, '{}\n');

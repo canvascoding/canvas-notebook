@@ -5,19 +5,9 @@ import {
   createFullBackupJob,
   listFullBackupJobs,
 } from '@/app/lib/backups/full-backup-service';
-import type { FullBackupJob } from '@/app/lib/backups/types';
+import { serializeFullBackupJob } from '@/app/lib/backups/serialize';
 import { requireFullBackupPermission } from '@/app/lib/migration/auth';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
-
-function serializeBackupJob(job: FullBackupJob) {
-  const safeJob = { ...job } as FullBackupJob & { filePath?: string };
-  delete safeJob.filePath;
-  return {
-    ...safeJob,
-    downloadUrl: job.status === 'completed' ? `/api/admin/backups/${job.id}/download` : null,
-    inspectUrl: job.status === 'completed' ? `/api/admin/backups/${job.id}/inspect` : null,
-  };
-}
 
 export async function GET(request: NextRequest) {
   const admin = await requireFullBackupPermission(request);
@@ -31,7 +21,7 @@ export async function GET(request: NextRequest) {
   if (!limited.ok) return limited.response;
 
   const jobs = await listFullBackupJobs();
-  return NextResponse.json({ success: true, jobs: jobs.map(serializeBackupJob) });
+  return NextResponse.json({ success: true, jobs: jobs.map(serializeFullBackupJob) });
 }
 
 export async function POST(request: NextRequest) {
@@ -74,7 +64,7 @@ export async function POST(request: NextRequest) {
         unencryptedArchive: true,
       },
     });
-    return NextResponse.json({ success: true, job: serializeBackupJob(job) });
+    return NextResponse.json({ success: true, job: serializeFullBackupJob(job) });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to create full backup.';
     return NextResponse.json({ success: false, error: message }, { status: 409 });

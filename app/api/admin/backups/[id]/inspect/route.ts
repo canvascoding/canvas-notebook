@@ -4,6 +4,7 @@ import {
   getFullBackupJob,
   inspectFullBackupArchive,
 } from '@/app/lib/backups/full-backup-service';
+import { serializeFullBackupInspection } from '@/app/lib/backups/serialize';
 import { requireMigrationRestorePermission } from '@/app/lib/migration/auth';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 
@@ -28,5 +29,5 @@ export async function GET(
   }
 
   const inspection = await inspectFullBackupArchive(job.filePath);
-  return NextResponse.json({ success: true, inspection });
+  return NextResponse.json({ success: true, inspection: serializeFullBackupInspection(inspection) });
 }

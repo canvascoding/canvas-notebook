@@ -3,7 +3,7 @@ import 'server-only';
 import crypto from 'crypto';
 import { execFile } from 'child_process';
 import path from 'path';
-import { createReadStream, createWriteStream, promises as fs } from 'fs';
+import { createReadStream, createWriteStream, promises as fs, type WriteStream } from 'fs';
 import { promisify } from 'util';
 import Database from 'better-sqlite3';
 import ZipStream from 'zip-stream';
@@ -393,6 +393,9 @@ async function runFullBackup(job: FullBackupJob, releaseLock: () => Promise<void
   const backupDir = getBackupDir(job.id);
   const archivePath = path.join(backupDir, job.fileName);
   let lastStatusWrite = 0;
+  let archive: ZipArchive | null = null;
+  let output: WriteStream | null = null;
+  let outputFinished: Promise<void> | null = null;
 
   const persist = async (force = false) => {
     const now = Date.now();
@@ -430,29 +433,31 @@ async function runFullBackup(job: FullBackupJob, releaseLock: () => Promise<void
     job.phase = 'Writing archive';
     await persist(true);
 
-    const archive = new ZipStream({ level: 1, forceZip64: true });
-    const output = createWriteStream(archivePath, { mode: 0o600 });
-    archive.pipe(output);
+    const zipArchive = new ZipStream({ level: 1, forceZip64: true });
+    const archiveOutput = createWriteStream(archivePath, { mode: 0o600 });
+    archive = zipArchive;
+    output = archiveOutput;
+    zipArchive.pipe(archiveOutput);
 
-    const outputFinished = new Promise<void>((resolve, reject) => {
-      output.on('close', resolve);
-      output.on('error', reject);
-      archive.on('error', reject);
+    outputFinished = new Promise<void>((resolve, reject) => {
+      archiveOutput.on('close', resolve);
+      archiveOutput.on('error', reject);
+      zipArchive.on('error', reject);
     });
 
-    await addZipEntry(archive, `${JSON.stringify(manifest, null, 2)}\n`, { name: 'manifest.json' });
+    await addZipEntry(zipArchive, `${JSON.stringify(manifest, null, 2)}\n`, { name: 'manifest.json' });
     for (const entry of files) {
       const stats = await fs.stat(entry.filePath);
       const stream = createCountingStream(entry.filePath, (bytes) => {
         job.progress.bytesProcessed += bytes;
         void persist();
       });
-      await addZipEntry(archive, stream, { name: entry.archivePath, stats });
+      await addZipEntry(zipArchive, stream, { name: entry.archivePath, stats });
       job.progress.filesProcessed++;
       await persist();
     }
 
-    archive.finish();
+    zipArchive.finish();
     await outputFinished;
     await fs.chmod(archivePath, 0o600).catch(() => undefined);
 
@@ -464,6 +469,12 @@ async function runFullBackup(job: FullBackupJob, releaseLock: () => Promise<void
     job.progress.filesProcessed = job.progress.fileCount;
     await persist(true);
   } catch (error) {
+    archive?.destroy(error instanceof Error ? error : undefined);
+    output?.destroy();
+    await outputFinished?.catch(() => undefined);
+    await fs.rm(archivePath, { force: true }).catch(() => undefined);
+    delete job.filePath;
+    delete job.archiveSha256;
     job.status = 'failed';
     job.phase = 'Failed';
     job.error = error instanceof Error ? error.message : 'Full backup failed';
