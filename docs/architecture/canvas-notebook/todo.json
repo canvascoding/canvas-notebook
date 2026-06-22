@@ -777,7 +777,7 @@
     {
       "id": 40,
       "title": "Control Plane VM-Provisioning um Postgres/pgvector-Service, DB-ENV und DB-Secrets fuer Teamplaene erweitern",
-      "status": "pending",
+      "status": "completed",
       "repo": "canvas-control-plane",
       "planningArtifacts": [
         "docs/architecture/canvas-notebook/team-workspace/00-full-plan.md",
@@ -794,7 +794,7 @@
     {
       "id": 41,
       "title": "SQLite-zu-Postgres-Migrationstool mit Maintenance Mode, Snapshot, Referenzpruefung und Reindex-Status bauen",
-      "status": "pending",
+      "status": "completed",
       "repo": "cross-repo",
       "planningArtifacts": [
         "docs/architecture/canvas-notebook/team-workspace/09-initial-setup-and-update-migration.md",
@@ -807,6 +807,24 @@
         "../canvas-control-plane/packages/agent/src/ws-client.ts",
         "../canvas-control-plane/apps/web/src/components/vm/maintenance-tab.tsx",
         "../canvas-control-plane/apps/web/src/app/dashboard/vms/[id]/page.tsx"
+      ],
+      "implementationArtifacts": [
+        "../canvas-control-plane/apps/api/src/db/schema.ts",
+        "../canvas-control-plane/apps/api/src/routes/databaseMigration.ts",
+        "../canvas-control-plane/apps/api/src/services/databaseMigration.ts",
+        "../canvas-control-plane/apps/api/src/services/agentArtifacts.ts",
+        "../canvas-control-plane/apps/api/src/sockets/agentHandler.ts",
+        "../canvas-control-plane/packages/agent/src/ws-client.ts",
+        "../canvas-control-plane/apps/web/src/components/vm/database-migration-tab.tsx",
+        "../canvas-control-plane/apps/web/src/app/dashboard/vms/[id]/page.tsx",
+        "../canvas-control-plane/apps/web/src/lib/api.ts",
+        "../canvas-control-plane/apps/api/drizzle/0046_lovely_molten_man.sql"
+      ],
+      "verification": [
+        "npm run typecheck",
+        "npm run build:web",
+        "npm run build:api",
+        "npm run build:agent"
       ]
     },
     {
