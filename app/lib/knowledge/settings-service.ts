@@ -234,7 +234,7 @@ export async function resolveKnowledgeResourceStatus(
     },
     parser: {
       docling: settings.doclingEnabled ? 'not_checked' : 'disabled',
-      ocr: settings.ocrEnabled ? 'available' : 'disabled',
+      ocr: settings.ocrEnabled ? 'not_checked' : 'disabled',
       embeddings: settings.embeddingIndexingEnabled
         ? (postgresReady && pgvectorReady ? 'available' : 'requires_postgres')
         : 'disabled',

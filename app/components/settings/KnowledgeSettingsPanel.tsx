@@ -114,7 +114,7 @@ export function KnowledgeSettingsPanel() {
   };
 
   const updateNumber = (key: NumberSettingKey, value: string) => {
-    const parsed = Number(value);
+    const parsed = value.trim() === '' ? NaN : Number(value);
     setDraft((current) => current ? { ...current, [key]: Number.isFinite(parsed) ? parsed : current[key] } : current);
   };
 

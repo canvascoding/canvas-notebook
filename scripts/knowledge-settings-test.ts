@@ -65,8 +65,9 @@ async function main() {
     assert.equal(sqliteStatus.canEnableKnowledge, false);
     assert.ok(sqliteStatus.blockers.includes('requires_postgres'));
 
-    const doclingStatus = await resolveKnowledgeResourceStatus({ ...defaults, doclingEnabled: true }, sqliteState);
+    const doclingStatus = await resolveKnowledgeResourceStatus({ ...defaults, doclingEnabled: true, ocrEnabled: true }, sqliteState);
     assert.equal(doclingStatus.parser.docling, 'not_checked');
+    assert.equal(doclingStatus.parser.ocr, 'not_checked');
 
     await assert.rejects(
       () => updateKnowledgeParsingSettings({

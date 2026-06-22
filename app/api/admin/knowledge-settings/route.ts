@@ -28,6 +28,7 @@ const SETTING_KEYS = [
   'perFileTimeoutSeconds',
   'minimumFreeMemoryMb',
 ] as const;
+const POLICY_BLOCK_ERROR_PREFIX = 'Knowledge settings update blocked:';
 
 function extractSettingsPatch(payload: PatchPayload): Record<string, unknown> {
   const source = payload.settings && typeof payload.settings === 'object' && !Array.isArray(payload.settings)
@@ -136,6 +137,8 @@ export async function PATCH(request: NextRequest) {
       },
     });
   } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to update Knowledge settings.';
+    const isPolicyBlock = message.startsWith(POLICY_BLOCK_ERROR_PREFIX);
     await recordAuditEvent({
       organizationId: admin.state.organizationId,
       userId: admin.session.user.id,
@@ -144,13 +147,18 @@ export async function PATCH(request: NextRequest) {
       entityType: 'knowledge_settings',
       entityId: admin.state.organizationId ?? 'system',
       action: 'knowledge_settings.update',
-      status: 'blocked',
-      summary: 'Knowledge and parsing settings update was blocked.',
+      status: isPolicyBlock ? 'blocked' : 'error',
+      summary: isPolicyBlock
+        ? 'Knowledge and parsing settings update was blocked.'
+        : 'Knowledge and parsing settings update failed.',
       metadata: {
-        error: error instanceof Error ? error.message : 'unknown',
+        error: message,
+        errorType: isPolicyBlock ? 'policy_block' : 'server_error',
       },
     });
-    const message = error instanceof Error ? error.message : 'Failed to update Knowledge settings.';
-    return NextResponse.json({ success: false, error: message }, { status: 400 });
+    return NextResponse.json(
+      { success: false, error: isPolicyBlock ? message : 'Failed to update Knowledge settings.' },
+      { status: isPolicyBlock ? 400 : 500 },
+    );
   }
 }
