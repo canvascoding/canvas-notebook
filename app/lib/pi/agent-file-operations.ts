@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { promises as fs } from 'node:fs';
+import { existsSync, promises as fs, realpathSync } from 'node:fs';
 import type { Stats } from 'node:fs';
 import path from 'node:path';
 
@@ -145,18 +145,46 @@ function isPathWithin(candidatePath: string, basePath: string): boolean {
   return normalizedCandidate === normalizedBase || normalizedCandidate.startsWith(`${normalizedBase}${path.sep}`);
 }
 
-function getManagedWorkspaceRoots(): string[] {
+function rootPathVariants(rootPath: string): string[] {
+  const variants = new Set([path.resolve(rootPath)]);
+  try {
+    if (existsSync(rootPath)) {
+      variants.add(realpathSync(rootPath));
+    }
+  } catch {
+    // Keep the configured path variant when the root cannot be resolved synchronously.
+  }
+  return [...variants];
+}
+
+function isPathWithinRootVariants(candidatePath: string, rootPath: string): boolean {
+  return rootPathVariants(rootPath).some((rootVariant) => isPathWithin(candidatePath, rootVariant));
+}
+
+function isPathWithinAnyRootVariant(candidatePath: string, rootPaths: string[]): boolean {
+  return rootPaths.some((rootPath) => isPathWithinRootVariants(candidatePath, rootPath));
+}
+
+function getLegacyWorkspaceRoots(): string[] {
   const dataRoot = getAgentDataRoot();
   return [
     path.join(dataRoot, 'workspace'),
-    path.join(dataRoot, 'workspaces'),
     '/data/workspace',
-    '/data/workspaces',
   ];
 }
 
-function isManagedWorkspacePath(candidatePath: string): boolean {
-  return getManagedWorkspaceRoots().some((workspaceRoot) => isPathWithin(candidatePath, workspaceRoot));
+function getAllowedRuntimeReadRoots(): string[] {
+  const dataRoot = getAgentDataRoot();
+  return [
+    path.join(dataRoot, 'user-uploads'),
+    path.join(dataRoot, 'studio'),
+    '/data/user-uploads',
+    '/data/studio',
+  ];
+}
+
+function isAllowedRuntimeReadPath(candidatePath: string): boolean {
+  return isPathWithinAnyRootVariant(candidatePath, getAllowedRuntimeReadRoots());
 }
 
 function assertContextWorkspaceReadAllowed(candidatePath: string): void {
@@ -164,9 +192,11 @@ function assertContextWorkspaceReadAllowed(candidatePath: string): void {
   if (!executionContext) return;
 
   const resolvedPath = path.resolve(candidatePath);
-  if (isManagedWorkspacePath(resolvedPath) && !isPathWithin(resolvedPath, executionContext.workspaceRoot)) {
-    throw new Error('Agent file access is limited to the workspace bound to this chat session.');
+  if (isPathWithinRootVariants(resolvedPath, executionContext.workspaceRoot) || isAllowedRuntimeReadPath(resolvedPath)) {
+    return;
   }
+
+  throw new Error('Agent file access is limited to the workspace bound to this chat session or trusted runtime intake paths.');
 }
 
 async function assertContextWorkspaceWriteAllowed(candidatePath: string): Promise<void> {
@@ -281,8 +311,46 @@ export async function assertAgentWritablePathAllowed(candidatePath: string): Pro
   await assertNearestWritableParentAllowed(candidatePath);
 }
 
+function assertValidAgentPathInput(filePath: string): void {
+  if (typeof filePath !== 'string' || !filePath.trim()) {
+    throw new Error('Agent file path must be a non-empty string.');
+  }
+  if (filePath.includes('\0')) {
+    throw new Error('Agent file path contains an invalid null byte.');
+  }
+}
+
+function relativePathWithin(candidatePath: string, basePath: string): string | null {
+  const normalizedCandidate = path.resolve(candidatePath);
+  const normalizedBase = path.resolve(basePath);
+  const relativePath = path.relative(normalizedBase, normalizedCandidate);
+  if (!relativePath || relativePath.startsWith('..') || path.isAbsolute(relativePath)) {
+    return normalizedCandidate === normalizedBase ? '.' : null;
+  }
+  return relativePath;
+}
+
+function resolveLegacyWorkspaceAlias(filePath: string): string | null {
+  const workspaceRoot = getAgentWorkspaceRoot();
+  for (const legacyRoot of getLegacyWorkspaceRoots()) {
+    const relativePath = relativePathWithin(filePath, legacyRoot);
+    if (relativePath) {
+      return relativePath === '.'
+        ? workspaceRoot
+        : path.join(workspaceRoot, relativePath);
+    }
+  }
+  return null;
+}
+
 export function resolveAgentPath(filePath: string): string {
-  return path.isAbsolute(filePath) ? filePath : path.join(getAgentWorkspaceRoot(), filePath);
+  assertValidAgentPathInput(filePath);
+  const trimmedPath = filePath.trim();
+  if (!path.isAbsolute(trimmedPath)) {
+    return path.join(getAgentWorkspaceRoot(), trimmedPath);
+  }
+
+  return resolveLegacyWorkspaceAlias(trimmedPath) ?? path.resolve(trimmedPath);
 }
 
 export function sha256Buffer(buffer: Buffer): string {
@@ -1186,7 +1254,7 @@ export async function moveAgentPaths(params: {
   const entries: AgentPathOperationEntry[] = [];
   for (const sourcePath of sourcePaths) {
     const sourceFullPath = resolveAgentPath(sourcePath);
-    await assertAgentPathAllowed(sourceFullPath);
+    await assertAgentWritablePathAllowed(sourceFullPath);
 
     const summary = await summarizePath(sourceFullPath);
     const entryDestinationPath = multipleSources
@@ -1340,6 +1408,57 @@ function isManagedDataPath(target: string): boolean {
   return candidateRoots.some((candidateRoot) => isPathWithin(normalized, candidateRoot));
 }
 
+function findShellDataPathMentions(command: string): string[] {
+  const mentions = new Set<string>();
+  const pathPattern = /(?:^|[\s"'`=(:])((?:\/data|[^\s"'`;&|()]*\/data)\/(?:workspaces|workspace|agents|user-uploads|studio)(?:\/[^\s"'`;&|()]*)?)/g;
+
+  for (const match of command.matchAll(pathPattern)) {
+    const mention = stripShellTokenQuotes(match[1] || '').trim();
+    if (mention) {
+      mentions.add(mention);
+    }
+  }
+
+  const executionContext = getAgentExecutionContext();
+  if (executionContext?.workspaceRoot) {
+    const escapedWorkspaceRoot = executionContext.workspaceRoot.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const workspaceRootPattern = new RegExp(`(?:^|[\\s"'\\\`=(:])(${escapedWorkspaceRoot}(?:\\/[^\\s"'\\\`;&|()]*)?)`, 'g');
+    for (const match of command.matchAll(workspaceRootPattern)) {
+      const mention = stripShellTokenQuotes(match[1] || '').trim();
+      if (mention) {
+        mentions.add(mention);
+      }
+    }
+  }
+
+  return [...mentions];
+}
+
+function shellDataPathMentionViolatesContext(command: string): boolean {
+  const executionContext = getAgentExecutionContext();
+  if (!executionContext) return false;
+
+  const workspaceRootVariants = rootPathVariants(executionContext.workspaceRoot);
+  return findShellDataPathMentions(command).some((mention) => {
+    const resolvedMention = path.resolve(mention);
+    try {
+      if (existsSync(resolvedMention)) {
+        const realMention = realpathSync(resolvedMention);
+        if (workspaceRootVariants.some((rootVariant) => isPathWithin(realMention, rootVariant))) {
+          return false;
+        }
+        return true;
+      }
+    } catch {
+      return true;
+    }
+
+    if (workspaceRootVariants.some((rootVariant) => isPathWithin(resolvedMention, rootVariant))) return false;
+    if (resolveLegacyWorkspaceAlias(resolvedMention)) return false;
+    return true;
+  });
+}
+
 function stripShellTokenQuotes(token: string): string {
   const trimmed = token.trim();
   if (trimmed.length >= 2) {
@@ -1393,6 +1512,10 @@ export function detectUnsafeBashCommand(command: string): string | null {
   }
 
   const normalized = command.replace(/\s+/g, ' ').trim();
+  if (shellDataPathMentionViolatesContext(normalized)) {
+    return 'Shell commands are limited to the workspace bound to this chat session. Use dedicated file tools for allowed non-workspace inputs.';
+  }
+
   const executionContext = getAgentExecutionContext();
   const mentionsManagedPath = /\/data\/(?:workspace|workspaces|agents)(?:\/|$)/.test(normalized) ||
     Boolean(executionContext?.workspaceRoot && normalized.includes(executionContext.workspaceRoot));

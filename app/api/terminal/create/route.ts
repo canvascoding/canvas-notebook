@@ -6,7 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/app/lib/auth';
 import { getTerminalClient } from '@/app/lib/terminal-client';
-import path from 'path';
+import { resolveAgentSessionWorkspaceForUser } from '@/app/lib/pi/session-workspace-context';
 
 export async function POST(request: NextRequest) {
   try {
@@ -20,7 +20,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { sessionId, cwd } = body;
+    const { sessionId, workspaceId } = body;
 
     if (!sessionId) {
       return NextResponse.json(
@@ -29,13 +29,26 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    let workspaceRoot: string;
+    try {
+      const workspace = await resolveAgentSessionWorkspaceForUser({
+        userId: session.user.id,
+        workspaceId: typeof workspaceId === 'string' ? workspaceId : null,
+        permissions: ['canRead', 'canWrite'],
+      });
+      workspaceRoot = workspace.rootPath;
+    } catch (error) {
+      console.error('[Terminal API] Workspace resolution error:', error);
+      return NextResponse.json(
+        { error: 'Workspace not found or inaccessible' },
+        { status: 404 }
+      );
+    }
+
     const ownerId = String(session.user.id || session.user.email || 'anonymous');
-    const dataDir = path.resolve(/*turbopackIgnore: true*/ process.cwd(), process.env.DATA || 'data');
-    const workspaceDir = path.join(dataDir, 'workspace');
-    const finalCwd = cwd && path.isAbsolute(cwd) ? cwd : workspaceDir;
 
     const client = getTerminalClient();
-    const result = await client.createSession(sessionId, ownerId, finalCwd);
+    const result = await client.createSession(sessionId, ownerId, workspaceRoot);
 
     return NextResponse.json(result);
   } catch (error: unknown) {

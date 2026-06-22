@@ -23,6 +23,9 @@ async function main() {
     const {
       detectUnsafeBashCommand,
       getAgentWorkspaceRoot,
+      resolveAgentPath,
+      copyAgentPaths,
+      moveAgentPaths,
       writeAgentTextFile,
       assertAgentPathAllowed,
     } = await import('../app/lib/pi/agent-file-operations');
@@ -74,8 +77,18 @@ async function main() {
 
     await runWithAgentExecutionContext(executionContext, async () => {
       assert.equal(getAgentWorkspaceRoot(), workspace.rootPath);
+      assert.equal(resolveAgentPath('/data/workspace/legacy-alias.md'), path.join(workspace.rootPath, 'legacy-alias.md'));
       assert.equal(detectUnsafeBashCommand('./run-tests.sh > results.txt'), null);
       assert.equal(detectUnsafeBashCommand('npm run build 2>&1 | tee build.log'), null);
+      assert.equal(detectUnsafeBashCommand(`cat ${path.join(workspace.rootPath, 'notes', 'context.md')}`), null);
+      assert.match(
+        detectUnsafeBashCommand('cat /data/workspaces/personal/other-user/files/secret.md') || '',
+        /limited to the workspace bound/,
+      );
+      assert.match(
+        detectUnsafeBashCommand('cat /data/user-uploads/audio/input.ogg') || '',
+        /limited to the workspace bound/,
+      );
 
       const result = await writeAgentTextFile({
         path: 'notes/context.md',
@@ -84,8 +97,47 @@ async function main() {
       assert.equal(result.resolvedPath, path.join(workspace.rootPath, 'notes', 'context.md'));
       assert.equal(await fs.readFile(result.resolvedPath, 'utf8'), '# Session Workspace\n');
 
+      const symlinkWorkspaceRoot = path.join(dataRoot, 'workspaces', 'personal', userId, 'linked-files');
+      await fs.symlink(workspace.rootPath, symlinkWorkspaceRoot);
+      await runWithAgentExecutionContext({ ...executionContext, workspaceRoot: symlinkWorkspaceRoot }, async () => {
+        assert.equal(detectUnsafeBashCommand(`cat ${path.join(workspace.rootPath, 'notes', 'context.md')}`), null);
+      });
+
+      const legacyAliasResult = await writeAgentTextFile({
+        path: '/data/workspace/legacy-alias.md',
+        content: '# Legacy Alias\n',
+      });
+      assert.equal(legacyAliasResult.resolvedPath, path.join(workspace.rootPath, 'legacy-alias.md'));
+      assert.equal(await fs.readFile(path.join(workspace.rootPath, 'legacy-alias.md'), 'utf8'), '# Legacy Alias\n');
+
       await assert.rejects(
         () => assertAgentPathAllowed(path.join(dataRoot, 'workspaces', 'personal', 'other-user', 'files', 'secret.md')),
+        /limited to the workspace bound to this chat session/,
+      );
+
+      const userUploadPath = path.join(dataRoot, 'user-uploads', 'audio', 'voice.ogg');
+      await fs.mkdir(path.dirname(userUploadPath), { recursive: true });
+      await fs.writeFile(userUploadPath, 'audio input');
+      await assert.doesNotReject(() => assertAgentPathAllowed(userUploadPath));
+      const copiedUpload = await copyAgentPaths({
+        sourcePaths: [userUploadPath],
+        destinationPath: 'uploads/voice.ogg',
+      });
+      assert.equal(copiedUpload.destinationResolvedPath, path.join(workspace.rootPath, 'uploads', 'voice.ogg'));
+      assert.equal(await fs.readFile(path.join(workspace.rootPath, 'uploads', 'voice.ogg'), 'utf8'), 'audio input');
+      await assert.rejects(
+        () => moveAgentPaths({
+          sourcePaths: [userUploadPath],
+          destinationPath: 'uploads/moved-voice.ogg',
+        }),
+        /writes are limited to the workspace bound/,
+      );
+
+      const outsideReadRoot = path.join(tempRoot, 'outside-read');
+      await fs.mkdir(outsideReadRoot, { recursive: true });
+      await fs.writeFile(path.join(outsideReadRoot, 'private.txt'), 'blocked');
+      await assert.rejects(
+        () => assertAgentPathAllowed(path.join(outsideReadRoot, 'private.txt')),
         /limited to the workspace bound to this chat session/,
       );
 

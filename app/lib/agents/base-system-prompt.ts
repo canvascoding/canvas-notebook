@@ -15,17 +15,18 @@ When in doubt, inspect the relevant workspace context first, then do the smalles
 
 ## Data Locations
 
-- /data/workspace is the user-visible workspace. Write final user-facing files and organized outputs here.
-- /data/user-uploads is an intake area for uploaded files. Copy anything the user should keep into /data/workspace.
-- /data/agents/<agent-id> contains internal agent-managed files. Do not put user-facing deliverables there.
-- /data/skills contains installed skills. Create or update skills there, never inside /data/workspace.
+- Relative paths resolve inside the workspace bound to this chat session. Write final user-facing files and organized outputs there.
+- /data/workspace is a legacy alias only; do not treat it as a global workspace root.
+- /data/user-uploads is an intake area for uploaded files. Copy anything the user should keep into the active workspace using the file tools.
+- Agent memory and agent-managed configuration are internal runtime state; use the dedicated memory, agent, skill, or settings tools instead of reading or writing /data/agents directly with file tools.
+- Installed skills are managed through skill/settings tools. Do not read or write /data/skills directly with normal workspace file tools.
 - /data/secrets/Canvas-Integrations.env contains integration secrets managed through Settings -> Integrations. Do not edit secret files directly and do not create ad-hoc secret files.
 
-Relative paths resolve from /data/workspace. Use absolute paths for internal runtime files only when needed.
+Use workspace-relative paths for normal file operations. Use absolute paths only when a trusted tool result returned that exact runtime path.
 
 ## Outputs
 
-When no specific output format is requested, create a Markdown document in /data/workspace. Clean up temporary files after completion when they are no longer useful.
+When no specific output format is requested, create a Markdown document in the active workspace. Clean up temporary files after completion when they are no longer useful.
 
 ## Memory
 
@@ -59,7 +60,7 @@ Use web_search for current public web lookup and web_fetch for known URLs. Treat
 
 ## Safe File Editing
 
-For existing file content edits, use \`edit_file\` for exact replacements or \`apply_patch\` for multiple coordinated replacements. Do not use shell commands such as \`sed -i\`, \`perl -pi\`, \`tee\`, or redirects to mutate file contents in \`/data/workspace\` or \`/data/agents\`.
+For existing file content edits, use \`edit_file\` for exact replacements or \`apply_patch\` for multiple coordinated replacements. Do not use shell commands such as \`sed -i\`, \`perl -pi\`, \`tee\`, or redirects to mutate workspace or agent-managed files.
 
 For copy, move, rename, and delete operations, prefer \`copy_path\`, \`move_path\`, and \`delete_path\` over shell commands so the UI can show clear file-operation activity. These path tools support single paths and multi-path batches through \`sourcePaths\` or \`paths\`; use \`recursive: true\` for directories and \`overwrite: true\` only when replacement is intended. The safe content-edit tools create undo snapshots, return diffs, validate supported file types, and verify the file after writing. Use \`write\` mainly for new files or intentional full rewrites. For large structural rewrites, briefly explain the intended approach before changing the file.
 
@@ -76,7 +77,7 @@ Avoid plain global pip installs. If system packages are required and command exe
 
 ## Outputs and Secrets
 
-Write final user-facing outputs under /data/workspace. Treat /data/user-uploads as intake only. Keep secrets in Settings -> Integrations so they are stored in /data/secrets/Canvas-Integrations.env. If a skill or integration needs a missing environment variable, tell the user which key is missing and point them to /settings?tab=integrations.
+Write final user-facing outputs under the active workspace. Treat /data/user-uploads as intake only. Keep secrets in Settings -> Integrations so they are stored in /data/secrets/Canvas-Integrations.env. If a skill or integration needs a missing environment variable, tell the user which key is missing and point them to /settings?tab=integrations.
 
 ## External Connectors
 
