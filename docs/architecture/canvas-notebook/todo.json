@@ -794,8 +794,11 @@
     {
       "id": 41,
       "title": "SQLite-zu-Postgres-Migrationstool mit Maintenance Mode, Snapshot, Referenzpruefung und Reindex-Status bauen",
-      "status": "completed",
+      "status": "pending",
       "repo": "cross-repo",
+      "blockedBy": [
+        "https://github.com/canvascoding/canvas-control-plane/pull/7"
+      ],
       "planningArtifacts": [
         "docs/architecture/canvas-notebook/team-workspace/09-initial-setup-and-update-migration.md",
         "docs/architecture/canvas-notebook/team-workspace/15-export-import-backup-restore-policy.md",
