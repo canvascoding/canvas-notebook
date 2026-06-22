@@ -12,7 +12,7 @@ import {
   createCanvasProject,
   ensureCanvasProjectWorkspace,
   getCanvasProjectMember,
-  normalizeProjectSlug,
+  normalizeSlug,
   upsertCanvasProjectMember,
 } from '../app/lib/projects/service';
 import { resolveWorkspaceActor } from '../app/lib/workspaces/context';
@@ -75,16 +75,10 @@ async function main() {
       INSERT INTO organization_user_permissions (
         organization_id, user_id, role, status, can_write_team_workspace,
         can_create_public_links, created_at, updated_at
-      ) VALUES (?, ?, 'external', 'active', 0, 1, ?, ?)
-    `).run(organizationId, 'external-user', now, now);
-    sqlite.prepare(`
-      INSERT INTO organization_user_permissions (
-        organization_id, user_id, role, status, can_write_team_workspace,
-        can_create_public_links, created_at, updated_at
       ) VALUES (?, ?, 'member', 'active', 0, 1, ?, ?)
     `).run(organizationId, 'blocked-user', now, now);
 
-    assert.equal(normalizeProjectSlug('Kunde A / Sommer 2026'), 'kunde-a-sommer-2026');
+    assert.equal(normalizeSlug('Kunde A / Sommer 2026'), 'kunde-a-sommer-2026');
 
     const customer = createCanvasCustomer(sqlite, {
       organizationId,
@@ -93,6 +87,12 @@ async function main() {
       metadataJson: JSON.stringify({ segment: 'agency' }),
     });
     assert.equal(customer.slug, 'kunde-a');
+    const duplicateCustomer = createCanvasCustomer(sqlite, {
+      organizationId,
+      name: 'Kunde-A',
+      createdByUserId: 'owner-user',
+    });
+    assert.equal(duplicateCustomer.slug, 'kunde-a-2');
 
     assert.throws(
       () => createCanvasProject(sqlite, {
@@ -110,6 +110,13 @@ async function main() {
       createdByUserId: 'owner-user',
     });
     assert.equal(project.customerId, customer.id);
+    const duplicateProject = createCanvasProject(sqlite, {
+      organizationId,
+      customerId: customer.id,
+      name: 'Sommer-Kampagne',
+      createdByUserId: 'owner-user',
+    });
+    assert.equal(duplicateProject.slug, 'sommer-kampagne-2');
 
     const projectWorkspace = ensureCanvasProjectWorkspace(sqlite, {
       organizationId,
@@ -121,6 +128,14 @@ async function main() {
     assert.equal(projectWorkspace.rootRelativePath, projectWorkspaceRootRelativePath(project.id));
     assert.equal(workspaceAbsoluteRoot(projectWorkspace.rootRelativePath), path.join(dataRoot, 'workspaces', 'project', project.id, 'files'));
     await fs.access(path.join(dataRoot, 'workspaces', 'project', project.id, 'files'));
+    assert.throws(
+      () => sqlite.prepare(`
+        INSERT INTO canvas_workspaces (
+          id, organization_id, type, owner_user_id, root_relative_path, display_name, status, created_at, updated_at
+        ) VALUES ('ws_invalid_project', ?, 'project', NULL, 'workspaces/project/missing/files', 'Invalid', 'active', ?, ?)
+      `).run(organizationId, now, now),
+      /project workspace requires project_id/i,
+    );
 
     const ensuredAgain = ensureCanvasProjectWorkspace(sqlite, {
       organizationId,

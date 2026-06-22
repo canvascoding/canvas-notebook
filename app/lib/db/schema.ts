@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { sqliteTable, text, integer, real, index, uniqueIndex, primaryKey } from "drizzle-orm/sqlite-core";
+import { sqliteTable, text, integer, real, index, uniqueIndex, primaryKey, check } from "drizzle-orm/sqlite-core";
 
 export const user = sqliteTable("user", {
   id: text("id").primaryKey(),
@@ -168,7 +168,7 @@ export const canvasWorkspaces = sqliteTable("canvas_workspaces", {
   type: text("type").notNull(),
   ownerUserId: text("owner_user_id").references(() => user.id),
   customerId: text("customer_id").references(() => canvasCustomers.id, { onDelete: 'set null' }),
-  projectId: text("project_id").references(() => canvasProjects.id, { onDelete: 'set null' }),
+  projectId: text("project_id").references(() => canvasProjects.id, { onDelete: 'cascade' }),
   rootRelativePath: text("root_relative_path").notNull(),
   displayName: text("display_name").notNull(),
   status: text("status").notNull().default("active"),
@@ -183,6 +183,7 @@ export const canvasWorkspaces = sqliteTable("canvas_workspaces", {
   personalOwnerIdx: uniqueIndex("idx_canvas_workspaces_personal_owner").on(table.ownerUserId).where(sql`${table.type} = 'personal'`),
   teamOrganizationIdx: uniqueIndex("idx_canvas_workspaces_team_organization").on(table.organizationId).where(sql`${table.type} = 'team'`),
   projectWorkspaceIdx: uniqueIndex("idx_canvas_workspaces_project_workspace").on(table.projectId).where(sql`${table.type} = 'project'`),
+  projectIdRequired: check("chk_canvas_workspaces_project_id_required", sql`${table.type} != 'project' OR ${table.projectId} IS NOT NULL`),
 }));
 
 export const workspaceTrashEntries = sqliteTable("workspace_trash_entries", {

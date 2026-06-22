@@ -98,13 +98,36 @@ function createScopedId(prefix: string): string {
   return `${prefix}_${randomUUID()}`;
 }
 
-export function normalizeProjectSlug(value: string): string {
+export function normalizeSlug(value: string): string {
   const slug = value
     .trim()
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '');
   return slug || 'untitled';
+}
+
+function reserveUniqueSlug(
+  sqlite: Database.Database,
+  tableName: 'canvas_customers' | 'canvas_projects',
+  organizationId: string,
+  baseSlug: string,
+): string {
+  const rows = sqlite.prepare(`
+    SELECT slug
+    FROM ${tableName}
+    WHERE organization_id = ?
+      AND (slug = ? OR slug LIKE ?)
+  `).all(organizationId, baseSlug, `${baseSlug}-%`) as Array<{ slug: string }>;
+  const usedSlugs = new Set(rows.map((row) => row.slug));
+  if (!usedSlugs.has(baseSlug)) return baseSlug;
+
+  for (let suffix = 2; suffix < 1000; suffix += 1) {
+    const candidate = `${baseSlug}-${suffix}`;
+    if (!usedSlugs.has(candidate)) return candidate;
+  }
+
+  throw new Error(`Could not allocate a unique slug for ${tableName}.`);
 }
 
 function normalizeCustomerStatus(value: string): CanvasCustomerStatus {
@@ -188,7 +211,12 @@ export function createCanvasCustomer(
 ): CanvasCustomerRecord {
   const now = Date.now();
   const id = createScopedId('cust');
-  const slug = normalizeProjectSlug(input.slug ?? input.name);
+  const slug = reserveUniqueSlug(
+    sqlite,
+    'canvas_customers',
+    input.organizationId,
+    normalizeSlug(input.slug ?? input.name),
+  );
   sqlite.prepare(`
     INSERT INTO canvas_customers (
       id, organization_id, name, slug, status, notes, metadata_json, created_by_user_id, created_at, updated_at
@@ -243,7 +271,12 @@ export function createCanvasProject(
 
   const now = Date.now();
   const id = createScopedId('prj');
-  const slug = normalizeProjectSlug(input.slug ?? input.name);
+  const slug = reserveUniqueSlug(
+    sqlite,
+    'canvas_projects',
+    input.organizationId,
+    normalizeSlug(input.slug ?? input.name),
+  );
   sqlite.prepare(`
     INSERT INTO canvas_projects (
       id, organization_id, customer_id, name, slug, status, description, metadata_json, created_by_user_id, archived_at, created_at, updated_at

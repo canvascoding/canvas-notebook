@@ -182,7 +182,8 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       FOREIGN KEY (organization_id) REFERENCES canvas_organization_settings(organization_id) ON DELETE CASCADE,
       FOREIGN KEY (owner_user_id) REFERENCES user(id),
       FOREIGN KEY (customer_id) REFERENCES canvas_customers(id) ON DELETE SET NULL,
-      FOREIGN KEY (project_id) REFERENCES canvas_projects(id) ON DELETE SET NULL
+      FOREIGN KEY (project_id) REFERENCES canvas_projects(id) ON DELETE CASCADE,
+      CHECK (type != 'project' OR project_id IS NOT NULL)
     );
 
     CREATE TABLE IF NOT EXISTS workspace_trash_entries (
@@ -1027,6 +1028,22 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     customer_id: 'TEXT',
     project_id: 'TEXT',
   });
+
+  sqlite.exec(`
+    CREATE TRIGGER IF NOT EXISTS trg_canvas_workspaces_project_id_required_insert
+    BEFORE INSERT ON canvas_workspaces
+    WHEN NEW.type = 'project' AND NEW.project_id IS NULL
+    BEGIN
+      SELECT RAISE(ABORT, 'project workspace requires project_id');
+    END;
+
+    CREATE TRIGGER IF NOT EXISTS trg_canvas_workspaces_project_id_required_update
+    BEFORE UPDATE OF type, project_id ON canvas_workspaces
+    WHEN NEW.type = 'project' AND NEW.project_id IS NULL
+    BEGIN
+      SELECT RAISE(ABORT, 'project workspace requires project_id');
+    END;
+  `);
 
   addColumns(sqlite, 'workspace_trash_entries', {
     customer_id: 'TEXT',

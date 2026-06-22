@@ -50,6 +50,7 @@ type PermissionRow = {
 };
 
 type ProjectPermissionRow = {
+  project_id?: string;
   role: string;
   status: string;
   can_read: number;
@@ -172,6 +173,10 @@ function insertWorkspace(
     displayName: string;
   },
 ): WorkspaceRecord {
+  if (input.type === 'project' && !input.projectId) {
+    throw new Error('Project workspace requires a project id.');
+  }
+
   const now = Date.now();
   const id = createWorkspaceId();
   sqlite.prepare(`
@@ -328,6 +333,25 @@ function getProjectPermissionRow(
   `).get(organizationId, projectId, userId) as ProjectPermissionRow | undefined || null;
 }
 
+function getProjectPermissionRows(
+  sqlite: Database.Database,
+  organizationId: string,
+  userId: string,
+  projectIds: string[],
+): Map<string, ProjectPermissionRow> {
+  const uniqueProjectIds = Array.from(new Set(projectIds.filter(Boolean)));
+  if (uniqueProjectIds.length === 0) return new Map();
+
+  const placeholders = uniqueProjectIds.map(() => '?').join(', ');
+  const rows = sqlite.prepare(`
+    SELECT project_id, role, COALESCE(status, 'active') AS status, can_read, can_write, can_manage
+    FROM canvas_project_members
+    WHERE organization_id = ? AND user_id = ? AND project_id IN (${placeholders})
+  `).all(organizationId, userId, ...uniqueProjectIds) as ProjectPermissionRow[];
+
+  return new Map(rows.flatMap((row) => (row.project_id ? [[row.project_id, row]] : [])));
+}
+
 function canReadWorkspace(
   record: WorkspaceRecord,
   actor: WorkspaceActor,
@@ -338,8 +362,7 @@ function canReadWorkspace(
   if (record.type === 'personal') return record.ownerUserId === actor.userId;
   if (record.type === 'team') return Boolean(permission && permission.status === 'active' && permission.role !== 'external');
   if (record.type === 'project') {
-    if (permission?.status !== 'active') return false;
-    if (actor.role === 'owner' || actor.role === 'admin') return true;
+    if ((actor.role === 'owner' || actor.role === 'admin') && permission?.status === 'active') return true;
     return Boolean(projectPermission?.status === 'active' && projectPermission.can_read === 1);
   }
   return false;
@@ -362,7 +385,7 @@ export function workspaceContextFromRecord(
       permission?.can_write_team_workspace === 1
     )
   );
-  const canUseProjectMembership = record.type === 'project' && permission?.status === 'active' && projectPermission?.status === 'active';
+  const canUseProjectMembership = record.type === 'project' && projectPermission?.status === 'active';
   const canReadProjectWorkspace = canUseProjectMembership && projectPermission.can_read === 1;
   const canWriteProjectWorkspace = canUseProjectMembership && projectPermission.can_write === 1;
   const canManageProjectWorkspace = canUseProjectMembership && projectPermission.can_manage === 1;
@@ -409,12 +432,18 @@ export function listWorkspaceContextsForUser(
     ORDER BY CASE type WHEN 'personal' THEN 0 WHEN 'team' THEN 1 ELSE 2 END, created_at ASC
   `).all(params.organizationId, params.actor.userId) as WorkspaceRow[];
   const permission = getPermissionRow(sqlite, params.organizationId, params.actor.userId);
+  const projectPermissionRows = getProjectPermissionRows(
+    sqlite,
+    params.organizationId,
+    params.actor.userId,
+    rows.flatMap((row) => (row.type === 'project' && row.project_id ? [row.project_id] : [])),
+  );
 
   return rows
     .map(rowToWorkspaceRecord)
     .map((record) => ({
       record,
-      projectPermission: getProjectPermissionRow(sqlite, params.organizationId, record.projectId, params.actor.userId),
+      projectPermission: record.projectId ? projectPermissionRows.get(record.projectId) ?? null : null,
     }))
     .filter(({ record, projectPermission }) => canReadWorkspace(record, params.actor, permission, projectPermission))
     .map(({ record, projectPermission }) => workspaceContextFromRecord(record, params.actor, permission, projectPermission));
