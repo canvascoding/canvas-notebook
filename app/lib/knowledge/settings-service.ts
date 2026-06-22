@@ -356,6 +356,7 @@ export async function updateKnowledgeParsingSettings(input: {
   storage: KnowledgeSettingsStorage;
   resourceStatus: KnowledgeResourceStatus;
   logs: KnowledgeOperationalLogEntry[];
+  changedKeys: string[];
 }> {
   const current = await readKnowledgeParsingSettings(input.state);
   const next: KnowledgeParsingSettings = {
@@ -375,6 +376,8 @@ export async function updateKnowledgeParsingSettings(input: {
     }
   }
 
+  const changes = collectChanges(current.settings, next);
+  const changedKeys = Object.keys(changes);
   const resourceStatus = await resolveKnowledgeResourceStatus(next, input.state);
   const errors = validateKnowledgeSettingsUpdate(next, resourceStatus);
   if (errors.length > 0) {
@@ -385,8 +388,8 @@ export async function updateKnowledgeParsingSettings(input: {
       actorUserId: input.actorUserId,
       organizationId: input.state?.organizationId ?? null,
       reasonCode: errors[0] ?? 'blocked',
-      changedKeys: Object.keys(collectChanges(current.settings, next)),
-      changes: collectChanges(current.settings, next),
+      changedKeys,
+      changes,
       resourceProfile: resourceStatus.resourceProfile,
       blockers: errors,
       message: 'Knowledge settings update blocked by policy or resource preflight.',
@@ -395,9 +398,8 @@ export async function updateKnowledgeParsingSettings(input: {
     throw new Error(`Knowledge settings update blocked: ${errors.join(', ')}`);
   }
 
-  await writeJsonAtomic(current.storage.filePath, next);
-  const changes = collectChanges(current.settings, next);
-  if (Object.keys(changes).length > 0) {
+  if (changedKeys.length > 0) {
+    await writeJsonAtomic(current.storage.filePath, next);
     await appendKnowledgeOperationalLog({
       timestamp: new Date().toISOString(),
       level: 'info',
@@ -405,7 +407,7 @@ export async function updateKnowledgeParsingSettings(input: {
       actorUserId: input.actorUserId,
       organizationId: input.state?.organizationId ?? null,
       reasonCode: resourceStatus.availability,
-      changedKeys: Object.keys(changes),
+      changedKeys,
       changes,
       resourceProfile: resourceStatus.resourceProfile,
       blockers: resourceStatus.blockers,
@@ -414,9 +416,10 @@ export async function updateKnowledgeParsingSettings(input: {
   }
 
   return {
-    settings: next,
+    settings: changedKeys.length > 0 ? next : current.settings,
     storage: current.storage,
     resourceStatus,
     logs: await readKnowledgeOperationalLogs({ organizationId: input.state?.organizationId ?? null }),
+    changedKeys,
   };
 }

@@ -115,7 +115,7 @@ export async function PATCH(request: NextRequest) {
       status: 'success',
       summary: 'Knowledge and parsing settings updated.',
       metadata: {
-        changedKeys: Object.keys(patch),
+        changedKeys: result.changedKeys,
         resourceProfile: result.resourceStatus.resourceProfile,
         availability: result.resourceStatus.availability,
         blockers: result.resourceStatus.blockers,

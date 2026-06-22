@@ -98,6 +98,10 @@ async function main() {
     assert.equal(safeUpdate.settings.minimumFreeMemoryMb, 768);
     assert.equal(safeUpdate.settings.remoteParsingEnabled, true);
     assert.equal(safeUpdate.settings.knowledgeAutoIngestionEnabled, false);
+    assert.deepEqual(
+      new Set(safeUpdate.changedKeys),
+      new Set(['remoteParsingEnabled', 'maxDocumentSizeMb', 'minimumFreeMemoryMb']),
+    );
 
     const logFile = path.join(dataRoot, 'system', 'logs', 'knowledge-operational.jsonl');
     const rawLogs = await readFile(logFile, 'utf8');
