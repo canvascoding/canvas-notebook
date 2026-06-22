@@ -1,5 +1,6 @@
 export type KnowledgeResourceProfile = 'disabled' | 'low' | 'standard' | 'large';
 export type KnowledgeResourceAvailability = 'available' | 'degraded' | 'disabled';
+export type KnowledgeParserAvailability = 'available' | 'disabled' | 'missing' | 'not_checked';
 
 export interface KnowledgeParsingSettings {
   knowledgeAutoIngestionEnabled: boolean;
@@ -42,8 +43,8 @@ export interface KnowledgeResourceStatus {
     activeHeavyJobs: number;
   };
   parser: {
-    docling: 'available' | 'disabled' | 'missing';
-    ocr: 'available' | 'disabled' | 'missing';
+    docling: KnowledgeParserAvailability;
+    ocr: KnowledgeParserAvailability;
     embeddings: 'available' | 'disabled' | 'requires_postgres';
     remoteParsing: 'disabled' | 'enabled';
   };

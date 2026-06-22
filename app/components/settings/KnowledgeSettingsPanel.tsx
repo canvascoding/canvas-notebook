@@ -278,8 +278,8 @@ export function KnowledgeSettingsPanel() {
           {data.logs.length === 0 ? (
             <p className="text-sm text-muted-foreground">{t('logsEmpty')}</p>
           ) : (
-            data.logs.map((entry) => (
-              <div key={`${entry.timestamp}:${entry.action}`} className="rounded-md border border-border p-3">
+            data.logs.map((entry, index) => (
+              <div key={`${entry.timestamp}:${entry.action}:${index}`} className="rounded-md border border-border p-3">
                 <div className="flex flex-wrap items-center gap-2">
                   <Badge variant={logLevelVariant(entry.level)}>{entry.level}</Badge>
                   <span className="text-sm font-medium">{entry.action}</span>

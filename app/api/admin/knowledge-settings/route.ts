@@ -91,6 +91,12 @@ export async function PATCH(request: NextRequest) {
   try {
     const payload = await request.json().catch(() => ({})) as PatchPayload;
     const patch = extractSettingsPatch(payload);
+    if (Object.keys(patch).length === 0) {
+      return NextResponse.json(
+        { success: false, error: 'No recognized settings keys provided.' },
+        { status: 400 },
+      );
+    }
     const result = await updateKnowledgeParsingSettings({
       state: admin.state,
       actorUserId: admin.session.user.id,

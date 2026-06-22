@@ -65,6 +65,9 @@ async function main() {
     assert.equal(sqliteStatus.canEnableKnowledge, false);
     assert.ok(sqliteStatus.blockers.includes('requires_postgres'));
 
+    const doclingStatus = await resolveKnowledgeResourceStatus({ ...defaults, doclingEnabled: true }, sqliteState);
+    assert.equal(doclingStatus.parser.docling, 'not_checked');
+
     await assert.rejects(
       () => updateKnowledgeParsingSettings({
         state: sqliteState,
@@ -104,6 +107,21 @@ async function main() {
     const logs = await readKnowledgeOperationalLogs();
     assert.ok(logs.length >= 2);
     assert.ok(logs.every((entry) => Array.isArray(entry.changedKeys)));
+
+    for (let index = 0; index < 505; index += 1) {
+      await assert.rejects(
+        () => updateKnowledgeParsingSettings({
+          state: sqliteState,
+          actorUserId: 'owner-user',
+          updates: {
+            knowledgeAutoIngestionEnabled: true,
+          },
+        }),
+        /requires_postgres/u,
+      );
+    }
+    const cappedRawLogs = await readFile(logFile, 'utf8');
+    assert.ok(cappedRawLogs.split('\n').filter(Boolean).length <= 500);
 
     console.log('knowledge-settings-test: ok');
   } finally {

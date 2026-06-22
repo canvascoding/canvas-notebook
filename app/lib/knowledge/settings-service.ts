@@ -28,6 +28,7 @@ const DEFAULT_MINIMUM_FREE_MEMORY_MB = 512;
 const MIN_ENABLE_MEMORY_MB = 2048;
 const MIN_ENABLE_DISK_GB = 10;
 const MAX_LOG_ENTRIES = 50;
+const MAX_LOG_FILE_LINES = 500;
 
 type KnowledgeSettingsStorage = {
   scope: 'organization' | 'system';
@@ -232,7 +233,7 @@ export async function resolveKnowledgeResourceStatus(
       activeHeavyJobs: 0,
     },
     parser: {
-      docling: settings.doclingEnabled ? 'missing' : 'disabled',
+      docling: settings.doclingEnabled ? 'not_checked' : 'disabled',
       ocr: settings.ocrEnabled ? 'available' : 'disabled',
       embeddings: settings.embeddingIndexingEnabled
         ? (postgresReady && pgvectorReady ? 'available' : 'requires_postgres')
@@ -264,6 +265,24 @@ async function appendKnowledgeOperationalLog(entry: KnowledgeOperationalLogEntry
   const filePath = path.join(logDir, LOG_FILE);
   await fs.appendFile(filePath, `${JSON.stringify(entry)}\n`, { mode: 0o600 });
   await fs.chmod(filePath, 0o600).catch(() => undefined);
+  await trimKnowledgeOperationalLogFile(filePath);
+}
+
+async function trimKnowledgeOperationalLogFile(filePath: string): Promise<void> {
+  try {
+    const raw = await fs.readFile(filePath, 'utf8');
+    const lines = raw.split('\n').filter(Boolean);
+    if (lines.length <= MAX_LOG_FILE_LINES) return;
+
+    const trimmed = `${lines.slice(-MAX_LOG_FILE_LINES).join('\n')}\n`;
+    const tmpPath = `${filePath}.tmp-${Date.now()}-${process.pid}-${Math.random().toString(16).slice(2)}`;
+    await fs.writeFile(tmpPath, trimmed, { mode: 0o600 });
+    await fs.chmod(tmpPath, 0o600).catch(() => undefined);
+    await fs.rename(tmpPath, filePath);
+    await fs.chmod(filePath, 0o600).catch(() => undefined);
+  } catch {
+    // Trimming failures must not block the settings update path.
+  }
 }
 
 export async function readKnowledgeOperationalLogs(input?: {
