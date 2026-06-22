@@ -262,7 +262,7 @@ async function main() {
     assert.equal(postgresInspection.dryRun?.status, 'blocked');
     assert.ok(postgresInspection.dryRun?.blockers.some((blocker) => blocker.includes('Postgres target')));
     assert.ok(postgresInspection.dryRun?.blockers.some((blocker) => blocker.includes('Full Backup')));
-    assert.ok(postgresInspection.dryRun?.blockers.some((blocker) => blocker.includes('requires Postgres')));
+    assert.ok(postgresInspection.dryRun?.blockers.some((blocker) => blocker.includes('reindex')));
     assert.ok(postgresInspection.risks.some((risk) => risk.includes('Postgres database data')));
 
     console.log('migration-import-dry-run-test: ok');

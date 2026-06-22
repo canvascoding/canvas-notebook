@@ -212,7 +212,6 @@ printf 'fake-postgres-dump\\n' > "$out"
     const sqliteTargetInspection = await inspectFullBackupArchive(completedPostgres.filePath);
     assert.equal(sqliteTargetInspection.canRestore, false);
     assert.ok(sqliteTargetInspection.risks.some((risk) => risk.includes('SQLite target')));
-    process.env.CANVAS_DATABASE_PROVIDER = 'sqlite';
 
     await new Promise((resolve) => setTimeout(resolve, 50));
     const lockPath = path.join(dataRoot, 'system', 'backups', '.full-backup.lock');

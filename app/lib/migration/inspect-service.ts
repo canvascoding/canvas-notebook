@@ -572,7 +572,11 @@ function buildDryRun(params: {
     }
   }
 
-  if (params.manifest.restore?.requiresPostgres && target.databaseProvider !== 'postgres') {
+  if (
+    params.manifest.restore?.requiresPostgres &&
+    !params.manifest.components.database &&
+    target.databaseProvider !== 'postgres'
+  ) {
     blockers.push('Manifest restore metadata requires Postgres on the target instance.');
   }
   if (
