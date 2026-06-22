@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { appendFile, mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -108,6 +108,10 @@ async function main() {
     const logs = await readKnowledgeOperationalLogs();
     assert.ok(logs.length >= 2);
     assert.ok(logs.every((entry) => Array.isArray(entry.changedKeys)));
+
+    await appendFile(logFile, '{broken-json\n');
+    const logsWithMalformedLine = await readKnowledgeOperationalLogs();
+    assert.ok(logsWithMalformedLine.length >= 2);
 
     for (let index = 0; index < 505; index += 1) {
       await assert.rejects(

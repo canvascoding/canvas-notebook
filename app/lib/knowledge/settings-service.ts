@@ -293,10 +293,15 @@ export async function readKnowledgeOperationalLogs(input?: {
   const limit = input?.limit ?? 12;
   try {
     const raw = await fs.readFile(filePath, 'utf8');
-    return raw
-      .split('\n')
-      .filter(Boolean)
-      .map((line) => JSON.parse(line) as KnowledgeOperationalLogEntry)
+    const entries: KnowledgeOperationalLogEntry[] = [];
+    for (const line of raw.split('\n').filter(Boolean)) {
+      try {
+        entries.push(JSON.parse(line) as KnowledgeOperationalLogEntry);
+      } catch {
+        // Keep readable entries visible if the process dies during appendFile.
+      }
+    }
+    return entries
       .filter((entry) => input?.organizationId === undefined || entry.organizationId === input.organizationId)
       .slice(-Math.min(MAX_LOG_ENTRIES, Math.max(1, limit)))
       .reverse();
