@@ -8,6 +8,12 @@ import path from 'node:path';
 import { getBootstrapAdminEmail } from '@/app/lib/bootstrap-admin';
 import { runMigrations } from '@/app/lib/db/migrate';
 import {
+  type DatabaseProvider,
+  getDatabaseProvider as resolveConfiguredDatabaseProvider,
+  getDatabaseProviderProblemMessages,
+  resolveDatabaseProviderGate,
+} from '@/app/lib/db/provider';
+import {
   resolveOrganizationAgentTemplatesDir,
   resolveOrganizationDataRoot,
   resolveOrganizationMcpTemplatesDir,
@@ -57,7 +63,7 @@ export type OrganizationBootstrapStatus = {
   ownerEmail: string | null;
   deploymentMode: string;
   teamFeaturesEnabled: boolean;
-  databaseProvider: string;
+  databaseProvider: DatabaseProvider;
   permission: OrganizationPermissionSnapshot | null;
   paths: {
     personalWorkspace: string | null;
@@ -75,7 +81,7 @@ export type OrganizationPermissionState = {
   organizationId: string | null;
   ownerUserId: string | null;
   teamFeaturesEnabled: boolean;
-  databaseProvider: string;
+  databaseProvider: DatabaseProvider;
   permission: OrganizationPermissionSnapshot | null;
 };
 
@@ -167,8 +173,8 @@ export function getConfiguredOrganizationId(): string | null {
   return value || null;
 }
 
-export function getDatabaseProvider(): string {
-  return process.env.CANVAS_DATABASE_PROVIDER?.trim().toLowerCase() || 'sqlite';
+export function getDatabaseProvider(): DatabaseProvider {
+  return resolveConfiguredDatabaseProvider();
 }
 
 export function getDeploymentMode(): string {
@@ -487,6 +493,7 @@ function buildStatus(
     ? booleanFromDb(organization.team_features_enabled)
     : areTeamFeaturesEnabled(deploymentMode);
   const databaseProvider = getDatabaseProvider();
+  const databaseProviderGate = resolveDatabaseProviderGate({ teamFeaturesEnabled });
   const organizationId = organization?.organization_id || null;
   const ownerUserId = organization?.owner_user_id || ownerUser?.id || null;
   const paths = organizationId && ownerUserId
@@ -498,9 +505,7 @@ function buildStatus(
     warnings.push('CANVAS_TEAM_FEATURES_ENABLED is ignored for this single-user deployment mode.');
   }
 
-  if (teamFeaturesEnabled && databaseProvider !== 'postgres') {
-    warnings.push('Team features are enabled but CANVAS_DATABASE_PROVIDER is not postgres.');
-  }
+  warnings.push(...getDatabaseProviderProblemMessages(databaseProviderGate.blockers));
 
   const configuredOrganizationId = getConfiguredOrganizationId();
   if (configuredOrganizationId && organizationId && configuredOrganizationId !== organizationId) {

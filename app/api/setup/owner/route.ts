@@ -39,6 +39,8 @@ export async function POST(request: NextRequest) {
         ? 409
         : error.code === 'INVALID_INPUT'
           ? 400
+          : error.code === 'DATABASE_PROVIDER_BLOCKED'
+            ? 503
           : 500;
 
       return NextResponse.json(

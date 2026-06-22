@@ -4,13 +4,14 @@ import {mkdirSync} from 'fs';
 import path from 'path';
 import * as schema from './schema';
 import { runMigrations } from './migrate';
-
-function getDataDir(): string {
-  return process.env.DATA || path.resolve(/*turbopackIgnore: true*/ process.cwd(), 'data');
-}
+import {
+  assertRuntimeDatabaseProviderSupported,
+  getDatabaseProvider,
+  resolveSqlitePath,
+} from './provider';
 
 function getSqlitePath(): string {
-  return path.join(getDataDir(), 'sqlite.db');
+  return resolveSqlitePath();
 }
 
 const sqlitePath = getSqlitePath();
@@ -25,8 +26,10 @@ if (process.env.NEXT_PHASE !== 'phase-production-build') {
 }
 
 export const db = drizzle(sqlite, {schema});
+export { getDatabaseProvider, resolveSqlitePath };
 
 export async function openDb() {
+  assertRuntimeDatabaseProviderSupported();
   const freshSqlite = new Database(getSqlitePath());
   const bind = (statement: Database.Statement, params?: unknown[]) => (
     params === undefined ? statement : statement.bind(...params)
