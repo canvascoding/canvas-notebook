@@ -118,5 +118,21 @@ if "$cli" env --sync --no-banner > "$TMP_DIR/bad-password.txt" 2>&1; then
   exit 1
 fi
 grep -q 'URL-reserved characters' "$TMP_DIR/bad-password.txt"
+jq '.env.DATABASE_URL = "" | .env.CANVAS_POSTGRES_PASSWORD = "safe-password" | .env.CANVAS_POSTGRES_USER = "bad/user"' \
+  "$TMP_DIR/config-postgres.json" > "$TMP_DIR/config-bad-user.json"
+cp "$TMP_DIR/config-bad-user.json" "$CANVAS_CONFIG_JSON"
+if "$cli" env --sync --no-banner > "$TMP_DIR/bad-user.txt" 2>&1; then
+  echo "unsafe generated DATABASE_URL user was accepted" >&2
+  exit 1
+fi
+grep -q 'CANVAS_POSTGRES_USER contains URL-reserved characters' "$TMP_DIR/bad-user.txt"
+jq '.env.DATABASE_URL = "" | .env.CANVAS_POSTGRES_PASSWORD = "safe-password" | .env.CANVAS_POSTGRES_DB = "bad/db"' \
+  "$TMP_DIR/config-postgres.json" > "$TMP_DIR/config-bad-db.json"
+cp "$TMP_DIR/config-bad-db.json" "$CANVAS_CONFIG_JSON"
+if "$cli" env --sync --no-banner > "$TMP_DIR/bad-db.txt" 2>&1; then
+  echo "unsafe generated DATABASE_URL database name was accepted" >&2
+  exit 1
+fi
+grep -q 'CANVAS_POSTGRES_DB contains URL-reserved characters' "$TMP_DIR/bad-db.txt"
 
 echo "cli database provider tests passed"

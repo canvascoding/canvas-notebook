@@ -301,9 +301,18 @@ config_json_ensure_database_config() {
       pg_password="$(config_json_generate_secret)"
       config_json_write env.CANVAS_POSTGRES_PASSWORD "$pg_password"
     fi
-    if ! printf '%s' "$pg_password" | grep -qE '^[A-Za-z0-9._~-]+$'; then
-      fail "CANVAS_POSTGRES_PASSWORD contains URL-reserved characters. Set DATABASE_URL explicitly or use a URL-safe password."
-    fi
+    for postgres_url_part in \
+      "CANVAS_POSTGRES_USER:$pg_user" \
+      "CANVAS_POSTGRES_PASSWORD:$pg_password" \
+      "CANVAS_POSTGRES_DB:$pg_db"; do
+      local postgres_part_key postgres_part_value
+      postgres_part_key="${postgres_url_part%%:*}"
+      postgres_part_value="${postgres_url_part#*:}"
+      if ! printf '%s' "$postgres_part_value" | grep -qE '^[A-Za-z0-9._~-]+$'; then
+        fail "${postgres_part_key} contains URL-reserved characters. Set DATABASE_URL explicitly or use URL-safe Postgres credentials."
+      fi
+    done
+    unset postgres_url_part postgres_part_key postgres_part_value
     database_url="postgresql://${pg_user}:${pg_password}@postgres:5432/${pg_db}"
     config_json_write env.DATABASE_URL "$database_url"
   elif [[ ! "$database_url" =~ ^postgres(ql)?:// ]]; then
