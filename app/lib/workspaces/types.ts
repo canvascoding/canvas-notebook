@@ -30,6 +30,8 @@ export interface WorkspaceContext {
   status?: WorkspaceStatus;
   actor?: WorkspaceActor;
   organizationId?: string | null;
+  customerId?: string | null;
+  projectId?: string | null;
   ownerUserId?: string | null;
   permissions: WorkspacePermissions;
   legacy: boolean;

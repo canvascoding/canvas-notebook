@@ -115,23 +115,82 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       FOREIGN KEY (owner_user_id) REFERENCES user(id)
     );
 
+    CREATE TABLE IF NOT EXISTS canvas_customers (
+      id TEXT PRIMARY KEY NOT NULL,
+      organization_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      slug TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'active',
+      notes TEXT,
+      metadata_json TEXT,
+      created_by_user_id TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      FOREIGN KEY (organization_id) REFERENCES canvas_organization_settings(organization_id) ON DELETE CASCADE,
+      FOREIGN KEY (created_by_user_id) REFERENCES user(id) ON DELETE SET NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS canvas_projects (
+      id TEXT PRIMARY KEY NOT NULL,
+      organization_id TEXT NOT NULL,
+      customer_id TEXT,
+      name TEXT NOT NULL,
+      slug TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'active',
+      description TEXT,
+      metadata_json TEXT,
+      created_by_user_id TEXT,
+      archived_at INTEGER,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      FOREIGN KEY (organization_id) REFERENCES canvas_organization_settings(organization_id) ON DELETE CASCADE,
+      FOREIGN KEY (customer_id) REFERENCES canvas_customers(id) ON DELETE SET NULL,
+      FOREIGN KEY (created_by_user_id) REFERENCES user(id) ON DELETE SET NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS canvas_project_members (
+      organization_id TEXT NOT NULL,
+      project_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      role TEXT NOT NULL DEFAULT 'member',
+      status TEXT NOT NULL DEFAULT 'active',
+      can_read INTEGER NOT NULL DEFAULT 1,
+      can_write INTEGER NOT NULL DEFAULT 0,
+      can_manage INTEGER NOT NULL DEFAULT 0,
+      invited_by_user_id TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      PRIMARY KEY (project_id, user_id),
+      FOREIGN KEY (organization_id) REFERENCES canvas_organization_settings(organization_id) ON DELETE CASCADE,
+      FOREIGN KEY (project_id) REFERENCES canvas_projects(id) ON DELETE CASCADE,
+      FOREIGN KEY (user_id) REFERENCES user(id),
+      FOREIGN KEY (invited_by_user_id) REFERENCES user(id) ON DELETE SET NULL
+    );
+
     CREATE TABLE IF NOT EXISTS canvas_workspaces (
       id TEXT PRIMARY KEY NOT NULL,
       organization_id TEXT NOT NULL,
       type TEXT NOT NULL,
       owner_user_id TEXT,
+      customer_id TEXT,
+      project_id TEXT,
       root_relative_path TEXT NOT NULL,
       display_name TEXT NOT NULL,
       status TEXT NOT NULL DEFAULT 'active',
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL,
       FOREIGN KEY (organization_id) REFERENCES canvas_organization_settings(organization_id) ON DELETE CASCADE,
-      FOREIGN KEY (owner_user_id) REFERENCES user(id)
+      FOREIGN KEY (owner_user_id) REFERENCES user(id),
+      FOREIGN KEY (customer_id) REFERENCES canvas_customers(id) ON DELETE SET NULL,
+      FOREIGN KEY (project_id) REFERENCES canvas_projects(id) ON DELETE CASCADE,
+      CHECK (type != 'project' OR project_id IS NOT NULL)
     );
 
     CREATE TABLE IF NOT EXISTS workspace_trash_entries (
       id TEXT PRIMARY KEY NOT NULL,
       organization_id TEXT,
+      customer_id TEXT,
+      project_id TEXT,
       workspace_id TEXT NOT NULL,
       workspace_type TEXT NOT NULL,
       owner_user_id TEXT,
@@ -206,6 +265,8 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       channel_id TEXT NOT NULL DEFAULT 'app',
       channel_session_key TEXT,
       organization_id TEXT,
+      customer_id TEXT,
+      project_id TEXT,
       workspace_id TEXT,
       workspace_type TEXT,
       workspace_name TEXT,
@@ -228,6 +289,8 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       fingerprint TEXT NOT NULL,
       user_id TEXT NOT NULL,
       organization_id TEXT,
+      customer_id TEXT,
+      project_id TEXT,
       workspace_id TEXT,
       workspace_type TEXT,
       agent_id TEXT NOT NULL DEFAULT 'canvas-agent',
@@ -287,6 +350,8 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       created_by_user_id TEXT,
       assignee_user_id TEXT,
       organization_id TEXT,
+      customer_id TEXT,
+      project_id TEXT,
       workspace_id TEXT,
       workspace_type TEXT NOT NULL DEFAULT 'personal',
       category_id TEXT,
@@ -321,6 +386,8 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       todo_id TEXT NOT NULL,
       user_id TEXT NOT NULL,
       organization_id TEXT,
+      customer_id TEXT,
+      project_id TEXT,
       workspace_id TEXT,
       workspace_type TEXT NOT NULL DEFAULT 'personal',
       workspace_path TEXT NOT NULL,
@@ -385,6 +452,8 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       token_preview TEXT NOT NULL,
       short_code TEXT UNIQUE,
       organization_id TEXT,
+      customer_id TEXT,
+      project_id TEXT,
       workspace_id TEXT,
       workspace_type TEXT,
       workspace_root_relative_path TEXT,
@@ -417,6 +486,8 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     CREATE TABLE IF NOT EXISTS knowledge_sources (
       id TEXT PRIMARY KEY NOT NULL,
       organization_id TEXT,
+      customer_id TEXT,
+      project_id TEXT,
       workspace_id TEXT,
       user_id TEXT,
       created_by_user_id TEXT,
@@ -450,6 +521,8 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       id TEXT PRIMARY KEY NOT NULL,
       source_id TEXT NOT NULL,
       organization_id TEXT,
+      customer_id TEXT,
+      project_id TEXT,
       workspace_id TEXT,
       user_id TEXT,
       knowledge_store TEXT NOT NULL,
@@ -478,6 +551,8 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     CREATE TABLE IF NOT EXISTS audit_events (
       id TEXT PRIMARY KEY NOT NULL,
       organization_id TEXT,
+      customer_id TEXT,
+      project_id TEXT,
       workspace_id TEXT,
       user_id TEXT,
       session_id TEXT,
@@ -505,6 +580,8 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       scope TEXT NOT NULL DEFAULT 'personal',
       job_scope TEXT NOT NULL DEFAULT 'personal:legacy:legacy',
       organization_id TEXT,
+      customer_id TEXT,
+      project_id TEXT,
       workspace_id TEXT,
       workspace_type TEXT NOT NULL DEFAULT 'personal',
       owner_user_id TEXT,
@@ -555,6 +632,8 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       scope TEXT NOT NULL DEFAULT 'personal',
       job_scope TEXT NOT NULL DEFAULT 'personal:legacy:legacy',
       organization_id TEXT,
+      customer_id TEXT,
+      project_id TEXT,
       workspace_id TEXT,
       workspace_type TEXT NOT NULL DEFAULT 'personal',
       actor_type TEXT NOT NULL DEFAULT 'user',
@@ -697,6 +776,8 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       id TEXT PRIMARY KEY NOT NULL,
       user_id TEXT NOT NULL,
       organization_id TEXT,
+      customer_id TEXT,
+      project_id TEXT,
       created_by_user_id TEXT,
       visibility TEXT NOT NULL DEFAULT 'organization',
       name TEXT NOT NULL,
@@ -728,6 +809,8 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       id TEXT PRIMARY KEY NOT NULL,
       user_id TEXT NOT NULL,
       organization_id TEXT,
+      customer_id TEXT,
+      project_id TEXT,
       created_by_user_id TEXT,
       visibility TEXT NOT NULL DEFAULT 'organization',
       name TEXT NOT NULL,
@@ -759,6 +842,8 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       id TEXT PRIMARY KEY NOT NULL,
       user_id TEXT NOT NULL,
       organization_id TEXT,
+      customer_id TEXT,
+      project_id TEXT,
       created_by_user_id TEXT,
       visibility TEXT NOT NULL DEFAULT 'organization',
       name TEXT NOT NULL,
@@ -790,6 +875,8 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       id TEXT PRIMARY KEY NOT NULL,
       user_id TEXT,
       organization_id TEXT,
+      customer_id TEXT,
+      project_id TEXT,
       created_by_user_id TEXT,
       visibility TEXT NOT NULL DEFAULT 'user',
       is_default INTEGER NOT NULL DEFAULT 0,
@@ -808,6 +895,8 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       id TEXT PRIMARY KEY NOT NULL,
       user_id TEXT NOT NULL,
       organization_id TEXT,
+      customer_id TEXT,
+      project_id TEXT,
       created_by_user_id TEXT,
       workspace_id TEXT,
       mode TEXT NOT NULL,
@@ -833,6 +922,8 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       id TEXT PRIMARY KEY NOT NULL,
       generation_id TEXT NOT NULL,
       organization_id TEXT,
+      customer_id TEXT,
+      project_id TEXT,
       created_by_user_id TEXT,
       workspace_id TEXT,
       variation_index INTEGER NOT NULL DEFAULT 0,
@@ -878,6 +969,8 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       id TEXT PRIMARY KEY NOT NULL,
       user_id TEXT NOT NULL,
       organization_id TEXT,
+      customer_id TEXT,
+      project_id TEXT,
       created_by_user_id TEXT,
       workspace_id TEXT,
       name TEXT,
@@ -931,45 +1024,85 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     offboarding_report_json: 'TEXT',
   });
 
+  addColumns(sqlite, 'canvas_workspaces', {
+    customer_id: 'TEXT',
+    project_id: 'TEXT',
+  });
+
+  sqlite.exec(`
+    CREATE TRIGGER IF NOT EXISTS trg_canvas_workspaces_project_id_required_insert
+    BEFORE INSERT ON canvas_workspaces
+    WHEN NEW.type = 'project' AND NEW.project_id IS NULL
+    BEGIN
+      SELECT RAISE(ABORT, 'project workspace requires project_id');
+    END;
+
+    CREATE TRIGGER IF NOT EXISTS trg_canvas_workspaces_project_id_required_update
+    BEFORE UPDATE OF type, project_id ON canvas_workspaces
+    WHEN NEW.type = 'project' AND NEW.project_id IS NULL
+    BEGIN
+      SELECT RAISE(ABORT, 'project workspace requires project_id');
+    END;
+  `);
+
+  addColumns(sqlite, 'workspace_trash_entries', {
+    customer_id: 'TEXT',
+    project_id: 'TEXT',
+  });
+
   addColumns(sqlite, 'studio_generations', {
     studio_preset_name: 'TEXT',
     organization_id: 'TEXT',
+    customer_id: 'TEXT',
+    project_id: 'TEXT',
     created_by_user_id: 'TEXT',
     workspace_id: 'TEXT',
   });
 
   addColumns(sqlite, 'studio_products', {
     organization_id: 'TEXT',
+    customer_id: 'TEXT',
+    project_id: 'TEXT',
     created_by_user_id: 'TEXT',
     visibility: "TEXT NOT NULL DEFAULT 'organization'",
   });
 
   addColumns(sqlite, 'studio_personas', {
     organization_id: 'TEXT',
+    customer_id: 'TEXT',
+    project_id: 'TEXT',
     created_by_user_id: 'TEXT',
     visibility: "TEXT NOT NULL DEFAULT 'organization'",
   });
 
   addColumns(sqlite, 'studio_styles', {
     organization_id: 'TEXT',
+    customer_id: 'TEXT',
+    project_id: 'TEXT',
     created_by_user_id: 'TEXT',
     visibility: "TEXT NOT NULL DEFAULT 'organization'",
   });
 
   addColumns(sqlite, 'studio_presets', {
     organization_id: 'TEXT',
+    customer_id: 'TEXT',
+    project_id: 'TEXT',
     created_by_user_id: 'TEXT',
     visibility: "TEXT NOT NULL DEFAULT 'user'",
   });
 
   addColumns(sqlite, 'studio_generation_outputs', {
     organization_id: 'TEXT',
+    customer_id: 'TEXT',
+    project_id: 'TEXT',
     created_by_user_id: 'TEXT',
     workspace_id: 'TEXT',
   });
 
   addColumns(sqlite, 'studio_bulk_jobs', {
     organization_id: 'TEXT',
+    customer_id: 'TEXT',
+    project_id: 'TEXT',
     created_by_user_id: 'TEXT',
     workspace_id: 'TEXT',
   });
@@ -978,6 +1111,8 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     created_by_user_id: 'TEXT',
     assignee_user_id: 'TEXT',
     organization_id: 'TEXT',
+    customer_id: 'TEXT',
+    project_id: 'TEXT',
     workspace_id: 'TEXT',
     workspace_type: "TEXT NOT NULL DEFAULT 'personal'",
     completion_comment: 'TEXT',
@@ -989,6 +1124,8 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
 
   addColumns(sqlite, 'todo_file_links', {
     organization_id: 'TEXT',
+    customer_id: 'TEXT',
+    project_id: 'TEXT',
     workspace_id: 'TEXT',
     workspace_type: "TEXT NOT NULL DEFAULT 'personal'",
   });
@@ -1220,32 +1357,38 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     CREATE INDEX IF NOT EXISTS idx_license_public_keys_fetched_at ON license_public_keys (fetched_at);
     CREATE INDEX IF NOT EXISTS idx_studio_products_user ON studio_products (user_id);
     CREATE INDEX IF NOT EXISTS idx_studio_products_organization ON studio_products (organization_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_studio_products_project ON studio_products (project_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_studio_products_creator ON studio_products (created_by_user_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_studio_products_created ON studio_products (created_at);
     CREATE INDEX IF NOT EXISTS idx_studio_product_images_product ON studio_product_images (product_id);
     CREATE INDEX IF NOT EXISTS idx_studio_personas_user ON studio_personas (user_id);
     CREATE INDEX IF NOT EXISTS idx_studio_personas_organization ON studio_personas (organization_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_studio_personas_project ON studio_personas (project_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_studio_personas_creator ON studio_personas (created_by_user_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_studio_personas_created ON studio_personas (created_at);
     CREATE INDEX IF NOT EXISTS idx_studio_persona_images_persona ON studio_persona_images (persona_id);
     CREATE INDEX IF NOT EXISTS idx_studio_styles_user ON studio_styles (user_id);
     CREATE INDEX IF NOT EXISTS idx_studio_styles_organization ON studio_styles (organization_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_studio_styles_project ON studio_styles (project_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_studio_styles_creator ON studio_styles (created_by_user_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_studio_styles_created ON studio_styles (created_at);
     CREATE INDEX IF NOT EXISTS idx_studio_style_images_style ON studio_style_images (style_id);
     CREATE INDEX IF NOT EXISTS idx_studio_presets_user ON studio_presets (user_id);
     CREATE INDEX IF NOT EXISTS idx_studio_presets_organization ON studio_presets (organization_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_studio_presets_project ON studio_presets (project_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_studio_presets_creator ON studio_presets (created_by_user_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_studio_presets_category ON studio_presets (category);
     CREATE INDEX IF NOT EXISTS idx_studio_presets_created ON studio_presets (created_at);
     CREATE INDEX IF NOT EXISTS idx_studio_generations_user ON studio_generations (user_id);
     CREATE INDEX IF NOT EXISTS idx_studio_generations_organization ON studio_generations (organization_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_studio_generations_project ON studio_generations (project_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_studio_generations_creator ON studio_generations (created_by_user_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_studio_generations_workspace ON studio_generations (workspace_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_studio_generations_status ON studio_generations (status);
     CREATE INDEX IF NOT EXISTS idx_studio_generations_created ON studio_generations (created_at);
     CREATE INDEX IF NOT EXISTS idx_studio_gen_outputs_generation ON studio_generation_outputs (generation_id);
     CREATE INDEX IF NOT EXISTS idx_studio_gen_outputs_organization ON studio_generation_outputs (organization_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_studio_gen_outputs_project ON studio_generation_outputs (project_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_studio_gen_outputs_creator ON studio_generation_outputs (created_by_user_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_studio_gen_outputs_workspace ON studio_generation_outputs (workspace_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_studio_gen_outputs_created ON studio_generation_outputs (created_at);
@@ -1257,6 +1400,7 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     CREATE INDEX IF NOT EXISTS idx_gen_styles_style ON studio_generation_styles (style_id);
     CREATE INDEX IF NOT EXISTS idx_studio_bulk_jobs_user ON studio_bulk_jobs (user_id);
     CREATE INDEX IF NOT EXISTS idx_studio_bulk_jobs_organization ON studio_bulk_jobs (organization_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_studio_bulk_jobs_project ON studio_bulk_jobs (project_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_studio_bulk_jobs_creator ON studio_bulk_jobs (created_by_user_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_studio_bulk_jobs_workspace ON studio_bulk_jobs (workspace_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_studio_bulk_jobs_status ON studio_bulk_jobs (status);
@@ -1272,11 +1416,13 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     CREATE INDEX IF NOT EXISTS idx_todo_items_user_seen ON todo_items (user_id, seen_at);
     CREATE INDEX IF NOT EXISTS idx_todo_items_source_session ON todo_items (user_id, source_session_id);
     CREATE INDEX IF NOT EXISTS idx_todo_items_org_workspace_status ON todo_items (organization_id, workspace_id, status, updated_at);
+    CREATE INDEX IF NOT EXISTS idx_todo_items_project_status ON todo_items (project_id, status, updated_at);
     CREATE INDEX IF NOT EXISTS idx_todo_items_assignee_status ON todo_items (assignee_user_id, status, updated_at);
     CREATE INDEX IF NOT EXISTS idx_todo_items_category ON todo_items (category_id);
     CREATE INDEX IF NOT EXISTS idx_todo_file_links_todo ON todo_file_links (todo_id);
     CREATE INDEX IF NOT EXISTS idx_todo_file_links_user_path ON todo_file_links (user_id, workspace_path);
     CREATE INDEX IF NOT EXISTS idx_todo_file_links_workspace_path ON todo_file_links (organization_id, workspace_id, workspace_path);
+    CREATE INDEX IF NOT EXISTS idx_todo_file_links_project_path ON todo_file_links (project_id, workspace_path);
     CREATE INDEX IF NOT EXISTS idx_todo_email_reply_watchers_status_checked ON todo_email_reply_watchers (status, last_checked_at);
     CREATE INDEX IF NOT EXISTS idx_todo_email_reply_watchers_todo ON todo_email_reply_watchers (todo_id);
     CREATE INDEX IF NOT EXISTS idx_todo_email_reply_watchers_user_status ON todo_email_reply_watchers (user_id, status);
@@ -1292,16 +1438,19 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     CREATE INDEX IF NOT EXISTS idx_public_file_shares_expires_at ON public_file_shares (expires_at);
     CREATE INDEX IF NOT EXISTS idx_knowledge_sources_store_status ON knowledge_sources (knowledge_store, status);
     CREATE INDEX IF NOT EXISTS idx_knowledge_sources_org_workspace ON knowledge_sources (organization_id, workspace_id, knowledge_store, status);
+    CREATE INDEX IF NOT EXISTS idx_knowledge_sources_project_store ON knowledge_sources (project_id, knowledge_store, status);
     CREATE INDEX IF NOT EXISTS idx_knowledge_sources_user_store ON knowledge_sources (user_id, knowledge_store, status);
     CREATE INDEX IF NOT EXISTS idx_knowledge_sources_workspace_path ON knowledge_sources (workspace_id, source_path);
     CREATE INDEX IF NOT EXISTS idx_knowledge_sources_content_hash ON knowledge_sources (content_hash);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_knowledge_chunks_source_chunk ON knowledge_chunks (source_id, chunk_index);
     CREATE INDEX IF NOT EXISTS idx_knowledge_chunks_org_workspace ON knowledge_chunks (organization_id, workspace_id, knowledge_store, embedding_index_status);
+    CREATE INDEX IF NOT EXISTS idx_knowledge_chunks_project_store ON knowledge_chunks (project_id, knowledge_store, embedding_index_status);
     CREATE INDEX IF NOT EXISTS idx_knowledge_chunks_user_store ON knowledge_chunks (user_id, knowledge_store, embedding_index_status);
     CREATE INDEX IF NOT EXISTS idx_knowledge_chunks_policy ON knowledge_chunks (policy_decision, scan_status, embedding_index_status);
     CREATE INDEX IF NOT EXISTS idx_knowledge_chunks_content_hash ON knowledge_chunks (content_hash);
     CREATE INDEX IF NOT EXISTS idx_audit_events_created ON audit_events (created_at);
     CREATE INDEX IF NOT EXISTS idx_audit_events_org_created ON audit_events (organization_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_audit_events_project_created ON audit_events (project_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_audit_events_workspace_created ON audit_events (workspace_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_audit_events_user_created ON audit_events (user_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_audit_events_entity_created ON audit_events (entity_type, entity_id, created_at);
@@ -1393,6 +1542,8 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     short_code: 'TEXT',
     security_mode: "TEXT NOT NULL DEFAULT 'strict'",
     organization_id: 'TEXT',
+    customer_id: 'TEXT',
+    project_id: 'TEXT',
     workspace_id: 'TEXT',
     workspace_type: 'TEXT',
     workspace_root_relative_path: 'TEXT',
@@ -1403,10 +1554,26 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     password_hash: 'TEXT',
   });
 
+  addColumns(sqlite, 'knowledge_sources', {
+    customer_id: 'TEXT',
+    project_id: 'TEXT',
+  });
+
+  addColumns(sqlite, 'knowledge_chunks', {
+    customer_id: 'TEXT',
+    project_id: 'TEXT',
+  });
+
+  addColumns(sqlite, 'audit_events', {
+    customer_id: 'TEXT',
+    project_id: 'TEXT',
+  });
+
   sqlite.exec(`
     CREATE UNIQUE INDEX IF NOT EXISTS idx_public_file_shares_short_code ON public_file_shares (short_code);
     CREATE INDEX IF NOT EXISTS idx_public_file_shares_workspace_id_path ON public_file_shares (workspace_id, workspace_path, status);
     CREATE INDEX IF NOT EXISTS idx_public_file_shares_org_status ON public_file_shares (organization_id, status);
+    CREATE INDEX IF NOT EXISTS idx_public_file_shares_project_status ON public_file_shares (project_id, status);
   `);
 
   addColumns(sqlite, 'pi_sessions', {
@@ -1417,6 +1584,8 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     system_prompt_snapshot_hash: 'TEXT',
     system_prompt_snapshot_created_at: 'INTEGER',
     organization_id: 'TEXT',
+    customer_id: 'TEXT',
+    project_id: 'TEXT',
     workspace_id: 'TEXT',
     workspace_type: 'TEXT',
     workspace_name: 'TEXT',
@@ -1425,6 +1594,8 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
 
   addColumns(sqlite, 'pi_usage_events', {
     organization_id: 'TEXT',
+    customer_id: 'TEXT',
+    project_id: 'TEXT',
     workspace_id: 'TEXT',
     workspace_type: 'TEXT',
     agent_id: "TEXT NOT NULL DEFAULT 'canvas-agent'",
@@ -1434,6 +1605,8 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     scope: "TEXT NOT NULL DEFAULT 'personal'",
     job_scope: "TEXT NOT NULL DEFAULT 'personal:legacy:legacy'",
     organization_id: 'TEXT',
+    customer_id: 'TEXT',
+    project_id: 'TEXT',
     workspace_id: 'TEXT',
     workspace_type: "TEXT NOT NULL DEFAULT 'personal'",
     owner_user_id: 'TEXT',
@@ -1461,6 +1634,8 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     scope: "TEXT NOT NULL DEFAULT 'personal'",
     job_scope: "TEXT NOT NULL DEFAULT 'personal:legacy:legacy'",
     organization_id: 'TEXT',
+    customer_id: 'TEXT',
+    project_id: 'TEXT',
     workspace_id: 'TEXT',
     workspace_type: "TEXT NOT NULL DEFAULT 'personal'",
     actor_type: "TEXT NOT NULL DEFAULT 'user'",
@@ -1574,14 +1749,27 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
   // ── Deferred indexes on columns added via ALTER TABLE ──────────────────────
   sqlite.exec(`
     CREATE INDEX IF NOT EXISTS idx_canvas_org_settings_owner ON canvas_organization_settings (owner_user_id);
+    CREATE INDEX IF NOT EXISTS idx_canvas_customers_organization ON canvas_customers (organization_id, status, name);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_canvas_customers_org_slug ON canvas_customers (organization_id, slug);
+    CREATE INDEX IF NOT EXISTS idx_canvas_customers_creator ON canvas_customers (created_by_user_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_canvas_projects_organization ON canvas_projects (organization_id, status, name);
+    CREATE INDEX IF NOT EXISTS idx_canvas_projects_customer ON canvas_projects (customer_id, status, name);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_canvas_projects_org_slug ON canvas_projects (organization_id, slug);
+    CREATE INDEX IF NOT EXISTS idx_canvas_projects_creator ON canvas_projects (created_by_user_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_canvas_project_members_org_user ON canvas_project_members (organization_id, user_id, status);
+    CREATE INDEX IF NOT EXISTS idx_canvas_project_members_project_status ON canvas_project_members (project_id, status);
     CREATE INDEX IF NOT EXISTS idx_canvas_workspaces_organization ON canvas_workspaces (organization_id);
     CREATE INDEX IF NOT EXISTS idx_canvas_workspaces_owner ON canvas_workspaces (owner_user_id);
+    CREATE INDEX IF NOT EXISTS idx_canvas_workspaces_customer ON canvas_workspaces (customer_id);
+    CREATE INDEX IF NOT EXISTS idx_canvas_workspaces_project ON canvas_workspaces (project_id);
     CREATE INDEX IF NOT EXISTS idx_canvas_workspaces_organization_type ON canvas_workspaces (organization_id, type);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_canvas_workspaces_personal_owner ON canvas_workspaces (owner_user_id) WHERE type = 'personal';
     CREATE UNIQUE INDEX IF NOT EXISTS idx_canvas_workspaces_team_organization ON canvas_workspaces (organization_id) WHERE type = 'team';
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_canvas_workspaces_project_workspace ON canvas_workspaces (project_id) WHERE type = 'project';
     CREATE INDEX IF NOT EXISTS idx_workspace_trash_workspace_status ON workspace_trash_entries (workspace_id, status, deleted_at);
     CREATE INDEX IF NOT EXISTS idx_workspace_trash_expires ON workspace_trash_entries (status, expires_at);
     CREATE INDEX IF NOT EXISTS idx_workspace_trash_org_status ON workspace_trash_entries (organization_id, status, deleted_at);
+    CREATE INDEX IF NOT EXISTS idx_workspace_trash_project_status ON workspace_trash_entries (project_id, status, deleted_at);
     CREATE INDEX IF NOT EXISTS idx_workspace_trash_deleted_by ON workspace_trash_entries (deleted_by_user_id, deleted_at);
     CREATE INDEX IF NOT EXISTS idx_workspace_trash_original_path ON workspace_trash_entries (workspace_id, original_path, status);
     CREATE INDEX IF NOT EXISTS idx_org_user_permissions_user ON organization_user_permissions (user_id);
@@ -1596,11 +1784,15 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     CREATE INDEX IF NOT EXISTS idx_pi_sessions_agent ON pi_sessions (agent_id);
     CREATE INDEX IF NOT EXISTS idx_pi_sessions_channel ON pi_sessions (channel_id, channel_session_key);
     CREATE INDEX IF NOT EXISTS idx_pi_sessions_workspace ON pi_sessions (workspace_id);
+    CREATE INDEX IF NOT EXISTS idx_pi_sessions_project ON pi_sessions (project_id, last_message_at);
     CREATE INDEX IF NOT EXISTS idx_pi_sessions_user_workspace_created ON pi_sessions (user_id, workspace_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_pi_usage_events_org_workspace ON pi_usage_events (organization_id, workspace_id, assistant_timestamp);
+    CREATE INDEX IF NOT EXISTS idx_pi_usage_events_project ON pi_usage_events (project_id, assistant_timestamp);
     CREATE INDEX IF NOT EXISTS idx_pi_usage_events_user_workspace ON pi_usage_events (user_id, workspace_id, assistant_timestamp);
     CREATE INDEX IF NOT EXISTS idx_pi_usage_events_agent ON pi_usage_events (agent_id, assistant_timestamp);
+    CREATE INDEX IF NOT EXISTS idx_automation_jobs_project_status ON automation_jobs (project_id, status, next_run_at);
     CREATE INDEX IF NOT EXISTS idx_automation_jobs_job_scope_status ON automation_jobs (job_scope, status, next_run_at);
+    CREATE INDEX IF NOT EXISTS idx_automation_runs_project_created ON automation_runs (project_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_automation_runs_job_scope_status ON automation_runs (job_scope, status, scheduled_for);
   `);
 

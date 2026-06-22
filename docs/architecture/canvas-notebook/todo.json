@@ -549,8 +549,29 @@
     {
       "id": 32,
       "title": "Projekt-/Kundenebene im Datenmodell vorbereiten",
-      "status": "pending",
-      "repo": "canvasstudios-notebook"
+      "status": "completed",
+      "repo": "canvasstudios-notebook",
+      "planningArtifacts": [
+        "docs/architecture/canvas-notebook/team-workspace/00-full-plan.md",
+        "docs/architecture/canvas-notebook/team-workspace/03-scope-matrix.md",
+        "docs/architecture/canvas-notebook/team-workspace/15-export-import-backup-restore-policy.md"
+      ],
+      "implementationArtifacts": [
+        "app/lib/db/schema.ts",
+        "app/lib/db/migrate.ts",
+        "app/lib/projects/service.ts",
+        "app/lib/workspaces/service.ts",
+        "app/lib/workspaces/permissions.ts",
+        "scripts/project-customer-model-test.ts"
+      ],
+      "verification": [
+        "npx tsc --noEmit --pretty false",
+        "npx tsx --conditions react-server scripts/project-customer-model-test.ts",
+        "npx tsx --conditions react-server scripts/workspace-model-service-test.ts",
+        "npx tsx --conditions react-server scripts/workspace-context-foundation-test.ts",
+        "npx tsx --conditions react-server scripts/migration-import-dry-run-test.ts",
+        "npx tsx --conditions react-server scripts/automation-workspace-scope-test.ts"
+      ]
     },
     {
       "id": 33,
