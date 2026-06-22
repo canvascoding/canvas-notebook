@@ -63,7 +63,7 @@ async function main() {
     } = await import('../app/lib/files/revision-guard');
     const { writeFile } = await import('../app/lib/filesystem/workspace-files');
     const { runWithAgentExecutionContext } = await import('../app/lib/pi/agent-execution-context');
-    const { writeAgentTextFile } = await import('../app/lib/pi/agent-file-operations');
+    const { editAgentFile, writeAgentTextFile } = await import('../app/lib/pi/agent-file-operations');
 
     await writeFile('notes.md', 'personal v1\n', { workspace: personalWorkspace });
     await assert.doesNotReject(() => assertWorkspaceFileRevisionAllowed({
@@ -137,9 +137,17 @@ async function main() {
       const updated = await writeAgentTextFile({
         path: 'agent-created.md',
         content: 'agent v2\n',
-        expectedSha256: created.afterSha256,
+        expectedSha256: `sha256:${created.afterSha256.toUpperCase()}`,
       });
       assert.equal(updated.changed, true);
+
+      const edited = await editAgentFile({
+        path: 'agent-created.md',
+        oldText: 'agent v2\n',
+        newText: 'agent v3\n',
+        expectedSha256: updated.afterSha256,
+      });
+      assert.equal(edited.changed, true);
     });
 
     console.log('file-revision-guard-test: ok');

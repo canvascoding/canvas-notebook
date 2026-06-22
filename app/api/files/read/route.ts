@@ -42,8 +42,6 @@ export async function GET(request: NextRequest) {
     const metaOnly = searchParams.get('meta') === '1';
 
     if (metaOnly) {
-      const revisionContent = stats.size <= sizeLimit ? await readFile(path, fileOptions) : null;
-      const sha256 = revisionContent ? sha256Buffer(revisionContent) : undefined;
       return NextResponse.json({
         success: true,
         data: {
@@ -53,7 +51,6 @@ export async function GET(request: NextRequest) {
             size: stats.size,
             modified: stats.modified,
             permissions: stats.permissions,
-            sha256,
           },
         },
       });

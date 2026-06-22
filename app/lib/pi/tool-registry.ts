@@ -2106,7 +2106,7 @@ export const piTools: AgentTool[] = [
                   displayPath: resolvedPath.displayPath,
                   mimeType: image.mimeType,
                   size: buffer.length,
-                }),
+                }) + `\nSHA-256: ${sha256}`,
               },
               image,
             ],
@@ -2189,7 +2189,7 @@ export const piTools: AgentTool[] = [
   {
     name: 'edit_file',
     label: 'Editing file safely',
-    description: 'Safely edits an existing text file by exact oldText -> newText replacement. Refuses ambiguous matches, creates an undo snapshot, returns a diff, validates supported file types, and verifies the file after writing. Use this instead of sed, perl -pi, tee, or shell redirects.',
+    description: 'Safely edits an existing text file by exact oldText -> newText replacement. Refuses ambiguous matches, creates an undo snapshot, returns a diff, validates supported file types, and verifies the file after writing. Existing shared workspace files require expectedSha256 from the read tool output. Use this instead of sed, perl -pi, tee, or shell redirects.',
     parameters: Type.Object({
       path: Type.String({ description: 'Absolute path or workspace-relative path.' }),
       oldText: Type.String({ description: 'Exact text to replace. Must match expectedOccurrences.' }),
@@ -2229,7 +2229,7 @@ export const piTools: AgentTool[] = [
   {
     name: 'apply_patch',
     label: 'Applying safe patch',
-    description: 'Safely applies multiple exact text replacements across one or more existing files. All replacements are preflighted before any write. Creates undo snapshots, returns diffs, validates supported file types, and verifies files after writing.',
+    description: 'Safely applies multiple exact text replacements across one or more existing files. All replacements are preflighted before any write. Creates undo snapshots, returns diffs, validates supported file types, and verifies files after writing. Existing shared workspace files require expectedSha256 from the read tool output.',
     parameters: Type.Object({
       files: Type.Array(Type.Object({
         path: Type.String({ description: 'Absolute path or workspace-relative path.' }),

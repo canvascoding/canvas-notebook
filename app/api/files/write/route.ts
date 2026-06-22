@@ -1,10 +1,10 @@
 import { NextRequest } from 'next/server';
 import { recordAuditEvent } from '@/app/lib/audit/audit-service';
-import { getFileStats, writeFile } from '@/app/lib/filesystem/workspace-files';
+import { writeFile } from '@/app/lib/filesystem/workspace-files';
 import {
   WorkspaceFileRevisionError,
   assertWorkspaceFileRevisionAllowed,
-  sha256Buffer,
+  getWorkspaceFileRevision,
   workspaceRequiresRevisionCheck,
 } from '@/app/lib/files/revision-guard';
 import { queuePublicSharesAfterWrite } from '@/app/lib/public-sharing/public-file-shares';
@@ -54,8 +54,12 @@ export async function POST(request: NextRequest) {
 
     await writeFile(path, finalContent, fileOptions);
     const contentBuffer = Buffer.isBuffer(finalContent) ? finalContent : Buffer.from(finalContent);
-    const afterSha256 = sha256Buffer(contentBuffer);
-    const stats = await getFileStats(path, fileOptions);
+    const afterRevision = await getWorkspaceFileRevision(path, fileOptions);
+    if (!afterRevision) {
+      return jsonError('Written file could not be read after save', 500);
+    }
+    const afterSha256 = afterRevision.sha256;
+    const stats = afterRevision.stats;
     invalidateWorkspaceFileViews({ fileOptions, subtreeDirs: [getParentDirectory(path)] });
     queuePublicSharesAfterWrite([path], workspaceResult.workspace);
     await recordAuditEvent({
@@ -72,7 +76,7 @@ export async function POST(request: NextRequest) {
       metadata: {
         path,
         workspaceType: workspaceResult.workspace.workspaceType,
-        contentBytes: Buffer.isBuffer(finalContent) ? finalContent.byteLength : Buffer.byteLength(finalContent),
+        contentBytes: contentBuffer.byteLength,
         encoded: typeof content === 'string' && content.startsWith('base64:'),
         expectedSha256: expectedSha256 ?? null,
         afterSha256,
