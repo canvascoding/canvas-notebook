@@ -4,18 +4,23 @@ import type { Stats } from 'node:fs';
 import path from 'node:path';
 
 import { parseDocument } from 'yaml';
+import { recordAuditEvent } from '@/app/lib/audit/audit-service';
+import { logger } from '@/app/lib/logging';
 import {
   syncPublicSharesAfterDelete,
   syncPublicSharesAfterMove,
   syncPublicSharesAfterWrite,
 } from '@/app/lib/public-sharing/public-file-shares';
-import { getAgentExecutionContext } from '@/app/lib/pi/agent-execution-context';
+import { getAgentExecutionContext, type AgentExecutionContext } from '@/app/lib/pi/agent-execution-context';
 
 const SNAPSHOT_DIR_NAME = 'agent-file-snapshots';
 const MAX_DIFF_CHARS = 24_000;
 const DEFAULT_MAX_SNAPSHOT_COUNT = 500;
 const DEFAULT_MAX_SNAPSHOT_BYTES = 250 * 1024 * 1024;
 const MAX_PATH_SUMMARY_ENTRIES = 5_000;
+const MAX_AUDIT_PATH_ENTRIES = 100;
+const MAX_AUDIT_ENTITY_ID_LENGTH = 500;
+const agentFileAuditLogger = logger.module('AgentFileAudit');
 
 export type AgentFileValidationCheck = {
   name: string;
@@ -328,6 +333,167 @@ function relativePathWithin(candidatePath: string, basePath: string): string | n
     return normalizedCandidate === normalizedBase ? '.' : null;
   }
   return relativePath;
+}
+
+function auditPathReference(fullPath: string, executionContext: AgentExecutionContext | null): string {
+  const resolvedPath = path.resolve(fullPath);
+  if (!executionContext?.workspaceRoot) {
+    return resolvedPath;
+  }
+
+  const workspaceRelativePath = relativePathWithin(resolvedPath, executionContext.workspaceRoot);
+  return workspaceRelativePath ?? resolvedPath;
+}
+
+function auditResolvedPathReference(value: string, executionContext: AgentExecutionContext | null): string {
+  return path.isAbsolute(value) ? auditPathReference(value, executionContext) : value;
+}
+
+function auditWorkspaceMetadata(executionContext: AgentExecutionContext | null) {
+  if (!executionContext) return null;
+  return {
+    workspaceId: executionContext.workspaceId,
+    workspaceType: executionContext.workspaceType,
+    workspaceName: executionContext.workspaceName,
+    workspaceRootRelativePath: executionContext.workspaceRootRelativePath,
+    legacy: executionContext.legacy,
+  };
+}
+
+async function recordAgentFileChangeAudit(result: AgentFileChangeResult, operation: string): Promise<void> {
+  if (!result.changed) return;
+
+  const executionContext = getAgentExecutionContext();
+  if (!executionContext) {
+    agentFileAuditLogger.warn('Skipping agent file audit without execution context', {
+      operation,
+      path: result.path,
+    });
+    return;
+  }
+
+  await recordAuditEvent({
+    organizationId: executionContext.organizationId,
+    customerId: executionContext.customerId,
+    projectId: executionContext.projectId,
+    workspaceId: executionContext.workspaceId,
+    userId: executionContext.userId,
+    sessionId: executionContext.sessionId,
+    agentId: executionContext.agentId,
+    source: 'agent_tool',
+    eventType: 'file',
+    entityType: 'workspace_file',
+    entityId: result.path,
+    action: `agent_file.${operation}`,
+    status: 'success',
+    summary: `Agent file ${operation} changed ${result.path}.`,
+    metadata: {
+      path: result.path,
+      resolvedPath: auditPathReference(result.resolvedPath, executionContext),
+      workspace: auditWorkspaceMetadata(executionContext),
+      revision: {
+        snapshotId: result.snapshot?.id ?? null,
+        snapshotOperation: result.snapshot?.operation ?? null,
+        snapshotExisted: result.snapshot?.existed ?? null,
+        beforeSha256: result.beforeSha256,
+        afterSha256: result.afterSha256,
+      },
+      size: result.size,
+      validation: {
+        ok: result.validation.ok,
+        checks: result.validation.checks.map((check) => ({
+          name: check.name,
+          ok: check.ok,
+          message: check.message,
+        })),
+      },
+    },
+    inputHash: result.beforeSha256,
+    outputHash: result.afterSha256,
+    artifactRef: result.snapshot ? `agent-file-snapshot:${result.snapshot.id}` : null,
+  });
+}
+
+function summarizeAuditPathEntries(entries: AgentPathOperationEntry[], executionContext: AgentExecutionContext | null) {
+  return entries.slice(0, MAX_AUDIT_PATH_ENTRIES).map((entry) => ({
+    sourcePath: entry.sourcePath,
+    destinationPath: entry.destinationPath,
+    sourceResolvedPath: auditPathReference(entry.sourceResolvedPath, executionContext),
+    destinationResolvedPath: entry.destinationResolvedPath
+      ? auditPathReference(entry.destinationResolvedPath, executionContext)
+      : undefined,
+    type: entry.type,
+    changed: entry.changed,
+    overwritten: entry.overwritten,
+    bytes: entry.bytes,
+    files: entry.files,
+    directories: entry.directories,
+    truncated: entry.truncated,
+  }));
+}
+
+function truncateAuditEntityId(entityId: string): string {
+  if (entityId.length <= MAX_AUDIT_ENTITY_ID_LENGTH) return entityId;
+  return `${entityId.slice(0, MAX_AUDIT_ENTITY_ID_LENGTH - 3)}...`;
+}
+
+function pathOperationEntityId(result: AgentPathOperationResult): string {
+  const paths = result.operation === 'delete_path'
+    ? result.entries.map((entry) => entry.sourcePath)
+    : result.entries.map((entry) => entry.destinationPath ?? entry.sourcePath);
+  return truncateAuditEntityId(paths.join(', '));
+}
+
+async function recordAgentPathOperationAudit(result: AgentPathOperationResult): Promise<void> {
+  if (!result.changed) return;
+
+  const executionContext = getAgentExecutionContext();
+  if (!executionContext) {
+    agentFileAuditLogger.warn('Skipping agent path audit without execution context', {
+      operation: result.operation,
+      sourcePath: result.sourcePath,
+      destinationPath: result.destinationPath,
+    });
+    return;
+  }
+
+  await recordAuditEvent({
+    organizationId: executionContext.organizationId,
+    customerId: executionContext.customerId,
+    projectId: executionContext.projectId,
+    workspaceId: executionContext.workspaceId,
+    userId: executionContext.userId,
+    sessionId: executionContext.sessionId,
+    agentId: executionContext.agentId,
+    source: 'agent_tool',
+    eventType: 'file',
+    entityType: 'workspace_path',
+    entityId: pathOperationEntityId(result),
+    action: `agent_path.${result.operation}`,
+    status: 'success',
+    summary: `Agent path ${result.operation} changed ${result.destinationPath ?? result.sourcePath}.`,
+    metadata: {
+      operation: result.operation,
+      sourcePath: result.sourcePath,
+      sourcePaths: result.sourcePaths,
+      destinationPath: result.destinationPath,
+      sourceResolvedPath: auditResolvedPathReference(result.sourceResolvedPath, executionContext),
+      sourceResolvedPaths: result.sourceResolvedPaths.map((sourcePath) => auditPathReference(sourcePath, executionContext)),
+      destinationResolvedPath: result.destinationResolvedPath
+        ? auditPathReference(result.destinationResolvedPath, executionContext)
+        : null,
+      workspace: auditWorkspaceMetadata(executionContext),
+      type: result.type,
+      overwritten: result.overwritten,
+      bytes: result.bytes,
+      files: result.files,
+      directories: result.directories,
+      truncated: result.truncated,
+      entries: summarizeAuditPathEntries(result.entries, executionContext),
+      entriesTruncated: result.entries.length > MAX_AUDIT_PATH_ENTRIES,
+      totalEntries: result.entries.length,
+    },
+  });
 }
 
 function resolveLegacyWorkspaceAlias(filePath: string): string | null {
@@ -763,7 +929,7 @@ async function commitTextChange(params: {
   }
   await syncPublicSharesAfterWrite([params.fullPath]);
 
-  return {
+  const result: AgentFileChangeResult = {
     path: params.inputPath,
     resolvedPath: params.fullPath,
     changed: true,
@@ -774,6 +940,8 @@ async function commitTextChange(params: {
     diff: createUnifiedDiff(beforeContent, readBackText, `${params.inputPath} (before)`, `${params.inputPath} (after)`),
     validation,
   };
+  await recordAgentFileChangeAudit(result, params.operation);
+  return result;
 }
 
 export async function writeAgentTextFile(params: {
@@ -934,7 +1102,7 @@ export async function restoreAgentFileSnapshot(params: { snapshotId: string }): 
   if (!snapshot.existed) {
     await fs.rm(fullPath, { force: true });
     await syncPublicSharesAfterDelete([fullPath]);
-    return {
+    const result: AgentFileChangeResult = {
       path: snapshot.path,
       resolvedPath: fullPath,
       changed: before.existed,
@@ -947,6 +1115,8 @@ export async function restoreAgentFileSnapshot(params: { snapshotId: string }): 
         : '(file removed; textual diff unavailable)',
       validation: { ok: true, checks: [{ name: 'restore', ok: true, message: 'Restored snapshot by removing file that did not exist before the original edit.' }] },
     };
+    await recordAgentFileChangeAudit(result, 'restore_file_snapshot');
+    return result;
   }
 
   const content = await fs.readFile(snapshotContentPath(snapshot.id));
@@ -961,7 +1131,7 @@ export async function restoreAgentFileSnapshot(params: { snapshotId: string }): 
   const beforeText = before.buffer && !isProbablyBinary(before.buffer) ? before.buffer.toString('utf8') : null;
   const afterText = !isProbablyBinary(readBack) ? readBack.toString('utf8') : null;
 
-  return {
+  const result: AgentFileChangeResult = {
     path: snapshot.path,
     resolvedPath: fullPath,
     changed: true,
@@ -974,6 +1144,8 @@ export async function restoreAgentFileSnapshot(params: { snapshotId: string }): 
       : '(binary file restored; textual diff unavailable)',
     validation: validateAgentFileContent(snapshot.path, readBack.toString('utf8')),
   };
+  await recordAgentFileChangeAudit(result, 'restore_file_snapshot');
+  return result;
 }
 
 function getPathType(stats: Stats): AgentPathType {
@@ -1222,7 +1394,9 @@ export async function copyAgentPaths(params: {
   }
   await syncPublicSharesAfterWrite(entries.map((entry) => entry.destinationResolvedPath).filter((value): value is string => Boolean(value)));
 
-  return pathOperationSummary('copy_path', entries, params.destinationPath, destinationFullPath);
+  const result = pathOperationSummary('copy_path', entries, params.destinationPath, destinationFullPath);
+  await recordAgentPathOperationAudit(result);
+  return result;
 }
 
 export async function moveAgentPath(params: {
@@ -1312,7 +1486,9 @@ export async function moveAgentPaths(params: {
     }
   }
 
-  return pathOperationSummary('move_path', entries, params.destinationPath, destinationFullPath);
+  const result = pathOperationSummary('move_path', entries, params.destinationPath, destinationFullPath);
+  await recordAgentPathOperationAudit(result);
+  return result;
 }
 
 export async function deleteAgentPath(params: {
@@ -1387,7 +1563,9 @@ export async function deleteAgentPaths(params: {
   }
   await syncPublicSharesAfterDelete(deletableEntries.map((entry) => entry.sourceResolvedPath));
 
-  return pathOperationSummary('delete_path', entries);
+  const result = pathOperationSummary('delete_path', entries);
+  await recordAgentPathOperationAudit(result);
+  return result;
 }
 
 function isManagedDataPath(target: string): boolean {

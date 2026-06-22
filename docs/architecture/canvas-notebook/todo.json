@@ -576,13 +576,29 @@
     {
       "id": 33,
       "title": "Agent-Dateiaenderungen mit User, Session, Workspace und Revision auditieren",
-      "status": "pending",
+      "status": "completed",
       "repo": "canvasstudios-notebook",
       "planningArtifacts": [
         "docs/architecture/canvas-notebook/team-workspace/05-actor-audit-retention.md",
         "docs/architecture/canvas-notebook/team-workspace/07-filesystem-migration-and-write-policy.md",
         "docs/architecture/canvas-notebook/team-workspace/08-user-scoped-secrets-runtime.md",
         "docs/architecture/canvas-notebook/team-workspace/10-agent-tool-execution-policy.md"
+      ],
+      "implementationArtifacts": [
+        "app/lib/audit/audit-service.ts",
+        "app/lib/pi/agent-execution-context.ts",
+        "app/lib/pi/session-workspace-context.ts",
+        "app/lib/pi/agent-file-operations.ts",
+        "app/lib/automations/runner.ts",
+        "scripts/agent-session-workspace-context-test.ts",
+        "scripts/audit-service-test.ts"
+      ],
+      "verification": [
+        "npx tsx --conditions react-server scripts/agent-session-workspace-context-test.ts",
+        "npx tsx --conditions react-server scripts/audit-service-test.ts",
+        "npx tsc --noEmit --pretty false",
+        "npm run lint",
+        "npm run build"
       ]
     },
     {

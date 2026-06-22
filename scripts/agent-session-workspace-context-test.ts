@@ -14,7 +14,7 @@ async function main() {
     await fs.mkdir(dataRoot, { recursive: true });
 
     const { db } = await import('../app/lib/db');
-    const { user, piSessions } = await import('../app/lib/db/schema');
+    const { user, piSessions, auditEvents } = await import('../app/lib/db/schema');
     const {
       resolveAgentExecutionContextForSession,
       resolveAgentSessionWorkspaceForUser,
@@ -25,6 +25,7 @@ async function main() {
       getAgentWorkspaceRoot,
       resolveAgentPath,
       copyAgentPaths,
+      deleteAgentPaths,
       moveAgentPaths,
       writeAgentTextFile,
       assertAgentPathAllowed,
@@ -72,6 +73,7 @@ async function main() {
       userId,
       agentId: 'canvas-agent',
     });
+    assert.equal(executionContext.agentId, 'canvas-agent');
     assert.equal(executionContext.workspaceId, workspace.workspaceId);
     assert.equal(executionContext.workspaceRoot, workspace.rootPath);
 
@@ -96,6 +98,29 @@ async function main() {
       });
       assert.equal(result.resolvedPath, path.join(workspace.rootPath, 'notes', 'context.md'));
       assert.equal(await fs.readFile(result.resolvedPath, 'utf8'), '# Session Workspace\n');
+      const writeAuditRows = await db.select().from(auditEvents);
+      const writeAudit = writeAuditRows.find((row) => row.action === 'agent_file.write' && row.entityId === 'notes/context.md');
+      assert.ok(writeAudit, 'Expected write audit event for notes/context.md');
+      assert.equal(writeAudit.source, 'agent_tool');
+      assert.equal(writeAudit.userId, userId);
+      assert.equal(writeAudit.sessionId, sessionId);
+      assert.equal(writeAudit.agentId, 'canvas-agent');
+      assert.equal(writeAudit.workspaceId, workspace.workspaceId);
+      assert.equal(writeAudit.organizationId, workspace.organizationId);
+      assert.equal(writeAudit.inputHash, null);
+      assert.equal(writeAudit.outputHash, result.afterSha256);
+      assert.equal(writeAudit.artifactRef, `agent-file-snapshot:${result.snapshot?.id}`);
+      assert.ok(writeAudit.metadataJson);
+      const writeAuditMetadata = JSON.parse(writeAudit.metadataJson || '{}') as {
+        resolvedPath?: string;
+        workspace?: { workspaceType?: string };
+        revision?: { snapshotId?: string; afterSha256?: string };
+      };
+      assert.equal(writeAuditMetadata.resolvedPath, 'notes/context.md');
+      assert.equal(writeAuditMetadata.workspace?.workspaceType, 'personal');
+      assert.equal(writeAuditMetadata.revision?.snapshotId, result.snapshot?.id);
+      assert.equal(writeAuditMetadata.revision?.afterSha256, result.afterSha256);
+      assert.doesNotMatch(writeAudit.metadataJson || '', /Session Workspace/);
 
       const symlinkWorkspaceRoot = path.join(dataRoot, 'workspaces', 'personal', userId, 'linked-files');
       await fs.symlink(workspace.rootPath, symlinkWorkspaceRoot);
@@ -125,6 +150,40 @@ async function main() {
       });
       assert.equal(copiedUpload.destinationResolvedPath, path.join(workspace.rootPath, 'uploads', 'voice.ogg'));
       assert.equal(await fs.readFile(path.join(workspace.rootPath, 'uploads', 'voice.ogg'), 'utf8'), 'audio input');
+      const copyAuditRows = await db.select().from(auditEvents);
+      const copyAudit = copyAuditRows.find((row) => row.action === 'agent_path.copy_path' && row.entityId === 'uploads/voice.ogg');
+      assert.ok(copyAudit, 'Expected copy audit event for uploads/voice.ogg');
+      assert.equal(copyAudit.source, 'agent_tool');
+      assert.equal(copyAudit.userId, userId);
+      assert.equal(copyAudit.sessionId, sessionId);
+      assert.equal(copyAudit.agentId, 'canvas-agent');
+      assert.equal(copyAudit.workspaceId, workspace.workspaceId);
+      assert.ok(copyAudit.metadataJson);
+      const copyAuditMetadata = JSON.parse(copyAudit.metadataJson || '{}') as {
+        destinationResolvedPath?: string | null;
+        workspace?: { workspaceType?: string };
+        files?: number;
+        entries?: Array<{ destinationResolvedPath?: string }>;
+      };
+      assert.equal(copyAuditMetadata.destinationResolvedPath, 'uploads/voice.ogg');
+      assert.equal(copyAuditMetadata.workspace?.workspaceType, 'personal');
+      assert.equal(copyAuditMetadata.files, 1);
+      assert.equal(copyAuditMetadata.entries?.[0]?.destinationResolvedPath, 'uploads/voice.ogg');
+      assert.doesNotMatch(copyAudit.metadataJson || '', /audio input/);
+
+      await writeAgentTextFile({ path: 'bulk/a.txt', content: 'A\n' });
+      await writeAgentTextFile({ path: 'bulk/b.txt', content: 'B\n' });
+      const deletedBulk = await deleteAgentPaths({
+        paths: ['bulk/a.txt', 'bulk/b.txt'],
+      });
+      assert.equal(deletedBulk.sourcePath, '2 paths');
+      const deleteAuditRows = await db.select().from(auditEvents);
+      const deleteAudit = deleteAuditRows.find((row) => row.action === 'agent_path.delete_path' && row.entityId === 'bulk/a.txt, bulk/b.txt');
+      assert.ok(deleteAudit, 'Expected bulk delete audit event with concrete path entityId');
+      assert.equal(deleteAudit.userId, userId);
+      assert.equal(deleteAudit.sessionId, sessionId);
+      assert.equal(deleteAudit.agentId, 'canvas-agent');
+      assert.notEqual(deleteAudit.entityId, '2 paths');
       await assert.rejects(
         () => moveAgentPaths({
           sourcePaths: [userUploadPath],

@@ -18,6 +18,8 @@ export type AuditStatus = 'success' | 'failure' | 'blocked' | 'queued' | 'starte
 
 export interface AuditEventInput {
   organizationId?: string | null;
+  customerId?: string | null;
+  projectId?: string | null;
   workspaceId?: string | null;
   userId?: string | null;
   sessionId?: string | null;
@@ -128,6 +130,8 @@ export async function recordAuditEvent(input: AuditEventInput): Promise<AuditEve
     await db.insert(auditEvents).values({
       id,
       organizationId: normalizeText(input.organizationId, 200),
+      customerId: normalizeText(input.customerId, 200),
+      projectId: normalizeText(input.projectId, 200),
       workspaceId: normalizeText(input.workspaceId, 200),
       userId: normalizeText(input.userId, 200),
       sessionId: normalizeText(input.sessionId, 500),
