@@ -794,10 +794,11 @@
     {
       "id": 41,
       "title": "SQLite-zu-Postgres-Migrationstool mit Maintenance Mode, Snapshot, Referenzpruefung und Reindex-Status bauen",
-      "status": "pending",
+      "status": "completed",
       "repo": "cross-repo",
-      "blockedBy": [
-        "https://github.com/canvascoding/canvas-control-plane/pull/7"
+      "completedBy": [
+        "https://github.com/canvascoding/canvas-control-plane/pull/7",
+        "https://github.com/canvascoding/canvas-notebook/pull/41"
       ],
       "planningArtifacts": [
         "docs/architecture/canvas-notebook/team-workspace/09-initial-setup-and-update-migration.md",
@@ -833,11 +834,28 @@
     {
       "id": 42,
       "title": "Export, Import, Backup und Restore provider-aware machen inklusive Postgres-Dump",
-      "status": "pending",
+      "status": "completed",
       "repo": "cross-repo",
       "planningArtifacts": [
         "docs/architecture/canvas-notebook/team-workspace/15-export-import-backup-restore-policy.md",
         "docs/architecture/canvas-notebook/team-workspace/17-database-provider-postgres-rag-collaboration-policy.md"
+      ],
+      "implementationArtifacts": [
+        "app/lib/migration/types.ts",
+        "app/lib/migration/export-service.ts",
+        "app/lib/migration/inspect-service.ts",
+        "app/lib/migration/restore-service.ts",
+        "scripts/apply-pending-migration-restore.ts",
+        "app/lib/backups/full-backup-service.ts",
+        "scripts/full-backup-service-test.ts",
+        "scripts/migration-export-policy-test.ts",
+        "scripts/migration-import-dry-run-test.ts"
+      ],
+      "verification": [
+        "npm run test:backup:full",
+        "tsx --conditions react-server scripts/migration-export-policy-test.ts",
+        "tsx --conditions react-server scripts/migration-import-dry-run-test.ts",
+        "npm run build"
       ]
     },
     {

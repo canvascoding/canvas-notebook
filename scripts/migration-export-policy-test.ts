@@ -53,11 +53,15 @@ async function main() {
   const previousCanvasDataRoot = process.env.CANVAS_DATA_ROOT;
   const previousDatabaseProvider = process.env.CANVAS_DATABASE_PROVIDER;
   const previousDeploymentMode = process.env.CANVAS_DEPLOYMENT_MODE;
+  const previousTeamFeatures = process.env.CANVAS_TEAM_FEATURES_ENABLED;
+  const previousKnowledgeEnabled = process.env.CANVAS_KNOWLEDGE_ENABLED;
+  const previousVectorEnabled = process.env.CANVAS_POSTGRES_VECTOR_ENABLED;
 
   process.env.DATA = dataRoot;
   process.env.CANVAS_DATA_ROOT = dataRoot;
   process.env.CANVAS_DATABASE_PROVIDER = 'sqlite';
   process.env.CANVAS_DEPLOYMENT_MODE = 'team';
+  process.env.CANVAS_TEAM_FEATURES_ENABLED = 'true';
 
   try {
     await mkdir(path.join(dataRoot, 'workspace'), { recursive: true });
@@ -158,6 +162,7 @@ async function main() {
     assert.ok(entries.includes('data/reconnect-manifest.json'));
 
     const manifest = JSON.parse(await unzipEntryText(completedStandard.filePath!, 'manifest.json'));
+    assert.equal(manifest.bundleSchemaVersion, 2);
     assert.equal(manifest.exportProfile, 'standard');
     assert.equal(manifest.selection.includePersonalWorkspaces, false);
     assert.equal(manifest.selection.includePublicLinks, false);
@@ -168,6 +173,14 @@ async function main() {
     assert.equal(manifest.security.secretsMode, 'reconnect_manifest');
     assert.equal(manifest.source.organizationId, 'org-export');
     assert.equal(manifest.source.createdByUserId, 'user-admin');
+    assert.equal(manifest.database.provider, 'sqlite');
+    assert.equal(manifest.database.backupKind, 'sqlite_snapshot');
+    assert.equal(manifest.database.artifactPath, 'data/sqlite.db');
+    assert.match(manifest.database.artifactSha256, /^[a-f0-9]{64}$/u);
+    assert.equal(manifest.features.teamWorkspaceEnabled, true);
+    assert.equal(manifest.restore.requiresPostgres, false);
+    assert.equal(manifest.restore.preservesTargetInstanceAndLicense, true);
+    assert.equal(manifest.restore.publicLinksIncluded, false);
 
     const reconnectManifest = JSON.parse(await unzipEntryText(completedStandard.filePath!, 'data/reconnect-manifest.json'));
     assert.equal(reconnectManifest.rawSecretsIncluded, false);
@@ -219,6 +232,36 @@ async function main() {
       .filter(Boolean);
     assert.ok(fullAdminEntries.includes('data/workspaces/personal/user-export/files/private.md'));
 
+    process.env.CANVAS_DATABASE_PROVIDER = 'postgres';
+    process.env.CANVAS_POSTGRES_VECTOR_ENABLED = 'true';
+    process.env.CANVAS_KNOWLEDGE_ENABLED = 'true';
+    const postgresJob = await createMigrationExportJob({
+      components,
+      profile: 'standard',
+      includePersonalWorkspaces: false,
+      source: {
+        organizationId: 'org-export',
+        createdByUserId: 'user-admin',
+        createdByEmail: 'admin@example.test',
+        createdByRole: 'admin',
+      },
+    });
+    const completedPostgres = await waitForExport(getMigrationExportJob, postgresJob.id);
+    assert.ok(completedPostgres.filePath);
+    const postgresEntries = (await unzipList(completedPostgres.filePath))
+      .split('\n')
+      .map((line) => line.trim())
+      .filter(Boolean);
+    assert.equal(postgresEntries.includes('data/sqlite.db'), false);
+    const postgresManifest = JSON.parse(await unzipEntryText(completedPostgres.filePath, 'manifest.json'));
+    assert.equal(postgresManifest.database.provider, 'postgres');
+    assert.equal(postgresManifest.database.backupKind, 'none');
+    assert.equal(postgresManifest.database.artifactPath, null);
+    assert.equal(postgresManifest.database.pgvectorEnabled, true);
+    assert.equal(postgresManifest.restore.requiresPostgres, true);
+    assert.equal(postgresManifest.restore.requiresReindex, true);
+    assert.ok(postgresManifest.warnings.some((warning: string) => warning.includes('Full Backup')));
+
     console.log('migration-export-policy-test: ok');
   } finally {
     if (previousData === undefined) delete process.env.DATA;
@@ -229,6 +272,12 @@ async function main() {
     else process.env.CANVAS_DATABASE_PROVIDER = previousDatabaseProvider;
     if (previousDeploymentMode === undefined) delete process.env.CANVAS_DEPLOYMENT_MODE;
     else process.env.CANVAS_DEPLOYMENT_MODE = previousDeploymentMode;
+    if (previousTeamFeatures === undefined) delete process.env.CANVAS_TEAM_FEATURES_ENABLED;
+    else process.env.CANVAS_TEAM_FEATURES_ENABLED = previousTeamFeatures;
+    if (previousKnowledgeEnabled === undefined) delete process.env.CANVAS_KNOWLEDGE_ENABLED;
+    else process.env.CANVAS_KNOWLEDGE_ENABLED = previousKnowledgeEnabled;
+    if (previousVectorEnabled === undefined) delete process.env.CANVAS_POSTGRES_VECTOR_ENABLED;
+    else process.env.CANVAS_POSTGRES_VECTOR_ENABLED = previousVectorEnabled;
     await rm(dataRoot, { recursive: true, force: true });
   }
 }

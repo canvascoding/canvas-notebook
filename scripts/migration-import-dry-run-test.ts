@@ -134,6 +134,29 @@ async function main() {
         secretsMode: 'reconnect_manifest',
         unencryptedArchive: true,
       },
+      database: {
+        provider: 'sqlite',
+        logicalSchemaVersion: null,
+        migrationVersion: MIGRATION_BUNDLE_SCHEMA_VERSION,
+        backupKind: 'sqlite_snapshot',
+        artifactPath: 'data/sqlite.db',
+        artifactSha256: '0'.repeat(64),
+        pgvectorEnabled: null,
+        pgvectorVersion: null,
+        postgresVersion: null,
+      },
+      features: {
+        teamWorkspaceEnabled: true,
+        knowledgeEnabled: false,
+        embeddingsEnabled: false,
+        collaborationEnabled: false,
+      },
+      restore: {
+        requiresPostgres: false,
+        requiresReindex: false,
+        preservesTargetInstanceAndLicense: true,
+        publicLinksIncluded: false,
+      },
       fileCount: 4,
       totalBytes: 4,
       warnings: [],
@@ -202,6 +225,45 @@ async function main() {
     assert.ok(blockedInspection.dryRun?.blockers.some((blocker) => blocker.includes('source-user')));
     assert.ok(blockedInspection.dryRun?.blockers.some((blocker) => blocker.includes('data/workspaces/team/org-source/files')));
     assert.ok(blockedInspection.dryRun?.blockers.some((blocker) => blocker.includes('data/workspaces/project/project-source/files')));
+
+    const postgresManifest: CanvasMigrationManifest = {
+      ...matchingManifest,
+      exportId: 'export-postgres',
+      database: {
+        provider: 'postgres',
+        logicalSchemaVersion: null,
+        migrationVersion: MIGRATION_BUNDLE_SCHEMA_VERSION,
+        backupKind: 'none',
+        artifactPath: null,
+        artifactSha256: null,
+        pgvectorEnabled: true,
+        pgvectorVersion: '0.8.3',
+        postgresVersion: 'PostgreSQL 18.1',
+      },
+      features: {
+        teamWorkspaceEnabled: true,
+        knowledgeEnabled: true,
+        embeddingsEnabled: true,
+        collaborationEnabled: true,
+      },
+      restore: {
+        requiresPostgres: true,
+        requiresReindex: true,
+        preservesTargetInstanceAndLicense: true,
+        publicLinksIncluded: false,
+      },
+      files: [],
+      fileCount: 0,
+      totalBytes: 0,
+    };
+    const postgresArchive = await createZipArchive(archiveRoot, 'postgres', postgresManifest, {});
+    const postgresInspection = await inspectMigrationArchive({ uploadId: 'postgres-upload', archivePath: postgresArchive });
+    assert.equal(postgresInspection.canRestore, false);
+    assert.equal(postgresInspection.dryRun?.status, 'blocked');
+    assert.ok(postgresInspection.dryRun?.blockers.some((blocker) => blocker.includes('Postgres target')));
+    assert.ok(postgresInspection.dryRun?.blockers.some((blocker) => blocker.includes('Full Backup')));
+    assert.ok(postgresInspection.dryRun?.blockers.some((blocker) => blocker.includes('reindex')));
+    assert.ok(postgresInspection.risks.some((risk) => risk.includes('Postgres database data')));
 
     console.log('migration-import-dry-run-test: ok');
   } finally {

@@ -79,6 +79,10 @@ async function validateArchive(archivePath: string): Promise<CanvasMigrationMani
   if (manifest.format !== 'canvas-notebook-migration' || !manifest.components) {
     throw new Error('Archive manifest is not a Canvas migration manifest.');
   }
+  const sourceProvider = manifest.database?.provider ?? manifest.source?.databaseProvider ?? 'sqlite';
+  if (manifest.components.database && sourceProvider !== 'sqlite') {
+    throw new Error(`Database restore for provider ${sourceProvider} is not supported by this migration restore script.`);
+  }
   return manifest;
 }
 

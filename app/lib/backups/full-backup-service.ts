@@ -1,7 +1,7 @@
 import 'server-only';
 
 import crypto from 'crypto';
-import { execFile } from 'child_process';
+import { execFile, spawn } from 'child_process';
 import path from 'path';
 import { createReadStream, createWriteStream, promises as fs, type WriteStream } from 'fs';
 import { promisify } from 'util';
@@ -631,6 +631,46 @@ async function unzipText(args: string[], maxBuffer = 100 * 1024 * 1024): Promise
   return stdout;
 }
 
+async function sha256ZipEntry(archivePath: string, entryPath: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const hash = crypto.createHash('sha256');
+    const child = spawn('unzip', ['-p', archivePath, entryPath], { stdio: ['ignore', 'pipe', 'pipe'] });
+    const stderrChunks: Buffer[] = [];
+    let stderrBytes = 0;
+    let settled = false;
+
+    const fail = (error: Error) => {
+      if (settled) return;
+      settled = true;
+      reject(error);
+    };
+
+    child.stdout.on('data', (chunk: Buffer) => {
+      hash.update(chunk);
+    });
+    child.stderr.on('data', (chunk: Buffer) => {
+      if (stderrBytes >= 4096) return;
+      const remaining = 4096 - stderrBytes;
+      stderrChunks.push(chunk.subarray(0, remaining));
+      stderrBytes += Math.min(chunk.length, remaining);
+    });
+    child.stdout.on('error', fail);
+    child.stderr.on('error', fail);
+    child.on('error', fail);
+    child.on('close', (code, signal) => {
+      if (settled) return;
+      if (code === 0) {
+        settled = true;
+        resolve(hash.digest('hex'));
+        return;
+      }
+      const stderr = Buffer.concat(stderrChunks).toString('utf8').trim();
+      const exitReason = signal ? `signal ${signal}` : `code ${code ?? 'unknown'}`;
+      fail(new Error(`unzip exited with ${exitReason}${stderr ? `: ${stderr}` : ''}`));
+    });
+  });
+}
+
 function parseManifest(raw: string): CanvasFullBackupManifest | null {
   let parsed: unknown;
   try {
@@ -685,6 +725,21 @@ export async function inspectFullBackupArchive(archivePath: string): Promise<Ful
   }
   if (!manifest.database.artifactPath || !manifest.database.artifactSha256) {
     risks.push('Backup database artifact is missing or has no checksum.');
+  } else {
+    try {
+      const actualSha256 = await sha256ZipEntry(archivePath, manifest.database.artifactPath);
+      if (actualSha256 !== manifest.database.artifactSha256) {
+        risks.push('Backup database artifact checksum does not match the manifest.');
+      }
+    } catch (error) {
+      risks.push(`Backup database artifact could not be read: ${error instanceof Error ? error.message : 'unknown error'}`);
+    }
+  }
+  if (sourceProvider === 'sqlite' && manifest.database.backupKind !== 'sqlite_snapshot') {
+    risks.push('SQLite full backup manifest does not point to a SQLite snapshot.');
+  }
+  if (sourceProvider === 'postgres' && manifest.database.backupKind !== 'postgres_dump') {
+    risks.push('Postgres full backup manifest does not point to a Postgres dump.');
   }
 
   return {

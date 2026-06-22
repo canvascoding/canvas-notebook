@@ -1,4 +1,4 @@
-export const MIGRATION_BUNDLE_SCHEMA_VERSION = 1;
+export const MIGRATION_BUNDLE_SCHEMA_VERSION = 2;
 
 export const MIGRATION_COMPONENT_KEYS = [
   'database',
@@ -61,6 +61,9 @@ export interface CanvasMigrationManifest {
   selection?: MigrationExportSelection;
   source?: MigrationExportSource;
   security?: MigrationExportSecurity;
+  database?: MigrationExportDatabase;
+  features?: MigrationExportFeatures;
+  restore?: MigrationExportRestore;
   fileCount: number;
   totalBytes: number;
   warnings: string[];
@@ -90,6 +93,37 @@ export interface MigrationExportSecurity {
   rawSecretsIncluded: false;
   secretsMode: 'excluded' | 'reconnect_manifest';
   unencryptedArchive: true;
+}
+
+export type MigrationExportDatabaseProvider = 'sqlite' | 'postgres' | 'unknown';
+
+export type MigrationExportDatabaseBackupKind = 'sqlite_snapshot' | 'postgres_dump' | 'none';
+
+export interface MigrationExportDatabase {
+  provider: MigrationExportDatabaseProvider;
+  logicalSchemaVersion: number | null;
+  migrationVersion: number | null;
+  backupKind: MigrationExportDatabaseBackupKind;
+  artifactPath: string | null;
+  artifactSha256: string | null;
+  compressedBytes?: number | null;
+  pgvectorEnabled: boolean | null;
+  pgvectorVersion: string | null;
+  postgresVersion: string | null;
+}
+
+export interface MigrationExportFeatures {
+  teamWorkspaceEnabled: boolean;
+  knowledgeEnabled: boolean;
+  embeddingsEnabled: boolean;
+  collaborationEnabled: boolean;
+}
+
+export interface MigrationExportRestore {
+  requiresPostgres: boolean;
+  requiresReindex: boolean;
+  preservesTargetInstanceAndLicense: true;
+  publicLinksIncluded: false;
 }
 
 export interface MigrationExportOptions {
