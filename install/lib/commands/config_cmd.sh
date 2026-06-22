@@ -3,10 +3,10 @@
 _mask_json_secrets() {
   local input="$1"
   local jq_expr
-  jq_expr='.env.BETTER_AUTH_SECRET = (if .env.BETTER_AUTH_SECRET == "" then "(not set)" else (.env.BETTER_AUTH_SECRET | .[0:4] + "***") end)
-    | .env.CANVAS_INTERNAL_API_KEY = (if .env.CANVAS_INTERNAL_API_KEY == "" then "(not set)" else (.env.CANVAS_INTERNAL_API_KEY | .[0:4] + "***") end)
-    | .env.DATABASE_URL = (if .env.DATABASE_URL == "" then "(not set)" else "postgresql://***" end)
-    | .env.CANVAS_POSTGRES_PASSWORD = (if .env.CANVAS_POSTGRES_PASSWORD == "" then "(not set)" else (.env.CANVAS_POSTGRES_PASSWORD | .[0:4] + "***") end)'
+  jq_expr='.env.BETTER_AUTH_SECRET = (if (.env.BETTER_AUTH_SECRET == null or .env.BETTER_AUTH_SECRET == "") then "(not set)" else (.env.BETTER_AUTH_SECRET | .[0:4] + "***") end)
+    | .env.CANVAS_INTERNAL_API_KEY = (if (.env.CANVAS_INTERNAL_API_KEY == null or .env.CANVAS_INTERNAL_API_KEY == "") then "(not set)" else (.env.CANVAS_INTERNAL_API_KEY | .[0:4] + "***") end)
+    | .env.DATABASE_URL = (if (.env.DATABASE_URL == null or .env.DATABASE_URL == "") then "(not set)" else "postgresql://***" end)
+    | .env.CANVAS_POSTGRES_PASSWORD = (if (.env.CANVAS_POSTGRES_PASSWORD == null or .env.CANVAS_POSTGRES_PASSWORD == "") then "(not set)" else (.env.CANVAS_POSTGRES_PASSWORD | .[0:4] + "***") end)'
   printf '%s' "$input" | jq "$jq_expr"
 }
 

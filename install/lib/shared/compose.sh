@@ -93,6 +93,10 @@ services:
       - "${HOST_PORT:-3456}:${CONTAINER_PORT:-3000}"
     env_file:
       - ${CANVAS_INSTALL_DIR:-/opt/canvas-notebook}/canvas-notebook.env
+    depends_on:
+      postgres:
+        condition: service_healthy
+        required: false
     volumes:
       - ${DATA_DIR:-./data}:/data
     restart: unless-stopped

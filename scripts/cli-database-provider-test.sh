@@ -78,6 +78,14 @@ if grep -Eq 'postgresql://canvas:[^*]' "$TMP_DIR/config-show.json"; then
   echo "DATABASE_URL was not masked in config-show output" >&2
   exit 1
 fi
+cp "$CANVAS_CONFIG_JSON" "$TMP_DIR/config-postgres.json"
+jq 'del(.env.DATABASE_URL, .env.CANVAS_POSTGRES_PASSWORD)' \
+  "$CANVAS_CONFIG_JSON" > "$TMP_DIR/config-legacy-missing-db-secrets.json"
+cp "$TMP_DIR/config-legacy-missing-db-secrets.json" "$CANVAS_CONFIG_JSON"
+"$cli" config-show --json --no-banner > "$TMP_DIR/config-show-legacy.json"
+grep -q '"DATABASE_URL": "(not set)"' "$TMP_DIR/config-show-legacy.json"
+grep -q '"CANVAS_POSTGRES_PASSWORD": "(not set)"' "$TMP_DIR/config-show-legacy.json"
+cp "$TMP_DIR/config-postgres.json" "$CANVAS_CONFIG_JSON"
 
 jq '.env.CANVAS_DATABASE_PROVIDER = "sqlite" | .env.CANVAS_DEPLOYMENT_MODE = "managed-team"' \
   "$CANVAS_CONFIG_JSON" > "$TMP_DIR/config-inconsistent.json"
@@ -93,6 +101,8 @@ grep -q 'requires CANVAS_DATABASE_PROVIDER=postgres' "$TMP_DIR/team-sqlite.txt"
 grep -q '^COMPOSE_PROFILES=postgres$' "$CANVAS_COMPOSE_ENV"
 
 grep -q 'canvas-notebook-postgres' "$CANVAS_COMPOSE_FILE"
+grep -q 'condition: service_healthy' "$CANVAS_COMPOSE_FILE"
+grep -q 'required: false' "$CANVAS_COMPOSE_FILE"
 grep -q 'profiles:' "$CANVAS_COMPOSE_FILE"
 grep -q 'pgvector/pgvector:0.8.3-pg18' "$CANVAS_COMPOSE_FILE"
 grep -q 'unused-sqlite-profile-disabled' "$CANVAS_COMPOSE_FILE"
