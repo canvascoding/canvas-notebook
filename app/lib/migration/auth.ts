@@ -14,3 +14,9 @@ export async function requireMigrationRestorePermission(request: NextRequest) {
     errorMessage: 'Forbidden: recovery permission required',
   });
 }
+
+export async function requireFullBackupPermission(request: NextRequest) {
+  return requireOrganizationPermission(request, 'canManageBackups', {
+    errorMessage: 'Forbidden: backup permission required',
+  });
+}
