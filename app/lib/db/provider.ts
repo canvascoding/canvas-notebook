@@ -48,9 +48,6 @@ export type PublicDatabaseProviderStatus = {
   provider: DatabaseProvider;
   requestedProvider: string | null;
   runtimeAdapter: DatabaseProviderConfig['runtimeAdapter'];
-  sqlite: {
-    pathConfigured: boolean;
-  };
   postgres: DatabaseProviderConfig['postgres'];
   blockers: DatabaseProviderProblemCode[];
   warnings: DatabaseProviderProblemCode[];
@@ -203,9 +200,6 @@ export function toPublicDatabaseProviderStatus(gate: DatabaseProviderGate): Publ
     provider: gate.provider,
     requestedProvider: gate.config.requestedProvider,
     runtimeAdapter: gate.runtimeAdapter,
-    sqlite: {
-      pathConfigured: Boolean(gate.config.sqlite.path),
-    },
     postgres: gate.config.postgres,
     blockers: gate.blockers.map((problem) => problem.code),
     warnings: gate.warnings.map((problem) => problem.code),

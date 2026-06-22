@@ -3,9 +3,10 @@ import { appendFile, mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
+import type { DatabaseProvider } from '@/app/lib/db/provider';
 import type { OrganizationPermissionState } from '@/app/lib/organization/bootstrap';
 
-function testState(databaseProvider: string): OrganizationPermissionState {
+function testState(databaseProvider: DatabaseProvider): OrganizationPermissionState {
   return {
     configured: true,
     organizationId: 'org-knowledge-test',

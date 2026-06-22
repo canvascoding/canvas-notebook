@@ -8,7 +8,6 @@ import { hashPassword } from 'better-auth/crypto';
 
 import { runMigrations } from '@/app/lib/db/migrate';
 import {
-  assertRuntimeDatabaseProviderSupported,
   getDatabaseProviderProblemMessages,
   resolveDatabaseProviderGate,
   resolveSqlitePath,
@@ -121,8 +120,6 @@ function assertSetupDatabaseProviderAllowed(): void {
       getDatabaseProviderProblemMessages(gate.blockers).join(' '),
     );
   }
-
-  assertRuntimeDatabaseProviderSupported();
 }
 
 function countUsers(sqlite: Database.Database): number {

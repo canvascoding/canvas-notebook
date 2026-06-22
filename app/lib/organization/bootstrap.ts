@@ -8,6 +8,7 @@ import path from 'node:path';
 import { getBootstrapAdminEmail } from '@/app/lib/bootstrap-admin';
 import { runMigrations } from '@/app/lib/db/migrate';
 import {
+  type DatabaseProvider,
   getDatabaseProvider as resolveConfiguredDatabaseProvider,
   getDatabaseProviderProblemMessages,
   resolveDatabaseProviderGate,
@@ -62,7 +63,7 @@ export type OrganizationBootstrapStatus = {
   ownerEmail: string | null;
   deploymentMode: string;
   teamFeaturesEnabled: boolean;
-  databaseProvider: string;
+  databaseProvider: DatabaseProvider;
   permission: OrganizationPermissionSnapshot | null;
   paths: {
     personalWorkspace: string | null;
@@ -80,7 +81,7 @@ export type OrganizationPermissionState = {
   organizationId: string | null;
   ownerUserId: string | null;
   teamFeaturesEnabled: boolean;
-  databaseProvider: string;
+  databaseProvider: DatabaseProvider;
   permission: OrganizationPermissionSnapshot | null;
 };
 
@@ -172,7 +173,7 @@ export function getConfiguredOrganizationId(): string | null {
   return value || null;
 }
 
-export function getDatabaseProvider(): string {
+export function getDatabaseProvider(): DatabaseProvider {
   return resolveConfiguredDatabaseProvider();
 }
 
