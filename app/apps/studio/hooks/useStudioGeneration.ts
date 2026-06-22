@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { generateRandomId } from '@/app/lib/utils/random-id';
 import { useStudioGenerationsCacheStore } from '@/app/store/studio-generations-cache-store';
 import type {
@@ -183,6 +183,10 @@ function decrementLoadedServerGenerationCount() {
   }));
 }
 
+function isActiveStudioGeneration(generation: StudioGeneration): boolean {
+  return !generation.id.startsWith('temp-') && (generation.status === 'pending' || generation.status === 'generating');
+}
+
 export function useStudioGeneration(creatorFilter?: string | null): UseStudioGenerationReturn {
   const generations = useStudioGenerationsCacheStore((state) => state.generations);
   const currentGeneration = useStudioGenerationsCacheStore((state) => state.currentGeneration);
@@ -233,12 +237,14 @@ export function useStudioGeneration(creatorFilter?: string | null): UseStudioGen
         });
 
         if (isTerminal) {
-          stopPolling();
           const genId = generation.id;
           useStudioGenerationsCacheStore.setState((state) => {
             const recentlyCompletedIds = new Set(state.recentlyCompletedIds);
             recentlyCompletedIds.add(genId);
-            return { recentlyCompletedIds };
+            return {
+              activeGenerationId: state.activeGenerationId === genId ? null : state.activeGenerationId,
+              recentlyCompletedIds,
+            };
           });
           setTimeout(() => {
             useStudioGenerationsCacheStore.setState((state) => {
@@ -255,7 +261,10 @@ export function useStudioGeneration(creatorFilter?: string | null): UseStudioGen
       const message = toErrorMessage(err, 'Failed to fetch generation');
       useStudioGenerationsCacheStore.setState({ error: message });
       if (options?.silent) {
-        stopPolling();
+        const currentActiveGenerationId = useStudioGenerationsCacheStore.getState().activeGenerationId;
+        if (currentActiveGenerationId === id) {
+          useStudioGenerationsCacheStore.setState({ activeGenerationId: null });
+        }
       }
       return null;
     } finally {
@@ -263,7 +272,7 @@ export function useStudioGeneration(creatorFilter?: string | null): UseStudioGen
         useStudioGenerationsCacheStore.setState({ loading: false });
       }
     }
-  }, [stopPolling]);
+  }, []);
 
   const fetchGenerations = useCallback(async () => {
     useStudioGenerationsCacheStore.setState({ loading: true, error: null });
@@ -322,6 +331,19 @@ export function useStudioGeneration(creatorFilter?: string | null): UseStudioGen
     useStudioGenerationsCacheStore.setState({ activeGenerationId: id });
   }, []);
 
+  const pollingGenerationIds = useMemo(() => {
+    const ids = new Set<string>();
+    if (activeGenerationId) {
+      ids.add(activeGenerationId);
+    }
+    for (const generation of generations) {
+      if (isActiveStudioGeneration(generation)) {
+        ids.add(generation.id);
+      }
+    }
+    return Array.from(ids).sort();
+  }, [activeGenerationId, generations]);
+
   const generate = useCallback(async (payload: StudioGeneratePayload) => {
     useStudioGenerationsCacheStore.setState({ loading: true, error: null });
 
@@ -335,7 +357,7 @@ export function useStudioGeneration(creatorFilter?: string | null): UseStudioGen
       rawPrompt: payload.prompt,
       studioPresetId: payload.preset_id ?? null,
       studioPresetName: null,
-    aspectRatio: payload.aspect_ratio ?? '1:1',
+      aspectRatio: payload.aspect_ratio ?? '1:1',
       provider: payload.provider ?? 'gemini',
       model: payload.model ?? '',
       status: 'pending',
@@ -391,6 +413,12 @@ export function useStudioGeneration(creatorFilter?: string | null): UseStudioGen
 
   const deleteGeneration = useCallback(async (id: string) => {
     useStudioGenerationsCacheStore.setState({ error: null });
+    if (id.startsWith('temp-')) {
+      setGenerationsState((current) => current.filter((generation) => generation.id !== id));
+      setCurrentGenerationState((current) => (current?.id === id ? null : current));
+      return true;
+    }
+
     try {
       const response = await fetch(`/api/studio/generations/${id}`, { method: 'DELETE' });
       await parseJsonResponse(response);
@@ -517,7 +545,7 @@ export function useStudioGeneration(creatorFilter?: string | null): UseStudioGen
   }, [generate]);
 
   useEffect(() => {
-    if (!activeGenerationId) {
+    if (pollingGenerationIds.length === 0) {
       if (intervalRef.current) {
         clearInterval(intervalRef.current);
         intervalRef.current = null;
@@ -525,14 +553,14 @@ export function useStudioGeneration(creatorFilter?: string | null): UseStudioGen
       return;
     }
 
-    void fetchGeneration(activeGenerationId, { silent: true });
+    void Promise.all(pollingGenerationIds.map((id) => fetchGeneration(id, { silent: true })));
 
     if (intervalRef.current) {
       clearInterval(intervalRef.current);
     }
 
     intervalRef.current = setInterval(() => {
-      void fetchGeneration(activeGenerationId, { silent: true });
+      void Promise.all(pollingGenerationIds.map((id) => fetchGeneration(id, { silent: true })));
     }, POLL_INTERVAL_MS);
 
     return () => {
@@ -541,7 +569,7 @@ export function useStudioGeneration(creatorFilter?: string | null): UseStudioGen
         intervalRef.current = null;
       }
     };
-  }, [activeGenerationId, fetchGeneration]);
+  }, [fetchGeneration, pollingGenerationIds]);
 
   useEffect(() => () => {
     if (intervalRef.current) {
@@ -555,7 +583,7 @@ export function useStudioGeneration(creatorFilter?: string | null): UseStudioGen
     loading,
     loadingMore,
     error,
-    isPolling: activeGenerationId !== null,
+    isPolling: pollingGenerationIds.length > 0,
     activeGenerationId,
     recentlyCompletedIds,
     hasMoreGenerations,

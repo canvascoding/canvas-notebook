@@ -864,11 +864,7 @@ export function CreateView({ initialProviderConfig = EMPTY_STUDIO_PROVIDER_CONFI
   const handleGenerate = async () => {
     if (providerConfigStatus !== 'ready' || missingProviderRequirement) return;
 
-    const result = await generate(buildStudioGeneratePayload(store));
-
-    if (result) {
-      store.resetAfterGenerate();
-    }
+    await generate(buildStudioGeneratePayload(store));
   };
 
   useEffect(() => {
