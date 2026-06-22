@@ -1,7 +1,7 @@
 import type { ConvertParams } from '@/app/components/shared/ImagePreprocessDialog';
 import { WORKSPACE_ID_HEADER } from '@/app/lib/workspaces/constants';
 import { useWorkspaceStore } from '@/app/store/workspace-store';
-import type { CurrentFile, FileNode } from './types';
+import type { CurrentFile, FileNode, FileStats } from './types';
 
 interface ApiErrorPayload {
   error?: unknown;
@@ -26,6 +26,11 @@ export interface WorkspacePathConflictError extends Error {
   type?: string;
   sourcePath?: string;
   destPath?: string;
+}
+
+export interface WriteWorkspaceFileResult {
+  path: string;
+  stats?: FileStats;
 }
 
 interface UploadWorkspaceFilesParams {
@@ -141,17 +146,24 @@ export async function readWorkspaceFile(
   return data;
 }
 
-export async function writeWorkspaceFile(path: string, content: string): Promise<void> {
+export async function writeWorkspaceFile(
+  path: string,
+  content: string,
+  options: { expectedSha256?: string | null } = {}
+): Promise<WriteWorkspaceFileResult> {
   const response = await fetch('/api/files/write', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...workspaceHeaders() },
     credentials: 'include',
-    body: JSON.stringify({ path, content }),
+    body: JSON.stringify({ path, content, expectedSha256: options.expectedSha256 ?? null }),
   });
 
   if (!response.ok) {
     throw new Error(await readApiError(response, 'Failed to save file'));
   }
+
+  const { data } = await readApiJson<{ data: WriteWorkspaceFileResult }>(response, 'Failed to save file');
+  return data;
 }
 
 export async function createWorkspacePath(

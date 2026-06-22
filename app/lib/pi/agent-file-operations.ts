@@ -360,6 +360,25 @@ function auditWorkspaceMetadata(executionContext: AgentExecutionContext | null) 
   };
 }
 
+function activeWorkspaceRequiresRevisionGuard(): boolean {
+  const executionContext = getAgentExecutionContext();
+  return executionContext?.workspaceType === 'team' || executionContext?.workspaceType === 'project';
+}
+
+function assertAgentSharedWorkspaceRevision(params: {
+  operation: string;
+  path: string;
+  beforeExisted: boolean;
+  expectedSha256?: string | null;
+}): void {
+  if (!params.beforeExisted || !activeWorkspaceRequiresRevisionGuard()) return;
+  if (params.expectedSha256?.trim()) return;
+
+  throw new Error(
+    `Refusing to ${params.operation} ${params.path}: existing shared workspace files require expectedSha256. Read the file first and retry with the current SHA-256 hash.`,
+  );
+}
+
 async function recordAgentFileChangeAudit(result: AgentFileChangeResult, operation: string): Promise<void> {
   if (!result.changed) return;
 
@@ -954,6 +973,12 @@ export async function writeAgentTextFile(params: {
   await assertAgentWritablePathAllowed(fullPath);
   const before = await readExistingFile(fullPath);
   const beforeSha256 = before.buffer ? sha256Buffer(before.buffer) : null;
+  assertAgentSharedWorkspaceRevision({
+    operation: params.operation ?? 'write',
+    path: params.path,
+    beforeExisted: before.existed,
+    expectedSha256: params.expectedSha256,
+  });
 
   if (params.expectedSha256 && beforeSha256 !== params.expectedSha256) {
     throw new Error(`Refusing to write ${params.path}: expectedSha256 did not match current file hash.`);

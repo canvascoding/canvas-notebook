@@ -128,7 +128,8 @@ function areFileStatsEqual(left?: FileStats, right?: FileStats) {
   return (
     left?.size === right?.size &&
     left?.modified === right?.modified &&
-    left?.permissions === right?.permissions
+    left?.permissions === right?.permissions &&
+    left?.sha256 === right?.sha256
   );
 }
 
@@ -658,7 +659,10 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
     set({ fileError: null });
 
     try {
-      await writeWorkspaceFile(path, content);
+      const currentFileBeforeSave = get().currentFile;
+      const result = await writeWorkspaceFile(path, content, {
+        expectedSha256: currentFileBeforeSave?.path === path ? currentFileBeforeSave.stats?.sha256 ?? null : null,
+      });
 
       // Update current file if it's the same path
       const { currentFile } = get();
@@ -667,6 +671,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
           currentFile: {
             ...currentFile,
             content,
+            stats: result.stats ?? currentFile.stats,
           },
         });
       }

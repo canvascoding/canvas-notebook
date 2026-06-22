@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { readFile, getFileStats } from '@/app/lib/filesystem/workspace-files';
+import { sha256Buffer } from '@/app/lib/files/revision-guard';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 import { isExcalidrawFilePath } from '@/app/lib/excalidraw-file';
 import { requireRequestWorkspace, workspaceFileOptions } from '@/app/lib/workspaces/request';
@@ -37,9 +38,12 @@ export async function GET(request: NextRequest) {
     }
     
     const stats = await getFileStats(path, fileOptions);
+    const sizeLimit = isExcalidrawFilePath(path) ? EXCALIDRAW_READ_SIZE_LIMIT : READ_SIZE_LIMIT;
     const metaOnly = searchParams.get('meta') === '1';
 
     if (metaOnly) {
+      const revisionContent = stats.size <= sizeLimit ? await readFile(path, fileOptions) : null;
+      const sha256 = revisionContent ? sha256Buffer(revisionContent) : undefined;
       return NextResponse.json({
         success: true,
         data: {
@@ -49,12 +53,12 @@ export async function GET(request: NextRequest) {
             size: stats.size,
             modified: stats.modified,
             permissions: stats.permissions,
+            sha256,
           },
         },
       });
     }
     
-    const sizeLimit = isExcalidrawFilePath(path) ? EXCALIDRAW_READ_SIZE_LIMIT : READ_SIZE_LIMIT;
     if (stats.size > sizeLimit) {
         return NextResponse.json(
             { success: false, error: 'File is too large to read' },
@@ -63,6 +67,7 @@ export async function GET(request: NextRequest) {
     }
 
     const content = await readFile(path, fileOptions);
+    const sha256 = sha256Buffer(content);
     
     return NextResponse.json({
       success: true,
@@ -73,6 +78,7 @@ export async function GET(request: NextRequest) {
           size: stats.size,
           modified: stats.modified,
           permissions: stats.permissions,
+          sha256,
         },
       },
     });

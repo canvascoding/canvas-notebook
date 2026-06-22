@@ -26,6 +26,7 @@ export interface FileStats {
   size: number;
   modified: number;
   permissions: string;
+  sha256?: string;
 }
 
 export interface CurrentFile {
