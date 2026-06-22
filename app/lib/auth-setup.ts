@@ -7,7 +7,17 @@ import { randomUUID } from 'node:crypto';
 import { hashPassword } from 'better-auth/crypto';
 
 import { runMigrations } from '@/app/lib/db/migrate';
-import { ensureOrganizationBootstrapForUser } from '@/app/lib/organization/bootstrap';
+import {
+  assertRuntimeDatabaseProviderSupported,
+  getDatabaseProviderProblemMessages,
+  resolveDatabaseProviderGate,
+  resolveSqlitePath,
+} from '@/app/lib/db/provider';
+import {
+  areTeamFeaturesEnabled,
+  ensureOrganizationBootstrapForUser,
+  getDeploymentMode,
+} from '@/app/lib/organization/bootstrap';
 
 export const SETUP_PASSWORD_MIN_LENGTH = 8;
 export const SETUP_PASSWORD_MAX_LENGTH = 128;
@@ -33,6 +43,7 @@ export class InitialOwnerSetupError extends Error {
     public readonly code:
       | 'INVALID_INPUT'
       | 'ALREADY_CONFIGURED'
+      | 'DATABASE_PROVIDER_BLOCKED'
       | 'DATABASE_ERROR',
     message: string,
     public readonly field?: keyof InitialOwnerInput,
@@ -42,12 +53,8 @@ export class InitialOwnerSetupError extends Error {
   }
 }
 
-function getDataDir(): string {
-  return process.env.DATA || path.resolve(process.cwd(), 'data');
-}
-
 function getSqlitePath(): string {
-  return path.join(getDataDir(), 'sqlite.db');
+  return resolveSqlitePath();
 }
 
 function normalizeEmail(email: unknown): string {
@@ -102,6 +109,22 @@ function openSetupDatabase() {
   return sqlite;
 }
 
+function assertSetupDatabaseProviderAllowed(): void {
+  const deploymentMode = getDeploymentMode();
+  const gate = resolveDatabaseProviderGate({
+    teamFeaturesEnabled: areTeamFeaturesEnabled(deploymentMode),
+  });
+
+  if (!gate.ok) {
+    throw new InitialOwnerSetupError(
+      'DATABASE_PROVIDER_BLOCKED',
+      getDatabaseProviderProblemMessages(gate.blockers).join(' '),
+    );
+  }
+
+  assertRuntimeDatabaseProviderSupported();
+}
+
 function countUsers(sqlite: Database.Database): number {
   const row = sqlite.prepare('SELECT COUNT(*) AS count FROM user').get() as { count?: number } | undefined;
   return Number(row?.count || 0);
@@ -127,6 +150,7 @@ export async function createInitialOwner(input: unknown): Promise<InitialOwner> 
   }
 
   const { name, email, password } = validation.value;
+  assertSetupDatabaseProviderAllowed();
   const passwordHash = await hashPassword(password);
   const userId = randomUUID();
   const accountId = randomUUID();

@@ -4,6 +4,7 @@ import { NextResponse } from 'next/server';
 
 import { isAdminUser, type AdminUserCandidate } from '@/app/lib/admin-auth';
 import { auth } from '@/app/lib/auth';
+import { getDatabaseProvider } from '@/app/lib/db/provider';
 import {
   getOrganizationPermissionForUser,
   openOrganizationBootstrapDatabase,
@@ -149,7 +150,7 @@ function legacyFallbackState(): OrganizationPermissionState {
     organizationId: null,
     ownerUserId: null,
     teamFeaturesEnabled: false,
-    databaseProvider: process.env.CANVAS_DATABASE_PROVIDER?.trim().toLowerCase() || 'sqlite',
+    databaseProvider: getDatabaseProvider(),
     permission: LEGACY_ADMIN_PERMISSION,
   };
 }
