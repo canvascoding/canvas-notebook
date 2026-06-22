@@ -689,7 +689,7 @@
     {
       "id": 37,
       "title": "Knowledge-/Parsing-Settings mit Default-off Toggles, Resource-Status und redacted Logging umsetzen",
-      "status": "pending",
+      "status": "completed",
       "repo": "canvasstudios-notebook",
       "planningArtifacts": [
         "docs/docling-knowledge-ingestion-plan.md",
@@ -697,6 +697,22 @@
         "docs/architecture/canvas-notebook/team-workspace/12-knowledge-ingestion-retrieval-policy.md",
         "docs/architecture/canvas-notebook/team-workspace/13-resource-aware-ingestion-and-job-backpressure.md",
         "docs/architecture/canvas-notebook/team-workspace/17-database-provider-postgres-rag-collaboration-policy.md"
+      ],
+      "implementationArtifacts": [
+        "app/lib/knowledge/settings-types.ts",
+        "app/lib/knowledge/settings-service.ts",
+        "app/api/admin/knowledge-settings/route.ts",
+        "app/components/settings/KnowledgeSettingsPanel.tsx",
+        "app/components/settings/IntegrationsSettingsClient.tsx",
+        "messages/en.json",
+        "messages/de.json",
+        "scripts/knowledge-settings-test.ts"
+      ],
+      "verification": [
+        "npm run test:knowledge:settings",
+        "npx tsc --noEmit --pretty false",
+        "npm run lint",
+        "npm run build"
       ]
     },
     {

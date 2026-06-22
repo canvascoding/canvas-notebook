@@ -1606,6 +1606,7 @@
       "integrations": "Integrations",
       "agentSettings": "Agent Settings",
       "workspace": "Workspace",
+      "knowledge": "Knowledge",
       "userManagement": "Users",
       "channels": "Channels",
       "usage": "Usage",
@@ -1759,6 +1760,103 @@
         "delete": "Could not delete user.",
         "offboardingPreflight": "Could not load offboarding preflight.",
         "offboarding": "Could not offboard user."
+      }
+    },
+    "knowledge": {
+      "title": "Knowledge / Parsing / Database",
+      "description": "Control automatic Knowledge ingestion, heavy parsing, OCR, embeddings, and resource gates. Heavy processing starts disabled by default.",
+      "loading": "Loading Knowledge settings...",
+      "unknown": "Unknown",
+      "reload": "Reload",
+      "save": "Save settings",
+      "saved": "Knowledge settings saved.",
+      "none": "None",
+      "preflightBlocked": "Knowledge activation is blocked",
+      "preflightBlockedDescription": "Postgres, pgvector, memory, and disk preflight must pass before automatic Knowledge ingestion or embeddings can run.",
+      "blockers": "Blockers",
+      "warnings": "Warnings",
+      "reasonCode": "Reason",
+      "changedKeys": "Changed",
+      "togglesTitle": "Feature toggles",
+      "togglesDescription": "These controls only allow jobs to start. Resource guards remain active even when a feature is enabled.",
+      "logsTitle": "Operational log",
+      "logsDescription": "Redacted settings and resource decisions. Document contents, prompts, paths, and secrets are never written here.",
+      "logsEmpty": "No Knowledge operational events recorded yet.",
+      "availability": {
+        "available": "Available",
+        "degraded": "Degraded",
+        "disabled": "Disabled"
+      },
+      "profiles": {
+        "disabled": "Disabled profile",
+        "low": "Low resources",
+        "standard": "Standard",
+        "large": "Large"
+      },
+      "status": {
+        "database": "Database",
+        "pgvectorReady": "pgvector ready",
+        "pgvectorMissing": "pgvector missing",
+        "memory": "Memory",
+        "freeMemory": "{value} MB free",
+        "cpu": "CPU",
+        "activeJobs": "{value} active heavy jobs",
+        "disk": "Disk",
+        "diskThreshold": "Requires {value} GB free"
+      },
+      "fields": {
+        "knowledgeAutoIngestionEnabled": {
+          "label": "Knowledge auto-ingestion",
+          "description": "Automatically register and process eligible workspace documents after policy and resource checks."
+        },
+        "heavyDocumentParsingEnabled": {
+          "label": "Heavy document parsing",
+          "description": "Allow resource-intensive parsing jobs. Normal agent file reads are separate from this setting."
+        },
+        "doclingEnabled": {
+          "label": "Docling parser",
+          "description": "Allow Docling-based parsing when the provider is available and heavy parsing is enabled."
+        },
+        "ocrEnabled": {
+          "label": "OCR",
+          "description": "Allow OCR for documents without extractable text. Disabled by default on small servers."
+        },
+        "embeddingIndexingEnabled": {
+          "label": "Embedding indexing",
+          "description": "Generate embeddings only after scan, ACL, Postgres, and pgvector gates pass."
+        },
+        "remoteParsingEnabled": {
+          "label": "Remote parsing",
+          "description": "Allow remote parser providers. This stays off by default because documents leave the VM."
+        },
+        "maxConcurrentHeavyJobs": {
+          "label": "Max heavy jobs",
+          "description": "Maximum number of heavy parser jobs that may run at the same time."
+        },
+        "maxDocumentSizeMb": {
+          "label": "Max document size (MB)",
+          "description": "Documents above this size are deferred, metadata-only, or blocked by policy."
+        },
+        "maxPages": {
+          "label": "Max pages",
+          "description": "Page limit for full parsing."
+        },
+        "maxOcrPages": {
+          "label": "Max OCR pages",
+          "description": "Page limit for OCR processing."
+        },
+        "perFileTimeoutSeconds": {
+          "label": "Timeout per file (seconds)",
+          "description": "Hard timeout for one parser job."
+        },
+        "minimumFreeMemoryMb": {
+          "label": "Minimum free memory (MB)",
+          "description": "Jobs are degraded or deferred when free memory falls below this guard."
+        }
+      },
+      "errors": {
+        "load": "Could not load Knowledge settings.",
+        "save": "Could not save Knowledge settings."
       }
     },
     "scopes": {

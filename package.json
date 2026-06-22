@@ -40,6 +40,7 @@
     "test:studio:veo": "tsx scripts/veo-generation-test.ts",
     "test:studio:organization-scope": "tsx --conditions react-server scripts/studio-organization-scope-test.ts",
     "test:knowledge:retrieval-scope": "tsx --conditions react-server scripts/knowledge-retrieval-scope-test.ts",
+    "test:knowledge:settings": "tsx --conditions react-server scripts/knowledge-settings-test.ts",
     "test:skills:runtime": "tsx scripts/skills-runtime-test.ts",
     "test:skills:seed-bootstrap": "tsx scripts/default-seed-skills-test.ts",
     "test:plugins:seed-bootstrap": "tsx scripts/default-seed-plugins-test.ts",
