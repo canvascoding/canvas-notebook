@@ -22,6 +22,9 @@ export function resolveWorkspacePermissions(params: {
   ownsPersonalWorkspace?: boolean;
   canAccessTeamWorkspace?: boolean;
   canWriteTeamWorkspace?: boolean;
+  canReadProjectWorkspace?: boolean;
+  canWriteProjectWorkspace?: boolean;
+  canManageProjectWorkspace?: boolean;
   canCreatePublicLinks?: boolean;
 }): WorkspacePermissions {
   const {
@@ -30,10 +33,13 @@ export function resolveWorkspacePermissions(params: {
     ownsPersonalWorkspace = false,
     canAccessTeamWorkspace = false,
     canWriteTeamWorkspace = false,
+    canReadProjectWorkspace = false,
+    canWriteProjectWorkspace = false,
+    canManageProjectWorkspace = false,
     canCreatePublicLinks = true,
   } = params;
 
-  if (role === 'external') {
+  if (role === 'external' && workspaceType !== 'project') {
     return NO_WORKSPACE_PERMISSIONS;
   }
 
@@ -48,6 +54,21 @@ export function resolveWorkspacePermissions(params: {
       canCreatePublicLinks: canUsePersonalWorkspace && canCreatePublicLinks,
       canManageWorkspace: isAdminLike,
       canRunAgent: canUsePersonalWorkspace,
+    };
+  }
+
+  if (workspaceType === 'project') {
+    const canReadProject = isAdminLike || canReadProjectWorkspace || canWriteProjectWorkspace || canManageProjectWorkspace;
+    const canWriteProject = isAdminLike || canWriteProjectWorkspace || canManageProjectWorkspace;
+    const canManageProject = isAdminLike || canManageProjectWorkspace;
+
+    return {
+      canRead: canReadProject,
+      canWrite: canWriteProject,
+      canDelete: canWriteProject,
+      canCreatePublicLinks: canReadProject && canCreatePublicLinks && (role !== 'external' || canManageProject),
+      canManageWorkspace: canManageProject,
+      canRunAgent: canReadProject,
     };
   }
 
