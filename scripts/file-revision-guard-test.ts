@@ -71,6 +71,12 @@ async function main() {
       options: { workspace: personalWorkspace },
       requireExpectedRevision: workspaceRequiresRevisionCheck(personalWorkspace),
     }));
+    await assert.doesNotReject(() => assertWorkspaceFileRevisionAllowed({
+      path: 'notes.md',
+      expectedSha256: '0'.repeat(64),
+      options: { workspace: personalWorkspace },
+      requireExpectedRevision: workspaceRequiresRevisionCheck(personalWorkspace),
+    }));
 
     await writeFile('team.md', 'team v1\n', { workspace: teamWorkspace });
     const teamRevision = await getWorkspaceFileRevision('team.md', { workspace: teamWorkspace });

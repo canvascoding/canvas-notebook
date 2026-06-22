@@ -6,6 +6,7 @@ import path from 'node:path';
 import { parseDocument } from 'yaml';
 import { recordAuditEvent } from '@/app/lib/audit/audit-service';
 import { logger } from '@/app/lib/logging';
+import { normalizeExpectedSha256 as normalizeAgentExpectedSha256 } from '@/app/lib/files/revision-guard';
 import {
   syncPublicSharesAfterDelete,
   syncPublicSharesAfterMove,
@@ -363,12 +364,6 @@ function auditWorkspaceMetadata(executionContext: AgentExecutionContext | null) 
 function activeWorkspaceRequiresRevisionGuard(): boolean {
   const executionContext = getAgentExecutionContext();
   return executionContext?.workspaceType === 'team' || executionContext?.workspaceType === 'project';
-}
-
-function normalizeAgentExpectedSha256(value: unknown): string | null {
-  if (typeof value !== 'string') return null;
-  const normalized = value.trim().replace(/^sha256:/i, '').toLowerCase();
-  return /^[a-f0-9]{64}$/.test(normalized) ? normalized : null;
 }
 
 function assertAgentSharedWorkspaceRevision(params: {
