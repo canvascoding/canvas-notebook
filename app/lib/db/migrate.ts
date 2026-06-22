@@ -1377,11 +1377,8 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     CREATE INDEX IF NOT EXISTS idx_pi_usage_events_model_assistant_timestamp ON pi_usage_events (model, assistant_timestamp);
     CREATE INDEX IF NOT EXISTS idx_automation_jobs_next_run_at ON automation_jobs (next_run_at);
     CREATE INDEX IF NOT EXISTS idx_automation_jobs_status ON automation_jobs (status);
-    CREATE INDEX IF NOT EXISTS idx_automation_jobs_owner_scope ON automation_jobs (owner_user_id, scope);
-    CREATE INDEX IF NOT EXISTS idx_automation_jobs_org_workspace ON automation_jobs (organization_id, workspace_id);
     CREATE INDEX IF NOT EXISTS idx_automation_runs_job_id_created_at ON automation_runs (job_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_automation_runs_status ON automation_runs (status);
-    CREATE INDEX IF NOT EXISTS idx_automation_runs_workspace_created ON automation_runs (workspace_id, created_at);
     CREATE TABLE IF NOT EXISTS composio_webhook_subscriptions (
       id TEXT PRIMARY KEY NOT NULL,
       subscription_id TEXT NOT NULL UNIQUE,
@@ -1500,19 +1497,16 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     CREATE INDEX IF NOT EXISTS idx_public_file_shares_expires_at ON public_file_shares (expires_at);
     CREATE INDEX IF NOT EXISTS idx_knowledge_sources_store_status ON knowledge_sources (knowledge_store, status);
     CREATE INDEX IF NOT EXISTS idx_knowledge_sources_org_workspace ON knowledge_sources (organization_id, workspace_id, knowledge_store, status);
-    CREATE INDEX IF NOT EXISTS idx_knowledge_sources_project_store ON knowledge_sources (project_id, knowledge_store, status);
     CREATE INDEX IF NOT EXISTS idx_knowledge_sources_user_store ON knowledge_sources (user_id, knowledge_store, status);
     CREATE INDEX IF NOT EXISTS idx_knowledge_sources_workspace_path ON knowledge_sources (workspace_id, source_path);
     CREATE INDEX IF NOT EXISTS idx_knowledge_sources_content_hash ON knowledge_sources (content_hash);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_knowledge_chunks_source_chunk ON knowledge_chunks (source_id, chunk_index);
     CREATE INDEX IF NOT EXISTS idx_knowledge_chunks_org_workspace ON knowledge_chunks (organization_id, workspace_id, knowledge_store, embedding_index_status);
-    CREATE INDEX IF NOT EXISTS idx_knowledge_chunks_project_store ON knowledge_chunks (project_id, knowledge_store, embedding_index_status);
     CREATE INDEX IF NOT EXISTS idx_knowledge_chunks_user_store ON knowledge_chunks (user_id, knowledge_store, embedding_index_status);
     CREATE INDEX IF NOT EXISTS idx_knowledge_chunks_policy ON knowledge_chunks (policy_decision, scan_status, embedding_index_status);
     CREATE INDEX IF NOT EXISTS idx_knowledge_chunks_content_hash ON knowledge_chunks (content_hash);
     CREATE INDEX IF NOT EXISTS idx_audit_events_created ON audit_events (created_at);
     CREATE INDEX IF NOT EXISTS idx_audit_events_org_created ON audit_events (organization_id, created_at);
-    CREATE INDEX IF NOT EXISTS idx_audit_events_project_created ON audit_events (project_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_audit_events_workspace_created ON audit_events (workspace_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_audit_events_user_created ON audit_events (user_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_audit_events_entity_created ON audit_events (entity_type, entity_id, created_at);
@@ -1867,8 +1861,14 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     CREATE INDEX IF NOT EXISTS idx_pi_usage_events_project ON pi_usage_events (project_id, assistant_timestamp);
     CREATE INDEX IF NOT EXISTS idx_pi_usage_events_user_workspace ON pi_usage_events (user_id, workspace_id, assistant_timestamp);
     CREATE INDEX IF NOT EXISTS idx_pi_usage_events_agent ON pi_usage_events (agent_id, assistant_timestamp);
+    CREATE INDEX IF NOT EXISTS idx_knowledge_sources_project_store ON knowledge_sources (project_id, knowledge_store, status);
+    CREATE INDEX IF NOT EXISTS idx_knowledge_chunks_project_store ON knowledge_chunks (project_id, knowledge_store, embedding_index_status);
+    CREATE INDEX IF NOT EXISTS idx_audit_events_project_created ON audit_events (project_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_automation_jobs_owner_scope ON automation_jobs (owner_user_id, scope);
+    CREATE INDEX IF NOT EXISTS idx_automation_jobs_org_workspace ON automation_jobs (organization_id, workspace_id);
     CREATE INDEX IF NOT EXISTS idx_automation_jobs_project_status ON automation_jobs (project_id, status, next_run_at);
     CREATE INDEX IF NOT EXISTS idx_automation_jobs_job_scope_status ON automation_jobs (job_scope, status, next_run_at);
+    CREATE INDEX IF NOT EXISTS idx_automation_runs_workspace_created ON automation_runs (workspace_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_automation_runs_project_created ON automation_runs (project_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_automation_runs_job_scope_status ON automation_runs (job_scope, status, scheduled_for);
   `);

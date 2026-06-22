@@ -150,6 +150,98 @@ try {
 
     INSERT INTO channel_active_sessions (user_id, channel_id, channel_session_key, channel_thread_key, session_id, updated_at)
     VALUES ('user-migration', 'web', 'web:user:user-migration', '', 'sess-migration', 1700000100);
+
+    CREATE TABLE automation_jobs (
+      id TEXT PRIMARY KEY NOT NULL,
+      name TEXT NOT NULL,
+      status TEXT NOT NULL,
+      prompt TEXT NOT NULL,
+      preferred_skill TEXT NOT NULL,
+      workspace_context_paths_json TEXT NOT NULL,
+      schedule_kind TEXT NOT NULL,
+      schedule_config_json TEXT NOT NULL,
+      time_zone TEXT NOT NULL,
+      next_run_at INTEGER,
+      last_run_at INTEGER,
+      last_run_status TEXT,
+      created_by_user_id TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+
+    CREATE TABLE automation_runs (
+      id TEXT PRIMARY KEY NOT NULL,
+      job_id TEXT NOT NULL,
+      status TEXT NOT NULL,
+      trigger_type TEXT NOT NULL,
+      scheduled_for INTEGER,
+      started_at INTEGER,
+      finished_at INTEGER,
+      attempt_number INTEGER NOT NULL,
+      output_dir TEXT,
+      log_path TEXT,
+      result_path TEXT,
+      error_message TEXT,
+      pi_session_id TEXT,
+      created_at INTEGER NOT NULL
+    );
+
+    CREATE TABLE knowledge_sources (
+      id TEXT PRIMARY KEY NOT NULL,
+      organization_id TEXT,
+      workspace_id TEXT,
+      user_id TEXT,
+      knowledge_store TEXT NOT NULL,
+      source_path TEXT NOT NULL,
+      content_hash TEXT,
+      status TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+
+    CREATE TABLE knowledge_chunks (
+      id TEXT PRIMARY KEY NOT NULL,
+      source_id TEXT NOT NULL,
+      organization_id TEXT,
+      workspace_id TEXT,
+      user_id TEXT,
+      knowledge_store TEXT NOT NULL,
+      chunk_index INTEGER NOT NULL,
+      content_hash TEXT,
+      policy_decision TEXT,
+      scan_status TEXT,
+      embedding_index_status TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+
+    CREATE TABLE audit_events (
+      id TEXT PRIMARY KEY NOT NULL,
+      organization_id TEXT,
+      workspace_id TEXT,
+      user_id TEXT,
+      source TEXT NOT NULL,
+      event_type TEXT NOT NULL,
+      entity_type TEXT NOT NULL,
+      entity_id TEXT,
+      action TEXT NOT NULL,
+      status TEXT NOT NULL,
+      summary TEXT,
+      metadata_json TEXT,
+      created_at INTEGER NOT NULL
+    );
+
+    CREATE TABLE public_file_shares (
+      id TEXT PRIMARY KEY NOT NULL,
+      token_hash TEXT NOT NULL,
+      token TEXT NOT NULL,
+      workspace_path TEXT NOT NULL,
+      created_by_user_id TEXT NOT NULL,
+      status TEXT NOT NULL,
+      expires_at INTEGER,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
   `);
 
   runMigrations(sqlite);
@@ -226,6 +318,41 @@ try {
   assert.equal(migratedUsage.workspaceId, null);
   assert.equal(migratedUsage.workspaceType, null);
 
+  const automationJobColumns = getColumns(sqlite, 'automation_jobs');
+  assert.ok(automationJobColumns.has('owner_user_id'));
+  assert.ok(automationJobColumns.has('scope'));
+  assert.ok(automationJobColumns.has('organization_id'));
+  assert.ok(automationJobColumns.has('workspace_id'));
+  assert.ok(automationJobColumns.has('project_id'));
+  assert.ok(indexExists(sqlite, 'automation_jobs', 'idx_automation_jobs_owner_scope'));
+  assert.ok(indexExists(sqlite, 'automation_jobs', 'idx_automation_jobs_org_workspace'));
+  assert.ok(indexExists(sqlite, 'automation_jobs', 'idx_automation_jobs_project_status'));
+
+  const automationRunColumns = getColumns(sqlite, 'automation_runs');
+  assert.ok(automationRunColumns.has('workspace_id'));
+  assert.ok(automationRunColumns.has('project_id'));
+  assert.ok(automationRunColumns.has('job_scope'));
+  assert.ok(indexExists(sqlite, 'automation_runs', 'idx_automation_runs_workspace_created'));
+  assert.ok(indexExists(sqlite, 'automation_runs', 'idx_automation_runs_project_created'));
+
+  const knowledgeSourceColumns = getColumns(sqlite, 'knowledge_sources');
+  assert.ok(knowledgeSourceColumns.has('project_id'));
+  assert.ok(indexExists(sqlite, 'knowledge_sources', 'idx_knowledge_sources_project_store'));
+
+  const knowledgeChunkColumns = getColumns(sqlite, 'knowledge_chunks');
+  assert.ok(knowledgeChunkColumns.has('project_id'));
+  assert.ok(indexExists(sqlite, 'knowledge_chunks', 'idx_knowledge_chunks_project_store'));
+
+  const auditEventColumns = getColumns(sqlite, 'audit_events');
+  assert.ok(auditEventColumns.has('project_id'));
+  assert.ok(indexExists(sqlite, 'audit_events', 'idx_audit_events_project_created'));
+
+  const publicShareColumns = getColumns(sqlite, 'public_file_shares');
+  assert.ok(publicShareColumns.has('organization_id'));
+  assert.ok(publicShareColumns.has('project_id'));
+  assert.ok(publicShareColumns.has('short_code'));
+  assert.ok(indexExists(sqlite, 'public_file_shares', 'idx_public_file_shares_project_status'));
+
   sqlite.close();
   console.log('legacy db migration tests passed');
 } finally {
@@ -245,4 +372,9 @@ function tableExists(sqlite: Database.Database, table: string): boolean {
       .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ? LIMIT 1")
       .get(table),
   );
+}
+
+function indexExists(sqlite: Database.Database, table: string, indexName: string): boolean {
+  return sqlite.prepare(`PRAGMA index_list(${table})`).all()
+    .some((index) => (index as { name: string }).name === indexName);
 }
