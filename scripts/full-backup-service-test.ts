@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { createHash } from 'node:crypto';
-import { mkdir, mkdtemp, rm, stat, writeFile } from 'node:fs/promises';
+import { createHash, randomUUID } from 'node:crypto';
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
@@ -145,13 +145,68 @@ async function main() {
     assert.ok(inspection.warnings.some((warning) => warning.includes('unencrypted')));
     assert.equal('archivePath' in serializeFullBackupInspection(inspection), false);
 
+    await new Promise((resolve) => setTimeout(resolve, 50));
     const lockPath = path.join(dataRoot, 'system', 'backups', '.full-backup.lock');
-    await writeFile(lockPath, '{}\n');
+    await writeFile(lockPath, `${JSON.stringify({
+      backupId: randomUUID(),
+      createdAt: new Date().toISOString(),
+      pid: process.pid,
+    })}\n`);
     await assert.rejects(
       () => createFullBackupJob(),
       /already running/u,
     );
     await rm(lockPath, { force: true });
+
+    const staleBackupId = randomUUID();
+    const staleCreatedAt = new Date().toISOString();
+    await mkdir(path.join(dataRoot, 'system', 'backups', staleBackupId), { recursive: true });
+    await writeFile(path.join(dataRoot, 'system', 'backups', staleBackupId, 'status.json'), `${JSON.stringify({
+      id: staleBackupId,
+      status: 'running',
+      phase: 'Writing archive',
+      createdAt: staleCreatedAt,
+      updatedAt: staleCreatedAt,
+      fileName: 'stale.zip',
+      source: {
+        databaseProvider: 'sqlite',
+        deploymentMode: 'managed-team',
+        teamFeaturesEnabled: true,
+        managedServicesEnabled: false,
+        organizationId: 'org-backup',
+        createdByUserId: 'user-admin',
+        createdByEmail: 'admin@example.test',
+        createdByRole: 'admin',
+      },
+      progress: {
+        fileCount: 1,
+        totalBytes: 1,
+        filesProcessed: 0,
+        bytesProcessed: 0,
+      },
+    }, null, 2)}\n`);
+    await writeFile(lockPath, `${JSON.stringify({
+      backupId: staleBackupId,
+      createdAt: staleCreatedAt,
+      pid: 999999,
+    })}\n`);
+
+    const replacementJob = await createFullBackupJob({
+      source: {
+        organizationId: 'org-backup',
+        createdByUserId: 'user-admin',
+        createdByEmail: 'admin@example.test',
+        createdByRole: 'admin',
+      },
+    });
+    const replacementCompleted = await waitForBackup(getFullBackupJob, replacementJob.id);
+    assert.ok(replacementCompleted.filePath);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    const staleJob = JSON.parse(await readFile(path.join(dataRoot, 'system', 'backups', staleBackupId, 'status.json'), 'utf8'));
+    assert.equal(staleJob.status, 'failed');
+    assert.match(staleJob.error, /stale/u);
+    assert.equal(await stat(lockPath).then(() => true).catch(() => false), false);
+
     assert.ok((await stat(completed.filePath)).size > 0);
 
     console.log('full-backup-service-test: ok');

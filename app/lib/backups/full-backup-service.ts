@@ -24,6 +24,11 @@ import {
 
 type ZipArchive = InstanceType<typeof ZipStream>;
 type FullBackupSourceInput = Partial<Omit<FullBackupSource, 'databaseProvider'> & { databaseProvider: string | null }>;
+interface FullBackupLock {
+  backupId: string;
+  createdAt: string;
+  pid: number;
+}
 
 const execFileAsync = promisify(execFile);
 const SQLITE_FILE_NAME = 'sqlite.db';
@@ -83,6 +88,77 @@ async function pathExists(targetPath: string): Promise<boolean> {
   return fs.stat(targetPath).then(() => true).catch(() => false);
 }
 
+function getErrorCode(error: unknown): string | null {
+  return error && typeof error === 'object' && 'code' in error && typeof error.code === 'string'
+    ? error.code
+    : null;
+}
+
+async function readBackupLock(lockPath: string): Promise<FullBackupLock | null> {
+  let raw: string;
+  try {
+    raw = await fs.readFile(lockPath, 'utf8');
+  } catch (error) {
+    if (getErrorCode(error) === 'ENOENT') return null;
+    throw error;
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+  const lock = parsed as Partial<FullBackupLock>;
+  if (!lock.backupId || !/^[a-f0-9-]{36}$/i.test(lock.backupId)) return null;
+  if (!lock.createdAt || Number.isNaN(Date.parse(lock.createdAt))) return null;
+  const pid = lock.pid;
+  if (typeof pid !== 'number' || !Number.isInteger(pid) || pid <= 0) return null;
+  return {
+    backupId: lock.backupId,
+    createdAt: lock.createdAt,
+    pid,
+  };
+}
+
+function isProcessAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return getErrorCode(error) !== 'ESRCH';
+  }
+}
+
+async function markStaleLockedJobFailed(lock: FullBackupLock): Promise<void> {
+  const job = await readJobStatus(lock.backupId);
+  if (!job || (job.status !== 'queued' && job.status !== 'running')) return;
+  job.status = 'failed';
+  job.phase = 'Failed';
+  job.error = `Backup lock from PID ${lock.pid} became stale after process exit.`;
+  job.updatedAt = new Date().toISOString();
+  await writeJobStatus(job).catch(() => undefined);
+}
+
+async function hasActiveBackupLock(): Promise<boolean> {
+  const lockPath = getBackupLockPath();
+  const lock = await readBackupLock(lockPath);
+  if (!lock) {
+    if (await pathExists(lockPath)) {
+      await fs.unlink(lockPath).catch(() => undefined);
+    }
+    return false;
+  }
+
+  if (isProcessAlive(lock.pid)) return true;
+
+  await markStaleLockedJobFailed(lock);
+  await fs.unlink(lockPath).catch(() => undefined);
+  return false;
+}
+
 async function acquireBackupLock(job: FullBackupJob): Promise<() => Promise<void>> {
   await ensurePrivateDir(getBackupsRoot());
   const lockPath = getBackupLockPath();
@@ -90,17 +166,23 @@ async function acquireBackupLock(job: FullBackupJob): Promise<() => Promise<void
   try {
     handle = await fs.open(lockPath, 'wx', 0o600);
   } catch (error) {
-    if (error && typeof error === 'object' && 'code' in error && error.code === 'EEXIST') {
+    if (getErrorCode(error) === 'EEXIST') {
       throw new Error('Another full backup is already running.');
     }
     throw error;
   }
 
-  await handle.writeFile(`${JSON.stringify({
-    backupId: job.id,
-    createdAt: new Date().toISOString(),
-    pid: process.pid,
-  }, null, 2)}\n`);
+  try {
+    await handle.writeFile(`${JSON.stringify({
+      backupId: job.id,
+      createdAt: new Date().toISOString(),
+      pid: process.pid,
+    }, null, 2)}\n`);
+  } catch (error) {
+    await handle.close().catch(() => undefined);
+    await fs.unlink(lockPath).catch(() => undefined);
+    throw error;
+  }
 
   return async () => {
     await handle.close().catch(() => undefined);
@@ -480,12 +562,18 @@ async function runFullBackup(job: FullBackupJob, releaseLock: () => Promise<void
     job.error = error instanceof Error ? error.message : 'Full backup failed';
     await writeJobStatus(job);
   } finally {
+    if (job.status === 'queued' || job.status === 'running') {
+      job.status = 'failed';
+      job.phase = 'Failed';
+      job.error = job.error || 'Full backup ended before completion.';
+      await writeJobStatus(job).catch(() => undefined);
+    }
     await releaseLock();
   }
 }
 
 export async function createFullBackupJob(options: { source?: FullBackupSourceInput } = {}): Promise<FullBackupJob> {
-  if (activeFullBackups.size > 0 || await pathExists(getBackupLockPath())) {
+  if (activeFullBackups.size > 0 || await hasActiveBackupLock()) {
     throw new Error('Another full backup is already running.');
   }
 
