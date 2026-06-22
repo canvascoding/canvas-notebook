@@ -634,17 +634,33 @@
     {
       "id": 35,
       "title": "Storage-, Compute- und Resource-Monitoring mit Alerts fuer Team-Instanzen im Control Plane absichern",
-      "status": "pending",
+      "status": "completed",
       "repo": "canvas-control-plane",
       "planningArtifacts": [
         "docs/architecture/canvas-notebook/team-workspace/05-actor-audit-retention.md",
         "docs/architecture/canvas-notebook/team-workspace/13-resource-aware-ingestion-and-job-backpressure.md"
+      ],
+      "implementationArtifacts": [
+        "../canvas-control-plane/apps/api/src/services/resourceGuard.ts",
+        "../canvas-control-plane/apps/api/src/sockets/agentHandler.ts",
+        "../canvas-control-plane/apps/api/drizzle/0045_vm_metrics_resource_metadata.sql",
+        "../canvas-control-plane/apps/web/src/components/vm/metrics-tab.tsx",
+        "../canvas-control-plane/packages/agent/src/metrics/host.ts",
+        "../canvas-control-plane/packages/agent/src/metrics/docker.ts",
+        "https://github.com/canvascoding/canvas-control-plane/pull/5"
+      ],
+      "verification": [
+        "npm run typecheck",
+        "npm run build:api",
+        "npm run build:agent",
+        "npm run build:web",
+        "Greptile 5/5"
       ]
     },
     {
       "id": 36,
       "title": "Backup- und Restore-Konzept fuer Team-Instanzen implementieren",
-      "status": "pending",
+      "status": "completed",
       "repo": "cross-repo",
       "planningArtifacts": [
         "docs/architecture/canvas-notebook/team-workspace/07-filesystem-migration-and-write-policy.md",
@@ -652,6 +668,22 @@
         "docs/architecture/canvas-notebook/team-workspace/09-initial-setup-and-update-migration.md",
         "docs/architecture/canvas-notebook/team-workspace/15-export-import-backup-restore-policy.md",
         "docs/architecture/canvas-notebook/team-workspace/17-database-provider-postgres-rag-collaboration-policy.md"
+      ],
+      "implementationArtifacts": [
+        "app/lib/backups/types.ts",
+        "app/lib/backups/full-backup-service.ts",
+        "app/api/admin/backups/route.ts",
+        "app/api/admin/backups/[id]/route.ts",
+        "app/api/admin/backups/[id]/download/route.ts",
+        "app/api/admin/backups/[id]/inspect/route.ts",
+        "scripts/create-full-backup.ts",
+        "scripts/full-backup-service-test.ts"
+      ],
+      "verification": [
+        "npm run test:backup:full",
+        "npx tsc --noEmit --pretty false",
+        "npm run lint",
+        "npm run build"
       ]
     },
     {
