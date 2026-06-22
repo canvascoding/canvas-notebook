@@ -39,7 +39,7 @@ export async function assertStudioGenerationQueueCapacity(userId: string): Promi
   if (activeCount >= limit) {
     throw new StudioServiceError(
       'Studio generation queue limit reached',
-      `Es sind bereits ${activeCount} Studio-Generierungen aktiv. Bitte warte, bis mindestens eine abgeschlossen ist. Limit: ${limit}.`,
+      `You already have ${activeCount} active Studio generation${activeCount === 1 ? '' : 's'}. Please wait for at least one to complete before starting a new one. Limit: ${limit}.`,
       'RATE_LIMIT',
     );
   }

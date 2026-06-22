@@ -472,7 +472,7 @@ export function ReferencePickerDialog({ open, onOpenChange, onConfirm, multiple 
       setTab('studio');
       await loadStudioAssets();
       if (payload.errors?.length) {
-        setError(`Einige Dateien konnten nicht hochgeladen werden: ${payload.errors.join(', ')}`);
+        setError(t('upload.partialFailure', { errors: payload.errors.join(', ') }));
       }
       if (payload.files?.length) {
         const newPaths = payload.files.map((f: { path: string }) => f.path);
@@ -493,7 +493,7 @@ export function ReferencePickerDialog({ open, onOpenChange, onConfirm, multiple 
     } finally {
       setIsUploading(false);
     }
-  }, [multiple, maxSelection, loadStudioAssets]);
+  }, [multiple, maxSelection, loadStudioAssets, t]);
 
   const handleImagePreprocessConfirm = async (convertParams: (ConvertParams | null)[]) => {
     if (imagePreprocessPendingFiles.length === 0) return;
@@ -521,7 +521,7 @@ export function ReferencePickerDialog({ open, onOpenChange, onConfirm, multiple 
       setImagePreprocessPendingFiles([]);
       await loadStudioAssets();
       if (payload.errors?.length) {
-        setError(`Einige Dateien konnten nicht hochgeladen werden: ${payload.errors.join(', ')}`);
+        setError(t('upload.partialFailure', { errors: payload.errors.join(', ') }));
       }
       if (payload.files?.length) {
         const newPaths = payload.files.map((f: { path: string }) => f.path);

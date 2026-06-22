@@ -3857,7 +3857,8 @@
         "hint": "Lade Bilder hoch, die als Referenz für Studio-Generierungen verwendet werden.",
         "selectFiles": "Dateien wählen",
         "dragHint": "Oder ziehe Dateien per Drag & Drop in diesen Dialog.",
-        "dropHere": "Dateien hier ablegen"
+        "dropHere": "Dateien hier ablegen",
+        "partialFailure": "Einige Dateien konnten nicht hochgeladen werden: {errors}"
       },
       "urlTabTitle": "Bild von URL laden",
       "urlTabDescription": "Gib eine Bild-URL ein. Das Bild wird heruntergeladen und als Referenz gespeichert.",
