@@ -7,7 +7,7 @@ export type KnowledgeFeatureGateKey =
   | 'rag_retrieval'
   | 'knowledge_graph'
   | 'live_collaboration';
-export type KnowledgeFeatureGateStatus = 'available' | 'enabled' | 'blocked' | 'disabled';
+export type KnowledgeFeatureGateStatus = 'available' | 'enabled' | 'blocked';
 
 export interface KnowledgeParsingSettings {
   knowledgeAutoIngestionEnabled: boolean;

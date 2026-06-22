@@ -1792,8 +1792,7 @@
       "gateStatus": {
         "available": "Verfügbar",
         "enabled": "Aktiv",
-        "blocked": "Blockiert",
-        "disabled": "Deaktiviert"
+        "blocked": "Blockiert"
       },
       "profiles": {
         "disabled": "Deaktiviertes Profil",

@@ -349,7 +349,6 @@ function collectChanges(
 function validateKnowledgeSettingsUpdate(
   next: KnowledgeParsingSettings,
   resourceStatus: KnowledgeResourceStatus,
-  state?: OrganizationPermissionState | null,
 ): string[] {
   const errors: string[] = [];
   if ((next.doclingEnabled || next.ocrEnabled) && !next.heavyDocumentParsingEnabled) {
@@ -364,11 +363,7 @@ function validateKnowledgeSettingsUpdate(
   if (next.heavyDocumentParsingEnabled && resourceStatus.memory.totalMb !== null && resourceStatus.memory.totalMb < MIN_ENABLE_MEMORY_MB) {
     errors.push('memory_below_2gb');
   }
-  errors.push(...collectEnabledKnowledgeFeatureGateBlockers(resolveKnowledgeFeatureGates({
-    settings: next,
-    resourceStatus,
-    state,
-  })));
+  errors.push(...collectEnabledKnowledgeFeatureGateBlockers(resourceStatus.featureGates));
   return Array.from(new Set(errors));
 }
 
@@ -404,7 +399,7 @@ export async function updateKnowledgeParsingSettings(input: {
   const changes = collectChanges(current.settings, next);
   const changedKeys = Object.keys(changes);
   const resourceStatus = await resolveKnowledgeResourceStatus(next, input.state);
-  const errors = validateKnowledgeSettingsUpdate(next, resourceStatus, input.state);
+  const errors = validateKnowledgeSettingsUpdate(next, resourceStatus);
   if (errors.length > 0) {
     const logEntry: KnowledgeOperationalLogEntry = {
       timestamp: new Date().toISOString(),
