@@ -191,7 +191,7 @@ export const workspaceTrashEntries = sqliteTable("workspace_trash_entries", {
   organizationId: text("organization_id"),
   customerId: text("customer_id"),
   projectId: text("project_id"),
-  workspaceId: text("workspace_id").notNull(),
+  workspaceId: text("workspace_id").notNull().references(() => canvasWorkspaces.id, { onDelete: 'cascade' }),
   workspaceType: text("workspace_type").notNull(),
   ownerUserId: text("owner_user_id"),
   originalPath: text("original_path").notNull(),
@@ -219,12 +219,14 @@ export const workspaceTrashEntries = sqliteTable("workspace_trash_entries", {
   originalPathIdx: index("idx_workspace_trash_original_path").on(table.workspaceId, table.originalPath, table.status),
 }));
 
+// Collaboration metadata mirrors the manual SQLite migration: workspace/document
+// IDs are logical IDs without FK constraints, and timestamp values are epoch ms.
 export const fileRevisions = sqliteTable("file_revisions", {
   id: text("id").primaryKey(),
   organizationId: text("organization_id"),
   customerId: text("customer_id"),
   projectId: text("project_id"),
-  workspaceId: text("workspace_id").notNull().references(() => canvasWorkspaces.id, { onDelete: 'cascade' }),
+  workspaceId: text("workspace_id").notNull(),
   workspaceType: text("workspace_type").notNull(),
   path: text("path").notNull(),
   contentHash: text("content_hash").notNull(),

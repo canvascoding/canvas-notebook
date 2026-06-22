@@ -55,6 +55,7 @@ async function main() {
       ensureFileRevisionForCurrentContent,
       expireActiveFileLocks,
       getFileCollaborationState,
+      releaseFileLock,
     } = await import('../app/lib/files/collaboration-policy');
     const { writeFile } = await import('../app/lib/filesystem/workspace-files');
     const { sha256Buffer } = await import('../app/lib/files/revision-guard');
@@ -161,6 +162,17 @@ async function main() {
       baseRevisionId: pdfRevision.id,
       nowMs: 20_002,
     }));
+    assert.throws(
+      () => releaseFileLock({
+        workspace,
+        lockId: firstLock.lock.id,
+        actorUserId: 'user-b',
+        nowMs: 20_003,
+      }),
+      (error) => error instanceof FileCollaborationPolicyError
+        && error.code === 'FILE_LOCK_PERMISSION_DENIED'
+        && error.status === 403,
+    );
 
     assert.throws(
       () => assertFileCollaborationWriteAllowed({
@@ -168,7 +180,7 @@ async function main() {
         path: 'brief.pdf',
         actorUserId: 'user-b',
         baseRevisionId: pdfRevision.id,
-        nowMs: 20_003,
+        nowMs: 20_004,
       }),
       (error) => error instanceof FileCollaborationPolicyError && error.code === 'FILE_LOCKED',
     );

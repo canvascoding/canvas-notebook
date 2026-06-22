@@ -81,7 +81,7 @@ export class FileCollaborationPolicyError extends Error {
     | 'FILE_REVISION_ID_CONFLICT'
     | 'FILE_LOCK_NOT_FOUND'
     | 'FILE_LOCK_PERMISSION_DENIED';
-  readonly status: 404 | 409 | 423;
+  readonly status: 403 | 404 | 409 | 423;
   readonly path: string;
   readonly currentRevisionId: string | null;
   readonly baseRevisionId: string | null;
@@ -701,7 +701,7 @@ export function releaseFileLock(params: {
     if (!params.force && !isSameActor(lock, params.actorUserId, params.actorSessionId)) {
       throw new FileCollaborationPolicyError({
         code: 'FILE_LOCK_PERMISSION_DENIED',
-        status: 423,
+        status: 403,
         message: 'Only the lock owner or an owner/admin force release can release this file lock.',
         path: lock.path,
         activeLock: lock,

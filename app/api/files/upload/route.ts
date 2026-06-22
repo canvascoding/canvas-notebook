@@ -177,6 +177,7 @@ export async function POST(request: NextRequest) {
             path: targetPath,
           });
           if (!currentState.activeLock) {
+            // acquireFileLock re-checks in its own write transaction; a raced lock becomes FILE_LOCKED.
             const acquired = acquireFileLock({
               workspace: workspaceResult.workspace,
               path: targetPath,
