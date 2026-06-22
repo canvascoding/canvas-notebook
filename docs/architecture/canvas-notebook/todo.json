@@ -892,11 +892,36 @@
     {
       "id": 44,
       "title": "Markdown-/Text-Collaboration mit CRDT/Yjs und Lock-/Revision-Policy fuer Office/PDF/Assets bauen",
-      "status": "pending",
+      "status": "completed",
       "repo": "canvasstudios-notebook",
       "planningArtifacts": [
         "docs/architecture/canvas-notebook/team-workspace/10-agent-tool-execution-policy.md",
         "docs/architecture/canvas-notebook/team-workspace/18-collaboration-and-file-conflict-policy.md"
+      ],
+      "implementationArtifacts": [
+        "app/lib/db/schema.ts",
+        "app/lib/db/migrate.ts",
+        "app/lib/files/collaboration-policy.ts",
+        "app/api/files/locks/route.ts",
+        "app/api/files/read/route.ts",
+        "app/api/files/write/route.ts",
+        "app/api/files/create/route.ts",
+        "app/api/files/upload/route.ts",
+        "app/lib/pi/agent-file-operations.ts",
+        "app/lib/files/client.ts",
+        "app/lib/files/types.ts",
+        "app/store/file-store.ts",
+        "app/components/editor/FileEditor.tsx",
+        "scripts/file-collaboration-policy-test.ts"
+      ],
+      "verification": [
+        "npm run test:files:collaboration",
+        "tsx --conditions react-server scripts/file-revision-guard-test.ts",
+        "npm run test:agent:session-workspace",
+        "npm run test:workspace:foundation",
+        "npm run lint",
+        "npx tsc --noEmit --pretty false",
+        "npm run build"
       ]
     }
   ]

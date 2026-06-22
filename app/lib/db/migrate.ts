@@ -213,6 +213,68 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       FOREIGN KEY (workspace_id) REFERENCES canvas_workspaces(id) ON DELETE CASCADE
     );
 
+    CREATE TABLE IF NOT EXISTS file_revisions (
+      id TEXT PRIMARY KEY NOT NULL,
+      organization_id TEXT,
+      customer_id TEXT,
+      project_id TEXT,
+      workspace_id TEXT NOT NULL,
+      workspace_type TEXT NOT NULL,
+      path TEXT NOT NULL,
+      content_hash TEXT NOT NULL,
+      size_bytes INTEGER NOT NULL DEFAULT 0,
+      created_by_user_id TEXT,
+      created_by_actor_type TEXT NOT NULL DEFAULT 'user',
+      source_session_id TEXT,
+      base_revision_id TEXT,
+      created_at INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS file_locks (
+      id TEXT PRIMARY KEY NOT NULL,
+      organization_id TEXT,
+      customer_id TEXT,
+      project_id TEXT,
+      workspace_id TEXT NOT NULL,
+      workspace_type TEXT NOT NULL,
+      path TEXT NOT NULL,
+      revision_id TEXT,
+      locked_by_user_id TEXT,
+      locked_by_session_id TEXT,
+      lock_type TEXT NOT NULL DEFAULT 'edit',
+      status TEXT NOT NULL DEFAULT 'active',
+      expires_at INTEGER NOT NULL,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS collaboration_documents (
+      id TEXT PRIMARY KEY NOT NULL,
+      organization_id TEXT,
+      customer_id TEXT,
+      project_id TEXT,
+      workspace_id TEXT NOT NULL,
+      workspace_type TEXT NOT NULL,
+      path TEXT NOT NULL,
+      provider TEXT NOT NULL DEFAULT 'yjs',
+      state_version INTEGER NOT NULL DEFAULT 0,
+      snapshot_revision_id TEXT,
+      status TEXT NOT NULL DEFAULT 'active',
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS collaboration_events (
+      id TEXT PRIMARY KEY NOT NULL,
+      document_id TEXT NOT NULL,
+      actor_user_id TEXT,
+      actor_session_id TEXT,
+      sequence INTEGER NOT NULL,
+      payload_ref TEXT,
+      payload_hash TEXT,
+      created_at INTEGER NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS organization_user_permissions (
       organization_id TEXT NOT NULL,
       user_id TEXT NOT NULL,
@@ -1772,6 +1834,21 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     CREATE INDEX IF NOT EXISTS idx_workspace_trash_project_status ON workspace_trash_entries (project_id, status, deleted_at);
     CREATE INDEX IF NOT EXISTS idx_workspace_trash_deleted_by ON workspace_trash_entries (deleted_by_user_id, deleted_at);
     CREATE INDEX IF NOT EXISTS idx_workspace_trash_original_path ON workspace_trash_entries (workspace_id, original_path, status);
+    CREATE INDEX IF NOT EXISTS idx_file_revisions_workspace_path_created ON file_revisions (workspace_id, path, created_at);
+    CREATE INDEX IF NOT EXISTS idx_file_revisions_workspace_path_hash ON file_revisions (workspace_id, path, content_hash);
+    CREATE INDEX IF NOT EXISTS idx_file_revisions_org_created ON file_revisions (organization_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_file_revisions_project_created ON file_revisions (project_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_file_revisions_actor_created ON file_revisions (created_by_user_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_file_locks_active_path ON file_locks (workspace_id, path, status, expires_at);
+    CREATE INDEX IF NOT EXISTS idx_file_locks_user_status ON file_locks (locked_by_user_id, status, updated_at);
+    CREATE INDEX IF NOT EXISTS idx_file_locks_org_status ON file_locks (organization_id, status, updated_at);
+    CREATE INDEX IF NOT EXISTS idx_file_locks_project_status ON file_locks (project_id, status, updated_at);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_collab_documents_workspace_path_provider ON collaboration_documents (workspace_id, path, provider);
+    CREATE INDEX IF NOT EXISTS idx_collab_documents_org_status ON collaboration_documents (organization_id, status, updated_at);
+    CREATE INDEX IF NOT EXISTS idx_collab_documents_project_status ON collaboration_documents (project_id, status, updated_at);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_collab_events_document_sequence ON collaboration_events (document_id, sequence);
+    CREATE INDEX IF NOT EXISTS idx_collab_events_document_created ON collaboration_events (document_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_collab_events_actor_created ON collaboration_events (actor_user_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_org_user_permissions_user ON organization_user_permissions (user_id);
     CREATE INDEX IF NOT EXISTS idx_org_user_permissions_role ON organization_user_permissions (organization_id, role);
     CREATE INDEX IF NOT EXISTS idx_org_user_permissions_status ON organization_user_permissions (organization_id, status);

@@ -191,7 +191,7 @@ export const workspaceTrashEntries = sqliteTable("workspace_trash_entries", {
   organizationId: text("organization_id"),
   customerId: text("customer_id"),
   projectId: text("project_id"),
-  workspaceId: text("workspace_id").notNull().references(() => canvasWorkspaces.id, { onDelete: 'cascade' }),
+  workspaceId: text("workspace_id").notNull(),
   workspaceType: text("workspace_type").notNull(),
   ownerUserId: text("owner_user_id"),
   originalPath: text("original_path").notNull(),
@@ -217,6 +217,87 @@ export const workspaceTrashEntries = sqliteTable("workspace_trash_entries", {
   projectStatusIdx: index("idx_workspace_trash_project_status").on(table.projectId, table.status, table.deletedAt),
   deletedByIdx: index("idx_workspace_trash_deleted_by").on(table.deletedByUserId, table.deletedAt),
   originalPathIdx: index("idx_workspace_trash_original_path").on(table.workspaceId, table.originalPath, table.status),
+}));
+
+export const fileRevisions = sqliteTable("file_revisions", {
+  id: text("id").primaryKey(),
+  organizationId: text("organization_id"),
+  customerId: text("customer_id"),
+  projectId: text("project_id"),
+  workspaceId: text("workspace_id").notNull().references(() => canvasWorkspaces.id, { onDelete: 'cascade' }),
+  workspaceType: text("workspace_type").notNull(),
+  path: text("path").notNull(),
+  contentHash: text("content_hash").notNull(),
+  sizeBytes: integer("size_bytes").notNull().default(0),
+  createdByUserId: text("created_by_user_id"),
+  createdByActorType: text("created_by_actor_type").notNull().default("user"),
+  sourceSessionId: text("source_session_id"),
+  baseRevisionId: text("base_revision_id"),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+}, (table) => ({
+  workspacePathCreatedIdx: index("idx_file_revisions_workspace_path_created").on(table.workspaceId, table.path, table.createdAt),
+  workspacePathHashIdx: index("idx_file_revisions_workspace_path_hash").on(table.workspaceId, table.path, table.contentHash),
+  orgCreatedIdx: index("idx_file_revisions_org_created").on(table.organizationId, table.createdAt),
+  projectCreatedIdx: index("idx_file_revisions_project_created").on(table.projectId, table.createdAt),
+  actorCreatedIdx: index("idx_file_revisions_actor_created").on(table.createdByUserId, table.createdAt),
+}));
+
+export const fileLocks = sqliteTable("file_locks", {
+  id: text("id").primaryKey(),
+  organizationId: text("organization_id"),
+  customerId: text("customer_id"),
+  projectId: text("project_id"),
+  workspaceId: text("workspace_id").notNull(),
+  workspaceType: text("workspace_type").notNull(),
+  path: text("path").notNull(),
+  revisionId: text("revision_id"),
+  lockedByUserId: text("locked_by_user_id"),
+  lockedBySessionId: text("locked_by_session_id"),
+  lockType: text("lock_type").notNull().default("edit"),
+  status: text("status").notNull().default("active"),
+  expiresAt: integer("expires_at", { mode: "timestamp" }).notNull(),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+}, (table) => ({
+  activePathIdx: index("idx_file_locks_active_path").on(table.workspaceId, table.path, table.status, table.expiresAt),
+  userStatusIdx: index("idx_file_locks_user_status").on(table.lockedByUserId, table.status, table.updatedAt),
+  orgStatusIdx: index("idx_file_locks_org_status").on(table.organizationId, table.status, table.updatedAt),
+  projectStatusIdx: index("idx_file_locks_project_status").on(table.projectId, table.status, table.updatedAt),
+}));
+
+export const collaborationDocuments = sqliteTable("collaboration_documents", {
+  id: text("id").primaryKey(),
+  organizationId: text("organization_id"),
+  customerId: text("customer_id"),
+  projectId: text("project_id"),
+  workspaceId: text("workspace_id").notNull(),
+  workspaceType: text("workspace_type").notNull(),
+  path: text("path").notNull(),
+  provider: text("provider").notNull().default("yjs"),
+  stateVersion: integer("state_version").notNull().default(0),
+  snapshotRevisionId: text("snapshot_revision_id"),
+  status: text("status").notNull().default("active"),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+}, (table) => ({
+  workspacePathProviderIdx: uniqueIndex("idx_collab_documents_workspace_path_provider").on(table.workspaceId, table.path, table.provider),
+  orgStatusIdx: index("idx_collab_documents_org_status").on(table.organizationId, table.status, table.updatedAt),
+  projectStatusIdx: index("idx_collab_documents_project_status").on(table.projectId, table.status, table.updatedAt),
+}));
+
+export const collaborationEvents = sqliteTable("collaboration_events", {
+  id: text("id").primaryKey(),
+  documentId: text("document_id").notNull(),
+  actorUserId: text("actor_user_id"),
+  actorSessionId: text("actor_session_id"),
+  sequence: integer("sequence").notNull(),
+  payloadRef: text("payload_ref"),
+  payloadHash: text("payload_hash"),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+}, (table) => ({
+  documentSequenceIdx: uniqueIndex("idx_collab_events_document_sequence").on(table.documentId, table.sequence),
+  documentCreatedIdx: index("idx_collab_events_document_created").on(table.documentId, table.createdAt),
+  actorCreatedIdx: index("idx_collab_events_actor_created").on(table.actorUserId, table.createdAt),
 }));
 
 export const organizationUserPermissions = sqliteTable("organization_user_permissions", {

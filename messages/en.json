@@ -688,6 +688,13 @@
     "unsavedChanges": "Unsaved changes",
     "saved": "Saved",
     "savedAt": "Saved {time}",
+    "collaboration": {
+      "crdtText": "Live text-ready",
+      "revisionCheck": "Revision checked",
+      "lockRequired": "Lock required",
+      "locked": "Locked",
+      "revisionShort": "Revision {revision}"
+    },
     "binaryPreviewUnavailable": "Binary file preview is not available.",
     "downloadFile": "Download file",
     "pdfLoading": "Loading PDF...",

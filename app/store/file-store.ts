@@ -574,6 +574,8 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
           path,
           content: data.content,
           stats: data.stats,
+          revision: data.revision ?? data.collaboration?.latestRevision ?? null,
+          collaboration: data.collaboration ?? null,
         },
         isLoadingFile: false,
         loadingFilePath: null,
@@ -626,6 +628,8 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
         ...currentFile,
         content: data.content,
         stats: data.stats,
+        revision: data.revision ?? data.collaboration?.latestRevision ?? currentFile.revision ?? null,
+        collaboration: data.collaboration ?? currentFile.collaboration ?? null,
       };
       const nextFileRevisions = updateFileRevision(get().fileRevisions, path, data.stats);
 
@@ -708,6 +712,9 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
         ?? (currentFileBeforeSave?.path === path ? currentFileBeforeSave.stats?.sha256 ?? null : null);
       const result = await writeWorkspaceFile(path, content, {
         expectedSha256,
+        baseRevisionId: currentFileBeforeSave?.path === path
+          ? currentFileBeforeSave.revision?.id ?? currentFileBeforeSave.collaboration?.latestRevision?.id ?? null
+          : null,
       });
 
       // Update current file if it's the same path
@@ -718,6 +725,8 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
             ...currentFile,
             content,
             stats: result.stats ?? currentFile.stats,
+            revision: result.revision ?? result.collaboration?.latestRevision ?? currentFile.revision ?? null,
+            collaboration: result.collaboration ?? currentFile.collaboration ?? null,
           },
           fileRevisions: updateFileRevision(state.fileRevisions, path, result.stats),
         }));
