@@ -209,6 +209,7 @@ export async function executeAutomationRun(runId: string): Promise<void> {
       workspace: automationWorkspace,
       userId: automationUserId,
       sessionId: piSessionId,
+      agentId: job.agentId,
     });
 
     await runWithAgentExecutionContext(executionContext, async () => {

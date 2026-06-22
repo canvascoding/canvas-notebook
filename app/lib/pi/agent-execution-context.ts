@@ -7,10 +7,13 @@ import type { WorkspaceType } from '@/app/lib/workspaces/types';
 export type AgentExecutionContext = {
   userId: string;
   sessionId: string;
+  agentId: string | null;
   workspaceId: string;
   workspaceType: WorkspaceType;
   workspaceName: string | null;
   organizationId: string | null;
+  customerId: string | null;
+  projectId: string | null;
   workspaceRoot: string;
   workspaceRootRelativePath: string | null;
   canWrite: boolean;

@@ -20,6 +20,8 @@ async function main() {
   const { hashAuditValue, recordAuditEvent } = await import('../app/lib/audit/audit-service');
   const event = await recordAuditEvent({
     organizationId: 'org-1',
+    customerId: 'customer-1',
+    projectId: 'project-1',
     workspaceId: 'ws-1',
     userId: 'user-1',
     sessionId: 'session-1',
@@ -46,6 +48,8 @@ async function main() {
   const verifyDb = new Database(path.join(dataRoot, 'sqlite.db'));
   try {
     const rows = verifyDb.prepare('SELECT * FROM audit_events').all() as Array<{
+      customer_id: string | null;
+      project_id: string | null;
       source: string;
       action: string;
       metadata_json: string;
@@ -53,6 +57,8 @@ async function main() {
       output_hash: string;
     }>;
     assert.equal(rows.length, 1);
+    assert.equal(rows[0].customer_id, 'customer-1');
+    assert.equal(rows[0].project_id, 'project-1');
     assert.equal(rows[0].source, 'test');
     assert.equal(rows[0].action, 'integration_secret.update');
     assert.equal(rows[0].input_hash, hashAuditValue({ value: 'input', password: 'hidden' }));

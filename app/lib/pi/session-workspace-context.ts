@@ -162,14 +162,18 @@ export function workspaceToAgentExecutionContext(input: {
   workspace: WorkspaceContext;
   userId: string;
   sessionId: string;
+  agentId?: string | null;
 }): AgentExecutionContext {
   return {
     userId: input.userId,
     sessionId: input.sessionId,
+    agentId: input.agentId ?? null,
     workspaceId: input.workspace.workspaceId,
     workspaceType: input.workspace.workspaceType,
     workspaceName: input.workspace.displayName ?? null,
     organizationId: input.workspace.organizationId ?? null,
+    customerId: input.workspace.customerId ?? null,
+    projectId: input.workspace.projectId ?? null,
     workspaceRoot: input.workspace.rootPath,
     workspaceRootRelativePath: input.workspace.rootRelativePath ?? null,
     canWrite: input.workspace.permissions.canWrite,
@@ -312,5 +316,6 @@ export async function resolveAgentExecutionContextForSession(input: {
     workspace,
     userId: input.userId,
     sessionId: input.sessionId,
+    agentId: input.agentId ?? null,
   });
 }
