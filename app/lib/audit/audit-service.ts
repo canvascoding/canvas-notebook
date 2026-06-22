@@ -14,7 +14,7 @@ const MAX_OBJECT_KEYS = 80;
 
 const SENSITIVE_KEY_PATTERN = /(secret|token|password|passphrase|credential|authorization|cookie|api[_-]?key|access[_-]?token|refresh[_-]?token|id[_-]?token|private[_-]?key)/i;
 
-export type AuditStatus = 'success' | 'failure' | 'blocked' | 'queued' | 'started' | 'completed';
+export type AuditStatus = 'success' | 'failure' | 'error' | 'blocked' | 'queued' | 'started' | 'completed';
 
 export interface AuditEventInput {
   organizationId?: string | null;

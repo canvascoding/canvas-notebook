@@ -1605,6 +1605,7 @@
       "integrations": "Integrationen",
       "agentSettings": "Agent-Einstellungen",
       "workspace": "Workspace",
+      "knowledge": "Knowledge",
       "userManagement": "Benutzer",
       "channels": "Channels",
       "usage": "Nutzung",
@@ -1758,6 +1759,103 @@
         "delete": "Benutzer konnte nicht gelöscht werden.",
         "offboardingPreflight": "Offboarding-Preflight konnte nicht geladen werden.",
         "offboarding": "Benutzer konnte nicht offboarded werden."
+      }
+    },
+    "knowledge": {
+      "title": "Knowledge / Parsing / Database",
+      "description": "Steuere automatische Knowledge-Ingestion, schwere Parser, OCR, Embeddings und Resource-Gates. Schwere Verarbeitung ist standardmäßig ausgeschaltet.",
+      "loading": "Knowledge-Einstellungen werden geladen...",
+      "unknown": "Unbekannt",
+      "reload": "Neu laden",
+      "save": "Einstellungen speichern",
+      "saved": "Knowledge-Einstellungen gespeichert.",
+      "none": "Keine",
+      "preflightBlocked": "Knowledge-Aktivierung ist blockiert",
+      "preflightBlockedDescription": "Postgres, pgvector, Arbeitsspeicher und Speicherplatz müssen den Preflight bestehen, bevor automatische Knowledge-Ingestion oder Embeddings laufen dürfen.",
+      "blockers": "Blocker",
+      "warnings": "Warnungen",
+      "reasonCode": "Grund",
+      "changedKeys": "Geändert",
+      "togglesTitle": "Feature-Schalter",
+      "togglesDescription": "Diese Schalter erlauben nur den Start von Jobs. Resource-Guards bleiben auch bei aktivierten Features aktiv.",
+      "logsTitle": "Operational Log",
+      "logsDescription": "Redacted Settings- und Resource-Entscheidungen. Dokumentinhalte, Prompts, Pfade und Secrets werden hier nie gespeichert.",
+      "logsEmpty": "Noch keine Knowledge-Operational-Events aufgezeichnet.",
+      "availability": {
+        "available": "Verfügbar",
+        "degraded": "Eingeschränkt",
+        "disabled": "Deaktiviert"
+      },
+      "profiles": {
+        "disabled": "Deaktiviertes Profil",
+        "low": "Wenig Ressourcen",
+        "standard": "Standard",
+        "large": "Groß"
+      },
+      "status": {
+        "database": "Datenbank",
+        "pgvectorReady": "pgvector bereit",
+        "pgvectorMissing": "pgvector fehlt",
+        "memory": "Arbeitsspeicher",
+        "freeMemory": "{value} MB frei",
+        "cpu": "CPU",
+        "activeJobs": "{value} aktive schwere Jobs",
+        "disk": "Speicherplatz",
+        "diskThreshold": "Benötigt {value} GB frei"
+      },
+      "fields": {
+        "knowledgeAutoIngestionEnabled": {
+          "label": "Knowledge Auto-Ingestion",
+          "description": "Geeignete Workspace-Dokumente nach Policy- und Resource-Prüfung automatisch registrieren und verarbeiten."
+        },
+        "heavyDocumentParsingEnabled": {
+          "label": "Schwere Dokumentenparser",
+          "description": "Ressourcenintensive Parser-Jobs erlauben. Normale Agent-Datei-Reads sind davon getrennt."
+        },
+        "doclingEnabled": {
+          "label": "Docling Parser",
+          "description": "Docling-basiertes Parsing erlauben, wenn der Provider verfügbar ist und schwere Parser aktiviert sind."
+        },
+        "ocrEnabled": {
+          "label": "OCR",
+          "description": "OCR für Dokumente ohne extrahierbaren Text erlauben. Auf kleinen Servern standardmäßig aus."
+        },
+        "embeddingIndexingEnabled": {
+          "label": "Embedding Indexing",
+          "description": "Embeddings nur erzeugen, wenn Scan, ACL, Postgres und pgvector-Gates bestanden sind."
+        },
+        "remoteParsingEnabled": {
+          "label": "Remote Parsing",
+          "description": "Remote Parser Provider erlauben. Bleibt standardmäßig aus, weil Dokumente die VM verlassen."
+        },
+        "maxConcurrentHeavyJobs": {
+          "label": "Max. schwere Jobs",
+          "description": "Maximale Anzahl schwerer Parser-Jobs, die gleichzeitig laufen dürfen."
+        },
+        "maxDocumentSizeMb": {
+          "label": "Max. Dokumentgröße (MB)",
+          "description": "Größere Dokumente werden deferred, metadata-only oder durch Policy blockiert."
+        },
+        "maxPages": {
+          "label": "Max. Seiten",
+          "description": "Seitenlimit für vollständiges Parsing."
+        },
+        "maxOcrPages": {
+          "label": "Max. OCR-Seiten",
+          "description": "Seitenlimit für OCR-Verarbeitung."
+        },
+        "perFileTimeoutSeconds": {
+          "label": "Timeout pro Datei (Sekunden)",
+          "description": "Hartes Timeout für einen Parser-Job."
+        },
+        "minimumFreeMemoryMb": {
+          "label": "Minimal freier Speicher (MB)",
+          "description": "Jobs werden degradiert oder deferred, wenn der freie Speicher unter diesen Guard fällt."
+        }
+      },
+      "errors": {
+        "load": "Knowledge-Einstellungen konnten nicht geladen werden.",
+        "save": "Knowledge-Einstellungen konnten nicht gespeichert werden."
       }
     },
     "scopes": {

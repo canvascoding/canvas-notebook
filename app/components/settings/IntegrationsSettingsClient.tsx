@@ -269,6 +269,7 @@ const SETTINGS_TAB_ITEMS = [
   { value: 'integrations', labelKey: 'tabs.integrations' },
   { value: 'agent-settings', labelKey: 'tabs.agentSettings' },
   { value: 'workspace', labelKey: 'tabs.workspace' },
+  { value: 'knowledge', labelKey: 'tabs.knowledge' },
   { value: 'user-management', labelKey: 'tabs.userManagement' },
   { value: 'channels', labelKey: 'tabs.channels' },
   { value: 'usage', labelKey: 'tabs.usage' },
@@ -339,6 +340,11 @@ const SkillsPanel = dynamic(
 
 const WorkspaceSettingsPanel = dynamic(
   () => import('@/app/components/settings/WorkspaceSettingsPanel').then((module) => module.WorkspaceSettingsPanel),
+  { loading: SettingsTabLoader },
+);
+
+const KnowledgeSettingsPanel = dynamic(
+  () => import('@/app/components/settings/KnowledgeSettingsPanel').then((module) => module.KnowledgeSettingsPanel),
   { loading: SettingsTabLoader },
 );
 
@@ -2616,8 +2622,12 @@ export function IntegrationsSettingsClient({
 
   const effectiveTab = normalizeSettingsTab(activeTabOverride) ?? settingsTab;
   const visibleSettingsTabItems = useMemo(
-    () => SETTINGS_TAB_ITEMS.filter((tab) => tab.value !== 'user-management' || isAdmin),
-    [isAdmin],
+    () => SETTINGS_TAB_ITEMS.filter((tab) => {
+      if (tab.value === 'user-management') return isAdmin;
+      if (tab.value === 'knowledge') return isAdmin || organizationPermission?.canEnableKnowledge === true;
+      return true;
+    }),
+    [isAdmin, organizationPermission],
   );
   const visibleSettingsTabs = useMemo(
     () => new Set<SettingsTab>(visibleSettingsTabItems.map((tab) => tab.value)),
@@ -3404,6 +3414,8 @@ export function IntegrationsSettingsClient({
             organizationPermission={organizationPermission}
           />
         ))}
+
+        {renderLazyTabContent('knowledge', <KnowledgeSettingsPanel />)}
 
         {renderLazyTabContent('user-management',
           <UserManagementPanel currentUserId={currentUserId} isAdmin={isAdmin} />,
