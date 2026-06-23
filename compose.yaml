@@ -5,6 +5,10 @@ services:
       - "3456:3000"
     env_file:
       - .env.docker.local
+    depends_on:
+      postgres:
+        condition: service_healthy
+        required: false
     environment:
       # Do not change
       HOSTNAME: 0.0.0.0
@@ -17,3 +21,24 @@ services:
     volumes:
       - ./data:/data
     restart: unless-stopped
+
+  postgres:
+    profiles:
+      - postgres
+    image: ${CANVAS_POSTGRES_IMAGE:-pgvector/pgvector:0.8.3-pg18}
+    environment:
+      POSTGRES_DB: ${CANVAS_POSTGRES_DB:-canvas_notebook}
+      POSTGRES_USER: ${CANVAS_POSTGRES_USER:-canvas}
+      POSTGRES_PASSWORD: ${CANVAS_POSTGRES_PASSWORD:-unused-sqlite-profile-disabled}
+    volumes:
+      - canvas-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  canvas-postgres-data:
+    name: ${CANVAS_POSTGRES_DATA_VOLUME:-canvas-postgres-data}
