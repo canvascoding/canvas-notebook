@@ -5,6 +5,10 @@ import path from 'node:path';
 
 import { resolveCanvasDataRoot } from '@/app/lib/runtime-data-paths';
 import { fetchExternalResourceSafely } from '@/app/lib/security/safe-external-fetch';
+import { resolveExistingWorkspacePath } from '@/app/lib/filesystem/workspace-files';
+import { openOrganizationBootstrapDatabase } from '@/app/lib/organization/bootstrap';
+import { resolveWorkspaceActor } from '@/app/lib/workspaces/context';
+import { resolveWorkspaceContextById } from '@/app/lib/workspaces/service';
 import {
   getWorkspaceRoot,
   resolveValidatedStudioAssetPath,
@@ -58,6 +62,7 @@ export interface ResolvedMediaReference {
   fileName: string;
   mimeType: string;
   mediaType: MediaReferenceType;
+  workspaceId?: string | null;
 }
 
 export interface LoadedMediaFile {
@@ -123,16 +128,34 @@ function decodePath(filePath: string): string {
     .join('/');
 }
 
-function getLocalReferencePath(rawValue: string): { pathOnly: string; isRemoteUrl: boolean } | null {
+function extractWorkspaceId(searchParams: URLSearchParams): string | null {
+  const workspaceId = searchParams.get('workspaceId')?.trim();
+  return workspaceId || null;
+}
+
+function parseLocalPath(rawValue: string): { pathOnly: string; workspaceId: string | null } | null {
+  const withoutHash = rawValue.split('#', 1)[0] || '';
+  const queryIndex = withoutHash.indexOf('?');
+  const pathOnly = (queryIndex >= 0 ? withoutHash.slice(0, queryIndex) : withoutHash).trim();
+  if (!pathOnly) return null;
+
+  const query = queryIndex >= 0 ? withoutHash.slice(queryIndex + 1) : '';
+  return {
+    pathOnly,
+    workspaceId: query ? extractWorkspaceId(new URLSearchParams(query)) : null,
+  };
+}
+
+function getLocalReferencePath(rawValue: string): { pathOnly: string; isRemoteUrl: boolean; workspaceId: string | null } | null {
   try {
     const parsed = new URL(rawValue);
     if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
       return null;
     }
-    return { pathOnly: parsed.pathname, isRemoteUrl: true };
+    return { pathOnly: parsed.pathname, isRemoteUrl: true, workspaceId: extractWorkspaceId(parsed.searchParams) };
   } catch {
-    const pathOnly = rawValue.split(/[?#]/, 1)[0]?.trim();
-    return pathOnly ? { pathOnly, isRemoteUrl: false } : null;
+    const localPath = parseLocalPath(rawValue);
+    return localPath ? { ...localPath, isRemoteUrl: false } : null;
   }
 }
 
@@ -161,6 +184,7 @@ function makeResolvedReference(
   input: string,
   relativePath: string,
   absolutePath: string | null,
+  workspaceId?: string | null,
 ): ResolvedMediaReference | null {
   const normalizedRelativePath = relativePath.replace(/^\/+/, '');
   if (kind !== 'external_url' && !isSafeRelativePath(normalizedRelativePath)) {
@@ -179,6 +203,7 @@ function makeResolvedReference(
     ),
     mimeType,
     mediaType,
+    workspaceId: workspaceId || null,
   };
 }
 
@@ -231,7 +256,7 @@ export function classifyMediaReference(input: string, options: Pick<LoadMediaRef
     return null;
   }
 
-  const { pathOnly, isRemoteUrl } = localPath;
+  const { pathOnly, isRemoteUrl, workspaceId } = localPath;
   if (pathOnly.startsWith('/api/studio/references/')) {
     const referenceId = decodePath(pathOnly.slice('/api/studio/references/'.length));
     if (!referenceId || referenceId.includes('/') || referenceId.includes('\\') || referenceId.includes('..')) {
@@ -253,7 +278,13 @@ export function classifyMediaReference(input: string, options: Pick<LoadMediaRef
 
   if (pathOnly.startsWith('/api/media/')) {
     const relativePath = decodePath(pathOnly.slice('/api/media/'.length));
-    return makeResolvedReference('workspace_relative', rawValue, relativePath, resolveValidatedWorkspaceRelativePath(relativePath));
+    return makeResolvedReference(
+      'workspace_relative',
+      rawValue,
+      relativePath,
+      workspaceId ? null : resolveValidatedWorkspaceRelativePath(relativePath),
+      workspaceId,
+    );
   }
 
   const workspaceRoot = getWorkspaceRoot();
@@ -267,7 +298,14 @@ export function classifyMediaReference(input: string, options: Pick<LoadMediaRef
     return makeResolvedReference('external_url', rawValue, rawValue, null);
   }
 
-  return makeResolvedReference('workspace_relative', rawValue, decodePath(pathOnly.replace(/^\.?\//, '')), resolveValidatedWorkspaceRelativePath(decodePath(pathOnly.replace(/^\.?\//, ''))));
+  const relativePath = decodePath(pathOnly.replace(/^\.?\//, ''));
+  return makeResolvedReference(
+    'workspace_relative',
+    rawValue,
+    relativePath,
+    workspaceId ? null : resolveValidatedWorkspaceRelativePath(relativePath),
+    workspaceId,
+  );
 }
 
 function assertAllowedType(ref: ResolvedMediaReference, allowedTypes: MediaReferenceType[] | undefined): void {
@@ -284,10 +322,44 @@ function assertAllowedType(ref: ResolvedMediaReference, allowedTypes: MediaRefer
   }
 }
 
-async function readFilesystemReference(ref: ResolvedMediaReference, maxBytes: number): Promise<{ buffer: Buffer; absolutePath: string }> {
-  const candidates = [ref.absolutePath].filter(Boolean) as string[];
+async function resolveWorkspaceScopedReferencePath(
+  ref: ResolvedMediaReference,
+  options: LoadMediaReferenceOptions,
+): Promise<string | null> {
+  if (!ref.workspaceId || (ref.kind !== 'workspace_relative' && ref.kind !== 'workspace_absolute')) {
+    return null;
+  }
+
+  if (!options.userId) {
+    throw new Error(`Workspace-scoped reference requires user context: ${ref.sourceId}`);
+  }
+
+  const sqlite = openOrganizationBootstrapDatabase();
+  try {
+    const workspace = resolveWorkspaceContextById(sqlite, {
+      actor: resolveWorkspaceActor({ id: options.userId }),
+      workspaceId: ref.workspaceId,
+    });
+
+    if (!workspace || !workspace.permissions.canRead) {
+      throw new Error(`Workspace reference is not readable: ${ref.sourceId}`);
+    }
+
+    return await resolveExistingWorkspacePath(ref.relativePath, { workspace });
+  } finally {
+    sqlite.close();
+  }
+}
+
+async function readFilesystemReference(
+  ref: ResolvedMediaReference,
+  maxBytes: number,
+  options: LoadMediaReferenceOptions,
+): Promise<{ buffer: Buffer; absolutePath: string }> {
+  const workspaceScopedPath = await resolveWorkspaceScopedReferencePath(ref, options);
+  const candidates = [workspaceScopedPath, ref.absolutePath].filter(Boolean) as string[];
   if (ref.kind === 'workspace_relative' || ref.kind === 'workspace_absolute' || ref.kind === 'studio_asset' || ref.kind === 'studio_output') {
-    const dataFallback = resolveWithinRoot(resolveCanvasDataRoot(), ref.relativePath);
+    const dataFallback = ref.workspaceId ? null : resolveWithinRoot(resolveCanvasDataRoot(), ref.relativePath);
     if (dataFallback && !candidates.includes(dataFallback)) {
       candidates.push(dataFallback);
     }
@@ -340,7 +412,7 @@ export async function loadMediaReference(input: string, options: LoadMediaRefere
   const maxBytes = options.maxBytes ?? DEFAULT_MAX_BYTES;
   const loaded = ref.kind === 'external_url'
     ? await fetchExternalReference(ref, maxBytes, options.timeoutMs ?? DEFAULT_EXTERNAL_TIMEOUT_MS)
-    : { buffer: (await readFilesystemReference(ref, maxBytes)).buffer, mimeType: ref.mimeType };
+    : { buffer: (await readFilesystemReference(ref, maxBytes, options)).buffer, mimeType: ref.mimeType };
   const buffer = loaded.buffer;
   const mimeType = loaded.mimeType === 'application/octet-stream' ? ref.mimeType : loaded.mimeType;
   if (options.allowedTypes?.length) {

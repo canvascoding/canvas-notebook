@@ -8,6 +8,7 @@ import { toPreviewUrl } from '@/app/lib/utils/media-url';
 interface ImageThumbnailIconProps {
   path: string;
   name: string;
+  workspaceId?: string | null;
   className?: string;
   imageClassName?: string;
   fallbackIcon?: ReactNode;
@@ -16,6 +17,7 @@ interface ImageThumbnailIconProps {
 export function ImageThumbnailIcon({
   path,
   name,
+  workspaceId,
   className,
   imageClassName,
   fallbackIcon,
@@ -34,7 +36,7 @@ export function ImageThumbnailIcon({
     <span className={cn('block h-5 w-5 shrink-0 overflow-hidden rounded border border-border/70 bg-muted/40', className)}>
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
-        src={toPreviewUrl(path, 64, { preset: 'mini' })}
+        src={toPreviewUrl(path, 64, { preset: 'mini', workspaceId })}
         alt={name}
         className={cn('h-full w-full object-cover', imageClassName)}
         loading="lazy"
