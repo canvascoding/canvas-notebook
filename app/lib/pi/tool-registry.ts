@@ -41,13 +41,6 @@ import {
   type MemoryTarget,
 } from '@/app/lib/agents/memory-store';
 import { assertUserOrganizationPermission } from '@/app/lib/organization/permissions';
-
-function assertBashCommandAllowed(command: string): void {
-  const blockedReason = detectUnsafeBashCommand(command);
-  if (blockedReason) {
-    throw new Error(blockedReason);
-  }
-}
 import { resolveAgentRuntimeSettings } from '../agents/effective-runtime-config';
 import { resolveEnabledToolNames, isLegacyEnabledToolsValue, getDefaultEnabledToolNames } from './enabled-tools';
 import { PLANNING_MODE_ALLOWED_TOOLS } from './planning-mode';
@@ -129,9 +122,24 @@ import {
 } from '@/app/lib/integrations/audio-transcription-service';
 import { getAgentExecutionContext, runWithAgentExecutionContext, type AgentExecutionContext } from '@/app/lib/pi/agent-execution-context';
 import { resolveAgentExecutionContextForSession } from '@/app/lib/pi/session-workspace-context';
+import { hashAuditValue, recordAuditEvent, type AuditStatus } from '@/app/lib/audit/audit-service';
 
 
 const execAsync = promisify(exec);
+
+class BlockedBashCommandError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'BlockedBashCommandError';
+  }
+}
+
+function assertBashCommandAllowed(command: string): void {
+  const blockedReason = detectUnsafeBashCommand(command);
+  if (blockedReason) {
+    throw new BlockedBashCommandError(blockedReason);
+  }
+}
 
 function wrapToolWithExecutionContext(tool: AgentTool, context: AgentExecutionContext): AgentTool {
   const execute = tool.execute;
@@ -142,6 +150,58 @@ function wrapToolWithExecutionContext(tool: AgentTool, context: AgentExecutionCo
       () => execute(toolCallId, params, signal),
     ),
   };
+}
+
+async function recordBashToolAudit(input: {
+  command: string;
+  status: AuditStatus;
+  durationMs: number;
+  stdout?: string;
+  stderr?: string;
+  error?: string;
+  exitCode?: string | number | null;
+}) {
+  const executionContext = getAgentExecutionContext();
+  if (!executionContext) return;
+
+  const commandHash = hashAuditValue({ command: input.command });
+  await recordAuditEvent({
+    organizationId: executionContext.organizationId,
+    customerId: executionContext.customerId,
+    projectId: executionContext.projectId,
+    workspaceId: executionContext.workspaceId,
+    userId: executionContext.userId,
+    sessionId: executionContext.sessionId,
+    agentId: executionContext.agentId,
+    source: 'agent_tool',
+    eventType: 'command',
+    entityType: 'workspace_shell',
+    entityId: executionContext.workspaceId,
+    action: 'agent_bash.execute',
+    status: input.status,
+    summary: `Agent bash command ${input.status}.`,
+    metadata: {
+      commandHash,
+      commandLength: input.command.length,
+      durationMs: input.durationMs,
+      exitCode: input.exitCode ?? null,
+      stdoutBytes: Buffer.byteLength(input.stdout ?? '', 'utf8'),
+      stderrBytes: Buffer.byteLength(input.stderr ?? '', 'utf8'),
+      error: input.error ? input.error.slice(0, 500) : null,
+      workspace: {
+        workspaceId: executionContext.workspaceId,
+        workspaceType: executionContext.workspaceType,
+        workspaceName: executionContext.workspaceName,
+        workspaceRootRelativePath: executionContext.workspaceRootRelativePath,
+      },
+    },
+    inputHash: commandHash,
+    outputHash: hashAuditValue({
+      stdout: input.stdout ?? '',
+      stderr: input.stderr ?? '',
+      error: input.error ?? '',
+    }),
+  });
 }
 
 const DEFAULT_READ_TEXT_LIMIT = 40_000;
@@ -2418,12 +2478,13 @@ export const piTools: AgentTool[] = [
   {
     name: 'bash',
     label: 'Executing command',
-    description: 'Executes a bash command from the workspace bound to the current chat session. Prefer file tools for writes.',
+    description: 'Executes an inspection-oriented bash command from the workspace bound to the current chat session. Do not use this for file mutations; use write, edit_file, apply_patch, copy_path, move_path, or delete_path so workspace permissions, revisions, and audit logs are enforced.',
     parameters: Type.Object({
       command: Type.String({ description: 'The command to execute.' }),
     }),
     execute: async (toolCallId, params, signal) => {
       const { command } = params as { command: string };
+      const startedAt = Date.now();
       try {
         throwIfAborted(signal);
         assertBashCommandAllowed(command);
@@ -2432,6 +2493,14 @@ export const piTools: AgentTool[] = [
           env: filterSafeEnv(process.env) as NodeJS.ProcessEnv,
           signal,
         });
+        await recordBashToolAudit({
+          command,
+          status: 'success',
+          durationMs: Date.now() - startedAt,
+          stdout,
+          stderr,
+          exitCode: 0,
+        });
         const output = [stdout, stderr].filter(Boolean).join('\n');
         return {
           content: [{ type: 'text', text: output || '(no output)' }],
@@ -2439,6 +2508,12 @@ export const piTools: AgentTool[] = [
         };
       } catch (error: unknown) {
         if (isAbortError(error, signal)) {
+          await recordBashToolAudit({
+            command,
+            status: 'error',
+            durationMs: Date.now() - startedAt,
+            error: 'Tool execution aborted.',
+          });
           return {
             content: [{ type: 'text', text: 'Error: Tool execution aborted.' }],
             details: { error: 'Tool execution aborted.' },
@@ -2446,6 +2521,15 @@ export const piTools: AgentTool[] = [
         }
         const execError = asCommandExecutionError(error);
         const output = [execError.stdout, execError.stderr, execError.message].filter(Boolean).join('\n');
+        await recordBashToolAudit({
+          command,
+          status: error instanceof BlockedBashCommandError ? 'blocked' : 'failure',
+          durationMs: Date.now() - startedAt,
+          stdout: execError.stdout,
+          stderr: execError.stderr,
+          error: execError.message,
+          exitCode: execError.code ?? null,
+        });
         return {
           content: [{ type: 'text', text: output }],
           details: { error: execError.message, stdout: execError.stdout, stderr: execError.stderr },

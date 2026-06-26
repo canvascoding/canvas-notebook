@@ -1779,6 +1779,16 @@ function shellRedirectWritesManagedPath(command: string, cdsIntoManagedPath: boo
   });
 }
 
+function shellUsesDirectFileMutationCommand(command: string): boolean {
+  const directMutationCommandPattern = /(?:^|[;&|]\s*|\b(?:then|do)\s+)(?:sudo\s+)?(?:rm|mv|cp|mkdir|rmdir|touch|chmod|chown|chgrp|ln|truncate|dd|rsync|install)\b/i;
+  return directMutationCommandPattern.test(command);
+}
+
+function shellUsesMutatingGitCommand(command: string): boolean {
+  const gitMutationPattern = /(?:^|[;&|]\s*|\b(?:then|do)\s+)(?:sudo\s+)?git\s+(?:clean|reset|checkout|restore|switch|merge|rebase|apply|am)\b/i;
+  return gitMutationPattern.test(command);
+}
+
 export function detectUnsafeBashCommand(command: string): string | null {
   const secretPatterns = [
     /\b(?:env|printenv)\b/i,
@@ -1806,6 +1816,14 @@ export function detectUnsafeBashCommand(command: string): string | null {
   const mentionsManagedPath = /\/data\/(?:workspace|workspaces|agents)(?:\/|$)/.test(normalized) ||
     Boolean(executionContext?.workspaceRoot && normalized.includes(executionContext.workspaceRoot));
   const cdsIntoManagedPath = /\bcd\s+\/data\/(?:workspace|workspaces|agents)(?:\/|$|\s)/.test(normalized);
+
+  if (shellUsesDirectFileMutationCommand(normalized)) {
+    return 'Direct shell file mutations are blocked. Use write, edit_file, apply_patch, copy_path, move_path, or delete_path so workspace permissions, revisions, and audit logs are enforced.';
+  }
+
+  if (shellUsesMutatingGitCommand(normalized)) {
+    return 'Mutating git commands are blocked in bash. Use dedicated file tools or ask the user before changing repository state.';
+  }
 
   if (/\bsed\b(?=[^;&|]*\s-[A-Za-z]*i(?:\b|\.|['"]|$))/.test(normalized)) {
     return 'Unsafe in-place file edits with sed are blocked. Use edit_file or apply_patch instead.';
