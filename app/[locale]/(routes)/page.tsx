@@ -33,16 +33,16 @@ export default async function Home() {
         <div className="flex h-full min-h-0 flex-col">
           {!licenseStatus.licensed && <LicenseBanner status={licenseStatus} />}
           <header className="sticky top-0 z-20 shrink-0 border-b border-border bg-background/95 pt-[env(safe-area-inset-top)] backdrop-blur supports-[backdrop-filter]:bg-background/85">
-            <div className="mx-auto flex min-h-14 max-w-7xl flex-wrap items-center justify-between gap-3 px-4 py-2 md:px-6">
-              <div className="min-w-0 flex items-center gap-3">
-                <Image src="/logo.jpg" alt={tHome('header.logoAlt')} width={28} height={28} className="border border-border" />
+            <div className="mx-auto flex min-h-14 max-w-7xl flex-nowrap items-center justify-between gap-2 px-4 py-2 md:px-6">
+              <div className="flex min-w-0 flex-1 items-center gap-2 sm:gap-3">
+                <Image src="/logo.jpg" alt={tHome('header.logoAlt')} width={28} height={28} className="shrink-0 border border-border" />
                 <div className="min-w-0 flex flex-col">
-                  <span className="text-[10px] font-bold tracking-widest text-muted-foreground uppercase">{tHome('header.productName')}</span>
+                  <span className="hidden text-[10px] font-bold tracking-widest text-muted-foreground uppercase sm:block">{tHome('header.productName')}</span>
                   <span className="truncate text-sm font-semibold">{tHome('header.productLabel')}</span>
                 </div>
               </div>
 
-              <div className="ml-auto flex items-center gap-2 md:gap-3">
+              <div className="ml-auto flex shrink-0 items-center gap-1.5 md:gap-3">
                 <WorkspaceSwitcher source="home" variant="compact" />
                 <NotificationBell />
                 <AppLauncher />

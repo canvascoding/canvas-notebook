@@ -877,13 +877,19 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
 
           {/* Right side: help, theme, logout */}
           <div className="relative z-50 flex items-center gap-1.5 md:gap-4">
-            <WorkspaceSwitcher source="notebook" variant="compact" />
+            <WorkspaceSwitcher source="notebook" variant="compact" className="hidden md:inline-flex" />
             <NotificationBell />
             <AppLauncher />
             <ThemeToggle />
           </div>
         </div>
       </header>
+
+      {isMobileViewport ? (
+        <div className="z-30 shrink-0 border-b border-border bg-background/95 px-3 py-2 md:hidden">
+          <WorkspaceSwitcher source="notebook" variant="mobile-sheet" />
+        </div>
+      ) : null}
 
       {viewportMode === null ? (
         <main className="flex min-h-0 flex-1 overflow-hidden bg-background" />
