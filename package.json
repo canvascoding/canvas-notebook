@@ -23,6 +23,7 @@
     "test:pi:summary": "tsx scripts/pi-session-summary-test.ts",
     "test:pi:usage": "tsx scripts/pi-usage-test.ts",
     "test:pi:tools": "tsx scripts/pi-tool-registry-test.ts",
+    "test:pi:runtime-context": "tsx scripts/runtime-prompt-context-test.ts",
     "test:brave-search": "tsx scripts/brave-search-service-test.ts",
     "test:pi:session-search": "tsx scripts/pi-session-search-tool-test.ts",
     "test:pi:delegate-task": "tsx scripts/pi-delegate-task-tool-test.ts",

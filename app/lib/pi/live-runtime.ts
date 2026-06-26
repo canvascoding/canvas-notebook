@@ -49,6 +49,13 @@ import {
   type RuntimeContinuationDecision,
 } from '@/app/lib/pi/run-continuation-guard';
 import { and, eq } from 'drizzle-orm';
+import {
+  applyPiRuntimePromptContext,
+  type PiRuntimePromptContext,
+  type RuntimePromptContextTarget,
+} from '@/app/lib/pi/runtime-prompt-context';
+
+export type { PiRuntimePromptContext } from '@/app/lib/pi/runtime-prompt-context';
 
 const IDLE_TTL_MS = 15 * 60 * 1000;
 const CLEANUP_INTERVAL_MS = 60 * 1000;
@@ -130,48 +137,6 @@ export type RuntimeErrorEvent = {
 };
 
 export type PiRuntimeStreamEvent = AgentEvent | RuntimeStatusEvent | ContextCompactedEvent | RuntimeErrorEvent;
-export type PiRuntimePromptContext = {
-  channelId?: string;
-  activeFilePath?: string | null;
-  userTimeZone?: string;
-  currentTime?: string;
-  workspace?: {
-    workspaceId: string;
-    workspaceType: 'personal' | 'team' | 'project';
-    workspaceName: string;
-    organizationId?: string | null;
-    canWrite: boolean;
-    canShare: boolean;
-  };
-  planningMode?: boolean;
-  currentPage?: string;
-  studioContext?: {
-    generationId?: string;
-    currentOutputId?: string;
-    generationPrompt?: string | null;
-    generationPresetId?: string | null;
-    generationProductIds?: string[];
-    generationPersonaIds?: string[];
-    outputFilePath?: string | null;
-    outputMediaUrl?: string | null;
-    activeImagePath?: string | null;
-  };
-  emailContext?: {
-    accountEmail?: string;
-    accountId?: string;
-    filter?: 'all' | 'unread';
-    folder?: string;
-    folderName?: string;
-    query?: string;
-    selectedMessageDate?: string | null;
-    selectedMessageFolder?: string;
-    selectedMessageFrom?: string | null;
-    selectedMessageId?: string;
-    selectedMessageIsRead?: boolean | null;
-    selectedMessageSubject?: string | null;
-  };
-};
-
 type RuntimeSubscriber = (event: PiRuntimeStreamEvent) => void;
 
 type RuntimeQueueEntry = {
@@ -351,36 +316,10 @@ function getRuntimeStatusSignature(status: PiRuntimeStatus): string {
   });
 }
 
-type PiRuntimePromptDispatchTarget = {
-  setChannelContext: (channelId: string | undefined) => void;
-  setTimeZoneContext: (timeZone: string, currentTime: string) => void;
-  setActiveFileContext: (path: string | null) => void;
-  setPlanningMode: (enabled: boolean) => void;
-  setPageContext: (page: string | undefined) => void;
-  setStudioContext: (context: PiRuntimePromptContext['studioContext']) => void;
-  setEmailContext: (context: PiRuntimePromptContext['emailContext']) => void;
-  setWorkspaceContext: (context: PiRuntimePromptContext['workspace']) => void;
+type PiRuntimePromptDispatchTarget = RuntimePromptContextTarget & {
   reloadTools: () => Promise<void>;
   startPrompt: (message: Extract<AgentMessage, { role: 'user' }>) => void;
 };
-
-function applyPiRuntimePromptContext(
-  runtime: PiRuntimePromptDispatchTarget,
-  context?: PiRuntimePromptContext,
-) {
-  runtime.setChannelContext(context?.channelId);
-
-  if (context?.userTimeZone && context.currentTime) {
-    runtime.setTimeZoneContext(context.userTimeZone, context.currentTime);
-  }
-
-  runtime.setActiveFileContext(context?.activeFilePath ?? null);
-  runtime.setPlanningMode(context?.planningMode ?? false);
-  runtime.setPageContext(context?.currentPage);
-  runtime.setStudioContext(context?.studioContext);
-  runtime.setEmailContext(context?.emailContext);
-  runtime.setWorkspaceContext(context?.workspace);
-}
 
 class LivePiRuntime {
   readonly sessionId: string;
