@@ -71,6 +71,7 @@
     "test:email:mime": "tsx scripts/email-mime-header-test.ts",
     "test:email:attachments": "tsx scripts/email-attachments-test.ts",
     "test:email:accounts": "tsx scripts/email-accounts-service-test.ts",
+    "test:email:chat-context": "tsx scripts/email-chat-context-test.ts",
     "test:composio:user-scope": "tsx scripts/composio-user-scope-test.ts",
     "test:auth:setup": "tsx --conditions react-server scripts/auth-setup-test.ts",
     "test:organization:permissions": "tsx --conditions react-server scripts/organization-permission-guards-test.ts",

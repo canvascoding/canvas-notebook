@@ -39,6 +39,7 @@ import { useLocale, useTranslations } from 'next-intl';
 
 import { EmailAttachmentPanel } from '@/app/apps/email/components/EmailAttachmentPanel';
 import { useSetEmailChatContext } from '@/app/apps/email/context/email-chat-context';
+import { buildEmailPageChatContext } from '@/app/apps/email/context/email-route-chat-context';
 import {
   ComposerReferencePicker,
   type ComposerReferencePickerItem,
@@ -1930,35 +1931,21 @@ export function EmailClient() {
   useEffect(() => () => stopMessageSummaryStream(), [stopMessageSummaryStream]);
 
   useEffect(() => {
-    setEmailChatContext({
-      currentPage: '/emails',
-      emailContext: {
-        accountEmail: activeAccount?.emailAddress,
-        accountId: activeAccount?.id,
-        filter: messageFilter,
-        folder: activeFolder,
-        folderName: activeFolderName,
-        query: submittedQuery || undefined,
-        selectedMessageDate: selectedMessage?.date || null,
-        selectedMessageFolder: selectedMessage?.folder || activeFolder,
-        selectedMessageFrom: selectedMessage?.from || null,
-        selectedMessageId: selectedMessage?.id || selectedMessageId || undefined,
-        selectedMessageIsRead: selectedMessage?.isRead ?? null,
-        selectedMessageSubject: selectedMessage?.subject || null,
-      },
-    });
+    setEmailChatContext(buildEmailPageChatContext({
+      account: activeAccount,
+      activeFolder,
+      activeFolderName,
+      filter: messageFilter,
+      selectedMessage,
+      selectedMessageId,
+      submittedQuery,
+    }));
   }, [
-    activeAccount?.emailAddress,
-    activeAccount?.id,
+    activeAccount,
     activeFolder,
     activeFolderName,
     messageFilter,
-    selectedMessage?.date,
-    selectedMessage?.folder,
-    selectedMessage?.from,
-    selectedMessage?.id,
-    selectedMessage?.isRead,
-    selectedMessage?.subject,
+    selectedMessage,
     selectedMessageId,
     setEmailChatContext,
     submittedQuery,
