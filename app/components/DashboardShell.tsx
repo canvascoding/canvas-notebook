@@ -45,6 +45,8 @@ import { NotificationBell } from '@/app/components/notifications/NotificationBel
 import { WorkspaceSwitcher } from '@/app/components/workspaces/WorkspaceSwitcher';
 
 import { useFileStore } from '@/app/store/file-store';
+import { useEditorStore } from '@/app/store/editor-store';
+import { WORKSPACE_CHANGED_EVENT } from '@/app/store/workspace-store';
 import { FileWatcherProvider } from '@/app/hooks/FileWatcherContext';
 import { CANVAS_CHAT_INITIAL_PROMPT_STORAGE_KEY } from '@/app/lib/chat/constants';
 import { WORKSPACE_FILE_OPENED_EVENT } from '@/app/lib/files/workspace-file-events';
@@ -405,6 +407,21 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
 
     return unsubscribe;
   }, []);
+
+  useEffect(() => {
+    const handleWorkspaceChange = () => {
+      openedPathRef.current = normalizeNotebookFilePath(searchParams.get('path'));
+      previousCurrentFilePathRef.current = null;
+      suppressNextMobileFileOpenCloseRef.current = 0;
+      clearStoredNotebookOpenFilePath();
+      useFileStore.getState().clearCurrentFile();
+      useEditorStore.getState().clear();
+      setMobileSurface('editor');
+    };
+
+    window.addEventListener(WORKSPACE_CHANGED_EVENT, handleWorkspaceChange);
+    return () => window.removeEventListener(WORKSPACE_CHANGED_EVENT, handleWorkspaceChange);
+  }, [searchParams]);
 
   const applySidebarPanelWidth = useCallback((nextWidth: number) => {
     sidebarWidthRef.current = nextWidth;
