@@ -47,6 +47,7 @@ type UseChatSessionMessagesParams = {
   activeModel: string;
   activeProvider: string;
   activeThinkingLevel: PiThinkingLevel | null;
+  activeWorkspaceId?: string | null;
   agentConfig: AgentConfig | null;
   deferredSavedMessageRefreshSessionRef: MutableRefObject<string | null>;
   ensureSessionSubscribed: (targetSessionId: string) => Promise<void>;
@@ -107,6 +108,7 @@ export function useChatSessionMessages({
   activeModel,
   activeProvider,
   activeThinkingLevel,
+  activeWorkspaceId,
   agentConfig,
   deferredSavedMessageRefreshSessionRef,
   ensureSessionSubscribed,
@@ -202,6 +204,7 @@ export function useChatSessionMessages({
       lastMessageAt: historySession?.lastMessageAt ?? new Date().toISOString(),
       lastViewedAt: historySession?.lastViewedAt ?? null,
       hasUnread: false,
+      workspace: historySession?.workspace ?? null,
       creator: historySession?.creator,
     };
 
@@ -254,6 +257,7 @@ export function useChatSessionMessages({
           agentId: requestAgentId,
           sessionId: targetSessionId,
           limit: 50,
+          workspaceId: activeWorkspaceId,
           cache: 'no-store',
           credentials: 'include',
         });
@@ -282,7 +286,7 @@ export function useChatSessionMessages({
         console.error('Failed to refresh messages after saved chat response', error);
       }
     })();
-  }, [hydrateRuntimeMessageRefs, isAtBottomRef, mapRawMessages, messagesRef, scrollToBottom, selectedAgentId, sessionAgentIdRef, sessionIdRef, setHasMoreBefore, setMessages, setOldestMessageId, setOldestSequence, setOldestTimestamp]);
+  }, [activeWorkspaceId, hydrateRuntimeMessageRefs, isAtBottomRef, mapRawMessages, messagesRef, scrollToBottom, selectedAgentId, sessionAgentIdRef, sessionIdRef, setHasMoreBefore, setMessages, setOldestMessageId, setOldestSequence, setOldestTimestamp]);
 
   useEffect(() => {
     refreshSavedMessagesRef.current = refreshSavedMessages;
@@ -389,6 +393,7 @@ export function useChatSessionMessages({
         agentId: sessionAgentId,
         sessionId: session.sessionId,
         limit: 50,
+        workspaceId: activeWorkspaceId,
         signal: abortController.signal,
       });
 
@@ -482,7 +487,7 @@ export function useChatSessionMessages({
         loadSessionAbortRef.current = null;
       }
     }
-  }, [agentConfig, ensureSessionSubscribed, hydrateRuntimeMessageRefs, isMobile, mapRawMessages, resetRuntimeMessageRefs, resetStreamConnection, resolveSessionTitle, scrollToBottom, sessionAgentIdRef, sessionIdRef, setActiveModel, setActiveProvider, setActiveThinkingLevel, setExpandedRunKeys, setHasMoreBefore, setHasUnreadInCurrentSession, setHistory, setInput, setIsLoadingOlder, setLastCompactionMarker, setMessages, setOldestMessageId, setOldestSequence, setOldestTimestamp, setRuntimeStatus, setRuntimeStatusWithReconciliation, setSelectedAgentId, setSessionId, setSessionTitle, setShowHistory, setShowMobileDetails, setShowUnreadBanner, setTotalUnreadCount, shouldShowHistoryAsOverlay, t, userStartedNewChatRef, wsRequest]);
+  }, [activeWorkspaceId, agentConfig, ensureSessionSubscribed, hydrateRuntimeMessageRefs, isMobile, mapRawMessages, resetRuntimeMessageRefs, resetStreamConnection, resolveSessionTitle, scrollToBottom, sessionAgentIdRef, sessionIdRef, setActiveModel, setActiveProvider, setActiveThinkingLevel, setExpandedRunKeys, setHasMoreBefore, setHasUnreadInCurrentSession, setHistory, setInput, setIsLoadingOlder, setLastCompactionMarker, setMessages, setOldestMessageId, setOldestSequence, setOldestTimestamp, setRuntimeStatus, setRuntimeStatusWithReconciliation, setSelectedAgentId, setSessionId, setSessionTitle, setShowHistory, setShowMobileDetails, setShowUnreadBanner, setTotalUnreadCount, shouldShowHistoryAsOverlay, t, userStartedNewChatRef, wsRequest]);
 
   const loadOlderMessages = useCallback(async () => {
     const currentSessionId = sessionIdRef.current;
@@ -499,6 +504,7 @@ export function useChatSessionMessages({
         agentId,
         sessionId: currentSessionId,
         limit: 50,
+        workspaceId: activeWorkspaceId,
         beforeSequence: oldestSequence,
         before: oldestSequence === null ? oldestTimestamp : null,
         beforeId: oldestMessageId,
@@ -536,7 +542,7 @@ export function useChatSessionMessages({
     } finally {
       setIsLoadingOlder(false);
     }
-  }, [hasMoreBefore, isLoadingOlder, mapRawMessages, oldestMessageId, oldestSequence, oldestTimestamp, scrollContainerRef, selectedAgentId, sessionAgentIdRef, sessionIdRef, setHasMoreBefore, setIsLoadingOlder, setMessages, setOldestMessageId, setOldestSequence, setOldestTimestamp]);
+  }, [activeWorkspaceId, hasMoreBefore, isLoadingOlder, mapRawMessages, oldestMessageId, oldestSequence, oldestTimestamp, scrollContainerRef, selectedAgentId, sessionAgentIdRef, sessionIdRef, setHasMoreBefore, setIsLoadingOlder, setMessages, setOldestMessageId, setOldestSequence, setOldestTimestamp]);
 
   return {
     loadOlderMessages,

@@ -8,7 +8,6 @@ import {
 } from 'react';
 import { useTranslations } from 'next-intl';
 import { deriveUploadAttachmentPreview } from '@/app/lib/chat/attachment-preview';
-import { CANVAS_CHAT_ACTIVE_SESSION_STORAGE_KEY } from '@/app/lib/chat/constants';
 import { saveLastActiveAgentId } from '@/app/lib/chat/agent-preferences';
 import { isRecord } from '@/app/lib/chat/message-content';
 import { readLatestCachedChatSession } from '@/app/lib/chat/session-cache';
@@ -39,6 +38,8 @@ type UseChatSessionBootstrapParams = {
     action: 'send' | 'steer' | 'follow_up' | 'replace',
     override?: { text: string; attachments: Attachment[] },
   ) => Promise<void>;
+  activeSessionStorageKey: string;
+  activeWorkspaceId?: string | null;
   hasLoadedSessionListRef: MutableRefObject<boolean>;
   historyLength: number;
   initialPrompt?: string | null;
@@ -131,6 +132,13 @@ function parseInitialPromptPayload(storedData: string): InitialPromptPayload | n
   }
 }
 
+function sessionMatchesActiveWorkspace(session: AISession, activeWorkspaceId?: string | null): boolean {
+  if (!activeWorkspaceId) {
+    return true;
+  }
+  return session.workspace?.workspaceId === activeWorkspaceId;
+}
+
 export function useChatSessionBootstrap({
   addSessionToHistory,
   agentConfig,
@@ -139,6 +147,8 @@ export function useChatSessionBootstrap({
   fetchHistory,
   forcedSessionId,
   handleControlAction,
+  activeSessionStorageKey,
+  activeWorkspaceId,
   hasLoadedSessionListRef,
   historyLength,
   initialPrompt,
@@ -236,7 +246,7 @@ export function useChatSessionBootstrap({
     const loadRequestedSession = async () => {
       try {
         const cachedEntry = readLatestCachedChatSession(resolvedRequestedSessionId);
-        if (cachedEntry) {
+        if (cachedEntry && sessionMatchesActiveWorkspace(cachedEntry.session, activeWorkspaceId)) {
           addSessionToHistory(cachedEntry.session);
           await loadSession(cachedEntry.session);
           if (!forcedSessionId) {
@@ -273,7 +283,7 @@ export function useChatSessionBootstrap({
     };
 
     void loadRequestedSession();
-  }, [addSessionToHistory, clearSessionParamFromUrl, forcedSessionId, initialPrompt, initialPromptStorageKey, loadSession, loadSessionList, requestedSessionCleanupRef, resolvedRequestedSessionId, setHistoryAndLatest, setIsResolvingInitialChatState, userStartedNewChatRef]);
+  }, [activeWorkspaceId, addSessionToHistory, clearSessionParamFromUrl, forcedSessionId, initialPrompt, initialPromptStorageKey, loadSession, loadSessionList, requestedSessionCleanupRef, resolvedRequestedSessionId, setHistoryAndLatest, setIsResolvingInitialChatState, userStartedNewChatRef]);
 
   useEffect(() => {
     if (initialPrompt?.trim()) return;
@@ -286,7 +296,7 @@ export function useChatSessionBootstrap({
     if (sessionId) return;
 
     const storedSessionId = typeof window !== 'undefined'
-      ? window.sessionStorage.getItem(CANVAS_CHAT_ACTIVE_SESSION_STORAGE_KEY)
+      ? window.sessionStorage.getItem(activeSessionStorageKey)
       : null;
     if (!storedSessionId) {
       setIsResolvingInitialChatState(false);
@@ -297,7 +307,7 @@ export function useChatSessionBootstrap({
     const restoreSession = async () => {
       try {
         const cachedEntry = readLatestCachedChatSession(storedSessionId);
-        if (cachedEntry) {
+        if (cachedEntry && sessionMatchesActiveWorkspace(cachedEntry.session, activeWorkspaceId)) {
           addSessionToHistory(cachedEntry.session);
           await loadSession(cachedEntry.session);
           void loadSessionList()
@@ -327,8 +337,22 @@ export function useChatSessionBootstrap({
     };
 
     void restoreSession();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [
+    activeSessionStorageKey,
+    activeWorkspaceId,
+    addSessionToHistory,
+    initialPrompt,
+    initialPromptConsumedRef,
+    initialPromptStorageKey,
+    loadSession,
+    loadSessionList,
+    resolvedRequestedSessionId,
+    sessionId,
+    sessionIdRef,
+    setHistoryAndLatest,
+    setIsResolvingInitialChatState,
+    userStartedNewChatRef,
+  ]);
 
   useEffect(() => {
     if (requestedSessionCleanupRef.current && !resolvedRequestedSessionId) {

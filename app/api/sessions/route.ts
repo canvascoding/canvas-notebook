@@ -5,7 +5,7 @@ import { legacyAiTablesExist } from '@/app/lib/db/legacy-ai-tables';
 import { aiSessions, aiMessages, user, piSessions, sessionChannelLinks } from '@/app/lib/db/schema';
 import { auth } from '@/app/lib/auth';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
-import { and, desc, eq, inArray, lt, or, isNull, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, lt, or, isNull, sql, type SQL } from 'drizzle-orm';
 import { type AgentId, isAgentId } from '@/app/lib/agents/catalog';
 import { enforceAiSessionRetention } from '@/app/lib/agents/session-retention';
 import { readAgentRuntimeConfig, providerIdToAgentId, readPiRuntimeConfig, writePiRuntimeConfig } from '@/app/lib/agents/storage';
@@ -44,6 +44,7 @@ type CreateSessionPayload = {
 type RenameSessionPayload = {
   sessionId?: string;
   agentId?: string;
+  workspaceId?: string;
   title?: string;
   markAsRead?: boolean;
   markAsUnread?: boolean;
@@ -96,6 +97,13 @@ function normalizeSessionAgentId(value: unknown): string {
 
 function resolveCreateSessionWorkspaceId(payload: CreateSessionPayload): string | null {
   return normalizeOptionalString(payload.workspaceId) ?? normalizeOptionalString(payload.workspace?.workspaceId);
+}
+
+function buildPiSessionWorkspaceCondition(workspace: Awaited<ReturnType<typeof resolveAgentSessionWorkspaceForUser>>): SQL {
+  if (workspace.workspaceType === 'personal') {
+    return or(eq(piSessions.workspaceId, workspace.workspaceId), isNull(piSessions.workspaceId))!;
+  }
+  return eq(piSessions.workspaceId, workspace.workspaceId);
 }
 
 function normalizeThinkingLevel(value: unknown): PiThinkingLevel | null {
@@ -177,6 +185,7 @@ export async function GET(request: NextRequest) {
   const countOnly = searchParams.get('countOnly') === 'true';
   const olderThanDays = searchParams.get('olderThanDays');
   const rawAgentIdFilter = searchParams.get('agentId');
+  const workspaceIdFilter = normalizeOptionalString(searchParams.get('workspaceId'));
   const includeAllAgentSessions = rawAgentIdFilter === 'all';
   let agentIdFilter: string | null;
 
@@ -189,22 +198,40 @@ export async function GET(request: NextRequest) {
   try {
     const legacyTablesAvailable = await legacyAiTablesExist();
     const cutoff = olderThanDays ? new Date(Date.now() - parseInt(olderThanDays, 10) * 24 * 60 * 60 * 1000) : null;
+    let scopedWorkspace: Awaited<ReturnType<typeof resolveAgentSessionWorkspaceForUser>> | null = null;
+    if (workspaceIdFilter) {
+      try {
+        scopedWorkspace = await resolveAgentSessionWorkspaceForUser({
+          userId: session.user.id,
+          workspaceId: workspaceIdFilter,
+          permissions: ['canRead', 'canRunAgent'],
+        });
+      } catch {
+        return NextResponse.json({ success: false, error: 'Workspace not found or inaccessible' }, { status: 403 });
+      }
+    }
+    const piWorkspaceCondition = scopedWorkspace ? buildPiSessionWorkspaceCondition(scopedWorkspace) : null;
 
     if (countOnly && cutoff) {
       const piCutoffCondition = cutoff
         ? or(lt(piSessions.lastMessageAt, cutoff), and(isNull(piSessions.lastMessageAt), lt(piSessions.createdAt, cutoff)))
         : undefined;
+      const piCountConditions: SQL[] = [eq(piSessions.userId, session.user.id), piCutoffCondition!];
+      if (!includeAllAgentSessions) {
+        piCountConditions.push(eq(piSessions.agentId, agentIdFilter!));
+      }
+      if (piWorkspaceCondition) {
+        piCountConditions.push(piWorkspaceCondition);
+      }
 
       const piOlderCount = await db
         .select({ count: sql<number>`count(*)` })
         .from(piSessions)
-        .where(
-          includeAllAgentSessions
-            ? and(eq(piSessions.userId, session.user.id), piCutoffCondition!)
-            : and(eq(piSessions.userId, session.user.id), eq(piSessions.agentId, agentIdFilter!), piCutoffCondition!)
-        );
+        .where(and(...piCountConditions));
 
-      const includeLegacyCount = legacyTablesAvailable && (includeAllAgentSessions || agentIdFilter === DEFAULT_AGENT_ID);
+      const includeLegacyCount = legacyTablesAvailable &&
+        (includeAllAgentSessions || agentIdFilter === DEFAULT_AGENT_ID) &&
+        (!scopedWorkspace || scopedWorkspace.workspaceType === 'personal');
       const legacyCutoffCondition = includeLegacyCount && cutoff
         ? and(eq(aiSessions.userId, session.user.id), lt(aiSessions.createdAt, cutoff))
         : undefined;
@@ -222,9 +249,11 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    const whereClause = legacyModelFilter
-      ? and(eq(aiSessions.model, legacyModelFilter), eq(aiSessions.userId, session.user.id))
-      : eq(aiSessions.userId, session.user.id);
+    const legacyConditions: SQL[] = [eq(aiSessions.userId, session.user.id)];
+    if (legacyModelFilter) {
+      legacyConditions.push(eq(aiSessions.model, legacyModelFilter));
+    }
+    const whereClause = and(...legacyConditions);
     const normalizedChannelFilter = channelIdFilter ? normalizeStoredChannelId(channelIdFilter) : null;
     const filteredPiSessionIds = normalizedChannelFilter
       ? await db
@@ -236,10 +265,18 @@ export async function GET(request: NextRequest) {
           ))
       : null;
     const filteredPiSessionIdValues = filteredPiSessionIds?.map((row) => row.sessionId) ?? null;
-    const includeLegacySessions = legacyTablesAvailable && (includeAllAgentSessions || agentIdFilter === DEFAULT_AGENT_ID) && (!normalizedChannelFilter || normalizedChannelFilter === WEB_CHANNEL_ID);
-    const piBaseWhere = includeAllAgentSessions
-      ? eq(piSessions.userId, session.user.id)
-      : and(eq(piSessions.userId, session.user.id), eq(piSessions.agentId, agentIdFilter!));
+    const includeLegacySessions = legacyTablesAvailable &&
+      (includeAllAgentSessions || agentIdFilter === DEFAULT_AGENT_ID) &&
+      (!normalizedChannelFilter || normalizedChannelFilter === WEB_CHANNEL_ID) &&
+      (!scopedWorkspace || scopedWorkspace.workspaceType === 'personal');
+    const piBaseConditions: SQL[] = [eq(piSessions.userId, session.user.id)];
+    if (!includeAllAgentSessions) {
+      piBaseConditions.push(eq(piSessions.agentId, agentIdFilter!));
+    }
+    if (piWorkspaceCondition) {
+      piBaseConditions.push(piWorkspaceCondition);
+    }
+    const piBaseWhere = and(...piBaseConditions);
 
     const [legacySessions, newPiSessions] = await Promise.all([
       includeLegacySessions ? db
@@ -528,6 +565,7 @@ export async function PATCH(request: NextRequest) {
     const markAsRead = typeof payload.markAsRead === 'boolean' ? payload.markAsRead : false;
     const markAsUnread = typeof payload.markAsUnread === 'boolean' ? payload.markAsUnread : false;
     const markAllAsRead = typeof payload.markAllAsRead === 'boolean' ? payload.markAllAsRead : false;
+    const workspaceIdFilter = normalizeOptionalString(payload.workspaceId);
     const requestedModel = normalizeOptionalString(payload.model);
     const requestedThinkingLevel = normalizeThinkingLevel(payload.thinkingLevel);
     let requestedAgentId: string;
@@ -545,10 +583,26 @@ export async function PATCH(request: NextRequest) {
     // Handle mark all as read
     if (markAllAsRead && !sessionId) {
       const now = new Date();
+      let scopedWorkspace: Awaited<ReturnType<typeof resolveAgentSessionWorkspaceForUser>> | null = null;
+      if (workspaceIdFilter) {
+        try {
+          scopedWorkspace = await resolveAgentSessionWorkspaceForUser({
+            userId: session.user.id,
+            workspaceId: workspaceIdFilter,
+            permissions: ['canRead', 'canRunAgent'],
+          });
+        } catch {
+          return NextResponse.json({ success: false, error: 'Workspace not found or inaccessible' }, { status: 403 });
+        }
+      }
+      const conditions: SQL[] = [eq(piSessions.userId, session.user.id), eq(piSessions.agentId, requestedAgentId)];
+      if (scopedWorkspace) {
+        conditions.push(buildPiSessionWorkspaceCondition(scopedWorkspace));
+      }
       await db
         .update(piSessions)
         .set({ lastViewedAt: now, updatedAt: now })
-        .where(and(eq(piSessions.userId, session.user.id), eq(piSessions.agentId, requestedAgentId)));
+        .where(and(...conditions));
 
       return NextResponse.json({
         success: true,

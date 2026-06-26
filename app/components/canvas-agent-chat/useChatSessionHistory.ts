@@ -29,6 +29,7 @@ import type {
 type ChatTranslator = ReturnType<typeof useTranslations<'chat'>>;
 
 type UseChatSessionHistoryParams = {
+  activeWorkspaceId?: string | null;
   availableAgents: AgentProfile[];
   optimisticSessionTitlesRef: MutableRefObject<Record<string, string>>;
   requestSavedMessageRefreshRef: MutableRefObject<((sessionId: string) => void) | null>;
@@ -66,6 +67,7 @@ function getSessionTimeGroup(dateString: string): ChatHistoryGroup {
 }
 
 export function useChatSessionHistory({
+  activeWorkspaceId,
   availableAgents,
   optimisticSessionTitlesRef,
   requestSavedMessageRefreshRef,
@@ -92,6 +94,7 @@ export function useChatSessionHistory({
   const isHistoryResizing = useRef(false);
   const sessionListRequestRef = useRef<Promise<AISession[]> | null>(null);
   const hasLoadedSessionListRef = useRef(false);
+  const activeWorkspaceIdRef = useRef(activeWorkspaceId ?? null);
 
   useEffect(() => {
     historyRef.current = history;
@@ -134,7 +137,7 @@ export function useChatSessionHistory({
     }
 
     const request = (async () => {
-      const sessions = applyResolvedTitles(await fetchChatSessions('all'));
+      const sessions = applyResolvedTitles(await fetchChatSessions('all', { workspaceId: activeWorkspaceId }));
       hasLoadedSessionListRef.current = true;
       return sessions;
     })();
@@ -148,7 +151,7 @@ export function useChatSessionHistory({
         sessionListRequestRef.current = null;
       }
     }
-  }, [applyResolvedTitles]);
+  }, [activeWorkspaceId, applyResolvedTitles]);
 
   const setHistoryAndLatest = useCallback((sessions: AISession[]) => {
     setHistory(sessions);
@@ -172,6 +175,15 @@ export function useChatSessionHistory({
     setLatestSession(null);
     setTotalUnreadCount(0);
   }, []);
+
+  useEffect(() => {
+    const normalizedWorkspaceId = activeWorkspaceId ?? null;
+    if (activeWorkspaceIdRef.current === normalizedWorkspaceId) {
+      return;
+    }
+    activeWorkspaceIdRef.current = normalizedWorkspaceId;
+    resetHistoryState();
+  }, [activeWorkspaceId, resetHistoryState]);
 
   const fetchHistory = useCallback(async () => {
     setIsLoadingHistory(true);
@@ -234,7 +246,7 @@ export function useChatSessionHistory({
 
   const markAllAsRead = useCallback(async () => {
     try {
-      const data = await patchChatSessions({ agentId: selectedAgentId, markAllAsRead: true });
+      const data = await patchChatSessions({ agentId: selectedAgentId, markAllAsRead: true, workspaceId: activeWorkspaceId });
       if (data?.success) {
         const now = data.lastViewedAt;
         setHistory((prev) => prev.map((item) => (
@@ -245,7 +257,7 @@ export function useChatSessionHistory({
     } catch (err) {
       console.error('Failed to mark all as read', err);
     }
-  }, [selectedAgentId]);
+  }, [activeWorkspaceId, selectedAgentId]);
 
   useEffect(() => {
     const handleSessionUpdated = (event: CustomEvent<{ sessionId: string; lastMessageAt: string; title?: string }>) => {

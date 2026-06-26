@@ -56,6 +56,9 @@ function normalizeCachedSessionEntry(value: unknown): CachedChatSession | null {
     return null;
   }
 
+  const workspaceValue = isRecord(sessionValue.workspace) ? sessionValue.workspace : null;
+  const workspaceType = workspaceValue?.workspaceType;
+
   const session: AISession = {
     id: typeof sessionValue.id === 'number' ? sessionValue.id : cachedAt,
     sessionId,
@@ -71,6 +74,16 @@ function normalizeCachedSessionEntry(value: unknown): CachedChatSession | null {
     runtimePhase: normalizeSessionRuntimePhase(sessionValue.runtimePhase),
     runtimeActiveToolName: typeof sessionValue.runtimeActiveToolName === 'string' ? sessionValue.runtimeActiveToolName : null,
     hasUnread: typeof sessionValue.hasUnread === 'boolean' ? sessionValue.hasUnread : false,
+    workspace: workspaceValue && typeof workspaceValue.workspaceId === 'string'
+      ? {
+          workspaceId: workspaceValue.workspaceId,
+          workspaceType: workspaceType === 'team' || workspaceType === 'project' ? workspaceType : 'personal',
+          workspaceName: typeof workspaceValue.workspaceName === 'string' ? workspaceValue.workspaceName : 'Workspace',
+          organizationId: typeof workspaceValue.organizationId === 'string' ? workspaceValue.organizationId : null,
+          rootRelativePath: typeof workspaceValue.rootRelativePath === 'string' ? workspaceValue.rootRelativePath : null,
+          legacy: Boolean(workspaceValue.legacy),
+        }
+      : null,
     creator: isRecord(sessionValue.creator)
       ? {
           name: typeof sessionValue.creator.name === 'string' ? sessionValue.creator.name : null,
