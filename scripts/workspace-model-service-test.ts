@@ -24,6 +24,14 @@ async function main() {
   process.env.CANVAS_DATABASE_PROVIDER = 'postgres';
 
   await fs.mkdir(dataRoot, { recursive: true });
+  const legacyRoot = path.join(dataRoot, 'workspace');
+  const plannedOwnerPersonalRoot = path.join(dataRoot, 'workspaces', 'personal', 'user-owner', 'files');
+  await fs.mkdir(path.join(legacyRoot, 'docs'), { recursive: true });
+  await fs.mkdir(plannedOwnerPersonalRoot, { recursive: true });
+  await fs.writeFile(path.join(legacyRoot, 'legacy.md'), '# Legacy\n');
+  await fs.writeFile(path.join(legacyRoot, 'conflict.md'), '# Legacy conflict\n');
+  await fs.writeFile(path.join(legacyRoot, 'docs', 'nested.md'), '# Nested legacy\n');
+  await fs.writeFile(path.join(plannedOwnerPersonalRoot, 'conflict.md'), '# Existing personal file\n');
   const sqlite = new Database(path.join(dataRoot, 'sqlite.db'));
   try {
     runMigrations(sqlite);
@@ -71,6 +79,54 @@ async function main() {
     );
     await fs.access(ownerWorkspaces[0].rootPath);
     await fs.access(ownerWorkspaces[1].rootPath);
+    assert.equal(
+      await fs.readFile(path.join(ownerWorkspaces[0].rootPath, 'legacy.md'), 'utf8'),
+      '# Legacy\n'
+    );
+    assert.equal(
+      await fs.readFile(path.join(ownerWorkspaces[0].rootPath, 'docs', 'nested.md'), 'utf8'),
+      '# Nested legacy\n'
+    );
+    assert.equal(
+      await fs.readFile(path.join(ownerWorkspaces[0].rootPath, 'conflict.md'), 'utf8'),
+      '# Existing personal file\n'
+    );
+    assert.equal(
+      await fs.readFile(path.join(legacyRoot, 'legacy.md'), 'utf8'),
+      '# Legacy\n'
+    );
+
+    const legacyImportRoot = path.join(ownerWorkspaces[0].rootPath, '_legacy-workspace-import');
+    const legacyImportDirs = await fs.readdir(legacyImportRoot);
+    assert.equal(legacyImportDirs.length, 1);
+    assert.equal(
+      await fs.readFile(path.join(legacyImportRoot, legacyImportDirs[0], 'conflict.md'), 'utf8'),
+      '# Legacy conflict\n'
+    );
+
+    const markerDir = path.join(dataRoot, 'system', 'migration', 'legacy-workspace-imports');
+    const markers = await fs.readdir(markerDir);
+    assert.equal(markers.length, 1);
+    const marker = JSON.parse(await fs.readFile(path.join(markerDir, markers[0]), 'utf8')) as {
+      operation?: string;
+      copiedEntries?: string[];
+      conflictedEntries?: string[];
+      conflictRootRelativePath?: string | null;
+    };
+    assert.equal(marker.operation, 'legacy-workspace-to-personal-workspace');
+    assert.deepEqual(marker.copiedEntries?.sort(), ['docs', 'legacy.md']);
+    assert.deepEqual(marker.conflictedEntries, ['conflict.md']);
+    assert.equal(marker.conflictRootRelativePath?.startsWith('_legacy-workspace-import/'), true);
+
+    await fs.writeFile(path.join(legacyRoot, 'after-marker.md'), '# After marker\n');
+    sqlite.exec('BEGIN IMMEDIATE');
+    ensureOrganizationBootstrapForUser(sqlite, 'user-owner');
+    sqlite.exec('COMMIT');
+    assert.deepEqual(await fs.readdir(legacyImportRoot), legacyImportDirs);
+    await assert.rejects(
+      () => fs.readFile(path.join(ownerWorkspaces[0].rootPath, 'after-marker.md'), 'utf8'),
+      (error: unknown) => Boolean(error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT')
+    );
 
     const defaultWorkspace = resolveDefaultWorkspaceContext(sqlite, { actor: ownerActor, organizationId });
     assert.equal(defaultWorkspace?.workspaceId, ownerWorkspaces[0].workspaceId);

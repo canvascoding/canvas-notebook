@@ -54,6 +54,10 @@ export interface VideoGenerationResultData {
   metadata: Record<string, unknown>;
 }
 
+interface GenerateVideoOptions {
+  userId?: string | null;
+}
+
 function sanitizePrompt(prompt: string): string {
   return prompt.replace(/\s+/g, ' ').trim();
 }
@@ -67,9 +71,9 @@ function promptToSlug(prompt: string): string {
   return slug || 'video';
 }
 
-async function loadImageBytes(filePath: string): Promise<{ imageBytes: string; mimeType: string }> {
+async function loadImageBytes(filePath: string, options: GenerateVideoOptions = {}): Promise<{ imageBytes: string; mimeType: string }> {
   try {
-    const file = await loadMediaReference(filePath, { allowedTypes: ['image'] });
+    const file = await loadMediaReference(filePath, { userId: options.userId ?? undefined, allowedTypes: ['image'] });
     return {
       imageBytes: file.imageBytes,
       mimeType: file.mimeType,
@@ -79,9 +83,9 @@ async function loadImageBytes(filePath: string): Promise<{ imageBytes: string; m
   }
 }
 
-async function loadVideoBytes(filePath: string): Promise<{ videoBytes: string; mimeType: string }> {
+async function loadVideoBytes(filePath: string, options: GenerateVideoOptions = {}): Promise<{ videoBytes: string; mimeType: string }> {
   try {
-    const file = await loadMediaReference(filePath, { allowedTypes: ['video'] });
+    const file = await loadMediaReference(filePath, { userId: options.userId ?? undefined, allowedTypes: ['video'] });
     return {
       videoBytes: file.videoBytes,
       mimeType: file.mimeType,
@@ -143,6 +147,7 @@ async function fetchOperationVideo(
 export async function generateVideo(
   body: GenerateVideoRequestBody,
   callerEmail = 'system',
+  options: GenerateVideoOptions = {},
 ): Promise<VideoGenerationResultData> {
   const apiKey = await getGeminiApiKeyFromIntegrations(body.storageScope);
   const useManagedFallback = !apiKey && isManagedMediaFallbackAvailable();
@@ -208,23 +213,23 @@ export async function generateVideo(
       if (!body.startFramePath) {
         throw new IntegrationServiceError('Start frame is required.', 400);
       }
-      references.push({ ...(await loadImageBytes(body.startFramePath)), role: 'start_frame' });
+      references.push({ ...(await loadImageBytes(body.startFramePath, options)), role: 'start_frame' });
       const endFramePath = body.isLooping ? null : body.endFramePath;
-      if (endFramePath) references.push({ ...(await loadImageBytes(endFramePath)), role: 'end_frame' });
+      if (endFramePath) references.push({ ...(await loadImageBytes(endFramePath, options)), role: 'end_frame' });
       for (const sourcePath of (body.referenceImagePaths || []).slice(0, VEO_MAX_REFERENCE_IMAGES)) {
-        references.push({ ...(await loadImageBytes(sourcePath)), role: 'reference' });
+        references.push({ ...(await loadImageBytes(sourcePath, options)), role: 'reference' });
       }
     }
     if (mode === 'references_to_video') {
       for (const sourcePath of (body.referenceImagePaths || []).slice(0, VEO_MAX_REFERENCE_IMAGES)) {
-        references.push({ ...(await loadImageBytes(sourcePath)), role: 'reference' });
+        references.push({ ...(await loadImageBytes(sourcePath, options)), role: 'reference' });
       }
     }
     if (mode === 'extend_video') {
       if (!body.inputVideoPath) {
         throw new IntegrationServiceError('Input video is required for extend mode.', 400);
       }
-      const video = await loadVideoBytes(body.inputVideoPath);
+      const video = await loadVideoBytes(body.inputVideoPath, options);
       references.push({
         imageBytes: video.videoBytes,
         mimeType: video.mimeType,
@@ -335,12 +340,12 @@ export async function generateVideo(
       throw new IntegrationServiceError('Start frame is required.', 400);
     }
 
-    const startFrame = await loadImageBytes(body.startFramePath);
+    const startFrame = await loadImageBytes(body.startFramePath, options);
     payload.image = startFrame;
 
     const endFramePath = body.isLooping ? body.startFramePath : body.endFramePath;
     if (endFramePath) {
-      const endFrame = await loadImageBytes(endFramePath);
+      const endFrame = await loadImageBytes(endFramePath, options);
       config.lastFrame = endFrame;
     }
 
@@ -348,7 +353,7 @@ export async function generateVideo(
     if (sourcePaths.length > 0 && caps.references) {
       const referenceImages: VideoGenerationReferenceImage[] = [];
       for (const sourcePath of sourcePaths) {
-        const image = await loadImageBytes(sourcePath);
+        const image = await loadImageBytes(sourcePath, options);
         referenceImages.push({
           image,
           referenceType: VideoGenerationReferenceType.ASSET,
@@ -369,7 +374,7 @@ export async function generateVideo(
 
     const referenceImages: VideoGenerationReferenceImage[] = [];
     for (const sourcePath of sourcePaths) {
-      const image = await loadImageBytes(sourcePath);
+      const image = await loadImageBytes(sourcePath, options);
       referenceImages.push({
         image,
         referenceType: VideoGenerationReferenceType.ASSET,
@@ -383,7 +388,7 @@ export async function generateVideo(
     if (!body.inputVideoPath) {
       throw new IntegrationServiceError('Input video is required for extend mode.', 400);
     }
-    payload.video = await loadVideoBytes(body.inputVideoPath);
+    payload.video = await loadVideoBytes(body.inputVideoPath, options);
   }
 
   let operation = (await ai.models.generateVideos(payload as never)) as GenerateVideosOperation;

@@ -7,6 +7,7 @@ import path from 'node:path';
 
 import { getBootstrapAdminEmail } from '@/app/lib/bootstrap-admin';
 import { runMigrations } from '@/app/lib/db/migrate';
+import { migrateLegacySecretsToUserScope } from '@/app/lib/integrations/legacy-secret-migration';
 import {
   type DatabaseProvider,
   getDatabaseProvider as resolveConfiguredDatabaseProvider,
@@ -32,6 +33,7 @@ import {
   resolveUserSettingsDir,
   resolveUserSkillsDir,
 } from '@/app/lib/runtime-data-paths';
+import { migrateLegacyWorkspaceToPersonalWorkspace } from '@/app/lib/workspaces/legacy-migration';
 import { ensureDefaultWorkspaceRecords } from '@/app/lib/workspaces/service';
 import { resolveWorkspaceDataRoot } from '@/app/lib/workspaces/context';
 
@@ -447,11 +449,25 @@ export function ensureOrganizationBootstrapForUser(
   }
 
   ensureScopedDirectories(organization.organization_id, ownerUser.id, teamFeaturesEnabled);
-  ensureDefaultWorkspaceRecords(sqlite, {
+  const ownerWorkspaceRecords = ensureDefaultWorkspaceRecords(sqlite, {
     organizationId: organization.organization_id,
     userId: ownerUser.id,
     teamFeaturesEnabled,
   });
+  try {
+    migrateLegacyWorkspaceToPersonalWorkspace({
+      organizationId: organization.organization_id,
+      userId: ownerUser.id,
+      personalWorkspace: ownerWorkspaceRecords.personal,
+    });
+  } catch (error) {
+    console.warn('[organization-bootstrap] Legacy workspace migration failed:', error);
+  }
+  try {
+    migrateLegacySecretsToUserScope(ownerUser.id);
+  } catch (error) {
+    console.warn('[organization-bootstrap] Legacy secret migration failed:', error);
+  }
   if (targetUser.id !== ownerUser.id) {
     ensureScopedDirectories(organization.organization_id, targetUser.id, teamFeaturesEnabled);
     ensureDefaultWorkspaceRecords(sqlite, {

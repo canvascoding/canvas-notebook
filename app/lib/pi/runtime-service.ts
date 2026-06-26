@@ -13,6 +13,7 @@ import {
   invalidatePiRuntime,
   type PiRuntimeStatus,
 } from '@/app/lib/pi/live-runtime';
+import { applyPiRuntimePromptContext } from '@/app/lib/pi/runtime-prompt-context';
 import { getStudioOutputsRoot } from '@/app/lib/integrations/studio-workspace';
 import { normalizeTimeZone } from '@/app/lib/time-zones';
 import { getUserPreferredTimeZone } from '@/app/lib/user-preferences';
@@ -216,20 +217,6 @@ async function injectStudioImage(
   return message;
 }
 
-function applyPromptContext(runtimeInstance: RuntimeInstance, context: ChatRequestContext): void {
-  runtimeInstance.setChannelContext(context.channelId);
-
-  if (context.userTimeZone && context.currentTime) {
-    runtimeInstance.setTimeZoneContext(context.userTimeZone, context.currentTime);
-  }
-
-  runtimeInstance.setActiveFileContext(context.activeFilePath ?? null);
-  runtimeInstance.setPlanningMode(context.planningMode === true);
-  runtimeInstance.setPageContext(context.currentPage);
-  runtimeInstance.setStudioContext(context.studioContext);
-  runtimeInstance.setWorkspaceContext(context.workspace);
-}
-
 export async function prepareRuntimePrompt(
   sessionId: string,
   userId: string,
@@ -249,7 +236,7 @@ export async function prepareRuntimePrompt(
     throw new RuntimeServiceError('Prompt message required when no run is active.', 400);
   }
 
-  applyPromptContext(runtimeInstance, context);
+  applyPiRuntimePromptContext(runtimeInstance, context);
   if (!status.canAbort) {
     await runtimeInstance.reloadTools();
   }

@@ -1061,6 +1061,7 @@ async function executeStudioGenerationProcessing(
           nsfwChecker: parsedMeta.videoNsfwChecker,
         },
         storageScope,
+        userId,
       );
     } else if (mode === 'sound') {
       outputs = await generateStudioSound(
@@ -1346,6 +1347,7 @@ async function generateStudioVideo(
     nsfwChecker?: boolean;
   },
   storageScope?: EnvStorageScope | null,
+  userId?: string | null,
 ): Promise<StudioGenerationOutput[]> {
   if (!prompt && !videoExtendSourcePath) {
     throw new StudioServiceError(
@@ -1380,6 +1382,7 @@ async function generateStudioVideo(
       referenceAudios,
       videoOptions,
       storageScope,
+      userId,
     );
   }
 
@@ -1425,7 +1428,7 @@ async function generateStudioVideo(
     requestBody.referenceImagePaths = tempPaths;
   }
 
-  const videoResult = await generateVideo(requestBody, 'studio-generation');
+  const videoResult = await generateVideo(requestBody, 'studio-generation', { userId });
 
   const outputId = randomUUID();
   const now = new Date();
@@ -1458,9 +1461,9 @@ async function generateStudioVideo(
   }];
 }
 
-async function loadSeedanceFrame(filePath: string): Promise<SeedanceReferenceMedia> {
+async function loadSeedanceFrame(filePath: string, userId?: string | null): Promise<SeedanceReferenceMedia> {
   try {
-    const file = await loadMediaReference(filePath, { allowedTypes: ['image'] });
+    const file = await loadMediaReference(filePath, { userId: userId ?? undefined, allowedTypes: ['image'] });
     return {
       imageBytes: file.imageBytes,
       mimeType: file.mimeType,
@@ -1504,11 +1507,12 @@ async function generateStudioSeedanceVideo(
     nsfwChecker?: boolean;
   },
   storageScope?: EnvStorageScope | null,
+  userId?: string | null,
 ): Promise<StudioGenerationOutput[]> {
   console.log(`[Studio Generation] Seedance video: refs=${referenceImages.length}, startFrame=${startFramePath ? 'yes' : 'no'}, endFrame=${endFramePath ? 'yes' : 'no'}, duration=${videoDuration || 6}s`);
-  const firstFrame = startFramePath ? await loadSeedanceFrame(startFramePath) : null;
+  const firstFrame = startFramePath ? await loadSeedanceFrame(startFramePath, userId) : null;
   const lastFramePath = isLooping ? startFramePath : endFramePath;
-  const lastFrame = lastFramePath ? await loadSeedanceFrame(lastFramePath) : null;
+  const lastFrame = lastFramePath ? await loadSeedanceFrame(lastFramePath, userId) : null;
   console.log(`[Studio Generation] Seedance frames loaded: first=${firstFrame ? `${firstFrame.mimeType} ${firstFrame.fileName}` : 'none'}, last=${lastFrame ? `${lastFrame.mimeType} ${lastFrame.fileName}` : 'none'}`);
 
   const hasFrameScenario = Boolean(firstFrame || lastFrame);

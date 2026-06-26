@@ -5,8 +5,22 @@ function encodePathSegments(filePath: string) {
     .join('/');
 }
 
-export function toWorkspaceMediaUrl(filePath: string) {
-  return `/api/media/${encodePathSegments(filePath.replace(/^\/+/, ''))}`;
+interface MediaUrlOptions {
+  workspaceId?: string | null;
+}
+
+interface PreviewUrlOptions extends MediaUrlOptions {
+  preset?: 'default' | 'mini';
+}
+
+function withWorkspaceId(url: string, options: MediaUrlOptions = {}) {
+  const workspaceId = options.workspaceId?.trim();
+  if (!workspaceId) return url;
+  return `${url}${url.includes('?') ? '&' : '?'}workspaceId=${encodeURIComponent(workspaceId)}`;
+}
+
+export function toWorkspaceMediaUrl(filePath: string, options: MediaUrlOptions = {}) {
+  return withWorkspaceId(`/api/media/${encodePathSegments(filePath.replace(/^\/+/, ''))}`, options);
 }
 
 export function toUploadMediaUrl(fileId: string) {
@@ -25,7 +39,7 @@ export function toUploadPreviewUrl(fileId: string, width: number, options: Previ
   return `/api/files/${encodeURIComponent(fileId)}/preview?${params.toString()}`;
 }
 
-export function toMediaUrl(filePath: string) {
+export function toMediaUrl(filePath: string, options: MediaUrlOptions = {}) {
   const encodedPath = encodePathSegments(filePath);
   
   if (filePath.startsWith('studio/')) {
@@ -51,7 +65,7 @@ export function toMediaUrl(filePath: string) {
   }
   
   // Use API route for media serving (works with Next.js standalone)
-  return `/api/media/${encodedPath}`;
+  return withWorkspaceId(`/api/media/${encodedPath}`, options);
 }
 
 export function toHtmlPreviewUrl(filePath: string) {
@@ -82,10 +96,6 @@ export function toHtmlPreviewUrl(filePath: string) {
   return `/api/media/preview/${encodedPath}`;
 }
 
-interface PreviewUrlOptions {
-  preset?: 'default' | 'mini';
-}
-
 export function toPreviewUrl(filePath: string, width: number, options: PreviewUrlOptions = {}) {
   const params = new URLSearchParams({
     path: filePath,
@@ -94,6 +104,10 @@ export function toPreviewUrl(filePath: string, width: number, options: PreviewUr
 
   if (options.preset && options.preset !== 'default') {
     params.set('preset', options.preset);
+  }
+
+  if (options.workspaceId?.trim()) {
+    params.set('workspaceId', options.workspaceId.trim());
   }
 
   // Use relative URLs so they work in both dev and production

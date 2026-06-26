@@ -1,6 +1,15 @@
 const path = require('node:path');
 const { randomUUID } = require('node:crypto');
-const { mkdirSync } = require('node:fs');
+const {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  renameSync,
+  statSync,
+  writeFileSync,
+} = require('node:fs');
 const Database = require('better-sqlite3');
 const { hashPassword } = require('better-auth/crypto');
 const { loadAppEnv } = require('../server/load-app-env.js');
@@ -444,6 +453,271 @@ function ensureWorkspaceDirectory(rootRelativePath) {
   mkdirSync(workspaceAbsoluteRoot(rootRelativePath), { recursive: true });
 }
 
+function normalizeDataScopeId(id, label) {
+  const normalized = String(id || '').trim();
+  if (!normalized || normalized === '.' || normalized === '..' || normalized.includes('/') || normalized.includes('\\') || normalized.includes('\0')) {
+    throw new Error(`Invalid ${label}.`);
+  }
+  return normalized;
+}
+
+function legacyWorkspaceMigrationMarkerPath(organizationId, userId) {
+  const fileName = `${normalizeDataScopeId(organizationId, 'organizationId')}--${normalizeDataScopeId(userId, 'userId')}.json`;
+  return path.join(getDataRoot(), 'system', 'migration', 'legacy-workspace-imports', fileName);
+}
+
+function directoryExists(targetPath) {
+  try {
+    return statSync(targetPath).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+function meaningfulLegacyWorkspaceEntries(sourceRoot) {
+  return readdirSync(sourceRoot, { withFileTypes: true })
+    .filter((entry) => entry.name !== '.gitkeep' && entry.name !== '.keep')
+    .map((entry) => entry.name)
+    .sort((a, b) => a.localeCompare(b));
+}
+
+function safeImportTimestamp() {
+  return new Date().toISOString().replace(/[:.]/g, '-');
+}
+
+function writeLegacyWorkspaceMigrationManifest(markerPath, manifest) {
+  mkdirSync(path.dirname(markerPath), { recursive: true });
+  const tempPath = `${markerPath}.tmp-${Date.now()}-${process.pid}`;
+  writeFileSync(tempPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
+  renameSync(tempPath, markerPath);
+}
+
+function readExistingLegacyWorkspaceMigrationMarker(markerPath) {
+  try {
+    const manifest = JSON.parse(readFileSync(markerPath, 'utf8'));
+    return {
+      copiedEntries: Array.isArray(manifest.copiedEntries) ? manifest.copiedEntries : [],
+      conflictedEntries: Array.isArray(manifest.conflictedEntries) ? manifest.conflictedEntries : [],
+      conflictRootRelativePath: typeof manifest.conflictRootRelativePath === 'string' ? manifest.conflictRootRelativePath : null,
+    };
+  } catch {
+    return { copiedEntries: [], conflictedEntries: [], conflictRootRelativePath: null };
+  }
+}
+
+function legacySecretMigrationMarkerPath(userId) {
+  return path.join(getDataRoot(), 'system', 'migration', 'legacy-secret-imports', `${normalizeDataScopeId(userId, 'userId')}.json`);
+}
+
+function parseEnvEntries(content) {
+  const entries = [];
+  for (const rawLine of content.split(/\r?\n/g)) {
+    const trimmed = rawLine.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+
+    const normalized = trimmed.startsWith('export ') ? trimmed.slice(7).trim() : trimmed;
+    const equalsIndex = normalized.indexOf('=');
+    if (equalsIndex <= 0) continue;
+
+    const key = normalized.slice(0, equalsIndex).trim();
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) continue;
+
+    let value = normalized.slice(equalsIndex + 1).trim();
+    if (
+      (value.startsWith('"') && value.endsWith('"')) ||
+      (value.startsWith("'") && value.endsWith("'"))
+    ) {
+      value = value.slice(1, -1);
+    }
+
+    entries.push({ key, value });
+  }
+  return entries;
+}
+
+function formatEnvValue(value) {
+  if (!value) return '';
+  if (/^[A-Za-z0-9_./:-]+$/.test(value)) return value;
+  return `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+}
+
+function serializeEnvEntries(entries) {
+  if (entries.length === 0) return '';
+  const sorted = [...entries].sort((a, b) => a.key.localeCompare(b.key));
+  return `${sorted.map((entry) => `${entry.key}=${formatEnvValue(entry.value)}`).join('\n')}\n`;
+}
+
+function readEnvEntries(filePath) {
+  if (!fileExists(filePath)) return [];
+  return parseEnvEntries(readFileSync(filePath, 'utf8'));
+}
+
+function fileExists(filePath) {
+  try {
+    return statSync(filePath).isFile();
+  } catch {
+    return false;
+  }
+}
+
+function writeAtomicFile(filePath, content) {
+  mkdirSync(path.dirname(filePath), { recursive: true });
+  const tempPath = `${filePath}.tmp-${Date.now()}-${process.pid}`;
+  writeFileSync(tempPath, content, { encoding: 'utf8', mode: 0o600 });
+  renameSync(tempPath, filePath);
+}
+
+function writeEnvEntries(filePath, entries) {
+  writeAtomicFile(filePath, serializeEnvEntries(entries));
+}
+
+function migrateLegacySecretsToUserScope(userId) {
+  const markerPath = legacySecretMigrationMarkerPath(userId);
+  if (existsSync(markerPath)) {
+    return { status: 'skipped', reason: 'already_migrated', migratedFiles: [] };
+  }
+
+  const legacyFiles = [
+    {
+      kind: 'integrations',
+      sourcePath: path.join(getDataRoot(), 'secrets', 'Canvas-Integrations.env'),
+      targetPath: path.join(getDataRoot(), 'users', userId, 'secrets', 'Canvas-Integrations.env'),
+    },
+    {
+      kind: 'agents',
+      sourcePath: path.join(getDataRoot(), 'secrets', 'Canvas-Agents.env'),
+      targetPath: path.join(getDataRoot(), 'users', userId, 'secrets', 'Canvas-Agents.env'),
+    },
+  ];
+
+  const migratedFiles = [];
+  let sawLegacyFile = false;
+  let sawLegacyEntries = false;
+
+  for (const file of legacyFiles) {
+    if (!fileExists(file.sourcePath)) continue;
+
+    sawLegacyFile = true;
+    const legacyEntries = readEnvEntries(file.sourcePath);
+    if (legacyEntries.length === 0) continue;
+
+    sawLegacyEntries = true;
+    const targetEntries = readEnvEntries(file.targetPath);
+    const byKey = new Map(targetEntries.map((entry) => [entry.key, entry]));
+    const copiedKeys = [];
+    const preservedKeys = [];
+
+    for (const legacyEntry of legacyEntries) {
+      if (byKey.has(legacyEntry.key)) {
+        preservedKeys.push(legacyEntry.key);
+        continue;
+      }
+      byKey.set(legacyEntry.key, legacyEntry);
+      copiedKeys.push(legacyEntry.key);
+    }
+
+    if (copiedKeys.length > 0) {
+      writeEnvEntries(file.targetPath, Array.from(byKey.values()));
+    } else {
+      mkdirSync(path.dirname(file.targetPath), { recursive: true });
+    }
+
+    migratedFiles.push({
+      kind: file.kind,
+      sourcePath: file.sourcePath,
+      targetPath: file.targetPath,
+      copiedKeys,
+      preservedKeys,
+    });
+  }
+
+  if (!sawLegacyFile || !sawLegacyEntries) {
+    return {
+      status: 'skipped',
+      reason: sawLegacyFile ? 'source_empty' : 'source_missing',
+      migratedFiles: [],
+    };
+  }
+
+  writeAtomicFile(markerPath, `${JSON.stringify({
+    schemaVersion: 1,
+    operation: 'legacy-secrets-to-user-scope',
+    userId,
+    importedAt: new Date().toISOString(),
+    migratedFiles,
+  }, null, 2)}\n`);
+
+  return { status: 'migrated', migratedFiles };
+}
+
+function migrateLegacyWorkspaceToPersonalWorkspace(organizationId, userId, personalWorkspace) {
+  const sourceRoot = path.join(getDataRoot(), 'workspace');
+  const targetRoot = workspaceAbsoluteRoot(personalWorkspace.root_relative_path);
+  const markerPath = legacyWorkspaceMigrationMarkerPath(organizationId, userId);
+
+  if (existsSync(markerPath)) {
+    return {
+      status: 'skipped',
+      reason: 'already_migrated',
+      ...readExistingLegacyWorkspaceMigrationMarker(markerPath),
+    };
+  }
+
+  if (!directoryExists(sourceRoot)) {
+    return { status: 'skipped', reason: 'source_missing', copiedEntries: [], conflictedEntries: [], conflictRootRelativePath: null };
+  }
+
+  const sourceReal = path.resolve(sourceRoot);
+  const targetReal = path.resolve(targetRoot);
+  if (sourceReal === targetReal || targetReal.startsWith(`${sourceReal}${path.sep}`)) {
+    return { status: 'skipped', reason: 'invalid_target', copiedEntries: [], conflictedEntries: [], conflictRootRelativePath: null };
+  }
+
+  const entries = meaningfulLegacyWorkspaceEntries(sourceRoot);
+  if (entries.length === 0) {
+    return { status: 'skipped', reason: 'source_empty', copiedEntries: [], conflictedEntries: [], conflictRootRelativePath: null };
+  }
+
+  mkdirSync(targetRoot, { recursive: true });
+  const copiedEntries = [];
+  const conflictedEntries = [];
+  const conflictRootRelativePath = `_legacy-workspace-import/${safeImportTimestamp()}`;
+  let conflictRootCreated = false;
+
+  for (const entry of entries) {
+    const sourcePath = path.join(sourceRoot, entry);
+    const directTargetPath = path.join(targetRoot, entry);
+    if (!existsSync(directTargetPath)) {
+      cpSync(sourcePath, directTargetPath, { recursive: true, preserveTimestamps: true, errorOnExist: true, force: false });
+      copiedEntries.push(entry);
+      continue;
+    }
+
+    if (!conflictRootCreated) {
+      mkdirSync(path.join(targetRoot, conflictRootRelativePath), { recursive: true });
+      conflictRootCreated = true;
+    }
+    cpSync(sourcePath, path.join(targetRoot, conflictRootRelativePath, entry), { recursive: true, preserveTimestamps: true, errorOnExist: true, force: false });
+    conflictedEntries.push(entry);
+  }
+
+  const manifest = {
+    schemaVersion: 1,
+    operation: 'legacy-workspace-to-personal-workspace',
+    organizationId,
+    userId,
+    sourceRoot,
+    targetRoot,
+    targetRootRelativePath: personalWorkspace.root_relative_path,
+    importedAt: new Date().toISOString(),
+    copiedEntries,
+    conflictedEntries,
+    conflictRootRelativePath: conflictedEntries.length > 0 ? conflictRootRelativePath : null,
+  };
+  writeLegacyWorkspaceMigrationManifest(markerPath, manifest);
+  return { status: 'migrated', copiedEntries, conflictedEntries, conflictRootRelativePath: manifest.conflictRootRelativePath };
+}
+
 function ensureWorkspaceRecord(db, input) {
   const now = Date.now();
   const existing = input.type === 'personal'
@@ -467,15 +741,20 @@ function ensureWorkspaceRecord(db, input) {
       WHERE id = ?
     `).run(input.rootRelativePath, input.displayName, now, existing.id);
     ensureWorkspaceDirectory(input.rootRelativePath);
-    return;
+    return {
+      ...existing,
+      root_relative_path: input.rootRelativePath,
+      display_name: input.displayName,
+    };
   }
 
+  const id = `ws_${randomUUID()}`;
   db.prepare(`
     INSERT INTO canvas_workspaces (
       id, organization_id, type, owner_user_id, root_relative_path, display_name, status, created_at, updated_at
     ) VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?)
   `).run(
-    `ws_${randomUUID()}`,
+    id,
     input.organizationId,
     input.type,
     input.ownerUserId,
@@ -485,10 +764,16 @@ function ensureWorkspaceRecord(db, input) {
     now,
   );
   ensureWorkspaceDirectory(input.rootRelativePath);
+  return {
+    id,
+    root_relative_path: input.rootRelativePath,
+    display_name: input.displayName,
+    status: 'active',
+  };
 }
 
 function ensureDefaultWorkspaceRecords(db, organizationId, userId, includeTeamWorkspace) {
-  ensureWorkspaceRecord(db, {
+  const personal = ensureWorkspaceRecord(db, {
     organizationId,
     type: 'personal',
     ownerUserId: userId,
@@ -496,8 +781,9 @@ function ensureDefaultWorkspaceRecords(db, organizationId, userId, includeTeamWo
     displayName: 'Personal Workspace',
   });
 
+  let team = null;
   if (includeTeamWorkspace) {
-    ensureWorkspaceRecord(db, {
+    team = ensureWorkspaceRecord(db, {
       organizationId,
       type: 'team',
       ownerUserId: null,
@@ -505,6 +791,8 @@ function ensureDefaultWorkspaceRecords(db, organizationId, userId, includeTeamWo
       displayName: 'Team Workspace',
     });
   }
+
+  return { personal, team };
 }
 
 function ensureOrganizationBootstrap(db, userId) {
@@ -546,7 +834,9 @@ function ensureOrganizationBootstrap(db, userId) {
     ensurePermissionRow(db, organization.organization_id, targetUser.id, 'admin');
   }
   ensureScopedDirectories(organization.organization_id, ownerUser.id, includeTeamWorkspace);
-  ensureDefaultWorkspaceRecords(db, organization.organization_id, ownerUser.id, includeTeamWorkspace);
+  const ownerWorkspaceRecords = ensureDefaultWorkspaceRecords(db, organization.organization_id, ownerUser.id, includeTeamWorkspace);
+  migrateLegacyWorkspaceToPersonalWorkspace(organization.organization_id, ownerUser.id, ownerWorkspaceRecords.personal);
+  migrateLegacySecretsToUserScope(ownerUser.id);
   if (targetUser.id !== ownerUser.id) {
     ensureScopedDirectories(organization.organization_id, targetUser.id, includeTeamWorkspace);
     ensureDefaultWorkspaceRecords(db, organization.organization_id, targetUser.id, includeTeamWorkspace);

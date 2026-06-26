@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useMemo, useRef, useState, type DragEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from 'react';
 import { CheckSquare2, Loader2, Paperclip, RefreshCw, Search, Square, Upload, X } from 'lucide-react';
 
 import type { FilePickerFile } from '@/app/components/canvas-agent-chat/ChatComposer';
@@ -195,6 +195,9 @@ function AttachmentRow({
 export function EmailAttachmentPanel({ attachments, disabled = false, labels, onChange }: EmailAttachmentPanelProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const requestIdRef = useRef(0);
+  const attachmentsRef = useRef(attachments);
+  const isUploadingRef = useRef(false);
+  const selectedRef = useRef<EmailAttachmentDraft[]>([]);
   const [open, setOpen] = useState(false);
   const [tab, setTab] = useState<'workspace' | 'upload'>('workspace');
   const [search, setSearch] = useState('');
@@ -204,6 +207,18 @@ export function EmailAttachmentPanel({ attachments, disabled = false, labels, on
   const [isDragOver, setIsDragOver] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<EmailAttachmentDraft[]>([]);
+
+  useEffect(() => {
+    attachmentsRef.current = attachments;
+  }, [attachments]);
+
+  useEffect(() => {
+    isUploadingRef.current = isUploading;
+  }, [isUploading]);
+
+  useEffect(() => {
+    selectedRef.current = selected;
+  }, [selected]);
 
   const usage = emailAttachmentLimitUsageBytes(attachments);
   const selectedPreview = useMemo(() => mergeAttachments(attachments, selected), [attachments, selected]);
@@ -259,6 +274,8 @@ export function EmailAttachmentPanel({ attachments, disabled = false, labels, on
 
   const uploadFiles = useCallback(async (files: File[]) => {
     if (files.length === 0) return;
+    if (isUploadingRef.current) return;
+    isUploadingRef.current = true;
     setIsUploading(true);
     setError(null);
     try {
@@ -269,7 +286,7 @@ export function EmailAttachmentPanel({ attachments, disabled = false, labels, on
         mimeType: inferEmailAttachmentMimeType(file.name, file.type),
         size: file.size,
       }));
-      if (emailAttachmentLimitUsageBytes(mergeAttachments(attachments, [...selected, ...optimistic])) > EMAIL_ATTACHMENT_TOTAL_LIMIT_BYTES) {
+      if (emailAttachmentLimitUsageBytes(mergeAttachments(attachmentsRef.current, [...selectedRef.current, ...optimistic])) > EMAIL_ATTACHMENT_TOTAL_LIMIT_BYTES) {
         throw new Error(labels.attachmentsLimitExceeded);
       }
 
@@ -284,13 +301,13 @@ export function EmailAttachmentPanel({ attachments, disabled = false, labels, on
       if (!response.ok || !payload.success) throw new Error(payload.error || 'Upload failed');
       const uploaded = Array.isArray(payload.files) ? payload.files : [];
       setSelected((current) => mergeAttachments(current, uploaded));
-      setTab('workspace');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Upload failed');
     } finally {
+      isUploadingRef.current = false;
       setIsUploading(false);
     }
-  }, [attachments, labels.attachmentsLimitExceeded, selected]);
+  }, [labels.attachmentsLimitExceeded]);
 
   const handleDrop = useCallback((event: DragEvent<HTMLDivElement>) => {
     event.preventDefault();
@@ -471,9 +488,11 @@ export function EmailAttachmentPanel({ attachments, disabled = false, labels, on
                   multiple
                   className="hidden"
                   onChange={(event) => {
+                    const input = event.currentTarget;
                     const files = Array.from(event.target.files || []);
-                    void uploadFiles(files);
-                    event.target.value = '';
+                    void uploadFiles(files).finally(() => {
+                      input.value = '';
+                    });
                   }}
                 />
               </div>

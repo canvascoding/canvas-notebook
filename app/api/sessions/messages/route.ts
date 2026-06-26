@@ -7,6 +7,7 @@ import { and, asc, desc, eq, lt, gt, or } from 'drizzle-orm';
 import { DEFAULT_AGENT_ID } from '@/app/lib/channels/constants';
 import { normalizeManagedAgentId } from '@/app/lib/agents/registry';
 import { parsePersistedPiMessage, type PiMessageProjectionMode } from '@/app/lib/pi/message-projection';
+import { resolveAgentSessionWorkspaceForUser } from '@/app/lib/pi/session-workspace-context';
 
 const DEFAULT_LIMIT = 50;
 
@@ -27,6 +28,14 @@ function normalizeSessionAgentId(value: string | null): string {
   }
 }
 
+function normalizeOptionalString(value: unknown): string | null {
+  if (typeof value !== 'string') {
+    return null;
+  }
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
 export async function GET(request: NextRequest) {
   const session = await auth.api.getSession({ headers: request.headers });
   if (!session) {
@@ -36,6 +45,7 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const sessionId = searchParams.get('sessionId');
   const agentId = normalizeSessionAgentId(searchParams.get('agentId'));
+  const workspaceIdFilter = normalizeOptionalString(searchParams.get('workspaceId'));
 
   if (!sessionId) {
     return NextResponse.json({ success: false, error: 'Session ID required' }, { status: 400 });
@@ -73,6 +83,19 @@ export async function GET(request: NextRequest) {
   }
 
   try {
+    let scopedWorkspace: Awaited<ReturnType<typeof resolveAgentSessionWorkspaceForUser>> | null = null;
+    if (workspaceIdFilter) {
+      try {
+        scopedWorkspace = await resolveAgentSessionWorkspaceForUser({
+          userId: session.user.id,
+          workspaceId: workspaceIdFilter,
+          permissions: ['canRead', 'canRunAgent'],
+        });
+      } catch {
+        return NextResponse.json({ success: false, error: 'Workspace not found or inaccessible' }, { status: 403 });
+      }
+    }
+
     // Try PI session first (ownership enforced)
     const dbPiSessions = await db
       .select()
@@ -81,6 +104,16 @@ export async function GET(request: NextRequest) {
       .limit(1);
 
     if (dbPiSessions.length > 0) {
+      const piSession = dbPiSessions[0];
+      if (scopedWorkspace) {
+        const sessionWorkspaceId = piSession.workspaceId;
+        const isLegacyPersonalSession = !sessionWorkspaceId && scopedWorkspace.workspaceType === 'personal';
+        const isMatchingWorkspaceSession = sessionWorkspaceId === scopedWorkspace.workspaceId;
+        if (!isLegacyPersonalSession && !isMatchingWorkspaceSession) {
+          return NextResponse.json({ success: false, error: 'Session is outside the active workspace' }, { status: 403 });
+        }
+      }
+
       const conditions = [eq(piMessages.piSessionDbId, dbPiSessions[0].id)];
       if (beforeSequence !== null) {
         conditions.push(
@@ -186,6 +219,10 @@ export async function GET(request: NextRequest) {
 
     if (!(await legacyAiTablesExist())) {
       return NextResponse.json({ success: true, messages: [], hasMoreBefore: false, hasMoreAfter: false, oldestTimestamp: null, newestTimestamp: null });
+    }
+
+    if (scopedWorkspace && scopedWorkspace.workspaceType !== 'personal') {
+      return NextResponse.json({ success: false, error: 'Legacy session is outside the active workspace' }, { status: 403 });
     }
 
     // Fallback to legacy (ownership enforced)

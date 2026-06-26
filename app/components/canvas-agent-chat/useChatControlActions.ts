@@ -10,7 +10,7 @@ import {
 import type { AgentMessage } from '@earendil-works/pi-agent-core';
 import { useTranslations } from 'next-intl';
 import { deriveUploadAttachmentPreview } from '@/app/lib/chat/attachment-preview';
-import { CANVAS_CHAT_ACTIVE_SESSION_STORAGE_KEY } from '@/app/lib/chat/constants';
+import { clearCanvasChatActiveSessionStorage } from '@/app/lib/chat/constants';
 import { loadComposerDraft, removeComposerDraft, saveComposerDraft } from '@/app/lib/chat/draft-storage';
 import { saveLastActiveAgentId } from '@/app/lib/chat/agent-preferences';
 import type { RuntimeStatus } from '@/app/lib/chat/runtime-status';
@@ -58,10 +58,15 @@ type ChatRuntimeControlAction =
   | 'replace'
   | 'compact';
 
+type StartNewChatOptions = {
+  clearActiveSessionStorage?: boolean;
+};
+
 type UseChatControlActionsParams = {
   activeModel: string;
   activeProvider: string;
   activeThinkingLevel: PiThinkingLevel;
+  activeWorkspaceId?: string | null;
   addSessionToHistory: (session: AISession) => void;
   agentConfig: AgentConfig | null;
   appendCompactionBreak: (kind: 'manual' | 'automatic', timestamp: string, omittedMessageCount: number) => void;
@@ -200,6 +205,7 @@ export function useChatControlActions({
   activeModel,
   activeProvider,
   activeThinkingLevel,
+  activeWorkspaceId,
   addSessionToHistory,
   agentConfig,
   appendCompactionBreak,
@@ -540,7 +546,7 @@ export function useChatControlActions({
     }
   }, [appendCompactionBreak, appendSystemMessage, postControl, sessionIdRef, t]);
 
-  const startNewChat = useCallback((agentIdOverride?: string) => {
+  const startNewChat = useCallback((agentIdOverride?: string, options?: StartNewChatOptions) => {
     const nextAgentId = agentIdOverride || selectedAgentId;
     resetStreamConnection();
     setRuntimeStatus(null);
@@ -558,8 +564,8 @@ export function useChatControlActions({
     sessionAgentIdRef.current = nextAgentId;
     resetRuntimeMessageRefs();
     userStartedNewChatRef.current = true;
-    if (typeof window !== 'undefined') {
-      window.sessionStorage.removeItem(CANVAS_CHAT_ACTIVE_SESSION_STORAGE_KEY);
+    if (options?.clearActiveSessionStorage !== false) {
+      clearCanvasChatActiveSessionStorage(activeWorkspaceId);
     }
     setMessages([]);
     setHasMoreBefore(false);
@@ -580,7 +586,7 @@ export function useChatControlActions({
     setActiveProvider(providerState.provider);
     setActiveModel(providerState.model);
     setActiveThinkingLevel(providerState.thinkingLevel);
-  }, [agentConfig, input, isMobile, resetInputHistoryNavigation, resetRuntimeMessageRefs, resetStreamConnection, selectedAgentId, sessionAgentIdRef, sessionIdRef, setActiveModel, setActiveProvider, setActiveThinkingLevel, setAttachments, setExpandedRunKeys, setHasMoreBefore, setInput, setIsLoadingOlder, setMessages, setOldestSequence, setOldestTimestamp, setRuntimeStatus, setSessionId, setSessionTitle, setShowHistory, setShowMobileDetails, shouldShowHistoryAsOverlay, userStartedNewChatRef]);
+  }, [activeWorkspaceId, agentConfig, input, isMobile, resetInputHistoryNavigation, resetRuntimeMessageRefs, resetStreamConnection, selectedAgentId, sessionAgentIdRef, sessionIdRef, setActiveModel, setActiveProvider, setActiveThinkingLevel, setAttachments, setExpandedRunKeys, setHasMoreBefore, setInput, setIsLoadingOlder, setMessages, setOldestSequence, setOldestTimestamp, setRuntimeStatus, setSessionId, setSessionTitle, setShowHistory, setShowMobileDetails, shouldShowHistoryAsOverlay, userStartedNewChatRef]);
 
   const selectChatAgent = useCallback((agentId: string) => {
     if (agentId === selectedAgentId && !sessionIdRef.current) {

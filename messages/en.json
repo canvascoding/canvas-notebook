@@ -54,6 +54,7 @@
     "loadingContext": "Workspace context is loading",
     "noWorkspaceAvailable": "No workspace available",
     "refresh": "Refresh workspaces",
+    "sourceWorkspace": "Source workspace",
     "targetWorkspace": "Target workspace",
     "targetFolder": "Target folder",
     "folderLoadFailed": "Could not load workspace folders",

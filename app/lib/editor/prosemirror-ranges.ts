@@ -25,3 +25,12 @@ export function clampEditorRangeToDoc(editor: Editor, range: Range): Range | nul
 
   return { from, to };
 }
+
+export function getSlashCommandDeletionRange(editor: Editor, range: Range): Range | null {
+  if (range.from === range.to || !isEditorRangeInsideDoc(editor, range)) {
+    return null;
+  }
+
+  const rangeText = editor.state.doc.textBetween(range.from, range.to, '\n', '\n');
+  return rangeText.startsWith('/') ? range : null;
+}

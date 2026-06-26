@@ -1,8 +1,17 @@
 import assert from 'node:assert/strict';
 
+import type { Editor as TiptapEditor } from '@tiptap/core';
 import { JSDOM } from 'jsdom';
 
-import { clampEditorRangeToDoc, isEditorRangeInsideDoc } from '../app/lib/editor/prosemirror-ranges';
+import {
+  clampEditorRangeToDoc,
+  getSlashCommandDeletionRange,
+  isEditorRangeInsideDoc,
+} from '../app/lib/editor/prosemirror-ranges';
+import {
+  getReorderableBlockRangeAt,
+  moveReorderableBlock,
+} from '../app/lib/editor/reorderable-blocks';
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>');
 
@@ -15,6 +24,7 @@ for (const key of ['window', 'document', 'DOMParser', 'navigator', 'Node', 'HTML
 
 type JsonNode = {
   type?: string;
+  text?: string;
   attrs?: Record<string, unknown>;
   content?: JsonNode[];
 };
@@ -31,6 +41,38 @@ function collectTableAlignments(node: JsonNode): string[] {
     ...(typeof node.attrs?.align === 'string' ? [node.attrs.align] : []),
     ...(node.content ?? []).flatMap(collectTableAlignments),
   ];
+}
+
+function findDocTextPosition(editor: TiptapEditor, text: string): number | null {
+  let found: number | null = null;
+
+  editor.state.doc.descendants((node, position) => {
+    if (found !== null) return false;
+    if (node.isText && node.text?.includes(text)) {
+      found = position;
+      return false;
+    }
+
+    return true;
+  });
+
+  return found;
+}
+
+function findDocNodePosition(editor: TiptapEditor, typeName: string): number | null {
+  let found: number | null = null;
+
+  editor.state.doc.descendants((node, position) => {
+    if (found !== null) return false;
+    if (node.type.name === typeName) {
+      found = position;
+      return false;
+    }
+
+    return true;
+  });
+
+  return found;
 }
 
 const sampleMarkdown = `# Title
@@ -127,6 +169,21 @@ async function main() {
   assert.ok(nodeTypes.includes('image'), 'Markdown images should parse as image nodes');
   assert.ok(nodeTypes.includes('codeBlock'), 'Mermaid fences should remain code blocks');
 
+  const imagePosition = findDocNodePosition(editor, 'image');
+  const tablePosition = findDocNodePosition(editor, 'table');
+  assert.notEqual(imagePosition, null, 'image node should be discoverable for block controls');
+  assert.notEqual(tablePosition, null, 'table node should be discoverable for block controls');
+  assert.equal(
+    getReorderableBlockRangeAt(editor, imagePosition ?? 0)?.kind,
+    'topLevel',
+    'image nodes should drag as top-level blocks',
+  );
+  assert.equal(
+    getReorderableBlockRangeAt(editor, tablePosition ?? 0)?.kind,
+    'topLevel',
+    'tables should drag as top-level blocks',
+  );
+
   const smallEditor = new Editor({
     content: 'x',
     extensions: [StarterKit],
@@ -141,7 +198,70 @@ async function main() {
     { from: smallEditor.state.doc.content.size, to: smallEditor.state.doc.content.size },
     'stale insertion ranges should clamp to a valid document position',
   );
+  assert.equal(
+    getSlashCommandDeletionRange(smallEditor, { from: 1, to: 2 }),
+    null,
+    'slash command cleanup should not delete non-slash text from an otherwise valid stale range',
+  );
 
+  const slashEditor = new Editor({
+    content: '/heading',
+    extensions: [StarterKit],
+  });
+  assert.deepEqual(
+    getSlashCommandDeletionRange(slashEditor, { from: 1, to: 9 }),
+    { from: 1, to: 9 },
+    'slash command cleanup should delete the active slash query range',
+  );
+
+  const blockEditor = new Editor({
+    content: 'One\n\nTwo\n\nThree',
+    contentType: 'markdown',
+    extensions: [StarterKit, Markdown],
+  });
+  const firstBlockPosition = findDocTextPosition(blockEditor, 'One');
+  assert.notEqual(firstBlockPosition, null, 'top-level block text should be discoverable');
+  const firstBlock = getReorderableBlockRangeAt(blockEditor, firstBlockPosition ?? 0);
+  assert.equal(firstBlock?.kind, 'topLevel', 'paragraphs should move as top-level blocks');
+  assert.equal(
+    firstBlock ? moveReorderableBlock(blockEditor, firstBlock, blockEditor.state.doc.content.size) : false,
+    true,
+    'top-level block reorder should move the block',
+  );
+  const reorderedBlocks = blockEditor.getMarkdown();
+  assert.ok(
+    reorderedBlocks.indexOf('Two') < reorderedBlocks.indexOf('Three') &&
+      reorderedBlocks.indexOf('Three') < reorderedBlocks.indexOf('One'),
+    'top-level block reorder should preserve content and order',
+  );
+
+  const listEditor = new Editor({
+    content: '- A\n- B\n- C',
+    contentType: 'markdown',
+    extensions: [StarterKit, Markdown],
+  });
+  const firstListItemPosition = findDocTextPosition(listEditor, 'A');
+  const secondListItemPosition = findDocTextPosition(listEditor, 'B');
+  assert.notEqual(firstListItemPosition, null, 'first list item text should be discoverable');
+  assert.notEqual(secondListItemPosition, null, 'second list item text should be discoverable');
+  const firstListItem = getReorderableBlockRangeAt(listEditor, firstListItemPosition ?? 0);
+  const secondListItem = getReorderableBlockRangeAt(listEditor, secondListItemPosition ?? 0);
+  assert.equal(secondListItem?.kind, 'listItem', 'list items should move as list item blocks');
+  assert.equal(
+    firstListItem && secondListItem ? moveReorderableBlock(listEditor, secondListItem, firstListItem.from) : false,
+    true,
+    'list item reorder should move the item inside the list',
+  );
+  const reorderedList = listEditor.getMarkdown();
+  assert.ok(
+    reorderedList.indexOf('- B') < reorderedList.indexOf('- A') &&
+      reorderedList.indexOf('- A') < reorderedList.indexOf('- C'),
+    'list item reorder should preserve list markdown order',
+  );
+
+  listEditor.destroy();
+  blockEditor.destroy();
+  slashEditor.destroy();
   smallEditor.destroy();
   editor.destroy();
 

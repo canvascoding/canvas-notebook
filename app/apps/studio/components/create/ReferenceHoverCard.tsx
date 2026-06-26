@@ -22,6 +22,7 @@ interface ReferenceHoverCardProps {
   name: string;
   type: ReferenceType;
   thumbnailPath?: string;
+  thumbnailUrl?: string;
   previewImagePaths?: string[];
   fallbackIcon: React.ReactNode;
   bgColor: string;
@@ -122,6 +123,7 @@ function PreviewContent({
   name,
   type,
   thumbnailPath,
+  thumbnailUrl,
   previewImagePaths,
   fallbackIcon,
   onRemove,
@@ -130,6 +132,7 @@ function PreviewContent({
   name: string;
   type: ReferenceType;
   thumbnailPath?: string;
+  thumbnailUrl?: string;
   previewImagePaths?: string[];
   fallbackIcon: React.ReactNode;
   onRemove: () => void;
@@ -143,7 +146,11 @@ function PreviewContent({
   const [imageIndex, setImageIndex] = useState(0);
   const safeImageIndex = imagePaths.length > 0 ? imageIndex % imagePaths.length : 0;
   const currentImagePath = imagePaths[safeImageIndex];
-  const previewUrl = currentImagePath ? toPreviewUrl(currentImagePath, 320, { preset: 'mini' }) : undefined;
+  const previewUrl = !canShowMultipleImages && thumbnailUrl
+    ? thumbnailUrl
+    : currentImagePath
+      ? toPreviewUrl(currentImagePath, 320, { preset: 'mini' })
+      : undefined;
   const hasMultipleImages = canShowMultipleImages && imagePaths.length > 1;
   const nextPreviewPath = hasMultipleImages ? imagePaths[(safeImageIndex + 1) % imagePaths.length] : undefined;
 
@@ -253,6 +260,7 @@ export function ReferenceHoverCard({
   name,
   type,
   thumbnailPath,
+  thumbnailUrl,
   previewImagePaths,
   fallbackIcon,
   bgColor,
@@ -288,6 +296,7 @@ export function ReferenceHoverCard({
               name={name}
               type={type}
               thumbnailPath={thumbnailPath}
+              thumbnailUrl={thumbnailUrl}
               previewImagePaths={previewImagePaths}
               fallbackIcon={scaledFallbackIcon}
               onRemove={onRemove}
@@ -321,6 +330,7 @@ export function ReferenceHoverCard({
               name={name}
               type={type}
               thumbnailPath={thumbnailPath}
+              thumbnailUrl={thumbnailUrl}
               previewImagePaths={previewImagePaths}
               fallbackIcon={scaledFallbackIcon}
               onRemove={handleRemove}

@@ -5,7 +5,7 @@ import { getPathname } from '@/i18n/navigation';
 import { useLocale, useTranslations } from 'next-intl';
 import { Send, Paperclip, Loader2 } from 'lucide-react';
 import { getFileIconComponent } from '@/app/lib/files/file-icons';
-import { CANVAS_CHAT_ACTIVE_SESSION_STORAGE_KEY, CANVAS_CHAT_INITIAL_PROMPT_STORAGE_KEY } from '@/app/lib/chat/constants';
+import { clearCanvasChatActiveSessionStorage, CANVAS_CHAT_INITIAL_PROMPT_STORAGE_KEY } from '@/app/lib/chat/constants';
 import { DEFAULT_AGENT_ID } from '@/app/lib/channels/constants';
 import { ChatAgentSelector } from '@/app/components/canvas-agent-chat/ChatAgentSelector';
 import { AttachmentPreviewDialog } from '@/app/components/canvas-agent-chat/AttachmentPreviewDialog';
@@ -413,7 +413,7 @@ export function PromptHero({ licenseLocked = false }: { licenseLocked?: boolean 
     setIsSubmitting(true);
 
     try {
-      window.sessionStorage.removeItem(CANVAS_CHAT_ACTIVE_SESSION_STORAGE_KEY);
+      clearCanvasChatActiveSessionStorage();
       const data = {
         prompt: normalizedPrompt,
         attachments: attachments,

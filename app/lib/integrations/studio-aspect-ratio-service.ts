@@ -331,7 +331,7 @@ export async function createAspectRatioPreview(
   storageScope?: EnvStorageScope | null,
 ): Promise<AspectRatioPreviewResult> {
   const request = validatePreviewRequest(input);
-  const source = await loadMediaReference(request.sourcePath, { allowedTypes: ['image'] });
+  const source = await loadMediaReference(request.sourcePath, { userId: storageScope?.userId ?? undefined, allowedTypes: ['image'] });
   const sourceBytes = source.bytes;
   const metadata = await sharp(sourceBytes, { limitInputPixels: false }).metadata();
   const sourceWidth = metadata.width || source.width || 0;

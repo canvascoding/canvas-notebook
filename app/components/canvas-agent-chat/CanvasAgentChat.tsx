@@ -42,7 +42,10 @@ import {
 } from '@/app/store/workspace-store';
 import { getToolDisplayInfo } from '@/app/lib/pi/tool-display';
 
-import { CANVAS_CHAT_ACTIVE_SESSION_STORAGE_KEY } from '@/app/lib/chat/constants';
+import {
+  clearCanvasChatActiveSessionStorage,
+  getCanvasChatActiveSessionStorageKey,
+} from '@/app/lib/chat/constants';
 import { removeComposerDraft } from '@/app/lib/chat/draft-storage';
 import { getAgentDisplayName } from '@/app/lib/chat/agent-display';
 import {
@@ -134,6 +137,11 @@ export default function CanvasAgentChat({
   const { planningMode, togglePlanningMode } = usePlanModeStore();
   const toolVerbosity = useToolVerbosityStore((s) => s.toolVerbosity);
   const activeWorkspace = useWorkspaceStore(selectActiveWorkspace);
+  const activeWorkspaceId = activeWorkspace?.id ?? null;
+  const activeSessionStorageKey = useMemo(
+    () => getCanvasChatActiveSessionStorageKey(activeWorkspaceId),
+    [activeWorkspaceId],
+  );
 
   // Container width detection for history layout
   const containerRef = useRef<HTMLDivElement>(null);
@@ -221,7 +229,7 @@ export default function CanvasAgentChat({
     const hasStoredInitialPrompt = Boolean(
       initialPromptStorageKey && window.sessionStorage.getItem(initialPromptStorageKey),
     );
-    const hasStoredSession = Boolean(window.sessionStorage.getItem(CANVAS_CHAT_ACTIVE_SESSION_STORAGE_KEY));
+    const hasStoredSession = Boolean(window.sessionStorage.getItem(activeSessionStorageKey));
     return hasStoredInitialPrompt || hasStoredSession;
   });
   const [expandedRunKeys, setExpandedRunKeys] = useState<Set<string>>(() => new Set());
@@ -319,6 +327,7 @@ export default function CanvasAgentChat({
     startHistoryResizing,
     totalUnreadCount,
   } = useChatSessionHistory({
+    activeWorkspaceId,
     availableAgents,
     optimisticSessionTitlesRef,
     requestSavedMessageRefreshRef,
@@ -486,9 +495,9 @@ export default function CanvasAgentChat({
     // If we cleared on null, a fresh mount (sessionId=null) would erase the stored value
     // before the restore effect has a chance to read it.
     if (typeof window !== 'undefined' && sessionId) {
-      window.sessionStorage.setItem(CANVAS_CHAT_ACTIVE_SESSION_STORAGE_KEY, sessionId);
+      window.sessionStorage.setItem(activeSessionStorageKey, sessionId);
     }
-  }, [resetInputHistoryNavigation, sessionId]);
+  }, [activeSessionStorageKey, resetInputHistoryNavigation, sessionId]);
 
   useEffect(() => {
     surfaceVisibleRef.current = isSurfaceVisible;
@@ -547,6 +556,7 @@ export default function CanvasAgentChat({
     activeModel,
     activeProvider,
     activeThinkingLevel,
+    activeWorkspaceId,
     addSessionToHistory,
     agentConfig,
     appendCompactionBreak,
@@ -605,8 +615,12 @@ export default function CanvasAgentChat({
   });
 
   useEffect(() => {
-    const handleWorkspaceChange = () => {
-      startNewChat();
+    const handleWorkspaceChange = (event: Event) => {
+      const detail = (event as CustomEvent<{ previousWorkspaceId?: string | null; activeWorkspaceId?: string | null }>).detail;
+      if (detail?.previousWorkspaceId) {
+        clearCanvasChatActiveSessionStorage(detail.previousWorkspaceId);
+      }
+      startNewChat(undefined, { clearActiveSessionStorage: false });
     };
 
     window.addEventListener(WORKSPACE_CHANGED_EVENT, handleWorkspaceChange);
@@ -617,6 +631,7 @@ export default function CanvasAgentChat({
     activeModel,
     activeProvider,
     activeThinkingLevel,
+    activeWorkspaceId,
     agentConfig,
     deferredSavedMessageRefreshSessionRef,
     ensureSessionSubscribed,
@@ -787,6 +802,8 @@ export default function CanvasAgentChat({
     fetchHistory,
     forcedSessionId,
     handleControlAction,
+    activeSessionStorageKey,
+    activeWorkspaceId,
     hasLoadedSessionListRef,
     historyLength: history.length,
     initialPrompt,

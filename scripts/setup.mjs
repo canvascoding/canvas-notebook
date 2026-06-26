@@ -54,6 +54,114 @@ function exec(command, options = {}) {
   }
 }
 
+function parseEnvValue(rawValue) {
+  let value = rawValue.trim();
+  if (!value) return '';
+
+  const quote = value[0];
+  if ((quote === '"' || quote === "'") && value.endsWith(quote)) {
+    value = value.slice(1, -1);
+  } else {
+    value = value.replace(/\s+#.*$/u, '').trim();
+  }
+
+  return value;
+}
+
+function loadEnvFile(envFile) {
+  const values = {};
+  const content = readFileSync(envFile, 'utf-8');
+  for (const rawLine of content.split(/\r?\n/u)) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith('#')) continue;
+    const separatorIndex = line.indexOf('=');
+    if (separatorIndex <= 0) continue;
+    const key = line.slice(0, separatorIndex).trim();
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/u.test(key)) continue;
+    values[key] = parseEnvValue(line.slice(separatorIndex + 1));
+  }
+  return values;
+}
+
+function normalizeEnvValue(value) {
+  return String(value ?? '').trim().toLowerCase();
+}
+
+function isTruthyEnv(value) {
+  const normalized = normalizeEnvValue(value);
+  return normalized === 'true' || normalized === '1' || normalized === 'yes' || normalized === 'on';
+}
+
+function isSingleUserDeploymentMode(deploymentMode) {
+  const normalized = normalizeEnvValue(deploymentMode).replace(/_/gu, '-');
+  return normalized === 'community'
+    || normalized === 'single-user'
+    || normalized === 'singleuser'
+    || normalized === 'managed-single'
+    || normalized === 'local'
+    || normalized === 'development'
+    || normalized === 'dev';
+}
+
+function deploymentRequiresPostgres(deploymentMode, teamFeaturesEnabled) {
+  const normalized = normalizeEnvValue(deploymentMode).replace(/_/gu, '-');
+  if (!normalized || isSingleUserDeploymentMode(normalized)) {
+    return false;
+  }
+  return normalized.includes('team')
+    || normalized.includes('enterprise')
+    || normalized.includes('advanced')
+    || teamFeaturesEnabled;
+}
+
+function parseComposeProfiles(value) {
+  return new Set(
+    String(value ?? '')
+      .split(/[,\s]+/u)
+      .map((profile) => profile.trim())
+      .filter(Boolean),
+  );
+}
+
+function resolveDockerComposeEnvironment(envFile) {
+  const fileEnv = loadEnvFile(envFile);
+  const provider = normalizeEnvValue(fileEnv.CANVAS_DATABASE_PROVIDER || process.env.CANVAS_DATABASE_PROVIDER || 'sqlite');
+  const deploymentMode = fileEnv.CANVAS_DEPLOYMENT_MODE || process.env.CANVAS_DEPLOYMENT_MODE || 'single_user';
+  const teamFeaturesEnabled = isTruthyEnv(fileEnv.CANVAS_TEAM_FEATURES_ENABLED || process.env.CANVAS_TEAM_FEATURES_ENABLED);
+  const needsPostgres = deploymentRequiresPostgres(deploymentMode, teamFeaturesEnabled);
+  const profiles = parseComposeProfiles(fileEnv.COMPOSE_PROFILES || process.env.COMPOSE_PROFILES);
+  const explicitPostgres = provider === 'postgres'
+    || profiles.has('postgres')
+    || isTruthyEnv(fileEnv.CANVAS_LOCAL_POSTGRES_ENABLED || process.env.CANVAS_LOCAL_POSTGRES_ENABLED);
+
+  if (explicitPostgres || needsPostgres) {
+    profiles.add('postgres');
+  }
+
+  if (needsPostgres && provider !== 'postgres') {
+    warn(`Team/advanced deployment mode "${deploymentMode}" expects CANVAS_DATABASE_PROVIDER=postgres.`);
+    warn('The local setup will still start the Postgres container profile, but the app env should be updated before a full team-mode run.');
+  }
+
+  const env = {
+    ...process.env,
+    ...fileEnv,
+  };
+
+  if (profiles.size > 0) {
+    env.COMPOSE_PROFILES = [...profiles].join(',');
+  } else {
+    delete env.COMPOSE_PROFILES;
+  }
+
+  return {
+    env,
+    provider,
+    deploymentMode,
+    postgresProfileEnabled: profiles.has('postgres'),
+  };
+}
+
 function removeLingeringComposeContainers() {
   try {
     const output = execFileSync(
@@ -185,7 +293,7 @@ function createSpinner(getMessage) {
 
 // ─── Docker build with progress ───────────────────────────────────────────────
 
-function buildWithProgress() {
+function buildWithProgress(composeEnv) {
   return new Promise((resolve, reject) => {
     const start = Date.now();
     let frame = 0;
@@ -220,7 +328,7 @@ function buildWithProgress() {
 
     const proc = spawn('docker', ['compose', 'build', '--no-cache', '--progress=plain'], {
       cwd: rootDir,
-      env: process.env,
+      env: composeEnv,
     });
 
     let stdoutBuffer = '';
@@ -429,7 +537,13 @@ async function main() {
     process.exit(1);
   }
 
+  const composeConfig = resolveDockerComposeEnvironment(envFile);
   ok('.env.docker.local is configured');
+  info(`Deployment mode: ${composeConfig.deploymentMode}`);
+  info(`Database provider: ${composeConfig.provider}`);
+  if (composeConfig.postgresProfileEnabled) {
+    info('Docker Compose profile enabled: postgres');
+  }
 
   // ── Step 3: Data directories ───────────────────────────────────────────────
   step(3, 'Preparing data directories...');
@@ -438,7 +552,7 @@ async function main() {
 
   // ── Step 4: Stop existing container ───────────────────────────────────────
   step(4, 'Stopping existing container (if any)...');
-  exec('docker compose down --remove-orphans', { ignoreError: true });
+  exec('docker compose down --remove-orphans', { ignoreError: true, env: composeConfig.env });
   removeLingeringComposeContainers();
   ok('Done');
 
@@ -447,7 +561,7 @@ async function main() {
   info('This may take a few minutes on the first run.');
   console.log();
   try {
-    await buildWithProgress();
+    await buildWithProgress(composeConfig.env);
   } catch {
     process.exit(1);
   }
@@ -455,15 +569,15 @@ async function main() {
   // ── Step 6: Start container ────────────────────────────────────────────────
   step(6, 'Starting container...');
   try {
-    exec('docker compose up -d --force-recreate');
+    exec('docker compose up -d --force-recreate', { env: composeConfig.env });
     ok('Container started');
   } catch {
     warn('Container start hit a conflict. Retrying once after explicit cleanup...');
-    exec('docker compose down --remove-orphans', { ignoreError: true });
+    exec('docker compose down --remove-orphans', { ignoreError: true, env: composeConfig.env });
     removeLingeringComposeContainers();
 
     try {
-      exec('docker compose up -d --force-recreate');
+      exec('docker compose up -d --force-recreate', { env: composeConfig.env });
       ok('Container started');
     } catch {
       fail('Failed to start container. Check the output above for errors.');
@@ -479,7 +593,7 @@ async function main() {
 
   // ── Step 8: Summary ────────────────────────────────────────────────────────
   try {
-    const status = execSync('docker compose ps', { encoding: 'utf-8', cwd: rootDir });
+    const status = execSync('docker compose ps', { encoding: 'utf-8', cwd: rootDir, env: composeConfig.env });
     log('Container status:', 'blue');
     console.log(status.toString().trimEnd());
     console.log();

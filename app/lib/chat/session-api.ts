@@ -31,8 +31,11 @@ export type CreateChatSessionResponse = {
   };
 };
 
-export async function fetchChatSessions(agentId = 'all'): Promise<AISession[]> {
+export async function fetchChatSessions(agentId = 'all', options: { workspaceId?: string | null } = {}): Promise<AISession[]> {
   const params = new URLSearchParams({ agentId });
+  if (options.workspaceId) {
+    params.set('workspaceId', options.workspaceId);
+  }
   const res = await fetch(`/api/sessions?${params.toString()}`);
   const data = await safeFetchJson<{ success: boolean; sessions?: AISession[] }>(res);
   return data?.success ? data.sessions || [] : [];
@@ -77,6 +80,7 @@ export async function fetchChatSessionMessages(params: {
   before?: number | null;
   beforeId?: number | null;
   beforeSequence?: number | null;
+  workspaceId?: string | null;
   signal?: AbortSignal;
   cache?: RequestCache;
   credentials?: RequestCredentials;
@@ -94,6 +98,9 @@ export async function fetchChatSessionMessages(params: {
   }
   if (params.beforeId !== null && params.beforeId !== undefined) {
     searchParams.set('beforeId', String(params.beforeId));
+  }
+  if (params.workspaceId) {
+    searchParams.set('workspaceId', params.workspaceId);
   }
 
   const response = await fetch(`/api/sessions/messages?${searchParams.toString()}`, {

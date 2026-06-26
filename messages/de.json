@@ -54,6 +54,7 @@
     "loadingContext": "Workspace-Kontext wird geladen",
     "noWorkspaceAvailable": "Kein Workspace verfügbar",
     "refresh": "Workspaces aktualisieren",
+    "sourceWorkspace": "Quell-Workspace",
     "targetWorkspace": "Ziel-Workspace",
     "targetFolder": "Zielordner",
     "folderLoadFailed": "Workspace-Ordner konnten nicht geladen werden",

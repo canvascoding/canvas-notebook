@@ -87,7 +87,7 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const source = await loadMediaReference(sourcePath, { allowedTypes: ['image'] });
+    const source = await loadMediaReference(sourcePath, { userId: session.user.id, allowedTypes: ['image'] });
     const mask = parseDataUrl(body.maskDataUrl);
     if (!mask.mimeType.startsWith('image/')) {
       return NextResponse.json({ success: false, error: 'maskDataUrl must be an image' }, { status: 400 });

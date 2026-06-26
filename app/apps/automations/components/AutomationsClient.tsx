@@ -2132,7 +2132,7 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
         )
       ) : (
         <div className="space-y-4">
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 sm:gap-3 lg:grid-cols-5">
             {[
               { label: t('overview.total'), value: overviewStats.total, icon: CalendarClock },
               { label: t('jobStatus.active'), value: overviewStats.active, icon: CheckCircle2 },
@@ -2143,12 +2143,12 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
               const StatIcon = stat.icon;
               return (
                 <Card key={stat.label} className="min-w-0">
-                  <CardContent className="flex items-center justify-between gap-3 p-4">
+                  <CardContent className="flex min-h-16 items-start justify-between gap-2 p-2.5 sm:min-h-20 sm:items-center sm:gap-3 sm:p-4">
                     <div className="min-w-0">
                       <p className="truncate text-xs text-muted-foreground">{stat.label}</p>
-                      <p className="mt-1 text-2xl font-semibold">{stat.value}</p>
+                      <p className="text-xl font-semibold leading-tight sm:mt-1 sm:text-2xl">{stat.value}</p>
                     </div>
-                    <StatIcon className="h-5 w-5 shrink-0 text-muted-foreground" />
+                    <StatIcon className="h-4 w-4 shrink-0 text-muted-foreground sm:h-5 sm:w-5" />
                   </CardContent>
                 </Card>
               );

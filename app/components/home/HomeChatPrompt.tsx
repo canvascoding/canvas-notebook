@@ -6,7 +6,7 @@ import { useLocale, useTranslations } from 'next-intl';
 import { MessageSquare, Send, Paperclip, Megaphone, WandSparkles, Clapperboard, BriefcaseBusiness, FileText, FolderTree, Loader2 } from 'lucide-react';
 import { getFileIconComponent } from '@/app/lib/files/file-icons';
 
-import { CANVAS_CHAT_ACTIVE_SESSION_STORAGE_KEY, CANVAS_CHAT_INITIAL_PROMPT_STORAGE_KEY } from '@/app/lib/chat/constants';
+import { clearCanvasChatActiveSessionStorage, CANVAS_CHAT_INITIAL_PROMPT_STORAGE_KEY } from '@/app/lib/chat/constants';
 import { DEFAULT_AGENT_ID } from '@/app/lib/channels/constants';
 import { BUSINESS_STARTER_PROMPTS, type StarterPromptDefinition, type StarterPromptIcon } from '@/app/lib/chat/starter-prompts';
 import { getSessionDisplayTitle } from '@/app/lib/pi/session-titles';
@@ -462,7 +462,7 @@ export function HomeChatPrompt() {
     setIsSubmitting(true);
 
     try {
-      window.sessionStorage.removeItem(CANVAS_CHAT_ACTIVE_SESSION_STORAGE_KEY);
+      clearCanvasChatActiveSessionStorage();
       // Store prompt and attachments in sessionStorage
       const data = {
         prompt: normalizedPrompt,
