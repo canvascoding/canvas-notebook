@@ -2,7 +2,11 @@ import assert from 'node:assert/strict';
 
 import { JSDOM } from 'jsdom';
 
-import { clampEditorRangeToDoc, isEditorRangeInsideDoc } from '../app/lib/editor/prosemirror-ranges';
+import {
+  clampEditorRangeToDoc,
+  getSlashCommandDeletionRange,
+  isEditorRangeInsideDoc,
+} from '../app/lib/editor/prosemirror-ranges';
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>');
 
@@ -141,7 +145,23 @@ async function main() {
     { from: smallEditor.state.doc.content.size, to: smallEditor.state.doc.content.size },
     'stale insertion ranges should clamp to a valid document position',
   );
+  assert.equal(
+    getSlashCommandDeletionRange(smallEditor, { from: 1, to: 2 }),
+    null,
+    'slash command cleanup should not delete non-slash text from an otherwise valid stale range',
+  );
 
+  const slashEditor = new Editor({
+    content: '/heading',
+    extensions: [StarterKit],
+  });
+  assert.deepEqual(
+    getSlashCommandDeletionRange(slashEditor, { from: 1, to: 9 }),
+    { from: 1, to: 9 },
+    'slash command cleanup should delete the active slash query range',
+  );
+
+  slashEditor.destroy();
   smallEditor.destroy();
   editor.destroy();
 
