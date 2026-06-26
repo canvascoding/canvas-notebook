@@ -1,26 +1,13 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Check, ChevronsUpDown, Loader2 } from 'lucide-react';
+import { ChevronsUpDown, Loader2 } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 
 import { DirectoryBrowser } from '@/app/components/file-browser/DirectoryBrowser';
 import type { FileNode } from '@/app/lib/files/types';
 import { loadWorkspaceTree } from '@/app/lib/files/client';
 import { cn } from '@/lib/utils';
-import { Button } from '@/components/ui/button';
-import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandItem,
-  CommandList,
-} from '@/components/ui/command';
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from '@/components/ui/popover';
 import {
   getWorkspaceKindLabel,
   type WorkspaceKindLabels,
@@ -67,7 +54,6 @@ export function WorkspaceDestinationPicker({
   const [loadingDirs, setLoadingDirs] = useState(new Set<string>());
   const [isLoadingTree, setIsLoadingTree] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [workspaceMenuOpen, setWorkspaceMenuOpen] = useState(false);
   const latestWorkspaceIdRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -139,9 +125,9 @@ export function WorkspaceDestinationPicker({
   }, [effectiveWorkspaceId, t]);
 
   const handleWorkspaceSelect = (workspaceId: string) => {
+    if (!workspaceId) return;
     onWorkspaceChange(workspaceId);
     onDirChange('.');
-    setWorkspaceMenuOpen(false);
   };
 
   const handleToggleDir = (dirPath: string) => {
@@ -185,55 +171,25 @@ export function WorkspaceDestinationPicker({
     );
   }
 
-  const selectedWorkspace = writableWorkspaces.find((workspace) => workspace.id === effectiveWorkspaceId);
-
   return (
     <div className={cn('min-w-0 space-y-3', className)}>
       <label className="flex min-w-0 flex-col gap-1 text-sm">
         <span className="text-xs font-medium text-muted-foreground">{t('targetWorkspace')}</span>
-        <Popover open={workspaceMenuOpen} onOpenChange={setWorkspaceMenuOpen}>
-          <PopoverTrigger asChild>
-            <Button
-              type="button"
-              variant="outline"
-              role="combobox"
-              aria-expanded={workspaceMenuOpen}
-              className="h-9 min-w-0 justify-between px-2 text-left font-normal"
-            >
-              <span className="min-w-0 truncate">
-                {selectedWorkspace
-                  ? `${selectedWorkspace.name} - ${getWorkspaceKindLabel(selectedWorkspace, kindLabels)}`
-                  : t('targetWorkspace')}
-              </span>
-              <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 text-muted-foreground" />
-            </Button>
-          </PopoverTrigger>
-          <PopoverContent align="start" className="w-[var(--radix-popover-trigger-width)] p-1">
-            <Command>
-              <CommandList>
-                <CommandEmpty>{t('noWritableWorkspace')}</CommandEmpty>
-                <CommandGroup>
-                  {writableWorkspaces.map((workspace) => {
-                    const selected = workspace.id === effectiveWorkspaceId;
-                    return (
-                      <CommandItem
-                        key={workspace.id}
-                        value={`${workspace.name} ${workspace.id}`}
-                        onSelect={() => handleWorkspaceSelect(workspace.id)}
-                      >
-                        <Check className={cn('h-4 w-4', selected ? 'opacity-100' : 'opacity-0')} />
-                        <span className="min-w-0 flex-1 truncate">{workspace.name}</span>
-                        <span className="shrink-0 text-xs text-muted-foreground">
-                          {getWorkspaceKindLabel(workspace, kindLabels)}
-                        </span>
-                      </CommandItem>
-                    );
-                  })}
-                </CommandGroup>
-              </CommandList>
-            </Command>
-          </PopoverContent>
-        </Popover>
+        <span className="relative block">
+          <select
+            value={effectiveWorkspaceId ?? ''}
+            onChange={(event) => handleWorkspaceSelect(event.target.value)}
+            className="h-9 w-full appearance-none rounded-md border border-input bg-background px-2 pr-8 text-left text-sm font-normal shadow-xs outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {!effectiveWorkspaceId ? <option value="">{t('targetWorkspace')}</option> : null}
+            {writableWorkspaces.map((workspace) => (
+              <option key={workspace.id} value={workspace.id}>
+                {workspace.name} - {getWorkspaceKindLabel(workspace, kindLabels)}
+              </option>
+            ))}
+          </select>
+          <ChevronsUpDown className="pointer-events-none absolute right-2 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+        </span>
       </label>
 
       <div className="min-w-0 overflow-hidden rounded-md border border-border bg-muted/40 px-3 py-2">
