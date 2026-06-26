@@ -594,6 +594,16 @@ li.task-list-item > p {
   cursor: grabbing;
 }
 
+.tiptap-block-drop-indicator {
+  background: var(--primary);
+  border-radius: 999px;
+  height: 2px;
+  left: 4.75rem;
+  pointer-events: none;
+  right: 1.5rem;
+  transform: translateY(-1px);
+}
+
 .tiptap-color-swatch-widget-root {
   display: inline-flex;
   vertical-align: -0.125rem;

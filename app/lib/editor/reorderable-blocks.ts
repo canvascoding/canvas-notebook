@@ -1,5 +1,6 @@
 import type { Editor, Range } from '@tiptap/core';
 import type { Node as ProseMirrorNode } from '@tiptap/pm/model';
+import { Selection } from '@tiptap/pm/state';
 
 export type BlockInsertPlacement = 'above' | 'below';
 
@@ -19,6 +20,14 @@ export type BlockControlPosition = {
   blockRange: ReorderableBlockRange;
   menuRange: Range;
   top: number;
+};
+
+export type BlockDropPlacement = 'before' | 'after';
+
+export type BlockDropTarget = {
+  insertPosition: number;
+  placement: BlockDropPlacement;
+  target: ReorderableBlockRange;
 };
 
 export function findActiveTextblockDepth(editor: Editor): number | null {
@@ -103,7 +112,7 @@ function getListItemBlockRangeAt(
   return null;
 }
 
-function getReorderableBlockRangeAt(
+export function getReorderableBlockRangeAt(
   editor: Editor,
   position: number,
   source?: ReorderableBlockRange,
@@ -215,13 +224,33 @@ export function getBlockDropInsertPosition(
   event: DragEvent,
   source: ReorderableBlockRange,
 ): number | null {
+  return getBlockDropTarget(editor, event, source)?.insertPosition ?? null;
+}
+
+export function getBlockDropTarget(
+  editor: Editor,
+  event: DragEvent,
+  source: ReorderableBlockRange,
+): BlockDropTarget | null {
   const positionAtCoords = editor.view.posAtCoords({
     left: event.clientX,
     top: event.clientY,
   });
 
   if (!positionAtCoords) {
-    return source.kind === 'topLevel' ? editor.state.doc.content.size : null;
+    if (source.kind !== 'topLevel') return null;
+
+    const insertPosition = editor.state.doc.content.size;
+    if (insertPosition >= source.from && insertPosition <= source.to) return null;
+
+    const target = getTopLevelBlockRangeAt(editor, insertPosition);
+    if (!target) return null;
+
+    return {
+      insertPosition,
+      placement: 'after',
+      target,
+    };
   }
 
   const target = getReorderableBlockRangeAt(editor, positionAtCoords.pos, source);
@@ -231,37 +260,71 @@ export function getBlockDropInsertPosition(
 
   const targetDom = editor.view.nodeDOM(target.from);
   const targetRect = targetDom instanceof HTMLElement ? targetDom.getBoundingClientRect() : null;
-  const insertPosition = targetRect
+  const placement: BlockDropPlacement = targetRect
     ? event.clientY < targetRect.top + targetRect.height / 2
-      ? target.from
-      : target.to
+      ? 'before'
+      : 'after'
     : positionAtCoords.pos <= target.from
-      ? target.from
-      : target.to;
+      ? 'before'
+      : 'after';
+  const insertPosition = placement === 'before' ? target.from : target.to;
 
   if (insertPosition >= source.from && insertPosition <= source.to) {
     return null;
   }
 
-  return insertPosition;
+  return {
+    insertPosition,
+    placement,
+    target,
+  };
 }
 
-export function moveReorderableBlock(editor: Editor, source: ReorderableBlockRange, insertPosition: number) {
+export function getBlockDropIndicatorTop(
+  editor: Editor,
+  container: HTMLDivElement,
+  dropTarget: BlockDropTarget,
+): number | null {
+  const targetDom = editor.view.nodeDOM(dropTarget.target.from);
+  if (!(targetDom instanceof HTMLElement)) return null;
+
+  const containerRect = container.getBoundingClientRect();
+  const targetRect = targetDom.getBoundingClientRect();
+  const targetEdge = dropTarget.placement === 'before' ? targetRect.top : targetRect.bottom;
+
+  return Math.max(4, targetEdge - containerRect.top + container.scrollTop);
+}
+
+export function moveReorderableBlock(editor: Editor, source: ReorderableBlockRange, insertPosition: number): boolean {
   const sourceSize = source.to - source.from;
   const adjustedInsertPosition = insertPosition > source.from ? insertPosition - sourceSize : insertPosition;
 
-  if (adjustedInsertPosition === source.from) return;
+  if (adjustedInsertPosition === source.from) return false;
 
   try {
     const transaction = editor.state.tr
       .delete(source.from, source.to)
       .insert(adjustedInsertPosition, source.node)
       .scrollIntoView();
+    const selectionPosition = Math.min(adjustedInsertPosition + 1, transaction.doc.content.size);
+
+    if (selectionPosition >= 0) {
+      transaction.setSelection(Selection.near(transaction.doc.resolve(selectionPosition), 1));
+    }
 
     editor.view.dispatch(transaction);
-    editor.commands.focus();
   } catch {
     // Ignore invalid drops, for example when the browser reports coordinates
     // outside the reorderable parent list.
+    return false;
   }
+
+  try {
+    editor.commands.focus();
+  } catch {
+    // Focusing can fail in non-browser test environments after a successful
+    // transaction; the reorder itself is still complete.
+  }
+
+  return true;
 }

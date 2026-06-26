@@ -87,10 +87,12 @@ import {
 import {
   createCurrentBlockCommandTarget,
   createInsertedBlockCommandTarget,
-  getBlockDropInsertPosition,
+  getBlockDropIndicatorTop,
+  getBlockDropTarget,
   getBlockInsertButtonPosition,
   moveReorderableBlock,
   type BlockControlPosition,
+  type BlockDropTarget,
   type BlockInsertPlacement,
   type ReorderableBlockRange,
 } from '@/app/lib/editor/reorderable-blocks';
@@ -962,7 +964,28 @@ function MarkdownBlockControls({
   scrollContainerRef: React.RefObject<HTMLDivElement | null>;
 }) {
   const [position, setPosition] = useState<BlockControlPosition | null>(null);
+  const [dropIndicatorTop, setDropIndicatorTop] = useState<number | null>(null);
   const dragStateRef = useRef<ReorderableBlockRange | null>(null);
+
+  const clearDragState = useCallback(() => {
+    dragStateRef.current = null;
+    setDropIndicatorTop(null);
+  }, []);
+
+  const updateDropTarget = useCallback((event: DragEvent): BlockDropTarget | null => {
+    const container = scrollContainerRef.current;
+    const source = dragStateRef.current;
+    if (!editor || !container || !source) {
+      setDropIndicatorTop(null);
+      return null;
+    }
+
+    const dropTarget = getBlockDropTarget(editor, event, source);
+    const nextTop = dropTarget ? getBlockDropIndicatorTop(editor, container, dropTarget) : null;
+    setDropIndicatorTop(nextTop);
+
+    return dropTarget;
+  }, [editor, scrollContainerRef]);
 
   const updatePosition = useCallback(() => {
     const container = scrollContainerRef.current;
@@ -1012,109 +1035,131 @@ function MarkdownBlockControls({
       if (!dragStateRef.current) return;
 
       event.preventDefault();
+      const dropTarget = updateDropTarget(event);
       if (event.dataTransfer) {
-        event.dataTransfer.dropEffect = 'move';
+        event.dataTransfer.dropEffect = dropTarget ? 'move' : 'none';
       }
     };
 
     const handleDrop = (event: DragEvent) => {
       const source = dragStateRef.current;
-      dragStateRef.current = null;
 
       if (!source) return;
 
       event.preventDefault();
       event.stopPropagation();
 
-      const insertPosition = getBlockDropInsertPosition(editor, event, source);
-      if (insertPosition === null) return;
+      const dropTarget = updateDropTarget(event);
+      clearDragState();
+      if (!dropTarget) return;
 
-      moveReorderableBlock(editor, source, insertPosition);
+      moveReorderableBlock(editor, source, dropTarget.insertPosition);
+    };
+
+    const handleDragLeave = (event: DragEvent) => {
+      const nextTarget = event.relatedTarget;
+      if (nextTarget instanceof Node && editorElement.contains(nextTarget)) return;
+      setDropIndicatorTop(null);
+    };
+
+    const handleGlobalDragEnd = () => {
+      clearDragState();
     };
 
     editorElement.addEventListener('dragover', handleDragOver);
+    editorElement.addEventListener('dragleave', handleDragLeave);
     editorElement.addEventListener('drop', handleDrop);
+    window.addEventListener('dragend', handleGlobalDragEnd);
+    window.addEventListener('drop', handleGlobalDragEnd);
 
     return () => {
       editorElement.removeEventListener('dragover', handleDragOver);
+      editorElement.removeEventListener('dragleave', handleDragLeave);
       editorElement.removeEventListener('drop', handleDrop);
+      window.removeEventListener('dragend', handleGlobalDragEnd);
+      window.removeEventListener('drop', handleGlobalDragEnd);
     };
-  }, [editor]);
+  }, [clearDragState, editor, updateDropTarget]);
 
-  if (!editor?.isEditable || !position) return null;
+  if (!editor?.isEditable || (!position && dropIndicatorTop === null)) return null;
 
   return (
-    <div
-      className="tiptap-block-controls absolute z-10 flex items-center gap-1 opacity-70 hover:opacity-100 focus-within:opacity-100"
-      style={{ top: position.top }}
-    >
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-xs"
-            aria-label={labels.addBlock}
-            className="tiptap-block-control-button"
-            onMouseDown={(event) => {
-              event.preventDefault();
-              event.stopPropagation();
-            }}
-            onClick={(event) => {
-              event.preventDefault();
-              event.stopPropagation();
-              onAddBlock(editor, event.altKey ? 'above' : 'below', position.blockRange);
-            }}
-          >
-            <Plus />
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent side="bottom" className="flex flex-col gap-1 text-left">
-          <span>{labels.addBlockBelowHint}</span>
-          <span>{labels.addBlockAboveHint}</span>
-        </TooltipContent>
-      </Tooltip>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-xs"
-            aria-label={labels.openBlockMenuHint}
-            className="tiptap-block-control-button tiptap-block-drag-handle"
-            draggable
-            onClick={(event) => {
-              event.preventDefault();
-              event.stopPropagation();
-              onOpenCommandMenu(editor, position.menuRange);
-            }}
-            onDragEnd={() => {
-              dragStateRef.current = null;
-            }}
-            onDragStart={(event) => {
-              const source = position.blockRange;
-              if (!source || !event.dataTransfer) {
-                event.preventDefault();
-                return;
-              }
+    <>
+      {dropIndicatorTop !== null ? (
+        <div className="tiptap-block-drop-indicator absolute z-10" style={{ top: dropIndicatorTop }} />
+      ) : null}
+      {position ? (
+        <div
+          className="tiptap-block-controls absolute z-10 flex items-center gap-1 opacity-70 hover:opacity-100 focus-within:opacity-100"
+          style={{ top: position.top }}
+        >
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-xs"
+                aria-label={labels.addBlock}
+                className="tiptap-block-control-button"
+                onMouseDown={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                }}
+                onClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  onAddBlock(editor, event.altKey ? 'above' : 'below', position.blockRange);
+                }}
+              >
+                <Plus />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom" className="flex flex-col gap-1 text-left">
+              <span>{labels.addBlockBelowHint}</span>
+              <span>{labels.addBlockAboveHint}</span>
+            </TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-xs"
+                aria-label={labels.openBlockMenuHint}
+                className="tiptap-block-control-button tiptap-block-drag-handle"
+                draggable
+                onClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  onOpenCommandMenu(editor, position.menuRange);
+                }}
+                onDragEnd={clearDragState}
+                onDragStart={(event) => {
+                  const source = position.blockRange;
+                  if (!source || !event.dataTransfer) {
+                    event.preventDefault();
+                    return;
+                  }
 
-              dragStateRef.current = source;
-              event.dataTransfer.effectAllowed = 'move';
-              event.dataTransfer.setData('text/plain', 'canvas-editor-block');
-            }}
-            onMouseDown={(event) => {
-              event.stopPropagation();
-            }}
-          >
-            <GripVertical />
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent side="bottom" className="flex flex-col gap-1 text-left">
-          <span>{labels.dragBlockHint}</span>
-          <span>{labels.openBlockMenuHint}</span>
-        </TooltipContent>
-      </Tooltip>
-    </div>
+                  dragStateRef.current = source;
+                  event.dataTransfer.effectAllowed = 'move';
+                  event.dataTransfer.setData('text/plain', 'canvas-editor-block');
+                }}
+                onMouseDown={(event) => {
+                  event.stopPropagation();
+                }}
+              >
+                <GripVertical />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom" className="flex flex-col gap-1 text-left">
+              <span>{labels.dragBlockHint}</span>
+              <span>{labels.openBlockMenuHint}</span>
+            </TooltipContent>
+          </Tooltip>
+        </div>
+      ) : null}
+    </>
   );
 }
 
