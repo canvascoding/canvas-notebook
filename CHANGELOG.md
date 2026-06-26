@@ -11,6 +11,36 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.6.26.1] - 2026-06-26
+
+### Added
+
+- Added the organization, owner, permission, and workspace context foundations for personal and team workspaces.
+- Added global workspace switching, workspace copy actions, workspace-aware agent sessions, and user-scoped agent storage.
+- Added organization-scoped todos, workspace-scoped automations, organization Studio assets, workspace public links, audit trails, retention/trash handling, and granular migration import/export policy.
+- Added database provider abstraction, installer database provider selection, local Postgres compose setup, provider-aware backup/migration manifests, and Postgres-gated advanced knowledge settings.
+- Added collaboration lock policy and shared workspace revision guards.
+
+### Changed
+
+- Routed file APIs, search/retrieval, usage jobs, automations, public shares, Studio references, chat history, markdown PDF sharing, and secrets through workspace/user scope.
+- Hardened workspace path normalization, filesystem write policy, agent file mutation auditing, and agent bash tool execution.
+- Improved mobile workspace navigation, sticky suite navigation, Studio workspace destination/source pickers, email chat context, email attachment handling, markdown block drag behavior, and upload progress feedback.
+- Migrated legacy `/data/workspace` contents into the owner personal workspace and legacy single-user secrets into owner scope.
+
+### Fixed
+
+- Fixed migration ordering for legacy owner user indexes.
+- Fixed notebook preview state after workspace switches.
+- Fixed duplicate chat workspace badges.
+- Fixed Studio workspace picker interactions and workspace source selection for image references.
+- Fixed repeated email attachment uploads and email body scrolling.
+
+### Verification
+
+- `npm run build`
+- GitHub Actions `Build and Push` on `main`: `28247521717` built and pushed the image successfully, then failed only at the known Control Plane webhook DNS step for the old `api.canvas.holdings` domain.
+
 ## [2026.6.19.1] - 2026-06-19
 
 ### Fixed
