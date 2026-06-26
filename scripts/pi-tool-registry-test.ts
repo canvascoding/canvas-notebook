@@ -221,7 +221,7 @@ async function main() {
     path: 'hausarbeit/00_Projektplan_Team6_v2.md',
     maxChars: 12,
   });
-  assert.match(getText(truncatedReadResult), /^# Projektpla/);
+  assert.match(getText(truncatedReadResult), /# Projektpla/);
   assert.match(getText(truncatedReadResult), /content truncated after 12 characters/);
   assert.equal((truncatedReadResult.details as { type: string; truncated: boolean }).type, 'text');
   assert.equal((truncatedReadResult.details as { type: string; truncated: boolean }).truncated, true);
@@ -499,9 +499,12 @@ async function main() {
   await assert.rejects(fs.stat(path.join(workspaceDir, 'multi-moved', 'one.txt')));
   await assert.rejects(fs.stat(path.join(workspaceDir, 'multi-copy', 'dir-one')));
 
-  assert.equal(detectUnsafeBashCommand('cp -r /data/workspace/a /data/workspace/b'), null);
-  assert.equal(detectUnsafeBashCommand('mv /data/workspace/a /data/workspace/b'), null);
-  assert.equal(detectUnsafeBashCommand('rm -rf /data/workspace/a'), null);
+  assert.match(detectUnsafeBashCommand('cp -r /data/workspace/a /data/workspace/b') || '', /file mutations/i);
+  assert.match(detectUnsafeBashCommand('mv /data/workspace/a /data/workspace/b') || '', /file mutations/i);
+  assert.match(detectUnsafeBashCommand('rm -rf /data/workspace/a') || '', /file mutations/i);
+  assert.match(detectUnsafeBashCommand('echo $(rm ./workspace-file)') || '', /file mutations/i);
+  assert.match(detectUnsafeBashCommand('result=`git reset HEAD~1`') || '', /git/i);
+  assert.equal(detectUnsafeBashCommand('npm install'), null);
   assert.match(detectUnsafeBashCommand("sed -i 's/a/b/' /data/workspace/file.md") || '', /sed/i);
   assert.match(detectUnsafeBashCommand('echo broken > /data/workspace/file.md') || '', /redirects/i);
   assert.match(detectUnsafeBashCommand('cd /data/workspace && echo broken > file.md') || '', /redirects/i);

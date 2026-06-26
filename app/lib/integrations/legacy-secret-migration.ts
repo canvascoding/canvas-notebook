@@ -105,7 +105,12 @@ function parseEnvEntries(content: string): EnvEntry[] {
 function formatEnvValue(value: string): string {
   if (!value) return '';
   if (/^[A-Za-z0-9_./:-]+$/u.test(value)) return value;
-  return `"${value.replace(/\\/gu, '\\\\').replace(/"/gu, '\\"')}"`;
+  return `"${value
+    .replace(/\\/gu, '\\\\')
+    .replace(/"/gu, '\\"')
+    .replace(/\n/gu, '\\n')
+    .replace(/\r/gu, '\\r')
+    .replace(/\t/gu, '\\t')}"`;
 }
 
 function serializeEnvEntries(entries: EnvEntry[]): string {

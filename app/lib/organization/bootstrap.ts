@@ -454,12 +454,20 @@ export function ensureOrganizationBootstrapForUser(
     userId: ownerUser.id,
     teamFeaturesEnabled,
   });
-  migrateLegacyWorkspaceToPersonalWorkspace({
-    organizationId: organization.organization_id,
-    userId: ownerUser.id,
-    personalWorkspace: ownerWorkspaceRecords.personal,
-  });
-  migrateLegacySecretsToUserScope(ownerUser.id);
+  try {
+    migrateLegacyWorkspaceToPersonalWorkspace({
+      organizationId: organization.organization_id,
+      userId: ownerUser.id,
+      personalWorkspace: ownerWorkspaceRecords.personal,
+    });
+  } catch (error) {
+    console.warn('[organization-bootstrap] Legacy workspace migration failed:', error);
+  }
+  try {
+    migrateLegacySecretsToUserScope(ownerUser.id);
+  } catch (error) {
+    console.warn('[organization-bootstrap] Legacy secret migration failed:', error);
+  }
   if (targetUser.id !== ownerUser.id) {
     ensureScopedDirectories(organization.organization_id, targetUser.id, teamFeaturesEnabled);
     ensureDefaultWorkspaceRecords(sqlite, {

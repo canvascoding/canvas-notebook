@@ -617,9 +617,10 @@ export default function CanvasAgentChat({
   useEffect(() => {
     const handleWorkspaceChange = (event: Event) => {
       const detail = (event as CustomEvent<{ previousWorkspaceId?: string | null; activeWorkspaceId?: string | null }>).detail;
-      clearCanvasChatActiveSessionStorage(detail?.previousWorkspaceId ?? null);
-      clearCanvasChatActiveSessionStorage(detail?.activeWorkspaceId ?? null);
-      startNewChat();
+      if (detail?.previousWorkspaceId) {
+        clearCanvasChatActiveSessionStorage(detail.previousWorkspaceId);
+      }
+      startNewChat(undefined, { clearActiveSessionStorage: false });
     };
 
     window.addEventListener(WORKSPACE_CHANGED_EVENT, handleWorkspaceChange);

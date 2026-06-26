@@ -1780,12 +1780,12 @@ function shellRedirectWritesManagedPath(command: string, cdsIntoManagedPath: boo
 }
 
 function shellUsesDirectFileMutationCommand(command: string): boolean {
-  const directMutationCommandPattern = /(?:^|[;&|]\s*|\b(?:then|do)\s+)(?:sudo\s+)?(?:rm|mv|cp|mkdir|rmdir|touch|chmod|chown|chgrp|ln|truncate|dd|rsync|install)\b/i;
+  const directMutationCommandPattern = /(?:^|[;&|]\s*|\$\(\s*|`\s*|\b(?:then|do)\s+)(?:sudo\s+)?(?:rm|mv|cp|mkdir|rmdir|touch|chmod|chown|chgrp|ln|truncate|dd|rsync|install)\b/i;
   return directMutationCommandPattern.test(command);
 }
 
 function shellUsesMutatingGitCommand(command: string): boolean {
-  const gitMutationPattern = /(?:^|[;&|]\s*|\b(?:then|do)\s+)(?:sudo\s+)?git\s+(?:clean|reset|checkout|restore|switch|merge|rebase|apply|am)\b/i;
+  const gitMutationPattern = /(?:^|[;&|]\s*|\$\(\s*|`\s*|\b(?:then|do)\s+)(?:sudo\s+)?git\s+(?:clean|reset|checkout|restore|switch|merge|rebase|apply|am)\b/i;
   return gitMutationPattern.test(command);
 }
 

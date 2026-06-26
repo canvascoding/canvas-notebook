@@ -58,6 +58,10 @@ type ChatRuntimeControlAction =
   | 'replace'
   | 'compact';
 
+type StartNewChatOptions = {
+  clearActiveSessionStorage?: boolean;
+};
+
 type UseChatControlActionsParams = {
   activeModel: string;
   activeProvider: string;
@@ -542,7 +546,7 @@ export function useChatControlActions({
     }
   }, [appendCompactionBreak, appendSystemMessage, postControl, sessionIdRef, t]);
 
-  const startNewChat = useCallback((agentIdOverride?: string) => {
+  const startNewChat = useCallback((agentIdOverride?: string, options?: StartNewChatOptions) => {
     const nextAgentId = agentIdOverride || selectedAgentId;
     resetStreamConnection();
     setRuntimeStatus(null);
@@ -560,7 +564,9 @@ export function useChatControlActions({
     sessionAgentIdRef.current = nextAgentId;
     resetRuntimeMessageRefs();
     userStartedNewChatRef.current = true;
-    clearCanvasChatActiveSessionStorage(activeWorkspaceId);
+    if (options?.clearActiveSessionStorage !== false) {
+      clearCanvasChatActiveSessionStorage(activeWorkspaceId);
+    }
     setMessages([]);
     setHasMoreBefore(false);
     setOldestTimestamp(null);

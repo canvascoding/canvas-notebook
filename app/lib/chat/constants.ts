@@ -18,13 +18,6 @@ export function clearCanvasChatActiveSessionStorage(workspaceId?: string | null)
     }
 
     window.sessionStorage.removeItem(CANVAS_CHAT_ACTIVE_SESSION_STORAGE_KEY);
-    const scopedKeyPrefix = `${CANVAS_CHAT_ACTIVE_SESSION_STORAGE_KEY}:`;
-    for (let index = window.sessionStorage.length - 1; index >= 0; index -= 1) {
-      const key = window.sessionStorage.key(index);
-      if (key?.startsWith(scopedKeyPrefix)) {
-        window.sessionStorage.removeItem(key);
-      }
-    }
   } catch {
     // Session restore is a convenience only; ignore storage failures.
   }
