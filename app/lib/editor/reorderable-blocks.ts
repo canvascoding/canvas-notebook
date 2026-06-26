@@ -30,6 +30,11 @@ export type BlockDropTarget = {
   target: ReorderableBlockRange;
 };
 
+export type BlockOverlayRect = {
+  height: number;
+  top: number;
+};
+
 export function findActiveTextblockDepth(editor: Editor): number | null {
   const { $from } = editor.state.selection;
 
@@ -293,6 +298,23 @@ export function getBlockDropIndicatorTop(
   const targetEdge = dropTarget.placement === 'before' ? targetRect.top : targetRect.bottom;
 
   return Math.max(4, targetEdge - containerRect.top + container.scrollTop);
+}
+
+export function getBlockOverlayRect(
+  editor: Editor,
+  container: HTMLDivElement,
+  blockRange: ReorderableBlockRange,
+): BlockOverlayRect | null {
+  const blockDom = editor.view.nodeDOM(blockRange.from);
+  if (!(blockDom instanceof HTMLElement)) return null;
+
+  const containerRect = container.getBoundingClientRect();
+  const blockRect = blockDom.getBoundingClientRect();
+
+  return {
+    height: Math.max(20, blockRect.height),
+    top: Math.max(4, blockRect.top - containerRect.top + container.scrollTop),
+  };
 }
 
 export function moveReorderableBlock(editor: Editor, source: ReorderableBlockRange, insertPosition: number): boolean {

@@ -59,6 +59,22 @@ function findDocTextPosition(editor: TiptapEditor, text: string): number | null 
   return found;
 }
 
+function findDocNodePosition(editor: TiptapEditor, typeName: string): number | null {
+  let found: number | null = null;
+
+  editor.state.doc.descendants((node, position) => {
+    if (found !== null) return false;
+    if (node.type.name === typeName) {
+      found = position;
+      return false;
+    }
+
+    return true;
+  });
+
+  return found;
+}
+
 const sampleMarkdown = `# Title
 
 Paragraph with **bold**, *italic*, ~~strike~~, \`code\`, emoji 😄, and [link](https://example.com). ![Link preview: example.com](https://cdn.example.com/og.png)
@@ -152,6 +168,21 @@ async function main() {
   assert.ok(tableAlignments.includes('right'), 'GFM table alignment should preserve right cells');
   assert.ok(nodeTypes.includes('image'), 'Markdown images should parse as image nodes');
   assert.ok(nodeTypes.includes('codeBlock'), 'Mermaid fences should remain code blocks');
+
+  const imagePosition = findDocNodePosition(editor, 'image');
+  const tablePosition = findDocNodePosition(editor, 'table');
+  assert.notEqual(imagePosition, null, 'image node should be discoverable for block controls');
+  assert.notEqual(tablePosition, null, 'table node should be discoverable for block controls');
+  assert.equal(
+    getReorderableBlockRangeAt(editor, imagePosition ?? 0)?.kind,
+    'topLevel',
+    'image nodes should drag as top-level blocks',
+  );
+  assert.equal(
+    getReorderableBlockRangeAt(editor, tablePosition ?? 0)?.kind,
+    'topLevel',
+    'tables should drag as top-level blocks',
+  );
 
   const smallEditor = new Editor({
     content: 'x',

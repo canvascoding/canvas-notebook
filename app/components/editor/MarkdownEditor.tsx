@@ -90,10 +90,12 @@ import {
   getBlockDropIndicatorTop,
   getBlockDropTarget,
   getBlockInsertButtonPosition,
+  getBlockOverlayRect,
   moveReorderableBlock,
   type BlockControlPosition,
   type BlockDropTarget,
   type BlockInsertPlacement,
+  type BlockOverlayRect,
   type ReorderableBlockRange,
 } from '@/app/lib/editor/reorderable-blocks';
 import { createInlineColorRegex, isColorCode } from '@/app/lib/markdown/color-code';
@@ -965,27 +967,46 @@ function MarkdownBlockControls({
 }) {
   const [position, setPosition] = useState<BlockControlPosition | null>(null);
   const [dropIndicatorTop, setDropIndicatorTop] = useState<number | null>(null);
+  const [dragSourceOverlay, setDragSourceOverlay] = useState<BlockOverlayRect | null>(null);
+  const [dropTargetOverlay, setDropTargetOverlay] = useState<BlockOverlayRect | null>(null);
   const dragStateRef = useRef<ReorderableBlockRange | null>(null);
 
   const clearDragState = useCallback(() => {
     dragStateRef.current = null;
+    setDragSourceOverlay(null);
     setDropIndicatorTop(null);
+    setDropTargetOverlay(null);
   }, []);
+
+  const updateDragSourceOverlay = useCallback(() => {
+    const container = scrollContainerRef.current;
+    const source = dragStateRef.current;
+    if (!editor || !container || !source) {
+      setDragSourceOverlay(null);
+      return;
+    }
+
+    setDragSourceOverlay(getBlockOverlayRect(editor, container, source));
+  }, [editor, scrollContainerRef]);
 
   const updateDropTarget = useCallback((event: DragEvent): BlockDropTarget | null => {
     const container = scrollContainerRef.current;
     const source = dragStateRef.current;
     if (!editor || !container || !source) {
       setDropIndicatorTop(null);
+      setDropTargetOverlay(null);
       return null;
     }
 
     const dropTarget = getBlockDropTarget(editor, event, source);
     const nextTop = dropTarget ? getBlockDropIndicatorTop(editor, container, dropTarget) : null;
+    const nextTargetOverlay = dropTarget ? getBlockOverlayRect(editor, container, dropTarget.target) : null;
     setDropIndicatorTop(nextTop);
+    setDropTargetOverlay(nextTargetOverlay);
+    updateDragSourceOverlay();
 
     return dropTarget;
-  }, [editor, scrollContainerRef]);
+  }, [editor, scrollContainerRef, updateDragSourceOverlay]);
 
   const updatePosition = useCallback(() => {
     const container = scrollContainerRef.current;
@@ -1017,14 +1038,19 @@ function MarkdownBlockControls({
     const container = scrollContainerRef.current;
     if (!container) return;
 
-    container.addEventListener('scroll', updatePosition, { passive: true });
+    const handleScroll = () => {
+      updatePosition();
+      updateDragSourceOverlay();
+    };
+
+    container.addEventListener('scroll', handleScroll, { passive: true });
     window.addEventListener('resize', updatePosition);
 
     return () => {
-      container.removeEventListener('scroll', updatePosition);
+      container.removeEventListener('scroll', handleScroll);
       window.removeEventListener('resize', updatePosition);
     };
-  }, [scrollContainerRef, updatePosition]);
+  }, [scrollContainerRef, updateDragSourceOverlay, updatePosition]);
 
   useEffect(() => {
     if (!editor) return;
@@ -1060,6 +1086,7 @@ function MarkdownBlockControls({
       const nextTarget = event.relatedTarget;
       if (nextTarget instanceof Node && editorElement.contains(nextTarget)) return;
       setDropIndicatorTop(null);
+      setDropTargetOverlay(null);
     };
 
     const handleGlobalDragEnd = () => {
@@ -1081,10 +1108,22 @@ function MarkdownBlockControls({
     };
   }, [clearDragState, editor, updateDropTarget]);
 
-  if (!editor?.isEditable || (!position && dropIndicatorTop === null)) return null;
+  if (!editor?.isEditable || (!position && !dragSourceOverlay && !dropTargetOverlay && dropIndicatorTop === null)) return null;
 
   return (
     <>
+      {dragSourceOverlay ? (
+        <div
+          className="tiptap-block-drag-overlay tiptap-block-drag-overlay-source absolute z-10"
+          style={{ height: dragSourceOverlay.height, top: dragSourceOverlay.top }}
+        />
+      ) : null}
+      {dropTargetOverlay ? (
+        <div
+          className="tiptap-block-drag-overlay tiptap-block-drag-overlay-target absolute z-10"
+          style={{ height: dropTargetOverlay.height, top: dropTargetOverlay.top }}
+        />
+      ) : null}
       {dropIndicatorTop !== null ? (
         <div className="tiptap-block-drop-indicator absolute z-10" style={{ top: dropIndicatorTop }} />
       ) : null}
@@ -1142,6 +1181,10 @@ function MarkdownBlockControls({
                   }
 
                   dragStateRef.current = source;
+                  const container = scrollContainerRef.current;
+                  if (container) {
+                    setDragSourceOverlay(getBlockOverlayRect(editor, container, source));
+                  }
                   event.dataTransfer.effectAllowed = 'move';
                   event.dataTransfer.setData('text/plain', 'canvas-editor-block');
                 }}
