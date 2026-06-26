@@ -1115,8 +1115,8 @@ function EmailMessageViewer({
   }
 
   return (
-    <article className={cn('h-full min-h-0 overflow-y-auto', className)}>
-      <header className="border-b border-border px-3 py-2.5 pr-10 sm:px-4">
+    <article className={cn('flex h-full min-h-0 flex-col overflow-hidden', className)}>
+      <header className="shrink-0 border-b border-border px-3 py-2.5 pr-10 sm:px-4">
         <h3 className="text-base font-semibold leading-6 sm:text-lg sm:leading-7">{message.subject || labels.noSubject}</h3>
         <div className="mt-1.5 flex flex-col gap-0.5 text-xs text-muted-foreground sm:text-sm">
           <p><span className="font-medium text-foreground">{labels.from}:</span> {message.from}</p>
@@ -1165,7 +1165,7 @@ function EmailMessageViewer({
           </div>
         )}
       </header>
-      <div className="px-4 py-4">
+      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
         <EmailMessageBody
           allowRemoteResourcesByDefault={allowRemoteResourcesByDefault}
           allowedRemoteResourceSenders={allowedRemoteResourceSenders}
