@@ -60,7 +60,7 @@ export async function getPublicMarkdownExport(token: string): Promise<PublicMark
     };
   }
 
-  const html = await getCachedMarkdownHtmlDocument(resolved.workspacePath);
+  const html = await getCachedMarkdownHtmlDocument(resolved.workspacePath, { workspace: resolved.workspace });
   return {
     ok: true,
     fileName: resolved.share.fileName,

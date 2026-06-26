@@ -81,6 +81,7 @@ export type PublicShareResolution = {
   ok: true;
   share: PublicShareDto;
   row: PublicShareRow;
+  workspace: WorkspaceContext;
   workspacePath: string;
   fullPath: string;
   sizeBytes: number;
@@ -935,7 +936,8 @@ async function resolvePublicShareRow(row: PublicShareRow, options: ResolvePublic
   }
 
   const withShortCode = await ensureShortCode(reconciled);
-  const details = await getWorkspaceFileDetails(withShortCode.workspacePath, workspaceForRow(withShortCode));
+  const workspace = workspaceForRow(withShortCode);
+  const details = await getWorkspaceFileDetails(withShortCode.workspacePath, workspace);
 
   const updated = options.recordAccess === false
     ? withShortCode
@@ -953,6 +955,7 @@ async function resolvePublicShareRow(row: PublicShareRow, options: ResolvePublic
     ok: true,
     share: toDto(updated, null),
     row: updated,
+    workspace,
     workspacePath: details.workspacePath,
     fullPath: details.fullPath,
     sizeBytes: details.sizeBytes,

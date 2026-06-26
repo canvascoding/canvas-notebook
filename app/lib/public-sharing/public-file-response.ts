@@ -107,7 +107,7 @@ async function resolveResponseFile(
 
   const fullPath = workspacePath === resolved.workspacePath
     ? resolved.fullPath
-    : await resolveExistingWorkspacePath(workspacePath);
+    : await resolveExistingWorkspacePath(workspacePath, { workspace: resolved.workspace });
   const rootDir = path.dirname(resolved.fullPath);
   const realPath = await fs.realpath(fullPath);
   if (!isWithinDirectory(realPath, rootDir)) return null;

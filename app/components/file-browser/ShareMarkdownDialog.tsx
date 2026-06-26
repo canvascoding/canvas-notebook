@@ -14,6 +14,8 @@ import {
 import { toast } from 'sonner';
 import { toHtmlPreviewUrl } from '@/app/lib/utils/media-url';
 import { HtmlPreviewBlocked, HtmlPreviewConsent } from '@/app/components/editor/HtmlPreviewConsent';
+import { WORKSPACE_ID_HEADER } from '@/app/lib/workspaces/constants';
+import { useWorkspaceStore } from '@/app/store/workspace-store';
 
 interface ShareMarkdownDialogProps {
   open: boolean;
@@ -50,6 +52,7 @@ export function ShareMarkdownDialog({
   markdownPdfUrl,
 }: ShareMarkdownDialogProps) {
   const t = useTranslations('notebook');
+  const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
   const [loading, setLoading] = useState(false);
   const [pdfLoading, setPdfLoading] = useState(false);
   const [htmlContent, setHtmlContent] = useState<string>('');
@@ -57,6 +60,20 @@ export function ShareMarkdownDialog({
   const [htmlPreviewAllowed, setHtmlPreviewAllowed] = useState(false);
   const [htmlPreviewDeclined, setHtmlPreviewDeclined] = useState(false);
   const iframeRef = useRef<HTMLIFrameElement>(null);
+
+  const internalHeaders = useCallback((contentType?: string): HeadersInit | undefined => {
+    if (!activeWorkspaceId && !contentType) return undefined;
+    return {
+      ...(contentType ? { 'Content-Type': contentType } : {}),
+      ...(activeWorkspaceId ? { [WORKSPACE_ID_HEADER]: activeWorkspaceId } : {}),
+    };
+  }, [activeWorkspaceId]);
+
+  const internalUrl = useCallback((url: string) => {
+    if (!activeWorkspaceId) return url;
+    const separator = url.includes('?') ? '&' : '?';
+    return `${url}${separator}workspaceId=${encodeURIComponent(activeWorkspaceId)}`;
+  }, [activeWorkspaceId]);
 
   const loadHtmlExport = useCallback(async () => {
     if (kind === 'html') {
@@ -70,8 +87,16 @@ export function ShareMarkdownDialog({
     setError('');
 
     try {
+      const isPublicMarkdownExport = Boolean(markdownExportUrl);
+      const exportUrl = markdownExportUrl || internalUrl(
+        `/api/files/markdown-export?path=${encodeURIComponent(filePath)}`
+      );
       const response = await fetch(
-        markdownExportUrl || `/api/files/markdown-export?path=${encodeURIComponent(filePath)}`
+        exportUrl,
+        {
+          credentials: isPublicMarkdownExport ? 'same-origin' : 'include',
+          headers: isPublicMarkdownExport ? undefined : internalHeaders(),
+        }
       );
 
       if (!response.ok) {
@@ -90,7 +115,7 @@ export function ShareMarkdownDialog({
     } finally {
       setLoading(false);
     }
-  }, [filePath, kind, markdownExportUrl, t]);
+  }, [filePath, internalHeaders, internalUrl, kind, markdownExportUrl, t]);
 
   useEffect(() => {
     if (open && filePath) {
@@ -110,9 +135,13 @@ export function ShareMarkdownDialog({
     setPdfLoading(true);
     try {
       const publicMarkdownPdf = kind === 'markdown' && markdownPdfUrl;
-      const response = await fetch(kind === 'html' ? '/api/files/html-pdf' : markdownPdfUrl || '/api/files/markdown-pdf', {
+      const pdfUrl = kind === 'html'
+        ? internalUrl('/api/files/html-pdf')
+        : markdownPdfUrl || internalUrl('/api/files/markdown-pdf');
+      const response = await fetch(pdfUrl, {
         method: 'POST',
-        headers: publicMarkdownPdf ? undefined : { 'Content-Type': 'application/json' },
+        credentials: publicMarkdownPdf ? 'same-origin' : 'include',
+        headers: publicMarkdownPdf ? undefined : internalHeaders('application/json'),
         body: publicMarkdownPdf ? undefined : JSON.stringify({ path: filePath }),
       });
 
@@ -182,7 +211,7 @@ export function ShareMarkdownDialog({
                 htmlPreviewAllowed ? (
                   <iframe
                     ref={iframeRef}
-                    src={toHtmlPreviewUrl(filePath)}
+                    src={internalUrl(toHtmlPreviewUrl(filePath))}
                     className="w-full h-full"
                     sandbox="allow-scripts allow-same-origin"
                     title={t('previewTitle', { fileName })}

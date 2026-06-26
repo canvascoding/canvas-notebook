@@ -176,6 +176,7 @@ async function main() {
       syncPublicSharesAfterMove,
       syncPublicSharesAfterWrite,
     } = await import('../app/lib/public-sharing/public-file-shares');
+    const { getPublicMarkdownExport } = await import('../app/lib/public-sharing/public-markdown-export');
 
     const personalCreate = await createPublicFileShares({
       paths: ['docs/report.txt'],
@@ -204,6 +205,40 @@ async function main() {
     assert.equal(teamCreate.shares[0].workspaceName, ownerTeam.displayName);
     assert.equal(personalCreate.shares[0].targetRevisionPolicy, 'latest');
     assert.equal(personalCreate.shares[0].passwordEnabled, false);
+
+    await writeFile(path.join(ownerPersonal.rootPath, 'docs', 'shared.md'), '# Personal markdown\n\npersonal scoped content\n');
+    await writeFile(path.join(ownerTeam.rootPath, 'docs', 'shared.md'), '# Team markdown\n\nteam scoped content\n');
+    const personalMarkdownCreate = await createPublicFileShares({
+      paths: ['docs/shared.md'],
+      createdByUserId: 'user-owner',
+      workspace: ownerPersonal,
+      source: 'ui',
+      confirmPublicExposure: true,
+      baseUrl: 'https://notebook.example.test',
+    });
+    const teamMarkdownCreate = await createPublicFileShares({
+      paths: ['docs/shared.md'],
+      createdByUserId: 'user-owner',
+      workspace: ownerTeam,
+      source: 'ui',
+      confirmPublicExposure: true,
+      baseUrl: 'https://notebook.example.test',
+    });
+    assert.equal(personalMarkdownCreate.shares.length, 1);
+    assert.equal(teamMarkdownCreate.shares.length, 1);
+
+    const personalMarkdownExport = await getPublicMarkdownExport(tokenFromPublicUrl(personalMarkdownCreate.shares[0].publicUrl));
+    const teamMarkdownExport = await getPublicMarkdownExport(tokenFromPublicUrl(teamMarkdownCreate.shares[0].publicUrl));
+    assert.equal(personalMarkdownExport.ok, true);
+    assert.equal(teamMarkdownExport.ok, true);
+    if (personalMarkdownExport.ok && teamMarkdownExport.ok) {
+      assert.match(personalMarkdownExport.html, /Personal markdown/);
+      assert.match(personalMarkdownExport.html, /personal scoped content/);
+      assert.doesNotMatch(personalMarkdownExport.html, /team scoped content/);
+      assert.match(teamMarkdownExport.html, /Team markdown/);
+      assert.match(teamMarkdownExport.html, /team scoped content/);
+      assert.doesNotMatch(teamMarkdownExport.html, /personal scoped content/);
+    }
 
     await writeFile(path.join(ownerTeam.rootPath, 'docs', 'agent-root.txt'), 'team agent root\n');
     const ownerTeamWithoutRelativePath: WorkspaceContext = {
