@@ -505,6 +505,151 @@ function readExistingLegacyWorkspaceMigrationMarker(markerPath) {
   }
 }
 
+function legacySecretMigrationMarkerPath(userId) {
+  return path.join(getDataRoot(), 'system', 'migration', 'legacy-secret-imports', `${normalizeDataScopeId(userId, 'userId')}.json`);
+}
+
+function parseEnvEntries(content) {
+  const entries = [];
+  for (const rawLine of content.split(/\r?\n/g)) {
+    const trimmed = rawLine.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+
+    const normalized = trimmed.startsWith('export ') ? trimmed.slice(7).trim() : trimmed;
+    const equalsIndex = normalized.indexOf('=');
+    if (equalsIndex <= 0) continue;
+
+    const key = normalized.slice(0, equalsIndex).trim();
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) continue;
+
+    let value = normalized.slice(equalsIndex + 1).trim();
+    if (
+      (value.startsWith('"') && value.endsWith('"')) ||
+      (value.startsWith("'") && value.endsWith("'"))
+    ) {
+      value = value.slice(1, -1);
+    }
+
+    entries.push({ key, value });
+  }
+  return entries;
+}
+
+function formatEnvValue(value) {
+  if (!value) return '';
+  if (/^[A-Za-z0-9_./:-]+$/.test(value)) return value;
+  return `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+}
+
+function serializeEnvEntries(entries) {
+  if (entries.length === 0) return '';
+  const sorted = [...entries].sort((a, b) => a.key.localeCompare(b.key));
+  return `${sorted.map((entry) => `${entry.key}=${formatEnvValue(entry.value)}`).join('\n')}\n`;
+}
+
+function readEnvEntries(filePath) {
+  if (!fileExists(filePath)) return [];
+  return parseEnvEntries(readFileSync(filePath, 'utf8'));
+}
+
+function fileExists(filePath) {
+  try {
+    return statSync(filePath).isFile();
+  } catch {
+    return false;
+  }
+}
+
+function writeAtomicFile(filePath, content) {
+  mkdirSync(path.dirname(filePath), { recursive: true });
+  const tempPath = `${filePath}.tmp-${Date.now()}-${process.pid}`;
+  writeFileSync(tempPath, content, { encoding: 'utf8', mode: 0o600 });
+  renameSync(tempPath, filePath);
+}
+
+function writeEnvEntries(filePath, entries) {
+  writeAtomicFile(filePath, serializeEnvEntries(entries));
+}
+
+function migrateLegacySecretsToUserScope(userId) {
+  const markerPath = legacySecretMigrationMarkerPath(userId);
+  if (existsSync(markerPath)) {
+    return { status: 'skipped', reason: 'already_migrated', migratedFiles: [] };
+  }
+
+  const legacyFiles = [
+    {
+      kind: 'integrations',
+      sourcePath: path.join(getDataRoot(), 'secrets', 'Canvas-Integrations.env'),
+      targetPath: path.join(getDataRoot(), 'users', userId, 'secrets', 'Canvas-Integrations.env'),
+    },
+    {
+      kind: 'agents',
+      sourcePath: path.join(getDataRoot(), 'secrets', 'Canvas-Agents.env'),
+      targetPath: path.join(getDataRoot(), 'users', userId, 'secrets', 'Canvas-Agents.env'),
+    },
+  ];
+
+  const migratedFiles = [];
+  let sawLegacyFile = false;
+  let sawLegacyEntries = false;
+
+  for (const file of legacyFiles) {
+    if (!fileExists(file.sourcePath)) continue;
+
+    sawLegacyFile = true;
+    const legacyEntries = readEnvEntries(file.sourcePath);
+    if (legacyEntries.length === 0) continue;
+
+    sawLegacyEntries = true;
+    const targetEntries = readEnvEntries(file.targetPath);
+    const byKey = new Map(targetEntries.map((entry) => [entry.key, entry]));
+    const copiedKeys = [];
+    const preservedKeys = [];
+
+    for (const legacyEntry of legacyEntries) {
+      if (byKey.has(legacyEntry.key)) {
+        preservedKeys.push(legacyEntry.key);
+        continue;
+      }
+      byKey.set(legacyEntry.key, legacyEntry);
+      copiedKeys.push(legacyEntry.key);
+    }
+
+    if (copiedKeys.length > 0) {
+      writeEnvEntries(file.targetPath, Array.from(byKey.values()));
+    } else {
+      mkdirSync(path.dirname(file.targetPath), { recursive: true });
+    }
+
+    migratedFiles.push({
+      kind: file.kind,
+      sourcePath: file.sourcePath,
+      targetPath: file.targetPath,
+      copiedKeys,
+      preservedKeys,
+    });
+  }
+
+  if (!sawLegacyFile || !sawLegacyEntries) {
+    return {
+      status: 'skipped',
+      reason: sawLegacyFile ? 'source_empty' : 'source_missing',
+      migratedFiles: [],
+    };
+  }
+
+  writeAtomicFile(markerPath, `${JSON.stringify({
+    schemaVersion: 1,
+    operation: 'legacy-secrets-to-user-scope',
+    userId,
+    importedAt: new Date().toISOString(),
+    migratedFiles,
+  }, null, 2)}\n`);
+
+  return { status: 'migrated', migratedFiles };
+}
+
 function migrateLegacyWorkspaceToPersonalWorkspace(organizationId, userId, personalWorkspace) {
   const sourceRoot = path.join(getDataRoot(), 'workspace');
   const targetRoot = workspaceAbsoluteRoot(personalWorkspace.root_relative_path);
@@ -691,6 +836,7 @@ function ensureOrganizationBootstrap(db, userId) {
   ensureScopedDirectories(organization.organization_id, ownerUser.id, includeTeamWorkspace);
   const ownerWorkspaceRecords = ensureDefaultWorkspaceRecords(db, organization.organization_id, ownerUser.id, includeTeamWorkspace);
   migrateLegacyWorkspaceToPersonalWorkspace(organization.organization_id, ownerUser.id, ownerWorkspaceRecords.personal);
+  migrateLegacySecretsToUserScope(ownerUser.id);
   if (targetUser.id !== ownerUser.id) {
     ensureScopedDirectories(organization.organization_id, targetUser.id, includeTeamWorkspace);
     ensureDefaultWorkspaceRecords(db, organization.organization_id, targetUser.id, includeTeamWorkspace);

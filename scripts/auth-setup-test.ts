@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import Database from 'better-sqlite3';
@@ -8,6 +8,11 @@ import { verifyPassword } from 'better-auth/crypto';
 
 const dataDir = mkdtempSync(path.join(tmpdir(), 'canvas-auth-setup-'));
 process.env.DATA = dataDir;
+
+function envValue(content: string, key: string): string | null {
+  const line = content.split(/\r?\n/).find((candidate) => candidate.startsWith(`${key}=`));
+  return line ? line.slice(key.length + 1).replace(/^"|"$/g, '') : null;
+}
 
 function assertOrganizationBootstrapState(
   sqlite: Database.Database,
@@ -110,6 +115,18 @@ async function main() {
 
   assert.equal(hasAnyAuthUser(), false);
 
+  mkdirSync(path.join(dataDir, 'secrets'), { recursive: true });
+  writeFileSync(
+    path.join(dataDir, 'secrets', 'Canvas-Integrations.env'),
+    'OPENAI_API_KEY=legacy-openai\nGEMINI_API_KEY=legacy-gemini\n',
+    'utf8',
+  );
+  writeFileSync(
+    path.join(dataDir, 'secrets', 'Canvas-Agents.env'),
+    'ANTHROPIC_API_KEY=legacy-anthropic\n',
+    'utf8',
+  );
+
   const owner = await createInitialOwner({
     name: ' Setup Admin ',
     email: 'SETUP@example.test ',
@@ -151,6 +168,23 @@ async function main() {
   assert.ok(accounts[0].password);
   assert.equal(await verifyPassword({ hash: accounts[0].password!, password: 'SetupPassword123!' }), true);
   assertOrganizationBootstrapState(sqlite, owner.id, 'setup@example.test');
+
+  const userSecretsDir = path.join(dataDir, 'users', owner.id, 'secrets');
+  const migratedIntegrations = readFileSync(path.join(userSecretsDir, 'Canvas-Integrations.env'), 'utf8');
+  const migratedAgents = readFileSync(path.join(userSecretsDir, 'Canvas-Agents.env'), 'utf8');
+  assert.equal(envValue(migratedIntegrations, 'OPENAI_API_KEY'), 'legacy-openai');
+  assert.equal(envValue(migratedIntegrations, 'GEMINI_API_KEY'), 'legacy-gemini');
+  assert.equal(envValue(migratedAgents, 'ANTHROPIC_API_KEY'), 'legacy-anthropic');
+  assert.equal(existsSync(path.join(dataDir, 'system', 'migration', 'legacy-secret-imports', `${owner.id}.json`)), true);
+
+  writeFileSync(
+    path.join(userSecretsDir, 'Canvas-Integrations.env'),
+    'OPENAI_API_KEY=user-openai\n',
+    'utf8',
+  );
+  ensureOrganizationBootstrapForUser(sqlite, owner.id);
+  const preservedIntegrations = readFileSync(path.join(userSecretsDir, 'Canvas-Integrations.env'), 'utf8');
+  assert.equal(envValue(preservedIntegrations, 'OPENAI_API_KEY'), 'user-openai');
 
   sqlite.prepare(`
     UPDATE organization_user_permissions

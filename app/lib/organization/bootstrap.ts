@@ -7,6 +7,7 @@ import path from 'node:path';
 
 import { getBootstrapAdminEmail } from '@/app/lib/bootstrap-admin';
 import { runMigrations } from '@/app/lib/db/migrate';
+import { migrateLegacySecretsToUserScope } from '@/app/lib/integrations/legacy-secret-migration';
 import {
   type DatabaseProvider,
   getDatabaseProvider as resolveConfiguredDatabaseProvider,
@@ -458,6 +459,7 @@ export function ensureOrganizationBootstrapForUser(
     userId: ownerUser.id,
     personalWorkspace: ownerWorkspaceRecords.personal,
   });
+  migrateLegacySecretsToUserScope(ownerUser.id);
   if (targetUser.id !== ownerUser.id) {
     ensureScopedDirectories(organization.organization_id, targetUser.id, teamFeaturesEnabled);
     ensureDefaultWorkspaceRecords(sqlite, {
