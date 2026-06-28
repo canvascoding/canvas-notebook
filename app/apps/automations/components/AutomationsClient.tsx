@@ -888,6 +888,10 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
     () => workspaces.filter((workspace) => workspace.status === 'active' && workspace.permissions.canRead && workspace.permissions.canWrite && workspace.permissions.canRunAgent),
     [workspaces],
   );
+  const hasSwitchableAutomationWorkspaces = useMemo(
+    () => automationWorkspaces.length > 1 && automationWorkspaces.some((workspace) => workspace.type !== 'personal'),
+    [automationWorkspaces],
+  );
   const defaultAutomationWorkspaceId = useMemo(() => {
     if (activeWorkspace && automationWorkspaces.some((workspace) => workspace.id === activeWorkspace.id)) {
       return activeWorkspace.id;
@@ -1685,6 +1689,7 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
     const isGermanLocale = locale.startsWith('de');
     const label = 'Workspace';
     const scopeLabel = workspaceScopeLabel(selectedWorkspace, t);
+    const canSwitchWorkspace = hasSwitchableAutomationWorkspaces && !isExistingScheduledJob;
     const updateWorkspaceId = (workspaceId: string) => {
       if (target === 'trigger') {
         setTriggerDraft((current) => ({ ...current, workspaceId }));
@@ -1695,6 +1700,32 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
       }
     };
 
+    if (!canSwitchWorkspace) {
+      return (
+        <div className="flex min-w-0 flex-col gap-1 text-sm">
+          <span className="flex items-center gap-1 text-xs text-muted-foreground">
+            <Folder className="h-3.5 w-3.5" />
+            {label}
+          </span>
+          <div
+            data-testid={`automation-${target}-workspace-readonly`}
+            className="flex min-w-0 items-center justify-between gap-2 rounded-md border border-border bg-muted/30 px-3 py-2"
+          >
+            <span className="min-w-0 truncate">
+              {selectedWorkspace?.name || (automationWorkspaces.length === 0
+                ? (isGermanLocale ? 'Kein Workspace verfügbar' : 'No workspace available')
+                : scopeLabel)}
+            </span>
+            {automationWorkspaces.length > 0 ? (
+              <Badge variant={selectedWorkspace?.type === 'team' ? 'default' : 'secondary'} className="shrink-0">
+                {scopeLabel}
+              </Badge>
+            ) : null}
+          </div>
+        </div>
+      );
+    }
+
     return (
       <label className="flex min-w-0 flex-col gap-1 text-sm">
         <span className="flex items-center gap-1 text-xs text-muted-foreground">
@@ -1704,10 +1735,10 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
         <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
           <select
             data-testid={`automation-${target}-workspace`}
-            className="h-10 min-w-0 rounded-md border border-input bg-background px-3 text-sm"
+            className="h-10 w-full min-w-0 rounded-md border border-input bg-background px-3 text-sm"
             value={state.workspaceId || defaultAutomationWorkspaceId}
             onChange={(event) => updateWorkspaceId(event.target.value)}
-            disabled={isExistingScheduledJob || automationWorkspaces.length === 0}
+            disabled={automationWorkspaces.length === 0}
           >
             {automationWorkspaces.length === 0 ? (
               <option value="">{isGermanLocale ? 'Kein Workspace verfügbar' : 'No workspace available'}</option>
@@ -1773,13 +1804,13 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
     };
 
     return (
-      <div className="grid gap-3 rounded-md border bg-muted/20 p-3 md:grid-cols-3">
+      <div className="grid min-w-0 gap-3 rounded-md border bg-muted/20 p-3 md:grid-cols-3">
         <label className="flex min-w-0 flex-col gap-1 text-sm">
           <span className="flex items-center gap-1 text-xs text-muted-foreground">
             <Bot className="h-3.5 w-3.5" />
             {isGerman ? 'Agent' : 'Agent'}
           </span>
-          <div className="flex h-10 items-center gap-2 rounded-md border border-input bg-background px-2">
+          <div className="flex h-10 min-w-0 items-center gap-2 rounded-md border border-input bg-background px-2">
             <AgentAvatar iconId={selectedAgent?.iconId} className="h-6 w-6 rounded-sm border-0 bg-muted" iconClassName="h-3.5 w-3.5" />
             <select
               className="h-full min-w-0 flex-1 bg-transparent text-sm outline-none"
@@ -1801,7 +1832,7 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
           </span>
           <select
             data-testid={`automation-${target}-delivery-channel`}
-            className="h-10 rounded-md border border-input bg-background px-3 text-sm"
+            className="h-10 w-full min-w-0 rounded-md border border-input bg-background px-3 text-sm"
             value={selectedDeliveryChannel}
             onChange={(event) => {
               updateDeliveryChannel(event.target.value);
@@ -1817,7 +1848,7 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
         <label className="flex min-w-0 flex-col gap-1 text-sm">
           <span className="text-xs text-muted-foreground">{isGerman ? 'Session' : 'Session'}</span>
           <select
-            className="h-10 rounded-md border border-input bg-background px-3 text-sm"
+            className="h-10 w-full min-w-0 rounded-md border border-input bg-background px-3 text-sm"
             value={state.deliverySessionMode}
             onChange={(event) => updateState({ deliverySessionMode: event.target.value as AutomationDeliverySessionMode })}
           >
@@ -1830,7 +1861,7 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
           <label className="flex min-w-0 flex-col gap-1 text-sm md:col-span-2">
             <span className="text-xs text-muted-foreground">{isGerman ? 'Sitzungs-ID' : 'Session ID'}</span>
             <input
-              className="h-10 rounded-md border border-input bg-background px-3 font-mono text-xs"
+              className="h-10 w-full min-w-0 rounded-md border border-input bg-background px-3 font-mono text-xs"
               value={state.deliverySessionId}
               onChange={(event) => updateState({ deliverySessionId: event.target.value })}
               placeholder="pi-..."
@@ -2231,21 +2262,27 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
       )}
 
       <Dialog open={isComposerOpen} onOpenChange={setIsComposerOpen}>
-        <DialogContent layout="viewport" className="mx-auto max-w-5xl">
+        <DialogContent layout="viewport" className="mx-auto w-full max-w-[100vw] overflow-hidden sm:w-auto sm:max-w-5xl">
           <DialogHeader className="shrink-0 border-b px-4 pt-5 pb-4 sm:px-6">
             <DialogTitle>{t('editor.newTitle')}</DialogTitle>
             <DialogDescription>{t('editor.description')}</DialogDescription>
           </DialogHeader>
-          <Tabs value={composerMode} onValueChange={(value) => setComposerMode(value as ComposerMode)} className="min-h-0 flex-1 gap-0 overflow-hidden">
+          <Tabs value={composerMode} onValueChange={(value) => setComposerMode(value as ComposerMode)} className="min-h-0 min-w-0 flex-1 gap-0 overflow-hidden">
             <div className="border-b px-4 py-3 sm:px-6">
-              <TabsList className="grid w-full grid-cols-2 sm:w-auto">
-                <TabsTrigger value="scheduled"><Clock3 className="mr-2 h-4 w-4" />{t('composer.tabs.scheduled')}</TabsTrigger>
-                <TabsTrigger value="trigger"><Webhook className="mr-2 h-4 w-4" />{t('composer.tabs.trigger')}</TabsTrigger>
+              <TabsList className="grid w-full min-w-0 grid-cols-2 sm:w-auto">
+                <TabsTrigger value="scheduled" className="min-w-0 overflow-hidden px-1.5 text-xs sm:px-2 sm:text-sm">
+                  <Clock3 className="h-4 w-4 shrink-0 sm:mr-1" />
+                  <span className="min-w-0 truncate">{t('composer.tabs.scheduled')}</span>
+                </TabsTrigger>
+                <TabsTrigger value="trigger" className="min-w-0 overflow-hidden px-1.5 text-xs sm:px-2 sm:text-sm">
+                  <Webhook className="h-4 w-4 shrink-0 sm:mr-1" />
+                  <span className="min-w-0 truncate">{t('composer.tabs.trigger')}</span>
+                </TabsTrigger>
               </TabsList>
             </div>
-            <TabsContent value="scheduled" className="m-0 min-h-0 flex-1 overflow-y-auto">
-              <div className="grid min-h-0 gap-4 p-4 sm:p-6 lg:grid-cols-[minmax(0,1fr)_18rem]">
-                <div className="space-y-4">
+            <TabsContent value="scheduled" className="m-0 min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden">
+              <div className="grid min-h-0 min-w-0 gap-4 overflow-x-hidden p-4 sm:p-6 lg:grid-cols-[minmax(0,1fr)_18rem]">
+                <div className="min-w-0 space-y-4">
                   {renderWorkspaceSelector('scheduled')}
                   <input data-testid="automation-name" className="h-11 w-full rounded-md border border-input bg-background px-3 text-base font-medium" value={draft.name} onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))} placeholder={t('editor.placeholders.name')} />
                   <AutomationPromptEditor
@@ -2256,14 +2293,14 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
                   />
                   <ScheduleEditor draft={draft} setDraft={setDraft} t={t} weekdayLabels={weekdayLabels} locale={locale} compact />
                   {renderAgentDeliveryControls('scheduled')}
-                  <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
+                  <div className="grid min-w-0 gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
                     {renderSkillSelect('automation-composer-preferred-skill')}
-                    <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
-                      <Button type="button" variant="outline" className="justify-start" onClick={() => openDirectoryPicker('scheduled')}>
+                    <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-end">
+                      <Button type="button" variant="outline" className="w-full justify-start sm:w-auto" onClick={() => openDirectoryPicker('scheduled')}>
                         <Folder className="mr-2 h-4 w-4" />
                         {t('output.pickInWorkspace')}
                       </Button>
-                      <Button onClick={() => void handleSave()} disabled={isSaving || !scheduledWorkspaceReady}>
+                      <Button className="w-full sm:w-auto" onClick={() => void handleSave()} disabled={isSaving || !scheduledWorkspaceReady}>
                         {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
                         {t('actions.save')}
                       </Button>
@@ -2271,7 +2308,7 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
                   </div>
                   <p className="break-all text-xs text-muted-foreground">{t('output.effectivePath')}: <span className="font-mono">{draftEffectiveTargetOutputPath || t('output.none')}</span></p>
                 </div>
-                <aside className="space-y-2">
+                <aside className="min-w-0 space-y-2">
                   <p className="text-sm font-medium">{t('templates.title')}</p>
                   {templates.map((template) => (
                     <button key={template.id} type="button" className="w-full rounded-md border bg-background p-3 text-left transition hover:border-primary/40 hover:bg-primary/5" onClick={() => applyTemplate(template)}>
@@ -2282,31 +2319,31 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
                 </aside>
               </div>
             </TabsContent>
-            <TabsContent value="trigger" className="m-0 min-h-0 flex-1 overflow-y-auto">
-              <div className="grid min-h-0 gap-4 p-4 sm:p-6 lg:grid-cols-[minmax(0,1fr)_18rem]">
-                <div className="space-y-4">
-                  <div className="grid grid-cols-2 rounded-md border bg-muted/20 p-1">
+            <TabsContent value="trigger" className="m-0 min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden">
+              <div className="grid min-h-0 min-w-0 gap-4 overflow-x-hidden p-4 sm:p-6 lg:grid-cols-[minmax(0,1fr)_18rem]">
+                <div className="min-w-0 space-y-4">
+                  <div className="grid min-w-0 grid-cols-2 rounded-md border bg-muted/20 p-1">
                     <button
                       type="button"
                       className={cn(
-                        'flex min-h-10 items-center justify-center gap-2 rounded-sm px-3 text-sm font-medium transition',
+                        'flex min-h-10 min-w-0 items-center justify-center gap-1.5 overflow-hidden rounded-sm px-2 text-xs font-medium transition sm:gap-2 sm:px-3 sm:text-sm',
                         triggerSource === 'custom' ? 'bg-background shadow-sm' : 'text-muted-foreground hover:text-foreground',
                       )}
                       onClick={() => setTriggerSource('custom')}
                     >
-                      <Webhook className="h-4 w-4" />
-                      {t('triggers.custom.tab')}
+                      <Webhook className="h-4 w-4 shrink-0" />
+                      <span className="min-w-0 truncate">{t('triggers.custom.tab')}</span>
                     </button>
                     <button
                       type="button"
                       className={cn(
-                        'flex min-h-10 items-center justify-center gap-2 rounded-sm px-3 text-sm font-medium transition',
+                        'flex min-h-10 min-w-0 items-center justify-center gap-1.5 overflow-hidden rounded-sm px-2 text-xs font-medium transition sm:gap-2 sm:px-3 sm:text-sm',
                         triggerSource === 'composio' ? 'bg-background shadow-sm' : 'text-muted-foreground hover:text-foreground',
                       )}
                       onClick={() => setTriggerSource('composio')}
                     >
-                      <Plug className="h-4 w-4" />
-                      {t('triggers.composioTab')}
+                      <Plug className="h-4 w-4 shrink-0" />
+                      <span className="min-w-0 truncate">{t('triggers.composioTab')}</span>
                     </button>
                   </div>
                   {triggerSource === 'custom' ? (
@@ -2328,11 +2365,11 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
                         onChange={(value) => setCustomWebhookDraft((current) => ({ ...current, prompt: value }))}
                       />
                       {renderAgentDeliveryControls('customWebhook')}
-                      <div className="grid gap-3 sm:grid-cols-2">
+                      <div className="grid min-w-0 gap-3 sm:grid-cols-2">
                         <label className="flex flex-col gap-1 text-sm">
                           <span className="text-xs text-muted-foreground">{t('editor.fields.workspaceContext')}</span>
                           <textarea
-                            className="h-24 resize-y rounded-md border border-input bg-background px-3 py-2 font-mono text-xs"
+                            className="h-24 min-w-0 resize-y rounded-md border border-input bg-background px-3 py-2 font-mono text-xs"
                             value={customWebhookDraft.workspaceContextText}
                             onChange={(event) => setCustomWebhookDraft((current) => ({ ...current, workspaceContextText: event.target.value }))}
                             placeholder="00_dashboard&#10;03_offer-and-sales"
@@ -2340,21 +2377,21 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
                         </label>
                         {renderCustomWebhookSkillSelect('automation-custom-webhook-preferred-skill')}
                       </div>
-                      <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+                      <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-end">
                         <label className="flex min-w-0 flex-1 flex-col gap-1 text-sm">
                           <span className="text-xs text-muted-foreground">{t('triggers.fields.targetOutputPath')}</span>
                           <input
-                            className="h-10 rounded-md border border-input bg-background px-3 font-mono text-xs"
+                            className="h-10 w-full min-w-0 rounded-md border border-input bg-background px-3 font-mono text-xs"
                             value={customWebhookDraft.targetOutputPath}
                             onChange={(event) => setCustomWebhookDraft((current) => ({ ...current, targetOutputPath: event.target.value }))}
                             placeholder={t('triggers.optional')}
                           />
                         </label>
-                        <Button type="button" variant="outline" className="justify-start" onClick={() => openDirectoryPicker('customWebhook')}>
+                        <Button type="button" variant="outline" className="w-full justify-start sm:w-auto" onClick={() => openDirectoryPicker('customWebhook')}>
                           <Folder className="mr-2 h-4 w-4" />
                           {t('output.pickInWorkspace')}
                         </Button>
-                        <Button onClick={() => void handleCreateCustomWebhookAutomation()} disabled={isSaving || !customWebhookWorkspaceReady || !customWebhookDraft.name.trim() || !customWebhookDraft.prompt.trim()}>
+                        <Button className="w-full sm:w-auto" onClick={() => void handleCreateCustomWebhookAutomation()} disabled={isSaving || !customWebhookWorkspaceReady || !customWebhookDraft.name.trim() || !customWebhookDraft.prompt.trim()}>
                           {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <KeyRound className="mr-2 h-4 w-4" />}
                           {t('triggers.custom.create')}
                         </Button>
@@ -2380,7 +2417,7 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
                     <div className="rounded-md border border-dashed p-4 text-sm text-muted-foreground">{t('triggers.noApps')}</div>
                   ) : (
                     <>
-                      <div className="grid gap-4 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
+                      <div className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
                         <section className="min-w-0 space-y-2">
                           <div className="flex items-center justify-between gap-3">
                             <span className="text-xs font-medium text-muted-foreground">{t('triggers.fields.app')}</span>
@@ -2499,23 +2536,23 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
                         emptyLabel={t('triggers.noConfig')}
                       />
                       {renderAgentDeliveryControls('trigger')}
-                      <div className="grid gap-3 sm:grid-cols-2">
+                      <div className="grid min-w-0 gap-3 sm:grid-cols-2">
                         <label className="flex flex-col gap-1 text-sm">
                           <span className="text-xs text-muted-foreground">{t('editor.fields.workspaceContext')}</span>
-                          <textarea className="h-24 resize-y rounded-md border border-input bg-background px-3 py-2 font-mono text-xs" value={triggerDraft.workspaceContextText} onChange={(event) => setTriggerDraft((current) => ({ ...current, workspaceContextText: event.target.value }))} placeholder="00_dashboard&#10;03_offer-and-sales" />
+                          <textarea className="h-24 min-w-0 resize-y rounded-md border border-input bg-background px-3 py-2 font-mono text-xs" value={triggerDraft.workspaceContextText} onChange={(event) => setTriggerDraft((current) => ({ ...current, workspaceContextText: event.target.value }))} placeholder="00_dashboard&#10;03_offer-and-sales" />
                         </label>
                         {renderTriggerSkillSelect('automation-trigger-preferred-skill')}
                       </div>
-                      <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+                      <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-end">
                         <label className="flex min-w-0 flex-1 flex-col gap-1 text-sm">
                           <span className="text-xs text-muted-foreground">{t('triggers.fields.targetOutputPath')}</span>
-                          <input className="h-10 rounded-md border border-input bg-background px-3 font-mono text-xs" value={triggerDraft.targetOutputPath} onChange={(event) => setTriggerDraft((current) => ({ ...current, targetOutputPath: event.target.value }))} placeholder={t('triggers.optional')} />
+                          <input className="h-10 w-full min-w-0 rounded-md border border-input bg-background px-3 font-mono text-xs" value={triggerDraft.targetOutputPath} onChange={(event) => setTriggerDraft((current) => ({ ...current, targetOutputPath: event.target.value }))} placeholder={t('triggers.optional')} />
                         </label>
-                        <Button type="button" variant="outline" className="justify-start" onClick={() => openDirectoryPicker('trigger')}>
+                        <Button type="button" variant="outline" className="w-full justify-start sm:w-auto" onClick={() => openDirectoryPicker('trigger')}>
                           <Folder className="mr-2 h-4 w-4" />
                           {t('output.pickInWorkspace')}
                         </Button>
-                        <Button onClick={() => void handleCreateTriggerAutomation()} disabled={isSaving || !triggerWorkspaceReady || !selectedTriggerApp?.connected || !triggerDraft.name.trim() || !triggerDraft.prompt.trim() || !triggerDraft.triggerSlug}>
+                        <Button className="w-full sm:w-auto" onClick={() => void handleCreateTriggerAutomation()} disabled={isSaving || !triggerWorkspaceReady || !selectedTriggerApp?.connected || !triggerDraft.name.trim() || !triggerDraft.prompt.trim() || !triggerDraft.triggerSlug}>
                           {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Link2 className="mr-2 h-4 w-4" />}
                           {t('triggers.create')}
                         </Button>
@@ -2523,7 +2560,7 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
                     </>
                   )}
                 </div>
-                <aside className="space-y-3">
+                <aside className="min-w-0 space-y-3">
                   <p className="text-sm font-medium">{t('triggers.sidebarTitle')}</p>
                   <div className="rounded-md border bg-background p-3 text-xs text-muted-foreground">
                     <p className="font-medium text-foreground">{triggerSource === 'custom' ? t('triggers.custom.sidebarTitle') : t('triggers.sidebarWebhookTitle')}</p>
@@ -2694,10 +2731,10 @@ function ScheduleEditor({
         <Clock3 className="h-4 w-4 text-muted-foreground" />
         <p className="text-sm font-medium">{t('schedule.title')}</p>
       </div>
-      <div className={`grid gap-4 ${compact ? 'sm:grid-cols-3' : 'md:grid-cols-4'}`}>
-        <label className="flex flex-col gap-1 text-sm">
+      <div className={`grid min-w-0 gap-4 ${compact ? 'sm:grid-cols-3' : 'md:grid-cols-4'}`}>
+        <label className="flex min-w-0 flex-col gap-1 text-sm">
           <span className="text-xs text-muted-foreground">{t('schedule.fields.kind')}</span>
-          <select data-testid="automation-schedule-kind" className="h-10 rounded-md border border-input bg-background px-3 text-sm" value={draft.scheduleKind} onChange={(event) => setDraft((current) => ({ ...current, scheduleKind: event.target.value as ScheduleKind }))}>
+          <select data-testid="automation-schedule-kind" className="h-10 w-full min-w-0 rounded-md border border-input bg-background px-3 text-sm" value={draft.scheduleKind} onChange={(event) => setDraft((current) => ({ ...current, scheduleKind: event.target.value as ScheduleKind }))}>
             <option value="once">{t('schedule.kind.once')}</option>
             <option value="daily">{t('schedule.kind.daily')}</option>
             <option value="weekly">{t('schedule.kind.weekly')}</option>
@@ -2721,17 +2758,17 @@ function ScheduleEditor({
         </label>
         {draft.scheduleKind === 'once' ? (
           <>
-            <label className="flex flex-col gap-1 text-sm"><span className="text-xs text-muted-foreground">{t('schedule.fields.date')}</span><input type="date" className="h-10 rounded-md border border-input bg-background px-3 text-sm" value={draft.onceDate} onChange={(event) => setDraft((current) => ({ ...current, onceDate: event.target.value }))} /></label>
-            <label className="flex flex-col gap-1 text-sm"><span className="text-xs text-muted-foreground">{t('schedule.fields.time')}</span><input type="time" className="h-10 rounded-md border border-input bg-background px-3 text-sm" value={draft.onceTime} onChange={(event) => setDraft((current) => ({ ...current, onceTime: event.target.value }))} /></label>
+            <label className="flex min-w-0 flex-col gap-1 text-sm"><span className="text-xs text-muted-foreground">{t('schedule.fields.date')}</span><input type="date" className="h-10 w-full min-w-0 rounded-md border border-input bg-background px-3 text-sm" value={draft.onceDate} onChange={(event) => setDraft((current) => ({ ...current, onceDate: event.target.value }))} /></label>
+            <label className="flex min-w-0 flex-col gap-1 text-sm"><span className="text-xs text-muted-foreground">{t('schedule.fields.time')}</span><input type="time" className="h-10 w-full min-w-0 rounded-md border border-input bg-background px-3 text-sm" value={draft.onceTime} onChange={(event) => setDraft((current) => ({ ...current, onceTime: event.target.value }))} /></label>
           </>
         ) : null}
         {draft.scheduleKind === 'daily' ? (
-          <label className="flex flex-col gap-1 text-sm"><span className="text-xs text-muted-foreground">{t('schedule.fields.time')}</span><input type="time" className="h-10 rounded-md border border-input bg-background px-3 text-sm" value={draft.dailyTime} onChange={(event) => setDraft((current) => ({ ...current, dailyTime: event.target.value }))} /></label>
+          <label className="flex min-w-0 flex-col gap-1 text-sm"><span className="text-xs text-muted-foreground">{t('schedule.fields.time')}</span><input type="time" className="h-10 w-full min-w-0 rounded-md border border-input bg-background px-3 text-sm" value={draft.dailyTime} onChange={(event) => setDraft((current) => ({ ...current, dailyTime: event.target.value }))} /></label>
         ) : null}
         {draft.scheduleKind === 'interval' ? (
           <>
-            <label className="flex flex-col gap-1 text-sm"><span className="text-xs text-muted-foreground">{t('schedule.fields.intervalEvery')}</span><input type="number" min="1" data-testid="automation-interval-every" className="h-10 rounded-md border border-input bg-background px-3 text-sm" value={draft.intervalEvery} onChange={(event) => setDraft((current) => ({ ...current, intervalEvery: event.target.value }))} /></label>
-            <label className="flex flex-col gap-1 text-sm"><span className="text-xs text-muted-foreground">{t('schedule.fields.intervalUnit')}</span><select className="h-10 rounded-md border border-input bg-background px-3 text-sm" value={draft.intervalUnit} onChange={(event) => setDraft((current) => ({ ...current, intervalUnit: event.target.value as JobDraft['intervalUnit'] }))}><option value="minutes">{t('intervalUnits.minutes')}</option><option value="hours">{t('intervalUnits.hours')}</option><option value="days">{t('intervalUnits.days')}</option></select></label>
+            <label className="flex min-w-0 flex-col gap-1 text-sm"><span className="text-xs text-muted-foreground">{t('schedule.fields.intervalEvery')}</span><input type="number" min="1" data-testid="automation-interval-every" className="h-10 w-full min-w-0 rounded-md border border-input bg-background px-3 text-sm" value={draft.intervalEvery} onChange={(event) => setDraft((current) => ({ ...current, intervalEvery: event.target.value }))} /></label>
+            <label className="flex min-w-0 flex-col gap-1 text-sm"><span className="text-xs text-muted-foreground">{t('schedule.fields.intervalUnit')}</span><select className="h-10 w-full min-w-0 rounded-md border border-input bg-background px-3 text-sm" value={draft.intervalUnit} onChange={(event) => setDraft((current) => ({ ...current, intervalUnit: event.target.value as JobDraft['intervalUnit'] }))}><option value="minutes">{t('intervalUnits.minutes')}</option><option value="hours">{t('intervalUnits.hours')}</option><option value="days">{t('intervalUnits.days')}</option></select></label>
           </>
         ) : null}
       </div>
@@ -2747,7 +2784,7 @@ function ScheduleEditor({
               );
             })}
           </div>
-          <label className="flex max-w-xs flex-col gap-1 text-sm"><span className="text-xs text-muted-foreground">{t('schedule.fields.time')}</span><input type="time" className="h-10 rounded-md border border-input bg-background px-3 text-sm" value={draft.weeklyTime} onChange={(event) => setDraft((current) => ({ ...current, weeklyTime: event.target.value }))} /></label>
+          <label className="flex max-w-xs flex-col gap-1 text-sm"><span className="text-xs text-muted-foreground">{t('schedule.fields.time')}</span><input type="time" className="h-10 w-full min-w-0 rounded-md border border-input bg-background px-3 text-sm" value={draft.weeklyTime} onChange={(event) => setDraft((current) => ({ ...current, weeklyTime: event.target.value }))} /></label>
         </div>
       ) : null}
     </div>
@@ -2772,7 +2809,7 @@ function TriggerConfigFields({
 
   return (
     <div className="space-y-3 rounded-md border bg-muted/20 p-3">
-      <div className="grid gap-3 sm:grid-cols-2">
+      <div className="grid min-w-0 gap-3 sm:grid-cols-2">
         {fields.map((field) => {
           const value = values[field.key];
           if (field.type === 'boolean') {
@@ -2792,11 +2829,11 @@ function TriggerConfigFields({
           }
 
           return (
-            <label key={field.key} className="flex flex-col gap-1 text-sm">
+            <label key={field.key} className="flex min-w-0 flex-col gap-1 text-sm">
               <span className="text-xs text-muted-foreground">{field.label}{field.required ? ' *' : ''}</span>
               {field.enumValues.length > 0 ? (
                 <select
-                  className="h-10 rounded-md border border-input bg-background px-3 text-sm"
+                  className="h-10 w-full min-w-0 rounded-md border border-input bg-background px-3 text-sm"
                   value={typeof value === 'string' ? value : ''}
                   onChange={(event) => onChange(field.key, event.target.value)}
                 >
@@ -2806,7 +2843,7 @@ function TriggerConfigFields({
               ) : (
                 <input
                   type={field.type === 'number' || field.type === 'integer' ? 'number' : 'text'}
-                  className="h-10 rounded-md border border-input bg-background px-3 text-sm"
+                  className="h-10 w-full min-w-0 rounded-md border border-input bg-background px-3 text-sm"
                   value={typeof value === 'string' ? value : ''}
                   onChange={(event) => onChange(field.key, event.target.value)}
                 />
