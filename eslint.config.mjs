@@ -30,6 +30,7 @@ const eslintConfig = defineConfig([
     "data/cache/**",
     // Workspace files
     "data/workspace/**",
+    "data/workspaces/**",
     // Compiled JavaScript files (TypeScript source exists)
     "server/*.js",
     "scripts/*.js",

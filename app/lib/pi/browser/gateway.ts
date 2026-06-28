@@ -267,7 +267,7 @@ async function typeText(
   const targetStore = getContextTargetStore(context);
   const handle = await resolveTargetHandle(page, input, targetStore);
   try {
-    await handle.click({ clickCount: input.clear === false ? 1 : 3 });
+    await handle.click({ count: input.clear === false ? 1 : 3 });
     if (input.clear !== false) {
       await page.keyboard.press('Backspace');
     }

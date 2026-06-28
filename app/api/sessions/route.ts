@@ -54,6 +54,10 @@ type RenameSessionPayload = {
   thinkingLevel?: string;
 };
 
+type ProviderModelCandidate = {
+  id: string;
+};
+
 const THINKING_LEVELS = new Set<PiThinkingLevel>(['off', 'minimal', 'low', 'medium', 'high', 'xhigh']);
 
 function getSessionActivityTime(sessionItem: { createdAt: Date; lastMessageAt?: Date | null }): number {
@@ -128,7 +132,7 @@ function getProviderCustomModel(piConfig: Awaited<ReturnType<typeof readPiRuntim
 async function isValidProviderModel(provider: string, model: string): Promise<boolean> {
   const piConfig = await readPiRuntimeConfig();
   const customModel = getProviderCustomModel(piConfig, provider);
-  const models = provider === CANVAS_CONTROL_PLANE_PROVIDER_ID
+  const models: ProviderModelCandidate[] = provider === CANVAS_CONTROL_PLANE_PROVIDER_ID
     ? await getCanvasControlPlaneModels()
     : getPiModels(provider, customModel);
   return models.some((candidate) => candidate.id === model);

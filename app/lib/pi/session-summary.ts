@@ -1,7 +1,8 @@
 import 'server-only';
 
 import type { AgentMessage } from '@earendil-works/pi-agent-core';
-import { completeSimple, type AssistantMessage, type Message, type Model, type Api } from '@earendil-works/pi-ai';
+import { completeSimple } from '@earendil-works/pi-ai/compat';
+import type { Api, AssistantMessage, Message, Model } from '@earendil-works/pi-ai';
 
 import { resolvePiApiKey } from './api-key-resolver';
 import {

@@ -1,4 +1,5 @@
-import { getModels, getProviders, registerBuiltInApiProviders, type KnownProvider, type Model } from '@earendil-works/pi-ai';
+import { getModels, getProviders, registerBuiltInApiProviders } from '@earendil-works/pi-ai/compat';
+import type { Api, KnownProvider, Model } from '@earendil-works/pi-ai';
 import { isManagedControlPlaneAvailable, readPiRuntimeConfig } from '../agents/storage';
 import { getManagedControlPlaneBaseUrl } from '../managed/control-plane-url';
 import {
@@ -29,6 +30,8 @@ const OPENAI_COMPATIBLE_BRIDGE_COMPAT = {
   supportsStore: false,
   supportsLongCacheRetention: false,
 } satisfies NonNullable<Model<'openai-completions'>['compat']>;
+
+type ResolvedPiModel = Model<Api>;
 
 function withOpenAICompatibleBridgeCompat<T extends Model<'openai-completions'>>(model: T): T {
   return {
@@ -265,7 +268,7 @@ export function getPiProviders(): string[] {
   return providers as string[];
 }
 
-export function getPiModels(provider: string, customModel?: string) {
+export function getPiModels(provider: string, customModel?: string): ResolvedPiModel[] {
   // Special handling for Ollama provider
   if (provider === OLLAMA_PROVIDER_ID) {
     // If a custom model is provided, add it to the list
@@ -360,7 +363,7 @@ export function findModelWithCompatibilityFallback<T extends { id: string }>(
  * Resolves the PI model instance based on user configuration.
  * For Ollama, dynamically sets the correct baseUrl based on mode.
  */
-export async function resolvePiModel(provider: string, modelName: string) {
+export async function resolvePiModel(provider: string, modelName: string): Promise<ResolvedPiModel> {
   const config = await readPiRuntimeConfig();
   const providerConfig = config.providers[provider];
   
@@ -371,10 +374,10 @@ export async function resolvePiModel(provider: string, modelName: string) {
       ? providerConfig.openaiCompatibleCustomModel
       : undefined;
   
-  const models = provider === CANVAS_CONTROL_PLANE_PROVIDER_ID
+  const models: ResolvedPiModel[] = provider === CANVAS_CONTROL_PLANE_PROVIDER_ID
     ? (await getCanvasControlPlaneModels()).map(withResolvedModelInput)
     : getPiModels(provider, customModel);
-  let model = findModelWithCompatibilityFallback(models, modelName);
+  let model: ResolvedPiModel | undefined = findModelWithCompatibilityFallback(models, modelName);
   if (model && model.id !== modelName) {
     console.warn(`[PI Model Resolver] Model ${modelName} is no longer available for provider ${provider}; using ${model.id}.`);
   }
