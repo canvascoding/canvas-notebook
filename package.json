@@ -175,19 +175,19 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
-    "dompurify": "^3.4.8",
+    "dompurify": "^3.4.11",
     "dotenv": "^17.2.3",
     "drizzle-orm": "^0.45.1",
     "file-type": "^22.0.0",
     "grammy": "^1.42.0",
-    "imapflow": "^1.3.6",
+    "imapflow": "^1.4.3",
     "iron-session": "^8.0.4",
     "jsdom": "^29.1.1",
     "jspreadsheet-ce": "^5.0.4",
     "jsuites": "^6.3.1",
     "jszip": "^3.10.1",
     "lucide-react": "^1.7.0",
-    "mailparser": "^3.9.9",
+    "mailparser": "^3.9.12",
     "mammoth": "^1.11.0",
     "marked": "^18.0.3",
     "mermaid": "^11.14.0",
@@ -195,7 +195,7 @@
     "next-intl": "^4.8.3",
     "next-themes": "^0.4.6",
     "node-pty": "^1.1.0",
-    "nodemailer": "^9.0.0",
+    "nodemailer": "^9.0.1",
     "openai": "^6.34.0",
     "opensrc": "^0.7.1",
     "pdf-parse": "^2.4.5",
@@ -244,7 +244,6 @@
     "@types/react-dom": "^19",
     "@types/turndown": "^5.0.6",
     "@types/ws": "^8.18.1",
-    "drizzle-kit": "^0.31.8",
     "electron": "^42.3.0",
     "electron-builder": "^26.8.1",
     "eslint": "^9.39.4",
@@ -255,6 +254,12 @@
     "typescript": "^6.0.2"
   },
   "overrides": {
+    "@excalidraw/excalidraw": {
+      "nanoid": "3.3.12"
+    },
+    "@excalidraw/mermaid-to-excalidraw": {
+      "nanoid": "5.1.16"
+    },
     "lodash-es": "4.18.1",
     "postcss": "8.5.15"
   }
