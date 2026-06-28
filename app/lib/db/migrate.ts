@@ -1375,10 +1375,6 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     CREATE INDEX IF NOT EXISTS idx_pi_usage_events_session_assistant_timestamp ON pi_usage_events (session_id, assistant_timestamp);
     CREATE INDEX IF NOT EXISTS idx_pi_usage_events_provider_assistant_timestamp ON pi_usage_events (provider, assistant_timestamp);
     CREATE INDEX IF NOT EXISTS idx_pi_usage_events_model_assistant_timestamp ON pi_usage_events (model, assistant_timestamp);
-    CREATE INDEX IF NOT EXISTS idx_automation_jobs_next_run_at ON automation_jobs (next_run_at);
-    CREATE INDEX IF NOT EXISTS idx_automation_jobs_status ON automation_jobs (status);
-    CREATE INDEX IF NOT EXISTS idx_automation_runs_job_id_created_at ON automation_runs (job_id, created_at);
-    CREATE INDEX IF NOT EXISTS idx_automation_runs_status ON automation_runs (status);
     CREATE TABLE IF NOT EXISTS composio_webhook_subscriptions (
       id TEXT PRIMARY KEY NOT NULL,
       subscription_id TEXT NOT NULL UNIQUE,
@@ -1864,17 +1860,18 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     CREATE INDEX IF NOT EXISTS idx_knowledge_sources_project_store ON knowledge_sources (project_id, knowledge_store, status);
     CREATE INDEX IF NOT EXISTS idx_knowledge_chunks_project_store ON knowledge_chunks (project_id, knowledge_store, embedding_index_status);
     CREATE INDEX IF NOT EXISTS idx_audit_events_project_created ON audit_events (project_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_automation_jobs_next_run_at ON automation_jobs (next_run_at);
+    CREATE INDEX IF NOT EXISTS idx_automation_jobs_status ON automation_jobs (status);
     CREATE INDEX IF NOT EXISTS idx_automation_jobs_owner_scope ON automation_jobs (owner_user_id, scope);
     CREATE INDEX IF NOT EXISTS idx_automation_jobs_org_workspace ON automation_jobs (organization_id, workspace_id);
     CREATE INDEX IF NOT EXISTS idx_automation_jobs_project_status ON automation_jobs (project_id, status, next_run_at);
     CREATE INDEX IF NOT EXISTS idx_automation_jobs_job_scope_status ON automation_jobs (job_scope, status, next_run_at);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_automation_jobs_composio_trigger_id ON automation_jobs (composio_trigger_id);
+    CREATE INDEX IF NOT EXISTS idx_automation_runs_job_id_created_at ON automation_runs (job_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_automation_runs_status ON automation_runs (status);
     CREATE INDEX IF NOT EXISTS idx_automation_runs_workspace_created ON automation_runs (workspace_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_automation_runs_project_created ON automation_runs (project_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_automation_runs_job_scope_status ON automation_runs (job_scope, status, scheduled_for);
-  `);
-
-  sqlite.exec(`
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_automation_jobs_composio_trigger_id ON automation_jobs (composio_trigger_id);
   `);
 
   sqlite.exec(`

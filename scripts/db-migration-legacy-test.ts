@@ -242,8 +242,77 @@ try {
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
     );
+
+    INSERT INTO automation_jobs (
+      id,
+      name,
+      status,
+      prompt,
+      preferred_skill,
+      workspace_context_paths_json,
+      schedule_kind,
+      schedule_config_json,
+      time_zone,
+      next_run_at,
+      last_run_at,
+      last_run_status,
+      created_by_user_id,
+      created_at,
+      updated_at
+    )
+    VALUES (
+      'job-legacy',
+      'Legacy automation job',
+      'active',
+      'Run the legacy task',
+      'canvas-agent',
+      '[]',
+      'manual',
+      '{}',
+      'UTC',
+      1700000200,
+      NULL,
+      NULL,
+      'user-migration',
+      1700000000,
+      1700000000
+    );
+
+    INSERT INTO automation_runs (
+      id,
+      job_id,
+      status,
+      trigger_type,
+      scheduled_for,
+      started_at,
+      finished_at,
+      attempt_number,
+      output_dir,
+      log_path,
+      result_path,
+      error_message,
+      pi_session_id,
+      created_at
+    )
+    VALUES (
+      'run-legacy',
+      'job-legacy',
+      'queued',
+      'manual',
+      1700000200,
+      NULL,
+      NULL,
+      1,
+      NULL,
+      NULL,
+      NULL,
+      NULL,
+      NULL,
+      1700000100
+    );
   `);
 
+  runMigrations(sqlite);
   runMigrations(sqlite);
 
   assert.equal(tableExists(sqlite, 'ai_sessions'), false);
@@ -324,16 +393,72 @@ try {
   assert.ok(automationJobColumns.has('organization_id'));
   assert.ok(automationJobColumns.has('workspace_id'));
   assert.ok(automationJobColumns.has('project_id'));
+  assert.ok(automationJobColumns.has('job_scope'));
+  assert.ok(automationJobColumns.has('composio_trigger_id'));
+  assert.ok(indexExists(sqlite, 'automation_jobs', 'idx_automation_jobs_next_run_at'));
+  assert.ok(indexExists(sqlite, 'automation_jobs', 'idx_automation_jobs_status'));
   assert.ok(indexExists(sqlite, 'automation_jobs', 'idx_automation_jobs_owner_scope'));
   assert.ok(indexExists(sqlite, 'automation_jobs', 'idx_automation_jobs_org_workspace'));
   assert.ok(indexExists(sqlite, 'automation_jobs', 'idx_automation_jobs_project_status'));
+  assert.ok(indexExists(sqlite, 'automation_jobs', 'idx_automation_jobs_job_scope_status'));
+  assert.ok(indexExists(sqlite, 'automation_jobs', 'idx_automation_jobs_composio_trigger_id'));
+  const migratedAutomationJob = sqlite.prepare(`
+    SELECT
+      owner_user_id AS ownerUserId,
+      responsible_user_id AS responsibleUserId,
+      last_edited_by_user_id AS lastEditedByUserId,
+      scope,
+      workspace_type AS workspaceType,
+      job_scope AS jobScope
+    FROM automation_jobs
+    WHERE id = 'job-legacy'
+  `).get() as {
+    ownerUserId: string | null;
+    responsibleUserId: string | null;
+    lastEditedByUserId: string | null;
+    scope: string;
+    workspaceType: string;
+    jobScope: string;
+  };
+  assert.equal(migratedAutomationJob.ownerUserId, 'user-migration');
+  assert.equal(migratedAutomationJob.responsibleUserId, 'user-migration');
+  assert.equal(migratedAutomationJob.lastEditedByUserId, 'user-migration');
+  assert.equal(migratedAutomationJob.scope, 'personal');
+  assert.equal(migratedAutomationJob.workspaceType, 'personal');
+  assert.equal(migratedAutomationJob.jobScope, 'personal:user-migration:personal');
 
   const automationRunColumns = getColumns(sqlite, 'automation_runs');
+  assert.ok(automationRunColumns.has('scope'));
   assert.ok(automationRunColumns.has('workspace_id'));
   assert.ok(automationRunColumns.has('project_id'));
   assert.ok(automationRunColumns.has('job_scope'));
+  assert.ok(automationRunColumns.has('actor_user_id'));
+  assert.ok(indexExists(sqlite, 'automation_runs', 'idx_automation_runs_job_id_created_at'));
+  assert.ok(indexExists(sqlite, 'automation_runs', 'idx_automation_runs_status'));
   assert.ok(indexExists(sqlite, 'automation_runs', 'idx_automation_runs_workspace_created'));
   assert.ok(indexExists(sqlite, 'automation_runs', 'idx_automation_runs_project_created'));
+  assert.ok(indexExists(sqlite, 'automation_runs', 'idx_automation_runs_job_scope_status'));
+  const migratedAutomationRun = sqlite.prepare(`
+    SELECT
+      scope,
+      workspace_type AS workspaceType,
+      job_scope AS jobScope,
+      actor_type AS actorType,
+      actor_user_id AS actorUserId
+    FROM automation_runs
+    WHERE id = 'run-legacy'
+  `).get() as {
+    scope: string;
+    workspaceType: string;
+    jobScope: string;
+    actorType: string;
+    actorUserId: string | null;
+  };
+  assert.equal(migratedAutomationRun.scope, 'personal');
+  assert.equal(migratedAutomationRun.workspaceType, 'personal');
+  assert.equal(migratedAutomationRun.jobScope, 'personal:user-migration:personal');
+  assert.equal(migratedAutomationRun.actorType, 'user');
+  assert.equal(migratedAutomationRun.actorUserId, 'user-migration');
 
   const knowledgeSourceColumns = getColumns(sqlite, 'knowledge_sources');
   assert.ok(knowledgeSourceColumns.has('project_id'));
