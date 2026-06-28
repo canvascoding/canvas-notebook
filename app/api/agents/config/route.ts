@@ -35,6 +35,18 @@ type PatchConfigPayload = {
   makeActiveProvider?: unknown;
 };
 
+type AgentDiscoveryModel = {
+  id: string;
+  name: string;
+  reasoning?: unknown;
+  input?: readonly string[];
+  input_modalities?: readonly string[];
+  supported_input_modalities?: readonly string[];
+  architecture?: {
+    input_modalities?: readonly string[];
+  };
+};
+
 const THINKING_LEVELS = new Set<PiThinkingLevel>(['off', 'minimal', 'low', 'medium', 'high', 'xhigh']);
 
 function normalizeOptionalString(value: unknown): string | null {
@@ -167,7 +179,7 @@ export async function GET(request: NextRequest) {
           : p === 'openai-compatible'
             ? effective.mainPiConfig.providers['openai-compatible']?.openaiCompatibleCustomModel
             : undefined;
-        const models = p === CANVAS_CONTROL_PLANE_PROVIDER_ID
+        const models: AgentDiscoveryModel[] = p === CANVAS_CONTROL_PLANE_PROVIDER_ID
           ? await getCanvasControlPlaneModels()
           : getPiModels(p, customModel);
         return [p, { 

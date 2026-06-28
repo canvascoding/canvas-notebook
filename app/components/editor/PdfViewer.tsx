@@ -314,7 +314,7 @@ export function PdfViewer({ path, sourceUrl }: PdfViewerProps) {
     return () => {
       cancelled = true;
       void loadingTask?.destroy();
-      void loadedPdf?.destroy();
+      void loadedPdf?.cleanup();
     };
   }, [src, t]);
 

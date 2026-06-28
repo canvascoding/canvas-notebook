@@ -1,6 +1,7 @@
 import 'server-only';
 
-import { completeSimple, type Api, type AssistantMessage, type Message, type Model } from '@earendil-works/pi-ai';
+import { completeSimple } from '@earendil-works/pi-ai/compat';
+import type { Api, AssistantMessage, Message, Model } from '@earendil-works/pi-ai';
 
 import { resolveAgentRuntimeConfig } from '@/app/lib/agents/effective-runtime-config';
 import { DEFAULT_MANAGED_AGENT_ID } from '@/app/lib/agents/storage';

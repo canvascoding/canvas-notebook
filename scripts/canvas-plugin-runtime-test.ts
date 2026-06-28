@@ -220,7 +220,7 @@ This skill lives in the legacy global skills directory.
       true,
     );
     const legacyDisable = await setCanvasPluginEnabled('test-plugin', false, legacyPluginScope, 'legacy-plugin-user@example.com');
-    assert.equal(legacyDisable.success, true, legacyDisable.error);
+    assert.equal(legacyDisable.success, true, legacyDisable.error ?? 'Expected legacy plugin disable to succeed');
     const legacyPlugins = await listCanvasPlugins(legacyPluginScope);
     assert.equal(legacyPlugins.length, 1);
     assert.equal(legacyPlugins[0].enabled, false);
@@ -239,7 +239,7 @@ This skill lives in the legacy global skills directory.
     );
     assert.equal(await fs.stat(globalPluginInstallDir).then((stat) => stat.isDirectory()), true);
     const legacyDeleted = await deleteCanvasPlugin('test-plugin', legacyPluginScope, 'legacy-plugin-user@example.com');
-    assert.equal(legacyDeleted.success, true, legacyDeleted.error);
+    assert.equal(legacyDeleted.success, true, legacyDeleted.error ?? 'Expected legacy plugin delete to succeed');
     assert.equal((await listCanvasPlugins(legacyPluginScope)).length, 0);
     assert.equal(await fs.stat(globalPluginInstallDir).then((stat) => stat.isDirectory()), true);
     assert.equal(plugins[0].skills[0].name, 'test-plugin-skill');
@@ -258,17 +258,17 @@ This skill lives in the legacy global skills directory.
     assert.match(pluginRuntimeContext || '', /test-plugin-skill/);
 
     const disable = await setCanvasPluginEnabled('test-plugin', false);
-    assert.equal(disable.success, true, disable.error);
+    assert.equal(disable.success, true, disable.error ?? 'Expected plugin disable to succeed');
     skills = await loadSkillsFromDisk();
     assert.equal(skills.some((skill) => skill.name === 'test-plugin-skill' && !skill.plugin), true);
 
     const enable = await setCanvasPluginEnabled('test-plugin', true);
-    assert.equal(enable.success, true, enable.error);
+    assert.equal(enable.success, true, enable.error ?? 'Expected plugin enable to succeed');
     skills = await loadSkillsFromDisk();
     assert.equal(skills.some((skill) => skill.name === 'test-plugin-skill'), true);
 
     const deleted = await deleteCanvasPlugin('test-plugin');
-    assert.equal(deleted.success, true, deleted.error);
+    assert.equal(deleted.success, true, deleted.error ?? 'Expected plugin delete to succeed');
     plugins = await listCanvasPlugins();
     assert.equal(plugins.length, 0);
     skills = await loadSkillsFromDisk();
@@ -285,7 +285,7 @@ This skill lives in the legacy global skills directory.
     );
 
     const seedRefDeleted = await deleteCanvasPlugin('seed-ref-plugin');
-    assert.equal(seedRefDeleted.success, true, seedRefDeleted.error);
+    assert.equal(seedRefDeleted.success, true, seedRefDeleted.error ?? 'Expected seed reference plugin delete to succeed');
 
     const checksum = await computeCanvasPluginChecksum(pluginRoot);
     const registryPath = await createStoreArchive(pluginRoot, checksum);

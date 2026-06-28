@@ -172,7 +172,7 @@ async function main() {
     assert.equal(paginatedStore.pagination.totalItems, 1);
 
     const install = await installCanvasSkillFromStore('test-library-skill', undefined, { enable: true });
-    assert.equal(install.success, true, install.error);
+    assert.equal(install.success, true, install.error ?? 'Expected store skill install to succeed');
 
     const installedSkills = await loadSkillsFromDisk();
     assert.equal(installedSkills.some((skill) => skill.name === 'test-library-skill' && !skill.plugin), true);
@@ -193,7 +193,7 @@ async function main() {
     assert.equal(store.skills[0].installed.restoreAvailable, true);
 
     const restore = await restoreCanvasSkill('test-library-skill', { prefer: 'store', enable: true });
-    assert.equal(restore.success, true, restore.error);
+    assert.equal(restore.success, true, restore.error ?? 'Expected store skill restore to succeed');
     assert.ok(restore.backupPath);
 
     const restoredContent = await fs.readFile(installedSkillPath, 'utf-8');
@@ -215,7 +215,7 @@ async function main() {
     assert.equal(store.skills[0].installed.updateAvailable, true);
 
     const update = await installCanvasSkillFromStore('test-library-skill', undefined, { enable: true });
-    assert.equal(update.success, true, update.error);
+    assert.equal(update.success, true, update.error ?? 'Expected store skill update to succeed');
     skillRegistry = await readCanvasSkillRegistry();
     assert.equal(skillRegistry.skills['test-library-skill'].version, '1.1.0');
     store = await listCanvasSkillStore();
@@ -229,7 +229,7 @@ async function main() {
     assert.equal(legacyDuplicateCreate.success, false);
     assert.equal(legacyDuplicateCreate.error, 'Skill "test-library-skill" already exists');
     const legacyDelete = await deleteSkillDirectory('test-library-skill', legacyUserScope);
-    assert.equal(legacyDelete.success, true, legacyDelete.error);
+    assert.equal(legacyDelete.success, true, legacyDelete.error ?? 'Expected legacy skill delete to succeed');
     await assert.rejects(fs.stat(path.join(dataRoot, 'users', 'legacy-skill-user', 'skills', 'test-library-skill', 'SKILL.md')));
     assert.equal(
       await fs.stat(path.join(dataRoot, 'skills', 'test-library-skill', 'SKILL.md')).then((stat) => stat.isFile()),
@@ -252,7 +252,7 @@ This skill should remain visible after scoped store writes.
       scope: legacyStoreScope,
       updatedBy: 'legacy-store-skill-user@example.com',
     });
-    assert.equal(legacyStoreInstall.success, true, legacyStoreInstall.error);
+    assert.equal(legacyStoreInstall.success, true, legacyStoreInstall.error ?? 'Expected scoped legacy store install to succeed');
     assert.equal((await loadSkillsFromDisk(undefined, legacyStoreScope)).some((skill) => skill.name === 'legacy-other-skill'), true);
     const legacyRestoreScope = { userId: 'legacy-restore-skill-user' };
     const legacySeedRestore = await restoreCanvasSkill('pdf', {
@@ -261,7 +261,7 @@ This skill should remain visible after scoped store writes.
       scope: legacyRestoreScope,
       updatedBy: 'legacy-restore-skill-user@example.com',
     });
-    assert.equal(legacySeedRestore.success, true, legacySeedRestore.error);
+    assert.equal(legacySeedRestore.success, true, legacySeedRestore.error ?? 'Expected scoped legacy seed restore to succeed');
     assert.equal((await loadSkillsFromDisk(undefined, legacyRestoreScope)).some((skill) => skill.name === 'legacy-other-skill'), true);
     await fs.mkdir(path.join(dataRoot, 'users', 'skill-user-a', 'skills'), { recursive: true });
     await fs.mkdir(path.join(dataRoot, 'users', 'skill-user-b', 'skills'), { recursive: true });
@@ -275,7 +275,7 @@ This skill should remain visible after scoped store writes.
       scope: userScopeA,
       updatedBy: 'skill-user-a@example.com',
     });
-    assert.equal(scopedInstall.success, true, scopedInstall.error);
+    assert.equal(scopedInstall.success, true, scopedInstall.error ?? 'Expected scoped store skill install to succeed');
     assert.equal(
       await fs.stat(path.join(dataRoot, 'users', 'skill-user-a', 'skills', 'test-library-skill', 'SKILL.md')).then((stat) => stat.isFile()),
       true,
@@ -290,7 +290,7 @@ This skill should remain visible after scoped store writes.
     assert.equal(scopedStoreB.skills[0].installed.installed, false);
 
     const deleteResult = await deleteSkillDirectory('test-library-skill');
-    assert.equal(deleteResult.success, true, deleteResult.error);
+    assert.equal(deleteResult.success, true, deleteResult.error ?? 'Expected store skill delete to succeed');
     await removeCanvasSkillRegistryRecord('test-library-skill');
     skillRegistry = await readCanvasSkillRegistry();
     assert.equal(skillRegistry.skills['test-library-skill'], undefined);
@@ -300,7 +300,7 @@ This skill should remain visible after scoped store writes.
     assert.equal(store.skills[0].installed.version, undefined);
 
     const reinstall = await installCanvasSkillFromStore('test-library-skill', undefined, { enable: true });
-    assert.equal(reinstall.success, true, reinstall.error);
+    assert.equal(reinstall.success, true, reinstall.error ?? 'Expected store skill reinstall to succeed');
     assert.equal(resolveEnabledSkillNames(['alpha', 'beta'], [DISABLED_ALL_SKILLS_SENTINEL]).size, 0);
 
     const reset = await resetCanvasSkillsDirectory('test@example.com');

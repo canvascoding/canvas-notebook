@@ -1,7 +1,7 @@
 import path from 'node:path';
 
 import { agentLoop, type AgentContext, type AgentMessage, type ThinkingLevel } from '@earendil-works/pi-agent-core';
-import type { Api, Provider } from '@earendil-works/pi-ai';
+import type { Api, ProviderId } from '@earendil-works/pi-ai';
 
 import { resolveAgentRuntimeConfig } from '@/app/lib/agents/effective-runtime-config';
 import { createDirectory } from '@/app/lib/filesystem/workspace-files';
@@ -129,7 +129,7 @@ function getWebhookPromptContext(run: AutomationRunRecord) {
   };
 }
 
-function createAutomationErrorMessage(message: string, provider: Provider, modelId: string, api: Api): AgentMessage {
+function createAutomationErrorMessage(message: string, provider: ProviderId, modelId: string, api: Api): AgentMessage {
   return {
     role: 'assistant',
     content: [

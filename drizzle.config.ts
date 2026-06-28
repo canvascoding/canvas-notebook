@@ -1,4 +1,4 @@
-export default {
+const config = {
   schema: "./app/lib/db/schema.ts",
   out: "./drizzle",
   dialect: "sqlite",
@@ -6,3 +6,5 @@ export default {
     url: "sqlite.db",
   },
 };
+
+export default config;
