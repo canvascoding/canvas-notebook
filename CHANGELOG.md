@@ -11,6 +11,33 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.6.28.1] - 2026-06-28
+
+### Changed
+
+- Updated maintenance dependencies across the agent runtime, editor, browser automation, Studio, telemetry, desktop, and test toolchain.
+- Kept ESLint on the latest compatible 9.x release because the current React ESLint plugin stack does not support ESLint 10 yet.
+- Improved mobile automation composition layout and hid personal/team workspace switchers when only personal mode is available.
+
+### Fixed
+
+- Fixed legacy automation migration ordering for existing installations.
+- Fixed dependency security advisories reported by GitHub Dependabot.
+- Adapted PDF.js, Puppeteer, and PI runtime integration code to their updated APIs.
+- Excluded the new `data/workspaces/**` runtime workspace tree from linting.
+
+### Security
+
+- Updated vulnerable direct and transitive npm dependencies until `npm audit --audit-level=moderate` reported zero vulnerabilities.
+
+### Verification
+
+- `npm audit --audit-level=moderate`
+- `npm run lint`
+- `npm run build`
+- Greptile review for PR #47: `5/5`
+- GitHub Actions `Build and Push` on `main`: `28329774666` built and pushed the image successfully, then failed only at the known Control Plane webhook step.
+
 ## [2026.6.26.1] - 2026-06-26
 
 ### Added
