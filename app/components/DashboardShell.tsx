@@ -42,7 +42,7 @@ import { AppLayout } from '@/app/components/layout/AppLayout';
 import CanvasAgentChat from '@/app/components/canvas-agent-chat/CanvasAgentChat';
 import { ThemeToggle } from '@/app/components/ThemeToggle';
 import { NotificationBell } from '@/app/components/notifications/NotificationBell';
-import { WorkspaceSwitcher } from '@/app/components/workspaces/WorkspaceSwitcher';
+import { WorkspaceSwitcher, useShouldShowWorkspaceSwitcher } from '@/app/components/workspaces/WorkspaceSwitcher';
 
 import { useFileStore } from '@/app/store/file-store';
 import { useEditorStore } from '@/app/store/editor-store';
@@ -222,6 +222,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
   const suppressNextMobileFileOpenCloseRef = useRef(0);
   const currentFile = useFileStore((state) => state.currentFile);
   const currentDirectory = useFileStore((state) => state.currentDirectory);
+  const showWorkspaceSwitcher = useShouldShowWorkspaceSwitcher();
 
   const currentDirectoryLabel =
     currentDirectory === '.' ? 'Workspace /' : `/${currentDirectory}`;
@@ -885,7 +886,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
         </div>
       </header>
 
-      {isMobileViewport ? (
+      {isMobileViewport && showWorkspaceSwitcher ? (
         <div className="z-30 shrink-0 border-b border-border bg-background/95 px-3 py-2 md:hidden">
           <WorkspaceSwitcher source="notebook" variant="mobile-sheet" />
         </div>

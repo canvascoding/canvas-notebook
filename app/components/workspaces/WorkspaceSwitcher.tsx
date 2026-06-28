@@ -55,6 +55,26 @@ function getAccessLabel(workspace: ClientWorkspaceSummary, labels: WorkspaceAcce
   return labels.write;
 }
 
+function getSwitchableWorkspaces(workspaces: ClientWorkspaceSummary[]) {
+  return workspaces.filter((workspace) => workspace.status === 'active' && workspace.permissions.canRead);
+}
+
+function hasWorkspaceSwitcherOptions(workspaces: ClientWorkspaceSummary[]) {
+  const switchableWorkspaces = getSwitchableWorkspaces(workspaces);
+  return switchableWorkspaces.length > 1 && switchableWorkspaces.some((workspace) => workspace.type !== 'personal');
+}
+
+export function useShouldShowWorkspaceSwitcher() {
+  const workspaces = useWorkspaceStore((state) => state.workspaces);
+  const hydrateWorkspaces = useWorkspaceStore((state) => state.hydrateWorkspaces);
+
+  useEffect(() => {
+    void hydrateWorkspaces();
+  }, [hydrateWorkspaces]);
+
+  return hasWorkspaceSwitcherOptions(workspaces);
+}
+
 export function WorkspaceSwitcher({ source, variant = 'default', className }: WorkspaceSwitcherProps) {
   const t = useTranslations('workspaces');
   const [mobileSheetOpen, setMobileSheetOpen] = useState(false);
@@ -81,6 +101,7 @@ export function WorkspaceSwitcher({ source, variant = 'default', className }: Wo
   const isCompact = variant === 'compact';
   const isToolbar = variant === 'toolbar';
   const isMobileSheet = variant === 'mobile-sheet';
+  const switchableWorkspaces = getSwitchableWorkspaces(workspaces);
   const kindLabels = {
     personal: t('types.personal'),
     team: t('types.team'),
@@ -92,7 +113,11 @@ export function WorkspaceSwitcher({ source, variant = 'default', className }: Wo
     write: t('access.write'),
   } satisfies WorkspaceAccessLabels;
   const activeLabel = activeWorkspace?.name || (isLoading && !initialized ? t('loadingWorkspace') : t('label'));
-  const canSwitch = workspaces.length > 1;
+  const canSwitch = hasWorkspaceSwitcherOptions(workspaces);
+
+  if (!canSwitch) {
+    return null;
+  }
 
   if (isMobileSheet) {
     const buttonTitle = activeWorkspace ? `${activeWorkspace.name} · ${getAccessLabel(activeWorkspace, accessLabels)}` : activeLabel;
@@ -152,7 +177,7 @@ export function WorkspaceSwitcher({ source, variant = 'default', className }: Wo
                 {isLoading ? t('loadingWorkspaces') : t('noWorkspaceAvailable')}
               </div>
             ) : null}
-            {workspaces.map((workspace) => {
+            {switchableWorkspaces.map((workspace) => {
               const isActive = workspace.id === activeWorkspace?.id;
               const disabled = workspace.status !== 'active' || !workspace.permissions.canRead;
               const item = (
@@ -193,26 +218,6 @@ export function WorkspaceSwitcher({ source, variant = 'default', className }: Wo
           </div>
         </SheetContent>
       </Sheet>
-    );
-  }
-
-  if (!canSwitch && activeWorkspace && isCompact) {
-    return (
-      <Button
-        type="button"
-        variant="outline"
-        size="sm"
-        disabled
-        data-testid="workspace-switcher"
-        data-active-workspace-id={activeWorkspace.id}
-        data-active-workspace-type={activeWorkspace.type}
-        className={cn('h-8 min-w-0 gap-1.5 px-2 text-[11px] disabled:opacity-100', className)}
-        title={`${activeWorkspace.name} · ${getAccessLabel(activeWorkspace, accessLabels)}`}
-      >
-        {renderWorkspaceIcon(activeWorkspace, 'h-3.5 w-3.5 shrink-0')}
-        <span className="hidden min-w-0 truncate sm:inline">{getWorkspaceKindLabel(activeWorkspace, kindLabels)}</span>
-        {!activeWorkspace.permissions.canWrite ? <Lock className="h-3 w-3 text-amber-500" /> : null}
-      </Button>
     );
   }
 
@@ -272,7 +277,7 @@ export function WorkspaceSwitcher({ source, variant = 'default', className }: Wo
             {isLoading ? t('loadingWorkspaces') : t('noWorkspaceAvailable')}
           </div>
         ) : null}
-        {workspaces.map((workspace) => {
+        {switchableWorkspaces.map((workspace) => {
           const isActive = workspace.id === activeWorkspace?.id;
           const disabled = workspace.status !== 'active' || !workspace.permissions.canRead;
 

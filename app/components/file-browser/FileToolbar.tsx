@@ -20,7 +20,7 @@ import {
 import { cn } from '@/lib/utils';
 import { useFileStore } from '@/app/store/file-store';
 import type { BrowserMode } from '@/app/lib/files/types';
-import { WorkspaceSwitcher } from '@/app/components/workspaces/WorkspaceSwitcher';
+import { WorkspaceSwitcher, useShouldShowWorkspaceSwitcher } from '@/app/components/workspaces/WorkspaceSwitcher';
 
 export interface FileToolbarHandlers {
   onToggleMultiSelect: () => void;
@@ -52,6 +52,7 @@ export function FileToolbar({ variant, isMultiSelectMode, isDeleteDisabled, hand
 
   const isMobileSheet = variant === 'mobile-sheet';
   const isFullscreen = variant === 'fullscreen';
+  const showWorkspaceSwitcher = useShouldShowWorkspaceSwitcher();
 
   const renderCreateMenuItems = () => (
     <>
@@ -167,7 +168,9 @@ export function FileToolbar({ variant, isMultiSelectMode, isDeleteDisabled, hand
   if (isMobileSheet) {
     return (
       <div className="flex items-center gap-1 px-3 py-2">
-        <WorkspaceSwitcher source="file-browser" variant="compact" className="mr-1 shrink-0" />
+        {showWorkspaceSwitcher ? (
+          <WorkspaceSwitcher source="file-browser" variant="compact" className="mr-1 shrink-0" />
+        ) : null}
         <Button
           variant="ghost"
           size="sm"
@@ -225,8 +228,12 @@ export function FileToolbar({ variant, isMultiSelectMode, isDeleteDisabled, hand
   if (isFullscreen) {
     return (
       <div className="flex flex-wrap items-center gap-2 px-4 py-2.5">
-        <WorkspaceSwitcher source="file-browser" variant="toolbar" className="shrink-0" />
-        <div className="hidden h-5 w-px bg-border sm:block" />
+        {showWorkspaceSwitcher ? (
+          <>
+            <WorkspaceSwitcher source="file-browser" variant="toolbar" className="shrink-0" />
+            <div className="hidden h-5 w-px bg-border sm:block" />
+          </>
+        ) : null}
         <Button
           variant="ghost"
           size="sm"
@@ -279,7 +286,9 @@ export function FileToolbar({ variant, isMultiSelectMode, isDeleteDisabled, hand
     <div className="flex flex-col gap-2 px-3 py-2">
       <div className="flex items-center justify-between gap-2">
         <h2 className="shrink-0 text-sm font-semibold text-foreground">{t('filesTitle')}</h2>
-        <WorkspaceSwitcher source="file-browser" variant="compact" className="min-w-0 shrink" />
+        {showWorkspaceSwitcher ? (
+          <WorkspaceSwitcher source="file-browser" variant="compact" className="min-w-0 shrink" />
+        ) : null}
       </div>
       <TooltipProvider delayDuration={300}>
         <div className="flex min-w-0 flex-1 items-center justify-start gap-1">
