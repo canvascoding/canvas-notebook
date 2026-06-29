@@ -221,6 +221,8 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
   const previousCurrentFilePathRef = useRef<string | null>(null);
   const suppressNextMobileFileOpenCloseRef = useRef(0);
   const currentFile = useFileStore((state) => state.currentFile);
+  const isLoadingFile = useFileStore((state) => state.isLoadingFile);
+  const fileError = useFileStore((state) => state.fileError);
   const currentDirectory = useFileStore((state) => state.currentDirectory);
   const showWorkspaceSwitcher = useShouldShowWorkspaceSwitcher();
 
@@ -898,7 +900,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
         <main className="flex min-h-0 flex-1 overflow-hidden">
           <div className="flex min-h-0 min-w-0 flex-1 flex-col">
             {mobileSurface === 'editor' ? (
-              currentFile ? (
+              currentFile || isLoadingFile || fileError ? (
                 <FileEditor onClosePreview={handleClosePreview} />
               ) : (
                 <MobileNotebookEmptyState

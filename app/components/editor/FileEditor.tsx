@@ -183,6 +183,10 @@ function formatTimestamp(timestamp: number | null) {
   });
 }
 
+function isFileRevisionConflictMessage(message: string) {
+  return message.toLowerCase().includes('file revision conflict');
+}
+
 function shouldShowDocumentLoadingSkeleton(path: string | null) {
   if (!path) return true;
   const extension = getExtension(path);
@@ -333,6 +337,13 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
   }>({ path: null, mode: 'markdown' });
   const [marpRefreshKey, setMarpRefreshKey] = useState(0);
   const [isClosingPreview, setIsClosingPreview] = useState(false);
+  const getSaveErrorMessage = useCallback((error: unknown) => {
+    const rawMessage =
+      error instanceof Error ? error.message : t('failedToSaveFile');
+    return isFileRevisionConflictMessage(rawMessage)
+      ? t('fileRevisionConflict')
+      : rawMessage;
+  }, [t]);
 
   useEffect(() => {
     // This effect synchronizes the main file store (useFileStore) 
@@ -391,8 +402,7 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
           setSaveError(null);
         }
       } catch (error) {
-        const message =
-          error instanceof Error ? error.message : t('failedToSaveFile');
+        const message = getSaveErrorMessage(error);
         setSaveError(message);
         toast.error(message);
       }
@@ -403,7 +413,7 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
         window.clearTimeout(saveTimeoutRef.current);
       }
     };
-  }, [activePath, draft, isDirty, markSaved, markSaving, saveFile, setSaveError, t]);
+  }, [activePath, draft, getSaveErrorMessage, isDirty, markSaved, markSaving, saveFile, setSaveError]);
 
   const extension = useMemo(() => {
     if (!currentFile) return '';
@@ -453,6 +463,7 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
   }, [currentFile?.path]);
 
   const savedTime = formatTimestamp(lastSavedAt);
+  const displaySaveError = saveError ?? null;
   const breadcrumbs = currentFile ? currentFile.path.split('/').filter(Boolean) : [];
   const currentFileNode = useMemo<FileNode | null>(() => {
     if (!currentFile) return null;
@@ -527,14 +538,13 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
 
       onClosePreview?.();
     } catch (error) {
-      const message =
-        error instanceof Error ? error.message : t('failedToSaveFile');
+      const message = getSaveErrorMessage(error);
       setSaveError(message);
       toast.error(message);
     } finally {
       setIsClosingPreview(false);
     }
-  }, [isClosingPreview, markSaved, markSaving, onClosePreview, saveFile, setSaveError, t]);
+  }, [getSaveErrorMessage, isClosingPreview, markSaved, markSaving, onClosePreview, saveFile, setSaveError]);
 
   useEffect(() => {
     const handleShortcut = (event: KeyboardEvent) => {
@@ -555,8 +565,7 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
             }
           })
           .catch((error) => {
-            const message =
-              error instanceof Error ? error.message : t('failedToSaveFile');
+            const message = getSaveErrorMessage(error);
             setSaveError(message);
             toast.error(message);
           });
@@ -565,7 +574,7 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
 
     window.addEventListener('keydown', handleShortcut);
     return () => window.removeEventListener('keydown', handleShortcut);
-  }, [markSaved, markSaving, saveFile, setSaveError, t]);
+  }, [getSaveErrorMessage, markSaved, markSaving, saveFile, setSaveError]);
 
   useEffect(() => {
     if (!isImage) return;
@@ -783,10 +792,10 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
               <span>{t('share')}</span>
             </Button>
           )}
-          {saveError ? (
-            <span className="flex items-center gap-1 text-destructive shrink-0" title={saveError}>
+          {displaySaveError ? (
+            <span className="flex items-center gap-1 text-destructive shrink-0" title={displaySaveError}>
               <AlertCircle className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">{saveError}</span>
+              <span className="hidden sm:inline">{displaySaveError}</span>
             </span>
           ) : isSaving ? (
             <span className="flex items-center gap-1 shrink-0" title={t('saving')}>

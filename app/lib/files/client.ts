@@ -60,12 +60,12 @@ function getActiveWorkspaceId(): string | null {
   return useWorkspaceStore.getState().activeWorkspaceId;
 }
 
-function workspaceHeaders(workspaceId?: string | null): HeadersInit {
+export function workspaceHeaders(workspaceId?: string | null): HeadersInit {
   const resolvedWorkspaceId = workspaceId ?? getActiveWorkspaceId();
   return resolvedWorkspaceId ? { [WORKSPACE_ID_HEADER]: resolvedWorkspaceId } : {};
 }
 
-function withWorkspaceQuery(url: string, workspaceId?: string | null) {
+export function withWorkspaceQuery(url: string, workspaceId?: string | null) {
   const resolvedWorkspaceId = workspaceId ?? getActiveWorkspaceId();
   if (!resolvedWorkspaceId) return url;
   const separator = url.includes('?') ? '&' : '?';

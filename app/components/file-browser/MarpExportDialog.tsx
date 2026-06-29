@@ -13,6 +13,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { workspaceHeaders } from '@/app/lib/files/client';
 
 interface MarpExportDialogProps {
   open: boolean;
@@ -53,7 +54,7 @@ export function MarpExportDialog({ open, onOpenChange, filePath, fileName }: Mar
     try {
       const response = await fetch(format === 'pdf' ? '/api/files/marp-pdf' : '/api/files/marp-images', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...workspaceHeaders() },
         body: JSON.stringify(format === 'pdf' ? { path: filePath } : { path: filePath, format }),
       });
 

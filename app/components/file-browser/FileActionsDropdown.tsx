@@ -44,7 +44,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { hasMarpFileName } from '@/app/lib/marp/detect';
 import { useFileStore } from '@/app/store/file-store';
-import { copyWorkspacePaths } from '@/app/lib/files/client';
+import { copyWorkspacePaths, workspaceHeaders } from '@/app/lib/files/client';
 import type { FileNode } from '@/app/lib/files/types';
 import { getParentDirectory, joinWorkspacePath } from '@/app/lib/files/path-utils';
 import { isWorkspaceImageFileName, shareWorkspaceImageFile } from '@/app/lib/files/workspace-image-share';
@@ -166,7 +166,9 @@ export function FileActionsDropdown({
 
     let cancelled = false;
 
-    fetch(`/api/files/marp-detect?path=${encodeURIComponent(nodePath)}`)
+    fetch(`/api/files/marp-detect?path=${encodeURIComponent(nodePath)}`, {
+      headers: workspaceHeaders(),
+    })
       .then(async (response) => {
         if (!response.ok) return null;
         return response.json() as Promise<{ isMarp?: boolean }>;

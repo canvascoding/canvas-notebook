@@ -30,6 +30,7 @@ import {
   AlignLeft,
   AlignRight,
   Bold,
+  ChevronLeft,
   Code,
   Code2,
   Columns3,
@@ -42,6 +43,7 @@ import {
   Heading3,
   Image as ImageIcon,
   Italic,
+  Keyboard,
   Link as LinkIcon,
   List,
   ListChecks,
@@ -596,6 +598,13 @@ function getSlashCommandItems(query: string, labels: SlashCommandLabels): SlashC
       return searchableText.includes(normalizedQuery);
     })
     .slice(0, 10);
+}
+
+function getLocalizedSlashCommandItems(labels: SlashCommandLabels): SlashCommandItem[] {
+  return SLASH_COMMAND_DEFINITIONS.map((definition) => ({
+    ...definition,
+    ...labels.items[definition.id],
+  }));
 }
 
 const SlashCommandList = React.forwardRef<SlashCommandListHandle, SlashCommandListProps>(
@@ -2292,7 +2301,7 @@ function MarkdownToolbar({
 
   return (
     <TooltipProvider>
-      <div className="flex h-9 shrink-0 items-center gap-1 overflow-x-auto border-b border-border bg-background px-2">
+      <div className="hidden h-9 shrink-0 items-center gap-1 overflow-x-auto border-b border-border bg-background px-2 md:flex">
         <TooltipIconButton
           label="Undo"
           disabled={!canUseCommands || !toolbarState.canUndo}
@@ -2452,7 +2461,7 @@ function MarkdownToolbar({
         </div>
       </div>
       {toolbarState.isTable ? (
-        <div className="flex h-9 shrink-0 items-center gap-1 overflow-x-auto border-b border-border bg-muted/30 px-2">
+        <div className="hidden h-9 shrink-0 items-center gap-1 overflow-x-auto border-b border-border bg-muted/30 px-2 md:flex">
           <span className="mr-1 shrink-0 text-xs font-medium text-muted-foreground">
             {t('markdownEditorTableTools')}
           </span>
@@ -2571,6 +2580,329 @@ function MarkdownToolbar({
         range={imageDialogSeed.range}
       />
     </TooltipProvider>
+  );
+}
+
+type MobileMarkdownSheet = 'blocks' | 'styles' | null;
+
+const MOBILE_BLOCK_COMMAND_IDS = new Set<SlashCommandItemId>([
+  'text',
+  'heading1',
+  'heading2',
+  'heading3',
+  'bulletList',
+  'numberedList',
+  'taskList',
+  'quote',
+  'codeBlock',
+  'table',
+  'image',
+  'divider',
+]);
+
+const MOBILE_STYLE_COMMAND_IDS = new Set<SlashCommandItemId>([
+  'text',
+  'heading1',
+  'heading2',
+  'heading3',
+  'bulletList',
+  'numberedList',
+  'taskList',
+  'quote',
+  'codeBlock',
+]);
+
+function MobileToolbarButton({
+  label,
+  active = false,
+  disabled = false,
+  onClick,
+  children,
+}: {
+  label: string;
+  active?: boolean;
+  disabled?: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <Button
+      type="button"
+      variant={active ? 'secondary' : 'ghost'}
+      size="icon-sm"
+      aria-label={label}
+      title={label}
+      disabled={disabled}
+      className={cn(
+        'h-10 w-10 shrink-0 rounded-xl text-muted-foreground',
+        active && 'text-foreground',
+      )}
+      onPointerDown={(event) => {
+        event.preventDefault();
+      }}
+      onClick={(event) => {
+        event.preventDefault();
+        onClick();
+      }}
+    >
+      {children}
+    </Button>
+  );
+}
+
+function MobileMarkdownToolbar({
+  actions,
+  editor,
+  labels,
+  onImageDialogOpenChange,
+  onOpenTableDialog,
+  onSourceMode,
+}: {
+  actions?: SlashCommandActions;
+  editor: MarkdownEditorWithMarkdown | null;
+  labels: SlashCommandLabels;
+  onImageDialogOpenChange: (open: boolean) => void;
+  onOpenTableDialog: () => void;
+  onSourceMode: () => void;
+}) {
+  const t = useTranslations('notebook');
+  const [sheet, setSheet] = useState<MobileMarkdownSheet>(null);
+  const [linkDialogOpen, setLinkDialogOpen] = useState(false);
+  const [linkDialogSeed, setLinkDialogSeed] = useState<LinkDialogSeed>({
+    id: 0,
+    href: '',
+    text: '',
+    canEditText: true,
+  });
+  const savedRangeRef = useRef<Range | null>(null);
+  const canUseCommands = Boolean(editor?.isEditable);
+  const toolbarState = useEditorState({
+    editor,
+    selector: ({ editor: currentEditor }) => {
+      if (!currentEditor) return EMPTY_TOOLBAR_STATE;
+
+      return {
+        canUndo: currentEditor.can().undo(),
+        canRedo: currentEditor.can().redo(),
+        isBold: currentEditor.isActive('bold'),
+        isItalic: currentEditor.isActive('italic'),
+        isStrike: currentEditor.isActive('strike'),
+        isCode: currentEditor.isActive('code'),
+        isHeading1: currentEditor.isActive('heading', { level: 1 }),
+        isHeading2: currentEditor.isActive('heading', { level: 2 }),
+        isHeading3: currentEditor.isActive('heading', { level: 3 }),
+        isBulletList: currentEditor.isActive('bulletList'),
+        isOrderedList: currentEditor.isActive('orderedList'),
+        isTaskList: currentEditor.isActive('taskList'),
+        isBlockquote: currentEditor.isActive('blockquote'),
+        isLink: currentEditor.isActive('link'),
+        isCodeBlock: currentEditor.isActive('codeBlock'),
+        isTable: currentEditor.isActive('table'),
+        cellAlign: getActiveTableCellAlign(currentEditor),
+      };
+    },
+  }) ?? EMPTY_TOOLBAR_STATE;
+
+  const saveCurrentRange = useCallback(() => {
+    if (!editor) {
+      savedRangeRef.current = null;
+      return null;
+    }
+
+    const { from, to } = editor.state.selection;
+    const range = { from, to };
+    savedRangeRef.current = range;
+    return range;
+  }, [editor]);
+
+  const restoreSavedRange = useCallback(() => {
+    if (!editor) return null;
+    const range = savedRangeRef.current ?? {
+      from: editor.state.selection.from,
+      to: editor.state.selection.to,
+    };
+    const safeRange = clampEditorRangeToDoc(editor, range);
+    if (!safeRange) return null;
+
+    editor.chain().focus().setTextSelection(safeRange).run();
+    return safeRange;
+  }, [editor]);
+
+  const openSheet = useCallback((nextSheet: Exclude<MobileMarkdownSheet, null>) => {
+    saveCurrentRange();
+    setSheet((current) => current === nextSheet ? null : nextSheet);
+  }, [saveCurrentRange]);
+
+  const runInlineCommand = useCallback((command: (editor: MarkdownEditorWithMarkdown) => void) => {
+    if (!editor) return;
+    restoreSavedRange();
+    command(editor);
+  }, [editor, restoreSavedRange]);
+
+  const openLinkDialog = useCallback(() => {
+    if (!editor) return;
+    restoreSavedRange();
+    const activeLink = getActiveLinkDetails(editor);
+    setLinkDialogSeed((current) => ({
+      id: current.id + 1,
+      href: activeLink?.href || (editor.getAttributes('link').href as string | undefined) || '',
+      text: activeLink?.text || getSelectedText(editor),
+      canEditText: editor.state.selection.empty && !activeLink,
+    }));
+    setSheet(null);
+    setLinkDialogOpen(true);
+  }, [editor, restoreSavedRange]);
+
+  const runCommandItem = useCallback((item: SlashCommandItem) => {
+    if (!editor) return;
+    const range = restoreSavedRange() ?? { from: editor.state.selection.from, to: editor.state.selection.to };
+    setSheet(null);
+    item.command({
+      actions,
+      editor,
+      labels,
+      range,
+    });
+  }, [actions, editor, labels, restoreSavedRange]);
+
+  const blockItems = useMemo(
+    () => getLocalizedSlashCommandItems(labels).filter((item) => MOBILE_BLOCK_COMMAND_IDS.has(item.id)),
+    [labels],
+  );
+  const styleItems = useMemo(
+    () => getLocalizedSlashCommandItems(labels).filter((item) => MOBILE_STYLE_COMMAND_IDS.has(item.id)),
+    [labels],
+  );
+  const sheetItems = sheet === 'styles' ? styleItems : blockItems;
+  const sheetTitle = sheet === 'styles' ? t('markdownEditorMobileTextStyle') : labels.addBlock;
+
+  return (
+    <>
+      {sheet ? (
+        <div className="tiptap-mobile-sheet md:hidden" role="dialog" aria-label={sheetTitle}>
+          <div className="mb-3 flex items-center justify-between gap-3 px-1">
+            <div className="text-sm font-medium text-muted-foreground">{sheetTitle}</div>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              aria-label={t('markdownEditorMobileCloseTools')}
+              onPointerDown={(event) => event.preventDefault()}
+              onClick={() => setSheet(null)}
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            {sheetItems.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                className="tiptap-mobile-command-tile"
+                onPointerDown={(event) => event.preventDefault()}
+                onClick={() => runCommandItem(item)}
+              >
+                <item.Icon />
+                <span className="min-w-0 truncate">{item.title}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      <div className="tiptap-mobile-toolbar md:hidden" role="toolbar" aria-label={t('markdownEditorMobileToolbar')}>
+        <MobileToolbarButton
+          label={t('markdownEditorMobileCloseTools')}
+          disabled={!canUseCommands}
+          onClick={() => {
+            if (sheet) {
+              setSheet(null);
+            } else {
+              editor?.commands.blur();
+            }
+          }}
+        >
+          <ChevronLeft className="h-5 w-5" />
+        </MobileToolbarButton>
+        <MobileToolbarButton label={labels.addBlock} disabled={!canUseCommands} active={sheet === 'blocks'} onClick={() => openSheet('blocks')}>
+          <Plus className="h-5 w-5" />
+        </MobileToolbarButton>
+        <MobileToolbarButton label={t('markdownEditorMobileTextStyle')} disabled={!canUseCommands} active={sheet === 'styles'} onClick={() => openSheet('styles')}>
+          <span className="text-base font-semibold leading-none">Aa</span>
+        </MobileToolbarButton>
+        <MobileToolbarButton label={labels.items.bold.title} active={toolbarState.isBold} disabled={!canUseCommands} onClick={() => runInlineCommand((currentEditor) => currentEditor.chain().focus().toggleBold().run())}>
+          <Bold className="h-5 w-5" />
+        </MobileToolbarButton>
+        <MobileToolbarButton label={labels.items.italic.title} active={toolbarState.isItalic} disabled={!canUseCommands} onClick={() => runInlineCommand((currentEditor) => currentEditor.chain().focus().toggleItalic().run())}>
+          <Italic className="h-5 w-5" />
+        </MobileToolbarButton>
+        <MobileToolbarButton label={labels.items.strike.title} active={toolbarState.isStrike} disabled={!canUseCommands} onClick={() => runInlineCommand((currentEditor) => currentEditor.chain().focus().toggleStrike().run())}>
+          <Strikethrough className="h-5 w-5" />
+        </MobileToolbarButton>
+        <MobileToolbarButton label={t('markdownEditorLinkDialogTitle')} active={toolbarState.isLink} disabled={!canUseCommands} onClick={openLinkDialog}>
+          <LinkIcon className="h-5 w-5" />
+        </MobileToolbarButton>
+        <MobileToolbarButton label={labels.items.inlineCode.title} active={toolbarState.isCode} disabled={!canUseCommands} onClick={() => runInlineCommand((currentEditor) => currentEditor.chain().focus().toggleCode().run())}>
+          <Code className="h-5 w-5" />
+        </MobileToolbarButton>
+        <MobileToolbarButton
+          label={labels.items.image.title}
+          disabled={!canUseCommands}
+          onClick={() => {
+            saveCurrentRange();
+            setSheet(null);
+            onImageDialogOpenChange(true);
+          }}
+        >
+          <ImageIcon className="h-5 w-5" />
+        </MobileToolbarButton>
+        <MobileToolbarButton label={t('markdownEditorMobileUndo')} disabled={!canUseCommands || !toolbarState.canUndo} onClick={() => runInlineCommand((currentEditor) => currentEditor.chain().focus().undo().run())}>
+          <Undo2 className="h-5 w-5" />
+        </MobileToolbarButton>
+        <MobileToolbarButton label={t('markdownEditorMobileRedo')} disabled={!canUseCommands || !toolbarState.canRedo} onClick={() => runInlineCommand((currentEditor) => currentEditor.chain().focus().redo().run())}>
+          <Redo2 className="h-5 w-5" />
+        </MobileToolbarButton>
+        <MobileToolbarButton label={labels.items.codeBlock.title} active={toolbarState.isCodeBlock} disabled={!canUseCommands} onClick={() => runInlineCommand((currentEditor) => currentEditor.chain().focus().toggleCodeBlock().run())}>
+          <Code2 className="h-5 w-5" />
+        </MobileToolbarButton>
+        <MobileToolbarButton
+          label={labels.items.table.title}
+          disabled={!canUseCommands}
+          onClick={() => {
+            restoreSavedRange();
+            setSheet(null);
+            onOpenTableDialog();
+          }}
+        >
+          <Table2 className="h-5 w-5" />
+        </MobileToolbarButton>
+        <MobileToolbarButton label={t('markdownEditorEditAsText')} disabled={!canUseCommands} onClick={onSourceMode}>
+          <Type className="h-5 w-5" />
+        </MobileToolbarButton>
+        <MobileToolbarButton
+          label={t('markdownEditorMobileHideKeyboard')}
+          disabled={!canUseCommands}
+          onClick={() => {
+            setSheet(null);
+            editor?.commands.blur();
+            if (document.activeElement instanceof HTMLElement) {
+              document.activeElement.blur();
+            }
+          }}
+        >
+          <Keyboard className="h-5 w-5" />
+        </MobileToolbarButton>
+      </div>
+      <MarkdownLinkDialog
+        key={linkDialogSeed.id}
+        editor={editor}
+        open={linkDialogOpen}
+        onOpenChange={setLinkDialogOpen}
+        initialHref={linkDialogSeed.href}
+        initialText={linkDialogSeed.text}
+        canEditText={linkDialogSeed.canEditText}
+      />
+    </>
   );
 }
 
@@ -2777,17 +3109,29 @@ function RichMarkdownEditor({
       {!readOnly ? (
         <MarkdownTableDialog open={tableDialogOpen} onOpenChange={setTableDialogOpen} onInsert={insertTable} />
       ) : null}
+      {!readOnly ? (
+        <MobileMarkdownToolbar
+          actions={slashCommandActions}
+          editor={markdownEditor}
+          labels={labels}
+          onImageDialogOpenChange={openImageDialogFromToolbar}
+          onOpenTableDialog={() => setTableDialogOpen(true)}
+          onSourceMode={onSourceMode}
+        />
+      ) : null}
       <div ref={scrollContainerRef} className="relative min-h-0 flex-1 overflow-auto">
         {!readOnly ? (
-          <TooltipProvider>
-            <MarkdownBlockControls
-              editor={editor}
-              labels={labels}
-              onAddBlock={openInsertedBlockCommandMenu}
-              onOpenCommandMenu={openCurrentBlockCommandMenu}
-              scrollContainerRef={scrollContainerRef}
-            />
-          </TooltipProvider>
+          <div className="hidden md:block">
+            <TooltipProvider>
+              <MarkdownBlockControls
+                editor={editor}
+                labels={labels}
+                onAddBlock={openInsertedBlockCommandMenu}
+                onOpenCommandMenu={openCurrentBlockCommandMenu}
+                scrollContainerRef={scrollContainerRef}
+              />
+            </TooltipProvider>
+          </div>
         ) : null}
         <EditorContent editor={editor} className="tiptap-editor-shell" />
         {!readOnly && editor && blockCommandMenu ? (

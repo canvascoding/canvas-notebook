@@ -73,8 +73,11 @@ export function FileTreeNode({ node, depth = 0, browserMode = 'tree', onNavigate
       const shiftKey = event.shiftKey;
       selectNode(node, ctrlOrMeta, shiftKey);
       if (node.type === 'file') {
-        loadFile(node.path, true);
-        onOpenFile?.(node.path);
+        if (onOpenFile) {
+          onOpenFile(node.path);
+        } else {
+          loadFile(node.path, true);
+        }
         mobileFileOpened();
       }
     },

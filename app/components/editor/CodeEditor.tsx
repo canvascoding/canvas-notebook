@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useMemo, type CSSProperties } from 'react';
 import CodeMirror from '@uiw/react-codemirror';
 import { javascript } from '@codemirror/lang-javascript';
 import { python } from '@codemirror/lang-python';
@@ -24,6 +24,36 @@ interface CodeEditorProps {
   readOnly?: boolean;
   path?: string;
 }
+
+const CODE_MIRROR_BASIC_SETUP = {
+  lineNumbers: true,
+  highlightActiveLineGutter: true,
+  highlightSpecialChars: true,
+  foldGutter: true,
+  drawSelection: true,
+  dropCursor: true,
+  allowMultipleSelections: true,
+  indentOnInput: true,
+  syntaxHighlighting: true,
+  bracketMatching: true,
+  closeBrackets: true,
+  autocompletion: true,
+  rectangularSelection: true,
+  crosshairCursor: true,
+  highlightActiveLine: true,
+  highlightSelectionMatches: true,
+  closeBracketsKeymap: true,
+  searchKeymap: true,
+  foldKeymap: true,
+  completionKeymap: true,
+  lintKeymap: true,
+};
+
+const CODE_MIRROR_STYLE: CSSProperties = {
+  fontSize: '14px',
+  fontFamily: "'JetBrains Mono', 'Fira Code', 'Courier New', monospace",
+  height: '100%',
+};
 
 // Get CodeMirror language extension based on file path
 function getLanguageExtension(path: string) {
@@ -93,9 +123,12 @@ export function CodeEditor({ value, onChange, readOnly = false, path }: CodeEdit
   const { resolvedTheme } = useTheme();
   const languagePath = path || currentFile?.path;
 
-  const extensions = languagePath
-    ? [getLanguageExtension(languagePath), EditorView.lineWrapping]
-    : [EditorView.lineWrapping];
+  const extensions = useMemo(
+    () => languagePath
+      ? [getLanguageExtension(languagePath), EditorView.lineWrapping]
+      : [EditorView.lineWrapping],
+    [languagePath]
+  );
 
   useEffect(() => {
     if (readOnly) return;
@@ -121,34 +154,8 @@ export function CodeEditor({ value, onChange, readOnly = false, path }: CodeEdit
         extensions={extensions}
         onChange={onChange}
         editable={!readOnly}
-        basicSetup={{
-          lineNumbers: true,
-          highlightActiveLineGutter: true,
-          highlightSpecialChars: true,
-          foldGutter: true,
-          drawSelection: true,
-          dropCursor: true,
-          allowMultipleSelections: true,
-          indentOnInput: true,
-          syntaxHighlighting: true,
-          bracketMatching: true,
-          closeBrackets: true,
-          autocompletion: true,
-          rectangularSelection: true,
-          crosshairCursor: true,
-          highlightActiveLine: true,
-          highlightSelectionMatches: true,
-          closeBracketsKeymap: true,
-          searchKeymap: true,
-          foldKeymap: true,
-          completionKeymap: true,
-          lintKeymap: true,
-        }}
-        style={{
-          fontSize: '14px',
-          fontFamily: "'JetBrains Mono', 'Fira Code', 'Courier New', monospace",
-          height: '100%',
-        }}
+        basicSetup={CODE_MIRROR_BASIC_SETUP}
+        style={CODE_MIRROR_STYLE}
         className="codemirror-wrapper"
       />
       <style jsx global>{`
