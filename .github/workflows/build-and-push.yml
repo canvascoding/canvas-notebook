@@ -93,19 +93,31 @@ jobs:
           import fs from 'node:fs';
 
           const defaultReleaseWebhookUrl = 'https://api.canvasnotebook.app/v1/webhooks/canvas-notebook-release';
+          const releaseWebhookPath = '/v1/webhooks/canvas-notebook-release';
 
           function releaseWebhookUrl() {
             const raw = (process.env.CONTROL_PLANE_RELEASE_WEBHOOK_URL || defaultReleaseWebhookUrl).trim();
             const url = new URL(raw);
+            const original = url.toString();
+            let normalized = false;
             if (url.hostname === 'canvasnotebook.app') {
               url.hostname = 'api.canvasnotebook.app';
-              console.warn(`::warning::CONTROL_PLANE_RELEASE_WEBHOOK_URL points at the web app host; using ${url.toString()} instead.`);
+              normalized = true;
             } else if (url.hostname === 'notebook.canvas.holdings') {
               url.hostname = 'api.canvas.holdings';
-              console.warn(`::warning::CONTROL_PLANE_RELEASE_WEBHOOK_URL points at the web app host; using ${url.toString()} instead.`);
+              normalized = true;
             }
-            if (url.pathname === '/' || url.pathname === '') {
-              url.pathname = '/v1/webhooks/canvas-notebook-release';
+            if (url.hostname === 'api.canvasnotebook.app' || url.hostname === 'api.canvas.holdings') {
+              if (url.pathname !== releaseWebhookPath) {
+                url.pathname = releaseWebhookPath;
+                normalized = true;
+              }
+            } else if (url.pathname === '/' || url.pathname === '') {
+              url.pathname = releaseWebhookPath;
+              normalized = true;
+            }
+            if (normalized) {
+              console.warn(`::warning::CONTROL_PLANE_RELEASE_WEBHOOK_URL ${original} does not match the Canvas Control Plane release endpoint; using ${url.toString()} instead.`);
             }
             return url.toString();
           }
