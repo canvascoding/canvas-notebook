@@ -80,8 +80,7 @@ jobs:
           IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
         run: |
           if [ -z "${CONTROL_PLANE_RELEASE_WEBHOOK_URL}" ]; then
-            echo "::warning::CONTROL_PLANE_RELEASE_WEBHOOK_URL secret is missing; skipping Control Plane release notification."
-            exit 0
+            echo "::warning::CONTROL_PLANE_RELEASE_WEBHOOK_URL secret is missing; using the default Canvas Control Plane release webhook URL."
           fi
 
           if [ -z "${CONTROL_PLANE_RELEASE_WEBHOOK_SECRET}" ]; then
@@ -92,6 +91,24 @@ jobs:
           node --input-type=module <<'NODE'
           import crypto from 'node:crypto';
           import fs from 'node:fs';
+
+          const defaultReleaseWebhookUrl = 'https://api.canvasnotebook.app/v1/webhooks/canvas-notebook-release';
+
+          function releaseWebhookUrl() {
+            const raw = (process.env.CONTROL_PLANE_RELEASE_WEBHOOK_URL || defaultReleaseWebhookUrl).trim();
+            const url = new URL(raw);
+            if (url.hostname === 'canvasnotebook.app') {
+              url.hostname = 'api.canvasnotebook.app';
+              console.warn(`::warning::CONTROL_PLANE_RELEASE_WEBHOOK_URL points at the web app host; using ${url.toString()} instead.`);
+            } else if (url.hostname === 'notebook.canvas.holdings') {
+              url.hostname = 'api.canvas.holdings';
+              console.warn(`::warning::CONTROL_PLANE_RELEASE_WEBHOOK_URL points at the web app host; using ${url.toString()} instead.`);
+            }
+            if (url.pathname === '/' || url.pathname === '') {
+              url.pathname = '/v1/webhooks/canvas-notebook-release';
+            }
+            return url.toString();
+          }
 
           const tags = (process.env.DOCKER_METADATA_TAGS || '')
             .split(/\r?\n/)
@@ -135,7 +152,7 @@ jobs:
             .createHmac('sha256', process.env.CONTROL_PLANE_RELEASE_WEBHOOK_SECRET)
             .update(`${timestamp}.${body}`)
             .digest('hex');
-          const response = await fetch(process.env.CONTROL_PLANE_RELEASE_WEBHOOK_URL, {
+          const response = await fetch(releaseWebhookUrl(), {
             method: 'POST',
             headers: {
               'content-type': 'application/json',
