@@ -280,6 +280,37 @@ function getActiveTableCellAlign(editor: Editor): ToolbarState['cellAlign'] {
   return align === 'left' || align === 'center' || align === 'right' ? align : null;
 }
 
+function getMarkdownToolbarState(editor: Editor | null): ToolbarState {
+  if (!editor) return EMPTY_TOOLBAR_STATE;
+
+  return {
+    canUndo: editor.can().undo(),
+    canRedo: editor.can().redo(),
+    isBold: editor.isActive('bold'),
+    isItalic: editor.isActive('italic'),
+    isStrike: editor.isActive('strike'),
+    isCode: editor.isActive('code'),
+    isHeading1: editor.isActive('heading', { level: 1 }),
+    isHeading2: editor.isActive('heading', { level: 2 }),
+    isHeading3: editor.isActive('heading', { level: 3 }),
+    isBulletList: editor.isActive('bulletList'),
+    isOrderedList: editor.isActive('orderedList'),
+    isTaskList: editor.isActive('taskList'),
+    isBlockquote: editor.isActive('blockquote'),
+    isLink: editor.isActive('link'),
+    isCodeBlock: editor.isActive('codeBlock'),
+    isTable: editor.isActive('table'),
+    cellAlign: getActiveTableCellAlign(editor),
+  };
+}
+
+function useMarkdownToolbarState(editor: MarkdownEditorWithMarkdown | null) {
+  return useEditorState({
+    editor,
+    selector: ({ editor: currentEditor }) => getMarkdownToolbarState(currentEditor),
+  }) ?? EMPTY_TOOLBAR_STATE;
+}
+
 function TooltipIconButton({
   label,
   active = false,
@@ -2186,32 +2217,7 @@ function MarkdownToolbar({
   });
   const [linkPopover, setLinkPopover] = useState<LinkPopoverState | null>(null);
   const canUseCommands = Boolean(editor?.isEditable);
-  const toolbarState = useEditorState({
-    editor,
-    selector: ({ editor: currentEditor }) => {
-      if (!currentEditor) return EMPTY_TOOLBAR_STATE;
-
-      return {
-        canUndo: currentEditor.can().undo(),
-        canRedo: currentEditor.can().redo(),
-        isBold: currentEditor.isActive('bold'),
-        isItalic: currentEditor.isActive('italic'),
-        isStrike: currentEditor.isActive('strike'),
-        isCode: currentEditor.isActive('code'),
-        isHeading1: currentEditor.isActive('heading', { level: 1 }),
-        isHeading2: currentEditor.isActive('heading', { level: 2 }),
-        isHeading3: currentEditor.isActive('heading', { level: 3 }),
-        isBulletList: currentEditor.isActive('bulletList'),
-        isOrderedList: currentEditor.isActive('orderedList'),
-        isTaskList: currentEditor.isActive('taskList'),
-        isBlockquote: currentEditor.isActive('blockquote'),
-        isLink: currentEditor.isActive('link'),
-        isCodeBlock: currentEditor.isActive('codeBlock'),
-        isTable: currentEditor.isActive('table'),
-        cellAlign: getActiveTableCellAlign(currentEditor),
-      };
-    },
-  }) ?? EMPTY_TOOLBAR_STATE;
+  const toolbarState = useMarkdownToolbarState(editor);
 
   const closeLinkPopover = useCallback(() => {
     setLinkPopover(null);
@@ -2688,32 +2694,7 @@ function MobileMarkdownToolbar({
   });
   const savedRangeRef = useRef<Range | null>(null);
   const canUseCommands = Boolean(editor?.isEditable);
-  const toolbarState = useEditorState({
-    editor,
-    selector: ({ editor: currentEditor }) => {
-      if (!currentEditor) return EMPTY_TOOLBAR_STATE;
-
-      return {
-        canUndo: currentEditor.can().undo(),
-        canRedo: currentEditor.can().redo(),
-        isBold: currentEditor.isActive('bold'),
-        isItalic: currentEditor.isActive('italic'),
-        isStrike: currentEditor.isActive('strike'),
-        isCode: currentEditor.isActive('code'),
-        isHeading1: currentEditor.isActive('heading', { level: 1 }),
-        isHeading2: currentEditor.isActive('heading', { level: 2 }),
-        isHeading3: currentEditor.isActive('heading', { level: 3 }),
-        isBulletList: currentEditor.isActive('bulletList'),
-        isOrderedList: currentEditor.isActive('orderedList'),
-        isTaskList: currentEditor.isActive('taskList'),
-        isBlockquote: currentEditor.isActive('blockquote'),
-        isLink: currentEditor.isActive('link'),
-        isCodeBlock: currentEditor.isActive('codeBlock'),
-        isTable: currentEditor.isActive('table'),
-        cellAlign: getActiveTableCellAlign(currentEditor),
-      };
-    },
-  }) ?? EMPTY_TOOLBAR_STATE;
+  const toolbarState = useMarkdownToolbarState(editor);
 
   const saveCurrentRange = useCallback(() => {
     if (!editor) {
