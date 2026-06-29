@@ -13,13 +13,34 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 ## [2026.6.29.1] - 2026-06-29
 
+### Added
+
+- Added a mobile Markdown editor formatting toolbar with localized labels and compact touch controls.
+
+### Changed
+
+- Improved editor file-loading feedback and markdown toolbar state sharing.
+- Hardened mobile Markdown editor controls and toolbar spacing.
+- Updated the release publisher and Greptile workflow guidance for the current release process.
+- Normalized the Control Plane release webhook URL/path handling in the image build workflow.
+
 ### Fixed
 
 - Shipped the Node 24 Next.js startup fix by ensuring `globalThis.AsyncLocalStorage` is available before importing Next.
+- Fixed duplicate Canvas Agent Chat user messages.
+- Fixed CodeQL-reported security issues in Studio image imports, email HTML conversion, link previews, plugin/skill manifest loading, browser runtime access, and safe path handling.
+- Fixed Marp workspace-aware export and preview requests.
+- Kept release webhook notification failures from failing otherwise successful image builds.
+
+### Security
+
+- Hardened external fetch, safe-path, and manifest handling paths covered by CodeQL.
 
 ### Verification
 
 - `npm run test:startup-runtime`
+- `npm run build`
+- GitHub Actions `Build and Push` on `main`: `28403214482` built and pushed the image successfully.
 
 ## [2026.6.28.1] - 2026-06-28
 
