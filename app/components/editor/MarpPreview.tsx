@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { AlertCircle, Loader2, RefreshCw } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { Button } from '@/components/ui/button';
+import { workspaceHeaders } from '@/app/lib/files/client';
 
 interface MarpPreviewProps {
   path: string;
@@ -32,7 +33,7 @@ export function MarpPreview({ path, content, refreshKey }: MarpPreviewProps) {
       try {
         const response = await fetch('/api/files/marp-preview', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', ...workspaceHeaders() },
           body: JSON.stringify({ path, content }),
           signal: controller.signal,
         });
