@@ -6,6 +6,11 @@ const { loadEnvConfig } = require('@next/env');
 const dev = process.env.NODE_ENV !== 'production';
 loadEnvConfig(process.cwd(), dev);
 
+if (typeof globalThis.AsyncLocalStorage === 'undefined') {
+  const { AsyncLocalStorage } = require('node:async_hooks');
+  globalThis.AsyncLocalStorage = AsyncLocalStorage;
+}
+
 // The custom Node server is server-side code, but it imports some Next app
 // modules directly for WebSocket runtime handling. Next aliases `server-only`
 // during its own bundling; plain Node would otherwise execute the package's
