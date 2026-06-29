@@ -1,5 +1,7 @@
 import { promises as fs } from 'fs';
 import path from 'path';
+
+import { requirePathInside } from '@/app/lib/security/safe-paths';
 import {
   CanvasSkill,
   parseSkillFile,
@@ -127,7 +129,7 @@ export async function loadSkillByName(
   const skillsDir = options.legacyFallback === false
     ? getSkillsDir(scope)
     : await resolveReadableScopedSkillsDataDir(scope);
-  const skillMdPath = path.join(skillsDir, name, 'SKILL.md');
+  const skillMdPath = requirePathInside(skillsDir, name, 'SKILL.md');
   try {
     await fs.access(skillMdPath);
     const standaloneSkill = await parseSkillFile(skillMdPath);

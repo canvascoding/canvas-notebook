@@ -128,16 +128,21 @@ async function assertSafeRemoteUrl(url: URL) {
   }
 }
 
+async function toSafeRemoteUrlString(url: URL): Promise<string> {
+  await assertSafeRemoteUrl(url);
+  return url.toString();
+}
+
 async function fetchWithValidatedRedirects(inputUrl: URL, init: RequestInit) {
   let currentUrl = inputUrl;
 
   for (let redirectCount = 0; redirectCount <= MAX_REDIRECTS; redirectCount += 1) {
-    await assertSafeRemoteUrl(currentUrl);
+    const safeUrl = await toSafeRemoteUrlString(currentUrl);
 
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), LINK_PREVIEW_TIMEOUT_MS);
     try {
-      const response = await fetch(currentUrl, {
+      const response = await fetch(safeUrl, {
         ...init,
         redirect: 'manual',
         signal: controller.signal,
@@ -190,8 +195,7 @@ async function resolvePreviewImageUrl(html: string, baseUrl: URL) {
 }
 
 function extractOgImageUrl(html: string) {
-  const metaTags = html.match(/<meta\b[^>]*>/giu) || [];
-  for (const tag of metaTags) {
+  for (const tag of findHtmlStartTags(html, 'meta')) {
     const key = (getHtmlAttribute(tag, 'property') || getHtmlAttribute(tag, 'name') || '').toLowerCase();
     if (!OG_IMAGE_KEYS.has(key)) continue;
 
@@ -202,19 +206,84 @@ function extractOgImageUrl(html: string) {
   return null;
 }
 
+function findHtmlStartTags(html: string, wantedName: string): string[] {
+  const tags: string[] = [];
+  let index = 0;
+
+  while (index < html.length) {
+    const start = html.indexOf('<', index);
+    if (start === -1) break;
+    const end = html.indexOf('>', start + 1);
+    if (end === -1) break;
+
+    const tag = html.slice(start + 1, end).trim();
+    const name = tag.split(/\s+/u, 1)[0]?.toLowerCase() || '';
+    if (name === wantedName) {
+      tags.push(tag);
+    }
+    index = end + 1;
+  }
+
+  return tags;
+}
+
 function getHtmlAttribute(tag: string, name: string) {
-  const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const match = tag.match(new RegExp(`\\b${escapedName}\\s*=\\s*("([^"]*)"|'([^']*)'|([^\\s"'>]+))`, 'iu'));
-  return match?.[2] ?? match?.[3] ?? match?.[4] ?? null;
+  let index = 0;
+  while (index < tag.length) {
+    while (index < tag.length && /\s/u.test(tag[index])) index += 1;
+    const keyStart = index;
+    while (index < tag.length && /[^\s=/>]/u.test(tag[index])) index += 1;
+    const key = tag.slice(keyStart, index).toLowerCase();
+    while (index < tag.length && /\s/u.test(tag[index])) index += 1;
+    if (tag[index] !== '=') {
+      index += 1;
+      continue;
+    }
+    index += 1;
+    while (index < tag.length && /\s/u.test(tag[index])) index += 1;
+
+    let value = '';
+    const quote = tag[index];
+    if (quote === '"' || quote === "'") {
+      index += 1;
+      const valueStart = index;
+      const valueEnd = tag.indexOf(quote, valueStart);
+      if (valueEnd === -1) return null;
+      value = tag.slice(valueStart, valueEnd);
+      index = valueEnd + 1;
+    } else {
+      const valueStart = index;
+      while (index < tag.length && /[^\s>]/u.test(tag[index])) index += 1;
+      value = tag.slice(valueStart, index);
+    }
+
+    if (key === name.toLowerCase()) return value;
+  }
+
+  return null;
 }
 
 function decodeHtmlAttribute(value: string) {
-  return value
-    .replace(/&amp;/gi, '&')
-    .replace(/&quot;/gi, '"')
-    .replace(/&#39;/gi, "'")
-    .replace(/&lt;/gi, '<')
-    .replace(/&gt;/gi, '>');
+  const namedEntities: Record<string, string> = {
+    amp: '&',
+    gt: '>',
+    lt: '<',
+    quot: '"',
+  };
+
+  return value.replace(/&(#x[0-9a-f]+|#[0-9]+|[a-z]+);/giu, (entity, rawName: string) => {
+    const name = rawName.toLowerCase();
+    if (name === '#39' || name === '#x27') return "'";
+    if (name.startsWith('#x')) {
+      const codePoint = Number.parseInt(name.slice(2), 16);
+      return Number.isFinite(codePoint) ? String.fromCodePoint(codePoint) : entity;
+    }
+    if (name.startsWith('#')) {
+      const codePoint = Number.parseInt(name.slice(1), 10);
+      return Number.isFinite(codePoint) ? String.fromCodePoint(codePoint) : entity;
+    }
+    return namedEntities[name] ?? entity;
+  });
 }
 
 async function validateRemoteImage(imageUrl: URL) {

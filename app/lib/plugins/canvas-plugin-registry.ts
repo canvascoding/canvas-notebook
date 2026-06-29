@@ -33,6 +33,7 @@ import {
   type CanvasPluginManifest,
   type CanvasPluginValidationResult,
 } from '@/app/lib/plugins/canvas-plugin-manifest';
+import { requirePathInside } from '@/app/lib/security/safe-paths';
 
 export interface CanvasPluginSkillRecord {
   name: string;
@@ -371,7 +372,7 @@ export async function computeCanvasPluginChecksum(rootDir: string): Promise<stri
   for (const relativeFile of files) {
     hash.update(relativeFile);
     hash.update('\0');
-    hash.update(await fs.readFile(path.join(rootDir, relativeFile)));
+    hash.update(await fs.readFile(requirePathInside(rootDir, relativeFile)));
     hash.update('\0');
   }
 
@@ -380,7 +381,7 @@ export async function computeCanvasPluginChecksum(rootDir: string): Promise<stri
 
 export async function discoverPluginSkillFiles(skillsDir: string): Promise<string[]> {
   try {
-    const rootSkillPath = path.join(skillsDir, 'SKILL.md');
+    const rootSkillPath = requirePathInside(skillsDir, 'SKILL.md');
     const rootSkillStat = await fs.stat(rootSkillPath).catch(() => null);
     if (rootSkillStat?.isFile()) {
       return [rootSkillPath];
@@ -392,7 +393,7 @@ export async function discoverPluginSkillFiles(skillsDir: string): Promise<strin
       if (!entry.isDirectory() || entry.name.startsWith('.')) {
         continue;
       }
-      const skillPath = path.join(skillsDir, entry.name, 'SKILL.md');
+      const skillPath = requirePathInside(skillsDir, entry.name, 'SKILL.md');
       const stat = await fs.stat(skillPath).catch(() => null);
       if (stat?.isFile()) {
         skillFiles.push(skillPath);
@@ -472,14 +473,14 @@ async function parseReferencedPluginSkills(
       continue;
     }
 
-    const skillDir = path.join(SEED_SKILLS_DIR, skillRef.name);
+    const skillDir = requirePathInside(SEED_SKILLS_DIR, skillRef.name);
     const resolvedSkillDir = path.resolve(/*turbopackIgnore: true*/ skillDir);
     if (!isPathInside(SEED_SKILLS_DIR, resolvedSkillDir)) {
       errors.push(`skillRefs[${index}].name: Invalid seed skill reference.`);
       continue;
     }
 
-    const skillPath = path.join(skillDir, 'SKILL.md');
+    const skillPath = requirePathInside(skillDir, 'SKILL.md');
     const skill = await parseSkillFile(skillPath);
     if (!skill) {
       errors.push(`skillRefs[${index}]: Seed skill "${skillRef.name}" does not exist or is invalid.`);
@@ -554,7 +555,7 @@ async function getStandaloneSkillNames(scope?: CanvasPluginStorageScope | null):
     const entries = await fs.readdir(skillsDir, { withFileTypes: true });
     for (const entry of entries) {
       if (!entry.isDirectory()) continue;
-      const skillPath = path.join(skillsDir, entry.name, 'SKILL.md');
+      const skillPath = requirePathInside(skillsDir, entry.name, 'SKILL.md');
       const stat = await fs.stat(skillPath).catch(() => null);
       if (stat?.isFile()) {
         const skill = await parseSkillFile(skillPath);
@@ -577,7 +578,7 @@ async function copyPluginPackage(sourceRoot: string, targetRoot: string): Promis
 
   await fs.rm(targetRoot, { recursive: true, force: true });
   await fs.mkdir(path.dirname(targetRoot), { recursive: true });
-  await fs.cp(sourceRoot, targetRoot, {
+  await fs.cp(resolvedSource, resolvedTarget, {
     recursive: true,
     filter: (source) => {
       const name = path.basename(source);
@@ -587,11 +588,11 @@ async function copyPluginPackage(sourceRoot: string, targetRoot: string): Promis
 }
 
 function resolveStandaloneSkillDir(skillName: string, scope?: CanvasPluginStorageScope | null): string {
-  return path.join(resolveScopedSkillsDataDir(scope), skillName);
+  return requirePathInside(resolveScopedSkillsDataDir(scope), skillName);
 }
 
 async function hasStandaloneSkill(skillName: string, scope?: CanvasPluginStorageScope | null): Promise<boolean> {
-  const stat = await fs.stat(path.join(resolveStandaloneSkillDir(skillName, scope), 'SKILL.md')).catch(() => null);
+  const stat = await fs.stat(requirePathInside(resolveStandaloneSkillDir(skillName, scope), 'SKILL.md')).catch(() => null);
   return Boolean(stat?.isFile());
 }
 
@@ -606,7 +607,7 @@ async function writeMaterializedSkillRecord(params: {
   installDir: string;
   scope?: CanvasPluginStorageScope | null;
 }): Promise<void> {
-  const skillPath = path.join(params.installDir, 'SKILL.md');
+  const skillPath = requirePathInside(params.installDir, 'SKILL.md');
   const skill = await parseSkillFile(skillPath);
   if (!skill) {
     throw new Error(`Materialized skill "${params.skillName}" is invalid.`);
@@ -686,7 +687,7 @@ async function materializePluginSkills(
       await fs.rm(standaloneDir, { recursive: true, force: true });
     }
 
-    await fs.cp(skill.directory, standaloneDir, {
+    await fs.cp(requirePathInside(skill.directory, '.'), standaloneDir, {
       recursive: true,
       preserveTimestamps: true,
       filter: (source) => !IGNORED_CHECKSUM_ENTRIES.has(path.basename(source)),
@@ -729,7 +730,7 @@ async function parseInstalledPluginRecordSkill(
   plugin: CanvasPluginInstallRecord,
   record: CanvasPluginSkillRecord,
 ): Promise<CanvasSkill | null> {
-  const skillPath = record.path || path.join(record.directory, 'SKILL.md');
+  const skillPath = record.path || requirePathInside(record.directory, 'SKILL.md');
   const skill = await parseSkillFile(skillPath);
   if (!skill) return null;
 

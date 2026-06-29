@@ -9,6 +9,7 @@ import type { ReadableStream as NodeReadableStream } from 'stream/web';
 
 import { ensureMigrationDir, getMigrationUploadsRoot } from '@/app/lib/migration/paths';
 import type { MigrationUploadStatus } from '@/app/lib/migration/types';
+import { requirePathInside } from '@/app/lib/security/safe-paths';
 
 const UPLOAD_STATUS_FILE = 'status.json';
 const MAX_ARCHIVE_BYTES = Number(process.env.MIGRATION_MAX_ARCHIVE_BYTES || 50 * 1024 * 1024 * 1024);
@@ -18,23 +19,23 @@ function isValidUploadId(uploadId: string): boolean {
 }
 
 function getUploadDir(uploadId: string): string {
-  return path.join(getMigrationUploadsRoot(), uploadId);
+  return requirePathInside(getMigrationUploadsRoot(), uploadId);
 }
 
 function getUploadPartsDir(uploadId: string): string {
-  return path.join(getUploadDir(uploadId), 'parts');
+  return requirePathInside(getUploadDir(uploadId), 'parts');
 }
 
 function getUploadStatusPath(uploadId: string): string {
-  return path.join(getUploadDir(uploadId), UPLOAD_STATUS_FILE);
+  return requirePathInside(getUploadDir(uploadId), UPLOAD_STATUS_FILE);
 }
 
 function getPartPath(uploadId: string, partIndex: number): string {
-  return path.join(getUploadPartsDir(uploadId), `${partIndex.toString().padStart(8, '0')}.part`);
+  return requirePathInside(getUploadPartsDir(uploadId), `${partIndex.toString().padStart(8, '0')}.part`);
 }
 
 export function getUploadArchivePath(uploadId: string): string {
-  return path.join(getUploadDir(uploadId), 'archive.zip');
+  return requirePathInside(getUploadDir(uploadId), 'archive.zip');
 }
 
 async function writeUploadStatus(status: MigrationUploadStatus): Promise<void> {

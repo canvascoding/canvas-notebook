@@ -5,6 +5,8 @@ import path from 'node:path';
 
 import puppeteer, { type Browser, type Dialog, type HTTPRequest, type Page } from 'puppeteer-core';
 
+import { requirePathInside } from '@/app/lib/security/safe-paths';
+
 import { buildBrowserLaunchSpec, resolveBrowserUserDataDir } from './chromium';
 import { BrowserTargetStore } from './targets';
 import { isBrowserRequestUrlAllowed } from './url-policy';
@@ -48,11 +50,20 @@ type ConsoleMessageLike = {
 };
 
 function sanitizeScopeValue(value: string, fallback: string): string {
-  return value.trim().toLowerCase()
-    .replace(/[^a-z0-9._-]/g, '-')
-    .replace(/-{2,}/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 96) || fallback;
+  const sanitized = value.trim().toLowerCase()
+    .split('')
+    .map((char) => /[a-z0-9._-]/u.test(char) ? char : '-')
+    .join('')
+    .slice(0, 96);
+  const collapsed = sanitized.split('').reduce((next, char) => {
+    if (char === '-' && next.endsWith('-')) return next;
+    return `${next}${char}`;
+  }, '');
+  const trimmed = collapsed.split('').reduce((next, char, index, chars) => {
+    if (char === '-' && (index === 0 || index === chars.length - 1)) return next;
+    return `${next}${char}`;
+  }, '');
+  return trimmed || fallback;
 }
 
 function clampMaxConcurrent(value: number): number {
@@ -122,7 +133,8 @@ function createSessionState(): BrowserSessionState {
 }
 
 function getProfileUserDataDir(context: BrowserRuntimeContext = {}): string {
-  return resolveBrowserUserDataDir(process.env, existsSync, getProfileKey(context));
+  const profileRoot = resolveBrowserUserDataDir(process.env, existsSync, getProfileKey(context));
+  return requirePathInside(profileRoot, '.');
 }
 
 function getOrCreateProfileState(context: BrowserRuntimeContext = {}): BrowserProfileState {

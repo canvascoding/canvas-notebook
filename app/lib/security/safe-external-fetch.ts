@@ -90,6 +90,11 @@ async function assertSafeUrl(url: URL) {
   }
 }
 
+async function toSafeUrlString(url: URL): Promise<string> {
+  await assertSafeUrl(url);
+  return url.toString();
+}
+
 export async function fetchExternalResourceSafely(
   rawUrl: string,
   options?: { maxBytes?: number; timeoutMs?: number }
@@ -99,9 +104,9 @@ export async function fetchExternalResourceSafely(
   let currentUrl = new URL(rawUrl);
 
   for (let redirectCount = 0; redirectCount <= MAX_REDIRECTS; redirectCount++) {
-    await assertSafeUrl(currentUrl);
+    const safeUrl = await toSafeUrlString(currentUrl);
 
-    const response = await fetch(currentUrl, {
+    const response = await fetch(safeUrl, {
       redirect: 'manual',
       signal: AbortSignal.timeout(timeoutMs),
     });

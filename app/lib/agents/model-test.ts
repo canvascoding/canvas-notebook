@@ -1,5 +1,7 @@
 import 'server-only';
 
+import crypto from 'node:crypto';
+
 import { completeSimple } from '@earendil-works/pi-ai/compat';
 import type { Api, AssistantMessage, Message, Model } from '@earendil-works/pi-ai';
 
@@ -168,7 +170,7 @@ export async function testAgentModelConnection(params?: {
   let provider: string | undefined;
   let modelId: string | undefined;
   const startedAt = now();
-  const runId = `mt-${startedAt.toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  const runId = `mt-${startedAt.toString(36)}-${crypto.randomUUID().slice(0, 8)}`;
 
   logInfo(runId, 'start', { agentId, timeoutMs });
 

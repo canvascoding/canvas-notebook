@@ -532,15 +532,26 @@ function sanitizeEmailCss(value: string, allowRemoteResources: boolean) {
 function extractEmailStyleBlocks(value: string, allowRemoteResources: boolean) {
   const styles: string[] = [];
   let blockedRemoteResources = false;
-  const html = value.replace(/<style\b[^>]*>([\s\S]*?)<\/style>/giu, (_match, rawCss: string) => {
-    const result = sanitizeEmailCss(rawCss, allowRemoteResources);
+
+  if (typeof document === 'undefined') {
+    return { blockedRemoteResources, html: value, styleHtml: '' };
+  }
+
+  const template = document.createElement('template');
+  template.innerHTML = value;
+  template.content.querySelectorAll('style').forEach((style) => {
+    const result = sanitizeEmailCss(style.textContent || '', allowRemoteResources);
     blockedRemoteResources = blockedRemoteResources || result.blockedRemoteResources;
-    const css = result.css.replace(/<\/style/giu, '<\\/style').trim();
-    if (css) styles.push(`<style>${css}</style>`);
-    return '';
+    const css = result.css.trim();
+    if (css) {
+      const nextStyle = document.createElement('style');
+      nextStyle.textContent = css;
+      styles.push(nextStyle.outerHTML);
+    }
+    style.remove();
   });
 
-  return { blockedRemoteResources, html, styleHtml: styles.join('\n') };
+  return { blockedRemoteResources, html: template.innerHTML, styleHtml: styles.join('\n') };
 }
 
 function buildEmailPreviewDocument(html: string) {

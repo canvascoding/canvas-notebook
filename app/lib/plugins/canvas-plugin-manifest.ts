@@ -1,6 +1,10 @@
 import { promises as fs } from 'fs';
 import path from 'path';
 
+import { isPathInside, requirePathInside, resolvePathInside } from '@/app/lib/security/safe-paths';
+
+export { isPathInside } from '@/app/lib/security/safe-paths';
+
 export const CANVAS_PLUGIN_MANIFEST_PATH = path.join('.canvas-plugin', 'plugin.json');
 
 export interface CanvasPluginAuthor {
@@ -90,7 +94,16 @@ export interface CanvasPluginValidationResult {
 }
 
 export function isValidCanvasPluginName(name: string): boolean {
-  return /^[a-z0-9]+([a-z0-9-]*[a-z0-9]+)?$/.test(name);
+  if (name.length === 0 || name.length > 64 || name.startsWith('-') || name.endsWith('-')) {
+    return false;
+  }
+  let previousHyphen = false;
+  for (const char of name) {
+    const allowed = (char >= 'a' && char <= 'z') || (char >= '0' && char <= '9') || char === '-';
+    if (!allowed || (char === '-' && previousHyphen)) return false;
+    previousHyphen = char === '-';
+  }
+  return true;
 }
 
 export function isValidCanvasPluginVersion(version: string): boolean {
@@ -325,13 +338,11 @@ export function resolvePluginManifestPath(pluginRoot: string): string {
 }
 
 export function resolvePluginRelativePath(pluginRoot: string, relativePath: string): string {
-  return path.resolve(/*turbopackIgnore: true*/ pluginRoot, relativePath);
-}
-
-export function isPathInside(parentDir: string, childPath: string): boolean {
-  const resolvedParent = path.resolve(/*turbopackIgnore: true*/ parentDir);
-  const resolvedChild = path.resolve(/*turbopackIgnore: true*/ childPath);
-  return resolvedChild === resolvedParent || resolvedChild.startsWith(`${resolvedParent}${path.sep}`);
+  const resolved = resolvePathInside(pluginRoot, relativePath);
+  if (!resolved) {
+    throw new Error('Path must stay inside the plugin package.');
+  }
+  return resolved;
 }
 
 function validateRelativePath(
@@ -354,15 +365,32 @@ function validateRelativePath(
   return resolvedPath;
 }
 
+async function statPathInside(rootDir: string, targetPath: string) {
+  const relativePath = path.relative(rootDir, targetPath);
+  return fs.stat(requirePathInside(rootDir, relativePath || '.'));
+}
+
+async function readTextFileInside(rootDir: string, targetPath: string) {
+  const relativePath = path.relative(rootDir, targetPath);
+  return fs.readFile(requirePathInside(rootDir, relativePath || '.'), 'utf-8');
+}
+
 export async function validateCanvasPluginPackage(sourcePath: string): Promise<CanvasPluginValidationResult> {
   const errors: string[] = [];
   const warnings: string[] = [];
+  if (sourcePath.includes('\0')) {
+    return {
+      valid: false,
+      errors: ['Plugin source path is invalid.'],
+      warnings,
+    };
+  }
   const rootDir = path.resolve(/*turbopackIgnore: true*/ sourcePath);
-  const manifestPath = resolvePluginManifestPath(rootDir);
+  const manifestPath = resolvePathInside(rootDir, CANVAS_PLUGIN_MANIFEST_PATH) || resolvePluginManifestPath(rootDir);
 
   let rawManifest: string;
   try {
-    const stat = await fs.stat(rootDir);
+    const stat = await statPathInside(rootDir, rootDir);
     if (!stat.isDirectory()) {
       return {
         valid: false,
@@ -372,7 +400,7 @@ export async function validateCanvasPluginPackage(sourcePath: string): Promise<C
         manifestPath,
       };
     }
-    rawManifest = await fs.readFile(manifestPath, 'utf-8');
+    rawManifest = await readTextFileInside(rootDir, manifestPath);
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code;
     return {
@@ -428,7 +456,7 @@ export async function validateCanvasPluginPackage(sourcePath: string): Promise<C
     const skillsDir = validateRelativePath('skills', rootDir, manifest.skills, errors);
     if (skillsDir) {
       try {
-        const stat = await fs.stat(skillsDir);
+        const stat = await statPathInside(rootDir, skillsDir);
         if (!stat.isDirectory()) {
           errors.push('skills: Must point to a directory.');
         }
@@ -449,7 +477,7 @@ export async function validateCanvasPluginPackage(sourcePath: string): Promise<C
     const legacyMcpPath = validateRelativePath('connectors.mcpServers', rootDir, manifest.connectors?.mcpServers, errors);
     if (legacyMcpPath) {
       try {
-        const stat = await fs.stat(legacyMcpPath);
+        const stat = await statPathInside(rootDir, legacyMcpPath);
         if (!stat.isFile()) {
           errors.push('connectors.mcpServers: Must point to a file.');
         }
@@ -463,7 +491,7 @@ export async function validateCanvasPluginPackage(sourcePath: string): Promise<C
       const mcpPath = validateRelativePath(`connectors.mcp[${index}].configPath`, rootDir, connector.configPath, errors);
       if (!mcpPath) continue;
       try {
-        const stat = await fs.stat(mcpPath);
+        const stat = await statPathInside(rootDir, mcpPath);
         if (!stat.isFile()) {
           errors.push(`connectors.mcp[${index}].configPath: Must point to a file.`);
         }

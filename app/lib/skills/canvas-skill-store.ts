@@ -17,7 +17,8 @@ import {
   type UserScopedDataStorageScope,
 } from '@/app/lib/runtime-data-paths';
 import { computeCanvasPluginChecksum } from '@/app/lib/plugins/canvas-plugin-registry';
-import { isPathInside, isValidCanvasPluginVersion } from '@/app/lib/plugins/canvas-plugin-manifest';
+import { isValidCanvasPluginVersion } from '@/app/lib/plugins/canvas-plugin-manifest';
+import { requirePathInside } from '@/app/lib/security/safe-paths';
 import {
   loadCanvasSkillInterface,
   parseSkillFile,
@@ -206,7 +207,16 @@ function normalizeChecksum(value: string): string {
 }
 
 function isValidCanvasSkillName(name: string): boolean {
-  return /^[a-z0-9]+([a-z0-9-]*[a-z0-9]+)?$/.test(name);
+  if (name.length === 0 || name.length > 64 || name.startsWith('-') || name.endsWith('-')) {
+    return false;
+  }
+  let previousHyphen = false;
+  for (const char of name) {
+    const allowed = (char >= 'a' && char <= 'z') || (char >= '0' && char <= '9') || char === '-';
+    if (!allowed || (char === '-' && previousHyphen)) return false;
+    previousHyphen = char === '-';
+  }
+  return true;
 }
 
 function compareVersions(left: string | undefined, right: string | undefined): number {
@@ -637,10 +647,7 @@ async function extractPackageFromArchive(
       continue;
     }
 
-    const targetPath = path.join(packageRoot, relativePath);
-    if (!isPathInside(packageRoot, targetPath)) {
-      throw new Error('Skill archive contains an invalid path.');
-    }
+    const targetPath = requirePathInside(packageRoot, relativePath);
 
     const bytes = await entry.async('nodebuffer');
     await fs.mkdir(path.dirname(targetPath), { recursive: true });
@@ -665,7 +672,7 @@ async function verifyPackageChecksum(packageRoot: string, expectedChecksum: stri
 }
 
 async function validateSkillPackage(packageRoot: string, expectedName: string) {
-  const skillPath = path.join(packageRoot, 'SKILL.md');
+  const skillPath = requirePathInside(packageRoot, 'SKILL.md');
   const stat = await fs.stat(skillPath).catch(() => null);
   if (!stat?.isFile()) {
     throw new Error('Skill package must contain SKILL.md at its root.');
@@ -685,11 +692,13 @@ async function backupExistingSkill(
   skillName: string,
   scope?: CanvasSkillStoreScope | null,
 ): Promise<string | undefined> {
-  const skillDir = path.join(await resolveReadableScopedSkillsDataDir(scope), skillName);
+  const skillsDir = await resolveReadableScopedSkillsDataDir(scope);
+  const skillDir = requirePathInside(skillsDir, skillName);
   const stat = await fs.stat(skillDir).catch(() => null);
   if (!stat?.isDirectory()) return undefined;
 
-  const backupDir = path.join(resolveScopedSkillBackupsDir(scope), skillName, nowIso().replace(/[:.]/g, '-'));
+  const backupRoot = requirePathInside(resolveScopedSkillBackupsDir(scope), skillName);
+  const backupDir = requirePathInside(backupRoot, nowIso().replace(/[:.]/g, '-'));
   await fs.mkdir(path.dirname(backupDir), { recursive: true });
   await fs.cp(skillDir, backupDir, { recursive: true, preserveTimestamps: true });
   return backupDir;
@@ -701,7 +710,7 @@ async function copySkillPackage(
   scope?: CanvasSkillStoreScope | null,
 ): Promise<string> {
   const skillsDir = resolveScopedSkillsDataDir(scope);
-  const targetDir = path.join(skillsDir, skillName);
+  const targetDir = requirePathInside(skillsDir, skillName);
   const resolvedTarget = path.resolve(/*turbopackIgnore: true*/ targetDir);
   const resolvedSkillsDir = path.resolve(/*turbopackIgnore: true*/ skillsDir);
   if (!resolvedTarget.startsWith(`${resolvedSkillsDir}${path.sep}`)) {
@@ -710,7 +719,7 @@ async function copySkillPackage(
 
   await fs.rm(targetDir, { recursive: true, force: true });
   await fs.mkdir(path.dirname(targetDir), { recursive: true });
-  await fs.cp(packageRoot, targetDir, {
+  await fs.cp(requirePathInside(packageRoot, '.'), targetDir, {
     recursive: true,
     preserveTimestamps: true,
     filter: (source) => !['.git', 'node_modules', '.DS_Store'].includes(path.basename(source)),
@@ -755,7 +764,7 @@ async function writeInstalledSkillRecord(
     updatedAt: nowIso(),
     checksum,
     installDir,
-    skillPath: path.join(installDir, 'SKILL.md'),
+    skillPath: requirePathInside(installDir, 'SKILL.md'),
     interface: await loadCanvasSkillInterface(installDir),
   };
   registry.skills[skillName] = record;
@@ -769,7 +778,7 @@ async function ensureStandaloneSkillInstallAllowed(
   scope?: CanvasSkillStoreScope | null,
 ): Promise<void> {
   const existing = await loadSkillByName(skillName, scope, { legacyFallback: false });
-  const standalonePath = path.join(resolveScopedSkillsDataDir(scope), skillName, 'SKILL.md');
+  const standalonePath = requirePathInside(resolveScopedSkillsDataDir(scope), skillName, 'SKILL.md');
   const hasStandalone = await fs.stat(standalonePath).then((stat) => stat.isFile()).catch(() => false);
   if (existing?.plugin) {
     throw new Error(`Skill "${skillName}" is managed by plugin "${existing.plugin.name}". Remove or disable that plugin first.`);

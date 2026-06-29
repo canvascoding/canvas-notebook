@@ -1,15 +1,11 @@
 import path from 'node:path';
 import { getStudioAssetsRoot, getStudioEditsRoot, getStudioOutputsRoot } from '@/app/lib/integrations/studio-workspace';
 import { getUserUploadsStudioRefRoot } from '@/app/lib/runtime-data-paths';
+import { resolvePathInside } from '@/app/lib/security/safe-paths';
 import { getWorkspacePath } from '@/app/lib/utils/workspace-manager';
 
 function resolveWithinRoot(root: string, relativePath: string): string | null {
-  const resolvedRoot = path.resolve(/*turbopackIgnore: true*/ root);
-  const resolvedTarget = path.resolve(/*turbopackIgnore: true*/ root, relativePath);
-  if (resolvedTarget === resolvedRoot || resolvedTarget.startsWith(`${resolvedRoot}${path.sep}`)) {
-    return resolvedTarget;
-  }
-  return null;
+  return resolvePathInside(root, relativePath);
 }
 
 export function resolveValidatedStudioAssetPath(relativePath: string): string | null {

@@ -5,24 +5,9 @@ import { addStyleImage } from '@/app/lib/integrations/studio-style-service';
 import { ensureStudioAssetsWorkspace } from '@/app/lib/integrations/studio-workspace';
 import { StudioServiceError } from '@/app/lib/integrations/studio-errors';
 import { fetchExternalResourceSafely } from '@/app/lib/security/safe-external-fetch';
-import { resolveValidatedWorkspaceFilePath, resolveValidatedUserUploadStudioRefPath } from '@/app/lib/integrations/studio-paths';
-import nodeFs from 'node:fs';
+import { readStudioImportFile } from '@/app/lib/integrations/studio-import-files';
 
 const MAX_URL_IMPORT_SIZE = 10 * 1024 * 1024;
-
-function resolveAllowedFilePath(filePath: string): string | null {
-  if (filePath.startsWith('user-uploads/studio-references/')) {
-    const resolved = resolveValidatedUserUploadStudioRefPath(filePath.slice('user-uploads/studio-references/'.length));
-    return resolved;
-  }
-  const workspaceResolved = resolveValidatedWorkspaceFilePath(filePath);
-  if (workspaceResolved) return workspaceResolved;
-
-  const uploadResolved = resolveValidatedUserUploadStudioRefPath(filePath);
-  if (uploadResolved) return uploadResolved;
-
-  return null;
-}
 
 export async function POST(
   request: NextRequest,
@@ -65,20 +50,16 @@ export async function POST(
       return NextResponse.json({ success: false, error: 'Invalid JSON or FormData required' }, { status: 400 });
     }
     if (body.filePath) {
-      const resolvedPath = resolveAllowedFilePath(body.filePath);
-      if (!resolvedPath) {
-        return NextResponse.json({ success: false, error: 'Invalid file path' }, { status: 400 });
-      }
       try {
-        const buffer = nodeFs.readFileSync(resolvedPath);
-        const fileName = body.filePath.split('/').pop() || 'imported.jpg';
-        const ext = fileName.split('.').pop()?.toLowerCase() || '';
-        const mimeType = ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : ext === 'gif' ? 'image/gif' : 'image/jpeg';
+        const importedFile = await readStudioImportFile(body.filePath);
+        if (!importedFile) {
+          return NextResponse.json({ success: false, error: 'Invalid file path' }, { status: 400 });
+        }
         fileData = {
-          buffer,
-          fileName,
-          mimeType,
-          fileSize: buffer.length,
+          buffer: importedFile.buffer,
+          fileName: importedFile.fileName,
+          mimeType: importedFile.mimeType,
+          fileSize: importedFile.buffer.length,
           sourceType: 'workspace_import',
         };
       } catch {

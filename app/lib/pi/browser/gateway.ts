@@ -1,9 +1,10 @@
 import 'server-only';
 
 import { existsSync, promises as fs } from 'node:fs';
-import path from 'node:path';
 
 import type { KeyInput } from 'puppeteer-core';
+
+import { requirePathInside } from '@/app/lib/security/safe-paths';
 
 import { resolveBrowserUserDataDir } from './chromium';
 import { extractReadablePageContent } from './content';
@@ -333,18 +334,15 @@ async function screenshot(
   context: BrowserRuntimeContext = {},
 ): Promise<BrowserGatewayOutput> {
   const page = await ensurePage(context);
-  const screenshotDir = path.join(
-    resolveBrowserUserDataDir(
-      process.env,
-      existsSync,
-      getBrowserProfileContextKey(context),
-    ),
-    'screenshots',
-    getBrowserRuntimeContextKey(context),
+  const profileDir = resolveBrowserUserDataDir(
+    process.env,
+    existsSync,
+    getBrowserProfileContextKey(context),
   );
+  const screenshotDir = requirePathInside(profileDir, 'screenshots', getBrowserRuntimeContextKey(context));
   await fs.mkdir(screenshotDir, { recursive: true });
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-  const filePath = path.join(screenshotDir, `browser-${timestamp}.png`);
+  const filePath = requirePathInside(screenshotDir, `browser-${timestamp}.png`);
   const bytes = await page.screenshot({
     path: filePath,
     fullPage: Boolean(input.full_page),

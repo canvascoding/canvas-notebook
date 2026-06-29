@@ -6,6 +6,7 @@ import {
   resolveScopedSkillsDataDir,
   type UserScopedDataStorageScope,
 } from '@/app/lib/runtime-data-paths';
+import { requirePathInside } from '@/app/lib/security/safe-paths';
 
 export { getSkillsContext } from './skill-context';
 
@@ -194,7 +195,7 @@ export function validateFrontmatter(frontmatter: CanvasSkillFrontmatter | null):
 }
 
 export async function loadCanvasSkillInterface(skillDir: string): Promise<CanvasSkillInterface | undefined> {
-  const interfacePath = path.join(skillDir, CANVAS_SKILL_INTERFACE_PATH);
+  const interfacePath = requirePathInside(skillDir, CANVAS_SKILL_INTERFACE_PATH);
   let raw: string;
 
   try {
@@ -208,19 +209,19 @@ export async function loadCanvasSkillInterface(skillDir: string): Promise<Canvas
     if (!isRecord(parsed)) return undefined;
     return normalizeInterface(parsed.interface);
   } catch (error) {
-    console.warn(`[CanvasSkillParser] Invalid Canvas skill interface at ${interfacePath}:`, error);
+    console.warn('[CanvasSkillParser] Invalid Canvas skill interface.', { path: interfacePath, error });
     return undefined;
   }
 }
 
 export async function parseSkillFile(skillPath: string): Promise<CanvasSkill | null> {
   try {
-    const content = await fs.readFile(skillPath, 'utf-8');
+    const content = await fs.readFile(requirePathInside(path.dirname(skillPath), path.basename(skillPath)), 'utf-8');
     const { frontmatter, body } = parseFrontmatter(content);
     const validation = validateFrontmatter(frontmatter);
 
     if (!validation.valid) {
-      console.warn(`[CanvasSkillParser] Invalid skill at ${skillPath}:`, validation.errors);
+      console.warn('[CanvasSkillParser] Invalid skill.', { path: skillPath, errors: validation.errors });
       return null;
     }
 
@@ -243,7 +244,7 @@ export async function parseSkillFile(skillPath: string): Promise<CanvasSkill | n
       interface: iface,
     };
   } catch (error) {
-    console.error(`[CanvasSkillParser] Error parsing skill at ${skillPath}:`, error);
+    console.error('[CanvasSkillParser] Error parsing skill.', { path: skillPath, error });
     return null;
   }
 }
