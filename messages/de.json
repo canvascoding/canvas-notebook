@@ -681,6 +681,7 @@
     "marpImageExportFailed": "Marp-Bilder konnten nicht exportiert werden",
     "marpImageDownloadStarted": "Marp-Bildexport gestartet",
     "failedToSaveFile": "Datei konnte nicht gespeichert werden",
+    "fileRevisionConflict": "Die Datei wurde während des Bearbeitens extern geändert. Lade die neueste Version, bevor du erneut speicherst.",
     "selectFileToPreview": "Wähle eine Datei für die Vorschau aus.",
     "fileLabel": "Datei",
     "readOnly": "Schreibgeschützt",

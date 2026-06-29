@@ -682,6 +682,7 @@
     "marpImageExportFailed": "Failed to export Marp images",
     "marpImageDownloadStarted": "Marp image export started",
     "failedToSaveFile": "Failed to save file",
+    "fileRevisionConflict": "This file changed externally while you were editing. Reload the latest version before saving again.",
     "selectFileToPreview": "Select a file to preview.",
     "fileLabel": "File",
     "readOnly": "Read-only",

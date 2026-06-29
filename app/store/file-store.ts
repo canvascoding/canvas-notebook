@@ -73,6 +73,7 @@ const TEXT_EXTENSIONS = new Set([
 ]);
 
 const EXPLORER_STATE_STORAGE_KEY = 'canvas.fileExplorerState';
+const saveFileQueues = new Map<string, Promise<void>>();
 
 interface StoredExplorerState {
   currentDirectory?: string;
@@ -113,6 +114,21 @@ function persistExplorerState(nextState: Pick<FileStoreState, 'currentDirectory'
   } catch {
     // Non-critical: explorer state can fall back to in-memory Zustand state.
   }
+}
+
+function enqueueFileSave(path: string, operation: () => Promise<void>): Promise<void> {
+  const previousSave = saveFileQueues.get(path) ?? Promise.resolve();
+  const currentSave = previousSave.catch(() => undefined).then(operation);
+  const queueTail = currentSave.catch(() => undefined);
+
+  saveFileQueues.set(path, queueTail);
+  void queueTail.finally(() => {
+    if (saveFileQueues.get(path) === queueTail) {
+      saveFileQueues.delete(path);
+    }
+  });
+
+  return currentSave;
 }
 
 const initialExplorerState: StoredExplorerState = {};
@@ -703,7 +719,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
     get().mobileFileOpened();
   },
 
-  saveFile: async (path: string, content: string) => {
+  saveFile: async (path: string, content: string) => enqueueFileSave(path, async () => {
     set({ fileError: null });
 
     try {
@@ -743,7 +759,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
       });
       throw error;
     }
-  },
+  }),
 
   selectNode: (node: FileNode, ctrlOrMeta = false, shiftKey = false) => {
     const { isMultiSelectMode, lastSelectedPath } = get();
