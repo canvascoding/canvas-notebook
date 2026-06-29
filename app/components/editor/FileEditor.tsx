@@ -463,11 +463,7 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
   }, [currentFile?.path]);
 
   const savedTime = formatTimestamp(lastSavedAt);
-  const displaySaveError = saveError
-    ? isFileRevisionConflictMessage(saveError)
-      ? t('fileRevisionConflict')
-      : saveError
-    : null;
+  const displaySaveError = saveError ?? null;
   const breadcrumbs = currentFile ? currentFile.path.split('/').filter(Boolean) : [];
   const currentFileNode = useMemo<FileNode | null>(() => {
     if (!currentFile) return null;
