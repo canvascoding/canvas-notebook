@@ -1,6 +1,6 @@
 {
   "name": "canvas-notebook",
-  "version": "2026.6.28.1",
+  "version": "2026.6.29.1",
   "private": true,
   "license": "SEE LICENSE IN LICENSE",
   "scripts": {
@@ -82,6 +82,7 @@
     "test:channels": "tsx scripts/channel-architecture-test.ts",
     "test:channels:media": "tsx scripts/channel-media-directives-test.ts",
     "test:channels:db": "tsx --conditions react-server scripts/channel-db-test.ts",
+    "test:startup-runtime": "node scripts/next-startup-runtime-test.mjs",
     "test:sessions:read-state": "tsx scripts/session-read-state-test.ts",
     "test:todos:store": "tsx --conditions react-server scripts/todo-store-test.ts",
     "test:todos:api": "node scripts/todo-api-test.mjs",

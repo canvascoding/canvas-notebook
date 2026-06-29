@@ -11,6 +11,16 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.6.29.1] - 2026-06-29
+
+### Fixed
+
+- Shipped the Node 24 Next.js startup fix by ensuring `globalThis.AsyncLocalStorage` is available before importing Next.
+
+### Verification
+
+- `npm run test:startup-runtime`
+
 ## [2026.6.28.1] - 2026-06-28
 
 ### Changed
