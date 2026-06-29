@@ -80,13 +80,13 @@ jobs:
           IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
         run: |
           if [ -z "${CONTROL_PLANE_RELEASE_WEBHOOK_URL}" ]; then
-            echo "CONTROL_PLANE_RELEASE_WEBHOOK_URL secret is missing."
-            exit 1
+            echo "::warning::CONTROL_PLANE_RELEASE_WEBHOOK_URL secret is missing; skipping Control Plane release notification."
+            exit 0
           fi
 
           if [ -z "${CONTROL_PLANE_RELEASE_WEBHOOK_SECRET}" ]; then
-            echo "CONTROL_PLANE_RELEASE_WEBHOOK_SECRET secret is missing."
-            exit 1
+            echo "::warning::CONTROL_PLANE_RELEASE_WEBHOOK_SECRET secret is missing; skipping Control Plane release notification."
+            exit 0
           fi
 
           node --input-type=module <<'NODE'
@@ -147,8 +147,9 @@ jobs:
           });
           const text = await response.text();
           if (!response.ok) {
-            console.error(`Control Plane release webhook failed (${response.status}): ${text}`);
-            process.exit(1);
+            const summary = text.replace(/\s+/g, ' ').trim().slice(0, 1000);
+            console.warn(`::warning::Control Plane release webhook failed (${response.status}); image build and push already completed. Response: ${summary}`);
+            process.exit(0);
           }
           console.log(`Control Plane release webhook accepted: ${text}`);
           NODE
