@@ -2173,8 +2173,8 @@ function MarkdownToolbar({
   imageDialogSeed: ImageDialogSeed;
   imageDialogOpen: boolean;
   onSourceMode: () => void;
-  onImageDialogOpenChange: (open: boolean) => void;
-  onOpenTableDialog: () => void;
+  onImageDialogOpenChange: (open: boolean, range?: Range) => void;
+  onOpenTableDialog: (range?: Range | null) => void;
 }) {
   const t = useTranslations('notebook');
   const [linkDialogOpen, setLinkDialogOpen] = useState(false);
@@ -2216,6 +2216,14 @@ function MarkdownToolbar({
   const closeLinkPopover = useCallback(() => {
     setLinkPopover(null);
   }, []);
+
+  const getCurrentToolbarRange = useCallback((): Range | undefined => {
+    if (!editor) return undefined;
+    return {
+      from: editor.state.selection.from,
+      to: editor.state.selection.to,
+    };
+  }, [editor]);
 
   const handleLinkDialogOpenChange = useCallback((open: boolean) => {
     setLinkDialogOpen(open);
@@ -2301,7 +2309,7 @@ function MarkdownToolbar({
 
   return (
     <TooltipProvider>
-      <div className="hidden h-9 shrink-0 items-center gap-1 overflow-x-auto border-b border-border bg-background px-2 md:flex">
+      <div className="tiptap-desktop-editor-toolbar hidden h-9 shrink-0 items-center gap-1 overflow-x-auto border-b border-border bg-background px-2 md:flex">
         <TooltipIconButton
           label="Undo"
           disabled={!canUseCommands || !toolbarState.canUndo}
@@ -2427,14 +2435,14 @@ function MarkdownToolbar({
         <TooltipIconButton
           label={t('markdownEditorImageDialogTitle')}
           disabled={!canUseCommands}
-          onClick={() => onImageDialogOpenChange(true)}
+          onClick={() => onImageDialogOpenChange(true, getCurrentToolbarRange())}
         >
           <ImageIcon />
         </TooltipIconButton>
         <TooltipIconButton
           label={t('markdownEditorTableInsert')}
           disabled={!canUseCommands}
-          onClick={onOpenTableDialog}
+          onClick={() => onOpenTableDialog(getCurrentToolbarRange())}
         >
           <Table2 />
         </TooltipIconButton>
@@ -2461,7 +2469,7 @@ function MarkdownToolbar({
         </div>
       </div>
       {toolbarState.isTable ? (
-        <div className="hidden h-9 shrink-0 items-center gap-1 overflow-x-auto border-b border-border bg-muted/30 px-2 md:flex">
+        <div className="tiptap-desktop-editor-toolbar hidden h-9 shrink-0 items-center gap-1 overflow-x-auto border-b border-border bg-muted/30 px-2 md:flex">
           <span className="mr-1 shrink-0 text-xs font-medium text-muted-foreground">
             {t('markdownEditorTableTools')}
           </span>
@@ -2612,6 +2620,12 @@ const MOBILE_STYLE_COMMAND_IDS = new Set<SlashCommandItemId>([
   'codeBlock',
 ]);
 
+function preserveEditorSelectionOnPointerDown(event: React.PointerEvent<HTMLElement>) {
+  if (event.pointerType === 'mouse') {
+    event.preventDefault();
+  }
+}
+
 function MobileToolbarButton({
   label,
   active = false,
@@ -2637,9 +2651,7 @@ function MobileToolbarButton({
         'h-10 w-10 shrink-0 rounded-xl text-muted-foreground',
         active && 'text-foreground',
       )}
-      onPointerDown={(event) => {
-        event.preventDefault();
-      }}
+      onPointerDown={preserveEditorSelectionOnPointerDown}
       onClick={(event) => {
         event.preventDefault();
         onClick();
@@ -2661,8 +2673,8 @@ function MobileMarkdownToolbar({
   actions?: SlashCommandActions;
   editor: MarkdownEditorWithMarkdown | null;
   labels: SlashCommandLabels;
-  onImageDialogOpenChange: (open: boolean) => void;
-  onOpenTableDialog: () => void;
+  onImageDialogOpenChange: (open: boolean, range?: Range) => void;
+  onOpenTableDialog: (range?: Range | null) => void;
   onSourceMode: () => void;
 }) {
   const t = useTranslations('notebook');
@@ -2779,7 +2791,7 @@ function MobileMarkdownToolbar({
   return (
     <>
       {sheet ? (
-        <div className="tiptap-mobile-sheet md:hidden" role="dialog" aria-label={sheetTitle}>
+        <div className="tiptap-mobile-sheet" role="dialog" aria-label={sheetTitle}>
           <div className="mb-3 flex items-center justify-between gap-3 px-1">
             <div className="text-sm font-medium text-muted-foreground">{sheetTitle}</div>
             <Button
@@ -2787,7 +2799,7 @@ function MobileMarkdownToolbar({
               variant="ghost"
               size="icon-sm"
               aria-label={t('markdownEditorMobileCloseTools')}
-              onPointerDown={(event) => event.preventDefault()}
+              onPointerDown={preserveEditorSelectionOnPointerDown}
               onClick={() => setSheet(null)}
             >
               <ChevronLeft className="h-4 w-4" />
@@ -2799,7 +2811,7 @@ function MobileMarkdownToolbar({
                 key={item.id}
                 type="button"
                 className="tiptap-mobile-command-tile"
-                onPointerDown={(event) => event.preventDefault()}
+                onPointerDown={preserveEditorSelectionOnPointerDown}
                 onClick={() => runCommandItem(item)}
               >
                 <item.Icon />
@@ -2810,7 +2822,7 @@ function MobileMarkdownToolbar({
         </div>
       ) : null}
 
-      <div className="tiptap-mobile-toolbar md:hidden" role="toolbar" aria-label={t('markdownEditorMobileToolbar')}>
+      <div className="tiptap-mobile-toolbar" role="toolbar" aria-label={t('markdownEditorMobileToolbar')}>
         <MobileToolbarButton
           label={t('markdownEditorMobileCloseTools')}
           disabled={!canUseCommands}
@@ -2849,9 +2861,9 @@ function MobileMarkdownToolbar({
           label={labels.items.image.title}
           disabled={!canUseCommands}
           onClick={() => {
-            saveCurrentRange();
+            const range = restoreSavedRange() ?? saveCurrentRange();
             setSheet(null);
-            onImageDialogOpenChange(true);
+            onImageDialogOpenChange(true, range ?? undefined);
           }}
         >
           <ImageIcon className="h-5 w-5" />
@@ -2869,9 +2881,9 @@ function MobileMarkdownToolbar({
           label={labels.items.table.title}
           disabled={!canUseCommands}
           onClick={() => {
-            restoreSavedRange();
+            const range = restoreSavedRange();
             setSheet(null);
-            onOpenTableDialog();
+            onOpenTableDialog(range);
           }}
         >
           <Table2 className="h-5 w-5" />
@@ -2921,15 +2933,24 @@ function RichMarkdownEditor({
   const pendingBlockCommandMenuFrameRef = useRef<number | null>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [tableDialogOpen, setTableDialogOpen] = useState(false);
+  const [tableDialogRange, setTableDialogRange] = useState<Range | null>(null);
   const [imageDialogOpen, setImageDialogOpen] = useState(false);
   const [imageDialogSeed, setImageDialogSeed] = useState<ImageDialogSeed>({ id: 0 });
   const [blockCommandMenu, setBlockCommandMenu] = useState<BlockCommandMenuState | null>(null);
   const labels = useMemo(() => createSlashCommandLabels(t), [t]);
-  const openImageDialogFromToolbar = useCallback((open: boolean) => {
+  const openImageDialogFromToolbar = useCallback((open: boolean, range?: Range) => {
     if (open) {
-      setImageDialogSeed((current) => ({ id: current.id + 1 }));
+      setImageDialogSeed((current) => ({ id: current.id + 1, range }));
     }
     setImageDialogOpen(open);
+  }, []);
+  const openTableDialogAtRange = useCallback((range?: Range | null) => {
+    setTableDialogRange(range ?? null);
+    setTableDialogOpen(true);
+  }, []);
+  const handleTableDialogOpenChange = useCallback((open: boolean) => {
+    setTableDialogOpen(open);
+    if (!open) setTableDialogRange(null);
   }, []);
   const openImageDialogFromSlash = useCallback((slashEditor: Editor, range: Range) => {
     const insertionRange = prepareCommandDialogInsertionRange(slashEditor, range);
@@ -2942,10 +2963,11 @@ function RichMarkdownEditor({
     setImageDialogOpen(true);
   }, []);
   const openTableDialogFromSlash = useCallback((slashEditor: Editor, range: Range) => {
-    prepareCommandDialogInsertionRange(slashEditor, range);
+    const insertionRange = prepareCommandDialogInsertionRange(slashEditor, range);
+    const insertPosition = insertionRange?.from ?? slashEditor.state.selection.from;
 
-    setTableDialogOpen(true);
-  }, []);
+    openTableDialogAtRange({ from: insertPosition, to: insertPosition });
+  }, [openTableDialogAtRange]);
   const slashCommandActions = useMemo<SlashCommandActions>(
     () => ({
       openImageDialog: openImageDialogFromSlash,
@@ -2980,9 +3002,14 @@ function RichMarkdownEditor({
 
   const insertTable = useCallback((options: TableInsertOptions) => {
     if (!editor) return;
-    editor.chain().focus().insertTable(options).run();
-    setTableDialogOpen(false);
-  }, [editor]);
+    const safeRange = tableDialogRange ? clampEditorRangeToDoc(editor, tableDialogRange) : null;
+    const chain = editor.chain().focus();
+    if (safeRange) {
+      chain.setTextSelection(safeRange);
+    }
+    chain.insertTable(options).run();
+    handleTableDialogOpenChange(false);
+  }, [editor, handleTableDialogOpenChange, tableDialogRange]);
 
   const cancelPendingBlockCommandMenu = useCallback(() => {
     if (pendingBlockCommandMenuFrameRef.current === null) return;
@@ -3103,11 +3130,11 @@ function RichMarkdownEditor({
           imageDialogSeed={imageDialogSeed}
           onSourceMode={onSourceMode}
           onImageDialogOpenChange={openImageDialogFromToolbar}
-          onOpenTableDialog={() => setTableDialogOpen(true)}
+          onOpenTableDialog={openTableDialogAtRange}
         />
       ) : null}
       {!readOnly ? (
-        <MarkdownTableDialog open={tableDialogOpen} onOpenChange={setTableDialogOpen} onInsert={insertTable} />
+        <MarkdownTableDialog open={tableDialogOpen} onOpenChange={handleTableDialogOpenChange} onInsert={insertTable} />
       ) : null}
       {!readOnly ? (
         <MobileMarkdownToolbar
@@ -3115,7 +3142,7 @@ function RichMarkdownEditor({
           editor={markdownEditor}
           labels={labels}
           onImageDialogOpenChange={openImageDialogFromToolbar}
-          onOpenTableDialog={() => setTableDialogOpen(true)}
+          onOpenTableDialog={openTableDialogAtRange}
           onSourceMode={onSourceMode}
         />
       ) : null}
