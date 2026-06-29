@@ -650,6 +650,9 @@ async function handleMessage(connection: WebSocketConnection, message: ClientMes
       }
 
       const context = message.context;
+      const agentMessageTimestamp = typeof (message.message as { timestamp?: unknown }).timestamp === 'number'
+        ? (message.message as { timestamp: number }).timestamp
+        : undefined;
 
       // Subscribe before starting the runtime so early runtime events cannot race
       // ahead of this connection's session subscription.
@@ -670,6 +673,7 @@ async function handleMessage(connection: WebSocketConnection, message: ClientMes
           channelId: WEB_CHANNEL_ID,
           channelSessionKey: webChannelSessionKey(userId),
           requestedSessionId: message.sessionId,
+          ...(agentMessageTimestamp ? { agentMessageTimestamp } : {}),
           userId,
           text: typeof message.message.content === 'string' ? message.message.content : '',
           contentParts: Array.isArray(message.message.content) ? message.message.content : undefined,

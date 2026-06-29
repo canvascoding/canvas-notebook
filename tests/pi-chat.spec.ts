@@ -702,7 +702,7 @@ contentKind: document
           message: {
             role: 'user',
             content: 'hi',
-            timestamp: Date.now() + 5000,
+            timestamp: Date.now() + 30000,
           },
         },
       ],

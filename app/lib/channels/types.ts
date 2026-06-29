@@ -34,6 +34,7 @@ export interface InboundMessage {
   channelSessionKey: string;
   channelThreadKey?: string;
   requestedSessionId?: string;
+  agentMessageTimestamp?: number;
   userId: string;
   text: string;
   images?: Array<{ data: string; mimeType: string }>;

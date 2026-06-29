@@ -42,10 +42,11 @@ const textOnly = buildUserAgentMessageFromInbound({
   channelSessionKey: 'web:user:user-123',
   userId: 'user-123',
   text: 'hello',
+  agentMessageTimestamp: 1710000000000,
 });
 assert.equal(textOnly.role, 'user');
 assert.equal(textOnly.content, 'hello');
-assert.equal(typeof textOnly.timestamp, 'number');
+assert.equal(textOnly.timestamp, 1710000000000);
 
 const imageMessage = buildUserAgentMessageFromInbound({
   channelId: 'telegram',

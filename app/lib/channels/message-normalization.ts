@@ -11,10 +11,13 @@ export function buildUserAgentMessageFromInbound(message: InboundMessage): UserA
           ...message.images.map((image) => ({ type: 'image' as const, data: image.data, mimeType: image.mimeType })),
         ]
       : message.text;
+  const timestamp = typeof message.agentMessageTimestamp === 'number' && Number.isFinite(message.agentMessageTimestamp)
+    ? message.agentMessageTimestamp
+    : Date.now();
 
   return {
     role: 'user',
     content,
-    timestamp: Date.now(),
+    timestamp,
   } as Extract<AgentMessage, { role: 'user' }>;
 }

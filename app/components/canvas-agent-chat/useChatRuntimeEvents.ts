@@ -523,6 +523,14 @@ export function useChatRuntimeEvents({
             timestamp !== null &&
             existingTimestamp !== null &&
             Math.abs(timestamp - existingTimestamp) < 15000;
+          const unconfirmedLocalTurn =
+            Boolean(message.optimistic) && (
+              message.status === 'pending' ||
+              message.status === 'sent' ||
+              message.status === 'queued_follow_up' ||
+              message.status === 'queued_steering' ||
+              message.status === 'aborting'
+            );
           const pendingLocalTurn =
             message.status === 'pending' ||
             message.status === 'queued_steering' ||
@@ -531,7 +539,7 @@ export function useChatRuntimeEvents({
             timestamp === null &&
             Boolean(activeAssistantId && prev.slice(index + 1).some((candidate) => candidate.id === activeAssistantId));
 
-          if (timestampsAreClose || pendingLocalTurn || activeAssistantAfterMessage) {
+          if (timestampsAreClose || pendingLocalTurn || unconfirmedLocalTurn || activeAssistantAfterMessage) {
             existingIndex = index;
             break;
           }
