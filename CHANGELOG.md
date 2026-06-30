@@ -11,6 +11,30 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.6.30.1] - 2026-06-30
+
+### Added
+
+- Added centralized browser runtime policy and status handling for agent, export, and sharing flows.
+- Added a dedicated Browser settings tab for managing browser runtime availability.
+
+### Changed
+
+- Moved Studio inspiration below generated outputs to improve the create workflow.
+- Moved browser runtime controls out of agent settings and into the settings navigation.
+- Updated non-breaking npm dependencies, including Better Auth, Electron, Lucide, Nodemailer, and Tailwind CSS.
+
+### Fixed
+
+- Fixed mobile Markdown toolbar activation and touch behavior.
+- Fixed browser runtime policy propagation for Markdown PDF, Marp, and HTML PDF routes.
+
+### Verification
+
+- `npm audit`
+- `npm run build`
+- GitHub Actions `Build and Push` on `main`: `28447771083` built and pushed the image successfully before release prep.
+
 ## [2026.6.29.1] - 2026-06-29
 
 ### Added
