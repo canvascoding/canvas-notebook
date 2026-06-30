@@ -9,6 +9,7 @@ import type { ChatRequestContext } from '@/app/lib/chat/types';
 import {
   getExistingPiRuntimeStatuses,
   getOrCreatePiRuntime,
+  getOrCreatePiRuntimeWithState,
   getPiRuntimeStatus,
   invalidatePiRuntime,
   type PiRuntimeStatus,
@@ -228,7 +229,7 @@ export async function prepareRuntimePrompt(
   context: ChatRequestContext;
 }> {
   const context = await normalizeContext(resolveChatRequestContext(payload), userId, sessionId);
-  const runtimeInstance = await getOrCreatePiRuntime(sessionId, userId);
+  const { runtime: runtimeInstance, created: runtimeCreated } = await getOrCreatePiRuntimeWithState(sessionId, userId);
   const promptMessage = await injectStudioImage(resolvePromptMessage(payload), context);
   const status = runtimeInstance.getStatus();
 
@@ -237,7 +238,7 @@ export async function prepareRuntimePrompt(
   }
 
   applyPiRuntimePromptContext(runtimeInstance, context);
-  if (!status.canAbort) {
+  if (!status.canAbort && !runtimeCreated) {
     await runtimeInstance.reloadTools();
   }
 
@@ -247,6 +248,7 @@ export async function prepareRuntimePrompt(
     contextWindow: status.contextWindow,
     hasStudioContext: !!context.studioContext,
     hasEmailContext: !!context.emailContext,
+    runtimeCreated,
     workspaceId: context.workspace?.workspaceId,
     workspaceType: context.workspace?.workspaceType,
     studioOutputPath: context.studioContext?.outputFilePath,

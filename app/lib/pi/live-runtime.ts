@@ -1509,14 +1509,14 @@ function getRuntimeKey(sessionId: string, userId: string) {
   return `${userId}:${sessionId}`;
 }
 
-export async function getOrCreatePiRuntime(sessionId: string, userId: string) {
+export async function getOrCreatePiRuntimeWithState(sessionId: string, userId: string) {
   const store = getStore();
   const key = getRuntimeKey(sessionId, userId);
   const existing = store.runtimes.get(key);
   if (existing) {
     const runtime = await existing;
     runtime.touch();
-    return runtime;
+    return { runtime, created: false };
   }
 
   const runtimePromise = createRuntime(sessionId, userId);
@@ -1525,11 +1525,16 @@ export async function getOrCreatePiRuntime(sessionId: string, userId: string) {
   try {
     const runtime = await runtimePromise;
     runtime.touch();
-    return runtime;
+    return { runtime, created: true };
   } catch (error) {
     store.runtimes.delete(key);
     throw error;
   }
+}
+
+export async function getOrCreatePiRuntime(sessionId: string, userId: string) {
+  const { runtime } = await getOrCreatePiRuntimeWithState(sessionId, userId);
+  return runtime;
 }
 
 export async function dispatchPiRuntimeUserMessage(
@@ -1539,9 +1544,14 @@ export async function dispatchPiRuntimeUserMessage(
   context?: PiRuntimePromptContext,
   runtimeInstance?: PiRuntimePromptDispatchTarget,
 ) {
-  const runtime = runtimeInstance ?? (await getOrCreatePiRuntime(sessionId, userId));
+  const runtimeHandle = runtimeInstance
+    ? { runtime: runtimeInstance, created: false }
+    : await getOrCreatePiRuntimeWithState(sessionId, userId);
+  const runtime = runtimeHandle.runtime;
   applyPiRuntimePromptContext(runtime, context);
-  await runtime.reloadTools();
+  if (!runtimeHandle.created) {
+    await runtime.reloadTools();
+  }
   runtime.startPrompt(message);
   return runtime;
 }

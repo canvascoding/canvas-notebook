@@ -24,6 +24,9 @@ type PendingRequest = {
 };
 
 const QUIET_MESSAGE_TYPES = new Set(['agent_event', 'runtime_status']);
+const DEFAULT_REQUEST_TIMEOUT_MS = 10000;
+const SUBSCRIBE_REQUEST_TIMEOUT_MS = 15000;
+const REQUEST_CONNECT_TIMEOUT_MS = 15000;
 const MAX_QUEUED_MESSAGES = 20;
 const MAX_QUEUED_MESSAGE_BYTES = 512 * 1024;
 const MAX_SINGLE_QUEUED_MESSAGE_BYTES = 4 * 1024 * 1024;
@@ -123,6 +126,8 @@ export class WebSocketClient extends EventTarget {
   connect(): Promise<void> {
     this.refCount++;
     this.cancelDisconnectTimer();
+    this.isManualDisconnect = false;
+    this.reconnectAttempts = 0;
     console.log('[WebSocket] connect() requested', {
       refCount: this.refCount,
       isConnecting: this.isConnecting,
@@ -134,8 +139,12 @@ export class WebSocketClient extends EventTarget {
       pendingRequests: this.pendingRequests.size,
     });
 
+    return this.openAuthenticatedConnection();
+  }
+
+  private openAuthenticatedConnection(): Promise<void> {
     if (this.isAuthenticated && this.ws?.readyState === WebSocket.OPEN) {
-      console.log('[WebSocket] connect() reused authenticated connection', {
+      console.log('[WebSocket] connect reused authenticated connection', {
         connectionId: this.activeConnectionId,
         readyState: readyStateLabel(this.ws.readyState),
       });
@@ -143,7 +152,7 @@ export class WebSocketClient extends EventTarget {
     }
 
     if (this.isConnecting) {
-      console.log('[WebSocket] connect() waiting for in-flight connection', {
+      console.log('[WebSocket] connect waiting for in-flight connection', {
         connectionId: this.activeConnectionId,
         readyState: readyStateLabel(this.ws?.readyState),
       });
@@ -258,6 +267,49 @@ export class WebSocketClient extends EventTarget {
     });
   }
 
+  private waitForAuthenticatedConnection(type: string, timeoutMs: number): Promise<void> {
+    if (this.isAuthenticated && this.ws?.readyState === WebSocket.OPEN) {
+      return Promise.resolve();
+    }
+
+    this.cancelDisconnectTimer();
+    this.isManualDisconnect = false;
+    this.reconnectAttempts = 0;
+
+    const connectTimeoutMs = Math.min(Math.max(timeoutMs, 5000), REQUEST_CONNECT_TIMEOUT_MS);
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    console.log('[WebSocket] request_connect_start', {
+      connectionId: this.activeConnectionId,
+      type,
+      connectTimeoutMs,
+      readyState: readyStateLabel(this.ws?.readyState),
+      isConnecting: this.isConnecting,
+      isAuthenticated: this.isAuthenticated,
+    });
+
+    return Promise.race([
+      this.openAuthenticatedConnection(),
+      new Promise<void>((_, reject) => {
+        timer = setTimeout(() => {
+          console.warn('[WebSocket] request_connect_timeout', {
+            connectionId: this.activeConnectionId,
+            type,
+            connectTimeoutMs,
+            readyState: readyStateLabel(this.ws?.readyState),
+            isConnecting: this.isConnecting,
+            isAuthenticated: this.isAuthenticated,
+          });
+          reject(new Error('WebSocket connection timeout before request'));
+        }, connectTimeoutMs);
+      }),
+    ]).finally(() => {
+      if (timer) {
+        clearTimeout(timer);
+      }
+    });
+  }
+
   /**
    * Disconnect from WebSocket server
    */
@@ -366,7 +418,7 @@ export class WebSocketClient extends EventTarget {
     this.queuedMessageBytes += messageBytes;
     
     if (!this.isConnecting && !this.isManualDisconnect) {
-      this.connect().catch(err => {
+      this.openAuthenticatedConnection().catch(err => {
         console.error('[WebSocket] Failed to auto-connect:', err);
       });
     }
@@ -374,11 +426,13 @@ export class WebSocketClient extends EventTarget {
     return true;
   }
 
-  request<T extends Record<string, unknown> = Record<string, unknown>>(
+  async request<T extends Record<string, unknown> = Record<string, unknown>>(
     type: string,
     payload: Record<string, unknown>,
-    timeoutMs = 10000,
+    timeoutMs = DEFAULT_REQUEST_TIMEOUT_MS,
   ): Promise<T> {
+    await this.waitForAuthenticatedConnection(type, timeoutMs);
+
     const requestId = generateRandomId();
 
     return new Promise<T>((resolve, reject) => {
@@ -464,7 +518,7 @@ export class WebSocketClient extends EventTarget {
       sessionId,
       subscribedSessions: this.subscribedSessions.size,
     });
-    return this.request('subscribe_session', { sessionId });
+    return this.request('subscribe_session', { sessionId }, SUBSCRIBE_REQUEST_TIMEOUT_MS);
   }
 
   /**
@@ -719,7 +773,7 @@ export class WebSocketClient extends EventTarget {
         maxAttempts: this.maxReconnectAttempts,
       });
       this.isManualDisconnect = false;
-      this.connect().catch(console.error);
+      this.openAuthenticatedConnection().catch(console.error);
     }, delay);
   }
 
