@@ -6,7 +6,7 @@ set -euo pipefail
 
 REPO="https://github.com/canvascoding/canvas-notebook.git"
 ARCHIVE_URL="https://github.com/canvascoding/canvas-notebook/archive/refs/heads/main.tar.gz"
-COMPOSE_URL="https://raw.githubusercontent.com/canvascoding/canvas-notebook/main/compose.hub.yaml"
+COMPOSE_URL="https://raw.githubusercontent.com/canvascoding/canvas-notebook/main/install/compose.hub.yaml"
 IMAGE="ghcr.io/canvascoding/canvas-notebook:latest"
 DEST="canvas-notebook"
 COMPOSE_FILE_NAME="canvas-notebook-compose.yaml"
