@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, startTransition, useDeferredValue } from 'react';
+import { useState, useEffect, useCallback, useMemo, startTransition, useDeferredValue } from 'react';
 import { useTranslations } from 'next-intl';
 import { Link } from '@/i18n/navigation';
 import {
@@ -30,6 +30,16 @@ import {
 import { cn } from '@/lib/utils';
 import { SkillDetailDialog } from '@/app/components/skills/SkillDetailDialog';
 import { SkillUploadDialog } from '@/app/components/skills/SkillUploadDialog';
+import {
+  McpServerDialog,
+  collectMcpEnvEntries,
+  createBlankMcpServerDraft,
+  createMcpServerDraftFromConnector,
+  parseMcpConfigFile,
+  toMcpServerDraft,
+  updateMcpConfigRawServer,
+  type McpServerDraft,
+} from '@/app/components/settings/McpServerDialog';
 import { CanvasPluginIcon } from '@/app/lib/plugins/plugin-icons';
 import { CanvasSkillIcon } from '@/app/lib/skills/skill-icons';
 import { Button } from '@/components/ui/button';
@@ -347,12 +357,38 @@ type ComposioConnectorState = {
   error?: string;
 };
 
+type PluginMcpSetupState = {
+  open: boolean;
+  pluginName: string;
+  version?: string;
+  source: 'store' | 'installed';
+  connector: CanvasPluginMcpConnector | null;
+  draft: McpServerDraft;
+  originalName?: string;
+  rawContent: string;
+  isLoading: boolean;
+  isSaving: boolean;
+  error: string | null;
+};
+
 const EMPTY_COMPOSIO_CONNECTOR_STATE: ComposioConnectorState = {
   isLoading: false,
   configured: false,
   apiKeyValid: false,
   toolkitsBySlug: {},
   connectedSlugs: {},
+};
+
+const EMPTY_PLUGIN_MCP_SETUP_STATE: PluginMcpSetupState = {
+  open: false,
+  pluginName: '',
+  source: 'installed',
+  connector: null,
+  draft: createBlankMcpServerDraft(),
+  rawContent: '',
+  isLoading: false,
+  isSaving: false,
+  error: null,
 };
 
 const PLUGIN_STORE_PAGE_SIZE = 12;
@@ -453,8 +489,17 @@ function CanvasPluginsSection({ onPluginsChanged }: { onPluginsChanged: () => vo
   const [pendingPluginName, setPendingPluginName] = useState<string | null>(null);
   const [preflightByPlugin, setPreflightByPlugin] = useState<Record<string, PluginPreflightState>>({});
   const [composioConnectorState, setComposioConnectorState] = useState<ComposioConnectorState>(EMPTY_COMPOSIO_CONNECTOR_STATE);
+  const [activeConnectorAction, setActiveConnectorAction] = useState<string | null>(null);
+  const [mcpSetupState, setMcpSetupState] = useState<PluginMcpSetupState>(EMPTY_PLUGIN_MCP_SETUP_STATE);
   const [selectedPluginDetail, setSelectedPluginDetail] = useState<SelectedPluginDetail | null>(null);
   const deferredSearchQuery = useDeferredValue(searchQuery);
+  const requiredComposioToolkits = useMemo(() => uniqueByKey(
+    [
+      ...plugins.flatMap((plugin) => getComposioRecommendations(plugin.connectors)),
+      ...storePlugins.flatMap((plugin) => getComposioRecommendations(plugin.connectors)),
+    ],
+    (connector) => connector.toolkit,
+  ), [plugins, storePlugins]);
 
   const loadPluginData = useCallback(async () => {
     const storeState = storeTab === 'updates' ? 'updates' : storeTab === 'installed' ? 'installed' : 'all';
@@ -511,88 +556,80 @@ function CanvasPluginsSection({ onPluginsChanged }: { onPluginsChanged: () => vo
     });
   }, [loadPluginData]);
 
-  useEffect(() => {
-    const requiredToolkits = uniqueByKey(
-      [
-        ...plugins.flatMap((plugin) => getComposioRecommendations(plugin.connectors)),
-        ...storePlugins.flatMap((plugin) => getComposioRecommendations(plugin.connectors)),
-      ],
-      (connector) => connector.toolkit,
-    );
-
-    if (requiredToolkits.length === 0) {
+  const loadComposioConnectorState = useCallback(async (options: { isCancelled?: () => boolean } = {}) => {
+    if (requiredComposioToolkits.length === 0) {
       setComposioConnectorState(EMPTY_COMPOSIO_CONNECTOR_STATE);
       return;
     }
 
-    let cancelled = false;
+    try {
+      setComposioConnectorState((current) => ({ ...current, isLoading: true, error: undefined }));
+      const statusResponse = await fetch('/api/composio/status', { credentials: 'include', cache: 'no-store' });
+      const status = await statusResponse.json();
+      const configured = Boolean(status.configured);
+      const apiKeyValid = Boolean(status.apiKeyValid);
+      const connectedSlugs: Record<string, boolean> = {};
 
-    async function loadComposioConnectorState() {
-      try {
-        setComposioConnectorState((current) => ({ ...current, isLoading: true, error: undefined }));
-        const statusResponse = await fetch('/api/composio/status', { credentials: 'include', cache: 'no-store' });
-        const status = await statusResponse.json();
-        const configured = Boolean(status.configured);
-        const apiKeyValid = Boolean(status.apiKeyValid);
-        const connectedSlugs: Record<string, boolean> = {};
-
-        if (Array.isArray(status.connectedAccounts)) {
-          for (const account of status.connectedAccounts) {
-            const slug = typeof account?.toolkit?.slug === 'string' ? account.toolkit.slug : '';
-            if (slug) connectedSlugs[slug] = true;
-          }
-        }
-
-        let toolkitsBySlug: Record<string, ComposioToolkitSummary> = {};
-        if (configured && apiKeyValid) {
-          const toolkitsResponse = await fetch('/api/composio/toolkits?summary=1&includeLogos=1', {
-            credentials: 'include',
-            cache: 'no-store',
-          });
-          const toolkitsPayload = await toolkitsResponse.json();
-          if (Array.isArray(toolkitsPayload.toolkits)) {
-            toolkitsBySlug = Object.fromEntries(
-              toolkitsPayload.toolkits
-                .filter((toolkit: ComposioToolkitSummary) => toolkit.slug)
-                .map((toolkit: ComposioToolkitSummary) => [
-                  toolkit.slug,
-                  {
-                    ...toolkit,
-                    connected: Boolean(toolkit.connected || connectedSlugs[toolkit.slug]),
-                  },
-                ]),
-            );
-          }
-        }
-
-        if (!cancelled) {
-          setComposioConnectorState({
-            isLoading: false,
-            configured,
-            apiKeyValid,
-            toolkitsBySlug,
-            connectedSlugs,
-          });
-        }
-      } catch (stateError) {
-        if (!cancelled) {
-          setComposioConnectorState({
-            ...EMPTY_COMPOSIO_CONNECTOR_STATE,
-            isLoading: false,
-            error: stateError instanceof Error ? stateError.message : t('connectors.composioStatusError'),
-          });
+      if (Array.isArray(status.connectedAccounts)) {
+        for (const account of status.connectedAccounts) {
+          const slug = typeof account?.toolkit?.slug === 'string' ? account.toolkit.slug : '';
+          if (slug) connectedSlugs[slug] = true;
         }
       }
+
+      let toolkitsBySlug: Record<string, ComposioToolkitSummary> = {};
+      if (configured && apiKeyValid) {
+        const toolkitsResponse = await fetch('/api/composio/toolkits?summary=1&includeLogos=1', {
+          credentials: 'include',
+          cache: 'no-store',
+        });
+        const toolkitsPayload = await toolkitsResponse.json();
+        if (Array.isArray(toolkitsPayload.toolkits)) {
+          toolkitsBySlug = Object.fromEntries(
+            toolkitsPayload.toolkits
+              .filter((toolkit: ComposioToolkitSummary) => toolkit.slug)
+              .map((toolkit: ComposioToolkitSummary) => [
+                toolkit.slug,
+                {
+                  ...toolkit,
+                  connected: Boolean(toolkit.connected || connectedSlugs[toolkit.slug]),
+                },
+              ]),
+          );
+        }
+      }
+
+      if (!options.isCancelled?.()) {
+        setComposioConnectorState({
+          isLoading: false,
+          configured,
+          apiKeyValid,
+          toolkitsBySlug,
+          connectedSlugs,
+        });
+      }
+    } catch (stateError) {
+      if (!options.isCancelled?.()) {
+        setComposioConnectorState({
+          ...EMPTY_COMPOSIO_CONNECTOR_STATE,
+          isLoading: false,
+          error: stateError instanceof Error ? stateError.message : t('connectors.composioStatusError'),
+        });
+      }
     }
+  }, [requiredComposioToolkits, t]);
+
+  useEffect(() => {
+    let cancelled = false;
 
     startTransition(() => {
-      void loadComposioConnectorState();
+      void loadComposioConnectorState({ isCancelled: () => cancelled });
     });
 
     return () => {
       cancelled = true;
     };
-  }, [plugins, storePlugins, t]);
+  }, [loadComposioConnectorState]);
 
   async function installLocalPlugin() {
     const trimmedPath = sourcePath.trim();
@@ -737,147 +774,439 @@ function CanvasPluginsSection({ onPluginsChanged }: { onPluginsChanged: () => vo
     }
   }
 
-  function renderComposioConnector(connector: CanvasPluginComposioConnector, showLiveStatus = true) {
-    const toolkit = composioConnectorState.toolkitsBySlug[connector.toolkit];
-    const isConnected = Boolean(toolkit?.connected || composioConnectorState.connectedSlugs[connector.toolkit]);
-    const label = connector.label || toolkit?.name || connector.toolkit;
-    const logo = toolkit?.logo;
-    const statusLabel = !showLiveStatus
-      ? t('connectors.recommended')
-      : composioConnectorState.isLoading
-      ? t('connectors.checking')
-      : !composioConnectorState.configured || !composioConnectorState.apiKeyValid
-        ? t('connectors.composioNotConfigured')
-        : toolkit
-          ? isConnected
-            ? t('connectors.connected')
-            : t('connectors.notConnected')
-          : t('connectors.unavailable');
-    const statusVariant = showLiveStatus && isConnected ? 'default' : 'secondary';
-    const actionLabel = !composioConnectorState.configured || !composioConnectorState.apiKeyValid
-      ? t('connectors.configureComposio')
-      : isConnected
-        ? t('connectors.manage')
-        : t('connectors.connect');
-
-    return (
-      <div key={`composio-${connector.toolkit}`} className="rounded-md border bg-muted/20 p-3">
-        <div className="flex items-start gap-3">
-          <span
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border bg-background bg-center bg-contain bg-no-repeat text-[10px] font-semibold text-muted-foreground"
-            style={logo ? { backgroundImage: `url(${logo})` } : undefined}
-          >
-            {logo ? null : label.slice(0, 2).toUpperCase()}
-          </span>
-          <div className="min-w-0 flex-1">
-            <div className="flex flex-wrap items-center gap-1.5">
-              <span className="truncate text-sm font-medium">{label}</span>
-              <Badge variant="outline" className="text-[10px]">Composio</Badge>
-              {connector.required ? <Badge variant="destructive" className="text-[10px]">{t('connectors.required')}</Badge> : null}
-              <Badge variant={statusVariant} className="text-[10px]">{statusLabel}</Badge>
-            </div>
-            <div className="mt-0.5 font-mono text-[11px] text-muted-foreground">{connector.toolkit}</div>
-            {connector.reason ? <p className="mt-1 text-xs text-muted-foreground">{connector.reason}</p> : null}
-            {connector.tools?.length ? (
-              <div className="mt-2 flex flex-wrap gap-1">
-                {connector.tools.slice(0, 4).map((tool) => (
-                  <span key={tool} className="rounded-full border px-1.5 py-0.5 text-[10px] text-muted-foreground">{tool}</span>
-                ))}
-              </div>
-            ) : null}
-          </div>
-          {showLiveStatus ? (
-            <Button asChild variant="outline" size="sm" className="shrink-0">
-              <Link href={`/settings?tab=integrations&section=composio&connected=${encodeURIComponent(connector.toolkit)}`}>
-                {actionLabel}
-              </Link>
-            </Button>
-          ) : null}
-        </div>
-      </div>
-    );
+  async function pollComposioConnector(toolkit: string) {
+    for (let attempt = 0; attempt < 12; attempt += 1) {
+      await new Promise((resolve) => window.setTimeout(resolve, attempt === 0 ? 2500 : 4000));
+      await loadComposioConnectorState();
+      const statusResponse = await fetch('/api/composio/status', { credentials: 'include', cache: 'no-store' }).catch(() => null);
+      if (!statusResponse) continue;
+      const status = await statusResponse.json().catch(() => null);
+      const connected = Array.isArray(status?.connectedAccounts)
+        && status.connectedAccounts.some((account: { toolkit?: { slug?: unknown } }) => account.toolkit?.slug === toolkit);
+      if (connected) return;
+    }
   }
 
-  function renderMcpConnector(connector: CanvasPluginMcpConnector) {
-    const label = connector.label || connector.name;
-    const details = [
-      connector.configPath ? t('connectors.mcpConfigPath', { path: connector.configPath }) : null,
-      connector.env?.length ? t('connectors.envVars', { vars: connector.env.join(', ') }) : null,
-      connector.oauth ? t('connectors.oauthRequired') : null,
-    ].filter(Boolean);
+  async function connectComposioToolkit(toolkit: string) {
+    if (!composioConnectorState.configured || !composioConnectorState.apiKeyValid) {
+      window.location.href = '/settings?tab=integrations&section=composio';
+      return;
+    }
 
-    return (
-      <div key={`mcp-${connector.name}`} className="rounded-md border bg-muted/20 p-3">
-        <div className="flex items-start gap-3">
-          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border bg-background text-muted-foreground">
-            <Server className="h-4 w-4" />
-          </span>
-          <div className="min-w-0 flex-1">
-            <div className="flex flex-wrap items-center gap-1.5">
-              <span className="truncate text-sm font-medium">{label}</span>
-              <Badge variant="outline" className="text-[10px]">MCP</Badge>
-              {connector.required ? <Badge variant="destructive" className="text-[10px]">{t('connectors.required')}</Badge> : null}
-              <Badge variant="secondary" className="text-[10px]">{t('connectors.recommended')}</Badge>
-            </div>
-            {connector.reason ? <p className="mt-1 text-xs text-muted-foreground">{connector.reason}</p> : null}
-            {details.length ? <p className="mt-1 text-[11px] text-muted-foreground">{details.join(' · ')}</p> : null}
-          </div>
-          <Button asChild variant="outline" size="sm" className="shrink-0">
-            <Link href="/settings?tab=integrations&section=mcp">{t('connectors.reviewMcp')}</Link>
-          </Button>
-        </div>
-      </div>
-    );
+    const toolkitState = composioConnectorState.toolkitsBySlug[toolkit];
+    const isConnected = Boolean(toolkitState?.connected || composioConnectorState.connectedSlugs[toolkit]);
+    if (isConnected) {
+      window.location.href = `/settings?tab=integrations&section=composio&connected=${encodeURIComponent(toolkit)}`;
+      return;
+    }
+
+    setActiveConnectorAction(`composio:${toolkit}`);
+    setError(null);
+    let authWindow: Window | null = null;
+    try {
+      authWindow = window.open('about:blank', '_blank');
+      if (!authWindow) {
+        throw new Error(t('connectors.popupBlocked'));
+      }
+      try {
+        authWindow.opener = null;
+      } catch {
+        // Some browsers expose opener as read-only after window creation.
+      }
+
+      const response = await fetch(`/api/composio/connect/${encodeURIComponent(toolkit)}`, {
+        method: 'POST',
+        credentials: 'include',
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || t('connectors.connectError'));
+      }
+      if (data.noAuth) {
+        authWindow.close();
+        await loadComposioConnectorState();
+        const storePlugin = selectedPluginDetail ? storeByName.get(selectedPluginDetail.name) : undefined;
+        if (storePlugin) await checkStorePluginPreflight(storePlugin.name, storePlugin.latestVersion);
+        return;
+      }
+      if (data.redirectUrl) {
+        authWindow.location.href = data.redirectUrl;
+        void pollComposioConnector(toolkit);
+      } else {
+        authWindow.close();
+        await loadComposioConnectorState();
+      }
+    } catch (connectError) {
+      authWindow?.close();
+      setError(connectError instanceof Error ? connectError.message : t('connectors.connectError'));
+    } finally {
+      setActiveConnectorAction(null);
+    }
   }
 
-  function renderEmailConnector(connector: CanvasPluginEmailConnector, index: number) {
-    const label = connector.label || t('connectors.emailAccount');
-    const providers = connector.providers?.length ? connector.providers.join(', ') : t('connectors.emailProvidersDefault');
+  async function openPluginMcpSetup(options: {
+    pluginName: string;
+    version?: string;
+    source: 'store' | 'installed';
+    connector: CanvasPluginMcpConnector;
+  }) {
+    const fallbackDraft = createMcpServerDraftFromConnector(options.connector);
+    setMcpSetupState({
+      open: true,
+      pluginName: options.pluginName,
+      version: options.version,
+      source: options.source,
+      connector: options.connector,
+      draft: fallbackDraft,
+      rawContent: '',
+      isLoading: true,
+      isSaving: false,
+      error: null,
+    });
 
-    return (
-      <div key={`email-${index}-${label}`} className="rounded-md border bg-muted/20 p-3">
-        <div className="flex items-start gap-3">
-          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border bg-background text-muted-foreground">
-            <Mail className="h-4 w-4" />
-          </span>
-          <div className="min-w-0 flex-1">
-            <div className="flex flex-wrap items-center gap-1.5">
-              <span className="truncate text-sm font-medium">{label}</span>
-              <Badge variant="outline" className="text-[10px]">Email</Badge>
-              {connector.required ? <Badge variant="destructive" className="text-[10px]">{t('connectors.required')}</Badge> : null}
-              <Badge variant="secondary" className="text-[10px]">{t('connectors.recommended')}</Badge>
-            </div>
-            {connector.reason ? <p className="mt-1 text-xs text-muted-foreground">{connector.reason}</p> : null}
-            <p className="mt-1 text-[11px] text-muted-foreground">{t('connectors.emailProviders', { providers })}</p>
-          </div>
-          <Button asChild variant="outline" size="sm" className="shrink-0">
-            <Link href="/settings?tab=integrations&section=email">{t('connectors.openEmail')}</Link>
-          </Button>
-        </div>
-      </div>
-    );
+    try {
+      const [configResponse, templateResponse] = await Promise.all([
+        fetch('/api/integrations/mcp-config', { credentials: 'include', cache: 'no-store' }),
+        fetch('/api/plugins/mcp-template', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({
+            source: options.source,
+            name: options.pluginName,
+            version: options.version,
+            connector: options.connector.name,
+          }),
+        }).catch((error) => error as Error),
+      ]);
+
+      const configPayload = await configResponse.json();
+      if (!configResponse.ok || !configPayload.success) {
+        throw new Error(configPayload.error || t('connectors.mcpLoadError'));
+      }
+
+      const rawContent = String(configPayload.data?.rawContent || '{}');
+      const parsedConfig = parseMcpConfigFile(rawContent);
+      const existingServer = parsedConfig.mcpServers[options.connector.name];
+      let templateConfig: Record<string, unknown> | undefined;
+      if (!(templateResponse instanceof Error)) {
+        const templatePayload = await templateResponse.json().catch(() => null);
+        if (templateResponse.ok && templatePayload?.success) {
+          templateConfig = templatePayload.template?.config;
+        }
+      }
+
+      setMcpSetupState((current) => ({
+        ...current,
+        draft: existingServer
+          ? toMcpServerDraft(options.connector.name, existingServer)
+          : createMcpServerDraftFromConnector(options.connector, templateConfig),
+        originalName: existingServer ? options.connector.name : undefined,
+        rawContent,
+        isLoading: false,
+        error: null,
+      }));
+    } catch (setupError) {
+      setMcpSetupState((current) => ({
+        ...current,
+        isLoading: false,
+        error: setupError instanceof Error ? setupError.message : t('connectors.mcpLoadError'),
+      }));
+    }
   }
 
-  function renderConnectorRecommendations(connectors: CanvasPluginSettingsRecord['connectors'], options: { showLiveStatus?: boolean } = {}) {
+  async function savePluginMcpServer() {
+    if (!mcpSetupState.connector) return;
+
+    setMcpSetupState((current) => ({
+      ...current,
+      isSaving: true,
+      error: null,
+    }));
+
+    try {
+      const envEntries = collectMcpEnvEntries(mcpSetupState.draft);
+      if (envEntries.length > 0) {
+        const envResponse = await fetch('/api/integrations/env?scope=integrations', {
+          credentials: 'include',
+          cache: 'no-store',
+        });
+        const envPayload = await envResponse.json();
+        if (!envResponse.ok || !envPayload.success) {
+          throw new Error(envPayload.error || t('connectors.mcpSaveError'));
+        }
+
+        const currentEntries = Array.isArray(envPayload.data?.entries)
+          ? envPayload.data.entries.map((entry: { key: string; value: string }) => ({ key: entry.key, value: entry.value }))
+          : [];
+        const nextEntriesByKey = new Map(currentEntries.map((entry: { key: string; value: string }) => [entry.key, entry]));
+        for (const entry of envEntries) {
+          nextEntriesByKey.set(entry.key, entry);
+        }
+
+        const saveEnvResponse = await fetch('/api/integrations/env', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({
+            scope: 'integrations',
+            mode: 'kv',
+            entries: Array.from(nextEntriesByKey.values()),
+          }),
+        });
+        const saveEnvPayload = await saveEnvResponse.json();
+        if (!saveEnvResponse.ok || !saveEnvPayload.success) {
+          throw new Error(saveEnvPayload.error || t('connectors.mcpSaveError'));
+        }
+      }
+
+      const rawContent = updateMcpConfigRawServer(
+        mcpSetupState.rawContent || '{}',
+        mcpSetupState.draft,
+        mcpSetupState.originalName,
+      );
+      const saveMcpResponse = await fetch('/api/integrations/mcp-config', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ rawContent }),
+      });
+      const saveMcpPayload = await saveMcpResponse.json();
+      if (!saveMcpResponse.ok || !saveMcpPayload.success) {
+        throw new Error(saveMcpPayload.error || t('connectors.mcpSaveError'));
+      }
+
+      const storePlugin = storeByName.get(mcpSetupState.pluginName);
+      if (storePlugin) {
+        await checkStorePluginPreflight(storePlugin.name, storePlugin.latestVersion);
+      }
+      setMcpSetupState(EMPTY_PLUGIN_MCP_SETUP_STATE);
+    } catch (saveError) {
+      setMcpSetupState((current) => ({
+        ...current,
+        isSaving: false,
+        error: saveError instanceof Error ? saveError.message : t('connectors.mcpSaveError'),
+      }));
+    }
+  }
+
+  function buildConnectorSetupItems(connectors: CanvasPluginSettingsRecord['connectors']): PluginPreflightItem[] {
     const composio = getComposioRecommendations(connectors);
     const email = connectors?.email || [];
     const mcp = getMcpRecommendations(connectors);
-    const showLiveStatus = options.showLiveStatus ?? true;
+    const composioItems: PluginPreflightItem[] = composio.map((connector) => {
+      const toolkit = composioConnectorState.toolkitsBySlug[connector.toolkit];
+      const configured = Boolean(composioConnectorState.configured && composioConnectorState.apiKeyValid);
+      const connected = Boolean(toolkit?.connected || composioConnectorState.connectedSlugs[connector.toolkit]);
+      const available = configured && Boolean(toolkit);
+      return {
+        type: 'composio',
+        key: connector.toolkit,
+        label: connector.label || toolkit?.name || connector.toolkit,
+        required: connector.required === true,
+        ready: available && connected,
+        available,
+        connected,
+        configured,
+        logo: toolkit?.logo,
+        reason: connector.reason,
+        details: connector.tools?.length ? [`Tools: ${connector.tools.join(', ')}`] : undefined,
+        action: !configured ? 'configure-composio' : connected ? 'none' : 'connect-composio',
+      };
+    });
+    const emailItems: PluginPreflightItem[] = email.map((connector, index) => {
+      const providers = connector.providers?.length ? connector.providers.join(', ') : t('connectors.emailProvidersDefault');
+      return {
+        type: 'email',
+        key: connector.label || `email-${index}`,
+        label: connector.label || t('connectors.emailAccount'),
+        required: connector.required === true,
+        ready: false,
+        configured: false,
+        connected: false,
+        reason: connector.reason,
+        details: [t('connectors.emailProviders', { providers })],
+        action: 'configure-email',
+      };
+    });
+    const mcpItems: PluginPreflightItem[] = mcp.map((connector) => {
+      const details = [
+        connector.configPath ? t('connectors.mcpConfigPath', { path: connector.configPath }) : null,
+        connector.env?.length ? t('connectors.envVars', { vars: connector.env.join(', ') }) : null,
+        connector.oauth ? t('connectors.oauthRequired') : null,
+      ].filter((detail): detail is string => Boolean(detail));
+      return {
+        type: 'mcp',
+        key: connector.name,
+        label: connector.label || connector.name,
+        required: connector.required === true,
+        ready: false,
+        configured: false,
+        connected: false,
+        reason: connector.reason,
+        details,
+        action: 'configure-mcp',
+      };
+    });
+    return [...composioItems, ...emailItems, ...mcpItems];
+  }
 
-    if (composio.length === 0 && email.length === 0 && mcp.length === 0) {
-      return null;
+  function renderConnectorSetupAction(
+    item: PluginPreflightItem,
+    options: {
+      connectors: CanvasPluginSettingsRecord['connectors'];
+      installedPlugin?: CanvasPluginSettingsRecord;
+      storePlugin?: CanvasPluginStoreEntry;
+    },
+  ) {
+    if (item.type === 'composio') {
+      const isPending = activeConnectorAction === `composio:${item.key}`;
+      const label = item.action === 'none'
+        ? t('connectors.manage')
+        : item.action === 'configure-composio'
+          ? t('connectors.configureComposio')
+          : t('connectors.connect');
+      return (
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-8 shrink-0"
+          onClick={() => void connectComposioToolkit(item.key)}
+          disabled={isPending}
+        >
+          {isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+          {label}
+        </Button>
+      );
     }
 
-    return (
-      <div className="mt-3 space-y-2 border-t pt-3">
-        <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-          <Plug className="h-3.5 w-3.5" />
-          {t('connectors.title')}
+    if (item.type === 'mcp') {
+      const connector = getMcpRecommendations(options.connectors).find((entry) => entry.name === item.key);
+      const pluginName = options.installedPlugin?.name || options.storePlugin?.name;
+      if (!connector || !pluginName) return null;
+      const source = options.installedPlugin ? 'installed' : 'store';
+      return (
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-8 shrink-0"
+          onClick={() => void openPluginMcpSetup({
+            pluginName,
+            version: source === 'store' ? options.storePlugin?.latestVersion : undefined,
+            source,
+            connector,
+          })}
+        >
+          {item.ready ? t('connectors.manage') : t('preflight.setup')}
+        </Button>
+      );
+    }
+
+    if (item.type === 'email') {
+      return (
+        <Button asChild variant="outline" size="sm" className="h-8 shrink-0">
+          <Link href="/settings?tab=integrations&section=email">{item.ready ? t('connectors.manage') : t('connectors.openEmail')}</Link>
+        </Button>
+      );
+    }
+
+    return null;
+  }
+
+  function renderPluginConnectorSetup(options: {
+    connectors: CanvasPluginSettingsRecord['connectors'];
+    installedPlugin?: CanvasPluginSettingsRecord;
+    storePlugin?: CanvasPluginStoreEntry;
+    isChecking?: boolean;
+  }) {
+    const { connectors, installedPlugin, isChecking, storePlugin } = options;
+    if (!hasConnectorRecommendations(connectors)) {
+      return (
+        <div className="rounded-md border border-dashed px-3 py-2 text-sm text-muted-foreground">
+          {t('details.noConnectors')}
         </div>
-        <div className="space-y-2">
-          {composio.map((connector) => renderComposioConnector(connector, showLiveStatus))}
-          {email.map((connector, index) => renderEmailConnector(connector, index))}
-          {mcp.map((connector) => renderMcpConnector(connector))}
+      );
+    }
+
+    const preflight = storePlugin ? preflightByPlugin[getPreflightKey(storePlugin.name, storePlugin.latestVersion)] : undefined;
+    const items = preflight?.result?.items?.length ? preflight.result.items : buildConnectorSetupItems(connectors);
+    const readyCount = preflight?.result?.summary.ready ?? items.filter((item) => item.ready).length;
+    const requiredMissing = preflight?.result?.summary.requiredMissing ?? items.filter((item) => item.required && !item.ready).length;
+    const recommendedMissing = preflight?.result?.summary.recommendedMissing ?? items.filter((item) => !item.required && !item.ready).length;
+    const total = preflight?.result?.summary.total ?? items.length;
+    const hasRequiredMissing = preflight?.result?.hasRequiredMissing ?? requiredMissing > 0;
+
+    return (
+      <div className="space-y-2 rounded-md border bg-muted/20 p-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+            {hasRequiredMissing ? <Info className="h-3.5 w-3.5" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
+            {t('connectors.setupTitle')}
+          </div>
+          <div className="flex items-center gap-2">
+            <Badge variant={hasRequiredMissing ? 'destructive' : 'secondary'} className="text-[10px]">
+              {hasRequiredMissing ? t('preflight.needsSetup') : t('preflight.ready')}
+            </Badge>
+            {storePlugin ? (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => void checkStorePluginPreflight(storePlugin.name, storePlugin.latestVersion)}
+                disabled={isChecking}
+                className="h-8 gap-1.5"
+              >
+                {isChecking ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+                {t('details.refreshCheck')}
+              </Button>
+            ) : null}
+          </div>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          {t('preflight.summary', {
+            ready: readyCount,
+            total,
+            required: requiredMissing,
+            recommended: recommendedMissing,
+          })}
+        </p>
+        {preflight?.isLoading ? (
+          <div className="flex items-center gap-2 rounded-md bg-background/70 px-2 py-2 text-sm text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            {t('preflight.checking')}
+          </div>
+        ) : null}
+        {preflight?.error ? (
+          <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+            {preflight.error}
+          </div>
+        ) : null}
+        <div className="space-y-1.5">
+          {items.map((item) => (
+            <div key={`${item.type}-${item.key}`} className="flex flex-col gap-2 rounded-md bg-background/70 px-2 py-2 sm:flex-row sm:items-start">
+              <div className="flex min-w-0 flex-1 items-start gap-2">
+                {renderPreflightTypeIcon(item)}
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="truncate text-xs font-medium">{item.label}</span>
+                    <Badge variant="outline" className="text-[9px]">{item.type}</Badge>
+                    <Badge variant={item.required ? 'destructive' : 'secondary'} className="text-[9px]">
+                      {item.required ? t('connectors.required') : t('connectors.recommended')}
+                    </Badge>
+                    <Badge variant={item.ready ? 'default' : 'secondary'} className="text-[9px]">
+                      {item.ready ? t('connectors.connected') : t('connectors.notConnected')}
+                    </Badge>
+                  </div>
+                  {item.reason ? <p className="mt-1 text-[11px] text-muted-foreground">{item.reason}</p> : null}
+                  {item.details?.length ? (
+                    <p className="mt-1 text-[11px] text-muted-foreground">{item.details.join(' · ')}</p>
+                  ) : null}
+                </div>
+              </div>
+              <div className="flex justify-end sm:pl-2">
+                {renderConnectorSetupAction(item, { connectors, installedPlugin, storePlugin })}
+              </div>
+            </div>
+          ))}
         </div>
       </div>
     );
@@ -908,19 +1237,6 @@ function CanvasPluginsSection({ onPluginsChanged }: { onPluginsChanged: () => vo
         {initials || 'CP'}
       </span>
     );
-  }
-
-  function getPreflightActionHref(item: PluginPreflightItem): string | null {
-    if (item.action === 'configure-composio' || item.action === 'connect-composio') {
-      return `/settings?tab=integrations&section=composio&connected=${encodeURIComponent(item.key)}`;
-    }
-    if (item.action === 'configure-email') {
-      return '/settings?tab=integrations&section=email';
-    }
-    if (item.action === 'configure-mcp') {
-      return '/settings?tab=integrations&section=mcp';
-    }
-    return null;
   }
 
   function renderPreflightTypeIcon(item: PluginPreflightItem) {
@@ -1031,90 +1347,6 @@ function CanvasPluginsSection({ onPluginsChanged }: { onPluginsChanged: () => vo
             ))}
           </div>
         ) : null}
-      </div>
-    );
-  }
-
-  function renderPluginPreflight(plugin: CanvasPluginStoreEntry) {
-    const preflight = preflightByPlugin[getPreflightKey(plugin.name, plugin.latestVersion)];
-    if (!preflight) return null;
-
-    if (preflight.isLoading) {
-      return (
-        <div className="mt-3 flex items-center gap-2 rounded-md border bg-muted/20 px-3 py-2 text-sm text-muted-foreground">
-          <Loader2 className="h-4 w-4 animate-spin" />
-          {t('preflight.checking')}
-        </div>
-      );
-    }
-
-    if (preflight.error) {
-      return (
-        <div className="mt-3 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-          {preflight.error}
-        </div>
-      );
-    }
-
-    if (!preflight.result) return null;
-
-    const result = preflight.result;
-    return (
-      <div className="mt-3 space-y-2 rounded-md border bg-muted/20 p-3">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-            {result.hasRequiredMissing ? <Info className="h-3.5 w-3.5" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
-            {t('preflight.title')}
-          </div>
-          <Badge variant={result.hasRequiredMissing ? 'destructive' : 'secondary'} className="text-[10px]">
-            {result.hasRequiredMissing ? t('preflight.needsSetup') : t('preflight.ready')}
-          </Badge>
-        </div>
-        <p className="text-xs text-muted-foreground">
-          {t('preflight.summary', {
-            ready: result.summary.ready,
-            total: result.summary.total,
-            required: result.summary.requiredMissing,
-            recommended: result.summary.recommendedMissing,
-          })}
-        </p>
-        {result.items.length ? (
-          <div className="space-y-1.5">
-            {result.items.map((item) => {
-              const actionHref = getPreflightActionHref(item);
-              return (
-                <div key={`${item.type}-${item.key}`} className="flex items-start gap-2 rounded-md bg-background/70 px-2 py-2">
-                  {renderPreflightTypeIcon(item)}
-                  <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-1.5">
-                      <span className="truncate text-xs font-medium">{item.label}</span>
-                      <Badge variant="outline" className="text-[9px]">{item.type}</Badge>
-                      <Badge variant={item.required ? 'destructive' : 'secondary'} className="text-[9px]">
-                        {item.required ? t('connectors.required') : t('connectors.recommended')}
-                      </Badge>
-                      <Badge variant={item.ready ? 'default' : 'secondary'} className="text-[9px]">
-                        {item.ready ? t('connectors.connected') : t('connectors.notConnected')}
-                      </Badge>
-                    </div>
-                    {item.reason ? <p className="mt-1 text-[11px] text-muted-foreground">{item.reason}</p> : null}
-                    {item.details?.length ? (
-                      <p className="mt-1 text-[11px] text-muted-foreground">{item.details.join(' · ')}</p>
-                    ) : null}
-                  </div>
-                  {actionHref ? (
-                    <Button asChild variant="outline" size="sm" className="h-7 shrink-0 px-2 text-xs">
-                      <Link href={actionHref}>{t('preflight.setup')}</Link>
-                    </Button>
-                  ) : null}
-                </div>
-              );
-            })}
-          </div>
-        ) : (
-          <div className="rounded-md bg-background/70 px-2 py-2 text-xs text-muted-foreground">
-            {t('preflight.noConnectors')}
-          </div>
-        )}
       </div>
     );
   }
@@ -1324,42 +1556,14 @@ function CanvasPluginsSection({ onPluginsChanged }: { onPluginsChanged: () => vo
               </section>
 
               <section className="space-y-2">
-                <h3 className="text-sm font-semibold">{t('details.recommendedConnectors')}</h3>
-                {hasConnectorRecommendations(connectors) ? (
-                  <div className="[&>div]:mt-0 [&>div]:border-t-0 [&>div]:pt-0">
-                    {renderConnectorRecommendations(connectors)}
-                  </div>
-                ) : (
-                  <div className="rounded-md border border-dashed px-3 py-2 text-sm text-muted-foreground">
-                    {t('details.noConnectors')}
-                  </div>
-                )}
+                <h3 className="text-sm font-semibold">{t('connectors.setupTitle')}</h3>
+                {renderPluginConnectorSetup({
+                  connectors,
+                  installedPlugin: installedPlugin || undefined,
+                  storePlugin,
+                  isChecking,
+                })}
               </section>
-
-              {storePlugin ? (
-                <section className="space-y-2">
-                  <div className="flex items-center justify-between gap-2">
-                    <h3 className="text-sm font-semibold">{t('details.appCheck')}</h3>
-                    {hasConnectorRecommendations(storePlugin.connectors) || isInstalled ? (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => void checkStorePluginPreflight(storePlugin.name, storePlugin.latestVersion)}
-                        disabled={isChecking}
-                        className="h-8 gap-1.5"
-                      >
-                        {isChecking ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
-                        {t('details.refreshCheck')}
-                      </Button>
-                    ) : null}
-                  </div>
-                  {renderPluginPreflight(storePlugin) || (
-                    <div className="rounded-md border border-dashed px-3 py-2 text-sm text-muted-foreground">
-                      {t('preflight.noConnectors')}
-                    </div>
-                  )}
-                </section>
-              ) : null}
 
               {storePlugin && isInstalled ? (
                 <section>
@@ -1829,6 +2033,26 @@ function CanvasPluginsSection({ onPluginsChanged }: { onPluginsChanged: () => vo
         </Tabs>
 
       {renderPluginDetailsDialog()}
+      <McpServerDialog
+        open={mcpSetupState.open}
+        onOpenChange={(open) => {
+          if (!open) {
+            setMcpSetupState(EMPTY_PLUGIN_MCP_SETUP_STATE);
+            return;
+          }
+          setMcpSetupState((current) => ({ ...current, open }));
+        }}
+        draft={mcpSetupState.draft}
+        onDraftChange={(patch) => setMcpSetupState((current) => ({
+          ...current,
+          draft: { ...current.draft, ...patch },
+        }))}
+        onSave={() => void savePluginMcpServer()}
+        editingServerName={mcpSetupState.originalName}
+        isSaving={mcpSetupState.isSaving || mcpSetupState.isLoading}
+        loadingMessage={mcpSetupState.isLoading ? t('connectors.mcpLoadingTemplate') : null}
+        error={mcpSetupState.error}
+      />
     </section>
   );
 }

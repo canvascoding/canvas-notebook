@@ -237,6 +237,7 @@ export function McpServerDialog(props: {
   onDelete?: () => void;
   editingServerName?: string;
   isSaving: boolean;
+  loadingMessage?: string | null;
   error?: string | null;
 }) {
   const t = useTranslations('settings');
@@ -245,6 +246,7 @@ export function McpServerDialog(props: {
     editingServerName,
     error,
     isSaving,
+    loadingMessage,
     onDelete,
     onDraftChange,
     onOpenChange,
@@ -326,6 +328,12 @@ export function McpServerDialog(props: {
 
         <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6">
           <div className="mx-auto w-full max-w-4xl space-y-4">
+            {loadingMessage ? (
+              <p className="flex items-center gap-2 rounded-md border bg-muted/20 p-3 text-sm text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                {loadingMessage}
+              </p>
+            ) : null}
             {error ? <p className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">{error}</p> : null}
 
             <div>

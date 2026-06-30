@@ -191,6 +191,14 @@ export interface CanvasPluginStorePreflight {
   skillSummary: CanvasPluginStoreSkillSummary;
 }
 
+export interface CanvasPluginStoreMcpTemplate {
+  pluginName: string;
+  version: string;
+  connector: CanvasPluginMcpConnector;
+  rawContent?: string;
+  config?: Record<string, unknown>;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
 }
@@ -820,6 +828,84 @@ function getStorePluginOrThrow(registry: CanvasPluginStoreRegistry, pluginName: 
     throw new Error(`Version ${selectedVersion} is not available for plugin "${pluginName}".`);
   }
   return { plugin, version: selectedVersion };
+}
+
+function normalizePluginRelativePath(value: string): string {
+  const normalized = value
+    .replace(/\0/g, '')
+    .replace(/\\/g, '/')
+    .replace(/^\/+/, '')
+    .replace(/^\.\//, '');
+  if (!normalized || normalized.includes('../') || path.isAbsolute(normalized)) {
+    throw new Error('Invalid connector config path.');
+  }
+  return normalized;
+}
+
+export async function readCanvasPluginStoreMcpTemplate(
+  pluginName: string,
+  version: string | undefined,
+  connectorName: string,
+): Promise<CanvasPluginStoreMcpTemplate> {
+  if (!isValidCanvasPluginName(pluginName)) {
+    throw new Error('Invalid plugin name');
+  }
+  if (version && !isValidCanvasPluginVersion(version)) {
+    throw new Error('Invalid plugin version');
+  }
+  if (!connectorName.trim()) {
+    throw new Error('MCP connector name is required.');
+  }
+
+  const registry = await readCanvasPluginStoreRegistry();
+  const { plugin, version: selectedVersion } = getStorePluginOrThrow(registry, pluginName, version);
+  const connector = normalizeMcpConnectors(plugin.connectors).find((entry) => entry.name === connectorName);
+  if (!connector) {
+    throw new Error(`MCP connector "${connectorName}" was not found for plugin "${pluginName}".`);
+  }
+
+  if (!connector.configPath) {
+    return {
+      pluginName: plugin.name,
+      version: selectedVersion,
+      connector,
+    };
+  }
+
+  const storeVersion = plugin.versions[selectedVersion];
+  let tempRoot: string | null = null;
+  try {
+    const archiveBytes = await readUrlBytes(storeVersion.downloadUrl);
+    const extracted = await extractPackageFromArchive(archiveBytes, storeVersion.packagePath);
+    tempRoot = extracted.tempRoot;
+    await verifyPackageChecksum(extracted.packageRoot, storeVersion.checksum);
+    const relativePath = normalizePluginRelativePath(connector.configPath);
+    const targetPath = path.join(extracted.packageRoot, relativePath);
+    if (!isPathInside(extracted.packageRoot, targetPath)) {
+      throw new Error('Invalid connector config path.');
+    }
+
+    const rawContent = await fs.readFile(targetPath, 'utf-8');
+    let config: Record<string, unknown> | undefined;
+    try {
+      const parsed = JSON.parse(rawContent) as unknown;
+      config = isRecord(parsed) ? parsed : undefined;
+    } catch {
+      config = undefined;
+    }
+
+    return {
+      pluginName: plugin.name,
+      version: selectedVersion,
+      connector,
+      rawContent,
+      config,
+    };
+  } finally {
+    if (tempRoot) {
+      await fs.rm(tempRoot, { recursive: true, force: true }).catch(() => undefined);
+    }
+  }
 }
 
 export async function preflightCanvasPluginFromStore(
