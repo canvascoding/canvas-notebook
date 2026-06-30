@@ -242,7 +242,9 @@ function printEnvInstructions(envFile, isNew) {
   }
   console.log();
   info('  BETTER_AUTH_SECRET    — a random secret (run: openssl rand -base64 32)');
-  info('  Admin account         — create it in the first-run setup UI');
+  info('  CANVAS_INTERNAL_API_KEY — a random secret (run: openssl rand -base64 32)');
+  info('  BASE_URL / BETTER_AUTH_BASE_URL — public URL (e.g. http://localhost:3456)');
+  info('  Admin account         — create it in the first-run setup UI after starting the container');
   console.log();
   info('Then run: npm run setup');
   console.log();
@@ -252,9 +254,11 @@ function envFileIsConfigured(envFile) {
   try {
     const content = readFileSync(envFile, 'utf-8');
     // Check if still contains placeholder values from the example
-    const hasPlaceholderSecret = /^BETTER_AUTH_SECRET=your-secret-genereate-please$/m.test(content)
-      || /^CANVAS_INTERNAL_API_KEY=your-secret-genereate-please$/m.test(content);
-    const hasSampleSecret = content.includes('c9PkVtSazPhUtmcKsjau1w2uONuBZKiUvgFaHGXz2kZE=');
+    const placeholder = 'SET_WITH_OPENSSL_RAND_BASE64_32';
+    const hasPlaceholderSecret = new RegExp(`^BETTER_AUTH_SECRET=${placeholder}$`, 'm').test(content)
+      || new RegExp(`^CANVAS_INTERNAL_API_KEY=${placeholder}$`, 'm').test(content);
+    const hasSampleSecret = content.includes('c9PkVtSazPhUtmcKsjau1w2uONuBZKiUvgFaHGXz2kZE=')
+      || content.includes(placeholder);
     return !(hasPlaceholderSecret || hasSampleSecret);
   } catch {
     return false;

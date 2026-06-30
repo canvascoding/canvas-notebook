@@ -129,15 +129,17 @@ if [[ ! -f "$ENV_FILE" ]]; then
   fi
 fi
 
+PLACEHOLDER='SET_WITH_OPENSSL_RAND_BASE64_32'
+
 env_has_placeholders() {
-  grep -qE 'c9PkVtSazPhUtmcKsjau1w2uONuBZKiUvgFaHGXz2kZE=' "$ENV_FILE" 2>/dev/null
+  grep -qE "${PLACEHOLDER}" "$ENV_FILE" 2>/dev/null
 }
 
 # Auto-generate secrets if still placeholders
 for SECRET_KEY in BETTER_AUTH_SECRET CANVAS_INTERNAL_API_KEY; do
-  if grep -qE "^${SECRET_KEY}=your-secret-genereate-please" "$ENV_FILE" 2>/dev/null; then
+  if grep -qE "^${SECRET_KEY}=${PLACEHOLDER}$" "$ENV_FILE" 2>/dev/null; then
     GENERATED="$(openssl rand -base64 32)"
-    sed -i "s|^${SECRET_KEY}=your-secret-genereate-please|${SECRET_KEY}=${GENERATED}|" "$ENV_FILE"
+    sed -i "s|^${SECRET_KEY}=${PLACEHOLDER}$|${SECRET_KEY}=${GENERATED}|" "$ENV_FILE"
     ok "Generated ${SECRET_KEY}"
   fi
 done
@@ -147,8 +149,10 @@ if env_has_placeholders; then
   echo -e "${BOLD}  You need to configure .env.docker.local before the app can start.${RESET}"
   echo
   info "Set at minimum:"
-  info "  BETTER_AUTH_BASE_URL     — public URL (e.g. https://canvas.example.com)"
-  info "  Admin account            — create it in the first-run setup UI"
+  info "  BETTER_AUTH_SECRET       — run: openssl rand -base64 32"
+  info "  CANVAS_INTERNAL_API_KEY  — run: openssl rand -base64 32"
+  info "  BETTER_AUTH_BASE_URL     — public URL (e.g. http://localhost:3456)"
+  info "  Admin account            — create it in the first-run setup UI after starting the container"
   echo
 
   EDITOR_CMD="${EDITOR:-nano}"
