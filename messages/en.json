@@ -3853,6 +3853,7 @@
         "subtitle": "Adjust the filters or start from an inspiration below."
       },
       "startingPointsTitle": "Inspiration",
+      "startingPointsCount": "{count, plural, one {# idea} other {# ideas}}",
       "recreate": "Recreate",
       "recentGenerationsTitle": "Recent Generations",
       "viewAll": "View All"

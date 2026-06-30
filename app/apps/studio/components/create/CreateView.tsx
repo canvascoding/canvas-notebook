@@ -1,11 +1,12 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import {
   AlertTriangle,
   Building2,
+  ChevronDown,
   Clapperboard,
   Droplets,
   ExternalLink,
@@ -22,6 +23,7 @@ import {
 } from 'lucide-react';
 import { Link, useRouter } from '@/i18n/navigation';
 import { Button } from '@/components/ui/button';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { useStudioGeneration } from '../../hooks/useStudioGeneration';
 import { useStudioPersonas } from '../../hooks/useStudioPersonas';
 import { useStudioPresets } from '../../hooks/useStudioPresets';
@@ -155,50 +157,73 @@ function FilteredEmptyState({ inspirationPanel }: { inspirationPanel?: ReactNode
 }
 
 function StartingPointsPanel({
+  defaultOpen = false,
   onSelect,
   startingPoints,
 }: {
+  defaultOpen?: boolean;
   onSelect: (startingPoint: StartingPoint) => void;
   startingPoints: StartingPoint[];
 }) {
   const t = useTranslations('studio');
+  const contentId = useId();
+  const [open, setOpen] = useState(defaultOpen);
 
   if (startingPoints.length === 0) {
     return null;
   }
 
   return (
-    <section className="w-full rounded-3xl border border-border/70 bg-card/90 p-4 shadow-sm">
-      <div className="flex items-center gap-2">
-        <Badge variant="secondary" className="rounded-full px-3 py-1 text-xs uppercase tracking-[0.18em]">
-          {t('dashboard.startingPointsTitle')}
-        </Badge>
-      </div>
+    <section className="w-full overflow-hidden rounded-2xl border border-border/70 bg-card/90 shadow-sm backdrop-blur">
+      <Collapsible open={open} onOpenChange={setOpen}>
+        <CollapsibleTrigger asChild>
+          <button
+            type="button"
+            aria-controls={contentId}
+            className="flex w-full items-center gap-3 px-3 py-3 text-left transition hover:bg-accent/55 sm:px-4"
+          >
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+              <Sparkles className="h-4 w-4" />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-sm font-semibold text-foreground">
+                {t('dashboard.startingPointsTitle')}
+              </span>
+            </span>
+            <Badge variant="secondary" className="shrink-0 rounded-full px-2.5 py-1 text-xs">
+              {t('dashboard.startingPointsCount', { count: startingPoints.length })}
+            </Badge>
+            <ChevronDown className={`h-4 w-4 shrink-0 text-muted-foreground transition-transform ${open ? 'rotate-180' : ''}`} />
+          </button>
+        </CollapsibleTrigger>
 
-      <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        {startingPoints.map((item) => {
-          const Icon = STARTING_POINT_CATEGORY_ICONS[item.category.toLowerCase()] ?? Sparkles;
-          return (
-            <button
-              key={item.id}
-              type="button"
-              onClick={() => onSelect(item)}
-              className="group rounded-2xl border border-border/70 bg-background/80 p-4 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-primary/35 hover:shadow-md"
-            >
-              <div className="mb-3 flex items-center gap-2">
-                <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/10 text-primary">
-                  <Icon className="h-4 w-4" />
-                </span>
-                <span className="rounded-full border border-border px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
-                  {item.category}
-                </span>
-              </div>
-              <h3 className="mb-1.5 text-sm font-semibold text-foreground">{item.title}</h3>
-              <p className="line-clamp-2 text-xs leading-5 text-muted-foreground">{item.description}</p>
-            </button>
-          );
-        })}
-      </div>
+        <CollapsibleContent id={contentId} className="border-t border-border/60">
+          <div className="grid gap-2 p-3 sm:grid-cols-2 sm:p-4 xl:grid-cols-4">
+            {startingPoints.map((item) => {
+              const Icon = STARTING_POINT_CATEGORY_ICONS[item.category.toLowerCase()] ?? Sparkles;
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => onSelect(item)}
+                  className="group rounded-xl border border-border/70 bg-background/80 p-3 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-primary/35 hover:bg-background hover:shadow-md"
+                >
+                  <div className="mb-2.5 flex items-center gap-2">
+                    <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                      <Icon className="h-4 w-4" />
+                    </span>
+                    <span className="min-w-0 truncate rounded-full border border-border px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+                      {item.category}
+                    </span>
+                  </div>
+                  <h3 className="mb-1 line-clamp-1 text-sm font-semibold text-foreground">{item.title}</h3>
+                  <p className="line-clamp-2 text-xs leading-5 text-muted-foreground">{item.description}</p>
+                </button>
+              );
+            })}
+          </div>
+        </CollapsibleContent>
+      </Collapsible>
     </section>
   );
 }
@@ -851,10 +876,18 @@ export function CreateView({ initialProviderConfig = EMPTY_STUDIO_PROVIDER_CONFI
   const hasNoMatchingVisibleOutputs = visibleOutputList.length === 0;
   const shouldShowInspiration = (
     !startingPointsLoading &&
+    startingPoints.length > 0 &&
     completedOutputCount < INSPIRATION_OUTPUT_THRESHOLD &&
     (!hasActiveOutputFilters || hasNoMatchingVisibleOutputs)
   );
-  const inspirationPanel = shouldShowInspiration ? (
+  const emptyInspirationPanel = shouldShowInspiration ? (
+    <StartingPointsPanel
+      defaultOpen
+      onSelect={handleStartingPointSelect}
+      startingPoints={startingPoints}
+    />
+  ) : null;
+  const footerInspirationPanel = shouldShowInspiration ? (
     <StartingPointsPanel
       onSelect={handleStartingPointSelect}
       startingPoints={startingPoints}
@@ -961,17 +994,12 @@ export function CreateView({ initialProviderConfig = EMPTY_STUDIO_PROVIDER_CONFI
               onFavoriteSelected={handleBatchFavorite}
               onDownloadSelected={handleBatchDownload}
             />
-            {hasStudioActivity && inspirationPanel && !hasNoMatchingVisibleOutputs ? (
-              <div className="p-3 pb-0">
-                {inspirationPanel}
-              </div>
-            ) : null}
             <OutputGrid
               generations={generations}
               initialLoading={isInitialGenerationLoad}
               recentlyCompletedIds={recentlyCompletedIds}
-              emptyState={<EmptyState inspirationPanel={inspirationPanel} />}
-              filterEmptyState={<FilteredEmptyState inspirationPanel={inspirationPanel} />}
+              emptyState={<EmptyState inspirationPanel={emptyInspirationPanel} />}
+              filterEmptyState={<FilteredEmptyState inspirationPanel={emptyInspirationPanel} />}
               mediaFilter={mediaFilter}
               dateFilter={dateFilter}
               sortOrder={sortOrder}
@@ -1016,6 +1044,11 @@ export function CreateView({ initialProviderConfig = EMPTY_STUDIO_PROVIDER_CONFI
               }}
               onSaveToWorkspace={handleSaveSingleToWorkspace}
             />
+            {hasStudioActivity && footerInspirationPanel && !hasNoMatchingVisibleOutputs ? (
+              <div className="px-3 pb-3 pt-0">
+                {footerInspirationPanel}
+              </div>
+            ) : null}
           </div>
         </div>
       </div>

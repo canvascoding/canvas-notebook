@@ -3852,6 +3852,7 @@
         "subtitle": "Passe die Filter an oder starte mit einer Inspiration unten."
       },
       "startingPointsTitle": "Inspiration",
+      "startingPointsCount": "{count, plural, one {# Idee} other {# Ideen}}",
       "recreate": "Nachbilden",
       "recentGenerationsTitle": "Letzte Generierungen",
       "viewAll": "Alle ansehen"
