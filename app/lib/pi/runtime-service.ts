@@ -16,7 +16,7 @@ import {
 import { applyPiRuntimePromptContext } from '@/app/lib/pi/runtime-prompt-context';
 import { getStudioOutputsRoot } from '@/app/lib/integrations/studio-workspace';
 import { normalizeTimeZone } from '@/app/lib/time-zones';
-import { getUserPreferredTimeZone } from '@/app/lib/user-preferences';
+import { getServerPreferredTimeZone } from '@/app/lib/server-settings';
 import {
   ensurePiSessionWorkspaceSnapshot,
   requestedWorkspaceIdFromChatContext,
@@ -108,7 +108,7 @@ async function normalizeContext(
 ): Promise<ChatRequestContext> {
   let userTimeZone: string;
   try {
-    userTimeZone = await getUserPreferredTimeZone(userId);
+    userTimeZone = await getServerPreferredTimeZone();
   } catch (error) {
     console.warn('[RuntimeService] Failed to resolve user time zone preference:', getErrorMessage(error));
     userTimeZone = normalizeTimeZone(context?.userTimeZone);

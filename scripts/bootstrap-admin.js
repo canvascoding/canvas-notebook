@@ -429,6 +429,7 @@ function ensureScopedDirectories(organizationId, userId, includeTeamWorkspace) {
     path.join(dataRoot, 'system', 'backups'),
     path.join(dataRoot, 'system', 'migration'),
     path.join(dataRoot, 'system', 'logs'),
+    path.join(dataRoot, 'system', 'settings'),
   ];
   if (includeTeamWorkspace) {
     directories.push(path.join(dataRoot, 'workspaces', 'team', organizationId, 'files'));

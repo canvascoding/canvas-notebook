@@ -103,15 +103,26 @@ function getLicenseRegistrationActivationPath(fallback: string) {
 }
 
 async function saveOnboardingPreferences(locale: string, timeZone: string): Promise<void> {
-  const response = await fetch('/api/user-preferences', {
-    method: 'PATCH',
-    credentials: 'include',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ locale, timeZone }),
-  });
+  const [localeResponse, timeZoneResponse] = await Promise.all([
+    fetch('/api/user-preferences', {
+      method: 'PATCH',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ locale }),
+    }),
+    fetch('/api/server-settings', {
+      method: 'PATCH',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ timeZone }),
+    }),
+  ]);
 
-  if (!response.ok) {
-    throw new Error(`Failed to save onboarding preferences (${response.status}).`);
+  if (!localeResponse.ok) {
+    throw new Error(`Failed to save onboarding locale (${localeResponse.status}).`);
+  }
+  if (!timeZoneResponse.ok) {
+    throw new Error(`Failed to save onboarding time zone (${timeZoneResponse.status}).`);
   }
 }
 

@@ -6,7 +6,7 @@ import { isOnboardingHintsEnabled } from '@/app/lib/onboarding/status';
 import { isManagedControlPlaneAvailable } from '@/app/lib/agents/storage';
 import { isAdminUser } from '@/app/lib/admin-auth';
 import { readOrganizationPermissionForUser } from '@/app/lib/organization/permissions';
-import { getUserPreferredTimeZone } from '@/app/lib/user-preferences';
+import { getServerPreferredTimeZone } from '@/app/lib/server-settings';
 
 export default async function SettingsPage() {
   const session = await requirePageSession({ allowUnlicensed: true });
@@ -17,7 +17,7 @@ export default async function SettingsPage() {
   const userName = session?.user?.name || '';
   const userEmail = session?.user?.email || '';
   const isManagedControlPlane = isManagedControlPlaneAvailable();
-  const initialTimeZone = currentUserId ? await getUserPreferredTimeZone(currentUserId) : undefined;
+  const initialTimeZone = await getServerPreferredTimeZone();
   let organizationPermission = null;
   if (currentUserId) {
     try {

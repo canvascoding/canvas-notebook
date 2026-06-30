@@ -6,7 +6,7 @@ import { db } from '@/app/lib/db';
 import { automationJobs, automationRuns, automationWebhookEvents, automationWebhookTriggers, composioWebhookEvents, piSessions } from '@/app/lib/db/schema';
 import { DEFAULT_MANAGED_AGENT_ID } from '@/app/lib/agents/storage';
 import { validatePath } from '@/app/lib/filesystem/workspace-files';
-import { getUserPreferredTimeZone } from '@/app/lib/user-preferences';
+import { getServerPreferredTimeZone } from '@/app/lib/server-settings';
 
 import { getEffectiveAutomationTargetOutputPath } from './paths';
 import { computeNextRunAt, validateFriendlySchedule } from './schedule';
@@ -657,7 +657,7 @@ export async function createAutomationJob(input: CreateAutomationJobInput, user:
   const deliverySessionMode = normalizeDeliverySessionMode(input.deliverySessionMode);
   const workspaceContextPaths = normalizeWorkspaceContextPaths(input.workspaceContextPaths);
   const targetOutputPath = normalizeTargetOutputPath(input.targetOutputPath);
-  const preferredTimeZone = await getUserPreferredTimeZone(userId);
+  const preferredTimeZone = await getServerPreferredTimeZone();
   const { schedule, error } = validateFriendlySchedule(applyDefaultScheduleTimeZone(input.schedule, preferredTimeZone));
   if (!schedule || error) {
     throw new Error(error || 'Schedule is invalid.');
@@ -729,7 +729,7 @@ export async function createWebhookAutomationJob(input: CreateWebhookAutomationJ
   const composioUserId = normalizeString(input.composioUserId, 'Composio user ID', 500);
   const now = new Date();
   const id = `job-${randomUUID()}`;
-  const preferredTimeZone = await getUserPreferredTimeZone(userId);
+  const preferredTimeZone = await getServerPreferredTimeZone();
   const automationScope = await resolveAutomationScopeForCreate(input, policyUser);
   const jobScope = buildAutomationJobScope({ ...automationScope, createdByUserId: userId });
   const schedule: FriendlySchedule = {
@@ -804,7 +804,7 @@ export async function createCustomWebhookAutomationJob(
   const id = `job-${randomUUID()}`;
   const webhookId = generateAutomationWebhookId();
   const secret = generateAutomationWebhookSecret();
-  const preferredTimeZone = await getUserPreferredTimeZone(userId);
+  const preferredTimeZone = await getServerPreferredTimeZone();
   const automationScope = await resolveAutomationScopeForCreate(input, policyUser);
   const jobScope = buildAutomationJobScope({ ...automationScope, createdByUserId: userId });
   const schedule: FriendlySchedule = {
@@ -891,7 +891,7 @@ export async function updateAutomationJob(
 
   const currentSchedule = JSON.parse(existing.scheduleConfigJson) as FriendlySchedule;
   const scheduleCandidate = input.schedule ?? currentSchedule;
-  const defaultTimeZone = currentSchedule.timeZone || await getUserPreferredTimeZone(existing.createdByUserId);
+  const defaultTimeZone = currentSchedule.timeZone || await getServerPreferredTimeZone();
   const { schedule, error } = validateFriendlySchedule(applyDefaultScheduleTimeZone(scheduleCandidate, defaultTimeZone));
   if (!schedule || error) {
     throw new Error(error || 'Schedule is invalid.');
@@ -1615,7 +1615,7 @@ export async function upsertHeartbeatJob(data: {
   const existing = await getHeartbeatJob({ userId: data.userId, agentId });
 
   const status: AutomationJobStatus = data.enabled ? 'active' : 'paused';
-  const defaultTimeZone = existing?.timeZone || await getUserPreferredTimeZone(data.userId);
+  const defaultTimeZone = existing?.timeZone || await getServerPreferredTimeZone();
   const { schedule, error } = validateFriendlySchedule(applyDefaultScheduleTimeZone(data.schedule, defaultTimeZone));
   if (!schedule || error) {
     throw new Error(error || 'Schedule is invalid.');

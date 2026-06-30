@@ -2,7 +2,7 @@ import { redirect } from '@/i18n/navigation';
 import { getLocale } from 'next-intl/server';
 import { requirePageSession } from '@/app/lib/auth-guards';
 import { isOnboardingEnabled, isOnboardingComplete } from '@/app/lib/onboarding/status';
-import { getUserPreferredTimeZone } from '@/app/lib/user-preferences';
+import { getServerPreferredTimeZone } from '@/app/lib/server-settings';
 import OnboardingWizard from './onboarding-wizard';
 
 export const dynamic = 'force-dynamic';
@@ -30,7 +30,7 @@ export default async function OnboardingPage({ searchParams }: OnboardingPagePro
     redirect({ href: '/', locale });
   }
 
-  const initialTimeZone = await getUserPreferredTimeZone(session.user.id);
+  const initialTimeZone = await getServerPreferredTimeZone();
 
   return (
     <OnboardingWizard

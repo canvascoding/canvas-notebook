@@ -5,7 +5,7 @@ import {
   upsertHeartbeatJob,
 } from './store';
 import { DEFAULT_USER_TIME_ZONE } from '@/app/lib/time-zones';
-import { getUserPreferredTimeZone } from '@/app/lib/user-preferences';
+import { getServerPreferredTimeZone } from '@/app/lib/server-settings';
 import type {
   AutomationDeliveryMode,
   AutomationDeliverySessionMode,
@@ -108,7 +108,7 @@ export async function saveHeartbeatConfig(input: SaveHeartbeatConfigInput): Prom
     agentId: input.agentId,
   });
 
-  const preferredTimeZone = await getUserPreferredTimeZone(input.userId);
+  const preferredTimeZone = await getServerPreferredTimeZone();
   const schedule = input.schedule ?? existing?.schedule ?? getDefaultHeartbeatSchedule(preferredTimeZone);
   const enabled = input.enabled ?? (existing?.status === 'active');
   const deliveryMode = input.deliveryMode ?? existing?.deliveryMode ?? 'last_active';

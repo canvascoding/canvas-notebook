@@ -60,7 +60,7 @@ import {
   type AutomationWeekday,
   type FriendlySchedule,
 } from '../automations/types';
-import { getUserPreferredTimeZone } from '@/app/lib/user-preferences';
+import { getServerPreferredTimeZone } from '@/app/lib/server-settings';
 import {
   executeStudioGeneration,
   type StudioGenerateRequest,
@@ -3062,7 +3062,7 @@ function createUserScopedTools(userId?: string, agentId?: string | null, session
         try {
           const scopedUserId = requireToolUserId(userId, 'automation tools');
           const executionContext = getAgentExecutionContext();
-          const preferredTimeZone = await getUserPreferredTimeZone(scopedUserId);
+          const preferredTimeZone = await getServerPreferredTimeZone();
           const job = await createAutomationJob(
             {
               name: name.trim().slice(0, 120),
@@ -3145,7 +3145,7 @@ function createUserScopedTools(userId?: string, agentId?: string | null, session
           if (expectedUpdatedAt !== undefined && existingJob.updatedAt !== expectedUpdatedAt) {
             throw new Error('Automation changed since inspection. Inspect the automation again before updating.');
           }
-          const preferredTimeZone = await getUserPreferredTimeZone(scopedUserId);
+          const preferredTimeZone = await getServerPreferredTimeZone();
           const updatedJob = await updateAutomationJob(jobId, {
             name: normalizeOptionalString(name)?.slice(0, 120),
             prompt: normalizedPrompt,

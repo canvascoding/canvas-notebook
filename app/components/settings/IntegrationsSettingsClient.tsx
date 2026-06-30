@@ -3359,6 +3359,7 @@ export function IntegrationsSettingsClient({
             userName={userName}
             userEmail={userEmail}
             isManagedControlPlane={isManagedControlPlane}
+            isAdmin={isAdmin}
             initialTimeZone={initialTimeZone}
           />,
         )}

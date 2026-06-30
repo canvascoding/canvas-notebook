@@ -20,7 +20,7 @@ const LOGIN_ENV_KEYS = [
   { key: 'BOOTSTRAP_ADMIN_NAME', translationKey: 'general.loginInfo.nameKey' },
 ] as const;
 
-async function saveUserPreferences(payload: { locale?: string; timeZone?: string }): Promise<void> {
+async function saveUserPreferences(payload: { locale?: string }): Promise<void> {
   const response = await fetch('/api/user-preferences', {
     method: 'PATCH',
     credentials: 'include',
@@ -33,15 +33,30 @@ async function saveUserPreferences(payload: { locale?: string; timeZone?: string
   }
 }
 
+async function saveServerPreferredTimeZone(timeZone: string): Promise<void> {
+  const response = await fetch('/api/server-settings', {
+    method: 'PATCH',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ timeZone }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to save server time zone (${response.status}).`);
+  }
+}
+
 export function GeneralSettingsPanel({
   userName = '',
   userEmail = '',
   isManagedControlPlane = false,
+  isAdmin = false,
   initialTimeZone,
 }: {
   userName?: string;
   userEmail?: string;
   isManagedControlPlane?: boolean;
+  isAdmin?: boolean;
   initialTimeZone?: string;
 }) {
   const t = useTranslations('settings');
@@ -67,8 +82,8 @@ export function GeneralSettingsPanel({
     const normalizedTimeZone = normalizeTimeZone(nextTimeZone);
     setTimeZone(normalizedTimeZone);
     startTransition(() => {
-      void saveUserPreferences({ timeZone: normalizedTimeZone }).catch((error) => {
-        console.warn('[Settings] Failed to save preferred time zone:', error);
+      void saveServerPreferredTimeZone(normalizedTimeZone).catch((error) => {
+        console.warn('[Settings] Failed to save server time zone:', error);
         toast.error(t('general.timeZoneSaveFailed'));
       });
     });
@@ -188,7 +203,7 @@ export function GeneralSettingsPanel({
               className="h-10 rounded-md border border-input bg-background px-3 text-sm"
               value={timeZone}
               onChange={(event) => handleSelectTimeZone(event.target.value)}
-              disabled={isPending}
+              disabled={isPending || !isAdmin}
             >
               {timeZoneOptions.map((option) => (
                 <option key={option} value={option}>{option}</option>
@@ -196,6 +211,9 @@ export function GeneralSettingsPanel({
             </select>
           </label>
           <p className="text-xs text-muted-foreground">{t('general.timeZoneDefault')}</p>
+          {!isAdmin && (
+            <p className="text-xs text-muted-foreground">{t('general.timeZoneAdminOnly')}</p>
+          )}
         </CardContent>
       </Card>
     </div>

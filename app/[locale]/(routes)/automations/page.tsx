@@ -3,12 +3,12 @@ import { SuitePageLayout } from '@/app/components/SuitePageLayout';
 import { AutomationsClient } from '@/app/apps/automations/components/AutomationsClient';
 import { getTranslations } from 'next-intl/server';
 import { isOnboardingHintsEnabled } from '@/app/lib/onboarding/status';
-import { getUserPreferredTimeZone } from '@/app/lib/user-preferences';
+import { getServerPreferredTimeZone } from '@/app/lib/server-settings';
 
 export default async function AutomationenPage() {
   const t = await getTranslations('automationen');
-  const session = await requirePageSession();
-  const initialTimeZone = session?.user?.id ? await getUserPreferredTimeZone(session.user.id) : undefined;
+  await requirePageSession();
+  const initialTimeZone = await getServerPreferredTimeZone();
 
   return (
     <SuitePageLayout title={t('title')} hintEnabled={isOnboardingHintsEnabled()}>
