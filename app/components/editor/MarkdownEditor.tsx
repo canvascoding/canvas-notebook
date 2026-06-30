@@ -363,6 +363,11 @@ function TooltipIconButton({
           aria-label={label}
           title={label}
           disabled={disabled}
+          onPointerDown={(event) => {
+            if (event.pointerType === 'mouse') {
+              event.preventDefault();
+            }
+          }}
           onClick={onClick}
         >
           {children}
@@ -2799,13 +2804,26 @@ function MobileMarkdownToolbar({
   const canUseCommands = Boolean(editor?.isEditable);
   const toolbarState = useMarkdownToolbarState(editor);
 
+  const saveCurrentRange = useCallback(() => {
+    if (!editor) {
+      savedRangeRef.current = null;
+      return null;
+    }
+
+    const { from, to } = editor.state.selection;
+    const range = { from, to };
+    savedRangeRef.current = range;
+    return range;
+  }, [editor]);
+
   const holdToolbarVisibility = useCallback(() => {
+    saveCurrentRange();
     if (releaseInteractionTimeoutRef.current !== null) {
       window.clearTimeout(releaseInteractionTimeoutRef.current);
       releaseInteractionTimeoutRef.current = null;
     }
     setIsInteractingWithToolbar(true);
-  }, []);
+  }, [saveCurrentRange]);
 
   const releaseToolbarVisibility = useCallback(() => {
     if (releaseInteractionTimeoutRef.current !== null) {
@@ -2823,17 +2841,28 @@ function MobileMarkdownToolbar({
     }
   }, []);
 
-  const saveCurrentRange = useCallback(() => {
+  useEffect(() => {
     if (!editor) {
       savedRangeRef.current = null;
-      return null;
+      return undefined;
     }
 
-    const { from, to } = editor.state.selection;
-    const range = { from, to };
-    savedRangeRef.current = range;
-    return range;
-  }, [editor]);
+    const updateSavedRange = () => {
+      if (!editor.isEditable) return;
+      saveCurrentRange();
+    };
+
+    updateSavedRange();
+    editor.on('focus', updateSavedRange);
+    editor.on('selectionUpdate', updateSavedRange);
+    editor.on('transaction', updateSavedRange);
+
+    return () => {
+      editor.off('focus', updateSavedRange);
+      editor.off('selectionUpdate', updateSavedRange);
+      editor.off('transaction', updateSavedRange);
+    };
+  }, [editor, saveCurrentRange]);
 
   const restoreSavedRange = useCallback(() => {
     if (!editor) return null;
