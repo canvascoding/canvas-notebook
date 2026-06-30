@@ -340,6 +340,63 @@ function useVisualViewportBottomOffset() {
   }, []);
 }
 
+function useMobileKeyboardActive() {
+  const [isKeyboardActive, setIsKeyboardActive] = useState(false);
+  const largestViewportHeightRef = useRef(0);
+  const viewportWidthRef = useRef(0);
+
+  useEffect(() => {
+    const viewport = window.visualViewport;
+    const mediaQuery = window.matchMedia('(max-width: 767px), (hover: none) and (pointer: coarse)');
+
+    const updateKeyboardState = () => {
+      const viewportWidth = Math.round(viewport?.width ?? window.innerWidth);
+      const viewportHeight = Math.round(viewport?.height ?? window.innerHeight);
+      const widthChanged = viewportWidthRef.current > 0 && Math.abs(viewportWidth - viewportWidthRef.current) > 80;
+
+      if (viewportWidthRef.current === 0 || widthChanged) {
+        viewportWidthRef.current = viewportWidth;
+        largestViewportHeightRef.current = Math.max(viewportHeight, window.innerHeight);
+      } else {
+        largestViewportHeightRef.current = Math.max(
+          largestViewportHeightRef.current,
+          viewportHeight,
+          window.innerHeight,
+        );
+      }
+
+      const viewportHeightLoss = Math.max(0, largestViewportHeightRef.current - viewportHeight);
+      const bottomOffset = viewport
+        ? Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop)
+        : 0;
+      const keyboardOffset = Math.max(viewportHeightLoss, bottomOffset);
+
+      setIsKeyboardActive(mediaQuery.matches && keyboardOffset >= 80);
+    };
+
+    updateKeyboardState();
+    window.addEventListener('focusin', updateKeyboardState);
+    window.addEventListener('focusout', updateKeyboardState);
+    window.addEventListener('resize', updateKeyboardState);
+    window.addEventListener('orientationchange', updateKeyboardState);
+    viewport?.addEventListener('resize', updateKeyboardState);
+    viewport?.addEventListener('scroll', updateKeyboardState);
+    mediaQuery.addEventListener('change', updateKeyboardState);
+
+    return () => {
+      window.removeEventListener('focusin', updateKeyboardState);
+      window.removeEventListener('focusout', updateKeyboardState);
+      window.removeEventListener('resize', updateKeyboardState);
+      window.removeEventListener('orientationchange', updateKeyboardState);
+      viewport?.removeEventListener('resize', updateKeyboardState);
+      viewport?.removeEventListener('scroll', updateKeyboardState);
+      mediaQuery.removeEventListener('change', updateKeyboardState);
+    };
+  }, []);
+
+  return isKeyboardActive;
+}
+
 function TooltipIconButton({
   label,
   active = false,
@@ -726,8 +783,13 @@ const SlashCommandList = React.forwardRef<SlashCommandListHandle, SlashCommandLi
     }), [activeIndex, items.length, selectItem, selectNext, selectPrevious]);
 
     return (
-      <Command className="tiptap-slash-command rounded-md border border-border bg-popover text-popover-foreground shadow-lg" shouldFilter={false}>
-        <CommandList className="tiptap-slash-command-list max-h-72">
+      <Command
+        className="tiptap-slash-command rounded-md border border-border bg-popover text-popover-foreground shadow-lg"
+        shouldFilter={false}
+        onTouchMove={(event) => event.stopPropagation()}
+        onWheel={(event) => event.stopPropagation()}
+      >
+        <CommandList className="tiptap-slash-command-list">
           <CommandEmpty>{labels.empty}</CommandEmpty>
           <CommandGroup heading={labels.group}>
             {items.map((item, index) => (
@@ -818,6 +880,11 @@ function updateSlashCommandPosition(element: HTMLElement, props: SuggestionProps
   });
 }
 
+function getSlashCommandMountElement(editor: Editor) {
+  const overlayHost = editor.view.dom.closest('[data-slot="dialog-content"], [data-slot="sheet-content"]');
+  return overlayHost instanceof HTMLElement ? overlayHost : document.body;
+}
+
 function createSlashCommands(labels: SlashCommandLabels, actions?: SlashCommandActions) {
   return Extension.create({
     name: 'slashCommands',
@@ -871,7 +938,7 @@ function createSlashCommands(labels: SlashCommandLabels, actions?: SlashCommandA
                 });
 
                 component.element.classList.add('tiptap-slash-menu');
-                document.body.appendChild(component.element);
+                getSlashCommandMountElement(props.editor).appendChild(component.element);
                 updatePosition();
                 window.visualViewport?.addEventListener('resize', updatePosition);
                 window.visualViewport?.addEventListener('scroll', updatePosition);
@@ -2731,9 +2798,7 @@ const MOBILE_STYLE_COMMAND_IDS = new Set<SlashCommandItemId>([
 ]);
 
 function preserveEditorSelectionOnPointerDown(event: React.PointerEvent<HTMLElement>) {
-  if (event.pointerType === 'mouse') {
-    event.preventDefault();
-  }
+  event.preventDefault();
 }
 
 function MobileToolbarButton({
@@ -2775,6 +2840,7 @@ function MobileToolbarButton({
 function MobileMarkdownToolbar({
   actions,
   editor,
+  keyboardActive,
   labels,
   onImageDialogOpenChange,
   onOpenTableDialog,
@@ -2783,6 +2849,7 @@ function MobileMarkdownToolbar({
 }: {
   actions?: SlashCommandActions;
   editor: MarkdownEditorWithMarkdown | null;
+  keyboardActive: boolean;
   labels: SlashCommandLabels;
   onImageDialogOpenChange: (open: boolean, range?: Range) => void;
   onOpenTableDialog: (range?: Range | null) => void;
@@ -2840,6 +2907,15 @@ function MobileMarkdownToolbar({
       window.clearTimeout(releaseInteractionTimeoutRef.current);
     }
   }, []);
+
+  useEffect(() => {
+    if (keyboardActive) return;
+    const frame = window.requestAnimationFrame(() => {
+      setSheet(null);
+    });
+
+    return () => window.cancelAnimationFrame(frame);
+  }, [keyboardActive]);
 
   useEffect(() => {
     if (!editor) {
@@ -2922,13 +2998,14 @@ function MobileMarkdownToolbar({
     () => getLocalizedSlashCommandItems(labels).filter((item) => MOBILE_STYLE_COMMAND_IDS.has(item.id)),
     [labels],
   );
-  const sheetItems = sheet === 'styles' ? styleItems : blockItems;
-  const sheetTitle = sheet === 'styles' ? t('markdownEditorMobileTextStyle') : labels.addBlock;
-  const toolbarVisible = visible || isInteractingWithToolbar || sheet !== null || linkDialogOpen;
+  const activeSheet = keyboardActive ? sheet : null;
+  const sheetItems = activeSheet === 'styles' ? styleItems : blockItems;
+  const sheetTitle = activeSheet === 'styles' ? t('markdownEditorMobileTextStyle') : labels.addBlock;
+  const toolbarVisible = keyboardActive && (visible || isInteractingWithToolbar || activeSheet !== null || linkDialogOpen);
 
   return (
     <>
-      {sheet ? (
+      {activeSheet ? (
         <div
           className="tiptap-mobile-sheet"
           role="dialog"
@@ -2975,10 +3052,10 @@ function MobileMarkdownToolbar({
         onPointerUpCapture={releaseToolbarVisibility}
         onPointerCancelCapture={releaseToolbarVisibility}
       >
-        <MobileToolbarButton label={labels.addBlock} disabled={!canUseCommands} active={sheet === 'blocks'} onClick={() => openSheet('blocks')}>
+        <MobileToolbarButton label={labels.addBlock} disabled={!canUseCommands} active={activeSheet === 'blocks'} onClick={() => openSheet('blocks')}>
           <Plus className="h-5 w-5" />
         </MobileToolbarButton>
-        <MobileToolbarButton label={t('markdownEditorMobileTextStyle')} disabled={!canUseCommands} active={sheet === 'styles'} onClick={() => openSheet('styles')}>
+        <MobileToolbarButton label={t('markdownEditorMobileTextStyle')} disabled={!canUseCommands} active={activeSheet === 'styles'} onClick={() => openSheet('styles')}>
           <span className="text-base font-semibold leading-none">Aa</span>
         </MobileToolbarButton>
         <MobileToolbarButton label={labels.items.bold.title} active={toolbarState.isBold} disabled={!canUseCommands} onClick={() => runInlineCommand((currentEditor) => currentEditor.chain().focus().toggleBold().run())}>
@@ -3063,8 +3140,9 @@ function RichMarkdownEditor({
   readOnly,
   filePath,
   externalValueSync = 'always',
+  isMobileKeyboardActive,
   onSourceMode,
-}: MarkdownEditorProps & { onSourceMode: () => void }) {
+}: MarkdownEditorProps & { isMobileKeyboardActive: boolean; onSourceMode: () => void }) {
   const t = useTranslations('notebook');
   const latestValueRef = useRef(value);
   const acceptedExternalValueRef = useRef(value);
@@ -3142,12 +3220,7 @@ function RichMarkdownEditor({
     editor,
     selector: ({ editor: currentEditor }) => Boolean(currentEditor?.isFocused),
   }) ?? false;
-  const isMobileToolbarVisible = Boolean(
-    isRichEditorFocused ||
-    imageDialogOpen ||
-    tableDialogOpen ||
-    blockCommandMenu,
-  );
+  const isMobileToolbarVisible = Boolean(isRichEditorFocused && isMobileKeyboardActive);
 
   const insertTable = useCallback((options: TableInsertOptions) => {
     if (!editor) return;
@@ -3289,6 +3362,7 @@ function RichMarkdownEditor({
         <MobileMarkdownToolbar
           actions={slashCommandActions}
           editor={markdownEditor}
+          keyboardActive={isMobileKeyboardActive}
           labels={labels}
           onImageDialogOpenChange={openImageDialogFromToolbar}
           onOpenTableDialog={openTableDialogAtRange}
@@ -3332,13 +3406,14 @@ function SourceMarkdownEditor({
   onChange,
   readOnly,
   filePath,
+  isMobileKeyboardActive,
   onRichMode,
-}: MarkdownEditorProps & { initiallyShowMobileToolbar?: boolean; onRichMode: () => void }) {
+}: MarkdownEditorProps & { initiallyShowMobileToolbar?: boolean; isMobileKeyboardActive: boolean; onRichMode: () => void }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const releaseInteractionTimeoutRef = useRef<number | null>(null);
   const [isSourceFocused, setIsSourceFocused] = useState(initiallyShowMobileToolbar);
   const [isInteractingWithToolbar, setIsInteractingWithToolbar] = useState(false);
-  const mobileToolbarVisible = isSourceFocused || isInteractingWithToolbar;
+  const mobileToolbarVisible = isMobileKeyboardActive && (isSourceFocused || isInteractingWithToolbar);
 
   const holdToolbarVisibility = useCallback(() => {
     if (releaseInteractionTimeoutRef.current !== null) {
@@ -3413,6 +3488,7 @@ export function MarkdownEditor({
 }: MarkdownEditorProps) {
   useVisualViewportBottomOffset();
 
+  const isMobileKeyboardActive = useMobileKeyboardActive();
   const defaultMode = shouldDefaultToSource(value, readOnly, filePath) ? 'source' : 'rich';
   const [mode, setMode] = useState<EditorMode>(defaultMode);
   const [sourceModeRequested, setSourceModeRequested] = useState(false);
@@ -3435,6 +3511,7 @@ export function MarkdownEditor({
         onChange={onChange}
         readOnly={readOnly}
         filePath={filePath}
+        isMobileKeyboardActive={isMobileKeyboardActive}
         onRichMode={switchToRichMode}
       />
     );
@@ -3447,6 +3524,7 @@ export function MarkdownEditor({
       readOnly={readOnly}
       filePath={filePath}
       externalValueSync={externalValueSync}
+      isMobileKeyboardActive={isMobileKeyboardActive}
       onSourceMode={switchToSourceMode}
     />
   );

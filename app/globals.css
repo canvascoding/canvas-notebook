@@ -568,7 +568,9 @@ li.task-list-item > p {
 
 .tiptap-slash-menu {
   overflow: hidden;
-  z-index: 50;
+  pointer-events: auto;
+  touch-action: pan-y;
+  z-index: 90;
 }
 
 .tiptap-slash-command {
@@ -578,6 +580,7 @@ li.task-list-item > p {
 
 .tiptap-slash-command-list {
   max-height: inherit;
+  overflow-y: auto;
   overscroll-behavior: contain;
   touch-action: pan-y;
   -webkit-overflow-scrolling: touch;
@@ -630,6 +633,16 @@ li.task-list-item > p {
   transform: translateY(-1px);
 }
 
+.tiptap-desktop-editor-toolbar {
+  align-content: center;
+  flex-wrap: wrap;
+  height: auto;
+  min-height: 2.25rem;
+  overflow-x: visible;
+  overflow-y: visible;
+  row-gap: 0.25rem;
+}
+
 .tiptap-mobile-toolbar {
   align-items: center;
   backdrop-filter: blur(18px);
@@ -649,7 +662,7 @@ li.task-list-item > p {
   scrollbar-width: none;
   touch-action: pan-x;
   -webkit-overflow-scrolling: touch;
-  z-index: 45;
+  z-index: 90;
 }
 
 .tiptap-mobile-toolbar::-webkit-scrollbar {
@@ -672,7 +685,7 @@ li.task-list-item > p {
   right: 0;
   touch-action: pan-y;
   -webkit-overflow-scrolling: touch;
-  z-index: 44;
+  z-index: 89;
 }
 
 .tiptap-mobile-command-tile {
