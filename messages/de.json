@@ -519,6 +519,7 @@
     "generatingPdf": "PDF wird erzeugt...",
     "openAsPdf": "Als PDF öffnen",
     "downloadPdf": "PDF herunterladen",
+    "browserExportDisabled": "Browserbasierte Exporte sind in den Browser-Runtime-Einstellungen deaktiviert.",
     "pdfDownloadStarted": "PDF-Download gestartet",
     "failedToExportMarkdown": "Markdown-Export fehlgeschlagen: {statusText}",
     "failedToLoadPreview": "Vorschau konnte nicht geladen werden",
@@ -2410,6 +2411,10 @@
       "title": "Browser-Runtime",
       "description": "Verwalte Chromium als gemeinsame Runtime für Browsertool, UI-Prüfungen und browserbasierte Exporte.",
       "agentToolsLink": "Agent-Tools öffnen",
+      "settingsSaved": "Browser-Runtime-Einstellungen gespeichert.",
+      "adminOnlyHint": "Nur Admins können die zentrale Browser-Runtime ändern.",
+      "blockers": "Blocker",
+      "warnings": "Hinweise",
       "policyHint": "Diese Runtime ist ressourcenintensiv. Export- und Browser-Funktionen sollen künftig dieselbe Kapazitätsprüfung nutzen, damit Chromium auf kleinen Servern nicht unkontrolliert startet.",
       "enabled": "Aktiviert",
       "disabled": "Deaktiviert",
@@ -2418,9 +2423,25 @@
       "running": "Läuft",
       "stopped": "Gestoppt",
       "status": {
+        "runtime": "Runtime",
         "tool": "Browsertool",
+        "exports": "Exporte",
         "chromium": "Chromium",
         "session": "Session"
+      },
+      "fields": {
+        "runtimeEnabled": {
+          "label": "Browser-Runtime",
+          "description": "Schaltet Chromium zentral für Browsertool und browserbasierte Exporte frei oder sperrt es."
+        },
+        "allowAgentBrowserTool": {
+          "label": "Agent-Browsertool",
+          "description": "Erlaubt Agenten, das Browsertool zu aktivieren und Chromium für Web-Interaktion zu starten."
+        },
+        "allowBrowserBasedExports": {
+          "label": "Browser-Exporte",
+          "description": "Erlaubt Markdown-, HTML- und Marp-Exporte, die Chromium zum Rendern benötigen."
+        }
       },
       "agentScopeTitle": "Agent-Profil",
       "agentScopeDescription": "Browser-Sessions und persistente Cookies werden aktuell pro Benutzer und Agent verwaltet.",
@@ -2428,7 +2449,8 @@
       "loadingAgents": "Agenten werden geladen...",
       "selectedAgentHint": "Runtime-Status für {agentName}.",
       "errors": {
-        "loadAgents": "Agenten konnten nicht geladen werden."
+        "loadAgents": "Agenten konnten nicht geladen werden.",
+        "saveSettings": "Browser-Runtime-Einstellungen konnten nicht gespeichert werden."
       }
     },
     "agentPanel": {

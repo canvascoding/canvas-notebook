@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getFileStats } from '@/app/lib/filesystem/workspace-files';
+import {
+  assertBrowserExportAvailable,
+  isBrowserExportUnavailableError,
+} from '@/app/lib/pi/browser/settings-service';
 import { generatePdfFromUrl } from '@/app/lib/pdf/browser';
 import { toHtmlPreviewUrl } from '@/app/lib/utils/media-url';
 import path from 'path';
@@ -42,6 +46,7 @@ export async function POST(request: NextRequest) {
     }
 
     await getFileStats(filePath, fileOptions);
+    await assertBrowserExportAvailable();
 
     const origin = getInternalRenderOrigin(request.url);
     const fileName = path.basename(filePath, ext);
@@ -72,6 +77,10 @@ export async function POST(request: NextRequest) {
         { success: false, error: 'PDF generation timed out. Try again.' },
         { status: 504 }
       );
+    }
+
+    if (isBrowserExportUnavailableError(error)) {
+      return NextResponse.json({ success: false, error: error.message }, { status: 403 });
     }
 
     if (error && typeof error === 'object' && 'code' in error && (error as NodeJS.ErrnoException).code === 'ENOENT') {

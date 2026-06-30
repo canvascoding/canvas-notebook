@@ -25,6 +25,22 @@ export type AgentBrowserStatus = {
     attemptedPaths: string[];
     reason: string | null;
   };
+  capability: {
+    settings: {
+      runtimeEnabled: boolean;
+      allowAgentBrowserTool: boolean;
+      allowBrowserBasedExports: boolean;
+      updatedAt: string | null;
+      updatedByUserId: string | null;
+    };
+    availability: 'available' | 'disabled';
+    runtimeAvailable: boolean;
+    browserToolAvailable: boolean;
+    browserExportsAvailable: boolean;
+    blockers: string[];
+    warnings: string[];
+    checkedAt: string;
+  };
   profile: {
     scope: 'agent' | 'session' | 'user';
     profileKey: string;
@@ -113,6 +129,7 @@ export function AgentBrowserCard({
     <Badge key="status" variant={statusTone(status)}>{summary}</Badge>,
     ...(status?.profile.scope ? [t('scopeSummary', { scope: status.profile.scope })] : []),
   ];
+  const launchProbeDisabled = Boolean(pendingAction) || status?.capability.runtimeAvailable === false;
 
   return (
     <AgentSettingsAccordionCard
@@ -224,7 +241,7 @@ export function AgentBrowserCard({
               <RefreshCw className="mr-2 h-4 w-4" />
               {t('reload')}
             </Button>
-            <Button type="button" variant="outline" size="sm" onClick={onLaunchProbe} disabled={Boolean(pendingAction)}>
+            <Button type="button" variant="outline" size="sm" onClick={onLaunchProbe} disabled={launchProbeDisabled}>
               {pendingAction === 'launch_probe' && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               {t('launchProbe')}
             </Button>

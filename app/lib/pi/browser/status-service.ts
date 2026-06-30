@@ -4,7 +4,11 @@ import { normalizeManagedAgentId } from '@/app/lib/agents/registry';
 import { resolveAgentRuntimeSettings } from '@/app/lib/agents/effective-runtime-config';
 import { isBrowserToolEnabledConfig } from '@/app/lib/pi/enabled-tools';
 
-import { getBrowserRequirementStatus, type BrowserRequirementStatus } from './requirements';
+import type { BrowserRequirementStatus } from './requirements';
+import {
+  resolveBrowserRuntimeCapability,
+  type BrowserRuntimeCapability,
+} from './settings-service';
 import {
   getBrowserProfileDetails,
   type BrowserRuntimeContext,
@@ -16,6 +20,7 @@ export type BrowserRuntimeStatus = {
   toolEnabled: boolean;
   toolAvailable: boolean;
   requirements: BrowserRequirementStatus;
+  capability: BrowserRuntimeCapability;
   profile: BrowserProfileDetails;
 };
 
@@ -32,18 +37,20 @@ export async function buildBrowserRuntimeStatus(input: {
 }): Promise<BrowserRuntimeStatus> {
   const agentId = normalizeManagedAgentId(input.agentId);
   const context = makeBrowserRuntimeContext(input.userId, agentId);
-  const [effectiveConfig, requirements, profile] = await Promise.all([
+  const [effectiveConfig, capability, profile] = await Promise.all([
     resolveAgentRuntimeSettings(agentId),
-    Promise.resolve(getBrowserRequirementStatus({ cache: true })),
+    resolveBrowserRuntimeCapability(),
     getBrowserProfileDetails(context),
   ]);
+  const requirements = capability.requirements;
   const toolEnabled = isBrowserToolEnabledConfig(effectiveConfig.enabledTools);
 
   return {
     agentId,
     toolEnabled,
-    toolAvailable: toolEnabled && requirements.available,
+    toolAvailable: toolEnabled && capability.browserToolAvailable,
     requirements,
+    capability,
     profile,
   };
 }

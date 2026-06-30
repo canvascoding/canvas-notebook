@@ -24,6 +24,7 @@ import {
   resolvePiModel,
 } from '@/app/lib/pi/model-resolver';
 import { getActiveAiAgentEngine } from '@/app/lib/agents/runtime';
+import { assertBrowserToolCanBeEnabled } from '@/app/lib/pi/browser/settings-service';
 import type { PiRuntimeConfig, PiThinkingLevel } from '@/app/lib/pi/config';
 import type { EffectiveAgentRuntimeSettings } from '@/app/lib/agents/effective-runtime-config';
 
@@ -63,6 +64,24 @@ function normalizeThinkingLevel(value: unknown): PiThinkingLevel | null {
     return null;
   }
   return THINKING_LEVELS.has(normalized as PiThinkingLevel) ? normalized as PiThinkingLevel : null;
+}
+
+function normalizeStringArray(value: unknown): string[] | null {
+  if (!Array.isArray(value)) return null;
+  return value.filter((entry): entry is string => typeof entry === 'string');
+}
+
+function getActiveProviderEnabledTools(config: unknown): string[] | null {
+  if (!config || typeof config !== 'object' || Array.isArray(config)) return null;
+  const record = config as { activeProvider?: unknown; providers?: unknown };
+  const activeProvider = normalizeOptionalString(record.activeProvider);
+  if (!activeProvider || !record.providers || typeof record.providers !== 'object' || Array.isArray(record.providers)) {
+    return null;
+  }
+
+  const providerConfig = (record.providers as Record<string, unknown>)[activeProvider];
+  if (!providerConfig || typeof providerConfig !== 'object' || Array.isArray(providerConfig)) return null;
+  return normalizeStringArray((providerConfig as { enabledTools?: unknown }).enabledTools);
 }
 
 function getProviderCustomModel(piConfig: PiRuntimeConfig, provider: string): string | undefined {
@@ -397,6 +416,12 @@ export async function PUT(request: NextRequest) {
         data: await buildAgentConfigResponseData(effective),
       });
     }
+
+    const currentConfig = await readPiRuntimeConfig();
+    await assertBrowserToolCanBeEnabled({
+      previousEnabledTools: getActiveProviderEnabledTools(currentConfig),
+      nextEnabledTools: getActiveProviderEnabledTools(piConfigInput),
+    });
 
     const piConfig = await writePiRuntimeConfig(piConfigInput);
     const effective = await resolveAgentRuntimeSettings(agentId);

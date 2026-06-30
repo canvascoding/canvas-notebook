@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState, startTransition } from 'react';
 import Link from 'next/link';
-import { Bot, Globe, Loader2, RefreshCw, Settings2 } from 'lucide-react';
+import { AlertTriangle, Bot, Globe, Loader2, RefreshCw, Settings2 } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 
 import { AgentAvatar } from '@/app/components/agents/AgentAvatar';
@@ -12,6 +12,7 @@ import { DEFAULT_AGENT_ID } from '@/app/lib/channels/constants';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Switch } from '@/components/ui/switch';
 
 type AgentsResponse = {
   agents: AgentProfileItem[];
@@ -40,7 +41,11 @@ function buildAgentQuery(agentId: string): string {
   return new URLSearchParams({ agentId }).toString();
 }
 
-export function BrowserSettingsPanel() {
+type BrowserSettingsPanelProps = {
+  isAdmin?: boolean;
+};
+
+export function BrowserSettingsPanel({ isAdmin = false }: BrowserSettingsPanelProps) {
   const t = useTranslations('settings.browserSettings');
   const browserT = useTranslations('settings.agentPanel.browser');
   const selectorT = useTranslations('settings.agentPanel.selector');
@@ -51,6 +56,7 @@ export function BrowserSettingsPanel() {
   const [browserStatus, setBrowserStatus] = useState<AgentBrowserStatus | null>(null);
   const [browserLoading, setBrowserLoading] = useState(true);
   const [browserPendingAction, setBrowserPendingAction] = useState<string | null>(null);
+  const [settingsSaving, setSettingsSaving] = useState(false);
   const [browserError, setBrowserError] = useState<string | null>(null);
   const [browserSuccess, setBrowserSuccess] = useState<string | null>(null);
   const [runtimeCardOpen, setRuntimeCardOpen] = useState(true);
@@ -135,6 +141,32 @@ export function BrowserSettingsPanel() {
     await runBrowserRuntimeAction('delete_profile', browserT('profileDeleted'));
   };
 
+  const updateRuntimeSettings = async (settings: Partial<AgentBrowserStatus['capability']['settings']>) => {
+    if (!isAdmin) return;
+    setSettingsSaving(true);
+    setBrowserError(null);
+    setBrowserSuccess(null);
+
+    try {
+      const payload = await fetchJson<AgentBrowserStatus>('/api/agents/browser', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ agentId: selectedAgentId, settings }),
+      });
+      setBrowserStatus(payload);
+      setBrowserSuccess(t('settingsSaved'));
+      setTimeout(() => setBrowserSuccess(null), 3000);
+    } catch (error) {
+      setBrowserError(error instanceof Error ? error.message : t('errors.saveSettings'));
+    } finally {
+      setSettingsSaving(false);
+    }
+  };
+
+  const capability = browserStatus?.capability;
+  const runtimeSettings = capability?.settings;
+  const hasCapabilityIssues = Boolean(capability && (capability.blockers.length > 0 || capability.warnings.length > 0));
+
   return (
     <div className="space-y-4">
       <Card>
@@ -158,21 +190,62 @@ export function BrowserSettingsPanel() {
         <CardContent className="space-y-3 px-4 pb-4 sm:px-6 sm:pb-6">
           <div className="grid gap-3 md:grid-cols-3">
             <StatusTile
+              label={t('status.runtime')}
+              value={capability?.runtimeAvailable ? t('available') : t('disabled')}
+              tone={capability?.runtimeAvailable ? 'default' : 'destructive'}
+            />
+            <StatusTile
               label={t('status.tool')}
-              value={browserStatus?.toolEnabled ? t('enabled') : t('disabled')}
-              tone={browserStatus?.toolEnabled ? 'default' : 'secondary'}
+              value={capability?.browserToolAvailable ? t('available') : t('disabled')}
+              tone={capability?.browserToolAvailable ? 'default' : 'secondary'}
             />
             <StatusTile
-              label={t('status.chromium')}
-              value={browserStatus?.requirements.available ? t('available') : t('unavailable')}
-              tone={browserStatus?.requirements.available ? 'default' : 'destructive'}
-            />
-            <StatusTile
-              label={t('status.session')}
-              value={browserStatus?.profile.running ? t('running') : t('stopped')}
-              tone={browserStatus?.profile.running ? 'default' : 'secondary'}
+              label={t('status.exports')}
+              value={capability?.browserExportsAvailable ? t('available') : t('disabled')}
+              tone={capability?.browserExportsAvailable ? 'default' : 'secondary'}
             />
           </div>
+          <div className="grid gap-3 md:grid-cols-3">
+            <ToggleSetting
+              label={t('fields.runtimeEnabled.label')}
+              description={t('fields.runtimeEnabled.description')}
+              checked={runtimeSettings?.runtimeEnabled === true}
+              disabled={!isAdmin || settingsSaving || !runtimeSettings}
+              onCheckedChange={(checked) => void updateRuntimeSettings({ runtimeEnabled: checked })}
+            />
+            <ToggleSetting
+              label={t('fields.allowAgentBrowserTool.label')}
+              description={t('fields.allowAgentBrowserTool.description')}
+              checked={runtimeSettings?.allowAgentBrowserTool === true}
+              disabled={!isAdmin || settingsSaving || !runtimeSettings || runtimeSettings.runtimeEnabled !== true}
+              onCheckedChange={(checked) => void updateRuntimeSettings({ allowAgentBrowserTool: checked })}
+            />
+            <ToggleSetting
+              label={t('fields.allowBrowserBasedExports.label')}
+              description={t('fields.allowBrowserBasedExports.description')}
+              checked={runtimeSettings?.allowBrowserBasedExports === true}
+              disabled={!isAdmin || settingsSaving || !runtimeSettings || runtimeSettings.runtimeEnabled !== true}
+              onCheckedChange={(checked) => void updateRuntimeSettings({ allowBrowserBasedExports: checked })}
+            />
+          </div>
+          {!isAdmin && (
+            <p className="text-sm text-muted-foreground">{t('adminOnlyHint')}</p>
+          )}
+          {hasCapabilityIssues && capability ? (
+            <div className="rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-900 dark:text-amber-200">
+              <div className="flex items-start gap-2">
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                <div className="space-y-1">
+                  {capability.blockers.length > 0 && (
+                    <p>{t('blockers')}: {capability.blockers.join(', ')}</p>
+                  )}
+                  {capability.warnings.length > 0 && (
+                    <p>{t('warnings')}: {capability.warnings.join(', ')}</p>
+                  )}
+                </div>
+              </div>
+            </div>
+          ) : null}
           <p className="text-sm text-muted-foreground">{t('policyHint')}</p>
         </CardContent>
       </Card>
@@ -254,6 +327,35 @@ export function BrowserSettingsPanel() {
         onCloseSession={() => void runBrowserRuntimeAction('close_session', browserT('sessionClosed'))}
         onDeleteProfile={() => void deleteBrowserProfileForAgent()}
         onLaunchProbe={() => void runBrowserRuntimeAction('launch_probe', browserT('launchProbeOk'))}
+      />
+    </div>
+  );
+}
+
+function ToggleSetting({
+  label,
+  description,
+  checked,
+  disabled,
+  onCheckedChange,
+}: {
+  label: string;
+  description: string;
+  checked: boolean;
+  disabled: boolean;
+  onCheckedChange: (checked: boolean) => void;
+}) {
+  return (
+    <div className="flex min-w-0 items-start justify-between gap-3 rounded-md border border-border p-3">
+      <div className="min-w-0 space-y-1">
+        <div className="text-sm font-medium">{label}</div>
+        <p className="text-xs leading-relaxed text-muted-foreground">{description}</p>
+      </div>
+      <Switch
+        checked={checked}
+        disabled={disabled}
+        onCheckedChange={onCheckedChange}
+        className="shrink-0"
       />
     </div>
   );

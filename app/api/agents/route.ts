@@ -5,6 +5,7 @@ import { auth } from '@/app/lib/auth';
 import {
   createAgentProfile,
   deleteAgentProfile,
+  getAgentProfile,
   listAgentProfiles,
   updateAgentProfile,
 } from '@/app/lib/agents/registry';
@@ -16,6 +17,7 @@ import {
   type AgentManagedFileName,
 } from '@/app/lib/agents/storage';
 import type { PiThinkingLevel } from '@/app/lib/pi/config';
+import { assertBrowserToolCanBeEnabled } from '@/app/lib/pi/browser/settings-service';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 
 const THINKING_LEVELS = new Set<PiThinkingLevel>(['off', 'minimal', 'low', 'medium', 'high', 'xhigh']);
@@ -105,6 +107,8 @@ export async function POST(request: NextRequest) {
 
   try {
     const payload = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+    const enabledTools = stringArrayValue(payload.enabledTools);
+    await assertBrowserToolCanBeEnabled({ nextEnabledTools: enabledTools });
     const agent = await createAgentProfile({
       name: stringValue(payload.name) || '',
       agentId: stringValue(payload.agentId) || null,
@@ -112,7 +116,7 @@ export async function POST(request: NextRequest) {
       defaultProvider: stringValue(payload.defaultProvider) || null,
       defaultModel: stringValue(payload.defaultModel) || null,
       defaultThinking: thinkingValue(payload.defaultThinking),
-      enabledTools: stringArrayValue(payload.enabledTools),
+      enabledTools,
       relevantSkills: stringArrayValue(payload.relevantSkills),
       relevantConnections: stringArrayValue(payload.relevantConnections),
     });
@@ -166,6 +170,14 @@ export async function PATCH(request: NextRequest) {
     if (!agentId) {
       throw new Error('agentId is required.');
     }
+    const nextEnabledTools = Object.hasOwn(payload, 'enabledTools') ? stringArrayValue(payload.enabledTools) : undefined;
+    if (nextEnabledTools !== undefined) {
+      const existingAgent = await getAgentProfile(agentId);
+      await assertBrowserToolCanBeEnabled({
+        previousEnabledTools: existingAgent?.enabledTools ?? null,
+        nextEnabledTools,
+      });
+    }
     const agent = await updateAgentProfile({
       agentId,
       name: stringValue(payload.name),
@@ -173,7 +185,7 @@ export async function PATCH(request: NextRequest) {
       defaultProvider: Object.hasOwn(payload, 'defaultProvider') ? nullableStringValue(payload.defaultProvider) : undefined,
       defaultModel: Object.hasOwn(payload, 'defaultModel') ? nullableStringValue(payload.defaultModel) : undefined,
       defaultThinking: Object.hasOwn(payload, 'defaultThinking') ? thinkingValue(payload.defaultThinking) : undefined,
-      enabledTools: Object.hasOwn(payload, 'enabledTools') ? stringArrayValue(payload.enabledTools) : undefined,
+      enabledTools: nextEnabledTools,
       relevantSkills: Object.hasOwn(payload, 'relevantSkills') ? stringArrayValue(payload.relevantSkills) : undefined,
       relevantConnections: Object.hasOwn(payload, 'relevantConnections') ? stringArrayValue(payload.relevantConnections) : undefined,
     });

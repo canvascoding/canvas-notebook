@@ -520,6 +520,7 @@
     "generatingPdf": "Generating PDF...",
     "openAsPdf": "Open as PDF",
     "downloadPdf": "Download PDF",
+    "browserExportDisabled": "Browser-based exports are disabled in the browser runtime settings.",
     "pdfDownloadStarted": "PDF download started",
     "failedToExportMarkdown": "Failed to export markdown: {statusText}",
     "failedToLoadPreview": "Failed to load preview",
@@ -2411,6 +2412,10 @@
       "title": "Browser Runtime",
       "description": "Manage Chromium as the shared runtime for the browser tool, UI checks, and browser-based exports.",
       "agentToolsLink": "Open agent tools",
+      "settingsSaved": "Browser runtime settings saved.",
+      "adminOnlyHint": "Only admins can change the central browser runtime.",
+      "blockers": "Blockers",
+      "warnings": "Warnings",
       "policyHint": "This runtime is resource-intensive. Export and browser features should use the same capacity check so Chromium cannot start uncontrolled on small servers.",
       "enabled": "Enabled",
       "disabled": "Disabled",
@@ -2419,9 +2424,25 @@
       "running": "Running",
       "stopped": "Stopped",
       "status": {
+        "runtime": "Runtime",
         "tool": "Browser tool",
+        "exports": "Exports",
         "chromium": "Chromium",
         "session": "Session"
+      },
+      "fields": {
+        "runtimeEnabled": {
+          "label": "Browser runtime",
+          "description": "Centrally allows or blocks Chromium for the browser tool and browser-based exports."
+        },
+        "allowAgentBrowserTool": {
+          "label": "Agent browser tool",
+          "description": "Allows agents to enable the browser tool and start Chromium for web interaction."
+        },
+        "allowBrowserBasedExports": {
+          "label": "Browser exports",
+          "description": "Allows Markdown, HTML, and Marp exports that need Chromium for rendering."
+        }
       },
       "agentScopeTitle": "Agent profile",
       "agentScopeDescription": "Browser sessions and persistent cookies are currently managed per user and agent.",
@@ -2429,7 +2450,8 @@
       "loadingAgents": "Loading agents...",
       "selectedAgentHint": "Runtime status for {agentName}.",
       "errors": {
-        "loadAgents": "Failed to load agents."
+        "loadAgents": "Failed to load agents.",
+        "saveSettings": "Failed to save browser runtime settings."
       }
     },
     "agentPanel": {

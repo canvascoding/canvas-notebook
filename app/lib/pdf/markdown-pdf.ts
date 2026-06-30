@@ -6,6 +6,7 @@ import {
   isMarkdownEmailAttachmentName,
   markdownEmailAttachmentPdfName,
 } from '@/app/lib/email/attachment-types';
+import { assertBrowserExportAvailable } from '@/app/lib/pi/browser/settings-service';
 import { generatePdfFromHtml } from '@/app/lib/pdf/browser';
 import { getCachedMarkdownHtmlDocument } from '@/app/lib/pdf/markdown-export-cache';
 import type { WorkspaceFileOperationOptions } from '@/app/lib/filesystem/workspace-files';
@@ -27,6 +28,7 @@ export async function renderMarkdownWorkspaceFileToPdf(
   fileOptions?: WorkspaceFileOperationOptions
 ): Promise<Buffer> {
   assertMarkdownPdfExportPath(filePath);
+  await assertBrowserExportAvailable();
 
   const html = await getCachedMarkdownHtmlDocument(filePath, fileOptions);
   return Promise.race([

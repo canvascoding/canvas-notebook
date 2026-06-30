@@ -27,6 +27,12 @@ interface ShareMarkdownDialogProps {
   markdownPdfUrl?: string;
 }
 
+type BrowserStatusPayload = {
+  capability?: {
+    browserExportsAvailable?: boolean;
+  };
+};
+
 function getPdfDownloadName(filePath: string) {
   const rawBaseName = filePath.split(/[\\/]/).filter(Boolean).pop() || 'document';
   let decodedBaseName = rawBaseName;
@@ -55,6 +61,8 @@ export function ShareMarkdownDialog({
   const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
   const [loading, setLoading] = useState(false);
   const [pdfLoading, setPdfLoading] = useState(false);
+  const [browserStatusLoading, setBrowserStatusLoading] = useState(false);
+  const [browserExportsAvailable, setBrowserExportsAvailable] = useState<boolean | null>(null);
   const [htmlContent, setHtmlContent] = useState<string>('');
   const [error, setError] = useState<string>('');
   const [htmlPreviewAllowed, setHtmlPreviewAllowed] = useState(false);
@@ -117,19 +125,50 @@ export function ShareMarkdownDialog({
     }
   }, [filePath, internalHeaders, internalUrl, kind, markdownExportUrl, t]);
 
+  const loadBrowserExportAvailability = useCallback(async () => {
+    if (markdownPdfUrl) {
+      setBrowserExportsAvailable(null);
+      return;
+    }
+
+    setBrowserStatusLoading(true);
+    try {
+      const response = await fetch('/api/agents/browser', {
+        credentials: 'include',
+        cache: 'no-store',
+      });
+      const payload = (await response.json().catch(() => ({}))) as {
+        success?: boolean;
+        data?: BrowserStatusPayload;
+      };
+      if (!response.ok || !payload.success) {
+        setBrowserExportsAvailable(null);
+        return;
+      }
+      setBrowserExportsAvailable(payload.data?.capability?.browserExportsAvailable ?? null);
+    } catch {
+      setBrowserExportsAvailable(null);
+    } finally {
+      setBrowserStatusLoading(false);
+    }
+  }, [markdownPdfUrl]);
+
   useEffect(() => {
     if (open && filePath) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       loadHtmlExport();
+      void loadBrowserExportAvailability();
       setHtmlPreviewAllowed(kind !== 'html');
       setHtmlPreviewDeclined(false);
     } else {
       setHtmlContent('');
       setError('');
+      setBrowserExportsAvailable(null);
+      setBrowserStatusLoading(false);
       setHtmlPreviewAllowed(false);
       setHtmlPreviewDeclined(false);
     }
-  }, [open, filePath, kind, loadHtmlExport]);
+  }, [open, filePath, kind, loadBrowserExportAvailability, loadHtmlExport]);
 
   const handleDownloadPDF = async () => {
     setPdfLoading(true);
@@ -172,6 +211,7 @@ export function ShareMarkdownDialog({
   };
 
   const hasPreview = kind === 'html' || !!htmlContent;
+  const showPdfDownload = browserExportsAvailable !== false;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -271,19 +311,23 @@ export function ShareMarkdownDialog({
               <span>{t('close')}</span>
             </Button>
 
-            <Button
-              onClick={handleDownloadPDF}
-              disabled={loading || pdfLoading || !!error || !hasPreview}
-              size="sm"
-              className="w-full sm:w-auto"
-            >
-              {pdfLoading ? (
-                <Loader2 className="h-4 w-4 mr-1 md:mr-2 animate-spin" />
-              ) : (
-                <Download className="h-4 w-4 mr-1 md:mr-2" />
-              )}
-              <span>{pdfLoading ? t('generatingPdf') : t('downloadPdf')}</span>
-            </Button>
+            {showPdfDownload ? (
+              <Button
+                onClick={handleDownloadPDF}
+                disabled={loading || browserStatusLoading || pdfLoading || !!error || !hasPreview}
+                size="sm"
+                className="w-full sm:w-auto"
+              >
+                {pdfLoading ? (
+                  <Loader2 className="h-4 w-4 mr-1 md:mr-2 animate-spin" />
+                ) : (
+                  <Download className="h-4 w-4 mr-1 md:mr-2" />
+                )}
+                <span>{pdfLoading ? t('generatingPdf') : t('downloadPdf')}</span>
+              </Button>
+            ) : (
+              <p className="max-w-xs text-xs text-muted-foreground">{t('browserExportDisabled')}</p>
+            )}
           </div>
         </div>
       </DialogContent>

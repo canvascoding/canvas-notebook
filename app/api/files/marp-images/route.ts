@@ -4,6 +4,10 @@ import os from 'node:os';
 import path from 'node:path';
 import JSZip from 'jszip';
 import { getFileStats, readFile } from '@/app/lib/filesystem/workspace-files';
+import {
+  assertBrowserExportAvailable,
+  isBrowserExportUnavailableError,
+} from '@/app/lib/pi/browser/settings-service';
 import { findChromiumExecutable } from '@/app/lib/pdf/browser';
 import { isMarpMarkdown } from '@/app/lib/marp/detect';
 import { getMarpExportBaseName, runMarpCli, writeMarpCliInput } from '@/app/lib/marp/cli';
@@ -56,6 +60,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: 'File is not a Marp slide deck' }, { status: 400 });
     }
 
+    await assertBrowserExportAvailable();
+
     tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'canvas-marp-images-'));
     const inputPath = await writeMarpCliInput({
       tempDir,
@@ -107,6 +113,10 @@ export async function POST(request: NextRequest) {
 
     if (error instanceof Error && error.message === 'MARP_EXPORT_TIMEOUT') {
       return NextResponse.json({ success: false, error: 'Marp image export timed out. Try again.' }, { status: 504 });
+    }
+
+    if (isBrowserExportUnavailableError(error)) {
+      return NextResponse.json({ success: false, error: error.message }, { status: 403 });
     }
 
     if (error && typeof error === 'object' && 'code' in error && (error as NodeJS.ErrnoException).code === 'ENOENT') {

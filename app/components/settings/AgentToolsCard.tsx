@@ -217,6 +217,9 @@ export function AgentToolsEditor({
                   const isOpen = openToolRows[tool.name] ?? false;
                   const displayTool = localizeToolMetadata(tool, locale);
                   const displayGroup = localizeToolGroup(tool.group, locale);
+                  const toolEnabled = isToolEnabled(tool.name);
+                  const toolUnavailable = tool.availability?.available === false;
+                  const switchDisabled = toolsSaving || (toolUnavailable && !toolEnabled);
                   return (
                     <Collapsible
                       key={tool.name}
@@ -236,9 +239,9 @@ export function AgentToolsEditor({
                           </div>
                         </CollapsibleTrigger>
                         <Switch
-                          checked={isToolEnabled(tool.name)}
+                          checked={toolEnabled}
                           onCheckedChange={(checked) => onToolToggle(tool.name, checked)}
-                          disabled={toolsSaving}
+                          disabled={switchDisabled}
                           aria-label={displayTool.label || tool.name}
                         />
                       </div>

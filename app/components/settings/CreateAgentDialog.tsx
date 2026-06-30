@@ -461,7 +461,10 @@ export function CreateAgentDialog({
 
   const handleEnableAllTools = useCallback(() => {
     const allNames = availableTools.map((tool) => tool.name);
-    saveCreateToolsConfig(serializeEnabledToolNames(allNames, allNames));
+    const enabledNames = availableTools
+      .filter((tool) => tool.availability?.available !== false)
+      .map((tool) => tool.name);
+    saveCreateToolsConfig(serializeEnabledToolNames(enabledNames, allNames));
   }, [availableTools, saveCreateToolsConfig]);
 
   const handleDisableAllTools = useCallback(() => {

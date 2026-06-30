@@ -3414,7 +3414,7 @@ export function IntegrationsSettingsClient({
 
         {renderLazyTabContent('agent-settings', <AgentSettingsPanel />)}
 
-        {renderLazyTabContent('browser', <BrowserSettingsPanel />)}
+        {renderLazyTabContent('browser', <BrowserSettingsPanel isAdmin={isAdmin} />)}
 
         {renderLazyTabContent('workspace', (
           <WorkspaceSettingsPanel

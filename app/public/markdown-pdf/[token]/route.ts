@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+import {
+  assertBrowserExportAvailable,
+  isBrowserExportUnavailableError,
+} from '@/app/lib/pi/browser/settings-service';
 import { generatePdfFromHtml } from '@/app/lib/pdf/browser';
 import {
   getMarkdownPdfDownloadName,
@@ -18,6 +22,8 @@ export async function POST(
     if (!result.ok) {
       return NextResponse.json({ success: false, error: result.error }, { status: result.status });
     }
+
+    await assertBrowserExportAvailable();
 
     const pdfBuffer = await Promise.race([
       generatePdfFromHtml(result.html),
@@ -44,6 +50,10 @@ export async function POST(
         { success: false, error: 'PDF generation timed out. Try again.' },
         { status: 504 }
       );
+    }
+
+    if (isBrowserExportUnavailableError(error)) {
+      return NextResponse.json({ success: false, error: error.message }, { status: 403 });
     }
 
     if (error && typeof error === 'object' && 'code' in error && (error as NodeJS.ErrnoException).code === 'ENOENT') {

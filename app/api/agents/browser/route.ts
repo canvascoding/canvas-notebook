@@ -1,8 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { auth } from '@/app/lib/auth';
+import { isAdminUser } from '@/app/lib/admin-auth';
 import { normalizeManagedAgentId } from '@/app/lib/agents/registry';
 import { runBrowserLaunchProbe } from '@/app/lib/pi/browser/requirements';
+import {
+  assertBrowserRuntimeAvailable,
+  updateBrowserRuntimeSettings,
+} from '@/app/lib/pi/browser/settings-service';
 import {
   closeBrowserRuntime,
   deleteBrowserProfile,
@@ -15,6 +20,15 @@ import { rateLimit } from '@/app/lib/utils/rate-limit';
 
 type BrowserActionPayload = {
   action?: 'close_session' | 'delete_profile' | 'launch_probe';
+  agentId?: string;
+};
+
+type BrowserSettingsPatchPayload = {
+  settings?: {
+    runtimeEnabled?: unknown;
+    allowAgentBrowserTool?: unknown;
+    allowBrowserBasedExports?: unknown;
+  };
   agentId?: string;
 };
 
@@ -94,6 +108,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (payload.action === 'launch_probe') {
+      await assertBrowserRuntimeAvailable();
       const probe = await runBrowserLaunchProbe();
       return NextResponse.json({
         success: true,
@@ -107,6 +122,59 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: false, error: 'Invalid action.' }, { status: 400 });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to update browser runtime.';
+    return NextResponse.json({ success: false, error: message }, { status: 500 });
+  }
+}
+
+export async function PATCH(request: NextRequest) {
+  const { session, response } = await requireSession(request);
+  if (response || !session) {
+    return response;
+  }
+
+  if (!isAdminUser(session.user)) {
+    return NextResponse.json({ success: false, error: 'Only admins can update browser runtime settings.' }, { status: 403 });
+  }
+
+  const limited = rateLimit(request, {
+    limit: 20,
+    windowMs: 60_000,
+    keyPrefix: 'agents-browser-patch',
+  });
+  if (!limited.ok) {
+    return limited.response;
+  }
+
+  try {
+    const payload = (await request.json().catch(() => ({}))) as BrowserSettingsPatchPayload;
+    const source = payload.settings && typeof payload.settings === 'object' && !Array.isArray(payload.settings)
+      ? payload.settings
+      : {};
+    const updates: Record<string, boolean> = {};
+    for (const key of ['runtimeEnabled', 'allowAgentBrowserTool', 'allowBrowserBasedExports'] as const) {
+      if (typeof source[key] === 'boolean') {
+        updates[key] = source[key];
+      }
+    }
+
+    if (Object.keys(updates).length === 0) {
+      return NextResponse.json({ success: false, error: 'No recognized browser runtime settings provided.' }, { status: 400 });
+    }
+
+    await updateBrowserRuntimeSettings({
+      actorUserId: session.user.id,
+      updates,
+    });
+
+    return NextResponse.json({
+      success: true,
+      data: await buildBrowserRuntimeStatus({
+        userId: session.user.id,
+        agentId: payload.agentId,
+      }),
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to update browser runtime settings.';
     return NextResponse.json({ success: false, error: message }, { status: 500 });
   }
 }

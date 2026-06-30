@@ -1035,7 +1035,10 @@ export function AgentSettingsPanel() {
 
   const handleEnableAll = () => {
     const allNames = availableTools.map((t) => t.name);
-    void saveToolsConfig(serializeEnabledToolNames(allNames, allNames));
+    const enabledNames = availableTools
+      .filter((tool) => tool.availability?.available !== false)
+      .map((tool) => tool.name);
+    void saveToolsConfig(serializeEnabledToolNames(enabledNames, allNames));
   };
 
   const handleDisableAll = () => {

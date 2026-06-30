@@ -106,7 +106,7 @@ import {
   ONBOARDING_PROFILE_TOOL_NAME,
 } from '@/app/lib/onboarding/profile';
 import { createBrowserGatewayTool } from '@/app/lib/pi/browser/tool';
-import { getBrowserRequirementStatus } from '@/app/lib/pi/browser/requirements';
+import { resolveBrowserRuntimeCapability } from '@/app/lib/pi/browser/settings-service';
 import { formatWebSearchResults, searchWeb } from '@/app/lib/integrations/brave-search-service';
 import { clearFileTreeCache } from '@/app/lib/utils/file-tree-cache';
 import {
@@ -3395,8 +3395,8 @@ export async function getPiToolMetadata(): Promise<PiToolMetadata[]> {
   const allTools = await buildPiToolRegistryAsync();
   const allToolNames = allTools.map((tool) => tool.name);
   const defaultEnabledSet = getDefaultEnabledToolNames(allToolNames);
-  const browserRequirements = allToolNames.includes('browser')
-    ? getBrowserRequirementStatus({ cache: true })
+  const browserCapability = allToolNames.includes('browser')
+    ? await resolveBrowserRuntimeCapability()
     : null;
 
   return allTools.map((tool) => {
@@ -3411,13 +3411,15 @@ export async function getPiToolMetadata(): Promise<PiToolMetadata[]> {
       planningModeAllowed: PLANNING_MODE_ALLOWED_TOOLS.has(tool.name),
       defaultEnabled: defaultEnabledSet.has(tool.name),
       notes: getToolNotes(tool, group),
-      availability: tool.name === 'browser' && browserRequirements
+      availability: tool.name === 'browser' && browserCapability
         ? {
-            available: browserRequirements.available,
-            reason: browserRequirements.reason,
-            executablePath: browserRequirements.executablePath,
-            executableSource: browserRequirements.executableSource,
-            checkedAt: browserRequirements.checkedAt,
+            available: browserCapability.browserToolAvailable,
+            reason: browserCapability.browserToolAvailable
+              ? null
+              : [...browserCapability.blockers, ...browserCapability.warnings].join(', ') || browserCapability.requirements.reason,
+            executablePath: browserCapability.requirements.executablePath,
+            executableSource: browserCapability.requirements.executableSource,
+            checkedAt: browserCapability.checkedAt,
           }
         : undefined,
     };
@@ -3445,9 +3447,9 @@ export async function getPiTools(userId?: string, agentId?: string | null, sessi
     }
 
     if (allTools.some((tool) => tool.name === 'browser')) {
-      const browserRequirements = getBrowserRequirementStatus({ cache: true });
-      if (!browserRequirements.available) {
-        console.warn('[ToolRegistry] Browser tool enabled but unavailable:', browserRequirements.reason);
+      const browserCapability = await resolveBrowserRuntimeCapability();
+      if (!browserCapability.browserToolAvailable) {
+        console.warn('[ToolRegistry] Browser tool enabled but unavailable:', [...browserCapability.blockers, ...browserCapability.warnings].join(', '));
         allTools = allTools.filter((tool) => tool.name !== 'browser');
       }
     }

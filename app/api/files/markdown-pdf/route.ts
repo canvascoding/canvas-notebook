@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { assertMarkdownPdfExportPath, getMarkdownPdfAttachmentName, renderMarkdownWorkspaceFileToPdf } from '@/app/lib/pdf/markdown-pdf';
+import { isBrowserExportUnavailableError } from '@/app/lib/pi/browser/settings-service';
 import { requireRequestWorkspace, workspaceFileOptions } from '@/app/lib/workspaces/request';
 
 export async function POST(request: NextRequest) {
@@ -46,6 +47,10 @@ export async function POST(request: NextRequest) {
         { success: false, error: 'PDF generation timed out. Try again.' },
         { status: 504 }
       );
+    }
+
+    if (isBrowserExportUnavailableError(error)) {
+      return NextResponse.json({ success: false, error: error.message }, { status: 403 });
     }
 
     if (error && typeof error === 'object' && 'code' in error && (error as NodeJS.ErrnoException).code === 'ENOENT') {
