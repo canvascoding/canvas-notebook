@@ -1,15 +1,67 @@
 import { NextResponse } from 'next/server';
-import { promises as fs } from 'fs';
-import path from 'path';
 import { requireOrganizationPermission } from '@/app/lib/organization/permissions';
-import { getSkillsDir, parseFrontmatter, validateFrontmatter } from '@/app/lib/skills/canvas-skill-manifest';
-import { enableSkillInConfig } from '@/app/lib/skills/enabled-skills';
-import { adoptLegacyStandaloneSkillsForScope } from '@/app/lib/skills/legacy-skill-adoption';
-import { getSkillNames } from '@/app/lib/skills/skill-loader';
-import { readEnabledSkillsForScope, writeEnabledSkillsForScope } from '@/app/lib/skills/skill-settings';
+import {
+  importSkillPackage,
+  SkillPackageImportError,
+  type SkillPackageImportSource,
+} from '@/app/lib/skills/skill-package-import';
 
-function sanitizeSkillName(name: string): string {
-  return name.replace(/[^a-z0-9-]/g, '');
+function isFileLike(value: FormDataEntryValue | null): value is File {
+  return Boolean(value && typeof value === 'object' && 'arrayBuffer' in value && 'name' in value);
+}
+
+async function fileToBuffer(file: File): Promise<Buffer> {
+  return Buffer.from(await file.arrayBuffer());
+}
+
+function parseFolderPaths(value: FormDataEntryValue | null): string[] {
+  if (typeof value !== 'string') {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return Array.isArray(parsed) ? parsed.map((entry) => String(entry)) : [];
+  } catch {
+    return [];
+  }
+}
+
+async function readMultipartSkillSource(request: Request): Promise<SkillPackageImportSource> {
+  const formData = await request.formData();
+  const mode = typeof formData.get('mode') === 'string' ? String(formData.get('mode')) : 'archive';
+
+  if (mode === 'folder') {
+    const files = formData.getAll('files').filter(isFileLike);
+    const paths = parseFolderPaths(formData.get('paths'));
+
+    if (files.length === 0) {
+      throw new SkillPackageImportError('No folder files were provided.');
+    }
+    if (paths.length !== files.length) {
+      throw new SkillPackageImportError('Folder upload paths did not match uploaded files.');
+    }
+
+    return {
+      kind: 'folder',
+      sourceName: typeof formData.get('sourceName') === 'string' ? String(formData.get('sourceName')) : undefined,
+      files: await Promise.all(files.map(async (file, index) => ({
+        relativePath: paths[index] || file.name,
+        bytes: await fileToBuffer(file),
+      }))),
+    };
+  }
+
+  const file = formData.get('file');
+  if (!isFileLike(file)) {
+    throw new SkillPackageImportError('A ZIP or .skill archive file is required.');
+  }
+
+  return {
+    kind: 'archive',
+    sourceName: file.name,
+    bytes: await fileToBuffer(file),
+  };
 }
 
 export async function POST(request: Request) {
@@ -20,105 +72,45 @@ export async function POST(request: Request) {
 
   try {
     const scope = { userId: skillPermission.session.user.id };
-    const body = await request.json();
-    const { content, name: providedName } = body;
+    const contentType = request.headers.get('content-type') || '';
+    let source: SkillPackageImportSource;
 
-    if (typeof content !== 'string' || content.trim().length === 0) {
-      return NextResponse.json(
-        { success: false, error: 'SKILL.md content is required' },
-        { status: 400 }
-      );
+    if (contentType.includes('multipart/form-data')) {
+      source = await readMultipartSkillSource(request);
+    } else {
+      const body = await request.json();
+      const { content } = body;
+
+      if (typeof content !== 'string' || content.trim().length === 0) {
+        return NextResponse.json(
+          { success: false, error: 'SKILL.md content is required' },
+          { status: 400 },
+        );
+      }
+
+      source = {
+        kind: 'text',
+        content,
+        sourceName: 'manual-upload:SKILL.md',
+      };
     }
 
-    const { frontmatter, body: _skillBody } = parseFrontmatter(content);
-
-    if (!frontmatter) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: 'No valid YAML frontmatter found. SKILL.md must start with --- delimiters.',
-          validation: { valid: false, errors: ['No valid YAML frontmatter found'], warnings: [] },
-        },
-        { status: 400 }
-      );
-    }
-
-    const validation = validateFrontmatter(frontmatter);
-
-    if (!validation.valid) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: 'Skill validation failed',
-          validation,
-        },
-        { status: 400 }
-      );
-    }
-
-    const skillName = sanitizeSkillName(providedName || frontmatter.name);
-
-    if (!skillName) {
-      return NextResponse.json(
-        { success: false, error: 'Invalid skill name. Must be lowercase letters, numbers, and hyphens.' },
-        { status: 400 }
-      );
-    }
-
-    if (skillName.length > 64) {
-      return NextResponse.json(
-        { success: false, error: 'Skill name too long. Maximum is 64 characters.' },
-        { status: 400 }
-      );
-    }
-
-    await adoptLegacyStandaloneSkillsForScope(scope);
-    const skillsDir = getSkillsDir(scope);
-    const skillDir = path.join(skillsDir, skillName);
-    const resolvedSkillDir = path.resolve(skillDir);
-    const resolvedSkillsDir = path.resolve(skillsDir);
-    if (!resolvedSkillDir.startsWith(`${resolvedSkillsDir}${path.sep}`)) {
-      return NextResponse.json(
-        { success: false, error: 'Invalid skill name: path traversal detected' },
-        { status: 400 }
-      );
-    }
-
-    const skillMdPath = path.join(skillDir, 'SKILL.md');
-
-    const existingContent = await fs.readFile(skillMdPath, 'utf-8').catch(() => null);
-    if (existingContent) {
-      return NextResponse.json(
-        { success: false, error: `Skill "${skillName}" already exists. Use the skill editor to modify it.` },
-        { status: 409 }
-      );
-    }
-
-    await fs.mkdir(skillDir, { recursive: true });
-    await fs.writeFile(skillMdPath, content, 'utf-8');
-
-    try {
-      const enabledSkills = await readEnabledSkillsForScope(scope);
-      const allSkillNames = await getSkillNames(scope);
-      const nextEnabledSkills = enableSkillInConfig(skillName, enabledSkills, allSkillNames);
-      await writeEnabledSkillsForScope(nextEnabledSkills, {
-        scope,
-        updatedBy: skillPermission.session.user.email || skillPermission.session.user.id,
-      });
-    } catch (cfgError) {
-      console.warn('[Skills Upload API] Could not auto-enable skill:', skillName, cfgError);
-    }
-
-    console.log(`[Skills Upload API] Created skill: ${skillDir}`);
-
-    return NextResponse.json({
-      success: true,
-      name: skillName,
-      path: skillMdPath,
-      validation,
+    const result = await importSkillPackage(source, {
+      scope,
+      updatedBy: skillPermission.session.user.email || skillPermission.session.user.id,
     });
+
+    console.log(`[Skills Upload API] Created skill: ${result.path}`);
+    return NextResponse.json(result);
   } catch (error) {
     console.error('[Skills Upload API] Error:', error);
+    if (error instanceof SkillPackageImportError) {
+      return NextResponse.json(
+        { success: false, error: error.message, validation: error.validation },
+        { status: error.statusCode },
+      );
+    }
+
     return NextResponse.json(
       { success: false, error: 'Failed to upload skill' },
       { status: 500 }

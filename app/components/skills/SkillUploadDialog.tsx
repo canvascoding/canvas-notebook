@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useRef } from 'react';
 import { useTranslations } from 'next-intl';
-import { Upload, X, CheckCircle2, AlertCircle, FileText, Info } from 'lucide-react';
+import { Upload, X, CheckCircle2, AlertCircle, FileText, Info, Archive, FolderOpen } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import type { ValidationResult } from '@/app/lib/skills/canvas-skill-manifest';
 
@@ -16,16 +16,21 @@ export function SkillUploadDialog({ open, onOpenChange, onUploaded }: SkillUploa
   const t = useTranslations('skills.upload');
   const [content, setContent] = useState('');
   const [fileName, setFileName] = useState('');
+  const [packageFile, setPackageFile] = useState<File | null>(null);
+  const [folderFiles, setFolderFiles] = useState<File[]>([]);
   const [isDragging, setIsDragging] = useState(false);
   const [validationResult, setValidationResult] = useState<ValidationResult | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadError, setUploadError] = useState('');
   const [uploadSuccess, setUploadSuccess] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const folderInputRef = useRef<HTMLInputElement | null>(null);
 
   const reset = useCallback(() => {
     setContent('');
     setFileName('');
+    setPackageFile(null);
+    setFolderFiles([]);
     setValidationResult(null);
     setIsUploading(false);
     setUploadError('');
@@ -37,21 +42,64 @@ export function SkillUploadDialog({ open, onOpenChange, onUploaded }: SkillUploa
     onOpenChange(false);
   }, [reset, onOpenChange]);
 
-  const handleFile = useCallback((file: File) => {
-    setFileName(file.name);
+  const setFolderInputNode = useCallback((node: HTMLInputElement | null) => {
+    folderInputRef.current = node;
+    if (node) {
+      node.setAttribute('webkitdirectory', '');
+      node.setAttribute('directory', '');
+    }
+  }, []);
+
+  const clearUploadState = useCallback(() => {
     setUploadError('');
     setUploadSuccess('');
     setValidationResult(null);
+  }, []);
+
+  const isArchiveFile = useCallback((file: File) => {
+    const lowerName = file.name.toLowerCase();
+    return lowerName.endsWith('.zip') || lowerName.endsWith('.skill');
+  }, []);
+
+  const getRelativePath = useCallback((file: File) => {
+    return (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name;
+  }, []);
+
+  const getFolderName = useCallback((files: File[]) => {
+    const firstPath = files[0] ? getRelativePath(files[0]) : '';
+    return firstPath.split('/').filter(Boolean)[0] || t('selectedFolder');
+  }, [getRelativePath, t]);
+
+  const handleFile = useCallback((file: File) => {
+    setFileName(file.name);
+    clearUploadState();
+    setFolderFiles([]);
+
+    if (isArchiveFile(file)) {
+      setContent('');
+      setPackageFile(file);
+      return;
+    }
+
+    setPackageFile(null);
     const reader = new FileReader();
     reader.onload = (e) => {
       const text = e.target?.result as string;
       setContent(text);
     };
     reader.readAsText(file);
-  }, []);
+  }, [clearUploadState, isArchiveFile]);
+
+  const handleFolderFiles = useCallback((files: File[]) => {
+    if (files.length === 0) return;
+    clearUploadState();
+    setContent('');
+    setPackageFile(null);
+    setFolderFiles(files);
+    setFileName(t('folderSummary', { name: getFolderName(files), count: files.length }));
+  }, [clearUploadState, getFolderName, t]);
 
   const handleDrop = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
     e.preventDefault();
     setIsDragging(false);
     const file = e.dataTransfer.files[0];
@@ -75,7 +123,14 @@ export function SkillUploadDialog({ open, onOpenChange, onUploaded }: SkillUploa
     if (file) {
       handleFile(file);
     }
+    e.target.value = '';
   }, [handleFile]);
+
+  const handleFolderInput = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    handleFolderFiles(files);
+    e.target.value = '';
+  }, [handleFolderFiles]);
 
   const _validate = useCallback(async () => {
     if (!content.trim()) return;
@@ -97,15 +152,38 @@ export function SkillUploadDialog({ open, onOpenChange, onUploaded }: SkillUploa
   }, [content]);
 
   const upload = useCallback(async () => {
-    if (!content.trim()) return;
+    if (!content.trim() && !packageFile && folderFiles.length === 0) return;
     setIsUploading(true);
     setUploadError('');
     try {
-      const res = await fetch('/api/skills/upload', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content }),
-      });
+      let res: Response;
+      if (packageFile) {
+        const formData = new FormData();
+        formData.set('mode', 'archive');
+        formData.set('file', packageFile, packageFile.name);
+        res = await fetch('/api/skills/upload', {
+          method: 'POST',
+          body: formData,
+        });
+      } else if (folderFiles.length > 0) {
+        const formData = new FormData();
+        formData.set('mode', 'folder');
+        formData.set('sourceName', getFolderName(folderFiles));
+        formData.set('paths', JSON.stringify(folderFiles.map(getRelativePath)));
+        folderFiles.forEach((file) => {
+          formData.append('files', file, file.name);
+        });
+        res = await fetch('/api/skills/upload', {
+          method: 'POST',
+          body: formData,
+        });
+      } else {
+        res = await fetch('/api/skills/upload', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ content }),
+        });
+      }
       const data = await res.json();
       if (data.success) {
         setUploadSuccess(t('success', { name: data.name }));
@@ -121,7 +199,9 @@ export function SkillUploadDialog({ open, onOpenChange, onUploaded }: SkillUploa
     } finally {
       setIsUploading(false);
     }
-  }, [content, t, onUploaded]);
+  }, [content, folderFiles, getFolderName, getRelativePath, onUploaded, packageFile, t]);
+
+  const canUpload = Boolean(content.trim() || packageFile || folderFiles.length > 0);
 
   if (!open) return null;
 
@@ -159,6 +239,24 @@ export function SkillUploadDialog({ open, onOpenChange, onUploaded }: SkillUploa
               onChange={handleFileInput}
               className="hidden"
             />
+            <input
+              ref={setFolderInputNode}
+              type="file"
+              multiple
+              onChange={handleFolderInput}
+              className="hidden"
+            />
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            <Button type="button" variant="outline" size="sm" onClick={() => fileInputRef.current?.click()}>
+              <Archive className="mr-2 h-4 w-4" />
+              {t('chooseArchive')}
+            </Button>
+            <Button type="button" variant="outline" size="sm" onClick={() => folderInputRef.current?.click()}>
+              <FolderOpen className="mr-2 h-4 w-4" />
+              {t('chooseFolder')}
+            </Button>
           </div>
 
           <div className="rounded-md bg-muted/50 border border-border p-3 space-y-1.5">
@@ -194,6 +292,9 @@ export function SkillUploadDialog({ open, onOpenChange, onUploaded }: SkillUploa
               value={content}
               onChange={(e) => {
                 setContent(e.target.value);
+                setPackageFile(null);
+                setFolderFiles([]);
+                setFileName('');
                 setValidationResult(null);
                 setUploadError('');
                 setUploadSuccess('');
@@ -243,7 +344,7 @@ export function SkillUploadDialog({ open, onOpenChange, onUploaded }: SkillUploa
             </Button>
             <Button
               onClick={upload}
-              disabled={!content.trim() || isUploading}
+              disabled={!canUpload || isUploading}
             >
               {isUploading ? t('uploading') : t('button')}
             </Button>
