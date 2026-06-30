@@ -11,6 +11,32 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.6.30.2] - 2026-06-30
+
+### Added
+
+- Added unified plugin and MCP connector setup UI in Integrations settings.
+- Added skill package imports (`.canvas-skill` / archive upload) in the Skills panel.
+
+### Changed
+
+- Made time zone a server-wide admin-only setting.
+- Reorganized Docker compose files: moved `compose.yaml` to `dev/`, added `compose.ghcr.yaml`, and moved `compose.hub.yaml` to `install/`.
+- Simplified `.env.docker.example` for personal single-user setup.
+
+### Fixed
+
+- Fixed chat websocket initialization timeout.
+- Fixed dev `compose.yaml` relative paths and the `--progress` flag.
+- Hardened mobile markdown overlays and preserved markdown toolbar selection.
+- Aligned markdown task checkboxes.
+
+### Verification
+
+- `npm run build`
+- GitHub Actions `Build and Push` on `main` before tagging.
+- GitHub Actions `Build and Push` on tag `v2026.6.30.2`.
+
 ## [2026.6.30.1] - 2026-06-30
 
 ### Added
