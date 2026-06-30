@@ -559,7 +559,7 @@ async function main() {
 
   // ── Step 4: Stop existing container ───────────────────────────────────────
   step(4, 'Stopping existing container (if any)...');
-  exec('docker compose down --remove-orphans', { ignoreError: true, env: composeConfig.env });
+  exec(`docker compose ${composeArgs} down --remove-orphans`, { ignoreError: true, env: composeConfig.env });
   removeLingeringComposeContainers();
   ok('Done');
 
