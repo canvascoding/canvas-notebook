@@ -1,10 +1,12 @@
 services:
   canvas-notebook:
-    build: .
+    build:
+      context: ..
+      dockerfile: Dockerfile
     ports:
       - "3456:3000"
     env_file:
-      - .env.docker.local
+      - ../.env.docker.local
     depends_on:
       postgres:
         condition: service_healthy
@@ -18,7 +20,7 @@ services:
       LOG_LEVEL: "info"
 
     volumes:
-      - ./data:/data
+      - ../data:/data
     restart: unless-stopped
 
   postgres:

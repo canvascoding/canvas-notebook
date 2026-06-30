@@ -332,7 +332,7 @@ function buildWithProgress(composeEnv) {
       }
     }, 100);
 
-    const composeBuildArgs = ['-f', composeFile, 'build', '--no-cache', '--progress=plain'];
+    const composeBuildArgs = ['--progress', 'plain', '-f', composeFile, 'build', '--no-cache'];
     const proc = spawn('docker', ['compose', ...composeBuildArgs], {
       cwd: rootDir,
       env: composeEnv,

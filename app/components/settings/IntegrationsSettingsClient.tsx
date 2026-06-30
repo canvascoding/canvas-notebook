@@ -7,6 +7,17 @@ import { useTranslations } from 'next-intl';
 import { ChevronDown, Copy, ExternalLink, Eye, EyeOff, Loader2, Mail, Menu, Plus, RefreshCw, Save, Search, Settings, Star, Trash2 } from 'lucide-react';
 
 import { GeneralSettingsPanel } from '@/app/components/settings/GeneralSettingsPanel';
+import {
+  McpServerDialog,
+  collectMcpEnvEntries,
+  createBlankMcpServerDraft,
+  deleteMcpConfigRawServer,
+  parseMcpConfigFile,
+  toMcpServerDraft,
+  updateMcpConfigRawServer,
+  type McpConfigFile,
+  type McpServerDraft,
+} from '@/app/components/settings/McpServerDialog';
 import { SettingsAccordionCard } from '@/app/components/settings/SettingsAccordionCard';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
