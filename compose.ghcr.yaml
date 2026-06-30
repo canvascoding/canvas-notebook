@@ -1,0 +1,41 @@
+# Canvas Notebook — pre-built image from GitHub Container Registry.
+# Use this file to run the app without building from source.
+#
+# Quick start:
+#   cp .env.docker.example .env.docker.local
+#   # edit .env.docker.local and fill in the REQUIRED section
+#   docker compose -f compose.ghcr.yaml up -d
+#
+# The app will be available at http://localhost:3456.
+
+services:
+  canvas-notebook:
+    image: ${CANVAS_IMAGE:-ghcr.io/canvascoding/canvas-notebook:latest}
+    ports:
+      - "${HOST_PORT:-3456}:3000"
+    env_file:
+      - .env.docker.local
+    volumes:
+      - ./data:/data
+    restart: unless-stopped
+
+  postgres:
+    profiles:
+      - postgres
+    image: ${CANVAS_POSTGRES_IMAGE:-pgvector/pgvector:0.8.3-pg18}
+    environment:
+      POSTGRES_DB: ${CANVAS_POSTGRES_DB:-canvas_notebook}
+      POSTGRES_USER: ${CANVAS_POSTGRES_USER:-canvas}
+      POSTGRES_PASSWORD: ${CANVAS_POSTGRES_PASSWORD:-change-me}
+    volumes:
+      - canvas-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  canvas-postgres-data:
+    name: ${CANVAS_POSTGRES_DATA_VOLUME:-canvas-postgres-data}

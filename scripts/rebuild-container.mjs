@@ -5,7 +5,7 @@
  *
  * 1. Stops and removes the existing container via docker compose
  * 2. Builds a fresh image (no cache)
- * 3. Starts the container via docker compose (all volumes from compose.yaml)
+ * 3. Starts the container via docker compose (all volumes from dev/compose.yaml)
  * 4. Waits for the app to be ready, then opens a browser window
  *
  * Usage: npm run container:rebuild
@@ -18,6 +18,8 @@ import { fileURLToPath } from 'url';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const rootDir = join(__dirname, '..');
+const composeFile = join(rootDir, 'dev', 'compose.yaml');
+const composeArgs = `-f "${composeFile}"`;
 
 const PORT = 3456;
 const APP_URL = `http://localhost:${PORT}`;
@@ -154,7 +156,7 @@ async function main() {
 
   // Step 4: Stop existing container
   log('Step 4: Stopping existing container...', 'yellow');
-  exec('docker compose down', { ignoreError: true });
+  exec(`docker compose ${composeArgs} down`, { ignoreError: true });
   log('✓ Done', 'green');
   console.log();
 
@@ -164,7 +166,7 @@ async function main() {
   console.log();
 
   try {
-    exec('docker compose build --no-cache');
+    exec(`docker compose ${composeArgs} build --no-cache`);
     log('✓ Image built successfully', 'green');
   } catch {
     log('✗ Build failed', 'red');
@@ -175,7 +177,7 @@ async function main() {
   // Step 6: Start container
   log('Step 6: Starting container...', 'yellow');
   try {
-    exec('docker compose up -d');
+    exec(`docker compose ${composeArgs} up -d`);
     log('✓ Container started', 'green');
   } catch {
     log('✗ Failed to start container', 'red');
@@ -191,7 +193,7 @@ async function main() {
   // Step 8: Show status
   try {
     const status = execSync(
-      'docker compose ps',
+      `docker compose ${composeArgs} ps`,
       { encoding: 'utf-8', cwd: rootDir }
     ).toString();
     log('Container status:', 'blue');
@@ -207,9 +209,9 @@ async function main() {
   log('========================================', 'green');
   console.log();
   log('Useful commands:', 'blue');
-  log('  docker compose logs -f canvas-notebook   # follow logs', 'cyan');
+  log(`  docker compose ${composeArgs} logs -f canvas-notebook   # follow logs`, 'cyan');
   log('  docker exec -it canvas-notebook sh       # shell inside container', 'cyan');
-  log('  docker compose down                      # stop', 'cyan');
+  log(`  docker compose ${composeArgs} down                      # stop`, 'cyan');
   console.log();
 
   // Step 9: Open browser

@@ -17,6 +17,8 @@ import { fileURLToPath } from 'url';
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const rootDir = join(__dirname, '..');
 const composeProjectName = basename(rootDir);
+const composeFile = join(rootDir, 'dev', 'compose.yaml');
+const composeArgs = `-f "${composeFile}"`;
 
 const PORT = 3456;
 const APP_URL = `http://localhost:${PORT}`;
@@ -330,7 +332,8 @@ function buildWithProgress(composeEnv) {
       }
     }, 100);
 
-    const proc = spawn('docker', ['compose', 'build', '--no-cache', '--progress=plain'], {
+    const composeBuildArgs = ['-f', composeFile, 'build', '--no-cache', '--progress=plain'];
+    const proc = spawn('docker', ['compose', ...composeBuildArgs], {
       cwd: rootDir,
       env: composeEnv,
     });
@@ -573,15 +576,15 @@ async function main() {
   // ── Step 6: Start container ────────────────────────────────────────────────
   step(6, 'Starting container...');
   try {
-    exec('docker compose up -d --force-recreate', { env: composeConfig.env });
+    exec(`docker compose ${composeArgs} up -d --force-recreate`, { env: composeConfig.env });
     ok('Container started');
   } catch {
     warn('Container start hit a conflict. Retrying once after explicit cleanup...');
-    exec('docker compose down --remove-orphans', { ignoreError: true, env: composeConfig.env });
+    exec(`docker compose ${composeArgs} down --remove-orphans`, { ignoreError: true, env: composeConfig.env });
     removeLingeringComposeContainers();
 
     try {
-      exec('docker compose up -d --force-recreate', { env: composeConfig.env });
+      exec(`docker compose ${composeArgs} up -d --force-recreate`, { env: composeConfig.env });
       ok('Container started');
     } catch {
       fail('Failed to start container. Check the output above for errors.');
@@ -597,7 +600,7 @@ async function main() {
 
   // ── Step 8: Summary ────────────────────────────────────────────────────────
   try {
-    const status = execSync('docker compose ps', { encoding: 'utf-8', cwd: rootDir, env: composeConfig.env });
+    const status = execSync(`docker compose ${composeArgs} ps`, { encoding: 'utf-8', cwd: rootDir, env: composeConfig.env });
     log('Container status:', 'blue');
     console.log(status.toString().trimEnd());
     console.log();
@@ -612,9 +615,9 @@ async function main() {
   info('After login, an optional onboarding wizard can guide you through provider setup.');
   console.log();
   log('Useful commands:', 'blue');
-  info('  docker compose logs -f canvas-notebook   # follow logs');
+  info(`  docker compose ${composeArgs} logs -f canvas-notebook   # follow logs`);
   info('  docker exec -it canvas-notebook sh       # open a shell in the container');
-  info('  docker compose down                      # stop the container');
+  info(`  docker compose ${composeArgs} down                      # stop the container`);
   info('  npm run setup                            # rebuild and restart');
   console.log();
 
