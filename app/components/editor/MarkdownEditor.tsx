@@ -311,6 +311,35 @@ function useMarkdownToolbarState(editor: MarkdownEditorWithMarkdown | null) {
   }) ?? EMPTY_TOOLBAR_STATE;
 }
 
+function useVisualViewportBottomOffset() {
+  useEffect(() => {
+    const viewport = window.visualViewport;
+
+    const updateViewportOffset = () => {
+      const bottomOffset = viewport
+        ? Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop)
+        : 0;
+
+      document.documentElement.style.setProperty(
+        '--canvas-visual-viewport-bottom-offset',
+        `${Math.round(bottomOffset)}px`,
+      );
+    };
+
+    updateViewportOffset();
+    window.addEventListener('resize', updateViewportOffset);
+    viewport?.addEventListener('resize', updateViewportOffset);
+    viewport?.addEventListener('scroll', updateViewportOffset);
+
+    return () => {
+      window.removeEventListener('resize', updateViewportOffset);
+      viewport?.removeEventListener('resize', updateViewportOffset);
+      viewport?.removeEventListener('scroll', updateViewportOffset);
+      document.documentElement.style.removeProperty('--canvas-visual-viewport-bottom-offset');
+    };
+  }, []);
+}
+
 function TooltipIconButton({
   label,
   active = false,
@@ -692,8 +721,8 @@ const SlashCommandList = React.forwardRef<SlashCommandListHandle, SlashCommandLi
     }), [activeIndex, items.length, selectItem, selectNext, selectPrevious]);
 
     return (
-      <Command className="w-72 rounded-md border border-border bg-popover text-popover-foreground shadow-lg" shouldFilter={false}>
-        <CommandList className="max-h-72">
+      <Command className="tiptap-slash-command rounded-md border border-border bg-popover text-popover-foreground shadow-lg" shouldFilter={false}>
+        <CommandList className="tiptap-slash-command-list max-h-72">
           <CommandEmpty>{labels.empty}</CommandEmpty>
           <CommandGroup heading={labels.group}>
             {items.map((item, index) => (
@@ -730,18 +759,41 @@ const SlashCommandList = React.forwardRef<SlashCommandListHandle, SlashCommandLi
 
 SlashCommandList.displayName = 'SlashCommandList';
 
+function getVisualViewportBounds() {
+  const viewport = window.visualViewport;
+  const left = viewport?.offsetLeft ?? 0;
+  const top = viewport?.offsetTop ?? 0;
+  const width = viewport?.width ?? window.innerWidth;
+  const height = viewport?.height ?? window.innerHeight;
+
+  return {
+    bottom: top + height,
+    left,
+    right: left + width,
+    top,
+    width,
+  };
+}
+
 function getSlashCommandMenuPosition(rect: Pick<DOMRect, 'bottom' | 'left' | 'top'>) {
-  const menuWidth = 288;
-  const menuHeight = 288;
+  const viewport = getVisualViewportBounds();
   const padding = 8;
-  const left = Math.max(padding, Math.min(rect.left, window.innerWidth - menuWidth - padding));
-  const opensBelow = rect.bottom + menuHeight + padding <= window.innerHeight;
+  const menuWidth = Math.max(224, Math.min(288, viewport.width - padding * 2));
+  const availableBelow = Math.max(0, viewport.bottom - rect.bottom - padding - 6);
+  const availableAbove = Math.max(0, rect.top - viewport.top - padding - 6);
+  const opensBelow = availableBelow >= 176 || availableBelow >= availableAbove;
+  const maxHeight = Math.max(112, Math.min(288, opensBelow ? availableBelow : availableAbove));
+  const left = Math.max(
+    viewport.left + padding,
+    Math.min(rect.left, viewport.right - menuWidth - padding),
+  );
   const top = opensBelow
     ? rect.bottom + 6
-    : Math.max(padding, rect.top - menuHeight - 6);
+    : Math.max(viewport.top + padding, rect.top - maxHeight - 6);
 
   return {
     left,
+    maxHeight,
     top,
     width: menuWidth,
   };
@@ -755,6 +807,7 @@ function updateSlashCommandPosition(element: HTMLElement, props: SuggestionProps
   Object.assign(element.style, {
     position: 'fixed',
     left: `${position.left}px`,
+    maxHeight: `${position.maxHeight}px`,
     top: `${position.top}px`,
     width: `${position.width}px`,
   });
@@ -796,9 +849,17 @@ function createSlashCommands(labels: SlashCommandLabels, actions?: SlashCommandA
           },
           render: () => {
             let component: ReactRenderer<SlashCommandListHandle, SlashCommandListProps> | null = null;
+            let latestProps: SuggestionProps<SlashCommandItem, SlashCommandItem> | null = null;
+
+            const updatePosition = () => {
+              if (component && latestProps) {
+                updateSlashCommandPosition(component.element, latestProps);
+              }
+            };
 
             return {
               onStart: (props) => {
+                latestProps = props;
                 component = new ReactRenderer(SlashCommandList, {
                   props: { ...props, labels },
                   editor: props.editor,
@@ -806,20 +867,25 @@ function createSlashCommands(labels: SlashCommandLabels, actions?: SlashCommandA
 
                 component.element.classList.add('tiptap-slash-menu');
                 document.body.appendChild(component.element);
-                updateSlashCommandPosition(component.element, props);
+                updatePosition();
+                window.visualViewport?.addEventListener('resize', updatePosition);
+                window.visualViewport?.addEventListener('scroll', updatePosition);
+                window.addEventListener('resize', updatePosition);
               },
               onUpdate: (props) => {
+                latestProps = props;
                 component?.updateProps({ ...props, labels });
-
-                if (component) {
-                  updateSlashCommandPosition(component.element, props);
-                }
+                updatePosition();
               },
               onKeyDown: ({ event }) => component?.ref?.onKeyDown(event) ?? false,
               onExit: () => {
+                window.visualViewport?.removeEventListener('resize', updatePosition);
+                window.visualViewport?.removeEventListener('scroll', updatePosition);
+                window.removeEventListener('resize', updatePosition);
                 component?.element.remove();
                 component?.destroy();
                 component = null;
+                latestProps = null;
               },
             };
           },
@@ -1365,15 +1431,48 @@ function createEditorExtensions(filePath: string | undefined, labels: SlashComma
   ];
 }
 
-function MarkdownSourceToolbar({ onRichMode }: { onRichMode: () => void }) {
+function MarkdownSourceToolbar({
+  mobileVisible,
+  onMobilePointerCancel,
+  onMobilePointerDown,
+  onMobilePointerUp,
+  onRichMode,
+}: {
+  mobileVisible: boolean;
+  onMobilePointerCancel: () => void;
+  onMobilePointerDown: () => void;
+  onMobilePointerUp: () => void;
+  onRichMode: () => void;
+}) {
   const t = useTranslations('notebook');
+
+  const hideKeyboard = useCallback(() => {
+    if (document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
+  }, []);
 
   return (
     <TooltipProvider>
-      <div className="flex h-9 shrink-0 items-center justify-end gap-1 border-b border-border bg-background px-2">
+      <div className="tiptap-desktop-editor-toolbar hidden h-9 shrink-0 items-center justify-end gap-1 border-b border-border bg-background px-2 md:flex">
         <TooltipIconButton label={t('markdownEditorEditVisually')} onClick={onRichMode}>
           <Eye />
         </TooltipIconButton>
+      </div>
+      <div
+        className={cn('tiptap-mobile-toolbar', mobileVisible && 'tiptap-mobile-toolbar-visible')}
+        role="toolbar"
+        aria-label={t('markdownEditorMobileToolbar')}
+        onPointerDownCapture={onMobilePointerDown}
+        onPointerUpCapture={onMobilePointerUp}
+        onPointerCancelCapture={onMobilePointerCancel}
+      >
+        <MobileToolbarButton label={t('markdownEditorEditVisually')} onClick={onRichMode}>
+          <Eye className="h-5 w-5" />
+        </MobileToolbarButton>
+        <MobileToolbarButton label={t('markdownEditorMobileHideKeyboard')} onClick={hideKeyboard}>
+          <Keyboard className="h-5 w-5" />
+        </MobileToolbarButton>
       </div>
     </TooltipProvider>
   );
@@ -2654,7 +2753,7 @@ function MobileToolbarButton({
       title={label}
       disabled={disabled}
       className={cn(
-        'h-10 w-10 shrink-0 rounded-xl text-muted-foreground',
+        'h-10 w-10 shrink-0 rounded-md text-muted-foreground',
         active && 'text-foreground',
       )}
       onPointerDown={preserveEditorSelectionOnPointerDown}
@@ -2675,6 +2774,7 @@ function MobileMarkdownToolbar({
   onImageDialogOpenChange,
   onOpenTableDialog,
   onSourceMode,
+  visible,
 }: {
   actions?: SlashCommandActions;
   editor: MarkdownEditorWithMarkdown | null;
@@ -2682,6 +2782,7 @@ function MobileMarkdownToolbar({
   onImageDialogOpenChange: (open: boolean, range?: Range) => void;
   onOpenTableDialog: (range?: Range | null) => void;
   onSourceMode: () => void;
+  visible: boolean;
 }) {
   const t = useTranslations('notebook');
   const [sheet, setSheet] = useState<MobileMarkdownSheet>(null);
@@ -2693,8 +2794,34 @@ function MobileMarkdownToolbar({
     canEditText: true,
   });
   const savedRangeRef = useRef<Range | null>(null);
+  const releaseInteractionTimeoutRef = useRef<number | null>(null);
+  const [isInteractingWithToolbar, setIsInteractingWithToolbar] = useState(false);
   const canUseCommands = Boolean(editor?.isEditable);
   const toolbarState = useMarkdownToolbarState(editor);
+
+  const holdToolbarVisibility = useCallback(() => {
+    if (releaseInteractionTimeoutRef.current !== null) {
+      window.clearTimeout(releaseInteractionTimeoutRef.current);
+      releaseInteractionTimeoutRef.current = null;
+    }
+    setIsInteractingWithToolbar(true);
+  }, []);
+
+  const releaseToolbarVisibility = useCallback(() => {
+    if (releaseInteractionTimeoutRef.current !== null) {
+      window.clearTimeout(releaseInteractionTimeoutRef.current);
+    }
+    releaseInteractionTimeoutRef.current = window.setTimeout(() => {
+      setIsInteractingWithToolbar(false);
+      releaseInteractionTimeoutRef.current = null;
+    }, 350);
+  }, []);
+
+  useEffect(() => () => {
+    if (releaseInteractionTimeoutRef.current !== null) {
+      window.clearTimeout(releaseInteractionTimeoutRef.current);
+    }
+  }, []);
 
   const saveCurrentRange = useCallback(() => {
     if (!editor) {
@@ -2768,11 +2895,19 @@ function MobileMarkdownToolbar({
   );
   const sheetItems = sheet === 'styles' ? styleItems : blockItems;
   const sheetTitle = sheet === 'styles' ? t('markdownEditorMobileTextStyle') : labels.addBlock;
+  const toolbarVisible = visible || isInteractingWithToolbar || sheet !== null || linkDialogOpen;
 
   return (
     <>
       {sheet ? (
-        <div className="tiptap-mobile-sheet" role="dialog" aria-label={sheetTitle}>
+        <div
+          className="tiptap-mobile-sheet"
+          role="dialog"
+          aria-label={sheetTitle}
+          onPointerDownCapture={holdToolbarVisibility}
+          onPointerUpCapture={releaseToolbarVisibility}
+          onPointerCancelCapture={releaseToolbarVisibility}
+        >
           <div className="mb-3 flex items-center justify-between gap-3 px-1">
             <div className="text-sm font-medium text-muted-foreground">{sheetTitle}</div>
             <Button
@@ -2803,20 +2938,14 @@ function MobileMarkdownToolbar({
         </div>
       ) : null}
 
-      <div className="tiptap-mobile-toolbar" role="toolbar" aria-label={t('markdownEditorMobileToolbar')}>
-        <MobileToolbarButton
-          label={t('markdownEditorMobileCloseTools')}
-          disabled={!canUseCommands}
-          onClick={() => {
-            if (sheet) {
-              setSheet(null);
-            } else {
-              editor?.commands.blur();
-            }
-          }}
-        >
-          <ChevronLeft className="h-5 w-5" />
-        </MobileToolbarButton>
+      <div
+        className={cn('tiptap-mobile-toolbar', toolbarVisible && 'tiptap-mobile-toolbar-visible')}
+        role="toolbar"
+        aria-label={t('markdownEditorMobileToolbar')}
+        onPointerDownCapture={holdToolbarVisibility}
+        onPointerUpCapture={releaseToolbarVisibility}
+        onPointerCancelCapture={releaseToolbarVisibility}
+      >
         <MobileToolbarButton label={labels.addBlock} disabled={!canUseCommands} active={sheet === 'blocks'} onClick={() => openSheet('blocks')}>
           <Plus className="h-5 w-5" />
         </MobileToolbarButton>
@@ -2980,6 +3109,16 @@ function RichMarkdownEditor({
   });
 
   const markdownEditor = asMarkdownEditor(editor);
+  const isRichEditorFocused = useEditorState({
+    editor,
+    selector: ({ editor: currentEditor }) => Boolean(currentEditor?.isFocused),
+  }) ?? false;
+  const isMobileToolbarVisible = Boolean(
+    isRichEditorFocused ||
+    imageDialogOpen ||
+    tableDialogOpen ||
+    blockCommandMenu,
+  );
 
   const insertTable = useCallback((options: TableInsertOptions) => {
     if (!editor) return;
@@ -3125,6 +3264,7 @@ function RichMarkdownEditor({
           onImageDialogOpenChange={openImageDialogFromToolbar}
           onOpenTableDialog={openTableDialogAtRange}
           onSourceMode={onSourceMode}
+          visible={isMobileToolbarVisible}
         />
       ) : null}
       <div ref={scrollContainerRef} className="relative min-h-0 flex-1 overflow-auto">
@@ -3158,15 +3298,69 @@ function RichMarkdownEditor({
 }
 
 function SourceMarkdownEditor({
+  initiallyShowMobileToolbar = false,
   value,
   onChange,
   readOnly,
   filePath,
   onRichMode,
-}: MarkdownEditorProps & { onRichMode: () => void }) {
+}: MarkdownEditorProps & { initiallyShowMobileToolbar?: boolean; onRichMode: () => void }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const releaseInteractionTimeoutRef = useRef<number | null>(null);
+  const [isSourceFocused, setIsSourceFocused] = useState(initiallyShowMobileToolbar);
+  const [isInteractingWithToolbar, setIsInteractingWithToolbar] = useState(false);
+  const mobileToolbarVisible = isSourceFocused || isInteractingWithToolbar;
+
+  const holdToolbarVisibility = useCallback(() => {
+    if (releaseInteractionTimeoutRef.current !== null) {
+      window.clearTimeout(releaseInteractionTimeoutRef.current);
+      releaseInteractionTimeoutRef.current = null;
+    }
+    setIsInteractingWithToolbar(true);
+  }, []);
+
+  const releaseToolbarVisibility = useCallback(() => {
+    if (releaseInteractionTimeoutRef.current !== null) {
+      window.clearTimeout(releaseInteractionTimeoutRef.current);
+    }
+    releaseInteractionTimeoutRef.current = window.setTimeout(() => {
+      setIsInteractingWithToolbar(false);
+      releaseInteractionTimeoutRef.current = null;
+    }, 350);
+  }, []);
+
+  useEffect(() => () => {
+    if (releaseInteractionTimeoutRef.current !== null) {
+      window.clearTimeout(releaseInteractionTimeoutRef.current);
+    }
+  }, []);
+
+  const handleBlurCapture = useCallback(() => {
+    window.requestAnimationFrame(() => {
+      const activeElement = document.activeElement;
+      setIsSourceFocused(Boolean(
+        activeElement instanceof Node &&
+        containerRef.current?.contains(activeElement),
+      ));
+    });
+  }, []);
+
   return (
-    <div className="flex h-full min-h-0 flex-col overflow-hidden bg-background">
-      {!readOnly ? <MarkdownSourceToolbar onRichMode={onRichMode} /> : null}
+    <div
+      ref={containerRef}
+      className="flex h-full min-h-0 flex-col overflow-hidden bg-background"
+      onBlurCapture={handleBlurCapture}
+      onFocusCapture={() => setIsSourceFocused(true)}
+    >
+      {!readOnly ? (
+        <MarkdownSourceToolbar
+          mobileVisible={mobileToolbarVisible}
+          onMobilePointerCancel={releaseToolbarVisibility}
+          onMobilePointerDown={holdToolbarVisibility}
+          onMobilePointerUp={releaseToolbarVisibility}
+          onRichMode={onRichMode}
+        />
+      ) : null}
       <div className="min-h-0 flex-1 overflow-hidden">
         <CodeEditor
           value={value}
@@ -3188,17 +3382,31 @@ export function MarkdownEditor({
   filePath,
   externalValueSync = 'always',
 }: MarkdownEditorProps) {
+  useVisualViewportBottomOffset();
+
   const defaultMode = shouldDefaultToSource(value, readOnly, filePath) ? 'source' : 'rich';
   const [mode, setMode] = useState<EditorMode>(defaultMode);
+  const [sourceModeRequested, setSourceModeRequested] = useState(false);
+
+  const switchToSourceMode = useCallback(() => {
+    setSourceModeRequested(true);
+    setMode('source');
+  }, []);
+
+  const switchToRichMode = useCallback(() => {
+    setSourceModeRequested(false);
+    setMode('rich');
+  }, []);
 
   if (mode === 'source') {
     return (
       <SourceMarkdownEditor
+        initiallyShowMobileToolbar={sourceModeRequested}
         value={value}
         onChange={onChange}
         readOnly={readOnly}
         filePath={filePath}
-        onRichMode={() => setMode('rich')}
+        onRichMode={switchToRichMode}
       />
     );
   }
@@ -3210,7 +3418,7 @@ export function MarkdownEditor({
       readOnly={readOnly}
       filePath={filePath}
       externalValueSync={externalValueSync}
-      onSourceMode={() => setMode('source')}
+      onSourceMode={switchToSourceMode}
     />
   );
 }

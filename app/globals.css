@@ -570,7 +570,20 @@ li.task-list-item > p {
 }
 
 .tiptap-slash-menu {
+  overflow: hidden;
   z-index: 50;
+}
+
+.tiptap-slash-command {
+  max-height: inherit;
+  width: 100%;
+}
+
+.tiptap-slash-command-list {
+  max-height: inherit;
+  overscroll-behavior: contain;
+  touch-action: pan-y;
+  -webkit-overflow-scrolling: touch;
 }
 
 .tiptap-slash-suggestion {
@@ -625,8 +638,8 @@ li.task-list-item > p {
   backdrop-filter: blur(18px);
   background: color-mix(in oklab, var(--background) 93%, transparent);
   border: 1px solid color-mix(in oklab, var(--border) 80%, transparent);
-  border-radius: 999px;
-  bottom: max(0.625rem, env(safe-area-inset-bottom));
+  border-radius: 0.5rem;
+  bottom: calc(max(0.625rem, env(safe-area-inset-bottom)) + var(--canvas-visual-viewport-bottom-offset, 0px));
   box-shadow: 0 16px 42px color-mix(in oklab, #000 18%, transparent);
   display: none;
   gap: 0.125rem;
@@ -650,8 +663,8 @@ li.task-list-item > p {
   backdrop-filter: blur(18px);
   background: color-mix(in oklab, var(--background) 96%, transparent);
   border-top: 1px solid var(--border);
-  border-radius: 1.25rem 1.25rem 0 0;
-  bottom: calc(max(0.625rem, env(safe-area-inset-bottom)) + 3.75rem);
+  border-radius: 0.5rem 0.5rem 0 0;
+  bottom: calc(max(0.625rem, env(safe-area-inset-bottom)) + var(--canvas-visual-viewport-bottom-offset, 0px) + 3.75rem);
   box-shadow: 0 -18px 48px color-mix(in oklab, #000 16%, transparent);
   display: none;
   left: 0;
@@ -669,7 +682,7 @@ li.task-list-item > p {
   align-items: center;
   background: var(--background);
   border: 1px solid color-mix(in oklab, var(--border) 72%, transparent);
-  border-radius: 0.75rem;
+  border-radius: 0.5rem;
   color: var(--foreground);
   display: flex;
   font-size: 0.9375rem;
@@ -701,7 +714,7 @@ li.task-list-item > p {
     padding: 1.25rem 1.5rem 8.5rem;
   }
 
-  .tiptap-mobile-toolbar {
+  .tiptap-mobile-toolbar.tiptap-mobile-toolbar-visible {
     display: flex;
   }
 
