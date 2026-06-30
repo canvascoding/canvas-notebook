@@ -1633,6 +1633,7 @@
       "general": "General",
       "integrations": "Integrations",
       "agentSettings": "Agent Settings",
+      "browser": "Browser",
       "workspace": "Workspace",
       "knowledge": "Knowledge",
       "userManagement": "Users",
@@ -2404,6 +2405,31 @@
       "errors": {
         "loadStats": "Failed to load workspace stats.",
         "downloadFailed": "Failed to download workspace."
+      }
+    },
+    "browserSettings": {
+      "title": "Browser Runtime",
+      "description": "Manage Chromium as the shared runtime for the browser tool, UI checks, and browser-based exports.",
+      "agentToolsLink": "Open agent tools",
+      "policyHint": "This runtime is resource-intensive. Export and browser features should use the same capacity check so Chromium cannot start uncontrolled on small servers.",
+      "enabled": "Enabled",
+      "disabled": "Disabled",
+      "available": "Available",
+      "unavailable": "Unavailable",
+      "running": "Running",
+      "stopped": "Stopped",
+      "status": {
+        "tool": "Browser tool",
+        "chromium": "Chromium",
+        "session": "Session"
+      },
+      "agentScopeTitle": "Agent profile",
+      "agentScopeDescription": "Browser sessions and persistent cookies are currently managed per user and agent.",
+      "reloadAgents": "Reload agents",
+      "loadingAgents": "Loading agents...",
+      "selectedAgentHint": "Runtime status for {agentName}.",
+      "errors": {
+        "loadAgents": "Failed to load agents."
       }
     },
     "agentPanel": {

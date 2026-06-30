@@ -1632,6 +1632,7 @@
       "general": "Allgemein",
       "integrations": "Integrationen",
       "agentSettings": "Agent-Einstellungen",
+      "browser": "Browser",
       "workspace": "Workspace",
       "knowledge": "Knowledge",
       "userManagement": "Benutzer",
@@ -2403,6 +2404,31 @@
       "errors": {
         "loadStats": "Workspace-Statistiken konnten nicht geladen werden.",
         "downloadFailed": "Workspace-Download fehlgeschlagen."
+      }
+    },
+    "browserSettings": {
+      "title": "Browser-Runtime",
+      "description": "Verwalte Chromium als gemeinsame Runtime für Browsertool, UI-Prüfungen und browserbasierte Exporte.",
+      "agentToolsLink": "Agent-Tools öffnen",
+      "policyHint": "Diese Runtime ist ressourcenintensiv. Export- und Browser-Funktionen sollen künftig dieselbe Kapazitätsprüfung nutzen, damit Chromium auf kleinen Servern nicht unkontrolliert startet.",
+      "enabled": "Aktiviert",
+      "disabled": "Deaktiviert",
+      "available": "Verfügbar",
+      "unavailable": "Nicht verfügbar",
+      "running": "Läuft",
+      "stopped": "Gestoppt",
+      "status": {
+        "tool": "Browsertool",
+        "chromium": "Chromium",
+        "session": "Session"
+      },
+      "agentScopeTitle": "Agent-Profil",
+      "agentScopeDescription": "Browser-Sessions und persistente Cookies werden aktuell pro Benutzer und Agent verwaltet.",
+      "reloadAgents": "Agenten neu laden",
+      "loadingAgents": "Agenten werden geladen...",
+      "selectedAgentHint": "Runtime-Status für {agentName}.",
+      "errors": {
+        "loadAgents": "Agenten konnten nicht geladen werden."
       }
     },
     "agentPanel": {

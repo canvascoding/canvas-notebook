@@ -2,15 +2,15 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { auth } from '@/app/lib/auth';
 import { normalizeManagedAgentId } from '@/app/lib/agents/registry';
-import { resolveAgentRuntimeSettings } from '@/app/lib/agents/effective-runtime-config';
-import { getBrowserRequirementStatus, runBrowserLaunchProbe } from '@/app/lib/pi/browser/requirements';
+import { runBrowserLaunchProbe } from '@/app/lib/pi/browser/requirements';
 import {
   closeBrowserRuntime,
   deleteBrowserProfile,
-  getBrowserProfileDetails,
-  type BrowserRuntimeContext,
 } from '@/app/lib/pi/browser/runtime';
-import { isBrowserToolEnabledConfig } from '@/app/lib/pi/enabled-tools';
+import {
+  buildBrowserRuntimeStatus,
+  makeBrowserRuntimeContext,
+} from '@/app/lib/pi/browser/status-service';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 
 type BrowserActionPayload = {
@@ -30,32 +30,6 @@ async function requireSession(request: NextRequest) {
   return { session, response: null };
 }
 
-function makeContext(userId: string, agentId: string): BrowserRuntimeContext {
-  return {
-    userId,
-    agentId,
-  };
-}
-
-async function buildBrowserStatus(userId: string, rawAgentId?: string | null) {
-  const agentId = normalizeManagedAgentId(rawAgentId);
-  const context = makeContext(userId, agentId);
-  const [effectiveConfig, requirements, profile] = await Promise.all([
-    resolveAgentRuntimeSettings(agentId),
-    Promise.resolve(getBrowserRequirementStatus({ cache: true })),
-    getBrowserProfileDetails(context),
-  ]);
-  const toolEnabled = isBrowserToolEnabledConfig(effectiveConfig.enabledTools);
-
-  return {
-    agentId,
-    toolEnabled,
-    toolAvailable: toolEnabled && requirements.available,
-    requirements,
-    profile,
-  };
-}
-
 export async function GET(request: NextRequest) {
   const { session, response } = await requireSession(request);
   if (response || !session) {
@@ -72,7 +46,10 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const status = await buildBrowserStatus(session.user.id, request.nextUrl.searchParams.get('agentId'));
+    const status = await buildBrowserRuntimeStatus({
+      userId: session.user.id,
+      agentId: request.nextUrl.searchParams.get('agentId'),
+    });
     return NextResponse.json({ success: true, data: status });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to load browser status.';
@@ -98,13 +75,13 @@ export async function POST(request: NextRequest) {
   try {
     const payload = (await request.json().catch(() => ({}))) as BrowserActionPayload;
     const agentId = normalizeManagedAgentId(payload.agentId);
-    const context = makeContext(session.user.id, agentId);
+    const context = makeBrowserRuntimeContext(session.user.id, agentId);
 
     if (payload.action === 'close_session') {
       await closeBrowserRuntime(context, 'settings');
       return NextResponse.json({
         success: true,
-        data: await buildBrowserStatus(session.user.id, agentId),
+        data: await buildBrowserRuntimeStatus({ userId: session.user.id, agentId }),
       });
     }
 
@@ -112,7 +89,7 @@ export async function POST(request: NextRequest) {
       await deleteBrowserProfile(context);
       return NextResponse.json({
         success: true,
-        data: await buildBrowserStatus(session.user.id, agentId),
+        data: await buildBrowserRuntimeStatus({ userId: session.user.id, agentId }),
       });
     }
 
@@ -121,7 +98,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({
         success: true,
         data: {
-          ...(await buildBrowserStatus(session.user.id, agentId)),
+          ...(await buildBrowserRuntimeStatus({ userId: session.user.id, agentId })),
           probe,
         },
       });

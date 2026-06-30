@@ -268,6 +268,7 @@ const SETTINGS_TAB_ITEMS = [
   { value: 'general', labelKey: 'tabs.general' },
   { value: 'integrations', labelKey: 'tabs.integrations' },
   { value: 'agent-settings', labelKey: 'tabs.agentSettings' },
+  { value: 'browser', labelKey: 'tabs.browser' },
   { value: 'workspace', labelKey: 'tabs.workspace' },
   { value: 'knowledge', labelKey: 'tabs.knowledge' },
   { value: 'user-management', labelKey: 'tabs.userManagement' },
@@ -330,6 +331,11 @@ function SettingsTabLoader() {
 
 const AgentSettingsPanel = dynamic(
   () => import('@/app/components/settings/AgentSettingsPanel').then((module) => module.AgentSettingsPanel),
+  { loading: SettingsTabLoader },
+);
+
+const BrowserSettingsPanel = dynamic(
+  () => import('@/app/components/settings/BrowserSettingsPanel').then((module) => module.BrowserSettingsPanel),
   { loading: SettingsTabLoader },
 );
 
@@ -3407,6 +3413,8 @@ export function IntegrationsSettingsClient({
         )}
 
         {renderLazyTabContent('agent-settings', <AgentSettingsPanel />)}
+
+        {renderLazyTabContent('browser', <BrowserSettingsPanel />)}
 
         {renderLazyTabContent('workspace', (
           <WorkspaceSettingsPanel

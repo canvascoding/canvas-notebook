@@ -88,6 +88,7 @@ function getQuickActions(
     return [
       { label: tSettings('tabs.general'), href: '/settings?tab=general' },
       { label: tSettings('tabs.agentSettings'), href: '/settings?tab=agentSettings' },
+      { label: tSettings('tabs.browser'), href: '/settings?tab=browser' },
       { label: tSettings('tabs.workspace'), href: '/settings?tab=workspace' },
       { label: tSettings('tabs.integrations'), href: '/settings?tab=integrations' },
       { label: tSettings('tabs.skills'), href: '/settings?tab=plugins' },
