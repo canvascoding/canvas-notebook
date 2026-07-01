@@ -4,6 +4,7 @@ import type { NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
 
 import { auth } from '@/app/lib/auth';
+import { getDatabaseProvider } from '@/app/lib/db/provider';
 import { createLegacyPersonalWorkspaceContext, resolveWorkspaceActor } from './context';
 import { WORKSPACE_ID_HEADER } from './constants';
 import {
@@ -11,6 +12,7 @@ import {
   openOrganizationBootstrapDatabase,
 } from '@/app/lib/organization/bootstrap';
 import { assertWorkspacePermission } from './permissions';
+import { resolvePostgresWorkspaceForActor } from './postgres-runtime';
 import { resolveWorkspaceContextById } from './service';
 import type { WorkspaceContext, WorkspacePermissions } from './types';
 
@@ -81,6 +83,17 @@ export async function requireSessionWorkspace(
 
   if (!requestedWorkspaceId) {
     workspace = createLegacyPersonalWorkspaceContext(actor);
+  } else if (getDatabaseProvider() === 'postgres') {
+    try {
+      workspace = await resolvePostgresWorkspaceForActor(actor, requestedWorkspaceId);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Could not resolve workspace';
+      return {
+        session,
+        workspace: null,
+        response: NextResponse.json({ success: false, error: message }, { status: 500 }),
+      };
+    }
   } else {
     const sqlite = openOrganizationBootstrapDatabase();
     try {
@@ -113,14 +126,14 @@ export async function requireSessionWorkspace(
     } finally {
       sqlite.close();
     }
+  }
 
-    if (!workspace) {
-      return {
-        session,
-        workspace: null,
-        response: NextResponse.json({ success: false, error: 'Workspace not found or inaccessible' }, { status: 404 }),
-      };
-    }
+  if (!workspace) {
+    return {
+      session,
+      workspace: null,
+      response: NextResponse.json({ success: false, error: 'Workspace not found or inaccessible' }, { status: 404 }),
+    };
   }
 
   const permissionResponse = assertWorkspacePermissions(workspace, options.permissions);

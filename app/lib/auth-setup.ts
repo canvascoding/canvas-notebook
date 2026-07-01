@@ -151,7 +151,7 @@ function countUsers(sqlite: Database.Database): number {
 async function getPostgresAuthUserCount(): Promise<number> {
   const database = await openDb();
   try {
-    const row = await database.get('SELECT COUNT(*) AS count FROM user') as { count?: string | number } | undefined;
+    const row = await database.get('SELECT COUNT(*) AS count FROM "user"') as { count?: string | number } | undefined;
     return Number(row?.count || 0);
   } finally {
     await database.close();
@@ -177,7 +177,7 @@ export async function hasAnyAuthUser(): Promise<boolean> {
 
 async function getPostgresUser(database: Awaited<ReturnType<typeof openDb>>, userId: string) {
   return await database.get(
-    'SELECT id, email, role, created_at FROM user WHERE id = ? LIMIT 1',
+    'SELECT id, email, role, created_at FROM "user" WHERE id = ? LIMIT 1',
     [userId],
   ) as UserRow | undefined || null;
 }
@@ -343,10 +343,10 @@ async function ensurePostgresOrganizationBootstrapForUser(
   }
 
   const ownerUser = await getPostgresUser(database, organization.owner_user_id) || targetUser;
-  await database.run('UPDATE user SET role = ?, updated_at = ? WHERE id = ?', ['admin', now, ownerUser.id]);
+  await database.run('UPDATE "user" SET role = ?, updated_at = ? WHERE id = ?', ['admin', now, ownerUser.id]);
   await ensurePostgresPermissionRow(database, organization.organization_id, ownerUser.id, 'owner');
   if (targetUser.id !== ownerUser.id) {
-    await database.run('UPDATE user SET role = ?, updated_at = ? WHERE id = ?', ['admin', now, targetUser.id]);
+    await database.run('UPDATE "user" SET role = ?, updated_at = ? WHERE id = ?', ['admin', now, targetUser.id]);
     await ensurePostgresPermissionRow(database, organization.organization_id, targetUser.id, 'admin');
   }
 
@@ -380,7 +380,7 @@ async function createInitialOwnerPostgres(input: InitialOwnerInput): Promise<Ini
   try {
     await database.run('BEGIN');
 
-    const count = await database.get('SELECT COUNT(*) AS count FROM user') as { count?: string | number } | undefined;
+    const count = await database.get('SELECT COUNT(*) AS count FROM "user"') as { count?: string | number } | undefined;
     if (Number(count?.count || 0) > 0) {
       await database.run('ROLLBACK');
       throw new InitialOwnerSetupError('ALREADY_CONFIGURED', 'Initial setup is already complete.');
@@ -388,7 +388,7 @@ async function createInitialOwnerPostgres(input: InitialOwnerInput): Promise<Ini
 
     await database.run(
       `
-        INSERT INTO user (
+        INSERT INTO "user" (
           id, name, email, email_verified, image, role, created_at, updated_at
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       `,

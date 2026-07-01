@@ -1,11 +1,13 @@
 import { NextResponse } from 'next/server';
 
 import { auth } from '@/app/lib/auth';
+import { getDatabaseProvider } from '@/app/lib/db/provider';
 import {
   ensureOrganizationBootstrapForUser,
   openOrganizationBootstrapDatabase,
 } from '@/app/lib/organization/bootstrap';
 import { resolveWorkspaceActor } from '@/app/lib/workspaces/context';
+import { getPostgresWorkspaceState } from '@/app/lib/workspaces/postgres-runtime';
 import {
   listWorkspaceContextsForUser,
   resolveDefaultWorkspaceContext,
@@ -32,6 +34,31 @@ export async function GET(request: Request) {
     return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
   }
 
+  const actor = resolveWorkspaceActor({
+    id: session.user.id,
+    email: session.user.email,
+    role: session.user.role,
+  });
+
+  if (getDatabaseProvider() === 'postgres') {
+    try {
+      const state = await getPostgresWorkspaceState(actor);
+      return NextResponse.json({
+        success: true,
+        organizationId: state.status.organizationId,
+        teamFeaturesEnabled: state.status.teamFeaturesEnabled,
+        databaseProvider: state.status.databaseProvider,
+        activeWorkspaceId: state.defaultWorkspace?.workspaceId || null,
+        defaultWorkspace: state.defaultWorkspace ? serializeWorkspace(state.defaultWorkspace) : null,
+        workspaces: state.workspaces.map(serializeWorkspace),
+        warnings: state.status.warnings,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Could not resolve workspaces';
+      return NextResponse.json({ success: false, error: message }, { status: 500 });
+    }
+  }
+
   const sqlite = openOrganizationBootstrapDatabase();
   try {
     sqlite.exec('BEGIN IMMEDIATE');
@@ -41,11 +68,6 @@ export async function GET(request: Request) {
       return NextResponse.json({ success: false, error: 'Organization is not configured' }, { status: 409 });
     }
 
-    const actor = resolveWorkspaceActor({
-      id: session.user.id,
-      email: session.user.email,
-      role: session.user.role,
-    });
     const defaultWorkspace = resolveDefaultWorkspaceContext(sqlite, {
       actor,
       organizationId: status.organizationId,
