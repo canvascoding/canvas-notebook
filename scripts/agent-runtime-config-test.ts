@@ -22,33 +22,46 @@ async function main() {
     _load: (request: string, parent: NodeModule | null, isMain: boolean) => unknown;
   };
   const originalLoad = moduleInternals._load;
+  const model = (provider: string, id: string) => ({
+    id,
+    name: id,
+    provider,
+    api: 'openai-completions',
+    baseUrl: '',
+    reasoning: provider === 'openrouter',
+    input: ['text'],
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    contextWindow: 128000,
+    maxTokens: 8192,
+  });
+  const piAiMock = {
+    completeSimple: async () => ({
+      message: { role: 'assistant', content: 'Mock completion' },
+      usage: {
+        input: 0,
+        output: 0,
+        cacheRead: 0,
+        cacheWrite: 0,
+        totalTokens: 0,
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+      },
+    }),
+    streamSimple: async function* () {},
+    registerBuiltInApiProviders: () => undefined,
+    getProviders: () => ['google', 'openrouter'],
+    getModels: (provider: string) => {
+      if (provider === 'google') return [model(provider, 'gemini-1.5-pro')];
+      if (provider === 'openrouter') return [
+        model(provider, 'anthropic/claude-sonnet-4.5'),
+        model(provider, 'anthropic/claude-3.7-sonnet'),
+      ];
+      return [];
+    },
+  };
   moduleInternals._load = (request, parent, isMain) => {
     if (request === 'server-only') return {};
-    if (request === '@earendil-works/pi-ai') {
-      const model = (provider: string, id: string) => ({
-        id,
-        name: id,
-        provider,
-        api: 'openai-completions',
-        baseUrl: '',
-        reasoning: provider === 'openrouter',
-        input: ['text'],
-        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-        contextWindow: 128000,
-        maxTokens: 8192,
-      });
-      return {
-        registerBuiltInApiProviders: () => undefined,
-        getProviders: () => ['google', 'openrouter'],
-        getModels: (provider: string) => {
-          if (provider === 'google') return [model(provider, 'gemini-1.5-pro')];
-          if (provider === 'openrouter') return [
-            model(provider, 'anthropic/claude-sonnet-4.5'),
-            model(provider, 'anthropic/claude-3.7-sonnet'),
-          ];
-          return [];
-        },
-      };
+    if (request === '@earendil-works/pi-ai' || request === '@earendil-works/pi-ai/compat') {
+      return piAiMock;
     }
     if (request === '@earendil-works/pi-ai/oauth') {
       return {};
@@ -193,7 +206,14 @@ async function main() {
     await fs.readFile(path.join(dataDir, 'users', scopedUserId, 'agents', 'canvas-agent', 'AGENTS.md'), 'utf8'),
     /Scoped runtime prompt/,
   );
-  const invalidPromptFallback = await loadManagedAgentSystemPrompt('../invalid-agent');
+  const originalConsoleError = console.error;
+  let invalidPromptFallback: Awaited<ReturnType<typeof loadManagedAgentSystemPrompt>>;
+  try {
+    console.error = () => undefined;
+    invalidPromptFallback = await loadManagedAgentSystemPrompt('../invalid-agent');
+  } finally {
+    console.error = originalConsoleError;
+  }
   assert.equal(invalidPromptFallback.diagnostics.usedFallback, true);
   assert.match(invalidPromptFallback.systemPrompt, /^# Canvas Notebook Runtime/);
   assert.match(invalidPromptFallback.systemPrompt, /## File Access for Uploaded Attachments/);
