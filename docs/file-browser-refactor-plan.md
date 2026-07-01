@@ -4,6 +4,13 @@
 
 Der File-Browser soll von einem gewachsenen, stark gekoppelten Modul in eine klarere Struktur ueberfuehrt werden. Ziel ist keine neue Funktionalitaet, sondern geringere Kopplung, weniger doppelte Logik und bessere Wartbarkeit bei unveraendertem Verhalten.
 
+Zusaetzliches Performance-Ziel ab Juli 2026:
+
+- Tree/List/Grid sollen dieselben View- und Selection-Modelle verwenden.
+- Sichtbare Item-Listen sollen memoisiert und nicht in jeder Item-Komponente neu hergeleitet werden.
+- Item-Komponenten sollen weniger breit auf den globalen File-Store subscriben.
+- Teure Tree-Suchen, Flattening und Restore-Logik sollen aus Render-Komponenten in kleine Hooks/Pure-Services wandern.
+
 Grundprinzip aus dem `code-structure`-Skill:
 
 - UI und Store orchestrieren Produktverhalten: Auswahl, Dialoge, aktive Datei, mobile/desktop Flows.
@@ -21,6 +28,20 @@ Der File-Browser besteht aktuell aus mehreren gekoppelten Schichten:
 - `app/lib/utils/file-tree-cache.ts`: Tree Cache.
 - `app/lib/filesystem/file-watcher.ts` und `app/lib/file-watcher/client.ts`: Server- und Client-Watcher.
 - `app/lib/filesystem/file-reference-cache.ts` und `file-reference-search.ts`: Suchindex fuer File-Referenzen.
+
+Aktueller Fortschritt:
+
+- `app/lib/files/types.ts`, `path-utils.ts` und `tree-utils.ts` existieren und werden aktiv genutzt.
+- `app/lib/files/client.ts` kapselt die meisten Browser-API-Aufrufe.
+- `app/lib/files/operation-flows.ts` enthaelt erste gemeinsame Flow-Helfer wie geschuetzte Pfade und kompaktierte Copy-Selektionen.
+- Copy/Paste behandelt verschachtelte Mehrfachauswahl und Partial-Failures inzwischen zentraler.
+
+Offen:
+
+- `file-store.ts` ist weiterhin ein grosser Orchestrierungs-Store mit Tree, Preview, Clipboard, Upload, Selection und Dialog-State.
+- `FileGridView.tsx` enthaelt weiterhin Restore, Suche, View-Mode-Auswahl, Keyboard-Handling und Rendering fuer drei Darstellungen.
+- `FileTreeNode.tsx` und `FileGridItem.tsx` abonnieren noch breite Store-Zustaende und koppeln Click-Semantik direkt an Rendering.
+- `FileActionsDropdown.tsx` ist weiterhin ein Action-Controller mit vielen Dialog- und Operation-Flows.
 
 Grobe Codegroesse der betrachteten Bereiche:
 
@@ -93,6 +114,17 @@ Auth und Produktpolicy sollen in Route Handlern bleiben, aber die wiederverwendb
 
 Der serverseitige Watcher ist relativ sauber als Service modelliert. Der Client-Watcher kennt aber direkt den File-Store und ruft Store-Actions auf. Das ist aktuell pragmatisch, sollte aber nach dem Store-Refactor ueber klarere Callback- oder Adapter-Grenzen laufen.
 
+### 6. Render-Performance leidet unter breiten Store-Subscriptions
+
+Aktuelle Item-Komponenten lesen mehrere globale Store-Felder direkt. Dadurch koennen einfache State-Aenderungen wie Loading, Selection oder Context-Menu-Zustand viele sichtbare Rows/Tiles neu rendern.
+
+Ziel:
+
+- Item-Komponenten erhalten stabile Props fuer Node, View-Mode und sichtbare Selection-Order.
+- Store-Subscriptions in Items werden auf primitive Booleans und stabile Actions reduziert.
+- View-Komponenten bauen sichtbare Listen mit `useMemo`.
+- Gemeinsame Click-/Selection-Regeln werden aus Tree/List/Grid in Hooks oder Pure-Controller verschoben.
+
 ## Zielarchitektur
 
 ```text
@@ -145,6 +177,8 @@ Verifikation:
 
 - Fuer reine Dokumentation kein Build erforderlich.
 
+Status: erledigt, wird mit aktuellem Fortschritt fortgeschrieben.
+
 ### Phase 2: Shared Types und Pure Utils extrahieren
 
 Neue Module:
@@ -182,6 +216,8 @@ Verifikation:
 Commit:
 
 - `Extract file browser path and tree utilities`
+
+Status: erledigt.
 
 ### Phase 3: Frontend Files API Client extrahieren
 
@@ -221,6 +257,8 @@ Commit:
 
 - `Extract file browser API client`
 
+Status: erledigt.
+
 ### Phase 4: Store intern verschlanken
 
 Ziel:
@@ -254,6 +292,8 @@ Commit:
 
 - `Simplify file store tree operations`
 
+Status: teilweise erledigt. Tree- und Path-Utils sind extrahiert, aber Restore-/View-Model-Logik sitzt noch in `FileGridView.tsx`.
+
 ### Phase 5: Move/Create/Delete Dialog-Flows vereinheitlichen
 
 Ziel:
@@ -282,6 +322,91 @@ Verifikation:
 Commit:
 
 - `Consolidate file browser operation flows`
+
+Status: teilweise erledigt. Copy/Paste-Mechanik ist verbessert, Move/Create/Delete/Dialog-Flows sind noch verteilt.
+
+### Phase 5a: View-Model und Selection-Controller extrahieren
+
+Ziel:
+
+- `FileGridView.tsx` von Tree/List/Grid-Datenermittlung entlasten.
+- Sichtbare Items und Selection-Order fuer Grid/List/Tree zentral berechnen.
+- Tree/List/Grid verwenden dieselbe Grundlage fuer Range-Auswahl und Rendering.
+
+Neue oder erweiterte Module:
+
+- `app/components/file-browser/useFileExplorerViewModel.ts`
+- `app/components/file-browser/useFileExplorerSelectionHandlers.ts`
+
+Regel:
+
+- Hooks duerfen Store lesen und UI-orientierte Ableitungen liefern.
+- Pure Tree-/Path-Mechanik bleibt in `app/lib/files/*`.
+- Komponenten rendern nur noch die durch Hooks vorbereiteten Listen.
+
+Verifikation:
+
+- `npm run test:file-watcher`
+- `npm run lint`
+- `npm run build`
+- Playwright/Browser-Pruefung nur nach Freigabe.
+
+Commit:
+
+- `Extract file explorer view model`
+
+### Phase 5b: Item-Subscriptions verschlanken
+
+Ziel:
+
+- `FileTreeNode` und `FileGridItem` sollen nicht bei jeder Store-Aenderung breit neu rendern.
+- Selection-/Loading-/Expanded-Zustand wird ueber gezielte primitive Selectors gelesen.
+- Stabile Click-Handler reduzieren vermeidbare Re-Renders.
+
+Regel:
+
+- Keine UI-Umgestaltung.
+- Keine neue Selection-Semantik.
+- Verhalten muss in Tree/List/Grid gleich bleiben.
+
+Verifikation:
+
+- `npm run test:file-watcher`
+- `npm run lint`
+- `npm run build`
+
+Commit:
+
+- `Reduce file explorer item rerenders`
+
+### Phase 5c: Action-Flows aus `FileActionsDropdown` ziehen
+
+Ziel:
+
+- `FileActionsDropdown` soll Menue und Dialoge rendern, nicht alle Operation-Flows selbst besitzen.
+- Copy/Paste/Move/Delete/Rename-Auswertung wird in kleine Hooks verschoben.
+
+Moegliche Module:
+
+- `app/components/file-browser/useFileActionHandlers.ts`
+- `app/components/file-browser/useFileDialogState.ts`
+
+Regel:
+
+- UI bleibt in Komponenten.
+- Wiederverwendbare Ablaufmechanik kommt in Hooks.
+- Server-Policy bleibt serverseitig.
+
+Verifikation:
+
+- `npm run test:file-watcher`
+- `npm run test:workspace:cross-copy`
+- `npm run lint`
+- `npm run build`
+
+Commit:
+
+- `Extract file action handlers`
 
 ### Phase 6: API Boundary Helpers
 
@@ -362,11 +487,14 @@ Container:
 
 ## Commit-Plan
 
-1. `Document file browser refactor plan`
-2. `Extract file browser path and tree utilities`
-3. `Extract file browser API client`
-4. `Simplify file store tree operations`
-5. `Consolidate file browser operation flows`
-6. `Reduce repeated files API route boilerplate`
+1. `Document file browser refactor plan` - done
+2. `Extract file browser path and tree utilities` - done
+3. `Extract file browser API client` - done
+4. `Simplify file store tree operations` - partly done
+5. `Consolidate file browser operation flows` - partly done
+6. `Extract file explorer view model`
+7. `Reduce file explorer item rerenders`
+8. `Extract file action handlers`
+9. `Reduce repeated files API route boilerplate`
 
 Jeder Commit soll nur den abgeschlossenen Schritt enthalten. Fremde bestehende Aenderungen im Arbeitsbaum werden nicht gestaged.
