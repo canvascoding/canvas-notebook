@@ -1,6 +1,7 @@
 'use client';
 
-import { useCallback } from 'react';
+import { memo, useCallback } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import {
   ChevronRight,
   Square,
@@ -32,27 +33,35 @@ interface FileTreeNodeProps {
   selectionOrder?: string[];
 }
 
-export function FileTreeNode({ node, depth = 0, browserMode = 'tree', onNavigateInto, onOpenFile, selectionOrder }: FileTreeNodeProps) {
+function FileTreeNodeComponent({ node, depth = 0, browserMode = 'tree', onNavigateInto, onOpenFile, selectionOrder }: FileTreeNodeProps) {
   const isMobile = useIsMobile();
   const {
-    expandedDirs,
-    selectedNode,
+    isExpanded,
+    isLoading,
+    isSelected,
+    isMultiSelected,
     toggleDirectory,
     selectNode,
     loadFile,
     isMultiSelectMode,
-    multiSelectPaths,
     toggleMultiSelectPath,
     openContextMenu,
     mobileFileOpened,
-    loadingDirs,
-  } = useFileStore();
+  } = useFileStore(useShallow((state) => ({
+    isExpanded: state.expandedDirs.has(node.path),
+    isLoading: state.loadingDirs.has(node.path),
+    isSelected: state.selectedNode?.path === node.path,
+    isMultiSelected: state.multiSelectPaths.has(node.path),
+    toggleDirectory: state.toggleDirectory,
+    selectNode: state.selectNode,
+    loadFile: state.loadFile,
+    isMultiSelectMode: state.isMultiSelectMode,
+    toggleMultiSelectPath: state.toggleMultiSelectPath,
+    openContextMenu: state.openContextMenu,
+    mobileFileOpened: state.mobileFileOpened,
+  })));
 
   const isDirectory = node.type === 'directory';
-  const isExpanded = expandedDirs.has(node.path);
-  const isLoading = loadingDirs.has(node.path);
-  const isSelected = selectedNode?.path === node.path;
-  const isMultiSelected = multiSelectPaths.has(node.path);
   const isRowActive = isSelected || isMultiSelected;
   const isPublic = node.type === 'file' && node.publicShare?.status === 'active';
   const hasLoadedChildren = Array.isArray(node.children);
@@ -399,3 +408,5 @@ export function FileTreeNode({ node, depth = 0, browserMode = 'tree', onNavigate
     </SidebarMenuItem>
   );
 }
+
+export const FileTreeNode = memo(FileTreeNodeComponent);

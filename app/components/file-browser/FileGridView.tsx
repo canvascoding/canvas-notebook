@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useRef, useCallback } from 'react';
 import { useTranslations } from 'next-intl';
 import { Loader2, AlertCircle, FolderOpen } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -13,281 +13,39 @@ import {
 import { Button } from '@/components/ui/button';
 import { useFileStore } from '@/app/store/file-store';
 import type { FileNode as FileNodeType } from '@/app/lib/files/types';
-import {
-  getDirectoryDepth,
-  getDirectoryPathChain,
-  getParentDirectory,
-} from '@/app/lib/files/path-utils';
-import { findPathInTree, flattenDirectoryChildren } from '@/app/lib/files/tree-utils';
 import { FileTreeNode } from './FileTreeNode';
 import { FileContextMenu } from './FileContextMenu';
 import { BulkMoveDialog } from './BulkMoveDialog';
 import { FileGridItem } from './FileGridItem';
 import { BackgroundContextMenu } from './BackgroundContextMenu';
+import { useFileExplorerViewModel } from './useFileExplorerViewModel';
 
 interface FileGridViewProps {
   variant?: 'default' | 'mobile-sheet' | 'fullscreen';
   onOpenFile?: (path: string) => void;
 }
 
-interface FileSearchEntry {
-  name: string;
-  path: string;
-  type: 'file' | 'directory';
-  size?: number;
-  modified?: number;
-  permissions?: string;
-  publicShare?: FileNodeType['publicShare'];
-}
-
 export function FileGridView({ variant = 'default', onOpenFile }: FileGridViewProps) {
   const t = useTranslations('notebook');
   const containerRef = useRef<HTMLDivElement>(null);
-  const [isRestoring, setIsRestoring] = useState(false);
-  const [searchResults, setSearchResults] = useState<FileNodeType[] | null>(null);
-  const [isSearching, setIsSearching] = useState(false);
-
   const {
-    fileTree,
-    isLoadingTree,
-    treeError,
-    loadFileTree,
-    refreshRootTree,
-    loadSubdirectory,
-    currentDirectory,
-    selectedNode,
-    selectAllInDirectory,
-    clearMultiSelect,
-    searchQuery,
     browserMode,
-  } = useFileStore();
-
-  const activeDirectoryChildren = flattenDirectoryChildren(fileTree, currentDirectory);
-  const normalizedSearchQuery = searchQuery.trim();
-
-  useEffect(() => {
-    let cancelled = false;
-
-    const restoreExplorer = async () => {
-      const {
-        currentDirectory: curDir,
-        expandedDirs: curExpanded,
-        searchQuery: curSearch,
-        selectedNode,
-      } = useFileStore.getState();
-
-      const hasRestorableState =
-        selectedNode !== null ||
-        curDir !== '.' ||
-        curExpanded.size > 0 ||
-        curSearch.trim().length > 0;
-
-      if (!hasRestorableState) {
-        await loadFileTree('.', 0);
-        return;
-      }
-
-      setIsRestoring(true);
-
-      try {
-        await refreshRootTree(true);
-        if (cancelled) return;
-
-        const restorePaths = new Set<string>([
-          ...Array.from(curExpanded).flatMap(getDirectoryPathChain),
-          ...getDirectoryPathChain(curDir),
-        ]);
-
-        const expandedPaths = Array.from(restorePaths).sort((a, b) => {
-          const depthDiff = getDirectoryDepth(a) - getDirectoryDepth(b);
-          return depthDiff !== 0 ? depthDiff : a.localeCompare(b);
-        });
-
-        const validExpandedDirs = new Set<string>();
-
-        for (const dirPath of expandedPaths) {
-          if (cancelled || dirPath === '.') continue;
-          const currentTree = useFileStore.getState().fileTree;
-          const parentDir = getParentDirectory(dirPath);
-          const parentExists = parentDir === '.'
-            ? currentTree.some((node) => node.type === 'directory' && node.path === dirPath.split('/')[0])
-            : findPathInTree(parentDir, currentTree);
-          if (!parentExists) continue;
-          await loadSubdirectory(dirPath, true);
-          if (cancelled) return;
-
-          const nextTree = useFileStore.getState().fileTree;
-          if (curExpanded.has(dirPath) && findPathInTree(dirPath, nextTree)) {
-            validExpandedDirs.add(dirPath);
-          }
-        }
-
-        const restoredTree = useFileStore.getState().fileTree;
-        const currentExpanded = useFileStore.getState().expandedDirs;
-        useFileStore.getState().setExpandedDirs(
-          new Set(
-            Array.from(currentExpanded).filter((dirPath) => (
-              dirPath === '.' ||
-              validExpandedDirs.has(dirPath) ||
-              findPathInTree(dirPath, restoredTree)
-            ))
-          )
-        );
-
-        const latestState = useFileStore.getState();
-        const latestDir = latestState.currentDirectory;
-        const latestSelectedNode = latestState.selectedNode;
-        const currentDirExists = latestDir === '.' || findPathInTree(latestDir, restoredTree);
-
-        if (!currentDirExists) {
-          const fallbackDir = latestSelectedNode?.type === 'directory'
-            ? latestSelectedNode.path
-            : latestSelectedNode?.path
-              ? getParentDirectory(latestSelectedNode.path)
-              : '.';
-          useFileStore.getState().setCurrentDirectory(
-            fallbackDir !== '.' && findPathInTree(fallbackDir, restoredTree) ? fallbackDir : '.'
-          );
-        }
-      } finally {
-        if (!cancelled) {
-          setIsRestoring(false);
-        }
-      }
-    };
-
-    void restoreExplorer();
-    return () => { cancelled = true; };
-  }, [loadFileTree, loadSubdirectory, refreshRootTree, variant]);
-
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (!containerRef.current?.contains(document.activeElement)) return;
-      if ((event.ctrlKey || event.metaKey) && event.key === 'a') {
-        event.preventDefault();
-        selectAllInDirectory(currentDirectory);
-      }
-      if (event.key === 'Escape') {
-        clearMultiSelect();
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [currentDirectory, selectAllInDirectory, clearMultiSelect]);
-
-  useEffect(() => {
-    if (browserMode !== 'grid') return;
-    if (currentDirectory === '.') return;
-    if (activeDirectoryChildren !== null) return;
-    void loadSubdirectory(currentDirectory, true);
-  }, [activeDirectoryChildren, currentDirectory, loadSubdirectory, browserMode]);
-
-  useEffect(() => {
-    if (browserMode !== 'list') return;
-    if (currentDirectory === '.') return;
-    const tree = useFileStore.getState().fileTree;
-    let nodeExists = false;
-    let hasChildren = false;
-    const findNode = (nodes: FileNodeType[], path: string): boolean => {
-      for (const n of nodes) {
-        if (n.path === path) { nodeExists = true; hasChildren = !!(n.children && n.children.length > 0); return true; }
-        if (n.children && findNode(n.children, path)) return true;
-      }
-      return false;
-    };
-    findNode(tree, currentDirectory);
-    if (!nodeExists || !hasChildren) loadSubdirectory(currentDirectory, true);
-  }, [browserMode, currentDirectory, loadSubdirectory]);
-
-  const filterTree = (nodes: FileNodeType[], query: string): FileNodeType[] => {
-    if (!query) return nodes;
-    return nodes
-      .map((node) => {
-        if (node.type === 'directory' && node.children) {
-          const filteredChildren = filterTree(node.children, query);
-          if (filteredChildren.length > 0 || node.name.toLowerCase().includes(query.toLowerCase())) {
-            return { ...node, children: filteredChildren };
-          }
-          return null;
-        }
-        if (node.name.toLowerCase().includes(query.toLowerCase())) return node;
-        return null;
-      })
-      .filter((node): node is FileNodeType => node !== null);
-  };
-
-  useEffect(() => {
-    const query = normalizedSearchQuery;
-    if (!query) {
-      return;
-    }
-
-    const controller = new AbortController();
-    const timeout = window.setTimeout(async () => {
-      setIsSearching(true);
-      try {
-        const response = await fetch(`/api/files/list?q=${encodeURIComponent(query)}&limit=200`, {
-          credentials: 'include',
-          cache: 'no-store',
-          signal: controller.signal,
-        });
-
-        if (!response.ok) {
-          throw new Error('Failed to search files');
-        }
-
-        const payload = await response.json() as { files?: FileSearchEntry[] };
-        const nextResults = (payload.files ?? []).map((entry) => ({
-          name: entry.name,
-          path: entry.path,
-          type: entry.type,
-          size: entry.size,
-          modified: entry.modified,
-          permissions: entry.permissions,
-          publicShare: entry.publicShare,
-        } satisfies FileNodeType));
-        setSearchResults(nextResults);
-      } catch (error) {
-        if (!(error instanceof DOMException && error.name === 'AbortError')) {
-          setSearchResults([]);
-        }
-      } finally {
-        if (!controller.signal.aborted) {
-          setIsSearching(false);
-        }
-      }
-    }, 200);
-
-    return () => {
-      window.clearTimeout(timeout);
-      controller.abort();
-    };
-  }, [normalizedSearchQuery]);
-
-  const filteredTree = normalizedSearchQuery ? filterTree(fileTree, normalizedSearchQuery.toLowerCase()) : fileTree;
-  const searchResultNodes = normalizedSearchQuery ? (searchResults ?? filteredTree) : filteredTree;
-
-  const listDirChildren = browserMode === 'list'
-    ? flattenDirectoryChildren(fileTree, currentDirectory)
-    : null;
-
-  const filteredListChildren = normalizedSearchQuery
-    ? searchResultNodes
-    : browserMode === 'list' && listDirChildren
-      ? listDirChildren
-    : null;
-
-  useEffect(() => {
-    if (!selectedNode || isRestoring || isLoadingTree) return;
-
-    const frame = window.requestAnimationFrame(() => {
-      const activeItem = Array.from(containerRef.current?.querySelectorAll<HTMLElement>('[data-file-path]') ?? [])
-        .find((element) => element.dataset.filePath === selectedNode.path);
-      activeItem?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-    });
-
-    return () => window.cancelAnimationFrame(frame);
-  }, [browserMode, currentDirectory, fileTree, filteredListChildren, isLoadingTree, isRestoring, searchResultNodes, selectedNode]);
+    currentDirectory,
+    fileTree,
+    filteredListChildren,
+    gridItems,
+    gridSelectionOrder,
+    isLoadingTree,
+    isRestoring,
+    isSearching,
+    listSelectionOrder,
+    loadFileTree,
+    loadSubdirectory,
+    normalizedSearchQuery,
+    searchQuery,
+    searchResultNodes,
+    treeError,
+  } = useFileExplorerViewModel({ containerRef, variant });
 
   const handleFileOpen = useCallback((path: string) => {
     if (onOpenFile) {
@@ -296,6 +54,38 @@ export function FileGridView({ variant = 'default', onOpenFile }: FileGridViewPr
       void useFileStore.getState().loadFile(path, true);
     }
   }, [onOpenFile]);
+
+  const handleBackgroundContextMenu = useCallback((event: React.MouseEvent) => {
+    // Nur wenn nicht auf ein FileGridItem geklickt wurde
+    const target = event.target as HTMLElement;
+    if (target.closest('[data-file-path]') || target.closest('[role="menuitem"]')) return;
+    event.preventDefault();
+    event.stopPropagation();
+    useFileStore.getState().openBackgroundContextMenu(
+      { x: event.clientX, y: event.clientY },
+      currentDirectory
+    );
+  }, [currentDirectory]);
+
+  const handleOpenDirectory = useCallback(async (dirPath: string) => {
+    useFileStore.getState().setCurrentDirectory(dirPath);
+    await loadSubdirectory(dirPath, true);
+  }, [loadSubdirectory]);
+
+  const handleNavigateInto = useCallback(async (node: FileNodeType) => {
+    if (node.type === 'directory') {
+      useFileStore.getState().setCurrentDirectory(node.path);
+      await loadSubdirectory(node.path, true);
+    }
+  }, [loadSubdirectory]);
+
+  const handleNavigateUp = useCallback(() => {
+    if (currentDirectory === '.') return;
+    const parentSegments = currentDirectory.split('/');
+    parentSegments.pop();
+    const parentPath = parentSegments.length === 0 ? '.' : parentSegments.join('/');
+    useFileStore.getState().setCurrentDirectory(parentPath);
+  }, [currentDirectory]);
 
   if (isLoadingTree || isRestoring) {
     return (
@@ -327,29 +117,7 @@ export function FileGridView({ variant = 'default', onOpenFile }: FileGridViewPr
     );
   }
 
-  const handleBackgroundContextMenu = (event: React.MouseEvent) => {
-    // Nur wenn nicht auf ein FileGridItem geklickt wurde
-    const target = event.target as HTMLElement;
-    if (target.closest('[data-file-path]') || target.closest('[role="menuitem"]')) return;
-    event.preventDefault();
-    event.stopPropagation();
-    useFileStore.getState().openBackgroundContextMenu(
-      { x: event.clientX, y: event.clientY },
-      currentDirectory
-    );
-  };
-
   if (browserMode === 'grid') {
-    const gridItems = normalizedSearchQuery
-      ? searchResultNodes
-      : (activeDirectoryChildren ?? []);
-    const gridSelectionOrder = gridItems.map((node) => node.path);
-
-    const handleOpenDirectory = async (dirPath: string) => {
-      useFileStore.getState().setCurrentDirectory(dirPath);
-      await loadSubdirectory(dirPath, true);
-    };
-
     return (
       <div ref={containerRef} className="h-full overflow-y-auto p-3 md:p-4" onContextMenu={handleBackgroundContextMenu}>
         {gridItems.length === 0 && !searchQuery ? (
@@ -394,23 +162,6 @@ export function FileGridView({ variant = 'default', onOpenFile }: FileGridViewPr
   }
 
   if (browserMode === 'list') {
-    const listSelectionOrder = filteredListChildren?.map((node) => node.path) ?? [];
-
-    const handleNavigateInto = async (node: FileNodeType) => {
-      if (node.type === 'directory') {
-        useFileStore.getState().setCurrentDirectory(node.path);
-        await loadSubdirectory(node.path, true);
-      }
-    };
-
-    const handleNavigateUp = () => {
-      if (currentDirectory === '.') return;
-      const parentSegments = currentDirectory.split('/');
-      parentSegments.pop();
-      const parentPath = parentSegments.length === 0 ? '.' : parentSegments.join('/');
-      useFileStore.getState().setCurrentDirectory(parentPath);
-    };
-
     const listContent = (
       <div ref={containerRef} className="relative h-full overflow-y-auto py-2" tabIndex={-1} onContextMenu={handleBackgroundContextMenu}>
         {currentDirectory !== '.' && (

@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useCallback, useRef } from 'react';
+import { memo, useState, useCallback, useRef } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { useFileStore } from '@/app/store/file-store';
 import type { FileNode as FileNodeType } from '@/app/lib/files/types';
 import { cn } from '@/lib/utils';
@@ -33,21 +34,27 @@ function formatFileSize(bytes?: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
 }
 
-export function FileGridItem({ node, onOpenFile, onOpenDirectory, size = 'sm', selectionOrder }: FileGridItemProps) {
+function FileGridItemComponent({ node, onOpenFile, onOpenDirectory, size = 'sm', selectionOrder }: FileGridItemProps) {
   const t = useTranslations('notebook');
   const {
-    selectedNode,
+    isSelected,
     isMultiSelectMode,
-    multiSelectPaths,
+    isMultiSelected,
     toggleMultiSelectPath,
     selectNode,
     toggleDirectory,
     openContextMenu,
-  } = useFileStore();
+  } = useFileStore(useShallow((state) => ({
+    isSelected: state.selectedNode?.path === node.path,
+    isMultiSelectMode: state.isMultiSelectMode,
+    isMultiSelected: state.multiSelectPaths.has(node.path),
+    toggleMultiSelectPath: state.toggleMultiSelectPath,
+    selectNode: state.selectNode,
+    toggleDirectory: state.toggleDirectory,
+    openContextMenu: state.openContextMenu,
+  })));
 
   const isDirectory = node.type === 'directory';
-  const isSelected = selectedNode?.path === node.path;
-  const isMultiSelected = multiSelectPaths.has(node.path);
   const isRowActive = isSelected || isMultiSelected;
   const isPublic = node.type === 'file' && node.publicShare?.status === 'active';
   const displayName = getFileDisplayName(node);
@@ -214,3 +221,5 @@ export function FileGridItem({ node, onOpenFile, onOpenDirectory, size = 'sm', s
     </div>
   );
 }
+
+export const FileGridItem = memo(FileGridItemComponent);
