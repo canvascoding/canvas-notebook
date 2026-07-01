@@ -2830,7 +2830,7 @@
       },
       "files": {
         "title": "Agent-Dateien",
-        "description": "System-relevante Markdown-Dateien für das Agent-Verhalten.",
+        "description": "System-relevante Markdown-Dateien für das Agent-Verhalten. Änderungen gelten für neue Sessions; bestehende Sessions behalten ihren gespeicherten Prompt-Snapshot.",
         "loading": "Lade Dateien...",
         "summary": "{count, plural, =0 {Keine Dateien} one {# Datei} other {# Dateien}}",
         "activeFileSummary": "Aktiv: {fileName}",

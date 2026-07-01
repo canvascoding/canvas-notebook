@@ -2831,7 +2831,7 @@
       },
       "files": {
         "title": "Agent Managed Files",
-        "description": "System-relevant markdown files for agent behavior.",
+        "description": "System-relevant markdown files for agent behavior. Changes apply to new sessions; existing sessions keep their saved prompt snapshot.",
         "loading": "Loading files...",
         "summary": "{count, plural, =0 {No files} one {# file} other {# files}}",
         "activeFileSummary": "Active: {fileName}",
