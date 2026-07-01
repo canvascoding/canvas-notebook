@@ -57,8 +57,10 @@ async function main() {
     status: 'active',
     deploymentMode: 'managed-team',
     databaseProvider: 'postgres',
+    vectorProvider: 'pgvector',
     postgresRequired: true,
-    features: { teamWorkspace: true },
+    capabilities: { teamWorkspace: true, multiUser: true, vectorSearch: true, liveCollaboration: false },
+    features: { teamWorkspace: true, multiUser: true, vectorSearch: true },
     quotas: { users: 10 },
     iat: Math.floor(Date.now() / 1000),
     exp: Math.floor(Date.now() / 1000) + 3600,
@@ -88,6 +90,7 @@ async function main() {
   assert.equal((await requireLicenseQuota('users', 5)).quotas.users, 10);
   const teamRuntimeStatus = await requireTeamRuntimeLicense();
   assert.equal(teamRuntimeStatus.databaseProvider, 'postgres');
+  assert.equal(teamRuntimeStatus.vectorProvider, 'pgvector');
   assert.equal(teamRuntimeStatus.postgresRequired, true);
 
   await assert.rejects(
@@ -107,7 +110,9 @@ async function main() {
     ...basePayload,
     deploymentMode: 'managed-single',
     databaseProvider: 'sqlite',
+    vectorProvider: 'none',
     postgresRequired: false,
+    capabilities: { teamWorkspace: false, multiUser: false, vectorSearch: false, liveCollaboration: false },
     features: { teamWorkspace: false },
   });
   await assert.rejects(

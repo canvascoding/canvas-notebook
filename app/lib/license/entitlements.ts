@@ -2,6 +2,13 @@ import 'server-only';
 
 import { getLicenseStatus } from './index';
 import type { LicensePlan, LicenseStatus } from './types';
+import {
+  capabilitiesFromFeatures,
+  resolveNotebookRuntimeProfile,
+  type NotebookDatabaseProvider,
+  type NotebookRuntimeCapabilityKey,
+  type NotebookVectorProvider,
+} from '@/app/lib/runtime/notebook-runtime';
 
 export type LicenseEntitlementErrorCode =
   | 'LICENSE_REQUIRED'
@@ -69,15 +76,107 @@ export async function requireLicenseFeature(feature: string): Promise<LicenseSta
   return status;
 }
 
+function licenseCapabilities(status: LicenseStatus) {
+  const inferred = capabilitiesFromFeatures(status.features);
+  return {
+    multiUser: status.capabilities.multiUser ?? inferred.multiUser,
+    teamWorkspace: status.capabilities.teamWorkspace ?? inferred.teamWorkspace,
+    vectorSearch: status.capabilities.vectorSearch ?? inferred.vectorSearch,
+    liveCollaboration: status.capabilities.liveCollaboration ?? inferred.liveCollaboration,
+  };
+}
+
+function licenseDatabaseProvider(status: LicenseStatus): NotebookDatabaseProvider | null {
+  return status.databaseProvider === 'sqlite' || status.databaseProvider === 'postgres' ? status.databaseProvider : null;
+}
+
+function licenseVectorProvider(status: LicenseStatus): NotebookVectorProvider | null {
+  if (status.vectorProvider === 'none' || status.vectorProvider === 'pgvector' || status.vectorProvider === 'external') {
+    return status.vectorProvider;
+  }
+  return null;
+}
+
+function licenseRuntimeProfile(status: LicenseStatus) {
+  return resolveNotebookRuntimeProfile({
+    deploymentMode: status.deploymentMode,
+    databaseProvider: licenseDatabaseProvider(status),
+    vectorProvider: licenseVectorProvider(status),
+    postgresRequired: status.postgresRequired,
+    capabilities: licenseCapabilities(status),
+  });
+}
+
+function assertRuntimeCapability(status: LicenseStatus, capability: NotebookRuntimeCapabilityKey): void {
+  const capabilities = licenseCapabilities(status);
+  if (capabilities[capability] !== true) {
+    throw new LicenseEntitlementError(
+      'License does not include required runtime capability',
+      'LICENSE_FEATURE_REQUIRED',
+      403,
+      {
+        feature: capability,
+        plan: status.plan,
+        deploymentMode: status.deploymentMode,
+        databaseProvider: status.databaseProvider,
+        vectorProvider: status.vectorProvider,
+        postgresRequired: status.postgresRequired,
+      },
+    );
+  }
+}
+
+export async function requireRuntimeCapability(capability: NotebookRuntimeCapabilityKey): Promise<LicenseStatus> {
+  const status = await requireLicensed();
+  assertRuntimeCapability(status, capability);
+  return status;
+}
+
+export async function requireDatabaseProvider(provider: NotebookDatabaseProvider): Promise<LicenseStatus> {
+  const status = await requireLicensed();
+  if (licenseDatabaseProvider(status) !== provider) {
+    throw new LicenseEntitlementError(
+      'License does not include required database provider',
+      'LICENSE_FEATURE_REQUIRED',
+      403,
+      {
+        provider,
+        plan: status.plan,
+        deploymentMode: status.deploymentMode,
+        databaseProvider: status.databaseProvider,
+        postgresRequired: status.postgresRequired,
+      },
+    );
+  }
+  return status;
+}
+
+export async function requireVectorProvider(provider: NotebookVectorProvider): Promise<LicenseStatus> {
+  const status = await requireLicensed();
+  if (licenseVectorProvider(status) !== provider) {
+    throw new LicenseEntitlementError(
+      'License does not include required vector provider',
+      'LICENSE_FEATURE_REQUIRED',
+      403,
+      {
+        provider,
+        plan: status.plan,
+        deploymentMode: status.deploymentMode,
+        databaseProvider: status.databaseProvider,
+        vectorProvider: status.vectorProvider,
+      },
+    );
+  }
+  return status;
+}
+
 export async function requireTeamRuntimeLicense(): Promise<LicenseStatus> {
   const status = await requireLicensed();
-  const teamFeatureEnabled = status.features.teamWorkspace === true || status.features.multiUser === true;
-  const postgresRuntimeEnabled = status.databaseProvider === 'postgres' ||
-    status.postgresRequired === true ||
-    status.deploymentMode === 'managed-team' ||
-    status.deploymentMode === 'enterprise-onprem';
+  assertRuntimeCapability(status, 'teamWorkspace');
+  assertRuntimeCapability(status, 'multiUser');
+  const profile = licenseRuntimeProfile(status);
 
-  if (!teamFeatureEnabled || !postgresRuntimeEnabled) {
+  if (profile.databaseProvider !== 'postgres' || profile.compatible !== true) {
     throw new LicenseEntitlementError(
       'License does not include Team runtime',
       'LICENSE_FEATURE_REQUIRED',
@@ -87,7 +186,9 @@ export async function requireTeamRuntimeLicense(): Promise<LicenseStatus> {
         plan: status.plan,
         deploymentMode: status.deploymentMode,
         databaseProvider: status.databaseProvider,
+        vectorProvider: status.vectorProvider,
         postgresRequired: status.postgresRequired,
+        blockers: profile.blockers.map((blocker) => blocker.code),
       },
     );
   }

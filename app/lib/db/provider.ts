@@ -1,14 +1,21 @@
 import path from 'node:path';
 
+import {
+  normalizeVectorProvider,
+  resolveNotebookRuntimeProfile,
+  type NotebookRuntimeCapabilityKey,
+  type NotebookRuntimeCompatibilityCode,
+  type NotebookVectorProvider,
+} from '@/app/lib/runtime/notebook-runtime';
+
 export type DatabaseProvider = 'sqlite' | 'postgres';
 
 export type DatabaseProviderProblemCode =
   | 'invalid_provider'
-  | 'team_requires_postgres'
   | 'postgres_missing_database_url'
   | 'postgres_invalid_database_url'
   | 'postgres_runtime_adapter_unavailable'
-  | 'pgvector_required';
+  | NotebookRuntimeCompatibilityCode;
 
 export type DatabaseProviderProblem = {
   code: DatabaseProviderProblemCode;
@@ -20,6 +27,7 @@ export type DatabaseRuntimeAdapter = 'sqlite' | 'postgres' | 'postgres-unavailab
 export type DatabaseProviderConfig = {
   provider: DatabaseProvider;
   requestedProvider: string | null;
+  vectorProvider: NotebookVectorProvider;
   runtimeAdapter: DatabaseRuntimeAdapter;
   sqlite: {
     dataDir: string;
@@ -47,6 +55,7 @@ export type DatabaseProviderGate = {
 export type PublicDatabaseProviderStatus = {
   provider: DatabaseProvider;
   requestedProvider: string | null;
+  vectorProvider: NotebookVectorProvider;
   runtimeAdapter: DatabaseProviderConfig['runtimeAdapter'];
   postgres: DatabaseProviderConfig['postgres'];
   blockers: DatabaseProviderProblemCode[];
@@ -106,6 +115,8 @@ export function resolveDatabaseProviderConfig(): DatabaseProviderConfig {
   const problems: DatabaseProviderProblem[] = [];
   const sqlitePath = resolveSqlitePath();
   const databaseUrlProtocol = getDatabaseUrlProtocol(process.env.DATABASE_URL);
+  const pgvectorEnabled = isTruthyEnv(process.env.CANVAS_POSTGRES_VECTOR_ENABLED);
+  const vectorProvider = normalizeVectorProvider(process.env.CANVAS_VECTOR_PROVIDER) || (pgvectorEnabled ? 'pgvector' : 'none');
 
   if (requestedProvider && !VALID_PROVIDERS.has(requestedProvider as DatabaseProvider)) {
     problems.push(createProblem(
@@ -131,6 +142,7 @@ export function resolveDatabaseProviderConfig(): DatabaseProviderConfig {
   return {
     provider,
     requestedProvider,
+    vectorProvider,
     runtimeAdapter: provider === 'postgres' ? 'postgres' : 'sqlite',
     sqlite: {
       dataDir: resolveDataDir(),
@@ -139,7 +151,7 @@ export function resolveDatabaseProviderConfig(): DatabaseProviderConfig {
     postgres: {
       databaseUrlConfigured: Boolean(process.env.DATABASE_URL?.trim()),
       databaseUrlProtocol,
-      pgvectorEnabled: isTruthyEnv(process.env.CANVAS_POSTGRES_VECTOR_ENABLED),
+      pgvectorEnabled,
       imageConfigured: Boolean(process.env.CANVAS_POSTGRES_IMAGE?.trim()),
       dataVolumeConfigured: Boolean(process.env.CANVAS_POSTGRES_DATA_VOLUME?.trim()),
     },
@@ -148,8 +160,11 @@ export function resolveDatabaseProviderConfig(): DatabaseProviderConfig {
 }
 
 export function resolveDatabaseProviderGate(options: {
+  runtimeMode?: 'personal' | 'team';
   teamFeaturesEnabled?: boolean;
   requirePgvector?: boolean;
+  requiredCapabilities?: NotebookRuntimeCapabilityKey[];
+  vectorProvider?: NotebookVectorProvider;
   postgresRuntimeAdapterAvailable?: boolean;
 } = {}): DatabaseProviderGate {
   const config = resolveDatabaseProviderConfig();
@@ -159,25 +174,27 @@ export function resolveDatabaseProviderGate(options: {
   const runtimeAdapter: DatabaseRuntimeAdapter = config.provider === 'postgres' && postgresRuntimeAdapterAvailable
     ? 'postgres'
     : config.runtimeAdapter;
-
-  if (options.teamFeaturesEnabled === true && config.provider !== 'postgres') {
-    blockers.push(createProblem(
-      'team_requires_postgres',
-      'Team features require CANVAS_DATABASE_PROVIDER=postgres.',
-    ));
+  const requiredCapabilities = new Set(options.requiredCapabilities || []);
+  const runtimeProfile = resolveNotebookRuntimeProfile({
+    runtimeMode: options.runtimeMode || (options.teamFeaturesEnabled ? 'team' : 'personal'),
+    databaseProvider: config.provider,
+    vectorProvider: options.vectorProvider || config.vectorProvider,
+    capabilities: {
+      multiUser: options.teamFeaturesEnabled === true || requiredCapabilities.has('multiUser'),
+      teamWorkspace: options.teamFeaturesEnabled === true || requiredCapabilities.has('teamWorkspace'),
+      vectorSearch: options.requirePgvector === true || requiredCapabilities.has('vectorSearch'),
+      liveCollaboration: requiredCapabilities.has('liveCollaboration'),
+    },
+    pgvectorEnabled: config.postgres.pgvectorEnabled,
+  });
+  for (const problem of runtimeProfile.blockers) {
+    blockers.push(createProblem(problem.code, problem.message));
   }
 
   if (config.provider === 'postgres' && !postgresRuntimeAdapterAvailable) {
     blockers.push(createProblem(
       'postgres_runtime_adapter_unavailable',
       'Postgres provider is configured, but this build still uses the SQLite runtime adapter.',
-    ));
-  }
-
-  if (options.requirePgvector === true && config.provider === 'postgres' && !config.postgres.pgvectorEnabled) {
-    blockers.push(createProblem(
-      'pgvector_required',
-      'This feature requires CANVAS_POSTGRES_VECTOR_ENABLED=true.',
     ));
   }
 
@@ -199,6 +216,7 @@ export function toPublicDatabaseProviderStatus(gate: DatabaseProviderGate): Publ
   return {
     provider: gate.provider,
     requestedProvider: gate.config.requestedProvider,
+    vectorProvider: gate.config.vectorProvider,
     runtimeAdapter: gate.runtimeAdapter,
     postgres: gate.config.postgres,
     blockers: gate.blockers.map((problem) => problem.code),

@@ -33,8 +33,8 @@ function serializeWorkspace(workspace: WorkspaceContext) {
   };
 }
 
-async function requireTeamRuntimeIfEnabled(status: { teamFeaturesEnabled: boolean; databaseProvider: string }) {
-  if (!status.teamFeaturesEnabled && status.databaseProvider !== 'postgres') return null;
+async function requireTeamRuntimeIfEnabled(status: { teamFeaturesEnabled: boolean }) {
+  if (!status.teamFeaturesEnabled) return null;
   try {
     await requireTeamRuntimeLicense();
     return null;

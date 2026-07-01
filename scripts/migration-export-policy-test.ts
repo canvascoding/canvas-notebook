@@ -174,6 +174,10 @@ async function main() {
     assert.equal(manifest.source.organizationId, 'org-export');
     assert.equal(manifest.source.createdByUserId, 'user-admin');
     assert.equal(manifest.database.provider, 'sqlite');
+    assert.equal(manifest.runtime.runtimeMode, 'team');
+    assert.equal(manifest.runtime.databaseProvider, 'sqlite');
+    assert.equal(manifest.runtime.vectorProvider, 'none');
+    assert.ok(manifest.runtime.capabilities.includes('teamWorkspace'));
     assert.equal(manifest.database.backupKind, 'sqlite_snapshot');
     assert.equal(manifest.database.artifactPath, 'data/sqlite.db');
     assert.match(manifest.database.artifactSha256, /^[a-f0-9]{64}$/u);
@@ -255,6 +259,9 @@ async function main() {
     assert.equal(postgresEntries.includes('data/sqlite.db'), false);
     const postgresManifest = JSON.parse(await unzipEntryText(completedPostgres.filePath, 'manifest.json'));
     assert.equal(postgresManifest.database.provider, 'postgres');
+    assert.equal(postgresManifest.runtime.databaseProvider, 'postgres');
+    assert.equal(postgresManifest.runtime.vectorProvider, 'pgvector');
+    assert.ok(postgresManifest.runtime.capabilities.includes('vectorSearch'));
     assert.equal(postgresManifest.database.backupKind, 'none');
     assert.equal(postgresManifest.database.artifactPath, null);
     assert.equal(postgresManifest.database.pgvectorEnabled, true);

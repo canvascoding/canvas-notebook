@@ -6,6 +6,7 @@ import path from 'node:path';
 type EnvSnapshot = {
   DATA?: string;
   CANVAS_DATABASE_PROVIDER?: string;
+  CANVAS_VECTOR_PROVIDER?: string;
   CANVAS_POSTGRES_VECTOR_ENABLED?: string;
   CANVAS_POSTGRES_IMAGE?: string;
   CANVAS_POSTGRES_DATA_VOLUME?: string;
@@ -16,6 +17,7 @@ function snapshotEnv(): EnvSnapshot {
   return {
     DATA: process.env.DATA,
     CANVAS_DATABASE_PROVIDER: process.env.CANVAS_DATABASE_PROVIDER,
+    CANVAS_VECTOR_PROVIDER: process.env.CANVAS_VECTOR_PROVIDER,
     CANVAS_POSTGRES_VECTOR_ENABLED: process.env.CANVAS_POSTGRES_VECTOR_ENABLED,
     CANVAS_POSTGRES_IMAGE: process.env.CANVAS_POSTGRES_IMAGE,
     CANVAS_POSTGRES_DATA_VOLUME: process.env.CANVAS_POSTGRES_DATA_VOLUME,
@@ -34,6 +36,7 @@ function restoreEnv(snapshot: EnvSnapshot): void {
 function resetProviderEnv(dataDir: string): void {
   process.env.DATA = dataDir;
   delete process.env.CANVAS_DATABASE_PROVIDER;
+  delete process.env.CANVAS_VECTOR_PROVIDER;
   delete process.env.CANVAS_POSTGRES_VECTOR_ENABLED;
   delete process.env.CANVAS_POSTGRES_IMAGE;
   delete process.env.CANVAS_POSTGRES_DATA_VOLUME;
@@ -54,6 +57,20 @@ async function main() {
       resolveSqlitePath,
       toPublicDatabaseProviderStatus,
     } = await import('../app/lib/db/provider');
+    const { resolveNotebookRuntimeProfile } = await import('../app/lib/runtime/notebook-runtime');
+
+    const capabilityDrivenProfile = resolveNotebookRuntimeProfile({
+      capabilities: {
+        multiUser: true,
+        teamWorkspace: true,
+        vectorSearch: true,
+        liveCollaboration: false,
+      },
+    });
+    assert.equal(capabilityDrivenProfile.runtimeMode, 'team');
+    assert.equal(capabilityDrivenProfile.databaseProvider, 'postgres');
+    assert.equal(capabilityDrivenProfile.vectorProvider, 'pgvector');
+    assert.equal(capabilityDrivenProfile.compatible, true);
 
     assert.equal(getDatabaseProvider(), 'sqlite');
     assert.equal(resolveSqlitePath(), path.join(dataDir, 'sqlite.db'));
@@ -106,6 +123,7 @@ async function main() {
     assert.equal(gate.config.postgres.databaseUrlConfigured, true);
     assert.equal(gate.config.postgres.databaseUrlProtocol, 'postgresql');
     assert.equal(gate.config.postgres.pgvectorEnabled, true);
+    assert.equal(gate.config.vectorProvider, 'pgvector');
     assert.equal(gate.config.postgres.imageConfigured, true);
     assert.equal(gate.config.postgres.dataVolumeConfigured, true);
 
@@ -116,9 +134,21 @@ async function main() {
     assert.equal(serializedStatus.includes('postgres:5432'), false);
     assert.equal(publicStatus.postgres.databaseUrlConfigured, true);
     assert.equal(publicStatus.postgres.databaseUrlProtocol, 'postgresql');
+    assert.equal(publicStatus.vectorProvider, 'pgvector');
     assert.equal(publicStatus.runtimeAdapter, 'postgres');
 
     process.env.CANVAS_POSTGRES_VECTOR_ENABLED = 'false';
+    process.env.CANVAS_VECTOR_PROVIDER = 'none';
+    gate = resolveDatabaseProviderGate({
+      runtimeMode: 'personal',
+      teamFeaturesEnabled: false,
+      postgresRuntimeAdapterAvailable: true,
+    });
+    assert.equal(gate.ok, true);
+    assert.equal(gate.provider, 'postgres');
+    assert.equal(gate.config.vectorProvider, 'none');
+
+    process.env.CANVAS_VECTOR_PROVIDER = 'pgvector';
     gate = resolveDatabaseProviderGate({
       teamFeaturesEnabled: true,
       requirePgvector: true,

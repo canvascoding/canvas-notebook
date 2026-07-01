@@ -1,6 +1,7 @@
 export type LicensePlan = 'unregistered' | 'community' | 'pro' | 'managed';
 export type LicenseDeploymentMode = 'community' | 'managed-single' | 'managed-team' | 'enterprise-onprem' | string;
 export type LicenseDatabaseProvider = 'sqlite' | 'postgres' | string;
+export type LicenseVectorProvider = 'none' | 'pgvector' | 'external' | string;
 
 export interface LicenseCert {
   sub: string;
@@ -8,7 +9,9 @@ export interface LicenseCert {
   status?: 'active' | 'issued' | string;
   deploymentMode?: LicenseDeploymentMode;
   databaseProvider?: LicenseDatabaseProvider;
+  vectorProvider?: LicenseVectorProvider;
   postgresRequired?: boolean;
+  capabilities?: Record<string, boolean>;
   organizationId?: string;
   entitlementsVersion?: number;
   features?: Record<string, boolean>;
@@ -25,7 +28,9 @@ export interface LicenseStatus {
   instanceId: string;
   deploymentMode: LicenseDeploymentMode | null;
   databaseProvider: LicenseDatabaseProvider | null;
+  vectorProvider: LicenseVectorProvider | null;
   postgresRequired: boolean;
+  capabilities: Record<string, boolean>;
   organizationId: string | null;
   entitlementsVersion: number | null;
   expiresAt: string | null;

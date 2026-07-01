@@ -60,6 +60,7 @@ export interface CanvasMigrationManifest {
   components: MigrationComponents;
   selection?: MigrationExportSelection;
   source?: MigrationExportSource;
+  runtime?: MigrationExportRuntime;
   security?: MigrationExportSecurity;
   database?: MigrationExportDatabase;
   features?: MigrationExportFeatures;
@@ -85,6 +86,14 @@ export interface MigrationExportSource {
   createdByUserId: string | null;
   createdByEmail: string | null;
   createdByRole: string | null;
+}
+
+export interface MigrationExportRuntime {
+  runtimeMode: 'personal' | 'team';
+  databaseProvider: 'sqlite' | 'postgres';
+  vectorProvider: 'none' | 'pgvector' | 'external';
+  postgresRequired: boolean;
+  capabilities: Array<'multiUser' | 'teamWorkspace' | 'vectorSearch' | 'liveCollaboration'>;
 }
 
 export interface MigrationExportSecurity {

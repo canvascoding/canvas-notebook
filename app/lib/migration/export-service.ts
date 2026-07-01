@@ -21,11 +21,13 @@ import {
   type MigrationExportJob,
   type MigrationExportOptions,
   type MigrationExportProfile,
+  type MigrationExportRuntime,
   type MigrationExportSecurity,
   type MigrationExportSelection,
   type MigrationExportSource,
   type MigrationFileEntry,
 } from '@/app/lib/migration/types';
+import { resolveNotebookRuntimeProfile, type NotebookDatabaseProvider } from '@/app/lib/runtime/notebook-runtime';
 import {
   ensureMigrationDir,
   getMigrationDataRoot,
@@ -478,6 +480,10 @@ function normalizeDatabaseProvider(value: string | null | undefined): MigrationE
   return 'unknown';
 }
 
+function runtimeDatabaseProvider(provider: MigrationExportDatabase['provider']): NotebookDatabaseProvider | null {
+  return provider === 'sqlite' || provider === 'postgres' ? provider : null;
+}
+
 function buildFeatures(source: MigrationExportSource): MigrationExportFeatures {
   const truthy = (value: string | undefined) => value === 'true' || value === '1' || value === 'yes';
   return {
@@ -485,6 +491,38 @@ function buildFeatures(source: MigrationExportSource): MigrationExportFeatures {
     knowledgeEnabled: truthy(process.env.CANVAS_KNOWLEDGE_ENABLED) || truthy(process.env.CANVAS_TEAM_KNOWLEDGE_BASE_ENABLED),
     embeddingsEnabled: truthy(process.env.CANVAS_EMBEDDINGS_ENABLED) || truthy(process.env.CANVAS_POSTGRES_VECTOR_ENABLED),
     collaborationEnabled: truthy(process.env.CANVAS_COLLABORATION_ENABLED),
+  };
+}
+
+function buildRuntimeManifest(params: {
+  source: MigrationExportSource;
+  database: MigrationExportDatabase;
+  features: MigrationExportFeatures;
+}): MigrationExportRuntime {
+  const profile = resolveNotebookRuntimeProfile({
+    runtimeMode: process.env.CANVAS_RUNTIME_MODE,
+    deploymentMode: params.source.deploymentMode,
+    databaseProvider: runtimeDatabaseProvider(params.database.provider),
+    vectorProvider: process.env.CANVAS_VECTOR_PROVIDER || (params.database.pgvectorEnabled ? 'pgvector' : 'none'),
+    postgresRequired: process.env.CANVAS_POSTGRES_REQUIRED === 'true' || params.database.provider === 'postgres',
+    capabilities: {
+      multiUser: params.source.teamFeaturesEnabled,
+      teamWorkspace: params.features.teamWorkspaceEnabled,
+      vectorSearch: params.features.embeddingsEnabled,
+      liveCollaboration: params.features.collaborationEnabled,
+    },
+    pgvectorEnabled: params.database.pgvectorEnabled === true,
+  });
+  const capabilities = Object.entries(profile.capabilities)
+    .filter((entry): entry is [MigrationExportRuntime['capabilities'][number], true] => entry[1] === true)
+    .map(([key]) => key);
+
+  return {
+    runtimeMode: profile.runtimeMode,
+    databaseProvider: profile.databaseProvider,
+    vectorProvider: profile.vectorProvider,
+    postgresRequired: profile.postgresRequired,
+    capabilities,
   };
 }
 
@@ -527,6 +565,7 @@ function buildManifest(params: {
   selection: MigrationExportSelection;
   source: MigrationExportSource;
   security: MigrationExportSecurity;
+  runtime: MigrationExportRuntime;
   database: MigrationExportDatabase;
   features: MigrationExportFeatures;
   files: MigrationFileEntry[];
@@ -574,6 +613,7 @@ function buildManifest(params: {
     components: params.components,
     selection: params.selection,
     source: params.source,
+    runtime: params.runtime,
     security: params.security,
     database: params.database,
     features: params.features,
@@ -650,6 +690,10 @@ async function runExport(job: MigrationExportJob): Promise<void> {
       virtualFileContents.set(reconnectManifest.entry.archivePath, reconnectManifest.content);
     }
 
+    const database = buildDatabaseManifest({ source: job.source, sqliteSnapshot });
+    const features = buildFeatures(job.source);
+    const runtime = buildRuntimeManifest({ source: job.source, database, features });
+
     const manifest = buildManifest({
       exportId: job.id,
       profile: job.profile,
@@ -657,8 +701,9 @@ async function runExport(job: MigrationExportJob): Promise<void> {
       selection: job.selection,
       source: job.source,
       security: buildExportSecurity(job.components),
-      database: buildDatabaseManifest({ source: job.source, sqliteSnapshot }),
-      features: buildFeatures(job.source),
+      runtime,
+      database,
+      features,
       files,
     });
     job.manifest = manifest;
