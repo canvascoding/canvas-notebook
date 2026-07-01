@@ -77,6 +77,7 @@
     "test:organization:permissions": "tsx --conditions react-server scripts/organization-permission-guards-test.ts",
     "test:organization:offboarding": "tsx --conditions react-server scripts/organization-offboarding-test.ts",
     "test:license": "tsx --conditions react-server scripts/license-security-test.ts",
+    "test:install:managed-env": "bash scripts/install-managed-env-test.sh",
     "test:cli:admin": "bash scripts/cli-admin-command-test.sh",
     "test:cli:database-provider": "bash scripts/cli-database-provider-test.sh",
     "test:channels": "tsx scripts/channel-architecture-test.ts",

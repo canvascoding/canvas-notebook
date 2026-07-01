@@ -223,7 +223,16 @@ configure_compose_values() {
     CANVAS_INSTANCE_TOKEN \
     CANVAS_LICENSE_CERT \
     CANVAS_LICENSE_PUBLIC_KEY \
-    CANVAS_LICENSE_TRUSTED_PUBLIC_KEY_FINGERPRINTS; do
+    CANVAS_LICENSE_TRUSTED_PUBLIC_KEY_FINGERPRINTS \
+    CANVAS_RUNTIME_SCOPE \
+    CANVAS_ORGANIZATION_ID \
+    CANVAS_TEAM_FEATURES_ENABLED \
+    CANVAS_MULTI_USER_ENABLED \
+    CANVAS_PERSONAL_WORKSPACES_ENABLED \
+    CANVAS_TEAM_WORKSPACE_ENABLED \
+    CANVAS_TEAM_KNOWLEDGE_BASE_ENABLED \
+    CANVAS_AUDIT_TRAIL_ENABLED \
+    CANVAS_MANAGED_BACKUPS_ENABLED; do
     if [[ -n "${!managed_env_key:-}" ]]; then
       config_json_write "env.${managed_env_key}" "${!managed_env_key}"
       ok "Set ${managed_env_key}"
@@ -334,7 +343,9 @@ configure_database_values() {
     CANVAS_POSTGRES_DATA_VOLUME \
     CANVAS_POSTGRES_DB \
     CANVAS_POSTGRES_USER \
-    CANVAS_POSTGRES_PASSWORD; do
+    CANVAS_POSTGRES_PASSWORD \
+    CANVAS_POSTGRES_REQUIRED \
+    CANVAS_POSTGRES_VECTOR_ENABLED; do
     if [[ -n "${!database_env_key:-}" ]]; then
       config_json_write "env.${database_env_key}" "${!database_env_key}"
       ok "Set ${database_env_key}"
