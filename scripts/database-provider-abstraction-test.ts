@@ -81,11 +81,11 @@ async function main() {
     delete process.env.DATABASE_URL;
     gate = resolveDatabaseProviderGate({ teamFeaturesEnabled: true });
     assert.equal(gate.ok, false);
+    assert.equal(gate.runtimeAdapter, 'postgres');
     assert.ok(gate.blockers.some((problem) => problem.code === 'postgres_missing_database_url'));
-    assert.ok(gate.blockers.some((problem) => problem.code === 'postgres_runtime_adapter_unavailable'));
     assert.throws(
       () => assertRuntimeDatabaseProviderSupported(),
-      /runtime database adapter is not available/u,
+      /requires DATABASE_URL/u,
     );
 
     process.env.DATABASE_URL = 'mysql://canvas:secret@localhost/canvas';

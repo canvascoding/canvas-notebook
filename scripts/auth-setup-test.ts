@@ -113,7 +113,7 @@ async function main() {
     process.env.CANVAS_TEAM_FEATURES_ENABLED = previousTeamFeaturesEnv;
   }
 
-  assert.equal(hasAnyAuthUser(), false);
+    assert.equal(await hasAnyAuthUser(), false);
 
   mkdirSync(path.join(dataDir, 'secrets'), { recursive: true });
   writeFileSync(
@@ -135,7 +135,7 @@ async function main() {
 
   assert.equal(owner.name, 'Setup Admin');
   assert.equal(owner.email, 'setup@example.test');
-  assert.equal(hasAnyAuthUser(), true);
+    assert.equal(await hasAnyAuthUser(), true);
 
   const sqlite = new Database(path.join(dataDir, 'sqlite.db'));
   const users = sqlite.prepare('SELECT id, name, email, role, email_verified AS emailVerified FROM user').all() as Array<{
@@ -365,6 +365,24 @@ async function main() {
 
   const genericTeamBootstrapDir = mkdtempSync(path.join(tmpdir(), 'canvas-auth-generic-team-bootstrap-'));
   try {
+    assert.throws(
+      () => execFileSync('node', ['scripts/bootstrap-admin.js'], {
+        cwd: process.cwd(),
+        stdio: 'pipe',
+        env: {
+          ...process.env,
+          DATA: genericTeamBootstrapDir,
+          CANVAS_DEPLOYMENT_MODE: 'production',
+          CANVAS_TEAM_FEATURES_ENABLED: 'true',
+          CANVAS_DATABASE_PROVIDER: 'postgres',
+          BOOTSTRAP_ADMIN_EMAIL: 'generic-team@example.test',
+          BOOTSTRAP_ADMIN_PASSWORD: 'GenericTeamPassword123!',
+          BOOTSTRAP_ADMIN_NAME: 'Generic Team Admin',
+        },
+      }),
+      /DATABASE_URL is required/u,
+    );
+
     execFileSync('node', ['scripts/bootstrap-admin.js'], {
       cwd: process.cwd(),
       stdio: 'pipe',
@@ -373,7 +391,7 @@ async function main() {
         DATA: genericTeamBootstrapDir,
         CANVAS_DEPLOYMENT_MODE: 'production',
         CANVAS_TEAM_FEATURES_ENABLED: 'true',
-        CANVAS_DATABASE_PROVIDER: 'postgres',
+        CANVAS_DATABASE_PROVIDER: 'sqlite',
         BOOTSTRAP_ADMIN_EMAIL: 'generic-team@example.test',
         BOOTSTRAP_ADMIN_PASSWORD: 'GenericTeamPassword123!',
         BOOTSTRAP_ADMIN_NAME: 'Generic Team Admin',

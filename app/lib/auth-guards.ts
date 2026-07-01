@@ -14,7 +14,7 @@ export async function requirePageSession(options?: { allowIncompleteOnboarding?:
   ]);
 
   if (!session) {
-    if (!hasAnyAuthUser()) {
+    if (!(await hasAnyAuthUser())) {
       redirect({ href: '/setup', locale });
     }
     redirect({ href: '/login', locale });

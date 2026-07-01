@@ -1,6 +1,7 @@
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { db } from "@/app/lib/db";
+import { getDatabaseProvider } from "@/app/lib/db/provider";
 import { nextCookies } from "better-auth/next-js";
 import { admin, bearer } from "better-auth/plugins";
 
@@ -32,7 +33,7 @@ export const auth = betterAuth({
   baseURL: authBaseURL,
   trustedOrigins,
   database: drizzleAdapter(db, {
-    provider: "sqlite",
+    provider: getDatabaseProvider() === "postgres" ? "pg" : "sqlite",
   }),
   emailAndPassword: emailAndPasswordConfig,
   plugins: [

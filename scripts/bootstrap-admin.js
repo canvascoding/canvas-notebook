@@ -1,5 +1,6 @@
 const path = require('node:path');
 const { randomUUID } = require('node:crypto');
+const { spawnSync } = require('node:child_process');
 const {
   cpSync,
   existsSync,
@@ -143,6 +144,35 @@ async function getBootstrapAdminConfig() {
 function getSqlitePath() {
   const dataDir = process.env.DATA || path.resolve(process.cwd(), 'data');
   return path.join(dataDir, 'sqlite.db');
+}
+
+function getDatabaseProvider() {
+  return (process.env.CANVAS_DATABASE_PROVIDER || '').trim().toLowerCase() || 'sqlite';
+}
+
+function runPostgresBootstrapAdmin(bootstrapAdmin) {
+  const tsxCli = path.join(path.dirname(require.resolve('tsx')), 'cli.mjs');
+  const result = spawnSync(
+    process.execPath,
+    [tsxCli, '--conditions', 'react-server', 'scripts/bootstrap-admin-postgres.ts'],
+    {
+      cwd: process.cwd(),
+      env: {
+        ...process.env,
+        BOOTSTRAP_ADMIN_EMAIL: bootstrapAdmin.email,
+        BOOTSTRAP_ADMIN_PASSWORD: bootstrapAdmin.password,
+        BOOTSTRAP_ADMIN_NAME: bootstrapAdmin.name,
+      },
+      stdio: 'inherit',
+    },
+  );
+
+  if (result.error) {
+    throw result.error;
+  }
+  if (result.status !== 0) {
+    process.exit(result.status || 1);
+  }
 }
 
 function ensureBootstrapTables(db) {
@@ -893,6 +923,11 @@ async function main() {
 
   if (!bootstrapAdmin) {
     console.log('[bootstrap-admin] Skipped (BOOTSTRAP_ADMIN_EMAIL/BOOTSTRAP_ADMIN_PASSWORD not set).');
+    return;
+  }
+
+  if (getDatabaseProvider() === 'postgres') {
+    runPostgresBootstrapAdmin(bootstrapAdmin);
     return;
   }
 

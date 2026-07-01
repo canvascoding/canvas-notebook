@@ -22,7 +22,7 @@ export default async function SetupPage() {
     redirect({ href: '/', locale });
   }
 
-  if (hasAnyAuthUser()) {
+  if (await hasAnyAuthUser()) {
     redirect({ href: '/login', locale });
   }
 

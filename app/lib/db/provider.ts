@@ -131,7 +131,7 @@ export function resolveDatabaseProviderConfig(): DatabaseProviderConfig {
   return {
     provider,
     requestedProvider,
-    runtimeAdapter: provider === 'postgres' ? 'postgres-unavailable' : 'sqlite',
+    runtimeAdapter: provider === 'postgres' ? 'postgres' : 'sqlite',
     sqlite: {
       dataDir: resolveDataDir(),
       path: sqlitePath,
@@ -155,7 +155,7 @@ export function resolveDatabaseProviderGate(options: {
   const config = resolveDatabaseProviderConfig();
   const blockers = [...config.problems];
   const warnings: DatabaseProviderProblem[] = [];
-  const postgresRuntimeAdapterAvailable = options.postgresRuntimeAdapterAvailable === true;
+  const postgresRuntimeAdapterAvailable = options.postgresRuntimeAdapterAvailable !== false;
   const runtimeAdapter: DatabaseRuntimeAdapter = config.provider === 'postgres' && postgresRuntimeAdapterAvailable
     ? 'postgres'
     : config.runtimeAdapter;
@@ -217,10 +217,12 @@ export class DatabaseProviderRuntimeError extends Error {
 }
 
 export function assertRuntimeDatabaseProviderSupported(provider = getDatabaseProvider()): void {
-  if (provider !== 'sqlite') {
+  const gate = resolveDatabaseProviderGate({ postgresRuntimeAdapterAvailable: true });
+  if (provider === 'postgres' && !gate.ok) {
+    const problem = gate.blockers[0];
     throw new DatabaseProviderRuntimeError(
-      'postgres_runtime_adapter_unavailable',
-      'Postgres mode is configured, but the Canvas Notebook runtime database adapter is not available yet.',
+      problem?.code || 'postgres_missing_database_url',
+      problem?.message || 'Postgres mode is configured but not usable.',
     );
   }
 }

@@ -28,7 +28,7 @@ export async function GET() {
 
   try {
     connection = await openDb();
-    connection.get('SELECT 1');
+    await connection.get('SELECT 1');
     checks.db = 'ok';
   } catch {
     checks.db = 'error';

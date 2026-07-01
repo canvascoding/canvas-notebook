@@ -4,7 +4,7 @@ import { hasAnyAuthUser } from '@/app/lib/auth-setup';
 
 export default async function SignUpPage() {
   const locale = await getLocale();
-  if (!hasAnyAuthUser()) {
+  if (!(await hasAnyAuthUser())) {
     redirect({ href: '/setup', locale });
   }
   redirect({ href: '/login', locale });
