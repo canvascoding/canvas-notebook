@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { auth } from '@/app/lib/auth';
-import { requireInstanceAdmin } from '@/app/lib/admin-auth';
+import { isOnboardingEnabled, readIsOnboardingComplete } from '@/app/lib/onboarding/status';
+import { resolveServerSettingsUpdatePermission } from '@/app/lib/server-settings-policy';
 import {
   getServerSettings,
   setServerPreferredTimeZone,
@@ -18,10 +19,34 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({ success: true, data: settings });
 }
 
+async function getOnboardingCompleteForServerSettingsUpdate(): Promise<boolean> {
+  if (!isOnboardingEnabled()) {
+    return true;
+  }
+
+  try {
+    return await readIsOnboardingComplete();
+  } catch (error) {
+    console.warn('[server-settings] Failed to read onboarding status for update permission:', error);
+    return true;
+  }
+}
+
 export async function PATCH(request: NextRequest) {
-  const adminCheck = await requireInstanceAdmin(request);
-  if (!adminCheck.ok) {
-    return adminCheck.response;
+  const session = await auth.api.getSession({ headers: request.headers });
+  if (!session) {
+    return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
+  }
+
+  const onboardingEnabled = isOnboardingEnabled();
+  const onboardingComplete = await getOnboardingCompleteForServerSettingsUpdate();
+  const permission = resolveServerSettingsUpdatePermission(session.user, {
+    onboardingEnabled,
+    onboardingComplete,
+  });
+
+  if (!permission.ok) {
+    return NextResponse.json({ success: false, error: 'Forbidden: admin only' }, { status: 403 });
   }
 
   const payload = await request.json().catch(() => null);
@@ -34,6 +59,6 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json({ success: false, error: 'Unsupported time zone.' }, { status: 400 });
   }
 
-  const settings = await setServerPreferredTimeZone(adminCheck.session.user.id, rawTimeZone);
+  const settings = await setServerPreferredTimeZone(session.user.id, rawTimeZone);
   return NextResponse.json({ success: true, data: settings });
 }

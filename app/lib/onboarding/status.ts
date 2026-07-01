@@ -10,10 +10,14 @@ export function isOnboardingHintsEnabled(): boolean {
   return process.env.ONBOARDING_HINTS?.trim().toLowerCase() === 'true';
 }
 
+export async function readIsOnboardingComplete(): Promise<boolean> {
+  const row = await db.select({ method: onboardingLog.method }).from(onboardingLog).where(eq(onboardingLog.method, 'ui')).limit(1);
+  return row.length > 0;
+}
+
 export async function isOnboardingComplete(): Promise<boolean> {
   try {
-    const row = await db.select().from(onboardingLog).where(eq(onboardingLog.method, 'ui')).limit(1);
-    return row.length > 0;
+    return await readIsOnboardingComplete();
   } catch {
     return false; // fail-open: show wizard if DB not ready yet
   }
