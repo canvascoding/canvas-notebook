@@ -53,7 +53,7 @@ export async function POST(request: NextRequest) {
     // buildAgentConfigReadiness no longer requires a config parameter
     const [readiness, promptResult, qmd] = await Promise.all([
       buildAgentConfigReadiness(),
-      loadManagedAgentSystemPrompt(agentId, { userId: session.user.id }),
+      loadManagedAgentSystemPrompt(agentId, { userId: session.user.id, userName: session.user.name }),
       getQmdDoctorStatus(),
     ]);
     const { diagnostics } = promptResult;

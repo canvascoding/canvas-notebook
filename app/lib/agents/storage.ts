@@ -27,6 +27,7 @@ export type AgentManagedFileName = (typeof AGENT_MANAGED_FILE_NAMES)[number];
 export type AgentManagedFiles = Record<AgentManagedFileName, string>;
 export type AgentStorageScope = {
   userId?: string | null;
+  userName?: string | null;
 };
 
 // Seed system prompts directory (relative to project root)

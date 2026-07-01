@@ -60,6 +60,7 @@ export type { PiRuntimePromptContext } from '@/app/lib/pi/runtime-prompt-context
 const IDLE_TTL_MS = 15 * 60 * 1000;
 const CLEANUP_INTERVAL_MS = 60 * 1000;
 const MAX_RUNTIME_INSTANCES = 20;
+const RUNTIME_CONTEXT_VALUE_MAX_CHARS = 2_000;
 
 function getStudioOutputReferencePaths(outputFilePath: string) {
   const normalizedOutputPath = outputFilePath.replace(/^\/+/, '');
@@ -75,6 +76,31 @@ function getStudioOutputReferencePaths(outputFilePath: string) {
     absolutePath: path.join(getStudioOutputsRoot(), outputRelativePath),
     referencePath,
   };
+}
+
+function normalizeRuntimeContextValue(value: unknown, maxChars = RUNTIME_CONTEXT_VALUE_MAX_CHARS): string {
+  const normalized = String(value ?? '').replace(/\s+/g, ' ').trim();
+  return normalized.length > maxChars ? `${normalized.slice(0, maxChars).trimEnd()}...` : normalized;
+}
+
+function formatRuntimeContextValue(value: unknown, maxChars = RUNTIME_CONTEXT_VALUE_MAX_CHARS): string {
+  return JSON.stringify(normalizeRuntimeContextValue(value, maxChars));
+}
+
+function formatRuntimeContextArray(values: unknown[], maxItems = 20): string {
+  return JSON.stringify(
+    values
+      .map((value) => normalizeRuntimeContextValue(value, 240))
+      .filter(Boolean)
+      .slice(0, maxItems),
+  );
+}
+
+function pushRuntimeContextLine(lines: string[], label: string, value: unknown, maxChars?: number) {
+  const normalized = normalizeRuntimeContextValue(value, maxChars);
+  if (normalized) {
+    lines.push(`${label}: ${JSON.stringify(normalized)}`);
+  }
 }
 
 // Lazy-cached emitter — resolved once, reused for every subsequent agent event.
@@ -687,13 +713,14 @@ class LivePiRuntime {
 
     const lines = [
       '## Active Workspace Context',
-      `This chat session is bound to the ${this.workspaceContext.workspaceType} workspace "${this.workspaceContext.workspaceName}".`,
-      `Workspace ID: ${this.workspaceContext.workspaceId}`,
+      `Workspace type: ${formatRuntimeContextValue(this.workspaceContext.workspaceType)}`,
+      `Workspace name: ${formatRuntimeContextValue(this.workspaceContext.workspaceName)}`,
+      `Workspace ID: ${formatRuntimeContextValue(this.workspaceContext.workspaceId)}`,
       'All workspace-relative file paths resolve inside this workspace. Do not switch workspace inside this session; a workspace switch requires a new chat session.',
     ];
 
     if (this.workspaceContext.organizationId) {
-      lines.push(`Organization ID: ${this.workspaceContext.organizationId}`);
+      pushRuntimeContextLine(lines, 'Organization ID', this.workspaceContext.organizationId);
     }
     if (!this.workspaceContext.canWrite) {
       lines.push('Workspace writes are disabled for this session. Read files only unless the user switches to a workspace with write permission.');
@@ -716,36 +743,36 @@ class LivePiRuntime {
     ];
 
     if (this.studioContext.currentOutputId) {
-      lines.push(`Current output ID: ${this.studioContext.currentOutputId}`);
+      pushRuntimeContextLine(lines, 'Current output ID', this.studioContext.currentOutputId);
     }
     if (this.studioContext.generationId) {
-      lines.push(`Generation ID: ${this.studioContext.generationId}`);
+      pushRuntimeContextLine(lines, 'Generation ID', this.studioContext.generationId);
     }
     if (this.studioContext.generationPrompt) {
-      lines.push(`Generation prompt: ${this.studioContext.generationPrompt}`);
+      pushRuntimeContextLine(lines, 'Generation prompt', this.studioContext.generationPrompt);
     }
     if (this.studioContext.generationPresetId) {
-      lines.push(`Preset ID: ${this.studioContext.generationPresetId}`);
+      pushRuntimeContextLine(lines, 'Preset ID', this.studioContext.generationPresetId);
     }
     if (this.studioContext.generationProductIds?.length) {
-      lines.push(`Product IDs: ${this.studioContext.generationProductIds.join(', ')}`);
+      lines.push(`Product IDs: ${formatRuntimeContextArray(this.studioContext.generationProductIds)}`);
     }
     if (this.studioContext.generationPersonaIds?.length) {
-      lines.push(`Persona IDs: ${this.studioContext.generationPersonaIds.join(', ')}`);
+      lines.push(`Persona IDs: ${formatRuntimeContextArray(this.studioContext.generationPersonaIds)}`);
     }
     if (this.studioContext.outputFilePath) {
       const { absolutePath, referencePath } = getStudioOutputReferencePaths(this.studioContext.outputFilePath);
-      lines.push(`Current Studio output DB filePath: ${this.studioContext.outputFilePath}`);
-      lines.push(`Use this exact path when passing the current image as a Studio reference: ${referencePath}`);
-      lines.push(`Use this exact path in studio_generate_image.extra_reference_urls: ${referencePath}`);
-      lines.push(`Absolute filesystem path for file operations only: ${absolutePath}`);
+      pushRuntimeContextLine(lines, 'Current Studio output DB filePath', this.studioContext.outputFilePath);
+      pushRuntimeContextLine(lines, 'Use this exact path when passing the current image as a Studio reference', referencePath);
+      pushRuntimeContextLine(lines, 'Use this exact path in studio_generate_image.extra_reference_urls', referencePath);
+      pushRuntimeContextLine(lines, 'Absolute filesystem path for file operations only', absolutePath);
     }
     if (this.studioContext.outputMediaUrl) {
-      lines.push(`Output media URL: ${this.studioContext.outputMediaUrl}`);
-      lines.push(`When embedding this output in Markdown, use this exact image URL: ${this.studioContext.outputMediaUrl}`);
+      pushRuntimeContextLine(lines, 'Output media URL', this.studioContext.outputMediaUrl);
+      pushRuntimeContextLine(lines, 'When embedding this output in Markdown, use this exact image URL', this.studioContext.outputMediaUrl);
     }
     if (this.studioContext.activeImagePath) {
-      lines.push(`Active image file path: ${this.studioContext.activeImagePath}`);
+      pushRuntimeContextLine(lines, 'Active image file path', this.studioContext.activeImagePath);
     }
 
     lines.push('If the user asks to edit, restyle, recolor, remix, or make a variation of the visible image, call studio_generate_image and include the exact studio/outputs/... reference path above in extra_reference_urls. Do not pass the /data/... absolute filesystem path to studio_generate_image.');
@@ -763,37 +790,37 @@ class LivePiRuntime {
     ];
 
     if (this.emailContext.accountEmail) {
-      lines.push(`Active account email: ${this.emailContext.accountEmail}`);
+      pushRuntimeContextLine(lines, 'Active account email', this.emailContext.accountEmail);
     }
     if (this.emailContext.accountId) {
-      lines.push(`Active account ID: ${this.emailContext.accountId}`);
+      pushRuntimeContextLine(lines, 'Active account ID', this.emailContext.accountId);
     }
     if (this.emailContext.folderName || this.emailContext.folder) {
-      lines.push(`Active folder: ${this.emailContext.folderName || this.emailContext.folder}`);
+      pushRuntimeContextLine(lines, 'Active folder', this.emailContext.folderName || this.emailContext.folder);
     }
     if (this.emailContext.folder && this.emailContext.folderName && this.emailContext.folder !== this.emailContext.folderName) {
-      lines.push(`Active folder path: ${this.emailContext.folder}`);
+      pushRuntimeContextLine(lines, 'Active folder path', this.emailContext.folder);
     }
     if (this.emailContext.filter) {
-      lines.push(`Message filter: ${this.emailContext.filter}`);
+      pushRuntimeContextLine(lines, 'Message filter', this.emailContext.filter);
     }
     if (this.emailContext.query) {
-      lines.push(`Current search query: ${this.emailContext.query}`);
+      pushRuntimeContextLine(lines, 'Current search query', this.emailContext.query);
     }
     if (this.emailContext.selectedMessageId) {
-      lines.push(`Selected message ID: ${this.emailContext.selectedMessageId}`);
+      pushRuntimeContextLine(lines, 'Selected message ID', this.emailContext.selectedMessageId);
     }
     if (this.emailContext.selectedMessageFolder) {
-      lines.push(`Selected message folder: ${this.emailContext.selectedMessageFolder}`);
+      pushRuntimeContextLine(lines, 'Selected message folder', this.emailContext.selectedMessageFolder);
     }
     if (this.emailContext.selectedMessageSubject) {
-      lines.push(`Selected message subject: ${this.emailContext.selectedMessageSubject}`);
+      pushRuntimeContextLine(lines, 'Selected message subject', this.emailContext.selectedMessageSubject);
     }
     if (this.emailContext.selectedMessageFrom) {
-      lines.push(`Selected message from: ${this.emailContext.selectedMessageFrom}`);
+      pushRuntimeContextLine(lines, 'Selected message from', this.emailContext.selectedMessageFrom);
     }
     if (this.emailContext.selectedMessageDate) {
-      lines.push(`Selected message date: ${this.emailContext.selectedMessageDate}`);
+      pushRuntimeContextLine(lines, 'Selected message date', this.emailContext.selectedMessageDate);
     }
     if (typeof this.emailContext.selectedMessageIsRead === 'boolean') {
       lines.push(`Selected message read: ${this.emailContext.selectedMessageIsRead ? 'yes' : 'no'}`);
@@ -820,11 +847,11 @@ class LivePiRuntime {
     if (this.timeZoneContext) {
       const { timeZone, currentTime } = this.timeZoneContext;
       const formatted = formatZonedDateTimeForPrompt(currentTime, timeZone);
-      sections.push(`Current Date & Time: ${formatted.localDateTime} (${formatted.timeZone}, ${formatted.utcOffset})`);
+      sections.push(`Current Date & Time: ${formatRuntimeContextValue(`${formatted.localDateTime} (${formatted.timeZone}, ${formatted.utcOffset})`)}`);
     }
 
     if (this.activeFileContext) {
-      sections.push(`Currently open file in editor: ${this.activeFileContext}`);
+      sections.push(`Currently open file in editor: ${formatRuntimeContextValue(this.activeFileContext)}`);
     }
 
     if (this.planningMode) {

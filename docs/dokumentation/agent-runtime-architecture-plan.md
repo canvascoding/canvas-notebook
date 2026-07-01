@@ -24,7 +24,7 @@ Agent
 - Eine Session kann ueber mehrere Channels erreichbar sein, zum Beispiel Web und Telegram.
 - Mehrere Agenten teilen keine Session-Historie.
 - `canvas-agent` ist immer vorhanden, nicht entfernbar und Default fuer Chat, Telegram und Automations.
-- Spezial-Agenten erben Provider, Model, Tool-Defaults, `IDENTITY.md` und `USER.md` vom Canvas Agent, solange sie keine eigenen Overrides setzen.
+- Spezial-Agenten erben Provider, Model, Tool-Defaults und `USER.md` vom Canvas Agent, solange sie keine eigenen Overrides setzen.
 - Jeder Agent hat eigenes `MEMORY.md`.
 - Jeder Agent hat eine eigene Heartbeat-Konfiguration.
 - Automations bekommen einen ausfuehrenden Agenten und ein separates Delivery-Ziel.
@@ -35,7 +35,6 @@ Canvas Agent:
 
 ```text
 AGENTS.md
-IDENTITY.md
 USER.md
 MEMORY.md
 SOUL.md
@@ -56,7 +55,6 @@ HEARTBEAT.md
 Geerbt vom Canvas Agent:
 
 ```text
-IDENTITY.md
 USER.md
 ```
 
@@ -67,7 +65,7 @@ Die Prompt-Komposition orientiert sich an Hermes und wird in drei Ebenen getrenn
 ```text
 Stable:
 - Canvas Core Rules
-- Identity vom Canvas Agent
+- USER.md vom Canvas Agent
 - SOUL.md des aktiven Agenten
 - TOOLS.md des aktiven Agenten
 - Skills/Tools/Provider-Hinweise
@@ -194,5 +192,5 @@ Die Automationen-App bleibt fuer Job-Management zustaendig, bekommt aber eine Ag
 - Web-Chat und Telegram nutzen weiterhin den Canvas Agent als Standard-Agent.
 - Sessions, PI-Persistenz, Automations und aktive Channel-Sessions sind agent-aware.
 - Aktive Channel-Sessions sind pro Agent getrennt, damit spaeter mehrere Agenten im gleichen Channel-Kontext aktiv sein koennen.
-- Spezial-Agenten erben Identity und User-Kontext vom Canvas Agent, besitzen aber eigene AGENTS.md, MEMORY.md, SOUL.md, TOOLS.md und HEARTBEAT.md.
+- Spezial-Agenten erben User-Kontext vom Canvas Agent, besitzen aber eigene AGENTS.md, MEMORY.md, SOUL.md, TOOLS.md und HEARTBEAT.md.
 - Vollstaendige Spezial-Agent-Konfiguration fuer Provider-/Model-Overrides, Toolsets, Skills und Composio-Scopes ist vorbereitet, aber bewusst noch nicht als eigener Detail-Editor ausgebaut.

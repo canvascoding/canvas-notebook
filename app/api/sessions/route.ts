@@ -461,7 +461,10 @@ export async function POST(request: NextRequest) {
 
       const model = requestedModel || providerConfig?.model || 'unknown';
       const thinkingLevel = requestedThinkingLevel || providerConfig?.thinking || 'off';
-      const promptSnapshot = await createPiSystemPromptSnapshot(requestedAgentId, { userId: session.user.id });
+      const promptSnapshot = await createPiSystemPromptSnapshot(requestedAgentId, {
+        userId: session.user.id,
+        userName: session.user.name,
+      });
       const channelId = typeof payload.channelId === 'string' ? payload.channelId : 'app';
       const normalizedChannelId = normalizeStoredChannelId(channelId);
       const channelSessionKey = typeof payload.channelSessionKey === 'string'

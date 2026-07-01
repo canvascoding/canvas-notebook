@@ -19,7 +19,6 @@ Ziel ist, alle Agent Prompt Files kanonisch unter `/data/agents/<agentId>/` zu f
 
 ```text
 /data/agents/canvas-agent/AGENTS.md
-/data/agents/canvas-agent/IDENTITY.md
 /data/agents/canvas-agent/USER.md
 /data/agents/canvas-agent/MEMORY.md
 /data/agents/canvas-agent/SOUL.md
@@ -46,7 +45,7 @@ Aenderungen:
 - Wenn Legacy-Inhalt existiert und `/data/agents/canvas-agent/<file>` fehlt oder leer ist, den Inhalt in den neuen Pfad kopieren.
 - Danach soll die Runtime aus `/data/agents/canvas-agent` lesen.
 - Spezial-Agenten behalten eigene Dateien unter `/data/agents/<agentId>/`.
-- Spezial-Agenten erben weiterhin `IDENTITY.md` und `USER.md` vom Canvas Agent.
+- Spezial-Agenten erben weiterhin `USER.md` vom Canvas Agent.
 
 ### 2. Bootstrap korrigieren
 

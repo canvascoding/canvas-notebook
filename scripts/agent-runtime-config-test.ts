@@ -162,6 +162,14 @@ async function main() {
 
   await fs.writeFile(path.join(dataDir, 'canvas-agent', 'USER.md'), 'Legacy user profile should not leak.\n', 'utf8');
   const scopedUserId = 'runtime-user-a';
+  await db.insert(users).values({
+    id: scopedUserId,
+    name: 'Runtime User A',
+    email: 'runtime-user-a@example.test',
+    emailVerified: false,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  });
   assert.doesNotMatch(
     await readManagedAgentFile('USER.md', DEFAULT_MANAGED_AGENT_ID, { userId: scopedUserId }),
     /Legacy user profile should not leak/,
@@ -171,13 +179,24 @@ async function main() {
   });
   const scopedPrompt = await loadManagedAgentSystemPrompt(DEFAULT_MANAGED_AGENT_ID, { userId: scopedUserId });
   assert.match(scopedPrompt.systemPrompt, /Scoped runtime prompt/);
+  assert.match(scopedPrompt.systemPrompt, /## Authenticated User Context/);
+  assert.match(scopedPrompt.systemPrompt, /User display name: "Runtime User A"/);
   assert.ok(scopedPrompt.systemPrompt.includes(
     `Source: ${path.join(dataDir, 'users', scopedUserId, 'agents', 'canvas-agent', 'AGENTS.md')}`,
   ));
+  const providedNamePrompt = await loadManagedAgentSystemPrompt(DEFAULT_MANAGED_AGENT_ID, {
+    userId: scopedUserId,
+    userName: ' Runtime\nDisplay ',
+  });
+  assert.match(providedNamePrompt.systemPrompt, /User display name: "Runtime Display"/);
   assert.match(
     await fs.readFile(path.join(dataDir, 'users', scopedUserId, 'agents', 'canvas-agent', 'AGENTS.md'), 'utf8'),
     /Scoped runtime prompt/,
   );
+  const invalidPromptFallback = await loadManagedAgentSystemPrompt('../invalid-agent');
+  assert.equal(invalidPromptFallback.diagnostics.usedFallback, true);
+  assert.match(invalidPromptFallback.systemPrompt, /^# Canvas Notebook Runtime/);
+  assert.match(invalidPromptFallback.systemPrompt, /## File Access for Uploaded Attachments/);
   await assert.rejects(
     () => writeManagedAgentFile('AGENTS.md', 'Invalid scoped prompt.\n', DEFAULT_MANAGED_AGENT_ID, {
       userId: '../other-user',
@@ -386,6 +405,7 @@ async function main() {
   assert.ok(legacySession);
   const legacySnapshot = await ensurePiSessionSystemPromptSnapshot(legacySession);
   assert.match(legacySnapshot.systemPrompt, /Snapshot user scoped prompt/);
+  assert.match(legacySnapshot.systemPrompt, /User display name: "Snapshot User"/);
   assert.doesNotMatch(legacySnapshot.systemPrompt, /Changed after session start/);
   const updatedLegacySession = await db.query.piSessions.findFirst({
     where: eq(piSessions.sessionId, 'legacy-unsnapshotted-session'),

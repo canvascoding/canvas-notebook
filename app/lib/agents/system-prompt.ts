@@ -1,5 +1,9 @@
 import 'server-only';
 
+import { eq } from 'drizzle-orm';
+
+import { db } from '@/app/lib/db';
+import { user as users } from '@/app/lib/db/schema';
 import {
   CANVAS_INHERITED_FILE_NAMES,
   DEFAULT_MANAGED_AGENT_ID,
@@ -9,6 +13,8 @@ import {
 import { resolveAgentRuntimeConfig } from './effective-runtime-config';
 import {
   composeManagedAgentSystemPrompt,
+  MANAGED_PROMPT_FILE_NAMES,
+  type ManagedPromptFiles,
   type ManagedSystemPromptResult,
 } from './system-prompt-shared';
 import { getAgentProfile } from './registry';
@@ -65,6 +71,69 @@ Browser use is available through the \`browser\` gateway tool, but ordinary web 
 Use \`browser\` only when JavaScript rendering, UI interaction, screenshots, login/session checks, console inspection, or local app verification requires a real browser. The browser gateway intentionally keeps detailed interaction guidance out of the system prompt; call \`browser\` with \`action: "help"\` and topic \`"safety"\` or \`"interaction"\` when those details are needed.
 
 Prefer \`observe\` before click/type actions, use returned \`target_id\` values where possible, use \`dialog_status\`, \`accept_dialog\`, or \`dismiss_dialog\` for JavaScript dialogs, and close the browser when finished. Navigation blocks cloud metadata, link-local, multicast, and private network targets by default while allowing localhost for local app verification.`;
+
+function createEmptyManagedPromptFiles(): ManagedPromptFiles {
+  return Object.fromEntries(
+    MANAGED_PROMPT_FILE_NAMES.map((fileName) => [fileName, '']),
+  ) as ManagedPromptFiles;
+}
+
+function compactPromptMetadata(value?: string | null, maxChars = 160): string {
+  const normalized = value?.replace(/\s+/g, ' ').trim() || '';
+  return normalized.length > maxChars ? `${normalized.slice(0, maxChars).trimEnd()}...` : normalized;
+}
+
+async function resolveAuthenticatedUserName(scope?: AgentStorageScope | null): Promise<string | null> {
+  const providedName = compactPromptMetadata(scope?.userName);
+  if (providedName) {
+    return providedName;
+  }
+
+  const userId = scope?.userId?.trim();
+  if (!userId) {
+    return null;
+  }
+
+  try {
+    const rows = await db
+      .select({ name: users.name })
+      .from(users)
+      .where(eq(users.id, userId))
+      .limit(1);
+    return compactPromptMetadata(rows[0]?.name) || null;
+  } catch (error) {
+    console.warn('[system-prompt] Failed to load authenticated user name:', error);
+    return null;
+  }
+}
+
+async function buildAuthenticatedUserContext(scope?: AgentStorageScope | null): Promise<string> {
+  const userName = await resolveAuthenticatedUserName(scope);
+  if (!userName) {
+    return '';
+  }
+
+  return [
+    '## Authenticated User Context',
+    '',
+    `User display name: ${JSON.stringify(userName)}`,
+    'Use this as the user\'s name when useful for personalization. Do not infer private facts, roles, or identity claims from the name alone.',
+  ].join('\n');
+}
+
+function buildReadFailedFallbackSystemPrompt(): ManagedSystemPromptResult {
+  const fallback = composeManagedAgentSystemPrompt(createEmptyManagedPromptFiles());
+  return {
+    systemPrompt: fallback.systemPrompt,
+    diagnostics: {
+      loadedFiles: [],
+      includedFiles: [],
+      emptyFiles: [],
+      usedFallback: true,
+      fallbackReason: 'read-failed',
+    },
+  };
+}
 
 function getPromptSkillsForAgent<T extends { name: string; enabled?: boolean }>(
   normalizedAgentId: string,
@@ -297,6 +366,11 @@ export async function loadManagedAgentSystemPrompt(
     });
     
     let systemPrompt = result.systemPrompt;
+    const authenticatedUserContext = await buildAuthenticatedUserContext(scope);
+    if (authenticatedUserContext) {
+      systemPrompt += '\n\n' + authenticatedUserContext;
+    }
+
     const onboardingBootstrapContext = await buildOnboardingBootstrapContext(normalizedAgentId);
     if (onboardingBootstrapContext) {
       systemPrompt += '\n\n' + onboardingBootstrapContext;
@@ -338,16 +412,8 @@ export async function loadManagedAgentSystemPrompt(
     }
     
     return { ...result, systemPrompt };
-  } catch {
-    return {
-      systemPrompt: '',
-      diagnostics: {
-        loadedFiles: [],
-        includedFiles: [],
-        emptyFiles: [],
-        usedFallback: true,
-        fallbackReason: 'read-failed',
-      },
-    };
+  } catch (error) {
+    console.error('[system-prompt] Failed to load managed agent system prompt:', error);
+    return buildReadFailedFallbackSystemPrompt();
   }
 }
