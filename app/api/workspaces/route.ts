@@ -3,6 +3,11 @@ import { NextResponse } from 'next/server';
 import { auth } from '@/app/lib/auth';
 import { getDatabaseProvider } from '@/app/lib/db/provider';
 import {
+  LicenseEntitlementError,
+  licenseEntitlementErrorPayload,
+  requireTeamRuntimeLicense,
+} from '@/app/lib/license/entitlements';
+import {
   ensureOrganizationBootstrapForUser,
   openOrganizationBootstrapDatabase,
 } from '@/app/lib/organization/bootstrap';
@@ -28,6 +33,19 @@ function serializeWorkspace(workspace: WorkspaceContext) {
   };
 }
 
+async function requireTeamRuntimeIfEnabled(status: { teamFeaturesEnabled: boolean; databaseProvider: string }) {
+  if (!status.teamFeaturesEnabled && status.databaseProvider !== 'postgres') return null;
+  try {
+    await requireTeamRuntimeLicense();
+    return null;
+  } catch (error) {
+    if (error instanceof LicenseEntitlementError) {
+      return NextResponse.json(licenseEntitlementErrorPayload(error), { status: error.statusCode });
+    }
+    throw error;
+  }
+}
+
 export async function GET(request: Request) {
   const session = await auth.api.getSession({ headers: request.headers });
   if (!session) {
@@ -43,6 +61,8 @@ export async function GET(request: Request) {
   if (getDatabaseProvider() === 'postgres') {
     try {
       const state = await getPostgresWorkspaceState(actor);
+      const licenseResponse = await requireTeamRuntimeIfEnabled(state.status);
+      if (licenseResponse) return licenseResponse;
       return NextResponse.json({
         success: true,
         organizationId: state.status.organizationId,
@@ -63,6 +83,11 @@ export async function GET(request: Request) {
   try {
     sqlite.exec('BEGIN IMMEDIATE');
     const status = ensureOrganizationBootstrapForUser(sqlite, session.user.id);
+    const licenseResponse = await requireTeamRuntimeIfEnabled(status);
+    if (licenseResponse) {
+      sqlite.exec('ROLLBACK');
+      return licenseResponse;
+    }
     if (!status.organizationId) {
       sqlite.exec('ROLLBACK');
       return NextResponse.json({ success: false, error: 'Organization is not configured' }, { status: 409 });

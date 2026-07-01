@@ -69,6 +69,32 @@ export async function requireLicenseFeature(feature: string): Promise<LicenseSta
   return status;
 }
 
+export async function requireTeamRuntimeLicense(): Promise<LicenseStatus> {
+  const status = await requireLicensed();
+  const teamFeatureEnabled = status.features.teamWorkspace === true || status.features.multiUser === true;
+  const postgresRuntimeEnabled = status.databaseProvider === 'postgres' ||
+    status.postgresRequired === true ||
+    status.deploymentMode === 'managed-team' ||
+    status.deploymentMode === 'enterprise-onprem';
+
+  if (!teamFeatureEnabled || !postgresRuntimeEnabled) {
+    throw new LicenseEntitlementError(
+      'License does not include Team runtime',
+      'LICENSE_FEATURE_REQUIRED',
+      403,
+      {
+        feature: 'teamWorkspace',
+        plan: status.plan,
+        deploymentMode: status.deploymentMode,
+        databaseProvider: status.databaseProvider,
+        postgresRequired: status.postgresRequired,
+      },
+    );
+  }
+
+  return status;
+}
+
 export async function requireLicenseQuota(quota: string, minimum: number): Promise<LicenseStatus> {
   const normalized = quota.trim();
   const required = Math.max(0, Math.floor(minimum));

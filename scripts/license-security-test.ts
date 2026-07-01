@@ -46,6 +46,7 @@ async function main() {
     requireLicenseFeature,
     requireLicenseQuota,
     requireLicensePlan,
+    requireTeamRuntimeLicense,
   } = await import('../app/lib/license/entitlements');
 
   const basePayload = {
@@ -54,6 +55,9 @@ async function main() {
     aud: 'canvas-notebook',
     plan: 'managed',
     status: 'active',
+    deploymentMode: 'managed-team',
+    databaseProvider: 'postgres',
+    postgresRequired: true,
     features: { teamWorkspace: true },
     quotas: { users: 10 },
     iat: Math.floor(Date.now() / 1000),
@@ -82,6 +86,9 @@ async function main() {
   assert.equal((await requireLicenseFeature('teamWorkspace')).features.teamWorkspace, true);
   assert.equal((await requireLicensePlan(['managed'])).plan, 'managed');
   assert.equal((await requireLicenseQuota('users', 5)).quotas.users, 10);
+  const teamRuntimeStatus = await requireTeamRuntimeLicense();
+  assert.equal(teamRuntimeStatus.databaseProvider, 'postgres');
+  assert.equal(teamRuntimeStatus.postgresRequired, true);
 
   await assert.rejects(
     () => requireLicenseFeature('teamKnowledgeBase'),
@@ -94,6 +101,18 @@ async function main() {
   await assert.rejects(
     () => requireLicenseQuota('users', 11),
     (error) => error instanceof LicenseEntitlementError && error.code === 'LICENSE_QUOTA_REQUIRED',
+  );
+
+  process.env.CANVAS_LICENSE_CERT = signLicense(privateKey, {
+    ...basePayload,
+    deploymentMode: 'managed-single',
+    databaseProvider: 'sqlite',
+    postgresRequired: false,
+    features: { teamWorkspace: false },
+  });
+  await assert.rejects(
+    () => requireTeamRuntimeLicense(),
+    (error) => error instanceof LicenseEntitlementError && error.code === 'LICENSE_FEATURE_REQUIRED',
   );
 
   rmSync(dataDir, { recursive: true, force: true });
