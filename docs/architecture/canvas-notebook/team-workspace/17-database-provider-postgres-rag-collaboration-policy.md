@@ -1,6 +1,6 @@
 # Database Provider, Postgres, RAG und Collaboration Policy
 
-Stand: 2026-06-18
+Stand: 2026-07-01
 
 ## Zweck
 
@@ -32,6 +32,138 @@ SQLite darf nur diese Produktlinie tragen:
 - optional `managed-single`, solange Team-, RAG- und Collaboration-Features gesperrt bleiben
 
 SQLite kann technisch Tabellen fuer Chunks, Graph-Kanten oder einfache Full-Text-Suche speichern. Das ist aber nicht der produktive Zielpfad fuer Team-RAG. Fuer Canvas Notebook gilt: produktive Team Knowledge, Embeddings, RAG und Knowledge Graph brauchen Postgres mit pgvector.
+
+## Entkopplungsplan: Runtime, Provider und Capabilities
+
+Der aktuelle Implementierungsstand koppelt Team-Modus, Postgres und pgvector noch stark:
+
+```txt
+runtimeMode=team -> CANVAS_DATABASE_PROVIDER=postgres -> CANVAS_TEAM_FEATURES_ENABLED=true -> Team/Postgres-Lizenz erforderlich
+```
+
+Diese Kopplung bleibt kurzfristig als Produktregel bestehen. Sie darf aber nicht dauerhaft als implizite Architekturannahme in UI, Env-Generierung, Lizenzpruefung, Healthchecks und Migrationen verstreut bleiben. Fachlich sind drei Konzepte zu trennen:
+
+1. Runtime Mode: `personal` oder `team`.
+2. Database Provider: `sqlite` oder `postgres`.
+3. Vector Provider: `none`, `pgvector` oder spaeter `external`.
+
+Zielmodell:
+
+```txt
+runtimeMode: personal | team
+databaseProvider: sqlite | postgres
+vectorProvider: none | pgvector | external
+capabilities:
+  multiUser: boolean
+  teamWorkspace: boolean
+  vectorSearch: boolean
+  liveCollaboration: boolean
+```
+
+Wichtig: Diese Entkopplung erlaubt noch nicht automatisch neue Produktkombinationen. Fuer V1 bleibt `team` offiziell nur mit Postgres erlaubt. Der Unterschied ist, dass der Code nicht mehr "Team ist Postgres" annimmt, sondern "Team fordert Capabilities an, und die aktuelle Compatibility-Regel verlangt dafuer Postgres".
+
+### Zielkombinationen
+
+| Runtime | Database | Vector | Status fuer V1 | Bedeutung |
+|---|---|---|---|---|
+| `personal` | `sqlite` | `none` | erlaubt | Standard fuer lokale und einfache Single-User-Installationen |
+| `personal` | `postgres` | `none` oder `pgvector` | optional/vorbereitet | Power-User, Migrationstests oder spaetere Self-hosted-Varianten |
+| `team` | `postgres` | `none` | erlaubt mit Team-Lizenz, aber ohne produktive Vector Search | Team Workspace, Rollen, Multi-User, Revisionen und Locks |
+| `team` | `postgres` | `pgvector` | voller Zielpfad | Team Workspace plus Knowledge/RAG/Embeddings |
+| `team` | `sqlite` | `none` | fuer V1 blockiert | moeglicher spaeterer `Team Lite`- oder Entwicklungsmodus, nicht offizieller Produktpfad |
+| `team` | `sqlite` | `pgvector` | ungueltig | pgvector ist ein Postgres-Provider |
+
+### Umsetzungsschritte
+
+1. Zentrales Runtime-Profil einfuehren.
+   - Notebook und Control Plane bekommen je eine zentrale Funktion, z. B. `resolveNotebookRuntimeProfile(...)`.
+   - Das Profil liefert `runtimeMode`, `databaseProvider`, `vectorProvider`, `deploymentMode`, `features`, `capabilities` und Compatibility-Fehler.
+   - Alle Env-, Lizenz-, UI- und Health-Flows lesen aus diesem Profil statt eigene `team -> postgres`-Ableitungen zu bauen.
+
+2. Control Plane Env-Generierung entkoppeln.
+   - VM-Erstellung und Runtime-Switch duerfen nicht verstreut `runtimeMode=team` in Postgres-Env umwandeln.
+   - Stattdessen erzeugt das Runtime-Profil die konkrete Env:
+     - `CANVAS_DEPLOYMENT_MODE`
+     - `CANVAS_DATABASE_PROVIDER`
+     - `CANVAS_TEAM_FEATURES_ENABLED`
+     - `CANVAS_POSTGRES_VECTOR_ENABLED`
+     - `DATABASE_URL`
+   - `applyManagedEnvToVmConfig()` und `ensureManagedEnvForVmConfig()` schreiben nur noch das validierte Profil.
+
+3. Lizenzclaims capability-basiert machen.
+   - Managed-Lizenzen sollen nicht nur `runtimeMode=team` ausdruecken.
+   - Relevante Claims:
+     - `features.teamWorkspace`
+     - `features.multiUser`
+     - `features.vectorSearch`
+     - `databaseProvider`
+     - `vectorProvider`
+     - `postgresRequired`
+   - Team-Lizenzen duerfen fuer V1 weiterhin `databaseProvider=postgres` und `postgresRequired=true` ausstellen.
+
+4. Notebook-Gates trennen.
+   - Bestehende Checks wie `requireTeamRuntimeLicense()` werden perspektivisch in kleinere Guards aufgeteilt:
+     - `requireRuntimeCapability("teamWorkspace")`
+     - `requireRuntimeCapability("multiUser")`
+     - `requireDatabaseProvider("postgres")`
+     - `requireVectorProvider("pgvector")`
+   - V1 darf intern weiter sagen: `teamWorkspace` verlangt Postgres.
+   - Fehlermeldungen muessen aber unterscheiden:
+     - Lizenz erlaubt Capability nicht.
+     - Runtime ist nicht kompatibel.
+     - Datenbankprovider fehlt.
+     - pgvector fehlt.
+
+5. Compatibility-Regeln zentralisieren.
+   - Eine Funktion wie `validateRuntimeCompatibility(profile)` entscheidet, welche Kombinationen erlaubt sind.
+   - Aktuelle V1-Regeln:
+     - `teamWorkspace=true` braucht `databaseProvider=postgres`.
+     - `multiUser=true` braucht `databaseProvider=postgres`.
+     - `vectorSearch=true` braucht `databaseProvider=postgres` und `vectorProvider=pgvector`.
+     - `liveCollaboration=true` braucht fuer produktive Team-Nutzung Postgres.
+   - Spaetere Aenderungen wie `team + sqlite` als experimenteller Team-Lite-Modus duerfen nur hier freigeschaltet werden.
+
+6. UI-Sprache korrigieren.
+   - UI soll nicht mehr implizieren: "Team ist Postgres".
+   - Besser:
+     - Runtime Mode: Personal oder Team.
+     - Database Provider: SQLite oder Postgres.
+     - Vector Provider: None, pgvector oder spaeter external.
+   - Solange Self-hosted Team noch nicht verfuegbar ist, zeigt die Control Plane: Team Mode ist aktuell nur fuer canvasnotebook.app verfuegbar; Self-hosted folgt.
+   - Sobald Self-hosted Team freigegeben wird, zeigt die UI: Team Mode benoetigt aktuell Postgres.
+
+7. Migration provider- und capability-aware machen.
+   - Migrationsmanifest erhaelt getrennte Felder:
+
+```json
+{
+  "runtimeMode": "team",
+  "databaseProvider": "postgres",
+  "vectorProvider": "pgvector",
+  "capabilities": ["teamWorkspace", "multiUser", "vectorSearch"]
+}
+```
+
+   - SQLite-zu-Postgres ist eine Datenbankmigration.
+   - Vector-Reindex ist ein separater Schritt.
+   - Team-Aktivierung ist ein Runtime-/Capability-Schritt nach bestandener Migration.
+
+8. Testmatrix absichern.
+   - `personal + sqlite`: erlaubt.
+   - `personal + postgres`: explizit erlaubt oder explizit blockiert, nicht implizit.
+   - `team + postgres`: mit Team-Lizenz erlaubt.
+   - `team + sqlite`: fuer V1 blockiert mit klarem `team_requires_postgres`.
+   - `team + postgres + vectorProvider=none`: Team erlaubt, Vector Search blockiert.
+   - `vectorSearch + sqlite`: blockiert mit `requires_postgres` oder `requires_external_vector_provider`.
+
+### Nicht-Ziele fuer diesen Refactor
+
+- Kein sofortiges Freischalten von `team + sqlite` fuer Self-hosted.
+- Kein Einbau echter Yjs-/CRDT-Live-Collaboration als Teil dieses Entkopplungsschritts.
+- Kein Wechsel weg von pgvector als bevorzugtem V1-Vektorpfad.
+- Keine Migration ohne Maintenance Mode, Snapshot und expliziten Admin-Start.
+
+Der Refactor ist erfolgreich, wenn das Produktverhalten gleich bleibt, aber die Architektur klar unterscheidet: Runtime Mode fordert Capabilities an; Provider und Vector Store liefern technische Voraussetzungen; Compatibility-Regeln entscheiden, welche Kombinationen aktuell erlaubt sind.
 
 ## Database Provider Modes
 
