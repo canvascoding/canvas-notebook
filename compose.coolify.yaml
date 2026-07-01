@@ -1,0 +1,65 @@
+# Canvas Notebook — Coolify / managed platform deployment (Postgres mode).
+#
+# This compose file is designed for Coolify, Portainer, and similar platforms
+# that inject environment variables via the UI and need explicit service
+# definitions without env_file or compose profiles.
+#
+# All variables have sensible defaults. Override the ones marked REQUIRED in
+# your platform's environment editor before the first deployment.
+#
+# REQUIRED (set in Coolify env editor):
+#   BASE_URL              — your public domain, e.g. https://canvas.example.com
+#   BETTER_AUTH_SECRET    — random 32-byte base64 (openssl rand -base64 32)
+#   CANVAS_INTERNAL_API_KEY — random 32-byte base64 (openssl rand -base64 32)
+#
+# Recommended overrides:
+#   CANVAS_POSTGRES_PASSWORD — change the default password before production use
+
+services:
+  canvas-notebook:
+    image: ${CANVAS_IMAGE:-ghcr.io/canvascoding/canvas-notebook:latest}
+    ports:
+      - "${HOST_PORT:-3456}:3000"
+    environment:
+      BASE_URL: ${BASE_URL:-http://localhost:3456}
+      BETTER_AUTH_BASE_URL: ${BETTER_AUTH_BASE_URL:-${BASE_URL:-http://localhost:3456}}
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET}
+      CANVAS_INTERNAL_API_KEY: ${CANVAS_INTERNAL_API_KEY}
+      CANVAS_DATABASE_PROVIDER: postgres
+      DATABASE_URL: postgresql://${CANVAS_POSTGRES_USER:-canvas}:${CANVAS_POSTGRES_PASSWORD:-change-me}@postgres:5432/${CANVAS_POSTGRES_DB:-canvas_notebook}
+      CANVAS_POSTGRES_VECTOR_ENABLED: ${CANVAS_POSTGRES_VECTOR_ENABLED:-true}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - canvas-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:3000/api/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    restart: unless-stopped
+
+  postgres:
+    image: ${CANVAS_POSTGRES_IMAGE:-pgvector/pgvector:0.8.3-pg18}
+    environment:
+      POSTGRES_DB: ${CANVAS_POSTGRES_DB:-canvas_notebook}
+      POSTGRES_USER: ${CANVAS_POSTGRES_USER:-canvas}
+      POSTGRES_PASSWORD: ${CANVAS_POSTGRES_PASSWORD:-change-me}
+    volumes:
+      - canvas-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    restart: unless-stopped
+
+volumes:
+  canvas-data:
+    name: canvas-notebook-data
+  canvas-postgres-data:
+    name: canvas-notebook-postgres-data

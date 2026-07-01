@@ -1,5 +1,4 @@
-# Canvas Notebook — pre-built image from GitHub Container Registry.
-# Use this file to run the app without building from source.
+# Canvas Notebook — pre-built image, SQLite mode (simplest setup).
 #
 # Quick start:
 #   cp .env.docker.example .env.docker.local
@@ -7,6 +6,7 @@
 #   docker compose -f compose.ghcr.yaml up -d
 #
 # The app will be available at http://localhost:3456.
+# For Postgres mode or Coolify deployments, use compose.coolify.yaml instead.
 
 services:
   canvas-notebook:
@@ -28,7 +28,7 @@ services:
       POSTGRES_USER: ${CANVAS_POSTGRES_USER:-canvas}
       POSTGRES_PASSWORD: ${CANVAS_POSTGRES_PASSWORD:-change-me}
     volumes:
-      - canvas-postgres-data:/var/lib/postgresql
+      - canvas-postgres-data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 10s

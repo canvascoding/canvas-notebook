@@ -135,9 +135,9 @@ The CLI runs on the VM host, not inside the app container. It remembers the inst
 
 ---
 
-### Docker Compose (pre-built image)
+### Docker Compose (pre-built image, SQLite)
 
-Clone the repo and use the included `compose.ghcr.yaml` to run the pre-built image:
+Clone the repo and use the included `compose.ghcr.yaml` to run the pre-built image with SQLite:
 
 ```bash
 git clone https://github.com/canvascoding/canvas-notebook.git
@@ -151,9 +151,17 @@ The app will be available at `http://localhost:3456`. Open it in your browser an
 
 ---
 
-### Hosting platforms (EasyPanel, Coolify, Portainer, etc.)
+### Hosting platforms (Coolify, EasyPanel, Portainer, etc.)
 
-Use `ghcr.io/canvascoding/canvas-notebook:latest` as the image. Mount `/data` as a persistent volume. Set the environment variables listed in the [Configuration](#configuration) section below.
+Use the included `compose.coolify.yaml` which sets up the app with a Postgres database and all required environment variables with sensible defaults:
+
+1. Point your platform to this repository and select `compose.coolify.yaml` as the Compose file
+2. Set the following environment variables in your platform's env editor:
+   - `BASE_URL` — your public domain, e.g. `https://canvas.example.com`
+   - `BETTER_AUTH_SECRET` — random secret (`openssl rand -base64 32`)
+   - `CANVAS_INTERNAL_API_KEY` — random secret (`openssl rand -base64 32`)
+   - `CANVAS_POSTGRES_PASSWORD` — change the default password before production use
+3. Deploy — the platform handles the rest (volumes, networking, SSL)
 
 ---
 
