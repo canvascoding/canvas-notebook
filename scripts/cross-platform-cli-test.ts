@@ -31,7 +31,7 @@ async function withTempRoot<T>(fn: (root: string) => Promise<T>): Promise<T> {
 async function main() {
   await withTempRoot(async (root) => {
     const macHome = path.join(root, 'mac-home');
-    const macPaths = resolveDefaultPaths('macos', { HOME: macHome });
+    const macPaths = resolveDefaultPaths('macos', { ...process.env, HOME: macHome });
     assert.equal(macPaths.installDir, path.join(macHome, 'Library', 'Application Support', 'Canvas Notebook', 'manager'));
     assert.equal(macPaths.dataDir, path.join(macHome, 'Library', 'Application Support', 'Canvas Notebook', 'data'));
     assert.equal(macPaths.logFile, path.join(macHome, 'Library', 'Logs', 'Canvas Notebook', 'manager.log'));
@@ -55,7 +55,7 @@ async function main() {
 
   await withTempRoot(async (root) => {
     const localAppData = path.join(root, 'Local App Data');
-    const winPaths = resolveDefaultPaths('windows', { LOCALAPPDATA: localAppData, USERPROFILE: path.join(root, 'user') });
+    const winPaths = resolveDefaultPaths('windows', { ...process.env, LOCALAPPDATA: localAppData, USERPROFILE: path.join(root, 'user') });
     assert.equal(winPaths.installDir, path.join(localAppData, 'Canvas Notebook', 'manager'));
     assert.equal(winPaths.dataDir, path.join(localAppData, 'Canvas Notebook', 'data'));
     assert.equal(winPaths.logFile, path.join(localAppData, 'Canvas Notebook', 'logs', 'manager.log'));
@@ -70,6 +70,7 @@ async function main() {
 
   await withTempRoot(async (root) => {
     const paths = resolveDefaultPaths('linux', {
+      ...process.env,
       HOME: path.join(root, 'home'),
       CANVAS_INSTALL_DIR: path.join(root, 'install'),
       CANVAS_DATA_DIR: path.join(root, 'data'),

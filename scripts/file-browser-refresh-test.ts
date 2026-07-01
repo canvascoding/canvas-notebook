@@ -165,7 +165,7 @@ async function main() {
       }
 
       const path = url.searchParams.get('path') || '.';
-      calls.push(path);
+      (calls as string[]).push(path);
       return Response.json({ success: true, data: responses[path] ?? [] });
     }) as typeof fetch;
 

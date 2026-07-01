@@ -71,6 +71,7 @@ async function findAvailablePort() {
 }
 
 async function run() {
+  await runCommand('npm', ['run', 'test:cli:portable']);
   await runCommand('npm', ['run', 'build']);
 
   const port = process.env.PORT || (await findAvailablePort());
