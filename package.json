@@ -82,6 +82,7 @@
     "test:cli:admin": "bash scripts/cli-admin-command-test.sh",
     "test:cli:database": "bash scripts/cli-database-command-test.sh",
     "test:cli:database-provider": "bash scripts/cli-database-provider-test.sh",
+    "test:cli:portable": "tsx scripts/cross-platform-cli-test.ts",
     "test:channels": "tsx scripts/channel-architecture-test.ts",
     "test:channels:media": "tsx scripts/channel-media-directives-test.ts",
     "test:channels:db": "tsx --conditions react-server scripts/channel-db-test.ts",
@@ -108,6 +109,9 @@
     "test:websocket:toast": "node scripts/test-websocket-toast.js",
     "test:websocket:load": "node scripts/test-websocket-load.js",
     "setup": "node scripts/setup.mjs",
+    "cli:build": "tsc -p tsconfig.cli.json",
+    "cli:portable": "tsx cli/src/main.ts",
+    "cli:portable:dist": "node dist-cli/main.js",
     "server:setup": "bash scripts/server-setup.sh",
     "container:rebuild": "node scripts/setup.mjs"
   },

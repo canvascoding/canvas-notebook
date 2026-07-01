@@ -1,0 +1,21 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "allowJs": false,
+    "declaration": false,
+    "incremental": false,
+    "isolatedModules": false,
+    "ignoreDeprecations": "6.0",
+    "lib": ["ES2022", "DOM"],
+    "module": "CommonJS",
+    "moduleResolution": "node",
+    "noEmit": false,
+    "outDir": "dist-cli",
+    "rootDir": "cli/src",
+    "target": "ES2022",
+    "tsBuildInfoFile": ".tsbuildinfo.cli",
+    "types": ["node"]
+  },
+  "include": ["cli/src/**/*.ts"],
+  "exclude": ["node_modules"]
+}

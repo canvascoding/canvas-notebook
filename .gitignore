@@ -20,6 +20,7 @@
 
 # production
 /build
+/dist-cli/
 /dist-electron/
 
 # misc
