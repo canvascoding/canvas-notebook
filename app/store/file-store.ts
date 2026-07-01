@@ -11,6 +11,7 @@ import {
   findNodeInTree,
   getDirectoryDirectChildPaths,
   getExpandedDescendantDirectories,
+  getSelectionRangePaths,
   getTreeSelectionRangePaths,
   getVisibleTreeRefreshDirectories,
   hasRefreshParentInTree,
@@ -202,6 +203,7 @@ interface FileStoreState {
   loadingFilePath: string | null;
   fileLoadRequestId: number;
   fileError: string | null;
+  fileErrorPath: string | null;
   fileRevisions: Record<string, string>;
 
   // Browser mode
@@ -266,7 +268,7 @@ interface FileStoreState {
   refreshCurrentFileContent: (path: string) => Promise<CurrentFile | null>;
   revealAndLoadFile: (path: string) => Promise<void>;
   saveFile: (path: string, content: string) => Promise<void>;
-  selectNode: (node: FileNode, ctrlOrMeta?: boolean, shiftKey?: boolean) => void;
+  selectNode: (node: FileNode, ctrlOrMeta?: boolean, shiftKey?: boolean, selectionOrder?: string[]) => void;
   createPath: (path: string, type: 'file' | 'directory', options?: { template?: 'excalidraw' }) => Promise<void>;
   deletePath: (path: string | string[]) => Promise<void>;
   renamePath: (oldPath: string, newPath: string, overwrite?: boolean) => Promise<void>;
@@ -317,6 +319,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
   loadingFilePath: null,
   fileLoadRequestId: 0,
   fileError: null,
+  fileErrorPath: null,
 
   expandedDirs: new Set<string>(initialExplorerState.expandedDirs ?? []),
   currentDirectory: initialExplorerState.currentDirectory ?? '.',
@@ -573,6 +576,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
       isLoadingFile: true,
       loadingFilePath: path,
       fileError: null,
+      fileErrorPath: null,
     });
 
     try {
@@ -605,6 +609,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
             isLoadingFile: false,
             loadingFilePath: null,
             fileError: null,
+            fileErrorPath: null,
           });
         }
         return;
@@ -616,6 +621,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
           : error instanceof Error ? error.message : 'Failed to load file';
       set({
         fileError: message,
+        fileErrorPath: path,
         isLoadingFile: false,
         loadingFilePath: null,
       });
@@ -657,6 +663,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
         set({
           currentFile: refreshedFile,
           fileError: null,
+          fileErrorPath: null,
           fileRevisions: nextFileRevisions,
         });
       }
@@ -667,6 +674,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
         set({
           currentFile: null,
           fileError: null,
+          fileErrorPath: null,
         });
         return null;
       }
@@ -720,7 +728,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
   },
 
   saveFile: async (path: string, content: string) => enqueueFileSave(path, async () => {
-    set({ fileError: null });
+    set({ fileError: null, fileErrorPath: null });
 
     try {
       const { currentFile: currentFileBeforeSave, fileRevisions } = get();
@@ -756,12 +764,13 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
         error instanceof Error ? error.message : 'Failed to save file';
       set({
         fileError: message,
+        fileErrorPath: path,
       });
       throw error;
     }
   }),
 
-  selectNode: (node: FileNode, ctrlOrMeta = false, shiftKey = false) => {
+  selectNode: (node: FileNode, ctrlOrMeta = false, shiftKey = false, selectionOrder?: string[]) => {
     const { isMultiSelectMode, lastSelectedPath } = get();
 
     if (shiftKey && lastSelectedPath) {
@@ -769,7 +778,18 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
       if (!isMultiSelectMode) {
         set({ isMultiSelectMode: true, multiSelectPaths: new Set([lastSelectedPath]) });
       }
-      get().selectRange(lastSelectedPath, node.path, get().fileTree);
+      const visibleRangePaths = selectionOrder && selectionOrder.length > 0
+        ? getSelectionRangePaths(selectionOrder, lastSelectedPath, node.path)
+        : [];
+      if (visibleRangePaths.length > 0) {
+        set((state) => {
+          const newMultiSelectPaths = new Set(state.multiSelectPaths);
+          for (const path of visibleRangePaths) newMultiSelectPaths.add(path);
+          return { multiSelectPaths: newMultiSelectPaths };
+        });
+      } else {
+        get().selectRange(lastSelectedPath, node.path, get().fileTree);
+      }
       set({ lastSelectedPath: node.path });
     } else if (ctrlOrMeta) {
       // Ctrl/Meta: Toggle selection
@@ -853,6 +873,8 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
             isLoadingFile: false,
             loadingFilePath: null,
             fileLoadRequestId: state.fileLoadRequestId + 1,
+            fileError: null,
+            fileErrorPath: null,
           }));
         }
       }
@@ -901,7 +923,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
         : currentFile;
       set((state) => ({
         selectedNode: updatedSelectedNode,
-        ...(updatedCurrentFile !== currentFile ? { currentFile: updatedCurrentFile, fileError: null } : {}),
+        ...(updatedCurrentFile !== currentFile ? { currentFile: updatedCurrentFile, fileError: null, fileErrorPath: null } : {}),
         fileRevisions: remapFileRevisions(state.fileRevisions, oldPath, newPath),
       }));
 
@@ -952,7 +974,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
   },
 
   downloadFile: async (path: string) => {
-    set({ fileError: null });
+    set({ fileError: null, fileErrorPath: null });
 
     try {
       triggerWorkspaceDownload(path);
@@ -961,6 +983,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
         error instanceof Error ? error.message : 'Failed to download file';
       set({
         fileError: message,
+        fileErrorPath: path,
       });
       throw error;
     }
@@ -990,6 +1013,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
       isLoadingFile: false,
       loadingFilePath: null,
       fileError: null,
+      fileErrorPath: null,
       fileLoadRequestId: state.fileLoadRequestId + 1,
     }));
   },
@@ -1006,6 +1030,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
       loadingFilePath: null,
       fileLoadRequestId: state.fileLoadRequestId + 1,
       fileError: null,
+      fileErrorPath: null,
       expandedDirs: nextExpandedDirs,
       currentDirectory: '.',
       uploadProgress: null,

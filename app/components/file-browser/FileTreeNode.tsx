@@ -29,9 +29,10 @@ interface FileTreeNodeProps {
   browserMode?: BrowserMode;
   onNavigateInto?: (node: FileNodeType) => void;
   onOpenFile?: (path: string) => void;
+  selectionOrder?: string[];
 }
 
-export function FileTreeNode({ node, depth = 0, browserMode = 'tree', onNavigateInto, onOpenFile }: FileTreeNodeProps) {
+export function FileTreeNode({ node, depth = 0, browserMode = 'tree', onNavigateInto, onOpenFile, selectionOrder }: FileTreeNodeProps) {
   const isMobile = useIsMobile();
   const {
     expandedDirs,
@@ -71,7 +72,16 @@ export function FileTreeNode({ node, depth = 0, browserMode = 'tree', onNavigate
     (event: React.MouseEvent) => {
       const ctrlOrMeta = event.ctrlKey || event.metaKey;
       const shiftKey = event.shiftKey;
-      selectNode(node, ctrlOrMeta, shiftKey);
+      const shouldOnlySelect = ctrlOrMeta || shiftKey || isMultiSelectMode;
+
+      if (shouldOnlySelect) {
+        event.preventDefault();
+        event.stopPropagation();
+      }
+
+      selectNode(node, ctrlOrMeta, shiftKey, selectionOrder);
+      if (shouldOnlySelect) return;
+
       if (node.type === 'file') {
         if (onOpenFile) {
           onOpenFile(node.path);
@@ -81,7 +91,26 @@ export function FileTreeNode({ node, depth = 0, browserMode = 'tree', onNavigate
         mobileFileOpened();
       }
     },
-    [node, selectNode, loadFile, onOpenFile, mobileFileOpened]
+    [isMultiSelectMode, node, selectNode, selectionOrder, onOpenFile, loadFile, mobileFileOpened]
+  );
+
+  const handleListDirectoryClick = useCallback(
+    (event: React.MouseEvent) => {
+      const ctrlOrMeta = event.ctrlKey || event.metaKey;
+      const shiftKey = event.shiftKey;
+      const shouldOnlySelect = ctrlOrMeta || shiftKey || isMultiSelectMode;
+
+      if (shouldOnlySelect) {
+        event.preventDefault();
+        event.stopPropagation();
+        selectNode(node, ctrlOrMeta, shiftKey, selectionOrder);
+        return;
+      }
+
+      selectNode(node, false, false, selectionOrder);
+      onNavigateInto?.(node);
+    },
+    [isMultiSelectMode, node, onNavigateInto, selectNode, selectionOrder]
   );
 
   const handleCheckboxClick = (event: React.MouseEvent) => {
@@ -178,7 +207,7 @@ export function FileTreeNode({ node, depth = 0, browserMode = 'tree', onNavigate
                 isMobile && 'min-h-[44px] py-2',
                 isRowActive && 'text-foreground'
               )}
-              onClick={() => onNavigateInto?.(node)}
+              onClick={handleListDirectoryClick}
             >
               {isLoading ? (
                 <Loader2 className="h-4 w-4 shrink-0 animate-spin text-muted-foreground" />
@@ -286,7 +315,15 @@ export function FileTreeNode({ node, depth = 0, browserMode = 'tree', onNavigate
                 </div>
               ) : (
                 childNodes.map((child) => (
-                  <FileTreeNode key={child.path} node={child} depth={depth + 1} browserMode={browserMode} onNavigateInto={onNavigateInto} onOpenFile={onOpenFile} />
+                  <FileTreeNode
+                    key={child.path}
+                    node={child}
+                    depth={depth + 1}
+                    browserMode={browserMode}
+                    onNavigateInto={onNavigateInto}
+                    onOpenFile={onOpenFile}
+                    selectionOrder={selectionOrder}
+                  />
                 ))
               )}
             </SidebarMenuSub>

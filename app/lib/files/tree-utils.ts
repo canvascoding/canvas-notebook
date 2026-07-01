@@ -101,16 +101,19 @@ export function hasRefreshParentInTree(tree: FileNode[], dirPath: string): boole
     : findPathInTree(parentDir, tree);
 }
 
-export function getTreeSelectionRangePaths(nodes: FileNode[], startPath: string, endPath: string): string[] {
-  const allPaths = flattenTreePaths(nodes);
-  const startIndex = allPaths.indexOf(startPath);
-  const endIndex = allPaths.indexOf(endPath);
+export function getSelectionRangePaths(paths: string[], startPath: string, endPath: string): string[] {
+  const startIndex = paths.indexOf(startPath);
+  const endIndex = paths.indexOf(endPath);
 
   if (startIndex === -1 || endIndex === -1) return [];
 
   const start = Math.min(startIndex, endIndex);
   const end = Math.max(startIndex, endIndex);
-  return allPaths.slice(start, end + 1);
+  return paths.slice(start, end + 1);
+}
+
+export function getTreeSelectionRangePaths(nodes: FileNode[], startPath: string, endPath: string): string[] {
+  return getSelectionRangePaths(flattenTreePaths(nodes), startPath, endPath);
 }
 
 export function getDirectoryDirectChildPaths(nodes: FileNode[], dirPath: string): string[] {

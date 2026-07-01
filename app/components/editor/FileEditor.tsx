@@ -300,6 +300,7 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
     isLoadingFile,
     loadingFilePath,
     fileError,
+    fileErrorPath,
     saveFile,
     downloadFile,
     loadFile,
@@ -450,6 +451,9 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
   const htmlViewMode: HtmlViewMode = isHtml && htmlViewPreference.path === currentFile?.path
     ? htmlViewPreference.mode
     : 'preview';
+  const displayFileError = fileError && (!currentFile || !fileErrorPath || fileErrorPath === currentFile.path)
+    ? fileError
+    : null;
 
   const setCurrentHtmlViewMode = useCallback((nextMode: HtmlViewMode | ((mode: HtmlViewMode) => HtmlViewMode)) => {
     const htmlPath = currentFile?.path ?? null;
@@ -662,11 +666,11 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
     );
   }
 
-  if (fileError) {
+  if (displayFileError) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
         <AlertCircle className="h-6 w-6 text-destructive" />
-        <p className="text-sm text-destructive">{fileError}</p>
+        <p className="text-sm text-destructive">{displayFileError}</p>
       </div>
     );
   }

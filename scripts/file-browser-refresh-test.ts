@@ -118,6 +118,34 @@ async function main() {
     assert.equal(docs?.children?.[0]?.path, 'docs/fresh.md');
     assert.equal(app?.children?.[0]?.path, 'src/app/page.tsx');
 
+    const firstVisibleNode: FileNode = { name: 'a.md', path: 'visible/a.md', type: 'file' };
+    const middleVisibleNode: FileNode = { name: 'c.md', path: 'visible/c.md', type: 'file' };
+    const lastVisibleNode: FileNode = { name: 'b.md', path: 'visible/b.md', type: 'file' };
+    useFileStore.setState({
+      fileTree: [firstVisibleNode, lastVisibleNode, middleVisibleNode],
+      selectedNode: null,
+      isMultiSelectMode: false,
+      multiSelectPaths: new Set<string>(),
+      lastSelectedPath: null,
+    });
+
+    useFileStore.getState().selectNode(firstVisibleNode, false, false, [
+      firstVisibleNode.path,
+      middleVisibleNode.path,
+      lastVisibleNode.path,
+    ]);
+    useFileStore.getState().selectNode(lastVisibleNode, false, true, [
+      firstVisibleNode.path,
+      middleVisibleNode.path,
+      lastVisibleNode.path,
+    ]);
+
+    assert.deepEqual(
+      Array.from(useFileStore.getState().multiSelectPaths),
+      [firstVisibleNode.path, middleVisibleNode.path, lastVisibleNode.path],
+      'shift range selection should follow the visible view order when provided',
+    );
+
     globalThis.fetch = (async () => new Response('<!DOCTYPE html><html><body>busy</body></html>', {
       status: 503,
       statusText: 'Service Unavailable',

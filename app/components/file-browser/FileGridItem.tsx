@@ -15,6 +15,7 @@ interface FileGridItemProps {
   onOpenFile: (path: string) => void;
   onOpenDirectory?: (path: string) => void;
   size?: 'sm' | 'lg';
+  selectionOrder?: string[];
 }
 
 const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'ico', 'heic', 'heif']);
@@ -32,7 +33,7 @@ function formatFileSize(bytes?: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
 }
 
-export function FileGridItem({ node, onOpenFile, onOpenDirectory, size = 'sm' }: FileGridItemProps) {
+export function FileGridItem({ node, onOpenFile, onOpenDirectory, size = 'sm', selectionOrder }: FileGridItemProps) {
   const t = useTranslations('notebook');
   const {
     selectedNode,
@@ -68,14 +69,14 @@ export function FileGridItem({ node, onOpenFile, onOpenDirectory, size = 'sm' }:
       const ctrlOrMeta = event.ctrlKey || event.metaKey;
       const shiftKey = event.shiftKey;
       if (ctrlOrMeta || shiftKey) {
-        selectNode(node, ctrlOrMeta, shiftKey);
+        selectNode(node, ctrlOrMeta, shiftKey, selectionOrder);
         return;
       }
       if (isMultiSelectMode) {
-        toggleMultiSelectPath(node.path);
+        selectNode(node, false, false, selectionOrder);
         return;
       }
-      selectNode(node);
+      selectNode(node, false, false, selectionOrder);
       if (isDirectory) {
         if (onOpenDirectory) {
           onOpenDirectory(node.path);
@@ -86,7 +87,7 @@ export function FileGridItem({ node, onOpenFile, onOpenDirectory, size = 'sm' }:
         onOpenFile(node.path);
       }
     },
-    [node, selectNode, isMultiSelectMode, toggleMultiSelectPath, isDirectory, onOpenFile, onOpenDirectory, toggleDirectory]
+    [node, selectNode, selectionOrder, isMultiSelectMode, isDirectory, onOpenFile, onOpenDirectory, toggleDirectory]
   );
 
   const handleContextMenu = useCallback(

@@ -343,6 +343,7 @@ export function FileGridView({ variant = 'default', onOpenFile }: FileGridViewPr
     const gridItems = normalizedSearchQuery
       ? searchResultNodes
       : (activeDirectoryChildren ?? []);
+    const gridSelectionOrder = gridItems.map((node) => node.path);
 
     const handleOpenDirectory = async (dirPath: string) => {
       useFileStore.getState().setCurrentDirectory(dirPath);
@@ -369,6 +370,7 @@ export function FileGridView({ variant = 'default', onOpenFile }: FileGridViewPr
                 onOpenFile={handleFileOpen}
                 onOpenDirectory={handleOpenDirectory}
                 size={variant === 'fullscreen' ? 'lg' : 'sm'}
+                selectionOrder={gridSelectionOrder}
               />
             ))}
           </div>
@@ -392,6 +394,8 @@ export function FileGridView({ variant = 'default', onOpenFile }: FileGridViewPr
   }
 
   if (browserMode === 'list') {
+    const listSelectionOrder = filteredListChildren?.map((node) => node.path) ?? [];
+
     const handleNavigateInto = async (node: FileNodeType) => {
       if (node.type === 'directory') {
         useFileStore.getState().setCurrentDirectory(node.path);
@@ -435,6 +439,7 @@ export function FileGridView({ variant = 'default', onOpenFile }: FileGridViewPr
                     browserMode="list"
                     onNavigateInto={handleNavigateInto}
                     onOpenFile={handleFileOpen}
+                    selectionOrder={listSelectionOrder}
                   />
                 ))}
               </SidebarMenu>
