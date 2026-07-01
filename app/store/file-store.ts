@@ -20,6 +20,7 @@ import {
   remapExpandedDirectories,
 } from '@/app/lib/files/tree-utils';
 import {
+  type CopyWorkspacePathsResult,
   copyWorkspacePaths,
   createWorkspacePath,
   deleteWorkspacePaths,
@@ -31,6 +32,7 @@ import {
   uploadWorkspaceFiles,
   writeWorkspaceFile,
 } from '@/app/lib/files/client';
+import { compactWorkspaceSelection } from '@/app/lib/files/operation-flows';
 
 export type { BrowserMode, CurrentFile, FileNode, FileStats } from '@/app/lib/files/types';
 export { findPathInTree } from '@/app/lib/files/tree-utils';
@@ -255,7 +257,7 @@ interface FileStoreState {
   clipboardPaths: Set<string>;
   clipboardMode: 'copy' | null;
   copyPaths: (paths?: Iterable<string>) => void;
-  pastePaths: (destDir: string) => Promise<void>;
+  pastePaths: (destDir: string) => Promise<CopyWorkspacePathsResult | null>;
   duplicatePath: (path: string) => Promise<void>;
 
   // Actions
@@ -403,29 +405,32 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
   clipboardMode: null,
   copyPaths: (paths?: Iterable<string>) => {
     if (paths) {
-      set({ clipboardPaths: new Set(paths), clipboardMode: 'copy' });
+      set({ clipboardPaths: new Set(compactWorkspaceSelection(paths)), clipboardMode: 'copy' });
       return;
     }
 
     const { multiSelectPaths, selectedNode, isMultiSelectMode } = get();
     if (isMultiSelectMode && multiSelectPaths.size > 0) {
-      set({ clipboardPaths: new Set(multiSelectPaths), clipboardMode: 'copy' });
+      set({ clipboardPaths: new Set(compactWorkspaceSelection(multiSelectPaths)), clipboardMode: 'copy' });
     } else if (selectedNode) {
       set({ clipboardPaths: new Set([selectedNode.path]), clipboardMode: 'copy' });
     }
   },
   pastePaths: async (destDir: string) => {
     const { clipboardPaths, clipboardMode } = get();
-    if (clipboardMode !== 'copy' || clipboardPaths.size === 0) return;
+    if (clipboardMode !== 'copy' || clipboardPaths.size === 0) return null;
 
     try {
-      await copyWorkspacePaths({
-        sources: Array.from(clipboardPaths),
+      const result = await copyWorkspacePaths({
+        sources: compactWorkspaceSelection(clipboardPaths),
         destDir,
         overwrite: false,
       }, 'Failed to paste files');
 
-      await get().refreshDirectory(destDir, true);
+      if (result.copied.length > 0) {
+        await get().refreshDirectory(destDir, true);
+      }
+      return result;
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to paste files';
       set({ treeError: message });

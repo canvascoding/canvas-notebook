@@ -3,6 +3,7 @@ import { recordAuditEvent } from '@/app/lib/audit/audit-service';
 import { auth } from '@/app/lib/auth';
 import { batchCopyBetweenWorkspaces } from '@/app/lib/filesystem/workspace-files';
 import { isProtectedAppOutputFolder } from '@/app/lib/filesystem/app-output-folders';
+import { compactWorkspaceSelection } from '@/app/lib/files/operation-flows';
 import {
   applyRateLimit,
   invalidateWorkspaceFileViews,
@@ -52,6 +53,11 @@ export async function POST(request: NextRequest) {
       return jsonError('Sources array is required and must not be empty', 400);
     }
 
+    const copySources = compactWorkspaceSelection(sources);
+    if (copySources.length === 0) {
+      return jsonError('Sources array is required and must not be empty', 400);
+    }
+
     if (!destDir || typeof destDir !== 'string') {
       return jsonError('destDir is required', 400);
     }
@@ -79,12 +85,12 @@ export async function POST(request: NextRequest) {
     const sourceFileOptions = workspaceFileOptions(sourceWorkspaceResult.workspace);
     const targetFileOptions = workspaceFileOptions(targetWorkspaceResult.workspace);
 
-    const protectedPaths = sources.filter((p) => isProtectedAppOutputFolder(p));
+    const protectedPaths = copySources.filter((p) => isProtectedAppOutputFolder(p));
     if (protectedPaths.length > 0) {
       return jsonError(`Protected app output folder(s) cannot be copied: ${protectedPaths.join(', ')}`, 403);
     }
 
-    const result = await batchCopyBetweenWorkspaces(sources, destDir, overwrite, renameOnCollision, {
+    const result = await batchCopyBetweenWorkspaces(copySources, destDir, overwrite, renameOnCollision, {
       source: sourceFileOptions,
       target: targetFileOptions,
     });
@@ -103,6 +109,7 @@ export async function POST(request: NextRequest) {
       summary: `${result.copied.length} path(s) copied; ${result.failed.length} failed.`,
       metadata: {
         sources,
+        copySources,
         destDir,
         copied: result.copied,
         failed: result.failed,

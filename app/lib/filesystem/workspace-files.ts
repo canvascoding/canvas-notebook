@@ -10,6 +10,7 @@ import {
   resolveWritableWorkspacePath as resolveWritableWorkspacePathForContext,
   resolveWorkspacePath,
 } from '@/app/lib/workspaces/path-guard';
+import { compactWorkspaceSelection } from '@/app/lib/files/operation-flows';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
 
 export type { FileNode } from '@/app/lib/files/types';
@@ -372,6 +373,27 @@ function findAvailableDestName(fileName: string, fullDestDir: string): string {
   return candidate;
 }
 
+function isSameFsPath(leftPath: string, rightPath: string): boolean {
+  return path.resolve(leftPath) === path.resolve(rightPath);
+}
+
+function isSameOrDescendantFsPath(candidatePath: string, parentPath: string): boolean {
+  const relativePath = path.relative(path.resolve(parentPath), path.resolve(candidatePath));
+  return relativePath === '' || (!relativePath.startsWith('..') && !path.isAbsolute(relativePath));
+}
+
+async function assertCopyDestinationIsSafe(fullSource: string, fullDestDir: string, fullDest: string) {
+  const sourceStats = await fs.stat(fullSource);
+  if (!sourceStats.isDirectory()) return;
+
+  if (
+    isSameOrDescendantFsPath(fullDestDir, fullSource) ||
+    isSameOrDescendantFsPath(fullDest, fullSource)
+  ) {
+    throw new Error('Cannot copy a directory into itself or one of its subdirectories');
+  }
+}
+
 export async function copyFile(
   sourcePath: string,
   destDir: string,
@@ -394,19 +416,28 @@ export async function copyFile(
     }
   } else {
     const fullDest = path.join(fullDestDir, destFileName);
+    let destExists = false;
     try {
       await fs.access(fullDest);
+      destExists = true;
+    } catch {
+      // Destination doesn't exist - good
+    }
+
+    if (destExists) {
       if (!overwrite) {
         return {copied: '', skipped: true};
       }
+      if (isSameFsPath(fullSource, fullDest)) {
+        throw new Error('Cannot overwrite a path with itself');
+      }
       await fs.rm(fullDest, {recursive: true, force: true});
-    } catch {
-      // Destination doesn't exist - good
     }
   }
 
   const fullDest = path.join(fullDestDir, destFileName);
   const destRelative = destDir === '.' ? destFileName : `${destDir}/${destFileName}`;
+  await assertCopyDestinationIsSafe(fullSource, fullDestDir, fullDest);
   await fs.cp(fullSource, fullDest, {recursive: true});
   return {copied: destRelative, skipped: false};
 }
@@ -436,19 +467,28 @@ export async function copyFileBetweenWorkspaces(
     }
   } else {
     const fullDest = path.join(fullDestDir, destFileName);
+    let destExists = false;
     try {
       await fs.access(fullDest);
+      destExists = true;
+    } catch {
+      // Destination doesn't exist - good
+    }
+
+    if (destExists) {
       if (!overwrite) {
         return {copied: '', skipped: true};
       }
+      if (isSameFsPath(fullSource, fullDest)) {
+        throw new Error('Cannot overwrite a path with itself');
+      }
       await fs.rm(fullDest, {recursive: true, force: true});
-    } catch {
-      // Destination doesn't exist - good
     }
   }
 
   const fullDest = path.join(fullDestDir, destFileName);
   const destRelative = destDir === '.' ? destFileName : `${destDir}/${destFileName}`;
+  await assertCopyDestinationIsSafe(fullSource, fullDestDir, fullDest);
   await fs.cp(fullSource, fullDest, {recursive: true});
   return {copied: destRelative, skipped: false};
 }
@@ -461,24 +501,23 @@ export async function batchCopy(
   options?: WorkspaceFileOperationOptions
 ): Promise<CopyResult> {
   const results: CopyResult = {copied: [], failed: [], skipped: []};
+  const copySources = compactWorkspaceSelection(sources);
 
-  await Promise.allSettled(
-    sources.map(async (sourcePath) => {
-      try {
-        const result = await copyFile(sourcePath, destDir, overwrite, renameOnCollision, options);
-        if (result.skipped) {
-          results.skipped.push(sourcePath);
-        } else {
-          results.copied.push(result.copied);
-        }
-      } catch (error) {
-        results.failed.push({
-          path: sourcePath,
-          error: error instanceof Error ? error.message : 'Unknown error',
-        });
+  for (const sourcePath of copySources) {
+    try {
+      const result = await copyFile(sourcePath, destDir, overwrite, renameOnCollision, options);
+      if (result.skipped) {
+        results.skipped.push(sourcePath);
+      } else {
+        results.copied.push(result.copied);
       }
-    })
-  );
+    } catch (error) {
+      results.failed.push({
+        path: sourcePath,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      });
+    }
+  }
 
   return results;
 }
@@ -494,30 +533,29 @@ export async function batchCopyBetweenWorkspaces(
   }
 ): Promise<CopyResult> {
   const results: CopyResult = {copied: [], failed: [], skipped: []};
+  const copySources = compactWorkspaceSelection(sources);
 
-  await Promise.allSettled(
-    sources.map(async (sourcePath) => {
-      try {
-        const result = await copyFileBetweenWorkspaces(
-          sourcePath,
-          destDir,
-          overwrite,
-          renameOnCollision,
-          options
-        );
-        if (result.skipped) {
-          results.skipped.push(sourcePath);
-        } else {
-          results.copied.push(result.copied);
-        }
-      } catch (error) {
-        results.failed.push({
-          path: sourcePath,
-          error: error instanceof Error ? error.message : 'Unknown error',
-        });
+  for (const sourcePath of copySources) {
+    try {
+      const result = await copyFileBetweenWorkspaces(
+        sourcePath,
+        destDir,
+        overwrite,
+        renameOnCollision,
+        options
+      );
+      if (result.skipped) {
+        results.skipped.push(sourcePath);
+      } else {
+        results.copied.push(result.copied);
       }
-    })
-  );
+    } catch (error) {
+      results.failed.push({
+        path: sourcePath,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      });
+    }
+  }
 
   return results;
 }

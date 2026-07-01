@@ -146,6 +146,39 @@ async function main() {
       'shift range selection should follow the visible view order when provided',
     );
 
+    calls.length = 0;
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(String(input), 'http://localhost');
+      if (url.pathname === '/api/files/copy') {
+        const body = JSON.parse(String(init?.body ?? '{}')) as { sources?: string[] };
+        assert.deepEqual(
+          body.sources,
+          ['docs'],
+          'paste should compact nested clipboard paths before copy',
+        );
+        return Response.json({
+          success: true,
+          copied: ['dest/docs'],
+          failed: [{ path: 'missing.txt', error: 'Missing file' }],
+          skipped: [],
+        });
+      }
+
+      const path = url.searchParams.get('path') || '.';
+      calls.push(path);
+      return Response.json({ success: true, data: responses[path] ?? [] });
+    }) as typeof fetch;
+
+    useFileStore.setState({
+      clipboardMode: 'copy',
+      clipboardPaths: new Set(['docs', 'docs/fresh.md']),
+    });
+
+    const pasteResult = await useFileStore.getState().pastePaths('dest');
+    assert.equal(pasteResult?.copied.length, 1);
+    assert.equal(pasteResult?.failed.length, 1);
+    assert.deepEqual(calls, ['dest'], 'paste should refresh the destination after copied items');
+
     globalThis.fetch = (async () => new Response('<!DOCTYPE html><html><body>busy</body></html>', {
       status: 503,
       statusText: 'Service Unavailable',

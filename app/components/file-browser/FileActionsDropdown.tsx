@@ -50,6 +50,7 @@ import { getParentDirectory, joinWorkspacePath } from '@/app/lib/files/path-util
 import { isWorkspaceImageFileName, shareWorkspaceImageFile } from '@/app/lib/files/workspace-image-share';
 import {
   getWorkspacePathName,
+  compactWorkspaceSelection,
   isMoveIntoSelf,
   isProtectedDirectoryNode,
   resolveMoveDestination,
@@ -155,8 +156,8 @@ export function FileActionsDropdown({
 
   const showMultiSelectOptions = showMultiSelectActions && multiSelectPaths.size > 0;
   const selectedCopyPaths = useMemo(() => {
-    if (showMultiSelectOptions) return Array.from(multiSelectPaths);
-    return node ? [node.path] : [];
+    if (showMultiSelectOptions) return compactWorkspaceSelection(multiSelectPaths);
+    return node ? compactWorkspaceSelection([node.path]) : [];
   }, [multiSelectPaths, node, showMultiSelectOptions]);
 
   useEffect(() => {
@@ -400,9 +401,30 @@ export function FileActionsDropdown({
     if (!node) return;
     const destDir = node.type === 'directory' ? node.path : getParentDirectory(node.path);
     try {
-      await pastePaths(destDir);
+      const result = await pastePaths(destDir);
       closeMenu();
-    } catch {}
+      if (!result) return;
+
+      const unresolvedCount = result.failed.length + result.skipped.length;
+      if (unresolvedCount > 0) {
+        console.warn('[FileActionsDropdown] Paste completed with unresolved paths', {
+          failed: result.failed,
+          skipped: result.skipped,
+        });
+        if (result.copied.length === 0) {
+          toast.error(t('pasteNoFilesCopied', { count: unresolvedCount }));
+          return;
+        }
+        toast.warning(t('pastePartialSuccess', {
+          copied: result.copied.length,
+          failed: unresolvedCount,
+        }));
+      } else {
+        toast.success(t('pasteSuccess', { count: result.copied.length }));
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : t('pasteFailed'));
+    }
   };
 
   const handleDuplicate = async () => {
