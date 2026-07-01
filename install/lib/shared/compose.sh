@@ -111,7 +111,7 @@ services:
       POSTGRES_USER: ${CANVAS_POSTGRES_USER:-canvas}
       POSTGRES_PASSWORD: ${CANVAS_POSTGRES_PASSWORD:-unused-sqlite-profile-disabled}
     volumes:
-      - canvas-postgres-data:/var/lib/postgresql/data
+      - canvas-postgres-data:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 10s
