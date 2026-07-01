@@ -8,7 +8,7 @@ const TABLE_NAME_SYMBOL = Symbol.for('drizzle:Name');
 
 type PgQueryable = Pick<Pool, 'query'>;
 
-type SchemaTable = object & {
+export type PostgresSchemaTable = object & {
   [TABLE_NAME_SYMBOL]?: string;
 };
 
@@ -23,7 +23,7 @@ type SchemaColumn = {
   autoIncrement?: boolean;
   hasDefault: boolean;
   default?: unknown;
-  table?: SchemaTable;
+  table?: PostgresSchemaTable;
 };
 
 type SqlChunk = {
@@ -40,8 +40,14 @@ function configurePgTypeParsers(): void {
   int8ParserConfigured = true;
 }
 
-function quoteIdentifier(identifier: string): string {
+export function quotePostgresIdentifier(identifier: string): string {
   return `"${identifier.replace(/"/g, '""')}"`;
+}
+
+export function getPostgresSchemaTableName(table: PostgresSchemaTable): string {
+  const name = table[TABLE_NAME_SYMBOL];
+  if (!name) throw new Error('Schema table is missing a Drizzle table name.');
+  return String(name);
 }
 
 function quoteLiteral(value: string): string {
@@ -52,20 +58,20 @@ function normalizeConstraintName(name: string): string {
   return name.slice(0, 63);
 }
 
-function getSchemaTables(): SchemaTable[] {
+export function getPostgresSchemaTables(): PostgresSchemaTable[] {
   const seen = new Set<string>();
-  const tables: SchemaTable[] = [];
+  const tables: PostgresSchemaTable[] = [];
 
   for (const value of Object.values(schema)) {
     if (!value || typeof value !== 'object') continue;
-    const table = value as unknown as SchemaTable;
-    const name = table[TABLE_NAME_SYMBOL];
-    if (!name || seen.has(name)) continue;
+    const table = value as unknown as PostgresSchemaTable;
+    const name = getPostgresSchemaTableName(table);
+    if (seen.has(name)) continue;
     seen.add(name);
     tables.push(table);
   }
 
-  return tables.sort((a, b) => String(a[TABLE_NAME_SYMBOL]).localeCompare(String(b[TABLE_NAME_SYMBOL])));
+  return tables.sort((a, b) => getPostgresSchemaTableName(a).localeCompare(getPostgresSchemaTableName(b)));
 }
 
 function columnType(column: SchemaColumn): string {
@@ -96,7 +102,7 @@ function defaultSql(column: SchemaColumn): string | null {
 }
 
 function renderColumnDefinition(column: SchemaColumn, includePrimaryKey: boolean): string {
-  const parts = [quoteIdentifier(column.name), columnType(column)];
+  const parts = [quotePostgresIdentifier(column.name), columnType(column)];
   const defaultValue = defaultSql(column);
 
   if (includePrimaryKey && column.primary) {
@@ -122,7 +128,7 @@ function renderSqlFragment(fragment: unknown): string | null {
     if (Array.isArray(chunk.value)) {
       rendered += chunk.value.join('');
     } else if (chunk.name) {
-      rendered += quoteIdentifier(chunk.name);
+      rendered += quotePostgresIdentifier(chunk.name);
     } else {
       return null;
     }
@@ -131,7 +137,7 @@ function renderSqlFragment(fragment: unknown): string | null {
   return rendered.trim() || null;
 }
 
-function createTableSql(table: SchemaTable): string {
+function createTableSql(table: PostgresSchemaTable): string {
   const tableName = String(table[TABLE_NAME_SYMBOL]);
   const config = getTableConfig(table as never) as {
     columns: SchemaColumn[];
@@ -144,8 +150,8 @@ function createTableSql(table: SchemaTable): string {
 
   for (const primaryKey of config.primaryKeys) {
     definitions.push(
-      `CONSTRAINT ${quoteIdentifier(normalizeConstraintName(primaryKey.getName()))} PRIMARY KEY (${primaryKey.columns
-        .map((column) => quoteIdentifier(column.name))
+      `CONSTRAINT ${quotePostgresIdentifier(normalizeConstraintName(primaryKey.getName()))} PRIMARY KEY (${primaryKey.columns
+        .map((column) => quotePostgresIdentifier(column.name))
         .join(', ')})`,
     );
   }
@@ -153,24 +159,24 @@ function createTableSql(table: SchemaTable): string {
   for (const check of config.checks) {
     const expression = renderSqlFragment(check.value);
     if (!expression) continue;
-    definitions.push(`CONSTRAINT ${quoteIdentifier(normalizeConstraintName(check.name))} CHECK (${expression})`);
+    definitions.push(`CONSTRAINT ${quotePostgresIdentifier(normalizeConstraintName(check.name))} CHECK (${expression})`);
   }
 
-  return `CREATE TABLE IF NOT EXISTS ${quoteIdentifier(tableName)} (\n  ${definitions.join(',\n  ')}\n)`;
+  return `CREATE TABLE IF NOT EXISTS ${quotePostgresIdentifier(tableName)} (\n  ${definitions.join(',\n  ')}\n)`;
 }
 
-function createColumnAddSql(table: SchemaTable, column: SchemaColumn): string {
+function createColumnAddSql(table: PostgresSchemaTable, column: SchemaColumn): string {
   const tableName = String(table[TABLE_NAME_SYMBOL]);
-  return `ALTER TABLE ${quoteIdentifier(tableName)} ADD COLUMN IF NOT EXISTS ${renderColumnDefinition(column, false)}`;
+  return `ALTER TABLE ${quotePostgresIdentifier(tableName)} ADD COLUMN IF NOT EXISTS ${renderColumnDefinition(column, false)}`;
 }
 
-function uniqueColumnIndexSql(table: SchemaTable, column: SchemaColumn): string | null {
+function uniqueColumnIndexSql(table: PostgresSchemaTable, column: SchemaColumn): string | null {
   if (!column.isUnique) return null;
   const tableName = String(table[TABLE_NAME_SYMBOL]);
-  return `CREATE UNIQUE INDEX IF NOT EXISTS ${quoteIdentifier(normalizeConstraintName(column.uniqueName))} ON ${quoteIdentifier(tableName)} (${quoteIdentifier(column.name)})`;
+  return `CREATE UNIQUE INDEX IF NOT EXISTS ${quotePostgresIdentifier(normalizeConstraintName(column.uniqueName))} ON ${quotePostgresIdentifier(tableName)} (${quotePostgresIdentifier(column.name)})`;
 }
 
-function indexSql(table: SchemaTable, index: {
+function indexSql(table: PostgresSchemaTable, index: {
   config: {
     name: string;
     columns: SchemaColumn[];
@@ -179,28 +185,28 @@ function indexSql(table: SchemaTable, index: {
   };
 }): string | null {
   const tableName = String(table[TABLE_NAME_SYMBOL]);
-  const columns = index.config.columns.map((column) => quoteIdentifier(column.name)).join(', ');
+  const columns = index.config.columns.map((column) => quotePostgresIdentifier(column.name)).join(', ');
   if (!columns) return null;
   const where = renderSqlFragment(index.config.where);
-  return `CREATE ${index.config.unique ? 'UNIQUE ' : ''}INDEX IF NOT EXISTS ${quoteIdentifier(normalizeConstraintName(index.config.name))} ON ${quoteIdentifier(tableName)} (${columns})${where ? ` WHERE ${where}` : ''}`;
+  return `CREATE ${index.config.unique ? 'UNIQUE ' : ''}INDEX IF NOT EXISTS ${quotePostgresIdentifier(normalizeConstraintName(index.config.name))} ON ${quotePostgresIdentifier(tableName)} (${columns})${where ? ` WHERE ${where}` : ''}`;
 }
 
-function foreignKeySql(table: SchemaTable, foreignKey: {
+function foreignKeySql(table: PostgresSchemaTable, foreignKey: {
   getName: () => string;
   onDelete?: string;
   onUpdate?: string;
   reference: () => {
     columns: SchemaColumn[];
     foreignColumns: SchemaColumn[];
-    foreignTable: SchemaTable;
+    foreignTable: PostgresSchemaTable;
   };
 }): string {
   const tableName = String(table[TABLE_NAME_SYMBOL]);
   const reference = foreignKey.reference();
   const constraintName = normalizeConstraintName(foreignKey.getName());
-  const columns = reference.columns.map((column) => quoteIdentifier(column.name)).join(', ');
+  const columns = reference.columns.map((column) => quotePostgresIdentifier(column.name)).join(', ');
   const foreignTableName = String(reference.foreignTable[TABLE_NAME_SYMBOL]);
-  const foreignColumns = reference.foreignColumns.map((column) => quoteIdentifier(column.name)).join(', ');
+  const foreignColumns = reference.foreignColumns.map((column) => quotePostgresIdentifier(column.name)).join(', ');
   const onDelete = foreignKey.onDelete ? ` ON DELETE ${foreignKey.onDelete.toUpperCase()}` : '';
   const onUpdate = foreignKey.onUpdate ? ` ON UPDATE ${foreignKey.onUpdate.toUpperCase()}` : '';
 
@@ -210,12 +216,12 @@ BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM pg_constraint
     WHERE conname = ${quoteLiteral(constraintName)}
-      AND conrelid = to_regclass(${quoteLiteral(quoteIdentifier(tableName))})
+      AND conrelid = to_regclass(${quoteLiteral(quotePostgresIdentifier(tableName))})
   ) THEN
-    ALTER TABLE ${quoteIdentifier(tableName)}
-      ADD CONSTRAINT ${quoteIdentifier(constraintName)}
+    ALTER TABLE ${quotePostgresIdentifier(tableName)}
+      ADD CONSTRAINT ${quotePostgresIdentifier(constraintName)}
       FOREIGN KEY (${columns})
-      REFERENCES ${quoteIdentifier(foreignTableName)} (${foreignColumns})${onDelete}${onUpdate};
+      REFERENCES ${quotePostgresIdentifier(foreignTableName)} (${foreignColumns})${onDelete}${onUpdate};
   END IF;
 END $$`;
 }
@@ -244,7 +250,7 @@ export async function runPostgresMigrations(pool: PgQueryable): Promise<void> {
     await pool.query('CREATE EXTENSION IF NOT EXISTS vector');
   }
 
-  const tables = getSchemaTables();
+  const tables = getPostgresSchemaTables();
   for (const table of tables) {
     await pool.query(createTableSql(table));
   }

@@ -172,6 +172,7 @@ cmd_file_for() {
     status|health|diagnose|config|ps) printf 'status\n' ;;
     logs|container-logs|manager-log|cleanup-logs) printf 'logs\n' ;;
     env) printf 'env\n' ;;
+    database) printf 'database\n' ;;
     admin) printf 'admin\n' ;;
     swap|swap-enable|swap-disable) printf 'swap\n' ;;
     caddy|caddy-reload|caddy-fix) printf 'caddy\n' ;;
