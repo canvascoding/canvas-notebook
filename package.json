@@ -110,6 +110,7 @@
     "test:websocket:load": "node scripts/test-websocket-load.js",
     "setup": "node scripts/setup.mjs",
     "cli:build": "tsc -p tsconfig.cli.json",
+    "cli:package": "node scripts/package-portable-cli.mjs",
     "cli:portable": "tsx cli/src/main.ts",
     "cli:portable:dist": "node dist-cli/main.js",
     "server:setup": "bash scripts/server-setup.sh",

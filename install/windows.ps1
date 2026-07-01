@@ -46,20 +46,22 @@ function Wait-For-Docker {
 }
 
 Require-Command node
-Require-Command npm
 Require-Command docker
 
 Wait-For-Docker
 
-Push-Location $RootDir
-try {
-  npm run cli:build
-} finally {
-  Pop-Location
+$MainJs = Join-Path $RootDir "dist-cli\main.js"
+if (-not (Test-Path $MainJs)) {
+  Require-Command npm
+  Push-Location $RootDir
+  try {
+    npm run cli:build
+  } finally {
+    Pop-Location
+  }
 }
 
 New-Item -ItemType Directory -Force -Path $BinDir | Out-Null
-$MainJs = Join-Path $RootDir "dist-cli\main.js"
 Set-Content -Path $BinPath -Encoding ASCII -Value "@echo off`r`nnode `"$MainJs`" %*`r`n"
 
 Write-Host "Installed CLI wrapper: $BinPath"

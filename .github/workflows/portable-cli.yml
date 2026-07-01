@@ -1,0 +1,39 @@
+name: Portable CLI Build
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  portable-cli:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 26
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Test portable CLI
+        run: npm run test:cli:portable
+
+      - name: Package portable CLI
+        run: npm run cli:package
+
+      - name: Upload portable CLI artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: canvas-notebook-portable-cli
+          if-no-files-found: error
+          path: dist-portable-cli/canvas-notebook-cli

@@ -45,13 +45,15 @@ wait_for_docker() {
 }
 
 require_command node
-require_command npm
 require_command docker
 
 wait_for_docker
 
 cd "$ROOT_DIR"
-npm run cli:build
+if [[ ! -f "${ROOT_DIR}/dist-cli/main.js" ]]; then
+  require_command npm
+  npm run cli:build
+fi
 
 mkdir -p "$BIN_DIR"
 cat > "$BIN_PATH" <<EOF
