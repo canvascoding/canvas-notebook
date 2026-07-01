@@ -31,6 +31,9 @@ const eslintConfig = defineConfig([
     // Workspace files
     "data/workspace/**",
     "data/workspaces/**",
+    // Compiled CLI artifacts (TypeScript source exists)
+    "dist-cli/**",
+    "dist-portable-cli/**",
     // Compiled JavaScript files (TypeScript source exists)
     "server/*.js",
     "scripts/*.js",

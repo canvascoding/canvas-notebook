@@ -15,25 +15,39 @@ type VersionUpdateIndicatorProps = {
 };
 
 function parseVersion(version: string): number[] {
-  const cleaned = version.replace(/^v/, '');
+  const cleaned = version.replace(/^v/, '').trim();
   const parts = cleaned.split('.').map((p) => parseInt(p, 10) || 0);
-  while (parts.length < 3) parts.push(0);
+  while (parts.length < 4) parts.push(0);
   return parts;
 }
 
 function isNewerVersion(current: string, latest: string): boolean {
   const currentParts = parseVersion(current);
   const latestParts = parseVersion(latest);
-  
-  for (let i = 0; i < 3; i++) {
-    if (latestParts[i] > currentParts[i]) return true;
-    if (latestParts[i] < currentParts[i]) return false;
+  const len = Math.max(currentParts.length, latestParts.length);
+
+  for (let i = 0; i < len; i++) {
+    const c = currentParts[i] ?? 0;
+    const l = latestParts[i] ?? 0;
+    if (l > c) return true;
+    if (l < c) return false;
   }
   return false;
 }
 
 const CACHE_KEY = 'version-check-cache';
 const CACHE_DURATION = 3600000;
+
+function normalizeVersion(version: string): string {
+  return version.replace(/^v/, '').trim();
+}
+
+function computeHasUpdate(currentVersion: string, latestTag: string): boolean {
+  const latest = normalizeVersion(latestTag);
+  const current = normalizeVersion(currentVersion);
+  if (!latest || latest === current) return false;
+  return isNewerVersion(currentVersion, latestTag);
+}
 
 export function VersionUpdateIndicator({ currentVersion, repositoryUrl }: VersionUpdateIndicatorProps) {
   const [updateAvailable, setUpdateAvailable] = useState(false);
@@ -45,8 +59,9 @@ export function VersionUpdateIndicator({ currentVersion, repositoryUrl }: Versio
       try {
         const cached = localStorage.getItem(CACHE_KEY);
         if (cached) {
-          const { timestamp, latest, hasUpdate } = JSON.parse(cached);
+          const { timestamp, latest } = JSON.parse(cached) as { timestamp: number; latest: string; hasUpdate?: boolean };
           if (Date.now() - timestamp < CACHE_DURATION) {
+            const hasUpdate = computeHasUpdate(currentVersion, latest);
             setLatestVersion(latest);
             setUpdateAvailable(hasUpdate);
             setIsLoading(false);
@@ -61,10 +76,10 @@ export function VersionUpdateIndicator({ currentVersion, repositoryUrl }: Versio
         }
 
         const data = await response.json();
-        const latestTag = data.tag_name;
-        
+        const latestTag = data.tag_name as string;
+
         if (latestTag) {
-          const hasUpdate = isNewerVersion(currentVersion, latestTag);
+          const hasUpdate = computeHasUpdate(currentVersion, latestTag);
           setLatestVersion(latestTag);
           setUpdateAvailable(hasUpdate);
 
