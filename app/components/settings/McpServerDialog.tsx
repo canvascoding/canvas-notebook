@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Skeleton } from '@/components/ui/skeleton';
 import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
@@ -267,6 +268,7 @@ export function McpServerDialog(props: {
   };
 
   const bearerTokenEnvKey = makeMcpBearerTokenEnvKey(draft);
+  const isLoading = Boolean(loadingMessage);
 
   const renderPairRows = (field: 'env' | 'headers' | 'headersFromEnv', keyPlaceholder: string, valuePlaceholder: string) => (
     <div className="space-y-2">
@@ -315,6 +317,43 @@ export function McpServerDialog(props: {
     </div>
   );
 
+  const renderLoadingSkeleton = () => (
+    <div className="space-y-4">
+      <div className="rounded-md border bg-muted/20 p-3">
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          {loadingMessage}
+        </div>
+        <div className="mt-3 space-y-2">
+          <Skeleton className="h-4 w-40" />
+          <Skeleton className="h-9 w-full" />
+        </div>
+      </div>
+      <div className="rounded-md border border-border p-4">
+        <Skeleton className="h-4 w-24" />
+        <Skeleton className="mt-2 h-10 w-full" />
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <Skeleton className="h-10 w-full" />
+        <Skeleton className="h-10 w-full" />
+      </div>
+      <div className="space-y-4 rounded-md border border-border p-4">
+        <div>
+          <Skeleton className="h-4 w-28" />
+          <Skeleton className="mt-2 h-10 w-full" />
+        </div>
+        <div>
+          <Skeleton className="h-4 w-36" />
+          <div className="mt-2 space-y-2">
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-9 w-full" />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+
   return (
     <Dialog open={open} onOpenChange={(nextOpen) => { if (!isSaving) onOpenChange(nextOpen); }}>
       <DialogContent
@@ -328,122 +367,120 @@ export function McpServerDialog(props: {
 
         <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6">
           <div className="mx-auto w-full max-w-4xl space-y-4">
-            {loadingMessage ? (
-              <p className="flex items-center gap-2 rounded-md border bg-muted/20 p-3 text-sm text-muted-foreground">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                {loadingMessage}
-              </p>
-            ) : null}
             {error ? <p className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">{error}</p> : null}
 
-            <div>
-              <h3 className="text-lg font-semibold">{t('mcpConfig.customTitle')}</h3>
-              <a className="mt-2 inline-flex items-center text-sm text-primary" href="https://modelcontextprotocol.io/docs" target="_blank" rel="noreferrer">
-                {t('mcpConfig.docs')}
-                <ExternalLink className="ml-1 h-3.5 w-3.5" />
-              </a>
-            </div>
-
-            <div className="rounded-md border border-border p-4">
-              <Label htmlFor="mcp-server-name">{t('mcpConfig.name')}</Label>
-              <Input id="mcp-server-name" className="mt-2" value={draft.name} onChange={(event) => onDraftChange({ name: event.target.value })} placeholder={t('mcpConfig.namePlaceholder')} />
-            </div>
-
-            <Tabs value={draft.mode} onValueChange={(value) => onDraftChange({ mode: value as McpTransportMode })}>
-              <TabsList className="grid w-full grid-cols-2">
-                <TabsTrigger value="stdio">STDIO</TabsTrigger>
-                <TabsTrigger value="http">Streamable HTTP</TabsTrigger>
-              </TabsList>
-            </Tabs>
-
-            {draft.mode === 'stdio' ? (
-              <div className="space-y-4 rounded-md border border-border p-4">
+            {isLoading ? renderLoadingSkeleton() : (
+              <>
                 <div>
-                  <Label htmlFor="mcp-command">{t('mcpConfig.command')}</Label>
-                  <Input id="mcp-command" className="mt-2" value={draft.command} onChange={(event) => onDraftChange({ command: event.target.value })} placeholder="npx" />
+                  <h3 className="text-lg font-semibold">{t('mcpConfig.customTitle')}</h3>
+                  <a className="mt-2 inline-flex items-center text-sm text-primary" href="https://modelcontextprotocol.io/docs" target="_blank" rel="noreferrer">
+                    {t('mcpConfig.docs')}
+                    <ExternalLink className="ml-1 h-3.5 w-3.5" />
+                  </a>
                 </div>
-                <div>
-                  <Label>{t('mcpConfig.arguments')}</Label>
-                  <div className="mt-2 space-y-2">
-                    {draft.args.map((arg, index) => (
-                      <div key={`${index}-${arg}`} className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
-                        <Input className="min-w-0" value={arg} onChange={(event) => onDraftChange({ args: draft.args.map((entry, entryIndex) => entryIndex === index ? event.target.value : entry) })} />
-                        <Button type="button" variant="ghost" size="icon" onClick={() => onDraftChange({ args: draft.args.filter((_entry, entryIndex) => entryIndex !== index) })}>
-                          <Trash2 className="h-4 w-4" />
+
+                <div className="rounded-md border border-border p-4">
+                  <Label htmlFor="mcp-server-name">{t('mcpConfig.name')}</Label>
+                  <Input id="mcp-server-name" className="mt-2" value={draft.name} onChange={(event) => onDraftChange({ name: event.target.value })} placeholder={t('mcpConfig.namePlaceholder')} />
+                </div>
+
+                <Tabs value={draft.mode} onValueChange={(value) => onDraftChange({ mode: value as McpTransportMode })}>
+                  <TabsList className="grid w-full grid-cols-2">
+                    <TabsTrigger value="stdio">STDIO</TabsTrigger>
+                    <TabsTrigger value="http">Streamable HTTP</TabsTrigger>
+                  </TabsList>
+                </Tabs>
+
+                {draft.mode === 'stdio' ? (
+                  <div className="space-y-4 rounded-md border border-border p-4">
+                    <div>
+                      <Label htmlFor="mcp-command">{t('mcpConfig.command')}</Label>
+                      <Input id="mcp-command" className="mt-2" value={draft.command} onChange={(event) => onDraftChange({ command: event.target.value })} placeholder="npx" />
+                    </div>
+                    <div>
+                      <Label>{t('mcpConfig.arguments')}</Label>
+                      <div className="mt-2 space-y-2">
+                        {draft.args.map((arg, index) => (
+                          <div key={`${index}-${arg}`} className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
+                            <Input className="min-w-0" value={arg} onChange={(event) => onDraftChange({ args: draft.args.map((entry, entryIndex) => entryIndex === index ? event.target.value : entry) })} />
+                            <Button type="button" variant="ghost" size="icon" onClick={() => onDraftChange({ args: draft.args.filter((_entry, entryIndex) => entryIndex !== index) })}>
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        ))}
+                        <Button type="button" variant="secondary" className="w-full" onClick={() => onDraftChange({ args: [...draft.args, ''] })}>
+                          <Plus className="mr-2 h-4 w-4" />
+                          {t('mcpConfig.addArgument')}
                         </Button>
                       </div>
-                    ))}
-                    <Button type="button" variant="secondary" className="w-full" onClick={() => onDraftChange({ args: [...draft.args, ''] })}>
-                      <Plus className="mr-2 h-4 w-4" />
-                      {t('mcpConfig.addArgument')}
-                    </Button>
-                  </div>
-                </div>
-                <div>
-                  <Label>{t('mcpConfig.envVars')}</Label>
-                  <div className="mt-2">{renderPairRows('env', t('mcpConfig.keyPlaceholder'), t('mcpConfig.valuePlaceholder'))}</div>
-                </div>
-                <div>
-                  <Label>{t('mcpConfig.envPassthrough')}</Label>
-                  <div className="mt-2 space-y-2">
-                    {draft.envPassthrough.map((value, index) => (
-                      <div key={`${index}-${value}`} className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
-                        <Input className="min-w-0" value={value} onChange={(event) => onDraftChange({ envPassthrough: draft.envPassthrough.map((entry, entryIndex) => entryIndex === index ? event.target.value : entry) })} placeholder="OPENAI_API_KEY" />
-                        <Button type="button" variant="ghost" size="icon" onClick={() => onDraftChange({ envPassthrough: draft.envPassthrough.filter((_entry, entryIndex) => entryIndex !== index) })}>
-                          <Trash2 className="h-4 w-4" />
+                    </div>
+                    <div>
+                      <Label>{t('mcpConfig.envVars')}</Label>
+                      <div className="mt-2">{renderPairRows('env', t('mcpConfig.keyPlaceholder'), t('mcpConfig.valuePlaceholder'))}</div>
+                    </div>
+                    <div>
+                      <Label>{t('mcpConfig.envPassthrough')}</Label>
+                      <div className="mt-2 space-y-2">
+                        {draft.envPassthrough.map((value, index) => (
+                          <div key={`${index}-${value}`} className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
+                            <Input className="min-w-0" value={value} onChange={(event) => onDraftChange({ envPassthrough: draft.envPassthrough.map((entry, entryIndex) => entryIndex === index ? event.target.value : entry) })} placeholder="OPENAI_API_KEY" />
+                            <Button type="button" variant="ghost" size="icon" onClick={() => onDraftChange({ envPassthrough: draft.envPassthrough.filter((_entry, entryIndex) => entryIndex !== index) })}>
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        ))}
+                        <Button type="button" variant="secondary" className="w-full" onClick={() => onDraftChange({ envPassthrough: [...draft.envPassthrough, ''] })}>
+                          <Plus className="mr-2 h-4 w-4" />
+                          {t('mcpConfig.addVariable')}
                         </Button>
                       </div>
-                    ))}
-                    <Button type="button" variant="secondary" className="w-full" onClick={() => onDraftChange({ envPassthrough: [...draft.envPassthrough, ''] })}>
-                      <Plus className="mr-2 h-4 w-4" />
-                      {t('mcpConfig.addVariable')}
-                    </Button>
+                    </div>
+                    <div>
+                      <Label htmlFor="mcp-cwd">{t('mcpConfig.cwd')}</Label>
+                      <Input id="mcp-cwd" className="mt-2" value={draft.cwd} onChange={(event) => onDraftChange({ cwd: event.target.value })} placeholder="/data/workspace" />
+                    </div>
                   </div>
-                </div>
-                <div>
-                  <Label htmlFor="mcp-cwd">{t('mcpConfig.cwd')}</Label>
-                  <Input id="mcp-cwd" className="mt-2" value={draft.cwd} onChange={(event) => onDraftChange({ cwd: event.target.value })} placeholder="/data/workspace" />
-                </div>
-              </div>
-            ) : (
-              <div className="space-y-4 rounded-md border border-border p-4">
-                <div>
-                  <Label htmlFor="mcp-url">URL</Label>
-                  <Input id="mcp-url" className="mt-2" value={draft.url} onChange={(event) => onDraftChange({ url: event.target.value })} placeholder="https://mcp.example.com/mcp" />
-                </div>
-                <div>
-                  <Label>{t('mcpConfig.oauthMode')}</Label>
-                  <Tabs value={draft.auth} onValueChange={(value) => onDraftChange({ auth: value as McpServerDraft['auth'] })} className="mt-2">
-                    <TabsList className="grid w-full grid-cols-2">
-                      <TabsTrigger value="none">{t('mcpConfig.oauthNone')}</TabsTrigger>
-                      <TabsTrigger value="oauth">{t('mcpConfig.oauthEnabled')}</TabsTrigger>
-                    </TabsList>
-                  </Tabs>
-                </div>
-                <div>
-                  <Label htmlFor="mcp-bearer">{t('mcpConfig.bearerEnv')}</Label>
-                  <Input
-                    id="mcp-bearer"
-                    className="mt-2"
-                    value={draft.bearerTokenValue}
-                    onChange={(event) => onDraftChange({ bearerTokenValue: event.target.value })}
-                    placeholder={draft.bearerTokenEnv ? t('mcpConfig.bearerTokenPlaceholderExisting') : t('mcpConfig.bearerTokenPlaceholder')}
-                    type="password"
-                    autoComplete="off"
-                  />
-                  <p className="mt-2 break-all text-xs text-muted-foreground">
-                    {t('mcpConfig.bearerEnvStoredAs', { key: bearerTokenEnvKey })}
-                  </p>
-                </div>
-                <div>
-                  <Label>{t('mcpConfig.headers')}</Label>
-                  <div className="mt-2">{renderPairRows('headers', t('mcpConfig.keyPlaceholder'), t('mcpConfig.valuePlaceholder'))}</div>
-                </div>
-                <div>
-                  <Label>{t('mcpConfig.headersFromEnv')}</Label>
-                  <div className="mt-2">{renderPairRows('headersFromEnv', t('mcpConfig.keyPlaceholder'), t('mcpConfig.valuePlaceholder'))}</div>
-                </div>
-              </div>
+                ) : (
+                  <div className="space-y-4 rounded-md border border-border p-4">
+                    <div>
+                      <Label htmlFor="mcp-url">URL</Label>
+                      <Input id="mcp-url" className="mt-2" value={draft.url} onChange={(event) => onDraftChange({ url: event.target.value })} placeholder="https://mcp.example.com/mcp" />
+                    </div>
+                    <div>
+                      <Label>{t('mcpConfig.oauthMode')}</Label>
+                      <Tabs value={draft.auth} onValueChange={(value) => onDraftChange({ auth: value as McpServerDraft['auth'] })} className="mt-2">
+                        <TabsList className="grid w-full grid-cols-2">
+                          <TabsTrigger value="none">{t('mcpConfig.oauthNone')}</TabsTrigger>
+                          <TabsTrigger value="oauth">{t('mcpConfig.oauthEnabled')}</TabsTrigger>
+                        </TabsList>
+                      </Tabs>
+                    </div>
+                    <div>
+                      <Label htmlFor="mcp-bearer">{t('mcpConfig.bearerEnv')}</Label>
+                      <Input
+                        id="mcp-bearer"
+                        className="mt-2"
+                        value={draft.bearerTokenValue}
+                        onChange={(event) => onDraftChange({ bearerTokenValue: event.target.value })}
+                        placeholder={draft.bearerTokenEnv ? t('mcpConfig.bearerTokenPlaceholderExisting') : t('mcpConfig.bearerTokenPlaceholder')}
+                        type="password"
+                        autoComplete="off"
+                      />
+                      <p className="mt-2 break-all text-xs text-muted-foreground">
+                        {t('mcpConfig.bearerEnvStoredAs', { key: bearerTokenEnvKey })}
+                      </p>
+                    </div>
+                    <div>
+                      <Label>{t('mcpConfig.headers')}</Label>
+                      <div className="mt-2">{renderPairRows('headers', t('mcpConfig.keyPlaceholder'), t('mcpConfig.valuePlaceholder'))}</div>
+                    </div>
+                    <div>
+                      <Label>{t('mcpConfig.headersFromEnv')}</Label>
+                      <div className="mt-2">{renderPairRows('headersFromEnv', t('mcpConfig.keyPlaceholder'), t('mcpConfig.valuePlaceholder'))}</div>
+                    </div>
+                  </div>
+                )}
+              </>
             )}
           </div>
         </div>
@@ -468,7 +505,7 @@ export function McpServerDialog(props: {
               <Button type="button" variant="outline" className="w-full sm:w-auto" onClick={() => onOpenChange(false)} disabled={isSaving}>
                 {t('mcpConfig.cancel')}
               </Button>
-              <Button type="button" className="w-full sm:w-auto" onClick={onSave} disabled={isSaving}>
+              <Button type="button" className="w-full sm:w-auto" onClick={onSave} disabled={isSaving || isLoading}>
                 {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
                 {t('mcpConfig.saveServer')}
               </Button>

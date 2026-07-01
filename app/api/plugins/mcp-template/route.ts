@@ -1,18 +1,15 @@
-import { promises as fs } from 'fs';
-import path from 'path';
-
 import { headers } from 'next/headers';
 import { NextResponse } from 'next/server';
 
 import { auth } from '@/app/lib/auth';
 import { getCanvasPlugin, type CanvasPluginInstallRecord } from '@/app/lib/plugins/canvas-plugin-registry';
 import {
-  isPathInside,
   isValidCanvasPluginName,
   isValidCanvasPluginVersion,
   type CanvasPluginMcpConnector,
 } from '@/app/lib/plugins/canvas-plugin-manifest';
 import { readCanvasPluginStoreMcpTemplate } from '@/app/lib/plugins/canvas-plugin-store';
+import { readPluginMcpTemplateFile } from '@/app/lib/plugins/plugin-mcp-template-service';
 
 function stringValue(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined;
@@ -23,29 +20,6 @@ function normalizeInstalledMcpConnectors(connectors: CanvasPluginInstallRecord['
     ...(connectors?.mcp || []),
     ...(connectors?.mcpServers ? [{ name: 'mcp', label: 'MCP', configPath: connectors.mcpServers, recommended: true }] : []),
   ];
-}
-
-function normalizePluginRelativePath(value: string): string {
-  const normalized = value
-    .replace(/\0/g, '')
-    .replace(/\\/g, '/')
-    .replace(/^\/+/, '')
-    .replace(/^\.\//, '');
-  if (!normalized || normalized.includes('../') || path.isAbsolute(normalized)) {
-    throw new Error('Invalid connector config path.');
-  }
-  return normalized;
-}
-
-function parseJsonObject(rawContent: string): Record<string, unknown> | undefined {
-  try {
-    const parsed = JSON.parse(rawContent) as unknown;
-    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
-      ? parsed as Record<string, unknown>
-      : undefined;
-  } catch {
-    return undefined;
-  }
 }
 
 export async function POST(request: Request) {
@@ -61,11 +35,18 @@ export async function POST(request: Request) {
       version?: unknown;
       connector?: unknown;
     };
-    const source = body.source === 'store' ? 'store' : 'installed';
+    const source = body.source === 'store'
+      ? 'store'
+      : body.source === 'installed' || body.source === undefined
+        ? 'installed'
+        : null;
     const pluginName = stringValue(body.name);
     const connectorName = stringValue(body.connector);
     const version = stringValue(body.version);
 
+    if (!source) {
+      return NextResponse.json({ success: false, error: 'Invalid plugin source' }, { status: 400 });
+    }
     if (!pluginName || !isValidCanvasPluginName(pluginName)) {
       return NextResponse.json({ success: false, error: 'Invalid plugin name' }, { status: 400 });
     }
@@ -102,28 +83,26 @@ export async function POST(request: Request) {
       });
     }
 
-    const relativePath = normalizePluginRelativePath(connector.configPath);
-    const targetPath = path.join(plugin.installDir, relativePath);
-    if (!isPathInside(plugin.installDir, targetPath)) {
-      return NextResponse.json({ success: false, error: 'Invalid connector config path' }, { status: 400 });
-    }
-
-    const rawContent = await fs.readFile(targetPath, 'utf-8');
+    const templateFile = await readPluginMcpTemplateFile({
+      rootDir: plugin.installDir,
+      configPath: connector.configPath,
+    });
     return NextResponse.json({
       success: true,
       template: {
         pluginName: plugin.name,
         version: plugin.version,
         connector,
-        rawContent,
-        config: parseJsonObject(rawContent),
+        rawContent: templateFile.rawContent,
+        config: templateFile.config,
       },
     });
   } catch (error) {
     console.error('[Plugins MCP Template API] Error:', error);
+    const message = error instanceof Error ? error.message : 'Failed to load MCP template';
     return NextResponse.json(
-      { success: false, error: error instanceof Error ? error.message : 'Failed to load MCP template' },
-      { status: 500 },
+      { success: false, error: message },
+      { status: message === 'Invalid connector config path.' ? 400 : 500 },
     );
   }
 }

@@ -47,6 +47,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
+import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   Dialog,
@@ -877,7 +878,7 @@ function CanvasPluginsSection({ onPluginsChanged }: { onPluginsChanged: () => vo
             version: options.version,
             connector: options.connector.name,
           }),
-        }).catch((error) => error as Error),
+        }),
       ]);
 
       const configPayload = await configResponse.json();
@@ -888,13 +889,11 @@ function CanvasPluginsSection({ onPluginsChanged }: { onPluginsChanged: () => vo
       const rawContent = String(configPayload.data?.rawContent || '{}');
       const parsedConfig = parseMcpConfigFile(rawContent);
       const existingServer = parsedConfig.mcpServers[options.connector.name];
-      let templateConfig: Record<string, unknown> | undefined;
-      if (!(templateResponse instanceof Error)) {
-        const templatePayload = await templateResponse.json().catch(() => null);
-        if (templateResponse.ok && templatePayload?.success) {
-          templateConfig = templatePayload.template?.config;
-        }
+      const templatePayload = await templateResponse.json().catch(() => null);
+      if (!templateResponse.ok || !templatePayload?.success) {
+        throw new Error(templatePayload?.error || t('connectors.mcpLoadError'));
       }
+      const templateConfig = templatePayload.template?.config;
 
       setMcpSetupState((current) => ({
         ...current,
@@ -1070,7 +1069,7 @@ function CanvasPluginsSection({ onPluginsChanged }: { onPluginsChanged: () => vo
         <Button
           variant="outline"
           size="sm"
-          className="h-8 shrink-0"
+          className="h-8 w-full shrink-0 sm:w-auto"
           onClick={() => void connectComposioToolkit(item.key)}
           disabled={isPending}
         >
@@ -1089,7 +1088,7 @@ function CanvasPluginsSection({ onPluginsChanged }: { onPluginsChanged: () => vo
         <Button
           variant="outline"
           size="sm"
-          className="h-8 shrink-0"
+          className="h-8 w-full shrink-0 sm:w-auto"
           onClick={() => void openPluginMcpSetup({
             pluginName,
             version: source === 'store' ? options.storePlugin?.latestVersion : undefined,
@@ -1104,13 +1103,39 @@ function CanvasPluginsSection({ onPluginsChanged }: { onPluginsChanged: () => vo
 
     if (item.type === 'email') {
       return (
-        <Button asChild variant="outline" size="sm" className="h-8 shrink-0">
+        <Button asChild variant="outline" size="sm" className="h-8 w-full shrink-0 sm:w-auto">
           <Link href="/settings?tab=integrations&section=email">{item.ready ? t('connectors.manage') : t('connectors.openEmail')}</Link>
         </Button>
       );
     }
 
     return null;
+  }
+
+  function renderConnectorSetupSkeletonRows(count: number) {
+    return (
+      <div className="space-y-1.5">
+        {Array.from({ length: Math.max(1, count) }).map((_, index) => (
+          <div key={`connector-skeleton-${index}`} className="flex flex-col gap-2 rounded-md bg-background/70 px-2 py-2 sm:flex-row sm:items-start">
+            <div className="flex min-w-0 flex-1 items-start gap-2">
+              <Skeleton className="h-7 w-7 shrink-0 rounded-md" />
+              <div className="min-w-0 flex-1 space-y-2">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <Skeleton className="h-4 w-28 max-w-full" />
+                  <Skeleton className="h-4 w-12" />
+                  <Skeleton className="h-4 w-20" />
+                </div>
+                <Skeleton className="h-3 w-full max-w-[28rem]" />
+                <Skeleton className="h-3 w-3/4 max-w-[22rem]" />
+              </div>
+            </div>
+            <div className="flex w-full justify-end sm:w-auto sm:pl-2">
+              <Skeleton className="h-8 w-full sm:w-24" />
+            </div>
+          </div>
+        ))}
+      </div>
+    );
   }
 
   function renderPluginConnectorSetup(options: {
@@ -1130,6 +1155,10 @@ function CanvasPluginsSection({ onPluginsChanged }: { onPluginsChanged: () => vo
 
     const preflight = storePlugin ? preflightByPlugin[getPreflightKey(storePlugin.name, storePlugin.latestVersion)] : undefined;
     const items = preflight?.result?.items?.length ? preflight.result.items : buildConnectorSetupItems(connectors);
+    const isSetupLoading = Boolean(
+      preflight?.isLoading
+      || (composioConnectorState.isLoading && getComposioRecommendations(connectors).length > 0 && !preflight?.result),
+    );
     const readyCount = preflight?.result?.summary.ready ?? items.filter((item) => item.ready).length;
     const requiredMissing = preflight?.result?.summary.requiredMissing ?? items.filter((item) => item.required && !item.ready).length;
     const recommendedMissing = preflight?.result?.summary.recommendedMissing ?? items.filter((item) => !item.required && !item.ready).length;
@@ -1143,17 +1172,21 @@ function CanvasPluginsSection({ onPluginsChanged }: { onPluginsChanged: () => vo
             {hasRequiredMissing ? <Info className="h-3.5 w-3.5" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
             {t('connectors.setupTitle')}
           </div>
-          <div className="flex items-center gap-2">
-            <Badge variant={hasRequiredMissing ? 'destructive' : 'secondary'} className="text-[10px]">
-              {hasRequiredMissing ? t('preflight.needsSetup') : t('preflight.ready')}
-            </Badge>
+          <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
+            {isSetupLoading && !preflight?.result ? (
+              <Skeleton className="h-5 w-full sm:w-24" />
+            ) : (
+              <Badge variant={hasRequiredMissing ? 'destructive' : 'secondary'} className="w-full justify-center text-[10px] sm:w-auto">
+                {hasRequiredMissing ? t('preflight.needsSetup') : t('preflight.ready')}
+              </Badge>
+            )}
             {storePlugin ? (
               <Button
                 variant="outline"
                 size="sm"
                 onClick={() => void checkStorePluginPreflight(storePlugin.name, storePlugin.latestVersion)}
                 disabled={isChecking}
-                className="h-8 gap-1.5"
+                className="h-8 w-full gap-1.5 sm:w-auto"
               >
                 {isChecking ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
                 {t('details.refreshCheck')}
@@ -1161,53 +1194,56 @@ function CanvasPluginsSection({ onPluginsChanged }: { onPluginsChanged: () => vo
             ) : null}
           </div>
         </div>
-        <p className="text-xs text-muted-foreground">
-          {t('preflight.summary', {
-            ready: readyCount,
-            total,
-            required: requiredMissing,
-            recommended: recommendedMissing,
-          })}
-        </p>
-        {preflight?.isLoading ? (
-          <div className="flex items-center gap-2 rounded-md bg-background/70 px-2 py-2 text-sm text-muted-foreground">
-            <Loader2 className="h-4 w-4 animate-spin" />
-            {t('preflight.checking')}
-          </div>
+        {isSetupLoading && !preflight?.result ? (
+          <Skeleton className="h-4 w-full max-w-md" />
+        ) : (
+          <p className="text-xs text-muted-foreground">
+            {t('preflight.summary', {
+              ready: readyCount,
+              total,
+              required: requiredMissing,
+              recommended: recommendedMissing,
+            })}
+          </p>
+        )}
+        {isSetupLoading && !preflight?.result ? (
+          renderConnectorSetupSkeletonRows(items.length)
         ) : null}
         {preflight?.error ? (
           <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
             {preflight.error}
           </div>
         ) : null}
-        <div className="space-y-1.5">
-          {items.map((item) => (
-            <div key={`${item.type}-${item.key}`} className="flex flex-col gap-2 rounded-md bg-background/70 px-2 py-2 sm:flex-row sm:items-start">
-              <div className="flex min-w-0 flex-1 items-start gap-2">
-                {renderPreflightTypeIcon(item)}
-                <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    <span className="truncate text-xs font-medium">{item.label}</span>
-                    <Badge variant="outline" className="text-[9px]">{item.type}</Badge>
-                    <Badge variant={item.required ? 'destructive' : 'secondary'} className="text-[9px]">
-                      {item.required ? t('connectors.required') : t('connectors.recommended')}
-                    </Badge>
-                    <Badge variant={item.ready ? 'default' : 'secondary'} className="text-[9px]">
-                      {item.ready ? t('connectors.connected') : t('connectors.notConnected')}
-                    </Badge>
+        {!isSetupLoading || preflight?.result ? (
+          <div className="space-y-1.5">
+            {items.map((item) => (
+              <div key={`${item.type}-${item.key}`} className="flex flex-col gap-2 rounded-md bg-background/70 px-2 py-2 sm:flex-row sm:items-start">
+                <div className="flex min-w-0 flex-1 items-start gap-2">
+                  {renderPreflightTypeIcon(item)}
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span className="truncate text-xs font-medium">{item.label}</span>
+                      <Badge variant="outline" className="text-[9px]">{item.type}</Badge>
+                      <Badge variant={item.required ? 'destructive' : 'secondary'} className="text-[9px]">
+                        {item.required ? t('connectors.required') : t('connectors.recommended')}
+                      </Badge>
+                      <Badge variant={item.ready ? 'default' : 'secondary'} className="text-[9px]">
+                        {item.ready ? t('connectors.connected') : t('connectors.notConnected')}
+                      </Badge>
+                    </div>
+                    {item.reason ? <p className="mt-1 text-[11px] text-muted-foreground">{item.reason}</p> : null}
+                    {item.details?.length ? (
+                      <p className="mt-1 text-[11px] text-muted-foreground">{item.details.join(' · ')}</p>
+                    ) : null}
                   </div>
-                  {item.reason ? <p className="mt-1 text-[11px] text-muted-foreground">{item.reason}</p> : null}
-                  {item.details?.length ? (
-                    <p className="mt-1 text-[11px] text-muted-foreground">{item.details.join(' · ')}</p>
-                  ) : null}
+                </div>
+                <div className="flex w-full justify-end sm:w-auto sm:pl-2">
+                  {renderConnectorSetupAction(item, { connectors, installedPlugin, storePlugin })}
                 </div>
               </div>
-              <div className="flex justify-end sm:pl-2">
-                {renderConnectorSetupAction(item, { connectors, installedPlugin, storePlugin })}
-              </div>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        ) : null}
       </div>
     );
   }
@@ -1573,9 +1609,9 @@ function CanvasPluginsSection({ onPluginsChanged }: { onPluginsChanged: () => vo
             </div>
           </div>
 
-          <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-t px-5 py-3">
+          <div className="flex shrink-0 flex-col gap-3 border-t px-5 py-3 sm:flex-row sm:items-center sm:justify-between">
             {installedPlugin ? (
-              <label className="flex items-center gap-2 text-sm text-muted-foreground">
+              <label className="flex w-full items-center gap-2 text-sm text-muted-foreground sm:w-auto">
                 <Switch
                   checked={installedEnabled}
                   disabled={isPending}
@@ -1585,16 +1621,16 @@ function CanvasPluginsSection({ onPluginsChanged }: { onPluginsChanged: () => vo
                 {installedEnabled ? t('enabled') : t('disabled')}
               </label>
             ) : (
-              <span className="text-sm text-muted-foreground">{t('details.notInstalled')}</span>
+              <span className="w-full text-sm text-muted-foreground sm:w-auto">{t('details.notInstalled')}</span>
             )}
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
               {installedPlugin ? (
                 <Button
                   variant="ghost"
                   size="sm"
                   disabled={isPending}
                   onClick={() => void deletePlugin(installedPlugin.name)}
-                  className="gap-1.5 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                  className="w-full gap-1.5 text-destructive hover:bg-destructive/10 hover:text-destructive sm:w-auto"
                 >
                   {isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
                   {t('delete')}
@@ -1606,7 +1642,7 @@ function CanvasPluginsSection({ onPluginsChanged }: { onPluginsChanged: () => vo
                   size="sm"
                   disabled={isPending || isChecking || !canInstallFromStore}
                   onClick={() => void installStorePlugin(storePlugin.name, storePlugin.latestVersion)}
-                  className="gap-1.5"
+                  className="w-full gap-1.5 sm:w-auto"
                 >
                   {isPending || isChecking ? (
                     <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -1622,6 +1658,38 @@ function CanvasPluginsSection({ onPluginsChanged }: { onPluginsChanged: () => vo
           </div>
         </DialogContent>
       </Dialog>
+    );
+  }
+
+  function renderPluginCardSkeletons(count = 4) {
+    return (
+      <div className="grid gap-3 md:grid-cols-2">
+        {Array.from({ length: count }).map((_, index) => (
+          <div key={`plugin-card-skeleton-${index}`} className="rounded-lg border bg-background p-4">
+            <div className="flex items-start gap-3">
+              <Skeleton className="h-10 w-10 shrink-0 rounded-lg" />
+              <div className="min-w-0 flex-1 space-y-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Skeleton className="h-4 w-36 max-w-full" />
+                  <Skeleton className="h-5 w-16" />
+                  <Skeleton className="h-5 w-14" />
+                </div>
+                <Skeleton className="h-3 w-28" />
+                <Skeleton className="h-4 w-full" />
+                <Skeleton className="h-4 w-4/5" />
+                <div className="flex flex-wrap gap-1.5 pt-1">
+                  <Skeleton className="h-5 w-20" />
+                  <Skeleton className="h-5 w-24" />
+                </div>
+              </div>
+            </div>
+            <div className="mt-4 flex flex-col gap-3 border-t pt-3 sm:flex-row sm:items-center sm:justify-between">
+              <Skeleton className="h-3 w-28" />
+              <Skeleton className="h-8 w-full sm:w-28" />
+            </div>
+          </div>
+        ))}
+      </div>
     );
   }
 
@@ -1694,8 +1762,8 @@ function CanvasPluginsSection({ onPluginsChanged }: { onPluginsChanged: () => vo
             ) : null}
           </div>
         </div>
-        <div className="mt-4 flex items-center justify-between gap-3 border-t pt-3">
-          <span className="text-xs text-muted-foreground">
+        <div className="mt-4 flex flex-col gap-3 border-t pt-3 sm:flex-row sm:items-center sm:justify-between">
+          <span className="min-w-0 text-xs text-muted-foreground">
             {plugin.publisher?.name || storeMetadata?.name || t('officialStore')}
           </span>
           <Button
@@ -1710,7 +1778,7 @@ function CanvasPluginsSection({ onPluginsChanged }: { onPluginsChanged: () => vo
               }
               void installStorePlugin(plugin.name, plugin.latestVersion);
             }}
-            className="gap-1.5"
+            className="w-full gap-1.5 sm:w-auto"
           >
             {isPending || isChecking ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : buttonIcon}
             {buttonLabel}
@@ -1774,7 +1842,7 @@ function CanvasPluginsSection({ onPluginsChanged }: { onPluginsChanged: () => vo
             </div>
           </div>
         </div>
-        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t pt-3">
+        <div className="mt-4 flex flex-col gap-3 border-t pt-3 sm:flex-row sm:items-center sm:justify-between">
           <label
             className="flex items-center gap-2 text-sm text-muted-foreground"
             onClick={(event) => event.stopPropagation()}
@@ -1788,7 +1856,7 @@ function CanvasPluginsSection({ onPluginsChanged }: { onPluginsChanged: () => vo
             />
             {plugin.enabled ? t('enabled') : t('disabled')}
           </label>
-          <div className="flex items-center gap-2">
+          <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
             {updateAvailable || skillRepairAvailable ? (
               <Button
                 variant="outline"
@@ -1802,7 +1870,7 @@ function CanvasPluginsSection({ onPluginsChanged }: { onPluginsChanged: () => vo
                   }
                   void installStorePlugin(plugin.name, storePlugin?.latestVersion);
                 }}
-                className="gap-1.5"
+                className="w-full gap-1.5 sm:w-auto"
               >
                 {isPending ? (
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -1824,7 +1892,7 @@ function CanvasPluginsSection({ onPluginsChanged }: { onPluginsChanged: () => vo
                 event.stopPropagation();
                 void deletePlugin(plugin.name);
               }}
-              className="gap-1.5 text-destructive hover:bg-destructive/10 hover:text-destructive"
+              className="w-full gap-1.5 text-destructive hover:bg-destructive/10 hover:text-destructive sm:w-auto"
             >
               {isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
               {t('delete')}
@@ -1958,9 +2026,7 @@ function CanvasPluginsSection({ onPluginsChanged }: { onPluginsChanged: () => vo
             </div>
           ) : null}
           {isLoading ? (
-            <div className="flex items-center justify-center rounded-lg border border-dashed py-8 text-muted-foreground">
-              <Loader2 className="h-5 w-5 animate-spin" />
-            </div>
+            renderPluginCardSkeletons()
           ) : storePlugins.length === 0 ? (
             <div className="rounded-lg border border-dashed px-4 py-6 text-sm text-muted-foreground">
               {t('emptyStore')}
@@ -1977,9 +2043,7 @@ function CanvasPluginsSection({ onPluginsChanged }: { onPluginsChanged: () => vo
 
         <TabsContent value="installed" className="space-y-3">
           {isLoading ? (
-            <div className="flex items-center justify-center rounded-lg border border-dashed py-8 text-muted-foreground">
-              <Loader2 className="h-5 w-5 animate-spin" />
-            </div>
+            renderPluginCardSkeletons()
           ) : filteredInstalledPlugins.length === 0 ? (
             <div className="rounded-lg border border-dashed px-4 py-6 text-sm text-muted-foreground">
               {t('empty')}
@@ -1993,9 +2057,7 @@ function CanvasPluginsSection({ onPluginsChanged }: { onPluginsChanged: () => vo
 
         <TabsContent value="updates" className="space-y-3">
           {isLoading ? (
-            <div className="flex items-center justify-center rounded-lg border border-dashed py-8 text-muted-foreground">
-              <Loader2 className="h-5 w-5 animate-spin" />
-            </div>
+            renderPluginCardSkeletons()
           ) : updatePlugins.length === 0 ? (
             <div className="rounded-lg border border-dashed px-4 py-6 text-sm text-muted-foreground">
               {t('noUpdates')}

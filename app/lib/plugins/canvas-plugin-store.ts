@@ -25,6 +25,7 @@ import {
 import { getGatewayStatus, getGatewayToolkits } from '@/app/lib/composio/composio-gateway';
 import { listEmailAccounts } from '@/app/lib/email/service';
 import { readMcpConfig } from '@/app/lib/mcp/config';
+import { readPluginMcpTemplateFile } from '@/app/lib/plugins/plugin-mcp-template-service';
 import { readCanvasSkillRegistry, type CanvasSkillInstallRecord } from '@/app/lib/skills/canvas-skill-store';
 import { resolveReadableScopedSkillsDataDir } from '@/app/lib/runtime-data-paths';
 
@@ -830,18 +831,6 @@ function getStorePluginOrThrow(registry: CanvasPluginStoreRegistry, pluginName: 
   return { plugin, version: selectedVersion };
 }
 
-function normalizePluginRelativePath(value: string): string {
-  const normalized = value
-    .replace(/\0/g, '')
-    .replace(/\\/g, '/')
-    .replace(/^\/+/, '')
-    .replace(/^\.\//, '');
-  if (!normalized || normalized.includes('../') || path.isAbsolute(normalized)) {
-    throw new Error('Invalid connector config path.');
-  }
-  return normalized;
-}
-
 export async function readCanvasPluginStoreMcpTemplate(
   pluginName: string,
   version: string | undefined,
@@ -879,27 +868,17 @@ export async function readCanvasPluginStoreMcpTemplate(
     const extracted = await extractPackageFromArchive(archiveBytes, storeVersion.packagePath);
     tempRoot = extracted.tempRoot;
     await verifyPackageChecksum(extracted.packageRoot, storeVersion.checksum);
-    const relativePath = normalizePluginRelativePath(connector.configPath);
-    const targetPath = path.join(extracted.packageRoot, relativePath);
-    if (!isPathInside(extracted.packageRoot, targetPath)) {
-      throw new Error('Invalid connector config path.');
-    }
-
-    const rawContent = await fs.readFile(targetPath, 'utf-8');
-    let config: Record<string, unknown> | undefined;
-    try {
-      const parsed = JSON.parse(rawContent) as unknown;
-      config = isRecord(parsed) ? parsed : undefined;
-    } catch {
-      config = undefined;
-    }
+    const templateFile = await readPluginMcpTemplateFile({
+      rootDir: extracted.packageRoot,
+      configPath: connector.configPath,
+    });
 
     return {
       pluginName: plugin.name,
       version: selectedVersion,
       connector,
-      rawContent,
-      config,
+      rawContent: templateFile.rawContent,
+      config: templateFile.config,
     };
   } finally {
     if (tempRoot) {
