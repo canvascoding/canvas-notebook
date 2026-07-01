@@ -27,10 +27,18 @@ import {
   workspaceAbsoluteRoot,
 } from './service';
 
-type RuntimeDb = Awaited<ReturnType<typeof openDb>>;
+export interface PostgresRuntimeDb {
+  get: (sql: string, params?: unknown[]) => unknown | Promise<unknown>;
+  run: (sql: string, params?: unknown[]) => unknown | Promise<unknown>;
+  all: (sql: string, params?: unknown[]) => unknown[] | Promise<unknown[]>;
+  close?: () => void | Promise<void>;
+}
 
-type UserRow = {
+type RuntimeDb = PostgresRuntimeDb;
+
+export type PostgresUserRow = {
   id: string;
+  name: string | null;
   email: string | null;
   role: string | null;
   created_at: number;
@@ -176,31 +184,109 @@ function ensureWorkspaceDirectory(rootRelativePath: string): void {
   mkdirSync(workspaceAbsoluteRoot(rootRelativePath), { recursive: true });
 }
 
-async function getUserById(database: RuntimeDb, userId: string): Promise<UserRow | null> {
-  return await database.get(
-    'SELECT id, email, role, created_at FROM "user" WHERE id = ? LIMIT 1',
-    [userId],
-  ) as UserRow | undefined || null;
+export async function getPostgresAuthUserCount(database: RuntimeDb): Promise<number> {
+  const row = await database.get('SELECT COUNT(*) AS count FROM "user"') as { count?: string | number } | undefined;
+  return Number(row?.count || 0);
 }
 
-async function getOwnerCandidate(database: RuntimeDb): Promise<UserRow | null> {
+export async function findPostgresUserById(database: RuntimeDb, userId: string): Promise<PostgresUserRow | null> {
+  return await database.get(
+    'SELECT id, name, email, role, created_at FROM "user" WHERE id = ? LIMIT 1',
+    [userId],
+  ) as PostgresUserRow | undefined || null;
+}
+
+export async function findPostgresUserByEmail(database: RuntimeDb, email: string): Promise<PostgresUserRow | null> {
+  return await database.get(
+    'SELECT id, name, email, role, created_at FROM "user" WHERE lower(email) = lower(?) LIMIT 1',
+    [email],
+  ) as PostgresUserRow | undefined || null;
+}
+
+export async function findPostgresBootstrapTargetUser(database: RuntimeDb): Promise<PostgresUserRow | null> {
   const bootstrapEmail = process.env.BOOTSTRAP_ADMIN_EMAIL?.trim().toLowerCase();
   if (bootstrapEmail) {
-    const bootstrapUser = await database.get(
-      'SELECT id, email, role, created_at FROM "user" WHERE lower(email) = lower(?) LIMIT 1',
-      [bootstrapEmail],
-    ) as UserRow | undefined;
+    const bootstrapUser = await findPostgresUserByEmail(database, bootstrapEmail);
     if (bootstrapUser) return bootstrapUser;
   }
 
   return await database.get(`
-    SELECT id, email, role, created_at
+    SELECT id, name, email, role, created_at
     FROM "user"
     ORDER BY
       CASE WHEN role = 'admin' THEN 0 ELSE 1 END,
       created_at ASC
     LIMIT 1
-  `) as UserRow | undefined || null;
+  `) as PostgresUserRow | undefined || null;
+}
+
+export async function updatePostgresAuthUser(
+  database: RuntimeDb,
+  input: {
+    userId: string;
+    email: string;
+    name: string;
+    role?: string;
+  },
+): Promise<void> {
+  await database.run(
+    'UPDATE "user" SET name = ?, email = ?, role = ?, updated_at = ? WHERE id = ?',
+    [input.name, input.email, input.role || 'admin', Date.now(), input.userId],
+  );
+}
+
+export async function insertPostgresAuthUser(
+  database: RuntimeDb,
+  input: {
+    userId?: string;
+    email: string;
+    name: string;
+    role?: string;
+  },
+): Promise<string> {
+  const userId = input.userId || randomUUID();
+  const now = Date.now();
+  await database.run(
+    `
+      INSERT INTO "user" (
+        id, name, email, email_verified, image, role, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `,
+    [userId, input.name, input.email, 1, null, input.role || 'admin', now, now],
+  );
+  return userId;
+}
+
+export async function ensurePostgresCredentialPassword(
+  database: RuntimeDb,
+  input: {
+    userId: string;
+    passwordHash: string;
+    accountId?: string;
+  },
+): Promise<void> {
+  const existingAccount = await database.get(
+    'SELECT id FROM account WHERE user_id = ? AND provider_id = ? LIMIT 1',
+    [input.userId, 'credential'],
+  ) as { id: string } | undefined;
+  const now = Date.now();
+
+  if (existingAccount) {
+    await database.run(
+      'UPDATE account SET account_id = ?, password = ?, updated_at = ? WHERE id = ?',
+      [input.userId, input.passwordHash, now, existingAccount.id],
+    );
+    return;
+  }
+
+  await database.run(
+    `
+      INSERT INTO account (
+        id, account_id, provider_id, user_id, password, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)
+    `,
+    [input.accountId || randomUUID(), input.userId, 'credential', input.userId, input.passwordHash, now, now],
+  );
 }
 
 async function getPrimaryOrganization(database: RuntimeDb): Promise<OrganizationRow | null> {
@@ -532,7 +618,7 @@ async function resolveWorkspaceContextById(
 
 function buildStatus(
   organization: OrganizationRow | null,
-  ownerUser: UserRow | null,
+  ownerUser: PostgresUserRow | null,
   permission: OrganizationPermissionSnapshot | null,
 ): OrganizationBootstrapStatus {
   const deploymentMode = organization?.deployment_mode || getDeploymentMode();
@@ -571,7 +657,7 @@ export async function getPostgresOrganizationBootstrapStatus(): Promise<Organiza
   const database = await openDb();
   try {
     const organization = await getPrimaryOrganization(database);
-    const ownerUser = organization ? await getUserById(database, organization.owner_user_id) : await getOwnerCandidate(database);
+    const ownerUser = organization ? await findPostgresUserById(database, organization.owner_user_id) : await findPostgresBootstrapTargetUser(database);
     const permission = organization && ownerUser
       ? rowToPermissionSnapshot(await getPermissionRow(database, organization.organization_id, ownerUser.id))
       : null;
@@ -585,7 +671,7 @@ export async function ensurePostgresOrganizationBootstrapForUser(
   database: RuntimeDb,
   userId: string,
 ): Promise<OrganizationBootstrapStatus> {
-  const targetUser = await getUserById(database, userId);
+  const targetUser = await findPostgresUserById(database, userId);
   if (!targetUser) {
     throw new OrganizationBootstrapError('NO_USERS', 'Cannot bootstrap organization without a valid user.');
   }
@@ -627,7 +713,7 @@ export async function ensurePostgresOrganizationBootstrapForUser(
     };
   }
 
-  const ownerUser = await getUserById(database, organization.owner_user_id) || targetUser;
+  const ownerUser = await findPostgresUserById(database, organization.owner_user_id) || targetUser;
   await database.run('UPDATE "user" SET role = ?, updated_at = ? WHERE id = ?', ['admin', now, ownerUser.id]);
   const ownerPermission = await ensurePermissionRow(database, organization.organization_id, ownerUser.id, 'owner');
   if (targetUser.id !== ownerUser.id) {
