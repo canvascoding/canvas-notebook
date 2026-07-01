@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { batchCopy, batchCopyBetweenWorkspaces } from '@/app/lib/filesystem/workspace-files';
+import { summarizeWorkspaceBatchResult } from '@/app/lib/files/operation-flows';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
 
 function createWorkspaceContext(rootPath: string, workspaceId: string, type: WorkspaceContext['workspaceType']): WorkspaceContext {
@@ -93,6 +94,12 @@ async function main() {
     assert.equal(partialResult.copied.length, 1);
     assert.equal(partialResult.failed.length, 1);
     assert.equal(partialResult.skipped.length, 0);
+    assert.deepEqual(summarizeWorkspaceBatchResult(partialResult), {
+      copiedCount: 1,
+      unresolvedCount: 1,
+      hasUnresolved: true,
+      hasCopied: true,
+    });
 
     const sameNameResult = await batchCopy(
       ['docs/nested/a.txt', 'docs/other/a.txt'],

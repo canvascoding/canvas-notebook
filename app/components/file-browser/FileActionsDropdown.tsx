@@ -49,12 +49,12 @@ import type { FileNode } from '@/app/lib/files/types';
 import { getParentDirectory, joinWorkspacePath } from '@/app/lib/files/path-utils';
 import { isWorkspaceImageFileName, shareWorkspaceImageFile } from '@/app/lib/files/workspace-image-share';
 import {
-  getWorkspacePathName,
   compactWorkspaceSelection,
   isMoveIntoSelf,
   isProtectedDirectoryNode,
   resolveMoveDestination,
   splitProtectedWorkspacePaths,
+  summarizeWorkspaceBatchResult,
 } from '@/app/lib/files/operation-flows';
 import { CreateItemDialog } from './CreateItemDialog';
 import { DeleteConfirmDialog } from './DeleteConfirmDialog';
@@ -101,7 +101,6 @@ export function FileActionsDropdown({
   const [moveTarget, setMoveTarget] = useState('.');
   const [moveName, setMoveName] = useState('');
   const [moveExpandedDirs, setMoveExpandedDirs] = useState(new Set<string>());
-  const [isMovingMultiple, setIsMovingMultiple] = useState(false);
   const [renameOpen, setRenameOpen] = useState(false);
   const [newName, setNewName] = useState('');
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -262,7 +261,6 @@ export function FileActionsDropdown({
     if (node) setMoveName(node.name);
     if (node) setMoveTarget(getParentDirectory(node.path));
     setMoveExpandedDirs(new Set());
-    setIsMovingMultiple(false);
     setMoveOpen(true);
     closeMenu();
   };
@@ -372,22 +370,22 @@ export function FileActionsDropdown({
         clearMultiSelect();
       }
 
-      const unresolvedCount = result.failed.length + result.skipped.length;
-      if (unresolvedCount > 0) {
+      const summary = summarizeWorkspaceBatchResult(result);
+      if (summary.hasUnresolved) {
         console.warn('[FileActionsDropdown] Cross-workspace copy completed with unresolved paths', {
           failed: result.failed,
           skipped: result.skipped,
         });
-        if (result.copied.length === 0) {
-          toast.error(t('copyToWorkspaceNoFilesCopied', { count: unresolvedCount }));
+        if (!summary.hasCopied) {
+          toast.error(t('copyToWorkspaceNoFilesCopied', { count: summary.unresolvedCount }));
           return;
         }
         toast.warning(t('copyToWorkspacePartialSuccess', {
-          copied: result.copied.length,
-          failed: unresolvedCount,
+          copied: summary.copiedCount,
+          failed: summary.unresolvedCount,
         }));
       } else {
-        toast.success(t('copyToWorkspaceSuccess', { count: result.copied.length }));
+        toast.success(t('copyToWorkspaceSuccess', { count: summary.copiedCount }));
       }
       setCopyToWorkspaceOpen(false);
     } catch (error) {
@@ -405,22 +403,22 @@ export function FileActionsDropdown({
       closeMenu();
       if (!result) return;
 
-      const unresolvedCount = result.failed.length + result.skipped.length;
-      if (unresolvedCount > 0) {
+      const summary = summarizeWorkspaceBatchResult(result);
+      if (summary.hasUnresolved) {
         console.warn('[FileActionsDropdown] Paste completed with unresolved paths', {
           failed: result.failed,
           skipped: result.skipped,
         });
-        if (result.copied.length === 0) {
-          toast.error(t('pasteNoFilesCopied', { count: unresolvedCount }));
+        if (!summary.hasCopied) {
+          toast.error(t('pasteNoFilesCopied', { count: summary.unresolvedCount }));
           return;
         }
         toast.warning(t('pastePartialSuccess', {
-          copied: result.copied.length,
-          failed: unresolvedCount,
+          copied: summary.copiedCount,
+          failed: summary.unresolvedCount,
         }));
       } else {
-        toast.success(t('pasteSuccess', { count: result.copied.length }));
+        toast.success(t('pasteSuccess', { count: summary.copiedCount }));
       }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : t('pasteFailed'));
@@ -463,47 +461,23 @@ export function FileActionsDropdown({
   };
 
   const handleConfirmMove = async () => {
-    if (isMovingMultiple) {
-      const pathsToMove = Array.from(multiSelectPaths);
-      let successCount = 0;
-
-      for (const path of pathsToMove) {
-        const destination = resolveMoveDestination(moveTarget, getWorkspacePathName(path));
-
-        if (path === destination) {
-          successCount++;
-          continue;
-        }
-
-        try {
-          await renamePath(path, destination);
-          successCount++;
-        } catch (error) {
-          console.error(`Failed to move ${path}:`, error);
-        }
-      }
-
-      clearMultiSelect();
-      toast.success(t('moveMultipleSuccess', { count: successCount }));
-    } else {
-      if (!node) return;
-      const trimmedName = moveName.trim();
-      if (!trimmedName) {
-        toast.error(t('pleaseEnterName'));
-        return;
-      }
-      const destination = resolveMoveDestination(moveTarget, trimmedName);
-      if (destination === node.path) {
-        setMoveOpen(false);
-        return;
-      }
-      if (node.type === 'directory' && isMoveIntoSelf(node.path, destination)) {
-        toast.error(t('moveIntoSelf'));
-        return;
-      }
-      await renamePath(node.path, destination);
-      onAfterMove?.(node.path, destination, node);
+    if (!node) return;
+    const trimmedName = moveName.trim();
+    if (!trimmedName) {
+      toast.error(t('pleaseEnterName'));
+      return;
     }
+    const destination = resolveMoveDestination(moveTarget, trimmedName);
+    if (destination === node.path) {
+      setMoveOpen(false);
+      return;
+    }
+    if (node.type === 'directory' && isMoveIntoSelf(node.path, destination)) {
+      toast.error(t('moveIntoSelf'));
+      return;
+    }
+    await renamePath(node.path, destination);
+    onAfterMove?.(node.path, destination, node);
     setMoveOpen(false);
   };
 

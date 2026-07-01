@@ -2,6 +2,19 @@ import { isProtectedAppOutputFolder } from '@/app/lib/filesystem/app-output-fold
 import type { FileNode } from './types';
 import { isSameOrDescendantPath, joinWorkspacePath } from './path-utils';
 
+interface WorkspaceBatchResultLike {
+  copied: unknown[];
+  failed: unknown[];
+  skipped: unknown[];
+}
+
+export interface WorkspaceBatchResultSummary {
+  copiedCount: number;
+  unresolvedCount: number;
+  hasUnresolved: boolean;
+  hasCopied: boolean;
+}
+
 export function normalizeWorkspaceSelectionPath(inputPath: string): string {
   const normalized = inputPath
     .trim()
@@ -71,5 +84,17 @@ export function splitProtectedWorkspacePaths(paths: Iterable<string>) {
     protectedPaths,
     skippedCount: protectedPaths.length,
     hasProtected: protectedPaths.length > 0,
+  };
+}
+
+export function summarizeWorkspaceBatchResult(result: WorkspaceBatchResultLike): WorkspaceBatchResultSummary {
+  const copiedCount = result.copied.length;
+  const unresolvedCount = result.failed.length + result.skipped.length;
+
+  return {
+    copiedCount,
+    unresolvedCount,
+    hasUnresolved: unresolvedCount > 0,
+    hasCopied: copiedCount > 0,
   };
 }
