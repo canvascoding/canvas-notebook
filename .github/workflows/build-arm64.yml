@@ -61,7 +61,7 @@ jobs:
           platforms: linux/arm64
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          provenance: mode=disabled
+          provenance: false
           sbom: false
           no-cache: ${{ github.event_name == 'schedule' }}
           cache-from: type=gha,scope=arm64
