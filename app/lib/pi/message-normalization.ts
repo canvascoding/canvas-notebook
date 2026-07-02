@@ -124,7 +124,7 @@ function estimateBase64Bytes(value: string): number {
   return Math.max(0, Math.floor(value.length * 3 / 4) - padding);
 }
 
-async function compactImageBufferForLlm(
+export async function compactImageBufferForLlm(
   buffer: Buffer,
   originalName: string,
   mimeType: string,

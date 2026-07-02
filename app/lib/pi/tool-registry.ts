@@ -44,6 +44,7 @@ import { assertUserOrganizationPermission } from '@/app/lib/organization/permiss
 import { resolveAgentRuntimeSettings } from '../agents/effective-runtime-config';
 import { resolveEnabledToolNames, isLegacyEnabledToolsValue, getDefaultEnabledToolNames } from './enabled-tools';
 import { PLANNING_MODE_ALLOWED_TOOLS } from './planning-mode';
+import { compactImageBufferForLlm } from './message-normalization';
 import {
   createAutomationJob,
   deleteAutomationJob,
@@ -240,10 +241,16 @@ const AUDIO_EXTENSIONS: Record<string, string> = {
   '.webm': 'audio/webm',
 };
 
-function imageContentForBuffer(filePath: string, buffer: Buffer): ImageContent | null {
-  const mimeType = IMAGE_EXTENSIONS[path.extname(filePath).toLowerCase()];
+async function imageContentForBuffer(filePath: string, buffer: Buffer): Promise<ImageContent | null> {
+  const ext = path.extname(filePath).toLowerCase();
+  const mimeType = IMAGE_EXTENSIONS[ext];
   if (!mimeType) return null;
-  return { type: 'image', data: buffer.toString('base64'), mimeType };
+  try {
+    return await compactImageBufferForLlm(buffer, path.basename(filePath), mimeType);
+  } catch (error) {
+    console.warn('[Read Tool] Failed to compact image, falling back to raw base64:', error instanceof Error ? error.message : error);
+    return { type: 'image', data: buffer.toString('base64'), mimeType };
+  }
 }
 
 type ResolvedReadToolPath = {
@@ -2155,7 +2162,7 @@ export const piTools: AgentTool[] = [
         }
         const buffer = await fsPromises.readFile(fullPath);
         const sha256 = sha256Buffer(buffer);
-        const image = imageContentForBuffer(fullPath, buffer);
+        const image = await imageContentForBuffer(fullPath, buffer);
         if (image) {
           return {
             content: [
