@@ -143,7 +143,12 @@ async function main() {
       Link.configure({ openOnClick: false }),
       Image,
       TaskList,
-      TaskItem.configure({ nested: true }),
+      TaskItem.configure({
+        HTMLAttributes: {
+          'data-type': 'taskItem',
+        },
+        nested: true,
+      }),
       TableKit.configure({ table: { resizable: false } }),
       Markdown.configure({
         markedOptions: {
@@ -187,6 +192,10 @@ async function main() {
   assert.ok(tableAlignments.includes('right'), 'GFM table alignment should preserve right cells');
   assert.ok(nodeTypes.includes('image'), 'Markdown images should parse as image nodes');
   assert.ok(nodeTypes.includes('codeBlock'), 'Mermaid fences should remain code blocks');
+  assert.ok(
+    editor.view.dom.querySelector('li[data-type="taskItem"]'),
+    'editable task item node views should keep the data-type attribute used by editor CSS',
+  );
 
   const imagePosition = findDocNodePosition(editor, 'image');
   const tablePosition = findDocNodePosition(editor, 'table');

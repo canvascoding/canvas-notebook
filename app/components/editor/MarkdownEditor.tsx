@@ -1517,6 +1517,9 @@ function createEditorExtensions(filePath: string | undefined, labels: SlashComma
     createMarkdownImageExtension(filePath),
     TaskList,
     TaskItem.configure({
+      HTMLAttributes: {
+        'data-type': 'taskItem',
+      },
       nested: true,
     }),
     TableKit.configure({
