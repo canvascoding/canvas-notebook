@@ -34,6 +34,15 @@ function resolveDownloadName(filePath: string): string {
   return basename;
 }
 
+function hasNodeErrorCode(error: unknown, codes: string[]) {
+  return Boolean(
+    error &&
+    typeof error === 'object' &&
+    'code' in error &&
+    codes.includes(String(error.code))
+  );
+}
+
 type ZipArchive = InstanceType<typeof ZipStream>;
 
 function addZipEntry(
@@ -178,6 +187,10 @@ export async function GET(request: NextRequest) {
       });
     }
   } catch (error) {
+    if (hasNodeErrorCode(error, ['ENOENT', 'ENOTDIR'])) {
+      return NextResponse.json({ success: false, error: 'File not found' }, { status: 404 });
+    }
+
     console.error('[API] File download error:', error);
     const message = error instanceof Error ? error.message : 'Failed to download file';
     return NextResponse.json({ success: false, error: message }, { status: 500 });

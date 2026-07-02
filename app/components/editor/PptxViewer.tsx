@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import Chart from 'chart.js/auto';
 import JSZip from 'jszip';
 import { PPTXViewer } from 'pptxviewjs';
+import { workspaceDownloadUrl, workspaceHeaders } from '@/app/lib/files/client';
 
 interface PptxViewerProps {
   path: string;
@@ -73,9 +74,12 @@ export function PptxViewer({ path, sourceUrl }: PptxViewerProps) {
         setError(null);
         exposePptxPeerDependencies();
 
-        const response = await fetch(sourceUrl ?? `/api/files/download?path=${encodeURIComponent(path)}`, {
-          credentials: 'include'
-        });
+        const fetchOptions: RequestInit = { credentials: 'include' };
+        if (!sourceUrl) {
+          fetchOptions.headers = workspaceHeaders();
+        }
+
+        const response = await fetch(sourceUrl ?? workspaceDownloadUrl(path), fetchOptions);
 
         if (!response.ok) {
           throw new Error(`Failed to load file: ${response.status}`);

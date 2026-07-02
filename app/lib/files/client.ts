@@ -72,6 +72,17 @@ export function withWorkspaceQuery(url: string, workspaceId?: string | null) {
   return `${url}${separator}workspaceId=${encodeURIComponent(resolvedWorkspaceId)}`;
 }
 
+export function workspaceDownloadUrl(
+  path: string,
+  options: { download?: boolean; workspaceId?: string | null } = {}
+) {
+  const downloadFlag = options.download ? '&download=1' : '';
+  return withWorkspaceQuery(
+    `/api/files/download?path=${encodeURIComponent(path)}${downloadFlag}`,
+    options.workspaceId,
+  );
+}
+
 export async function readApiJson<T>(response: Response, fallbackMessage: string): Promise<T> {
   const body = await response.text();
   if (!body.trim()) {
@@ -322,7 +333,7 @@ export async function uploadWorkspaceFiles({
 }
 
 export function triggerWorkspaceDownload(path: string): void {
-  const url = withWorkspaceQuery(`/api/files/download?path=${encodeURIComponent(path)}&download=1`);
+  const url = workspaceDownloadUrl(path, { download: true });
   const anchor = document.createElement('a');
   const name = path.split('/').pop() || 'download';
   anchor.href = url;

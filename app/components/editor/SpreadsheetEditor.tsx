@@ -4,6 +4,7 @@ import React, { useCallback, useEffect, useRef, useState, forwardRef, useImperat
 import * as XLSX from 'xlsx';
 import { Loader2, AlertCircle } from 'lucide-react';
 import jspreadsheet from 'jspreadsheet-ce';
+import { workspaceDownloadUrl, workspaceHeaders } from '@/app/lib/files/client';
 
 // Import Jspreadsheet styles
 import 'jsuites/dist/jsuites.css';
@@ -137,9 +138,12 @@ export const SpreadsheetEditor = forwardRef<SpreadsheetEditorRef, SpreadsheetEdi
           console.log('[SpreadsheetEditor] Loading file:', path);
           
           // Fetch file content
-          const response = await fetch(sourceUrl ?? `/api/files/download?path=${encodeURIComponent(path)}`, {
-            credentials: 'include'
-          });
+          const fetchOptions: RequestInit = { credentials: 'include' };
+          if (!sourceUrl) {
+            fetchOptions.headers = workspaceHeaders();
+          }
+
+          const response = await fetch(sourceUrl ?? workspaceDownloadUrl(path), fetchOptions);
           
           console.log('[SpreadsheetEditor] Response status:', response.status, response.statusText);
           console.log('[SpreadsheetEditor] Content-Type:', response.headers.get('content-type'));

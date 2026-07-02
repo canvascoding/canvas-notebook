@@ -4,6 +4,7 @@ import React, { useEffect, useRef, useState, forwardRef, useImperativeHandle } f
 import dynamic from 'next/dynamic';
 import { useTranslations } from 'next-intl';
 import { Skeleton } from '@/components/ui/skeleton';
+import { workspaceDownloadUrl, workspaceHeaders } from '@/app/lib/files/client';
 
 // Dynamic import for DocxEditor to avoid SSR issues
 const DocxEditorComponent = dynamic(
@@ -157,9 +158,12 @@ export const OfficeEditor = forwardRef<OfficeEditorRef, OfficeEditorProps>(
         // Load DOCX file for the new editor
         const loadDocx = async () => {
           try {
-            const response = await fetch(sourceUrl ?? `/api/files/download?path=${encodeURIComponent(path)}`, {
-              credentials: 'include'
-            });
+            const fetchOptions: RequestInit = { credentials: 'include' };
+            if (!sourceUrl) {
+              fetchOptions.headers = workspaceHeaders();
+            }
+
+            const response = await fetch(sourceUrl ?? workspaceDownloadUrl(path), fetchOptions);
             if (!response.ok) throw new Error(`Fetch failed: ${response.status}`);
             const arrayBuffer = await response.arrayBuffer();
             if (!cancelled) {
