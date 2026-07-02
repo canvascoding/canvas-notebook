@@ -23,6 +23,8 @@ import {
   setLocalEmailMessageRead,
   setPrimaryLocalEmailAccount,
   startLocalEmailOAuth,
+  streamLocalEmailAiReplyBody,
+  streamLocalEmailComposeBody,
   streamLocalEmailMessageSummary,
   summarizeLocalEmailMessage,
   trashLocalEmailMessage,
@@ -462,8 +464,27 @@ export async function generateEmailAiReplyBody(userId: string, accountId: string
   return generateLocalEmailAiReplyBody(userId, accountId, messageId, folder, instruction, options);
 }
 
+export async function streamEmailAiReplyBody(
+  userId: string,
+  accountId: string,
+  messageId: string,
+  folder?: string,
+  instruction?: string,
+  options?: EmailReadPolicyOptions & { signal?: AbortSignal },
+) {
+  return streamLocalEmailAiReplyBody(userId, accountId, messageId, folder, instruction, options);
+}
+
 export async function generateEmailComposeBody(userId: string, input: EmailComposeAiInput, options?: EmailReadPolicyOptions) {
   return generateLocalEmailComposeBody(userId, input, options);
+}
+
+export async function streamEmailComposeBody(
+  userId: string,
+  input: EmailComposeAiInput,
+  options?: EmailReadPolicyOptions & { signal?: AbortSignal },
+) {
+  return streamLocalEmailComposeBody(userId, input, options);
 }
 
 export async function createEmailAiReplyDraft(userId: string, accountId: string, messageId: string, folder?: string, instruction?: string, options?: EmailReadPolicyOptions) {

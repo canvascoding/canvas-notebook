@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
+import type { AssistantMessage } from '@earendil-works/pi-ai';
 
 import { auth } from '@/app/lib/auth';
 import {
@@ -12,6 +13,7 @@ import {
   sendEmailDerivedMessage,
   setEmailMessageAnswered,
   setEmailMessageRead,
+  streamEmailAiReplyBody,
   summarizeEmailMessage,
   trashEmailMessage,
 } from '@/app/lib/email/service';
@@ -30,6 +32,12 @@ type EmailMessageAction =
   | 'move'
   | 'permanent-delete'
   | 'trash';
+
+type EmailAiReplyStreamEvent =
+  | { type: 'status'; stage: 'reading_context' | 'writing' | 'ready'; label: string }
+  | { type: 'delta'; delta: string }
+  | { type: 'done'; body: string }
+  | { type: 'error'; message: string };
 
 async function requireSession(request: NextRequest) {
   const session = await auth.api.getSession({ headers: request.headers });
@@ -103,6 +111,18 @@ function actionValue(value: unknown): EmailMessageAction {
   throw new Error('Unsupported email message action.');
 }
 
+function assistantText(message: AssistantMessage): string {
+  return message.content
+    .filter((part) => part.type === 'text')
+    .map((part) => part.text)
+    .join('\n')
+    .trim();
+}
+
+function encodeStreamEvent(event: EmailAiReplyStreamEvent): Uint8Array {
+  return new TextEncoder().encode(`data: ${JSON.stringify(event)}\n\n`);
+}
+
 export async function POST(request: NextRequest, { params }: { params: Promise<{ accountId: string }> }) {
   const session = await requireSession(request);
   if (session instanceof NextResponse) return session;
@@ -148,6 +168,107 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       status: 'requested',
       userId: session.user.id,
     });
+
+    const shouldStreamAiReply = operation === 'ai-reply-preview'
+      && (
+        request.nextUrl.searchParams.get('stream') === '1'
+        || request.headers.get('accept')?.includes('text/event-stream')
+      );
+
+    if (shouldStreamAiReply) {
+      const instruction = optionalStringValue((body as { instruction?: unknown }).instruction);
+      const abortController = new AbortController();
+      const abort = () => abortController.abort();
+      request.signal.addEventListener('abort', abort, { once: true });
+
+      const stream = new ReadableStream<Uint8Array>({
+        async start(controller) {
+          const emit = (event: EmailAiReplyStreamEvent) => {
+            controller.enqueue(encodeStreamEvent(event));
+          };
+          let draftBody = '';
+
+          try {
+            emit({ type: 'status', stage: 'reading_context', label: 'Reading email context' });
+            const data = await streamEmailAiReplyBody(
+              session.user.id,
+              accountId,
+              messageId,
+              folder,
+              instruction,
+              { enforceReadPolicy: false, signal: abortController.signal },
+            );
+
+            emit({ type: 'status', stage: 'writing', label: 'Drafting reply' });
+            for await (const event of data.events) {
+              if (abortController.signal.aborted) return;
+
+              if (event.type === 'text_delta' && event.delta) {
+                draftBody += event.delta;
+                emit({ type: 'delta', delta: event.delta });
+              }
+
+              if (event.type === 'done') {
+                const finalBody = assistantText(event.message);
+                if (!draftBody && finalBody) {
+                  draftBody = finalBody;
+                  emit({ type: 'delta', delta: finalBody });
+                }
+                if (!draftBody.trim()) throw new Error('Email AI returned no content.');
+                emit({ type: 'status', stage: 'ready', label: 'Draft ready' });
+                emit({ type: 'done', body: draftBody });
+                logEmailClientEvent('info', 'message_action_succeeded', {
+                  accountId,
+                  durationMs: Date.now() - startedAt,
+                  folder,
+                  messageId,
+                  operation,
+                  requestId,
+                  status: 'succeeded',
+                  userId: session.user.id,
+                });
+                return;
+              }
+
+              if (event.type === 'error') {
+                throw new Error(event.error.errorMessage || 'Email AI request failed.');
+              }
+            }
+
+            throw new Error('Email AI returned no content.');
+          } catch (error) {
+            if (!abortController.signal.aborted) {
+              const message = error instanceof Error ? error.message : 'Failed to create AI reply draft';
+              emit({ type: 'error', message });
+              logEmailClientEvent('error', 'message_action_failed', {
+                accountId,
+                durationMs: Date.now() - startedAt,
+                error,
+                folder,
+                messageId,
+                operation,
+                requestId,
+                status: 'failed',
+                userId: session.user.id,
+              });
+            }
+          } finally {
+            request.signal.removeEventListener('abort', abort);
+            controller.close();
+          }
+        },
+        cancel() {
+          abortController.abort();
+        },
+      });
+
+      return new Response(stream, {
+        headers: {
+          'Cache-Control': 'no-store',
+          'Content-Type': 'text/event-stream; charset=utf-8',
+        },
+      });
+    }
 
     if (operation === 'summary') {
       data = await summarizeEmailMessage(session.user.id, accountId, messageId, folder, { enforceReadPolicy: false });

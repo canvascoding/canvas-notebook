@@ -38,6 +38,7 @@ export type EmailComposeAgentStreamEvent =
   | { type: 'status'; label: string }
   | { type: 'tool_start'; id: string; toolName: string; args: unknown }
   | { type: 'tool_end'; id: string; toolName: string; resultPreview: string; contextPath?: string }
+  | { type: 'draft_delta'; delta: string }
   | { type: 'final'; result: EmailComposeAgentResult }
   | { type: 'error'; message: string };
 

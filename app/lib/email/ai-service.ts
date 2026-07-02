@@ -192,6 +192,41 @@ export async function draftEmailReplyWithAi(message: AiEmailMessage, instruction
   });
 }
 
+export async function draftEmailReplyWithAiStream(
+  message: AiEmailMessage,
+  instruction?: string,
+  options: { signal?: AbortSignal } = {},
+): Promise<AsyncIterable<AssistantMessageEvent>> {
+  const body = emailBodyForAi(message);
+  if (!body) throw new Error('Email has no readable body for AI reply.');
+
+  return streamEmailAi({
+    temperature: 0.4,
+    maxTokens: 700,
+    sessionId: `email-reply:${Date.now()}`,
+    signal: options.signal,
+    systemPrompt: [
+      'Draft a plain-text email reply body.',
+      'Be concise, professional, and directly responsive.',
+      'Do not include a subject line, markdown, greetings that do not fit the thread, or quoted original text.',
+      'Do not claim actions were completed unless the original email proves it.',
+      instruction ? 'Follow the user instruction exactly where it does not conflict with safety or factuality.' : '',
+    ].filter(Boolean).join(' '),
+    messages: [
+      {
+        role: 'user',
+        content: [
+          instruction ? `User instruction:\n${instruction.trim()}` : 'User instruction: Draft a suitable reply.',
+          '',
+          'Original email:',
+          messageContext(message),
+        ].join('\n'),
+        timestamp: Date.now(),
+      },
+    ],
+  });
+}
+
 export async function draftEmailComposeWithAi(input: AiEmailComposeInput): Promise<string> {
   const instruction = input.instruction?.trim();
   if (!instruction) throw new Error('A writing instruction is required.');
@@ -201,6 +236,47 @@ export async function draftEmailComposeWithAi(input: AiEmailComposeInput): Promi
     temperature: 0.45,
     maxTokens: 800,
     sessionId: `email-compose:${Date.now()}`,
+    systemPrompt: [
+      'Write a plain-text email body for the user.',
+      'Return only the body text. Do not include a subject line or markdown.',
+      'Use the provided recipients, subject, current draft, and original email context only as context.',
+      'Satisfy the user instruction clearly and avoid inventing facts.',
+      hasOriginalMessage ? 'For replies or forwards, write only the new text that should appear above the quoted original message.' : '',
+    ].filter(Boolean).join(' '),
+    messages: [
+      {
+        role: 'user',
+        content: [
+          `Mode: ${input.mode || 'compose'}`,
+          `To: ${compactText(input.to)}`,
+          `Cc: ${compactText(input.cc)}`,
+          `Subject: ${compactText(input.subject)}`,
+          '',
+          `User instruction:\n${instruction}`,
+          '',
+          input.currentBody?.trim() ? `Current draft body:\n${input.currentBody.trim()}` : '',
+          '',
+          input.message ? `Original email:\n${messageContext(input.message)}` : '',
+        ].filter((part) => part.trim()).join('\n'),
+        timestamp: Date.now(),
+      },
+    ],
+  });
+}
+
+export async function draftEmailComposeWithAiStream(
+  input: AiEmailComposeInput,
+  options: { signal?: AbortSignal } = {},
+): Promise<AsyncIterable<AssistantMessageEvent>> {
+  const instruction = input.instruction?.trim();
+  if (!instruction) throw new Error('A writing instruction is required.');
+
+  const hasOriginalMessage = Boolean(input.message);
+  return streamEmailAi({
+    temperature: 0.45,
+    maxTokens: 800,
+    sessionId: `email-compose:${Date.now()}`,
+    signal: options.signal,
     systemPrompt: [
       'Write a plain-text email body for the user.',
       'Return only the body text. Do not include a subject line or markdown.',

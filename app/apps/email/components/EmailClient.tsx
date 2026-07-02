@@ -145,6 +145,7 @@ type EmailComposeAgentToolEvent = {
   args?: unknown;
   contextPath?: string;
   id: string;
+  label?: string;
   resultPreview?: string;
   status: 'running' | 'done';
   toolName: string;
@@ -401,31 +402,76 @@ function isFetchNetworkError(error: unknown): boolean {
   return error instanceof TypeError && /failed to fetch|fetch failed|networkerror/iu.test(error.message);
 }
 
+type EmailAiStreamStage = 'reading_context' | 'writing' | 'ready';
+
 type EmailSummaryStreamEvent =
   | { type: 'start'; messageId?: string }
+  | { type: 'status'; stage?: EmailAiStreamStage; label?: string }
   | { type: 'delta'; delta: string }
   | { type: 'done'; summary?: string }
   | { type: 'error'; error: string };
 
-function parseEmailSummaryStreamEvent(rawEvent: string): EmailSummaryStreamEvent | null {
-  const data = rawEvent
+type EmailAiDraftStreamEvent =
+  | { type: 'status'; stage?: EmailAiStreamStage; label?: string }
+  | { type: 'delta'; delta: string }
+  | { type: 'done'; body?: string }
+  | { type: 'error'; message: string };
+
+function parseStreamData(rawEvent: string): string {
+  return rawEvent
     .split(/\r?\n/u)
     .filter((line) => line.startsWith('data:'))
     .map((line) => line.slice(5).trimStart())
     .join('\n')
     .trim();
+}
 
+function parseEmailAiStreamStage(value: unknown): EmailAiStreamStage | undefined {
+  return value === 'reading_context' || value === 'writing' || value === 'ready' ? value : undefined;
+}
+
+function parseEmailSummaryStreamEvent(rawEvent: string): EmailSummaryStreamEvent | null {
+  const data = parseStreamData(rawEvent);
   if (!data) return null;
 
   const parsed = JSON.parse(data) as Partial<EmailSummaryStreamEvent>;
   if (parsed.type === 'start') return { type: 'start', messageId: typeof parsed.messageId === 'string' ? parsed.messageId : undefined };
+  if (parsed.type === 'status') {
+    return {
+      type: 'status',
+      label: typeof parsed.label === 'string' ? parsed.label : undefined,
+      stage: parseEmailAiStreamStage(parsed.stage),
+    };
+  }
   if (parsed.type === 'delta' && typeof parsed.delta === 'string') return { type: 'delta', delta: parsed.delta };
   if (parsed.type === 'done') return { type: 'done', summary: typeof parsed.summary === 'string' ? parsed.summary : undefined };
   if (parsed.type === 'error' && typeof parsed.error === 'string') return { type: 'error', error: parsed.error };
   return null;
 }
 
-async function readEmailSummaryStream(response: Response, onDelta: (delta: string) => void): Promise<string> {
+function parseEmailAiDraftStreamEvent(rawEvent: string): EmailAiDraftStreamEvent | null {
+  const data = parseStreamData(rawEvent);
+  if (!data) return null;
+
+  const parsed = JSON.parse(data) as Partial<EmailAiDraftStreamEvent>;
+  if (parsed.type === 'status') {
+    return {
+      type: 'status',
+      label: typeof parsed.label === 'string' ? parsed.label : undefined,
+      stage: parseEmailAiStreamStage(parsed.stage),
+    };
+  }
+  if (parsed.type === 'delta' && typeof parsed.delta === 'string') return { type: 'delta', delta: parsed.delta };
+  if (parsed.type === 'done') return { type: 'done', body: typeof parsed.body === 'string' ? parsed.body : undefined };
+  if (parsed.type === 'error' && typeof parsed.message === 'string') return { type: 'error', message: parsed.message };
+  return null;
+}
+
+async function readEmailSummaryStream(
+  response: Response,
+  onDelta: (delta: string) => void,
+  onStatus?: (stage: EmailAiStreamStage | undefined, label: string | undefined) => void,
+): Promise<string> {
   if (!response.ok) {
     const payload = await response.json().catch(() => ({}));
     throw new Error(String((payload as { error?: unknown }).error || 'Failed to summarize email message'));
@@ -443,6 +489,10 @@ async function readEmailSummaryStream(response: Response, onDelta: (delta: strin
   const processEvent = (rawEvent: string) => {
     const event = parseEmailSummaryStreamEvent(rawEvent);
     if (!event || event.type === 'start') return;
+    if (event.type === 'status') {
+      onStatus?.(event.stage, event.label);
+      return;
+    }
     if (event.type === 'delta') {
       summary += event.delta;
       onDelta(event.delta);
@@ -470,6 +520,63 @@ async function readEmailSummaryStream(response: Response, onDelta: (delta: strin
 
   if (buffer.trim()) processEvent(buffer);
   return summary;
+}
+
+async function readEmailAiDraftStream(
+  response: Response,
+  handlers: {
+    onDelta?: (delta: string, body: string) => void;
+    onStatus?: (stage: EmailAiStreamStage | undefined, label: string | undefined) => void;
+  } = {},
+): Promise<string> {
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({}));
+    throw new Error(String((payload as { error?: unknown }).error || 'Failed to generate email text'));
+  }
+
+  if (!response.body) {
+    throw new Error('Email AI stream did not return a readable body.');
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let body = '';
+
+  const processEvent = (rawEvent: string) => {
+    const event = parseEmailAiDraftStreamEvent(rawEvent);
+    if (!event) return;
+    if (event.type === 'status') {
+      handlers.onStatus?.(event.stage, event.label);
+      return;
+    }
+    if (event.type === 'delta') {
+      body += event.delta;
+      handlers.onDelta?.(event.delta, body);
+      return;
+    }
+    if (event.type === 'done') {
+      if (event.body) body = event.body;
+      return;
+    }
+    if (event.type === 'error') {
+      throw new Error(event.message);
+    }
+  };
+
+  for (;;) {
+    const { done, value } = await reader.read();
+    buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
+
+    const events = buffer.split('\n\n');
+    buffer = events.pop() || '';
+    for (const event of events) processEvent(event);
+
+    if (done) break;
+  }
+
+  if (buffer.trim()) processEvent(buffer);
+  return body;
 }
 
 function fileExtension(filePath: string): string {
@@ -782,6 +889,9 @@ type EmailMessageViewerLabels = {
   selectMessage: string;
   showRemoteImages: string;
   summary: string;
+  summaryReady: string;
+  summaryReadingContext: string;
+  summaryWriting: string;
   to: string;
   trash: string;
   unknownAttachmentType: string;
@@ -821,8 +931,11 @@ type EmailComposeDialogLabels = Pick<EmailMessageViewerLabels, 'cc' | 'date' | '
   composeAgentReady: string;
   composeAgentToolDetails: string;
   composeAgentWorking: string;
+  composeAiDraftReady: string;
+  composeAiReadingContext: string;
   composeAiModeQuick: string;
   composeAiModeWorkspaceAgent: string;
+  composeAiWritingDraft: string;
   composeGenerateWithAi: string;
   composeGeneratingWithAi: string;
   composeContextFiles: string;
@@ -1096,6 +1209,7 @@ function EmailMessageViewer({
   message,
   onAllowRemoteResourcesForSender,
   summary,
+  summaryStatus,
 }: {
   actions?: EmailMessageViewerActions;
   allowRemoteResourcesByDefault: boolean;
@@ -1107,6 +1221,7 @@ function EmailMessageViewer({
   message: EmailMessageDetail | null;
   onAllowRemoteResourcesForSender(sender: string): void;
   summary?: string;
+  summaryStatus?: string | null;
 }) {
   if (isLoading) {
     return (
@@ -1165,7 +1280,7 @@ function EmailMessageViewer({
         {(summary || isSummaryStreaming) && (
           <div className="mt-3 border border-primary/25 bg-primary/5 px-3 py-2 text-sm leading-6">
             <div className="mb-1 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.14em] text-primary">
-              <span>{labels.aiSummary}</span>
+              <span>{summaryStatus || labels.aiSummary}</span>
               {isSummaryStreaming ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
             </div>
             {summary ? (
@@ -1253,7 +1368,7 @@ function EmailComposeAgentProgress({
                   )}
                 </div>
                 <div className="min-w-0">
-                  <div className="font-medium text-foreground">{display.label}</div>
+                  <div className="font-medium text-foreground">{event.label || display.label}</div>
                   {preview ? (
                     <div className="mt-0.5 line-clamp-2 break-words text-muted-foreground" title={preview}>
                       {preview}
@@ -1775,15 +1890,13 @@ function EmailComposeDialog({
                         </div>
                       </div>
                     ) : null}
-                    {draft.aiMode === 'workspace-agent' ? (
-                      <EmailComposeAgentProgress
-                        events={agentEvents}
-                        labels={labels}
-                        locale={locale}
-                        status={agentStatus || (isGeneratingAi ? labels.composeAgentWorking : null)}
-                        usedContext={draft.usedContext}
-                      />
-                    ) : null}
+                    <EmailComposeAgentProgress
+                      events={agentEvents}
+                      labels={labels}
+                      locale={locale}
+                      status={agentStatus || (isGeneratingAi ? labels.composeAgentWorking : null)}
+                      usedContext={draft.usedContext}
+                    />
                   </div>
                   <div className="space-y-1.5">
                     <label className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground" htmlFor="email-compose-body">
@@ -1796,12 +1909,12 @@ function EmailComposeDialog({
                       onChange={({ html, text }) => onUpdate({ body: text, bodyHtml: html })}
                       onAttachmentsChange={(attachments) => onUpdate({ attachments })}
                       placeholder={labels.composeBodyPlaceholder}
-                      disabled={isSubmitting}
+                      disabled={isSubmitting || isGeneratingAi}
                     />
                   </div>
                   <EmailAttachmentPanel
                     attachments={displayedAttachments}
-                    disabled={isSubmitting}
+                    disabled={isSubmitting || isGeneratingAi}
                     labels={labels}
                     onChange={updateDisplayedAttachments}
                   />
@@ -1908,6 +2021,7 @@ export function EmailClient() {
   const [isSubmittingCompose, setIsSubmittingCompose] = useState(false);
   const [messageActionNotice, setMessageActionNotice] = useState<string | null>(null);
   const [messageSummary, setMessageSummary] = useState('');
+  const [messageSummaryStatus, setMessageSummaryStatus] = useState<string | null>(null);
   const [streamingSummaryMessageId, setStreamingSummaryMessageId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const summaryAbortControllerRef = useRef<AbortController | null>(null);
@@ -1938,7 +2052,34 @@ export function EmailClient() {
   const clearMessageSummary = useCallback(() => {
     stopMessageSummaryStream();
     setMessageSummary('');
+    setMessageSummaryStatus(null);
   }, [stopMessageSummaryStream]);
+
+  const composeAiStageLabel = useCallback((stage: EmailAiStreamStage | undefined, fallback?: string) => {
+    if (stage === 'reading_context') return t('composeAiReadingContext');
+    if (stage === 'writing') return t('composeAiWritingDraft');
+    if (stage === 'ready') return t('composeAiDraftReady');
+    return fallback || t('composeGeneratingWithAi');
+  }, [t]);
+
+  const summaryAiStageLabel = useCallback((stage: EmailAiStreamStage | undefined, fallback?: string) => {
+    if (stage === 'reading_context') return t('summaryReadingContext');
+    if (stage === 'writing') return t('summaryWriting');
+    if (stage === 'ready') return t('summaryReady');
+    return fallback || t('aiSummary');
+  }, [t]);
+
+  const updateQuickAiProgress = useCallback((stage: EmailAiStreamStage | undefined, fallback?: string) => {
+    const label = composeAiStageLabel(stage, fallback);
+    setComposeAgentStatus(label);
+    setComposeAgentEvents([{
+      id: 'quick-ai-draft',
+      label,
+      resultPreview: label,
+      status: stage === 'ready' ? 'done' : 'running',
+      toolName: 'email_quick_ai',
+    }]);
+  }, [composeAiStageLabel]);
 
   useEffect(() => () => stopMessageSummaryStream(), [stopMessageSummaryStream]);
 
@@ -2294,13 +2435,19 @@ export function EmailClient() {
     };
   }, [accounts, activeFolder]);
 
-  const openComposeDraft = useCallback((mode: EmailComposeMode, message: EmailMessageDetail, body = '', aiGenerated = false) => {
+  const openComposeDraft = useCallback((
+    mode: EmailComposeMode,
+    message: EmailMessageDetail,
+    body = '',
+    aiGenerated = false,
+    initialUpdates: Partial<Pick<EmailComposeDraft, 'aiMode' | 'aiPrompt' | 'aiTone' | 'body' | 'bodyHtml' | 'usedContext'>> = {},
+  ) => {
     setComposeError(null);
     setError(null);
     setMessageActionNotice(null);
     setComposeAgentEvents([]);
     setComposeAgentStatus(null);
-    setComposeDraft(buildComposeDraft(mode, message, body, aiGenerated));
+    setComposeDraft({ ...buildComposeDraft(mode, message, body, aiGenerated), ...initialUpdates });
     setMessageDialogOpen(false);
   }, [buildComposeDraft]);
 
@@ -2371,19 +2518,27 @@ export function EmailClient() {
       };
 
       if (composeDraft.aiMode === 'quick') {
-        const response = await fetch('/api/email/compose/ai', {
+        updateQuickAiProgress('reading_context');
+        const response = await fetch('/api/email/compose/ai?stream=1', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            Accept: 'text/event-stream',
+            'Content-Type': 'application/json',
+          },
           credentials: 'include',
           body: JSON.stringify(requestBody),
         });
-        const payload = await response.json().catch(() => ({}));
-        if (!response.ok || !payload.success) throw new Error(payload.error || t('errors.generateCompose'));
-        const body = String(payload.data?.body || '').trim();
-        const bodyHtml = String(payload.data?.bodyHtml || '').trim();
-        const bodyValues = composeEmailEditorBodyValuesFromAiResult(body, bodyHtml);
+        const body = await readEmailAiDraftStream(response, {
+          onDelta: (_delta, nextBody) => {
+            const bodyValues = composeEmailEditorBodyValues(nextBody);
+            setComposeDraft((current) => current ? { ...current, aiGenerated: true, ...bodyValues, usedContext: [] } : current);
+          },
+          onStatus: (stage, label) => updateQuickAiProgress(stage, label),
+        });
+        const bodyValues = composeEmailEditorBodyValues(body);
         if (!bodyValues.body && !bodyValues.bodyHtml) throw new Error(t('errors.generateCompose'));
         setComposeDraft((current) => current ? { ...current, aiGenerated: true, ...bodyValues, usedContext: [] } : current);
+        updateQuickAiProgress('ready');
         return;
       }
 
@@ -2441,6 +2596,10 @@ export function EmailClient() {
               ? current.map((entry) => entry.id === id ? { ...entry, ...nextEvent } : entry)
               : [...current, nextEvent]
           ));
+          return;
+        }
+        if (event.type === 'draft_delta') {
+          setComposeAgentStatus(t('composeAiWritingDraft'));
           return;
         }
         if (event.type === 'final') {
@@ -2516,7 +2675,7 @@ export function EmailClient() {
     } finally {
       setIsGeneratingComposeAi(false);
     }
-  }, [activeAccount, composeDraft, t]);
+  }, [activeAccount, composeDraft, t, updateQuickAiProgress]);
 
   const submitComposeDraft = useCallback(async () => {
     if (!activeAccount || !composeDraft) return;
@@ -2594,6 +2753,7 @@ export function EmailClient() {
         summaryAbortControllerRef.current = controller;
         setStreamingSummaryMessageId(selectedMessage.id);
         setMessageSummary('');
+        setMessageSummaryStatus(summaryAiStageLabel('reading_context'));
 
         try {
           const summaryEndpoint = `/api/email/accounts/${encodeURIComponent(activeAccount.id)}/messages/${encodeURIComponent(selectedMessage.id)}/summary?stream=1`;
@@ -2608,12 +2768,20 @@ export function EmailClient() {
             signal: controller.signal,
             body: JSON.stringify({ folder }),
           });
-          const summary = await readEmailSummaryStream(response, (delta) => {
-            if (summaryAbortControllerRef.current !== controller) return;
-            setMessageSummary((current) => current + delta);
-          });
+          const summary = await readEmailSummaryStream(
+            response,
+            (delta) => {
+              if (summaryAbortControllerRef.current !== controller) return;
+              setMessageSummary((current) => current + delta);
+            },
+            (stage, label) => {
+              if (summaryAbortControllerRef.current !== controller) return;
+              setMessageSummaryStatus(summaryAiStageLabel(stage, label));
+            },
+          );
           if (summaryAbortControllerRef.current === controller) {
             setMessageSummary(summary);
+            setMessageSummaryStatus(summaryAiStageLabel('ready'));
           }
         } finally {
           if (summaryAbortControllerRef.current === controller) {
@@ -2624,12 +2792,50 @@ export function EmailClient() {
         return;
       }
 
-      let body: Record<string, unknown>;
       if (action === 'ai-reply') {
-        body = { folder, messageId: selectedMessage.id, operation: 'ai-reply-preview' };
-      } else {
-        body = { action, destination, folder, messageId: selectedMessage.id, operation: 'action' };
+        openComposeDraft('reply', selectedMessage, '', true, {
+          aiMode: 'quick',
+          aiPrompt: '',
+          usedContext: [],
+        });
+        setIsGeneratingComposeAi(true);
+        updateQuickAiProgress('reading_context');
+
+        try {
+          const endpoint = `/api/email/accounts/${encodeURIComponent(activeAccount.id)}/messages/actions?stream=1`;
+          const response = await fetch(endpoint, {
+            method: 'POST',
+            headers: {
+              Accept: 'text/event-stream',
+              'Content-Type': 'application/json',
+            },
+            credentials: 'include',
+            body: JSON.stringify({ folder, messageId: selectedMessage.id, operation: 'ai-reply-preview' }),
+          });
+          const body = await readEmailAiDraftStream(response, {
+            onDelta: (_delta, nextBody) => {
+              const bodyValues = composeEmailEditorBodyValues(nextBody);
+              setComposeDraft((current) => current ? { ...current, aiGenerated: true, ...bodyValues, usedContext: [] } : current);
+            },
+            onStatus: (stage, label) => updateQuickAiProgress(stage, label),
+          });
+          const bodyValues = composeEmailEditorBodyValues(body);
+          if (!bodyValues.body && !bodyValues.bodyHtml) throw new Error(t('errors.generateCompose'));
+          setComposeDraft((current) => current ? { ...current, aiGenerated: true, ...bodyValues, usedContext: [] } : current);
+          updateQuickAiProgress('ready');
+        } catch (aiReplyError) {
+          const message = isFetchNetworkError(aiReplyError)
+            ? t('errors.actionRequest')
+            : aiReplyError instanceof Error ? aiReplyError.message : t('errors.generateCompose');
+          setComposeError(message);
+          throw aiReplyError;
+        } finally {
+          setIsGeneratingComposeAi(false);
+        }
+        return;
       }
+
+      const body: Record<string, unknown> = { action, destination, folder, messageId: selectedMessage.id, operation: 'action' };
 
       const endpoint = `/api/email/accounts/${encodeURIComponent(activeAccount.id)}/messages/actions`;
       const response = await fetch(endpoint, {
@@ -2641,11 +2847,6 @@ export function EmailClient() {
 
       const payload = await response.json().catch(() => ({}));
       if (!response.ok || !payload.success) throw new Error(payload.error || t('errors.updateMessage'));
-
-      if (action === 'ai-reply') {
-        openComposeDraft('reply', selectedMessage, String(payload.data?.body || ''), true);
-        return;
-      }
 
       if (action === 'mark-read' || action === 'mark-unread') {
         const isRead = action === 'mark-read';
@@ -2678,7 +2879,7 @@ export function EmailClient() {
     } finally {
       setActiveMessageAction(null);
     }
-  }, [activeAccount, activeFolder, clearMessageSummary, loadFolders, openComposeDraft, selectedMessage, t]);
+  }, [activeAccount, activeFolder, clearMessageSummary, loadFolders, openComposeDraft, selectedMessage, summaryAiStageLabel, t, updateQuickAiProgress]);
 
   const handleMessageListAction = useCallback(async (message: EmailMessageSummary, action: EmailMessageListActionName, destination?: string) => {
     if (!activeAccount) return;
@@ -2765,6 +2966,9 @@ export function EmailClient() {
     selectMessage: t('selectMessage'),
     showRemoteImages: t('showRemoteImages'),
     summary: t('summary'),
+    summaryReady: t('summaryReady'),
+    summaryReadingContext: t('summaryReadingContext'),
+    summaryWriting: t('summaryWriting'),
     to: t('to'),
     trash: t('trash'),
     unknownAttachmentType: t('unknownAttachmentType'),
@@ -2804,8 +3008,11 @@ export function EmailClient() {
     composeAgentReady: t('composeAgentReady'),
     composeAgentToolDetails: t('composeAgentToolDetails'),
     composeAgentWorking: t('composeAgentWorking'),
+    composeAiDraftReady: t('composeAiDraftReady'),
     composeAiModeQuick: t('composeAiModeQuick'),
     composeAiModeWorkspaceAgent: t('composeAiModeWorkspaceAgent'),
+    composeAiReadingContext: t('composeAiReadingContext'),
+    composeAiWritingDraft: t('composeAiWritingDraft'),
     composeGenerateWithAi: t('composeGenerateWithAi'),
     composeGeneratingWithAi: t('composeGeneratingWithAi'),
     composeContextFiles: t('composeContextFiles'),
@@ -3221,6 +3428,7 @@ export function EmailClient() {
               message={selectedMessage}
               onAllowRemoteResourcesForSender={allowRemoteImagesForSender}
               summary={messageSummary}
+              summaryStatus={messageSummaryStatus}
             />
           </section>
         </div>
@@ -3246,6 +3454,7 @@ export function EmailClient() {
               message={selectedMessage}
               onAllowRemoteResourcesForSender={allowRemoteImagesForSender}
               summary={messageSummary}
+              summaryStatus={messageSummaryStatus}
             />
           </DialogContent>
         </Dialog>

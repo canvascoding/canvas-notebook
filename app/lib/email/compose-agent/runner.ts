@@ -225,6 +225,9 @@ export async function runEmailWorkspaceComposeAgent(
           contextPath: preview.contextPath,
         });
       }
+      if (event.type === 'message_update' && event.assistantMessageEvent.type === 'text_delta' && event.assistantMessageEvent.delta) {
+        await emit({ type: 'draft_delta', delta: event.assistantMessageEvent.delta });
+      }
     });
 
     const prompt = buildEmailComposeAgentUserPrompt(input, originalContext);

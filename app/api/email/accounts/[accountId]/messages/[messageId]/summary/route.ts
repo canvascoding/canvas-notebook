@@ -50,6 +50,11 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
           let summary = '';
 
           try {
+            controller.enqueue(encodeSummaryStreamEvent({
+              type: 'status',
+              stage: 'reading_context',
+              label: 'Reading email context',
+            }));
             const data = await streamEmailMessageSummary(
               session.user.id,
               accountId,
@@ -59,6 +64,11 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
             );
 
             controller.enqueue(encodeSummaryStreamEvent({ type: 'start', messageId: data.messageId }));
+            controller.enqueue(encodeSummaryStreamEvent({
+              type: 'status',
+              stage: 'writing',
+              label: 'Summarizing email',
+            }));
 
             for await (const event of data.events) {
               if (abortController.signal.aborted) return;
@@ -75,6 +85,11 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
                   controller.enqueue(encodeSummaryStreamEvent({ type: 'delta', delta: finalSummary }));
                 }
                 if (!summary.trim()) throw new Error('Email AI returned no content.');
+                controller.enqueue(encodeSummaryStreamEvent({
+                  type: 'status',
+                  stage: 'ready',
+                  label: 'Summary ready',
+                }));
                 controller.enqueue(encodeSummaryStreamEvent({ type: 'done', summary }));
                 return;
               }

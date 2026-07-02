@@ -22,6 +22,8 @@ import {
 import { isLikelyHtmlEmailContent, normalizeEmailHtmlContent } from '@/app/lib/email/html-content';
 import { htmlToPlainText, plainTextToEmailHtml } from '@/app/lib/email/html-conversion';
 import {
+  draftEmailComposeWithAiStream,
+  draftEmailReplyWithAiStream,
   draftEmailComposeWithAi,
   draftEmailReplyWithAi,
   summarizeEmailWithAi,
@@ -1293,6 +1295,24 @@ export async function generateLocalEmailAiReplyBody(userId: string, accountId: s
   };
 }
 
+export async function streamLocalEmailAiReplyBody(
+  userId: string,
+  accountId: string,
+  messageId: string,
+  folder?: string,
+  instruction?: string,
+  options?: EmailReadPolicyOptions & { signal?: AbortSignal },
+) {
+  const { signal, ...readOptions } = options || {};
+  const result = await readLocalEmailMessage(userId, accountId, messageId, folder, readOptions);
+  const events = await draftEmailReplyWithAiStream(result.message as Record<string, unknown>, instruction, { signal });
+  return {
+    account: result.account,
+    events,
+    messageId,
+  };
+}
+
 export async function generateLocalEmailComposeBody(userId: string, input: EmailComposeAiInput, options?: EmailReadPolicyOptions) {
   const account = await findLocalEmailAccount(userId, input.accountId);
   const messageResult = input.messageId
@@ -1311,6 +1331,33 @@ export async function generateLocalEmailComposeBody(userId: string, input: Email
   return {
     account: await publicLocalEmailAccount(account),
     body,
+    messageId: input.messageId || null,
+  };
+}
+
+export async function streamLocalEmailComposeBody(
+  userId: string,
+  input: EmailComposeAiInput,
+  options?: EmailReadPolicyOptions & { signal?: AbortSignal },
+) {
+  const { signal, ...readOptions } = options || {};
+  const account = await findLocalEmailAccount(userId, input.accountId);
+  const messageResult = input.messageId
+    ? await readLocalEmailMessage(userId, account.id, input.messageId, input.folder, readOptions)
+    : null;
+  const events = await draftEmailComposeWithAiStream({
+    cc: input.cc || [],
+    currentBody: input.currentBody,
+    instruction: input.instruction,
+    message: messageResult?.message as Record<string, unknown> | null,
+    mode: input.mode || (messageResult ? 'reply' : 'compose'),
+    subject: input.subject,
+    to: input.to || [],
+  }, { signal });
+
+  return {
+    account: await publicLocalEmailAccount(account),
+    events,
     messageId: input.messageId || null,
   };
 }
