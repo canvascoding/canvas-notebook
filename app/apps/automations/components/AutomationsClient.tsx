@@ -921,6 +921,7 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
   const [isLoadingTriggerApps, setIsLoadingTriggerApps] = useState(false);
   const [loadingTriggerToolkitSlug, setLoadingTriggerToolkitSlug] = useState<string | null>(null);
   const [triggerAppsError, setTriggerAppsError] = useState<string | null>(null);
+  const [hasAttemptedTriggerAppsLoad, setHasAttemptedTriggerAppsLoad] = useState(false);
   const [triggerTypesError, setTriggerTypesError] = useState<string | null>(null);
   const [triggerActionSlug, setTriggerActionSlug] = useState<string | null>(null);
   const [directoryPickerTarget, setDirectoryPickerTarget] = useState<'scheduled' | 'trigger' | 'customWebhook'>('scheduled');
@@ -1174,6 +1175,7 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
   async function loadTriggerApps() {
     setIsLoadingTriggerApps(true);
     setTriggerAppsError(null);
+    setHasAttemptedTriggerAppsLoad(true);
     try {
       const appsResponse = await fetch('/api/composio/trigger-apps', { cache: 'no-store', credentials: 'include' });
       const appsPayload = await readJsonResponse(appsResponse, 'Composio trigger apps');
@@ -1260,11 +1262,11 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
   }, []);
 
   useEffect(() => {
-    if (!isComposerOpen || composerMode !== 'trigger' || triggerSource !== 'composio' || triggerApps.length > 0 || isLoadingTriggerApps) return;
+    if (!isComposerOpen || composerMode !== 'trigger' || triggerSource !== 'composio' || triggerApps.length > 0 || isLoadingTriggerApps || hasAttemptedTriggerAppsLoad) return;
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void loadTriggerApps();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- catalog loading is only needed when opening the trigger tab
-  }, [isComposerOpen, composerMode, triggerSource, triggerApps.length, isLoadingTriggerApps]);
+  }, [isComposerOpen, composerMode, triggerSource, triggerApps.length, isLoadingTriggerApps, hasAttemptedTriggerAppsLoad]);
 
   useEffect(() => {
     if (!isComposerOpen || composerMode !== 'trigger' || triggerSource !== 'composio' || !triggerDraft.toolkitSlug) return;
@@ -1610,6 +1612,10 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
     setTriggerSource('custom');
     setAppSearch('');
     setTriggerSearch('');
+    setTriggerApps([]);
+    setTriggerTypesByToolkit({});
+    setComposioStatus(null);
+    setHasAttemptedTriggerAppsLoad(false);
     setIsComposerOpen(true);
   }
 
