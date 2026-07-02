@@ -5,6 +5,7 @@ import { useState } from 'react';
 import { AlertCircle } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { toMediaUrl, toPreviewUrl } from '@/app/lib/utils/media-url';
+import { useWorkspaceStore } from '@/app/store/workspace-store';
 
 interface ImageViewerProps {
   path: string;
@@ -62,8 +63,9 @@ function ImageContent({ previewSrc, fullSrc, name }: ImageContentProps) {
 }
 
 export function ImageViewer({ path, previewSrc, fullSrc }: ImageViewerProps) {
-  const resolvedPreviewSrc = previewSrc ?? toPreviewUrl(path, 1280);
-  const resolvedFullSrc = fullSrc ?? toMediaUrl(path);
+  const workspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
+  const resolvedPreviewSrc = previewSrc ?? toPreviewUrl(path, 1280, { workspaceId });
+  const resolvedFullSrc = fullSrc ?? toMediaUrl(path, { workspaceId });
   const name = path.split('/').pop() || 'image';
 
   return (
