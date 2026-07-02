@@ -1,0 +1,308 @@
+name: Build and Push (Both Arch)
+
+on:
+  push:
+    tags:
+      - "v*"
+  schedule:
+    - cron: "0 4 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: build-both-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-amd64:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set GHCR image name
+        run: echo "GHCR_IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: |
+            ${{ env.GHCR_IMAGE }}
+            canvascoding/canvas-notebook
+          tags: |
+            type=ref,event=tag
+            type=raw,value=amd64
+
+      - name: Build and push
+        id: build
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          platforms: linux/amd64
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          provenance: false
+          sbom: false
+          no-cache: ${{ github.event_name == 'schedule' }}
+          cache-from: type=gha,scope=amd64
+          cache-to: type=gha,mode=min,scope=amd64
+
+  build-arm64:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set GHCR image name
+        run: echo "GHCR_IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: |
+            ${{ env.GHCR_IMAGE }}
+            canvascoding/canvas-notebook
+          tags: |
+            type=ref,event=tag
+            type=raw,value=arm64
+
+      - name: Build and push
+        id: build
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          platforms: linux/arm64
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          provenance: false
+          sbom: false
+          no-cache: ${{ github.event_name == 'schedule' }}
+          cache-from: type=gha,scope=arm64
+          cache-to: type=gha,mode=min,scope=arm64
+
+  merge:
+    runs-on: ubuntu-latest
+    needs: [build-amd64, build-arm64]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set GHCR image name
+        run: echo "GHCR_IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Resolve merge tag
+        id: tag
+        run: |
+          if [ "${{ github.event_name }}" = "push" ] && [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            MERGE_TAG="${GITHUB_REF_NAME}"
+          else
+            MERGE_TAG="latest"
+          fi
+          echo "merge_tag=${MERGE_TAG}" >> "$GITHUB_OUTPUT"
+          echo "Merging manifest for tag: ${MERGE_TAG}"
+
+      - name: Create multi-arch manifest
+        env:
+          GHCR_IMAGE: ${{ env.GHCR_IMAGE }}
+          HUB_IMAGE: canvascoding/canvas-notebook
+          MERGE_TAG: ${{ steps.tag.outputs.merge_tag }}
+        run: |
+          set -euo pipefail
+
+          # Always create a :latest multi-arch manifest
+          docker buildx imagetools create \
+            -t "${GHCR_IMAGE}:latest" \
+            -t "${HUB_IMAGE}:latest" \
+            "${GHCR_IMAGE}:amd64" \
+            "${GHCR_IMAGE}:arm64"
+
+          echo "Created multi-arch manifest: ${GHCR_IMAGE}:latest"
+
+          # If this is a tag push (v*), also create a version-tagged manifest
+          if [ "${MERGE_TAG}" != "latest" ]; then
+            docker buildx imagetools create \
+              -t "${GHCR_IMAGE}:${MERGE_TAG}" \
+              -t "${HUB_IMAGE}:${MERGE_TAG}" \
+              "${GHCR_IMAGE}:amd64" \
+              "${GHCR_IMAGE}:arm64"
+
+            echo "Created multi-arch manifest: ${GHCR_IMAGE}:${MERGE_TAG}"
+          fi
+
+      - name: Verify multi-arch manifest
+        env:
+          GHCR_IMAGE: ${{ env.GHCR_IMAGE }}
+        run: |
+          set -euo pipefail
+          echo "Verifying ${GHCR_IMAGE}:latest ..."
+          docker manifest inspect "${GHCR_IMAGE}:latest" | head -40
+
+      - name: Notify Control Plane release webhook
+        env:
+          CONTROL_PLANE_RELEASE_WEBHOOK_URL: ${{ secrets.CONTROL_PLANE_RELEASE_WEBHOOK_URL }}
+          CONTROL_PLANE_RELEASE_WEBHOOK_SECRET: ${{ secrets.CONTROL_PLANE_RELEASE_WEBHOOK_SECRET }}
+          MERGE_TAG: ${{ steps.tag.outputs.merge_tag }}
+          GHCR_IMAGE: ${{ env.GHCR_IMAGE }}
+        run: |
+          if [ -z "${CONTROL_PLANE_RELEASE_WEBHOOK_URL}" ]; then
+            echo "::warning::CONTROL_PLANE_RELEASE_WEBHOOK_URL secret is missing; using the default Canvas Control Plane release webhook URL."
+          fi
+
+          if [ -z "${CONTROL_PLANE_RELEASE_WEBHOOK_SECRET}" ]; then
+            echo "::warning::CONTROL_PLANE_RELEASE_WEBHOOK_SECRET secret is missing; skipping Control Plane release notification."
+            exit 0
+          fi
+
+          node --input-type=module <<'NODE'
+          import crypto from 'node:crypto';
+          import fs from 'node:fs';
+
+          const defaultReleaseWebhookUrl = 'https://api.canvasnotebook.app/v1/webhooks/canvas-notebook-release';
+          const releaseWebhookPath = '/v1/webhooks/canvas-notebook-release';
+
+          function releaseWebhookUrl() {
+            const raw = (process.env.CONTROL_PLANE_RELEASE_WEBHOOK_URL || defaultReleaseWebhookUrl).trim();
+            const url = new URL(raw);
+            const original = url.toString();
+            let normalized = false;
+            if (url.hostname === 'canvasnotebook.app') {
+              url.hostname = 'api.canvasnotebook.app';
+              normalized = true;
+            } else if (url.hostname === 'notebook.canvas.holdings') {
+              url.hostname = 'api.canvas.holdings';
+              normalized = true;
+            }
+            if (url.hostname === 'api.canvasnotebook.app' || url.hostname === 'api.canvas.holdings') {
+              if (url.pathname !== releaseWebhookPath) {
+                url.pathname = releaseWebhookPath;
+                normalized = true;
+              }
+            } else if (url.pathname === '/' || url.pathname === '') {
+              url.pathname = releaseWebhookPath;
+              normalized = true;
+            }
+            if (normalized) {
+              console.warn(`::warning::CONTROL_PLANE_RELEASE_WEBHOOK_URL ${original} does not match the Canvas Control Plane release endpoint; using ${url.toString()} instead.`);
+            }
+            return url.toString();
+          }
+
+          const mergeTag = process.env.MERGE_TAG || 'latest';
+          const isTag = mergeTag.startsWith('v') || mergeTag.match(/^v?\d/);
+          const tag = isTag ? mergeTag.replace(/^v/i, '') : '';
+          const event = isTag ? 'release_published' : 'image_rebuilt';
+          const packageJson = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+          const version = tag || String(packageJson.version || '');
+
+          const ghcrImage = process.env.GHCR_IMAGE || '';
+          const tags = [`${ghcrImage}:latest`];
+          if (isTag) {
+            tags.push(`${ghcrImage}:${mergeTag}`);
+          }
+
+          const payload = {
+            event,
+            repository: process.env.GITHUB_REPOSITORY,
+            ref: process.env.GITHUB_REF,
+            tag: mergeTag || undefined,
+            version,
+            commitSha: process.env.GITHUB_SHA,
+            image: {
+              name: ghcrImage,
+              tags,
+            },
+            workflow: {
+              runId: process.env.GITHUB_RUN_ID,
+              runNumber: process.env.GITHUB_RUN_NUMBER,
+              runAttempt: process.env.GITHUB_RUN_ATTEMPT,
+            },
+            source: 'github_actions',
+            publishedAt: new Date().toISOString(),
+            metadata: {
+              actor: process.env.GITHUB_ACTOR,
+              eventName: process.env.GITHUB_EVENT_NAME,
+              workflow: process.env.GITHUB_WORKFLOW,
+            },
+          };
+          const body = JSON.stringify(payload);
+          const timestamp = Math.floor(Date.now() / 1000).toString();
+          const delivery = `${process.env.GITHUB_RUN_ID}-${process.env.GITHUB_RUN_ATTEMPT}-${process.env.GITHUB_SHA}`;
+          const signature = 'sha256=' + crypto
+            .createHmac('sha256', process.env.CONTROL_PLANE_RELEASE_WEBHOOK_SECRET)
+            .update(`${timestamp}.${body}`)
+            .digest('hex');
+          const response = await fetch(releaseWebhookUrl(), {
+            method: 'POST',
+            headers: {
+              'content-type': 'application/json',
+              'x-canvas-delivery': delivery,
+              'x-canvas-timestamp': timestamp,
+              'x-canvas-signature': signature,
+            },
+            body,
+          });
+          const text = await response.text();
+          if (!response.ok) {
+            const summary = text.replace(/\s+/g, ' ').trim().slice(0, 1000);
+            console.warn(`::warning::Control Plane release webhook failed (${response.status}); manifest merge already completed. Response: ${summary}`);
+            process.exit(0);
+          }
+          console.log(`Control Plane release webhook accepted: ${text}`);
+          NODE
