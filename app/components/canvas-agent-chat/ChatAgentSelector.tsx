@@ -42,21 +42,24 @@ export function ChatAgentSelector({
           aria-label={`${t('agentSelectTitle')}: ${activeAgentName}`}
           title={t('agentSelectTitle')}
           className={cn(
-            'inline-flex h-7 min-w-0 shrink-0 items-center gap-1.5 rounded-md border border-border/60 bg-muted/50 px-2 font-medium text-foreground transition-colors hover:bg-accent',
-            iconOnly ? 'w-7 justify-center' : (compact ? 'max-w-[12rem] text-[10px]' : 'max-w-[min(14rem,100%)] text-[11px]'),
+            'inline-flex h-7 min-w-0 shrink-0 items-center gap-1.5 rounded-md border border-border bg-background px-2 font-medium text-foreground transition-colors hover:bg-accent',
+            iconOnly
+              ? 'w-auto justify-center border-border/60'
+              : 'border-border/60 bg-muted/50',
+            !iconOnly && (compact ? 'max-w-[12rem] text-[10px]' : 'max-w-[min(14rem,100%)] text-[11px]'),
             className,
           )}
         >
           {!compact && !iconOnly ? (
             <span className="text-[9px] uppercase tracking-[0.15em] text-muted-foreground">{t('agentLabel')}</span>
           ) : null}
-          <AgentIcon iconId={activeAgentIconId} className="h-3 w-3 shrink-0 text-muted-foreground" />
+          <AgentIcon iconId={activeAgentIconId} className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
           {!iconOnly ? (
             <span className={cn('min-w-0 truncate', compact ? 'max-w-[8rem]' : 'max-w-[9rem]')}>
               {activeAgentName}
             </span>
           ) : null}
-          {!iconOnly ? <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" /> : null}
+          <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" />
         </button>
       </PopoverTrigger>
       <PopoverContent align="start" side="bottom" className="w-64 p-1">
