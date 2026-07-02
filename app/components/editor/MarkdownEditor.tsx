@@ -93,7 +93,9 @@ import {
   getBlockDropTarget,
   getBlockInsertButtonPosition,
   getBlockOverlayRect,
+  hasCanvasBlockDragData,
   moveReorderableBlock,
+  setCanvasBlockDragData,
   type BlockControlPosition,
   type BlockDropTarget,
   type BlockInsertPlacement,
@@ -255,6 +257,7 @@ const EMPTY_TOOLBAR_STATE: ToolbarState = {
 const FRONTMATTER_REGEX = /^---\s*\n[\s\S]*?\n---(?:\s*\n|$)/;
 const SLASH_COMMAND_PLUGIN_KEY = new PluginKey('markdownSlashCommands');
 const COLOR_SWATCH_PLUGIN_KEY = new PluginKey('markdownColorSwatches');
+const CANVAS_BLOCK_DRAG_DROP_GUARD_PLUGIN_KEY = new PluginKey('canvasBlockDragDropGuard');
 
 function shouldDefaultToSource(value: string, readOnly: boolean, filePath?: string) {
   if (readOnly) return false;
@@ -545,6 +548,32 @@ const ColorSwatchDecorations = Extension.create({
             });
 
             return DecorationSet.create(state.doc, decorations);
+          },
+        },
+      }),
+    ];
+  },
+});
+
+const CanvasBlockDragDropGuard = Extension.create({
+  name: 'canvasBlockDragDropGuard',
+
+  addProseMirrorPlugins() {
+    return [
+      new Plugin({
+        key: CANVAS_BLOCK_DRAG_DROP_GUARD_PLUGIN_KEY,
+        props: {
+          handleDrop(_view, event) {
+            if (!hasCanvasBlockDragData(event.dataTransfer)) return false;
+
+            event.preventDefault();
+            return true;
+          },
+          handlePaste(_view, event) {
+            if (!hasCanvasBlockDragData(event.clipboardData)) return false;
+
+            event.preventDefault();
+            return true;
           },
         },
       }),
@@ -1130,6 +1159,12 @@ function createBlockCommandMenuState(editor: Editor, range: Range): BlockCommand
   }
 }
 
+function stopNativeBlockDragEvent(event: DragEvent) {
+  event.preventDefault();
+  event.stopPropagation();
+  event.stopImmediatePropagation();
+}
+
 function MarkdownBlockControls({
   editor,
   labels,
@@ -1236,9 +1271,10 @@ function MarkdownBlockControls({
     const editorElement = editor.view.dom;
 
     const handleDragOver = (event: DragEvent) => {
-      if (!dragStateRef.current) return;
+      const isInternalBlockDrag = hasCanvasBlockDragData(event.dataTransfer);
+      if (!dragStateRef.current && !isInternalBlockDrag) return;
 
-      event.preventDefault();
+      stopNativeBlockDragEvent(event);
       const dropTarget = updateDropTarget(event);
       if (event.dataTransfer) {
         event.dataTransfer.dropEffect = dropTarget ? 'move' : 'none';
@@ -1247,15 +1283,15 @@ function MarkdownBlockControls({
 
     const handleDrop = (event: DragEvent) => {
       const source = dragStateRef.current;
+      const isInternalBlockDrag = hasCanvasBlockDragData(event.dataTransfer);
 
-      if (!source) return;
+      if (!source && !isInternalBlockDrag) return;
 
-      event.preventDefault();
-      event.stopPropagation();
+      stopNativeBlockDragEvent(event);
 
-      const dropTarget = updateDropTarget(event);
+      const dropTarget = source ? updateDropTarget(event) : null;
       clearDragState();
-      if (!dropTarget) return;
+      if (!source || !dropTarget) return;
 
       moveReorderableBlock(editor, source, dropTarget.insertPosition);
     };
@@ -1271,16 +1307,16 @@ function MarkdownBlockControls({
       clearDragState();
     };
 
-    editorElement.addEventListener('dragover', handleDragOver);
+    editorElement.addEventListener('dragover', handleDragOver, true);
     editorElement.addEventListener('dragleave', handleDragLeave);
-    editorElement.addEventListener('drop', handleDrop);
+    editorElement.addEventListener('drop', handleDrop, true);
     window.addEventListener('dragend', handleGlobalDragEnd);
     window.addEventListener('drop', handleGlobalDragEnd);
 
     return () => {
-      editorElement.removeEventListener('dragover', handleDragOver);
+      editorElement.removeEventListener('dragover', handleDragOver, true);
       editorElement.removeEventListener('dragleave', handleDragLeave);
-      editorElement.removeEventListener('drop', handleDrop);
+      editorElement.removeEventListener('drop', handleDrop, true);
       window.removeEventListener('dragend', handleGlobalDragEnd);
       window.removeEventListener('drop', handleGlobalDragEnd);
     };
@@ -1364,7 +1400,7 @@ function MarkdownBlockControls({
                     setDragSourceOverlay(getBlockOverlayRect(editor, container, source));
                   }
                   event.dataTransfer.effectAllowed = 'move';
-                  event.dataTransfer.setData('text/plain', 'canvas-editor-block');
+                  setCanvasBlockDragData(event.dataTransfer);
                 }}
                 onMouseDown={(event) => {
                   event.stopPropagation();
@@ -1489,6 +1525,7 @@ function createEditorExtensions(filePath: string | undefined, labels: SlashComma
       },
     }),
     ColorSwatchDecorations,
+    CanvasBlockDragDropGuard,
     createSlashCommands(labels, actions),
     Markdown.configure({
       markedOptions: {

@@ -9,8 +9,11 @@ import {
   isEditorRangeInsideDoc,
 } from '../app/lib/editor/prosemirror-ranges';
 import {
+  CANVAS_BLOCK_DRAG_DATA_TYPE,
   getReorderableBlockRangeAt,
+  hasCanvasBlockDragData,
   moveReorderableBlock,
+  setCanvasBlockDragData,
 } from '../app/lib/editor/reorderable-blocks';
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>');
@@ -73,6 +76,22 @@ function findDocNodePosition(editor: TiptapEditor, typeName: string): number | n
   });
 
   return found;
+}
+
+function createMockDataTransfer(): DataTransfer {
+  const values = new Map<string, string>();
+
+  return {
+    get types() {
+      return Array.from(values.keys());
+    },
+    getData(type: string) {
+      return values.get(type) ?? '';
+    },
+    setData(type: string, value: string) {
+      values.set(type, value);
+    },
+  } as unknown as DataTransfer;
 }
 
 const sampleMarkdown = `# Title
@@ -258,6 +277,13 @@ async function main() {
       reorderedList.indexOf('- A') < reorderedList.indexOf('- C'),
     'list item reorder should preserve list markdown order',
   );
+
+  const blockDragData = createMockDataTransfer();
+  assert.equal(hasCanvasBlockDragData(blockDragData), false, 'fresh drag data should not look like a block drag');
+  setCanvasBlockDragData(blockDragData);
+  assert.equal(hasCanvasBlockDragData(blockDragData), true, 'block drag data should be identifiable by custom MIME');
+  assert.equal(blockDragData.getData(CANVAS_BLOCK_DRAG_DATA_TYPE), 'move', 'block drag should set the internal MIME payload');
+  assert.equal(blockDragData.getData('text/plain'), '', 'block drag should not expose insertable plain text');
 
   listEditor.destroy();
   blockEditor.destroy();

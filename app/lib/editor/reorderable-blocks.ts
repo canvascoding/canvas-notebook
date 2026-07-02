@@ -35,6 +35,17 @@ export type BlockOverlayRect = {
   top: number;
 };
 
+export const CANVAS_BLOCK_DRAG_DATA_TYPE = 'application/x-canvas-editor-block';
+
+export function setCanvasBlockDragData(dataTransfer: DataTransfer): void {
+  dataTransfer.setData(CANVAS_BLOCK_DRAG_DATA_TYPE, 'move');
+}
+
+export function hasCanvasBlockDragData(dataTransfer: DataTransfer | null | undefined): boolean {
+  if (!dataTransfer) return false;
+  return Array.from(dataTransfer.types).includes(CANVAS_BLOCK_DRAG_DATA_TYPE);
+}
+
 export function findActiveTextblockDepth(editor: Editor): number | null {
   const { $from } = editor.state.selection;
 
