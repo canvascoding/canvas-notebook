@@ -11,6 +11,43 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.7.2.1] - 2026-07-02
+
+### Added
+
+- Added Postgres runtime support, including database provider abstraction and routing core workspaces through Postgres.
+- Added SQLite-to-Postgres migration CLI command (`canvas-notebook database migrate`) and bootstrap service.
+- Added a portable cross-platform server CLI (`canvas-notebook-server`) with macOS and Windows installer support.
+- Added runtime capability profile and license-based runtime entitlement enforcement.
+- Added authenticated user context to agent prompts and scoped PI OAuth credentials per user.
+- Added `compose.coolify.yaml` for Postgres deployments on managed platforms.
+- Added managed team install environment persistence.
+- Added GitHub Actions workflow for packaging portable CLI artifacts.
+
+### Changed
+
+- Replaced separate per-architecture build workflows with a single combined `build-both.yml` workflow that builds amd64 and arm64 images and merges multi-arch manifests.
+- Improved plugin/MCP connector setup states and template generation.
+- Optimized file browser rendering and simplified file operation flows.
+- Made time zone a server-wide admin-only setting and hardened onboarding timezone save permissions.
+- Updated the cross-platform installer CLI and runtime provider decoupling plans.
+
+### Fixed
+
+- Fixed Postgres 18+ volume mount paths in compose templates.
+- Fixed file explorer shift selection and nested file copy handling across workspaces.
+- Fixed duplicate React keys in Markdown toolbar dialogs and task list checkbox layout.
+- Fixed markdown block drag-and-drop insertion behavior.
+- Fixed Composio trigger apps loading loop in automations and scoped managed Composio/email requests by user.
+- Fixed internationalization formatting error for Markdown-to-PDF attachments.
+- Fixed version indicator for four-part calendar versions.
+- Fixed agent runtime test PI AI compatibility mock.
+
+### Verification
+
+- `npm run build`
+- GitHub Actions `Build and Push (Both Arch)` on `main`: `28576672244` built and pushed the image successfully before release prep.
+
 ## [2026.6.30.2] - 2026-06-30
 
 ### Added
