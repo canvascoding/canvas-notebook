@@ -29,7 +29,7 @@ async function main() {
   process.env.CANVAS_INSTANCE_TOKEN = 'instance-token';
   process.env.CANVAS_INSTANCE_ID = 'vm-123';
 
-  const { getLocalComposioApiKey } = await import('../app/lib/composio/composio-client');
+  const { getComposioMode, getLocalComposioApiKey } = await import('../app/lib/composio/composio-client');
   const { getComposioUserId, resetComposioUserIdCache } = await import('../app/lib/composio/composio-identity');
   const { readScopedEnvState, replaceScopedEnvEntries } = await import('../app/lib/integrations/env-config');
 
@@ -41,7 +41,13 @@ async function main() {
   ], { userId: 'user-a' });
 
   assert.equal(await getLocalComposioApiKey({ userId: 'user-a' }), 'user-a-key');
+  assert.equal(await getLocalComposioApiKey({ userId: 'user-b' }), null);
+  assert.equal(await getComposioMode({ userId: 'user-b' }), 'managed');
+
+  process.env.CANVAS_MANAGED_SERVICES_ENABLED = 'false';
   assert.equal(await getLocalComposioApiKey({ userId: 'user-b' }), 'legacy-key');
+  assert.equal(await getComposioMode({ userId: 'user-b' }), 'local');
+  process.env.CANVAS_MANAGED_SERVICES_ENABLED = 'true';
 
   const userAComposioId = await getComposioUserId({ userId: 'user-a' });
   const userBComposioId = await getComposioUserId({ userId: 'user-b' });

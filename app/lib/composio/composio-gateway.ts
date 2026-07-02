@@ -2,7 +2,7 @@ import 'server-only';
 
 import { randomUUID } from 'crypto';
 import { eq, desc } from 'drizzle-orm';
-import { getComposio, getComposioMode, verifyApiKey, type ComposioMode } from './composio-client';
+import { getComposio, getComposioMode, isManagedComposioConfigured, verifyApiKey, type ComposioMode } from './composio-client';
 import { disconnectTool, getActiveConnectedAccounts, getConnectedAccounts, initiateConnection } from './composio-auth';
 import { getComposioSession } from './composio-session';
 import { getComposioUserId } from './composio-identity';
@@ -52,6 +52,8 @@ export interface ComposioStatusResult {
   configured: boolean;
   apiKeyValid: boolean;
   mode: ComposioMode;
+  localConfigured: boolean;
+  managedAvailable: boolean;
   webhookSubscription?: {
     configured: boolean;
     webhookUrl?: string;
@@ -217,20 +219,29 @@ export async function getComposioGatewayMode(storageScope?: EnvStorageScope | nu
 
 export async function getGatewayStatus(storageScope?: EnvStorageScope | null): Promise<ComposioStatusResult> {
   const mode = await getComposioMode(storageScope);
+  const localConfigured = mode === 'local';
+  const managedAvailable = isManagedComposioConfigured();
   if (mode === 'disabled') {
-    return { configured: false, apiKeyValid: false, mode, webhookSubscription: null, connectedAccounts: [] };
+    return { configured: false, apiKeyValid: false, mode, localConfigured, managedAvailable, webhookSubscription: null, connectedAccounts: [] };
   }
 
   if (mode === 'managed') {
     const result = await managedRequest<ComposioStatusResult>('/status', {}, storageScope);
-    result.webhookSubscription = { configured: true, mode: 'managed' };
-    result.connectedAccounts = result.connectedAccounts.filter((account) => account.status === 'ACTIVE');
-    return result;
+    return {
+      ...result,
+      configured: result.configured !== false,
+      apiKeyValid: result.apiKeyValid !== false,
+      mode,
+      localConfigured,
+      managedAvailable,
+      webhookSubscription: { configured: true, mode: 'managed' },
+      connectedAccounts: (result.connectedAccounts || []).filter((account) => account.status === 'ACTIVE'),
+    };
   }
 
   const apiKeyValid = await verifyApiKey(storageScope);
   if (!apiKeyValid) {
-    return { configured: true, apiKeyValid: false, mode, webhookSubscription: null, connectedAccounts: [] };
+    return { configured: true, apiKeyValid: false, mode, localConfigured, managedAvailable, webhookSubscription: null, connectedAccounts: [] };
   }
   const accounts = await getActiveConnectedAccounts(storageScope);
   let webhookSubscription: ComposioStatusResult['webhookSubscription'] = null;
@@ -242,7 +253,7 @@ export async function getGatewayStatus(storageScope?: EnvStorageScope | null): P
       webhookSubscription = { configured: false };
     }
   } catch { /* subscription check is non-critical */ }
-  return { configured: true, apiKeyValid: true, mode, webhookSubscription, connectedAccounts: connectedAccountResponse(accounts) };
+  return { configured: true, apiKeyValid: true, mode, localConfigured, managedAvailable, webhookSubscription, connectedAccounts: connectedAccountResponse(accounts) };
 }
 
 export async function getGatewayToolkits(storageScope?: EnvStorageScope | null) {

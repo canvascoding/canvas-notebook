@@ -17,23 +17,28 @@ function isManagedComposioAvailable(): boolean {
   );
 }
 
+export function isManagedComposioConfigured(): boolean {
+  return isManagedComposioAvailable();
+}
+
 export async function getLocalComposioApiKey(storageScope?: EnvStorageScope | null): Promise<string | null> {
+  const managedAvailable = isManagedComposioAvailable();
   try {
     const state = await readScopedEnvState('integrations', storageScope);
     const byKey = new Map(state.entries.map((entry) => [entry.key, entry.value]));
-    const envKey = byKey.get('COMPOSIO_API_KEY');
+    const envKey = byKey.get('COMPOSIO_API_KEY')?.trim();
     if (envKey) return envKey;
 
-    if (storageScope?.userId?.trim() || storageScope?.organizationId?.trim()) {
+    if (!managedAvailable && (storageScope?.userId?.trim() || storageScope?.organizationId?.trim())) {
       const legacyState = await readScopedEnvState('integrations', { secretScope: 'legacy' });
       const legacyKey = legacyState.entries.find((entry) => entry.key === 'COMPOSIO_API_KEY')?.value.trim();
       if (legacyKey) return legacyKey;
     }
 
-    if (!isManagedComposioAvailable() && process.env.COMPOSIO_API_KEY) return process.env.COMPOSIO_API_KEY;
+    if (!managedAvailable && process.env.COMPOSIO_API_KEY) return process.env.COMPOSIO_API_KEY.trim() || null;
     return null;
   } catch {
-    return !isManagedComposioAvailable() ? process.env.COMPOSIO_API_KEY || null : null;
+    return !managedAvailable ? process.env.COMPOSIO_API_KEY?.trim() || null : null;
   }
 }
 

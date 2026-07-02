@@ -42,6 +42,9 @@ type TriggerAppInfo = {
 type ComposioStatus = {
   configured: boolean;
   apiKeyValid: boolean;
+  mode: 'local' | 'managed' | 'disabled';
+  localConfigured?: boolean;
+  managedAvailable?: boolean;
   connectedAccounts: ConnectedAccount[];
 };
 
@@ -271,7 +274,8 @@ export function ConnectedAppsPanel({ isOpen, onOpenChange }: ConnectedAppsPanelP
     }
   };
 
-  const needsApiKey = !loading && (!status?.configured || !status?.apiKeyValid);
+  const isManagedMode = status?.mode === 'managed';
+  const needsApiKey = !loading && !isManagedMode && (!status?.configured || !status?.apiKeyValid);
 
   if (loading) {
     return (
@@ -329,9 +333,14 @@ export function ConnectedAppsPanel({ isOpen, onOpenChange }: ConnectedAppsPanelP
     }
   };
   const summaryItems = [
-    needsApiKey ? t('notConfiguredShort') : t('summary', { connected: connectedToolkits.length, available: availableToolkits.length }),
+    isManagedMode ? t('modeManaged') : needsApiKey ? t('notConfiguredShort') : t('summary', { connected: connectedToolkits.length, available: availableToolkits.length }),
     error ? t('errorSummary') : null,
   ].filter((item): item is string => Boolean(item));
+  const modeLabel = isManagedMode
+    ? t('modeManaged')
+    : status?.mode === 'local'
+      ? t('modeLocal')
+      : t('modeMissing');
 
   return (
     <SettingsAccordionCard
@@ -345,8 +354,17 @@ export function ConnectedAppsPanel({ isOpen, onOpenChange }: ConnectedAppsPanelP
     >
         {error && <p className="text-sm text-destructive">{error}</p>}
 
+        <div className="flex flex-wrap items-center gap-2">
+          <Badge variant={status?.configured ? 'default' : 'secondary'}>{modeLabel}</Badge>
+          {status?.localConfigured && <Badge variant="outline">{t('localConfigured')}</Badge>}
+          {status?.managedAvailable && <Badge variant="outline">{t('managedAvailable')}</Badge>}
+        </div>
+        <p className="text-sm text-muted-foreground">
+          {isManagedMode ? t('managedDescription') : t('localDescription')}
+        </p>
+
         {/* API Key Section */}
-        {!(status?.configured && status?.apiKeyValid) && (
+        {needsApiKey && (
           <div className="rounded-md border border-border p-4 space-y-3">
             <h3 className="text-sm font-semibold">Composio API Key</h3>
             <p className="text-sm text-muted-foreground">

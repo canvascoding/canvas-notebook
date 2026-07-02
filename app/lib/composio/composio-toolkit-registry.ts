@@ -89,7 +89,7 @@ export async function getAvailableToolkitsRaw(storageScope?: EnvStorageScope | n
 export async function getAvailableToolkits(storageScope?: EnvStorageScope | null): Promise<ToolkitInfo[]> {
   const now = Date.now();
   const userId = await getComposioUserId(storageScope);
-  const cacheKey = `local:${userId}`;
+  const cacheKey = `local:${storageScopeCacheKey(storageScope)}:${userId}`;
   const cachedToolkits = toolkitCache.get(cacheKey);
   if (cachedToolkits && cachedToolkits.expires > now) {
     return cachedToolkits.data;
