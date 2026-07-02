@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { createRoot, type Root } from 'react-dom/client';
 import { Extension, getMarkRange, type Editor, type JSONContent, type Range } from '@tiptap/core';
 import {
@@ -455,6 +456,10 @@ function useMobileKeyboardActive() {
   }, []);
 
   return isKeyboardActive;
+}
+
+function getBodyPortalElement() {
+  return typeof document === 'undefined' ? null : document.body;
 }
 
 function TooltipIconButton({
@@ -1615,6 +1620,7 @@ function MarkdownSourceToolbar({
   onRichMode: () => void;
 }) {
   const t = useTranslations('notebook');
+  const portalElement = getBodyPortalElement();
 
   const hideKeyboard = useCallback(() => {
     if (document.activeElement instanceof HTMLElement) {
@@ -1622,29 +1628,35 @@ function MarkdownSourceToolbar({
     }
   }, []);
 
+  const mobileToolbar = (
+    <div
+      className={cn('tiptap-mobile-toolbar', mobileVisible && 'tiptap-mobile-toolbar-visible')}
+      role="toolbar"
+      aria-label={t('markdownEditorMobileToolbar')}
+      onPointerDownCapture={onMobilePointerDown}
+      onPointerUpCapture={onMobilePointerUp}
+      onPointerCancelCapture={onMobilePointerCancel}
+    >
+      <MobileToolbarButton label={t('markdownEditorEditVisually')} onClick={onRichMode}>
+        <Eye className="h-5 w-5" />
+      </MobileToolbarButton>
+      <MobileToolbarButton label={t('markdownEditorMobileHideKeyboard')} onClick={hideKeyboard}>
+        <Keyboard className="h-5 w-5" />
+      </MobileToolbarButton>
+    </div>
+  );
+
   return (
-    <TooltipProvider>
-      <div className="tiptap-desktop-editor-toolbar hidden h-9 shrink-0 items-center justify-end gap-1 border-b border-border bg-background px-2 md:flex">
-        <TooltipIconButton label={t('markdownEditorEditVisually')} onClick={onRichMode}>
-          <Eye />
-        </TooltipIconButton>
-      </div>
-      <div
-        className={cn('tiptap-mobile-toolbar', mobileVisible && 'tiptap-mobile-toolbar-visible')}
-        role="toolbar"
-        aria-label={t('markdownEditorMobileToolbar')}
-        onPointerDownCapture={onMobilePointerDown}
-        onPointerUpCapture={onMobilePointerUp}
-        onPointerCancelCapture={onMobilePointerCancel}
-      >
-        <MobileToolbarButton label={t('markdownEditorEditVisually')} onClick={onRichMode}>
-          <Eye className="h-5 w-5" />
-        </MobileToolbarButton>
-        <MobileToolbarButton label={t('markdownEditorMobileHideKeyboard')} onClick={hideKeyboard}>
-          <Keyboard className="h-5 w-5" />
-        </MobileToolbarButton>
-      </div>
-    </TooltipProvider>
+    <>
+      <TooltipProvider>
+        <div className="tiptap-desktop-editor-toolbar hidden h-9 shrink-0 items-center justify-end gap-1 border-b border-border bg-background px-2 md:flex">
+          <TooltipIconButton label={t('markdownEditorEditVisually')} onClick={onRichMode}>
+            <Eye />
+          </TooltipIconButton>
+        </div>
+      </TooltipProvider>
+      {portalElement ? createPortal(mobileToolbar, portalElement) : null}
+    </>
   );
 }
 
@@ -2968,6 +2980,7 @@ function MobileMarkdownToolbar({
   const [isInteractingWithToolbar, setIsInteractingWithToolbar] = useState(false);
   const canUseCommands = Boolean(editor?.isEditable);
   const toolbarState = useMarkdownToolbarState(editor);
+  const portalElement = getBodyPortalElement();
 
   const saveCurrentRange = useCallback(() => {
     if (!editor) {
@@ -3101,7 +3114,7 @@ function MobileMarkdownToolbar({
   const sheetTitle = activeSheet === 'styles' ? t('markdownEditorMobileTextStyle') : labels.addBlock;
   const toolbarVisible = keyboardActive && (visible || isInteractingWithToolbar || activeSheet !== null || linkDialogOpen);
 
-  return (
+  const mobileToolbarOverlay = (
     <>
       {activeSheet ? (
         <div
@@ -3219,6 +3232,12 @@ function MobileMarkdownToolbar({
           <Keyboard className="h-5 w-5" />
         </MobileToolbarButton>
       </div>
+    </>
+  );
+
+  return (
+    <>
+      {portalElement ? createPortal(mobileToolbarOverlay, portalElement) : null}
       <MarkdownLinkDialog
         key={`link-${linkDialogSeed.id}`}
         editor={editor}
