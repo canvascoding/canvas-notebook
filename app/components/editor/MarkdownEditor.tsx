@@ -258,6 +258,7 @@ const FRONTMATTER_REGEX = /^---\s*\n[\s\S]*?\n---(?:\s*\n|$)/;
 const SLASH_COMMAND_PLUGIN_KEY = new PluginKey('markdownSlashCommands');
 const COLOR_SWATCH_PLUGIN_KEY = new PluginKey('markdownColorSwatches');
 const CANVAS_BLOCK_DRAG_DROP_GUARD_PLUGIN_KEY = new PluginKey('canvasBlockDragDropGuard');
+const MOBILE_KEYBOARD_RECHECK_DELAYS_MS = [60, 180, 360, 720];
 
 function shouldDefaultToSource(value: string, readOnly: boolean, filePath?: string) {
   if (readOnly) return false;
@@ -316,9 +317,8 @@ function useMarkdownToolbarState(editor: MarkdownEditorWithMarkdown | null) {
 
 function useVisualViewportBottomOffset() {
   useEffect(() => {
-    const viewport = window.visualViewport;
-
     const updateViewportOffset = () => {
+      const viewport = window.visualViewport;
       const bottomOffset = viewport
         ? Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop)
         : 0;
@@ -328,16 +328,46 @@ function useVisualViewportBottomOffset() {
         `${Math.round(bottomOffset)}px`,
       );
     };
+    let recheckFrame: number | null = null;
+    let recheckTimeouts: number[] = [];
+
+    const clearScheduledRechecks = () => {
+      if (recheckFrame !== null) {
+        window.cancelAnimationFrame(recheckFrame);
+        recheckFrame = null;
+      }
+      recheckTimeouts.forEach((timeout) => window.clearTimeout(timeout));
+      recheckTimeouts = [];
+    };
+
+    const scheduleViewportOffsetRechecks = () => {
+      clearScheduledRechecks();
+      updateViewportOffset();
+      recheckFrame = window.requestAnimationFrame(() => {
+        recheckFrame = null;
+        updateViewportOffset();
+      });
+      recheckTimeouts = MOBILE_KEYBOARD_RECHECK_DELAYS_MS.map((delay) => (
+        window.setTimeout(updateViewportOffset, delay)
+      ));
+    };
+
+    const visualViewport = window.visualViewport;
 
     updateViewportOffset();
-    window.addEventListener('resize', updateViewportOffset);
-    viewport?.addEventListener('resize', updateViewportOffset);
-    viewport?.addEventListener('scroll', updateViewportOffset);
+    window.addEventListener('focusin', scheduleViewportOffsetRechecks);
+    window.addEventListener('focusout', scheduleViewportOffsetRechecks);
+    window.addEventListener('resize', scheduleViewportOffsetRechecks);
+    visualViewport?.addEventListener('resize', updateViewportOffset);
+    visualViewport?.addEventListener('scroll', updateViewportOffset);
 
     return () => {
-      window.removeEventListener('resize', updateViewportOffset);
-      viewport?.removeEventListener('resize', updateViewportOffset);
-      viewport?.removeEventListener('scroll', updateViewportOffset);
+      clearScheduledRechecks();
+      window.removeEventListener('focusin', scheduleViewportOffsetRechecks);
+      window.removeEventListener('focusout', scheduleViewportOffsetRechecks);
+      window.removeEventListener('resize', scheduleViewportOffsetRechecks);
+      visualViewport?.removeEventListener('resize', updateViewportOffset);
+      visualViewport?.removeEventListener('scroll', updateViewportOffset);
       document.documentElement.style.removeProperty('--canvas-visual-viewport-bottom-offset');
     };
   }, []);
@@ -349,10 +379,10 @@ function useMobileKeyboardActive() {
   const viewportWidthRef = useRef(0);
 
   useEffect(() => {
-    const viewport = window.visualViewport;
     const mediaQuery = window.matchMedia('(max-width: 767px), (hover: none) and (pointer: coarse)');
 
     const updateKeyboardState = () => {
+      const viewport = window.visualViewport;
       const viewportWidth = Math.round(viewport?.width ?? window.innerWidth);
       const viewportHeight = Math.round(viewport?.height ?? window.innerHeight);
       const widthChanged = viewportWidthRef.current > 0 && Math.abs(viewportWidth - viewportWidthRef.current) > 80;
@@ -376,24 +406,50 @@ function useMobileKeyboardActive() {
 
       setIsKeyboardActive(mediaQuery.matches && keyboardOffset >= 80);
     };
+    let recheckFrame: number | null = null;
+    let recheckTimeouts: number[] = [];
+
+    const clearScheduledRechecks = () => {
+      if (recheckFrame !== null) {
+        window.cancelAnimationFrame(recheckFrame);
+        recheckFrame = null;
+      }
+      recheckTimeouts.forEach((timeout) => window.clearTimeout(timeout));
+      recheckTimeouts = [];
+    };
+
+    const scheduleKeyboardStateRechecks = () => {
+      clearScheduledRechecks();
+      updateKeyboardState();
+      recheckFrame = window.requestAnimationFrame(() => {
+        recheckFrame = null;
+        updateKeyboardState();
+      });
+      recheckTimeouts = MOBILE_KEYBOARD_RECHECK_DELAYS_MS.map((delay) => (
+        window.setTimeout(updateKeyboardState, delay)
+      ));
+    };
+
+    const visualViewport = window.visualViewport;
 
     updateKeyboardState();
-    window.addEventListener('focusin', updateKeyboardState);
-    window.addEventListener('focusout', updateKeyboardState);
-    window.addEventListener('resize', updateKeyboardState);
-    window.addEventListener('orientationchange', updateKeyboardState);
-    viewport?.addEventListener('resize', updateKeyboardState);
-    viewport?.addEventListener('scroll', updateKeyboardState);
-    mediaQuery.addEventListener('change', updateKeyboardState);
+    window.addEventListener('focusin', scheduleKeyboardStateRechecks);
+    window.addEventListener('focusout', scheduleKeyboardStateRechecks);
+    window.addEventListener('resize', scheduleKeyboardStateRechecks);
+    window.addEventListener('orientationchange', scheduleKeyboardStateRechecks);
+    visualViewport?.addEventListener('resize', updateKeyboardState);
+    visualViewport?.addEventListener('scroll', updateKeyboardState);
+    mediaQuery.addEventListener('change', scheduleKeyboardStateRechecks);
 
     return () => {
-      window.removeEventListener('focusin', updateKeyboardState);
-      window.removeEventListener('focusout', updateKeyboardState);
-      window.removeEventListener('resize', updateKeyboardState);
-      window.removeEventListener('orientationchange', updateKeyboardState);
-      viewport?.removeEventListener('resize', updateKeyboardState);
-      viewport?.removeEventListener('scroll', updateKeyboardState);
-      mediaQuery.removeEventListener('change', updateKeyboardState);
+      clearScheduledRechecks();
+      window.removeEventListener('focusin', scheduleKeyboardStateRechecks);
+      window.removeEventListener('focusout', scheduleKeyboardStateRechecks);
+      window.removeEventListener('resize', scheduleKeyboardStateRechecks);
+      window.removeEventListener('orientationchange', scheduleKeyboardStateRechecks);
+      visualViewport?.removeEventListener('resize', updateKeyboardState);
+      visualViewport?.removeEventListener('scroll', updateKeyboardState);
+      mediaQuery.removeEventListener('change', scheduleKeyboardStateRechecks);
     };
   }, []);
 
