@@ -545,11 +545,11 @@ export function PromptHero({ licenseLocked = false }: { licenseLocked?: boolean 
 
           <button
             type="submit"
-            className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-50"
+            className="inline-flex items-center justify-center gap-2 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-50 sm:px-4"
             disabled={licenseLocked || isUploading || isSubmitting || (!prompt.trim() && attachments.length === 0)}
           >
             <Send className="h-4 w-4" />
-            {tHome('hero.submit')}
+            <span className="sr-only sm:not-sr-only">{tHome('hero.submit')}</span>
           </button>
         </div>
       </form>
