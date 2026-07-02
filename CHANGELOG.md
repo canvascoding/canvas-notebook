@@ -11,6 +11,19 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.7.2.4] - 2026-07-02
+
+### Fixed
+
+- Sanitized upload filenames instead of rejecting uploads with names containing unusual characters, so legitimate files are no longer blocked.
+- Scoped image viewer URLs with the active workspace id so preview URLs resolve to the correct workspace and do not leak across scopes.
+- Fixed onboarding preference save logging so language/time zone save diagnostics are recorded correctly.
+
+### Verification
+
+- `npm run build`
+- GitHub Actions `Build and Push (Both Arch)` on `main`: `28617193473` built and pushed the image successfully before release prep.
+
 ## [2026.7.2.3] - 2026-07-02
 
 ### Fixed
