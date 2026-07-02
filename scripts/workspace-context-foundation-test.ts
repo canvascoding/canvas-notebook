@@ -149,6 +149,14 @@ async function main() {
   assert.equal(parsedTreeKey.workspaceId, 'workspace-a');
   assert.equal(parsedTreeKey.path, 'docs');
   assert.equal(parsedTreeKey.depth, 4);
+  assert.equal(parsedTreeKey.includeStats, true);
+
+  const fastTreeKey = fileTreeCacheModule.buildFileTreeCacheKey('docs', 0, 'workspace-a', false);
+  const parsedFastTreeKey = fileTreeCacheModule.parseFileTreeCacheKey(fastTreeKey);
+  assert.equal(parsedFastTreeKey.workspaceId, 'workspace-a');
+  assert.equal(parsedFastTreeKey.path, 'docs');
+  assert.equal(parsedFastTreeKey.depth, 0);
+  assert.equal(parsedFastTreeKey.includeStats, false);
 
   fileReferenceCacheModule.invalidateFileReferenceCache();
   const workspaceAFiles = await fileReferenceCacheModule.getCachedFileReferenceEntries(false, { workspace: workspaceA });

@@ -17,6 +17,7 @@ export type { FileNode } from '@/app/lib/files/types';
 
 export interface WorkspaceFileOperationOptions {
   workspace?: WorkspaceContext;
+  includeMetadata?: boolean;
 }
 
 function getDataDir(): string {
@@ -70,6 +71,7 @@ export async function listDirectory(
 ): Promise<FileNode[]> {
   const fullPath = await resolveExistingWorkspacePath(dirPath, options);
   const entries = await fs.readdir(fullPath, {withFileTypes: true});
+  const includeMetadata = options?.includeMetadata ?? true;
 
   return Promise.all(
     entries
@@ -91,17 +93,25 @@ export async function listDirectory(
         return true;
       })
       .map(async (entry) => {
+        const node: FileNode = {
+          name: entry.name,
+          path: path.join(dirPath, entry.name),
+          type: entry.isDirectory() ? 'directory' : 'file',
+        };
+
+        if (!includeMetadata) {
+          return node;
+        }
+
         const entryPath = path.join(fullPath, entry.name);
         const stats = await fs.stat(entryPath);
 
         return {
-          name: entry.name,
-          path: path.join(dirPath, entry.name),
-          type: entry.isDirectory() ? 'directory' : 'file',
+          ...node,
           size: stats.size,
           modified: Math.floor(stats.mtimeMs / 1000),
           permissions: stats.mode?.toString(8),
-        } satisfies FileNode;
+        };
       })
   );
 }

@@ -9,6 +9,7 @@ import {
   getDirectoryPathChain,
   getParentDirectory,
 } from '@/app/lib/files/path-utils';
+import { runDirectoryTasksByDepth } from '@/app/lib/files/tree-refresh';
 import { findPathInTree, flattenDirectoryChildren } from '@/app/lib/files/tree-utils';
 
 interface UseFileExplorerViewModelOptions {
@@ -31,6 +32,8 @@ interface SearchState {
   results: FileNodeType[] | null;
   isSearching: boolean;
 }
+
+const RESTORE_LOAD_CONCURRENCY = 4;
 
 function filterTree(nodes: FileNodeType[], query: string): FileNodeType[] {
   if (!query) return nodes;
@@ -141,29 +144,30 @@ export function useFileExplorerViewModel({ containerRef, variant }: UseFileExplo
           ...getDirectoryPathChain(curDir),
         ]);
 
-        const expandedPaths = Array.from(restorePaths).sort((a, b) => {
-          const depthDiff = getDirectoryDepth(a) - getDirectoryDepth(b);
-          return depthDiff !== 0 ? depthDiff : a.localeCompare(b);
-        });
-
         const validExpandedDirs = new Set<string>();
 
-        for (const dirPath of expandedPaths) {
-          if (cancelled || dirPath === '.') continue;
-          const currentTree = useFileStore.getState().fileTree;
-          const parentDir = getParentDirectory(dirPath);
-          const parentExists = parentDir === '.'
-            ? currentTree.some((node) => node.type === 'directory' && node.path === dirPath.split('/')[0])
-            : findPathInTree(parentDir, currentTree);
-          if (!parentExists) continue;
-          await loadSubdirectory(dirPath, true);
-          if (cancelled) return;
+        await runDirectoryTasksByDepth(
+          Array.from(restorePaths).sort((a, b) => {
+            const depthDiff = getDirectoryDepth(a) - getDirectoryDepth(b);
+            return depthDiff !== 0 ? depthDiff : a.localeCompare(b);
+          }),
+          async (dirPath) => {
+            if (cancelled) return;
+            const currentTree = useFileStore.getState().fileTree;
+            const parentDir = getParentDirectory(dirPath);
+            const parentExists = parentDir === '.'
+              ? currentTree.some((node) => node.type === 'directory' && node.path === dirPath.split('/')[0])
+              : findPathInTree(parentDir, currentTree);
+            if (!parentExists) return;
+            await loadSubdirectory(dirPath, true);
 
-          const nextTree = useFileStore.getState().fileTree;
-          if (curExpanded.has(dirPath) && findPathInTree(dirPath, nextTree)) {
-            validExpandedDirs.add(dirPath);
-          }
-        }
+            const nextTree = useFileStore.getState().fileTree;
+            if (curExpanded.has(dirPath) && findPathInTree(dirPath, nextTree)) {
+              validExpandedDirs.add(dirPath);
+            }
+          },
+          { concurrency: RESTORE_LOAD_CONCURRENCY, includeRoot: false },
+        );
 
         const restoredTree = useFileStore.getState().fileTree;
         const currentExpanded = useFileStore.getState().expandedDirs;

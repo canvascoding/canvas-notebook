@@ -43,6 +43,10 @@ interface UploadWorkspaceFilesParams {
   onProgress?: (progress: number) => void;
 }
 
+interface LoadWorkspaceTreeOptions {
+  includeStats?: boolean;
+}
+
 function formatResponseStatus(response: Response) {
   const statusText = response.statusText ? ` ${response.statusText}` : '';
   return response.status ? ` (${response.status}${statusText})` : '';
@@ -114,12 +118,14 @@ export async function readApiError(response: Response, fallbackMessage: string) 
 
 export async function loadWorkspaceTree(
   path = '.',
-  depth = 4,
+  depth = 0,
   noCache = false,
   fallbackMessage = 'Failed to load file tree',
-  workspaceId?: string | null
+  workspaceId?: string | null,
+  options: LoadWorkspaceTreeOptions = {}
 ): Promise<FileNode[]> {
-  const baseUrl = `/api/files/tree?path=${encodeURIComponent(path)}&depth=${depth}${noCache ? `&noCache=${Date.now()}` : ''}`;
+  const includeStats = options.includeStats ?? true;
+  const baseUrl = `/api/files/tree?path=${encodeURIComponent(path)}&depth=${depth}${includeStats ? '' : '&stats=0'}${noCache ? `&noCache=${Date.now()}` : ''}`;
   const url = withWorkspaceQuery(baseUrl, workspaceId);
   const response = await fetch(url, {
     credentials: 'include',

@@ -14,6 +14,7 @@ async function waitFor(predicate: () => boolean, message: string) {
 
 async function main() {
   const calls: string[] = [];
+  const callDetails: Array<{ path: string; depth: string | null; stats: string | null }> = [];
   const responses: Record<string, FileNode[]> = {
     '.': [
       { name: 'docs', path: 'docs', type: 'directory' },
@@ -37,6 +38,11 @@ async function main() {
       const url = new URL(String(input), 'http://localhost');
       const path = url.searchParams.get('path') || '.';
       calls.push(path);
+      callDetails.push({
+        path,
+        depth: url.searchParams.get('depth'),
+        stats: url.searchParams.get('stats'),
+      });
       if (delayDocsFetch && path === 'docs') {
         resolve();
         await new Promise<void>((release) => {
@@ -70,6 +76,8 @@ async function main() {
     releaseDocsFetch();
     await waitFor(() => !useFileStore.getState().loadingDirs.has('docs'), 'docs fetch should finish');
     assert.equal(useFileStore.getState().expandedDirs.has('docs'), false, 'finished loads should not reopen a folder the user closed');
+    assert.equal(callDetails.find((call) => call.path === 'docs')?.depth, '0', 'folder expand should load direct children only');
+    assert.equal(callDetails.find((call) => call.path === 'docs')?.stats, '0', 'folder expand should use tree fast path');
 
     useFileStore.setState({
       fileTree: [
@@ -79,12 +87,14 @@ async function main() {
       expandedDirs: new Set<string>(),
     });
     calls.length = 0;
+    callDetails.length = 0;
     useFileStore.getState().toggleDirectory('empty');
     assert.equal(useFileStore.getState().expandedDirs.has('empty'), true, 'loaded empty folders should still expand');
     assert.deepEqual(calls, [], 'loaded empty folders should not fetch again');
 
     delayDocsFetch = false;
     calls.length = 0;
+    callDetails.length = 0;
 
     useFileStore.setState({
       fileTree: [
@@ -109,6 +119,16 @@ async function main() {
     await useFileStore.getState().refreshVisibleTree();
 
     assert.deepEqual(calls, ['.', 'docs', 'src', 'src/app']);
+    assert.deepEqual(
+      callDetails.map((call) => [call.path, call.depth, call.stats]),
+      [
+        ['.', '0', '0'],
+        ['docs', '0', '0'],
+        ['src', '0', '0'],
+        ['src/app', '0', '0'],
+      ],
+      'visible refresh should load only direct children via the fast tree path',
+    );
 
     const state = useFileStore.getState();
     const docs = state.fileTree.find((node) => node.path === 'docs');
@@ -147,6 +167,7 @@ async function main() {
     );
 
     calls.length = 0;
+    callDetails.length = 0;
     globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = new URL(String(input), 'http://localhost');
       if (url.pathname === '/api/files/copy') {
@@ -166,6 +187,11 @@ async function main() {
 
       const path = url.searchParams.get('path') || '.';
       (calls as string[]).push(path);
+      callDetails.push({
+        path,
+        depth: url.searchParams.get('depth'),
+        stats: url.searchParams.get('stats'),
+      });
       return Response.json({ success: true, data: responses[path] ?? [] });
     }) as typeof fetch;
 

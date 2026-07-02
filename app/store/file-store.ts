@@ -7,6 +7,7 @@ import {
   isSameOrDescendantPath,
   remapDescendantPath,
 } from '@/app/lib/files/path-utils';
+import { runDirectoryTasksByDepth } from '@/app/lib/files/tree-refresh';
 import {
   findNodeInTree,
   getDirectoryDirectChildPaths,
@@ -77,6 +78,8 @@ const TEXT_EXTENSIONS = new Set([
 
 const EXPLORER_STATE_STORAGE_KEY = 'canvas.fileExplorerState';
 const saveFileQueues = new Map<string, Promise<void>>();
+const DEFAULT_TREE_DEPTH = 0;
+const SUBDIRECTORY_TREE_DEPTH = 0;
 
 interface StoredExplorerState {
   currentDirectory?: string;
@@ -460,10 +463,12 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
   loadFileTree: async (path = '.', depth?: number, noCache = false) => {
     set({ isLoadingTree: true, treeError: null });
 
-    const depthTarget = typeof depth === 'number' ? depth : 4;
+    const depthTarget = typeof depth === 'number' ? depth : DEFAULT_TREE_DEPTH;
 
     try {
-      const data = await loadWorkspaceTree(path, depthTarget, noCache);
+      const data = await loadWorkspaceTree(path, depthTarget, noCache, 'Failed to load file tree', undefined, {
+        includeStats: false,
+      });
       set({ fileTree: data, isLoadingTree: false });
     } catch (error) {
       const message =
@@ -479,7 +484,9 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
     set({ treeError: null });
 
     try {
-      const data = await loadWorkspaceTree('.', 0, noCache, 'Failed to refresh root tree');
+      const data = await loadWorkspaceTree('.', 0, noCache, 'Failed to refresh root tree', undefined, {
+        includeStats: false,
+      });
 
       // Merge: preserve existing children from current tree so expanded
       // folders don't appear empty after a root-level refresh (depth=0).
@@ -507,11 +514,11 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
     await get().refreshRootTree(true);
 
     const dirsToRefresh = getVisibleTreeRefreshDirectories(currentDirectory, expandedDirs, browserMode === 'tree');
-    for (const dirPath of dirsToRefresh) {
+    await runDirectoryTasksByDepth(dirsToRefresh, async (dirPath) => {
       if (hasRefreshParentInTree(get().fileTree, dirPath)) {
         await get().loadSubdirectory(dirPath, true);
       }
-    }
+    });
   },
 
   loadSubdirectory: async (dirPath: string, noCache = false, expand = true) => {
@@ -551,7 +558,14 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
     set({ loadingDirs: newLoading });
 
     try {
-      const data = await loadWorkspaceTree(dirPath, 1, noCache, 'Failed to load subdirectory');
+      const data = await loadWorkspaceTree(
+        dirPath,
+        SUBDIRECTORY_TREE_DEPTH,
+        noCache,
+        'Failed to load subdirectory',
+        undefined,
+        { includeStats: false },
+      );
 
       // Use fresh state references after the async gap to avoid
       // overwriting concurrent tree updates (race condition).

@@ -52,8 +52,9 @@ export async function GET(request: NextRequest) {
     const path = searchParams.get('path') || '.';
     const depth = parseInt(searchParams.get('depth') || '4');
     const noCache = searchParams.has('noCache');
+    const includeStats = searchParams.get('stats') !== '0';
 
-    const cacheKey = buildFileTreeCacheKey(path, depth, workspaceResult.workspace.workspaceId);
+    const cacheKey = buildFileTreeCacheKey(path, depth, workspaceResult.workspace.workspaceId, includeStats);
     if (!noCache) {
       const cached = fileTreeCache.get(cacheKey);
       if (cached) {
@@ -61,7 +62,10 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    const tree = await buildFileTree(path, depth, 0, fileOptions);
+    const tree = await buildFileTree(path, depth, 0, {
+      ...fileOptions,
+      includeMetadata: includeStats,
+    });
     const annotations = await getPublicShareAnnotations(collectFilePaths(tree), null, workspaceResult.workspace);
     attachPublicShareAnnotations(tree, annotations);
     fileTreeCache.set(cacheKey, tree);

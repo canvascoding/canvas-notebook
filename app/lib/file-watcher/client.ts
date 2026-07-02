@@ -9,6 +9,7 @@
  */
 
 import { useFileStore } from '@/app/store/file-store';
+import { runDirectoryTasksByDepth } from '@/app/lib/files/tree-refresh';
 
 interface FileEvent {
   type: 'add' | 'change' | 'unlink' | 'addDir' | 'unlinkDir';
@@ -17,6 +18,8 @@ interface FileEvent {
   dir: string;
   timestamp: number;
 }
+
+const WATCHER_REFRESH_CONCURRENCY = 4;
 
 function getWatchedDirs(): string[] {
   const { browserMode, currentDirectory, currentFile, expandedDirs } = useFileStore.getState();
@@ -286,9 +289,13 @@ export class FileWatcherClient extends EventTarget {
 
   private async refreshDirectories(dirPaths: string[]): Promise<void> {
     const store = useFileStore.getState();
-    for (const dirPath of dirPaths) {
-      await store.refreshDirectory(dirPath, true);
-    }
+    await runDirectoryTasksByDepth(
+      dirPaths,
+      async (dirPath) => {
+        await store.refreshDirectory(dirPath, true);
+      },
+      { concurrency: WATCHER_REFRESH_CONCURRENCY },
+    );
   }
 
   private scheduleDirSync(dirs: string[]): void {
