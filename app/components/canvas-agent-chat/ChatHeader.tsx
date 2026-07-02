@@ -109,9 +109,9 @@ export function ChatHeader({
         </header>
       )}
 
-      <div className={cn('z-10 border-b border-border bg-background/95', isHistoryOverlayOpen ? 'hidden' : null)}>
-        <div className="flex flex-wrap items-center gap-2 px-3 py-2">
-          <div className="flex min-w-[12rem] flex-1 items-center gap-2 overflow-hidden">
+        <div className={cn('z-10 border-b border-border bg-background/95', isHistoryOverlayOpen ? 'hidden' : null)}>
+        <div className="flex flex-col items-stretch gap-2 px-3 py-2 md:flex-row md:flex-wrap md:items-center">
+          <div className="flex w-full items-center gap-2 overflow-hidden md:min-w-0 md:flex-1">
             {showHistory ? (
               <button
                 type="button"
@@ -140,37 +140,34 @@ export function ChatHeader({
               </button>
             )}
             <div className="min-w-0 flex-1">
-              {isMobile ? (
-                <span className="block truncate text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground">{t('canvasChatLabel')}</span>
-              ) : (
-                <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-                  <div
-                    data-testid="chat-session-id"
-                    title={sessionId || t('newChatTitle')}
-                    className="inline-flex h-8 min-w-0 max-w-[min(18rem,100%)] items-center gap-1.5 rounded-md border border-border/60 bg-muted/50 px-2 text-[11px] font-medium text-foreground"
-                  >
-                    <span className="text-[9px] uppercase tracking-[0.15em] text-muted-foreground">{t('sessionLabel')}</span>
-                    <span className="min-w-0 truncate">{sessionDisplayLabel}</span>
-                  </div>
-                  <ChatAgentSelector
-                    variant="desktop"
-                    activeAgentId={activeSessionAgentId}
-                    activeAgentName={activeAgentDisplayName}
-                    activeAgentIconId={activeAgentIconId}
-                    agents={chatAgentOptions}
-                    onSelectAgent={onSelectAgent}
-                  />
+              <div className="flex min-w-0 flex-nowrap items-center gap-1.5">
+                <div
+                  data-testid="chat-session-id"
+                  title={sessionId || t('newChatTitle')}
+                  className="inline-flex h-7 min-w-0 shrink items-center gap-1.5 rounded-md border border-border/60 bg-muted/50 px-2 text-[11px] font-medium text-foreground md:max-w-[min(18rem,100%)]"
+                  style={{ maxWidth: isMobile ? 'calc(100% - 7.5rem)' : undefined }}
+                >
+                  <span className="text-[9px] uppercase tracking-[0.15em] text-muted-foreground">{t('sessionLabel')}</span>
+                  <span className="min-w-0 truncate">{sessionDisplayLabel}</span>
                 </div>
-              )}
+                <ChatAgentSelector
+                  variant={isMobile ? 'mobile' : 'desktop'}
+                  activeAgentId={activeSessionAgentId}
+                  activeAgentName={activeAgentDisplayName}
+                  activeAgentIconId={activeAgentIconId}
+                  agents={chatAgentOptions}
+                  onSelectAgent={onSelectAgent}
+                />
+              </div>
             </div>
           </div>
-          <div className="ml-auto flex shrink-0 items-center gap-1">
+          <div className="flex w-full shrink-0 items-center justify-end gap-1 md:ml-auto md:w-auto md:justify-start">
             <WorkspaceSwitcher source="chat" variant="compact" className="hidden sm:inline-flex" />
             <button
               type="button"
               aria-label={t('newChatTitle')}
               onClick={onStartNewChat}
-              className="group inline-flex h-8 items-center gap-1 rounded-md border border-primary/30 bg-primary/15 px-2.5 text-primary transition-all hover:bg-primary/25"
+              className="group inline-flex h-7 items-center gap-1 rounded-md border border-primary/30 bg-primary/15 px-2.5 text-primary transition-all hover:bg-primary/25"
               title={t('newChatTitle')}
             >
               <Plus size={16} />
@@ -180,7 +177,7 @@ export function ChatHeader({
               <Link
                 href="/settings?tab=plugins"
                 aria-label={t('viewSkills')}
-                className="group inline-flex h-8 items-center gap-1 rounded-md border border-border bg-muted/50 px-2.5 text-muted-foreground transition-all hover:bg-accent hover:text-foreground"
+                className="group inline-flex h-7 items-center gap-1 rounded-md border border-border bg-muted/50 px-2.5 text-muted-foreground transition-all hover:bg-accent hover:text-foreground"
                 title={t('viewSkills')}
               >
                 <Lightbulb size={16} />
@@ -191,43 +188,33 @@ export function ChatHeader({
         </div>
 
         <div data-testid="chat-runtime-banner" className="border-t border-border/50 px-3 py-1.5">
-          <div className="flex flex-wrap items-start gap-2">
-            <div data-testid="chat-runtime-status" className="flex min-w-[12rem] flex-1 flex-wrap items-center gap-2">
-              <ChatRuntimeActivityBadge status={runtimeStatus} />
-              {isMobile ? (
-                <ChatAgentSelector
-                  variant="mobile"
-                  activeAgentId={activeSessionAgentId}
-                  activeAgentName={activeAgentDisplayName}
-                  activeAgentIconId={activeAgentIconId}
-                  agents={chatAgentOptions}
-                  onSelectAgent={onSelectAgent}
-                />
-              ) : null}
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div data-testid="chat-runtime-status" className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5 sm:flex-initial">
+              <ChatRuntimeActivityBadge status={runtimeStatus} className="h-7" />
               {isMobile ? <WorkspaceSwitcher source="chat" variant="compact" /> : null}
 
               {runtimeStatus && totalQueuedMessages > 0 && (
-                <span className="inline-flex items-center gap-1 border border-border/60 bg-muted/40 px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                <span className="inline-flex h-7 items-center gap-1 border border-border/60 bg-muted/40 px-1.5 text-[10px] text-muted-foreground">
                   <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
                   {t('queuedCount', { count: totalQueuedMessages })}
                 </span>
               )}
 
               {!isMobile && runtimeStatus?.includedSummary && (
-                <span className="border border-border/60 bg-muted/40 px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                <span className="inline-flex h-7 items-center border border-border/60 bg-muted/40 px-1.5 text-[10px] text-muted-foreground">
                   {t('summary')}
                 </span>
               )}
 
               {!isMobile && runtimeStatus?.activeTool && toolVerbosity !== 'minimal' && (
-                <span className="inline-flex items-center gap-1 border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-[10px] text-amber-600">
+                <span className="inline-flex h-7 items-center gap-1 border border-amber-500/30 bg-amber-500/10 px-1.5 text-[10px] text-amber-600">
                   <Wrench size={10} />
                   {toolVerbosity === 'verbose' ? runtimeStatus.activeTool.name : activeToolLabel}
                 </span>
               )}
             </div>
 
-            <div className="flex w-full min-w-0 flex-wrap items-center justify-start gap-1.5 md:ml-auto md:w-auto md:justify-end">
+            <div className="flex min-w-0 flex-1 flex-wrap items-center justify-end gap-1.5 sm:flex-initial">
               {!isMobile ? (
                 <span
                   data-testid="chat-context-meter"
@@ -263,10 +250,20 @@ export function ChatHeader({
                 <>
                   <button
                     type="button"
+                    data-testid="chat-compact"
+                    onClick={onCompact}
+                    disabled={!sessionId || runtimeStatus?.phase !== 'idle'}
+                    className="inline-flex h-7 items-center gap-1 rounded-md border border-border bg-muted/50 px-2 text-[11px] font-medium text-foreground transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-40"
+                    title={t('compact')}
+                  >
+                    {t('compact')}
+                  </button>
+                  <button
+                    type="button"
                     data-testid="chat-mobile-details-toggle"
                     aria-expanded={showMobileDetails}
                     onClick={onToggleMobileDetails}
-                    className="inline-flex items-center gap-1 border border-border/60 bg-muted/40 px-2 py-0.5 text-[11px] text-foreground transition-colors hover:bg-accent"
+                    className="inline-flex h-7 items-center gap-1 rounded-md border border-border/60 bg-muted/40 px-2 text-[11px] text-foreground transition-colors hover:bg-accent"
                   >
                     {t('details')}
                     {showMobileDetails ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
@@ -275,7 +272,7 @@ export function ChatHeader({
                     href="/settings?tab=agent"
                     data-testid="chat-mobile-agent-settings"
                     aria-label={t('openAgentSettings')}
-                    className="inline-flex items-center gap-1 border border-border/60 bg-muted/40 px-2 py-0.5 text-[11px] text-muted-foreground transition-all hover:bg-accent hover:text-foreground"
+                    className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-border/60 bg-muted/40 text-muted-foreground transition-all hover:bg-accent hover:text-foreground"
                     title={t('openAgentSettings')}
                   >
                     <Settings className="h-3 w-3" />
@@ -304,14 +301,6 @@ export function ChatHeader({
           {isMobile && showMobileDetails && (
             <div data-testid="chat-mobile-details-panel" className="mt-2 space-y-2 border-t border-border/50 pt-2">
               <div className="flex flex-wrap gap-1.5">
-                <div
-                  data-testid="chat-session-id"
-                  title={sessionId || t('newChatTitle')}
-                  className="inline-flex min-w-0 items-center gap-1 border border-border/60 bg-muted/40 px-1.5 py-0.5 text-[10px] text-foreground"
-                >
-                  <span className="text-[9px] uppercase tracking-[0.15em] text-muted-foreground">{t('sessionLabel')}</span>
-                  <span className="min-w-0 truncate">{sessionDisplayLabel}</span>
-                </div>
                 {runtimeStatus?.includedSummary && (
                   <span className="border border-border/60 bg-muted/40 px-1.5 py-0.5 text-[10px] text-muted-foreground">
                     {t('summary')}

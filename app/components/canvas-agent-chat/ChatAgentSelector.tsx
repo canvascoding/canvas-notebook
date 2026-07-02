@@ -40,7 +40,7 @@ export function ChatAgentSelector({
           aria-label={`${t('agentSelectTitle')}: ${activeAgentName}`}
           title={t('agentSelectTitle')}
           className={cn(
-            'inline-flex h-8 min-w-0 items-center gap-1.5 rounded-md border border-border/60 bg-muted/50 px-2 font-medium text-foreground transition-colors hover:bg-accent',
+            'inline-flex h-7 min-w-0 items-center gap-1.5 rounded-md border border-border/60 bg-muted/50 px-2 font-medium text-foreground transition-colors hover:bg-accent',
             compact ? 'max-w-[12rem] text-[10px]' : 'max-w-[min(14rem,100%)] text-[11px]',
             className,
           )}

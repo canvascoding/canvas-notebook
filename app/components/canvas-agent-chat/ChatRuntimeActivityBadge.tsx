@@ -5,9 +5,10 @@ import type { RuntimeStatus } from './runtime-status';
 
 type ChatRuntimeActivityBadgeProps = {
   status: RuntimeStatus | null;
+  className?: string;
 };
 
-export function ChatRuntimeActivityBadge({ status }: ChatRuntimeActivityBadgeProps) {
+export function ChatRuntimeActivityBadge({ status, className }: ChatRuntimeActivityBadgeProps) {
   const t = useTranslations('chat');
   const phase = status?.phase ?? 'idle';
   const isWorking = phase !== 'idle';
@@ -24,7 +25,7 @@ export function ChatRuntimeActivityBadge({ status }: ChatRuntimeActivityBadgePro
     <span
       data-testid="chat-runtime-busy-badge"
       aria-live="polite"
-      className={`inline-flex items-center gap-1.5 border px-2.5 py-0.5 text-[10px] font-medium ${badgeClass}`}
+      className={`inline-flex h-8 items-center gap-1.5 border px-2.5 py-0.5 text-[10px] font-medium ${badgeClass} ${className ?? ''}`}
     >
       {isWorking ? <span aria-hidden="true" className={`h-1.5 w-1.5 rounded-full ${dotClass}`} /> : null}
       {label}
