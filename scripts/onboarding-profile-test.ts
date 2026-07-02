@@ -60,7 +60,7 @@ async function main() {
   const originalLoad = moduleInternals._load;
   moduleInternals._load = (request, parent, isMain) => {
     if (request === 'server-only') return {};
-    if (request === '@earendil-works/pi-ai') {
+    if (request === '@earendil-works/pi-ai' || request === '@earendil-works/pi-ai/compat') {
       return {
         completeSimple: async () => assistantText('OK'),
         registerBuiltInApiProviders: () => undefined,

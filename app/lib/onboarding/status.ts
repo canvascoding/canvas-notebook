@@ -2,6 +2,12 @@ import { eq } from 'drizzle-orm';
 import { db } from '@/app/lib/db';
 import { onboardingLog } from '@/app/lib/db/schema';
 
+export type OnboardingCompletionStatus = {
+  complete: boolean;
+  source: 'database' | 'fallback';
+  error?: unknown;
+};
+
 export function isOnboardingEnabled(): boolean {
   return process.env.ONBOARDING?.trim().toLowerCase() !== 'false';
 }
@@ -15,12 +21,24 @@ export async function readIsOnboardingComplete(): Promise<boolean> {
   return row.length > 0;
 }
 
-export async function isOnboardingComplete(): Promise<boolean> {
+export async function getOnboardingCompletionStatus(logPrefix = '[onboarding/status]'): Promise<OnboardingCompletionStatus> {
   try {
-    return await readIsOnboardingComplete();
-  } catch {
-    return false; // fail-open: show wizard if DB not ready yet
+    return {
+      complete: await readIsOnboardingComplete(),
+      source: 'database',
+    };
+  } catch (error) {
+    console.warn(`${logPrefix} Failed to read onboarding completion status; treating onboarding as incomplete.`, error);
+    return {
+      complete: false,
+      source: 'fallback',
+      error,
+    };
   }
+}
+
+export async function isOnboardingComplete(): Promise<boolean> {
+  return (await getOnboardingCompletionStatus()).complete; // fail-open: show wizard if DB not ready yet
 }
 
 export async function markOnboardingComplete(opts: {

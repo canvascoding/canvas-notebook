@@ -102,39 +102,81 @@ function getLicenseRegistrationActivationPath(fallback: string) {
   return `${url.pathname}${url.search}` || fallback;
 }
 
+type OnboardingPreferenceSaveTarget = 'locale' | 'timeZone';
+
+type OnboardingPreferenceSaveResult = {
+  target: OnboardingPreferenceSaveTarget;
+  ok: boolean;
+  status: number;
+  requestId: string | null;
+  error?: string;
+  bodySnippet?: string;
+};
+
+function responseBodySnippet(body: string): string {
+  return body.replace(/\s+/gu, ' ').trim().slice(0, 500);
+}
+
+async function saveOnboardingPreference(
+  target: OnboardingPreferenceSaveTarget,
+  url: string,
+  payload: Record<string, string>,
+): Promise<OnboardingPreferenceSaveResult> {
+  try {
+    const response = await fetch(url, {
+      method: 'PATCH',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const requestId = response.headers.get('X-Request-Id');
+
+    if (response.ok) {
+      return {
+        target,
+        ok: true,
+        status: response.status,
+        requestId,
+      };
+    }
+
+    const body = await response.text().catch(() => '');
+    return {
+      target,
+      ok: false,
+      status: response.status,
+      requestId,
+      bodySnippet: responseBodySnippet(body),
+    };
+  } catch (error) {
+    return {
+      target,
+      ok: false,
+      status: 0,
+      requestId: null,
+      error: error instanceof Error ? error.message : 'Request failed',
+    };
+  }
+}
+
 async function saveOnboardingPreferences(locale: string, timeZone: string): Promise<void> {
-  console.log('[Onboarding] Saving preferences:', { locale, timeZone });
-  const [localeResponse, timeZoneResponse] = await Promise.all([
-    fetch('/api/user-preferences', {
-      method: 'PATCH',
-      credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ locale }),
-    }),
-    fetch('/api/server-settings', {
-      method: 'PATCH',
-      credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ timeZone }),
-    }),
+  const normalizedTimeZone = normalizeTimeZone(timeZone);
+  console.log('[Onboarding] Saving language/time zone preferences', { locale, timeZone: normalizedTimeZone });
+  const results = await Promise.all([
+    saveOnboardingPreference('locale', '/api/user-preferences', { locale }),
+    saveOnboardingPreference('timeZone', '/api/server-settings', { timeZone: normalizedTimeZone }),
   ]);
 
-  console.log('[Onboarding] Save responses:', {
-    localeStatus: localeResponse.status,
-    localeOk: localeResponse.ok,
-    timeZoneStatus: timeZoneResponse.status,
-    timeZoneOk: timeZoneResponse.ok,
-  });
+  console.log('[Onboarding] Preference save responses', results);
 
-  if (!localeResponse.ok) {
-    const localeErrorBody = await localeResponse.text().catch(() => '');
-    console.error('[Onboarding] Locale save failed:', { status: localeResponse.status, body: localeErrorBody });
-    throw new Error(`Failed to save onboarding locale (${localeResponse.status}).`);
-  }
-  if (!timeZoneResponse.ok) {
-    const timeZoneErrorBody = await timeZoneResponse.text().catch(() => '');
-    console.error('[Onboarding] Time zone save failed:', { status: timeZoneResponse.status, body: timeZoneErrorBody });
-    throw new Error(`Failed to save onboarding time zone (${timeZoneResponse.status}).`);
+  const failures = results.filter((result) => !result.ok);
+  if (failures.length > 0) {
+    console.error('[Onboarding] Preference save failed', { failures });
+    throw new Error(
+      failures
+        .map((failure) => `${failure.target}:${failure.status}${failure.requestId ? `:${failure.requestId}` : ''}`)
+        .join(', '),
+    );
   }
 }
 
@@ -757,7 +799,7 @@ function LanguageStep({
       </div>
 
       <div className="flex justify-center">
-        <Button onClick={handleContinue} className="min-w-[200px]" disabled={isSaving}>
+        <Button onClick={handleContinue} className="min-w-[200px]" disabled={isSaving || isPending}>
           {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
           {t('languageContinue')}
         </Button>
