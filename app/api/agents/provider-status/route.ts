@@ -61,9 +61,10 @@ export async function GET(request: NextRequest) {
     let hasApiKey = false;
     let hasOAuth = false;
     const issues: string[] = [];
+    const storageScope = { userId: session.user.id };
 
     if (requiresKey) {
-      const apiKey = await resolvePiApiKey(providerId);
+      const apiKey = await resolvePiApiKey(providerId, storageScope);
       hasApiKey = !!apiKey;
       console.log(`[provider-status] ${providerId}: apiKey resolved=${hasApiKey}`);
       if (!hasApiKey) {
@@ -74,7 +75,7 @@ export async function GET(request: NextRequest) {
     if (requiresOAuth) {
       // Check if provider is a PI OAuth provider
       if (isOAuthProvider(providerId)) {
-        hasOAuth = hasProviderCredentials(providerId);
+        hasOAuth = hasProviderCredentials(providerId, storageScope);
         console.log(`[provider-status] ${providerId}: OAuth credentials check=${hasOAuth}`);
       }
       if (!hasOAuth && isOAuthMode) {

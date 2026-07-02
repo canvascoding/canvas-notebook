@@ -7,11 +7,7 @@ import {
 } from '@/app/lib/pi/oauth';
 import { readFile, unlink } from 'fs/promises';
 import { join } from 'path';
-import { resolveCanvasDataRoot } from '@/app/lib/runtime-data-paths';
-
-// Use container data root (/data) or fallback to relative path for local dev
-const DATA_ROOT = resolveCanvasDataRoot(process.cwd());
-const OAUTH_STATE_DIR = join(DATA_ROOT, 'pi-oauth-states');
+import { resolveScopedPiOAuthStatesDir } from '@/app/lib/runtime-data-paths';
 
 function normalizeOAuthFlowId(value: unknown): string | null {
   if (typeof value !== 'string') {
@@ -56,14 +52,22 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const stateFile = join(OAUTH_STATE_DIR, `${flowId}.json`);
-    const tempScriptDir = join(OAUTH_STATE_DIR, `${flowId}_oauth`);
+    const oauthStateDir = resolveScopedPiOAuthStatesDir({ userId: session.user.id });
+    const stateFile = join(oauthStateDir, `${flowId}.json`);
+    const tempScriptDir = join(oauthStateDir, `${flowId}_oauth`);
     const tempAuthPath = join(tempScriptDir, 'credentials.json');
 
     // Check if flow exists and is completed
     try {
       const stateContent = await readFile(stateFile, 'utf-8');
       const state = JSON.parse(stateContent);
+
+      if (state.userId !== session.user.id || state.provider !== provider) {
+        return NextResponse.json(
+          { success: false, error: 'OAuth flow not found or expired' },
+          { status: 404 }
+        );
+      }
 
       if (state.status === 'failed') {
         return NextResponse.json({
@@ -85,7 +89,7 @@ export async function POST(request: NextRequest) {
         const credentials = JSON.parse(credsContent);
         
         // Save credentials to auth file
-        saveProviderCredentials(provider, credentials);
+        saveProviderCredentials(provider, credentials, { userId: session.user.id });
         
         // Cleanup temp files
         await unlink(tempAuthPath).catch(() => {});

@@ -33,7 +33,7 @@ export async function GET(request: NextRequest) {
         );
       }
 
-      const allStatus = getAllProviderStatus();
+      const allStatus = getAllProviderStatus({ userId: session.user.id });
       const providerStatus = allStatus.find(p => p.provider === provider);
 
       if (!providerStatus) {
@@ -50,7 +50,7 @@ export async function GET(request: NextRequest) {
     }
 
     // Return status for all providers
-    const allStatus = getAllProviderStatus();
+    const allStatus = getAllProviderStatus({ userId: session.user.id });
     console.log(`[oauth/status] GET all: providers=${JSON.stringify(allStatus.map(p => ({ provider: p.provider, connected: p.connected })))}`);
     return NextResponse.json({
       success: true,

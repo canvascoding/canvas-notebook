@@ -9,11 +9,7 @@ import {
 import { readFile, writeFile, access, unlink } from 'fs/promises';
 import { constants } from 'fs';
 import { join } from 'path';
-import { resolveCanvasDataRoot } from '@/app/lib/runtime-data-paths';
-
-// Use container data root (/data) or fallback to relative path for local dev
-const DATA_ROOT = resolveCanvasDataRoot(process.cwd());
-const OAUTH_STATE_DIR = join(DATA_ROOT, 'pi-oauth-states');
+import { resolveScopedPiOAuthStatesDir } from '@/app/lib/runtime-data-paths';
 
 function normalizeOAuthFlowId(value: unknown): string | null {
   if (typeof value !== 'string') {
@@ -64,10 +60,11 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const stateFile = join(OAUTH_STATE_DIR, `${flowId}.json`);
-    const codeFile = join(OAUTH_STATE_DIR, `${flowId}_code.txt`);
+    const oauthStateDir = resolveScopedPiOAuthStatesDir({ userId: session.user.id });
+    const stateFile = join(oauthStateDir, `${flowId}.json`);
+    const codeFile = join(oauthStateDir, `${flowId}_code.txt`);
     // Credentials are saved in the temp script directory by the background process
-    const tempAuthPath = join(OAUTH_STATE_DIR, `${flowId}_oauth`, 'credentials.json');
+    const tempAuthPath = join(oauthStateDir, `${flowId}_oauth`, 'credentials.json');
 
     // Check if flow exists
     try {
@@ -83,12 +80,19 @@ export async function POST(request: NextRequest) {
     const stateContent = await readFile(stateFile, 'utf-8');
     const state = JSON.parse(stateContent);
 
+    if (state.userId !== session.user.id || state.provider !== provider) {
+      return NextResponse.json(
+        { success: false, error: 'OAuth flow not found or expired' },
+        { status: 404 }
+      );
+    }
+
     if (state.status === 'completed') {
       // Flow already completed, try to save credentials
       try {
         const credsContent = await readFile(tempAuthPath, 'utf-8');
         const credentials = JSON.parse(credsContent);
-        saveProviderCredentials(provider, credentials);
+        saveProviderCredentials(provider, credentials, { userId: session.user.id });
         
         // Cleanup
         await unlink(tempAuthPath).catch(() => {});
@@ -132,7 +136,7 @@ export async function POST(request: NextRequest) {
           // Credentials saved, read and store them
           const credsContent = await readFile(tempAuthPath, 'utf-8');
           const credentials = JSON.parse(credsContent);
-          saveProviderCredentials(provider, credentials);
+          saveProviderCredentials(provider, credentials, { userId: session.user.id });
           
           // Cleanup
           await unlink(tempAuthPath).catch(() => {});

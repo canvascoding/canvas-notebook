@@ -50,9 +50,8 @@ export async function POST(request: NextRequest) {
   try {
     const payload = (await request.json().catch(() => ({}))) as DoctorPayload;
     const agentId = typeof payload.agentId === 'string' ? payload.agentId : undefined;
-    // buildAgentConfigReadiness no longer requires a config parameter
     const [readiness, promptResult, qmd] = await Promise.all([
-      buildAgentConfigReadiness(),
+      buildAgentConfigReadiness({ userId: session.user.id }),
       loadManagedAgentSystemPrompt(agentId, { userId: session.user.id, userName: session.user.name }),
       getQmdDoctorStatus(),
     ]);

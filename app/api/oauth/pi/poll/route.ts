@@ -2,11 +2,16 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/app/lib/auth';
 import { readFile } from 'fs/promises';
 import { join } from 'path';
-import { resolveCanvasDataRoot } from '@/app/lib/runtime-data-paths';
+import { resolveScopedPiOAuthStatesDir } from '@/app/lib/runtime-data-paths';
 
-// Use container data root (/data) or fallback to relative path for local dev
-const DATA_ROOT = resolveCanvasDataRoot(process.cwd());
-const OAUTH_STATE_DIR = join(DATA_ROOT, 'pi-oauth-states');
+function normalizeOAuthFlowId(value: unknown): string | null {
+  if (typeof value !== 'string') {
+    return null;
+  }
+
+  const trimmed = value.trim();
+  return /^[A-Za-z0-9_-]{1,128}$/.test(trimmed) ? trimmed : null;
+}
 
 /**
  * GET /api/oauth/pi/poll?flowId=xxx
@@ -24,20 +29,27 @@ export async function GET(request: NextRequest) {
     }
 
     const { searchParams } = new URL(request.url);
-    const flowId = searchParams.get('flowId');
+    const flowId = normalizeOAuthFlowId(searchParams.get('flowId'));
 
     if (!flowId) {
       return NextResponse.json(
-        { success: false, error: 'Missing flowId' },
+        { success: false, error: 'Missing or invalid flowId' },
         { status: 400 }
       );
     }
 
-    const stateFile = `${OAUTH_STATE_DIR}/${flowId}.json`;
+    const stateFile = join(resolveScopedPiOAuthStatesDir({ userId: session.user.id }), `${flowId}.json`);
 
     try {
       const stateContent = await readFile(stateFile, 'utf-8');
       const state = JSON.parse(stateContent);
+
+      if (state.userId !== session.user.id) {
+        return NextResponse.json(
+          { success: false, error: 'Flow not found' },
+          { status: 404 }
+        );
+      }
 
       return NextResponse.json({
         success: true,

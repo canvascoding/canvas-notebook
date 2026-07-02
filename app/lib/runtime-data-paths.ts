@@ -206,6 +206,13 @@ export function resolveScopedSettingsDir(scope?: UserScopedDataStorageScope | nu
   return userId ? resolveUserSettingsDir(userId, cwd) : resolveSettingsStorageDir(cwd);
 }
 
+export function resolveScopedPiOAuthStatesDir(scope?: UserScopedDataStorageScope | null, cwd?: string): string {
+  const userId = resolveScopedUserId(scope);
+  return userId
+    ? path.join(/* turbopackIgnore: true */ resolveUserSettingsDir(userId, cwd), 'pi-oauth-states')
+    : path.join(/* turbopackIgnore: true */ resolveCanvasDataRoot(cwd), 'pi-oauth-states');
+}
+
 export function resolveScopedSkillsDataDir(scope?: UserScopedDataStorageScope | null, cwd?: string): string {
   const userId = resolveScopedUserId(scope);
   return userId ? resolveUserSkillsDir(userId, cwd) : resolveSkillsDataDir(cwd);

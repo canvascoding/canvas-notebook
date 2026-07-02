@@ -425,13 +425,13 @@ export function sanitizeAgentRuntimeConfig(config: unknown): AgentRuntimeConfig 
   };
 }
 
-export async function buildAgentConfigReadiness(): Promise<AgentConfigReadiness> {
+export async function buildAgentConfigReadiness(scope?: AgentStorageScope | null): Promise<AgentConfigReadiness> {
   let piReadiness: AgentConfigReadiness['pi'] | undefined;
   try {
     const piConfig = await readPiRuntimeConfig();
     const piProvider = piConfig.providers[piConfig.activeProvider];
     const { resolvePiApiKey } = await import('../pi/api-key-resolver');
-    const apiKey = await resolvePiApiKey(piConfig.activeProvider);
+    const apiKey = await resolvePiApiKey(piConfig.activeProvider, { userId: scope?.userId });
     
     const piIssues: string[] = [];
     if (!apiKey) {

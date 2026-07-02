@@ -9,28 +9,25 @@ import { randomUUID } from 'node:crypto';
 import { spawn } from 'child_process';
 import { writeFile, mkdir, readFile, readdir, symlink } from 'fs/promises';
 import { existsSync } from 'fs';
-import { dirname, join } from 'path';
-import { resolveCanvasDataRoot, resolveSettingsStorageDir } from '@/app/lib/runtime-data-paths';
+import { join } from 'path';
+import { resolveScopedPiOAuthStatesDir, type UserScopedDataStorageScope } from '@/app/lib/runtime-data-paths';
 
-const DATA_ROOT = resolveCanvasDataRoot();
-const AUTH_FILE_PATH = process.env.OAUTH_STORAGE_PATH || join(resolveSettingsStorageDir(), 'auth.json');
-const OAUTH_STATE_DIR = join(DATA_ROOT, 'pi-oauth-states');
 
 const ACTIVE_STATUSES = new Set(['pending', 'waiting_for_auth', 'waiting_for_code', 'auth_url_received']);
 
-async function killStaleFlows(provider: string): Promise<void> {
-  if (!existsSync(OAUTH_STATE_DIR)) return;
+async function killStaleFlows(provider: string, stateDir: string, userId: string): Promise<void> {
+  if (!existsSync(stateDir)) return;
 
-  const entries = await readdir(OAUTH_STATE_DIR);
+  const entries = await readdir(stateDir);
   const stateFiles = entries.filter(e => e.endsWith('.json'));
 
   let killed = 0;
   for (const file of stateFiles) {
-    const filePath = join(OAUTH_STATE_DIR, file);
+    const filePath = join(stateDir, file);
     try {
       const content = await readFile(filePath, 'utf-8');
       const state = JSON.parse(content);
-      if (state.provider !== provider || !ACTIVE_STATUSES.has(state.status)) continue;
+      if (state.userId !== userId || state.provider !== provider || !ACTIVE_STATUSES.has(state.status)) continue;
 
       if (state.pid && typeof state.pid === 'number') {
         try {
@@ -85,17 +82,17 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Ensure auth directory exists
-    await mkdir(dirname(AUTH_FILE_PATH), { recursive: true });
-    await mkdir(OAUTH_STATE_DIR, { recursive: true });
+    const storageScope: UserScopedDataStorageScope = { userId: session.user.id };
+    const oauthStateDir = resolveScopedPiOAuthStatesDir(storageScope);
+    await mkdir(oauthStateDir, { recursive: true });
 
     // Kill any stale OAuth flows for the same provider (frees up the callback port)
-    await killStaleFlows(provider);
+    await killStaleFlows(provider, oauthStateDir, session.user.id);
 
     // Create unique flow ID
     const flowId = `flow_${Date.now()}_${randomUUID()}`;
-    const stateFile = join(OAUTH_STATE_DIR, `${flowId}.json`);
-    const tempScriptDir = join(OAUTH_STATE_DIR, `${flowId}_oauth`);
+    const stateFile = join(oauthStateDir, `${flowId}.json`);
+    const tempScriptDir = join(oauthStateDir, `${flowId}_oauth`);
     const tempScriptPath = join(tempScriptDir, 'oauth.mjs');
     const tempAuthPath = join(tempScriptDir, 'credentials.json');
 
@@ -126,6 +123,7 @@ export async function POST(request: NextRequest) {
     await writeFile(stateFile, JSON.stringify({
       flowId,
       provider,
+      userId: session.user.id,
       status: 'pending',
       createdAt: Date.now(),
     }));
@@ -208,6 +206,8 @@ export async function POST(request: NextRequest) {
  */
 function generateOAuthScript(provider: string, flowId: string, stateFile: string, tempAuthPath: string): string {
   const loginFn = getLoginFunctionName(provider);
+  const stateFileLiteral = JSON.stringify(stateFile);
+  const tempAuthPathLiteral = JSON.stringify(tempAuthPath);
   
   // Different providers have different signatures:
   // - anthropic: loginAnthropic({ onAuth, onPrompt, onProgress, onManualCodeInput })
@@ -222,9 +222,9 @@ import { ${loginFn} } from '@earendil-works/pi-ai/oauth';
 // Helper to update state
 function updateState(updates) {
   try {
-    const state = JSON.parse(fs.readFileSync('${stateFile}', 'utf-8'));
+    const state = JSON.parse(fs.readFileSync(${stateFileLiteral}, 'utf-8'));
     Object.assign(state, updates);
-    fs.writeFileSync('${stateFile}', JSON.stringify(state, null, 2));
+    fs.writeFileSync(${stateFileLiteral}, JSON.stringify(state, null, 2));
   } catch (err) {
     console.error('Failed to update state:', err.message);
   }
@@ -302,7 +302,7 @@ async function run() {
       updateState({ status: 'waiting_for_code', updatedAt: Date.now() });
       
       // Wait for the code file to be created by the exchange endpoint
-      const codeFile = '${stateFile}'.replace('.json', '_code.txt');
+      const codeFile = ${stateFileLiteral}.replace('.json', '_code.txt');
       const maxWait = 10 * 60 * 1000; // 10 minutes
       const startTime = Date.now();
       
@@ -353,7 +353,7 @@ async function run() {
     });
 
     // Save credentials
-    fs.writeFileSync('${tempAuthPath}', JSON.stringify(credentials, null, 2));
+    fs.writeFileSync(${tempAuthPathLiteral}, JSON.stringify(credentials, null, 2));
     updateState({ 
       status: 'completed', 
       completedAt: Date.now(),

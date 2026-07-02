@@ -26,6 +26,7 @@ async function main() {
       resolveScopedInstalledPluginsDir,
       resolveScopedAgentsEnvPath,
       resolveScopedIntegrationsEnvPath,
+      resolveScopedPiOAuthStatesDir,
       resolveScopedPluginRegistryPath,
       resolveScopedPluginsDataDir,
       resolveScopedSettingsDir,
@@ -64,6 +65,8 @@ async function main() {
     assert.equal(resolveUserMcpDir('user_a'), path.join(dataDir, 'users', 'user_a', 'mcp'));
     assert.equal(resolveUserMailDir('user_a'), path.join(dataDir, 'users', 'user_a', 'mail'));
     assert.equal(resolveScopedSettingsDir({ userId: 'user_a' }), path.join(dataDir, 'users', 'user_a', 'settings'));
+    assert.equal(resolveScopedPiOAuthStatesDir({ userId: 'user_a' }), path.join(dataDir, 'users', 'user_a', 'settings', 'pi-oauth-states'));
+    assert.equal(resolveScopedPiOAuthStatesDir(), path.join(dataDir, 'pi-oauth-states'));
     assert.equal(resolveScopedSecretsDir({ userId: 'user_a' }), path.join(dataDir, 'users', 'user_a', 'secrets'));
     assert.equal(resolveScopedIntegrationsEnvPath({ userId: 'user_a' }), path.join(dataDir, 'users', 'user_a', 'secrets', 'Canvas-Integrations.env'));
     assert.equal(resolveScopedAgentsEnvPath({ userId: 'user_a' }), path.join(dataDir, 'users', 'user_a', 'secrets', 'Canvas-Agents.env'));

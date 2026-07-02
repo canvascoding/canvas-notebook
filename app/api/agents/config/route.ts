@@ -125,10 +125,11 @@ async function buildAgentConfigResponseData(
     model?: string | null;
     modelResolutionError?: string | null;
     includeReadiness?: boolean;
+    userId?: string | null;
   } = {},
 ) {
   const includeReadiness = options.includeReadiness !== false;
-  const readiness = includeReadiness ? await buildAgentConfigReadiness() : null;
+  const readiness = includeReadiness ? await buildAgentConfigReadiness({ userId: options.userId }) : null;
   const engine = getActiveAiAgentEngine();
   const model = options.model !== undefined
     ? options.model
@@ -216,6 +217,7 @@ export async function GET(request: NextRequest) {
       model: resolvedModel,
       modelResolutionError,
       includeReadiness,
+      userId: session.user.id,
     });
 
     return NextResponse.json({
@@ -301,7 +303,7 @@ export async function PATCH(request: NextRequest) {
 
       return NextResponse.json({
         success: true,
-        data: await buildAgentConfigResponseData(effective),
+        data: await buildAgentConfigResponseData(effective, { userId: session.user.id }),
       });
     }
 
@@ -338,7 +340,7 @@ export async function PATCH(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      data: await buildAgentConfigResponseData(effective, { piConfig }),
+      data: await buildAgentConfigResponseData(effective, { piConfig, userId: session.user.id }),
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to update runtime config.';
@@ -413,7 +415,7 @@ export async function PUT(request: NextRequest) {
 
       return NextResponse.json({
         success: true,
-        data: await buildAgentConfigResponseData(effective),
+        data: await buildAgentConfigResponseData(effective, { userId: session.user.id }),
       });
     }
 
@@ -443,7 +445,7 @@ export async function PUT(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      data: await buildAgentConfigResponseData(effective, { piConfig }),
+      data: await buildAgentConfigResponseData(effective, { piConfig, userId: session.user.id }),
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to update runtime config.';

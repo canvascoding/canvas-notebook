@@ -10,8 +10,14 @@ import { getAgentExecutionContext } from '@/app/lib/pi/agent-execution-context';
  * For OAuth providers, returns the OAuth token instead of an API key.
  * Respects authMethod preference from provider config.
  */
-export async function resolvePiApiKey(provider: string): Promise<string | undefined> {
+export async function resolvePiApiKey(
+  provider: string,
+  options: { userId?: string | null } = {},
+): Promise<string | undefined> {
   const providerId = provider.toLowerCase();
+  const executionContext = getAgentExecutionContext();
+  const scopedUserId = options.userId || executionContext?.userId || null;
+  const storageScope = scopedUserId ? { userId: scopedUserId } : undefined;
 
   if (providerId === CANVAS_CONTROL_PLANE_PROVIDER_ID) {
     return process.env.CANVAS_INSTANCE_TOKEN || undefined;
@@ -33,7 +39,7 @@ export async function resolvePiApiKey(provider: string): Promise<string | undefi
 
       // If OAuth is explicitly selected, use OAuth
       if (authMethod === 'oauth' && isOAuth) {
-        const result = await getProviderApiKey(providerId as OAuthProviderId);
+        const result = await getProviderApiKey(providerId as OAuthProviderId, storageScope);
         console.log(`[api-key-resolver] ${providerId}: using OAuth token, found=${!!result?.apiKey}`);
         return result?.apiKey;
       }
@@ -49,13 +55,11 @@ export async function resolvePiApiKey(provider: string): Promise<string | undefi
   
   // If it's an OAuth-only provider (not dual-support), try OAuth first
   if (isOAuth && !supportsBoth) {
-    const result = await getProviderApiKey(providerId as OAuthProviderId);
+    const result = await getProviderApiKey(providerId as OAuthProviderId, storageScope);
     return result?.apiKey;
   }
 
   // Use existing agents scope for provider keys
-  const executionContext = getAgentExecutionContext();
-  const storageScope = executionContext ? { userId: executionContext.userId } : undefined;
   const agentsState = await readScopedEnvState('agents', storageScope);
   const integrationsState = await readScopedEnvState('integrations', storageScope);
 

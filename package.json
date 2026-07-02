@@ -28,6 +28,7 @@
     "test:pi:session-search": "tsx scripts/pi-session-search-tool-test.ts",
     "test:pi:delegate-task": "tsx scripts/pi-delegate-task-tool-test.ts",
     "test:pi:continuation": "tsx scripts/pi-run-continuation-guard-test.ts",
+    "test:pi:oauth-scope": "tsx scripts/pi-oauth-user-scope-test.ts",
     "test:agent:memory": "tsx scripts/agent-memory-store-test.ts",
     "test:scoped-data-paths": "tsx scripts/scoped-runtime-paths-test.ts",
     "test:integrations:env-scope": "tsx scripts/scoped-env-config-test.ts",

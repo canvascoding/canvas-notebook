@@ -32,7 +32,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Remove credentials
-    removeProviderCredentials(provider);
+    removeProviderCredentials(provider, { userId: session.user.id });
 
     return NextResponse.json({
       success: true,

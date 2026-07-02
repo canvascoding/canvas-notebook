@@ -5,7 +5,12 @@
 
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import { dirname, join } from 'path';
-import { resolveAgentStorageDir, resolveSettingsStorageDir } from '@/app/lib/runtime-data-paths';
+import {
+  resolveAgentStorageDir,
+  resolveScopedSettingsDir,
+  resolveSettingsStorageDir,
+  type UserScopedDataStorageScope,
+} from '@/app/lib/runtime-data-paths';
 import {
   loginAnthropic,
   loginOpenAICodex,
@@ -22,7 +27,8 @@ export type { OAuthCredentials, OAuthProviderId, OAuthPrompt };
 
 const DEFAULT_AUTH_FILE_PATH = join(resolveSettingsStorageDir(), 'auth.json');
 const LEGACY_AUTH_FILE_PATH = join(resolveAgentStorageDir(), 'auth.json');
-const AUTH_FILE_PATH = process.env.OAUTH_STORAGE_PATH || DEFAULT_AUTH_FILE_PATH;
+
+export type OAuthStorageScope = UserScopedDataStorageScope;
 
 // Built-in OAuth providers (Google Gemini CLI and Antigravity removed in pi-ai 0.71.0)
 export const PI_OAUTH_PROVIDERS: OAuthProviderId[] = [
@@ -59,21 +65,38 @@ function formatDeviceCodeInstructions(info: OAuthDeviceCodeInfo): string {
 /**
  * Ensure the auth file directory exists
  */
-function ensureAuthDir(): void {
-  const dir = dirname(AUTH_FILE_PATH);
+function hasUserScope(scope?: OAuthStorageScope | null): boolean {
+  return Boolean(scope?.userId?.trim());
+}
+
+function getAuthFilePath(scope?: OAuthStorageScope | null): string {
+  if (hasUserScope(scope)) {
+    return join(resolveScopedSettingsDir(scope), 'auth.json');
+  }
+
+  return process.env.OAUTH_STORAGE_PATH || DEFAULT_AUTH_FILE_PATH;
+}
+
+function ensureAuthDir(scope?: OAuthStorageScope | null): void {
+  const dir = dirname(getAuthFilePath(scope));
   if (!existsSync(dir)) {
     mkdirSync(dir, { recursive: true });
   }
 }
 
-function migrateLegacyAuthFileIfNeeded(): void {
-  if (process.env.OAUTH_STORAGE_PATH || existsSync(AUTH_FILE_PATH) || !existsSync(LEGACY_AUTH_FILE_PATH)) {
+function migrateLegacyAuthFileIfNeeded(scope?: OAuthStorageScope | null): void {
+  if (hasUserScope(scope)) {
+    return;
+  }
+
+  const authFilePath = getAuthFilePath(scope);
+  if (process.env.OAUTH_STORAGE_PATH || existsSync(authFilePath) || !existsSync(LEGACY_AUTH_FILE_PATH)) {
     return;
   }
 
   try {
-    ensureAuthDir();
-    copyFileSync(LEGACY_AUTH_FILE_PATH, AUTH_FILE_PATH);
+    ensureAuthDir(scope);
+    copyFileSync(LEGACY_AUTH_FILE_PATH, authFilePath);
   } catch {
     // If /data/settings is unavailable, reads continue from the legacy path.
   }
@@ -82,14 +105,15 @@ function migrateLegacyAuthFileIfNeeded(): void {
 /**
  * Load auth data from file
  */
-function loadAuthFile(): AuthFile {
+function loadAuthFile(scope?: OAuthStorageScope | null): AuthFile {
   try {
-    migrateLegacyAuthFileIfNeeded();
-    if (existsSync(AUTH_FILE_PATH)) {
-      const content = readFileSync(AUTH_FILE_PATH, 'utf-8');
+    migrateLegacyAuthFileIfNeeded(scope);
+    const authFilePath = getAuthFilePath(scope);
+    if (existsSync(authFilePath)) {
+      const content = readFileSync(authFilePath, 'utf-8');
       return JSON.parse(content) as AuthFile;
     }
-    if (!process.env.OAUTH_STORAGE_PATH && existsSync(LEGACY_AUTH_FILE_PATH)) {
+    if (!hasUserScope(scope) && !process.env.OAUTH_STORAGE_PATH && existsSync(LEGACY_AUTH_FILE_PATH)) {
       const content = readFileSync(LEGACY_AUTH_FILE_PATH, 'utf-8');
       return JSON.parse(content) as AuthFile;
     }
@@ -102,13 +126,13 @@ function loadAuthFile(): AuthFile {
 /**
  * Save auth data to file
  */
-function saveAuthFile(auth: AuthFile): void {
+function saveAuthFile(auth: AuthFile, scope?: OAuthStorageScope | null): void {
   try {
-    migrateLegacyAuthFileIfNeeded();
-    ensureAuthDir();
-    writeFileSync(AUTH_FILE_PATH, JSON.stringify(auth, null, 2));
+    migrateLegacyAuthFileIfNeeded(scope);
+    ensureAuthDir(scope);
+    writeFileSync(getAuthFilePath(scope), JSON.stringify(auth, null, 2));
   } catch (error) {
-    if (process.env.OAUTH_STORAGE_PATH) {
+    if (process.env.OAUTH_STORAGE_PATH || hasUserScope(scope)) {
       throw error;
     }
     const legacyDir = dirname(LEGACY_AUTH_FILE_PATH);
@@ -122,8 +146,11 @@ function saveAuthFile(auth: AuthFile): void {
 /**
  * Get credentials for a provider
  */
-export function getProviderCredentials(provider: OAuthProviderId): OAuthCredentials | null {
-  const auth = loadAuthFile();
+export function getProviderCredentials(
+  provider: OAuthProviderId,
+  scope?: OAuthStorageScope | null,
+): OAuthCredentials | null {
+  const auth = loadAuthFile(scope);
   const creds = auth[provider];
   
   if (!creds || !creds.access) {
@@ -138,27 +165,34 @@ export function getProviderCredentials(provider: OAuthProviderId): OAuthCredenti
  */
 export function saveProviderCredentials(
   provider: OAuthProviderId,
-  credentials: OAuthCredentials
+  credentials: OAuthCredentials,
+  scope?: OAuthStorageScope | null,
 ): void {
-  const auth = loadAuthFile();
+  const auth = loadAuthFile(scope);
   auth[provider] = credentials;
-  saveAuthFile(auth);
+  saveAuthFile(auth, scope);
 }
 
 /**
  * Remove credentials for a provider
  */
-export function removeProviderCredentials(provider: OAuthProviderId): void {
-  const auth = loadAuthFile();
+export function removeProviderCredentials(
+  provider: OAuthProviderId,
+  scope?: OAuthStorageScope | null,
+): void {
+  const auth = loadAuthFile(scope);
   delete auth[provider];
-  saveAuthFile(auth);
+  saveAuthFile(auth, scope);
 }
 
 /**
  * Check if provider has valid credentials
  */
-export function hasProviderCredentials(provider: OAuthProviderId): boolean {
-  const creds = getProviderCredentials(provider);
+export function hasProviderCredentials(
+  provider: OAuthProviderId,
+  scope?: OAuthStorageScope | null,
+): boolean {
+  const creds = getProviderCredentials(provider, scope);
   if (!creds) return false;
   
   // Check if token is expired (with 5 min buffer)
@@ -227,13 +261,16 @@ export async function initiateOAuthLogin(
 /**
  * Refresh OAuth token if needed
  */
-export async function refreshProviderToken(provider: OAuthProviderId): Promise<OAuthCredentials | null> {
-  const credentials = getProviderCredentials(provider);
+export async function refreshProviderToken(
+  provider: OAuthProviderId,
+  scope?: OAuthStorageScope | null,
+): Promise<OAuthCredentials | null> {
+  const credentials = getProviderCredentials(provider, scope);
   if (!credentials) return null;
   
   try {
     const newCreds = await refreshOAuthToken(provider, credentials);
-    saveProviderCredentials(provider, newCreds);
+    saveProviderCredentials(provider, newCreds, scope);
     return newCreds;
   } catch (error) {
     console.error(`Failed to refresh token for ${provider}:`, error);
@@ -244,37 +281,40 @@ export async function refreshProviderToken(provider: OAuthProviderId): Promise<O
 /**
  * Get API key for a provider (auto-refreshes if expired)
  */
-export async function getProviderApiKey(provider: OAuthProviderId): Promise<{ apiKey: string; credentials: OAuthCredentials } | null> {
-  const auth = loadAuthFile();
+export async function getProviderApiKey(
+  provider: OAuthProviderId,
+  scope?: OAuthStorageScope | null,
+): Promise<{ apiKey: string; credentials: OAuthCredentials } | null> {
+  const auth = loadAuthFile(scope);
   
   const result = await getOAuthApiKey(provider, auth);
   if (!result) return null;
   
   // Save refreshed credentials if they changed
   if (result.newCredentials) {
-    saveProviderCredentials(provider, result.newCredentials);
+    saveProviderCredentials(provider, result.newCredentials, scope);
   }
   
   return {
     apiKey: result.apiKey,
-    credentials: result.newCredentials || getProviderCredentials(provider)!,
+    credentials: result.newCredentials || getProviderCredentials(provider, scope)!,
   };
 }
 
 /**
  * Get status for all providers
  */
-export function getAllProviderStatus(): Array<{
+export function getAllProviderStatus(scope?: OAuthStorageScope | null): Array<{
   provider: OAuthProviderId;
   displayName: string;
   connected: boolean;
   expiresAt?: number;
 }> {
-  const auth = loadAuthFile();
+  const auth = loadAuthFile(scope);
   
   return PI_OAUTH_PROVIDERS.map((provider) => {
     const creds = auth[provider];
-    const isConnected = hasProviderCredentials(provider);
+    const isConnected = hasProviderCredentials(provider, scope);
     
     return {
       provider,
