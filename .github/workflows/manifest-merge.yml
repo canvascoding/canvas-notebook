@@ -1,36 +1,40 @@
-name: Build and Push
+name: Merge Multi-Arch Manifest
 
 on:
-  push:
-    tags:
-      - "v*"
-  schedule:
-    # Weekly rebuild on Mondays at 04:00 UTC to pick up fresh base image packages
-    - cron: "0 4 * * 1"
   workflow_dispatch:
+    inputs:
+      tag:
+        description: "Image tag to merge (e.g. v2026.7.2.1 or latest)"
+        required: false
+        default: latest
+  workflow_run:
+    workflows: ["Build and Push (amd64)", "Build and Push (arm64)"]
+    types: [completed]
+    branches:
+      - "v*"
 
 permissions:
   contents: read
   packages: write
-  id-token: write
-  attestations: write
 
 concurrency:
-  group: build-${{ github.ref }}
-  cancel-in-progress: true
+  group: manifest-merge-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
-  docker:
+  merge:
     runs-on: ubuntu-latest
+    if: >-
+      ${{
+        (github.event_name == 'workflow_dispatch') ||
+        (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
+      }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
 
       - name: Set GHCR image name
         run: echo "GHCR_IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v4
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
@@ -48,39 +52,94 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Extract Docker metadata
-        id: meta
-        uses: docker/metadata-action@v6
-        with:
-          images: |
-            ${{ env.GHCR_IMAGE }}
-            canvascoding/canvas-notebook
-          tags: |
-            type=ref,event=tag
-            type=raw,value=latest
+      - name: Resolve merge tag
+        id: tag
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            MERGE_TAG="${{ inputs.tag }}"
+          else
+            # workflow_run: derive tag from the branch name (v* tag push)
+            BRANCH="${{ github.event.workflow_run.head_branch }}"
+            MERGE_TAG="${BRANCH}"
+          fi
+          echo "merge_tag=${MERGE_TAG}" >> "$GITHUB_OUTPUT"
+          echo "Merging manifest for tag: ${MERGE_TAG}"
 
-      - name: Build and push
-        id: build
-        uses: docker/build-push-action@v7
-        with:
-          context: .
-          file: ./Dockerfile
-          push: true
-          platforms: linux/amd64,linux/arm64
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          provenance: mode=max
-          sbom: true
-          no-cache: ${{ github.event_name == 'schedule' }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+      - name: Wait for both arch images to be available
+        env:
+          GHCR_IMAGE: ${{ env.GHCR_IMAGE }}
+          MERGE_TAG: ${{ steps.tag.outputs.merge_tag }}
+        run: |
+          set -euo pipefail
+          TIMEOUT=300
+          ELAPSED=0
+          while [ "$ELAPSED" -lt "$TIMEOUT" ]; do
+            AMD_OK=0
+            ARM_OK=0
+            if docker manifest inspect "${GHCR_IMAGE}:amd64" >/dev/null 2>&1; then
+              AMD_OK=1
+              echo "amd64 image available"
+            fi
+            if docker manifest inspect "${GHCR_IMAGE}:arm64" >/dev/null 2>&1; then
+              ARM_OK=1
+              echo "arm64 image available"
+            fi
+            if [ "$AMD_OK" -eq 1 ] && [ "$ARM_OK" -eq 1 ]; then
+              echo "Both arch images are available."
+              break
+            fi
+            echo "Waiting for both arch images... (elapsed: ${ELAPSED}s)"
+            sleep 10
+            ELAPSED=$((ELAPSED + 10))
+          done
+          if [ "$AMD_OK" -ne 1 ] || [ "$ARM_OK" -ne 1 ]; then
+            echo "::error::One or both arch images are not available after ${TIMEOUT}s."
+            exit 1
+          fi
+
+      - name: Create multi-arch manifest
+        env:
+          GHCR_IMAGE: ${{ env.GHCR_IMAGE }}
+          HUB_IMAGE: canvascoding/canvas-notebook
+          MERGE_TAG: ${{ steps.tag.outputs.merge_tag }}
+        run: |
+          set -euo pipefail
+
+          # Always create a :latest multi-arch manifest
+          docker buildx imagetools create \
+            -t "${GHCR_IMAGE}:latest" \
+            -t "${HUB_IMAGE}:latest" \
+            "${GHCR_IMAGE}:amd64" \
+            "${GHCR_IMAGE}:arm64"
+
+          echo "Created multi-arch manifest: ${GHCR_IMAGE}:latest"
+
+          # If this is a tag push (v*), also create a version-tagged manifest
+          if [ "${MERGE_TAG}" != "latest" ]; then
+            docker buildx imagetools create \
+              -t "${GHCR_IMAGE}:${MERGE_TAG}" \
+              -t "${HUB_IMAGE}:${MERGE_TAG}" \
+              "${GHCR_IMAGE}:amd64" \
+              "${GHCR_IMAGE}:arm64"
+
+            echo "Created multi-arch manifest: ${GHCR_IMAGE}:${MERGE_TAG}"
+          fi
+
+      - name: Verify multi-arch manifest
+        env:
+          GHCR_IMAGE: ${{ env.GHCR_IMAGE }}
+          MERGE_TAG: ${{ steps.tag.outputs.merge_tag }}
+        run: |
+          set -euo pipefail
+          echo "Verifying ${GHCR_IMAGE}:latest ..."
+          docker manifest inspect "${GHCR_IMAGE}:latest" | head -40
 
       - name: Notify Control Plane release webhook
         env:
           CONTROL_PLANE_RELEASE_WEBHOOK_URL: ${{ secrets.CONTROL_PLANE_RELEASE_WEBHOOK_URL }}
           CONTROL_PLANE_RELEASE_WEBHOOK_SECRET: ${{ secrets.CONTROL_PLANE_RELEASE_WEBHOOK_SECRET }}
-          DOCKER_METADATA_TAGS: ${{ steps.meta.outputs.tags }}
-          IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
+          MERGE_TAG: ${{ steps.tag.outputs.merge_tag }}
+          GHCR_IMAGE: ${{ env.GHCR_IMAGE }}
         run: |
           if [ -z "${CONTROL_PLANE_RELEASE_WEBHOOK_URL}" ]; then
             echo "::warning::CONTROL_PLANE_RELEASE_WEBHOOK_URL secret is missing; using the default Canvas Control Plane release webhook URL."
@@ -125,27 +184,29 @@ jobs:
             return url.toString();
           }
 
-          const tags = (process.env.DOCKER_METADATA_TAGS || '')
-            .split(/\r?\n/)
-            .map((tag) => tag.trim())
-            .filter(Boolean);
+          const mergeTag = process.env.MERGE_TAG || 'latest';
+          const isTag = mergeTag.startsWith('v') || mergeTag.match(/^v?\d/);
+          const tag = isTag ? mergeTag.replace(/^v/i, '') : '';
+          const event = isTag ? 'release_published' : 'image_pushed';
           const packageJson = JSON.parse(fs.readFileSync('package.json', 'utf8'));
-          const isTag = process.env.GITHUB_REF_TYPE === 'tag';
-          const tag = isTag ? process.env.GITHUB_REF_NAME || '' : '';
-          const eventName = process.env.GITHUB_EVENT_NAME || '';
-          const event = isTag ? 'release_published' : eventName === 'schedule' ? 'image_rebuilt' : 'image_pushed';
-          const version = tag ? tag.replace(/^v/i, '') : String(packageJson.version || '');
+          const version = tag || String(packageJson.version || '');
+
+          const ghcrImage = process.env.GHCR_IMAGE || '';
+          const tags = [`${ghcrImage}:latest`];
+          if (isTag) {
+            tags.push(`${ghcrImage}:${mergeTag}`);
+          }
+
           const payload = {
             event,
             repository: process.env.GITHUB_REPOSITORY,
             ref: process.env.GITHUB_REF,
-            tag: tag || undefined,
+            tag: mergeTag || undefined,
             version,
             commitSha: process.env.GITHUB_SHA,
             image: {
-              name: process.env.GHCR_IMAGE,
+              name: ghcrImage,
               tags,
-              digest: process.env.IMAGE_DIGEST || undefined,
             },
             workflow: {
               runId: process.env.GITHUB_RUN_ID,
@@ -156,7 +217,7 @@ jobs:
             publishedAt: new Date().toISOString(),
             metadata: {
               actor: process.env.GITHUB_ACTOR,
-              eventName,
+              eventName: process.env.GITHUB_EVENT_NAME,
               workflow: process.env.GITHUB_WORKFLOW,
             },
           };
@@ -180,7 +241,7 @@ jobs:
           const text = await response.text();
           if (!response.ok) {
             const summary = text.replace(/\s+/g, ' ').trim().slice(0, 1000);
-            console.warn(`::warning::Control Plane release webhook failed (${response.status}); image build and push already completed. Response: ${summary}`);
+            console.warn(`::warning::Control Plane release webhook failed (${response.status}); manifest merge already completed. Response: ${summary}`);
             process.exit(0);
           }
           console.log(`Control Plane release webhook accepted: ${text}`);
