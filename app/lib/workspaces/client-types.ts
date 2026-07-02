@@ -33,4 +33,6 @@ export interface ClientWorkspaceResponse {
   workspaces?: ClientWorkspaceSummary[];
   warnings?: string[];
   error?: string;
+  code?: string;
+  feature?: string;
 }

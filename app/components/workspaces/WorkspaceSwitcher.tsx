@@ -5,6 +5,7 @@ import { Check, ChevronsUpDown, Loader2, Lock, RefreshCw } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 
 import { Button } from '@/components/ui/button';
+import { TeamModeHostedOnlyNotice } from '@/app/components/team/TeamModeHostedOnlyNotice';
 import {
   Sheet,
   SheetClose,
@@ -66,13 +67,14 @@ function hasWorkspaceSwitcherOptions(workspaces: ClientWorkspaceSummary[]) {
 
 export function useShouldShowWorkspaceSwitcher() {
   const workspaces = useWorkspaceStore((state) => state.workspaces);
+  const teamModeUnavailable = useWorkspaceStore((state) => state.teamModeUnavailable);
   const hydrateWorkspaces = useWorkspaceStore((state) => state.hydrateWorkspaces);
 
   useEffect(() => {
     void hydrateWorkspaces();
   }, [hydrateWorkspaces]);
 
-  return hasWorkspaceSwitcherOptions(workspaces);
+  return Boolean(teamModeUnavailable) || hasWorkspaceSwitcherOptions(workspaces);
 }
 
 export function WorkspaceSwitcher({ source, variant = 'default', className }: WorkspaceSwitcherProps) {
@@ -83,6 +85,7 @@ export function WorkspaceSwitcher({ source, variant = 'default', className }: Wo
   const isLoading = useWorkspaceStore((state) => state.isLoading);
   const initialized = useWorkspaceStore((state) => state.initialized);
   const error = useWorkspaceStore((state) => state.error);
+  const teamModeUnavailable = useWorkspaceStore((state) => state.teamModeUnavailable);
   const hydrateWorkspaces = useWorkspaceStore((state) => state.hydrateWorkspaces);
   const refreshWorkspaces = useWorkspaceStore((state) => state.refreshWorkspaces);
   const setActiveWorkspace = useWorkspaceStore((state) => state.setActiveWorkspace);
@@ -114,8 +117,9 @@ export function WorkspaceSwitcher({ source, variant = 'default', className }: Wo
   } satisfies WorkspaceAccessLabels;
   const activeLabel = activeWorkspace?.name || (isLoading && !initialized ? t('loadingWorkspace') : t('label'));
   const canSwitch = hasWorkspaceSwitcherOptions(workspaces);
+  const showTeamModeNotice = Boolean(teamModeUnavailable);
 
-  if (!canSwitch) {
+  if (!canSwitch && !showTeamModeNotice) {
     return null;
   }
 
@@ -169,10 +173,12 @@ export function WorkspaceSwitcher({ source, variant = 'default', className }: Wo
               <RefreshCw className={cn('h-3.5 w-3.5', isLoading && 'animate-spin')} />
               {t('refresh')}
             </button>
-            {error ? (
+            {showTeamModeNotice ? (
+              <TeamModeHostedOnlyNotice compact className="mb-2" />
+            ) : error ? (
               <div className="rounded-md px-2 py-1.5 text-xs text-destructive">{error}</div>
             ) : null}
-            {workspaces.length === 0 && !error ? (
+            {workspaces.length === 0 && !error && !showTeamModeNotice ? (
               <div className="px-2 py-3 text-sm text-muted-foreground">
                 {isLoading ? t('loadingWorkspaces') : t('noWorkspaceAvailable')}
               </div>
@@ -269,10 +275,14 @@ export function WorkspaceSwitcher({ source, variant = 'default', className }: Wo
           </button>
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
-        {error ? (
+        {showTeamModeNotice ? (
+          <div className="p-2">
+            <TeamModeHostedOnlyNotice compact />
+          </div>
+        ) : error ? (
           <div className="px-2 py-1.5 text-xs text-destructive">{error}</div>
         ) : null}
-        {workspaces.length === 0 && !error ? (
+        {workspaces.length === 0 && !error && !showTeamModeNotice ? (
           <div className="px-2 py-1.5 text-xs text-muted-foreground">
             {isLoading ? t('loadingWorkspaces') : t('noWorkspaceAvailable')}
           </div>

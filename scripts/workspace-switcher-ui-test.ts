@@ -149,6 +149,24 @@ async function main() {
   const unchanged = useWorkspaceStore.getState().setActiveWorkspace(personalWorkspace.id, 'test');
   assert.equal(unchanged, false);
 
+  (globalThis as unknown as { fetch: typeof fetch }).fetch = async () => (
+    new Response(
+      JSON.stringify({
+        success: false,
+        error: 'License does not include Team runtime',
+        code: 'LICENSE_FEATURE_REQUIRED',
+        feature: 'teamWorkspace',
+      }),
+      { status: 403, headers: { 'content-type': 'application/json' } }
+    )
+  );
+
+  await useWorkspaceStore.getState().hydrateWorkspaces({ force: true });
+  assert.equal(useWorkspaceStore.getState().error, null);
+  assert.equal(useWorkspaceStore.getState().teamModeUnavailable?.feature, 'teamWorkspace');
+  assert.equal(useWorkspaceStore.getState().teamFeaturesEnabled, true);
+  assert.deepEqual(useWorkspaceStore.getState().workspaces, []);
+
   console.log('workspace-switcher-ui-test passed');
 }
 

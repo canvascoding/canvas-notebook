@@ -70,6 +70,11 @@
       "teamWrite": "Team-Schreibzugriff"
     }
   },
+  "teamModeHostedOnly": {
+    "title": "Team-Modus ist vorerst auf canvasnotebook.app verfügbar",
+    "description": "Team-Workspaces sind aktuell für Nutzer verfügbar, die Canvas Notebook über canvasnotebook.app verwenden. Self-hosted Support kommt später dazu.",
+    "button": "canvasnotebook.app öffnen"
+  },
   "navigation": {
     "hideSidebar": "Sidebar ausblenden",
     "showSidebar": "Sidebar einblenden",

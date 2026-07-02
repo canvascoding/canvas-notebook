@@ -25,12 +25,19 @@ export interface WorkspaceChangedDetail {
   source: WorkspaceSwitchSource;
 }
 
+export interface TeamModeUnavailableState {
+  message: string;
+  code: string | null;
+  feature: string | null;
+}
+
 interface WorkspaceStoreState {
   workspaces: ClientWorkspaceSummary[];
   activeWorkspaceId: string | null;
   organizationId: string | null;
   teamFeaturesEnabled: boolean;
   databaseProvider: string | null;
+  teamModeUnavailable: TeamModeUnavailableState | null;
   warnings: string[];
   isLoading: boolean;
   initialized: boolean;
@@ -39,6 +46,22 @@ interface WorkspaceStoreState {
   hydrateWorkspaces: (options?: { force?: boolean }) => Promise<void>;
   setActiveWorkspace: (workspaceId: string, source?: WorkspaceSwitchSource) => boolean;
   refreshWorkspaces: () => Promise<void>;
+}
+
+function teamModeUnavailableFromPayload(payload: ClientWorkspaceResponse): TeamModeUnavailableState | null {
+  const feature = typeof payload.feature === 'string' ? payload.feature : null;
+  const code = typeof payload.code === 'string' ? payload.code : null;
+  const message = typeof payload.error === 'string' ? payload.error : '';
+  const blocksTeamRuntime = /team runtime|team workspace|team mode/iu.test(message);
+
+  if (feature !== 'teamWorkspace' && !blocksTeamRuntime) return null;
+  if (code && code !== 'LICENSE_FEATURE_REQUIRED' && !blocksTeamRuntime) return null;
+
+  return {
+    message: message || 'Team mode is currently not available for this self-hosted instance.',
+    code,
+    feature,
+  };
 }
 
 function readCachedActiveWorkspaceId(): string | null {
@@ -147,6 +170,7 @@ export const useWorkspaceStore = create<WorkspaceStoreState>((set, get) => ({
   organizationId: null,
   teamFeaturesEnabled: false,
   databaseProvider: null,
+  teamModeUnavailable: null,
   warnings: [],
   isLoading: false,
   initialized: false,
@@ -171,6 +195,23 @@ export const useWorkspaceStore = create<WorkspaceStoreState>((set, get) => ({
         });
         const payload = (await response.json()) as ClientWorkspaceResponse;
         if (!response.ok || !payload.success) {
+          const teamModeUnavailable = teamModeUnavailableFromPayload(payload);
+          if (teamModeUnavailable) {
+            set({
+              workspaces: [],
+              activeWorkspaceId: null,
+              organizationId: typeof payload.organizationId === 'string' ? payload.organizationId : get().organizationId,
+              teamFeaturesEnabled: true,
+              databaseProvider: typeof payload.databaseProvider === 'string' ? payload.databaseProvider : get().databaseProvider,
+              teamModeUnavailable,
+              warnings: [],
+              initialized: true,
+              isLoading: false,
+              error: null,
+              lastUpdatedAt: Date.now(),
+            });
+            return;
+          }
           throw new Error(payload.error || 'Could not load workspaces');
         }
 
@@ -183,6 +224,7 @@ export const useWorkspaceStore = create<WorkspaceStoreState>((set, get) => ({
           ...normalized,
           initialized: true,
           isLoading: false,
+          teamModeUnavailable: null,
           error: null,
           lastUpdatedAt: Date.now(),
         });
@@ -190,6 +232,7 @@ export const useWorkspaceStore = create<WorkspaceStoreState>((set, get) => ({
         set({
           initialized: true,
           isLoading: false,
+          teamModeUnavailable: null,
           error: error instanceof Error ? error.message : 'Could not load workspaces',
           lastUpdatedAt: Date.now(),
         });
@@ -216,6 +259,7 @@ export const useWorkspaceStore = create<WorkspaceStoreState>((set, get) => ({
     writeCachedActiveWorkspaceId(workspace.id);
     set({
       activeWorkspaceId: workspace.id,
+      teamModeUnavailable: null,
       error: null,
       lastUpdatedAt: Date.now(),
     });

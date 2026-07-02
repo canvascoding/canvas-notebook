@@ -24,6 +24,7 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { TeamModeHostedOnlyNotice } from '@/app/components/team/TeamModeHostedOnlyNotice';
 import {
   DEFAULT_MIGRATION_COMPONENTS,
   MIGRATION_COMPONENT_KEYS,
@@ -448,6 +449,10 @@ export function WorkspaceSettingsPanel({ isAdmin = false, organizationPermission
                     {t(organizationStatus.teamFeaturesEnabled ? 'workspacePanel.organization.teamEnabled' : 'workspacePanel.organization.teamDisabled')}
                   </Badge>
                 </div>
+
+                {!organizationStatus.teamFeaturesEnabled ? (
+                  <TeamModeHostedOnlyNotice />
+                ) : null}
 
                 <div className="grid gap-3 sm:grid-cols-2">
                   <div className="min-w-0 rounded-lg border border-border p-3">
