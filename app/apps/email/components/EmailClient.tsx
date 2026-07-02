@@ -2777,7 +2777,7 @@ export function EmailClient() {
     attachmentsRemove: t('attachmentsRemove'),
     attachmentsSearchPlaceholder: t('attachmentsSearchPlaceholder'),
     attachmentsSelectFiles: t('attachmentsSelectFiles'),
-    attachmentsSendMarkdownAsPdf: t('attachmentsSendMarkdownAsPdf'),
+    attachmentsSendMarkdownAsPdf: t('attachmentsSendMarkdownAsPdf', { name: '{name}' }),
     attachmentsSendMarkdownAsPdfShort: t('attachmentsSendMarkdownAsPdfShort'),
     attachmentsTabUpload: t('attachmentsTabUpload'),
     attachmentsTabWorkspace: t('attachmentsTabWorkspace'),
