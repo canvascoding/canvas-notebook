@@ -1,5 +1,7 @@
 import 'server-only';
 
+import crypto from 'crypto';
+
 import { getManagedControlPlaneBaseUrl } from '@/app/lib/managed/control-plane-url';
 
 export type EmailPolicy = {
@@ -42,6 +44,12 @@ export type ManagedEmailAccount = {
   updatedAt?: string;
 };
 
+export type ManagedEmailRequestScope = {
+  userId?: string | null;
+};
+
+const MANAGED_EMAIL_USER_ID_PREFIX = 'canvas-notebook-email-';
+
 export function isManagedEmailAvailable(): boolean {
   return (
     process.env.CANVAS_MANAGED_SERVICES_ENABLED === 'true' &&
@@ -67,12 +75,26 @@ export function getManagedEmailOAuthRedirectUri(): string | null {
   return baseUrl ? `${baseUrl}/v1/managed/email/oauth/callback` : null;
 }
 
-function managedEmailHeaders(options?: RequestInit): Headers {
+export function getManagedEmailUserId(scope?: ManagedEmailRequestScope | null): string | null {
+  const userId = scope?.userId?.trim();
+  if (!userId) return null;
+  const instanceId = process.env.CANVAS_INSTANCE_ID?.trim();
+  const hash = crypto.createHash('sha256').update(userId).digest('hex').slice(0, 16);
+  return instanceId
+    ? `${MANAGED_EMAIL_USER_ID_PREFIX}${instanceId}-user-${hash}`
+    : `${MANAGED_EMAIL_USER_ID_PREFIX}user-${hash}`;
+}
+
+function managedEmailHeaders(options?: RequestInit, scope?: ManagedEmailRequestScope | null): Headers {
   const headers = new Headers(options?.headers);
   if (options?.body !== undefined && options.body !== null && !headers.has('Content-Type')) {
     headers.set('Content-Type', 'application/json');
   }
   headers.set('Authorization', `Bearer ${instanceToken()}`);
+  const managedUserId = getManagedEmailUserId(scope);
+  if (managedUserId) {
+    headers.set('X-Canvas-Email-User-Id', managedUserId);
+  }
   return headers;
 }
 
@@ -95,13 +117,17 @@ async function readJson<T>(response: Response): Promise<T> {
   return payload as T;
 }
 
-export async function managedEmailRequest<T>(path: string, options?: RequestInit): Promise<T> {
+export async function managedEmailRequest<T>(
+  path: string,
+  options?: RequestInit,
+  scope?: ManagedEmailRequestScope | null,
+): Promise<T> {
   if (!isManagedEmailAvailable()) {
     throw new Error('Managed email is not available. Configure local OAuth credentials or enable Canvas Managed Services.');
   }
   const response = await fetch(controlPlaneUrl(path), {
     ...options,
-    headers: managedEmailHeaders(options),
+    headers: managedEmailHeaders(options, scope),
   });
   return readJson<T>(response);
 }

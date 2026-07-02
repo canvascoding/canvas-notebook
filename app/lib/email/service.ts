@@ -39,6 +39,7 @@ import {
   getManagedEmailOAuthRedirectUri,
   isManagedEmailAvailable,
   managedEmailRequest,
+  type ManagedEmailRequestScope,
   type EmailDraftInput as ManagedEmailDraftInput,
   type ManagedEmailAccount,
 } from '@/app/lib/email/managed-client';
@@ -141,9 +142,13 @@ function normalizeManagedAccount(account: unknown, isPrimary = false): ManagedEm
   };
 }
 
-async function listManagedEmailAccounts(): Promise<ManagedEmailAccount[]> {
+function managedEmailScope(userId: string): ManagedEmailRequestScope {
+  return { userId };
+}
+
+async function listManagedEmailAccounts(userId: string): Promise<ManagedEmailAccount[]> {
   if (!isManagedEmailAvailable()) return [];
-  const payload = await managedEmailRequest<EmailAccountsResponse>('/v1/managed/email/accounts');
+  const payload = await managedEmailRequest<EmailAccountsResponse>('/v1/managed/email/accounts', undefined, managedEmailScope(userId));
   return Array.isArray(payload.accounts)
     ? payload.accounts
       .filter(isConnectedEmailAccount)
@@ -151,8 +156,8 @@ async function listManagedEmailAccounts(): Promise<ManagedEmailAccount[]> {
     : [];
 }
 
-async function findManagedEmailAccount(accountId?: string): Promise<ManagedEmailAccount | null> {
-  const accounts = await listManagedEmailAccounts();
+async function findManagedEmailAccount(userId: string, accountId?: string): Promise<ManagedEmailAccount | null> {
+  const accounts = await listManagedEmailAccounts(userId);
   if (!accountId) return accounts[0] || null;
   return accounts.find((account) => account.id === accountId) || null;
 }
@@ -227,7 +232,7 @@ export async function startEmailOAuth(userId: string, params: {
     return managedEmailRequest<EmailOAuthStartResponse>('/v1/managed/email/oauth/start', {
       method: 'POST',
       body: JSON.stringify({ provider: params.provider || 'google', returnUrl: params.returnUrl }),
-    });
+    }, managedEmailScope(userId));
   }
   return startLocalEmailOAuth({ ...params, userId });
 }
@@ -253,7 +258,7 @@ export async function getEmailOAuthStatus(params: {
 export async function listEmailAccounts(userId: string) {
   if (isManagedEmailAvailable()) {
     const [managedAccounts, localAccounts] = await Promise.all([
-      listManagedEmailAccounts(),
+      listManagedEmailAccounts(userId),
       listLocalEmailAccounts(userId).catch(() => []),
     ]);
     const hasLocalPrimary = localAccounts.some((account) => Boolean((account as { isPrimary?: unknown }).isPrimary));
@@ -270,7 +275,7 @@ export async function listEmailAccounts(userId: string) {
 }
 
 export async function listEmailFolders(userId: string, accountId?: string) {
-  const account = await findManagedEmailAccount(accountId);
+  const account = await findManagedEmailAccount(userId, accountId);
   if (account) {
     return { account, folders: [managedEmailFolder(account)] };
   }
@@ -278,18 +283,18 @@ export async function listEmailFolders(userId: string, accountId?: string) {
 }
 
 export async function updateEmailPolicy(userId: string, accountId: string, policy: Partial<EmailPolicy>) {
-  if (await findManagedEmailAccount(accountId)) {
+  if (await findManagedEmailAccount(userId, accountId)) {
     const payload = await managedEmailRequest<{ account: ManagedEmailAccount }>(`/v1/managed/email/accounts/${encodeURIComponent(accountId)}/policy`, {
       method: 'PATCH',
       body: JSON.stringify(policy),
-    });
+    }, managedEmailScope(userId));
     return normalizeManagedAccount(payload.account);
   }
   return updateLocalEmailPolicy(userId, accountId, policy);
 }
 
 export async function setEmailMainAccount(userId: string, accountId: string) {
-  const account = await findManagedEmailAccount(accountId);
+  const account = await findManagedEmailAccount(userId, accountId);
   if (account) {
     return account;
   }
@@ -297,8 +302,12 @@ export async function setEmailMainAccount(userId: string, accountId: string) {
 }
 
 export async function disconnectEmailAccount(userId: string, accountId: string) {
-  if (await findManagedEmailAccount(accountId)) {
-    await managedEmailRequest<{ success: boolean }>(`/v1/managed/email/accounts/${encodeURIComponent(accountId)}`, { method: 'DELETE' });
+  if (await findManagedEmailAccount(userId, accountId)) {
+    await managedEmailRequest<{ success: boolean }>(
+      `/v1/managed/email/accounts/${encodeURIComponent(accountId)}`,
+      { method: 'DELETE' },
+      managedEmailScope(userId),
+    );
     return { success: true };
   }
   return disconnectLocalEmailAccount(userId, accountId);
@@ -317,12 +326,12 @@ export async function testEmailAccount(userId: string, accountId: string) {
 }
 
 export async function searchEmail(userId: string, input: EmailSearchInput, options?: EmailReadPolicyOptions) {
-  const managedAccount = await findManagedEmailAccount(input.accountId);
+  const managedAccount = await findManagedEmailAccount(userId, input.accountId);
   if (managedAccount) {
     const payload = await managedEmailRequest<ManagedEmailSearchResponse>('/v1/managed/email/search', {
       method: 'POST',
       body: JSON.stringify({ ...input, accountId: managedAccount.id }),
-    });
+    }, managedEmailScope(userId));
     return {
       ...payload,
       account: payload.account ? normalizeManagedAccount(payload.account) : undefined,
@@ -333,7 +342,7 @@ export async function searchEmail(userId: string, input: EmailSearchInput, optio
 }
 
 export async function listEmailMessages(userId: string, input: EmailMessageListInput, options?: EmailReadPolicyOptions) {
-  const managedAccount = await findManagedEmailAccount(input.accountId);
+  const managedAccount = await findManagedEmailAccount(userId, input.accountId);
   if (managedAccount) {
     const limit = Math.min(Math.max(input.limit || 10, 1), 25);
     const payload = await managedEmailRequest<ManagedEmailSearchResponse>('/v1/managed/email/search', {
@@ -343,7 +352,7 @@ export async function listEmailMessages(userId: string, input: EmailMessageListI
         query: input.query,
         limit,
       }),
-    });
+    }, managedEmailScope(userId));
     const messages = Array.isArray(payload.messages)
       ? payload.messages.map((message) => normalizeManagedMessage(message, input.folder || 'INBOX'))
       : [];
@@ -360,8 +369,12 @@ export async function listEmailMessages(userId: string, input: EmailMessageListI
 }
 
 export async function readEmailMessage(userId: string, accountId: string, messageId: string, folder?: string, options?: EmailReadPolicyOptions) {
-  if (await findManagedEmailAccount(accountId)) {
-    const payload = await managedEmailRequest<ManagedEmailReadResponse>(`/v1/managed/email/accounts/${encodeURIComponent(accountId)}/messages/${encodeURIComponent(messageId)}`);
+  if (await findManagedEmailAccount(userId, accountId)) {
+    const payload = await managedEmailRequest<ManagedEmailReadResponse>(
+      `/v1/managed/email/accounts/${encodeURIComponent(accountId)}/messages/${encodeURIComponent(messageId)}`,
+      undefined,
+      managedEmailScope(userId),
+    );
     return {
       ...payload,
       account: payload.account ? normalizeManagedAccount(payload.account) : undefined,
@@ -458,27 +471,27 @@ export async function createEmailAiReplyDraft(userId: string, accountId: string,
 }
 
 export async function createEmailDraft(userId: string, input: EmailDraftInput) {
-  if (await findManagedEmailAccount(input.accountId)) {
+  if (await findManagedEmailAccount(userId, input.accountId)) {
     return managedEmailRequest('/v1/managed/email/drafts', {
       method: 'POST',
       body: JSON.stringify(await managedDraftInput(input)),
-    });
+    }, managedEmailScope(userId));
   }
   return createLocalEmailDraft(userId, input);
 }
 
 export async function updateEmailDraft(userId: string, draftId: string, input: EmailDraftInput) {
-  if (await findManagedEmailAccount(input.accountId)) {
+  if (await findManagedEmailAccount(userId, input.accountId)) {
     return managedEmailRequest(`/v1/managed/email/drafts/${encodeURIComponent(draftId)}`, {
       method: 'PATCH',
       body: JSON.stringify(await managedDraftInput(input)),
-    });
+    }, managedEmailScope(userId));
   }
   return updateLocalEmailDraft(userId, draftId, input);
 }
 
 export async function sendEmailMessage(userId: string, input: EmailDraftInput) {
-  const managedAccount = await findManagedEmailAccount(input.accountId);
+  const managedAccount = await findManagedEmailAccount(userId, input.accountId);
   if (managedAccount) {
     const accountId = managedAccount.id;
     const created = await createEmailDraft(userId, { ...input, accountId }) as { draft?: { id?: unknown } };
@@ -490,11 +503,11 @@ export async function sendEmailMessage(userId: string, input: EmailDraftInput) {
 }
 
 export async function sendEmailDraft(userId: string, accountId: string, draftId: string) {
-  if (await findManagedEmailAccount(accountId)) {
+  if (await findManagedEmailAccount(userId, accountId)) {
     return managedEmailRequest(`/v1/managed/email/drafts/${encodeURIComponent(draftId)}/send`, {
       method: 'POST',
       body: JSON.stringify({ accountId }),
-    });
+    }, managedEmailScope(userId));
   }
   return sendLocalEmailDraft(userId, accountId, draftId);
 }

@@ -12,9 +12,12 @@ moduleInternals._load = (request, parent, isMain) => {
   if (request === 'server-only') {
     return {};
   }
-  if (request === '@earendil-works/pi-ai') {
+  if (request === '@earendil-works/pi-ai' || request === '@earendil-works/pi-ai/compat') {
     return {
       completeSimple: async () => {
+        throw new Error('pi-ai should not be called by the email accounts service test.');
+      },
+      streamSimple: async function* () {
         throw new Error('pi-ai should not be called by the email accounts service test.');
       },
       getModels: () => [],
@@ -91,6 +94,7 @@ async function main() {
 
   const { createEmailDraft, disconnectEmailAccount, getEmailOAuthStatus, listEmailAccounts, listEmailFolders, listEmailMessages, readEmailMessage, saveEmailSmtpAccount, searchEmail, sendEmailDraft, sendEmailMessage, setEmailMainAccount, startEmailOAuth, testEmailAccount, testEmailSmtpConnection } = await import('../app/lib/email/service');
   const { upsertOAuthEmailAccount } = await import('../app/lib/email/account-store');
+  const { getManagedEmailUserId } = await import('../app/lib/email/managed-client');
   const { emailAccountSecretRef, readEmailAccountSecret, writeEmailAccountSecret } = await import('../app/lib/email/secret-store');
   const { setSmtpTransportFactoryForTests } = await import('../app/lib/email/smtp-service');
   const { setImapClientFactoryForTests } = await import('../app/lib/email/imap-service');
@@ -513,6 +517,121 @@ async function main() {
 
   setImapClientFactoryForTests(null);
   setSmtpTransportFactoryForTests(null);
+
+  const originalFetch = globalThis.fetch;
+  const managedEnvKeys = [
+    'CANVAS_MANAGED_SERVICES_ENABLED',
+    'CANVAS_CONTROL_PLANE_URL',
+    'CANVAS_INSTANCE_TOKEN',
+    'CANVAS_INSTANCE_ID',
+  ] as const;
+  const previousManagedEnv = Object.fromEntries(managedEnvKeys.map((key) => [key, process.env[key]]));
+  process.env.CANVAS_MANAGED_SERVICES_ENABLED = 'true';
+  process.env.CANVAS_CONTROL_PLANE_URL = 'https://control.example.test';
+  process.env.CANVAS_INSTANCE_TOKEN = 'managed-token';
+  process.env.CANVAS_INSTANCE_ID = 'vm-test';
+
+  const ownerManagedUserId = getManagedEmailUserId({ userId: 'owner-user' });
+  const otherManagedUserId = getManagedEmailUserId({ userId: 'other-user' });
+  assert.ok(ownerManagedUserId);
+  assert.ok(otherManagedUserId);
+  assert.notEqual(ownerManagedUserId, otherManagedUserId);
+
+  const managedAccountsByUser = new Map([
+    [ownerManagedUserId, {
+      id: 'managed-owner',
+      provider: 'google',
+      emailAddress: 'managed-owner@example.test',
+      displayName: 'Managed Owner',
+      status: 'active',
+      policy: { readFrom: [], sendTo: [] },
+    }],
+    [otherManagedUserId, {
+      id: 'managed-other',
+      provider: 'google',
+      emailAddress: 'managed-other@example.test',
+      displayName: 'Managed Other',
+      status: 'active',
+      policy: { readFrom: [], sendTo: [] },
+    }],
+  ]);
+  const managedRequests: Array<{ url: string; method: string; userId: string | null; body: string }> = [];
+  const jsonResponse = (payload: unknown, status = 200) => new Response(JSON.stringify(payload), {
+    status,
+    headers: { 'Content-Type': 'application/json' },
+  });
+
+  globalThis.fetch = (async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+    const url = typeof input === 'string' || input instanceof URL ? String(input) : input.url;
+    const method = init?.method || (typeof input !== 'string' && !(input instanceof URL) ? input.method : 'GET') || 'GET';
+    const headers = new Headers(init?.headers || (typeof input !== 'string' && !(input instanceof URL) ? input.headers : undefined));
+    const body = typeof init?.body === 'string' ? init.body : '';
+    const userId = headers.get('X-Canvas-Email-User-Id');
+    managedRequests.push({ url, method, userId, body });
+
+    if (url === 'https://control.example.test/v1/managed/email/accounts') {
+      return jsonResponse({ accounts: userId ? [managedAccountsByUser.get(userId)].filter(Boolean) : [] });
+    }
+    if (url === 'https://control.example.test/v1/managed/email/oauth/start') {
+      return jsonResponse({
+        provider: 'google',
+        authorizationUrl: 'https://accounts.example.test/oauth',
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      });
+    }
+    if (url === 'https://control.example.test/v1/managed/email/search') {
+      const account = userId ? managedAccountsByUser.get(userId) : null;
+      const parsedBody = body ? JSON.parse(body) as { accountId?: string } : {};
+      if (!account || parsedBody.accountId !== account.id) {
+        return jsonResponse({ error: 'Email account not found.' }, 404);
+      }
+      return jsonResponse({
+        account,
+        messages: [{
+          id: `message-${account.id}`,
+          uid: `message-${account.id}`,
+          from: 'sender@example.test',
+          subject: `Inbox for ${account.emailAddress}`,
+          date: new Date().toISOString(),
+          snippet: 'Managed inbox message',
+        }],
+      });
+    }
+    return jsonResponse({ error: `Unexpected managed email URL: ${url}` }, 404);
+  }) as typeof fetch;
+
+  try {
+    const ownerManagedAccounts = await listEmailAccounts('owner-user');
+    const otherManagedAccounts = await listEmailAccounts('other-user');
+    assert.equal(ownerManagedAccounts.mode, 'managed');
+    assert.equal(otherManagedAccounts.mode, 'managed');
+    assert.ok(ownerManagedAccounts.accounts.some((account) => (account as { id?: string }).id === 'managed-owner'));
+    assert.equal(ownerManagedAccounts.accounts.some((account) => (account as { id?: string }).id === 'managed-other'), false);
+    assert.ok(otherManagedAccounts.accounts.some((account) => (account as { id?: string }).id === 'managed-other'));
+    assert.equal(otherManagedAccounts.accounts.some((account) => (account as { id?: string }).id === 'managed-owner'), false);
+
+    const managedOAuthStart = await startEmailOAuth('owner-user', { provider: 'google', requestOrigin: 'https://canvas.example.com' });
+    assert.equal(managedOAuthStart.authorizationUrl, 'https://accounts.example.test/oauth');
+
+    const managedList = await listEmailMessages('owner-user', { accountId: 'managed-owner', limit: 5 });
+    assert.equal((managedList as { account?: { id?: string } }).account?.id, 'managed-owner');
+    assert.equal(((managedList as { messages?: unknown[] }).messages || []).length, 1);
+
+    assert.ok(managedRequests.some((request) => request.url.endsWith('/v1/managed/email/accounts') && request.userId === ownerManagedUserId));
+    assert.ok(managedRequests.some((request) => request.url.endsWith('/v1/managed/email/accounts') && request.userId === otherManagedUserId));
+    assert.ok(managedRequests.some((request) => request.url.endsWith('/v1/managed/email/oauth/start') && request.userId === ownerManagedUserId));
+    assert.ok(managedRequests.some((request) => request.url.endsWith('/v1/managed/email/search') && request.userId === ownerManagedUserId));
+  } finally {
+    globalThis.fetch = originalFetch;
+    for (const key of managedEnvKeys) {
+      const previous = previousManagedEnv[key];
+      if (previous === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = previous;
+      }
+    }
+  }
 
   await fs.rm(tmpRoot, { recursive: true, force: true });
   console.log('Email accounts service test passed.');
