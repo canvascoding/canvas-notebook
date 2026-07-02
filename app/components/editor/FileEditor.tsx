@@ -1,11 +1,12 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from 'react';
 import { useTranslations } from 'next-intl';
 import { AlertCircle, CheckCircle2, ChevronLeft, ChevronRight, Code2, Download, Eye, FileText, GitBranch, Loader2, Lock, MoreVertical, Presentation, RefreshCw, Save, Share2, UsersRound, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { useFileStore } from '@/app/store/file-store';
 import type { FileNode } from '@/app/lib/files/types';
 import { useEditorStore } from '@/app/store/editor-store';
@@ -196,6 +197,15 @@ function shouldShowDocumentLoadingSkeleton(path: string | null) {
 function shouldShowImageLoadingSkeleton(path: string | null) {
   if (!path) return false;
   return IMAGE_EXTENSIONS.has(getExtension(path));
+}
+
+function FileHeaderTooltip({ children, label }: { children: ReactElement; label: ReactNode }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>{children}</TooltipTrigger>
+      <TooltipContent side="bottom">{label}</TooltipContent>
+    </Tooltip>
+  );
 }
 
 function FileLoadingSkeleton({ path }: { path: string | null }) {
@@ -468,6 +478,23 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
 
   const savedTime = formatTimestamp(lastSavedAt);
   const displaySaveError = saveError ?? null;
+  const saveStatusLabel = displaySaveError
+    ? displaySaveError
+    : isSaving
+      ? t('saving')
+      : isDirty
+        ? t('unsavedChanges')
+        : savedTime
+          ? t('savedAt', { time: savedTime })
+          : t('saved');
+  const saveStatusInlineText = displaySaveError
+    ? displaySaveError
+    : isSaving
+      ? t('saving')
+      : isDirty
+        ? t('unsavedChanges')
+        : savedTime ?? t('saved');
+  const saveStatusTone = displaySaveError ? 'text-destructive' : !isSaving && !isDirty ? 'text-primary' : 'text-muted-foreground';
   const breadcrumbs = currentFile ? currentFile.path.split('/').filter(Boolean) : [];
   const currentFileNode = useMemo<FileNode | null>(() => {
     if (!currentFile) return null;
@@ -687,172 +714,185 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
   return (
     <>
     <div className="flex h-full min-h-0 flex-col overflow-hidden">
-      <div className="flex flex-nowrap items-center justify-between border-b border-border px-3 sm:px-4 py-2 text-sm text-muted-foreground gap-2 overflow-hidden">
-        <div className="flex min-w-0 items-center gap-1.5 sm:gap-2 text-xs text-muted-foreground overflow-hidden">
-          <span className="text-foreground shrink-0">{t('fileLabel')}</span>
-          <div className="flex min-w-0 items-center overflow-hidden">
-            {breadcrumbs.map((segment, index) => (
-              <span key={`segment-${segment}-${index}`} className="truncate min-w-0">
-                {index > 0 && <span className="mx-0.5 text-muted-foreground/50">/</span>}
-                {segment}
+      <TooltipProvider delayDuration={150}>
+        <div className="grid h-10 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 overflow-hidden border-b border-border px-3 py-2 text-sm text-muted-foreground sm:px-4">
+          <div className="flex min-w-0 items-center gap-1.5 overflow-hidden text-xs text-muted-foreground sm:gap-2">
+            <span className="shrink-0 text-foreground">{t('fileLabel')}</span>
+            <div className="flex min-w-0 items-center overflow-hidden">
+              {breadcrumbs.map((segment, index) => (
+                <span key={`segment-${segment}-${index}`} className="min-w-0 truncate">
+                  {index > 0 && <span className="mx-0.5 text-muted-foreground/50">/</span>}
+                  {segment}
+                </span>
+              ))}
+            </div>
+          </div>
+          <div className="flex min-w-0 shrink-0 items-center justify-end gap-1 text-xs text-muted-foreground">
+            {isHtml && (
+              <>
+                {htmlViewMode === 'preview' && (
+                  <FileHeaderTooltip label={t('refreshPreview')}>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 w-6 p-0"
+                      onClick={() => setHtmlRefreshKey((k) => k + 1)}
+                      aria-label={t('refreshPreview')}
+                    >
+                      <RefreshCw className="h-3.5 w-3.5" />
+                    </Button>
+                  </FileHeaderTooltip>
+                )}
+                <FileHeaderTooltip label={htmlViewMode === 'code' ? 'Preview' : 'Code'}>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 w-6 p-0 2xl:w-auto 2xl:gap-1 2xl:px-2"
+                    onClick={() => setCurrentHtmlViewMode((m) => (m === 'code' ? 'preview' : 'code'))}
+                    aria-label={htmlViewMode === 'code' ? 'Preview' : 'Code'}
+                  >
+                    {htmlViewMode === 'code' ? (
+                      <><Eye className="h-3.5 w-3.5" /><span className="hidden 2xl:inline">Preview</span></>
+                    ) : (
+                      <><Code2 className="h-3.5 w-3.5" /><span className="hidden 2xl:inline">Code</span></>
+                    )}
+                  </Button>
+                </FileHeaderTooltip>
+              </>
+            )}
+            {isMarpMarkdownFile && (
+              <>
+                {markdownViewMode === 'slides' && (
+                  <FileHeaderTooltip label={t('refreshPreview')}>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 w-6 p-0"
+                      onClick={() => setMarpRefreshKey((key) => key + 1)}
+                      aria-label={t('refreshPreview')}
+                    >
+                      <RefreshCw className="h-3.5 w-3.5" />
+                    </Button>
+                  </FileHeaderTooltip>
+                )}
+                <FileHeaderTooltip label={markdownViewMode === 'markdown' ? t('slidesPreview') : t('markdownEditor')}>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 w-6 p-0 2xl:w-auto 2xl:gap-1 2xl:px-2"
+                    onClick={() => {
+                      setMarkdownViewOverride({
+                        path: activePath,
+                        mode: markdownViewMode === 'markdown' ? 'slides' : 'markdown',
+                      });
+                    }}
+                    aria-label={markdownViewMode === 'markdown' ? t('slidesPreview') : t('markdownEditor')}
+                  >
+                    {markdownViewMode === 'markdown' ? (
+                      <><Presentation className="h-3.5 w-3.5" /><span className="hidden 2xl:inline">{t('slidesPreview')}</span></>
+                    ) : (
+                      <><Code2 className="h-3.5 w-3.5" /><span className="hidden 2xl:inline">{t('markdownEditor')}</span></>
+                    )}
+                  </Button>
+                </FileHeaderTooltip>
+              </>
+            )}
+            {isImage && <span className="shrink-0 bg-muted px-2 py-0.5 text-foreground">{t('readOnly')}</span>}
+            {collaborationLabel ? (
+              <FileHeaderTooltip label={collaborationLabel}>
+                <span
+                  className="flex h-6 w-6 shrink-0 items-center justify-center gap-1 rounded-sm border border-border bg-muted px-0 text-xs text-muted-foreground 2xl:w-auto 2xl:px-2"
+                  aria-label={collaborationLabel}
+                >
+                  {collaboration?.activeLock ? (
+                    <Lock className="h-3.5 w-3.5" />
+                  ) : collaboration?.strategy === 'crdt_text' ? (
+                    <UsersRound className="h-3.5 w-3.5" />
+                  ) : (
+                    <GitBranch className="h-3.5 w-3.5" />
+                  )}
+                  <span className="hidden max-w-36 truncate 2xl:inline">{collaborationLabel}</span>
+                </span>
+              </FileHeaderTooltip>
+            ) : null}
+            {revisionLabel ? (
+              <FileHeaderTooltip label={revisionLabel}>
+                <span
+                  className="flex h-6 w-6 shrink-0 items-center justify-center gap-1 rounded-sm border border-border bg-background px-0 text-xs text-muted-foreground 2xl:w-auto 2xl:px-2"
+                  aria-label={revisionLabel}
+                >
+                  <GitBranch className="h-3.5 w-3.5" />
+                  <span className="hidden max-w-32 truncate 2xl:inline">{revisionLabel}</span>
+                </span>
+              </FileHeaderTooltip>
+            ) : null}
+            {(isMarkdown || isHtml || isPdf) && (
+              <FileHeaderTooltip label={isPdf ? t('downloadPdf') : t('share')}>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 w-6 p-0 text-xs 2xl:w-auto 2xl:gap-1.5 2xl:px-2"
+                  onClick={handleShareAction}
+                  aria-label={isPdf ? t('downloadPdf') : t('share')}
+                >
+                  <Share2 className="h-3.5 w-3.5" />
+                  <span className="hidden 2xl:inline">{t('share')}</span>
+                </Button>
+              </FileHeaderTooltip>
+            )}
+            <FileHeaderTooltip label={saveStatusLabel}>
+              <span
+                className={`flex h-6 w-6 shrink-0 items-center justify-center gap-1 rounded-sm px-0 text-xs 2xl:w-auto 2xl:max-w-36 2xl:px-1.5 ${saveStatusTone}`}
+                aria-label={saveStatusLabel}
+              >
+                {displaySaveError ? (
+                  <AlertCircle className="h-3.5 w-3.5" />
+                ) : isSaving || isDirty ? (
+                  <Save className="h-3.5 w-3.5" />
+                ) : (
+                  <CheckCircle2 className="h-3.5 w-3.5" />
+                )}
+                <span className="hidden truncate 2xl:inline">{saveStatusInlineText}</span>
               </span>
-            ))}
+            </FileHeaderTooltip>
+            <FileActionsDropdown
+              node={currentFileNode}
+              showCreateActions={false}
+              showMultiSelectActions={false}
+              onAfterDelete={() => onClosePreview?.()}
+              contentProps={{ align: 'end' }}
+            >
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 w-6 shrink-0 p-0"
+                aria-label={t('fileActions')}
+                title={t('fileActions')}
+              >
+                <MoreVertical className="h-3.5 w-3.5" />
+              </Button>
+            </FileActionsDropdown>
+            {onClosePreview ? (
+              <FileHeaderTooltip label="Close preview">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 w-6 shrink-0 p-0"
+                  onClick={() => void handleClosePreview()}
+                  disabled={isClosingPreview}
+                  aria-label="Close preview"
+                >
+                  {isClosingPreview ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <X className="h-3.5 w-3.5" />
+                  )}
+                </Button>
+              </FileHeaderTooltip>
+            ) : null}
           </div>
         </div>
-        <div className="flex items-center gap-2 text-xs text-muted-foreground shrink-0">
-          {isHtml && (
-            <>
-              {htmlViewMode === 'preview' && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-6 w-6 p-0"
-                  onClick={() => setHtmlRefreshKey((k) => k + 1)}
-                  title="Refresh preview"
-                >
-                  <RefreshCw className="h-3.5 w-3.5" />
-                </Button>
-              )}
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-6 gap-1 px-2"
-                onClick={() => setCurrentHtmlViewMode((m) => (m === 'code' ? 'preview' : 'code'))}
-              >
-                {htmlViewMode === 'code' ? (
-                  <><Eye className="h-3.5 w-3.5" /><span>Preview</span></>
-                ) : (
-                  <><Code2 className="h-3.5 w-3.5" /><span>Code</span></>
-                )}
-              </Button>
-            </>
-          )}
-          {isMarpMarkdownFile && (
-            <>
-              {markdownViewMode === 'slides' && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-6 w-6 p-0"
-                  onClick={() => setMarpRefreshKey((key) => key + 1)}
-                  title={t('refreshPreview')}
-                >
-                  <RefreshCw className="h-3.5 w-3.5" />
-                </Button>
-              )}
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-6 gap-1 px-2"
-                onClick={() => {
-                  setMarkdownViewOverride({
-                    path: activePath,
-                    mode: markdownViewMode === 'markdown' ? 'slides' : 'markdown',
-                  });
-                }}
-              >
-                {markdownViewMode === 'markdown' ? (
-                  <><Presentation className="h-3.5 w-3.5" /><span>{t('slidesPreview')}</span></>
-                ) : (
-                  <><Code2 className="h-3.5 w-3.5" /><span>{t('markdownEditor')}</span></>
-                )}
-              </Button>
-            </>
-          )}
-          {isImage && <span className="bg-muted px-2 py-0.5 text-foreground shrink-0">{t('readOnly')}</span>}
-          {collaborationLabel ? (
-            <span
-              className="flex items-center gap-1 rounded-sm border border-border bg-muted px-2 py-0.5 text-xs text-muted-foreground shrink-0"
-              title={collaborationLabel}
-            >
-              {collaboration?.activeLock ? (
-                <Lock className="h-3.5 w-3.5" />
-              ) : collaboration?.strategy === 'crdt_text' ? (
-                <UsersRound className="h-3.5 w-3.5" />
-              ) : (
-                <GitBranch className="h-3.5 w-3.5" />
-              )}
-              <span className="hidden lg:inline">{collaborationLabel}</span>
-            </span>
-          ) : null}
-          {revisionLabel ? (
-            <span
-              className="hidden xl:flex items-center gap-1 rounded-sm border border-border bg-background px-2 py-0.5 text-xs text-muted-foreground shrink-0"
-              title={revisionLabel}
-            >
-              <GitBranch className="h-3.5 w-3.5" />
-              <span>{revisionLabel}</span>
-            </span>
-          ) : null}
-          {(isMarkdown || isHtml || isPdf) && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-6 px-2 gap-1.5 text-xs"
-              onClick={handleShareAction}
-              title={isPdf ? t('downloadPdf') : t('share')}
-            >
-              <Share2 className="h-3.5 w-3.5" />
-              <span>{t('share')}</span>
-            </Button>
-          )}
-          {displaySaveError ? (
-            <span className="flex items-center gap-1 text-destructive shrink-0" title={displaySaveError}>
-              <AlertCircle className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">{displaySaveError}</span>
-            </span>
-          ) : isSaving ? (
-            <span className="flex items-center gap-1 shrink-0" title={t('saving')}>
-              <Save className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">{t('saving')}</span>
-            </span>
-          ) : isDirty ? (
-            <span className="flex items-center gap-1 shrink-0" title={t('unsavedChanges')}>
-              <Save className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">{t('unsavedChanges')}</span>
-            </span>
-          ) : (
-            <span className="flex items-center gap-1 text-primary shrink-0" title={savedTime ? t('savedAt', { time: savedTime }) : t('saved')}>
-              <CheckCircle2 className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">{savedTime ? t('savedAt', { time: savedTime }) : t('saved')}</span>
-            </span>
-          )}
-          <FileActionsDropdown
-            node={currentFileNode}
-            showCreateActions={false}
-            showMultiSelectActions={false}
-            onAfterDelete={() => onClosePreview?.()}
-            contentProps={{ align: 'end' }}
-          >
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-6 w-6 p-0"
-              aria-label={t('fileActions')}
-              title={t('fileActions')}
-            >
-              <MoreVertical className="h-3.5 w-3.5" />
-            </Button>
-          </FileActionsDropdown>
-          {onClosePreview ? (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-6 w-6 p-0"
-              onClick={() => void handleClosePreview()}
-              disabled={isClosingPreview}
-              aria-label="Close preview"
-              title="Close preview"
-            >
-              {isClosingPreview ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <X className="h-3.5 w-3.5" />
-              )}
-            </Button>
-          ) : null}
-        </div>
-      </div>
+      </TooltipProvider>
       <div className={isImage || isVideo || isMarkdown || isHtml || isExcalidraw ? 'min-h-0 flex-1 overflow-hidden' : (isOffice && extension !== 'docx' ? 'min-h-0 flex-1 relative' : 'min-h-0 flex-1 overflow-auto')}>
           {isBinary ? (
             <div className="flex h-full flex-col items-center justify-center gap-3 text-center text-muted-foreground">
