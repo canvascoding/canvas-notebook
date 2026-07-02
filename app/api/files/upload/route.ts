@@ -26,14 +26,8 @@ const MAX_FILE_SIZE = 100 * 1024 * 1024;
 const MAX_TOTAL_SIZE = 500 * 1024 * 1024;
 const MAX_FILES_PER_REQUEST = 100;
 
-const VALID_FILENAME_REGEX = /^[a-zA-Z0-9._\-\s\/\(\)]+$/;
-const INVALID_PATH_PATTERNS = ['..', '~', '//', '\\\\', ':', '*', '?', '"', '<', '>', '|'];
-
-function isValidFilename(filename: string): boolean {
-  if (INVALID_PATH_PATTERNS.some(pattern => filename.includes(pattern))) {
-    return false;
-  }
-  return VALID_FILENAME_REGEX.test(filename);
+function sanitizeName(name: string): string {
+  return name.replace(/[^a-zA-Z0-9._\-\s()]/g, '_');
 }
 
 function sanitizeFilePath(filePath: string): string {
@@ -41,7 +35,8 @@ function sanitizeFilePath(filePath: string): string {
   const segments = normalized.split('/');
   const sanitized = segments
     .map(segment => path.posix.basename(segment))
-    .filter(segment => segment.length > 0 && segment !== '.' && segment !== '..');
+    .filter(segment => segment.length > 0 && segment !== '.' && segment !== '..')
+    .map(segment => sanitizeName(segment));
   return sanitized.join('/');
 }
 
@@ -118,7 +113,7 @@ export async function POST(request: NextRequest) {
       const file = files[i];
       const sanitizedPath = sanitizeFilePath(file.name);
 
-      if (!sanitizedPath || !isValidFilename(sanitizedPath)) {
+      if (!sanitizedPath) {
         return NextResponse.json(
           { success: false, error: `Invalid filename: "${file.name}". Only alphanumeric characters, dots, dashes, underscores, spaces, parentheses, and path separators are allowed.` },
           { status: 400 }
