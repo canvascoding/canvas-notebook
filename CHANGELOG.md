@@ -11,6 +11,28 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.7.3.1] - 2026-07-03
+
+### Added
+
+- Streaming AI drafts for email compose, reply preview, and message summary with live status events (`reading_context`, `writing`, `ready`) surfaced in the compose dialog and message viewer for both quick and workspace-agent modes.
+- Live draft delta rendering so AI-generated email text appears incrementally while it is being written.
+
+### Changed
+
+- Multi-account email flows now support switching between accounts without losing per-account folder and message state.
+- Workspace file tree loading is faster.
+
+### Fixed
+
+- Kept the mobile markdown toolbar viewport fixed so the toolbar stays visible during mobile editing.
+
+### Verification
+
+- `npm run build`
+- `npm run lint`
+- GitHub Actions `Build and Push (Both Arch)` on `main`: `28624308344` built and pushed the image successfully before release prep.
+
 ## [2026.7.2.4] - 2026-07-02
 
 ### Fixed
