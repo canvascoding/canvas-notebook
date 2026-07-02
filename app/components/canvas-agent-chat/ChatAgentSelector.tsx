@@ -18,6 +18,7 @@ export function ChatAgentSelector({
   className,
   testId = 'chat-agent-id',
   onSelectAgent,
+  iconOnly = false,
 }: {
   variant: 'desktop' | 'mobile';
   activeAgentId: string;
@@ -27,6 +28,7 @@ export function ChatAgentSelector({
   className?: string;
   testId?: string;
   onSelectAgent: (agentId: string) => void;
+  iconOnly?: boolean;
 }) {
   const t = useTranslations('chat');
   const compact = variant === 'mobile';
@@ -40,19 +42,21 @@ export function ChatAgentSelector({
           aria-label={`${t('agentSelectTitle')}: ${activeAgentName}`}
           title={t('agentSelectTitle')}
           className={cn(
-            'inline-flex h-7 min-w-0 items-center gap-1.5 rounded-md border border-border/60 bg-muted/50 px-2 font-medium text-foreground transition-colors hover:bg-accent',
-            compact ? 'max-w-[12rem] text-[10px]' : 'max-w-[min(14rem,100%)] text-[11px]',
+            'inline-flex h-7 min-w-0 shrink-0 items-center gap-1.5 rounded-md border border-border/60 bg-muted/50 px-2 font-medium text-foreground transition-colors hover:bg-accent',
+            iconOnly ? 'w-7 justify-center' : (compact ? 'max-w-[12rem] text-[10px]' : 'max-w-[min(14rem,100%)] text-[11px]'),
             className,
           )}
         >
-          {!compact ? (
+          {!compact && !iconOnly ? (
             <span className="text-[9px] uppercase tracking-[0.15em] text-muted-foreground">{t('agentLabel')}</span>
           ) : null}
           <AgentIcon iconId={activeAgentIconId} className="h-3 w-3 shrink-0 text-muted-foreground" />
-          <span className={cn('min-w-0 truncate', compact ? 'max-w-[8rem]' : 'max-w-[9rem]')}>
-            {activeAgentName}
-          </span>
-          <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" />
+          {!iconOnly ? (
+            <span className={cn('min-w-0 truncate', compact ? 'max-w-[8rem]' : 'max-w-[9rem]')}>
+              {activeAgentName}
+            </span>
+          ) : null}
+          {!iconOnly ? <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" /> : null}
         </button>
       </PopoverTrigger>
       <PopoverContent align="start" side="bottom" className="w-64 p-1">

@@ -1042,12 +1042,10 @@ export default function CanvasAgentChat({
         onSelectAgent={selectChatAgent}
         onSetShowHistory={setShowHistory}
         onStartNewChat={() => startNewChat()}
-        onToggleMobileDetails={() => setShowMobileDetails((current) => !current)}
         runtimeStatus={runtimeStatus}
         sessionDisplayLabel={sessionDisplayLabel}
         sessionId={sessionId}
         showHistory={showHistory}
-        showMobileDetails={showMobileDetails}
         showSkillsLink={showSkillsLink}
         toolVerbosity={toolVerbosity}
         totalQueuedMessages={totalQueuedMessages}

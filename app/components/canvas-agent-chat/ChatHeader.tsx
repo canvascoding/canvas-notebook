@@ -3,9 +3,7 @@
 import { useTranslations } from 'next-intl';
 import {
   ArrowLeft,
-  ChevronDown,
   ChevronLeft,
-  ChevronRight,
   History,
   Lightbulb,
   Plus,
@@ -41,12 +39,10 @@ type ChatHeaderProps = {
   onSelectAgent: (agentId: string) => void;
   onSetShowHistory: (value: boolean) => void;
   onStartNewChat: () => void;
-  onToggleMobileDetails: () => void;
   runtimeStatus: RuntimeStatus | null;
   sessionDisplayLabel: string;
   sessionId: string | null;
   showHistory: boolean;
-  showMobileDetails: boolean;
   showSkillsLink: boolean;
   toolVerbosity: ToolVerbosity;
   totalQueuedMessages: number;
@@ -71,12 +67,10 @@ export function ChatHeader({
   onSelectAgent,
   onSetShowHistory,
   onStartNewChat,
-  onToggleMobileDetails,
   runtimeStatus,
   sessionDisplayLabel,
   sessionId,
   showHistory,
-  showMobileDetails,
   showSkillsLink,
   toolVerbosity,
   totalQueuedMessages,
@@ -110,8 +104,8 @@ export function ChatHeader({
       )}
 
         <div className={cn('z-10 border-b border-border bg-background/95', isHistoryOverlayOpen ? 'hidden' : null)}>
-        <div className="flex flex-col items-stretch gap-2 px-3 py-2 md:flex-row md:flex-wrap md:items-center">
-          <div className="flex w-full items-center gap-2 overflow-hidden md:min-w-0 md:flex-1">
+        <div className="flex items-center gap-2 px-3 py-2 md:flex-wrap">
+          <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
             {showHistory ? (
               <button
                 type="button"
@@ -139,49 +133,45 @@ export function ChatHeader({
                 )}
               </button>
             )}
-            <div className="min-w-0 flex-1">
-              <div className="flex min-w-0 flex-nowrap items-center gap-1.5">
-                <div
-                  data-testid="chat-session-id"
-                  title={sessionId || t('newChatTitle')}
-                  className="inline-flex h-7 min-w-0 shrink items-center gap-1.5 rounded-md border border-border/60 bg-muted/50 px-2 text-[11px] font-medium text-foreground md:max-w-[min(18rem,100%)]"
-                  style={{ maxWidth: isMobile ? 'calc(100% - 7.5rem)' : undefined }}
-                >
-                  <span className="text-[9px] uppercase tracking-[0.15em] text-muted-foreground">{t('sessionLabel')}</span>
-                  <span className="min-w-0 truncate">{sessionDisplayLabel}</span>
-                </div>
-                <ChatAgentSelector
-                  variant={isMobile ? 'mobile' : 'desktop'}
-                  activeAgentId={activeSessionAgentId}
-                  activeAgentName={activeAgentDisplayName}
-                  activeAgentIconId={activeAgentIconId}
-                  agents={chatAgentOptions}
-                  onSelectAgent={onSelectAgent}
-                />
-              </div>
+            <div
+              data-testid="chat-session-id"
+              title={sessionId || t('newChatTitle')}
+              className="inline-flex h-7 min-w-0 shrink items-center gap-1.5 rounded-md border border-border/60 bg-muted/50 px-2 text-[11px] font-medium text-foreground md:max-w-[min(18rem,100%)]"
+            >
+              <span className="hidden text-[9px] uppercase tracking-[0.15em] text-muted-foreground sm:inline">{t('sessionLabel')}</span>
+              <span className="min-w-0 truncate">{sessionDisplayLabel}</span>
             </div>
+            <ChatAgentSelector
+              variant={isMobile ? 'mobile' : 'desktop'}
+              activeAgentId={activeSessionAgentId}
+              activeAgentName={activeAgentDisplayName}
+              activeAgentIconId={activeAgentIconId}
+              agents={chatAgentOptions}
+              onSelectAgent={onSelectAgent}
+              iconOnly={isMobile}
+            />
           </div>
-          <div className="flex w-full shrink-0 items-center justify-end gap-1 md:ml-auto md:w-auto md:justify-start">
+          <div className="flex shrink-0 items-center gap-1 md:ml-auto">
             <WorkspaceSwitcher source="chat" variant="compact" className="hidden sm:inline-flex" />
             <button
               type="button"
               aria-label={t('newChatTitle')}
               onClick={onStartNewChat}
-              className="group inline-flex h-7 items-center gap-1 rounded-md border border-primary/30 bg-primary/15 px-2.5 text-primary transition-all hover:bg-primary/25"
+              className="group inline-flex h-7 w-7 items-center justify-center rounded-md border border-primary/30 bg-primary/15 text-primary transition-all hover:bg-primary/25"
               title={t('newChatTitle')}
             >
               <Plus size={16} />
-              <span className="hidden text-[11px] font-bold sm:inline">{t('newChatShort')}</span>
+              <span className="sr-only">{t('newChatShort')}</span>
             </button>
             {showSkillsLink && (
               <Link
                 href="/settings?tab=plugins"
                 aria-label={t('viewSkills')}
-                className="group inline-flex h-7 items-center gap-1 rounded-md border border-border bg-muted/50 px-2.5 text-muted-foreground transition-all hover:bg-accent hover:text-foreground"
+                className="group inline-flex h-7 w-7 items-center justify-center rounded-md border border-border bg-muted/50 text-muted-foreground transition-all hover:bg-accent hover:text-foreground"
                 title={t('viewSkills')}
               >
                 <Lightbulb size={16} />
-                <span className="hidden text-[11px] font-bold sm:inline">{t('skills')}</span>
+                <span className="sr-only">{t('skills')}</span>
               </Link>
             )}
           </div>
@@ -258,16 +248,6 @@ export function ChatHeader({
                   >
                     {t('compact')}
                   </button>
-                  <button
-                    type="button"
-                    data-testid="chat-mobile-details-toggle"
-                    aria-expanded={showMobileDetails}
-                    onClick={onToggleMobileDetails}
-                    className="inline-flex h-7 items-center gap-1 rounded-md border border-border/60 bg-muted/40 px-2 text-[11px] text-foreground transition-colors hover:bg-accent"
-                  >
-                    {t('details')}
-                    {showMobileDetails ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
-                  </button>
                   <Link
                     href="/settings?tab=agent"
                     data-testid="chat-mobile-agent-settings"
@@ -297,32 +277,6 @@ export function ChatHeader({
               />
             </div>
           </div>
-
-          {isMobile && showMobileDetails && (
-            <div data-testid="chat-mobile-details-panel" className="mt-2 space-y-2 border-t border-border/50 pt-2">
-              <div className="flex flex-wrap gap-1.5">
-                {runtimeStatus?.includedSummary && (
-                  <span className="border border-border/60 bg-muted/40 px-1.5 py-0.5 text-[10px] text-muted-foreground">
-                    {t('summary')}
-                  </span>
-                )}
-                {runtimeStatus?.activeTool && toolVerbosity !== 'minimal' && (
-                  <span className="inline-flex items-center gap-1 border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-[10px] text-amber-600">
-                    <Wrench size={9} />
-                    {toolVerbosity === 'verbose' ? runtimeStatus.activeTool.name : activeToolLabel}
-                  </span>
-                )}
-              </div>
-              <div data-testid="chat-context-meter" title={contextTooltip} className="text-[10px] text-muted-foreground">
-                {contextCompactLabel}
-              </div>
-              {totalQueuedMessages > 0 && (
-                <div data-testid="chat-mobile-details-queue-panel" className="border border-border/60 bg-muted/30 p-1.5 text-[10px]">
-                  <div className="mb-1 font-medium text-foreground">{t('queuedCount', { count: totalQueuedMessages })}</div>
-                </div>
-              )}
-            </div>
-          )}
         </div>
       </div>
     </>
