@@ -2788,7 +2788,7 @@ function MarkdownToolbar({
         onEdit={editLinkFromPopover}
       />
       <MarkdownLinkDialog
-        key={linkDialogSeed.id}
+        key={`link-${linkDialogSeed.id}`}
         editor={editor}
         open={linkDialogOpen}
         onOpenChange={handleLinkDialogOpenChange}
@@ -2797,7 +2797,7 @@ function MarkdownToolbar({
         canEditText={linkDialogSeed.canEditText}
       />
       <MarkdownImageDialog
-        key={imageDialogSeed.id}
+        key={`image-${imageDialogSeed.id}`}
         editor={editor}
         filePath={filePath}
         open={imageDialogOpen}
@@ -3162,7 +3162,7 @@ function MobileMarkdownToolbar({
         </MobileToolbarButton>
       </div>
       <MarkdownLinkDialog
-        key={linkDialogSeed.id}
+        key={`link-${linkDialogSeed.id}`}
         editor={editor}
         open={linkDialogOpen}
         onOpenChange={setLinkDialogOpen}
