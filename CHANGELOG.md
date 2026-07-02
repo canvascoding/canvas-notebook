@@ -11,6 +11,18 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.7.2.3] - 2026-07-02
+
+### Fixed
+
+- Fixed mobile markdown toolbar reactivation so the toolbar resumes correctly after interactions on mobile devices.
+- Fixed scoped office file downloads so Office, PowerPoint, and spreadsheet editors download files scoped to the correct workspace instead of leaking across scopes.
+
+### Verification
+
+- `npm run build`
+- GitHub Actions `Build and Push (Both Arch)` on `main`: `28597545484` built and pushed the image successfully before release prep.
+
 ## [2026.7.2.2] - 2026-07-02
 
 ### Fixed
