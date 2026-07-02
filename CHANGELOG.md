@@ -11,6 +11,18 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.7.2.2] - 2026-07-02
+
+### Fixed
+
+- Fixed `413 Request body is too large` error when the agent reads multiple images via the `read` tool. Images are now compacted to WebP (max 2048px, quality 82) before being sent through the Control Plane chat proxy.
+- Added detailed server- and client-side logging for onboarding language/time zone save to help diagnose the "Sprache und Zeitzone konnten nicht gespeichert werden" error.
+
+### Verification
+
+- `npm run build`
+- GitHub Actions `Build and Push (Both Arch)` on `main`: `28583495649` built and pushed the image successfully before release prep.
+
 ## [2026.7.2.1] - 2026-07-02
 
 ### Added
