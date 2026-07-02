@@ -113,5 +113,7 @@ assert.equal(resolveEmailShellRequestContext(staleContext, '/emails'), staleCont
 assert.deepEqual(resolveEmailShellRequestContext(null, null), { currentPage: '/emails' });
 assert.match(EMAIL_SYSTEM_PROMPT_BLOCK, /Do not assume the visible message body is available in context/);
 assert.match(EMAIL_SYSTEM_PROMPT_BLOCK, /Use email_read when the user asks you to reason about the actual email body/);
+assert.match(EMAIL_SYSTEM_PROMPT_BLOCK, /call email_list_accounts and pass the matching accountId explicitly/);
+assert.match(EMAIL_SYSTEM_PROMPT_BLOCK, /multiple accounts are connected and the target account is unclear/);
 
 console.log('Email chat context test passed');

@@ -178,6 +178,7 @@ async function main() {
   assert.match(oauthStart.authorizationUrl, /^https:\/\/accounts\.google\.com\/o\/oauth2\/v2\/auth/u);
   const oauthStartUrl = new URL(oauthStart.authorizationUrl);
   assert.equal(oauthStartUrl.searchParams.get('redirect_uri'), 'https://canvas.example.com/api/email/oauth/callback');
+  assert.equal(oauthStartUrl.searchParams.get('prompt'), 'consent select_account');
   assert.ok((oauthStartUrl.searchParams.get('scope') || '').split(' ').includes('https://www.googleapis.com/auth/gmail.send'));
   const oauthStatus = await getEmailOAuthStatus({ userId: 'owner-user', requestOrigin: 'https://canvas.example.com' });
   assert.equal(oauthStatus.redirectUri, 'https://canvas.example.com/api/email/oauth/callback');
@@ -192,6 +193,7 @@ async function main() {
   await fs.writeFile(integrationsEnvPath, 'GOOGLE_OAUTH_CLIENT_ID=local-client\nGOOGLE_OAUTH_CLIENT_SECRET=local-secret\nMICROSOFT_OAUTH_CLIENT_ID=ms-client\nMICROSOFT_OAUTH_CLIENT_SECRET=ms-secret\n', 'utf8');
   const microsoftOAuthStart = await startEmailOAuth('owner-user', { provider: 'microsoft', requestOrigin: 'https://canvas.example.com' });
   const microsoftOAuthStartUrl = new URL(microsoftOAuthStart.authorizationUrl);
+  assert.equal(microsoftOAuthStartUrl.searchParams.get('prompt'), 'select_account');
   assert.ok((microsoftOAuthStartUrl.searchParams.get('scope') || '').split(' ').includes('Mail.Send'));
 
   process.env.EMAIL_OAUTH_BASE_URL = 'https://oauth.example.com/custom/path';
@@ -246,6 +248,44 @@ async function main() {
   assert.equal(updatedSmtpAccount.displayName, null);
   assert.deepEqual(updatedSmtpAccount.policy.readFrom, ['smtp-owner@example.test']);
   assert.deepEqual(updatedSmtpAccount.policy.sendTo, ['@example.test', 'smtp-owner@example.test']);
+
+  await upsertOAuthEmailAccount({
+    userId: 'owner-user',
+    provider: 'google',
+    providerAccountId: 'owner-google-a',
+    emailAddress: 'owner-google-a@example.test',
+    displayName: 'Owner Google A',
+    secret: {
+      authType: 'oauth',
+      tokenType: 'Bearer',
+      accessToken: 'owner-google-a-access',
+      refreshToken: 'owner-google-a-refresh',
+      scope: 'email profile https://www.googleapis.com/auth/gmail.send',
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    },
+  });
+  await upsertOAuthEmailAccount({
+    userId: 'owner-user',
+    provider: 'google',
+    providerAccountId: 'owner-google-b',
+    emailAddress: 'owner-google-b@example.test',
+    displayName: 'Owner Google B',
+    secret: {
+      authType: 'oauth',
+      tokenType: 'Bearer',
+      accessToken: 'owner-google-b-access',
+      refreshToken: 'owner-google-b-refresh',
+      scope: 'email profile https://www.googleapis.com/auth/gmail.send',
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    },
+  });
+  const ownerMultiAccountList = await listEmailAccounts('owner-user');
+  const ownerAccountEmails = ownerMultiAccountList.accounts.map((account) => (account as { emailAddress: string }).emailAddress);
+  assert.ok(ownerAccountEmails.includes('smtp-owner@example.test'));
+  assert.ok(ownerAccountEmails.includes('owner-google-a@example.test'));
+  assert.ok(ownerAccountEmails.includes('owner-google-b@example.test'));
+  assert.equal(ownerMultiAccountList.accounts.filter((account) => (account as { provider: string }).provider === 'google').length, 2);
+  assert.equal((ownerMultiAccountList.accounts.find((account) => (account as { id: string }).id === smtpAccount.id) as { isPrimary?: boolean } | undefined)?.isPrimary, true);
 
   const draftResult = await createEmailDraft('owner-user', {
     accountId: smtpAccount.id,

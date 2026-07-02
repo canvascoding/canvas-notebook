@@ -1880,6 +1880,7 @@ export function EmailClient() {
   const [emailRemoteImageAllowedSenders, setEmailRemoteImageAllowedSenders] = useState<string[]>([]);
   const [activeAccountId, setActiveAccountId] = useState('');
   const [folders, setFolders] = useState<EmailFolder[]>([]);
+  const [foldersAccountId, setFoldersAccountId] = useState('');
   const [activeFolder, setActiveFolder] = useState('INBOX');
   const [messages, setMessages] = useState<EmailMessageSummary[]>([]);
   const [messageTotal, setMessageTotal] = useState<number | null>(null);
@@ -2024,6 +2025,8 @@ export function EmailClient() {
 
   const selectAccount = (accountId: string) => {
     setActiveAccountId(accountId);
+    setFoldersAccountId('');
+    setActiveFolder('INBOX');
     setMessagePage(0);
   };
 
@@ -2035,6 +2038,7 @@ export function EmailClient() {
   const loadFolders = useCallback(async (accountId: string) => {
     if (!accountId) return;
     setIsLoadingFolders(true);
+    setFoldersAccountId('');
     setError(null);
     try {
       const response = await fetch(`/api/email/folders?accountId=${encodeURIComponent(accountId)}`, {
@@ -2045,12 +2049,14 @@ export function EmailClient() {
       if (!response.ok || !payload.success) throw new Error(payload.error || t('errors.loadFolders'));
       const nextFolders = (payload.data?.folders || []) as EmailFolder[];
       setFolders(nextFolders);
+      setFoldersAccountId(accountId);
       setActiveFolder((current) => {
         if (current && nextFolders.some((folder) => folder.path === current)) return current;
         return nextFolders.find((folder) => folder.role === 'inbox')?.path || nextFolders[0]?.path || 'INBOX';
       });
     } catch (loadError) {
       setFolders([]);
+      setFoldersAccountId('');
       setError(loadError instanceof Error ? loadError.message : t('errors.loadFolders'));
     } finally {
       setIsLoadingFolders(false);
@@ -2058,7 +2064,7 @@ export function EmailClient() {
   }, [t]);
 
   const loadMessages = useCallback(async () => {
-    if (!activeAccount || !canReadActiveAccount) return;
+    if (!activeAccount || !canReadActiveAccount || foldersAccountId !== activeAccount.id) return;
     setIsLoadingMessages(true);
     setError(null);
     try {
@@ -2096,7 +2102,7 @@ export function EmailClient() {
     } finally {
       setIsLoadingMessages(false);
     }
-  }, [activeAccount, activeFolder, canReadActiveAccount, clearMessageSummary, messageFilter, messagePage, submittedQuery, t]);
+  }, [activeAccount, activeFolder, canReadActiveAccount, clearMessageSummary, foldersAccountId, messageFilter, messagePage, submittedQuery, t]);
 
   const updateMessageReadState = useCallback((messageId: string, isRead: boolean) => {
     setMessages((current) => current.map((message) => message.id === messageId ? { ...message, isRead } : message));
@@ -2184,6 +2190,7 @@ export function EmailClient() {
   useEffect(() => {
     const timeout = window.setTimeout(() => {
       setFolders([]);
+      setFoldersAccountId('');
       setMessages([]);
       setMessageTotal(null);
       setSelectedMessage(null);
@@ -2887,7 +2894,25 @@ export function EmailClient() {
               )}
             </div>
           </div>
-          <div className="flex shrink-0 items-center gap-2">
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            {accounts.length > 1 && (
+              <>
+                <label className="sr-only" htmlFor="email-account-header-switcher">{t('accountLabel')}</label>
+                <select
+                  id="email-account-header-switcher"
+                  className="h-9 min-w-0 max-w-[min(18rem,calc(100vw-2rem))] border border-input bg-background px-2 text-sm"
+                  value={activeAccount?.id || ''}
+                  onChange={(event) => selectAccount(event.target.value)}
+                  title={t('accountLabel')}
+                >
+                  {accounts.map((account) => (
+                    <option key={account.id} value={account.id}>
+                      {account.isPrimary ? `${account.emailAddress} (${t('mainEmail')})` : account.emailAddress}
+                    </option>
+                  ))}
+                </select>
+              </>
+            )}
             <Button type="button" size="sm" onClick={openNewComposeDraft} disabled={!activeAccount}>
               <PenLine className="h-4 w-4 sm:mr-2" />
               <span className="hidden sm:inline">{t('compose')}</span>

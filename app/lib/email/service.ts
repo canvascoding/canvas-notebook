@@ -47,13 +47,13 @@ import { saveSmtpEmailAccount, testSmtpConnection, testStoredSmtpEmailAccount, t
 
 type EmailSearchInput = {
   accountId?: string;
+  folder?: string;
+  filter?: string;
   query?: string;
   limit?: number;
 };
 
 type EmailMessageListInput = EmailSearchInput & {
-  folder?: string;
-  filter?: string;
   offset?: number;
 };
 
@@ -335,7 +335,7 @@ export async function searchEmail(userId: string, input: EmailSearchInput, optio
     return {
       ...payload,
       account: payload.account ? normalizeManagedAccount(payload.account) : undefined,
-      messages: Array.isArray(payload.messages) ? payload.messages.map((message) => normalizeManagedMessage(message)) : [],
+      messages: Array.isArray(payload.messages) ? payload.messages.map((message) => normalizeManagedMessage(message, input.folder || 'INBOX')) : [],
     };
   }
   return searchLocalEmail(userId, input, options);

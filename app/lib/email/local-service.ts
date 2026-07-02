@@ -419,7 +419,9 @@ export async function startLocalEmailOAuth(params: {
   authorizationUrl.searchParams.set('code_challenge_method', 'S256');
   if (provider === 'google') {
     authorizationUrl.searchParams.set('access_type', 'offline');
-    authorizationUrl.searchParams.set('prompt', 'consent');
+    authorizationUrl.searchParams.set('prompt', 'consent select_account');
+  } else {
+    authorizationUrl.searchParams.set('prompt', 'select_account');
   }
 
   return { provider, authorizationUrl: authorizationUrl.toString(), expiresAt };
@@ -1029,7 +1031,13 @@ export async function listLocalEmailMessages(userId: string, input: EmailMessage
   };
 }
 
-export async function searchLocalEmail(userId: string, input: { accountId?: string; query?: string; limit?: number }, options?: EmailReadPolicyOptions) {
+export async function searchLocalEmail(userId: string, input: {
+  accountId?: string;
+  folder?: string;
+  filter?: string;
+  query?: string;
+  limit?: number;
+}, options?: EmailReadPolicyOptions) {
   const result = await listLocalEmailMessages(userId, input, options);
   return {
     account: result.account,
