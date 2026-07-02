@@ -18,12 +18,15 @@ import {
 } from '@/app/lib/files/media-preview';
 import { requireRequestWorkspace, workspaceFileOptions } from '@/app/lib/workspaces/request';
 
-function buildMediaUrl(filePath: string) {
+function buildMediaUrl(filePath: string, workspaceId?: string | null) {
   const encodedPath = filePath
     .split('/')
     .map((segment) => encodeURIComponent(segment))
     .join('/');
-  return `/media/${encodedPath}`;
+  const workspaceQuery = workspaceId?.trim()
+    ? `?workspaceId=${encodeURIComponent(workspaceId.trim())}`
+    : '';
+  return `/api/media/${encodedPath}${workspaceQuery}`;
 }
 
 function buildSameOriginRedirect(request: NextRequest, relativePath: string): URL {
@@ -70,7 +73,7 @@ export async function GET(request: NextRequest) {
 
     const extension = path.posix.extname(filePath).slice(1).toLowerCase();
     if (!isSupportedPreviewExtension(extension)) {
-      const mediaPath = buildMediaUrl(filePath);
+      const mediaPath = buildMediaUrl(filePath, workspaceResult.workspace.workspaceId);
       return NextResponse.redirect(buildSameOriginRedirect(request, mediaPath));
     }
 
@@ -158,7 +161,7 @@ export async function GET(request: NextRequest) {
         mtimeMs: stats.mtimeMs,
       });
     } catch (error) {
-      const mediaPath = buildMediaUrl(filePath);
+      const mediaPath = buildMediaUrl(filePath, workspaceResult.workspace.workspaceId);
       console.error('[API] Preview error:', error);
       return NextResponse.redirect(buildSameOriginRedirect(request, mediaPath));
     }

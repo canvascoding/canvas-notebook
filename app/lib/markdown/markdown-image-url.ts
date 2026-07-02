@@ -1,4 +1,5 @@
 import { toHtmlPreviewUrl } from '@/app/lib/utils/media-url';
+import type { MediaUrlOptions } from '@/app/lib/utils/media-url';
 
 type MarkdownImageUrlResult =
   | {
@@ -39,6 +40,20 @@ function splitUrlDecoration(value: string) {
     pathname: value.slice(0, splitIndex),
     suffix: value.slice(splitIndex),
   };
+}
+
+function appendUrlDecoration(url: string, suffix: string) {
+  if (!suffix) return url;
+  if (suffix.startsWith('#')) return `${url}${suffix}`;
+  if (!suffix.startsWith('?')) return `${url}${suffix}`;
+
+  const hashIndex = suffix.indexOf('#');
+  const query = hashIndex >= 0 ? suffix.slice(1, hashIndex) : suffix.slice(1);
+  const hash = hashIndex >= 0 ? suffix.slice(hashIndex) : '';
+  if (!query) return `${url}${hash}`;
+
+  const separator = url.includes('?') ? '&' : '?';
+  return `${url}${separator}${query}${hash}`;
 }
 
 function decodePathSegment(segment: string) {
@@ -84,6 +99,7 @@ function shouldPreserveAbsolutePath(src: string) {
 export function resolveMarkdownImageUrl(
   rawSrc: string | undefined,
   markdownFilePath?: string,
+  options: MediaUrlOptions = {},
 ): MarkdownImageUrlResult {
   const src = rawSrc?.trim() || '';
   if (!src) {
@@ -137,7 +153,7 @@ export function resolveMarkdownImageUrl(
 
   return {
     ok: true,
-    src: `${toHtmlPreviewUrl(workspacePath)}${suffix}`,
+    src: appendUrlDecoration(toHtmlPreviewUrl(workspacePath, options), suffix),
     workspacePath,
     rewritten: true,
   };

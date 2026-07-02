@@ -54,7 +54,10 @@ export async function POST(request: NextRequest) {
     const headers = cookie ? { cookie } : undefined;
 
     const pdfBuffer = await Promise.race([
-      generatePdfFromUrl(`${origin}${toHtmlPreviewUrl(filePath)}`, headers),
+      generatePdfFromUrl(
+        `${origin}${toHtmlPreviewUrl(filePath, { workspaceId: workspaceResult.workspace.workspaceId })}`,
+        headers,
+      ),
       new Promise<never>((_, reject) =>
         setTimeout(() => reject(new Error('PDF_TIMEOUT')), PDF_TIMEOUT_MS)
       ),

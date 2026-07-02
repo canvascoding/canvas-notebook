@@ -10,6 +10,7 @@ import { getFileDisplayName } from '@/app/lib/files/display-name';
 import { toPreviewUrl } from '@/app/lib/utils/media-url';
 import { Globe2, MoreVertical } from 'lucide-react';
 import { useTranslations } from 'next-intl';
+import { useWorkspaceStore } from '@/app/store/workspace-store';
 
 interface FileGridItemProps {
   node: FileNodeType;
@@ -58,6 +59,7 @@ function FileGridItemComponent({ node, onOpenFile, onOpenDirectory, size = 'sm',
   const isRowActive = isSelected || isMultiSelected;
   const isPublic = node.type === 'file' && node.publicShare?.status === 'active';
   const displayName = getFileDisplayName(node);
+  const workspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
   const publicShareUrl = node.publicShare && 'shortUrl' in node.publicShare && typeof node.publicShare.shortUrl === 'string'
     ? node.publicShare.shortUrl
     : node.publicShare?.publicUrl;
@@ -114,7 +116,7 @@ function FileGridItemComponent({ node, onOpenFile, onOpenDirectory, size = 'sm',
   );
 
   const thumbnailSrc = showImagePreview && !thumbnailError
-    ? toPreviewUrl(node.path, 256, { preset: 'mini' })
+    ? toPreviewUrl(node.path, 256, { preset: 'mini', workspaceId })
     : undefined;
 
   const isLg = size === 'lg';

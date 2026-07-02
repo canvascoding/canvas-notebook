@@ -109,6 +109,7 @@ import {
   markdownImageSrcForWorkspacePath,
 } from '@/app/lib/markdown/markdown-image-path';
 import { resolveMarkdownImageUrl } from '@/app/lib/markdown/markdown-image-url';
+import { useWorkspaceStore } from '@/app/store/workspace-store';
 import { cn } from '@/lib/utils';
 
 import { CodeEditor } from './CodeEditor';
@@ -1059,7 +1060,8 @@ function MarkdownImageNodeView({
 }: NodeViewProps & { filePath?: string }) {
   const src = typeof node.attrs.src === 'string' ? node.attrs.src : '';
   const alt = typeof node.attrs.alt === 'string' ? node.attrs.alt : '';
-  const resolvedImage = resolveMarkdownImageUrl(src, filePath);
+  const workspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
+  const resolvedImage = resolveMarkdownImageUrl(src, filePath, { workspaceId });
   const linkPreviewLabel = parseLinkPreviewImageAlt(alt);
 
   if (linkPreviewLabel) {

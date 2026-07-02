@@ -3,6 +3,7 @@
 import { useCallback, useState } from 'react';
 import type { SyntheticEvent } from 'react';
 import { toMediaUrl } from '@/app/lib/utils/media-url';
+import { useWorkspaceStore } from '@/app/store/workspace-store';
 
 interface MediaViewerProps {
   path: string;
@@ -39,7 +40,8 @@ function formatDuration(seconds?: number | null) {
 }
 
 export function MediaViewer({ path, kind, mimeType, size, sourceUrl }: MediaViewerProps) {
-  const resolvedSourceUrl = sourceUrl ?? toMediaUrl(path);
+  const workspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
+  const resolvedSourceUrl = sourceUrl ?? toMediaUrl(path, { workspaceId });
   const [duration, setDuration] = useState<number | null>(null);
   const sizeLabel = formatBytes(size);
   const durationLabel = formatDuration(duration);

@@ -11,6 +11,25 @@ import {
 import { requireRequestWorkspace, workspaceFileOptions } from '@/app/lib/workspaces/request';
 
 const WORKSPACE_HTML_PREVIEW_PREFIX = '/api/media/preview';
+const WORKSPACE_PREVIEW_SCOPE_SEGMENT = '__workspace';
+
+function parsePreviewPath(pathParts: string[]) {
+  if (pathParts[0] === WORKSPACE_PREVIEW_SCOPE_SEGMENT && pathParts[1]?.trim()) {
+    return {
+      workspaceId: pathParts[1].trim(),
+      filePath: pathParts.slice(2).join('/'),
+    };
+  }
+
+  return {
+    workspaceId: null,
+    filePath: pathParts.join('/'),
+  };
+}
+
+function scopedPreviewPrefix(workspaceId: string) {
+  return `${WORKSPACE_HTML_PREVIEW_PREFIX}/${WORKSPACE_PREVIEW_SCOPE_SEGMENT}/${encodeURIComponent(workspaceId)}`;
+}
 
 async function streamPreviewAsset(filePath: string, fileOptions: ReturnType<typeof workspaceFileOptions>) {
   const stats = await getFileStats(filePath, fileOptions);
@@ -32,12 +51,15 @@ export async function GET(
   request: NextRequest,
   context: { params: Promise<{ path: string[] }> }
 ) {
-  const workspaceResult = await requireRequestWorkspace(request, { permissions: 'canRead' });
+  const { path: pathParts } = await context.params;
+  const previewPath = parsePreviewPath(pathParts);
+  const workspaceResult = await requireRequestWorkspace(request, {
+    workspaceId: previewPath.workspaceId,
+    permissions: 'canRead',
+  });
   if (workspaceResult.response) return workspaceResult.response;
   const fileOptions = workspaceFileOptions(workspaceResult.workspace);
-
-  const { path: pathParts } = await context.params;
-  const filePath = pathParts.join('/');
+  const filePath = previewPath.filePath;
 
   try {
     if (!isHtmlFile(filePath)) {
@@ -45,7 +67,11 @@ export async function GET(
     }
 
     const html = (await readFile(filePath, fileOptions)).toString('utf-8');
-    const document = createHtmlPreviewDocument(html, filePath, WORKSPACE_HTML_PREVIEW_PREFIX);
+    const document = createHtmlPreviewDocument(
+      html,
+      filePath,
+      scopedPreviewPrefix(workspaceResult.workspace.workspaceId),
+    );
     const body = Buffer.from(document, 'utf-8');
     const headers = new Headers({
       'Content-Type': 'text/html; charset=utf-8',

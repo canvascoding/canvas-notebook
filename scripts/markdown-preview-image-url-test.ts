@@ -25,6 +25,17 @@ assert.deepEqual(
 );
 
 assert.deepEqual(
+  resolveMarkdownImageUrl('./images/a b.png?raw=1#chart', 'reports/q2/summary.md', { workspaceId: 'team workspace' }),
+  {
+    ok: true,
+    src: '/api/media/preview/__workspace/team%20workspace/reports/q2/images/a%20b.png?raw=1#chart',
+    workspacePath: 'reports/q2/images/a b.png',
+    rewritten: true,
+  },
+  'workspace-scoped image paths should preserve query and hash',
+);
+
+assert.deepEqual(
   resolveMarkdownImageUrl('../shared/logo%20wide.svg', 'reports/q2/summary.md'),
   {
     ok: true,

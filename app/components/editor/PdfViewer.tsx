@@ -7,6 +7,7 @@ import { useTranslations } from 'next-intl';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { toMediaUrl } from '@/app/lib/utils/media-url';
+import { useWorkspaceStore } from '@/app/store/workspace-store';
 
 interface PdfViewerProps {
   path: string;
@@ -208,7 +209,8 @@ function PdfPageCanvas({
 
 export function PdfViewer({ path, sourceUrl }: PdfViewerProps) {
   const t = useTranslations('notebook');
-  const src = sourceUrl ?? toMediaUrl(path);
+  const workspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
+  const src = sourceUrl ?? toMediaUrl(path, { workspaceId });
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const pageRefs = useRef<Map<number, HTMLDivElement>>(new Map());
   const rafRef = useRef<number | null>(null);

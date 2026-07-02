@@ -24,6 +24,11 @@ assert.equal(
   '/api/studio/media/preview/studio/outputs/a%20b/',
   'Base URL should encode path segments'
 );
+assert.equal(
+  createHtmlPreviewBaseHref('/api/media/preview/__workspace/team-1', 'reports/q2/dashboard.html'),
+  '/api/media/preview/__workspace/team-1/reports/q2/',
+  'Workspace-scoped base URLs should keep relative assets under the scoped route'
+);
 assert.equal(getHtmlPreviewAssetContentType('chart.js'), 'text/javascript; charset=utf-8');
 assert.equal(getHtmlPreviewAssetContentType('styles/site.css'), 'text/css; charset=utf-8');
 assert.equal(getHtmlPreviewAssetContentType('images/chart.png'), 'image/png');

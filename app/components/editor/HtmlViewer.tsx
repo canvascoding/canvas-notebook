@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { CodeEditor } from './CodeEditor';
 import { toHtmlPreviewUrl } from '@/app/lib/utils/media-url';
 import { HtmlPreviewBlocked, HtmlPreviewConsent } from './HtmlPreviewConsent';
+import { useWorkspaceStore } from '@/app/store/workspace-store';
 
 interface HtmlViewerProps {
   path: string;
@@ -15,7 +16,8 @@ interface HtmlViewerProps {
 }
 
 export function HtmlViewer({ path, value, onChange, viewMode, refreshKey, lastSavedAt }: HtmlViewerProps) {
-  const previewUrl = toHtmlPreviewUrl(path);
+  const workspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
+  const previewUrl = toHtmlPreviewUrl(path, { workspaceId });
   const fileName = path.split('/').pop() || path;
   const [acceptedPreviewPath, setAcceptedPreviewPath] = useState<string | null>(null);
   const [declinedPreviewPath, setDeclinedPreviewPath] = useState<string | null>(null);

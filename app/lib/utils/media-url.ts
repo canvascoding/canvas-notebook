@@ -5,7 +5,7 @@ function encodePathSegments(filePath: string) {
     .join('/');
 }
 
-interface MediaUrlOptions {
+export interface MediaUrlOptions {
   workspaceId?: string | null;
 }
 
@@ -17,6 +17,12 @@ function withWorkspaceId(url: string, options: MediaUrlOptions = {}) {
   const workspaceId = options.workspaceId?.trim();
   if (!workspaceId) return url;
   return `${url}${url.includes('?') ? '&' : '?'}workspaceId=${encodeURIComponent(workspaceId)}`;
+}
+
+function workspacePreviewRoutePrefix(options: MediaUrlOptions = {}) {
+  const workspaceId = options.workspaceId?.trim();
+  if (!workspaceId) return '/api/media/preview';
+  return `/api/media/preview/__workspace/${encodeURIComponent(workspaceId)}`;
 }
 
 export function toWorkspaceMediaUrl(filePath: string, options: MediaUrlOptions = {}) {
@@ -68,7 +74,7 @@ export function toMediaUrl(filePath: string, options: MediaUrlOptions = {}) {
   return withWorkspaceId(`/api/media/${encodedPath}`, options);
 }
 
-export function toHtmlPreviewUrl(filePath: string) {
+export function toHtmlPreviewUrl(filePath: string, options: MediaUrlOptions = {}) {
   const encodedPath = encodePathSegments(filePath);
 
   if (filePath.startsWith('studio/')) {
@@ -93,7 +99,7 @@ export function toHtmlPreviewUrl(filePath: string) {
     return `/api/studio/media/preview/studio/assets/${encodedPath}`;
   }
 
-  return `/api/media/preview/${encodedPath}`;
+  return `${workspacePreviewRoutePrefix(options)}/${encodedPath}`;
 }
 
 export function toPreviewUrl(filePath: string, width: number, options: PreviewUrlOptions = {}) {
