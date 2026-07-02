@@ -103,6 +103,7 @@ function getLicenseRegistrationActivationPath(fallback: string) {
 }
 
 async function saveOnboardingPreferences(locale: string, timeZone: string): Promise<void> {
+  console.log('[Onboarding] Saving preferences:', { locale, timeZone });
   const [localeResponse, timeZoneResponse] = await Promise.all([
     fetch('/api/user-preferences', {
       method: 'PATCH',
@@ -118,10 +119,21 @@ async function saveOnboardingPreferences(locale: string, timeZone: string): Prom
     }),
   ]);
 
+  console.log('[Onboarding] Save responses:', {
+    localeStatus: localeResponse.status,
+    localeOk: localeResponse.ok,
+    timeZoneStatus: timeZoneResponse.status,
+    timeZoneOk: timeZoneResponse.ok,
+  });
+
   if (!localeResponse.ok) {
+    const localeErrorBody = await localeResponse.text().catch(() => '');
+    console.error('[Onboarding] Locale save failed:', { status: localeResponse.status, body: localeErrorBody });
     throw new Error(`Failed to save onboarding locale (${localeResponse.status}).`);
   }
   if (!timeZoneResponse.ok) {
+    const timeZoneErrorBody = await timeZoneResponse.text().catch(() => '');
+    console.error('[Onboarding] Time zone save failed:', { status: timeZoneResponse.status, body: timeZoneErrorBody });
     throw new Error(`Failed to save onboarding time zone (${timeZoneResponse.status}).`);
   }
 }
@@ -680,7 +692,7 @@ function LanguageStep({
       await saveOnboardingPreferences(selectedLocale, normalizeTimeZone(timeZone));
       onContinue();
     } catch (error) {
-      console.warn('[Onboarding] Failed to save language/time zone preferences:', error);
+      console.error('[Onboarding] Failed to save language/time zone preferences:', error);
       toast.error(t('preferencesSaveFailed'));
     } finally {
       setIsSaving(false);

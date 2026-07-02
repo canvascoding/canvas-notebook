@@ -10,7 +10,16 @@ export function resolveServerSettingsUpdatePermission(
   user: AdminUserCandidate | null | undefined,
   state: { onboardingEnabled: boolean; onboardingComplete: boolean },
 ): ServerSettingsUpdatePermission {
-  if (isAdminUser(user)) {
+  const adminCheck = isAdminUser(user);
+  console.log('[server-settings-policy] Permission check:', {
+    userRole: user?.role,
+    userEmail: user?.email,
+    isAdmin: adminCheck,
+    onboardingEnabled: state.onboardingEnabled,
+    onboardingComplete: state.onboardingComplete,
+  });
+
+  if (adminCheck) {
     return { ok: true, reason: 'admin' };
   }
 
@@ -18,5 +27,11 @@ export function resolveServerSettingsUpdatePermission(
     return { ok: true, reason: 'onboarding' };
   }
 
+  console.warn('[server-settings-policy] Permission denied:', {
+    userRole: user?.role,
+    userEmail: user?.email,
+    onboardingEnabled: state.onboardingEnabled,
+    onboardingComplete: state.onboardingComplete,
+  });
   return { ok: false, reason: 'admin_required' };
 }
