@@ -322,7 +322,10 @@ function useVisualViewportBottomOffset() {
     const updateViewportOffset = () => {
       const viewport = window.visualViewport;
       const bottomOffset = viewport
-        ? Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop)
+        // On iOS, offsetTop can change when Safari scrolls a focused contenteditable
+        // caret into view. Tying the toolbar to that value makes it drift downward
+        // as the document scrolls, so only use the keyboard-induced height loss.
+        ? Math.max(0, window.innerHeight - viewport.height)
         : 0;
 
       document.documentElement.style.setProperty(
@@ -402,7 +405,7 @@ function useMobileKeyboardActive() {
 
       const viewportHeightLoss = Math.max(0, largestViewportHeightRef.current - viewportHeight);
       const bottomOffset = viewport
-        ? Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop)
+        ? Math.max(0, window.innerHeight - viewport.height)
         : 0;
       const keyboardOffset = Math.max(viewportHeightLoss, bottomOffset);
 
