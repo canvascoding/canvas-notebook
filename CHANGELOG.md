@@ -11,6 +11,27 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.7.3.2] - 2026-07-03
+
+### Added
+
+- Persistent onboarding preference diagnostics so language and time zone save issues are easier to trace.
+
+### Changed
+
+- SQLite migration restores are now validated so pending migrations are confirmed to restore correctly before being applied.
+
+### Fixed
+
+- Clarified managed email upstream failure messages so SMTP/send errors are surfaced more clearly.
+- Fixed iOS markdown toolbar keyboard offset so the toolbar stays positioned correctly when the on-screen keyboard appears.
+- Fixed mobile agent selector popover so the selector opens and closes reliably on mobile devices.
+
+### Verification
+
+- `npm run build`
+- GitHub Actions `Build and Push (Both Arch)` on `main`: `28655504086` built and pushed the image successfully before release prep.
+
 ## [2026.7.3.1] - 2026-07-03
 
 ### Added
