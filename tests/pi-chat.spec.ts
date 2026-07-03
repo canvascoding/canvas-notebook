@@ -2346,7 +2346,7 @@ contentKind: document
     await expect(page.getByTestId('chat-model-selector')).toHaveAttribute('title', /anthropic \/ Claude Sonnet 4\.5/);
   });
 
-  test('should expose the active agent selector beside mobile ready status', async ({ page }) => {
+  test('should expose a clickable active agent selector on mobile', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
 
     await page.route(/\/api\/agents(\?.*)?$/, async (route) => {
@@ -2429,25 +2429,16 @@ contentKind: document
     await expect(page.getByTestId('chat-runtime-banner')).toBeVisible();
     await expect(page.getByTestId('chat-runtime-busy-badge')).toContainText('Ready');
     await expect(page.getByTestId('chat-agent-id')).toBeVisible();
-    await expect(page.getByTestId('chat-agent-id')).toContainText('Canvas Agent');
-    await expect(page.getByTestId('chat-mobile-details-toggle')).toBeVisible();
-    await expect(page.getByTestId('chat-mobile-details-panel')).toHaveCount(0);
-
-    const detailsBox = await page.getByTestId('chat-mobile-details-toggle').boundingBox();
-    const settingsBox = await page.getByTestId('chat-mobile-agent-settings').boundingBox();
-    expect(detailsBox).not.toBeNull();
-    expect(settingsBox).not.toBeNull();
-    expect(detailsBox!.x).toBeLessThan(settingsBox!.x);
+    await expect(page.getByTestId('chat-agent-id')).toHaveAttribute('aria-label', /Canvas Agent/);
+    await expect(page.getByTestId('chat-mobile-details-toggle')).toHaveCount(0);
 
     await page.getByTestId('chat-agent-id').click();
+    await expect(page.getByTestId('chat-agent-selector-popover')).toBeVisible();
+    await expect(page.getByTestId('chat-agent-selector-popover')).toHaveCSS('z-index', '110');
     await page.getByRole('button', { name: /Research Agent\s+research-agent/i }).click();
 
-    await expect(page.getByTestId('chat-agent-id')).toContainText('Research Agent');
+    await expect(page.getByTestId('chat-agent-id')).toHaveAttribute('aria-label', /Research Agent/);
     await expect(page.getByTestId('chat-mobile-details-panel')).toHaveCount(0);
-
-    await page.getByTestId('chat-mobile-details-toggle').click();
-
-    await expect(page.getByTestId('chat-mobile-details-panel')).toBeVisible();
     await expect(page.getByTestId('chat-agent-id')).toHaveCount(1);
     await expect(page.getByTestId('chat-session-id')).toHaveCount(1);
     await expect(page.getByTestId('chat-model-badge')).toHaveCount(0);

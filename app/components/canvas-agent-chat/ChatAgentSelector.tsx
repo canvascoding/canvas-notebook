@@ -62,7 +62,12 @@ export function ChatAgentSelector({
           <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" />
         </button>
       </PopoverTrigger>
-      <PopoverContent align="start" side="bottom" className="w-64 p-1">
+      <PopoverContent
+        align="start"
+        side="bottom"
+        data-testid="chat-agent-selector-popover"
+        className="z-[110] w-64 p-1"
+      >
         <div className="flex items-center justify-between gap-2 px-2 py-1.5">
           <div className="min-w-0 truncate text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
             {t('agentSelectTitle')}

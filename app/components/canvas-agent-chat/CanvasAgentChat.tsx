@@ -198,7 +198,7 @@ export default function CanvasAgentChat({
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [sessionTitle, setSessionTitle] = useState<string | null>(null);
   const [showHistory, setShowHistory] = useState(false);
-  const [showMobileDetails, setShowMobileDetails] = useState(false);
+  const [, setShowMobileDetails] = useState(false);
   const {
     activeModel,
     activeProvider,
@@ -888,12 +888,6 @@ export default function CanvasAgentChat({
     ...(runtimeStatus?.followUpQueue || []).map((entry) => ({ ...entry, kind: 'follow_up' as const })),
   ];
   const activeToolDisplay = runtimeStatus?.activeTool ? getToolDisplayInfo(runtimeStatus.activeTool.name, locale) : null;
-  const contextCompactLabel = runtimeStatus
-    ? t('contextCompactLabel', {
-        used: formatContextTokens(runtimeStatus.estimatedHistoryTokens),
-        available: formatContextTokens(runtimeStatus.availableHistoryTokens),
-      })
-    : t('noSessionYet');
   const contextDetailedLabel = runtimeStatus
     ? t('contextLabel', {
         used: formatContextTokens(runtimeStatus.estimatedHistoryTokens),
@@ -1030,7 +1024,6 @@ export default function CanvasAgentChat({
         activeSessionAgentId={activeSessionAgentId}
         activeToolLabel={activeToolDisplay?.label}
         chatAgentOptions={chatAgentOptions}
-        contextCompactLabel={contextCompactLabel}
         contextDetailedLabel={contextDetailedLabel}
         contextProgressPercent={contextProgressPercent}
         contextTooltip={contextTooltip}

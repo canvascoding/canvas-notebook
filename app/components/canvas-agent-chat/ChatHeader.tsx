@@ -27,7 +27,6 @@ type ChatHeaderProps = {
   activeSessionAgentId: string;
   activeToolLabel?: string;
   chatAgentOptions: AgentProfile[];
-  contextCompactLabel: string;
   contextDetailedLabel: string;
   contextProgressPercent: number;
   contextTooltip: string;
@@ -55,7 +54,6 @@ export function ChatHeader({
   activeSessionAgentId,
   activeToolLabel,
   chatAgentOptions,
-  contextCompactLabel,
   contextDetailedLabel,
   contextProgressPercent,
   contextTooltip,
