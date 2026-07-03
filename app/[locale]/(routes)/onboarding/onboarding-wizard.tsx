@@ -102,82 +102,78 @@ function getLicenseRegistrationActivationPath(fallback: string) {
   return `${url.pathname}${url.search}` || fallback;
 }
 
-type OnboardingPreferenceSaveTarget = 'locale' | 'timeZone';
-
-type OnboardingPreferenceSaveResult = {
-  target: OnboardingPreferenceSaveTarget;
-  ok: boolean;
-  status: number;
-  requestId: string | null;
-  error?: string;
-  bodySnippet?: string;
-};
+type OnboardingClientLogLevel = 'error' | 'info' | 'warn';
 
 function responseBodySnippet(body: string): string {
   return body.replace(/\s+/gu, ' ').trim().slice(0, 500);
 }
 
-async function saveOnboardingPreference(
-  target: OnboardingPreferenceSaveTarget,
-  url: string,
-  payload: Record<string, string>,
-): Promise<OnboardingPreferenceSaveResult> {
+async function logOnboardingClientEvent(
+  event: string,
+  details: Record<string, unknown> = {},
+  level: OnboardingClientLogLevel = 'info',
+): Promise<void> {
+  if (typeof window === 'undefined') return;
+  const body = JSON.stringify({
+    event,
+    level,
+    pathname: window.location.pathname,
+    locale: document.documentElement.lang || navigator.language || null,
+    details,
+  });
+
   try {
-    const response = await fetch(url, {
-      method: 'PATCH',
+    await fetch('/api/onboarding/log', {
+      method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
+      body,
+      keepalive: body.length < 60_000,
     });
-    const requestId = response.headers.get('X-Request-Id');
-
-    if (response.ok) {
-      return {
-        target,
-        ok: true,
-        status: response.status,
-        requestId,
-      };
-    }
-
-    const body = await response.text().catch(() => '');
-    return {
-      target,
-      ok: false,
-      status: response.status,
-      requestId,
-      bodySnippet: responseBodySnippet(body),
-    };
   } catch (error) {
-    return {
-      target,
-      ok: false,
-      status: 0,
-      requestId: null,
-      error: error instanceof Error ? error.message : 'Request failed',
-    };
+    console.warn('[Onboarding] Failed to send client log', error);
   }
 }
 
 async function saveOnboardingPreferences(locale: string, timeZone: string): Promise<void> {
   const normalizedTimeZone = normalizeTimeZone(timeZone);
   console.log('[Onboarding] Saving language/time zone preferences', { locale, timeZone: normalizedTimeZone });
-  const results = await Promise.all([
-    saveOnboardingPreference('locale', '/api/user-preferences', { locale }),
-    saveOnboardingPreference('timeZone', '/api/server-settings', { timeZone: normalizedTimeZone }),
-  ]);
+  await logOnboardingClientEvent('preferences.save.started', { locale, timeZone: normalizedTimeZone });
 
-  console.log('[Onboarding] Preference save responses', results);
-
-  const failures = results.filter((result) => !result.ok);
-  if (failures.length > 0) {
-    console.error('[Onboarding] Preference save failed', { failures });
-    throw new Error(
-      failures
-        .map((failure) => `${failure.target}:${failure.status}${failure.requestId ? `:${failure.requestId}` : ''}`)
-        .join(', '),
-    );
+  let response: Response;
+  try {
+    response = await fetch('/api/onboarding/preferences', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ locale, timeZone: normalizedTimeZone }),
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Request failed';
+    await logOnboardingClientEvent('preferences.save.network-error', { locale, timeZone: normalizedTimeZone, message }, 'error');
+    throw new Error(`network:${message}`);
   }
+
+  const requestId = response.headers.get('X-Request-Id');
+  if (response.ok) {
+    console.log('[Onboarding] Preference save response', { ok: true, status: response.status, requestId });
+    await logOnboardingClientEvent('preferences.save.succeeded', { status: response.status, requestId });
+    return;
+  }
+
+  const body = await response.text().catch(() => '');
+  const bodySnippet = responseBodySnippet(body);
+  console.error('[Onboarding] Preference save failed', {
+    status: response.status,
+    requestId,
+    bodySnippet,
+  });
+  await logOnboardingClientEvent('preferences.save.failed', {
+    status: response.status,
+    requestId,
+    bodySnippet,
+  }, 'error');
+  throw new Error(`status:${response.status}${requestId ? `:${requestId}` : ''}`);
 }
 
 export default function OnboardingWizard({
@@ -730,11 +726,23 @@ function LanguageStep({
 
   async function handleContinue() {
     setIsSaving(true);
+    await logOnboardingClientEvent('language.continue.clicked', {
+      selectedLocale,
+      timeZone: normalizeTimeZone(timeZone),
+      currentLocale,
+      pendingLocale,
+      isPending,
+    });
     try {
       await saveOnboardingPreferences(selectedLocale, normalizeTimeZone(timeZone));
       onContinue();
     } catch (error) {
       console.error('[Onboarding] Failed to save language/time zone preferences:', error);
+      await logOnboardingClientEvent('language.continue.failed', {
+        selectedLocale,
+        timeZone: normalizeTimeZone(timeZone),
+        message: error instanceof Error ? error.message : String(error),
+      }, 'error');
       toast.error(t('preferencesSaveFailed'));
     } finally {
       setIsSaving(false);
