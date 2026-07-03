@@ -73,7 +73,6 @@ const fs = require('fs');
 const next = require('next');
 // Terminal service now runs as separate process via Unix Socket
 // See server/terminal-service.ts
-const { auth } = require('./app/lib/auth');
 const {
   resolveSkillsDataDir,
 } = require('./app/lib/runtime-data-paths');
@@ -91,10 +90,19 @@ const app = next({
   ...(useWebpackDev ? { webpack: true, turbopack: false } : {}),
 });
 const handle = app.getRequestHandler();
+let authInstance = null;
+
+function getAuth() {
+  if (!authInstance) {
+    authInstance = require('./app/lib/auth').auth;
+  }
+  return authInstance;
+}
 
 // Helper to get session from Node.js request using better-auth
 async function getAuthSession(req) {
   try {
+    const auth = getAuth();
     const webHeaders = new Headers();
     for (const [key, value] of Object.entries(req.headers)) {
       if (typeof value === 'string') {
@@ -380,15 +388,20 @@ function serveMedia(req, res) {
 
 // Run database migrations before anything else touches the DB
 try {
-  console.log('[Startup] Running database migrations...');
-  const Database = require('better-sqlite3');
-  const { runMigrations } = require('./app/lib/db/migrate');
-  const dbPath = require('path').join(process.env.DATA || require('path').resolve(process.cwd(), 'data'), 'sqlite.db');
-  require('fs').mkdirSync(require('path').dirname(dbPath), { recursive: true });
-  const migrationDb = new Database(dbPath);
-  runMigrations(migrationDb);
-  migrationDb.close();
-  console.log('[Startup] Database migrations completed');
+  const configuredDatabaseProvider = String(process.env.CANVAS_DATABASE_PROVIDER || 'sqlite').trim().toLowerCase();
+  if (configuredDatabaseProvider === 'postgres') {
+    console.log('[Startup] Postgres database provider configured; skipping SQLite startup migrations');
+  } else {
+    console.log('[Startup] Running database migrations...');
+    const Database = require('better-sqlite3');
+    const { runMigrations } = require('./app/lib/db/migrate');
+    const dbPath = require('path').join(process.env.DATA || require('path').resolve(process.cwd(), 'data'), 'sqlite.db');
+    require('fs').mkdirSync(require('path').dirname(dbPath), { recursive: true });
+    const migrationDb = new Database(dbPath);
+    runMigrations(migrationDb);
+    migrationDb.close();
+    console.log('[Startup] Database migrations completed');
+  }
 } catch (error) {
   console.error('[Startup] CRITICAL ERROR in database migrations:', error.message);
   console.error('[Startup] Stack trace:', error.stack);

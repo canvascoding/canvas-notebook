@@ -1,6 +1,11 @@
 import 'server-only';
 
-import { execFile } from 'child_process';
+import { execFile, spawn } from 'child_process';
+import crypto from 'crypto';
+import { createReadStream, createWriteStream, promises as fs } from 'fs';
+import { tmpdir } from 'os';
+import path from 'path';
+import { pipeline } from 'stream/promises';
 import { promisify } from 'util';
 
 import { getCurrentAppVersion } from '@/app/lib/migration/app-version';
@@ -30,8 +35,10 @@ import {
   getDeploymentMode,
   openOrganizationBootstrapDatabase,
 } from '@/app/lib/organization/bootstrap';
+import { assertSqliteDatabaseReadable } from '@/app/lib/db/sqlite-health';
 
 const execFileAsync = promisify(execFile);
+const SQLITE_ARCHIVE_PATH = 'data/sqlite.db';
 
 async function unzipText(args: string[], maxBuffer = 100 * 1024 * 1024): Promise<string> {
   const { stdout } = await execFileAsync('unzip', args, { encoding: 'utf8', maxBuffer });
@@ -49,6 +56,110 @@ function hasUnsafeZipEntry(entryName: string): boolean {
 async function listArchiveEntries(archivePath: string): Promise<string[]> {
   const output = await unzipText(['-Z1', archivePath]);
   return output.split('\n').map((line) => line.trim()).filter(Boolean);
+}
+
+async function extractArchiveEntryToFile(params: {
+  archivePath: string;
+  entryName: string;
+  outputPath: string;
+}): Promise<void> {
+  const child = spawn('unzip', ['-p', params.archivePath, params.entryName], {
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  if (!child.stdout || !child.stderr) {
+    child.kill();
+    throw new Error('Could not open unzip streams.');
+  }
+  let stderr = '';
+  child.stderr.setEncoding('utf8');
+  child.stderr.on('data', (chunk) => {
+    stderr += chunk;
+  });
+
+  const output = createWriteStream(params.outputPath, { mode: 0o600 });
+  const extracted = pipeline(child.stdout, output);
+  const exited = new Promise<void>((resolve, reject) => {
+    child.on('error', reject);
+    child.on('close', (code) => {
+      if (code === 0) {
+        resolve();
+        return;
+      }
+      reject(new Error(`unzip failed for ${params.entryName}: ${stderr.trim() || `exit ${code}`}`));
+    });
+  });
+
+  try {
+    await Promise.all([extracted, exited]);
+  } catch (error) {
+    child.kill();
+    throw error;
+  }
+}
+
+async function sha256File(filePath: string): Promise<string> {
+  const hash = crypto.createHash('sha256');
+  const stream = createReadStream(filePath, { highWaterMark: 1024 * 1024 });
+  for await (const chunk of stream) {
+    hash.update(chunk);
+  }
+  return hash.digest('hex');
+}
+
+async function validateSqliteDatabaseArtifact(params: {
+  archivePath: string;
+  manifest: CanvasMigrationManifest;
+  entries: string[];
+}): Promise<string[]> {
+  const blockers: string[] = [];
+  if (!params.manifest.components.database) {
+    return blockers;
+  }
+
+  const sourceProvider = params.manifest.database?.provider ?? params.manifest.source?.databaseProvider ?? 'sqlite';
+  const backupKind = params.manifest.database?.backupKind ?? 'sqlite_snapshot';
+  const artifactPath = params.manifest.database?.artifactPath ?? SQLITE_ARCHIVE_PATH;
+  if (sourceProvider !== 'sqlite' || backupKind !== 'sqlite_snapshot' || artifactPath !== SQLITE_ARCHIVE_PATH) {
+    return blockers;
+  }
+
+  const artifactEntries = params.entries.filter((entry) => entry === SQLITE_ARCHIVE_PATH);
+  if (artifactEntries.length !== 1) {
+    blockers.push(
+      artifactEntries.length === 0
+        ? 'Migration archive is missing data/sqlite.db.'
+        : 'Migration archive contains multiple data/sqlite.db entries.',
+    );
+    return blockers;
+  }
+
+  const tempRoot = await fs.mkdtemp(path.join(tmpdir(), 'canvas-migration-sqlite-'));
+  const snapshotPath = path.join(tempRoot, 'sqlite.db');
+  try {
+    await extractArchiveEntryToFile({
+      archivePath: params.archivePath,
+      entryName: SQLITE_ARCHIVE_PATH,
+      outputPath: snapshotPath,
+    });
+
+    const expectedSha256 = params.manifest.database?.artifactSha256;
+    if (expectedSha256) {
+      const actualSha256 = await sha256File(snapshotPath);
+      if (actualSha256 !== expectedSha256) {
+        blockers.push('SQLite database snapshot checksum does not match the migration manifest.');
+      }
+    }
+
+    try {
+      assertSqliteDatabaseReadable(snapshotPath);
+    } catch (error) {
+      blockers.push(`SQLite database snapshot is invalid: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  } finally {
+    await fs.rm(tempRoot, { recursive: true, force: true });
+  }
+
+  return blockers;
 }
 
 function parseComponents(value: unknown): MigrationComponents | null {
@@ -721,8 +832,23 @@ export async function inspectMigrationArchive(params: {
   const dryRun = manifest
     ? buildDryRun({ manifest, entries, reconnect, warnings })
     : undefined;
+
+  if (dryRun && manifest) {
+    const databaseBlockers = await validateSqliteDatabaseArtifact({
+      archivePath: params.archivePath,
+      manifest,
+      entries,
+    });
+    if (databaseBlockers.length > 0) {
+      dryRun.blockers.push(...databaseBlockers);
+      dryRun.canApply = false;
+      dryRun.status = 'blocked';
+      dryRun.stats.blockers = dryRun.blockers.length;
+    }
+  }
+
   if (dryRun && !dryRun.canApply) {
-    warnings.push('Import dry run is blocked. Resolve required user/workspace mappings before staging restore.');
+    warnings.push('Import dry run is blocked. Resolve required blockers before staging restore.');
   } else if (dryRun?.reconnect.length) {
     warnings.push('Import dry run passed, but integrations listed in the reconnect manifest must be reconnected after restore.');
   }

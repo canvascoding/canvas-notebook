@@ -57,6 +57,7 @@
     "test:media:references": "tsx --conditions react-server scripts/media-reference-resolver-test.ts",
     "test:upload:conversion": "tsx --conditions react-server scripts/upload-conversion-test.ts",
     "test:migration:upload": "tsx --conditions react-server scripts/migration-upload-test.ts",
+    "test:migration:restore": "tsx --conditions react-server scripts/migration-restore-sqlite-validation-test.ts",
     "test:backup:full": "tsx --conditions react-server scripts/full-backup-service-test.ts",
     "test:prompt-builder": "tsx scripts/prompt-builder-test.ts",
     "test:studio:prompt": "tsx scripts/studio-generation-prompt-test.ts",

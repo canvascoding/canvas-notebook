@@ -14,6 +14,7 @@ import {
   getSelectedMigrationComponentPaths,
   resolveMigrationDataPath,
 } from '../app/lib/migration/component-paths';
+import { assertSqliteDatabaseReadable } from '../app/lib/db/sqlite-health';
 
 const execFileAsync = promisify(execFile);
 
@@ -101,12 +102,13 @@ async function ensureNoSymlinks(rootPath: string): Promise<void> {
   }
 }
 
-async function backupPath(targetPath: string, backupDir: string): Promise<void> {
-  if (!await pathExists(targetPath)) return;
+async function backupPath(targetPath: string, backupDir: string): Promise<string | null> {
+  if (!await pathExists(targetPath)) return null;
   const relative = path.relative(DATA_ROOT, targetPath);
   const backupPath = path.join(backupDir, relative);
   await fs.mkdir(path.dirname(backupPath), { recursive: true });
   await fs.rename(targetPath, backupPath);
+  return backupPath;
 }
 
 async function replacePath(sourcePath: string, targetPath: string, backupDir: string): Promise<void> {
@@ -187,6 +189,8 @@ async function applyDatabase(params: {
 }): Promise<void> {
   const targetDbPath = path.join(DATA_ROOT, 'sqlite.db');
   const targetInstancePath = path.join(DATA_ROOT, 'instance-id');
+  assertSqliteDatabaseReadable(params.sourceDbPath);
+
   const preservedInstanceId = await fs.readFile(targetInstancePath, 'utf8').catch(() => null);
   const managedVm = isManagedVm();
   const licenseCertRows = params.preserveTargetInstanceAndLicense && managedVm
@@ -196,13 +200,11 @@ async function applyDatabase(params: {
     ? readRows(targetDbPath, 'license_public_keys')
     : [];
 
-  await backupPath(targetDbPath, params.backupDir);
-  await fs.rm(`${targetDbPath}-wal`, { force: true }).catch(() => undefined);
-  await fs.rm(`${targetDbPath}-shm`, { force: true }).catch(() => undefined);
-  await fs.copyFile(params.sourceDbPath, targetDbPath);
-  await fs.chmod(targetDbPath, 0o600).catch(() => undefined);
+  const stagingDbPath = path.join(params.backupDir, 'candidate-sqlite.db');
+  await fs.copyFile(params.sourceDbPath, stagingDbPath);
+  await fs.chmod(stagingDbPath, 0o600).catch(() => undefined);
 
-  const db = new Database(targetDbPath);
+  const db = new Database(stagingDbPath);
   try {
     runMigrations(db);
     quickCheck(db);
@@ -235,8 +237,26 @@ async function applyDatabase(params: {
     }
 
     quickCheck(db);
+    db.pragma('wal_checkpoint(TRUNCATE)');
   } finally {
     db.close();
+  }
+  await fs.rm(`${stagingDbPath}-wal`, { force: true }).catch(() => undefined);
+  await fs.rm(`${stagingDbPath}-shm`, { force: true }).catch(() => undefined);
+
+  const backupDbPath = await backupPath(targetDbPath, params.backupDir);
+  await fs.rm(`${targetDbPath}-wal`, { force: true }).catch(() => undefined);
+  await fs.rm(`${targetDbPath}-shm`, { force: true }).catch(() => undefined);
+  try {
+    await fs.copyFile(stagingDbPath, targetDbPath);
+    await fs.chmod(targetDbPath, 0o600).catch(() => undefined);
+  } catch (error) {
+    await fs.rm(targetDbPath, { force: true }).catch(() => undefined);
+    if (backupDbPath) {
+      await fs.mkdir(path.dirname(targetDbPath), { recursive: true });
+      await fs.rename(backupDbPath, targetDbPath).catch(() => undefined);
+    }
+    throw error;
   }
 
   if (preservedInstanceId) {
@@ -305,6 +325,14 @@ async function applyPendingRestore(pending: PendingMigrationRestore): Promise<vo
     },
   });
 
+  const sourceDbPath = path.join(extractDataRoot, 'sqlite.db');
+  if (pending.components.database) {
+    if (!await pathExists(sourceDbPath)) {
+      throw new Error('Migration archive is missing data/sqlite.db.');
+    }
+    assertSqliteDatabaseReadable(sourceDbPath);
+  }
+
   log(`Backing up current data to ${backupDir}`);
   await applyFileComponents({
     extractDataRoot,
@@ -313,10 +341,6 @@ async function applyPendingRestore(pending: PendingMigrationRestore): Promise<vo
   });
 
   if (pending.components.database) {
-    const sourceDbPath = path.join(extractDataRoot, 'sqlite.db');
-    if (!await pathExists(sourceDbPath)) {
-      throw new Error('Migration archive is missing data/sqlite.db.');
-    }
     log('Applying SQLite snapshot and running migrations');
     await applyDatabase({
       sourceDbPath,

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -16,7 +17,7 @@ import {
 
 const execFileAsync = promisify(execFile);
 
-async function createZipArchive(root: string, name: string, manifest: CanvasMigrationManifest, files: Record<string, string>): Promise<string> {
+async function createZipArchive(root: string, name: string, manifest: CanvasMigrationManifest, files: Record<string, string | Buffer>): Promise<string> {
   const bundleDir = path.join(root, name);
   await mkdir(bundleDir, { recursive: true });
   await writeFile(path.join(bundleDir, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`);
@@ -28,6 +29,21 @@ async function createZipArchive(root: string, name: string, manifest: CanvasMigr
   const archivePath = path.join(root, `${name}.zip`);
   await execFileAsync('zip', ['-qr', archivePath, '.'], { cwd: bundleDir });
   return archivePath;
+}
+
+async function createSqliteSnapshotBytes(root: string, name: string): Promise<Buffer> {
+  const dbPath = path.join(root, name);
+  const sqlite = new Database(dbPath);
+  try {
+    runMigrations(sqlite);
+  } finally {
+    sqlite.close();
+  }
+  return readFile(dbPath);
+}
+
+function sha256Buffer(value: Buffer | string): string {
+  return createHash('sha256').update(value).digest('hex');
 }
 
 async function seedTargetDatabase(dataRoot: string) {
@@ -103,6 +119,8 @@ async function main() {
       skills: false,
       secrets: true,
     };
+    const sqliteBytes = await createSqliteSnapshotBytes(archiveRoot, 'source.sqlite.db');
+    const sqliteSha256 = sha256Buffer(sqliteBytes);
 
     const matchingManifest: CanvasMigrationManifest = {
       format: 'canvas-notebook-migration',
@@ -140,7 +158,7 @@ async function main() {
         migrationVersion: MIGRATION_BUNDLE_SCHEMA_VERSION,
         backupKind: 'sqlite_snapshot',
         artifactPath: 'data/sqlite.db',
-        artifactSha256: '0'.repeat(64),
+        artifactSha256: sqliteSha256,
         pgvectorEnabled: null,
         pgvectorVersion: null,
         postgresVersion: null,
@@ -164,7 +182,7 @@ async function main() {
         { component: 'workspace', archivePath: 'data/workspaces/team/org-target/files/team.md', size: 1, modifiedAt: new Date().toISOString() },
         { component: 'workspace', archivePath: 'data/workspaces/personal/user-target/files/private.md', size: 1, modifiedAt: new Date().toISOString() },
         { component: 'secrets', archivePath: 'data/reconnect-manifest.json', size: 1, modifiedAt: new Date().toISOString() },
-        { component: 'database', archivePath: 'data/sqlite.db', size: 1, modifiedAt: new Date().toISOString() },
+        { component: 'database', archivePath: 'data/sqlite.db', size: sqliteBytes.length, modifiedAt: new Date().toISOString() },
       ],
     };
 
@@ -184,7 +202,7 @@ async function main() {
           },
         ],
       })}\n`,
-      'data/sqlite.db': 'placeholder',
+      'data/sqlite.db': sqliteBytes,
     });
 
     const { inspectMigrationArchive } = await import('../app/lib/migration/inspect-service');
@@ -197,6 +215,34 @@ async function main() {
     assert.equal(matchingInspection.dryRun?.users.length, 1);
     assert.equal(matchingInspection.dryRun?.users[0]?.status, 'mapped');
     assert.equal(matchingInspection.dryRun?.workspaces.every((mapping) => mapping.status === 'mapped'), true);
+
+    const invalidDatabaseArchive = await createZipArchive(archiveRoot, 'invalid-database', {
+      ...matchingManifest,
+      exportId: 'export-invalid-database',
+      database: {
+        ...matchingManifest.database!,
+        artifactSha256: sha256Buffer('not a sqlite database'),
+      },
+      files: matchingManifest.files.map((file) => file.archivePath === 'data/sqlite.db'
+        ? { ...file, size: Buffer.byteLength('not a sqlite database') }
+        : file),
+    }, {
+      'data/workspaces/team/org-target/files/team.md': '# Team\n',
+      'data/workspaces/personal/user-target/files/private.md': '# Private\n',
+      'data/reconnect-manifest.json': `${JSON.stringify({
+        format: 'canvas-notebook-reconnect-manifest',
+        rawSecretsIncluded: false,
+        entries: [],
+      })}\n`,
+      'data/sqlite.db': 'not a sqlite database',
+    });
+    const invalidDatabaseInspection = await inspectMigrationArchive({
+      uploadId: 'invalid-database-upload',
+      archivePath: invalidDatabaseArchive,
+    });
+    assert.equal(invalidDatabaseInspection.canRestore, false);
+    assert.equal(invalidDatabaseInspection.dryRun?.status, 'blocked');
+    assert.ok(invalidDatabaseInspection.dryRun?.blockers.some((blocker) => blocker.includes('SQLite database snapshot is invalid')));
 
     const blockedManifest: CanvasMigrationManifest = {
       ...matchingManifest,
