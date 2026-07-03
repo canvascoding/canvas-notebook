@@ -577,9 +577,11 @@ async function main() {
   assert.ok(otherManagedUserId);
   assert.notEqual(ownerManagedUserId, otherManagedUserId);
 
+  const ownerManagedAccountId = '11111111-1111-4111-8111-111111111111';
+  const otherManagedAccountId = '22222222-2222-4222-8222-222222222222';
   const managedAccountsByUser = new Map([
     [ownerManagedUserId, {
-      id: 'managed-owner',
+      id: ownerManagedAccountId,
       provider: 'google',
       emailAddress: 'managed-owner@example.test',
       displayName: 'Managed Owner',
@@ -587,7 +589,7 @@ async function main() {
       policy: { readFrom: [], sendTo: [] },
     }],
     [otherManagedUserId, {
-      id: 'managed-other',
+      id: otherManagedAccountId,
       provider: 'google',
       emailAddress: 'managed-other@example.test',
       displayName: 'Managed Other',
@@ -600,6 +602,7 @@ async function main() {
     status,
     headers: { 'Content-Type': 'application/json' },
   });
+  let managedSearchFailureStatus = 0;
 
   globalThis.fetch = (async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
     const url = typeof input === 'string' || input instanceof URL ? String(input) : input.url;
@@ -620,6 +623,9 @@ async function main() {
       });
     }
     if (url === 'https://control.example.test/v1/managed/email/search') {
+      if (managedSearchFailureStatus) {
+        return jsonResponse({ error: 'Internal Server Error' }, managedSearchFailureStatus);
+      }
       const account = userId ? managedAccountsByUser.get(userId) : null;
       const parsedBody = body ? JSON.parse(body) as { accountId?: string } : {};
       if (!account || parsedBody.accountId !== account.id) {
@@ -645,17 +651,23 @@ async function main() {
     const otherManagedAccounts = await listEmailAccounts('other-user');
     assert.equal(ownerManagedAccounts.mode, 'managed');
     assert.equal(otherManagedAccounts.mode, 'managed');
-    assert.ok(ownerManagedAccounts.accounts.some((account) => (account as { id?: string }).id === 'managed-owner'));
-    assert.equal(ownerManagedAccounts.accounts.some((account) => (account as { id?: string }).id === 'managed-other'), false);
-    assert.ok(otherManagedAccounts.accounts.some((account) => (account as { id?: string }).id === 'managed-other'));
-    assert.equal(otherManagedAccounts.accounts.some((account) => (account as { id?: string }).id === 'managed-owner'), false);
+    assert.ok(ownerManagedAccounts.accounts.some((account) => (account as { id?: string }).id === ownerManagedAccountId));
+    assert.equal(ownerManagedAccounts.accounts.some((account) => (account as { id?: string }).id === otherManagedAccountId), false);
+    assert.ok(otherManagedAccounts.accounts.some((account) => (account as { id?: string }).id === otherManagedAccountId));
+    assert.equal(otherManagedAccounts.accounts.some((account) => (account as { id?: string }).id === ownerManagedAccountId), false);
 
     const managedOAuthStart = await startEmailOAuth('owner-user', { provider: 'google', requestOrigin: 'https://canvas.example.com' });
     assert.equal(managedOAuthStart.authorizationUrl, 'https://accounts.example.test/oauth');
 
-    const managedList = await listEmailMessages('owner-user', { accountId: 'managed-owner', limit: 5 });
-    assert.equal((managedList as { account?: { id?: string } }).account?.id, 'managed-owner');
+    const managedList = await listEmailMessages('owner-user', { accountId: ownerManagedAccountId, limit: 5 });
+    assert.equal((managedList as { account?: { id?: string } }).account?.id, ownerManagedAccountId);
     assert.equal(((managedList as { messages?: unknown[] }).messages || []).length, 1);
+
+    managedSearchFailureStatus = 500;
+    await assert.rejects(
+      () => listEmailMessages('owner-user', { accountId: ownerManagedAccountId, limit: 5 }),
+      /Managed email request to Control Plane failed \(500\) for \/v1\/managed\/email\/search: Internal Server Error/u,
+    );
 
     assert.ok(managedRequests.some((request) => request.url.endsWith('/v1/managed/email/accounts') && request.userId === ownerManagedUserId));
     assert.ok(managedRequests.some((request) => request.url.endsWith('/v1/managed/email/accounts') && request.userId === otherManagedUserId));

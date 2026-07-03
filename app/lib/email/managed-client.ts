@@ -50,6 +50,13 @@ export type ManagedEmailRequestScope = {
 
 const MANAGED_EMAIL_USER_ID_PREFIX = 'canvas-notebook-email-';
 
+export class ManagedEmailRequestError extends Error {
+  constructor(message: string, readonly status: number, readonly path: string) {
+    super(message);
+    this.name = 'ManagedEmailRequestError';
+  }
+}
+
 export function isManagedEmailAvailable(): boolean {
   return (
     process.env.CANVAS_MANAGED_SERVICES_ENABLED === 'true' &&
@@ -98,7 +105,12 @@ function managedEmailHeaders(options?: RequestInit, scope?: ManagedEmailRequestS
   return headers;
 }
 
-async function readJson<T>(response: Response): Promise<T> {
+function managedEmailRequestErrorMessage(path: string, status: number, error: string) {
+  const detail = error.trim() || `Managed email request failed (${status})`;
+  return `Managed email request to Control Plane failed (${status}) for ${path}: ${detail}`;
+}
+
+async function readJson<T>(response: Response, path: string): Promise<T> {
   const text = await response.text();
   let payload: unknown = {};
   if (text) {
@@ -112,7 +124,7 @@ async function readJson<T>(response: Response): Promise<T> {
     const message = payload && typeof payload === 'object' && 'error' in payload && typeof payload.error === 'string'
       ? payload.error
       : `Managed email request failed (${response.status})`;
-    throw new Error(message);
+    throw new ManagedEmailRequestError(managedEmailRequestErrorMessage(path, response.status, message), response.status, path);
   }
   return payload as T;
 }
@@ -129,5 +141,5 @@ export async function managedEmailRequest<T>(
     ...options,
     headers: managedEmailHeaders(options, scope),
   });
-  return readJson<T>(response);
+  return readJson<T>(response, path);
 }
