@@ -1,6 +1,7 @@
 import { and, asc, desc, eq, like, or, sql } from 'drizzle-orm';
 
 import { db } from '../db';
+import { getDatabaseProvider } from '../db/provider';
 import { piUsageEvents, user } from '../db/schema';
 import type {
   SerializedUsageFilters,
@@ -291,12 +292,22 @@ function getGrouping(filters: UsageFilters) {
         orderBy: desc(sql<number>`coalesce(sum(${piUsageEvents.totalCost}), 0)`),
       };
     case 'day':
-    default:
+    default: {
+      if (getDatabaseProvider() === 'postgres') {
+        const dayKey = sql<string>`to_char(to_timestamp(${piUsageEvents.assistantTimestamp}), 'YYYY-MM-DD')`;
+        return {
+          groupKey: dayKey,
+          label: dayKey,
+          orderBy: asc(dayKey),
+        };
+      }
+      const dayKey = sql<string>`strftime('%Y-%m-%d', ${piUsageEvents.assistantTimestamp}, 'unixepoch')`;
       return {
-        groupKey: sql<string>`strftime('%Y-%m-%d', ${piUsageEvents.assistantTimestamp}, 'unixepoch')`,
-        label: sql<string>`strftime('%Y-%m-%d', ${piUsageEvents.assistantTimestamp}, 'unixepoch')`,
-        orderBy: asc(sql<string>`strftime('%Y-%m-%d', ${piUsageEvents.assistantTimestamp}, 'unixepoch')`),
+        groupKey: dayKey,
+        label: dayKey,
+        orderBy: asc(dayKey),
       };
+    }
   }
 }
 
