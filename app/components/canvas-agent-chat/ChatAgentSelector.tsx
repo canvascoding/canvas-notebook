@@ -20,7 +20,7 @@ export function ChatAgentSelector({
   onSelectAgent,
   iconOnly = false,
 }: {
-  variant: 'desktop' | 'mobile';
+  variant: 'desktop' | 'mobile' | 'compact';
   activeAgentId: string;
   activeAgentName: string;
   activeAgentIconId?: string | null;
@@ -31,7 +31,7 @@ export function ChatAgentSelector({
   iconOnly?: boolean;
 }) {
   const t = useTranslations('chat');
-  const compact = variant === 'mobile';
+  const compact = variant === 'mobile' || variant === 'compact';
 
   return (
     <Popover>
@@ -46,7 +46,11 @@ export function ChatAgentSelector({
             iconOnly
               ? 'w-auto justify-center border-border/60'
               : 'border-border/60 bg-muted/50',
-            !iconOnly && (compact ? 'max-w-[12rem] text-[10px]' : 'max-w-[min(14rem,100%)] text-[11px]'),
+            !iconOnly && (variant === 'mobile'
+              ? 'max-w-[12rem] text-[10px]'
+              : compact
+                ? 'max-w-[9rem] text-[10px]'
+                : 'max-w-[min(14rem,100%)] text-[11px]'),
             className,
           )}
         >
@@ -55,7 +59,7 @@ export function ChatAgentSelector({
           ) : null}
           <AgentIcon iconId={activeAgentIconId} className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
           {!iconOnly ? (
-            <span className={cn('min-w-0 truncate', compact ? 'max-w-[8rem]' : 'max-w-[9rem]')}>
+            <span className={cn('min-w-0 truncate', compact ? 'max-w-[6rem]' : 'max-w-[9rem]')}>
               {activeAgentName}
             </span>
           ) : null}

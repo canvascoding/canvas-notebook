@@ -15,7 +15,7 @@ import { Button } from '@/components/ui/button';
 import { ThemeToggle } from '@/app/components/ThemeToggle';
 import { ChatAgentSelector } from '@/app/components/canvas-agent-chat/ChatAgentSelector';
 import { ChatRuntimeActivityBadge } from '@/app/components/canvas-agent-chat/ChatRuntimeActivityBadge';
-import { WorkspaceSwitcher } from '@/app/components/workspaces/WorkspaceSwitcher';
+import { WorkspaceSwitcher, useShouldShowWorkspaceSwitcher } from '@/app/components/workspaces/WorkspaceSwitcher';
 import type { RuntimeStatus } from '@/app/lib/chat/runtime-status';
 import type { AgentProfile } from '@/app/lib/chat/types';
 import type { ToolVerbosity } from '@/app/store/tool-verbosity-store';
@@ -76,6 +76,8 @@ export function ChatHeader({
 }: ChatHeaderProps) {
   const t = useTranslations('chat');
   const tCommon = useTranslations('common');
+  const showWorkspaceSwitcher = useShouldShowWorkspaceSwitcher();
+  const compactSelectors = isCompactView || (!isMobile && showWorkspaceSwitcher);
 
   return (
     <>
@@ -140,7 +142,7 @@ export function ChatHeader({
               <span className="min-w-0 truncate">{sessionDisplayLabel}</span>
             </div>
             <ChatAgentSelector
-              variant={isMobile ? 'mobile' : 'desktop'}
+              variant={isMobile ? 'mobile' : compactSelectors ? 'compact' : 'desktop'}
               activeAgentId={activeSessionAgentId}
               activeAgentName={activeAgentDisplayName}
               activeAgentIconId={activeAgentIconId}
@@ -150,7 +152,7 @@ export function ChatHeader({
             />
           </div>
           <div className="flex shrink-0 items-center gap-1 md:ml-auto">
-            <WorkspaceSwitcher source="chat" variant="compact" className="hidden sm:inline-flex" />
+            <WorkspaceSwitcher source="chat" variant={compactSelectors ? 'chat-compact' : 'compact'} className="hidden sm:inline-flex" />
             <button
               type="button"
               aria-label={t('newChatTitle')}
@@ -179,7 +181,7 @@ export function ChatHeader({
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div data-testid="chat-runtime-status" className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5 sm:flex-initial">
               <ChatRuntimeActivityBadge status={runtimeStatus} className="h-7" />
-              {isMobile ? <WorkspaceSwitcher source="chat" variant="compact" /> : null}
+              {isMobile ? <WorkspaceSwitcher source="chat" variant="chat-compact" /> : null}
 
               {runtimeStatus && totalQueuedMessages > 0 && (
                 <span className="inline-flex h-7 items-center gap-1 border border-border/60 bg-muted/40 px-1.5 text-[10px] text-muted-foreground">

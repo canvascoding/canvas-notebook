@@ -36,7 +36,7 @@ import {
   type WorkspaceSwitchSource,
 } from '@/app/store/workspace-store';
 
-type WorkspaceSwitcherVariant = 'default' | 'compact' | 'toolbar' | 'mobile-sheet';
+type WorkspaceSwitcherVariant = 'default' | 'compact' | 'chat-compact' | 'toolbar' | 'mobile-sheet';
 
 type WorkspaceSwitcherProps = {
   source: WorkspaceSwitchSource;
@@ -102,6 +102,7 @@ export function WorkspaceSwitcher({ source, variant = 'default', className }: Wo
   );
 
   const isCompact = variant === 'compact';
+  const isChatCompact = variant === 'chat-compact';
   const isToolbar = variant === 'toolbar';
   const isMobileSheet = variant === 'mobile-sheet';
   const switchableWorkspaces = getSwitchableWorkspaces(workspaces);
@@ -240,7 +241,7 @@ export function WorkspaceSwitcher({ source, variant = 'default', className }: Wo
           data-active-workspace-type={activeWorkspace?.type ?? ''}
           className={cn(
             'h-8 min-w-0 gap-1.5 px-2 text-xs',
-            isCompact ? 'max-w-[9.5rem]' : 'max-w-[14rem]',
+            isChatCompact ? 'max-w-[8rem]' : isCompact ? 'max-w-[9.5rem]' : 'max-w-[14rem]',
             isToolbar && 'bg-background/70',
             className
           )}
@@ -251,7 +252,7 @@ export function WorkspaceSwitcher({ source, variant = 'default', className }: Wo
           ) : (
             renderWorkspaceIcon(activeWorkspace, 'h-3.5 w-3.5 shrink-0')
           )}
-          <span className={cn('min-w-0 truncate', isCompact && 'hidden sm:inline')}>
+          <span className={cn('min-w-0 truncate', isCompact && 'hidden sm:inline', isChatCompact && 'hidden md:inline')}>
             {isCompact && activeWorkspace ? getWorkspaceKindLabel(activeWorkspace, kindLabels) : activeLabel}
           </span>
           {activeWorkspace && !activeWorkspace.permissions.canWrite ? <Lock className="h-3 w-3 shrink-0 text-amber-500" /> : null}
