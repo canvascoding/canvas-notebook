@@ -191,6 +191,9 @@ export function normalizeDatabaseConfig(config: CanvasCliConfig): CanvasCliConfi
 
   if (next.env.CANVAS_DATABASE_PROVIDER !== 'postgres') {
     next.env.CANVAS_POSTGRES_VECTOR_ENABLED = false;
+    if (String(next.env.CANVAS_DEPLOYMENT_MODE || '').includes('team')) {
+      next.env.CANVAS_DEPLOYMENT_MODE = 'managed-single';
+    }
     return next;
   }
 

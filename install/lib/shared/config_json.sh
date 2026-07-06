@@ -274,7 +274,10 @@ config_json_ensure_database_config() {
   provider="$(config_json_normalize_database_provider "$(config_json_read env.CANVAS_DATABASE_PROVIDER)")"
 
   if config_json_deployment_requires_postgres "$deployment_mode" "$team_features" && [[ "$provider" != "postgres" ]]; then
-    fail "Deployment mode '${deployment_mode}' requires CANVAS_DATABASE_PROVIDER=postgres. Set the provider to postgres before syncing or starting."
+    deployment_mode="managed-single"
+    team_features="false"
+    config_json_write env.CANVAS_DEPLOYMENT_MODE "$deployment_mode"
+    config_json_write env.CANVAS_TEAM_FEATURES_ENABLED "$team_features"
   fi
 
   config_json_write env.CANVAS_DEPLOYMENT_MODE "$deployment_mode"
