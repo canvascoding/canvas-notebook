@@ -465,16 +465,22 @@ function runStudioPresetSeeding() {
 
 function scheduleExpiredSessionCleanup() {
   try {
-    const { openDb } = require('./app/lib/db/index');
+    const { openDb, getDatabaseProvider } = require('./app/lib/db/index');
+    const isPostgres = getDatabaseProvider() === 'postgres';
     const CLEANUP_INTERVAL_MS = 15 * 60 * 1000;
+    const cleanupQuery = isPostgres
+      ? "DELETE FROM session WHERE expires_at < floor(extract(epoch from now()))::bigint"
+      : "DELETE FROM session WHERE expires_at < unixepoch()";
     async function purgeExpiredSessions() {
       try {
         const dbConn = await openDb();
-        const result = dbConn.run("DELETE FROM session WHERE expires_at < unixepoch()");
+        const result = dbConn.run(cleanupQuery);
         if (result.changes > 0) {
           console.log(`[Session Cleanup] Deleted ${result.changes} expired session(s)`);
         }
-        dbConn.run("PRAGMA optimize");
+        if (!isPostgres) {
+          dbConn.run("PRAGMA optimize");
+        }
         dbConn.close();
       } catch (err) {
         console.warn('[Session Cleanup] Failed:', err.message);
