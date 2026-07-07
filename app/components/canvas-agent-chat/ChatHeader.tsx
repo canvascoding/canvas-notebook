@@ -103,15 +103,15 @@ export function ChatHeader({
         </header>
       )}
 
-        <div className={cn('z-10 border-b border-border bg-background/95', isHistoryOverlayOpen ? 'hidden' : null)}>
+      <div className={cn('relative z-10 border-b border-border bg-background/95', isHistoryOverlayOpen ? 'hidden' : null)}>
         <div className="flex items-center gap-2 px-3 py-2 md:flex-wrap">
-          <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
+          <div className="flex min-w-0 flex-1 items-center gap-1.5">
             {showHistory ? (
               <button
                 type="button"
                 aria-label={t('backToChat')}
                 onClick={() => onSetShowHistory(false)}
-                className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-transparent transition-colors hover:border-border hover:bg-accent"
+                className="relative z-10 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-transparent transition-colors hover:border-border hover:bg-accent"
                 title={t('backToChat')}
               >
                 <ChevronLeft size={18} />
@@ -122,34 +122,36 @@ export function ChatHeader({
                 data-testid="chat-history-toggle"
                 aria-label={t('toggleSidebar')}
                 onClick={() => onSetShowHistory(true)}
-                className="relative inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-transparent transition-colors hover:border-border hover:bg-accent"
+                className="relative z-10 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-transparent transition-colors hover:border-border hover:bg-accent"
                 title={t('toggleSidebar')}
               >
                 <History size={18} />
                 {totalUnreadCount > 0 && (
-                  <span className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-blue-500 text-[9px] font-bold text-white">
+                  <span className="absolute -right-1 -top-1 z-20 flex h-4 w-4 items-center justify-center rounded-full bg-blue-500 text-[9px] font-bold text-white">
                     {totalUnreadCount > 9 ? '9+' : totalUnreadCount}
                   </span>
                 )}
               </button>
             )}
-            <div
-              data-testid="chat-session-id"
-              title={sessionId || t('newChatTitle')}
-              className="inline-flex h-7 min-w-0 shrink items-center gap-1.5 rounded-md border border-border/60 bg-muted/50 px-2 text-[11px] font-medium text-foreground md:max-w-[min(18rem,100%)]"
-            >
-              <span className="hidden text-[9px] uppercase tracking-[0.15em] text-muted-foreground sm:inline">{t('sessionLabel')}</span>
-              <span className="min-w-0 truncate">{sessionDisplayLabel}</span>
+            <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
+              <div
+                data-testid="chat-session-id"
+                title={sessionId || t('newChatTitle')}
+                className="inline-flex h-7 min-w-0 shrink items-center gap-1.5 rounded-md border border-border/60 bg-muted/50 px-2 text-[11px] font-medium text-foreground md:max-w-[min(18rem,100%)]"
+              >
+                <span className="hidden text-[9px] uppercase tracking-[0.15em] text-muted-foreground sm:inline">{t('sessionLabel')}</span>
+                <span className="min-w-0 truncate">{sessionDisplayLabel}</span>
+              </div>
+              <ChatAgentSelector
+                variant={isMobile ? 'mobile' : compactSelectors ? 'compact' : 'desktop'}
+                activeAgentId={activeSessionAgentId}
+                activeAgentName={activeAgentDisplayName}
+                activeAgentIconId={activeAgentIconId}
+                agents={chatAgentOptions}
+                onSelectAgent={onSelectAgent}
+                iconOnly={isMobile}
+              />
             </div>
-            <ChatAgentSelector
-              variant={isMobile ? 'mobile' : compactSelectors ? 'compact' : 'desktop'}
-              activeAgentId={activeSessionAgentId}
-              activeAgentName={activeAgentDisplayName}
-              activeAgentIconId={activeAgentIconId}
-              agents={chatAgentOptions}
-              onSelectAgent={onSelectAgent}
-              iconOnly={isMobile}
-            />
           </div>
           <div className="flex shrink-0 items-center gap-1 md:ml-auto">
             <WorkspaceSwitcher source="chat" variant={compactSelectors ? 'chat-compact' : 'compact'} className="hidden sm:inline-flex" />
