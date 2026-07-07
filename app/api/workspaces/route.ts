@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 
 import { auth } from '@/app/lib/auth';
+import { jsonServerError } from '@/app/lib/api/route-helpers';
 import { getDatabaseProvider } from '@/app/lib/db/provider';
 import {
   LicenseEntitlementError,
@@ -28,6 +29,7 @@ function serializeWorkspace(workspace: WorkspaceContext) {
     ownerUserId: workspace.ownerUserId,
     rootRelativePath: workspace.rootRelativePath,
     status: workspace.status || 'active',
+    isDefault: Boolean(workspace.isDefault),
     permissions: workspace.permissions,
     legacy: workspace.legacy,
   };
@@ -47,79 +49,81 @@ async function requireTeamRuntimeIfEnabled(status: { teamFeaturesEnabled: boolea
 }
 
 export async function GET(request: Request) {
-  const session = await auth.api.getSession({ headers: request.headers });
-  if (!session) {
-    return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
-  }
+  try {
+    const session = await auth.api.getSession({ headers: request.headers });
+    if (!session) {
+      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
+    }
 
-  const actor = resolveWorkspaceActor({
-    id: session.user.id,
-    email: session.user.email,
-    role: session.user.role,
-  });
+    const actor = resolveWorkspaceActor({
+      id: session.user.id,
+      email: session.user.email,
+      role: session.user.role,
+    });
 
-  if (getDatabaseProvider() === 'postgres') {
+    if (getDatabaseProvider() === 'postgres') {
+      try {
+        const state = await getPostgresWorkspaceState(actor);
+        const licenseResponse = await requireTeamRuntimeIfEnabled(state.status);
+        if (licenseResponse) return licenseResponse;
+        return NextResponse.json({
+          success: true,
+          organizationId: state.status.organizationId,
+          teamFeaturesEnabled: state.status.teamFeaturesEnabled,
+          databaseProvider: state.status.databaseProvider,
+          activeWorkspaceId: state.defaultWorkspace?.workspaceId || null,
+          defaultWorkspace: state.defaultWorkspace ? serializeWorkspace(state.defaultWorkspace) : null,
+          workspaces: state.workspaces.map(serializeWorkspace),
+          warnings: state.status.warnings,
+        });
+      } catch (error) {
+        return jsonServerError('[API] Workspaces postgres error:', error, 'Could not resolve workspaces');
+      }
+    }
+
+    const sqlite = openOrganizationBootstrapDatabase();
     try {
-      const state = await getPostgresWorkspaceState(actor);
-      const licenseResponse = await requireTeamRuntimeIfEnabled(state.status);
-      if (licenseResponse) return licenseResponse;
+      sqlite.exec('BEGIN IMMEDIATE');
+      const status = ensureOrganizationBootstrapForUser(sqlite, session.user.id);
+      const licenseResponse = await requireTeamRuntimeIfEnabled(status);
+      if (licenseResponse) {
+        sqlite.exec('ROLLBACK');
+        return licenseResponse;
+      }
+      if (!status.organizationId) {
+        sqlite.exec('ROLLBACK');
+        return NextResponse.json({ success: false, error: 'Organization is not configured' }, { status: 409 });
+      }
+
+      const defaultWorkspace = resolveDefaultWorkspaceContext(sqlite, {
+        actor,
+        organizationId: status.organizationId,
+      });
+      const workspaces = listWorkspaceContextsForUser(sqlite, {
+        actor,
+        organizationId: status.organizationId,
+      });
+      sqlite.exec('COMMIT');
+
       return NextResponse.json({
         success: true,
-        organizationId: state.status.organizationId,
-        teamFeaturesEnabled: state.status.teamFeaturesEnabled,
-        databaseProvider: state.status.databaseProvider,
-        activeWorkspaceId: state.defaultWorkspace?.workspaceId || null,
-        defaultWorkspace: state.defaultWorkspace ? serializeWorkspace(state.defaultWorkspace) : null,
-        workspaces: state.workspaces.map(serializeWorkspace),
-        warnings: state.status.warnings,
+        organizationId: status.organizationId,
+        teamFeaturesEnabled: status.teamFeaturesEnabled,
+        databaseProvider: status.databaseProvider,
+        activeWorkspaceId: defaultWorkspace?.workspaceId || null,
+        defaultWorkspace: defaultWorkspace ? serializeWorkspace(defaultWorkspace) : null,
+        workspaces: workspaces.map(serializeWorkspace),
+        warnings: status.warnings,
       });
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Could not resolve workspaces';
-      return NextResponse.json({ success: false, error: message }, { status: 500 });
+      if (sqlite.inTransaction) {
+        sqlite.exec('ROLLBACK');
+      }
+      return jsonServerError('[API] Workspaces sqlite error:', error, 'Could not resolve workspaces');
+    } finally {
+      sqlite.close();
     }
-  }
-
-  const sqlite = openOrganizationBootstrapDatabase();
-  try {
-    sqlite.exec('BEGIN IMMEDIATE');
-    const status = ensureOrganizationBootstrapForUser(sqlite, session.user.id);
-    const licenseResponse = await requireTeamRuntimeIfEnabled(status);
-    if (licenseResponse) {
-      sqlite.exec('ROLLBACK');
-      return licenseResponse;
-    }
-    if (!status.organizationId) {
-      sqlite.exec('ROLLBACK');
-      return NextResponse.json({ success: false, error: 'Organization is not configured' }, { status: 409 });
-    }
-
-    const defaultWorkspace = resolveDefaultWorkspaceContext(sqlite, {
-      actor,
-      organizationId: status.organizationId,
-    });
-    const workspaces = listWorkspaceContextsForUser(sqlite, {
-      actor,
-      organizationId: status.organizationId,
-    });
-    sqlite.exec('COMMIT');
-
-    return NextResponse.json({
-      success: true,
-      organizationId: status.organizationId,
-      teamFeaturesEnabled: status.teamFeaturesEnabled,
-      databaseProvider: status.databaseProvider,
-      activeWorkspaceId: defaultWorkspace?.workspaceId || null,
-      defaultWorkspace: defaultWorkspace ? serializeWorkspace(defaultWorkspace) : null,
-      workspaces: workspaces.map(serializeWorkspace),
-      warnings: status.warnings,
-    });
   } catch (error) {
-    if (sqlite.inTransaction) {
-      sqlite.exec('ROLLBACK');
-    }
-    const message = error instanceof Error ? error.message : 'Could not resolve workspaces';
-    return NextResponse.json({ success: false, error: message }, { status: 500 });
-  } finally {
-    sqlite.close();
+    return jsonServerError('[API] Workspaces request error:', error, 'Could not resolve workspaces');
   }
 }

@@ -81,6 +81,7 @@
     "test:license": "tsx --conditions react-server scripts/license-security-test.ts",
     "test:install:managed-env": "bash scripts/install-managed-env-test.sh",
     "test:db:sqlite-to-postgres-plan": "tsx scripts/sqlite-to-postgres-migration-plan-test.ts",
+    "test:db:sqlite-corruption": "tsx --conditions react-server scripts/sqlite-corruption-handling-test.ts",
     "test:cli:admin": "bash scripts/cli-admin-command-test.sh",
     "test:cli:database": "bash scripts/cli-database-command-test.sh",
     "test:cli:database-provider": "bash scripts/cli-database-provider-test.sh",

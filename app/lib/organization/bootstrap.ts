@@ -9,10 +9,15 @@ import { getBootstrapAdminEmail } from '@/app/lib/bootstrap-admin';
 import { runMigrations } from '@/app/lib/db/migrate';
 import { migrateLegacySecretsToUserScope } from '@/app/lib/integrations/legacy-secret-migration';
 import {
+  coerceDatabaseUnavailableError,
+  isDatabaseUnavailableError,
+} from '@/app/lib/db/errors';
+import {
   type DatabaseProvider,
   getDatabaseProvider as resolveConfiguredDatabaseProvider,
   getDatabaseProviderProblemMessages,
   resolveDatabaseProviderGate,
+  resolveSqlitePath,
 } from '@/app/lib/db/provider';
 import {
   resolveOrganizationAgentTemplatesDir,
@@ -582,16 +587,27 @@ export function getOrganizationPermissionForUser(
   };
 }
 
-function getSqlitePath(): string {
-  return path.join(getDataRoot(), 'sqlite.db');
-}
-
 export function openOrganizationBootstrapDatabase(): Database.Database {
-  const sqlite = new Database(getSqlitePath());
-  sqlite.pragma('foreign_keys = ON');
-  sqlite.pragma('busy_timeout = 5000');
-  runMigrations(sqlite);
-  return sqlite;
+  const sqlitePath = resolveSqlitePath();
+  let sqlite: Database.Database | null = null;
+
+  try {
+    sqlite = new Database(sqlitePath);
+    sqlite.pragma('foreign_keys = ON');
+    sqlite.pragma('busy_timeout = 5000');
+    runMigrations(sqlite);
+    return sqlite;
+  } catch (error) {
+    sqlite?.close();
+    const unavailableError = coerceDatabaseUnavailableError(error, {
+      provider: 'sqlite',
+      sqlitePath,
+    });
+    if (unavailableError) {
+      throw unavailableError;
+    }
+    throw error;
+  }
 }
 
 export function ensureOrganizationBootstrapStatus(): OrganizationBootstrapStatus {
@@ -605,7 +621,7 @@ export function ensureOrganizationBootstrapStatus(): OrganizationBootstrapStatus
     if (sqlite.inTransaction) {
       sqlite.exec('ROLLBACK');
     }
-    if (error instanceof OrganizationBootstrapError) {
+    if (error instanceof OrganizationBootstrapError || isDatabaseUnavailableError(error)) {
       throw error;
     }
     throw new OrganizationBootstrapError('DATABASE_ERROR', 'Could not ensure organization bootstrap state.');
