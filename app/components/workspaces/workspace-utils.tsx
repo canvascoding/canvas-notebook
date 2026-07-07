@@ -1,6 +1,6 @@
 'use client';
 
-import { Building2, UserRound, UsersRound } from 'lucide-react';
+import { Building2, Landmark, UserRound, UsersRound } from 'lucide-react';
 
 import type { ClientWorkspaceSummary, ClientWorkspaceType } from '@/app/lib/workspaces/client-types';
 
@@ -15,6 +15,7 @@ export function getWorkspaceKindLabel(
 }
 
 export function renderWorkspaceIcon(workspace: ClientWorkspaceSummary | null | undefined, className: string) {
+  if (workspace?.type === 'organization') return <Landmark className={className} />;
   if (workspace?.type === 'team') return <UsersRound className={className} />;
   if (workspace?.type === 'project') return <Building2 className={className} />;
   return <UserRound className={className} />;

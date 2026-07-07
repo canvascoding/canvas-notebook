@@ -64,7 +64,9 @@ async function main() {
       role: 'admin',
     });
     const ownerWorkspaces = listWorkspaceContextsForUser(sqlite, { actor: ownerActor, organizationId });
-    assert.deepEqual(ownerWorkspaces.map((workspace) => workspace.workspaceType), ['personal', 'team']);
+    assert.deepEqual(ownerWorkspaces.map((workspace) => workspace.workspaceType), ['personal', 'organization']);
+    assert.equal(ownerWorkspaces[0].isDefault, true);
+    assert.equal(ownerWorkspaces[1].isDefault, true);
     assert.equal(ownerWorkspaces[0].permissions.canRead, true);
     assert.equal(ownerWorkspaces[0].permissions.canWrite, true);
     assert.equal(ownerWorkspaces[1].permissions.canRead, true);
@@ -75,7 +77,7 @@ async function main() {
     );
     assert.equal(
       ownerWorkspaces[1].rootPath,
-      path.join(dataRoot, 'workspaces', 'team', organizationId, 'files')
+      path.join(dataRoot, 'workspaces', 'organization', organizationId, 'files')
     );
     await fs.access(ownerWorkspaces[0].rootPath);
     await fs.access(ownerWorkspaces[1].rootPath);
@@ -149,7 +151,7 @@ async function main() {
       role: 'member',
     });
     const memberWorkspaces = listWorkspaceContextsForUser(sqlite, { actor: memberActor, organizationId });
-    assert.deepEqual(memberWorkspaces.map((workspace) => workspace.workspaceType), ['personal', 'team']);
+    assert.deepEqual(memberWorkspaces.map((workspace) => workspace.workspaceType), ['personal', 'organization']);
     assert.equal(memberWorkspaces[0].ownerUserId, 'user-member');
     assert.equal(memberWorkspaces[1].permissions.canRead, true);
     assert.equal(memberWorkspaces[1].permissions.canWrite, false);
@@ -166,6 +168,7 @@ async function main() {
       teamFeaturesEnabled: true,
     });
     assert.equal(ensured.personal.id, memberWorkspaces[0].workspaceId);
+    assert.equal(ensured.organization?.id, ownerWorkspaces[1].workspaceId);
     assert.equal(ensured.team?.id, ownerWorkspaces[1].workspaceId);
     assert.equal(
       workspaceAbsoluteRoot(ensured.personal.rootRelativePath),
@@ -185,7 +188,7 @@ async function main() {
     assert.equal(disabledEnsure.personal.status, 'disabled');
     assert.equal(disabledEnsure.personal.displayName, 'Personal Workspace');
     const memberWorkspacesAfterDisable = listWorkspaceContextsForUser(sqlite, { actor: memberActor, organizationId });
-    assert.deepEqual(memberWorkspacesAfterDisable.map((workspace) => workspace.workspaceType), ['team']);
+    assert.deepEqual(memberWorkspacesAfterDisable.map((workspace) => workspace.workspaceType), ['organization']);
 
     ensureDefaultWorkspaceRecords(sqlite, {
       organizationId,

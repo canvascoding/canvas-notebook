@@ -219,7 +219,7 @@ export function detectFileCollaborationStrategy(filePath: string): FileCollabora
 }
 
 export function workspaceRequiresCollaborationPolicy(workspace: WorkspaceContext): boolean {
-  return workspace.workspaceType === 'team' || workspace.workspaceType === 'project';
+  return workspace.workspaceType === 'organization' || workspace.workspaceType === 'team' || workspace.workspaceType === 'project';
 }
 
 function mapRevision(row: FileRevisionRow | undefined): FileRevisionRecord | null {

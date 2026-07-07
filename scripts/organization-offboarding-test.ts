@@ -67,7 +67,7 @@ function insertAutomation(
     scope: 'personal' | 'organization';
     organizationId: string;
     workspaceId: string;
-    workspaceType: 'personal' | 'team';
+    workspaceType: 'personal' | 'organization' | 'team';
     ownerUserId: string | null;
     responsibleUserId: string | null;
     createdByUserId: string;
@@ -122,7 +122,7 @@ async function main() {
   const dbPath = path.join(dataRoot, 'sqlite.db');
   process.env.DATA = dataRoot;
   process.env.CANVAS_DEPLOYMENT_MODE = 'managed-team';
-  process.env.CANVAS_DATABASE_PROVIDER = 'postgres';
+  process.env.CANVAS_DATABASE_PROVIDER = 'sqlite';
 
   await fs.mkdir(dataRoot, { recursive: true });
   const sqlite = new Database(dbPath);
@@ -150,7 +150,7 @@ async function main() {
       ORDER BY created_at ASC
     `).all() as WorkspaceRow[];
     const memberWorkspace = workspaces.find((workspace) => workspace.type === 'personal' && workspace.owner_user_id === 'user-member');
-    const teamWorkspace = workspaces.find((workspace) => workspace.type === 'team');
+    const teamWorkspace = workspaces.find((workspace) => workspace.type === 'organization');
     assert.ok(memberWorkspace?.id);
     assert.ok(teamWorkspace?.id);
 
@@ -172,7 +172,7 @@ async function main() {
       INSERT INTO todo_items (
         id, user_id, created_by_user_id, assignee_user_id, organization_id, workspace_id, workspace_type,
         title, status, priority, source_type, created_at, updated_at
-      ) VALUES ('todo-member', 'user-owner', 'user-owner', 'user-member', ?, ?, 'team', 'Assigned todo', 'open', 'normal', 'user', ?, ?)
+      ) VALUES ('todo-member', 'user-owner', 'user-owner', 'user-member', ?, ?, 'organization', 'Assigned todo', 'open', 'normal', 'user', ?, ?)
     `).run(organizationId, teamWorkspace.id, now, now);
     sqlite.prepare(`
       INSERT INTO channel_user_bindings (user_id, channel_id, channel_user_id, enabled, created_at)
@@ -196,7 +196,7 @@ async function main() {
       scope: 'organization',
       organizationId,
       workspaceId: teamWorkspace.id,
-      workspaceType: 'team',
+      workspaceType: 'organization',
       ownerUserId: null,
       responsibleUserId: 'user-member',
       createdByUserId: 'user-admin',
@@ -211,7 +211,7 @@ async function main() {
       INSERT INTO automation_runs (
         id, job_id, status, scope, organization_id, workspace_id, workspace_type, actor_type,
         actor_user_id, trigger_type, attempt_number, created_at
-      ) VALUES ('run-member', 'job-team-member', 'pending', 'organization', ?, ?, 'team', 'user', 'user-member', 'manual', 1, ?)
+      ) VALUES ('run-member', 'job-team-member', 'pending', 'organization', ?, ?, 'organization', 'user', 'user-member', 'manual', 1, ?)
     `).run(organizationId, teamWorkspace.id, now);
 
     const userSettingsDir = path.join(dataRoot, 'users', 'user-member', 'settings');

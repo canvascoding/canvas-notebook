@@ -3087,7 +3087,7 @@ function createUserScopedTools(userId?: string, agentId?: string | null, session
             {
               name: name.trim().slice(0, 120),
               prompt: prompt.trim().slice(0, 12000),
-              scope: executionContext?.workspaceType === 'team' ? 'organization' : 'personal',
+              scope: executionContext?.workspaceType === 'organization' || executionContext?.workspaceType === 'team' ? 'organization' : 'personal',
               workspaceId: executionContext?.workspaceId ?? null,
               schedule: normalizeAutomationSchedule(schedule, preferredTimeZone),
               targetOutputPath: normalizeOptionalString(targetOutputPath)?.replace(/^\/+|^\.\/+/, '') || null,

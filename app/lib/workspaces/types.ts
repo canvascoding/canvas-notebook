@@ -1,6 +1,6 @@
 import 'server-only';
 
-export type WorkspaceType = 'personal' | 'team' | 'project';
+export type WorkspaceType = 'personal' | 'organization' | 'team' | 'project';
 
 export type WorkspaceStatus = 'active' | 'archived' | 'disabled' | 'recovery_locked';
 
@@ -28,6 +28,7 @@ export interface WorkspaceContext {
   rootRelativePath?: string;
   displayName?: string;
   status?: WorkspaceStatus;
+  isDefault?: boolean;
   actor?: WorkspaceActor;
   organizationId?: string | null;
   customerId?: string | null;

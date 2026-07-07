@@ -172,6 +172,7 @@ export const canvasWorkspaces = sqliteTable("canvas_workspaces", {
   rootRelativePath: text("root_relative_path").notNull(),
   displayName: text("display_name").notNull(),
   status: text("status").notNull().default("active"),
+  isDefault: integer("is_default", { mode: "boolean" }).notNull().default(false),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
 }, (table) => ({
@@ -180,10 +181,28 @@ export const canvasWorkspaces = sqliteTable("canvas_workspaces", {
   customerIdx: index("idx_canvas_workspaces_customer").on(table.customerId),
   projectIdx: index("idx_canvas_workspaces_project").on(table.projectId),
   organizationTypeIdx: index("idx_canvas_workspaces_organization_type").on(table.organizationId, table.type),
-  personalOwnerIdx: uniqueIndex("idx_canvas_workspaces_personal_owner").on(table.ownerUserId).where(sql`${table.type} = 'personal'`),
-  teamOrganizationIdx: uniqueIndex("idx_canvas_workspaces_team_organization").on(table.organizationId).where(sql`${table.type} = 'team'`),
+  defaultPersonalIdx: uniqueIndex("idx_canvas_workspaces_default_personal").on(table.ownerUserId).where(sql`${table.type} = 'personal' AND ${table.isDefault} = 1`),
+  defaultOrganizationIdx: uniqueIndex("idx_canvas_workspaces_default_organization").on(table.organizationId).where(sql`${table.type} = 'organization' AND ${table.isDefault} = 1`),
   projectWorkspaceIdx: uniqueIndex("idx_canvas_workspaces_project_workspace").on(table.projectId).where(sql`${table.type} = 'project'`),
   projectIdRequired: check("chk_canvas_workspaces_project_id_required", sql`${table.type} != 'project' OR ${table.projectId} IS NOT NULL`),
+}));
+
+export const canvasWorkspaceMembers = sqliteTable("canvas_workspace_members", {
+  organizationId: text("organization_id").notNull().references(() => canvasOrganizationSettings.organizationId, { onDelete: 'cascade' }),
+  workspaceId: text("workspace_id").notNull().references(() => canvasWorkspaces.id, { onDelete: 'cascade' }),
+  userId: text("user_id").notNull().references(() => user.id),
+  role: text("role").notNull().default("member"),
+  status: text("status").notNull().default("active"),
+  canRead: integer("can_read", { mode: "boolean" }).notNull().default(true),
+  canWrite: integer("can_write", { mode: "boolean" }).notNull().default(false),
+  canManage: integer("can_manage", { mode: "boolean" }).notNull().default(false),
+  invitedByUserId: text("invited_by_user_id").references(() => user.id, { onDelete: 'set null' }),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+}, (table) => ({
+  pk: primaryKey(table.workspaceId, table.userId),
+  organizationUserIdx: index("idx_canvas_workspace_members_org_user").on(table.organizationId, table.userId, table.status),
+  workspaceStatusIdx: index("idx_canvas_workspace_members_workspace_status").on(table.workspaceId, table.status),
 }));
 
 export const workspaceTrashEntries = sqliteTable("workspace_trash_entries", {

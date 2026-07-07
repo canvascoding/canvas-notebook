@@ -26,7 +26,7 @@ const NO_ACCESS: WorkspacePermissions = {
 
 function workspace(input: {
   id: string;
-  type: 'personal' | 'team' | 'project';
+  type: 'personal' | 'organization' | 'team' | 'project';
   organizationId: string;
   actorUserId: string;
   ownerUserId?: string | null;

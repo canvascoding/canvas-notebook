@@ -61,6 +61,7 @@
     "noWritableWorkspace": "No writable workspace available.",
     "types": {
       "personal": "Personal",
+      "organization": "Organization",
       "team": "Team",
       "project": "Project"
     },
