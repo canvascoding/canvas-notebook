@@ -77,38 +77,40 @@ function truncateText(value: string | null | undefined, maxLength: number): stri
   return `${normalized.slice(0, maxLength - 1).trimEnd()}…`;
 }
 
+const toastHeadingClass = 'block font-semibold leading-snug text-foreground';
+
+const toastMarkdownComponents = {
+  p: ({ children }: { children?: React.ReactNode }) => <span className="inline">{children}</span>,
+  h1: ({ children }: { children?: React.ReactNode }) => <span className={toastHeadingClass}>{children}</span>,
+  h2: ({ children }: { children?: React.ReactNode }) => <span className={toastHeadingClass}>{children}</span>,
+  h3: ({ children }: { children?: React.ReactNode }) => <span className={toastHeadingClass}>{children}</span>,
+  h4: ({ children }: { children?: React.ReactNode }) => <span className={toastHeadingClass}>{children}</span>,
+  h5: ({ children }: { children?: React.ReactNode }) => <span className={toastHeadingClass}>{children}</span>,
+  h6: ({ children }: { children?: React.ReactNode }) => <span className={toastHeadingClass}>{children}</span>,
+  code: ({ children, className, ...props }: { children?: React.ReactNode; className?: string } & React.HTMLAttributes<HTMLElement>) => {
+    const isBlock = className?.includes('language-');
+    if (isBlock) {
+      return <code className="break-all rounded bg-muted px-1 py-0.5 text-xs font-mono whitespace-normal" {...props}>{children}</code>;
+    }
+    return <code className="break-all rounded bg-muted px-0.5 text-xs font-mono whitespace-normal" {...props}>{children}</code>;
+  },
+  pre: ({ children }: { children?: React.ReactNode }) => <span>{children}</span>,
+  a: ({ children }: { children?: React.ReactNode }) => <span className="break-all underline">{children}</span>,
+  img: ({ alt }: { alt?: string }) => alt ? <span>{alt}</span> : null,
+  table: () => null,
+  ul: ({ children }: { children?: React.ReactNode }) => <span>{children}</span>,
+  ol: ({ children }: { children?: React.ReactNode }) => <span>{children}</span>,
+  li: ({ children, ...props }: { children?: React.ReactNode } & React.HTMLAttributes<HTMLElement>) => <span {...props}>• {children} </span>,
+  blockquote: ({ children }: { children?: React.ReactNode }) => <span className="opacity-70">{children}</span>,
+  hr: () => <span className="mx-1">—</span>,
+};
+
 function ToastMarkdown({ content }: { content: string }) {
   if (!content) return null;
 
-  const components = {
-    p: ({ children }: { children?: React.ReactNode }) => <span className="inline">{children}</span>,
-    h1: ({ children }: { children?: React.ReactNode }) => <strong>{children}</strong>,
-    h2: ({ children }: { children?: React.ReactNode }) => <strong>{children}</strong>,
-    h3: ({ children }: { children?: React.ReactNode }) => <strong>{children}</strong>,
-    h4: ({ children }: { children?: React.ReactNode }) => <strong>{children}</strong>,
-    h5: ({ children }: { children?: React.ReactNode }) => <strong>{children}</strong>,
-    h6: ({ children }: { children?: React.ReactNode }) => <strong>{children}</strong>,
-    code: ({ children, className, ...props }: { children?: React.ReactNode; className?: string } & React.HTMLAttributes<HTMLElement>) => {
-      const isBlock = className?.includes('language-');
-      if (isBlock) {
-        return <code className="break-all rounded bg-muted px-1 py-0.5 text-xs font-mono whitespace-normal" {...props}>{children}</code>;
-      }
-      return <code className="break-all rounded bg-muted px-0.5 text-xs font-mono whitespace-normal" {...props}>{children}</code>;
-    },
-    pre: ({ children }: { children?: React.ReactNode }) => <span>{children}</span>,
-    a: ({ children }: { children?: React.ReactNode }) => <span className="break-all underline">{children}</span>,
-    img: ({ alt }: { alt?: string }) => alt ? <span>{alt}</span> : null,
-    table: () => null,
-    ul: ({ children }: { children?: React.ReactNode }) => <span>{children}</span>,
-    ol: ({ children }: { children?: React.ReactNode }) => <span>{children}</span>,
-    li: ({ children, ...props }: { children?: React.ReactNode } & React.HTMLAttributes<HTMLElement>) => <span {...props}>• {children} </span>,
-    blockquote: ({ children }: { children?: React.ReactNode }) => <span className="opacity-70">{children}</span>,
-    hr: () => <span className="mx-1">—</span>,
-  };
-
   return (
-    <div className="line-clamp-3 min-w-0 max-w-full overflow-hidden break-words [overflow-wrap:anywhere] [&>*:first-child]:inline">
-      <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
+    <div className="line-clamp-3 min-w-0 max-w-full overflow-hidden break-words [overflow-wrap:anywhere]">
+      <ReactMarkdown remarkPlugins={[remarkGfm]} components={toastMarkdownComponents}>
         {content}
       </ReactMarkdown>
     </div>

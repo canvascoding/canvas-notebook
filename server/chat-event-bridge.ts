@@ -8,6 +8,7 @@
 import { getPiRuntimeEventEmitter } from '@/app/lib/pi/runtime-event-emitter';
 import { broadcastAgentEvent, broadcastNotification, broadcastSessionUpdateToUser } from './websocket-server';
 import { deliverToLastActiveExternalChannel, sendTypingToLastActiveExternalChannel } from '@/app/lib/channels/delivery-router';
+import { normalizeNotificationPreview } from '@/app/lib/chat/notification-preview';
 import { db } from '@/app/lib/db';
 import { piSessions, piMessages } from '@/app/lib/db/schema';
 import { eq, and, desc } from 'drizzle-orm';
@@ -24,19 +25,6 @@ setInterval(() => {
     }
   }
 }, 60_000).unref?.();
-
-function normalizeNotificationPreview(value: string, maxLength = 500): string {
-  const normalized = value.replace(/\s+/g, ' ').trim();
-  if (!normalized) {
-    return '';
-  }
-
-  if (normalized.length <= maxLength) {
-    return normalized;
-  }
-
-  return `${normalized.slice(0, maxLength - 1).trimEnd()}…`;
-}
 
 function extractTextPreview(value: unknown): string {
   if (typeof value === 'string') {
