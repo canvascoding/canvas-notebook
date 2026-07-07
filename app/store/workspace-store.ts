@@ -91,7 +91,7 @@ function dispatchWorkspaceChanged(detail: WorkspaceChangedDetail) {
 }
 
 function isWorkspaceType(value: unknown): value is ClientWorkspaceType {
-  return value === 'personal' || value === 'organization' || value === 'team' || value === 'project';
+  return value === 'personal' || value === 'team' || value === 'project';
 }
 
 function normalizeWorkspace(candidate: unknown): ClientWorkspaceSummary | null {
@@ -113,8 +113,7 @@ function normalizeWorkspace(candidate: unknown): ClientWorkspaceSummary | null {
     organizationId: typeof record.organizationId === 'string' ? record.organizationId : null,
     ownerUserId: typeof record.ownerUserId === 'string' ? record.ownerUserId : null,
     rootRelativePath: typeof record.rootRelativePath === 'string' ? record.rootRelativePath : undefined,
-    status: record.status === 'archived' || record.status === 'disabled' || record.status === 'recovery_locked' ? record.status : 'active',
-    isDefault: Boolean(record.isDefault),
+    status: record.status === 'archived' || record.status === 'disabled' ? record.status : 'active',
     permissions: {
       canRead: Boolean(permissions.canRead),
       canWrite: Boolean(permissions.canWrite),

@@ -49,11 +49,11 @@ function parseFileLinks(value: unknown): TodoFileLinkInput[] | undefined {
 }
 
 function todoWorkspaceScope(workspace: WorkspaceContext | null) {
-  if (!workspace || (workspace.workspaceType !== 'organization' && workspace.workspaceType !== 'team')) {
+  if (!workspace || workspace.workspaceType !== 'team') {
     return { workspaceType: 'personal' as const };
   }
   return {
-    workspaceType: workspace.workspaceType,
+    workspaceType: 'team' as const,
     organizationId: workspace.organizationId,
     workspaceId: workspace.workspaceId,
   };

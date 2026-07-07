@@ -174,7 +174,7 @@ function normalizeAutomationScope(value: unknown): AutomationScope {
 }
 
 function normalizeAutomationWorkspaceType(value: unknown): AutomationWorkspaceType {
-  if (value === 'organization' || value === 'team' || value === 'project') return value;
+  if (value === 'team' || value === 'project') return value;
   return 'personal';
 }
 

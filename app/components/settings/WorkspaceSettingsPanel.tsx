@@ -24,7 +24,6 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { WorkspaceManagementCard } from '@/app/components/settings/WorkspaceManagementCard';
 import { TeamModeHostedOnlyNotice } from '@/app/components/team/TeamModeHostedOnlyNotice';
 import {
   DEFAULT_MIGRATION_COMPONENTS,
@@ -50,8 +49,6 @@ interface WorkspaceStats {
 interface WorkspaceSettingsPanelProps {
   isAdmin?: boolean;
   organizationPermission?: OrganizationBootstrapStatus['permission'];
-  workspaceManagementOpen?: boolean;
-  createWorkspaceOpen?: boolean;
 }
 
 type DownloadScope = 'workspace' | 'data';
@@ -113,12 +110,7 @@ function progressPercent(processed: number, total: number): number {
   return Math.min(100, Math.round((processed / total) * 100));
 }
 
-export function WorkspaceSettingsPanel({
-  isAdmin = false,
-  organizationPermission = null,
-  workspaceManagementOpen = false,
-  createWorkspaceOpen = false,
-}: WorkspaceSettingsPanelProps) {
+export function WorkspaceSettingsPanel({ isAdmin = false, organizationPermission = null }: WorkspaceSettingsPanelProps) {
   const t = useTranslations('settings');
   const [stats, setStats] = useState<WorkspaceStats | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -617,13 +609,6 @@ export function WorkspaceSettingsPanel({
           ) : null}
         </CardContent>
       </Card>
-
-      <WorkspaceManagementCard
-        isAdmin={isAdmin}
-        teamFeaturesEnabled={organizationStatus?.teamFeaturesEnabled ?? false}
-        focusManagement={workspaceManagementOpen}
-        openCreateDialog={createWorkspaceOpen}
-      />
 
       <Card>
         <CardHeader className="px-4 sm:px-6">

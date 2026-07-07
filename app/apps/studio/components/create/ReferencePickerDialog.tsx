@@ -388,7 +388,6 @@ export function ReferencePickerDialog({ open, onOpenChange, onConfirm, multiple 
 
   const workspaceKindLabels = useMemo(() => ({
     personal: workspaceT('types.personal'),
-    organization: workspaceT('types.organization'),
     team: workspaceT('types.team'),
     project: workspaceT('types.project'),
   } satisfies WorkspaceKindLabels), [workspaceT]);

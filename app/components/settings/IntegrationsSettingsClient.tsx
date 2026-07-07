@@ -2248,8 +2248,6 @@ export function IntegrationsSettingsClient({
   const integrationsInitialLoadStartedRef = useRef(false);
 
   const effectiveTab = normalizeSettingsTab(activeTabOverride) ?? settingsTab;
-  const workspaceManagementOpen = searchParams.get('workspaceManagement') === '1';
-  const createWorkspaceOpen = searchParams.get('createWorkspace') === '1';
   const visibleSettingsTabItems = useMemo(
     () => SETTINGS_TAB_ITEMS.filter((tab) => {
       if (tab.value === 'user-management') return isAdmin;
@@ -3044,8 +3042,6 @@ export function IntegrationsSettingsClient({
           <WorkspaceSettingsPanel
             isAdmin={isAdmin}
             organizationPermission={organizationPermission}
-            workspaceManagementOpen={workspaceManagementOpen}
-            createWorkspaceOpen={createWorkspaceOpen}
           />
         ))}
 

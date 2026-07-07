@@ -203,12 +203,8 @@ function workspaceBaseDir(): string {
 }
 
 function normalizeWorkspaceType(value: string | null | undefined): WorkspaceType | null {
-  if (value === 'personal' || value === 'organization' || value === 'team' || value === 'project') return value;
+  if (value === 'personal' || value === 'team' || value === 'project') return value;
   return null;
-}
-
-function isSharedWorkspaceType(value: WorkspaceType | null): boolean {
-  return value === 'organization' || value === 'team';
 }
 
 function inferWorkspaceRootRelativePath(rootPath: string | null | undefined): string | undefined {
@@ -266,11 +262,7 @@ function workspaceForRow(row: PublicShareRow): WorkspaceContext {
       workspaceType,
       rootPath: workspaceAbsoluteRoot(row.workspaceRootRelativePath),
       rootRelativePath: row.workspaceRootRelativePath,
-      displayName: workspaceType === 'organization'
-        ? 'Organization Workspace'
-        : workspaceType === 'team'
-          ? 'Team Workspace'
-          : 'Personal Workspace',
+      displayName: workspaceType === 'team' ? 'Team Workspace' : 'Personal Workspace',
       status: 'active',
       organizationId: row.organizationId,
       ownerUserId: null,
@@ -720,7 +712,7 @@ export async function revokePublicFileShare(params: {
   const canManageWorkspaceShare = Boolean(
     workspace &&
     workspaceMatches(row, workspace) &&
-    isSharedWorkspaceType(normalizeWorkspaceType(row.workspaceType)) &&
+    normalizeWorkspaceType(row.workspaceType) === 'team' &&
     workspace.permissions.canCreatePublicLinks
   );
   if (!params.isAdmin && row.createdByUserId !== params.userId && !canManageWorkspaceShare) {
@@ -784,7 +776,7 @@ export async function listPublicFileShares(params: {
       if (row.createdByUserId === params.userId) return true;
       return Boolean(
         workspace &&
-        isSharedWorkspaceType(normalizeWorkspaceType(row.workspaceType)) &&
+        normalizeWorkspaceType(row.workspaceType) === 'team' &&
         workspace.permissions.canCreatePublicLinks
       );
     })

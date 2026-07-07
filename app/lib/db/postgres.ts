@@ -277,51 +277,6 @@ export async function runPostgresMigrations(pool: PgQueryable): Promise<void> {
     }
   }
 
-  await pool.query('DROP INDEX IF EXISTS idx_canvas_workspaces_personal_owner');
-  await pool.query('DROP INDEX IF EXISTS idx_canvas_workspaces_team_organization');
-  await pool.query(`
-    UPDATE canvas_workspaces
-    SET type = 'organization', is_default = 1, updated_at = COALESCE(updated_at, created_at)
-    WHERE type = 'team'
-      AND (
-        LENGTH(root_relative_path) - LENGTH(REPLACE(root_relative_path, '/', '')) = 3
-        OR root_relative_path IS NULL
-        OR root_relative_path = ''
-      )
-  `);
-  await pool.query(`
-    UPDATE canvas_workspaces w
-    SET is_default = 1
-    WHERE type = 'personal'
-      AND owner_user_id IS NOT NULL
-      AND NOT EXISTS (
-        SELECT 1
-        FROM canvas_workspaces older
-        WHERE older.type = 'personal'
-          AND older.owner_user_id = w.owner_user_id
-          AND (
-            older.created_at < w.created_at
-            OR (older.created_at = w.created_at AND older.id < w.id)
-          )
-      )
-  `);
-  await pool.query(`
-    UPDATE canvas_workspaces w
-    SET is_default = 1
-    WHERE type = 'organization'
-      AND organization_id IS NOT NULL
-      AND NOT EXISTS (
-        SELECT 1
-        FROM canvas_workspaces older
-        WHERE older.type = 'organization'
-          AND older.organization_id = w.organization_id
-          AND (
-            older.created_at < w.created_at
-            OR (older.created_at = w.created_at AND older.id < w.id)
-          )
-      )
-  `);
-
   for (const table of tables) {
     const config = getTableConfig(table as never) as {
       foreignKeys: Array<Parameters<typeof foreignKeySql>[1]>;

@@ -71,7 +71,7 @@ export function knowledgeSourceScopeForWorkspace(workspace: WorkspaceContext): K
     };
   }
 
-  if (workspace.workspaceType === 'organization' || workspace.workspaceType === 'team' || workspace.workspaceType === 'project') {
+  if (workspace.workspaceType === 'team' || workspace.workspaceType === 'project') {
     if (!workspace.organizationId) {
       throw new Error('Shared knowledge sources require an organization');
     }
@@ -119,7 +119,7 @@ export function resolveKnowledgeRetrievalScope(input: {
       continue;
     }
 
-    if ((workspace.workspaceType === 'organization' || workspace.workspaceType === 'team' || workspace.workspaceType === 'project') && workspace.organizationId) {
+    if ((workspace.workspaceType === 'team' || workspace.workspaceType === 'project') && workspace.organizationId) {
       const workspaceId = persistedWorkspaceId(workspace);
       if (workspaceId) {
         teamWorkspaceIds.push(workspaceId);

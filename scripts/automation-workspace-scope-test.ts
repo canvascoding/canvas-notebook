@@ -21,7 +21,7 @@ async function main() {
   const dbPath = path.join(dataRoot, 'sqlite.db');
   process.env.DATA = dataRoot;
   process.env.CANVAS_DEPLOYMENT_MODE = 'managed-team';
-  process.env.CANVAS_DATABASE_PROVIDER = 'sqlite';
+  process.env.CANVAS_DATABASE_PROVIDER = 'postgres';
 
   await fs.mkdir(dataRoot, { recursive: true });
   const sqlite = new Database(dbPath);
@@ -83,7 +83,7 @@ async function main() {
     `).all() as WorkspaceRow[];
     const ownerPersonalWorkspace = workspaces.find((workspace) => workspace.type === 'personal' && workspace.owner_user_id === 'user-owner');
     const memberPersonalWorkspace = workspaces.find((workspace) => workspace.type === 'personal' && workspace.owner_user_id === 'user-member');
-    const teamWorkspace = workspaces.find((workspace) => workspace.type === 'organization');
+    const teamWorkspace = workspaces.find((workspace) => workspace.type === 'team');
     assert.ok(ownerPersonalWorkspace?.id);
     assert.ok(memberPersonalWorkspace?.id);
     assert.ok(teamWorkspace?.id);
@@ -175,7 +175,7 @@ async function main() {
 
     assert.equal(ownerOrganizationJob.scope, 'organization');
     assert.equal(ownerOrganizationJob.workspaceId, teamWorkspace.id);
-    assert.equal(ownerOrganizationJob.workspaceType, 'organization');
+    assert.equal(ownerOrganizationJob.workspaceType, 'team');
     assert.equal(ownerOrganizationJob.ownerUserId, null);
     assert.equal(ownerOrganizationJob.responsibleUserId, 'user-owner');
     assert.equal(ownerOrganizationJob.approvedByUserId, 'user-owner');
@@ -194,7 +194,7 @@ async function main() {
     assert.ok(run);
     assert.equal(run.scope, 'organization');
     assert.equal(run.workspaceId, teamWorkspace.id);
-    assert.equal(run.workspaceType, 'organization');
+    assert.equal(run.workspaceType, 'team');
     assert.equal(run.jobScope, ownerOrganizationJob.jobScope);
     assert.equal(run.actorType, 'user');
     assert.equal(run.actorUserId, 'user-owner');

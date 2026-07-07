@@ -167,14 +167,14 @@ async function main() {
 
     const ownerActor = resolveWorkspaceActor({ id: 'owner-user', email: 'owner@example.test', role: 'admin' });
     const ownerWorkspaces = listWorkspaceContextsForUser(sqlite, { actor: ownerActor, organizationId });
-    assert.deepEqual(ownerWorkspaces.map((workspace) => workspace.workspaceType), ['personal', 'organization', 'project']);
+    assert.deepEqual(ownerWorkspaces.map((workspace) => workspace.workspaceType), ['personal', 'team', 'project']);
     const ownerProject = ownerWorkspaces.find((workspace) => workspace.workspaceType === 'project');
     assert.equal(ownerProject?.projectId, project.id);
     assert.equal(ownerProject?.permissions.canManageWorkspace, true);
 
     const memberActor = resolveWorkspaceActor({ id: 'member-user', email: 'member@example.test', role: 'member' });
     const memberWorkspaces = listWorkspaceContextsForUser(sqlite, { actor: memberActor, organizationId });
-    assert.deepEqual(memberWorkspaces.map((workspace) => workspace.workspaceType), ['personal', 'organization']);
+    assert.deepEqual(memberWorkspaces.map((workspace) => workspace.workspaceType), ['personal', 'team']);
     assert.equal(resolveWorkspaceContextById(sqlite, { actor: memberActor, workspaceId: projectWorkspace.id }), null);
 
     const externalActor = resolveWorkspaceActor({ id: 'external-user', email: 'external@example.test', role: 'external' });

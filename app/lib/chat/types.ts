@@ -2,8 +2,6 @@ import type { AgentMessage } from '@earendil-works/pi-agent-core';
 import type { PiThinkingLevel } from '@/app/lib/pi/config';
 import type { RuntimeQueueItem, RuntimeStatus } from '@/app/lib/chat/runtime-status';
 
-export type ChatWorkspaceType = 'personal' | 'organization' | 'team' | 'project';
-
 /**
  * Context fields attached to every chat message sent to the PI runtime.
  * Used by both the temporary HTTP compatibility routes and the WebSocket runtime protocol.
@@ -16,7 +14,7 @@ export interface ChatRequestContext {
   workingDirectory?: string;
   workspace?: {
     workspaceId: string;
-    workspaceType: ChatWorkspaceType;
+    workspaceType: 'personal' | 'team' | 'project';
     workspaceName: string;
     organizationId?: string | null;
     canWrite: boolean;
@@ -118,7 +116,7 @@ export interface AISession {
   hasUnread?: boolean;
   workspace?: {
     workspaceId: string;
-    workspaceType: ChatWorkspaceType;
+    workspaceType: 'personal' | 'team' | 'project';
     workspaceName: string;
     organizationId?: string | null;
     rootRelativePath?: string | null;

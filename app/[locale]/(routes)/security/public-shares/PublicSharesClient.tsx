@@ -25,7 +25,7 @@ import { cn } from '@/lib/utils';
 interface PublicShare {
   id: string;
   workspaceId: string | null;
-  workspaceType: 'personal' | 'organization' | 'team' | 'project' | null;
+  workspaceType: 'personal' | 'team' | 'project' | null;
   workspaceName: string | null;
   workspacePath: string;
   fileName: string;

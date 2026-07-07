@@ -106,7 +106,7 @@ async function main() {
   const dataRoot = path.join(tempRoot, 'data');
   process.env.DATA = dataRoot;
   process.env.CANVAS_DEPLOYMENT_MODE = 'managed-team';
-  process.env.CANVAS_DATABASE_PROVIDER = 'sqlite';
+  process.env.CANVAS_DATABASE_PROVIDER = 'postgres';
 
   await mkdir(dataRoot, { recursive: true });
   const sqlite = new Database(path.join(dataRoot, 'sqlite.db'));

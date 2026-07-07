@@ -82,7 +82,7 @@ type TodoFileLink = {
   label: string | null;
 };
 
-type TodoWorkspaceType = 'personal' | 'organization' | 'team';
+type TodoWorkspaceType = 'personal' | 'team';
 
 type TodoUserSummary = {
   id: string;
@@ -328,7 +328,7 @@ function TodoDetailPanel({
         <div className="flex min-w-0 items-center justify-between gap-3">
           <span className="shrink-0 text-muted-foreground">{t('fields.workspace')}</span>
           <span className="min-w-0 truncate text-right font-medium">
-            {todo.workspaceType === 'organization' || todo.workspaceType === 'team' ? t('scope.team') : t('scope.personal')}
+            {todo.workspaceType === 'team' ? t('scope.team') : t('scope.personal')}
           </span>
         </div>
         <div className="flex min-w-0 items-center justify-between gap-3">
@@ -571,7 +571,7 @@ export function TodosClient({ title }: { title: string }) {
   const openCount = useMemo(() => todos.filter((todo) => todo.status === 'open').length, [todos]);
   const doneCount = useMemo(() => todos.filter((todo) => todo.status === 'done').length, [todos]);
   const teamWorkspaces = useMemo(
-    () => workspaces.filter((workspace) => (workspace.type === 'organization' || workspace.type === 'team') && workspace.permissions?.canRead !== false),
+    () => workspaces.filter((workspace) => workspace.type === 'team' && workspace.permissions?.canRead !== false),
     [workspaces],
   );
   const selectedWorkspace = useMemo(
@@ -604,7 +604,7 @@ export function TodosClient({ title }: { title: string }) {
       setWorkspaces([]);
       return [];
     }
-    const readable = (payload.workspaces ?? []).filter((workspace) => workspace.type === 'personal' || workspace.type === 'organization' || workspace.type === 'team');
+    const readable = (payload.workspaces ?? []).filter((workspace) => workspace.type === 'personal' || workspace.type === 'team');
     setWorkspaces(readable as WorkspaceOption[]);
     setSelectedWorkspaceId((current) => (
       current && readable.some((workspace) => workspace.id === current) ? current : ''

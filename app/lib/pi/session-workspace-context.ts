@@ -128,15 +128,8 @@ function assertPermissions(
 }
 
 function normalizeWorkspaceType(value: string | null | undefined): WorkspaceType {
-  if (value === 'organization' || value === 'team' || value === 'project') return value;
+  if (value === 'team' || value === 'project') return value;
   return 'personal';
-}
-
-function getDefaultWorkspaceName(workspaceType: WorkspaceType): string {
-  if (workspaceType === 'organization') return 'Organization Workspace';
-  if (workspaceType === 'team') return 'Team Workspace';
-  if (workspaceType === 'project') return 'Project Workspace';
-  return 'Personal Workspace';
 }
 
 function normalizeRequestedWorkspaceId(value: unknown): string | null {
@@ -163,7 +156,7 @@ export function workspaceToChatRequestWorkspace(workspace: WorkspaceContext): No
   return {
     workspaceId: workspace.workspaceId,
     workspaceType: workspace.workspaceType,
-    workspaceName: workspace.displayName || getDefaultWorkspaceName(workspace.workspaceType),
+    workspaceName: workspace.displayName || (workspace.workspaceType === 'team' ? 'Team Workspace' : 'Personal Workspace'),
     organizationId: workspace.organizationId ?? null,
     canWrite: workspace.permissions.canWrite,
     canShare: workspace.permissions.canCreatePublicLinks,
@@ -210,7 +203,7 @@ export function storedPiSessionWorkspaceToSummary(row: StoredPiSessionWorkspace 
   return {
     workspaceId: row.workspaceId,
     workspaceType: normalizeWorkspaceType(row.workspaceType),
-    workspaceName: row.workspaceName || getDefaultWorkspaceName(normalizeWorkspaceType(row.workspaceType)),
+    workspaceName: row.workspaceName || (row.workspaceType === 'team' ? 'Team Workspace' : 'Personal Workspace'),
     organizationId: row.organizationId ?? null,
     rootRelativePath: row.workspaceRootRelativePath ?? null,
     legacy: row.workspaceId === LEGACY_PERSONAL_WORKSPACE_ID,

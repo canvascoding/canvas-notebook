@@ -1,4 +1,4 @@
-export type ClientWorkspaceType = 'personal' | 'organization' | 'team' | 'project';
+export type ClientWorkspaceType = 'personal' | 'team' | 'project';
 
 export type ClientWorkspaceStatus = 'active' | 'archived' | 'disabled' | 'recovery_locked';
 
@@ -19,7 +19,6 @@ export interface ClientWorkspaceSummary {
   ownerUserId?: string | null;
   rootRelativePath?: string;
   status: ClientWorkspaceStatus;
-  isDefault?: boolean;
   permissions: ClientWorkspacePermissions;
   legacy?: boolean;
 }

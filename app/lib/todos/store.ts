@@ -27,7 +27,7 @@ export type TodoPriority = typeof TODO_PRIORITIES[number];
 export const TODO_SOURCE_TYPES = ['user', 'agent'] as const;
 export type TodoSourceType = typeof TODO_SOURCE_TYPES[number];
 
-export const TODO_WORKSPACE_TYPES = ['personal', 'organization', 'team'] as const;
+export const TODO_WORKSPACE_TYPES = ['personal', 'team'] as const;
 export type TodoWorkspaceType = typeof TODO_WORKSPACE_TYPES[number];
 
 const TITLE_MAX_LENGTH = 180;
@@ -227,7 +227,7 @@ async function isOrganizationWorkspaceWriter(organizationId: string, userId: str
 
 async function assertOrganizationWorkspaceWriter(organizationId: string, userId: string): Promise<void> {
   if (!(await isOrganizationWorkspaceWriter(organizationId, userId))) {
-    throw new TodoStoreError('User cannot write to this shared workspace.', 'ORGANIZATION_ACCESS_DENIED');
+    throw new TodoStoreError('User cannot write to this team workspace.', 'ORGANIZATION_ACCESS_DENIED');
   }
 }
 
@@ -237,20 +237,16 @@ async function assertAssignableUser(organizationId: string, assigneeUserId: stri
   }
 }
 
-function isSharedTodoWorkspaceType(workspaceType: TodoWorkspaceType | 'all'): workspaceType is Exclude<TodoWorkspaceType, 'personal'> {
-  return workspaceType === 'organization' || workspaceType === 'team';
-}
-
-async function assertSharedWorkspaceInOrganization(organizationId: string, workspaceId: string): Promise<void> {
+async function assertTeamWorkspaceInOrganization(organizationId: string, workspaceId: string): Promise<void> {
   const workspace = await db.query.canvasWorkspaces.findFirst({
     where: and(
       eq(canvasWorkspaces.id, workspaceId),
       eq(canvasWorkspaces.organizationId, organizationId),
-      inArray(canvasWorkspaces.type, ['organization', 'team']),
+      eq(canvasWorkspaces.type, 'team'),
     ),
   });
   if (!workspace) {
-    throw new TodoStoreError('Shared workspace not found.', 'INVALID_INPUT');
+    throw new TodoStoreError('Team workspace not found.', 'INVALID_INPUT');
   }
 }
 
@@ -262,13 +258,13 @@ async function resolveTodoScope(userId: string, input: Pick<CreateTodoInput, 'or
 
   const organizationId = normalizeOptionalId(input.organizationId);
   if (!organizationId) {
-    throw new TodoStoreError('organizationId is required for shared workspace to-dos.', 'INVALID_INPUT');
+    throw new TodoStoreError('organizationId is required for team to-dos.', 'INVALID_INPUT');
   }
   await assertOrganizationMember(organizationId, userId);
 
   const workspaceId = normalizeOptionalId(input.workspaceId);
   if (workspaceId) {
-    await assertSharedWorkspaceInOrganization(organizationId, workspaceId);
+    await assertTeamWorkspaceInOrganization(organizationId, workspaceId);
   }
 
   return { organizationId, workspaceId, workspaceType };
@@ -296,7 +292,7 @@ async function assertCanWriteTodo(userId: string, todo: TodoItem): Promise<void>
   }
 
   if (!todo.organizationId) {
-    throw new TodoStoreError('Shared workspace todo is missing organization scope.', 'INVALID_INPUT');
+    throw new TodoStoreError('Team todo is missing organization scope.', 'INVALID_INPUT');
   }
   await assertOrganizationWorkspaceWriter(todo.organizationId, userId);
 }
@@ -522,7 +518,7 @@ export async function createTodo(userId: string, input: CreateTodoInput): Promis
   const now = new Date();
   const scope = await resolveTodoScope(userId, input);
   const assigneeUserId = normalizeOptionalId(input.assigneeUserId);
-  if (isSharedTodoWorkspaceType(scope.workspaceType)) {
+  if (scope.workspaceType === 'team') {
     await assertOrganizationWorkspaceWriter(scope.organizationId!, userId);
     if (assigneeUserId) {
       await assertAssignableUser(scope.organizationId!, assigneeUserId);
@@ -624,16 +620,16 @@ export async function listTodos(userId: string, options: ListTodosOptions = {}):
   const workspaceType = options.workspaceType || 'personal';
   const conditions = [];
 
-  if (isSharedTodoWorkspaceType(workspaceType)) {
+  if (workspaceType === 'team') {
     const organizationId = normalizeOptionalId(options.organizationId);
     if (!organizationId) {
-      throw new TodoStoreError('organizationId is required for shared workspace to-dos.', 'INVALID_INPUT');
+      throw new TodoStoreError('organizationId is required for team to-dos.', 'INVALID_INPUT');
     }
     await assertOrganizationMember(organizationId, userId);
-    conditions.push(eq(todoItems.organizationId, organizationId), eq(todoItems.workspaceType, workspaceType));
+    conditions.push(eq(todoItems.organizationId, organizationId), eq(todoItems.workspaceType, 'team'));
     const workspaceId = normalizeOptionalId(options.workspaceId);
     if (workspaceId) {
-      await assertSharedWorkspaceInOrganization(organizationId, workspaceId);
+      await assertTeamWorkspaceInOrganization(organizationId, workspaceId);
       conditions.push(eq(todoItems.workspaceId, workspaceId));
     }
   } else if (workspaceType === 'all') {
@@ -641,7 +637,6 @@ export async function listTodos(userId: string, options: ListTodosOptions = {}):
     if (organizationId && await isOrganizationMember(organizationId, userId)) {
       conditions.push(or(
         and(eq(todoItems.userId, userId), eq(todoItems.workspaceType, 'personal')),
-        and(eq(todoItems.organizationId, organizationId), eq(todoItems.workspaceType, 'organization')),
         and(eq(todoItems.organizationId, organizationId), eq(todoItems.workspaceType, 'team')),
       )!);
     } else {
@@ -738,8 +733,8 @@ export async function updateTodo(userId: string, todoId: string, input: UpdateTo
   if (input.assigneeUserId !== undefined) {
     const assigneeUserId = normalizeOptionalId(input.assigneeUserId);
     const workspaceType = normalizeWorkspaceType((current.workspaceType as TodoWorkspaceType | null) ?? 'personal');
-    if (isSharedTodoWorkspaceType(workspaceType) && assigneeUserId) {
-      if (!current.organizationId) throw new TodoStoreError('Shared workspace todo is missing organization scope.', 'INVALID_INPUT');
+    if (workspaceType === 'team' && assigneeUserId) {
+      if (!current.organizationId) throw new TodoStoreError('Team todo is missing organization scope.', 'INVALID_INPUT');
       await assertAssignableUser(current.organizationId, assigneeUserId);
     } else if (workspaceType === 'personal' && assigneeUserId && assigneeUserId !== userId) {
       throw new TodoStoreError('Personal to-dos can only be assigned to the current user.', 'ASSIGNEE_NOT_FOUND');

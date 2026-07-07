@@ -177,7 +177,6 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       root_relative_path TEXT NOT NULL,
       display_name TEXT NOT NULL,
       status TEXT NOT NULL DEFAULT 'active',
-      is_default INTEGER NOT NULL DEFAULT 0,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL,
       FOREIGN KEY (organization_id) REFERENCES canvas_organization_settings(organization_id) ON DELETE CASCADE,
@@ -185,25 +184,6 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       FOREIGN KEY (customer_id) REFERENCES canvas_customers(id) ON DELETE SET NULL,
       FOREIGN KEY (project_id) REFERENCES canvas_projects(id) ON DELETE CASCADE,
       CHECK (type != 'project' OR project_id IS NOT NULL)
-    );
-
-    CREATE TABLE IF NOT EXISTS canvas_workspace_members (
-      organization_id TEXT NOT NULL,
-      workspace_id TEXT NOT NULL,
-      user_id TEXT NOT NULL,
-      role TEXT NOT NULL DEFAULT 'member',
-      status TEXT NOT NULL DEFAULT 'active',
-      can_read INTEGER NOT NULL DEFAULT 1,
-      can_write INTEGER NOT NULL DEFAULT 0,
-      can_manage INTEGER NOT NULL DEFAULT 0,
-      invited_by_user_id TEXT,
-      created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL,
-      PRIMARY KEY (workspace_id, user_id),
-      FOREIGN KEY (organization_id) REFERENCES canvas_organization_settings(organization_id) ON DELETE CASCADE,
-      FOREIGN KEY (workspace_id) REFERENCES canvas_workspaces(id) ON DELETE CASCADE,
-      FOREIGN KEY (user_id) REFERENCES user(id),
-      FOREIGN KEY (invited_by_user_id) REFERENCES user(id) ON DELETE SET NULL
     );
 
     CREATE TABLE IF NOT EXISTS workspace_trash_entries (
@@ -1109,49 +1089,7 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
   addColumns(sqlite, 'canvas_workspaces', {
     customer_id: 'TEXT',
     project_id: 'TEXT',
-    is_default: 'INTEGER NOT NULL DEFAULT 0',
   });
-
-  sqlite.exec(`
-    UPDATE canvas_workspaces
-    SET type = 'organization', is_default = 1, updated_at = CASE WHEN updated_at IS NULL THEN created_at ELSE updated_at END
-    WHERE type = 'team'
-      AND (
-        LENGTH(root_relative_path) - LENGTH(REPLACE(root_relative_path, '/', '')) = 3
-        OR root_relative_path IS NULL
-        OR root_relative_path = ''
-      );
-
-    UPDATE canvas_workspaces
-    SET is_default = 1
-    WHERE type = 'personal'
-      AND owner_user_id IS NOT NULL
-      AND NOT EXISTS (
-        SELECT 1
-        FROM canvas_workspaces older
-        WHERE older.type = 'personal'
-          AND older.owner_user_id = canvas_workspaces.owner_user_id
-          AND (
-            older.created_at < canvas_workspaces.created_at
-            OR (older.created_at = canvas_workspaces.created_at AND older.id < canvas_workspaces.id)
-          )
-      );
-
-    UPDATE canvas_workspaces
-    SET is_default = 1
-    WHERE type = 'organization'
-      AND organization_id IS NOT NULL
-      AND NOT EXISTS (
-        SELECT 1
-        FROM canvas_workspaces older
-        WHERE older.type = 'organization'
-          AND older.organization_id = canvas_workspaces.organization_id
-          AND (
-            older.created_at < canvas_workspaces.created_at
-            OR (older.created_at = canvas_workspaces.created_at AND older.id < canvas_workspaces.id)
-          )
-      );
-  `);
 
   sqlite.exec(`
     CREATE TRIGGER IF NOT EXISTS trg_canvas_workspaces_project_id_required_insert
@@ -1862,9 +1800,6 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
 
   // ── Deferred indexes on columns added via ALTER TABLE ──────────────────────
   sqlite.exec(`
-    DROP INDEX IF EXISTS idx_canvas_workspaces_personal_owner;
-    DROP INDEX IF EXISTS idx_canvas_workspaces_team_organization;
-
     CREATE INDEX IF NOT EXISTS idx_canvas_org_settings_owner ON canvas_organization_settings (owner_user_id);
     CREATE INDEX IF NOT EXISTS idx_canvas_customers_organization ON canvas_customers (organization_id, status, name);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_canvas_customers_org_slug ON canvas_customers (organization_id, slug);
@@ -1880,11 +1815,9 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     CREATE INDEX IF NOT EXISTS idx_canvas_workspaces_customer ON canvas_workspaces (customer_id);
     CREATE INDEX IF NOT EXISTS idx_canvas_workspaces_project ON canvas_workspaces (project_id);
     CREATE INDEX IF NOT EXISTS idx_canvas_workspaces_organization_type ON canvas_workspaces (organization_id, type);
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_canvas_workspaces_default_personal ON canvas_workspaces (owner_user_id) WHERE type = 'personal' AND is_default = 1;
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_canvas_workspaces_default_organization ON canvas_workspaces (organization_id) WHERE type = 'organization' AND is_default = 1;
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_canvas_workspaces_personal_owner ON canvas_workspaces (owner_user_id) WHERE type = 'personal';
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_canvas_workspaces_team_organization ON canvas_workspaces (organization_id) WHERE type = 'team';
     CREATE UNIQUE INDEX IF NOT EXISTS idx_canvas_workspaces_project_workspace ON canvas_workspaces (project_id) WHERE type = 'project';
-    CREATE INDEX IF NOT EXISTS idx_canvas_workspace_members_org_user ON canvas_workspace_members (organization_id, user_id, status);
-    CREATE INDEX IF NOT EXISTS idx_canvas_workspace_members_workspace_status ON canvas_workspace_members (workspace_id, status);
     CREATE INDEX IF NOT EXISTS idx_workspace_trash_workspace_status ON workspace_trash_entries (workspace_id, status, deleted_at);
     CREATE INDEX IF NOT EXISTS idx_workspace_trash_expires ON workspace_trash_entries (status, expires_at);
     CREATE INDEX IF NOT EXISTS idx_workspace_trash_org_status ON workspace_trash_entries (organization_id, status, deleted_at);

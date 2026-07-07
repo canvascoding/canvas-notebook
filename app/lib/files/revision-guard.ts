@@ -55,7 +55,7 @@ export function normalizeExpectedSha256(value: unknown): string | null {
 }
 
 export function workspaceRequiresRevisionCheck(workspace: WorkspaceContext): boolean {
-  return workspace.workspaceType === 'organization' || workspace.workspaceType === 'team' || workspace.workspaceType === 'project';
+  return workspace.workspaceType === 'team' || workspace.workspaceType === 'project';
 }
 
 function isEnoent(error: unknown): boolean {

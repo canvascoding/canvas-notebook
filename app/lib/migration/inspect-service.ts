@@ -596,11 +596,7 @@ function buildWorkspaceMappings(params: {
   users: MigrationImportUserMapping[];
 }): MigrationImportWorkspaceMapping[] {
   const roots = new Map<string, MigrationImportWorkspaceMapping>();
-  const teamWorkspace = params.target.workspaces.find(
-    (workspace) =>
-      (workspace.type === 'organization' || workspace.type === 'team') &&
-      workspace.organizationId === params.target.organizationId,
-  ) || null;
+  const teamWorkspace = params.target.workspaces.find((workspace) => workspace.type === 'team' && workspace.organizationId === params.target.organizationId) || null;
 
   for (const archivePath of params.archivePaths) {
     if (archivePath.startsWith('data/workspace/')) {

@@ -1,7 +1,7 @@
 import { DEFAULT_AGENT_ID } from '@/app/lib/channels/constants';
 import { getChatMessageDbId, getChatMessageSequence, getChatMessageTimestamp } from '@/app/lib/chat/message-metadata';
 import { normalizeSessionRuntimePhase } from '@/app/lib/chat/runtime-message-utils';
-import type { AISession, CachedChatSession, ChatMessage, ChatSessionCacheStore, ChatWorkspaceType } from '@/app/lib/chat/types';
+import type { AISession, CachedChatSession, ChatMessage, ChatSessionCacheStore } from '@/app/lib/chat/types';
 import type { PiThinkingLevel } from '@/app/lib/pi/config';
 
 const CHAT_AGENT_ID = DEFAULT_AGENT_ID;
@@ -17,11 +17,6 @@ let hasHydratedChatSessionCache = false;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
-}
-
-function normalizeCachedWorkspaceType(value: unknown): ChatWorkspaceType {
-  if (value === 'organization' || value === 'team' || value === 'project') return value;
-  return 'personal';
 }
 
 function getChatSessionCacheKey(agentId: string | null | undefined, sessionId: string): string {
@@ -82,7 +77,7 @@ function normalizeCachedSessionEntry(value: unknown): CachedChatSession | null {
     workspace: workspaceValue && typeof workspaceValue.workspaceId === 'string'
       ? {
           workspaceId: workspaceValue.workspaceId,
-          workspaceType: normalizeCachedWorkspaceType(workspaceType),
+          workspaceType: workspaceType === 'team' || workspaceType === 'project' ? workspaceType : 'personal',
           workspaceName: typeof workspaceValue.workspaceName === 'string' ? workspaceValue.workspaceName : 'Workspace',
           organizationId: typeof workspaceValue.organizationId === 'string' ? workspaceValue.organizationId : null,
           rootRelativePath: typeof workspaceValue.rootRelativePath === 'string' ? workspaceValue.rootRelativePath : null,
