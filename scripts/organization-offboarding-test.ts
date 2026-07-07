@@ -290,7 +290,7 @@ async function main() {
     assert.equal(getRequiredRow<{ status: string }>(sqlite, 'SELECT status FROM automation_runs WHERE id = ?', 'run-member').status, 'failed');
     assert.equal(getRequiredRow<{ enabled: number }>(sqlite, 'SELECT enabled FROM channel_user_bindings WHERE user_id = ?', 'user-member').enabled, 0);
 
-    const permission = readOrganizationPermissionForUser('user-member').permission;
+    const permission = (await readOrganizationPermissionForUser('user-member')).permission;
     assert.equal(permission?.status, 'archived');
     assert.equal(hasOrganizationPermission(permission, 'canCreatePublicLinks'), false);
     assert.equal(hasOrganizationPermission(permission, 'canDeleteStudioAssets'), false);

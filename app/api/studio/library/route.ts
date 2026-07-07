@@ -21,7 +21,7 @@ export async function GET(request: NextRequest) {
       listStudioGenerations(session.user.id),
     ]);
 
-    const scope = resolveStudioScope(session.user.id);
+    const scope = await resolveStudioScope(session.user.id);
     const presetVisibility = scope.organizationWide && scope.organizationId
       ? or(eq(studioPresets.userId, session.user.id), eq(studioPresets.organizationId, scope.organizationId), eq(studioPresets.isDefault, true))
       : or(eq(studioPresets.userId, session.user.id), eq(studioPresets.isDefault, true));

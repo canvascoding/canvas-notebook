@@ -23,7 +23,7 @@ async function getOwnedPersona(personaId: string, userId: string) {
 }
 
 async function getVisiblePersona(personaId: string, userId: string) {
-  const scope = resolveStudioScope(userId);
+  const scope = await resolveStudioScope(userId);
   const [persona] = await db.select()
     .from(studioPersonas)
     .where(and(
@@ -44,7 +44,7 @@ export async function createPersona(
   await ensureStudioAssetsWorkspace();
   const id = randomUUID();
   const now = new Date();
-  const scope = studioInsertScope(userId);
+  const scope = await studioInsertScope(userId);
   const [inserted] = await db.insert(studioPersonas).values({
     id,
     userId,
@@ -71,7 +71,7 @@ export async function getPersona(personaId: string, userId: string) {
 }
 
 export async function listPersonas(userId: string, search?: string) {
-  const scope = resolveStudioScope(userId);
+  const scope = await resolveStudioScope(userId);
   const conditions = [studioVisibilityCondition(scope, {
     userId: studioPersonas.userId,
     organizationId: studioPersonas.organizationId,

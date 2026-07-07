@@ -31,11 +31,12 @@ import {
 } from '@/app/lib/migration/types';
 import { formatVersionCompatibilityMessage } from '@/app/lib/migration/version';
 import {
-  getDatabaseProvider,
   getDeploymentMode,
   openOrganizationBootstrapDatabase,
 } from '@/app/lib/organization/bootstrap';
 import { assertSqliteDatabaseReadable } from '@/app/lib/db/sqlite-health';
+import { getDatabaseProvider } from '@/app/lib/db/provider';
+import { openDb } from '@/app/lib/db';
 
 const execFileAsync = promisify(execFile);
 const SQLITE_ARCHIVE_PATH = 'data/sqlite.db';
@@ -356,7 +357,7 @@ type ReconnectManifestEntry = {
   secretNames?: unknown;
 };
 
-function readLocalImportContext(warnings: string[]): LocalImportContext {
+async function readLocalImportContext(warnings: string[]): Promise<LocalImportContext> {
   const fallback: LocalImportContext = {
     databaseProvider: getDatabaseProvider(),
     deploymentMode: getDeploymentMode(),
@@ -365,6 +366,50 @@ function readLocalImportContext(warnings: string[]): LocalImportContext {
     users: [],
     workspaces: [],
   };
+
+  if (getDatabaseProvider() === 'postgres') {
+    try {
+      const database = await openDb();
+      try {
+        const organization = await database.get(`
+          SELECT organization_id AS organizationId, deployment_mode AS deploymentMode, team_features_enabled AS teamFeaturesEnabled
+          FROM canvas_organization_settings
+          ORDER BY created_at ASC
+          LIMIT 1
+        `) as { organizationId: string; deploymentMode: string; teamFeaturesEnabled: number } | undefined;
+        const users = await database.all(`
+          SELECT id, email
+          FROM "user"
+          ORDER BY created_at ASC
+        `) as LocalUser[];
+        const workspaces = await database.all(`
+          SELECT
+            id,
+            organization_id AS organizationId,
+            type,
+            owner_user_id AS ownerUserId,
+            root_relative_path AS rootRelativePath,
+            display_name AS displayName
+          FROM canvas_workspaces
+          WHERE status = 'active'
+          ORDER BY created_at ASC
+        `) as LocalWorkspace[];
+        return {
+          databaseProvider: getDatabaseProvider(),
+          deploymentMode: organization?.deploymentMode || getDeploymentMode(),
+          organizationId: organization?.organizationId || null,
+          teamFeaturesEnabled: organization ? organization.teamFeaturesEnabled === 1 : false,
+          users,
+          workspaces,
+        };
+      } finally {
+        await database.close();
+      }
+    } catch (error) {
+      warnings.push(`Target mapping context could not be read: ${error instanceof Error ? error.message : 'unknown error'}`);
+      return fallback;
+    }
+  }
 
   let sqlite: ReturnType<typeof openOrganizationBootstrapDatabase> | null = null;
   try {
@@ -650,13 +695,13 @@ function buildWorkspaceMappings(params: {
   return [...roots.values()].sort((a, b) => a.sourcePath.localeCompare(b.sourcePath));
 }
 
-function buildDryRun(params: {
+async function buildDryRun(params: {
   manifest: CanvasMigrationManifest;
   entries: string[];
   reconnect: MigrationImportReconnectRequirement[];
   warnings: string[];
-}): MigrationImportDryRun {
-  const target = readLocalImportContext(params.warnings);
+}): Promise<MigrationImportDryRun> {
+  const target = await readLocalImportContext(params.warnings);
   const archivePaths = sourceArchivePaths(params.manifest, params.entries);
   const users = buildUserMappings({ manifest: params.manifest, archivePaths, target });
   const workspaces = buildWorkspaceMappings({ archivePaths, target, users });
@@ -830,7 +875,7 @@ export async function inspectMigrationArchive(params: {
     }
   }
   const dryRun = manifest
-    ? buildDryRun({ manifest, entries, reconnect, warnings })
+    ? await buildDryRun({ manifest, entries, reconnect, warnings })
     : undefined;
 
   if (dryRun && manifest) {

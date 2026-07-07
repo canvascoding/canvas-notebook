@@ -71,38 +71,38 @@ async function main() {
   assert.ok(organization.organizationId);
   assert.equal(existsSync(path.join(dataDir, 'users', owner.id, 'settings')), true);
 
-  const ownerState = readOrganizationPermissionForUser(owner.id);
+  const ownerState = await readOrganizationPermissionForUser(owner.id);
   assert.equal(ownerState.permission?.role, 'owner');
   assert.equal(hasOrganizationPermission(ownerState.permission, 'canExport'), true);
   assert.equal(hasOrganizationPermission(ownerState.permission, 'canRecoverWorkspaces'), true);
-  assert.doesNotThrow(() => assertUserOrganizationPermission(owner.id, 'canExport'));
+  await assert.doesNotReject(async () => assertUserOrganizationPermission(owner.id, 'canExport'));
 
   const memberId = 'member-user-1';
   insertMemberPermission(sqlite, organization.organizationId, memberId);
   sqlite.close();
 
-  const memberState = readOrganizationPermissionForUser(memberId);
+  const memberState = await readOrganizationPermissionForUser(memberId);
   assert.equal(memberState.permission?.role, 'member');
   assert.equal(hasOrganizationPermission(memberState.permission, 'canCreatePublicLinks'), true);
   assert.equal(hasOrganizationPermission(memberState.permission, 'canExport'), false);
   assert.equal(hasOrganizationPermission(memberState.permission, 'canDeleteStudioAssets'), true);
   assert.equal(hasOrganizationPermission(memberState.permission, 'canSharePluginsAndSkills'), false);
-  assert.doesNotThrow(() => assertUserOrganizationPermission(memberId, 'canCreatePublicLinks'));
-  assert.doesNotThrow(() => assertUserOrganizationPermission(memberId, 'canDeleteStudioAssets'));
-  assert.throws(
-    () => assertUserOrganizationPermission(memberId, 'canExport'),
+  await assert.doesNotReject(async () => assertUserOrganizationPermission(memberId, 'canCreatePublicLinks'));
+  await assert.doesNotReject(async () => assertUserOrganizationPermission(memberId, 'canDeleteStudioAssets'));
+  await assert.rejects(
+    async () => assertUserOrganizationPermission(memberId, 'canExport'),
     /Missing organization permission: canExport/,
   );
-  assert.throws(
-    () => assertUserOrganizationPermission(memberId, 'canSharePluginsAndSkills'),
+  await assert.rejects(
+    async () => assertUserOrganizationPermission(memberId, 'canSharePluginsAndSkills'),
     /Missing organization permission: canSharePluginsAndSkills/,
   );
 
   assert.equal(automationInputRequiresTeamPermission({ scope: 'personal' }), false);
   assert.equal(automationInputRequiresTeamPermission({ scope: 'team' }), true);
-  assert.doesNotThrow(() => assertCanCreateRequestedAutomation({ scope: 'personal' }, { id: memberId }));
-  assert.throws(
-    () => assertCanCreateRequestedAutomation({ workspaceType: 'team' }, { id: memberId }),
+  await assert.doesNotReject(async () => assertCanCreateRequestedAutomation({ scope: 'personal' }, { id: memberId }));
+  await assert.rejects(
+    async () => assertCanCreateRequestedAutomation({ workspaceType: 'team' }, { id: memberId }),
     /Team automation permission required/,
   );
 
@@ -114,25 +114,25 @@ async function main() {
   `).run(Date.now(), organization.organizationId, memberId);
   permissionsDb.close();
 
-  assert.doesNotThrow(() => assertUserOrganizationPermission(memberId, 'canExport'));
-  assert.doesNotThrow(() => assertCanCreateRequestedAutomation({ teamAutomation: true }, { id: memberId }));
+  await assert.doesNotReject(async () => assertUserOrganizationPermission(memberId, 'canExport'));
+  await assert.doesNotReject(async () => assertCanCreateRequestedAutomation({ teamAutomation: true }, { id: memberId }));
 
   const legacyDb = new Database(path.join(dataDir, 'sqlite.db'));
   legacyDb.prepare('DELETE FROM organization_user_permissions').run();
   legacyDb.prepare('DELETE FROM canvas_organization_settings').run();
   legacyDb.close();
 
-  assert.doesNotThrow(() => assertUserOrganizationPermission(owner.id, 'canCreatePublicLinks'));
-  assert.throws(
-    () => assertUserOrganizationPermission(memberId, 'canCreatePublicLinks'),
+  await assert.doesNotReject(async () => assertUserOrganizationPermission(owner.id, 'canCreatePublicLinks'));
+  await assert.rejects(
+    async () => assertUserOrganizationPermission(memberId, 'canCreatePublicLinks'),
     /Missing organization permission: canCreatePublicLinks/,
   );
-  assert.doesNotThrow(() => assertCanCreateRequestedAutomation(
+  await assert.doesNotReject(async () => assertCanCreateRequestedAutomation(
     { scope: 'team' },
     { id: owner.id, role: 'admin', email: owner.email },
   ));
-  assert.throws(
-    () => assertCanCreateRequestedAutomation({ scope: 'team' }, { id: memberId, role: 'user', email: 'member@example.test' }),
+  await assert.rejects(
+    async () => assertCanCreateRequestedAutomation({ scope: 'team' }, { id: memberId, role: 'user', email: 'member@example.test' }),
     /Team automation permission required/,
   );
 

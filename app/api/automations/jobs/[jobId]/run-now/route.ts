@@ -28,7 +28,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
       return NextResponse.json({ success: false, error: 'Automation not found.' }, { status: 404 });
     }
     try {
-      assertCanAccessAutomationJob(session.user.id, job);
+      await assertCanAccessAutomationJob(session.user.id, job);
     } catch {
       return NextResponse.json({ success: false, error: 'Automation not found.' }, { status: 404 });
     }

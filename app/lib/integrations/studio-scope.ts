@@ -24,8 +24,8 @@ function isInternalActivePermission(permission: OrganizationPermissionSnapshot |
   return permission.role === 'owner' || permission.role === 'admin' || permission.role === 'member';
 }
 
-export function resolveStudioScope(userId: string): StudioScope {
-  const state = readOrganizationPermissionForUser(userId);
+export async function resolveStudioScope(userId: string): Promise<StudioScope> {
+  const state = await readOrganizationPermissionForUser(userId);
   const organizationWide = Boolean(
     state.configured &&
     state.teamFeaturesEnabled &&
@@ -71,12 +71,12 @@ export function studioVisibilityCondition(
   return withCreator(eq(columns.userId, scope.actorUserId), columns, creatorUserId);
 }
 
-export function studioInsertScope(userId: string): {
+export async function studioInsertScope(userId: string): Promise<{
   organizationId: string | null;
   createdByUserId: string;
   visibility: 'organization' | 'user';
-} {
-  const scope = resolveStudioScope(userId);
+}> {
+  const scope = await resolveStudioScope(userId);
   return {
     organizationId: scope.organizationWide ? scope.organizationId : null,
     createdByUserId: userId,

@@ -33,7 +33,7 @@ export async function PATCH(
     return NextResponse.json({ success: false, error: 'Trigger not found.' }, { status: 404 });
   }
   try {
-    assertCanAccessAutomationJob(session.user.id, job);
+    await assertCanAccessAutomationJob(session.user.id, job);
   } catch {
     return NextResponse.json({ success: false, error: 'Trigger not found.' }, { status: 404 });
   }
@@ -73,7 +73,7 @@ export async function DELETE(
     return NextResponse.json({ success: false, error: 'Trigger not found.' }, { status: 404 });
   }
   try {
-    assertCanAccessAutomationJob(session.user.id, job);
+    await assertCanAccessAutomationJob(session.user.id, job);
   } catch {
     return NextResponse.json({ success: false, error: 'Trigger not found.' }, { status: 404 });
   }

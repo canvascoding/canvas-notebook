@@ -125,7 +125,8 @@ export async function GET(request: NextRequest) {
     const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(limitRaw, 500)) : 300;
     const depthRaw = Number(searchParams.get('depth') || '8');
     const depth = Number.isFinite(depthRaw) ? Math.max(1, Math.min(depthRaw, 12)) : 8;
-    const studioVisibility = studioVisibilityCondition(resolveStudioScope(session.user.id), {
+    const studioScope = await resolveStudioScope(session.user.id);
+    const studioVisibility = studioVisibilityCondition(studioScope, {
       userId: studioGenerations.userId,
       organizationId: studioGenerations.organizationId,
       createdByUserId: studioGenerations.createdByUserId,

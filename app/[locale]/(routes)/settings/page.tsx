@@ -21,7 +21,7 @@ export default async function SettingsPage() {
   let organizationPermission = null;
   if (currentUserId) {
     try {
-      organizationPermission = readOrganizationPermissionForUser(currentUserId).permission;
+      organizationPermission = (await readOrganizationPermissionForUser(currentUserId)).permission;
     } catch (error) {
       console.warn('[Settings] Failed to read organization permission for current user:', error);
     }

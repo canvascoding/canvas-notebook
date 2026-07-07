@@ -467,7 +467,7 @@ async function mapJobRowWithWebhookTrigger(row: typeof automationJobs.$inferSele
 }
 
 export async function listAutomationJobs(userId: string): Promise<AutomationJobRecord[]> {
-  const access = getAutomationListAccess(userId);
+  const access = await getAutomationListAccess(userId);
   const personalAccess = and(
     or(
       eq(automationJobs.ownerUserId, userId),
@@ -1109,7 +1109,7 @@ export async function rotateAutomationWebhookSecret(webhookId: string, userId: s
     return null;
   }
   try {
-    assertCanAccessAutomationJob(userId, triggerWithJob.job);
+    await assertCanAccessAutomationJob(userId, triggerWithJob.job);
   } catch {
     return null;
   }

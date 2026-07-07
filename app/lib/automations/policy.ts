@@ -84,13 +84,13 @@ function normalizeWorkspaceId(input: unknown): string | null {
   return workspaceId || null;
 }
 
-function isLegacyAdminAllowed(user: AutomationPolicyUser): boolean {
-  const state = readOrganizationPermissionForUser(user.id);
+async function isLegacyAdminAllowed(user: AutomationPolicyUser): Promise<boolean> {
+  const state = await readOrganizationPermissionForUser(user.id);
   return !state.configured && isAdminUser(user);
 }
 
-function assertCanCreateOrganizationAutomation(user: AutomationPolicyUser): void {
-  const state = readOrganizationPermissionForUser(user.id);
+async function assertCanCreateOrganizationAutomation(user: AutomationPolicyUser): Promise<void> {
+  const state = await readOrganizationPermissionForUser(user.id);
   if (!state.configured && isAdminUser(user)) {
     console.warn('[Automations] Legacy admin fallback allowed organization automation on unconfigured organization.', {
       userId: user.id,
@@ -103,8 +103,8 @@ function assertCanCreateOrganizationAutomation(user: AutomationPolicyUser): void
   }
 }
 
-export function getAutomationListAccess(userId: string): AutomationListAccess {
-  const state = readOrganizationPermissionForUser(userId);
+export async function getAutomationListAccess(userId: string): Promise<AutomationListAccess> {
+  const state = await readOrganizationPermissionForUser(userId);
   // Organization automations expose shared prompts, schedules, and run history;
   // keep read visibility aligned with the team-automation authoring permission.
   const canReadOrganizationAutomations = Boolean(
@@ -158,7 +158,7 @@ export async function resolveAutomationScopeForCreate(input: unknown, user: Auto
     throw new AutomationPolicyError('Personal automations require a personal workspace. Please select a personal workspace before creating a personal automation.');
   }
 
-  assertCanCreateOrganizationAutomation(user);
+  await assertCanCreateOrganizationAutomation(user);
   if (!workspace.organizationId) {
     throw new AutomationPolicyError('Organization automations require a configured organization workspace.');
   }
@@ -177,7 +177,7 @@ export async function resolveAutomationScopeForCreate(input: unknown, user: Auto
   };
 }
 
-export function canAccessAutomationJob(
+export async function canAccessAutomationJob(
   userId: string,
   job: {
     scope?: string | null;
@@ -186,13 +186,13 @@ export function canAccessAutomationJob(
     responsibleUserId?: string | null;
     organizationId?: string | null;
   },
-): boolean {
+): Promise<boolean> {
   const scope = job.scope === 'organization' ? 'organization' : 'personal';
   if (scope === 'personal') {
     return (job.ownerUserId || job.createdByUserId) === userId;
   }
 
-  const state = readOrganizationPermissionForUser(userId);
+  const state = await readOrganizationPermissionForUser(userId);
   return Boolean(
     job.organizationId &&
     state.organizationId === job.organizationId &&
@@ -200,11 +200,11 @@ export function canAccessAutomationJob(
   );
 }
 
-export function assertCanAccessAutomationJob(
+export async function assertCanAccessAutomationJob(
   userId: string,
   job: Parameters<typeof canAccessAutomationJob>[1],
-): void {
-  if (!canAccessAutomationJob(userId, job)) {
+): Promise<void> {
+  if (!(await canAccessAutomationJob(userId, job))) {
     throw new AutomationPolicyError('Automation job is not accessible for this user.');
   }
 }
@@ -222,6 +222,6 @@ export async function resolveAutomationRunWorkspace(job: {
   });
 }
 
-export function shouldUseLegacyAutomationAdminFallback(user: AutomationPolicyUser): boolean {
+export async function shouldUseLegacyAutomationAdminFallback(user: AutomationPolicyUser): Promise<boolean> {
   return isLegacyAdminAllowed(user);
 }

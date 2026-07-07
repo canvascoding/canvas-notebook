@@ -23,7 +23,7 @@ async function getOwnedStyle(styleId: string, userId: string) {
 }
 
 async function getVisibleStyle(styleId: string, userId: string) {
-  const scope = resolveStudioScope(userId);
+  const scope = await resolveStudioScope(userId);
   const [style] = await db.select()
     .from(studioStyles)
     .where(and(
@@ -44,7 +44,7 @@ export async function createStyle(
   await ensureStudioAssetsWorkspace();
   const id = randomUUID();
   const now = new Date();
-  const scope = studioInsertScope(userId);
+  const scope = await studioInsertScope(userId);
   const [inserted] = await db.insert(studioStyles).values({
     id,
     userId,
@@ -71,7 +71,7 @@ export async function getStyle(styleId: string, userId: string) {
 }
 
 export async function listStyles(userId: string, search?: string) {
-  const scope = resolveStudioScope(userId);
+  const scope = await resolveStudioScope(userId);
   const conditions = [studioVisibilityCondition(scope, {
     userId: studioStyles.userId,
     organizationId: studioStyles.organizationId,

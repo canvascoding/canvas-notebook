@@ -122,32 +122,32 @@ const MAX_IMAGE_COUNT = 4;
 const PRESET_BLOCK_ORDER = ['lighting', 'camera', 'background', 'props', 'subject'];
 const MAX_PROMPT_LENGTH = 4000;
 
-function generationVisibilityCondition(userId: string, creatorUserId?: string | null) {
-  return studioVisibilityCondition(resolveStudioScope(userId), {
+async function generationVisibilityCondition(userId: string, creatorUserId?: string | null) {
+  return studioVisibilityCondition(await resolveStudioScope(userId), {
     userId: studioGenerations.userId,
     organizationId: studioGenerations.organizationId,
     createdByUserId: studioGenerations.createdByUserId,
   }, creatorUserId);
 }
 
-function productVisibilityCondition(userId: string) {
-  return studioVisibilityCondition(resolveStudioScope(userId), {
+async function productVisibilityCondition(userId: string) {
+  return studioVisibilityCondition(await resolveStudioScope(userId), {
     userId: studioProducts.userId,
     organizationId: studioProducts.organizationId,
     createdByUserId: studioProducts.createdByUserId,
   });
 }
 
-function personaVisibilityCondition(userId: string) {
-  return studioVisibilityCondition(resolveStudioScope(userId), {
+async function personaVisibilityCondition(userId: string) {
+  return studioVisibilityCondition(await resolveStudioScope(userId), {
     userId: studioPersonas.userId,
     organizationId: studioPersonas.organizationId,
     createdByUserId: studioPersonas.createdByUserId,
   });
 }
 
-function styleVisibilityCondition(userId: string) {
-  return studioVisibilityCondition(resolveStudioScope(userId), {
+async function styleVisibilityCondition(userId: string) {
+  return studioVisibilityCondition(await resolveStudioScope(userId), {
     userId: studioStyles.userId,
     organizationId: studioStyles.organizationId,
     createdByUserId: studioStyles.createdByUserId,
@@ -189,7 +189,7 @@ async function loadProductImages(userId: string, productIds: string[]): Promise<
   for (const productId of productIds) {
     const [product] = await db.select({ id: studioProducts.id, name: studioProducts.name, description: studioProducts.description })
       .from(studioProducts)
-      .where(and(eq(studioProducts.id, productId), productVisibilityCondition(userId)));
+      .where(and(eq(studioProducts.id, productId), await productVisibilityCondition(userId)));
 
     if (!product) {
       throw new StudioServiceError(
@@ -241,7 +241,7 @@ async function loadPersonaImages(userId: string, personaIds: string[]): Promise<
   for (const personaId of personaIds) {
     const [persona] = await db.select({ id: studioPersonas.id, name: studioPersonas.name, description: studioPersonas.description })
       .from(studioPersonas)
-      .where(and(eq(studioPersonas.id, personaId), personaVisibilityCondition(userId)));
+      .where(and(eq(studioPersonas.id, personaId), await personaVisibilityCondition(userId)));
 
     if (!persona) {
       throw new StudioServiceError(
@@ -293,7 +293,7 @@ async function loadStyleImages(userId: string, styleIds: string[]): Promise<Load
   for (const styleId of styleIds) {
     const [style] = await db.select({ id: studioStyles.id, name: studioStyles.name, description: studioStyles.description })
       .from(studioStyles)
-      .where(and(eq(studioStyles.id, styleId), styleVisibilityCondition(userId)));
+      .where(and(eq(studioStyles.id, styleId), await styleVisibilityCondition(userId)));
 
     if (!style) {
       throw new StudioServiceError(
@@ -353,7 +353,7 @@ export async function getStudioOutputForUser(outputId: string, userId: string) {
   })
     .from(studioGenerationOutputs)
     .innerJoin(studioGenerations, eq(studioGenerationOutputs.generationId, studioGenerations.id))
-    .where(and(eq(studioGenerationOutputs.id, outputId), generationVisibilityCondition(userId)))
+    .where(and(eq(studioGenerationOutputs.id, outputId), await generationVisibilityCondition(userId)))
     .limit(1);
 
   return output ?? null;
@@ -372,7 +372,7 @@ export async function canReadStudioOutputPath(inputPath: string, userId: string)
         eq(studioGenerationOutputs.filePath, normalizedPath),
         eq(studioGenerationOutputs.filePath, `studio/outputs/${normalizedPath}`),
       )!,
-      generationVisibilityCondition(userId),
+      await generationVisibilityCondition(userId),
     ))
     .limit(1);
 
@@ -445,7 +445,7 @@ async function getVeoVideoOutputByPathForUser(inputPath: string, userId: string)
     })
       .from(studioGenerationOutputs)
       .innerJoin(studioGenerations, eq(studioGenerationOutputs.generationId, studioGenerations.id))
-      .where(and(eq(studioGenerationOutputs.filePath, candidate), generationVisibilityCondition(userId)))
+      .where(and(eq(studioGenerationOutputs.filePath, candidate), await generationVisibilityCondition(userId)))
       .limit(1);
 
     if (output) {
@@ -532,7 +532,7 @@ async function loadSourceOutputReferences(userId: string, sourceGenerationId: st
 }> {
   const [generation] = await db.select({ id: studioGenerations.id })
     .from(studioGenerations)
-    .where(and(eq(studioGenerations.id, sourceGenerationId), generationVisibilityCondition(userId)))
+    .where(and(eq(studioGenerations.id, sourceGenerationId), await generationVisibilityCondition(userId)))
     .limit(1);
 
   if (!generation) {
@@ -730,7 +730,7 @@ export async function createStudioGeneration(
 
   const generationId = randomUUID();
   const now = new Date();
-  const scope = studioInsertScope(userId);
+  const scope = await studioInsertScope(userId);
   let sourceGenerationId: string | null = null;
 
   const defaultModel = providerId === 'openai' ? 'gpt-image-2' : GEMINI_FLASH_IMAGE_MODEL_ID;
@@ -1604,7 +1604,7 @@ async function listStudioGenerationCreators(userId: string) {
     createdByUserId: studioGenerations.createdByUserId,
   })
     .from(studioGenerations)
-    .where(generationVisibilityCondition(userId))
+    .where(await generationVisibilityCondition(userId))
     .groupBy(studioGenerations.userId, studioGenerations.createdByUserId);
 
   const creatorIds = [...new Set(
@@ -1634,7 +1634,7 @@ async function listStudioGenerationCreators(userId: string) {
 export async function listStudioGenerations(userId: string, options: ListStudioGenerationsOptions = {}) {
   const limit = options.limit && options.limit > 0 ? options.limit : undefined;
   const offset = options.offset && options.offset > 0 ? options.offset : undefined;
-  const visibility = generationVisibilityCondition(userId, options.creatorUserId);
+  const visibility = await generationVisibilityCondition(userId, options.creatorUserId);
 
   let query = db.select()
     .from(studioGenerations)
@@ -1699,7 +1699,7 @@ export async function listStudioGenerations(userId: string, options: ListStudioG
 export async function getStudioGeneration(generationId: string, userId: string) {
   const [generation] = await db.select()
     .from(studioGenerations)
-    .where(and(eq(studioGenerations.id, generationId), generationVisibilityCondition(userId)));
+    .where(and(eq(studioGenerations.id, generationId), await generationVisibilityCondition(userId)));
 
   if (!generation) return null;
 

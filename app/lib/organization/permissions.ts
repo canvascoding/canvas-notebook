@@ -11,6 +11,10 @@ import {
   type OrganizationPermissionSnapshot,
   type OrganizationPermissionState,
 } from '@/app/lib/organization/bootstrap';
+import {
+  findPostgresPermissionUserCandidate,
+  getPostgresOrganizationPermissionForUser,
+} from '@/app/lib/workspaces/postgres-runtime';
 
 export type OrganizationPermissionKey = Exclude<keyof OrganizationPermissionSnapshot, 'role' | 'status'>;
 
@@ -93,7 +97,10 @@ export function assertOrganizationPermission(
   }
 }
 
-export function readOrganizationPermissionForUser(userId: string): OrganizationPermissionState {
+export async function readOrganizationPermissionForUser(userId: string): Promise<OrganizationPermissionState> {
+  if (getDatabaseProvider() === 'postgres') {
+    return getPostgresOrganizationPermissionForUser(userId);
+  }
   const sqlite = openOrganizationBootstrapDatabase();
   try {
     return getOrganizationPermissionForUser(sqlite, userId);
@@ -102,7 +109,10 @@ export function readOrganizationPermissionForUser(userId: string): OrganizationP
   }
 }
 
-function readPermissionUserCandidate(userId: string): PermissionUserCandidate | null {
+async function readPermissionUserCandidate(userId: string): Promise<PermissionUserCandidate | null> {
+  if (getDatabaseProvider() === 'postgres') {
+    return findPostgresPermissionUserCandidate(userId);
+  }
   const sqlite = openOrganizationBootstrapDatabase();
   try {
     const candidate = sqlite.prepare(`
@@ -125,15 +135,15 @@ function warnLegacyAdminFallback(userId: string, key: OrganizationPermissionKey,
   });
 }
 
-export function assertUserOrganizationPermission(
+export async function assertUserOrganizationPermission(
   userId: string,
   key: OrganizationPermissionKey,
   message?: string,
   user?: PermissionUserCandidate | null,
-): OrganizationPermissionState {
-  const state = readOrganizationPermissionForUser(userId);
+): Promise<OrganizationPermissionState> {
+  const state = await readOrganizationPermissionForUser(userId);
   if (!state.configured) {
-    const candidate = user ?? readPermissionUserCandidate(userId);
+    const candidate = user ?? (await readPermissionUserCandidate(userId));
     if (isAdminUser(candidate)) {
       warnLegacyAdminFallback(userId, key, state.databaseProvider);
       return legacyFallbackState();
@@ -168,7 +178,7 @@ export async function requireOrganizationPermission(
     };
   }
 
-  const state = readOrganizationPermissionForUser(session.user.id);
+  const state = await readOrganizationPermissionForUser(session.user.id);
   if (!state.configured && options.legacyAdminFallback !== false && isAdminUser(session.user)) {
     warnLegacyAdminFallback(session.user.id, key, state.databaseProvider);
 

@@ -23,7 +23,7 @@ async function getOwnedProduct(productId: string, userId: string) {
 }
 
 async function getVisibleProduct(productId: string, userId: string) {
-  const scope = resolveStudioScope(userId);
+  const scope = await resolveStudioScope(userId);
   const [product] = await db.select()
     .from(studioProducts)
     .where(and(
@@ -44,7 +44,7 @@ export async function createProduct(
   await ensureStudioAssetsWorkspace();
   const id = randomUUID();
   const now = new Date();
-  const scope = studioInsertScope(userId);
+  const scope = await studioInsertScope(userId);
   const [inserted] = await db.insert(studioProducts).values({
     id,
     userId,
@@ -71,7 +71,7 @@ export async function getProduct(productId: string, userId: string) {
 }
 
 export async function listProducts(userId: string, search?: string) {
-  const scope = resolveStudioScope(userId);
+  const scope = await resolveStudioScope(userId);
   const conditions = [studioVisibilityCondition(scope, {
     userId: studioProducts.userId,
     organizationId: studioProducts.organizationId,

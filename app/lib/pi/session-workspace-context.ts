@@ -6,6 +6,7 @@ import path from 'node:path';
 
 import type { ChatRequestContext } from '@/app/lib/chat/types';
 import { db } from '@/app/lib/db';
+import { getDatabaseProvider } from '@/app/lib/db/provider';
 import { piSessions } from '@/app/lib/db/schema';
 import {
   ensureOrganizationBootstrapForUser,
@@ -17,6 +18,10 @@ import {
   resolveWorkspaceDataRoot,
 } from '@/app/lib/workspaces/context';
 import { assertWorkspacePermission } from '@/app/lib/workspaces/permissions';
+import {
+  getPostgresWorkspaceState,
+  resolvePostgresWorkspaceForActor,
+} from '@/app/lib/workspaces/postgres-runtime';
 import {
   ensureDefaultWorkspaceRecords,
   resolveDefaultWorkspaceContext,
@@ -216,6 +221,18 @@ export async function resolveAgentSessionWorkspaceForUser(input: {
     const legacyWorkspace = createLegacyPersonalWorkspaceContext(resolveWorkspaceActor({ id: input.userId }));
     assertPermissions(legacyWorkspace, input.permissions);
     return legacyWorkspace;
+  }
+
+  if (getDatabaseProvider() === 'postgres') {
+    const actor = resolveWorkspaceActor({ id: input.userId });
+    const workspace = requestedWorkspaceId
+      ? await resolvePostgresWorkspaceForActor(actor, requestedWorkspaceId)
+      : (await getPostgresWorkspaceState(actor)).defaultWorkspace;
+    if (!workspace) {
+      throw new Error('Workspace not found or inaccessible.');
+    }
+    assertPermissions(workspace, input.permissions);
+    return workspace;
   }
 
   const sqlite = openWorkspaceContextDatabase();

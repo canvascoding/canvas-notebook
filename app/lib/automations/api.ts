@@ -67,13 +67,13 @@ export function automationInputRequiresTeamPermission(input: unknown): boolean {
   return resolveRequestedAutomationScope(input) !== 'personal';
 }
 
-export function assertCanCreateRequestedAutomation(input: unknown, user: AutomationPermissionUser): void {
+export async function assertCanCreateRequestedAutomation(input: unknown, user: AutomationPermissionUser): Promise<void> {
   const scope = resolveRequestedAutomationScope(input);
   if (scope === 'personal') {
     return;
   }
 
-  const state = readOrganizationPermissionForUser(user.id);
+  const state = await readOrganizationPermissionForUser(user.id);
   if (!state.configured && isAdminUser(user)) {
     console.warn('[Automations] Legacy admin fallback allowed team automation on unconfigured organization.', {
       userId: user.id,

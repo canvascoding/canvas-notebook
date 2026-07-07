@@ -31,7 +31,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
     return NextResponse.json({ success: false, error: 'Automation not found.' }, { status: 404 });
   }
   try {
-    assertCanAccessAutomationJob(session.user.id, job);
+    await assertCanAccessAutomationJob(session.user.id, job);
   } catch {
     return NextResponse.json({ success: false, error: 'Automation not found.' }, { status: 404 });
   }
@@ -58,7 +58,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       return NextResponse.json({ success: false, error: 'Automation not found.' }, { status: 404 });
     }
     try {
-      assertCanAccessAutomationJob(session.user.id, existing);
+      await assertCanAccessAutomationJob(session.user.id, existing);
     } catch {
       return NextResponse.json({ success: false, error: 'Automation not found.' }, { status: 404 });
     }
@@ -121,7 +121,7 @@ export async function DELETE(request: NextRequest, context: RouteContext) {
     return NextResponse.json({ success: false, error: 'Automation not found.' }, { status: 404 });
   }
   try {
-    assertCanAccessAutomationJob(session.user.id, existing);
+    await assertCanAccessAutomationJob(session.user.id, existing);
   } catch {
     return NextResponse.json({ success: false, error: 'Automation not found.' }, { status: 404 });
   }

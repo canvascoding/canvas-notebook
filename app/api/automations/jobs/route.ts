@@ -37,7 +37,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const payload = await request.json();
-    assertCanCreateRequestedAutomation(payload, session.user);
+    await assertCanCreateRequestedAutomation(payload, session.user);
     const job = await createAutomationJob(payload, session.user);
     await recordAuditEvent({
       organizationId: job.organizationId,

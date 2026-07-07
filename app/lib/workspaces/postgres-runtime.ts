@@ -13,6 +13,7 @@ import {
   type OrganizationBootstrapStatus,
   type OrganizationPermissionSnapshot,
   OrganizationBootstrapError,
+  type OrganizationPermissionState,
 } from '@/app/lib/organization/bootstrap';
 import {
   getDatabaseProvider,
@@ -797,6 +798,43 @@ export async function resolvePostgresWorkspaceForActor(
       // Ignore rollback errors; preserve the original failure.
     }
     throw error;
+  } finally {
+    await database.close();
+  }
+}
+
+export async function getPostgresOrganizationPermissionForUser(
+  userId: string,
+): Promise<OrganizationPermissionState> {
+  const database = await openDb();
+  try {
+    const organization = await getPrimaryOrganization(database);
+    const deploymentMode = organization?.deployment_mode || getDeploymentMode();
+    const teamFeaturesEnabled = organization
+      ? booleanFromDb(organization.team_features_enabled)
+      : areTeamFeaturesEnabled(deploymentMode);
+    const permission = organization
+      ? rowToPermissionSnapshot(await getPermissionRow(database, organization.organization_id, userId))
+      : null;
+    return {
+      configured: Boolean(organization),
+      organizationId: organization?.organization_id || null,
+      ownerUserId: organization?.owner_user_id || null,
+      teamFeaturesEnabled,
+      databaseProvider: getDatabaseProvider(),
+      permission,
+    };
+  } finally {
+    await database.close();
+  }
+}
+
+export async function findPostgresPermissionUserCandidate(
+  userId: string,
+): Promise<{ id: string; email: string | null; role: string | null } | null> {
+  const database = await openDb();
+  try {
+    return await findPostgresUserById(database, userId);
   } finally {
     await database.close();
   }

@@ -70,7 +70,7 @@ export async function POST(request: NextRequest) {
   const storageScope = { userId: session.user.id };
   try {
     const payload = recordValue(await request.json());
-    assertCanCreateRequestedAutomation(payload, session.user);
+    await assertCanCreateRequestedAutomation(payload, session.user);
     const name = stringValue(payload.name);
     const prompt = stringValue(payload.prompt);
     const triggerSlug = stringValue(payload.triggerSlug);
