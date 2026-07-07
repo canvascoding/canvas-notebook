@@ -1590,6 +1590,7 @@ function createEditorExtensions(filePath: string | undefined, labels: SlashComma
     }),
     TableKit.configure({
       table: {
+        cellMinWidth: 144,
         resizable: false,
       },
     }),

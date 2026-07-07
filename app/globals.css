@@ -636,13 +636,27 @@ li.task-list-item > p {
   width: 100%;
 }
 
+.tiptap-editor-shell .tableWrapper {
+  -webkit-overflow-scrolling: touch;
+  margin: 1rem 0;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+}
+
+.tiptap-editor-shell .tableWrapper table {
+  margin: 0;
+}
+
 .tiptap-editor-shell th,
 .tiptap-editor-shell td {
   border: 1px solid var(--border);
-  min-width: 1em;
+  min-width: 9rem;
   padding: 0.5rem 0.625rem;
   position: relative;
   vertical-align: top;
+  word-break: normal;
 }
 
 .tiptap-editor-shell th {
