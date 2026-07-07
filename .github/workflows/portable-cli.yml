@@ -7,7 +7,7 @@ on:
       - "v*"
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   portable-cli:
@@ -36,4 +36,15 @@ jobs:
         with:
           name: canvas-notebook-portable-cli
           if-no-files-found: error
-          path: dist-portable-cli/canvas-notebook-cli
+          path: |
+            dist-portable-cli/canvas-notebook-cli
+            dist-portable-cli/canvas-notebook-cli.tar.gz
+            dist-portable-cli/canvas-notebook-cli.sha256
+
+      - name: Publish portable CLI release asset
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist-portable-cli/canvas-notebook-cli.tar.gz
+            dist-portable-cli/canvas-notebook-cli.sha256

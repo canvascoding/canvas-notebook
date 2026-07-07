@@ -1,5 +1,7 @@
 #!/usr/bin/env node
+import crypto from 'node:crypto';
 import { spawn } from 'node:child_process';
+import { createReadStream } from 'node:fs';
 import { cp, mkdir, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -7,6 +9,8 @@ import { fileURLToPath } from 'node:url';
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const outputRoot = path.join(rootDir, 'dist-portable-cli');
 const packageDir = path.join(outputRoot, 'canvas-notebook-cli');
+const archivePath = path.join(outputRoot, 'canvas-notebook-cli.tar.gz');
+const checksumPath = path.join(outputRoot, 'canvas-notebook-cli.sha256');
 
 function run(command, args) {
   return new Promise((resolve, reject) => {
@@ -16,6 +20,16 @@ function run(command, args) {
       else reject(new Error(`${command} ${args.join(' ')} exited with ${code}`));
     });
     child.on('error', reject);
+  });
+}
+
+function sha256File(filePath) {
+  return new Promise((resolve, reject) => {
+    const hash = crypto.createHash('sha256');
+    const stream = createReadStream(filePath);
+    stream.on('data', (chunk) => hash.update(chunk));
+    stream.on('error', reject);
+    stream.on('end', () => resolve(hash.digest('hex')));
   });
 }
 
@@ -47,4 +61,10 @@ await writeFile(
   'utf8',
 );
 
+await run('tar', ['-czf', archivePath, '-C', outputRoot, 'canvas-notebook-cli']);
+const archiveDigest = await sha256File(archivePath);
+await writeFile(checksumPath, `${archiveDigest}  canvas-notebook-cli.tar.gz\n`, 'utf8');
+
 console.log(`Packaged portable CLI: ${packageDir}`);
+console.log(`Created archive: ${archivePath}`);
+console.log(`Created checksum: ${checksumPath}`);
