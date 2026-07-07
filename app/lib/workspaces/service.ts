@@ -971,6 +971,36 @@ export function listTeamWorkspaceMembers(
   return rows.map(rowToWorkspaceMemberRecord);
 }
 
+export function listProjectWorkspaceMembers(
+  sqlite: Database.Database,
+  params: {
+    workspaceId: string;
+    organizationId: string;
+    projectId: string;
+  },
+): WorkspaceMemberRecord[] {
+  const rows = sqlite.prepare(`
+    SELECT
+      ? AS workspace_id,
+      m.user_id,
+      u.name,
+      u.email,
+      m.role,
+      COALESCE(m.status, 'active') AS status,
+      m.can_read,
+      m.can_write,
+      m.can_manage,
+      m.created_at,
+      m.updated_at
+    FROM canvas_project_members m
+    LEFT JOIN user u ON u.id = m.user_id
+    WHERE m.organization_id = ? AND m.project_id = ?
+    ORDER BY m.can_manage DESC, lower(COALESCE(u.email, u.name, m.user_id)) ASC
+  `).all(params.workspaceId, params.organizationId, params.projectId) as WorkspaceMemberRow[];
+
+  return rows.map(rowToWorkspaceMemberRecord);
+}
+
 export function upsertTeamWorkspaceMember(
   sqlite: Database.Database,
   params: {
@@ -1042,6 +1072,93 @@ export function upsertTeamWorkspaceMember(
   return member;
 }
 
+export function upsertProjectWorkspaceMember(
+  sqlite: Database.Database,
+  params: {
+    actor: WorkspaceActor;
+    organizationId: string;
+    workspaceId: string;
+    projectId: string;
+    userId: unknown;
+    role?: unknown;
+    canRead?: unknown;
+    canWrite?: unknown;
+    canManage?: unknown;
+  },
+): WorkspaceMemberRecord {
+  const record = getWorkspaceById(sqlite, params.workspaceId);
+  if (!record || record.type !== 'project' || record.organizationId !== params.organizationId || record.projectId !== params.projectId) {
+    throw new WorkspaceOperationError('WORKSPACE_NOT_FOUND', 'Workspace not found.', 404);
+  }
+
+  const project = sqlite.prepare(`
+    SELECT id
+    FROM canvas_projects
+    WHERE organization_id = ? AND id = ? AND status = 'active'
+    LIMIT 1
+  `).get(params.organizationId, params.projectId) as { id: string } | undefined;
+  if (!project) {
+    throw new WorkspaceOperationError('WORKSPACE_PROJECT_NOT_FOUND', 'Project not found.', 404);
+  }
+
+  const userId = typeof params.userId === 'string' ? params.userId.trim() : '';
+  if (!userId) {
+    throw new WorkspaceOperationError('WORKSPACE_MEMBER_USER_REQUIRED', 'User is required.', 400);
+  }
+  const candidate = sqlite.prepare(`
+    SELECT user_id, role, COALESCE(status, 'active') AS status
+    FROM organization_user_permissions
+    WHERE organization_id = ? AND user_id = ?
+    LIMIT 1
+  `).get(params.organizationId, userId) as { user_id: string; role: string; status: string } | undefined;
+  if (!candidate || candidate.status !== 'active' || candidate.role === 'external') {
+    throw new WorkspaceOperationError('WORKSPACE_MEMBER_NOT_ELIGIBLE', 'User is not an active organization member.', 400);
+  }
+
+  const role = typeof params.role === 'string' ? normalizeWorkspaceRole(params.role) : 'member';
+  const canManage = Boolean(params.canManage);
+  const canWrite = canManage || Boolean(params.canWrite);
+  const canRead = canManage || canWrite || params.canRead !== false;
+  const now = Date.now();
+
+  sqlite.prepare(`
+    INSERT INTO canvas_project_members (
+      organization_id, project_id, user_id, role, status,
+      can_read, can_write, can_manage, invited_by_user_id, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(project_id, user_id) DO UPDATE SET
+      organization_id = excluded.organization_id,
+      role = excluded.role,
+      status = excluded.status,
+      can_read = excluded.can_read,
+      can_write = excluded.can_write,
+      can_manage = excluded.can_manage,
+      invited_by_user_id = excluded.invited_by_user_id,
+      updated_at = excluded.updated_at
+  `).run(
+    params.organizationId,
+    params.projectId,
+    userId,
+    role,
+    canRead ? 1 : 0,
+    canWrite ? 1 : 0,
+    canManage ? 1 : 0,
+    params.actor.userId,
+    now,
+    now,
+  );
+
+  const member = listProjectWorkspaceMembers(sqlite, {
+    workspaceId: params.workspaceId,
+    organizationId: params.organizationId,
+    projectId: params.projectId,
+  }).find((item) => item.userId === userId);
+  if (!member) {
+    throw new WorkspaceOperationError('WORKSPACE_MEMBER_UPDATE_FAILED', 'Workspace member update failed.', 500);
+  }
+  return member;
+}
+
 export function removeTeamWorkspaceMember(
   sqlite: Database.Database,
   params: {
@@ -1084,4 +1201,50 @@ export function removeTeamWorkspaceMember(
     DELETE FROM canvas_workspace_members
     WHERE workspace_id = ? AND user_id = ?
   `).run(params.workspaceId, params.userId);
+}
+
+export function removeProjectWorkspaceMember(
+  sqlite: Database.Database,
+  params: {
+    organizationId: string;
+    workspaceId: string;
+    projectId: string;
+    userId: string;
+  },
+): void {
+  const record = getWorkspaceById(sqlite, params.workspaceId);
+  if (!record || record.type !== 'project' || record.organizationId !== params.organizationId || record.projectId !== params.projectId) {
+    throw new WorkspaceOperationError('WORKSPACE_NOT_FOUND', 'Workspace not found.', 404);
+  }
+
+  const member = sqlite.prepare(`
+    SELECT can_manage
+    FROM canvas_project_members
+    WHERE organization_id = ? AND project_id = ? AND user_id = ? AND COALESCE(status, 'active') = 'active'
+    LIMIT 1
+  `).get(params.organizationId, params.projectId, params.userId) as { can_manage: number } | undefined;
+  if (!member) return;
+
+  if (member.can_manage === 1) {
+    const row = sqlite.prepare(`
+      SELECT COUNT(*) AS count
+      FROM canvas_project_members
+      WHERE organization_id = ?
+        AND project_id = ?
+        AND COALESCE(status, 'active') = 'active'
+        AND can_manage = 1
+    `).get(params.organizationId, params.projectId) as { count?: number } | undefined;
+    if (Number(row?.count || 0) <= 1) {
+      throw new WorkspaceOperationError(
+        'WORKSPACE_LAST_MANAGER',
+        'The last workspace manager cannot be removed.',
+        409,
+      );
+    }
+  }
+
+  sqlite.prepare(`
+    DELETE FROM canvas_project_members
+    WHERE organization_id = ? AND project_id = ? AND user_id = ?
+  `).run(params.organizationId, params.projectId, params.userId);
 }

@@ -1227,35 +1227,56 @@ export async function listPostgresWorkspaceMembersForActor(
         403,
       );
     }
-    if (workspace.workspaceType === 'project') {
-      throw new WorkspaceOperationError(
-        'WORKSPACE_PROJECT_MEMBERS_NOT_AVAILABLE',
-        'Project workspace members are not yet available.',
-        501,
-      );
+    if (workspace.workspaceType !== 'team' && workspace.workspaceType !== 'project') {
+      throw new WorkspaceOperationError('WORKSPACE_MEMBERS_UNSUPPORTED', 'Workspace members are only supported for team and project workspaces.', 403);
+    }
+    if (workspace.workspaceType === 'project' && !workspace.projectId) {
+      throw new WorkspaceOperationError('WORKSPACE_PROJECT_REQUIRED', 'Project workspace project id is required.', 409);
     }
 
-    const rows = await database.all(
-      `
-        SELECT
-          m.workspace_id,
-          m.user_id,
-          u.name,
-          u.email,
-          m.role,
-          COALESCE(m.status, 'active') AS status,
-          m.can_read,
-          m.can_write,
-          m.can_manage,
-          m.created_at,
-          m.updated_at
-        FROM canvas_workspace_members m
-        LEFT JOIN "user" u ON u.id = m.user_id
-        WHERE m.workspace_id = ?
-        ORDER BY m.can_manage DESC, lower(COALESCE(u.email, u.name, m.user_id)) ASC
-      `,
-      [workspaceId],
-    ) as WorkspaceMemberRow[];
+    const rows = workspace.workspaceType === 'project'
+      ? await database.all(
+          `
+            SELECT
+              ? AS workspace_id,
+              m.user_id,
+              u.name,
+              u.email,
+              m.role,
+              COALESCE(m.status, 'active') AS status,
+              m.can_read,
+              m.can_write,
+              m.can_manage,
+              m.created_at,
+              m.updated_at
+            FROM canvas_project_members m
+            LEFT JOIN "user" u ON u.id = m.user_id
+            WHERE m.organization_id = ? AND m.project_id = ?
+            ORDER BY m.can_manage DESC, lower(COALESCE(u.email, u.name, m.user_id)) ASC
+          `,
+          [workspace.workspaceId, workspace.organizationId, workspace.projectId],
+        ) as WorkspaceMemberRow[]
+      : await database.all(
+          `
+            SELECT
+              m.workspace_id,
+              m.user_id,
+              u.name,
+              u.email,
+              m.role,
+              COALESCE(m.status, 'active') AS status,
+              m.can_read,
+              m.can_write,
+              m.can_manage,
+              m.created_at,
+              m.updated_at
+            FROM canvas_workspace_members m
+            LEFT JOIN "user" u ON u.id = m.user_id
+            WHERE m.workspace_id = ?
+            ORDER BY m.can_manage DESC, lower(COALESCE(u.email, u.name, m.user_id)) ASC
+          `,
+          [workspaceId],
+        ) as WorkspaceMemberRow[];
     const candidateRows = await database.all(
       `
         SELECT
@@ -1313,8 +1334,25 @@ export async function upsertPostgresWorkspaceMemberForActor(
     if (!workspace.permissions.canManageWorkspace) {
       throw new WorkspaceOperationError('WORKSPACE_PERMISSION_DENIED', 'Workspace permission denied.', 403);
     }
-    if (workspace.workspaceType !== 'team') {
-      throw new WorkspaceOperationError('WORKSPACE_MEMBERS_UNSUPPORTED', 'Workspace members are only supported for team workspaces.', 403);
+    if (workspace.workspaceType !== 'team' && workspace.workspaceType !== 'project') {
+      throw new WorkspaceOperationError('WORKSPACE_MEMBERS_UNSUPPORTED', 'Workspace members are only supported for team and project workspaces.', 403);
+    }
+    if (workspace.workspaceType === 'project' && !workspace.projectId) {
+      throw new WorkspaceOperationError('WORKSPACE_PROJECT_REQUIRED', 'Project workspace project id is required.', 409);
+    }
+    if (workspace.workspaceType === 'project') {
+      const project = await database.get(
+        `
+          SELECT id
+          FROM canvas_projects
+          WHERE organization_id = ? AND id = ? AND status = 'active'
+          LIMIT 1
+        `,
+        [workspace.organizationId, workspace.projectId],
+      ) as { id: string } | undefined;
+      if (!project) {
+        throw new WorkspaceOperationError('WORKSPACE_PROJECT_NOT_FOUND', 'Project not found.', 404);
+      }
     }
 
     const userId = typeof input.userId === 'string' ? input.userId.trim() : '';
@@ -1339,56 +1377,110 @@ export async function upsertPostgresWorkspaceMemberForActor(
     const canWrite = canManage || Boolean(input.canWrite);
     const canRead = canManage || canWrite || input.canRead !== false;
     const now = Date.now();
-    await database.run(
-      `
-        INSERT INTO canvas_workspace_members (
-          organization_id, workspace_id, user_id, role, status,
-          can_read, can_write, can_manage, invited_by_user_id, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(workspace_id, user_id) DO UPDATE SET
-          role = excluded.role,
-          status = excluded.status,
-          can_read = excluded.can_read,
-          can_write = excluded.can_write,
-          can_manage = excluded.can_manage,
-          invited_by_user_id = excluded.invited_by_user_id,
-          updated_at = excluded.updated_at
-      `,
-      [
-        workspace.organizationId,
-        workspace.workspaceId,
-        userId,
-        role,
-        canRead ? 1 : 0,
-        canWrite ? 1 : 0,
-        canManage ? 1 : 0,
-        actor.userId,
-        now,
-        now,
-      ],
-    );
+    if (workspace.workspaceType === 'project') {
+      await database.run(
+        `
+          INSERT INTO canvas_project_members (
+            organization_id, project_id, user_id, role, status,
+            can_read, can_write, can_manage, invited_by_user_id, created_at, updated_at
+          ) VALUES (?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(project_id, user_id) DO UPDATE SET
+            organization_id = excluded.organization_id,
+            role = excluded.role,
+            status = excluded.status,
+            can_read = excluded.can_read,
+            can_write = excluded.can_write,
+            can_manage = excluded.can_manage,
+            invited_by_user_id = excluded.invited_by_user_id,
+            updated_at = excluded.updated_at
+        `,
+        [
+          workspace.organizationId,
+          workspace.projectId,
+          userId,
+          role,
+          canRead ? 1 : 0,
+          canWrite ? 1 : 0,
+          canManage ? 1 : 0,
+          actor.userId,
+          now,
+          now,
+        ],
+      );
+    } else {
+      await database.run(
+        `
+          INSERT INTO canvas_workspace_members (
+            organization_id, workspace_id, user_id, role, status,
+            can_read, can_write, can_manage, invited_by_user_id, created_at, updated_at
+          ) VALUES (?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(workspace_id, user_id) DO UPDATE SET
+            role = excluded.role,
+            status = excluded.status,
+            can_read = excluded.can_read,
+            can_write = excluded.can_write,
+            can_manage = excluded.can_manage,
+            invited_by_user_id = excluded.invited_by_user_id,
+            updated_at = excluded.updated_at
+        `,
+        [
+          workspace.organizationId,
+          workspace.workspaceId,
+          userId,
+          role,
+          canRead ? 1 : 0,
+          canWrite ? 1 : 0,
+          canManage ? 1 : 0,
+          actor.userId,
+          now,
+          now,
+        ],
+      );
+    }
 
-    const row = await database.get(
-      `
-        SELECT
-          m.workspace_id,
-          m.user_id,
-          u.name,
-          u.email,
-          m.role,
-          COALESCE(m.status, 'active') AS status,
-          m.can_read,
-          m.can_write,
-          m.can_manage,
-          m.created_at,
-          m.updated_at
-        FROM canvas_workspace_members m
-        LEFT JOIN "user" u ON u.id = m.user_id
-        WHERE m.workspace_id = ? AND m.user_id = ?
-        LIMIT 1
-      `,
-      [workspace.workspaceId, userId],
-    ) as WorkspaceMemberRow | undefined;
+    const row = workspace.workspaceType === 'project'
+      ? await database.get(
+          `
+            SELECT
+              ? AS workspace_id,
+              m.user_id,
+              u.name,
+              u.email,
+              m.role,
+              COALESCE(m.status, 'active') AS status,
+              m.can_read,
+              m.can_write,
+              m.can_manage,
+              m.created_at,
+              m.updated_at
+            FROM canvas_project_members m
+            LEFT JOIN "user" u ON u.id = m.user_id
+            WHERE m.organization_id = ? AND m.project_id = ? AND m.user_id = ?
+            LIMIT 1
+          `,
+          [workspace.workspaceId, workspace.organizationId, workspace.projectId, userId],
+        ) as WorkspaceMemberRow | undefined
+      : await database.get(
+          `
+            SELECT
+              m.workspace_id,
+              m.user_id,
+              u.name,
+              u.email,
+              m.role,
+              COALESCE(m.status, 'active') AS status,
+              m.can_read,
+              m.can_write,
+              m.can_manage,
+              m.created_at,
+              m.updated_at
+            FROM canvas_workspace_members m
+            LEFT JOIN "user" u ON u.id = m.user_id
+            WHERE m.workspace_id = ? AND m.user_id = ?
+            LIMIT 1
+          `,
+          [workspace.workspaceId, userId],
+        ) as WorkspaceMemberRow | undefined;
     if (!row) {
       throw new WorkspaceOperationError('WORKSPACE_MEMBER_UPDATE_FAILED', 'Workspace member update failed.', 500);
     }
@@ -1422,30 +1514,55 @@ export async function removePostgresWorkspaceMemberForActor(
     if (!workspace.permissions.canManageWorkspace) {
       throw new WorkspaceOperationError('WORKSPACE_PERMISSION_DENIED', 'Workspace permission denied.', 403);
     }
-    if (workspace.workspaceType !== 'team') {
-      throw new WorkspaceOperationError('WORKSPACE_MEMBERS_UNSUPPORTED', 'Workspace members are only supported for team workspaces.', 403);
+    if (workspace.workspaceType !== 'team' && workspace.workspaceType !== 'project') {
+      throw new WorkspaceOperationError('WORKSPACE_MEMBERS_UNSUPPORTED', 'Workspace members are only supported for team and project workspaces.', 403);
+    }
+    if (workspace.workspaceType === 'project' && !workspace.projectId) {
+      throw new WorkspaceOperationError('WORKSPACE_PROJECT_REQUIRED', 'Project workspace project id is required.', 409);
     }
 
-    const member = await database.get(
-      `
-        SELECT can_manage
-        FROM canvas_workspace_members
-        WHERE workspace_id = ? AND user_id = ? AND COALESCE(status, 'active') = 'active'
-        LIMIT 1
-      `,
-      [workspace.workspaceId, userId],
-    ) as { can_manage: number } | undefined;
+    const member = workspace.workspaceType === 'project'
+      ? await database.get(
+          `
+            SELECT can_manage
+            FROM canvas_project_members
+            WHERE organization_id = ? AND project_id = ? AND user_id = ? AND COALESCE(status, 'active') = 'active'
+            LIMIT 1
+          `,
+          [workspace.organizationId, workspace.projectId, userId],
+        ) as { can_manage: number } | undefined
+      : await database.get(
+          `
+            SELECT can_manage
+            FROM canvas_workspace_members
+            WHERE workspace_id = ? AND user_id = ? AND COALESCE(status, 'active') = 'active'
+            LIMIT 1
+          `,
+          [workspace.workspaceId, userId],
+        ) as { can_manage: number } | undefined;
     if (member?.can_manage === 1) {
-      const row = await database.get(
-        `
-          SELECT COUNT(*) AS count
-          FROM canvas_workspace_members
-          WHERE workspace_id = ?
-            AND COALESCE(status, 'active') = 'active'
-            AND can_manage = 1
-        `,
-        [workspace.workspaceId],
-      ) as { count?: number | string } | undefined;
+      const row = workspace.workspaceType === 'project'
+        ? await database.get(
+            `
+              SELECT COUNT(*) AS count
+              FROM canvas_project_members
+              WHERE organization_id = ?
+                AND project_id = ?
+                AND COALESCE(status, 'active') = 'active'
+                AND can_manage = 1
+            `,
+            [workspace.organizationId, workspace.projectId],
+          ) as { count?: number | string } | undefined
+        : await database.get(
+            `
+              SELECT COUNT(*) AS count
+              FROM canvas_workspace_members
+              WHERE workspace_id = ?
+                AND COALESCE(status, 'active') = 'active'
+                AND can_manage = 1
+            `,
+            [workspace.workspaceId],
+          ) as { count?: number | string } | undefined;
       if (Number(row?.count || 0) <= 1) {
         throw new WorkspaceOperationError(
           'WORKSPACE_LAST_MANAGER',
@@ -1455,10 +1572,17 @@ export async function removePostgresWorkspaceMemberForActor(
       }
     }
 
-    await database.run(
-      'DELETE FROM canvas_workspace_members WHERE workspace_id = ? AND user_id = ?',
-      [workspace.workspaceId, userId],
-    );
+    if (workspace.workspaceType === 'project') {
+      await database.run(
+        'DELETE FROM canvas_project_members WHERE organization_id = ? AND project_id = ? AND user_id = ?',
+        [workspace.organizationId, workspace.projectId, userId],
+      );
+    } else {
+      await database.run(
+        'DELETE FROM canvas_workspace_members WHERE workspace_id = ? AND user_id = ?',
+        [workspace.workspaceId, userId],
+      );
+    }
     await database.run('COMMIT');
   } catch (error) {
     try {

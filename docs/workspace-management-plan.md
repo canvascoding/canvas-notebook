@@ -28,6 +28,7 @@ Die Änderungen wurden aus `origin/main` herausgenommen und liegen auf dem Revie
 - Workspace-Switcher hat Plus-Button/Deeplink zu den Workspace-Settings.
 - Default-Badge, Organization-Label/Icon und Store/API-Serialisierung für `isDefault` sind vorhanden.
 - Team-Member-Management ist implementiert: `GET`/`POST /api/workspaces/[id]/members`, `DELETE /api/workspaces/[id]/members/[userId]`, `WorkspaceMembersDialog`, Candidates, Upsert, Remove und letzter-Manager-Schutz.
+- Project-Member-Management ist in denselben Member-Endpunkten implementiert und nutzt `canvas_project_members` mit demselben letzten-Manager-Schutz.
 - SQLite- und Postgres-Runtime wurden für die umgesetzten Workspace-Funktionen erweitert.
 - Relevante i18n-Keys in `messages/de.json` und `messages/en.json` wurden ergänzt.
 
@@ -44,7 +45,7 @@ Bekannter Prüfstatus: Ein echter Browser-UI-Smoke gegen `localhost:3000` war ni
 ### Noch offen
 
 - Workspace-Typ-Wechsel (`PATCH /api/workspaces/[id]`) inklusive transaktionaler Datei- und Rechte-Migration.
-- Project-Rollout: Project-/Customer-APIs hinter Feature-Gate, Project-Dropdown, Project-Workspace-Erstellung, Project-Member-Listing/Upsert/Delete.
+- Project-Rollout: Project-/Customer-APIs hinter Feature-Gate, Project-Dropdown und Project-Workspace-Erstellung.
 - Granulare Permissions im User-Management-Tab: API für User-Permissions und Rollen, `UserPermissionsDialog`, serverseitige Invarianten.
 - External-User-Verhalten finalisieren und feature-gaten.
 - Offboarding-Erweiterung für mehrere Personal-Workspaces und Team-Workspace-Manager-Preflight.
@@ -387,7 +388,7 @@ Neuer Abschnitt **"Workspaces verwalten"** (Card), eingefügt vor der Migration-
 
 ## Strang D — Zugriff-Verwaltung (Members) für Team/Project
 
-**Status:** teilweise umgesetzt. Team-Member-Verwaltung ist für SQLite und Postgres umgesetzt. Project-Member-Verwaltung ist noch offen und liefert aktuell `WORKSPACE_PROJECT_MEMBERS_NOT_AVAILABLE`/`501`.
+**Status:** umgesetzt. Team- und Project-Member-Verwaltung sind für SQLite und Postgres umgesetzt. Project-Members nutzen `canvas_project_members`; Team-Members nutzen `canvas_workspace_members`.
 
 ### D1. Konzept
 
@@ -847,7 +848,7 @@ Siehe Strang D4.
 Die bereits erledigten Schritte A/B/C und Team-Member-Verwaltung aus D werden nicht erneut angefasst, ausser für Bugfixes aus Review oder Tests.
 
 1. **Review-Branch herstellen** — erledigt: `origin/main` enthält den Revert `c181835e`; `codex/workspace-management` enthält die Workspace-Commits als Cherry-picks.
-2. **D abschliessen: Project-Member-Verwaltung** — `listCanvasProjectMembers`, Project-Member-API-Verhalten und UI-Anbindung ergänzen, sobald Project-Feature-Gate aktiv ist.
+2. **D abschliessen: Project-Member-Verwaltung** — erledigt: Member-GET/POST/DELETE unterstützt Team- und Project-Workspaces.
 3. **E umsetzen: Workspace-Typ-Wechsel** — Service, API, UI und Tests für transaktionale Pfad-/Rechte-Migration. Das ist der risikoreichste offene Block.
 4. **F umsetzen: Project-Rollout** — Project-/Customer-APIs hinter Feature-Gate, Project-Dropdown im Create-Dialog, Project-Workspace-Erstellung und Project-Member-Rechte.
 5. **G umsetzen: Granulare User-Permissions** — Permission-/Role-APIs, `UserPermissionsDialog`, Rolle `external` sauber feature-gaten.
@@ -864,10 +865,10 @@ Jeder Strang bleibt einzeln buildbar, testbar und separat commitbar. Vor jedem C
 
 ### Neu / umgesetzt
 - `app/api/workspaces/[id]/route.ts` — DELETE umgesetzt; PATCH für Typ-Wechsel offen
-- `app/api/workspaces/[id]/members/route.ts` — GET + POST für Team-Members umgesetzt; Project-Members offen/501
-- `app/api/workspaces/[id]/members/[userId]/route.ts` — DELETE für Team-Members umgesetzt; Project-Members offen
+- `app/api/workspaces/[id]/members/route.ts` — GET + POST für Team- und Project-Members umgesetzt
+- `app/api/workspaces/[id]/members/[userId]/route.ts` — DELETE für Team- und Project-Members umgesetzt
 - `app/components/settings/CreateWorkspaceDialog.tsx` — umgesetzt
-- `app/components/settings/WorkspaceMembersDialog.tsx` — Team-Member-Verwaltung umgesetzt; Project-Member-Verwaltung offen
+- `app/components/settings/WorkspaceMembersDialog.tsx` — Team- und Project-Member-Verwaltung umgesetzt
 
 ### Neu / noch offen
 - `app/api/admin/organization/users/[userId]/permissions/route.ts` — GET + PATCH Permissions
@@ -885,7 +886,7 @@ Jeder Strang bleibt einzeln buildbar, testbar und separat commitbar. Vor jedem C
 - `app/lib/workspaces/client-types.ts` — `isDefault` in `ClientWorkspaceSummary`, `organization` in `ClientWorkspaceType`
 - `app/lib/organization/permissions.ts` — `listOrganizationPermissions`, `updateOrganizationPermissions`, `updateOrganizationRole`, Edge-Case-Prüfungen offen
 - `app/lib/organization/offboarding.ts` — Preflight-Erweiterung (Team-Workspace-Manager), Apply-Erweiterung (canvas_workspace_members, mehrere Personal-Workspaces) offen
-- `app/lib/projects/service.ts` — `listCanvasProjectMembers` offen
+- `app/lib/projects/service.ts` — Project-Erstellung bleibt Grundlage für Strang F; Member-Verwaltung läuft im Workspace-Service über `canvas_project_members`
 - `app/api/workspaces/route.ts` — POST ergänzen, `serializeWorkspace` um `isDefault`, `organization`-Typ
 - `app/store/workspace-store.ts` — `normalizeWorkspace` um `isDefault` + `organization`
 - `app/components/workspaces/WorkspaceSwitcher.tsx` — Plus-Button, Standard-Badge, Lock, organization-Typ
@@ -897,7 +898,7 @@ Jeder Strang bleibt einzeln buildbar, testbar und separat commitbar. Vor jedem C
 - `messages/en.json` — neue i18n-Keys
 
 ### Tests
-- `scripts/workspace-model-service-test.ts` — erweitert für `is_default`, `organization`-Typ, Create/Delete und Team-Member-Funktionen; `changeWorkspaceType`-Tests offen
-- `scripts/project-customer-model-test.ts` — Project-Member-List-Tests offen
+- `scripts/workspace-model-service-test.ts` — erweitert für `is_default`, `organization`-Typ, Create/Delete, Team-Member- und Project-Member-Funktionen; `changeWorkspaceType`-Tests offen
+- `scripts/project-customer-model-test.ts` — Project-/Customer-API-Rollout-Tests offen
 - `scripts/organization-permission-guards-test.ts` — Edge-Case-Tests für letzter Admin, Selbst-Schutz, Bootstrap-Admin usw. offen
 - API-Routen-Tests für DELETE/POST/Members/Permissions/Role/PATCH offen

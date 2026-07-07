@@ -7,17 +7,21 @@ import Database from 'better-sqlite3';
 
 import { runMigrations } from '../app/lib/db/migrate';
 import { ensureOrganizationBootstrapForUser } from '../app/lib/organization/bootstrap';
+import { createCanvasProject, ensureCanvasProjectWorkspace } from '../app/lib/projects/service';
 import { resolveWorkspaceActor } from '../app/lib/workspaces/context';
 import {
   createWorkspaceRecord,
   deleteWorkspaceRecord,
   ensureDefaultWorkspaceRecords,
+  listProjectWorkspaceMembers,
   listTeamWorkspaceMembers,
   listWorkspaceMemberCandidates,
   listWorkspaceContextsForUser,
+  removeProjectWorkspaceMember,
   removeTeamWorkspaceMember,
   resolveDefaultWorkspaceContext,
   resolveWorkspaceContextById,
+  upsertProjectWorkspaceMember,
   upsertTeamWorkspaceMember,
   WorkspaceOperationError,
   workspaceAbsoluteRoot,
@@ -251,6 +255,91 @@ async function main() {
     });
     assert.deepEqual(
       listTeamWorkspaceMembers(sqlite, teamWorkspace.workspaceId).map((member) => member.userId),
+      ['user-collab'],
+    );
+
+    const project = createCanvasProject(sqlite, {
+      organizationId,
+      name: 'Client Launch',
+      createdByUserId: 'user-owner',
+    });
+    const projectWorkspaceRecord = ensureCanvasProjectWorkspace(sqlite, {
+      organizationId,
+      projectId: project.id,
+    });
+    const projectWorkspace = resolveWorkspaceContextById(sqlite, {
+      actor: ownerActor,
+      workspaceId: projectWorkspaceRecord.id,
+    });
+    assert.equal(projectWorkspace?.workspaceType, 'project');
+    assert.equal(projectWorkspace?.projectId, project.id);
+    const projectCollabMember = upsertProjectWorkspaceMember(sqlite, {
+      actor: ownerActor,
+      organizationId,
+      workspaceId: projectWorkspaceRecord.id,
+      projectId: project.id,
+      userId: 'user-collab',
+      role: 'member',
+      canRead: true,
+      canWrite: false,
+      canManage: false,
+    });
+    assert.equal(projectCollabMember.workspaceId, projectWorkspaceRecord.id);
+    assert.equal(projectCollabMember.canRead, true);
+    assert.equal(projectCollabMember.canWrite, false);
+    assert.equal(projectCollabMember.canManage, false);
+    const projectOwnerMember = upsertProjectWorkspaceMember(sqlite, {
+      actor: ownerActor,
+      organizationId,
+      workspaceId: projectWorkspaceRecord.id,
+      projectId: project.id,
+      userId: 'user-owner',
+      role: 'admin',
+      canRead: true,
+      canWrite: true,
+      canManage: true,
+    });
+    assert.equal(projectOwnerMember.canManage, true);
+    assert.deepEqual(
+      listProjectWorkspaceMembers(sqlite, {
+        workspaceId: projectWorkspaceRecord.id,
+        organizationId,
+        projectId: project.id,
+      }).map((member) => member.userId),
+      ['user-owner', 'user-collab'],
+    );
+    assert.throws(
+      () => removeProjectWorkspaceMember(sqlite, {
+        organizationId,
+        workspaceId: projectWorkspaceRecord.id,
+        projectId: project.id,
+        userId: 'user-owner',
+      }),
+      (error: unknown) => error instanceof WorkspaceOperationError && error.code === 'WORKSPACE_LAST_MANAGER',
+    );
+    upsertProjectWorkspaceMember(sqlite, {
+      actor: ownerActor,
+      organizationId,
+      workspaceId: projectWorkspaceRecord.id,
+      projectId: project.id,
+      userId: 'user-collab',
+      role: 'admin',
+      canRead: true,
+      canWrite: true,
+      canManage: true,
+    });
+    removeProjectWorkspaceMember(sqlite, {
+      organizationId,
+      workspaceId: projectWorkspaceRecord.id,
+      projectId: project.id,
+      userId: 'user-owner',
+    });
+    assert.deepEqual(
+      listProjectWorkspaceMembers(sqlite, {
+        workspaceId: projectWorkspaceRecord.id,
+        organizationId,
+        projectId: project.id,
+      }).map((member) => member.userId),
       ['user-collab'],
     );
 

@@ -19,9 +19,11 @@ import {
   upsertPostgresWorkspaceMemberForActor,
 } from '@/app/lib/workspaces/postgres-runtime';
 import {
+  listProjectWorkspaceMembers,
   listTeamWorkspaceMembers,
   listWorkspaceMemberCandidates,
   resolveWorkspaceContextById,
+  upsertProjectWorkspaceMember,
   upsertTeamWorkspaceMember,
   WorkspaceOperationError,
 } from '@/app/lib/workspaces/service';
@@ -50,7 +52,7 @@ function workspaceOperationErrorResponse(error: WorkspaceOperationError) {
   );
 }
 
-function assertManageableTeamWorkspace(
+function assertManageableMemberWorkspace(
   workspace: NonNullable<ReturnType<typeof resolveWorkspaceContextById>>,
 ) {
   if (!workspace.permissions.canManageWorkspace) {
@@ -66,15 +68,11 @@ function assertManageableTeamWorkspace(
       403,
     );
   }
-  if (workspace.workspaceType === 'project') {
-    throw new WorkspaceOperationError(
-      'WORKSPACE_PROJECT_MEMBERS_NOT_AVAILABLE',
-      'Project workspace members are not yet available.',
-      501,
-    );
+  if (workspace.workspaceType !== 'team' && workspace.workspaceType !== 'project') {
+    throw new WorkspaceOperationError('WORKSPACE_MEMBERS_UNSUPPORTED', 'Workspace members are only supported for team and project workspaces.', 403);
   }
-  if (workspace.workspaceType !== 'team') {
-    throw new WorkspaceOperationError('WORKSPACE_MEMBERS_UNSUPPORTED', 'Workspace members are only supported for team workspaces.', 403);
+  if (workspace.workspaceType === 'project' && !workspace.projectId) {
+    throw new WorkspaceOperationError('WORKSPACE_PROJECT_REQUIRED', 'Project workspace project id is required.', 409);
   }
 }
 
@@ -118,8 +116,14 @@ export async function GET(request: NextRequest, context: RouteContext) {
       if (!workspace) {
         throw new WorkspaceOperationError('WORKSPACE_NOT_FOUND', 'Workspace not found.', 404);
       }
-      assertManageableTeamWorkspace(workspace);
-      const members = listTeamWorkspaceMembers(sqlite, workspace.workspaceId);
+      assertManageableMemberWorkspace(workspace);
+      const members = workspace.workspaceType === 'project' && workspace.organizationId && workspace.projectId
+        ? listProjectWorkspaceMembers(sqlite, {
+            workspaceId: workspace.workspaceId,
+            organizationId: workspace.organizationId,
+            projectId: workspace.projectId,
+          })
+        : listTeamWorkspaceMembers(sqlite, workspace.workspaceId);
       const candidates = workspace.organizationId
         ? listWorkspaceMemberCandidates(sqlite, workspace.organizationId)
         : [];
@@ -185,20 +189,32 @@ export async function POST(request: NextRequest, context: RouteContext) {
       if (!workspace) {
         throw new WorkspaceOperationError('WORKSPACE_NOT_FOUND', 'Workspace not found.', 404);
       }
-      assertManageableTeamWorkspace(workspace);
+      assertManageableMemberWorkspace(workspace);
       if (!workspace.organizationId) {
         throw new WorkspaceOperationError('WORKSPACE_ORGANIZATION_REQUIRED', 'Workspace organization is required.', 409);
       }
-      const member = upsertTeamWorkspaceMember(sqlite, {
-        actor,
-        organizationId: workspace.organizationId,
-        workspaceId: workspace.workspaceId,
-        userId: payload.userId,
-        role: payload.role,
-        canRead: payload.canRead,
-        canWrite: payload.canWrite,
-        canManage: payload.canManage,
-      });
+      const member = workspace.workspaceType === 'project'
+        ? upsertProjectWorkspaceMember(sqlite, {
+            actor,
+            organizationId: workspace.organizationId,
+            workspaceId: workspace.workspaceId,
+            projectId: workspace.projectId!,
+            userId: payload.userId,
+            role: payload.role,
+            canRead: payload.canRead,
+            canWrite: payload.canWrite,
+            canManage: payload.canManage,
+          })
+        : upsertTeamWorkspaceMember(sqlite, {
+            actor,
+            organizationId: workspace.organizationId,
+            workspaceId: workspace.workspaceId,
+            userId: payload.userId,
+            role: payload.role,
+            canRead: payload.canRead,
+            canWrite: payload.canWrite,
+            canManage: payload.canManage,
+          });
       sqlite.exec('COMMIT');
       return NextResponse.json({ success: true, member });
     } catch (error) {

@@ -18,6 +18,7 @@ import {
   removePostgresWorkspaceMemberForActor,
 } from '@/app/lib/workspaces/postgres-runtime';
 import {
+  removeProjectWorkspaceMember,
   removeTeamWorkspaceMember,
   resolveWorkspaceContextById,
   WorkspaceOperationError,
@@ -90,14 +91,26 @@ export async function DELETE(request: NextRequest, context: RouteContext) {
       if (!workspace.permissions.canManageWorkspace) {
         throw new WorkspaceOperationError('WORKSPACE_PERMISSION_DENIED', 'Workspace permission denied.', 403);
       }
-      if (workspace.workspaceType !== 'team' || !workspace.organizationId) {
-        throw new WorkspaceOperationError('WORKSPACE_MEMBERS_UNSUPPORTED', 'Workspace members are only supported for team workspaces.', 403);
+      if ((workspace.workspaceType !== 'team' && workspace.workspaceType !== 'project') || !workspace.organizationId) {
+        throw new WorkspaceOperationError('WORKSPACE_MEMBERS_UNSUPPORTED', 'Workspace members are only supported for team and project workspaces.', 403);
       }
-      removeTeamWorkspaceMember(sqlite, {
-        organizationId: workspace.organizationId,
-        workspaceId: workspace.workspaceId,
-        userId,
-      });
+      if (workspace.workspaceType === 'project') {
+        if (!workspace.projectId) {
+          throw new WorkspaceOperationError('WORKSPACE_PROJECT_REQUIRED', 'Project workspace project id is required.', 409);
+        }
+        removeProjectWorkspaceMember(sqlite, {
+          organizationId: workspace.organizationId,
+          workspaceId: workspace.workspaceId,
+          projectId: workspace.projectId,
+          userId,
+        });
+      } else {
+        removeTeamWorkspaceMember(sqlite, {
+          organizationId: workspace.organizationId,
+          workspaceId: workspace.workspaceId,
+          userId,
+        });
+      }
       sqlite.exec('COMMIT');
       return NextResponse.json({ success: true });
     } catch (error) {
