@@ -12,12 +12,20 @@ import {
   createWorkspaceRecord,
   deleteWorkspaceRecord,
   ensureDefaultWorkspaceRecords,
+  listTeamWorkspaceMembers,
+  listWorkspaceMemberCandidates,
   listWorkspaceContextsForUser,
+  removeTeamWorkspaceMember,
   resolveDefaultWorkspaceContext,
   resolveWorkspaceContextById,
+  upsertTeamWorkspaceMember,
   WorkspaceOperationError,
   workspaceAbsoluteRoot,
 } from '../app/lib/workspaces/service';
+
+function getWorkspaceStatus(sqlite: Database.Database, workspaceId: string): string | undefined {
+  return (sqlite.prepare('SELECT status FROM canvas_workspaces WHERE id = ?').get(workspaceId) as { status?: string } | undefined)?.status;
+}
 
 async function main() {
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'canvas-workspace-model-'));
@@ -51,6 +59,10 @@ async function main() {
       INSERT INTO user (id, name, email, email_verified, role, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?)
     `).run('user-no-permission', 'No Permission', 'no-permission@example.com', 1, 'member', now, now);
+    sqlite.prepare(`
+      INSERT INTO user (id, name, email, email_verified, role, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run('user-collab', 'Collab', 'collab@example.com', 1, 'member', now, now);
 
     sqlite.exec('BEGIN IMMEDIATE');
     const ownerStatus = ensureOrganizationBootstrapForUser(sqlite, 'user-owner');
@@ -192,6 +204,55 @@ async function main() {
       WHERE workspace_id = ? AND user_id = ?
     `).get(teamWorkspace.workspaceId, 'user-owner') as { can_read: number; can_write: number; can_manage: number } | undefined;
     assert.deepEqual(teamMemberRow, { can_read: 1, can_write: 1, can_manage: 1 });
+    sqlite.prepare(`
+      INSERT INTO organization_user_permissions (
+        organization_id, user_id, role, can_write_team_workspace, can_create_public_links,
+        created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(organizationId, 'user-collab', 'member', 0, 1, now, now);
+    const memberCandidates = listWorkspaceMemberCandidates(sqlite, organizationId);
+    assert.equal(memberCandidates.some((candidate) => candidate.userId === 'user-collab'), true);
+    const collabMember = upsertTeamWorkspaceMember(sqlite, {
+      actor: ownerActor,
+      organizationId,
+      workspaceId: teamWorkspace.workspaceId,
+      userId: 'user-collab',
+      role: 'member',
+      canRead: true,
+      canWrite: true,
+      canManage: false,
+    });
+    assert.equal(collabMember.canRead, true);
+    assert.equal(collabMember.canWrite, true);
+    assert.equal(collabMember.canManage, false);
+    assert.equal(listTeamWorkspaceMembers(sqlite, teamWorkspace.workspaceId).length, 2);
+    assert.throws(
+      () => removeTeamWorkspaceMember(sqlite, {
+        organizationId,
+        workspaceId: teamWorkspace.workspaceId,
+        userId: 'user-owner',
+      }),
+      (error: unknown) => error instanceof WorkspaceOperationError && error.code === 'WORKSPACE_LAST_MANAGER',
+    );
+    upsertTeamWorkspaceMember(sqlite, {
+      actor: ownerActor,
+      organizationId,
+      workspaceId: teamWorkspace.workspaceId,
+      userId: 'user-collab',
+      role: 'admin',
+      canRead: true,
+      canWrite: true,
+      canManage: true,
+    });
+    removeTeamWorkspaceMember(sqlite, {
+      organizationId,
+      workspaceId: teamWorkspace.workspaceId,
+      userId: 'user-owner',
+    });
+    assert.deepEqual(
+      listTeamWorkspaceMembers(sqlite, teamWorkspace.workspaceId).map((member) => member.userId),
+      ['user-collab'],
+    );
 
     const automationWorkspace = createWorkspaceRecord(sqlite, {
       actor: ownerActor,
@@ -232,21 +293,12 @@ async function main() {
     );
     sqlite.prepare('UPDATE automation_jobs SET status = ? WHERE id = ?').run('paused', 'automation-active-workspace-delete');
     deleteWorkspaceRecord(sqlite, { actor: ownerActor, workspaceId: automationWorkspace.workspaceId });
-    assert.equal(
-      sqlite.prepare('SELECT status FROM canvas_workspaces WHERE id = ?').get(automationWorkspace.workspaceId)?.status,
-      'disabled',
-    );
+    assert.equal(getWorkspaceStatus(sqlite, automationWorkspace.workspaceId), 'disabled');
 
     deleteWorkspaceRecord(sqlite, { actor: ownerActor, workspaceId: extraPersonal.workspaceId });
-    assert.equal(
-      sqlite.prepare('SELECT status FROM canvas_workspaces WHERE id = ?').get(extraPersonal.workspaceId)?.status,
-      'disabled',
-    );
+    assert.equal(getWorkspaceStatus(sqlite, extraPersonal.workspaceId), 'disabled');
     deleteWorkspaceRecord(sqlite, { actor: ownerActor, workspaceId: teamWorkspace.workspaceId });
-    assert.equal(
-      sqlite.prepare('SELECT status FROM canvas_workspaces WHERE id = ?').get(teamWorkspace.workspaceId)?.status,
-      'disabled',
-    );
+    assert.equal(getWorkspaceStatus(sqlite, teamWorkspace.workspaceId), 'disabled');
 
     ensureDefaultWorkspaceRecords(sqlite, {
       organizationId,

@@ -30,6 +30,8 @@ import {
   teamWorkspaceRootRelativePathForSlug,
   WorkspaceOperationError,
   workspaceAbsoluteRoot,
+  type WorkspaceMemberCandidate,
+  type WorkspaceMemberRecord,
 } from './service';
 
 export interface PostgresRuntimeDb {
@@ -92,6 +94,28 @@ type TeamWorkspacePermissionRow = {
   can_manage: number;
 };
 
+type WorkspaceMemberRow = {
+  workspace_id: string;
+  user_id: string;
+  name: string | null;
+  email: string | null;
+  role: string;
+  status: string;
+  can_read: number;
+  can_write: number;
+  can_manage: number;
+  created_at: number;
+  updated_at: number;
+};
+
+type WorkspaceMemberCandidateRow = {
+  user_id: string;
+  name: string | null;
+  email: string | null;
+  role: string;
+  status: string;
+};
+
 type WorkspaceRow = {
   id: string;
   organization_id: string;
@@ -135,6 +159,11 @@ function normalizeWorkspaceType(value: string): WorkspaceType {
 function normalizeWorkspaceStatus(value: string): WorkspaceStatus {
   if (value === 'archived' || value === 'disabled' || value === 'recovery_locked') return value;
   return 'active';
+}
+
+function normalizeWorkspaceMemberRole(value: string): WorkspaceMemberRecord['role'] {
+  if (value === 'owner' || value === 'admin' || value === 'external') return value;
+  return 'member';
 }
 
 function permissionDefaults(role: OrganizationPermissionSnapshot['role']): OrganizationPermissionSnapshot {
@@ -193,6 +222,32 @@ function rowToWorkspaceRecord(row: WorkspaceRow) {
     isDefault: row.is_default === 1,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+  };
+}
+
+function rowToWorkspaceMemberRecord(row: WorkspaceMemberRow): WorkspaceMemberRecord {
+  return {
+    workspaceId: row.workspace_id,
+    userId: row.user_id,
+    name: row.name,
+    email: row.email,
+    role: normalizeWorkspaceMemberRole(row.role),
+    status: normalizeWorkspaceStatus(row.status),
+    canRead: row.can_read === 1,
+    canWrite: row.can_write === 1,
+    canManage: row.can_manage === 1,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+function rowToWorkspaceMemberCandidate(row: WorkspaceMemberCandidateRow): WorkspaceMemberCandidate {
+  return {
+    userId: row.user_id,
+    name: row.name,
+    email: row.email,
+    role: normalizeWorkspaceMemberRole(row.role),
+    status: normalizeWorkspaceStatus(row.status),
   };
 }
 
@@ -1133,6 +1188,276 @@ export async function deletePostgresWorkspaceForActor(
     await database.run(
       "UPDATE canvas_workspaces SET status = 'disabled', updated_at = ? WHERE id = ?",
       [Date.now(), workspaceId],
+    );
+    await database.run('COMMIT');
+  } catch (error) {
+    try {
+      await database.run('ROLLBACK');
+    } catch {
+      // Preserve the original failure.
+    }
+    throw error;
+  } finally {
+    await database.close();
+  }
+}
+
+export async function listPostgresWorkspaceMembersForActor(
+  actor: WorkspaceActor,
+  workspaceId: string,
+): Promise<{ workspace: WorkspaceContext; members: WorkspaceMemberRecord[]; candidates: WorkspaceMemberCandidate[] }> {
+  const database = await openDb();
+  try {
+    await database.run('BEGIN');
+    await ensurePostgresOrganizationBootstrapForUser(database, actor.userId);
+    const workspace = await resolveWorkspaceContextById(database, actor, workspaceId);
+    if (!workspace) {
+      throw new WorkspaceOperationError('WORKSPACE_NOT_FOUND', 'Workspace not found.', 404);
+    }
+    if (!workspace.permissions.canManageWorkspace) {
+      throw new WorkspaceOperationError('WORKSPACE_PERMISSION_DENIED', 'Workspace permission denied.', 403);
+    }
+    if (workspace.workspaceType === 'personal') {
+      throw new WorkspaceOperationError('WORKSPACE_PERSONAL_NO_MEMBERS', 'Personal workspaces do not have members.', 403);
+    }
+    if (workspace.workspaceType === 'organization') {
+      throw new WorkspaceOperationError(
+        'WORKSPACE_ORGANIZATION_MANAGED_VIA_ORG',
+        'Organization workspace access is managed through organization users.',
+        403,
+      );
+    }
+    if (workspace.workspaceType === 'project') {
+      throw new WorkspaceOperationError(
+        'WORKSPACE_PROJECT_MEMBERS_NOT_AVAILABLE',
+        'Project workspace members are not yet available.',
+        501,
+      );
+    }
+
+    const rows = await database.all(
+      `
+        SELECT
+          m.workspace_id,
+          m.user_id,
+          u.name,
+          u.email,
+          m.role,
+          COALESCE(m.status, 'active') AS status,
+          m.can_read,
+          m.can_write,
+          m.can_manage,
+          m.created_at,
+          m.updated_at
+        FROM canvas_workspace_members m
+        LEFT JOIN "user" u ON u.id = m.user_id
+        WHERE m.workspace_id = ?
+        ORDER BY m.can_manage DESC, lower(COALESCE(u.email, u.name, m.user_id)) ASC
+      `,
+      [workspaceId],
+    ) as WorkspaceMemberRow[];
+    const candidateRows = await database.all(
+      `
+        SELECT
+          p.user_id,
+          u.name,
+          u.email,
+          p.role,
+          COALESCE(p.status, 'active') AS status
+        FROM organization_user_permissions p
+        LEFT JOIN "user" u ON u.id = p.user_id
+        WHERE p.organization_id = ?
+          AND COALESCE(p.status, 'active') = 'active'
+          AND p.role != 'external'
+        ORDER BY lower(COALESCE(u.email, u.name, p.user_id)) ASC
+      `,
+      [workspace.organizationId],
+    ) as WorkspaceMemberCandidateRow[];
+    await database.run('COMMIT');
+    return {
+      workspace,
+      members: rows.map(rowToWorkspaceMemberRecord),
+      candidates: candidateRows.map(rowToWorkspaceMemberCandidate),
+    };
+  } catch (error) {
+    try {
+      await database.run('ROLLBACK');
+    } catch {
+      // Preserve the original failure.
+    }
+    throw error;
+  } finally {
+    await database.close();
+  }
+}
+
+export async function upsertPostgresWorkspaceMemberForActor(
+  actor: WorkspaceActor,
+  workspaceId: string,
+  input: {
+    userId: unknown;
+    role?: unknown;
+    canRead?: unknown;
+    canWrite?: unknown;
+    canManage?: unknown;
+  },
+): Promise<WorkspaceMemberRecord> {
+  const database = await openDb();
+  try {
+    await database.run('BEGIN');
+    await ensurePostgresOrganizationBootstrapForUser(database, actor.userId);
+    const workspace = await resolveWorkspaceContextById(database, actor, workspaceId);
+    if (!workspace) {
+      throw new WorkspaceOperationError('WORKSPACE_NOT_FOUND', 'Workspace not found.', 404);
+    }
+    if (!workspace.permissions.canManageWorkspace) {
+      throw new WorkspaceOperationError('WORKSPACE_PERMISSION_DENIED', 'Workspace permission denied.', 403);
+    }
+    if (workspace.workspaceType !== 'team') {
+      throw new WorkspaceOperationError('WORKSPACE_MEMBERS_UNSUPPORTED', 'Workspace members are only supported for team workspaces.', 403);
+    }
+
+    const userId = typeof input.userId === 'string' ? input.userId.trim() : '';
+    if (!userId) {
+      throw new WorkspaceOperationError('WORKSPACE_MEMBER_USER_REQUIRED', 'User is required.', 400);
+    }
+    const candidate = await database.get(
+      `
+        SELECT user_id, role, COALESCE(status, 'active') AS status
+        FROM organization_user_permissions
+        WHERE organization_id = ? AND user_id = ?
+        LIMIT 1
+      `,
+      [workspace.organizationId, userId],
+    ) as { user_id: string; role: string; status: string } | undefined;
+    if (!candidate || candidate.status !== 'active' || candidate.role === 'external') {
+      throw new WorkspaceOperationError('WORKSPACE_MEMBER_NOT_ELIGIBLE', 'User is not an active organization member.', 400);
+    }
+
+    const role = typeof input.role === 'string' ? normalizeWorkspaceMemberRole(input.role) : 'member';
+    const canManage = Boolean(input.canManage);
+    const canWrite = canManage || Boolean(input.canWrite);
+    const canRead = canManage || canWrite || input.canRead !== false;
+    const now = Date.now();
+    await database.run(
+      `
+        INSERT INTO canvas_workspace_members (
+          organization_id, workspace_id, user_id, role, status,
+          can_read, can_write, can_manage, invited_by_user_id, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(workspace_id, user_id) DO UPDATE SET
+          role = excluded.role,
+          status = excluded.status,
+          can_read = excluded.can_read,
+          can_write = excluded.can_write,
+          can_manage = excluded.can_manage,
+          invited_by_user_id = excluded.invited_by_user_id,
+          updated_at = excluded.updated_at
+      `,
+      [
+        workspace.organizationId,
+        workspace.workspaceId,
+        userId,
+        role,
+        canRead ? 1 : 0,
+        canWrite ? 1 : 0,
+        canManage ? 1 : 0,
+        actor.userId,
+        now,
+        now,
+      ],
+    );
+
+    const row = await database.get(
+      `
+        SELECT
+          m.workspace_id,
+          m.user_id,
+          u.name,
+          u.email,
+          m.role,
+          COALESCE(m.status, 'active') AS status,
+          m.can_read,
+          m.can_write,
+          m.can_manage,
+          m.created_at,
+          m.updated_at
+        FROM canvas_workspace_members m
+        LEFT JOIN "user" u ON u.id = m.user_id
+        WHERE m.workspace_id = ? AND m.user_id = ?
+        LIMIT 1
+      `,
+      [workspace.workspaceId, userId],
+    ) as WorkspaceMemberRow | undefined;
+    if (!row) {
+      throw new WorkspaceOperationError('WORKSPACE_MEMBER_UPDATE_FAILED', 'Workspace member update failed.', 500);
+    }
+    await database.run('COMMIT');
+    return rowToWorkspaceMemberRecord(row);
+  } catch (error) {
+    try {
+      await database.run('ROLLBACK');
+    } catch {
+      // Preserve the original failure.
+    }
+    throw error;
+  } finally {
+    await database.close();
+  }
+}
+
+export async function removePostgresWorkspaceMemberForActor(
+  actor: WorkspaceActor,
+  workspaceId: string,
+  userId: string,
+): Promise<void> {
+  const database = await openDb();
+  try {
+    await database.run('BEGIN');
+    await ensurePostgresOrganizationBootstrapForUser(database, actor.userId);
+    const workspace = await resolveWorkspaceContextById(database, actor, workspaceId);
+    if (!workspace) {
+      throw new WorkspaceOperationError('WORKSPACE_NOT_FOUND', 'Workspace not found.', 404);
+    }
+    if (!workspace.permissions.canManageWorkspace) {
+      throw new WorkspaceOperationError('WORKSPACE_PERMISSION_DENIED', 'Workspace permission denied.', 403);
+    }
+    if (workspace.workspaceType !== 'team') {
+      throw new WorkspaceOperationError('WORKSPACE_MEMBERS_UNSUPPORTED', 'Workspace members are only supported for team workspaces.', 403);
+    }
+
+    const member = await database.get(
+      `
+        SELECT can_manage
+        FROM canvas_workspace_members
+        WHERE workspace_id = ? AND user_id = ? AND COALESCE(status, 'active') = 'active'
+        LIMIT 1
+      `,
+      [workspace.workspaceId, userId],
+    ) as { can_manage: number } | undefined;
+    if (member?.can_manage === 1) {
+      const row = await database.get(
+        `
+          SELECT COUNT(*) AS count
+          FROM canvas_workspace_members
+          WHERE workspace_id = ?
+            AND COALESCE(status, 'active') = 'active'
+            AND can_manage = 1
+        `,
+        [workspace.workspaceId],
+      ) as { count?: number | string } | undefined;
+      if (Number(row?.count || 0) <= 1) {
+        throw new WorkspaceOperationError(
+          'WORKSPACE_LAST_MANAGER',
+          'The last workspace manager cannot be removed.',
+          409,
+        );
+      }
+    }
+
+    await database.run(
+      'DELETE FROM canvas_workspace_members WHERE workspace_id = ? AND user_id = ?',
+      [workspace.workspaceId, userId],
     );
     await database.run('COMMIT');
   } catch (error) {

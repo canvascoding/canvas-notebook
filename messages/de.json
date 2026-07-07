@@ -2320,6 +2320,40 @@
           "write": "Schreiben",
           "manage": "Verwalten"
         },
+        "members": {
+          "title": "Zugriff verwalten: {name}",
+          "titleFallback": "Zugriff verwalten",
+          "description": "Team-Workspace-Members und Rechte verwalten.",
+          "manageAccess": "Zugriff verwalten",
+          "currentMembers": "Aktuelle Member",
+          "currentMembersDescription": "Diese Nutzer haben expliziten Zugriff auf den Team-Workspace.",
+          "addMember": "Member hinzufügen",
+          "addMemberDescription": "Wähle einen aktiven Organisationsnutzer und vergib Workspace-Rechte.",
+          "selectUser": "Nutzer auswählen",
+          "removeMember": "Member entfernen",
+          "refresh": "Aktualisieren",
+          "loading": "Member werden geladen...",
+          "noMembers": "Keine Member vorhanden.",
+          "noCandidates": "Keine weiteren Nutzer verfügbar",
+          "close": "Schließen",
+          "permissions": {
+            "canRead": "Lesen",
+            "canWrite": "Schreiben",
+            "canManage": "Verwalten"
+          },
+          "roles": {
+            "owner": "Owner",
+            "admin": "Admin",
+            "member": "Member",
+            "external": "Extern"
+          },
+          "errors": {
+            "load": "Workspace-Members konnten nicht geladen werden.",
+            "save": "Workspace-Member konnte nicht gespeichert werden.",
+            "remove": "Workspace-Member konnte nicht entfernt werden.",
+            "lastManager": "Der letzte Manager kann nicht entfernt werden. Bitte erst einen neuen Manager zuweisen."
+          }
+        },
         "createDialog": {
           "title": "Workspace erstellen",
           "description": "Lege einen weiteren persönlichen Workspace oder einen Team-Workspace an.",
