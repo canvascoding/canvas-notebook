@@ -1,6 +1,6 @@
 'use client';
 
-import { FormEvent, useId, useMemo, useState } from 'react';
+import { FormEvent, useCallback, useEffect, useId, useMemo, useState } from 'react';
 import { Loader2, Plus } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 
@@ -17,13 +17,20 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import type { ClientWorkspaceSummary, ClientWorkspaceType } from '@/app/lib/workspaces/client-types';
 
-type CreateWorkspaceType = Extract<ClientWorkspaceType, 'personal' | 'team'>;
+type CreateWorkspaceType = Extract<ClientWorkspaceType, 'personal' | 'team' | 'project'>;
+
+type ProjectOption = {
+  id: string;
+  name: string;
+  workspaceId?: string | null;
+};
 
 interface CreateWorkspaceDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   canCreateTeamWorkspace: boolean;
   teamFeaturesEnabled: boolean;
+  projectFeaturesEnabled: boolean;
   onCreated: (workspace: ClientWorkspaceSummary) => void | Promise<void>;
 }
 
@@ -32,6 +39,7 @@ export function CreateWorkspaceDialog({
   onOpenChange,
   canCreateTeamWorkspace,
   teamFeaturesEnabled,
+  projectFeaturesEnabled,
   onCreated,
 }: CreateWorkspaceDialogProps) {
   const t = useTranslations('settings.workspacePanel.management');
@@ -40,8 +48,44 @@ export function CreateWorkspaceDialog({
   const typeId = useId();
   const [name, setName] = useState('');
   const [type, setType] = useState<CreateWorkspaceType>('personal');
+  const [projectId, setProjectId] = useState('');
+  const [projects, setProjects] = useState<ProjectOption[]>([]);
+  const [projectsLoading, setProjectsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const loadProjects = useCallback(async () => {
+    if (!open || !projectFeaturesEnabled || !canCreateTeamWorkspace) return;
+    setProjectsLoading(true);
+    try {
+      const response = await fetch('/api/projects', {
+        credentials: 'include',
+        cache: 'no-store',
+      });
+      const payload = await response.json();
+      if (!response.ok || !payload.success) {
+        setProjects([]);
+        return;
+      }
+      setProjects(Array.isArray(payload.projects) ? payload.projects : []);
+    } catch {
+      setProjects([]);
+    } finally {
+      setProjectsLoading(false);
+    }
+  }, [canCreateTeamWorkspace, open, projectFeaturesEnabled]);
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      void loadProjects();
+    }, 0);
+    return () => window.clearTimeout(timeout);
+  }, [loadProjects]);
+
+  const availableProjects = useMemo(
+    () => projects.filter((project) => !project.workspaceId),
+    [projects],
+  );
 
   const availableTypes = useMemo(() => {
     const options: Array<{ value: CreateWorkspaceType; label: string; disabled?: boolean }> = [
@@ -54,12 +98,20 @@ export function CreateWorkspaceDialog({
         disabled: !teamFeaturesEnabled,
       });
     }
+    if (canCreateTeamWorkspace && projectFeaturesEnabled) {
+      options.push({
+        value: 'project',
+        label: workspaceTypesT('project'),
+        disabled: projectsLoading || availableProjects.length === 0,
+      });
+    }
     return options;
-  }, [canCreateTeamWorkspace, teamFeaturesEnabled, workspaceTypesT]);
+  }, [availableProjects.length, canCreateTeamWorkspace, projectFeaturesEnabled, projectsLoading, teamFeaturesEnabled, workspaceTypesT]);
 
   const resetForm = () => {
     setName('');
     setType('personal');
+    setProjectId('');
     setError(null);
     setIsSubmitting(false);
   };
@@ -82,6 +134,10 @@ export function CreateWorkspaceDialog({
       setError(t('errors.nameTooLong'));
       return;
     }
+    if (type === 'project' && !projectId) {
+      setError(t('errors.projectRequired'));
+      return;
+    }
 
     setIsSubmitting(true);
     setError(null);
@@ -90,7 +146,7 @@ export function CreateWorkspaceDialog({
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: trimmedName, type }),
+        body: JSON.stringify({ name: trimmedName, type, projectId: type === 'project' ? projectId : undefined }),
       });
       const payload = await response.json();
       if (!response.ok || !payload.success || !payload.workspace) {
@@ -145,13 +201,41 @@ export function CreateWorkspaceDialog({
                 ))}
               </select>
               <p className="text-xs text-muted-foreground">
-                {type === 'team' ? t('hints.teamProjectAccess') : t('hints.personalOnly')}
+                {type === 'team' || type === 'project' ? t('hints.teamProjectAccess') : t('hints.personalOnly')}
               </p>
             </div>
+
+            {type === 'project' ? (
+              <div className="flex flex-col gap-2">
+                <Label htmlFor={`${typeId}-project`}>{t('fields.project')}</Label>
+                <select
+                  id={`${typeId}-project`}
+                  value={projectId}
+                  onChange={(event) => setProjectId(event.target.value)}
+                  disabled={isSubmitting || projectsLoading || availableProjects.length === 0}
+                  className="h-9 w-full min-w-0 rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <option value="">{projectsLoading ? t('loadingProjects') : t('fields.projectPlaceholder')}</option>
+                  {availableProjects.map((project) => (
+                    <option key={project.id} value={project.id}>
+                      {project.name}
+                    </option>
+                  ))}
+                </select>
+                {availableProjects.length === 0 && !projectsLoading ? (
+                  <p className="text-xs text-muted-foreground">{t('noProjectsAvailable')}</p>
+                ) : null}
+              </div>
+            ) : null}
 
             {canCreateTeamWorkspace && !teamFeaturesEnabled ? (
               <p className="rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
                 {t('teamFeatureNotEnabled')}
+              </p>
+            ) : null}
+            {canCreateTeamWorkspace && !projectFeaturesEnabled ? (
+              <p className="rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+                {t('projectFeatureNotEnabled')}
               </p>
             ) : null}
 

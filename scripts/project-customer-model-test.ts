@@ -12,15 +12,19 @@ import {
   createCanvasProject,
   ensureCanvasProjectWorkspace,
   getCanvasProjectMember,
+  listCanvasCustomers,
+  listCanvasProjects,
   normalizeSlug,
   upsertCanvasProjectMember,
 } from '../app/lib/projects/service';
 import { resolveWorkspaceActor } from '../app/lib/workspaces/context';
 import {
+  createWorkspaceRecord,
   ensureDefaultWorkspaceRecords,
   listWorkspaceContextsForUser,
   projectWorkspaceRootRelativePath,
   resolveWorkspaceContextById,
+  WorkspaceOperationError,
   workspaceAbsoluteRoot,
 } from '../app/lib/workspaces/service';
 
@@ -124,6 +128,8 @@ async function main() {
       createdByUserId: 'owner-user',
     });
     assert.equal(duplicateProject.slug, 'sommer-kampagne-2');
+    assert.deepEqual(listCanvasCustomers(sqlite, organizationId).map((item) => item.id), [customer.id, duplicateCustomer.id]);
+    assert.deepEqual(listCanvasProjects(sqlite, organizationId).map((item) => item.id), [project.id, duplicateProject.id]);
 
     const projectWorkspace = ensureCanvasProjectWorkspace(sqlite, {
       organizationId,
@@ -209,6 +215,45 @@ async function main() {
     });
     const disabledOrgActor = resolveWorkspaceActor({ id: 'disabled-org-user', email: 'disabled-org@example.test', role: 'member' });
     assert.equal(resolveWorkspaceContextById(sqlite, { actor: disabledOrgActor, workspaceId: projectWorkspace.id }), null);
+
+    assert.throws(
+      () => createWorkspaceRecord(sqlite, {
+        actor: ownerActor,
+        organizationId,
+        type: 'project',
+        name: duplicateProject.name,
+        teamFeaturesEnabled: true,
+        projectFeaturesEnabled: false,
+        projectId: duplicateProject.id,
+      }),
+      (error: unknown) => error instanceof WorkspaceOperationError && error.code === 'WORKSPACE_PROJECT_FEATURE_DISABLED',
+    );
+    const createdProjectWorkspace = createWorkspaceRecord(sqlite, {
+      actor: ownerActor,
+      organizationId,
+      type: 'project',
+      name: duplicateProject.name,
+      teamFeaturesEnabled: true,
+      projectFeaturesEnabled: true,
+      projectId: duplicateProject.id,
+    });
+    assert.equal(createdProjectWorkspace.workspaceType, 'project');
+    assert.equal(createdProjectWorkspace.projectId, duplicateProject.id);
+    assert.equal(createdProjectWorkspace.customerId, customer.id);
+    assert.equal(createdProjectWorkspace.rootRelativePath, projectWorkspaceRootRelativePath(duplicateProject.id));
+    assert.equal(createdProjectWorkspace.permissions.canManageWorkspace, true);
+    assert.throws(
+      () => createWorkspaceRecord(sqlite, {
+        actor: ownerActor,
+        organizationId,
+        type: 'project',
+        name: duplicateProject.name,
+        teamFeaturesEnabled: true,
+        projectFeaturesEnabled: true,
+        projectId: duplicateProject.id,
+      }),
+      (error: unknown) => error instanceof WorkspaceOperationError && error.code === 'WORKSPACE_PROJECT_ALREADY_HAS_WORKSPACE',
+    );
 
     for (const [table, columns] of [
       ['canvas_customers', ['organization_id', 'slug']],

@@ -1263,6 +1263,7 @@ export async function createPostgresWorkspaceForActor(
   input: {
     type: WorkspaceType;
     name: unknown;
+    projectFeaturesEnabled?: boolean;
     projectId?: string | null;
   },
 ): Promise<WorkspaceContext> {
@@ -1295,12 +1296,48 @@ export async function createPostgresWorkspaceForActor(
     if (input.type === 'team' && actor.role !== 'owner' && actor.role !== 'admin') {
       throw new WorkspaceOperationError('WORKSPACE_PERMISSION_DENIED', 'Only admins can create team workspaces.', 403);
     }
+    if (input.type === 'project' && actor.role !== 'owner' && actor.role !== 'admin') {
+      throw new WorkspaceOperationError('WORKSPACE_PERMISSION_DENIED', 'Only admins can create project workspaces.', 403);
+    }
     if (input.type === 'project') {
-      throw new WorkspaceOperationError(
-        'WORKSPACE_PROJECT_FEATURE_DISABLED',
-        'Project workspaces are not yet available.',
-        501,
-      );
+      if (!input.projectFeaturesEnabled) {
+        throw new WorkspaceOperationError(
+          'WORKSPACE_PROJECT_FEATURE_DISABLED',
+          'Project workspaces are not yet available.',
+          501,
+        );
+      }
+      const projectId = input.projectId?.trim() || '';
+      if (!projectId) {
+        throw new WorkspaceOperationError('WORKSPACE_PROJECT_REQUIRED', 'Project id is required.', 400);
+      }
+      const existingProjectWorkspace = await database.get(
+        `
+          SELECT id
+          FROM canvas_workspaces
+          WHERE type = 'project' AND organization_id = ? AND project_id = ?
+          LIMIT 1
+        `,
+        [status.organizationId, projectId],
+      ) as { id: string } | undefined;
+      if (existingProjectWorkspace) {
+        throw new WorkspaceOperationError('WORKSPACE_PROJECT_ALREADY_HAS_WORKSPACE', 'Project already has a workspace.', 409);
+      }
+    }
+
+    const project = input.type === 'project'
+      ? await database.get(
+          `
+            SELECT id, customer_id
+            FROM canvas_projects
+            WHERE organization_id = ? AND id = ? AND status = 'active'
+            LIMIT 1
+          `,
+          [status.organizationId, input.projectId?.trim() || ''],
+        ) as { id: string; customer_id: string | null } | undefined
+      : null;
+    if (input.type === 'project' && !project) {
+      throw new WorkspaceOperationError('WORKSPACE_PROJECT_NOT_FOUND', 'Project not found.', 404);
     }
 
     const slug = normalizeWorkspaceSlug(name);
@@ -1310,27 +1347,55 @@ export async function createPostgresWorkspaceForActor(
           slug,
           (candidate) => personalWorkspaceRootRelativePathForSlug(actor.userId, candidate),
         )
-      : await reserveWorkspaceRootRelativePath(
-          database,
-          slug,
-          (candidate) => teamWorkspaceRootRelativePathForSlug(status.organizationId!, candidate),
-        );
+      : input.type === 'team'
+        ? await reserveWorkspaceRootRelativePath(
+            database,
+            slug,
+            (candidate) => teamWorkspaceRootRelativePathForSlug(status.organizationId!, candidate),
+          )
+        : projectWorkspaceRootRelativePath(project?.id ?? '');
     const record = await insertWorkspaceRecord(database, {
       organizationId: status.organizationId,
       type: input.type,
       ownerUserId: input.type === 'personal' ? actor.userId : null,
-      projectId: input.projectId ?? null,
+      projectId: input.type === 'project' ? project?.id ?? null : input.projectId ?? null,
       rootRelativePath,
       displayName: name,
       isDefault: false,
     });
 
+    if (record.type === 'project' && project?.customer_id) {
+      await database.run(
+        'UPDATE canvas_workspaces SET customer_id = ?, updated_at = ? WHERE id = ?',
+        [project.customer_id, Date.now(), record.id],
+      );
+    }
     if (record.type === 'team') {
       await upsertTeamWorkspaceOwnerMembership(database, {
         organizationId: status.organizationId,
         workspaceId: record.id,
         userId: actor.userId,
       });
+    }
+    if (record.type === 'project' && record.projectId) {
+      const now = Date.now();
+      await database.run(
+        `
+          INSERT INTO canvas_project_members (
+            organization_id, project_id, user_id, role, status,
+            can_read, can_write, can_manage, invited_by_user_id, created_at, updated_at
+          ) VALUES (?, ?, ?, 'admin', 'active', 1, 1, 1, ?, ?, ?)
+          ON CONFLICT(project_id, user_id) DO UPDATE SET
+            role = excluded.role,
+            status = excluded.status,
+            can_read = excluded.can_read,
+            can_write = excluded.can_write,
+            can_manage = excluded.can_manage,
+            invited_by_user_id = excluded.invited_by_user_id,
+            updated_at = excluded.updated_at
+        `,
+        [status.organizationId, record.projectId, actor.userId, actor.userId, now, now],
+      );
     }
 
     const workspace = await resolveWorkspaceContextById(database, actor, record.id);

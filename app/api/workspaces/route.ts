@@ -12,6 +12,7 @@ import {
   ensureOrganizationBootstrapForUser,
   openOrganizationBootstrapDatabase,
 } from '@/app/lib/organization/bootstrap';
+import { areProjectFeaturesEnabled } from '@/app/lib/projects/features';
 import { resolveWorkspaceActor } from '@/app/lib/workspaces/context';
 import {
   createPostgresWorkspaceForActor,
@@ -31,9 +32,12 @@ function serializeWorkspace(workspace: WorkspaceContext) {
     type: workspace.workspaceType,
     name: workspace.displayName || workspace.workspaceType,
     organizationId: workspace.organizationId,
+    customerId: workspace.customerId,
+    projectId: workspace.projectId,
     ownerUserId: workspace.ownerUserId,
     rootRelativePath: workspace.rootRelativePath,
     status: workspace.status || 'active',
+    isDefault: Boolean(workspace.isDefault),
     permissions: workspace.permissions,
     legacy: workspace.legacy,
   };
@@ -88,6 +92,7 @@ export async function GET(request: Request) {
           success: true,
           organizationId: state.status.organizationId,
           teamFeaturesEnabled: state.status.teamFeaturesEnabled,
+          projectFeaturesEnabled: areProjectFeaturesEnabled(),
           databaseProvider: state.status.databaseProvider,
           activeWorkspaceId: state.defaultWorkspace?.workspaceId || null,
           defaultWorkspace: state.defaultWorkspace ? serializeWorkspace(state.defaultWorkspace) : null,
@@ -127,6 +132,7 @@ export async function GET(request: Request) {
         success: true,
         organizationId: status.organizationId,
         teamFeaturesEnabled: status.teamFeaturesEnabled,
+        projectFeaturesEnabled: areProjectFeaturesEnabled(),
         databaseProvider: status.databaseProvider,
         activeWorkspaceId: defaultWorkspace?.workspaceId || null,
         defaultWorkspace: defaultWorkspace ? serializeWorkspace(defaultWorkspace) : null,
@@ -171,6 +177,7 @@ export async function POST(request: Request) {
         const workspace = await createPostgresWorkspaceForActor(actor, {
           type,
           name: payload.name,
+          projectFeaturesEnabled: areProjectFeaturesEnabled(),
           projectId,
         });
         return NextResponse.json({ success: true, workspace: serializeWorkspace(workspace) }, { status: 201 });
@@ -202,6 +209,7 @@ export async function POST(request: Request) {
         type,
         name: payload.name,
         teamFeaturesEnabled: status.teamFeaturesEnabled,
+        projectFeaturesEnabled: areProjectFeaturesEnabled(),
         projectId,
       });
       sqlite.exec('COMMIT');

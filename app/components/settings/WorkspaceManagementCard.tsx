@@ -80,6 +80,7 @@ export function WorkspaceManagementCard({
   const hydrateWorkspaces = useWorkspaceStore((state) => state.hydrateWorkspaces);
   const refreshWorkspaces = useWorkspaceStore((state) => state.refreshWorkspaces);
   const storeTeamFeaturesEnabled = useWorkspaceStore((state) => state.teamFeaturesEnabled);
+  const projectFeaturesEnabled = useWorkspaceStore((state) => state.projectFeaturesEnabled);
 
   const effectiveTeamFeaturesEnabled = teamFeaturesEnabled || storeTeamFeaturesEnabled;
   const kindLabels = {
@@ -303,6 +304,7 @@ export function WorkspaceManagementCard({
         onOpenChange={handleCreateOpenChange}
         canCreateTeamWorkspace={isAdmin}
         teamFeaturesEnabled={effectiveTeamFeaturesEnabled}
+        projectFeaturesEnabled={projectFeaturesEnabled}
         onCreated={handleCreated}
       />
 
@@ -321,6 +323,7 @@ export function WorkspaceManagementCard({
         }}
         workspace={typeChangeTarget}
         teamFeaturesEnabled={effectiveTeamFeaturesEnabled}
+        projectFeaturesEnabled={projectFeaturesEnabled}
         onChanged={handleTypeChanged}
       />
 

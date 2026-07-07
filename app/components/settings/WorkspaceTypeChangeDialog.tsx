@@ -1,6 +1,6 @@
 'use client';
 
-import { FormEvent, useId, useMemo, useState } from 'react';
+import { FormEvent, useCallback, useEffect, useId, useMemo, useState } from 'react';
 import { ArrowLeftRight, Loader2 } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 
@@ -24,8 +24,15 @@ interface WorkspaceTypeChangeDialogProps {
   onOpenChange: (open: boolean) => void;
   workspace: ClientWorkspaceSummary | null;
   teamFeaturesEnabled: boolean;
+  projectFeaturesEnabled: boolean;
   onChanged: (workspace: ClientWorkspaceSummary) => void | Promise<void>;
 }
+
+type ProjectOption = {
+  id: string;
+  name: string;
+  workspaceId?: string | null;
+};
 
 function mapTypeChangeError(code: unknown, fallback: string): string | null {
   if (code === 'WORKSPACE_DEFAULT_TYPE_LOCKED') return 'typeChange.errors.defaultLocked';
@@ -43,6 +50,7 @@ export function WorkspaceTypeChangeDialog({
   onOpenChange,
   workspace,
   teamFeaturesEnabled,
+  projectFeaturesEnabled,
   onChanged,
 }: WorkspaceTypeChangeDialogProps) {
   const t = useTranslations('settings.workspacePanel.management');
@@ -50,18 +58,65 @@ export function WorkspaceTypeChangeDialog({
   const typeId = useId();
   const confirmId = useId();
   const [targetType, setTargetType] = useState<ChangeWorkspaceType>('personal');
+  const [projectId, setProjectId] = useState('');
+  const [projects, setProjects] = useState<ProjectOption[]>([]);
+  const [projectsLoading, setProjectsLoading] = useState(false);
   const [confirmText, setConfirmText] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  const loadProjects = useCallback(async () => {
+    if (!open || !projectFeaturesEnabled) return;
+    setProjectsLoading(true);
+    try {
+      const response = await fetch('/api/projects', {
+        credentials: 'include',
+        cache: 'no-store',
+      });
+      const payload = await response.json();
+      if (!response.ok || !payload.success) {
+        setProjects([]);
+        return;
+      }
+      setProjects(Array.isArray(payload.projects) ? payload.projects : []);
+    } catch {
+      setProjects([]);
+    } finally {
+      setProjectsLoading(false);
+    }
+  }, [open, projectFeaturesEnabled]);
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      void loadProjects();
+    }, 0);
+    return () => window.clearTimeout(timeout);
+  }, [loadProjects]);
+
+  const availableProjects = useMemo(
+    () => projects.filter((project) => !project.workspaceId || project.workspaceId === workspace?.id),
+    [projects, workspace?.id],
+  );
+
   const availableTypes = useMemo(() => {
     const options: Array<{ value: ChangeWorkspaceType; label: string; disabled?: boolean; note?: string }> = [
       { value: 'personal', label: workspaceTypesT('personal') },
-      { value: 'team', label: workspaceTypesT('team'), disabled: !teamFeaturesEnabled, note: t('teamFeatureNotEnabled') },
-      { value: 'project', label: workspaceTypesT('project'), disabled: true, note: t('projectFeatureNotEnabled') },
+      { value: 'team', label: workspaceTypesT('team'), disabled: !teamFeaturesEnabled, note: !teamFeaturesEnabled ? t('teamFeatureNotEnabled') : undefined },
+      {
+        value: 'project',
+        label: workspaceTypesT('project'),
+        disabled: !projectFeaturesEnabled || projectsLoading || availableProjects.length === 0,
+        note: !projectFeaturesEnabled
+          ? t('projectFeatureNotEnabled')
+          : projectsLoading
+            ? t('loadingProjects')
+          : availableProjects.length === 0
+            ? t('noProjectsAvailable')
+            : undefined,
+      },
     ];
     return options.filter((option) => option.value !== workspace?.type);
-  }, [teamFeaturesEnabled, t, workspace?.type, workspaceTypesT]);
+  }, [availableProjects.length, projectFeaturesEnabled, projectsLoading, t, teamFeaturesEnabled, workspace?.type, workspaceTypesT]);
 
   const firstAvailableType = (availableTypes.find((option) => !option.disabled) ?? availableTypes[0])?.value ?? 'personal';
   const effectiveTargetType = availableTypes.some((option) => option.value === targetType)
@@ -70,6 +125,7 @@ export function WorkspaceTypeChangeDialog({
 
   const reset = () => {
     setTargetType('personal');
+    setProjectId('');
     setConfirmText('');
     setError(null);
     setIsSubmitting(false);
@@ -87,6 +143,7 @@ export function WorkspaceTypeChangeDialog({
     !workspace ||
     selectedOption?.disabled ||
     isSubmitting ||
+    (effectiveTargetType === 'project' && !projectId) ||
     (requiresConfirmation && confirmText.trim() !== expectedConfirmation),
   );
 
@@ -101,7 +158,7 @@ export function WorkspaceTypeChangeDialog({
         method: 'PATCH',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type: effectiveTargetType }),
+        body: JSON.stringify({ type: effectiveTargetType, projectId: effectiveTargetType === 'project' ? projectId : undefined }),
       });
       const payload = await response.json();
       if (!response.ok || !payload.success || !payload.workspace) {
@@ -140,6 +197,7 @@ export function WorkspaceTypeChangeDialog({
                 value={effectiveTargetType}
                 onChange={(event) => {
                   setTargetType(event.target.value as ChangeWorkspaceType);
+                  setProjectId('');
                   setConfirmText('');
                 }}
                 disabled={isSubmitting}
@@ -155,6 +213,26 @@ export function WorkspaceTypeChangeDialog({
                 <p className="text-xs text-muted-foreground">{selectedOption.note}</p>
               ) : null}
             </div>
+
+            {effectiveTargetType === 'project' ? (
+              <div className="flex flex-col gap-2">
+                <Label htmlFor={`${typeId}-project`}>{t('fields.project')}</Label>
+                <select
+                  id={`${typeId}-project`}
+                  value={projectId}
+                  onChange={(event) => setProjectId(event.target.value)}
+                  disabled={isSubmitting || projectsLoading || availableProjects.length === 0}
+                  className="h-9 w-full min-w-0 rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <option value="">{projectsLoading ? t('loadingProjects') : t('fields.projectPlaceholder')}</option>
+                  {availableProjects.map((project) => (
+                    <option key={project.id} value={project.id}>
+                      {project.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ) : null}
 
             <p className="rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
               {t('typeChange.warning')}

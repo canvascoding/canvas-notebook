@@ -16,6 +16,8 @@ export interface ClientWorkspaceSummary {
   type: ClientWorkspaceType;
   name: string;
   organizationId?: string | null;
+  customerId?: string | null;
+  projectId?: string | null;
   ownerUserId?: string | null;
   rootRelativePath?: string;
   status: ClientWorkspaceStatus;
@@ -28,6 +30,7 @@ export interface ClientWorkspaceResponse {
   success: boolean;
   organizationId?: string | null;
   teamFeaturesEnabled?: boolean;
+  projectFeaturesEnabled?: boolean;
   databaseProvider?: string | null;
   activeWorkspaceId?: string | null;
   defaultWorkspace?: ClientWorkspaceSummary | null;

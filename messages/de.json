@@ -2314,10 +2314,14 @@
         "delete": "Löschen",
         "teamFeatureNotEnabled": "Team-Workspaces sind in diesem Modus nicht verfügbar.",
         "projectFeatureNotEnabled": "Projekt-Workspaces sind noch nicht verfügbar.",
+        "loadingProjects": "Projekte werden geladen...",
+        "noProjectsAvailable": "Keine verfügbaren Projekte ohne Workspace.",
         "fields": {
           "name": "Name",
           "namePlaceholder": "z.B. Kampagnen-Workspace",
-          "type": "Typ"
+          "type": "Typ",
+          "project": "Projekt",
+          "projectPlaceholder": "Projekt auswählen"
         },
         "hints": {
           "teamProjectAccess": "Zugriff kann nach der Erstellung verwaltet werden.",
@@ -2396,6 +2400,7 @@
         "errors": {
           "nameRequired": "Name ist erforderlich.",
           "nameTooLong": "Name darf höchstens 80 Zeichen lang sein.",
+          "projectRequired": "Projekt ist erforderlich.",
           "createFailed": "Workspace konnte nicht erstellt werden.",
           "deleteFailed": "Workspace konnte nicht gelöscht werden.",
           "isDefault": "Standard-Workspaces können nicht gelöscht werden.",

@@ -1,14 +1,17 @@
 # Workspace-Verwaltung Plan
 
-Datum: 2026-07-08 (v4, Status aktualisiert)
+Datum: 2026-07-08 (v5, Project-Rollout ergänzt)
 
 ## Aktueller Stand
 
-Diese Version dokumentiert den Stand nach den bereits erstellten Workspace-Commits:
+Diese Version dokumentiert den Stand des Review-/Feature-Branches nach der Branch-Bereinigung und den weiter abgearbeiteten Workspace-TODOs:
 
-- `cea82da1` — `Add organization workspace defaults`
-- `0b62c19e` — `Add workspace management UI`
-- `78d9cc73` — `Add workspace member management`
+- `dcb9f9ea` — `Allow organization chat workspace type`
+- `69240f33` — `Add organization workspace defaults`
+- `519b604b` — `Add workspace management UI`
+- `b19d8b80` — `Add workspace member management`
+- `fa680832` — `Add project workspace member management`
+- `4de187bb` — `Add workspace type changes`
 
 Die Änderungen wurden aus `origin/main` herausgenommen und liegen auf dem Review-/Feature-Branch `codex/workspace-management`. `origin/main` enthält dafür den Revert-Commit `c181835e` (`Remove workspace management changes from main`), damit Greptile später einen echten PR-Diff prüfen kann.
 
@@ -21,15 +24,16 @@ Die Änderungen wurden aus `origin/main` herausgenommen und liegen auf dem Revie
 - Organisations-Workspace ist für aktive interne Org-Mitglieder lesbar; Team-Workspaces verwenden explizite Member-Rechte.
 - Standard-Workspaces und Organisations-Workspaces können serverseitig nicht gelöscht werden.
 - Workspace-Delete ist Soft-Delete (`status='disabled'`) und blockt bei aktiven Automations.
-- Weitere Personal- und Team-Workspaces können per `POST /api/workspaces` erstellt werden.
-- `project`-Workspace-Erstellung ist bewusst noch blockiert (`WORKSPACE_PROJECT_FEATURE_DISABLED`/`501`).
+- Weitere Personal-, Team- und Project-Workspaces können per `POST /api/workspaces` erstellt werden; Project bleibt hinter `CANVAS_PROJECT_FEATURES_ENABLED`.
+- `GET`/`POST /api/customers` und `GET`/`POST /api/projects` sind hinter demselben Feature-Gate vorhanden.
+- Project-Workspace-Erstellung validiert aktives Project, verhindert doppelte Workspaces pro Project und legt den Ersteller als Project-Admin an.
 - Workspace-Management-Card im Settings-Tab `workspace` ist vorhanden.
-- `CreateWorkspaceDialog` ist vorhanden.
+- `CreateWorkspaceDialog` ist vorhanden und zeigt Project-Option + Project-Dropdown nur bei aktivem Project-Feature.
 - Workspace-Switcher hat Plus-Button/Deeplink zu den Workspace-Settings.
 - Default-Badge, Organization-Label/Icon und Store/API-Serialisierung für `isDefault` sind vorhanden.
 - Team-Member-Management ist implementiert: `GET`/`POST /api/workspaces/[id]/members`, `DELETE /api/workspaces/[id]/members/[userId]`, `WorkspaceMembersDialog`, Candidates, Upsert, Remove und letzter-Manager-Schutz.
 - Project-Member-Management ist in denselben Member-Endpunkten implementiert und nutzt `canvas_project_members` mit demselben letzten-Manager-Schutz.
-- Workspace-Typ-Wechsel ist in Service und API umgesetzt (`PATCH /api/workspaces/[id]`) inklusive Root-Move/Rollback und Rechte-Migration zwischen Personal, Team und Project. Die UI aktiviert Personal/Team; Project-Auswahl folgt mit dem Project-Rollout.
+- Workspace-Typ-Wechsel ist in Service und API umgesetzt (`PATCH /api/workspaces/[id]`) inklusive Root-Move/Rollback und Rechte-Migration zwischen Personal, Team und Project. Die UI aktiviert Personal/Team und Project hinter Feature-Gate.
 - SQLite- und Postgres-Runtime wurden für die umgesetzten Workspace-Funktionen erweitert.
 - Relevante i18n-Keys in `messages/de.json` und `messages/en.json` wurden ergänzt.
 
@@ -38,6 +42,7 @@ Die Änderungen wurden aus `origin/main` herausgenommen und liegen auf dem Revie
 - `npm run lint` bestanden.
 - `npm run build` bestanden.
 - `npm run test:workspace:model` bestanden.
+- `npx tsx --conditions react-server scripts/project-customer-model-test.ts` bestanden.
 - `npm run test:workspace:switcher-ui` bestanden.
 - `npm run test:workspace:foundation` bestanden.
 
@@ -45,11 +50,11 @@ Bekannter Prüfstatus: Ein echter Browser-UI-Smoke gegen `localhost:3000` war ni
 
 ### Noch offen
 
-- Project-Rollout: Project-/Customer-APIs hinter Feature-Gate, Project-Dropdown und Project-Workspace-Erstellung.
 - Granulare Permissions im User-Management-Tab: API für User-Permissions und Rollen, `UserPermissionsDialog`, serverseitige Invarianten.
 - External-User-Verhalten finalisieren und feature-gaten.
 - Offboarding-Erweiterung für mehrere Personal-Workspaces und Team-Workspace-Manager-Preflight.
 - Restliche Edge-Cases aus Strang H zentralisieren, testen und mit stabilen Error-Codes verdrahten.
+- API-/UI-Tests für den Project-Rollout und die noch offenen Permission-/Offboarding-Flows ergänzen.
 - Reale UI-/E2E-Prüfung wiederholen, sobald `localhost:3000` gesund läuft.
 
 ### Klärungsbedarf
@@ -297,7 +302,7 @@ In jedem Variant (`default`, `compact`, `chat-compact`, `toolbar`, `mobile-sheet
 
 ## Strang C — Workspace-Management im Settings → Workspace-Tab
 
-**Status:** umgesetzt für Personal- und Team-Workspaces. Management-Card, Create-Dialog, `POST /api/workspaces` und `DELETE /api/workspaces/[id]` sind vorhanden. `organization` bleibt nicht manuell anlegbar; `project` bleibt bewusst feature-disabled/offen.
+**Status:** umgesetzt für Personal-, Team- und Project-Workspaces. Management-Card, Create-Dialog, `POST /api/workspaces` und `DELETE /api/workspaces/[id]` sind vorhanden. `organization` bleibt nicht manuell anlegbar; `project` ist hinter Feature-Gate aktivierbar.
 
 ### C1. Management-Card im WorkspaceSettingsPanel
 
@@ -332,7 +337,7 @@ Neuer Abschnitt **"Workspaces verwalten"** (Card), eingefügt vor der Migration-
   - **Typ** (Select, abhängig von Rolle + Team-Features):
     - `personal` — jeder User, nur für sich selbst
     - `team` — nur `owner`/`admin`, erfordert `teamFeaturesEnabled` (Unter-Workspace mit Member-Zugriff)
-    - `project` — nur `owner`/`admin`, erfordert vorhandenes Project → Project-Dropdown (Feature-Gate: erst aktivieren, wenn Strang F ausgerollt)
+    - `project` — nur `owner`/`admin`, erfordert vorhandenes Project → Project-Dropdown hinter Feature-Gate
     - `organization` — **nicht wählbar** (wird automatisch beim Bootstrap angelegt, genau einer pro Org)
   - Bei `team`/`project`: Hinweis "Zugriff nach der Erstellung verwalten" (keine Member-Auswahl im Create-Dialog, siehe Strang D).
   - Bei `personal`: Hinweis "Personal-Workspaces sind nur für dich zugänglich."
@@ -373,7 +378,7 @@ Neuer Abschnitt **"Workspaces verwalten"** (Card), eingefügt vor der Migration-
   - Berechtigungsprüfung:
     - `personal`: jeder User, `ownerUserId = actor.userId`
     - `team`: nur `owner`/`admin` + `teamFeaturesEnabled`
-    - `project`: nur `owner`/`admin`, erfordert `projectId` (Feature-Gate: erst aktivieren, wenn Strang F ausgerollt)
+    - `project`: nur `owner`/`admin`, erfordert `projectId` und aktives Project hinter Feature-Gate
   - Validierung:
     - Name: Pflicht, 1–80 Zeichen, kein Pfad-Traversal (`../`, absoluter Pfad, Null-Bytes)
     - Typ-basierte Felder: `personal` → `ownerUserId` aus Session; `team` → `organizationId` aus Bootstrap; `project` → `projectId` Pflicht
@@ -481,7 +486,7 @@ Member-Verwaltung erfolgt **nach der Erstellung** im Detail-Dialog (nicht im Cre
 
 ## Strang E — Workspace-Typ ändern
 
-**Status:** teilweise umgesetzt. `changeWorkspaceType`, `changePostgresWorkspaceTypeForActor`, `PATCH /api/workspaces/[id]` und `WorkspaceTypeChangeDialog` sind vorhanden. Zieltypen `personal`, `team` und `project` werden im Backend unterstützt; `organization` bleibt gesperrt. Die UI aktiviert `personal`/`team`; Project-Auswahl wird in Strang F ergänzt.
+**Status:** umgesetzt für die Zieltypen `personal`, `team` und `project`. `changeWorkspaceType`, `changePostgresWorkspaceTypeForActor`, `PATCH /api/workspaces/[id]` und `WorkspaceTypeChangeDialog` sind vorhanden; `organization` bleibt gesperrt. Die UI aktiviert `project` nur hinter Feature-Gate und mit verfügbarem Project.
 
 ### E1. Konzept
 
@@ -562,9 +567,9 @@ Der Workspace-Typ kann nachträglich geändert werden. Hauptkomplikation: der Ro
 
 ---
 
-## Strang F — Project-Rollout (Backend vorbereiten, UI später)
+## Strang F — Project-Rollout (Feature-Gate)
 
-**Status:** offen. Bestehende Project-Service-Funktionen bleiben Grundlage, aber Project-/Customer-APIs, Feature-Gate-Verdrahtung, Project-Dropdown, Project-Workspace-Erstellung und Project-Member-Management sind noch nicht umgesetzt.
+**Status:** umgesetzt hinter `CANVAS_PROJECT_FEATURES_ENABLED`. Project-/Customer-APIs, Feature-Gate-Verdrahtung, Project-Dropdowns in Workspace-Erstellung und Typ-Wechsel, Project-Workspace-Erstellung und Project-Member-Management sind vorhanden. Eine eigenständige Project-Verwaltung in der UI bleibt bewusst Nicht-Ziel.
 
 ### F1. Backend vorbereiten
 
@@ -574,7 +579,7 @@ Die Service-Funktionen in `app/lib/projects/service.ts` sind bereits vorhanden:
 - `upsertCanvasProjectMember` (Zeile 320-375)
 - `ensureCanvasProjectWorkspace` (Zeile 392-407)
 
-### F2. API (vorbereiten, hinter Feature-Gate)
+### F2. API (hinter Feature-Gate)
 
 **Datei:** `app/api/projects/route.ts` (neu, hinter Feature-Gate)
 - `GET /api/projects` — list Projects (nur für `owner`/`admin`)
@@ -584,13 +589,13 @@ Die Service-Funktionen in `app/lib/projects/service.ts` sind bereits vorhanden:
 - `GET /api/customers` — list Customers
 - `POST /api/customers` — create via `createCanvasCustomer`
 
-Feature-Gate: env `CANVAS_PROJECT_FEATURES_ENABLED` oder License-Entitlement — solange inaktiv, return `404` oder `501`.
+Feature-Gate: env `CANVAS_PROJECT_FEATURES_ENABLED`; solange inaktiv, return `404`.
 
-### F3. UI (nicht final ausrollen)
+### F3. UI (Workspace-integriert)
 
 - Im `CreateWorkspaceDialog`: Typ `project` nur auswählbar, wenn Project-Feature aktiv (sonst ausgeblendet oder disabled mit Hinweis "Projekt-Workspaces kommen später").
 - Keine eigene Project-Verwaltung in der UI in diesem Strang.
-- Project-Dropdown im Create-Dialog leer/gelockt lassen, bis Strang F final ausgerollt.
+- Project-Dropdown im Create-Dialog und Typ-Wechsel-Dialog lädt `/api/projects` und zeigt nur Projects ohne Workspace bzw. beim Typ-Wechsel das aktuell zugeordnete Project.
 
 **i18n-Keys** (neu):
 - `settings.workspacePanel.management.projectFeatureNotEnabled` — "Projekt-Workspaces sind noch nicht verfügbar." / "Project workspaces are not yet available."
@@ -830,7 +835,7 @@ Siehe Strang D4.
 1. **Mehrfach-Personal/Team-Workspaces:** Erlaubt. Schema lässt es zu (kein Unique auf `type+owner` ausser Default). UI muss beim Anlegen prüfen: existiert schon ein Default? Neuer Workspace wird nicht-Default.
 2. **Löschen:** Soft-Delete via `status='disabled'` — kompatibel mit Offboarding & Recovery, keine physische Datei-Löschung.
 3. **Typ-Wechsel:** Mit in den Plan aufgenommen (Strang E), inkl. Pfad- und Rechte-Migration, transaktional. Default-Workspaces können nicht Typ-geändert werden.
-4. **Project-Rollout:** Backend vorbereiten (Strang F2), UI nicht final ausrollen (Strang F3 hinter Feature-Gate).
+4. **Project-Rollout:** Hinter Feature-Gate umgesetzt; keine eigenständige Project-Verwaltung in der UI.
 5. **Member-UI:** Nach Erstellung im Detail-Dialog (Strang D4), nicht im Create-Dialog.
 6. **Multi-Language:** Alle neuen UI-Strings in `messages/de.json` und `messages/en.json`, keine hardcoded UI-Texte.
 7. **Better Auth Organization Plugin:** **Nicht wechseln.** Canvas-eigene `organization_user_permissions`-Tabelle bleibt die Wahrheit. Begründung: Single-Org-Instanz, granulare Permissions pro-User sauberer, 30+ bestehende Guards unverändert, Plugin spart hauptsächlich Multi-Org-Features (unbenutzt).
@@ -849,8 +854,8 @@ Die bereits erledigten Schritte A/B/C und Team-Member-Verwaltung aus D werden ni
 
 1. **Review-Branch herstellen** — erledigt: `origin/main` enthält den Revert `c181835e`; `codex/workspace-management` enthält die Workspace-Commits als Cherry-picks.
 2. **D abschliessen: Project-Member-Verwaltung** — erledigt: Member-GET/POST/DELETE unterstützt Team- und Project-Workspaces.
-3. **E umsetzen: Workspace-Typ-Wechsel** — größtenteils erledigt: Service, API, Root-Move/Rollback, Rechte-Migration und UI für Personal/Team sind umgesetzt. Project-Dropdown wird mit Strang F freigeschaltet.
-4. **F umsetzen: Project-Rollout** — Project-/Customer-APIs hinter Feature-Gate, Project-Dropdown im Create-Dialog, Project-Workspace-Erstellung und Project-Member-Rechte.
+3. **E umsetzen: Workspace-Typ-Wechsel** — erledigt für Personal/Team/Project; `organization` bleibt gesperrt.
+4. **F umsetzen: Project-Rollout** — erledigt hinter Feature-Gate: Project-/Customer-APIs, Project-Dropdowns, Project-Workspace-Erstellung und Project-Member-Rechte.
 5. **G umsetzen: Granulare User-Permissions** — Permission-/Role-APIs, `UserPermissionsDialog`, Rolle `external` sauber feature-gaten.
 6. **H abschliessen: Edge-Cases & Offboarding** — zentrale Permission-Mutation-Guards, Offboarding-Preflight für Team-Manager, mehrere Personal-Workspaces, Session-Invalidation und Audit-Log.
 7. **I abschliessen: User-zentrische Permission-UI** — Workspace-Tab ist für Team-Members erledigt; User-Management-Tab fehlt.
@@ -867,15 +872,15 @@ Jeder Strang bleibt einzeln buildbar, testbar und separat commitbar. Vor jedem C
 - `app/api/workspaces/[id]/route.ts` — DELETE und PATCH für Typ-Wechsel umgesetzt
 - `app/api/workspaces/[id]/members/route.ts` — GET + POST für Team- und Project-Members umgesetzt
 - `app/api/workspaces/[id]/members/[userId]/route.ts` — DELETE für Team- und Project-Members umgesetzt
+- `app/api/projects/route.ts` — Project-API (Feature-Gate)
+- `app/api/customers/route.ts` — Customer-API (Feature-Gate)
 - `app/components/settings/CreateWorkspaceDialog.tsx` — umgesetzt
 - `app/components/settings/WorkspaceMembersDialog.tsx` — Team- und Project-Member-Verwaltung umgesetzt
+- `app/components/settings/WorkspaceTypeChangeDialog.tsx` — Typ-Wechsel-Dialog mit Project-Auswahl hinter Feature-Gate
 
 ### Neu / noch offen
 - `app/api/admin/organization/users/[userId]/permissions/route.ts` — GET + PATCH Permissions
 - `app/api/admin/organization/users/[userId]/role/route.ts` — PATCH Role
-- `app/api/projects/route.ts` — Project-API (Feature-Gate)
-- `app/api/customers/route.ts` — Customer-API (Feature-Gate)
-- `app/components/settings/WorkspaceTypeChangeDialog.tsx` — Typ-Wechsel-Dialog umgesetzt; Project-Auswahl wartet auf Strang F
 - `app/components/settings/UserPermissionsDialog.tsx` — Permission-Verwaltung (User-Tab, Vollbild)
 
 ### Geändert
@@ -886,7 +891,7 @@ Jeder Strang bleibt einzeln buildbar, testbar und separat commitbar. Vor jedem C
 - `app/lib/workspaces/client-types.ts` — `isDefault` in `ClientWorkspaceSummary`, `organization` in `ClientWorkspaceType`
 - `app/lib/organization/permissions.ts` — `listOrganizationPermissions`, `updateOrganizationPermissions`, `updateOrganizationRole`, Edge-Case-Prüfungen offen
 - `app/lib/organization/offboarding.ts` — Preflight-Erweiterung (Team-Workspace-Manager), Apply-Erweiterung (canvas_workspace_members, mehrere Personal-Workspaces) offen
-- `app/lib/projects/service.ts` — Project-Erstellung bleibt Grundlage für Strang F; Member-Verwaltung läuft im Workspace-Service über `canvas_project_members`
+- `app/lib/projects/service.ts` — Project-/Customer-Listing ergänzt; Member-Verwaltung läuft im Workspace-Service über `canvas_project_members`
 - `app/api/workspaces/route.ts` — POST ergänzen, `serializeWorkspace` um `isDefault`, `organization`-Typ
 - `app/store/workspace-store.ts` — `normalizeWorkspace` um `isDefault` + `organization`
 - `app/components/workspaces/WorkspaceSwitcher.tsx` — Plus-Button, Standard-Badge, Lock, organization-Typ
@@ -899,6 +904,6 @@ Jeder Strang bleibt einzeln buildbar, testbar und separat commitbar. Vor jedem C
 
 ### Tests
 - `scripts/workspace-model-service-test.ts` — erweitert für `is_default`, `organization`-Typ, Create/Delete, Team-/Project-Member-Funktionen und `changeWorkspaceType`
-- `scripts/project-customer-model-test.ts` — Project-/Customer-API-Rollout-Tests offen
+- `scripts/project-customer-model-test.ts` — Project-/Customer-Listing und Project-Workspace-Erstellung hinter Feature-Gate
 - `scripts/organization-permission-guards-test.ts` — Edge-Case-Tests für letzter Admin, Selbst-Schutz, Bootstrap-Admin usw. offen
 - API-Routen-Tests für DELETE/POST/Members/Permissions/Role/PATCH offen

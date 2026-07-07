@@ -2315,10 +2315,14 @@
         "delete": "Delete",
         "teamFeatureNotEnabled": "Team workspaces are not available in this mode.",
         "projectFeatureNotEnabled": "Project workspaces are not yet available.",
+        "loadingProjects": "Loading projects...",
+        "noProjectsAvailable": "No available projects without a workspace.",
         "fields": {
           "name": "Name",
           "namePlaceholder": "e.g. Campaign workspace",
-          "type": "Type"
+          "type": "Type",
+          "project": "Project",
+          "projectPlaceholder": "Select project"
         },
         "hints": {
           "teamProjectAccess": "Access can be managed after creation.",
@@ -2397,6 +2401,7 @@
         "errors": {
           "nameRequired": "Name is required.",
           "nameTooLong": "Name must be 80 characters or fewer.",
+          "projectRequired": "Project is required.",
           "createFailed": "Failed to create workspace.",
           "deleteFailed": "Failed to delete workspace.",
           "isDefault": "Default workspaces cannot be deleted.",

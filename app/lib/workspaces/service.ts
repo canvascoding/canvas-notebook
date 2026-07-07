@@ -800,6 +800,7 @@ export function createWorkspaceRecord(
     type: WorkspaceType;
     name: unknown;
     teamFeaturesEnabled: boolean;
+    projectFeaturesEnabled?: boolean;
     projectId?: string | null;
   },
 ): WorkspaceContext {
@@ -825,12 +826,25 @@ export function createWorkspaceRecord(
   if (params.type === 'team' && params.actor.role !== 'owner' && params.actor.role !== 'admin') {
     throw new WorkspaceOperationError('WORKSPACE_PERMISSION_DENIED', 'Only admins can create team workspaces.', 403);
   }
+  if (params.type === 'project' && params.actor.role !== 'owner' && params.actor.role !== 'admin') {
+    throw new WorkspaceOperationError('WORKSPACE_PERMISSION_DENIED', 'Only admins can create project workspaces.', 403);
+  }
   if (params.type === 'project') {
-    throw new WorkspaceOperationError(
-      'WORKSPACE_PROJECT_FEATURE_DISABLED',
-      'Project workspaces are not yet available.',
-      501,
-    );
+    if (!params.projectFeaturesEnabled) {
+      throw new WorkspaceOperationError(
+        'WORKSPACE_PROJECT_FEATURE_DISABLED',
+        'Project workspaces are not yet available.',
+        501,
+      );
+    }
+    const projectId = params.projectId?.trim() || '';
+    if (!projectId) {
+      throw new WorkspaceOperationError('WORKSPACE_PROJECT_REQUIRED', 'Project id is required.', 400);
+    }
+    const existingProjectWorkspace = getProjectWorkspace(sqlite, params.organizationId, projectId);
+    if (existingProjectWorkspace) {
+      throw new WorkspaceOperationError('WORKSPACE_PROJECT_ALREADY_HAS_WORKSPACE', 'Project already has a workspace.', 409);
+    }
   }
 
   const slug = normalizeWorkspaceSlug(name);
@@ -840,17 +854,23 @@ export function createWorkspaceRecord(
         slug,
         (candidate) => personalWorkspaceRootRelativePathForSlug(params.actor.userId, candidate),
       )
-    : reserveWorkspaceRootRelativePath(
-        sqlite,
-        slug,
-        (candidate) => teamWorkspaceRootRelativePathForSlug(params.organizationId, candidate),
-      );
+    : params.type === 'team'
+      ? reserveWorkspaceRootRelativePath(
+          sqlite,
+          slug,
+          (candidate) => teamWorkspaceRootRelativePathForSlug(params.organizationId, candidate),
+        )
+      : projectWorkspaceRootRelativePath(params.projectId?.trim() || '');
+  const project = params.type === 'project'
+    ? getActiveProjectForWorkspaceTypeChange(sqlite, params.organizationId, params.projectId?.trim() || '')
+    : null;
 
   const record = insertWorkspace(sqlite, {
     organizationId: params.organizationId,
     type: params.type,
     ownerUserId: params.type === 'personal' ? params.actor.userId : null,
-    projectId: params.projectId ?? null,
+    customerId: project?.customer_id ?? null,
+    projectId: params.type === 'project' ? project?.id ?? null : params.projectId ?? null,
     rootRelativePath,
     displayName: name,
     isDefault: false,
@@ -861,6 +881,19 @@ export function createWorkspaceRecord(
       organizationId: params.organizationId,
       workspaceId: record.id,
       userId: params.actor.userId,
+    });
+  }
+  if (record.type === 'project' && record.projectId) {
+    upsertProjectWorkspaceMember(sqlite, {
+      actor: params.actor,
+      organizationId: params.organizationId,
+      workspaceId: record.id,
+      projectId: record.projectId,
+      userId: params.actor.userId,
+      role: 'admin',
+      canRead: true,
+      canWrite: true,
+      canManage: true,
     });
   }
 

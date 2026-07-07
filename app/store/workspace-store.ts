@@ -36,6 +36,7 @@ interface WorkspaceStoreState {
   activeWorkspaceId: string | null;
   organizationId: string | null;
   teamFeaturesEnabled: boolean;
+  projectFeaturesEnabled: boolean;
   databaseProvider: string | null;
   teamModeUnavailable: TeamModeUnavailableState | null;
   warnings: string[];
@@ -111,6 +112,8 @@ function normalizeWorkspace(candidate: unknown): ClientWorkspaceSummary | null {
     type: record.type,
     name: typeof record.name === 'string' && record.name.trim() ? record.name : `${record.type} workspace`,
     organizationId: typeof record.organizationId === 'string' ? record.organizationId : null,
+    customerId: typeof record.customerId === 'string' ? record.customerId : null,
+    projectId: typeof record.projectId === 'string' ? record.projectId : null,
     ownerUserId: typeof record.ownerUserId === 'string' ? record.ownerUserId : null,
     rootRelativePath: typeof record.rootRelativePath === 'string' ? record.rootRelativePath : undefined,
     status: record.status === 'archived' || record.status === 'disabled' || record.status === 'recovery_locked' ? record.status : 'active',
@@ -132,6 +135,7 @@ export function normalizeWorkspaceResponse(payload: ClientWorkspaceResponse): {
   activeWorkspaceId: string | null;
   organizationId: string | null;
   teamFeaturesEnabled: boolean;
+  projectFeaturesEnabled: boolean;
   databaseProvider: string | null;
   warnings: string[];
 } {
@@ -152,6 +156,7 @@ export function normalizeWorkspaceResponse(payload: ClientWorkspaceResponse): {
     activeWorkspaceId: activeWorkspace?.id || null,
     organizationId: typeof payload.organizationId === 'string' ? payload.organizationId : null,
     teamFeaturesEnabled: Boolean(payload.teamFeaturesEnabled),
+    projectFeaturesEnabled: Boolean(payload.projectFeaturesEnabled),
     databaseProvider: typeof payload.databaseProvider === 'string' ? payload.databaseProvider : null,
     warnings: Array.isArray(payload.warnings)
       ? payload.warnings.filter((warning): warning is string => typeof warning === 'string' && warning.trim().length > 0)
@@ -170,6 +175,7 @@ export const useWorkspaceStore = create<WorkspaceStoreState>((set, get) => ({
   activeWorkspaceId: readCachedActiveWorkspaceId(),
   organizationId: null,
   teamFeaturesEnabled: false,
+  projectFeaturesEnabled: false,
   databaseProvider: null,
   teamModeUnavailable: null,
   warnings: [],
@@ -203,6 +209,7 @@ export const useWorkspaceStore = create<WorkspaceStoreState>((set, get) => ({
               activeWorkspaceId: null,
               organizationId: typeof payload.organizationId === 'string' ? payload.organizationId : get().organizationId,
               teamFeaturesEnabled: true,
+              projectFeaturesEnabled: Boolean(payload.projectFeaturesEnabled),
               databaseProvider: typeof payload.databaseProvider === 'string' ? payload.databaseProvider : get().databaseProvider,
               teamModeUnavailable,
               warnings: [],
