@@ -54,6 +54,8 @@
     "loadingContext": "Workspace-Kontext wird geladen",
     "noWorkspaceAvailable": "Kein Workspace verfügbar",
     "refresh": "Workspaces aktualisieren",
+    "create": "Workspace erstellen",
+    "manage": "Workspaces verwalten",
     "sourceWorkspace": "Quell-Workspace",
     "targetWorkspace": "Ziel-Workspace",
     "targetFolder": "Zielordner",
@@ -69,6 +71,9 @@
       "readOnly": "Nur lesen",
       "write": "Schreibzugriff",
       "teamWrite": "Team-Schreibzugriff"
+    },
+    "badge": {
+      "default": "Standard"
     }
   },
   "teamModeHostedOnly": {
@@ -2283,6 +2288,55 @@
       "downloading": "Download wird vorbereitet...",
       "refresh": "Aktualisieren",
       "emptyWorkspace": "Dein Workspace ist leer.",
+      "management": {
+        "title": "Workspaces verwalten",
+        "description": "Workspaces anlegen, löschen und Zugriffsstatus prüfen.",
+        "refresh": "Aktualisieren",
+        "createWorkspace": "Neuen Workspace anlegen",
+        "loading": "Workspaces werden geladen...",
+        "empty": "Keine Workspaces verfügbar.",
+        "deleteWorkspace": "{name} löschen",
+        "confirmDeleteTitle": "Workspace löschen",
+        "confirmDelete": "Workspace {name} wirklich löschen? Der Workspace wird deaktiviert; Dateien werden nicht physisch gelöscht.",
+        "confirmDeleteFallback": "Workspace wirklich löschen? Der Workspace wird deaktiviert.",
+        "cancel": "Abbrechen",
+        "delete": "Löschen",
+        "teamFeatureNotEnabled": "Team-Workspaces sind in diesem Modus nicht verfügbar.",
+        "projectFeatureNotEnabled": "Projekt-Workspaces sind noch nicht verfügbar.",
+        "fields": {
+          "name": "Name",
+          "namePlaceholder": "z.B. Kampagnen-Workspace",
+          "type": "Typ"
+        },
+        "hints": {
+          "teamProjectAccess": "Zugriff kann nach der Erstellung verwaltet werden.",
+          "personalOnly": "Personal-Workspaces sind nur für dich zugänglich."
+        },
+        "badges": {
+          "default": "Standard"
+        },
+        "access": {
+          "read": "Lesen",
+          "write": "Schreiben",
+          "manage": "Verwalten"
+        },
+        "createDialog": {
+          "title": "Workspace erstellen",
+          "description": "Lege einen weiteren persönlichen Workspace oder einen Team-Workspace an.",
+          "cancel": "Abbrechen"
+        },
+        "errors": {
+          "nameRequired": "Name ist erforderlich.",
+          "nameTooLong": "Name darf höchstens 80 Zeichen lang sein.",
+          "createFailed": "Workspace konnte nicht erstellt werden.",
+          "deleteFailed": "Workspace konnte nicht gelöscht werden.",
+          "isDefault": "Standard-Workspaces können nicht gelöscht werden.",
+          "organizationNotDeletable": "Organisations-Workspace kann nicht gelöscht werden.",
+          "hasAutomations": "Workspace hat aktive Automations und kann nicht gelöscht werden.",
+          "notActive": "Nur aktive Workspaces können gelöscht werden.",
+          "noDeletePermission": "Du hast keine Berechtigung, diesen Workspace zu löschen."
+        }
+      },
       "organization": {
         "title": "Organisations-Setup",
         "description": "Zeigt lokalen Owner, Deployment-Modus, kritische Admin-Rechte und die fuer Team-Workspaces vorbereiteten Datenpfade.",

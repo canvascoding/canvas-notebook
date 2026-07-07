@@ -1,9 +1,10 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { Check, ChevronsUpDown, Loader2, Lock, RefreshCw } from 'lucide-react';
+import { Check, ChevronsUpDown, Loader2, Lock, Plus, RefreshCw, Star } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { TeamModeHostedOnlyNotice } from '@/app/components/team/TeamModeHostedOnlyNotice';
 import {
@@ -24,6 +25,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
+import { Link } from '@/i18n/navigation';
 import type { ClientWorkspaceSummary } from '@/app/lib/workspaces/client-types';
 import {
   getWorkspaceKindLabel,
@@ -106,6 +108,7 @@ export function WorkspaceSwitcher({ source, variant = 'default', className }: Wo
   const isToolbar = variant === 'toolbar';
   const isMobileSheet = variant === 'mobile-sheet';
   const switchableWorkspaces = getSwitchableWorkspaces(workspaces);
+  const canManageWorkspaces = switchableWorkspaces.some((workspace) => workspace.permissions.canManageWorkspace);
   const kindLabels = {
     personal: t('types.personal'),
     organization: t('types.organization'),
@@ -161,10 +164,24 @@ export function WorkspaceSwitcher({ source, variant = 'default', className }: Wo
         </SheetTrigger>
         <SheetContent side="bottom" className="max-h-[75dvh] gap-0 overflow-hidden rounded-t-xl p-0">
           <SheetHeader className="border-b border-border px-4 py-3 text-left">
-            <SheetTitle>{t('label')}</SheetTitle>
-            <SheetDescription>
-              {activeWorkspace ? `${activeWorkspace.name} · ${getAccessLabel(activeWorkspace, accessLabels)}` : activeLabel}
-            </SheetDescription>
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <SheetTitle>{t('label')}</SheetTitle>
+                <SheetDescription>
+                  {activeWorkspace ? `${activeWorkspace.name} · ${getAccessLabel(activeWorkspace, accessLabels)}` : activeLabel}
+                </SheetDescription>
+              </div>
+              {canManageWorkspaces ? (
+                <Link
+                  href="/settings?tab=workspace&workspaceManagement=1&createWorkspace=1"
+                  className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-border bg-background text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  title={t('create')}
+                  aria-label={t('create')}
+                >
+                  <Plus className="h-4 w-4" />
+                </Link>
+              ) : null}
+            </div>
           </SheetHeader>
           <div className="max-h-[calc(75dvh-5rem)] overflow-y-auto p-2">
             <button
@@ -206,7 +223,15 @@ export function WorkspaceSwitcher({ source, variant = 'default', className }: Wo
                 >
                   {renderWorkspaceIcon(workspace, 'mt-0.5 h-4 w-4 shrink-0')}
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate text-sm font-medium">{workspace.name}</span>
+                    <span className="flex min-w-0 flex-wrap items-center gap-2 text-sm font-medium">
+                      <span className="min-w-0 truncate">{workspace.name}</span>
+                      {workspace.isDefault ? (
+                        <Badge variant="secondary" className="h-5 gap-1 px-1.5 text-[10px]">
+                          <Star className="h-3 w-3" />
+                          {t('badge.default')}
+                        </Badge>
+                      ) : null}
+                    </span>
                     <span className="block truncate text-[11px] text-muted-foreground">
                       {getWorkspaceKindLabel(workspace, kindLabels)} · {getAccessLabel(workspace, accessLabels)}
                     </span>
@@ -263,18 +288,30 @@ export function WorkspaceSwitcher({ source, variant = 'default', className }: Wo
       <DropdownMenuContent align="end" sideOffset={8} className="w-72">
         <DropdownMenuLabel className="flex items-center justify-between gap-2">
           <span>{t('label')}</span>
-          <button
-            type="button"
-            className="inline-flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-            onClick={(event) => {
-              event.preventDefault();
-              void refreshWorkspaces();
-            }}
-            aria-label={t('refresh')}
-            title={t('refresh')}
-          >
-            <RefreshCw className={cn('h-3.5 w-3.5', isLoading && 'animate-spin')} />
-          </button>
+          <span className="flex items-center gap-1">
+            {canManageWorkspaces ? (
+              <Link
+                href="/settings?tab=workspace&workspaceManagement=1&createWorkspace=1"
+                className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-border bg-background text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                title={t('create')}
+                aria-label={t('create')}
+              >
+                <Plus className="h-4 w-4" />
+              </Link>
+            ) : null}
+            <button
+              type="button"
+              className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+              onClick={(event) => {
+                event.preventDefault();
+                void refreshWorkspaces();
+              }}
+              aria-label={t('refresh')}
+              title={t('refresh')}
+            >
+              <RefreshCw className={cn('h-3.5 w-3.5', isLoading && 'animate-spin')} />
+            </button>
+          </span>
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
         {showTeamModeNotice ? (
@@ -303,7 +340,15 @@ export function WorkspaceSwitcher({ source, variant = 'default', className }: Wo
             >
               {renderWorkspaceIcon(workspace, 'mt-0.5 h-4 w-4')}
               <span className="min-w-0 flex-1">
-                <span className="block truncate text-sm font-medium">{workspace.name}</span>
+                <span className="flex min-w-0 flex-wrap items-center gap-2 text-sm font-medium">
+                  <span className="min-w-0 truncate">{workspace.name}</span>
+                  {workspace.isDefault ? (
+                    <Badge variant="secondary" className="h-5 gap-1 px-1.5 text-[10px]">
+                      <Star className="h-3 w-3" />
+                      {t('badge.default')}
+                    </Badge>
+                  ) : null}
+                </span>
                 <span className="block truncate text-[11px] text-muted-foreground">
                   {getWorkspaceKindLabel(workspace, kindLabels)} · {getAccessLabel(workspace, accessLabels)}
                 </span>

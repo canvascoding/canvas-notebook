@@ -23,8 +23,12 @@ import {
 import { resolveWorkspacePermissions } from './permissions';
 import type { WorkspaceActor, WorkspaceContext, WorkspaceStatus, WorkspaceType } from './types';
 import {
+  normalizeWorkspaceSlug,
   organizationWorkspaceRootRelativePath,
   personalWorkspaceRootRelativePath,
+  personalWorkspaceRootRelativePathForSlug,
+  teamWorkspaceRootRelativePathForSlug,
+  WorkspaceOperationError,
   workspaceAbsoluteRoot,
 } from './service';
 
@@ -194,6 +198,27 @@ function rowToWorkspaceRecord(row: WorkspaceRow) {
 
 function ensureWorkspaceDirectory(rootRelativePath: string): void {
   mkdirSync(workspaceAbsoluteRoot(rootRelativePath), { recursive: true });
+}
+
+function normalizeWorkspaceName(value: unknown): string {
+  if (typeof value !== 'string') {
+    throw new WorkspaceOperationError('WORKSPACE_NAME_REQUIRED', 'Workspace name is required.', 400);
+  }
+  const name = value.trim();
+  if (!name) {
+    throw new WorkspaceOperationError('WORKSPACE_NAME_REQUIRED', 'Workspace name is required.', 400);
+  }
+  if (name.length > 80) {
+    throw new WorkspaceOperationError('WORKSPACE_NAME_TOO_LONG', 'Workspace name must be 80 characters or fewer.', 400);
+  }
+  if (name.includes('\0') || path.isAbsolute(name)) {
+    throw new WorkspaceOperationError('WORKSPACE_NAME_INVALID', 'Workspace name is invalid.', 400);
+  }
+  const normalized = name.replace(/\\/g, '/');
+  if (normalized.split('/').some((segment) => segment === '..')) {
+    throw new WorkspaceOperationError('WORKSPACE_NAME_INVALID', 'Workspace name is invalid.', 400);
+  }
+  return name;
 }
 
 export async function getPostgresAuthUserCount(database: RuntimeDb): Promise<number> {
@@ -469,6 +494,88 @@ async function ensureWorkspaceRecord(database: RuntimeDb, input: {
   return await getWorkspaceById(database, id);
 }
 
+async function reserveWorkspaceRootRelativePath(
+  database: RuntimeDb,
+  baseSlug: string,
+  buildPath: (slug: string) => string,
+): Promise<string> {
+  for (let suffix = 0; suffix < 1000; suffix += 1) {
+    const slug = suffix === 0 ? baseSlug : `${baseSlug}-${suffix + 1}`;
+    const rootRelativePath = buildPath(slug);
+    const existing = await database.get(
+      'SELECT id FROM canvas_workspaces WHERE root_relative_path = ? LIMIT 1',
+      [rootRelativePath],
+    ) as { id: string } | undefined;
+    if (!existing) return rootRelativePath;
+  }
+
+  throw new WorkspaceOperationError(
+    'WORKSPACE_SLUG_UNAVAILABLE',
+    'Could not allocate a unique workspace path.',
+    409,
+  );
+}
+
+async function insertWorkspaceRecord(database: RuntimeDb, input: {
+  organizationId: string;
+  type: WorkspaceType;
+  ownerUserId: string | null;
+  projectId?: string | null;
+  rootRelativePath: string;
+  displayName: string;
+  isDefault?: boolean;
+}) {
+  const id = `ws_${randomUUID()}`;
+  const now = Date.now();
+  await database.run(
+    `
+      INSERT INTO canvas_workspaces (
+        id, organization_id, type, owner_user_id, project_id, root_relative_path, display_name, status, is_default, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)
+    `,
+    [
+      id,
+      input.organizationId,
+      input.type,
+      input.ownerUserId,
+      input.projectId ?? null,
+      input.rootRelativePath,
+      input.displayName,
+      input.isDefault ? 1 : 0,
+      now,
+      now,
+    ],
+  );
+  ensureWorkspaceDirectory(input.rootRelativePath);
+  const record = await getWorkspaceById(database, id);
+  if (!record) throw new WorkspaceOperationError('WORKSPACE_CREATE_FAILED', 'Workspace insert failed.', 500);
+  return record;
+}
+
+async function upsertTeamWorkspaceOwnerMembership(database: RuntimeDb, input: {
+  organizationId: string;
+  workspaceId: string;
+  userId: string;
+}): Promise<void> {
+  const now = Date.now();
+  await database.run(
+    `
+      INSERT INTO canvas_workspace_members (
+        organization_id, workspace_id, user_id, role, status,
+        can_read, can_write, can_manage, invited_by_user_id, created_at, updated_at
+      ) VALUES (?, ?, ?, 'admin', 'active', 1, 1, 1, ?, ?, ?)
+      ON CONFLICT(workspace_id, user_id) DO UPDATE SET
+        role = excluded.role,
+        status = excluded.status,
+        can_read = excluded.can_read,
+        can_write = excluded.can_write,
+        can_manage = excluded.can_manage,
+        updated_at = excluded.updated_at
+    `,
+    [input.organizationId, input.workspaceId, input.userId, input.userId, now, now],
+  );
+}
+
 function canReadWorkspace(
   record: ReturnType<typeof rowToWorkspaceRecord>,
   actor: WorkspaceActor,
@@ -501,6 +608,31 @@ function canReadWorkspace(
     return Boolean(projectPermission?.status === 'active' && projectPermission.can_read === 1);
   }
   return false;
+}
+
+function canDeleteWorkspaceRecord(
+  record: ReturnType<typeof rowToWorkspaceRecord>,
+  actor: WorkspaceActor,
+  context: WorkspaceContext,
+): boolean {
+  if (record.isDefault) return false;
+  if (record.type === 'organization') return false;
+  if (record.type === 'personal') return record.ownerUserId === actor.userId;
+  if (record.type === 'team' || record.type === 'project') return context.permissions.canManageWorkspace;
+  return false;
+}
+
+async function countActiveWorkspaceAutomations(database: RuntimeDb, workspaceId: string): Promise<number> {
+  const row = await database.get(
+    `
+      SELECT COUNT(*) AS count
+      FROM automation_jobs
+      WHERE workspace_id = ? AND status = 'active'
+    `,
+    [workspaceId],
+  ) as { count?: number | string } | undefined;
+
+  return Number(row?.count || 0);
 }
 
 function workspaceContextFromRecord(
@@ -860,6 +992,154 @@ export async function getPostgresWorkspaceState(actor: WorkspaceActor): Promise<
       await database.run('ROLLBACK');
     } catch {
       // Ignore rollback errors; preserve the original failure.
+    }
+    throw error;
+  } finally {
+    await database.close();
+  }
+}
+
+export async function createPostgresWorkspaceForActor(
+  actor: WorkspaceActor,
+  input: {
+    type: WorkspaceType;
+    name: unknown;
+    projectId?: string | null;
+  },
+): Promise<WorkspaceContext> {
+  const database = await openDb();
+  try {
+    await database.run('BEGIN');
+    const status = await ensurePostgresOrganizationBootstrapForUser(database, actor.userId);
+    if (!status.organizationId) {
+      throw new OrganizationBootstrapError('DATABASE_ERROR', 'Organization is not configured.');
+    }
+    const permission = await getPermissionRow(database, status.organizationId, actor.userId);
+    if (!permission || permission.status !== 'active' || permission.role === 'external') {
+      throw new WorkspaceOperationError('WORKSPACE_PERMISSION_DENIED', 'Workspace permission denied.', 403);
+    }
+
+    const name = normalizeWorkspaceName(input.name);
+    if (input.type === 'organization') {
+      throw new WorkspaceOperationError(
+        'WORKSPACE_ORGANIZATION_CREATE_FORBIDDEN',
+        'Organization workspaces are created automatically.',
+        403,
+      );
+    }
+    if (input.type !== 'personal' && input.type !== 'team' && input.type !== 'project') {
+      throw new WorkspaceOperationError('WORKSPACE_TYPE_INVALID', 'Workspace type is invalid.', 400);
+    }
+    if (input.type === 'team' && !status.teamFeaturesEnabled) {
+      throw new WorkspaceOperationError('WORKSPACE_TEAM_FEATURES_DISABLED', 'Team workspaces are not enabled.', 403);
+    }
+    if (input.type === 'team' && actor.role !== 'owner' && actor.role !== 'admin') {
+      throw new WorkspaceOperationError('WORKSPACE_PERMISSION_DENIED', 'Only admins can create team workspaces.', 403);
+    }
+    if (input.type === 'project') {
+      throw new WorkspaceOperationError(
+        'WORKSPACE_PROJECT_FEATURE_DISABLED',
+        'Project workspaces are not yet available.',
+        501,
+      );
+    }
+
+    const slug = normalizeWorkspaceSlug(name);
+    const rootRelativePath = input.type === 'personal'
+      ? await reserveWorkspaceRootRelativePath(
+          database,
+          slug,
+          (candidate) => personalWorkspaceRootRelativePathForSlug(actor.userId, candidate),
+        )
+      : await reserveWorkspaceRootRelativePath(
+          database,
+          slug,
+          (candidate) => teamWorkspaceRootRelativePathForSlug(status.organizationId!, candidate),
+        );
+    const record = await insertWorkspaceRecord(database, {
+      organizationId: status.organizationId,
+      type: input.type,
+      ownerUserId: input.type === 'personal' ? actor.userId : null,
+      projectId: input.projectId ?? null,
+      rootRelativePath,
+      displayName: name,
+      isDefault: false,
+    });
+
+    if (record.type === 'team') {
+      await upsertTeamWorkspaceOwnerMembership(database, {
+        organizationId: status.organizationId,
+        workspaceId: record.id,
+        userId: actor.userId,
+      });
+    }
+
+    const workspace = await resolveWorkspaceContextById(database, actor, record.id);
+    if (!workspace) {
+      throw new WorkspaceOperationError('WORKSPACE_CREATE_FAILED', 'Workspace was created but could not be resolved.', 500);
+    }
+    await database.run('COMMIT');
+    return workspace;
+  } catch (error) {
+    try {
+      await database.run('ROLLBACK');
+    } catch {
+      // Preserve the original failure.
+    }
+    throw error;
+  } finally {
+    await database.close();
+  }
+}
+
+export async function deletePostgresWorkspaceForActor(
+  actor: WorkspaceActor,
+  workspaceId: string,
+): Promise<void> {
+  const database = await openDb();
+  try {
+    await database.run('BEGIN');
+    await ensurePostgresOrganizationBootstrapForUser(database, actor.userId);
+    const record = await getWorkspaceById(database, workspaceId);
+    if (!record || record.status === 'disabled' || record.status === 'archived') {
+      throw new WorkspaceOperationError('WORKSPACE_NOT_FOUND', 'Workspace not found.', 404);
+    }
+    if (record.status !== 'active') {
+      throw new WorkspaceOperationError('WORKSPACE_NOT_ACTIVE', 'Workspace is not active.', 409);
+    }
+    if (record.isDefault) {
+      throw new WorkspaceOperationError('WORKSPACE_IS_DEFAULT', 'Default workspaces cannot be deleted.', 409);
+    }
+    if (record.type === 'organization') {
+      throw new WorkspaceOperationError(
+        'WORKSPACE_ORGANIZATION_NOT_DELETABLE',
+        'Organization workspace cannot be deleted.',
+        409,
+      );
+    }
+
+    const workspace = await resolveWorkspaceContextById(database, actor, workspaceId);
+    if (!workspace || !canDeleteWorkspaceRecord(record, actor, workspace)) {
+      throw new WorkspaceOperationError('WORKSPACE_PERMISSION_DENIED', 'Workspace permission denied.', 403);
+    }
+    if (await countActiveWorkspaceAutomations(database, workspaceId) > 0) {
+      throw new WorkspaceOperationError(
+        'WORKSPACE_HAS_AUTOMATIONS',
+        'Workspace has active automations and cannot be deleted.',
+        409,
+      );
+    }
+
+    await database.run(
+      "UPDATE canvas_workspaces SET status = 'disabled', updated_at = ? WHERE id = ?",
+      [Date.now(), workspaceId],
+    );
+    await database.run('COMMIT');
+  } catch (error) {
+    try {
+      await database.run('ROLLBACK');
+    } catch {
+      // Preserve the original failure.
     }
     throw error;
   } finally {

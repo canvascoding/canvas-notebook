@@ -9,10 +9,13 @@ import { runMigrations } from '../app/lib/db/migrate';
 import { ensureOrganizationBootstrapForUser } from '../app/lib/organization/bootstrap';
 import { resolveWorkspaceActor } from '../app/lib/workspaces/context';
 import {
+  createWorkspaceRecord,
+  deleteWorkspaceRecord,
   ensureDefaultWorkspaceRecords,
   listWorkspaceContextsForUser,
   resolveDefaultWorkspaceContext,
   resolveWorkspaceContextById,
+  WorkspaceOperationError,
   workspaceAbsoluteRoot,
 } from '../app/lib/workspaces/service';
 
@@ -132,6 +135,118 @@ async function main() {
 
     const defaultWorkspace = resolveDefaultWorkspaceContext(sqlite, { actor: ownerActor, organizationId });
     assert.equal(defaultWorkspace?.workspaceId, ownerWorkspaces[0].workspaceId);
+
+    assert.throws(
+      () => deleteWorkspaceRecord(sqlite, { actor: ownerActor, workspaceId: ownerWorkspaces[0].workspaceId }),
+      (error: unknown) => error instanceof WorkspaceOperationError && error.code === 'WORKSPACE_IS_DEFAULT',
+    );
+    assert.throws(
+      () => deleteWorkspaceRecord(sqlite, { actor: ownerActor, workspaceId: ownerWorkspaces[1].workspaceId }),
+      (error: unknown) => error instanceof WorkspaceOperationError && error.code === 'WORKSPACE_IS_DEFAULT',
+    );
+
+    const extraPersonal = createWorkspaceRecord(sqlite, {
+      actor: ownerActor,
+      organizationId,
+      type: 'personal',
+      name: 'Research Notes',
+      teamFeaturesEnabled: true,
+    });
+    assert.equal(extraPersonal.workspaceType, 'personal');
+    assert.equal(extraPersonal.isDefault, false);
+    assert.equal(extraPersonal.ownerUserId, 'user-owner');
+    assert.equal(
+      extraPersonal.rootRelativePath,
+      path.posix.join('workspaces', 'personal', 'user-owner', 'research-notes', 'files'),
+    );
+    await fs.access(extraPersonal.rootPath);
+
+    const extraPersonalDuplicateSlug = createWorkspaceRecord(sqlite, {
+      actor: ownerActor,
+      organizationId,
+      type: 'personal',
+      name: 'Research Notes',
+      teamFeaturesEnabled: true,
+    });
+    assert.equal(
+      extraPersonalDuplicateSlug.rootRelativePath,
+      path.posix.join('workspaces', 'personal', 'user-owner', 'research-notes-2', 'files'),
+    );
+
+    const teamWorkspace = createWorkspaceRecord(sqlite, {
+      actor: ownerActor,
+      organizationId,
+      type: 'team',
+      name: 'Design Team',
+      teamFeaturesEnabled: true,
+    });
+    assert.equal(teamWorkspace.workspaceType, 'team');
+    assert.equal(teamWorkspace.isDefault, false);
+    assert.equal(
+      teamWorkspace.rootRelativePath,
+      path.posix.join('workspaces', 'team', organizationId, 'design-team', 'files'),
+    );
+    const teamMemberRow = sqlite.prepare(`
+      SELECT can_read, can_write, can_manage
+      FROM canvas_workspace_members
+      WHERE workspace_id = ? AND user_id = ?
+    `).get(teamWorkspace.workspaceId, 'user-owner') as { can_read: number; can_write: number; can_manage: number } | undefined;
+    assert.deepEqual(teamMemberRow, { can_read: 1, can_write: 1, can_manage: 1 });
+
+    const automationWorkspace = createWorkspaceRecord(sqlite, {
+      actor: ownerActor,
+      organizationId,
+      type: 'team',
+      name: 'Ops Automations',
+      teamFeaturesEnabled: true,
+    });
+    sqlite.prepare(`
+      INSERT INTO automation_jobs (
+        id, name, status, scope, job_scope, organization_id, workspace_id, workspace_type,
+        prompt, preferred_skill, workspace_context_paths_json, schedule_kind, schedule_config_json,
+        time_zone, created_by_user_id, agent_id, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      'automation-active-workspace-delete',
+      'Active workspace automation',
+      'active',
+      'organization',
+      `organization:${organizationId}:${automationWorkspace.workspaceId}`,
+      organizationId,
+      automationWorkspace.workspaceId,
+      automationWorkspace.workspaceType,
+      'Run safely',
+      'auto',
+      '[]',
+      'daily',
+      '{"kind":"daily","times":["09:00"],"timeZone":"UTC"}',
+      'UTC',
+      'user-owner',
+      'canvas-agent',
+      now,
+      now,
+    );
+    assert.throws(
+      () => deleteWorkspaceRecord(sqlite, { actor: ownerActor, workspaceId: automationWorkspace.workspaceId }),
+      (error: unknown) => error instanceof WorkspaceOperationError && error.code === 'WORKSPACE_HAS_AUTOMATIONS',
+    );
+    sqlite.prepare('UPDATE automation_jobs SET status = ? WHERE id = ?').run('paused', 'automation-active-workspace-delete');
+    deleteWorkspaceRecord(sqlite, { actor: ownerActor, workspaceId: automationWorkspace.workspaceId });
+    assert.equal(
+      sqlite.prepare('SELECT status FROM canvas_workspaces WHERE id = ?').get(automationWorkspace.workspaceId)?.status,
+      'disabled',
+    );
+
+    deleteWorkspaceRecord(sqlite, { actor: ownerActor, workspaceId: extraPersonal.workspaceId });
+    assert.equal(
+      sqlite.prepare('SELECT status FROM canvas_workspaces WHERE id = ?').get(extraPersonal.workspaceId)?.status,
+      'disabled',
+    );
+    deleteWorkspaceRecord(sqlite, { actor: ownerActor, workspaceId: teamWorkspace.workspaceId });
+    assert.equal(
+      sqlite.prepare('SELECT status FROM canvas_workspaces WHERE id = ?').get(teamWorkspace.workspaceId)?.status,
+      'disabled',
+    );
 
     ensureDefaultWorkspaceRecords(sqlite, {
       organizationId,

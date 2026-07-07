@@ -54,6 +54,8 @@
     "loadingContext": "Workspace context is loading",
     "noWorkspaceAvailable": "No workspace available",
     "refresh": "Refresh workspaces",
+    "create": "Create workspace",
+    "manage": "Manage workspaces",
     "sourceWorkspace": "Source workspace",
     "targetWorkspace": "Target workspace",
     "targetFolder": "Target folder",
@@ -69,6 +71,9 @@
       "readOnly": "Read only",
       "write": "Write access",
       "teamWrite": "Team write access"
+    },
+    "badge": {
+      "default": "Default"
     }
   },
   "teamModeHostedOnly": {
@@ -2284,6 +2289,55 @@
       "downloading": "Preparing download...",
       "refresh": "Refresh",
       "emptyWorkspace": "Your workspace is empty.",
+      "management": {
+        "title": "Manage workspaces",
+        "description": "Create and delete workspaces and review access status.",
+        "refresh": "Refresh",
+        "createWorkspace": "Create new workspace",
+        "loading": "Loading workspaces...",
+        "empty": "No workspaces available.",
+        "deleteWorkspace": "Delete {name}",
+        "confirmDeleteTitle": "Delete workspace",
+        "confirmDelete": "Really delete workspace {name}? The workspace will be disabled; files will not be physically deleted.",
+        "confirmDeleteFallback": "Really delete workspace? The workspace will be disabled.",
+        "cancel": "Cancel",
+        "delete": "Delete",
+        "teamFeatureNotEnabled": "Team workspaces are not available in this mode.",
+        "projectFeatureNotEnabled": "Project workspaces are not yet available.",
+        "fields": {
+          "name": "Name",
+          "namePlaceholder": "e.g. Campaign workspace",
+          "type": "Type"
+        },
+        "hints": {
+          "teamProjectAccess": "Access can be managed after creation.",
+          "personalOnly": "Personal workspaces are only accessible to you."
+        },
+        "badges": {
+          "default": "Default"
+        },
+        "access": {
+          "read": "Read",
+          "write": "Write",
+          "manage": "Manage"
+        },
+        "createDialog": {
+          "title": "Create workspace",
+          "description": "Create another personal workspace or a team workspace.",
+          "cancel": "Cancel"
+        },
+        "errors": {
+          "nameRequired": "Name is required.",
+          "nameTooLong": "Name must be 80 characters or fewer.",
+          "createFailed": "Failed to create workspace.",
+          "deleteFailed": "Failed to delete workspace.",
+          "isDefault": "Default workspaces cannot be deleted.",
+          "organizationNotDeletable": "Organization workspace cannot be deleted.",
+          "hasAutomations": "Workspace has active automations and cannot be deleted.",
+          "notActive": "Only active workspaces can be deleted.",
+          "noDeletePermission": "You do not have permission to delete this workspace."
+        }
+      },
       "organization": {
         "title": "Organization setup",
         "description": "Shows the local owner, deployment mode, critical admin rights, and scoped data roots prepared for team workspaces.",
