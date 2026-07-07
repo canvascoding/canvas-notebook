@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Loader2, Lock, Plus, RefreshCw, Star, Trash2, Users } from 'lucide-react';
+import { ArrowLeftRight, Loader2, Lock, Plus, RefreshCw, Star, Trash2, Users } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 
 import {
@@ -25,6 +25,7 @@ import {
 } from '@/components/ui/tooltip';
 import { CreateWorkspaceDialog } from '@/app/components/settings/CreateWorkspaceDialog';
 import { WorkspaceMembersDialog } from '@/app/components/settings/WorkspaceMembersDialog';
+import { WorkspaceTypeChangeDialog } from '@/app/components/settings/WorkspaceTypeChangeDialog';
 import type { ClientWorkspaceSummary } from '@/app/lib/workspaces/client-types';
 import {
   getWorkspaceKindLabel,
@@ -68,6 +69,7 @@ export function WorkspaceManagementCard({
   const [createOpen, setCreateOpen] = useState(false);
   const [createDeeplinkDismissed, setCreateDeeplinkDismissed] = useState(false);
   const [membersTarget, setMembersTarget] = useState<ClientWorkspaceSummary | null>(null);
+  const [typeChangeTarget, setTypeChangeTarget] = useState<ClientWorkspaceSummary | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<ClientWorkspaceSummary | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -109,6 +111,10 @@ export function WorkspaceManagementCard({
   );
 
   const handleCreated = useCallback(async () => {
+    await refreshWorkspaces();
+  }, [refreshWorkspaces]);
+
+  const handleTypeChanged = useCallback(async () => {
     await refreshWorkspaces();
   }, [refreshWorkspaces]);
 
@@ -260,6 +266,18 @@ export function WorkspaceManagementCard({
                             {t('members.manageAccess')}
                           </Button>
                         ) : null}
+                        {isAdmin && !workspace.isDefault && workspace.type !== 'organization' && workspace.permissions.canManageWorkspace ? (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="shrink-0"
+                            onClick={() => setTypeChangeTarget(workspace)}
+                          >
+                            <ArrowLeftRight data-icon="inline-start" />
+                            {t('typeChange.action')}
+                          </Button>
+                        ) : null}
                         {deleteBlockKey ? (
                           <Tooltip>
                             <TooltipTrigger asChild>
@@ -294,6 +312,16 @@ export function WorkspaceManagementCard({
           if (!open) setMembersTarget(null);
         }}
         workspace={membersTarget}
+      />
+
+      <WorkspaceTypeChangeDialog
+        open={Boolean(typeChangeTarget)}
+        onOpenChange={(open) => {
+          if (!open) setTypeChangeTarget(null);
+        }}
+        workspace={typeChangeTarget}
+        teamFeaturesEnabled={effectiveTeamFeaturesEnabled}
+        onChanged={handleTypeChanged}
       />
 
       <AlertDialog open={Boolean(deleteTarget)} onOpenChange={(open) => {

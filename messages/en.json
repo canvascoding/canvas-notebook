@@ -2371,6 +2371,29 @@
           "description": "Create another personal workspace or a team workspace.",
           "cancel": "Cancel"
         },
+        "typeChange": {
+          "action": "Change type",
+          "title": "Change workspace type",
+          "description": "Change the type of {name}.",
+          "descriptionFallback": "Change workspace type.",
+          "currentType": "Current type: {type}",
+          "newType": "New type",
+          "warning": "Changing the type moves the workspace folder and migrates access rights. Do not interrupt the operation.",
+          "confirmLabel": "Confirm with {value}",
+          "confirmValue": "CHANGE",
+          "submit": "Change type",
+          "noWorkspace": "No workspace selected.",
+          "errors": {
+            "failed": "Failed to change workspace type.",
+            "defaultLocked": "Default workspaces cannot change type.",
+            "organizationLocked": "The organization workspace cannot change type.",
+            "organizationUnsupported": "Changing to the organization type is not available.",
+            "projectNotFound": "Project could not be found.",
+            "projectHasWorkspace": "This project already has a workspace.",
+            "rootExists": "The target folder already exists.",
+            "teamDisabled": "Team workspaces are not available in this mode."
+          }
+        },
         "errors": {
           "nameRequired": "Name is required.",
           "nameTooLong": "Name must be 80 characters or fewer.",

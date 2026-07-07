@@ -2370,6 +2370,29 @@
           "description": "Lege einen weiteren persönlichen Workspace oder einen Team-Workspace an.",
           "cancel": "Abbrechen"
         },
+        "typeChange": {
+          "action": "Typ ändern",
+          "title": "Workspace-Typ ändern",
+          "description": "Ändere den Typ von {name}.",
+          "descriptionFallback": "Workspace-Typ ändern.",
+          "currentType": "Aktueller Typ: {type}",
+          "newType": "Neuer Typ",
+          "warning": "Der Wechsel verschiebt den Workspace-Ordner und migriert die Zugriffsrechte. Unterbrich den Vorgang nicht.",
+          "confirmLabel": "Bestätige mit {value}",
+          "confirmValue": "WECHSELN",
+          "submit": "Typ ändern",
+          "noWorkspace": "Kein Workspace ausgewählt.",
+          "errors": {
+            "failed": "Workspace-Typ konnte nicht geändert werden.",
+            "defaultLocked": "Standard-Workspaces können nicht Typ-geändert werden.",
+            "organizationLocked": "Der Organisations-Workspace kann nicht Typ-geändert werden.",
+            "organizationUnsupported": "Ein Wechsel zum Organisations-Typ ist nicht verfügbar.",
+            "projectNotFound": "Projekt konnte nicht gefunden werden.",
+            "projectHasWorkspace": "Dieses Projekt hat bereits einen Workspace.",
+            "rootExists": "Der Zielordner existiert bereits.",
+            "teamDisabled": "Team-Workspaces sind in diesem Modus nicht verfügbar."
+          }
+        },
         "errors": {
           "nameRequired": "Name ist erforderlich.",
           "nameTooLong": "Name darf höchstens 80 Zeichen lang sein.",

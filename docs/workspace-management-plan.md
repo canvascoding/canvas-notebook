@@ -29,6 +29,7 @@ Die Änderungen wurden aus `origin/main` herausgenommen und liegen auf dem Revie
 - Default-Badge, Organization-Label/Icon und Store/API-Serialisierung für `isDefault` sind vorhanden.
 - Team-Member-Management ist implementiert: `GET`/`POST /api/workspaces/[id]/members`, `DELETE /api/workspaces/[id]/members/[userId]`, `WorkspaceMembersDialog`, Candidates, Upsert, Remove und letzter-Manager-Schutz.
 - Project-Member-Management ist in denselben Member-Endpunkten implementiert und nutzt `canvas_project_members` mit demselben letzten-Manager-Schutz.
+- Workspace-Typ-Wechsel ist in Service und API umgesetzt (`PATCH /api/workspaces/[id]`) inklusive Root-Move/Rollback und Rechte-Migration zwischen Personal, Team und Project. Die UI aktiviert Personal/Team; Project-Auswahl folgt mit dem Project-Rollout.
 - SQLite- und Postgres-Runtime wurden für die umgesetzten Workspace-Funktionen erweitert.
 - Relevante i18n-Keys in `messages/de.json` und `messages/en.json` wurden ergänzt.
 
@@ -44,7 +45,6 @@ Bekannter Prüfstatus: Ein echter Browser-UI-Smoke gegen `localhost:3000` war ni
 
 ### Noch offen
 
-- Workspace-Typ-Wechsel (`PATCH /api/workspaces/[id]`) inklusive transaktionaler Datei- und Rechte-Migration.
 - Project-Rollout: Project-/Customer-APIs hinter Feature-Gate, Project-Dropdown und Project-Workspace-Erstellung.
 - Granulare Permissions im User-Management-Tab: API für User-Permissions und Rollen, `UserPermissionsDialog`, serverseitige Invarianten.
 - External-User-Verhalten finalisieren und feature-gaten.
@@ -481,7 +481,7 @@ Member-Verwaltung erfolgt **nach der Erstellung** im Detail-Dialog (nicht im Cre
 
 ## Strang E — Workspace-Typ ändern
 
-**Status:** offen. Noch keine `changeWorkspaceType`-Service-Funktion, kein `PATCH /api/workspaces/[id]` und kein `WorkspaceTypeChangeDialog`.
+**Status:** teilweise umgesetzt. `changeWorkspaceType`, `changePostgresWorkspaceTypeForActor`, `PATCH /api/workspaces/[id]` und `WorkspaceTypeChangeDialog` sind vorhanden. Zieltypen `personal`, `team` und `project` werden im Backend unterstützt; `organization` bleibt gesperrt. Die UI aktiviert `personal`/`team`; Project-Auswahl wird in Strang F ergänzt.
 
 ### E1. Konzept
 
@@ -849,7 +849,7 @@ Die bereits erledigten Schritte A/B/C und Team-Member-Verwaltung aus D werden ni
 
 1. **Review-Branch herstellen** — erledigt: `origin/main` enthält den Revert `c181835e`; `codex/workspace-management` enthält die Workspace-Commits als Cherry-picks.
 2. **D abschliessen: Project-Member-Verwaltung** — erledigt: Member-GET/POST/DELETE unterstützt Team- und Project-Workspaces.
-3. **E umsetzen: Workspace-Typ-Wechsel** — Service, API, UI und Tests für transaktionale Pfad-/Rechte-Migration. Das ist der risikoreichste offene Block.
+3. **E umsetzen: Workspace-Typ-Wechsel** — größtenteils erledigt: Service, API, Root-Move/Rollback, Rechte-Migration und UI für Personal/Team sind umgesetzt. Project-Dropdown wird mit Strang F freigeschaltet.
 4. **F umsetzen: Project-Rollout** — Project-/Customer-APIs hinter Feature-Gate, Project-Dropdown im Create-Dialog, Project-Workspace-Erstellung und Project-Member-Rechte.
 5. **G umsetzen: Granulare User-Permissions** — Permission-/Role-APIs, `UserPermissionsDialog`, Rolle `external` sauber feature-gaten.
 6. **H abschliessen: Edge-Cases & Offboarding** — zentrale Permission-Mutation-Guards, Offboarding-Preflight für Team-Manager, mehrere Personal-Workspaces, Session-Invalidation und Audit-Log.
@@ -864,7 +864,7 @@ Jeder Strang bleibt einzeln buildbar, testbar und separat commitbar. Vor jedem C
 ## Betroffene Dateien (Übersicht)
 
 ### Neu / umgesetzt
-- `app/api/workspaces/[id]/route.ts` — DELETE umgesetzt; PATCH für Typ-Wechsel offen
+- `app/api/workspaces/[id]/route.ts` — DELETE und PATCH für Typ-Wechsel umgesetzt
 - `app/api/workspaces/[id]/members/route.ts` — GET + POST für Team- und Project-Members umgesetzt
 - `app/api/workspaces/[id]/members/[userId]/route.ts` — DELETE für Team- und Project-Members umgesetzt
 - `app/components/settings/CreateWorkspaceDialog.tsx` — umgesetzt
@@ -875,13 +875,13 @@ Jeder Strang bleibt einzeln buildbar, testbar und separat commitbar. Vor jedem C
 - `app/api/admin/organization/users/[userId]/role/route.ts` — PATCH Role
 - `app/api/projects/route.ts` — Project-API (Feature-Gate)
 - `app/api/customers/route.ts` — Customer-API (Feature-Gate)
-- `app/components/settings/WorkspaceTypeChangeDialog.tsx` — Typ-Wechsel-Dialog
+- `app/components/settings/WorkspaceTypeChangeDialog.tsx` — Typ-Wechsel-Dialog umgesetzt; Project-Auswahl wartet auf Strang F
 - `app/components/settings/UserPermissionsDialog.tsx` — Permission-Verwaltung (User-Tab, Vollbild)
 
 ### Geändert
 - `app/lib/db/migrate.ts` — `is_default`-Spalte, `organization`-Typ, `canvas_workspace_members`-Tabelle, Migration `team`→`organization`
 - `app/lib/workspaces/types.ts` — `isDefault` in `WorkspaceContext`, `organization` in `WorkspaceType`
-- `app/lib/workspaces/service.ts` — Default-Logik, `organization`-Logik, `canDeleteWorkspace`, `deleteWorkspaceRecord`, Team-Member-Funktionen, `organizationWorkspaceRootRelativePath`; `changeWorkspaceType` offen
+- `app/lib/workspaces/service.ts` — Default-Logik, `organization`-Logik, `canDeleteWorkspace`, `deleteWorkspaceRecord`, Team-/Project-Member-Funktionen, `changeWorkspaceType`, `organizationWorkspaceRootRelativePath`
 - `app/lib/workspaces/permissions.ts` — `organization`-Typ in `resolveWorkspacePermissions`
 - `app/lib/workspaces/client-types.ts` — `isDefault` in `ClientWorkspaceSummary`, `organization` in `ClientWorkspaceType`
 - `app/lib/organization/permissions.ts` — `listOrganizationPermissions`, `updateOrganizationPermissions`, `updateOrganizationRole`, Edge-Case-Prüfungen offen
@@ -898,7 +898,7 @@ Jeder Strang bleibt einzeln buildbar, testbar und separat commitbar. Vor jedem C
 - `messages/en.json` — neue i18n-Keys
 
 ### Tests
-- `scripts/workspace-model-service-test.ts` — erweitert für `is_default`, `organization`-Typ, Create/Delete, Team-Member- und Project-Member-Funktionen; `changeWorkspaceType`-Tests offen
+- `scripts/workspace-model-service-test.ts` — erweitert für `is_default`, `organization`-Typ, Create/Delete, Team-/Project-Member-Funktionen und `changeWorkspaceType`
 - `scripts/project-customer-model-test.ts` — Project-/Customer-API-Rollout-Tests offen
 - `scripts/organization-permission-guards-test.ts` — Edge-Case-Tests für letzter Admin, Selbst-Schutz, Bootstrap-Admin usw. offen
 - API-Routen-Tests für DELETE/POST/Members/Permissions/Role/PATCH offen

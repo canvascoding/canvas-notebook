@@ -10,6 +10,7 @@ import { ensureOrganizationBootstrapForUser } from '../app/lib/organization/boot
 import { createCanvasProject, ensureCanvasProjectWorkspace } from '../app/lib/projects/service';
 import { resolveWorkspaceActor } from '../app/lib/workspaces/context';
 import {
+  changeWorkspaceType,
   createWorkspaceRecord,
   deleteWorkspaceRecord,
   ensureDefaultWorkspaceRecords,
@@ -160,6 +161,15 @@ async function main() {
       () => deleteWorkspaceRecord(sqlite, { actor: ownerActor, workspaceId: ownerWorkspaces[1].workspaceId }),
       (error: unknown) => error instanceof WorkspaceOperationError && error.code === 'WORKSPACE_IS_DEFAULT',
     );
+    assert.throws(
+      () => changeWorkspaceType(sqlite, {
+        actor: ownerActor,
+        workspaceId: ownerWorkspaces[0].workspaceId,
+        type: 'team',
+        teamFeaturesEnabled: true,
+      }),
+      (error: unknown) => error instanceof WorkspaceOperationError && error.code === 'WORKSPACE_DEFAULT_TYPE_LOCKED',
+    );
 
     const extraPersonal = createWorkspaceRecord(sqlite, {
       actor: ownerActor,
@@ -187,6 +197,49 @@ async function main() {
     assert.equal(
       extraPersonalDuplicateSlug.rootRelativePath,
       path.posix.join('workspaces', 'personal', 'user-owner', 'research-notes-2', 'files'),
+    );
+
+    const typeChangeWorkspace = createWorkspaceRecord(sqlite, {
+      actor: ownerActor,
+      organizationId,
+      type: 'personal',
+      name: 'Type Change Notes',
+      teamFeaturesEnabled: true,
+    });
+    const typeChangeOriginalRoot = typeChangeWorkspace.rootPath;
+    await fs.writeFile(path.join(typeChangeOriginalRoot, 'type-change.md'), '# Type change\n');
+    const changedToTeam = changeWorkspaceType(sqlite, {
+      actor: ownerActor,
+      workspaceId: typeChangeWorkspace.workspaceId,
+      type: 'team',
+      teamFeaturesEnabled: true,
+    });
+    assert.equal(changedToTeam.workspaceType, 'team');
+    assert.equal(changedToTeam.ownerUserId, null);
+    assert.equal(changedToTeam.permissions.canManageWorkspace, true);
+    assert.equal(
+      await fs.readFile(path.join(changedToTeam.rootPath, 'type-change.md'), 'utf8'),
+      '# Type change\n',
+    );
+    await assert.rejects(
+      () => fs.access(path.join(typeChangeOriginalRoot, 'type-change.md')),
+      (error: unknown) => Boolean(error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT'),
+    );
+    assert.equal(
+      listTeamWorkspaceMembers(sqlite, changedToTeam.workspaceId).some((member) => member.userId === 'user-owner' && member.canManage),
+      true,
+    );
+    const changedBackToPersonal = changeWorkspaceType(sqlite, {
+      actor: ownerActor,
+      workspaceId: changedToTeam.workspaceId,
+      type: 'personal',
+      teamFeaturesEnabled: true,
+    });
+    assert.equal(changedBackToPersonal.workspaceType, 'personal');
+    assert.equal(changedBackToPersonal.ownerUserId, 'user-owner');
+    assert.equal(
+      await fs.readFile(path.join(changedBackToPersonal.rootPath, 'type-change.md'), 'utf8'),
+      '# Type change\n',
     );
 
     const teamWorkspace = createWorkspaceRecord(sqlite, {
@@ -341,6 +394,33 @@ async function main() {
         projectId: project.id,
       }).map((member) => member.userId),
       ['user-collab'],
+    );
+
+    const typeChangeProject = createCanvasProject(sqlite, {
+      organizationId,
+      name: 'Type Change Project',
+      createdByUserId: 'user-owner',
+    });
+    const changedToProject = changeWorkspaceType(sqlite, {
+      actor: ownerActor,
+      workspaceId: changedBackToPersonal.workspaceId,
+      type: 'project',
+      projectId: typeChangeProject.id,
+      teamFeaturesEnabled: true,
+    });
+    assert.equal(changedToProject.workspaceType, 'project');
+    assert.equal(changedToProject.projectId, typeChangeProject.id);
+    assert.equal(
+      await fs.readFile(path.join(changedToProject.rootPath, 'type-change.md'), 'utf8'),
+      '# Type change\n',
+    );
+    assert.equal(
+      listProjectWorkspaceMembers(sqlite, {
+        workspaceId: changedToProject.workspaceId,
+        organizationId,
+        projectId: typeChangeProject.id,
+      }).some((member) => member.userId === 'user-owner' && member.canManage),
+      true,
     );
 
     const automationWorkspace = createWorkspaceRecord(sqlite, {

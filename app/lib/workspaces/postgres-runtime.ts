@@ -1,7 +1,7 @@
 import 'server-only';
 
 import { randomUUID } from 'node:crypto';
-import { mkdirSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readdirSync, renameSync, rmSync } from 'node:fs';
 import path from 'node:path';
 
 import { openDb } from '@/app/lib/db';
@@ -27,6 +27,7 @@ import {
   organizationWorkspaceRootRelativePath,
   personalWorkspaceRootRelativePath,
   personalWorkspaceRootRelativePathForSlug,
+  projectWorkspaceRootRelativePath,
   teamWorkspaceRootRelativePathForSlug,
   WorkspaceOperationError,
   workspaceAbsoluteRoot,
@@ -690,6 +691,209 @@ async function countActiveWorkspaceAutomations(database: RuntimeDb, workspaceId:
   return Number(row?.count || 0);
 }
 
+function normalizeWorkspaceTypeChangeTarget(value: unknown): WorkspaceType {
+  if (value === 'personal' || value === 'team' || value === 'project') return value;
+  if (value === 'organization') {
+    throw new WorkspaceOperationError(
+      'WORKSPACE_ORGANIZATION_TYPE_UNSUPPORTED',
+      'Changing a workspace to organization is not supported.',
+      409,
+    );
+  }
+  throw new WorkspaceOperationError('WORKSPACE_TYPE_INVALID', 'Workspace type is invalid.', 400);
+}
+
+function assertWorkspaceRootTargetAvailable(oldRelativePath: string, newRelativePath: string): void {
+  if (oldRelativePath === newRelativePath) return;
+  if (existsSync(workspaceAbsoluteRoot(newRelativePath))) {
+    throw new WorkspaceOperationError('WORKSPACE_ROOT_EXISTS', 'Target workspace root already exists.', 409);
+  }
+}
+
+function moveWorkspaceRootForTypeChange(oldRelativePath: string, newRelativePath: string): { moved: boolean; created: boolean } {
+  if (oldRelativePath === newRelativePath) return { moved: false, created: false };
+  assertWorkspaceRootTargetAvailable(oldRelativePath, newRelativePath);
+
+  const oldRoot = workspaceAbsoluteRoot(oldRelativePath);
+  const newRoot = workspaceAbsoluteRoot(newRelativePath);
+  mkdirSync(path.dirname(newRoot), { recursive: true });
+
+  if (!existsSync(oldRoot)) {
+    mkdirSync(newRoot, { recursive: true });
+    return { moved: false, created: true };
+  }
+
+  try {
+    renameSync(oldRoot, newRoot);
+  } catch (error) {
+    if (error && typeof error === 'object' && 'code' in error && error.code === 'EXDEV') {
+      cpSync(oldRoot, newRoot, { recursive: true, force: false, errorOnExist: true });
+      rmSync(oldRoot, { recursive: true, force: true });
+    } else {
+      throw error;
+    }
+  }
+
+  return { moved: true, created: false };
+}
+
+function rollbackWorkspaceRootTypeChange(
+  oldRelativePath: string,
+  newRelativePath: string,
+  state: { moved: boolean; created: boolean },
+): void {
+  if (oldRelativePath === newRelativePath) return;
+  const oldRoot = workspaceAbsoluteRoot(oldRelativePath);
+  const newRoot = workspaceAbsoluteRoot(newRelativePath);
+
+  try {
+    if (state.moved && existsSync(newRoot)) {
+      mkdirSync(path.dirname(oldRoot), { recursive: true });
+      if (existsSync(oldRoot)) {
+        const entries = readdirSync(oldRoot);
+        if (entries.length > 0) return;
+        rmSync(oldRoot, { recursive: true, force: true });
+      }
+      renameSync(newRoot, oldRoot);
+    } else if (state.created && existsSync(newRoot)) {
+      rmSync(newRoot, { recursive: true, force: true });
+    }
+  } catch {
+    // Preserve the original type-change failure. Manual recovery may be needed if rollback fails.
+  }
+}
+
+type TypeChangeMemberRow = {
+  user_id: string;
+  role: string;
+  status: string;
+  can_read: number;
+  can_write: number;
+  can_manage: number;
+  invited_by_user_id: string | null;
+};
+
+function managerMemberForActor(actor: WorkspaceActor): TypeChangeMemberRow {
+  return {
+    user_id: actor.userId,
+    role: 'admin',
+    status: 'active',
+    can_read: 1,
+    can_write: 1,
+    can_manage: 1,
+    invited_by_user_id: actor.userId,
+  };
+}
+
+function ensureAtLeastOneManagerForTypeChange(members: TypeChangeMemberRow[], actor: WorkspaceActor): TypeChangeMemberRow[] {
+  if (members.some((member) => member.can_manage === 1)) return members;
+  return [...members, managerMemberForActor(actor)];
+}
+
+async function collectWorkspaceMembersForTypeChange(database: RuntimeDb, workspaceId: string): Promise<TypeChangeMemberRow[]> {
+  return await database.all(
+    `
+      SELECT user_id, role, COALESCE(status, 'active') AS status, can_read, can_write, can_manage, invited_by_user_id
+      FROM canvas_workspace_members
+      WHERE workspace_id = ?
+    `,
+    [workspaceId],
+  ) as TypeChangeMemberRow[];
+}
+
+async function collectProjectMembersForTypeChange(database: RuntimeDb, organizationId: string, projectId: string): Promise<TypeChangeMemberRow[]> {
+  return await database.all(
+    `
+      SELECT user_id, role, COALESCE(status, 'active') AS status, can_read, can_write, can_manage, invited_by_user_id
+      FROM canvas_project_members
+      WHERE organization_id = ? AND project_id = ?
+    `,
+    [organizationId, projectId],
+  ) as TypeChangeMemberRow[];
+}
+
+async function upsertWorkspaceMembersForTypeChange(
+  database: RuntimeDb,
+  organizationId: string,
+  workspaceId: string,
+  members: TypeChangeMemberRow[],
+): Promise<void> {
+  const now = Date.now();
+  for (const member of members) {
+    await database.run(
+      `
+        INSERT INTO canvas_workspace_members (
+          organization_id, workspace_id, user_id, role, status,
+          can_read, can_write, can_manage, invited_by_user_id, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(workspace_id, user_id) DO UPDATE SET
+          organization_id = excluded.organization_id,
+          role = excluded.role,
+          status = excluded.status,
+          can_read = excluded.can_read,
+          can_write = excluded.can_write,
+          can_manage = excluded.can_manage,
+          invited_by_user_id = excluded.invited_by_user_id,
+          updated_at = excluded.updated_at
+      `,
+      [
+        organizationId,
+        workspaceId,
+        member.user_id,
+        normalizeWorkspaceMemberRole(member.role),
+        normalizeWorkspaceStatus(member.status),
+        member.can_read,
+        member.can_write,
+        member.can_manage,
+        member.invited_by_user_id,
+        now,
+        now,
+      ],
+    );
+  }
+}
+
+async function upsertProjectMembersForTypeChange(
+  database: RuntimeDb,
+  organizationId: string,
+  projectId: string,
+  members: TypeChangeMemberRow[],
+): Promise<void> {
+  const now = Date.now();
+  for (const member of members) {
+    await database.run(
+      `
+        INSERT INTO canvas_project_members (
+          organization_id, project_id, user_id, role, status,
+          can_read, can_write, can_manage, invited_by_user_id, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(project_id, user_id) DO UPDATE SET
+          organization_id = excluded.organization_id,
+          role = excluded.role,
+          status = excluded.status,
+          can_read = excluded.can_read,
+          can_write = excluded.can_write,
+          can_manage = excluded.can_manage,
+          invited_by_user_id = excluded.invited_by_user_id,
+          updated_at = excluded.updated_at
+      `,
+      [
+        organizationId,
+        projectId,
+        member.user_id,
+        normalizeWorkspaceMemberRole(member.role),
+        normalizeWorkspaceStatus(member.status),
+        member.can_read,
+        member.can_write,
+        member.can_manage,
+        member.invited_by_user_id,
+        now,
+        now,
+      ],
+    );
+  }
+}
+
 function workspaceContextFromRecord(
   record: ReturnType<typeof rowToWorkspaceRecord>,
   actor: WorkspaceActor,
@@ -1195,6 +1399,200 @@ export async function deletePostgresWorkspaceForActor(
       await database.run('ROLLBACK');
     } catch {
       // Preserve the original failure.
+    }
+    throw error;
+  } finally {
+    await database.close();
+  }
+}
+
+export async function changePostgresWorkspaceTypeForActor(
+  actor: WorkspaceActor,
+  workspaceId: string,
+  input: {
+    type: unknown;
+    projectId?: unknown;
+  },
+): Promise<WorkspaceContext> {
+  const database = await openDb();
+  let rootMove: { moved: boolean; created: boolean } | null = null;
+  let oldRootRelativePath: string | null = null;
+  let nextRootRelativePath: string | null = null;
+
+  try {
+    await database.run('BEGIN');
+    const status = await ensurePostgresOrganizationBootstrapForUser(database, actor.userId);
+    if (!status.organizationId) {
+      throw new OrganizationBootstrapError('DATABASE_ERROR', 'Organization is not configured.');
+    }
+    const record = await getWorkspaceById(database, workspaceId);
+    if (!record || record.status === 'disabled' || record.status === 'archived') {
+      throw new WorkspaceOperationError('WORKSPACE_NOT_FOUND', 'Workspace not found.', 404);
+    }
+    if (record.status !== 'active') {
+      throw new WorkspaceOperationError('WORKSPACE_NOT_ACTIVE', 'Workspace is not active.', 409);
+    }
+    if (record.isDefault) {
+      throw new WorkspaceOperationError('WORKSPACE_DEFAULT_TYPE_LOCKED', 'Default workspaces cannot change type.', 409);
+    }
+    if (record.type === 'organization') {
+      throw new WorkspaceOperationError('WORKSPACE_ORGANIZATION_TYPE_LOCKED', 'Organization workspace type cannot be changed.', 409);
+    }
+    if (actor.role !== 'owner' && actor.role !== 'admin') {
+      throw new WorkspaceOperationError('WORKSPACE_PERMISSION_DENIED', 'Only admins can change workspace type.', 403);
+    }
+
+    const context = await resolveWorkspaceContextById(database, actor, workspaceId);
+    if (!context || !context.permissions.canManageWorkspace) {
+      throw new WorkspaceOperationError('WORKSPACE_PERMISSION_DENIED', 'Workspace permission denied.', 403);
+    }
+
+    const targetType = normalizeWorkspaceTypeChangeTarget(input.type);
+    if (targetType === 'team' && !status.teamFeaturesEnabled) {
+      throw new WorkspaceOperationError('WORKSPACE_TEAM_FEATURES_DISABLED', 'Team workspaces are not enabled.', 403);
+    }
+    const targetProjectId = typeof input.projectId === 'string' ? input.projectId.trim() : '';
+    const targetProject = targetType === 'project'
+      ? await database.get(
+          `
+            SELECT id, customer_id
+            FROM canvas_projects
+            WHERE organization_id = ? AND id = ? AND status = 'active'
+            LIMIT 1
+          `,
+          [record.organizationId, targetProjectId],
+        ) as { id: string; customer_id: string | null } | undefined
+      : null;
+    if (targetType === 'project' && !targetProject) {
+      throw new WorkspaceOperationError('WORKSPACE_PROJECT_NOT_FOUND', 'Project not found.', 404);
+    }
+
+    if (record.type === targetType && (targetType !== 'project' || record.projectId === targetProjectId)) {
+      await database.run('COMMIT');
+      return context;
+    }
+
+    const slug = normalizeWorkspaceSlug(record.displayName);
+    nextRootRelativePath = targetType === 'personal'
+      ? await reserveWorkspaceRootRelativePath(
+          database,
+          slug,
+          (candidate) => personalWorkspaceRootRelativePathForSlug(actor.userId, candidate),
+        )
+      : targetType === 'team'
+        ? await reserveWorkspaceRootRelativePath(
+            database,
+            slug,
+            (candidate) => teamWorkspaceRootRelativePathForSlug(record.organizationId, candidate),
+          )
+        : projectWorkspaceRootRelativePath(targetProjectId);
+
+    if (targetType === 'project') {
+      const existingProjectWorkspace = await database.get(
+        `
+          SELECT id
+          FROM canvas_workspaces
+          WHERE type = 'project' AND organization_id = ? AND project_id = ?
+          LIMIT 1
+        `,
+        [record.organizationId, targetProjectId],
+      ) as { id: string } | undefined;
+      if (existingProjectWorkspace && existingProjectWorkspace.id !== record.id) {
+        throw new WorkspaceOperationError('WORKSPACE_PROJECT_ALREADY_HAS_WORKSPACE', 'Project already has a workspace.', 409);
+      }
+      const existingRoot = await database.get(
+        `
+          SELECT id
+          FROM canvas_workspaces
+          WHERE root_relative_path = ? AND id != ?
+          LIMIT 1
+        `,
+        [nextRootRelativePath, record.id],
+      ) as { id: string } | undefined;
+      if (existingRoot) {
+        throw new WorkspaceOperationError('WORKSPACE_ROOT_EXISTS', 'Target workspace root already exists.', 409);
+      }
+    }
+
+    const sourceTeamMembers = record.type === 'team'
+      ? await collectWorkspaceMembersForTypeChange(database, record.id)
+      : [];
+    const sourceProjectMembers = record.type === 'project' && record.projectId
+      ? await collectProjectMembersForTypeChange(database, record.organizationId, record.projectId)
+      : [];
+
+    oldRootRelativePath = record.rootRelativePath;
+    rootMove = moveWorkspaceRootForTypeChange(record.rootRelativePath, nextRootRelativePath);
+    const now = Date.now();
+    await database.run(
+      `
+        UPDATE canvas_workspaces
+        SET type = ?,
+          owner_user_id = ?,
+          customer_id = ?,
+          project_id = ?,
+          root_relative_path = ?,
+          is_default = 0,
+          updated_at = ?
+        WHERE id = ?
+      `,
+      [
+        targetType,
+        targetType === 'personal' ? actor.userId : null,
+        targetProject?.customer_id ?? null,
+        targetType === 'project' ? targetProjectId : null,
+        nextRootRelativePath,
+        now,
+        record.id,
+      ],
+    );
+
+    if (record.type === 'team' && targetType !== 'team') {
+      await database.run('DELETE FROM canvas_workspace_members WHERE workspace_id = ?', [record.id]);
+    }
+    if (record.type === 'project' && record.projectId && (targetType !== 'project' || record.projectId !== targetProjectId)) {
+      await database.run(
+        'DELETE FROM canvas_project_members WHERE organization_id = ? AND project_id = ?',
+        [record.organizationId, record.projectId],
+      );
+    }
+
+    if (targetType === 'team') {
+      await upsertWorkspaceMembersForTypeChange(
+        database,
+        record.organizationId,
+        record.id,
+        ensureAtLeastOneManagerForTypeChange(record.type === 'project' ? sourceProjectMembers : sourceTeamMembers, actor),
+      );
+    } else if (targetType === 'project') {
+      await upsertProjectMembersForTypeChange(
+        database,
+        record.organizationId,
+        targetProjectId,
+        ensureAtLeastOneManagerForTypeChange(record.type === 'team' ? sourceTeamMembers : sourceProjectMembers, actor),
+      );
+    }
+
+    const updated = await getWorkspaceById(database, record.id);
+    if (!updated) {
+      throw new WorkspaceOperationError('WORKSPACE_NOT_FOUND', 'Workspace not found.', 404);
+    }
+    const permission = await getPermissionRow(database, updated.organizationId, actor.userId);
+    const teamPermission = updated.type === 'team'
+      ? await getTeamWorkspacePermissionRow(database, updated.id, actor.userId)
+      : null;
+    const projectPermission = await getProjectPermissionRow(database, updated.organizationId, updated.projectId, actor.userId);
+    const workspace = workspaceContextFromRecord(updated, actor, permission, teamPermission, projectPermission);
+    await database.run('COMMIT');
+    return workspace;
+  } catch (error) {
+    try {
+      await database.run('ROLLBACK');
+    } catch {
+      // Preserve the original failure.
+    }
+    if (rootMove && oldRootRelativePath && nextRootRelativePath) {
+      rollbackWorkspaceRootTypeChange(oldRootRelativePath, nextRootRelativePath, rootMove);
     }
     throw error;
   } finally {
