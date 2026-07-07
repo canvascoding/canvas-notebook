@@ -267,6 +267,51 @@ export class WebSocketClient extends EventTarget {
     });
   }
 
+  private abortConnectingConnection(connectionId: string | null, error: Error): void {
+    if (!this.isConnecting || this.activeConnectionId !== connectionId) {
+      return;
+    }
+
+    const socket = this.ws;
+
+    console.warn('[WebSocket] abort_connecting_connection', {
+      connectionId,
+      readyState: readyStateLabel(socket?.readyState),
+      error: error.message,
+    });
+
+    this.isConnecting = false;
+    this.isAuthenticated = false;
+
+    if (this.connectReject) {
+      this.connectReject(error);
+    }
+    this.connectResolve = null;
+    this.connectReject = null;
+
+    if (socket) {
+      socket.onopen = null;
+      socket.onmessage = null;
+      socket.onerror = null;
+      socket.onclose = null;
+
+      if (socket.readyState !== WebSocket.CLOSED && socket.readyState !== WebSocket.CLOSING) {
+        try {
+          socket.close(4000, 'connect timeout');
+        } catch (closeError) {
+          console.warn('[WebSocket] abort_connecting_connection close failed', {
+            connectionId,
+            error: closeError,
+          });
+        }
+      }
+
+      if (this.ws === socket) {
+        this.ws = null;
+      }
+    }
+  }
+
   private waitForAuthenticatedConnection(type: string, timeoutMs: number): Promise<void> {
     if (this.isAuthenticated && this.ws?.readyState === WebSocket.OPEN) {
       return Promise.resolve();
@@ -288,10 +333,14 @@ export class WebSocketClient extends EventTarget {
       isAuthenticated: this.isAuthenticated,
     });
 
+    const connectionPromise = this.openAuthenticatedConnection();
+    const timeoutConnectionId = this.activeConnectionId;
+
     return Promise.race([
-      this.openAuthenticatedConnection(),
+      connectionPromise,
       new Promise<void>((_, reject) => {
         timer = setTimeout(() => {
+          const error = new Error('WebSocket connection timeout before request');
           console.warn('[WebSocket] request_connect_timeout', {
             connectionId: this.activeConnectionId,
             type,
@@ -300,7 +349,8 @@ export class WebSocketClient extends EventTarget {
             isConnecting: this.isConnecting,
             isAuthenticated: this.isAuthenticated,
           });
-          reject(new Error('WebSocket connection timeout before request'));
+          this.abortConnectingConnection(timeoutConnectionId, error);
+          reject(error);
         }, connectTimeoutMs);
       }),
     ]).finally(() => {
