@@ -3,6 +3,7 @@ import { create } from 'zustand';
 interface EditorState {
   activePath: string | null;
   draft: string;
+  baseContent: string;
   isDirty: boolean;
   isSaving: boolean;
   lastSavedAt: number | null;
@@ -18,6 +19,7 @@ interface EditorState {
 export const useEditorStore = create<EditorState>((set) => ({
   activePath: null,
   draft: '',
+  baseContent: '',
   isDirty: false,
   isSaving: false,
   lastSavedAt: null,
@@ -26,6 +28,7 @@ export const useEditorStore = create<EditorState>((set) => ({
     set({
       activePath: path,
       draft: content,
+      baseContent: content,
       isDirty: false,
       isSaving: false,
       saveError: null,
@@ -35,13 +38,20 @@ export const useEditorStore = create<EditorState>((set) => ({
     set({ draft: content, isDirty: true, saveError: null }),
   markSaving: () => set({ isSaving: true, saveError: null }),
   markSaved: () =>
-    set({ isSaving: false, isDirty: false, saveError: null, lastSavedAt: Date.now() }),
+    set((state) => ({
+      baseContent: state.draft,
+      isSaving: false,
+      isDirty: false,
+      saveError: null,
+      lastSavedAt: Date.now(),
+    })),
   setSaveError: (error: string | null) =>
     set({ saveError: error, isSaving: false }),
   clear: () =>
     set({
       activePath: null,
       draft: '',
+      baseContent: '',
       isDirty: false,
       isSaving: false,
       saveError: null,

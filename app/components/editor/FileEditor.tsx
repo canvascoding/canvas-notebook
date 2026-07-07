@@ -8,7 +8,11 @@ import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { useFileStore } from '@/app/store/file-store';
-import type { FileNode } from '@/app/lib/files/types';
+import type { CurrentFile, FileNode } from '@/app/lib/files/types';
+import {
+  isWorkspaceFileRevisionConflictError,
+  readWorkspaceFile,
+} from '@/app/lib/files/client';
 import { useEditorStore } from '@/app/store/editor-store';
 import { getFileWatcherClient, type FileEvent } from '@/app/lib/file-watcher/client';
 import { isMarpMarkdown } from '@/app/lib/marp/detect';
@@ -188,6 +192,95 @@ function isFileRevisionConflictMessage(message: string) {
   return message.toLowerCase().includes('file revision conflict');
 }
 
+interface ExternalTextChange {
+  path: string;
+  baseContent: string;
+  serverFile: CurrentFile;
+  detectedAt: number;
+  source: 'watch' | 'save-conflict';
+}
+
+type TextMergeResult =
+  | { clean: true; content: string }
+  | { clean: false };
+
+function splitTextLines(content: string): string[] {
+  return content.match(/[^\n]*\n|[^\n]+/gu) ?? [];
+}
+
+function findSingleChangedRange(baseLines: string[], nextLines: string[]) {
+  let prefix = 0;
+  while (
+    prefix < baseLines.length &&
+    prefix < nextLines.length &&
+    baseLines[prefix] === nextLines[prefix]
+  ) {
+    prefix++;
+  }
+
+  let suffix = 0;
+  while (
+    suffix < baseLines.length - prefix &&
+    suffix < nextLines.length - prefix &&
+    baseLines[baseLines.length - 1 - suffix] === nextLines[nextLines.length - 1 - suffix]
+  ) {
+    suffix++;
+  }
+
+  return {
+    baseStart: prefix,
+    baseEnd: baseLines.length - suffix,
+    nextLines: nextLines.slice(prefix, nextLines.length - suffix),
+  };
+}
+
+function rangesOverlap(
+  left: { baseStart: number; baseEnd: number },
+  right: { baseStart: number; baseEnd: number },
+) {
+  return left.baseStart < right.baseEnd && right.baseStart < left.baseEnd;
+}
+
+function mergeTextChanges(baseContent: string, localContent: string, serverContent: string): TextMergeResult {
+  if (localContent === serverContent) return { clean: true, content: localContent };
+  if (baseContent === localContent) return { clean: true, content: serverContent };
+  if (baseContent === serverContent) return { clean: true, content: localContent };
+
+  const baseLines = splitTextLines(baseContent);
+  const localLines = splitTextLines(localContent);
+  const serverLines = splitTextLines(serverContent);
+  const localChange = findSingleChangedRange(baseLines, localLines);
+  const serverChange = findSingleChangedRange(baseLines, serverLines);
+  const bothInsertAtSamePosition =
+    localChange.baseStart === localChange.baseEnd &&
+    serverChange.baseStart === serverChange.baseEnd &&
+    localChange.baseStart === serverChange.baseStart &&
+    localChange.nextLines.length > 0 &&
+    serverChange.nextLines.length > 0;
+
+  if (bothInsertAtSamePosition || rangesOverlap(localChange, serverChange)) {
+    return { clean: false };
+  }
+
+  const mergedLines = [...baseLines];
+  const changes = [localChange, serverChange].sort((a, b) => b.baseStart - a.baseStart);
+  for (const change of changes) {
+    mergedLines.splice(change.baseStart, change.baseEnd - change.baseStart, ...change.nextLines);
+  }
+
+  return { clean: true, content: mergedLines.join('') };
+}
+
+function buildConflictCopyPath(filePath: string) {
+  const slashIndex = filePath.lastIndexOf('/');
+  const dir = slashIndex >= 0 ? filePath.slice(0, slashIndex + 1) : '';
+  const fileName = slashIndex >= 0 ? filePath.slice(slashIndex + 1) : filePath;
+  const dotIndex = fileName.lastIndexOf('.');
+  const stamp = `${new Date().toISOString().replace(/[-:]/gu, '').replace(/\.\d{3}Z$/u, 'Z')}-${Date.now().toString(36)}`;
+  if (dotIndex <= 0) return `${dir}${fileName}.local-copy-${stamp}`;
+  return `${dir}${fileName.slice(0, dotIndex)}.local-copy-${stamp}${fileName.slice(dotIndex)}`;
+}
+
 function shouldShowDocumentLoadingSkeleton(path: string | null) {
   if (!path) return true;
   const extension = getExtension(path);
@@ -314,6 +407,7 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
     saveFile,
     downloadFile,
     loadFile,
+    revealAndLoadFile,
     refreshCurrentFileContent,
     fileTree,
     currentDirectory,
@@ -348,13 +442,64 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
   }>({ path: null, mode: 'markdown' });
   const [marpRefreshKey, setMarpRefreshKey] = useState(0);
   const [isClosingPreview, setIsClosingPreview] = useState(false);
+  const [externalTextChange, setExternalTextChange] = useState<ExternalTextChange | null>(null);
+  const [isResolvingExternalTextChange, setIsResolvingExternalTextChange] = useState(false);
+  const currentFilePath = currentFile?.path ?? null;
+  const activeExternalTextChange = externalTextChange &&
+    externalTextChange.path === activePath &&
+    externalTextChange.path === currentFilePath
+    ? externalTextChange
+    : null;
+  const activeExternalTextChangePath = activeExternalTextChange?.path ?? null;
   const getSaveErrorMessage = useCallback((error: unknown) => {
     const rawMessage =
       error instanceof Error ? error.message : t('failedToSaveFile');
-    return isFileRevisionConflictMessage(rawMessage)
+    return isWorkspaceFileRevisionConflictError(error) || isFileRevisionConflictMessage(rawMessage)
       ? t('fileRevisionConflict')
       : rawMessage;
   }, [t]);
+
+  const loadExternalTextChange = useCallback(async (
+    path: string,
+    source: ExternalTextChange['source'],
+  ) => {
+    const editorState = useEditorStore.getState();
+    if (editorState.activePath !== path) return null;
+
+    const serverFile = await readWorkspaceFile(path, {
+      noCache: true,
+      fallbackMessage: 'Failed to refresh file',
+    });
+
+    const latestEditorState = useEditorStore.getState();
+    if (latestEditorState.activePath !== path) return null;
+
+    if (serverFile.content === latestEditorState.draft) {
+      setExternalTextChange((current) => current?.path === path ? null : current);
+      return serverFile;
+    }
+
+    setExternalTextChange({
+      path,
+      baseContent: latestEditorState.baseContent,
+      serverFile,
+      detectedAt: Date.now(),
+      source,
+    });
+    return serverFile;
+  }, []);
+
+  const handleSaveError = useCallback((error: unknown, path: string) => {
+    const message = getSaveErrorMessage(error);
+    setSaveError(message);
+    toast.error(message);
+
+    if (isWorkspaceFileRevisionConflictError(error)) {
+      void loadExternalTextChange(path, 'save-conflict').catch((loadError) => {
+        console.warn('[FileEditor] Failed to load external file change after save conflict:', loadError);
+      });
+    }
+  }, [getSaveErrorMessage, loadExternalTextChange, setSaveError]);
 
   useEffect(() => {
     // This effect synchronizes the main file store (useFileStore) 
@@ -385,6 +530,7 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
 
   useEffect(() => {
     if (!activePath || !isDirty) return;
+    if (activeExternalTextChangePath) return;
 
     if (saveTimeoutRef.current) {
       window.clearTimeout(saveTimeoutRef.current);
@@ -413,9 +559,7 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
           setSaveError(null);
         }
       } catch (error) {
-        const message = getSaveErrorMessage(error);
-        setSaveError(message);
-        toast.error(message);
+        handleSaveError(error, pathToSave);
       }
     }, autosaveDelay);
 
@@ -424,7 +568,7 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
         window.clearTimeout(saveTimeoutRef.current);
       }
     };
-  }, [activePath, draft, getSaveErrorMessage, isDirty, markSaved, markSaving, saveFile, setSaveError]);
+  }, [activeExternalTextChangePath, activePath, draft, handleSaveError, isDirty, markSaved, markSaving, saveFile, setSaveError]);
 
   const extension = useMemo(() => {
     if (!currentFile) return '';
@@ -538,6 +682,109 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
     setShareOpen(true);
   }, [currentFile, downloadFile, isPdf]);
 
+  const handleReloadExternalTextChange = useCallback(async () => {
+    const change = activeExternalTextChange;
+    if (!change) return;
+
+    setIsResolvingExternalTextChange(true);
+    try {
+      const refreshed = await refreshCurrentFileContent(change.path);
+      if (!refreshed) {
+        throw new Error(t('externalChangeLoadFailed'));
+      }
+
+      setActiveFile(change.path, refreshed.content);
+      setExternalTextChange(null);
+      setSaveError(null);
+      toast.success(t('externalChangeReloaded'));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : t('externalChangeLoadFailed');
+      setSaveError(message);
+      toast.error(message);
+    } finally {
+      setIsResolvingExternalTextChange(false);
+    }
+  }, [activeExternalTextChange, refreshCurrentFileContent, setActiveFile, setSaveError, t]);
+
+  const handleMergeExternalTextChange = useCallback(async () => {
+    const change = activeExternalTextChange;
+    if (!change) return;
+
+    setIsResolvingExternalTextChange(true);
+    try {
+      const refreshed = await refreshCurrentFileContent(change.path);
+      if (!refreshed) {
+        throw new Error(t('externalChangeLoadFailed'));
+      }
+
+      const latestEditorState = useEditorStore.getState();
+      const merged = mergeTextChanges(change.baseContent, latestEditorState.draft, refreshed.content);
+      if (!merged.clean) {
+        setExternalTextChange({ ...change, serverFile: refreshed, detectedAt: Date.now() });
+        const message = t('externalChangeMergeConflict');
+        setSaveError(message);
+        toast.error(message);
+        return;
+      }
+
+      if (merged.content === refreshed.content) {
+        setActiveFile(change.path, refreshed.content);
+        setExternalTextChange(null);
+        setSaveError(null);
+        toast.success(t('externalChangeReloaded'));
+        return;
+      }
+
+      updateDraft(merged.content);
+      markSaving();
+      await saveFile(change.path, merged.content);
+
+      const savedState = useEditorStore.getState();
+      if (savedState.activePath === change.path && savedState.draft === merged.content) {
+        markSaved();
+      }
+
+      setExternalTextChange(null);
+      toast.success(t('externalChangeMerged'));
+    } catch (error) {
+      handleSaveError(error, change.path);
+    } finally {
+      setIsResolvingExternalTextChange(false);
+    }
+  }, [
+    activeExternalTextChange,
+    handleSaveError,
+    markSaved,
+    markSaving,
+    refreshCurrentFileContent,
+    saveFile,
+    setActiveFile,
+    setSaveError,
+    t,
+    updateDraft,
+  ]);
+
+  const handleSaveExternalTextCopy = useCallback(async () => {
+    const change = activeExternalTextChange;
+    if (!change) return;
+
+    setIsResolvingExternalTextChange(true);
+    try {
+      const latestEditorState = useEditorStore.getState();
+      const copyPath = buildConflictCopyPath(change.path);
+      await saveFile(copyPath, latestEditorState.draft);
+      setExternalTextChange(null);
+      await revealAndLoadFile(copyPath);
+      toast.success(t('externalChangeCopySaved'));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : t('failedToSaveFile');
+      setSaveError(message);
+      toast.error(message);
+    } finally {
+      setIsResolvingExternalTextChange(false);
+    }
+  }, [activeExternalTextChange, revealAndLoadFile, saveFile, setSaveError, t]);
+
   const handleClosePreview = useCallback(async () => {
     if (isClosingPreview) return;
 
@@ -556,6 +803,13 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
       }
 
       if (pathToSave && hasUnsavedChanges) {
+        if (activeExternalTextChangePath === pathToSave) {
+          const message = t('externalChangeSaveBlocked');
+          setSaveError(message);
+          toast.error(message);
+          return;
+        }
+
         markSaving();
         await saveFile(pathToSave, contentToSave);
         const latestState = useEditorStore.getState();
@@ -569,13 +823,17 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
 
       onClosePreview?.();
     } catch (error) {
-      const message = getSaveErrorMessage(error);
-      setSaveError(message);
-      toast.error(message);
+      if (pathToSave) {
+        handleSaveError(error, pathToSave);
+      } else {
+        const message = getSaveErrorMessage(error);
+        setSaveError(message);
+        toast.error(message);
+      }
     } finally {
       setIsClosingPreview(false);
     }
-  }, [getSaveErrorMessage, isClosingPreview, markSaved, markSaving, onClosePreview, saveFile, setSaveError]);
+  }, [activeExternalTextChangePath, getSaveErrorMessage, handleSaveError, isClosingPreview, markSaved, markSaving, onClosePreview, saveFile, setSaveError, t]);
 
   useEffect(() => {
     const handleShortcut = (event: KeyboardEvent) => {
@@ -584,6 +842,12 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
         const { activePath: pathToSave, draft: contentToSave } =
           useEditorStore.getState();
         if (!pathToSave) return;
+        if (activeExternalTextChangePath === pathToSave) {
+          const message = t('externalChangeSaveBlocked');
+          setSaveError(message);
+          toast.error(message);
+          return;
+        }
         markSaving();
         saveFile(pathToSave, contentToSave)
           .then(() => {
@@ -596,16 +860,14 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
             }
           })
           .catch((error) => {
-            const message = getSaveErrorMessage(error);
-            setSaveError(message);
-            toast.error(message);
+            handleSaveError(error, pathToSave);
           });
       }
     };
 
     window.addEventListener('keydown', handleShortcut);
     return () => window.removeEventListener('keydown', handleShortcut);
-  }, [getSaveErrorMessage, markSaved, markSaving, saveFile, setSaveError]);
+  }, [activeExternalTextChangePath, handleSaveError, markSaved, markSaving, saveFile, setSaveError, t]);
 
   useEffect(() => {
     if (!isImage) return;
@@ -634,6 +896,51 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
     window.addEventListener('keydown', handleImageKeyDown);
     return () => window.removeEventListener('keydown', handleImageKeyDown);
   }, [handleImageNext, handleImagePrev, imagePaths.length, isImage]);
+
+  useEffect(() => {
+    if (!currentFile?.path || !isText || isExcalidraw) return;
+
+    const watchedFilePath = currentFile.path;
+    const client = getFileWatcherClient();
+    client.acquire();
+
+    const handleFileChange = (event: Event) => {
+      const detail = (event as CustomEvent<FileEvent>).detail;
+      if (!detail) return;
+      if (detail.type !== 'add' && detail.type !== 'change') return;
+      if (!fileEventMatchesPath(detail, watchedFilePath)) return;
+
+      if (externalReloadTimeoutRef.current) {
+        window.clearTimeout(externalReloadTimeoutRef.current);
+      }
+
+      externalReloadTimeoutRef.current = window.setTimeout(() => {
+        externalReloadTimeoutRef.current = null;
+        const latestEditorState = useEditorStore.getState();
+        if (latestEditorState.activePath !== watchedFilePath) return;
+
+        if (latestEditorState.isDirty) {
+          void loadExternalTextChange(watchedFilePath, 'watch').catch((error) => {
+            console.warn('[FileEditor] Failed to load externally changed text file:', error);
+          });
+          return;
+        }
+
+        void refreshCurrentFileContent(watchedFilePath);
+      }, EXTERNAL_FILE_RELOAD_DELAY_MS);
+    };
+
+    client.addEventListener('filechange', handleFileChange);
+
+    return () => {
+      client.removeEventListener('filechange', handleFileChange);
+      client.releaseConnection();
+      if (externalReloadTimeoutRef.current) {
+        window.clearTimeout(externalReloadTimeoutRef.current);
+        externalReloadTimeoutRef.current = null;
+      }
+    };
+  }, [currentFile?.path, isExcalidraw, isText, loadExternalTextChange, refreshCurrentFileContent]);
 
   useEffect(() => {
     if (!currentFile?.path || !isExcalidraw) return;
@@ -893,6 +1200,49 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
           </div>
         </div>
       </TooltipProvider>
+      {activeExternalTextChange ? (
+        <div className="flex shrink-0 flex-col gap-2 border-b border-border bg-muted/60 px-3 py-2 text-xs sm:flex-row sm:items-center sm:justify-between sm:px-4">
+          <div className="flex min-w-0 items-start gap-2">
+            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+            <div className="min-w-0">
+              <div className="font-medium text-foreground">{t('externalChangeTitle')}</div>
+              <div className="text-muted-foreground">{t('externalChangeDescription')}</div>
+            </div>
+          </div>
+          <div className="flex shrink-0 flex-wrap items-center gap-1.5">
+            <Button
+              variant="secondary"
+              size="sm"
+              className="h-7 gap-1.5 px-2 text-xs"
+              onClick={() => void handleReloadExternalTextChange()}
+              disabled={isResolvingExternalTextChange}
+            >
+              <RefreshCw className="h-3.5 w-3.5" />
+              {t('externalChangeReload')}
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              className="h-7 gap-1.5 px-2 text-xs"
+              onClick={() => void handleMergeExternalTextChange()}
+              disabled={isResolvingExternalTextChange}
+            >
+              <GitBranch className="h-3.5 w-3.5" />
+              {t('externalChangeMerge')}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 gap-1.5 px-2 text-xs"
+              onClick={() => void handleSaveExternalTextCopy()}
+              disabled={isResolvingExternalTextChange}
+            >
+              <FileText className="h-3.5 w-3.5" />
+              {t('externalChangeCopy')}
+            </Button>
+          </div>
+        </div>
+      ) : null}
       <div className={isImage || isVideo || isMarkdown || isHtml || isExcalidraw ? 'min-h-0 flex-1 overflow-hidden' : (isOffice && extension !== 'docx' ? 'min-h-0 flex-1 relative' : 'min-h-0 flex-1 overflow-auto')}>
           {isBinary ? (
             <div className="flex h-full flex-col items-center justify-center gap-3 text-center text-muted-foreground">

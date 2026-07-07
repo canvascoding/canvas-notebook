@@ -6,6 +6,40 @@ import type { CurrentFile, FileCollaborationState, FileNode, FileRevisionRecord,
 interface ApiErrorPayload {
   error?: unknown;
   message?: unknown;
+  code?: unknown;
+  path?: unknown;
+  expectedSha256?: unknown;
+  currentSha256?: unknown;
+  currentRevisionId?: unknown;
+  baseRevisionId?: unknown;
+  currentStats?: unknown;
+  activeLock?: unknown;
+}
+
+export class WorkspaceFileApiError extends Error {
+  readonly status: number;
+  readonly code: string | null;
+  readonly path: string | null;
+  readonly expectedSha256: string | null;
+  readonly currentSha256: string | null;
+  readonly currentRevisionId: string | null;
+  readonly baseRevisionId: string | null;
+  readonly currentStats: FileStats | null;
+  readonly activeLock: unknown;
+
+  constructor(message: string, response: Response, payload: ApiErrorPayload = {}) {
+    super(message);
+    this.name = 'WorkspaceFileApiError';
+    this.status = response.status;
+    this.code = typeof payload.code === 'string' ? payload.code : null;
+    this.path = typeof payload.path === 'string' ? payload.path : null;
+    this.expectedSha256 = typeof payload.expectedSha256 === 'string' ? payload.expectedSha256 : null;
+    this.currentSha256 = typeof payload.currentSha256 === 'string' ? payload.currentSha256 : null;
+    this.currentRevisionId = typeof payload.currentRevisionId === 'string' ? payload.currentRevisionId : null;
+    this.baseRevisionId = typeof payload.baseRevisionId === 'string' ? payload.baseRevisionId : null;
+    this.currentStats = isFileStats(payload.currentStats) ? payload.currentStats : null;
+    this.activeLock = payload.activeLock ?? null;
+  }
 }
 
 export interface DeleteWorkspacePathsResult {
@@ -60,6 +94,19 @@ function describeNonJsonResponse(response: Response, fallbackMessage: string, bo
   return `${fallbackMessage}${formatResponseStatus(response)}: server returned ${responseKind} instead of JSON. Please retry when the server is responsive.`;
 }
 
+function isFileStats(value: unknown): value is FileStats {
+  return Boolean(
+    value &&
+    typeof value === 'object' &&
+    'size' in value &&
+    typeof value.size === 'number' &&
+    'modified' in value &&
+    typeof value.modified === 'number' &&
+    'permissions' in value &&
+    typeof value.permissions === 'string',
+  );
+}
+
 function getActiveWorkspaceId(): string | null {
   return useWorkspaceStore.getState().activeWorkspaceId;
 }
@@ -103,17 +150,40 @@ export async function readApiJson<T>(response: Response, fallbackMessage: string
 export async function readApiError(response: Response, fallbackMessage: string) {
   try {
     const payload = await readApiJson<ApiErrorPayload>(response, fallbackMessage);
-    if (typeof payload.error === 'string' && payload.error.trim()) {
-      return payload.error;
-    }
-    if (typeof payload.message === 'string' && payload.message.trim()) {
-      return payload.message;
-    }
+    return apiErrorMessage(response, fallbackMessage, payload);
   } catch (error) {
     if (error instanceof Error) return error.message;
   }
 
   return `${fallbackMessage}${formatResponseStatus(response)}`;
+}
+
+function apiErrorMessage(response: Response, fallbackMessage: string, payload: ApiErrorPayload) {
+  if (typeof payload.error === 'string' && payload.error.trim()) {
+    return payload.error;
+  }
+  if (typeof payload.message === 'string' && payload.message.trim()) {
+    return payload.message;
+  }
+  return `${fallbackMessage}${formatResponseStatus(response)}`;
+}
+
+async function readWorkspaceFileApiError(response: Response, fallbackMessage: string) {
+  try {
+    const payload = await readApiJson<ApiErrorPayload>(response, fallbackMessage);
+    return new WorkspaceFileApiError(apiErrorMessage(response, fallbackMessage, payload), response, payload);
+  } catch (error) {
+    if (error instanceof Error) {
+      return new WorkspaceFileApiError(error.message, response);
+    }
+    return new WorkspaceFileApiError(`${fallbackMessage}${formatResponseStatus(response)}`, response);
+  }
+}
+
+export function isWorkspaceFileRevisionConflictError(error: unknown): error is WorkspaceFileApiError {
+  return error instanceof WorkspaceFileApiError &&
+    error.status === 409 &&
+    (error.code === 'FILE_REVISION_CONFLICT' || error.code === 'FILE_REVISION_ID_CONFLICT');
 }
 
 export async function loadWorkspaceTree(
@@ -183,7 +253,7 @@ export async function writeWorkspaceFile(
   });
 
   if (!response.ok) {
-    throw new Error(await readApiError(response, 'Failed to save file'));
+    throw await readWorkspaceFileApiError(response, 'Failed to save file');
   }
 
   const { data } = await readApiJson<{ data: WriteWorkspaceFileResult }>(response, 'Failed to save file');
