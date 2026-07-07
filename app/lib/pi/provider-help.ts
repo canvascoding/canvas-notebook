@@ -63,16 +63,14 @@ export const PROVIDER_HELP: Record<string, ProviderHelpInfo> = {
   anthropic: {
     category: 'api-key',
     title: 'Anthropic',
-    shortDescription: 'Anthropic Claude API (API Key or OAuth)',
-    supportsBothAuthMethods: true,
+    shortDescription: 'Anthropic Claude API (API Key)',
     setupSteps: [
-      'Choose your preferred authentication method below',
-      'For API Key: Get your key from https://console.anthropic.com/',
-      'For OAuth: Click "Connect Account" and complete the OAuth flow',
+      'Get your API key from https://console.anthropic.com/',
+      'Add the key to Agent Environment settings',
       'Save and verify the provider status',
     ],
     envVars: [
-      { name: 'ANTHROPIC_API_KEY', description: 'Your Anthropic API key (if using API Key method)', scope: 'agents', required: false },
+      { name: 'ANTHROPIC_API_KEY', description: 'Your Anthropic API key', scope: 'agents', required: true },
     ],
     documentationUrl: 'https://docs.anthropic.com/',
   },
@@ -267,20 +265,19 @@ export const PROVIDER_HELP: Record<string, ProviderHelpInfo> = {
   // OAuth/CLI Providers - Now using PI OAuth
   'openai-codex': {
     category: 'oauth-cli',
-    title: 'OpenAI Codex',
-    shortDescription: 'OpenAI Codex via PI OAuth (requires ChatGPT Plus/Pro)',
+    title: 'OpenAI Codex (ChatGPT Login)',
+    shortDescription: 'OpenAI Codex via ChatGPT subscription OAuth (requires eligible ChatGPT plan)',
     setupSteps: [
       'Click "Connect Account" in the OAuth section',
-      'Select OpenAI Codex from the dropdown',
-      'Open the authorization URL in your browser',
-      'Login with your OpenAI account (ChatGPT Plus/Pro required)',
-      'Copy the authorization code and paste it in the dialog',
-      'Click "Complete Connection" to finish',
+      'Open the device-code URL in your browser',
+      'Enter the displayed code and complete login with your ChatGPT account',
+      'Keep the dialog open while Canvas waits for PI to finish the token exchange',
     ],
     notes: [
-      'Requires active ChatGPT Plus or Pro subscription',
-      'OAuth authentication is handled securely via PI',
-      'Credentials are stored encrypted in /data/settings/',
+      'Use the regular OpenAI provider with OPENAI_API_KEY for OpenAI API billing',
+      'This provider is for Codex subscription-style access through ChatGPT login',
+      'Canvas uses pi-ai provider-owned OAuth so the device-code flow works in headless/container setups',
+      'Credentials are stored in the user-scoped Canvas settings area',
       'Token refresh is automatic',
     ],
     documentationUrl: 'https://github.com/openai/codex',
@@ -528,7 +525,7 @@ export function supportsBothAuthMethods(providerId: string): boolean {
 export type AuthMethodCategory = 'api-key' | 'oauth' | 'self-hosted' | 'cloud-infra';
 
 export function getVisibleOAuthProviders(): string[] {
-  return ['anthropic', 'openai-codex'];
+  return ['openai-codex'];
 }
 
 export function getApiKeyProviders(): string[] {

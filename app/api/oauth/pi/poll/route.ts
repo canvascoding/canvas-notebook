@@ -57,6 +57,8 @@ export async function GET(request: NextRequest) {
         status: state.status,
         authUrl: state.authUrl,
         instructions: state.instructions,
+        deviceCode: state.deviceCode,
+        selectedOption: state.selectedOption,
         hasCredentials: Boolean(state.hasCredentials),
         error: state.error,
       });

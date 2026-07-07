@@ -53,8 +53,11 @@ export async function resolvePiApiKey(
     }
   }
   
-  // If it's an OAuth-only provider (not dual-support), try OAuth first
-  if (isOAuth && !supportsBoth) {
+  // If it's an OAuth-only provider (not dual-support), try OAuth first.
+  // Anthropic's Claude account OAuth remains available in pi-ai for legacy CLI
+  // use, but Canvas should resolve Anthropic through ANTHROPIC_API_KEY.
+  const isOAuthOnlyProvider = isOAuth && !supportsBoth && providerId !== 'anthropic';
+  if (isOAuthOnlyProvider) {
     const result = await getProviderApiKey(providerId as OAuthProviderId, storageScope);
     return result?.apiKey;
   }

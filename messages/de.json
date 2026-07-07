@@ -3174,8 +3174,8 @@
         },
         "oauth": {
           "title": "OAuth Login",
-          "description": "Melde dich mit deinem bestehenden Konto oder Abo an. Nur bei ausgewählten Providern verfügbar.",
-          "providers": "Anthropic, OpenAI Codex"
+          "description": "Melde dich mit einem unterstützten Subscription-Login an. Nur bei ausgewählten Providern verfügbar.",
+          "providers": "OpenAI Codex"
         },
         "selfHosted": {
           "title": "Self-Hosted",
@@ -3272,6 +3272,10 @@
         "waitingForUrlDescription": "Das kann ein paar Sekunden dauern",
         "step1Label": "Schritt 1: Autorisierungs-URL öffnen",
         "step1Description": "Klicke auf den Button, um die Autorisierungsseite zu öffnen:",
+        "deviceCodeStepLabel": "Schritt 1: Device-Code-Seite öffnen",
+        "deviceCodeStepDescription": "Öffne die Seite und gib dort den angezeigten Code ein:",
+        "deviceCodeLabel": "Device Code",
+        "deviceCodeWaiting": "Warte auf Bestätigung durch den Provider. Lass dieses Fenster geöffnet.",
         "copyUrl": "URL kopieren",
         "openInNewTab": "In neuem Tab öffnen",
         "instructions": "Anleitung:",

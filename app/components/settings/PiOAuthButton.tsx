@@ -40,6 +40,7 @@ export function PiOAuthButton({ onStatusChange, activeProviderId }: PiOAuthButto
   const [flowId, setFlowId] = useState('');
   const [authUrl, setAuthUrl] = useState('');
   const [instructions, setInstructions] = useState('');
+  const [deviceCode, setDeviceCode] = useState('');
   const [code, setCode] = useState('');
   const [providers, setProviders] = useState<OAuthStatus[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -85,6 +86,7 @@ export function PiOAuthButton({ onStatusChange, activeProviderId }: PiOAuthButto
     setFlowId('');
     setAuthUrl('');
     setInstructions('');
+    setDeviceCode('');
     flowProviderRef.current = null;
     setIsPolling(false);
     setPendingMessage(null);
@@ -157,14 +159,13 @@ export function PiOAuthButton({ onStatusChange, activeProviderId }: PiOAuthButto
           if (data.authUrl) {
             setAuthUrl(data.authUrl);
             setInstructions(data.instructions || '');
+            setDeviceCode(data.deviceCode || '');
             setIsPolling(false);
             authUrlResolved = true;
             if (timeoutId) {
               clearTimeout(timeoutId);
               timeoutId = null;
             }
-            
-
           }
 
           if (data.status === 'completed' && data.hasCredentials) {
@@ -241,6 +242,7 @@ export function PiOAuthButton({ onStatusChange, activeProviderId }: PiOAuthButto
     setPendingMessage(null);
     setAuthUrl('');
     setInstructions('');
+    setDeviceCode('');
     setCode('');
     setFlowId('');
     completedFlowRef.current = null;
@@ -268,6 +270,7 @@ export function PiOAuthButton({ onStatusChange, activeProviderId }: PiOAuthButto
       if (data.authUrl) {
         setAuthUrl(data.authUrl);
         setInstructions(data.instructions || '');
+        setDeviceCode(data.deviceCode || '');
         setIsPolling(false);
       }
     } catch (err) {
@@ -371,6 +374,7 @@ export function PiOAuthButton({ onStatusChange, activeProviderId }: PiOAuthButto
   const availableProviders = visibleProviders.filter(p => !p.connected);
   const connectedProviders = visibleProviders.filter(p => p.connected);
   const canConnect = activeProviderId ? availableProviders.length > 0 : Boolean(selectedProvider);
+  const isDeviceCodeFlow = Boolean(deviceCode);
 
   return (
     <div className="space-y-4">
@@ -523,9 +527,11 @@ export function PiOAuthButton({ onStatusChange, activeProviderId }: PiOAuthButto
             {/* Auth URL */}
             {authUrl && (
               <div className="space-y-2">
-                <label className="text-sm font-medium">{t('oauth.dialog.step1Label')}</label>
+                <label className="text-sm font-medium">
+                  {isDeviceCodeFlow ? t('oauth.dialog.deviceCodeStepLabel') : t('oauth.dialog.step1Label')}
+                </label>
                 <p className="text-xs text-muted-foreground">
-                  {t('oauth.dialog.step1Description')}
+                  {isDeviceCodeFlow ? t('oauth.dialog.deviceCodeStepDescription') : t('oauth.dialog.step1Description')}
                 </p>
                 <div className="flex gap-2">
                   <Input
@@ -558,6 +564,18 @@ export function PiOAuthButton({ onStatusChange, activeProviderId }: PiOAuthButto
               </div>
             )}
 
+            {deviceCode && (
+              <div className="space-y-2">
+                <label className="text-sm font-medium">{t('oauth.dialog.deviceCodeLabel')}</label>
+                <Input
+                  value={deviceCode}
+                  readOnly
+                  className="font-mono text-lg font-semibold tracking-wider"
+                  data-testid="pi-oauth-device-code"
+                />
+              </div>
+            )}
+
             {/* Instructions */}
             {instructions && (
               <div className="rounded-lg bg-blue-50 border border-blue-200 p-4 text-sm">
@@ -566,8 +584,8 @@ export function PiOAuthButton({ onStatusChange, activeProviderId }: PiOAuthButto
               </div>
             )}
 
-            {/* Code Input - Always show when authUrl is available */}
-            {authUrl && (
+            {/* Code Input - only needed for browser/callback flows */}
+            {authUrl && !isDeviceCodeFlow && (
               <div className="space-y-2">
                 <label className="text-sm font-medium">{t('oauth.dialog.step2Label')}</label>
                 <p className="text-xs text-muted-foreground">
@@ -583,6 +601,13 @@ export function PiOAuthButton({ onStatusChange, activeProviderId }: PiOAuthButto
               </div>
             )}
 
+            {authUrl && isDeviceCodeFlow && (
+              <div className="flex items-center gap-3 rounded-lg border border-border bg-muted/30 p-3 text-sm text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin text-primary" />
+                <span>{t('oauth.dialog.deviceCodeWaiting')}</span>
+              </div>
+            )}
+
             {error && (
               <div className="rounded-lg bg-destructive/10 border border-destructive/30 p-3 text-sm text-destructive">
                 {error}
@@ -595,19 +620,21 @@ export function PiOAuthButton({ onStatusChange, activeProviderId }: PiOAuthButto
               </div>
             )}
 
-            <Button
-              onClick={() => void exchangeCode()}
-              disabled={isLoading || isFinalizing || !authUrl || !code.trim()}
-              className="w-full"
-              data-testid="pi-oauth-complete-button"
-            >
-              {isLoading || isFinalizing ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              ) : (
-                <Link2 className="mr-2 h-4 w-4" />
-              )}
-              {t('oauth.dialog.completeConnection')}
-            </Button>
+            {!isDeviceCodeFlow && (
+              <Button
+                onClick={() => void exchangeCode()}
+                disabled={isLoading || isFinalizing || !authUrl || !code.trim()}
+                className="w-full"
+                data-testid="pi-oauth-complete-button"
+              >
+                {isLoading || isFinalizing ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <Link2 className="mr-2 h-4 w-4" />
+                )}
+                {t('oauth.dialog.completeConnection')}
+              </Button>
+            )}
           </div>
         </DialogContent>
       </Dialog>

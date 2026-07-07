@@ -12,15 +12,12 @@ import {
   type UserScopedDataStorageScope,
 } from '@/app/lib/runtime-data-paths';
 import {
-  loginAnthropic,
-  loginOpenAICodex,
-  loginGitHubCopilot,
-  refreshOAuthToken,
-  getOAuthApiKey,
+  getOAuthProvider,
   type OAuthProviderId,
   type OAuthCredentials,
   type OAuthDeviceCodeInfo,
   type OAuthPrompt,
+  type OAuthSelectPrompt,
 } from '@earendil-works/pi-ai/oauth';
 
 export type { OAuthCredentials, OAuthProviderId, OAuthPrompt };
@@ -37,10 +34,14 @@ export const PI_OAUTH_PROVIDERS: OAuthProviderId[] = [
   'github-copilot',
 ];
 
+export const PI_VISIBLE_OAUTH_PROVIDERS: OAuthProviderId[] = [
+  'openai-codex',
+];
+
 // Provider display names – dynamic lookup for providers registered at runtime
 export const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
-  'anthropic': 'Anthropic (Claude)',
-  'openai-codex': 'OpenAI Codex',
+  'anthropic': 'Anthropic (Claude legacy OAuth)',
+  'openai-codex': 'OpenAI Codex (ChatGPT Login)',
   'github-copilot': 'GitHub Copilot',
 };
 
@@ -53,6 +54,15 @@ interface AuthFile {
 export type AuthUrlCallback = (url: string, instructions?: string) => void;
 export type PromptCallback = (message: string) => Promise<string>;
 export type ProgressCallback = (message: string) => void;
+
+function selectDefaultOAuthOption(provider: OAuthProviderId, prompt: OAuthSelectPrompt): string | undefined {
+  if (provider === 'openai-codex') {
+    return prompt.options.find((option) => option.id === 'device_code')?.id
+      ?? prompt.options.find((option) => option.id === 'browser')?.id;
+  }
+
+  return prompt.options[0]?.id;
+}
 
 function formatDeviceCodeInstructions(info: OAuthDeviceCodeInfo): string {
   const details = [`Enter code: ${info.userCode}`];
@@ -213,49 +223,27 @@ export async function initiateOAuthLogin(
   onPrompt: PromptCallback,
   onProgress?: ProgressCallback
 ): Promise<OAuthCredentials> {
-  switch (provider) {
-    case 'anthropic': {
-      return await loginAnthropic({
-        onAuth: (info: { url: string; instructions?: string }) => {
-          onAuthUrl(info.url, info.instructions);
-        },
-        onPrompt: async (prompt) => {
-          return await onPrompt(prompt.message);
-        },
-        onManualCodeInput: async () => {
-          return await onPrompt('If automatic callback failed, paste the redirect URL here');
-        },
-        onProgress: onProgress,
-      });
-    }
-    
-     case 'openai-codex': {
-      return await loginOpenAICodex({
-        onAuth: (info: { url: string; instructions?: string }) => {
-          onAuthUrl(info.url, info.instructions);
-        },
-        onPrompt: async (prompt: OAuthPrompt) => {
-          return await onPrompt(prompt.message);
-        },
-        onProgress: onProgress || (() => {}),
-      });
-    }
-    
-    case 'github-copilot': {
-      return await loginGitHubCopilot({
-        onDeviceCode: (info) => {
-          onAuthUrl(info.verificationUri, formatDeviceCodeInstructions(info));
-        },
-        onPrompt: async (prompt) => {
-          return await onPrompt(prompt.message);
-        },
-        onProgress: onProgress || (() => {}),
-      });
-    }
-    
-    default:
-      throw new Error(`Unknown provider: ${provider}`);
+  const oauthProvider = getOAuthProvider(provider);
+  if (!oauthProvider) {
+    throw new Error(`Unknown provider: ${provider}`);
   }
+
+  return await oauthProvider.login({
+    onAuth: (info) => {
+      onAuthUrl(info.url, info.instructions);
+    },
+    onDeviceCode: (info) => {
+      onAuthUrl(info.verificationUri, formatDeviceCodeInstructions(info));
+    },
+    onPrompt: async (prompt: OAuthPrompt) => {
+      return await onPrompt(prompt.message);
+    },
+    onManualCodeInput: async () => {
+      return await onPrompt('If automatic callback failed, paste the redirect URL here');
+    },
+    onProgress: onProgress || (() => {}),
+    onSelect: async (prompt) => selectDefaultOAuthOption(provider, prompt),
+  });
 }
 
 /**
@@ -269,7 +257,11 @@ export async function refreshProviderToken(
   if (!credentials) return null;
   
   try {
-    const newCreds = await refreshOAuthToken(provider, credentials);
+    const oauthProvider = getOAuthProvider(provider);
+    if (!oauthProvider) {
+      throw new Error(`Unknown provider: ${provider}`);
+    }
+    const newCreds = await oauthProvider.refreshToken(credentials);
     saveProviderCredentials(provider, newCreds, scope);
     return newCreds;
   } catch (error) {
@@ -285,26 +277,30 @@ export async function getProviderApiKey(
   provider: OAuthProviderId,
   scope?: OAuthStorageScope | null,
 ): Promise<{ apiKey: string; credentials: OAuthCredentials } | null> {
-  const auth = loadAuthFile(scope);
-  
-  const result = await getOAuthApiKey(provider, auth);
-  if (!result) return null;
-  
-  // Save refreshed credentials if they changed
-  if (result.newCredentials) {
-    saveProviderCredentials(provider, result.newCredentials, scope);
+  const oauthProvider = getOAuthProvider(provider);
+  if (!oauthProvider) return null;
+
+  let credentials = getProviderCredentials(provider, scope);
+  if (!credentials) return null;
+
+  if (credentials.expires && credentials.expires < Date.now() + 5 * 60 * 1000) {
+    credentials = await refreshProviderToken(provider, scope);
+    if (!credentials) return null;
   }
   
   return {
-    apiKey: result.apiKey,
-    credentials: result.newCredentials || getProviderCredentials(provider, scope)!,
+    apiKey: oauthProvider.getApiKey(credentials),
+    credentials,
   };
 }
 
 /**
  * Get status for all providers
  */
-export function getAllProviderStatus(scope?: OAuthStorageScope | null): Array<{
+export function getAllProviderStatus(
+  scope?: OAuthStorageScope | null,
+  options: { includeHidden?: boolean } = {},
+): Array<{
   provider: OAuthProviderId;
   displayName: string;
   connected: boolean;
@@ -312,7 +308,9 @@ export function getAllProviderStatus(scope?: OAuthStorageScope | null): Array<{
 }> {
   const auth = loadAuthFile(scope);
   
-  return PI_OAUTH_PROVIDERS.map((provider) => {
+  const providers = options.includeHidden ? PI_OAUTH_PROVIDERS : PI_VISIBLE_OAUTH_PROVIDERS;
+
+  return providers.map((provider) => {
     const creds = auth[provider];
     const isConnected = hasProviderCredentials(provider, scope);
     

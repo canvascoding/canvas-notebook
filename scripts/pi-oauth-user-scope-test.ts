@@ -32,14 +32,11 @@ async function main() {
   moduleInternals._load = (request, parent, isMain) => {
     if (request === '@earendil-works/pi-ai/oauth') {
       return {
-        loginAnthropic: async () => ({ access: 'unused-anthropic' }),
-        loginOpenAICodex: async () => ({ access: 'unused-codex' }),
-        loginGitHubCopilot: async () => ({ access: 'unused-copilot' }),
-        refreshOAuthToken: async (_provider: string, credentials: MockCredentials) => credentials,
-        getOAuthApiKey: async (provider: string, auth: Record<string, MockCredentials>) => {
-          const credentials = auth[provider];
-          return credentials?.access ? { apiKey: credentials.access } : null;
-        },
+        getOAuthProvider: () => ({
+          login: async () => ({ access: 'unused-oauth' }),
+          refreshToken: async (credentials: MockCredentials) => credentials,
+          getApiKey: (credentials: MockCredentials) => credentials.access,
+        }),
       };
     }
     return originalLoad(request, parent, isMain);

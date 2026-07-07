@@ -170,11 +170,15 @@ export async function POST(request: NextRequest) {
     // Read the state file to get the auth URL
     let authUrl = '';
     let instructions = '';
+    let deviceCode = '';
+    let selectedOption = '';
     try {
       const stateContent = await readFile(stateFile, 'utf-8');
       const state = JSON.parse(stateContent);
       authUrl = state.authUrl || '';
       instructions = state.instructions || '';
+      deviceCode = state.deviceCode || '';
+      selectedOption = state.selectedOption || '';
     } catch {
       // State file might not be ready yet
     }
@@ -186,8 +190,12 @@ export async function POST(request: NextRequest) {
       displayName: PROVIDER_DISPLAY_NAMES[provider],
       authUrl,
       instructions,
+      deviceCode,
+      selectedOption,
       message: authUrl 
-        ? 'Please open the URL in your browser, then paste the authorization code or callback URL below'
+        ? deviceCode
+          ? 'Please open the device-code URL and enter the displayed code'
+          : 'Please open the URL in your browser, then paste the authorization code or callback URL below'
         : 'Waiting for OAuth flow to start...',
     });
   } catch (error) {
@@ -205,19 +213,24 @@ export async function POST(request: NextRequest) {
  * deployments do not stall waiting for an unreachable localhost callback.
  */
 function generateOAuthScript(provider: string, flowId: string, stateFile: string, tempAuthPath: string): string {
-  const loginFn = getLoginFunctionName(provider);
+  const providerLiteral = JSON.stringify(provider);
   const stateFileLiteral = JSON.stringify(stateFile);
   const tempAuthPathLiteral = JSON.stringify(tempAuthPath);
   
   // Different providers have different signatures:
-  // - anthropic: loginAnthropic({ onAuth, onPrompt, onProgress, onManualCodeInput })
-  // - openai-codex: loginOpenAICodex({ onAuth, onPrompt, onProgress, onManualCodeInput })
-  // - github-copilot: loginGitHubCopilot({ onDeviceCode, onPrompt, onProgress })
-  // All use options-based API now
+  // Use the provider registry API so provider-owned flows such as OpenAI Codex
+  // device-code login remain available as pi-ai evolves.
   
   return `
 import fs from 'fs';
-import { ${loginFn} } from '@earendil-works/pi-ai/oauth';
+import { getOAuthProvider } from '@earendil-works/pi-ai/oauth';
+
+const providerId = ${providerLiteral};
+const oauthProvider = getOAuthProvider(providerId);
+
+if (!oauthProvider) {
+  throw new Error('Unknown OAuth provider: ' + providerId);
+}
 
 // Helper to update state
 function updateState(updates) {
@@ -268,6 +281,7 @@ async function run() {
         status: 'auth_url_received', 
         authUrl: url, 
         instructions: instr || '',
+        deviceCode: '',
         updatedAt: Date.now()
       });
     };
@@ -331,7 +345,9 @@ async function run() {
     };
 
     const handleSelect = async (prompt) => {
-      const selected = prompt.options?.[0]?.id;
+      const selected = providerId === 'openai-codex'
+        ? (prompt.options?.find((option) => option.id === 'device_code')?.id || prompt.options?.[0]?.id)
+        : prompt.options?.[0]?.id;
       console.log('SELECT:', prompt.message, selected);
       updateState({
         selectedOption: selected,
@@ -342,8 +358,7 @@ async function run() {
     };
 
     let credentials;
-    // ${provider} uses options object
-    credentials = await ${loginFn}({
+    credentials = await oauthProvider.login({
       onAuth: handleAuthUrl,
       onDeviceCode: handleDeviceCode,
       onPrompt: handlePromptCode,
@@ -378,13 +393,4 @@ async function run() {
 
 run();
 `;
-}
-
-function getLoginFunctionName(provider: string): string {
-  const map: Record<string, string> = {
-    'anthropic': 'loginAnthropic',
-    'openai-codex': 'loginOpenAICodex',
-    'github-copilot': 'loginGitHubCopilot',
-  };
-  return map[provider] || 'loginAnthropic';
 }

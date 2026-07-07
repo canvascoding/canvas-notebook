@@ -33,7 +33,7 @@ export async function GET(request: NextRequest) {
         );
       }
 
-      const allStatus = getAllProviderStatus({ userId: session.user.id });
+      const allStatus = getAllProviderStatus({ userId: session.user.id }, { includeHidden: true });
       const providerStatus = allStatus.find(p => p.provider === provider);
 
       if (!providerStatus) {
