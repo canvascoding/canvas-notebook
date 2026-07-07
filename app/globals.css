@@ -279,6 +279,109 @@
   animation: chat-streaming-dot 1.05s ease-in-out infinite;
 }
 
+:root {
+  --markdown-code-comment: oklch(0.48 0.024 247);
+  --markdown-code-keyword: oklch(0.43 0.14 288);
+  --markdown-code-string: oklch(0.4 0.11 155);
+  --markdown-code-number: oklch(0.46 0.13 54);
+  --markdown-code-title: oklch(0.42 0.12 235);
+  --markdown-code-attr: oklch(0.43 0.11 28);
+  --markdown-code-meta: oklch(0.48 0.1 310);
+  --markdown-code-deletion-bg: color-mix(in oklab, var(--destructive) 16%, transparent);
+  --markdown-code-addition-bg: color-mix(in oklab, oklch(0.55 0.13 150) 16%, transparent);
+}
+
+.dark {
+  --markdown-code-comment: oklch(0.74 0.025 247);
+  --markdown-code-keyword: oklch(0.78 0.11 292);
+  --markdown-code-string: oklch(0.76 0.11 154);
+  --markdown-code-number: oklch(0.78 0.12 66);
+  --markdown-code-title: oklch(0.78 0.1 232);
+  --markdown-code-attr: oklch(0.78 0.11 32);
+  --markdown-code-meta: oklch(0.78 0.11 315);
+}
+
+.markdown-code-block pre code {
+  display: block;
+  min-width: max-content;
+  background: transparent !important;
+  padding: 0 !important;
+  color: inherit;
+  font-family: var(--font-mono);
+  white-space: pre;
+}
+
+.markdown-code-block .hljs {
+  background: transparent;
+  color: inherit;
+}
+
+.markdown-code-block .hljs-comment,
+.markdown-code-block .hljs-quote {
+  color: var(--markdown-code-comment);
+  font-style: italic;
+}
+
+.markdown-code-block .hljs-keyword,
+.markdown-code-block .hljs-selector-tag,
+.markdown-code-block .hljs-subst,
+.markdown-code-block .hljs-built_in,
+.markdown-code-block .hljs-builtin-name,
+.markdown-code-block .hljs-name {
+  color: var(--markdown-code-keyword);
+}
+
+.markdown-code-block .hljs-string,
+.markdown-code-block .hljs-doctag,
+.markdown-code-block .hljs-regexp,
+.markdown-code-block .hljs-link {
+  color: var(--markdown-code-string);
+}
+
+.markdown-code-block .hljs-number,
+.markdown-code-block .hljs-literal,
+.markdown-code-block .hljs-variable,
+.markdown-code-block .hljs-template-variable {
+  color: var(--markdown-code-number);
+}
+
+.markdown-code-block .hljs-title,
+.markdown-code-block .hljs-section,
+.markdown-code-block .hljs-selector-id,
+.markdown-code-block .hljs-type,
+.markdown-code-block .hljs-class .hljs-title {
+  color: var(--markdown-code-title);
+  font-weight: 600;
+}
+
+.markdown-code-block .hljs-attr,
+.markdown-code-block .hljs-attribute,
+.markdown-code-block .hljs-tag {
+  color: var(--markdown-code-attr);
+}
+
+.markdown-code-block .hljs-meta,
+.markdown-code-block .hljs-symbol,
+.markdown-code-block .hljs-bullet {
+  color: var(--markdown-code-meta);
+}
+
+.markdown-code-block .hljs-deletion {
+  background: var(--markdown-code-deletion-bg);
+}
+
+.markdown-code-block .hljs-addition {
+  background: var(--markdown-code-addition-bg);
+}
+
+.markdown-code-block .hljs-emphasis {
+  font-style: italic;
+}
+
+.markdown-code-block .hljs-strong {
+  font-weight: 700;
+}
+
 /* Prose table styles for markdown content */
 .prose table {
   width: 100%;
