@@ -14,6 +14,7 @@ import { useTranslations } from 'next-intl';
 import { usePathname, useRouter } from '@/i18n/navigation';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { dispatchOpenChatSession } from '@/app/lib/chat/open-chat-session-event';
 
 interface WebSocketProviderProps {
   children: React.ReactNode;
@@ -75,6 +76,20 @@ function truncateText(value: string | null | undefined, maxLength: number): stri
   }
 
   return `${normalized.slice(0, maxLength - 1).trimEnd()}…`;
+}
+
+function pushCurrentChatSessionState(sessionId: string) {
+  if (typeof window === 'undefined') return;
+
+  const url = new URL(window.location.href);
+  url.searchParams.set('session', sessionId);
+  url.searchParams.set('chat', 'open');
+
+  const nextPath = `${url.pathname}?${url.searchParams.toString()}${url.hash}`;
+  const currentPath = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+  if (nextPath !== currentPath) {
+    window.history.pushState({ sessionId, chat: 'open' }, '', nextPath);
+  }
 }
 
 const toastHeadingClass = 'block font-semibold leading-snug text-foreground';
@@ -299,6 +314,10 @@ export function WebSocketProvider({ children, enabled = true }: WebSocketProvide
             action: {
               label: t('openSession'),
               onClick: () => {
+                if (dispatchOpenChatSession(sessionId, 'notification')) {
+                  pushCurrentChatSessionState(sessionId);
+                  return;
+                }
                 router.push(targetPath);
               },
             },

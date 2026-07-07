@@ -17,6 +17,11 @@ import { AppLauncher } from '@/app/components/AppLauncher';
 import { NotificationBell } from '@/app/components/notifications/NotificationBell';
 import { ThemeToggle } from '@/app/components/ThemeToggle';
 import { HintProvider } from '@/app/components/onboarding/HintProvider';
+import {
+  getOpenChatSessionEventSessionId,
+  markOpenChatSessionEventHandled,
+  OPEN_CHAT_SESSION_EVENT,
+} from '@/app/lib/chat/open-chat-session-event';
 import type { ChatRequestContext } from '@/app/lib/chat/types';
 import { Button } from '@/components/ui/button';
 import {
@@ -235,19 +240,21 @@ export function ChatDockShell({
     }, 0);
 
     const handleOpenChatSession = (event: Event) => {
-      const sessionId = (event as CustomEvent<{ sessionId?: unknown }>).detail?.sessionId;
-      applySession(typeof sessionId === 'string' ? sessionId : null);
+      const sessionId = getOpenChatSessionEventSessionId(event);
+      if (!sessionId) return;
+      markOpenChatSessionEventHandled(event);
+      applySession(sessionId);
     };
 
     const handlePopState = () => {
       applySession(getRequestedChatSessionFromLocation());
     };
 
-    window.addEventListener('canvas:open-chat-session', handleOpenChatSession);
+    window.addEventListener(OPEN_CHAT_SESSION_EVENT, handleOpenChatSession);
     window.addEventListener('popstate', handlePopState);
     return () => {
       window.clearTimeout(handleInitialLocation);
-      window.removeEventListener('canvas:open-chat-session', handleOpenChatSession);
+      window.removeEventListener(OPEN_CHAT_SESSION_EVENT, handleOpenChatSession);
       window.removeEventListener('popstate', handlePopState);
     };
   }, []);

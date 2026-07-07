@@ -49,6 +49,11 @@ import { useEditorStore } from '@/app/store/editor-store';
 import { WORKSPACE_CHANGED_EVENT } from '@/app/store/workspace-store';
 import { FileWatcherProvider } from '@/app/hooks/FileWatcherContext';
 import { CANVAS_CHAT_INITIAL_PROMPT_STORAGE_KEY } from '@/app/lib/chat/constants';
+import {
+  getOpenChatSessionEventSessionId,
+  markOpenChatSessionEventHandled,
+  OPEN_CHAT_SESSION_EVENT,
+} from '@/app/lib/chat/open-chat-session-event';
 import { WORKSPACE_FILE_OPENED_EVENT } from '@/app/lib/files/workspace-file-events';
 
 
@@ -197,6 +202,8 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
   const [mobileExplorerOpen, setMobileExplorerOpen] = useState(false);
   const [mobileChatOpen, setMobileChatOpen] = useState(false);
   const [mobileChatMounted, setMobileChatMounted] = useState(false);
+  const [forcedChatSessionId, setForcedChatSessionId] = useState<string | null>(null);
+  const [chatOpenRequestId, setChatOpenRequestId] = useState(0);
   const desktopSidebarRef = useRef<HTMLDivElement | null>(null);
   const desktopMainPanelRef = useRef<HTMLDivElement | null>(null);
   const desktopChatWrapperRef = useRef<HTMLDivElement | null>(null);
@@ -242,6 +249,11 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
     setMobileChatMounted(true);
     setMobileExplorerOpen(false);
     setMobileChatOpen(true);
+  }, []);
+
+  const applyForcedChatSession = useCallback((sessionId: string) => {
+    setForcedChatSessionId(sessionId);
+    setChatOpenRequestId((current) => current + 1);
   }, []);
 
   const toggleMobileChat = useCallback(() => {
@@ -363,6 +375,36 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
       });
     }
   }, [openDesktopSideChat, openMobileChat, openNotebookFile, searchParams, viewportMode]);
+
+  useEffect(() => {
+    const handleOpenChatSession = (event: Event) => {
+      const sessionId = getOpenChatSessionEventSessionId(event);
+      if (!sessionId) return;
+      markOpenChatSessionEventHandled(event);
+      applyForcedChatSession(sessionId);
+    };
+
+    window.addEventListener(OPEN_CHAT_SESSION_EVENT, handleOpenChatSession);
+    return () => {
+      window.removeEventListener(OPEN_CHAT_SESSION_EVENT, handleOpenChatSession);
+    };
+  }, [applyForcedChatSession]);
+
+  useEffect(() => {
+    if (!forcedChatSessionId || viewportMode === null) return;
+
+    const handle = window.setTimeout(() => {
+      setChatVisible(true);
+      if (viewportMode === 'mobile') {
+        openMobileChat();
+        return;
+      }
+
+      setDesktopChatMode('side');
+    }, 0);
+
+    return () => window.clearTimeout(handle);
+  }, [chatOpenRequestId, forcedChatSessionId, openMobileChat, viewportMode]);
 
   useEffect(() => {
     if (viewportMode === null || initialNotebookStateResolvedRef.current) return;
@@ -980,6 +1022,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
                 <CanvasAgentChat
                   initialPromptStorageKey={CANVAS_CHAT_INITIAL_PROMPT_STORAGE_KEY}
                   hideNavHeader={true}
+                  forcedSessionId={forcedChatSessionId}
                   isSurfaceVisible={mobileChatOpen}
                 />
               </div>
@@ -1075,6 +1118,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
                       <CanvasAgentChat
                         initialPromptStorageKey={CANVAS_CHAT_INITIAL_PROMPT_STORAGE_KEY}
                         hideNavHeader={true}
+                        forcedSessionId={forcedChatSessionId}
                         isSurfaceVisible={chatVisible}
                       />
                     </div>
