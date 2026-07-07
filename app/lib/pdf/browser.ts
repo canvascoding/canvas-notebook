@@ -25,6 +25,7 @@ export async function getBrowser(): Promise<Browser> {
     executablePath: launchSpec.executablePath,
     headless: launchSpec.headless,
     args: launchSpec.args,
+    pipe: launchSpec.pipe,
     defaultViewport: { width: 1280, height: 900 },
   });
 

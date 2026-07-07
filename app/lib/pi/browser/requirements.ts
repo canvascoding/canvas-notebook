@@ -116,6 +116,7 @@ export async function runBrowserLaunchProbe(): Promise<BrowserLaunchProbeStatus>
       executablePath: launchSpec.executablePath,
       headless: launchSpec.headless,
       args: launchSpec.args,
+      pipe: launchSpec.pipe,
       defaultViewport: { width: 640, height: 480 },
     });
     return {

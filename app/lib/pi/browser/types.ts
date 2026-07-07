@@ -107,6 +107,9 @@ export type BrowserProfileDetails = {
   profileKey: string;
   sessionKey: string;
   userDataDir: string;
+  workspaceId?: string | null;
+  workspaceType?: string | null;
+  organizationId?: string | null;
   profileDirExists: boolean;
   running: boolean;
   activeSessionCount: number;

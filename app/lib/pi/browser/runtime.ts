@@ -21,6 +21,9 @@ export type BrowserRuntimeContext = {
   userId?: string | null;
   agentId?: string | null;
   sessionId?: string | null;
+  workspaceId?: string | null;
+  workspaceType?: string | null;
+  organizationId?: string | null;
 };
 
 type BrowserProfileState = {
@@ -42,6 +45,17 @@ type BrowserSessionState = {
 };
 
 const browserProfiles = new Map<string, BrowserProfileState>();
+const CHROME_PROFILE_STARTUP_ARTIFACTS = [
+  'SingletonLock',
+  'SingletonSocket',
+  'SingletonCookie',
+  'DevToolsActivePort',
+] as const;
+
+export type BrowserProfileLaunchPreparation = {
+  removedArtifacts: string[];
+  skippedActiveSingletonLock: boolean;
+};
 
 type ConsoleMessageLike = {
   type(): string;
@@ -93,8 +107,27 @@ function getSessionScope(context: BrowserRuntimeContext = {}): string {
   return sanitizeScopeValue(context.sessionId?.trim() || 'shared', 'shared');
 }
 
+function getWorkspaceScope(context: BrowserRuntimeContext = {}): string | null {
+  const workspaceId = context.workspaceId?.trim();
+  if (!workspaceId) {
+    return null;
+  }
+  return `ws-${sanitizeScopeValue(workspaceId, 'workspace')}`;
+}
+
+function appendWorkspaceScope(scopes: string[], context: BrowserRuntimeContext = {}): string[] {
+  const workspaceScope = getWorkspaceScope(context);
+  if (workspaceScope) {
+    scopes.push(workspaceScope);
+  }
+  return scopes;
+}
+
 function getSessionKey(context: BrowserRuntimeContext = {}): string {
-  return `${getUserScope(context)}__${getAgentScope(context)}__${getSessionScope(context)}`;
+  return appendWorkspaceScope([
+    getUserScope(context),
+    getAgentScope(context),
+  ], context).concat(getSessionScope(context)).join('__');
 }
 
 function getProfileKey(context: BrowserRuntimeContext = {}): string {
@@ -104,12 +137,12 @@ function getProfileKey(context: BrowserRuntimeContext = {}): string {
 
   switch (getBrowserProfileScope()) {
     case 'session':
-      return `${userId}__${agentId}__${sessionId}`;
+      return appendWorkspaceScope([userId, agentId], context).concat(sessionId).join('__');
     case 'user':
-      return `${userId}`;
+      return appendWorkspaceScope([userId], context).join('__');
     case 'agent':
     default:
-      return `${userId}__${agentId}`;
+      return appendWorkspaceScope([userId, agentId], context).join('__');
   }
 }
 
@@ -135,6 +168,96 @@ function createSessionState(): BrowserSessionState {
 function getProfileUserDataDir(context: BrowserRuntimeContext = {}): string {
   const profileRoot = resolveBrowserUserDataDir(process.env, existsSync, getProfileKey(context));
   return requirePathInside(profileRoot, '.');
+}
+
+function errorCode(error: unknown): string | null {
+  return error && typeof error === 'object' && 'code' in error && typeof error.code === 'string'
+    ? error.code
+    : null;
+}
+
+function processExists(pid: number): boolean {
+  if (!Number.isFinite(pid) || pid <= 0) {
+    return false;
+  }
+
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return errorCode(error) === 'EPERM';
+  }
+}
+
+function parseChromeSingletonPid(value: string): number | null {
+  const match = /(?:^|[-_])(\d+)$/u.exec(path.basename(value.trim()));
+  if (!match) {
+    return null;
+  }
+
+  const pid = Number(match[1]);
+  return Number.isSafeInteger(pid) && pid > 0 ? pid : null;
+}
+
+async function isStaleSingletonLock(lockPath: string): Promise<{ stale: boolean; activePid: number | null }> {
+  let stat: Awaited<ReturnType<typeof fs.lstat>>;
+  try {
+    stat = await fs.lstat(lockPath);
+  } catch (error) {
+    if (errorCode(error) === 'ENOENT') {
+      return { stale: false, activePid: null };
+    }
+    throw error;
+  }
+
+  let lockReference = '';
+  if (stat.isSymbolicLink()) {
+    lockReference = await fs.readlink(lockPath).catch(() => '');
+  } else if (stat.isFile()) {
+    lockReference = await fs.readFile(lockPath, 'utf8').catch(() => '');
+  }
+
+  const pid = parseChromeSingletonPid(lockReference);
+  if (pid && processExists(pid)) {
+    return { stale: false, activePid: pid };
+  }
+
+  return { stale: true, activePid: pid };
+}
+
+async function removeProfileArtifact(userDataDir: string, artifact: string): Promise<boolean> {
+  const artifactPath = requirePathInside(userDataDir, artifact);
+  try {
+    await fs.rm(artifactPath, { recursive: true, force: true });
+    return true;
+  } catch (error) {
+    if (errorCode(error) === 'ENOENT') {
+      return false;
+    }
+    throw error;
+  }
+}
+
+export async function prepareBrowserProfileForLaunch(userDataDir: string): Promise<BrowserProfileLaunchPreparation> {
+  await fs.mkdir(userDataDir, { recursive: true });
+  const removedArtifacts: string[] = [];
+  const singletonLockPath = requirePathInside(userDataDir, 'SingletonLock');
+  const singletonLock = await isStaleSingletonLock(singletonLockPath);
+
+  if (singletonLock.stale) {
+    for (const artifact of CHROME_PROFILE_STARTUP_ARTIFACTS) {
+      if (await removeProfileArtifact(userDataDir, artifact)) {
+        removedArtifacts.push(artifact);
+      }
+    }
+  } else if (!singletonLock.activePid && await removeProfileArtifact(userDataDir, 'DevToolsActivePort')) {
+    removedArtifacts.push('DevToolsActivePort');
+  }
+
+  return {
+    removedArtifacts,
+    skippedActiveSingletonLock: Boolean(singletonLock.activePid && !singletonLock.stale),
+  };
 }
 
 function getOrCreateProfileState(context: BrowserRuntimeContext = {}): BrowserProfileState {
@@ -285,12 +408,19 @@ async function ensureBrowser(context: BrowserRuntimeContext = {}): Promise<Brows
 
   const userDataDir = getProfileUserDataDir(context);
   const launchSpec = buildBrowserLaunchSpec({ userDataDir });
-  await fs.mkdir(launchSpec.userDataDir, { recursive: true });
+  const preparation = await prepareBrowserProfileForLaunch(launchSpec.userDataDir);
+  if (preparation.removedArtifacts.length > 0) {
+    console.info('[BrowserRuntime] Removed stale Chromium profile startup artifacts before launch:', {
+      profileKey: getProfileKey(context),
+      removedArtifacts: preparation.removedArtifacts,
+    });
+  }
 
   profile.launchPromise = puppeteer.launch({
     executablePath: launchSpec.executablePath,
     headless: launchSpec.headless,
     args: launchSpec.args,
+    pipe: launchSpec.pipe,
     defaultViewport: { width: 1280, height: 800 },
   }).then((launchedBrowser) => {
     profile.browser = launchedBrowser;
@@ -448,6 +578,9 @@ export async function getBrowserProfileDetails(context: BrowserRuntimeContext = 
     profileKey,
     sessionKey,
     userDataDir,
+    workspaceId: context.workspaceId ?? null,
+    workspaceType: context.workspaceType ?? null,
+    organizationId: context.organizationId ?? null,
     profileDirExists: existsSync(userDataDir),
     running,
     activeSessionCount: profile?.sessions.size ?? 0,

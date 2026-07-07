@@ -1,5 +1,9 @@
 import assert from 'node:assert/strict';
+import { existsSync } from 'node:fs';
+import { lstat, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import Module from 'node:module';
+import os from 'node:os';
+import path from 'node:path';
 
 import {
   buildBrowserLaunchSpec,
@@ -15,6 +19,17 @@ function makeExistsSync(existingPaths: string[]) {
 
 function makeEnv(values: Record<string, string>): NodeJS.ProcessEnv {
   return values as NodeJS.ProcessEnv;
+}
+
+async function pathEntryExists(filePath: string): Promise<boolean> {
+  return lstat(filePath)
+    .then(() => true)
+    .catch((error: unknown) => {
+      if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') {
+        return false;
+      }
+      throw error;
+    });
 }
 
 function testEnvOverrideWins() {
@@ -102,6 +117,8 @@ function testContainerLaunchFlags() {
   assert.ok(spec.args.includes('--headless=new'));
   assert.ok(spec.args.includes('--no-sandbox'));
   assert.ok(spec.args.includes('--disable-dev-shm-usage'));
+  assert.ok(spec.args.includes('--disable-crashpad'));
+  assert.equal(spec.pipe, true);
   assert.equal(spec.userDataDir, '/data/cache/browser-runtime');
 }
 
@@ -121,6 +138,7 @@ function testDesktopVisibleLaunch() {
 
   assert.equal(spec.headless, false);
   assert.ok(!spec.args.includes('--headless=new'));
+  assert.equal(spec.pipe, true);
   assert.equal(spec.userDataDir, '/tmp/canvas-data/cache/browser-runtime');
 }
 
@@ -142,6 +160,7 @@ function testForcedHeadlessLaunch() {
   assert.equal(spec.headless, true);
   assert.ok(spec.args.includes('--headless=new'));
   assert.ok(spec.args.includes('--no-sandbox'));
+  assert.equal(spec.pipe, true);
 }
 
 function testSessionUserDataDir() {
@@ -173,7 +192,7 @@ function testLaunchSpecUsesResolvedUserDataDirFlag() {
   assert.ok(!spec.args.includes('--user-data-dir=undefined'));
 }
 
-async function testRuntimeProfileKeys() {
+async function importBrowserRuntime() {
   const moduleInternals = Module as typeof Module & {
     _load: (request: string, parent: NodeModule | null, isMain: boolean) => unknown;
   };
@@ -185,12 +204,20 @@ async function testRuntimeProfileKeys() {
     return originalLoad(request, parent, isMain);
   };
 
+  try {
+    return await import('../app/lib/pi/browser/runtime');
+  } finally {
+    moduleInternals._load = originalLoad;
+  }
+}
+
+async function testRuntimeProfileKeys() {
   const originalProfileScope = process.env.CANVAS_BROWSER_PROFILE_SCOPE;
   try {
     const {
       getBrowserProfileContextKey,
       getBrowserRuntimeContextKey,
-    } = await import('../app/lib/pi/browser/runtime');
+    } = await importBrowserRuntime();
 
     delete process.env.CANVAS_BROWSER_PROFILE_SCOPE;
     const sessionA = { userId: 'User 1', agentId: 'Agent:Main', sessionId: 'Sess A' };
@@ -201,13 +228,60 @@ async function testRuntimeProfileKeys() {
 
     process.env.CANVAS_BROWSER_PROFILE_SCOPE = 'session';
     assert.equal(getBrowserProfileContextKey(sessionA), getBrowserRuntimeContextKey(sessionA));
+
+    delete process.env.CANVAS_BROWSER_PROFILE_SCOPE;
+    const teamWorkspace = { ...sessionA, workspaceId: 'Team Workspace 1' };
+    const personalWorkspace = { ...sessionA, workspaceId: 'Personal Workspace 1' };
+    assert.equal(getBrowserProfileContextKey(teamWorkspace), 'user-1__agent-main__ws-team-workspace-1');
+    assert.notEqual(getBrowserProfileContextKey(teamWorkspace), getBrowserProfileContextKey(personalWorkspace));
+    assert.notEqual(
+      getBrowserRuntimeContextKey({ ...teamWorkspace, userId: 'User 2' }),
+      getBrowserRuntimeContextKey(teamWorkspace),
+    );
   } finally {
     if (originalProfileScope === undefined) {
       delete process.env.CANVAS_BROWSER_PROFILE_SCOPE;
     } else {
       process.env.CANVAS_BROWSER_PROFILE_SCOPE = originalProfileScope;
     }
-    moduleInternals._load = originalLoad;
+  }
+}
+
+async function testStaleProfileArtifactsAreCleanedBeforeLaunch() {
+  const { prepareBrowserProfileForLaunch } = await importBrowserRuntime();
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'canvas-browser-profile-test-'));
+  try {
+    await symlink(`${os.hostname()}-999999999`, path.join(dir, 'SingletonLock'));
+    await symlink('/tmp/missing-canvas-browser-socket', path.join(dir, 'SingletonSocket'));
+    await symlink('stale-cookie', path.join(dir, 'SingletonCookie'));
+    await writeFile(path.join(dir, 'DevToolsActivePort'), '12345\n');
+
+    const result = await prepareBrowserProfileForLaunch(dir);
+    assert.deepEqual(
+      new Set(result.removedArtifacts),
+      new Set(['SingletonLock', 'SingletonSocket', 'SingletonCookie', 'DevToolsActivePort']),
+    );
+    assert.equal(existsSync(path.join(dir, 'SingletonLock')), false);
+    assert.equal(existsSync(path.join(dir, 'DevToolsActivePort')), false);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
+async function testActiveProfileLockIsPreserved() {
+  const { prepareBrowserProfileForLaunch } = await importBrowserRuntime();
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'canvas-browser-profile-test-'));
+  try {
+    await symlink(`${os.hostname()}-${process.pid}`, path.join(dir, 'SingletonLock'));
+    await writeFile(path.join(dir, 'DevToolsActivePort'), '12345\n');
+
+    const result = await prepareBrowserProfileForLaunch(dir);
+    assert.equal(result.skippedActiveSingletonLock, true);
+    assert.deepEqual(result.removedArtifacts, []);
+    assert.equal(await pathEntryExists(path.join(dir, 'SingletonLock')), true);
+    assert.equal(existsSync(path.join(dir, 'DevToolsActivePort')), true);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
   }
 }
 
@@ -223,6 +297,8 @@ async function main() {
   testSessionUserDataDir();
   testLaunchSpecUsesResolvedUserDataDirFlag();
   await testRuntimeProfileKeys();
+  await testStaleProfileArtifactsAreCleanedBeforeLaunch();
+  await testActiveProfileLockIsPreserved();
 
   console.log('browser-runtime-test: ok');
 }

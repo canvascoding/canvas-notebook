@@ -143,9 +143,19 @@ function assertBashCommandAllowed(command: string): void {
 }
 
 function wrapToolWithExecutionContext(tool: AgentTool, context: AgentExecutionContext): AgentTool {
-  const execute = tool.execute;
+  const scopedTool = tool.name === 'browser'
+    ? createBrowserGatewayTool({
+        userId: context.userId,
+        agentId: normalizeManagedAgentId(context.agentId),
+        sessionId: context.sessionId,
+        workspaceId: context.workspaceId,
+        workspaceType: context.workspaceType,
+        organizationId: context.organizationId,
+      })
+    : tool;
+  const execute = scopedTool.execute;
   return {
-    ...tool,
+    ...scopedTool,
     execute: (toolCallId, params, signal) => runWithAgentExecutionContext(
       context,
       () => execute(toolCallId, params, signal),

@@ -50,6 +50,7 @@ export type BrowserLaunchSpec = {
   userDataDir: string;
   args: string[];
   headless: boolean;
+  pipe: boolean;
   runtime: BrowserRuntimeMode;
 };
 
@@ -303,6 +304,9 @@ export function buildBrowserLaunchSpec({
     '--no-first-run',
     '--no-default-browser-check',
     '--disable-background-networking',
+    '--disable-breakpad',
+    '--disable-crash-reporter',
+    '--disable-crashpad',
     '--disable-sync',
     '--metrics-recording-only',
   ];
@@ -325,6 +329,7 @@ export function buildBrowserLaunchSpec({
     userDataDir: resolvedUserDataDir,
     args,
     headless,
+    pipe: true,
     runtime,
   };
 }
