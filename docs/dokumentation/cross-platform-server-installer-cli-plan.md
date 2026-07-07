@@ -46,6 +46,18 @@ cli/
 - Tests auf Windows und macOS Runners
 - Optionaler Linux-Hybrid fuer das portable CLI im bestehenden Bash-Installer
 
+### Stand 2026-07-07
+
+Der aktuelle Stand bleibt bewusst zweigleisig:
+
+- **Linux/VPS Production:** Der bestehende Bash-Installer und die bestehende Bash-CLI bleiben der produktive Pfad. `install.sh` installiert weiterhin `/usr/local/bin/canvas-notebook` aus `install/bin/canvas-notebook` mit den vorhandenen Linux-Funktionen fuer systemd, Auto-Update, Caddy, Swap, Config-Migrationen und Control-Plane-Kompatibilitaet.
+- **macOS/Windows Desktop-Server:** Die neue TypeScript-CLI ist die portable Management-Schicht fuer lokale Docker-Desktop-Installationen. Die Remote-Installer `install/macos.sh` und `install/windows.ps1` laden das Release-Bundle `canvas-notebook-cli.tar.gz`, pruefen `canvas-notebook-cli.sha256`, installieren einen User-local Wrapper und rufen danach die TypeScript-CLI auf.
+- **Release-Asset:** `portable-cli.yml` veroeffentlicht das CLI-Bundle und die SHA256-Datei als GitHub Release Assets. Damit koennen die Remote-Installer ohne Repository-Checkout funktionieren.
+- **PowerShell-Pruefung:** Der Windows-Installer kann mit `pwsh` auf macOS syntaktisch geparst werden. Das prueft nur PowerShell-Syntax; Windows-spezifisches Verhalten wie `winget`, `schtasks.exe`, `wsl.exe`, Docker Desktop mit WSL2 und User-PATH muss weiterhin auf Windows getestet werden.
+- **Noch nicht bewiesen:** Ein echter End-to-End-Lauf auf macOS und Windows mit Docker Desktop, Service-Installation, Wrapper-Aufruf `canvas-notebook`, Container-Start, Health-Check, Admin-Reset und Update-Flow steht noch aus.
+
+Aktuelle Entscheidung: Es gibt keine sofortige Linux-Umstellung auf die TypeScript-CLI. Die TypeScript-CLI ist fuer Linux vorbereitet, aber der Bash-Pfad bleibt stabiler Production-Default, bis macOS/Windows verifiziert sind und Linux-Feature-Parity dokumentiert ist.
+
 ## Ziel
 
 Der Docker-Container soll auf Linux, macOS und Windows per Einzeiler installierbar und verwaltbar sein, ohne die bestehende Linux-Installation zu brechen.
@@ -573,9 +585,19 @@ Damit bleibt die Architektur testbar:
 
 ### Phase 4: Linux-Hybrid (spaeter)
 
+**Status: Ausgesetzt bis Windows/macOS verifiziert und Linux-Parity bewertet ist**
+
 - `install.sh` um optionales portable CLI erweitern (wenn Node verfuegbar)
 - Bash-CLI bleibt als Fallback
 - Keine aktive Umstellung bis Phase 2 + 3 erfolgreich getestet
+
+Linux-Migrationspfad:
+
+1. Bash-CLI bleibt `/usr/local/bin/canvas-notebook` und produktiver Default.
+2. TypeScript-CLI wird optional neben der Bash-CLI installierbar, ohne den bestehenden Befehl zu ersetzen.
+3. Feature-Parity gegen Bash dokumentieren: systemd, Auto-Update-Timer, Caddy, Swap, Config-Migrationen, CLI-Update, Logs, Admin, Database-Provider, Control-Plane-Kompatibilitaet.
+4. Erst danach kann `install.sh` zum reinen Bootstrapper werden und die TypeScript-CLI als kanonische Management-Schicht installieren.
+5. Wenn der neue Pfad stabil ist, kann die Bash-CLI entweder Wrapper bleiben oder als Legacy-Fallback erhalten werden.
 
 ### Phase 5: README + Doku
 
@@ -643,6 +665,28 @@ Damit bleibt die Architektur testbar:
 - lokale Source-Builds als Endnutzer-Default verwenden
 - Linux-Installer sofort ersetzen (Hybrid-Strategie, Bash-CLI bleibt)
 - Auto-Update Scheduled Task / LaunchAgent auf Windows/macOS (nur Start-bei-Login in erster Version)
+
+## Naechste Schritte
+
+1. CI-Syntax-Checks fuer Installer ergaenzen:
+   - `bash -n install/macos.sh`
+   - PowerShell Parsercheck fuer `install/windows.ps1` mit `pwsh`
+   - Tarball-/Checksum-/Extract-Test fuer `dist-portable-cli`
+2. Echte OS-Verifikation:
+   - macOS Apple Silicon mit Docker Desktop
+   - Windows 11 mit Docker Desktop und WSL2
+   - optional macOS Intel, falls Runner oder Hardware verfuegbar ist
+3. End-to-End-Checkliste pro OS:
+   - Remote-Installer per Einzeiler
+   - Node/Docker-Detection und ggf. Auto-Install
+   - `canvas-notebook` Wrapper direkt im Terminal/PowerShell nutzbar
+   - Container startet auf `http://localhost:3456`
+   - `canvas-notebook status`, `health`, `logs`, `update`, `service status`
+   - `admin reset-password --password-stdin`
+4. Linux-Migration erst nach erfolgreicher Desktop-Verifikation vorbereiten:
+   - kein Austausch des produktiven Bash-Pfads
+   - optionaler Parallel-Install der TypeScript-CLI
+   - dokumentierte Parity-Matrix vor jeder Umstellung
 
 ## Ergebnis
 
