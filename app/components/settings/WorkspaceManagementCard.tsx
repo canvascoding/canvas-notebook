@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Loader2, Lock, Plus, RefreshCw, Star, Trash2 } from 'lucide-react';
+import { Loader2, Lock, Plus, RefreshCw, Star, Trash2, Users } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 
 import {
@@ -24,6 +24,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { CreateWorkspaceDialog } from '@/app/components/settings/CreateWorkspaceDialog';
+import { WorkspaceMembersDialog } from '@/app/components/settings/WorkspaceMembersDialog';
 import type { ClientWorkspaceSummary } from '@/app/lib/workspaces/client-types';
 import {
   getWorkspaceKindLabel,
@@ -66,6 +67,7 @@ export function WorkspaceManagementCard({
   const cardRef = useRef<HTMLDivElement | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [createDeeplinkDismissed, setCreateDeeplinkDismissed] = useState(false);
+  const [membersTarget, setMembersTarget] = useState<ClientWorkspaceSummary | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<ClientWorkspaceSummary | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -246,6 +248,18 @@ export function WorkspaceManagementCard({
                       </div>
 
                       <div className="flex items-center justify-end gap-1">
+                        {(workspace.type === 'team' || workspace.type === 'project') && workspace.permissions.canManageWorkspace ? (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="shrink-0"
+                            onClick={() => setMembersTarget(workspace)}
+                          >
+                            <Users data-icon="inline-start" />
+                            {t('members.manageAccess')}
+                          </Button>
+                        ) : null}
                         {deleteBlockKey ? (
                           <Tooltip>
                             <TooltipTrigger asChild>
@@ -272,6 +286,14 @@ export function WorkspaceManagementCard({
         canCreateTeamWorkspace={isAdmin}
         teamFeaturesEnabled={effectiveTeamFeaturesEnabled}
         onCreated={handleCreated}
+      />
+
+      <WorkspaceMembersDialog
+        open={Boolean(membersTarget)}
+        onOpenChange={(open) => {
+          if (!open) setMembersTarget(null);
+        }}
+        workspace={membersTarget}
       />
 
       <AlertDialog open={Boolean(deleteTarget)} onOpenChange={(open) => {

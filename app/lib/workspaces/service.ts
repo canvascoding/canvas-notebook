@@ -7,7 +7,7 @@ import path from 'node:path';
 
 import { resolveWorkspaceDataRoot } from './context';
 import { resolveWorkspacePermissions } from './permissions';
-import type { WorkspaceActor, WorkspaceContext, WorkspaceStatus, WorkspaceType } from './types';
+import type { WorkspaceActor, WorkspaceContext, WorkspaceStatus, WorkspaceType, WorkspaceUserRole } from './types';
 
 export interface WorkspaceRecord {
   id: string;
@@ -29,6 +29,28 @@ export interface DefaultWorkspaceRecords {
   organization: WorkspaceRecord | null;
   /** @deprecated Use organization. Kept temporarily for older call sites. */
   team: WorkspaceRecord | null;
+}
+
+export interface WorkspaceMemberRecord {
+  workspaceId: string;
+  userId: string;
+  name: string | null;
+  email: string | null;
+  role: WorkspaceUserRole;
+  status: WorkspaceStatus;
+  canRead: boolean;
+  canWrite: boolean;
+  canManage: boolean;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface WorkspaceMemberCandidate {
+  userId: string;
+  name: string | null;
+  email: string | null;
+  role: WorkspaceUserRole;
+  status: WorkspaceStatus;
 }
 
 type WorkspaceRow = {
@@ -71,6 +93,28 @@ type TeamWorkspacePermissionRow = {
   can_manage: number;
 };
 
+type WorkspaceMemberRow = {
+  workspace_id: string;
+  user_id: string;
+  name: string | null;
+  email: string | null;
+  role: string;
+  status: string;
+  can_read: number;
+  can_write: number;
+  can_manage: number;
+  created_at: number;
+  updated_at: number;
+};
+
+type WorkspaceMemberCandidateRow = {
+  user_id: string;
+  name: string | null;
+  email: string | null;
+  role: string;
+  status: string;
+};
+
 export type CreateWorkspaceRecordType = 'personal' | 'team' | 'project';
 
 export class WorkspaceOperationError extends Error {
@@ -88,6 +132,11 @@ export class WorkspaceOperationError extends Error {
 function normalizeWorkspaceType(value: string): WorkspaceType {
   if (value === 'organization' || value === 'team' || value === 'project') return value;
   return 'personal';
+}
+
+function normalizeWorkspaceRole(value: string): WorkspaceUserRole {
+  if (value === 'owner' || value === 'admin' || value === 'external') return value;
+  return 'member';
 }
 
 function normalizeWorkspaceStatus(value: string): WorkspaceStatus {
@@ -109,6 +158,32 @@ function rowToWorkspaceRecord(row: WorkspaceRow): WorkspaceRecord {
     isDefault: row.is_default === 1,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+  };
+}
+
+function rowToWorkspaceMemberRecord(row: WorkspaceMemberRow): WorkspaceMemberRecord {
+  return {
+    workspaceId: row.workspace_id,
+    userId: row.user_id,
+    name: row.name,
+    email: row.email,
+    role: normalizeWorkspaceRole(row.role),
+    status: normalizeWorkspaceStatus(row.status),
+    canRead: row.can_read === 1,
+    canWrite: row.can_write === 1,
+    canManage: row.can_manage === 1,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+function rowToWorkspaceMemberCandidate(row: WorkspaceMemberCandidateRow): WorkspaceMemberCandidate {
+  return {
+    userId: row.user_id,
+    name: row.name,
+    email: row.email,
+    role: normalizeWorkspaceRole(row.role),
+    status: normalizeWorkspaceStatus(row.status),
   };
 }
 
@@ -846,4 +921,167 @@ export function deleteWorkspaceRecord(
   const updated = getWorkspaceById(sqlite, record.id);
   if (!updated) throw new WorkspaceOperationError('WORKSPACE_NOT_FOUND', 'Workspace not found.', 404);
   return workspaceContextFromRecord(updated, params.actor, getPermissionRow(sqlite, updated.organizationId, params.actor.userId));
+}
+
+export function listWorkspaceMemberCandidates(
+  sqlite: Database.Database,
+  organizationId: string,
+): WorkspaceMemberCandidate[] {
+  const rows = sqlite.prepare(`
+    SELECT
+      p.user_id,
+      u.name,
+      u.email,
+      p.role,
+      COALESCE(p.status, 'active') AS status
+    FROM organization_user_permissions p
+    LEFT JOIN user u ON u.id = p.user_id
+    WHERE p.organization_id = ?
+      AND COALESCE(p.status, 'active') = 'active'
+      AND p.role != 'external'
+    ORDER BY lower(COALESCE(u.email, u.name, p.user_id)) ASC
+  `).all(organizationId) as WorkspaceMemberCandidateRow[];
+
+  return rows.map(rowToWorkspaceMemberCandidate);
+}
+
+export function listTeamWorkspaceMembers(
+  sqlite: Database.Database,
+  workspaceId: string,
+): WorkspaceMemberRecord[] {
+  const rows = sqlite.prepare(`
+    SELECT
+      m.workspace_id,
+      m.user_id,
+      u.name,
+      u.email,
+      m.role,
+      COALESCE(m.status, 'active') AS status,
+      m.can_read,
+      m.can_write,
+      m.can_manage,
+      m.created_at,
+      m.updated_at
+    FROM canvas_workspace_members m
+    LEFT JOIN user u ON u.id = m.user_id
+    WHERE m.workspace_id = ?
+    ORDER BY m.can_manage DESC, lower(COALESCE(u.email, u.name, m.user_id)) ASC
+  `).all(workspaceId) as WorkspaceMemberRow[];
+
+  return rows.map(rowToWorkspaceMemberRecord);
+}
+
+export function upsertTeamWorkspaceMember(
+  sqlite: Database.Database,
+  params: {
+    actor: WorkspaceActor;
+    organizationId: string;
+    workspaceId: string;
+    userId: unknown;
+    role?: unknown;
+    canRead?: unknown;
+    canWrite?: unknown;
+    canManage?: unknown;
+  },
+): WorkspaceMemberRecord {
+  const record = getWorkspaceById(sqlite, params.workspaceId);
+  if (!record || record.type !== 'team' || record.organizationId !== params.organizationId) {
+    throw new WorkspaceOperationError('WORKSPACE_NOT_FOUND', 'Workspace not found.', 404);
+  }
+
+  const userId = typeof params.userId === 'string' ? params.userId.trim() : '';
+  if (!userId) {
+    throw new WorkspaceOperationError('WORKSPACE_MEMBER_USER_REQUIRED', 'User is required.', 400);
+  }
+  const candidate = sqlite.prepare(`
+    SELECT user_id, role, COALESCE(status, 'active') AS status
+    FROM organization_user_permissions
+    WHERE organization_id = ? AND user_id = ?
+    LIMIT 1
+  `).get(params.organizationId, userId) as { user_id: string; role: string; status: string } | undefined;
+  if (!candidate || candidate.status !== 'active' || candidate.role === 'external') {
+    throw new WorkspaceOperationError('WORKSPACE_MEMBER_NOT_ELIGIBLE', 'User is not an active organization member.', 400);
+  }
+
+  const role = typeof params.role === 'string' ? normalizeWorkspaceRole(params.role) : 'member';
+  const canManage = Boolean(params.canManage);
+  const canWrite = canManage || Boolean(params.canWrite);
+  const canRead = canManage || canWrite || params.canRead !== false;
+  const now = Date.now();
+
+  sqlite.prepare(`
+    INSERT INTO canvas_workspace_members (
+      organization_id, workspace_id, user_id, role, status,
+      can_read, can_write, can_manage, invited_by_user_id, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(workspace_id, user_id) DO UPDATE SET
+      role = excluded.role,
+      status = excluded.status,
+      can_read = excluded.can_read,
+      can_write = excluded.can_write,
+      can_manage = excluded.can_manage,
+      invited_by_user_id = excluded.invited_by_user_id,
+      updated_at = excluded.updated_at
+  `).run(
+    params.organizationId,
+    params.workspaceId,
+    userId,
+    role,
+    canRead ? 1 : 0,
+    canWrite ? 1 : 0,
+    canManage ? 1 : 0,
+    params.actor.userId,
+    now,
+    now,
+  );
+
+  const member = listTeamWorkspaceMembers(sqlite, params.workspaceId).find((item) => item.userId === userId);
+  if (!member) {
+    throw new WorkspaceOperationError('WORKSPACE_MEMBER_UPDATE_FAILED', 'Workspace member update failed.', 500);
+  }
+  return member;
+}
+
+export function removeTeamWorkspaceMember(
+  sqlite: Database.Database,
+  params: {
+    organizationId: string;
+    workspaceId: string;
+    userId: string;
+  },
+): void {
+  const record = getWorkspaceById(sqlite, params.workspaceId);
+  if (!record || record.type !== 'team' || record.organizationId !== params.organizationId) {
+    throw new WorkspaceOperationError('WORKSPACE_NOT_FOUND', 'Workspace not found.', 404);
+  }
+
+  const member = sqlite.prepare(`
+    SELECT can_manage
+    FROM canvas_workspace_members
+    WHERE workspace_id = ? AND user_id = ? AND COALESCE(status, 'active') = 'active'
+    LIMIT 1
+  `).get(params.workspaceId, params.userId) as { can_manage: number } | undefined;
+  if (!member) return;
+
+  if (member.can_manage === 1) {
+    const row = sqlite.prepare(`
+      SELECT COUNT(*) AS count
+      FROM canvas_workspace_members
+      WHERE workspace_id = ?
+        AND COALESCE(status, 'active') = 'active'
+        AND can_manage = 1
+    `).get(params.workspaceId) as { count?: number } | undefined;
+    if (Number(row?.count || 0) <= 1) {
+      throw new WorkspaceOperationError(
+        'WORKSPACE_LAST_MANAGER',
+        'The last workspace manager cannot be removed.',
+        409,
+      );
+    }
+  }
+
+  sqlite.prepare(`
+    DELETE FROM canvas_workspace_members
+    WHERE workspace_id = ? AND user_id = ?
+  `).run(params.workspaceId, params.userId);
 }
