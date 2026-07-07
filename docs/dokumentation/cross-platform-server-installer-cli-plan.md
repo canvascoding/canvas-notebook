@@ -43,12 +43,8 @@ cli/
 
 **Was noch fehlt:**
 
-- Remote-taugliche Install-Skripte (aktuell brauchen `install/windows.ps1` und `install/macos.sh` einen Repo-Checkout)
-- CLI-Bundle als oeffentliches Release-Asset (aktuell nur Workflow-Artifact)
-- Auto-Install von Node.js (winget/brew/apt)
-- Auto-Install von Docker Desktop (winget/brew)
-- Separater Workflow fuer CLI-Build (aktuell im `build-and-push.yml` enthalten oder verlaengert diesen)
 - Tests auf Windows und macOS Runners
+- Optionaler Linux-Hybrid fuer das portable CLI im bestehenden Bash-Installer
 
 ## Ziel
 
@@ -543,15 +539,17 @@ Damit bleibt die Architektur testbar:
 
 ## Migrationsstrategie
 
-### Phase 1: Portable CLI veroeffentlichen (CURRENT)
+### Phase 1: Portable CLI veroeffentlichen
 
-**Status: In Arbeit**
+**Status: Implementiert**
 
 - Portable CLI in GitHub Release als `.tar.gz` veroeffentlichen (`portable-cli.yml` anpassen)
 - `package-portable-cli.mjs` um Tarball-Erzeugung erweitern
 - Download-URL stabilisieren: `github.com/.../releases/latest/download/canvas-notebook-cli.tar.gz`
 
 ### Phase 2: Windows Remote-Installer
+
+**Status: Implementiert, echte Windows-Runner-/Manual-OS-Verifikation ausstehend**
 
 - `install/windows.ps1` als Remote-Installer neu schreiben (keine Repo-Checkout-Abhaengigkeit)
 - Node.js Auto-Install via winget
@@ -562,6 +560,8 @@ Damit bleibt die Architektur testbar:
 - Test auf `windows-latest` GH Actions Runner
 
 ### Phase 3: macOS Remote-Installer
+
+**Status: Implementiert, echte macOS-Runner-/Manual-OS-Verifikation ausstehend**
 
 - `install/macos.sh` als Remote-Installer neu schreiben (keine Repo-Checkout-Abhaengigkeit)
 - Node.js Auto-Install via brew

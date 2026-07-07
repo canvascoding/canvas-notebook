@@ -137,30 +137,36 @@ The CLI runs on the VM host, not inside the app container. It remembers the inst
 
 ### macOS / Windows local Docker server
 
-The desktop app is only a client. To run the Canvas Notebook server locally on macOS or Windows, install Docker Desktop first, then run the platform installer from a repository checkout:
+The desktop app is only a client. To run the Canvas Notebook server locally on macOS or Windows, run the platform installer. It downloads the portable `canvas-notebook` CLI from the latest GitHub release, installs a user-local command wrapper, pulls the pre-built Docker image, starts the server on `http://localhost:3456`, and registers a user-level startup service.
 
 macOS:
 
 ```bash
-git clone https://github.com/canvascoding/canvas-notebook.git
-cd canvas-notebook
-bash install/macos.sh
+curl -fsSL https://raw.githubusercontent.com/canvascoding/canvas-notebook/main/install/macos.sh | bash
 ```
 
 Windows PowerShell:
 
 ```powershell
-git clone https://github.com/canvascoding/canvas-notebook.git
-cd canvas-notebook
-powershell -ExecutionPolicy Bypass -File .\install\windows.ps1
+irm https://raw.githubusercontent.com/canvascoding/canvas-notebook/main/install/windows.ps1 | iex
 ```
 
-The platform installers build the portable `canvas-notebook` CLI, install a user-local command wrapper, pull the pre-built Docker image, start the server on `http://localhost:3456`, and register a user-level startup service:
+The installers can also be run from a repository checkout or from the packaged CLI bundle. By default they use the latest CLI release asset; pin a version for reproducible installs:
+
+```bash
+CANVAS_VERSION=v2026.7.3.2 curl -fsSL https://raw.githubusercontent.com/canvascoding/canvas-notebook/main/install/macos.sh | bash
+```
+
+```powershell
+$env:CANVAS_VERSION = "v2026.7.3.2"; irm https://raw.githubusercontent.com/canvascoding/canvas-notebook/main/install/windows.ps1 | iex
+```
+
+Startup service registration:
 
 - macOS: LaunchAgent
 - Windows: Scheduled Task
 
-Set `CANVAS_INSTALL_SERVICE=false` before running the installer if you want to skip startup service registration.
+Set `CANVAS_INSTALL_SERVICE=false` before running the installer if you want to skip startup service registration. Set `CANVAS_OPEN_BROWSER=false` to skip opening the browser after install.
 
 ---
 
