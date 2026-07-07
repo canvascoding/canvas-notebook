@@ -32,6 +32,14 @@ async function main(): Promise<void> {
     const authModule = await import('../app/lib/auth');
     assert.ok(authModule.auth, 'auth module must remain importable when SQLite is corrupt');
 
+    const { hasAnyAuthUser } = await import('../app/lib/auth-setup');
+    const { isDatabaseUnavailableError } = await import('../app/lib/db/errors');
+    await assert.rejects(
+      () => hasAnyAuthUser(),
+      (error) => isDatabaseUnavailableError(error) && error.code === 'sqlite_unreadable',
+      'auth setup checks must classify unreadable SQLite databases',
+    );
+
     const { jsonDatabaseUnavailable } = await import('../app/lib/api/route-helpers');
     const response = jsonDatabaseUnavailable(initializationError);
     assert.ok(response, 'database unavailable errors must produce a route response');

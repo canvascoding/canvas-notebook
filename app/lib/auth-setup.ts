@@ -8,6 +8,7 @@ import { hashPassword } from 'better-auth/crypto';
 
 import { runMigrations } from '@/app/lib/db/migrate';
 import { openDb } from '@/app/lib/db';
+import { coerceDatabaseUnavailableError } from '@/app/lib/db/errors';
 import {
   getDatabaseProviderProblemMessages,
   getDatabaseProvider,
@@ -108,12 +109,26 @@ function validateInitialOwnerInput(input: unknown): ValidationResult {
 
 function openSetupDatabase() {
   const sqlitePath = getSqlitePath();
-  mkdirSync(path.dirname(sqlitePath), { recursive: true });
-  const sqlite = new Database(sqlitePath);
-  sqlite.pragma('foreign_keys = ON');
-  sqlite.pragma('busy_timeout = 5000');
-  runMigrations(sqlite);
-  return sqlite;
+  let sqlite: Database.Database | null = null;
+
+  try {
+    mkdirSync(path.dirname(sqlitePath), { recursive: true });
+    sqlite = new Database(sqlitePath);
+    sqlite.pragma('foreign_keys = ON');
+    sqlite.pragma('busy_timeout = 5000');
+    runMigrations(sqlite);
+    return sqlite;
+  } catch (error) {
+    sqlite?.close();
+    const unavailableError = coerceDatabaseUnavailableError(error, {
+      provider: 'sqlite',
+      sqlitePath,
+    });
+    if (unavailableError) {
+      throw unavailableError;
+    }
+    throw error;
+  }
 }
 
 function assertSetupDatabaseProviderAllowed(): void {

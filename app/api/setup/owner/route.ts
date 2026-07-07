@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { recordAuditEvent } from '@/app/lib/audit/audit-service';
 import { createInitialOwner, InitialOwnerSetupError } from '@/app/lib/auth-setup';
+import { jsonDatabaseUnavailable } from '@/app/lib/api/route-helpers';
 import { writeOnboardingLog } from '@/app/lib/onboarding/logging';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 
@@ -57,6 +58,12 @@ export async function POST(request: NextRequest) {
         { success: false, code: error.code, error: error.message, field: error.field },
         { status },
       );
+    }
+
+    const databaseUnavailable = jsonDatabaseUnavailable(error);
+    if (databaseUnavailable) {
+      await writeOnboardingLog('error', 'setup-owner.database_unavailable', { error });
+      return databaseUnavailable;
     }
 
     console.error('[setup-owner] Failed to create initial owner:', error);
