@@ -690,7 +690,11 @@ function AppLogo({ app }: { app: TriggerCapableApp }) {
 }
 
 function automationScopeForWorkspace(workspace: Pick<ClientWorkspaceSummary, 'type'> | null | undefined): 'personal' | 'organization' {
-  return workspace?.type === 'team' ? 'organization' : 'personal';
+  return workspace?.type === 'organization' || workspace?.type === 'team' ? 'organization' : 'personal';
+}
+
+function isOrganizationScopedWorkspace(workspace: Pick<ClientWorkspaceSummary, 'type'> | null | undefined): boolean {
+  return workspace?.type === 'organization' || workspace?.type === 'team';
 }
 
 function buildPayload(
@@ -796,7 +800,7 @@ function formatTriggerType(triggerType: AutomationTriggerType, translate: (key: 
 }
 
 function workspaceScopeLabel(workspace: Pick<ClientWorkspaceSummary, 'type'> | null | undefined, translate: (key: string) => string): string {
-  if (workspace?.type === 'team') return translate('workspaceScope.team');
+  if (isOrganizationScopedWorkspace(workspace)) return translate('workspaceScope.team');
   if (workspace?.type === 'project') return translate('workspaceScope.project');
   return translate('workspaceScope.personal');
 }
@@ -1723,7 +1727,7 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
                 : scopeLabel)}
             </span>
             {automationWorkspaces.length > 0 ? (
-              <Badge variant={selectedWorkspace?.type === 'team' ? 'default' : 'secondary'} className="shrink-0">
+              <Badge variant={isOrganizationScopedWorkspace(selectedWorkspace) ? 'default' : 'secondary'} className="shrink-0">
                 {scopeLabel}
               </Badge>
             ) : null}
@@ -1754,7 +1758,7 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
               </option>
             ))}
           </select>
-          <Badge variant={selectedWorkspace?.type === 'team' ? 'default' : 'secondary'} className="h-10 justify-center px-3">
+          <Badge variant={isOrganizationScopedWorkspace(selectedWorkspace) ? 'default' : 'secondary'} className="h-10 justify-center px-3">
             {scopeLabel}
           </Badge>
         </div>
@@ -2095,7 +2099,7 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
                     <Badge variant={selectedJob.status === 'active' ? 'default' : 'secondary'}>{t(`jobStatus.${selectedJob.status}`)}</Badge>
                     <span className="text-muted-foreground">{locale.startsWith('de') ? 'Workspace' : 'Workspace'}</span>
                     <span className="inline-flex min-w-0 max-w-[12rem] justify-end">
-                      <Badge variant={selectedJob.workspaceType === 'team' ? 'default' : 'secondary'} className="truncate">
+                      <Badge variant={selectedJob.workspaceType === 'organization' || selectedJob.workspaceType === 'team' ? 'default' : 'secondary'} className="truncate">
                         {selectedJobWorkspace?.name || selectedJob.workspaceId || workspaceScopeLabel(selectedJobWorkspace || { type: selectedJob.workspaceType }, t)}
                       </Badge>
                     </span>
@@ -2236,7 +2240,7 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
                                   <div className="flex min-w-0 flex-wrap items-center gap-2">
                                     <p className="min-w-0 truncate text-sm font-medium">{job.name}</p>
                                     <Badge variant={job.status === 'active' ? 'default' : 'secondary'} className="shrink-0">{t(`jobStatus.${job.status}`)}</Badge>
-                                    <Badge variant={job.workspaceType === 'team' ? 'default' : 'outline'} className="shrink-0">
+                                    <Badge variant={job.workspaceType === 'organization' || job.workspaceType === 'team' ? 'default' : 'outline'} className="shrink-0">
                                       {workspaceById.get(job.workspaceId || '')?.name || workspaceScopeLabel({ type: job.workspaceType }, t)}
                                     </Badge>
                                   </div>

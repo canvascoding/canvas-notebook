@@ -23,8 +23,8 @@ import {
 import { resolveWorkspacePermissions } from './permissions';
 import type { WorkspaceActor, WorkspaceContext, WorkspaceStatus, WorkspaceType } from './types';
 import {
+  organizationWorkspaceRootRelativePath,
   personalWorkspaceRootRelativePath,
-  teamWorkspaceRootRelativePath,
   workspaceAbsoluteRoot,
 } from './service';
 
@@ -79,6 +79,15 @@ type ProjectPermissionRow = {
   can_manage: number;
 };
 
+type TeamWorkspacePermissionRow = {
+  workspace_id?: string;
+  role: string;
+  status: string;
+  can_read: number;
+  can_write: number;
+  can_manage: number;
+};
+
 type WorkspaceRow = {
   id: string;
   organization_id: string;
@@ -89,6 +98,7 @@ type WorkspaceRow = {
   root_relative_path: string;
   display_name: string;
   status: string;
+  is_default: number;
   created_at: number;
   updated_at: number;
 };
@@ -114,7 +124,7 @@ function normalizeUserStatus(status: string | null | undefined): OrganizationPer
 }
 
 function normalizeWorkspaceType(value: string): WorkspaceType {
-  if (value === 'team' || value === 'project') return value;
+  if (value === 'organization' || value === 'team' || value === 'project') return value;
   return 'personal';
 }
 
@@ -176,6 +186,7 @@ function rowToWorkspaceRecord(row: WorkspaceRow) {
     rootRelativePath: row.root_relative_path,
     displayName: row.display_name,
     status: normalizeWorkspaceStatus(row.status),
+    isDefault: row.is_default === 1,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -380,7 +391,7 @@ async function ensurePermissionRow(
 async function getWorkspaceById(database: RuntimeDb, workspaceId: string) {
   const row = await database.get(
     `
-      SELECT id, organization_id, type, owner_user_id, customer_id, project_id, root_relative_path, display_name, status, created_at, updated_at
+      SELECT id, organization_id, type, owner_user_id, customer_id, project_id, root_relative_path, display_name, status, is_default, created_at, updated_at
       FROM canvas_workspaces
       WHERE id = ?
       LIMIT 1
@@ -394,9 +405,10 @@ async function getWorkspaceById(database: RuntimeDb, workspaceId: string) {
 async function getPersonalWorkspace(database: RuntimeDb, userId: string) {
   const row = await database.get(
     `
-      SELECT id, organization_id, type, owner_user_id, customer_id, project_id, root_relative_path, display_name, status, created_at, updated_at
+      SELECT id, organization_id, type, owner_user_id, customer_id, project_id, root_relative_path, display_name, status, is_default, created_at, updated_at
       FROM canvas_workspaces
       WHERE type = 'personal' AND owner_user_id = ?
+      ORDER BY is_default DESC, created_at ASC
       LIMIT 1
     `,
     [userId],
@@ -405,12 +417,13 @@ async function getPersonalWorkspace(database: RuntimeDb, userId: string) {
   return row ? rowToWorkspaceRecord(row) : null;
 }
 
-async function getTeamWorkspace(database: RuntimeDb, organizationId: string) {
+async function getOrganizationWorkspace(database: RuntimeDb, organizationId: string) {
   const row = await database.get(
     `
-      SELECT id, organization_id, type, owner_user_id, customer_id, project_id, root_relative_path, display_name, status, created_at, updated_at
+      SELECT id, organization_id, type, owner_user_id, customer_id, project_id, root_relative_path, display_name, status, is_default, created_at, updated_at
       FROM canvas_workspaces
-      WHERE type = 'team' AND organization_id = ?
+      WHERE type = 'organization' AND organization_id = ?
+      ORDER BY is_default DESC, created_at ASC
       LIMIT 1
     `,
     [organizationId],
@@ -421,22 +434,25 @@ async function getTeamWorkspace(database: RuntimeDb, organizationId: string) {
 
 async function ensureWorkspaceRecord(database: RuntimeDb, input: {
   organizationId: string;
-  type: 'personal' | 'team';
+  type: 'personal' | 'organization';
   ownerUserId: string | null;
   rootRelativePath: string;
   displayName: string;
+  isDefault?: boolean;
+  preserveExistingRoot?: boolean;
 }) {
   const existing = input.type === 'personal'
     ? await getPersonalWorkspace(database, input.ownerUserId || '')
-    : await getTeamWorkspace(database, input.organizationId);
+    : await getOrganizationWorkspace(database, input.organizationId);
   const now = Date.now();
 
   if (existing) {
+    const nextRootRelativePath = input.preserveExistingRoot ? existing.rootRelativePath : input.rootRelativePath;
     await database.run(
-      'UPDATE canvas_workspaces SET root_relative_path = ?, display_name = ?, updated_at = ? WHERE id = ?',
-      [input.rootRelativePath, input.displayName, now, existing.id],
+      'UPDATE canvas_workspaces SET root_relative_path = ?, display_name = ?, is_default = ?, updated_at = ? WHERE id = ?',
+      [nextRootRelativePath, input.displayName, input.isDefault ? 1 : 0, now, existing.id],
     );
-    ensureWorkspaceDirectory(input.rootRelativePath);
+    ensureWorkspaceDirectory(nextRootRelativePath);
     return await getWorkspaceById(database, existing.id);
   }
 
@@ -444,10 +460,10 @@ async function ensureWorkspaceRecord(database: RuntimeDb, input: {
   await database.run(
     `
       INSERT INTO canvas_workspaces (
-        id, organization_id, type, owner_user_id, root_relative_path, display_name, status, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?)
+        id, organization_id, type, owner_user_id, root_relative_path, display_name, status, is_default, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)
     `,
-    [id, input.organizationId, input.type, input.ownerUserId, input.rootRelativePath, input.displayName, now, now],
+    [id, input.organizationId, input.type, input.ownerUserId, input.rootRelativePath, input.displayName, input.isDefault ? 1 : 0, now, now],
   );
   ensureWorkspaceDirectory(input.rootRelativePath);
   return await getWorkspaceById(database, id);
@@ -457,11 +473,27 @@ function canReadWorkspace(
   record: ReturnType<typeof rowToWorkspaceRecord>,
   actor: WorkspaceActor,
   permission: PermissionRow | null,
+  teamPermission: TeamWorkspacePermissionRow | null = null,
   projectPermission: ProjectPermissionRow | null = null,
 ): boolean {
   if (record.status !== 'active') return false;
   if (record.type === 'personal') return record.ownerUserId === actor.userId;
-  if (record.type === 'team') return Boolean(permission && permission.status === 'active' && permission.role !== 'external');
+  if (record.type === 'organization') {
+    return Boolean(permission && permission.status === 'active' && permission.role !== 'external');
+  }
+  if (record.type === 'team') {
+    if (!permission || permission.status !== 'active' || permission.role === 'external') return false;
+    if (actor.role === 'owner' || actor.role === 'admin') return true;
+    return Boolean(
+      teamPermission?.status === 'active' &&
+      teamPermission.role !== 'external' &&
+      (
+        teamPermission.can_read === 1 ||
+        teamPermission.can_write === 1 ||
+        teamPermission.can_manage === 1
+      )
+    );
+  }
   if (record.type === 'project') {
     if (permission && permission.status !== 'active') return false;
     if ((actor.role === 'owner' || actor.role === 'admin') && permission?.status === 'active') return true;
@@ -475,12 +507,14 @@ function workspaceContextFromRecord(
   record: ReturnType<typeof rowToWorkspaceRecord>,
   actor: WorkspaceActor,
   permission: PermissionRow | null = null,
+  teamPermission: TeamWorkspacePermissionRow | null = null,
   projectPermission: ProjectPermissionRow | null = null,
 ): WorkspaceContext {
   const role = actor.role;
+  const activeInternalOrganizationUser = Boolean(permission && permission.status === 'active' && permission.role !== 'external');
   const ownsPersonalWorkspace = record.type === 'personal' && record.ownerUserId === actor.userId;
-  const canAccessTeamWorkspace = record.type === 'team' && Boolean(permission && permission.status === 'active' && permission.role !== 'external');
-  const canWriteTeamWorkspace = record.type === 'team' && (
+  const canAccessOrganizationWorkspace = record.type === 'organization' && activeInternalOrganizationUser;
+  const canWriteOrganizationWorkspace = record.type === 'organization' && (
     permission?.status === 'active' &&
     (
       role === 'owner' ||
@@ -488,6 +522,10 @@ function workspaceContextFromRecord(
       permission?.can_write_team_workspace === 1
     )
   );
+  const canUseTeamMembership = record.type === 'team' && teamPermission?.status === 'active' && teamPermission.role !== 'external';
+  const canAccessTeamWorkspace = canUseTeamMembership && teamPermission.can_read === 1;
+  const canWriteTeamWorkspace = canUseTeamMembership && teamPermission.can_write === 1;
+  const canManageTeamWorkspace = canUseTeamMembership && teamPermission.can_manage === 1;
   const canUseProjectMembership = record.type === 'project' && projectPermission?.status === 'active';
   const canReadProjectWorkspace = canUseProjectMembership && projectPermission.can_read === 1;
   const canWriteProjectWorkspace = canUseProjectMembership && projectPermission.can_write === 1;
@@ -500,6 +538,7 @@ function workspaceContextFromRecord(
     rootRelativePath: record.rootRelativePath,
     displayName: record.displayName,
     status: record.status,
+    isDefault: record.isDefault,
     actor,
     organizationId: record.organizationId,
     customerId: record.customerId,
@@ -509,8 +548,11 @@ function workspaceContextFromRecord(
       role,
       workspaceType: record.type,
       ownsPersonalWorkspace,
+      canAccessOrganizationWorkspace,
+      canWriteOrganizationWorkspace,
       canAccessTeamWorkspace,
       canWriteTeamWorkspace,
+      canManageTeamWorkspace,
       canReadProjectWorkspace,
       canWriteProjectWorkspace,
       canManageProjectWorkspace,
@@ -541,6 +583,42 @@ async function getProjectPermissionRows(
   return new Map(rows.flatMap((row) => (row.project_id ? [[row.project_id, row]] : [])));
 }
 
+async function getTeamWorkspacePermissionRows(
+  database: RuntimeDb,
+  userId: string,
+  workspaceIds: string[],
+): Promise<Map<string, TeamWorkspacePermissionRow>> {
+  const uniqueWorkspaceIds = Array.from(new Set(workspaceIds.filter(Boolean)));
+  if (uniqueWorkspaceIds.length === 0) return new Map();
+  const placeholders = uniqueWorkspaceIds.map(() => '?').join(', ');
+  const rows = await database.all(
+    `
+      SELECT workspace_id, role, COALESCE(status, 'active') AS status, can_read, can_write, can_manage
+      FROM canvas_workspace_members
+      WHERE user_id = ? AND workspace_id IN (${placeholders})
+    `,
+    [userId, ...uniqueWorkspaceIds],
+  ) as TeamWorkspacePermissionRow[];
+
+  return new Map(rows.flatMap((row) => (row.workspace_id ? [[row.workspace_id, row]] : [])));
+}
+
+async function getTeamWorkspacePermissionRow(
+  database: RuntimeDb,
+  workspaceId: string,
+  userId: string,
+): Promise<TeamWorkspacePermissionRow | null> {
+  return await database.get(
+    `
+      SELECT workspace_id, role, COALESCE(status, 'active') AS status, can_read, can_write, can_manage
+      FROM canvas_workspace_members
+      WHERE workspace_id = ? AND user_id = ?
+      LIMIT 1
+    `,
+    [workspaceId, userId],
+  ) as TeamWorkspacePermissionRow | undefined || null;
+}
+
 async function getProjectPermissionRow(
   database: RuntimeDb,
   organizationId: string,
@@ -566,15 +644,20 @@ async function listWorkspaceContextsForUser(
 ): Promise<WorkspaceContext[]> {
   const rows = await database.all(
     `
-      SELECT id, organization_id, type, owner_user_id, customer_id, project_id, root_relative_path, display_name, status, created_at, updated_at
+      SELECT id, organization_id, type, owner_user_id, customer_id, project_id, root_relative_path, display_name, status, is_default, created_at, updated_at
       FROM canvas_workspaces
       WHERE organization_id = ? AND status = 'active'
         AND (type != 'personal' OR owner_user_id = ?)
-      ORDER BY CASE type WHEN 'personal' THEN 0 WHEN 'team' THEN 1 ELSE 2 END, created_at ASC
+      ORDER BY is_default DESC, CASE type WHEN 'personal' THEN 0 WHEN 'organization' THEN 1 WHEN 'team' THEN 2 ELSE 3 END, created_at ASC
     `,
     [organizationId, actor.userId],
   ) as WorkspaceRow[];
   const permission = await getPermissionRow(database, organizationId, actor.userId);
+  const teamPermissionRows = await getTeamWorkspacePermissionRows(
+    database,
+    actor.userId,
+    rows.flatMap((row) => (row.type === 'team' ? [row.id] : [])),
+  );
   const projectPermissionRows = await getProjectPermissionRows(
     database,
     organizationId,
@@ -586,10 +669,11 @@ async function listWorkspaceContextsForUser(
     .map(rowToWorkspaceRecord)
     .map((record) => ({
       record,
+      teamPermission: record.type === 'team' ? teamPermissionRows.get(record.id) ?? null : null,
       projectPermission: record.projectId ? projectPermissionRows.get(record.projectId) ?? null : null,
     }))
-    .filter(({ record, projectPermission }) => canReadWorkspace(record, actor, permission, projectPermission))
-    .map(({ record, projectPermission }) => workspaceContextFromRecord(record, actor, permission, projectPermission));
+    .filter(({ record, teamPermission, projectPermission }) => canReadWorkspace(record, actor, permission, teamPermission, projectPermission))
+    .map(({ record, teamPermission, projectPermission }) => workspaceContextFromRecord(record, actor, permission, teamPermission, projectPermission));
 }
 
 async function resolveDefaultWorkspaceContext(
@@ -612,9 +696,12 @@ async function resolveWorkspaceContextById(
   const record = await getWorkspaceById(database, workspaceId);
   if (!record) return null;
   const permission = await getPermissionRow(database, record.organizationId, actor.userId);
+  const teamPermission = record.type === 'team'
+    ? await getTeamWorkspacePermissionRow(database, record.id, actor.userId)
+    : null;
   const projectPermission = await getProjectPermissionRow(database, record.organizationId, record.projectId, actor.userId);
-  if (!canReadWorkspace(record, actor, permission, projectPermission)) return null;
-  return workspaceContextFromRecord(record, actor, permission, projectPermission);
+  if (!canReadWorkspace(record, actor, permission, teamPermission, projectPermission)) return null;
+  return workspaceContextFromRecord(record, actor, permission, teamPermission, projectPermission);
 }
 
 function buildStatus(
@@ -647,7 +734,7 @@ function buildStatus(
       userSettings: ownerUserId ? path.join(dataRoot, 'users', ownerUserId, 'settings') : null,
       userSecrets: ownerUserId ? path.join(dataRoot, 'users', ownerUserId, 'secrets') : null,
       organizationRoot: organizationId ? path.join(dataRoot, 'organizations', organizationId) : null,
-      teamWorkspace: teamFeaturesEnabled && organizationId ? path.join(dataRoot, teamWorkspaceRootRelativePath(organizationId)) : null,
+      teamWorkspace: teamFeaturesEnabled && organizationId ? path.join(dataRoot, organizationWorkspaceRootRelativePath(organizationId)) : null,
       systemBackups: path.join(dataRoot, 'system', 'backups'),
     },
     warnings,
@@ -728,14 +815,17 @@ export async function ensurePostgresOrganizationBootstrapForUser(
     ownerUserId: ownerUser.id,
     rootRelativePath: personalWorkspaceRootRelativePath(ownerUser.id),
     displayName: 'Personal Workspace',
+    isDefault: true,
   });
   if (teamFeaturesEnabled) {
     await ensureWorkspaceRecord(database, {
       organizationId: organization.organization_id,
-      type: 'team',
+      type: 'organization',
       ownerUserId: null,
-      rootRelativePath: teamWorkspaceRootRelativePath(organization.organization_id),
-      displayName: 'Team Workspace',
+      rootRelativePath: organizationWorkspaceRootRelativePath(organization.organization_id),
+      displayName: 'Organization Workspace',
+      isDefault: true,
+      preserveExistingRoot: true,
     });
   }
   if (targetUser.id !== ownerUser.id) {
@@ -745,6 +835,7 @@ export async function ensurePostgresOrganizationBootstrapForUser(
       ownerUserId: targetUser.id,
       rootRelativePath: personalWorkspaceRootRelativePath(targetUser.id),
       displayName: 'Personal Workspace',
+      isDefault: true,
     });
   }
 

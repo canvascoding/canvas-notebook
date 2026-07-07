@@ -23,7 +23,7 @@ import { useWorkspaceStore } from '@/app/store/workspace-store';
 interface PublicShareResult {
   id: string;
   workspaceId?: string | null;
-  workspaceType?: 'personal' | 'team' | 'project' | null;
+  workspaceType?: 'personal' | 'organization' | 'team' | 'project' | null;
   workspaceName?: string | null;
   workspacePath: string;
   fileName: string;

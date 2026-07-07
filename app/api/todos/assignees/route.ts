@@ -35,7 +35,7 @@ export async function GET(request: NextRequest) {
   }
 
   const workspace = workspaceResult.workspace;
-  if (workspace.workspaceType !== 'team') {
+  if (workspace.workspaceType !== 'organization' && workspace.workspaceType !== 'team') {
     const candidate: AssigneeCandidate = {
       id: session.user.id,
       name: session.user.name ?? null,
@@ -46,7 +46,7 @@ export async function GET(request: NextRequest) {
   }
 
   if (!workspace.organizationId) {
-    return NextResponse.json({ success: false, error: 'Team workspace is missing organization scope.' }, { status: 409 });
+    return NextResponse.json({ success: false, error: 'Shared workspace is missing organization scope.' }, { status: 409 });
   }
 
   const candidates = await db

@@ -75,6 +75,7 @@ export function WorkspaceDestinationPicker({
 
   const kindLabels = {
     personal: t('types.personal'),
+    organization: t('types.organization'),
     team: t('types.team'),
     project: t('types.project'),
   } satisfies WorkspaceKindLabels;

@@ -52,7 +52,7 @@ type WorkspaceAccessLabels = {
 
 function getAccessLabel(workspace: ClientWorkspaceSummary, labels: WorkspaceAccessLabels) {
   if (!workspace.permissions.canWrite) return labels.readOnly;
-  if (workspace.type === 'team') return labels.teamWrite;
+  if (workspace.type === 'organization' || workspace.type === 'team') return labels.teamWrite;
   return labels.write;
 }
 
@@ -108,6 +108,7 @@ export function WorkspaceSwitcher({ source, variant = 'default', className }: Wo
   const switchableWorkspaces = getSwitchableWorkspaces(workspaces);
   const kindLabels = {
     personal: t('types.personal'),
+    organization: t('types.organization'),
     team: t('types.team'),
     project: t('types.project'),
   } satisfies WorkspaceKindLabels;

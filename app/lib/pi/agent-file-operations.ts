@@ -368,7 +368,7 @@ function auditWorkspaceMetadata(executionContext: AgentExecutionContext | null) 
 
 function activeWorkspaceRequiresRevisionGuard(): boolean {
   const executionContext = getAgentExecutionContext();
-  return executionContext?.workspaceType === 'team' || executionContext?.workspaceType === 'project';
+  return executionContext?.workspaceType === 'organization' || executionContext?.workspaceType === 'team' || executionContext?.workspaceType === 'project';
 }
 
 function getAgentWorkspaceContext(): WorkspaceContext | null {

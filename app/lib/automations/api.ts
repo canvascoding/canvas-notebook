@@ -53,6 +53,8 @@ export function resolveRequestedAutomationScope(input: unknown): RequestedAutoma
         record.teamAutomation === true ||
         stringField(record, 'scope') === 'team' ||
         stringField(record, 'workspaceScope') === 'team' ||
+        stringField(record, 'workspaceScope') === 'organization' ||
+        stringField(record, 'workspaceType') === 'organization' ||
         stringField(record, 'workspaceType') === 'team'
       ) {
         return 'team';
