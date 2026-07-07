@@ -34,6 +34,8 @@ Die Änderungen wurden aus `origin/main` herausgenommen und liegen auf dem Revie
 - Team-Member-Management ist implementiert: `GET`/`POST /api/workspaces/[id]/members`, `DELETE /api/workspaces/[id]/members/[userId]`, `WorkspaceMembersDialog`, Candidates, Upsert, Remove und letzter-Manager-Schutz.
 - Project-Member-Management ist in denselben Member-Endpunkten implementiert und nutzt `canvas_project_members` mit demselben letzten-Manager-Schutz.
 - Workspace-Typ-Wechsel ist in Service und API umgesetzt (`PATCH /api/workspaces/[id]`) inklusive Root-Move/Rollback und Rechte-Migration zwischen Personal, Team und Project. Die UI aktiviert Personal/Team und Project hinter Feature-Gate.
+- Granulare User-Permissions sind im User-Management umgesetzt: `GET`/`PATCH /api/admin/organization/users/[userId]/permissions`, `PATCH /api/admin/organization/users/[userId]/role`, `UserPermissionsDialog` und serverseitige Mutation-Guards.
+- Die Rolle `external` ist vorbereitet und per `CANVAS_EXTERNAL_USERS_ENABLED` feature-gated; externe Nutzer bekommen serverseitig keine Org-Permissions.
 - SQLite- und Postgres-Runtime wurden für die umgesetzten Workspace-Funktionen erweitert.
 - Relevante i18n-Keys in `messages/de.json` und `messages/en.json` wurden ergänzt.
 
@@ -43,6 +45,7 @@ Die Änderungen wurden aus `origin/main` herausgenommen und liegen auf dem Revie
 - `npm run build` bestanden.
 - `npm run test:workspace:model` bestanden.
 - `npx tsx --conditions react-server scripts/project-customer-model-test.ts` bestanden.
+- `npx tsx --conditions react-server scripts/organization-permission-guards-test.ts` bestanden.
 - `npm run test:workspace:switcher-ui` bestanden.
 - `npm run test:workspace:foundation` bestanden.
 
@@ -50,17 +53,16 @@ Bekannter Prüfstatus: Ein echter Browser-UI-Smoke gegen `localhost:3000` war ni
 
 ### Noch offen
 
-- Granulare Permissions im User-Management-Tab: API für User-Permissions und Rollen, `UserPermissionsDialog`, serverseitige Invarianten.
-- External-User-Verhalten finalisieren und feature-gaten.
+- External-User-Produktverhalten außerhalb der Permission-Rolle finalisieren.
 - Offboarding-Erweiterung für mehrere Personal-Workspaces und Team-Workspace-Manager-Preflight.
 - Restliche Edge-Cases aus Strang H zentralisieren, testen und mit stabilen Error-Codes verdrahten.
-- API-/UI-Tests für den Project-Rollout und die noch offenen Permission-/Offboarding-Flows ergänzen.
+- API-/UI-Tests für den Project-Rollout und die noch offenen Offboarding-Flows ergänzen.
 - Reale UI-/E2E-Prüfung wiederholen, sobald `localhost:3000` gesund läuft.
 
 ### Klärungsbedarf
 
-- Delegationsregel für granulare Permissions: Strang G sagt, Admins können Permissions vergeben; Edge-Case 11 sagt, User können nur Permissions vergeben, die sie selbst besitzen. Für V1 sollte eine Regel festgelegt werden.
-- External-User-Zugriff: Rolle ist vorgesehen, aber erlaubte UI-Aktionen, Workspace-Zugriff und Org-Permissions sind noch nicht final definiert.
+- Delegationsregel für granulare Permissions ist für V1 entschieden: Nur Owner/Admins dürfen mutieren; Admins dürfen keine Permission vergeben, die sie selbst nicht besitzen; Owner dürfen alle Permissions setzen.
+- External-User-Zugriff: Rolle und Org-Permission-Block sind feature-gated umgesetzt, aber erlaubte produktweite UI-Aktionen und Workspace-Zugriff sind noch nicht final definiert.
 - Typ-Wechsel in `organization`: Der Plan beschreibt ihn technisch als machbar, die UI schließt `organization` für manuelle Erstellung aus. Es braucht eine klare Produktentscheidung, ob nicht-default Workspaces überhaupt zu `organization` gewechselt werden dürfen.
 
 ## Ursprüngliche Ausgangslage
@@ -73,7 +75,7 @@ Vor Start der v4-Umsetzung verwaltete die Canvas Notebook App drei Workspace-Typ
 
 Die damalige Logik erzwang "eins pro Scope" über `ensureDefaultWorkspaceRecords` (`app/lib/workspaces/service.ts:230-267`) mit fest codierten Namen (`"Personal Workspace"`, `"Team Workspace"`). Es gab keine API zum Erstellen, Löschen oder Umbenennen von Workspaces (`GET /api/workspaces` war read-only). Der `WorkspaceSwitcher` zeigte nur eine Liste zum Wechseln, ohne Plus-Button. Die Project-Logik in `app/lib/projects/service.ts` war fertig im Service-Layer, aber nicht in API oder UI ausgerollt.
 
-**Permission-Backend vorhanden, UI fehlt:** Die Tabelle `organization_user_permissions` (`migrate.ts:278-305`) mit 12 granularen Rechten existiert. `app/lib/organization/permissions.ts` implementiert `requireOrganizationPermission()` und wird von 30+ API-Routen genutzt. Aber im `UserManagementPanel.tsx` gibt es nur einen Admin/User-Toggle via `authClient.admin.setRole` — die granularen Permissions sind im UI nicht sichtbar oder änderbar. Es gibt keine API, um Permissions pro User zu aktualisieren (nur Bootstrap-Defaults via `bootstrap.ts:314-361` und Offboarding-Reset via `offboarding.ts:762`).
+**Permission-Backend vorhanden, UI fehlte:** Die Tabelle `organization_user_permissions` (`migrate.ts:278-305`) mit 11 granularen Rechten existierte bereits. `app/lib/organization/permissions.ts` implementierte `requireOrganizationPermission()` und wird von 30+ API-Routen genutzt. Neu ist die User-Management-UI samt Permission-/Role-APIs.
 
 **Better Auth Organization Plugin nicht aktiviert:** `app/lib/auth.ts:39-43` nutzt nur `admin()`, `bearer()`, `nextCookies()`. Das `04-auth-roles-model.md` plant das Plugin, aber die Entscheidung in v3 ist: **nicht wechseln** (siehe Entscheidung 7).
 
@@ -103,7 +105,7 @@ Die damalige Logik erzwang "eins pro Scope" über `ensureDefaultWorkspaceRecords
 - **Löschschutz** für Standard-Workspaces wird bereits im Service-Layer erzwungen, nicht erst im UI.
 - **Typ-Wechsel** ist eine transaktionale Operation (Pfad-Migration + Rechte-Migration), in eigenem Service gekapselt.
 - **Multi-Language:** alle neuen UI-Strings in `messages/de.json` und `messages/en.json`, keine hardcoded UI-Texte.
-- **Better Auth Organization Plugin wird nicht aktiviert** — die Canvas-eigene `organization_user_permissions`-Tabelle bleibt die Wahrheit für granulare Permissions. Begründung: Single-Org-Instanz, 12 granulare Felder lassen sich pro-User sauberer pflegen als über Rollen-Statements, 30+ bestehende Guards bleiben unverändert.
+- **Better Auth Organization Plugin wird nicht aktiviert** — die Canvas-eigene `organization_user_permissions`-Tabelle bleibt die Wahrheit für granulare Permissions. Begründung: Single-Org-Instanz, 11 granulare Felder lassen sich pro-User sauberer pflegen als über Rollen-Statements, 30+ bestehende Guards bleiben unverändert.
 - **Edge-Case-Prüfungen** (letzter Admin, letzter Owner, Selbst-Schutz, Bootstrap-Admin) werden serverseitig in den Service-Transaktionen erzwungen, nicht nur im UI.
 
 ## Nicht-Ziele
@@ -604,11 +606,11 @@ Feature-Gate: env `CANVAS_PROJECT_FEATURES_ENABLED`; solange inaktiv, return `40
 
 ## Strang G — Granulare Permissions im User-Management-Tab (neu in v3)
 
-**Status:** offen. Die vorhandene `organization_user_permissions`-Tabelle und Guards werden genutzt, aber es gibt noch keine User-Permissions-API, keine Rollen-PATCH-API und keinen `UserPermissionsDialog`.
+**Status:** umgesetzt. Die vorhandene `organization_user_permissions`-Tabelle und Guards werden genutzt; User-Permissions-API, Rollen-PATCH-API, `UserPermissionsDialog`, Feature-Gate für `external` und zentrale Mutation-Guards sind vorhanden.
 
 ### G1. Konzept
 
-Die Tabelle `organization_user_permissions` (`migrate.ts:278-305`) mit 12 granularen Rechten existiert, wird von 30+ API-Routen via `requireOrganizationPermission` genutzt, ist aber im UI nicht sichtbar oder änderbar. Strang G schliesst diese Lücke.
+Die Tabelle `organization_user_permissions` (`migrate.ts:278-305`) mit 11 granularen Rechten existiert, wird von 30+ API-Routen via `requireOrganizationPermission` genutzt und ist jetzt im User-Management sichtbar und änderbar.
 
 **Drei Rollen** (vereinfacht vom `04-auth-roles-model.md`):
 - `admin` — Vollzugriff auf alle Permissions (Owner ist Admin mit `role='owner'` als Spezialfall, der nicht herabgestuft werden kann).
@@ -617,21 +619,20 @@ Die Tabelle `organization_user_permissions` (`migrate.ts:278-305`) mit 12 granul
 
 **Permission-Änderung ohne Rollen-Wechsel:** Permissions können unabhängig von der Rolle geändert werden. Ein `member` kann `canWriteTeamWorkspace=1` bekommen, ohne `admin` zu werden.
 
-**Delegation:** Admins können Permissions vergeben. Members können keine Permissions vergeben (kein Delegation-Modell in V1).
+**Delegation:** Nur Owner/Admins können Permissions vergeben. Admins können nur Permissions vergeben, die sie selbst besitzen; Owner können alle Permissions setzen. Members können keine Permissions mutieren.
 
 ### G2. Service-Erweiterung
 
-**Datei:** `app/lib/organization/permissions.ts` (neue Funktionen)
+**Datei:** `app/lib/organization/permissions.ts`
 
-- `listOrganizationPermissions(sqlite, organizationId): OrganizationPermissionSnapshot[]`:
-  - Lädt alle `organization_user_permissions` für die Org + join mit `user` für Name/Email.
-- `updateOrganizationPermissions(sqlite, { organizationId, userId, permissions, actorUserId })`:
-  - Aktualisiert die 12 granularen Felder für einen User.
-  - Prüft Edge-Cases (Strang H): letzter Admin, Selbst-Schutz, Bootstrap-Admin, archivierte User.
-  - Invalidiert Session-Cache (Hinweis an Client, sich neu anzumelden oder Cache-Invalidation-Event).
-- `updateOrganizationRole(sqlite, { organizationId, userId, role, actorUserId })`:
+- `getOrganizationUserPermissionDetails(targetUserId, actorUserId?)`:
+  - Lädt den User-Permission-Snapshot mit Name/E-Mail und legt fehlende Permission-Zeilen mit Rollen-Defaults an.
+- `updateOrganizationPermissions({ targetUserId, permissions, actorUserId })`:
+  - Aktualisiert die 11 granularen Felder für einen User.
+  - Prüft Edge-Cases: Owner-Schutz, Bootstrap-Admin, archivierte User, External-ohne-Permissions und Delegation.
+- `updateOrganizationRole({ targetUserId, role, actorUserId, externalUsersEnabled })`:
   - Ändert die Rolle (`admin`/`member`/`external`).
-  - Prüft Edge-Cases (Strang H): letzter Owner, letzter Admin, Selbst-Schutz.
+  - Prüft Edge-Cases: letzter Owner, letzter Admin, Selbst-Schutz, Bootstrap-Admin und External-Feature-Gate.
   - Synchronisiert `user.role` in Better-Auth-Tabelle (für Instanz-Admin-Plugin-Kompatibilität).
 
 ### G3. API
@@ -639,14 +640,14 @@ Die Tabelle `organization_user_permissions` (`migrate.ts:278-305`) mit 12 granul
 **Datei:** `app/api/admin/organization/users/[userId]/permissions/route.ts` (neu)
 
 - `GET /api/admin/organization/users/[userId]/permissions`:
-  - Auth + `requireOrganizationPermission('canRecoverWorkspaces')` oder `owner`/`admin`.
-  - Response: `{ success: true, permissions: {...} }`.
+  - Auth + eigener Snapshot immer erlaubt; fremde Snapshots nur für `owner`/`admin`.
+  - Response: `{ success: true, user, externalUsersEnabled }`.
 
 - `PATCH /api/admin/organization/users/[userId]/permissions`:
   - Body: `{ canWriteTeamWorkspace?, canCreatePublicLinks?, canCreateTeamAutomations?, canSharePluginsAndSkills?, canExport?, canDeleteTeamFiles?, canDeleteStudioAssets?, canManageBackups?, canMigrateDatabase?, canEnableKnowledge?, canRecoverWorkspaces? }` (alle optional, nur angegebene werden aktualisiert).
   - Auth + `owner`/`admin`.
   - Prüft Edge-Cases (Strang H).
-  - Response: `{ success: true, permissions: {...} }` oder Fehler-Payload.
+  - Response: `{ success: true, user }` oder Fehler-Payload.
 
 **Datei:** `app/api/admin/organization/users/[userId]/role/route.ts` (neu)
 
@@ -655,17 +656,17 @@ Die Tabelle `organization_user_permissions` (`migrate.ts:278-305`) mit 12 granul
   - Auth + `owner`/`admin`.
   - Prüft Edge-Cases (Strang H): letzter Owner/Admin, Selbst-Schutz.
   - Synchronisiert `user.role` in Better-Auth.
-  - Response: `{ success: true, role }` oder Fehler-Payload.
+  - Response: `{ success: true, user, externalUsersEnabled }` oder Fehler-Payload.
 
 ### G4. UI — User-Management-Tab mit Permission-Dialog
 
 **Datei:** `app/components/settings/UserManagementPanel.tsx` (erweitern)
 
-- Pro User-Zeile: Klick auf Name/Zeile öffnet **Vollbild-Dialog** (`UserPermissionsDialog.tsx`).
+- Pro User-Zeile: Button **Rechte** öffnet **Vollbild-Dialog** (`UserPermissionsDialog.tsx`).
 - Dialog-Inhalt:
   - User-Info (Name, Email, Rolle, Status, erstellt am)
   - **Rollen-Select** (`admin`/`member`/`external`) — nur für `owner`/`admin` editierbar; `external` hinter Feature-Gate (sonst disabled mit Hinweis).
-  - **Granulare Permissions** als Switches (12 Felder):
+  - **Granulare Permissions** als Switches (11 Felder):
     - `canWriteTeamWorkspace` — "Team-/Org-Workspace schreiben"
     - `canCreatePublicLinks` — "Public Links erstellen"
     - `canCreateTeamAutomations` — "Team-Automationen erstellen"
@@ -730,7 +731,7 @@ Die Tabelle `organization_user_permissions` (`migrate.ts:278-305`) mit 12 granul
 
 ## Strang H — Edge-Cases & Invarianten (neu in v3)
 
-**Status:** teilweise umgesetzt. Default-Delete, Organization-Delete, aktive Automations beim Delete und letzter Team-Workspace-Manager sind serverseitig abgedeckt. Die User-/Org-Permission-Invarianten, Offboarding-Erweiterung, Session-Invalidation und Audit-Log-Zentralisierung sind noch offen.
+**Status:** teilweise umgesetzt. Default-Delete, Organization-Delete, aktive Automations beim Delete, letzter Team-/Project-Workspace-Manager und zentrale Permission-/Role-Mutation-Guards sind serverseitig abgedeckt. Offboarding-Erweiterung, Session-Invalidation und Audit-Log-Zentralisierung sind noch offen.
 
 ### H1. Edge-Case-Liste
 
@@ -799,7 +800,7 @@ Alle Prüfungen erfolgen **serverseitig** in den Service-Transaktionen, nicht nu
 
 ## Strang I — UI-Platzierung: zwei Orte für Permission-Verwaltung (Antwort auf Frage 7)
 
-**Status:** teilweise umgesetzt. Workspace-zentrisches Team-Member-Management ist im Workspace-Tab vorhanden. User-zentrische globale Permission-Verwaltung im User-Management-Tab ist noch offen.
+**Status:** umgesetzt. Workspace-zentrisches Team-/Project-Member-Management ist im Workspace-Tab vorhanden. User-zentrische globale Permission-Verwaltung ist im User-Management-Tab über `UserPermissionsDialog` vorhanden.
 
 ### I1. Konzept
 
@@ -856,10 +857,10 @@ Die bereits erledigten Schritte A/B/C und Team-Member-Verwaltung aus D werden ni
 2. **D abschliessen: Project-Member-Verwaltung** — erledigt: Member-GET/POST/DELETE unterstützt Team- und Project-Workspaces.
 3. **E umsetzen: Workspace-Typ-Wechsel** — erledigt für Personal/Team/Project; `organization` bleibt gesperrt.
 4. **F umsetzen: Project-Rollout** — erledigt hinter Feature-Gate: Project-/Customer-APIs, Project-Dropdowns, Project-Workspace-Erstellung und Project-Member-Rechte.
-5. **G umsetzen: Granulare User-Permissions** — Permission-/Role-APIs, `UserPermissionsDialog`, Rolle `external` sauber feature-gaten.
+5. **G umsetzen: Granulare User-Permissions** — erledigt: Permission-/Role-APIs, `UserPermissionsDialog`, Rolle `external` feature-gated.
 6. **H abschliessen: Edge-Cases & Offboarding** — zentrale Permission-Mutation-Guards, Offboarding-Preflight für Team-Manager, mehrere Personal-Workspaces, Session-Invalidation und Audit-Log.
-7. **I abschliessen: User-zentrische Permission-UI** — Workspace-Tab ist für Team-Members erledigt; User-Management-Tab fehlt.
-8. **Tests erweitern** — API-Tests für Project-Members, Typ-Wechsel, Permission-/Role-Routen, Offboarding-Preflight und Edge-Case-Codes.
+7. **I abschliessen: User-zentrische Permission-UI** — erledigt für User-Management und Workspace-Tab.
+8. **Tests erweitern** — API-Tests für Project-Members, Typ-Wechsel, Offboarding-Preflight und restliche Edge-Case-Codes.
 9. **UI/E2E-Smoke wiederholen** — erst wenn `localhost:3000` gesund ist; keine neuen Dev-Server auf anderen Ports.
 
 Jeder Strang bleibt einzeln buildbar, testbar und separat commitbar. Vor jedem Container-Build `npm run build` laufen lassen.
@@ -874,14 +875,15 @@ Jeder Strang bleibt einzeln buildbar, testbar und separat commitbar. Vor jedem C
 - `app/api/workspaces/[id]/members/[userId]/route.ts` — DELETE für Team- und Project-Members umgesetzt
 - `app/api/projects/route.ts` — Project-API (Feature-Gate)
 - `app/api/customers/route.ts` — Customer-API (Feature-Gate)
+- `app/api/admin/organization/users/[userId]/permissions/route.ts` — GET + PATCH Permissions
+- `app/api/admin/organization/users/[userId]/role/route.ts` — PATCH Role
 - `app/components/settings/CreateWorkspaceDialog.tsx` — umgesetzt
 - `app/components/settings/WorkspaceMembersDialog.tsx` — Team- und Project-Member-Verwaltung umgesetzt
 - `app/components/settings/WorkspaceTypeChangeDialog.tsx` — Typ-Wechsel-Dialog mit Project-Auswahl hinter Feature-Gate
+- `app/components/settings/UserPermissionsDialog.tsx` — Permission-Verwaltung (User-Tab, Vollbild)
 
 ### Neu / noch offen
-- `app/api/admin/organization/users/[userId]/permissions/route.ts` — GET + PATCH Permissions
-- `app/api/admin/organization/users/[userId]/role/route.ts` — PATCH Role
-- `app/components/settings/UserPermissionsDialog.tsx` — Permission-Verwaltung (User-Tab, Vollbild)
+- keine neuen Dateien für Strang G offen
 
 ### Geändert
 - `app/lib/db/migrate.ts` — `is_default`-Spalte, `organization`-Typ, `canvas_workspace_members`-Tabelle, Migration `team`→`organization`
@@ -889,7 +891,8 @@ Jeder Strang bleibt einzeln buildbar, testbar und separat commitbar. Vor jedem C
 - `app/lib/workspaces/service.ts` — Default-Logik, `organization`-Logik, `canDeleteWorkspace`, `deleteWorkspaceRecord`, Team-/Project-Member-Funktionen, `changeWorkspaceType`, `organizationWorkspaceRootRelativePath`
 - `app/lib/workspaces/permissions.ts` — `organization`-Typ in `resolveWorkspacePermissions`
 - `app/lib/workspaces/client-types.ts` — `isDefault` in `ClientWorkspaceSummary`, `organization` in `ClientWorkspaceType`
-- `app/lib/organization/permissions.ts` — `listOrganizationPermissions`, `updateOrganizationPermissions`, `updateOrganizationRole`, Edge-Case-Prüfungen offen
+- `app/lib/organization/permissions.ts` — `getOrganizationUserPermissionDetails`, `updateOrganizationPermissions`, `updateOrganizationRole`, Permission-Mutation-Guards
+- `app/lib/organization/features.ts` — Feature-Gate für `external`-Rolle
 - `app/lib/organization/offboarding.ts` — Preflight-Erweiterung (Team-Workspace-Manager), Apply-Erweiterung (canvas_workspace_members, mehrere Personal-Workspaces) offen
 - `app/lib/projects/service.ts` — Project-/Customer-Listing ergänzt; Member-Verwaltung läuft im Workspace-Service über `canvas_project_members`
 - `app/api/workspaces/route.ts` — POST ergänzen, `serializeWorkspace` um `isDefault`, `organization`-Typ
@@ -897,7 +900,7 @@ Jeder Strang bleibt einzeln buildbar, testbar und separat commitbar. Vor jedem C
 - `app/components/workspaces/WorkspaceSwitcher.tsx` — Plus-Button, Standard-Badge, Lock, organization-Typ
 - `app/components/workspaces/workspace-utils.tsx` — Icon/Label für `organization`
 - `app/components/settings/WorkspaceSettingsPanel.tsx` — Management-Card
-- `app/components/settings/UserManagementPanel.tsx` — Klick auf User öffnet Permission-Dialog offen
+- `app/components/settings/UserManagementPanel.tsx` — Rechte-Dialog angebunden; Rollenwechsel nutzt neue Rollen-API
 - `app/components/settings/IntegrationsSettingsClient.tsx` — `workspaceManagement`-Query-Param
 - `messages/de.json` — neue i18n-Keys
 - `messages/en.json` — neue i18n-Keys
@@ -905,5 +908,5 @@ Jeder Strang bleibt einzeln buildbar, testbar und separat commitbar. Vor jedem C
 ### Tests
 - `scripts/workspace-model-service-test.ts` — erweitert für `is_default`, `organization`-Typ, Create/Delete, Team-/Project-Member-Funktionen und `changeWorkspaceType`
 - `scripts/project-customer-model-test.ts` — Project-/Customer-Listing und Project-Workspace-Erstellung hinter Feature-Gate
-- `scripts/organization-permission-guards-test.ts` — Edge-Case-Tests für letzter Admin, Selbst-Schutz, Bootstrap-Admin usw. offen
+- `scripts/organization-permission-guards-test.ts` — Guard- und Mutation-Tests für Permission-/Role-Service
 - API-Routen-Tests für DELETE/POST/Members/Permissions/Role/PATCH offen

@@ -1729,7 +1729,10 @@
       },
       "roles": {
         "admin": "Admin",
-        "user": "User"
+        "user": "User",
+        "owner": "Owner",
+        "member": "Member",
+        "external": "External"
       },
       "status": {
         "active": "Active",
@@ -1739,6 +1742,7 @@
         "makeAdmin": "Admin",
         "makeUser": "User",
         "password": "Password",
+        "permissions": "Permissions",
         "ban": "Ban",
         "unban": "Unban",
         "delete": "Delete",
@@ -1800,9 +1804,52 @@
           "credentials": "{count} login or email credentials"
         }
       },
+      "permissionsDialog": {
+        "title": "Permissions: {name}",
+        "loading": "Loading permissions...",
+        "role": "Role",
+        "roleDescription": "The role sets sensible default permissions; individual permissions can be adjusted afterward.",
+        "ownerLocked": "The owner cannot be downgraded here.",
+        "save": "Save",
+        "externalPermissionsDisabled": "External users do not receive organization permissions.",
+        "roles": {
+          "owner": "Owner",
+          "admin": "Administrator",
+          "member": "Member",
+          "external": "External",
+          "externalDisabled": "External users are not enabled yet."
+        },
+        "status": {
+          "active": "Active",
+          "disabled": "Disabled",
+          "archived": "Archived",
+          "recovery_locked": "Recovery locked"
+        },
+        "groups": {
+          "workspace": "Workspace",
+          "automations": "Automations",
+          "plugins": "Plugins & Skills",
+          "studio": "Studio",
+          "admin": "Administration"
+        },
+        "permissions": {
+          "canWriteTeamWorkspace": "Write team/org workspace",
+          "canCreatePublicLinks": "Create public links",
+          "canCreateTeamAutomations": "Create team automations",
+          "canSharePluginsAndSkills": "Share plugins/skills",
+          "canExport": "Run exports",
+          "canDeleteTeamFiles": "Delete team files",
+          "canDeleteStudioAssets": "Delete Studio assets",
+          "canManageBackups": "Manage backups",
+          "canMigrateDatabase": "Database migration",
+          "canEnableKnowledge": "Enable Knowledge",
+          "canRecoverWorkspaces": "Recovery flow"
+        }
+      },
       "messages": {
         "created": "{email} was created.",
         "roleUpdated": "Role for {email} was updated.",
+        "permissionsUpdated": "Permissions for {email} were saved.",
         "passwordUpdated": "Password for {email} was updated.",
         "banned": "{email} was banned.",
         "unbanned": "{email} was unbanned.",
@@ -1816,6 +1863,8 @@
         "createValidation": "Name, email, and a password of at least 8 characters are required.",
         "role": "Could not change role.",
         "selfRole": "You cannot change your own role here.",
+        "permissionsLoad": "Could not load permissions.",
+        "permissionsSave": "Could not save permissions.",
         "password": "Could not set password.",
         "passwordLength": "Password must be at least 8 characters.",
         "ban": "Could not ban user.",

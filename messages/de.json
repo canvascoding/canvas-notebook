@@ -1728,7 +1728,10 @@
       },
       "roles": {
         "admin": "Admin",
-        "user": "User"
+        "user": "User",
+        "owner": "Owner",
+        "member": "Mitglied",
+        "external": "Extern"
       },
       "status": {
         "active": "Aktiv",
@@ -1738,6 +1741,7 @@
         "makeAdmin": "Admin",
         "makeUser": "User",
         "password": "Passwort",
+        "permissions": "Rechte",
         "ban": "Sperren",
         "unban": "Entsperren",
         "delete": "Löschen",
@@ -1799,9 +1803,52 @@
           "credentials": "{count} Login- oder E-Mail-Credentials"
         }
       },
+      "permissionsDialog": {
+        "title": "Berechtigungen: {name}",
+        "loading": "Berechtigungen werden geladen...",
+        "role": "Rolle",
+        "roleDescription": "Die Rolle setzt sinnvolle Standardrechte; einzelne Rechte können danach angepasst werden.",
+        "ownerLocked": "Der Owner kann hier nicht herabgestuft werden.",
+        "save": "Speichern",
+        "externalPermissionsDisabled": "Externe Nutzer haben keine Organisationsrechte.",
+        "roles": {
+          "owner": "Owner",
+          "admin": "Administrator",
+          "member": "Mitglied",
+          "external": "Extern",
+          "externalDisabled": "Externe Nutzer sind noch nicht aktiviert."
+        },
+        "status": {
+          "active": "Aktiv",
+          "disabled": "Deaktiviert",
+          "archived": "Archiviert",
+          "recovery_locked": "Recovery gesperrt"
+        },
+        "groups": {
+          "workspace": "Workspace",
+          "automations": "Automationen",
+          "plugins": "Plugins & Skills",
+          "studio": "Studio",
+          "admin": "Administration"
+        },
+        "permissions": {
+          "canWriteTeamWorkspace": "Team-/Org-Workspace schreiben",
+          "canCreatePublicLinks": "Public Links erstellen",
+          "canCreateTeamAutomations": "Team-Automationen erstellen",
+          "canSharePluginsAndSkills": "Plugins/Skills freigeben",
+          "canExport": "Exporte ausführen",
+          "canDeleteTeamFiles": "Team-Dateien löschen",
+          "canDeleteStudioAssets": "Studio-Assets löschen",
+          "canManageBackups": "Backups verwalten",
+          "canMigrateDatabase": "Datenbank-Migration",
+          "canEnableKnowledge": "Knowledge aktivieren",
+          "canRecoverWorkspaces": "Recovery-Flow"
+        }
+      },
       "messages": {
         "created": "{email} wurde angelegt.",
         "roleUpdated": "Rolle für {email} wurde aktualisiert.",
+        "permissionsUpdated": "Berechtigungen für {email} wurden gespeichert.",
         "passwordUpdated": "Passwort für {email} wurde aktualisiert.",
         "banned": "{email} wurde gesperrt.",
         "unbanned": "{email} wurde entsperrt.",
@@ -1815,6 +1862,8 @@
         "createValidation": "Name, E-Mail und ein Passwort mit mindestens 8 Zeichen sind erforderlich.",
         "role": "Rolle konnte nicht geändert werden.",
         "selfRole": "Du kannst deine eigene Rolle hier nicht ändern.",
+        "permissionsLoad": "Berechtigungen konnten nicht geladen werden.",
+        "permissionsSave": "Berechtigungen konnten nicht gespeichert werden.",
         "password": "Passwort konnte nicht gesetzt werden.",
         "passwordLength": "Das Passwort muss mindestens 8 Zeichen lang sein.",
         "ban": "Benutzer konnte nicht gesperrt werden.",
