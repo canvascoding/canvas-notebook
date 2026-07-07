@@ -124,6 +124,26 @@ function testDesktopVisibleLaunch() {
   assert.equal(spec.userDataDir, '/tmp/canvas-data/cache/browser-runtime');
 }
 
+function testForcedHeadlessLaunch() {
+  const spec = buildBrowserLaunchSpec({
+    env: {
+      NODE_ENV: 'test',
+      CHROMIUM_PATH: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+      DATA: '/tmp/canvas-data',
+    } as NodeJS.ProcessEnv,
+    platform: 'darwin',
+    existsSync: makeExistsSync([
+      '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+    ]),
+    execSyncImpl: (() => '') as never,
+    forceHeadless: true,
+  });
+
+  assert.equal(spec.headless, true);
+  assert.ok(spec.args.includes('--headless=new'));
+  assert.ok(spec.args.includes('--no-sandbox'));
+}
+
 function testSessionUserDataDir() {
   const dir = resolveBrowserUserDataDir(
     makeEnv({ DATA: '/tmp/canvas-data' }),
@@ -199,6 +219,7 @@ async function main() {
   testNonThrowingExecutableStatus();
   testContainerLaunchFlags();
   testDesktopVisibleLaunch();
+  testForcedHeadlessLaunch();
   testSessionUserDataDir();
   testLaunchSpecUsesResolvedUserDataDirFlag();
   await testRuntimeProfileKeys();

@@ -1,101 +1,31 @@
 import puppeteer, { Browser, Page } from 'puppeteer-core';
-import { execSync } from 'child_process';
-import fs from 'fs';
-import path from 'path';
+import fs from 'node:fs/promises';
+
+import {
+  buildBrowserLaunchSpec,
+  resolveChromiumExecutable,
+} from '@/app/lib/pi/browser/chromium';
 
 let browser: Browser | null = null;
 
 const EMOJI_FONT_FALLBACK = '"Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji"';
 
 export function findChromiumExecutable(): string {
-  // 1. Explicit env override
-  if (process.env.CHROMIUM_PATH && fs.existsSync(process.env.CHROMIUM_PATH)) {
-    return process.env.CHROMIUM_PATH;
-  }
-
-  // 2. Playwright headless shell (installed by @playwright/test devDependency)
-  const playwrightCacheDirs = [
-    path.join(process.env.HOME || '', 'Library', 'Caches', 'ms-playwright'), // macOS
-    path.join(process.env.HOME || '', '.cache', 'ms-playwright'),             // Linux
-    path.join(process.env.XDG_CACHE_HOME || '', 'ms-playwright'),
-  ];
-
-  for (const cacheDir of playwrightCacheDirs) {
-    if (!fs.existsSync(cacheDir)) continue;
-    try {
-      const entries = fs.readdirSync(cacheDir);
-      // Look for chromium_headless_shell-* or chromium-* directories, prefer newest
-      const chromiumDirs = entries
-        .filter(e => e.startsWith('chromium'))
-        .sort()
-        .reverse();
-
-      for (const dir of chromiumDirs) {
-        const base = path.join(cacheDir, dir);
-        // Try common sub-paths
-        const candidates = [
-          path.join(base, 'chrome-headless-shell-mac-arm64', 'chrome-headless-shell'),
-          path.join(base, 'chrome-headless-shell-mac-x64', 'chrome-headless-shell'),
-          path.join(base, 'chrome-headless-shell-linux-x64', 'chrome-headless-shell'),
-          path.join(base, 'chrome-headless-shell-linux-arm64', 'chrome-headless-shell'),
-          path.join(base, 'chrome-mac-arm64', 'chrome-headless-shell'),
-          path.join(base, 'chrome-mac-x64', 'chrome-headless-shell'),
-          path.join(base, 'chrome-linux-x64', 'chrome'),
-        ];
-        for (const candidate of candidates) {
-          if (fs.existsSync(candidate)) return candidate;
-        }
-      }
-    } catch {
-      // ignore
-    }
-  }
-
-  // 3. macOS system Chrome
-  const macChrome = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
-  if (fs.existsSync(macChrome)) return macChrome;
-
-  // 4. Common Linux paths
-  const linuxPaths = [
-    '/usr/bin/chromium',
-    '/usr/bin/chromium-browser',
-    '/usr/bin/google-chrome',
-    '/usr/bin/google-chrome-stable',
-  ];
-  for (const p of linuxPaths) {
-    if (fs.existsSync(p)) return p;
-  }
-
-  // 5. Try `which` as last resort
-  try {
-    const result = execSync('which chromium || which chromium-browser || which google-chrome', { encoding: 'utf-8' }).trim();
-    if (result) return result.split('\n')[0];
-  } catch {
-    // ignore
-  }
-
-  throw new Error(
-    'No Chromium/Chrome executable found. Set CHROMIUM_PATH env var or install Chromium.'
-  );
+  return resolveChromiumExecutable().executablePath;
 }
 
 export async function getBrowser(): Promise<Browser> {
   if (browser) return browser;
 
-  const executablePath = findChromiumExecutable();
-  console.log(`[PDF Browser] Launching Chromium: ${executablePath}`);
+  const launchSpec = buildBrowserLaunchSpec({ forceHeadless: true });
+  await fs.mkdir(launchSpec.userDataDir, { recursive: true });
+  console.log(`[PDF Browser] Launching Chromium: ${launchSpec.executablePath}`);
 
   browser = await puppeteer.launch({
-    executablePath,
-    headless: true,
-    args: [
-      '--no-sandbox',
-      '--disable-setuid-sandbox',
-      '--disable-dev-shm-usage',
-      '--disable-gpu',
-      '--no-first-run',
-      '--no-zygote',
-    ],
+    executablePath: launchSpec.executablePath,
+    headless: launchSpec.headless,
+    args: launchSpec.args,
+    defaultViewport: { width: 1280, height: 900 },
   });
 
   browser.on('disconnected', () => {
@@ -124,57 +54,60 @@ export async function generatePdfFromHtml(html: string): Promise<Buffer> {
 }
 
 async function waitForPdfAssets(page: Page) {
-  await page.evaluate(async () => {
-    const timeout = (ms: number) => new Promise<void>((resolve) => {
-      window.setTimeout(resolve, ms);
-    });
+  await page.evaluate(`
+    (async () => {
+      const timeout = (ms) => new Promise((resolve) => {
+        window.setTimeout(resolve, ms);
+      });
 
-    const fontReady = document.fonts?.ready.then(() => undefined).catch(() => undefined) ?? Promise.resolve();
-    const imagesReady = Promise.all(
-      Array.from(document.images).map((image) => {
-        if (image.complete) {
-          return Promise.resolve();
-        }
+      const fontReady = document.fonts?.ready.then(() => undefined).catch(() => undefined) ?? Promise.resolve();
+      const imagesReady = Promise.all(
+        Array.from(document.images).map((image) => {
+          if (image.complete) {
+            return Promise.resolve();
+          }
 
-        return new Promise<void>((resolve) => {
-          image.addEventListener('load', () => resolve(), { once: true });
-          image.addEventListener('error', () => resolve(), { once: true });
-        });
-      })
-    ).then(() => undefined);
+          return new Promise((resolve) => {
+            image.addEventListener('load', () => resolve(), { once: true });
+            image.addEventListener('error', () => resolve(), { once: true });
+          });
+        })
+      ).then(() => undefined);
 
-    await Promise.race([
-      Promise.all([fontReady, imagesReady]).then(() => undefined),
-      timeout(5000),
-    ]);
-  });
+      await Promise.race([
+        Promise.all([fontReady, imagesReady]).then(() => undefined),
+        timeout(5000),
+      ]);
+    })()
+  `);
 }
 
 async function applyEmojiFontFallback(page: Page) {
-  await page.evaluate((fallbackFonts) => {
-    const emojiPattern = /\p{Extended_Pictographic}/u;
-    const fallbackNames = fallbackFonts
-      .split(',')
-      .map((font) => font.replace(/["']/g, '').trim().toLowerCase())
-      .filter(Boolean);
+  await page.evaluate(`
+    (() => {
+      const fallbackFonts = ${JSON.stringify(EMOJI_FONT_FALLBACK)};
+      const emojiPattern = /\\p{Extended_Pictographic}/u;
+      const fallbackNames = fallbackFonts
+        .split(',')
+        .map((font) => font.replace(/["']/g, '').trim().toLowerCase())
+        .filter(Boolean);
 
-    for (const element of Array.from(document.querySelectorAll<HTMLElement>('body, body *'))) {
-      if (!element.textContent || !emojiPattern.test(element.textContent)) {
-        continue;
+      for (const element of Array.from(document.querySelectorAll('body, body *'))) {
+        if (!element.textContent || !emojiPattern.test(element.textContent)) {
+          continue;
+        }
+
+        const currentFamily = window.getComputedStyle(element).fontFamily;
+        const currentLower = currentFamily.toLowerCase();
+        const hasEmojiFallback = fallbackNames.some((font) => currentLower.includes(font));
+
+        if (!hasEmojiFallback) {
+          element.style.fontFamily = \`\${currentFamily}, \${fallbackFonts}\`;
+        }
       }
-
-      const currentFamily = window.getComputedStyle(element).fontFamily;
-      const currentLower = currentFamily.toLowerCase();
-      const hasEmojiFallback = fallbackNames.some((font) => currentLower.includes(font));
-
-      if (!hasEmojiFallback) {
-        element.style.fontFamily = `${currentFamily}, ${fallbackFonts}`;
-      }
-    }
-  }, EMOJI_FONT_FALLBACK);
-  await page.evaluate(async () => {
-    await document.fonts?.ready;
-  });
+    })()
+  `);
+  await page.evaluate('(async () => { await document.fonts?.ready; })()');
 }
 
 export async function generatePdfFromUrl(url: string, headers?: Record<string, string>): Promise<Buffer> {

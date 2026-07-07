@@ -1,5 +1,6 @@
 import { readFile, type WorkspaceFileOperationOptions } from '@/app/lib/filesystem/workspace-files';
 import { createInlineColorRegex, isColorCode } from '@/app/lib/markdown/color-code';
+import { formatWideTablesForPagedExport } from '@/app/lib/pdf/markdown-wide-tables';
 import { marked } from 'marked';
 import path from 'path';
 import fs from 'fs/promises';
@@ -220,6 +221,7 @@ export async function markdownFileToHtmlDocument(
 
   // Post-process color codes in the HTML
   htmlContent = processColorCodes(htmlContent);
+  htmlContent = formatWideTablesForPagedExport(htmlContent);
 
   const fileDir = path.dirname(filePath);
   const ext = path.extname(filePath);
@@ -237,6 +239,11 @@ export async function markdownFileToHtmlDocument(
     @page {
       size: A4;
       margin: 25mm 20mm;
+    }
+
+    @page markdown-wide-table {
+      size: A4 landscape;
+      margin: 15mm;
     }
 
     * {
@@ -314,6 +321,46 @@ export async function markdownFileToHtmlDocument(
 
     tr:nth-child(even) {
       background: #fafafa;
+    }
+
+    .markdown-wide-table-page {
+      break-after: page;
+      break-before: page;
+      page: markdown-wide-table;
+    }
+
+    .markdown-wide-table-frame {
+      width: 100%;
+    }
+
+    .markdown-wide-table {
+      font-size: 8.5pt;
+      line-height: 1.35;
+      margin: 0;
+      table-layout: auto;
+      width: 100%;
+    }
+
+    .markdown-wide-table th,
+    .markdown-wide-table td {
+      hyphens: auto;
+      overflow-wrap: break-word;
+      padding: 4px 6px;
+      vertical-align: top;
+      word-break: normal;
+    }
+
+    .markdown-wide-table thead {
+      display: table-header-group;
+    }
+
+    .markdown-wide-table tfoot {
+      display: table-footer-group;
+    }
+
+    .markdown-wide-table tr {
+      break-inside: avoid;
+      page-break-inside: avoid;
     }
 
     img {

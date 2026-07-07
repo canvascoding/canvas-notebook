@@ -283,9 +283,11 @@ export function buildBrowserLaunchSpec({
   existsSync = fs.existsSync,
   userDataDir,
   execSyncImpl = execSync,
+  forceHeadless,
 }: RuntimeModeOptions & {
   userDataDir?: string;
   execSyncImpl?: typeof execSync;
+  forceHeadless?: boolean;
 } = {}): BrowserLaunchSpec {
   const runtime = getRuntimeMode({ env, platform, existsSync });
   const { executablePath, source, attemptedPaths } = resolveChromiumExecutable({
@@ -294,6 +296,7 @@ export function buildBrowserLaunchSpec({
     execSyncImpl,
   });
   const resolvedUserDataDir = userDataDir ?? resolveBrowserUserDataDir(env, existsSync);
+  const headless = forceHeadless ?? runtime.headless;
 
   const args = [
     `--user-data-dir=${resolvedUserDataDir}`,
@@ -304,7 +307,7 @@ export function buildBrowserLaunchSpec({
     '--metrics-recording-only',
   ];
 
-  if (runtime.headless) {
+  if (headless) {
     args.push(
       '--headless=new',
       '--no-sandbox',
@@ -321,7 +324,7 @@ export function buildBrowserLaunchSpec({
     attemptedPaths,
     userDataDir: resolvedUserDataDir,
     args,
-    headless: runtime.headless,
+    headless,
     runtime,
   };
 }
