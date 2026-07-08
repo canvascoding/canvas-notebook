@@ -33,6 +33,10 @@ async function unzipEntryBuffer(archivePath: string, entry: string): Promise<Buf
   return stdout;
 }
 
+async function sha256Path(filePath: string): Promise<string> {
+  return createHash('sha256').update(await readFile(filePath)).digest('hex');
+}
+
 async function waitForBackup(
   getFullBackupJob: (id: string) => Promise<{ status: string; filePath?: string; error?: string } | null>,
   backupId: string,
@@ -91,6 +95,8 @@ async function main() {
       createFullBackupJob,
       getFullBackupJob,
       inspectFullBackupArchive,
+      promoteFullBackupJobToLatest,
+      pruneFullBackupJobArtifacts,
     } = await import('../app/lib/backups/full-backup-service');
     const {
       serializeFullBackupInspection,
@@ -127,6 +133,14 @@ async function main() {
     assert.equal(manifest.security.rawSecretsIncluded, true);
     assert.equal(manifest.security.publicLinkTokensIncluded, true);
     assert.equal(manifest.security.unencryptedArchive, true);
+    assert.equal(manifest.scope.dataOnly, true);
+    assert.equal(manifest.scope.hostConfigIncluded, false);
+    assert.equal(manifest.scope.dockerImagesIncluded, false);
+    assert.equal(manifest.scope.osIncluded, false);
+    assert.equal(manifest.consistency.database, 'consistent_snapshot');
+    assert.equal(manifest.consistency.files, 'online_best_effort');
+    assert.equal(manifest.consistency.maintenanceMode, false);
+    assert.equal(manifest.consistency.appStopped, false);
     assert.equal(manifest.source.organizationId, 'org-backup');
     assert.equal(manifest.files.some((file: Record<string, unknown>) => typeof file.filePath === 'string'), false);
     assert.ok(manifest.warnings.some((warning: string) => warning.includes('not automatically encrypted')));
@@ -149,6 +163,21 @@ async function main() {
     assert.equal(inspection.sourceDatabaseProvider, 'sqlite');
     assert.ok(inspection.warnings.some((warning) => warning.includes('unencrypted')));
     assert.equal('archivePath' in serializeFullBackupInspection(inspection), false);
+
+    const latest = await promoteFullBackupJobToLatest(completedJob);
+    assert.equal(latest.backupId, job.id);
+    assert.equal(latest.fileName, 'canvas-notebook-backup-latest.zip');
+    assert.equal(await sha256Path(latest.filePath), completedJob.archiveSha256);
+    const latestMetadata = JSON.parse(await readFile(latest.metadataPath, 'utf8'));
+    assert.equal(latestMetadata.format, 'canvas-notebook-full-backup-latest');
+    assert.equal(latestMetadata.backupId, job.id);
+    assert.equal(latestMetadata.scope.dataOnly, true);
+    assert.equal(latestMetadata.consistency.files, 'online_best_effort');
+    await assert.rejects(
+      () => promoteFullBackupJobToLatest({ ...completedJob, archiveSha256: '0'.repeat(64) }),
+      /checksum/u,
+    );
+    assert.equal(await sha256Path(latest.filePath), completedJob.archiveSha256);
 
     const fakeBin = path.join(dataRoot, 'fake-bin');
     await mkdir(fakeBin, { recursive: true });
@@ -204,6 +233,8 @@ printf 'fake-postgres-dump\\n' > "$out"
     assert.equal(postgresManifest.database.artifactPath, 'database/postgres.dump');
     assert.equal(postgresManifest.database.pgvectorEnabled, true);
     assert.equal(postgresManifest.database.pgvectorVersion, '0.8.3');
+    assert.equal(postgresManifest.scope.dataOnly, true);
+    assert.equal(postgresManifest.consistency.files, 'online_best_effort');
     assert.match(postgresManifest.database.postgresVersion, /PostgreSQL/u);
     const dumpBytes = await unzipEntryBuffer(completedPostgres.filePath, 'database/postgres.dump');
     assert.equal(createHash('sha256').update(dumpBytes).digest('hex'), postgresManifest.database.artifactSha256);
@@ -304,6 +335,10 @@ printf 'fake-postgres-dump\\n' > "$out"
     assert.equal(await stat(lockPath).then(() => true).catch(() => false), false);
 
     assert.ok((await stat(completed.filePath)).size > 0);
+    const prunedBackupIds = await pruneFullBackupJobArtifacts();
+    assert.ok(prunedBackupIds.includes(job.id));
+    assert.equal(await stat(completed.filePath).then(() => true).catch(() => false), false);
+    assert.equal(await stat(latest.filePath).then(() => true).catch(() => false), true);
 
     console.log('full-backup-service-test: ok');
   } finally {

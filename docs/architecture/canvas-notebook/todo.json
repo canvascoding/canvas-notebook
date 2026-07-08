@@ -1030,7 +1030,7 @@
     {
       "id": 47,
       "title": "Nutzerdaten-Backup ueber CLI/Agent mit lokalem Latest-Artefakt und Control-Plane-Download umsetzen",
-      "status": "planned",
+      "status": "in_progress",
       "repo": "cross-repo",
       "dependsOn": [
         36,
@@ -1050,6 +1050,17 @@
         "../canvas-control-plane/packages/agent/src/ws-client.ts",
         "../canvas-control-plane/apps/api/src/sockets/agentHandler.ts",
         "../canvas-control-plane/apps/web/src/app/dashboard/vms/[id]/page.tsx"
+      ],
+      "implementationArtifacts": [
+        "app/lib/backups/types.ts",
+        "app/lib/backups/full-backup-service.ts",
+        "scripts/create-full-backup.ts",
+        "cli/src/main.ts",
+        "install/bin/canvas-notebook",
+        "install/lib/commands/backup.sh",
+        "install/lib/shared/ui.sh",
+        "scripts/cli-backup-command-test.sh",
+        "scripts/full-backup-service-test.ts"
       ],
       "acceptanceCriteria": [
         "Backup-Scope ist Datenbank plus Canvas-Notebook-Nutzerdaten unter /data; VM, OS, Docker Images, App-Binaries, Source Code, Systemd-/Caddy-/Compose-/Host-Konfiguration und CLI-Installation sind nicht Teil des Backups",

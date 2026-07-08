@@ -35,6 +35,14 @@ interface InstallOptions {
   runtime?: CliRuntimeMode;
 }
 
+interface BackupCreateOptions {
+  output?: string;
+  noWait: boolean;
+  keepJobArtifacts: boolean;
+}
+
+const LATEST_BACKUP_FILE_NAME = 'canvas-notebook-backup-latest.zip';
+
 function parseArgs(argv: string[]): ParsedArgs {
   const args = [...argv];
   let json = false;
@@ -83,6 +91,7 @@ Commands:
   config-show                     Print canvas-notebook-config.json with secrets masked
   config-set <key> <value>        Set a top-level/env config value
   admin reset-password ...        Reset or create an admin in the container
+  backup create [--output <path>] Create/replace the local latest full backup
   database status [--json]        Show configured database provider status
   database prepare-postgres       Prepare local Postgres service without data migration
   database migrate-sqlite-to-postgres [args]
@@ -146,6 +155,53 @@ function parseInstallOptions(args: string[]): InstallOptions {
     }
   }
   return options;
+}
+
+function parseBackupCreateOptions(args: string[]): BackupCreateOptions {
+  const options: BackupCreateOptions = {
+    noWait: false,
+    keepJobArtifacts: false,
+  };
+  for (let i = 0; i < args.length; i += 1) {
+    const arg = args[i];
+    if (arg === '--output' || arg.startsWith('--output=')) {
+      const parsed = readOptionValue(args, i, '--output');
+      options.output = parsed.value;
+      i = parsed.nextIndex;
+    } else if (arg === '--no-wait') {
+      options.noWait = true;
+    } else if (arg === '--keep-job-artifacts') {
+      options.keepJobArtifacts = true;
+    } else {
+      throw new Error(`Unknown backup create option: ${arg}`);
+    }
+  }
+  if (options.output && options.noWait) {
+    throw new Error('--output cannot be combined with --no-wait.');
+  }
+  return options;
+}
+
+async function copyFileAtomically(sourcePath: string, requestedOutputPath: string): Promise<string> {
+  let outputPath = path.resolve(requestedOutputPath);
+  const outputStat = await fs.stat(outputPath).catch(() => null);
+  if (outputStat?.isDirectory()) {
+    outputPath = path.join(outputPath, LATEST_BACKUP_FILE_NAME);
+  }
+  await fs.mkdir(path.dirname(outputPath), { recursive: true });
+  const tempPath = path.join(
+    path.dirname(outputPath),
+    `.${path.basename(outputPath)}.next-${process.pid}-${Date.now()}`,
+  );
+  try {
+    await fs.copyFile(sourcePath, tempPath);
+    await fs.chmod(tempPath, 0o600).catch(() => undefined);
+    await fs.rename(tempPath, outputPath);
+    return outputPath;
+  } catch (error) {
+    await fs.rm(tempPath, { force: true }).catch(() => undefined);
+    throw error;
+  }
 }
 
 async function install(context: RuntimeContext, docker: DockerManager, config: CanvasCliConfig): Promise<void> {
@@ -336,6 +392,64 @@ async function database(context: RuntimeContext, docker: DockerManager, config: 
   ], { stdio: 'inherit' });
 }
 
+async function backup(context: RuntimeContext, docker: DockerManager, config: CanvasCliConfig, args: string[], json: boolean): Promise<void> {
+  const subcommand = args.shift();
+  if (!subcommand || subcommand === '-h' || subcommand === '--help') {
+    throw new Error('Usage: canvas-notebook backup create [--output <path>] [--json] [--no-wait]');
+  }
+  if (subcommand !== 'create') {
+    throw new Error(`Unknown backup subcommand: ${subcommand}`);
+  }
+
+  const options = parseBackupCreateOptions(args);
+  const next = await syncFiles(context, config);
+  await appendLog(context, 'backup create');
+  await preparePostgresManagedRuntime({ docker, config: next, stdio: json ? 'pipe' : 'inherit' });
+  const containerId = await docker.containerId(next);
+  if (!containerId) throw new Error('Canvas Notebook container is not running. Start it first: canvas-notebook start');
+
+  const scriptArgs = [
+    'exec',
+    containerId,
+    'npx',
+    'tsx',
+    '--conditions',
+    'react-server',
+    'scripts/create-full-backup.ts',
+  ];
+  if (!options.noWait) scriptArgs.push('--latest');
+  if (options.keepJobArtifacts) scriptArgs.push('--keep-job-artifacts');
+  if (options.noWait) scriptArgs.push('--no-wait');
+  scriptArgs.push('--json');
+
+  const result = await docker.dockerOrThrow(scriptArgs, { stdio: 'pipe' });
+  let payload: Record<string, unknown>;
+  try {
+    payload = JSON.parse(result.stdout.trim()) as Record<string, unknown>;
+  } catch {
+    throw new Error(result.stdout.trim() || 'Backup command did not return JSON.');
+  }
+
+  const latestHostPath = path.join(next.dataDir, 'system', 'backups', 'latest', LATEST_BACKUP_FILE_NAME);
+  let outputPath: string | null = null;
+  if (options.output) {
+    outputPath = await copyFileAtomically(latestHostPath, options.output);
+  }
+
+  if (json) {
+    console.log(JSON.stringify({
+      ...payload,
+      latestHostPath: options.noWait ? null : latestHostPath,
+      outputPath,
+    }));
+  } else if (options.noWait) {
+    const job = payload.job as { id?: string } | undefined;
+    console.log(`Full backup queued: ${job?.id || '(unknown job)'}`);
+  } else {
+    console.log(`Full backup completed: ${outputPath || latestHostPath}`);
+  }
+}
+
 async function main(): Promise<void> {
   const parsed = parseArgs(process.argv.slice(2));
   const context = createRuntimeContext();
@@ -429,6 +543,9 @@ async function main(): Promise<void> {
     }
     case 'admin':
       await admin(context, docker, config, parsed.args);
+      break;
+    case 'backup':
+      await backup(context, docker, config, parsed.args, parsed.json);
       break;
     case 'database':
       await database(context, docker, config, parsed.args, parsed.json);
