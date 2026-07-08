@@ -1,27 +1,55 @@
 import puppeteer, { Browser, Page } from 'puppeteer-core';
+import nodeFs from 'node:fs';
 import fs from 'node:fs/promises';
 
 import {
   buildBrowserLaunchSpec,
+  resolveBrowserUserDataDir,
   resolveChromiumExecutable,
 } from '@/app/lib/pi/browser/chromium';
+import { prepareBrowserProfileForLaunch } from '@/app/lib/pi/browser/runtime';
 
 let browser: Browser | null = null;
+let launchPromise: Promise<Browser> | null = null;
 
 const EMOJI_FONT_FALLBACK = '"Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji"';
+const PDF_EXPORT_PROFILE_ID = 'pdf-export';
+const PDF_RENDERER_CLOSED_MESSAGE = 'PDF renderer closed unexpectedly. Please try again.';
 
 export function findChromiumExecutable(): string {
   return resolveChromiumExecutable().executablePath;
 }
 
 export async function getBrowser(): Promise<Browser> {
-  if (browser) return browser;
+  if (browser?.connected) return browser;
 
-  const launchSpec = buildBrowserLaunchSpec({ forceHeadless: true });
+  if (browser && !browser.connected) {
+    browser = null;
+  }
+
+  if (launchPromise) return launchPromise;
+
+  launchPromise = launchPdfBrowser().finally(() => {
+    launchPromise = null;
+  });
+
+  return launchPromise;
+}
+
+async function launchPdfBrowser(): Promise<Browser> {
+  const userDataDir = resolveBrowserUserDataDir(process.env, nodeFs.existsSync, PDF_EXPORT_PROFILE_ID);
+  const launchSpec = buildBrowserLaunchSpec({ forceHeadless: true, userDataDir });
   await fs.mkdir(launchSpec.userDataDir, { recursive: true });
+  const preparation = await prepareBrowserProfileForLaunch(launchSpec.userDataDir);
+  if (preparation.removedArtifacts.length > 0) {
+    console.info('[PDF Browser] Removed stale Chromium profile startup artifacts before launch:', {
+      removedArtifacts: preparation.removedArtifacts,
+    });
+  }
+
   console.log(`[PDF Browser] Launching Chromium: ${launchSpec.executablePath}`);
 
-  browser = await puppeteer.launch({
+  const launchedBrowser = await puppeteer.launch({
     executablePath: launchSpec.executablePath,
     headless: launchSpec.headless,
     args: launchSpec.args,
@@ -29,6 +57,7 @@ export async function getBrowser(): Promise<Browser> {
     defaultViewport: { width: 1280, height: 900 },
   });
 
+  browser = launchedBrowser;
   browser.on('disconnected', () => {
     console.warn('[PDF Browser] Browser disconnected, will re-launch on next request');
     browser = null;
@@ -37,10 +66,32 @@ export async function getBrowser(): Promise<Browser> {
   return browser;
 }
 
+export function isPdfRendererClosedError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error ?? '');
+  return /Target\.setDiscoverTargets|Target closed|Protocol error|Session closed|Connection closed|Browser closed/i.test(message);
+}
+
+export function getPdfRendererClosedMessage(): string {
+  return PDF_RENDERER_CLOSED_MESSAGE;
+}
+
+async function discardPdfBrowserAfterError(error: unknown): Promise<void> {
+  if (!isPdfRendererClosedError(error)) return;
+
+  const currentBrowser = browser;
+  browser = null;
+  launchPromise = null;
+
+  if (currentBrowser?.connected) {
+    await currentBrowser.close().catch(() => undefined);
+  }
+}
+
 export async function generatePdfFromHtml(html: string): Promise<Buffer> {
-  const b = await getBrowser();
-  const page = await b.newPage();
+  let page: Page | null = null;
   try {
+    const b = await getBrowser();
+    page = await b.newPage();
     await page.setContent(html, { waitUntil: 'domcontentloaded', timeout: 15000 });
     await waitForPdfAssets(page);
     const pdf = await page.pdf({
@@ -49,8 +100,11 @@ export async function generatePdfFromHtml(html: string): Promise<Buffer> {
       margin: { top: '25mm', right: '20mm', bottom: '25mm', left: '20mm' },
     });
     return Buffer.from(pdf);
+  } catch (error) {
+    await discardPdfBrowserAfterError(error);
+    throw error;
   } finally {
-    await page.close();
+    await page?.close().catch(() => undefined);
   }
 }
 
@@ -112,9 +166,10 @@ async function applyEmojiFontFallback(page: Page) {
 }
 
 export async function generatePdfFromUrl(url: string, headers?: Record<string, string>): Promise<Buffer> {
-  const b = await getBrowser();
-  const page = await b.newPage();
+  let page: Page | null = null;
   try {
+    const b = await getBrowser();
+    page = await b.newPage();
     if (headers && Object.keys(headers).length > 0) {
       await page.setExtraHTTPHeaders(headers);
     }
@@ -127,7 +182,10 @@ export async function generatePdfFromUrl(url: string, headers?: Record<string, s
       margin: { top: '25mm', right: '20mm', bottom: '25mm', left: '20mm' },
     });
     return Buffer.from(pdf);
+  } catch (error) {
+    await discardPdfBrowserAfterError(error);
+    throw error;
   } finally {
-    await page.close();
+    await page?.close().catch(() => undefined);
   }
 }

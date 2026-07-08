@@ -541,6 +541,7 @@
     "failedToLoadPreview": "Failed to load preview",
     "pdfGenerationFailed": "PDF generation failed: {statusText}",
     "failedToGeneratePdf": "Failed to generate PDF",
+    "pdfRendererClosed": "The PDF renderer closed unexpectedly. Please try exporting the PDF again.",
     "htmlPreviewConfirmTitle": "Open HTML preview?",
     "htmlPreviewConfirmDescription": "\"{fileName}\" can run interactive code and load workspace media. Only open the preview if you trust this file.",
     "htmlPreviewAccept": "Open preview",

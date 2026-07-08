@@ -4,7 +4,7 @@ import {
   assertBrowserExportAvailable,
   isBrowserExportUnavailableError,
 } from '@/app/lib/pi/browser/settings-service';
-import { generatePdfFromHtml } from '@/app/lib/pdf/browser';
+import { generatePdfFromHtml, getPdfRendererClosedMessage, isPdfRendererClosedError } from '@/app/lib/pdf/browser';
 import {
   getMarkdownPdfDownloadName,
   getPublicMarkdownExport,
@@ -54,6 +54,13 @@ export async function POST(
 
     if (isBrowserExportUnavailableError(error)) {
       return NextResponse.json({ success: false, error: error.message }, { status: 403 });
+    }
+
+    if (isPdfRendererClosedError(error)) {
+      return NextResponse.json(
+        { success: false, code: 'PDF_RENDERER_CLOSED', error: getPdfRendererClosedMessage() },
+        { status: 503 }
+      );
     }
 
     if (error && typeof error === 'object' && 'code' in error && (error as NodeJS.ErrnoException).code === 'ENOENT') {

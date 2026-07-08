@@ -540,6 +540,7 @@
     "failedToLoadPreview": "Vorschau konnte nicht geladen werden",
     "pdfGenerationFailed": "PDF-Erzeugung fehlgeschlagen: {statusText}",
     "failedToGeneratePdf": "PDF konnte nicht erzeugt werden",
+    "pdfRendererClosed": "Der PDF-Renderer wurde unerwartet beendet. Bitte versuche den PDF-Export erneut.",
     "htmlPreviewConfirmTitle": "HTML-Vorschau öffnen?",
     "htmlPreviewConfirmDescription": "\"{fileName}\" kann interaktiven Code ausführen und Workspace-Medien laden. Öffne die Vorschau nur, wenn du der Datei vertraust.",
     "htmlPreviewAccept": "Vorschau öffnen",
