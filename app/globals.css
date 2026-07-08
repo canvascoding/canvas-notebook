@@ -308,7 +308,17 @@
   padding: 0 !important;
   color: inherit;
   font-family: var(--font-mono);
+  text-align: left;
   white-space: pre;
+}
+
+.markdown-code-block pre a,
+.markdown-code-block pre button {
+  color: inherit !important;
+  cursor: text !important;
+  pointer-events: none;
+  text-align: left !important;
+  text-decoration: none !important;
 }
 
 .markdown-code-block .hljs {

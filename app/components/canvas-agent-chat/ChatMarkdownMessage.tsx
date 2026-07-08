@@ -24,6 +24,8 @@ import { resolvePreviewSrcFromMediaUrl } from '@/app/lib/chat/attachment-preview
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
+const CodeBlockContext = React.createContext(false);
+
 const STUDIO_MEDIA_PATH_PREFIXES = [
   'studio/',
   'studio-gen-',
@@ -119,6 +121,15 @@ function getCodeLanguage(className?: string): string | null {
   return fallbackLanguage || null;
 }
 
+type MarkdownCodeElementProps = {
+  className?: string;
+  children?: React.ReactNode;
+};
+
+function isMarkdownCodeElement(node: React.ReactNode): node is React.ReactElement<MarkdownCodeElementProps> {
+  return React.isValidElement<MarkdownCodeElementProps>(node);
+}
+
 async function writeTextToClipboard(text: string): Promise<void> {
   if (navigator.clipboard?.writeText) {
     await navigator.clipboard.writeText(text);
@@ -151,7 +162,7 @@ async function writeTextToClipboard(text: string): Promise<void> {
 
 function getCodeBlockDetails(children: React.ReactNode): { code: string; language: string | null } {
   const child = React.Children.toArray(children)[0];
-  if (!React.isValidElement<{ className?: string; children?: React.ReactNode }>(child) || child.type !== 'code') {
+  if (!isMarkdownCodeElement(child)) {
     return { code: getReactNodeText(children).replace(/\n$/, ''), language: null };
   }
 
@@ -249,12 +260,14 @@ function MarkdownCodeBlock({
       </div>
       <pre
         className={cn(
-          '!m-0 max-w-full overflow-x-auto !rounded-none !border-0 !bg-transparent !p-3 text-[0.8125rem] leading-6',
+          '!m-0 max-w-full overflow-x-auto !rounded-none !border-0 !bg-transparent !p-3 text-left text-[0.8125rem] leading-6',
           className,
         )}
         {...props}
       >
-        {children}
+        <CodeBlockContext.Provider value>
+          {children}
+        </CodeBlockContext.Provider>
       </pre>
     </div>
   );
@@ -367,6 +380,44 @@ function FileLink({ href, children, showIcon = false }: { href: string; children
   );
 }
 
+function MarkdownCode({
+  className,
+  children,
+  node: _node,
+  ...props
+}: React.HTMLAttributes<HTMLElement> & { children?: React.ReactNode; node?: unknown }) {
+  const isRenderingCodeBlock = React.useContext(CodeBlockContext);
+  const codeString = getReactNodeText(children).replace(/\n$/, '');
+  const cleanedCode = codeString.replace(/\n$/, '').trim();
+
+  if (isRenderingCodeBlock) {
+    return (
+      <code className={className} {...props}>
+        {children}
+      </code>
+    );
+  }
+
+  if (isColorCode(cleanedCode)) {
+    return <ColorSwatch color={cleanedCode} />;
+  }
+
+  if (!className && isFilePath(cleanedCode)) {
+    return <FileLink href={cleanedCode} showIcon>{children}</FileLink>;
+  }
+
+  const lang = getCodeLanguage(className);
+  if (lang === 'mermaid') {
+    return <MermaidDiagram code={codeString} />;
+  }
+
+  return (
+    <code className={className} {...props}>
+      {children}
+    </code>
+  );
+}
+
 export const MarkdownMessage = React.memo(function MarkdownMessage({
   content,
   variant,
@@ -472,33 +523,15 @@ export const MarkdownMessage = React.memo(function MarkdownMessage({
         />
       );
     },
-    code: ({ className, children, ...props }: React.HTMLAttributes<HTMLElement> & { children?: React.ReactNode }) => {
-      const codeString = getReactNodeText(children).replace(/\n$/, '');
-      const cleanedCode = codeString.replace(/\n$/, '').trim();
-      if (isColorCode(cleanedCode)) {
-        return <ColorSwatch color={cleanedCode} />;
-      }
-
-      if (!className && isFilePath(cleanedCode)) {
-        return <FileLink href={cleanedCode} showIcon>{children}</FileLink>;
-      }
-
-      const lang = getCodeLanguage(className);
-      if (lang === 'mermaid') {
-        return <MermaidDiagram code={codeString} />;
-      }
-
-      return (
-        <code className={className} {...props}>
-          {children}
-        </code>
-      );
-    },
-    pre: ({ children, ...props }: React.HTMLAttributes<HTMLElement>) => {
+    code: MarkdownCode,
+    pre: ({
+      children,
+      node: _node,
+      ...props
+    }: React.HTMLAttributes<HTMLPreElement> & { children?: React.ReactNode; node?: unknown }) => {
       const child = React.Children.toArray(children)[0];
-      if (React.isValidElement(child) && child.type === 'code') {
-        const codeProps = child.props as { className?: string; children?: React.ReactNode };
-        const lang = getCodeLanguage(codeProps.className);
+      if (isMarkdownCodeElement(child)) {
+        const lang = getCodeLanguage(child.props.className);
         if (lang === 'mermaid') {
           return <>{children}</>;
         }
