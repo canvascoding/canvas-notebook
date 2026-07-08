@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { extractFilePaths, normalizeChatFilePath } from '../app/lib/chat/extract-file-paths';
-import { validateFileExists } from '../app/lib/chat/validate-file-paths';
+import { validateFileExists, validateFileReference } from '../app/lib/chat/validate-file-paths';
 import { getFileDisplayName, getFileDisplayPath } from '../app/lib/files/display-name';
 import { useFileStore } from '../app/store/file-store';
 import type { FileNode } from '../app/store/file-store';
@@ -31,6 +31,7 @@ async function main() {
       success: true,
       data: {
         exists: url.includes(encodeURIComponent('generated/new-file.md')),
+        type: url.includes(encodeURIComponent('generated/new-file.md')) ? 'file' : undefined,
       },
     });
   }) as typeof fetch;
@@ -59,14 +60,46 @@ async function main() {
     );
 
     assert.equal(await validateFileExists('docs/loaded.md', fileTree), true);
-    assert.deepEqual(fetchCalls, [], 'loaded tree entries should not hit the API');
+    assert.deepEqual(await validateFileReference('docs/loaded.md', fileTree), {
+      path: 'docs/loaded.md',
+      type: 'file',
+      exists: true,
+    });
+    assert.equal(fetchCalls.length, 0, 'loaded tree entries should not hit the API');
 
     assert.equal(await validateFileExists('/data/workspace/docs/loaded.md', fileTree), true);
-    assert.deepEqual(fetchCalls, [], 'absolute workspace tree entries should not hit the API');
+    assert.equal(fetchCalls.length, 0, 'absolute workspace tree entries should not hit the API');
+
+    assert.deepEqual(await validateFileReference('docs', fileTree), {
+      path: 'docs',
+      type: 'directory',
+      exists: true,
+    });
+    assert.equal(await validateFileExists('docs', fileTree), false);
+    assert.equal(fetchCalls.length, 0, 'loaded tree directories should not hit the API');
 
     assert.equal(await validateFileExists('generated/new-file.md', fileTree), true);
     assert.equal(fetchCalls.length, 1);
     assert.match(fetchCalls[0], /\/api\/files\/exists\?/);
+
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const url = String(input);
+      fetchCalls.push(url);
+      return Response.json({
+        success: true,
+        data: {
+          exists: url.includes(encodeURIComponent('generated/folder')),
+          type: url.includes(encodeURIComponent('generated/folder')) ? 'directory' : undefined,
+        },
+      });
+    }) as typeof fetch;
+
+    assert.deepEqual(await validateFileReference('generated/folder', fileTree), {
+      path: 'generated/folder',
+      type: 'directory',
+      exists: true,
+    });
+    assert.equal(await validateFileExists('generated/folder', fileTree), false);
 
     assert.equal(await validateFileExists('missing/nope.md', fileTree), false);
     assert.equal(await validateFileExists('missing/nope.md', fileTree), false);

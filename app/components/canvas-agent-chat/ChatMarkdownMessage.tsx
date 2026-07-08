@@ -1,19 +1,19 @@
 'use client';
 
 import React from 'react';
-import { Check, Copy } from 'lucide-react';
+import { Check, Copy, Folder } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
 import { useLocale, useTranslations } from 'next-intl';
-import { usePathname as useLocalePathname, getPathname } from '@/i18n/navigation';
+import { usePathname as useLocalePathname, useRouter, getPathname } from '@/i18n/navigation';
 import { MermaidDiagram } from '@/components/ui/mermaid-diagram';
 import { ColorSwatch, isColorCode } from '@/app/lib/markdown/color-swatch';
 import { rehypeInlineColorSwatch } from '@/app/lib/markdown/rehype-inline-color-swatch';
 import { isFilePath, normalizeChatFilePath } from '@/app/lib/chat/extract-file-paths';
 import { notifyChatFileReferenceOpened } from '@/app/lib/chat/file-reference-events';
 import { extractStudioImageMediaUrls } from '@/app/lib/chat/studio-image-markdown';
-import { validateFileExists } from '@/app/lib/chat/validate-file-paths';
+import { validateFileReference, type FileReferenceValidationResult } from '@/app/lib/chat/validate-file-paths';
 import type { ChatMessage } from '@/app/lib/chat/types';
 import { getFileDisplayPath } from '@/app/lib/files/display-name';
 import { getFileIconComponent } from '@/app/lib/files/file-icons';
@@ -314,29 +314,40 @@ function FileLink({ href, children, showIcon = false }: { href: string; children
   const fileTree = fileStore.fileTree;
   const pathname = useLocalePathname();
   const locale = useLocale();
-  const [isValid, setIsValid] = React.useState<boolean | null>(null);
+  const router = useRouter();
+  const normalizedPath = React.useMemo(() => normalizeChatFilePath(href), [href]);
+  const [validation, setValidation] = React.useState<FileReferenceValidationResult | null>(null);
 
   React.useEffect(() => {
-    const normalizedPath = normalizeChatFilePath(href);
-    validateFileExists(normalizedPath, fileTree).then((exists) => {
-      setIsValid(exists);
+    if (!normalizedPath) {
+      return;
+    }
+
+    let cancelled = false;
+
+    validateFileReference(normalizedPath, fileTree).then((result) => {
+      if (!cancelled) {
+        setValidation(result);
+      }
     });
-  }, [href, fileTree]);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [fileTree, normalizedPath]);
 
   const handleClick = (event: React.MouseEvent) => {
     event.preventDefault();
     event.stopPropagation();
 
-    const normalizedPath = normalizeChatFilePath(href);
-
-    if (!normalizedPath) return;
+    if (!normalizedPath || validation?.path !== normalizedPath || validation.type !== 'file') return;
 
     if (pathname.includes('/chat')) {
       const notebookPath = getPathname({
         locale,
         href: { pathname: '/notebook', query: { path: normalizedPath } },
       });
-      window.open(notebookPath, 'canvas-notebook');
+      router.push(notebookPath);
       return;
     }
 
@@ -344,8 +355,34 @@ function FileLink({ href, children, showIcon = false }: { href: string; children
     void fileStore.revealAndLoadFile(normalizedPath);
   };
 
-  const isNotFound = isValid === false;
   const displayChildren = getFileReferenceLabel(href, children);
+  const activeValidation = validation?.path === normalizedPath ? validation : null;
+  const isFile = activeValidation?.type === 'file';
+  const isDirectory = activeValidation?.type === 'directory';
+  const isMissing = !normalizedPath || activeValidation?.type === 'missing';
+
+  if (!isFile) {
+    if (isDirectory) {
+      return (
+        <span
+          className="inline text-muted-foreground"
+          title={`Folder: ${normalizedPath || href}`}
+        >
+          <Folder className="mr-1 inline-block h-3.5 w-3.5 align-[-2px]" />
+          <span>{displayChildren}</span>
+        </span>
+      );
+    }
+
+    return (
+      <span
+        className="inline text-inherit"
+        title={isMissing ? `File not found: ${normalizedPath || href}` : undefined}
+      >
+        {displayChildren}
+      </span>
+    );
+  }
 
   if (showIcon) {
     const fileName = href.split('/').pop() || href;
@@ -355,9 +392,10 @@ function FileLink({ href, children, showIcon = false }: { href: string; children
       <span className="inline-flex items-center gap-1">
         <span className="shrink-0">{icon}</span>
         <button
+          type="button"
           onClick={handleClick}
-          className={`underline underline-offset-2 transition-colors ${isNotFound ? 'text-muted-foreground cursor-not-allowed' : 'cursor-pointer text-primary hover:text-primary/80'}`}
-          title={isNotFound ? `File not found: ${href}` : `Open ${href}`}
+          className="inline cursor-pointer p-0 text-left align-baseline text-primary underline underline-offset-2 transition-colors hover:text-primary/80"
+          title={`Open ${normalizedPath || href}`}
         >
           {displayChildren}
         </button>
@@ -367,13 +405,10 @@ function FileLink({ href, children, showIcon = false }: { href: string; children
 
   return (
     <button
+      type="button"
       onClick={handleClick}
-      className={`underline underline-offset-2 transition-colors ${
-        isNotFound
-          ? 'text-muted-foreground cursor-not-allowed'
-          : 'cursor-pointer text-primary hover:text-primary/80'
-      }`}
-      title={isNotFound ? `File not found: ${href}` : `Open ${href}`}
+      className="inline cursor-pointer p-0 text-left align-baseline text-primary underline underline-offset-2 transition-colors hover:text-primary/80"
+      title={`Open ${normalizedPath || href}`}
     >
       {displayChildren}
     </button>

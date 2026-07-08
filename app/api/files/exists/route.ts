@@ -39,6 +39,9 @@ export async function GET(request: NextRequest) {
       data: {
         exists: true,
         path,
+        type: stats.isDirectory ? 'directory' : 'file',
+        isDirectory: stats.isDirectory,
+        isFile: stats.isFile,
         stats: {
           size: stats.size,
           modified: stats.modified,
