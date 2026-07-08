@@ -11,6 +11,34 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.7.8.1] - 2026-07-08
+
+### Added
+
+- Project workspace management, including member administration, project workspace member controls, workspace type changes, and a gated rollout path.
+- User permission management and workspace offboarding safeguards for team deployments.
+- Project todo assignee candidates and organization workspace defaults.
+- Copyable chat code blocks and remote desktop installer assets.
+
+### Changed
+
+- Improved workspace, organization, and permission data access across SQLite and Postgres deployments.
+- Updated Pi dependencies to `0.80.3` and switched Codex device flow to the Pi OAuth provider API.
+- Made chat agent and workspace selectors more compact in team mode on desktop.
+- Improved editor revision conflict handling, PDF Chromium/table export behavior, and portable CLI migration documentation.
+
+### Fixed
+
+- Fixed project workspace sharing scope, public share management, and project-manager share revocation.
+- Fixed expired session cleanup and usage summary day grouping for Postgres.
+- Fixed corrupt SQLite database error handling and SQLite deployment-mode auto-downgrade behavior.
+- Fixed stale WebSocket recovery, agent browser workspace isolation, active-chat notification docking, notification markdown preview headings, markdown table scrolling, and chat history unread badge clipping.
+
+### Verification
+
+- `npm run build`
+- GitHub Actions `Build and Push (Both Arch)` on `main`: `28927822450` built and pushed the image successfully before release prep.
+
 ## [2026.7.3.2] - 2026-07-03
 
 ### Added
