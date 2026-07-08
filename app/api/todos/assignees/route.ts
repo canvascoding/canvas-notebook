@@ -1,8 +1,8 @@
-import { and, asc, eq, ne, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, ne, or, sql } from 'drizzle-orm';
 import { NextRequest, NextResponse } from 'next/server';
 
 import { db } from '@/app/lib/db';
-import { organizationUserPermissions, user } from '@/app/lib/db/schema';
+import { canvasProjectMembers, organizationUserPermissions, user } from '@/app/lib/db/schema';
 import { applyTodoRateLimit, requireTodoSession } from '@/app/lib/todos/api';
 import { requireSessionWorkspace } from '@/app/lib/workspaces/request';
 
@@ -35,7 +35,7 @@ export async function GET(request: NextRequest) {
   }
 
   const workspace = workspaceResult.workspace;
-  if (workspace.workspaceType !== 'organization' && workspace.workspaceType !== 'team') {
+  if (workspace.workspaceType !== 'organization' && workspace.workspaceType !== 'team' && workspace.workspaceType !== 'project') {
     const candidate: AssigneeCandidate = {
       id: session.user.id,
       name: session.user.name ?? null,
@@ -47,6 +47,58 @@ export async function GET(request: NextRequest) {
 
   if (!workspace.organizationId) {
     return NextResponse.json({ success: false, error: 'Shared workspace is missing organization scope.' }, { status: 409 });
+  }
+
+  if (workspace.workspaceType === 'project') {
+    if (!workspace.projectId) {
+      return NextResponse.json({ success: false, error: 'Project workspace is missing project scope.' }, { status: 409 });
+    }
+
+    const projectMembers = await db
+      .select({
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        role: canvasProjectMembers.role,
+      })
+      .from(canvasProjectMembers)
+      .innerJoin(user, eq(user.id, canvasProjectMembers.userId))
+      .where(and(
+        eq(canvasProjectMembers.organizationId, workspace.organizationId),
+        eq(canvasProjectMembers.projectId, workspace.projectId),
+        eq(canvasProjectMembers.status, 'active'),
+        or(
+          eq(canvasProjectMembers.canRead, true),
+          eq(canvasProjectMembers.canWrite, true),
+          eq(canvasProjectMembers.canManage, true),
+        )!,
+        sql`COALESCE(${user.banned}, 0) != 1`,
+      ))
+      .orderBy(asc(user.name), asc(user.email));
+
+    const organizationAdmins = await db
+      .select({
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        role: organizationUserPermissions.role,
+      })
+      .from(organizationUserPermissions)
+      .innerJoin(user, eq(user.id, organizationUserPermissions.userId))
+      .where(and(
+        eq(organizationUserPermissions.organizationId, workspace.organizationId),
+        inArray(organizationUserPermissions.role, ['owner', 'admin']),
+        eq(organizationUserPermissions.status, 'active'),
+        sql`COALESCE(${user.banned}, 0) != 1`,
+      ))
+      .orderBy(asc(user.name), asc(user.email));
+
+    const candidatesById = new Map<string, AssigneeCandidate>();
+    for (const candidate of [...organizationAdmins, ...projectMembers]) {
+      candidatesById.set(candidate.id, candidate);
+    }
+
+    return NextResponse.json({ success: true, data: Array.from(candidatesById.values()) });
   }
 
   const candidates = await db
