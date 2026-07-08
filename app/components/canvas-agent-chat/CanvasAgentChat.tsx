@@ -397,7 +397,6 @@ export default function CanvasAgentChat({
     handleReferenceSelect,
     isLoadingReferenceItems,
     referencePickerItems,
-    referencePickerRef,
     selectedReferenceIndex,
     selectNextReference,
     selectPreviousReference,
@@ -1209,7 +1208,6 @@ export default function CanvasAgentChat({
         referencePickerHeader={referencePickerHeader}
         referencePickerItems={referencePickerItems}
         onReferenceSelect={handleReferenceSelect}
-        referencePickerRef={referencePickerRef}
         selectedReferenceIndex={selectedReferenceIndex}
         primaryActionIsStop={primaryActionIsStop}
         primaryActionLabel={primaryActionLabel}

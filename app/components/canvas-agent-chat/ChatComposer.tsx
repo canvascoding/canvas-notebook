@@ -92,7 +92,6 @@ export const ChatComposer = forwardRef<HTMLDivElement, {
   referencePickerHeader: string;
   referencePickerItems: ComposerReferencePickerItem<ReferencePickerValue>[];
   onReferenceSelect: (item: ComposerReferencePickerItem<ReferencePickerValue>) => void;
-  referencePickerRef: RefObject<HTMLDivElement | null>;
   selectedReferenceIndex: number;
   primaryActionIsStop: boolean;
   primaryActionLabel: string;
@@ -147,7 +146,6 @@ export const ChatComposer = forwardRef<HTMLDivElement, {
   referencePickerHeader,
   referencePickerItems,
   onReferenceSelect,
-  referencePickerRef,
   selectedReferenceIndex,
   primaryActionIsStop,
   primaryActionLabel,
@@ -309,7 +307,6 @@ export const ChatComposer = forwardRef<HTMLDivElement, {
               header={referencePickerHeader}
               items={referencePickerItems}
               onSelect={onReferenceSelect}
-              pickerRef={referencePickerRef}
               selectedIndex={selectedReferenceIndex}
             />
           ) : null}

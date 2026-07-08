@@ -1,6 +1,6 @@
 'use client';
 
-import type { KeyboardEvent, ReactNode, RefObject } from 'react';
+import { useEffect, useRef, type KeyboardEvent, type ReactNode, type RefObject } from 'react';
 import { ImageThumbnailIcon } from '@/app/components/shared/ImageThumbnailIcon';
 import { isImageFile } from '@/app/lib/files/file-icons';
 
@@ -26,7 +26,6 @@ interface ComposerReferencePickerProps<T = unknown> {
   searchInputRef?: RefObject<HTMLInputElement | null>;
   searchPlaceholder?: string;
   searchValue?: string;
-  pickerRef?: React.RefObject<HTMLDivElement | null>;
   selectedIndex: number;
 }
 
@@ -84,7 +83,6 @@ export function ComposerReferencePicker<T = unknown>({
   onSelect,
   onSearchKeyDown,
   onSearchValueChange,
-  pickerRef,
   searchAutoFocus = false,
   searchInputRef,
   searchPlaceholder,
@@ -92,6 +90,35 @@ export function ComposerReferencePicker<T = unknown>({
   selectedIndex,
 }: ComposerReferencePickerProps<T>) {
   const showSearch = Boolean(onSearchValueChange);
+  const pickerRef = useRef<HTMLDivElement | null>(null);
+  const itemRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const selectedItemId = items[selectedIndex]?.id ?? null;
+
+  useEffect(() => {
+    itemRefs.current.length = items.length;
+  }, [items.length]);
+
+  useEffect(() => {
+    const pickerElement = pickerRef.current;
+    const selectedItem = itemRefs.current[selectedIndex];
+    if (!pickerElement || !selectedItem) {
+      return;
+    }
+
+    const itemTop = selectedItem.offsetTop;
+    const itemBottom = itemTop + selectedItem.offsetHeight;
+    const visibleTop = pickerElement.scrollTop;
+    const visibleBottom = visibleTop + pickerElement.clientHeight;
+
+    if (itemTop < visibleTop) {
+      pickerElement.scrollTo({ top: itemTop });
+      return;
+    }
+
+    if (itemBottom > visibleBottom) {
+      pickerElement.scrollTo({ top: itemBottom - pickerElement.clientHeight });
+    }
+  }, [items.length, selectedIndex, selectedItemId]);
 
   return (
     <div
@@ -117,9 +144,13 @@ export function ComposerReferencePicker<T = unknown>({
       {items.map((item, index) => (
         <button
           key={item.id}
+          ref={(element) => {
+            itemRefs.current[index] = element;
+          }}
           type="button"
           data-testid="chat-reference-item"
           data-reference-kind={item.kind}
+          data-active={index === selectedIndex ? 'true' : 'false'}
           onClick={() => onSelect(item)}
           className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-accent ${
             index === selectedIndex ? 'bg-accent' : ''
