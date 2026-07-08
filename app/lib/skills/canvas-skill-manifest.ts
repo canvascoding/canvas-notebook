@@ -28,6 +28,7 @@ export interface CanvasSkillInterface {
   iconLarge?: string;
   brandColor?: string;
   defaultPrompt?: string;
+  version?: string;
 }
 
 export interface CanvasSkill {
@@ -84,9 +85,23 @@ function normalizeInterface(value: unknown): CanvasSkillInterface | undefined {
     iconLarge: stringValue(value.icon_large ?? value.iconLarge),
     brandColor: stringValue(value.brand_color ?? value.brandColor),
     defaultPrompt: stringValue(value.default_prompt ?? value.defaultPrompt),
+    version: stringValue(value.version),
   };
 
   return Object.values(iface).some(Boolean) ? iface : undefined;
+}
+
+function canvasYamlVersion(value: Record<string, unknown>): string | undefined {
+  const skill = isRecord(value.skill) ? value.skill : undefined;
+  const packageMetadata = isRecord(value.package) ? value.package : undefined;
+  const metadata = isRecord(value.metadata) ? value.metadata : undefined;
+  const iface = isRecord(value.interface) ? value.interface : undefined;
+
+  return stringValue(skill?.version)
+    ?? stringValue(packageMetadata?.version)
+    ?? stringValue(metadata?.version)
+    ?? stringValue(value.version)
+    ?? stringValue(iface?.version);
 }
 
 export function parseFrontmatter(content: string): {
@@ -208,7 +223,12 @@ export async function loadCanvasSkillInterface(skillDir: string): Promise<Canvas
   try {
     const parsed = YAML.parse(raw) as unknown;
     if (!isRecord(parsed)) return undefined;
-    return normalizeInterface(parsed.interface);
+    const iface = normalizeInterface(parsed.interface) ?? {};
+    const version = canvasYamlVersion(parsed);
+    if (version) {
+      iface.version = version;
+    }
+    return Object.values(iface).some(Boolean) ? iface : undefined;
   } catch (error) {
     console.warn('[CanvasSkillParser] Invalid Canvas skill interface.', { path: interfacePath, error });
     return undefined;
@@ -229,13 +249,24 @@ export async function parseSkillFile(skillPath: string): Promise<CanvasSkill | n
     const skillName = frontmatter!.name;
     const directory = path.dirname(skillPath);
     const iface = await loadCanvasSkillInterface(directory);
+    const frontmatterVersion = frontmatter!.metadata?.version;
+    const canvasVersion = iface?.version;
+
+    if (frontmatterVersion && canvasVersion && frontmatterVersion !== canvasVersion) {
+      console.warn('[CanvasSkillParser] Skill version mismatch.', {
+        path: skillPath,
+        frontmatterVersion,
+        canvasVersion,
+      });
+      return null;
+    }
 
     return {
       name: skillName,
       description: frontmatter!.description,
       license: frontmatter!.license,
       compatibility: frontmatter!.compatibility,
-      version: frontmatter!.metadata?.version,
+      version: frontmatterVersion || canvasVersion,
       title: iface?.displayName || extractTitle(skillName),
       content: body,
       path: skillPath,

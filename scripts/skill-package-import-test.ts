@@ -34,12 +34,14 @@ moduleInternals._load = (request, parent, isMain) => {
   return originalLoad(request, parent, isMain);
 };
 
-function skillContent(name: string, version = '1.0.0'): string {
+function skillContent(name: string, version: string | null = '1.0.0'): string {
+  const metadata = version ? `metadata:
+  version: "${version}"
+` : '';
   return `---
 name: ${name}
 description: "Temporary skill package import test skill."
-metadata:
-  version: "${version}"
+${metadata}
 ---
 
 # ${name}
@@ -70,6 +72,7 @@ async function main() {
       importSkillPackage,
       SkillPackageImportError,
     } = await import('../app/lib/skills/skill-package-import');
+    const { readCanvasSkillRegistry } = await import('../app/lib/skills/canvas-skill-store');
 
     const scope = { userId: 'skill-package-user' };
 
@@ -123,6 +126,49 @@ async function main() {
     }, { scope });
     assert.equal(folderImport.name, 'folder-skill');
     await assertFileIncludes(path.join(path.dirname(folderImport.path), 'assets', 'example.txt'), 'folder asset');
+
+    const canvasYamlVersionImport = await importSkillPackage({
+      kind: 'folder',
+      sourceName: 'canvas-yaml-version-skill',
+      files: [
+        {
+          relativePath: 'canvas-yaml-version-skill/SKILL.md',
+          bytes: Buffer.from(skillContent('canvas-yaml-version-skill', null), 'utf-8'),
+        },
+        {
+          relativePath: 'canvas-yaml-version-skill/agents/canvas.yaml',
+          bytes: Buffer.from([
+            'skill:',
+            '  version: "2.3.4"',
+            'interface:',
+            '  display_name: Canvas YAML Version Skill',
+            '',
+          ].join('\n'), 'utf-8'),
+        },
+      ],
+    }, { scope });
+    assert.equal(canvasYamlVersionImport.name, 'canvas-yaml-version-skill');
+    const canvasYamlRegistry = await readCanvasSkillRegistry(scope);
+    assert.equal(canvasYamlRegistry.skills['canvas-yaml-version-skill'].version, '2.3.4');
+
+    await assert.rejects(
+      importSkillPackage({
+        kind: 'folder',
+        sourceName: 'version-mismatch-skill',
+        files: [
+          {
+            relativePath: 'version-mismatch-skill/SKILL.md',
+            bytes: Buffer.from(skillContent('version-mismatch-skill', '1.0.0'), 'utf-8'),
+          },
+          {
+            relativePath: 'version-mismatch-skill/agents/canvas.yaml',
+            bytes: Buffer.from('skill:\n  version: "2.0.0"\n', 'utf-8'),
+          },
+        ],
+      }, { scope }),
+      (error) => error instanceof SkillPackageImportError
+        && error.message === 'Skill package contains an invalid SKILL.md.',
+    );
 
     await assert.rejects(
       importSkillPackage({

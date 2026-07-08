@@ -70,6 +70,8 @@ metadata:
 `agents/canvas.yaml` enthaelt UI- und Invocation-Metadaten:
 
 ```yaml
+skill:
+  version: "1.0.0"
 interface:
   display_name: "My Skill"
   short_description: "Do one focused job well"
@@ -79,7 +81,7 @@ interface:
   default_prompt: "Use $my-skill to ..."
 ```
 
-Alle Felder ausser `display_name` sind optional. Wenn kein Icon existiert oder das Bild nicht geladen werden kann, rendert Canvas Initialen in einem runden Fallback-Icon. `brand_color` faerbt diesen Fallback.
+Alle Interface-Felder ausser `display_name` sind optional. `skill.version` ist die bevorzugte Paketversion fuer neue Skills. Rueckwaertskompatibel kann `SKILL.md` weiterhin `metadata.version` setzen; wenn beide Werte existieren, muessen sie uebereinstimmen. Wenn kein Icon existiert oder das Bild nicht geladen werden kann, rendert Canvas Initialen in einem runden Fallback-Icon. `brand_color` faerbt diesen Fallback.
 
 ## Canvas Plugin Format
 
@@ -231,6 +233,8 @@ Ziel fuer eigene Skills:
 - Diese Tools nutzen dieselbe Import-Pipeline wie der Skill-Upload und schreiben Registry/Settings serverseitig.
 - Generische File-Tools duerfen weiterhin nicht direkt nach `/data/users/{userId}/skills` schreiben.
 - Import, Update und Fork behandeln den Skill-Ordner als atomare Einheit und fuehren enthaltene Scripts nicht beim Import aus.
+- Skill-Pakete tragen eine einfache Paketversion. `agents/canvas.yaml` kann `skill.version` setzen; wenn `SKILL.md` zusaetzlich `metadata.version` setzt, muessen beide Werte uebereinstimmen.
+- Workspace-Drafts unter `.canvas-skill-drafts/` sind temporaer und werden nach erfolgreichem Install/Update standardmaessig geloescht.
 
 Ziel fuer zentrale Skills:
 
@@ -392,8 +396,9 @@ Fuer Agent-erstellte Skills werden zusaetzliche Runtime-Tools benoetigt:
 - `validate_canvas_skill_package` — Skill-Paket oder `SKILL.md` aus dem Chat-Workspace pruefen, ohne zu installieren
 - `create_canvas_skill` — Minimal-Personal-Skill aus generiertem `SKILL.md` und optionalem `agents/canvas.yaml` installieren
 - `install_canvas_skill_from_workspace` — kompletten Personal-Skill-Ordner, `.zip` oder `.skill` aus dem Workspace installieren
-- `update_canvas_skill_from_workspace` — kompletten bestehenden Personal-Skill-Ordner mit Checksum-Schutz und Backup aktualisieren
+- `update_canvas_skill_from_workspace` — kompletten bestehenden Personal-Skill-Ordner mit Version-/Checksum-Schutz aktualisieren
 - `fork_canvas_skill` — nicht editierbaren Skill als kompletten Personal- oder Organization-Fork kopieren
+- `discard_canvas_skill_draft` — abgebrochene Skill-Drafts aus dem Workspace entfernen
 - `publish_canvas_skill_to_organization` — spaeterer Admin-Flow fuer Organization Shared Skills mit Policy
 
 Diese Tools sind keine generischen Dateitools. Sie rufen die Skill-Import-Pipeline auf, schreiben Registry/Settings serverseitig, behandeln den kompletten Paketordner als Einheit und auditieren den Scope.
