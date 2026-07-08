@@ -1,6 +1,6 @@
 # Export, Import, Backup und Restore Policy
 
-Stand: 2026-06-18
+Stand: 2026-07-08
 
 ## Zweck
 
@@ -217,6 +217,98 @@ Anforderungen:
 - Backup-Archive brauchen Checksums, Integritaetscheck und Retention/Prune-Policy.
 - Spaeterer externer Bucket-Upload bleibt vorbereitet und sollte dann Verschluesselung/Transport-Sicherheit bekommen.
 
+### Aktueller Implementierungsstand
+
+Stand 2026-07-08 existiert bereits ein technischer Full-Backup-Kern:
+
+- `app/lib/backups/full-backup-service.ts` erzeugt Full-Backup-Jobs, Manifeste, Checksums und ZIP-Archive.
+- SQLite-Backups nutzen einen konsistenten SQLite-Snapshot.
+- Postgres-Backups nutzen einen `pg_dump`-Artefaktpfad.
+- `app/api/admin/backups/*` bietet Erstellen, Auflisten, Status, Download und Inspect fuer Full-Backup-Jobs.
+- `scripts/create-full-backup.ts` kann Full Backups im Container anstossen.
+- `npm run test:backup:full` deckt SQLite, Postgres-Dump-Pfad, Locking und Inspection ab.
+
+Noch nicht fertig als Produktfeature:
+
+- Die Settings-UI zeigt Migration Export/Import und einfache Datei-/Daten-Downloads, aber noch keinen dedizierten Full-Backup-Bereich.
+- Legacy Bash CLI und portable TypeScript-CLI haben noch keinen offiziellen `backup`-Befehl.
+- Die Control Plane hat Database-/Migration-Runs, aber noch keine Full-Backup-Operation.
+- Der Postgres-Backup-Pfad haengt davon ab, dass `pg_dump` im Ausfuehrungskontext verfuegbar und zur Server-Version kompatibel ist.
+
+### Full Backup Implementierungsplan
+
+Die Backup-Integration wird erst nach dem Provider-Setup-Schritt aus `17-database-provider-postgres-rag-collaboration-policy.md` freigeschaltet. Das verhindert, dass Backups in SQLite funktionieren, aber bei den kuenftigen Team-/Postgres-Installationen scheitern.
+
+Phase 1: Backup-Engine haerten.
+
+- Postgres-Dump-Preflight einfuehren: Provider, `DATABASE_URL`, `pg_dump`-Verfuegbarkeit, Version und Zielpfad pruefen, bevor ein Archiv geschrieben wird.
+- V1 entscheidet sich fuer einen kompatiblen Postgres-Client im App-Container oder fuer einen kontrollierten Dump im Postgres-Container.
+- Fehler muessen vor partiellen Archiven abbrechen und als strukturierte Backup-Fehler sichtbar werden.
+- Job-Serialisierung darf keine lokalen `filePath`-Interna und keine sensiblen Pfade an normale API-Listen leaken.
+- Inspection-Permissions muessen zu Backup-Management passen: Backup-Manager muessen ein Backup inspizieren koennen, Restore-Rechte bleiben separat.
+
+Phase 2: Settings-UI in der App.
+
+- Im Workspace-/Admin-Settings-Bereich entsteht ein dedizierter Full-Backup-Abschnitt.
+- Sichtbar nur fuer Owner/Admins oder Rollen mit `canManageBackups`.
+- UI-Funktionen:
+  - vorhandene Backups laden,
+  - neues Backup starten,
+  - laufenden Job pollen,
+  - Status, Phase, Groesse, Provider und Warnungen anzeigen,
+  - fertiges ZIP herunterladen,
+  - Backup-Manifest inspizieren,
+  - lokale unverschluesselte V1-Backups klar warnen.
+- Die UI darf Full Backup nicht mit Migration Export oder `/data`-Download vermischen.
+- Optional fuer V1.1: Backup loeschen/prunen, damit lokale VM-Disk nicht unkontrolliert voll laeuft.
+
+Phase 3: Beide Notebook-CLIs.
+
+Legacy Bash CLI und portable TypeScript-CLI bekommen denselben Befehl:
+
+```txt
+canvas-notebook backup create [--output <path>] [--json] [--no-wait]
+canvas-notebook backup list [--json]
+canvas-notebook backup status <id> [--json]
+```
+
+V1-Mindestumfang ist `backup create`; `list` und `status` koennen folgen, wenn die UI/API-Serialisierung stabil ist.
+
+Regeln:
+
+- Beide CLIs rufen den bestehenden Container-internen Backup-Scriptpfad auf, statt eigene Backup-Logik zu duplizieren.
+- `--output <path>` kopiert ein fertiges Backup per Docker vom Container auf den Host.
+- `--output` ist nur mit wartendem `create` erlaubt, nicht mit `--no-wait`.
+- JSON-Ausgaben muessen maschinenlesbar sein und duerfen keine Secrets enthalten.
+- Bei Postgres muss der CLI-Fehler klar sagen, ob Provider-Setup, `pg_dump`, Postgres-Health oder Dump-Erzeugung fehlt.
+
+Phase 4: Control Plane.
+
+- V1 nutzt die bestehende Agent-/Run-Architektur statt freie Shell-VM-Actions.
+- Moegliche Modellierung:
+  - `database:run` um `backup_full` erweitern, wenn Backup als Database/Maintenance-Operation behandelt wird.
+  - oder eigene `backup:run`-Familie, wenn spaeter Retention, externe Ziele und Restore-Workflows groesser werden.
+- Der Agent startet auf der VM `canvas-notebook backup create --json` oder direkt den Container-internen Scriptpfad.
+- Control Plane speichert Run-ID, Phase, Progress, Provider, Dateigroesse, Checksum und Fehlercode.
+- Die Web-UI zeigt nur redacted Status und Artefaktmetadaten. Lokale VM-Pfade, `DATABASE_URL`, Postgres-Passwort, Instance Token und interne API-Keys bleiben verborgen.
+- Remote-Download aus Control Plane ist nicht Teil von V1. Dafuer braucht es spaeter einen sicheren Artifact-Transfer oder Object-Storage-Upload.
+
+Phase 5: Restore und Retention folgen separat.
+
+- Full Backup Create/Download ist nicht automatisch Full Restore.
+- Restore braucht eigenen Dry Run, Provider-Kompatibilitaet, Maintenance Mode und Rollback-Regeln.
+- Retention/Prune soll lokal starten und spaeter durch externe Backup-Ziele ersetzt oder erweitert werden.
+
+### Reihenfolge der Umsetzung
+
+1. Provider-Setup vorlagern: portable CLI, Legacy Help/Tests, `prepare-postgres`, Postgres-Health.
+2. Postgres-Dump-Voraussetzung loesen.
+3. Full-Backup-Service/API absichern und Serialisierung korrigieren.
+4. App Settings UI integrieren.
+5. Legacy Bash CLI `backup create`.
+6. Portable TypeScript-CLI `backup create`.
+7. Control-Plane-Run fuer manuelle Full Backups.
+
 ## Restore
 
 Restore-Modi:
@@ -298,9 +390,14 @@ Pflichttests:
 - Secrets/OAuth werden im Migration Export nur als Reconnect-Manifest exportiert.
 - Full Backup enthaelt Public Links und kann Secrets/OAuth-State enthalten; bei lokal unverschluesseltem V1-Backup muss die Admin-Warnung sichtbar sein.
 - Backup kann via Admin/API/CLI getriggert werden.
+- Settings-UI kann Full Backup starten, pollt den Jobstatus und laedt fertige Archive herunter.
+- Legacy Bash CLI kann `backup create --output <path>` ausfuehren.
+- Portable TypeScript-CLI kann `backup create --output <path>` ausfuehren.
+- Control Plane kann einen Full-Backup-Run starten und Status/Fehler ohne Secrets anzeigen.
 - Geplanter Backup-Job blockiert parallele Backup-Laeufe.
 - Restore Preview erkennt Konflikte vor dem Schreiben.
 - Restore-/Migration-Manifest V2 enthaelt Provider-, Schema-, Source-, Feature- und Checksum-Felder.
 - Postgres-Full-Backup enthaelt DB-Dump/Snapshot plus `/data`.
+- Postgres-Full-Backup bricht vor Archivschreibung mit klarem Fehler ab, wenn `pg_dump` oder ein gleichwertiger Dump-Weg fehlt.
 - Import-Dry-Run erkennt Provider-Mismatch und blockiert Team-RAG-Downgrade nach SQLite.
 - V1-Backup-Artefakte liegen lokal und unverschluesselt auf der VM.
