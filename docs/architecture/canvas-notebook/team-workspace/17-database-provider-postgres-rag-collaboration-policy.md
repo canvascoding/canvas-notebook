@@ -369,6 +369,11 @@ Vor der Full-Backup-Integration muss der Postgres-Dump-Weg geklaert sein:
 - Der bestehende Backup-Service erzeugt Postgres-Backups ueber `pg_dump`.
 - V1 stellt einen passenden Postgres-Client im App-Container bereit oder fuehrt den Dump kontrolliert im Postgres-Container aus.
 - Der bevorzugte V1-Pfad ist ein kompatibler Postgres-Client im App-Container, weil API, UI und CLI dann denselben Backup-Service nutzen koennen.
+- Die Notebook-CLI bleibt Orchestrator und dupliziert die Backup-Engine nicht. Sie ruft einen Container-internen Backup-Command bzw. Scriptpfad auf, der die vorhandene Notebook-Backup-Logik in einem separaten Prozess ausfuehrt.
+- Der CLI-Backup-Pfad ruft nicht die laufende Web-App per HTTP auf und braucht keinen App-Stopp. Die App darf waehrend `backup create` weiterlaufen.
+- Full Backup ist ein Daten-Backup: enthalten sind Datenbank und Canvas-Notebook-Nutzerdaten unter `/data`; nicht enthalten sind VM, OS, Docker Images, App-Binaries, Source Code, Systemd-/Caddy-/Compose-/Host-Konfiguration und CLI-Installation.
+- Der Backup-Zielpfad ist konfigurierbar. Default ist der Canvas-Backup-Pfad unter `/data/system/backups` bzw. der zugehoerige lokale VM-Pfad.
+- V1 verwaltet ein stabiles Latest-Backup. Das alte Latest-Backup wird erst nach erfolgreicher Erstellung, Manifest-/Checksum-Pruefung und atomarer Promotion des neuen Backups ersetzt.
 - Wenn `pg_dump` fehlt oder nicht kompatibel ist, muss Backup mit einem klaren Preflight-Fehler abbrechen, bevor ein teilweises Archiv entsteht.
 - Vor einem Postgres-Backup muss der Provider-Prepare-Service bestaetigen, dass das App-Runtime-Passwort und das echte Postgres-Rollenpasswort zusammenpassen. Sonst kann ein Backup direkt nach `update`, `restart` oder `env --sync` genau im Managed-Team-Fall scheitern.
 

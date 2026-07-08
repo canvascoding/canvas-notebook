@@ -1025,6 +1025,51 @@
         "npm run lint",
         "npm run build"
       ]
+    },
+    {
+      "id": 47,
+      "title": "Nutzerdaten-Backup ueber CLI/Agent mit lokalem Latest-Artefakt und Control-Plane-Download umsetzen",
+      "status": "planned",
+      "repo": "cross-repo",
+      "dependsOn": [
+        36,
+        42,
+        45
+      ],
+      "planningArtifacts": [
+        "docs/architecture/canvas-notebook/team-workspace/15-export-import-backup-restore-policy.md",
+        "docs/architecture/canvas-notebook/team-workspace/17-database-provider-postgres-rag-collaboration-policy.md"
+      ],
+      "implementationTargets": [
+        "app/lib/backups/types.ts",
+        "app/lib/backups/full-backup-service.ts",
+        "scripts/create-full-backup.ts",
+        "cli/src/main.ts",
+        "install/lib/commands/backup.sh",
+        "../canvas-control-plane/packages/agent/src/ws-client.ts",
+        "../canvas-control-plane/apps/api/src/sockets/agentHandler.ts",
+        "../canvas-control-plane/apps/web/src/app/dashboard/vms/[id]/page.tsx"
+      ],
+      "acceptanceCriteria": [
+        "Backup-Scope ist Datenbank plus Canvas-Notebook-Nutzerdaten unter /data; VM, OS, Docker Images, App-Binaries, Source Code, Systemd-/Caddy-/Compose-/Host-Konfiguration und CLI-Installation sind nicht Teil des Backups",
+        "Notebook-CLI orchestriert Backup ueber einen Container-internen Backup-Command oder Scriptpfad und ruft die laufende Web-App fuer backup create nicht per HTTP auf",
+        "Backup laeuft ohne App-Stopp und ohne Maintenance Mode; Manifest kennzeichnet Datenbank als konsistent und /data-Dateien als online_best_effort",
+        "Zielpfad ist konfigurierbar und hat einen Default unter /data/system/backups bzw. dem zugehoerigen lokalen VM-Pfad",
+        "V1 verwaltet ein stabiles Latest-Backup und ersetzt das alte Backup erst nach erfolgreicher Archiv-, Manifest- und Checksum-Pruefung des neuen Backups",
+        "Fehlschlagende Backups lassen das vorherige Latest-Backup unveraendert erhalten",
+        "Postgres-Backups fuehren vor Dump-Erzeugung prepare-postgres inklusive Rollenpasswort-Verify und pgvector-Check aus",
+        "Legacy Bash CLI und portable TypeScript-CLI stellen denselben backup create Pfad mit JSON-Status bereit",
+        "Control Plane kann einen Backup-Run ueber den Agent starten, Status/Fehler redacted anzeigen und das lokale Latest-Backup per Download-Button zum Browser streamen",
+        "Control Plane speichert das ZIP nicht dauerhaft in ihrer Datenbank und zeigt keine lokalen Pfade oder Secrets an",
+        "Restore bleibt ein separater Flow mit Dry Run, Provider-Kompatibilitaet, App-Stopp oder Maintenance Mode und Rollback-Regeln"
+      ],
+      "verification": [
+        "npm run test:backup:full",
+        "npm run test:cli:database",
+        "npm run test:cli:portable",
+        "npm run lint",
+        "npm run build"
+      ]
     }
   ]
 }
