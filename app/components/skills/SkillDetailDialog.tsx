@@ -74,8 +74,10 @@ export function SkillDetailDialog({ skill, open, onOpenChange, onDeleted }: Skil
     // eslint-disable-next-line react-hooks/exhaustive-deps -- loadSkillContent takes skill.name as argument; skill is in deps
   }, [open, skill]);
 
+  const isReadOnly = Boolean(skill?.core || skill?.plugin);
+
   useEffect(() => {
-    if (!draft || !skill) return;
+    if (!draft || !skill || isReadOnly) return;
 
     if (saveTimeoutRef.current) {
       window.clearTimeout(saveTimeoutRef.current);
@@ -116,9 +118,10 @@ export function SkillDetailDialog({ skill, open, onOpenChange, onDeleted }: Skil
         window.clearTimeout(saveTimeoutRef.current);
       }
     };
-  }, [draft, skill, skillContent, t]);
+  }, [draft, isReadOnly, skill, skillContent, t]);
 
   const isDirty = draft !== skillContent;
+  const canDelete = !isReadOnly && skill?.isCustom !== false;
   const savedTime = lastSavedAt
     ? new Date(lastSavedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     : null;
@@ -167,6 +170,11 @@ export function SkillDetailDialog({ skill, open, onOpenChange, onDeleted }: Skil
                   <Badge variant={skill.enabled ? 'default' : 'secondary'} className="text-xs">
                     {skill.enabled ? t('detail.enabled') : t('detail.disabled')}
                   </Badge>
+                  {skill.core && (
+                    <Badge variant="outline" className="text-xs">
+                      {t('detail.core')}
+                    </Badge>
+                  )}
                   {skill.license && (
                     <Badge variant="outline" className="text-xs">
                       {skill.license}
@@ -176,7 +184,7 @@ export function SkillDetailDialog({ skill, open, onOpenChange, onDeleted }: Skil
               </div>
             </div>
             <div className="flex items-center gap-2">
-              {skill.isCustom !== false && (
+              {canDelete && (
                 <AlertDialog>
                   <AlertDialogTrigger asChild>
                     <Button
@@ -242,25 +250,25 @@ export function SkillDetailDialog({ skill, open, onOpenChange, onDeleted }: Skil
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-lg font-semibold">{t('detail.documentation')}</h2>
                 <div className="flex items-center gap-2">
-                  {saveError && (
+                  {!isReadOnly && saveError && (
                     <span className="flex items-center gap-1 text-xs text-destructive" title={saveError}>
                       <AlertCircle className="h-3.5 w-3.5" />
                       <span className="hidden sm:inline">{saveError}</span>
                     </span>
                   )}
-                  {isSaving && (
+                  {!isReadOnly && isSaving && (
                     <span className="flex items-center gap-1 text-xs text-muted-foreground">
                       <Loader2 className="h-3.5 w-3.5 animate-spin" />
                       <span className="hidden sm:inline">{t('saving')}</span>
                     </span>
                   )}
-                  {!isSaving && !saveError && isDirty && (
+                  {!isReadOnly && !isSaving && !saveError && isDirty && (
                     <span className="flex items-center gap-1 text-xs text-muted-foreground">
                       <Save className="h-3.5 w-3.5" />
                       <span className="hidden sm:inline">{t('unsavedChanges')}</span>
                     </span>
                   )}
-                  {!isSaving && !saveError && !isDirty && savedTime && (
+                  {!isReadOnly && !isSaving && !saveError && !isDirty && savedTime && (
                     <span className="flex items-center gap-1 text-xs text-primary" title={t('savedAt', { time: savedTime })}>
                       <Save className="h-3.5 w-3.5" />
                       <span className="hidden sm:inline">{t('savedAt', { time: savedTime })}</span>
@@ -280,6 +288,7 @@ export function SkillDetailDialog({ skill, open, onOpenChange, onDeleted }: Skil
                     key={skill.name}
                     value={draft}
                     onChange={setDraft}
+                    readOnly={isReadOnly}
                     externalValueSync="when-blurred"
                   />
                 </div>

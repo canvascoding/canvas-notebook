@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { requireOrganizationPermission } from '@/app/lib/organization/permissions';
+import { coreSkillInstallError, isCoreSkillName } from '@/app/lib/skills/core-skills';
 import { deleteSkillDirectory } from '@/app/lib/skills/skill-loader';
 import { removeCanvasSkillRegistryRecord } from '@/app/lib/skills/canvas-skill-store';
 
@@ -20,6 +21,12 @@ export async function DELETE(
       return NextResponse.json(
         { success: false, error: 'Invalid skill name' },
         { status: 400 }
+      );
+    }
+    if (isCoreSkillName(name)) {
+      return NextResponse.json(
+        { success: false, error: coreSkillInstallError(name) },
+        { status: 409 },
       );
     }
 

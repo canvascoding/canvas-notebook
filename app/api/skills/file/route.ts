@@ -4,6 +4,7 @@ import path from 'path';
 import { headers } from 'next/headers';
 import { auth } from '@/app/lib/auth';
 import { resolveReadableScopedSkillsDataDir } from '@/app/lib/runtime-data-paths';
+import { resolveCoreSkillFilePath } from '@/app/lib/skills/core-skill-loader';
 
 function sanitizeFilePath(filePath: string): string {
   let clean = filePath;
@@ -30,6 +31,23 @@ export async function GET(request: NextRequest) {
     }
 
     const sanitizedPath = sanitizeFilePath(filePath);
+    const corePath = resolveCoreSkillFilePath(sanitizedPath);
+    if (corePath) {
+      const stat = await fs.stat(corePath);
+      if (stat.isDirectory()) {
+        return NextResponse.json({ success: false, error: 'Path is a directory, not a file' }, { status: 400 });
+      }
+
+      const content = await fs.readFile(corePath, 'utf-8');
+      return NextResponse.json({
+        success: true,
+        content,
+        name: path.basename(corePath),
+        size: stat.size,
+        modified: stat.mtimeMs,
+      });
+    }
+
     const skillsDir = await resolveReadableScopedSkillsDataDir({ userId: session.user.id });
     const fullPath = path.join(skillsDir, sanitizedPath);
     const resolvedPath = path.resolve(fullPath);

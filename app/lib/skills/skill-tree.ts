@@ -82,8 +82,12 @@ async function buildSkillTreeFromDir(
 
 export async function buildSkillTree(
   rootDir: string,
-  options: { maxDepth?: number } = {},
+  options: { maxDepth?: number; includeRootNames?: Iterable<string> } = {},
 ): Promise<SkillFileNode[]> {
   const resolvedRoot = path.resolve(rootDir);
-  return buildSkillTreeFromDir(resolvedRoot, resolvedRoot, 0, options.maxDepth ?? 4, true);
+  const includeRootNames = options.includeRootNames ? new Set(options.includeRootNames) : null;
+  const nodes = await buildSkillTreeFromDir(resolvedRoot, resolvedRoot, 0, options.maxDepth ?? 4, true);
+  return includeRootNames
+    ? nodes.filter((node) => includeRootNames.has(node.name))
+    : nodes;
 }

@@ -9,6 +9,8 @@ import {
   createDefaultSkillMd,
   type CanvasSkillStorageScope,
 } from './canvas-skill-manifest';
+import { CORE_SKILL_NAMES, coreSkillInstallError, isCoreSkillName } from './core-skills';
+import { loadCoreSkillByName, loadCoreSkills } from './core-skill-loader';
 import { enableSkillInConfig, disableSkillInConfig, areAllSkillsEnabled } from './enabled-skills';
 import { resolveReadableScopedSkillsDataDir } from '@/app/lib/runtime-data-paths';
 import {
@@ -37,7 +39,8 @@ export async function loadSkillsFromDisk(
   enabledSkills?: string[],
   scope?: CanvasSkillStorageScope | null,
 ): Promise<CanvasSkill[]> {
-  const skills: CanvasSkill[] = [];
+  const skills: CanvasSkill[] = await loadCoreSkills();
+  const coreSkillNames = new Set(skills.map((skill) => skill.name));
   const skillsDir = await resolveReadableScopedSkillsDataDir(scope);
   
   try {
@@ -55,6 +58,13 @@ export async function loadSkillsFromDisk(
       
       for (const entry of entries) {
         if (entry.isDirectory()) {
+          if (coreSkillNames.has(entry.name)) {
+            if (process.env.DEBUG === 'true') {
+              console.log(`[SkillLoader] Ignoring standalone copy of core skill: ${entry.name}`);
+            }
+            continue;
+          }
+
           const skillMdPath = path.join(skillsDir, entry.name, 'SKILL.md');
           
           // Check if SKILL.md exists before trying to parse
@@ -104,7 +114,7 @@ export async function loadSkillsFromDisk(
 
   for (const pluginSkill of pluginSkills) {
     if (standaloneSkillNames.has(pluginSkill.name)) {
-      console.warn(`[SkillLoader] Skipping plugin skill "${pluginSkill.name}" because a standalone skill with that name exists.`);
+      console.warn(`[SkillLoader] Skipping plugin skill "${pluginSkill.name}" because a core or standalone skill with that name exists.`);
       continue;
     }
     skills.push(pluginSkill);
@@ -126,6 +136,11 @@ export async function loadSkillByName(
   scope?: CanvasSkillStorageScope | null,
   options: { legacyFallback?: boolean } = {},
 ): Promise<CanvasSkill | null> {
+  const coreSkill = await loadCoreSkillByName(name);
+  if (coreSkill) {
+    return coreSkill;
+  }
+
   const skillsDir = options.legacyFallback === false
     ? getSkillsDir(scope)
     : await resolveReadableScopedSkillsDataDir(scope);
@@ -159,7 +174,10 @@ export async function skillExists(
  * Get all skill names
  */
 export async function getSkillNames(scope?: CanvasSkillStorageScope | null): Promise<string[]> {
-  return getAllKnownSkillNames(scope);
+  return Array.from(new Set([
+    ...CORE_SKILL_NAMES,
+    ...await getAllKnownSkillNames(scope),
+  ])).sort((left, right) => left.localeCompare(right));
 }
 
 /**
@@ -172,6 +190,10 @@ export async function createSkillDirectory(
   scope?: CanvasSkillStorageScope | null,
 ): Promise<{ success: boolean; error?: string; path?: string }> {
   try {
+    if (isCoreSkillName(name)) {
+      return { success: false, error: coreSkillInstallError(name) };
+    }
+
     await adoptLegacyStandaloneSkillsForScope(scope);
 
     // Check if skill already exists
@@ -302,6 +324,10 @@ export async function deleteSkillDirectory(
   scope?: CanvasSkillStorageScope | null,
 ): Promise<{ success: boolean; error?: string }> {
   try {
+    if (isCoreSkillName(name)) {
+      return { success: false, error: coreSkillInstallError(name) };
+    }
+
     await adoptLegacyStandaloneSkillsForScope(scope);
 
     const skillsDir = getSkillsDir(scope);

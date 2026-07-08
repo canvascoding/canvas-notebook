@@ -1,3 +1,5 @@
+import { isCoreSkillName } from '@/app/lib/skills/core-skills';
+
 export const DISABLED_ALL_SKILLS_SENTINEL = '__none__';
 
 function normalizeSkillNames(skillNames: Iterable<string>): string[] {
@@ -31,10 +33,11 @@ export function resolveEnabledSkillNames(
 ): Set<string> {
   const canonicalSkillNames = normalizeSkillNames(allSkillNames);
   const canonicalSkillSet = new Set(canonicalSkillNames);
+  const coreSkillNames = canonicalSkillNames.filter((skillName) => isCoreSkillName(skillName));
   const normalizedConfig = normalizeEnabledSkillsConfig(enabledSkills);
 
   if (normalizedConfig.includes(DISABLED_ALL_SKILLS_SENTINEL)) {
-    return new Set();
+    return new Set(coreSkillNames);
   }
 
   const configuredSkills = normalizedConfig.filter((skillName) => skillName !== DISABLED_ALL_SKILLS_SENTINEL);
@@ -43,7 +46,10 @@ export function resolveEnabledSkillNames(
     return new Set(canonicalSkillNames);
   }
 
-  return new Set(configuredSkills.filter((skillName) => canonicalSkillSet.has(skillName)));
+  return new Set([
+    ...coreSkillNames,
+    ...configuredSkills.filter((skillName) => canonicalSkillSet.has(skillName)),
+  ]);
 }
 
 export function areAllSkillsEnabled(enabledSkills?: string[] | null): boolean {
@@ -56,13 +62,14 @@ export function serializeEnabledSkillNames(
 ): string[] {
   const canonicalSkillNames = normalizeSkillNames(allSkillNames);
   const enabledSet = new Set(normalizeSkillNames(enabledSkillNames));
-  const orderedEnabledNames = canonicalSkillNames.filter((skillName) => enabledSet.has(skillName));
+  const optionalSkillNames = canonicalSkillNames.filter((skillName) => !isCoreSkillName(skillName));
+  const orderedEnabledNames = optionalSkillNames.filter((skillName) => enabledSet.has(skillName));
 
   if (orderedEnabledNames.length === 0) {
     return [DISABLED_ALL_SKILLS_SENTINEL];
   }
 
-  if (orderedEnabledNames.length === canonicalSkillNames.length) {
+  if (orderedEnabledNames.length === optionalSkillNames.length) {
     return [];
   }
 

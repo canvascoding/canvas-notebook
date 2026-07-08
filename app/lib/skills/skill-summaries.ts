@@ -9,6 +9,7 @@ import {
   type CanvasSkillInterface,
   type CanvasSkillStorageScope,
 } from './canvas-skill-manifest';
+import { loadCoreSkills } from './core-skill-loader';
 import { loadEnabledPluginSkills } from '@/app/lib/plugins/canvas-plugin-registry';
 import { resolveReadableScopedSkillsDataDir } from '@/app/lib/runtime-data-paths';
 
@@ -18,6 +19,7 @@ export type SkillSummary = {
   description: string;
   version?: string;
   enabled: boolean;
+  core?: boolean;
   interface?: CanvasSkillInterface;
   plugin?: {
     name: string;
@@ -46,11 +48,22 @@ export async function loadSkillSummaries(
   const skillsDir = await resolveReadableScopedSkillsDataDir(scope);
   const enabledSet = new Set(enabledSkills || []);
   const allEnabled = !enabledSkills || enabledSkills.length === 0;
+  const coreSummaries: SkillSummary[] = (await loadCoreSkills()).map((skill) => ({
+    name: skill.name,
+    title: skill.title,
+    description: skill.description,
+    version: skill.version,
+    enabled: true,
+    core: true,
+    interface: skill.interface,
+  }));
+  const coreSkillNames = new Set(coreSummaries.map((skill) => skill.name));
 
   try {
     const entries = await fs.readdir(skillsDir, { withFileTypes: true });
     const summaries: Array<SkillSummary | null> = await Promise.all(entries
       .filter((entry) => entry.isDirectory())
+      .filter((entry) => !coreSkillNames.has(entry.name))
       .map(async (entry) => {
         const skillMdPath = path.join(skillsDir, entry.name, 'SKILL.md');
         try {
@@ -71,7 +84,7 @@ export async function loadSkillSummaries(
         }
       }));
 
-    const validSummaries: SkillSummary[] = [];
+    const validSummaries: SkillSummary[] = [...coreSummaries];
     for (const summary of summaries) {
       if (summary) validSummaries.push(summary);
     }
@@ -93,7 +106,7 @@ export async function loadSkillSummaries(
     }
     return validSummaries.sort((a, b) => a.name.localeCompare(b.name));
   } catch {
-    return [];
+    return coreSummaries;
   }
 }
 

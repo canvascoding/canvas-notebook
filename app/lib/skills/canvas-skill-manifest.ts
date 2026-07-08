@@ -41,6 +41,7 @@ export interface CanvasSkill {
   path: string;
   directory: string;
   enabled: boolean;
+  core?: boolean;
   isCustom?: boolean;
   interface?: CanvasSkillInterface;
   plugin?: {

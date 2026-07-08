@@ -3578,7 +3578,7 @@
       "resetAll": {
         "button": "Skills zurücksetzen",
         "title": "Alle Skills zurücksetzen?",
-        "description": "Dadurch wird der gesamte Skills-Ordner gelöscht, inklusive installierter Skills, lokaler Skill-Dateien, Registry-Daten und Backups. Installierte Plugins werden nicht entfernt, ihre gebündelten Skills können aber wieder über das Plugin erscheinen.",
+        "description": "Dadurch werden installierte und lokale Skill-Dateien, Registry-Daten und Backups gelöscht. Eingebaute Core Skills bleiben verfügbar. Installierte Plugins werden nicht entfernt, ihre gebündelten Skills können aber wieder über das Plugin erscheinen.",
         "confirmLabel": "Gib {confirmation} ein, um fortzufahren.",
         "cancel": "Abbrechen",
         "confirm": "Skills-Ordner löschen"
@@ -3647,6 +3647,8 @@
       "status": "Status:",
       "license": "Lizenz:",
       "compatibility": "Kompatibilität:",
+      "core": "Core",
+      "coreProtected": "Eingebaute Core Skills sind immer verfügbar und können nicht deaktiviert, bearbeitet oder gelöscht werden.",
       "viewDocumentation": "Dokumentation anzeigen",
       "selectPrompt": "Waehle einen Skill oder eine Datei aus, um Details anzuzeigen",
       "deleteSkill": "Skill löschen",

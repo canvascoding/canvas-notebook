@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { recordAuditEvent } from '@/app/lib/audit/audit-service';
 import { requireOrganizationPermission } from '@/app/lib/organization/permissions';
+import { coreSkillInstallError, isCoreSkillName } from '@/app/lib/skills/core-skills';
 import { disableSkillInConfig, resolveEnabledSkillNames } from '@/app/lib/skills/enabled-skills';
 import { loadSkillsFromDisk } from '@/app/lib/skills/skill-loader';
 import { readEnabledSkillsForScope, writeEnabledSkillsForScope } from '@/app/lib/skills/skill-settings';
@@ -16,6 +17,13 @@ export async function POST(
     if (!skillPermission.ok) return skillPermission.response;
 
     const { name } = await params;
+    if (isCoreSkillName(name)) {
+      return NextResponse.json(
+        { success: false, error: coreSkillInstallError(name) },
+        { status: 409 },
+      );
+    }
+
     const scope = { userId: skillPermission.session.user.id };
     
     const enabledSkills = await readEnabledSkillsForScope(scope);
