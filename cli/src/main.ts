@@ -2,7 +2,19 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import { materializeConfig, loadConfig, writeConfig, writeEnvFiles } from './core/config';
+import {
+  configureRuntimeAndDatabase,
+  materializeConfig,
+  materializePostgresInfrastructureConfig,
+  loadConfig,
+  parseCliDatabaseProvider,
+  parseCliRuntimeMode,
+  redactConfig,
+  writeConfig,
+  writeEnvFiles,
+  type CliDatabaseProvider,
+  type CliRuntimeMode,
+} from './core/config';
 import { writeComposeFile } from './core/compose';
 import { DockerManager } from './core/docker';
 import { composePath, createRuntimeContext } from './core/platform';
@@ -15,6 +27,11 @@ interface ParsedArgs {
   args: string[];
   json: boolean;
   noBanner: boolean;
+}
+
+interface InstallOptions {
+  database?: CliDatabaseProvider;
+  runtime?: CliRuntimeMode;
 }
 
 function parseArgs(argv: string[]): ParsedArgs {
@@ -50,7 +67,8 @@ function printHelp(): void {
   console.log(`Usage: canvas-notebook <command> [options]
 
 Commands:
-  install                         Generate config, pull image, start container
+  install [--database sqlite|postgres] [--runtime personal|team]
+                                  Generate config, pull image, start container
   update                          Pull image and recreate only when needed
   start                           Start the container and wait for health
   restart                         Recreate the container and wait for health
@@ -61,9 +79,11 @@ Commands:
   logs                            Follow app container logs
   manager-log                     Show host-side CLI log
   env --sync                      Regenerate env files
-  config-show                     Print canvas-notebook-config.json
+  config-show                     Print canvas-notebook-config.json with secrets masked
   config-set <key> <value>        Set a top-level/env config value
   admin reset-password ...        Reset or create an admin in the container
+  database status [--json]        Show configured database provider status
+  database prepare-postgres       Prepare local Postgres service without data migration
   database migrate-sqlite-to-postgres [args]
   service status|install|uninstall
 `);
@@ -78,8 +98,14 @@ async function readConfig(context: RuntimeContext): Promise<CanvasCliConfig> {
   return loadConfig(context.paths, context.platform);
 }
 
-async function syncFiles(context: RuntimeContext, config: CanvasCliConfig): Promise<CanvasCliConfig> {
-  const next = materializeConfig(config);
+async function syncFiles(
+  context: RuntimeContext,
+  config: CanvasCliConfig,
+  options: { postgresInfrastructureOnly?: boolean } = {},
+): Promise<CanvasCliConfig> {
+  const next = options.postgresInfrastructureOnly
+    ? materializePostgresInfrastructureConfig(config)
+    : materializeConfig(config);
   const composeDataDir = composePath(next.dataDir, context.platform);
   await fs.mkdir(next.paths.installDir, { recursive: true });
   await fs.mkdir(next.paths.dataDir, { recursive: true });
@@ -87,6 +113,38 @@ async function syncFiles(context: RuntimeContext, config: CanvasCliConfig): Prom
   await writeEnvFiles(next, composeDataDir);
   await writeComposeFile(next, context.platform);
   return next;
+}
+
+function readOptionValue(args: string[], index: number, option: string): { value: string; nextIndex: number } {
+  const inlinePrefix = `${option}=`;
+  const current = args[index] || '';
+  if (current.startsWith(inlinePrefix)) {
+    const value = current.slice(inlinePrefix.length);
+    if (!value) throw new Error(`Missing value for ${option}.`);
+    return { value, nextIndex: index };
+  }
+  const value = args[index + 1];
+  if (!value || value.startsWith('--')) throw new Error(`Missing value for ${option}.`);
+  return { value, nextIndex: index + 1 };
+}
+
+function parseInstallOptions(args: string[]): InstallOptions {
+  const options: InstallOptions = {};
+  for (let i = 0; i < args.length; i += 1) {
+    const arg = args[i];
+    if (arg === '--database' || arg.startsWith('--database=')) {
+      const parsed = readOptionValue(args, i, '--database');
+      options.database = parseCliDatabaseProvider(parsed.value);
+      i = parsed.nextIndex;
+    } else if (arg === '--runtime' || arg.startsWith('--runtime=')) {
+      const parsed = readOptionValue(args, i, '--runtime');
+      options.runtime = parseCliRuntimeMode(parsed.value);
+      i = parsed.nextIndex;
+    } else {
+      throw new Error(`Unknown install option: ${arg}`);
+    }
+  }
+  return options;
 }
 
 async function install(context: RuntimeContext, docker: DockerManager, config: CanvasCliConfig): Promise<void> {
@@ -154,6 +212,42 @@ function setConfigValue(config: CanvasCliConfig, key: string, value: string): Ca
   throw new Error(`Unsupported config key: ${key}`);
 }
 
+function databaseStatusPayload(config: CanvasCliConfig) {
+  const provider = String(config.env.CANVAS_DATABASE_PROVIDER || 'sqlite');
+  const deploymentMode = String(config.env.CANVAS_DEPLOYMENT_MODE || 'single_user');
+  const postgresRequired = ['true', '1', 'yes', 'on'].includes(String(config.env.CANVAS_POSTGRES_REQUIRED || '').trim().toLowerCase());
+  return {
+    databaseProvider: provider,
+    deploymentMode,
+    postgresRequired,
+    postgresProfileEnabled: provider === 'postgres',
+    postgres: {
+      image: String(config.env.CANVAS_POSTGRES_IMAGE || ''),
+      dataVolume: String(config.env.CANVAS_POSTGRES_DATA_VOLUME || ''),
+      database: String(config.env.CANVAS_POSTGRES_DB || ''),
+      user: String(config.env.CANVAS_POSTGRES_USER || ''),
+      passwordConfigured: Boolean(String(config.env.CANVAS_POSTGRES_PASSWORD || '').trim()),
+      databaseUrlConfigured: Boolean(String(config.env.DATABASE_URL || '').trim()),
+      pgvectorEnabled: String(config.env.CANVAS_POSTGRES_VECTOR_ENABLED || '').trim().toLowerCase() === 'true',
+    },
+  };
+}
+
+function printDatabaseStatus(config: CanvasCliConfig, json: boolean): void {
+  const status = databaseStatusPayload(config);
+  if (json) {
+    console.log(JSON.stringify(status));
+    return;
+  }
+  console.log(`Database provider: ${status.databaseProvider}`);
+  console.log(`Deployment mode: ${status.deploymentMode}`);
+  console.log(`Postgres required: ${status.postgresRequired ? 'yes' : 'no'}`);
+  console.log(`Postgres profile: ${status.postgresProfileEnabled ? 'enabled' : 'disabled'}`);
+  console.log(`Postgres image: ${status.postgres.image || '(not set)'}`);
+  console.log(`Postgres volume: ${status.postgres.dataVolume || '(not set)'}`);
+  console.log(`DATABASE_URL: ${status.postgres.databaseUrlConfigured ? 'configured' : '(not set)'}`);
+}
+
 async function admin(context: RuntimeContext, docker: DockerManager, config: CanvasCliConfig, args: string[]): Promise<void> {
   const subcommand = args.shift();
   if (subcommand !== 'reset-password' && subcommand !== 'set-password') {
@@ -197,10 +291,30 @@ async function admin(context: RuntimeContext, docker: DockerManager, config: Can
   console.log(`Admin credentials synchronized for ${email}`);
 }
 
-async function database(docker: DockerManager, config: CanvasCliConfig, args: string[], json: boolean): Promise<void> {
+async function database(context: RuntimeContext, docker: DockerManager, config: CanvasCliConfig, args: string[], json: boolean): Promise<void> {
   const subcommand = args.shift();
+  if (!subcommand || subcommand === '-h' || subcommand === '--help') {
+    throw new Error('Usage: canvas-notebook database status|prepare-postgres|migrate-sqlite-to-postgres [options]');
+  }
+
+  if (subcommand === 'status') {
+    printDatabaseStatus(config, json);
+    return;
+  }
+
+  if (subcommand === 'prepare-postgres') {
+    const next = await syncFiles(context, config, { postgresInfrastructureOnly: true });
+    await docker.composeOrThrow(next, ['--profile', 'postgres', 'up', '-d', 'postgres'], json ? 'pipe' : 'inherit');
+    if (json) {
+      console.log(JSON.stringify({ success: true, ...databaseStatusPayload(next) }));
+    } else {
+      console.log('Postgres service prepared. No SQLite data was migrated.');
+    }
+    return;
+  }
+
   if (subcommand !== 'migrate-sqlite-to-postgres') {
-    throw new Error('Usage: canvas-notebook database migrate-sqlite-to-postgres [options]');
+    throw new Error(`Unknown database subcommand: ${subcommand}`);
   }
   const containerId = await docker.containerId(config);
   if (!containerId) throw new Error('Canvas Notebook container is not running. Start it first: canvas-notebook start');
@@ -234,9 +348,11 @@ async function main(): Promise<void> {
   const config = await readConfig(context);
 
   switch (parsed.command) {
-    case 'install':
-      await install(context, docker, config);
+    case 'install': {
+      const options = parseInstallOptions(parsed.args);
+      await install(context, docker, configureRuntimeAndDatabase(config, options));
       break;
+    }
     case 'update':
       await update(context, docker, config);
       break;
@@ -292,7 +408,7 @@ async function main(): Promise<void> {
       console.log(`Generated ${config.paths.composeEnvFile} and ${config.paths.containerEnvFile}`);
       break;
     case 'config-show':
-      console.log(JSON.stringify(config, null, 2));
+      console.log(JSON.stringify(redactConfig(config), null, 2));
       break;
     case 'config-set': {
       const [key, value] = parsed.args;
@@ -305,7 +421,7 @@ async function main(): Promise<void> {
       await admin(context, docker, config, parsed.args);
       break;
     case 'database':
-      await database(docker, config, parsed.args, parsed.json);
+      await database(context, docker, config, parsed.args, parsed.json);
       break;
     case 'service': {
       const action = parsed.args[0] || 'status';

@@ -3,7 +3,14 @@ import os from 'node:os';
 import path from 'node:path';
 import { mkdtemp, rm } from 'node:fs/promises';
 
-import { composeEnvText, createDefaultConfig, materializeConfig } from '../cli/src/core/config';
+import {
+  composeEnvText,
+  configureRuntimeAndDatabase,
+  createDefaultConfig,
+  materializeConfig,
+  materializePostgresInfrastructureConfig,
+  redactConfig,
+} from '../cli/src/core/config';
 import { renderComposeFile } from '../cli/src/core/compose';
 import { DockerManager } from '../cli/src/core/docker';
 import { composePath, resolveDefaultPaths } from '../cli/src/core/platform';
@@ -88,6 +95,41 @@ async function main() {
     const args = docker.composeArgs(config, ['up', '-d', '--force-recreate']);
     assert.deepEqual(args.slice(0, 5), ['compose', '-f', paths.composeFile, '--project-directory', paths.installDir]);
     assert.deepEqual(args.slice(5), ['up', '-d', '--force-recreate']);
+
+    const postgresConfig = materializeConfig(configureRuntimeAndDatabase(config, { database: 'postgres' }));
+    assert.equal(postgresConfig.env.CANVAS_DATABASE_PROVIDER, 'postgres');
+    assert.equal(postgresConfig.env.CANVAS_POSTGRES_VECTOR_ENABLED, true);
+    assert.match(String(postgresConfig.env.DATABASE_URL), /^postgresql:\/\/canvas:/);
+    assert.match(composeEnvText(postgresConfig, composePath(postgresConfig.dataDir, 'linux')), /^COMPOSE_PROFILES=postgres$/m);
+
+    const teamConfig = materializeConfig(configureRuntimeAndDatabase(config, { runtime: 'team' }));
+    assert.equal(teamConfig.env.CANVAS_DEPLOYMENT_MODE, 'managed-team');
+    assert.equal(teamConfig.env.CANVAS_DATABASE_PROVIDER, 'postgres');
+    assert.equal(teamConfig.env.CANVAS_POSTGRES_REQUIRED, true);
+
+    assert.throws(
+      () => configureRuntimeAndDatabase(config, { runtime: 'team', database: 'sqlite' }),
+      /Team runtime requires --database postgres/u,
+    );
+
+    const inconsistentTeamSqlite = structuredClone(config);
+    inconsistentTeamSqlite.env.CANVAS_DEPLOYMENT_MODE = 'managed-team';
+    inconsistentTeamSqlite.env.CANVAS_DATABASE_PROVIDER = 'sqlite';
+    assert.throws(
+      () => materializeConfig(inconsistentTeamSqlite),
+      /requires CANVAS_DATABASE_PROVIDER=postgres/u,
+    );
+
+    const preparedPostgres = materializePostgresInfrastructureConfig(config);
+    assert.equal(preparedPostgres.env.CANVAS_DATABASE_PROVIDER, 'sqlite');
+    assert.equal(preparedPostgres.env.CANVAS_POSTGRES_REQUIRED, true);
+    assert.equal(preparedPostgres.env.DATABASE_URL, '');
+    assert.match(composeEnvText(preparedPostgres, composePath(preparedPostgres.dataDir, 'linux')), /^COMPOSE_PROFILES=$/m);
+    assert.match(composeEnvText(preparedPostgres, composePath(preparedPostgres.dataDir, 'linux')), /^CANVAS_POSTGRES_PASSWORD=/m);
+
+    const redactedPostgres = redactConfig(postgresConfig);
+    assert.equal(redactedPostgres.env.DATABASE_URL, 'postgresql://***');
+    assert.match(String(redactedPostgres.env.CANVAS_POSTGRES_PASSWORD), /^\w{4}\*\*\*$/u);
   });
 
   console.log('cross-platform CLI tests passed');

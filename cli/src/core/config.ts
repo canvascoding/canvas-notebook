@@ -6,6 +6,13 @@ import { defaultServiceMode } from './platform';
 import type { CanvasCliConfig, CliPaths, EnvValue, HostPlatform } from './types';
 
 const DEFAULT_IMAGE = 'ghcr.io/canvascoding/canvas-notebook:latest';
+const DEFAULT_POSTGRES_IMAGE = 'pgvector/pgvector:0.8.3-pg18';
+const DEFAULT_POSTGRES_DATA_VOLUME = 'canvas-postgres-data';
+const DEFAULT_POSTGRES_DB = 'canvas_notebook';
+const DEFAULT_POSTGRES_USER = 'canvas';
+
+export type CliDatabaseProvider = 'sqlite' | 'postgres';
+export type CliRuntimeMode = 'personal' | 'team';
 
 const DEFAULT_ENV: Record<string, EnvValue> = {
   BETTER_AUTH_SECRET: '',
@@ -25,10 +32,10 @@ const DEFAULT_ENV: Record<string, EnvValue> = {
   CANVAS_DATABASE_PROVIDER: 'sqlite',
   DATABASE_URL: '',
   CANVAS_POSTGRES_VECTOR_ENABLED: false,
-  CANVAS_POSTGRES_IMAGE: 'pgvector/pgvector:0.8.3-pg18',
-  CANVAS_POSTGRES_DATA_VOLUME: 'canvas-postgres-data',
-  CANVAS_POSTGRES_DB: 'canvas_notebook',
-  CANVAS_POSTGRES_USER: 'canvas',
+  CANVAS_POSTGRES_IMAGE: DEFAULT_POSTGRES_IMAGE,
+  CANVAS_POSTGRES_DATA_VOLUME: DEFAULT_POSTGRES_DATA_VOLUME,
+  CANVAS_POSTGRES_DB: DEFAULT_POSTGRES_DB,
+  CANVAS_POSTGRES_USER: DEFAULT_POSTGRES_USER,
   CANVAS_POSTGRES_PASSWORD: '',
 };
 
@@ -184,35 +191,151 @@ export function ensureBaseUrl(config: CanvasCliConfig, baseUrl?: string): Canvas
   return next;
 }
 
-export function normalizeDatabaseConfig(config: CanvasCliConfig): CanvasCliConfig {
-  const next = structuredClone(config);
-  const provider = String(next.env.CANVAS_DATABASE_PROVIDER || 'sqlite').trim().toLowerCase();
-  next.env.CANVAS_DATABASE_PROVIDER = provider === 'postgres' ? 'postgres' : 'sqlite';
+function normalized(value: EnvValue): string {
+  return String(value ?? '').trim().toLowerCase();
+}
 
-  if (next.env.CANVAS_DATABASE_PROVIDER !== 'postgres') {
-    next.env.CANVAS_POSTGRES_VECTOR_ENABLED = false;
-    if (String(next.env.CANVAS_DEPLOYMENT_MODE || '').includes('team')) {
-      next.env.CANVAS_DEPLOYMENT_MODE = 'managed-single';
+function truthyEnvValue(value: EnvValue): boolean {
+  return ['true', '1', 'yes', 'on'].includes(normalized(value));
+}
+
+function normalizeDatabaseProviderValue(value: EnvValue): CliDatabaseProvider {
+  const provider = normalized(value) || 'sqlite';
+  if (provider === 'sqlite' || provider === 'postgres') return provider;
+  throw new Error(`Invalid CANVAS_DATABASE_PROVIDER "${provider}". Expected sqlite or postgres.`);
+}
+
+function normalizeRuntimeModeValue(value: string): CliRuntimeMode {
+  const runtime = value.trim().toLowerCase();
+  if (runtime === 'personal' || runtime === 'single-user' || runtime === 'single_user' || runtime === 'managed-single') {
+    return 'personal';
+  }
+  if (runtime === 'team' || runtime === 'managed-team' || runtime === 'enterprise' || runtime === 'enterprise-onprem') {
+    return 'team';
+  }
+  throw new Error(`Invalid runtime "${value}". Expected personal or team.`);
+}
+
+function deploymentRequiresPostgres(deploymentMode: EnvValue, teamFeaturesEnabled: EnvValue): boolean {
+  const mode = normalized(deploymentMode).replace(/_/gu, '-');
+  return mode.includes('team') ||
+    mode.includes('enterprise') ||
+    mode.includes('advanced') ||
+    truthyEnvValue(teamFeaturesEnabled);
+}
+
+function requireUrlSafePostgresPart(key: string, value: EnvValue): void {
+  const text = String(value ?? '');
+  if (!/^[A-Za-z0-9._~-]+$/.test(text)) {
+    throw new Error(`${key} contains URL-reserved characters. Set DATABASE_URL explicitly or use URL-safe Postgres credentials.`);
+  }
+}
+
+function validateDatabaseUrl(value: EnvValue): void {
+  const raw = String(value ?? '').trim();
+  if (!raw) return;
+  let parsed: URL;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    throw new Error('DATABASE_URL must use postgres:// or postgresql://');
+  }
+  if (parsed.protocol !== 'postgres:' && parsed.protocol !== 'postgresql:') {
+    throw new Error('DATABASE_URL must use postgres:// or postgresql://');
+  }
+}
+
+export function configureRuntimeAndDatabase(
+  config: CanvasCliConfig,
+  options: { database?: CliDatabaseProvider; runtime?: CliRuntimeMode },
+): CanvasCliConfig {
+  const next = structuredClone(config);
+  if (options.runtime) {
+    if (options.runtime === 'team') {
+      next.env.CANVAS_DEPLOYMENT_MODE = 'managed-team';
+      next.env.CANVAS_TEAM_FEATURES_ENABLED = true;
+      next.env.CANVAS_POSTGRES_REQUIRED = true;
+      next.env.CANVAS_DATABASE_PROVIDER = 'postgres';
+    } else {
+      next.env.CANVAS_DEPLOYMENT_MODE = 'single_user';
+      next.env.CANVAS_TEAM_FEATURES_ENABLED = false;
+      next.env.CANVAS_POSTGRES_REQUIRED = false;
     }
-    return next;
   }
 
-  next.env.CANVAS_POSTGRES_VECTOR_ENABLED = true;
-  next.env.CANVAS_POSTGRES_IMAGE = next.env.CANVAS_POSTGRES_IMAGE || 'pgvector/pgvector:0.8.3-pg18';
-  next.env.CANVAS_POSTGRES_DATA_VOLUME = next.env.CANVAS_POSTGRES_DATA_VOLUME || 'canvas-postgres-data';
-  next.env.CANVAS_POSTGRES_DB = next.env.CANVAS_POSTGRES_DB || 'canvas_notebook';
-  next.env.CANVAS_POSTGRES_USER = next.env.CANVAS_POSTGRES_USER || 'canvas';
+  if (options.database) {
+    if (options.runtime === 'team' && options.database !== 'postgres') {
+      throw new Error('Team runtime requires --database postgres.');
+    }
+    next.env.CANVAS_DATABASE_PROVIDER = options.database;
+  }
+
+  return next;
+}
+
+export function parseCliDatabaseProvider(value: string): CliDatabaseProvider {
+  return normalizeDatabaseProviderValue(value);
+}
+
+export function parseCliRuntimeMode(value: string): CliRuntimeMode {
+  return normalizeRuntimeModeValue(value);
+}
+
+export function ensurePostgresInfrastructureConfig(config: CanvasCliConfig): CanvasCliConfig {
+  const next = structuredClone(config);
+  next.env.CANVAS_POSTGRES_REQUIRED = true;
+  next.env.CANVAS_POSTGRES_IMAGE = next.env.CANVAS_POSTGRES_IMAGE || DEFAULT_POSTGRES_IMAGE;
+  next.env.CANVAS_POSTGRES_DATA_VOLUME = next.env.CANVAS_POSTGRES_DATA_VOLUME || DEFAULT_POSTGRES_DATA_VOLUME;
+  next.env.CANVAS_POSTGRES_DB = next.env.CANVAS_POSTGRES_DB || DEFAULT_POSTGRES_DB;
+  next.env.CANVAS_POSTGRES_USER = next.env.CANVAS_POSTGRES_USER || DEFAULT_POSTGRES_USER;
   if (!String(next.env.CANVAS_POSTGRES_PASSWORD || '').trim()) {
     next.env.CANVAS_POSTGRES_PASSWORD = randomSecret().replace(/[+/=]/g, '').slice(0, 32);
-  }
-  if (!String(next.env.DATABASE_URL || '').trim()) {
-    next.env.DATABASE_URL = `postgresql://${next.env.CANVAS_POSTGRES_USER}:${next.env.CANVAS_POSTGRES_PASSWORD}@postgres:5432/${next.env.CANVAS_POSTGRES_DB}`;
   }
   return next;
 }
 
+export function normalizeDatabaseConfig(config: CanvasCliConfig): CanvasCliConfig {
+  const next = structuredClone(config);
+  const provider = normalizeDatabaseProviderValue(next.env.CANVAS_DATABASE_PROVIDER);
+  next.env.CANVAS_DATABASE_PROVIDER = provider;
+
+  if (deploymentRequiresPostgres(next.env.CANVAS_DEPLOYMENT_MODE, next.env.CANVAS_TEAM_FEATURES_ENABLED) && provider !== 'postgres') {
+    throw new Error(`${next.env.CANVAS_DEPLOYMENT_MODE || 'This deployment'} requires CANVAS_DATABASE_PROVIDER=postgres.`);
+  }
+
+  if (next.env.CANVAS_DATABASE_PROVIDER !== 'postgres') {
+    next.env.CANVAS_POSTGRES_VECTOR_ENABLED = false;
+    return next;
+  }
+
+  const prepared = ensurePostgresInfrastructureConfig(next);
+  validateDatabaseUrl(prepared.env.DATABASE_URL);
+  if (!String(prepared.env.DATABASE_URL || '').trim()) {
+    requireUrlSafePostgresPart('CANVAS_POSTGRES_USER', prepared.env.CANVAS_POSTGRES_USER);
+    requireUrlSafePostgresPart('CANVAS_POSTGRES_PASSWORD', prepared.env.CANVAS_POSTGRES_PASSWORD);
+    requireUrlSafePostgresPart('CANVAS_POSTGRES_DB', prepared.env.CANVAS_POSTGRES_DB);
+    prepared.env.DATABASE_URL = `postgresql://${prepared.env.CANVAS_POSTGRES_USER}:${prepared.env.CANVAS_POSTGRES_PASSWORD}@postgres:5432/${prepared.env.CANVAS_POSTGRES_DB}`;
+  }
+  prepared.env.CANVAS_POSTGRES_VECTOR_ENABLED = true;
+  return prepared;
+}
+
+export function materializePostgresInfrastructureConfig(config: CanvasCliConfig, baseUrl?: string): CanvasCliConfig {
+  return ensurePostgresInfrastructureConfig(ensureBaseUrl(ensureSecrets(config), baseUrl));
+}
+
 export function materializeConfig(config: CanvasCliConfig, baseUrl?: string): CanvasCliConfig {
   return normalizeDatabaseConfig(ensureBaseUrl(ensureSecrets(config), baseUrl));
+}
+
+export function redactConfig(config: CanvasCliConfig): CanvasCliConfig {
+  const next = structuredClone(config);
+  for (const key of ['BETTER_AUTH_SECRET', 'CANVAS_INTERNAL_API_KEY', 'CANVAS_POSTGRES_PASSWORD']) {
+    const value = String(next.env[key] || '');
+    next.env[key] = value ? `${value.slice(0, 4)}***` : '(not set)';
+  }
+  next.env.DATABASE_URL = String(next.env.DATABASE_URL || '').trim() ? 'postgresql://***' : '(not set)';
+  return next;
 }
 
 function envLine(key: string, value: EnvValue): string {

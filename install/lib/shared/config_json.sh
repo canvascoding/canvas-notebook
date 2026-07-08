@@ -274,10 +274,10 @@ config_json_ensure_database_config() {
   provider="$(config_json_normalize_database_provider "$(config_json_read env.CANVAS_DATABASE_PROVIDER)")"
 
   if config_json_deployment_requires_postgres "$deployment_mode" "$team_features" && [[ "$provider" != "postgres" ]]; then
-    deployment_mode="managed-single"
-    team_features="false"
-    config_json_write env.CANVAS_DEPLOYMENT_MODE "$deployment_mode"
-    config_json_write env.CANVAS_TEAM_FEATURES_ENABLED "$team_features"
+    if [[ "${CANVAS_ALLOW_SQLITE_POSTGRES_PREPARE:-false}" != "true" ]]; then
+      fail "${deployment_mode} requires CANVAS_DATABASE_PROVIDER=postgres."
+    fi
+    config_json_write env.CANVAS_POSTGRES_REQUIRED true
   fi
 
   config_json_write env.CANVAS_DEPLOYMENT_MODE "$deployment_mode"
@@ -327,6 +327,29 @@ config_json_ensure_database_config() {
   config_json_write env.CANVAS_POSTGRES_DATA_VOLUME "$pg_volume"
   config_json_write env.CANVAS_POSTGRES_DB "$pg_db"
   config_json_write env.CANVAS_POSTGRES_USER "$pg_user"
+}
+
+config_json_ensure_postgres_infrastructure_config() {
+  local pg_image pg_volume pg_db pg_user pg_password
+  pg_image="$(config_json_read env.CANVAS_POSTGRES_IMAGE)"
+  pg_image="${pg_image:-pgvector/pgvector:0.8.3-pg18}"
+  pg_volume="$(config_json_read env.CANVAS_POSTGRES_DATA_VOLUME)"
+  pg_volume="${pg_volume:-canvas-postgres-data}"
+  pg_db="$(config_json_read env.CANVAS_POSTGRES_DB)"
+  pg_db="${pg_db:-canvas_notebook}"
+  pg_user="$(config_json_read env.CANVAS_POSTGRES_USER)"
+  pg_user="${pg_user:-canvas}"
+  pg_password="$(config_json_read env.CANVAS_POSTGRES_PASSWORD)"
+  if [[ -z "$pg_password" ]]; then
+    pg_password="$(config_json_generate_secret)"
+  fi
+
+  config_json_write env.CANVAS_POSTGRES_REQUIRED true
+  config_json_write env.CANVAS_POSTGRES_IMAGE "$pg_image"
+  config_json_write env.CANVAS_POSTGRES_DATA_VOLUME "$pg_volume"
+  config_json_write env.CANVAS_POSTGRES_DB "$pg_db"
+  config_json_write env.CANVAS_POSTGRES_USER "$pg_user"
+  config_json_write env.CANVAS_POSTGRES_PASSWORD "$pg_password"
 }
 
 _config_json_write_raw() {
@@ -412,8 +435,10 @@ config_json_to_env() {
   _write_owned_file "$CONFIG_ENV_PATH" "$env_tmp"
   rm -f "$env_tmp"
 
-  ok "Generated ${COMPOSE_ENV_PATH} (Compose substitution vars)"
-  ok "Generated ${CONFIG_ENV_PATH} (container env vars)"
+  if [[ "${OUTPUT_JSON:-false}" != "true" ]]; then
+    ok "Generated ${COMPOSE_ENV_PATH} (Compose substitution vars)"
+    ok "Generated ${CONFIG_ENV_PATH} (container env vars)"
+  fi
 }
 
 config_json_migrate() {

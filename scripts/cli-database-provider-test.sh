@@ -57,6 +57,18 @@ grep -q '^COMPOSE_PROFILES=$' "$CANVAS_COMPOSE_ENV"
 grep -q '^CANVAS_DATABASE_PROVIDER=sqlite$' "$CANVAS_COMPOSE_ENV"
 grep -q '^CANVAS_POSTGRES_VECTOR_ENABLED=false$' "$CANVAS_CONFIG_ENV"
 
+"$cli" database status --json --no-banner > "$TMP_DIR/database-status-default.json"
+grep -q '"databaseProvider":"sqlite"' "$TMP_DIR/database-status-default.json"
+grep -q '"postgresProfileEnabled":false' "$TMP_DIR/database-status-default.json"
+
+: > "$CANVAS_TEST_COMPOSE_LOG"
+"$cli" database prepare-postgres --json --no-banner > "$TMP_DIR/database-prepare-postgres.json"
+grep -q '"success":true' "$TMP_DIR/database-prepare-postgres.json"
+grep -q '"databaseProvider":"sqlite"' "$TMP_DIR/database-prepare-postgres.json"
+grep -q '"passwordConfigured":true' "$TMP_DIR/database-prepare-postgres.json"
+grep -q -- '--profile postgres up -d postgres' "$CANVAS_TEST_COMPOSE_LOG"
+grep -q '^COMPOSE_PROFILES=$' "$CANVAS_COMPOSE_ENV"
+
 "$cli" config-set env.CANVAS_DATABASE_PROVIDER postgres --no-banner > "$TMP_DIR/config-set-provider.txt"
 "$cli" env --sync --no-banner > "$TMP_DIR/env-sync-postgres.txt"
 "$cli" env --no-banner > "$TMP_DIR/env-postgres.txt"
