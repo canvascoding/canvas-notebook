@@ -23,7 +23,7 @@ done
 unset _dir
 
 if [[ -n "$SHARED_DIR" ]]; then
-  for _lib in output utils config_json logging compose caddy swap container docker ui; do
+  for _lib in output utils config_json logging compose caddy swap container docker postgres ui; do
     if [[ -f "${SHARED_DIR}/${_lib}.sh" ]]; then
       # shellcheck source=/dev/null
       . "${SHARED_DIR}/${_lib}.sh"

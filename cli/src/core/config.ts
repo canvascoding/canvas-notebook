@@ -245,6 +245,27 @@ function validateDatabaseUrl(value: EnvValue): void {
   }
 }
 
+function databaseUrlParts(value: EnvValue): { user: string; password: string; database: string } | null {
+  const raw = String(value ?? '').trim();
+  if (!raw) return null;
+  let parsed: URL;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    throw new Error('DATABASE_URL must use postgres:// or postgresql://');
+  }
+  if (parsed.protocol !== 'postgres:' && parsed.protocol !== 'postgresql:') {
+    throw new Error('DATABASE_URL must use postgres:// or postgresql://');
+  }
+  const user = decodeURIComponent(parsed.username || '');
+  const password = decodeURIComponent(parsed.password || '');
+  const database = decodeURIComponent(parsed.pathname.replace(/^\/+/u, '').split('/')[0] || '');
+  if (!user || !password || !database) {
+    throw new Error('DATABASE_URL must include user, password, host, and database for managed Postgres.');
+  }
+  return { user, password, database };
+}
+
 export function configureRuntimeAndDatabase(
   config: CanvasCliConfig,
   options: { database?: CliDatabaseProvider; runtime?: CliRuntimeMode },
@@ -283,6 +304,16 @@ export function parseCliRuntimeMode(value: string): CliRuntimeMode {
 
 export function ensurePostgresInfrastructureConfig(config: CanvasCliConfig): CanvasCliConfig {
   const next = structuredClone(config);
+  let databaseUrl = String(next.env.DATABASE_URL || '').trim();
+  const parsedDatabaseUrl = databaseUrlParts(databaseUrl);
+  if (parsedDatabaseUrl) {
+    requireUrlSafePostgresPart('CANVAS_POSTGRES_USER', parsedDatabaseUrl.user);
+    requireUrlSafePostgresPart('CANVAS_POSTGRES_PASSWORD', parsedDatabaseUrl.password);
+    requireUrlSafePostgresPart('CANVAS_POSTGRES_DB', parsedDatabaseUrl.database);
+    next.env.CANVAS_POSTGRES_USER = parsedDatabaseUrl.user;
+    next.env.CANVAS_POSTGRES_PASSWORD = parsedDatabaseUrl.password;
+    next.env.CANVAS_POSTGRES_DB = parsedDatabaseUrl.database;
+  }
   next.env.CANVAS_POSTGRES_REQUIRED = true;
   next.env.CANVAS_POSTGRES_IMAGE = next.env.CANVAS_POSTGRES_IMAGE || DEFAULT_POSTGRES_IMAGE;
   next.env.CANVAS_POSTGRES_DATA_VOLUME = next.env.CANVAS_POSTGRES_DATA_VOLUME || DEFAULT_POSTGRES_DATA_VOLUME;
@@ -290,6 +321,14 @@ export function ensurePostgresInfrastructureConfig(config: CanvasCliConfig): Can
   next.env.CANVAS_POSTGRES_USER = next.env.CANVAS_POSTGRES_USER || DEFAULT_POSTGRES_USER;
   if (!String(next.env.CANVAS_POSTGRES_PASSWORD || '').trim()) {
     next.env.CANVAS_POSTGRES_PASSWORD = randomSecret().replace(/[+/=]/g, '').slice(0, 32);
+  }
+  validateDatabaseUrl(databaseUrl);
+  if (!databaseUrl) {
+    requireUrlSafePostgresPart('CANVAS_POSTGRES_USER', next.env.CANVAS_POSTGRES_USER);
+    requireUrlSafePostgresPart('CANVAS_POSTGRES_PASSWORD', next.env.CANVAS_POSTGRES_PASSWORD);
+    requireUrlSafePostgresPart('CANVAS_POSTGRES_DB', next.env.CANVAS_POSTGRES_DB);
+    databaseUrl = `postgresql://${next.env.CANVAS_POSTGRES_USER}:${next.env.CANVAS_POSTGRES_PASSWORD}@postgres:5432/${next.env.CANVAS_POSTGRES_DB}`;
+    next.env.DATABASE_URL = databaseUrl;
   }
   return next;
 }

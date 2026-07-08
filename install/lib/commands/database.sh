@@ -102,12 +102,11 @@ _database_prepare_postgres() {
   fi
   config_json_ensure_postgres_infrastructure_config
   CANVAS_ALLOW_SQLITE_POSTGRES_PREPARE=true config_json_to_env
+  postgres_prepare_managed_runtime
   if [[ "${OUTPUT_JSON:-false}" == "true" ]]; then
-    compose --profile postgres up -d postgres >/dev/null
     printf '{"success":true,'
     _database_status_json | sed 's/^{//'
   else
-    compose --profile postgres up -d postgres
     ok "Postgres service prepared. No SQLite data was migrated."
   fi
 }
@@ -115,6 +114,9 @@ _database_prepare_postgres() {
 _database_migrate_sqlite_to_postgres() {
   local cid
   local args=("$@")
+  config_json_ensure_postgres_infrastructure_config
+  CANVAS_ALLOW_SQLITE_POSTGRES_PREPARE=true config_json_to_env
+  postgres_prepare_managed_runtime
   cid="$(_database_require_running_container)"
 
   if [[ "${OUTPUT_JSON:-false}" == "true" ]]; then

@@ -927,7 +927,7 @@
     {
       "id": 45,
       "title": "Postgres-Prepare-Service in beiden Canvas-Notebook-CLIs mit Rollenpasswort-Reconciliation finalisieren",
-      "status": "planned",
+      "status": "completed",
       "repo": "canvasstudios-notebook",
       "dependsOn": [
         39,
@@ -946,14 +946,19 @@
       ],
       "implementationTargets": [
         "cli/src/core/config.ts",
+        "cli/src/core/postgres.ts",
         "cli/src/main.ts",
+        "install/bin/canvas-notebook",
         "install/lib/shared/config_json.sh",
+        "install/lib/shared/postgres.sh",
         "install/lib/commands/database.sh",
         "install/lib/commands/lifecycle.sh",
         "install/lib/commands/env.sh",
-        "install/lib/shared/postgres.sh",
+        "install/lib/commands/update.sh",
+        "install/lib/systemd.sh",
         "scripts/cli-database-provider-test.sh",
-        "scripts/cli-database-command-test.sh"
+        "scripts/cli-database-command-test.sh",
+        "scripts/cross-platform-cli-test.ts"
       ],
       "acceptanceCriteria": [
         "prepare-postgres liest echte Secrets aus lokalen Config-/Env-Quellen und nicht aus redacted config-show-Ausgaben",

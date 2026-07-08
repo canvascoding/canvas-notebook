@@ -18,6 +18,7 @@ import {
 import { writeComposeFile } from './core/compose';
 import { DockerManager } from './core/docker';
 import { composePath, createRuntimeContext } from './core/platform';
+import { preparePostgresManagedRuntime } from './core/postgres';
 import { SpawnCommandRunner } from './core/process';
 import { ServiceManager } from './core/service';
 import type { CanvasCliConfig, RuntimeContext, StatusJson } from './core/types';
@@ -151,6 +152,7 @@ async function install(context: RuntimeContext, docker: DockerManager, config: C
   await appendLog(context, 'install started');
   const next = await syncFiles(context, config);
   await docker.pull(next);
+  await preparePostgresManagedRuntime({ docker, config: next, stdio: 'inherit' });
   await docker.composeOrThrow(next, ['up', '-d', '--force-recreate'], 'inherit');
   await docker.waitUntilHealthy(next);
   await appendLog(context, 'install completed');
@@ -161,6 +163,7 @@ async function update(context: RuntimeContext, docker: DockerManager, config: Ca
   await appendLog(context, 'update started');
   const next = await syncFiles(context, config);
   await docker.pull(next);
+  await preparePostgresManagedRuntime({ docker, config: next, stdio: 'inherit' });
   if (await docker.needsRecreate(next)) {
     await docker.composeOrThrow(next, ['up', '-d', '--force-recreate'], 'inherit');
   } else {
@@ -304,9 +307,9 @@ async function database(context: RuntimeContext, docker: DockerManager, config: 
 
   if (subcommand === 'prepare-postgres') {
     const next = await syncFiles(context, config, { postgresInfrastructureOnly: true });
-    await docker.composeOrThrow(next, ['--profile', 'postgres', 'up', '-d', 'postgres'], json ? 'pipe' : 'inherit');
+    const prepare = await preparePostgresManagedRuntime({ docker, config: next, stdio: json ? 'pipe' : 'inherit' });
     if (json) {
-      console.log(JSON.stringify({ success: true, ...databaseStatusPayload(next) }));
+      console.log(JSON.stringify({ success: true, prepare, ...databaseStatusPayload(next) }));
     } else {
       console.log('Postgres service prepared. No SQLite data was migrated.');
     }
@@ -316,7 +319,9 @@ async function database(context: RuntimeContext, docker: DockerManager, config: 
   if (subcommand !== 'migrate-sqlite-to-postgres') {
     throw new Error(`Unknown database subcommand: ${subcommand}`);
   }
-  const containerId = await docker.containerId(config);
+  const next = await syncFiles(context, config, { postgresInfrastructureOnly: true });
+  await preparePostgresManagedRuntime({ docker, config: next, stdio: json ? 'pipe' : 'inherit' });
+  const containerId = await docker.containerId(next);
   if (!containerId) throw new Error('Canvas Notebook container is not running. Start it first: canvas-notebook start');
   const nextArgs = json ? [...args, '--json'] : args;
   await docker.dockerOrThrow([
@@ -359,6 +364,7 @@ async function main(): Promise<void> {
     case 'start': {
       const next = await syncFiles(context, config);
       await appendLog(context, 'start');
+      await preparePostgresManagedRuntime({ docker, config: next, stdio: 'inherit' });
       await docker.composeOrThrow(next, ['up', '-d'], 'inherit');
       await docker.waitUntilHealthy(next);
       console.log(`Canvas Notebook is healthy: ${docker.healthUrl(next)}`);
@@ -367,6 +373,7 @@ async function main(): Promise<void> {
     case 'restart': {
       const next = await syncFiles(context, config);
       await appendLog(context, 'restart');
+      await preparePostgresManagedRuntime({ docker, config: next, stdio: 'inherit' });
       await docker.composeOrThrow(next, ['up', '-d', '--force-recreate'], 'inherit');
       await docker.waitUntilHealthy(next);
       console.log(`Canvas Notebook is healthy: ${docker.healthUrl(next)}`);
@@ -404,8 +411,11 @@ async function main(): Promise<void> {
       break;
     case 'env':
       if (!parsed.args.includes('--sync')) throw new Error('Usage: canvas-notebook env --sync');
-      await syncFiles(context, config);
-      console.log(`Generated ${config.paths.composeEnvFile} and ${config.paths.containerEnvFile}`);
+      {
+        const next = await syncFiles(context, config);
+        await preparePostgresManagedRuntime({ docker, config: next, stdio: 'inherit' });
+        console.log(`Generated ${next.paths.composeEnvFile} and ${next.paths.containerEnvFile}`);
+      }
       break;
     case 'config-show':
       console.log(JSON.stringify(redactConfig(config), null, 2));

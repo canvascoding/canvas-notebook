@@ -298,6 +298,27 @@ config_json_ensure_database_config() {
   pg_user="${pg_user:-canvas}"
   pg_password="$(config_json_read env.CANVAS_POSTGRES_PASSWORD)"
   database_url="$(config_json_read env.DATABASE_URL)"
+  if [[ -n "$database_url" ]]; then
+    if [[ "$database_url" =~ ^postgres(ql)?://([^:/@]+):([^@]+)@[^/]+/([^/?#]+) ]]; then
+      pg_user="${BASH_REMATCH[2]}"
+      pg_password="${BASH_REMATCH[3]}"
+      pg_db="${BASH_REMATCH[4]}"
+      for postgres_url_part in \
+        "CANVAS_POSTGRES_USER:$pg_user" \
+        "CANVAS_POSTGRES_PASSWORD:$pg_password" \
+        "CANVAS_POSTGRES_DB:$pg_db"; do
+        local postgres_part_key postgres_part_value
+        postgres_part_key="${postgres_url_part%%:*}"
+        postgres_part_value="${postgres_url_part#*:}"
+        if ! printf '%s' "$postgres_part_value" | grep -qE '^[A-Za-z0-9._~-]+$'; then
+          fail "${postgres_part_key} contains URL-reserved characters. Set DATABASE_URL explicitly or use URL-safe Postgres credentials."
+        fi
+      done
+      unset postgres_url_part postgres_part_key postgres_part_value
+    elif [[ "$database_url" =~ ^postgres(ql)?:// ]]; then
+      fail "DATABASE_URL must include user, password, host, and database for managed Postgres."
+    fi
+  fi
 
   if [[ -z "$database_url" ]]; then
     if [[ -z "$pg_password" ]]; then
@@ -327,10 +348,11 @@ config_json_ensure_database_config() {
   config_json_write env.CANVAS_POSTGRES_DATA_VOLUME "$pg_volume"
   config_json_write env.CANVAS_POSTGRES_DB "$pg_db"
   config_json_write env.CANVAS_POSTGRES_USER "$pg_user"
+  config_json_write env.CANVAS_POSTGRES_PASSWORD "$pg_password"
 }
 
 config_json_ensure_postgres_infrastructure_config() {
-  local pg_image pg_volume pg_db pg_user pg_password
+  local pg_image pg_volume pg_db pg_user pg_password database_url
   pg_image="$(config_json_read env.CANVAS_POSTGRES_IMAGE)"
   pg_image="${pg_image:-pgvector/pgvector:0.8.3-pg18}"
   pg_volume="$(config_json_read env.CANVAS_POSTGRES_DATA_VOLUME)"
@@ -340,8 +362,48 @@ config_json_ensure_postgres_infrastructure_config() {
   pg_user="$(config_json_read env.CANVAS_POSTGRES_USER)"
   pg_user="${pg_user:-canvas}"
   pg_password="$(config_json_read env.CANVAS_POSTGRES_PASSWORD)"
+  database_url="$(config_json_read env.DATABASE_URL)"
+  if [[ -n "$database_url" ]]; then
+    if [[ "$database_url" =~ ^postgres(ql)?://([^:/@]+):([^@]+)@[^/]+/([^/?#]+) ]]; then
+      pg_user="${BASH_REMATCH[2]}"
+      pg_password="${BASH_REMATCH[3]}"
+      pg_db="${BASH_REMATCH[4]}"
+      for postgres_url_part in \
+        "CANVAS_POSTGRES_USER:$pg_user" \
+        "CANVAS_POSTGRES_PASSWORD:$pg_password" \
+        "CANVAS_POSTGRES_DB:$pg_db"; do
+        local postgres_part_key postgres_part_value
+        postgres_part_key="${postgres_url_part%%:*}"
+        postgres_part_value="${postgres_url_part#*:}"
+        if ! printf '%s' "$postgres_part_value" | grep -qE '^[A-Za-z0-9._~-]+$'; then
+          fail "${postgres_part_key} contains URL-reserved characters. Set DATABASE_URL explicitly or use URL-safe Postgres credentials."
+        fi
+      done
+      unset postgres_url_part postgres_part_key postgres_part_value
+    elif [[ "$database_url" =~ ^postgres(ql)?:// ]]; then
+      fail "DATABASE_URL must include user, password, host, and database for managed Postgres."
+    fi
+  fi
   if [[ -z "$pg_password" ]]; then
     pg_password="$(config_json_generate_secret)"
+  fi
+
+  if [[ -z "$database_url" ]]; then
+    for postgres_url_part in \
+      "CANVAS_POSTGRES_USER:$pg_user" \
+      "CANVAS_POSTGRES_PASSWORD:$pg_password" \
+      "CANVAS_POSTGRES_DB:$pg_db"; do
+      local postgres_part_key postgres_part_value
+      postgres_part_key="${postgres_url_part%%:*}"
+      postgres_part_value="${postgres_url_part#*:}"
+      if ! printf '%s' "$postgres_part_value" | grep -qE '^[A-Za-z0-9._~-]+$'; then
+        fail "${postgres_part_key} contains URL-reserved characters. Set DATABASE_URL explicitly or use URL-safe Postgres credentials."
+      fi
+    done
+    unset postgres_url_part postgres_part_key postgres_part_value
+    database_url="postgresql://${pg_user}:${pg_password}@postgres:5432/${pg_db}"
+  elif [[ ! "$database_url" =~ ^postgres(ql)?:// ]]; then
+    fail "DATABASE_URL must use postgres:// or postgresql://"
   fi
 
   config_json_write env.CANVAS_POSTGRES_REQUIRED true
@@ -350,6 +412,7 @@ config_json_ensure_postgres_infrastructure_config() {
   config_json_write env.CANVAS_POSTGRES_DB "$pg_db"
   config_json_write env.CANVAS_POSTGRES_USER "$pg_user"
   config_json_write env.CANVAS_POSTGRES_PASSWORD "$pg_password"
+  config_json_write env.DATABASE_URL "$database_url"
 }
 
 _config_json_write_raw() {
