@@ -56,6 +56,7 @@ async function main() {
   const previousTeamFeatures = process.env.CANVAS_TEAM_FEATURES_ENABLED;
   const previousVectorEnabled = process.env.CANVAS_POSTGRES_VECTOR_ENABLED;
   const previousVectorVersion = process.env.CANVAS_POSTGRES_VECTOR_VERSION;
+  const previousPgDumpBin = process.env.CANVAS_PG_DUMP_BIN;
   const previousPath = process.env.PATH;
 
   process.env.DATA = dataRoot;
@@ -176,6 +177,7 @@ printf 'fake-postgres-dump\\n' > "$out"
 `);
     await chmod(fakePgDump, 0o700);
     process.env.PATH = `${fakeBin}:${previousPath || ''}`;
+    process.env.CANVAS_PG_DUMP_BIN = fakePgDump;
     process.env.CANVAS_DATABASE_PROVIDER = 'postgres';
     process.env.DATABASE_URL = 'postgresql://canvas:secret@localhost:5432/canvas_notebook';
     process.env.CANVAS_POSTGRES_VECTOR_ENABLED = 'true';
@@ -212,6 +214,32 @@ printf 'fake-postgres-dump\\n' > "$out"
     const sqliteTargetInspection = await inspectFullBackupArchive(completedPostgres.filePath);
     assert.equal(sqliteTargetInspection.canRestore, false);
     assert.ok(sqliteTargetInspection.risks.some((risk) => risk.includes('SQLite target')));
+
+    process.env.CANVAS_DATABASE_PROVIDER = 'postgres';
+    process.env.CANVAS_PG_DUMP_BIN = path.join(fakeBin, 'missing-pg-dump');
+    const missingPgDumpJob = await createFullBackupJob({
+      source: {
+        organizationId: 'org-backup',
+        createdByUserId: 'user-admin',
+        createdByEmail: 'admin@example.test',
+        createdByRole: 'admin',
+      },
+    });
+    await assert.rejects(
+      () => waitForBackup(getFullBackupJob, missingPgDumpJob.id),
+      /Postgres backup requires a working pg_dump binary/u,
+    );
+    const failedMissingPgDumpJob = await getFullBackupJob(missingPgDumpJob.id);
+    assert.equal(failedMissingPgDumpJob?.status, 'failed');
+    assert.match(failedMissingPgDumpJob?.error || '', /pg_dump was not found/u);
+    assert.equal(
+      await stat(path.join(dataRoot, 'system', 'backups', missingPgDumpJob.id, 'database', 'postgres.dump'))
+        .then(() => true)
+        .catch(() => false),
+      false,
+    );
+    process.env.CANVAS_PG_DUMP_BIN = fakePgDump;
+    process.env.CANVAS_DATABASE_PROVIDER = 'sqlite';
 
     await new Promise((resolve) => setTimeout(resolve, 50));
     const lockPath = path.join(dataRoot, 'system', 'backups', '.full-backup.lock');
@@ -295,6 +323,8 @@ printf 'fake-postgres-dump\\n' > "$out"
     else process.env.CANVAS_POSTGRES_VECTOR_ENABLED = previousVectorEnabled;
     if (previousVectorVersion === undefined) delete process.env.CANVAS_POSTGRES_VECTOR_VERSION;
     else process.env.CANVAS_POSTGRES_VECTOR_VERSION = previousVectorVersion;
+    if (previousPgDumpBin === undefined) delete process.env.CANVAS_PG_DUMP_BIN;
+    else process.env.CANVAS_PG_DUMP_BIN = previousPgDumpBin;
     if (previousPath === undefined) delete process.env.PATH;
     else process.env.PATH = previousPath;
     await rm(dataRoot, { recursive: true, force: true });

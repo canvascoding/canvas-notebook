@@ -32,6 +32,7 @@ interface FullBackupLock {
 
 const execFileAsync = promisify(execFile);
 const SQLITE_FILE_NAME = 'sqlite.db';
+const DEFAULT_PG_DUMP_COMMAND = 'pg_dump';
 const BACKUP_STATUS_FILE = 'status.json';
 const BACKUP_LOCK_FILE = '.full-backup.lock';
 const BACKUP_WRITE_THROTTLE_MS = 750;
@@ -323,6 +324,53 @@ function parsePostgresUrl(raw: string): {
   };
 }
 
+function pgDumpCommand(): string {
+  return process.env.CANVAS_PG_DUMP_BIN?.trim() || DEFAULT_PG_DUMP_COMMAND;
+}
+
+function commandFailureMessage(error: unknown): string {
+  if (!error || typeof error !== 'object') return String(error || 'unknown error');
+  const details = error as {
+    code?: string | number;
+    message?: string;
+    stderr?: string | Buffer;
+    stdout?: string | Buffer;
+  };
+  const stderr = Buffer.isBuffer(details.stderr) ? details.stderr.toString('utf8') : details.stderr;
+  const stdout = Buffer.isBuffer(details.stdout) ? details.stdout.toString('utf8') : details.stdout;
+  const output = (stderr || stdout || details.message || '').trim();
+  if (details.code === 'ENOENT') {
+    return 'pg_dump was not found in the app container PATH. Install a compatible PostgreSQL client such as postgresql-client-18.';
+  }
+  return output || `pg_dump exited with ${String(details.code || 'an error')}.`;
+}
+
+async function readPgDumpVersion(command: string): Promise<string> {
+  try {
+    const { stdout } = await execFileAsync(command, ['--version'], {
+      encoding: 'utf8',
+      maxBuffer: 1024 * 1024,
+    });
+    const version = stdout.trim();
+    if (!version) throw new Error('pg_dump --version returned no output.');
+    return version;
+  } catch (error) {
+    throw new Error(`Postgres backup requires a working pg_dump binary: ${commandFailureMessage(error)}`);
+  }
+}
+
+async function runPgDump(command: string, args: string[], env: NodeJS.ProcessEnv, dumpPath: string): Promise<void> {
+  try {
+    await execFileAsync(command, args, {
+      env,
+      maxBuffer: 1024 * 1024,
+    });
+  } catch (error) {
+    await fs.rm(dumpPath, { force: true }).catch(() => undefined);
+    throw new Error(`Postgres backup failed while running pg_dump: ${commandFailureMessage(error)}`);
+  }
+}
+
 async function createPostgresDump(backupDir: string): Promise<{
   database: FullBackupDatabaseManifest;
   entry: FullBackupFileEntry & { filePath: string };
@@ -333,9 +381,11 @@ async function createPostgresDump(backupDir: string): Promise<{
   }
 
   const connection = parsePostgresUrl(databaseUrl);
+  const command = pgDumpCommand();
+  const version = await readPgDumpVersion(command);
   const dumpPath = path.join(backupDir, 'database', 'postgres.dump');
   await ensurePrivateDir(path.dirname(dumpPath));
-  await execFileAsync('pg_dump', [
+  await runPgDump(command, [
     '--format=custom',
     '--no-owner',
     '--no-privileges',
@@ -349,17 +399,11 @@ async function createPostgresDump(backupDir: string): Promise<{
     connection.user,
     connection.database,
   ], {
-    env: {
-      ...process.env,
-      ...(connection.password ? { PGPASSWORD: connection.password } : {}),
-    },
-    maxBuffer: 1024 * 1024,
-  });
+    ...process.env,
+    ...(connection.password ? { PGPASSWORD: connection.password } : {}),
+  }, dumpPath);
   await fs.chmod(dumpPath, 0o600).catch(() => undefined);
 
-  const version = await execFileAsync('pg_dump', ['--version'], { encoding: 'utf8' })
-    .then(({ stdout }) => stdout.trim())
-    .catch(() => null);
   const stats = await fs.stat(dumpPath);
   const sha256 = await sha256File(dumpPath);
   return {
