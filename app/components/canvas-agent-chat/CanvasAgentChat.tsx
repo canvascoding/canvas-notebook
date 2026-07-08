@@ -267,6 +267,7 @@ export default function CanvasAgentChat({
     removeAttachment,
     setAttachments,
     setUploadError,
+    uploadFiles,
     uploadError,
   } = useChatAttachments({ onMediaClick });
   const {
@@ -1192,6 +1193,7 @@ export default function CanvasAgentChat({
         }}
         fileInputRef={fileInputRef}
         onFileChange={onFileChange}
+        onFilesDrop={uploadFiles}
         composerDisabled={composerDisabled}
         isUploading={isUploading}
         textareaRef={textareaRef}

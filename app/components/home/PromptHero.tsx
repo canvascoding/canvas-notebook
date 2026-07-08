@@ -3,13 +3,14 @@
 import React, { FormEvent, useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { getPathname } from '@/i18n/navigation';
 import { useLocale, useTranslations } from 'next-intl';
-import { Send, Paperclip, Loader2 } from 'lucide-react';
+import { Send, Paperclip, Loader2, Upload } from 'lucide-react';
 import { getFileIconComponent } from '@/app/lib/files/file-icons';
 import { clearCanvasChatActiveSessionStorage, CANVAS_CHAT_INITIAL_PROMPT_STORAGE_KEY } from '@/app/lib/chat/constants';
 import { DEFAULT_AGENT_ID } from '@/app/lib/channels/constants';
 import { ChatAgentSelector } from '@/app/components/canvas-agent-chat/ChatAgentSelector';
 import { AttachmentPreviewDialog } from '@/app/components/canvas-agent-chat/AttachmentPreviewDialog';
 import { AttachmentPreviewItem } from '@/app/components/canvas-agent-chat/AttachmentPreviewItem';
+import { useChatFileDrop } from '@/app/components/canvas-agent-chat/useChatFileDrop';
 import { deriveUploadAttachmentPreview, type ChatAttachment } from '@/app/lib/chat/attachment-preview';
 import { ImagePreprocessDialog } from '@/app/components/shared/ImagePreprocessDialog';
 import type {
@@ -271,11 +272,18 @@ export function PromptHero({ licenseLocked = false }: { licenseLocked?: boolean 
     setImagePreprocessPendingFiles([]);
   }, [handleFileUploadMultiple, imagePreprocessPendingFiles, updateImagePreprocessProgress]);
 
+  const uploadFiles = useCallback((fileList: File[] | FileList | null | undefined) => {
+    if (licenseLocked) return;
+    const files = Array.from(fileList || []);
+    if (files.length > 0) {
+      void preprocessAndUpload(files);
+    }
+  }, [licenseLocked, preprocessAndUpload]);
+
   const onFileChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(event.target.files || []);
-    if (files.length > 0) preprocessAndUpload(files);
+    uploadFiles(event.target.files);
     if (fileInputRef.current) fileInputRef.current.value = '';
-  }, [preprocessAndUpload]);
+  }, [uploadFiles]);
 
   const handlePaste = useCallback((event: React.ClipboardEvent) => {
     if (licenseLocked) return;
@@ -436,6 +444,11 @@ export function PromptHero({ licenseLocked = false }: { licenseLocked?: boolean 
     }
   }, []);
 
+  const { isDraggingFiles, dropHandlers } = useChatFileDrop({
+    disabled: licenseLocked || isUploading,
+    onFiles: uploadFiles,
+  });
+
   return (
     <>
     <div id="onboarding-home-promptHero" className="mx-auto w-full max-w-2xl">
@@ -477,9 +490,18 @@ export function PromptHero({ licenseLocked = false }: { licenseLocked?: boolean 
             placeholder={tHome('hero.placeholder')}
             data-prompt-hero-textarea
             disabled={licenseLocked}
-            className="min-h-24 w-full resize-y rounded-lg border border-border bg-background p-3 text-base placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+            className={`min-h-24 w-full resize-y rounded-lg border bg-background p-3 text-base placeholder:text-muted-foreground focus:outline-none focus:ring-2 ${isDraggingFiles ? 'border-primary ring-2 ring-primary/30' : 'border-border focus:ring-ring'}`}
             rows={3}
+            {...dropHandlers}
           />
+          {isDraggingFiles ? (
+            <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-lg border border-primary bg-background/90 text-xs font-medium text-primary">
+              <span className="inline-flex items-center gap-2">
+                <Upload className="h-4 w-4" />
+                {tChat('dropFilesHere')}
+              </span>
+            </div>
+          ) : null}
 
           {showFilePicker && (
             <div
@@ -529,6 +551,7 @@ export function PromptHero({ licenseLocked = false }: { licenseLocked?: boolean 
               ref={fileInputRef}
               onChange={onFileChange}
               className="hidden"
+              accept="image/*,application/pdf,.docx,.txt,.md,.csv,.json,.yaml,.yml,.xml,.html"
               multiple
             />
             <ChatAgentSelector

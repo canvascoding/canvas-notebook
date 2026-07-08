@@ -21,6 +21,16 @@ async function login(page: Page) {
   expect(response.ok()).toBeTruthy();
 }
 
+async function createFileDataTransfer(page: Page, files: Array<{ name: string; mimeType: string; content: string }>) {
+  return page.evaluateHandle((dropFiles) => {
+    const dataTransfer = new DataTransfer();
+    for (const dropFile of dropFiles) {
+      dataTransfer.items.add(new File([dropFile.content], dropFile.name, { type: dropFile.mimeType }));
+    }
+    return dataTransfer;
+  }, files);
+}
+
 test.describe('Home chat prompt', () => {
   test('stores the selected home agent for the initial notebook prompt', async ({ page }) => {
     await login(page);
@@ -104,6 +114,54 @@ test.describe('Home chat prompt', () => {
 
     const storedPrompt = await page.evaluate(() => window.sessionStorage.getItem('canvas.chat.initialPrompt'));
     expect(storedPrompt).toBeNull();
+  });
+
+  test('keeps dropped prompt attachments when opening the notebook from home', async ({ page }) => {
+    await login(page);
+    await page.route('**/notebook**', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'text/html',
+        body: '<!doctype html><title>Notebook route held</title>',
+      });
+    });
+
+    await page.goto('/', { waitUntil: 'networkidle' });
+
+    const input = page.locator('[data-prompt-hero-textarea]');
+    const dataTransfer = await createFileDataTransfer(page, [
+      {
+        name: 'home-dropped.txt',
+        mimeType: 'text/plain',
+        content: 'Home dropped attachment',
+      },
+    ]);
+
+    await input.dispatchEvent('dragenter', { dataTransfer });
+    await input.dispatchEvent('dragover', { dataTransfer });
+    await input.dispatchEvent('drop', { dataTransfer });
+
+    await expect(page.getByTestId('chat-composer-attachment')).toContainText('home-dropped.txt');
+
+    await input.fill('Bitte diese Datei auswerten');
+    await page.locator('form').first().evaluate((form) => {
+      form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    });
+
+    await expect(page).toHaveURL(/\/(?:en\/)?notebook(?:\?.*)?$/, { timeout: 15_000 });
+    const storedPrompt = await page.evaluate(() => window.sessionStorage.getItem('canvas.chat.initialPrompt'));
+    expect(storedPrompt).not.toBeNull();
+
+    const parsedPrompt = JSON.parse(storedPrompt!) as {
+      prompt?: string;
+      attachments?: Array<{ name?: string; contentKind?: string }>;
+    };
+    expect(parsedPrompt.prompt).toBe('Bitte diese Datei auswerten');
+    expect(parsedPrompt.attachments).toHaveLength(1);
+    expect(parsedPrompt.attachments?.[0]).toMatchObject({
+      name: 'home-dropped.txt',
+      contentKind: 'document',
+    });
   });
 
   test('removes session query after loading a deep-linked notebook session', async ({ page }) => {

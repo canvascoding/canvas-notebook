@@ -7,7 +7,7 @@ import {
   type KeyboardEvent,
   type RefObject,
 } from 'react';
-import { CircleHelp, Loader2, Paperclip, Settings, Square, X } from 'lucide-react';
+import { CircleHelp, Loader2, Paperclip, Settings, Square, Upload, X } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 
 import { AttachmentPreviewItem } from '@/app/components/canvas-agent-chat/AttachmentPreviewItem';
@@ -19,6 +19,7 @@ import {
 } from '@/app/components/canvas-agent-chat/ComposerReferencePicker';
 import { PlanModeToggle } from '@/app/components/canvas-agent-chat/PlanModeToggle';
 import { SkillReferenceChipRow } from '@/app/components/canvas-agent-chat/SkillReferenceChips';
+import { useChatFileDrop } from '@/app/components/canvas-agent-chat/useChatFileDrop';
 import type { CanvasSkill } from '@/app/lib/skills/canvas-skill-manifest';
 import type { AgentConfig, Attachment, AttachmentOpenHandler, QueuePreviewItem } from '@/app/lib/chat/types';
 import type { PiThinkingLevel } from '@/app/lib/pi/config';
@@ -75,6 +76,7 @@ export const ChatComposer = forwardRef<HTMLDivElement, {
   onEditQueuedMessage: (entry: QueuePreviewItem) => void;
   fileInputRef: RefObject<HTMLInputElement | null>;
   onFileChange: (event: ChangeEvent<HTMLInputElement>) => void;
+  onFilesDrop: (files: File[]) => void;
   composerDisabled: boolean;
   isUploading: boolean;
   textareaRef: RefObject<HTMLTextAreaElement | null>;
@@ -129,6 +131,7 @@ export const ChatComposer = forwardRef<HTMLDivElement, {
   onEditQueuedMessage,
   fileInputRef,
   onFileChange,
+  onFilesDrop,
   composerDisabled,
   isUploading,
   textareaRef,
@@ -166,6 +169,10 @@ export const ChatComposer = forwardRef<HTMLDivElement, {
   composerHint,
 }, ref) {
   const t = useTranslations('chat');
+  const { isDraggingFiles, dropHandlers } = useChatFileDrop({
+    disabled: composerDisabled,
+    onFiles: onFilesDrop,
+  });
 
   return (
     <div
@@ -262,19 +269,33 @@ export const ChatComposer = forwardRef<HTMLDivElement, {
           multiple
         />
         <div className="relative flex-1 min-w-0">
-          <textarea
-            ref={textareaRef}
-            data-testid="chat-input"
-            rows={1}
-            value={input}
-            onChange={onInputChange}
-            onKeyDown={onKeyDown}
-            onPaste={onPaste}
-            placeholder={composerPlaceholderText}
-            style={{ height: `${textareaHeight}px` }}
-            disabled={isWebSocketUnavailable}
-            className={`w-full resize-none border bg-background p-2.5 text-base placeholder:text-xs placeholder:text-muted-foreground focus:outline-none focus:ring-1 md:text-sm sm:placeholder:text-sm ${planningMode ? 'border-amber-500 focus:ring-amber-500' : 'border-border focus:ring-ring'}`}
-          />
+          <div className="relative" {...dropHandlers}>
+            <textarea
+              ref={textareaRef}
+              data-testid="chat-input"
+              rows={1}
+              value={input}
+              onChange={onInputChange}
+              onKeyDown={onKeyDown}
+              onPaste={onPaste}
+              placeholder={composerPlaceholderText}
+              style={{ height: `${textareaHeight}px` }}
+              disabled={isWebSocketUnavailable}
+              className={cn(
+                'w-full resize-none border bg-background p-2.5 text-base placeholder:text-xs placeholder:text-muted-foreground focus:outline-none focus:ring-1 md:text-sm sm:placeholder:text-sm',
+                planningMode ? 'border-amber-500 focus:ring-amber-500' : 'border-border focus:ring-ring',
+                isDraggingFiles ? 'border-primary ring-2 ring-primary/30' : null,
+              )}
+            />
+            {isDraggingFiles ? (
+              <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center border border-primary bg-background/90 text-xs font-medium text-primary">
+                <span className="inline-flex items-center gap-2">
+                  <Upload className="h-4 w-4" />
+                  {t('dropFilesHere')}
+                </span>
+              </div>
+            ) : null}
+          </div>
 
           <SkillReferenceChipRow
             content={input}
