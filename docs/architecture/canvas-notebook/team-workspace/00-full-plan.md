@@ -880,6 +880,7 @@ Die verbindliche Detailregel steht in `13-resource-aware-ingestion-and-job-backp
 42. Export/Import/Backup/Restore provider-aware machen, inklusive Postgres-Dump und Provider-Kompatibilitaetspruefung.
 43. RAG, Embeddings, Knowledge Graph und echte Collaboration serverseitig an Postgres/pgvector-Gates binden.
 44. Markdown-/Text-Collaboration mit CRDT/Yjs-Grundlage und File-Lock-/Revision-Policy fuer Office/PDF/Assets implementieren.
+45. Agent-faehige Skill-Erstellung und Organization Shared Skills ueber dedizierte validierende Installer und Skill-Policies implementieren.
 
 ## Bezug zu bestehenden Control-Plane-Dokumenten
 

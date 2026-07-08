@@ -164,23 +164,45 @@ Manager-Invarianten:
 
 ## Skills und Plugins
 
-Aktive Skills und Plugins gehoeren standardmaessig dem User.
+Aktive Skills und Plugins gehoeren standardmaessig dem User. Zentrale Skills fuer ein Team werden nicht als frei editierbarer globaler `/data/skills`-Ordner modelliert, sondern als versionierte Organization-Ressourcen mit Policies.
 
 Zielmodell:
 
 - Installierte User-Skills: `/data/users/{userId}/skills/`.
 - Installierte User-Plugins: `/data/users/{userId}/plugins/`.
 - User-Konfiguration: `/data/users/{userId}/settings/skills.json` und `plugins.json`.
-- Organization-Templates: `/data/organizations/{organizationId}/skill-templates/` und `plugin-templates/`.
+- Organization-Skill-Templates: `/data/organizations/{organizationId}/skill-templates/{skillName}/{version}/`.
+- Organization-Plugin-Templates: `/data/organizations/{organizationId}/plugin-templates/`.
 - Policies: Allowlist, Blocklist, Version Pins und Sharing-Rechte unter `/data/organizations/{organizationId}/policies/`.
+
+Skill-Klassen:
+
+| Klasse | Besitzer | Zweck |
+|---|---|---|
+| Core/System | App-Image | immer verfuegbare Basis-Skills; nicht loeschbar, nicht ueberschreibbar |
+| Personal Local | User | eigene Workflows, nur fuer diesen User aktiv |
+| Organization Shared | Admin/Organization | zentral gepflegte Skills fuer mehrere Nutzer |
+| Marketplace | Registry-Publisher | kuratierte installierbare Pakete |
 
 Invarianten:
 
 - Ein User kann nur den eigenen aktiven Tool-Stack ausfuehren.
-- Organization-Templates werden kopiert oder aktiviert, aber nicht als global mutable Installation genutzt.
+- Organization-Templates werden referenziert, kopiert oder aktiviert, aber nicht als global mutable Installation genutzt.
+- Ein Admin kann einen Organization Skill zentral bereitstellen; normale Nutzer koennen ihn je nach Policy nutzen, aber nicht direkt veraendern.
+- Organization Skill Policies koennen `optional`, `default-enabled`, `required` oder `blocked` sein.
+- Nutzer duerfen Organization Skills bei Bedarf als persoenliche Kopie forken, aber diese Kopie muss einen eigenen Namen oder eine eindeutige Fork-ID bekommen.
+- Namenskonflikte zwischen Core, Organization, Personal und Plugin-Skills werden sichtbar blockiert; es gibt kein stilles Ueberschreiben.
 - Plugin-/Skill-Aenderungen sind auditpflichtig, weil sie Agent-Verhalten veraendern.
 - Ein geteilter Skill darf keine privaten Credential-Dateien, MCP Tokens oder Mailbox-Konfigurationen mitbringen.
 - Admins koennen Freigabe und Blockierung verwalten, aber normale User-Secrets bleiben redacted.
+
+Ziel-Permissions:
+
+- `canCreatePersonalSkills`: eigene Skills erstellen und bearbeiten.
+- `canPublishOrganizationSkills`: Skills fuer die Organization veroeffentlichen oder aktualisieren.
+- `canManageSkillPolicies`: Default-/Required-/Blocklist-Policies und Marketplace-Quellen verwalten.
+
+Bis diese feineren Berechtigungen existieren, bleibt `canSharePluginsAndSkills` der technische Gate fuer Skill- und Plugin-Mutationen.
 
 ## Agent Runtime und Agent-Definitionen
 

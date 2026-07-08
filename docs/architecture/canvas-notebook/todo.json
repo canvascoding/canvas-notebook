@@ -977,6 +977,51 @@
         "npm run lint",
         "npm run build"
       ]
+    },
+    {
+      "id": 46,
+      "title": "Agent-faehige Skill-Erstellung und Organization Shared Skills mit dedizierten Install-Tools umsetzen",
+      "status": "planned",
+      "repo": "canvasstudios-notebook",
+      "dependsOn": [
+        5,
+        16,
+        17,
+        31
+      ],
+      "planningArtifacts": [
+        "docs/architecture/canvas-notebook/team-workspace/08-user-scoped-secrets-runtime.md",
+        "docs/architecture/canvas-notebook/team-workspace/10-agent-tool-execution-policy.md",
+        "docs/architecture/canvas-notebook/team-workspace/19-agent-skill-creation-install-policy.md",
+        "docs/dokumentation/canvas-skills-plugins-architecture.md"
+      ],
+      "implementationTargets": [
+        "app/lib/skills/agent-skill-installer.ts",
+        "app/lib/skills/skill-package-import.ts",
+        "app/lib/pi/tool-registry.ts",
+        "app/lib/organization/permissions.ts",
+        "app/api/skills/*",
+        "app/components/settings/*",
+        "scripts/agent-skill-installer-test.ts",
+        "scripts/pi-tool-registry-test.ts"
+      ],
+      "acceptanceCriteria": [
+        "Nutzer koennen eigene Personal Skills ueber validierte UI- oder Agent-Tools erstellen, ohne generische Writes nach /data/users/{userId}/skills zu erhalten",
+        "Skill-Installation nutzt dieselbe Validierungs-, Registry- und Enable-Pipeline wie Uploads und Store-Installationen",
+        "Core Skills bleiben immer verfuegbar und koennen nicht ersetzt, deaktiviert oder ueberschattet werden",
+        "Admins koennen Organization Shared Skills versioniert bereitstellen und per Policy optional, default-enabled, required oder blocked setzen",
+        "Normale Nutzer koennen Organization Skills verwenden, aber nicht direkt veraendern; Anpassungen laufen ueber Personal Forks",
+        "Namenskonflikte zwischen Core, Organization, Personal und Plugin-Skills werden sichtbar blockiert statt still entschieden",
+        "Skill-Install-Tools auditieren Scope, Quelle, Skill-Name, Version/Checksum und Policy ohne komplette Skill-Inhalte oder Secrets zu speichern"
+      ],
+      "verification": [
+        "npm run test:skills:core",
+        "npm run test:skills:store",
+        "npm run test:pi:tools",
+        "tsx --conditions react-server scripts/agent-skill-installer-test.ts",
+        "npm run lint",
+        "npm run build"
+      ]
     }
   ]
 }

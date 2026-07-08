@@ -125,8 +125,35 @@ Begruendung: Shell-Kommandos sind schwer granular zu begrenzen. Fuer Cross-Works
 | E-Mail | eigene User-Mailbox oder erlaubte Team-Mailbox | senden nur erlaubter Account | Mail Secret-Refs | AccountId anderer User gilt als nicht vorhanden |
 | Studio | erlaubte Source Assets | Ziel nur erlaubter Workspace/Asset-Scope | Provider Secret-Refs | Save-to-Workspace braucht `targetWorkspaceId` |
 | Public Links | erlaubter Workspace | Link nur mit Permission | nein | Team Workspace braucht Public-Link-Permission |
+| Skill Install | Chat-Workspace-Quellen und Skill-Paketdaten | User- oder Organization-Skill-Scope ueber dedizierten Installer | nein | kein generischer `/data/users/.../skills`-Write; validiert, registriert und auditiert |
 | Search/Retrieval | erlaubte Knowledge Stores | nein | nein | keine fremden Personal Workspaces; ACL-Filter vor Rueckgabe |
 | Automation Runner | siehe Automation-Scope | siehe gespeicherter Job-Workspace | Owner/Org nach Policy | separates Automations-Modell erforderlich |
+
+## Skill-Install-Tools
+
+Skill-Erstellung und Skill-Installation sind eigene Runtime-Capabilities. Ein Agent darf dafuer nicht `write`, `copy_path`, `move_path`, `bash` oder Shell-Redirects gegen `/data/users/{userId}/skills` verwenden.
+
+Erlaubter Personal-Flow:
+
+1. Skill-Entwurf aus Chat, Upload oder Workspace-Dateien erzeugen.
+2. Paket mit `validate_canvas_skill_package` pruefen.
+3. Skill mit `create_canvas_skill` oder `install_canvas_skill_from_workspace` in den User-Scope installieren.
+4. Registry, Aktivierung und Audit werden serverseitig geschrieben.
+
+Erlaubter Organization-Flow:
+
+1. Admin oder Skill-Manager erstellt oder prueft ein Paket.
+2. Server prueft Organization-Permission und Skill-Policy.
+3. Paket wird als versionierter Organization Skill bereitgestellt.
+4. Nutzer bekommen den Skill je nach Policy optional, default-enabled oder required.
+
+Regeln:
+
+- Core-Skills koennen nicht ersetzt, deaktiviert, geloescht oder ueberschattet werden.
+- Plugin-managed Skills koennen nicht still durch lokale oder Organization Skills ersetzt werden.
+- Ein aktiver Skill-Name darf nur einmal im aufgeloesten Tool-Stack vorkommen.
+- Ein neu installierter Skill ist fuer den naechsten Agent-Turn verfuegbar; der laufende Modell-Call kennt ihn nicht automatisch.
+- Skill-Install-Tools auditieren Quelle, Scope, Skill-Name, Version/Checksum und Policy, aber keine kompletten Skill-Inhalte oder Secrets.
 
 ## Revocation und laufende Runs
 
