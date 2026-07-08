@@ -1007,12 +1007,15 @@
       ],
       "acceptanceCriteria": [
         "Nutzer koennen eigene Personal Skills ueber validierte UI- oder Agent-Tools erstellen, ohne generische Writes nach /data/users/{userId}/skills zu erhalten",
+        "Personal Skills koennen als komplette Paketordner inklusive SKILL.md, agents/canvas.yaml, Scripts, References, Assets, Beispielen und optionalen Code-Dateien erstellt, geforkt und bearbeitet werden",
         "Skill-Installation nutzt dieselbe Validierungs-, Registry- und Enable-Pipeline wie Uploads und Store-Installationen",
+        "Bestehende Personal Skills koennen ueber Inspect, Workspace-Draft, Checksum-Schutz, Backup und atomaren Paket-Austausch bearbeitet werden",
         "Core Skills bleiben immer verfuegbar und koennen nicht ersetzt, deaktiviert oder ueberschattet werden",
         "Admins koennen Organization Shared Skills versioniert bereitstellen und per Policy optional, default-enabled, required oder blocked setzen",
         "Normale Nutzer koennen Organization Skills verwenden, aber nicht direkt veraendern; Anpassungen laufen ueber Personal Forks",
         "Namenskonflikte zwischen Core, Organization, Personal und Plugin-Skills werden sichtbar blockiert statt still entschieden",
-        "Skill-Install-Tools auditieren Scope, Quelle, Skill-Name, Version/Checksum und Policy ohne komplette Skill-Inhalte oder Secrets zu speichern"
+        "Skill-Install-Tools auditieren Scope, Quelle, Skill-Name, Version/Checksum und Policy ohne komplette Skill-Inhalte oder Secrets zu speichern",
+        "Enthaltene Scripts oder Code-Dateien werden beim Import nicht ausgefuehrt und bleiben an die normalen Agent-Tool- und Secret-Policies gebunden"
       ],
       "verification": [
         "npm run test:skills:core",

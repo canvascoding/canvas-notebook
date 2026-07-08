@@ -153,7 +153,9 @@ Regeln:
 - Plugin-managed Skills koennen nicht still durch lokale oder Organization Skills ersetzt werden.
 - Ein aktiver Skill-Name darf nur einmal im aufgeloesten Tool-Stack vorkommen.
 - Ein neu installierter Skill ist fuer den naechsten Agent-Turn verfuegbar; der laufende Modell-Call kennt ihn nicht automatisch.
+- Skill-Install-Tools behandeln den kompletten Skill-Ordner als Paket, inklusive `scripts/`, `references/`, `assets/` und Beispielen.
 - Skill-Install-Tools auditieren Quelle, Scope, Skill-Name, Version/Checksum und Policy, aber keine kompletten Skill-Inhalte oder Secrets.
+- Enthaltene Code- oder Script-Dateien werden beim Import nicht ausgefuehrt; spaetere Ausfuehrung laeuft nur ueber erlaubte Agent-Tools und deren Sandbox.
 
 ## Revocation und laufende Runs
 
