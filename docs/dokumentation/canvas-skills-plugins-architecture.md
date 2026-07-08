@@ -229,7 +229,7 @@ Ziel fuer eigene Skills:
 
 - Nutzer koennen eigene Personal Skills ueber UI oder Agent-Tool erstellen und bearbeiten.
 - Ein Skill ist immer der komplette Paketordner, nicht nur `SKILL.md`; dazu gehoeren auch `agents/`, `scripts/`, `references/`, `assets/`, Beispiele und optional ausfuehrbare Code-Dateien.
-- Der Agent bekommt dafuer dedizierte Tools wie `inspect_canvas_skill`, `checkout_canvas_skill_to_workspace`, `validate_canvas_skill_package`, `create_canvas_skill`, `install_canvas_skill_from_workspace`, `update_canvas_skill_from_workspace` und `fork_canvas_skill`.
+- Der Agent bekommt dafuer in Personal V1 dedizierte Tools: `inspect_canvas_skill`, `create_canvas_skill_draft`, `install_canvas_skill_from_workspace`, `update_canvas_skill_from_workspace` und `discard_canvas_skill_draft`.
 - Diese Tools nutzen dieselbe Import-Pipeline wie der Skill-Upload und schreiben Registry/Settings serverseitig.
 - Generische File-Tools duerfen weiterhin nicht direkt nach `/data/users/{userId}/skills` schreiben.
 - Import, Update und Fork behandeln den Skill-Ordner als atomare Einheit und fuehren enthaltene Scripts nicht beim Import aus.
@@ -392,14 +392,13 @@ Fuer den Marketplace werden zusaetzlich benoetigt:
 Fuer Agent-erstellte Skills werden zusaetzliche Runtime-Tools benoetigt:
 
 - `inspect_canvas_skill` — Quelle, Scope, Editierbarkeit, Version, Checksum und Paketstruktur lesen
-- `checkout_canvas_skill_to_workspace` — kompletten Skill-Ordner als Workspace-Draft auschecken
-- `validate_canvas_skill_package` — Skill-Paket oder `SKILL.md` aus dem Chat-Workspace pruefen, ohne zu installieren
-- `create_canvas_skill` — Minimal-Personal-Skill aus generiertem `SKILL.md` und optionalem `agents/canvas.yaml` installieren
-- `install_canvas_skill_from_workspace` — kompletten Personal-Skill-Ordner, `.zip` oder `.skill` aus dem Workspace installieren
+- `create_canvas_skill_draft` — neuen Skill-Draft erzeugen oder kompletten Personal-Skill-Ordner als Workspace-Draft auschecken
+- `install_canvas_skill_from_workspace` — kompletten Personal-Skill-Ordner aus dem Workspace installieren
 - `update_canvas_skill_from_workspace` — kompletten bestehenden Personal-Skill-Ordner mit Version-/Checksum-Schutz aktualisieren
-- `fork_canvas_skill` — nicht editierbaren Skill als kompletten Personal- oder Organization-Fork kopieren
 - `discard_canvas_skill_draft` — abgebrochene Skill-Drafts aus dem Workspace entfernen
 - `publish_canvas_skill_to_organization` — spaeterer Admin-Flow fuer Organization Shared Skills mit Policy
+
+Separate Dry-run-, Text-only-Create- und Fork-Tools bleiben ein spaeterer Ausbau. In Personal V1 validieren Install/Update die Pakete direkt und neue Skills werden zuerst als Workspace-Draft angelegt.
 
 Diese Tools sind keine generischen Dateitools. Sie rufen die Skill-Import-Pipeline auf, schreiben Registry/Settings serverseitig, behandeln den kompletten Paketordner als Einheit und auditieren den Scope.
 

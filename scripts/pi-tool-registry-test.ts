@@ -82,6 +82,13 @@ async function main() {
         registerBuiltInApiProviders: () => undefined,
       };
     }
+    if (request === '@earendil-works/pi-ai/compat') {
+      return {
+        getModels: () => [],
+        getProviders: () => [],
+        registerBuiltInApiProviders: () => undefined,
+      };
+    }
     if (request === '@earendil-works/pi-ai/oauth') {
       return {};
     }

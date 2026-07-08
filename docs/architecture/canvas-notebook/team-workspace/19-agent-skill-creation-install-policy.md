@@ -226,9 +226,9 @@ Empfohlener Agent-Ablauf fuer Personal Skills:
 
 1. `inspect_canvas_skill({ name })` aufrufen.
 2. Wenn `editable` false ist, Fork-Option erklaeren.
-3. `checkout_canvas_skill_to_workspace` ausfuehren, wenn mehr als nur `SKILL.md` oder `agents/canvas.yaml` geaendert werden soll.
-4. `validate_canvas_skill_package` fuer das vollstaendige Zielpaket ausfuehren.
-5. `update_canvas_skill_from_workspace` mit `expectedChecksum` ausfuehren.
+3. `create_canvas_skill_draft` mit `sourceSkillName` ausfuehren.
+4. Den kompletten Draft-Ordner im Workspace bearbeiten.
+5. `update_canvas_skill_from_workspace` mit `expectedVersion` und `expectedChecksum` ausfuehren.
 6. Ergebnis mit neuer Version, neuer Checksum, geloeschtem Draft-Pfad und Nutzungszeitpunkt melden.
 
 Empfohlener Admin-Ablauf fuer Organization Skills:
@@ -258,21 +258,24 @@ Parameter:
 Regeln:
 
 - gibt `sourceType`, `scope`, `editable`, `editableReason`, `checksum`, `version`, `enabled`, `pathSummary` und `interface` zurueck,
-- liefert `SKILL.md` und `agents/canvas.yaml` bei `includeContent: true`; weitere Dateien werden ueber `checkout_canvas_skill_to_workspace` bearbeitet,
+- liefert Version, Checksum und Paketstruktur; Dateien werden ueber `create_canvas_skill_draft` als Workspace-Draft bearbeitet,
 - Core- und Plugin-managed Skills duerfen inspiziert, aber nicht als editierbar gemeldet werden,
 - Organization Skills duerfen normale Nutzer nur lesen, wenn die Policy sie fuer ihre Rolle freigibt.
 
-### `checkout_canvas_skill_to_workspace`
+### `create_canvas_skill_draft`
 
-Kopiert ein komplettes Skill-Paket als bearbeitbaren Draft in den aktuellen Chat-Workspace.
+Erzeugt einen temporaeren Skill-Draft im aktuellen Chat-Workspace. Fuer neue Skills wird ein minimales Paket mit `SKILL.md` und `agents/canvas.yaml` angelegt. Fuer bestehende Personal Skills wird der komplette Skill-Ordner als bearbeitbarer Draft kopiert.
 
 Parameter:
 
 ```ts
 {
-  name: string;
-  scope?: "personal" | "organization";
-  destinationPath?: string; // default .canvas-skill-drafts/<name>-<timestamp>
+  skillName: string;
+  description?: string;     // new-skill draft
+  version?: string;         // new-skill draft, default 1.0.0
+  sourceSkillName?: string; // edit/fork draft
+  draftId?: string;
+  overwrite?: boolean;
 }
 ```
 
@@ -280,8 +283,8 @@ Regeln:
 
 - kopiert den kompletten Paketordner inklusive `SKILL.md`, `agents/`, `scripts/`, `references/`, `assets/` und Beispieldateien,
 - schreibt nur in den aktuellen Chat-Workspace,
-- erzeugt eine Draft-Metadatendatei mit Quelle, Checksum, Version und Scope,
-- markiert nicht editierbare Quellen als Fork-Draft, nicht als direktes Update,
+- gibt bei Edit-Drafts `expectedVersion` und `expectedChecksum` aus,
+- Core- und Plugin-managed Skills werden nicht direkt kopiert; dafuer bleibt ein separater Fork-Flow noetig,
 - kopiert keine bekannten Secret-Dateien in den Draft,
 - gibt den Workspace-Pfad zurueck, damit Agent oder UI normale File-Tools fuer beliebige Paketdateien nutzen koennen.
 
@@ -308,49 +311,7 @@ V2-Option:
 - Diese Tools muessen eigene Read/Write/Delete-Operationen fuer Draft-Dateien anbieten, weil generische File-Tools dort weiter keinen Zugriff bekommen sollen.
 - Auch serverseitige Temp-Drafts muessen TTL-Cleanup und explizites Discard bekommen.
 
-### `validate_canvas_skill_package`
-
-Dry-run ohne persistente Aenderung.
-
-Parameter:
-
-```ts
-{
-  path?: string;       // preferred: workspace-relative package folder, .zip or .skill
-  skillMd?: string;    // convenience only for minimal single-file skills
-}
-```
-
-Regeln:
-
-- genau eine Quelle ist erforderlich,
-- `path` muss im aktuellen `AgentExecutionContext.workspaceRoot` liegen,
-- die Validierung nutzt dieselben Limits und Frontmatter-Regeln wie `importSkillPackage`,
-- Ergebnis enthaelt `skillName`, `validation`, `sourceKind`, `detectedFiles`, aber keinen Registry-Write.
-
-### `create_canvas_skill`
-
-Komfort-Erstellung eines minimalen Skills aus generiertem `SKILL.md`-Text.
-
-Parameter:
-
-```ts
-{
-  skillMd: string;
-  canvasInterfaceYaml?: string;
-  enable?: boolean; // default true
-}
-```
-
-Regeln:
-
-- nur fuer einfache Single-/Few-File-Skills gedacht,
-- fuer Faelle, in denen ein Agent aus Upload-/Chat-Inhalt sofort eine saubere `SKILL.md` erzeugt,
-- optionales `agents/canvas.yaml` wird als zweite Datei in die Folder-Quelle aufgenommen,
-- intern wird daraus eine `SkillPackageImportSource` mit `kind: "folder"` oder `kind: "text"`,
-- `sourcePath` im Registry-Record soll `agent-generated:SKILL.md` oder `agent-generated:<skillName>` sein.
-
-Fuer Skills mit Scripts, Referenzen, Assets oder Beispieldateien ist `install_canvas_skill_from_workspace` der primaere Weg.
+Die separate Dry-run-Validierung und direkte Text-Erstellung sind in Personal V1 keine eigenen Tools. V1 validiert innerhalb von `install_canvas_skill_from_workspace` und `update_canvas_skill_from_workspace`; neue Skills werden zuerst als Draft mit `create_canvas_skill_draft` erzeugt und danach installiert.
 
 ### `install_canvas_skill_from_workspace`
 
@@ -360,7 +321,7 @@ Parameter:
 
 ```ts
 {
-  path: string;       // workspace-relative folder, SKILL.md, .zip or .skill
+  draftPath: string;  // workspace-relative folder containing one skill package
   enable?: boolean;   // default true
   cleanupDraft?: boolean; // default true for .canvas-skill-drafts paths
 }
@@ -370,41 +331,10 @@ Regeln:
 
 - der Tool-Call darf nur aus dem aktuellen Workspace lesen,
 - Folder-Quellen werden mit denselben Ignorierregeln behandelt wie Uploads (`.git`, `node_modules`, `.DS_Store`),
-- ZIP-Quellen laufen ueber denselben Archive-Importer,
 - der gesamte Paketordner wird kopiert, inklusive Scripts, Referenzen, Assets und Beispiele,
-- Registry `sourcePath` soll `agent-workspace:<relativePath>` enthalten,
+- das Paket muss eine Version ueber `agents/canvas.yaml` `skill.version` oder kompatibel ueber `SKILL.md` `metadata.version` deklarieren,
 - das Tool darf keine vorhandenen Skills ersetzen,
 - bei `cleanupDraft !== false` und einer Quelle unter `.canvas-skill-drafts/` wird der Draft nach erfolgreicher Installation geloescht.
-
-### `update_canvas_skill`
-
-Komfort-Update eines bestehenden Personal Local Skill aus `SKILL.md`-Text und optionalem Interface-YAML.
-
-Parameter:
-
-```ts
-{
-  name: string;
-  expectedVersion: string;
-  expectedChecksum: string;
-  skillMd: string;
-  canvasInterfaceYaml?: string;
-  enable?: boolean;
-}
-```
-
-Regeln:
-
-- nur fuer einfache Text-/Interface-Aenderungen gedacht,
-- nur fuer Personal Local Skills im eigenen User-Scope,
-- `name` muss zum Namen im neuen `SKILL.md` passen,
-- `expectedVersion` muss zur aktuellen Registry-Version passen,
-- `expectedChecksum` muss zur aktuellen Registry-Checksum passen,
-- die neue Paketversion muss validiert und in die Registry uebernommen werden,
-- nach dem Austausch werden Checksum, Registry-Record und Interface aktualisiert,
-- bei Marketplace-/Plugin-/Core-Quelle wird ein Fehler mit Fork-Hinweis geliefert.
-
-Fuer Paket-Aenderungen an Scripts, Assets, Referenzen oder Beispielen ist `update_canvas_skill_from_workspace` verpflichtend.
 
 ### `update_canvas_skill_from_workspace`
 
@@ -414,10 +344,10 @@ Parameter:
 
 ```ts
 {
-  name: string;
+  skillName: string;
   expectedVersion: string;
   expectedChecksum: string;
-  path: string;       // workspace-relative folder, SKILL.md, .zip or .skill
+  draftPath: string;  // workspace-relative folder containing one skill package
   enable?: boolean;
   cleanupDraft?: boolean; // default true
 }
@@ -425,10 +355,10 @@ Parameter:
 
 Regeln:
 
-- gleicher Schutz wie `update_canvas_skill`,
 - Quelle muss im aktuellen Chat-Workspace liegen,
 - das Paket darf nur genau einen Skill enthalten,
 - der gesamte Zielordner ersetzt nach erfolgreicher Validierung atomar das bisherige Skill-Paket,
+- `expectedVersion` und `expectedChecksum` muessen aus `inspect_canvas_skill` stammen,
 - Asset-, Script-, Reference- und Beispiel-Aenderungen werden als Zusammenfassung ausgegeben,
 - bei `cleanupDraft !== false` wird der Workspace-Draft nach erfolgreichem Update geloescht.
 
@@ -440,7 +370,7 @@ Parameter:
 
 ```ts
 {
-  path: string;
+  draftPath: string;
 }
 ```
 
@@ -450,7 +380,7 @@ Regeln:
 - geloescht wird nur der Draft-Ordner, nie der installierte Skill,
 - geeignet fuer abgebrochene Skill-Erstellungen oder -Bearbeitungen.
 
-### `fork_canvas_skill`
+### Future: `fork_canvas_skill`
 
 Erzeugt eine bearbeitbare Kopie eines nicht editierbaren Skills.
 
@@ -569,9 +499,9 @@ Prompt-/Runtime-Regel:
 Zielablauf fuer einen Agenten, der aus Upload-Inhalt einen Skill erstellt:
 
 1. Upload oder Chat-Inhalt mit normalen Read-/Attachment-Funktionen auswerten.
-2. `SKILL.md` und optional `agents/canvas.yaml` im Arbeitsspeicher erzeugen oder im Workspace als Entwurf speichern.
-3. `validate_canvas_skill_package` ausfuehren.
-4. Bei validem Ergebnis und explizitem Nutzerauftrag `create_canvas_skill` oder `install_canvas_skill_from_workspace` ausfuehren.
+2. Mit `create_canvas_skill_draft` einen temporaeren Draft unter `.canvas-skill-drafts/` erzeugen.
+3. Bei Bedarf den kompletten Paketordner mit normalen Workspace-Dateitools bearbeiten.
+4. Bei explizitem Nutzerauftrag `install_canvas_skill_from_workspace` ausfuehren.
 5. Ergebnis im Chat melden: Skill-Name, Status, Aktivierung, naechster Nutzungszeitpunkt.
 
 Der Agent muss nicht und darf nicht versuchen, `/data/users/.../skills` direkt zu beschreiben.
@@ -582,33 +512,28 @@ Der Agent muss nicht und darf nicht versuchen, `/data/users/.../skills` direkt z
 
 Neue Datei:
 
-- `app/lib/skills/agent-skill-installer.ts`
+- `app/lib/skills/agent-skill-workspace.ts`
 
 Aufgaben:
 
-- Workspace-Pfade ueber `resolveAgentPath()` und `AgentExecutionContext.workspaceRoot` aufloesen.
-- Read-Only-Pfadpruefung fuer Workspace-Quellen anwenden.
+- Workspace-Pfade ueber `AgentExecutionContext.workspaceRoot` aufloesen.
+- Workspace-Quellen auf den aktiven Chat-Workspace begrenzen.
 - Folder-Quellen rekursiv sammeln, mit Dateianzahl-/Bytes-Limits.
-- `SKILL.md`-, Folder- und Archive-Quellen in `SkillPackageImportSource` normalisieren.
+- Folder-Quellen in `SkillPackageImportSource` normalisieren.
 - komplette Paketordner inklusive Scripts, Assets, References, Beispielen und Dateimodus-Metadaten sicher importieren.
-- unsichere Dateitypen, Symlinks ausserhalb des Pakets und bekannte Secret-Dateien ablehnen.
-- Dry-run-Validierung bereitstellen, ohne Registry/Settings zu schreiben.
+- Paketversion aus `agents/canvas.yaml` oder kompatibel aus `SKILL.md` pruefen.
 - Install-Funktionen als schmale Adapter um `importSkillPackage()` implementieren.
 
-Die bestehende `skill-package-import.ts` bleibt die Quelle fuer Install-Regeln. Falls Dry-run noch interne Funktionen braucht, sollten kleine gemeinsame Validatoren aus `skill-package-import.ts` exportiert werden, statt eine zweite Validierung zu bauen.
+Die bestehende `skill-package-import.ts` bleibt die Quelle fuer Install-Regeln.
 
 ### 2. Runtime-Tools
 
 `app/lib/pi/tool-registry.ts` erweitert `createUserScopedTools()` um:
 
 - `inspect_canvas_skill`
-- `checkout_canvas_skill_to_workspace`
-- `validate_canvas_skill_package`
-- `create_canvas_skill`
+- `create_canvas_skill_draft`
 - `install_canvas_skill_from_workspace`
-- `update_canvas_skill`
 - `update_canvas_skill_from_workspace`
-- `fork_canvas_skill`
 - `discard_canvas_skill_draft`
 
 Tool-Gruppe:
@@ -626,7 +551,7 @@ Erfolg und Fehler werden als eigene Audit-Events erfasst:
 
 - `eventType: "agent"`
 - `entityType: "skill"`
-- `action: "agent_skill.inspect" | "agent_skill.validate" | "agent_skill.install" | "agent_skill.update" | "agent_skill.fork" | "agent_skill.discard_draft"`
+- `action: "skill.inspect" | "skill.create_draft" | "skill.install_from_workspace" | "skill.update_from_workspace" | "skill.discard_draft"`
 - `entityId: skillName`
 - Metadaten: `sourceKind`, `sourcePath`, `enabled`, `previousVersion`, `version`, `previousChecksum`, `checksum`, `draftPath`, `draftCleaned`, `workspaceId`, `sessionId`, `agentId`.
 
@@ -642,10 +567,10 @@ Nicht auditieren:
 Tool-Fehler muessen handlungsleitend sein:
 
 - fehlende Permission: auf Settings/Permissions bzw. Plugin-/Skill-Freigabe verweisen,
-- invalides Frontmatter: konkrete Validierungsfehler zurueckgeben,
-- Skill existiert bereits: auf Skill-Editor oder spaeteren Update-Flow verweisen,
+- invalides Frontmatter oder fehlende Version: konkrete Validierungsfehler zurueckgeben,
+- Skill existiert bereits: auf `inspect_canvas_skill` plus `create_canvas_skill_draft`/`update_canvas_skill_from_workspace` verweisen,
 - Core-Skill-Name: klar sagen, dass Built-in/Core Skills nicht ersetzt werden koennen,
-- nicht editierbare Quelle: Fork- oder Admin-Update-Flow anbieten,
+- nicht editierbare Quelle: Fork- oder Admin-Update-Flow als spaeteren Ausbau anbieten,
 - Checksum-Konflikt: erneutes Inspect verlangen und kein Update schreiben,
 - Workspace-Pfad ausserhalb Scope: klar sagen, dass nur Chat-Workspace-Quellen installierbar sind.
 
@@ -653,19 +578,17 @@ Tool-Fehler muessen handlungsleitend sein:
 
 Pflichttests fuer die Umsetzung:
 
-- `create_canvas_skill` installiert aus `SKILL.md`-Text unter `/data/users/{userId}/skills/{name}`.
+- `create_canvas_skill_draft` erzeugt neuen Draft mit `SKILL.md` und `agents/canvas.yaml`.
 - `install_canvas_skill_from_workspace` installiert Folder-Paket mit `agents/canvas.yaml` und Assets.
 - `install_canvas_skill_from_workspace` installiert komplette Paketordner mit `scripts/`, `references/`, `assets/` und Beispieldateien.
 - Registry-Record und `settings/skills.json` werden geschrieben.
 - Skill ist nach erneutem Laden ueber `loadSkillsFromDisk(..., { userId })` sichtbar und enabled.
 - `inspect_canvas_skill` meldet Quelle, Editierbarkeit und Checksum korrekt.
-- `checkout_canvas_skill_to_workspace` kopiert einen kompletten Skill inklusive Scripts, References und Assets in einen Workspace-Draft.
-- `update_canvas_skill` aktualisiert einen Personal Local Skill mit passender Version und Checksum.
+- `create_canvas_skill_draft` kopiert einen kompletten Skill inklusive Scripts, References und Assets in einen Workspace-Draft.
 - `update_canvas_skill_from_workspace` kann Scripts, References, Assets und Beispiele hinzufuegen, aendern und entfernen.
-- `update_canvas_skill` lehnt stale `expectedChecksum` ohne Aenderung ab.
-- `update_canvas_skill` lehnt stale `expectedVersion` ohne Aenderung ab.
-- `update_canvas_skill` lehnt Core-, Plugin-managed- und Marketplace-Skills mit Fork-Hinweis ab.
-- `fork_canvas_skill` erzeugt eine bearbeitbare Personal-Kopie mit neuem Namen und `forkedFrom`-Metadaten.
+- `update_canvas_skill_from_workspace` lehnt stale `expectedChecksum` ohne Aenderung ab.
+- `update_canvas_skill_from_workspace` lehnt stale `expectedVersion` ohne Aenderung ab.
+- `update_canvas_skill_from_workspace` lehnt Core-, Plugin-managed- und Marketplace-Skills mit Fork-Hinweis ab.
 - der Import fuehrt enthaltene Scripts nicht aus.
 - unsichere Symlinks und bekannte Secret-Dateien im Paket werden abgelehnt.
 - erfolgreiche Install-/Update-Tools loeschen Workspace-Drafts standardmaessig.
