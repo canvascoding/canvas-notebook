@@ -116,6 +116,7 @@ async function main() {
     runMigrations(sqlite);
     insertUser(sqlite, 'user-owner', 'Owner', 'owner@example.test', 'admin');
     insertUser(sqlite, 'user-member', 'Member', 'member@example.test', 'member');
+    insertUser(sqlite, 'user-reader', 'Reader', 'reader@example.test', 'member');
 
     sqlite.exec('BEGIN IMMEDIATE');
     const ownerStatus = ensureOrganizationBootstrapForUser(sqlite, 'user-owner');
@@ -124,6 +125,7 @@ async function main() {
     const organizationId = ownerStatus.organizationId;
 
     insertPermission(sqlite, organizationId, 'user-member', 'member');
+    insertPermission(sqlite, organizationId, 'user-reader', 'member');
     const ownerRecords = ensureDefaultWorkspaceRecords(sqlite, {
       organizationId,
       userId: 'user-owner',
@@ -132,6 +134,11 @@ async function main() {
     ensureDefaultWorkspaceRecords(sqlite, {
       organizationId,
       userId: 'user-member',
+      teamFeaturesEnabled: true,
+    });
+    ensureDefaultWorkspaceRecords(sqlite, {
+      organizationId,
+      userId: 'user-reader',
       teamFeaturesEnabled: true,
     });
     const project = createCanvasProject(sqlite, {
@@ -162,6 +169,16 @@ async function main() {
       canManage: true,
       invitedByUserId: 'user-owner',
     });
+    upsertCanvasProjectMember(sqlite, {
+      organizationId,
+      projectId: project.id,
+      userId: 'user-reader',
+      role: 'member',
+      canRead: true,
+      canWrite: false,
+      canManage: false,
+      invitedByUserId: 'user-owner',
+    });
 
     const ownerActor = resolveWorkspaceActor({
       id: 'user-owner',
@@ -171,6 +188,11 @@ async function main() {
     const memberActor = resolveWorkspaceActor({
       id: 'user-member',
       email: 'member@example.test',
+      role: 'member',
+    });
+    const readerActor = resolveWorkspaceActor({
+      id: 'user-reader',
+      email: 'reader@example.test',
       role: 'member',
     });
 
@@ -194,12 +216,19 @@ async function main() {
       actor: memberActor,
       workspaceId: ownerProject.workspaceId,
     }));
+    const readerProject = requireWorkspace(resolveWorkspaceContextById(sqlite, {
+      actor: readerActor,
+      workspaceId: ownerProject.workspaceId,
+    }));
 
     assert.equal(ownerPersonal.permissions.canCreatePublicLinks, true);
     assert.equal(ownerTeam.permissions.canCreatePublicLinks, true);
     assert.equal(memberTeam.permissions.canCreatePublicLinks, true);
     assert.equal(ownerProject.permissions.canCreatePublicLinks, true);
     assert.equal(memberProject.permissions.canCreatePublicLinks, true);
+    assert.equal(memberProject.permissions.canManageWorkspace, true);
+    assert.equal(readerProject.permissions.canCreatePublicLinks, true);
+    assert.equal(readerProject.permissions.canManageWorkspace, false);
 
     await mkdir(path.join(ownerPersonal.rootPath, 'docs'), { recursive: true });
     await mkdir(path.join(ownerTeam.rootPath, 'docs'), { recursive: true });
@@ -346,6 +375,18 @@ async function main() {
     assert.deepEqual(teamScopedList.map((share) => share.workspaceId), [ownerTeam.workspaceId]);
     assert.deepEqual(teamScopedList.map((share) => share.workspaceName), [ownerTeam.displayName]);
     assert.deepEqual(teamAgentScopedList.map((share) => share.status), ['active']);
+    const ownerProjectWithWrongDisplayName: WorkspaceContext = {
+      ...ownerProject,
+      displayName: 'Personal Workspace',
+    };
+    const projectScopedList = await listPublicFileShares({
+      userId: 'user-owner',
+      workspace: ownerProjectWithWrongDisplayName,
+      status: 'active',
+      paths: ['docs/report.txt'],
+      baseUrl: 'https://notebook.example.test',
+    });
+    assert.deepEqual(projectScopedList.map((share) => share.workspaceName), [ownerProject.displayName]);
 
     const personalToken = tokenFromPublicUrl(personalCreate.shares[0].publicUrl);
     await writeFile(path.join(ownerPersonal.rootPath, 'docs', 'report.txt'), 'personal v2\n');
@@ -399,6 +440,25 @@ async function main() {
       baseUrl: 'https://notebook.example.test',
     });
     assert.equal(revokedByMember?.status, 'revoked');
+
+    const readerProjectVisibleShares = await listPublicFileShares({
+      userId: 'user-reader',
+      workspace: readerProject,
+      status: 'active',
+      paths: ['docs/report.txt'],
+      baseUrl: 'https://notebook.example.test',
+    });
+    assert.deepEqual(readerProjectVisibleShares.map((share) => share.id), []);
+    await assert.rejects(
+      () => revokePublicFileShare({
+        id: projectCreate.shares[0].id,
+        userId: 'user-reader',
+        workspace: readerProject,
+        isAdmin: false,
+        baseUrl: 'https://notebook.example.test',
+      }),
+      /Forbidden/,
+    );
 
     const memberProjectVisibleShares = await listPublicFileShares({
       userId: 'user-member',
