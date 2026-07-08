@@ -22,8 +22,10 @@ export function resolveWorkspacePermissions(params: {
   ownsPersonalWorkspace?: boolean;
   canAccessOrganizationWorkspace?: boolean;
   canWriteOrganizationWorkspace?: boolean;
+  canDeleteOrganizationWorkspace?: boolean;
   canAccessTeamWorkspace?: boolean;
   canWriteTeamWorkspace?: boolean;
+  canDeleteTeamWorkspace?: boolean;
   canManageTeamWorkspace?: boolean;
   canReadProjectWorkspace?: boolean;
   canWriteProjectWorkspace?: boolean;
@@ -36,8 +38,10 @@ export function resolveWorkspacePermissions(params: {
     ownsPersonalWorkspace = false,
     canAccessOrganizationWorkspace = false,
     canWriteOrganizationWorkspace = false,
+    canDeleteOrganizationWorkspace = false,
     canAccessTeamWorkspace = false,
     canWriteTeamWorkspace = false,
+    canDeleteTeamWorkspace = false,
     canManageTeamWorkspace = false,
     canReadProjectWorkspace = false,
     canWriteProjectWorkspace = false,
@@ -64,13 +68,14 @@ export function resolveWorkspacePermissions(params: {
   }
 
   if (workspaceType === 'organization') {
-    const canReadOrganization = isAdminLike || canAccessOrganizationWorkspace || canWriteOrganizationWorkspace;
     const canWriteOrganization = isAdminLike || canWriteOrganizationWorkspace;
+    const canDeleteOrganization = isAdminLike || canDeleteOrganizationWorkspace;
+    const canReadOrganization = isAdminLike || canAccessOrganizationWorkspace || canWriteOrganization || canDeleteOrganization;
 
     return {
       canRead: canReadOrganization,
       canWrite: canWriteOrganization,
-      canDelete: canWriteOrganization,
+      canDelete: canDeleteOrganization,
       canCreatePublicLinks: canReadOrganization && canCreatePublicLinks,
       canManageWorkspace: isAdminLike,
       canRunAgent: canReadOrganization,
@@ -92,14 +97,15 @@ export function resolveWorkspacePermissions(params: {
     };
   }
 
-  const canReadTeam = isAdminLike || canAccessTeamWorkspace || canWriteTeamWorkspace;
   const canWriteTeam = isAdminLike || canWriteTeamWorkspace;
+  const canDeleteTeam = isAdminLike || canDeleteTeamWorkspace;
+  const canReadTeam = isAdminLike || canAccessTeamWorkspace || canWriteTeam || canDeleteTeam;
   const canManageTeam = isAdminLike || canManageTeamWorkspace;
 
   return {
     canRead: canReadTeam,
     canWrite: canWriteTeam,
-    canDelete: canWriteTeam,
+    canDelete: canDeleteTeam,
     canCreatePublicLinks: canReadTeam && canCreatePublicLinks,
     canManageWorkspace: canManageTeam,
     canRunAgent: canReadTeam,

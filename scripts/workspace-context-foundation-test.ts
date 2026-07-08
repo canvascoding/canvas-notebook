@@ -109,12 +109,35 @@ async function main() {
     workspaceType: 'team',
     canAccessTeamWorkspace: true,
     canWriteTeamWorkspace: true,
+    canDeleteTeamWorkspace: false,
   });
   assert.equal(teamMemberPermissions.canRead, true);
   assert.equal(teamMemberPermissions.canWrite, true);
-  assert.equal(teamMemberPermissions.canDelete, true);
+  assert.equal(teamMemberPermissions.canDelete, false);
   assert.equal(teamMemberPermissions.canCreatePublicLinks, true);
   assert.equal(teamMemberPermissions.canManageWorkspace, false);
+
+  const teamDeleteOnlyPermissions = permissionsModule.resolveWorkspacePermissions({
+    role: 'member',
+    workspaceType: 'team',
+    canAccessTeamWorkspace: true,
+    canWriteTeamWorkspace: false,
+    canDeleteTeamWorkspace: true,
+  });
+  assert.equal(teamDeleteOnlyPermissions.canRead, true);
+  assert.equal(teamDeleteOnlyPermissions.canWrite, false);
+  assert.equal(teamDeleteOnlyPermissions.canDelete, true);
+
+  const organizationDeletePermissions = permissionsModule.resolveWorkspacePermissions({
+    role: 'member',
+    workspaceType: 'organization',
+    canAccessOrganizationWorkspace: true,
+    canWriteOrganizationWorkspace: false,
+    canDeleteOrganizationWorkspace: true,
+  });
+  assert.equal(organizationDeletePermissions.canRead, true);
+  assert.equal(organizationDeletePermissions.canWrite, false);
+  assert.equal(organizationDeletePermissions.canDelete, true);
 
   const externalPermissions = permissionsModule.resolveWorkspacePermissions({
     role: 'external',

@@ -491,6 +491,25 @@ async function main() {
     assert.equal(memberWorkspaces[0].ownerUserId, 'user-member');
     assert.equal(memberWorkspaces[1].permissions.canRead, true);
     assert.equal(memberWorkspaces[1].permissions.canWrite, false);
+    assert.equal(memberWorkspaces[1].permissions.canDelete, false);
+
+    sqlite.prepare(`
+      UPDATE organization_user_permissions
+      SET can_write_team_workspace = 1, can_delete_team_files = 0, updated_at = ?
+      WHERE organization_id = ? AND user_id = ?
+    `).run(Date.now(), organizationId, 'user-member');
+    const writeWithoutDeleteWorkspaces = listWorkspaceContextsForUser(sqlite, { actor: memberActor, organizationId });
+    assert.equal(writeWithoutDeleteWorkspaces[1].permissions.canWrite, true);
+    assert.equal(writeWithoutDeleteWorkspaces[1].permissions.canDelete, false);
+
+    sqlite.prepare(`
+      UPDATE organization_user_permissions
+      SET can_write_team_workspace = 0, can_delete_team_files = 1, updated_at = ?
+      WHERE organization_id = ? AND user_id = ?
+    `).run(Date.now(), organizationId, 'user-member');
+    const deleteWithoutWriteWorkspaces = listWorkspaceContextsForUser(sqlite, { actor: memberActor, organizationId });
+    assert.equal(deleteWithoutWriteWorkspaces[1].permissions.canWrite, false);
+    assert.equal(deleteWithoutWriteWorkspaces[1].permissions.canDelete, true);
 
     const ownerPersonalForMember = resolveWorkspaceContextById(sqlite, {
       actor: memberActor,
