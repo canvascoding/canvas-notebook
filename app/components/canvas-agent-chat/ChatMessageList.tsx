@@ -1,7 +1,7 @@
 'use client';
 
-import { Fragment, useMemo } from 'react';
-import { ChevronDown, ChevronRight, ExternalLink, Lock, Wrench } from 'lucide-react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Check, ChevronDown, ChevronRight, Copy, ExternalLink, Lock, Wrench } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 
 import { AttachmentPreviewItem } from '@/app/components/canvas-agent-chat/AttachmentPreviewItem';
@@ -24,7 +24,9 @@ import { contentToString, isAbortedAssistantPiMessage } from '@/app/lib/chat/mes
 import type { RuntimeStatus } from '@/app/lib/chat/runtime-status';
 import type { ToolVerbosity } from '@/app/store/tool-verbosity-store';
 import { Button } from '@/components/ui/button';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Link } from '@/i18n/navigation';
+import { cn } from '@/lib/utils';
 
 function hasEarlierVisibleAssistantInRun(
   messages: ChatMessage[],
@@ -87,6 +89,112 @@ function StreamingMessageIndicator() {
   );
 }
 
+async function writeMessageTextToClipboard(text: string): Promise<void> {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+
+  const textarea = document.createElement('textarea');
+  const selection = document.getSelection();
+  const selectedRange = selection && selection.rangeCount > 0 ? selection.getRangeAt(0) : null;
+
+  textarea.value = text;
+  textarea.setAttribute('readonly', '');
+  textarea.style.position = 'fixed';
+  textarea.style.top = '-9999px';
+  document.body.appendChild(textarea);
+  textarea.select();
+
+  try {
+    if (!document.execCommand('copy')) {
+      throw new Error('Clipboard copy failed.');
+    }
+  } finally {
+    document.body.removeChild(textarea);
+    if (selection && selectedRange) {
+      selection.removeAllRanges();
+      selection.addRange(selectedRange);
+    }
+  }
+}
+
+function MessageActionBar({
+  align,
+  text,
+}: {
+  align: 'start' | 'end';
+  text: string;
+}) {
+  const t = useTranslations('chat');
+  const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle');
+  const resetTimerRef = useRef<number | null>(null);
+  const canCopy = text.trim().length > 0;
+
+  useEffect(() => {
+    return () => {
+      if (resetTimerRef.current !== null) {
+        window.clearTimeout(resetTimerRef.current);
+      }
+    };
+  }, []);
+
+  const scheduleReset = useCallback(() => {
+    if (resetTimerRef.current !== null) {
+      window.clearTimeout(resetTimerRef.current);
+    }
+    resetTimerRef.current = window.setTimeout(() => setCopyState('idle'), 1400);
+  }, []);
+
+  const handleCopy = useCallback(async () => {
+    if (!canCopy) {
+      return;
+    }
+
+    try {
+      await writeMessageTextToClipboard(text);
+      setCopyState('copied');
+    } catch {
+      setCopyState('failed');
+    }
+    scheduleReset();
+  }, [canCopy, scheduleReset, text]);
+
+  const copyLabel = copyState === 'copied' ? t('copied') : t('copy');
+  const CopyIcon = copyState === 'copied' ? Check : Copy;
+
+  return (
+    <div
+      data-testid={`chat-message-actions-${align === 'end' ? 'user' : 'assistant'}`}
+      className={cn(
+        'mt-1 flex min-h-7 items-center gap-1 px-1 opacity-100 transition-opacity duration-150 sm:opacity-0 sm:group-hover/message:opacity-100 sm:focus-within:opacity-100',
+        align === 'end' ? 'justify-end' : 'justify-start',
+        copyState !== 'idle' && 'sm:opacity-100',
+      )}
+    >
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-xs"
+            className="border border-transparent bg-background/70 text-muted-foreground shadow-none hover:border-border/70 hover:bg-accent hover:text-foreground"
+            onClick={() => void handleCopy()}
+            disabled={!canCopy}
+            aria-label={copyLabel}
+            title={copyLabel}
+          >
+            <CopyIcon data-icon="inline-start" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent side={align === 'end' ? 'left' : 'top'} sideOffset={4}>
+          {copyLabel}
+        </TooltipContent>
+      </Tooltip>
+    </div>
+  );
+}
+
 export function ChatMessageList({
   messages,
   isRuntimeBusy,
@@ -123,7 +231,7 @@ export function ChatMessageList({
   }, [collapsedRunMap]);
 
   return (
-    <>
+    <TooltipProvider delayDuration={300}>
       {messages.map((message, messageIndex) => {
         if (hiddenStepIds.has(message.id)) {
           return null;
@@ -239,11 +347,19 @@ export function ChatMessageList({
               getRecentStudioImageMediaUrls(messages, messageIndex),
             )
           : bodyContent;
+        const copyContent = isAssistant ? displayBodyContent : bodyContent;
+        const showMessageActions = (isUser || isAssistant) && !isStreamingAssistant && copyContent.trim().length > 0;
         const toolBodyVisible = isTool ? !message.isCollapsed : true;
         const toolStatusLabel = isTool ? getToolStatusLabel(message, t) : null;
 
         const renderedMessage = (
-          <div data-testid={`chat-message-${message.role}`} className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
+          <div
+            data-testid={`chat-message-${message.role}`}
+            className={cn(
+              'group/message flex flex-col',
+              isUser ? 'items-end' : 'items-start',
+            )}
+          >
             <div className={`max-w-[96%] border p-3 sm:max-w-[90%] overflow-hidden min-w-0 ${bubbleClass}`}>
               {isTool ? (
                 <div>
@@ -360,6 +476,9 @@ export function ChatMessageList({
                 return filePaths.length > 0 ? <FileReferenceCard paths={filePaths} /> : null;
               })()}
             </div>
+            {showMessageActions ? (
+              <MessageActionBar align={isUser ? 'end' : 'start'} text={copyContent} />
+            ) : null}
           </div>
         );
 
@@ -401,6 +520,6 @@ export function ChatMessageList({
           </div>
         </div>
       ) : null}
-    </>
+    </TooltipProvider>
   );
 }
