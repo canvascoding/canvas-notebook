@@ -208,7 +208,7 @@ function normalizeWorkspaceType(value: string | null | undefined): WorkspaceType
 }
 
 function isSharedWorkspaceType(value: WorkspaceType | null): boolean {
-  return value === 'organization' || value === 'team';
+  return value === 'organization' || value === 'team' || value === 'project';
 }
 
 function inferWorkspaceRootRelativePath(rootPath: string | null | undefined): string | undefined {
@@ -270,7 +270,9 @@ function workspaceForRow(row: PublicShareRow): WorkspaceContext {
         ? 'Organization Workspace'
         : workspaceType === 'team'
           ? 'Team Workspace'
-          : 'Personal Workspace',
+          : workspaceType === 'project'
+            ? 'Project Workspace'
+            : 'Personal Workspace',
       status: 'active',
       organizationId: row.organizationId,
       ownerUserId: null,
@@ -961,7 +963,7 @@ async function resolvePublicShareRow(row: PublicShareRow, options: ResolvePublic
 
   return {
     ok: true,
-    share: toDto(updated, null),
+    share: toDto(updated, null, workspace.displayName ?? null),
     row: updated,
     workspace,
     workspacePath: details.workspacePath,
