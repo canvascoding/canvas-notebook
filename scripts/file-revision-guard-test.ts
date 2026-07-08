@@ -121,6 +121,7 @@ async function main() {
       workspaceRoot: teamWorkspace.rootPath,
       workspaceRootRelativePath: teamWorkspace.rootRelativePath ?? null,
       canWrite: true,
+      canDelete: true,
       canShare: true,
       legacy: false,
     };

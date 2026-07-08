@@ -489,6 +489,7 @@ async function main() {
     const memberWorkspaces = listWorkspaceContextsForUser(sqlite, { actor: memberActor, organizationId });
     assert.deepEqual(memberWorkspaces.map((workspace) => workspace.workspaceType), ['personal', 'organization']);
     assert.equal(memberWorkspaces[0].ownerUserId, 'user-member');
+    assert.equal(memberWorkspaces[0].permissions.canManageWorkspace, true);
     assert.equal(memberWorkspaces[1].permissions.canRead, true);
     assert.equal(memberWorkspaces[1].permissions.canWrite, false);
     assert.equal(memberWorkspaces[1].permissions.canDelete, false);

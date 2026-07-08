@@ -49,6 +49,7 @@ async function main() {
     assert.equal(workspace.workspaceType, 'personal');
     assert.equal(workspace.permissions.canRead, true);
     assert.equal(workspace.permissions.canWrite, true);
+    assert.equal(workspace.permissions.canDelete, true);
     assert.equal(workspace.rootPath, path.join(dataRoot, 'workspaces', 'personal', userId, 'files'));
     await fs.access(workspace.rootPath);
 
@@ -76,6 +77,8 @@ async function main() {
     assert.equal(executionContext.agentId, 'canvas-agent');
     assert.equal(executionContext.workspaceId, workspace.workspaceId);
     assert.equal(executionContext.workspaceRoot, workspace.rootPath);
+    assert.equal(executionContext.canWrite, true);
+    assert.equal(executionContext.canDelete, true);
 
     await runWithAgentExecutionContext(executionContext, async () => {
       assert.equal(getAgentWorkspaceRoot(), workspace.rootPath);
@@ -173,6 +176,25 @@ async function main() {
 
       await writeAgentTextFile({ path: 'bulk/a.txt', content: 'A\n' });
       await writeAgentTextFile({ path: 'bulk/b.txt', content: 'B\n' });
+      await writeAgentTextFile({ path: 'scoped/write-without-delete.txt', content: 'keep\n' });
+      await runWithAgentExecutionContext({ ...executionContext, canDelete: false }, async () => {
+        await assert.rejects(
+          () => deleteAgentPaths({ paths: ['scoped/write-without-delete.txt'] }),
+          /deletes are disabled/,
+        );
+      });
+      assert.equal(await fs.readFile(path.join(workspace.rootPath, 'scoped', 'write-without-delete.txt'), 'utf8'), 'keep\n');
+
+      await writeAgentTextFile({ path: 'scoped/delete-without-write.txt', content: 'remove\n' });
+      await runWithAgentExecutionContext({ ...executionContext, canWrite: false, canDelete: true }, async () => {
+        await assert.rejects(
+          () => writeAgentTextFile({ path: 'scoped/write-blocked.txt', content: 'blocked\n' }),
+          /writes are disabled/,
+        );
+        await deleteAgentPaths({ paths: ['scoped/delete-without-write.txt'] });
+      });
+      await assert.rejects(fs.stat(path.join(workspace.rootPath, 'scoped', 'delete-without-write.txt')));
+
       const deletedBulk = await deleteAgentPaths({
         paths: ['bulk/a.txt', 'bulk/b.txt'],
       });

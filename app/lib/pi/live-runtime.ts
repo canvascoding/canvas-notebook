@@ -725,6 +725,9 @@ class LivePiRuntime {
     if (!this.workspaceContext.canWrite) {
       lines.push('Workspace writes are disabled for this session. Read files only unless the user switches to a workspace with write permission.');
     }
+    if (!this.workspaceContext.canDelete) {
+      lines.push('Workspace deletes are disabled for this session.');
+    }
     if (!this.workspaceContext.canShare) {
       lines.push('Public sharing is disabled for this session.');
     }

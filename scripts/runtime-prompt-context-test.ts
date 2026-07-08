@@ -57,6 +57,7 @@ applyPiRuntimePromptContext(target, {
     workspaceType: 'personal',
     workspaceName: 'Personal',
     canWrite: true,
+    canDelete: true,
     canShare: false,
   },
 });
@@ -77,6 +78,7 @@ assert.deepEqual(calls.workspace, {
   workspaceType: 'personal',
   workspaceName: 'Personal',
   canWrite: true,
+  canDelete: true,
   canShare: false,
 });
 

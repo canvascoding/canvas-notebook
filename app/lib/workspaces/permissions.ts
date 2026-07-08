@@ -62,7 +62,7 @@ export function resolveWorkspacePermissions(params: {
       canWrite: canUsePersonalWorkspace,
       canDelete: canUsePersonalWorkspace,
       canCreatePublicLinks: canUsePersonalWorkspace && canCreatePublicLinks,
-      canManageWorkspace: isAdminLike,
+      canManageWorkspace: canUsePersonalWorkspace,
       canRunAgent: canUsePersonalWorkspace,
     };
   }

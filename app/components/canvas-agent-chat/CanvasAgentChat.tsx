@@ -418,6 +418,7 @@ export default function CanvasAgentChat({
         workspaceName: activeWorkspace.name,
         organizationId: activeWorkspace.organizationId,
         canWrite: activeWorkspace.permissions.canWrite,
+        canDelete: activeWorkspace.permissions.canDelete,
         canShare: activeWorkspace.permissions.canCreatePublicLinks,
       }
       : undefined,

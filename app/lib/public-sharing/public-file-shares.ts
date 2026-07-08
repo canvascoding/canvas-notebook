@@ -253,7 +253,7 @@ function implicitAgentWorkspace(): WorkspaceContext | undefined {
     permissions: {
       canRead: true,
       canWrite: context.canWrite,
-      canDelete: context.canWrite,
+      canDelete: context.canDelete,
       canCreatePublicLinks: context.canShare,
       canManageWorkspace: false,
       canRunAgent: true,

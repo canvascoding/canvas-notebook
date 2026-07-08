@@ -210,25 +210,31 @@ function assertContextWorkspaceReadAllowed(candidatePath: string): void {
   throw new Error('Agent file access is limited to the workspace bound to this chat session or trusted runtime intake paths.');
 }
 
-async function assertContextWorkspaceWriteAllowed(candidatePath: string): Promise<void> {
+async function assertContextWorkspaceMutationAllowed(
+  candidatePath: string,
+  permission: 'write' | 'delete',
+): Promise<void> {
   const executionContext = getAgentExecutionContext();
   if (!executionContext) return;
 
   const workspaceRoot = path.resolve(executionContext.workspaceRoot);
   const resolvedPath = path.resolve(candidatePath);
   if (!isPathWithin(resolvedPath, workspaceRoot)) {
-    throw new Error('Agent file writes are limited to the workspace bound to this chat session.');
+    throw new Error('Agent file mutations are limited to the workspace bound to this chat session.');
   }
 
-  if (!executionContext.canWrite) {
+  if (permission === 'write' && !executionContext.canWrite) {
     throw new Error('Agent file writes are disabled for the active workspace.');
+  }
+  if (permission === 'delete' && !executionContext.canDelete) {
+    throw new Error('Agent file deletes are disabled for the active workspace.');
   }
 
   const workspaceRootRealPath = await resolveWorkspaceRootRealPath(workspaceRoot);
   try {
     const realPath = await fs.realpath(resolvedPath);
     if (!isPathWithin(realPath, workspaceRootRealPath)) {
-      throw new Error('Agent file writes are limited to the workspace bound to this chat session.');
+      throw new Error('Agent file mutations are limited to the workspace bound to this chat session.');
     }
   } catch (error) {
     if (!isEnoent(error)) {
@@ -237,7 +243,7 @@ async function assertContextWorkspaceWriteAllowed(candidatePath: string): Promis
 
     const realParent = await resolveNearestExistingParentPath(resolvedPath);
     if (!isPathWithin(realParent, workspaceRootRealPath)) {
-      throw new Error('Agent file writes are limited to the workspace bound to this chat session.');
+      throw new Error('Agent file mutations are limited to the workspace bound to this chat session.');
     }
   }
 }
@@ -317,7 +323,13 @@ async function assertNearestWritableParentAllowed(candidatePath: string): Promis
 }
 
 export async function assertAgentWritablePathAllowed(candidatePath: string): Promise<void> {
-  await assertContextWorkspaceWriteAllowed(candidatePath);
+  await assertContextWorkspaceMutationAllowed(candidatePath, 'write');
+  await assertAgentPathAllowed(candidatePath);
+  await assertNearestWritableParentAllowed(candidatePath);
+}
+
+export async function assertAgentDeletablePathAllowed(candidatePath: string): Promise<void> {
+  await assertContextWorkspaceMutationAllowed(candidatePath, 'delete');
   await assertAgentPathAllowed(candidatePath);
   await assertNearestWritableParentAllowed(candidatePath);
 }
@@ -387,7 +399,7 @@ function getAgentWorkspaceContext(): WorkspaceContext | null {
     permissions: {
       canRead: true,
       canWrite: executionContext.canWrite,
-      canDelete: executionContext.canWrite,
+      canDelete: executionContext.canDelete,
       canCreatePublicLinks: executionContext.canShare,
       canManageWorkspace: false,
       canRunAgent: true,
@@ -1536,7 +1548,7 @@ export async function moveAgentPaths(params: {
   const entries: AgentPathOperationEntry[] = [];
   for (const sourcePath of sourcePaths) {
     const sourceFullPath = resolveAgentPath(sourcePath);
-    await assertAgentWritablePathAllowed(sourceFullPath);
+    await assertAgentDeletablePathAllowed(sourceFullPath);
 
     const summary = await summarizePath(sourceFullPath);
     const entryDestinationPath = multipleSources
@@ -1622,7 +1634,7 @@ export async function deleteAgentPaths(params: {
 
   for (const requestedPath of requestedPaths) {
     const fullPath = resolveAgentPath(requestedPath);
-    await assertAgentWritablePathAllowed(fullPath);
+    await assertAgentDeletablePathAllowed(fullPath);
     const resolvedFullPath = path.resolve(fullPath);
     if (seenResolvedPaths.has(resolvedFullPath)) continue;
     seenResolvedPaths.add(resolvedFullPath);

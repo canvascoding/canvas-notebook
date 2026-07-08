@@ -20,6 +20,7 @@ export interface ChatRequestContext {
     workspaceName: string;
     organizationId?: string | null;
     canWrite: boolean;
+    canDelete: boolean;
     canShare: boolean;
   };
   planningMode?: boolean;

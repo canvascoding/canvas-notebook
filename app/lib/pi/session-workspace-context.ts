@@ -166,6 +166,7 @@ export function workspaceToChatRequestWorkspace(workspace: WorkspaceContext): No
     workspaceName: workspace.displayName || getDefaultWorkspaceName(workspace.workspaceType),
     organizationId: workspace.organizationId ?? null,
     canWrite: workspace.permissions.canWrite,
+    canDelete: workspace.permissions.canDelete,
     canShare: workspace.permissions.canCreatePublicLinks,
   };
 }
@@ -189,6 +190,7 @@ export function workspaceToAgentExecutionContext(input: {
     workspaceRoot: input.workspace.rootPath,
     workspaceRootRelativePath: input.workspace.rootRelativePath ?? null,
     canWrite: input.workspace.permissions.canWrite,
+    canDelete: input.workspace.permissions.canDelete,
     canShare: input.workspace.permissions.canCreatePublicLinks,
     legacy: input.workspace.legacy,
   };
