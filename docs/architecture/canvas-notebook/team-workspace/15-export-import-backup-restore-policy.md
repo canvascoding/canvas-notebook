@@ -209,6 +209,7 @@ Anforderungen:
 - Backup muss konsistent sein: SQLite Snapshot/WAL-Checkpoint, Postgres Dump/Snapshot oder kontrollierter Maintenance-Modus.
 - Im Postgres-Mode reicht ein Backup von `/data` nicht aus. Der Postgres-Dump bzw. das Postgres-Volume gehoert zwingend zum Full Backup.
 - Postgres-Backups muessen Rollen-/Extension-/Schema-Informationen enthalten, damit pgvector beim Restore vorhanden ist.
+- Vor Postgres-Backups muss der Provider-Prepare-Pfad bestaetigen, dass Runtime-Env, `DATABASE_URL` und das echte Postgres-Rollenpasswort synchron sind.
 - Backup-Jobs laufen als schwere Jobs mit Resource Budget und Logging.
 - Backup darf nie mehrere alte Test-/Backup-Jobs parallel unkontrolliert starten.
 - Backup-Status und letzte Fehler muessen sichtbar sein.
@@ -223,7 +224,7 @@ Stand 2026-07-08 existiert bereits ein technischer Full-Backup-Kern:
 
 - `app/lib/backups/full-backup-service.ts` erzeugt Full-Backup-Jobs, Manifeste, Checksums und ZIP-Archive.
 - SQLite-Backups nutzen einen konsistenten SQLite-Snapshot.
-- Postgres-Backups nutzen einen `pg_dump`-Artefaktpfad.
+- Postgres-Backups nutzen einen `pg_dump`-Artefaktpfad mit Preflight auf verfuegbaren Dump-Befehl.
 - `app/api/admin/backups/*` bietet Erstellen, Auflisten, Status, Download und Inspect fuer Full-Backup-Jobs.
 - `scripts/create-full-backup.ts` kann Full Backups im Container anstossen.
 - `npm run test:backup:full` deckt SQLite, Postgres-Dump-Pfad, Locking und Inspection ab.
@@ -233,15 +234,23 @@ Noch nicht fertig als Produktfeature:
 - Die Settings-UI zeigt Migration Export/Import und einfache Datei-/Daten-Downloads, aber noch keinen dedizierten Full-Backup-Bereich.
 - Legacy Bash CLI und portable TypeScript-CLI haben noch keinen offiziellen `backup`-Befehl.
 - Die Control Plane hat Database-/Migration-Runs, aber noch keine Full-Backup-Operation.
-- Der Postgres-Backup-Pfad haengt davon ab, dass `pg_dump` im Ausfuehrungskontext verfuegbar und zur Server-Version kompatibel ist.
+- Die Notebook-CLI muss die im Control-Plane-Agenten vorbereitete Postgres-Auth-Reconciliation dauerhaft uebernehmen, damit Backups nach `install`, `update`, `restart` oder `env --sync` nicht an Passwortdrift zwischen Runtime-Env und bestehendem Postgres-Volume scheitern.
 
 ### Full Backup Implementierungsplan
 
 Die Backup-Integration wird erst nach dem Provider-Setup-Schritt aus `17-database-provider-postgres-rag-collaboration-policy.md` freigeschaltet. Das verhindert, dass Backups in SQLite funktionieren, aber bei den kuenftigen Team-/Postgres-Installationen scheitern.
 
+Phase 0: Postgres-Provider-Prepare finalisieren.
+
+- Die defensive Control-Plane-Agent-Logik fuer Managed Postgres wird als Referenz genutzt, aber in die Notebook-CLI verlagert.
+- Beide CLI-Linien bekommen einen gemeinsamen `prepare-postgres`-Mechanismus fuer Runtime-Env, Compose-Profil, Postgres-Bereitschaft, Rollenpasswort-Reconciliation, Passwort-Verify und pgvector.
+- Der Prepare-Pfad liest intern unredacted Config-/Env-Dateien. `config-show --json` bleibt redacted und darf nicht als Secret-Quelle fuer Reconciliation verwendet werden.
+- `install`, `update`, `start`, `restart`, `env --sync`, `database prepare-postgres` und `database migrate-sqlite-to-postgres` nutzen denselben Ablauf.
+- Bei maskierten Secrets, fehlendem Passwort-Verify, fehlendem Postgres-Container oder fehlender pgvector-Extension bricht Full Backup mit strukturiertem Preflight-Fehler ab.
+
 Phase 1: Backup-Engine haerten.
 
-- Postgres-Dump-Preflight einfuehren: Provider, `DATABASE_URL`, `pg_dump`-Verfuegbarkeit, Version und Zielpfad pruefen, bevor ein Archiv geschrieben wird.
+- Postgres-Dump-Preflight absichern: Provider, `DATABASE_URL`, `pg_dump`-Verfuegbarkeit, Version und Zielpfad pruefen, bevor ein Archiv geschrieben wird.
 - V1 entscheidet sich fuer einen kompatiblen Postgres-Client im App-Container oder fuer einen kontrollierten Dump im Postgres-Container.
 - Fehler muessen vor partiellen Archiven abbrechen und als strukturierte Backup-Fehler sichtbar werden.
 - Job-Serialisierung darf keine lokalen `filePath`-Interna und keine sensiblen Pfade an normale API-Listen leaken.
@@ -301,13 +310,14 @@ Phase 5: Restore und Retention folgen separat.
 
 ### Reihenfolge der Umsetzung
 
-1. Provider-Setup vorlagern: portable CLI, Legacy Help/Tests, `prepare-postgres`, Postgres-Health.
-2. Postgres-Dump-Voraussetzung loesen.
-3. Full-Backup-Service/API absichern und Serialisierung korrigieren.
-4. App Settings UI integrieren.
-5. Legacy Bash CLI `backup create`.
-6. Portable TypeScript-CLI `backup create`.
-7. Control-Plane-Run fuer manuelle Full Backups.
+1. Provider-Setup vorlagern: dauerhafter Postgres-Prepare-Service in portable TS-CLI und Legacy Bash-CLI inklusive Rollenpasswort-Reconciliation, Passwort-Verify, pgvector und Postgres-Health.
+2. `install`, `update`, `start`, `restart`, `env --sync`, `database prepare-postgres` und `database migrate-sqlite-to-postgres` auf diesen Service umstellen.
+3. Postgres-Dump-Voraussetzung loesen und Preflight im Backup-Service beibehalten.
+4. Full-Backup-Service/API absichern und Serialisierung korrigieren.
+5. App Settings UI integrieren.
+6. Legacy Bash CLI `backup create`.
+7. Portable TypeScript-CLI `backup create`.
+8. Control-Plane-Run fuer manuelle Full Backups.
 
 ## Restore
 
@@ -395,6 +405,9 @@ Pflichttests:
 - Portable TypeScript-CLI kann `backup create --output <path>` ausfuehren.
 - Control Plane kann einen Full-Backup-Run starten und Status/Fehler ohne Secrets anzeigen.
 - Geplanter Backup-Job blockiert parallele Backup-Laeufe.
+- Postgres-Prepare synchronisiert bei bestehendem Docker-Volume das Rollenpasswort auf das aktuelle Runtime-Passwort, bevor Backup, App-Start oder App-Recreate weiterlaufen.
+- `config-show --json` bleibt redacted; interne Prepare-/Backup-Preflights koennen trotzdem echte Secrets aus geschuetzten lokalen Quellen laden.
+- `env --sync` mit Postgres startet keine App, die wegen Passwortdrift sofort in einen DB-Auth-Loop laeuft.
 - Restore Preview erkennt Konflikte vor dem Schreiben.
 - Restore-/Migration-Manifest V2 enthaelt Provider-, Schema-, Source-, Feature- und Checksum-Felder.
 - Postgres-Full-Backup enthaelt DB-Dump/Snapshot plus `/data`.

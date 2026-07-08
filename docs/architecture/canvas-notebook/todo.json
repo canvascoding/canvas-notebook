@@ -1,5 +1,5 @@
 {
-  "updatedAt": "2026-06-21",
+  "updatedAt": "2026-07-08",
   "source": "Canvas Notebook Team Workspace Plan",
   "tasks": [
     {
@@ -921,6 +921,55 @@
         "npm run test:workspace:foundation",
         "npm run lint",
         "npx tsc --noEmit --pretty false",
+        "npm run build"
+      ]
+    },
+    {
+      "id": 45,
+      "title": "Postgres-Prepare-Service in beiden Canvas-Notebook-CLIs mit Rollenpasswort-Reconciliation finalisieren",
+      "status": "planned",
+      "repo": "canvasstudios-notebook",
+      "dependsOn": [
+        39,
+        40,
+        41,
+        42
+      ],
+      "planningArtifacts": [
+        "docs/architecture/canvas-notebook/team-workspace/15-export-import-backup-restore-policy.md",
+        "docs/architecture/canvas-notebook/team-workspace/17-database-provider-postgres-rag-collaboration-policy.md"
+      ],
+      "referenceArtifacts": [
+        "../canvas-control-plane/apps/api/src/services/managedSecrets.ts",
+        "../canvas-control-plane/packages/agent/src/ws-client.ts",
+        "../canvas-control-plane/apps/api/src/services/agentArtifacts.ts"
+      ],
+      "implementationTargets": [
+        "cli/src/core/config.ts",
+        "cli/src/main.ts",
+        "install/lib/shared/config_json.sh",
+        "install/lib/commands/database.sh",
+        "install/lib/commands/lifecycle.sh",
+        "install/lib/commands/env.sh",
+        "install/lib/shared/postgres.sh",
+        "scripts/cli-database-provider-test.sh",
+        "scripts/cli-database-command-test.sh"
+      ],
+      "acceptanceCriteria": [
+        "prepare-postgres liest echte Secrets aus lokalen Config-/Env-Quellen und nicht aus redacted config-show-Ausgaben",
+        "bestehende Postgres-Volumes werden per ALTER ROLE auf das aktuelle CANVAS_POSTGRES_PASSWORD synchronisiert",
+        "TCP-Login mit dem Runtime-Passwort wird vor App-Start, App-Recreate und Full Backup validiert",
+        "pgvector wird idempotent angelegt oder bestaetigt, wenn CANVAS_POSTGRES_VECTOR_ENABLED aktiv ist",
+        "install, update, start, restart, env --sync, database prepare-postgres und database migrate-sqlite-to-postgres nutzen denselben Prepare-Ablauf",
+        "Passwoerter und DATABASE_URL erscheinen nie unredacted in Logs, JSON-Status, argv oder Fehlerausgaben",
+        "maskierte oder verdachtige Secret-Werte fuehren zu einem klaren Abbruch statt zu einer fehlerhaften DB-Rollenaktualisierung"
+      ],
+      "verification": [
+        "npm run test:cli:database-provider",
+        "npm run test:cli:database",
+        "npm run test:cli:portable",
+        "bash -n install/bin/canvas-notebook install/lib/shared/config_json.sh install/lib/commands/database.sh install/lib/commands/lifecycle.sh install/lib/commands/env.sh install/lib/shared/postgres.sh scripts/cli-database-provider-test.sh scripts/cli-database-command-test.sh",
+        "npm run lint",
         "npm run build"
       ]
     }
