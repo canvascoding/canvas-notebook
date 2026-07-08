@@ -54,6 +54,7 @@ import {
   type PiRuntimePromptContext,
   type RuntimePromptContextTarget,
 } from '@/app/lib/pi/runtime-prompt-context';
+import { getAgentRuntimeTempPromptBlock } from '@/app/lib/pi/agent-runtime-temp';
 
 export type { PiRuntimePromptContext } from '@/app/lib/pi/runtime-prompt-context';
 
@@ -703,7 +704,25 @@ class LivePiRuntime {
       blocks.push(workspaceBlock);
     }
 
+    const runtimeTempBlock = this.getAgentRuntimeTempContextBlock();
+    if (runtimeTempBlock) {
+      blocks.push(runtimeTempBlock);
+    }
+
     return blocks.length > 0 ? `${this.systemPrompt}\n\n${blocks.join('\n\n')}` : this.systemPrompt;
+  }
+
+  private getAgentRuntimeTempContextBlock(): string | null {
+    if (!this.userId || !this.sessionId) {
+      return null;
+    }
+
+    return getAgentRuntimeTempPromptBlock({
+      userId: this.userId,
+      sessionId: this.sessionId,
+      agentId: this.agentId,
+      organizationId: this.workspaceContext?.organizationId ?? null,
+    });
   }
 
   private getWorkspaceContextBlock(): string | null {

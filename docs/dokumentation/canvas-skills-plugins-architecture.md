@@ -235,6 +235,7 @@ Ziel fuer eigene Skills:
 - Import, Update und Fork behandeln den Skill-Ordner als atomare Einheit und fuehren enthaltene Scripts nicht beim Import aus.
 - Skill-Pakete tragen eine einfache Paketversion. `agents/canvas.yaml` kann `skill.version` setzen; wenn `SKILL.md` zusaetzlich `metadata.version` setzt, muessen beide Werte uebereinstimmen.
 - Workspace-Drafts unter `.canvas-skill-drafts/` sind temporaer und werden nach erfolgreichem Install/Update standardmaessig geloescht.
+- Fuer allgemeine temporaere Berechnungen bekommt jeder Agent einen eigenen Runtime-Temp-Ordner unter `/data/temp/agent-runtime/...`; dort koennen Wegwerf-Scripts, Caches und Zwischenergebnisse entstehen, ohne den Workspace zu fuellen.
 
 Ziel fuer zentrale Skills:
 

@@ -17,6 +17,7 @@ import {
   syncPublicSharesAfterWrite,
 } from '@/app/lib/public-sharing/public-file-shares';
 import { getAgentExecutionContext, type AgentExecutionContext } from '@/app/lib/pi/agent-execution-context';
+import { ensureAgentRuntimeTempDir, resolveAgentRuntimeTempDir } from '@/app/lib/pi/agent-runtime-temp';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
 
 const SNAPSHOT_DIR_NAME = 'agent-file-snapshots';
@@ -198,16 +199,48 @@ function isAllowedRuntimeReadPath(candidatePath: string): boolean {
   return isPathWithinAnyRootVariant(candidatePath, getAllowedRuntimeReadRoots());
 }
 
+function isAgentRuntimeTempPath(candidatePath: string, executionContext: AgentExecutionContext): boolean {
+  return isPathWithinRootVariants(candidatePath, resolveAgentRuntimeTempDir(executionContext));
+}
+
 function assertContextWorkspaceReadAllowed(candidatePath: string): void {
   const executionContext = getAgentExecutionContext();
   if (!executionContext) return;
 
   const resolvedPath = path.resolve(candidatePath);
-  if (isPathWithinRootVariants(resolvedPath, executionContext.workspaceRoot) || isAllowedRuntimeReadPath(resolvedPath)) {
+  if (
+    isPathWithinRootVariants(resolvedPath, executionContext.workspaceRoot) ||
+    isAllowedRuntimeReadPath(resolvedPath) ||
+    isAgentRuntimeTempPath(resolvedPath, executionContext)
+  ) {
     return;
   }
 
   throw new Error('Agent file access is limited to the workspace bound to this chat session or trusted runtime intake paths.');
+}
+
+async function assertPathWithinRootRealPath(
+  candidatePath: string,
+  rootPath: string,
+  errorMessage: string,
+): Promise<void> {
+  const rootRealPath = await resolveWorkspaceRootRealPath(rootPath);
+  const resolvedPath = path.resolve(candidatePath);
+  try {
+    const realPath = await fs.realpath(resolvedPath);
+    if (!isPathWithin(realPath, rootRealPath)) {
+      throw new Error(errorMessage);
+    }
+  } catch (error) {
+    if (!isEnoent(error)) {
+      throw error;
+    }
+
+    const realParent = await resolveNearestExistingParentPath(resolvedPath);
+    if (!isPathWithin(realParent, rootRealPath)) {
+      throw new Error(errorMessage);
+    }
+  }
 }
 
 async function assertContextWorkspaceMutationAllowed(
@@ -219,6 +252,17 @@ async function assertContextWorkspaceMutationAllowed(
 
   const workspaceRoot = path.resolve(executionContext.workspaceRoot);
   const resolvedPath = path.resolve(candidatePath);
+  const runtimeTempRoot = resolveAgentRuntimeTempDir(executionContext);
+  if (isPathWithin(resolvedPath, runtimeTempRoot)) {
+    await ensureAgentRuntimeTempDir(executionContext);
+    await assertPathWithinRootRealPath(
+      resolvedPath,
+      runtimeTempRoot,
+      'Agent runtime temp mutations are limited to this session temporary directory.',
+    );
+    return;
+  }
+
   if (!isPathWithin(resolvedPath, workspaceRoot)) {
     throw new Error('Agent file mutations are limited to the workspace bound to this chat session.');
   }
@@ -230,22 +274,11 @@ async function assertContextWorkspaceMutationAllowed(
     throw new Error('Agent file deletes are disabled for the active workspace.');
   }
 
-  const workspaceRootRealPath = await resolveWorkspaceRootRealPath(workspaceRoot);
-  try {
-    const realPath = await fs.realpath(resolvedPath);
-    if (!isPathWithin(realPath, workspaceRootRealPath)) {
-      throw new Error('Agent file mutations are limited to the workspace bound to this chat session.');
-    }
-  } catch (error) {
-    if (!isEnoent(error)) {
-      throw error;
-    }
-
-    const realParent = await resolveNearestExistingParentPath(resolvedPath);
-    if (!isPathWithin(realParent, workspaceRootRealPath)) {
-      throw new Error('Agent file mutations are limited to the workspace bound to this chat session.');
-    }
-  }
+  await assertPathWithinRootRealPath(
+    resolvedPath,
+    workspaceRoot,
+    'Agent file mutations are limited to the workspace bound to this chat session.',
+  );
 }
 
 function getProtectedAgentPaths(): string[] {
@@ -378,9 +411,16 @@ function auditWorkspaceMetadata(executionContext: AgentExecutionContext | null) 
   };
 }
 
-function activeWorkspaceRequiresRevisionGuard(): boolean {
+function activePathRequiresRevisionGuard(filePath: string): boolean {
   const executionContext = getAgentExecutionContext();
-  return executionContext?.workspaceType === 'organization' || executionContext?.workspaceType === 'team' || executionContext?.workspaceType === 'project';
+  if (!executionContext) return false;
+  const sharedWorkspace = executionContext.workspaceType === 'organization' ||
+    executionContext.workspaceType === 'team' ||
+    executionContext.workspaceType === 'project';
+  if (!sharedWorkspace) return false;
+
+  const resolvedPath = resolveAgentPath(filePath);
+  return isPathWithinRootVariants(resolvedPath, executionContext.workspaceRoot);
 }
 
 function getAgentWorkspaceContext(): WorkspaceContext | null {
@@ -414,7 +454,7 @@ function assertAgentSharedWorkspaceRevision(params: {
   beforeExisted: boolean;
   expectedSha256?: string | null;
 }): void {
-  if (!params.beforeExisted || !activeWorkspaceRequiresRevisionGuard()) return;
+  if (!params.beforeExisted || !activePathRequiresRevisionGuard(params.path)) return;
   if (normalizeAgentExpectedSha256(params.expectedSha256)) return;
 
   throw new Error(

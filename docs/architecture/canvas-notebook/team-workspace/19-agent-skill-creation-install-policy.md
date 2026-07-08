@@ -292,9 +292,9 @@ Regeln:
 
 Aktueller technischer Stand:
 
-- Generische Agent-Dateitools duerfen mit aktivem `AgentExecutionContext` nur in den aktuellen Chat-Workspace schreiben.
-- `/data/temp/skills` wird beim Containerstart angelegt, ist aber fuer generische Agent-Dateitools nicht als Schreibroot freigegeben.
-- Ein Temp-Verzeichnis ausserhalb des Workspace kann deshalb nur durch dedizierte serverseitige Skill-Tools beschrieben werden, nicht durch `write`, `edit_file`, `copy_path`, `bash` oder Shell-Redirects.
+- Generische Agent-Dateitools duerfen mit aktivem `AgentExecutionContext` in zwei klar begrenzte Bereiche schreiben: den aktuellen Chat-Workspace fuer finale Artefakte und den Agent-Runtime-Temp-Ordner fuer Wegwerfdateien.
+- Zusaetzlich gibt es pro Agent-Session einen Runtime-Temp-Ordner unter `/data/temp/agent-runtime/...`, der fuer Wegwerfdateien und Berechnungen beschreibbar ist.
+- Skill-Drafts bleiben trotzdem im Workspace, weil sie bewusst mit normalen Workspace-Dateitools bearbeitet und danach als kompletter Skill installiert werden.
 
 V1-Entscheidung:
 
@@ -310,6 +310,23 @@ V2-Option:
 - Dedizierte Skill-Draft-Tools koennen spaeter `/data/temp/skills/{userId}/{sessionId}/{draftId}` nutzen.
 - Diese Tools muessen eigene Read/Write/Delete-Operationen fuer Draft-Dateien anbieten, weil generische File-Tools dort weiter keinen Zugriff bekommen sollen.
 - Auch serverseitige Temp-Drafts muessen TTL-Cleanup und explizites Discard bekommen.
+
+### Agent Runtime Temp Directory
+
+Unabhaengig vom Skill-Draft-Flow bekommt jeder Agent im Runtime-Prompt einen eigenen temporaeren Ordner:
+
+```text
+/data/temp/agent-runtime/org-{organizationId|personal}/user-{userId}/agent-{agentId}/session-{sessionId}/
+```
+
+Regeln:
+
+- dieser Ordner ist fuer temporaere Berechnungen, Wegwerf-Scripts, extrahierte Arbeitsdaten, Caches und Python-Zwischendateien gedacht,
+- Runtime-Kommandos bekommen `CANVAS_AGENT_TEMP_DIR`, `TMPDIR`, `TMP`, `TEMP` und `PYTHONPYCACHEPREFIX` auf diesen Ordner gesetzt,
+- generische Dateioperationen duerfen innerhalb dieses Ordners lesen, schreiben und loeschen, auch wenn Workspace-Write/Delete deaktiviert ist,
+- Workspace-Schreibrechte bleiben davon getrennt: finale Nutzerartefakte werden nur bewusst in den Workspace kopiert,
+- Symlink-Ausbrueche aus dem Runtime-Temp-Ordner werden blockiert,
+- Runtime-Temp-Inhalte gehoeren nicht in Skill-Pakete und nicht in finale Workspace-Artefakte.
 
 Die separate Dry-run-Validierung und direkte Text-Erstellung sind in Personal V1 keine eigenen Tools. V1 validiert innerhalb von `install_canvas_skill_from_workspace` und `update_canvas_skill_from_workspace`; neue Skills werden zuerst als Draft mit `create_canvas_skill_draft` erzeugt und danach installiert.
 

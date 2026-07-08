@@ -121,6 +121,7 @@ import {
   MAX_AUDIO_TRANSCRIPTION_BYTES,
   transcribeAudio,
 } from '@/app/lib/integrations/audio-transcription-service';
+import { ensureAgentRuntimeTempDir, getAgentRuntimeTempEnv } from '@/app/lib/pi/agent-runtime-temp';
 import {
   createCanvasSkillDraft,
   discardCanvasSkillDraft,
@@ -2519,9 +2520,15 @@ export const piTools: AgentTool[] = [
       try {
         throwIfAborted(signal);
         assertBashCommandAllowed(command);
+        const executionContext = getAgentExecutionContext();
+        const safeEnv = filterSafeEnv(process.env) as NodeJS.ProcessEnv;
+        if (executionContext) {
+          const tempDir = await ensureAgentRuntimeTempDir(executionContext);
+          Object.assign(safeEnv, getAgentRuntimeTempEnv(tempDir));
+        }
         const { stdout, stderr } = await execAsync(command, {
           cwd: getAgentWorkspaceRoot(),
-          env: filterSafeEnv(process.env) as NodeJS.ProcessEnv,
+          env: safeEnv,
           signal,
         });
         await recordBashToolAudit({
