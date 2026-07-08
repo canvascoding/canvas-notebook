@@ -254,6 +254,19 @@ export function getCanvasCustomerById(
   return row ? customerFromRow(row) : null;
 }
 
+export function listCanvasCustomers(
+  sqlite: Database.Database,
+  organizationId: string,
+): CanvasCustomerRecord[] {
+  const rows = sqlite.prepare(`
+    SELECT id, organization_id, name, slug, status, notes, metadata_json, created_by_user_id, created_at, updated_at
+    FROM canvas_customers
+    WHERE organization_id = ? AND status = 'active'
+    ORDER BY lower(name) ASC, created_at ASC
+  `).all(organizationId) as CustomerRow[];
+  return rows.map(customerFromRow);
+}
+
 export function createCanvasProject(
   sqlite: Database.Database,
   input: {
@@ -315,6 +328,19 @@ export function getCanvasProjectById(
     LIMIT 1
   `).get(organizationId, projectId) as ProjectRow | undefined;
   return row ? projectFromRow(row) : null;
+}
+
+export function listCanvasProjects(
+  sqlite: Database.Database,
+  organizationId: string,
+): CanvasProjectRecord[] {
+  const rows = sqlite.prepare(`
+    SELECT id, organization_id, customer_id, name, slug, status, description, metadata_json, created_by_user_id, archived_at, created_at, updated_at
+    FROM canvas_projects
+    WHERE organization_id = ? AND status = 'active'
+    ORDER BY lower(name) ASC, created_at ASC
+  `).all(organizationId) as ProjectRow[];
+  return rows.map(projectFromRow);
 }
 
 export function upsertCanvasProjectMember(

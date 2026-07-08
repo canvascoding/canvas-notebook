@@ -9,11 +9,12 @@ process.env.DATA = dataDir;
 
 function insertMemberPermission(sqlite: Database.Database, organizationId: string, userId: string) {
   const now = Date.now();
+  const email = `${userId}@example.test`;
   sqlite.prepare(`
     INSERT INTO user (
       id, name, email, email_verified, image, role, banned, ban_reason, ban_expires, created_at, updated_at
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(userId, 'Member User', 'member@example.test', 1, null, 'user', null, null, null, now, now);
+  `).run(userId, 'Member User', email, 1, null, 'user', null, null, null, now, now);
 
   sqlite.prepare(`
     INSERT INTO organization_user_permissions (
@@ -47,8 +48,12 @@ async function main() {
   const { createInitialOwner } = await import('../app/lib/auth-setup');
   const {
     assertUserOrganizationPermission,
+    getOrganizationUserPermissionDetails,
     hasOrganizationPermission,
     readOrganizationPermissionForUser,
+    revokeOrganizationPermissionSessions,
+    updateOrganizationPermissions,
+    updateOrganizationRole,
   } = await import('../app/lib/organization/permissions');
   const {
     assertCanCreateRequestedAutomation,
@@ -116,6 +121,78 @@ async function main() {
 
   await assert.doesNotReject(async () => assertUserOrganizationPermission(memberId, 'canExport'));
   await assert.doesNotReject(async () => assertCanCreateRequestedAutomation({ teamAutomation: true }, { id: memberId }));
+
+  const mutationDb = new Database(path.join(dataDir, 'sqlite.db'));
+  const managedMemberId = 'managed-member-1';
+  insertMemberPermission(mutationDb, organization.organizationId, managedMemberId);
+  mutationDb.close();
+
+  const managedMember = await getOrganizationUserPermissionDetails(managedMemberId, owner.id);
+  assert.equal(managedMember.organizationId, organization.organizationId);
+  assert.equal(managedMember.role, 'member');
+  assert.equal(managedMember.permissions.canExport, false);
+
+  const permissionUpdate = await updateOrganizationPermissions({
+    actorUserId: owner.id,
+    targetUserId: managedMemberId,
+    permissions: { canExport: true, canManageBackups: true },
+  });
+  assert.equal(permissionUpdate.permissions.canExport, true);
+  assert.equal(permissionUpdate.permissions.canManageBackups, true);
+
+  const sessionDb = new Database(path.join(dataDir, 'sqlite.db'));
+  sessionDb.prepare(`
+    INSERT INTO session (id, expires_at, token, created_at, updated_at, user_id)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).run('managed-session-1', Date.now() + 60_000, 'managed-token-1', Date.now(), Date.now(), managedMemberId);
+  sessionDb.close();
+  assert.equal(await revokeOrganizationPermissionSessions(managedMemberId), 1);
+
+  await assert.rejects(
+    async () => updateOrganizationRole({
+      actorUserId: owner.id,
+      targetUserId: owner.id,
+      role: 'member',
+    }),
+    (error: unknown) => error instanceof Error && 'code' in error && error.code === 'LAST_OWNER',
+  );
+
+  await assert.rejects(
+    async () => updateOrganizationRole({
+      actorUserId: managedMemberId,
+      targetUserId: owner.id,
+      role: 'member',
+    }),
+    (error: unknown) => error instanceof Error && 'code' in error && error.code === 'ORGANIZATION_PERMISSION_DENIED',
+  );
+
+  await assert.rejects(
+    async () => updateOrganizationRole({
+      actorUserId: owner.id,
+      targetUserId: managedMemberId,
+      role: 'external',
+      externalUsersEnabled: false,
+    }),
+    (error: unknown) => error instanceof Error && 'code' in error && error.code === 'EXTERNAL_USERS_DISABLED',
+  );
+
+  const externalUser = await updateOrganizationRole({
+    actorUserId: owner.id,
+    targetUserId: managedMemberId,
+    role: 'external',
+    externalUsersEnabled: true,
+  });
+  assert.equal(externalUser.role, 'external');
+  assert.equal(Object.values(externalUser.permissions).every((value) => value === false), true);
+
+  await assert.rejects(
+    async () => updateOrganizationPermissions({
+      actorUserId: owner.id,
+      targetUserId: managedMemberId,
+      permissions: { canExport: true },
+    }),
+    (error: unknown) => error instanceof Error && 'code' in error && error.code === 'EXTERNAL_NO_ORG_PERMISSIONS',
+  );
 
   const legacyDb = new Database(path.join(dataDir, 'sqlite.db'));
   legacyDb.prepare('DELETE FROM organization_user_permissions').run();

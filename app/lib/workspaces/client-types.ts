@@ -1,4 +1,4 @@
-export type ClientWorkspaceType = 'personal' | 'team' | 'project';
+export type ClientWorkspaceType = 'personal' | 'organization' | 'team' | 'project';
 
 export type ClientWorkspaceStatus = 'active' | 'archived' | 'disabled' | 'recovery_locked';
 
@@ -16,9 +16,12 @@ export interface ClientWorkspaceSummary {
   type: ClientWorkspaceType;
   name: string;
   organizationId?: string | null;
+  customerId?: string | null;
+  projectId?: string | null;
   ownerUserId?: string | null;
   rootRelativePath?: string;
   status: ClientWorkspaceStatus;
+  isDefault?: boolean;
   permissions: ClientWorkspacePermissions;
   legacy?: boolean;
 }
@@ -27,6 +30,7 @@ export interface ClientWorkspaceResponse {
   success: boolean;
   organizationId?: string | null;
   teamFeaturesEnabled?: boolean;
+  projectFeaturesEnabled?: boolean;
   databaseProvider?: string | null;
   activeWorkspaceId?: string | null;
   defaultWorkspace?: ClientWorkspaceSummary | null;

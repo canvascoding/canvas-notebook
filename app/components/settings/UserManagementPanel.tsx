@@ -5,6 +5,7 @@ import { useLocale, useTranslations } from 'next-intl';
 import { AlertTriangle, Ban, CheckCircle2, KeyRound, Loader2, Plus, RefreshCw, Search, Shield, UserCog, UserMinus } from 'lucide-react';
 
 import { authClient } from '@/app/lib/auth-client';
+import { UserPermissionsDialog } from './UserPermissionsDialog';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -181,6 +182,7 @@ export function UserManagementPanel({
   const [error, setError] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [createDraft, setCreateDraft] = useState<CreateUserDraft>(() => createEmptyDraft());
+  const [permissionsTarget, setPermissionsTarget] = useState<ManagedUser | null>(null);
   const [passwordTarget, setPasswordTarget] = useState<ManagedUser | null>(null);
   const [passwordDraft, setPasswordDraft] = useState('');
   const [roleTarget, setRoleTarget] = useState<RoleChangeTarget | null>(null);
@@ -301,10 +303,16 @@ export function UserManagementPanel({
     await runAction(
       `role:${user.id}`,
       async () => {
-        unwrapAuthResult<{ user: ManagedUser }>(
-          await authClient.admin.setRole({ userId: user.id, role: nextRole }),
-          t('errors.role'),
-        );
+        const response = await fetch(`/api/admin/organization/users/${encodeURIComponent(user.id)}/role`, {
+          method: 'PATCH',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ role: nextRole === 'admin' ? 'admin' : 'member' }),
+        });
+        const payload = await response.json();
+        if (!response.ok || !payload.success) {
+          throw new Error(payload.error || t('errors.role'));
+        }
         setRoleTarget(null);
       },
       t('messages.roleUpdated', { email: user.email }),
@@ -482,6 +490,20 @@ export function UserManagementPanel({
 
     return (
       <div className={wrapperClassName}>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className={buttonClassName}
+          onClick={() => {
+            setPermissionsTarget(user);
+            resetTransientState();
+          }}
+          disabled={isRowBusy || activeAction !== null}
+        >
+          <UserCog data-icon="inline-start" />
+          {t('actions.permissions')}
+        </Button>
         <Button
           type="button"
           variant="outline"
@@ -767,6 +789,20 @@ export function UserManagementPanel({
           </div>
         </CardContent>
       </Card>
+
+      <UserPermissionsDialog
+        open={Boolean(permissionsTarget)}
+        onOpenChange={(open) => {
+          if (!open) setPermissionsTarget(null);
+        }}
+        user={permissionsTarget}
+        onSaved={async () => {
+          if (permissionsTarget) {
+            setMessage(t('messages.permissionsUpdated', { email: permissionsTarget.email }));
+          }
+          await loadUsers();
+        }}
+      />
 
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
         <DialogContent>

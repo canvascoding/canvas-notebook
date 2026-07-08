@@ -74,9 +74,9 @@ export function createHumanTodoTool(deps: { userId?: string; agentId?: string | 
 
         const input = params as Record<string, unknown>;
         const executionContext = getAgentExecutionContext();
-        const workspaceScope = executionContext?.workspaceType === 'team'
+        const workspaceScope = executionContext?.workspaceType === 'organization' || executionContext?.workspaceType === 'team'
           ? {
-              workspaceType: 'team' as const,
+              workspaceType: executionContext.workspaceType,
               organizationId: executionContext.organizationId,
               workspaceId: executionContext.workspaceId,
             }
@@ -102,7 +102,7 @@ export function createHumanTodoTool(deps: { userId?: string; agentId?: string | 
           `Title: ${todo.title}`,
           `Category: ${todo.category?.name ?? 'To-do'}`,
           `Priority: ${todo.priority}`,
-          `Workspace: ${todo.workspaceType === 'team' ? 'Team' : 'Personal'}`,
+          `Workspace: ${todo.workspaceType === 'organization' || todo.workspaceType === 'team' ? 'Team' : 'Personal'}`,
           todo.assignee ? `Assignee: ${todo.assignee.name || todo.assignee.email || todo.assignee.id}` : null,
           `Visible in UI: /todos`,
         ].filter((line): line is string => Boolean(line));

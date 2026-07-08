@@ -67,7 +67,7 @@ function insertAutomation(
     scope: 'personal' | 'organization';
     organizationId: string;
     workspaceId: string;
-    workspaceType: 'personal' | 'team';
+    workspaceType: 'personal' | 'organization' | 'team';
     ownerUserId: string | null;
     responsibleUserId: string | null;
     createdByUserId: string;
@@ -122,7 +122,7 @@ async function main() {
   const dbPath = path.join(dataRoot, 'sqlite.db');
   process.env.DATA = dataRoot;
   process.env.CANVAS_DEPLOYMENT_MODE = 'managed-team';
-  process.env.CANVAS_DATABASE_PROVIDER = 'postgres';
+  process.env.CANVAS_DATABASE_PROVIDER = 'sqlite';
 
   await fs.mkdir(dataRoot, { recursive: true });
   const sqlite = new Database(dbPath);
@@ -144,13 +144,79 @@ async function main() {
     ensureDefaultWorkspaceRecords(sqlite, { organizationId, userId: 'user-admin', teamFeaturesEnabled: true });
     ensureDefaultWorkspaceRecords(sqlite, { organizationId, userId: 'user-member', teamFeaturesEnabled: true });
 
+    const setupNow = Date.now() + 60_000;
+    sqlite.prepare(`
+      INSERT INTO canvas_workspaces (
+        id, organization_id, type, owner_user_id, customer_id, project_id, root_relative_path,
+        display_name, status, is_default, created_at, updated_at
+      ) VALUES (?, ?, 'personal', ?, NULL, NULL, ?, ?, 'active', 0, ?, ?)
+    `).run(
+      'workspace-member-extra-personal',
+      organizationId,
+      'user-member',
+      'workspaces/personal/user-member/extra/files',
+      'Extra Personal',
+      setupNow,
+      setupNow,
+    );
+    sqlite.prepare(`
+      INSERT INTO canvas_workspaces (
+        id, organization_id, type, owner_user_id, customer_id, project_id, root_relative_path,
+        display_name, status, is_default, created_at, updated_at
+      ) VALUES (?, ?, 'team', NULL, NULL, NULL, ?, ?, 'active', 0, ?, ?)
+    `).run(
+      'workspace-member-team',
+      organizationId,
+      'workspaces/team/test/member-team/files',
+      'Member Team',
+      setupNow,
+      setupNow,
+    );
+    sqlite.prepare(`
+      INSERT INTO canvas_workspace_members (
+        organization_id, workspace_id, user_id, role, status, can_read, can_write, can_manage,
+        invited_by_user_id, created_at, updated_at
+      ) VALUES (?, ?, ?, 'admin', 'active', 1, 1, 1, ?, ?, ?)
+    `).run(organizationId, 'workspace-member-team', 'user-member', 'user-admin', setupNow, setupNow);
+    sqlite.prepare(`
+      INSERT INTO canvas_customers (
+        id, organization_id, name, slug, status, created_by_user_id, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, 'active', ?, ?, ?)
+    `).run('customer-member', organizationId, 'Customer Member', 'customer-member', 'user-admin', setupNow, setupNow);
+    sqlite.prepare(`
+      INSERT INTO canvas_projects (
+        id, organization_id, customer_id, name, slug, status, created_by_user_id, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?)
+    `).run('project-member', organizationId, 'customer-member', 'Project Member', 'project-member', 'user-admin', setupNow, setupNow);
+    sqlite.prepare(`
+      INSERT INTO canvas_workspaces (
+        id, organization_id, type, owner_user_id, customer_id, project_id, root_relative_path,
+        display_name, status, is_default, created_at, updated_at
+      ) VALUES (?, ?, 'project', NULL, ?, ?, ?, ?, 'active', 0, ?, ?)
+    `).run(
+      'workspace-member-project',
+      organizationId,
+      'customer-member',
+      'project-member',
+      'workspaces/project/project-member/files',
+      'Member Project',
+      setupNow,
+      setupNow,
+    );
+    sqlite.prepare(`
+      INSERT INTO canvas_project_members (
+        organization_id, project_id, user_id, role, status, can_read, can_write, can_manage,
+        invited_by_user_id, created_at, updated_at
+      ) VALUES (?, ?, ?, 'admin', 'active', 1, 1, 1, ?, ?, ?)
+    `).run(organizationId, 'project-member', 'user-member', 'user-admin', setupNow, setupNow);
+
     const workspaces = sqlite.prepare(`
       SELECT id, type, owner_user_id
       FROM canvas_workspaces
       ORDER BY created_at ASC
     `).all() as WorkspaceRow[];
     const memberWorkspace = workspaces.find((workspace) => workspace.type === 'personal' && workspace.owner_user_id === 'user-member');
-    const teamWorkspace = workspaces.find((workspace) => workspace.type === 'team');
+    const teamWorkspace = workspaces.find((workspace) => workspace.type === 'organization');
     assert.ok(memberWorkspace?.id);
     assert.ok(teamWorkspace?.id);
 
@@ -172,7 +238,7 @@ async function main() {
       INSERT INTO todo_items (
         id, user_id, created_by_user_id, assignee_user_id, organization_id, workspace_id, workspace_type,
         title, status, priority, source_type, created_at, updated_at
-      ) VALUES ('todo-member', 'user-owner', 'user-owner', 'user-member', ?, ?, 'team', 'Assigned todo', 'open', 'normal', 'user', ?, ?)
+      ) VALUES ('todo-member', 'user-owner', 'user-owner', 'user-member', ?, ?, 'organization', 'Assigned todo', 'open', 'normal', 'user', ?, ?)
     `).run(organizationId, teamWorkspace.id, now, now);
     sqlite.prepare(`
       INSERT INTO channel_user_bindings (user_id, channel_id, channel_user_id, enabled, created_at)
@@ -196,7 +262,7 @@ async function main() {
       scope: 'organization',
       organizationId,
       workspaceId: teamWorkspace.id,
-      workspaceType: 'team',
+      workspaceType: 'organization',
       ownerUserId: null,
       responsibleUserId: 'user-member',
       createdByUserId: 'user-admin',
@@ -211,7 +277,7 @@ async function main() {
       INSERT INTO automation_runs (
         id, job_id, status, scope, organization_id, workspace_id, workspace_type, actor_type,
         actor_user_id, trigger_type, attempt_number, created_at
-      ) VALUES ('run-member', 'job-team-member', 'pending', 'organization', ?, ?, 'team', 'user', 'user-member', 'manual', 1, ?)
+      ) VALUES ('run-member', 'job-team-member', 'pending', 'organization', ?, ?, 'organization', 'user', 'user-member', 'manual', 1, ?)
     `).run(organizationId, teamWorkspace.id, now);
 
     const userSettingsDir = path.join(dataRoot, 'users', 'user-member', 'settings');
@@ -233,6 +299,27 @@ async function main() {
     assert.equal(ownerPreflight.canApply, false);
     assert.ok(ownerPreflight.blockers.some((finding) => finding.category === 'permissions'));
 
+    const blockedMemberPreflight = await createOffboardingPreflight('user-member', 'user-admin');
+    assert.equal(blockedMemberPreflight.canApply, false);
+    assert.equal(blockedMemberPreflight.counts.teamWorkspaceManagerBlocks, 1);
+    assert.equal(blockedMemberPreflight.counts.projectWorkspaceManagerBlocks, 1);
+    assert.ok(blockedMemberPreflight.blockers.some((finding) => finding.action === 'reassign_team_workspace_manager'));
+    assert.ok(blockedMemberPreflight.blockers.some((finding) => finding.action === 'reassign_project_workspace_manager'));
+
+    const managerNow = Date.now();
+    sqlite.prepare(`
+      INSERT INTO canvas_workspace_members (
+        organization_id, workspace_id, user_id, role, status, can_read, can_write, can_manage,
+        invited_by_user_id, created_at, updated_at
+      ) VALUES (?, ?, ?, 'admin', 'active', 1, 1, 1, ?, ?, ?)
+    `).run(organizationId, 'workspace-member-team', 'user-admin', 'user-owner', managerNow, managerNow);
+    sqlite.prepare(`
+      INSERT INTO canvas_project_members (
+        organization_id, project_id, user_id, role, status, can_read, can_write, can_manage,
+        invited_by_user_id, created_at, updated_at
+      ) VALUES (?, ?, ?, 'admin', 'active', 1, 1, 1, ?, ?, ?)
+    `).run(organizationId, 'project-member', 'user-admin', 'user-owner', managerNow, managerNow);
+
     const memberPreflight = await createOffboardingPreflight('user-member', 'user-admin');
     assert.equal(memberPreflight.canApply, true);
     assert.equal(memberPreflight.counts.activeSessions, 1);
@@ -242,6 +329,11 @@ async function main() {
     assert.equal(memberPreflight.counts.organizationReviewAutomations, 1);
     assert.equal(memberPreflight.counts.affectedAutomations, 2);
     assert.equal(memberPreflight.counts.openAssignedTodos, 1);
+    assert.equal(memberPreflight.counts.personalWorkspaces, 2);
+    assert.equal(memberPreflight.counts.teamWorkspaceMemberships, 1);
+    assert.equal(memberPreflight.counts.projectWorkspaceMemberships, 1);
+    assert.equal(memberPreflight.counts.teamWorkspaceManagerBlocks, 0);
+    assert.equal(memberPreflight.counts.projectWorkspaceManagerBlocks, 0);
     assert.ok(memberPreflight.warnings.length >= 4);
 
     await assert.rejects(
@@ -260,7 +352,9 @@ async function main() {
     assert.equal(result.actions.emailAccountsRevoked, 1);
     assert.equal(result.actions.automationsPaused, 2);
     assert.equal(result.actions.todosUnassigned, 1);
-    assert.equal(result.actions.personalWorkspacesLocked, 1);
+    assert.equal(result.actions.personalWorkspacesLocked, 2);
+    assert.equal(result.actions.teamWorkspaceMembershipsRemoved, 1);
+    assert.equal(result.actions.projectWorkspaceMembershipsRemoved, 1);
     assert.equal(await fs.stat(result.manifestPath).then((stat) => stat.isFile()), true);
 
     const member = getRequiredRow<{ banned: number; ban_reason: string }>(sqlite, `
@@ -284,11 +378,22 @@ async function main() {
     assert.equal(getRequiredRow<{ status: string; is_primary: number }>(sqlite, 'SELECT status, is_primary FROM email_accounts WHERE id = ?', 'email-member').status, 'revoked');
     assert.equal(getRequiredRow<{ assignee_user_id: string | null }>(sqlite, 'SELECT assignee_user_id FROM todo_items WHERE id = ?', 'todo-member').assignee_user_id, null);
     assert.equal(getRequiredRow<{ status: string }>(sqlite, 'SELECT status FROM canvas_workspaces WHERE id = ?', memberWorkspace.id).status, 'recovery_locked');
+    assert.equal(getRequiredRow<{ status: string }>(sqlite, 'SELECT status FROM canvas_workspaces WHERE id = ?', 'workspace-member-extra-personal').status, 'recovery_locked');
     assert.equal(getRequiredRow<{ status: string }>(sqlite, 'SELECT status FROM automation_jobs WHERE id = ?', 'job-personal-member').status, 'paused');
     assert.equal(getRequiredRow<{ status: string }>(sqlite, 'SELECT status FROM automation_jobs WHERE id = ?', 'job-team-member').status, 'paused');
     assert.equal(getRequiredRow<{ status: string }>(sqlite, 'SELECT status FROM automation_webhook_triggers WHERE id = ?', 'wh-member').status, 'paused');
     assert.equal(getRequiredRow<{ status: string }>(sqlite, 'SELECT status FROM automation_runs WHERE id = ?', 'run-member').status, 'failed');
     assert.equal(getRequiredRow<{ enabled: number }>(sqlite, 'SELECT enabled FROM channel_user_bindings WHERE user_id = ?', 'user-member').enabled, 0);
+    assert.equal(getRequiredRow<{ count: number }>(
+      sqlite,
+      'SELECT COUNT(*) AS count FROM canvas_workspace_members WHERE user_id = ?',
+      'user-member',
+    ).count, 0);
+    assert.equal(getRequiredRow<{ count: number }>(
+      sqlite,
+      'SELECT COUNT(*) AS count FROM canvas_project_members WHERE user_id = ?',
+      'user-member',
+    ).count, 0);
 
     const permission = (await readOrganizationPermissionForUser('user-member')).permission;
     assert.equal(permission?.status, 'archived');

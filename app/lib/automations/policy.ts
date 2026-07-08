@@ -62,7 +62,10 @@ function normalizeRequestedScope(input: unknown): AutomationScope | 'team' {
   if (
     record.teamAutomation === true ||
     scope === 'team' ||
+    scope === 'organization' ||
     readStringField(record, 'workspaceScope').toLowerCase() === 'team' ||
+    readStringField(record, 'workspaceScope').toLowerCase() === 'organization' ||
+    readStringField(record, 'workspaceType').toLowerCase() === 'organization' ||
     readStringField(record, 'workspaceType').toLowerCase() === 'team'
   ) {
     return 'team';
@@ -150,8 +153,8 @@ export async function resolveAutomationScopeForCreate(input: unknown, user: Auto
     };
   }
 
-  if (workspace.workspaceType !== 'team') {
-    throw new AutomationPolicyError('Automations are only supported in personal and team workspaces.');
+  if (workspace.workspaceType !== 'organization' && workspace.workspaceType !== 'team') {
+    throw new AutomationPolicyError('Automations are only supported in personal and shared organization workspaces.');
   }
 
   if (requestedScope === 'personal') {
@@ -167,7 +170,7 @@ export async function resolveAutomationScopeForCreate(input: unknown, user: Auto
     scope: 'organization',
     organizationId: workspace.organizationId,
     workspaceId: workspace.workspaceId,
-    workspaceType: 'team',
+    workspaceType: workspace.workspaceType,
     ownerUserId: null,
     responsibleUserId: user.id,
     serviceActorId: workspace.organizationId ? `org-service:${workspace.organizationId}` : null,

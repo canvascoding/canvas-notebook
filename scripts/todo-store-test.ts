@@ -15,6 +15,8 @@ async function main() {
   const { db } = await import('../app/lib/db');
   const {
     canvasOrganizationSettings,
+    canvasProjectMembers,
+    canvasProjects,
     canvasWorkspaces,
     organizationUserPermissions,
     user,
@@ -85,17 +87,45 @@ async function main() {
     createdAt: now,
     updatedAt: now,
   });
-  await db.insert(canvasWorkspaces).values({
-    id: 'team-workspace',
+  await db.insert(canvasProjects).values({
+    id: 'project-test',
     organizationId: 'org-test',
-    type: 'team',
-    ownerUserId: null,
-    rootRelativePath: 'organizations/org-test/team',
-    displayName: 'Team Workspace',
+    customerId: null,
+    name: 'Project Workspace',
+    slug: 'project-workspace',
     status: 'active',
+    description: null,
+    metadataJson: null,
+    createdByUserId: 'todo-user',
+    archivedAt: null,
     createdAt: now,
     updatedAt: now,
   });
+  await db.insert(canvasWorkspaces).values([
+    {
+      id: 'team-workspace',
+      organizationId: 'org-test',
+      type: 'team',
+      ownerUserId: null,
+      rootRelativePath: 'organizations/org-test/team',
+      displayName: 'Team Workspace',
+      status: 'active',
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      id: 'project-workspace',
+      organizationId: 'org-test',
+      type: 'project',
+      ownerUserId: null,
+      projectId: 'project-test',
+      rootRelativePath: 'workspaces/project/project-test/files',
+      displayName: 'Project Workspace',
+      status: 'active',
+      createdAt: now,
+      updatedAt: now,
+    },
+  ]);
   await db.insert(organizationUserPermissions).values([
     {
       organizationId: 'org-test',
@@ -166,6 +196,60 @@ async function main() {
       canMigrateDatabase: false,
       canEnableKnowledge: false,
       canRecoverWorkspaces: false,
+      createdAt: now,
+      updatedAt: now,
+    },
+  ]);
+  await db.insert(canvasProjectMembers).values([
+    {
+      organizationId: 'org-test',
+      projectId: 'project-test',
+      userId: 'todo-user',
+      role: 'owner',
+      status: 'active',
+      canRead: true,
+      canWrite: true,
+      canManage: true,
+      invitedByUserId: null,
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      organizationId: 'org-test',
+      projectId: 'project-test',
+      userId: 'other-user',
+      role: 'member',
+      status: 'active',
+      canRead: true,
+      canWrite: true,
+      canManage: true,
+      invitedByUserId: 'todo-user',
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      organizationId: 'org-test',
+      projectId: 'project-test',
+      userId: 'readonly-user',
+      role: 'member',
+      status: 'active',
+      canRead: true,
+      canWrite: false,
+      canManage: false,
+      invitedByUserId: 'todo-user',
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      organizationId: 'org-test',
+      projectId: 'project-test',
+      userId: 'external-user',
+      role: 'external',
+      status: 'active',
+      canRead: true,
+      canWrite: false,
+      canManage: false,
+      invitedByUserId: 'todo-user',
       createdAt: now,
       updatedAt: now,
     },
@@ -241,6 +325,56 @@ async function main() {
   });
   assert.deepEqual(readonlyTeamTodos.map((todo) => todo.id), [teamTodo.id]);
 
+  const projectTodo = await createTodo('other-user', {
+    title: 'Project handoff',
+    description: 'Project scoped task',
+    workspaceType: 'project',
+    organizationId: 'org-test',
+    workspaceId: 'project-workspace',
+    assigneeUserId: 'external-user',
+    fileLinks: ['docs/brief.md'],
+  });
+  assert.equal(projectTodo.workspaceType, 'project');
+  assert.equal(projectTodo.organizationId, 'org-test');
+  assert.equal(projectTodo.projectId, 'project-test');
+  assert.equal(projectTodo.workspaceId, 'project-workspace');
+  assert.equal(projectTodo.assignee?.id, 'external-user');
+  assert.equal(projectTodo.fileLinks[0].workspaceType, 'project');
+  assert.equal(projectTodo.fileLinks[0].projectId, 'project-test');
+  assert.equal(projectTodo.fileLinks[0].workspaceId, 'project-workspace');
+
+  const ownerProjectTodos = await listTodos('todo-user', {
+    status: 'all',
+    workspaceType: 'project',
+    organizationId: 'org-test',
+    workspaceId: 'project-workspace',
+  });
+  assert.deepEqual(ownerProjectTodos.map((todo) => todo.id), [projectTodo.id]);
+
+  const readonlyProjectTodos = await listTodos('readonly-user', {
+    status: 'all',
+    workspaceType: 'project',
+    organizationId: 'org-test',
+    workspaceId: 'project-workspace',
+  });
+  assert.deepEqual(readonlyProjectTodos.map((todo) => todo.id), [projectTodo.id]);
+
+  const externalProjectTodos = await listTodos('external-user', {
+    status: 'all',
+    workspaceType: 'project',
+    organizationId: 'org-test',
+    workspaceId: 'project-workspace',
+  });
+  assert.deepEqual(externalProjectTodos.map((todo) => todo.id), [projectTodo.id]);
+
+  const readonlyAllTodos = await listTodos('readonly-user', {
+    status: 'all',
+    workspaceType: 'all',
+    organizationId: 'org-test',
+  });
+  assert.equal(readonlyAllTodos.some((todo) => todo.id === teamTodo.id), true);
+  assert.equal(readonlyAllTodos.some((todo) => todo.id === projectTodo.id), true);
+
   const personalStillPrivate = await listTodos('other-user', {
     status: 'all',
     workspaceType: 'personal',
@@ -279,6 +413,21 @@ async function main() {
 
   await assert.rejects(
     () => updateTodo('readonly-user', teamTodo.id, { status: 'done' }),
+    (error) => error instanceof TodoStoreError && error.code === 'ORGANIZATION_ACCESS_DENIED',
+  );
+
+  await assert.rejects(
+    () => createTodo('readonly-user', {
+      title: 'Read-only cannot create project task',
+      workspaceType: 'project',
+      organizationId: 'org-test',
+      workspaceId: 'project-workspace',
+    }),
+    (error) => error instanceof TodoStoreError && error.code === 'ORGANIZATION_ACCESS_DENIED',
+  );
+
+  await assert.rejects(
+    () => updateTodo('readonly-user', projectTodo.id, { status: 'done' }),
     (error) => error instanceof TodoStoreError && error.code === 'ORGANIZATION_ACCESS_DENIED',
   );
 

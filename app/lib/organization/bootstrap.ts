@@ -39,7 +39,10 @@ import {
   resolveUserSkillsDir,
 } from '@/app/lib/runtime-data-paths';
 import { migrateLegacyWorkspaceToPersonalWorkspace } from '@/app/lib/workspaces/legacy-migration';
-import { ensureDefaultWorkspaceRecords } from '@/app/lib/workspaces/service';
+import {
+  ensureDefaultWorkspaceRecords,
+  organizationWorkspaceRootRelativePath,
+} from '@/app/lib/workspaces/service';
 import { resolveWorkspaceDataRoot } from '@/app/lib/workspaces/context';
 
 export const LOCAL_ORGANIZATION_ID_PREFIX = 'org_';
@@ -229,7 +232,7 @@ function buildScopedPaths(organizationId: string, userId: string, teamFeaturesEn
     organizationSkillTemplates: resolveOrganizationSkillTemplatesDir(organizationId),
     organizationPluginTemplates: resolveOrganizationPluginTemplatesDir(organizationId),
     teamWorkspace: teamFeaturesEnabled
-      ? path.join(dataRoot, 'workspaces', 'team', organizationId, 'files')
+      ? path.join(dataRoot, organizationWorkspaceRootRelativePath(organizationId))
       : null,
     systemBackups: resolveSystemBackupsDir(),
     systemMigration: resolveSystemMigrationDir(),

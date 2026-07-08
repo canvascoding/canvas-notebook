@@ -1,0 +1,396 @@
+import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
+import { promises as fs } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+
+import Database from 'better-sqlite3';
+import { NextRequest } from 'next/server';
+
+type RouteSession = {
+  user: {
+    id: string;
+    email: string;
+    name: string;
+    role: string;
+  };
+  session: {
+    id: string;
+  };
+};
+
+type JsonObject = Record<string, unknown>;
+type RouteRequestInit = Omit<RequestInit, 'headers' | 'signal'> & {
+  headers?: HeadersInit;
+};
+
+function base64Url(input: Buffer | string) {
+  return Buffer.from(input).toString('base64url');
+}
+
+function publicKeyFingerprint(publicKeyPem: string) {
+  const key = crypto.createPublicKey(publicKeyPem);
+  const der = key.export({ type: 'spki', format: 'der' });
+  return crypto.createHash('sha256').update(der).digest('hex');
+}
+
+function signLicense(
+  privateKey: crypto.KeyObject,
+  payload: Record<string, unknown>,
+  header: Record<string, unknown> = { alg: 'RS256', typ: 'JWT' },
+) {
+  const encodedHeader = base64Url(JSON.stringify(header));
+  const encodedPayload = base64Url(JSON.stringify(payload));
+  const signature = crypto.sign(
+    'RSA-SHA256',
+    Buffer.from(`${encodedHeader}.${encodedPayload}`),
+    privateKey,
+  );
+  return `${encodedHeader}.${encodedPayload}.${signature.toString('base64url')}`;
+}
+
+function installTeamRuntimeLicense() {
+  const { privateKey, publicKey } = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 });
+  const publicKeyPem = publicKey.export({ type: 'spki', format: 'pem' }).toString();
+  process.env.CANVAS_LICENSE_PUBLIC_KEY = publicKeyPem;
+  process.env.CANVAS_LICENSE_TRUSTED_PUBLIC_KEY_FINGERPRINTS = publicKeyFingerprint(publicKeyPem);
+  process.env.CANVAS_LICENSE_CERT = signLicense(privateKey, {
+    sub: process.env.CANVAS_INSTANCE_ID,
+    iss: 'canvas-control-plane',
+    aud: 'canvas-notebook',
+    plan: 'managed',
+    status: 'active',
+    deploymentMode: 'managed-team',
+    databaseProvider: 'postgres',
+    vectorProvider: 'pgvector',
+    postgresRequired: true,
+    capabilities: { teamWorkspace: true, multiUser: true, vectorSearch: true },
+    features: { teamWorkspace: true, multiUser: true, vectorSearch: true },
+    quotas: { users: 25 },
+    iat: Math.floor(Date.now() / 1000),
+    exp: Math.floor(Date.now() / 1000) + 3600,
+  });
+}
+
+function insertUser(sqlite: Database.Database, userId: string, name: string, email: string, role = 'user') {
+  const now = Date.now();
+  sqlite.prepare(`
+    INSERT INTO user (
+      id, name, email, email_verified, image, role, banned, ban_reason, ban_expires, created_at, updated_at
+    ) VALUES (?, ?, ?, 1, NULL, ?, NULL, NULL, NULL, ?, ?)
+  `).run(userId, name, email, role, now, now);
+}
+
+function insertOrganizationMember(sqlite: Database.Database, organizationId: string, userId: string, role = 'member') {
+  const now = Date.now();
+  sqlite.prepare(`
+    INSERT INTO organization_user_permissions (
+      organization_id, user_id, role, status,
+      can_write_team_workspace, can_create_public_links, can_create_team_automations,
+      can_share_plugins_and_skills, can_export, can_delete_team_files, can_delete_studio_assets,
+      can_manage_backups, can_migrate_database, can_enable_knowledge, can_recover_workspaces,
+      created_at, updated_at
+    ) VALUES (?, ?, ?, 'active', 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, ?, ?)
+  `).run(organizationId, userId, role, now, now);
+}
+
+function request(url: string, init: RouteRequestInit = {}) {
+  const headers = new Headers(init.headers);
+  if (!headers.has('content-type')) {
+    headers.set('content-type', 'application/json');
+  }
+  return new NextRequest(url, {
+    ...init,
+    headers,
+  });
+}
+
+function jsonRequest(url: string, method: string, body: JsonObject) {
+  return request(url, {
+    method,
+    body: JSON.stringify(body),
+  });
+}
+
+async function responseJson(response: Response) {
+  return await response.json() as JsonObject;
+}
+
+function expectObject(value: unknown, label: string): JsonObject {
+  assert.equal(typeof value, 'object', `${label} should be object`);
+  assert.notEqual(value, null, `${label} should not be null`);
+  return value as JsonObject;
+}
+
+function workspaceId(payload: JsonObject, key = 'workspace'): string {
+  const workspace = expectObject(payload[key], key);
+  assert.equal(typeof workspace.id, 'string');
+  return workspace.id as string;
+}
+
+function workspaceByType(payload: JsonObject, type: string) {
+  const workspaces = payload.workspaces;
+  assert.ok(Array.isArray(workspaces), 'workspaces should be array');
+  const workspace = workspaces.find((item) => expectObject(item, 'workspace').type === type);
+  return expectObject(workspace, `${type} workspace`);
+}
+
+async function main() {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'canvas-workspace-api-routes-'));
+  const dataRoot = path.join(tempRoot, 'data');
+  process.env.DATA = dataRoot;
+  process.env.CANVAS_DEPLOYMENT_MODE = 'managed-team';
+  process.env.CANVAS_TEAM_FEATURES_ENABLED = 'true';
+  process.env.CANVAS_DATABASE_PROVIDER = 'sqlite';
+  process.env.CANVAS_INSTANCE_ID = 'self_workspace_api_routes_test';
+  process.env.CANVAS_EXTERNAL_USERS_ENABLED = 'false';
+
+  installTeamRuntimeLicense();
+  await fs.mkdir(dataRoot, { recursive: true });
+
+  const { runMigrations } = await import('../app/lib/db/migrate');
+  const sqlite = new Database(path.join(dataRoot, 'sqlite.db'));
+  try {
+    runMigrations(sqlite);
+    insertUser(sqlite, 'owner-user', 'Owner User', 'owner@example.test', 'admin');
+    insertUser(sqlite, 'member-user', 'Member User', 'member@example.test', 'user');
+  } finally {
+    sqlite.close();
+  }
+
+  const { requireTeamRuntimeLicense } = await import('../app/lib/license/entitlements');
+  await requireTeamRuntimeLicense();
+  delete process.env.CANVAS_LICENSE_CERT;
+
+  const { auth } = await import('../app/lib/auth');
+  let currentSession: RouteSession | null = {
+    user: {
+      id: 'owner-user',
+      email: 'owner@example.test',
+      name: 'Owner User',
+      role: 'admin',
+    },
+    session: {
+      id: 'route-test-session',
+    },
+  };
+  const didPatchSession = Reflect.set(auth.api, 'getSession', async () => currentSession);
+  assert.equal(didPatchSession, true);
+
+  const workspacesRoute = await import('../app/api/workspaces/route');
+  const workspaceRoute = await import('../app/api/workspaces/[id]/route');
+  const membersRoute = await import('../app/api/workspaces/[id]/members/route');
+  const memberRoute = await import('../app/api/workspaces/[id]/members/[userId]/route');
+  const permissionsRoute = await import('../app/api/admin/organization/users/[userId]/permissions/route');
+  const roleRoute = await import('../app/api/admin/organization/users/[userId]/role/route');
+
+  currentSession = null;
+  const unauthorized = await workspacesRoute.GET(request('http://localhost/api/workspaces'));
+  assert.equal(unauthorized.status, 401);
+  currentSession = {
+    user: {
+      id: 'owner-user',
+      email: 'owner@example.test',
+      name: 'Owner User',
+      role: 'admin',
+    },
+    session: {
+      id: 'route-test-session',
+    },
+  };
+
+  const initialListResponse = await workspacesRoute.GET(request('http://localhost/api/workspaces'));
+  assert.equal(initialListResponse.status, 200);
+  const initialList = await responseJson(initialListResponse);
+  assert.equal(initialList.success, true);
+  const personalDefault = workspaceByType(initialList, 'personal');
+  const organizationDefault = workspaceByType(initialList, 'organization');
+  assert.equal(personalDefault.isDefault, true);
+  assert.equal(organizationDefault.isDefault, true);
+  assert.equal(typeof initialList.organizationId, 'string');
+
+  const orgId = initialList.organizationId as string;
+  const setupDb = new Database(path.join(dataRoot, 'sqlite.db'));
+  try {
+    insertOrganizationMember(setupDb, orgId, 'member-user');
+  } finally {
+    setupDb.close();
+  }
+
+  const teamCreateResponse = await workspacesRoute.POST(jsonRequest('http://localhost/api/workspaces', 'POST', {
+    type: 'team',
+    name: 'Route Team',
+  }));
+  assert.equal(teamCreateResponse.status, 201);
+  const teamCreate = await responseJson(teamCreateResponse);
+  const teamWorkspaceId = workspaceId(teamCreate);
+
+  const extraPersonalResponse = await workspacesRoute.POST(jsonRequest('http://localhost/api/workspaces', 'POST', {
+    type: 'personal',
+    name: 'Route Personal',
+  }));
+  assert.equal(extraPersonalResponse.status, 201);
+  const extraPersonalId = workspaceId(await responseJson(extraPersonalResponse));
+
+  const defaultTypeChangeResponse = await workspaceRoute.PATCH(
+    jsonRequest(`http://localhost/api/workspaces/${personalDefault.id}`, 'PATCH', { type: 'team' }),
+    { params: Promise.resolve({ id: personalDefault.id as string }) },
+  );
+  assert.equal(defaultTypeChangeResponse.status, 409);
+  assert.equal((await responseJson(defaultTypeChangeResponse)).code, 'WORKSPACE_DEFAULT_TYPE_LOCKED');
+
+  const typeChangeResponse = await workspaceRoute.PATCH(
+    jsonRequest(`http://localhost/api/workspaces/${extraPersonalId}`, 'PATCH', { type: 'team' }),
+    { params: Promise.resolve({ id: extraPersonalId }) },
+  );
+  assert.equal(typeChangeResponse.status, 200);
+  const changedWorkspace = expectObject((await responseJson(typeChangeResponse)).workspace, 'changed workspace');
+  assert.equal(changedWorkspace.workspaceType, 'team');
+
+  const memberListResponse = await membersRoute.GET(
+    request(`http://localhost/api/workspaces/${teamWorkspaceId}/members`),
+    { params: Promise.resolve({ id: teamWorkspaceId }) },
+  );
+  assert.equal(memberListResponse.status, 200);
+  const memberList = await responseJson(memberListResponse);
+  assert.equal(memberList.success, true);
+  assert.ok(Array.isArray(memberList.members));
+  assert.ok(Array.isArray(memberList.candidates));
+
+  const personalMembersResponse = await membersRoute.GET(
+    request(`http://localhost/api/workspaces/${personalDefault.id}/members`),
+    { params: Promise.resolve({ id: personalDefault.id as string }) },
+  );
+  assert.equal(personalMembersResponse.status, 403);
+  assert.equal((await responseJson(personalMembersResponse)).code, 'WORKSPACE_PERSONAL_NO_MEMBERS');
+
+  const addMemberResponse = await membersRoute.POST(
+    jsonRequest(`http://localhost/api/workspaces/${teamWorkspaceId}/members`, 'POST', {
+      userId: 'member-user',
+      role: 'member',
+      canRead: true,
+      canWrite: true,
+      canManage: false,
+    }),
+    { params: Promise.resolve({ id: teamWorkspaceId }) },
+  );
+  assert.equal(addMemberResponse.status, 200);
+  const addedMember = expectObject((await responseJson(addMemberResponse)).member, 'added member');
+  assert.equal(addedMember.userId, 'member-user');
+  assert.equal(addedMember.canManage, false);
+
+  const removeLastManagerResponse = await memberRoute.DELETE(
+    request(`http://localhost/api/workspaces/${teamWorkspaceId}/members/owner-user`, { method: 'DELETE' }),
+    { params: Promise.resolve({ id: teamWorkspaceId, userId: 'owner-user' }) },
+  );
+  assert.equal(removeLastManagerResponse.status, 409);
+  assert.equal((await responseJson(removeLastManagerResponse)).code, 'WORKSPACE_LAST_MANAGER');
+
+  const promoteMemberResponse = await membersRoute.POST(
+    jsonRequest(`http://localhost/api/workspaces/${teamWorkspaceId}/members`, 'POST', {
+      userId: 'member-user',
+      role: 'admin',
+      canRead: true,
+      canWrite: true,
+      canManage: true,
+    }),
+    { params: Promise.resolve({ id: teamWorkspaceId }) },
+  );
+  assert.equal(promoteMemberResponse.status, 200);
+
+  const removeOwnerResponse = await memberRoute.DELETE(
+    request(`http://localhost/api/workspaces/${teamWorkspaceId}/members/owner-user`, { method: 'DELETE' }),
+    { params: Promise.resolve({ id: teamWorkspaceId, userId: 'owner-user' }) },
+  );
+  assert.equal(removeOwnerResponse.status, 200);
+
+  const permissionGetResponse = await permissionsRoute.GET(
+    request('http://localhost/api/admin/organization/users/member-user/permissions'),
+    { params: Promise.resolve({ userId: 'member-user' }) },
+  );
+  assert.equal(permissionGetResponse.status, 200);
+  const permissionGet = await responseJson(permissionGetResponse);
+  assert.equal(permissionGet.success, true);
+  assert.equal(expectObject(permissionGet.user, 'permission user').role, 'member');
+
+  const sessionDb = new Database(path.join(dataRoot, 'sqlite.db'));
+  try {
+    sessionDb.prepare(`
+      INSERT INTO session (id, expires_at, token, created_at, updated_at, user_id)
+      VALUES ('member-session-route-test', ?, 'member-token-route-test', ?, ?, 'member-user')
+    `).run(Date.now() + 60_000, Date.now(), Date.now());
+  } finally {
+    sessionDb.close();
+  }
+
+  const permissionPatchResponse = await permissionsRoute.PATCH(
+    jsonRequest('http://localhost/api/admin/organization/users/member-user/permissions', 'PATCH', {
+      canExport: true,
+      canManageBackups: true,
+    }),
+    { params: Promise.resolve({ userId: 'member-user' }) },
+  );
+  assert.equal(permissionPatchResponse.status, 200);
+  const permissionPatch = await responseJson(permissionPatchResponse);
+  assert.equal(permissionPatch.success, true);
+  assert.equal(permissionPatch.sessionsRevoked, 1);
+  assert.equal(expectObject(expectObject(permissionPatch.user, 'patched user').permissions, 'patched permissions').canExport, true);
+
+  const invalidRoleResponse = await roleRoute.PATCH(
+    jsonRequest('http://localhost/api/admin/organization/users/member-user/role', 'PATCH', { role: 'owner' }),
+    { params: Promise.resolve({ userId: 'member-user' }) },
+  );
+  assert.equal(invalidRoleResponse.status, 400);
+  assert.equal((await responseJson(invalidRoleResponse)).code, 'INVALID_ROLE');
+
+  const rolePatchResponse = await roleRoute.PATCH(
+    jsonRequest('http://localhost/api/admin/organization/users/member-user/role', 'PATCH', { role: 'admin' }),
+    { params: Promise.resolve({ userId: 'member-user' }) },
+  );
+  assert.equal(rolePatchResponse.status, 200);
+  const rolePatch = await responseJson(rolePatchResponse);
+  assert.equal(rolePatch.success, true);
+  assert.equal(expectObject(rolePatch.user, 'role user').role, 'admin');
+
+  const externalRoleResponse = await roleRoute.PATCH(
+    jsonRequest('http://localhost/api/admin/organization/users/member-user/role', 'PATCH', { role: 'external' }),
+    { params: Promise.resolve({ userId: 'member-user' }) },
+  );
+  assert.equal(externalRoleResponse.status, 403);
+  assert.equal((await responseJson(externalRoleResponse)).code, 'EXTERNAL_USERS_DISABLED');
+
+  const deleteDefaultResponse = await workspaceRoute.DELETE(
+    request(`http://localhost/api/workspaces/${organizationDefault.id}`, { method: 'DELETE' }),
+    { params: Promise.resolve({ id: organizationDefault.id as string }) },
+  );
+  assert.equal(deleteDefaultResponse.status, 409);
+  assert.equal((await responseJson(deleteDefaultResponse)).code, 'WORKSPACE_IS_DEFAULT');
+
+  const deleteChangedWorkspaceResponse = await workspaceRoute.DELETE(
+    request(`http://localhost/api/workspaces/${extraPersonalId}`, { method: 'DELETE' }),
+    { params: Promise.resolve({ id: extraPersonalId }) },
+  );
+  assert.equal(deleteChangedWorkspaceResponse.status, 200);
+
+  const finalDb = new Database(path.join(dataRoot, 'sqlite.db'));
+  try {
+    const disabled = finalDb.prepare('SELECT status FROM canvas_workspaces WHERE id = ?').get(extraPersonalId) as { status: string };
+    assert.equal(disabled.status, 'disabled');
+    const auditCount = finalDb.prepare(`
+      SELECT COUNT(*) AS count
+      FROM audit_events
+      WHERE entity_id = 'member-user'
+        AND action IN ('organization.permissions.update', 'organization.role.update')
+    `).get() as { count: number };
+    assert.equal(auditCount.count >= 2, true);
+  } finally {
+    finalDb.close();
+  }
+
+  console.log('workspace api route tests passed');
+}
+
+main().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});

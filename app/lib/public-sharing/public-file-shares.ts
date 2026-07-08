@@ -8,7 +8,7 @@ import path from 'node:path';
 import { and, desc, eq, inArray, isNull, or, type SQL } from 'drizzle-orm';
 
 import { db } from '@/app/lib/db';
-import { publicFileShares } from '@/app/lib/db/schema';
+import { canvasWorkspaces, publicFileShares } from '@/app/lib/db/schema';
 import { resolveExistingWorkspacePath, validatePath } from '@/app/lib/filesystem/workspace-files';
 import { getAgentExecutionContext } from '@/app/lib/pi/agent-execution-context';
 import {
@@ -203,7 +203,19 @@ function workspaceBaseDir(): string {
 }
 
 function normalizeWorkspaceType(value: string | null | undefined): WorkspaceType | null {
-  if (value === 'personal' || value === 'team' || value === 'project') return value;
+  if (value === 'personal' || value === 'organization' || value === 'team' || value === 'project') return value;
+  return null;
+}
+
+function isSharedWorkspaceType(value: WorkspaceType | null): boolean {
+  return value === 'organization' || value === 'team' || value === 'project';
+}
+
+function workspaceDisplayNameForType(value: WorkspaceType | null): string | null {
+  if (value === 'organization') return 'Organization Workspace';
+  if (value === 'team') return 'Team Workspace';
+  if (value === 'project') return 'Project Workspace';
+  if (value === 'personal') return 'Personal Workspace';
   return null;
 }
 
@@ -262,7 +274,7 @@ function workspaceForRow(row: PublicShareRow): WorkspaceContext {
       workspaceType,
       rootPath: workspaceAbsoluteRoot(row.workspaceRootRelativePath),
       rootRelativePath: row.workspaceRootRelativePath,
-      displayName: workspaceType === 'team' ? 'Team Workspace' : 'Personal Workspace',
+      displayName: workspaceDisplayNameForType(workspaceType) ?? undefined,
       status: 'active',
       organizationId: row.organizationId,
       ownerUserId: null,
@@ -289,6 +301,35 @@ function workspaceMatches(row: PublicShareRow, workspace?: WorkspaceContext | nu
   if (!workspace) return !row.workspaceId || row.workspaceId === LEGACY_PERSONAL_WORKSPACE_ID;
   if (workspace.legacy) return !row.workspaceId || row.workspaceId === LEGACY_PERSONAL_WORKSPACE_ID;
   return row.workspaceId === workspace.workspaceId;
+}
+
+function canManageOtherWorkspaceShare(row: PublicShareRow, workspace?: WorkspaceContext | null): boolean {
+  if (!workspace || !workspaceMatches(row, workspace)) return false;
+  const workspaceType = normalizeWorkspaceType(row.workspaceType);
+  if (!isSharedWorkspaceType(workspaceType)) return false;
+  if (workspaceType === 'project') return workspace.permissions.canManageWorkspace;
+  return workspace.permissions.canCreatePublicLinks;
+}
+
+async function workspaceNamesById(rows: PublicShareRow[]): Promise<Map<string, string>> {
+  const workspaceIds = Array.from(new Set(rows
+    .map((row) => row.workspaceId)
+    .filter((workspaceId): workspaceId is string => Boolean(workspaceId && workspaceId !== LEGACY_PERSONAL_WORKSPACE_ID))));
+  if (workspaceIds.length === 0) return new Map();
+
+  const workspaces = await db
+    .select({ id: canvasWorkspaces.id, displayName: canvasWorkspaces.displayName })
+    .from(canvasWorkspaces)
+    .where(inArray(canvasWorkspaces.id, workspaceIds));
+  return new Map(workspaces.map((workspace) => [workspace.id, workspace.displayName]));
+}
+
+function workspaceNameForRow(row: PublicShareRow, workspaceNames: Map<string, string>): string | null {
+  if (row.workspaceId) {
+    const workspaceName = workspaceNames.get(row.workspaceId);
+    if (workspaceName) return workspaceName;
+  }
+  return workspaceDisplayNameForType(normalizeWorkspaceType(row.workspaceType));
 }
 
 function workspaceScopePredicate(workspace?: WorkspaceContext | null): SQL {
@@ -709,18 +750,14 @@ export async function revokePublicFileShare(params: {
   const [row] = await db.select().from(publicFileShares).where(eq(publicFileShares.id, params.id)).limit(1);
   if (!row) return null;
   const workspace = resolveOperationWorkspace(params.workspace);
-  const canManageWorkspaceShare = Boolean(
-    workspace &&
-    workspaceMatches(row, workspace) &&
-    normalizeWorkspaceType(row.workspaceType) === 'team' &&
-    workspace.permissions.canCreatePublicLinks
-  );
+  const canManageWorkspaceShare = canManageOtherWorkspaceShare(row, workspace);
   if (!params.isAdmin && row.createdByUserId !== params.userId && !canManageWorkspaceShare) {
     throw new Error('Forbidden');
   }
 
   const updated = await updateShare(row, { status: 'revoked', revokedAt: new Date(), revokedReason: 'manual' });
-  return toDto(updated, params.baseUrl, workspace?.displayName ?? null);
+  const workspaceNames = await workspaceNamesById([updated]);
+  return toDto(updated, params.baseUrl, workspaceNameForRow(updated, workspaceNames));
 }
 
 function matchesTypeFilter(row: PublicShareRow, type: PublicShareTypeFilter): boolean {
@@ -774,11 +811,7 @@ export async function listPublicFileShares(params: {
       if (workspace && !workspaceMatches(row, workspace)) return false;
       if (params.isAdmin) return true;
       if (row.createdByUserId === params.userId) return true;
-      return Boolean(
-        workspace &&
-        normalizeWorkspaceType(row.workspaceType) === 'team' &&
-        workspace.permissions.canCreatePublicLinks
-      );
+      return canManageOtherWorkspaceShare(row, workspace);
     })
     .filter((row) => pathFilter.size === 0 || pathFilter.has(row.workspacePath))
     .filter((row) => !params.status || params.status === 'all' || row.status === params.status)
@@ -788,7 +821,8 @@ export async function listPublicFileShares(params: {
     .slice(0, limit);
 
   const withShortCodes = await Promise.all(visibleRows.map(ensureShortCode));
-  return withShortCodes.map((row) => toDto(row, params.baseUrl, workspace?.displayName ?? null));
+  const workspaceNames = await workspaceNamesById(withShortCodes);
+  return withShortCodes.map((row) => toDto(row, params.baseUrl, workspaceNameForRow(row, workspaceNames)));
 }
 
 export async function getPublicShareAnnotations(
@@ -953,7 +987,7 @@ async function resolvePublicShareRow(row: PublicShareRow, options: ResolvePublic
 
   return {
     ok: true,
-    share: toDto(updated, null),
+    share: toDto(updated, null, workspace.displayName ?? null),
     row: updated,
     workspace,
     workspacePath: details.workspacePath,

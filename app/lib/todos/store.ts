@@ -3,7 +3,15 @@ import path from 'node:path';
 import { and, asc, desc, eq, inArray, ne, or, sql } from 'drizzle-orm';
 
 import { db } from '@/app/lib/db';
-import { canvasWorkspaces, organizationUserPermissions, todoCategories, todoFileLinks, todoItems, user } from '@/app/lib/db/schema';
+import {
+  canvasProjectMembers,
+  canvasWorkspaces,
+  organizationUserPermissions,
+  todoCategories,
+  todoFileLinks,
+  todoItems,
+  user,
+} from '@/app/lib/db/schema';
 import { validatePath } from '@/app/lib/filesystem/workspace-files';
 import {
   DEFAULT_TODO_CATEGORIES,
@@ -27,7 +35,7 @@ export type TodoPriority = typeof TODO_PRIORITIES[number];
 export const TODO_SOURCE_TYPES = ['user', 'agent'] as const;
 export type TodoSourceType = typeof TODO_SOURCE_TYPES[number];
 
-export const TODO_WORKSPACE_TYPES = ['personal', 'team'] as const;
+export const TODO_WORKSPACE_TYPES = ['personal', 'organization', 'team', 'project'] as const;
 export type TodoWorkspaceType = typeof TODO_WORKSPACE_TYPES[number];
 
 const TITLE_MAX_LENGTH = 180;
@@ -121,9 +129,14 @@ export type TodoUserSummary = {
 
 type TodoScope = {
   organizationId: string | null;
+  customerId: string | null;
+  projectId: string | null;
   workspaceId: string | null;
   workspaceType: TodoWorkspaceType;
 };
+
+type OrganizationPermission = typeof organizationUserPermissions.$inferSelect;
+type WorkspaceRecord = typeof canvasWorkspaces.$inferSelect;
 
 async function sendTodoCreatedEmailNotificationIfNeeded(userId: string, todo: TodoWithRelations): Promise<void> {
   if (process.env.CANVAS_DISABLE_TODO_EMAIL_NOTIFICATIONS === 'true') return;
@@ -193,15 +206,19 @@ function normalizeOptionalId(value: string | null | undefined, maxLength = 160):
 }
 
 async function isOrganizationMember(organizationId: string, userId: string): Promise<boolean> {
+  const permission = await getActiveOrganizationPermission(organizationId, userId);
+  return Boolean(permission && permission.role !== 'external');
+}
+
+async function getActiveOrganizationPermission(organizationId: string, userId: string): Promise<OrganizationPermission | null> {
   const permission = await db.query.organizationUserPermissions.findFirst({
     where: and(
       eq(organizationUserPermissions.organizationId, organizationId),
       eq(organizationUserPermissions.userId, userId),
       eq(organizationUserPermissions.status, 'active'),
-      ne(organizationUserPermissions.role, 'external'),
     ),
   });
-  return Boolean(permission);
+  return permission ?? null;
 }
 
 async function assertOrganizationMember(organizationId: string, userId: string): Promise<void> {
@@ -211,23 +228,17 @@ async function assertOrganizationMember(organizationId: string, userId: string):
 }
 
 async function isOrganizationWorkspaceWriter(organizationId: string, userId: string): Promise<boolean> {
-  const permission = await db.query.organizationUserPermissions.findFirst({
-    where: and(
-      eq(organizationUserPermissions.organizationId, organizationId),
-      eq(organizationUserPermissions.userId, userId),
-      eq(organizationUserPermissions.status, 'active'),
-      ne(organizationUserPermissions.role, 'external'),
-    ),
-  });
+  const permission = await getActiveOrganizationPermission(organizationId, userId);
   return Boolean(
     permission
+    && permission.role !== 'external'
     && (permission.role === 'owner' || permission.role === 'admin' || permission.canWriteTeamWorkspace),
   );
 }
 
 async function assertOrganizationWorkspaceWriter(organizationId: string, userId: string): Promise<void> {
   if (!(await isOrganizationWorkspaceWriter(organizationId, userId))) {
-    throw new TodoStoreError('User cannot write to this team workspace.', 'ORGANIZATION_ACCESS_DENIED');
+    throw new TodoStoreError('User cannot write to this shared workspace.', 'ORGANIZATION_ACCESS_DENIED');
   }
 }
 
@@ -237,42 +248,155 @@ async function assertAssignableUser(organizationId: string, assigneeUserId: stri
   }
 }
 
-async function assertTeamWorkspaceInOrganization(organizationId: string, workspaceId: string): Promise<void> {
+function isSharedTodoWorkspaceType(workspaceType: TodoWorkspaceType | 'all'): workspaceType is Exclude<TodoWorkspaceType, 'personal'> {
+  return workspaceType === 'organization' || workspaceType === 'team' || workspaceType === 'project';
+}
+
+function isOrganizationAdminLike(permission: OrganizationPermission | null): boolean {
+  return permission?.role === 'owner' || permission?.role === 'admin';
+}
+
+async function assertSharedWorkspaceInOrganization(
+  organizationId: string,
+  workspaceId: string,
+  expectedType?: Exclude<TodoWorkspaceType, 'personal'>,
+): Promise<WorkspaceRecord> {
   const workspace = await db.query.canvasWorkspaces.findFirst({
     where: and(
       eq(canvasWorkspaces.id, workspaceId),
       eq(canvasWorkspaces.organizationId, organizationId),
-      eq(canvasWorkspaces.type, 'team'),
+      inArray(canvasWorkspaces.type, ['organization', 'team', 'project']),
+      eq(canvasWorkspaces.status, 'active'),
     ),
   });
-  if (!workspace) {
-    throw new TodoStoreError('Team workspace not found.', 'INVALID_INPUT');
+  if (!workspace || (expectedType && workspace.type !== expectedType)) {
+    throw new TodoStoreError('Shared workspace not found.', 'INVALID_INPUT');
   }
+  return workspace;
+}
+
+async function assertProjectWorkspacePermission(
+  organizationId: string,
+  workspaceId: string,
+  userId: string,
+  options: { requireWrite?: boolean; deniedCode?: 'ORGANIZATION_ACCESS_DENIED' | 'ASSIGNEE_NOT_FOUND' } = {},
+): Promise<WorkspaceRecord> {
+  const workspace = await assertSharedWorkspaceInOrganization(organizationId, workspaceId, 'project');
+  if (!workspace.projectId) {
+    throw new TodoStoreError('Project workspace not found.', 'INVALID_INPUT');
+  }
+
+  const organizationPermission = await getActiveOrganizationPermission(organizationId, userId);
+  if (isOrganizationAdminLike(organizationPermission)) {
+    return workspace;
+  }
+
+  const membership = await db.query.canvasProjectMembers.findFirst({
+    where: and(
+      eq(canvasProjectMembers.organizationId, organizationId),
+      eq(canvasProjectMembers.projectId, workspace.projectId),
+      eq(canvasProjectMembers.userId, userId),
+      eq(canvasProjectMembers.status, 'active'),
+    ),
+  });
+  const canRead = Boolean(membership && (membership.canRead || membership.canWrite || membership.canManage));
+  const canWrite = Boolean(membership && (membership.canWrite || membership.canManage));
+  if (options.requireWrite ? canWrite : canRead) {
+    return workspace;
+  }
+
+  throw new TodoStoreError(
+    options.requireWrite ? 'User cannot write to this project workspace.' : 'User cannot read this project workspace.',
+    options.deniedCode ?? 'ORGANIZATION_ACCESS_DENIED',
+  );
+}
+
+async function canReadProjectWorkspace(organizationId: string, workspaceId: string, userId: string): Promise<boolean> {
+  try {
+    await assertProjectWorkspacePermission(organizationId, workspaceId, userId);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function listReadableProjectWorkspaceIds(organizationId: string, userId: string): Promise<string[]> {
+  const organizationPermission = await getActiveOrganizationPermission(organizationId, userId);
+  if (isOrganizationAdminLike(organizationPermission)) {
+    const rows = await db
+      .select({ workspaceId: canvasWorkspaces.id })
+      .from(canvasWorkspaces)
+      .where(and(
+        eq(canvasWorkspaces.organizationId, organizationId),
+        eq(canvasWorkspaces.type, 'project'),
+        eq(canvasWorkspaces.status, 'active'),
+      ));
+    return rows.map((row) => row.workspaceId);
+  }
+
+  const rows = await db
+    .select({ workspaceId: canvasWorkspaces.id })
+    .from(canvasWorkspaces)
+    .innerJoin(canvasProjectMembers, and(
+      eq(canvasProjectMembers.organizationId, organizationId),
+      eq(canvasProjectMembers.projectId, canvasWorkspaces.projectId),
+      eq(canvasProjectMembers.userId, userId),
+      eq(canvasProjectMembers.status, 'active'),
+    ))
+    .where(and(
+      eq(canvasWorkspaces.organizationId, organizationId),
+      eq(canvasWorkspaces.type, 'project'),
+      eq(canvasWorkspaces.status, 'active'),
+      or(
+        eq(canvasProjectMembers.canRead, true),
+        eq(canvasProjectMembers.canWrite, true),
+        eq(canvasProjectMembers.canManage, true),
+      )!,
+    ));
+  return rows.map((row) => row.workspaceId);
 }
 
 async function resolveTodoScope(userId: string, input: Pick<CreateTodoInput, 'organizationId' | 'workspaceId' | 'workspaceType'>): Promise<TodoScope> {
   const workspaceType = normalizeWorkspaceType(input.workspaceType);
   if (workspaceType === 'personal') {
-    return { organizationId: null, workspaceId: null, workspaceType };
+    return { organizationId: null, customerId: null, projectId: null, workspaceId: null, workspaceType };
   }
 
   const organizationId = normalizeOptionalId(input.organizationId);
   if (!organizationId) {
-    throw new TodoStoreError('organizationId is required for team to-dos.', 'INVALID_INPUT');
+    throw new TodoStoreError('organizationId is required for shared workspace to-dos.', 'INVALID_INPUT');
   }
-  await assertOrganizationMember(organizationId, userId);
-
   const workspaceId = normalizeOptionalId(input.workspaceId);
-  if (workspaceId) {
-    await assertTeamWorkspaceInOrganization(organizationId, workspaceId);
+  if (workspaceType === 'project' && !workspaceId) {
+    throw new TodoStoreError('workspaceId is required for project workspace to-dos.', 'INVALID_INPUT');
   }
 
-  return { organizationId, workspaceId, workspaceType };
+  if (workspaceType !== 'project') {
+    await assertOrganizationMember(organizationId, userId);
+  }
+
+  let workspace: WorkspaceRecord | null = null;
+  if (workspaceId) {
+    workspace = workspaceType === 'project'
+      ? await assertProjectWorkspacePermission(organizationId, workspaceId, userId)
+      : await assertSharedWorkspaceInOrganization(organizationId, workspaceId, workspaceType);
+  }
+
+  return {
+    organizationId,
+    customerId: workspace?.customerId ?? null,
+    projectId: workspace?.projectId ?? null,
+    workspaceId,
+    workspaceType,
+  };
 }
 
 async function canReadTodo(userId: string, todo: TodoItem): Promise<boolean> {
   const workspaceType = normalizeWorkspaceType((todo.workspaceType as TodoWorkspaceType | null) ?? 'personal');
   if (workspaceType === 'personal') return todo.userId === userId;
+  if (workspaceType === 'project') {
+    return Boolean(todo.organizationId && todo.workspaceId && await canReadProjectWorkspace(todo.organizationId, todo.workspaceId, userId));
+  }
   return Boolean(todo.organizationId && await isOrganizationMember(todo.organizationId, userId));
 }
 
@@ -292,7 +416,14 @@ async function assertCanWriteTodo(userId: string, todo: TodoItem): Promise<void>
   }
 
   if (!todo.organizationId) {
-    throw new TodoStoreError('Team todo is missing organization scope.', 'INVALID_INPUT');
+    throw new TodoStoreError('Shared workspace todo is missing organization scope.', 'INVALID_INPUT');
+  }
+  if (workspaceType === 'project') {
+    if (!todo.workspaceId) {
+      throw new TodoStoreError('Project workspace todo is missing workspace scope.', 'INVALID_INPUT');
+    }
+    await assertProjectWorkspacePermission(todo.organizationId, todo.workspaceId, userId, { requireWrite: true });
+    return;
   }
   await assertOrganizationWorkspaceWriter(todo.organizationId, userId);
 }
@@ -505,6 +636,8 @@ async function replaceFileLinks(
       todoId,
       userId,
       organizationId: scope.organizationId,
+      customerId: scope.customerId,
+      projectId: scope.projectId,
       workspaceId: scope.workspaceId,
       workspaceType: scope.workspaceType,
       workspacePath: link.workspacePath,
@@ -518,7 +651,15 @@ export async function createTodo(userId: string, input: CreateTodoInput): Promis
   const now = new Date();
   const scope = await resolveTodoScope(userId, input);
   const assigneeUserId = normalizeOptionalId(input.assigneeUserId);
-  if (scope.workspaceType === 'team') {
+  if (scope.workspaceType === 'project') {
+    if (!scope.workspaceId) {
+      throw new TodoStoreError('workspaceId is required for project workspace to-dos.', 'INVALID_INPUT');
+    }
+    await assertProjectWorkspacePermission(scope.organizationId!, scope.workspaceId, userId, { requireWrite: true });
+    if (assigneeUserId) {
+      await assertProjectWorkspacePermission(scope.organizationId!, scope.workspaceId, assigneeUserId, { deniedCode: 'ASSIGNEE_NOT_FOUND' });
+    }
+  } else if (isSharedTodoWorkspaceType(scope.workspaceType)) {
     await assertOrganizationWorkspaceWriter(scope.organizationId!, userId);
     if (assigneeUserId) {
       await assertAssignableUser(scope.organizationId!, assigneeUserId);
@@ -534,6 +675,8 @@ export async function createTodo(userId: string, input: CreateTodoInput): Promis
     createdByUserId: userId,
     assigneeUserId: assigneeUserId || null,
     organizationId: scope.organizationId,
+    customerId: scope.customerId,
+    projectId: scope.projectId,
     workspaceId: scope.workspaceId,
     workspaceType: scope.workspaceType,
     categoryId,
@@ -620,25 +763,49 @@ export async function listTodos(userId: string, options: ListTodosOptions = {}):
   const workspaceType = options.workspaceType || 'personal';
   const conditions = [];
 
-  if (workspaceType === 'team') {
+  if (isSharedTodoWorkspaceType(workspaceType)) {
     const organizationId = normalizeOptionalId(options.organizationId);
     if (!organizationId) {
-      throw new TodoStoreError('organizationId is required for team to-dos.', 'INVALID_INPUT');
+      throw new TodoStoreError('organizationId is required for shared workspace to-dos.', 'INVALID_INPUT');
     }
-    await assertOrganizationMember(organizationId, userId);
-    conditions.push(eq(todoItems.organizationId, organizationId), eq(todoItems.workspaceType, 'team'));
+    if (workspaceType !== 'project') {
+      await assertOrganizationMember(organizationId, userId);
+    }
+    conditions.push(eq(todoItems.organizationId, organizationId), eq(todoItems.workspaceType, workspaceType));
     const workspaceId = normalizeOptionalId(options.workspaceId);
-    if (workspaceId) {
-      await assertTeamWorkspaceInOrganization(organizationId, workspaceId);
+    if (workspaceType === 'project') {
+      if (!workspaceId) {
+        throw new TodoStoreError('workspaceId is required for project workspace to-dos.', 'INVALID_INPUT');
+      }
+      await assertProjectWorkspacePermission(organizationId, workspaceId, userId);
+      conditions.push(eq(todoItems.workspaceId, workspaceId));
+    } else if (workspaceId) {
+      await assertSharedWorkspaceInOrganization(organizationId, workspaceId, workspaceType);
       conditions.push(eq(todoItems.workspaceId, workspaceId));
     }
   } else if (workspaceType === 'all') {
     const organizationId = normalizeOptionalId(options.organizationId);
-    if (organizationId && await isOrganizationMember(organizationId, userId)) {
-      conditions.push(or(
-        and(eq(todoItems.userId, userId), eq(todoItems.workspaceType, 'personal')),
-        and(eq(todoItems.organizationId, organizationId), eq(todoItems.workspaceType, 'team')),
-      )!);
+    const readableProjectWorkspaceIds = organizationId
+      ? await listReadableProjectWorkspaceIds(organizationId, userId)
+      : [];
+    if (organizationId && (await isOrganizationMember(organizationId, userId) || readableProjectWorkspaceIds.length > 0)) {
+      const workspaceConditions = [
+        and(eq(todoItems.userId, userId), eq(todoItems.workspaceType, 'personal'))!,
+      ];
+      if (await isOrganizationMember(organizationId, userId)) {
+        workspaceConditions.push(
+          and(eq(todoItems.organizationId, organizationId), eq(todoItems.workspaceType, 'organization'))!,
+          and(eq(todoItems.organizationId, organizationId), eq(todoItems.workspaceType, 'team'))!,
+        );
+      }
+      if (readableProjectWorkspaceIds.length > 0) {
+        workspaceConditions.push(and(
+          eq(todoItems.organizationId, organizationId),
+          eq(todoItems.workspaceType, 'project'),
+          inArray(todoItems.workspaceId, readableProjectWorkspaceIds),
+        )!);
+      }
+      conditions.push(or(...workspaceConditions)!);
     } else {
       conditions.push(eq(todoItems.userId, userId), eq(todoItems.workspaceType, 'personal'));
     }
@@ -733,8 +900,13 @@ export async function updateTodo(userId: string, todoId: string, input: UpdateTo
   if (input.assigneeUserId !== undefined) {
     const assigneeUserId = normalizeOptionalId(input.assigneeUserId);
     const workspaceType = normalizeWorkspaceType((current.workspaceType as TodoWorkspaceType | null) ?? 'personal');
-    if (workspaceType === 'team' && assigneeUserId) {
-      if (!current.organizationId) throw new TodoStoreError('Team todo is missing organization scope.', 'INVALID_INPUT');
+    if (workspaceType === 'project' && assigneeUserId) {
+      if (!current.organizationId || !current.workspaceId) {
+        throw new TodoStoreError('Project workspace todo is missing workspace scope.', 'INVALID_INPUT');
+      }
+      await assertProjectWorkspacePermission(current.organizationId, current.workspaceId, assigneeUserId, { deniedCode: 'ASSIGNEE_NOT_FOUND' });
+    } else if (isSharedTodoWorkspaceType(workspaceType) && assigneeUserId) {
+      if (!current.organizationId) throw new TodoStoreError('Shared workspace todo is missing organization scope.', 'INVALID_INPUT');
       await assertAssignableUser(current.organizationId, assigneeUserId);
     } else if (workspaceType === 'personal' && assigneeUserId && assigneeUserId !== userId) {
       throw new TodoStoreError('Personal to-dos can only be assigned to the current user.', 'ASSIGNEE_NOT_FOUND');
@@ -763,6 +935,8 @@ export async function updateTodo(userId: string, todoId: string, input: UpdateTo
   if (input.fileLinks !== undefined) {
     await replaceFileLinks(todoId, current.userId, {
       organizationId: current.organizationId,
+      customerId: current.customerId,
+      projectId: current.projectId,
       workspaceId: current.workspaceId,
       workspaceType: normalizeWorkspaceType((current.workspaceType as TodoWorkspaceType | null) ?? 'personal'),
     }, normalizeFileLinks(input.fileLinks), now);

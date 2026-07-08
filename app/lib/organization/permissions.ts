@@ -4,6 +4,8 @@ import { NextResponse } from 'next/server';
 
 import { isAdminUser, type AdminUserCandidate } from '@/app/lib/admin-auth';
 import { auth } from '@/app/lib/auth';
+import { isBootstrapAdminEmail } from '@/app/lib/bootstrap-admin';
+import { openDb } from '@/app/lib/db';
 import { getDatabaseProvider } from '@/app/lib/db/provider';
 import {
   getOrganizationPermissionForUser,
@@ -17,6 +19,33 @@ import {
 } from '@/app/lib/workspaces/postgres-runtime';
 
 export type OrganizationPermissionKey = Exclude<keyof OrganizationPermissionSnapshot, 'role' | 'status'>;
+
+export const ORGANIZATION_PERMISSION_KEYS = [
+  'canWriteTeamWorkspace',
+  'canCreatePublicLinks',
+  'canCreateTeamAutomations',
+  'canSharePluginsAndSkills',
+  'canExport',
+  'canDeleteTeamFiles',
+  'canDeleteStudioAssets',
+  'canManageBackups',
+  'canMigrateDatabase',
+  'canEnableKnowledge',
+  'canRecoverWorkspaces',
+] as const satisfies readonly OrganizationPermissionKey[];
+
+export type OrganizationPermissionPatch = Partial<Record<OrganizationPermissionKey, boolean>>;
+
+export type OrganizationPermissionUserDetails = {
+  organizationId: string;
+  userId: string;
+  name: string | null;
+  email: string | null;
+  role: OrganizationPermissionSnapshot['role'];
+  status: OrganizationPermissionSnapshot['status'];
+  permissions: Record<OrganizationPermissionKey, boolean>;
+  updatedAt: number | null;
+};
 
 export type OrganizationPermissionGuardResult =
   | {
@@ -37,6 +66,61 @@ type PermissionGuardOptions = {
 
 type PermissionUserCandidate = AdminUserCandidate & {
   id?: string | null;
+};
+
+type PermissionDatabase = {
+  get: (sql: string, params?: unknown[]) => unknown | Promise<unknown>;
+  run: (sql: string, params?: unknown[]) => unknown | Promise<unknown>;
+  all: (sql: string, params?: unknown[]) => unknown[] | Promise<unknown[]>;
+  close?: () => void | Promise<void>;
+};
+
+type OrganizationRow = {
+  organization_id: string;
+  owner_user_id: string;
+};
+
+type PermissionDetailsRow = {
+  organization_id: string;
+  user_id: string;
+  name: string | null;
+  email: string | null;
+  role: string | null;
+  status: string | null;
+  can_write_team_workspace: number | boolean | null;
+  can_create_public_links: number | boolean | null;
+  can_create_team_automations: number | boolean | null;
+  can_share_plugins_and_skills: number | boolean | null;
+  can_export: number | boolean | null;
+  can_delete_team_files: number | boolean | null;
+  can_delete_studio_assets: number | boolean | null;
+  can_manage_backups: number | boolean | null;
+  can_migrate_database: number | boolean | null;
+  can_enable_knowledge: number | boolean | null;
+  can_recover_workspaces: number | boolean | null;
+  updated_at: number | null;
+};
+
+type PermissionUserRow = {
+  id: string;
+  name: string | null;
+  email: string | null;
+  role: string | null;
+  banned?: number | boolean | null;
+};
+
+const PERMISSION_COLUMNS: Record<OrganizationPermissionKey, string> = {
+  canWriteTeamWorkspace: 'can_write_team_workspace',
+  canCreatePublicLinks: 'can_create_public_links',
+  canCreateTeamAutomations: 'can_create_team_automations',
+  canSharePluginsAndSkills: 'can_share_plugins_and_skills',
+  canExport: 'can_export',
+  canDeleteTeamFiles: 'can_delete_team_files',
+  canDeleteStudioAssets: 'can_delete_studio_assets',
+  canManageBackups: 'can_manage_backups',
+  canMigrateDatabase: 'can_migrate_database',
+  canEnableKnowledge: 'can_enable_knowledge',
+  canRecoverWorkspaces: 'can_recover_workspaces',
 };
 
 const LEGACY_ADMIN_PERMISSION: OrganizationPermissionSnapshot = {
@@ -65,6 +149,17 @@ export class OrganizationPermissionError extends Error {
   ) {
     super(message);
     this.name = 'OrganizationPermissionError';
+  }
+}
+
+export class OrganizationPermissionMutationError extends Error {
+  constructor(
+    public readonly code: string,
+    message: string,
+    public readonly status = 400,
+  ) {
+    super(message);
+    this.name = 'OrganizationPermissionMutationError';
   }
 }
 
@@ -208,4 +303,479 @@ export async function requireOrganizationPermission(
 
 export function isOrganizationAdminLike(permission: OrganizationPermissionSnapshot | null | undefined): boolean {
   return permission?.status === 'active' && (permission?.role === 'owner' || permission?.role === 'admin');
+}
+
+function booleanFromDb(value: unknown): boolean {
+  return value === true || value === 1 || value === '1';
+}
+
+function normalizeOrganizationRole(role: unknown): OrganizationPermissionSnapshot['role'] {
+  if (role === 'owner' || role === 'admin' || role === 'external') return role;
+  return 'member';
+}
+
+function normalizeOrganizationStatus(status: unknown): OrganizationPermissionSnapshot['status'] {
+  if (status === 'disabled' || status === 'archived' || status === 'recovery_locked') return status;
+  return 'active';
+}
+
+function permissionDefaults(role: OrganizationPermissionSnapshot['role']): OrganizationPermissionSnapshot {
+  const isAdminLikeRole = role === 'owner' || role === 'admin';
+  const isInternal = role !== 'external';
+  return {
+    role,
+    status: 'active',
+    canWriteTeamWorkspace: isAdminLikeRole,
+    canCreatePublicLinks: isInternal,
+    canCreateTeamAutomations: isAdminLikeRole,
+    canSharePluginsAndSkills: isAdminLikeRole,
+    canExport: isAdminLikeRole,
+    canDeleteTeamFiles: isAdminLikeRole,
+    canDeleteStudioAssets: isInternal,
+    canManageBackups: isAdminLikeRole,
+    canMigrateDatabase: isAdminLikeRole,
+    canEnableKnowledge: isAdminLikeRole,
+    canRecoverWorkspaces: isAdminLikeRole,
+  };
+}
+
+function snapshotPermissions(snapshot: OrganizationPermissionSnapshot): Record<OrganizationPermissionKey, boolean> {
+  return ORGANIZATION_PERMISSION_KEYS.reduce((permissions, key) => {
+    permissions[key] = snapshot[key] === true;
+    return permissions;
+  }, {} as Record<OrganizationPermissionKey, boolean>);
+}
+
+function detailsFromRow(row: PermissionDetailsRow): OrganizationPermissionUserDetails {
+  const status = normalizeOrganizationStatus(row.status);
+  const enabled = status === 'active';
+  const snapshot: OrganizationPermissionSnapshot = {
+    role: normalizeOrganizationRole(row.role),
+    status,
+    canWriteTeamWorkspace: enabled && booleanFromDb(row.can_write_team_workspace),
+    canCreatePublicLinks: enabled && booleanFromDb(row.can_create_public_links),
+    canCreateTeamAutomations: enabled && booleanFromDb(row.can_create_team_automations),
+    canSharePluginsAndSkills: enabled && booleanFromDb(row.can_share_plugins_and_skills),
+    canExport: enabled && booleanFromDb(row.can_export),
+    canDeleteTeamFiles: enabled && booleanFromDb(row.can_delete_team_files),
+    canDeleteStudioAssets: enabled && booleanFromDb(row.can_delete_studio_assets),
+    canManageBackups: enabled && booleanFromDb(row.can_manage_backups),
+    canMigrateDatabase: enabled && booleanFromDb(row.can_migrate_database),
+    canEnableKnowledge: enabled && booleanFromDb(row.can_enable_knowledge),
+    canRecoverWorkspaces: enabled && booleanFromDb(row.can_recover_workspaces),
+  };
+
+  return {
+    organizationId: row.organization_id,
+    userId: row.user_id,
+    name: row.name,
+    email: row.email,
+    role: snapshot.role,
+    status: snapshot.status,
+    permissions: snapshotPermissions(snapshot),
+    updatedAt: typeof row.updated_at === 'number' ? row.updated_at : null,
+  };
+}
+
+async function getPrimaryOrganization(database: PermissionDatabase): Promise<OrganizationRow> {
+  const organization = await database.get(`
+    SELECT organization_id, owner_user_id
+    FROM canvas_organization_settings
+    ORDER BY created_at ASC
+    LIMIT 1
+  `) as OrganizationRow | undefined;
+
+  if (!organization) {
+    throw new OrganizationPermissionMutationError(
+      'ORGANIZATION_NOT_CONFIGURED',
+      'Organization bootstrap has not been configured.',
+      404,
+    );
+  }
+
+  return organization;
+}
+
+async function getPermissionUser(database: PermissionDatabase, userId: string): Promise<PermissionUserRow> {
+  const user = await database.get(`
+    SELECT id, name, email, role, banned
+    FROM user
+    WHERE id = ?
+    LIMIT 1
+  `, [userId]) as PermissionUserRow | undefined;
+
+  if (!user) {
+    throw new OrganizationPermissionMutationError('USER_NOT_FOUND', 'User not found.', 404);
+  }
+
+  return user;
+}
+
+async function getPermissionDetails(
+  database: PermissionDatabase,
+  organizationId: string,
+  userId: string,
+): Promise<OrganizationPermissionUserDetails> {
+  const row = await database.get(`
+    SELECT
+      p.user_id,
+      p.organization_id,
+      u.name,
+      u.email,
+      p.role,
+      p.status,
+      p.can_write_team_workspace,
+      p.can_create_public_links,
+      p.can_create_team_automations,
+      p.can_share_plugins_and_skills,
+      p.can_export,
+      p.can_delete_team_files,
+      p.can_delete_studio_assets,
+      p.can_manage_backups,
+      p.can_migrate_database,
+      p.can_enable_knowledge,
+      p.can_recover_workspaces,
+      p.updated_at
+    FROM organization_user_permissions p
+    INNER JOIN user u ON u.id = p.user_id
+    WHERE p.organization_id = ? AND p.user_id = ?
+    LIMIT 1
+  `, [organizationId, userId]) as PermissionDetailsRow | undefined;
+
+  if (!row) {
+    throw new OrganizationPermissionMutationError('USER_NOT_FOUND', 'User permission row not found.', 404);
+  }
+
+  return detailsFromRow(row);
+}
+
+async function ensurePermissionDetails(
+  database: PermissionDatabase,
+  organization: OrganizationRow,
+  user: PermissionUserRow,
+): Promise<OrganizationPermissionUserDetails> {
+  const existing = await database.get(`
+    SELECT user_id
+    FROM organization_user_permissions
+    WHERE organization_id = ? AND user_id = ?
+    LIMIT 1
+  `, [organization.organization_id, user.id]) as { user_id: string } | undefined;
+
+  if (!existing) {
+    const defaultRole = organization.owner_user_id === user.id
+      ? 'owner'
+      : isAdminUser(user) ? 'admin' : 'member';
+    const defaults = permissionDefaults(defaultRole);
+    const now = Date.now();
+    await database.run(`
+      INSERT INTO organization_user_permissions (
+        organization_id, user_id, role, status,
+        can_write_team_workspace, can_create_public_links, can_create_team_automations,
+        can_share_plugins_and_skills, can_export, can_delete_team_files, can_delete_studio_assets,
+        can_manage_backups, can_migrate_database, can_enable_knowledge, can_recover_workspaces,
+        created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `, [
+      organization.organization_id,
+      user.id,
+      defaults.role,
+      defaults.status,
+      defaults.canWriteTeamWorkspace ? 1 : 0,
+      defaults.canCreatePublicLinks ? 1 : 0,
+      defaults.canCreateTeamAutomations ? 1 : 0,
+      defaults.canSharePluginsAndSkills ? 1 : 0,
+      defaults.canExport ? 1 : 0,
+      defaults.canDeleteTeamFiles ? 1 : 0,
+      defaults.canDeleteStudioAssets ? 1 : 0,
+      defaults.canManageBackups ? 1 : 0,
+      defaults.canMigrateDatabase ? 1 : 0,
+      defaults.canEnableKnowledge ? 1 : 0,
+      defaults.canRecoverWorkspaces ? 1 : 0,
+      now,
+      now,
+    ]);
+  }
+
+  return getPermissionDetails(database, organization.organization_id, user.id);
+}
+
+function assertActorCanMutate(actor: OrganizationPermissionUserDetails): void {
+  if (actor.status !== 'active' || (actor.role !== 'owner' && actor.role !== 'admin')) {
+    throw new OrganizationPermissionMutationError(
+      'ORGANIZATION_PERMISSION_DENIED',
+      'Only organization owners or administrators can manage permissions.',
+      403,
+    );
+  }
+}
+
+function assertTargetActive(target: OrganizationPermissionUserDetails): void {
+  if (target.status !== 'active') {
+    throw new OrganizationPermissionMutationError('USER_ARCHIVED', 'Archived users cannot be modified.', 409);
+  }
+}
+
+function assertDelegatedPermissions(
+  actor: OrganizationPermissionUserDetails,
+  patch: OrganizationPermissionPatch,
+): void {
+  if (actor.role === 'owner') return;
+
+  for (const key of ORGANIZATION_PERMISSION_KEYS) {
+    if (patch[key] === true && actor.permissions[key] !== true) {
+      throw new OrganizationPermissionMutationError(
+        'PERMISSION_NOT_OWNED',
+        `Cannot grant permission not owned by actor: ${key}`,
+        403,
+      );
+    }
+  }
+}
+
+function assertBootstrapAdminPermissionPatch(target: OrganizationPermissionUserDetails, patch: OrganizationPermissionPatch): void {
+  if (!isBootstrapAdminEmail(target.email)) return;
+
+  for (const key of ORGANIZATION_PERMISSION_KEYS) {
+    if (patch[key] === false) {
+      throw new OrganizationPermissionMutationError(
+        'BOOTSTRAP_ADMIN_LOCKED',
+        'The bootstrap admin cannot be downgraded.',
+        409,
+      );
+    }
+  }
+}
+
+function assertExternalPermissionPatch(targetRole: OrganizationPermissionSnapshot['role'], patch: OrganizationPermissionPatch): void {
+  if (targetRole !== 'external') return;
+
+  for (const key of ORGANIZATION_PERMISSION_KEYS) {
+    if (patch[key] === true) {
+      throw new OrganizationPermissionMutationError(
+        'EXTERNAL_NO_ORG_PERMISSIONS',
+        'External users cannot receive organization permissions.',
+        409,
+      );
+    }
+  }
+}
+
+async function assertAnotherAdminLikeExists(
+  database: PermissionDatabase,
+  organizationId: string,
+  targetUserId: string,
+): Promise<void> {
+  const row = await database.get(`
+    SELECT COUNT(*) AS count
+    FROM organization_user_permissions
+    WHERE organization_id = ?
+      AND user_id <> ?
+      AND status = 'active'
+      AND role IN ('owner', 'admin')
+  `, [organizationId, targetUserId]) as { count: number | string } | undefined;
+  const count = typeof row?.count === 'number' ? row.count : Number(row?.count || 0);
+  if (count < 1) {
+    throw new OrganizationPermissionMutationError(
+      'LAST_ADMIN_USER',
+      'The last admin-capable user cannot be downgraded.',
+      409,
+    );
+  }
+}
+
+async function withPermissionDatabase<T>(operation: (database: PermissionDatabase) => Promise<T>): Promise<T> {
+  const database = await openDb();
+  try {
+    return await operation(database);
+  } finally {
+    await database.close?.();
+  }
+}
+
+function changesFromRunResult(result: unknown): number {
+  if (result && typeof result === 'object' && 'changes' in result) {
+    return Number((result as { changes?: unknown }).changes || 0);
+  }
+  return 0;
+}
+
+export async function revokeOrganizationPermissionSessions(targetUserId: string): Promise<number> {
+  return withPermissionDatabase(async (database) => {
+    const result = await database.run('DELETE FROM session WHERE user_id = ?', [targetUserId]);
+    return changesFromRunResult(result);
+  });
+}
+
+export async function getOrganizationUserPermissionDetails(
+  targetUserId: string,
+  actorUserId?: string,
+): Promise<OrganizationPermissionUserDetails> {
+  return withPermissionDatabase(async (database) => {
+    const organization = await getPrimaryOrganization(database);
+    const targetUser = await getPermissionUser(database, targetUserId);
+    const target = await ensurePermissionDetails(database, organization, targetUser);
+
+    if (actorUserId && actorUserId !== targetUserId) {
+      const actorUser = await getPermissionUser(database, actorUserId);
+      const actor = await ensurePermissionDetails(database, organization, actorUser);
+      assertActorCanMutate(actor);
+    }
+
+    return target;
+  });
+}
+
+export async function updateOrganizationPermissions(params: {
+  actorUserId: string;
+  targetUserId: string;
+  permissions: OrganizationPermissionPatch;
+}): Promise<OrganizationPermissionUserDetails> {
+  return withPermissionDatabase(async (database) => {
+    await database.run('BEGIN');
+    try {
+      const organization = await getPrimaryOrganization(database);
+      const actorUser = await getPermissionUser(database, params.actorUserId);
+      const targetUser = await getPermissionUser(database, params.targetUserId);
+      const actor = await ensurePermissionDetails(database, organization, actorUser);
+      const target = await ensurePermissionDetails(database, organization, targetUser);
+
+      assertActorCanMutate(actor);
+      assertTargetActive(target);
+      assertDelegatedPermissions(actor, params.permissions);
+      assertBootstrapAdminPermissionPatch(target, params.permissions);
+      assertExternalPermissionPatch(target.role, params.permissions);
+
+      if (target.role === 'owner') {
+        assertBootstrapAdminPermissionPatch(target, params.permissions);
+        for (const key of ORGANIZATION_PERMISSION_KEYS) {
+          if (params.permissions[key] === false) {
+            throw new OrganizationPermissionMutationError('LAST_OWNER', 'The owner cannot be downgraded.', 409);
+          }
+        }
+      }
+
+      const changedKeys = ORGANIZATION_PERMISSION_KEYS.filter((key) => typeof params.permissions[key] === 'boolean');
+      if (changedKeys.length > 0) {
+        const assignments = changedKeys.map((key) => `${PERMISSION_COLUMNS[key]} = ?`).join(', ');
+        await database.run(`
+          UPDATE organization_user_permissions
+          SET ${assignments}, updated_at = ?
+          WHERE organization_id = ? AND user_id = ?
+        `, [
+          ...changedKeys.map((key) => params.permissions[key] === true ? 1 : 0),
+          Date.now(),
+          organization.organization_id,
+          params.targetUserId,
+        ]);
+      }
+
+      const updated = await getPermissionDetails(database, organization.organization_id, params.targetUserId);
+      await database.run('COMMIT');
+      return updated;
+    } catch (error) {
+      try {
+        await database.run('ROLLBACK');
+      } catch {
+        // Preserve the original mutation error.
+      }
+      throw error;
+    }
+  });
+}
+
+export async function updateOrganizationRole(params: {
+  actorUserId: string;
+  targetUserId: string;
+  role: Exclude<OrganizationPermissionSnapshot['role'], 'owner'>;
+  externalUsersEnabled?: boolean;
+}): Promise<OrganizationPermissionUserDetails> {
+  return withPermissionDatabase(async (database) => {
+    await database.run('BEGIN');
+    try {
+      const organization = await getPrimaryOrganization(database);
+      const actorUser = await getPermissionUser(database, params.actorUserId);
+      const targetUser = await getPermissionUser(database, params.targetUserId);
+      const actor = await ensurePermissionDetails(database, organization, actorUser);
+      const target = await ensurePermissionDetails(database, organization, targetUser);
+      const role = params.role;
+
+      assertActorCanMutate(actor);
+      assertTargetActive(target);
+
+      if (role === 'external' && !params.externalUsersEnabled) {
+        throw new OrganizationPermissionMutationError(
+          'EXTERNAL_USERS_DISABLED',
+          'External users are not enabled.',
+          403,
+        );
+      }
+      if (target.role === 'owner') {
+        throw new OrganizationPermissionMutationError('LAST_OWNER', 'The owner cannot be downgraded.', 409);
+      }
+      if (params.actorUserId === params.targetUserId && target.role === 'admin' && role !== 'admin') {
+        throw new OrganizationPermissionMutationError('SELF_DOWNGRADE', 'You cannot downgrade yourself.', 409);
+      }
+      if (isBootstrapAdminEmail(target.email) && role !== 'admin') {
+        throw new OrganizationPermissionMutationError(
+          'BOOTSTRAP_ADMIN_LOCKED',
+          'The bootstrap admin cannot be downgraded.',
+          409,
+        );
+      }
+      if (target.role === 'admin' && role !== 'admin') {
+        await assertAnotherAdminLikeExists(database, organization.organization_id, params.targetUserId);
+      }
+
+      const defaults = permissionDefaults(role);
+      const now = Date.now();
+      await database.run(`
+        UPDATE organization_user_permissions
+        SET role = ?,
+          can_write_team_workspace = ?,
+          can_create_public_links = ?,
+          can_create_team_automations = ?,
+          can_share_plugins_and_skills = ?,
+          can_export = ?,
+          can_delete_team_files = ?,
+          can_delete_studio_assets = ?,
+          can_manage_backups = ?,
+          can_migrate_database = ?,
+          can_enable_knowledge = ?,
+          can_recover_workspaces = ?,
+          updated_at = ?
+        WHERE organization_id = ? AND user_id = ?
+      `, [
+        role,
+        defaults.canWriteTeamWorkspace ? 1 : 0,
+        defaults.canCreatePublicLinks ? 1 : 0,
+        defaults.canCreateTeamAutomations ? 1 : 0,
+        defaults.canSharePluginsAndSkills ? 1 : 0,
+        defaults.canExport ? 1 : 0,
+        defaults.canDeleteTeamFiles ? 1 : 0,
+        defaults.canDeleteStudioAssets ? 1 : 0,
+        defaults.canManageBackups ? 1 : 0,
+        defaults.canMigrateDatabase ? 1 : 0,
+        defaults.canEnableKnowledge ? 1 : 0,
+        defaults.canRecoverWorkspaces ? 1 : 0,
+        now,
+        organization.organization_id,
+        params.targetUserId,
+      ]);
+      await database.run(
+        'UPDATE user SET role = ?, updated_at = ? WHERE id = ?',
+        [role === 'admin' ? 'admin' : 'user', now, params.targetUserId],
+      );
+
+      const updated = await getPermissionDetails(database, organization.organization_id, params.targetUserId);
+      await database.run('COMMIT');
+      return updated;
+    } catch (error) {
+      try {
+        await database.run('ROLLBACK');
+      } catch {
+        // Preserve the original mutation error.
+      }
+      throw error;
+    }
+  });
 }
