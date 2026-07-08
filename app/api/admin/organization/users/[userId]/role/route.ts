@@ -1,9 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+import { recordAuditEvent } from '@/app/lib/audit/audit-service';
 import { auth } from '@/app/lib/auth';
 import { areExternalUsersEnabled } from '@/app/lib/organization/features';
 import {
+  getOrganizationUserPermissionDetails,
   OrganizationPermissionMutationError,
+  revokeOrganizationPermissionSessions,
   updateOrganizationRole,
 } from '@/app/lib/organization/permissions';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
@@ -58,16 +61,44 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       );
     }
 
+    const before = await getOrganizationUserPermissionDetails(userId, session.user.id);
+    const externalUsersEnabled = areExternalUsersEnabled();
     const user = await updateOrganizationRole({
       actorUserId: session.user.id,
       targetUserId: userId,
       role,
-      externalUsersEnabled: areExternalUsersEnabled(),
+      externalUsersEnabled,
     });
+    const changedPermissions = Object.keys(user.permissions).filter((key) => {
+      const permissionKey = key as keyof typeof user.permissions;
+      return before.permissions[permissionKey] !== user.permissions[permissionKey];
+    });
+    const sessionsRevoked = userId === session.user.id ? 0 : await revokeOrganizationPermissionSessions(userId);
+
+    await recordAuditEvent({
+      organizationId: user.organizationId,
+      userId: session.user.id,
+      source: 'admin',
+      eventType: 'admin',
+      entityType: 'user',
+      entityId: userId,
+      action: 'organization.role.update',
+      status: 'success',
+      summary: `Organization role updated for ${userId}.`,
+      metadata: {
+        targetUserId: userId,
+        beforeRole: before.role,
+        afterRole: user.role,
+        changedPermissions,
+        sessionsRevoked,
+      },
+    });
+
     return NextResponse.json({
       success: true,
       user,
-      externalUsersEnabled: areExternalUsersEnabled(),
+      externalUsersEnabled,
+      sessionsRevoked,
     });
   } catch (error) {
     return errorResponse(error);

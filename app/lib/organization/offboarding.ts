@@ -72,12 +72,22 @@ export type OffboardingPreflight = {
     openCreatedTodos: number;
     activePublicShares: number;
     studioGenerations: number;
+    personalWorkspaces: number;
+    teamWorkspaceMemberships: number;
+    projectWorkspaceMemberships: number;
+    teamWorkspaceManagerBlocks: number;
+    projectWorkspaceManagerBlocks: number;
   };
   personalWorkspace: {
     id: string;
     status: string;
     rootRelativePath: string;
   } | null;
+  personalWorkspaces: Array<{
+    id: string;
+    status: string;
+    rootRelativePath: string;
+  }>;
   scopedStorage: {
     userSettings: boolean;
     userSecrets: boolean;
@@ -115,6 +125,11 @@ type PersonalWorkspaceRow = {
   id: string;
   status: string;
   root_relative_path: string;
+};
+
+type WorkspaceBlockerRow = {
+  id: string;
+  display_name: string | null;
 };
 
 export class OffboardingError extends Error {
@@ -182,14 +197,63 @@ function getTargetUser(sqlite: Sqlite, organizationId: string, targetUserId: str
   return target;
 }
 
-function getPersonalWorkspace(sqlite: Sqlite, targetUserId: string): PersonalWorkspaceRow | null {
+function getPersonalWorkspaces(sqlite: Sqlite, targetUserId: string): PersonalWorkspaceRow[] {
   return sqlite.prepare(`
     SELECT id, status, root_relative_path
     FROM canvas_workspaces
     WHERE owner_user_id = ?
       AND type = 'personal'
-    LIMIT 1
-  `).get(targetUserId) as PersonalWorkspaceRow | undefined || null;
+    ORDER BY is_default DESC, created_at ASC
+  `).all(targetUserId) as PersonalWorkspaceRow[];
+}
+
+function getLastManagedTeamWorkspaces(sqlite: Sqlite, organizationId: string, targetUserId: string): WorkspaceBlockerRow[] {
+  return sqlite.prepare(`
+    SELECT w.id, w.display_name
+    FROM canvas_workspace_members m
+    INNER JOIN canvas_workspaces w
+      ON w.id = m.workspace_id
+      AND w.organization_id = m.organization_id
+      AND w.type = 'team'
+      AND COALESCE(w.status, 'active') = 'active'
+    WHERE m.organization_id = ?
+      AND m.user_id = ?
+      AND COALESCE(m.status, 'active') = 'active'
+      AND m.can_manage = 1
+      AND (
+        SELECT COUNT(*)
+        FROM canvas_workspace_members other
+        WHERE other.workspace_id = m.workspace_id
+          AND COALESCE(other.status, 'active') = 'active'
+          AND other.can_manage = 1
+      ) <= 1
+    ORDER BY lower(COALESCE(w.display_name, w.id)) ASC
+  `).all(organizationId, targetUserId) as WorkspaceBlockerRow[];
+}
+
+function getLastManagedProjectWorkspaces(sqlite: Sqlite, organizationId: string, targetUserId: string): WorkspaceBlockerRow[] {
+  return sqlite.prepare(`
+    SELECT w.id, w.display_name
+    FROM canvas_project_members m
+    INNER JOIN canvas_workspaces w
+      ON w.organization_id = m.organization_id
+      AND w.project_id = m.project_id
+      AND w.type = 'project'
+      AND COALESCE(w.status, 'active') = 'active'
+    WHERE m.organization_id = ?
+      AND m.user_id = ?
+      AND COALESCE(m.status, 'active') = 'active'
+      AND m.can_manage = 1
+      AND (
+        SELECT COUNT(*)
+        FROM canvas_project_members other
+        WHERE other.organization_id = m.organization_id
+          AND other.project_id = m.project_id
+          AND COALESCE(other.status, 'active') = 'active'
+          AND other.can_manage = 1
+      ) <= 1
+    ORDER BY lower(COALESCE(w.display_name, w.id)) ASC
+  `).all(organizationId, targetUserId) as WorkspaceBlockerRow[];
 }
 
 async function getScopedStorageState(targetUserId: string): Promise<OffboardingPreflight['scopedStorage']> {
@@ -254,7 +318,10 @@ function buildPreflightFromScopedStorage(
 ): OffboardingPreflight {
   const organization = getOrganization(sqlite);
   const target = getTargetUser(sqlite, organization.organization_id, targetUserId);
-  const personalWorkspace = getPersonalWorkspace(sqlite, targetUserId);
+  const personalWorkspaces = getPersonalWorkspaces(sqlite, targetUserId);
+  const personalWorkspace = personalWorkspaces[0] ?? null;
+  const lastManagedTeamWorkspaces = getLastManagedTeamWorkspaces(sqlite, organization.organization_id, targetUserId);
+  const lastManagedProjectWorkspaces = getLastManagedProjectWorkspaces(sqlite, organization.organization_id, targetUserId);
   const blockers: OffboardingFinding[] = [];
   const warnings: OffboardingFinding[] = [];
   const info: OffboardingFinding[] = [];
@@ -305,6 +372,26 @@ function buildPreflightFromScopedStorage(
       severity: 'blocker',
       category: 'permissions',
       message: 'At least one active owner/admin with recovery permission must remain.',
+    });
+  }
+
+  if (lastManagedTeamWorkspaces.length > 0) {
+    addFinding(blockers, {
+      severity: 'blocker',
+      category: 'workspace',
+      message: 'This user is the only manager of one or more team workspaces. Assign another manager before offboarding.',
+      count: lastManagedTeamWorkspaces.length,
+      action: 'reassign_team_workspace_manager',
+    });
+  }
+
+  if (lastManagedProjectWorkspaces.length > 0) {
+    addFinding(blockers, {
+      severity: 'blocker',
+      category: 'workspace',
+      message: 'This user is the only manager of one or more project workspaces. Assign another manager before offboarding.',
+      count: lastManagedProjectWorkspaces.length,
+      action: 'reassign_project_workspace_manager',
     });
   }
 
@@ -394,6 +481,20 @@ function buildPreflightFromScopedStorage(
       AND status = 'active'
   `, [targetUserId]);
   const studioGenerations = count(sqlite, 'SELECT COUNT(*) AS count FROM studio_generations WHERE user_id = ?', [targetUserId]);
+  const teamWorkspaceMemberships = count(sqlite, `
+    SELECT COUNT(*) AS count
+    FROM canvas_workspace_members
+    WHERE organization_id = ?
+      AND user_id = ?
+      AND COALESCE(status, 'active') = 'active'
+  `, [organization.organization_id, targetUserId]);
+  const projectWorkspaceMemberships = count(sqlite, `
+    SELECT COUNT(*) AS count
+    FROM canvas_project_members
+    WHERE organization_id = ?
+      AND user_id = ?
+      AND COALESCE(status, 'active') = 'active'
+  `, [organization.organization_id, targetUserId]);
 
   if (activeSessions > 0) {
     addFinding(warnings, {
@@ -466,13 +567,33 @@ function buildPreflightFromScopedStorage(
     });
   }
 
-  if (personalWorkspace) {
+  if (personalWorkspaces.length > 0) {
     addFinding(warnings, {
       severity: 'warning',
       category: 'workspace',
-      message: 'The personal workspace will be locked for recovery-only access.',
-      count: 1,
+      message: 'Personal workspaces will be locked for recovery-only access.',
+      count: personalWorkspaces.length,
       action: 'lock_personal_workspace',
+    });
+  }
+
+  if (teamWorkspaceMemberships > 0) {
+    addFinding(warnings, {
+      severity: 'warning',
+      category: 'workspace',
+      message: 'Team workspace memberships will be removed.',
+      count: teamWorkspaceMemberships,
+      action: 'remove_team_workspace_memberships',
+    });
+  }
+
+  if (projectWorkspaceMemberships > 0) {
+    addFinding(warnings, {
+      severity: 'warning',
+      category: 'workspace',
+      message: 'Project workspace memberships will be removed.',
+      count: projectWorkspaceMemberships,
+      action: 'remove_project_workspace_memberships',
     });
   }
 
@@ -536,12 +657,22 @@ function buildPreflightFromScopedStorage(
       openCreatedTodos,
       activePublicShares,
       studioGenerations,
+      personalWorkspaces: personalWorkspaces.length,
+      teamWorkspaceMemberships,
+      projectWorkspaceMemberships,
+      teamWorkspaceManagerBlocks: lastManagedTeamWorkspaces.length,
+      projectWorkspaceManagerBlocks: lastManagedProjectWorkspaces.length,
     },
     personalWorkspace: personalWorkspace ? {
       id: personalWorkspace.id,
       status: personalWorkspace.status,
       rootRelativePath: personalWorkspace.root_relative_path,
     } : null,
+    personalWorkspaces: personalWorkspaces.map((workspace) => ({
+      id: workspace.id,
+      status: workspace.status,
+      rootRelativePath: workspace.root_relative_path,
+    })),
     scopedStorage,
   };
 }
@@ -751,6 +882,16 @@ export async function offboardUser(options: {
         AND type = 'personal'
         AND status != 'recovery_locked'
     `, [now, options.targetUserId]);
+    actions.teamWorkspaceMembershipsRemoved = run(sqlite, `
+      DELETE FROM canvas_workspace_members
+      WHERE organization_id = ?
+        AND user_id = ?
+    `, [preflight.organizationId, options.targetUserId]);
+    actions.projectWorkspaceMembershipsRemoved = run(sqlite, `
+      DELETE FROM canvas_project_members
+      WHERE organization_id = ?
+        AND user_id = ?
+    `, [preflight.organizationId, options.targetUserId]);
 
     const reportJson = JSON.stringify({
       generatedAt: nowIso,

@@ -35,6 +35,7 @@ Die Änderungen wurden aus `origin/main` herausgenommen und liegen auf dem Revie
 - Project-Member-Management ist in denselben Member-Endpunkten implementiert und nutzt `canvas_project_members` mit demselben letzten-Manager-Schutz.
 - Workspace-Typ-Wechsel ist in Service und API umgesetzt (`PATCH /api/workspaces/[id]`) inklusive Root-Move/Rollback und Rechte-Migration zwischen Personal, Team und Project. Die UI aktiviert Personal/Team und Project hinter Feature-Gate.
 - Granulare User-Permissions sind im User-Management umgesetzt: `GET`/`PATCH /api/admin/organization/users/[userId]/permissions`, `PATCH /api/admin/organization/users/[userId]/role`, `UserPermissionsDialog` und serverseitige Mutation-Guards.
+- Permission-/Role-Mutationen schreiben Audit-Events und widerrufen Sessions des betroffenen Zielusers.
 - Die Rolle `external` ist vorbereitet und per `CANVAS_EXTERNAL_USERS_ENABLED` feature-gated; externe Nutzer bekommen serverseitig keine Org-Permissions.
 - SQLite- und Postgres-Runtime wurden für die umgesetzten Workspace-Funktionen erweitert.
 - Relevante i18n-Keys in `messages/de.json` und `messages/en.json` wurden ergänzt.
@@ -46,6 +47,7 @@ Die Änderungen wurden aus `origin/main` herausgenommen und liegen auf dem Revie
 - `npm run test:workspace:model` bestanden.
 - `npx tsx --conditions react-server scripts/project-customer-model-test.ts` bestanden.
 - `npx tsx --conditions react-server scripts/organization-permission-guards-test.ts` bestanden.
+- `npx tsx --conditions react-server scripts/organization-offboarding-test.ts` bestanden.
 - `npm run test:workspace:switcher-ui` bestanden.
 - `npm run test:workspace:foundation` bestanden.
 
@@ -54,9 +56,7 @@ Bekannter Prüfstatus: Ein echter Browser-UI-Smoke gegen `localhost:3000` war ni
 ### Noch offen
 
 - External-User-Produktverhalten außerhalb der Permission-Rolle finalisieren.
-- Offboarding-Erweiterung für mehrere Personal-Workspaces und Team-Workspace-Manager-Preflight.
-- Restliche Edge-Cases aus Strang H zentralisieren, testen und mit stabilen Error-Codes verdrahten.
-- API-/UI-Tests für den Project-Rollout und die noch offenen Offboarding-Flows ergänzen.
+- Restliche API-/UI-Tests für Project-Rollout, Permission-Routen und Offboarding-Flows ergänzen.
 - Reale UI-/E2E-Prüfung wiederholen, sobald `localhost:3000` gesund läuft.
 
 ### Klärungsbedarf
@@ -731,7 +731,7 @@ Die Tabelle `organization_user_permissions` (`migrate.ts:278-305`) mit 11 granul
 
 ## Strang H — Edge-Cases & Invarianten (neu in v3)
 
-**Status:** teilweise umgesetzt. Default-Delete, Organization-Delete, aktive Automations beim Delete, letzter Team-/Project-Workspace-Manager und zentrale Permission-/Role-Mutation-Guards sind serverseitig abgedeckt. Offboarding-Erweiterung, Session-Invalidation und Audit-Log-Zentralisierung sind noch offen.
+**Status:** umgesetzt für die geplanten serverseitigen Invarianten. Default-Delete, Organization-Delete, aktive Automations beim Delete, letzter Team-/Project-Workspace-Manager, zentrale Permission-/Role-Mutation-Guards, Offboarding-Erweiterung, Session-Invalidation und Audit-Log für Permission-/Role-Mutationen sind abgedeckt. Edge-Case 10 bleibt als UI-Warnung für aktive Agent-Sessions ein späterer UX-Ausbau.
 
 ### H1. Edge-Case-Liste
 
@@ -772,8 +772,8 @@ Alle Prüfungen erfolgen **serverseitig** in den Service-Transaktionen, nicht nu
   - Prüft Edge-Case 15.
 - Zentrale Funktion `assertWorkspaceTypeChangeAllowed(sqlite, { record })`:
   - Prüft Edge-Case 19.
-- **Session-Cache-Invalidation** (Edge-Case 14): nach Permission-Änderung wird `auth.api.revokeSession` für betroffene Sessions aufgerufen ODER ein Cache-Invalidation-Event gesendet. Client muss `useWorkspaceStore.refreshWorkspaces()` aufrufen.
-- **Audit-Log** (Edge-Case 16): jede Permission-Änderung wird in `audit_events` (`migrate.ts:613`) geloggt mit Actor, Target, geänderten Feldern, altem/nachem Wert.
+- **Session-Cache-Invalidation** (Edge-Case 14): nach Permission-/Role-Änderung widerrufen die Admin-Routen Sessions des betroffenen Zielusers über die `session`-Tabelle; Self-Changes behalten die aktuelle Session.
+- **Audit-Log** (Edge-Case 16): Permission-/Role-Änderungen werden in `audit_events` (`migrate.ts:613`) geloggt mit Actor, Target, geänderten Feldern und Session-Revoke-Zählung.
 
 ### H3. Offboarding & Recovery (Antwort auf Frage 6)
 
@@ -792,9 +792,9 @@ Alle Prüfungen erfolgen **serverseitig** in den Service-Transaktionen, nicht nu
 
 **Begründung:** Die Preflight-Logik für "letzter Admin" existiert schon (`UserManagementPanel.tsx` Offboarding-Preflight). Bei Team-Workspaces kommt der neue Fall "einziger Manager" dazu — analog. Wenn der User der einzige Manager eines Team-Workspaces ist, muss vor dem Offboarding entweder ein neuer Manager zugewiesen oder der Workspace archiviert werden. Sonst entsteht ein unzugänglicher Workspace.
 
-**Datei:** `app/lib/organization/offboarding.ts` (erweitern)
-- Preflight-Erweiterung: prüfe `canvas_workspace_members` auf `can_manage=1`-Einträge des Target-Users. Wenn einziger Manager eines Team-Workspaces → füge Preflight-Blocker hinzu.
-- Apply-Erweiterung: entferne User aus allen `canvas_workspace_members`, setze alle Personal-Workspaces auf `recovery_locked`.
+**Datei:** `app/lib/organization/offboarding.ts`
+- Preflight-Erweiterung umgesetzt: prüft `canvas_workspace_members` und `canvas_project_members` auf `can_manage=1`-Einträge des Target-Users. Wenn der User einziger Manager eines Team- oder Project-Workspaces ist, entsteht ein Preflight-Blocker.
+- Apply-Erweiterung umgesetzt: entfernt User aus allen `canvas_workspace_members` und `canvas_project_members`, setzt alle Personal-Workspaces auf `recovery_locked`.
 
 ---
 
@@ -858,9 +858,9 @@ Die bereits erledigten Schritte A/B/C und Team-Member-Verwaltung aus D werden ni
 3. **E umsetzen: Workspace-Typ-Wechsel** — erledigt für Personal/Team/Project; `organization` bleibt gesperrt.
 4. **F umsetzen: Project-Rollout** — erledigt hinter Feature-Gate: Project-/Customer-APIs, Project-Dropdowns, Project-Workspace-Erstellung und Project-Member-Rechte.
 5. **G umsetzen: Granulare User-Permissions** — erledigt: Permission-/Role-APIs, `UserPermissionsDialog`, Rolle `external` feature-gated.
-6. **H abschliessen: Edge-Cases & Offboarding** — zentrale Permission-Mutation-Guards, Offboarding-Preflight für Team-Manager, mehrere Personal-Workspaces, Session-Invalidation und Audit-Log.
+6. **H abschliessen: Edge-Cases & Offboarding** — erledigt für serverseitige Guards, Offboarding, Session-Invalidation und Audit-Log; Edge-Case 10 bleibt UX-Ausbau.
 7. **I abschliessen: User-zentrische Permission-UI** — erledigt für User-Management und Workspace-Tab.
-8. **Tests erweitern** — API-Tests für Project-Members, Typ-Wechsel, Offboarding-Preflight und restliche Edge-Case-Codes.
+8. **Tests erweitern** — restliche API-/UI-Tests für Project-Members, Typ-Wechsel, Permission-Routen, Offboarding-Flows und Edge-Case-Codes.
 9. **UI/E2E-Smoke wiederholen** — erst wenn `localhost:3000` gesund ist; keine neuen Dev-Server auf anderen Ports.
 
 Jeder Strang bleibt einzeln buildbar, testbar und separat commitbar. Vor jedem Container-Build `npm run build` laufen lassen.
@@ -893,7 +893,7 @@ Jeder Strang bleibt einzeln buildbar, testbar und separat commitbar. Vor jedem C
 - `app/lib/workspaces/client-types.ts` — `isDefault` in `ClientWorkspaceSummary`, `organization` in `ClientWorkspaceType`
 - `app/lib/organization/permissions.ts` — `getOrganizationUserPermissionDetails`, `updateOrganizationPermissions`, `updateOrganizationRole`, Permission-Mutation-Guards
 - `app/lib/organization/features.ts` — Feature-Gate für `external`-Rolle
-- `app/lib/organization/offboarding.ts` — Preflight-Erweiterung (Team-Workspace-Manager), Apply-Erweiterung (canvas_workspace_members, mehrere Personal-Workspaces) offen
+- `app/lib/organization/offboarding.ts` — Preflight-Erweiterung für Team-/Project-Last-Manager, Apply-Erweiterung für Workspace-Member-Entfernung und mehrere Personal-Workspaces
 - `app/lib/projects/service.ts` — Project-/Customer-Listing ergänzt; Member-Verwaltung läuft im Workspace-Service über `canvas_project_members`
 - `app/api/workspaces/route.ts` — POST ergänzen, `serializeWorkspace` um `isDefault`, `organization`-Typ
 - `app/store/workspace-store.ts` — `normalizeWorkspace` um `isDefault` + `organization`
@@ -909,4 +909,5 @@ Jeder Strang bleibt einzeln buildbar, testbar und separat commitbar. Vor jedem C
 - `scripts/workspace-model-service-test.ts` — erweitert für `is_default`, `organization`-Typ, Create/Delete, Team-/Project-Member-Funktionen und `changeWorkspaceType`
 - `scripts/project-customer-model-test.ts` — Project-/Customer-Listing und Project-Workspace-Erstellung hinter Feature-Gate
 - `scripts/organization-permission-guards-test.ts` — Guard- und Mutation-Tests für Permission-/Role-Service
+- `scripts/organization-offboarding-test.ts` — Offboarding-Preflight/Apply inklusive Workspace-Memberships und mehrere Personal-Workspaces
 - API-Routen-Tests für DELETE/POST/Members/Permissions/Role/PATCH offen

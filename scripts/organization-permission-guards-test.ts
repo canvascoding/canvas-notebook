@@ -51,6 +51,7 @@ async function main() {
     getOrganizationUserPermissionDetails,
     hasOrganizationPermission,
     readOrganizationPermissionForUser,
+    revokeOrganizationPermissionSessions,
     updateOrganizationPermissions,
     updateOrganizationRole,
   } = await import('../app/lib/organization/permissions');
@@ -127,6 +128,7 @@ async function main() {
   mutationDb.close();
 
   const managedMember = await getOrganizationUserPermissionDetails(managedMemberId, owner.id);
+  assert.equal(managedMember.organizationId, organization.organizationId);
   assert.equal(managedMember.role, 'member');
   assert.equal(managedMember.permissions.canExport, false);
 
@@ -137,6 +139,14 @@ async function main() {
   });
   assert.equal(permissionUpdate.permissions.canExport, true);
   assert.equal(permissionUpdate.permissions.canManageBackups, true);
+
+  const sessionDb = new Database(path.join(dataDir, 'sqlite.db'));
+  sessionDb.prepare(`
+    INSERT INTO session (id, expires_at, token, created_at, updated_at, user_id)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).run('managed-session-1', Date.now() + 60_000, 'managed-token-1', Date.now(), Date.now(), managedMemberId);
+  sessionDb.close();
+  assert.equal(await revokeOrganizationPermissionSessions(managedMemberId), 1);
 
   await assert.rejects(
     async () => updateOrganizationRole({

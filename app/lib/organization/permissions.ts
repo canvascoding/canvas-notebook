@@ -37,6 +37,7 @@ export const ORGANIZATION_PERMISSION_KEYS = [
 export type OrganizationPermissionPatch = Partial<Record<OrganizationPermissionKey, boolean>>;
 
 export type OrganizationPermissionUserDetails = {
+  organizationId: string;
   userId: string;
   name: string | null;
   email: string | null;
@@ -80,6 +81,7 @@ type OrganizationRow = {
 };
 
 type PermissionDetailsRow = {
+  organization_id: string;
   user_id: string;
   name: string | null;
   email: string | null;
@@ -364,6 +366,7 @@ function detailsFromRow(row: PermissionDetailsRow): OrganizationPermissionUserDe
   };
 
   return {
+    organizationId: row.organization_id,
     userId: row.user_id,
     name: row.name,
     email: row.email,
@@ -416,6 +419,7 @@ async function getPermissionDetails(
   const row = await database.get(`
     SELECT
       p.user_id,
+      p.organization_id,
       u.name,
       u.email,
       p.role,
@@ -586,6 +590,20 @@ async function withPermissionDatabase<T>(operation: (database: PermissionDatabas
   } finally {
     await database.close?.();
   }
+}
+
+function changesFromRunResult(result: unknown): number {
+  if (result && typeof result === 'object' && 'changes' in result) {
+    return Number((result as { changes?: unknown }).changes || 0);
+  }
+  return 0;
+}
+
+export async function revokeOrganizationPermissionSessions(targetUserId: string): Promise<number> {
+  return withPermissionDatabase(async (database) => {
+    const result = await database.run('DELETE FROM session WHERE user_id = ?', [targetUserId]);
+    return changesFromRunResult(result);
+  });
 }
 
 export async function getOrganizationUserPermissionDetails(
