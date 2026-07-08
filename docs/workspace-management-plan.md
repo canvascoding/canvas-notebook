@@ -1,6 +1,6 @@
 # Workspace-Verwaltung Plan
 
-Datum: 2026-07-08 (v5, Project-Rollout ergänzt)
+Datum: 2026-07-08 (v6, finaler PR-Stand)
 
 ## Aktueller Stand
 
@@ -12,6 +12,9 @@ Diese Version dokumentiert den Stand des Review-/Feature-Branches nach der Branc
 - `b19d8b80` — `Add workspace member management`
 - `fa680832` — `Add project workspace member management`
 - `4de187bb` — `Add workspace type changes`
+- `494f4e99` — `Add gated project workspace rollout`
+- `f1fe1e3d` — `Add user permission management`
+- `c646149b` — `Complete workspace offboarding safeguards`
 
 Die Änderungen wurden aus `origin/main` herausgenommen und liegen auf dem Review-/Feature-Branch `codex/workspace-management`. `origin/main` enthält dafür den Revert-Commit `c181835e` (`Remove workspace management changes from main`), damit Greptile später einen echten PR-Diff prüfen kann.
 
@@ -48,16 +51,14 @@ Die Änderungen wurden aus `origin/main` herausgenommen und liegen auf dem Revie
 - `npx tsx --conditions react-server scripts/project-customer-model-test.ts` bestanden.
 - `npx tsx --conditions react-server scripts/organization-permission-guards-test.ts` bestanden.
 - `npx tsx --conditions react-server scripts/organization-offboarding-test.ts` bestanden.
+- `npm run test:workspace:api-routes` bestanden.
 - `npm run test:workspace:switcher-ui` bestanden.
 - `npm run test:workspace:foundation` bestanden.
+- UI-Smoke gegen `localhost:3000` mit Playwright + lokalem Chrome bestanden: API-Login-Cookie → User-Management → Permissions-Dialog → Workspace-Management. Der lokale Community-License-Zustand zeigt erwartungsgemäss `License activation required` (`402 LICENSE_REQUIRED`) statt editierbarer Permission-Switches.
 
-Bekannter Prüfstatus: Ein echter Browser-UI-Smoke gegen `localhost:3000` war nicht verwertbar, weil der bereits laufende Server HTTP 500 für `/api/health` und `/en/login` geliefert hat. Zusätzlich war der Browser-Plugin-Pipe-Bridge-Zugriff nicht verfügbar; Playwright über lokales Chrome konnte den Serverfehler nur bestätigen.
+### Implementierungsabschluss
 
-### Noch offen
-
-- External-User-Produktverhalten außerhalb der Permission-Rolle finalisieren.
-- Restliche API-/UI-Tests für Project-Rollout, Permission-Routen und Offboarding-Flows ergänzen.
-- Reale UI-/E2E-Prüfung wiederholen, sobald `localhost:3000` gesund läuft.
+Für den PR sind keine implementierungsrelevanten Workspace-TODOs offen. Die bewusst nicht finalisierten Produktbereiche bleiben als Nicht-Ziele dokumentiert: productions-finaler Project-Workspace-Use und productions-finaler External-User-Use.
 
 ### Klärungsbedarf
 
@@ -858,10 +859,10 @@ Die bereits erledigten Schritte A/B/C und Team-Member-Verwaltung aus D werden ni
 3. **E umsetzen: Workspace-Typ-Wechsel** — erledigt für Personal/Team/Project; `organization` bleibt gesperrt.
 4. **F umsetzen: Project-Rollout** — erledigt hinter Feature-Gate: Project-/Customer-APIs, Project-Dropdowns, Project-Workspace-Erstellung und Project-Member-Rechte.
 5. **G umsetzen: Granulare User-Permissions** — erledigt: Permission-/Role-APIs, `UserPermissionsDialog`, Rolle `external` feature-gated.
-6. **H abschliessen: Edge-Cases & Offboarding** — erledigt für serverseitige Guards, Offboarding, Session-Invalidation und Audit-Log; Edge-Case 10 bleibt UX-Ausbau.
+6. **H abschliessen: Edge-Cases & Offboarding** — erledigt für serverseitige Guards, Offboarding, Session-Invalidation und Audit-Log; Edge-Case 10 bleibt bewusst späterer UX-Ausbau.
 7. **I abschliessen: User-zentrische Permission-UI** — erledigt für User-Management und Workspace-Tab.
-8. **Tests erweitern** — restliche API-/UI-Tests für Project-Members, Typ-Wechsel, Permission-Routen, Offboarding-Flows und Edge-Case-Codes.
-9. **UI/E2E-Smoke wiederholen** — erst wenn `localhost:3000` gesund ist; keine neuen Dev-Server auf anderen Ports.
+8. **Tests erweitern** — erledigt: Service-, API-Routen-, Permission-, Offboarding-, Foundation- und Switcher-Tests sind vorhanden.
+9. **UI/E2E-Smoke wiederholen** — erledigt gegen `localhost:3000`; keine neuen Dev-Server auf anderen Ports.
 
 Jeder Strang bleibt einzeln buildbar, testbar und separat commitbar. Vor jedem Container-Build `npm run build` laufen lassen.
 
@@ -910,4 +911,4 @@ Jeder Strang bleibt einzeln buildbar, testbar und separat commitbar. Vor jedem C
 - `scripts/project-customer-model-test.ts` — Project-/Customer-Listing und Project-Workspace-Erstellung hinter Feature-Gate
 - `scripts/organization-permission-guards-test.ts` — Guard- und Mutation-Tests für Permission-/Role-Service
 - `scripts/organization-offboarding-test.ts` — Offboarding-Preflight/Apply inklusive Workspace-Memberships und mehrere Personal-Workspaces
-- API-Routen-Tests für DELETE/POST/Members/Permissions/Role/PATCH offen
+- `scripts/workspace-api-routes-test.ts` — direkte Route-Handler-Tests für Workspace-POST/DELETE/PATCH, Member-GET/POST/DELETE, Permission-GET/PATCH und Role-PATCH inklusive Auth, License-Gate, Statuscodes, Error-Codes, Session-Revocation und Audit-Events
