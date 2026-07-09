@@ -57,7 +57,6 @@ import {
 import {
   cleanupAgentRuntimeTempDirs,
   getAgentRuntimeTempPromptBlock,
-  removeAgentRuntimeTempDir,
   resolveAgentRuntimeTempDir,
 } from '@/app/lib/pi/agent-runtime-temp';
 
@@ -1386,12 +1385,6 @@ class LivePiRuntime {
       this.agentUnsubscribe = null;
     }
     this.subscribers.clear();
-    void removeAgentRuntimeTempDir({
-      userId: this.userId,
-      sessionId: this.sessionId,
-      agentId: this.agentId,
-      organizationId: this.workspaceContext?.organizationId ?? null,
-    }).catch(() => undefined);
   }
 
   private async persistMessages(reason: 'turn_end' | 'agent_end' | 'error'): Promise<number> {

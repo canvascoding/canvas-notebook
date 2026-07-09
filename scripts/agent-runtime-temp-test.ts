@@ -17,7 +17,6 @@ async function main() {
       cleanupAgentRuntimeTempDirs,
       getAgentRuntimeTempEnv,
       getAgentRuntimeTempPromptBlock,
-      removeAgentRuntimeTempDir,
       resolveAgentRuntimeTempDir,
       resolveAgentRuntimeTempRoot,
     } = await import('../app/lib/pi/agent-runtime-temp');
@@ -119,9 +118,6 @@ async function main() {
     await fs.stat(oldActiveDir);
     await fs.stat(recentInactiveDir);
     await fs.stat(runtimeTempDir);
-
-    await removeAgentRuntimeTempDir(context);
-    await assert.rejects(fs.stat(runtimeTempDir));
 
     console.log('agent-runtime-temp-test: ok');
   } finally {
