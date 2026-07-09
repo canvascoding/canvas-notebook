@@ -7,7 +7,6 @@ import { runMigrations } from './migrate';
 import {
   createPostgresDrizzle,
   createPostgresPool,
-  runPostgresMigrations,
 } from './postgres';
 import {
   assertRuntimeDatabaseProviderSupported,
@@ -27,8 +26,7 @@ type SqlConnection = {
 };
 
 const provider = getDatabaseProvider();
-const shouldRunStartupMigrations = process.env.NEXT_PHASE !== 'phase-production-build';
-let postgresMigrationPromise: Promise<void> | null = null;
+const shouldRunSqliteStartupMigrations = process.env.NEXT_PHASE !== 'phase-production-build';
 
 function getSqlitePath(): string {
   return resolveSqlitePath();
@@ -39,9 +37,7 @@ function createSqliteDatabase() {
   mkdirSync(path.dirname(sqlitePath), {recursive: true});
 
   const sqlite = new Database(sqlitePath);
-  // Skip migrations during `next build` — multiple worker processes would race on the same DB file.
-  // Migrations run at server startup via server.js instead.
-  if (shouldRunStartupMigrations) {
+  if (shouldRunSqliteStartupMigrations) {
     runMigrations(sqlite);
   }
   return {
@@ -52,9 +48,6 @@ function createSqliteDatabase() {
 
 function createPostgresDatabase() {
   const pool = createPostgresPool();
-  if (shouldRunStartupMigrations) {
-    postgresMigrationPromise = runPostgresMigrations(pool);
-  }
   return {
     client: pool,
     db: createPostgresDrizzle(pool),
@@ -135,12 +128,6 @@ export function assertDatabaseAvailable(): void {
 
 export async function ensureDatabaseReady(): Promise<void> {
   assertDatabaseAvailable();
-  if (provider === 'postgres') {
-    if (!postgresMigrationPromise && shouldRunStartupMigrations) {
-      postgresMigrationPromise = runPostgresMigrations(postgresPool!);
-    }
-    await postgresMigrationPromise;
-  }
 }
 
 function bindSqlite(statement: Database.Statement, params?: unknown[]) {

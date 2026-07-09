@@ -386,11 +386,18 @@ function serveMedia(req, res) {
   });
 }
 
-// Run database migrations before anything else touches the DB
-try {
+async function runStartupDatabaseMigrations() {
   const configuredDatabaseProvider = String(process.env.CANVAS_DATABASE_PROVIDER || 'sqlite').trim().toLowerCase();
   if (configuredDatabaseProvider === 'postgres') {
-    console.log('[Startup] Postgres database provider configured; skipping SQLite startup migrations');
+    console.log('[Startup] Running Postgres database migrations...');
+    const { createPostgresPool, runPostgresMigrations } = require('./app/lib/db/postgres');
+    const migrationPool = createPostgresPool();
+    try {
+      await runPostgresMigrations(migrationPool);
+    } finally {
+      await migrationPool.end();
+    }
+    console.log('[Startup] Postgres database migrations completed');
   } else {
     console.log('[Startup] Running database migrations...');
     const Database = require('better-sqlite3');
@@ -402,10 +409,6 @@ try {
     migrationDb.close();
     console.log('[Startup] Database migrations completed');
   }
-} catch (error) {
-  console.error('[Startup] CRITICAL ERROR in database migrations:', error.message);
-  console.error('[Startup] Stack trace:', error.stack);
-  process.exit(1);
 }
 
 // Ensure all runtime directories and tokens are set up before starting the server
@@ -643,6 +646,14 @@ function installChatUpgradeGuard(targetServer) {
 }
 
 async function startServer() {
+  try {
+    await runStartupDatabaseMigrations();
+  } catch (error) {
+    console.error('[Startup] CRITICAL ERROR in database migrations:', error.message);
+    console.error('[Startup] Stack trace:', error.stack);
+    throw error;
+  }
+
   console.log('[Startup] Initializing WebSocket Server...');
   try {
     const websocketModule = await import('./server/websocket-server.ts');
