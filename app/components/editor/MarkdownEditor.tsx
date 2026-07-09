@@ -2931,6 +2931,15 @@ function MobileToolbarButton({
   onClick: () => void;
   children: React.ReactNode;
 }) {
+  const handledPointerPressRef = useRef(false);
+  const handledPointerResetRef = useRef<number | null>(null);
+
+  useEffect(() => () => {
+    if (handledPointerResetRef.current !== null) {
+      window.clearTimeout(handledPointerResetRef.current);
+    }
+  }, []);
+
   return (
     <Button
       type="button"
@@ -2943,9 +2952,30 @@ function MobileToolbarButton({
         'h-10 w-10 shrink-0 rounded-md text-muted-foreground',
         active && 'text-foreground',
       )}
-      onPointerDown={preserveEditorSelectionOnPointerDown}
+      onPointerDown={(event) => {
+        preserveEditorSelectionOnPointerDown(event);
+        if (disabled || event.pointerType === 'mouse') return;
+
+        handledPointerPressRef.current = true;
+        if (handledPointerResetRef.current !== null) {
+          window.clearTimeout(handledPointerResetRef.current);
+        }
+        handledPointerResetRef.current = window.setTimeout(() => {
+          handledPointerPressRef.current = false;
+          handledPointerResetRef.current = null;
+        }, 750);
+        onClick();
+      }}
       onClick={(event) => {
         event.preventDefault();
+        if (handledPointerPressRef.current) {
+          handledPointerPressRef.current = false;
+          if (handledPointerResetRef.current !== null) {
+            window.clearTimeout(handledPointerResetRef.current);
+            handledPointerResetRef.current = null;
+          }
+          return;
+        }
         onClick();
       }}
     >
