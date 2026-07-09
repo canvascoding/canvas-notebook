@@ -2,7 +2,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 
 import { and, asc, desc, eq, inArray, lte, ne, notInArray, or, sql } from 'drizzle-orm';
 
-import { db } from '@/app/lib/db';
+import { db, getDatabaseProvider } from '@/app/lib/db';
 import { automationJobs, automationRuns, automationWebhookEvents, automationWebhookTriggers, composioWebhookEvents, piSessions } from '@/app/lib/db/schema';
 import { DEFAULT_MANAGED_AGENT_ID } from '@/app/lib/agents/storage';
 import { validatePath } from '@/app/lib/filesystem/workspace-files';
@@ -48,6 +48,25 @@ type AutomationRunCreateOptions = {
   metadataJson?: Record<string, unknown>;
   actorUserId?: string | null;
 };
+
+type AutomationStoreTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
+type AutomationJobRow = typeof automationJobs.$inferSelect;
+type AutomationRunRow = typeof automationRuns.$inferSelect;
+
+const isPostgresRuntime = getDatabaseProvider() === 'postgres';
+
+function runAutomationTransaction<T>(
+  sqliteCallback: (tx: AutomationStoreTransaction) => T,
+  postgresCallback: (tx: AutomationStoreTransaction) => Promise<T>,
+): T | Promise<T> {
+  if (isPostgresRuntime) {
+    return (db as unknown as {
+      transaction<Result>(callback: (tx: AutomationStoreTransaction) => Promise<Result>): Promise<Result>;
+    }).transaction(postgresCallback);
+  }
+
+  return db.transaction(sqliteCallback);
+}
 
 function resolveAutomationRunActor(
   job: typeof automationJobs.$inferSelect,
@@ -114,6 +133,100 @@ function resolveStoredJobScope(job: typeof automationJobs.$inferSelect, scope = 
     ownerUserId: job.ownerUserId ?? null,
     responsibleUserId: job.responsibleUserId ?? null,
     createdByUserId: job.createdByUserId,
+  });
+}
+
+function getAutomationJobRowSync(tx: AutomationStoreTransaction, jobId: string): AutomationJobRow | undefined {
+  return tx.select().from(automationJobs).where(eq(automationJobs.id, jobId)).limit(1).get();
+}
+
+async function getAutomationJobRowAsync(tx: AutomationStoreTransaction, jobId: string): Promise<AutomationJobRow | undefined> {
+  const rows = await tx.select().from(automationJobs).where(eq(automationJobs.id, jobId)).limit(1);
+  return rows[0];
+}
+
+function getAutomationRunRowSync(tx: AutomationStoreTransaction, runId: string): AutomationRunRow | undefined {
+  return tx.select().from(automationRuns).where(eq(automationRuns.id, runId)).limit(1).get();
+}
+
+async function getAutomationRunRowAsync(tx: AutomationStoreTransaction, runId: string): Promise<AutomationRunRow | undefined> {
+  const rows = await tx.select().from(automationRuns).where(eq(automationRuns.id, runId)).limit(1);
+  return rows[0];
+}
+
+function getInFlightAutomationRunSync(tx: AutomationStoreTransaction, jobId: string): AutomationRunRow | undefined {
+  return tx
+    .select()
+    .from(automationRuns)
+    .where(
+      and(
+        eq(automationRuns.jobId, jobId),
+        notInArray(automationRuns.status, ['success', 'failed']),
+      ),
+    )
+    .limit(1)
+    .get();
+}
+
+async function getInFlightAutomationRunAsync(tx: AutomationStoreTransaction, jobId: string): Promise<AutomationRunRow | undefined> {
+  const rows = await tx
+    .select()
+    .from(automationRuns)
+    .where(
+      and(
+        eq(automationRuns.jobId, jobId),
+        notInArray(automationRuns.status, ['success', 'failed']),
+      ),
+    )
+    .limit(1);
+  return rows[0];
+}
+
+function buildPendingAutomationRunValues(
+  job: AutomationJobRow,
+  jobId: string,
+  triggerType: AutomationRunRecord['triggerType'],
+  scheduledFor: Date,
+  options: AutomationRunCreateOptions,
+  now = new Date(),
+): typeof automationRuns.$inferInsert {
+  const jobScope = normalizeAutomationScope(job.scope);
+  const storedJobScope = resolveStoredJobScope(job, jobScope);
+  const runActor = resolveAutomationRunActor(job, jobScope, options);
+  return {
+    id: `run-${randomUUID()}`,
+    jobId,
+    status: 'pending',
+    scope: jobScope,
+    jobScope: storedJobScope,
+    organizationId: job.organizationId ?? null,
+    workspaceId: job.workspaceId ?? null,
+    workspaceType: normalizeAutomationWorkspaceType(job.workspaceType),
+    actorType: runActor.actorType,
+    actorUserId: runActor.actorUserId,
+    serviceActorId: runActor.serviceActorId,
+    triggerType,
+    scheduledFor,
+    startedAt: null,
+    finishedAt: null,
+    attemptNumber: 1,
+    outputDir: null,
+    targetOutputPath: null,
+    effectiveTargetOutputPath: null,
+    logPath: null,
+    resultPath: null,
+    errorMessage: null,
+    piSessionId: null,
+    resultText: null,
+    metadataJson: options.metadataJson ? JSON.stringify(options.metadataJson) : null,
+    createdAt: now,
+  };
+}
+
+function mergeAutomationRunMetadata(current: AutomationRunRow, metadataJson: Record<string, unknown>): string {
+  return JSON.stringify({
+    ...(current.metadataJson ? JSON.parse(current.metadataJson) as Record<string, unknown> : {}),
+    ...metadataJson,
   });
 }
 
@@ -812,69 +925,91 @@ export async function createCustomWebhookAutomationJob(
     timeZone: preferredTimeZone,
   };
 
-  return db.transaction((tx) => {
-    const [insertedJob] = tx
-      .insert(automationJobs)
-      .values({
-        id,
-        name,
-        status: input.status || 'active',
-        scope: automationScope.scope,
-        jobScope,
-        organizationId: automationScope.organizationId,
-        workspaceId: automationScope.workspaceId,
-        workspaceType: automationScope.workspaceType,
-        ownerUserId: automationScope.ownerUserId,
-        responsibleUserId: automationScope.responsibleUserId,
-        serviceActorId: automationScope.serviceActorId,
-        approvedByUserId: automationScope.approvedByUserId,
-        lastEditedByUserId: automationScope.lastEditedByUserId,
-        prompt,
-        preferredSkill,
-        workspaceContextPathsJson: JSON.stringify(workspaceContextPaths),
-        targetOutputPath,
-        scheduleKind: 'webhook',
-        scheduleConfigJson: JSON.stringify(schedule),
-        timeZone: schedule.timeZone,
-        nextRunAt: null,
-        lastRunAt: null,
-        lastRunStatus: null,
-        createdByUserId: userId,
-        agentId,
-        deliveryMode,
-        deliveryChannelId: normalizeOptionalShortString(input.deliveryChannelId, 120),
-        deliverySessionMode,
-        deliverySessionId: normalizeOptionalShortString(input.deliverySessionId, 500),
-        deliveryChannelSessionKey: normalizeOptionalShortString(input.deliveryChannelSessionKey, 500),
-        createdAt: now,
-        updatedAt: now,
-        jobType: 'webhook',
-        webhookTriggerConfigJson: JSON.stringify({ provider: 'custom' }),
-      })
-      .returning()
-      .all();
+  const jobValues = {
+    id,
+    name,
+    status: input.status || 'active',
+    scope: automationScope.scope,
+    jobScope,
+    organizationId: automationScope.organizationId,
+    workspaceId: automationScope.workspaceId,
+    workspaceType: automationScope.workspaceType,
+    ownerUserId: automationScope.ownerUserId,
+    responsibleUserId: automationScope.responsibleUserId,
+    serviceActorId: automationScope.serviceActorId,
+    approvedByUserId: automationScope.approvedByUserId,
+    lastEditedByUserId: automationScope.lastEditedByUserId,
+    prompt,
+    preferredSkill,
+    workspaceContextPathsJson: JSON.stringify(workspaceContextPaths),
+    targetOutputPath,
+    scheduleKind: 'webhook',
+    scheduleConfigJson: JSON.stringify(schedule),
+    timeZone: schedule.timeZone,
+    nextRunAt: null,
+    lastRunAt: null,
+    lastRunStatus: null,
+    createdByUserId: userId,
+    agentId,
+    deliveryMode,
+    deliveryChannelId: normalizeOptionalShortString(input.deliveryChannelId, 120),
+    deliverySessionMode,
+    deliverySessionId: normalizeOptionalShortString(input.deliverySessionId, 500),
+    deliveryChannelSessionKey: normalizeOptionalShortString(input.deliveryChannelSessionKey, 500),
+    createdAt: now,
+    updatedAt: now,
+    jobType: 'webhook',
+    webhookTriggerConfigJson: JSON.stringify({ provider: 'custom' }),
+  } satisfies typeof automationJobs.$inferInsert;
+  const triggerValues = {
+    id: webhookId,
+    jobId: id,
+    secretHash: secret.secretHash,
+    secretPreview: secret.secretPreview,
+    status: 'active',
+    createdAt: now,
+    updatedAt: now,
+    rotatedAt: null,
+  } satisfies typeof automationWebhookTriggers.$inferInsert;
 
-    const [insertedTrigger] = tx
-      .insert(automationWebhookTriggers)
-      .values({
-        id: webhookId,
-        jobId: id,
-        secretHash: secret.secretHash,
-        secretPreview: secret.secretPreview,
-        status: 'active',
-        createdAt: now,
-        updatedAt: now,
-        rotatedAt: null,
-      })
-      .returning()
-      .all();
-
+  const finish = (insertedJob: AutomationJobRow, insertedTrigger: AutomationWebhookTriggerRow) => {
     console.log(`[Automationen] Created custom webhook job "${name}" (${id}, scope=${automationScope.scope}, workspace=${automationScope.workspaceId ?? 'legacy'}, webhook=${webhookId})`);
     return {
       job: mapJobRow(insertedJob, insertedTrigger),
       secret: secret.secret,
     };
-  });
+  };
+
+  return runAutomationTransaction(
+    (tx) => {
+      const [insertedJob] = tx
+        .insert(automationJobs)
+        .values(jobValues)
+        .returning()
+        .all();
+
+      const [insertedTrigger] = tx
+        .insert(automationWebhookTriggers)
+        .values(triggerValues)
+        .returning()
+        .all();
+
+      return finish(insertedJob, insertedTrigger);
+    },
+    async (tx) => {
+      const [insertedJob] = await tx
+        .insert(automationJobs)
+        .values(jobValues)
+        .returning();
+
+      const [insertedTrigger] = await tx
+        .insert(automationWebhookTriggers)
+        .values(triggerValues)
+        .returning();
+
+      return finish(insertedJob, insertedTrigger);
+    },
+  );
 }
 
 export async function updateAutomationJob(
@@ -947,19 +1082,37 @@ export async function updateAutomationJob(
 }
 
 export async function deleteAutomationJob(jobId: string): Promise<boolean> {
-  return db.transaction((tx) => {
-    const existing = tx.select().from(automationJobs).where(eq(automationJobs.id, jobId)).limit(1).get();
-    if (!existing) {
-      return false;
-    }
-    tx.delete(automationWebhookEvents).where(eq(automationWebhookEvents.jobId, jobId)).run();
-    tx.delete(automationWebhookTriggers).where(eq(automationWebhookTriggers.jobId, jobId)).run();
-    tx.delete(automationRuns).where(eq(automationRuns.jobId, jobId)).run();
-    tx.delete(automationJobs).where(eq(automationJobs.id, jobId)).run();
-
+  const finish = () => {
     console.log(`[Automationen] Deleted job ${jobId} and associated runs`);
     return true;
-  });
+  };
+
+  return runAutomationTransaction(
+    (tx) => {
+      const existing = getAutomationJobRowSync(tx, jobId);
+      if (!existing) {
+        return false;
+      }
+      tx.delete(automationWebhookEvents).where(eq(automationWebhookEvents.jobId, jobId)).run();
+      tx.delete(automationWebhookTriggers).where(eq(automationWebhookTriggers.jobId, jobId)).run();
+      tx.delete(automationRuns).where(eq(automationRuns.jobId, jobId)).run();
+      tx.delete(automationJobs).where(eq(automationJobs.id, jobId)).run();
+
+      return finish();
+    },
+    async (tx) => {
+      const existing = await getAutomationJobRowAsync(tx, jobId);
+      if (!existing) {
+        return false;
+      }
+      await tx.delete(automationWebhookEvents).where(eq(automationWebhookEvents.jobId, jobId));
+      await tx.delete(automationWebhookTriggers).where(eq(automationWebhookTriggers.jobId, jobId));
+      await tx.delete(automationRuns).where(eq(automationRuns.jobId, jobId));
+      await tx.delete(automationJobs).where(eq(automationJobs.id, jobId));
+
+      return finish();
+    },
+  );
 }
 
 export async function createPendingAutomationRun(
@@ -967,62 +1120,54 @@ export async function createPendingAutomationRun(
   triggerType: AutomationRunRecord['triggerType'],
   options: AutomationRunCreateOptions = {},
 ): Promise<AutomationRunRecord> {
-  return db.transaction((tx) => {
-    const job = tx.query.automationJobs.findFirst({
-      where: eq(automationJobs.id, jobId),
-    }).sync();
-    if (!job) {
-      throw new Error('Automation job not found.');
-    }
+  return runAutomationTransaction(
+    (tx) => {
+      const job = getAutomationJobRowSync(tx, jobId);
+      if (!job) {
+        throw new Error('Automation job not found.');
+      }
 
-    const now = new Date();
-    const jobScope = normalizeAutomationScope(job.scope);
-    const storedJobScope = resolveStoredJobScope(job, jobScope);
-    const runActor = resolveAutomationRunActor(job, jobScope, options);
-    const [inserted] = tx
-      .insert(automationRuns)
-      .values({
-        id: `run-${randomUUID()}`,
-        jobId,
-        status: 'pending',
-        scope: jobScope,
-        jobScope: storedJobScope,
-        organizationId: job.organizationId ?? null,
-        workspaceId: job.workspaceId ?? null,
-        workspaceType: normalizeAutomationWorkspaceType(job.workspaceType),
-        actorType: runActor.actorType,
-        actorUserId: runActor.actorUserId,
-        serviceActorId: runActor.serviceActorId,
-        triggerType,
-        scheduledFor: now,
-        startedAt: null,
-        finishedAt: null,
-        attemptNumber: 1,
-        outputDir: null,
-        targetOutputPath: null,
-        effectiveTargetOutputPath: null,
-        logPath: null,
-        resultPath: null,
-        errorMessage: null,
-        piSessionId: null,
-        resultText: null,
-        metadataJson: options.metadataJson ? JSON.stringify(options.metadataJson) : null,
-        createdAt: now,
-      })
-      .returning()
-      .all();
+      const now = new Date();
+      const [inserted] = tx
+        .insert(automationRuns)
+        .values(buildPendingAutomationRunValues(job, jobId, triggerType, now, options, now))
+        .returning()
+        .all();
 
-    tx
-      .update(automationJobs)
-      .set({
-        lastRunStatus: 'pending',
-        updatedAt: now,
-      })
-      .where(and(eq(automationJobs.id, jobId), eq(automationJobs.status, job.status)))
-      .run();
+      tx
+        .update(automationJobs)
+        .set({
+          lastRunStatus: 'pending',
+          updatedAt: now,
+        })
+        .where(and(eq(automationJobs.id, jobId), eq(automationJobs.status, job.status)))
+        .run();
 
-    return mapRunRow(inserted, null);
-  });
+      return mapRunRow(inserted, null);
+    },
+    async (tx) => {
+      const job = await getAutomationJobRowAsync(tx, jobId);
+      if (!job) {
+        throw new Error('Automation job not found.');
+      }
+
+      const now = new Date();
+      const [inserted] = await tx
+        .insert(automationRuns)
+        .values(buildPendingAutomationRunValues(job, jobId, triggerType, now, options, now))
+        .returning();
+
+      await tx
+        .update(automationJobs)
+        .set({
+          lastRunStatus: 'pending',
+          updatedAt: now,
+        })
+        .where(and(eq(automationJobs.id, jobId), eq(automationJobs.status, job.status)));
+
+      return mapRunRow(inserted, null);
+    },
+  );
 }
 
 export async function getComposioWebhookEventByKeys(keys: { eventId?: string | null; webhookId?: string | null }) {
@@ -1254,29 +1399,7 @@ export async function markStaleAutomationRunsFailed(now = new Date()): Promise<n
 
   if (staleRuns.length > 0) {
     console.warn(`[Automationen] Marking ${staleRuns.length} stale run(s) as failed globally`);
-    db.transaction((tx) => {
-      for (const run of staleRuns) {
-        tx
-          .update(automationRuns)
-          .set({
-            status: 'failed',
-            errorMessage: 'Automation run was marked stale before a new run could start.',
-            finishedAt: now,
-          })
-          .where(eq(automationRuns.id, run.id))
-          .run();
-
-        tx
-          .update(automationJobs)
-          .set({
-            lastRunAt: now,
-            lastRunStatus: 'failed',
-            updatedAt: now,
-          })
-          .where(eq(automationJobs.id, run.jobId))
-          .run();
-      }
-    });
+    await markStaleAutomationRunRowsFailed(staleRuns, now);
   }
 
   return staleRuns.length;
@@ -1297,7 +1420,15 @@ async function failStaleAutomationRuns(jobId: string, now = new Date()): Promise
 
   if (staleRuns.length > 0) {
     console.warn(`[Automationen] Marking ${staleRuns.length} stale run(s) as failed for job ${jobId}`);
-    db.transaction((tx) => {
+    await markStaleAutomationRunRowsFailed(staleRuns, now);
+  }
+
+  return staleRuns.length;
+}
+
+async function markStaleAutomationRunRowsFailed(staleRuns: AutomationRunRow[], now: Date): Promise<void> {
+  await runAutomationTransaction(
+    (tx) => {
       for (const run of staleRuns) {
         tx
           .update(automationRuns)
@@ -1319,10 +1450,29 @@ async function failStaleAutomationRuns(jobId: string, now = new Date()): Promise
           .where(eq(automationJobs.id, run.jobId))
           .run();
       }
-    });
-  }
+    },
+    async (tx) => {
+      for (const run of staleRuns) {
+        await tx
+          .update(automationRuns)
+          .set({
+            status: 'failed',
+            errorMessage: 'Automation run was marked stale before a new run could start.',
+            finishedAt: now,
+          })
+          .where(eq(automationRuns.id, run.id));
 
-  return staleRuns.length;
+        await tx
+          .update(automationJobs)
+          .set({
+            lastRunAt: now,
+            lastRunStatus: 'failed',
+            updatedAt: now,
+          })
+          .where(eq(automationJobs.id, run.jobId));
+      }
+    },
+  );
 }
 
 export async function hasInFlightAutomationRun(jobId: string): Promise<boolean> {
@@ -1344,73 +1494,69 @@ export async function scheduleAutomationJobRun(
 ): Promise<AutomationRunRecord | null> {
   await failStaleAutomationRuns(jobId);
 
-  return db.transaction((tx) => {
-    const job = tx.query.automationJobs.findFirst({
-      where: eq(automationJobs.id, jobId),
-    }).sync();
-    if (!job) {
-      throw new Error('Automation job not found.');
-    }
+  const skipInFlight = (run: AutomationRunRow) => {
+    console.log(`[Automationen] Skipping run creation for job ${jobId}: in-flight run ${run.id} already exists`);
+    return null;
+  };
 
-    const inFlightRun = tx.query.automationRuns.findFirst({
-      where: and(
-        eq(automationRuns.jobId, jobId),
-        notInArray(automationRuns.status, ['success', 'failed']),
-      ),
-    }).sync();
-    if (inFlightRun) {
-      console.log(`[Automationen] Skipping run creation for job ${jobId}: in-flight run ${inFlightRun.id} already exists`);
-      return null;
-    }
+  return runAutomationTransaction(
+    (tx) => {
+      const job = getAutomationJobRowSync(tx, jobId);
+      if (!job) {
+        throw new Error('Automation job not found.');
+      }
 
-    const now = new Date();
-    const jobScope = normalizeAutomationScope(job.scope);
-    const storedJobScope = resolveStoredJobScope(job, jobScope);
-    const runActor = resolveAutomationRunActor(job, jobScope, options);
-    const [inserted] = tx
-      .insert(automationRuns)
-      .values({
-        id: `run-${randomUUID()}`,
-        jobId,
-        status: 'pending',
-        scope: jobScope,
-        jobScope: storedJobScope,
-        organizationId: job.organizationId ?? null,
-        workspaceId: job.workspaceId ?? null,
-        workspaceType: normalizeAutomationWorkspaceType(job.workspaceType),
-        actorType: runActor.actorType,
-        actorUserId: runActor.actorUserId,
-        serviceActorId: runActor.serviceActorId,
-        triggerType,
-        scheduledFor,
-        startedAt: null,
-        finishedAt: null,
-        attemptNumber: 1,
-        outputDir: null,
-        targetOutputPath: null,
-        effectiveTargetOutputPath: null,
-        logPath: null,
-        resultPath: null,
-        errorMessage: null,
-        piSessionId: null,
-        resultText: null,
-        metadataJson: options.metadataJson ? JSON.stringify(options.metadataJson) : null,
-        createdAt: now,
-      })
-      .returning()
-      .all();
+      const inFlightRun = getInFlightAutomationRunSync(tx, jobId);
+      if (inFlightRun) {
+        return skipInFlight(inFlightRun);
+      }
 
-    tx
-      .update(automationJobs)
-      .set({
-        lastRunStatus: 'pending',
-        updatedAt: now,
-      })
-      .where(eq(automationJobs.id, jobId))
-      .run();
+      const now = new Date();
+      const [inserted] = tx
+        .insert(automationRuns)
+        .values(buildPendingAutomationRunValues(job, jobId, triggerType, scheduledFor, options, now))
+        .returning()
+        .all();
 
-    return mapRunRow(inserted, null);
-  });
+      tx
+        .update(automationJobs)
+        .set({
+          lastRunStatus: 'pending',
+          updatedAt: now,
+        })
+        .where(eq(automationJobs.id, jobId))
+        .run();
+
+      return mapRunRow(inserted, null);
+    },
+    async (tx) => {
+      const job = await getAutomationJobRowAsync(tx, jobId);
+      if (!job) {
+        throw new Error('Automation job not found.');
+      }
+
+      const inFlightRun = await getInFlightAutomationRunAsync(tx, jobId);
+      if (inFlightRun) {
+        return skipInFlight(inFlightRun);
+      }
+
+      const now = new Date();
+      const [inserted] = await tx
+        .insert(automationRuns)
+        .values(buildPendingAutomationRunValues(job, jobId, triggerType, scheduledFor, options, now))
+        .returning();
+
+      await tx
+        .update(automationJobs)
+        .set({
+          lastRunStatus: 'pending',
+          updatedAt: now,
+        })
+        .where(eq(automationJobs.id, jobId));
+
+      return mapRunRow(inserted, null);
+    },
+  );
 }
 
 export async function advanceAutomationJobSchedule(jobId: string, anchor = new Date()): Promise<void> {
@@ -1488,46 +1634,77 @@ export async function markAutomationRunRetryScheduled(
   metadataJson: Record<string, unknown>,
   resultText?: string | null,
 ): Promise<AutomationRunRecord | null> {
-  return db.transaction((tx) => {
-    const current = tx.query.automationRuns.findFirst({
-      where: eq(automationRuns.id, runId),
-    }).sync();
-    if (!current) {
-      return null;
-    }
-
-    const [updated] = tx
-      .update(automationRuns)
-      .set({
-        status: 'retry_scheduled',
-        scheduledFor: nextAttemptAt,
-        errorMessage,
-        resultText: resultText ?? current.resultText,
-        finishedAt: new Date(),
-        attemptNumber: current.attemptNumber + 1,
-        eventsLog: JSON.stringify(eventsLog),
-        metadataJson: JSON.stringify({
-          ...(current.metadataJson ? JSON.parse(current.metadataJson) as Record<string, unknown> : {}),
-          ...metadataJson,
-        }),
-      })
-      .where(eq(automationRuns.id, runId))
-      .returning()
-      .all();
-
-    tx
-      .update(automationJobs)
-      .set({
-        lastRunStatus: 'retry_scheduled',
-        updatedAt: new Date(),
-      })
-      .where(eq(automationJobs.id, current.jobId))
-      .run();
-
+  const finish = (current: AutomationRunRow, updated: AutomationRunRow | undefined) => {
     console.warn(`[Automationen] Run ${runId} marked as retry_scheduled (attempt=${current.attemptNumber + 1}, nextAttemptAt=${nextAttemptAt.toISOString()})`);
-
     return updated ? mapRunRow(updated, null) : null;
-  });
+  };
+
+  return runAutomationTransaction(
+    (tx) => {
+      const current = getAutomationRunRowSync(tx, runId);
+      if (!current) {
+        return null;
+      }
+
+      const [updated] = tx
+        .update(automationRuns)
+        .set({
+          status: 'retry_scheduled',
+          scheduledFor: nextAttemptAt,
+          errorMessage,
+          resultText: resultText ?? current.resultText,
+          finishedAt: new Date(),
+          attemptNumber: current.attemptNumber + 1,
+          eventsLog: JSON.stringify(eventsLog),
+          metadataJson: mergeAutomationRunMetadata(current, metadataJson),
+        })
+        .where(eq(automationRuns.id, runId))
+        .returning()
+        .all();
+
+      tx
+        .update(automationJobs)
+        .set({
+          lastRunStatus: 'retry_scheduled',
+          updatedAt: new Date(),
+        })
+        .where(eq(automationJobs.id, current.jobId))
+        .run();
+
+      return finish(current, updated);
+    },
+    async (tx) => {
+      const current = await getAutomationRunRowAsync(tx, runId);
+      if (!current) {
+        return null;
+      }
+
+      const [updated] = await tx
+        .update(automationRuns)
+        .set({
+          status: 'retry_scheduled',
+          scheduledFor: nextAttemptAt,
+          errorMessage,
+          resultText: resultText ?? current.resultText,
+          finishedAt: new Date(),
+          attemptNumber: current.attemptNumber + 1,
+          eventsLog: JSON.stringify(eventsLog),
+          metadataJson: mergeAutomationRunMetadata(current, metadataJson),
+        })
+        .where(eq(automationRuns.id, runId))
+        .returning();
+
+      await tx
+        .update(automationJobs)
+        .set({
+          lastRunStatus: 'retry_scheduled',
+          updatedAt: new Date(),
+        })
+        .where(eq(automationJobs.id, current.jobId));
+
+      return finish(current, updated);
+    },
+  );
 }
 
 export async function markAutomationRunFinished(
@@ -1541,47 +1718,79 @@ export async function markAutomationRunFinished(
     metadataJson: Record<string, unknown>;
   },
 ): Promise<AutomationRunRecord | null> {
-  return db.transaction((tx) => {
-    const current = tx.query.automationRuns.findFirst({
-      where: eq(automationRuns.id, runId),
-    }).sync();
-    if (!current) {
-      return null;
-    }
-
-    const now = new Date();
-    const [updated] = tx
-      .update(automationRuns)
-      .set({
-        status: values.status,
-        errorMessage: values.errorMessage ?? null,
-        piSessionId: values.piSessionId ?? current.piSessionId,
-        resultText: values.resultText ?? current.resultText,
-        finishedAt: now,
-        eventsLog: JSON.stringify(values.eventsLog),
-        metadataJson: JSON.stringify({
-          ...(current.metadataJson ? JSON.parse(current.metadataJson) as Record<string, unknown> : {}),
-          ...values.metadataJson,
-        }),
-      })
-      .where(eq(automationRuns.id, runId))
-      .returning()
-      .all();
-
-    tx
-      .update(automationJobs)
-      .set({
-        lastRunAt: now,
-        lastRunStatus: values.status,
-        updatedAt: now,
-      })
-      .where(eq(automationJobs.id, current.jobId))
-      .run();
-
+  const finish = (current: AutomationRunRow, updated: AutomationRunRow | undefined) => {
     console.log(`[Automationen] Run ${runId} finished (status=${values.status}, job=${current.jobId})`);
-
     return updated ? mapRunRow(updated, null) : null;
-  });
+  };
+
+  return runAutomationTransaction(
+    (tx) => {
+      const current = getAutomationRunRowSync(tx, runId);
+      if (!current) {
+        return null;
+      }
+
+      const now = new Date();
+      const [updated] = tx
+        .update(automationRuns)
+        .set({
+          status: values.status,
+          errorMessage: values.errorMessage ?? null,
+          piSessionId: values.piSessionId ?? current.piSessionId,
+          resultText: values.resultText ?? current.resultText,
+          finishedAt: now,
+          eventsLog: JSON.stringify(values.eventsLog),
+          metadataJson: mergeAutomationRunMetadata(current, values.metadataJson),
+        })
+        .where(eq(automationRuns.id, runId))
+        .returning()
+        .all();
+
+      tx
+        .update(automationJobs)
+        .set({
+          lastRunAt: now,
+          lastRunStatus: values.status,
+          updatedAt: now,
+        })
+        .where(eq(automationJobs.id, current.jobId))
+        .run();
+
+      return finish(current, updated);
+    },
+    async (tx) => {
+      const current = await getAutomationRunRowAsync(tx, runId);
+      if (!current) {
+        return null;
+      }
+
+      const now = new Date();
+      const [updated] = await tx
+        .update(automationRuns)
+        .set({
+          status: values.status,
+          errorMessage: values.errorMessage ?? null,
+          piSessionId: values.piSessionId ?? current.piSessionId,
+          resultText: values.resultText ?? current.resultText,
+          finishedAt: now,
+          eventsLog: JSON.stringify(values.eventsLog),
+          metadataJson: mergeAutomationRunMetadata(current, values.metadataJson),
+        })
+        .where(eq(automationRuns.id, runId))
+        .returning();
+
+      await tx
+        .update(automationJobs)
+        .set({
+          lastRunAt: now,
+          lastRunStatus: values.status,
+          updatedAt: now,
+        })
+        .where(eq(automationJobs.id, current.jobId));
+
+      return finish(current, updated);
+    },
+  );
 }
 
 export async function getHeartbeatJob(input: {
