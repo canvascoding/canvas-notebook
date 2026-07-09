@@ -137,23 +137,25 @@ function buildReadFailedFallbackSystemPrompt(): ManagedSystemPromptResult {
 
 function getPromptSkillsForAgent<T extends { name: string; enabled?: boolean }>(
   normalizedAgentId: string,
-  skills: T[],
+  skills: Array<T & { core?: boolean }>,
   relevantSkills?: string[] | null,
-): T[] {
+): Array<T & { core?: boolean }> {
   if (normalizedAgentId === DEFAULT_MANAGED_AGENT_ID) {
     return skills;
   }
+
+  const coreSkills = skills.filter((skill) => skill.enabled && skill.core);
 
   if (relevantSkills === null || relevantSkills === undefined) {
     return skills;
   }
 
   if (relevantSkills.length === 0) {
-    return [];
+    return coreSkills;
   }
 
   const relevantSet = new Set(relevantSkills);
-  return skills.filter((skill) => skill.enabled && relevantSet.has(skill.name));
+  return skills.filter((skill) => skill.enabled && (skill.core || relevantSet.has(skill.name)));
 }
 
 function formatConnectionName(connectionId: string, prefix: string): string {

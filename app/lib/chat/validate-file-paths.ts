@@ -5,27 +5,85 @@ import { normalizeChatFilePath } from '@/app/lib/chat/extract-file-paths';
 const POSITIVE_VALIDATION_CACHE_TTL_MS = 30_000;
 const NEGATIVE_VALIDATION_CACHE_TTL_MS = 10_000;
 
+export type FileReferenceValidationType = 'file' | 'directory' | 'missing';
+
+export type FileReferenceValidationResult = {
+  path: string;
+  type: FileReferenceValidationType;
+  exists: boolean;
+};
+
 type ValidationCacheEntry = {
   expiresAt: number;
-  promise?: Promise<boolean>;
-  value?: boolean;
+  promise?: Promise<FileReferenceValidationResult>;
+  value?: FileReferenceValidationResult;
 };
 
 const validationCache = new Map<string, ValidationCacheEntry>();
 
-export async function validateFileExists(
+function missingValidationResult(path: string): FileReferenceValidationResult {
+  return {
+    path,
+    type: 'missing',
+    exists: false,
+  };
+}
+
+function validationResultFromType(
+  path: string,
+  type: 'file' | 'directory'
+): FileReferenceValidationResult {
+  return {
+    path,
+    type,
+    exists: true,
+  };
+}
+
+function parseApiValidationResult(
+  normalizedPath: string,
+  payload: unknown
+): FileReferenceValidationResult {
+  if (!payload || typeof payload !== 'object' || !('data' in payload)) {
+    return missingValidationResult(normalizedPath);
+  }
+
+  const data = payload.data;
+  if (!data || typeof data !== 'object' || !('exists' in data) || data.exists !== true) {
+    return missingValidationResult(normalizedPath);
+  }
+
+  const responsePath = 'path' in data && typeof data.path === 'string'
+    ? normalizeChatFilePath(data.path)
+    : normalizedPath;
+  const type =
+    ('type' in data && data.type === 'directory') ||
+    ('isDirectory' in data && data.isDirectory === true)
+      ? 'directory'
+      : 'file';
+
+  return validationResultFromType(responsePath || normalizedPath, type);
+}
+
+function getCacheTtl(result: FileReferenceValidationResult): number {
+  return result.type === 'missing'
+    ? NEGATIVE_VALIDATION_CACHE_TTL_MS
+    : POSITIVE_VALIDATION_CACHE_TTL_MS;
+}
+
+export async function validateFileReference(
   filePath: string,
   fileTree: FileNode[]
-): Promise<boolean> {
+): Promise<FileReferenceValidationResult> {
   const normalizedPath = normalizeChatFilePath(filePath);
 
   const nodeInTree = findNodeInTree(normalizedPath, fileTree);
   if (nodeInTree !== null) {
-    return true;
+    return validationResultFromType(normalizedPath, nodeInTree.type);
   }
 
   if (!normalizedPath || typeof fetch !== 'function') {
-    return false;
+    return missingValidationResult(normalizedPath);
   }
 
   const now = Date.now();
@@ -34,7 +92,7 @@ export async function validateFileExists(
     if (cached.promise) {
       return cached.promise;
     }
-    return cached.value === true;
+    return cached.value ?? missingValidationResult(normalizedPath);
   }
 
   const promise = fetch(`/api/files/exists?path=${encodeURIComponent(normalizedPath)}`, {
@@ -43,19 +101,19 @@ export async function validateFileExists(
   })
     .then(async (response) => {
       if (!response.ok) {
-        return false;
+        return missingValidationResult(normalizedPath);
       }
 
       const payload = await response.json().catch(() => null);
-      return payload?.data?.exists === true;
+      return parseApiValidationResult(normalizedPath, payload);
     })
-    .catch(() => false)
-    .then((exists) => {
+    .catch(() => missingValidationResult(normalizedPath))
+    .then((result) => {
       validationCache.set(normalizedPath, {
-        value: exists,
-        expiresAt: Date.now() + (exists ? POSITIVE_VALIDATION_CACHE_TTL_MS : NEGATIVE_VALIDATION_CACHE_TTL_MS),
+        value: result,
+        expiresAt: Date.now() + getCacheTtl(result),
       });
-      return exists;
+      return result;
     });
 
   validationCache.set(normalizedPath, {
@@ -64,6 +122,14 @@ export async function validateFileExists(
   });
 
   return promise;
+}
+
+export async function validateFileExists(
+  filePath: string,
+  fileTree: FileNode[]
+): Promise<boolean> {
+  const result = await validateFileReference(filePath, fileTree);
+  return result.type === 'file';
 }
 
 export { findNodeInTree } from '@/app/lib/files/tree-utils';

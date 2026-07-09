@@ -728,15 +728,22 @@ Restore-Anforderungen:
 
 Full-Backup-Anforderungen:
 
-- Full Backup sichert die komplette Instanz fuer Disaster Recovery, nicht nur exportierbare User-Daten.
+- Full Backup sichert den Nutzerdatenzustand der Canvas-Notebook-Instanz fuer Disaster Recovery, nicht die komplette VM.
+- Nicht enthalten sind Betriebssystem, Docker Images, App-Binaries, Source Code, Systemd-/Caddy-Konfiguration, Host-Compose-Dateien und CLI-Installation.
 - Backups muessen ueber Admin-Kontext, Control Plane oder Host-/Container-CLI manuell getriggert werden koennen.
 - V1 startet ohne verpflichtenden Schedule; taegliche Backups und externer Bucket-Upload bleiben spaeter vorbereitbar.
-- DB, WAL/Journal oder Postgres Dump/Snapshot, `/data/workspaces`, `/data/studio`, scoped Settings, Runtime-Konfiguration und Secrets/OAuth-State muessen konsistent gesichert werden.
+- DB, WAL/Journal oder Postgres Dump/Snapshot und Canvas-Notebook-Nutzerdaten unter `/data` muessen gesichert werden. Dazu gehoeren Workspaces, Studio-Daten, Agenten, Skills/Plugins, scoped Settings, app-interne Runtime-Daten, Secrets/OAuth-State, Public-Link-Tokens und relevante Metadaten.
+- V1 stoppt die App fuer Backup nicht und setzt sie nicht in Maintenance Mode. Die Datenbank ist konsistent, Dateien unter `/data` werden als Online-Best-Effort-Snapshot gesichert und das Manifest weist diesen Konsistenzmodus aus.
 - Im Postgres-Mode reicht ein `/data`-Backup nicht aus; Postgres-Dump oder Postgres-Volume-Snapshot ist zwingend Teil des Full Backups.
 - Workspace-Dateien selbst bleiben in V1 im Container-Dateisystem unverschluesselt; lokale Backup-Artefakte und Postgres-Dumps werden ebenfalls nicht automatisch verschluesselt.
-- Backup-Artefakte liegen in V1 lokal auf derselben VM. UI und Control Plane muessen warnen, dass Host-/Container-Admins sie lesen koennen.
+- Backup-Artefakte liegen in V1 lokal auf derselben VM. Default ist `/data/system/backups` bzw. der zugehoerige lokale VM-Pfad; der Zielpfad muss konfigurierbar sein.
+- V1 verwaltet ein stabiles Latest-Backup: ein neuer Lauf schreibt zuerst in Staging, prueft Archiv, Manifest und Checksum und ersetzt erst danach das bisherige Latest-Backup.
+- UI und Control Plane muessen warnen, dass Host-/Container-Admins lokale unverschluesselte Backup-Artefakte lesen koennen.
 - Public Links und Tokens duerfen in Full Backups fuer gleiche Disaster-Recovery-Ziele enthalten sein, aber nicht in Migration Exports.
 - Backup-Jobs brauchen Resource Budget, Logging, Integritaetschecks und Schutz gegen parallele Laeufe.
+- Die Notebook-CLI orchestriert Backup ueber einen Container-internen Backup-Command bzw. Scriptpfad, der die vorhandene App-Backup-Logik in einem separaten Prozess ausfuehrt. Sie ruft die laufende Web-App fuer `backup create` nicht per HTTP auf und dupliziert die Backup-Engine nicht.
+- Die Control Plane braucht einen Download-Button fuer das lokale Latest-Backup. Der Agent streamt das Artefakt zur Control Plane bzw. zum Browser; die Control Plane speichert das ZIP nicht dauerhaft in ihrer Datenbank.
+- Restore ist ein eigener Flow mit Dry Run, Provider-Kompatibilitaet, App-Stopp oder Maintenance Mode und Rollback-Regeln.
 
 ## Storage-Monitoring und Kapazitaetsmanagement
 
@@ -880,6 +887,7 @@ Die verbindliche Detailregel steht in `13-resource-aware-ingestion-and-job-backp
 42. Export/Import/Backup/Restore provider-aware machen, inklusive Postgres-Dump und Provider-Kompatibilitaetspruefung.
 43. RAG, Embeddings, Knowledge Graph und echte Collaboration serverseitig an Postgres/pgvector-Gates binden.
 44. Markdown-/Text-Collaboration mit CRDT/Yjs-Grundlage und File-Lock-/Revision-Policy fuer Office/PDF/Assets implementieren.
+45. Agent-faehige Skill-Erstellung und Organization Shared Skills ueber dedizierte validierende Installer und Skill-Policies implementieren.
 
 ## Bezug zu bestehenden Control-Plane-Dokumenten
 

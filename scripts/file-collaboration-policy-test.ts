@@ -247,6 +247,7 @@ async function main() {
       workspaceRoot: workspace.rootPath,
       workspaceRootRelativePath: workspace.rootRelativePath ?? null,
       canWrite: true,
+      canDelete: true,
       canShare: true,
       legacy: false,
     };

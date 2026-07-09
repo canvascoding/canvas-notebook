@@ -121,6 +121,18 @@ import {
   MAX_AUDIO_TRANSCRIPTION_BYTES,
   transcribeAudio,
 } from '@/app/lib/integrations/audio-transcription-service';
+import { ensureAgentRuntimeTempDir, getAgentRuntimeTempEnv } from '@/app/lib/pi/agent-runtime-temp';
+import {
+  createCanvasSkillDraft,
+  discardCanvasSkillDraft,
+  inspectCanvasSkillForAgent,
+  installCanvasSkillFromWorkspace,
+  updateCanvasSkillFromWorkspace,
+  type AgentSkillDraftResult,
+  type AgentSkillInspection,
+  type AgentSkillInstallFromWorkspaceResult,
+  type AgentSkillUpdateFromWorkspaceResult,
+} from '@/app/lib/skills/agent-skill-workspace';
 import { getAgentExecutionContext, runWithAgentExecutionContext, type AgentExecutionContext } from '@/app/lib/pi/agent-execution-context';
 import { resolveAgentExecutionContextForSession } from '@/app/lib/pi/session-workspace-context';
 import { hashAuditValue, recordAuditEvent, type AuditStatus } from '@/app/lib/audit/audit-service';
@@ -2508,9 +2520,15 @@ export const piTools: AgentTool[] = [
       try {
         throwIfAborted(signal);
         assertBashCommandAllowed(command);
+        const executionContext = getAgentExecutionContext();
+        const safeEnv = filterSafeEnv(process.env) as NodeJS.ProcessEnv;
+        if (executionContext) {
+          const tempDir = await ensureAgentRuntimeTempDir(executionContext);
+          Object.assign(safeEnv, getAgentRuntimeTempEnv(tempDir));
+        }
         const { stdout, stderr } = await execAsync(command, {
           cwd: getAgentWorkspaceRoot(),
-          env: filterSafeEnv(process.env) as NodeJS.ProcessEnv,
+          env: safeEnv,
           signal,
         });
         await recordBashToolAudit({
@@ -2653,7 +2671,7 @@ export const piTools: AgentTool[] = [
   createStudioListPresetsTool(),
 ];
 
-export type PiToolGroup = 'Core' | 'Studio' | 'Automation' | 'Audio' | 'Composio' | 'MCP' | 'Email' | 'Session' | 'Delegation' | 'Memory' | 'Browser' | 'Todo' | 'Web' | 'Security' | 'Onboarding';
+export type PiToolGroup = 'Core' | 'Studio' | 'Automation' | 'Audio' | 'Composio' | 'MCP' | 'Email' | 'Session' | 'Delegation' | 'Memory' | 'Browser' | 'Todo' | 'Web' | 'Security' | 'Skills' | 'Onboarding';
 
 export type PiToolMetadata = {
   name: string;
@@ -2976,6 +2994,397 @@ function createOnboardingProfileTool(userId?: string, agentId?: string | null, s
   };
 }
 
+function requireAgentExecutionContextForTool(toolLabel: string): AgentExecutionContext {
+  const context = getAgentExecutionContext();
+  if (!context) {
+    throw new Error(`${toolLabel} requires an active workspace-bound agent session.`);
+  }
+  return context;
+}
+
+async function assertAgentCanManageSkills(userId: string): Promise<void> {
+  await assertUserOrganizationPermission(
+    userId,
+    'canSharePluginsAndSkills',
+    'Plugin and skill sharing permission required.',
+  );
+}
+
+async function recordAgentSkillToolAudit(input: {
+  action: string;
+  status: AuditStatus;
+  skillName?: string | null;
+  draftPath?: string | null;
+  metadata?: Record<string, unknown>;
+  error?: string;
+}) {
+  const executionContext = getAgentExecutionContext();
+  if (!executionContext) return;
+
+  const metadata = {
+    skillName: input.skillName ?? null,
+    draftPath: input.draftPath ?? null,
+    workspace: {
+      workspaceId: executionContext.workspaceId,
+      workspaceType: executionContext.workspaceType,
+      workspaceName: executionContext.workspaceName,
+      workspaceRootRelativePath: executionContext.workspaceRootRelativePath,
+    },
+    ...input.metadata,
+    error: input.error ? input.error.slice(0, 500) : null,
+  };
+
+  await recordAuditEvent({
+    organizationId: executionContext.organizationId,
+    customerId: executionContext.customerId,
+    projectId: executionContext.projectId,
+    workspaceId: executionContext.workspaceId,
+    userId: executionContext.userId,
+    sessionId: executionContext.sessionId,
+    agentId: executionContext.agentId,
+    source: 'agent_tool',
+    eventType: 'plugin',
+    entityType: 'canvas_skill',
+    entityId: input.skillName || input.draftPath || executionContext.workspaceId,
+    action: input.action,
+    status: input.status,
+    summary: `Agent skill tool ${input.action} ${input.status}.`,
+    metadata,
+    inputHash: hashAuditValue({
+      action: input.action,
+      skillName: input.skillName ?? null,
+      draftPath: input.draftPath ?? null,
+    }),
+    outputHash: hashAuditValue({
+      status: input.status,
+      metadata,
+      error: input.error ?? null,
+    }),
+  }).catch((error) => {
+    console.warn('[ToolRegistry] Failed to record skill tool audit:', error);
+  });
+}
+
+function formatAgentSkillInspection(result: AgentSkillInspection): string {
+  const lines = [
+    `Skill: ${result.name}`,
+    `Editable: ${result.editable ? 'yes' : 'no'}`,
+    `Source: ${result.sourceType}`,
+    result.version ? `Version: ${result.version}` : null,
+    result.checksum ? `Checksum: ${result.checksum}` : null,
+    result.installDir ? `Install dir: ${result.installDir}` : null,
+    result.skillPath ? `SKILL.md: ${result.skillPath}` : null,
+    result.reason ? `Reason: ${result.reason}` : null,
+  ].filter(Boolean);
+  if (result.files?.length) {
+    lines.push(`Files: ${result.files.length}`);
+  }
+  return lines.join('\n');
+}
+
+function formatAgentSkillDraft(result: AgentSkillDraftResult): string {
+  return [
+    `Skill draft created: ${result.packagePath}`,
+    `Draft id: ${result.draftId}`,
+    `Skill: ${result.skillName}`,
+    result.sourceSkillName ? `Source skill: ${result.sourceSkillName}` : null,
+    result.expectedVersion ? `Expected version: ${result.expectedVersion}` : null,
+    result.expectedChecksum ? `Expected checksum: ${result.expectedChecksum}` : null,
+    `Files: ${result.files.length}`,
+  ].filter(Boolean).join('\n');
+}
+
+function formatAgentSkillInstall(result: AgentSkillInstallFromWorkspaceResult): string {
+  return [
+    `Skill installed: ${result.name}`,
+    `Version: ${result.version}`,
+    `Checksum: ${result.checksum}`,
+    `Files imported: ${result.importedFiles}`,
+    `Draft path: ${result.draftPath}`,
+    `Draft cleaned: ${result.draftCleaned ? 'yes' : 'no'}`,
+    result.cleanupSkippedReason ? `Cleanup skipped: ${result.cleanupSkippedReason}` : null,
+  ].filter(Boolean).join('\n');
+}
+
+function formatAgentSkillUpdate(result: AgentSkillUpdateFromWorkspaceResult): string {
+  return [
+    `Skill updated: ${result.name}`,
+    `Previous version: ${result.previousVersion}`,
+    `Version: ${result.version}`,
+    `Previous checksum: ${result.previousChecksum}`,
+    `Checksum: ${result.checksum}`,
+    `Files installed: ${result.files}`,
+    `Draft path: ${result.draftPath}`,
+    `Draft cleaned: ${result.draftCleaned ? 'yes' : 'no'}`,
+    result.cleanupSkippedReason ? `Cleanup skipped: ${result.cleanupSkippedReason}` : null,
+  ].filter(Boolean).join('\n');
+}
+
+function createAgentSkillTools(userId?: string): AgentTool[] {
+  return [
+    {
+      name: 'inspect_canvas_skill',
+      label: 'Inspecting Canvas skill',
+      description: 'Inspects an installed personal Canvas skill before editing. Returns editability, version, checksum, install path, and package file summary. Always call this before update_canvas_skill_from_workspace.',
+      parameters: Type.Object({
+        skillName: Type.String({ description: 'Skill name to inspect.' }),
+      }),
+      execute: async (_toolCallId, params) => {
+        const p = params as { skillName?: string };
+        try {
+          const scopedUserId = requireToolUserId(userId, 'skill tools');
+          await assertAgentCanManageSkills(scopedUserId);
+          const result = await inspectCanvasSkillForAgent({
+            skillName: p.skillName || '',
+            scope: { userId: scopedUserId },
+          });
+          await recordAgentSkillToolAudit({
+            action: 'skill.inspect',
+            status: 'success',
+            skillName: result.name,
+            metadata: {
+              editable: result.editable,
+              sourceType: result.sourceType,
+              version: result.version ?? null,
+              checksum: result.checksum ?? null,
+              files: result.files?.length ?? null,
+            },
+          });
+          return { content: [{ type: 'text', text: formatAgentSkillInspection(result) }], details: result };
+        } catch (error: unknown) {
+          const message = getErrorMessage(error);
+          await recordAgentSkillToolAudit({ action: 'skill.inspect', status: 'failure', skillName: p.skillName, error: message });
+          return { content: [{ type: 'text', text: `Error: ${message}` }], details: { error: message } };
+        }
+      },
+    },
+    {
+      name: 'create_canvas_skill_draft',
+      label: 'Creating Canvas skill draft',
+      description: 'Creates a managed workspace draft under .canvas-skill-drafts. For new skills, provide skillName, description, and optional version. For editing/forking an installed personal skill, provide sourceSkillName; the full skill folder is copied into the draft.',
+      parameters: Type.Object({
+        skillName: Type.String({ description: 'Target skill name for the draft folder. For normal edits, use the same name as sourceSkillName.' }),
+        description: Type.Optional(Type.String({ description: 'Description for a new skill draft.' })),
+        version: Type.Optional(Type.String({ description: 'Version for a new skill draft. Defaults to 1.0.0.' })),
+        sourceSkillName: Type.Optional(Type.String({ description: 'Existing personal skill to copy into the draft for editing or forking.' })),
+        draftId: Type.Optional(Type.String({ description: 'Optional stable draft id. Defaults to a generated id.' })),
+        overwrite: Type.Optional(Type.Boolean({ description: 'Overwrite an existing draft with the same draftId and skillName. Defaults to false.' })),
+      }),
+      execute: async (_toolCallId, params) => {
+        const p = params as {
+          skillName?: string;
+          description?: string;
+          version?: string;
+          sourceSkillName?: string;
+          draftId?: string;
+          overwrite?: boolean;
+        };
+        try {
+          const scopedUserId = requireToolUserId(userId, 'skill tools');
+          const context = requireAgentExecutionContextForTool('create_canvas_skill_draft');
+          if (!context.canWrite) {
+            throw new Error('Agent file writes are disabled for the active workspace.');
+          }
+          await assertAgentCanManageSkills(scopedUserId);
+          const result = await createCanvasSkillDraft({
+            workspaceRoot: context.workspaceRoot,
+            scope: { userId: scopedUserId },
+            skillName: p.skillName || '',
+            description: p.description,
+            version: p.version,
+            sourceSkillName: p.sourceSkillName,
+            draftId: p.draftId,
+            overwrite: p.overwrite,
+          });
+          await recordAgentSkillToolAudit({
+            action: 'skill.create_draft',
+            status: 'success',
+            skillName: result.skillName,
+            draftPath: result.packagePath,
+            metadata: {
+              sourceSkillName: result.sourceSkillName ?? null,
+              expectedVersion: result.expectedVersion ?? null,
+              expectedChecksum: result.expectedChecksum ?? null,
+              files: result.files.length,
+            },
+          });
+          return { content: [{ type: 'text', text: formatAgentSkillDraft(result) }], details: result };
+        } catch (error: unknown) {
+          const message = getErrorMessage(error);
+          await recordAgentSkillToolAudit({
+            action: 'skill.create_draft',
+            status: 'failure',
+            skillName: p.skillName,
+            metadata: { sourceSkillName: p.sourceSkillName ?? null },
+            error: message,
+          });
+          return { content: [{ type: 'text', text: `Error: ${message}` }], details: { error: message } };
+        }
+      },
+    },
+    {
+      name: 'install_canvas_skill_from_workspace',
+      label: 'Installing Canvas skill from workspace',
+      description: 'Installs a new personal Canvas skill from a workspace folder containing one complete skill package. The package must include SKILL.md and a version in agents/canvas.yaml skill.version or SKILL.md metadata.version. Managed drafts under .canvas-skill-drafts are deleted after successful install by default.',
+      parameters: Type.Object({
+        draftPath: Type.String({ description: 'Workspace-relative path to the skill package folder.' }),
+        enable: Type.Optional(Type.Boolean({ description: 'Enable the skill after install. Defaults to true.' })),
+        cleanupDraft: Type.Optional(Type.Boolean({ description: 'Delete the managed .canvas-skill-drafts draft after success. Defaults to true.' })),
+      }),
+      execute: async (_toolCallId, params) => {
+        const p = params as { draftPath?: string; enable?: boolean; cleanupDraft?: boolean };
+        try {
+          const scopedUserId = requireToolUserId(userId, 'skill tools');
+          const context = requireAgentExecutionContextForTool('install_canvas_skill_from_workspace');
+          if (p.cleanupDraft !== false && !context.canDelete) {
+            throw new Error('Agent file deletes are disabled for the active workspace. Pass cleanupDraft=false or enable delete permission.');
+          }
+          await assertAgentCanManageSkills(scopedUserId);
+          const result = await installCanvasSkillFromWorkspace({
+            workspaceRoot: context.workspaceRoot,
+            scope: { userId: scopedUserId },
+            draftPath: p.draftPath || '',
+            enable: p.enable,
+            cleanupDraft: p.cleanupDraft,
+            updatedBy: scopedUserId,
+          });
+          await recordAgentSkillToolAudit({
+            action: 'skill.install_from_workspace',
+            status: 'success',
+            skillName: result.name,
+            draftPath: result.draftPath,
+            metadata: {
+              version: result.version,
+              checksum: result.checksum,
+              importedFiles: result.importedFiles,
+              draftCleaned: result.draftCleaned,
+            },
+          });
+          return { content: [{ type: 'text', text: formatAgentSkillInstall(result) }], details: result };
+        } catch (error: unknown) {
+          const message = getErrorMessage(error);
+          await recordAgentSkillToolAudit({
+            action: 'skill.install_from_workspace',
+            status: 'failure',
+            draftPath: p.draftPath,
+            error: message,
+          });
+          return { content: [{ type: 'text', text: `Error: ${message}` }], details: { error: message } };
+        }
+      },
+    },
+    {
+      name: 'update_canvas_skill_from_workspace',
+      label: 'Updating Canvas skill from workspace',
+      description: 'Atomically replaces an existing personal Canvas skill with a complete workspace package folder. Requires expectedVersion and expectedChecksum from inspect_canvas_skill to prevent stale edits. Managed drafts under .canvas-skill-drafts are deleted after successful update by default.',
+      parameters: Type.Object({
+        skillName: Type.String({ description: 'Existing personal skill to update.' }),
+        draftPath: Type.String({ description: 'Workspace-relative path to the edited complete skill package folder.' }),
+        expectedVersion: Type.String({ description: 'Version returned by inspect_canvas_skill before editing.' }),
+        expectedChecksum: Type.String({ description: 'Checksum returned by inspect_canvas_skill before editing.' }),
+        enable: Type.Optional(Type.Boolean({ description: 'Enable the skill after update. Defaults to true.' })),
+        cleanupDraft: Type.Optional(Type.Boolean({ description: 'Delete the managed .canvas-skill-drafts draft after success. Defaults to true.' })),
+      }),
+      execute: async (_toolCallId, params) => {
+        const p = params as {
+          skillName?: string;
+          draftPath?: string;
+          expectedVersion?: string;
+          expectedChecksum?: string;
+          enable?: boolean;
+          cleanupDraft?: boolean;
+        };
+        try {
+          const scopedUserId = requireToolUserId(userId, 'skill tools');
+          const context = requireAgentExecutionContextForTool('update_canvas_skill_from_workspace');
+          if (p.cleanupDraft !== false && !context.canDelete) {
+            throw new Error('Agent file deletes are disabled for the active workspace. Pass cleanupDraft=false or enable delete permission.');
+          }
+          await assertAgentCanManageSkills(scopedUserId);
+          const result = await updateCanvasSkillFromWorkspace({
+            workspaceRoot: context.workspaceRoot,
+            scope: { userId: scopedUserId },
+            skillName: p.skillName || '',
+            draftPath: p.draftPath || '',
+            expectedVersion: p.expectedVersion || '',
+            expectedChecksum: p.expectedChecksum || '',
+            enable: p.enable,
+            cleanupDraft: p.cleanupDraft,
+            updatedBy: scopedUserId,
+          });
+          await recordAgentSkillToolAudit({
+            action: 'skill.update_from_workspace',
+            status: 'success',
+            skillName: result.name,
+            draftPath: result.draftPath,
+            metadata: {
+              previousVersion: result.previousVersion,
+              version: result.version,
+              previousChecksum: result.previousChecksum,
+              checksum: result.checksum,
+              files: result.files,
+              draftCleaned: result.draftCleaned,
+            },
+          });
+          return { content: [{ type: 'text', text: formatAgentSkillUpdate(result) }], details: result };
+        } catch (error: unknown) {
+          const message = getErrorMessage(error);
+          await recordAgentSkillToolAudit({
+            action: 'skill.update_from_workspace',
+            status: 'failure',
+            skillName: p.skillName,
+            draftPath: p.draftPath,
+            error: message,
+          });
+          return { content: [{ type: 'text', text: `Error: ${message}` }], details: { error: message } };
+        }
+      },
+    },
+    {
+      name: 'discard_canvas_skill_draft',
+      label: 'Discarding Canvas skill draft',
+      description: 'Deletes a managed skill draft under .canvas-skill-drafts without installing it. Use this for abandoned or failed skill creation/editing work.',
+      parameters: Type.Object({
+        draftPath: Type.String({ description: 'Workspace-relative path to the draft id folder or skill package folder under .canvas-skill-drafts.' }),
+      }),
+      execute: async (_toolCallId, params) => {
+        const p = params as { draftPath?: string };
+        try {
+          const scopedUserId = requireToolUserId(userId, 'skill tools');
+          const context = requireAgentExecutionContextForTool('discard_canvas_skill_draft');
+          if (!context.canDelete) {
+            throw new Error('Agent file deletes are disabled for the active workspace.');
+          }
+          await assertAgentCanManageSkills(scopedUserId);
+          const result = await discardCanvasSkillDraft({
+            workspaceRoot: context.workspaceRoot,
+            draftPath: p.draftPath || '',
+          });
+          await recordAgentSkillToolAudit({
+            action: 'skill.discard_draft',
+            status: 'success',
+            draftPath: result.draftPath,
+            metadata: { deleted: result.deleted },
+          });
+          return {
+            content: [{ type: 'text', text: `Skill draft discarded: ${result.draftPath}\nDeleted: ${result.deleted ? 'yes' : 'no'}` }],
+            details: result,
+          };
+        } catch (error: unknown) {
+          const message = getErrorMessage(error);
+          await recordAgentSkillToolAudit({
+            action: 'skill.discard_draft',
+            status: 'failure',
+            draftPath: p.draftPath,
+            error: message,
+          });
+          return { content: [{ type: 'text', text: `Error: ${message}` }], details: { error: message } };
+        }
+      },
+    },
+  ];
+}
+
 function createUserScopedTools(userId?: string, agentId?: string | null, sessionId?: string | null): AgentTool[] {
   const sourceAgentId = normalizeManagedAgentId(agentId);
   const tools: AgentTool[] = [
@@ -2984,6 +3393,7 @@ function createUserScopedTools(userId?: string, agentId?: string | null, session
     createHumanTodoTool({ userId, agentId, sessionId }),
     createPublicShareTool(userId, agentId, sessionId),
     createBrowserGatewayTool({ userId, agentId: sourceAgentId, sessionId }),
+    ...createAgentSkillTools(userId),
     ...createEmailTools(userId),
   ];
 
@@ -3274,6 +3684,7 @@ function getToolGroup(toolName: string): PiToolGroup {
   if (toolName.startsWith('web_')) return 'Web';
   if (toolName === 'create_human_todo') return 'Todo';
   if (toolName === 'public_share_file') return 'Security';
+  if (toolName.includes('canvas_skill')) return 'Skills';
   if (toolName === 'delegate_task') return 'Delegation';
   if (toolName === 'session_search') return 'Session';
   if (toolName.startsWith('email_')) return 'Email';
@@ -3350,6 +3761,10 @@ function getToolNotes(tool: AgentTool, group: PiToolGroup): string[] {
   if (group === 'Security') {
     notes.push('Can expose selected workspace files through public read-only URLs without login.');
     notes.push('Disabled by default. Use only when the user explicitly requests public sharing and never for secrets or folders.');
+  }
+  if (group === 'Skills') {
+    notes.push('Can inspect, create, install, update, or discard personal Canvas skills through validated package workflows.');
+    notes.push('Requires plugin and skill sharing permission. Skill package contents are validated before installation and are not logged in audit metadata.');
   }
   if (group === 'Onboarding') {
     notes.push('Only available during the initial Canvas Agent onboarding profile session.');

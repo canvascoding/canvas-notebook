@@ -23,12 +23,27 @@ case "${1:-}" in
     printf 'compose %s\n' "$*" >> "${CANVAS_TEST_DOCKER_LOG:?}"
     if [[ "$*" == *"ps -q canvas-notebook"* ]]; then
       printf 'fake-container-id\n'
+    elif [[ "$*" == *"ps -q postgres"* ]]; then
+      printf 'fake-postgres-id\n'
+    fi
+    exit 0
+    ;;
+  inspect)
+    shift
+    printf 'inspect %s\n' "$*" >> "${CANVAS_TEST_DOCKER_LOG:?}"
+    if [[ "$*" == *"{{.State.Status}}"* ]]; then
+      printf 'running\n'
+    elif [[ "$*" == *"{{.Id}}"* ]]; then
+      printf 'fake-postgres-id\n'
     fi
     exit 0
     ;;
   exec)
     shift
     printf 'exec %s\n' "$*" >> "${CANVAS_TEST_DOCKER_LOG:?}"
+    if [[ ! -t 0 ]]; then
+      cat >/dev/null || true
+    fi
     exit 0
     ;;
   *)
@@ -55,7 +70,13 @@ cli="$TMP_DIR/install/bin/canvas-notebook"
 grep -q 'migrate-sqlite-to-postgres' "$TMP_DIR/help.txt"
 
 "$cli" database migrate-sqlite-to-postgres --sqlite-path /data/backups/snapshot.sqlite --verbose --no-banner
+grep -q -- 'compose -f .* --profile postgres up -d postgres' "$CANVAS_TEST_DOCKER_LOG"
+grep -q 'exec -i -u postgres fake-postgres-id psql' "$CANVAS_TEST_DOCKER_LOG"
 grep -q 'exec fake-container-id npx tsx --conditions react-server scripts/migrate-sqlite-to-postgres.ts --sqlite-path /data/backups/snapshot.sqlite --verbose' "$CANVAS_TEST_DOCKER_LOG"
+if grep -Eq 'postgresql://canvas:[^*[:space:]]+@postgres|CANVAS_POSTGRES_PASSWORD' "$CANVAS_TEST_DOCKER_LOG"; then
+  echo "database migrate prepare leaked a password-bearing value into docker argv logs" >&2
+  exit 1
+fi
 
 : > "$CANVAS_TEST_DOCKER_LOG"
 "$cli" database migrate-sqlite-to-postgres --json --no-banner > /dev/null

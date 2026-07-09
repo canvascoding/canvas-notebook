@@ -21,6 +21,11 @@ async function main() {
       workspaceToPiSessionFields,
     } = await import('../app/lib/pi/session-workspace-context');
     const {
+      getAgentRuntimeTempEnv,
+      getAgentRuntimeTempPromptBlock,
+      resolveAgentRuntimeTempDir,
+    } = await import('../app/lib/pi/agent-runtime-temp');
+    const {
       detectUnsafeBashCommand,
       getAgentWorkspaceRoot,
       resolveAgentPath,
@@ -49,6 +54,7 @@ async function main() {
     assert.equal(workspace.workspaceType, 'personal');
     assert.equal(workspace.permissions.canRead, true);
     assert.equal(workspace.permissions.canWrite, true);
+    assert.equal(workspace.permissions.canDelete, true);
     assert.equal(workspace.rootPath, path.join(dataRoot, 'workspaces', 'personal', userId, 'files'));
     await fs.access(workspace.rootPath);
 
@@ -76,6 +82,8 @@ async function main() {
     assert.equal(executionContext.agentId, 'canvas-agent');
     assert.equal(executionContext.workspaceId, workspace.workspaceId);
     assert.equal(executionContext.workspaceRoot, workspace.rootPath);
+    assert.equal(executionContext.canWrite, true);
+    assert.equal(executionContext.canDelete, true);
 
     await runWithAgentExecutionContext(executionContext, async () => {
       assert.equal(getAgentWorkspaceRoot(), workspace.rootPath);
@@ -173,6 +181,63 @@ async function main() {
 
       await writeAgentTextFile({ path: 'bulk/a.txt', content: 'A\n' });
       await writeAgentTextFile({ path: 'bulk/b.txt', content: 'B\n' });
+      await writeAgentTextFile({ path: 'scoped/write-without-delete.txt', content: 'keep\n' });
+      await runWithAgentExecutionContext({ ...executionContext, canDelete: false }, async () => {
+        await assert.rejects(
+          () => deleteAgentPaths({ paths: ['scoped/write-without-delete.txt'] }),
+          /deletes are disabled/,
+        );
+      });
+      assert.equal(await fs.readFile(path.join(workspace.rootPath, 'scoped', 'write-without-delete.txt'), 'utf8'), 'keep\n');
+
+      await writeAgentTextFile({ path: 'scoped/delete-without-write.txt', content: 'remove\n' });
+      await runWithAgentExecutionContext({ ...executionContext, canWrite: false, canDelete: true }, async () => {
+        await assert.rejects(
+          () => writeAgentTextFile({ path: 'scoped/write-blocked.txt', content: 'blocked\n' }),
+          /writes are disabled/,
+        );
+        await deleteAgentPaths({ paths: ['scoped/delete-without-write.txt'] });
+      });
+      await assert.rejects(fs.stat(path.join(workspace.rootPath, 'scoped', 'delete-without-write.txt')));
+
+      const runtimeTempDir = resolveAgentRuntimeTempDir(executionContext);
+      assert.equal(
+        runtimeTempDir,
+        path.join(dataRoot, 'temp', 'agent-runtime', 'org-personal', `user-${userId}`, 'agent-canvas-agent', `session-${sessionId}`),
+      );
+      const tempEnv = getAgentRuntimeTempEnv(runtimeTempDir);
+      assert.equal(tempEnv.CANVAS_AGENT_TEMP_DIR, runtimeTempDir);
+      assert.equal(tempEnv.TMPDIR, runtimeTempDir);
+      assert.equal(tempEnv.PYTHONPYCACHEPREFIX, path.join(runtimeTempDir, '__pycache__'));
+      assert.match(getAgentRuntimeTempPromptBlock(executionContext), /Agent Runtime Temp Directory/);
+      assert.match(getAgentRuntimeTempPromptBlock(executionContext), new RegExp(runtimeTempDir.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+
+      const tempFile = path.join(runtimeTempDir, 'calc', 'scratch.py');
+      await runWithAgentExecutionContext({ ...executionContext, canWrite: false, canDelete: false }, async () => {
+        const tempWrite = await writeAgentTextFile({
+          path: tempFile,
+          content: 'print("temporary")\n',
+        });
+        assert.equal(tempWrite.resolvedPath, tempFile);
+        await assertAgentPathAllowed(tempFile);
+        await deleteAgentPaths({ paths: [tempFile] });
+      });
+      await assert.rejects(fs.stat(tempFile));
+
+      const tempOutsideRoot = path.join(tempRoot, 'temp-outside');
+      await fs.mkdir(tempOutsideRoot, { recursive: true });
+      await fs.mkdir(runtimeTempDir, { recursive: true });
+      await fs.symlink(tempOutsideRoot, path.join(runtimeTempDir, 'escape-link'));
+      await runWithAgentExecutionContext({ ...executionContext, canWrite: false, canDelete: false }, async () => {
+        await assert.rejects(
+          () => writeAgentTextFile({
+            path: path.join(runtimeTempDir, 'escape-link', 'blocked.txt'),
+            content: 'blocked',
+          }),
+          /runtime temp mutations are limited/,
+        );
+      });
+
       const deletedBulk = await deleteAgentPaths({
         paths: ['bulk/a.txt', 'bulk/b.txt'],
       });

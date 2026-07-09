@@ -913,9 +913,14 @@ function workspaceContextFromRecord(
       permission?.can_write_team_workspace === 1
     )
   );
+  const canDeleteOrganizationWorkspace = record.type === 'organization' && (
+    permission?.status === 'active' &&
+    permission?.can_delete_team_files === 1
+  );
   const canUseTeamMembership = record.type === 'team' && teamPermission?.status === 'active' && teamPermission.role !== 'external';
   const canAccessTeamWorkspace = canUseTeamMembership && teamPermission.can_read === 1;
   const canWriteTeamWorkspace = canUseTeamMembership && teamPermission.can_write === 1;
+  const canDeleteTeamWorkspace = canUseTeamMembership && permission?.status === 'active' && permission.can_delete_team_files === 1;
   const canManageTeamWorkspace = canUseTeamMembership && teamPermission.can_manage === 1;
   const canUseProjectMembership = record.type === 'project' && projectPermission?.status === 'active';
   const canReadProjectWorkspace = canUseProjectMembership && projectPermission.can_read === 1;
@@ -941,8 +946,10 @@ function workspaceContextFromRecord(
       ownsPersonalWorkspace,
       canAccessOrganizationWorkspace,
       canWriteOrganizationWorkspace,
+      canDeleteOrganizationWorkspace,
       canAccessTeamWorkspace,
       canWriteTeamWorkspace,
+      canDeleteTeamWorkspace,
       canManageTeamWorkspace,
       canReadProjectWorkspace,
       canWriteProjectWorkspace,

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { assertMarkdownPdfExportPath, getMarkdownPdfAttachmentName, renderMarkdownWorkspaceFileToPdf } from '@/app/lib/pdf/markdown-pdf';
 import { isBrowserExportUnavailableError } from '@/app/lib/pi/browser/settings-service';
+import { getPdfRendererClosedMessage, isPdfRendererClosedError } from '@/app/lib/pdf/browser';
 import { requireRequestWorkspace, workspaceFileOptions } from '@/app/lib/workspaces/request';
 
 export async function POST(request: NextRequest) {
@@ -51,6 +52,13 @@ export async function POST(request: NextRequest) {
 
     if (isBrowserExportUnavailableError(error)) {
       return NextResponse.json({ success: false, error: error.message }, { status: 403 });
+    }
+
+    if (isPdfRendererClosedError(error)) {
+      return NextResponse.json(
+        { success: false, code: 'PDF_RENDERER_CLOSED', error: getPdfRendererClosedMessage() },
+        { status: 503 }
+      );
     }
 
     if (error && typeof error === 'object' && 'code' in error && (error as NodeJS.ErrnoException).code === 'ENOENT') {

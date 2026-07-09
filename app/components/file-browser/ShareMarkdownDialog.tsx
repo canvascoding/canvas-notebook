@@ -33,6 +33,11 @@ type BrowserStatusPayload = {
   };
 };
 
+type PdfErrorPayload = {
+  code?: string;
+  error?: string;
+};
+
 function getPdfDownloadName(filePath: string) {
   const rawBaseName = filePath.split(/[\\/]/).filter(Boolean).pop() || 'document';
   let decodedBaseName = rawBaseName;
@@ -185,7 +190,10 @@ export function ShareMarkdownDialog({
       });
 
       if (!response.ok) {
-        const errorData = await response.json().catch(() => null);
+        const errorData = await response.json().catch(() => null) as PdfErrorPayload | null;
+        if (errorData?.code === 'PDF_RENDERER_CLOSED') {
+          throw new Error(t('pdfRendererClosed'));
+        }
         throw new Error(
           errorData?.error || t('pdfGenerationFailed', { statusText: response.statusText })
         );

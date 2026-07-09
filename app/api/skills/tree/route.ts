@@ -3,7 +3,9 @@ import { promises as fs } from 'fs';
 import path from 'path';
 import { auth } from '@/app/lib/auth';
 import { resolveReadableScopedSkillsDataDir } from '@/app/lib/runtime-data-paths';
-import { buildSkillTree } from '@/app/lib/skills/skill-tree';
+import { buildSkillTree, type SkillFileNode } from '@/app/lib/skills/skill-tree';
+import { CORE_SKILL_NAMES } from '@/app/lib/skills/core-skills';
+import { CORE_SKILLS_DIR } from '@/app/lib/skills/core-skill-loader';
 
 export async function GET(request: NextRequest) {
   const session = await auth.api.getSession({ headers: request.headers });
@@ -17,13 +19,21 @@ export async function GET(request: NextRequest) {
 
     const resolvedSkillsDir = path.resolve(await resolveReadableScopedSkillsDataDir({ userId: session.user.id }));
 
+    const coreTree = await buildSkillTree(CORE_SKILLS_DIR, {
+      maxDepth: depth,
+      includeRootNames: CORE_SKILL_NAMES,
+    });
+    const coreSkillNames = new Set(coreTree.map((node) => node.name));
+    let userTree: SkillFileNode[] = [];
     try {
       await fs.access(resolvedSkillsDir);
+      userTree = (await buildSkillTree(resolvedSkillsDir, { maxDepth: depth }))
+        .filter((node) => !coreSkillNames.has(node.name));
     } catch {
-      return NextResponse.json({ success: true, data: [] });
+      userTree = [];
     }
 
-    const tree = await buildSkillTree(resolvedSkillsDir, { maxDepth: depth });
+    const tree = [...coreTree, ...userTree];
 
     return NextResponse.json({ success: true, data: tree });
   } catch (error) {

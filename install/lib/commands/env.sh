@@ -22,6 +22,7 @@ cmd_env() {
     migrate_compose_file
     config_json_to_env
     sync_caddy
+    postgres_prepare_managed_runtime
     compose up -d --force-recreate
     follow_until_healthy
     return

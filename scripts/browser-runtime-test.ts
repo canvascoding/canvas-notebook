@@ -211,6 +211,25 @@ async function importBrowserRuntime() {
   }
 }
 
+async function importPdfBrowser() {
+  const moduleInternals = Module as typeof Module & {
+    _load: (request: string, parent: NodeModule | null, isMain: boolean) => unknown;
+  };
+  const originalLoad = moduleInternals._load;
+  moduleInternals._load = (request, parent, isMain) => {
+    if (request === 'server-only') {
+      return {};
+    }
+    return originalLoad(request, parent, isMain);
+  };
+
+  try {
+    return await import('../app/lib/pdf/browser');
+  } finally {
+    moduleInternals._load = originalLoad;
+  }
+}
+
 async function testRuntimeProfileKeys() {
   const originalProfileScope = process.env.CANVAS_BROWSER_PROFILE_SCOPE;
   try {
@@ -285,6 +304,17 @@ async function testActiveProfileLockIsPreserved() {
   }
 }
 
+async function testPdfRendererClosedErrorsAreClassified() {
+  const { getPdfRendererClosedMessage, isPdfRendererClosedError } = await importPdfBrowser();
+
+  assert.equal(
+    isPdfRendererClosedError(new Error('Protocol error (Target.setDiscoverTargets): Target closed')),
+    true,
+  );
+  assert.equal(isPdfRendererClosedError(new Error('File not found')), false);
+  assert.match(getPdfRendererClosedMessage(), /PDF renderer closed unexpectedly/);
+}
+
 async function main() {
   testEnvOverrideWins();
   testSystemFallbackWorks();
@@ -299,6 +329,7 @@ async function main() {
   await testRuntimeProfileKeys();
   await testStaleProfileArtifactsAreCleanedBeforeLaunch();
   await testActiveProfileLockIsPreserved();
+  await testPdfRendererClosedErrorsAreClassified();
 
   console.log('browser-runtime-test: ok');
 }

@@ -21,6 +21,27 @@ case "${1:-}" in
   compose)
     shift
     printf '%s\n' "$*" >> "${CANVAS_TEST_COMPOSE_LOG:?}"
+    if [[ "$*" == *"ps -q postgres"* ]]; then
+      printf 'fake-postgres-id\n'
+    fi
+    exit 0
+    ;;
+  inspect)
+    shift
+    printf 'inspect %s\n' "$*" >> "${CANVAS_TEST_COMPOSE_LOG:?}"
+    if [[ "$*" == *"{{.State.Status}}"* ]]; then
+      printf 'running\n'
+    elif [[ "$*" == *"{{.Id}}"* ]]; then
+      printf 'fake-postgres-id\n'
+    fi
+    exit 0
+    ;;
+  exec)
+    shift
+    printf 'exec %s\n' "$*" >> "${CANVAS_TEST_COMPOSE_LOG:?}"
+    if [[ ! -t 0 ]]; then
+      cat >/dev/null || true
+    fi
     exit 0
     ;;
   *)
@@ -56,6 +77,24 @@ grep -q 'CANVAS_DATABASE_PROVIDER[[:space:]]*sqlite' "$TMP_DIR/env-default.txt"
 grep -q '^COMPOSE_PROFILES=$' "$CANVAS_COMPOSE_ENV"
 grep -q '^CANVAS_DATABASE_PROVIDER=sqlite$' "$CANVAS_COMPOSE_ENV"
 grep -q '^CANVAS_POSTGRES_VECTOR_ENABLED=false$' "$CANVAS_CONFIG_ENV"
+
+"$cli" database status --json --no-banner > "$TMP_DIR/database-status-default.json"
+grep -q '"databaseProvider":"sqlite"' "$TMP_DIR/database-status-default.json"
+grep -q '"postgresProfileEnabled":false' "$TMP_DIR/database-status-default.json"
+
+: > "$CANVAS_TEST_COMPOSE_LOG"
+"$cli" database prepare-postgres --json --no-banner > "$TMP_DIR/database-prepare-postgres.json"
+grep -q '"success":true' "$TMP_DIR/database-prepare-postgres.json"
+grep -q '"databaseProvider":"sqlite"' "$TMP_DIR/database-prepare-postgres.json"
+grep -q '"databaseUrlConfigured":true' "$TMP_DIR/database-prepare-postgres.json"
+grep -q -- '--profile postgres up -d postgres' "$CANVAS_TEST_COMPOSE_LOG"
+grep -q 'exec -i -u postgres fake-postgres-id psql' "$CANVAS_TEST_COMPOSE_LOG"
+grep -q 'exec -i fake-postgres-id sh -c' "$CANVAS_TEST_COMPOSE_LOG"
+if grep -Eq 'postgresql://canvas:[^*[:space:]]+@postgres|CANVAS_POSTGRES_PASSWORD|safe-password' "$CANVAS_TEST_COMPOSE_LOG"; then
+  echo "Postgres prepare leaked a password-bearing value into docker argv logs" >&2
+  exit 1
+fi
+grep -q '^COMPOSE_PROFILES=$' "$CANVAS_COMPOSE_ENV"
 
 "$cli" config-set env.CANVAS_DATABASE_PROVIDER postgres --no-banner > "$TMP_DIR/config-set-provider.txt"
 "$cli" env --sync --no-banner > "$TMP_DIR/env-sync-postgres.txt"
@@ -102,6 +141,8 @@ grep -q '^COMPOSE_PROFILES=postgres$' "$CANVAS_COMPOSE_ENV"
 : > "$CANVAS_TEST_COMPOSE_LOG"
 "$cli" restart --no-banner > "$TMP_DIR/restart-postgres.txt"
 grep -q 'up -d --force-recreate' "$CANVAS_TEST_COMPOSE_LOG"
+grep -q -- '--profile postgres up -d postgres' "$CANVAS_TEST_COMPOSE_LOG"
+grep -q 'exec -i -u postgres fake-postgres-id psql' "$CANVAS_TEST_COMPOSE_LOG"
 
 grep -q 'canvas-notebook-postgres' "$CANVAS_COMPOSE_FILE"
 grep -q 'condition: service_healthy' "$CANVAS_COMPOSE_FILE"
@@ -109,6 +150,23 @@ grep -q 'required: false' "$CANVAS_COMPOSE_FILE"
 grep -q 'profiles:' "$CANVAS_COMPOSE_FILE"
 grep -q 'pgvector/pgvector:0.8.3-pg18' "$CANVAS_COMPOSE_FILE"
 grep -q 'unused-sqlite-profile-disabled' "$CANVAS_COMPOSE_FILE"
+
+jq '.env.CANVAS_DATABASE_PROVIDER = "postgres" | .env.DATABASE_URL = "postgresql://can%76as:secret%31xx@postgres:5432/canvas%5Fdb" | .env.CANVAS_POSTGRES_PASSWORD = ""' \
+  "$TMP_DIR/config-postgres.json" > "$TMP_DIR/config-encoded-database-url.json"
+cp "$TMP_DIR/config-encoded-database-url.json" "$CANVAS_CONFIG_JSON"
+"$cli" env --sync --no-banner > "$TMP_DIR/encoded-database-url.txt"
+grep -q '^CANVAS_POSTGRES_USER=canvas$' "$CANVAS_CONFIG_ENV"
+grep -q '^CANVAS_POSTGRES_PASSWORD=secret1xx$' "$CANVAS_CONFIG_ENV"
+grep -q '^CANVAS_POSTGRES_DB=canvas_db$' "$CANVAS_CONFIG_ENV"
+
+jq '.env.CANVAS_DATABASE_PROVIDER = "postgres" | .env.DATABASE_URL = "postgresql://canvas:secret%0Axx@postgres:5432/canvas_db" | .env.CANVAS_POSTGRES_PASSWORD = ""' \
+  "$TMP_DIR/config-postgres.json" > "$TMP_DIR/config-encoded-bad-database-url.json"
+cp "$TMP_DIR/config-encoded-bad-database-url.json" "$CANVAS_CONFIG_JSON"
+if "$cli" env --sync --no-banner > "$TMP_DIR/encoded-bad-database-url.txt" 2>&1; then
+  echo "encoded unsafe DATABASE_URL password was accepted" >&2
+  exit 1
+fi
+grep -q 'CANVAS_POSTGRES_PASSWORD contains URL-reserved characters' "$TMP_DIR/encoded-bad-database-url.txt"
 
 jq '.env.DATABASE_URL = "" | .env.CANVAS_POSTGRES_PASSWORD = "bad/password+"' \
   "$CANVAS_CONFIG_JSON" > "$TMP_DIR/config-bad-password.json"

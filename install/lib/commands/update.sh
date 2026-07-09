@@ -10,6 +10,7 @@ cmd_install() {
 
   migrate_compose_file
   config_json_to_env
+  postgres_prepare_managed_runtime
 
   info "Phase 1/3: Image"
   pull_image_if_needed "compose" "$IMAGE_REF" "$SERVICE" "$LOG_FILE" "$COMPOSE_FILE"
@@ -67,6 +68,7 @@ cmd_update() {
 
   migrate_compose_file
   config_json_to_env
+  postgres_prepare_managed_runtime
 
   info "Phase 1/3: Image"
   pull_image_if_needed "compose" "$IMAGE_REF" "$SERVICE" "$LOG_FILE" "$COMPOSE_FILE"

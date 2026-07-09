@@ -23,7 +23,7 @@ done
 unset _dir
 
 if [[ -n "$SHARED_DIR" ]]; then
-  for _lib in output utils config_json logging compose caddy swap container docker ui; do
+  for _lib in output utils config_json logging compose caddy swap container docker postgres ui; do
     if [[ -f "${SHARED_DIR}/${_lib}.sh" ]]; then
       # shellcheck source=/dev/null
       . "${SHARED_DIR}/${_lib}.sh"
@@ -172,6 +172,7 @@ cmd_file_for() {
     status|health|diagnose|config|ps) printf 'status\n' ;;
     logs|container-logs|manager-log|cleanup-logs) printf 'logs\n' ;;
     env) printf 'env\n' ;;
+    backup) printf 'backup\n' ;;
     database) printf 'database\n' ;;
     admin) printf 'admin\n' ;;
     swap|swap-enable|swap-disable) printf 'swap\n' ;;

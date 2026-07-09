@@ -73,6 +73,7 @@ type PermissionRow = {
   status: string;
   can_write_team_workspace: number;
   can_create_public_links: number;
+  can_delete_team_files: number;
 };
 
 type ProjectPermissionRow = {
@@ -504,7 +505,7 @@ export function ensureProjectWorkspaceRecord(
 
 function getPermissionRow(sqlite: Database.Database, organizationId: string, userId: string): PermissionRow | null {
   return sqlite.prepare(`
-    SELECT role, COALESCE(status, 'active') AS status, can_write_team_workspace, can_create_public_links
+    SELECT role, COALESCE(status, 'active') AS status, can_write_team_workspace, can_create_public_links, can_delete_team_files
     FROM organization_user_permissions
     WHERE organization_id = ? AND user_id = ?
     LIMIT 1
@@ -682,9 +683,14 @@ export function workspaceContextFromRecord(
       permission?.can_write_team_workspace === 1
     )
   );
+  const canDeleteOrganizationWorkspace = record.type === 'organization' && (
+    permission?.status === 'active' &&
+    permission?.can_delete_team_files === 1
+  );
   const canUseTeamMembership = record.type === 'team' && teamPermission?.status === 'active' && teamPermission.role !== 'external';
   const canAccessTeamWorkspace = canUseTeamMembership && teamPermission.can_read === 1;
   const canWriteTeamWorkspace = canUseTeamMembership && teamPermission.can_write === 1;
+  const canDeleteTeamWorkspace = canUseTeamMembership && permission?.status === 'active' && permission.can_delete_team_files === 1;
   const canManageTeamWorkspace = canUseTeamMembership && teamPermission.can_manage === 1;
   const canUseProjectMembership = record.type === 'project' && projectPermission?.status === 'active';
   const canReadProjectWorkspace = canUseProjectMembership && projectPermission.can_read === 1;
@@ -710,8 +716,10 @@ export function workspaceContextFromRecord(
       ownsPersonalWorkspace,
       canAccessOrganizationWorkspace,
       canWriteOrganizationWorkspace,
+      canDeleteOrganizationWorkspace,
       canAccessTeamWorkspace,
       canWriteTeamWorkspace,
+      canDeleteTeamWorkspace,
       canManageTeamWorkspace,
       canReadProjectWorkspace,
       canWriteProjectWorkspace,

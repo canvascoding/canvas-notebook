@@ -24,6 +24,8 @@ import {
   parseSkillFile,
   type CanvasSkillInterface,
 } from '@/app/lib/skills/canvas-skill-manifest';
+import { coreSkillInstallError, isCoreSkillName } from '@/app/lib/skills/core-skills';
+import { loadCoreSkillByName } from '@/app/lib/skills/core-skill-loader';
 import { loadSkillByName, getSkillNames } from '@/app/lib/skills/skill-loader';
 import { loadSkillSummaries, type SkillSummary } from '@/app/lib/skills/skill-summaries';
 import { DISABLED_ALL_SKILLS_SENTINEL, enableSkillInConfig } from '@/app/lib/skills/enabled-skills';
@@ -777,6 +779,10 @@ async function ensureStandaloneSkillInstallAllowed(
   replace: boolean,
   scope?: CanvasSkillStoreScope | null,
 ): Promise<void> {
+  if (isCoreSkillName(skillName)) {
+    throw new Error(coreSkillInstallError(skillName));
+  }
+
   const existing = await loadSkillByName(skillName, scope, { legacyFallback: false });
   const standalonePath = requirePathInside(resolveScopedSkillsDataDir(scope), skillName, 'SKILL.md');
   const hasStandalone = await fs.stat(standalonePath).then((stat) => stat.isFile()).catch(() => false);
@@ -803,6 +809,9 @@ export async function installCanvasSkillFromStore(
 ): Promise<CanvasSkillStoreInstallResult> {
   if (!isValidCanvasSkillName(skillName)) {
     return { success: false, error: 'Invalid skill name' };
+  }
+  if (isCoreSkillName(skillName)) {
+    return { success: false, error: coreSkillInstallError(skillName) };
   }
   if (version && !isValidCanvasPluginVersion(version)) {
     return { success: false, error: 'Invalid skill version' };
@@ -921,6 +930,12 @@ export async function restoreCanvasSkill(
 ): Promise<CanvasSkillStoreInstallResult> {
   if (!isValidCanvasSkillName(skillName)) {
     return { success: false, error: 'Invalid skill name' };
+  }
+  if (isCoreSkillName(skillName)) {
+    const coreSkill = await loadCoreSkillByName(skillName);
+    return coreSkill
+      ? { success: true }
+      : { success: false, error: `Core skill "${skillName}" is missing from the Canvas application bundle.` };
   }
 
   if (options.prefer !== 'seed') {

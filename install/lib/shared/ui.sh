@@ -45,6 +45,12 @@ Commands:
   env        Show current environment from config.json
   env --sync Generate .env from config.json, sync Caddy, and restart
   env --edit Open config.json in editor, then sync and restart
+  backup create [--output <path>]
+             Create/replace the local latest full backup
+  database status
+             Show configured database provider status
+  database prepare-postgres
+             Prepare local Postgres service without migrating SQLite data
   database migrate-sqlite-to-postgres [--sqlite-path <path>]
              Copy the current SQLite database into the configured Postgres database
   admin reset-password --email <email> [--name <name>] [--password-stdin]

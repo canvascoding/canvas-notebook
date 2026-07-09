@@ -24,6 +24,16 @@ async function login(page: Page) {
   await expect(page).toHaveURL(/\/chat$/, { timeout: 15000 });
 }
 
+async function createFileDataTransfer(page: Page, files: Array<{ name: string; mimeType: string; content: string }>) {
+  return page.evaluateHandle((dropFiles) => {
+    const dataTransfer = new DataTransfer();
+    for (const dropFile of dropFiles) {
+      dataTransfer.items.add(new File([dropFile.content], dropFile.name, { type: dropFile.mimeType }));
+    }
+    return dataTransfer;
+  }, files);
+}
+
 test.describe('Multiple File Upload', () => {
   test.setTimeout(90000);
   test.use({ storageState: AUTH_STATE_PATH });
@@ -70,6 +80,37 @@ test.describe('Multiple File Upload', () => {
     const attachmentText = await composerAttachments(page).allTextContents();
     expect(attachmentText.join(' ')).toContain('test1.txt');
     expect(attachmentText.join(' ')).toContain('test2.txt');
+  });
+
+  test('allows dropping multiple files onto the composer prompt', async ({ page }) => {
+    await page.goto('/chat');
+
+    await page.getByRole('button', { name: /new chat/i }).click();
+
+    const input = page.getByTestId('chat-input');
+    const dataTransfer = await createFileDataTransfer(page, [
+      {
+        name: 'dropped-one.txt',
+        mimeType: 'text/plain',
+        content: 'Dropped content 1',
+      },
+      {
+        name: 'dropped-two.md',
+        mimeType: 'text/markdown',
+        content: '# Dropped content 2',
+      },
+    ]);
+
+    await input.dispatchEvent('dragenter', { dataTransfer });
+    await input.dispatchEvent('dragover', { dataTransfer });
+    await input.dispatchEvent('drop', { dataTransfer });
+
+    const attachmentBadges = composerAttachments(page).filter({ hasText: /dropped-/ });
+    await expect(attachmentBadges).toHaveCount(2);
+
+    const attachmentText = await composerAttachments(page).allTextContents();
+    expect(attachmentText.join(' ')).toContain('dropped-one.txt');
+    expect(attachmentText.join(' ')).toContain('dropped-two.md');
   });
 
   test('uploads mixed file types (image + document)', async ({ page }) => {

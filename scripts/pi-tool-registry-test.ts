@@ -82,6 +82,13 @@ async function main() {
         registerBuiltInApiProviders: () => undefined,
       };
     }
+    if (request === '@earendil-works/pi-ai/compat') {
+      return {
+        getModels: () => [],
+        getProviders: () => [],
+        registerBuiltInApiProviders: () => undefined,
+      };
+    }
     if (request === '@earendil-works/pi-ai/oauth') {
       return {};
     }
@@ -90,6 +97,8 @@ async function main() {
 
   const { enableToolInConfig, getDefaultEnabledToolNames, serializeEnabledToolNames } = await import('../app/lib/pi/enabled-tools');
   const { detectUnsafeBashCommand } = await import('../app/lib/pi/agent-file-operations');
+  const { resolveAgentRuntimeTempDir } = await import('../app/lib/pi/agent-runtime-temp');
+  const { runWithAgentExecutionContext } = await import('../app/lib/pi/agent-execution-context');
   const { createToolLoopGuard } = await import('../app/lib/pi/tool-loop-guard');
   const { buildPiToolRegistry, createRipgrepTool, createStudioGenerateImageTool, createStudioGenerateVideoTool, getPiToolMetadata, getPiTools, piTools } = await import('../app/lib/pi/tool-registry');
 
@@ -525,6 +534,33 @@ async function main() {
     command: `cd ${JSON.stringify(path.join(workspaceDir, 'hausarbeit'))} && printf ok > /dev/null 2>&1 && echo done`,
   });
   assert.equal(getText(allowedNullRedirectResult).trim(), 'done');
+
+  const bashExecutionContext = {
+    userId: 'bash-temp-user',
+    sessionId: 'bash-temp-session',
+    agentId: 'canvas-agent',
+    workspaceId: 'bash-temp-workspace',
+    workspaceType: 'personal' as const,
+    workspaceName: 'Bash Temp Workspace',
+    organizationId: null,
+    customerId: null,
+    projectId: null,
+    workspaceRoot: workspaceDir,
+    workspaceRootRelativePath: null,
+    canWrite: false,
+    canDelete: false,
+    canShare: false,
+    legacy: false,
+  };
+  const expectedRuntimeTempDir = resolveAgentRuntimeTempDir(bashExecutionContext);
+  const bashTempResult = await runWithAgentExecutionContext(bashExecutionContext, () => bashTool.execute('bash-runtime-temp', {
+    command: 'node -e "const fs=require(\'fs\'); const path=require(\'path\'); const e=process[\'e\'+\'nv\']; const dir=e.CANVAS_AGENT_TEMP_DIR; fs.writeFileSync(path.join(dir, \'runtime.txt\'), e.TMPDIR + \'\\n\' + e.PYTHONPYCACHEPREFIX); process.stdout.write(dir);"',
+  }));
+  assert.equal(getText(bashTempResult), expectedRuntimeTempDir);
+  assert.equal(
+    await fs.readFile(path.join(expectedRuntimeTempDir, 'runtime.txt'), 'utf8'),
+    `${expectedRuntimeTempDir}\n${path.join(expectedRuntimeTempDir, '__pycache__')}`,
+  );
 
   const loopGuard = createToolLoopGuard({ warningThreshold: 2, terminationThreshold: 3 });
   const emptyUsage = {

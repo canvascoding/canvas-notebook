@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { recordAuditEvent } from '@/app/lib/audit/audit-service';
 import { requireOrganizationPermission } from '@/app/lib/organization/permissions';
 import { loadSkillsFromDisk } from '@/app/lib/skills/skill-loader';
-import { DISABLED_ALL_SKILLS_SENTINEL } from '@/app/lib/skills/enabled-skills';
+import { DISABLED_ALL_SKILLS_SENTINEL, resolveEnabledSkillNames } from '@/app/lib/skills/enabled-skills';
 import { writeEnabledSkillsForScope } from '@/app/lib/skills/skill-settings';
 
 export async function POST(request: Request) {
@@ -17,11 +17,13 @@ export async function POST(request: Request) {
     // Load all available skills
     const allSkills = await loadSkillsFromDisk(undefined, scope);
     
-    // Empty enabledSkills means "all enabled", so use the sentinel to disable every skill.
+    // Empty enabledSkills means "all enabled", so use the sentinel to disable optional skills.
     await writeEnabledSkillsForScope([DISABLED_ALL_SKILLS_SENTINEL], {
       scope,
       updatedBy: skillPermission.session.user.email || skillPermission.session.user.id,
     });
+    const allSkillNames = allSkills.map((skill) => skill.name);
+    const enabledSkillNames = Array.from(resolveEnabledSkillNames(allSkillNames, [DISABLED_ALL_SKILLS_SENTINEL]));
     await recordAuditEvent({
       organizationId: skillPermission.state.organizationId,
       userId: skillPermission.session.user.id,
@@ -38,8 +40,8 @@ export async function POST(request: Request) {
     
     return NextResponse.json({
       success: true,
-      message: `All ${allSkills.length} skills disabled`,
-      enabledSkills: [],
+      message: `Optional skills disabled. ${enabledSkillNames.length} core skills remain enabled.`,
+      enabledSkills: enabledSkillNames,
       allEnabled: false,
     });
   } catch (error) {

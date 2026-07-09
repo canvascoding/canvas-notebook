@@ -5,6 +5,7 @@ cmd_start() {
   migrate_compose_file
   config_json_to_env
   ensure_env_file
+  postgres_prepare_managed_runtime
   run_compose up -d
   wait_until_healthy
 }
@@ -14,6 +15,7 @@ cmd_restart() {
   migrate_compose_file
   config_json_to_env
   ensure_env_file
+  postgres_prepare_managed_runtime
   run_compose up -d --force-recreate
   wait_until_healthy
 }

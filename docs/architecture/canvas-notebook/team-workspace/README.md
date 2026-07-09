@@ -25,6 +25,7 @@ Dieses Verzeichnis ist der zentrale Arbeitsbereich fuer den Team-Workspace-Umbau
 - `16-offboarding-and-recovery-policy.md`: User-Archivierung, Offboarding-Preflight, Credential-Revocation, Automation-/To-do-Review und Personal-Workspace-Recovery.
 - `17-database-provider-postgres-rag-collaboration-policy.md`: SQLite/Postgres-Entscheidung, pgvector, RAG-/Collaboration-Gates, Installer, Control Plane Provisioning, DB-Migration und DB-aware Backup.
 - `18-collaboration-and-file-conflict-policy.md`: CRDT/Yjs-Grundlage fuer Markdown/Text, Locks/Revisionen fuer Office/PDF/Assets, Agent-Write-Konflikte und Presence/Conflict-UI.
+- `19-agent-skill-creation-install-policy.md`: dedizierter Agent-Flow fuer validierte Skill-Erstellung und Installation ohne generische `/data/users/{userId}/skills`-Writes.
 - `../todo.json`: Aufgabenindex fuer Agenten und Fortschrittsverfolgung.
 
 ## Arbeitsregeln
@@ -56,6 +57,7 @@ Dieses Verzeichnis ist der zentrale Arbeitsbereich fuer den Team-Workspace-Umbau
 - Offboarding- und Recovery-Policy ist dokumentiert.
 - Database-Provider-Policy fuer SQLite, Postgres, RAG, Collaboration, Installer und Control Plane ist dokumentiert.
 - Collaboration- und File-Conflict-Policy fuer Text, Office/PDF und Assets ist dokumentiert.
+- Agent Skill Creation und Install Policy fuer user-scoped lokale Skills ist dokumentiert.
 - Control-Plane-Status-Quo fuer Managed Env, Installer-Artefakte, VM-Agent, VM-Actions und VM-Detailseite ist in der Database-Provider-Policy mit konkreten Zielpfaden abgeglichen.
 - Control Plane Managed Mode, Team-Claims, Managed ENV und Organization-Runtime-Provisioning sind umgesetzt und in PR #3 gemerged.
 - Workspace-Modell, Workspace-Service, Bootstrap-Erzeugung und `/api/workspaces` in Canvas Notebook sind eingefuehrt.

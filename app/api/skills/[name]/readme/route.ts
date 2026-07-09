@@ -5,6 +5,7 @@ import path from 'path';
 import { headers } from 'next/headers';
 import { requireOrganizationPermission } from '@/app/lib/organization/permissions';
 import { getSkillsDir } from '@/app/lib/skills/canvas-skill-manifest';
+import { coreSkillInstallError, isCoreSkillName } from '@/app/lib/skills/core-skills';
 import { adoptLegacyStandaloneSkillsForScope } from '@/app/lib/skills/legacy-skill-adoption';
 import { loadSkillByName } from '@/app/lib/skills/skill-loader';
 
@@ -65,6 +66,12 @@ export async function PUT(
       return NextResponse.json(
         { success: false, error: 'Invalid skill name' },
         { status: 400 }
+      );
+    }
+    if (isCoreSkillName(sanitizedName)) {
+      return NextResponse.json(
+        { success: false, error: coreSkillInstallError(sanitizedName) },
+        { status: 409 },
       );
     }
 

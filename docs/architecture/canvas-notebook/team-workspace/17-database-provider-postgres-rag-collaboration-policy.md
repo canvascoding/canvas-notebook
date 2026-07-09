@@ -1,6 +1,6 @@
 # Database Provider, Postgres, RAG und Collaboration Policy
 
-Stand: 2026-07-01
+Stand: 2026-07-08
 
 ## Zweck
 
@@ -211,6 +211,7 @@ Canvas Notebook CLI:
 - erzwingt Postgres, wenn Team/Advanced Features ausgewaehlt werden,
 - erzeugt bei Postgres eine Compose-Konfiguration mit App-Container und Postgres-Container,
 - erzeugt sichere Datenbank-Secrets,
+- gleicht bei bestehenden Postgres-Volumes das echte Rollenpasswort mit der gespeicherten Runtime-Env ab, bevor die App gestartet oder neu gestartet wird,
 - fuehrt Datenbank-Migrationen fuer den gewaehlten Provider aus,
 - prueft Health inklusive Provider, Schema-Version und pgvector-Status.
 
@@ -227,28 +228,185 @@ Control Plane Provisioning in `../canvas-control-plane`:
 
 Die Compose-Datei darf kein ungebundenes `latest`-Tag fuer produktive Postgres-Images verwenden. Sie soll eine aktuell unterstuetzte, gepinnte Major-/Minor-Linie verwenden und Upgrades bewusst ueber den Update-Flow fahren.
 
+## Vorgelagerter Provider-Setup-Plan vor Full Backup
+
+Full Backup darf erst als Produktfeature sichtbar werden, wenn die Datenbankauswahl und Postgres-Provisionierung in allen Installationswegen explizit, wiederholbar und health-geprueft sind. Sonst entsteht ein Backup-Feature, das bei zukuenftigen Team-/Postgres-Setups genau im wichtigsten Disaster-Recovery-Fall fehlschlaegt.
+
+Ziel fuer V1:
+
+1. Provider-Auswahl ist ein offizieller Setup-Schritt, kein verstecktes `config-set`.
+2. `sqlite` bleibt der Default fuer einfache Single-User-Installationen.
+3. `postgres` kann bei Single-User bewusst gewaehlt werden und ist fuer Team/Advanced verpflichtend.
+4. Eine bestehende SQLite-Instanz wird nicht allein durch Provider-Auswahl migriert. Sie braucht den gefuehrten SQLite-zu-Postgres-Migrationsflow.
+5. Full Backup nutzt immer den tatsaechlichen Provider: SQLite-Snapshot bei SQLite, Postgres-Dump oder gleichwertiger Snapshot bei Postgres.
+
+### Notebook CLI und Installer
+
+Legacy/Linux-Installer:
+
+- Der klassische `install.sh` fragt bereits interaktiv nach Deployment Scope und Datenbankprovider.
+- Dieser Pfad bleibt der Referenzablauf fuer Linux-VMs.
+- Die Bash-CLI muss weiterhin `CANVAS_DATABASE_PROVIDER`, `COMPOSE_PROFILES=postgres`, Postgres-Secret-Generierung und Healthchecks synchron halten.
+
+Portable TypeScript-CLI:
+
+- Die portable CLI braucht erstklassige Optionen fuer denselben Ablauf, z. B.:
+
+```txt
+canvas-notebook install --database sqlite|postgres --runtime personal|team
+canvas-notebook database status [--json]
+canvas-notebook database prepare-postgres
+canvas-notebook database migrate-sqlite-to-postgres [options]
+```
+
+- `--runtime team` muss `--database postgres` erzwingen oder mit klarem Fehler abbrechen.
+- `--database postgres` muss Compose-Profil, `DATABASE_URL`, Postgres-DB/User/Passwort, pgvector-Schalter und persistente Volumes materialisieren.
+- `config-set env.CANVAS_DATABASE_PROVIDER postgres` bleibt als Low-Level-Admin-Werkzeug erlaubt, ist aber nicht der empfohlene Setup-Pfad.
+- `config-show --json` und Statusausgaben duerfen `DATABASE_URL` und `CANVAS_POSTGRES_PASSWORD` nie unmaskiert ausgeben.
+
+Nicht-interaktive Installationen:
+
+- `CANVAS_DEPLOYMENT_MODE`, `CANVAS_DATABASE_PROVIDER`, `DATABASE_URL`, `CANVAS_POSTGRES_*` und Team-/Capability-Flags muessen weiter ueber Env gesetzt werden koennen.
+- Wenn Team-/Advanced-Faehigkeiten gesetzt sind und `CANVAS_DATABASE_PROVIDER=sqlite` bleibt, muss der Setup-Flow abbrechen oder serverseitig auf Postgres normalisieren. Stilles Starten in einem inkompatiblen Zustand ist nicht erlaubt.
+
+### Compose- und Secret-Vertrag
+
+- Die Compose-Datei enthaelt den Postgres-Service weiterhin optional ueber das Profil `postgres`.
+- `COMPOSE_PROFILES=postgres` ist die technische Aktivierung fuer lokale Postgres-Provisionierung.
+- Der App-Container erhaelt `CANVAS_DATABASE_PROVIDER=postgres` und `DATABASE_URL` ueber die geschuetzte Container-Env-Datei.
+- Postgres-Container-Parameter kommen aus Compose-Env, muessen aber ebenfalls als sensitive Host-Dateien behandelt werden.
+- Das Postgres-Datenvolume muss stabil benannt und in der Konfiguration persistiert werden.
+- `CANVAS_POSTGRES_IMAGE` wird gepinnt und nicht implizit auf ein unkontrolliertes `latest` aktualisiert.
+
+### `prepare-postgres`
+
+`prepare-postgres` ist ein idempotenter Infrastruktur-Schritt vor Migration und Full Backup:
+
+1. Config validieren und fehlende Postgres-Secrets erzeugen.
+2. Compose-Datei und Env-Dateien synchronisieren.
+3. Postgres-Profil starten.
+4. DB-User/Passwort mit der gespeicherten Config abgleichen.
+5. pgvector Extension anlegen oder bestaetigen.
+6. Healthstatus fuer Postgres, pgvector und App-Provider melden.
+
+Der Schritt darf keine SQLite-Daten kopieren. Er bereitet nur Infrastruktur vor.
+
+### Control-Plane-Hotfix als Referenz fuer die dauerhafte CLI-Loesung
+
+Im Control-Plane-Repo existiert am 2026-07-08 bereits ein defensiver Agent-/Control-Plane-Hotfix, der als Ablaufreferenz dient:
+
+- `../canvas-control-plane/apps/api/src/services/managedSecrets.ts` generiert und erhaelt Managed-Postgres-Env-Werte. Ein vorhandenes `CANVAS_POSTGRES_PASSWORD` wird wiederverwendet, statt bei jedem Update neu erzeugt zu werden.
+- `../canvas-control-plane/packages/agent/src/ws-client.ts` entscheidet mit `postgresRuntimeDesired()`, ob Postgres vorbereitet werden muss.
+- `../canvas-control-plane/packages/agent/src/ws-client.ts` enthaelt mit `syncPostgresPassword()` den Kern-Fix fuer bestehende Docker-Volumes: Das gespeicherte Runtime-Passwort wird per SQL auf die echte Postgres-Rolle angewendet.
+- `../canvas-control-plane/packages/agent/src/ws-client.ts` zeigt mit `preparePostgresService()` die richtige Reihenfolge: Runtime-Env sicherstellen, Postgres-Profil starten, Rollenpasswort synchronisieren, Env syncen, Rollenpasswort erneut synchronisieren, pgvector Extension sicherstellen.
+
+Diese Logik bleibt nicht dauerhaft primaer in der Control Plane. Die stabile Loesung gehoert in die Canvas-Notebook-CLI, weil dort `install`, `update`, `start`, `restart`, `env --sync`, `database prepare-postgres` und `database migrate-sqlite-to-postgres` orchestriert werden.
+
+Ziel-Invariant fuer Managed Postgres:
+
+- `canvas-notebook-config.json`,
+- `/opt/canvas-notebook/.env`,
+- `/opt/canvas-notebook/canvas-notebook.env`,
+- App-Container-Env,
+- Postgres-Container-Env,
+- und das echte Passwort der Postgres-Rolle
+
+muessen dieselben unmaskierten Werte fuer `CANVAS_POSTGRES_DB`, `CANVAS_POSTGRES_USER`, `CANVAS_POSTGRES_PASSWORD`, `CANVAS_POSTGRES_DATA_VOLUME` und `DATABASE_URL` verwenden.
+
+Die CLI braucht dafuer einen gemeinsamen Postgres-Prepare-Service in beiden CLI-Linien:
+
+- Legacy Bash: z. B. `install/lib/shared/postgres.sh`.
+- Portable TypeScript: z. B. `cli/src/core/postgres.ts` oder ein passend vorhandener Core-Service.
+
+Faehigkeiten dieses Services:
+
+- `postgres_runtime_desired`
+- `postgres_load_runtime_env_unredacted`
+- `postgres_start_profile`
+- `postgres_wait_ready`
+- `postgres_sync_role_password`
+- `postgres_verify_runtime_password`
+- `postgres_ensure_pgvector`
+- `postgres_prepare_managed_runtime`
+
+Wichtig: Die dauerhafte Notebook-CLI darf fuer diesen Pfad nicht `config-show --json` als Secret-Quelle verwenden, weil diese Ausgabe fuer Menschen und Control-Plane-UI redacted bleiben muss. Der Service liest intern direkt die lokale Config-Datei oder die generierten geschuetzten Env-Dateien. Wenn ein Wert maskiert aussieht, leer ist oder offensichtlich nicht das echte Secret sein kann, bricht der Prepare-Schritt ab, statt dieses Pseudo-Secret auf die Datenbankrolle zu schreiben.
+
+`postgres_prepare_managed_runtime` laeuft in dieser Reihenfolge:
+
+1. Config normalisieren und Postgres-Secrets erzeugen oder bestehende wiederverwenden.
+2. `.env` und `canvas-notebook.env` materialisieren.
+3. Nur den Postgres-Service starten: `docker compose --profile postgres up -d postgres`.
+4. Auf Postgres-Bereitschaft warten.
+5. Unmaskiertes Runtime-Passwort laden.
+6. Rollenpasswort per SQL-stdin synchronisieren, nicht ueber Shell-Interpolation oder argv.
+7. TCP-Login mit exakt diesem Passwort validieren.
+8. `CREATE EXTENSION IF NOT EXISTS vector` ausfuehren, wenn pgvector aktiv ist.
+9. Erst danach App-Container starten, recreaten oder Health-Wait ausfuehren.
+
+Integration:
+
+- `install`: nach Config-/Env-Erzeugung, vor App-Start.
+- `update`: nach Pull/Config-/Env-Erzeugung, vor App-Recreate/Health-Wait.
+- `start`: vor App-Start, wenn Postgres gewuenscht oder erforderlich ist.
+- `restart`: vor App-Recreate, wenn Postgres gewuenscht oder erforderlich ist.
+- `env --sync`: Env-Dateien und Postgres-Auth synchronisieren, bevor eine App mit moeglich falscher DB-Auth neu startet.
+- `database prepare-postgres`: denselben Service explizit und idempotent ausfuehren.
+- `database migrate-sqlite-to-postgres`: die vorhandene Prepare-Phase auf denselben Service umstellen.
+
+Sicherheitsregeln:
+
+- Passwort nie in Logs, Command-Display, argv oder Fehlerausgaben schreiben.
+- `DATABASE_URL` immer redacted anzeigen.
+- Kein `set -x` in diesem Pfad.
+- SQL nur ueber stdin an `psql`.
+- Bei maskierten oder verdachtig kurzen Secrets abbrechen.
+- `config-show --json` bleibt redacted; interne Prepare-Logik nutzt eigene unredacted Loader.
+
+### Backup-Voraussetzung
+
+Vor der Full-Backup-Integration muss der Postgres-Dump-Weg geklaert sein:
+
+- Der bestehende Backup-Service erzeugt Postgres-Backups ueber `pg_dump`.
+- V1 stellt einen passenden Postgres-Client im App-Container bereit oder fuehrt den Dump kontrolliert im Postgres-Container aus.
+- Der bevorzugte V1-Pfad ist ein kompatibler Postgres-Client im App-Container, weil API, UI und CLI dann denselben Backup-Service nutzen koennen.
+- Die Notebook-CLI bleibt Orchestrator und dupliziert die Backup-Engine nicht. Sie ruft einen Container-internen Backup-Command bzw. Scriptpfad auf, der die vorhandene Notebook-Backup-Logik in einem separaten Prozess ausfuehrt.
+- Der CLI-Backup-Pfad ruft nicht die laufende Web-App per HTTP auf und braucht keinen App-Stopp. Die App darf waehrend `backup create` weiterlaufen.
+- Full Backup ist ein Daten-Backup: enthalten sind Datenbank und Canvas-Notebook-Nutzerdaten unter `/data`; nicht enthalten sind VM, OS, Docker Images, App-Binaries, Source Code, Systemd-/Caddy-/Compose-/Host-Konfiguration und CLI-Installation.
+- Der Backup-Zielpfad ist konfigurierbar. Default ist der Canvas-Backup-Pfad unter `/data/system/backups` bzw. der zugehoerige lokale VM-Pfad.
+- V1 verwaltet ein stabiles Latest-Backup. Das alte Latest-Backup wird erst nach erfolgreicher Erstellung, Manifest-/Checksum-Pruefung und atomarer Promotion des neuen Backups ersetzt.
+- Wenn `pg_dump` fehlt oder nicht kompatibel ist, muss Backup mit einem klaren Preflight-Fehler abbrechen, bevor ein teilweises Archiv entsteht.
+- Vor einem Postgres-Backup muss der Provider-Prepare-Service bestaetigen, dass das App-Runtime-Passwort und das echte Postgres-Rollenpasswort zusammenpassen. Sonst kann ein Backup direkt nach `update`, `restart` oder `env --sync` genau im Managed-Team-Fall scheitern.
+
+### Umsetzungsreihenfolge
+
+1. Gemeinsamen Postgres-Prepare-Service inklusive Rollenpasswort-Reconciliation fuer portable TS-CLI und Legacy Bash-CLI bauen.
+2. `install`, `update`, `start`, `restart`, `env --sync`, `database prepare-postgres` und `database migrate-sqlite-to-postgres` auf diesen Service umstellen.
+3. Portable CLI um offiziellen Provider-/Runtime-Setup-Pfad erweitern und Legacy CLI/Installer-Texte, Help und Tests auf dieselbe Sprache bringen.
+4. `database status` und `database prepare-postgres` in beiden CLIs harmonisieren.
+5. Postgres-Dump-Voraussetzung im App-Image oder Backup-Service loesen.
+6. Erst danach Full Backup in App, CLI und Control Plane freischalten.
+
 ## Control Plane Status Quo
 
-Lesender Abgleich mit `../canvas-control-plane` am 2026-06-18:
+Lesender Abgleich mit `../canvas-control-plane` am 2026-07-08:
 
-- `apps/api/src/services/managedSecrets.ts` enthaelt heute `MANAGED_SERVICE_ENV_KEYS` mit `CANVAS_MANAGED_SERVICES_ENABLED`, `CANVAS_CONTROL_PLANE_URL`, `CANVAS_INSTANCE_ID`, `CANVAS_INSTANCE_TOKEN` und `CANVAS_LICENSE_CERT`.
-- `applyManagedEnvToVmConfig()` und `ensureManagedEnvForVmConfig()` schreiben aktuell nur diese Managed-Service-Env-Werte in `vmConfig.env`.
-- `apps/api/src/services/agentArtifacts.ts` erzeugt den Canvas-Control-CLI-Installer und den VM-Install-Script-Pfad. Dort wird der Canvas-Notebook-Installer mit `notebookEnv` ausgefuehrt.
-- `packages/agent/src/ws-client.ts` kann bereits `config:apply` empfangen, `canvas-notebook config-set env.<KEY>` ausfuehren und danach `canvas-notebook env --sync` starten.
-- `apps/api/src/lib/actionCatalog.ts` definiert die VM-Actions, `apps/api/src/routes/actions.ts` schickt Actions an den VM-Agenten.
-- `apps/web/src/app/dashboard/vms/[id]/page.tsx` enthaelt die VM-Detailseite mit Tabs fuer Metrics, Logs, Terminal, Health, Lifecycle, Alerts, Actions, Maintenance, Setup, Account und Users.
-- `apps/web/src/components/vm/maintenance-tab.tsx` ist ein vorhandenes Muster fuer laengere Host-/VM-Operationen mit Status, Runs und Output.
-- `packages/agent/src/metrics/docker.ts` sammelt vorhandene Docker-Metriken; fuer Postgres braucht es zusaetzliche Container-/Volume-/DB-Health-Metriken.
+- `apps/api/src/services/managedSecrets.ts` enthaelt inzwischen die Managed Runtime-, Database-, Vector- und Postgres-Env-Keys inklusive `DATABASE_URL`, `CANVAS_DATABASE_PROVIDER`, `CANVAS_POSTGRES_VECTOR_ENABLED`, `CANVAS_POSTGRES_IMAGE`, `CANVAS_POSTGRES_DATA_VOLUME`, `CANVAS_POSTGRES_DB`, `CANVAS_POSTGRES_USER` und `CANVAS_POSTGRES_PASSWORD`.
+- `apps/api/src/services/notebookRuntime.ts` enthaelt ein zentrales Managed Runtime Profile fuer Runtime Mode, Database Provider, Vector Provider und Capabilities.
+- `apps/api/src/routes/databaseMigration.ts` stellt `/vms/:id/database/status`, `/runs`, `/prepare-postgres` und `/migrate-sqlite-to-postgres` bereit.
+- `apps/api/src/services/databaseMigration.ts` speichert Database-Runs, Status, Phasen, Progress und Agent-Acknowledgements.
+- `packages/agent/src/ws-client.ts` verarbeitet `database:run` mit `status`, `prepare_postgres` und `migrate_sqlite_to_postgres`.
+- `packages/agent/src/metrics/docker.ts` sammelt bereits Postgres-Companion-Metriken, wenn der Provider oder pgvector aktiv ist.
+- `apps/web/src/app/dashboard/vms/[id]/page.tsx` und `apps/web/src/components/vm/database-migration-tab.tsx` haben einen Database-/Migration-Bereich fuer Providerstatus und Migration-Runs.
 
-Konkrete Control-Plane-Aenderungspunkte:
+Offene Aenderungspunkte:
 
-- `MANAGED_SERVICE_ENV_KEYS` um `CANVAS_DEPLOYMENT_MODE`, `CANVAS_ORGANIZATION_ID`, `CANVAS_DATABASE_PROVIDER`, `DATABASE_URL`, `CANVAS_POSTGRES_VECTOR_ENABLED`, `CANVAS_POSTGRES_IMAGE` und `CANVAS_POSTGRES_DATA_VOLUME` erweitern.
-- `applyManagedEnvToVmConfig()` und `ensureManagedEnvForVmConfig()` provider-aware machen und Teamplaene auf `CANVAS_DATABASE_PROVIDER=postgres` setzen.
-- `getInstallScript()`/Notebook-Installer-Uebergabe in `agentArtifacts.ts` so erweitern, dass Team-VMs direkt Postgres/pgvector-Compose und DB-Secrets bekommen.
-- VM-Agent in `ws-client.ts` um eine explizite `database:migrate`- oder `database:prepare-postgres`-Operation erweitern, statt die Migration nur als freie Shell-Action abzuwickeln.
-- `VM_ACTIONS` nur fuer einfache Bedienaktionen verwenden; fuer SQLite-zu-Postgres-Migration ist ein eigener API-/Run-Typ sinnvoll, damit Fortschritt, Error Codes und Rollback-Hinweise strukturiert gespeichert werden.
-- VM-Detailseite um einen Tab `Database` oder `Migration` erweitern. Der Tab soll den aktuellen Provider, Team-Gate-Status, Postgres-/pgvector-Status, Backup-Status und Migration-Runs anzeigen.
-- `maintenance-tab.tsx` kann als UI-Muster dienen, aber die DB-Migration bekommt eigene Validierungen, Rollenpruefung und gefuehrte Warnungen.
+- Notebook portable CLI muss denselben Provider-Setup-Pfad wie der Legacy-Installer offiziell anbieten.
+- Der Control-Plane-Hotfix fuer Postgres-Auth-Reconciliation muss in die Notebook-CLI wandern, damit Managed-Instanzen nicht dauerhaft von defensiver Agent-Logik abhaengen.
+- `packages/agent/src/ws-client.ts` liest aktuell fuer Teile dieses Hotfixes ueber `canvas-notebook config-show --json --no-banner`; die Notebook-CLI muss fuer interne Prepare-Pfade stattdessen unredacted Config-/Env-Loader bereitstellen, waehrend `config-show` redacted bleibt.
+- Control Plane soll fuer Backups nicht die freien VM-Actions verwenden, sondern die bestehende typed Run-Struktur erweitern.
+- Database-Runs koennen um `backup_full` oder eine eigene Backup-Run-Familie erweitert werden; die Entscheidung haengt davon ab, ob Backup fachlich als Database/Maintenance-Operation oder als eigener Disaster-Recovery-Bereich modelliert wird.
+- Remote-Download grosser Backup-Archive aus der Control Plane ist nicht Teil von V1, solange keine sichere Artifact-Transfer- oder Object-Storage-Strecke existiert.
+- Backup-Status soll in den Database-/Maintenance-Bereich einfliessen, ohne lokale Dateipfade oder Secrets unredacted an die Web-UI zu senden.
 
 ## Control Plane API Vertrag
 
@@ -517,8 +675,11 @@ Teamplan ohne Postgres:
 Pflichttests:
 
 - SQLite-Installation startet Community/Single-User, aber blockiert Team-RAG.
+- Portable CLI kann bei Neuinstallation `sqlite` oder `postgres` explizit auswaehlen.
+- Portable CLI erzwingt Postgres fuer `team`/Advanced Runtime.
 - Managed-Team-Provisioning ohne Postgres blockiert mit klarer Health-/Setup-Meldung.
 - CLI-Installer erzeugt fuer Team/Advanced Features eine Compose-Datei mit Postgres-Service.
+- `database prepare-postgres` ist idempotent und startet Postgres plus pgvector ohne SQLite-Datenmigration.
 - Control Plane Provisioning setzt `CANVAS_DATABASE_PROVIDER=postgres` und DB-Secrets fuer Teamplaene.
 - Control-Plane-Agent kann fehlenden Postgres-Service vor SQLite-zu-Postgres-Migration anlegen.
 - VM-Detailseite zeigt Migration-Status und konkrete Error Codes.

@@ -14,6 +14,22 @@ export interface FullBackupFileEntry {
   sha256: string;
 }
 
+export interface FullBackupScopeManifest {
+  dataOnly: true;
+  dataRootIncluded: true;
+  hostConfigIncluded: false;
+  dockerImagesIncluded: false;
+  osIncluded: false;
+  appBinariesIncluded: false;
+}
+
+export interface FullBackupConsistencyManifest {
+  database: 'consistent_snapshot';
+  files: 'online_best_effort';
+  maintenanceMode: false;
+  appStopped: false;
+}
+
 export interface FullBackupSource {
   databaseProvider: FullBackupProvider;
   deploymentMode: string;
@@ -57,6 +73,8 @@ export interface CanvasFullBackupManifest {
   appVersion: string;
   backupId: string;
   createdAt: string;
+  scope: FullBackupScopeManifest;
+  consistency: FullBackupConsistencyManifest;
   source: FullBackupSource;
   database: FullBackupDatabaseManifest;
   security: FullBackupSecurityManifest;
@@ -85,6 +103,17 @@ export interface FullBackupJob {
     bytesProcessed: number;
   };
   manifest?: CanvasFullBackupManifest;
+}
+
+export interface FullBackupLatestPromotion {
+  backupId: string;
+  promotedAt: string;
+  directory: string;
+  fileName: string;
+  filePath: string;
+  metadataPath: string;
+  archiveSha256: string;
+  size: number;
 }
 
 export interface FullBackupInspection {

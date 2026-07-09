@@ -11,7 +11,7 @@ import { getFileDisplayPath } from '@/app/lib/files/display-name';
 import { getFileIconComponent, isImageFile } from '@/app/lib/files/file-icons';
 import { normalizeChatFilePath, type FilePathEntry } from '@/app/lib/chat/extract-file-paths';
 import { notifyChatFileReferenceOpened } from '@/app/lib/chat/file-reference-events';
-import { validateFileExists } from '@/app/lib/chat/validate-file-paths';
+import { validateFileReference } from '@/app/lib/chat/validate-file-paths';
 
 interface FileReferenceCardProps {
   paths: FilePathEntry[];
@@ -52,21 +52,38 @@ export function FileReferenceCard({ paths }: FileReferenceCardProps) {
   const fileTree = fileStore.fileTree;
   const pathname = useLocalePathname();
   const locale = useLocale();
-  const [validPaths, setValidPaths] = React.useState<FilePathEntry[]>([]);
+  const [validPathState, setValidPathState] = React.useState<{ key: string; paths: FilePathEntry[] } | null>(null);
   const uniquePaths = React.useMemo(() => dedupeFilePathEntries(paths), [paths]);
+  const uniquePathKey = React.useMemo(
+    () => uniquePaths.map((entry) => entry.path).join('\n'),
+    [uniquePaths],
+  );
+  const validPaths = validPathState?.key === uniquePathKey ? validPathState.paths : [];
 
   React.useEffect(() => {
+    let cancelled = false;
+
     const validate = async () => {
       const valid = await Promise.all(
         uniquePaths.map(async (entry) => {
-          const exists = await validateFileExists(entry.path, fileTree);
-          return exists ? entry : null;
+          const result = await validateFileReference(entry.path, fileTree);
+          return result.type === 'file' ? entry : null;
         })
       );
-      setValidPaths(valid.filter(Boolean) as FilePathEntry[]);
+      if (!cancelled) {
+        setValidPathState({
+          key: uniquePathKey,
+          paths: valid.filter(Boolean) as FilePathEntry[],
+        });
+      }
     };
+
     validate();
-  }, [uniquePaths, fileTree]);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [uniquePathKey, uniquePaths, fileTree]);
 
   const handleOpen = (filePath: string) => {
     const normalizedPath = normalizeChatFilePath(filePath);

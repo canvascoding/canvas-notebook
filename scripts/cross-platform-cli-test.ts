@@ -3,18 +3,36 @@ import os from 'node:os';
 import path from 'node:path';
 import { mkdtemp, rm } from 'node:fs/promises';
 
-import { composeEnvText, createDefaultConfig, materializeConfig } from '../cli/src/core/config';
+import {
+  composeEnvText,
+  configureRuntimeAndDatabase,
+  createDefaultConfig,
+  materializeConfig,
+  materializePostgresInfrastructureConfig,
+  redactConfig,
+} from '../cli/src/core/config';
 import { renderComposeFile } from '../cli/src/core/compose';
 import { DockerManager } from '../cli/src/core/docker';
 import { composePath, resolveDefaultPaths } from '../cli/src/core/platform';
+import { preparePostgresManagedRuntime, postgresRuntimeDesired } from '../cli/src/core/postgres';
 import { renderMacosLaunchAgent, windowsTaskCommand } from '../cli/src/core/service';
-import type { CommandRunner, RuntimeContext } from '../cli/src/core/types';
+import type { CommandRunner, RunOptions, RuntimeContext } from '../cli/src/core/types';
 
 class RecordingRunner implements CommandRunner {
-  calls: Array<{ command: string; args: string[] }> = [];
+  calls: Array<{ command: string; args: string[]; stdinConfigured: boolean }> = [];
 
-  async run(command: string, args: string[]) {
-    this.calls.push({ command, args });
+  async run(command: string, args: string[], options: RunOptions = {}) {
+    this.calls.push({ command, args, stdinConfigured: options.stdin !== undefined });
+    const joined = args.join(' ');
+    if (joined.includes('compose') && joined.includes('ps -q postgres')) {
+      return { status: 0, stdout: 'pg-container\n', stderr: '' };
+    }
+    if (args[0] === 'inspect' && joined.includes('{{.State.Status}}')) {
+      return { status: 0, stdout: 'running\n', stderr: '' };
+    }
+    if (args[0] === 'inspect' && joined.includes('{{.Id}}')) {
+      return { status: 0, stdout: 'pg-container\n', stderr: '' };
+    }
     return { status: 0, stdout: '', stderr: '' };
   }
 }
@@ -88,6 +106,53 @@ async function main() {
     const args = docker.composeArgs(config, ['up', '-d', '--force-recreate']);
     assert.deepEqual(args.slice(0, 5), ['compose', '-f', paths.composeFile, '--project-directory', paths.installDir]);
     assert.deepEqual(args.slice(5), ['up', '-d', '--force-recreate']);
+
+    const postgresConfig = materializeConfig(configureRuntimeAndDatabase(config, { database: 'postgres' }));
+    assert.equal(postgresConfig.env.CANVAS_DATABASE_PROVIDER, 'postgres');
+    assert.equal(postgresConfig.env.CANVAS_POSTGRES_VECTOR_ENABLED, true);
+    assert.match(String(postgresConfig.env.DATABASE_URL), /^postgresql:\/\/canvas:/);
+    assert.match(composeEnvText(postgresConfig, composePath(postgresConfig.dataDir, 'linux')), /^COMPOSE_PROFILES=postgres$/m);
+
+    const teamConfig = materializeConfig(configureRuntimeAndDatabase(config, { runtime: 'team' }));
+    assert.equal(teamConfig.env.CANVAS_DEPLOYMENT_MODE, 'managed-team');
+    assert.equal(teamConfig.env.CANVAS_DATABASE_PROVIDER, 'postgres');
+    assert.equal(teamConfig.env.CANVAS_POSTGRES_REQUIRED, true);
+
+    assert.throws(
+      () => configureRuntimeAndDatabase(config, { runtime: 'team', database: 'sqlite' }),
+      /Team runtime requires --database postgres/u,
+    );
+
+    const inconsistentTeamSqlite = structuredClone(config);
+    inconsistentTeamSqlite.env.CANVAS_DEPLOYMENT_MODE = 'managed-team';
+    inconsistentTeamSqlite.env.CANVAS_DATABASE_PROVIDER = 'sqlite';
+    assert.throws(
+      () => materializeConfig(inconsistentTeamSqlite),
+      /requires CANVAS_DATABASE_PROVIDER=postgres/u,
+    );
+
+    const preparedPostgres = materializePostgresInfrastructureConfig(config);
+    assert.equal(preparedPostgres.env.CANVAS_DATABASE_PROVIDER, 'sqlite');
+    assert.equal(preparedPostgres.env.CANVAS_POSTGRES_REQUIRED, true);
+    assert.match(String(preparedPostgres.env.DATABASE_URL), /^postgresql:\/\/canvas:/);
+    assert.match(composeEnvText(preparedPostgres, composePath(preparedPostgres.dataDir, 'linux')), /^COMPOSE_PROFILES=$/m);
+    assert.match(composeEnvText(preparedPostgres, composePath(preparedPostgres.dataDir, 'linux')), /^CANVAS_POSTGRES_PASSWORD=/m);
+
+    const redactedPostgres = redactConfig(postgresConfig);
+    assert.equal(redactedPostgres.env.DATABASE_URL, 'postgresql://***');
+    assert.match(String(redactedPostgres.env.CANVAS_POSTGRES_PASSWORD), /^\w{4}\*\*\*$/u);
+
+    assert.equal(postgresRuntimeDesired(config), false);
+    assert.equal(postgresRuntimeDesired(postgresConfig), true);
+
+    await preparePostgresManagedRuntime({ docker, config: postgresConfig });
+    assert.ok(runner.calls.some((call) => call.args.join(' ').includes('--profile postgres up -d postgres')));
+    assert.ok(runner.calls.some((call) => call.args.join(' ').includes('exec -i -u postgres pg-container psql')));
+    assert.ok(runner.calls.some((call) => call.args.join(' ').includes('exec -i pg-container sh -c')));
+    assert.ok(runner.calls.some((call) => call.stdinConfigured));
+    const serializedArgs = JSON.stringify(runner.calls.map((call) => call.args));
+    assert.equal(serializedArgs.includes(String(postgresConfig.env.CANVAS_POSTGRES_PASSWORD)), false);
+    assert.equal(serializedArgs.includes(String(postgresConfig.env.DATABASE_URL)), false);
   });
 
   console.log('cross-platform CLI tests passed');

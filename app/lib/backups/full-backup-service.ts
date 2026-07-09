@@ -18,6 +18,7 @@ import {
   type FullBackupFileEntry,
   type FullBackupInspection,
   type FullBackupJob,
+  type FullBackupLatestPromotion,
   type FullBackupProvider,
   type FullBackupSource,
 } from '@/app/lib/backups/types';
@@ -32,9 +33,13 @@ interface FullBackupLock {
 
 const execFileAsync = promisify(execFile);
 const SQLITE_FILE_NAME = 'sqlite.db';
+const DEFAULT_PG_DUMP_COMMAND = 'pg_dump';
 const BACKUP_STATUS_FILE = 'status.json';
 const BACKUP_LOCK_FILE = '.full-backup.lock';
 const BACKUP_WRITE_THROTTLE_MS = 750;
+const LATEST_BACKUP_DIR_NAME = 'latest';
+export const LATEST_FULL_BACKUP_FILE_NAME = 'canvas-notebook-backup-latest.zip';
+export const LATEST_FULL_BACKUP_METADATA_FILE_NAME = 'canvas-notebook-backup-latest.json';
 const activeFullBackups = new Map<string, Promise<void>>();
 
 function normalizeProvider(value: string | null | undefined): FullBackupProvider {
@@ -57,6 +62,11 @@ function getBackupStatusPath(backupId: string): string {
 
 function getBackupLockPath(): string {
   return path.join(getBackupsRoot(), BACKUP_LOCK_FILE);
+}
+
+function getLatestBackupDir(targetDir?: string): string {
+  const configured = targetDir?.trim() || process.env.CANVAS_BACKUP_TARGET_DIR?.trim();
+  return configured ? path.resolve(configured) : path.join(getBackupsRoot(), LATEST_BACKUP_DIR_NAME);
 }
 
 async function ensurePrivateDir(dirPath: string): Promise<void> {
@@ -323,6 +333,53 @@ function parsePostgresUrl(raw: string): {
   };
 }
 
+function pgDumpCommand(): string {
+  return process.env.CANVAS_PG_DUMP_BIN?.trim() || DEFAULT_PG_DUMP_COMMAND;
+}
+
+function commandFailureMessage(error: unknown): string {
+  if (!error || typeof error !== 'object') return String(error || 'unknown error');
+  const details = error as {
+    code?: string | number;
+    message?: string;
+    stderr?: string | Buffer;
+    stdout?: string | Buffer;
+  };
+  const stderr = Buffer.isBuffer(details.stderr) ? details.stderr.toString('utf8') : details.stderr;
+  const stdout = Buffer.isBuffer(details.stdout) ? details.stdout.toString('utf8') : details.stdout;
+  const output = (stderr || stdout || details.message || '').trim();
+  if (details.code === 'ENOENT') {
+    return 'pg_dump was not found in the app container PATH. Install a compatible PostgreSQL client such as postgresql-client-18.';
+  }
+  return output || `pg_dump exited with ${String(details.code || 'an error')}.`;
+}
+
+async function readPgDumpVersion(command: string): Promise<string> {
+  try {
+    const { stdout } = await execFileAsync(command, ['--version'], {
+      encoding: 'utf8',
+      maxBuffer: 1024 * 1024,
+    });
+    const version = stdout.trim();
+    if (!version) throw new Error('pg_dump --version returned no output.');
+    return version;
+  } catch (error) {
+    throw new Error(`Postgres backup requires a working pg_dump binary: ${commandFailureMessage(error)}`);
+  }
+}
+
+async function runPgDump(command: string, args: string[], env: NodeJS.ProcessEnv, dumpPath: string): Promise<void> {
+  try {
+    await execFileAsync(command, args, {
+      env,
+      maxBuffer: 1024 * 1024,
+    });
+  } catch (error) {
+    await fs.rm(dumpPath, { force: true }).catch(() => undefined);
+    throw new Error(`Postgres backup failed while running pg_dump: ${commandFailureMessage(error)}`);
+  }
+}
+
 async function createPostgresDump(backupDir: string): Promise<{
   database: FullBackupDatabaseManifest;
   entry: FullBackupFileEntry & { filePath: string };
@@ -333,9 +390,11 @@ async function createPostgresDump(backupDir: string): Promise<{
   }
 
   const connection = parsePostgresUrl(databaseUrl);
+  const command = pgDumpCommand();
+  const version = await readPgDumpVersion(command);
   const dumpPath = path.join(backupDir, 'database', 'postgres.dump');
   await ensurePrivateDir(path.dirname(dumpPath));
-  await execFileAsync('pg_dump', [
+  await runPgDump(command, [
     '--format=custom',
     '--no-owner',
     '--no-privileges',
@@ -349,17 +408,11 @@ async function createPostgresDump(backupDir: string): Promise<{
     connection.user,
     connection.database,
   ], {
-    env: {
-      ...process.env,
-      ...(connection.password ? { PGPASSWORD: connection.password } : {}),
-    },
-    maxBuffer: 1024 * 1024,
-  });
+    ...process.env,
+    ...(connection.password ? { PGPASSWORD: connection.password } : {}),
+  }, dumpPath);
   await fs.chmod(dumpPath, 0o600).catch(() => undefined);
 
-  const version = await execFileAsync('pg_dump', ['--version'], { encoding: 'utf8' })
-    .then(({ stdout }) => stdout.trim())
-    .catch(() => null);
   const stats = await fs.stat(dumpPath);
   const sha256 = await sha256File(dumpPath);
   return {
@@ -447,6 +500,20 @@ function buildManifest(params: {
     appVersion: getCurrentAppVersion(),
     backupId: params.backupId,
     createdAt: new Date().toISOString(),
+    scope: {
+      dataOnly: true,
+      dataRootIncluded: true,
+      hostConfigIncluded: false,
+      dockerImagesIncluded: false,
+      osIncluded: false,
+      appBinariesIncluded: false,
+    },
+    consistency: {
+      database: 'consistent_snapshot',
+      files: 'online_best_effort',
+      maintenanceMode: false,
+      appStopped: false,
+    },
     source: params.source,
     database: params.database,
     security: {
@@ -624,6 +691,97 @@ export async function listFullBackupJobs(): Promise<FullBackupJob[]> {
   return jobs
     .filter((job): job is FullBackupJob => Boolean(job))
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+
+export async function promoteFullBackupJobToLatest(
+  job: FullBackupJob,
+  options: { targetDir?: string } = {},
+): Promise<FullBackupLatestPromotion> {
+  if (job.status !== 'completed' || !job.filePath || !job.archiveSha256) {
+    throw new Error('Only completed full backup jobs can be promoted to latest.');
+  }
+
+  const latestDir = getLatestBackupDir(options.targetDir);
+  await ensurePrivateDir(latestDir);
+
+  const finalPath = path.join(latestDir, LATEST_FULL_BACKUP_FILE_NAME);
+  const metadataPath = path.join(latestDir, LATEST_FULL_BACKUP_METADATA_FILE_NAME);
+  const stagingPath = path.join(latestDir, `.${LATEST_FULL_BACKUP_FILE_NAME}.next-${job.id}-${process.pid}`);
+  const stagingMetadataPath = path.join(latestDir, `.${LATEST_FULL_BACKUP_METADATA_FILE_NAME}.next-${job.id}-${process.pid}`);
+
+  try {
+    await fs.copyFile(job.filePath, stagingPath);
+    await fs.chmod(stagingPath, 0o600).catch(() => undefined);
+
+    const archiveSha256 = await sha256File(stagingPath);
+    if (archiveSha256 !== job.archiveSha256) {
+      throw new Error('Promoted backup checksum does not match the completed backup job.');
+    }
+
+    const inspection = await inspectFullBackupArchive(stagingPath);
+    if (!inspection.manifest) {
+      throw new Error('Promoted backup manifest could not be inspected.');
+    }
+    if (inspection.manifest.backupId !== job.id) {
+      throw new Error('Promoted backup manifest does not match the completed backup job.');
+    }
+    const integrityRisks = inspection.risks.filter((risk) => !risk.includes('SQLite target'));
+    if (integrityRisks.length > 0) {
+      throw new Error(`Promoted backup failed inspection: ${integrityRisks.join('; ')}`);
+    }
+
+    const stats = await fs.stat(stagingPath);
+    const promotedAt = new Date().toISOString();
+    const metadata = {
+      format: 'canvas-notebook-full-backup-latest',
+      backupId: job.id,
+      promotedAt,
+      fileName: LATEST_FULL_BACKUP_FILE_NAME,
+      archiveSha256,
+      size: stats.size,
+      source: job.source,
+      database: inspection.manifest.database,
+      scope: inspection.manifest.scope,
+      consistency: inspection.manifest.consistency,
+      appVersion: inspection.manifest.appVersion,
+      createdAt: inspection.manifest.createdAt,
+    };
+    await writeJsonPrivate(stagingMetadataPath, metadata);
+
+    await fs.rename(stagingPath, finalPath);
+    await fs.rename(stagingMetadataPath, metadataPath);
+    await fs.chmod(finalPath, 0o600).catch(() => undefined);
+    await fs.chmod(metadataPath, 0o600).catch(() => undefined);
+
+    return {
+      backupId: job.id,
+      promotedAt,
+      directory: latestDir,
+      fileName: LATEST_FULL_BACKUP_FILE_NAME,
+      filePath: finalPath,
+      metadataPath,
+      archiveSha256,
+      size: stats.size,
+    };
+  } catch (error) {
+    await fs.rm(stagingPath, { force: true }).catch(() => undefined);
+    await fs.rm(stagingMetadataPath, { force: true }).catch(() => undefined);
+    throw error;
+  }
+}
+
+export async function pruneFullBackupJobArtifacts(options: { keepBackupId?: string } = {}): Promise<string[]> {
+  await ensurePrivateDir(getBackupsRoot());
+  const dirents = await fs.readdir(getBackupsRoot(), { withFileTypes: true }).catch(() => []);
+  const removed: string[] = [];
+  for (const dirent of dirents) {
+    if (!dirent.isDirectory() || !/^[a-f0-9-]{36}$/i.test(dirent.name)) continue;
+    if (options.keepBackupId && dirent.name === options.keepBackupId) continue;
+    const targetPath = path.join(getBackupsRoot(), dirent.name);
+    await fs.rm(targetPath, { recursive: true, force: true });
+    removed.push(dirent.name);
+  }
+  return removed;
 }
 
 async function unzipText(args: string[], maxBuffer = 100 * 1024 * 1024): Promise<string> {

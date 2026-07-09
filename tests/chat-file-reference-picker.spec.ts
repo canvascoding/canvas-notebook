@@ -1,4 +1,4 @@
-import { expect, test, type Browser, type Page } from '@playwright/test';
+import { expect, test, type Browser, type Locator, type Page } from '@playwright/test';
 import dotenv from 'dotenv';
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -45,6 +45,17 @@ async function setSkillEnabled(page: Page, skillName: string, enabled: boolean) 
   }, { enabled, skillName });
 
   expect(response.ok, `Failed to update skill "${skillName}": HTTP ${response.status} ${response.body}`).toBeTruthy();
+}
+
+async function selectedReferenceIsInsidePicker(picker: Locator) {
+  return picker.evaluate((element) => {
+    const selectedItem = element.querySelector<HTMLElement>('[data-active="true"]');
+    if (!selectedItem) return false;
+
+    const selectedTop = selectedItem.offsetTop;
+    const selectedBottom = selectedTop + selectedItem.offsetHeight;
+    return selectedTop >= element.scrollTop && selectedBottom <= element.scrollTop + element.clientHeight;
+  });
 }
 
 test.describe('Chat File Reference Picker', () => {
@@ -143,5 +154,46 @@ test.describe('Chat File Reference Picker', () => {
 
     await input.fill('https://example.com');
     await expect(picker).toHaveCount(0);
+  });
+
+  test('keeps the selected reference visible while navigating with arrow keys', async ({ page }) => {
+    const fixtureId = `playwright-file-picker-scroll-${Date.now()}`;
+    const query = `PickerScrollUnique${Date.now()}`;
+    const fixtureRoot = path.join(WORKSPACE_ROOT, fixtureId);
+
+    await mkdir(fixtureRoot, { recursive: true });
+    await Promise.all(
+      Array.from({ length: 24 }, (_, index) => {
+        const paddedIndex = String(index).padStart(2, '0');
+        return writeFile(path.join(fixtureRoot, `${query}-${paddedIndex}.md`), `# ${query} ${paddedIndex}\n`);
+      }),
+    );
+
+    try {
+      await page.goto('/chat');
+      await startFreshChat(page);
+
+      const input = page.getByTestId('chat-input');
+      await input.fill(`@${query}`);
+
+      const picker = page.getByTestId('chat-reference-picker');
+      await expect(picker).toBeVisible({ timeout: 15000 });
+      await expect(picker.getByTestId('chat-reference-item')).toHaveCount(24, { timeout: 15000 });
+
+      for (let index = 0; index < 12; index += 1) {
+        await input.press('ArrowDown');
+      }
+
+      await expect.poll(() => picker.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
+      await expect.poll(() => selectedReferenceIsInsidePicker(picker)).toBe(true);
+
+      for (let index = 0; index < 12; index += 1) {
+        await input.press('ArrowUp');
+      }
+
+      await expect.poll(() => selectedReferenceIsInsidePicker(picker)).toBe(true);
+    } finally {
+      await rm(fixtureRoot, { recursive: true, force: true });
+    }
   });
 });

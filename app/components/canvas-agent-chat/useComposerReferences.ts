@@ -39,7 +39,6 @@ export function useComposerReferences({
   const [availableSkills, setAvailableSkills] = useState<SkillPickerSkill[] | null>(null);
   const [availablePlugins, setAvailablePlugins] = useState<PluginPickerPlugin[] | null>(null);
   const [isLoadingReferenceItems, setIsLoadingReferenceItems] = useState(false);
-  const referencePickerRef = useRef<HTMLDivElement>(null);
   const referenceRequestIdRef = useRef(0);
 
   const closeReferencePicker = useCallback(() => {
@@ -240,7 +239,6 @@ export function useComposerReferences({
     handleReferenceSelect,
     isLoadingReferenceItems,
     referencePickerItems,
-    referencePickerRef,
     selectedReferenceIndex,
     selectNextReference,
     selectPreviousReference,

@@ -9,6 +9,7 @@ export type PiToolset =
   | 'memory'
   | 'mcp'
   | 'session_search'
+  | 'skills'
   | 'studio'
   | 'terminal'
   | 'todo'
@@ -71,6 +72,11 @@ export const PI_TOOLSETS: Record<PiToolset, PiToolsetInfo> = {
     label: 'Session Search',
     description: 'Browse, search, and read previous Canvas Agent sessions.',
   },
+  skills: {
+    name: 'skills',
+    label: 'Skills',
+    description: 'Create, inspect, install, update, and discard personal Canvas skills.',
+  },
   studio: {
     name: 'studio',
     label: 'Studio',
@@ -118,6 +124,13 @@ const TOOLSET_TOOL_NAMES: Record<PiToolset, Set<string>> = {
   memory: new Set(['memory']),
   mcp: new Set(['mcp']),
   session_search: new Set(['session_search']),
+  skills: new Set([
+    'create_canvas_skill_draft',
+    'discard_canvas_skill_draft',
+    'inspect_canvas_skill',
+    'install_canvas_skill_from_workspace',
+    'update_canvas_skill_from_workspace',
+  ]),
   studio: new Set([
     'studio_bulk_generate',
     'studio_generate_image',

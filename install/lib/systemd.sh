@@ -59,7 +59,7 @@ install_management_cli() {
 
   shared_dir="${INSTALL_DIR}/lib/shared"
   _ensure_dir_writable "$shared_dir"
-  for _lib in output utils config_json config logging compose caddy swap container docker ui; do
+  for _lib in output utils config_json config logging compose caddy swap container docker postgres ui; do
     if [[ -f "${SUPPORT_DIR}/lib/shared/${_lib}.sh" ]]; then
       _write_owned_file "${shared_dir}/${_lib}.sh" "${SUPPORT_DIR}/lib/shared/${_lib}.sh"
     fi

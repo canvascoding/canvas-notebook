@@ -46,6 +46,7 @@ async function main() {
   assert.equal(workspace.permissions.canWrite, true);
   assert.equal(workspace.permissions.canDelete, true);
   assert.equal(workspace.permissions.canCreatePublicLinks, true);
+  assert.equal(workspace.permissions.canManageWorkspace, true);
 
   await fs.mkdir(workspace.rootPath, { recursive: true });
   await fs.mkdir(outsideRoot, { recursive: true });
@@ -109,12 +110,48 @@ async function main() {
     workspaceType: 'team',
     canAccessTeamWorkspace: true,
     canWriteTeamWorkspace: true,
+    canDeleteTeamWorkspace: false,
   });
   assert.equal(teamMemberPermissions.canRead, true);
   assert.equal(teamMemberPermissions.canWrite, true);
-  assert.equal(teamMemberPermissions.canDelete, true);
+  assert.equal(teamMemberPermissions.canDelete, false);
   assert.equal(teamMemberPermissions.canCreatePublicLinks, true);
   assert.equal(teamMemberPermissions.canManageWorkspace, false);
+
+  const teamDeleteOnlyPermissions = permissionsModule.resolveWorkspacePermissions({
+    role: 'member',
+    workspaceType: 'team',
+    canAccessTeamWorkspace: true,
+    canWriteTeamWorkspace: false,
+    canDeleteTeamWorkspace: true,
+  });
+  assert.equal(teamDeleteOnlyPermissions.canRead, true);
+  assert.equal(teamDeleteOnlyPermissions.canWrite, false);
+  assert.equal(teamDeleteOnlyPermissions.canDelete, true);
+
+  const personalOwnerPermissions = permissionsModule.resolveWorkspacePermissions({
+    role: 'member',
+    workspaceType: 'personal',
+    ownsPersonalWorkspace: true,
+    canCreatePublicLinks: true,
+  });
+  assert.equal(personalOwnerPermissions.canRead, true);
+  assert.equal(personalOwnerPermissions.canWrite, true);
+  assert.equal(personalOwnerPermissions.canDelete, true);
+  assert.equal(personalOwnerPermissions.canCreatePublicLinks, true);
+  assert.equal(personalOwnerPermissions.canManageWorkspace, true);
+  assert.equal(personalOwnerPermissions.canRunAgent, true);
+
+  const organizationDeletePermissions = permissionsModule.resolveWorkspacePermissions({
+    role: 'member',
+    workspaceType: 'organization',
+    canAccessOrganizationWorkspace: true,
+    canWriteOrganizationWorkspace: false,
+    canDeleteOrganizationWorkspace: true,
+  });
+  assert.equal(organizationDeletePermissions.canRead, true);
+  assert.equal(organizationDeletePermissions.canWrite, false);
+  assert.equal(organizationDeletePermissions.canDelete, true);
 
   const externalPermissions = permissionsModule.resolveWorkspacePermissions({
     role: 'external',

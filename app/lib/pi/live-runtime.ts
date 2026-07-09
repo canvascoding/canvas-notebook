@@ -54,6 +54,11 @@ import {
   type PiRuntimePromptContext,
   type RuntimePromptContextTarget,
 } from '@/app/lib/pi/runtime-prompt-context';
+import {
+  cleanupAgentRuntimeTempDirs,
+  getAgentRuntimeTempPromptBlock,
+  resolveAgentRuntimeTempDir,
+} from '@/app/lib/pi/agent-runtime-temp';
 
 export type { PiRuntimePromptContext } from '@/app/lib/pi/runtime-prompt-context';
 
@@ -420,6 +425,15 @@ class LivePiRuntime {
     return this.lastAccessAt;
   }
 
+  getRuntimeTempDir() {
+    return resolveAgentRuntimeTempDir({
+      userId: this.userId,
+      sessionId: this.sessionId,
+      agentId: this.agentId,
+      organizationId: this.workspaceContext?.organizationId ?? null,
+    });
+  }
+
   hasPendingReplace() {
     return this.pendingReplace !== null;
   }
@@ -703,7 +717,25 @@ class LivePiRuntime {
       blocks.push(workspaceBlock);
     }
 
+    const runtimeTempBlock = this.getAgentRuntimeTempContextBlock();
+    if (runtimeTempBlock) {
+      blocks.push(runtimeTempBlock);
+    }
+
     return blocks.length > 0 ? `${this.systemPrompt}\n\n${blocks.join('\n\n')}` : this.systemPrompt;
+  }
+
+  private getAgentRuntimeTempContextBlock(): string | null {
+    if (!this.userId || !this.sessionId) {
+      return null;
+    }
+
+    return getAgentRuntimeTempPromptBlock({
+      userId: this.userId,
+      sessionId: this.sessionId,
+      agentId: this.agentId,
+      organizationId: this.workspaceContext?.organizationId ?? null,
+    });
   }
 
   private getWorkspaceContextBlock(): string | null {
@@ -724,6 +756,9 @@ class LivePiRuntime {
     }
     if (!this.workspaceContext.canWrite) {
       lines.push('Workspace writes are disabled for this session. Read files only unless the user switches to a workspace with write permission.');
+    }
+    if (!this.workspaceContext.canDelete) {
+      lines.push('Workspace deletes are disabled for this session.');
     }
     if (!this.workspaceContext.canShare) {
       lines.push('Public sharing is disabled for this session.');
@@ -1514,6 +1549,10 @@ function getStore(): RuntimeStore {
           }
         }),
       ).then(() => {
+        void cleanupAgentRuntimeTempDirs({
+          nowMs: now,
+          activeDirs: resolved.map((entry) => entry.runtime.getRuntimeTempDir()),
+        }).catch(() => undefined);
         if (store.runtimes.size > MAX_RUNTIME_INSTANCES) {
           resolved.sort((a, b) => a.runtime.getLastAccessAt() - b.runtime.getLastAccessAt());
           const excess = store.runtimes.size - MAX_RUNTIME_INSTANCES;

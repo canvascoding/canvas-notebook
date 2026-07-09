@@ -17,6 +17,7 @@ export type AgentExecutionContext = {
   workspaceRoot: string;
   workspaceRootRelativePath: string | null;
   canWrite: boolean;
+  canDelete: boolean;
   canShare: boolean;
   legacy: boolean;
 };

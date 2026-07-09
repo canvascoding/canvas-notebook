@@ -238,12 +238,6 @@ export function ChatHistoryPanel({
     >
       <div className="shrink-0 space-y-3 border-b border-border bg-background/70 p-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="flex min-w-0 items-center gap-2">
-            <History size={14} className="shrink-0 text-muted-foreground" />
-            <span className="truncate text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
-              {labels.chatHistory}
-            </span>
-          </div>
           {isOverlay && onBackToChat ? (
             <button
               type="button"
@@ -254,6 +248,12 @@ export function ChatHistoryPanel({
               <span className="max-w-[9rem] truncate">{labels.backToChat}</span>
             </button>
           ) : null}
+          <div className="flex min-w-0 items-center gap-2">
+            <History size={14} className="shrink-0 text-muted-foreground" />
+            <span className="truncate text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+              {labels.chatHistory}
+            </span>
+          </div>
         </div>
 
         <div className="relative">

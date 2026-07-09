@@ -23,6 +23,7 @@ import {
   writeCanvasSkillRegistry,
   type CanvasSkillInstallRecord,
 } from '@/app/lib/skills/canvas-skill-store';
+import { coreSkillInstallError, isCoreSkillName } from '@/app/lib/skills/core-skills';
 import { enableSkillInConfig } from '@/app/lib/skills/enabled-skills';
 import { getSkillNames, loadSkillByName } from '@/app/lib/skills/skill-loader';
 import { readEnabledSkillsForScope, writeEnabledSkillsForScope } from '@/app/lib/skills/skill-settings';
@@ -263,6 +264,10 @@ async function ensureSkillCanBeInstalled(
   skillName: string,
   scope?: CanvasSkillStorageScope | null,
 ): Promise<void> {
+  if (isCoreSkillName(skillName)) {
+    throw new SkillPackageImportError(coreSkillInstallError(skillName), 409);
+  }
+
   const existing = await loadSkillByName(skillName, scope, { legacyFallback: false });
   const standalonePath = requirePathInside(getSkillsDir(scope), skillName, 'SKILL.md');
   const hasStandalone = await fs.stat(standalonePath).then((stat) => stat.isFile()).catch(() => false);

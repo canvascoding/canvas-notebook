@@ -541,6 +541,7 @@
     "failedToLoadPreview": "Failed to load preview",
     "pdfGenerationFailed": "PDF generation failed: {statusText}",
     "failedToGeneratePdf": "Failed to generate PDF",
+    "pdfRendererClosed": "The PDF renderer closed unexpectedly. Please try exporting the PDF again.",
     "htmlPreviewConfirmTitle": "Open HTML preview?",
     "htmlPreviewConfirmDescription": "\"{fileName}\" can run interactive code and load workspace media. Only open the preview if you trust this file.",
     "htmlPreviewAccept": "Open preview",
@@ -900,6 +901,7 @@
     "attachImage": "Attach file",
     "uploading": "Uploading...",
     "uploadingFiles": "Uploading files...",
+    "dropFilesHere": "Drop files here",
     "loadingFiles": "Loading files...",
     "loadingSkills": "Loading skills...",
     "loadingCapabilities": "Loading plugins and skills...",
@@ -3578,7 +3580,7 @@
       "resetAll": {
         "button": "Reset skills",
         "title": "Reset all skills?",
-        "description": "This deletes the entire skills folder, including installed skills, local skill files, registry data, and backups. Installed plugins are not removed, but their bundled skills can appear again through the plugin.",
+        "description": "This deletes installed and local skill files, registry data, and backups. Built-in core skills remain available. Installed plugins are not removed, but their bundled skills can appear again through the plugin.",
         "confirmLabel": "Type {confirmation} to continue.",
         "cancel": "Cancel",
         "confirm": "Delete skills folder"
@@ -3647,6 +3649,8 @@
       "status": "Status:",
       "license": "License:",
       "compatibility": "Compatibility:",
+      "core": "Core",
+      "coreProtected": "Built-in core skills are always available and cannot be disabled, edited, or deleted.",
       "viewDocumentation": "View documentation",
       "selectPrompt": "Select a skill or file to view details",
       "deleteSkill": "Delete skill",

@@ -2175,7 +2175,7 @@ export function SkillsPanel() {
 
         const merged = allSkills.map((skill: CanvasSkill) => ({
           ...skill,
-          enabled: allEnabled || enabledNames.includes(skill.name),
+          enabled: Boolean(skill.core) || allEnabled || enabledNames.includes(skill.name),
         }));
 
         const enabledCount = merged.filter((s: CanvasSkill) => s.enabled).length;
@@ -2297,6 +2297,12 @@ export function SkillsPanel() {
   }, []);
 
   async function toggleSkill(skillName: string, enabled: boolean) {
+    const currentSkill = skills.find((skill) => skill.name === skillName);
+    if (currentSkill?.core && !enabled) {
+      setSkillActionError(t('detail.coreProtected'));
+      return;
+    }
+
     try {
       const endpoint = enabled ? `/api/skills/${skillName}/enable` : `/api/skills/${skillName}/disable`;
       const response = await fetch(endpoint, { method: 'POST' });
@@ -2311,6 +2317,8 @@ export function SkillsPanel() {
           enabled: enabled ? prev.enabled + 1 : prev.enabled - 1,
           disabled: enabled ? prev.disabled - 1 : prev.disabled + 1
         }));
+      } else {
+        setSkillActionError(data.error || t('plugins.errors.toggle'));
       }
     } catch (error) {
       console.error('Failed to toggle skill:', error);
@@ -2335,8 +2343,12 @@ export function SkillsPanel() {
       const response = await fetch('/api/skills/disable-all', { method: 'POST' });
       const data = await response.json();
       if (data.success) {
-        setSkills(prev => prev.map(skill => ({ ...skill, enabled: false })));
-        setStats(prev => ({ ...prev, enabled: 0, disabled: prev.total }));
+        setSkills(prev => {
+          const next = prev.map(skill => ({ ...skill, enabled: Boolean(skill.core) }));
+          const enabledCount = next.filter(skill => skill.enabled).length;
+          setStats({ total: next.length, enabled: enabledCount, disabled: next.length - enabledCount });
+          return next;
+        });
       }
     } catch (error) {
       console.error('Failed to disable all skills:', error);
@@ -2518,6 +2530,7 @@ export function SkillsPanel() {
             {isSkillDir && skill && (
               <Switch
                 checked={skill.enabled}
+                disabled={skill.core}
                 onCheckedChange={(checked) => {
                   toggleSkill(skill.name, checked);
                 }}
@@ -2872,11 +2885,17 @@ export function SkillsPanel() {
                                 <Badge variant={selectedSkillData.enabled ? 'default' : 'secondary'} className="text-xs">
                                   {selectedSkillData.enabled ? t('detail.enabled') : t('detail.disabled')}
                                 </Badge>
+                                {selectedSkillData.core ? (
+                                  <Badge variant="outline" className="text-xs">
+                                    {t('detail.core')}
+                                  </Badge>
+                                ) : null}
                               </div>
                             </div>
                           </div>
                           <Switch
                             checked={selectedSkillData.enabled}
+                            disabled={selectedSkillData.core}
                             onCheckedChange={(checked) => toggleSkill(selectedSkillData.name, checked)}
                             aria-label={t('toggleSkill', { name: selectedSkillData.name })}
                           />
@@ -2918,7 +2937,7 @@ export function SkillsPanel() {
                             <Info className="h-4 w-4" />
                             {t('detail.viewDocumentation')}
                           </Button>
-                          {!selectedSkillData.plugin ? (
+                          {!selectedSkillData.plugin && !selectedSkillData.core ? (
                             <Button
                               variant="outline"
                               size="sm"
@@ -2934,7 +2953,7 @@ export function SkillsPanel() {
                               {t('skillLibrary.restore')}
                             </Button>
                           ) : null}
-                          {!selectedSkillData.plugin ? (
+                          {!selectedSkillData.plugin && !selectedSkillData.core ? (
                             <AlertDialog>
                               <AlertDialogTrigger asChild>
                                 <Button

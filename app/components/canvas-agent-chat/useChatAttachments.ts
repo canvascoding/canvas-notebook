@@ -228,15 +228,19 @@ export function useChatAttachments({ onMediaClick }: UseChatAttachmentsParams) {
     }
   }, []);
 
-  const onFileChange = useCallback((event: ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(event.target.files || []);
+  const uploadFiles = useCallback((fileList: File[] | FileList | null | undefined) => {
+    const files = Array.from(fileList || []);
     if (files.length > 0) {
       void preprocessAndUpload(files);
     }
+  }, [preprocessAndUpload]);
+
+  const onFileChange = useCallback((event: ChangeEvent<HTMLInputElement>) => {
+    uploadFiles(event.target.files);
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
-  }, [preprocessAndUpload]);
+  }, [uploadFiles]);
 
   const handlePaste = useCallback((event: ClipboardEvent) => {
     const items = event.clipboardData?.items;
@@ -316,6 +320,7 @@ export function useChatAttachments({ onMediaClick }: UseChatAttachmentsParams) {
     removeAttachment,
     setAttachments,
     setUploadError,
+    uploadFiles,
     uploadError,
   };
 }

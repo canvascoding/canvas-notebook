@@ -1563,7 +1563,6 @@ function EmailComposeDialog({
   const [isReferencePickerLoading, setIsReferencePickerLoading] = useState(false);
   const [selectedReferenceIndex, setSelectedReferenceIndex] = useState(0);
   const aiPromptTextareaRef = useRef<HTMLTextAreaElement>(null);
-  const referencePickerRef = useRef<HTMLDivElement>(null);
   const referenceSearchInputRef = useRef<HTMLInputElement>(null);
   const referenceRequestIdRef = useRef(0);
   const selectedContextPaths = useMemo(() => new Set((draft?.contextFiles || []).map((file) => file.path)), [draft?.contextFiles]);
@@ -1837,7 +1836,6 @@ function EmailComposeDialog({
                                 onSelect={selectReferenceFile}
                                 onSearchKeyDown={handleReferenceSearchKeyDown}
                                 onSearchValueChange={updateReferenceSearch}
-                                pickerRef={referencePickerRef}
                                 searchAutoFocus={!activeReferenceMatch}
                                 searchInputRef={referenceSearchInputRef}
                                 searchPlaceholder={labels.composeReferencePickerSearchPlaceholder}

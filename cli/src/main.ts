@@ -2,10 +2,23 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import { materializeConfig, loadConfig, writeConfig, writeEnvFiles } from './core/config';
+import {
+  configureRuntimeAndDatabase,
+  materializeConfig,
+  materializePostgresInfrastructureConfig,
+  loadConfig,
+  parseCliDatabaseProvider,
+  parseCliRuntimeMode,
+  redactConfig,
+  writeConfig,
+  writeEnvFiles,
+  type CliDatabaseProvider,
+  type CliRuntimeMode,
+} from './core/config';
 import { writeComposeFile } from './core/compose';
 import { DockerManager } from './core/docker';
 import { composePath, createRuntimeContext } from './core/platform';
+import { preparePostgresManagedRuntime } from './core/postgres';
 import { SpawnCommandRunner } from './core/process';
 import { ServiceManager } from './core/service';
 import type { CanvasCliConfig, RuntimeContext, StatusJson } from './core/types';
@@ -16,6 +29,19 @@ interface ParsedArgs {
   json: boolean;
   noBanner: boolean;
 }
+
+interface InstallOptions {
+  database?: CliDatabaseProvider;
+  runtime?: CliRuntimeMode;
+}
+
+interface BackupCreateOptions {
+  output?: string;
+  noWait: boolean;
+  keepJobArtifacts: boolean;
+}
+
+const LATEST_BACKUP_FILE_NAME = 'canvas-notebook-backup-latest.zip';
 
 function parseArgs(argv: string[]): ParsedArgs {
   const args = [...argv];
@@ -50,7 +76,8 @@ function printHelp(): void {
   console.log(`Usage: canvas-notebook <command> [options]
 
 Commands:
-  install                         Generate config, pull image, start container
+  install [--database sqlite|postgres] [--runtime personal|team]
+                                  Generate config, pull image, start container
   update                          Pull image and recreate only when needed
   start                           Start the container and wait for health
   restart                         Recreate the container and wait for health
@@ -61,9 +88,12 @@ Commands:
   logs                            Follow app container logs
   manager-log                     Show host-side CLI log
   env --sync                      Regenerate env files
-  config-show                     Print canvas-notebook-config.json
+  config-show                     Print canvas-notebook-config.json with secrets masked
   config-set <key> <value>        Set a top-level/env config value
   admin reset-password ...        Reset or create an admin in the container
+  backup create [--output <path>] Create/replace the local latest full backup
+  database status [--json]        Show configured database provider status
+  database prepare-postgres       Prepare local Postgres service without data migration
   database migrate-sqlite-to-postgres [args]
   service status|install|uninstall
 `);
@@ -78,8 +108,14 @@ async function readConfig(context: RuntimeContext): Promise<CanvasCliConfig> {
   return loadConfig(context.paths, context.platform);
 }
 
-async function syncFiles(context: RuntimeContext, config: CanvasCliConfig): Promise<CanvasCliConfig> {
-  const next = materializeConfig(config);
+async function syncFiles(
+  context: RuntimeContext,
+  config: CanvasCliConfig,
+  options: { postgresInfrastructureOnly?: boolean } = {},
+): Promise<CanvasCliConfig> {
+  const next = options.postgresInfrastructureOnly
+    ? materializePostgresInfrastructureConfig(config)
+    : materializeConfig(config);
   const composeDataDir = composePath(next.dataDir, context.platform);
   await fs.mkdir(next.paths.installDir, { recursive: true });
   await fs.mkdir(next.paths.dataDir, { recursive: true });
@@ -89,10 +125,90 @@ async function syncFiles(context: RuntimeContext, config: CanvasCliConfig): Prom
   return next;
 }
 
+function readOptionValue(args: string[], index: number, option: string): { value: string; nextIndex: number } {
+  const inlinePrefix = `${option}=`;
+  const current = args[index] || '';
+  if (current.startsWith(inlinePrefix)) {
+    const value = current.slice(inlinePrefix.length);
+    if (!value) throw new Error(`Missing value for ${option}.`);
+    return { value, nextIndex: index };
+  }
+  const value = args[index + 1];
+  if (!value || value.startsWith('--')) throw new Error(`Missing value for ${option}.`);
+  return { value, nextIndex: index + 1 };
+}
+
+function parseInstallOptions(args: string[]): InstallOptions {
+  const options: InstallOptions = {};
+  for (let i = 0; i < args.length; i += 1) {
+    const arg = args[i];
+    if (arg === '--database' || arg.startsWith('--database=')) {
+      const parsed = readOptionValue(args, i, '--database');
+      options.database = parseCliDatabaseProvider(parsed.value);
+      i = parsed.nextIndex;
+    } else if (arg === '--runtime' || arg.startsWith('--runtime=')) {
+      const parsed = readOptionValue(args, i, '--runtime');
+      options.runtime = parseCliRuntimeMode(parsed.value);
+      i = parsed.nextIndex;
+    } else {
+      throw new Error(`Unknown install option: ${arg}`);
+    }
+  }
+  return options;
+}
+
+function parseBackupCreateOptions(args: string[]): BackupCreateOptions {
+  const options: BackupCreateOptions = {
+    noWait: false,
+    keepJobArtifacts: false,
+  };
+  for (let i = 0; i < args.length; i += 1) {
+    const arg = args[i];
+    if (arg === '--output' || arg.startsWith('--output=')) {
+      const parsed = readOptionValue(args, i, '--output');
+      options.output = parsed.value;
+      i = parsed.nextIndex;
+    } else if (arg === '--no-wait') {
+      options.noWait = true;
+    } else if (arg === '--keep-job-artifacts') {
+      options.keepJobArtifacts = true;
+    } else {
+      throw new Error(`Unknown backup create option: ${arg}`);
+    }
+  }
+  if (options.output && options.noWait) {
+    throw new Error('--output cannot be combined with --no-wait.');
+  }
+  return options;
+}
+
+async function copyFileAtomically(sourcePath: string, requestedOutputPath: string): Promise<string> {
+  let outputPath = path.resolve(requestedOutputPath);
+  const outputStat = await fs.stat(outputPath).catch(() => null);
+  if (outputStat?.isDirectory()) {
+    outputPath = path.join(outputPath, LATEST_BACKUP_FILE_NAME);
+  }
+  await fs.mkdir(path.dirname(outputPath), { recursive: true });
+  const tempPath = path.join(
+    path.dirname(outputPath),
+    `.${path.basename(outputPath)}.next-${process.pid}-${Date.now()}`,
+  );
+  try {
+    await fs.copyFile(sourcePath, tempPath);
+    await fs.chmod(tempPath, 0o600).catch(() => undefined);
+    await fs.rename(tempPath, outputPath);
+    return outputPath;
+  } catch (error) {
+    await fs.rm(tempPath, { force: true }).catch(() => undefined);
+    throw error;
+  }
+}
+
 async function install(context: RuntimeContext, docker: DockerManager, config: CanvasCliConfig): Promise<void> {
   await appendLog(context, 'install started');
   const next = await syncFiles(context, config);
   await docker.pull(next);
+  await preparePostgresManagedRuntime({ docker, config: next, stdio: 'inherit' });
   await docker.composeOrThrow(next, ['up', '-d', '--force-recreate'], 'inherit');
   await docker.waitUntilHealthy(next);
   await appendLog(context, 'install completed');
@@ -103,6 +219,7 @@ async function update(context: RuntimeContext, docker: DockerManager, config: Ca
   await appendLog(context, 'update started');
   const next = await syncFiles(context, config);
   await docker.pull(next);
+  await preparePostgresManagedRuntime({ docker, config: next, stdio: 'inherit' });
   if (await docker.needsRecreate(next)) {
     await docker.composeOrThrow(next, ['up', '-d', '--force-recreate'], 'inherit');
   } else {
@@ -154,6 +271,41 @@ function setConfigValue(config: CanvasCliConfig, key: string, value: string): Ca
   throw new Error(`Unsupported config key: ${key}`);
 }
 
+function databaseStatusPayload(config: CanvasCliConfig) {
+  const provider = String(config.env.CANVAS_DATABASE_PROVIDER || 'sqlite');
+  const deploymentMode = String(config.env.CANVAS_DEPLOYMENT_MODE || 'single_user');
+  const postgresRequired = ['true', '1', 'yes', 'on'].includes(String(config.env.CANVAS_POSTGRES_REQUIRED || '').trim().toLowerCase());
+  return {
+    databaseProvider: provider,
+    deploymentMode,
+    postgresRequired,
+    postgresProfileEnabled: provider === 'postgres',
+    postgres: {
+      image: String(config.env.CANVAS_POSTGRES_IMAGE || ''),
+      dataVolume: String(config.env.CANVAS_POSTGRES_DATA_VOLUME || ''),
+      database: String(config.env.CANVAS_POSTGRES_DB || ''),
+      user: String(config.env.CANVAS_POSTGRES_USER || ''),
+      databaseUrlConfigured: Boolean(String(config.env.DATABASE_URL || '').trim()),
+      pgvectorEnabled: String(config.env.CANVAS_POSTGRES_VECTOR_ENABLED || '').trim().toLowerCase() === 'true',
+    },
+  };
+}
+
+function printDatabaseStatus(config: CanvasCliConfig, json: boolean): void {
+  const status = databaseStatusPayload(config);
+  if (json) {
+    console.log(JSON.stringify(status));
+    return;
+  }
+  console.log(`Database provider: ${status.databaseProvider}`);
+  console.log(`Deployment mode: ${status.deploymentMode}`);
+  console.log(`Postgres required: ${status.postgresRequired ? 'yes' : 'no'}`);
+  console.log(`Postgres profile: ${status.postgresProfileEnabled ? 'enabled' : 'disabled'}`);
+  console.log(`Postgres image: ${status.postgres.image || '(not set)'}`);
+  console.log(`Postgres volume: ${status.postgres.dataVolume || '(not set)'}`);
+  console.log(`DATABASE_URL: ${status.postgres.databaseUrlConfigured ? 'configured' : '(not set)'}`);
+}
+
 async function admin(context: RuntimeContext, docker: DockerManager, config: CanvasCliConfig, args: string[]): Promise<void> {
   const subcommand = args.shift();
   if (subcommand !== 'reset-password' && subcommand !== 'set-password') {
@@ -197,12 +349,34 @@ async function admin(context: RuntimeContext, docker: DockerManager, config: Can
   console.log(`Admin credentials synchronized for ${email}`);
 }
 
-async function database(docker: DockerManager, config: CanvasCliConfig, args: string[], json: boolean): Promise<void> {
+async function database(context: RuntimeContext, docker: DockerManager, config: CanvasCliConfig, args: string[], json: boolean): Promise<void> {
   const subcommand = args.shift();
-  if (subcommand !== 'migrate-sqlite-to-postgres') {
-    throw new Error('Usage: canvas-notebook database migrate-sqlite-to-postgres [options]');
+  if (!subcommand || subcommand === '-h' || subcommand === '--help') {
+    throw new Error('Usage: canvas-notebook database status|prepare-postgres|migrate-sqlite-to-postgres [options]');
   }
-  const containerId = await docker.containerId(config);
+
+  if (subcommand === 'status') {
+    printDatabaseStatus(config, json);
+    return;
+  }
+
+  if (subcommand === 'prepare-postgres') {
+    const next = await syncFiles(context, config, { postgresInfrastructureOnly: true });
+    const prepare = await preparePostgresManagedRuntime({ docker, config: next, stdio: json ? 'pipe' : 'inherit' });
+    if (json) {
+      console.log(JSON.stringify({ success: true, prepare, ...databaseStatusPayload(next) }));
+    } else {
+      console.log('Postgres service prepared. No SQLite data was migrated.');
+    }
+    return;
+  }
+
+  if (subcommand !== 'migrate-sqlite-to-postgres') {
+    throw new Error(`Unknown database subcommand: ${subcommand}`);
+  }
+  const next = await syncFiles(context, config, { postgresInfrastructureOnly: true });
+  await preparePostgresManagedRuntime({ docker, config: next, stdio: json ? 'pipe' : 'inherit' });
+  const containerId = await docker.containerId(next);
   if (!containerId) throw new Error('Canvas Notebook container is not running. Start it first: canvas-notebook start');
   const nextArgs = json ? [...args, '--json'] : args;
   await docker.dockerOrThrow([
@@ -215,6 +389,64 @@ async function database(docker: DockerManager, config: CanvasCliConfig, args: st
     'scripts/migrate-sqlite-to-postgres.ts',
     ...nextArgs,
   ], { stdio: 'inherit' });
+}
+
+async function backup(context: RuntimeContext, docker: DockerManager, config: CanvasCliConfig, args: string[], json: boolean): Promise<void> {
+  const subcommand = args.shift();
+  if (!subcommand || subcommand === '-h' || subcommand === '--help') {
+    throw new Error('Usage: canvas-notebook backup create [--output <path>] [--json] [--no-wait]');
+  }
+  if (subcommand !== 'create') {
+    throw new Error(`Unknown backup subcommand: ${subcommand}`);
+  }
+
+  const options = parseBackupCreateOptions(args);
+  const next = await syncFiles(context, config);
+  await appendLog(context, 'backup create');
+  await preparePostgresManagedRuntime({ docker, config: next, stdio: json ? 'pipe' : 'inherit' });
+  const containerId = await docker.containerId(next);
+  if (!containerId) throw new Error('Canvas Notebook container is not running. Start it first: canvas-notebook start');
+
+  const scriptArgs = [
+    'exec',
+    containerId,
+    'npx',
+    'tsx',
+    '--conditions',
+    'react-server',
+    'scripts/create-full-backup.ts',
+  ];
+  if (!options.noWait) scriptArgs.push('--latest');
+  if (options.keepJobArtifacts) scriptArgs.push('--keep-job-artifacts');
+  if (options.noWait) scriptArgs.push('--no-wait');
+  scriptArgs.push('--json');
+
+  const result = await docker.dockerOrThrow(scriptArgs, { stdio: 'pipe' });
+  let payload: Record<string, unknown>;
+  try {
+    payload = JSON.parse(result.stdout.trim()) as Record<string, unknown>;
+  } catch {
+    throw new Error(result.stdout.trim() || 'Backup command did not return JSON.');
+  }
+
+  const latestHostPath = path.join(next.dataDir, 'system', 'backups', 'latest', LATEST_BACKUP_FILE_NAME);
+  let outputPath: string | null = null;
+  if (options.output) {
+    outputPath = await copyFileAtomically(latestHostPath, options.output);
+  }
+
+  if (json) {
+    console.log(JSON.stringify({
+      ...payload,
+      latestHostPath: options.noWait ? null : latestHostPath,
+      outputPath,
+    }));
+  } else if (options.noWait) {
+    const job = payload.job as { id?: string } | undefined;
+    console.log(`Full backup queued: ${job?.id || '(unknown job)'}`);
+  } else {
+    console.log(`Full backup completed: ${outputPath || latestHostPath}`);
+  }
 }
 
 async function main(): Promise<void> {
@@ -234,15 +466,18 @@ async function main(): Promise<void> {
   const config = await readConfig(context);
 
   switch (parsed.command) {
-    case 'install':
-      await install(context, docker, config);
+    case 'install': {
+      const options = parseInstallOptions(parsed.args);
+      await install(context, docker, configureRuntimeAndDatabase(config, options));
       break;
+    }
     case 'update':
       await update(context, docker, config);
       break;
     case 'start': {
       const next = await syncFiles(context, config);
       await appendLog(context, 'start');
+      await preparePostgresManagedRuntime({ docker, config: next, stdio: 'inherit' });
       await docker.composeOrThrow(next, ['up', '-d'], 'inherit');
       await docker.waitUntilHealthy(next);
       console.log(`Canvas Notebook is healthy: ${docker.healthUrl(next)}`);
@@ -251,6 +486,7 @@ async function main(): Promise<void> {
     case 'restart': {
       const next = await syncFiles(context, config);
       await appendLog(context, 'restart');
+      await preparePostgresManagedRuntime({ docker, config: next, stdio: 'inherit' });
       await docker.composeOrThrow(next, ['up', '-d', '--force-recreate'], 'inherit');
       await docker.waitUntilHealthy(next);
       console.log(`Canvas Notebook is healthy: ${docker.healthUrl(next)}`);
@@ -288,11 +524,14 @@ async function main(): Promise<void> {
       break;
     case 'env':
       if (!parsed.args.includes('--sync')) throw new Error('Usage: canvas-notebook env --sync');
-      await syncFiles(context, config);
-      console.log(`Generated ${config.paths.composeEnvFile} and ${config.paths.containerEnvFile}`);
+      {
+        const next = await syncFiles(context, config);
+        await preparePostgresManagedRuntime({ docker, config: next, stdio: 'inherit' });
+        console.log(`Generated ${next.paths.composeEnvFile} and ${next.paths.containerEnvFile}`);
+      }
       break;
     case 'config-show':
-      console.log(JSON.stringify(config, null, 2));
+      console.log(JSON.stringify(redactConfig(config), null, 2));
       break;
     case 'config-set': {
       const [key, value] = parsed.args;
@@ -304,8 +543,11 @@ async function main(): Promise<void> {
     case 'admin':
       await admin(context, docker, config, parsed.args);
       break;
+    case 'backup':
+      await backup(context, docker, config, parsed.args, parsed.json);
+      break;
     case 'database':
-      await database(docker, config, parsed.args, parsed.json);
+      await database(context, docker, config, parsed.args, parsed.json);
       break;
     case 'service': {
       const action = parsed.args[0] || 'status';

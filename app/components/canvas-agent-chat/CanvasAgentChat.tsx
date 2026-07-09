@@ -267,6 +267,7 @@ export default function CanvasAgentChat({
     removeAttachment,
     setAttachments,
     setUploadError,
+    uploadFiles,
     uploadError,
   } = useChatAttachments({ onMediaClick });
   const {
@@ -396,7 +397,6 @@ export default function CanvasAgentChat({
     handleReferenceSelect,
     isLoadingReferenceItems,
     referencePickerItems,
-    referencePickerRef,
     selectedReferenceIndex,
     selectNextReference,
     selectPreviousReference,
@@ -418,6 +418,7 @@ export default function CanvasAgentChat({
         workspaceName: activeWorkspace.name,
         organizationId: activeWorkspace.organizationId,
         canWrite: activeWorkspace.permissions.canWrite,
+        canDelete: activeWorkspace.permissions.canDelete,
         canShare: activeWorkspace.permissions.canCreatePublicLinks,
       }
       : undefined,
@@ -1191,6 +1192,7 @@ export default function CanvasAgentChat({
         }}
         fileInputRef={fileInputRef}
         onFileChange={onFileChange}
+        onFilesDrop={uploadFiles}
         composerDisabled={composerDisabled}
         isUploading={isUploading}
         textareaRef={textareaRef}
@@ -1206,7 +1208,6 @@ export default function CanvasAgentChat({
         referencePickerHeader={referencePickerHeader}
         referencePickerItems={referencePickerItems}
         onReferenceSelect={handleReferenceSelect}
-        referencePickerRef={referencePickerRef}
         selectedReferenceIndex={selectedReferenceIndex}
         primaryActionIsStop={primaryActionIsStop}
         primaryActionLabel={primaryActionLabel}

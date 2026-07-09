@@ -1,19 +1,19 @@
 'use client';
 
 import React from 'react';
-import { Check, Copy } from 'lucide-react';
+import { Check, Copy, Folder } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
 import { useLocale, useTranslations } from 'next-intl';
-import { usePathname as useLocalePathname, getPathname } from '@/i18n/navigation';
+import { usePathname as useLocalePathname, useRouter, getPathname } from '@/i18n/navigation';
 import { MermaidDiagram } from '@/components/ui/mermaid-diagram';
 import { ColorSwatch, isColorCode } from '@/app/lib/markdown/color-swatch';
 import { rehypeInlineColorSwatch } from '@/app/lib/markdown/rehype-inline-color-swatch';
 import { isFilePath, normalizeChatFilePath } from '@/app/lib/chat/extract-file-paths';
 import { notifyChatFileReferenceOpened } from '@/app/lib/chat/file-reference-events';
 import { extractStudioImageMediaUrls } from '@/app/lib/chat/studio-image-markdown';
-import { validateFileExists } from '@/app/lib/chat/validate-file-paths';
+import { validateFileReference, type FileReferenceValidationResult } from '@/app/lib/chat/validate-file-paths';
 import type { ChatMessage } from '@/app/lib/chat/types';
 import { getFileDisplayPath } from '@/app/lib/files/display-name';
 import { getFileIconComponent } from '@/app/lib/files/file-icons';
@@ -23,6 +23,8 @@ import { SafeMarkdownImage } from '@/app/components/shared/SafeMarkdownImage';
 import { resolvePreviewSrcFromMediaUrl } from '@/app/lib/chat/attachment-preview';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+
+const CodeBlockContext = React.createContext(false);
 
 const STUDIO_MEDIA_PATH_PREFIXES = [
   'studio/',
@@ -119,6 +121,15 @@ function getCodeLanguage(className?: string): string | null {
   return fallbackLanguage || null;
 }
 
+type MarkdownCodeElementProps = {
+  className?: string;
+  children?: React.ReactNode;
+};
+
+function isMarkdownCodeElement(node: React.ReactNode): node is React.ReactElement<MarkdownCodeElementProps> {
+  return React.isValidElement<MarkdownCodeElementProps>(node);
+}
+
 async function writeTextToClipboard(text: string): Promise<void> {
   if (navigator.clipboard?.writeText) {
     await navigator.clipboard.writeText(text);
@@ -151,7 +162,7 @@ async function writeTextToClipboard(text: string): Promise<void> {
 
 function getCodeBlockDetails(children: React.ReactNode): { code: string; language: string | null } {
   const child = React.Children.toArray(children)[0];
-  if (!React.isValidElement<{ className?: string; children?: React.ReactNode }>(child) || child.type !== 'code') {
+  if (!isMarkdownCodeElement(child)) {
     return { code: getReactNodeText(children).replace(/\n$/, ''), language: null };
   }
 
@@ -249,12 +260,14 @@ function MarkdownCodeBlock({
       </div>
       <pre
         className={cn(
-          '!m-0 max-w-full overflow-x-auto !rounded-none !border-0 !bg-transparent !p-3 text-[0.8125rem] leading-6',
+          '!m-0 max-w-full overflow-x-auto !rounded-none !border-0 !bg-transparent !p-3 text-left text-[0.8125rem] leading-6',
           className,
         )}
         {...props}
       >
-        {children}
+        <CodeBlockContext.Provider value>
+          {children}
+        </CodeBlockContext.Provider>
       </pre>
     </div>
   );
@@ -301,29 +314,40 @@ function FileLink({ href, children, showIcon = false }: { href: string; children
   const fileTree = fileStore.fileTree;
   const pathname = useLocalePathname();
   const locale = useLocale();
-  const [isValid, setIsValid] = React.useState<boolean | null>(null);
+  const router = useRouter();
+  const normalizedPath = React.useMemo(() => normalizeChatFilePath(href), [href]);
+  const [validation, setValidation] = React.useState<FileReferenceValidationResult | null>(null);
 
   React.useEffect(() => {
-    const normalizedPath = normalizeChatFilePath(href);
-    validateFileExists(normalizedPath, fileTree).then((exists) => {
-      setIsValid(exists);
+    if (!normalizedPath) {
+      return;
+    }
+
+    let cancelled = false;
+
+    validateFileReference(normalizedPath, fileTree).then((result) => {
+      if (!cancelled) {
+        setValidation(result);
+      }
     });
-  }, [href, fileTree]);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [fileTree, normalizedPath]);
 
   const handleClick = (event: React.MouseEvent) => {
     event.preventDefault();
     event.stopPropagation();
 
-    const normalizedPath = normalizeChatFilePath(href);
-
-    if (!normalizedPath) return;
+    if (!normalizedPath || validation?.path !== normalizedPath || validation.type !== 'file') return;
 
     if (pathname.includes('/chat')) {
       const notebookPath = getPathname({
         locale,
         href: { pathname: '/notebook', query: { path: normalizedPath } },
       });
-      window.open(notebookPath, 'canvas-notebook');
+      router.push(notebookPath);
       return;
     }
 
@@ -331,8 +355,34 @@ function FileLink({ href, children, showIcon = false }: { href: string; children
     void fileStore.revealAndLoadFile(normalizedPath);
   };
 
-  const isNotFound = isValid === false;
   const displayChildren = getFileReferenceLabel(href, children);
+  const activeValidation = validation?.path === normalizedPath ? validation : null;
+  const isFile = activeValidation?.type === 'file';
+  const isDirectory = activeValidation?.type === 'directory';
+  const isMissing = !normalizedPath || activeValidation?.type === 'missing';
+
+  if (!isFile) {
+    if (isDirectory) {
+      return (
+        <span
+          className="inline text-muted-foreground"
+          title={`Folder: ${normalizedPath || href}`}
+        >
+          <Folder className="mr-1 inline-block h-3.5 w-3.5 align-[-2px]" />
+          <span>{displayChildren}</span>
+        </span>
+      );
+    }
+
+    return (
+      <span
+        className="inline text-inherit"
+        title={isMissing ? `File not found: ${normalizedPath || href}` : undefined}
+      >
+        {displayChildren}
+      </span>
+    );
+  }
 
   if (showIcon) {
     const fileName = href.split('/').pop() || href;
@@ -342,9 +392,10 @@ function FileLink({ href, children, showIcon = false }: { href: string; children
       <span className="inline-flex items-center gap-1">
         <span className="shrink-0">{icon}</span>
         <button
+          type="button"
           onClick={handleClick}
-          className={`underline underline-offset-2 transition-colors ${isNotFound ? 'text-muted-foreground cursor-not-allowed' : 'cursor-pointer text-primary hover:text-primary/80'}`}
-          title={isNotFound ? `File not found: ${href}` : `Open ${href}`}
+          className="inline cursor-pointer p-0 text-left align-baseline text-primary underline underline-offset-2 transition-colors hover:text-primary/80"
+          title={`Open ${normalizedPath || href}`}
         >
           {displayChildren}
         </button>
@@ -354,16 +405,51 @@ function FileLink({ href, children, showIcon = false }: { href: string; children
 
   return (
     <button
+      type="button"
       onClick={handleClick}
-      className={`underline underline-offset-2 transition-colors ${
-        isNotFound
-          ? 'text-muted-foreground cursor-not-allowed'
-          : 'cursor-pointer text-primary hover:text-primary/80'
-      }`}
-      title={isNotFound ? `File not found: ${href}` : `Open ${href}`}
+      className="inline cursor-pointer p-0 text-left align-baseline text-primary underline underline-offset-2 transition-colors hover:text-primary/80"
+      title={`Open ${normalizedPath || href}`}
     >
       {displayChildren}
     </button>
+  );
+}
+
+function MarkdownCode({
+  className,
+  children,
+  node: _node,
+  ...props
+}: React.HTMLAttributes<HTMLElement> & { children?: React.ReactNode; node?: unknown }) {
+  const isRenderingCodeBlock = React.useContext(CodeBlockContext);
+  const codeString = getReactNodeText(children).replace(/\n$/, '');
+  const cleanedCode = codeString.replace(/\n$/, '').trim();
+
+  if (isRenderingCodeBlock) {
+    return (
+      <code className={className} {...props}>
+        {children}
+      </code>
+    );
+  }
+
+  if (isColorCode(cleanedCode)) {
+    return <ColorSwatch color={cleanedCode} />;
+  }
+
+  if (!className && isFilePath(cleanedCode)) {
+    return <FileLink href={cleanedCode} showIcon>{children}</FileLink>;
+  }
+
+  const lang = getCodeLanguage(className);
+  if (lang === 'mermaid') {
+    return <MermaidDiagram code={codeString} />;
+  }
+
+  return (
+    <code className={className} {...props}>
+      {children}
+    </code>
   );
 }
 
@@ -472,33 +558,15 @@ export const MarkdownMessage = React.memo(function MarkdownMessage({
         />
       );
     },
-    code: ({ className, children, ...props }: React.HTMLAttributes<HTMLElement> & { children?: React.ReactNode }) => {
-      const codeString = getReactNodeText(children).replace(/\n$/, '');
-      const cleanedCode = codeString.replace(/\n$/, '').trim();
-      if (isColorCode(cleanedCode)) {
-        return <ColorSwatch color={cleanedCode} />;
-      }
-
-      if (!className && isFilePath(cleanedCode)) {
-        return <FileLink href={cleanedCode} showIcon>{children}</FileLink>;
-      }
-
-      const lang = getCodeLanguage(className);
-      if (lang === 'mermaid') {
-        return <MermaidDiagram code={codeString} />;
-      }
-
-      return (
-        <code className={className} {...props}>
-          {children}
-        </code>
-      );
-    },
-    pre: ({ children, ...props }: React.HTMLAttributes<HTMLElement>) => {
+    code: MarkdownCode,
+    pre: ({
+      children,
+      node: _node,
+      ...props
+    }: React.HTMLAttributes<HTMLPreElement> & { children?: React.ReactNode; node?: unknown }) => {
       const child = React.Children.toArray(children)[0];
-      if (React.isValidElement(child) && child.type === 'code') {
-        const codeProps = child.props as { className?: string; children?: React.ReactNode };
-        const lang = getCodeLanguage(codeProps.className);
+      if (isMarkdownCodeElement(child)) {
+        const lang = getCodeLanguage(child.props.className);
         if (lang === 'mermaid') {
           return <>{children}</>;
         }

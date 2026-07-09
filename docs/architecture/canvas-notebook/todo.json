@@ -1,5 +1,5 @@
 {
-  "updatedAt": "2026-06-21",
+  "updatedAt": "2026-07-08",
   "source": "Canvas Notebook Team Workspace Plan",
   "tasks": [
     {
@@ -921,6 +921,165 @@
         "npm run test:workspace:foundation",
         "npm run lint",
         "npx tsc --noEmit --pretty false",
+        "npm run build"
+      ]
+    },
+    {
+      "id": 45,
+      "title": "Postgres-Prepare-Service in beiden Canvas-Notebook-CLIs mit Rollenpasswort-Reconciliation finalisieren",
+      "status": "completed",
+      "repo": "canvasstudios-notebook",
+      "dependsOn": [
+        39,
+        40,
+        41,
+        42
+      ],
+      "planningArtifacts": [
+        "docs/architecture/canvas-notebook/team-workspace/15-export-import-backup-restore-policy.md",
+        "docs/architecture/canvas-notebook/team-workspace/17-database-provider-postgres-rag-collaboration-policy.md"
+      ],
+      "referenceArtifacts": [
+        "../canvas-control-plane/apps/api/src/services/managedSecrets.ts",
+        "../canvas-control-plane/packages/agent/src/ws-client.ts",
+        "../canvas-control-plane/apps/api/src/services/agentArtifacts.ts"
+      ],
+      "implementationTargets": [
+        "cli/src/core/config.ts",
+        "cli/src/core/postgres.ts",
+        "cli/src/main.ts",
+        "install/bin/canvas-notebook",
+        "install/lib/shared/config_json.sh",
+        "install/lib/shared/postgres.sh",
+        "install/lib/commands/database.sh",
+        "install/lib/commands/lifecycle.sh",
+        "install/lib/commands/env.sh",
+        "install/lib/commands/update.sh",
+        "install/lib/systemd.sh",
+        "scripts/cli-database-provider-test.sh",
+        "scripts/cli-database-command-test.sh",
+        "scripts/cross-platform-cli-test.ts"
+      ],
+      "acceptanceCriteria": [
+        "prepare-postgres liest echte Secrets aus lokalen Config-/Env-Quellen und nicht aus redacted config-show-Ausgaben",
+        "bestehende Postgres-Volumes werden per ALTER ROLE auf das aktuelle CANVAS_POSTGRES_PASSWORD synchronisiert",
+        "TCP-Login mit dem Runtime-Passwort wird vor App-Start, App-Recreate und Full Backup validiert",
+        "pgvector wird idempotent angelegt oder bestaetigt, wenn CANVAS_POSTGRES_VECTOR_ENABLED aktiv ist",
+        "install, update, start, restart, env --sync, database prepare-postgres und database migrate-sqlite-to-postgres nutzen denselben Prepare-Ablauf",
+        "Passwoerter und DATABASE_URL erscheinen nie unredacted in Logs, JSON-Status, argv oder Fehlerausgaben",
+        "maskierte oder verdachtige Secret-Werte fuehren zu einem klaren Abbruch statt zu einer fehlerhaften DB-Rollenaktualisierung"
+      ],
+      "verification": [
+        "npm run test:cli:database-provider",
+        "npm run test:cli:database",
+        "npm run test:cli:portable",
+        "bash -n install/bin/canvas-notebook install/lib/shared/config_json.sh install/lib/commands/database.sh install/lib/commands/lifecycle.sh install/lib/commands/env.sh install/lib/shared/postgres.sh scripts/cli-database-provider-test.sh scripts/cli-database-command-test.sh",
+        "npm run lint",
+        "npm run build"
+      ]
+    },
+    {
+      "id": 46,
+      "title": "Agent-faehige Skill-Erstellung und Organization Shared Skills mit dedizierten Install-Tools umsetzen",
+      "status": "planned",
+      "repo": "canvasstudios-notebook",
+      "dependsOn": [
+        5,
+        16,
+        17,
+        31
+      ],
+      "planningArtifacts": [
+        "docs/architecture/canvas-notebook/team-workspace/08-user-scoped-secrets-runtime.md",
+        "docs/architecture/canvas-notebook/team-workspace/10-agent-tool-execution-policy.md",
+        "docs/architecture/canvas-notebook/team-workspace/19-agent-skill-creation-install-policy.md",
+        "docs/dokumentation/canvas-skills-plugins-architecture.md"
+      ],
+      "implementationTargets": [
+        "app/lib/skills/agent-skill-installer.ts",
+        "app/lib/skills/skill-package-import.ts",
+        "app/lib/pi/tool-registry.ts",
+        "app/lib/organization/permissions.ts",
+        "app/api/skills/*",
+        "app/components/settings/*",
+        "scripts/agent-skill-installer-test.ts",
+        "scripts/pi-tool-registry-test.ts"
+      ],
+      "acceptanceCriteria": [
+        "Nutzer koennen eigene Personal Skills ueber validierte UI- oder Agent-Tools erstellen, ohne generische Writes nach /data/users/{userId}/skills zu erhalten",
+        "Personal Skills koennen als komplette Paketordner inklusive SKILL.md, agents/canvas.yaml, Scripts, References, Assets, Beispielen und optionalen Code-Dateien erstellt, geforkt und bearbeitet werden",
+        "Skill-Installation nutzt dieselbe Validierungs-, Registry- und Enable-Pipeline wie Uploads und Store-Installationen",
+        "Bestehende Personal Skills koennen ueber Inspect, Workspace-Draft, Version-/Checksum-Schutz und atomaren Paket-Austausch bearbeitet werden",
+        "Core Skills bleiben immer verfuegbar und koennen nicht ersetzt, deaktiviert oder ueberschattet werden",
+        "Admins koennen Organization Shared Skills versioniert bereitstellen und per Policy optional, default-enabled, required oder blocked setzen",
+        "Normale Nutzer koennen Organization Skills verwenden, aber nicht direkt veraendern; Anpassungen laufen ueber Personal Forks",
+        "Namenskonflikte zwischen Core, Organization, Personal und Plugin-Skills werden sichtbar blockiert statt still entschieden",
+        "Skill-Install-Tools auditieren Scope, Quelle, Skill-Name, Version/Checksum und Policy ohne komplette Skill-Inhalte oder Secrets zu speichern",
+        "Enthaltene Scripts oder Code-Dateien werden beim Import nicht ausgefuehrt und bleiben an die normalen Agent-Tool- und Secret-Policies gebunden",
+        "Temporaere Skill-Drafts werden nach erfolgreicher Erstellung oder Bearbeitung standardmaessig aus dem Workspace geloescht"
+      ],
+      "verification": [
+        "npm run test:skills:core",
+        "npm run test:skills:store",
+        "npm run test:pi:tools",
+        "tsx --conditions react-server scripts/agent-skill-installer-test.ts",
+        "npm run lint",
+        "npm run build"
+      ]
+    },
+    {
+      "id": 47,
+      "title": "Nutzerdaten-Backup ueber CLI/Agent mit lokalem Latest-Artefakt und Control-Plane-Download umsetzen",
+      "status": "in_progress",
+      "repo": "cross-repo",
+      "dependsOn": [
+        36,
+        42,
+        45
+      ],
+      "planningArtifacts": [
+        "docs/architecture/canvas-notebook/team-workspace/15-export-import-backup-restore-policy.md",
+        "docs/architecture/canvas-notebook/team-workspace/17-database-provider-postgres-rag-collaboration-policy.md"
+      ],
+      "implementationTargets": [
+        "app/lib/backups/types.ts",
+        "app/lib/backups/full-backup-service.ts",
+        "scripts/create-full-backup.ts",
+        "cli/src/main.ts",
+        "install/lib/commands/backup.sh",
+        "../canvas-control-plane/packages/agent/src/ws-client.ts",
+        "../canvas-control-plane/apps/api/src/sockets/agentHandler.ts",
+        "../canvas-control-plane/apps/web/src/app/dashboard/vms/[id]/page.tsx"
+      ],
+      "implementationArtifacts": [
+        "app/lib/backups/types.ts",
+        "app/lib/backups/full-backup-service.ts",
+        "scripts/create-full-backup.ts",
+        "cli/src/main.ts",
+        "install/bin/canvas-notebook",
+        "install/lib/commands/backup.sh",
+        "install/lib/shared/ui.sh",
+        "scripts/cli-backup-command-test.sh",
+        "scripts/full-backup-service-test.ts"
+      ],
+      "acceptanceCriteria": [
+        "Backup-Scope ist Datenbank plus Canvas-Notebook-Nutzerdaten unter /data; VM, OS, Docker Images, App-Binaries, Source Code, Systemd-/Caddy-/Compose-/Host-Konfiguration und CLI-Installation sind nicht Teil des Backups",
+        "Notebook-CLI orchestriert Backup ueber einen Container-internen Backup-Command oder Scriptpfad und ruft die laufende Web-App fuer backup create nicht per HTTP auf",
+        "Backup laeuft ohne App-Stopp und ohne Maintenance Mode; Manifest kennzeichnet Datenbank als konsistent und /data-Dateien als online_best_effort",
+        "Zielpfad ist konfigurierbar und hat einen Default unter /data/system/backups bzw. dem zugehoerigen lokalen VM-Pfad",
+        "V1 verwaltet ein stabiles Latest-Backup und ersetzt das alte Backup erst nach erfolgreicher Archiv-, Manifest- und Checksum-Pruefung des neuen Backups",
+        "Fehlschlagende Backups lassen das vorherige Latest-Backup unveraendert erhalten",
+        "Postgres-Backups fuehren vor Dump-Erzeugung prepare-postgres inklusive Rollenpasswort-Verify und pgvector-Check aus",
+        "Legacy Bash CLI und portable TypeScript-CLI stellen denselben backup create Pfad mit JSON-Status bereit",
+        "Control Plane kann einen Backup-Run ueber den Agent starten, Status/Fehler redacted anzeigen und das lokale Latest-Backup per Download-Button zum Browser streamen",
+        "Control Plane speichert das ZIP nicht dauerhaft in ihrer Datenbank und zeigt keine lokalen Pfade oder Secrets an",
+        "Restore bleibt ein separater Flow mit Dry Run, Provider-Kompatibilitaet, App-Stopp oder Maintenance Mode und Rollback-Regeln"
+      ],
+      "verification": [
+        "npm run test:backup:full",
+        "npm run test:cli:database",
+        "npm run test:cli:portable",
+        "npm run lint",
         "npm run build"
       ]
     }
