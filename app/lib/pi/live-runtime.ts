@@ -58,6 +58,7 @@ import {
   cleanupAgentRuntimeTempDirs,
   getAgentRuntimeTempPromptBlock,
   removeAgentRuntimeTempDir,
+  resolveAgentRuntimeTempDir,
 } from '@/app/lib/pi/agent-runtime-temp';
 
 export type { PiRuntimePromptContext } from '@/app/lib/pi/runtime-prompt-context';
@@ -423,6 +424,15 @@ class LivePiRuntime {
 
   getLastAccessAt() {
     return this.lastAccessAt;
+  }
+
+  getRuntimeTempDir() {
+    return resolveAgentRuntimeTempDir({
+      userId: this.userId,
+      sessionId: this.sessionId,
+      agentId: this.agentId,
+      organizationId: this.workspaceContext?.organizationId ?? null,
+    });
   }
 
   hasPendingReplace() {
@@ -1530,7 +1540,6 @@ function getStore(): RuntimeStore {
     store.cleanupStarted = true;
     setInterval(() => {
       const now = Date.now();
-      void cleanupAgentRuntimeTempDirs({ nowMs: now }).catch(() => undefined);
       const resolved: Array<{ key: string; runtime: LivePiRuntime }> = [];
       void Promise.allSettled(
         [...store.runtimes.entries()].map(async ([key, runtimePromise]) => {
@@ -1547,6 +1556,10 @@ function getStore(): RuntimeStore {
           }
         }),
       ).then(() => {
+        void cleanupAgentRuntimeTempDirs({
+          nowMs: now,
+          activeDirs: resolved.map((entry) => entry.runtime.getRuntimeTempDir()),
+        }).catch(() => undefined);
         if (store.runtimes.size > MAX_RUNTIME_INSTANCES) {
           resolved.sort((a, b) => a.runtime.getLastAccessAt() - b.runtime.getLastAccessAt());
           const excess = store.runtimes.size - MAX_RUNTIME_INSTANCES;

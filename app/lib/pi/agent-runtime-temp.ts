@@ -87,6 +87,7 @@ export async function cleanupAgentRuntimeTempDirs(options: {
   nowMs?: number;
   retentionMs?: number;
   activeDir?: string;
+  activeDirs?: string[];
   force?: boolean;
 } = {}): Promise<AgentRuntimeTempCleanupResult> {
   const nowMs = options.nowMs ?? Date.now();
@@ -102,14 +103,19 @@ export async function cleanupAgentRuntimeTempDirs(options: {
   lastAgentRuntimeTempCleanupAt = nowMs;
 
   const root = resolveAgentRuntimeTempRoot();
-  const activeDir = options.activeDir ? path.resolve(options.activeDir) : null;
+  const activeDirs = new Set(
+    [
+      ...(options.activeDirs ?? []),
+      ...(options.activeDir ? [options.activeDir] : []),
+    ].map((activeDir) => path.resolve(activeDir)),
+  );
   const cutoffMs = nowMs - retentionMs;
   const deleted: string[] = [];
   let scanned = 0;
 
   for (const sessionDir of await sessionTempDirectories(root)) {
     const resolvedSessionDir = path.resolve(sessionDir);
-    if (activeDir && resolvedSessionDir === activeDir) continue;
+    if (activeDirs.has(resolvedSessionDir)) continue;
     scanned += 1;
     const stats = await fs.lstat(sessionDir).catch(() => null);
     if (!stats || !stats.isDirectory() || stats.mtimeMs >= cutoffMs) continue;

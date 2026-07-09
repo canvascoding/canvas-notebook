@@ -100,19 +100,23 @@ async function main() {
 
     const nowMs = Date.now();
     const oldInactiveDir = path.join(resolveAgentRuntimeTempRoot(), 'org-runtime-temp-org', 'user-runtime-temp-user', 'agent-analysis-agent', 'session-old-inactive');
+    const oldActiveDir = path.join(resolveAgentRuntimeTempRoot(), 'org-runtime-temp-org', 'user-runtime-temp-user', 'agent-analysis-agent', 'session-old-active');
     const recentInactiveDir = path.join(resolveAgentRuntimeTempRoot(), 'org-runtime-temp-org', 'user-runtime-temp-user', 'agent-analysis-agent', 'session-recent-inactive');
     await fs.mkdir(oldInactiveDir, { recursive: true });
+    await fs.mkdir(oldActiveDir, { recursive: true });
     await fs.mkdir(recentInactiveDir, { recursive: true });
     const oldDate = new Date(nowMs - 10_000);
     await fs.utimes(oldInactiveDir, oldDate, oldDate);
+    await fs.utimes(oldActiveDir, oldDate, oldDate);
     const cleanup = await cleanupAgentRuntimeTempDirs({
       nowMs,
       retentionMs: 5_000,
-      activeDir: runtimeTempDir,
+      activeDirs: [runtimeTempDir, oldActiveDir],
       force: true,
     });
     assert.ok(cleanup.deleted.includes(oldInactiveDir));
     await assert.rejects(fs.stat(oldInactiveDir));
+    await fs.stat(oldActiveDir);
     await fs.stat(recentInactiveDir);
     await fs.stat(runtimeTempDir);
 
