@@ -14,9 +14,11 @@ async function main() {
     await fs.mkdir(workspaceRoot, { recursive: true });
 
     const {
+      cleanupAgentRuntimeTempDirs,
       getAgentRuntimeTempEnv,
       getAgentRuntimeTempPromptBlock,
       resolveAgentRuntimeTempDir,
+      resolveAgentRuntimeTempRoot,
     } = await import('../app/lib/pi/agent-runtime-temp');
     const { runWithAgentExecutionContext } = await import('../app/lib/pi/agent-execution-context');
     const {
@@ -94,6 +96,24 @@ async function main() {
         /runtime temp mutations are limited/,
       );
     });
+
+    const nowMs = Date.now();
+    const oldInactiveDir = path.join(resolveAgentRuntimeTempRoot(), 'org-runtime-temp-org', 'user-runtime-temp-user', 'agent-analysis-agent', 'session-old-inactive');
+    const recentInactiveDir = path.join(resolveAgentRuntimeTempRoot(), 'org-runtime-temp-org', 'user-runtime-temp-user', 'agent-analysis-agent', 'session-recent-inactive');
+    await fs.mkdir(oldInactiveDir, { recursive: true });
+    await fs.mkdir(recentInactiveDir, { recursive: true });
+    const oldDate = new Date(nowMs - 10_000);
+    await fs.utimes(oldInactiveDir, oldDate, oldDate);
+    const cleanup = await cleanupAgentRuntimeTempDirs({
+      nowMs,
+      retentionMs: 5_000,
+      activeDir: runtimeTempDir,
+      force: true,
+    });
+    assert.ok(cleanup.deleted.includes(oldInactiveDir));
+    await assert.rejects(fs.stat(oldInactiveDir));
+    await fs.stat(recentInactiveDir);
+    await fs.stat(runtimeTempDir);
 
     console.log('agent-runtime-temp-test: ok');
   } finally {

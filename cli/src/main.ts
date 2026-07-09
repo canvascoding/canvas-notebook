@@ -285,7 +285,6 @@ function databaseStatusPayload(config: CanvasCliConfig) {
       dataVolume: String(config.env.CANVAS_POSTGRES_DATA_VOLUME || ''),
       database: String(config.env.CANVAS_POSTGRES_DB || ''),
       user: String(config.env.CANVAS_POSTGRES_USER || ''),
-      passwordConfigured: Boolean(String(config.env.CANVAS_POSTGRES_PASSWORD || '').trim()),
       databaseUrlConfigured: Boolean(String(config.env.DATABASE_URL || '').trim()),
       pgvectorEnabled: String(config.env.CANVAS_POSTGRES_VECTOR_ENABLED || '').trim().toLowerCase() === 'true',
     },

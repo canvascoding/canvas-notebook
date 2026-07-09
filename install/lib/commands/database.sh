@@ -44,7 +44,7 @@ _database_bool() {
 }
 
 _database_status_json() {
-  local provider deployment postgres_required pg_image pg_volume pg_db pg_user pg_password database_url pgvector
+  local provider deployment postgres_required pg_image pg_volume pg_db pg_user database_url pgvector
   provider="$(config_json_normalize_database_provider "$(config_json_read env.CANVAS_DATABASE_PROVIDER)")"
   deployment="$(config_json_read env.CANVAS_DEPLOYMENT_MODE)"
   deployment="${deployment:-single_user}"
@@ -53,10 +53,9 @@ _database_status_json() {
   pg_volume="$(config_json_read env.CANVAS_POSTGRES_DATA_VOLUME)"
   pg_db="$(config_json_read env.CANVAS_POSTGRES_DB)"
   pg_user="$(config_json_read env.CANVAS_POSTGRES_USER)"
-  pg_password="$(config_json_read env.CANVAS_POSTGRES_PASSWORD)"
   database_url="$(config_json_read env.DATABASE_URL)"
   pgvector="$(_database_bool "$(config_json_read env.CANVAS_POSTGRES_VECTOR_ENABLED)")"
-  printf '{"databaseProvider":"%s","deploymentMode":"%s","postgresRequired":%s,"postgresProfileEnabled":%s,"postgres":{"image":"%s","dataVolume":"%s","database":"%s","user":"%s","passwordConfigured":%s,"databaseUrlConfigured":%s,"pgvectorEnabled":%s}}\n' \
+  printf '{"databaseProvider":"%s","deploymentMode":"%s","postgresRequired":%s,"postgresProfileEnabled":%s,"postgres":{"image":"%s","dataVolume":"%s","database":"%s","user":"%s","databaseUrlConfigured":%s,"pgvectorEnabled":%s}}\n' \
     "$(json_escape "$provider")" \
     "$(json_escape "$deployment")" \
     "$postgres_required" \
@@ -65,7 +64,6 @@ _database_status_json() {
     "$(json_escape "$pg_volume")" \
     "$(json_escape "$pg_db")" \
     "$(json_escape "$pg_user")" \
-    "$([[ -n "$pg_password" ]] && printf true || printf false)" \
     "$([[ -n "$database_url" ]] && printf true || printf false)" \
     "$pgvector"
 }

@@ -326,6 +326,7 @@ Regeln:
 - generische Dateioperationen duerfen innerhalb dieses Ordners lesen, schreiben und loeschen, auch wenn Workspace-Write/Delete deaktiviert ist,
 - Workspace-Schreibrechte bleiben davon getrennt: finale Nutzerartefakte werden nur bewusst in den Workspace kopiert,
 - Symlink-Ausbrueche aus dem Runtime-Temp-Ordner werden blockiert,
+- alte Session-Temp-Ordner werden beim Anlegen/Nutzen neuer Agent-Temp-Ordner retention-basiert bereinigt; Default ist 24 Stunden, konfigurierbar ueber `CANVAS_AGENT_RUNTIME_TEMP_RETENTION_HOURS`,
 - Runtime-Temp-Inhalte gehoeren nicht in Skill-Pakete und nicht in finale Workspace-Artefakte.
 
 Die separate Dry-run-Validierung und direkte Text-Erstellung sind in Personal V1 keine eigenen Tools. V1 validiert innerhalb von `install_canvas_skill_from_workspace` und `update_canvas_skill_from_workspace`; neue Skills werden zuerst als Draft mit `create_canvas_skill_draft` erzeugt und danach installiert.
