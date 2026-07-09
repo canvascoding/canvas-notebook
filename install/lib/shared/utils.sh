@@ -14,7 +14,7 @@ run_root() {
 }
 
 is_false() {
-  case "${1,,}" in
+  case "$(printf '%s' "${1:-}" | tr '[:upper:]' '[:lower:]')" in
     false|0|no|off|disabled) return 0 ;;
     *) return 1 ;;
   esac

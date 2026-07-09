@@ -1,5 +1,13 @@
 #!/usr/bin/env bash
 
+if ! declare -f cli_update_reexec_if_changed >/dev/null 2>&1; then
+  _cli_update_command_file="${CMD_DIR:-${INSTALL_DIR}/lib/commands}/cli_update.sh"
+  if [[ -f "$_cli_update_command_file" ]]; then
+    . "$_cli_update_command_file"
+  fi
+  unset _cli_update_command_file
+fi
+
 cmd_install() {
   log_msg "install started"
 
@@ -60,6 +68,9 @@ cmd_update() {
   local health_check_mode
 
   log_msg "update started"
+  if declare -f cli_update_reexec_if_changed >/dev/null 2>&1; then
+    cli_update_reexec_if_changed update "$@"
+  fi
 
   if [[ ! -f "$CONFIG_JSON_PATH" ]]; then
     info "No config.json found — running migration"
