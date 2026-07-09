@@ -2,7 +2,7 @@
 
 /* eslint-disable @next/next/no-img-element */
 
-import { useEffect, useEffectEvent, useMemo, useState, type Dispatch, type SetStateAction } from 'react';
+import { useEffect, useEffectEvent, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react';
 import {
   AlertTriangle,
   ArrowLeft,
@@ -944,6 +944,7 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
   const [isDirectoryPickerOpen, setIsDirectoryPickerOpen] = useState(false);
   const [isComposerOpen, setIsComposerOpen] = useState(false);
   const [isRunSheetOpen, setIsRunSheetOpen] = useState(false);
+  const suppressComposerCloseRef = useRef(false);
 
   const selectedJob = useMemo(() => jobs.find((job) => job.id === selectedJobId) || null, [jobs, selectedJobId]);
   const workspaceById = useMemo(() => new Map(workspaces.map((workspace) => [workspace.id, workspace])), [workspaces]);
@@ -1910,8 +1911,30 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
   }
 
   function openDirectoryPicker(target: 'scheduled' | 'trigger' | 'customWebhook') {
+    suppressComposerCloseRef.current = true;
     setDirectoryPickerTarget(target);
     setIsDirectoryPickerOpen(true);
+  }
+
+  function handleDirectoryPickerOpenChange(nextOpen: boolean) {
+    setIsDirectoryPickerOpen(nextOpen);
+
+    if (nextOpen) {
+      suppressComposerCloseRef.current = true;
+      return;
+    }
+
+    window.setTimeout(() => {
+      suppressComposerCloseRef.current = false;
+    }, 0);
+  }
+
+  function handleComposerOpenChange(nextOpen: boolean) {
+    if (!nextOpen && (isDirectoryPickerOpen || suppressComposerCloseRef.current)) {
+      return;
+    }
+
+    setIsComposerOpen(nextOpen);
   }
 
   return (
@@ -2275,8 +2298,17 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
         </div>
       )}
 
-      <Dialog open={isComposerOpen} onOpenChange={setIsComposerOpen}>
-        <DialogContent layout="viewport" className="mx-auto w-full max-w-[100dvw] overflow-hidden sm:w-auto sm:max-w-5xl">
+      <Dialog open={isComposerOpen} onOpenChange={handleComposerOpenChange}>
+        <DialogContent
+          layout="viewport"
+          className="mx-auto w-full max-w-[100dvw] overflow-hidden sm:w-auto sm:max-w-5xl"
+          onEscapeKeyDown={(event) => {
+            if (isDirectoryPickerOpen) event.preventDefault();
+          }}
+          onInteractOutside={(event) => {
+            if (isDirectoryPickerOpen) event.preventDefault();
+          }}
+        >
           <DialogHeader className="shrink-0 border-b px-4 pt-5 pb-4 pr-12 sm:px-6">
             <DialogTitle>{t('editor.newTitle')}</DialogTitle>
             <DialogDescription>{t('editor.description')}</DialogDescription>
@@ -2692,7 +2724,7 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
 
       <WorkspaceDirectoryPickerDialog
         open={isDirectoryPickerOpen}
-        onOpenChange={setIsDirectoryPickerOpen}
+        onOpenChange={handleDirectoryPickerOpenChange}
         workspaceId={
           directoryPickerTarget === 'trigger'
             ? triggerDraft.workspaceId || defaultAutomationWorkspaceId
