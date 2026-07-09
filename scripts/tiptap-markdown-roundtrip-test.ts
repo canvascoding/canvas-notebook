@@ -9,6 +9,11 @@ import {
   isEditorRangeInsideDoc,
 } from '../app/lib/editor/prosemirror-ranges';
 import {
+  getMarkdownSourceModeReason,
+  getRunawaySlashContentMessage,
+  getTextEditorPerformanceProfile,
+} from '../app/lib/editor/text-editor-guards';
+import {
   CANVAS_BLOCK_DRAG_DATA_TYPE,
   getReorderableBlockRangeAt,
   hasCanvasBlockDragData,
@@ -126,6 +131,24 @@ graph LR
 `;
 
 async function main() {
+  const repeatedBackslashLine = '\\'.repeat(240);
+  const denseBackslashBlock = Array.from({ length: 8 }, () => '\\'.repeat(56)).join('\n');
+  assert.equal(
+    getMarkdownSourceModeReason(`# Normal\n\n${repeatedBackslashLine}`),
+    'slash-runaway',
+    'Markdown editor should avoid rich mode for repeated slash/backslash runaway content',
+  );
+  assert.match(
+    getRunawaySlashContentMessage(`Intro\n${denseBackslashBlock}`) ?? '',
+    /slash-dominated lines/,
+    'Agent file validation should flag slash/backslash-dominated line blocks',
+  );
+  assert.equal(
+    getTextEditorPerformanceProfile(`const x = "${'/'.repeat(12_000)}";`).disableLineWrapping,
+    true,
+    'CodeMirror should disable line wrapping for extremely long lines',
+  );
+
   const { Editor } = await import('@tiptap/core');
   const { StarterKit } = await import('@tiptap/starter-kit');
   const { Markdown } = await import('@tiptap/markdown');

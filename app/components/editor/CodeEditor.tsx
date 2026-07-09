@@ -14,9 +14,11 @@ import { rust } from '@codemirror/lang-rust';
 import { cpp } from '@codemirror/lang-cpp';
 import { java } from '@codemirror/lang-java';
 import { xml } from '@codemirror/lang-xml';
+import type { Extension as CodeMirrorExtension } from '@codemirror/state';
 import { EditorView } from '@codemirror/view';
 import { useFileStore } from '@/app/store/file-store';
 import { useTheme } from '@/app/components/ThemeProvider';
+import { getTextEditorPerformanceProfile } from '@/app/lib/editor/text-editor-guards';
 
 interface CodeEditorProps {
   value: string;
@@ -47,6 +49,22 @@ const CODE_MIRROR_BASIC_SETUP = {
   foldKeymap: true,
   completionKeymap: true,
   lintKeymap: true,
+};
+
+const LIGHTWEIGHT_CODE_MIRROR_BASIC_SETUP = {
+  ...CODE_MIRROR_BASIC_SETUP,
+  highlightActiveLineGutter: false,
+  highlightSpecialChars: false,
+  foldGutter: false,
+  dropCursor: false,
+  autocompletion: false,
+  rectangularSelection: false,
+  crosshairCursor: false,
+  highlightActiveLine: false,
+  highlightSelectionMatches: false,
+  closeBracketsKeymap: false,
+  completionKeymap: false,
+  lintKeymap: false,
 };
 
 const CODE_MIRROR_STYLE: CSSProperties = {
@@ -122,13 +140,18 @@ export function CodeEditor({ value, onChange, readOnly = false, path }: CodeEdit
   const { currentFile } = useFileStore();
   const { resolvedTheme } = useTheme();
   const languagePath = path || currentFile?.path;
+  const performanceProfile = useMemo(() => getTextEditorPerformanceProfile(value), [value]);
 
-  const extensions = useMemo(
-    () => languagePath
-      ? [getLanguageExtension(languagePath), EditorView.lineWrapping]
-      : [EditorView.lineWrapping],
-    [languagePath]
-  );
+  const extensions = useMemo(() => {
+    const nextExtensions: CodeMirrorExtension[] = [];
+    if (languagePath && !performanceProfile.disableLanguageExtension) {
+      nextExtensions.push(getLanguageExtension(languagePath));
+    }
+    if (!performanceProfile.disableLineWrapping) {
+      nextExtensions.push(EditorView.lineWrapping);
+    }
+    return nextExtensions;
+  }, [languagePath, performanceProfile.disableLanguageExtension, performanceProfile.disableLineWrapping]);
 
   useEffect(() => {
     if (readOnly) return;
@@ -154,7 +177,7 @@ export function CodeEditor({ value, onChange, readOnly = false, path }: CodeEdit
         extensions={extensions}
         onChange={onChange}
         editable={!readOnly}
-        basicSetup={CODE_MIRROR_BASIC_SETUP}
+        basicSetup={performanceProfile.disableLanguageExtension ? LIGHTWEIGHT_CODE_MIRROR_BASIC_SETUP : CODE_MIRROR_BASIC_SETUP}
         style={CODE_MIRROR_STYLE}
         className="codemirror-wrapper"
       />

@@ -87,6 +87,7 @@ import {
   isEditorRangeInsideDoc,
   isEditorPositionInsideDoc,
 } from '@/app/lib/editor/prosemirror-ranges';
+import { getMarkdownSourceModeReason } from '@/app/lib/editor/text-editor-guards';
 import {
   createCurrentBlockCommandTarget,
   createInsertedBlockCommandTarget,
@@ -1611,12 +1612,14 @@ function createEditorExtensions(filePath: string | undefined, labels: SlashComma
 }
 
 function MarkdownSourceToolbar({
+  richModeAvailable,
   mobileVisible,
   onMobilePointerCancel,
   onMobilePointerDown,
   onMobilePointerUp,
   onRichMode,
 }: {
+  richModeAvailable: boolean;
   mobileVisible: boolean;
   onMobilePointerCancel: () => void;
   onMobilePointerDown: () => void;
@@ -1641,7 +1644,7 @@ function MarkdownSourceToolbar({
       onPointerUpCapture={onMobilePointerUp}
       onPointerCancelCapture={onMobilePointerCancel}
     >
-      <MobileToolbarButton label={t('markdownEditorEditVisually')} onClick={onRichMode}>
+      <MobileToolbarButton label={t('markdownEditorEditVisually')} disabled={!richModeAvailable} onClick={onRichMode}>
         <Eye className="h-5 w-5" />
       </MobileToolbarButton>
       <MobileToolbarButton label={t('markdownEditorMobileHideKeyboard')} onClick={hideKeyboard}>
@@ -1654,7 +1657,7 @@ function MarkdownSourceToolbar({
     <>
       <TooltipProvider>
         <div className="tiptap-desktop-editor-toolbar hidden h-9 shrink-0 items-center justify-end gap-1 border-b border-border bg-background px-2 md:flex">
-          <TooltipIconButton label={t('markdownEditorEditVisually')} onClick={onRichMode}>
+          <TooltipIconButton label={t('markdownEditorEditVisually')} disabled={!richModeAvailable} onClick={onRichMode}>
             <Eye />
           </TooltipIconButton>
         </div>
@@ -3523,13 +3526,19 @@ function RichMarkdownEditor({
 
 function SourceMarkdownEditor({
   initiallyShowMobileToolbar = false,
+  richModeAvailable,
   value,
   onChange,
   readOnly,
   filePath,
   isMobileKeyboardActive,
   onRichMode,
-}: MarkdownEditorProps & { initiallyShowMobileToolbar?: boolean; isMobileKeyboardActive: boolean; onRichMode: () => void }) {
+}: MarkdownEditorProps & {
+  initiallyShowMobileToolbar?: boolean;
+  richModeAvailable: boolean;
+  isMobileKeyboardActive: boolean;
+  onRichMode: () => void;
+}) {
   const containerRef = useRef<HTMLDivElement>(null);
   const releaseInteractionTimeoutRef = useRef<number | null>(null);
   const [isSourceFocused, setIsSourceFocused] = useState(initiallyShowMobileToolbar);
@@ -3579,6 +3588,7 @@ function SourceMarkdownEditor({
     >
       {!readOnly ? (
         <MarkdownSourceToolbar
+          richModeAvailable={richModeAvailable}
           mobileVisible={mobileToolbarVisible}
           onMobilePointerCancel={releaseToolbarVisibility}
           onMobilePointerDown={holdToolbarVisibility}
@@ -3610,9 +3620,13 @@ export function MarkdownEditor({
   useVisualViewportBottomOffset();
 
   const isMobileKeyboardActive = useMobileKeyboardActive();
-  const defaultMode = shouldDefaultToSource(value, readOnly, filePath) ? 'source' : 'rich';
-  const [mode, setMode] = useState<EditorMode>(defaultMode);
+  const sourceModeReason = useMemo(() => getMarkdownSourceModeReason(value), [value]);
+  const sourceModeRequired = sourceModeReason !== null;
+  const [mode, setMode] = useState<EditorMode>(() => (
+    sourceModeRequired || shouldDefaultToSource(value, readOnly, filePath) ? 'source' : 'rich'
+  ));
   const [sourceModeRequested, setSourceModeRequested] = useState(false);
+  const effectiveMode: EditorMode = sourceModeRequired ? 'source' : mode;
 
   const switchToSourceMode = useCallback(() => {
     setSourceModeRequested(true);
@@ -3620,14 +3634,16 @@ export function MarkdownEditor({
   }, []);
 
   const switchToRichMode = useCallback(() => {
+    if (sourceModeRequired) return;
     setSourceModeRequested(false);
     setMode('rich');
-  }, []);
+  }, [sourceModeRequired]);
 
-  if (mode === 'source') {
+  if (effectiveMode === 'source') {
     return (
       <SourceMarkdownEditor
         initiallyShowMobileToolbar={sourceModeRequested}
+        richModeAvailable={!sourceModeRequired}
         value={value}
         onChange={onChange}
         readOnly={readOnly}

@@ -16,6 +16,7 @@ import {
   syncPublicSharesAfterMove,
   syncPublicSharesAfterWrite,
 } from '@/app/lib/public-sharing/public-file-shares';
+import { getRunawaySlashContentMessage } from '@/app/lib/editor/text-editor-guards';
 import { getAgentExecutionContext, type AgentExecutionContext } from '@/app/lib/pi/agent-execution-context';
 import { ensureAgentRuntimeTempDir, resolveAgentRuntimeTempDir } from '@/app/lib/pi/agent-runtime-temp';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
@@ -818,11 +819,23 @@ function validateMarkdownTables(content: string): AgentFileValidationCheck {
   };
 }
 
+function validateRunawaySlashContent(content: string): AgentFileValidationCheck {
+  const message = getRunawaySlashContentMessage(content);
+  return {
+    name: 'runaway-slashes',
+    ok: message === null,
+    message: message === null
+      ? 'No runaway slash/backslash sequences detected.'
+      : `${message}. This usually indicates a stuck key, model output loop, or accidental repeated slash insertion.`,
+  };
+}
+
 export function validateAgentFileContent(filePath: string, content: string): AgentFileValidationResult {
   const extension = path.extname(filePath).toLowerCase();
   const checks: AgentFileValidationCheck[] = [];
 
   if (['.md', '.mdx', '.markdown'].includes(extension)) {
+    checks.push(validateRunawaySlashContent(content));
     checks.push(validateMarkdownTables(content));
   }
 
