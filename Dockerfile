@@ -12,7 +12,7 @@ RUN apt-get update \
 RUN npm install -g npm@${NPM_VERSION}
 
 COPY package.json package-lock.json .npmrc* ./
-RUN npm ci --legacy-peer-deps 2>&1 | tail -20 || npm ci
+RUN npm ci --legacy-peer-deps --loglevel=warn
 
 FROM node:24-bookworm-slim AS builder
 WORKDIR /app
