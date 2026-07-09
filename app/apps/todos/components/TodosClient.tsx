@@ -1517,11 +1517,11 @@ export function TodosClient({ title }: { title: string }) {
                     maxLength={5000}
                   />
                 </div>
-                <div className="grid gap-4 sm:grid-cols-3">
-                  <label className="space-y-2 text-sm">
+                <div className="grid min-w-0 gap-4 sm:grid-cols-3">
+                  <label className="min-w-0 space-y-2 text-sm">
                     <span className="font-medium">{t('fields.category')}</span>
                     <select
-                      className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+                      className="h-9 w-full min-w-0 max-w-full rounded-md border border-input bg-background px-3 text-sm"
                       value={form.categoryId}
                       onChange={(event) => setForm((current) => ({ ...current, categoryId: event.target.value }))}
                     >
@@ -1531,10 +1531,10 @@ export function TodosClient({ title }: { title: string }) {
                       ))}
                     </select>
                   </label>
-                  <label className="space-y-2 text-sm">
+                  <label className="min-w-0 space-y-2 text-sm">
                     <span className="font-medium">{t('fields.priority')}</span>
                     <select
-                      className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+                      className="h-9 w-full min-w-0 max-w-full rounded-md border border-input bg-background px-3 text-sm"
                       value={form.priority}
                       onChange={(event) => setForm((current) => ({ ...current, priority: event.target.value as TodoPriority }))}
                     >
@@ -1543,21 +1543,22 @@ export function TodosClient({ title }: { title: string }) {
                       ))}
                     </select>
                   </label>
-                  <div className="space-y-2">
+                  <div className="min-w-0 space-y-2">
                     <Label htmlFor="todo-due-at">{t('fields.dueAt')}</Label>
                     <Input
                       id="todo-due-at"
                       type="date"
                       value={form.dueAt}
                       onChange={(event) => setForm((current) => ({ ...current, dueAt: event.target.value }))}
+                      className="block max-w-full [min-inline-size:0] [&::-webkit-date-and-time-value]:min-w-0 [&::-webkit-date-and-time-value]:text-left"
                     />
                   </div>
                 </div>
-                <label className="space-y-2 text-sm">
+                <label className="min-w-0 space-y-2 text-sm">
                   <span className="font-medium">{t('fields.assignee')}</span>
                   <select
                     id="todo-assignee"
-                    className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+                    className="h-9 w-full min-w-0 max-w-full rounded-md border border-input bg-background px-3 text-sm"
                     value={form.assigneeUserId}
                     onChange={(event) => setForm((current) => ({ ...current, assigneeUserId: event.target.value }))}
                   >
