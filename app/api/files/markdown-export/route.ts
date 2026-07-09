@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getCachedMarkdownHtmlDocument } from '@/app/lib/pdf/markdown-export-cache';
+import { getBrowserExportErrorResponse } from '@/app/lib/exports/browser-export-service';
 import path from 'path';
 import { requireRequestWorkspace, workspaceFileOptions } from '@/app/lib/workspaces/request';
 
@@ -41,6 +42,11 @@ export async function GET(request: NextRequest) {
 
     if (error && typeof error === 'object' && 'code' in error && (error as NodeJS.ErrnoException).code === 'ENOENT') {
       return NextResponse.json({ success: false, error: 'File not found' }, { status: 404 });
+    }
+
+    const browserExportError = getBrowserExportErrorResponse(error);
+    if (browserExportError) {
+      return NextResponse.json(browserExportError.body, { status: browserExportError.status });
     }
 
     if (error && typeof error === 'object' && 'statusCode' in error && (error as { statusCode: number }).statusCode === 413) {

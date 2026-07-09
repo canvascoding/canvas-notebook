@@ -11,8 +11,6 @@ import { generatePdfFromHtml } from '@/app/lib/pdf/browser';
 import { getCachedMarkdownHtmlDocument } from '@/app/lib/pdf/markdown-export-cache';
 import type { WorkspaceFileOperationOptions } from '@/app/lib/filesystem/workspace-files';
 
-const PDF_TIMEOUT_MS = 30_000;
-
 export function assertMarkdownPdfExportPath(filePath: string): void {
   if (!isMarkdownEmailAttachmentName(filePath)) {
     throw new Error('File must be a markdown file (.md, .mdx, .markdown)');
@@ -31,10 +29,5 @@ export async function renderMarkdownWorkspaceFileToPdf(
   await assertBrowserExportAvailable();
 
   const html = await getCachedMarkdownHtmlDocument(filePath, fileOptions);
-  return Promise.race([
-    generatePdfFromHtml(html),
-    new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error('PDF_TIMEOUT')), PDF_TIMEOUT_MS)
-    ),
-  ]);
+  return generatePdfFromHtml(html);
 }

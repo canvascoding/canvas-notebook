@@ -3,6 +3,7 @@ import { assertMarkdownPdfExportPath, getMarkdownPdfAttachmentName, renderMarkdo
 import { isBrowserExportUnavailableError } from '@/app/lib/pi/browser/settings-service';
 import { getPdfRendererClosedMessage, isPdfRendererClosedError } from '@/app/lib/pdf/browser';
 import { requireRequestWorkspace, workspaceFileOptions } from '@/app/lib/workspaces/request';
+import { getBrowserExportErrorResponse } from '@/app/lib/exports/browser-export-service';
 
 export async function POST(request: NextRequest) {
   const workspaceResult = await requireRequestWorkspace(request, { permissions: 'canRead' });
@@ -48,6 +49,11 @@ export async function POST(request: NextRequest) {
         { success: false, error: 'PDF generation timed out. Try again.' },
         { status: 504 }
       );
+    }
+
+    const browserExportError = getBrowserExportErrorResponse(error);
+    if (browserExportError) {
+      return NextResponse.json(browserExportError.body, { status: browserExportError.status });
     }
 
     if (isBrowserExportUnavailableError(error)) {

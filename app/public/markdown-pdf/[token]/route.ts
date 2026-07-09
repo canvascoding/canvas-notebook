@@ -9,8 +9,7 @@ import {
   getMarkdownPdfDownloadName,
   getPublicMarkdownExport,
 } from '@/app/lib/public-sharing/public-markdown-export';
-
-const PDF_TIMEOUT_MS = 30_000;
+import { getBrowserExportErrorResponse } from '@/app/lib/exports/browser-export-service';
 
 export async function POST(
   _request: NextRequest,
@@ -25,12 +24,7 @@ export async function POST(
 
     await assertBrowserExportAvailable();
 
-    const pdfBuffer = await Promise.race([
-      generatePdfFromHtml(result.html),
-      new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error('PDF_TIMEOUT')), PDF_TIMEOUT_MS)
-      ),
-    ]);
+    const pdfBuffer = await generatePdfFromHtml(result.html);
 
     return new NextResponse(new Uint8Array(pdfBuffer), {
       status: 200,
@@ -50,6 +44,11 @@ export async function POST(
         { success: false, error: 'PDF generation timed out. Try again.' },
         { status: 504 }
       );
+    }
+
+    const browserExportError = getBrowserExportErrorResponse(error);
+    if (browserExportError) {
+      return NextResponse.json(browserExportError.body, { status: browserExportError.status });
     }
 
     if (isBrowserExportUnavailableError(error)) {

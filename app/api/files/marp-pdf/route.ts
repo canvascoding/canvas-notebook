@@ -10,6 +10,7 @@ import {
   isBrowserExportUnavailableError,
 } from '@/app/lib/pi/browser/settings-service';
 import { findChromiumExecutable } from '@/app/lib/pdf/browser';
+import { getBrowserExportErrorResponse } from '@/app/lib/exports/browser-export-service';
 import { requireRequestWorkspace, workspaceFileOptions } from '@/app/lib/workspaces/request';
 
 const READ_SIZE_LIMIT = 5 * 1024 * 1024;
@@ -82,6 +83,11 @@ export async function POST(request: NextRequest) {
 
     if (error instanceof Error && error.message === 'MARP_EXPORT_TIMEOUT') {
       return NextResponse.json({ success: false, error: 'Marp PDF export timed out. Try again.' }, { status: 504 });
+    }
+
+    const browserExportError = getBrowserExportErrorResponse(error);
+    if (browserExportError) {
+      return NextResponse.json(browserExportError.body, { status: browserExportError.status });
     }
 
     if (isBrowserExportUnavailableError(error)) {

@@ -8,6 +8,12 @@ import {
   resolveChromiumExecutable,
 } from '@/app/lib/pi/browser/chromium';
 import { prepareBrowserProfileForLaunch } from '@/app/lib/pi/browser/runtime';
+import {
+  DEFAULT_BROWSER_EXPORT_TIMEOUT_MS,
+  runBrowserExportJob,
+  type BrowserExportError,
+  type BrowserExportJobContext,
+} from '@/app/lib/exports/browser-export-service';
 
 let browser: Browser | null = null;
 let launchPromise: Promise<Browser> | null = null;
@@ -15,6 +21,8 @@ let launchPromise: Promise<Browser> | null = null;
 const EMOJI_FONT_FALLBACK = '"Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji"';
 const PDF_EXPORT_PROFILE_ID = 'pdf-export';
 const PDF_RENDERER_CLOSED_MESSAGE = 'PDF renderer closed unexpectedly. Please try again.';
+const PDF_CHROMIUM_RENDERER_PROCESS_LIMIT = '--renderer-process-limit=1';
+const PDF_CHROMIUM_JS_HEAP_LIMIT = '--js-flags=--max-old-space-size=128';
 
 export function findChromiumExecutable(): string {
   return resolveChromiumExecutable().executablePath;
@@ -52,7 +60,13 @@ async function launchPdfBrowser(): Promise<Browser> {
   const launchedBrowser = await puppeteer.launch({
     executablePath: launchSpec.executablePath,
     headless: launchSpec.headless,
-    args: launchSpec.args,
+    args: [
+      ...launchSpec.args,
+      PDF_CHROMIUM_RENDERER_PROCESS_LIMIT,
+      PDF_CHROMIUM_JS_HEAP_LIMIT,
+      '--disable-component-update',
+      '--disable-extensions',
+    ],
     pipe: launchSpec.pipe,
     defaultViewport: { width: 1280, height: 900 },
   });
@@ -78,34 +92,62 @@ export function getPdfRendererClosedMessage(): string {
 async function discardPdfBrowserAfterError(error: unknown): Promise<void> {
   if (!isPdfRendererClosedError(error)) return;
 
+  await disposePdfBrowser('renderer closed');
+}
+
+export async function disposePdfBrowser(reason: string): Promise<void> {
   const currentBrowser = browser;
   browser = null;
   launchPromise = null;
+  const browserProcess = currentBrowser?.process();
 
   if (currentBrowser?.connected) {
-    await currentBrowser.close().catch(() => undefined);
+    await Promise.race([
+      currentBrowser.close(),
+      new Promise((resolve) => setTimeout(resolve, 1500)),
+    ]).catch(() => undefined);
   }
+
+  if (browserProcess && browserProcess.exitCode === null && !browserProcess.killed) {
+    console.warn(`[PDF Browser] Killing Chromium after ${reason}`);
+    browserProcess.kill('SIGKILL');
+  }
+}
+
+async function closePageForTimedOutJob(page: Page | null, error: BrowserExportError, context: BrowserExportJobContext) {
+  await page?.close().catch(() => undefined);
+  await disposePdfBrowser(`${context.label} timed out (${error.code})`);
 }
 
 export async function generatePdfFromHtml(html: string): Promise<Buffer> {
   let page: Page | null = null;
-  try {
-    const b = await getBrowser();
-    page = await b.newPage();
-    await page.setContent(html, { waitUntil: 'domcontentloaded', timeout: 15000 });
-    await waitForPdfAssets(page);
-    const pdf = await page.pdf({
-      format: 'A4',
-      printBackground: true,
-      margin: { top: '25mm', right: '20mm', bottom: '25mm', left: '20mm' },
-    });
-    return Buffer.from(pdf);
-  } catch (error) {
-    await discardPdfBrowserAfterError(error);
-    throw error;
-  } finally {
-    await page?.close().catch(() => undefined);
-  }
+  return runBrowserExportJob({
+    label: 'pdf-html',
+    timeoutMs: DEFAULT_BROWSER_EXPORT_TIMEOUT_MS,
+    timeoutErrorMessage: 'PDF_TIMEOUT',
+    onTimeout: (error, context) => closePageForTimedOutJob(page, error, context),
+    run: async () => {
+      try {
+        const b = await getBrowser();
+        page = await b.newPage();
+        page.setDefaultTimeout(15_000);
+        page.setDefaultNavigationTimeout(20_000);
+        await page.setContent(html, { waitUntil: 'domcontentloaded', timeout: 15_000 });
+        await waitForPdfAssets(page);
+        const pdf = await page.pdf({
+          format: 'A4',
+          printBackground: true,
+          margin: { top: '25mm', right: '20mm', bottom: '25mm', left: '20mm' },
+        });
+        return Buffer.from(pdf);
+      } catch (error) {
+        await discardPdfBrowserAfterError(error);
+        throw error;
+      } finally {
+        await page?.close().catch(() => undefined);
+      }
+    },
+  });
 }
 
 async function waitForPdfAssets(page: Page) {
@@ -167,25 +209,35 @@ async function applyEmojiFontFallback(page: Page) {
 
 export async function generatePdfFromUrl(url: string, headers?: Record<string, string>): Promise<Buffer> {
   let page: Page | null = null;
-  try {
-    const b = await getBrowser();
-    page = await b.newPage();
-    if (headers && Object.keys(headers).length > 0) {
-      await page.setExtraHTTPHeaders(headers);
-    }
+  return runBrowserExportJob({
+    label: 'pdf-url',
+    timeoutMs: DEFAULT_BROWSER_EXPORT_TIMEOUT_MS,
+    timeoutErrorMessage: 'PDF_TIMEOUT',
+    onTimeout: (error, context) => closePageForTimedOutJob(page, error, context),
+    run: async () => {
+      try {
+        const b = await getBrowser();
+        page = await b.newPage();
+        page.setDefaultTimeout(15_000);
+        page.setDefaultNavigationTimeout(20_000);
+        if (headers && Object.keys(headers).length > 0) {
+          await page.setExtraHTTPHeaders(headers);
+        }
 
-    await page.goto(url, { waitUntil: 'networkidle0', timeout: 20000 });
-    await applyEmojiFontFallback(page);
-    const pdf = await page.pdf({
-      format: 'A4',
-      printBackground: true,
-      margin: { top: '25mm', right: '20mm', bottom: '25mm', left: '20mm' },
-    });
-    return Buffer.from(pdf);
-  } catch (error) {
-    await discardPdfBrowserAfterError(error);
-    throw error;
-  } finally {
-    await page?.close().catch(() => undefined);
-  }
+        await page.goto(url, { waitUntil: 'networkidle0', timeout: 20_000 });
+        await applyEmojiFontFallback(page);
+        const pdf = await page.pdf({
+          format: 'A4',
+          printBackground: true,
+          margin: { top: '25mm', right: '20mm', bottom: '25mm', left: '20mm' },
+        });
+        return Buffer.from(pdf);
+      } catch (error) {
+        await discardPdfBrowserAfterError(error);
+        throw error;
+      } finally {
+        await page?.close().catch(() => undefined);
+      }
+    },
+  });
 }

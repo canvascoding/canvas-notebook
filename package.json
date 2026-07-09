@@ -67,6 +67,7 @@
     "test:skills:store": "tsx --conditions react-server scripts/canvas-skill-store-test.ts",
     "test:skills:agent-workspace": "tsx --conditions react-server scripts/agent-skill-workspace-test.ts",
     "test:plugins:runtime": "tsx --conditions react-server scripts/canvas-plugin-runtime-test.ts",
+    "test:browser-export": "tsx scripts/browser-export-service-test.ts",
     "test:browser-start": "tsx scripts/browser-runtime-test.ts",
     "test:browser-url-policy": "tsx scripts/browser-url-policy-test.ts",
     "test:file-watcher": "tsx scripts/file-watcher-client-test.ts && tsx scripts/file-browser-refresh-test.ts",

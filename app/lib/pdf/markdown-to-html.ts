@@ -1,9 +1,11 @@
 import { readFile, type WorkspaceFileOperationOptions } from '@/app/lib/filesystem/workspace-files';
+import { isBrowserExportError, runBrowserExportJob } from '@/app/lib/exports/browser-export-service';
 import { createInlineColorRegex, isColorCode } from '@/app/lib/markdown/color-code';
 import { formatWideTablesForPagedExport } from '@/app/lib/pdf/markdown-wide-tables';
 import { marked } from 'marked';
 import path from 'path';
 import fs from 'fs/promises';
+import type { Page } from 'puppeteer-core';
 
 const READ_SIZE_LIMIT = 5 * 1024 * 1024; // 5MB
 const MAX_IMAGE_SIZE = 2 * 1024 * 1024; // 2MB
@@ -31,52 +33,72 @@ function escapeForJsTemplate(code: string): string {
 }
 
 async function renderMermaidToSvg(code: string): Promise<string | null> {
-  const { getBrowser } = await import('./browser');
-  const browser = await getBrowser();
-  const page = await browser.newPage();
+  const pageRef: { current: Page | null } = { current: null };
 
   try {
-    const mermaidPath = path.resolve(process.cwd(), 'node_modules/mermaid/dist/mermaid.min.js');
-    const mermaidJs = await fs.readFile(mermaidPath, 'utf-8');
+    return await runBrowserExportJob({
+      label: 'markdown-mermaid',
+      timeoutMs: 15_000,
+      timeoutErrorMessage: 'Browser export timed out. Try again.',
+      onTimeout: async () => {
+        await pageRef.current?.close().catch(() => undefined);
+        const { disposePdfBrowser } = await import('./browser');
+        await disposePdfBrowser('markdown mermaid render timed out');
+      },
+      run: async () => {
+        const { getBrowser } = await import('./browser');
+        const browser = await getBrowser();
+        pageRef.current = await browser.newPage();
+        const page = pageRef.current;
+        page.setDefaultTimeout(10_000);
+        page.setDefaultNavigationTimeout(10_000);
 
-    const escapedCode = escapeForJsTemplate(code);
+        const mermaidPath = path.resolve(process.cwd(), 'node_modules/mermaid/dist/mermaid.min.js');
+        const mermaidJs = await fs.readFile(mermaidPath, 'utf-8');
 
-    await page.setContent(`
-      <!DOCTYPE html>
-      <html>
-        <head>
-          <meta charset="UTF-8">
-        </head>
-        <body>
-          <div id="diagram"></div>
-          <script>
-            ${mermaidJs}
-            mermaid.initialize({ 
-              startOnLoad: false, 
-              theme: 'default',
-              securityLevel: 'loose'
-            });
-            mermaid.render('mermaid-svg', \`${escapedCode}\`)
-              .then(({ svg }) => {
-                document.getElementById('diagram').innerHTML = svg;
-              })
-              .catch((err) => {
-                console.error('Mermaid render error:', err);
-                document.getElementById('diagram').innerHTML = '<div class="mermaid-error">Error rendering diagram</div>';
-              });
-          </script>
-        </body>
-      </html>
-    `);
+        const escapedCode = escapeForJsTemplate(code);
 
-    await page.waitForSelector('#diagram svg', { timeout: 10000 });
-    const svg = await page.$eval('#diagram svg', el => el.outerHTML);
-    return svg;
+        await page.setContent(`
+          <!DOCTYPE html>
+          <html>
+            <head>
+              <meta charset="UTF-8">
+            </head>
+            <body>
+              <div id="diagram"></div>
+              <script>
+                ${mermaidJs}
+                mermaid.initialize({
+                  startOnLoad: false,
+                  theme: 'default',
+                  securityLevel: 'loose'
+                });
+                mermaid.render('mermaid-svg', \`${escapedCode}\`)
+                  .then(({ svg }) => {
+                    document.getElementById('diagram').innerHTML = svg;
+                  })
+                  .catch((err) => {
+                    console.error('Mermaid render error:', err);
+                    document.getElementById('diagram').innerHTML = '<div class="mermaid-error">Error rendering diagram</div>';
+                  });
+              </script>
+            </body>
+          </html>
+        `);
+
+        await page.waitForSelector('#diagram svg', { timeout: 10_000 });
+        return page.$eval('#diagram svg', el => el.outerHTML);
+      },
+    });
   } catch (err) {
+    if (isBrowserExportError(err)) {
+      throw err;
+    }
+
     console.error('[Mermaid Render] Failed to render diagram:', err instanceof Error ? err.message : String(err));
     return null;
   } finally {
-    await page.close();
+    await pageRef.current?.close().catch(() => undefined);
   }
 }
 

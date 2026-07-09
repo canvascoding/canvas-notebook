@@ -12,6 +12,7 @@ import { findChromiumExecutable } from '@/app/lib/pdf/browser';
 import { isMarpMarkdown } from '@/app/lib/marp/detect';
 import { getMarpExportBaseName, runMarpCli, writeMarpCliInput } from '@/app/lib/marp/cli';
 import { requireRequestWorkspace, workspaceFileOptions } from '@/app/lib/workspaces/request';
+import { getBrowserExportErrorResponse } from '@/app/lib/exports/browser-export-service';
 
 const READ_SIZE_LIMIT = 5 * 1024 * 1024;
 
@@ -113,6 +114,11 @@ export async function POST(request: NextRequest) {
 
     if (error instanceof Error && error.message === 'MARP_EXPORT_TIMEOUT') {
       return NextResponse.json({ success: false, error: 'Marp image export timed out. Try again.' }, { status: 504 });
+    }
+
+    const browserExportError = getBrowserExportErrorResponse(error);
+    if (browserExportError) {
+      return NextResponse.json(browserExportError.body, { status: browserExportError.status });
     }
 
     if (isBrowserExportUnavailableError(error)) {

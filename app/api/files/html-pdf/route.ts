@@ -5,11 +5,10 @@ import {
   isBrowserExportUnavailableError,
 } from '@/app/lib/pi/browser/settings-service';
 import { generatePdfFromUrl, getPdfRendererClosedMessage, isPdfRendererClosedError } from '@/app/lib/pdf/browser';
+import { getBrowserExportErrorResponse } from '@/app/lib/exports/browser-export-service';
 import { toHtmlPreviewUrl } from '@/app/lib/utils/media-url';
 import path from 'path';
 import { requireRequestWorkspace, workspaceFileOptions } from '@/app/lib/workspaces/request';
-
-const PDF_TIMEOUT_MS = 30_000;
 
 function getInternalRenderOrigin(requestUrl: string) {
   const url = new URL(requestUrl);
@@ -53,15 +52,10 @@ export async function POST(request: NextRequest) {
     const cookie = request.headers.get('cookie');
     const headers = cookie ? { cookie } : undefined;
 
-    const pdfBuffer = await Promise.race([
-      generatePdfFromUrl(
-        `${origin}${toHtmlPreviewUrl(filePath, { workspaceId: workspaceResult.workspace.workspaceId })}`,
-        headers,
-      ),
-      new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error('PDF_TIMEOUT')), PDF_TIMEOUT_MS)
-      ),
-    ]);
+    const pdfBuffer = await generatePdfFromUrl(
+      `${origin}${toHtmlPreviewUrl(filePath, { workspaceId: workspaceResult.workspace.workspaceId })}`,
+      headers,
+    );
 
     return new NextResponse(new Uint8Array(pdfBuffer), {
       status: 200,
@@ -80,6 +74,11 @@ export async function POST(request: NextRequest) {
         { success: false, error: 'PDF generation timed out. Try again.' },
         { status: 504 }
       );
+    }
+
+    const browserExportError = getBrowserExportErrorResponse(error);
+    if (browserExportError) {
+      return NextResponse.json(browserExportError.body, { status: browserExportError.status });
     }
 
     if (isBrowserExportUnavailableError(error)) {
