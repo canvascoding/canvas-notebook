@@ -313,10 +313,10 @@ export function ShareMarkdownDialog({
               variant="outline"
               onClick={() => onOpenChange(false)}
               size="sm"
-              className="w-full sm:w-auto"
+              className="w-full min-w-0 overflow-hidden sm:w-auto"
             >
-              <X className="h-4 w-4 mr-1 md:mr-2" />
-              <span>{t('close')}</span>
+              <X className="h-4 w-4 shrink-0" aria-hidden="true" />
+              <span className="min-w-0 truncate">{t('close')}</span>
             </Button>
 
             {showPdfDownload ? (
@@ -324,14 +324,19 @@ export function ShareMarkdownDialog({
                 onClick={handleDownloadPDF}
                 disabled={loading || browserStatusLoading || pdfLoading || !!error || !hasPreview}
                 size="sm"
-                className="w-full sm:w-auto"
+                aria-busy={pdfLoading}
+                className="w-full min-w-0 overflow-hidden sm:w-auto sm:min-w-[10rem]"
               >
-                {pdfLoading ? (
-                  <Loader2 className="h-4 w-4 mr-1 md:mr-2 animate-spin" />
-                ) : (
-                  <Download className="h-4 w-4 mr-1 md:mr-2" />
-                )}
-                <span>{pdfLoading ? t('generatingPdf') : t('downloadPdf')}</span>
+                <span className="inline-flex min-w-0 max-w-full items-center justify-center gap-1.5">
+                  {pdfLoading ? (
+                    <Loader2 className="h-4 w-4 shrink-0 animate-spin" aria-hidden="true" />
+                  ) : (
+                    <Download className="h-4 w-4 shrink-0" aria-hidden="true" />
+                  )}
+                  <span className="min-w-0 truncate">
+                    {pdfLoading ? t('generatingPdf') : t('downloadPdf')}
+                  </span>
+                </span>
               </Button>
             ) : (
               <p className="max-w-xs text-xs text-muted-foreground">{t('browserExportDisabled')}</p>
