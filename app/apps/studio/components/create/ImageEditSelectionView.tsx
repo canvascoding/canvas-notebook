@@ -245,7 +245,7 @@ export function ImageEditSelectionView({
             value={prompt}
             onChange={(event) => setPrompt(event.target.value)}
             placeholder="Describe edits"
-            className="min-h-10 flex-1 resize-none bg-transparent px-2 py-2 text-sm outline-none"
+            className="studio-touch-input min-h-10 flex-1 resize-none bg-transparent px-2 py-2 text-sm outline-none"
             rows={1}
             disabled={isSaving}
             data-testid="studio-edit-prompt"
