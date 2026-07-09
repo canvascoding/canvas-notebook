@@ -4,6 +4,8 @@ import path from 'path';
 import { promises as fs } from 'fs';
 import { type AgentId } from './catalog';
 import { DEFAULT_PI_CONFIG, normalizePiRuntimeConfig, type PiRuntimeConfig, validatePiConfig } from '../pi/config';
+import { DISABLED_ALL_TOOLS_SENTINEL, isLegacyEnabledToolsValue } from '../pi/enabled-tools';
+import { SKILL_TOOL_NAMES } from '../pi/toolsets';
 import { CANVAS_CONTROL_PLANE_PROVIDER_ID, getCanvasControlPlaneModels } from '../managed/control-plane-models';
 import { getManagedControlPlaneBaseUrl } from '../managed/control-plane-url';
 import { resolveAgentStorageDir, resolveAgentsStorageRoot, resolveUserAgentsDir } from '../runtime-data-paths';
@@ -89,8 +91,41 @@ function deepClone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
 
+function withSkillToolDefaultsMigration(config: PiRuntimeConfig): PiRuntimeConfig {
+  if (config.runtimeMigrations?.skillToolsDefaultEnabled) {
+    return config;
+  }
+
+  const next = deepClone(config);
+  for (const providerConfig of Object.values(next.providers)) {
+    const enabledTools = Array.isArray(providerConfig.enabledTools) ? providerConfig.enabledTools : [];
+    if (
+      enabledTools.length === 0 ||
+      enabledTools.includes(DISABLED_ALL_TOOLS_SENTINEL) ||
+      isLegacyEnabledToolsValue(enabledTools)
+    ) {
+      continue;
+    }
+
+    const enabledSet = new Set(enabledTools);
+    for (const toolName of SKILL_TOOL_NAMES) {
+      if (!enabledSet.has(toolName)) {
+        enabledTools.push(toolName);
+        enabledSet.add(toolName);
+      }
+    }
+    providerConfig.enabledTools = enabledTools;
+  }
+
+  next.runtimeMigrations = {
+    ...next.runtimeMigrations,
+    skillToolsDefaultEnabled: true,
+  };
+  return next;
+}
+
 function withRuntimeProviderDefaults(config: PiRuntimeConfig): PiRuntimeConfig {
-  const next = normalizePiRuntimeConfig(deepClone(config));
+  const next = withSkillToolDefaultsMigration(normalizePiRuntimeConfig(deepClone(config)));
   if (isManagedControlPlaneAvailable() && !next.providers[CANVAS_CONTROL_PLANE_PROVIDER_ID]) {
     next.providers[CANVAS_CONTROL_PLANE_PROVIDER_ID] = {
       id: CANVAS_CONTROL_PLANE_PROVIDER_ID,

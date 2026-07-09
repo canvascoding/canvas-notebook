@@ -700,9 +700,20 @@ async function main() {
   assert.equal(studioCalls[0].video_web_search, true);
   assert.equal(studioCalls[0].video_nsfw_checker, true);
 
-  // Verify skill tools are no longer registered in the tool registry
+  // Verify default-enabled tools in the tool registry
   const allTools = buildPiToolRegistry();
   const defaultEnabledTools = getDefaultEnabledToolNames(allTools.map((tool) => tool.name));
+  const skillToolNames = [
+    'create_canvas_skill_draft',
+    'discard_canvas_skill_draft',
+    'inspect_canvas_skill',
+    'install_canvas_skill_from_workspace',
+    'update_canvas_skill_from_workspace',
+  ];
+  for (const toolName of skillToolNames) {
+    assert.equal(allTools.some((tool) => tool.name === toolName), true);
+    assert.equal(defaultEnabledTools.has(toolName), true);
+  }
   assert.equal(defaultEnabledTools.has('mcp'), true);
   assert.equal(defaultEnabledTools.has('memory'), true);
   assert.equal(allTools.some((tool) => tool.name === 'memory'), true);
@@ -885,6 +896,12 @@ async function main() {
   assert.deepEqual(webSearchMetadata.toolsets, ['web']);
   assert.equal(webSearchMetadata.defaultEnabled, true);
   assert.equal(webSearchMetadata.planningModeAllowed, true);
+  const skillMetadata = metadata.find((tool) => tool.name === 'inspect_canvas_skill');
+  assert.ok(skillMetadata);
+  assert.equal(skillMetadata.group, 'Skills');
+  assert.deepEqual(skillMetadata.toolsets, ['skills']);
+  assert.equal(skillMetadata.defaultEnabled, true);
+  assert.equal(skillMetadata.planningModeAllowed, false);
   for (const toolName of ['copy_path', 'move_path', 'delete_path']) {
     const pathMetadata = metadata.find((tool) => tool.name === toolName);
     assert.ok(pathMetadata);

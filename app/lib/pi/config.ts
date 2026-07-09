@@ -30,6 +30,9 @@ export interface PiRuntimeConfig {
   activeProvider: string;
   providers: Record<string, PiProviderConfig>;
   enabledSkills: string[]; // List of enabled skill names (empty = all enabled)
+  runtimeMigrations?: {
+    skillToolsDefaultEnabled?: boolean;
+  };
   qmd?: {
     allowExpensiveQueryMode?: boolean;
   };

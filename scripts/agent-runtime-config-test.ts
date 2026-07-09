@@ -70,6 +70,7 @@ async function main() {
   };
 
   const { DEFAULT_PI_CONFIG } = await import('../app/lib/pi/config');
+  const { SKILL_TOOL_NAMES } = await import('../app/lib/pi/toolsets');
   const {
     DEFAULT_MANAGED_AGENT_ID,
     PI_RUNTIME_CONFIG_PATH,
@@ -130,6 +131,10 @@ async function main() {
   await writePiRuntimeConfig(configuredPiConfig);
   assert.equal(PI_RUNTIME_CONFIG_PATH, path.join(dataDir, 'settings', 'pi-runtime-config.json'));
   assert.ok(await fs.stat(PI_RUNTIME_CONFIG_PATH));
+  const expectedGoogleTools = ['read', 'ls', ...SKILL_TOOL_NAMES];
+  const persistedPiConfig = JSON.parse(await fs.readFile(PI_RUNTIME_CONFIG_PATH, 'utf8'));
+  assert.equal(persistedPiConfig.runtimeMigrations?.skillToolsDefaultEnabled, true);
+  assert.deepEqual(persistedPiConfig.providers.google.enabledTools, expectedGoogleTools);
 
   await fs.rm(PI_RUNTIME_CONFIG_PATH, { force: true });
   await fs.mkdir(path.join(dataDir, 'canvas-agent'), { recursive: true });
@@ -232,7 +237,7 @@ async function main() {
   assert.equal(inheritedConfig.activeProvider, 'google');
   assert.equal(inheritedConfig.model.id, 'gemini-1.5-pro');
   assert.equal(inheritedConfig.thinkingLevel, 'off');
-  assert.deepEqual(inheritedConfig.enabledTools, ['read', 'ls']);
+  assert.deepEqual(inheritedConfig.enabledTools, expectedGoogleTools);
   assert.deepEqual(inheritedConfig.overrideState, { model: false, tools: false });
 
   const customAgent = await createAgentProfile({
@@ -321,7 +326,7 @@ async function main() {
   const clearedConfig = await resolveAgentRuntimeConfig(customAgent.agentId);
   assert.equal(clearedConfig.activeProvider, 'google');
   assert.equal(clearedConfig.model.id, 'gemini-1.5-pro');
-  assert.deepEqual(clearedConfig.enabledTools, ['read', 'ls']);
+  assert.deepEqual(clearedConfig.enabledTools, expectedGoogleTools);
   assert.deepEqual(clearedConfig.overrideState, { model: false, tools: false });
 
   await fs.mkdir(path.join(dataDir, 'skills', 'research-notes'), { recursive: true });
