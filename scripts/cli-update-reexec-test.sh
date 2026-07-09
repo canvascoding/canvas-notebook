@@ -109,9 +109,9 @@ export CANVAS_USE_COLOR=false
 
 "$CANVAS_CLI_PATH" update --no-banner > "$TMP_DIR/update.txt" 2>&1
 
-grep -q 'Management CLI updated 2026.7.8.1 -> 2026.7.9.2' "$TMP_DIR/update.txt"
+grep -q 'Management CLI updated 2026.7.8.1 -> 2026.7.9.3' "$TMP_DIR/update.txt"
 grep -q 'Restarting update with updated CLI' "$TMP_DIR/update.txt"
-grep -q '^CANVAS_CLI_VERSION="2026.7.9.2"$' "$CANVAS_CLI_PATH"
+grep -q '^CANVAS_CLI_VERSION="2026.7.9.3"$' "$CANVAS_CLI_PATH"
 grep -q -- '--profile postgres up -d postgres' "$CANVAS_TEST_DOCKER_LOG"
 grep -q 'exec -i -u postgres fake-postgres-id psql' "$CANVAS_TEST_DOCKER_LOG"
 grep -q 'up -d --force-recreate' "$CANVAS_TEST_DOCKER_LOG"

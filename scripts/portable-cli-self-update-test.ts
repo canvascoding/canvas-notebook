@@ -48,7 +48,7 @@ async function main() {
     const nextRoot = path.join(bundleParent, 'canvas-notebook-cli');
     const assetsDir = path.join(root, 'assets');
     await writeBundleRoot(currentRoot, '2026.7.8.1', 'old-cli');
-    await writeBundleRoot(nextRoot, '2026.7.9.2', 'new-cli');
+    await writeBundleRoot(nextRoot, '2026.7.9.3', 'new-cli');
     await mkdir(assetsDir, { recursive: true });
     const { archive, checksum } = await createArchive(bundleParent, assetsDir);
 
@@ -83,7 +83,7 @@ async function main() {
     assert.equal(result.skipped, false);
     assert.equal(result.changed, true);
     assert.equal(result.beforeVersion, '2026.7.8.1');
-    assert.equal(result.afterVersion, '2026.7.9.2');
+    assert.equal(result.afterVersion, '2026.7.9.3');
     assert.match(await readFile(path.join(currentRoot, 'dist-cli', 'main.js'), 'utf8'), /new-cli/u);
 
     const second = await updatePortableCli({

@@ -11,6 +11,20 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.7.9.3] - 2026-07-09
+
+### Changed
+
+- Refreshed the managed Linux CLI before Notebook update, start, and restart flows so host operations use the current command implementation.
+- Refreshed the portable macOS and Windows CLI before Notebook update flows so cross-platform updates run with the latest CLI behavior.
+
+### Verification
+
+- `npm run build`
+- `npm run test:cli:update`
+- `npm run test:cli:portable-update`
+- GitHub Actions `Build and Push (Both Arch)` on `main`: `29039406731` built and pushed both architectures and merged the image manifest successfully before release prep.
+
 ## [2026.7.9.2] - 2026-07-09
 
 ### Changed
