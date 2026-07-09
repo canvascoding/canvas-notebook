@@ -11,6 +11,32 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.7.9.1] - 2026-07-09
+
+### Added
+
+- Agent skill workspace tools, core-skill protections, Canvas YAML skill version support, and agent runtime temp directory management.
+- CLI flows for latest full backup retrieval, explicit database provider setup, and Postgres prepare reconciliation.
+- Chat message copy actions, prompt drag-and-drop uploads, and persistent composer reference picker selection.
+
+### Changed
+
+- Expanded Postgres backup/restore and data backup planning, including full backup dump hardening and runtime temp cleanup determinism.
+- Refined chat history overlay controls and agent temp cleanup so active temp directories are preserved.
+
+### Fixed
+
+- Fixed chat code block file-link rendering and chat file-link validation.
+- Fixed workspace delete permission scoping and propagation.
+- Stabilized PDF renderer restarts and markdown/html PDF export browser behavior.
+- Fixed Docker image builds with npm 11 by allowing the pinned SheetJS tarball and approving required native install scripts.
+
+### Verification
+
+- `npm ci --legacy-peer-deps --dry-run --loglevel=warn`
+- `npm run build`
+- GitHub Actions `Build and Push (Both Arch)` on `main`: `29005715612` built and pushed both architectures and merged the image manifest successfully before release prep.
+
 ## [2026.7.8.1] - 2026-07-08
 
 ### Added
