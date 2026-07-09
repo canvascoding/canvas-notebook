@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { db } from '@/app/lib/db';
 import { studioStyles, studioStyleImages, studioGenerationStyles } from '@/app/lib/db/schema';
-import { eq, and, like, sql, desc, asc } from 'drizzle-orm';
+import { eq, and, like, inArray, sql, desc, asc } from 'drizzle-orm';
 import {
   writeAssetFile,
   readAssetFile,
@@ -87,7 +87,7 @@ export async function listStyles(userId: string, search?: string) {
   const allStyleIds = styles.map((s) => s.id);
   const allImages = allStyleIds.length > 0
     ? await db.select().from(studioStyleImages)
-        .where(sql`${studioStyleImages.styleId} IN (${sql.join(allStyleIds.map((id) => sql`${id}`), sql`, `)})`)
+        .where(inArray(studioStyleImages.styleId, allStyleIds))
         .orderBy(asc(studioStyleImages.sortOrder))
     : [];
 

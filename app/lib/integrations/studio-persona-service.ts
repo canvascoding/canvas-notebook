@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { db } from '@/app/lib/db';
 import { studioPersonas, studioPersonaImages, studioGenerationPersonas } from '@/app/lib/db/schema';
-import { eq, and, like, sql, desc, asc } from 'drizzle-orm';
+import { eq, and, like, inArray, sql, desc, asc } from 'drizzle-orm';
 import {
   writeAssetFile,
   readAssetFile,
@@ -87,7 +87,7 @@ export async function listPersonas(userId: string, search?: string) {
   const allPersonaIds = personas.map((p) => p.id);
   const allImages = allPersonaIds.length > 0
     ? await db.select().from(studioPersonaImages)
-        .where(sql`${studioPersonaImages.personaId} IN (${sql.join(allPersonaIds.map((id) => sql`${id}`), sql`, `)})`)
+        .where(inArray(studioPersonaImages.personaId, allPersonaIds))
         .orderBy(asc(studioPersonaImages.sortOrder))
     : [];
 

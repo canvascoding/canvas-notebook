@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { db } from '@/app/lib/db';
 import { studioProducts, studioProductImages, studioGenerationProducts } from '@/app/lib/db/schema';
-import { eq, and, like, sql, desc, asc } from 'drizzle-orm';
+import { eq, and, like, inArray, sql, desc, asc } from 'drizzle-orm';
 import {
   writeAssetFile,
   readAssetFile,
@@ -87,7 +87,7 @@ export async function listProducts(userId: string, search?: string) {
   const allProductIds = products.map((p) => p.id);
   const allImages = allProductIds.length > 0
     ? await db.select().from(studioProductImages)
-        .where(sql`${studioProductImages.productId} IN (${sql.join(allProductIds.map((id) => sql`${id}`), sql`, `)})`)
+        .where(inArray(studioProductImages.productId, allProductIds))
         .orderBy(asc(studioProductImages.sortOrder))
     : [];
 
