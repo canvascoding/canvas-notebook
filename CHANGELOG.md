@@ -11,6 +11,26 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.7.9.2] - 2026-07-09
+
+### Changed
+
+- Added shared browser export job limiting for markdown, HTML, Marp, and public export routes so PDF/image generation runs through a bounded queue.
+- Enabled skill tools by default in agent runtime configuration while keeping explicit overrides supported.
+- Reworked automation skill selection to use the native selector and keep the composer open after directory picks.
+
+### Fixed
+
+- Ran Postgres migrations before server startup and fixed automation transaction handling across database providers.
+- Hardened markdown editor guard logic against runaway slash insertion and improved mobile markdown toolbar taps.
+- Fixed mobile layout and input behavior in automations, todos, and Studio so fields avoid zoom, overflow, and cramped edit prompts.
+- Stabilized markdown PDF export button loading layout and updated Studio image list queries to use Drizzle `inArray`.
+
+### Verification
+
+- `npm run build`
+- GitHub Actions `Build and Push (Both Arch)` on `main`: `29025334082` built and pushed both architectures and merged the image manifest successfully before release prep.
+
 ## [2026.7.9.1] - 2026-07-09
 
 ### Added
