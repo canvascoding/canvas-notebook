@@ -801,7 +801,7 @@ export function ReferencePickerDialog({ open, onOpenChange, onConfirm, multiple 
             {/* Studio tab */}
             <TabsContent value="studio" className="flex flex-col flex-1 min-h-0 mt-0 data-[state=active]:flex overflow-hidden">
               <div className="flex gap-2 py-3 shrink-0">
-                <Input placeholder={t('searchPlaceholder')} value={search} onChange={(e) => setSearch(e.target.value)} />
+                <Input className="studio-touch-input" placeholder={t('searchPlaceholder')} value={search} onChange={(e) => setSearch(e.target.value)} />
                 <Button variant="outline" size="sm" className="gap-1 shrink-0" onClick={() => { void loadStudioAssets(); }} disabled={isLoading}>
                   <RefreshCw className={cn('h-4 w-4', isLoading && 'animate-spin')} />
                   {t('refresh')}
@@ -852,7 +852,7 @@ export function ReferencePickerDialog({ open, onOpenChange, onConfirm, multiple 
                     value={effectiveReferenceWorkspaceId ?? ''}
                     onChange={(event) => handleReferenceWorkspaceChange(event.target.value)}
                     disabled={readableWorkspaces.length === 0}
-                    className="h-9 w-full appearance-none rounded-md border border-input bg-background px-2 pr-8 text-left text-sm font-normal shadow-xs outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
+                    className="studio-touch-input h-9 w-full appearance-none rounded-md border border-input bg-background px-2 pr-8 text-left text-sm font-normal shadow-xs outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     {!effectiveReferenceWorkspaceId ? <option value="">{workspaceT('sourceWorkspace')}</option> : null}
                     {readableWorkspaces.map((workspace) => (
@@ -863,7 +863,7 @@ export function ReferencePickerDialog({ open, onOpenChange, onConfirm, multiple 
                   </select>
                   <ChevronsUpDown className="pointer-events-none absolute right-2 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                 </label>
-                <Input placeholder={t('searchWorkspacePlaceholder')} value={search} onChange={(e) => setSearch(e.target.value)} />
+                <Input className="studio-touch-input" placeholder={t('searchWorkspacePlaceholder')} value={search} onChange={(e) => setSearch(e.target.value)} />
                 <Button variant="outline" size="sm" className="gap-1 shrink-0" onClick={() => { void loadWorkspaceTree(); }} disabled={isTreeLoading || !effectiveReferenceWorkspaceId}>
                   <RefreshCw className={cn('h-4 w-4', isTreeLoading && 'animate-spin')} />
                   {t('refresh')}
@@ -926,7 +926,7 @@ export function ReferencePickerDialog({ open, onOpenChange, onConfirm, multiple 
                   <p className="text-xs text-muted-foreground">{t('urlTabDescription')}</p>
                 </div>
                 <div className="flex gap-2">
-                  <Input value={urlInput} onChange={(e) => { setUrlInput(e.target.value); setUrlError(null); }} placeholder={t('urlPlaceholder')} />
+                  <Input className="studio-touch-input" value={urlInput} onChange={(e) => { setUrlInput(e.target.value); setUrlError(null); }} placeholder={t('urlPlaceholder')} />
                   <Button
                     type="button"
                     variant="outline"

@@ -204,7 +204,7 @@ export function StudioPicker({ presets, value, onChange, disabled = false }: Stu
               onChange={(e) => setSearchQuery(e.target.value)}
               onKeyDown={(e) => e.stopPropagation()}
               placeholder="Search presets..."
-              className="h-8 w-full rounded-md border border-input bg-background pl-7 pr-7 text-sm outline-none focus:ring-2 focus:ring-ring/20"
+              className="studio-touch-input h-8 w-full rounded-md border border-input bg-background pl-7 pr-7 text-sm outline-none focus:ring-2 focus:ring-ring/20"
               autoFocus
             />
             {searchQuery ? (

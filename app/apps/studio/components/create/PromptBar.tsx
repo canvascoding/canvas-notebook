@@ -429,7 +429,7 @@ export function PromptBar({
           onPaste={handlePaste}
           placeholder={t('placeholder')}
           rows={2}
-          className="max-h-32 min-h-[52px] flex-1 resize-none rounded-2xl border border-border/80 bg-background/85 px-3 py-2.5 text-sm leading-5 text-foreground outline-none transition placeholder:text-muted-foreground/70 focus:border-ring focus:ring-4 focus:ring-ring/15"
+          className="studio-touch-input max-h-32 min-h-[52px] flex-1 resize-none rounded-2xl border border-border/80 bg-background/85 px-3 py-2.5 text-sm leading-5 text-foreground outline-none transition placeholder:text-muted-foreground/70 focus:border-ring focus:ring-4 focus:ring-ring/15"
         />
         <Button
           type="button"

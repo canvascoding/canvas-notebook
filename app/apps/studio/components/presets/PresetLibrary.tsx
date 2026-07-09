@@ -91,7 +91,7 @@ export function PresetLibrary() {
             placeholder="Search presets..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="pl-9"
+            className="studio-touch-input pl-9"
           />
         </div>
       </div>

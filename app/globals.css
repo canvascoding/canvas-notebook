@@ -140,6 +140,17 @@
   }
 }
 
+@layer utilities {
+  @media (hover: none) and (pointer: coarse) {
+    .studio-touch-form-scope input:not([type='checkbox']):not([type='radio']):not([type='range']),
+    .studio-touch-form-scope textarea,
+    .studio-touch-form-scope select,
+    .studio-touch-input {
+      font-size: 16px !important;
+    }
+  }
+}
+
 :root {
   --radius: 0px;
   --background: oklch(0.98 0.006 247);

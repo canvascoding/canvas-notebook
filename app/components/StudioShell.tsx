@@ -66,6 +66,7 @@ export function StudioShell({ children, hintEnabled = true }: { children: ReactN
       defaultChatVisible={!isAspectRatioEditor}
       headerCenter={<StudioRouteNav variant="desktop" />}
       headerActions={<StudioRouteNav variant="mobile" />}
+      mainClassName="studio-touch-form-scope"
       hintPage="studio"
       hintEnabled={hintEnabled}
     >

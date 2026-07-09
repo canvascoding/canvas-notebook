@@ -378,7 +378,7 @@ export function ModelReferencePickerDialog({
             value={referenceSearch}
             onChange={(event) => setReferenceSearch(event.target.value)}
             placeholder={t('searchPlaceholder')}
-            className="h-11 w-full rounded-md border border-input bg-background pl-10 pr-10 text-sm outline-none transition focus:border-ring focus:ring-4 focus:ring-ring/15"
+            className="studio-touch-input h-11 w-full rounded-md border border-input bg-background pl-10 pr-10 text-sm outline-none transition focus:border-ring focus:ring-4 focus:ring-ring/15"
           />
           {referenceSearch ? (
             <button
