@@ -4,6 +4,7 @@ import { inArray } from 'drizzle-orm';
 
 import { db } from '@/app/lib/db';
 import { channelActiveSessions, piMessages, piSessions, sessionChannelLinks } from '@/app/lib/db/schema';
+import { removeAgentRuntimeTempDir } from '@/app/lib/pi/agent-runtime-temp';
 
 export type DeletePiSessionsResult = {
   sessionCount: number;
@@ -24,7 +25,12 @@ export async function deletePiSessionsByDbIds(sessionDbIds: number[]): Promise<D
   }
 
   const sessionRows = await db
-    .select({ sessionId: piSessions.sessionId })
+    .select({
+      sessionId: piSessions.sessionId,
+      userId: piSessions.userId,
+      agentId: piSessions.agentId,
+      organizationId: piSessions.organizationId,
+    })
     .from(piSessions)
     .where(inArray(piSessions.id, uniqueDbIds));
   const sessionIds = Array.from(new Set(sessionRows.map((session) => session.sessionId)));
@@ -47,6 +53,13 @@ export async function deletePiSessionsByDbIds(sessionDbIds: number[]): Promise<D
   const deletedSessions = await db.delete(piSessions)
     .where(inArray(piSessions.id, uniqueDbIds))
     .returning({ id: piSessions.id });
+
+  await Promise.allSettled(sessionRows.map((session) => removeAgentRuntimeTempDir({
+    userId: session.userId,
+    sessionId: session.sessionId,
+    agentId: session.agentId,
+    organizationId: session.organizationId,
+  })));
 
   return {
     sessionCount: deletedSessions.length,

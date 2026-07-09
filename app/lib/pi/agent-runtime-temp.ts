@@ -134,6 +134,10 @@ export async function ensureAgentRuntimeTempDir(identity: AgentRuntimeTempIdenti
   return tempDir;
 }
 
+export async function removeAgentRuntimeTempDir(identity: AgentRuntimeTempIdentity): Promise<void> {
+  await fs.rm(resolveAgentRuntimeTempDir(identity), { recursive: true, force: true });
+}
+
 export function getAgentRuntimeTempEnv(tempDir: string): Record<string, string> {
   return {
     CANVAS_AGENT_TEMP_DIR: tempDir,

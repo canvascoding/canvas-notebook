@@ -54,7 +54,11 @@ import {
   type PiRuntimePromptContext,
   type RuntimePromptContextTarget,
 } from '@/app/lib/pi/runtime-prompt-context';
-import { getAgentRuntimeTempPromptBlock } from '@/app/lib/pi/agent-runtime-temp';
+import {
+  cleanupAgentRuntimeTempDirs,
+  getAgentRuntimeTempPromptBlock,
+  removeAgentRuntimeTempDir,
+} from '@/app/lib/pi/agent-runtime-temp';
 
 export type { PiRuntimePromptContext } from '@/app/lib/pi/runtime-prompt-context';
 
@@ -1372,6 +1376,12 @@ class LivePiRuntime {
       this.agentUnsubscribe = null;
     }
     this.subscribers.clear();
+    void removeAgentRuntimeTempDir({
+      userId: this.userId,
+      sessionId: this.sessionId,
+      agentId: this.agentId,
+      organizationId: this.workspaceContext?.organizationId ?? null,
+    }).catch(() => undefined);
   }
 
   private async persistMessages(reason: 'turn_end' | 'agent_end' | 'error'): Promise<number> {
@@ -1520,6 +1530,7 @@ function getStore(): RuntimeStore {
     store.cleanupStarted = true;
     setInterval(() => {
       const now = Date.now();
+      void cleanupAgentRuntimeTempDirs({ nowMs: now }).catch(() => undefined);
       const resolved: Array<{ key: string; runtime: LivePiRuntime }> = [];
       void Promise.allSettled(
         [...store.runtimes.entries()].map(async ([key, runtimePromise]) => {
