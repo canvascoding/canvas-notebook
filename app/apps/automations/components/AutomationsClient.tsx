@@ -7,9 +7,7 @@ import {
   AlertTriangle,
   ArrowLeft,
   CalendarClock,
-  Check,
   CheckCircle2,
-  ChevronsUpDown,
   Clock3,
   Bot,
   Copy,
@@ -40,7 +38,7 @@ import { WorkspaceDirectoryPickerDialog } from '@/app/apps/automations/component
 import { AgentAvatar, AgentIcon } from '@/app/components/agents/AgentAvatar';
 import { getEffectiveAutomationTargetOutputPath } from '@/app/lib/automations/paths';
 import { formatTimeZoneLabel, getSupportedTimeZones, normalizeTimeZone } from '@/app/lib/time-zones';
-import { CanvasSkillIcon, type CanvasSkillIconSource } from '@/app/lib/skills/skill-icons';
+import type { CanvasSkillIconSource } from '@/app/lib/skills/skill-icons';
 import type {
   AutomationJobRecord,
   AutomationDeliveryMode,
@@ -57,22 +55,12 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-  CommandSeparator,
-} from '@/components/ui/command';
-import {
   Dialog,
   DialogContent,
   DialogDescription,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -268,106 +256,47 @@ function skillDisplayName(skill: Pick<SkillOption, 'name' | 'title' | 'interface
 
 function SkillPicker({
   description,
-  emptyLabel,
   id,
   label,
   onChange,
   placeholder,
-  searchPlaceholder,
   skills,
   value,
 }: {
   description: string;
-  emptyLabel: string;
   id: string;
   label: string;
   onChange: (value: string) => void;
   placeholder: string;
-  searchPlaceholder: string;
   skills: SkillOption[];
   value: string;
 }) {
-  const [open, setOpen] = useState(false);
   const selectedSkill = value === 'auto' ? null : skills.find((skill) => skill.name === value) || { name: value };
-  const selectedLabel = selectedSkill ? skillDisplayName(selectedSkill) : placeholder;
+  const visibleSkills = selectedSkill && !skills.some((skill) => skill.name === selectedSkill.name)
+    ? [selectedSkill, ...skills]
+    : skills;
+  const helperText = selectedSkill?.description || description;
 
   return (
     <div className="flex min-w-0 flex-col gap-1 text-sm">
-      <span className="text-xs text-muted-foreground">{label}</span>
-      <Popover open={open} onOpenChange={setOpen}>
-        <PopoverTrigger asChild>
-          <Button
-            id={id}
-            type="button"
-            variant="outline"
-            role="combobox"
-            aria-expanded={open}
-            className="h-10 w-full min-w-0 max-w-full justify-between gap-2 overflow-hidden px-3 font-normal"
-          >
-            <span className="flex min-w-0 flex-1 items-center gap-2">
-              {selectedSkill ? (
-                <CanvasSkillIcon skill={selectedSkill} className="h-6 w-6 rounded-md text-[10px]" />
-              ) : (
-                <span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md border bg-muted text-muted-foreground">
-                  <Bot className="h-3.5 w-3.5" />
-                </span>
-              )}
-              <span className="min-w-0 truncate text-left">{selectedLabel}</span>
-            </span>
-            <ChevronsUpDown className="h-4 w-4 shrink-0 text-muted-foreground" />
-          </Button>
-        </PopoverTrigger>
-        <PopoverContent align="start" className="w-[--radix-popover-trigger-width] max-w-[calc(100vw-2rem)] min-w-0 p-0 sm:min-w-72">
-          <Command>
-            <CommandInput placeholder={searchPlaceholder} />
-            <CommandList>
-              <CommandEmpty>{emptyLabel}</CommandEmpty>
-              <CommandGroup>
-                <CommandItem
-                  value={placeholder}
-                  onSelect={() => {
-                    onChange('auto');
-                    setOpen(false);
-                  }}
-                  className="gap-2"
-                >
-                  <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border bg-muted text-muted-foreground">
-                    <Bot className="h-4 w-4" />
-                  </span>
-                  <span className="min-w-0 flex-1 truncate">{placeholder}</span>
-                  {value === 'auto' ? <Check className="h-4 w-4 shrink-0" /> : null}
-                </CommandItem>
-              </CommandGroup>
-              {skills.length > 0 ? <CommandSeparator /> : null}
-              <CommandGroup>
-                {skills.map((skill) => {
-                  const displayName = skillDisplayName(skill);
-                  const selected = skill.name === value;
-                  return (
-                    <CommandItem
-                      key={skill.name}
-                      value={`${displayName} ${skill.name} ${skill.description || ''}`}
-                      onSelect={() => {
-                        onChange(skill.name);
-                        setOpen(false);
-                      }}
-                      className="gap-2"
-                    >
-                      <CanvasSkillIcon skill={skill} className="h-8 w-8 rounded-md text-[11px]" />
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate font-medium">{displayName}</span>
-                        <span className="block truncate text-xs text-muted-foreground">{skill.description || skill.name}</span>
-                      </span>
-                      {selected ? <Check className="h-4 w-4 shrink-0" /> : null}
-                    </CommandItem>
-                  );
-                })}
-              </CommandGroup>
-            </CommandList>
-          </Command>
-        </PopoverContent>
-      </Popover>
-      <span className="text-xs text-muted-foreground">{description}</span>
+      <label htmlFor={id} className="text-xs text-muted-foreground">{label}</label>
+      <div className="relative min-w-0">
+        <Bot className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+        <select
+          id={id}
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          className="h-10 w-full min-w-0 max-w-full rounded-md border border-input bg-background px-9 text-sm"
+        >
+          <option value="auto">{placeholder}</option>
+          {visibleSkills.map((skill) => (
+            <option key={skill.name} value={skill.name}>
+              {skillDisplayName(skill)}
+            </option>
+          ))}
+        </select>
+      </div>
+      <span className="line-clamp-2 text-xs text-muted-foreground">{helperText}</span>
     </div>
   );
 }
@@ -1650,8 +1579,6 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
         onChange={(preferredSkill) => setDraft((current) => ({ ...current, preferredSkill }))}
         skills={enabledSkills}
         placeholder={t('skills.auto')}
-        searchPlaceholder={t('skills.searchPlaceholder')}
-        emptyLabel={t('skills.empty')}
         description={t('skills.description')}
       />
     );
@@ -1666,8 +1593,6 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
         onChange={(preferredSkill) => setTriggerDraft((current) => ({ ...current, preferredSkill }))}
         skills={enabledSkills}
         placeholder={t('skills.auto')}
-        searchPlaceholder={t('skills.searchPlaceholder')}
-        emptyLabel={t('skills.empty')}
         description={t('skills.description')}
       />
     );
@@ -1682,8 +1607,6 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
         onChange={(preferredSkill) => setCustomWebhookDraft((current) => ({ ...current, preferredSkill }))}
         skills={enabledSkills}
         placeholder={t('skills.auto')}
-        searchPlaceholder={t('skills.searchPlaceholder')}
-        emptyLabel={t('skills.empty')}
         description={t('skills.description')}
       />
     );
