@@ -106,6 +106,7 @@
     "test:cli:database": "bash scripts/cli-database-command-test.sh",
     "test:cli:database-provider": "bash scripts/cli-database-provider-test.sh",
     "test:cli:update": "bash scripts/cli-update-reexec-test.sh",
+    "test:cli:portable-update": "tsx scripts/portable-cli-self-update-test.ts",
     "test:cli:portable": "tsx scripts/cross-platform-cli-test.ts",
     "test:channels": "tsx scripts/channel-architecture-test.ts",
     "test:channels:media": "tsx scripts/channel-media-directives-test.ts",

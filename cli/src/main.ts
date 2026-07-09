@@ -20,6 +20,7 @@ import { DockerManager } from './core/docker';
 import { composePath, createRuntimeContext } from './core/platform';
 import { preparePostgresManagedRuntime } from './core/postgres';
 import { SpawnCommandRunner } from './core/process';
+import { reexecPortableCliIfUpdated, updatePortableCli } from './core/selfUpdate';
 import { ServiceManager } from './core/service';
 import type { CanvasCliConfig, RuntimeContext, StatusJson } from './core/types';
 
@@ -90,6 +91,7 @@ Commands:
   env --sync                      Regenerate env files
   config-show                     Print canvas-notebook-config.json with secrets masked
   config-set <key> <value>        Set a top-level/env config value
+  cli-update                      Update the portable management CLI bundle
   admin reset-password ...        Reset or create an admin in the container
   backup create [--output <path>] Create/replace the local latest full backup
   database status [--json]        Show configured database provider status
@@ -463,6 +465,17 @@ async function main(): Promise<void> {
     return;
   }
 
+  if (parsed.command === 'update') {
+    await reexecPortableCliIfUpdated({
+      runner,
+      context,
+      command: 'update',
+      args: parsed.args,
+      json: parsed.json,
+      noBanner: parsed.noBanner,
+    });
+  }
+
   const config = await readConfig(context);
 
   switch (parsed.command) {
@@ -538,6 +551,22 @@ async function main(): Promise<void> {
       if (!key || value === undefined) throw new Error('Usage: canvas-notebook config-set <key> <value>');
       const next = await syncFiles(context, setConfigValue(config, key, value));
       console.log(`Set ${key} in ${next.paths.configFile}`);
+      break;
+    }
+    case 'cli-update': {
+      const result = await updatePortableCli({ runner, context });
+      if (parsed.json) {
+        console.log(JSON.stringify(result));
+      } else if (result.skipped) {
+        console.log('Portable CLI self-update is not available for this local checkout.');
+      } else if (result.changed) {
+        const versionText = result.beforeVersion || result.afterVersion
+          ? ` ${result.beforeVersion || 'unknown'} -> ${result.afterVersion || 'unknown'}`
+          : '';
+        console.log(`Portable CLI updated${versionText}`);
+      } else {
+        console.log('Portable CLI is already current.');
+      }
       break;
     }
     case 'admin':

@@ -2,7 +2,7 @@
 import crypto from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { createReadStream } from 'node:fs';
-import { cp, mkdir, rm, writeFile } from 'node:fs/promises';
+import { cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -11,6 +11,7 @@ const outputRoot = path.join(rootDir, 'dist-portable-cli');
 const packageDir = path.join(outputRoot, 'canvas-notebook-cli');
 const archivePath = path.join(outputRoot, 'canvas-notebook-cli.tar.gz');
 const checksumPath = path.join(outputRoot, 'canvas-notebook-cli.sha256');
+const packageVersion = JSON.parse(await readFile(path.join(rootDir, 'package.json'), 'utf8')).version;
 
 function run(command, args) {
   return new Promise((resolve, reject) => {
@@ -40,6 +41,7 @@ await mkdir(path.join(packageDir, 'install'), { recursive: true });
 await cp(path.join(rootDir, 'dist-cli'), path.join(packageDir, 'dist-cli'), { recursive: true });
 await cp(path.join(rootDir, 'install', 'macos.sh'), path.join(packageDir, 'install', 'macos.sh'));
 await cp(path.join(rootDir, 'install', 'windows.ps1'), path.join(packageDir, 'install', 'windows.ps1'));
+await writeFile(path.join(packageDir, 'VERSION'), `${packageVersion}\n`, 'utf8');
 await writeFile(
   path.join(packageDir, 'README.txt'),
   [
