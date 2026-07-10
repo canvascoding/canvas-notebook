@@ -122,9 +122,41 @@ export type CanvasPluginStorageScope = UserScopedDataStorageScope;
 
 const IGNORED_CHECKSUM_ENTRIES = new Set(['.git', 'node_modules', '.DS_Store']);
 const SEED_SKILLS_DIR = path.join(process.cwd(), 'seed_skills');
+const pluginMutationTails = new Map<string, Promise<void>>();
 
 function nowIso(): string {
   return new Date().toISOString();
+}
+
+/**
+ * Serializes registry, package, and materialized-skill changes for one storage
+ * scope. A plugin mutation spans several files; an atomic registry rename on
+ * its own cannot prevent two requests from losing each other's changes.
+ */
+async function withPluginMutation<T>(
+  scope: CanvasPluginStorageScope | null | undefined,
+  operation: () => Promise<T>,
+): Promise<T> {
+  const key = resolveScopedPluginRegistryPath(scope);
+  const previous = pluginMutationTails.get(key) || Promise.resolve();
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const current = previous.then(() => gate);
+  pluginMutationTails.set(key, current);
+
+  await previous;
+  try {
+    return await operation();
+  } finally {
+    release();
+    void current.finally(() => {
+      if (pluginMutationTails.get(key) === current) {
+        pluginMutationTails.delete(key);
+      }
+    });
+  }
 }
 
 function createEmptyRegistry(): CanvasPluginRegistry {
@@ -714,12 +746,6 @@ async function materializePluginSkills(
   return materializedSkills;
 }
 
-function getPluginRuntimeSkillNames(plugin: CanvasPluginInstallRecord): string[] {
-  return plugin.skills
-    .filter((skill) => !skill.materialized && !skill.preexistingStandalone)
-    .map((skill) => skill.name);
-}
-
 function getPluginInstallEnabledSkillNames(plugin: CanvasPluginInstallRecord): string[] {
   return plugin.skills
     .filter((skill) => skill.materialized || (!skill.materialized && !skill.preexistingStandalone))
@@ -805,6 +831,94 @@ async function buildPluginRecordFromInstalledPackage(
   return { record, errors: [] };
 }
 
+function rebasePluginRecordPaths(
+  record: CanvasPluginInstallRecord,
+  fromRoot: string,
+  toRoot: string,
+): CanvasPluginInstallRecord {
+  const rebase = (value?: string): string | undefined => {
+    if (!value || !isPathInside(fromRoot, value)) return value;
+    return path.join(toRoot, path.relative(fromRoot, value));
+  };
+
+  return {
+    ...record,
+    installDir: toRoot,
+    manifestPath: rebase(record.manifestPath) || path.join(toRoot, '.canvas-plugin', 'plugin.json'),
+    skillsDir: rebase(record.skillsDir),
+    skills: record.skills.map((skill) => ({
+      ...skill,
+      path: rebase(skill.path) || skill.path,
+      directory: rebase(skill.directory) || skill.directory,
+    })),
+  };
+}
+
+async function getModifiedPluginOwnedSkills(
+  plugin: CanvasPluginInstallRecord,
+  scope?: CanvasPluginStorageScope | null,
+): Promise<string[]> {
+  const standaloneRegistry = await readStandaloneSkillRegistry(scope);
+  const modified: string[] = [];
+
+  for (const skill of plugin.skills) {
+    if (!skill.materialized) continue;
+    const standalone = standaloneRegistry.skills[skill.name];
+    if (standalone?.sourceType !== 'plugin' || standalone.sourcePluginName !== plugin.name) continue;
+    const directory = standalone.installDir || resolveStandaloneSkillDir(skill.name, scope);
+    try {
+      if (await computeCanvasPluginChecksum(directory) !== standalone.checksum) {
+        modified.push(skill.name);
+      }
+    } catch {
+      // A missing materialized skill is repairable and must not block an update
+      // or uninstall. The registry entry is removed with the plugin.
+    }
+  }
+
+  return modified;
+}
+
+async function removePluginOwnedMaterializedSkills(
+  plugin: CanvasPluginInstallRecord,
+  scope?: CanvasPluginStorageScope | null,
+): Promise<{ removed: string[]; conflicts: string[] }> {
+  const conflicts = await getModifiedPluginOwnedSkills(plugin, scope);
+  if (conflicts.length > 0) {
+    return { removed: [], conflicts };
+  }
+
+  const standaloneRegistry = await readStandaloneSkillRegistry(scope);
+  const removed: string[] = [];
+
+  for (const skill of plugin.skills) {
+    if (!skill.materialized) continue;
+    const standalone = standaloneRegistry.skills[skill.name];
+    if (standalone?.sourceType !== 'plugin' || standalone.sourcePluginName !== plugin.name) continue;
+
+    const directory = standalone.installDir || resolveStandaloneSkillDir(skill.name, scope);
+    const exists = await fs.stat(directory).then(() => true).catch(() => false);
+    if (exists) {
+      try {
+        if (await computeCanvasPluginChecksum(directory) !== standalone.checksum) {
+          throw new Error(`Materialized skill "${skill.name}" changed while removing the plugin.`);
+        }
+      } catch {
+        throw new Error(`Unable to verify materialized skill "${skill.name}" before removal.`);
+      }
+      await fs.rm(directory, { recursive: true, force: true });
+    }
+    delete standaloneRegistry.skills[skill.name];
+    removed.push(skill.name);
+  }
+
+  if (removed.length > 0) {
+    await writeStandaloneSkillRegistry(standaloneRegistry, scope);
+  }
+
+  return { removed, conflicts: [] };
+}
+
 async function updateRuntimeConfigForPluginSkills(
   skillNames: string[],
   enabled: boolean,
@@ -838,49 +952,66 @@ export async function installCanvasPluginFromPath(
   }
 
   const manifest = validation.manifest;
-  await adoptLegacyStandaloneSkillsForScope(options.scope);
-  const installDir = resolvePluginInstallDir(manifest.name, manifest.version, options.scope);
-  const registry = await readCanvasPluginRegistryForWrite(options.scope);
-  const existingRecord = registry.plugins[manifest.name];
+  return withPluginMutation(options.scope, async () => {
+    await adoptLegacyStandaloneSkillsForScope(options.scope);
+    const installDir = resolvePluginInstallDir(manifest.name, manifest.version, options.scope);
+    const registry = await readCanvasPluginRegistryForWrite(options.scope);
+    const existingRecord = registry.plugins[manifest.name];
 
-  if (existingRecord && existingRecord.version === manifest.version && !options.replace) {
-    return {
-      success: false,
-      error: `Plugin "${manifest.name}" version ${manifest.version} is already installed. Use replace to reinstall it.`,
-      validation,
-      plugin: existingRecord,
-    };
-  }
+    if (existingRecord && existingRecord.version === manifest.version && !options.replace) {
+      return {
+        success: false,
+        error: `Plugin "${manifest.name}" version ${manifest.version} is already installed. Use replace to reinstall it.`,
+        validation,
+        plugin: existingRecord,
+      };
+    }
 
-  const candidateSkills = await parsePluginSkillsFromManifest(
-    manifest,
-    validation.rootDir,
-    validation.skillsDir,
-  );
-  if (candidateSkills.errors.length > 0) {
-    return {
-      success: false,
-      error: 'Plugin skills are invalid',
-      validation: {
-        ...validation,
-        valid: false,
-        errors: [...validation.errors, ...candidateSkills.errors],
-      },
-    };
-  }
+    const candidateSkills = await parsePluginSkillsFromManifest(
+      manifest,
+      validation.rootDir,
+      validation.skillsDir,
+    );
+    if (candidateSkills.errors.length > 0) {
+      return {
+        success: false,
+        error: 'Plugin skills are invalid',
+        validation: {
+          ...validation,
+          valid: false,
+          errors: [...validation.errors, ...candidateSkills.errors],
+        },
+      };
+    }
 
-  try {
-    await copyPluginPackage(validation.rootDir, installDir);
+    const modifiedSkills = existingRecord
+      ? await getModifiedPluginOwnedSkills(existingRecord, options.scope)
+      : [];
+    if (modifiedSkills.length > 0) {
+      return {
+        success: false,
+        error: `Plugin "${manifest.name}" has modified materialized skills: ${modifiedSkills.join(', ')}.`,
+        validation,
+        plugin: existingRecord,
+      };
+    }
+
+    const stagingDir = `${installDir}.staging-${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    const backupDir = `${installDir}.rollback-${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    let promoted = false;
+
+    try {
+    await copyPluginPackage(validation.rootDir, stagingDir);
     const built = await buildPluginRecordFromInstalledPackage(
       manifest,
       validation.rootDir,
-      installDir,
-      options.enable !== false,
+      stagingDir,
+      options.enable ?? existingRecord?.enabled ?? true,
       options,
     );
 
     if (!built.record) {
-      await fs.rm(installDir, { recursive: true, force: true });
+      await fs.rm(stagingDir, { recursive: true, force: true });
       return {
         success: false,
         error: 'Installed plugin package is invalid',
@@ -894,27 +1025,34 @@ export async function installCanvasPluginFromPath(
 
     built.record.skills = await materializePluginSkills(built.record, options.scope);
 
+    const hasExistingInstall = await fs.stat(installDir).then(() => true).catch(() => false);
+    if (hasExistingInstall) {
+      await fs.rename(installDir, backupDir);
+    }
+    await fs.rename(stagingDir, installDir);
+    promoted = true;
+    const installedRecord = rebasePluginRecordPaths(built.record, stagingDir, installDir);
+
     if (existingRecord && existingRecord.version !== manifest.version) {
       await fs.rm(existingRecord.installDir, { recursive: true, force: true }).catch(() => undefined);
     }
 
     registry.plugins[manifest.name] = {
-      ...built.record,
-      installedAt: existingRecord?.installedAt || built.record.installedAt,
+      ...installedRecord,
+      installedAt: existingRecord?.installedAt || installedRecord.installedAt,
       updatedAt: nowIso(),
     };
     await writeCanvasPluginRegistry(registry, options.scope);
+    await fs.rm(backupDir, { recursive: true, force: true }).catch(() => undefined);
 
-    if (built.record.enabled) {
-      await updateRuntimeConfigForPluginSkills(
-        getPluginInstallEnabledSkillNames(built.record),
-        true,
-        options.scope,
-        options.installedBy,
-      ).catch((error) => {
-        console.warn('[CanvasPluginRegistry] Failed to auto-enable plugin skills:', error);
-      });
-    }
+    await updateRuntimeConfigForPluginSkills(
+      getPluginInstallEnabledSkillNames(installedRecord),
+      installedRecord.enabled,
+      options.scope,
+      options.installedBy,
+    ).catch((error) => {
+      console.warn('[CanvasPluginRegistry] Failed to update plugin skill activation:', error);
+    });
 
     return {
       success: true,
@@ -922,7 +1060,11 @@ export async function installCanvasPluginFromPath(
       plugin: registry.plugins[manifest.name],
     };
   } catch (error) {
-    await fs.rm(installDir, { recursive: true, force: true }).catch(() => undefined);
+    await fs.rm(stagingDir, { recursive: true, force: true }).catch(() => undefined);
+    if (promoted) {
+      await fs.rm(installDir, { recursive: true, force: true }).catch(() => undefined);
+      await fs.rename(backupDir, installDir).catch(() => undefined);
+    }
     const message = error instanceof Error ? error.message : 'Failed to install plugin';
     return {
       success: false,
@@ -930,6 +1072,7 @@ export async function installCanvasPluginFromPath(
       validation,
     };
   }
+  });
 }
 
 export async function listCanvasPlugins(
@@ -959,46 +1102,59 @@ export async function setCanvasPluginEnabled(
     return { success: false, error: 'Invalid plugin name' };
   }
 
-  const registry = await readCanvasPluginRegistryForWrite(scope);
-  const plugin = registry.plugins[name];
-  if (!plugin) {
-    return { success: false, error: `Plugin "${name}" not found` };
-  }
+  return withPluginMutation(scope, async () => {
+    const registry = await readCanvasPluginRegistryForWrite(scope);
+    const plugin = registry.plugins[name];
+    if (!plugin) {
+      return { success: false, error: `Plugin "${name}" not found` };
+    }
 
-  plugin.enabled = enabled;
-  plugin.updatedAt = nowIso();
-  await writeCanvasPluginRegistry(registry, scope);
+    plugin.enabled = enabled;
+    plugin.updatedAt = nowIso();
+    await writeCanvasPluginRegistry(registry, scope);
 
-  await updateRuntimeConfigForPluginSkills(getPluginRuntimeSkillNames(plugin), enabled, scope, updatedBy).catch((error) => {
-    console.warn('[CanvasPluginRegistry] Failed to update runtime config for plugin skills:', error);
+    await updateRuntimeConfigForPluginSkills(getPluginInstallEnabledSkillNames(plugin), enabled, scope, updatedBy).catch((error) => {
+      console.warn('[CanvasPluginRegistry] Failed to update runtime config for plugin skills:', error);
+    });
+
+    return { success: true, plugin };
   });
-
-  return { success: true, plugin };
 }
 
 export async function deleteCanvasPlugin(
   name: string,
   scope?: CanvasPluginStorageScope | null,
   updatedBy?: string,
-): Promise<{ success: boolean; error?: string }> {
+): Promise<{ success: boolean; error?: string; conflicts?: string[] }> {
   if (!isValidCanvasPluginName(name)) {
     return { success: false, error: 'Invalid plugin name' };
   }
 
-  const registry = await readCanvasPluginRegistryForWrite(scope);
-  const plugin = registry.plugins[name];
-  if (!plugin) {
-    return { success: false, error: `Plugin "${name}" not found` };
-  }
+  return withPluginMutation(scope, async () => {
+    const registry = await readCanvasPluginRegistryForWrite(scope);
+    const plugin = registry.plugins[name];
+    if (!plugin) {
+      return { success: false, error: `Plugin "${name}" not found` };
+    }
 
-  delete registry.plugins[name];
-  await writeCanvasPluginRegistry(registry, scope);
-  await fs.rm(plugin.installDir, { recursive: true, force: true }).catch(() => undefined);
-  await updateRuntimeConfigForPluginSkills(getPluginRuntimeSkillNames(plugin), false, scope, updatedBy).catch((error) => {
-    console.warn('[CanvasPluginRegistry] Failed to disable removed plugin skills:', error);
+    const materialized = await removePluginOwnedMaterializedSkills(plugin, scope);
+    if (materialized.conflicts.length > 0) {
+      return {
+        success: false,
+        error: `Plugin "${name}" has modified materialized skills. Preserve or remove them explicitly before uninstalling.`,
+        conflicts: materialized.conflicts,
+      };
+    }
+
+    delete registry.plugins[name];
+    await writeCanvasPluginRegistry(registry, scope);
+    await fs.rm(plugin.installDir, { recursive: true, force: true }).catch(() => undefined);
+    await updateRuntimeConfigForPluginSkills(getPluginInstallEnabledSkillNames(plugin), false, scope, updatedBy).catch((error) => {
+      console.warn('[CanvasPluginRegistry] Failed to disable removed plugin skills:', error);
+    });
+
+    return { success: true };
   });
-
-  return { success: true };
 }
 
 export async function loadEnabledPluginSkills(
