@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict';
 import { extractFilePaths, normalizeChatFilePath } from '../app/lib/chat/extract-file-paths';
 import {
+  createNotebookFileReferenceRequest,
+  NOTEBOOK_FILE_REFERENCE_MESSAGE_TYPE,
+  parseNotebookFileReferenceRequest,
+} from '../app/lib/chat/notebook-file-reference-bridge';
+import {
   invalidateFileReferenceValidationCache,
   validateFileExists,
   validateFileReference,
@@ -65,6 +70,20 @@ async function main() {
     assert.deepEqual(
       extractFilePaths('Inline API URLs like /api/media/preview-clip.mp4 should not become workspace refs.'),
       [],
+    );
+
+    const bridgeRequest = createNotebookFileReferenceRequest('/data/workspace/generated/page.html');
+    assert.ok(bridgeRequest);
+    assert.equal(bridgeRequest.type, NOTEBOOK_FILE_REFERENCE_MESSAGE_TYPE);
+    assert.equal(bridgeRequest.path, 'generated/page.html');
+    assert.deepEqual(parseNotebookFileReferenceRequest(bridgeRequest, bridgeRequest.createdAt), bridgeRequest);
+    assert.equal(
+      parseNotebookFileReferenceRequest({ ...bridgeRequest, path: '../outside.md' }, bridgeRequest.createdAt),
+      null,
+    );
+    assert.equal(
+      parseNotebookFileReferenceRequest(bridgeRequest, bridgeRequest.createdAt + 30_001),
+      null,
     );
 
     assert.equal(await validateFileExists('docs/loaded.md', fileTree), true);

@@ -54,7 +54,17 @@ import {
   markOpenChatSessionEventHandled,
   OPEN_CHAT_SESSION_EVENT,
 } from '@/app/lib/chat/open-chat-session-event';
-import { WORKSPACE_FILE_OPENED_EVENT } from '@/app/lib/files/workspace-file-events';
+import {
+  clearPendingNotebookFileReference,
+  NOTEBOOK_WINDOW_NAME,
+  parseNotebookFileReferenceRequest,
+  readPendingNotebookFileReference,
+  type NotebookFileReferenceRequest,
+} from '@/app/lib/chat/notebook-file-reference-bridge';
+import {
+  notifyWorkspaceFileOpened,
+  WORKSPACE_FILE_OPENED_EVENT,
+} from '@/app/lib/files/workspace-file-events';
 
 
 
@@ -334,7 +344,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
     options: { suppressMobileChatClose?: boolean } = {},
   ) => {
     const normalizedPath = normalizeNotebookFilePath(path);
-    if (!normalizedPath) return;
+    if (!normalizedPath) return null;
 
     if (options.suppressMobileChatClose) {
       suppressNextMobileFileOpenCloseRef.current += 1;
@@ -349,7 +359,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
         );
       }
       clearStoredNotebookOpenFilePath();
-      return;
+      return result;
     }
 
     const loadedPath = useFileStore.getState().currentFile?.path ?? null;
@@ -360,7 +370,16 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
     }
 
     useFileStore.getState().setMobileSurface('editor');
+    return result;
   }, []);
+
+  const openBridgedNotebookFile = useCallback(async (request: NotebookFileReferenceRequest) => {
+    const result = await openNotebookFile(request.path);
+    if (result?.status !== 'opened') return;
+
+    clearPendingNotebookFileReference(request.requestId);
+    notifyWorkspaceFileOpened(request.path, 'chat-reference');
+  }, [openNotebookFile]);
 
   useEffect(() => {
     const sessionParam = searchParams.get('session');
@@ -385,6 +404,31 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
       });
     }
   }, [openDesktopSideChat, openMobileChat, openNotebookFile, searchParams, viewportMode]);
+
+  useEffect(() => {
+    if (window.name !== NOTEBOOK_WINDOW_NAME) return;
+
+    const handleMessage = (event: MessageEvent) => {
+      if (event.origin !== window.location.origin) return;
+      const request = parseNotebookFileReferenceRequest(event.data);
+      if (!request) return;
+      void openBridgedNotebookFile(request);
+    };
+
+    window.addEventListener('message', handleMessage);
+
+    const pendingRequest = readPendingNotebookFileReference();
+    const pathParam = normalizeNotebookFilePath(searchParams.get('path'));
+    if (pendingRequest) {
+      if (pendingRequest.path === pathParam) {
+        clearPendingNotebookFileReference(pendingRequest.requestId);
+      } else {
+        queueMicrotask(() => void openBridgedNotebookFile(pendingRequest));
+      }
+    }
+
+    return () => window.removeEventListener('message', handleMessage);
+  }, [openBridgedNotebookFile, searchParams]);
 
   useEffect(() => {
     const handleOpenChatSession = (event: Event) => {

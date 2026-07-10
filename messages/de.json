@@ -926,6 +926,7 @@
     "copied": "Kopiert",
     "fileReferences": "Dateien",
     "openFile": "Öffnen",
+    "notebookWindowBlocked": "Das Notebook-Fenster konnte nicht geöffnet werden. Erlaube Pop-ups für diese Seite und versuche es erneut.",
     "scrollToBottom": "Nach unten scrollen",
     "loadEarlierMessages": "Frühere Nachrichten laden",
     "loadingOlderMessages": "Laden…",

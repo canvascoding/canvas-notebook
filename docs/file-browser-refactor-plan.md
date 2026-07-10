@@ -26,11 +26,13 @@ Die im Performance-/Stabilitaetsaudit gefundenen FileTree- und Chat-Referenzprob
 - Gleichzeitige Directory-Loads teilen ein Promise, statt vorzeitig aufzuloesen oder doppelt zu laden.
 - Explorer-Zustand wird pro Workspace gespeichert und vor dem Restore hydriert.
 - Chat-Referenzen validieren workspace-sicher, reagieren nur auf relevante Invalidierungen und verwenden ein einheitliches Open-Verhalten.
+- Der Standalone-Chat kommuniziert nach dem ersten Öffnen über eine same-origin Window-Bridge mit dem benannten Notebook-Fenster, statt es bei jeder weiteren Referenz neu zu laden.
+- Markdown-Farbfeld-Widgets werden beim schnellen Preview-Wechsel idempotent nach dem laufenden Render-Zyklus entfernt, sodass React-Root-Cleanup nicht mehr mit dem Editor-Render konkurriert.
 - Directory-Fehler bleiben lokal, Bulk-Move aktualisiert den sichtbaren Tree einmalig und Tree-Merges erhalten unveraenderte Referenzen.
 - Breite FileBrowser-Subscriptions, per-Node-Media-Query-Listener, unbeschraenkte Tree-Depth und der sequenzielle Suchindex wurden korrigiert.
 - Eindeutig tote Auto-Refresh-, Chat-Event- und Metadata-Placeholder wurden entfernt.
 
-Automatisch verifiziert wurden `npm run test:file-watcher`, `scripts/chat-file-link-validation-test.ts`, `npm run lint` und `npm run build`. Die interaktive UI-/E2E-Pruefung bleibt gemaess Repository-Regel bis zur ausdruecklichen Browser-/Playwright-Freigabe offen.
+Automatisch verifiziert wurden `npm run test:file-watcher`, `scripts/chat-file-link-validation-test.ts`, `npm run test:workspace:foundation`, `npm run lint` und `npm run build`. Die freigegebene interaktive UI-Pruefung deckte Desktop, Mobile, verschachtelte Folder-Icons, Restore nach Reload, schnelle Referenzwechsel sowie Embedded- und Standalone-Chat ab.
 
 ## Status Quo
 

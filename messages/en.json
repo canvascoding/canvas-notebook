@@ -927,6 +927,7 @@
     "copied": "Copied",
     "fileReferences": "Files",
     "openFile": "Open",
+    "notebookWindowBlocked": "The notebook window could not be opened. Allow pop-ups for this site and try again.",
     "scrollToBottom": "Scroll to bottom",
     "loadEarlierMessages": "Load earlier messages",
     "loadingOlderMessages": "Loading…",
