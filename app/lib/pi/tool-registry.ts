@@ -133,6 +133,15 @@ import {
   type AgentSkillInstallFromWorkspaceResult,
   type AgentSkillUpdateFromWorkspaceResult,
 } from '@/app/lib/skills/agent-skill-workspace';
+import {
+  inspectCanvasPluginForAgent,
+  installCanvasPluginFromWorkspace,
+  removeCanvasPluginForAgent,
+  setCanvasPluginEnabledForAgent,
+  updateCanvasPluginFromWorkspace,
+  type AgentPluginInspection,
+  type AgentPluginWorkspaceResult,
+} from '@/app/lib/plugins/agent-plugin-workspace';
 import { getAgentExecutionContext, runWithAgentExecutionContext, type AgentExecutionContext } from '@/app/lib/pi/agent-execution-context';
 import { resolveAgentExecutionContextForSession } from '@/app/lib/pi/session-workspace-context';
 import { hashAuditValue, recordAuditEvent, type AuditStatus } from '@/app/lib/audit/audit-service';
@@ -3385,6 +3394,194 @@ function createAgentSkillTools(userId?: string): AgentTool[] {
   ];
 }
 
+async function recordAgentPluginToolAudit(input: {
+  action: string;
+  status: AuditStatus;
+  pluginName?: string | null;
+  workspacePath?: string | null;
+  metadata?: Record<string, unknown>;
+  error?: string;
+}) {
+  const executionContext = getAgentExecutionContext();
+  if (!executionContext) return;
+
+  const metadata = {
+    pluginName: input.pluginName ?? null,
+    workspacePath: input.workspacePath ?? null,
+    workspace: {
+      workspaceId: executionContext.workspaceId,
+      workspaceType: executionContext.workspaceType,
+      workspaceName: executionContext.workspaceName,
+      workspaceRootRelativePath: executionContext.workspaceRootRelativePath,
+    },
+    ...input.metadata,
+    error: input.error ? input.error.slice(0, 500) : null,
+  };
+  await recordAuditEvent({
+    organizationId: executionContext.organizationId,
+    customerId: executionContext.customerId,
+    projectId: executionContext.projectId,
+    workspaceId: executionContext.workspaceId,
+    userId: executionContext.userId,
+    sessionId: executionContext.sessionId,
+    agentId: executionContext.agentId,
+    source: 'agent_tool',
+    eventType: 'plugin',
+    entityType: 'canvas_plugin',
+    entityId: input.pluginName || executionContext.workspaceId,
+    action: input.action,
+    status: input.status,
+    summary: `Agent plugin tool ${input.action} ${input.status}.`,
+    metadata,
+    inputHash: hashAuditValue({ action: input.action, pluginName: input.pluginName ?? null, workspacePath: input.workspacePath ?? null }),
+    outputHash: hashAuditValue({ status: input.status, metadata, error: input.error ?? null }),
+  }).catch((error) => {
+    console.warn('[ToolRegistry] Failed to record plugin tool audit:', error);
+  });
+}
+
+function formatAgentPluginInspection(result: AgentPluginInspection): string {
+  return [
+    `Plugin: ${result.name}`,
+    `Installed: ${result.installed ? 'yes' : 'no'}`,
+    result.version ? `Version: ${result.version}` : null,
+    result.enabled !== undefined ? `Enabled: ${result.enabled ? 'yes' : 'no'}` : null,
+    result.checksum ? `Checksum: ${result.checksum}` : null,
+    result.description ? `Description: ${result.description}` : null,
+    result.skills?.length ? `Skills: ${result.skills.join(', ')}` : null,
+    result.reason ? `Reason: ${result.reason}` : null,
+  ].filter(Boolean).join('\n');
+}
+
+function formatAgentPluginMutation(result: AgentPluginWorkspaceResult): string {
+  return [
+    `Plugin: ${result.name}`,
+    `Version: ${result.version}`,
+    `Enabled: ${result.enabled ? 'yes' : 'no'}`,
+    `Checksum: ${result.checksum}`,
+    `Skills: ${result.skills.join(', ') || 'none'}`,
+    `Package: ${result.workspacePath}`,
+  ].join('\n');
+}
+
+function createAgentPluginTools(userId?: string): AgentTool[] {
+  return [
+    {
+      name: 'inspect_canvas_plugin',
+      label: 'Inspecting Canvas plugin',
+      description: 'Inspects an installed Canvas plugin before updating, enabling, disabling, or removing it. Returns version, checksum, activation state, and bundled skill names without exposing server paths.',
+      parameters: Type.Object({ pluginName: Type.String({ description: 'Plugin name to inspect.' }) }),
+      execute: async (_toolCallId, params) => {
+        const p = params as { pluginName?: string };
+        try {
+          const scopedUserId = requireToolUserId(userId, 'plugin tools');
+          await assertAgentCanManageSkills(scopedUserId);
+          const result = await inspectCanvasPluginForAgent({ pluginName: p.pluginName || '', scope: { userId: scopedUserId } });
+          await recordAgentPluginToolAudit({ action: 'plugin.inspect', status: 'success', pluginName: result.name, metadata: { installed: result.installed, version: result.version ?? null, checksum: result.checksum ?? null } });
+          return { content: [{ type: 'text', text: formatAgentPluginInspection(result) }], details: result };
+        } catch (error: unknown) {
+          const message = getErrorMessage(error);
+          await recordAgentPluginToolAudit({ action: 'plugin.inspect', status: 'failure', pluginName: p.pluginName, error: message });
+          return { content: [{ type: 'text', text: `Error: ${message}` }], details: { error: message } };
+        }
+      },
+    },
+    {
+      name: 'install_canvas_plugin_from_workspace',
+      label: 'Installing Canvas plugin from workspace',
+      description: 'Installs a new Canvas plugin package from a workspace directory. Create or edit the package with the create-plugin skill first; the directory must contain .canvas-plugin/plugin.json and valid skill content.',
+      parameters: Type.Object({
+        workspacePath: Type.String({ description: 'Workspace-relative plugin package directory.' }),
+        enable: Type.Optional(Type.Boolean({ description: 'Enable the plugin after install. Defaults to true.' })),
+      }),
+      execute: async (_toolCallId, params) => {
+        const p = params as { workspacePath?: string; enable?: boolean };
+        try {
+          const scopedUserId = requireToolUserId(userId, 'plugin tools');
+          const context = requireAgentExecutionContextForTool('install_canvas_plugin_from_workspace');
+          if (!context.canWrite) throw new Error('Agent file writes are disabled for the active workspace.');
+          await assertAgentCanManageSkills(scopedUserId);
+          const result = await installCanvasPluginFromWorkspace({ workspaceRoot: context.workspaceRoot, workspacePath: p.workspacePath || '', scope: { userId: scopedUserId }, enable: p.enable, updatedBy: scopedUserId });
+          await recordAgentPluginToolAudit({ action: 'plugin.install_from_workspace', status: 'success', pluginName: result.name, workspacePath: result.workspacePath, metadata: { version: result.version, checksum: result.checksum, enabled: result.enabled, skills: result.skills } });
+          return { content: [{ type: 'text', text: `Plugin installed.\n${formatAgentPluginMutation(result)}` }], details: result };
+        } catch (error: unknown) {
+          const message = getErrorMessage(error);
+          await recordAgentPluginToolAudit({ action: 'plugin.install_from_workspace', status: 'failure', workspacePath: p.workspacePath, error: message });
+          return { content: [{ type: 'text', text: `Error: ${message}` }], details: { error: message } };
+        }
+      },
+    },
+    {
+      name: 'update_canvas_plugin_from_workspace',
+      label: 'Updating Canvas plugin from workspace',
+      description: 'Replaces an installed Canvas plugin with a validated workspace package. Call inspect_canvas_plugin first and pass its version and checksum to prevent overwriting a concurrent change.',
+      parameters: Type.Object({
+        pluginName: Type.String({ description: 'Installed plugin name to update.' }),
+        workspacePath: Type.String({ description: 'Workspace-relative updated plugin package directory.' }),
+        expectedVersion: Type.String({ description: 'Version returned by inspect_canvas_plugin.' }),
+        expectedChecksum: Type.String({ description: 'Checksum returned by inspect_canvas_plugin.' }),
+        enable: Type.Optional(Type.Boolean({ description: 'Plugin activation state after update. Defaults to the current state.' })),
+      }),
+      execute: async (_toolCallId, params) => {
+        const p = params as { pluginName?: string; workspacePath?: string; expectedVersion?: string; expectedChecksum?: string; enable?: boolean };
+        try {
+          const scopedUserId = requireToolUserId(userId, 'plugin tools');
+          const context = requireAgentExecutionContextForTool('update_canvas_plugin_from_workspace');
+          if (!context.canWrite) throw new Error('Agent file writes are disabled for the active workspace.');
+          await assertAgentCanManageSkills(scopedUserId);
+          const result = await updateCanvasPluginFromWorkspace({ workspaceRoot: context.workspaceRoot, workspacePath: p.workspacePath || '', pluginName: p.pluginName || '', expectedVersion: p.expectedVersion || '', expectedChecksum: p.expectedChecksum || '', scope: { userId: scopedUserId }, enable: p.enable, updatedBy: scopedUserId });
+          await recordAgentPluginToolAudit({ action: 'plugin.update_from_workspace', status: 'success', pluginName: result.name, workspacePath: result.workspacePath, metadata: { previousVersion: result.previousVersion, version: result.version, previousChecksum: result.previousChecksum, checksum: result.checksum, enabled: result.enabled, skills: result.skills } });
+          return { content: [{ type: 'text', text: `Plugin updated.\n${formatAgentPluginMutation(result)}` }], details: result };
+        } catch (error: unknown) {
+          const message = getErrorMessage(error);
+          await recordAgentPluginToolAudit({ action: 'plugin.update_from_workspace', status: 'failure', pluginName: p.pluginName, workspacePath: p.workspacePath, error: message });
+          return { content: [{ type: 'text', text: `Error: ${message}` }], details: { error: message } };
+        }
+      },
+    },
+    {
+      name: 'set_canvas_plugin_enabled',
+      label: 'Setting Canvas plugin activation',
+      description: 'Enables or disables an installed Canvas plugin and its plugin-owned materialized skills.',
+      parameters: Type.Object({ pluginName: Type.String({ description: 'Installed plugin name.' }), enabled: Type.Boolean({ description: 'Whether the plugin should be enabled.' }) }),
+      execute: async (_toolCallId, params) => {
+        const p = params as { pluginName?: string; enabled?: boolean };
+        try {
+          const scopedUserId = requireToolUserId(userId, 'plugin tools');
+          await assertAgentCanManageSkills(scopedUserId);
+          const result = await setCanvasPluginEnabledForAgent({ pluginName: p.pluginName || '', enabled: p.enabled === true, scope: { userId: scopedUserId }, updatedBy: scopedUserId });
+          await recordAgentPluginToolAudit({ action: 'plugin.set_enabled', status: 'success', pluginName: result.name, metadata: { enabled: result.enabled, version: result.version, checksum: result.checksum } });
+          return { content: [{ type: 'text', text: `Plugin activation updated.\n${formatAgentPluginMutation(result)}` }], details: result };
+        } catch (error: unknown) {
+          const message = getErrorMessage(error);
+          await recordAgentPluginToolAudit({ action: 'plugin.set_enabled', status: 'failure', pluginName: p.pluginName, error: message });
+          return { content: [{ type: 'text', text: `Error: ${message}` }], details: { error: message } };
+        }
+      },
+    },
+    {
+      name: 'remove_canvas_plugin',
+      label: 'Removing Canvas plugin',
+      description: 'Removes an installed Canvas plugin and unmodified plugin-owned materialized skills. It refuses removal if a materialized skill was edited, so user work is never silently deleted.',
+      parameters: Type.Object({ pluginName: Type.String({ description: 'Installed plugin name to remove.' }) }),
+      execute: async (_toolCallId, params) => {
+        const p = params as { pluginName?: string };
+        try {
+          const scopedUserId = requireToolUserId(userId, 'plugin tools');
+          await assertAgentCanManageSkills(scopedUserId);
+          const result = await removeCanvasPluginForAgent({ pluginName: p.pluginName || '', scope: { userId: scopedUserId }, updatedBy: scopedUserId });
+          await recordAgentPluginToolAudit({ action: 'plugin.remove', status: 'success', pluginName: result.name });
+          return { content: [{ type: 'text', text: `Plugin removed: ${result.name}` }], details: result };
+        } catch (error: unknown) {
+          const message = getErrorMessage(error);
+          await recordAgentPluginToolAudit({ action: 'plugin.remove', status: 'failure', pluginName: p.pluginName, error: message });
+          return { content: [{ type: 'text', text: `Error: ${message}` }], details: { error: message } };
+        }
+      },
+    },
+  ];
+}
+
 function createUserScopedTools(userId?: string, agentId?: string | null, sessionId?: string | null): AgentTool[] {
   const sourceAgentId = normalizeManagedAgentId(agentId);
   const tools: AgentTool[] = [
@@ -3395,6 +3592,7 @@ function createUserScopedTools(userId?: string, agentId?: string | null, session
     createPublicShareTool(userId, agentId, sessionId),
     createBrowserGatewayTool({ userId, agentId: sourceAgentId, sessionId }),
     ...createAgentSkillTools(userId),
+    ...createAgentPluginTools(userId),
     ...createEmailTools(userId),
   ];
 
@@ -3809,18 +4007,24 @@ function getToolNotes(tool: AgentTool, group: PiToolGroup): string[] {
 export function buildPiToolRegistry(userId?: string, agentId?: string | null, sessionId?: string | null): AgentTool[] {
   const userScopedTools = createUserScopedTools(userId, agentId, sessionId);
   const overriddenNames = new Set(userScopedTools.map((t) => t.name));
-  const coreTools = piTools.filter((t) => !overriddenNames.has(t.name));
+  const coreTools = [
+    ...piTools.filter((tool) => tool.name !== 'mcp' && !overriddenNames.has(tool.name)),
+    ...(overriddenNames.has('mcp') ? [] : [createMcpProxyTool(userId)]),
+  ];
   return [...coreTools, ...userScopedTools];
 }
 
 export async function buildPiToolRegistryAsync(userId?: string, agentId?: string | null, sessionId?: string | null): Promise<AgentTool[]> {
   const userScopedTools = createUserScopedTools(userId, agentId, sessionId);
   const overriddenNames = new Set(userScopedTools.map((t) => t.name));
-  const coreTools = piTools.filter((t) => !overriddenNames.has(t.name));
+  const coreTools = [
+    ...piTools.filter((tool) => tool.name !== 'mcp' && !overriddenNames.has(tool.name)),
+    ...(overriddenNames.has('mcp') ? [] : [createMcpProxyTool(userId)]),
+  ];
   const composioStorageScope = userId ? { userId } : undefined;
   const composioConfigured = await isComposioConfigured(composioStorageScope);
   const composioTools = composioConfigured ? createComposioTools(composioStorageScope) : [];
-  const directMcpTools = await buildDirectMcpTools().then((result) => result.tools).catch((error) => {
+  const directMcpTools = await buildDirectMcpTools(userId ? { userId } : undefined).then((result) => result.tools).catch((error) => {
     console.error('[ToolRegistry] Error building direct MCP tools:', error);
     return [];
   });
