@@ -15,6 +15,8 @@ export type PiHistoryComposition = {
   includedSummary: boolean;
   availableHistoryTokens: number;
   estimatedHistoryTokens: number;
+  contextBudgetExceeded: boolean;
+  minimumRequiredTokens: number;
 };
 
 type ComposePiHistoryOptions = {
@@ -23,14 +25,13 @@ type ComposePiHistoryOptions = {
   systemPromptTokens: number;
   contextWindow: number;
   modelMaxTokens: number;
-  toolCount: number;
+  toolCount?: number;
+  toolTokens?: number;
+  additionalContextTokens?: number;
   aggressive?: boolean;
 };
 
-const TOKENS_PER_CHARACTER = 0.25;
 const MESSAGE_OVERHEAD_TOKENS = 24;
-const TOOL_TOKENS_PER_TOOL = 900;
-const MIN_HISTORY_TOKENS = 512;
 const STATIC_SAFETY_TOKENS = 512;
 const AGGRESSIVE_HISTORY_FACTOR = 0.7;
 const MAX_SUMMARY_SHARE = 0.45;
@@ -39,7 +40,10 @@ const SUMMARY_PREAMBLE =
   'Internal session summary from earlier turns. Treat this as compressed background context, not as a new user request.\n\n';
 
 export function estimateTextTokens(value: string): number {
-  return Math.ceil(value.length * TOKENS_PER_CHARACTER);
+  // A byte is a deliberately conservative upper bound for text tokenization.
+  // It prevents the runtime from under-budgeting code, JSON, CJK, and adversarial
+  // Unicode input when a model-specific tokenizer is unavailable.
+  return Buffer.byteLength(value, 'utf8');
 }
 
 function estimateContentTokens(content: unknown): number {
@@ -66,10 +70,10 @@ function estimateContentTokens(content: unknown): number {
       case 'image':
         // Estimate based on actual base64 data size so that large images
         // are dropped from history before the heap fills up.
-        // A 5 MB base64 string ≈ 1.25M "tokens" at 0.25 chars/token,
-        // but we cap per-image cost at 4096 to avoid starving the context.
+        // Vision providers meter images differently; reserve a bounded but
+        // conservative amount so one image cannot consume the whole history.
         if (typeof part.data === 'string' && part.data.length > 2048) {
-          return total + Math.min(4096, Math.ceil(part.data.length * TOKENS_PER_CHARACTER));
+          return total + Math.min(4096, estimateTextTokens(part.data));
         }
         return total + 512;
       default:
@@ -96,7 +100,7 @@ export function estimatePiMessageTokens(message: AgentMessage): number {
 }
 
 function getSummaryMessage(summaryText: string, maxHistoryTokens: number): UserMessage {
-  const maxSummaryCharacters = Math.max(400, Math.floor(maxHistoryTokens * MAX_SUMMARY_SHARE / TOKENS_PER_CHARACTER));
+  const maxSummaryCharacters = Math.max(128, Math.floor(maxHistoryTokens * MAX_SUMMARY_SHARE));
   const trimmedSummary = summaryText.trim();
   const content =
     trimmedSummary.length <= maxSummaryCharacters
@@ -114,20 +118,20 @@ function getHistoryBudget({
   systemPromptTokens,
   contextWindow,
   modelMaxTokens,
-  toolCount,
+  toolTokens = 0,
+  additionalContextTokens = 0,
   aggressive = false,
 }: Omit<ComposePiHistoryOptions, 'messages' | 'summary'>): number {
-  const outputReserve = Math.min(
-    Math.max(512, Math.floor(contextWindow * 0.2)),
-    Math.max(1024, Math.min(modelMaxTokens, 8192)),
-  );
-  const toolReserve = toolCount * TOOL_TOKENS_PER_TOOL;
-  const available = Math.max(
-    MIN_HISTORY_TOKENS,
-    contextWindow - systemPromptTokens - outputReserve - toolReserve - STATIC_SAFETY_TOKENS,
-  );
+  const outputReserve = Math.min(Math.max(0, modelMaxTokens), contextWindow);
+  const available = contextWindow
+    - systemPromptTokens
+    - outputReserve
+    - Math.max(0, toolTokens)
+    - Math.max(0, additionalContextTokens)
+    - STATIC_SAFETY_TOKENS;
 
-  return aggressive ? Math.max(MIN_HISTORY_TOKENS, Math.floor(available * AGGRESSIVE_HISTORY_FACTOR)) : available;
+  if (available <= 0) return 0;
+  return aggressive ? Math.floor(available * AGGRESSIVE_HISTORY_FACTOR) : available;
 }
 
 export function getMessageTimestamp(message: AgentMessage): number {
@@ -164,14 +168,16 @@ export function composePiHistoryForLlm({
   systemPromptTokens,
   contextWindow,
   modelMaxTokens,
-  toolCount,
+  toolTokens,
+  additionalContextTokens,
   aggressive = false,
 }: ComposePiHistoryOptions): PiHistoryComposition {
   const availableHistoryTokens = getHistoryBudget({
     systemPromptTokens,
     contextWindow,
     modelMaxTokens,
-    toolCount,
+    toolTokens,
+    additionalContextTokens,
     aggressive,
   });
 
@@ -183,7 +189,7 @@ export function composePiHistoryForLlm({
     const messageTokens = estimatePiMessageTokens(message);
     const nextTotal = keptTokens + messageTokens;
 
-    if (keptMessages.length > 0 && nextTotal > availableHistoryTokens) {
+    if (nextTotal > availableHistoryTokens) {
       break;
     }
 
@@ -191,7 +197,7 @@ export function composePiHistoryForLlm({
     keptTokens = nextTotal;
   }
 
-  const omittedMessages = messages.slice(0, Math.max(0, messages.length - keptMessages.length));
+  let omittedMessages = messages.slice(0, Math.max(0, messages.length - keptMessages.length));
   const firstMsgTimestamp = messages.length > 0 ? getMessageTimestamp(messages[0]) : null;
   const firstMsgSequence = messages.length > 0 ? getMessageSequence(messages[0]) : null;
   const hasCompactBreakMarker = messages.some((message) => message.role === 'compact-break');
@@ -202,10 +208,32 @@ export function composePiHistoryForLlm({
     || (summary.summaryThroughTimestamp !== null
       && firstMsgTimestamp !== null
       && firstMsgTimestamp > summary.summaryThroughTimestamp);
-  const shouldIncludeSummary = Boolean(summary.summaryText?.trim())
+  const shouldIncludeSummary = availableHistoryTokens > 0
+    && Boolean(summary.summaryText?.trim())
     && (omittedMessages.length > 0 || hasPrunedHistory);
-  const llmMessages = shouldIncludeSummary
-    ? [getSummaryMessage(summary.summaryText!, availableHistoryTokens), ...keptMessages]
+  let summaryMessage = shouldIncludeSummary
+    ? getSummaryMessage(summary.summaryText!, availableHistoryTokens)
+    : null;
+  let summaryTokens = summaryMessage ? estimatePiMessageTokens(summaryMessage) : 0;
+
+  while (summaryMessage && keptMessages.length > 0 && keptTokens + summaryTokens > availableHistoryTokens) {
+    const removed = keptMessages.shift()!;
+    keptTokens -= estimatePiMessageTokens(removed);
+  }
+
+  omittedMessages = messages.slice(0, Math.max(0, messages.length - keptMessages.length));
+
+  if (summaryMessage && summaryTokens > availableHistoryTokens) {
+    summaryMessage = null;
+    summaryTokens = 0;
+  }
+
+  const contextBudgetExceeded = messages.length > 0 && keptMessages.length === 0;
+  const minimumRequiredTokens = contextBudgetExceeded
+    ? estimatePiMessageTokens(messages[messages.length - 1])
+    : 0;
+  const llmMessages = summaryMessage
+    ? [summaryMessage, ...keptMessages]
     : keptMessages;
   const estimatedHistoryTokens = llmMessages.reduce((total, message) => total + estimatePiMessageTokens(message), 0);
 
@@ -216,6 +244,8 @@ export function composePiHistoryForLlm({
     includedSummary: shouldIncludeSummary,
     availableHistoryTokens,
     estimatedHistoryTokens,
+    contextBudgetExceeded,
+    minimumRequiredTokens,
   };
 }
 

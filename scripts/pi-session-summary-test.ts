@@ -14,7 +14,7 @@ async function main() {
       return {};
     }
 
-    if (request === '@earendil-works/pi-ai') {
+    if (request === '@earendil-works/pi-ai' || request === '@earendil-works/pi-ai/compat') {
       return {
         registerBuiltInApiProviders: () => undefined,
         getProviders: () => [],
@@ -76,7 +76,7 @@ async function main() {
     },
     systemPromptTokens: 200,
     model,
-    toolCount: 0,
+    toolTokens: 0,
     sessionId: 'summary-test',
   });
 
@@ -88,7 +88,7 @@ async function main() {
   assert.ok(result.composition.omittedMessages.length > 0);
 
   const noOmittedResult = await preparePiHistoryContext({
-    messages: messages.slice(-2),
+    messages: messages.slice(-1),
     summary: {
       summaryText: null,
       summaryUpdatedAt: null,
@@ -97,7 +97,7 @@ async function main() {
     },
     systemPromptTokens: 200,
     model,
-    toolCount: 0,
+    toolTokens: 0,
     sessionId: 'summary-test-small',
   });
 
@@ -147,9 +147,27 @@ async function main() {
     systemPromptTokens: 200,
     contextWindow: 10_000,
     modelMaxTokens: 512,
-    toolCount: 0,
+    toolTokens: 0,
   });
   assert.equal(compactedComposition.includedSummary, true);
+
+  const oversizedComposition = composePiHistoryForLlm({
+    messages: [{ role: 'user', content: 'x'.repeat(8_000), timestamp: 9_000 } as unknown as AgentMessage],
+    summary: {
+      summaryText: null,
+      summaryUpdatedAt: null,
+      summaryThroughTimestamp: null,
+      summaryThroughSequence: null,
+    },
+    systemPromptTokens: 1_500,
+    contextWindow: 4_096,
+    modelMaxTokens: 2_048,
+    toolTokens: 1_000,
+    additionalContextTokens: 200,
+  });
+  assert.equal(oversizedComposition.contextBudgetExceeded, true);
+  assert.equal(oversizedComposition.llmMessages.length, 0);
+  assert.ok(oversizedComposition.minimumRequiredTokens > oversizedComposition.availableHistoryTokens);
 }
 
 main().catch((error) => {

@@ -20,7 +20,8 @@ type PreparePiHistoryContextOptions = {
   summary: PiSessionSummaryState;
   systemPromptTokens: number;
   model: Model<Api>;
-  toolCount: number;
+  toolTokens: number;
+  additionalContextTokens?: number;
   sessionId?: string;
   signal?: AbortSignal;
 };
@@ -252,7 +253,8 @@ export async function preparePiHistoryContext({
   summary,
   systemPromptTokens,
   model,
-  toolCount,
+  toolTokens,
+  additionalContextTokens = 0,
   sessionId,
   signal,
 }: PreparePiHistoryContextOptions): Promise<PreparePiHistoryContextResult> {
@@ -266,8 +268,20 @@ export async function preparePiHistoryContext({
     systemPromptTokens,
     contextWindow: model.contextWindow,
     modelMaxTokens: model.maxTokens,
-    toolCount,
+    toolTokens,
+    additionalContextTokens,
   });
+
+  if (composition.contextBudgetExceeded) {
+    return {
+      summary: nextSummary,
+      composition,
+      summaryAttempted,
+      summaryUpdated,
+      summaryFailed: false,
+      unsummarizedMessageCount: 0,
+    };
+  }
 
   const unsummarizedMessages = getUnsummarizedMessages(
     composition.omittedMessages,
@@ -317,7 +331,8 @@ export async function preparePiHistoryContext({
         systemPromptTokens,
         contextWindow: model.contextWindow,
         modelMaxTokens: model.maxTokens,
-        toolCount,
+        toolTokens,
+        additionalContextTokens,
       });
     } else {
       summaryFailed = true;
