@@ -27,7 +27,7 @@ export interface FileEvent {
   timestamp: number;
 }
 
-interface Client {
+export interface FileWatcherServerClient {
   id: string;
   workspaceId: string;
   workspace: WorkspaceContext;
@@ -59,9 +59,9 @@ function subscriptionKey(workspaceId: string, dirPath: string): string {
   return `${workspaceId}\0${dirPath}`;
 }
 
-class FileWatcherService {
+export class FileWatcherService {
   private watchers = new Map<string, FSWatcher>();
-  private clients = new Map<string, Client>();
+  private clients = new Map<string, FileWatcherServerClient>();
   private subscriptions = new Map<string, Subscription>();
   private debounceTimer: NodeJS.Timeout | null = null;
   private pendingEvents: FileEvent[] = [];
@@ -74,7 +74,7 @@ class FileWatcherService {
     this.startStaleCheck();
   }
 
-  public subscribe(client: Client): () => void {
+  public subscribe(client: FileWatcherServerClient): () => void {
     this.clients.set(client.id, client);
     this.touchClient(client.id);
     void fs.mkdir(client.workspace.rootPath, { recursive: true }).then(() => {
@@ -183,7 +183,7 @@ class FileWatcherService {
     this.invalidateAndBroadcast(event, mutation.workspace);
   }
 
-  private getSubscriptionForClient(client: Client, dirPath: string): Subscription {
+  private getSubscriptionForClient(client: FileWatcherServerClient, dirPath: string): Subscription {
     const key = subscriptionKey(client.workspaceId, dirPath);
     let subscription = this.subscriptions.get(key);
     if (!subscription) {
