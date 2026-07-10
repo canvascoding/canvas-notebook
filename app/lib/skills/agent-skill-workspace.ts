@@ -178,15 +178,40 @@ async function findSkillMarkdownFiles(root: string, currentDir = root): Promise<
   return skillFiles.sort((left, right) => left.localeCompare(right));
 }
 
+async function assertPackageContainsNoSymlinks(packageRoot: string, currentDir = packageRoot): Promise<void> {
+  const entries = await fs.readdir(currentDir, { withFileTypes: true });
+  for (const entry of entries) {
+    if (IGNORED_PACKAGE_ENTRIES.has(entry.name)) continue;
+
+    const fullPath = path.join(currentDir, entry.name);
+    if (entry.isSymbolicLink()) {
+      const relativePath = toPosixPath(path.relative(packageRoot, fullPath));
+      throw new Error(`Skill package must not contain symbolic links: ${relativePath}`);
+    }
+    if (entry.isDirectory()) {
+      await assertPackageContainsNoSymlinks(packageRoot, fullPath);
+    }
+  }
+}
+
 async function resolveWorkspaceSkillPackageRoot(workspaceRoot: string, workspacePath: string): Promise<{
   packageRoot: string;
   displayPath: string;
 }> {
   const candidate = resolveWorkspacePath(workspaceRoot, workspacePath);
-  const stat = await fs.stat(candidate).catch(() => null);
+  const stat = await fs.lstat(candidate).catch(() => null);
   if (!stat?.isDirectory()) {
     throw new Error('Skill workspace path must be an existing directory.');
   }
+
+  const [realWorkspaceRoot, realCandidate] = await Promise.all([
+    fs.realpath(workspaceRoot),
+    fs.realpath(candidate),
+  ]);
+  if (realCandidate !== realWorkspaceRoot && !realCandidate.startsWith(`${realWorkspaceRoot}${path.sep}`)) {
+    throw new Error('Skill draft path must stay inside the active workspace.');
+  }
+  await assertPackageContainsNoSymlinks(candidate);
 
   const skillFiles = await findSkillMarkdownFiles(candidate);
   if (skillFiles.length === 0) {
@@ -219,6 +244,9 @@ async function readWorkspacePackageFiles(packageRoot: string): Promise<Array<{ r
       if (entry.isDirectory()) {
         await visit(fullPath);
         continue;
+      }
+      if (entry.isSymbolicLink()) {
+        throw new Error(`Skill package must not contain symbolic links: ${relativePath}`);
       }
       if (!entry.isFile()) {
         continue;
@@ -496,6 +524,7 @@ export async function createCanvasSkillDraft(params: {
 
   if (params.sourceSkillName) {
     const source = await getExistingEditableSkill(params.sourceSkillName.trim(), scope);
+    await assertPackageContainsNoSymlinks(source.installDir);
     await fs.cp(source.installDir, packageRoot, {
       recursive: true,
       preserveTimestamps: true,

@@ -156,6 +156,22 @@ async function main() {
     assert.equal(discard.deleted, true);
     assert.equal(await pathExists(path.join(workspaceRoot, discardDraft.draftPath)), false);
 
+    const symlinkDraft = await createCanvasSkillDraft({
+      workspaceRoot,
+      scope,
+      skillName: 'symlink-draft-skill',
+      version: '1.0.0',
+    });
+    await fs.symlink('/tmp', path.join(workspaceRoot, symlinkDraft.packagePath, 'outside-link'));
+    await assert.rejects(
+      installCanvasSkillFromWorkspace({
+        workspaceRoot,
+        scope,
+        draftPath: symlinkDraft.packagePath,
+      }),
+      /symbolic links/,
+    );
+
     console.log('agent skill workspace test passed');
   } finally {
     await fs.rm(dataRoot, { recursive: true, force: true });
