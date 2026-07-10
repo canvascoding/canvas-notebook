@@ -81,6 +81,24 @@ interface LoadWorkspaceTreeOptions {
   includeStats?: boolean;
 }
 
+export interface WorkspaceFileReferenceEntry {
+  name: string;
+  path: string;
+  type: 'file' | 'directory';
+  extension?: string;
+  isImage: boolean;
+  size?: number;
+  publicShare?: FileNode['publicShare'];
+}
+
+export interface ListWorkspaceFileReferencesOptions {
+  query?: string;
+  limit?: number;
+  workspaceId: string;
+  signal?: AbortSignal;
+  cache?: RequestCache;
+}
+
 function formatResponseStatus(response: Response) {
   const statusText = response.statusText ? ` ${response.statusText}` : '';
   return response.status ? ` (${response.status}${statusText})` : '';
@@ -156,6 +174,48 @@ export async function readApiError(response: Response, fallbackMessage: string) 
   }
 
   return `${fallbackMessage}${formatResponseStatus(response)}`;
+}
+
+export async function listWorkspaceFileReferences({
+  query = '',
+  limit = 50,
+  workspaceId,
+  signal,
+  cache = 'no-store',
+}: ListWorkspaceFileReferencesOptions): Promise<WorkspaceFileReferenceEntry[]> {
+  const normalizedWorkspaceId = workspaceId.trim();
+  if (!normalizedWorkspaceId) {
+    throw new Error('Workspace context is not ready');
+  }
+
+  const params = new URLSearchParams({
+    limit: String(limit),
+    workspaceId: normalizedWorkspaceId,
+  });
+  const normalizedQuery = query.trim();
+  if (normalizedQuery) params.set('q', normalizedQuery);
+
+  const response = await fetch(`/api/files/list?${params.toString()}`, {
+    credentials: 'include',
+    cache,
+    headers: workspaceHeaders(normalizedWorkspaceId),
+    signal,
+  });
+  if (!response.ok) {
+    throw new WorkspaceFileApiError(
+      await readApiError(response, 'Failed to search workspace files'),
+      response,
+    );
+  }
+
+  const payload = await readApiJson<{ success?: boolean; files?: WorkspaceFileReferenceEntry[]; error?: string }>(
+    response,
+    'Failed to search workspace files',
+  );
+  if (!payload.success || !Array.isArray(payload.files)) {
+    throw new Error(payload.error || 'Failed to search workspace files');
+  }
+  return payload.files;
 }
 
 function apiErrorMessage(response: Response, fallbackMessage: string, payload: ApiErrorPayload) {

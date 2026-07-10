@@ -12,20 +12,11 @@ import {
 } from '@/app/lib/files/path-utils';
 import { runDirectoryTasksByDepth } from '@/app/lib/files/tree-refresh';
 import { findPathInTree, flattenDirectoryChildren } from '@/app/lib/files/tree-utils';
+import { listWorkspaceFileReferences } from '@/app/lib/files/client';
 
 interface UseFileExplorerViewModelOptions {
   containerRef: RefObject<HTMLDivElement | null>;
   variant: 'default' | 'mobile-sheet' | 'fullscreen';
-}
-
-interface FileSearchEntry {
-  name: string;
-  path: string;
-  type: 'file' | 'directory';
-  size?: number;
-  modified?: number;
-  permissions?: string;
-  publicShare?: FileNodeType['publicShare'];
 }
 
 interface SearchState {
@@ -262,24 +253,18 @@ export function useFileExplorerViewModel({ containerRef, variant }: UseFileExplo
     const timeout = window.setTimeout(async () => {
       setSearchState({ query, results: null, isSearching: true, error: null });
       try {
-        const response = await fetch(`/api/files/list?q=${encodeURIComponent(query)}&limit=200`, {
-          credentials: 'include',
-          cache: 'no-store',
+        if (!activeWorkspaceId) throw new Error('Workspace context is not ready');
+        const entries = await listWorkspaceFileReferences({
+          query,
+          limit: 200,
+          workspaceId: activeWorkspaceId,
           signal: controller.signal,
         });
-
-        if (!response.ok) {
-          throw new Error('Failed to search files');
-        }
-
-        const payload = await response.json() as { files?: FileSearchEntry[] };
-        const nextResults = (payload.files ?? []).map((entry) => ({
+        const nextResults = entries.map((entry) => ({
           name: entry.name,
           path: entry.path,
           type: entry.type,
           size: entry.size,
-          modified: entry.modified,
-          permissions: entry.permissions,
           publicShare: entry.publicShare,
         } satisfies FileNodeType));
         if (controller.signal.aborted) return;
@@ -300,7 +285,7 @@ export function useFileExplorerViewModel({ containerRef, variant }: UseFileExplo
       window.clearTimeout(timeout);
       controller.abort();
     };
-  }, [normalizedSearchQuery]);
+  }, [activeWorkspaceId, normalizedSearchQuery]);
 
   const filteredTree = useMemo(
     () => normalizedSearchQuery ? filterTree(fileTree, normalizedSearchQueryLower) : fileTree,

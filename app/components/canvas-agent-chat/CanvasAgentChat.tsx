@@ -402,6 +402,7 @@ export default function CanvasAgentChat({
     selectPreviousReference,
   } = useComposerReferences({
     input,
+    workspaceId: activeWorkspaceId,
     resetInputHistoryNavigation,
     setInput,
     textareaRef,
@@ -618,6 +619,7 @@ export default function CanvasAgentChat({
   useEffect(() => {
     const handleWorkspaceChange = (event: Event) => {
       const detail = (event as CustomEvent<{ previousWorkspaceId?: string | null; activeWorkspaceId?: string | null }>).detail;
+      closeReferencePicker();
       if (detail?.previousWorkspaceId) {
         clearCanvasChatActiveSessionStorage(detail.previousWorkspaceId);
       }
@@ -626,7 +628,7 @@ export default function CanvasAgentChat({
 
     window.addEventListener(WORKSPACE_CHANGED_EVENT, handleWorkspaceChange);
     return () => window.removeEventListener(WORKSPACE_CHANGED_EVENT, handleWorkspaceChange);
-  }, [startNewChat]);
+  }, [closeReferencePicker, startNewChat]);
 
   const { loadOlderMessages, loadSession } = useChatSessionMessages({
     activeModel,

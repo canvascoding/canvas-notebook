@@ -15,7 +15,9 @@ import {
   type EmailAttachmentDeliveryFormat,
 } from '@/app/lib/email/attachment-types';
 import { getFileDisplayName } from '@/app/lib/files/display-name';
+import { listWorkspaceFileReferences } from '@/app/lib/files/client';
 import { getFileIconComponent, isImageFile } from '@/app/lib/files/file-icons';
+import { useWorkspaceStore } from '@/app/store/workspace-store';
 import { toUploadPreviewUrl } from '@/app/lib/utils/media-url';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -193,6 +195,7 @@ function AttachmentRow({
 }
 
 export function EmailAttachmentPanel({ attachments, disabled = false, labels, onChange }: EmailAttachmentPanelProps) {
+  const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const requestIdRef = useRef(0);
   const attachmentsRef = useRef(attachments);
@@ -231,14 +234,10 @@ export function EmailAttachmentPanel({ attachments, disabled = false, labels, on
     setIsWorkspaceLoading(true);
     setError(null);
     try {
-      const params = new URLSearchParams({ limit: '100' });
-      if (query.trim()) params.set('q', query.trim());
-      const response = await fetch(`/api/files/list?${params.toString()}`, { credentials: 'include', cache: 'no-store' });
-      const payload = await response.json().catch(() => ({}));
+      if (!activeWorkspaceId) throw new Error('Workspace context is not ready');
+      const files = await listWorkspaceFileReferences({ query, limit: 100, workspaceId: activeWorkspaceId });
       if (requestId !== requestIdRef.current) return;
-      if (!response.ok || !payload.success) throw new Error(payload.error || 'Failed to load files');
-      const files = Array.isArray(payload.files) ? payload.files as WorkspaceAttachmentFile[] : [];
-      setWorkspaceFiles(files.filter((file) => file.type === 'file').map(makeWorkspaceAttachment));
+      setWorkspaceFiles(files.filter((file) => file.type === 'file').map((file) => makeWorkspaceAttachment(file as WorkspaceAttachmentFile)));
     } catch (err) {
       if (requestId !== requestIdRef.current) return;
       setWorkspaceFiles([]);
@@ -246,7 +245,7 @@ export function EmailAttachmentPanel({ attachments, disabled = false, labels, on
     } finally {
       if (requestId === requestIdRef.current) setIsWorkspaceLoading(false);
     }
-  }, [search]);
+  }, [activeWorkspaceId, search]);
 
   const openAttachmentDialog = useCallback(() => {
     setSelected([]);

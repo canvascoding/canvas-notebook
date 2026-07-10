@@ -32,6 +32,7 @@ import {
 
 import { Link } from '@/i18n/navigation';
 import { getDefaultTodoCategoryKey } from '@/app/lib/todos/default-categories';
+import { listWorkspaceFileReferences, type WorkspaceFileReferenceEntry } from '@/app/lib/files/client';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -124,11 +125,7 @@ type TodoItem = {
   assignee: TodoUserSummary | null;
 };
 
-type WorkspaceFileEntry = {
-  name: string;
-  path: string;
-  type: 'file' | 'directory';
-};
+type WorkspaceFileEntry = WorkspaceFileReferenceEntry;
 
 type ApiResponse<T> = {
   success: boolean;
@@ -701,15 +698,14 @@ export function TodosClient({ title }: { title: string }) {
     const handle = window.setTimeout(async () => {
       setIsFileSearching(true);
       try {
-        const params = new URLSearchParams({ q: fileQuery, limit: '20' });
-        if (selectedWorkspaceId) params.set('workspaceId', selectedWorkspaceId);
-        const response = await fetch(`/api/files/list?${params.toString()}`, {
-          credentials: 'include',
-          cache: 'no-store',
+        if (!selectedWorkspaceId) throw new Error('Workspace context is not ready');
+        const files = await listWorkspaceFileReferences({
+          query: fileQuery,
+          limit: 20,
+          workspaceId: selectedWorkspaceId,
           signal: controller.signal,
         });
-        const payload = await response.json() as { success?: boolean; files?: WorkspaceFileEntry[] };
-        setFileResults(payload.success ? (payload.files ?? []) : []);
+        setFileResults(files as WorkspaceFileEntry[]);
       } catch (error) {
         if (!(error instanceof DOMException && error.name === 'AbortError')) {
           setFileResults([]);

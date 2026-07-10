@@ -23,18 +23,15 @@ import type {
 } from '@/app/components/shared/ImagePreprocessDialog';
 import { isHeicUploadFile, shouldPreprocessImageFile } from '@/app/lib/images/client-preprocess';
 import { prepareImageFilesForUpload, serializeUploadConvertParams } from '@/app/lib/images/client-upload-conversion';
+import { listWorkspaceFileReferences, type WorkspaceFileReferenceEntry } from '@/app/lib/files/client';
+import { useWorkspaceStore } from '@/app/store/workspace-store';
 
 type Attachment = ChatAttachment;
 type UploadProgressOptions = {
   progressIndex?: number;
 };
 
-interface FilePickerFile {
-  name: string;
-  path: string;
-  type: 'file' | 'directory';
-  isImage: boolean;
-}
+type FilePickerFile = WorkspaceFileReferenceEntry;
 
 interface RecentSession {
   sessionId: string;
@@ -93,6 +90,7 @@ export function HomeChatPrompt() {
   const tHome = useTranslations('home');
   const tChat = useTranslations('chat');
   const [prompt, setPrompt] = useState('');
+  const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -342,18 +340,15 @@ export function HomeChatPrompt() {
   const fetchFiles = useCallback(async (query: string = '') => {
     setIsLoadingFiles(true);
     try {
-      const res = await fetch(`/api/files/list?q=${encodeURIComponent(query)}&limit=50`);
-      const data = await res.json();
-      if (data.success) {
-        setFilePickerFiles(data.files);
-        setSelectedFileIndex(0);
-      }
+      if (!activeWorkspaceId) throw new Error('Workspace context is not ready');
+      setFilePickerFiles(await listWorkspaceFileReferences({ query, limit: 50, workspaceId: activeWorkspaceId }));
+      setSelectedFileIndex(0);
     } catch (err) {
       console.error('Failed to fetch files', err);
     } finally {
       setIsLoadingFiles(false);
     }
-  }, []);
+  }, [activeWorkspaceId]);
 
   // Handle @-mention in textarea
   const handleInputChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {

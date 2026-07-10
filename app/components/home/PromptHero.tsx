@@ -24,18 +24,15 @@ import { fetchChatAgents } from '@/app/lib/chat/agent-api';
 import { fetchLastActiveAgentId, saveLastActiveAgentId } from '@/app/lib/chat/agent-preferences';
 import { getAgentDisplayName } from '@/app/lib/chat/agent-display';
 import type { AgentProfile } from '@/app/lib/chat/types';
+import { listWorkspaceFileReferences, type WorkspaceFileReferenceEntry } from '@/app/lib/files/client';
+import { useWorkspaceStore } from '@/app/store/workspace-store';
 
 type Attachment = ChatAttachment;
 type UploadProgressOptions = {
   progressIndex?: number;
 };
 
-interface FilePickerFile {
-  name: string;
-  path: string;
-  type: 'file' | 'directory';
-  isImage: boolean;
-}
+type FilePickerFile = WorkspaceFileReferenceEntry;
 
 const DEFAULT_AGENT_PROFILE: AgentProfile = {
   agentId: DEFAULT_AGENT_ID,
@@ -58,6 +55,7 @@ export function PromptHero({ licenseLocked = false }: { licenseLocked?: boolean 
   const tHome = useTranslations('home');
   const tChat = useTranslations('chat');
   const [prompt, setPrompt] = useState('');
+  const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [availableAgents, setAvailableAgents] = useState<AgentProfile[]>([]);
@@ -314,18 +312,15 @@ export function PromptHero({ licenseLocked = false }: { licenseLocked?: boolean 
     if (licenseLocked) return;
     setIsLoadingFiles(true);
     try {
-      const res = await fetch(`/api/files/list?q=${encodeURIComponent(query)}&limit=50`);
-      const data = await res.json();
-      if (data.success) {
-        setFilePickerFiles(data.files);
-        setSelectedFileIndex(0);
-      }
+      if (!activeWorkspaceId) throw new Error('Workspace context is not ready');
+      setFilePickerFiles(await listWorkspaceFileReferences({ query, limit: 50, workspaceId: activeWorkspaceId }));
+      setSelectedFileIndex(0);
     } catch (err) {
       console.error('Failed to fetch files', err);
     } finally {
       setIsLoadingFiles(false);
     }
-  }, [licenseLocked]);
+  }, [activeWorkspaceId, licenseLocked]);
 
   const handleInputChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const value = e.target.value;

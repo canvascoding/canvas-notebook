@@ -15,6 +15,7 @@ import type { FilePickerFile, PluginPickerPlugin, ReferencePickerValue, SkillPic
 import { findActiveComposerReference, replaceComposerReference, type ComposerReferenceMatch } from '@/app/lib/chat/composer-references';
 import { safeFetchJson } from '@/app/lib/chat/fetch-json';
 import { getFileDisplayPath } from '@/app/lib/files/display-name';
+import { listWorkspaceFileReferences } from '@/app/lib/files/client';
 import { getFileIconComponent } from '@/app/lib/files/file-icons';
 import { CanvasPluginIcon } from '@/app/lib/plugins/plugin-icons';
 import { CanvasSkillIcon } from '@/app/lib/skills/skill-icons';
@@ -22,6 +23,7 @@ import { searchSkillReferenceEntries } from '@/app/lib/skills/skill-reference-se
 
 type UseComposerReferencesParams = {
   input: string;
+  workspaceId: string | null;
   resetInputHistoryNavigation: () => void;
   setInput: Dispatch<SetStateAction<string>>;
   textareaRef: RefObject<HTMLTextAreaElement | null>;
@@ -29,6 +31,7 @@ type UseComposerReferencesParams = {
 
 export function useComposerReferences({
   input,
+  workspaceId,
   resetInputHistoryNavigation,
   setInput,
   textareaRef,
@@ -52,27 +55,27 @@ export function useComposerReferences({
 
   const fetchFiles = useCallback(async (query: string = '', requestId: number) => {
     try {
-      const res = await fetch(`/api/files/list?q=${encodeURIComponent(query)}&limit=50`);
-      const data = await safeFetchJson<{ success: boolean; files?: FilePickerFile[] }>(res);
+      if (!workspaceId) {
+        throw new Error('Workspace context is not ready');
+      }
+      const files = await listWorkspaceFileReferences({ query, limit: 50, workspaceId });
       if (requestId !== referenceRequestIdRef.current) {
         return;
       }
 
-      if (data?.success) {
-        const items = (data.files as FilePickerFile[]).map((file) => ({
+      const items = files.map((file) => ({
           id: `file:${file.path}`,
           kind: 'file' as const,
           icon: getFileIconComponent({ name: file.name, path: file.path, type: file.type }),
           label: getFileDisplayPath(file.path),
-          payload: file,
+          payload: file as FilePickerFile,
         }));
-        setReferencePickerItems(items);
-        setSelectedReferenceIndex(0);
-      }
+      setReferencePickerItems(items);
+      setSelectedReferenceIndex(0);
     } catch (err) {
       console.error('Failed to fetch files', err);
     }
-  }, []);
+  }, [workspaceId]);
 
   const setCapabilityReferenceItems = useCallback((plugins: PluginPickerPlugin[], skills: SkillPickerSkill[], query: string) => {
     const pluginItems = searchSkillReferenceEntries(

@@ -57,7 +57,9 @@ import {
 } from '@/app/lib/email/html-editor-content';
 import { isLikelyHtmlEmailContent, normalizeEmailHtmlContent } from '@/app/lib/email/html-content';
 import { getFileIconComponent } from '@/app/lib/files/file-icons';
+import { listWorkspaceFileReferences } from '@/app/lib/files/client';
 import { getToolDisplayInfo } from '@/app/lib/pi/tool-display';
+import { useWorkspaceStore } from '@/app/store/workspace-store';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -1555,6 +1557,7 @@ function EmailComposeDialog({
   onSubmit(): void;
   onUpdate(updates: Partial<Pick<EmailComposeDraft, 'aiMode' | 'aiPrompt' | 'aiTone' | 'attachments' | 'body' | 'bodyHtml' | 'ccText' | 'contextFiles' | 'subject' | 'toText' | 'usedContext'>>): void;
 }) {
+  const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
   const blockedRecipient = useMemo(() => extractBlockedSendPolicyRecipient(error), [error]);
   const [isReferencePickerOpen, setIsReferencePickerOpen] = useState(false);
   const [activeReferenceMatch, setActiveReferenceMatch] = useState<ComposerReferenceMatch | null>(null);
@@ -1587,12 +1590,9 @@ function EmailComposeDialog({
     referenceRequestIdRef.current = requestId;
     setIsReferencePickerLoading(true);
     try {
-      const params = new URLSearchParams({ limit: '50' });
-      if (query.trim()) params.set('q', query.trim());
-      const response = await fetch(`/api/files/list?${params.toString()}`, { credentials: 'include', cache: 'no-store' });
-      const payload = await response.json().catch(() => ({}));
+      if (!activeWorkspaceId) throw new Error('Workspace context is not ready');
+      const files = await listWorkspaceFileReferences({ query, limit: 50, workspaceId: activeWorkspaceId });
       if (requestId !== referenceRequestIdRef.current) return;
-      const files = Array.isArray(payload.files) ? payload.files as FilePickerFile[] : [];
       const items = files
         .filter(isSupportedEmailContextFile)
         .filter((file) => !selectedContextPaths.has(file.path))
@@ -1615,7 +1615,7 @@ function EmailComposeDialog({
         setIsReferencePickerLoading(false);
       }
     }
-  }, [selectedContextPaths]);
+  }, [activeWorkspaceId, selectedContextPaths]);
 
   const selectReferenceFile = useCallback((item: ComposerReferencePickerItem<FilePickerFile>) => {
     const file = item.payload;
