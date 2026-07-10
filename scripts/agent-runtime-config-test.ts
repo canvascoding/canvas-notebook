@@ -199,9 +199,8 @@ async function main() {
   assert.match(scopedPrompt.systemPrompt, /Scoped runtime prompt/);
   assert.match(scopedPrompt.systemPrompt, /## Authenticated User Context/);
   assert.match(scopedPrompt.systemPrompt, /User display name: "Runtime User A"/);
-  assert.ok(scopedPrompt.systemPrompt.includes(
-    `Source: ${path.join(dataDir, 'users', scopedUserId, 'agents', 'canvas-agent', 'AGENTS.md')}`,
-  ));
+  assert.match(scopedPrompt.systemPrompt, /## AGENTS\.md\n\nScoped runtime prompt\./);
+  assert.doesNotMatch(scopedPrompt.systemPrompt, /Source: /);
   const providedNamePrompt = await loadManagedAgentSystemPrompt(DEFAULT_MANAGED_AGENT_ID, {
     userId: scopedUserId,
     userName: ' Runtime\nDisplay ',
