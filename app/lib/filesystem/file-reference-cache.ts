@@ -22,6 +22,7 @@ async function collectFilesRecursive(
   dirPath: string,
   options: WorkspaceFileOperationOptions | undefined,
   semaphore: AsyncSemaphore,
+  isRoot = false,
 ): Promise<FileReferenceEntry[]> {
   try {
     const entries = await semaphore.run(() => listDirectory(dirPath, {
@@ -54,7 +55,9 @@ async function collectFilesRecursive(
     for (const entries of nestedFiles) files.push(...entries);
 
     return files;
-  } catch {
+  } catch (error) {
+    if (isRoot) throw error;
+    console.warn(`[FileReferenceCache] Skipping unreadable directory: ${dirPath}`, error);
     return [];
   }
 }
@@ -91,6 +94,7 @@ export async function getCachedFileReferenceEntries(
     '.',
     options,
     new AsyncSemaphore(FILE_REFERENCE_DIRECTORY_CONCURRENCY),
+    true,
   )
     .then((entries) => {
       cacheEntries.set(cacheKey, {

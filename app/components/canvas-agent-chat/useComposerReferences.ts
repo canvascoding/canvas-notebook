@@ -3,6 +3,7 @@
 import {
   useCallback,
   createElement,
+  useEffect,
   useRef,
   useState,
   type ChangeEvent,
@@ -33,6 +34,18 @@ type UseComposerReferencesParams = {
   textareaRef: RefObject<HTMLTextAreaElement | null>;
 };
 
+const REFERENCE_SEARCH_DEBOUNCE_MS = 120;
+
+function isAbortError(error: unknown): boolean {
+  return error instanceof DOMException && error.name === 'AbortError';
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error && error.message.trim()
+    ? error.message
+    : 'Failed to load references';
+}
+
 export function useComposerReferences({
   agentId,
   input,
@@ -48,22 +61,39 @@ export function useComposerReferences({
   const [availableSkills, setAvailableSkills] = useState<SkillPickerSkill[] | null>(null);
   const [availablePlugins, setAvailablePlugins] = useState<PluginPickerPlugin[] | null>(null);
   const [isLoadingReferenceItems, setIsLoadingReferenceItems] = useState(false);
+  const [referencePickerError, setReferencePickerError] = useState<string | null>(null);
   const referenceRequestIdRef = useRef(0);
+  const referenceAbortControllerRef = useRef<AbortController | null>(null);
+  const referenceDebounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const closeReferencePicker = useCallback(() => {
+    if (referenceDebounceTimerRef.current) {
+      clearTimeout(referenceDebounceTimerRef.current);
+      referenceDebounceTimerRef.current = null;
+    }
+    referenceAbortControllerRef.current?.abort();
+    referenceAbortControllerRef.current = null;
     setActiveReferenceMatch(null);
     setReferencePickerItems([]);
     setSelectedReferenceIndex(0);
-    setAvailableSkills(null);
-    setAvailablePlugins(null);
+    setReferencePickerError(null);
+    setIsLoadingReferenceItems(false);
     referenceRequestIdRef.current += 1;
   }, []);
 
-  const fetchFiles = useCallback(async (query: string = ''): Promise<ComposerReferencePickerItem<ReferencePickerValue>[]> => {
+  useEffect(() => () => {
+    if (referenceDebounceTimerRef.current) clearTimeout(referenceDebounceTimerRef.current);
+    referenceAbortControllerRef.current?.abort();
+  }, []);
+
+  const fetchFiles = useCallback(async (
+    query: string = '',
+    signal?: AbortSignal,
+  ): Promise<ComposerReferencePickerItem<ReferencePickerValue>[]> => {
     if (!workspaceId) {
       throw new Error('Workspace context is not ready');
     }
-    const files = await listWorkspaceFileReferences({ query, limit: 50, workspaceId });
+    const files = await listWorkspaceFileReferences({ query, limit: 50, workspaceId, signal });
     return files.map((file) => ({
       id: `file:${file.path}`,
       kind: 'file' as const,
@@ -110,69 +140,128 @@ export function useComposerReferences({
     return [...pluginItems, ...skillItems];
   }, [agentId, relevantSkillNames]);
 
-  const fetchPlugins = useCallback(async () => {
+  const fetchPlugins = useCallback(async (signal?: AbortSignal) => {
     if (availablePlugins) {
       return availablePlugins;
     }
 
-    try {
-      const res = await fetch('/api/plugins');
-      const data = await safeFetchJson<{ success: boolean; plugins?: PluginPickerPlugin[] }>(res);
-      if (!data?.success) {
-        return [];
-      }
-
-      const nextPlugins = (data.plugins || [])
-        .filter((plugin) => plugin.enabled !== false)
-        .map((plugin) => ({
-          description: plugin.description,
-          enabled: plugin.enabled,
-          interface: plugin.interface,
-          name: plugin.name,
-          skills: plugin.skills,
-          version: plugin.version,
-        }));
-      setAvailablePlugins(nextPlugins);
-      return nextPlugins;
-    } catch (err) {
-      console.error('Failed to fetch plugins', err);
-      return [];
+    const res = await fetch('/api/plugins', { cache: 'no-store', credentials: 'include', signal });
+    const data = await safeFetchJson<{ success: boolean; plugins?: PluginPickerPlugin[]; error?: string }>(res);
+    if (!res.ok || !data?.success) {
+      throw new Error(data?.error || 'Failed to load plugins');
     }
+
+    const nextPlugins = (data.plugins || [])
+      .filter((plugin) => plugin.enabled !== false)
+      .map((plugin) => ({
+        description: plugin.description,
+        enabled: plugin.enabled,
+        interface: plugin.interface,
+        name: plugin.name,
+        skills: plugin.skills,
+        version: plugin.version,
+      }));
+    setAvailablePlugins(nextPlugins);
+    return nextPlugins;
   }, [availablePlugins]);
 
-  const fetchSkills = useCallback(async () => {
+  const fetchSkills = useCallback(async (signal?: AbortSignal) => {
     if (availableSkills) {
       return availableSkills;
     }
 
-    try {
-      const res = await fetch('/api/skills');
-      const data = await safeFetchJson<{ success: boolean; skills?: Array<SkillPickerSkill & { path?: string }> }>(res);
-      if (!data?.success) {
-        return [];
-      }
-
-      const nextSkills = (data.skills || []).filter((skill) => skill.enabled).map((skill) => ({
-          description: skill.description,
-          enabled: skill.enabled,
-          core: skill.core,
-          interface: skill.interface,
-          name: skill.name,
-          plugin: skill.plugin,
-          title: skill.title,
-      }));
-      setAvailableSkills(nextSkills);
-      return nextSkills;
-    } catch (err) {
-      console.error('Failed to fetch skills', err);
-      return [];
+    const res = await fetch('/api/skills', { cache: 'no-store', credentials: 'include', signal });
+    const data = await safeFetchJson<{ success: boolean; skills?: Array<SkillPickerSkill & { path?: string }>; error?: string }>(res);
+    if (!res.ok || !data?.success) {
+      throw new Error(data?.error || 'Failed to load skills');
     }
+
+    const nextSkills = (data.skills || []).filter((skill) => skill.enabled).map((skill) => ({
+      description: skill.description,
+      enabled: skill.enabled,
+      core: skill.core,
+      interface: skill.interface,
+      name: skill.name,
+      plugin: skill.plugin,
+      title: skill.title,
+    }));
+    setAvailableSkills(nextSkills);
+    return nextSkills;
   }, [availableSkills]);
 
-  const fetchCapabilities = useCallback(async () => {
-    const [plugins, skills] = await Promise.all([fetchPlugins(), fetchSkills()]);
-    return { plugins, skills };
+  const fetchCapabilities = useCallback(async (signal?: AbortSignal) => {
+    const [pluginResult, skillResult] = await Promise.allSettled([
+      fetchPlugins(signal),
+      fetchSkills(signal),
+    ]);
+    if (pluginResult.status === 'rejected' && skillResult.status === 'rejected') {
+      throw pluginResult.reason;
+    }
+    return {
+      plugins: pluginResult.status === 'fulfilled' ? pluginResult.value : [],
+      skills: skillResult.status === 'fulfilled' ? skillResult.value : [],
+      partialError: pluginResult.status === 'rejected'
+        ? errorMessage(pluginResult.reason)
+        : skillResult.status === 'rejected'
+          ? errorMessage(skillResult.reason)
+          : null,
+    };
   }, [fetchPlugins, fetchSkills]);
+
+  const loadReferenceItems = useCallback(async (
+    match: ComposerReferenceMatch,
+    requestId: number,
+    signal: AbortSignal,
+  ) => {
+    try {
+      let items: ComposerReferencePickerItem<ReferencePickerValue>[] = [];
+      let partialError: string | null = null;
+
+      if (match.kind === 'file') {
+        items = await fetchFiles(match.query, signal);
+      } else if (match.kind === 'capability') {
+        const capabilities = await fetchCapabilities(signal);
+        items = buildCapabilityReferenceItems(capabilities.plugins, capabilities.skills, match.query);
+        partialError = capabilities.partialError;
+      } else {
+        const [fileResult, capabilityResult] = await Promise.allSettled([
+          fetchFiles(match.query, signal),
+          fetchCapabilities(signal),
+        ]);
+        if (fileResult.status === 'rejected' && capabilityResult.status === 'rejected') {
+          throw fileResult.reason;
+        }
+        const fileItems = fileResult.status === 'fulfilled' ? fileResult.value : [];
+        const capabilityItems = capabilityResult.status === 'fulfilled'
+          ? buildCapabilityReferenceItems(
+            capabilityResult.value.plugins,
+            capabilityResult.value.skills,
+            match.query,
+          )
+          : [];
+        items = [...fileItems, ...capabilityItems];
+        partialError = fileResult.status === 'rejected'
+          ? errorMessage(fileResult.reason)
+          : capabilityResult.status === 'rejected'
+            ? errorMessage(capabilityResult.reason)
+            : capabilityResult.value.partialError;
+      }
+
+      if (signal.aborted || referenceRequestIdRef.current !== requestId) return;
+      setReferencePickerItems(items);
+      setSelectedReferenceIndex(0);
+      setReferencePickerError(items.length === 0 ? partialError : null);
+    } catch (error) {
+      if (signal.aborted || referenceRequestIdRef.current !== requestId || isAbortError(error)) return;
+      setReferencePickerItems([]);
+      setSelectedReferenceIndex(0);
+      setReferencePickerError(errorMessage(error));
+    } finally {
+      if (!signal.aborted && referenceRequestIdRef.current === requestId) {
+        setIsLoadingReferenceItems(false);
+      }
+    }
+  }, [buildCapabilityReferenceItems, fetchCapabilities, fetchFiles]);
 
   const handleInputChange = useCallback((e: ChangeEvent<HTMLTextAreaElement>) => {
     const value = e.target.value;
@@ -182,54 +271,24 @@ export function useComposerReferences({
 
     const match = findActiveComposerReference(value, cursorPos);
     if (!match) {
-      setIsLoadingReferenceItems(false);
       closeReferencePicker();
       return;
     }
 
+    if (referenceDebounceTimerRef.current) clearTimeout(referenceDebounceTimerRef.current);
+    referenceAbortControllerRef.current?.abort();
+    const controller = new AbortController();
+    referenceAbortControllerRef.current = controller;
     setActiveReferenceMatch(match);
     setIsLoadingReferenceItems(true);
+    setReferencePickerError(null);
     const requestId = referenceRequestIdRef.current + 1;
     referenceRequestIdRef.current = requestId;
-
-    if (match.kind === 'file') {
-      void fetchFiles(match.query).then((items) => {
-        if (referenceRequestIdRef.current !== requestId) return;
-        setReferencePickerItems(items);
-        setSelectedReferenceIndex(0);
-      }).catch((err) => {
-        console.error('Failed to fetch files', err);
-      }).finally(() => {
-        if (referenceRequestIdRef.current === requestId) {
-          setIsLoadingReferenceItems(false);
-        }
-      });
-      return;
-    }
-
-    if (match.kind === 'all') {
-      void Promise.all([fetchFiles(match.query), fetchCapabilities()]).then(([fileItems, { plugins, skills }]) => {
-        if (referenceRequestIdRef.current !== requestId) return;
-        setReferencePickerItems([...fileItems, ...buildCapabilityReferenceItems(plugins, skills, match.query)]);
-        setSelectedReferenceIndex(0);
-      }).catch((err) => {
-        console.error('Failed to fetch references', err);
-      }).finally(() => {
-        if (referenceRequestIdRef.current === requestId) setIsLoadingReferenceItems(false);
-      });
-      return;
-    }
-
-    void fetchCapabilities().then(({ plugins, skills }) => {
-      if (referenceRequestIdRef.current !== requestId) {
-        return;
-      }
-
-      setReferencePickerItems(buildCapabilityReferenceItems(plugins, skills, match.query));
-      setSelectedReferenceIndex(0);
-      setIsLoadingReferenceItems(false);
-    });
-  }, [buildCapabilityReferenceItems, closeReferencePicker, fetchCapabilities, fetchFiles, resetInputHistoryNavigation, setInput]);
+    referenceDebounceTimerRef.current = setTimeout(() => {
+      referenceDebounceTimerRef.current = null;
+      void loadReferenceItems(match, requestId, controller.signal);
+    }, match.query ? REFERENCE_SEARCH_DEBOUNCE_MS : 0);
+  }, [closeReferencePicker, loadReferenceItems, resetInputHistoryNavigation, setInput]);
 
   const handleReferenceSelect = useCallback((item: ComposerReferencePickerItem<ReferencePickerValue>) => {
     if (!activeReferenceMatch) {
@@ -265,6 +324,7 @@ export function useComposerReferences({
     handleInputChange,
     handleReferenceSelect,
     isLoadingReferenceItems,
+    referencePickerError,
     referencePickerItems,
     selectedReferenceIndex,
     selectNextReference,

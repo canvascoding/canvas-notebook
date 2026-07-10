@@ -23,17 +23,23 @@ function getFileReferenceMatchForTrigger(value: string, cursorPosition: number, 
     return null;
   }
 
-  if (trigger === '+' && !isFileBoundaryCharacter(value[lastTriggerIndex - 1])) {
+  if (!isFileBoundaryCharacter(value[lastTriggerIndex - 1])) {
     return null;
   }
 
   const query = value.slice(lastTriggerIndex + 1, cursorPosition);
-  const hasSpace = query.includes(' ');
+  const hasUnsupportedWhitespace = trigger === '+'
+    ? /[\r\n\t]/.test(query) || query.includes('  ')
+    : /\s/.test(query);
   const hasCompletedQuote = query.includes('"') && query.indexOf('"') < query.length - 1;
   const hasAnotherAt = query.includes('@');
   const hasAnotherPlus = query.includes('+');
+  const previousText = value.slice(0, lastTriggerIndex).trimEnd();
+  const isLikelyArithmetic = trigger === '+'
+    && /\d$/.test(previousText)
+    && /^[\s]*[\d.]/.test(query);
 
-  if (hasSpace || hasCompletedQuote || hasAnotherAt || hasAnotherPlus) {
+  if (hasUnsupportedWhitespace || hasCompletedQuote || hasAnotherAt || hasAnotherPlus || isLikelyArithmetic) {
     return null;
   }
 

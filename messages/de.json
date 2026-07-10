@@ -964,6 +964,7 @@
     "noCapabilitiesAvailable": "Keine aktiven Plugins oder Skills verfügbar",
     "noReferencesFoundMatching": "Keine Dateien, Plugins oder Skills gefunden, die zu \"{query}\" passen",
     "noReferencesAvailable": "Keine Dateien, Plugins oder Skills verfügbar",
+    "referenceSearchFailed": "Referenzen konnten nicht geladen werden: {message}",
     "quickActions": "Schnellaktionen",
     "hint": "Hinweis",
     "openAgentSettings": "Agent-Einstellungen öffnen",

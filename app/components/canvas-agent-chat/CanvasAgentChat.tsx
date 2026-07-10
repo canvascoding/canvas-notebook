@@ -397,6 +397,7 @@ export default function CanvasAgentChat({
     handleInputChange,
     handleReferenceSelect,
     isLoadingReferenceItems,
+    referencePickerError,
     referencePickerItems,
     selectedReferenceIndex,
     selectNextReference,
@@ -1018,7 +1019,9 @@ export default function CanvasAgentChat({
     : isLoadingReferenceItems
       ? t('loadingFiles')
       : t('filesFound', { count: referencePickerItems.length });
-  const referencePickerEmptyState = activeReferenceKind === 'all'
+  const referencePickerEmptyState = referencePickerError
+    ? t('referenceSearchFailed', { message: referencePickerError })
+    : activeReferenceKind === 'all'
     ? activeReferenceMatch?.query
       ? t('noReferencesFoundMatching', { query: activeReferenceMatch.query })
       : t('noReferencesAvailable')
@@ -1046,7 +1049,10 @@ export default function CanvasAgentChat({
         isHistoryOverlayOpen={isHistoryOverlayOpen}
         isMobile={isMobile}
         onCompact={() => void handleCompact()}
-        onSelectAgent={selectChatAgent}
+        onSelectAgent={(agentId) => {
+          closeReferencePicker();
+          selectChatAgent(agentId);
+        }}
         onSetShowHistory={setShowHistory}
         onStartNewChat={() => startNewChat()}
         runtimeStatus={runtimeStatus}
