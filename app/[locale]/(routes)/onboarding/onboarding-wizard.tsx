@@ -17,14 +17,14 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { toast } from 'sonner';
-import { CheckCircle2, Clock3, Compass, KeyRound, Languages, Loader2, Mail, RefreshCw, ShieldAlert, Sparkles, Workflow } from 'lucide-react';
+import { CheckCircle2, Clock3, Compass, FolderKanban, KeyRound, Languages, Loader2, Mail, RefreshCw, ServerCog, ShieldAlert, Sparkles, Users, Workflow, type LucideIcon } from 'lucide-react';
 
-type Step = 'language' | 'license' | 'provider' | 'profile' | 'tour' | 'done';
+type Step = 'server' | 'language' | 'license' | 'provider' | 'workspace' | 'review' | 'profile' | 'tour' | 'done';
 type OnboardingMode = 'instance' | 'user';
 type OnboardingRuntimePhase = 'idle' | 'streaming' | 'running_tool' | 'aborting';
 
-const INSTANCE_STEPS: Step[] = ['language', 'license', 'provider', 'profile', 'tour', 'done'];
-const USER_STEPS: Step[] = ['language', 'profile', 'tour', 'done'];
+const INSTANCE_STEPS: Step[] = ['server', 'license', 'provider', 'workspace', 'review'];
+const USER_STEPS: Step[] = ['language', 'workspace', 'profile', 'tour', 'done'];
 const ONBOARDING_LICENSE_KEY_STORAGE_KEY = 'canvas.onboarding.licenseKey';
 
 type LicenseStatus = {
@@ -147,10 +147,9 @@ async function logOnboardingClientEvent(
   }
 }
 
-async function saveOnboardingPreferences(locale: string, timeZone?: string): Promise<void> {
-  const normalizedTimeZone = timeZone ? normalizeTimeZone(timeZone) : undefined;
-  console.log('[Onboarding] Saving preferences', { locale, timeZone: normalizedTimeZone });
-  await logOnboardingClientEvent('preferences.save.started', { locale, timeZone: normalizedTimeZone });
+async function saveOnboardingPreferences(locale: string): Promise<void> {
+  console.log('[Onboarding] Saving personal language preference', { locale });
+  await logOnboardingClientEvent('preferences.save.started', { locale, scope: 'user' });
 
   let response: Response;
   try {
@@ -162,7 +161,7 @@ async function saveOnboardingPreferences(locale: string, timeZone?: string): Pro
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Request failed';
-    await logOnboardingClientEvent('preferences.save.network-error', { locale, timeZone: normalizedTimeZone, message }, 'error');
+    await logOnboardingClientEvent('preferences.save.network-error', { locale, scope: 'user', message }, 'error');
     throw new Error(`locale-network:${message}`);
   }
 
@@ -171,39 +170,11 @@ async function saveOnboardingPreferences(locale: string, timeZone?: string): Pro
     const body = await response.text().catch(() => '');
     const bodySnippet = responseBodySnippet(body);
     console.error('[Onboarding] Locale save failed', { status: response.status, requestId, bodySnippet });
-    await logOnboardingClientEvent('preferences.locale.failed', { status: response.status, requestId, bodySnippet }, 'error');
+    await logOnboardingClientEvent('preferences.locale.failed', { status: response.status, requestId, bodySnippet, scope: 'user' }, 'error');
     throw new Error(`locale-status:${response.status}${requestId ? `:${requestId}` : ''}`);
   }
 
-  if (!normalizedTimeZone) {
-    await logOnboardingClientEvent('preferences.locale.succeeded', { status: response.status, requestId });
-    return;
-  }
-
-  const timeZoneResponse = await fetch('/api/server-settings', {
-    method: 'PATCH',
-    credentials: 'include',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ timeZone: normalizedTimeZone }),
-  });
-  const timeZoneRequestId = timeZoneResponse.headers.get('X-Request-Id');
-  if (!timeZoneResponse.ok) {
-    const body = await timeZoneResponse.text().catch(() => '');
-    const bodySnippet = responseBodySnippet(body);
-    await logOnboardingClientEvent('preferences.time-zone.failed', {
-      status: timeZoneResponse.status,
-      requestId: timeZoneRequestId,
-      bodySnippet,
-    }, 'error');
-    throw new Error(`time-zone-status:${timeZoneResponse.status}${timeZoneRequestId ? `:${timeZoneRequestId}` : ''}`);
-  }
-
-  await logOnboardingClientEvent('preferences.save.succeeded', {
-    localeStatus: response.status,
-    timeZoneStatus: timeZoneResponse.status,
-    requestId,
-    timeZoneRequestId,
-  });
+  await logOnboardingClientEvent('preferences.save.succeeded', { localeStatus: response.status, requestId, scope: 'user' });
 }
 
 export default function OnboardingWizard({
@@ -231,7 +202,7 @@ export default function OnboardingWizard({
 
   const advanceTo = useCallback(async (nextStep: Step) => {
     setStep(nextStep);
-    if (isInstanceOnboarding && ['language', 'license', 'provider', 'profile'].includes(nextStep)) {
+    if (isInstanceOnboarding && ['server', 'license', 'provider', 'workspace', 'review'].includes(nextStep)) {
       await fetch('/api/onboarding/instance-progress', {
         method: 'PATCH',
         credentials: 'include',
@@ -239,7 +210,7 @@ export default function OnboardingWizard({
         body: JSON.stringify({ step: nextStep }),
       }).catch(() => undefined);
     }
-    if (!isInstanceOnboarding && ['language', 'profile', 'tour', 'complete'].includes(nextStep)) {
+    if (!isInstanceOnboarding && ['language', 'workspace', 'profile', 'tour', 'complete'].includes(nextStep)) {
       await fetch('/api/onboarding/user', {
         method: 'PATCH',
         credentials: 'include',
@@ -294,10 +265,10 @@ export default function OnboardingWizard({
     setModelTestLoading(true);
     setModelTestError(null);
     try {
-      const response = await fetch('/api/agents/model-test', {
+      const response = await fetch('/api/onboarding/provider-verify', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ agentId: 'canvas-agent' }),
+        body: JSON.stringify({}),
       });
       const data = (await response.json().catch(() => ({}))) as {
         success?: boolean;
@@ -312,7 +283,7 @@ export default function OnboardingWizard({
         return;
       }
 
-      await openProfileSession();
+      await advanceTo('workspace');
     } catch (error) {
       const message = error instanceof Error ? error.message : t('unexpectedError');
       setModelTestError(message);
@@ -331,6 +302,10 @@ export default function OnboardingWizard({
     }
   }
 
+  function beginPersonalOnboarding() {
+    window.location.assign(buildLocalePath(currentLocale, '/onboarding'));
+  }
+
   return (
     <div
       data-testid="onboarding-scroll-root"
@@ -342,7 +317,7 @@ export default function OnboardingWizard({
         </div>
 
         <div className="flex flex-1 items-start justify-center py-4">
-          <div className={`w-full ${step === 'provider' || step === 'profile' ? 'max-w-5xl' : 'max-w-lg'}`}>
+          <div className={`w-full ${step === 'provider' || step === 'profile' || step === 'workspace' ? 'max-w-5xl' : 'max-w-lg'}`}>
             <div className="rounded-xl border border-border bg-card p-6 shadow-sm sm:p-8">
               <div className="mb-2 flex items-center justify-center">
                 <Image
@@ -368,11 +343,16 @@ export default function OnboardingWizard({
                 ))}
               </div>
 
+              {step === 'server' && (
+                <ServerSettingsStep
+                  initialTimeZone={initialTimeZone}
+                  onContinue={() => advanceTo('license')}
+                />
+              )}
+
               {step === 'language' && (
                 <LanguageStep
-                  initialTimeZone={initialTimeZone}
-                  showServerTimeZone={isInstanceOnboarding}
-                  onContinue={() => advanceTo(isInstanceOnboarding ? 'license' : 'profile')}
+                  onContinue={() => advanceTo('workspace')}
                 />
               )}
 
@@ -414,6 +394,17 @@ export default function OnboardingWizard({
                     </div>
                   )}
                 </div>
+              )}
+
+              {step === 'workspace' && (
+                <WorkspaceReadinessStep
+                  mode={mode}
+                  onContinue={() => void advanceTo(isInstanceOnboarding ? 'review' : 'profile')}
+                />
+              )}
+
+              {step === 'review' && isInstanceOnboarding && (
+                <InstanceReviewStep onComplete={beginPersonalOnboarding} />
               )}
 
               {step === 'profile' && profileSessionId && (
@@ -830,13 +821,248 @@ function LicenseStep({
   );
 }
 
-function LanguageStep({
+function ServerSettingsStep({
   initialTimeZone,
-  showServerTimeZone,
   onContinue,
 }: {
   initialTimeZone: string;
-  showServerTimeZone: boolean;
+  onContinue: () => Promise<void> | void;
+}) {
+  const t = useTranslations('onboarding');
+  const [timeZone, setTimeZone] = useState(() => normalizeTimeZone(initialTimeZone, DEFAULT_USER_TIME_ZONE));
+  const [saving, setSaving] = useState(false);
+  const timeZoneOptions = useMemo(() => getSupportedTimeZones(timeZone), [timeZone]);
+
+  async function continueWithServerSettings() {
+    setSaving(true);
+    try {
+      const response = await fetch('/api/server-settings', {
+        method: 'PATCH',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ timeZone: normalizeTimeZone(timeZone) }),
+      });
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({})) as { error?: string };
+        throw new Error(data.error || t('serverSettingsSaveFailed'));
+      }
+      await logOnboardingClientEvent('instance.server-settings.saved', { timeZone: normalizeTimeZone(timeZone) });
+      await onContinue();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : t('serverSettingsSaveFailed'));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="text-center">
+        <ServerCog className="mx-auto mb-4 h-12 w-12 text-muted-foreground" />
+        <h2 className="mb-1 text-xl font-semibold">{t('serverSettingsTitle')}</h2>
+        <p className="text-sm text-muted-foreground">{t('serverSettingsDescription')}</p>
+      </div>
+
+      <div className="rounded-lg border border-border bg-muted/20 p-4">
+        <div className="mb-3 flex items-center gap-2">
+          <Clock3 className="h-4 w-4 text-muted-foreground" />
+          <div>
+            <h3 className="text-sm font-semibold">{t('timeZoneTitle')}</h3>
+            <p className="text-xs text-muted-foreground">{t('timeZoneDescription')}</p>
+          </div>
+        </div>
+        <label className="flex flex-col gap-1 text-sm">
+          <span className="text-xs text-muted-foreground">{t('timeZoneLabel')}</span>
+          <select
+            className="h-10 rounded-md border border-input bg-background px-3 text-sm"
+            value={timeZone}
+            onChange={(event) => setTimeZone(normalizeTimeZone(event.target.value))}
+            disabled={saving}
+          >
+            {timeZoneOptions.map((option) => <option key={option} value={option}>{option}</option>)}
+          </select>
+        </label>
+      </div>
+
+      <div className="flex justify-center">
+        <Button onClick={() => void continueWithServerSettings()} className="min-w-[200px]" disabled={saving}>
+          {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+          {t('serverSettingsContinue')}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+type WorkspaceReadiness = {
+  teamFeaturesEnabled?: boolean;
+  databaseProvider?: string;
+  defaultWorkspace?: {
+    id?: string;
+    type?: 'personal' | 'organization' | 'team' | 'project';
+    name?: string;
+  } | null;
+  workspaces?: Array<{
+    id?: string;
+    type?: 'personal' | 'organization' | 'team' | 'project';
+    name?: string;
+  }>;
+};
+
+function WorkspaceReadinessStep({
+  mode,
+  onContinue,
+}: {
+  mode: OnboardingMode;
+  onContinue: () => void;
+}) {
+  const t = useTranslations('onboarding');
+  const [state, setState] = useState<WorkspaceReadiness | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const response = await fetch('/api/workspaces', { credentials: 'include', cache: 'no-store' });
+      const payload = await response.json().catch(() => ({})) as WorkspaceReadiness & { error?: string; success?: boolean };
+      if (!response.ok || !payload.success) {
+        throw new Error(payload.error || t('workspaceLoadFailed'));
+      }
+      setState(payload);
+    } catch (workspaceError) {
+      setError(workspaceError instanceof Error ? workspaceError.message : t('workspaceLoadFailed'));
+    } finally {
+      setLoading(false);
+    }
+  }, [t]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => { void load(); }, 0);
+    return () => window.clearTimeout(timer);
+  }, [load]);
+
+  const workspaces = state?.workspaces || [];
+  const personal = workspaces.find((workspace) => workspace.type === 'personal') || state?.defaultWorkspace;
+  const shared = workspaces.find((workspace) => workspace.type === 'organization' || workspace.type === 'team');
+  const isTeamMode = state?.teamFeaturesEnabled === true;
+  const instanceCopy = mode === 'instance';
+
+  return (
+    <div className="space-y-6">
+      <div className="text-center">
+        {isTeamMode ? <Users className="mx-auto mb-4 h-12 w-12 text-muted-foreground" /> : <FolderKanban className="mx-auto mb-4 h-12 w-12 text-muted-foreground" />}
+        <h2 className="mb-1 text-xl font-semibold">{t(instanceCopy ? 'instanceWorkspaceTitle' : 'personalWorkspaceTitle')}</h2>
+        <p className="text-sm text-muted-foreground">{t(instanceCopy ? 'instanceWorkspaceDescription' : 'personalWorkspaceDescription')}</p>
+      </div>
+
+      {loading && (
+        <div className="flex items-center justify-center gap-2 border border-border bg-muted/20 p-4 text-sm text-muted-foreground">
+          <Loader2 className="h-4 w-4 animate-spin" /> {t('workspaceChecking')}
+        </div>
+      )}
+
+      {error && (
+        <div className="space-y-3 border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive">
+          <p>{error}</p>
+          <Button variant="outline" size="sm" onClick={() => void load()}>{t('workspaceRetry')}</Button>
+        </div>
+      )}
+
+      {!loading && !error && (
+        <div className="grid gap-3 sm:grid-cols-2">
+          <WorkspaceStatusCard icon={FolderKanban} title={t('personalWorkspaceCardTitle')} description={t('personalWorkspaceCardDescription')} name={personal?.name} />
+          {isTeamMode && (
+            <WorkspaceStatusCard icon={Users} title={t('teamWorkspaceCardTitle')} description={t(instanceCopy ? 'teamWorkspaceInstanceDescription' : 'teamWorkspaceUserDescription')} name={shared?.name} />
+          )}
+        </div>
+      )}
+
+      <div className="flex justify-center">
+        <Button onClick={onContinue} className="min-w-[200px]" disabled={loading || Boolean(error)}>
+          {t('workspaceContinue')}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function WorkspaceStatusCard({
+  icon: Icon,
+  title,
+  description,
+  name,
+}: {
+  icon: LucideIcon;
+  title: string;
+  description: string;
+  name?: string;
+}) {
+  return (
+    <div className="border border-border bg-muted/20 p-4">
+      <Icon className="mb-3 h-5 w-5 text-primary" />
+      <h3 className="text-sm font-semibold">{title}</h3>
+      <p className="mt-1 text-xs leading-5 text-muted-foreground">{description}</p>
+      {name && <p className="mt-3 text-xs font-medium text-foreground">{name}</p>}
+    </div>
+  );
+}
+
+function InstanceReviewStep({ onComplete }: { onComplete: () => void }) {
+  const t = useTranslations('onboarding');
+  const [completing, setCompleting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function completeInstanceSetup() {
+    setCompleting(true);
+    setError(null);
+    try {
+      const response = await fetch('/api/onboarding/complete', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      const payload = await response.json().catch(() => ({})) as { error?: string };
+      if (!response.ok) throw new Error(payload.error || t('instanceCompleteError'));
+      onComplete();
+    } catch (completionError) {
+      const message = completionError instanceof Error ? completionError.message : t('instanceCompleteError');
+      setError(message);
+    } finally {
+      setCompleting(false);
+    }
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="text-center">
+        <CheckCircle2 className="mx-auto mb-4 h-12 w-12 text-primary" />
+        <h2 className="mb-1 text-xl font-semibold">{t('instanceReviewTitle')}</h2>
+        <p className="text-sm text-muted-foreground">{t('instanceReviewDescription')}</p>
+      </div>
+      <div className="space-y-3 border border-border bg-muted/20 p-4 text-sm">
+        <p className="font-medium">{t('instanceReviewChecklistTitle')}</p>
+        <ul className="space-y-2 text-muted-foreground">
+          <li>✓ {t('instanceReviewTimeZone')}</li>
+          <li>✓ {t('instanceReviewLicense')}</li>
+          <li>✓ {t('instanceReviewProvider')}</li>
+          <li>✓ {t('instanceReviewWorkspace')}</li>
+        </ul>
+      </div>
+      {error && <div className="border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">{error}</div>}
+      <Button onClick={() => void completeInstanceSetup()} className="w-full" disabled={completing}>
+        {completing && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+        {t('instanceCompleteAction')}
+      </Button>
+    </div>
+  );
+}
+
+function LanguageStep({
+  onContinue,
+}: {
   onContinue: () => Promise<void> | void;
 }) {
   const t = useTranslations('onboarding');
@@ -844,8 +1070,6 @@ function LanguageStep({
   const [isSwitchingLocale, setIsSwitchingLocale] = useState(false);
   const searchParams = useSearchParams();
   const currentLocale = useLocale();
-  const [timeZone, setTimeZone] = useState(() => normalizeTimeZone(initialTimeZone, DEFAULT_USER_TIME_ZONE));
-  const timeZoneOptions = useMemo(() => getSupportedTimeZones(timeZone), [timeZone]);
   const selectedLocale = useSyncExternalStore(
     subscribeToBrowserLocation,
     () => getBrowserPathLocale(currentLocale),
@@ -882,18 +1106,16 @@ function LanguageStep({
     setIsSaving(true);
     await logOnboardingClientEvent('language.continue.clicked', {
       selectedLocale: activeLocale,
-      timeZone: showServerTimeZone ? normalizeTimeZone(timeZone) : null,
       currentLocale: activeLocale,
-      showServerTimeZone,
+      scope: 'user',
     });
     try {
-      await saveOnboardingPreferences(activeLocale, showServerTimeZone ? normalizeTimeZone(timeZone) : undefined);
+      await saveOnboardingPreferences(activeLocale);
       await onContinue();
     } catch (error) {
       console.error('[Onboarding] Failed to save language/time zone preferences:', error);
       await logOnboardingClientEvent('language.continue.failed', {
         selectedLocale,
-        timeZone: showServerTimeZone ? normalizeTimeZone(timeZone) : null,
         message: error instanceof Error ? error.message : String(error),
       }, 'error');
       toast.error(t('preferencesSaveFailed'));
@@ -935,29 +1157,6 @@ function LanguageStep({
           </button>
         ))}
       </div>
-
-      {showServerTimeZone && <div className="rounded-lg border border-border bg-muted/20 p-4">
-        <div className="mb-3 flex items-center gap-2">
-          <Clock3 className="h-4 w-4 text-muted-foreground" />
-          <div>
-            <h3 className="text-sm font-semibold">{t('timeZoneTitle')}</h3>
-            <p className="text-xs text-muted-foreground">{t('timeZoneDescription')}</p>
-          </div>
-        </div>
-        <label className="flex flex-col gap-1 text-sm">
-          <span className="text-xs text-muted-foreground">{t('timeZoneLabel')}</span>
-          <select
-            className="h-10 rounded-md border border-input bg-background px-3 text-sm"
-            value={timeZone}
-            onChange={(event) => setTimeZone(normalizeTimeZone(event.target.value))}
-            disabled={isSaving}
-          >
-            {timeZoneOptions.map((option) => (
-              <option key={option} value={option}>{option}</option>
-            ))}
-          </select>
-        </label>
-      </div>}
 
       <div className="flex justify-center">
         <Button onClick={handleContinue} className="min-w-[200px]" disabled={!isHydrated || isSaving || isSwitchingLocale}>

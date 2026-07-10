@@ -5,6 +5,7 @@ import { isOnboardingEnabled, isOnboardingComplete } from '@/app/lib/onboarding/
 import { getInstanceOnboardingStep, getServerPreferredTimeZone } from '@/app/lib/server-settings';
 import { isAdminUser } from '@/app/lib/admin-auth';
 import { getUserOnboardingState } from '@/app/lib/user-preferences';
+import { resolveOnboardingPhase } from '@/app/lib/onboarding/flow';
 import OnboardingWizard from './onboarding-wizard';
 
 export const dynamic = 'force-dynamic';
@@ -25,16 +26,26 @@ export default async function OnboardingPage({ searchParams }: OnboardingPagePro
     redirect({ href: '/', locale });
   }
 
-  const session = await requirePageSession({ allowIncompleteOnboarding: true });
+  const session = await requirePageSession({
+    allowIncompleteOnboarding: true,
+    allowIncompleteUserOnboarding: true,
+  });
   if (!session) return null;
 
   const instanceComplete = await isOnboardingComplete();
-  const userOnboarding = await getUserOnboardingState(session.user.id);
-  if (instanceComplete && userOnboarding.step === 'complete') {
+  const userOnboarding = await getUserOnboardingState(session.user.id, {
+    missing: instanceComplete ? 'complete' : 'pending',
+  });
+  const phase = resolveOnboardingPhase({
+    instanceComplete,
+    isInstanceAdmin: isAdminUser(session.user),
+    userOnboarding,
+  });
+  if (phase === 'complete') {
     redirect({ href: '/', locale });
   }
 
-  if (!instanceComplete && !isAdminUser(session.user)) {
+  if (phase === 'waiting') {
     const t = await getTranslations('onboarding');
     return (
       <main className="mx-auto flex min-h-screen max-w-lg items-center px-6 py-12">
@@ -52,7 +63,11 @@ export default async function OnboardingPage({ searchParams }: OnboardingPagePro
   const initialTimeZone = await getServerPreferredTimeZone();
   const initialStep = instanceComplete
     ? (userOnboarding.profile === 'pending'
-      ? (userOnboarding.step === 'profile' ? 'profile' : 'language')
+      ? (userOnboarding.step === 'profile'
+        ? 'profile'
+        : userOnboarding.step === 'workspace'
+          ? 'workspace'
+          : 'language')
       : (userOnboarding.tour === 'pending' ? 'tour' : 'done'))
     : await getInstanceOnboardingStep();
 
@@ -61,7 +76,7 @@ export default async function OnboardingPage({ searchParams }: OnboardingPagePro
       defaultEmail={session.user.email ?? ''}
       initialLicenseKey={getInitialLicenseKey(params.key)}
       initialTimeZone={initialTimeZone}
-      mode={instanceComplete ? 'user' : 'instance'}
+      mode={phase === 'instance' ? 'instance' : 'user'}
       initialStep={initialStep}
     />
   );

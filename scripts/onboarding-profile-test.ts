@@ -90,7 +90,7 @@ async function main() {
       skipOnboardingProfile,
     } = await import('../app/lib/onboarding/profile');
     const { isOnboardingComplete } = await import('../app/lib/onboarding/status');
-    const { updateUserOnboardingState } = await import('../app/lib/user-preferences');
+    const { initializeUserOnboarding, updateUserOnboardingState } = await import('../app/lib/user-preferences');
 
     const now = new Date('2026-06-08T10:00:00.000Z');
     const userId = 'user-onboarding';
@@ -206,6 +206,7 @@ async function main() {
     await fs.writeFile(bootstrapPath, 'Bootstrap setup instructions.\n', 'utf8');
     assert.match(await readOnboardingBootstrapPrompt() || '', /Bootstrap setup/);
 
+    await initializeUserOnboarding(userId);
     const profileSession = await ensureOnboardingProfileSession({ userId, locale: 'de' });
     assert.equal(profileSession.sessionId, buildOnboardingProfileSessionId(userId));
 
@@ -237,14 +238,13 @@ async function main() {
       summary: 'Captured user and agent profile.',
     });
     assert.equal(completed.success, true);
-    assert.equal(completed.deletedBootstrap, true);
-    await assert.rejects(() => fs.stat(bootstrapPath), /ENOENT/);
+    assert.equal(completed.deletedBootstrap, false);
+    assert.match(await fs.readFile(bootstrapPath, 'utf8'), /Bootstrap setup/);
     const scopedCanvasAgentPath = path.join(dataDir, 'users', userId, 'agents', 'canvas-agent');
     assert.match(await fs.readFile(path.join(scopedCanvasAgentPath, 'USER.md'), 'utf8'), /Frank/);
     assert.match(await fs.readFile(path.join(scopedCanvasAgentPath, 'SOUL.md'), 'utf8'), /Canvas Agent/);
-    assert.equal(await isOnboardingComplete(), true);
+    assert.equal(await isOnboardingComplete(), false);
 
-    await db.delete(onboardingLog).where(eq(onboardingLog.method, 'ui'));
     await updateUserOnboardingState(userId, { step: 'profile', profile: 'pending', tour: 'pending' });
     await fs.writeFile(bootstrapPath, 'Bootstrap setup instructions.\n', 'utf8');
     await fs.writeFile(path.join(scopedCanvasAgentPath, 'USER.md'), '', 'utf8');
@@ -252,14 +252,14 @@ async function main() {
 
     const skipped = await skipOnboardingProfile({ userId });
     assert.equal(skipped.success, true);
-    assert.equal(skipped.deletedBootstrap, true);
+    assert.equal(skipped.deletedBootstrap, false);
     assert.equal(skipped.alreadyComplete, false);
     assert.equal(await fs.readFile(path.join(scopedCanvasAgentPath, 'USER.md'), 'utf8'), '');
     assert.equal(await fs.readFile(path.join(scopedCanvasAgentPath, 'SOUL.md'), 'utf8'), 'Default soul.\n');
     const skipLog = await db.query.onboardingLog.findFirst({
       where: eq(onboardingLog.method, 'ui'),
     });
-    assert.equal(skipLog?.notes, 'profile_skipped');
+    assert.equal(skipLog, undefined);
 
     const skippedAgain = await skipOnboardingProfile({ userId });
     assert.equal(skippedAgain.success, true);
@@ -278,6 +278,7 @@ async function main() {
       updatedAt: now,
     });
     await fs.writeFile(bootstrapPath, 'Instance bootstrap remains managed by the owner.\n', 'utf8');
+    await initializeUserOnboarding(secondaryUserId);
     const secondarySession = await ensureOnboardingProfileSession({ userId: secondaryUserId, locale: 'en' });
     assert.equal(secondarySession.sessionId, buildOnboardingProfileSessionId(secondaryUserId));
     const secondaryCompleted = await completeOnboardingProfile({

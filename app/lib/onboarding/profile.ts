@@ -10,16 +10,14 @@ import { and, eq } from 'drizzle-orm';
 import { ensureDefaultAgent } from '@/app/lib/channels/agents';
 import { DEFAULT_AGENT_ID, WEB_CHANNEL_ID, webChannelSessionKey } from '@/app/lib/channels/constants';
 import { db } from '@/app/lib/db';
-import { piMessages, piSessions, user } from '@/app/lib/db/schema';
+import { piMessages, piSessions } from '@/app/lib/db/schema';
 import { resolveAgentRuntimeConfig } from '@/app/lib/agents/effective-runtime-config';
 import {
   AGENTS_STORAGE_ROOT,
   DEFAULT_MANAGED_AGENT_ID,
   writeManagedAgentFile,
 } from '@/app/lib/agents/storage';
-import { isOnboardingComplete, markOnboardingComplete } from '@/app/lib/onboarding/status';
 import { savePiSession } from '@/app/lib/pi/session-store';
-import { isAdminUser } from '@/app/lib/admin-auth';
 import { getUserOnboardingState, updateUserOnboardingState } from '@/app/lib/user-preferences';
 
 export const ONBOARDING_BOOTSTRAP_FILE_NAME = 'BOOTSTRAP.md';
@@ -127,25 +125,8 @@ function normalizeProfileContent(value: string, label: string): string {
   return `${normalized}\n`;
 }
 
-function normalizeCompletionNotes(value?: string | null): string {
-  const normalized = value?.replace(/\s+/g, ' ').trim();
-  if (!normalized) {
-    return 'profile_completed';
-  }
-  return `profile_completed: ${normalized.slice(0, 400)}`;
-}
-
 async function isProfilePending(userId: string): Promise<boolean> {
   return (await getUserOnboardingState(userId)).profile === 'pending';
-}
-
-export async function canManageInstanceOnboarding(userId: string): Promise<boolean> {
-  const rows = await db
-    .select({ email: user.email, role: user.role })
-    .from(user)
-    .where(eq(user.id, userId))
-    .limit(1);
-  return isAdminUser(rows[0]);
 }
 
 async function onboardingSessionHasMessages(sessionDbId: number): Promise<boolean> {
@@ -227,17 +208,7 @@ export async function completeOnboardingProfile(params: {
   await writeManagedAgentFile('SOUL.md', soulMd, DEFAULT_MANAGED_AGENT_ID, { userId: params.userId });
   await updateUserOnboardingState(params.userId, { profile: 'completed', step: 'tour' });
 
-  const instanceCompleted = !(await isOnboardingComplete()) && await canManageInstanceOnboarding(params.userId);
-  const deletedBootstrap = instanceCompleted ? await deleteOnboardingBootstrapFile() : false;
-  if (instanceCompleted) {
-    await markOnboardingComplete({
-      completedBy: params.userId,
-      method: 'ui',
-      notes: normalizeCompletionNotes(params.summary),
-    });
-  }
-
-  return { success: true, deletedBootstrap, instanceCompleted };
+  return { success: true, deletedBootstrap: false, instanceCompleted: false };
 }
 
 export async function skipOnboardingProfile(params: {
@@ -248,17 +219,7 @@ export async function skipOnboardingProfile(params: {
   }
 
   await updateUserOnboardingState(params.userId, { profile: 'skipped', step: 'tour' });
-  const instanceCompleted = !(await isOnboardingComplete()) && await canManageInstanceOnboarding(params.userId);
-  const deletedBootstrap = instanceCompleted ? await deleteOnboardingBootstrapFile() : false;
-  if (instanceCompleted) {
-    await markOnboardingComplete({
-      completedBy: params.userId,
-      method: 'ui',
-      notes: 'profile_skipped',
-    });
-  }
-
-  return { success: true, deletedBootstrap, instanceCompleted, alreadyComplete: false };
+  return { success: true, deletedBootstrap: false, instanceCompleted: false, alreadyComplete: false };
 }
 
 export async function isOnboardingProfileToolAvailable(params: {

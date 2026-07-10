@@ -8,7 +8,7 @@ import { DEFAULT_USER_TIME_ZONE, isValidTimeZone, normalizeTimeZone } from '@/ap
 
 const SERVER_SETTINGS_FILE = 'server-preferences.json';
 
-export const INSTANCE_ONBOARDING_STEPS = ['language', 'license', 'provider', 'profile'] as const;
+export const INSTANCE_ONBOARDING_STEPS = ['server', 'license', 'provider', 'workspace', 'review'] as const;
 export type InstanceOnboardingStep = typeof INSTANCE_ONBOARDING_STEPS[number];
 
 export type ServerSettings = {
@@ -18,6 +18,8 @@ export type ServerSettings = {
   onboardingStep?: InstanceOnboardingStep;
   onboardingUpdatedAt?: string;
   onboardingUpdatedBy?: string;
+  providerVerifiedAt?: string;
+  providerVerifiedBy?: string;
 };
 
 type ServerSettingsFile = {
@@ -45,6 +47,8 @@ function normalizeTimeZoneValue(value: unknown): string | null {
 }
 
 function normalizeInstanceOnboardingStep(value: unknown): InstanceOnboardingStep | null {
+  if (value === 'language') return 'server';
+  if (value === 'profile') return 'review';
   return typeof value === 'string' && (INSTANCE_ONBOARDING_STEPS as readonly string[]).includes(value)
     ? value as InstanceOnboardingStep
     : null;
@@ -59,6 +63,8 @@ function normalizeServerSettings(value: unknown): ServerSettings {
     onboardingStep?: unknown;
     onboardingUpdatedAt?: unknown;
     onboardingUpdatedBy?: unknown;
+    providerVerifiedAt?: unknown;
+    providerVerifiedBy?: unknown;
   };
   const timeZone = normalizeTimeZoneValue(record.timeZone);
   const onboardingStep = normalizeInstanceOnboardingStep(record.onboardingStep);
@@ -69,6 +75,8 @@ function normalizeServerSettings(value: unknown): ServerSettings {
     ...(onboardingStep ? { onboardingStep } : {}),
     ...(typeof record.onboardingUpdatedAt === 'string' ? { onboardingUpdatedAt: record.onboardingUpdatedAt } : {}),
     ...(typeof record.onboardingUpdatedBy === 'string' ? { onboardingUpdatedBy: record.onboardingUpdatedBy } : {}),
+    ...(typeof record.providerVerifiedAt === 'string' ? { providerVerifiedAt: record.providerVerifiedAt } : {}),
+    ...(typeof record.providerVerifiedBy === 'string' ? { providerVerifiedBy: record.providerVerifiedBy } : {}),
   };
 }
 
@@ -144,7 +152,7 @@ export async function setServerPreferredTimeZone(
 
 export async function getInstanceOnboardingStep(): Promise<InstanceOnboardingStep> {
   const settings = await getServerSettings();
-  return settings.onboardingStep ?? 'language';
+  return settings.onboardingStep ?? 'server';
 }
 
 export async function setInstanceOnboardingStep(
@@ -161,6 +169,18 @@ export async function setInstanceOnboardingStep(
     onboardingStep: step,
     onboardingUpdatedAt: now,
     onboardingUpdatedBy: userId,
+  };
+  await writeServerSettingsFileAtomic({ version: 1, settings: nextSettings });
+  return nextSettings;
+}
+
+export async function markInstanceProviderVerified(userId: string): Promise<ServerSettings> {
+  const file = await readServerSettingsFile();
+  const now = new Date().toISOString();
+  const nextSettings: ServerSettings = {
+    ...file.settings,
+    providerVerifiedAt: now,
+    providerVerifiedBy: userId,
   };
   await writeServerSettingsFileAtomic({ version: 1, settings: nextSettings });
   return nextSettings;

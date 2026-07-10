@@ -9,7 +9,7 @@ import {
 } from '@/app/lib/user-preferences';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 
-const USER_ONBOARDING_STEPS = new Set<UserOnboardingStep>(['language', 'profile', 'tour', 'complete']);
+const USER_ONBOARDING_STEPS = new Set<UserOnboardingStep>(['language', 'workspace', 'profile', 'tour', 'complete']);
 const USER_ONBOARDING_TOUR_STATUSES = new Set<UserOnboardingTourStatus>(['pending', 'started', 'skipped', 'completed']);
 
 function parsePayload(value: unknown): { step?: UserOnboardingStep; tour?: UserOnboardingTourStatus } | null {
@@ -59,6 +59,13 @@ export async function PATCH(request: NextRequest) {
   ) {
     return NextResponse.json(
       { success: false, error: 'Complete or skip the personal profile before starting the tour.' },
+      { status: 409 },
+    );
+  }
+
+  if (current.profile === 'pending' && updates.step === 'profile' && current.step !== 'workspace') {
+    return NextResponse.json(
+      { success: false, error: 'Confirm the personal workspace before starting the profile.' },
       { status: 409 },
     );
   }

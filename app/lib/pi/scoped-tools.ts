@@ -516,9 +516,7 @@ export function createOnboardingProfileTool(userId?: string, agentId?: string | 
         return {
           content: [{
             type: 'text',
-            text: result.instanceCompleted
-              ? 'Onboarding profile completed. The instance setup is now complete.'
-              : 'Your onboarding profile is complete.',
+            text: 'Your onboarding profile is complete. Next, continue with the workspace tour.',
           }],
           details: result,
         };

@@ -12,35 +12,45 @@ async function main() {
     const {
       getUserOnboardingState,
       getUserPreferences,
+      initializeUserOnboarding,
       setUserPreferredLocale,
       updateUserOnboardingState,
     } = await import('../app/lib/user-preferences');
     const {
       getInstanceOnboardingStep,
+      getServerSettings,
       getServerPreferredTimeZone,
+      markInstanceProviderVerified,
       setInstanceOnboardingStep,
       setServerPreferredTimeZone,
     } = await import('../app/lib/server-settings');
 
     const initial = await getUserOnboardingState('user-a');
-    assert.equal(initial.step, 'language');
-    assert.equal(initial.profile, 'pending');
-    assert.equal(initial.tour, 'pending');
+    assert.equal(initial.step, 'complete');
+    assert.equal(initial.profile, 'skipped');
+    assert.equal(initial.tour, 'completed');
+
+    const initialized = await initializeUserOnboarding('user-a');
+    assert.equal(initialized.step, 'language');
+    assert.equal(initialized.profile, 'pending');
+    assert.equal(initialized.tour, 'pending');
 
     await setUserPreferredLocale('user-a', 'en');
-    const afterLanguage = await updateUserOnboardingState('user-a', { step: 'profile' });
-    assert.equal(afterLanguage.step, 'profile');
+    const afterLanguage = await updateUserOnboardingState('user-a', { step: 'workspace' });
+    assert.equal(afterLanguage.step, 'workspace');
     assert.equal(afterLanguage.profile, 'pending');
     assert.equal((await getUserPreferences('user-a')).locale, 'en');
 
     const afterProfile = await updateUserOnboardingState('user-a', { profile: 'completed', step: 'tour' });
     assert.equal(afterProfile.profile, 'completed');
     assert.equal(afterProfile.step, 'tour');
-    assert.equal((await getUserOnboardingState('user-b')).step, 'language');
+    assert.equal((await getUserOnboardingState('user-b')).step, 'complete');
 
-    assert.equal(await getInstanceOnboardingStep(), 'language');
+    assert.equal(await getInstanceOnboardingStep(), 'server');
     await setInstanceOnboardingStep('owner-a', 'provider');
     assert.equal(await getInstanceOnboardingStep(), 'provider');
+    await markInstanceProviderVerified('owner-a');
+    assert.equal((await getServerSettings()).providerVerifiedBy, 'owner-a');
     await setServerPreferredTimeZone('owner-a', 'UTC');
     assert.equal(await getServerPreferredTimeZone(), 'UTC');
 

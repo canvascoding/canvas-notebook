@@ -11,28 +11,38 @@ const SUPPORTED_LOCALES = routing.locales as readonly string[];
 
 export type UserLocale = typeof routing.locales[number];
 
-export type UserOnboardingStep = 'language' | 'profile' | 'tour' | 'complete';
+export type UserOnboardingStep = 'language' | 'workspace' | 'profile' | 'tour' | 'complete';
 export type UserOnboardingProfileStatus = 'pending' | 'completed' | 'skipped';
 export type UserOnboardingTourStatus = 'pending' | 'started' | 'skipped' | 'completed';
 
 export type UserOnboardingState = {
-  version: 1;
+  version: 2;
   step: UserOnboardingStep;
   profile: UserOnboardingProfileStatus;
   tour: UserOnboardingTourStatus;
   updatedAt: string;
 };
 
-const USER_ONBOARDING_STEPS = new Set<UserOnboardingStep>(['language', 'profile', 'tour', 'complete']);
+const USER_ONBOARDING_STEPS = new Set<UserOnboardingStep>(['language', 'workspace', 'profile', 'tour', 'complete']);
 const USER_ONBOARDING_PROFILE_STATUSES = new Set<UserOnboardingProfileStatus>(['pending', 'completed', 'skipped']);
 const USER_ONBOARDING_TOUR_STATUSES = new Set<UserOnboardingTourStatus>(['pending', 'started', 'skipped', 'completed']);
 
 export function createDefaultUserOnboardingState(): UserOnboardingState {
   return {
-    version: 1,
+    version: 2,
     step: 'language',
     profile: 'pending',
     tour: 'pending',
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+export function createCompletedUserOnboardingState(): UserOnboardingState {
+  return {
+    version: 2,
+    step: 'complete',
+    profile: 'skipped',
+    tour: 'completed',
     updatedAt: new Date().toISOString(),
   };
 }
@@ -56,7 +66,7 @@ function normalizeUserOnboardingState(value: unknown): UserOnboardingState | und
     ? record.tour as UserOnboardingTourStatus
     : 'pending';
   return {
-    version: 1,
+    version: 2,
     step: step === 'complete' && (profile === 'pending' || tour === 'pending') ? 'language' : step,
     profile,
     tour,
@@ -189,9 +199,28 @@ export async function getUserPreferredLocale(userId: string): Promise<UserLocale
   return preferences.locale ?? routing.defaultLocale;
 }
 
-export async function getUserOnboardingState(userId: string): Promise<UserOnboardingState> {
+export async function getUserOnboardingState(
+  userId: string,
+  options: { missing?: 'complete' | 'pending' } = {},
+): Promise<UserOnboardingState> {
   const preferences = await getUserPreferences(userId);
-  return preferences.onboarding ?? createDefaultUserOnboardingState();
+  if (preferences.onboarding) return preferences.onboarding;
+  return options.missing === 'pending'
+    ? createDefaultUserOnboardingState()
+    : createCompletedUserOnboardingState();
+}
+
+/**
+ * Marks a freshly created account as needing the personal onboarding. Existing
+ * installations intentionally default missing state to complete, so an update
+ * never sends every historic account through the new flow.
+ */
+export async function initializeUserOnboarding(userId: string): Promise<UserOnboardingState> {
+  const preferences = await getUserPreferences(userId);
+  if (preferences.onboarding) return preferences.onboarding;
+  const onboarding = createDefaultUserOnboardingState();
+  await updateUserPreferences(userId, { onboarding });
+  return onboarding;
 }
 
 export async function updateUserPreferences(
@@ -274,7 +303,7 @@ export async function updateUserOnboardingState(
   userId: string,
   updates: Partial<Pick<UserOnboardingState, 'step' | 'profile' | 'tour'>>,
 ): Promise<UserOnboardingState> {
-  const current = await getUserOnboardingState(userId);
+  const current = await getUserOnboardingState(userId, { missing: 'pending' });
   const candidate = normalizeUserOnboardingState({
     ...current,
     ...updates,

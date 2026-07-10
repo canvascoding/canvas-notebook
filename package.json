@@ -128,6 +128,7 @@
     "test:agents:runtime": "tsx --conditions react-server scripts/agent-runtime-config-test.ts",
     "test:onboarding:profile": "tsx --conditions react-server scripts/onboarding-profile-test.ts",
     "test:onboarding:preferences": "tsx --conditions react-server scripts/onboarding-preferences-test.ts",
+    "test:onboarding:flow": "tsx --conditions react-server scripts/onboarding-flow-test.ts",
     "test:workspace:foundation": "tsx --conditions react-server scripts/workspace-context-foundation-test.ts",
     "test:workspace:model": "tsx --conditions react-server scripts/workspace-model-service-test.ts",
     "test:workspace:api-routes": "tsx --conditions react-server scripts/workspace-api-routes-test.ts",
