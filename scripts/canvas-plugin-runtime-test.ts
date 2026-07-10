@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import Module from 'node:module';
 import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -164,6 +165,26 @@ async function createStoreArchive(pluginRoot: string, checksum: string): Promise
 }
 
 async function main() {
+  const moduleInternals = Module as typeof Module & {
+    _load: (request: string, parent: NodeModule | null, isMain: boolean) => unknown;
+  };
+  const originalLoad = moduleInternals._load;
+  moduleInternals._load = (request, parent, isMain) => {
+    if (
+      request === 'server-only'
+      || request === '@earendil-works/pi-ai/oauth'
+      || request === '@earendil-works/pi-agent-core'
+    ) return {};
+    if (request === '@earendil-works/pi-ai/compat') {
+      return {
+        getModels: () => [],
+        getProviders: () => [],
+        registerBuiltInApiProviders: () => undefined,
+      };
+    }
+    return originalLoad(request, parent, isMain);
+  };
+
   const dataRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'canvas-plugin-test-data-'));
   const pluginRoot = await createTestPluginPackage();
   const seedRefPluginRoot = await createSeedRefPluginPackage();
@@ -242,6 +263,7 @@ This skill lives in the legacy global skills directory.
     assert.equal(legacyDeleted.success, true, legacyDeleted.error ?? 'Expected legacy plugin delete to succeed');
     assert.equal((await listCanvasPlugins(legacyPluginScope)).length, 0);
     assert.equal(await fs.stat(globalPluginInstallDir).then((stat) => stat.isDirectory()), true);
+    await assert.rejects(fs.stat(path.join(dataRoot, 'users', 'legacy-plugin-user', 'skills', 'test-plugin-skill', 'SKILL.md')));
     assert.equal(plugins[0].skills[0].name, 'test-plugin-skill');
     assert.equal(plugins[0].skills[0].materialized, true);
     assert.equal(plugins[0].skills[0].preexistingStandalone, false);
@@ -272,7 +294,7 @@ This skill lives in the legacy global skills directory.
     plugins = await listCanvasPlugins();
     assert.equal(plugins.length, 0);
     skills = await loadSkillsFromDisk();
-    assert.equal(skills.some((skill) => skill.name === 'test-plugin-skill' && !skill.plugin), true);
+    assert.equal(skills.some((skill) => skill.name === 'test-plugin-skill'), false);
 
     const seedRefInstall = await installCanvasPluginFromPath(seedRefPluginRoot, { enable: true });
     assert.equal(seedRefInstall.success, true, seedRefInstall.error || JSON.stringify(seedRefInstall.validation));
@@ -381,6 +403,7 @@ This skill lives in the legacy global skills directory.
 
     console.log('canvas plugin runtime test passed');
   } finally {
+    moduleInternals._load = originalLoad;
     await fs.rm(dataRoot, { recursive: true, force: true });
     await fs.rm(pluginRoot, { recursive: true, force: true });
     await fs.rm(seedRefPluginRoot, { recursive: true, force: true });
