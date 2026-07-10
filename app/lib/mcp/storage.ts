@@ -9,7 +9,8 @@ import {
   writeSettingsBufferFileAtomic,
   writeSettingsTextFileAtomic,
 } from '@/app/lib/settings-storage';
-import { resolveScopedMcpPath, type McpScope } from '@/app/lib/mcp/scope';
+import { resolveScopedMcpDir, type McpScope } from '@/app/lib/mcp/scope';
+import { requirePathInside } from '@/app/lib/security/safe-paths';
 
 type WriteOptions = {
   mode?: number;
@@ -22,6 +23,13 @@ function normalizeRelativePath(relativePath: string): string {
     throw new Error('Invalid MCP storage path.');
   }
   return normalized;
+}
+
+function resolveScopedStoragePath(relativePath: string, scope?: McpScope | null): string | null {
+  const normalized = normalizeRelativePath(relativePath);
+  const rootDir = resolveScopedMcpDir(scope);
+  if (!rootDir) return null;
+  return requirePathInside(rootDir, normalized);
 }
 
 async function writeAtomic(filePath: string, content: string | Buffer, options: WriteOptions = {}): Promise<void> {
@@ -38,12 +46,13 @@ async function writeAtomic(filePath: string, content: string | Buffer, options: 
 
 export function resolveMcpStoragePath(relativePath: string, scope?: McpScope | null): string {
   const normalized = normalizeRelativePath(relativePath);
-  return resolveScopedMcpPath(scope, normalized) || resolveSettingsStoragePath(normalized);
+  return resolveScopedStoragePath(normalized, scope) || resolveSettingsStoragePath(normalized);
 }
 
 export async function readMcpTextFileIfExists(relativePath: string, scope?: McpScope | null): Promise<{ filePath: string; content: string | null }> {
-  const scopedPath = resolveScopedMcpPath(scope, normalizeRelativePath(relativePath));
-  if (!scopedPath) return readSettingsTextFileIfExists(relativePath);
+  const normalized = normalizeRelativePath(relativePath);
+  const scopedPath = resolveScopedStoragePath(normalized, scope);
+  if (!scopedPath) return readSettingsTextFileIfExists(normalized);
   try {
     return { filePath: scopedPath, content: await fs.readFile(scopedPath, 'utf8') };
   } catch (error) {
@@ -53,8 +62,9 @@ export async function readMcpTextFileIfExists(relativePath: string, scope?: McpS
 }
 
 export async function readMcpBufferFileIfExists(relativePath: string, scope?: McpScope | null): Promise<{ filePath: string; buffer: Buffer | null }> {
-  const scopedPath = resolveScopedMcpPath(scope, normalizeRelativePath(relativePath));
-  if (!scopedPath) return readSettingsBufferFileIfExists(relativePath);
+  const normalized = normalizeRelativePath(relativePath);
+  const scopedPath = resolveScopedStoragePath(normalized, scope);
+  if (!scopedPath) return readSettingsBufferFileIfExists(normalized);
   try {
     return { filePath: scopedPath, buffer: await fs.readFile(scopedPath) };
   } catch (error) {
@@ -64,21 +74,24 @@ export async function readMcpBufferFileIfExists(relativePath: string, scope?: Mc
 }
 
 export async function writeMcpTextFileAtomic(relativePath: string, content: string, scope?: McpScope | null, options: WriteOptions = {}): Promise<string> {
-  const scopedPath = resolveScopedMcpPath(scope, normalizeRelativePath(relativePath));
-  if (!scopedPath) return writeSettingsTextFileAtomic(relativePath, content, options);
+  const normalized = normalizeRelativePath(relativePath);
+  const scopedPath = resolveScopedStoragePath(normalized, scope);
+  if (!scopedPath) return writeSettingsTextFileAtomic(normalized, content, options);
   await writeAtomic(scopedPath, content.endsWith('\n') || content.length === 0 ? content : `${content}\n`, options);
   return scopedPath;
 }
 
 export async function writeMcpBufferFileAtomic(relativePath: string, buffer: Buffer, scope?: McpScope | null, options: WriteOptions = {}): Promise<string> {
-  const scopedPath = resolveScopedMcpPath(scope, normalizeRelativePath(relativePath));
-  if (!scopedPath) return writeSettingsBufferFileAtomic(relativePath, buffer, options);
+  const normalized = normalizeRelativePath(relativePath);
+  const scopedPath = resolveScopedStoragePath(normalized, scope);
+  if (!scopedPath) return writeSettingsBufferFileAtomic(normalized, buffer, options);
   await writeAtomic(scopedPath, buffer, options);
   return scopedPath;
 }
 
 export async function removeMcpStoragePath(relativePath: string, scope?: McpScope | null, options: { recursive?: boolean } = {}): Promise<void> {
-  const scopedPath = resolveScopedMcpPath(scope, normalizeRelativePath(relativePath));
-  if (!scopedPath) return removeSettingsPath(relativePath, options);
+  const normalized = normalizeRelativePath(relativePath);
+  const scopedPath = resolveScopedStoragePath(normalized, scope);
+  if (!scopedPath) return removeSettingsPath(normalized, options);
   await fs.rm(scopedPath, { recursive: options.recursive ?? false, force: true });
 }

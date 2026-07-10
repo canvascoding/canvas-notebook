@@ -377,13 +377,15 @@ async function readTextFileInside(rootDir: string, targetPath: string) {
 }
 
 async function findPluginPackageSymlinks(rootDir: string, currentDir = rootDir): Promise<string[]> {
-  const entries = await fs.readdir(currentDir, { withFileTypes: true });
+  const currentRelativePath = path.relative(rootDir, currentDir);
+  const safeCurrentDir = requirePathInside(rootDir, currentRelativePath || '.');
+  const entries = await fs.readdir(safeCurrentDir, { withFileTypes: true });
   const symlinks: string[] = [];
 
   for (const entry of entries) {
     if (IGNORED_PLUGIN_PACKAGE_ENTRIES.has(entry.name)) continue;
 
-    const fullPath = path.join(currentDir, entry.name);
+    const fullPath = requirePathInside(rootDir, currentRelativePath || '.', entry.name);
     if (entry.isSymbolicLink()) {
       symlinks.push(path.relative(rootDir, fullPath).split(path.sep).join('/'));
       continue;
@@ -406,7 +408,7 @@ export async function validateCanvasPluginPackage(sourcePath: string): Promise<C
       warnings,
     };
   }
-  const rootDir = path.resolve(/*turbopackIgnore: true*/ sourcePath);
+  const rootDir = requirePathInside(path.dirname(path.resolve(/*turbopackIgnore: true*/ sourcePath)), path.basename(sourcePath));
   const manifestPath = resolvePathInside(rootDir, CANVAS_PLUGIN_MANIFEST_PATH) || resolvePluginManifestPath(rootDir);
 
   let rawManifest: string;
