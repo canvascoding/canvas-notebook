@@ -9,6 +9,7 @@ import { resolvePiApiKey } from '@/app/lib/pi/api-key-resolver';
 import { normalizePiMessagesForLlm } from '@/app/lib/pi/message-normalization';
 import { preparePiHistoryContext } from '@/app/lib/pi/session-summary';
 import { estimateTextTokens } from '@/app/lib/pi/history-budget';
+import { MAX_LLM_HISTORY_BYTES } from '@/app/lib/pi/llm-payload-limits';
 import { loadPiSessionWithSummary, savePiSession } from '@/app/lib/pi/session-store';
 import { runWithAgentExecutionContext } from '@/app/lib/pi/agent-execution-context';
 import { workspaceToAgentExecutionContext } from '@/app/lib/pi/session-workspace-context';
@@ -293,6 +294,12 @@ export async function executeAutomationRun(runId: string): Promise<void> {
         sessionId: piSessionId,
       });
       if (preparedHistory.composition.contextBudgetExceeded) {
+        if (preparedHistory.composition.payloadBudgetExceeded) {
+          throw new Error(
+            `Automation request exceeds the ${Math.floor(MAX_LLM_HISTORY_BYTES / (1024 * 1024))}MB LLM transfer budget. ` +
+            'Shorten the latest prompt or attachments.',
+          );
+        }
         throw new Error('Automation context exceeds the selected model window. Use a larger-context model or start a new automation session.');
       }
       if (preparedHistory.summaryFailed && preparedHistory.composition.omittedMessages.length > 0) {

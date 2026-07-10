@@ -1,5 +1,6 @@
 import type { AgentMessage } from '@earendil-works/pi-agent-core';
 import type { UserMessage } from '@earendil-works/pi-ai';
+import { MAX_LLM_HISTORY_BYTES, MAX_LLM_IMAGE_BYTES } from './llm-payload-limits';
 
 export type PiSessionSummaryState = {
   summaryText: string | null;
@@ -15,8 +16,12 @@ export type PiHistoryComposition = {
   includedSummary: boolean;
   availableHistoryTokens: number;
   estimatedHistoryTokens: number;
+  availableHistoryBytes: number;
+  estimatedHistoryBytes: number;
   contextBudgetExceeded: boolean;
+  payloadBudgetExceeded: boolean;
   minimumRequiredTokens: number;
+  minimumRequiredBytes: number;
 };
 
 type ComposePiHistoryOptions = {
@@ -32,6 +37,7 @@ type ComposePiHistoryOptions = {
 };
 
 const MESSAGE_OVERHEAD_TOKENS = 24;
+const MESSAGE_OVERHEAD_BYTES = 256;
 const STATIC_SAFETY_TOKENS = 512;
 const AGGRESSIVE_HISTORY_FACTOR = 0.7;
 const MAX_SUMMARY_SHARE = 0.45;
@@ -82,6 +88,55 @@ function estimateContentTokens(content: unknown): number {
   }, 0);
 }
 
+function estimateBase64Bytes(value: string): number {
+  const padding = value.endsWith('==') ? 2 : value.endsWith('=') ? 1 : 0;
+  return Math.max(0, Math.floor(value.length * 3 / 4) - padding);
+}
+
+function isLikelyBase64(value: string): boolean {
+  return value.length > 0
+    && value.length % 4 === 0
+    && /^[A-Za-z0-9+/=\s]+$/.test(value);
+}
+
+function estimateImagePayloadBytes(data: string): number {
+  const payload = data.startsWith('data:')
+    ? data.slice(data.indexOf(',') + 1)
+    : data;
+  const sourceBytes = isLikelyBase64(payload) ? estimateBase64Bytes(payload) : MAX_LLM_IMAGE_BYTES;
+  const boundedBytes = Math.min(sourceBytes, MAX_LLM_IMAGE_BYTES);
+  return Math.ceil(boundedBytes / 3) * 4 + MESSAGE_OVERHEAD_BYTES;
+}
+
+function estimateContentPayloadBytes(content: unknown): number {
+  if (typeof content === 'string') {
+    return estimateTextTokens(content);
+  }
+
+  if (!Array.isArray(content)) {
+    return 0;
+  }
+
+  return content.reduce((total, part) => {
+    if (!part || typeof part !== 'object' || !('type' in part)) {
+      return total;
+    }
+
+    switch (part.type) {
+      case 'text':
+        return total + estimateTextTokens(typeof part.text === 'string' ? part.text : '');
+      case 'thinking':
+        return total + estimateTextTokens(typeof part.thinking === 'string' ? part.thinking : '');
+      case 'toolCall':
+        return total + estimateTextTokens(part.name || '') + estimateTextTokens(JSON.stringify(part.arguments || {}));
+      case 'image':
+        return total + estimateImagePayloadBytes(typeof part.data === 'string' ? part.data : '');
+      default:
+        return total;
+    }
+  }, 0);
+}
+
 export function estimatePiMessageTokens(message: AgentMessage): number {
   if (message.role === 'compact-break') return MESSAGE_OVERHEAD_TOKENS;
   if (message.role === 'composio_auth_required') return MESSAGE_OVERHEAD_TOKENS;
@@ -97,6 +152,24 @@ export function estimatePiMessageTokens(message: AgentMessage): number {
     return MESSAGE_OVERHEAD_TOKENS + estimateTextTokens(`${command}\n${output}`);
   }
   return MESSAGE_OVERHEAD_TOKENS;
+}
+
+export function estimatePiMessagePayloadBytes(message: AgentMessage): number {
+  if (message.role === 'compact-break' || message.role === 'composio_auth_required') {
+    return MESSAGE_OVERHEAD_BYTES;
+  }
+  if ('content' in message) {
+    return MESSAGE_OVERHEAD_BYTES + estimateContentPayloadBytes(message.content);
+  }
+  if ('summary' in message && typeof message.summary === 'string') {
+    return MESSAGE_OVERHEAD_BYTES + estimateTextTokens(message.summary);
+  }
+  if ('command' in message || 'output' in message) {
+    const command = 'command' in message && typeof message.command === 'string' ? message.command : '';
+    const output = 'output' in message && typeof message.output === 'string' ? message.output : '';
+    return MESSAGE_OVERHEAD_BYTES + estimateTextTokens(`${command}\n${output}`);
+  }
+  return MESSAGE_OVERHEAD_BYTES;
 }
 
 function getSummaryMessage(summaryText: string, maxHistoryTokens: number): UserMessage {
@@ -183,18 +256,22 @@ export function composePiHistoryForLlm({
 
   const keptMessages: AgentMessage[] = [];
   let keptTokens = 0;
+  let keptBytes = 0;
 
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index];
     const messageTokens = estimatePiMessageTokens(message);
+    const messageBytes = estimatePiMessagePayloadBytes(message);
     const nextTotal = keptTokens + messageTokens;
+    const nextTotalBytes = keptBytes + messageBytes;
 
-    if (nextTotal > availableHistoryTokens) {
+    if (nextTotal > availableHistoryTokens || nextTotalBytes > MAX_LLM_HISTORY_BYTES) {
       break;
     }
 
     keptMessages.unshift(message);
     keptTokens = nextTotal;
+    keptBytes = nextTotalBytes;
   }
 
   let omittedMessages = messages.slice(0, Math.max(0, messages.length - keptMessages.length));
@@ -215,27 +292,42 @@ export function composePiHistoryForLlm({
     ? getSummaryMessage(summary.summaryText!, availableHistoryTokens)
     : null;
   let summaryTokens = summaryMessage ? estimatePiMessageTokens(summaryMessage) : 0;
+  let summaryBytes = summaryMessage ? estimatePiMessagePayloadBytes(summaryMessage) : 0;
 
-  while (summaryMessage && keptMessages.length > 0 && keptTokens + summaryTokens > availableHistoryTokens) {
+  while (
+    summaryMessage
+    && keptMessages.length > 0
+    && (keptTokens + summaryTokens > availableHistoryTokens || keptBytes + summaryBytes > MAX_LLM_HISTORY_BYTES)
+  ) {
     const removed = keptMessages.shift()!;
     keptTokens -= estimatePiMessageTokens(removed);
+    keptBytes -= estimatePiMessagePayloadBytes(removed);
   }
 
   omittedMessages = messages.slice(0, Math.max(0, messages.length - keptMessages.length));
 
-  if (summaryMessage && summaryTokens > availableHistoryTokens) {
+  if (summaryMessage && (summaryTokens > availableHistoryTokens || summaryBytes > MAX_LLM_HISTORY_BYTES)) {
     summaryMessage = null;
     summaryTokens = 0;
+    summaryBytes = 0;
   }
 
   const contextBudgetExceeded = messages.length > 0 && keptMessages.length === 0;
-  const minimumRequiredTokens = contextBudgetExceeded
-    ? estimatePiMessageTokens(messages[messages.length - 1])
+  const latestMessage = messages[messages.length - 1];
+  const payloadBudgetExceeded = contextBudgetExceeded
+    && latestMessage !== undefined
+    && estimatePiMessagePayloadBytes(latestMessage) > MAX_LLM_HISTORY_BYTES;
+  const minimumRequiredTokens = contextBudgetExceeded && latestMessage
+    ? estimatePiMessageTokens(latestMessage)
+    : 0;
+  const minimumRequiredBytes = contextBudgetExceeded && latestMessage
+    ? estimatePiMessagePayloadBytes(latestMessage)
     : 0;
   const llmMessages = summaryMessage
     ? [summaryMessage, ...keptMessages]
     : keptMessages;
   const estimatedHistoryTokens = llmMessages.reduce((total, message) => total + estimatePiMessageTokens(message), 0);
+  const estimatedHistoryBytes = llmMessages.reduce((total, message) => total + estimatePiMessagePayloadBytes(message), 0);
 
   return {
     llmMessages,
@@ -244,8 +336,12 @@ export function composePiHistoryForLlm({
     includedSummary: shouldIncludeSummary,
     availableHistoryTokens,
     estimatedHistoryTokens,
+    availableHistoryBytes: MAX_LLM_HISTORY_BYTES,
+    estimatedHistoryBytes,
     contextBudgetExceeded,
+    payloadBudgetExceeded,
     minimumRequiredTokens,
+    minimumRequiredBytes,
   };
 }
 

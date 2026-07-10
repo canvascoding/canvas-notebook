@@ -36,6 +36,7 @@ async function main() {
 
   const { preparePiHistoryContext } = await import('../app/lib/pi/session-summary');
   const { composePiHistoryForLlm, getUnsummarizedMessages } = await import('../app/lib/pi/history-budget');
+  const { MAX_LLM_HISTORY_BYTES } = await import('../app/lib/pi/llm-payload-limits');
 
   const model = {
     id: 'summary-test-model',
@@ -168,6 +169,24 @@ async function main() {
   assert.equal(oversizedComposition.contextBudgetExceeded, true);
   assert.equal(oversizedComposition.llmMessages.length, 0);
   assert.ok(oversizedComposition.minimumRequiredTokens > oversizedComposition.availableHistoryTokens);
+
+  const payloadOversizedComposition = composePiHistoryForLlm({
+    messages: [{ role: 'user', content: 'x'.repeat(MAX_LLM_HISTORY_BYTES + 1), timestamp: 10_000 } as unknown as AgentMessage],
+    summary: {
+      summaryText: null,
+      summaryUpdatedAt: null,
+      summaryThroughTimestamp: null,
+      summaryThroughSequence: null,
+    },
+    systemPromptTokens: 0,
+    contextWindow: MAX_LLM_HISTORY_BYTES * 2,
+    modelMaxTokens: 1,
+    toolTokens: 0,
+  });
+  assert.equal(payloadOversizedComposition.contextBudgetExceeded, true);
+  assert.equal(payloadOversizedComposition.payloadBudgetExceeded, true);
+  assert.equal(payloadOversizedComposition.llmMessages.length, 0);
+  assert.ok(payloadOversizedComposition.minimumRequiredBytes > payloadOversizedComposition.availableHistoryBytes);
 }
 
 main().catch((error) => {

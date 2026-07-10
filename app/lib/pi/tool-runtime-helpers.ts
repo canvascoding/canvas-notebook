@@ -171,8 +171,8 @@ export async function imageContentForBuffer(filePath: string, buffer: Buffer): P
   try {
     return await compactImageBufferForLlm(buffer, path.basename(filePath), mimeType);
   } catch (error) {
-    console.warn('[Read Tool] Failed to compact image, falling back to raw base64:', error instanceof Error ? error.message : error);
-    return { type: 'image', data: buffer.toString('base64'), mimeType };
+    console.warn('[Read Tool] Failed to compact image for LLM transfer:', error instanceof Error ? error.message : error);
+    throw error;
   }
 }
 

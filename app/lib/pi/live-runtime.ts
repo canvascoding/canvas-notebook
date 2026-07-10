@@ -20,6 +20,7 @@ import {
   type PiSessionSummaryState,
 } from '@/app/lib/pi/history-budget';
 import { normalizePiMessagesForLlm, filterImagesForNonVisionModel } from '@/app/lib/pi/message-normalization';
+import { MAX_LLM_HISTORY_BYTES } from '@/app/lib/pi/llm-payload-limits';
 import { createCompactBreakMessage, createRuntimeContinuationMessage, type RuntimeContinuationReason } from '@/app/lib/pi/custom-messages';
 import {
   createThinkingFilterState,
@@ -598,6 +599,12 @@ class LivePiRuntime {
     });
 
     if (result.composition.contextBudgetExceeded) {
+      if (result.composition.payloadBudgetExceeded) {
+        throw new Error(
+          `Context compaction cannot run because the latest message exceeds the ${Math.floor(MAX_LLM_HISTORY_BYTES / (1024 * 1024))}MB LLM transfer budget. ` +
+          'Shorten the latest message or attachments.',
+        );
+      }
       throw new Error(
         'Context compaction cannot run because the system prompt, tools, output reserve, or latest message already exceeds the selected model context window.',
       );
@@ -1225,6 +1232,12 @@ class LivePiRuntime {
     });
 
     if (result.composition.contextBudgetExceeded) {
+      if (result.composition.payloadBudgetExceeded) {
+        throw new Error(
+          `The current request exceeds the ${Math.floor(MAX_LLM_HISTORY_BYTES / (1024 * 1024))}MB LLM transfer budget after image compression. ` +
+          'Shorten the latest message or attachments.',
+        );
+      }
       throw new Error(
         `The current request is too large for the selected model context window. ` +
         `It requires at least ${result.composition.minimumRequiredTokens.toLocaleString()} history tokens after system, tool, and output reserves. ` +

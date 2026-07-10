@@ -8,6 +8,7 @@ import { projectAgentMessageForLoadedContext } from './message-projection';
 import { convertImage } from '../images/convert';
 import { isRuntimeContinuationMessage } from './custom-messages';
 import { isPathInside } from '../security/safe-paths';
+import { MAX_LLM_IMAGE_BYTES, MAX_LLM_TOTAL_IMAGE_BYTES } from './llm-payload-limits';
 
 const IMAGE_MIME_BY_EXTENSION: Record<string, string> = {
   '.gif': 'image/gif',
@@ -23,9 +24,12 @@ const IMAGE_MIME_BY_EXTENSION: Record<string, string> = {
 
 const DATA_URL_PATTERN = /^data:(image\/[a-z0-9.+-]+);base64,([a-z0-9+/=\s]+)$/i;
 const BASE64_PATTERN = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
-const INLINE_IMAGE_BYTE_LIMIT = 6 * 1024 * 1024;
 const SOURCE_IMAGE_BYTE_LIMIT = 50 * 1024 * 1024;
-const LARGE_IMAGE_MAX_DIMENSION = 2048;
+const LLM_IMAGE_COMPRESSION_PROFILES = [
+  { maxDimension: 1600, quality: 80 },
+  { maxDimension: 1280, quality: 70 },
+  { maxDimension: 1024, quality: 60 },
+] as const;
 
 /**
  * Filesystem paths in model image parts are a privileged server-side capability.
@@ -145,7 +149,7 @@ export async function compactImageBufferForLlm(
     );
   }
 
-  if (buffer.length <= INLINE_IMAGE_BYTE_LIMIT || mimeType === 'image/svg+xml') {
+  if (buffer.length <= MAX_LLM_IMAGE_BYTES) {
     return {
       type: 'image',
       data: buffer.toString('base64'),
@@ -154,22 +158,34 @@ export async function compactImageBufferForLlm(
   }
 
   try {
-    const converted = await convertImage(buffer, originalName, {
-      format: 'webp',
-      quality: 82,
-      maxDimension: LARGE_IMAGE_MAX_DIMENSION,
-      sourceMimeType: mimeType,
-    });
+    let smallestResult: Awaited<ReturnType<typeof convertImage>> | null = null;
+    for (const profile of LLM_IMAGE_COMPRESSION_PROFILES) {
+      const converted = await convertImage(buffer, originalName, {
+        format: 'webp',
+        quality: profile.quality,
+        maxDimension: profile.maxDimension,
+        sourceMimeType: mimeType,
+      });
+      if (!smallestResult || converted.buffer.length < smallestResult.buffer.length) {
+        smallestResult = converted;
+      }
+      if (converted.buffer.length <= MAX_LLM_IMAGE_BYTES) {
+        return {
+          type: 'image',
+          data: converted.buffer.toString('base64'),
+          mimeType: converted.mimeType,
+        };
+      }
+    }
 
-    return {
-      type: 'image',
-      data: converted.buffer.toString('base64'),
-      mimeType: converted.mimeType,
-    };
+    throw new Error(
+      `Image attachment could not be compacted below the ${Math.ceil(MAX_LLM_IMAGE_BYTES / 1024)}KB LLM transfer limit` +
+      `${smallestResult ? ` (smallest result: ${Math.ceil(smallestResult.buffer.length / 1024)}KB)` : ''}.`,
+    );
   } catch (error) {
     console.warn('[Message Normalization] Failed to compact large image attachment:', error instanceof Error ? error.message : error);
     throw new Error(
-      `Image attachment is too large for chat context and could not be compacted (${Math.ceil(buffer.length / (1024 * 1024))}MB).`,
+      `Image attachment is too large for the LLM request and could not be compacted below ${Math.ceil(MAX_LLM_IMAGE_BYTES / 1024)}KB (${Math.ceil(buffer.length / (1024 * 1024))}MB source).`,
     );
   }
 }
@@ -182,7 +198,7 @@ async function normalizeBase64ImageData(
   const clean = hasWhitespace(data) ? stripWhitespace(data) : data;
   const estimatedBytes = estimateBase64Bytes(clean);
 
-  if (estimatedBytes <= INLINE_IMAGE_BYTE_LIMIT || mimeType === 'image/svg+xml') {
+  if (estimatedBytes <= MAX_LLM_IMAGE_BYTES) {
     return {
       type: 'image',
       data: clean,
@@ -469,7 +485,37 @@ export async function normalizePiMessagesForLlm(
 ): Promise<Message[]> {
   const contextMessages = messages.map((message) => projectAgentMessageForLoadedContext(message, 'context'));
   const normalized = await Promise.all(contextMessages.map((message) => normalizePiMessage(message, options)));
-  return normalized.filter((message): message is Message => message !== null);
+  return enforceImagePayloadBudget(normalized.filter((message): message is Message => message !== null));
+}
+
+function enforceImagePayloadBudget(messages: Message[]): Message[] {
+  let includedImageBytes = 0;
+
+  return [...messages].reverse().map((message) => {
+    if (message.role === 'assistant' || !Array.isArray(message.content)) {
+      return message;
+    }
+
+    let omittedImageCount = 0;
+    const content = message.content.filter((part) => {
+      if (!isImageContentPart(part)) return true;
+      const imageBytes = estimateBase64Bytes(part.data);
+      if (includedImageBytes + imageBytes <= MAX_LLM_TOTAL_IMAGE_BYTES) {
+        includedImageBytes += imageBytes;
+        return true;
+      }
+      omittedImageCount += 1;
+      return false;
+    });
+
+    if (omittedImageCount === 0) return message;
+
+    content.push({
+      type: 'text',
+      text: `[${omittedImageCount} image${omittedImageCount === 1 ? '' : 's'} omitted to keep the LLM request within its transfer limit.]`,
+    });
+    return { ...message, content };
+  }).reverse();
 }
 
 /**
