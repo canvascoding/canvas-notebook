@@ -134,12 +134,14 @@ import {
   type AgentSkillUpdateFromWorkspaceResult,
 } from '@/app/lib/skills/agent-skill-workspace';
 import {
+  createCanvasPluginDraft,
   inspectCanvasPluginForAgent,
   installCanvasPluginFromWorkspace,
   removeCanvasPluginForAgent,
   setCanvasPluginEnabledForAgent,
   updateCanvasPluginFromWorkspace,
   type AgentPluginInspection,
+  type AgentPluginDraftResult,
   type AgentPluginWorkspaceResult,
 } from '@/app/lib/plugins/agent-plugin-workspace';
 import { getAgentExecutionContext, runWithAgentExecutionContext, type AgentExecutionContext } from '@/app/lib/pi/agent-execution-context';
@@ -3453,6 +3455,16 @@ function formatAgentPluginInspection(result: AgentPluginInspection): string {
   ].filter(Boolean).join('\n');
 }
 
+function formatAgentPluginDraft(result: AgentPluginDraftResult): string {
+  return [
+    `Plugin draft created: ${result.packagePath}`,
+    `Draft id: ${result.draftId}`,
+    `Plugin: ${result.pluginName}`,
+    `Version: ${result.version}`,
+    `Starter skill: ${result.skillName}`,
+  ].join('\n');
+}
+
 function formatAgentPluginMutation(result: AgentPluginWorkspaceResult): string {
   return [
     `Plugin: ${result.name}`,
@@ -3466,6 +3478,41 @@ function formatAgentPluginMutation(result: AgentPluginWorkspaceResult): string {
 
 function createAgentPluginTools(userId?: string): AgentTool[] {
   return [
+    {
+      name: 'create_canvas_plugin_draft',
+      label: 'Creating Canvas plugin draft',
+      description: 'Creates a managed plugin package draft under .canvas-plugin-drafts with a valid manifest and one editable starter skill. Edit this package, then install_canvas_plugin_from_workspace using the returned packagePath.',
+      parameters: Type.Object({
+        pluginName: Type.String({ description: 'New plugin name in lowercase kebab-case.' }),
+        description: Type.Optional(Type.String({ description: 'Short plugin description.' })),
+        version: Type.Optional(Type.String({ description: 'Plugin version. Defaults to 1.0.0.' })),
+        draftId: Type.Optional(Type.String({ description: 'Optional stable draft id. Defaults to a generated id.' })),
+        overwrite: Type.Optional(Type.Boolean({ description: 'Overwrite an existing draft with the same draftId and pluginName. Defaults to false.' })),
+      }),
+      execute: async (_toolCallId, params) => {
+        const p = params as { pluginName?: string; description?: string; version?: string; draftId?: string; overwrite?: boolean };
+        try {
+          const scopedUserId = requireToolUserId(userId, 'plugin tools');
+          const context = requireAgentExecutionContextForTool('create_canvas_plugin_draft');
+          if (!context.canWrite) throw new Error('Agent file writes are disabled for the active workspace.');
+          await assertAgentCanManageSkills(scopedUserId);
+          const result = await createCanvasPluginDraft({
+            workspaceRoot: context.workspaceRoot,
+            pluginName: p.pluginName || '',
+            description: p.description,
+            version: p.version,
+            draftId: p.draftId,
+            overwrite: p.overwrite,
+          });
+          await recordAgentPluginToolAudit({ action: 'plugin.create_draft', status: 'success', pluginName: result.pluginName, workspacePath: result.packagePath, metadata: { version: result.version, skillName: result.skillName } });
+          return { content: [{ type: 'text', text: formatAgentPluginDraft(result) }], details: result };
+        } catch (error: unknown) {
+          const message = getErrorMessage(error);
+          await recordAgentPluginToolAudit({ action: 'plugin.create_draft', status: 'failure', pluginName: p.pluginName, error: message });
+          return { content: [{ type: 'text', text: `Error: ${message}` }], details: { error: message } };
+        }
+      },
+    },
     {
       name: 'inspect_canvas_plugin',
       label: 'Inspecting Canvas plugin',

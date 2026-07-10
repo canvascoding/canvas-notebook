@@ -10,6 +10,7 @@ const LEGACY_SKILL_MANAGEMENT_TOOL_NAMES = [
   'update_canvas_skill_from_workspace',
 ];
 const PLUGIN_MANAGEMENT_TOOL_NAMES = [
+  'create_canvas_plugin_draft',
   'inspect_canvas_plugin',
   'install_canvas_plugin_from_workspace',
   'remove_canvas_plugin',

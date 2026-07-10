@@ -100,6 +100,7 @@ export const PI_TOOLSETS: Record<PiToolset, PiToolsetInfo> = {
 };
 
 export const SKILL_TOOL_NAMES = [
+  'create_canvas_plugin_draft',
   'inspect_canvas_plugin',
   'install_canvas_plugin_from_workspace',
   'remove_canvas_plugin',

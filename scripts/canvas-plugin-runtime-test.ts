@@ -4,7 +4,6 @@ import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import Module from 'node:module';
 
 import JSZip from 'jszip';
 
@@ -30,8 +29,15 @@ moduleInternals._load = (request, parent, isMain) => {
       registerBuiltInApiProviders: () => undefined,
     };
   }
-  if (request === '@earendil-works/pi-ai/oauth') {
+  if (request === '@earendil-works/pi-ai/oauth' || request === '@earendil-works/pi-agent-core') {
     return {};
+  }
+  if (request === '@earendil-works/pi-ai/compat') {
+    return {
+      getModels: () => [],
+      getProviders: () => [],
+      registerBuiltInApiProviders: () => undefined,
+    };
   }
   return originalLoad(request, parent, isMain);
 };
@@ -165,26 +171,6 @@ async function createStoreArchive(pluginRoot: string, checksum: string): Promise
 }
 
 async function main() {
-  const moduleInternals = Module as typeof Module & {
-    _load: (request: string, parent: NodeModule | null, isMain: boolean) => unknown;
-  };
-  const originalLoad = moduleInternals._load;
-  moduleInternals._load = (request, parent, isMain) => {
-    if (
-      request === 'server-only'
-      || request === '@earendil-works/pi-ai/oauth'
-      || request === '@earendil-works/pi-agent-core'
-    ) return {};
-    if (request === '@earendil-works/pi-ai/compat') {
-      return {
-        getModels: () => [],
-        getProviders: () => [],
-        registerBuiltInApiProviders: () => undefined,
-      };
-    }
-    return originalLoad(request, parent, isMain);
-  };
-
   const dataRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'canvas-plugin-test-data-'));
   const pluginRoot = await createTestPluginPackage();
   const seedRefPluginRoot = await createSeedRefPluginPackage();

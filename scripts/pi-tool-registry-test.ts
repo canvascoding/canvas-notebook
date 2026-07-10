@@ -704,6 +704,7 @@ async function main() {
   const allTools = buildPiToolRegistry();
   const defaultEnabledTools = getDefaultEnabledToolNames(allTools.map((tool) => tool.name));
   const skillToolNames = [
+    'create_canvas_plugin_draft',
     'inspect_canvas_plugin',
     'install_canvas_plugin_from_workspace',
     'remove_canvas_plugin',
