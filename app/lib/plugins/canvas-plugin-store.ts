@@ -25,6 +25,7 @@ import {
 import { getGatewayStatus, getGatewayToolkits } from '@/app/lib/composio/composio-gateway';
 import { listEmailAccounts } from '@/app/lib/email/service';
 import { readMcpConfig } from '@/app/lib/mcp/config';
+import { getMcpOAuthStatus } from '@/app/lib/mcp/oauth';
 import { readPluginMcpTemplateFile } from '@/app/lib/plugins/plugin-mcp-template-service';
 import { readCanvasSkillRegistry, type CanvasSkillInstallRecord } from '@/app/lib/skills/canvas-skill-store';
 import { resolveReadableScopedSkillsDataDir } from '@/app/lib/runtime-data-paths';
@@ -987,22 +988,27 @@ export async function preflightCanvasPluginFromStore(
       const server = mcpServers[connector.name];
       const configured = Boolean(server);
       const enabled = configured && server?.enabled !== false;
+      const oauth = connector.oauth && scope?.userId
+        ? await getMcpOAuthStatus(connector.name, undefined, { userId: scope.userId }).catch(() => null)
+        : null;
+      const authorized = connector.oauth ? Boolean(oauth?.authorized) : true;
+      const ready = configured && enabled && authorized;
       const details = [
         connector.configPath ? `Example config: ${connector.configPath}` : null,
         connector.env?.length ? `Env: ${connector.env.join(', ')}` : null,
-        connector.oauth ? 'OAuth may be required' : null,
+        connector.oauth ? (authorized ? 'OAuth authorized' : 'OAuth authorization required') : null,
       ].filter((detail): detail is string => Boolean(detail));
       items.push({
         type: 'mcp',
         key: connector.name,
         label: connector.label || connector.name,
         required: connector.required === true,
-        ready: configured && enabled,
+        ready,
         configured,
-        connected: enabled,
+        connected: ready,
         reason: connector.reason,
         details,
-        action: configured && enabled ? 'none' : 'configure-mcp',
+        action: ready ? 'none' : 'configure-mcp',
       });
     }
   }
