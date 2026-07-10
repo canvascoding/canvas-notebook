@@ -305,6 +305,30 @@ export function isOrganizationAdminLike(permission: OrganizationPermissionSnapsh
   return permission?.status === 'active' && (permission?.role === 'owner' || permission?.role === 'admin');
 }
 
+/**
+ * Guards host-level capabilities that are not safe to delegate through a
+ * granular member permission. Examples include configuring MCP stdio servers,
+ * which can start a process with the Canvas service account.
+ */
+export async function assertUserOrganizationAdmin(
+  userId: string,
+  message = 'Organization admin permission required.',
+): Promise<OrganizationPermissionState> {
+  const state = await readOrganizationPermissionForUser(userId);
+  if (!state.configured) {
+    const user = await readPermissionUserCandidate(userId);
+    if (isAdminUser(user)) {
+      warnLegacyAdminFallback(userId, 'canSharePluginsAndSkills', state.databaseProvider);
+      return legacyFallbackState();
+    }
+  }
+
+  if (!isOrganizationAdminLike(state.permission)) {
+    throw new Error(message);
+  }
+  return state;
+}
+
 function booleanFromDb(value: unknown): boolean {
   return value === true || value === 1 || value === '1';
 }

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { auth } from '@/app/lib/auth';
+import { assertUserOrganizationAdmin } from '@/app/lib/organization/permissions';
 import {
   McpConfigValidationError,
   readMcpConfigState,
@@ -17,16 +18,15 @@ async function requireSession(request: NextRequest) {
   if (!session) {
     return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
   }
-  return null;
+  return session;
 }
 
 export async function GET(request: NextRequest) {
-  const unauthorized = await requireSession(request);
-  if (unauthorized) {
-    return unauthorized;
-  }
+  const session = await requireSession(request);
+  if (session instanceof NextResponse) return session;
 
   try {
+    await assertUserOrganizationAdmin(session.user.id, 'Only organization admins can manage MCP server configuration.');
     const limited = rateLimit(request, {
       limit: 60,
       windowMs: 60_000,
@@ -46,12 +46,11 @@ export async function GET(request: NextRequest) {
 }
 
 export async function PUT(request: NextRequest) {
-  const unauthorized = await requireSession(request);
-  if (unauthorized) {
-    return unauthorized;
-  }
+  const session = await requireSession(request);
+  if (session instanceof NextResponse) return session;
 
   try {
+    await assertUserOrganizationAdmin(session.user.id, 'Only organization admins can manage MCP server configuration.');
     const limited = rateLimit(request, {
       limit: 30,
       windowMs: 60_000,

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { auth } from '@/app/lib/auth';
+import { assertUserOrganizationAdmin } from '@/app/lib/organization/permissions';
 import { McpConfigValidationError, setMcpServerEnabled } from '@/app/lib/mcp/config';
 import { buildDirectMcpTools } from '@/app/lib/mcp/direct-tools';
 import { refreshMcpServerIcons } from '@/app/lib/mcp/icons';
@@ -15,12 +16,17 @@ type McpStatusPostPayload = {
   server?: string;
 };
 
-async function requireSession(request: NextRequest) {
+async function requireMcpAdmin(request: NextRequest) {
   const session = await auth.api.getSession({ headers: request.headers });
   if (!session) {
     return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
   }
-  return null;
+  try {
+    await assertUserOrganizationAdmin(session.user.id, 'Only organization admins can manage MCP servers.');
+  } catch (error) {
+    return NextResponse.json({ success: false, error: error instanceof Error ? error.message : 'Forbidden' }, { status: 403 });
+  }
+  return session;
 }
 
 function getRequestOrigin(request: NextRequest): string {
@@ -33,8 +39,8 @@ function getRequestOrigin(request: NextRequest): string {
 }
 
 export async function GET(request: NextRequest) {
-  const unauthorized = await requireSession(request);
-  if (unauthorized) return unauthorized;
+  const session = await requireMcpAdmin(request);
+  if (session instanceof NextResponse) return session;
 
   try {
     const limited = rateLimit(request, {
@@ -83,8 +89,8 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const unauthorized = await requireSession(request);
-  if (unauthorized) return unauthorized;
+  const session = await requireMcpAdmin(request);
+  if (session instanceof NextResponse) return session;
 
   try {
     const limited = rateLimit(request, {

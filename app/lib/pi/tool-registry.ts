@@ -3388,6 +3388,7 @@ function createAgentSkillTools(userId?: string): AgentTool[] {
 function createUserScopedTools(userId?: string, agentId?: string | null, sessionId?: string | null): AgentTool[] {
   const sourceAgentId = normalizeManagedAgentId(agentId);
   const tools: AgentTool[] = [
+    createMcpProxyTool(userId),
     createMemoryTool(userId, agentId),
     createSessionSearchTool({ userId, agentId }),
     createHumanTodoTool({ userId, agentId, sessionId }),

@@ -2,6 +2,8 @@ import type { CallToolResult, Tool } from '@modelcontextprotocol/sdk/types.js';
 import type { AgentTool, AgentToolResult } from '@earendil-works/pi-agent-core';
 import { Type } from 'typebox';
 
+import { assertUserOrganizationAdmin } from '@/app/lib/organization/permissions';
+
 import {
   callMcpTool,
   getMcpRuntimeStatus,
@@ -461,7 +463,7 @@ async function handleAuthClear(serverName: string): Promise<AgentToolResult<unkn
   return textResult(`OAuth credentials cleared for MCP server "${serverName}".`, { server: serverName, cleared: true });
 }
 
-export function createMcpProxyTool(): AgentTool {
+export function createMcpProxyTool(userId?: string): AgentTool {
   startMcpIdleCleanup();
 
   return {
@@ -490,6 +492,9 @@ export function createMcpProxyTool(): AgentTool {
     execute: async (_toolCallId, params, signal) => {
       const p = params as McpProxyParams;
       try {
+        if (userId) {
+          await assertUserOrganizationAdmin(userId, 'Only organization admins can use MCP servers.');
+        }
         switch (p.action) {
           case 'list_servers':
             return await handleListServers();
