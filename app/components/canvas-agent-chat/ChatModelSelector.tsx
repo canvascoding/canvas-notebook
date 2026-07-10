@@ -81,6 +81,28 @@ function getModelShortLabel(modelName: string): string {
   return normalized.replace(/^GPT-/iu, '');
 }
 
+function getProviderLabel(provider: string): string {
+  const knownLabels: Record<string, string> = {
+    'canvas-control-plane': 'Canvas Control Plane',
+    'github-copilot': 'GitHub Copilot',
+    'openai-codex': 'OpenAI Codex',
+    'openai-compatible': 'OpenAI Compatible',
+    anthropic: 'Anthropic',
+    google: 'Google',
+    groq: 'Groq',
+    mistral: 'Mistral',
+    ollama: 'Ollama',
+    openai: 'OpenAI',
+    openrouter: 'OpenRouter',
+  };
+
+  return knownLabels[provider] || provider
+    .split('-')
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+}
+
 export function ChatModelSelector({
   agentId,
   sessionId,
@@ -100,6 +122,21 @@ export function ChatModelSelector({
 
   const models = useMemo(() => {
     return agentConfig?.discovery?.[activeProvider]?.models || [];
+  }, [activeProvider, agentConfig]);
+  const providers = useMemo(() => {
+    return Object.entries(agentConfig?.discovery || {})
+      .filter(([provider, discovery]) => (
+        discovery.models.length > 0 && Boolean(agentConfig?.piConfig.providers?.[provider])
+      ))
+      .map(([provider]) => ({
+        id: provider,
+        label: getProviderLabel(provider),
+      }))
+      .sort((left, right) => {
+        if (left.id === activeProvider) return -1;
+        if (right.id === activeProvider) return 1;
+        return left.label.localeCompare(right.label);
+      });
   }, [activeProvider, agentConfig]);
 
   const hasActiveModel = Boolean(activeModel.trim());
@@ -127,13 +164,13 @@ export function ChatModelSelector({
     return () => clearTimeout(timer);
   }, [saved]);
 
-  async function patchDefaultConfig(next: { model: string; thinkingLevel: PiThinkingLevel }) {
+  async function patchDefaultConfig(next: { provider: string; model: string; thinkingLevel: PiThinkingLevel }) {
     const response = await fetch('/api/agents/config', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         agentId,
-        provider: activeProvider,
+        provider: next.provider,
         model: next.model,
         thinkingLevel: next.thinkingLevel,
         makeActiveProvider: true,
@@ -145,14 +182,28 @@ export function ChatModelSelector({
     }
   }
 
-  async function patchSession(next: { model?: string; thinkingLevel?: PiThinkingLevel }) {
+  async function patchSession(next: { provider?: string; model?: string; thinkingLevel?: PiThinkingLevel }) {
     if (pending) {
       return;
     }
 
-    const nextModel = next.model || activeModel;
-    const nextThinkingLevel = next.thinkingLevel || thinkingLevel;
-    if (nextModel === activeModel && nextThinkingLevel === thinkingLevel) {
+    const nextProvider = next.provider || activeProvider;
+    const nextProviderModels = agentConfig?.discovery?.[nextProvider]?.models || [];
+    const configuredProvider = agentConfig?.piConfig.providers?.[nextProvider];
+    const configuredModelIsAvailable = nextProviderModels.some((model) => model.id === configuredProvider?.model);
+    const nextModel = next.model || (nextProvider === activeProvider
+      ? activeModel
+      : configuredModelIsAvailable
+        ? configuredProvider?.model
+        : nextProviderModels[0]?.id) || '';
+    const nextThinkingLevel = next.thinkingLevel || (nextProvider === activeProvider
+      ? thinkingLevel
+      : configuredProvider?.thinking || 'off');
+    if (!nextModel) {
+      setError('No model is available for the selected provider');
+      return;
+    }
+    if (nextProvider === activeProvider && nextModel === activeModel && nextThinkingLevel === thinkingLevel) {
       return;
     }
 
@@ -160,7 +211,7 @@ export function ChatModelSelector({
       setPending(true);
       setError(null);
       try {
-        await patchDefaultConfig({ model: nextModel, thinkingLevel: nextThinkingLevel });
+        await patchDefaultConfig({ provider: nextProvider, model: nextModel, thinkingLevel: nextThinkingLevel });
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Model switch failed');
         setPending(false);
@@ -169,7 +220,7 @@ export function ChatModelSelector({
       onModelChange({
         model: nextModel,
         thinkingLevel: nextThinkingLevel,
-        provider: activeProvider,
+        provider: nextProvider,
       });
       setSaved(true);
       setPending(false);
@@ -185,6 +236,7 @@ export function ChatModelSelector({
         body: JSON.stringify({
           agentId,
           sessionId,
+          provider: nextProvider,
           model: nextModel,
           thinkingLevel: nextThinkingLevel,
         }),
@@ -198,7 +250,7 @@ export function ChatModelSelector({
       onModelChange({
         model: payload.session?.model || nextModel,
         thinkingLevel: (payload.session?.thinkingLevel || nextThinkingLevel) as PiThinkingLevel,
-        provider: payload.session?.provider || activeProvider,
+        provider: payload.session?.provider || nextProvider,
       });
       setSaved(true);
     } catch (err) {
@@ -236,6 +288,25 @@ export function ChatModelSelector({
           collisionPadding={12}
           className="w-[min(88vw,300px)] max-w-[calc(100vw-24px)] rounded-lg bg-popover/95 p-1.5 shadow-xl backdrop-blur"
         >
+          {providers.length > 1 ? (
+            <>
+              <DropdownMenuLabel className="px-2.5 py-1 text-xs font-medium text-muted-foreground">
+                Provider
+              </DropdownMenuLabel>
+              {providers.map((provider) => (
+                <DropdownMenuItem
+                  key={provider.id}
+                  onSelect={() => void patchSession({ provider: provider.id })}
+                  className="flex min-h-8 items-center rounded-md px-2.5 py-1.5 text-sm"
+                >
+                  <span className="min-w-0 flex-1 truncate">{provider.label}</span>
+                  {activeProvider === provider.id ? <Check className="ml-2 h-4 w-4 shrink-0 text-muted-foreground" /> : null}
+                </DropdownMenuItem>
+              ))}
+              <DropdownMenuSeparator className="mx-2 my-1.5" />
+            </>
+          ) : null}
+
           {providerSupportsThinking ? (
             <>
               <DropdownMenuLabel className="px-2.5 py-1 text-xs font-medium text-muted-foreground">
