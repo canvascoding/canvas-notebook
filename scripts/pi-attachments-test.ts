@@ -32,7 +32,7 @@ async function main() {
         isError: false,
         timestamp: Date.now(),
       },
-    ]);
+    ], { allowedImageFileRoots: [tempDir] });
 
     assert.deepEqual(fileMessage.content, [{ type: 'image', data: pngBase64, mimeType: 'image/png' }]);
     assert.deepEqual(dataUrlMessage.content, [{ type: 'image', data: pngBase64, mimeType: 'image/png' }]);
@@ -52,6 +52,37 @@ async function main() {
       ]),
       /Invalid image attachment payload/,
     );
+
+    await assert.rejects(
+      normalizePiMessagesForLlm([
+        {
+          role: 'user',
+          content: [{ type: 'image', data: filePath, mimeType: 'image/png' }],
+          timestamp: Date.now(),
+        },
+      ]),
+      /outside the trusted workspace or runtime directories/,
+    );
+
+    await assert.rejects(
+      normalizePiMessagesForLlm([
+        {
+          role: 'user',
+          content: [{ type: 'image', data: `file://${filePath}`, mimeType: 'image/png' }],
+          timestamp: Date.now(),
+        },
+      ]),
+      /outside the trusted workspace or runtime directories/,
+    );
+
+    const textReferenceResult = await normalizePiMessagesForLlm([
+      {
+        role: 'user',
+        content: [{ type: 'text', text: 'See /etc/passwd.png' }],
+        timestamp: Date.now(),
+      },
+    ], { workspaceImageRoot: tempDir });
+    assert.deepEqual(textReferenceResult[0].content, [{ type: 'text', text: 'See /etc/passwd.png' }]);
 
     console.log('[PI Attachment Test] Passed.');
   } finally {

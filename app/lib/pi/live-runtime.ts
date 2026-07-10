@@ -68,6 +68,7 @@ import {
   type RuntimeQueueEntry,
   type RuntimeQueuePreview,
 } from '@/app/lib/pi/runtime-queue';
+import { resolveAgentExecutionContextForSession } from '@/app/lib/pi/session-workspace-context';
 
 export type { PiRuntimePromptContext } from '@/app/lib/pi/runtime-prompt-context';
 
@@ -1443,6 +1444,25 @@ async function createRuntime(sessionId: string, userId: string): Promise<LivePiR
   const systemPrompt = promptSnapshot.systemPrompt;
   const tools = await getPiTools(userId, agentId, sessionId);
   const toolLoopGuard = createToolLoopGuard();
+  const imageNormalizationOptions = await resolveAgentExecutionContextForSession({
+    sessionId,
+    userId,
+    agentId,
+  }).then((executionContext) => ({
+    workspaceImageRoot: executionContext.workspaceRoot,
+    allowedImageFileRoots: [
+      executionContext.workspaceRoot,
+      resolveAgentRuntimeTempDir({
+        userId,
+        sessionId,
+        agentId,
+        organizationId: executionContext.organizationId,
+      }),
+    ],
+  })).catch((error) => {
+    console.warn('[LiveRuntime] Failed to resolve trusted image roots:', error);
+    return {};
+  });
 
   const runtimeRef: { current: LivePiRuntime | null } = { current: null };
   const agent = new Agent({
@@ -1453,7 +1473,10 @@ async function createRuntime(sessionId: string, userId: string): Promise<LivePiR
       tools,
       messages: initialMessages,
     },
-    convertToLlm: async (messages) => normalizePiMessagesForLlm(messages.filter((m) => m.role !== 'compact-break' && m.role !== 'composio_auth_required')),
+    convertToLlm: async (messages) => normalizePiMessagesForLlm(
+      messages.filter((m) => m.role !== 'compact-break' && m.role !== 'composio_auth_required'),
+      imageNormalizationOptions,
+    ),
     transformContext: async (messages, signal) => {
       if (!runtimeRef.current) {
         throw new Error('PI runtime not initialized');
