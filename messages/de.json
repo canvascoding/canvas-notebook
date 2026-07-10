@@ -843,6 +843,7 @@
   "chat": {
     "metadataTitle": "Canvas Chat | Canvas Notebook",
     "metadataDescription": "Vollbild-Chat-App für den Canvas-Notebook-Workspace.",
+    "resizeHandleLabel": "Größe des Canvas-Agent-Chats ändern",
     "logoAlt": "Canvas Notebook Logo",
     "title": "CANVAS CHAT",
     "usage": "Nutzung",

@@ -17,6 +17,7 @@ import { AppLauncher } from '@/app/components/AppLauncher';
 import { NotificationBell } from '@/app/components/notifications/NotificationBell';
 import { ThemeToggle } from '@/app/components/ThemeToggle';
 import { HintProvider } from '@/app/components/onboarding/HintProvider';
+import { ResizeHandle, usePanelResize } from '@/app/components/layout/ResizeHandle';
 import {
   getOpenChatSessionEventSessionId,
   markOpenChatSessionEventHandled,
@@ -114,7 +115,8 @@ export function ChatDockShell({
   const [hasMounted, setHasMounted] = useState(false);
   const [forcedChatSessionId, setForcedChatSessionId] = useState<string | null>(null);
   const [chatOpenRequestId, setChatOpenRequestId] = useState(0);
-  const isResizing = useRef(false);
+  const desktopMainRef = useRef<HTMLElement | null>(null);
+  const desktopChatWrapperRef = useRef<HTMLDivElement | null>(null);
   const prevViewportModeRef = useRef<'mobile' | 'desktop' | null>(null);
 
   useEffect(() => {
@@ -174,44 +176,28 @@ export function ChatDockShell({
     setChatVisible(false);
   }, [chatVisible, desktopChatMode, openDesktopChat]);
 
-  const handleMouseMove = useCallback((event: MouseEvent) => {
-    if (!isResizing.current) return;
-    const newWidth = window.innerWidth - event.clientX;
-    setChatWidth(Math.min(CHAT_WIDTH_MAX, Math.max(CHAT_WIDTH_MIN, newWidth)));
+  const applyChatWidth = useCallback((nextWidth: number) => {
+    desktopChatWrapperRef.current?.style.setProperty('--desktop-chat-width', `${nextWidth}px`);
   }, []);
 
-  const stopResizing = useCallback(() => {
-    isResizing.current = false;
-    document.body.style.cursor = 'default';
-    document.body.style.userSelect = 'auto';
+  const getChatMaxWidth = useCallback(() => {
+    const containerWidth = desktopMainRef.current?.getBoundingClientRect().width ?? window.innerWidth;
+    return Math.min(CHAT_WIDTH_MAX, Math.max(CHAT_WIDTH_MIN, containerWidth - CHAT_WIDTH_MIN));
   }, []);
 
-  const startResizing = useCallback(() => {
-    isResizing.current = true;
-    document.body.style.cursor = 'col-resize';
-    document.body.style.userSelect = 'none';
-  }, []);
+  const chatResize = usePanelResize({
+    orientation: 'vertical',
+    direction: -1,
+    value: chatWidth,
+    min: CHAT_WIDTH_MIN,
+    max: getChatMaxWidth,
+    onResize: applyChatWidth,
+    onResizeEnd: setChatWidth,
+  });
 
   useEffect(() => {
-    const handleMouseUp = () => {
-      if (isResizing.current) {
-        stopResizing();
-      }
-    };
-
-    const handleGlobalMouseMove = (event: MouseEvent) => {
-      if (isResizing.current) {
-        handleMouseMove(event);
-      }
-    };
-
-    document.addEventListener('mousemove', handleGlobalMouseMove);
-    document.addEventListener('mouseup', handleMouseUp);
-    return () => {
-      document.removeEventListener('mousemove', handleGlobalMouseMove);
-      document.removeEventListener('mouseup', handleMouseUp);
-    };
-  }, [handleMouseMove, stopResizing]);
+    applyChatWidth(chatWidth);
+  }, [applyChatWidth, chatWidth]);
 
   useEffect(() => {
     const handleKeyboardToggle = (event: KeyboardEvent) => {
@@ -281,7 +267,10 @@ export function ChatDockShell({
   const isDesktopChatFullscreen = isDesktopViewport && chatVisible && desktopChatMode === 'fullscreen';
   const desktopChatWrapperStyle =
     desktopChatMode === 'side'
-      ? ({ width: chatVisible ? `${chatWidth}px` : '0px' } as CSSProperties)
+      ? ({
+        '--desktop-chat-width': `${chatWidth}px`,
+        width: chatVisible ? 'var(--desktop-chat-width)' : '0px',
+      } as CSSProperties)
       : undefined;
   const chatContainerWidth = isDesktopChatFullscreen ? viewportWidth : chatWidth;
 
@@ -386,39 +375,48 @@ export function ChatDockShell({
         {viewportMode === null ? (
           <main className="min-h-0 flex-1 overflow-hidden bg-background" />
         ) : (
-          <main className="relative flex min-h-0 flex-1 overflow-hidden">
+          <main ref={desktopMainRef} className="relative flex min-h-0 flex-1 overflow-hidden">
             <div className={cn('min-w-0 flex-1 overflow-y-auto', mainClassName)}>{children}</div>
 
             {isDesktopChatSideVisible ? (
-              <div
+              <ResizeHandle
                 data-testid="chat-dock-resize-handle"
-                aria-label="Resize chat"
-                onMouseDown={startResizing}
-                className="hidden w-1 cursor-col-resize items-center justify-center bg-border transition-all hover:w-1.5 hover:bg-primary/60 md:flex"
-              >
-                <div className="h-8 w-0.5 bg-muted-foreground/60" />
-              </div>
+                orientation="vertical"
+                label={tChat('resizeHandleLabel')}
+                controls="chat-dock-desktop"
+                min={CHAT_WIDTH_MIN}
+                max={CHAT_WIDTH_MAX}
+                value={chatWidth}
+                resizing={chatResize.isResizing}
+                {...chatResize.handleProps}
+              />
             ) : null}
 
             {isDesktopViewport ? (
               <div
+                ref={desktopChatWrapperRef}
+                id="chat-dock-desktop"
                 data-testid="chat-dock-desktop"
                 data-chat-visible={chatVisible ? 'true' : 'false'}
                 data-chat-mode={desktopChatMode}
                 style={desktopChatWrapperStyle}
-                className={
+                className={cn(
                   desktopChatMode === 'fullscreen'
-                    ? `
-                      absolute inset-0 z-[70] overflow-hidden bg-background shadow-[0_0_0_1px_hsl(var(--border)),0_24px_60px_-24px_hsl(var(--foreground)/0.45)]
-                      transition-all duration-300 ease-in-out
-                      ${isDesktopChatFullscreen ? 'opacity-100' : 'pointer-events-none opacity-0'}
-                    `
-                    : `
-                      relative flex-shrink-0 overflow-hidden border-l border-border bg-background
-                      transition-all duration-300 ease-in-out
-                      ${chatVisible ? 'opacity-100' : 'pointer-events-none w-0 border-none opacity-0'}
-                    `
-                }
+                    ? 'absolute inset-0 z-[70] overflow-hidden bg-background shadow-[0_0_0_1px_hsl(var(--border)),0_24px_60px_-24px_hsl(var(--foreground)/0.45)] transition-[opacity,box-shadow] duration-200 ease-out motion-reduce:transition-none'
+                    : cn(
+                      'relative flex-shrink-0 overflow-hidden bg-background',
+                      chatResize.isResizing
+                        ? 'transition-none'
+                        : 'transition-[width,opacity] duration-200 ease-out motion-reduce:transition-none',
+                    ),
+                  isDesktopChatFullscreen
+                    ? 'opacity-100'
+                    : desktopChatMode === 'fullscreen'
+                      ? 'pointer-events-none opacity-0'
+                      : chatVisible
+                        ? 'opacity-100'
+                        : 'pointer-events-none w-0 opacity-0',
+                )}
               >
                 <div className="flex h-full w-full flex-col">
                   <CanvasAgentChat
