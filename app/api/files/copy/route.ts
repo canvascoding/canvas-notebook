@@ -95,7 +95,11 @@ export async function POST(request: NextRequest) {
       target: targetFileOptions,
     });
 
-    invalidateWorkspaceFileViews({ fileOptions: targetFileOptions, subtreeDirs: [destDir] });
+    invalidateWorkspaceFileViews({
+      fileOptions: targetFileOptions,
+      subtreeDirs: [destDir],
+      mutations: result.copied.map((path) => ({ path, type: 'add' as const })),
+    });
     await recordAuditEvent({
       organizationId: targetWorkspaceResult.workspace.organizationId,
       workspaceId: targetWorkspaceResult.workspace.workspaceId,

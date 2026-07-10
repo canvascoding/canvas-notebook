@@ -28,6 +28,8 @@ import { notifyWorkspaceFileOpened } from '@/app/lib/files/workspace-file-events
 import { PublicShareDialog } from './PublicShareDialog';
 import { useCreateItemDialog } from './useCreateItemDialog';
 import { useWorkspaceStore } from '@/app/store/workspace-store';
+import { useEditorStore } from '@/app/store/editor-store';
+import { invalidateFileReferenceValidationCache } from '@/app/lib/chat/validate-file-paths';
 
 
 import { AppLauncher } from '@/app/components/AppLauncher';
@@ -55,6 +57,7 @@ export function FileBrowser({ variant = 'default', onFileSelect }: FileBrowserPr
   const [activeFilePath, setActiveFilePath] = useState<string | null>(null);
   const [publicShareOpen, setPublicShareOpen] = useState(false);
   const [publicSharePaths, setPublicSharePaths] = useState<string[]>([]);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   const isFullscreen = variant === 'fullscreen';
   const isMobileSheet = variant === 'mobile-sheet';
@@ -81,6 +84,8 @@ export function FileBrowser({ variant = 'default', onFileSelect }: FileBrowserPr
     setBulkMoveOpen,
     resetWorkspaceView,
     loadFileTree,
+    currentFile,
+    refreshCurrentFileContent,
   } = useFileStore();
   const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
 
@@ -302,9 +307,21 @@ export function FileBrowser({ variant = 'default', onFileSelect }: FileBrowserPr
     };
   }, [isFullscreen, onFileSelect, pathParam, revealAndLoadFile, t]);
 
-  const handleRefresh = useCallback(() => {
-    void refreshVisibleTree();
-  }, [refreshVisibleTree]);
+  const handleRefresh = useCallback(async () => {
+    if (isRefreshing) return;
+    setIsRefreshing(true);
+    try {
+      await refreshVisibleTree();
+      invalidateFileReferenceValidationCache();
+
+      const editorState = useEditorStore.getState();
+      if (currentFile?.path && !editorState.isDirty && editorState.activePath === currentFile.path) {
+        await refreshCurrentFileContent(currentFile.path);
+      }
+    } finally {
+      setIsRefreshing(false);
+    }
+  }, [currentFile?.path, isRefreshing, refreshCurrentFileContent, refreshVisibleTree]);
 
   const toolbarHandlers: FileToolbarHandlers = {
     onToggleMultiSelect: toggleMultiSelectMode,
@@ -345,6 +362,7 @@ export function FileBrowser({ variant = 'default', onFileSelect }: FileBrowserPr
           variant={toolbarVariant}
           isMultiSelectMode={isMultiSelectMode}
           isDeleteDisabled={isDeleteDisabled}
+          isRefreshing={isRefreshing}
           handlers={toolbarHandlers}
         />
 

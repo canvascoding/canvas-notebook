@@ -7,6 +7,10 @@ import {
 } from '@/app/lib/db/errors';
 import { getDatabaseProvider, resolveSqlitePath } from '@/app/lib/db/provider';
 import { invalidateFileReferenceCache } from '@/app/lib/filesystem/file-reference-cache';
+import {
+  publishWorkspaceFileMutation,
+  type FileEventType,
+} from '@/app/lib/filesystem/file-watcher';
 import type { WorkspaceFileOperationOptions } from '@/app/lib/filesystem/workspace-files';
 import { clearFileTreeCache, clearSubtreeCache } from '@/app/lib/utils/file-tree-cache';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
@@ -22,6 +26,7 @@ interface InvalidateWorkspaceFileViewsOptions {
   fullTree?: boolean;
   subtreeDirs?: Iterable<string>;
   references?: boolean;
+  mutations?: Array<{ path: string; type: FileEventType }>;
 }
 
 export async function requireApiSession(request: NextRequest): Promise<NextResponse | null> {
@@ -77,6 +82,7 @@ export function invalidateWorkspaceFileViews({
   fullTree = false,
   subtreeDirs = [],
   references = true,
+  mutations = [],
 }: InvalidateWorkspaceFileViewsOptions = {}): void {
   const workspaceId = fileOptions?.workspace?.workspaceId;
   if (fullTree) {
@@ -89,5 +95,16 @@ export function invalidateWorkspaceFileViews({
 
   if (references) {
     invalidateFileReferenceCache(fileOptions);
+  }
+
+  const workspace = fileOptions?.workspace;
+  if (workspace) {
+    for (const mutation of mutations) {
+      publishWorkspaceFileMutation({
+        workspace,
+        relativePath: mutation.path,
+        type: mutation.type,
+      });
+    }
   }
 }

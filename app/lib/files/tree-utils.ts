@@ -59,6 +59,34 @@ export function mergeRootNodesPreservingChildren(nextNodes: FileNode[], currentN
   });
 }
 
+export function clearUnrefreshedDirectoryChildren(
+  nodes: FileNode[],
+  refreshedDirectories: Set<string>,
+): FileNode[] {
+  return nodes.map((node) => {
+    if (node.type !== 'directory' || !node.children) return node;
+    if (!refreshedDirectories.has(node.path)) {
+      return { ...node, children: undefined };
+    }
+    return {
+      ...node,
+      children: clearUnrefreshedDirectoryChildren(node.children, refreshedDirectories),
+    };
+  });
+}
+
+export function clearDirectoryChildren(nodes: FileNode[], targetPath: string): FileNode[] {
+  return nodes.map((node) => {
+    if (node.path === targetPath && node.type === 'directory') {
+      return { ...node, children: undefined };
+    }
+    if (node.children) {
+      return { ...node, children: clearDirectoryChildren(node.children, targetPath) };
+    }
+    return node;
+  });
+}
+
 export function flattenTreePaths(nodes: FileNode[], result: string[] = []): string[] {
   for (const node of nodes) {
     result.push(node.path);

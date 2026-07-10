@@ -4,6 +4,7 @@ import { recordAuditEvent } from '@/app/lib/audit/audit-service';
 import { writeFile, createDirectory } from '@/app/lib/filesystem/workspace-files';
 import { clearFileTreeCache } from '@/app/lib/utils/file-tree-cache';
 import { invalidateFileReferenceCache } from '@/app/lib/filesystem/file-reference-cache';
+import { publishWorkspaceFileMutation } from '@/app/lib/filesystem/file-watcher';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 import { parseMultipartFormData } from '@/app/lib/api/form-data';
 import { getImageConversionErrorMessage } from '@/app/lib/images/convert';
@@ -228,6 +229,13 @@ export async function POST(request: NextRequest) {
     await syncPublicSharesAfterWrite(uploadedPaths, workspaceResult.workspace);
     clearFileTreeCache(fileOptions.workspace?.workspaceId);
     invalidateFileReferenceCache(fileOptions);
+    for (const uploadedPath of uploadedPaths) {
+      publishWorkspaceFileMutation({
+        workspace: workspaceResult.workspace,
+        relativePath: uploadedPath,
+        type: 'add',
+      });
+    }
     await recordAuditEvent({
       organizationId: workspaceResult.workspace.organizationId,
       workspaceId: workspaceResult.workspace.workspaceId,

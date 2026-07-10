@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { FileWatcherClient } from '../app/lib/file-watcher/client';
 import { useFileStore } from '../app/store/file-store';
+import { useWorkspaceStore } from '../app/store/workspace-store';
 
 class FakeMessageEvent extends Event {
   data: string;
@@ -54,6 +55,7 @@ async function main() {
     return Response.json({ success: true });
   }) as typeof fetch;
   globalThis.EventSource = FakeEventSource as unknown as typeof EventSource;
+  useWorkspaceStore.setState({ activeWorkspaceId: null });
 
   let refreshVisibleCalls = 0;
   const refreshedDirectories: Array<{ dirPath: string; noCache?: boolean }> = [];
@@ -95,8 +97,20 @@ async function main() {
       ['docs/current', 'hidden-expanded'].sort()
     );
 
-    source.emit('filechange', {
+    useWorkspaceStore.setState({ activeWorkspaceId: 'workspace-two' });
+    await delay(25);
+
+    const workspaceSource = FakeEventSource.instances.at(-1);
+    assert.ok(workspaceSource, 'workspace change should reconnect the watcher');
+    assert.equal(workspaceSource.url, '/api/files/watch?workspaceId=workspace-two');
+    workspaceSource.emit('connected', { clientId: 'client-2', workspaceId: 'workspace-two' });
+    await delay(FileWatcherClient.SYNC_DEBOUNCE_MS + 25);
+    assert.equal(fetchCalls.at(-1)?.url, '/api/files/watch?workspaceId=workspace-two');
+    assert.equal(fetchCalls.at(-1)?.body?.clientId, 'client-2');
+
+    workspaceSource.emit('filechange', {
       type: 'add',
+      workspaceId: 'workspace-two',
       path: '/data/workspace/docs/current/fresh.md',
       relativePath: 'docs/current/fresh.md',
       dir: 'docs/current',
@@ -107,8 +121,9 @@ async function main() {
     assert.equal(refreshVisibleCalls, 0);
     assert.deepEqual(refreshedDirectories, [{ dirPath: 'docs/current', noCache: true }]);
 
-    source.emit('filechange', {
+    workspaceSource.emit('filechange', {
       type: 'change',
+      workspaceId: 'workspace-two',
       path: '/data/workspace/docs/current/fresh.md',
       relativePath: 'docs/current/fresh.md',
       dir: 'docs/current',

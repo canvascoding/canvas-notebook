@@ -983,6 +983,27 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
     };
   }, [currentFile?.path, isExcalidraw, refreshCurrentFileContent]);
 
+  useEffect(() => {
+    if (!currentFile?.path || !isText || isExcalidraw) return;
+
+    const watchedFilePath = currentFile.path;
+    const revalidateCleanFile = () => {
+      if (document.visibilityState !== 'visible') return;
+      const editorState = useEditorStore.getState();
+      if (editorState.activePath !== watchedFilePath || editorState.isDirty) return;
+      void refreshCurrentFileContent(watchedFilePath);
+    };
+
+    const handleVisibilityChange = () => revalidateCleanFile();
+    window.addEventListener('focus', revalidateCleanFile);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      window.removeEventListener('focus', revalidateCleanFile);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [currentFile?.path, isExcalidraw, isText, refreshCurrentFileContent]);
+
   if (isLoadingFile) {
     const pendingPath = loadingFilePath ?? currentFile?.path ?? null;
     if (shouldShowImageLoadingSkeleton(pendingPath)) {

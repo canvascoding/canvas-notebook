@@ -3,10 +3,11 @@ import 'server-only';
 import path from 'node:path';
 
 import { isBootstrapAdminEmail } from '@/app/lib/bootstrap-admin';
+import { LEGACY_PERSONAL_WORKSPACE_ID } from './constants';
 import { resolveWorkspacePermissions, normalizeWorkspaceRole } from './permissions';
 import type { WorkspaceActor, WorkspaceContext } from './types';
 
-export const LEGACY_PERSONAL_WORKSPACE_ID = 'legacy-personal-workspace';
+export { LEGACY_PERSONAL_WORKSPACE_ID } from './constants';
 
 function getRuntimeCwd(): string {
   return Reflect.apply(process.cwd, process, []) as string;

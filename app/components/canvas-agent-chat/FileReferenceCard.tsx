@@ -11,7 +11,11 @@ import { getFileDisplayPath } from '@/app/lib/files/display-name';
 import { getFileIconComponent, isImageFile } from '@/app/lib/files/file-icons';
 import { normalizeChatFilePath, type FilePathEntry } from '@/app/lib/chat/extract-file-paths';
 import { notifyChatFileReferenceOpened } from '@/app/lib/chat/file-reference-events';
-import { validateFileReference } from '@/app/lib/chat/validate-file-paths';
+import {
+  subscribeToFileReferenceValidationInvalidation,
+  validateFileReference,
+} from '@/app/lib/chat/validate-file-paths';
+import { useWorkspaceStore } from '@/app/store/workspace-store';
 
 interface FileReferenceCardProps {
   paths: FilePathEntry[];
@@ -50,15 +54,21 @@ export function FileReferenceCard({ paths }: FileReferenceCardProps) {
   const t = useTranslations('chat');
   const fileStore = useFileStore();
   const fileTree = fileStore.fileTree;
+  const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
   const pathname = useLocalePathname();
   const locale = useLocale();
   const [validPathState, setValidPathState] = React.useState<{ key: string; paths: FilePathEntry[] } | null>(null);
+  const [validationVersion, setValidationVersion] = React.useState(0);
   const uniquePaths = React.useMemo(() => dedupeFilePathEntries(paths), [paths]);
   const uniquePathKey = React.useMemo(
     () => uniquePaths.map((entry) => entry.path).join('\n'),
     [uniquePaths],
   );
   const validPaths = validPathState?.key === uniquePathKey ? validPathState.paths : [];
+
+  React.useEffect(() => subscribeToFileReferenceValidationInvalidation(() => {
+    setValidationVersion((version) => version + 1);
+  }), []);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -83,7 +93,7 @@ export function FileReferenceCard({ paths }: FileReferenceCardProps) {
     return () => {
       cancelled = true;
     };
-  }, [uniquePathKey, uniquePaths, fileTree]);
+  }, [activeWorkspaceId, uniquePathKey, uniquePaths, fileTree, validationVersion]);
 
   const handleOpen = (filePath: string) => {
     const normalizedPath = normalizeChatFilePath(filePath);
@@ -128,6 +138,7 @@ export function FileReferenceCard({ paths }: FileReferenceCardProps) {
                   <ImageThumbnailIcon
                     path={entry.path}
                     name={fileName}
+                    workspaceId={activeWorkspaceId}
                     className="h-5 w-5 rounded-sm"
                     fallbackIcon={fallbackIcon}
                   />

@@ -85,7 +85,11 @@ export async function POST(request: NextRequest) {
       return jsonError('Invalid type', 400);
     }
 
-    invalidateWorkspaceFileViews({ fileOptions, fullTree: true });
+    invalidateWorkspaceFileViews({
+      fileOptions,
+      fullTree: true,
+      mutations: [{ path, type: type === 'directory' ? 'addDir' : 'add' }],
+    });
     await recordAuditEvent({
       organizationId: workspaceResult.workspace.organizationId,
       workspaceId: workspaceResult.workspace.workspaceId,

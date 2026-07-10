@@ -10,6 +10,8 @@ import {
 import { runDirectoryTasksByDepth } from '@/app/lib/files/tree-refresh';
 import {
   findNodeInTree,
+  clearUnrefreshedDirectoryChildren,
+  clearDirectoryChildren,
   getDirectoryDirectChildPaths,
   getExpandedDescendantDirectories,
   getSelectionRangePaths,
@@ -285,6 +287,7 @@ interface FileStoreState {
   resetWorkspaceView: () => void;
   setSearchQuery: (query: string) => void;
   setCurrentDirectory: (path: string) => void;
+  markDirectoryStale: (path: string) => void;
   toggleAutoRefresh: () => void;
   clearMultiSelect: () => void;
   toggleMultiSelectMode: () => void;
@@ -506,6 +509,13 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
       return;
     }
 
+    if (noCache && get().loadingDirs.has(dirPath)) {
+      const deadline = Date.now() + 5_000;
+      while (get().loadingDirs.has(dirPath) && Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      }
+    }
+
     await get().loadSubdirectory(dirPath, noCache);
   },
 
@@ -516,9 +526,14 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
     const dirsToRefresh = getVisibleTreeRefreshDirectories(currentDirectory, expandedDirs, browserMode === 'tree');
     await runDirectoryTasksByDepth(dirsToRefresh, async (dirPath) => {
       if (hasRefreshParentInTree(get().fileTree, dirPath)) {
-        await get().loadSubdirectory(dirPath, true);
+        await get().refreshDirectory(dirPath, true);
       }
     });
+
+    const refreshedDirectories = new Set(dirsToRefresh);
+    set((state) => ({
+      fileTree: clearUnrefreshedDirectoryChildren(state.fileTree, refreshedDirectories),
+    }));
   },
 
   loadSubdirectory: async (dirPath: string, noCache = false, expand = true) => {
@@ -583,7 +598,8 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
     } catch (error) {
       const newLoading = new Set(get().loadingDirs);
       newLoading.delete(dirPath);
-      set({ loadingDirs: newLoading });
+      const message = error instanceof Error ? error.message : 'Failed to load subdirectory';
+      set({ loadingDirs: newLoading, treeError: message });
       console.error('Failed to load subdirectory:', error);
     }
   },
@@ -1082,6 +1098,12 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
       currentDirectory: path,
       expandedDirs: get().expandedDirs,
     });
+  },
+  markDirectoryStale: (path: string) => {
+    if (!path || path === '.') return;
+    set((state) => ({
+      fileTree: clearDirectoryChildren(state.fileTree, path),
+    }));
   },
   toggleAutoRefresh: () => {
     set((state) => ({ autoRefresh: !state.autoRefresh }));

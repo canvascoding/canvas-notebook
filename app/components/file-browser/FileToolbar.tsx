@@ -37,6 +37,7 @@ interface FileToolbarProps {
   variant: 'sidebar' | 'mobile-sheet' | 'fullscreen';
   isMultiSelectMode: boolean;
   isDeleteDisabled: boolean;
+  isRefreshing?: boolean;
   handlers: FileToolbarHandlers;
 }
 
@@ -46,7 +47,7 @@ const VIEW_MODES: { mode: BrowserMode; Icon: typeof LayoutGrid; labelKey: string
   { mode: 'tree', Icon: FolderTree, labelKey: 'browserModeTree' },
 ];
 
-export function FileToolbar({ variant, isMultiSelectMode, isDeleteDisabled, handlers }: FileToolbarProps) {
+export function FileToolbar({ variant, isMultiSelectMode, isDeleteDisabled, isRefreshing = false, handlers }: FileToolbarProps) {
   const t = useTranslations('notebook');
   const { browserMode, setBrowserMode } = useFileStore();
 
@@ -211,8 +212,8 @@ export function FileToolbar({ variant, isMultiSelectMode, isDeleteDisabled, hand
               </DropdownMenuItem>
             ))}
             <DropdownMenuSeparator />
-            <DropdownMenuItem onSelect={handlers.onRefresh}>
-              <RefreshCw className="mr-2 h-4 w-4" />
+            <DropdownMenuItem onSelect={handlers.onRefresh} disabled={isRefreshing}>
+              <RefreshCw className={cn('mr-2 h-4 w-4', isRefreshing && 'animate-spin')} />
               {t('refresh')}
             </DropdownMenuItem>
             <DropdownMenuItem onSelect={handlers.onCollapseAll}>
@@ -274,8 +275,8 @@ export function FileToolbar({ variant, isMultiSelectMode, isDeleteDisabled, hand
           </Button>
         )}
 
-        <Button variant="ghost" size="icon-sm" onClick={handlers.onRefresh} aria-label={t('refresh')}>
-          <RefreshCw className="h-4 w-4" />
+        <Button variant="ghost" size="icon-sm" onClick={handlers.onRefresh} disabled={isRefreshing} aria-label={t('refresh')}>
+          <RefreshCw className={cn('h-4 w-4', isRefreshing && 'animate-spin')} />
         </Button>
       </div>
     );
@@ -341,8 +342,8 @@ export function FileToolbar({ variant, isMultiSelectMode, isDeleteDisabled, hand
 
           <Tooltip>
             <TooltipTrigger asChild>
-              <Button variant="ghost" size="icon-sm" onClick={handlers.onRefresh} aria-label={t('refresh')}>
-                <RefreshCw className="h-4 w-4" />
+              <Button variant="ghost" size="icon-sm" onClick={handlers.onRefresh} disabled={isRefreshing} aria-label={t('refresh')}>
+                <RefreshCw className={cn('h-4 w-4', isRefreshing && 'animate-spin')} />
               </Button>
             </TooltipTrigger>
             <TooltipContent>{t('refresh')}</TooltipContent>

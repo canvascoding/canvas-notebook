@@ -53,6 +53,7 @@ export async function DELETE(request: NextRequest) {
     invalidateWorkspaceFileViews({
       fileOptions,
       subtreeDirs: deletedPaths.map(getParentDirectory),
+      mutations: deletedPaths.map((path) => ({ path, type: 'unlink' as const })),
     });
     await recordAuditEvent({
       organizationId: workspaceResult.workspace.organizationId,
