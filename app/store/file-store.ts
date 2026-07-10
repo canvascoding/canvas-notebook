@@ -237,6 +237,7 @@ interface FileStoreState {
 
   // Current file
   currentFile: CurrentFile | null;
+  currentFileWorkspaceId: string | null;
   isLoadingFile: boolean;
   loadingFilePath: string | null;
   fileLoadRequestId: number;
@@ -342,6 +343,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
   selectedNode: null,
 
   currentFile: null,
+  currentFileWorkspaceId: null,
   fileRevisions: {},
 
   browserMode: 'tree',
@@ -779,6 +781,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
       set((state) => ({
         selectedNode: { path, type: 'file', name: fileName },
         currentFile: loadedFile,
+        currentFileWorkspaceId: workspaceId,
         isLoadingFile: false,
         loadingFilePath: null,
         fileError: null,
@@ -797,7 +800,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
       if (error instanceof Response && error.status === 404) {
         const message = 'File not found';
         set((state) => ({
-          ...(state.currentFile ? {} : { currentFile: null }),
+          ...(state.currentFile ? {} : { currentFile: null, currentFileWorkspaceId: null }),
           isLoadingFile: false,
           loadingFilePath: null,
           fileError: message,
@@ -826,10 +829,10 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
   },
 
   refreshCurrentFileContent: async (path: string) => {
-    if (get().currentFile?.path !== path) {
+    const workspaceId = useWorkspaceStore.getState().activeWorkspaceId;
+    if (get().currentFile?.path !== path || get().currentFileWorkspaceId !== workspaceId) {
       return null;
     }
-    const workspaceId = useWorkspaceStore.getState().activeWorkspaceId;
 
     const extension = getExtension(path);
     const isText = extension === '' || TEXT_EXTENSIONS.has(extension);
@@ -878,6 +881,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
       if (error instanceof Response && error.status === 404 && get().currentFile?.path === path) {
         set({
           currentFile: null,
+          currentFileWorkspaceId: null,
           fileError: null,
           fileErrorPath: null,
         });
@@ -979,7 +983,10 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
           get().setExpandedDirs(nextExpandedDirs);
         })();
 
-    const alreadyOpen = get().currentFile?.path === normalizedPath;
+    const alreadyOpen = (
+      get().currentFile?.path === normalizedPath &&
+      get().currentFileWorkspaceId === workspaceId
+    );
     const loadPromise: Promise<FileLoadResult> = alreadyOpen
       ? Promise.resolve({ status: 'loaded', path: normalizedPath, file: get().currentFile as CurrentFile })
       : get().loadFile(normalizedPath, true, workspaceId);
@@ -1160,6 +1167,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
         if (currentFile?.path === deletedPath) {
           set((state) => ({
             currentFile: null,
+            currentFileWorkspaceId: null,
             isLoadingFile: false,
             loadingFilePath: null,
             fileLoadRequestId: state.fileLoadRequestId + 1,
@@ -1306,6 +1314,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
   clearCurrentFile: () => {
     set((state) => ({
       currentFile: null,
+      currentFileWorkspaceId: null,
       fileRevisions: {},
       isLoadingFile: false,
       loadingFilePath: null,
@@ -1331,6 +1340,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
       directoryErrors: {},
       selectedNode: null,
       currentFile: null,
+      currentFileWorkspaceId: null,
       fileRevisions: {},
       isLoadingFile: false,
       loadingFilePath: null,

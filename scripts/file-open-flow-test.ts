@@ -204,6 +204,7 @@ async function testDirtyEditorIsSavedBeforeOpeningAnotherFile() {
       content: 'old',
       stats: { size: 3, modified: 1, permissions: '100644' },
     },
+    currentFileWorkspaceId: 'workspace-a',
     fileRevisions: {},
     mobileFileOpenedCount: 0,
   });
@@ -273,6 +274,36 @@ async function testFailedOpenDoesNotTriggerMobileTransition() {
   assert.match(useFileStore.getState().fileError ?? '', /not found/i);
 }
 
+async function testSamePathInAnotherWorkspaceReloadsContent() {
+  let readCount = 0;
+  useWorkspaceStore.setState({ activeWorkspaceId: 'workspace-b' });
+  useEditorStore.getState().clear();
+  useFileStore.setState({
+    fileTree: [{ name: 'same.md', path: 'same.md', type: 'file' }],
+    fileTreeWorkspaceId: 'workspace-b',
+    currentFile: { path: 'same.md', content: 'workspace a' },
+    currentFileWorkspaceId: 'workspace-a',
+  });
+
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const url = new URL(String(input), 'http://localhost');
+    if (url.pathname === '/api/files/read') {
+      readCount += 1;
+      return Response.json({
+        success: true,
+        data: { path: 'same.md', content: 'workspace b' },
+      });
+    }
+    throw new Error(`Unexpected request: ${url}`);
+  }) as typeof fetch;
+
+  const result = await useFileStore.getState().revealAndLoadFile('same.md', { workspaceId: 'workspace-b' });
+  assert.equal(result.status, 'opened');
+  assert.equal(readCount, 1);
+  assert.equal(useFileStore.getState().currentFile?.content, 'workspace b');
+  assert.equal(useFileStore.getState().currentFileWorkspaceId, 'workspace-b');
+}
+
 function testExplorerPreferencesAreScopedByWorkspace() {
   const originalWindow = globalThis.window;
   const values = new Map<string, string>([
@@ -324,6 +355,7 @@ async function main() {
     await testDirectoryErrorsStayLocal();
     await testDirtyEditorIsSavedBeforeOpeningAnotherFile();
     await testFailedOpenDoesNotTriggerMobileTransition();
+    await testSamePathInAnotherWorkspaceReloadsContent();
     testExplorerPreferencesAreScopedByWorkspace();
   } finally {
     globalThis.fetch = originalFetch;
