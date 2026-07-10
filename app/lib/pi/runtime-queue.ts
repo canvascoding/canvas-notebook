@@ -91,6 +91,10 @@ export class RuntimeMessageQueues {
     const steeringIndex = this.steering.findIndex((entry) => entry.signature === signature);
     if (steeringIndex !== -1) {
       this.steering.splice(steeringIndex, 1);
+      if (this.steering.length === 0 && this.followUpsSuspended) {
+        this.followUpsSuspended = false;
+        this.attachNextFollowUp(agent);
+      }
       return;
     }
 

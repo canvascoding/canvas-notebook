@@ -88,7 +88,7 @@ assert.deepEqual(agent.followUps, []);
 agent.steering.shift();
 queues.consume(selected.signature, agent);
 assert.deepEqual(queues.followUps, [keepQueued, laterFollowUp]);
-assert.deepEqual(agent.followUps, []);
+assert.deepEqual(agent.followUps.map((message) => message.content), ['keep queued']);
 
 assert.equal(queues.remove(keepQueued.id, agent), 'follow_up');
 assert.equal(queues.remove(laterFollowUp.id, agent), 'follow_up');

@@ -40,7 +40,7 @@ import {
   type MemoryReadResult,
   type MemoryTarget,
 } from '@/app/lib/agents/memory-store';
-import { assertUserOrganizationPermission } from '@/app/lib/organization/permissions';
+import { assertUserOrganizationAdmin, assertUserOrganizationPermission } from '@/app/lib/organization/permissions';
 import { resolveAgentRuntimeSettings } from '../agents/effective-runtime-config';
 import { resolveEnabledToolNames, isLegacyEnabledToolsValue, getDefaultEnabledToolNames } from './enabled-tools';
 import { PLANNING_MODE_ALLOWED_TOOLS } from './planning-mode';
@@ -2950,8 +2950,8 @@ function createOnboardingProfileTool(userId?: string, agentId?: string | null, s
     name: ONBOARDING_PROFILE_TOOL_NAME,
     label: 'Completing onboarding profile',
     description:
-      'Call this tool ONCE when the initial onboarding conversation has gathered enough information about the user and agent preferences. ' +
-      'It writes USER.md and SOUL.md, removes BOOTSTRAP.md, and marks onboarding complete. ' +
+      'Call this tool ONCE when the onboarding conversation has gathered enough information about the user and agent preferences. ' +
+      'It writes the user-scoped USER.md and SOUL.md and completes that user profile. ' +
       'Do NOT call this tool before you have asked the user at least one question and received a real answer. ' +
       'Do NOT call this tool repeatedly. If the tool returns an error, explain the issue to the user and try once more with corrected parameters. ' +
       'After a successful call, give a brief confirmation in natural language. Do not output code, logs, or technical artifacts after the call.',
@@ -2963,7 +2963,7 @@ function createOnboardingProfileTool(userId?: string, agentId?: string | null, s
     execute: async (_toolCallId, params) => {
       try {
         const scopedUserId = requireToolUserId(userId, ONBOARDING_PROFILE_TOOL_NAME);
-        const available = await isOnboardingProfileToolAvailable({ agentId, sessionId });
+        const available = await isOnboardingProfileToolAvailable({ userId: scopedUserId, agentId, sessionId });
         if (!available) {
           throw new Error('This tool is only available during the initial Canvas Agent onboarding profile session.');
         }
@@ -2990,7 +2990,9 @@ function createOnboardingProfileTool(userId?: string, agentId?: string | null, s
         return {
           content: [{
             type: 'text',
-            text: `Onboarding profile completed. BOOTSTRAP.md ${result.deletedBootstrap ? 'was removed' : 'was already absent'}.`,
+            text: result.instanceCompleted
+              ? 'Onboarding profile completed. The instance setup is now complete.'
+              : 'Your onboarding profile is complete.',
           }],
           details: result,
         };
@@ -4071,10 +4073,18 @@ export async function buildPiToolRegistryAsync(userId?: string, agentId?: string
   const composioStorageScope = userId ? { userId } : undefined;
   const composioConfigured = await isComposioConfigured(composioStorageScope);
   const composioTools = composioConfigured ? createComposioTools(composioStorageScope) : [];
-  const directMcpTools = await buildDirectMcpTools(userId ? { userId } : undefined).then((result) => result.tools).catch((error) => {
-    console.error('[ToolRegistry] Error building direct MCP tools:', error);
-    return [];
-  });
+  const directMcpTools = userId
+    ? await assertUserOrganizationAdmin(userId, 'Only organization admins can use MCP servers.')
+      .then(() => buildDirectMcpTools({ userId }))
+      .then((result) => result.tools)
+      .catch((error) => {
+        console.warn('[ToolRegistry] Direct MCP tools are unavailable:', getErrorMessage(error));
+        return [];
+      })
+    : await buildDirectMcpTools().then((result) => result.tools).catch((error) => {
+      console.error('[ToolRegistry] Error building direct MCP tools:', error);
+      return [];
+    });
   return [...coreTools, ...userScopedTools, ...composioTools, ...directMcpTools];
 }
 
@@ -4115,7 +4125,7 @@ export async function getPiToolMetadata(): Promise<PiToolMetadata[]> {
 
 export async function getPiTools(userId?: string, agentId?: string | null, sessionId?: string | null): Promise<AgentTool[]> {
   let allTools = await buildPiToolRegistryAsync(userId, agentId, sessionId);
-  const onboardingProfileToolAvailable = await isOnboardingProfileToolAvailable({ agentId, sessionId }).catch(() => false);
+  const onboardingProfileToolAvailable = await isOnboardingProfileToolAvailable({ userId, agentId, sessionId }).catch(() => false);
 
   try {
     const effectiveConfig = await resolveAgentRuntimeSettings(agentId);

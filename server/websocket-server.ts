@@ -112,10 +112,10 @@ type ServerMessage =
   | { type: 'error'; error: string; code: string };
 
 function shouldSerializeSessionAction(message: ClientMessage): message is Extract<ClientMessage, {
-  type: 'send_message' | 'control' | 'change_model' | 'get_status';
+  type: 'send_message' | 'control' | 'change_model';
 }> {
   return (
-    (message.type === 'send_message' || message.type === 'control' || message.type === 'change_model' || message.type === 'get_status') &&
+    (message.type === 'send_message' || message.type === 'control' || message.type === 'change_model') &&
     typeof message.sessionId === 'string' &&
     message.sessionId.length > 0
   );
