@@ -11,6 +11,8 @@ import { AppLauncher } from '@/app/components/AppLauncher';
 import { NotificationBell } from '@/app/components/notifications/NotificationBell';
 import { HomeHintProvider } from '@/app/components/onboarding/HomeHintProvider';
 import { isOnboardingHintsEnabled } from '@/app/lib/onboarding/status';
+import { getUserOnboardingState } from '@/app/lib/user-preferences';
+import { GettingStartedCard } from '@/app/components/onboarding/GettingStartedCard';
 import { LogoutButton } from '@/app/components/LogoutButton';
 import { ThemeToggle } from '@/app/components/ThemeToggle';
 import { VersionUpdateIndicator } from '@/app/components/VersionUpdateIndicator';
@@ -24,11 +26,13 @@ const releaseTagUrl = `${repositoryUrl}/releases/tag/${releaseTag}`;
 export default async function Home() {
   const tHome = await getTranslations('home');
   const onboardingEnabled = isOnboardingHintsEnabled();
-  await requirePageSession({ allowUnlicensed: true });
+  const session = await requirePageSession({ allowUnlicensed: true });
   const licenseStatus = await getLicenseStatus();
+  const userOnboarding = session ? await getUserOnboardingState(session.user.id) : null;
+  const showPersonalTour = userOnboarding?.tour === 'started';
 
   return (
-    <HomeHintProvider enabled={onboardingEnabled}>
+    <HomeHintProvider enabled={onboardingEnabled || showPersonalTour}>
       <div className="fixed inset-0 overflow-hidden bg-background text-foreground">
         <div className="flex h-full min-h-0 flex-col">
           {!licenseStatus.licensed && <LicenseBanner status={licenseStatus} />}
@@ -58,6 +62,8 @@ export default async function Home() {
                 <p className="text-xs font-bold uppercase tracking-[0.18em] text-muted-foreground">{tHome('hero.eyebrow')}</p>
                 <h1 className="mt-2 text-2xl font-bold tracking-tight md:text-3xl">{tHome('hero.title')}</h1>
               </div>
+
+              {showPersonalTour && <GettingStartedCard />}
 
               <HomeWorkspaceView licenseLocked={!licenseStatus.licensed} />
             </div>

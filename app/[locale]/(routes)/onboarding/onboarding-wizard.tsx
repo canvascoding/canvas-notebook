@@ -1,11 +1,11 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import Image from 'next/image';
-import { useTranslations } from 'next-intl';
-import { useParams, useSearchParams } from 'next/navigation';
-import { usePathname, useRouter } from '@/i18n/navigation';
+import { useLocale, useTranslations } from 'next-intl';
+import { useSearchParams } from 'next/navigation';
 import { routing } from '@/i18n/routing';
+import { buildLocalePath } from '@/app/lib/locale-path';
 
 import CanvasAgentChat from '@/app/components/canvas-agent-chat/CanvasAgentChat';
 import { PiProviderSetupCard } from '@/app/components/settings/PiProviderSetupCard';
@@ -17,12 +17,14 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { toast } from 'sonner';
-import { CheckCircle2, Clock3, KeyRound, Languages, Loader2, Mail, RefreshCw, ShieldAlert } from 'lucide-react';
+import { CheckCircle2, Clock3, Compass, KeyRound, Languages, Loader2, Mail, RefreshCw, ShieldAlert, Sparkles, Workflow } from 'lucide-react';
 
-type Step = 'language' | 'license' | 'provider' | 'profile' | 'done';
+type Step = 'language' | 'license' | 'provider' | 'profile' | 'tour' | 'done';
+type OnboardingMode = 'instance' | 'user';
 type OnboardingRuntimePhase = 'idle' | 'streaming' | 'running_tool' | 'aborting';
 
-const STEPS: Step[] = ['language', 'license', 'provider', 'profile', 'done'];
+const INSTANCE_STEPS: Step[] = ['language', 'license', 'provider', 'profile', 'tour', 'done'];
+const USER_STEPS: Step[] = ['language', 'profile', 'tour', 'done'];
 const ONBOARDING_LICENSE_KEY_STORAGE_KEY = 'canvas.onboarding.licenseKey';
 
 type LicenseStatus = {
@@ -102,6 +104,16 @@ function getLicenseRegistrationActivationPath(fallback: string) {
   return `${url.pathname}${url.search}` || fallback;
 }
 
+function getBrowserPathLocale(fallback: string) {
+  if (typeof window === 'undefined') return fallback;
+  const match = window.location.pathname.match(/^\/(de|en)(?:\/|$)/u);
+  return match?.[1] || routing.defaultLocale;
+}
+
+function subscribeToBrowserLocation() {
+  return () => undefined;
+}
+
 type OnboardingClientLogLevel = 'error' | 'info' | 'warn';
 
 function responseBodySnippet(body: string): string {
@@ -135,66 +147,109 @@ async function logOnboardingClientEvent(
   }
 }
 
-async function saveOnboardingPreferences(locale: string, timeZone: string): Promise<void> {
-  const normalizedTimeZone = normalizeTimeZone(timeZone);
-  console.log('[Onboarding] Saving language/time zone preferences', { locale, timeZone: normalizedTimeZone });
+async function saveOnboardingPreferences(locale: string, timeZone?: string): Promise<void> {
+  const normalizedTimeZone = timeZone ? normalizeTimeZone(timeZone) : undefined;
+  console.log('[Onboarding] Saving preferences', { locale, timeZone: normalizedTimeZone });
   await logOnboardingClientEvent('preferences.save.started', { locale, timeZone: normalizedTimeZone });
 
   let response: Response;
   try {
-    response = await fetch('/api/onboarding/preferences', {
-      method: 'POST',
+    response = await fetch('/api/user-preferences', {
+      method: 'PATCH',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ locale, timeZone: normalizedTimeZone }),
+      body: JSON.stringify({ locale }),
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Request failed';
     await logOnboardingClientEvent('preferences.save.network-error', { locale, timeZone: normalizedTimeZone, message }, 'error');
-    throw new Error(`network:${message}`);
+    throw new Error(`locale-network:${message}`);
   }
 
   const requestId = response.headers.get('X-Request-Id');
-  if (response.ok) {
-    console.log('[Onboarding] Preference save response', { ok: true, status: response.status, requestId });
-    await logOnboardingClientEvent('preferences.save.succeeded', { status: response.status, requestId });
+  if (!response.ok) {
+    const body = await response.text().catch(() => '');
+    const bodySnippet = responseBodySnippet(body);
+    console.error('[Onboarding] Locale save failed', { status: response.status, requestId, bodySnippet });
+    await logOnboardingClientEvent('preferences.locale.failed', { status: response.status, requestId, bodySnippet }, 'error');
+    throw new Error(`locale-status:${response.status}${requestId ? `:${requestId}` : ''}`);
+  }
+
+  if (!normalizedTimeZone) {
+    await logOnboardingClientEvent('preferences.locale.succeeded', { status: response.status, requestId });
     return;
   }
 
-  const body = await response.text().catch(() => '');
-  const bodySnippet = responseBodySnippet(body);
-  console.error('[Onboarding] Preference save failed', {
-    status: response.status,
-    requestId,
-    bodySnippet,
+  const timeZoneResponse = await fetch('/api/server-settings', {
+    method: 'PATCH',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ timeZone: normalizedTimeZone }),
   });
-  await logOnboardingClientEvent('preferences.save.failed', {
-    status: response.status,
+  const timeZoneRequestId = timeZoneResponse.headers.get('X-Request-Id');
+  if (!timeZoneResponse.ok) {
+    const body = await timeZoneResponse.text().catch(() => '');
+    const bodySnippet = responseBodySnippet(body);
+    await logOnboardingClientEvent('preferences.time-zone.failed', {
+      status: timeZoneResponse.status,
+      requestId: timeZoneRequestId,
+      bodySnippet,
+    }, 'error');
+    throw new Error(`time-zone-status:${timeZoneResponse.status}${timeZoneRequestId ? `:${timeZoneRequestId}` : ''}`);
+  }
+
+  await logOnboardingClientEvent('preferences.save.succeeded', {
+    localeStatus: response.status,
+    timeZoneStatus: timeZoneResponse.status,
     requestId,
-    bodySnippet,
-  }, 'error');
-  throw new Error(`status:${response.status}${requestId ? `:${requestId}` : ''}`);
+    timeZoneRequestId,
+  });
 }
 
 export default function OnboardingWizard({
   defaultEmail,
   initialLicenseKey,
   initialTimeZone,
+  mode,
+  initialStep,
 }: {
   defaultEmail: string;
   initialLicenseKey: string;
   initialTimeZone: string;
+  mode: OnboardingMode;
+  initialStep: Step;
 }) {
   const t = useTranslations('onboarding');
-  const params = useParams();
-  const currentLocale = (params.locale as string) || routing.defaultLocale;
-  const [step, setStep] = useState<Step>('language');
+  const currentLocale = useLocale();
+  const [step, setStep] = useState<Step>(initialStep);
   const [completeLoading, setCompleteLoading] = useState(false);
   const [modelTestLoading, setModelTestLoading] = useState(false);
   const [modelTestError, setModelTestError] = useState<string | null>(null);
   const [profileSessionId, setProfileSessionId] = useState<string | null>(null);
+  const isInstanceOnboarding = mode === 'instance';
+  const steps = isInstanceOnboarding ? INSTANCE_STEPS : USER_STEPS;
 
-  async function openProfileSession() {
+  const advanceTo = useCallback(async (nextStep: Step) => {
+    setStep(nextStep);
+    if (isInstanceOnboarding && ['language', 'license', 'provider', 'profile'].includes(nextStep)) {
+      await fetch('/api/onboarding/instance-progress', {
+        method: 'PATCH',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ step: nextStep }),
+      }).catch(() => undefined);
+    }
+    if (!isInstanceOnboarding && ['language', 'profile', 'tour', 'complete'].includes(nextStep)) {
+      await fetch('/api/onboarding/user', {
+        method: 'PATCH',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ step: nextStep }),
+      }).catch(() => undefined);
+    }
+  }, [isInstanceOnboarding]);
+
+  const openProfileSession = useCallback(async () => {
     const response = await fetch('/api/onboarding/profile-session', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -212,7 +267,7 @@ export default function OnboardingWizard({
     }
 
     if (data.complete) {
-      setStep('done');
+      await advanceTo('tour');
       return;
     }
 
@@ -221,8 +276,18 @@ export default function OnboardingWizard({
     }
 
     setProfileSessionId(data.sessionId);
-    setStep('profile');
-  }
+    await advanceTo('profile');
+  }, [advanceTo, currentLocale, t]);
+
+  useEffect(() => {
+    if (step !== 'profile' || profileSessionId) return;
+    const timer = window.setTimeout(() => {
+      void openProfileSession().catch((error) => {
+        toast.error(error instanceof Error ? error.message : t('profileSessionError'));
+      });
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [openProfileSession, profileSessionId, step, t]);
 
   async function handleProviderSaved() {
     toast.success(t('providerSaved'));
@@ -260,7 +325,7 @@ export default function OnboardingWizard({
   function handleDone() {
     setCompleteLoading(true);
     try {
-      window.location.href = '/';
+      window.location.assign(buildLocalePath(currentLocale, '/'));
     } finally {
       setCompleteLoading(false);
     }
@@ -291,14 +356,14 @@ export default function OnboardingWizard({
               </div>
 
               <div className="mb-8 flex justify-center gap-2">
-                {STEPS.map((currentStep, index) => (
+                {steps.map((currentStep, index) => (
                   <div key={currentStep} className="flex items-center gap-2">
                     <div
                       className={`h-2 w-2 rounded-full transition-colors ${
                         step === currentStep ? 'bg-foreground' : 'bg-muted-foreground/30'
                       }`}
                     />
-                    {index < STEPS.length - 1 && <div className="h-px w-6 bg-border" />}
+                    {index < steps.length - 1 && <div className="h-px w-6 bg-border" />}
                   </div>
                 ))}
               </div>
@@ -306,7 +371,8 @@ export default function OnboardingWizard({
               {step === 'language' && (
                 <LanguageStep
                   initialTimeZone={initialTimeZone}
-                  onContinue={() => setStep('license')}
+                  showServerTimeZone={isInstanceOnboarding}
+                  onContinue={() => advanceTo(isInstanceOnboarding ? 'license' : 'profile')}
                 />
               )}
 
@@ -314,7 +380,7 @@ export default function OnboardingWizard({
                 <LicenseStep
                   defaultEmail={defaultEmail}
                   initialLicenseKey={initialLicenseKey}
-                  onContinue={() => setStep('provider')}
+                  onContinue={() => advanceTo('provider')}
                 />
               )}
 
@@ -353,8 +419,12 @@ export default function OnboardingWizard({
               {step === 'profile' && profileSessionId && (
                 <AgentProfileStep
                   sessionId={profileSessionId}
-                  onComplete={() => setStep('done')}
+                  onComplete={() => void advanceTo('tour')}
                 />
+              )}
+
+              {step === 'tour' && (
+                <TourStep onDone={() => void advanceTo('done')} />
               )}
 
               {step === 'done' && (
@@ -407,8 +477,8 @@ function AgentProfileStep({
     async function checkStatus() {
       try {
         const response = await fetch('/api/onboarding/status', { cache: 'no-store' });
-        const data = (await response.json().catch(() => ({}))) as { complete?: boolean };
-        if (!cancelled && data.complete) {
+        const data = (await response.json().catch(() => ({}))) as { profileComplete?: boolean };
+        if (!cancelled && data.profileComplete) {
           setProfileCompleteDetected(true);
         }
       } catch {
@@ -472,6 +542,70 @@ function AgentProfileStep({
         <Button variant="outline" onClick={handleSkip} disabled={skipping} className="gap-2">
           {skipping && <Loader2 className="h-4 w-4 animate-spin" />}
           {skipping ? t('profileSkipping') : t('profileSkip')}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function TourStep({ onDone }: { onDone: () => void }) {
+  const t = useTranslations('onboarding');
+  const [saving, setSaving] = useState<'started' | 'skipped' | null>(null);
+
+  async function finish(tour: 'started' | 'skipped') {
+    if (saving) return;
+    setSaving(tour);
+    try {
+      const response = await fetch('/api/onboarding/user', {
+        method: 'PATCH',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ step: 'complete', tour }),
+      });
+      if (!response.ok) {
+        throw new Error('Could not save tour preference.');
+      }
+      onDone();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : t('unexpectedError'));
+    } finally {
+      setSaving(null);
+    }
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="text-center">
+        <Compass className="mx-auto mb-4 h-12 w-12 text-primary" />
+        <h2 className="mb-2 text-xl font-semibold">{t('tourTitle')}</h2>
+        <p className="text-sm text-muted-foreground">{t('tourDescription')}</p>
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-3">
+        <div className="border border-border bg-muted/20 p-4">
+          <Sparkles className="mb-3 h-5 w-5 text-primary" />
+          <h3 className="text-sm font-semibold">{t('tourWorkspaceTitle')}</h3>
+          <p className="mt-1 text-xs leading-5 text-muted-foreground">{t('tourWorkspaceDescription')}</p>
+        </div>
+        <div className="border border-border bg-muted/20 p-4">
+          <Workflow className="mb-3 h-5 w-5 text-primary" />
+          <h3 className="text-sm font-semibold">{t('tourAutomationsTitle')}</h3>
+          <p className="mt-1 text-xs leading-5 text-muted-foreground">{t('tourAutomationsDescription')}</p>
+        </div>
+        <div className="border border-border bg-muted/20 p-4">
+          <Compass className="mb-3 h-5 w-5 text-primary" />
+          <h3 className="text-sm font-semibold">{t('tourSettingsTitle')}</h3>
+          <p className="mt-1 text-xs leading-5 text-muted-foreground">{t('tourSettingsDescription')}</p>
+        </div>
+      </div>
+
+      <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+        <Button variant="outline" onClick={() => void finish('skipped')} disabled={saving !== null}>
+          {t('tourSkip')}
+        </Button>
+        <Button onClick={() => void finish('started')} disabled={saving !== null} className="gap-2">
+          {saving === 'started' && <Loader2 className="h-4 w-4 animate-spin" />}
+          {t('tourStart')}
         </Button>
       </div>
     </div>
@@ -698,49 +832,68 @@ function LicenseStep({
 
 function LanguageStep({
   initialTimeZone,
+  showServerTimeZone,
   onContinue,
 }: {
   initialTimeZone: string;
-  onContinue: () => void;
+  showServerTimeZone: boolean;
+  onContinue: () => Promise<void> | void;
 }) {
   const t = useTranslations('onboarding');
-  const router = useRouter();
-  const [isPending, startTransition] = useTransition();
   const [isSaving, setIsSaving] = useState(false);
-  const pathname = usePathname();
+  const [isSwitchingLocale, setIsSwitchingLocale] = useState(false);
   const searchParams = useSearchParams();
-  const params = useParams();
-  const currentLocale = (params.locale as string) || routing.defaultLocale;
-  const [pendingLocale, setPendingLocale] = useState<string | null>(null);
+  const currentLocale = useLocale();
   const [timeZone, setTimeZone] = useState(() => normalizeTimeZone(initialTimeZone, DEFAULT_USER_TIME_ZONE));
   const timeZoneOptions = useMemo(() => getSupportedTimeZones(timeZone), [timeZone]);
-  const selectedLocale = pendingLocale ?? currentLocale;
+  const selectedLocale = useSyncExternalStore(
+    subscribeToBrowserLocation,
+    () => getBrowserPathLocale(currentLocale),
+    () => currentLocale,
+  );
+  const isHydrated = useSyncExternalStore(subscribeToBrowserLocation, () => true, () => false);
 
-  function handleSelectLocale(locale: string) {
-    setPendingLocale(locale);
-    startTransition(() => {
-      const query = searchParams.toString();
-      router.replace(query ? `${pathname}?${query}` : pathname, { locale });
-    });
+  async function handleSelectLocale(locale: string) {
+    const activeLocale = getBrowserPathLocale(currentLocale);
+    if (locale === activeLocale || isSaving || isSwitchingLocale) return;
+    setIsSwitchingLocale(true);
+    try {
+      const response = await fetch('/api/user-preferences', {
+        method: 'PATCH',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ locale }),
+      });
+      if (!response.ok) {
+        throw new Error(`Could not save language (${response.status}).`);
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : t('preferencesSaveFailed'));
+      setIsSwitchingLocale(false);
+      return;
+    }
+    const query = searchParams.toString();
+    const pathname = window.location.pathname.replace(/^\/(?:de|en)(?=\/|$)/u, '') || '/onboarding';
+    window.location.assign(`${buildLocalePath(locale, pathname)}${query ? `?${query}` : ''}`);
   }
 
   async function handleContinue() {
+    const activeLocale = getBrowserPathLocale(currentLocale);
     setIsSaving(true);
     await logOnboardingClientEvent('language.continue.clicked', {
-      selectedLocale,
-      timeZone: normalizeTimeZone(timeZone),
-      currentLocale,
-      pendingLocale,
-      isPending,
+      selectedLocale: activeLocale,
+      timeZone: showServerTimeZone ? normalizeTimeZone(timeZone) : null,
+      currentLocale: activeLocale,
+      showServerTimeZone,
     });
     try {
-      await saveOnboardingPreferences(selectedLocale, normalizeTimeZone(timeZone));
-      onContinue();
+      await saveOnboardingPreferences(activeLocale, showServerTimeZone ? normalizeTimeZone(timeZone) : undefined);
+      await onContinue();
     } catch (error) {
       console.error('[Onboarding] Failed to save language/time zone preferences:', error);
       await logOnboardingClientEvent('language.continue.failed', {
         selectedLocale,
-        timeZone: normalizeTimeZone(timeZone),
+        timeZone: showServerTimeZone ? normalizeTimeZone(timeZone) : null,
         message: error instanceof Error ? error.message : String(error),
       }, 'error');
       toast.error(t('preferencesSaveFailed'));
@@ -764,8 +917,8 @@ function LanguageStep({
           <button
             key={locale}
             type="button"
-            onClick={() => handleSelectLocale(locale)}
-            disabled={isPending || isSaving}
+            onClick={() => void handleSelectLocale(locale)}
+            disabled={!isHydrated || isSaving || isSwitchingLocale}
             className={`flex flex-col items-center gap-2 rounded-lg border-2 p-6 transition-colors ${
               locale === selectedLocale
                 ? 'border-primary bg-primary/5 text-primary'
@@ -783,7 +936,7 @@ function LanguageStep({
         ))}
       </div>
 
-      <div className="rounded-lg border border-border bg-muted/20 p-4">
+      {showServerTimeZone && <div className="rounded-lg border border-border bg-muted/20 p-4">
         <div className="mb-3 flex items-center gap-2">
           <Clock3 className="h-4 w-4 text-muted-foreground" />
           <div>
@@ -804,10 +957,10 @@ function LanguageStep({
             ))}
           </select>
         </label>
-      </div>
+      </div>}
 
       <div className="flex justify-center">
-        <Button onClick={handleContinue} className="min-w-[200px]" disabled={isSaving || isPending}>
+        <Button onClick={handleContinue} className="min-w-[200px]" disabled={!isHydrated || isSaving || isSwitchingLocale}>
           {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
           {t('languageContinue')}
         </Button>

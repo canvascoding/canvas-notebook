@@ -2,8 +2,9 @@
 
 import { useMemo, useState, useTransition } from 'react';
 import { useParams } from 'next/navigation';
-import { usePathname, useRouter } from '@/i18n/navigation';
+import { usePathname } from '@/i18n/navigation';
 import { routing } from '@/i18n/routing';
+import { buildLocalePath } from '@/app/lib/locale-path';
 import { useTranslations } from 'next-intl';
 import { Clock3, ExternalLink, KeyRound, Info, Languages, Mail, User } from 'lucide-react';
 import { toast } from 'sonner';
@@ -60,22 +61,25 @@ export function GeneralSettingsPanel({
   initialTimeZone?: string;
 }) {
   const t = useTranslations('settings');
-  const router = useRouter();
   const [isPending, startTransition] = useTransition();
+  const [isSavingLocale, setIsSavingLocale] = useState(false);
   const pathname = usePathname();
   const params = useParams();
   const currentLocale = (params.locale as string) || routing.defaultLocale;
   const [timeZone, setTimeZone] = useState(() => normalizeTimeZone(initialTimeZone));
   const timeZoneOptions = useMemo(() => getSupportedTimeZones(timeZone), [timeZone]);
 
-  function handleSelectLocale(locale: string) {
-    startTransition(() => {
-      void saveUserPreferences({ locale }).catch((error) => {
-        console.warn('[Settings] Failed to save preferred locale:', error);
-        toast.error(t('general.languageSaveFailed'));
-      });
-      router.replace(pathname, { locale });
-    });
+  async function handleSelectLocale(locale: string) {
+    if (locale === currentLocale || isSavingLocale) return;
+    setIsSavingLocale(true);
+    try {
+      await saveUserPreferences({ locale });
+      window.location.assign(buildLocalePath(locale, pathname));
+    } catch (error) {
+      console.warn('[Settings] Failed to save preferred locale:', error);
+      toast.error(t('general.languageSaveFailed'));
+      setIsSavingLocale(false);
+    }
   }
 
   function handleSelectTimeZone(nextTimeZone: string) {
@@ -167,8 +171,8 @@ export function GeneralSettingsPanel({
               <button
                 key={locale}
                 type="button"
-                onClick={() => handleSelectLocale(locale)}
-                disabled={isPending}
+                onClick={() => void handleSelectLocale(locale)}
+                disabled={isPending || isSavingLocale}
                 className={`flex flex-col items-center gap-2 rounded-lg border-2 p-4 transition-colors ${
                   locale === currentLocale
                     ? 'border-primary bg-primary/5 text-primary'

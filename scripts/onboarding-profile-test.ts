@@ -90,6 +90,7 @@ async function main() {
       skipOnboardingProfile,
     } = await import('../app/lib/onboarding/profile');
     const { isOnboardingComplete } = await import('../app/lib/onboarding/status');
+    const { updateUserOnboardingState } = await import('../app/lib/user-preferences');
 
     const now = new Date('2026-06-08T10:00:00.000Z');
     const userId = 'user-onboarding';
@@ -99,7 +100,7 @@ async function main() {
       email: 'onboarding@example.test',
       emailVerified: true,
       image: null,
-      role: 'user',
+      role: 'admin',
       createdAt: now,
       updatedAt: now,
     });
@@ -244,6 +245,7 @@ async function main() {
     assert.equal(await isOnboardingComplete(), true);
 
     await db.delete(onboardingLog).where(eq(onboardingLog.method, 'ui'));
+    await updateUserOnboardingState(userId, { step: 'profile', profile: 'pending', tour: 'pending' });
     await fs.writeFile(bootstrapPath, 'Bootstrap setup instructions.\n', 'utf8');
     await fs.writeFile(path.join(scopedCanvasAgentPath, 'USER.md'), '', 'utf8');
     await fs.writeFile(path.join(scopedCanvasAgentPath, 'SOUL.md'), 'Default soul.\n', 'utf8');
@@ -263,6 +265,29 @@ async function main() {
     assert.equal(skippedAgain.success, true);
     assert.equal(skippedAgain.deletedBootstrap, false);
     assert.equal(skippedAgain.alreadyComplete, true);
+
+    const secondaryUserId = 'user-secondary';
+    await db.insert(user).values({
+      id: secondaryUserId,
+      name: 'Secondary User',
+      email: 'secondary@example.test',
+      emailVerified: true,
+      image: null,
+      role: 'user',
+      createdAt: now,
+      updatedAt: now,
+    });
+    await fs.writeFile(bootstrapPath, 'Instance bootstrap remains managed by the owner.\n', 'utf8');
+    const secondarySession = await ensureOnboardingProfileSession({ userId: secondaryUserId, locale: 'en' });
+    assert.equal(secondarySession.sessionId, buildOnboardingProfileSessionId(secondaryUserId));
+    const secondaryCompleted = await completeOnboardingProfile({
+      userId: secondaryUserId,
+      userMd: '# User\n\n- Name: Secondary',
+      soulMd: '# Soul\n\n- Style: helpful',
+    });
+    assert.equal(secondaryCompleted.instanceCompleted, false);
+    assert.equal(secondaryCompleted.deletedBootstrap, false);
+    assert.match(await fs.readFile(bootstrapPath, 'utf8'), /Instance bootstrap/);
 
     console.log('onboarding-profile-test: ok');
   } finally {

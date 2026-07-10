@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { auth } from '@/app/lib/auth';
 import { getLicenseStatus } from '@/app/lib/license';
-import { OnboardingProfileError, skipOnboardingProfile } from '@/app/lib/onboarding/profile';
+import { canManageInstanceOnboarding, OnboardingProfileError, skipOnboardingProfile } from '@/app/lib/onboarding/profile';
 import { isOnboardingComplete, isOnboardingEnabled } from '@/app/lib/onboarding/status';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 
@@ -29,12 +29,16 @@ export async function POST(request: NextRequest) {
     return limited.response;
   }
 
-  if (await isOnboardingComplete()) {
-    return NextResponse.json({ success: true, complete: true });
+  const instanceComplete = await isOnboardingComplete();
+  if (!instanceComplete && !(await canManageInstanceOnboarding(session.user.id))) {
+    return NextResponse.json(
+      { success: false, error: 'The instance owner must finish setup before personal onboarding begins.', code: 'INSTANCE_SETUP_REQUIRED' },
+      { status: 409 },
+    );
   }
 
-  const licenseStatus = await getLicenseStatus();
-  if (!licenseStatus.licensed) {
+  const licenseStatus = instanceComplete ? null : await getLicenseStatus();
+  if (licenseStatus && !licenseStatus.licensed) {
     return NextResponse.json(
       { success: false, error: 'License activation required', code: 'LICENSE_REQUIRED' },
       { status: 402 },

@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { auth } from '@/app/lib/auth';
-import { ensureOnboardingProfileSession, OnboardingProfileError } from '@/app/lib/onboarding/profile';
+import { getLicenseStatus } from '@/app/lib/license';
+import { canManageInstanceOnboarding, ensureOnboardingProfileSession, OnboardingProfileError } from '@/app/lib/onboarding/profile';
 import { isOnboardingComplete, isOnboardingEnabled } from '@/app/lib/onboarding/status';
+import { getUserOnboardingState } from '@/app/lib/user-preferences';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 
 function getErrorMessage(error: unknown): string {
@@ -28,7 +30,23 @@ export async function POST(request: NextRequest) {
     return limited.response;
   }
 
-  if (await isOnboardingComplete()) {
+  const instanceComplete = await isOnboardingComplete();
+  if (!instanceComplete && !(await canManageInstanceOnboarding(session.user.id))) {
+    return NextResponse.json(
+      { success: false, error: 'The instance owner must finish setup before personal onboarding begins.', code: 'INSTANCE_SETUP_REQUIRED' },
+      { status: 409 },
+    );
+  }
+
+  if (!instanceComplete && !(await getLicenseStatus()).licensed) {
+    return NextResponse.json(
+      { success: false, error: 'License activation required', code: 'LICENSE_REQUIRED' },
+      { status: 402 },
+    );
+  }
+
+  const onboarding = await getUserOnboardingState(session.user.id);
+  if (onboarding.profile !== 'pending') {
     return NextResponse.json({ success: true, complete: true });
   }
 

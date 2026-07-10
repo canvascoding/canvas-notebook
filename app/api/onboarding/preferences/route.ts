@@ -3,10 +3,6 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { auth } from '@/app/lib/auth';
 import { writeOnboardingLog } from '@/app/lib/onboarding/logging';
-import { getOnboardingCompletionStatus, isOnboardingEnabled } from '@/app/lib/onboarding/status';
-import { resolveServerSettingsUpdatePermission } from '@/app/lib/server-settings-policy';
-import { setServerPreferredTimeZone } from '@/app/lib/server-settings';
-import { isValidTimeZone } from '@/app/lib/time-zones';
 import { normalizeUserLocale, setUserPreferredLocale } from '@/app/lib/user-preferences';
 
 function jsonWithRequestId(requestId: string, body: Record<string, unknown>, init: ResponseInit = {}) {
@@ -17,21 +13,6 @@ function jsonWithRequestId(requestId: string, body: Record<string, unknown>, ini
 
 function errorMessage(error: unknown, fallback: string): string {
   return error instanceof Error ? error.message : fallback;
-}
-
-async function getOnboardingCompleteForPreferenceUpdate(requestId: string): Promise<boolean> {
-  if (!isOnboardingEnabled()) {
-    return true;
-  }
-
-  const status = await getOnboardingCompletionStatus('[onboarding/preferences]');
-  if (status.source === 'fallback') {
-    await writeOnboardingLog('warn', 'preferences.status-fallback', {
-      requestId,
-      error: status.error,
-    });
-  }
-  return status.complete;
 }
 
 export async function POST(request: NextRequest) {
@@ -55,15 +36,11 @@ export async function POST(request: NextRequest) {
     const locale = payload && typeof payload === 'object' && 'locale' in payload
       ? normalizeUserLocale(payload.locale)
       : null;
-    const rawTimeZone = payload && typeof payload === 'object' && 'timeZone' in payload
-      ? payload.timeZone
-      : null;
 
     await writeOnboardingLog('info', 'preferences.requested', {
       requestId,
       ...logUser,
       locale,
-      timeZone: typeof rawTimeZone === 'string' ? rawTimeZone : null,
       payloadKeys: payload && typeof payload === 'object' && !Array.isArray(payload) ? Object.keys(payload) : [],
     });
 
@@ -72,55 +49,27 @@ export async function POST(request: NextRequest) {
       return jsonWithRequestId(requestId, { success: false, error: 'Unsupported locale.', requestId }, { status: 400 });
     }
 
-    if (!isValidTimeZone(rawTimeZone)) {
-      await writeOnboardingLog('warn', 'preferences.invalid-time-zone', {
+    if (payload && typeof payload === 'object' && 'timeZone' in payload) {
+      await writeOnboardingLog('warn', 'preferences.time-zone-rejected', { requestId, ...logUser });
+      return jsonWithRequestId(
         requestId,
-        ...logUser,
-        rawTimeZone,
-      });
-      return jsonWithRequestId(requestId, { success: false, error: 'Unsupported time zone.', requestId }, { status: 400 });
-    }
-
-    const onboardingEnabled = isOnboardingEnabled();
-    const onboardingComplete = await getOnboardingCompleteForPreferenceUpdate(requestId);
-    const permission = resolveServerSettingsUpdatePermission(session.user, {
-      onboardingEnabled,
-      onboardingComplete,
-    });
-
-    await writeOnboardingLog('info', 'preferences.permission', {
-      requestId,
-      ...logUser,
-      onboardingEnabled,
-      onboardingComplete,
-      permissionOk: permission.ok,
-      permissionReason: permission.reason,
-    });
-
-    if (!permission.ok) {
-      await writeOnboardingLog('warn', 'preferences.forbidden', {
-        requestId,
-        ...logUser,
-        reason: permission.reason,
-      });
-      return jsonWithRequestId(requestId, { success: false, error: 'Forbidden: admin only', requestId }, { status: 403 });
+        { success: false, error: 'Time zone is a server setting. Use /api/server-settings.', requestId },
+        { status: 400 },
+      );
     }
 
     const preferences = await setUserPreferredLocale(session.user.id, locale);
-    const settings = await setServerPreferredTimeZone(session.user.id, rawTimeZone);
 
     await writeOnboardingLog('info', 'preferences.saved', {
       requestId,
       ...logUser,
       locale: preferences.locale,
-      timeZone: settings.timeZone,
     });
 
     return jsonWithRequestId(requestId, {
       success: true,
       data: {
         preferences,
-        settings,
       },
     });
   } catch (error) {

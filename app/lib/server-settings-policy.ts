@@ -3,7 +3,7 @@ import 'server-only';
 import { isAdminUser, type AdminUserCandidate } from '@/app/lib/admin-auth';
 
 export type ServerSettingsUpdatePermission =
-  | { ok: true; reason: 'admin' | 'onboarding' }
+  | { ok: true; reason: 'admin' }
   | { ok: false; reason: 'admin_required' };
 
 export function resolveServerSettingsUpdatePermission(
@@ -21,10 +21,6 @@ export function resolveServerSettingsUpdatePermission(
 
   if (adminCheck) {
     return { ok: true, reason: 'admin' };
-  }
-
-  if (state.onboardingEnabled && !state.onboardingComplete) {
-    return { ok: true, reason: 'onboarding' };
   }
 
   console.warn('[server-settings-policy] Permission denied:', {

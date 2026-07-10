@@ -92,7 +92,7 @@ async function main() {
       { email: 'user@example.test', role: 'user' },
       { onboardingEnabled: true, onboardingComplete: false },
     ),
-    { ok: true, reason: 'onboarding' },
+    { ok: false, reason: 'admin_required' },
   );
 
   assert.deepEqual(
@@ -118,7 +118,7 @@ async function main() {
       { email: 'user@example.test', role: 'user' },
       { onboardingEnabled: true, onboardingComplete: false },
     ),
-    { ok: true, reason: 'onboarding' },
+    { ok: false, reason: 'admin_required' },
   );
 
   console.log('server-settings-policy-test: ok');

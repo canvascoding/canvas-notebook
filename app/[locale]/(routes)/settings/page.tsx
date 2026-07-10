@@ -7,6 +7,7 @@ import { isManagedControlPlaneAvailable } from '@/app/lib/agents/storage';
 import { isAdminUser } from '@/app/lib/admin-auth';
 import { readOrganizationPermissionForUser } from '@/app/lib/organization/permissions';
 import { getServerPreferredTimeZone } from '@/app/lib/server-settings';
+import { getUserOnboardingState } from '@/app/lib/user-preferences';
 
 export default async function SettingsPage() {
   const session = await requirePageSession({ allowUnlicensed: true });
@@ -18,6 +19,7 @@ export default async function SettingsPage() {
   const userEmail = session?.user?.email || '';
   const isManagedControlPlane = isManagedControlPlaneAvailable();
   const initialTimeZone = await getServerPreferredTimeZone();
+  const userOnboarding = currentUserId ? await getUserOnboardingState(currentUserId) : null;
   let organizationPermission = null;
   if (currentUserId) {
     try {
@@ -28,7 +30,7 @@ export default async function SettingsPage() {
   }
 
   return (
-    <SuitePageLayout title={t('title')} hintPage="settings" hintEnabled={isOnboardingHintsEnabled()}>
+    <SuitePageLayout title={t('title')} hintPage="settings" hintEnabled={isOnboardingHintsEnabled() || userOnboarding?.tour === 'started'}>
         <IntegrationsSettingsClient
           isAdmin={isAdmin}
           currentUserId={currentUserId}
