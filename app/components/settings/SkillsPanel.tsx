@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useMemo, startTransition, useDeferredValue } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef, startTransition, useDeferredValue } from 'react';
 import { useTranslations } from 'next-intl';
 import { Link } from '@/i18n/navigation';
 import {
@@ -493,16 +493,18 @@ function CanvasPluginsSection({ onPluginsChanged }: { onPluginsChanged: () => vo
   const [activeConnectorAction, setActiveConnectorAction] = useState<string | null>(null);
   const [mcpSetupState, setMcpSetupState] = useState<PluginMcpSetupState>(EMPTY_PLUGIN_MCP_SETUP_STATE);
   const [selectedPluginDetail, setSelectedPluginDetail] = useState<SelectedPluginDetail | null>(null);
+  const pluginLoadRequestRef = useRef(0);
   const deferredSearchQuery = useDeferredValue(searchQuery);
-  const requiredComposioToolkits = useMemo(() => uniqueByKey(
-    [
-      ...plugins.flatMap((plugin) => getComposioRecommendations(plugin.connectors)),
-      ...storePlugins.flatMap((plugin) => getComposioRecommendations(plugin.connectors)),
-    ],
-    (connector) => connector.toolkit,
-  ), [plugins, storePlugins]);
+  const requiredComposioToolkits = useMemo(() => {
+    if (!selectedPluginDetail) return [];
+    const connectors = selectedPluginDetail.source === 'store'
+      ? storePlugins.find((plugin) => plugin.name === selectedPluginDetail.name)?.connectors
+      : plugins.find((plugin) => plugin.name === selectedPluginDetail.name)?.connectors;
+    return uniqueByKey(getComposioRecommendations(connectors), (connector) => connector.toolkit);
+  }, [plugins, selectedPluginDetail, storePlugins]);
 
   const loadPluginData = useCallback(async () => {
+    const requestId = ++pluginLoadRequestRef.current;
     const storeState = storeTab === 'updates' ? 'updates' : storeTab === 'installed' ? 'installed' : 'all';
     const storeParams = new URLSearchParams({
       page: String(storePage),
@@ -519,6 +521,8 @@ function CanvasPluginsSection({ onPluginsChanged }: { onPluginsChanged: () => vo
         fetch('/api/plugins', { credentials: 'include', cache: 'no-store' }).then((response) => response.json()),
         fetch(`/api/plugins/store?${storeParams.toString()}`, { credentials: 'include', cache: 'no-store' }).then((response) => response.json()),
       ]);
+
+      if (requestId !== pluginLoadRequestRef.current) return;
 
       if (pluginsResult.status === 'fulfilled' && pluginsResult.value?.success) {
         setPlugins(Array.isArray(pluginsResult.value.plugins) ? pluginsResult.value.plugins : []);
@@ -547,7 +551,9 @@ function CanvasPluginsSection({ onPluginsChanged }: { onPluginsChanged: () => vo
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : t('errors.load'));
     } finally {
-      setIsLoading(false);
+      if (requestId === pluginLoadRequestRef.current) {
+        setIsLoading(false);
+      }
     }
   }, [deferredSearchQuery, storePage, storeTab, t]);
 
@@ -714,7 +720,12 @@ function CanvasPluginsSection({ onPluginsChanged }: { onPluginsChanged: () => vo
       const response = await fetch('/api/plugins/store/install', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: pluginName, version, enable: true, replace: true }),
+        body: JSON.stringify({
+          name: pluginName,
+          version,
+          enable: storePlugin?.installed.installed ? storePlugin.installed.enabled : true,
+          replace: true,
+        }),
       });
       const data = await response.json();
       if (!data.success) {
