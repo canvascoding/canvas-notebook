@@ -46,6 +46,7 @@
     "test:pi:queue": "tsx scripts/pi-runtime-queue-test.ts",
     "test:pi:oauth-scope": "tsx scripts/pi-oauth-user-scope-test.ts",
     "test:agent:memory": "tsx scripts/agent-memory-store-test.ts",
+    "test:agent:managed-files": "tsx --conditions react-server scripts/agent-managed-files-test.ts",
     "test:agent:runtime-temp": "tsx --conditions react-server scripts/agent-runtime-temp-test.ts",
     "test:scoped-data-paths": "tsx scripts/scoped-runtime-paths-test.ts",
     "test:integrations:env-scope": "tsx scripts/scoped-env-config-test.ts",

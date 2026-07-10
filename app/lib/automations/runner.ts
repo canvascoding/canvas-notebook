@@ -239,7 +239,7 @@ export async function executeAutomationRun(runId: string): Promise<void> {
 
       const includeAutomatedHeartbeatContext = job.jobType === 'heartbeat' && run.triggerType !== 'manual';
       const jobPrompt = job.jobType === 'heartbeat'
-        ? await buildHeartbeatPrompt(job, { includeAutomatedRuntimeContext: includeAutomatedHeartbeatContext })
+        ? await buildHeartbeatPrompt(job, { includeAutomatedRuntimeContext: includeAutomatedHeartbeatContext, userId: automationUserId })
         : job.prompt;
       const promptText = buildAutomationPrompt({
         name: job.name,

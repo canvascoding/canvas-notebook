@@ -6,6 +6,7 @@ import type { AutomationIntervalUnit, AutomationJobRecord, AutomationWeekday, Fr
 
 type BuildHeartbeatPromptOptions = {
   includeAutomatedRuntimeContext?: boolean;
+  userId?: string | null;
 };
 
 const WEEKDAY_LABELS: Record<AutomationWeekday, string> = {
@@ -69,13 +70,12 @@ function buildAutomatedHeartbeatContext(job: AutomationJobRecord): string[] {
 }
 
 export async function buildHeartbeatPrompt(job: AutomationJobRecord, options: BuildHeartbeatPromptOptions = {}): Promise<string> {
-  const heartbeatContent = await readManagedAgentFile('HEARTBEAT.md', job.agentId);
-  const heartbeatPath = `/data/agents/${job.agentId || 'canvas-agent'}/HEARTBEAT.md`;
+  const heartbeatContent = await readManagedAgentFile('HEARTBEAT.md', job.agentId, { userId: options.userId });
   const context = options.includeAutomatedRuntimeContext ? [...buildAutomatedHeartbeatContext(job), ''] : [];
 
   return [
     ...context,
-    `Lies die Datei ${heartbeatPath} und führe die darin beschriebenen Instructions aus.`,
+    'Führe die unten eingebetteten Heartbeat-Anweisungen aus.',
     'Die Ergebnisse sollen in dieser Automation-Session kommuniziert und danach über das konfigurierte Delivery-Ziel ausgeliefert werden.',
     '',
     'Inhalt der HEARTBEAT.md:',

@@ -9,6 +9,7 @@ import { SKILL_TOOL_NAMES } from '../pi/toolsets';
 import { CANVAS_CONTROL_PLANE_PROVIDER_ID, getCanvasControlPlaneModels } from '../managed/control-plane-models';
 import { getManagedControlPlaneBaseUrl } from '../managed/control-plane-url';
 import { resolveAgentStorageDir, resolveAgentsStorageRoot, resolveUserAgentsDir } from '../runtime-data-paths';
+import { getManagedAgentFileLimitBytes } from './managed-file-limits';
 import {
   ensureSettingsStorageDirectory,
   readSettingsTextFileIfExists,
@@ -276,6 +277,18 @@ export function isWritableManagedAgentFileName(fileName: AgentManagedFileName, a
   return getOwnedManagedFileNames(agentId).includes(fileName);
 }
 
+export function validateManagedAgentFileContent(fileName: AgentManagedFileName, content: string): void {
+  if (typeof content !== 'string') {
+    throw new AgentConfigValidationError(`${fileName} must be text.`);
+  }
+
+  const maxBytes = getManagedAgentFileLimitBytes(fileName);
+  const actualBytes = Buffer.byteLength(content, 'utf8');
+  if (actualBytes > maxBytes) {
+    throw new AgentConfigValidationError(`${fileName} is too large (${actualBytes} bytes). The limit is ${maxBytes} bytes.`);
+  }
+}
+
 async function migrateLegacyCanvasAgentFileIfMissing(
   fileName: AgentManagedFileName,
   targetPath: string,
@@ -387,6 +400,7 @@ export async function writeManagedAgentFile(
   agentId?: string | null,
   scope?: AgentStorageScope | null,
 ): Promise<string> {
+  validateManagedAgentFileContent(fileName, content);
   await ensureAgentManagedFilesExist(agentId, scope);
   const filePath = resolveManagedFilePath(fileName, agentId, scope);
   await writeTextAtomic(filePath, content);

@@ -128,6 +128,7 @@ function buildReadFailedFallbackSystemPrompt(): ManagedSystemPromptResult {
       loadedFiles: [],
       includedFiles: [],
       emptyFiles: [],
+      truncatedFiles: [],
       usedFallback: true,
       fallbackReason: 'read-failed',
     },
@@ -430,8 +431,8 @@ export async function loadManagedAgentSystemPrompt(
       if (isBrowserGatewayEnabled(enabledTools) && isBrowserRuntimeAvailable()) {
         systemPrompt += '\n\n' + BROWSER_SYSTEM_PROMPT;
       }
-    } catch {
-      // If we can't check composio config, don't add the prompt section
+    } catch (error) {
+      console.warn('[system-prompt] Failed to add optional connection guidance:', error);
     }
     
     return { ...result, systemPrompt };

@@ -110,22 +110,23 @@ async function main() {
   assert.equal(missing.configured, false);
   assert.equal(missing.agentId, 'support-agent');
 
-  await writeManagedAgentFile('HEARTBEAT.md', 'Canvas heartbeat instructions', 'canvas-agent');
-  await writeManagedAgentFile('HEARTBEAT.md', 'Research heartbeat instructions', 'research-agent');
+  await writeManagedAgentFile('HEARTBEAT.md', 'Canvas heartbeat instructions', 'canvas-agent', { userId });
+  await writeManagedAgentFile('HEARTBEAT.md', 'Research heartbeat instructions', 'research-agent', { userId });
 
   const canvasJob = await getHeartbeatJob({ userId, agentId: 'canvas-agent' });
   const researchJob = await getHeartbeatJob({ userId, agentId: 'research-agent' });
   assert.ok(canvasJob);
   assert.ok(researchJob);
-  const canvasPrompt = await buildHeartbeatPrompt(canvasJob);
-  const researchPrompt = await buildHeartbeatPrompt(researchJob);
-  const automatedResearchPrompt = await buildHeartbeatPrompt(researchJob, { includeAutomatedRuntimeContext: true });
+  const canvasPrompt = await buildHeartbeatPrompt(canvasJob, { userId });
+  const researchPrompt = await buildHeartbeatPrompt(researchJob, { userId });
+  const automatedResearchPrompt = await buildHeartbeatPrompt(researchJob, { includeAutomatedRuntimeContext: true, userId });
   assert.match(canvasPrompt, /Canvas heartbeat instructions/);
   assert.match(researchPrompt, /Research heartbeat instructions/);
   assert.doesNotMatch(researchPrompt, /AUTOMATISCHER HEARTBEAT-KONTEXT/);
   assert.match(automatedResearchPrompt, /AUTOMATISCHER HEARTBEAT-KONTEXT/);
   assert.match(automatedResearchPrompt, /Aktueller Heartbeat-Zeitplan: Intervall: alle 2 Stunden/);
   assert.match(automatedResearchPrompt, /\/settings\?tab=agent-settings/);
+  assert.doesNotMatch(automatedResearchPrompt, /\/data\/agents\//);
 
   console.log('heartbeat config tests passed');
 }

@@ -30,6 +30,7 @@ export type DoctorResult = {
     loadedFiles: string[];
     includedFiles: string[];
     emptyFiles: string[];
+    truncatedFiles: string[];
     usedFallback: boolean;
     fallbackReason: 'all-empty' | 'read-failed' | null;
   };
@@ -128,6 +129,11 @@ export function AgentDoctorCard({
           <p>{t('agentPanel.doctor.promptFilesLoaded')} {doctorResult.promptDiagnostics.loadedFiles.join(', ') || t('agentPanel.doctor.none')}</p>
           <p>{t('agentPanel.doctor.promptFilesIncluded')} {doctorResult.promptDiagnostics.includedFiles.join(', ') || t('agentPanel.doctor.none')}</p>
           <p>{t('agentPanel.doctor.promptFilesEmpty')} {doctorResult.promptDiagnostics.emptyFiles.join(', ') || t('agentPanel.doctor.none')}</p>
+          {doctorResult.promptDiagnostics.truncatedFiles.length > 0 && (
+            <p className="text-amber-700 dark:text-amber-300">
+              Managed prompt content was truncated to stay within the runtime context budget: {doctorResult.promptDiagnostics.truncatedFiles.join(', ')}
+            </p>
+          )}
           <p>
             {t('agentPanel.doctor.promptFallback')}{' '}
             <span className={doctorResult.promptDiagnostics.usedFallback ? 'text-destructive font-medium' : 'text-primary'}>
