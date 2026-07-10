@@ -32,6 +32,14 @@ async function main() {
   const originalLoad = moduleInternals._load;
   moduleInternals._load = (request, parent, isMain) => {
     if (request === 'server-only') return {};
+    if (request === '@earendil-works/pi-ai/compat') {
+      return {
+        getModels: () => [],
+        getProviders: () => [],
+        registerBuiltInApiProviders: () => undefined,
+      };
+    }
+    if (request === '@earendil-works/pi-ai/oauth') return {};
     return originalLoad(request, parent, isMain);
   };
   const { getPiToolMetadata } = await import('../app/lib/pi/tool-registry');
