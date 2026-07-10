@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useCallback, useEffect, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react';
+import { useState, useRef, useCallback, useEffect, type CSSProperties } from 'react';
 
 import { Link } from '@/i18n/navigation';
 import { useSearchParams } from 'next/navigation';
@@ -39,6 +39,7 @@ import { FileBrowser } from '@/app/components/file-browser/FileBrowser';
 import { FileEditor } from '@/app/components/editor/FileEditor';
 import { TerminalPanel } from '@/app/components/terminal/Terminal';
 import { AppLayout } from '@/app/components/layout/AppLayout';
+import { ResizeHandle, usePanelResize } from '@/app/components/layout/ResizeHandle';
 import CanvasAgentChat from '@/app/components/canvas-agent-chat/CanvasAgentChat';
 import { ThemeToggle } from '@/app/components/ThemeToggle';
 import { NotificationBell } from '@/app/components/notifications/NotificationBell';
@@ -79,6 +80,8 @@ const CHAT_PANEL_MAX = 800;
 const MIN_EDITOR_WIDTH = 360;
 const NOTEBOOK_OPEN_FILE_STORAGE_KEY = 'canvas.notebookOpenFilePath';
 const NOTEBOOK_DESKTOP_SIDEBAR_VISIBLE_STORAGE_KEY = 'canvas.notebookDesktopSidebarVisible';
+const NOTEBOOK_SIDEBAR_WIDTH_STORAGE_KEY = 'canvas.leftSidebarWidth';
+const NOTEBOOK_CHAT_WIDTH_STORAGE_KEY = 'canvas.notebookChatWidth';
 
 function normalizeNotebookFilePath(path: string | null) {
   const normalized = path?.replace(/^\.\/|\/+$/g, '').trim();
@@ -153,6 +156,11 @@ function clampChatWidth(width: number, maxWidth: number) {
   return Math.min(maxWidth, Math.max(CHAT_PANEL_MIN, width));
 }
 
+function getAvailableChatMaxWidth(containerWidth?: number) {
+  const availableWidth = containerWidth ?? (typeof window === 'undefined' ? CHAT_PANEL_MAX : window.innerWidth);
+  return Math.min(CHAT_PANEL_MAX, Math.max(CHAT_PANEL_MIN, availableWidth - MIN_EDITOR_WIDTH));
+}
+
 function MobileNotebookEmptyState({
   onOpenExplorer,
   onOpenChat,
@@ -217,20 +225,6 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
   const desktopSidebarRef = useRef<HTMLDivElement | null>(null);
   const desktopMainPanelRef = useRef<HTMLDivElement | null>(null);
   const desktopChatWrapperRef = useRef<HTMLDivElement | null>(null);
-  const sidebarWidthRef = useRef(LEFT_SIDEBAR_DEFAULT);
-  const chatWidthRef = useRef(420);
-  const sidebarResizeFrameRef = useRef<number | null>(null);
-  const chatResizeFrameRef = useRef<number | null>(null);
-  const sidebarResizeRef = useRef<{
-    pointerId: number;
-    startX: number;
-    startWidth: number;
-    nextWidth: number;
-  } | null>(null);
-  const chatResizeRef = useRef<{
-    pointerId: number;
-    nextWidth: number;
-  } | null>(null);
   const openedPathRef = useRef<string | null>(null);
   const initialNotebookStateResolvedRef = useRef(false);
   const desktopDefaultChatAppliedRef = useRef(false);
@@ -304,9 +298,9 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
   }, []);
 
   useEffect(() => {
-    const storedWidth = Number(window.localStorage.getItem('canvas.leftSidebarWidth'));
+    const storedWidth = Number(window.localStorage.getItem(NOTEBOOK_SIDEBAR_WIDTH_STORAGE_KEY));
     if (!Number.isFinite(storedWidth) || storedWidth < LEFT_SIDEBAR_MIN) {
-      window.localStorage.removeItem('canvas.leftSidebarWidth');
+      window.localStorage.removeItem(NOTEBOOK_SIDEBAR_WIDTH_STORAGE_KEY);
       return;
     }
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -314,10 +308,22 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
   }, []);
 
   useEffect(() => {
-    window.localStorage.setItem('canvas.leftSidebarWidth', String(sidebarWidth));
+    window.localStorage.setItem(NOTEBOOK_SIDEBAR_WIDTH_STORAGE_KEY, String(sidebarWidth));
   }, [sidebarWidth]);
 
+  useEffect(() => {
+    const storedWidth = Number(window.localStorage.getItem(NOTEBOOK_CHAT_WIDTH_STORAGE_KEY));
+    if (!Number.isFinite(storedWidth) || storedWidth < CHAT_PANEL_MIN) {
+      window.localStorage.removeItem(NOTEBOOK_CHAT_WIDTH_STORAGE_KEY);
+      return;
+    }
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setChatWidth(clampChatWidth(storedWidth, getAvailableChatMaxWidth()));
+  }, []);
 
+  useEffect(() => {
+    window.localStorage.setItem(NOTEBOOK_CHAT_WIDTH_STORAGE_KEY, String(chatWidth));
+  }, [chatWidth]);
 
   useEffect(() => {
     window.localStorage.setItem('canvas.terminalVisible', String(terminalVisible));
@@ -523,138 +529,36 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
   }, [searchParams]);
 
   const applySidebarPanelWidth = useCallback((nextWidth: number) => {
-    sidebarWidthRef.current = nextWidth;
     desktopSidebarRef.current?.style.setProperty('--desktop-sidebar-width', `${nextWidth}px`);
   }, []);
 
   const applyChatPanelWidth = useCallback((nextWidth: number) => {
-    chatWidthRef.current = nextWidth;
     desktopChatWrapperRef.current?.style.setProperty('--desktop-chat-width', `${nextWidth}px`);
   }, []);
 
-  const scheduleSidebarPanelWidth = useCallback((nextWidth: number) => {
-    if (!sidebarResizeRef.current) return;
-    sidebarResizeRef.current.nextWidth = nextWidth;
-
-    if (sidebarResizeFrameRef.current !== null) return;
-    sidebarResizeFrameRef.current = requestAnimationFrame(() => {
-      sidebarResizeFrameRef.current = null;
-      const width = sidebarResizeRef.current?.nextWidth;
-      if (width !== undefined) {
-        applySidebarPanelWidth(width);
-      }
-    });
-  }, [applySidebarPanelWidth]);
-
-  const scheduleChatPanelWidth = useCallback((nextWidth: number) => {
-    if (!chatResizeRef.current) return;
-    chatResizeRef.current.nextWidth = nextWidth;
-
-    if (chatResizeFrameRef.current !== null) return;
-    chatResizeFrameRef.current = requestAnimationFrame(() => {
-      chatResizeFrameRef.current = null;
-      const width = chatResizeRef.current?.nextWidth;
-      if (width !== undefined) {
-        applyChatPanelWidth(width);
-      }
-    });
-  }, [applyChatPanelWidth]);
-
   const getChatPanelMaxWidth = useCallback(() => {
     const containerWidth = desktopMainPanelRef.current?.getBoundingClientRect().width ?? window.innerWidth;
-    return Math.min(CHAT_PANEL_MAX, Math.max(CHAT_PANEL_MIN, containerWidth - MIN_EDITOR_WIDTH));
+    return getAvailableChatMaxWidth(containerWidth);
   }, []);
 
-  const startSidebarResizing = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
-    if (event.button !== 0) return;
-    event.preventDefault();
-    event.currentTarget.setPointerCapture(event.pointerId);
-    document.body.style.cursor = 'col-resize';
-    document.body.style.userSelect = 'none';
-    sidebarResizeRef.current = {
-      pointerId: event.pointerId,
-      startX: event.clientX,
-      startWidth: sidebarWidthRef.current,
-      nextWidth: sidebarWidthRef.current,
-    };
-  }, []);
+  const sidebarResize = usePanelResize({
+    orientation: 'vertical',
+    value: sidebarWidth,
+    min: LEFT_SIDEBAR_MIN,
+    max: getSidebarMaxWidth,
+    onResize: applySidebarPanelWidth,
+    onResizeEnd: setSidebarWidth,
+  });
 
-  const handleSidebarResizeMove = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
-    const resizeState = sidebarResizeRef.current;
-    if (!resizeState || resizeState.pointerId !== event.pointerId) return;
-
-    const nextWidth = clampSidebarWidth(
-      resizeState.startWidth + (event.clientX - resizeState.startX)
-    );
-    scheduleSidebarPanelWidth(nextWidth);
-  }, [scheduleSidebarPanelWidth]);
-
-  const stopSidebarResizing = useCallback((event?: ReactPointerEvent<HTMLDivElement>) => {
-    const resizeState = sidebarResizeRef.current;
-    if (event && (!resizeState || resizeState.pointerId !== event.pointerId)) return;
-
-    if (event?.currentTarget.hasPointerCapture(event.pointerId)) {
-      event.currentTarget.releasePointerCapture(event.pointerId);
-    }
-
-    if (sidebarResizeFrameRef.current !== null) {
-      cancelAnimationFrame(sidebarResizeFrameRef.current);
-      sidebarResizeFrameRef.current = null;
-    }
-
-    if (resizeState) {
-      applySidebarPanelWidth(resizeState.nextWidth);
-      setSidebarWidth(resizeState.nextWidth);
-    }
-
-    sidebarResizeRef.current = null;
-    document.body.style.cursor = '';
-    document.body.style.userSelect = '';
-  }, [applySidebarPanelWidth]);
-
-  const startChatResizing = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
-    if (event.button !== 0) return;
-    event.preventDefault();
-    event.currentTarget.setPointerCapture(event.pointerId);
-    document.body.style.cursor = 'col-resize';
-    document.body.style.userSelect = 'none';
-    chatResizeRef.current = {
-      pointerId: event.pointerId,
-      nextWidth: chatWidthRef.current,
-    };
-  }, []);
-
-  const handleChatResizeMove = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
-    const resizeState = chatResizeRef.current;
-    if (!resizeState || resizeState.pointerId !== event.pointerId) return;
-
-    const containerRect = desktopMainPanelRef.current?.getBoundingClientRect();
-    const rawWidth = containerRect ? containerRect.right - event.clientX : window.innerWidth - event.clientX;
-    scheduleChatPanelWidth(clampChatWidth(rawWidth, getChatPanelMaxWidth()));
-  }, [getChatPanelMaxWidth, scheduleChatPanelWidth]);
-
-  const stopChatResizing = useCallback((event?: ReactPointerEvent<HTMLDivElement>) => {
-    const resizeState = chatResizeRef.current;
-    if (event && (!resizeState || resizeState.pointerId !== event.pointerId)) return;
-
-    if (event?.currentTarget.hasPointerCapture(event.pointerId)) {
-      event.currentTarget.releasePointerCapture(event.pointerId);
-    }
-
-    if (chatResizeFrameRef.current !== null) {
-      cancelAnimationFrame(chatResizeFrameRef.current);
-      chatResizeFrameRef.current = null;
-    }
-
-    if (resizeState) {
-      applyChatPanelWidth(resizeState.nextWidth);
-      setChatWidth(resizeState.nextWidth);
-    }
-
-    chatResizeRef.current = null;
-    document.body.style.cursor = '';
-    document.body.style.userSelect = '';
-  }, [applyChatPanelWidth]);
+  const chatResize = usePanelResize({
+    orientation: 'vertical',
+    direction: -1,
+    value: chatWidth,
+    min: CHAT_PANEL_MIN,
+    max: getChatPanelMaxWidth,
+    onResize: applyChatPanelWidth,
+    onResizeEnd: setChatWidth,
+  });
 
   useEffect(() => {
     applySidebarPanelWidth(sidebarWidth);
@@ -663,17 +567,6 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
   useEffect(() => {
     applyChatPanelWidth(chatWidth);
   }, [applyChatPanelWidth, chatWidth]);
-
-  useEffect(() => () => {
-    if (sidebarResizeFrameRef.current !== null) {
-      cancelAnimationFrame(sidebarResizeFrameRef.current);
-    }
-    if (chatResizeFrameRef.current !== null) {
-      cancelAnimationFrame(chatResizeFrameRef.current);
-    }
-    document.body.style.cursor = '';
-    document.body.style.userSelect = '';
-  }, []);
 
   const openDesktopChat = useCallback((mode: DesktopChatMode) => {
     setDesktopChatMode(mode);
@@ -1093,7 +986,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
                 '--desktop-sidebar-min': `${LEFT_SIDEBAR_MIN}px`,
                 '--desktop-sidebar-width': `${sidebarWidth}px`,
               } as CSSProperties}
-              className="relative z-[80] min-w-[var(--desktop-sidebar-min)] w-[var(--desktop-sidebar-width)] basis-[var(--desktop-sidebar-width)] flex-shrink-0 bg-card border-r border-border"
+              className="relative z-[80] min-w-[var(--desktop-sidebar-min)] w-[var(--desktop-sidebar-width)] basis-[var(--desktop-sidebar-width)] flex-shrink-0 bg-card"
             >
               <div className="flex h-full flex-col">
                 <div className="flex-1 min-w-0 overflow-hidden">
@@ -1106,21 +999,17 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
           ) : null}
 
           {sidebarVisible ? (
-            <div
-              role="separator"
-              aria-label={tNotebook('resizeFileTree')}
-              aria-orientation="vertical"
-              aria-valuemin={LEFT_SIDEBAR_MIN}
-              aria-valuemax={LEFT_SIDEBAR_MAX}
-              aria-valuenow={Math.round(sidebarWidth)}
-              className="hidden md:flex w-1 touch-none hover:w-1.5 bg-border hover:bg-primary/60 cursor-col-resize z-50 transition-all items-center justify-center"
-              onPointerDown={startSidebarResizing}
-              onPointerMove={handleSidebarResizeMove}
-              onPointerUp={stopSidebarResizing}
-              onPointerCancel={stopSidebarResizing}
-            >
-              <div className="h-8 w-0.5 bg-muted-foreground/60" />
-            </div>
+            <ResizeHandle
+              data-testid="notebook-explorer-resize-handle"
+              orientation="vertical"
+              label={tNotebook('resizeFileTree')}
+              controls="onboarding-notebook-fileBrowser"
+              min={LEFT_SIDEBAR_MIN}
+              max={LEFT_SIDEBAR_MAX}
+              value={sidebarWidth}
+              resizing={sidebarResize.isResizing}
+              {...sidebarResize.handleProps}
+            />
           ) : null}
 
           <div className="flex-1 min-w-0 h-full flex flex-col relative">
@@ -1135,38 +1024,39 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
                   </div>
 
                   {isDesktopChatSideVisible ? (
-                    <div
-                      role="separator"
-                      aria-orientation="vertical"
-                      aria-valuemin={CHAT_PANEL_MIN}
-                      aria-valuemax={CHAT_PANEL_MAX}
-                      aria-valuenow={Math.round(chatWidth)}
-                      onPointerDown={startChatResizing}
-                      onPointerMove={handleChatResizeMove}
-                      onPointerUp={stopChatResizing}
-                      onPointerCancel={stopChatResizing}
-                      className="hidden md:flex w-1 touch-none hover:w-1.5 bg-border hover:bg-primary/60 cursor-col-resize z-50 transition-all items-center justify-center"
-                    >
-                      <div className="h-8 w-0.5 bg-muted-foreground/60" />
-                    </div>
+                    <ResizeHandle
+                      data-testid="notebook-chat-resize-handle"
+                      orientation="vertical"
+                      label={tNotebook('resizeChat')}
+                      controls="onboarding-notebook-chat"
+                      min={CHAT_PANEL_MIN}
+                      max={CHAT_PANEL_MAX}
+                      value={chatWidth}
+                      resizing={chatResize.isResizing}
+                      {...chatResize.handleProps}
+                    />
                   ) : null}
 
                   <div
                     ref={desktopChatWrapperRef}
                     style={desktopChatWrapperStyle}
-                    className={
+                    className={cn(
                       desktopChatMode === 'fullscreen'
-                        ? `
-                          absolute inset-0 z-[70] overflow-hidden bg-background shadow-[0_0_0_1px_hsl(var(--border)),0_24px_60px_-24px_hsl(var(--foreground)/0.45)]
-                          transition-all duration-300 ease-in-out
-                          ${isDesktopChatFullscreen ? 'opacity-100' : 'pointer-events-none opacity-0'}
-                        `
-                        : `
-                          relative flex-shrink-0 overflow-hidden border-l border-border bg-background
-                          transition-all duration-300 ease-in-out
-                          ${chatVisible ? 'opacity-100' : 'pointer-events-none w-0 border-none opacity-0'}
-                        `
-                    }
+                        ? 'absolute inset-0 z-[70] overflow-hidden bg-background shadow-[0_0_0_1px_hsl(var(--border)),0_24px_60px_-24px_hsl(var(--foreground)/0.45)] transition-[opacity,box-shadow] duration-200 ease-out motion-reduce:transition-none'
+                        : cn(
+                          'relative flex-shrink-0 overflow-hidden bg-background',
+                          chatResize.isResizing
+                            ? 'transition-none'
+                            : 'transition-[width,opacity] duration-200 ease-out motion-reduce:transition-none',
+                        ),
+                      isDesktopChatFullscreen
+                        ? 'opacity-100'
+                        : desktopChatMode === 'fullscreen'
+                          ? 'pointer-events-none opacity-0'
+                          : chatVisible
+                            ? 'opacity-100'
+                            : 'pointer-events-none w-0 opacity-0',
+                    )}
                   >
                     <div id="onboarding-notebook-chat" className="flex flex-col w-full h-full relative">
                       <CanvasAgentChat

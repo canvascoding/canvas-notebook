@@ -409,6 +409,7 @@
     "home": "Home",
     "workspaceRoot": "Workspace /",
     "resizeFileTree": "Resize file tree",
+    "resizeChat": "Resize Canvas Agent chat",
     "dropFilesToUpload": "Drop files to upload",
     "actions": "Actions",
     "moreActions": "More actions",

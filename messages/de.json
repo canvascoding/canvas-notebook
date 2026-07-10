@@ -408,6 +408,7 @@
     "home": "Startseite",
     "workspaceRoot": "Workspace /",
     "resizeFileTree": "Dateibaum-Größe ändern",
+    "resizeChat": "Größe des Canvas-Agent-Chats ändern",
     "dropFilesToUpload": "Dateien zum Hochladen ablegen",
     "actions": "Aktionen",
     "moreActions": "Weitere Aktionen",
