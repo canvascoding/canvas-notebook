@@ -27,6 +27,7 @@ export default defineConfig({
       reuseExistingServer: false,
       env: {
         ...process.env,
+        CANVAS_APP_ROOT: process.cwd(),
         DATA: e2eDataRoot,
         CANVAS_DATA_ROOT: e2eDataRoot,
         ONBOARDING: 'true',
