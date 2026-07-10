@@ -786,6 +786,15 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
     && !hasNotebookSideChatSpace(viewportWidth, sidebarVisible, sidebarWidth, chatWidth);
   const usesDesktopChatOverlay = desktopChatMode === 'fullscreen' || shouldUseResponsiveChatOverlay;
   const isDesktopChatSideVisible = isDesktopViewport && chatVisible && !usesDesktopChatOverlay;
+  const availableMainPanelWidth = viewportWidth - (sidebarVisible ? sidebarWidth : 0);
+  const availableChatMaxWidth = getAvailableChatMaxWidth(availableMainPanelWidth);
+  const availableSidebarMaxWidth = Math.min(
+    LEFT_SIDEBAR_MAX,
+    Math.max(
+      LEFT_SIDEBAR_MIN,
+      viewportWidth - MIN_EDITOR_WIDTH - (isDesktopChatSideVisible ? chatWidth : 0),
+    ),
+  );
   const desktopChatWrapperStyle =
     !usesDesktopChatOverlay
       ? ({
@@ -1037,7 +1046,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
               label={tNotebook('resizeFileTree')}
               controls="onboarding-notebook-fileBrowser"
               min={LEFT_SIDEBAR_MIN}
-              max={LEFT_SIDEBAR_MAX}
+              max={availableSidebarMaxWidth}
               value={sidebarWidth}
               resizing={sidebarResize.isResizing}
               {...sidebarResize.handleProps}
@@ -1064,7 +1073,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
                       label={tNotebook('resizeChat')}
                       controls="onboarding-notebook-chat"
                       min={CHAT_PANEL_MIN}
-                      max={CHAT_PANEL_MAX}
+                      max={availableChatMaxWidth}
                       value={chatWidth}
                       resizing={chatResize.isResizing}
                       {...chatResize.handleProps}

@@ -269,6 +269,10 @@ export function ChatDockShell({
     && viewportWidth < MAIN_CONTENT_MIN_WIDTH + chatWidth;
   const usesDesktopChatOverlay = desktopChatMode === 'fullscreen' || shouldUseResponsiveChatOverlay;
   const isDesktopChatSideVisible = isDesktopViewport && chatVisible && !usesDesktopChatOverlay;
+  const availableChatMaxWidth = Math.min(
+    CHAT_WIDTH_MAX,
+    Math.max(CHAT_WIDTH_MIN, viewportWidth - MAIN_CONTENT_MIN_WIDTH),
+  );
   const desktopChatWrapperStyle =
     !usesDesktopChatOverlay
       ? ({
@@ -389,7 +393,7 @@ export function ChatDockShell({
                 label={tChat('resizeHandleLabel')}
                 controls="chat-dock-desktop"
                 min={CHAT_WIDTH_MIN}
-                max={CHAT_WIDTH_MAX}
+                max={availableChatMaxWidth}
                 value={chatWidth}
                 resizing={chatResize.isResizing}
                 {...chatResize.handleProps}

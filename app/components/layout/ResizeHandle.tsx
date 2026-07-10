@@ -60,7 +60,7 @@ export const ResizeHandle = forwardRef<HTMLDivElement, ResizeHandleProps>(functi
       aria-valuenow={Math.round(value)}
       data-resizing={resizing ? 'true' : 'false'}
       className={cn(
-        'group/resize-handle relative z-50 flex shrink-0 touch-none select-none items-center justify-center outline-none',
+        'group/resize-handle relative z-[90] flex shrink-0 touch-none select-none items-center justify-center outline-none',
         'before:absolute before:content-[\'\'] after:pointer-events-none after:absolute after:bg-border after:content-[\'\']',
         'after:transition-[background-color,box-shadow,opacity] after:duration-150 after:ease-out motion-reduce:after:transition-none',
         'hover:after:bg-primary/55 focus-visible:after:bg-primary/75 focus-visible:after:shadow-[0_0_0_3px_hsl(var(--primary)/0.16)]',
@@ -100,6 +100,51 @@ function resolveBound(bound: Bound) {
   return typeof bound === 'function' ? bound() : bound;
 }
 
+export function clampPanelResizeValue(value: number, minimum: number, maximum: number) {
+  return Math.min(Math.max(minimum, maximum), Math.max(minimum, value));
+}
+
+export function getKeyboardPanelResizeValue({
+  key,
+  orientation,
+  direction = 1,
+  value,
+  minimum,
+  maximum,
+  step = 10,
+  largeStep = 40,
+  useLargeStep = false,
+}: {
+  key: string;
+  orientation: ResizeOrientation;
+  direction?: 1 | -1;
+  value: number;
+  minimum: number;
+  maximum: number;
+  step?: number;
+  largeStep?: number;
+  useLargeStep?: boolean;
+}) {
+  if (key === 'Home') return minimum;
+  if (key === 'End') return Math.max(minimum, maximum);
+
+  const resolvedStep = useLargeStep ? largeStep : step;
+  let coordinateDelta: number | null = null;
+
+  if (orientation === 'vertical' && key === 'ArrowLeft') {
+    coordinateDelta = -resolvedStep;
+  } else if (orientation === 'vertical' && key === 'ArrowRight') {
+    coordinateDelta = resolvedStep;
+  } else if (orientation === 'horizontal' && key === 'ArrowUp') {
+    coordinateDelta = -resolvedStep;
+  } else if (orientation === 'horizontal' && key === 'ArrowDown') {
+    coordinateDelta = resolvedStep;
+  }
+
+  if (coordinateDelta === null) return null;
+  return clampPanelResizeValue(value + (coordinateDelta * direction), minimum, maximum);
+}
+
 export function usePanelResize(options: UsePanelResizeOptions) {
   const optionsRef = useRef(options);
   const currentValueRef = useRef(options.value);
@@ -128,7 +173,7 @@ export function usePanelResize(options: UsePanelResizeOptions) {
 
   const clampValue = useCallback((value: number) => {
     const { minimum, maximum } = getBounds();
-    return Math.min(maximum, Math.max(minimum, value));
+    return clampPanelResizeValue(value, minimum, maximum);
   }, [getBounds]);
 
   const applyValue = useCallback((value: number) => {
@@ -250,22 +295,18 @@ export function usePanelResize(options: UsePanelResizeOptions) {
       step = 10,
       largeStep = 40,
     } = optionsRef.current;
-    const resolvedStep = event.shiftKey ? largeStep : step;
-    let nextValue: number | null = null;
-
-    if (event.key === 'Home') {
-      nextValue = getBounds().minimum;
-    } else if (event.key === 'End') {
-      nextValue = getBounds().maximum;
-    } else if (orientation === 'vertical' && event.key === 'ArrowLeft') {
-      nextValue = currentValueRef.current - (resolvedStep * direction);
-    } else if (orientation === 'vertical' && event.key === 'ArrowRight') {
-      nextValue = currentValueRef.current + (resolvedStep * direction);
-    } else if (orientation === 'horizontal' && event.key === 'ArrowUp') {
-      nextValue = currentValueRef.current - (resolvedStep * direction);
-    } else if (orientation === 'horizontal' && event.key === 'ArrowDown') {
-      nextValue = currentValueRef.current + (resolvedStep * direction);
-    }
+    const { minimum, maximum } = getBounds();
+    const nextValue = getKeyboardPanelResizeValue({
+      key: event.key,
+      orientation,
+      direction,
+      value: currentValueRef.current,
+      minimum,
+      maximum,
+      step,
+      largeStep,
+      useLargeStep: event.shiftKey,
+    });
 
     if (nextValue === null) return;
     event.preventDefault();
