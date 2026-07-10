@@ -95,6 +95,7 @@ async function startHttpMcpServer(): Promise<{
 async function main() {
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'canvas-mcp-manager-'));
   process.env.CANVAS_DATA_ROOT = tempRoot;
+  process.env.MCP_ALLOW_STDIO = 'true';
 
   const projectRoot = process.cwd();
   const serverPath = path.join(projectRoot, 'scripts', 'fixtures', 'fake-mcp-server.ts');
@@ -108,6 +109,7 @@ async function main() {
   const { writeMcpConfigRaw } = await import('../app/lib/mcp/config');
   const {
     cleanupIdleMcpServers,
+    callMcpTool,
     closeAllMcpServers,
     getMcpRuntimeStatus,
     listMcpTools,
@@ -201,6 +203,40 @@ async function main() {
     await closeAllMcpServers();
     await httpMcp.close();
   }
+
+  const userA = { userId: 'mcp-manager-user-a' };
+  const userB = { userId: 'mcp-manager-user-b' };
+  await fs.mkdir(path.join(tempRoot, 'users', userA.userId, 'secrets'), { recursive: true });
+  await fs.mkdir(path.join(tempRoot, 'users', userB.userId, 'secrets'), { recursive: true });
+  await fs.writeFile(path.join(tempRoot, 'users', userA.userId, 'secrets', 'Canvas-Integrations.env'), 'MCP_TEST_PREFIX=user-a:\n', 'utf8');
+  await fs.writeFile(path.join(tempRoot, 'users', userB.userId, 'secrets', 'Canvas-Integrations.env'), 'MCP_TEST_PREFIX=user-b:\n', 'utf8');
+  const sharedUserStartFile = path.join(tempRoot, 'scoped-user-starts.log');
+  const userConfig = JSON.stringify({
+    settings: { toolPrefix: 'server', idleTimeout: 10 },
+    mcpServers: {
+      shared: {
+        command: process.execPath,
+        args: [tsxCli, serverPath],
+        env: { ECHO_PREFIX: '${MCP_TEST_PREFIX}', MCP_START_FILE: sharedUserStartFile },
+      },
+    },
+  }, null, 2);
+  await writeMcpConfigRaw(userConfig, userA);
+  await writeMcpConfigRaw(userConfig, userB);
+  await Promise.all([
+    listMcpTools('shared', { scope: userA }),
+    listMcpTools('shared', { scope: userB }),
+  ]);
+  assert.equal(await countStarts(sharedUserStartFile), 2);
+  const [userAResult, userBResult] = await Promise.all([
+    callMcpTool('shared', 'echo', { message: 'hello' }, undefined, userA),
+    callMcpTool('shared', 'echo', { message: 'hello' }, undefined, userB),
+  ]);
+  assert.match((userAResult.content[0] as { text: string }).text, /^user-a:/);
+  assert.match((userBResult.content[0] as { text: string }).text, /^user-b:/);
+  assert.equal((await getMcpRuntimeStatus('shared', userA)).servers[0].connected, true);
+  assert.equal((await getMcpRuntimeStatus('shared', userB)).servers[0].connected, true);
+  await closeAllMcpServers();
 
   console.log('mcp-manager-test: ok');
 }

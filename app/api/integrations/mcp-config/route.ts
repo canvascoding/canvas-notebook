@@ -36,7 +36,7 @@ export async function GET(request: NextRequest) {
       return limited.response;
     }
 
-    const state = await readMcpConfigState();
+    const state = await readMcpConfigState({ userId: session.user.id });
     return NextResponse.json({ success: true, data: state });
   } catch (error) {
     console.error('[API] integrations/mcp-config GET error:', error);
@@ -61,7 +61,7 @@ export async function PUT(request: NextRequest) {
     }
 
     const payload = (await request.json()) as PutPayload;
-    const state = await writeMcpConfigRaw(payload.rawContent ?? '');
+    const state = await writeMcpConfigRaw(payload.rawContent ?? '', { userId: session.user.id });
     return NextResponse.json({ success: true, data: state });
   } catch (error) {
     if (error instanceof McpConfigValidationError) {

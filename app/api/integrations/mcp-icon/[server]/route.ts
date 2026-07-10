@@ -9,15 +9,15 @@ async function requireSession(request: NextRequest) {
   if (!session) {
     return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
   }
-  return null;
+  return session;
 }
 
 export async function GET(
   request: NextRequest,
   context: { params: Promise<{ server: string }> },
 ) {
-  const unauthorized = await requireSession(request);
-  if (unauthorized) return unauthorized;
+  const session = await requireSession(request);
+  if (session instanceof NextResponse) return session;
 
   const limited = rateLimit(request, {
     limit: 120,
@@ -32,7 +32,7 @@ export async function GET(
     return NextResponse.json({ success: false, error: 'MCP server is required' }, { status: 400 });
   }
 
-  const icon = await readMcpServerIconFile(serverName);
+  const icon = await readMcpServerIconFile(serverName, { userId: session.user.id });
   if (!icon) {
     return NextResponse.json({ success: false, error: 'MCP icon not found' }, { status: 404 });
   }

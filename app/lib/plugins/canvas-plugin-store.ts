@@ -981,7 +981,7 @@ export async function preflightCanvasPluginFromStore(
 
   const mcpConnectors = normalizeMcpConnectors(plugin.connectors);
   if (mcpConnectors.length > 0) {
-    const config = await readMcpConfig().catch(() => ({ mcpServers: {} }));
+    const config = await readMcpConfig(scope?.userId ? { userId: scope.userId } : undefined).catch(() => ({ mcpServers: {} }));
     const mcpServers = config.mcpServers as Record<string, { enabled?: boolean } | undefined>;
     for (const connector of mcpConnectors) {
       const server = mcpServers[connector.name];

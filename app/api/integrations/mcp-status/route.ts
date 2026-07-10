@@ -51,7 +51,8 @@ export async function GET(request: NextRequest) {
     if (!limited.ok) return limited.response;
 
     const summaryOnly = request.nextUrl.searchParams.get('summary') === '1';
-    const runtime = await getMcpRuntimeStatus();
+    const scope = { userId: session.user.id };
+    const runtime = await getMcpRuntimeStatus(undefined, scope);
     if (summaryOnly) {
       return NextResponse.json({
         success: true,
@@ -60,9 +61,9 @@ export async function GET(request: NextRequest) {
     }
 
     const [oauth, direct, icons] = await Promise.all([
-      Promise.all(runtime.servers.map((server) => getMcpOAuthStatus(server.name, getRequestOrigin(request)))),
-      buildDirectMcpTools(),
-      refreshMcpServerIcons(),
+      Promise.all(runtime.servers.map((server) => getMcpOAuthStatus(server.name, getRequestOrigin(request), scope))),
+      buildDirectMcpTools(scope),
+      refreshMcpServerIcons(scope),
     ]);
     return NextResponse.json({
       success: true,
@@ -107,29 +108,29 @@ export async function POST(request: NextRequest) {
     }
 
     if (payload.action === 'enable') {
-      await setMcpServerEnabled(server, true);
+      await setMcpServerEnabled(server, true, { userId: session.user.id });
       return NextResponse.json({ success: true, data: { server, enabled: true } });
     }
 
     if (payload.action === 'disable') {
-      await setMcpServerEnabled(server, false);
-      await closeMcpServer(server);
+      await setMcpServerEnabled(server, false, { userId: session.user.id });
+      await closeMcpServer(server, { userId: session.user.id });
       return NextResponse.json({ success: true, data: { server, enabled: false } });
     }
 
     if (payload.action === 'test') {
-      const tools = await listMcpTools(server);
+      const tools = await listMcpTools(server, { scope: { userId: session.user.id } });
       return NextResponse.json({ success: true, data: { server, toolCount: tools.length } });
     }
 
     if (payload.action === 'authorize') {
-      const started = await startMcpOAuth(server, request.headers.get('origin'));
+      const started = await startMcpOAuth(server, request.headers.get('origin'), { userId: session.user.id });
       return NextResponse.json({ success: true, data: { server, ...started } });
     }
 
     if (payload.action === 'clear_auth') {
-      await clearMcpOAuth(server);
-      await closeMcpServer(server);
+      await clearMcpOAuth(server, { userId: session.user.id });
+      await closeMcpServer(server, { userId: session.user.id });
       return NextResponse.json({ success: true, data: { server, authorized: false } });
     }
 

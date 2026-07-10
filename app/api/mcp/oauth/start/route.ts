@@ -63,7 +63,7 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const started = await startMcpOAuth(server, getRequestOrigin(request));
+    const started = await startMcpOAuth(server, getRequestOrigin(request), { userId: session.user.id });
     return NextResponse.redirect(started.authorizationUrl);
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to start MCP OAuth.';

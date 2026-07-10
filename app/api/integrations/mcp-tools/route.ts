@@ -36,14 +36,15 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ success: false, error: 'MCP server is required' }, { status: 400 });
     }
 
-    const config = await readMcpConfig();
+    const scope = { userId: session.user.id };
+    const config = await readMcpConfig(scope);
     const serverConfig = config.mcpServers[serverName];
     if (!serverConfig) {
       return NextResponse.json({ success: false, error: `Unknown MCP server "${serverName}".` }, { status: 404 });
     }
 
     const configHash = hashMcpServerConfig(serverConfig);
-    const tools = await readCachedTools(serverName, configHash);
+    const tools = await readCachedTools(serverName, configHash, scope);
 
     return NextResponse.json({
       success: true,

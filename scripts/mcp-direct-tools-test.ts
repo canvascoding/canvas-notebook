@@ -12,6 +12,7 @@ function getText(result: unknown): string {
 async function main() {
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'canvas-mcp-direct-'));
   process.env.CANVAS_DATA_ROOT = tempRoot;
+  process.env.MCP_ALLOW_STDIO = 'true';
 
   const projectRoot = process.cwd();
   const serverPath = path.join(projectRoot, 'scripts', 'fixtures', 'fake-mcp-server.ts');

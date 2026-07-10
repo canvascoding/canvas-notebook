@@ -42,8 +42,8 @@ function matchesConnectionQuery(option: AgentConnectionOption, query: string): b
   return haystack.includes(query);
 }
 
-async function loadMcpConnectionOptions(): Promise<AgentConnectionOption[]> {
-  const runtime = await getMcpRuntimeStatus();
+async function loadMcpConnectionOptions(userId?: string | null): Promise<AgentConnectionOption[]> {
+  const runtime = await getMcpRuntimeStatus(undefined, userId ? { userId } : undefined);
   return runtime.servers
     .filter((server) => server.enabled)
     .map((server) => ({
@@ -94,7 +94,7 @@ async function loadComposioConnectionOptions(userId?: string | null): Promise<Ag
 export async function loadAgentConnectionOptions(params: { query?: string; userId?: string | null } = {}): Promise<AgentConnectionOption[]> {
   const query = params.query?.trim().toLowerCase() || '';
   const [mcpResult, composioResult] = await Promise.allSettled([
-    loadMcpConnectionOptions(),
+    loadMcpConnectionOptions(params.userId),
     loadComposioConnectionOptions(params.userId),
   ]);
 

@@ -8,11 +8,17 @@ import type { CallToolResult, Tool } from '@modelcontextprotocol/sdk/types.js';
 import { readScopedEnvState } from '@/app/lib/integrations/env-config';
 import { isMcpServerEnabled, readMcpConfig, resolveMcpConfigPath, type McpConfig, type McpServerConfig } from '@/app/lib/mcp/config';
 import { getValidMcpAccessToken } from '@/app/lib/mcp/oauth';
+import { assertMcpHttpUrlAllowed } from '@/app/lib/mcp/network-policy';
 import {
-  readSettingsTextFileIfExists,
-  resolveSettingsStoragePath,
-  writeSettingsTextFileAtomic,
-} from '@/app/lib/settings-storage';
+  getMcpScopeKey,
+  normalizeMcpScope,
+  type McpScope,
+} from '@/app/lib/mcp/scope';
+import {
+  readMcpTextFileIfExists,
+  resolveMcpStoragePath,
+  writeMcpTextFileAtomic,
+} from '@/app/lib/mcp/storage';
 
 const DEFAULT_TIMEOUT_MS = 20_000;
 const DEFAULT_IDLE_TIMEOUT_MINUTES = 10;
@@ -22,6 +28,7 @@ type TransportType = 'stdio' | 'http' | 'unsupported';
 
 type ManagedConnection = {
   key: string;
+  scope: McpScope | null;
   serverName: string;
   configHash: string;
   transport: TransportType;
@@ -83,12 +90,9 @@ function appendStderrTail(entry: ManagedConnection, chunk: string): void {
   entry.stderrTail = next.length > 4000 ? next.slice(-4000) : next;
 }
 
-function enhanceMcpError(entry: ManagedConnection, error: unknown): Error {
+function enhanceMcpError(error: unknown): Error {
   const baseMessage = getErrorMessage(error);
-  if (!entry.stderrTail || baseMessage.includes('Recent server stderr:')) {
-    return error instanceof Error ? error : new Error(baseMessage);
-  }
-  return new Error(`${baseMessage}\n\nRecent server stderr:\n${entry.stderrTail}`);
+  return error instanceof Error ? error : new Error(baseMessage);
 }
 
 function summarizeCommand(config: McpServerConfig): { command?: string; args?: string[]; cwd?: string } {
@@ -120,8 +124,8 @@ export function getServerTransport(config: McpServerConfig): TransportType {
   return 'unsupported';
 }
 
-function getEntryKey(serverName: string, configHash: string): string {
-  return `${serverName}:${configHash}`;
+function getEntryKey(scope: McpScope | null | undefined, serverName: string, configHash: string): string {
+  return `${getMcpScopeKey(scope)}:${serverName}:${configHash}`;
 }
 
 function getTimeoutMs(config: McpServerConfig): number {
@@ -172,18 +176,28 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, signal?: AbortSi
   });
 }
 
-async function readAvailableEnv(): Promise<Record<string, string>> {
+function getSafeStdioBaseEnv(): Record<string, string> {
+  const safe: Record<string, string> = {};
+  for (const key of ['PATH', 'HOME', 'TMPDIR', 'LANG', 'LC_ALL']) {
+    const value = process.env[key];
+    if (value) safe[key] = value;
+  }
+  return safe;
+}
+
+async function readAvailableEnv(scope?: McpScope | null): Promise<Record<string, string>> {
+  const normalizedScope = normalizeMcpScope(scope);
+  const storageScope = normalizedScope?.userId
+    ? { userId: normalizedScope.userId }
+    : { secretScope: 'legacy' as const };
   const [integrations, agents] = await Promise.all([
-    readScopedEnvState('integrations'),
-    readScopedEnvState('agents'),
+    readScopedEnvState('integrations', storageScope),
+    readScopedEnvState('agents', storageScope),
   ]);
 
   const env: Record<string, string> = {};
   for (const entry of [...integrations.entries, ...agents.entries]) {
     if (entry.key && entry.value !== undefined) env[entry.key] = entry.value;
-  }
-  for (const [key, value] of Object.entries(process.env)) {
-    if (value !== undefined && env[key] === undefined) env[key] = value;
   }
   return env;
 }
@@ -199,11 +213,10 @@ function expandEnvValue(value: string, availableEnv: Record<string, string>, mis
   });
 }
 
-async function resolveServerEnv(config: McpServerConfig): Promise<Record<string, string> | undefined> {
-  if (!config.env && !Array.isArray(config.envPassthrough)) return undefined;
-  const availableEnv = await readAvailableEnv();
+async function resolveServerEnv(config: McpServerConfig, scope?: McpScope | null): Promise<Record<string, string>> {
+  const availableEnv = await readAvailableEnv(scope);
   const missing = new Set<string>();
-  const resolved: Record<string, string> = {};
+  const resolved: Record<string, string> = getSafeStdioBaseEnv();
   for (const [key, value] of Object.entries(config.env || {})) {
     if (typeof value === 'string') {
       resolved[key] = expandEnvValue(value, availableEnv, missing);
@@ -224,8 +237,8 @@ async function resolveServerEnv(config: McpServerConfig): Promise<Record<string,
   return resolved;
 }
 
-async function resolveHttpHeaders(config: McpServerConfig, accessToken: string | null): Promise<Record<string, string> | undefined> {
-  const availableEnv = await readAvailableEnv();
+async function resolveHttpHeaders(config: McpServerConfig, accessToken: string | null, scope?: McpScope | null): Promise<Record<string, string> | undefined> {
+  const availableEnv = await readAvailableEnv(scope);
   const missing = new Set<string>();
   const headers: Record<string, string> = {};
 
@@ -265,6 +278,9 @@ async function createClient(entry: ManagedConnection, signal?: AbortSignal): Pro
   const timeoutMs = getTimeoutMs(entry.config);
 
   if (entry.transport === 'stdio') {
+    if (process.env.MCP_ALLOW_STDIO !== 'true') {
+      throw new Error('STDIO MCP servers are disabled by instance policy. Set MCP_ALLOW_STDIO=true only for trusted, sandboxed deployments.');
+    }
     const command = entry.config.command?.trim();
     if (!command) throw new Error(`MCP server "${entry.serverName}" is missing command.`);
     logMcp('info', 'Starting stdio server', {
@@ -275,7 +291,7 @@ async function createClient(entry: ManagedConnection, signal?: AbortSignal): Pro
     const transport = new StdioClientTransport({
       command,
       args: Array.isArray(entry.config.args) ? entry.config.args.filter((arg): arg is string => typeof arg === 'string') : [],
-      env: await resolveServerEnv(entry.config),
+      env: await resolveServerEnv(entry.config, entry.scope),
       cwd: typeof entry.config.cwd === 'string' && entry.config.cwd.trim() ? entry.config.cwd : undefined,
       stderr: 'pipe',
     });
@@ -284,14 +300,14 @@ async function createClient(entry: ManagedConnection, signal?: AbortSignal): Pro
       const trimmed = text.trim();
       if (trimmed) {
         appendStderrTail(entry, trimmed);
-        logMcp('warn', 'Server stderr', { server: entry.serverName, pid: transport.pid, message: trimmed });
+        logMcp('warn', 'Server wrote to stderr', { server: entry.serverName, pid: transport.pid, bytes: Buffer.byteLength(trimmed, 'utf8') });
       }
     });
     try {
       await withTimeout(client.connect(transport), timeoutMs, signal);
     } catch (error) {
       await client.close().catch(() => undefined);
-      throw enhanceMcpError(entry, error);
+      throw enhanceMcpError(error);
     }
     entry.processPid = transport.pid;
     logMcp('info', 'Connected stdio server', { server: entry.serverName, pid: transport.pid });
@@ -301,11 +317,12 @@ async function createClient(entry: ManagedConnection, signal?: AbortSignal): Pro
   if (entry.transport === 'http') {
     const url = entry.config.url?.trim();
     if (!url) throw new Error(`MCP server "${entry.serverName}" is missing url.`);
+    const validatedUrl = await assertMcpHttpUrlAllowed(url, `MCP server "${entry.serverName}" URL`);
     logMcp('info', 'Connecting HTTP server', { server: entry.serverName, url, timeoutMs });
-    const accessToken = await getValidMcpAccessToken(entry.serverName, entry.config, entry.configHash);
-    const headers = await resolveHttpHeaders(entry.config, accessToken);
+    const accessToken = await getValidMcpAccessToken(entry.serverName, entry.config, entry.configHash, entry.scope);
+    const headers = await resolveHttpHeaders(entry.config, accessToken, entry.scope);
     try {
-      await withTimeout(client.connect(new StreamableHTTPClientTransport(new URL(url), headers ? {
+      await withTimeout(client.connect(new StreamableHTTPClientTransport(validatedUrl, headers ? {
         requestInit: {
           headers,
         },
@@ -321,20 +338,22 @@ async function createClient(entry: ManagedConnection, signal?: AbortSignal): Pro
   throw new Error(`MCP server "${entry.serverName}" must define a stdio command or unauthenticated HTTP url.`);
 }
 
-async function getManagedConnection(serverName: string, signal?: AbortSignal): Promise<ManagedConnection> {
-  const config = await readMcpConfig();
+async function getManagedConnection(serverName: string, signal?: AbortSignal, scope?: McpScope | null): Promise<ManagedConnection> {
+  const normalizedScope = normalizeMcpScope(scope);
+  const config = await readMcpConfig(normalizedScope);
   const serverConfig = config.mcpServers[serverName];
   if (!serverConfig) throw new Error(`Unknown MCP server "${serverName}".`);
   if (!isMcpServerEnabled(serverConfig)) throw new Error(`MCP server "${serverName}" is disabled.`);
 
   const configHash = hashMcpServerConfig(serverConfig);
-  const key = getEntryKey(serverName, configHash);
+  const key = getEntryKey(normalizedScope, serverName, configHash);
   const store = getStore();
   let entry = store.entries.get(key);
 
   if (!entry) {
     entry = {
       key,
+      scope: normalizedScope,
       serverName,
       configHash,
       transport: getServerTransport(serverConfig),
@@ -376,8 +395,9 @@ async function withManagedConnection<T>(
   serverName: string,
   fn: (entry: ManagedConnection, client: Client) => Promise<T>,
   signal?: AbortSignal,
+  scope?: McpScope | null,
 ): Promise<T> {
-  const entry = await getManagedConnection(serverName, signal);
+  const entry = await getManagedConnection(serverName, signal, scope);
   if (!entry.client) throw new Error(`MCP server "${serverName}" is not connected.`);
 
   entry.activeCalls += 1;
@@ -387,7 +407,7 @@ async function withManagedConnection<T>(
     entry.lastError = undefined;
     return result;
   } catch (error) {
-    const enhanced = enhanceMcpError(entry, error);
+    const enhanced = enhanceMcpError(error);
     entry.lastError = enhanced.message;
     throw enhanced;
   } finally {
@@ -396,13 +416,13 @@ async function withManagedConnection<T>(
   }
 }
 
-function resolveCachePath(): string {
-  return resolveSettingsStoragePath(CACHE_FILE);
+function resolveCachePath(scope?: McpScope | null): string {
+  return resolveMcpStoragePath(CACHE_FILE, scope);
 }
 
-async function readCache(): Promise<McpCacheFile> {
+async function readCache(scope?: McpScope | null): Promise<McpCacheFile> {
   try {
-    const { content } = await readSettingsTextFileIfExists(CACHE_FILE);
+    const { content } = await readMcpTextFileIfExists(CACHE_FILE, scope);
     if (!content) {
       return { version: 1, updatedAt: new Date(0).toISOString(), servers: {} };
     }
@@ -412,18 +432,18 @@ async function readCache(): Promise<McpCacheFile> {
   }
 }
 
-async function writeCache(cache: McpCacheFile): Promise<void> {
-  await writeSettingsTextFileAtomic(CACHE_FILE, JSON.stringify(cache, null, 2));
+async function writeCache(cache: McpCacheFile, scope?: McpScope | null): Promise<void> {
+  await writeMcpTextFileAtomic(CACHE_FILE, JSON.stringify(cache, null, 2), scope);
 }
 
-export async function readCachedTools(serverName: string, configHash: string): Promise<Tool[] | null> {
-  const cache = await readCache();
+export async function readCachedTools(serverName: string, configHash: string, scope?: McpScope | null): Promise<Tool[] | null> {
+  const cache = await readCache(scope);
   const entry = cache.servers[serverName];
   return entry?.configHash === configHash ? entry.tools : null;
 }
 
-async function writeCachedTools(serverName: string, configHash: string, tools: Tool[]): Promise<void> {
-  const cache = await readCache();
+async function writeCachedTools(serverName: string, configHash: string, tools: Tool[], scope?: McpScope | null): Promise<void> {
+  const cache = await readCache(scope);
   cache.version = 1;
   cache.updatedAt = new Date().toISOString();
   cache.servers[serverName] = {
@@ -431,11 +451,11 @@ async function writeCachedTools(serverName: string, configHash: string, tools: T
     tools,
     lastRefreshedAt: new Date().toISOString(),
   };
-  await writeCache(cache);
+  await writeCache(cache, scope);
 }
 
-export async function listConfiguredMcpServers() {
-  const config = await readMcpConfig();
+export async function listConfiguredMcpServers(scope?: McpScope | null) {
+  const config = await readMcpConfig(scope);
   return Object.entries(config.mcpServers).map(([name, serverConfig]) => ({
     name,
     transport: getServerTransport(serverConfig),
@@ -445,15 +465,16 @@ export async function listConfiguredMcpServers() {
   }));
 }
 
-export async function listMcpTools(serverName: string, options: { preferCache?: boolean; signal?: AbortSignal } = {}): Promise<Tool[]> {
-  const config = await readMcpConfig();
+export async function listMcpTools(serverName: string, options: { preferCache?: boolean; signal?: AbortSignal; scope?: McpScope | null } = {}): Promise<Tool[]> {
+  const scope = normalizeMcpScope(options.scope);
+  const config = await readMcpConfig(scope);
   const serverConfig = config.mcpServers[serverName];
   if (!serverConfig) throw new Error(`Unknown MCP server "${serverName}".`);
   if (!isMcpServerEnabled(serverConfig)) throw new Error(`MCP server "${serverName}" is disabled.`);
   const configHash = hashMcpServerConfig(serverConfig);
 
   if (options.preferCache) {
-    const cached = await readCachedTools(serverName, configHash);
+    const cached = await readCachedTools(serverName, configHash, scope);
     if (cached) return cached;
   }
 
@@ -461,10 +482,10 @@ export async function listMcpTools(serverName: string, options: { preferCache?: 
     logMcp('info', 'Listing tools', { server: serverName });
     const result = await withTimeout(client.listTools(), getTimeoutMs(entry.config), options.signal);
     entry.lastSuccessfulToolListAt = Date.now();
-    await writeCachedTools(serverName, entry.configHash, result.tools);
+    await writeCachedTools(serverName, entry.configHash, result.tools, scope);
     logMcp('info', 'Listed tools', { server: serverName, count: result.tools.length });
     return result.tools;
-  }, options.signal);
+  }, options.signal, scope);
 }
 
 export async function callMcpTool(
@@ -472,23 +493,33 @@ export async function callMcpTool(
   toolName: string,
   args: Record<string, unknown>,
   signal?: AbortSignal,
+  scope?: McpScope | null,
 ): Promise<CallToolResult> {
   return withManagedConnection(serverName, async (entry, client) => {
     logMcp('info', 'Calling tool', { server: serverName, tool: toolName });
     const result = await withTimeout(client.callTool({ name: toolName, arguments: args }), getTimeoutMs(entry.config), signal) as CallToolResult;
     logMcp(result.isError ? 'warn' : 'info', 'Tool call finished', { server: serverName, tool: toolName, isError: Boolean(result.isError) });
     return result;
-  }, signal);
+  }, signal, scope);
 }
 
-export async function cleanupIdleMcpServers(now = Date.now()): Promise<number> {
-  const config = await readMcpConfig();
-  const idleTimeoutMs = getIdleTimeoutMs(config);
+export async function cleanupIdleMcpServers(now = Date.now(), scope?: McpScope | null): Promise<number> {
+  const hasExplicitScope = scope !== undefined;
+  const normalizedScope = normalizeMcpScope(scope);
+  const idleTimeoutByScope = new Map<string, number>();
   const store = getStore();
   let closed = 0;
 
   for (const [key, entry] of store.entries) {
+    if (hasExplicitScope && getMcpScopeKey(entry.scope) !== getMcpScopeKey(normalizedScope)) continue;
     if (!entry.client || entry.activeCalls > 0) continue;
+    const entryScopeKey = getMcpScopeKey(entry.scope);
+    let idleTimeoutMs = idleTimeoutByScope.get(entryScopeKey);
+    if (idleTimeoutMs === undefined) {
+      const config = await readMcpConfig(entry.scope);
+      idleTimeoutMs = getIdleTimeoutMs(config);
+      idleTimeoutByScope.set(entryScopeKey, idleTimeoutMs);
+    }
     if (idleTimeoutMs > 0 && now - entry.lastUsedAt < idleTimeoutMs) continue;
     logMcp('info', 'Closing idle server', { server: entry.serverName, transport: entry.transport, pid: entry.processPid });
     await entry.client.close().catch(() => undefined);
@@ -501,9 +532,11 @@ export async function cleanupIdleMcpServers(now = Date.now()): Promise<number> {
   return closed;
 }
 
-export async function closeMcpServer(serverName: string): Promise<void> {
+export async function closeMcpServer(serverName: string, scope?: McpScope | null): Promise<void> {
+  const normalizedScope = normalizeMcpScope(scope);
   const store = getStore();
   for (const [key, entry] of store.entries) {
+    if (getMcpScopeKey(entry.scope) !== getMcpScopeKey(normalizedScope)) continue;
     if (entry.serverName !== serverName) continue;
     logMcp('info', 'Closing server', { server: entry.serverName, transport: entry.transport, pid: entry.processPid });
     await entry.client?.close().catch(() => undefined);
@@ -561,15 +594,16 @@ export function startMcpIdleCleanup(): void {
   }, 60_000).unref?.();
 }
 
-export async function getMcpRuntimeStatus(serverName?: string) {
-  const config = await readMcpConfig();
-  const cache = await readCache();
+export async function getMcpRuntimeStatus(serverName?: string, scope?: McpScope | null) {
+  const normalizedScope = normalizeMcpScope(scope);
+  const config = await readMcpConfig(normalizedScope);
+  const cache = await readCache(normalizedScope);
   const store = getStore();
   const entries = Object.entries(config.mcpServers)
     .filter(([name]) => !serverName || name === serverName)
     .map(([name, serverConfig]) => {
       const configHash = hashMcpServerConfig(serverConfig);
-      const managed = store.entries.get(getEntryKey(name, configHash));
+      const managed = store.entries.get(getEntryKey(normalizedScope, name, configHash));
       const cached = cache.servers[name]?.configHash === configHash ? cache.servers[name] : undefined;
       return {
         name,
@@ -581,15 +615,14 @@ export async function getMcpRuntimeStatus(serverName?: string) {
         lastUsedAt: managed?.lastUsedAt ? new Date(managed.lastUsedAt).toISOString() : null,
         lastSuccessfulToolListAt: managed?.lastSuccessfulToolListAt ? new Date(managed.lastSuccessfulToolListAt).toISOString() : null,
         lastError: managed?.lastError || null,
-        stderrTail: managed?.stderrTail || null,
         cachedToolCount: cached?.tools.length || 0,
         cacheRefreshedAt: cached?.lastRefreshedAt || null,
       };
     });
 
   return {
-    configPath: resolveMcpConfigPath(),
-    cachePath: resolveCachePath(),
+    configPath: resolveMcpConfigPath(normalizedScope),
+    cachePath: resolveCachePath(normalizedScope),
     servers: entries,
   };
 }

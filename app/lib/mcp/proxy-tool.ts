@@ -2,8 +2,6 @@ import type { CallToolResult, Tool } from '@modelcontextprotocol/sdk/types.js';
 import type { AgentTool, AgentToolResult } from '@earendil-works/pi-agent-core';
 import { Type } from 'typebox';
 
-import { assertUserOrganizationAdmin } from '@/app/lib/organization/permissions';
-
 import {
   callMcpTool,
   getMcpRuntimeStatus,
@@ -12,6 +10,7 @@ import {
   startMcpIdleCleanup,
 } from '@/app/lib/mcp/manager';
 import { clearMcpOAuth, getMcpOAuthStatus, startMcpOAuth } from '@/app/lib/mcp/oauth';
+import type { McpScope } from '@/app/lib/mcp/scope';
 
 type McpAction =
   | 'list_servers'
@@ -57,6 +56,10 @@ type SearchMatch = {
 
 function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'Unknown MCP error';
+}
+
+function getMcpScope(userId?: string): McpScope | undefined {
+  return userId ? { userId } : undefined;
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -235,8 +238,8 @@ function errorResult(message: string, details: unknown = {}): AgentToolResult<un
   };
 }
 
-async function handleListServers(): Promise<AgentToolResult<unknown>> {
-  const servers = await listConfiguredMcpServers();
+async function handleListServers(scope?: McpScope): Promise<AgentToolResult<unknown>> {
+  const servers = await listConfiguredMcpServers(scope);
   if (servers.length === 0) {
     return textResult('No MCP servers configured.', { servers: [] });
   }
@@ -247,8 +250,8 @@ async function handleListServers(): Promise<AgentToolResult<unknown>> {
   );
 }
 
-async function handleStatus(serverName?: string): Promise<AgentToolResult<unknown>> {
-  const status = await getMcpRuntimeStatus(serverName);
+async function handleStatus(serverName?: string, scope?: McpScope): Promise<AgentToolResult<unknown>> {
+  const status = await getMcpRuntimeStatus(serverName, scope);
   if (serverName && status.servers.length === 0) {
     throw new Error(`Unknown MCP server "${serverName}".`);
   }
@@ -269,8 +272,8 @@ async function handleStatus(serverName?: string): Promise<AgentToolResult<unknow
   );
 }
 
-async function handleListTools(serverName: string, signal?: AbortSignal): Promise<AgentToolResult<unknown>> {
-  const tools = await listMcpTools(serverName, { signal });
+async function handleListTools(serverName: string, signal?: AbortSignal, scope?: McpScope): Promise<AgentToolResult<unknown>> {
+  const tools = await listMcpTools(serverName, { signal, scope });
   if (tools.length === 0) {
     return textResult(`MCP server "${serverName}" exposes no tools.`, { server: serverName, tools: [] });
   }
@@ -286,13 +289,13 @@ async function handleListTools(serverName: string, signal?: AbortSignal): Promis
   );
 }
 
-async function handleSearchTools(query: string, serverName?: string, signal?: AbortSignal): Promise<AgentToolResult<unknown>> {
+async function handleSearchTools(query: string, serverName?: string, signal?: AbortSignal, scope?: McpScope): Promise<AgentToolResult<unknown>> {
   const queryTokens = tokenizeSearchText(query);
   if (queryTokens.length === 0) {
     throw new Error('search_tools requires query.');
   }
 
-  const configuredServers = await listConfiguredMcpServers();
+  const configuredServers = await listConfiguredMcpServers(scope);
   const normalizedServerName = normalizeSearchText(serverName || '');
   const exactServer = configuredServers.find((server) => normalizeSearchText(server.name) === normalizedServerName);
   const serverNames = exactServer
@@ -306,7 +309,7 @@ async function handleSearchTools(query: string, serverName?: string, signal?: Ab
 
   for (const currentServerName of serverNames) {
     try {
-      const tools = await listMcpTools(currentServerName, { preferCache: true, signal });
+      const tools = await listMcpTools(currentServerName, { preferCache: true, signal, scope });
       for (const tool of tools) {
         const match = scoreMcpToolSearch(currentServerName, tool, queryTokens);
         if (match) {
@@ -358,8 +361,8 @@ async function handleSearchTools(query: string, serverName?: string, signal?: Ab
   );
 }
 
-async function handleDescribeTool(serverName: string, toolName: string, signal?: AbortSignal): Promise<AgentToolResult<unknown>> {
-  const tools = await listMcpTools(serverName, { preferCache: true, signal });
+async function handleDescribeTool(serverName: string, toolName: string, signal?: AbortSignal, scope?: McpScope): Promise<AgentToolResult<unknown>> {
+  const tools = await listMcpTools(serverName, { preferCache: true, signal, scope });
   const tool = tools.find((candidate) => candidate.name === toolName);
   if (!tool) {
     throw new Error(`Unknown MCP tool "${toolName}" on server "${serverName}".`);
@@ -399,12 +402,13 @@ async function handleCallTool(
   toolName: string,
   args: Record<string, unknown>,
   signal?: AbortSignal,
+  scope?: McpScope,
 ): Promise<AgentToolResult<unknown>> {
   if (!isPlainObject(args)) {
     throw new Error('call_tool arguments must be a JSON object.');
   }
 
-  const result = await callMcpTool(serverName, toolName, args, signal);
+  const result = await callMcpTool(serverName, toolName, args, signal, scope);
   const text = summarizeMcpContent(result);
   return textResult(
     result.isError ? `MCP tool "${serverName}.${toolName}" returned an error:\n${text}` : text,
@@ -432,8 +436,8 @@ function buildCallArguments(params: McpProxyParams): Record<string, unknown> {
   return { ...passthroughArgs, ...(explicitArgs || {}) };
 }
 
-async function handleAuthStatus(serverName: string): Promise<AgentToolResult<unknown>> {
-  const status = await getMcpOAuthStatus(serverName);
+async function handleAuthStatus(serverName: string, scope?: McpScope): Promise<AgentToolResult<unknown>> {
+  const status = await getMcpOAuthStatus(serverName, undefined, scope);
   if (!status.requiresAuth) {
     return textResult(`MCP server "${serverName}" does not require OAuth authorization.`, status);
   }
@@ -445,8 +449,8 @@ async function handleAuthStatus(serverName: string): Promise<AgentToolResult<unk
   );
 }
 
-async function handleAuthStart(serverName: string): Promise<AgentToolResult<unknown>> {
-  const started = await startMcpOAuth(serverName);
+async function handleAuthStart(serverName: string, scope?: McpScope): Promise<AgentToolResult<unknown>> {
+  const started = await startMcpOAuth(serverName, undefined, scope);
   return textResult(
     [
       `Open this URL to authorize MCP server "${serverName}":`,
@@ -458,8 +462,8 @@ async function handleAuthStart(serverName: string): Promise<AgentToolResult<unkn
   );
 }
 
-async function handleAuthClear(serverName: string): Promise<AgentToolResult<unknown>> {
-  await clearMcpOAuth(serverName);
+async function handleAuthClear(serverName: string, scope?: McpScope): Promise<AgentToolResult<unknown>> {
+  await clearMcpOAuth(serverName, scope);
   return textResult(`OAuth credentials cleared for MCP server "${serverName}".`, { server: serverName, cleared: true });
 }
 
@@ -491,48 +495,50 @@ export function createMcpProxyTool(userId?: string): AgentTool {
     executionMode: 'sequential',
     execute: async (_toolCallId, params, signal) => {
       const p = params as McpProxyParams;
+      const scope = getMcpScope(userId);
       try {
         if (userId) {
+          const { assertUserOrganizationAdmin } = await import('@/app/lib/organization/permissions');
           await assertUserOrganizationAdmin(userId, 'Only organization admins can use MCP servers.');
         }
         switch (p.action) {
           case 'list_servers':
-            return await handleListServers();
+            return await handleListServers(scope);
           case 'status':
-            return await handleStatus(normalizeServerName(p.server) || undefined);
+            return await handleStatus(normalizeServerName(p.server) || undefined, scope);
           case 'list_tools': {
             const server = normalizeServerName(p.server);
             if (!server) throw new Error('list_tools requires server.');
-            return await handleListTools(server, signal);
+            return await handleListTools(server, signal, scope);
           }
           case 'search_tools':
-            return await handleSearchTools(p.query || '', normalizeServerName(p.server) || undefined, signal);
+            return await handleSearchTools(p.query || '', normalizeServerName(p.server) || undefined, signal, scope);
           case 'describe_tool': {
             const { server, tool } = resolveMcpTarget(p.server, p.tool);
             if (!server) throw new Error('describe_tool requires server, or use a fully-qualified tool like "Canva.generate-design".');
             if (!tool) throw new Error('describe_tool requires tool.');
-            return await handleDescribeTool(server, tool, signal);
+            return await handleDescribeTool(server, tool, signal, scope);
           }
           case 'call_tool': {
             const { server, tool } = resolveMcpTarget(p.server, p.tool);
             if (!server) throw new Error('call_tool requires server, or use a fully-qualified tool like "Canva.generate-design".');
             if (!tool) throw new Error('call_tool requires tool.');
-            return await handleCallTool(server, tool, buildCallArguments(p), signal);
+            return await handleCallTool(server, tool, buildCallArguments(p), signal, scope);
           }
           case 'auth_status': {
             const server = normalizeServerName(p.server);
             if (!server) throw new Error('auth_status requires server.');
-            return await handleAuthStatus(server);
+            return await handleAuthStatus(server, scope);
           }
           case 'auth_start': {
             const server = normalizeServerName(p.server);
             if (!server) throw new Error('auth_start requires server.');
-            return await handleAuthStart(server);
+            return await handleAuthStart(server, scope);
           }
           case 'auth_clear': {
             const server = normalizeServerName(p.server);
             if (!server) throw new Error('auth_clear requires server.');
-            return await handleAuthClear(server);
+            return await handleAuthClear(server, scope);
           }
           default:
             return errorResult(`Unsupported MCP action "${String((p as { action?: unknown }).action)}".`);
