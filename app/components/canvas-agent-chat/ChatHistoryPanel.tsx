@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, type Ref } from 'react';
 import {
   CheckCheck,
   ChevronLeft,
@@ -178,6 +178,7 @@ export type ChatHistoryPanelLabels = {
 export type ChatHistoryPanelProps = {
   variant: ChatHistoryPanelVariant;
   width?: number;
+  containerRef?: Ref<HTMLDivElement>;
   history: AISession[];
   filteredHistory: ChatHistoryGroups;
   historySearchQuery: string;
@@ -202,6 +203,7 @@ export type ChatHistoryPanelProps = {
 export function ChatHistoryPanel({
   variant,
   width,
+  containerRef,
   history,
   filteredHistory,
   historySearchQuery,
@@ -228,11 +230,13 @@ export function ChatHistoryPanel({
 
   return (
     <div
+      ref={containerRef}
+      id={isOverlay ? undefined : 'chat-history-panel'}
       className={cn(
         'flex flex-col overflow-hidden',
         isOverlay
           ? 'absolute inset-0 z-20 bg-background'
-          : 'flex-shrink-0 border-r border-border bg-card',
+          : 'flex-shrink-0 bg-card',
       )}
       style={!isOverlay && width ? { width: `${width}px` } : undefined}
     >

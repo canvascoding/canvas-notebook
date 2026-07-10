@@ -1,6 +1,8 @@
 'use client';
 
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+
+import { ResizeHandle, usePanelResize } from '@/app/components/layout/ResizeHandle';
 
 interface AppLayoutProps {
   sidebar: ReactNode;
@@ -8,6 +10,8 @@ interface AppLayoutProps {
   terminal: ReactNode;
   sidebarHidden?: boolean;
   terminalVisible?: boolean;
+  sidebarResizeLabel?: string;
+  terminalResizeLabel?: string;
 }
 
 const SIDEBAR_MIN = 220;
@@ -21,20 +25,16 @@ export function AppLayout({
   main, 
   terminal, 
   sidebarHidden = false,
-  terminalVisible = true 
+  terminalVisible = true,
+  sidebarResizeLabel = 'Resize sidebar',
+  terminalResizeLabel = 'Resize terminal',
 }: AppLayoutProps) {
   const [sidebarWidth, setSidebarWidth] = useState(288);
   const [terminalHeight, setTerminalHeight] = useState(260);
   const [terminalFullscreen, setTerminalFullscreen] = useState(false);
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const dragRef = useRef<{
-    type: 'sidebar' | 'terminal' | null;
-    pointerId: number | null;
-    startX: number;
-    startY: number;
-    startWidth: number;
-    startHeight: number;
-  } | null>(null);
+  const sidebarPanelRef = useRef<HTMLDivElement | null>(null);
+  const terminalPanelRef = useRef<HTMLDivElement | null>(null);
   const lastTerminalHeightRef = useRef<number>(terminalHeight);
 
   // This effect runs only once on the client to safely read from localStorage
@@ -106,47 +106,47 @@ export function AppLayout({
     return () => window.removeEventListener('resize', updateHeight);
   }, [terminalFullscreen]);
 
+  const applySidebarWidth = useCallback((nextWidth: number) => {
+    sidebarPanelRef.current?.style.setProperty('width', `${nextWidth}px`);
+  }, []);
+
+  const applyTerminalHeight = useCallback((nextHeight: number) => {
+    terminalPanelRef.current?.style.setProperty('height', `${nextHeight}px`);
+  }, []);
+
+  const getTerminalMaxHeight = useCallback(() => {
+    const containerHeight = containerRef.current?.getBoundingClientRect().height ?? window.innerHeight;
+    return Math.min(TERMINAL_MAX, Math.max(TERMINAL_MIN, containerHeight - 120));
+  }, []);
+
+  const sidebarResize = usePanelResize({
+    orientation: 'vertical',
+    value: sidebarWidth,
+    min: SIDEBAR_MIN,
+    max: SIDEBAR_MAX,
+    onResize: applySidebarWidth,
+    onResizeEnd: setSidebarWidth,
+  });
+
+  const terminalResize = usePanelResize({
+    orientation: 'horizontal',
+    direction: -1,
+    value: terminalHeight,
+    min: TERMINAL_COLLAPSED,
+    max: getTerminalMaxHeight,
+    onResize: applyTerminalHeight,
+    onResizeEnd: setTerminalHeight,
+  });
+
   useEffect(() => {
-    const handleMove = (event: MouseEvent | PointerEvent) => {
-      if (!dragRef.current || !containerRef.current) return;
-      if (terminalFullscreen && dragRef.current.type === 'terminal') return;
-      if ('pointerId' in event && dragRef.current.pointerId !== null && event.pointerId !== dragRef.current.pointerId) {
-        return;
-      }
-      const { type, startX, startY, startWidth, startHeight } = dragRef.current;
+    applySidebarWidth(sidebarWidth);
+  }, [applySidebarWidth, sidebarWidth]);
 
-      if (type === 'sidebar') {
-        const nextWidth = Math.min(
-          SIDEBAR_MAX,
-          Math.max(SIDEBAR_MIN, startWidth + (event.clientX - startX))
-        );
-        setSidebarWidth(nextWidth);
-      }
+  useEffect(() => {
+    applyTerminalHeight(terminalHeight);
+  }, [applyTerminalHeight, terminalHeight]);
 
-      if (type === 'terminal') {
-        const containerRect = containerRef.current.getBoundingClientRect();
-        const delta = event.clientY - startY;
-        const nextHeight = Math.min(
-          TERMINAL_MAX,
-          Math.max(TERMINAL_MIN, startHeight - delta)
-        );
-        const maxAllowed = containerRect.height - 120;
-        setTerminalHeight(Math.min(nextHeight, maxAllowed));
-      }
-    };
-
-    const handleUp = (event?: PointerEvent | Event) => {
-      if (event instanceof PointerEvent) {
-        const pointerId = dragRef.current?.pointerId;
-        if (pointerId !== null && pointerId !== undefined && event.pointerId !== pointerId) {
-          return;
-        }
-      }
-      dragRef.current = null;
-      document.body.style.userSelect = '';
-      document.body.style.cursor = '';
-    };
-
+  useEffect(() => {
     const handleResizeEvent = (event: Event) => {
       if (!(event instanceof CustomEvent) || !containerRef.current) return;
       const detail = event.detail as { action?: string; height?: number } | undefined;
@@ -200,54 +200,36 @@ export function AppLayout({
       }
     };
 
-    window.addEventListener('pointermove', handleMove);
-    window.addEventListener('pointerup', handleUp);
-    window.addEventListener('pointercancel', handleUp);
-    window.addEventListener('blur', handleUp);
     window.addEventListener('terminal-resize', handleResizeEvent as EventListener);
 
     return () => {
-      window.removeEventListener('pointermove', handleMove);
-      window.removeEventListener('pointerup', handleUp);
-      window.removeEventListener('pointercancel', handleUp);
-      window.removeEventListener('blur', handleUp);
       window.removeEventListener('terminal-resize', handleResizeEvent as EventListener);
-      document.body.style.userSelect = '';
-      document.body.style.cursor = '';
     };
-  }, [terminalFullscreen]);
+  }, []);
 
   return (
     <div ref={containerRef} className="flex h-full w-full flex-col overflow-hidden">
       <div className="flex min-h-0 flex-1">
         <div
+          ref={sidebarPanelRef}
+          id="app-layout-sidebar"
           style={{ width: sidebarWidth }}
           className={terminalFullscreen || sidebarHidden ? 'hidden' : 'shrink-0 min-h-0'}
         >
           {sidebar}
         </div>
-        <div
-          className={
-            terminalFullscreen || sidebarHidden
-              ? 'hidden'
-              : 'w-1 cursor-col-resize bg-border/70 hover:bg-border touch-none'
-          }
-          onPointerDown={(event) => {
-            if (event.button !== 0) return;
-            event.preventDefault();
-            event.currentTarget.setPointerCapture(event.pointerId);
-            document.body.style.userSelect = 'none';
-            document.body.style.cursor = 'col-resize';
-            dragRef.current = {
-              type: 'sidebar',
-              pointerId: event.pointerId,
-              startX: event.clientX,
-              startY: event.clientY,
-              startWidth: sidebarWidth,
-              startHeight: terminalHeight,
-            };
-          }}
-        />
+        {terminalFullscreen || sidebarHidden ? null : (
+          <ResizeHandle
+            orientation="vertical"
+            label={sidebarResizeLabel}
+            controls="app-layout-sidebar"
+            min={SIDEBAR_MIN}
+            max={SIDEBAR_MAX}
+            value={sidebarWidth}
+            resizing={sidebarResize.isResizing}
+            {...sidebarResize.handleProps}
+          />
+        )}
         <div className={terminalFullscreen ? 'hidden' : 'min-w-0 flex-1'}>{main}</div>
       </div>
       
@@ -260,26 +242,24 @@ export function AppLayout({
           }
         >
           {!terminalFullscreen && (
-            <div
-              className="h-2 cursor-row-resize bg-border/70 hover:bg-border touch-none"
-              onPointerDown={(event) => {
-                if (event.button !== 0) return;
-                event.preventDefault();
-                event.currentTarget.setPointerCapture(event.pointerId);
-                document.body.style.userSelect = 'none';
-                document.body.style.cursor = 'row-resize';
-                dragRef.current = {
-                  type: 'terminal',
-                  pointerId: event.pointerId,
-                  startX: event.clientX,
-                  startY: event.clientY,
-                  startWidth: sidebarWidth,
-                  startHeight: terminalHeight,
-                };
-              }}
+            <ResizeHandle
+              data-testid="terminal-resize-handle"
+              orientation="horizontal"
+              label={terminalResizeLabel}
+              controls="app-layout-terminal"
+              min={TERMINAL_COLLAPSED}
+              max={TERMINAL_MAX}
+              value={terminalHeight}
+              resizing={terminalResize.isResizing}
+              {...terminalResize.handleProps}
             />
           )}
-          <div style={{ height: terminalHeight }} className="min-h-0">
+          <div
+            ref={terminalPanelRef}
+            id="app-layout-terminal"
+            style={{ height: terminalHeight }}
+            className="min-h-0"
+          >
             {terminal}
           </div>
         </div>

@@ -9,7 +9,6 @@ import {
   type Dispatch,
   type MutableRefObject,
   type SetStateAction,
-  type MouseEvent as ReactMouseEvent,
 } from 'react';
 import { useTranslations } from 'next-intl';
 import type { ChatHistoryPanelLabels } from '@/app/components/canvas-agent-chat/ChatHistoryPanel';
@@ -44,6 +43,17 @@ type UseChatSessionHistoryParams = {
 };
 
 const CHAT_AGENT_ID = DEFAULT_AGENT_ID;
+export const CHAT_HISTORY_PANEL_MIN_WIDTH = 220;
+export const CHAT_HISTORY_PANEL_MAX_WIDTH = 400;
+const CHAT_HISTORY_PANEL_DEFAULT_WIDTH = 280;
+const CHAT_HISTORY_PANEL_WIDTH_STORAGE_KEY = 'canvas.chatHistoryPanelWidth';
+
+function getStoredHistorySidebarWidth() {
+  if (typeof window === 'undefined') return CHAT_HISTORY_PANEL_DEFAULT_WIDTH;
+  const storedWidth = Number(window.localStorage.getItem(CHAT_HISTORY_PANEL_WIDTH_STORAGE_KEY));
+  if (!Number.isFinite(storedWidth)) return CHAT_HISTORY_PANEL_DEFAULT_WIDTH;
+  return Math.min(CHAT_HISTORY_PANEL_MAX_WIDTH, Math.max(CHAT_HISTORY_PANEL_MIN_WIDTH, storedWidth));
+}
 
 function sortSessionsByRecentActivity(sessions: AISession[]): AISession[] {
   return [...sessions].sort((a, b) => {
@@ -84,14 +94,12 @@ export function useChatSessionHistory({
   const [historySearchQuery, setHistorySearchQuery] = useState('');
   const [historyUnreadOnly, setHistoryUnreadOnly] = useState(false);
   const [historyAgentFilter, setHistoryAgentFilter] = useState('all');
-  const [historySidebarWidth, setHistorySidebarWidth] = useState(280);
+  const [historySidebarWidth, setHistorySidebarWidth] = useState(getStoredHistorySidebarWidth);
   const [latestSession, setLatestSession] = useState<AISession | null>(null);
   const [totalUnreadCount, setTotalUnreadCount] = useState(0);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
 
   const historyRef = useRef<AISession[]>([]);
-  const historyResizeRef = useRef<{ startX: number; startWidth: number } | null>(null);
-  const isHistoryResizing = useRef(false);
   const sessionListRequestRef = useRef<Promise<AISession[]> | null>(null);
   const hasLoadedSessionListRef = useRef(false);
   const activeWorkspaceIdRef = useRef(activeWorkspaceId ?? null);
@@ -99,6 +107,10 @@ export function useChatSessionHistory({
   useEffect(() => {
     historyRef.current = history;
   }, [history]);
+
+  useEffect(() => {
+    window.localStorage.setItem(CHAT_HISTORY_PANEL_WIDTH_STORAGE_KEY, String(historySidebarWidth));
+  }, [historySidebarWidth]);
 
   const agentProfilesById = useMemo(() => new Map(availableAgents.map((agent) => [agent.agentId, agent])), [availableAgents]);
 
@@ -411,40 +423,6 @@ export function useChatSessionHistory({
     deleteSession: t('deleteSession'),
   }), [t]);
 
-  const startHistoryResizing = useCallback((event: ReactMouseEvent) => {
-    isHistoryResizing.current = true;
-    document.body.style.cursor = 'col-resize';
-    document.body.style.userSelect = 'none';
-    historyResizeRef.current = {
-      startX: event.clientX,
-      startWidth: historySidebarWidth,
-    };
-  }, [historySidebarWidth]);
-
-  useEffect(() => {
-    const handleMouseMove = (event: MouseEvent) => {
-      if (!isHistoryResizing.current || !historyResizeRef.current) return;
-      const nextWidth = Math.min(400, Math.max(220, historyResizeRef.current.startWidth + (event.clientX - historyResizeRef.current.startX)));
-      setHistorySidebarWidth(nextWidth);
-    };
-
-    const handleMouseUp = () => {
-      if (isHistoryResizing.current) {
-        isHistoryResizing.current = false;
-        historyResizeRef.current = null;
-        document.body.style.cursor = 'default';
-        document.body.style.userSelect = 'auto';
-      }
-    };
-
-    document.addEventListener('mousemove', handleMouseMove);
-    document.addEventListener('mouseup', handleMouseUp);
-    return () => {
-      document.removeEventListener('mousemove', handleMouseMove);
-      document.removeEventListener('mouseup', handleMouseUp);
-    };
-  }, []);
-
   return {
     addSessionToHistory,
     agentProfilesById,
@@ -470,10 +448,10 @@ export function useChatSessionHistory({
     setHistoryAgentFilter,
     setHistoryAndLatest,
     setHistorySearchQuery,
+    setHistorySidebarWidth,
     setHistoryUnreadOnly,
     setLatestSession,
     setTotalUnreadCount,
-    startHistoryResizing,
     totalUnreadCount,
   };
 }

@@ -11,6 +11,7 @@ import { ChatHeader } from '@/app/components/canvas-agent-chat/ChatHeader';
 import { ChatHistoryPanel, type ChatHistoryPanelProps } from '@/app/components/canvas-agent-chat/ChatHistoryPanel';
 import { ChatMessageList } from '@/app/components/canvas-agent-chat/ChatMessageList';
 import { ChatStarterScreen } from '@/app/components/canvas-agent-chat/ChatStarterScreen';
+import { ResizeHandle, usePanelResize } from '@/app/components/layout/ResizeHandle';
 import { useFileStore } from '@/app/store/file-store';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { usePathname as useLocalePathname } from '@/i18n/navigation';
@@ -60,7 +61,11 @@ import { useChatAttachments } from '@/app/components/canvas-agent-chat/useChatAt
 import { useChatControlActions } from '@/app/components/canvas-agent-chat/useChatControlActions';
 import { useChatComposerDraft } from '@/app/components/canvas-agent-chat/useChatComposerDraft';
 import { useChatRuntimeEvents } from '@/app/components/canvas-agent-chat/useChatRuntimeEvents';
-import { useChatSessionHistory } from '@/app/components/canvas-agent-chat/useChatSessionHistory';
+import {
+  CHAT_HISTORY_PANEL_MAX_WIDTH,
+  CHAT_HISTORY_PANEL_MIN_WIDTH,
+  useChatSessionHistory,
+} from '@/app/components/canvas-agent-chat/useChatSessionHistory';
 import { useChatSessionBootstrap } from '@/app/components/canvas-agent-chat/useChatSessionBootstrap';
 import { useChatSessionMessages } from '@/app/components/canvas-agent-chat/useChatSessionMessages';
 import { useComposerReferences } from '@/app/components/canvas-agent-chat/useComposerReferences';
@@ -299,6 +304,7 @@ export default function CanvasAgentChat({
   const subscribedSessionAckRef = useRef<string | null>(null);
   const subscribedSessionRequestRef = useRef<{ sessionId: string; promise: Promise<void> } | null>(null);
   const skipNextSessionStatusRefreshRef = useRef<string | null>(null);
+  const historyPanelRef = useRef<HTMLDivElement | null>(null);
   const {
     addSessionToHistory,
     agentProfilesById,
@@ -324,9 +330,9 @@ export default function CanvasAgentChat({
     setHistoryAgentFilter,
     setHistoryAndLatest,
     setHistorySearchQuery,
+    setHistorySidebarWidth,
     setHistoryUnreadOnly,
     setTotalUnreadCount,
-    startHistoryResizing,
     totalUnreadCount,
   } = useChatSessionHistory({
     activeWorkspaceId,
@@ -342,6 +348,20 @@ export default function CanvasAgentChat({
     surfaceVisibleRef,
     t,
   });
+  const applyHistoryPanelWidth = useCallback((nextWidth: number) => {
+    historyPanelRef.current?.style.setProperty('width', `${nextWidth}px`);
+  }, []);
+  const historyResize = usePanelResize({
+    orientation: 'vertical',
+    value: historySidebarWidth,
+    min: CHAT_HISTORY_PANEL_MIN_WIDTH,
+    max: CHAT_HISTORY_PANEL_MAX_WIDTH,
+    onResize: applyHistoryPanelWidth,
+    onResizeEnd: setHistorySidebarWidth,
+  });
+  useEffect(() => {
+    applyHistoryPanelWidth(historySidebarWidth);
+  }, [applyHistoryPanelWidth, historySidebarWidth]);
   const {
     appendCompactionBreak,
     appendOptimisticUserMessage,
@@ -1071,14 +1091,20 @@ export default function CanvasAgentChat({
             <ChatHistoryPanel
               variant="sidebar"
               width={historySidebarWidth}
+              containerRef={historyPanelRef}
               {...historyPanelProps}
             />
-            <div
-              className="flex w-1 cursor-col-resize items-center justify-center bg-border transition-all hover:w-1.5 hover:bg-primary/60"
-              onMouseDown={startHistoryResizing}
-            >
-              <div className="h-8 w-0.5 bg-muted-foreground/60" />
-            </div>
+            <ResizeHandle
+              data-testid="chat-history-resize-handle"
+              orientation="vertical"
+              label={t('resizeHistoryHandleLabel')}
+              controls="chat-history-panel"
+              min={CHAT_HISTORY_PANEL_MIN_WIDTH}
+              max={CHAT_HISTORY_PANEL_MAX_WIDTH}
+              value={historySidebarWidth}
+              resizing={historyResize.isResizing}
+              {...historyResize.handleProps}
+            />
           </>
         )}
 

@@ -1017,6 +1017,8 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
               sidebar={<div />}
               sidebarHidden={true}
               terminalVisible={terminalVisible}
+              sidebarResizeLabel={tNotebook('resizeFileTree')}
+              terminalResizeLabel={tNotebook('resizeTerminal')}
               main={
                 <div ref={desktopMainPanelRef} className="flex h-full w-full overflow-hidden relative">
                   <div id="onboarding-notebook-editor" className="flex-1 min-w-0 bg-background">
