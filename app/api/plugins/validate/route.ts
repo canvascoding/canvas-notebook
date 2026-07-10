@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { headers } from 'next/headers';
 
 import { auth } from '@/app/lib/auth';
+import { resolveLocalPluginSourcePath } from '@/app/lib/plugins/local-plugin-source';
 import { validateCanvasPluginPackage } from '@/app/lib/plugins/canvas-plugin-manifest';
 
 export async function POST(request: Request) {
@@ -19,7 +20,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const validation = await validateCanvasPluginPackage(body.sourcePath);
+    const validation = await validateCanvasPluginPackage(resolveLocalPluginSourcePath(body.sourcePath));
     return NextResponse.json({
       success: validation.valid,
       validation,

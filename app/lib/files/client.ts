@@ -213,9 +213,9 @@ export async function loadWorkspaceTree(
 
 export async function readWorkspaceFile(
   path: string,
-  options: { metaOnly?: boolean; noCache?: boolean; fallbackMessage?: string } = {}
+  options: { metaOnly?: boolean; noCache?: boolean; fallbackMessage?: string; workspaceId?: string | null } = {}
 ): Promise<CurrentFile> {
-  const { metaOnly = false, noCache = false, fallbackMessage = 'Failed to load file' } = options;
+  const { metaOnly = false, noCache = false, fallbackMessage = 'Failed to load file', workspaceId } = options;
   let url = `/api/files/read?path=${encodeURIComponent(path)}${metaOnly ? '&meta=1' : ''}`;
   if (noCache) {
     url += `&t=${Date.now()}`;
@@ -224,7 +224,7 @@ export async function readWorkspaceFile(
   const response = await fetch(url, {
     credentials: 'include',
     cache: 'no-store',
-    headers: workspaceHeaders(),
+    headers: workspaceHeaders(workspaceId),
   });
 
   if (!response.ok) {
@@ -238,11 +238,11 @@ export async function readWorkspaceFile(
 export async function writeWorkspaceFile(
   path: string,
   content: string,
-  options: { expectedSha256?: string | null; baseRevisionId?: string | null } = {}
+  options: { expectedSha256?: string | null; baseRevisionId?: string | null; workspaceId?: string | null } = {}
 ): Promise<WriteWorkspaceFileResult> {
   const response = await fetch('/api/files/write', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...workspaceHeaders() },
+    headers: { 'Content-Type': 'application/json', ...workspaceHeaders(options.workspaceId) },
     credentials: 'include',
     body: JSON.stringify({
       path,

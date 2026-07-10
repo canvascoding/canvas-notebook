@@ -556,7 +556,12 @@ function createColorSwatchWidget(colorCode: string) {
 
 function destroyColorSwatchWidget(node: Node) {
   if (!(node instanceof HTMLSpanElement)) return;
-  (node as ColorSwatchWidgetHost).colorSwatchRoot?.unmount();
+  const host = node as ColorSwatchWidgetHost;
+  const root = host.colorSwatchRoot;
+  if (!root) return;
+
+  host.colorSwatchRoot = undefined;
+  queueMicrotask(() => root.unmount());
 }
 
 const ColorSwatchDecorations = Extension.create({

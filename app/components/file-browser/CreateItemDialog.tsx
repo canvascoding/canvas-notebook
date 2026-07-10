@@ -37,7 +37,7 @@ function hasExcalidrawExtension(name: string): boolean {
 
 export function CreateItemDialog({ open, onOpenChange, type, defaultPath, onCreate }: CreateItemDialogProps) {
   const t = useTranslations('notebook');
-  const { fileTree } = useFileStore();
+  const fileTree = useFileStore((state) => state.fileTree);
   const [name, setName] = useState('');
   const [targetDir, setTargetDir] = useState(defaultPath);
   const [expandedDirs, setExpandedDirs] = useState(new Set<string>());

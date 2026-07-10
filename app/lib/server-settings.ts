@@ -8,10 +8,18 @@ import { DEFAULT_USER_TIME_ZONE, isValidTimeZone, normalizeTimeZone } from '@/ap
 
 const SERVER_SETTINGS_FILE = 'server-preferences.json';
 
+export const INSTANCE_ONBOARDING_STEPS = ['server', 'license', 'provider', 'workspace', 'review'] as const;
+export type InstanceOnboardingStep = typeof INSTANCE_ONBOARDING_STEPS[number];
+
 export type ServerSettings = {
   timeZone?: string;
   updatedAt?: string;
   updatedBy?: string;
+  onboardingStep?: InstanceOnboardingStep;
+  onboardingUpdatedAt?: string;
+  onboardingUpdatedBy?: string;
+  providerVerifiedAt?: string;
+  providerVerifiedBy?: string;
 };
 
 type ServerSettingsFile = {
@@ -38,14 +46,37 @@ function normalizeTimeZoneValue(value: unknown): string | null {
   return isValidTimeZone(value) ? value.trim() : null;
 }
 
+function normalizeInstanceOnboardingStep(value: unknown): InstanceOnboardingStep | null {
+  if (value === 'language') return 'server';
+  if (value === 'profile') return 'review';
+  return typeof value === 'string' && (INSTANCE_ONBOARDING_STEPS as readonly string[]).includes(value)
+    ? value as InstanceOnboardingStep
+    : null;
+}
+
 function normalizeServerSettings(value: unknown): ServerSettings {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
-  const record = value as { timeZone?: unknown; updatedAt?: unknown; updatedBy?: unknown };
+  const record = value as {
+    timeZone?: unknown;
+    updatedAt?: unknown;
+    updatedBy?: unknown;
+    onboardingStep?: unknown;
+    onboardingUpdatedAt?: unknown;
+    onboardingUpdatedBy?: unknown;
+    providerVerifiedAt?: unknown;
+    providerVerifiedBy?: unknown;
+  };
   const timeZone = normalizeTimeZoneValue(record.timeZone);
+  const onboardingStep = normalizeInstanceOnboardingStep(record.onboardingStep);
   return {
     ...(timeZone ? { timeZone } : {}),
     ...(typeof record.updatedAt === 'string' ? { updatedAt: record.updatedAt } : {}),
     ...(typeof record.updatedBy === 'string' ? { updatedBy: record.updatedBy } : {}),
+    ...(onboardingStep ? { onboardingStep } : {}),
+    ...(typeof record.onboardingUpdatedAt === 'string' ? { onboardingUpdatedAt: record.onboardingUpdatedAt } : {}),
+    ...(typeof record.onboardingUpdatedBy === 'string' ? { onboardingUpdatedBy: record.onboardingUpdatedBy } : {}),
+    ...(typeof record.providerVerifiedAt === 'string' ? { providerVerifiedAt: record.providerVerifiedAt } : {}),
+    ...(typeof record.providerVerifiedBy === 'string' ? { providerVerifiedBy: record.providerVerifiedBy } : {}),
   };
 }
 
@@ -114,6 +145,42 @@ export async function setServerPreferredTimeZone(
     timeZone: normalized,
     updatedAt: new Date().toISOString(),
     updatedBy: userId,
+  };
+  await writeServerSettingsFileAtomic({ version: 1, settings: nextSettings });
+  return nextSettings;
+}
+
+export async function getInstanceOnboardingStep(): Promise<InstanceOnboardingStep> {
+  const settings = await getServerSettings();
+  return settings.onboardingStep ?? 'server';
+}
+
+export async function setInstanceOnboardingStep(
+  userId: string,
+  step: InstanceOnboardingStep,
+): Promise<ServerSettings> {
+  if (!(INSTANCE_ONBOARDING_STEPS as readonly string[]).includes(step)) {
+    throw new Error('Unsupported onboarding step.');
+  }
+  const file = await readServerSettingsFile();
+  const now = new Date().toISOString();
+  const nextSettings: ServerSettings = {
+    ...file.settings,
+    onboardingStep: step,
+    onboardingUpdatedAt: now,
+    onboardingUpdatedBy: userId,
+  };
+  await writeServerSettingsFileAtomic({ version: 1, settings: nextSettings });
+  return nextSettings;
+}
+
+export async function markInstanceProviderVerified(userId: string): Promise<ServerSettings> {
+  const file = await readServerSettingsFile();
+  const now = new Date().toISOString();
+  const nextSettings: ServerSettings = {
+    ...file.settings,
+    providerVerifiedAt: now,
+    providerVerifiedBy: userId,
   };
   await writeServerSettingsFileAtomic({ version: 1, settings: nextSettings });
   return nextSettings;

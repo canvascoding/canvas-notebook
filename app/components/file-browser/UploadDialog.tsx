@@ -25,7 +25,8 @@ interface UploadDialogProps {
 
 export function UploadDialog({ open, onOpenChange, defaultPath, onUpload }: UploadDialogProps) {
   const t = useTranslations('notebook');
-  const { fileTree, uploadProgress } = useFileStore();
+  const fileTree = useFileStore((state) => state.fileTree);
+  const uploadProgress = useFileStore((state) => state.uploadProgress);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const folderInputRef = useRef<HTMLInputElement | null>(null);
   const [targetDir, setTargetDir] = useState(defaultPath);

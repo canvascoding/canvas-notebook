@@ -4,6 +4,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 
 import JSZip from 'jszip';
+import packageMetadata from '@/package.json';
 
 import {
   computeCanvasPluginChecksum,
@@ -17,6 +18,7 @@ import {
   isPathInside,
   isValidCanvasPluginName,
   isValidCanvasPluginVersion,
+  validateCanvasPluginPackage,
   type CanvasPluginComposioConnector,
   type CanvasPluginConnectorManifest,
   type CanvasPluginEmailConnector,
@@ -25,12 +27,20 @@ import {
 import { getGatewayStatus, getGatewayToolkits } from '@/app/lib/composio/composio-gateway';
 import { listEmailAccounts } from '@/app/lib/email/service';
 import { readMcpConfig } from '@/app/lib/mcp/config';
+import { getMcpOAuthStatus } from '@/app/lib/mcp/oauth';
 import { readPluginMcpTemplateFile } from '@/app/lib/plugins/plugin-mcp-template-service';
 import { readCanvasSkillRegistry, type CanvasSkillInstallRecord } from '@/app/lib/skills/canvas-skill-store';
 import { resolveReadableScopedSkillsDataDir } from '@/app/lib/runtime-data-paths';
 
 export const DEFAULT_CANVAS_PLUGIN_STORE_REGISTRY_URL =
   'https://raw.githubusercontent.com/canvascoding/canvas-notebook-plugin-marketplace/main/registry.json';
+
+const MAX_STORE_REGISTRY_BYTES = 5 * 1024 * 1024;
+const MAX_STORE_ARCHIVE_BYTES = 250 * 1024 * 1024;
+const MAX_STORE_ARCHIVE_FILES = 2_000;
+const MAX_STORE_EXTRACTED_BYTES = 250 * 1024 * 1024;
+const STORE_FETCH_TIMEOUT_MS = 20_000;
+const CANVAS_VERSION = packageMetadata.version;
 
 export interface CanvasPluginStorePublisher {
   name?: string;
@@ -464,30 +474,49 @@ function resolveRegistryRelativeUrl(registryUrl: string, value: string | undefin
 }
 
 function validateRegistryUrl(rawUrl: string): URL {
-  const url = rawUrl.startsWith('file://')
-    ? new URL(rawUrl)
-    : new URL(rawUrl);
-  if (!['https:', 'http:', 'file:'].includes(url.protocol)) {
-    throw new Error('Plugin store registry URL must use https, http, or file protocol.');
+  const url = new URL(rawUrl);
+  if (url.protocol === 'https:') return url;
+  if (process.env.NODE_ENV !== 'production' && ['http:', 'file:'].includes(url.protocol)) {
+    return url;
   }
-  return url;
+  throw new Error('Plugin store URLs must use HTTPS. HTTP and file URLs are only available outside production.');
 }
 
-async function readUrlBytes(rawUrl: string): Promise<Buffer> {
+async function readUrlBytes(rawUrl: string, maxBytes = MAX_STORE_ARCHIVE_BYTES): Promise<Buffer> {
   const url = validateRegistryUrl(rawUrl);
   if (url.protocol === 'file:') {
-    return fs.readFile(fileURLToPath(url));
+    const filePath = fileURLToPath(url);
+    const stat = await fs.stat(filePath);
+    if (stat.size > maxBytes) {
+      throw new Error(`Plugin store file exceeds the ${Math.floor(maxBytes / (1024 * 1024))} MB limit.`);
+    }
+    return fs.readFile(filePath);
   }
 
-  const response = await fetch(url, { cache: 'no-store' });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), STORE_FETCH_TIMEOUT_MS);
+  let response: Response;
+  try {
+    response = await fetch(url, { cache: 'no-store', signal: controller.signal });
+  } finally {
+    clearTimeout(timeout);
+  }
   if (!response.ok) {
     throw new Error(`Request failed with ${response.status} ${response.statusText}`);
   }
-  return Buffer.from(await response.arrayBuffer());
+  const contentLength = Number.parseInt(response.headers.get('content-length') || '', 10);
+  if (Number.isFinite(contentLength) && contentLength > maxBytes) {
+    throw new Error(`Plugin store response exceeds the ${Math.floor(maxBytes / (1024 * 1024))} MB limit.`);
+  }
+  const bytes = Buffer.from(await response.arrayBuffer());
+  if (bytes.byteLength > maxBytes) {
+    throw new Error(`Plugin store response exceeds the ${Math.floor(maxBytes / (1024 * 1024))} MB limit.`);
+  }
+  return bytes;
 }
 
 async function readJsonUrl(rawUrl: string): Promise<unknown> {
-  const bytes = await readUrlBytes(rawUrl);
+  const bytes = await readUrlBytes(rawUrl, MAX_STORE_REGISTRY_BYTES);
   return JSON.parse(bytes.toString('utf-8')) as unknown;
 }
 
@@ -524,8 +553,8 @@ function normalizeStorePlugin(value: unknown, registryUrl: string): CanvasPlugin
   const versions: Record<string, CanvasPluginStoreVersion> = {};
   for (const [versionKey, versionValue] of Object.entries(rawVersions)) {
     const version = normalizeStoreVersion(versionValue);
-    if (!version) continue;
-    versions[versionKey] = {
+    if (!version || versionKey !== version.version) continue;
+    versions[version.version] = {
       ...version,
       downloadUrl: resolveRegistryRelativeUrl(registryUrl, version.downloadUrl) || version.downloadUrl,
     };
@@ -705,6 +734,7 @@ async function extractPackageFromArchive(
   const zip = await JSZip.loadAsync(archiveBytes);
   const normalizedPackagePath = packagePath ? sanitizeArchivePath(packagePath) : '';
   let extractedCount = 0;
+  let extractedBytes = 0;
 
   for (const entry of Object.values(zip.files)) {
     if (entry.dir) continue;
@@ -733,9 +763,16 @@ async function extractPackageFromArchive(
     }
 
     const bytes = await entry.async('nodebuffer');
+    extractedCount += 1;
+    extractedBytes += bytes.byteLength;
+    if (extractedCount > MAX_STORE_ARCHIVE_FILES) {
+      throw new Error(`Plugin archive contains too many files. Maximum is ${MAX_STORE_ARCHIVE_FILES}.`);
+    }
+    if (extractedBytes > MAX_STORE_EXTRACTED_BYTES) {
+      throw new Error('Plugin archive expands beyond the 250 MB package limit.');
+    }
     await fs.mkdir(path.dirname(targetPath), { recursive: true });
     await fs.writeFile(targetPath, bytes);
-    extractedCount += 1;
   }
 
   if (extractedCount === 0) {
@@ -751,6 +788,31 @@ async function verifyPackageChecksum(packageRoot: string, expectedChecksum: stri
   const expected = normalizeChecksum(expectedChecksum);
   if (actual !== expected) {
     throw new Error(`Plugin checksum mismatch (${actual.slice(0, 12)}).`);
+  }
+}
+
+function assertStorePackageIdentity(
+  packageRoot: string,
+  expectedName: string,
+  expectedVersion: string,
+): Promise<void> {
+  return validateCanvasPluginPackage(packageRoot).then((validation) => {
+    if (!validation.valid || !validation.manifest) {
+      throw new Error(`Downloaded plugin package is invalid: ${validation.errors.join(' ')}`);
+    }
+    if (validation.manifest.name !== expectedName || validation.manifest.version !== expectedVersion) {
+      throw new Error(`Downloaded plugin package identity mismatch. Expected ${expectedName}@${expectedVersion}.`);
+    }
+  });
+}
+
+function assertMinimumCanvasVersion(minCanvasVersion: string | undefined): void {
+  if (!minCanvasVersion) return;
+  if (!isValidCanvasPluginVersion(minCanvasVersion)) {
+    throw new Error(`Plugin declares an invalid minimum Canvas version: ${minCanvasVersion}.`);
+  }
+  if (compareVersions(CANVAS_VERSION, minCanvasVersion) < 0) {
+    throw new Error(`Plugin requires Canvas ${minCanvasVersion} or later. This Canvas installation is ${CANVAS_VERSION}.`);
   }
 }
 
@@ -782,6 +844,16 @@ export async function installCanvasPluginFromStore(
   if (!storeVersion) {
     return { success: false, error: `Version ${selectedVersion} is not available for plugin "${pluginName}".`, storePlugin };
   }
+  try {
+    assertMinimumCanvasVersion(storeVersion.minCanvasVersion);
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Plugin is incompatible with this Canvas version.',
+      storePlugin,
+      storeVersion,
+    };
+  }
 
   let tempRoot: string | null = null;
   try {
@@ -789,6 +861,7 @@ export async function installCanvasPluginFromStore(
     const extracted = await extractPackageFromArchive(archiveBytes, storeVersion.packagePath);
     tempRoot = extracted.tempRoot;
     await verifyPackageChecksum(extracted.packageRoot, storeVersion.checksum);
+    await assertStorePackageIdentity(extracted.packageRoot, pluginName, selectedVersion);
 
     const installResult = await installCanvasPluginFromPath(extracted.packageRoot, {
       enable: options.enable,
@@ -864,10 +937,12 @@ export async function readCanvasPluginStoreMcpTemplate(
   const storeVersion = plugin.versions[selectedVersion];
   let tempRoot: string | null = null;
   try {
+    assertMinimumCanvasVersion(storeVersion.minCanvasVersion);
     const archiveBytes = await readUrlBytes(storeVersion.downloadUrl);
     const extracted = await extractPackageFromArchive(archiveBytes, storeVersion.packagePath);
     tempRoot = extracted.tempRoot;
     await verifyPackageChecksum(extracted.packageRoot, storeVersion.checksum);
+    await assertStorePackageIdentity(extracted.packageRoot, pluginName, selectedVersion);
     const templateFile = await readPluginMcpTemplateFile({
       rootDir: extracted.packageRoot,
       configPath: connector.configPath,
@@ -981,28 +1056,33 @@ export async function preflightCanvasPluginFromStore(
 
   const mcpConnectors = normalizeMcpConnectors(plugin.connectors);
   if (mcpConnectors.length > 0) {
-    const config = await readMcpConfig().catch(() => ({ mcpServers: {} }));
+    const config = await readMcpConfig(scope?.userId ? { userId: scope.userId } : undefined).catch(() => ({ mcpServers: {} }));
     const mcpServers = config.mcpServers as Record<string, { enabled?: boolean } | undefined>;
     for (const connector of mcpConnectors) {
       const server = mcpServers[connector.name];
       const configured = Boolean(server);
       const enabled = configured && server?.enabled !== false;
+      const oauth = connector.oauth && scope?.userId
+        ? await getMcpOAuthStatus(connector.name, undefined, { userId: scope.userId }).catch(() => null)
+        : null;
+      const authorized = connector.oauth ? Boolean(oauth?.authorized) : true;
+      const ready = configured && enabled && authorized;
       const details = [
         connector.configPath ? `Example config: ${connector.configPath}` : null,
         connector.env?.length ? `Env: ${connector.env.join(', ')}` : null,
-        connector.oauth ? 'OAuth may be required' : null,
+        connector.oauth ? (authorized ? 'OAuth authorized' : 'OAuth authorization required') : null,
       ].filter((detail): detail is string => Boolean(detail));
       items.push({
         type: 'mcp',
         key: connector.name,
         label: connector.label || connector.name,
         required: connector.required === true,
-        ready: configured && enabled,
+        ready,
         configured,
-        connected: enabled,
+        connected: ready,
         reason: connector.reason,
         details,
-        action: configured && enabled ? 'none' : 'configure-mcp',
+        action: ready ? 'none' : 'configure-mcp',
       });
     }
   }

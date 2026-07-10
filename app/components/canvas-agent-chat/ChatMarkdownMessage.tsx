@@ -5,24 +5,29 @@ import { Check, Copy, Folder } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
-import { useLocale, useTranslations } from 'next-intl';
-import { usePathname as useLocalePathname, useRouter, getPathname } from '@/i18n/navigation';
+import { useTranslations } from 'next-intl';
 import { MermaidDiagram } from '@/components/ui/mermaid-diagram';
 import { ColorSwatch, isColorCode } from '@/app/lib/markdown/color-swatch';
 import { rehypeInlineColorSwatch } from '@/app/lib/markdown/rehype-inline-color-swatch';
 import { isFilePath, normalizeChatFilePath } from '@/app/lib/chat/extract-file-paths';
-import { notifyChatFileReferenceOpened } from '@/app/lib/chat/file-reference-events';
 import { extractStudioImageMediaUrls } from '@/app/lib/chat/studio-image-markdown';
-import { validateFileReference, type FileReferenceValidationResult } from '@/app/lib/chat/validate-file-paths';
+import {
+  subscribeToFileReferenceValidationInvalidation,
+  validateFileReference,
+  type FileReferenceValidationResult,
+} from '@/app/lib/chat/validate-file-paths';
 import type { ChatMessage } from '@/app/lib/chat/types';
 import { getFileDisplayPath } from '@/app/lib/files/display-name';
 import { getFileIconComponent } from '@/app/lib/files/file-icons';
 import { toMediaUrl, toWorkspaceMediaUrl } from '@/app/lib/utils/media-url';
 import { useFileStore } from '@/app/store/file-store';
+import { useWorkspaceStore } from '@/app/store/workspace-store';
 import { SafeMarkdownImage } from '@/app/components/shared/SafeMarkdownImage';
 import { resolvePreviewSrcFromMediaUrl } from '@/app/lib/chat/attachment-preview';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import { useOpenChatFileReference } from '@/app/components/canvas-agent-chat/useOpenChatFileReference';
+import { LEGACY_PERSONAL_WORKSPACE_ID } from '@/app/lib/workspaces/constants';
 
 const CodeBlockContext = React.createContext(false);
 
@@ -50,7 +55,7 @@ function isStudioMediaPath(src: string): boolean {
   return STUDIO_MEDIA_PATH_PREFIXES.some((prefix) => normalized.startsWith(prefix));
 }
 
-function resolveMarkdownImageSrc(src: string): string {
+function resolveMarkdownImageSrc(src: string, workspaceId: string | null): string {
   const trimmed = src.trim();
   if (!trimmed) {
     return trimmed;
@@ -61,7 +66,7 @@ function resolveMarkdownImageSrc(src: string): string {
   }
 
   if (isFilePath(trimmed)) {
-    return toWorkspaceMediaUrl(normalizeChatFilePath(trimmed));
+    return toWorkspaceMediaUrl(normalizeChatFilePath(trimmed), { workspaceId });
   }
 
   if (isExternalOrApiMediaSrc(trimmed)) {
@@ -310,13 +315,25 @@ export function getRecentStudioImageMediaUrls(messages: ChatMessage[], messageIn
 }
 
 function FileLink({ href, children, showIcon = false }: { href: string; children: React.ReactNode; showIcon?: boolean }) {
-  const fileStore = useFileStore();
-  const fileTree = fileStore.fileTree;
-  const pathname = useLocalePathname();
-  const locale = useLocale();
-  const router = useRouter();
+  const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
+  const openFileReference = useOpenChatFileReference();
   const normalizedPath = React.useMemo(() => normalizeChatFilePath(href), [href]);
-  const [validation, setValidation] = React.useState<FileReferenceValidationResult | null>(null);
+  const [validationState, setValidationState] = React.useState<{
+    workspaceId: string | null;
+    result: FileReferenceValidationResult;
+  } | null>(null);
+  const [validationVersion, setValidationVersion] = React.useState(0);
+
+  React.useEffect(() => subscribeToFileReferenceValidationInvalidation((event) => {
+    if (event.workspaceId !== (activeWorkspaceId ?? LEGACY_PERSONAL_WORKSPACE_ID)) return;
+    if (
+      event.path &&
+      event.path !== normalizedPath &&
+      !event.path.startsWith(`${normalizedPath}/`) &&
+      !normalizedPath.startsWith(`${event.path}/`)
+    ) return;
+    setValidationVersion((version) => version + 1);
+  }), [activeWorkspaceId, normalizedPath]);
 
   React.useEffect(() => {
     if (!normalizedPath) {
@@ -324,39 +341,35 @@ function FileLink({ href, children, showIcon = false }: { href: string; children
     }
 
     let cancelled = false;
+    const { fileTree, fileTreeWorkspaceId } = useFileStore.getState();
 
-    validateFileReference(normalizedPath, fileTree).then((result) => {
+    validateFileReference(normalizedPath, fileTree, { fileTreeWorkspaceId }).then((result) => {
       if (!cancelled) {
-        setValidation(result);
+        setValidationState({ workspaceId: activeWorkspaceId, result });
       }
     });
 
     return () => {
       cancelled = true;
     };
-  }, [fileTree, normalizedPath]);
+  }, [activeWorkspaceId, normalizedPath, validationVersion]);
 
   const handleClick = (event: React.MouseEvent) => {
     event.preventDefault();
     event.stopPropagation();
 
+    const validation = validationState?.workspaceId === activeWorkspaceId
+      ? validationState.result
+      : null;
     if (!normalizedPath || validation?.path !== normalizedPath || validation.type !== 'file') return;
 
-    if (pathname.includes('/chat')) {
-      const notebookPath = getPathname({
-        locale,
-        href: { pathname: '/notebook', query: { path: normalizedPath } },
-      });
-      router.push(notebookPath);
-      return;
-    }
-
-    notifyChatFileReferenceOpened(normalizedPath);
-    void fileStore.revealAndLoadFile(normalizedPath);
+    void openFileReference(normalizedPath);
   };
 
   const displayChildren = getFileReferenceLabel(href, children);
-  const activeValidation = validation?.path === normalizedPath ? validation : null;
+  const activeValidation = validationState?.workspaceId === activeWorkspaceId && validationState.result.path === normalizedPath
+    ? validationState.result
+    : null;
   const isFile = activeValidation?.type === 'file';
   const isDirectory = activeValidation?.type === 'directory';
   const isMissing = !normalizedPath || activeValidation?.type === 'missing';
@@ -462,6 +475,7 @@ export const MarkdownMessage = React.memo(function MarkdownMessage({
   variant: 'user' | 'assistant' | 'tool';
   onMediaClick?: (mediaUrl: string) => void;
 }) {
+  const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
   const sharedClasses =
     'min-w-0 max-w-full break-words text-sm leading-relaxed [&_p]:my-0 [&_p+p]:mt-3 [&_ul]:my-3 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:my-3 [&_ol]:list-decimal [&_ol]:pl-5 [&_li]:mt-1 [&_blockquote]:my-3 [&_blockquote]:border-l-2 [&_blockquote]:pl-3 [&_hr]:my-4 [&_hr]:border-border/60 [&_pre]:my-3 [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:border [&_pre]:p-3 [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_code]:rounded-sm [&_code]:px-1.5 [&_code]:py-0.5 [&_a]:underline [&_a]:underline-offset-2 [&_strong]:font-semibold';
   const toneClasses =
@@ -543,7 +557,7 @@ export const MarkdownMessage = React.memo(function MarkdownMessage({
     ),
     img: ({ src, alt }: React.ImgHTMLAttributes<HTMLImageElement>) => {
       if (typeof src !== 'string' || !src) return null;
-      const resolvedSrc = resolveMarkdownImageSrc(src);
+      const resolvedSrc = resolveMarkdownImageSrc(src, activeWorkspaceId);
       const previewSrc = resolvePreviewSrcFromMediaUrl(resolvedSrc);
       const clickable = Boolean(onMediaClick);
       return (

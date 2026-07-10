@@ -63,12 +63,17 @@ fi
 # ─── Init log ─────────────────────────────────────────────────────────────
 mkdir -p /data/logs
 
+# Use the container default in production while allowing local starts and test
+# runners to explicitly point at their checked-out application root.
+export CANVAS_APP_ROOT="${CANVAS_APP_ROOT:-/app}"
+
 # Runtime logging configuration
 export LOG_FILE="${LOG_FILE:-/data/logs/runtime.log}"
 export LOG_TO_STDOUT="${LOG_TO_STDOUT:-true}"
 export LOG_LEVEL="${LOG_LEVEL:-info}"
+app_version="$(node -p "require('${CANVAS_APP_ROOT}/package.json').version" 2>/dev/null || printf 'unknown')"
 
-printf 'Canvas Notebook starting...\n\n'
+printf 'Canvas Notebook starting...\n  Version: %s\n\n' "$app_version"
 
 # Generate terminal auth token if not exists
 if [ -z "${CANVAS_TERMINAL_TOKEN:-}" ]; then
@@ -79,8 +84,7 @@ fi
 mkdir -p /tmp
 chmod 777 /tmp 2>/dev/null || true
 
-cd /app
-export CANVAS_APP_ROOT="${CANVAS_APP_ROOT:-/app}"
+cd "$CANVAS_APP_ROOT"
 
 NEXT_PID=""
 SCHEDULER_PID=""

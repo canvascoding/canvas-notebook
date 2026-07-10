@@ -74,8 +74,8 @@ export const PI_TOOLSETS: Record<PiToolset, PiToolsetInfo> = {
   },
   skills: {
     name: 'skills',
-    label: 'Skills',
-    description: 'Create, inspect, install, update, and discard personal Canvas skills.',
+    label: 'Plugins & Skills',
+    description: 'Create, inspect, install, update, activate, and remove personal Canvas plugins and skills.',
   },
   studio: {
     name: 'studio',
@@ -100,6 +100,12 @@ export const PI_TOOLSETS: Record<PiToolset, PiToolsetInfo> = {
 };
 
 export const SKILL_TOOL_NAMES = [
+  'create_canvas_plugin_draft',
+  'inspect_canvas_plugin',
+  'install_canvas_plugin_from_workspace',
+  'remove_canvas_plugin',
+  'set_canvas_plugin_enabled',
+  'update_canvas_plugin_from_workspace',
   'create_canvas_skill_draft',
   'discard_canvas_skill_draft',
   'inspect_canvas_skill',
@@ -110,6 +116,7 @@ export const SKILL_TOOL_NAMES = [
 const TOOLSET_TOOL_NAMES: Record<PiToolset, Set<string>> = {
   audio: new Set(['transcribe_audio']),
   automation: new Set([
+    'automation_manage',
     'create_automation_job',
     'delete_automation_job',
     'inspect_automation_job',
@@ -118,9 +125,10 @@ const TOOLSET_TOOL_NAMES: Record<PiToolset, Set<string>> = {
     'update_automation_job',
   ]),
   browser: new Set(['browser']),
-  composio: new Set(['composio_execute']),
+  composio: new Set(['composio', 'composio_execute']),
   delegation: new Set(['delegate_task']),
   email: new Set([
+    'email',
     'email_create_draft',
     'email_list_accounts',
     'email_read',
@@ -132,8 +140,9 @@ const TOOLSET_TOOL_NAMES: Record<PiToolset, Set<string>> = {
   memory: new Set(['memory']),
   mcp: new Set(['mcp']),
   session_search: new Set(['session_search']),
-  skills: new Set(SKILL_TOOL_NAMES),
+  skills: new Set([...SKILL_TOOL_NAMES, 'canvas_extensions']),
   studio: new Set([
+    'studio',
     'studio_bulk_generate',
     'studio_generate_image',
     'studio_generate_sound',

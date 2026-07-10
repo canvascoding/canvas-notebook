@@ -16,6 +16,7 @@ import {
   syncPublicSharesAfterMove,
   syncPublicSharesAfterWrite,
 } from '@/app/lib/public-sharing/public-file-shares';
+import { publishWorkspaceFileMutation, type FileEventType } from '@/app/lib/filesystem/file-watcher';
 import { getRunawaySlashContentMessage } from '@/app/lib/editor/text-editor-guards';
 import { getAgentExecutionContext, type AgentExecutionContext } from '@/app/lib/pi/agent-execution-context';
 import { ensureAgentRuntimeTempDir, resolveAgentRuntimeTempDir } from '@/app/lib/pi/agent-runtime-temp';
@@ -447,6 +448,16 @@ function getAgentWorkspaceContext(): WorkspaceContext | null {
     },
     legacy: executionContext.legacy,
   };
+}
+
+function publishAgentWorkspaceMutation(fullPath: string, type: FileEventType): void {
+  const workspace = getAgentWorkspaceContext();
+  if (!workspace) return;
+
+  const relativePath = relativePathWithin(fullPath, workspace.rootPath);
+  if (!relativePath) return;
+
+  publishWorkspaceFileMutation({ workspace, type, relativePath });
 }
 
 function assertAgentSharedWorkspaceRevision(params: {
@@ -1090,6 +1101,7 @@ async function commitTextChange(params: {
     diff: createUnifiedDiff(beforeContent, readBackText, `${params.inputPath} (before)`, `${params.inputPath} (after)`),
     validation,
   };
+  publishAgentWorkspaceMutation(params.fullPath, params.beforeExisted ? 'change' : 'add');
   await recordAgentFileChangeAudit(result, params.operation);
   return result;
 }
@@ -1288,6 +1300,7 @@ export async function restoreAgentFileSnapshot(params: { snapshotId: string }): 
         : '(file removed; textual diff unavailable)',
       validation: { ok: true, checks: [{ name: 'restore', ok: true, message: 'Restored snapshot by removing file that did not exist before the original edit.' }] },
     };
+    publishAgentWorkspaceMutation(fullPath, 'unlink');
     await recordAgentFileChangeAudit(result, 'restore_file_snapshot');
     return result;
   }
@@ -1317,6 +1330,7 @@ export async function restoreAgentFileSnapshot(params: { snapshotId: string }): 
       : '(binary file restored; textual diff unavailable)',
     validation: validateAgentFileContent(snapshot.path, readBack.toString('utf8')),
   };
+  publishAgentWorkspaceMutation(fullPath, 'change');
   await recordAgentFileChangeAudit(result, 'restore_file_snapshot');
   return result;
 }
@@ -1566,6 +1580,14 @@ export async function copyAgentPaths(params: {
     });
   }
   await syncPublicSharesAfterWrite(entries.map((entry) => entry.destinationResolvedPath).filter((value): value is string => Boolean(value)));
+  for (const entry of entries) {
+    if (entry.destinationResolvedPath) {
+      publishAgentWorkspaceMutation(
+        entry.destinationResolvedPath,
+        entry.overwritten ? 'change' : entry.type === 'directory' ? 'addDir' : 'add',
+      );
+    }
+  }
 
   const result = pathOperationSummary('copy_path', entries, params.destinationPath, destinationFullPath);
   await recordAgentPathOperationAudit(result);
@@ -1656,6 +1678,11 @@ export async function moveAgentPaths(params: {
   for (const entry of entries) {
     if (entry.destinationResolvedPath) {
       await syncPublicSharesAfterMove(entry.sourceResolvedPath, entry.destinationResolvedPath);
+      publishAgentWorkspaceMutation(entry.sourceResolvedPath, entry.type === 'directory' ? 'unlinkDir' : 'unlink');
+      publishAgentWorkspaceMutation(
+        entry.destinationResolvedPath,
+        entry.overwritten ? 'change' : entry.type === 'directory' ? 'addDir' : 'add',
+      );
     }
   }
 
@@ -1735,6 +1762,9 @@ export async function deleteAgentPaths(params: {
     });
   }
   await syncPublicSharesAfterDelete(deletableEntries.map((entry) => entry.sourceResolvedPath));
+  for (const entry of deletableEntries) {
+    publishAgentWorkspaceMutation(entry.sourceResolvedPath, entry.type === 'directory' ? 'unlinkDir' : 'unlink');
+  }
 
   const result = pathOperationSummary('delete_path', entries);
   await recordAgentPathOperationAudit(result);

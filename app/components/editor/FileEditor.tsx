@@ -26,6 +26,7 @@ import { ImageViewer } from './ImageViewer';
 import { PdfViewer } from './PdfViewer';
 import { MediaViewer } from './MediaViewer';
 import dynamic from 'next/dynamic';
+import { useShallow } from 'zustand/react/shallow';
 
 const OfficeEditor = dynamic(() => import('./OfficeEditor').then(mod => mod.OfficeEditor), {
   ssr: false,
@@ -411,7 +412,20 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
     refreshCurrentFileContent,
     fileTree,
     currentDirectory,
-  } = useFileStore();
+  } = useFileStore(useShallow((state) => ({
+    currentFile: state.currentFile,
+    isLoadingFile: state.isLoadingFile,
+    loadingFilePath: state.loadingFilePath,
+    fileError: state.fileError,
+    fileErrorPath: state.fileErrorPath,
+    saveFile: state.saveFile,
+    downloadFile: state.downloadFile,
+    loadFile: state.loadFile,
+    revealAndLoadFile: state.revealAndLoadFile,
+    refreshCurrentFileContent: state.refreshCurrentFileContent,
+    fileTree: state.fileTree,
+    currentDirectory: state.currentDirectory,
+  })));
   const {
     activePath,
     draft,
@@ -606,6 +620,9 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
     ? htmlViewPreference.mode
     : 'preview';
   const displayFileError = fileError && (!currentFile || !fileErrorPath || fileErrorPath === currentFile.path)
+    ? fileError
+    : null;
+  const backgroundFileError = fileError && currentFile && fileErrorPath && fileErrorPath !== currentFile.path
     ? fileError
     : null;
 
@@ -983,8 +1000,29 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
     };
   }, [currentFile?.path, isExcalidraw, refreshCurrentFileContent]);
 
-  if (isLoadingFile) {
-    const pendingPath = loadingFilePath ?? currentFile?.path ?? null;
+  useEffect(() => {
+    if (!currentFile?.path || !isText || isExcalidraw) return;
+
+    const watchedFilePath = currentFile.path;
+    const revalidateCleanFile = () => {
+      if (document.visibilityState !== 'visible') return;
+      const editorState = useEditorStore.getState();
+      if (editorState.activePath !== watchedFilePath || editorState.isDirty) return;
+      void refreshCurrentFileContent(watchedFilePath);
+    };
+
+    const handleVisibilityChange = () => revalidateCleanFile();
+    window.addEventListener('focus', revalidateCleanFile);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      window.removeEventListener('focus', revalidateCleanFile);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [currentFile?.path, isExcalidraw, isText, refreshCurrentFileContent]);
+
+  if (isLoadingFile && !currentFile) {
+    const pendingPath = loadingFilePath ?? null;
     if (shouldShowImageLoadingSkeleton(pendingPath)) {
       return <ImageLoadingSkeleton path={pendingPath} />;
     }
@@ -1020,7 +1058,21 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
 
   return (
     <>
-    <div className="flex h-full min-h-0 flex-col overflow-hidden">
+    <div className="relative flex h-full min-h-0 flex-col overflow-hidden">
+      {isLoadingFile && loadingFilePath !== currentFile.path ? (
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-background/55 backdrop-blur-[1px]">
+          <div className="flex items-center gap-2 rounded-md border border-border bg-background px-3 py-2 text-sm text-muted-foreground shadow-sm">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            <span>{loadingFilePath}</span>
+          </div>
+        </div>
+      ) : null}
+      {backgroundFileError ? (
+        <div className="absolute left-1/2 top-12 z-40 flex max-w-[min(90%,36rem)] -translate-x-1/2 items-start gap-2 rounded-md border border-destructive/40 bg-background px-3 py-2 text-sm text-destructive shadow-md">
+          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+          <span>{backgroundFileError}</span>
+        </div>
+      ) : null}
       <TooltipProvider delayDuration={150}>
         <div className="grid h-10 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 overflow-hidden border-b border-border px-3 py-2 text-sm text-muted-foreground sm:px-4">
           <div className="flex min-w-0 items-center gap-1.5 overflow-hidden text-xs text-muted-foreground sm:gap-2">

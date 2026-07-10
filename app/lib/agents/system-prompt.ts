@@ -56,13 +56,12 @@ const COMPOSIO_SYSTEM_PROMPT = `## Composio — External App Gateway
 
 Composio can expose many external app actions, so the full action catalog is not preloaded into the prompt. Assigned or mentioned Composio toolkits are priorities, not direct tool names.
 
-Use the Composio gateway tools:
-1. \`COMPOSIO_SEARCH_TOOLS\` with a natural-language query, optionally filtered to relevant toolkit slugs
-2. \`COMPOSIO_GET_TOOL_SCHEMAS\` for exact parameter schemas of selected action slugs
-3. \`composio_execute\` with the selected action slug and schema-matching params
-4. \`COMPOSIO_MANAGE_CONNECTIONS\` to check, connect, or disconnect app accounts when needed
+Use the \`composio\` gateway:
+1. \`search\` to discover permitted Composio operations
+2. \`describe\` to load the exact schema of the selected operation
+3. \`call\` with matching arguments to search external tools, retrieve their schemas, execute an external action, or manage a connection
 
-If \`composio_execute\` returns \`auth_required\`, tell the user to connect the app in Settings -> Integrations -> Connected Apps or use the returned redirect URL. If you are unsure which action exists, search first instead of guessing.`;
+If the Composio execution operation returns \`auth_required\`, tell the user to connect the app in Settings -> Integrations -> Connected Apps or use the returned redirect URL. If you are unsure which action exists, search first instead of guessing.`;
 
 const BROWSER_SYSTEM_PROMPT = `## Browser Gateway
 
@@ -129,6 +128,7 @@ function buildReadFailedFallbackSystemPrompt(): ManagedSystemPromptResult {
       loadedFiles: [],
       includedFiles: [],
       emptyFiles: [],
+      truncatedFiles: [],
       usedFallback: true,
       fallbackReason: 'read-failed',
     },
@@ -198,7 +198,7 @@ function buildPrioritizedConnectionsContext(relevantConnections?: string[] | nul
     blocks.push(
       '',
       '### Composio toolkits',
-      ...composioConnections.map((toolkit) => `- ${toolkit}: prefer \`COMPOSIO_SEARCH_TOOLS\` with toolkit filter \`${toolkit}\`, then \`COMPOSIO_GET_TOOL_SCHEMAS\`, then \`composio_execute\`.`),
+      ...composioConnections.map((toolkit) => `- ${toolkit}: use the \`composio\` gateway with search, describe, then call.`),
     );
   }
 
@@ -218,7 +218,7 @@ function isComposioGatewayEnabled(enabledTools?: string[] | null): boolean {
     return true;
   }
   const normalized = normalizeEnabledToolsConfig(enabledTools);
-  return normalized.some((toolName) => toolName === 'composio_execute' || toolName.startsWith('COMPOSIO_'));
+  return normalized.some((toolName) => toolName === 'composio' || toolName === 'composio_execute' || toolName.startsWith('COMPOSIO_'));
 }
 
 function isBrowserGatewayEnabled(enabledTools?: string[] | null): boolean {
@@ -233,6 +233,9 @@ function formatEnabledToolLine(tool: PiToolMetadata): string {
 }
 
 function formatConnectorToolHint(tool: PiToolMetadata): string | null {
+  if (tool.gateway) {
+    return `- ${tool.gateway.label}: use \`${tool.gateway.name}\` with \`search\`, then \`describe\`, then \`call\`. Only operations enabled for this agent are available.`;
+  }
   if (tool.group === 'MCP' || tool.name === 'mcp' || tool.name.startsWith('mcp_')) {
     if (tool.name === 'mcp') {
       return '- MCP gateway: use `mcp` with `search_tools` when the exact external tool is unclear, `describe_tool` for schemas, and `call_tool` for execution.';
@@ -267,6 +270,12 @@ function formatConnectorToolHint(tool: PiToolMetadata): string | null {
   return null;
 }
 
+function formatProgressiveGatewayLine(gatewayName: string, tools: PiToolMetadata[]): string {
+  const label = tools[0]?.gateway?.label || gatewayName;
+  const operationNames = tools.map((tool) => tool.name).join(', ');
+  return `- \`${gatewayName}\` (${label}) [on-demand]: permitted operations: ${operationNames}. Use search, describe, then call; individual schemas are loaded only when needed.`;
+}
+
 async function buildSpecializedAgentToolsContext(params: {
   normalizedAgentId: string;
   enabledTools: string[];
@@ -292,7 +301,19 @@ async function buildSpecializedAgentToolsContext(params: {
     ].join('\n');
   }
 
-  const connectorHints = enabledTools
+  const directTools = enabledTools.filter((tool) => !tool.gateway);
+  const gatewayTools = new Map<string, PiToolMetadata[]>();
+  for (const tool of enabledTools) {
+    if (!tool.gateway) continue;
+    const existing = gatewayTools.get(tool.gateway.name) || [];
+    existing.push(tool);
+    gatewayTools.set(tool.gateway.name, existing);
+  }
+
+  const connectorHints = [
+    ...directTools,
+    ...Array.from(gatewayTools.values(), ([gatewayTool]) => gatewayTool),
+  ]
     .map(formatConnectorToolHint)
     .filter((hint): hint is string => Boolean(hint));
 
@@ -301,7 +322,8 @@ async function buildSpecializedAgentToolsContext(params: {
     '',
     'This specialized agent has an explicit tool override. The following runtime tools are enabled for this agent:',
     '',
-    ...enabledTools.map(formatEnabledToolLine),
+    ...directTools.map(formatEnabledToolLine),
+    ...Array.from(gatewayTools.entries(), ([gatewayName, gatewayOperations]) => formatProgressiveGatewayLine(gatewayName, gatewayOperations)),
   ];
 
   if (connectorHints.length > 0) {
@@ -409,8 +431,8 @@ export async function loadManagedAgentSystemPrompt(
       if (isBrowserGatewayEnabled(enabledTools) && isBrowserRuntimeAvailable()) {
         systemPrompt += '\n\n' + BROWSER_SYSTEM_PROMPT;
       }
-    } catch {
-      // If we can't check composio config, don't add the prompt section
+    } catch (error) {
+      console.warn('[system-prompt] Failed to add optional connection guidance:', error);
     }
     
     return { ...result, systemPrompt };

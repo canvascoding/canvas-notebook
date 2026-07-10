@@ -1,10 +1,12 @@
+import { resolveScopedMcpDir, type McpScope } from '@/app/lib/mcp/scope';
 import {
-  readSettingsTextFileIfExists,
-  resolveSettingsStoragePath,
-  writeSettingsTextFileAtomic,
-} from '@/app/lib/settings-storage';
+  readMcpTextFileIfExists,
+  resolveMcpStoragePath,
+  writeMcpTextFileAtomic,
+} from '@/app/lib/mcp/storage';
 
 export const MCP_CONFIG_FILE = 'mcp.json';
+export const USER_MCP_CONFIG_FILE = 'config.json';
 export const DEFAULT_MCP_CONFIG = {
   settings: {
     toolPrefix: 'server',
@@ -58,8 +60,12 @@ export function isMcpServerEnabled(config: McpServerConfig): boolean {
   return config.enabled !== false;
 }
 
-export function resolveMcpConfigPath(): string {
-  return resolveSettingsStoragePath(MCP_CONFIG_FILE);
+function getMcpConfigFile(scope?: McpScope | null): string {
+  return resolveScopedMcpDir(scope) ? USER_MCP_CONFIG_FILE : MCP_CONFIG_FILE;
+}
+
+export function resolveMcpConfigPath(scope?: McpScope | null): string {
+  return resolveMcpStoragePath(getMcpConfigFile(scope), scope);
 }
 
 function formatDefaultConfig(): string {
@@ -68,6 +74,18 @@ function formatDefaultConfig(): string {
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
+}
+
+function isValidEnvKey(value: unknown): value is string {
+  return typeof value === 'string' && /^[A-Za-z_][A-Za-z0-9_]*$/u.test(value);
+}
+
+function isSecretLikeKey(value: string): boolean {
+  return /(authorization|token|secret|password|api[_-]?key|credential)/iu.test(value);
+}
+
+function isEnvReference(value: unknown): boolean {
+  return typeof value === 'string' && /^\$\{[A-Za-z_][A-Za-z0-9_]*\}$/u.test(value);
 }
 
 export function parseAndValidateMcpConfig(rawContent: string): McpConfig {
@@ -116,24 +134,52 @@ export function parseAndValidateMcpConfig(rawContent: string): McpConfig {
     if ('auth' in serverConfig && serverConfig.auth !== 'oauth' && serverConfig.auth !== 'none') {
       throw new McpConfigValidationError(`MCP server "${serverName}" field "auth" must be "oauth" or "none".`);
     }
+    if (serverConfig.envPassthrough !== undefined && (!Array.isArray(serverConfig.envPassthrough) || !serverConfig.envPassthrough.every(isValidEnvKey))) {
+      throw new McpConfigValidationError(`MCP server "${serverName}" field "envPassthrough" must contain environment variable names only.`);
+    }
+    if (serverConfig.bearerTokenEnv !== undefined && !isValidEnvKey(serverConfig.bearerTokenEnv)) {
+      throw new McpConfigValidationError(`MCP server "${serverName}" field "bearerTokenEnv" must be an environment variable name.`);
+    }
+    for (const field of ['env', 'headers', 'headersFromEnv'] as const) {
+      const values = serverConfig[field];
+      if (values === undefined) continue;
+      if (!isPlainObject(values)) {
+        throw new McpConfigValidationError(`MCP server "${serverName}" field "${field}" must be an object.`);
+      }
+      for (const [key, value] of Object.entries(values)) {
+        if (typeof value !== 'string') {
+          throw new McpConfigValidationError(`MCP server "${serverName}" field "${field}.${key}" must be a string.`);
+        }
+        if (field === 'headersFromEnv' && !isValidEnvKey(value)) {
+          throw new McpConfigValidationError(`MCP server "${serverName}" field "headersFromEnv.${key}" must reference an environment variable name.`);
+        }
+        if (field !== 'headersFromEnv' && isSecretLikeKey(key) && !isEnvReference(value)) {
+          throw new McpConfigValidationError(`MCP server "${serverName}" must reference secret header or environment values via \${ENV_VAR}.`);
+        }
+      }
+    }
+    if (isPlainObject(serverConfig.oauth) && 'clientSecret' in serverConfig.oauth) {
+      throw new McpConfigValidationError(`MCP server "${serverName}" must not store oauth.clientSecret in MCP config.`);
+    }
   }
 
   return parsed as McpConfig;
 }
 
-export async function ensureMcpConfigExists(): Promise<{ filePath: string; created: boolean }> {
-  const existing = await readSettingsTextFileIfExists(MCP_CONFIG_FILE);
+export async function ensureMcpConfigExists(scope?: McpScope | null): Promise<{ filePath: string; created: boolean }> {
+  const configFile = getMcpConfigFile(scope);
+  const existing = await readMcpTextFileIfExists(configFile, scope);
   if (existing.content !== null) {
     return { filePath: existing.filePath, created: false };
   }
 
-  const filePath = await writeSettingsTextFileAtomic(MCP_CONFIG_FILE, formatDefaultConfig());
+  const filePath = await writeMcpTextFileAtomic(configFile, formatDefaultConfig(), scope);
   return { filePath, created: true };
 }
 
-export async function readMcpConfigState(): Promise<McpConfigState> {
-  const { created } = await ensureMcpConfigExists();
-  const state = await readSettingsTextFileIfExists(MCP_CONFIG_FILE);
+export async function readMcpConfigState(scope?: McpScope | null): Promise<McpConfigState> {
+  const { created } = await ensureMcpConfigExists(scope);
+  const state = await readMcpTextFileIfExists(getMcpConfigFile(scope), scope);
 
   return {
     path: state.filePath,
@@ -142,21 +188,21 @@ export async function readMcpConfigState(): Promise<McpConfigState> {
   };
 }
 
-export async function readMcpConfig(): Promise<McpConfig> {
-  const state = await readMcpConfigState();
+export async function readMcpConfig(scope?: McpScope | null): Promise<McpConfig> {
+  const state = await readMcpConfigState(scope);
   return parseAndValidateMcpConfig(state.rawContent);
 }
 
-export async function writeMcpConfigRaw(rawContent: string): Promise<McpConfigState> {
+export async function writeMcpConfigRaw(rawContent: string, scope?: McpScope | null): Promise<McpConfigState> {
   parseAndValidateMcpConfig(rawContent);
 
-  await writeSettingsTextFileAtomic(MCP_CONFIG_FILE, rawContent);
+  await writeMcpTextFileAtomic(getMcpConfigFile(scope), rawContent, scope);
 
-  return readMcpConfigState();
+  return readMcpConfigState(scope);
 }
 
-export async function setMcpServerEnabled(serverName: string, enabled: boolean): Promise<McpConfigState> {
-  const state = await readMcpConfigState();
+export async function setMcpServerEnabled(serverName: string, enabled: boolean, scope?: McpScope | null): Promise<McpConfigState> {
+  const state = await readMcpConfigState(scope);
   const config = parseAndValidateMcpConfig(state.rawContent);
   const serverConfig = config.mcpServers[serverName];
   if (!serverConfig) {
@@ -168,5 +214,5 @@ export async function setMcpServerEnabled(serverName: string, enabled: boolean):
     enabled,
   };
 
-  return writeMcpConfigRaw(JSON.stringify(config, null, 2));
+  return writeMcpConfigRaw(JSON.stringify(config, null, 2), scope);
 }

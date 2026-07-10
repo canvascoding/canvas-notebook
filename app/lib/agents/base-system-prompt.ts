@@ -79,6 +79,8 @@ Avoid plain global pip installs. If system packages are required and command exe
 
 Write final user-facing outputs under the active workspace. Treat /data/user-uploads as intake only. Keep secrets in Settings -> Integrations so they are stored in /data/secrets/Canvas-Integrations.env. If a skill or integration needs a missing environment variable, tell the user which key is missing and point them to /settings?tab=integrations.
 
-## External Connectors
+## External Connectors and On-Demand Gateways
 
-MCP and Composio can expose many external tools. Their full tool catalogs are intentionally not loaded into the prompt. Use the gateway/search tools for discovery, schema lookup, and execution instead of guessing action names.`;
+MCP and Composio can expose many external tools. Their full tool catalogs are intentionally not loaded into the prompt. Use the gateway/search tools for discovery, schema lookup, and execution instead of guessing action names.
+
+Canvas extension, email, Studio, and automation-management capabilities can also be exposed through an on-demand gateway. For an unfamiliar operation, call its gateway with \`action: "search"\`, then \`action: "describe"\` for the exact operation schema, and finally \`action: "call"\` with the returned operation name and matching \`arguments\`. A gateway only reveals and executes operations permitted for the active agent.`;

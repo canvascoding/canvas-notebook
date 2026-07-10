@@ -1,8 +1,19 @@
 import assert from 'node:assert/strict';
 import { extractFilePaths, normalizeChatFilePath } from '../app/lib/chat/extract-file-paths';
-import { validateFileExists, validateFileReference } from '../app/lib/chat/validate-file-paths';
+import {
+  createNotebookFileReferenceRequest,
+  NOTEBOOK_FILE_REFERENCE_MESSAGE_TYPE,
+  parseNotebookFileReferenceRequest,
+} from '../app/lib/chat/notebook-file-reference-bridge';
+import {
+  invalidateFileReferenceValidationCache,
+  validateFileExists,
+  validateFileReference,
+} from '../app/lib/chat/validate-file-paths';
 import { getFileDisplayName, getFileDisplayPath } from '../app/lib/files/display-name';
 import { useFileStore } from '../app/store/file-store';
+import { useWorkspaceStore } from '../app/store/workspace-store';
+import { LEGACY_PERSONAL_WORKSPACE_ID } from '../app/lib/workspaces/constants';
 import type { FileNode } from '../app/store/file-store';
 
 const fileTree: FileNode[] = [
@@ -20,13 +31,15 @@ const fileTree: FileNode[] = [
   },
 ];
 
-const fetchCalls: string[] = [];
+const fetchCalls: Array<{ url: string; workspaceHeader: string | null }> = [];
 const originalFetch = globalThis.fetch;
 
 async function main() {
-  globalThis.fetch = (async (input: RequestInfo | URL) => {
+  useWorkspaceStore.setState({ activeWorkspaceId: 'workspace-a' });
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
-    fetchCalls.push(url);
+    const headers = new Headers(init?.headers);
+    fetchCalls.push({ url, workspaceHeader: headers.get('X-Canvas-Workspace-Id') });
     return Response.json({
       success: true,
       data: {
@@ -59,6 +72,20 @@ async function main() {
       [],
     );
 
+    const bridgeRequest = createNotebookFileReferenceRequest('/data/workspace/generated/page.html');
+    assert.ok(bridgeRequest);
+    assert.equal(bridgeRequest.type, NOTEBOOK_FILE_REFERENCE_MESSAGE_TYPE);
+    assert.equal(bridgeRequest.path, 'generated/page.html');
+    assert.deepEqual(parseNotebookFileReferenceRequest(bridgeRequest, bridgeRequest.createdAt), bridgeRequest);
+    assert.equal(
+      parseNotebookFileReferenceRequest({ ...bridgeRequest, path: '../outside.md' }, bridgeRequest.createdAt),
+      null,
+    );
+    assert.equal(
+      parseNotebookFileReferenceRequest(bridgeRequest, bridgeRequest.createdAt + 30_001),
+      null,
+    );
+
     assert.equal(await validateFileExists('docs/loaded.md', fileTree), true);
     assert.deepEqual(await validateFileReference('docs/loaded.md', fileTree), {
       path: 'docs/loaded.md',
@@ -70,6 +97,14 @@ async function main() {
     assert.equal(await validateFileExists('/data/workspace/docs/loaded.md', fileTree), true);
     assert.equal(fetchCalls.length, 0, 'absolute workspace tree entries should not hit the API');
 
+    assert.deepEqual(
+      await validateFileReference('docs/loaded.md', fileTree, { fileTreeWorkspaceId: 'workspace-b' }),
+      { path: 'docs/loaded.md', type: 'missing', exists: false },
+      'a file tree from another workspace must never validate the active workspace',
+    );
+    assert.equal(fetchCalls.length, 1, 'workspace-mismatched trees must fall back to the scoped API');
+    fetchCalls.length = 0;
+
     assert.deepEqual(await validateFileReference('docs', fileTree), {
       path: 'docs',
       type: 'directory',
@@ -80,11 +115,14 @@ async function main() {
 
     assert.equal(await validateFileExists('generated/new-file.md', fileTree), true);
     assert.equal(fetchCalls.length, 1);
-    assert.match(fetchCalls[0], /\/api\/files\/exists\?/);
+    assert.match(fetchCalls[0].url, /\/api\/files\/exists\?/);
+    assert.match(fetchCalls[0].url, /workspaceId=workspace-a/);
+    assert.equal(fetchCalls[0].workspaceHeader, 'workspace-a');
 
-    globalThis.fetch = (async (input: RequestInfo | URL) => {
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
-      fetchCalls.push(url);
+      const headers = new Headers(init?.headers);
+      fetchCalls.push({ url, workspaceHeader: headers.get('X-Canvas-Workspace-Id') });
       return Response.json({
         success: true,
         data: {
@@ -103,8 +141,23 @@ async function main() {
 
     assert.equal(await validateFileExists('missing/nope.md', fileTree), false);
     assert.equal(await validateFileExists('missing/nope.md', fileTree), false);
-    const missingFetchMatches = fetchCalls.join('\n').match(new RegExp(encodeURIComponent('missing/nope.md'), 'g')) ?? [];
-    assert.equal(missingFetchMatches.length, 1);
+    useWorkspaceStore.setState({ activeWorkspaceId: 'workspace-b' });
+    assert.equal(await validateFileExists('missing/nope.md', fileTree), false);
+    const missingFetchMatches = fetchCalls.map((call) => call.url).join('\n').match(new RegExp(encodeURIComponent('missing/nope.md'), 'g')) ?? [];
+    assert.equal(missingFetchMatches.length, 2, 'validation cache must be scoped by workspace');
+
+    useWorkspaceStore.setState({ activeWorkspaceId: 'workspace-a' });
+    invalidateFileReferenceValidationCache({ workspaceId: 'workspace-a', path: 'missing/nope.md' });
+    assert.equal(await validateFileExists('missing/nope.md', fileTree), false);
+    const invalidatedMissingFetchMatches = fetchCalls.map((call) => call.url).join('\n').match(new RegExp(encodeURIComponent('missing/nope.md'), 'g')) ?? [];
+    assert.equal(invalidatedMissingFetchMatches.length, 3, 'file mutation invalidation must revalidate missing links immediately');
+
+    useWorkspaceStore.setState({ activeWorkspaceId: null });
+    assert.equal(await validateFileExists('legacy/missing.md', fileTree), false);
+    invalidateFileReferenceValidationCache({ workspaceId: LEGACY_PERSONAL_WORKSPACE_ID, path: 'legacy/missing.md' });
+    assert.equal(await validateFileExists('legacy/missing.md', fileTree), false);
+    const legacyMissingFetchMatches = fetchCalls.map((call) => call.url).join('\n').match(new RegExp(encodeURIComponent('legacy/missing.md'), 'g')) ?? [];
+    assert.equal(legacyMissingFetchMatches.length, 2, 'legacy watcher events must invalidate legacy validation entries');
 
     assert.equal(getFileDisplayName({ name: 'loaded.md', type: 'file' }), 'loaded');
     assert.equal(getFileDisplayPath('docs/loaded.md'), 'docs/loaded');

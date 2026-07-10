@@ -11,11 +11,75 @@ const SUPPORTED_LOCALES = routing.locales as readonly string[];
 
 export type UserLocale = typeof routing.locales[number];
 
+export type UserOnboardingStep = 'language' | 'workspace' | 'profile' | 'tour' | 'complete';
+export type UserOnboardingProfileStatus = 'pending' | 'completed' | 'skipped';
+export type UserOnboardingTourStatus = 'pending' | 'started' | 'skipped' | 'completed';
+
+export type UserOnboardingState = {
+  version: 2;
+  step: UserOnboardingStep;
+  profile: UserOnboardingProfileStatus;
+  tour: UserOnboardingTourStatus;
+  updatedAt: string;
+};
+
+const USER_ONBOARDING_STEPS = new Set<UserOnboardingStep>(['language', 'workspace', 'profile', 'tour', 'complete']);
+const USER_ONBOARDING_PROFILE_STATUSES = new Set<UserOnboardingProfileStatus>(['pending', 'completed', 'skipped']);
+const USER_ONBOARDING_TOUR_STATUSES = new Set<UserOnboardingTourStatus>(['pending', 'started', 'skipped', 'completed']);
+
+export function createDefaultUserOnboardingState(): UserOnboardingState {
+  return {
+    version: 2,
+    step: 'language',
+    profile: 'pending',
+    tour: 'pending',
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+export function createCompletedUserOnboardingState(): UserOnboardingState {
+  return {
+    version: 2,
+    step: 'complete',
+    profile: 'skipped',
+    tour: 'completed',
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+function normalizeUserOnboardingState(value: unknown): UserOnboardingState | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const record = value as {
+    version?: unknown;
+    step?: unknown;
+    profile?: unknown;
+    tour?: unknown;
+    updatedAt?: unknown;
+  };
+  const step = typeof record.step === 'string' && USER_ONBOARDING_STEPS.has(record.step as UserOnboardingStep)
+    ? record.step as UserOnboardingStep
+    : 'language';
+  const profile = typeof record.profile === 'string' && USER_ONBOARDING_PROFILE_STATUSES.has(record.profile as UserOnboardingProfileStatus)
+    ? record.profile as UserOnboardingProfileStatus
+    : 'pending';
+  const tour = typeof record.tour === 'string' && USER_ONBOARDING_TOUR_STATUSES.has(record.tour as UserOnboardingTourStatus)
+    ? record.tour as UserOnboardingTourStatus
+    : 'pending';
+  return {
+    version: 2,
+    step: step === 'complete' && (profile === 'pending' || tour === 'pending') ? 'language' : step,
+    profile,
+    tour,
+    updatedAt: typeof record.updatedAt === 'string' ? record.updatedAt : new Date().toISOString(),
+  };
+}
+
 export type UserPreferences = {
   emailAllowRemoteImages?: boolean;
   emailRemoteImageAllowedSenders?: string[];
   lastActiveAgentId?: string;
   locale?: UserLocale;
+  onboarding?: UserOnboardingState;
 };
 
 type UserPreferencesFile = {
@@ -75,15 +139,18 @@ function normalizePreferences(value: unknown): UserPreferences {
     emailRemoteImageAllowedSenders?: unknown;
     lastActiveAgentId?: unknown;
     locale?: unknown;
+    onboarding?: unknown;
   };
   const locale = normalizeUserLocale(record.locale);
   const lastActiveAgentId = normalizeUserLastActiveAgentId(record.lastActiveAgentId);
   const emailRemoteImageAllowedSenders = normalizeEmailAddressList(record.emailRemoteImageAllowedSenders);
+  const onboarding = normalizeUserOnboardingState(record.onboarding);
   return {
     ...(typeof record.emailAllowRemoteImages === 'boolean' ? { emailAllowRemoteImages: record.emailAllowRemoteImages } : {}),
     ...(emailRemoteImageAllowedSenders.length > 0 ? { emailRemoteImageAllowedSenders } : {}),
     ...(lastActiveAgentId ? { lastActiveAgentId } : {}),
     ...(locale ? { locale } : {}),
+    ...(onboarding ? { onboarding } : {}),
   };
 }
 
@@ -130,6 +197,30 @@ export async function getUserPreferences(userId: string): Promise<UserPreference
 export async function getUserPreferredLocale(userId: string): Promise<UserLocale> {
   const preferences = await getUserPreferences(userId);
   return preferences.locale ?? routing.defaultLocale;
+}
+
+export async function getUserOnboardingState(
+  userId: string,
+  options: { missing?: 'complete' | 'pending' } = {},
+): Promise<UserOnboardingState> {
+  const preferences = await getUserPreferences(userId);
+  if (preferences.onboarding) return preferences.onboarding;
+  return options.missing === 'pending'
+    ? createDefaultUserOnboardingState()
+    : createCompletedUserOnboardingState();
+}
+
+/**
+ * Marks a freshly created account as needing the personal onboarding. Existing
+ * installations intentionally default missing state to complete, so an update
+ * never sends every historic account through the new flow.
+ */
+export async function initializeUserOnboarding(userId: string): Promise<UserOnboardingState> {
+  const preferences = await getUserPreferences(userId);
+  if (preferences.onboarding) return preferences.onboarding;
+  const onboarding = createDefaultUserOnboardingState();
+  await updateUserPreferences(userId, { onboarding });
+  return onboarding;
 }
 
 export async function updateUserPreferences(
@@ -183,6 +274,18 @@ export async function updateUserPreferences(
     }
   }
 
+  if ('onboarding' in updates) {
+    if (updates.onboarding === undefined) {
+      delete nextPreferences.onboarding;
+    } else {
+      const onboarding = normalizeUserOnboardingState(updates.onboarding);
+      if (!onboarding) {
+        throw new Error('Unsupported onboarding state.');
+      }
+      nextPreferences.onboarding = onboarding;
+    }
+  }
+
   preferencesFile.users[normalizedUserId] = nextPreferences;
   await writeSettingsJsonFileAtomic(USER_PREFERENCES_FILE, preferencesFile);
   return nextPreferences;
@@ -194,4 +297,22 @@ export async function setUserPreferredLocale(userId: string, locale: unknown): P
     throw new Error('Unsupported locale.');
   }
   return updateUserPreferences(userId, { locale: normalizedLocale });
+}
+
+export async function updateUserOnboardingState(
+  userId: string,
+  updates: Partial<Pick<UserOnboardingState, 'step' | 'profile' | 'tour'>>,
+): Promise<UserOnboardingState> {
+  const current = await getUserOnboardingState(userId, { missing: 'pending' });
+  const candidate = normalizeUserOnboardingState({
+    ...current,
+    ...updates,
+    updatedAt: new Date().toISOString(),
+  });
+  if (!candidate) {
+    throw new Error('Unsupported onboarding state.');
+  }
+
+  const preferences = await updateUserPreferences(userId, { onboarding: candidate });
+  return preferences.onboarding ?? candidate;
 }

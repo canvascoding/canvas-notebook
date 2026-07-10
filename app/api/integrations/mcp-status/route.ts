@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { auth } from '@/app/lib/auth';
+import { assertUserOrganizationAdmin } from '@/app/lib/organization/permissions';
 import { McpConfigValidationError, setMcpServerEnabled } from '@/app/lib/mcp/config';
 import { buildDirectMcpTools } from '@/app/lib/mcp/direct-tools';
 import { refreshMcpServerIcons } from '@/app/lib/mcp/icons';
@@ -15,12 +16,17 @@ type McpStatusPostPayload = {
   server?: string;
 };
 
-async function requireSession(request: NextRequest) {
+async function requireMcpAdmin(request: NextRequest) {
   const session = await auth.api.getSession({ headers: request.headers });
   if (!session) {
     return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
   }
-  return null;
+  try {
+    await assertUserOrganizationAdmin(session.user.id, 'Only organization admins can manage MCP servers.');
+  } catch (error) {
+    return NextResponse.json({ success: false, error: error instanceof Error ? error.message : 'Forbidden' }, { status: 403 });
+  }
+  return session;
 }
 
 function getRequestOrigin(request: NextRequest): string {
@@ -33,8 +39,8 @@ function getRequestOrigin(request: NextRequest): string {
 }
 
 export async function GET(request: NextRequest) {
-  const unauthorized = await requireSession(request);
-  if (unauthorized) return unauthorized;
+  const session = await requireMcpAdmin(request);
+  if (session instanceof NextResponse) return session;
 
   try {
     const limited = rateLimit(request, {
@@ -45,7 +51,8 @@ export async function GET(request: NextRequest) {
     if (!limited.ok) return limited.response;
 
     const summaryOnly = request.nextUrl.searchParams.get('summary') === '1';
-    const runtime = await getMcpRuntimeStatus();
+    const scope = { userId: session.user.id };
+    const runtime = await getMcpRuntimeStatus(undefined, scope);
     if (summaryOnly) {
       return NextResponse.json({
         success: true,
@@ -54,9 +61,9 @@ export async function GET(request: NextRequest) {
     }
 
     const [oauth, direct, icons] = await Promise.all([
-      Promise.all(runtime.servers.map((server) => getMcpOAuthStatus(server.name, getRequestOrigin(request)))),
-      buildDirectMcpTools(),
-      refreshMcpServerIcons(),
+      Promise.all(runtime.servers.map((server) => getMcpOAuthStatus(server.name, getRequestOrigin(request), scope))),
+      buildDirectMcpTools(scope),
+      refreshMcpServerIcons(scope),
     ]);
     return NextResponse.json({
       success: true,
@@ -83,8 +90,8 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const unauthorized = await requireSession(request);
-  if (unauthorized) return unauthorized;
+  const session = await requireMcpAdmin(request);
+  if (session instanceof NextResponse) return session;
 
   try {
     const limited = rateLimit(request, {
@@ -101,29 +108,29 @@ export async function POST(request: NextRequest) {
     }
 
     if (payload.action === 'enable') {
-      await setMcpServerEnabled(server, true);
+      await setMcpServerEnabled(server, true, { userId: session.user.id });
       return NextResponse.json({ success: true, data: { server, enabled: true } });
     }
 
     if (payload.action === 'disable') {
-      await setMcpServerEnabled(server, false);
-      await closeMcpServer(server);
+      await setMcpServerEnabled(server, false, { userId: session.user.id });
+      await closeMcpServer(server, { userId: session.user.id });
       return NextResponse.json({ success: true, data: { server, enabled: false } });
     }
 
     if (payload.action === 'test') {
-      const tools = await listMcpTools(server);
+      const tools = await listMcpTools(server, { scope: { userId: session.user.id } });
       return NextResponse.json({ success: true, data: { server, toolCount: tools.length } });
     }
 
     if (payload.action === 'authorize') {
-      const started = await startMcpOAuth(server, request.headers.get('origin'));
+      const started = await startMcpOAuth(server, request.headers.get('origin'), { userId: session.user.id });
       return NextResponse.json({ success: true, data: { server, ...started } });
     }
 
     if (payload.action === 'clear_auth') {
-      await clearMcpOAuth(server);
-      await closeMcpServer(server);
+      await clearMcpOAuth(server, { userId: session.user.id });
+      await closeMcpServer(server, { userId: session.user.id });
       return NextResponse.json({ success: true, data: { server, authorized: false } });
     }
 

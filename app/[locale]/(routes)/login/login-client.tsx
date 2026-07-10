@@ -37,6 +37,17 @@ function resolvePostAuthRedirect(locale: string, from: string | null) {
   return buildLocalePath(locale, from);
 }
 
+async function resolvePreferredLocale(fallbackLocale: string): Promise<string> {
+  try {
+    const response = await fetch('/api/user-preferences', { credentials: 'include', cache: 'no-store' });
+    const payload = await response.json().catch(() => ({})) as { data?: { locale?: unknown } };
+    const locale = payload.data?.locale;
+    return typeof locale === 'string' && routing.locales.includes(locale as 'de' | 'en') ? locale : fallbackLocale;
+  } catch {
+    return fallbackLocale;
+  }
+}
+
 function LoginForm() {
   const t = useTranslations('login');
   const locale = useLocale();
@@ -62,7 +73,8 @@ function LoginForm() {
       } else {
         toast.success(t('loginSuccessful'));
         window.dispatchEvent(new CustomEvent('ws-auth-success'));
-        window.location.href = resolvePostAuthRedirect(locale, searchParams.get('from'));
+        const preferredLocale = await resolvePreferredLocale(locale);
+        window.location.assign(resolvePostAuthRedirect(preferredLocale, searchParams.get('from')));
       }
     } catch (err) {
       toast.error(t('unexpectedError'));

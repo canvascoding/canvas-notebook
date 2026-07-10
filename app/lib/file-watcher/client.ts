@@ -10,9 +10,11 @@
 
 import { useFileStore } from '@/app/store/file-store';
 import { runDirectoryTasksByDepth } from '@/app/lib/files/tree-refresh';
+import { useWorkspaceStore } from '@/app/store/workspace-store';
 
 interface FileEvent {
   type: 'add' | 'change' | 'unlink' | 'addDir' | 'unlinkDir';
+  workspaceId?: string;
   path: string;
   relativePath: string;
   dir: string;
@@ -20,6 +22,10 @@ interface FileEvent {
 }
 
 const WATCHER_REFRESH_CONCURRENCY = 4;
+
+function watcherUrl(workspaceId: string | null): string {
+  return workspaceId ? `/api/files/watch?workspaceId=${encodeURIComponent(workspaceId)}` : '/api/files/watch';
+}
 
 function getWatchedDirs(): string[] {
   const { browserMode, currentDirectory, currentFile, expandedDirs } = useFileStore.getState();
@@ -62,6 +68,8 @@ export class FileWatcherClient extends EventTarget {
   private maxDebounceMs = 5000;
   private _isConnected = false;
   private storeUnsubscribe: (() => void) | null = null;
+  private workspaceUnsubscribe: (() => void) | null = null;
+  private connectionWorkspaceId: string | null = null;
 
   static readonly DISCONNECT_GRACE_MS = 3000;
   static readonly SYNC_DEBOUNCE_MS = 200;
@@ -91,6 +99,12 @@ export class FileWatcherClient extends EventTarget {
           this.scheduleDirSync(getWatchedDirs());
         }
       });
+
+      this.workspaceUnsubscribe = useWorkspaceStore.subscribe((state, prevState) => {
+        if (state.activeWorkspaceId !== prevState.activeWorkspaceId && this.refCount > 0) {
+          this.reconnectForWorkspace();
+        }
+      });
     }
 
     if (this._isConnected && this.clientId) {
@@ -114,6 +128,10 @@ export class FileWatcherClient extends EventTarget {
         this.storeUnsubscribe();
         this.storeUnsubscribe = null;
       }
+      if (this.workspaceUnsubscribe) {
+        this.workspaceUnsubscribe();
+        this.workspaceUnsubscribe = null;
+      }
       this.disconnectTimer = setTimeout(() => {
         this.disconnectTimer = null;
         if (this.refCount === 0) {
@@ -124,12 +142,13 @@ export class FileWatcherClient extends EventTarget {
   }
 
   syncDirs(dirs: string[]): void {
-    if (!this.clientId) return;
+    const activeWorkspaceId = useWorkspaceStore.getState().activeWorkspaceId;
+    if (!this.clientId || (activeWorkspaceId && this.connectionWorkspaceId !== activeWorkspaceId)) return;
 
     if (this.syncTimer) clearTimeout(this.syncTimer);
     this.syncTimer = setTimeout(() => {
       if (!this.clientId) return;
-      fetch('/api/files/watch', {
+      fetch(watcherUrl(this.connectionWorkspaceId), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -141,8 +160,10 @@ export class FileWatcherClient extends EventTarget {
   private connect(): void {
     if (this.eventSource) return;
     this.isManualDisconnect = false;
+    const workspaceId = useWorkspaceStore.getState().activeWorkspaceId;
+    this.connectionWorkspaceId = workspaceId;
 
-    const eventSource = new EventSource('/api/files/watch', {
+    const eventSource = new EventSource(watcherUrl(workspaceId), {
       withCredentials: true,
     });
 
@@ -155,8 +176,9 @@ export class FileWatcherClient extends EventTarget {
     eventSource.addEventListener('connected', (message: MessageEvent) => {
       try {
         const data = JSON.parse(message.data);
-        if (data.clientId) {
+        if (data.clientId && (!this.connectionWorkspaceId || !data.workspaceId || data.workspaceId === this.connectionWorkspaceId)) {
           this.clientId = data.clientId;
+          this.connectionWorkspaceId = typeof data.workspaceId === 'string' ? data.workspaceId : this.connectionWorkspaceId;
           this._isConnected = true;
           this.dispatchEvent(new CustomEvent('connected'));
 
@@ -177,6 +199,7 @@ export class FileWatcherClient extends EventTarget {
     eventSource.addEventListener('heartbeat', () => {});
 
     eventSource.onerror = () => {
+      if (this.eventSource !== eventSource) return;
       this._isConnected = false;
       this.clientId = null;
 
@@ -198,12 +221,17 @@ export class FileWatcherClient extends EventTarget {
     this.refCount = 0;
     this._isConnected = false;
     this.clientId = null;
+    this.connectionWorkspaceId = null;
     this.cancelDisconnectTimer();
     this.cancelSyncTimer();
 
     if (this.storeUnsubscribe) {
       this.storeUnsubscribe();
       this.storeUnsubscribe = null;
+    }
+    if (this.workspaceUnsubscribe) {
+      this.workspaceUnsubscribe();
+      this.workspaceUnsubscribe = null;
     }
 
     if (this.reconnectTimer) {
@@ -244,6 +272,12 @@ export class FileWatcherClient extends EventTarget {
   }
 
   private handleFileChange(event: FileEvent): void {
+    const activeWorkspaceId = useWorkspaceStore.getState().activeWorkspaceId;
+    if (activeWorkspaceId && event.workspaceId && event.workspaceId !== activeWorkspaceId) return;
+
+    if (event.type !== 'change') {
+      useFileStore.getState().markDirectoryStale(event.dir || '.');
+    }
     this.dispatchEvent(new CustomEvent<FileEvent>('filechange', { detail: event }));
 
     if (this.shouldRefreshTreeForEvent(event)) {
@@ -252,8 +286,9 @@ export class FileWatcherClient extends EventTarget {
   }
 
   private shouldRefreshTreeForEvent(event: FileEvent): boolean {
-    if (event.relativePath === '.' && event.dir === '.') return true;
-    return event.type !== 'change';
+    if (event.dir === '.') return event.type !== 'change';
+    if (event.type === 'change') return false;
+    return getWatchedDirs().includes(event.dir || '.');
   }
 
   private scheduleDirectoryRefresh(dirPath: string): void {
@@ -301,6 +336,22 @@ export class FileWatcherClient extends EventTarget {
   private scheduleDirSync(dirs: string[]): void {
     if (!this.clientId) return;
     this.syncDirs(dirs);
+  }
+
+  private reconnectForWorkspace(): void {
+    const nextWorkspaceId = useWorkspaceStore.getState().activeWorkspaceId;
+    if (nextWorkspaceId === this.connectionWorkspaceId) return;
+
+    this.cancelSyncTimer();
+    this.clientId = null;
+    this._isConnected = false;
+    this.connectionWorkspaceId = null;
+    if (this.eventSource) {
+      this.eventSource.close();
+      this.eventSource = null;
+    }
+    this.dispatchEvent(new CustomEvent('disconnected'));
+    this.connect();
   }
 
   private cancelDisconnectTimer(): void {

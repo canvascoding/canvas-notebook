@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState, type RefObject } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useFileStore } from '@/app/store/file-store';
+import { useWorkspaceStore } from '@/app/store/workspace-store';
 import type { FileNode as FileNodeType } from '@/app/lib/files/types';
 import {
   getDirectoryDepth,
@@ -31,6 +32,7 @@ interface SearchState {
   query: string;
   results: FileNodeType[] | null;
   isSearching: boolean;
+  error: string | null;
 }
 
 const RESTORE_LOAD_CONCURRENCY = 4;
@@ -71,6 +73,7 @@ export function useFileExplorerViewModel({ containerRef, variant }: UseFileExplo
     query: '',
     results: null,
     isSearching: false,
+    error: null,
   });
 
   const {
@@ -80,6 +83,8 @@ export function useFileExplorerViewModel({ containerRef, variant }: UseFileExplo
     loadFileTree,
     refreshRootTree,
     loadSubdirectory,
+    resetWorkspaceView,
+    hydrateClientPreferences,
     currentDirectory,
     selectedNode,
     selectAllInDirectory,
@@ -93,6 +98,8 @@ export function useFileExplorerViewModel({ containerRef, variant }: UseFileExplo
     loadFileTree: state.loadFileTree,
     refreshRootTree: state.refreshRootTree,
     loadSubdirectory: state.loadSubdirectory,
+    resetWorkspaceView: state.resetWorkspaceView,
+    hydrateClientPreferences: state.hydrateClientPreferences,
     currentDirectory: state.currentDirectory,
     selectedNode: state.selectedNode,
     selectAllInDirectory: state.selectAllInDirectory,
@@ -100,11 +107,13 @@ export function useFileExplorerViewModel({ containerRef, variant }: UseFileExplo
     searchQuery: state.searchQuery,
     browserMode: state.browserMode,
   })));
+  const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
 
   const normalizedSearchQuery = searchQuery.trim();
   const normalizedSearchQueryLower = normalizedSearchQuery.toLowerCase();
   const searchResults = searchState.query === normalizedSearchQuery ? searchState.results : null;
   const isSearching = searchState.query === normalizedSearchQuery && searchState.isSearching;
+  const searchError = searchState.query === normalizedSearchQuery ? searchState.error : null;
 
   const activeDirectoryChildren = useMemo(
     () => browserMode === 'grid' ? flattenDirectoryChildren(fileTree, currentDirectory) : null,
@@ -115,6 +124,13 @@ export function useFileExplorerViewModel({ containerRef, variant }: UseFileExplo
     let cancelled = false;
 
     const restoreExplorer = async () => {
+      const initialState = useFileStore.getState();
+      const workspaceChanged = initialState.fileTreeWorkspaceId !== activeWorkspaceId;
+      if (workspaceChanged) {
+        resetWorkspaceView(activeWorkspaceId);
+      }
+      hydrateClientPreferences(activeWorkspaceId, workspaceChanged);
+
       const {
         currentDirectory: curDir,
         expandedDirs: curExpanded,
@@ -129,14 +145,14 @@ export function useFileExplorerViewModel({ containerRef, variant }: UseFileExplo
         curSearch.trim().length > 0;
 
       if (!hasRestorableState) {
-        await loadFileTree('.', 0);
+        await loadFileTree('.', 0, false, activeWorkspaceId);
         return;
       }
 
       setIsRestoring(true);
 
       try {
-        await refreshRootTree(true);
+        await refreshRootTree(true, activeWorkspaceId);
         if (cancelled) return;
 
         const restorePaths = new Set<string>([
@@ -159,7 +175,7 @@ export function useFileExplorerViewModel({ containerRef, variant }: UseFileExplo
               ? currentTree.some((node) => node.type === 'directory' && node.path === dirPath.split('/')[0])
               : findPathInTree(parentDir, currentTree);
             if (!parentExists) return;
-            await loadSubdirectory(dirPath, true);
+            await loadSubdirectory(dirPath, true, true, activeWorkspaceId);
 
             const nextTree = useFileStore.getState().fileTree;
             if (curExpanded.has(dirPath) && findPathInTree(dirPath, nextTree)) {
@@ -205,7 +221,7 @@ export function useFileExplorerViewModel({ containerRef, variant }: UseFileExplo
 
     void restoreExplorer();
     return () => { cancelled = true; };
-  }, [loadFileTree, loadSubdirectory, refreshRootTree, variant]);
+  }, [activeWorkspaceId, hydrateClientPreferences, loadFileTree, loadSubdirectory, refreshRootTree, resetWorkspaceView, variant]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -244,7 +260,7 @@ export function useFileExplorerViewModel({ containerRef, variant }: UseFileExplo
 
     const controller = new AbortController();
     const timeout = window.setTimeout(async () => {
-      setSearchState({ query, results: null, isSearching: true });
+      setSearchState({ query, results: null, isSearching: true, error: null });
       try {
         const response = await fetch(`/api/files/list?q=${encodeURIComponent(query)}&limit=200`, {
           credentials: 'include',
@@ -267,10 +283,15 @@ export function useFileExplorerViewModel({ containerRef, variant }: UseFileExplo
           publicShare: entry.publicShare,
         } satisfies FileNodeType));
         if (controller.signal.aborted) return;
-        setSearchState({ query, results: nextResults, isSearching: false });
+        setSearchState({ query, results: nextResults, isSearching: false, error: null });
       } catch (error) {
         if (!(error instanceof DOMException && error.name === 'AbortError')) {
-          setSearchState({ query, results: [], isSearching: false });
+          setSearchState({
+            query,
+            results: null,
+            isSearching: false,
+            error: error instanceof Error ? error.message : 'Failed to search files',
+          });
         }
       }
     }, 200);
@@ -351,6 +372,7 @@ export function useFileExplorerViewModel({ containerRef, variant }: UseFileExplo
     loadSubdirectory,
     normalizedSearchQuery,
     searchQuery,
+    searchError,
     searchResultNodes,
     treeError,
   };

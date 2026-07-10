@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { auth } from '@/app/lib/auth';
+import { assertUserOrganizationAdmin } from '@/app/lib/organization/permissions';
 import { startMcpOAuth } from '@/app/lib/mcp/oauth';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 
@@ -43,6 +44,12 @@ export async function GET(request: NextRequest) {
     return htmlResponse('MCP OAuth failed', 'You must be signed in to authorize this MCP server.', 401);
   }
 
+  try {
+    await assertUserOrganizationAdmin(session.user.id, 'Only organization admins can authorize MCP servers.');
+  } catch (error) {
+    return htmlResponse('MCP OAuth failed', error instanceof Error ? error.message : 'Forbidden.', 403);
+  }
+
   const limited = rateLimit(request, {
     limit: 20,
     windowMs: 60_000,
@@ -56,7 +63,7 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const started = await startMcpOAuth(server, getRequestOrigin(request));
+    const started = await startMcpOAuth(server, getRequestOrigin(request), { userId: session.user.id });
     return NextResponse.redirect(started.authorizationUrl);
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to start MCP OAuth.';

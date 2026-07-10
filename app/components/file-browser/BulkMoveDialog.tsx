@@ -16,6 +16,7 @@ import { useFileStore } from '@/app/store/file-store';
 import { getWorkspacePathName, isMoveIntoSelf, resolveMoveDestination } from '@/app/lib/files/operation-flows';
 import { toast } from 'sonner';
 import { DirectoryBrowser } from './DirectoryBrowser';
+import { useShallow } from 'zustand/react/shallow';
 
 interface ConflictState {
   type: 'file' | 'directory';
@@ -36,10 +37,18 @@ export function BulkMoveDialog() {
     multiSelectPaths,
     clearMultiSelect,
     renamePath,
-    loadFileTree,
+    refreshVisibleTree,
     bulkMoveOpen,
     setBulkMoveOpen,
-  } = useFileStore();
+  } = useFileStore(useShallow((state) => ({
+    fileTree: state.fileTree,
+    multiSelectPaths: state.multiSelectPaths,
+    clearMultiSelect: state.clearMultiSelect,
+    renamePath: state.renamePath,
+    refreshVisibleTree: state.refreshVisibleTree,
+    bulkMoveOpen: state.bulkMoveOpen,
+    setBulkMoveOpen: state.setBulkMoveOpen,
+  })));
 
   const resetDialogState = () => {
     setMoveTarget('.');
@@ -67,7 +76,7 @@ export function BulkMoveDialog() {
 
   const completeMove = async (successCount: number) => {
     clearMultiSelect();
-    await loadFileTree('.', undefined, true);
+    await refreshVisibleTree();
     closeDialog();
     toast.success(t('moveMultipleSuccess', { count: successCount }));
   };
@@ -85,13 +94,14 @@ export function BulkMoveDialog() {
       }
 
       if (isMoveIntoSelf(path, destination)) {
+        if (successCount > 0) await refreshVisibleTree();
         toast.error(t('moveIntoSelf'));
         setIsMoving(false);
         return;
       }
 
       try {
-        await renamePath(path, destination);
+        await renamePath(path, destination, false, false);
         successCount++;
       } catch (error) {
         const err = error as Error & { code?: string; type?: string; sourcePath?: string; destPath?: string };
@@ -108,6 +118,7 @@ export function BulkMoveDialog() {
         }
 
         if (err.code === 'DIRECTORY_EXISTS') {
+          if (successCount > 0) await refreshVisibleTree();
           toast.error(t('directoryConflictError', {
             source: path || '',
             destination,
@@ -117,12 +128,14 @@ export function BulkMoveDialog() {
         }
 
         if (err.code === 'SOURCE_NOT_FOUND') {
+          if (successCount > 0) await refreshVisibleTree();
           toast.error(t('sourceNotFoundError', { path: path || '' }));
           setIsMoving(false);
           return;
         }
 
         console.error(`Failed to move ${path}:`, error);
+        if (successCount > 0) await refreshVisibleTree();
         toast.error(t('moveError', { path, error: err.message }));
         setIsMoving(false);
         return;
@@ -142,17 +155,18 @@ export function BulkMoveDialog() {
       await processMoveQueue(activeConflict.remainingPaths, activeConflict.successCount);
     } else if (action === 'overwrite-selection') {
       try {
-        await renamePath(activeConflict.sourcePath, activeConflict.destPath, true);
+        await renamePath(activeConflict.sourcePath, activeConflict.destPath, true, false);
         await processMoveQueue(activeConflict.remainingPaths, activeConflict.successCount + 1);
       } catch (error) {
-        handleMoveError(error);
+        await handleMoveError(error);
       }
     } else if (action === 'overwrite-existing') {
       await processMoveQueue(activeConflict.remainingPaths, activeConflict.successCount);
     }
   };
 
-  const handleMoveError = (error: unknown) => {
+  const handleMoveError = async (error: unknown) => {
+    await refreshVisibleTree();
     const err = error as Error & { code?: string; type?: string; sourcePath?: string; destPath?: string };
     
     if (err.code === 'DIRECTORY_EXISTS') {

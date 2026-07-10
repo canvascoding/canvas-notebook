@@ -1,14 +1,9 @@
-import { promises as fs, watch as fsWatch, FSWatcher } from 'fs';
+import { promises as fs, watch as fsWatch, type FSWatcher } from 'fs';
 import path from 'path';
-import { clearFileTreeCache, clearSubtreeCache } from '@/app/lib/utils/file-tree-cache';
+import { clearSubtreeCache } from '@/app/lib/utils/file-tree-cache';
 import { invalidateFileReferenceCache } from '@/app/lib/filesystem/file-reference-cache';
 import { validatePath } from '@/app/lib/filesystem/workspace-files';
-import { createLegacyPersonalWorkspaceContext } from '@/app/lib/workspaces/context';
-
-const DATA = process.env.DATA || path.join(process.cwd(), 'data');
-const WORKSPACE_BASE_DIR = path.join(DATA, 'workspace');
-const LEGACY_WORKSPACE_FILE_OPTIONS = { workspace: createLegacyPersonalWorkspaceContext() };
-const LEGACY_WORKSPACE_ID = LEGACY_WORKSPACE_FILE_OPTIONS.workspace.workspaceId;
+import type { WorkspaceContext } from '@/app/lib/workspaces/types';
 
 const IGNORED_PATTERNS = [
   'node_modules',
@@ -21,58 +16,83 @@ const IGNORED_PATTERNS = [
   'Thumbs.db',
 ];
 
-type FileEventType = 'add' | 'change' | 'unlink' | 'addDir' | 'unlinkDir';
+export type FileEventType = 'add' | 'change' | 'unlink' | 'addDir' | 'unlinkDir';
 
-interface FileEvent {
+export interface FileEvent {
   type: FileEventType;
+  workspaceId: string;
   path: string;
   relativePath: string;
   dir: string;
   timestamp: number;
 }
 
-interface Client {
+export interface FileWatcherServerClient {
   id: string;
+  workspaceId: string;
+  workspace: WorkspaceContext;
   send: (event: FileEvent) => void;
 }
 
-class FileWatcherService {
-  private watchers: Map<string, FSWatcher> = new Map();
-  private clients: Map<string, Client> = new Map();
-  private subscriptions: Map<string, Set<string>> = new Map();
+interface Subscription {
+  workspace: WorkspaceContext;
+  clients: Set<string>;
+}
+
+export interface WorkspaceFileMutation {
+  workspace: WorkspaceContext;
+  type: FileEventType;
+  relativePath: string;
+}
+
+function normalizeRelativePath(value: string): string {
+  const normalized = value.replaceAll('\\', '/');
+  const withoutCurrentDirectory = normalized.startsWith('./') ? normalized.slice(2) : normalized;
+  let start = 0;
+  let end = withoutCurrentDirectory.length;
+
+  while (withoutCurrentDirectory.charCodeAt(start) === 47) start += 1;
+  while (end > start && withoutCurrentDirectory.charCodeAt(end - 1) === 47) end -= 1;
+
+  return withoutCurrentDirectory.slice(start, end) || '.';
+}
+
+function getParentDirectory(relativePath: string): string {
+  const normalized = normalizeRelativePath(relativePath);
+  if (normalized === '.' || !normalized.includes('/')) return '.';
+  return normalized.slice(0, normalized.lastIndexOf('/')) || '.';
+}
+
+function subscriptionKey(workspaceId: string, dirPath: string): string {
+  return `${workspaceId}\0${dirPath}`;
+}
+
+export class FileWatcherService {
+  private watchers = new Map<string, FSWatcher>();
+  private clients = new Map<string, FileWatcherServerClient>();
+  private subscriptions = new Map<string, Subscription>();
   private debounceTimer: NodeJS.Timeout | null = null;
   private pendingEvents: FileEvent[] = [];
-  private readonly debounceDelay: number = 500;
-  private initialized: boolean = false;
-  private clientLastActive: Map<string, number> = new Map();
+  private readonly debounceDelay = 500;
+  private clientLastActive = new Map<string, number>();
   private staleCheckInterval: NodeJS.Timeout | null = null;
   private readonly STALE_TIMEOUT_MS = 90_000;
 
   constructor() {
-    this.ensureInitialized();
     this.startStaleCheck();
   }
 
-  private async ensureInitialized(): Promise<void> {
-    if (this.initialized) return;
-    try {
-      await fs.mkdir(WORKSPACE_BASE_DIR, { recursive: true });
-      this.initialized = true;
-    } catch (error) {
-      console.error('[FileWatcher] Failed to initialize workspace dir:', error);
-    }
-  }
-
-  public subscribe(client: Client): () => void {
+  public subscribe(client: FileWatcherServerClient): () => void {
     this.clients.set(client.id, client);
     this.touchClient(client.id);
-    console.log(`[FileWatcher] Client subscribed: ${client.id} (${this.clients.size} total)`);
-
-    this.subscribeDir(client.id, '.');
+    void fs.mkdir(client.workspace.rootPath, { recursive: true }).then(() => {
+      void this.subscribeDir(client.id, '.');
+    }).catch((error) => {
+      console.error('[FileWatcher] Failed to initialize workspace directory:', error);
+    });
 
     return () => {
       this.removeClient(client.id);
-      console.log(`[FileWatcher] Client unsubscribed: ${client.id} (${this.clients.size} remaining)`);
     };
   }
 
@@ -83,94 +103,112 @@ class FileWatcherService {
   }
 
   public async subscribeDir(clientId: string, dirPath: string): Promise<void> {
-    if (!this.clients.has(clientId)) return;
-    if (this.shouldIgnore(dirPath)) return;
+    const client = this.clients.get(clientId);
+    if (!client) return;
+
+    const normalizedDir = normalizeRelativePath(dirPath);
+    if (this.shouldIgnore(normalizedDir)) return;
 
     let fullPath: string;
     try {
-      fullPath = await this.toValidatedFullPath(dirPath);
+      fullPath = await this.toValidatedFullPath(normalizedDir, client.workspace);
       const stat = await fs.stat(fullPath);
       if (!stat.isDirectory()) return;
     } catch {
       return;
     }
 
-    if (!this.subscriptions.has(dirPath)) {
-      this.subscriptions.set(dirPath, new Set());
-    }
+    const subscription = this.getSubscriptionForClient(client, normalizedDir);
+    if (subscription.clients.has(clientId)) return;
+    subscription.clients.add(clientId);
 
-    const subs = this.subscriptions.get(dirPath)!;
-    if (subs.has(clientId)) return;
-
-    subs.add(clientId);
-
-    if (subs.size === 1) {
-      this.startWatchingDir(dirPath);
+    if (subscription.clients.size === 1) {
+      await this.startWatchingDir(subscription.workspace, normalizedDir);
     }
   }
 
   public unsubscribeDir(clientId: string, dirPath: string): void {
-    const subs = this.subscriptions.get(dirPath);
-    if (!subs) return;
+    const client = this.clients.get(clientId);
+    if (!client) return;
 
-    subs.delete(clientId);
+    const normalizedDir = normalizeRelativePath(dirPath);
+    const key = subscriptionKey(client.workspaceId, normalizedDir);
+    const subscription = this.subscriptions.get(key);
+    if (!subscription) return;
 
-    if (subs.size === 0) {
-      this.subscriptions.delete(dirPath);
-      this.stopWatchingPath(this.toFullPath(dirPath));
+    subscription.clients.delete(clientId);
+    if (subscription.clients.size === 0) {
+      this.subscriptions.delete(key);
+      this.stopWatchingPath(key);
     }
   }
 
   public unsubscribeAll(clientId: string): void {
-    const dirsToRemove: string[] = [];
-    for (const [dirPath, subs] of this.subscriptions) {
-      subs.delete(clientId);
-      if (subs.size === 0) {
-        dirsToRemove.push(dirPath);
-      }
-    }
-    for (const dirPath of dirsToRemove) {
-      this.subscriptions.delete(dirPath);
-      this.stopWatchingPath(this.toFullPath(dirPath));
+    const client = this.clients.get(clientId);
+    if (!client) return;
+
+    for (const [key, subscription] of this.subscriptions) {
+      if (!subscription.clients.delete(clientId) || subscription.clients.size > 0) continue;
+      this.subscriptions.delete(key);
+      this.stopWatchingPath(key);
     }
   }
 
   public async syncDirs(clientId: string, dirPaths: string[]): Promise<void> {
-    if (!this.clients.has(clientId)) return;
+    const client = this.clients.get(clientId);
+    if (!client) return;
     this.touchClient(clientId);
 
     const current = new Set<string>();
-    for (const [dirPath, subs] of this.subscriptions) {
-      if (subs.has(clientId)) {
-        current.add(dirPath);
+    for (const [key, subscription] of this.subscriptions) {
+      if (key.startsWith(`${client.workspaceId}\0`) && subscription.clients.has(clientId)) {
+        current.add(key.slice(client.workspaceId.length + 1));
       }
     }
 
-    const desired = new Set(dirPaths);
+    const desired = new Set(dirPaths.map(normalizeRelativePath));
     desired.add('.');
 
     await Promise.all(
       Array.from(desired)
         .filter((dir) => !current.has(dir))
-        .map((dir) => this.subscribeDir(clientId, dir))
+        .map((dir) => this.subscribeDir(clientId, dir)),
     );
 
     for (const dir of current) {
-      if (!desired.has(dir)) {
-        this.unsubscribeDir(clientId, dir);
-      }
+      if (!desired.has(dir)) this.unsubscribeDir(clientId, dir);
     }
   }
 
-  public getSubscribedDirs(): string[] {
-    return Array.from(this.subscriptions.keys());
+  public getSubscribedDirs(workspaceId: string): string[] {
+    return Array.from(this.subscriptions.entries())
+      .filter(([key]) => key.startsWith(`${workspaceId}\0`))
+      .map(([key]) => key.slice(workspaceId.length + 1));
   }
 
-  private async startWatchingDir(relativeDir: string): Promise<void> {
-    const fullPath = this.toFullPath(relativeDir);
+  public publishMutation(mutation: WorkspaceFileMutation): void {
+    const event = this.createEvent(mutation);
+    this.invalidateAndBroadcast(event, mutation.workspace);
+  }
 
-    if (this.watchers.has(fullPath)) return;
+  private getSubscriptionForClient(client: FileWatcherServerClient, dirPath: string): Subscription {
+    const key = subscriptionKey(client.workspaceId, dirPath);
+    let subscription = this.subscriptions.get(key);
+    if (!subscription) {
+      subscription = {
+        workspace: client.workspace,
+        clients: new Set(),
+      };
+      this.subscriptions.set(key, subscription);
+    }
+    return subscription;
+  }
 
+  private async startWatchingDir(workspace: WorkspaceContext, relativeDir: string): Promise<void> {
+    const key = subscriptionKey(workspace.workspaceId, relativeDir);
+    if (this.watchers.has(key)) return;
+
+    const fullPath = this.toFullPath(relativeDir, workspace);
     try {
       const stat = await fs.stat(fullPath);
       if (!stat.isDirectory()) return;
@@ -179,24 +217,20 @@ class FileWatcherService {
     }
 
     try {
-      const watcher = fsWatch(
-        fullPath,
-        { recursive: false },
-        (eventType: 'rename' | 'change', filename: string | null) => {
-          if (!filename) return;
+      const watcher = fsWatch(fullPath, { recursive: false }, (eventType: 'rename' | 'change', filename: string | null) => {
+        if (!filename) return;
 
-          const relativeFilePath = relativeDir === '.' ? filename : path.join(relativeDir, filename);
-          const fullFilePath = path.join(fullPath, filename);
+        const relativeFilePath = relativeDir === '.'
+          ? filename.toString()
+          : path.posix.join(relativeDir, filename.toString());
+        const fullFilePath = path.join(fullPath, filename.toString());
 
-          this.determineEventType(eventType, relativeFilePath, fullFilePath).then((fileEvent) => {
-            if (fileEvent) {
-              this.queueEvent(fileEvent);
-            }
-          });
-        }
-      );
+        void this.determineEventType(eventType, relativeFilePath, fullFilePath, workspace).then((event) => {
+          if (event) this.queueEvent(event);
+        });
+      });
 
-      this.watchers.set(fullPath, watcher);
+      this.watchers.set(key, watcher);
     } catch (error) {
       console.warn('[FileWatcher] Failed to watch directory:', relativeDir, error);
     }
@@ -205,89 +239,64 @@ class FileWatcherService {
   private async determineEventType(
     eventType: 'rename' | 'change',
     relativePath: string,
-    fullPath: string
+    fullPath: string,
+    workspace: WorkspaceContext,
   ): Promise<FileEvent | null> {
-    const timestamp = Date.now();
-    const dir = relativePath.includes('/')
-      ? relativePath.substring(0, relativePath.lastIndexOf('/'))
-      : '.';
+    const normalizedPath = normalizeRelativePath(relativePath);
+    const dir = getParentDirectory(normalizedPath);
 
     if (eventType === 'change') {
       return {
         type: 'change',
+        workspaceId: workspace.workspaceId,
         path: fullPath,
-        relativePath,
+        relativePath: normalizedPath,
         dir,
-        timestamp,
+        timestamp: Date.now(),
       };
     }
 
     try {
       const stats = await fs.stat(fullPath);
       const isDir = stats.isDirectory();
-      const isNewDir = isDir && !this.watchers.has(fullPath);
-
-      if (isNewDir) {
-        const relativeDir = relativePath;
-        const subs = this.subscriptions.get(relativeDir);
-        if (subs && subs.size > 0) {
-          this.startWatchingDir(relativeDir);
+      const watcherKey = subscriptionKey(workspace.workspaceId, normalizedPath);
+      if (isDir && !this.watchers.has(watcherKey)) {
+        const childSubscription = this.subscriptions.get(watcherKey);
+        if (childSubscription?.clients.size) {
+          await this.startWatchingDir(workspace, normalizedPath);
         }
-        return {
-          type: 'addDir',
-          path: fullPath,
-          relativePath,
-          dir,
-          timestamp,
-        };
       }
-
       return {
         type: isDir ? 'addDir' : 'add',
+        workspaceId: workspace.workspaceId,
         path: fullPath,
-        relativePath,
+        relativePath: normalizedPath,
         dir,
-        timestamp,
+        timestamp: Date.now(),
       };
     } catch {
-      const wasDir = this.watchers.has(fullPath);
-
-      if (wasDir) {
-        this.stopWatchingPath(fullPath);
-        return {
-          type: 'unlinkDir',
-          path: fullPath,
-          relativePath,
-          dir,
-          timestamp,
-        };
-      }
-
+      const watcherKey = subscriptionKey(workspace.workspaceId, normalizedPath);
+      const wasDir = this.watchers.has(watcherKey);
+      if (wasDir) this.stopWatchingPath(watcherKey);
       return {
-        type: 'unlink',
+        type: wasDir ? 'unlinkDir' : 'unlink',
+        workspaceId: workspace.workspaceId,
         path: fullPath,
-        relativePath,
+        relativePath: normalizedPath,
         dir,
-        timestamp,
+        timestamp: Date.now(),
       };
     }
   }
 
   private shouldIgnore(filePath: string): boolean {
-    const parts = filePath.split(path.sep);
-    return parts.some((part) => IGNORED_PATTERNS.includes(part));
+    return filePath.split(/[\\/]/).some((part) => IGNORED_PATTERNS.includes(part));
   }
 
   private queueEvent(event: FileEvent): void {
     this.pendingEvents.push(event);
-
-    if (this.debounceTimer) {
-      clearTimeout(this.debounceTimer);
-    }
-
-    this.debounceTimer = setTimeout(() => {
-      this.flushEvents();
-    }, this.debounceDelay);
+    if (this.debounceTimer) clearTimeout(this.debounceTimer);
+    this.debounceTimer = setTimeout(() => this.flushEvents(), this.debounceDelay);
   }
 
   private flushEvents(): void {
@@ -295,26 +304,27 @@ class FileWatcherService {
 
     const uniqueEvents = new Map<string, FileEvent>();
     for (const event of this.pendingEvents) {
-      uniqueEvents.set(event.relativePath, event);
+      uniqueEvents.set(`${event.workspaceId}\0${event.relativePath}`, event);
     }
 
     for (const event of uniqueEvents.values()) {
-      const dirPath = event.relativePath.includes('/')
-        ? event.relativePath.substring(0, event.relativePath.lastIndexOf('/'))
-        : '.';
-      clearSubtreeCache(dirPath, LEGACY_WORKSPACE_ID);
-      invalidateFileReferenceCache(LEGACY_WORKSPACE_FILE_OPTIONS);
-      this.broadcastEvent({ ...event, dir: dirPath });
+      const subscription = this.subscriptions.get(subscriptionKey(event.workspaceId, event.dir));
+      const workspace = subscription?.workspace;
+      if (workspace) this.invalidateAndBroadcast(event, workspace);
     }
 
     this.pendingEvents = [];
   }
 
+  private invalidateAndBroadcast(event: FileEvent, workspace: WorkspaceContext): void {
+    clearSubtreeCache(event.dir, workspace.workspaceId);
+    invalidateFileReferenceCache({ workspace });
+    this.broadcastEvent(event);
+  }
+
   private broadcastEvent(event: FileEvent): void {
     for (const [clientId, client] of this.clients) {
-      if (!this.isClientSubscribedToEvent(clientId, event)) {
-        continue;
-      }
+      if (client.workspaceId !== event.workspaceId) continue;
       try {
         client.send(event);
         this.touchClient(clientId);
@@ -325,27 +335,33 @@ class FileWatcherService {
     }
   }
 
-  private isClientSubscribedToEvent(clientId: string, event: FileEvent): boolean {
-    const eventDir = event.dir || '.';
-    const subscribers = this.subscriptions.get(eventDir);
-    return subscribers?.has(clientId) ?? false;
+  private createEvent(mutation: WorkspaceFileMutation): FileEvent {
+    const relativePath = normalizeRelativePath(mutation.relativePath);
+    return {
+      type: mutation.type,
+      workspaceId: mutation.workspace.workspaceId,
+      path: this.toFullPath(relativePath, mutation.workspace),
+      relativePath,
+      dir: getParentDirectory(relativePath),
+      timestamp: Date.now(),
+    };
   }
 
-  private stopWatchingPath(fullPath: string): void {
-    const watcher = this.watchers.get(fullPath);
-    if (watcher) {
-      watcher.close();
-      this.watchers.delete(fullPath);
-    }
+  private stopWatchingPath(key: string): void {
+    const watcher = this.watchers.get(key);
+    if (!watcher) return;
+    watcher.close();
+    this.watchers.delete(key);
   }
 
-  private toFullPath(relativePath: string): string {
-    return validatePath(relativePath);
+  private toFullPath(relativePath: string, workspace: WorkspaceContext): string {
+    return validatePath(relativePath, { workspace });
   }
 
-  private async toValidatedFullPath(relativePath: string): Promise<string> {
-    const candidatePath = validatePath(relativePath);
-    const realBase = await fs.realpath(validatePath('.'));
+  private async toValidatedFullPath(relativePath: string, workspace: WorkspaceContext): Promise<string> {
+    await fs.mkdir(workspace.rootPath, { recursive: true });
+    const candidatePath = this.toFullPath(relativePath, workspace);
+    const realBase = await fs.realpath(this.toFullPath('.', workspace));
     const realPath = await fs.realpath(candidatePath);
     if (realPath !== realBase && !realPath.startsWith(`${realBase}${path.sep}`)) {
       throw new Error('Invalid path: directory traversal attempt detected');
@@ -358,10 +374,7 @@ class FileWatcherService {
     this.staleCheckInterval = setInterval(() => {
       const now = Date.now();
       for (const [clientId, lastActive] of this.clientLastActive) {
-        if (now - lastActive > this.STALE_TIMEOUT_MS) {
-          console.warn(`[FileWatcher] Evicting stale client ${clientId} (inactive ${Math.round((now - lastActive) / 1000)}s)`);
-          this.removeClient(clientId);
-        }
+        if (now - lastActive > this.STALE_TIMEOUT_MS) this.removeClient(clientId);
       }
     }, 15_000);
   }
@@ -372,50 +385,33 @@ class FileWatcherService {
     this.clientLastActive.delete(clientId);
   }
 
-  private stopStaleCheck(): void {
-    if (this.staleCheckInterval) {
-      clearInterval(this.staleCheckInterval);
-      this.staleCheckInterval = null;
-    }
-  }
-
   public stop(): void {
-    for (const [, watcher] of this.watchers) {
-      watcher.close();
-    }
+    for (const watcher of this.watchers.values()) watcher.close();
     this.watchers.clear();
     this.clients.clear();
     this.clientLastActive.clear();
     this.subscriptions.clear();
-    this.stopStaleCheck();
-
-    if (this.debounceTimer) {
-      clearTimeout(this.debounceTimer);
-      this.debounceTimer = null;
-    }
-
-    console.log('[FileWatcher] Stopped all watchers');
-  }
-
-  public forceRefresh(): void {
-    clearFileTreeCache(LEGACY_WORKSPACE_ID);
-    this.broadcastEvent({
-      type: 'change',
-      path: WORKSPACE_BASE_DIR,
-      relativePath: '.',
-      dir: '.',
-      timestamp: Date.now(),
-    });
+    if (this.staleCheckInterval) clearInterval(this.staleCheckInterval);
+    this.staleCheckInterval = null;
+    if (this.debounceTimer) clearTimeout(this.debounceTimer);
+    this.debounceTimer = null;
   }
 }
 
 let fileWatcherInstance: FileWatcherService | null = null;
 
 export function getFileWatcher(): FileWatcherService {
-  if (!fileWatcherInstance) {
-    fileWatcherInstance = new FileWatcherService();
-  }
+  if (!fileWatcherInstance) fileWatcherInstance = new FileWatcherService();
   return fileWatcherInstance;
 }
 
-export type { FileEvent, FileEventType };
+export function publishWorkspaceFileMutation(mutation: WorkspaceFileMutation): void {
+  const relativePath = normalizeRelativePath(mutation.relativePath);
+  if (fileWatcherInstance) {
+    fileWatcherInstance.publishMutation({ ...mutation, relativePath });
+    return;
+  }
+
+  clearSubtreeCache(getParentDirectory(relativePath), mutation.workspace.workspaceId);
+  invalidateFileReferenceCache({ workspace: mutation.workspace });
+}

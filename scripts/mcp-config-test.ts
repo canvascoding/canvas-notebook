@@ -80,6 +80,14 @@ async function main() {
     () => parseAndValidateMcpConfig('{ "settings": {}, "mcpServers": { "bad": { "auth": "token" } } }'),
     /auth/,
   );
+  assert.throws(
+    () => parseAndValidateMcpConfig('{ "settings": {}, "mcpServers": { "bad": { "env": { "API_TOKEN": "plain-secret" } } } }'),
+    /reference secret header or environment values/,
+  );
+  assert.throws(
+    () => parseAndValidateMcpConfig('{ "settings": {}, "mcpServers": { "bad": { "oauth": { "clientSecret": "plain-secret" } } } }'),
+    /must not store oauth.clientSecret/,
+  );
 
   const validConfig = {
     settings: {
@@ -109,6 +117,20 @@ async function main() {
 
   const enabled = await setMcpServerEnabled('example', true);
   assert.equal(JSON.parse(enabled.rawContent).mcpServers.example.enabled, true);
+
+  const userA = { userId: 'mcp-user-a' };
+  const userB = { userId: 'mcp-user-b' };
+  const userAPath = resolveMcpConfigPath(userA);
+  assert.equal(userAPath, path.join(tempRoot, 'users', 'mcp-user-a', 'mcp', 'config.json'));
+  await writeMcpConfigRaw(JSON.stringify({
+    settings: { toolPrefix: 'user', idleTimeout: 5 },
+    mcpServers: { private: { url: 'https://a.example.test/mcp' } },
+  }), userA);
+  const userAState = await readMcpConfigState(userA);
+  const userBState = await readMcpConfigState(userB);
+  assert.equal(JSON.parse(userAState.rawContent).mcpServers.private.url, 'https://a.example.test/mcp');
+  assert.deepEqual(JSON.parse(userBState.rawContent).mcpServers, {});
+  assert.equal(await modeOf(userAPath), 0o600);
 
   console.log('mcp-config-test: ok');
 }

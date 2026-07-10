@@ -100,7 +100,10 @@ async function main() {
   const { resolveAgentRuntimeTempDir } = await import('../app/lib/pi/agent-runtime-temp');
   const { runWithAgentExecutionContext } = await import('../app/lib/pi/agent-execution-context');
   const { createToolLoopGuard } = await import('../app/lib/pi/tool-loop-guard');
+  const { getProgressiveGatewayCapabilityNames } = await import('../app/lib/pi/progressive-tool-gateway');
   const { buildPiToolRegistry, createRipgrepTool, createStudioGenerateImageTool, createStudioGenerateVideoTool, getPiToolMetadata, getPiTools, piTools } = await import('../app/lib/pi/tool-registry');
+  const { DEFAULT_PI_CONFIG } = await import('../app/lib/pi/config');
+  const { writePiRuntimeConfig } = await import('../app/lib/agents/storage');
 
   const studioCalls: StudioGenerateRequest[] = [];
   const studioImageCalls: StudioGenerateRequest[] = [];
@@ -702,16 +705,25 @@ async function main() {
 
   // Verify default-enabled tools in the tool registry
   const allTools = buildPiToolRegistry();
-  const defaultEnabledTools = getDefaultEnabledToolNames(allTools.map((tool) => tool.name));
+  const allToolNames = getProgressiveGatewayCapabilityNames(allTools);
+  const defaultEnabledTools = getDefaultEnabledToolNames(allToolNames);
   const skillToolNames = [
+    'create_canvas_plugin_draft',
+    'inspect_canvas_plugin',
+    'install_canvas_plugin_from_workspace',
+    'remove_canvas_plugin',
+    'set_canvas_plugin_enabled',
+    'update_canvas_plugin_from_workspace',
     'create_canvas_skill_draft',
     'discard_canvas_skill_draft',
     'inspect_canvas_skill',
     'install_canvas_skill_from_workspace',
     'update_canvas_skill_from_workspace',
   ];
+  const extensionsGateway = allTools.find((tool) => tool.name === 'canvas_extensions');
+  assert.ok(extensionsGateway);
   for (const toolName of skillToolNames) {
-    assert.equal(allTools.some((tool) => tool.name === toolName), true);
+    assert.equal(allTools.some((tool) => tool.name === toolName), false);
     assert.equal(defaultEnabledTools.has(toolName), true);
   }
   assert.equal(defaultEnabledTools.has('mcp'), true);
@@ -723,13 +735,13 @@ async function main() {
   assert.equal(allTools.some((tool) => tool.name === 'session_search'), true);
   assert.equal(defaultEnabledTools.has('web_search'), true);
   assert.equal(allTools.some((tool) => tool.name === 'web_search'), true);
-  assert.equal(allTools.some((tool) => tool.name === 'studio_bulk_generate'), true);
+  assert.equal(allTools.some((tool) => tool.name === 'studio'), true);
+  assert.equal(allTools.some((tool) => tool.name === 'studio_bulk_generate'), false);
   assert.equal(defaultEnabledTools.has('studio_bulk_generate'), false);
   assert.equal(allTools.some((tool) => tool.name === 'browser'), true);
   assert.equal(defaultEnabledTools.has('browser'), false);
-  assert.equal((await getPiTools()).some((tool) => tool.name === 'studio_bulk_generate'), false);
+  assert.equal((await getPiTools()).some((tool) => tool.name === 'studio'), true);
   assert.equal((await getPiTools()).some((tool) => tool.name === 'browser'), false);
-  const allToolNames = allTools.map((tool) => tool.name);
   const defaultToolsWith = (toolName: string) => allToolNames.filter((name) => name === toolName || defaultEnabledTools.has(name));
   assert.deepEqual(
     enableToolInConfig('studio_bulk_generate', [], allToolNames),
@@ -769,24 +781,23 @@ async function main() {
   ]);
 
   const ownerAutomationTools = buildPiToolRegistry('automation-owner');
-  const createAutomationTool = ownerAutomationTools.find((tool) => tool.name === 'create_automation_job');
+  const automationGateway = ownerAutomationTools.find((tool) => tool.name === 'automation_manage');
   const listAutomationTool = ownerAutomationTools.find((tool) => tool.name === 'list_automation_jobs');
   const inspectAutomationTool = ownerAutomationTools.find((tool) => tool.name === 'inspect_automation_job');
-  const updateAutomationTool = ownerAutomationTools.find((tool) => tool.name === 'update_automation_job');
-  const deleteAutomationTool = ownerAutomationTools.find((tool) => tool.name === 'delete_automation_job');
-  const triggerAutomationTool = ownerAutomationTools.find((tool) => tool.name === 'trigger_automation_job');
-  assert.ok(createAutomationTool);
+  assert.ok(automationGateway);
   assert.ok(listAutomationTool);
   assert.ok(inspectAutomationTool);
-  assert.ok(updateAutomationTool);
-  assert.ok(deleteAutomationTool);
-  assert.ok(triggerAutomationTool);
+  const callAutomation = (operation: string, arguments_: Record<string, unknown>) => automationGateway.execute('automation-gateway', {
+    action: 'call',
+    operation,
+    arguments: arguments_,
+  });
 
   const originalAutomationPrompt = [
     'Pruefe jeden Morgen die offenen Notizen.',
     'Erstelle eine kurze Prioritaetenliste.',
   ].join('\n');
-  const createAutomationResult = await createAutomationTool.execute('create-automation', {
+  const createAutomationResult = await callAutomation('create_automation_job', {
     name: 'Prompt Editor Automation',
     prompt: originalAutomationPrompt,
     schedule: { kind: 'daily', time: '09:00', timeZone: 'UTC' },
@@ -813,13 +824,13 @@ async function main() {
   const inspectedAutomationJob = (inspectAutomationResult.details as { job: { prompt: string; updatedAt: string } }).job;
   assert.equal(inspectedAutomationJob.prompt, originalAutomationPrompt);
 
-  const rejectedPromptUpdate = await updateAutomationTool.execute('update-automation-without-expected', {
+  const rejectedPromptUpdate = await callAutomation('update_automation_job', {
     jobId: createdAutomationJob.id,
     prompt: `${originalAutomationPrompt}\nSende danach eine knappe Zusammenfassung.`,
   });
   assert.match(getText(rejectedPromptUpdate), /expectedPrompt or expectedUpdatedAt/);
 
-  const rejectedStalePromptUpdate = await updateAutomationTool.execute('update-automation-stale-prompt', {
+  const rejectedStalePromptUpdate = await callAutomation('update_automation_job', {
     jobId: createdAutomationJob.id,
     prompt: `${originalAutomationPrompt}\nSende danach eine knappe Zusammenfassung.`,
     expectedPrompt: 'outdated prompt',
@@ -827,7 +838,7 @@ async function main() {
   assert.match(getText(rejectedStalePromptUpdate), /changed since inspection/);
 
   const revisedAutomationPrompt = `${originalAutomationPrompt}\nSende danach eine knappe Zusammenfassung.`;
-  const updateAutomationResult = await updateAutomationTool.execute('update-automation', {
+  const updateAutomationResult = await callAutomation('update_automation_job', {
     jobId: createdAutomationJob.id,
     prompt: revisedAutomationPrompt,
     expectedPrompt: inspectedAutomationJob.prompt,
@@ -853,12 +864,12 @@ async function main() {
     'automation-other',
   );
   assert.match(getText(await inspectAutomationTool.execute('inspect-other-automation', { jobId: otherAutomationJob.id })), /not found/);
-  assert.match(getText(await updateAutomationTool.execute('update-other-automation', {
+  assert.match(getText(await callAutomation('update_automation_job', {
     jobId: otherAutomationJob.id,
     name: 'Cross-user update attempt',
   })), /not found/);
-  assert.match(getText(await triggerAutomationTool.execute('trigger-other-automation', { jobId: otherAutomationJob.id })), /not found/);
-  assert.match(getText(await deleteAutomationTool.execute('delete-other-automation', { jobId: otherAutomationJob.id })), /not found/);
+  assert.match(getText(await callAutomation('trigger_automation_job', { jobId: otherAutomationJob.id })), /not found/);
+  assert.match(getText(await callAutomation('delete_automation_job', { jobId: otherAutomationJob.id })), /not found/);
   const otherAutomationAfterAttempts = await getAutomationJob(otherAutomationJob.id);
   assert.ok(otherAutomationAfterAttempts);
   assert.equal(otherAutomationAfterAttempts.name, 'Other User Automation');
@@ -902,6 +913,16 @@ async function main() {
   assert.deepEqual(skillMetadata.toolsets, ['skills']);
   assert.equal(skillMetadata.defaultEnabled, true);
   assert.equal(skillMetadata.planningModeAllowed, false);
+  assert.equal(skillMetadata.gateway?.name, 'canvas_extensions');
+  const automationWriteMetadata = metadata.find((tool) => tool.name === 'create_automation_job');
+  assert.ok(automationWriteMetadata);
+  assert.equal(automationWriteMetadata.gateway?.name, 'automation_manage');
+  const emailMetadata = metadata.find((tool) => tool.name === 'email_search');
+  assert.ok(emailMetadata);
+  assert.equal(emailMetadata.gateway?.name, 'email');
+  const studioMetadata = metadata.find((tool) => tool.name === 'studio_generate_image');
+  assert.ok(studioMetadata);
+  assert.equal(studioMetadata.gateway?.name, 'studio');
   for (const toolName of ['copy_path', 'move_path', 'delete_path']) {
     const pathMetadata = metadata.find((tool) => tool.name === toolName);
     assert.ok(pathMetadata);
@@ -910,6 +931,30 @@ async function main() {
     assert.equal(pathMetadata.defaultEnabled, true);
     assert.equal(pathMetadata.planningModeAllowed, false);
   }
+
+  await writePiRuntimeConfig({
+    ...DEFAULT_PI_CONFIG,
+    activeProvider: 'google',
+    providers: {
+      ...DEFAULT_PI_CONFIG.providers,
+      google: {
+        ...DEFAULT_PI_CONFIG.providers.google,
+        enabledTools: ['email_search'],
+      },
+    },
+  });
+  const restrictedRuntimeTools = await getPiTools();
+  const restrictedEmailGateway = restrictedRuntimeTools.find((tool) => tool.name === 'email');
+  assert.ok(restrictedEmailGateway);
+  assert.equal(restrictedRuntimeTools.some((tool) => tool.name === 'email_search'), false);
+  const restrictedEmailSearch = await restrictedEmailGateway.execute('restricted-email-search', { action: 'search' });
+  assert.match(getText(restrictedEmailSearch), /email_search/);
+  assert.doesNotMatch(getText(restrictedEmailSearch), /email_send_draft/);
+  const restrictedEmailSend = await restrictedEmailGateway.execute('restricted-email-send', {
+    action: 'describe',
+    operation: 'email_send_draft',
+  });
+  assert.match(getText(restrictedEmailSend), /not available/);
 
   console.log('pi-tool-registry-test: ok');
 

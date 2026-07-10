@@ -12,6 +12,7 @@ function getText(result: unknown): string {
 async function main() {
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'canvas-mcp-direct-'));
   process.env.CANVAS_DATA_ROOT = tempRoot;
+  process.env.MCP_ALLOW_STDIO = 'true';
 
   const projectRoot = process.cwd();
   const serverPath = path.join(projectRoot, 'scripts', 'fixtures', 'fake-mcp-server.ts');
@@ -31,6 +32,14 @@ async function main() {
   const originalLoad = moduleInternals._load;
   moduleInternals._load = (request, parent, isMain) => {
     if (request === 'server-only') return {};
+    if (request === '@earendil-works/pi-ai/compat') {
+      return {
+        getModels: () => [],
+        getProviders: () => [],
+        registerBuiltInApiProviders: () => undefined,
+      };
+    }
+    if (request === '@earendil-works/pi-ai/oauth') return {};
     return originalLoad(request, parent, isMain);
   };
   const { getPiToolMetadata } = await import('../app/lib/pi/tool-registry');

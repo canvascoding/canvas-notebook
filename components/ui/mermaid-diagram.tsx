@@ -14,7 +14,9 @@ import {
 mermaid.initialize({
   startOnLoad: false,
   theme: 'default',
-  securityLevel: 'loose',
+  // Keep Mermaid diagrams interactive while letting Mermaid sanitize the SVG
+  // before it is inserted into the authenticated application document.
+  securityLevel: 'strict',
 });
 
 let mermaidRenderCounter = 0;

@@ -130,7 +130,16 @@ export async function PATCH(request: NextRequest) {
       ? await setUserPreferredLocale(session.user.id, updates.locale)
       : await updateUserPreferences(session.user.id, updates);
     console.log('[user-preferences] PATCH success', { requestId, ...logUser, updateKeys });
-    return jsonWithRequestId(requestId, { success: true, data: preferences });
+    const response = jsonWithRequestId(requestId, { success: true, data: preferences });
+    if (updates.locale) {
+      response.cookies.set('NEXT_LOCALE', updates.locale, {
+        path: '/',
+        sameSite: 'lax',
+        secure: process.env.NODE_ENV === 'production',
+        maxAge: 60 * 60 * 24 * 365,
+      });
+    }
+    return response;
   } catch (error) {
     console.error('[user-preferences] PATCH failed', { requestId, ...logUser, error });
     return jsonWithRequestId(

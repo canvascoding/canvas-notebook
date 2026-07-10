@@ -17,8 +17,8 @@ import {
   DEFAULT_MANAGED_AGENT_ID,
   writeManagedAgentFile,
 } from '@/app/lib/agents/storage';
-import { isOnboardingComplete, markOnboardingComplete } from '@/app/lib/onboarding/status';
 import { savePiSession } from '@/app/lib/pi/session-store';
+import { getUserOnboardingState, updateUserOnboardingState } from '@/app/lib/user-preferences';
 
 export const ONBOARDING_BOOTSTRAP_FILE_NAME = 'BOOTSTRAP.md';
 export const ONBOARDING_PROFILE_SESSION_TITLE = 'Canvas Agent Onboarding';
@@ -125,18 +125,8 @@ function normalizeProfileContent(value: string, label: string): string {
   return `${normalized}\n`;
 }
 
-function normalizeCompletionNotes(value?: string | null): string {
-  const normalized = value?.replace(/\s+/g, ' ').trim();
-  if (!normalized) {
-    return 'profile_completed';
-  }
-  return `profile_completed: ${normalized.slice(0, 400)}`;
-}
-
-async function assertOnboardingStillOpen(): Promise<void> {
-  if (await isOnboardingComplete()) {
-    throw new OnboardingProfileError('Onboarding is already complete.', 'ONBOARDING_ALREADY_COMPLETE', 409);
-  }
+async function isProfilePending(userId: string): Promise<boolean> {
+  return (await getUserOnboardingState(userId)).profile === 'pending';
 }
 
 async function onboardingSessionHasMessages(sessionDbId: number): Promise<boolean> {
@@ -152,7 +142,9 @@ export async function ensureOnboardingProfileSession(params: {
   userId: string;
   locale?: string | null;
 }): Promise<{ sessionId: string }> {
-  await assertOnboardingStillOpen();
+  if (!(await isProfilePending(params.userId))) {
+    throw new OnboardingProfileError('Your onboarding profile is already complete.', 'PROFILE_ALREADY_COMPLETE', 409);
+  }
   await ensureDefaultAgent();
 
   const sessionId = buildOnboardingProfileSessionId(params.userId);
@@ -204,51 +196,42 @@ export async function completeOnboardingProfile(params: {
   userMd: string;
   soulMd: string;
   summary?: string | null;
-}): Promise<{ success: true; deletedBootstrap: boolean }> {
-  await assertOnboardingStillOpen();
+}): Promise<{ success: true; deletedBootstrap: boolean; instanceCompleted: boolean }> {
+  if (!(await isProfilePending(params.userId))) {
+    throw new OnboardingProfileError('Your onboarding profile is already complete.', 'PROFILE_ALREADY_COMPLETE', 409);
+  }
 
   const userMd = normalizeProfileContent(params.userMd, 'USER.md');
   const soulMd = normalizeProfileContent(params.soulMd, 'SOUL.md');
 
   await writeManagedAgentFile('USER.md', userMd, DEFAULT_MANAGED_AGENT_ID, { userId: params.userId });
   await writeManagedAgentFile('SOUL.md', soulMd, DEFAULT_MANAGED_AGENT_ID, { userId: params.userId });
-  const deletedBootstrap = await deleteOnboardingBootstrapFile();
+  await updateUserOnboardingState(params.userId, { profile: 'completed', step: 'tour' });
 
-  await markOnboardingComplete({
-    completedBy: params.userId,
-    method: 'ui',
-    notes: normalizeCompletionNotes(params.summary),
-  });
-
-  return { success: true, deletedBootstrap };
+  return { success: true, deletedBootstrap: false, instanceCompleted: false };
 }
 
 export async function skipOnboardingProfile(params: {
   userId: string;
-}): Promise<{ success: true; deletedBootstrap: boolean; alreadyComplete: boolean }> {
-  if (await isOnboardingComplete()) {
-    return { success: true, deletedBootstrap: false, alreadyComplete: true };
+}): Promise<{ success: true; deletedBootstrap: boolean; instanceCompleted: boolean; alreadyComplete: boolean }> {
+  if (!(await isProfilePending(params.userId))) {
+    return { success: true, deletedBootstrap: false, instanceCompleted: false, alreadyComplete: true };
   }
 
-  const deletedBootstrap = await deleteOnboardingBootstrapFile();
-  await markOnboardingComplete({
-    completedBy: params.userId,
-    method: 'ui',
-    notes: 'profile_skipped',
-  });
-
-  return { success: true, deletedBootstrap, alreadyComplete: false };
+  await updateUserOnboardingState(params.userId, { profile: 'skipped', step: 'tour' });
+  return { success: true, deletedBootstrap: false, instanceCompleted: false, alreadyComplete: false };
 }
 
 export async function isOnboardingProfileToolAvailable(params: {
+  userId?: string | null;
   agentId?: string | null;
   sessionId?: string | null;
 }): Promise<boolean> {
   if ((params.agentId?.trim() || DEFAULT_AGENT_ID) !== DEFAULT_AGENT_ID) {
     return false;
   }
-  if (!params.sessionId?.startsWith('onboarding-profile-')) {
+  if (!params.userId || !params.sessionId || params.sessionId !== buildOnboardingProfileSessionId(params.userId)) {
     return false;
   }
-  return !(await isOnboardingComplete());
+  return isProfilePending(params.userId);
 }

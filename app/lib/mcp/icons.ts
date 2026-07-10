@@ -2,12 +2,14 @@ import crypto from 'crypto';
 import path from 'path';
 
 import { readMcpConfig, type McpServerConfig } from '@/app/lib/mcp/config';
+import { assertMcpHttpUrlAllowed } from '@/app/lib/mcp/network-policy';
 import {
-  readSettingsBufferFileIfExists,
-  readSettingsTextFileIfExists,
-  writeSettingsBufferFileAtomic,
-  writeSettingsTextFileAtomic,
-} from '@/app/lib/settings-storage';
+  readMcpBufferFileIfExists,
+  readMcpTextFileIfExists,
+  writeMcpBufferFileAtomic,
+  writeMcpTextFileAtomic,
+} from '@/app/lib/mcp/storage';
+import type { McpScope } from '@/app/lib/mcp/scope';
 
 const ICON_CACHE_FILE = 'mcp-server-icons.json';
 const ICON_CACHE_DIR = 'mcp-icons';
@@ -98,9 +100,9 @@ function getRegistrableOrigin(origin: string): string | null {
   return registrableOrigin === origin ? null : registrableOrigin;
 }
 
-async function readIconCache(): Promise<McpIconCacheFile> {
+async function readIconCache(scope?: McpScope | null): Promise<McpIconCacheFile> {
   try {
-    const { content } = await readSettingsTextFileIfExists(ICON_CACHE_FILE);
+    const { content } = await readMcpTextFileIfExists(ICON_CACHE_FILE, scope);
     if (!content) {
       return { version: 1, updatedAt: new Date(0).toISOString(), servers: {} };
     }
@@ -110,16 +112,17 @@ async function readIconCache(): Promise<McpIconCacheFile> {
   }
 }
 
-async function writeIconCache(cache: McpIconCacheFile): Promise<void> {
+async function writeIconCache(cache: McpIconCacheFile, scope?: McpScope | null): Promise<void> {
   cache.updatedAt = new Date().toISOString();
-  await writeSettingsTextFileAtomic(ICON_CACHE_FILE, JSON.stringify(cache, null, 2));
+  await writeMcpTextFileAtomic(ICON_CACHE_FILE, JSON.stringify(cache, null, 2), scope);
 }
 
 async function fetchWithTimeout(url: string, init?: RequestInit): Promise<Response> {
+  const validatedUrl = await assertMcpHttpUrlAllowed(url, 'MCP icon URL');
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
   try {
-    return await fetch(url, {
+    return await fetch(validatedUrl, {
       ...init,
       redirect: 'follow',
       signal: controller.signal,
@@ -221,7 +224,7 @@ async function buildIconCandidates(serverConfig: McpServerConfig): Promise<Array
   });
 }
 
-async function fetchIcon(serverName: string, origin: string, iconUrl: string): Promise<McpServerIconMetadata> {
+async function fetchIcon(serverName: string, origin: string, iconUrl: string, scope?: McpScope | null): Promise<McpServerIconMetadata> {
   const response = await fetchWithTimeout(iconUrl, {
     headers: { Accept: 'image/avif,image/webp,image/svg+xml,image/png,image/*,*/*;q=0.8' },
   });
@@ -242,7 +245,7 @@ async function fetchIcon(serverName: string, origin: string, iconUrl: string): P
   const extension = CONTENT_TYPE_EXTENSIONS[contentType];
   const digest = crypto.createHash('sha256').update(`${serverName}:${iconUrl}:${buffer.length}`).digest('hex').slice(0, 16);
   const fileName = `${sanitizeServerName(serverName)}-${digest}.${extension}`;
-  await writeSettingsBufferFileAtomic(path.join(ICON_CACHE_DIR, fileName), buffer);
+  await writeMcpBufferFileAtomic(path.join(ICON_CACHE_DIR, fileName), buffer, scope);
 
   return {
     serverName,
@@ -269,10 +272,10 @@ function shouldRefreshIcon(metadata: McpServerIconMetadata | undefined, serverCo
   return Date.now() - Date.parse(metadata.fetchedAt) > ttl;
 }
 
-export async function refreshMcpServerIcon(serverName: string, serverConfig: McpServerConfig): Promise<McpServerIconMetadata> {
+export async function refreshMcpServerIcon(serverName: string, serverConfig: McpServerConfig, scope?: McpScope | null): Promise<McpServerIconMetadata> {
   const origin = getServerOrigin(serverConfig);
   const configuredIconUrl = getConfiguredIconUrl(serverConfig);
-  const cache = await readIconCache();
+  const cache = await readIconCache(scope);
 
   if (!origin && !configuredIconUrl) {
     const metadata: McpServerIconMetadata = {
@@ -286,7 +289,7 @@ export async function refreshMcpServerIcon(serverName: string, serverConfig: Mcp
       error: 'MCP server has no HTTP origin.',
     };
     cache.servers[serverName] = metadata;
-    await writeIconCache(cache);
+    await writeIconCache(cache, scope);
     return metadata;
   }
 
@@ -295,9 +298,9 @@ export async function refreshMcpServerIcon(serverName: string, serverConfig: Mcp
     let lastError = 'No icon candidates found.';
     for (const candidate of candidates) {
       try {
-        const metadata = await fetchIcon(serverName, candidate.origin, candidate.iconUrl);
+        const metadata = await fetchIcon(serverName, candidate.origin, candidate.iconUrl, scope);
         cache.servers[serverName] = metadata;
-        await writeIconCache(cache);
+        await writeIconCache(cache, scope);
         return metadata;
       } catch (error) {
         lastError = getErrorMessage(error);
@@ -316,29 +319,29 @@ export async function refreshMcpServerIcon(serverName: string, serverConfig: Mcp
       error: getErrorMessage(error),
     };
     cache.servers[serverName] = metadata;
-    await writeIconCache(cache);
+    await writeIconCache(cache, scope);
     return metadata;
   }
 }
 
-export async function getMcpServerIconMetadata(serverName: string): Promise<McpServerIconMetadata | null> {
-  const config = await readMcpConfig();
+export async function getMcpServerIconMetadata(serverName: string, scope?: McpScope | null): Promise<McpServerIconMetadata | null> {
+  const config = await readMcpConfig(scope);
   const serverConfig = config.mcpServers[serverName];
   if (!serverConfig) return null;
 
-  const cache = await readIconCache();
+  const cache = await readIconCache(scope);
   const metadata = cache.servers[serverName];
 
   if (shouldRefreshIcon(metadata, serverConfig)) {
-    return refreshMcpServerIcon(serverName, serverConfig);
+    return refreshMcpServerIcon(serverName, serverConfig, scope);
   }
 
   return metadata || null;
 }
 
-export async function refreshMcpServerIcons(): Promise<Record<string, McpServerIconMetadata | null>> {
-  const config = await readMcpConfig();
-  const cache = await readIconCache();
+export async function refreshMcpServerIcons(scope?: McpScope | null): Promise<Record<string, McpServerIconMetadata | null>> {
+  const config = await readMcpConfig(scope);
+  const cache = await readIconCache(scope);
   const result: Record<string, McpServerIconMetadata | null> = {};
 
   await Promise.all(Object.entries(config.mcpServers).map(async ([serverName, serverConfig]) => {
@@ -347,17 +350,17 @@ export async function refreshMcpServerIcons(): Promise<Record<string, McpServerI
       result[serverName] = metadata || null;
       return;
     }
-    result[serverName] = await refreshMcpServerIcon(serverName, serverConfig).catch(() => null);
+    result[serverName] = await refreshMcpServerIcon(serverName, serverConfig, scope).catch(() => null);
   }));
 
   return result;
 }
 
-export async function readMcpServerIconFile(serverName: string): Promise<{ buffer: Buffer; contentType: string } | null> {
-  const metadata = await getMcpServerIconMetadata(serverName);
+export async function readMcpServerIconFile(serverName: string, scope?: McpScope | null): Promise<{ buffer: Buffer; contentType: string } | null> {
+  const metadata = await getMcpServerIconMetadata(serverName, scope);
   if (!metadata?.fileName || !metadata.contentType) return null;
 
-  const { buffer } = await readSettingsBufferFileIfExists(path.join(ICON_CACHE_DIR, metadata.fileName));
+  const { buffer } = await readMcpBufferFileIfExists(path.join(ICON_CACHE_DIR, metadata.fileName), scope);
   if (!buffer) return null;
   return { buffer, contentType: metadata.contentType };
 }

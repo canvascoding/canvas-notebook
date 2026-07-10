@@ -276,7 +276,7 @@ export function UserManagementPanel({
     await runAction(
       'create',
       async () => {
-        unwrapAuthResult<{ user: ManagedUser }>(
+        const created = unwrapAuthResult<{ user: ManagedUser }>(
           await authClient.admin.createUser({
             name,
             email,
@@ -285,6 +285,16 @@ export function UserManagementPanel({
           }),
           t('errors.create'),
         );
+        const onboardingResponse = await fetch('/api/onboarding/user-initialize', {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userId: created.user.id }),
+        });
+        const onboardingPayload = await onboardingResponse.json().catch(() => ({})) as { error?: string };
+        if (!onboardingResponse.ok) {
+          throw new Error(onboardingPayload.error || t('errors.create'));
+        }
         setCreateOpen(false);
         setCreateDraft(createEmptyDraft());
       },

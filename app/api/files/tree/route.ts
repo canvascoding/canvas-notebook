@@ -5,6 +5,16 @@ import { rateLimit } from '@/app/lib/utils/rate-limit';
 import { getPublicShareAnnotations } from '@/app/lib/public-sharing/public-file-shares';
 import { requireRequestWorkspace, workspaceFileOptions } from '@/app/lib/workspaces/request';
 
+const DEFAULT_TREE_DEPTH = 4;
+const MAX_TREE_DEPTH = 6;
+
+function parseTreeDepth(value: string | null): number | null {
+  if (value === null) return DEFAULT_TREE_DEPTH;
+  if (!/^\d+$/.test(value)) return null;
+  const depth = Number(value);
+  return Number.isSafeInteger(depth) && depth >= 0 && depth <= MAX_TREE_DEPTH ? depth : null;
+}
+
 function collectFilePaths(nodes: Array<{ path: string; type: string; children?: unknown[] }>, result: string[] = []) {
   for (const node of nodes) {
     if (node.type === 'file') result.push(node.path);
@@ -50,7 +60,13 @@ export async function GET(request: NextRequest) {
 
     const { searchParams } = new URL(request.url);
     const path = searchParams.get('path') || '.';
-    const depth = parseInt(searchParams.get('depth') || '4');
+    const depth = parseTreeDepth(searchParams.get('depth'));
+    if (depth === null) {
+      return NextResponse.json(
+        { success: false, error: `depth must be an integer between 0 and ${MAX_TREE_DEPTH}` },
+        { status: 400 },
+      );
+    }
     const noCache = searchParams.has('noCache');
     const includeStats = searchParams.get('stats') !== '0';
 

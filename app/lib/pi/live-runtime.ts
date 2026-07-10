@@ -7,15 +7,20 @@ import type { Api, AssistantMessage, Model } from '@earendil-works/pi-ai';
 import { db } from '@/app/lib/db';
 import { piSessions } from '@/app/lib/db/schema';
 import { resolveAgentRuntimeConfig } from '@/app/lib/agents/effective-runtime-config';
-import { createPiSystemPromptSnapshot, ensurePiSessionSystemPromptSnapshot } from '@/app/lib/pi/system-prompt-snapshot';
-import { resolvePiApiKey } from '@/app/lib/pi/api-key-resolver';
+import {
+  createPiSystemPromptSnapshot,
+  ensurePiSessionSystemPromptSnapshot,
+  piSystemPromptSnapshotDbFields,
+} from '@/app/lib/pi/system-prompt-snapshot';
+import { createUserScopedPiApiKeyResolver } from '@/app/lib/pi/api-key-resolver';
 import {
   composePiHistoryForLlm,
   estimateTextTokens,
   type PiHistoryComposition,
   type PiSessionSummaryState,
 } from '@/app/lib/pi/history-budget';
-import { normalizePiMessagesForLlm } from '@/app/lib/pi/message-normalization';
+import { normalizePiMessagesForLlm, filterImagesForNonVisionModel } from '@/app/lib/pi/message-normalization';
+import { MAX_LLM_HISTORY_BYTES } from '@/app/lib/pi/llm-payload-limits';
 import { createCompactBreakMessage, createRuntimeContinuationMessage, type RuntimeContinuationReason } from '@/app/lib/pi/custom-messages';
 import {
   createThinkingFilterState,
@@ -26,6 +31,7 @@ import {
 import {
   formatImageInputUnsupportedError,
   isImageInputUnsupportedError,
+  modelSupportsImageInput,
   resolvePiModel,
 } from '@/app/lib/pi/model-resolver';
 import { preparePiHistoryContext } from '@/app/lib/pi/session-summary';
@@ -59,6 +65,12 @@ import {
   getAgentRuntimeTempPromptBlock,
   resolveAgentRuntimeTempDir,
 } from '@/app/lib/pi/agent-runtime-temp';
+import {
+  RuntimeMessageQueues,
+  type RuntimeQueueEntry,
+  type RuntimeQueuePreview,
+} from '@/app/lib/pi/runtime-queue';
+import { resolveAgentExecutionContextForSession } from '@/app/lib/pi/session-workspace-context';
 
 export type { PiRuntimePromptContext } from '@/app/lib/pi/runtime-prompt-context';
 
@@ -66,6 +78,20 @@ const IDLE_TTL_MS = 15 * 60 * 1000;
 const CLEANUP_INTERVAL_MS = 60 * 1000;
 const MAX_RUNTIME_INSTANCES = 20;
 const RUNTIME_CONTEXT_VALUE_MAX_CHARS = 2_000;
+
+function estimatePiToolSchemaTokens(tools: AgentTool[]): number {
+  try {
+    return estimateTextTokens(JSON.stringify(tools.map((tool) => ({
+      name: tool.name,
+      label: tool.label,
+      description: tool.description,
+      parameters: tool.parameters,
+    }))));
+  } catch {
+    // Keep a conservative fallback if an extension supplies a non-serializable schema.
+    return tools.reduce((total, tool) => total + estimateTextTokens(`${tool.name}\n${tool.label}\n${tool.description || ''}`), 0);
+  }
+}
 
 function getStudioOutputReferencePaths(outputFilePath: string) {
   const normalizedOutputPath = outputFilePath.replace(/^\/+/, '');
@@ -121,21 +147,13 @@ async function getEmitter() {
 
 type RuntimePhase = 'idle' | 'streaming' | 'running_tool' | 'aborting';
 
-type QueueEntryPreview = {
-  id: string;
-  text: string;
-  attachmentCount: number;
-  messageTimestamp?: number;
-  signature?: string;
-};
-
 export type PiRuntimeStatus = {
   sessionId: string;
   phase: RuntimePhase;
   activeTool: { toolCallId: string; name: string } | null;
   pendingToolCalls: number;
-  followUpQueue: QueueEntryPreview[];
-  steeringQueue: QueueEntryPreview[];
+  followUpQueue: RuntimeQueuePreview[];
+  steeringQueue: RuntimeQueuePreview[];
   canAbort: boolean;
   contextWindow: number;
   estimatedHistoryTokens: number;
@@ -169,13 +187,6 @@ export type RuntimeErrorEvent = {
 
 export type PiRuntimeStreamEvent = AgentEvent | RuntimeStatusEvent | ContextCompactedEvent | RuntimeErrorEvent;
 type RuntimeSubscriber = (event: PiRuntimeStreamEvent) => void;
-
-type RuntimeQueueEntry = {
-  id: string;
-  preview: QueueEntryPreview;
-  message: Extract<AgentMessage, { role: 'user' }>;
-  signature: string;
-};
 
 type RuntimeTurnEndEvent = Extract<AgentEvent, { type: 'turn_end' }>;
 
@@ -276,7 +287,7 @@ function countMessageAttachments(message: Extract<AgentMessage, { role: 'user' }
   return message.content.filter((part) => part && typeof part === 'object' && 'type' in part && part.type === 'image').length;
 }
 
-function buildQueuePreview(message: Extract<AgentMessage, { role: 'user' }>): QueueEntryPreview {
+function buildQueuePreview(message: Extract<AgentMessage, { role: 'user' }>): RuntimeQueuePreview {
   return {
     id: `queue-${message.timestamp}-${Math.random().toString(36).slice(2, 8)}`,
     text: extractUserMessageText(message),
@@ -358,13 +369,12 @@ class LivePiRuntime {
   readonly agentId: string;
   readonly provider: string;
   readonly model: Model<Api>;
-  readonly systemPrompt: string;
+  private systemPrompt: string;
   private tools: AgentTool[];
   readonly agent: Agent;
 
   private readonly subscribers = new Set<RuntimeSubscriber>();
-  private followUpQueue: RuntimeQueueEntry[] = [];
-  private steeringQueue: RuntimeQueueEntry[] = [];
+  private readonly messageQueues = new RuntimeMessageQueues();
   private pendingReplace: RuntimeQueueEntry | null = null;
   private activeTool: { toolCallId: string; name: string } | null = null;
   private abortRequested = false;
@@ -438,6 +448,14 @@ class LivePiRuntime {
     return this.pendingReplace !== null;
   }
 
+  private get followUpQueue() {
+    return this.messageQueues.followUps;
+  }
+
+  private get steeringQueue() {
+    return this.messageQueues.steering;
+  }
+
   subscribe(subscriber: RuntimeSubscriber) {
     this.subscribers.add(subscriber);
     return () => {
@@ -453,7 +471,7 @@ class LivePiRuntime {
         systemPromptTokens: estimateTextTokens(this.getEffectiveSystemPrompt()),
         contextWindow: this.model.contextWindow,
         modelMaxTokens: this.model.maxTokens,
-        toolCount: this.tools.length,
+        toolTokens: estimatePiToolSchemaTokens(this.tools),
       });
     }
     const composition = this.lastComposition;
@@ -492,9 +510,8 @@ class LivePiRuntime {
 
     const sanitized = sanitizeUserMessage(message);
     const entry = this.createQueueEntry(sanitized);
-    this.followUpQueue.push(entry);
+    this.messageQueues.enqueueFollowUp(entry, this.agent);
     this.touch();
-    this.agent.followUp(entry.message);
     this.publishStatus();
     return this.getStatus();
   }
@@ -506,61 +523,33 @@ class LivePiRuntime {
 
     const sanitized = sanitizeUserMessage(message);
     const entry = this.createQueueEntry(sanitized);
-    this.steeringQueue.push(entry);
+    this.messageQueues.enqueueSteering(entry, this.agent);
     this.touch();
-    this.agent.steer(entry.message);
     this.publishStatus();
     return this.getStatus();
   }
 
   async promoteQueuedMessageToSteering(queueItemId: string) {
-    const followUpIndex = this.followUpQueue.findIndex((entry) => entry.preview.id === queueItemId || entry.id === queueItemId);
-    if (followUpIndex === -1) {
-      return this.getStatus();
-    }
-
-    const [entry] = this.followUpQueue.splice(followUpIndex, 1);
+    const entry = this.messageQueues.promoteFollowUp(queueItemId, this.agent);
     if (!entry) {
       return this.getStatus();
     }
 
-    this.agent.clearFollowUpQueue();
-    for (const queuedEntry of this.followUpQueue) {
-      this.agent.followUp(queuedEntry.message);
-    }
-
     if (!this.isRunning && !this.agent.state.isStreaming) {
+      this.messageQueues.trackSteering(entry);
       this.startPrompt(entry.message);
       return this.getStatus();
     }
 
-    this.steeringQueue.push(entry);
+    this.messageQueues.enqueueSteering(entry, this.agent);
     this.touch();
-    this.agent.steer(entry.message);
     this.publishStatus();
     return this.getStatus();
   }
 
   async removeQueuedMessage(queueItemId: string) {
-    const followUpIndex = this.followUpQueue.findIndex((entry) => entry.preview.id === queueItemId || entry.id === queueItemId);
-    if (followUpIndex !== -1) {
-      this.followUpQueue.splice(followUpIndex, 1);
-      this.agent.clearFollowUpQueue();
-      for (const entry of this.followUpQueue) {
-        this.agent.followUp(entry.message);
-      }
-      this.touch();
-      this.publishStatus();
-      return this.getStatus();
-    }
-
-    const steeringIndex = this.steeringQueue.findIndex((entry) => entry.preview.id === queueItemId || entry.id === queueItemId);
-    if (steeringIndex !== -1) {
-      this.steeringQueue.splice(steeringIndex, 1);
-      this.agent.clearSteeringQueue();
-      for (const entry of this.steeringQueue) {
-        this.agent.steer(entry.message);
-      }
+    const removedKind = this.messageQueues.remove(queueItemId, this.agent);
+    if (removedKind) {
       this.touch();
       this.publishStatus();
     }
@@ -576,9 +565,7 @@ class LivePiRuntime {
       return this.getStatus();
     }
 
-    this.agent.clearAllQueues();
-    this.followUpQueue = [];
-    this.steeringQueue = [];
+    this.messageQueues.clear(this.agent);
     this.pendingReplace = this.createQueueEntry(sanitized);
     this.abortRequested = true;
     this.touch();
@@ -608,9 +595,21 @@ class LivePiRuntime {
       summary: this.summary,
       systemPromptTokens: estimateTextTokens(this.getEffectiveSystemPrompt()),
       model: this.model,
-      toolCount: this.tools.length,
+      toolTokens: estimatePiToolSchemaTokens(this.tools),
       sessionId: this.sessionId,
     });
+
+    if (result.composition.contextBudgetExceeded) {
+      if (result.composition.payloadBudgetExceeded) {
+        throw new Error(
+          `Context compaction cannot run because the latest message exceeds the ${Math.floor(MAX_LLM_HISTORY_BYTES / (1024 * 1024))}MB LLM transfer budget. ` +
+          'Shorten the latest message or attachments.',
+        );
+      }
+      throw new Error(
+        'Context compaction cannot run because the system prompt, tools, output reserve, or latest message already exceeds the selected model context window.',
+      );
+    }
 
     if (result.summaryFailed && result.composition.omittedMessages.length > 0) {
       this.lastComposition = composePiHistoryForLlm({
@@ -619,7 +618,7 @@ class LivePiRuntime {
         systemPromptTokens: estimateTextTokens(this.getEffectiveSystemPrompt()),
         contextWindow: this.model.contextWindow,
         modelMaxTokens: this.model.maxTokens,
-        toolCount: this.tools.length,
+        toolTokens: estimatePiToolSchemaTokens(this.tools),
       });
       this.touch();
       this.publishStatus();
@@ -628,8 +627,15 @@ class LivePiRuntime {
       );
     }
 
+    const omittedCount = result.composition.omittedMessages.length;
+    if (omittedCount === 0) {
+      this.lastComposition = result.composition;
+      this.touch();
+      this.publishStatus();
+      return this.getStatus();
+    }
+
     this.summary = result.summary;
-    this.lastComposition = result.composition;
     this.recordCompaction('manual', result.composition);
 
     await savePiSession(
@@ -641,20 +647,15 @@ class LivePiRuntime {
       this.summary,
       { agentId: this.agentId },
     );
-
-    const omittedCount = result.composition.omittedMessages.length;
-    if (omittedCount > 0) {
-      this.agent.state.messages.splice(0, omittedCount);
-      this.lastPersistedLength = this.agent.state.messages.length;
-      this.lastComposition = composePiHistoryForLlm({
-        messages: this.agent.state.messages,
-        summary: this.summary,
-        systemPromptTokens: estimateTextTokens(this.getEffectiveSystemPrompt()),
-        contextWindow: this.model.contextWindow,
-        modelMaxTokens: this.model.maxTokens,
-        toolCount: this.tools.length,
-      });
-    }
+    this.lastPersistedLength = this.agent.state.messages.length;
+    this.lastComposition = composePiHistoryForLlm({
+      messages: this.agent.state.messages,
+      summary: this.summary,
+      systemPromptTokens: estimateTextTokens(this.getEffectiveSystemPrompt()),
+      contextWindow: this.model.contextWindow,
+      modelMaxTokens: this.model.maxTokens,
+      toolTokens: estimatePiToolSchemaTokens(this.tools),
+    });
 
     this.touch();
     this.publishStatus();
@@ -700,9 +701,30 @@ class LivePiRuntime {
   }
 
   async reloadTools() {
+    if (this.systemPromptRefreshRequested && !this.isRunning && !this.agent.state.isStreaming) {
+      await this.refreshSystemPrompt();
+    }
     this.tools = await getPiTools(this.userId, this.agentId, this.sessionId);
     this.lastComposition = null;
     this.agent.state.tools = this.planningMode ? filterToolsForPlanningMode(this.tools) : this.tools;
+  }
+
+  private systemPromptRefreshRequested = false;
+
+  requestSystemPromptRefresh(): void {
+    this.systemPromptRefreshRequested = true;
+  }
+
+  private async refreshSystemPrompt(): Promise<void> {
+    const snapshot = await createPiSystemPromptSnapshot(this.agentId, { userId: this.userId });
+    this.systemPrompt = snapshot.systemPrompt;
+    this.systemPromptRefreshRequested = false;
+    this.lastComposition = null;
+    this.agent.state.systemPrompt = this.getEffectiveSystemPrompt();
+    await db
+      .update(piSessions)
+      .set(piSystemPromptSnapshotDbFields(snapshot))
+      .where(and(eq(piSessions.sessionId, this.sessionId), eq(piSessions.userId, this.userId)));
   }
 
   private getEffectiveSystemPrompt(): string {
@@ -932,17 +954,23 @@ class LivePiRuntime {
     ].join('\n');
   }
 
-  private async injectRuntimeContext(messages: AgentMessage[]): Promise<AgentMessage[]> {
-    let latestUserMessageText = '';
-    for (let index = messages.length - 1; index >= 0; index -= 1) {
-      const message = messages[index];
-      if (isUserMessage(message)) {
-        latestUserMessageText = extractUserMessageText(message);
-        break;
+  private async injectRuntimeContext(
+    messages: AgentMessage[],
+    preparedRuntimeContext?: string | null,
+  ): Promise<AgentMessage[]> {
+    let runtimeContext = preparedRuntimeContext;
+    if (runtimeContext === undefined) {
+      let latestUserMessageText = '';
+      for (let index = messages.length - 1; index >= 0; index -= 1) {
+        const message = messages[index];
+        if (isUserMessage(message)) {
+          latestUserMessageText = extractUserMessageText(message);
+          break;
+        }
       }
+      runtimeContext = await this.getRuntimeContextBlock(latestUserMessageText);
     }
 
-    const runtimeContext = await this.getRuntimeContextBlock(latestUserMessageText);
     if (!runtimeContext) {
       return messages;
     }
@@ -1184,15 +1212,39 @@ class LivePiRuntime {
   }
 
   async transformContext(messages: AgentMessage[], signal?: AbortSignal) {
+    let latestUserMessageText = '';
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+      const message = messages[index];
+      if (isUserMessage(message)) {
+        latestUserMessageText = extractUserMessageText(message);
+        break;
+      }
+    }
+    const runtimeContext = await this.getRuntimeContextBlock(latestUserMessageText);
     const result = await preparePiHistoryContext({
       messages,
       summary: this.summary,
       systemPromptTokens: estimateTextTokens(this.getEffectiveSystemPrompt()),
       model: this.model,
-      toolCount: this.tools.length,
+      toolTokens: estimatePiToolSchemaTokens(this.tools),
+      additionalContextTokens: runtimeContext ? estimateTextTokens(runtimeContext) : 0,
       sessionId: this.sessionId,
       signal,
     });
+
+    if (result.composition.contextBudgetExceeded) {
+      if (result.composition.payloadBudgetExceeded) {
+        throw new Error(
+          `The current request exceeds the ${Math.floor(MAX_LLM_HISTORY_BYTES / (1024 * 1024))}MB LLM transfer budget after image compression. ` +
+          'Shorten the latest message or attachments.',
+        );
+      }
+      throw new Error(
+        `The current request is too large for the selected model context window. ` +
+        `It requires at least ${result.composition.minimumRequiredTokens.toLocaleString()} history tokens after system, tool, and output reserves. ` +
+        'Use a larger-context model or shorten the latest message/attachments.',
+      );
+    }
 
     const previousSummaryThroughTimestamp = this.summary.summaryThroughTimestamp ?? null;
     const previousSummaryUpdatedAt = this.summary.summaryUpdatedAt?.getTime() ?? null;
@@ -1210,7 +1262,7 @@ class LivePiRuntime {
     }
 
     this.publishStatus();
-    return this.injectRuntimeContext(result.composition.llmMessages);
+    return this.injectRuntimeContext(result.composition.llmMessages, runtimeContext);
   }
 
   private createQueueEntry(message: Extract<AgentMessage, { role: 'user' }>) {
@@ -1223,17 +1275,7 @@ class LivePiRuntime {
   }
 
   private consumeQueuedMessage(message: Extract<AgentMessage, { role: 'user' }>) {
-    const signature = getMessageSignature(message);
-    const steeringIndex = this.steeringQueue.findIndex((entry) => entry.signature === signature);
-    if (steeringIndex !== -1) {
-      this.steeringQueue.splice(steeringIndex, 1);
-      return;
-    }
-
-    const followUpIndex = this.followUpQueue.findIndex((entry) => entry.signature === signature);
-    if (followUpIndex !== -1) {
-      this.followUpQueue.splice(followUpIndex, 1);
-    }
+    this.messageQueues.consume(getMessageSignature(message), this.agent);
   }
 
   private async handleTurnEnd(event: RuntimeTurnEndEvent) {
@@ -1463,6 +1505,25 @@ async function createRuntime(sessionId: string, userId: string): Promise<LivePiR
   const systemPrompt = promptSnapshot.systemPrompt;
   const tools = await getPiTools(userId, agentId, sessionId);
   const toolLoopGuard = createToolLoopGuard();
+  const imageNormalizationOptions = await resolveAgentExecutionContextForSession({
+    sessionId,
+    userId,
+    agentId,
+  }).then((executionContext) => ({
+    workspaceImageRoot: executionContext.workspaceRoot,
+    allowedImageFileRoots: [
+      executionContext.workspaceRoot,
+      resolveAgentRuntimeTempDir({
+        userId,
+        sessionId,
+        agentId,
+        organizationId: executionContext.organizationId,
+      }),
+    ],
+  })).catch((error) => {
+    console.warn('[LiveRuntime] Failed to resolve trusted image roots:', error);
+    return {};
+  });
 
   const runtimeRef: { current: LivePiRuntime | null } = { current: null };
   const agent = new Agent({
@@ -1473,7 +1534,11 @@ async function createRuntime(sessionId: string, userId: string): Promise<LivePiR
       tools,
       messages: initialMessages,
     },
-    convertToLlm: async (messages) => normalizePiMessagesForLlm(messages.filter((m) => m.role !== 'compact-break' && m.role !== 'composio_auth_required')),
+    convertToLlm: async (messages) => {
+      const filtered = messages.filter((m) => m.role !== 'compact-break' && m.role !== 'composio_auth_required');
+      const messagesForLlm = modelSupportsImageInput(model) ? filtered : filterImagesForNonVisionModel(filtered);
+      return normalizePiMessagesForLlm(messagesForLlm, imageNormalizationOptions);
+    },
     transformContext: async (messages, signal) => {
       if (!runtimeRef.current) {
         throw new Error('PI runtime not initialized');
@@ -1481,7 +1546,7 @@ async function createRuntime(sessionId: string, userId: string): Promise<LivePiR
 
       return runtimeRef.current.transformContext(messages, signal);
     },
-    getApiKey: resolvePiApiKey,
+    getApiKey: createUserScopedPiApiKeyResolver(userId),
     afterToolCall: async (context) => toolLoopGuard.afterToolCall(context),
     sessionId,
   });
@@ -1634,6 +1699,23 @@ export async function getExistingPiRuntime(sessionId: string, userId: string) {
   return resolved;
 }
 
+/** Marks live sessions for a prompt reload at their next safe turn boundary. */
+export async function requestPiRuntimePromptRefreshForUser(userId: string): Promise<number> {
+  const store = getStore();
+  let count = 0;
+  for (const runtimePromise of store.runtimes.values()) {
+    try {
+      const runtime = await runtimePromise;
+      if (runtime.userId !== userId) continue;
+      runtime.requestSystemPromptRefresh();
+      count += 1;
+    } catch {
+      // A failed runtime is cleaned up by the regular store lifecycle.
+    }
+  }
+  return count;
+}
+
 export async function getExistingPiRuntimeStatuses(
   sessionIds: string[],
   userId: string,
@@ -1715,7 +1797,7 @@ export async function getPiRuntimeStatus(sessionId: string, userId: string): Pro
     systemPromptTokens: estimateTextTokens(systemPrompt),
     contextWindow: model.contextWindow,
     modelMaxTokens: model.maxTokens,
-    toolCount: tools.length,
+    toolTokens: estimatePiToolSchemaTokens(tools),
   });
 
   return {

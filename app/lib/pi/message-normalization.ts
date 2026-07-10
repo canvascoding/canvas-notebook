@@ -3,11 +3,12 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { AgentMessage } from '@earendil-works/pi-agent-core';
 import type { ImageContent, Message, ToolResultMessage, UserMessage } from '@earendil-works/pi-ai';
-import { getWorkspacePath } from '../utils/workspace-manager';
 import { findFilePath } from '../filesystem/upload-handler';
 import { projectAgentMessageForLoadedContext } from './message-projection';
 import { convertImage } from '../images/convert';
 import { isRuntimeContinuationMessage } from './custom-messages';
+import { isPathInside } from '../security/safe-paths';
+import { MAX_LLM_IMAGE_BYTES, MAX_LLM_TOTAL_IMAGE_BYTES } from './llm-payload-limits';
 
 const IMAGE_MIME_BY_EXTENSION: Record<string, string> = {
   '.gif': 'image/gif',
@@ -23,9 +24,22 @@ const IMAGE_MIME_BY_EXTENSION: Record<string, string> = {
 
 const DATA_URL_PATTERN = /^data:(image\/[a-z0-9.+-]+);base64,([a-z0-9+/=\s]+)$/i;
 const BASE64_PATTERN = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
-const INLINE_IMAGE_BYTE_LIMIT = 6 * 1024 * 1024;
 const SOURCE_IMAGE_BYTE_LIMIT = 50 * 1024 * 1024;
-const LARGE_IMAGE_MAX_DIMENSION = 2048;
+const LLM_IMAGE_COMPRESSION_PROFILES = [
+  { maxDimension: 1600, quality: 80 },
+  { maxDimension: 1280, quality: 70 },
+  { maxDimension: 1024, quality: 60 },
+] as const;
+
+/**
+ * Filesystem paths in model image parts are a privileged server-side capability.
+ * Callers must provide the exact trusted roots that may be read for the session.
+ * Upload URLs remain supported because they are resolved through the upload store.
+ */
+export type PiMessageNormalizationOptions = {
+  allowedImageFileRoots?: readonly string[];
+  workspaceImageRoot?: string | null;
+};
 
 // Regex to detect image file references in text
 // Supports both quoted: "path/to/file.jpg" and unquoted: path/to/file.jpg
@@ -135,7 +149,7 @@ export async function compactImageBufferForLlm(
     );
   }
 
-  if (buffer.length <= INLINE_IMAGE_BYTE_LIMIT || mimeType === 'image/svg+xml') {
+  if (buffer.length <= MAX_LLM_IMAGE_BYTES) {
     return {
       type: 'image',
       data: buffer.toString('base64'),
@@ -144,22 +158,34 @@ export async function compactImageBufferForLlm(
   }
 
   try {
-    const converted = await convertImage(buffer, originalName, {
-      format: 'webp',
-      quality: 82,
-      maxDimension: LARGE_IMAGE_MAX_DIMENSION,
-      sourceMimeType: mimeType,
-    });
+    let smallestResult: Awaited<ReturnType<typeof convertImage>> | null = null;
+    for (const profile of LLM_IMAGE_COMPRESSION_PROFILES) {
+      const converted = await convertImage(buffer, originalName, {
+        format: 'webp',
+        quality: profile.quality,
+        maxDimension: profile.maxDimension,
+        sourceMimeType: mimeType,
+      });
+      if (!smallestResult || converted.buffer.length < smallestResult.buffer.length) {
+        smallestResult = converted;
+      }
+      if (converted.buffer.length <= MAX_LLM_IMAGE_BYTES) {
+        return {
+          type: 'image',
+          data: converted.buffer.toString('base64'),
+          mimeType: converted.mimeType,
+        };
+      }
+    }
 
-    return {
-      type: 'image',
-      data: converted.buffer.toString('base64'),
-      mimeType: converted.mimeType,
-    };
+    throw new Error(
+      `Image attachment could not be compacted below the ${Math.ceil(MAX_LLM_IMAGE_BYTES / 1024)}KB LLM transfer limit` +
+      `${smallestResult ? ` (smallest result: ${Math.ceil(smallestResult.buffer.length / 1024)}KB)` : ''}.`,
+    );
   } catch (error) {
     console.warn('[Message Normalization] Failed to compact large image attachment:', error instanceof Error ? error.message : error);
     throw new Error(
-      `Image attachment is too large for chat context and could not be compacted (${Math.ceil(buffer.length / (1024 * 1024))}MB).`,
+      `Image attachment is too large for the LLM request and could not be compacted below ${Math.ceil(MAX_LLM_IMAGE_BYTES / 1024)}KB (${Math.ceil(buffer.length / (1024 * 1024))}MB source).`,
     );
   }
 }
@@ -172,7 +198,7 @@ async function normalizeBase64ImageData(
   const clean = hasWhitespace(data) ? stripWhitespace(data) : data;
   const estimatedBytes = estimateBase64Bytes(clean);
 
-  if (estimatedBytes <= INLINE_IMAGE_BYTE_LIMIT || mimeType === 'image/svg+xml') {
+  if (estimatedBytes <= MAX_LLM_IMAGE_BYTES) {
     return {
       type: 'image',
       data: clean,
@@ -189,7 +215,36 @@ async function normalizeBase64ImageData(
   return compactImageBufferForLlm(Buffer.from(clean, 'base64'), originalName, mimeType);
 }
 
-async function loadImageDataFromFile(filePath: string, mimeType: string): Promise<ImageContent> {
+async function assertAllowedImageFilePath(filePath: string, allowedRoots: readonly string[]): Promise<void> {
+  const resolvedPath = path.resolve(filePath);
+  const candidateRoots = allowedRoots
+    .filter((root): root is string => typeof root === 'string' && root.trim().length > 0)
+    .map((root) => path.resolve(root));
+
+  if (!candidateRoots.some((root) => isPathInside(root, resolvedPath))) {
+    throw new Error('Image attachment path is outside the trusted workspace or runtime directories.');
+  }
+
+  const realPath = await fs.realpath(resolvedPath);
+  const realRoots = await Promise.all(candidateRoots.map(async (root) => {
+    try {
+      return await fs.realpath(root);
+    } catch {
+      return root;
+    }
+  }));
+
+  if (!realRoots.some((root) => isPathInside(root, realPath))) {
+    throw new Error('Image attachment path resolves outside the trusted workspace or runtime directories.');
+  }
+}
+
+async function loadImageDataFromFile(
+  filePath: string,
+  mimeType: string,
+  allowedRoots: readonly string[],
+): Promise<ImageContent> {
+  await assertAllowedImageFilePath(filePath, allowedRoots);
   const resolvedMimeType = resolveImageMimeType(filePath, mimeType);
   const stats = await fs.stat(filePath);
   if (!stats.isFile()) {
@@ -205,7 +260,10 @@ async function loadImageDataFromFile(filePath: string, mimeType: string): Promis
   return compactImageBufferForLlm(bytes, path.basename(filePath), resolvedMimeType);
 }
 
-async function normalizeImagePart(part: ImageContent): Promise<ImageContent> {
+async function normalizeImagePart(
+  part: ImageContent,
+  options: PiMessageNormalizationOptions,
+): Promise<ImageContent> {
   const rawData = part.data;
 
   // Fast path: already clean base64 with no leading/trailing whitespace.
@@ -221,7 +279,7 @@ async function normalizeImagePart(part: ImageContent): Promise<ImageContent> {
   }
 
   if (trimmed.startsWith('file://')) {
-    return loadImageDataFromFile(fileURLToPath(trimmed), part.mimeType);
+    return loadImageDataFromFile(fileURLToPath(trimmed), part.mimeType, options.allowedImageFileRoots ?? []);
   }
 
   const apiUploadFileId = resolveApiUploadFileId(trimmed);
@@ -229,7 +287,9 @@ async function normalizeImagePart(part: ImageContent): Promise<ImageContent> {
     try {
       const filePath = await findFilePath(apiUploadFileId);
       if (filePath) {
-        return loadImageDataFromFile(filePath, part.mimeType);
+        // Upload IDs are resolved by the server-side upload store. Do not accept
+        // client-provided paths here; constrain the resolved file to its category.
+        return loadImageDataFromFile(filePath, part.mimeType, [path.dirname(filePath)]);
       }
     } catch (error) {
       console.warn(`[Message Normalization] Failed to resolve API file: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -242,11 +302,7 @@ async function normalizeImagePart(part: ImageContent): Promise<ImageContent> {
 
   const MAX_PATH_LENGTH = 4096;
   if (path.isAbsolute(trimmed) && trimmed.length < MAX_PATH_LENGTH) {
-    try {
-      return loadImageDataFromFile(trimmed, part.mimeType);
-    } catch (error) {
-      console.warn(`[Message Normalization] Failed to load image from path: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    }
+    return loadImageDataFromFile(trimmed, part.mimeType, options.allowedImageFileRoots ?? []);
   }
 
   throw new Error(
@@ -257,7 +313,10 @@ async function normalizeImagePart(part: ImageContent): Promise<ImageContent> {
 /**
  * Scans text for image file references and converts them to ImageContent
  */
-async function extractImageReferencesFromText(text: string): Promise<ImageContent[]> {
+async function extractImageReferencesFromText(
+  text: string,
+  options: PiMessageNormalizationOptions,
+): Promise<ImageContent[]> {
   const images: ImageContent[] = [];
   const matches = [...text.matchAll(IMAGE_PATH_REGEX)];
   const processedPaths = new Set<string>();
@@ -273,9 +332,13 @@ async function extractImageReferencesFromText(text: string): Promise<ImageConten
     
     processedPaths.add(filePath);
     
+    if (path.isAbsolute(filePath) || !options.workspaceImageRoot) {
+      continue;
+    }
+
     try {
-      const workspacePath = getWorkspacePath();
-      const fullPath = path.isAbsolute(filePath) ? filePath : path.join(workspacePath, filePath);
+      const fullPath = path.resolve(options.workspaceImageRoot, filePath);
+      await assertAllowedImageFilePath(fullPath, [options.workspaceImageRoot]);
       
       // Check if file exists and is readable
       const stats = await fs.stat(fullPath);
@@ -309,6 +372,7 @@ async function extractImageReferencesFromText(text: string): Promise<ImageConten
 async function processTextContent(
   content: Array<{ type: 'text'; text: string } | ImageContent>,
   shouldExtractImages: boolean = true,
+  options: PiMessageNormalizationOptions = {},
 ): Promise<Array<{ type: 'text'; text: string } | ImageContent>> {
   const result: Array<{ type: 'text'; text: string } | ImageContent> = [];
 
@@ -319,7 +383,7 @@ async function processTextContent(
       // Only extract image references if explicitly allowed
       // This prevents context explosion from tool results like 'ls' showing many images
       const images = shouldExtractImages
-        ? await extractImageReferencesFromText(part.text)
+        ? await extractImageReferencesFromText(part.text, options)
         : [];
 
       if (images.length > 0) {
@@ -339,9 +403,10 @@ async function processTextContent(
 async function normalizeImageArray(
   content: Array<{ type: 'text'; text: string } | ImageContent>,
   shouldExtractImages: boolean = true,
+  options: PiMessageNormalizationOptions = {},
 ): Promise<Array<{ type: 'text'; text: string } | ImageContent>> {
   // First process text content for image references
-  const processedContent = await processTextContent(content, shouldExtractImages);
+  const processedContent = await processTextContent(content, shouldExtractImages, options);
   
   let changed = processedContent !== content;
   const normalizedContent = await Promise.all(
@@ -350,7 +415,7 @@ async function normalizeImageArray(
         return part;
       }
 
-      const normalizedPart = await normalizeImagePart(part);
+      const normalizedPart = await normalizeImagePart(part, options);
       if (normalizedPart.data !== part.data || normalizedPart.mimeType !== part.mimeType) {
         changed = true;
       }
@@ -366,7 +431,10 @@ function hasMessageContent(message: AgentMessage): message is AgentMessage & { c
   return 'content' in message;
 }
 
-async function normalizePiMessage(message: AgentMessage): Promise<Message | null> {
+async function normalizePiMessage(
+  message: AgentMessage,
+  options: PiMessageNormalizationOptions,
+): Promise<Message | null> {
   if (message.role === 'compact-break') return null;
   if (message.role === 'composio_auth_required') return null;
   if (isRuntimeContinuationMessage(message)) {
@@ -386,7 +454,7 @@ async function normalizePiMessage(message: AgentMessage): Promise<Message | null
   if (message.role === 'user') {
     // For user messages, extract image references from text
     // This allows users to reference images with @path/to/image.jpg
-    const normalizedContent = await normalizeImageArray(message.content, true);
+    const normalizedContent = await normalizeImageArray(message.content, true, options);
     return normalizedContent === message.content
       ? (message as UserMessage)
       : {
@@ -399,7 +467,7 @@ async function normalizePiMessage(message: AgentMessage): Promise<Message | null
     // For tool results, DON'T extract image references from text
     // This prevents context explosion when tools like 'ls' list many image files
     // Images should only be included when explicitly returned by the tool (e.g., read tool)
-    const normalizedContent = await normalizeImageArray(message.content, false);
+    const normalizedContent = await normalizeImageArray(message.content, false, options);
     return normalizedContent === message.content
       ? (message as ToolResultMessage)
       : {
@@ -411,10 +479,43 @@ async function normalizePiMessage(message: AgentMessage): Promise<Message | null
   return message as Message;
 }
 
-export async function normalizePiMessagesForLlm(messages: AgentMessage[]): Promise<Message[]> {
+export async function normalizePiMessagesForLlm(
+  messages: AgentMessage[],
+  options: PiMessageNormalizationOptions = {},
+): Promise<Message[]> {
   const contextMessages = messages.map((message) => projectAgentMessageForLoadedContext(message, 'context'));
-  const normalized = await Promise.all(contextMessages.map((message) => normalizePiMessage(message)));
-  return normalized.filter((message): message is Message => message !== null);
+  const normalized = await Promise.all(contextMessages.map((message) => normalizePiMessage(message, options)));
+  return enforceImagePayloadBudget(normalized.filter((message): message is Message => message !== null));
+}
+
+function enforceImagePayloadBudget(messages: Message[]): Message[] {
+  let includedImageBytes = 0;
+
+  return [...messages].reverse().map((message) => {
+    if (message.role === 'assistant' || !Array.isArray(message.content)) {
+      return message;
+    }
+
+    let omittedImageCount = 0;
+    const content = message.content.filter((part) => {
+      if (!isImageContentPart(part)) return true;
+      const imageBytes = estimateBase64Bytes(part.data);
+      if (includedImageBytes + imageBytes <= MAX_LLM_TOTAL_IMAGE_BYTES) {
+        includedImageBytes += imageBytes;
+        return true;
+      }
+      omittedImageCount += 1;
+      return false;
+    });
+
+    if (omittedImageCount === 0) return message;
+
+    content.push({
+      type: 'text',
+      text: `[${omittedImageCount} image${omittedImageCount === 1 ? '' : 's'} omitted to keep the LLM request within its transfer limit.]`,
+    });
+    return { ...message, content };
+  }).reverse();
 }
 
 /**

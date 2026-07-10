@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 
 import { recordAuditEvent } from '@/app/lib/audit/audit-service';
 import { requireOrganizationPermission } from '@/app/lib/organization/permissions';
+import { resolveLocalPluginSourcePath } from '@/app/lib/plugins/local-plugin-source';
 import { installCanvasPluginFromPath } from '@/app/lib/plugins/canvas-plugin-registry';
 
 export async function POST(request: Request) {
@@ -24,7 +25,8 @@ export async function POST(request: Request) {
       );
     }
 
-    const result = await installCanvasPluginFromPath(body.sourcePath, {
+    const sourcePath = resolveLocalPluginSourcePath(body.sourcePath);
+    const result = await installCanvasPluginFromPath(sourcePath, {
       enable: body.enable !== false,
       replace: body.replace === true,
       installedBy: pluginPermission.session.user.email || pluginPermission.session.user.id,
@@ -49,7 +51,7 @@ export async function POST(request: Request) {
         version: result.plugin?.version,
         enabled: result.plugin?.enabled,
         replace: body.replace === true,
-        sourcePath: body.sourcePath,
+        sourcePath,
       },
     });
 

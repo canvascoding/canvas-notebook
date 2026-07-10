@@ -35,7 +35,7 @@ const testModel = {
 };
 
 moduleInternals._load = (request, parent, isMain) => {
-  if (request === '@earendil-works/pi-ai' || request === '@earendil-works/pi-ai/oauth') {
+  if (request === '@earendil-works/pi-ai' || request === '@earendil-works/pi-ai/compat' || request === '@earendil-works/pi-ai/oauth') {
     return {
       registerBuiltInApiProviders() {},
       getProviders() {

@@ -52,7 +52,14 @@ export async function POST(request: NextRequest) {
       if (overwrite && conflictError.code === 'FILE_EXISTS' && conflictError.type === 'file') {
         await renameFile(oldPath, newPath, true, fileOptions);
         await syncPublicSharesAfterMove(oldPath, newPath, workspaceResult.workspace);
-        invalidateWorkspaceFileViews({ fileOptions, fullTree: true });
+        invalidateWorkspaceFileViews({
+          fileOptions,
+          fullTree: true,
+          mutations: [
+            { path: oldPath, type: 'unlink' },
+            { path: newPath, type: 'add' },
+          ],
+        });
         await recordAuditEvent({
           organizationId: workspaceResult.workspace.organizationId,
           workspaceId: workspaceResult.workspace.workspaceId,
@@ -84,7 +91,14 @@ export async function POST(request: NextRequest) {
 
     await renameFile(oldPath, newPath, overwrite, fileOptions);
     await syncPublicSharesAfterMove(oldPath, newPath, workspaceResult.workspace);
-    invalidateWorkspaceFileViews({ fileOptions, fullTree: true });
+    invalidateWorkspaceFileViews({
+      fileOptions,
+      fullTree: true,
+      mutations: [
+        { path: oldPath, type: 'unlink' },
+        { path: newPath, type: 'add' },
+      ],
+    });
     await recordAuditEvent({
       organizationId: workspaceResult.workspace.organizationId,
       workspaceId: workspaceResult.workspace.workspaceId,

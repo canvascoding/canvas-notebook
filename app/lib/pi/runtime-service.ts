@@ -16,6 +16,8 @@ import {
 } from '@/app/lib/pi/live-runtime';
 import { applyPiRuntimePromptContext } from '@/app/lib/pi/runtime-prompt-context';
 import { getStudioOutputsRoot } from '@/app/lib/integrations/studio-workspace';
+import { canReadStudioOutputPath } from '@/app/lib/integrations/studio-generation-service';
+import { compactImageBufferForLlm } from '@/app/lib/pi/message-normalization';
 import { normalizeTimeZone } from '@/app/lib/time-zones';
 import { getServerPreferredTimeZone } from '@/app/lib/server-settings';
 import {
@@ -164,6 +166,7 @@ function resolveStudioOutputImage(outputFilePath: string): { imagePath: string; 
 async function injectStudioImage(
   message: UserAgentMessage | null,
   context: ChatRequestContext,
+  userId: string,
 ): Promise<UserAgentMessage | null> {
   if (!message || !context.studioContext?.outputFilePath) {
     return message;
@@ -178,16 +181,27 @@ async function injectStudioImage(
       return message;
     }
 
+    if (!(await canReadStudioOutputPath(context.studioContext.outputFilePath, userId))) {
+      console.warn('[RuntimeService] Skipping unauthorized studio image reference:', {
+        outputFilePath: context.studioContext.outputFilePath,
+        userId,
+      });
+      return message;
+    }
+
     const stats = await fs.stat(resolved.imagePath);
     if (!stats.isFile()) {
       return message;
     }
 
-    const imageContent = {
-      type: 'image' as const,
-      data: resolved.imagePath,
-      mimeType: resolved.mimeType,
-    };
+    // Resolve authorized Studio output to image bytes now. Persisting an
+    // arbitrary server path in the chat transcript would otherwise allow it to
+    // be re-read on every future model turn.
+    const imageContent = await compactImageBufferForLlm(
+      await fs.readFile(resolved.imagePath),
+      path.basename(resolved.imagePath),
+      resolved.mimeType,
+    );
 
     if (typeof message.content === 'string') {
       return {
@@ -230,7 +244,7 @@ export async function prepareRuntimePrompt(
 }> {
   const context = await normalizeContext(resolveChatRequestContext(payload), userId, sessionId);
   const { runtime: runtimeInstance, created: runtimeCreated } = await getOrCreatePiRuntimeWithState(sessionId, userId);
-  const promptMessage = await injectStudioImage(resolvePromptMessage(payload), context);
+  const promptMessage = await injectStudioImage(resolvePromptMessage(payload), context, userId);
   const status = runtimeInstance.getStatus();
 
   if (!promptMessage && !status.canAbort) {

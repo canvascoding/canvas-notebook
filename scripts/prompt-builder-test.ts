@@ -30,15 +30,17 @@ const populated = composeManagedAgentSystemPrompt(
 
 assert.equal(populated.diagnostics.usedFallback, false);
 assert.deepEqual(populated.diagnostics.includedFiles, ['AGENTS.md', 'MEMORY.md', 'TOOLS.md']);
-assert.deepEqual(populated.diagnostics.emptyFiles, ['USER.md', 'SOUL.md', 'HEARTBEAT.md']);
+assert.deepEqual(populated.diagnostics.emptyFiles, ['USER.md', 'SOUL.md']);
 assert.doesNotMatch(populated.systemPrompt, /^You are an AI assistant in Canvas Notebook\./);
 assert.match(populated.systemPrompt, /^# Canvas Notebook Runtime/);
 assert.match(populated.systemPrompt, /# Canvas Base Tool Guidance/);
 assert.match(populated.systemPrompt, /Python 3 is available in the Linux container runtime/);
-assert.match(populated.systemPrompt, /## AGENTS\.md\nSource: .*\/data\/agents\/canvas-agent\/AGENTS\.md\n\n- Follow repo rules\./);
-assert.match(populated.systemPrompt, /## MEMORY\.md\nSource: .*\/data\/agents\/canvas-agent\/MEMORY\.md\n\nRemember the migration state\./);
+assert.match(populated.systemPrompt, /## AGENTS\.md\n\n- Follow repo rules\./);
+assert.match(populated.systemPrompt, /## MEMORY\.md\n\nRemember the migration state\./);
 assert.doesNotMatch(populated.systemPrompt, /## SOUL\.md/);
-assert.match(populated.systemPrompt, /## TOOLS\.md\nSource: .*\/data\/agents\/canvas-agent\/TOOLS\.md\n\nUse filesystem and terminal carefully\./);
+assert.match(populated.systemPrompt, /## TOOLS\.md\n\nUse filesystem and terminal carefully\./);
+assert.doesNotMatch(populated.systemPrompt, /HEARTBEAT\.md/);
+assert.doesNotMatch(populated.systemPrompt, /Source: \/data\//);
 assert.doesNotMatch(populated.systemPrompt, /## File Search Strategy \(CRITICAL\)/);
 assert.doesNotMatch(populated.systemPrompt, /## File System Structure/);
 assert.doesNotMatch(populated.systemPrompt, /## Temporary Files Directory/);
@@ -46,6 +48,14 @@ assert.doesNotMatch(populated.systemPrompt, /## Memory Management \(MEMORY\.md\)
 assert.match(populated.systemPrompt, /## File Access for Uploaded Attachments/);
 assert.match(populated.systemPrompt, /\*\*PDF\*\*: Use the `read` tool first for ordinary text extraction/);
 assert.doesNotMatch(populated.systemPrompt, /Use the `pdf` skill to read and extract content/);
+
+const oversized = composeManagedAgentSystemPrompt(createFiles({
+  'AGENTS.md': 'a'.repeat(20_000),
+  'USER.md': 'This content must not be silently dropped.',
+}));
+assert.deepEqual(oversized.diagnostics.truncatedFiles, ['AGENTS.md']);
+assert.match(oversized.systemPrompt, /Content truncated to keep the runtime context within its safety budget\./);
+assert.match(oversized.systemPrompt, /This content must not be silently dropped\./);
 
 const skills: CanvasSkill[] = [
   {

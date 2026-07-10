@@ -43,6 +43,7 @@ export function FileGridView({ variant = 'default', onOpenFile }: FileGridViewPr
     loadSubdirectory,
     normalizedSearchQuery,
     searchQuery,
+    searchError,
     searchResultNodes,
     treeError,
   } = useFileExplorerViewModel({ containerRef, variant });
@@ -51,7 +52,7 @@ export function FileGridView({ variant = 'default', onOpenFile }: FileGridViewPr
     if (onOpenFile) {
       onOpenFile(path);
     } else {
-      void useFileStore.getState().loadFile(path, true);
+      void useFileStore.getState().revealAndLoadFile(path, { revealInTree: false });
     }
   }, [onOpenFile]);
 
@@ -148,6 +149,11 @@ export function FileGridView({ variant = 'default', onOpenFile }: FileGridViewPr
             <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
           </div>
         )}
+        {searchError && normalizedSearchQuery && (
+          <div className="mx-auto mt-3 max-w-md rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-center text-xs text-destructive">
+            {searchError}
+          </div>
+        )}
         {!isSearching && gridItems.length === 0 && normalizedSearchQuery && (
           <div className="flex h-32 flex-col items-center justify-center gap-2 p-4 text-center">
             <p className="text-sm text-muted-foreground">{t('noResultsFound')}</p>
@@ -202,6 +208,11 @@ export function FileGridView({ variant = 'default', onOpenFile }: FileGridViewPr
             <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
           </div>
         )}
+        {searchError && normalizedSearchQuery && (
+          <div className="mx-3 mt-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+            {searchError}
+          </div>
+        )}
         {!isSearching && filteredListChildren && filteredListChildren.length === 0 && normalizedSearchQuery && (
           <div className="flex h-32 flex-col items-center justify-center gap-2 p-4 text-center">
             <p className="text-sm text-muted-foreground">{t('noResultsFound')}</p>
@@ -240,6 +251,11 @@ export function FileGridView({ variant = 'default', onOpenFile }: FileGridViewPr
       {isSearching && normalizedSearchQuery && (
         <div className="flex h-24 items-center justify-center">
           <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+        </div>
+      )}
+      {searchError && normalizedSearchQuery && (
+        <div className="mx-3 mt-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+          {searchError}
         </div>
       )}
       {!isSearching && searchResultNodes.length === 0 && normalizedSearchQuery && (

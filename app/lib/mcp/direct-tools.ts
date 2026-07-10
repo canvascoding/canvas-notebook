@@ -3,6 +3,7 @@ import type { AgentTool, AgentToolResult } from '@earendil-works/pi-agent-core';
 
 import { callMcpTool, listMcpTools } from '@/app/lib/mcp/manager';
 import { isMcpServerEnabled, readMcpConfig } from '@/app/lib/mcp/config';
+import type { McpScope } from '@/app/lib/mcp/scope';
 
 export type DirectMcpToolWarning = {
   server: string;
@@ -43,7 +44,7 @@ function summarizeContent(result: Awaited<ReturnType<typeof callMcpTool>>): stri
   }).join('\n') || '(empty MCP tool result)';
 }
 
-function makeDirectTool(serverName: string, tool: Tool, directName: string): AgentTool {
+function makeDirectTool(serverName: string, tool: Tool, directName: string, scope?: McpScope | null): AgentTool {
   return {
     name: directName,
     label: `MCP ${serverName}.${tool.name}`,
@@ -52,7 +53,7 @@ function makeDirectTool(serverName: string, tool: Tool, directName: string): Age
     executionMode: 'sequential',
     execute: async (_toolCallId, params, signal): Promise<AgentToolResult<unknown>> => {
       try {
-        const result = await callMcpTool(serverName, tool.name, params as Record<string, unknown>, signal);
+        const result = await callMcpTool(serverName, tool.name, params as Record<string, unknown>, signal, scope);
         return {
           content: [{ type: 'text', text: summarizeContent(result) }],
           details: { server: serverName, tool: tool.name, result },
@@ -68,8 +69,8 @@ function makeDirectTool(serverName: string, tool: Tool, directName: string): Age
   };
 }
 
-export async function buildDirectMcpTools(): Promise<DirectMcpToolBuildResult> {
-  const config = await readMcpConfig();
+export async function buildDirectMcpTools(scope?: McpScope | null): Promise<DirectMcpToolBuildResult> {
+  const config = await readMcpConfig(scope);
   const tools: AgentTool[] = [];
   const warnings: DirectMcpToolWarning[] = [];
   const usedNames = new Set<string>();
@@ -83,7 +84,7 @@ export async function buildDirectMcpTools(): Promise<DirectMcpToolBuildResult> {
 
     let remoteTools: Tool[];
     try {
-      remoteTools = await listMcpTools(serverName, { preferCache: true });
+      remoteTools = await listMcpTools(serverName, { preferCache: true, scope });
     } catch (error) {
       warnings.push({ server: serverName, message: `Could not load direct MCP tools: ${getErrorMessage(error)}` });
       continue;
@@ -107,7 +108,7 @@ export async function buildDirectMcpTools(): Promise<DirectMcpToolBuildResult> {
       }
 
       usedNames.add(directName);
-      tools.push(makeDirectTool(serverName, remoteTool, directName));
+      tools.push(makeDirectTool(serverName, remoteTool, directName, scope));
     }
   }
 

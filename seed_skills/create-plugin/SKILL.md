@@ -44,7 +44,9 @@ Plugins should teach the agent which workflows belong together. They should not 
 
 4. Validate that every bundled skill has a unique `name` and a useful trigger-focused `description`.
 5. Add connector recommendations only as metadata. The user must explicitly connect Composio apps, Canvas Email accounts, or MCP servers in the UI.
-6. Package or commit the plugin to the marketplace repository only after validation passes.
+6. For a personal Canvas installation, call `install_canvas_plugin_from_workspace` with the package directory. To update an installed plugin, first call `inspect_canvas_plugin`, then call `update_canvas_plugin_from_workspace` with its version and checksum.
+7. Use `set_canvas_plugin_enabled` to toggle it and `remove_canvas_plugin` to remove it. Removal deliberately stops when a materialized skill was edited, so the agent must preserve or resolve that user work explicitly.
+8. Package or commit the plugin to the marketplace repository only after validation passes.
 
 ## Manifest Template
 

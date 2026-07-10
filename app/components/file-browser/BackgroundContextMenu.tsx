@@ -20,6 +20,7 @@ import { useFileStore } from '@/app/store/file-store';
 import { CreateItemDialog } from './CreateItemDialog';
 import { UploadDialog } from './UploadDialog';
 import { useCreateItemDialog } from './useCreateItemDialog';
+import { useShallow } from 'zustand/react/shallow';
 
 export function BackgroundContextMenu() {
   const t = useTranslations('notebook');
@@ -33,7 +34,15 @@ export function BackgroundContextMenu() {
     closeBackgroundContextMenu,
     uploadFile,
     currentDirectory,
-  } = useFileStore();
+  } = useFileStore(useShallow((state) => ({
+    backgroundContextMenuPosition: state.backgroundContextMenuPosition,
+    backgroundContextMenuDirectory: state.backgroundContextMenuDirectory,
+    isBackgroundContextMenuOpen: state.isBackgroundContextMenuOpen,
+    backgroundContextMenuRequestId: state.backgroundContextMenuRequestId,
+    closeBackgroundContextMenu: state.closeBackgroundContextMenu,
+    uploadFile: state.uploadFile,
+    currentDirectory: state.currentDirectory,
+  })));
 
   const closeMenu = useCallback(() => {
     closeBackgroundContextMenu();

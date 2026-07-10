@@ -11,6 +11,7 @@ import { toPreviewUrl } from '@/app/lib/utils/media-url';
 import { Globe2, MoreVertical } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { useWorkspaceStore } from '@/app/store/workspace-store';
+import { formatCompactFileSize } from '@/app/lib/files/format';
 
 interface FileGridItemProps {
   node: FileNodeType;
@@ -26,13 +27,6 @@ function isImageNode(node: FileNodeType): boolean {
   if (node.type === 'directory') return false;
   const ext = node.name.split('.').pop()?.toLowerCase() || '';
   return IMAGE_EXTENSIONS.has(ext);
-}
-
-function formatFileSize(bytes?: number): string {
-  if (!bytes) return '';
-  if (bytes < 1024) return `${bytes}B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
 }
 
 function FileGridItemComponent({ node, onOpenFile, onOpenDirectory, size = 'sm', selectionOrder }: FileGridItemProps) {
@@ -216,7 +210,7 @@ function FileGridItemComponent({ node, onOpenFile, onOpenDirectory, size = 'sm',
         </p>
         {!isDirectory && node.size !== undefined && (
           <p className="truncate text-[10px] text-muted-foreground/70">
-            {formatFileSize(node.size)}
+            {formatCompactFileSize(node.size)}
           </p>
         )}
       </div>

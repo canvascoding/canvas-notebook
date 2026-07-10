@@ -138,6 +138,30 @@ async function main() {
     assert.equal(docs?.children?.[0]?.path, 'docs/fresh.md');
     assert.equal(app?.children?.[0]?.path, 'src/app/page.tsx');
 
+    calls.length = 0;
+    callDetails.length = 0;
+    useFileStore.setState({
+      fileTree: [{
+        name: 'docs',
+        path: 'docs',
+        type: 'directory',
+        children: [{ name: 'stale-after-refresh.md', path: 'docs/stale-after-refresh.md', type: 'file' }],
+      }],
+      browserMode: 'tree',
+      currentDirectory: '.',
+      expandedDirs: new Set<string>(),
+      loadingDirs: new Set<string>(),
+    });
+
+    await useFileStore.getState().refreshVisibleTree();
+    const collapsedDocs = useFileStore.getState().fileTree.find((node) => node.path === 'docs');
+    assert.equal(collapsedDocs?.children, undefined, 'manual refresh must mark collapsed directory children stale');
+
+    useFileStore.getState().toggleDirectory('docs');
+    await waitFor(() => !useFileStore.getState().loadingDirs.has('docs'), 'opening a stale directory should refresh it');
+    assert.deepEqual(calls, ['.', 'docs'], 'opening a stale directory must fetch fresh children after refresh');
+    assert.equal(useFileStore.getState().fileTree.find((node) => node.path === 'docs')?.children?.[0]?.path, 'docs/fresh.md');
+
     const firstVisibleNode: FileNode = { name: 'a.md', path: 'visible/a.md', type: 'file' };
     const middleVisibleNode: FileNode = { name: 'c.md', path: 'visible/c.md', type: 'file' };
     const lastVisibleNode: FileNode = { name: 'b.md', path: 'visible/b.md', type: 'file' };

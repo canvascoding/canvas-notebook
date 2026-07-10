@@ -95,3 +95,12 @@ export async function resolvePiApiKey(
       return undefined;
   }
 }
+
+/**
+ * Bind PI's provider-only getApiKey callback to the user that owns the runtime.
+ * OAuth credentials are user-scoped, while pi-agent-core only passes a provider
+ * ID to its callback.
+ */
+export function createUserScopedPiApiKeyResolver(userId: string) {
+  return (provider: string) => resolvePiApiKey(provider, { userId });
+}

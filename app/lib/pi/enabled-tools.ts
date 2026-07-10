@@ -2,6 +2,21 @@ export const DISABLED_ALL_TOOLS_SENTINEL = '__none__';
 
 const LEGACY_TOOL_NAMES = new Set(['filesystem', 'terminal', 'web-search']);
 const DEFAULT_DISABLED_TOOL_NAMES = ['browser', 'studio_bulk_generate'];
+const LEGACY_SKILL_MANAGEMENT_TOOL_NAMES = [
+  'create_canvas_skill_draft',
+  'discard_canvas_skill_draft',
+  'inspect_canvas_skill',
+  'install_canvas_skill_from_workspace',
+  'update_canvas_skill_from_workspace',
+];
+const PLUGIN_MANAGEMENT_TOOL_NAMES = [
+  'create_canvas_plugin_draft',
+  'inspect_canvas_plugin',
+  'install_canvas_plugin_from_workspace',
+  'remove_canvas_plugin',
+  'set_canvas_plugin_enabled',
+  'update_canvas_plugin_from_workspace',
+];
 
 /**
  * Tools that are disabled by default for new users.
@@ -57,7 +72,16 @@ export function resolveEnabledToolNames(
     return new Set(canonicalToolNames);
   }
 
-  return new Set(configuredTools.filter((toolName) => canonicalToolSet.has(toolName)));
+  const resolved = new Set(configuredTools.filter((toolName) => canonicalToolSet.has(toolName)));
+  // Existing configurations that explicitly enabled the former complete
+  // Skills toolset should gain the plugin controls that now belong to it.
+  // Partial custom selections remain untouched.
+  if (LEGACY_SKILL_MANAGEMENT_TOOL_NAMES.every((toolName) => resolved.has(toolName))) {
+    for (const toolName of PLUGIN_MANAGEMENT_TOOL_NAMES) {
+      if (canonicalToolSet.has(toolName)) resolved.add(toolName);
+    }
+  }
+  return resolved;
 }
 
 /**

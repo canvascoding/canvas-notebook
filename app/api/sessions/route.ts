@@ -50,6 +50,7 @@ type RenameSessionPayload = {
   markAsUnread?: boolean;
   markAllAsRead?: boolean;
   lastMessageAt?: string;
+  provider?: string;
   model?: string;
   thinkingLevel?: string;
 };
@@ -573,6 +574,7 @@ export async function PATCH(request: NextRequest) {
     const markAsUnread = typeof payload.markAsUnread === 'boolean' ? payload.markAsUnread : false;
     const markAllAsRead = typeof payload.markAllAsRead === 'boolean' ? payload.markAllAsRead : false;
     const workspaceIdFilter = normalizeOptionalString(payload.workspaceId);
+    const requestedProvider = normalizeOptionalString(payload.provider);
     const requestedModel = normalizeOptionalString(payload.model);
     const requestedThinkingLevel = normalizeThinkingLevel(payload.thinkingLevel);
     let requestedAgentId: string;
@@ -585,6 +587,9 @@ export async function PATCH(request: NextRequest) {
 
     if (payload.thinkingLevel !== undefined && !requestedThinkingLevel) {
       return NextResponse.json({ success: false, error: 'Invalid thinking level' }, { status: 400 });
+    }
+    if (payload.provider !== undefined && !requestedProvider) {
+      return NextResponse.json({ success: false, error: 'Invalid provider' }, { status: 400 });
     }
 
     // Handle mark all as read
@@ -621,7 +626,7 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ success: false, error: 'Session ID required' }, { status: 400 });
     }
 
-    if (requestedModel || requestedThinkingLevel) {
+    if (requestedProvider || requestedModel || requestedThinkingLevel) {
       const piSession = await db.query.piSessions.findFirst({
         where: and(eq(piSessions.sessionId, sessionId), eq(piSessions.userId, session.user.id), eq(piSessions.agentId, requestedAgentId)),
       });
@@ -630,8 +635,17 @@ export async function PATCH(request: NextRequest) {
         return NextResponse.json({ success: false, error: 'Session not found' }, { status: 404 });
       }
 
-      if (requestedModel && !(await isValidProviderModel(piSession.provider, requestedModel))) {
-        return NextResponse.json({ success: false, error: 'Invalid model for session provider' }, { status: 400 });
+      const targetProvider = requestedProvider || piSession.provider;
+      const providerChanged = targetProvider !== piSession.provider;
+      const piConfig = providerChanged ? await readPiRuntimeConfig() : null;
+      const targetProviderConfig = piConfig?.providers[targetProvider];
+      const targetModel = requestedModel || (providerChanged ? targetProviderConfig?.model?.trim() : piSession.model);
+      const targetThinkingLevel = requestedThinkingLevel || (providerChanged
+        ? targetProviderConfig?.thinking || 'off'
+        : (piSession.thinkingLevel as PiThinkingLevel | null) || 'off');
+
+      if (!targetModel || ((providerChanged || requestedModel) && !(await isValidProviderModel(targetProvider, targetModel)))) {
+        return NextResponse.json({ success: false, error: 'Invalid model for selected provider' }, { status: 400 });
       }
 
       const runtimeStatus = await getStatus(sessionId, session.user.id);
@@ -640,8 +654,9 @@ export async function PATCH(request: NextRequest) {
       }
 
       const updateValues = {
-        ...(requestedModel ? { model: requestedModel } : {}),
-        ...(requestedThinkingLevel ? { thinkingLevel: requestedThinkingLevel } : {}),
+        ...(requestedProvider ? { provider: targetProvider } : {}),
+        ...(providerChanged || requestedModel ? { model: targetModel } : {}),
+        ...(providerChanged || requestedThinkingLevel ? { thinkingLevel: targetThinkingLevel } : {}),
         updatedAt: new Date(),
       };
       const updatedPi = await db
@@ -650,8 +665,12 @@ export async function PATCH(request: NextRequest) {
         .where(eq(piSessions.id, piSession.id))
         .returning();
 
-      if (piSession.agentId === DEFAULT_AGENT_ID) {
-        await syncSessionModelToPiConfig(piSession.provider, requestedModel, requestedThinkingLevel);
+      if (piSession.agentId === DEFAULT_AGENT_ID && !providerChanged) {
+        await syncSessionModelToPiConfig(
+          targetProvider,
+          requestedModel ? targetModel : null,
+          requestedThinkingLevel,
+        );
       }
       await invalidateRuntime(sessionId, session.user.id);
 

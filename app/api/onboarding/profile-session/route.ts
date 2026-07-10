@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/app/lib/auth';
 import { ensureOnboardingProfileSession, OnboardingProfileError } from '@/app/lib/onboarding/profile';
 import { isOnboardingComplete, isOnboardingEnabled } from '@/app/lib/onboarding/status';
+import { getUserOnboardingState } from '@/app/lib/user-preferences';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 
 function getErrorMessage(error: unknown): string {
@@ -28,7 +29,16 @@ export async function POST(request: NextRequest) {
     return limited.response;
   }
 
-  if (await isOnboardingComplete()) {
+  const instanceComplete = await isOnboardingComplete();
+  if (!instanceComplete) {
+    return NextResponse.json(
+      { success: false, error: 'Finish instance setup before personal onboarding begins.', code: 'INSTANCE_SETUP_REQUIRED' },
+      { status: 409 },
+    );
+  }
+
+  const onboarding = await getUserOnboardingState(session.user.id);
+  if (onboarding.profile !== 'pending') {
     return NextResponse.json({ success: true, complete: true });
   }
 

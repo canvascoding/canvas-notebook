@@ -1,6 +1,9 @@
 import type { FileNode } from '@/app/lib/files/types';
 import { findNodeInTree } from '@/app/lib/files/tree-utils';
 import { normalizeChatFilePath } from '@/app/lib/chat/extract-file-paths';
+import { withWorkspaceQuery, workspaceHeaders } from '@/app/lib/files/client';
+import { useWorkspaceStore } from '@/app/store/workspace-store';
+import { LEGACY_PERSONAL_WORKSPACE_ID } from '@/app/lib/workspaces/constants';
 
 const POSITIVE_VALIDATION_CACHE_TTL_MS = 30_000;
 const NEGATIVE_VALIDATION_CACHE_TTL_MS = 10_000;
@@ -20,6 +23,55 @@ type ValidationCacheEntry = {
 };
 
 const validationCache = new Map<string, ValidationCacheEntry>();
+export interface FileReferenceValidationInvalidation {
+  workspaceId: string;
+  path: string | null;
+}
+
+const validationListeners = new Set<(event: FileReferenceValidationInvalidation) => void>();
+
+function getActiveWorkspaceId(): string | null {
+  return useWorkspaceStore.getState().activeWorkspaceId;
+}
+
+function buildValidationCacheKey(workspaceId: string | null, path: string): string {
+  return `${workspaceId ?? LEGACY_PERSONAL_WORKSPACE_ID}\0${path}`;
+}
+
+function notifyValidationListeners(event: FileReferenceValidationInvalidation) {
+  for (const listener of validationListeners) listener(event);
+}
+
+export function subscribeToFileReferenceValidationInvalidation(
+  listener: (event: FileReferenceValidationInvalidation) => void,
+): () => void {
+  validationListeners.add(listener);
+  return () => validationListeners.delete(listener);
+}
+
+export function invalidateFileReferenceValidationCache(options: {
+  workspaceId?: string | null;
+  path?: string | null;
+} = {}): void {
+  const workspaceId = options.workspaceId ?? getActiveWorkspaceId() ?? LEGACY_PERSONAL_WORKSPACE_ID;
+  const normalizedPath = options.path ? normalizeChatFilePath(options.path) : null;
+
+  for (const key of validationCache.keys()) {
+    const [cachedWorkspaceId, cachedPath] = key.split('\0', 2);
+    if (workspaceId && cachedWorkspaceId !== workspaceId) continue;
+    if (
+      normalizedPath &&
+      cachedPath !== normalizedPath &&
+      !cachedPath.startsWith(`${normalizedPath}/`) &&
+      !normalizedPath.startsWith(`${cachedPath}/`)
+    ) {
+      continue;
+    }
+    validationCache.delete(key);
+  }
+
+  notifyValidationListeners({ workspaceId, path: normalizedPath });
+}
 
 function missingValidationResult(path: string): FileReferenceValidationResult {
   return {
@@ -73,11 +125,14 @@ function getCacheTtl(result: FileReferenceValidationResult): number {
 
 export async function validateFileReference(
   filePath: string,
-  fileTree: FileNode[]
+  fileTree: FileNode[],
+  options: { fileTreeWorkspaceId?: string | null } = {},
 ): Promise<FileReferenceValidationResult> {
   const normalizedPath = normalizeChatFilePath(filePath);
+  const workspaceId = getActiveWorkspaceId();
 
-  const nodeInTree = findNodeInTree(normalizedPath, fileTree);
+  const canUseTree = options.fileTreeWorkspaceId === undefined || options.fileTreeWorkspaceId === workspaceId;
+  const nodeInTree = canUseTree ? findNodeInTree(normalizedPath, fileTree) : null;
   if (nodeInTree !== null) {
     return validationResultFromType(normalizedPath, nodeInTree.type);
   }
@@ -87,7 +142,8 @@ export async function validateFileReference(
   }
 
   const now = Date.now();
-  const cached = validationCache.get(normalizedPath);
+  const cacheKey = buildValidationCacheKey(workspaceId, normalizedPath);
+  const cached = validationCache.get(cacheKey);
   if (cached && cached.expiresAt > now) {
     if (cached.promise) {
       return cached.promise;
@@ -95,9 +151,11 @@ export async function validateFileReference(
     return cached.value ?? missingValidationResult(normalizedPath);
   }
 
-  const promise = fetch(`/api/files/exists?path=${encodeURIComponent(normalizedPath)}`, {
+  const url = withWorkspaceQuery(`/api/files/exists?path=${encodeURIComponent(normalizedPath)}`, workspaceId);
+  const promise = fetch(url, {
     credentials: 'include',
     cache: 'no-store',
+    headers: workspaceHeaders(workspaceId),
   })
     .then(async (response) => {
       if (!response.ok) {
@@ -109,14 +167,14 @@ export async function validateFileReference(
     })
     .catch(() => missingValidationResult(normalizedPath))
     .then((result) => {
-      validationCache.set(normalizedPath, {
+      validationCache.set(cacheKey, {
         value: result,
         expiresAt: Date.now() + getCacheTtl(result),
       });
       return result;
     });
 
-  validationCache.set(normalizedPath, {
+  validationCache.set(cacheKey, {
     promise,
     expiresAt: now + NEGATIVE_VALIDATION_CACHE_TTL_MS,
   });

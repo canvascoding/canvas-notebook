@@ -23,6 +23,7 @@ import {
 import type { AgentMessage } from '@earendil-works/pi-agent-core';
 import { initializeWebSocketBridge } from './chat-event-bridge';
 import { checkWsRateLimit } from './websocket-rate-limit';
+import { runWebSocketSessionAction } from './websocket-session-queue';
 import type { ChatRequestContext } from '@/app/lib/chat/types';
 import { db } from '@/app/lib/db';
 import { piSessions } from '@/app/lib/db/schema';
@@ -30,6 +31,7 @@ import { and, eq } from 'drizzle-orm';
 import { WEB_CHANNEL_ID, webChannelSessionKey } from '@/app/lib/channels/constants';
 import { getLicenseStatus } from '@/app/lib/license';
 import { isOnboardingComplete, isOnboardingEnabled } from '@/app/lib/onboarding/status';
+import { isConfiguredTrustedOrigin } from '@/app/lib/security/trusted-origins';
 
 type ControlAction = 'follow_up' | 'steer' | 'promote_queued_to_steer' | 'remove_queued_item' | 'abort' | 'replace' | 'compact';
 type PiRuntimeStatus = Record<string, unknown>;
@@ -108,6 +110,16 @@ type ServerMessage =
       timestamp: number;
     }
   | { type: 'error'; error: string; code: string };
+
+function shouldSerializeSessionAction(message: ClientMessage): message is Extract<ClientMessage, {
+  type: 'send_message' | 'control' | 'change_model';
+}> {
+  return (
+    (message.type === 'send_message' || message.type === 'control' || message.type === 'change_model') &&
+    typeof message.sessionId === 'string' &&
+    message.sessionId.length > 0
+  );
+}
 
 const QUIET_SERVER_MESSAGE_TYPES = new Set(['agent_event']);
 
@@ -264,6 +276,11 @@ export function isChatWebSocketRequest(requestUrl?: string): boolean {
   return normalizeChatWebSocketPath(requestUrl) !== null;
 }
 
+function rejectWebSocketUpgrade(socket: net.Socket): void {
+  socket.write('HTTP/1.1 403 Forbidden\r\nConnection: close\r\nContent-Length: 0\r\n\r\n');
+  socket.destroy();
+}
+
 /**
  * Create WebSocket Server attached to HTTP server
  */
@@ -281,6 +298,15 @@ export function createWebSocketServer(server: http.Server): WebSocketServer {
     const normalizedUrl = normalizeChatWebSocketPath(request.url);
 
     if (normalizedUrl) {
+      const origin = getHeaderValue(request.headers, 'origin');
+      if (!isConfiguredTrustedOrigin(origin)) {
+        console.warn('[WebSocket] upgrade rejected untrusted_origin', {
+          origin: truncateForLog(origin),
+        });
+        rejectWebSocketUpgrade(socket);
+        return;
+      }
+
       if (upgradedSockets.has(socket)) {
         console.warn('[WebSocket] Duplicate upgrade on same socket — skipping');
         return;
@@ -354,15 +380,19 @@ async function handleConnection(ws: WebSocket, request: IncomingMessage): Promis
       });
       return;
     }
+    const authenticatedConnection = connection;
 
     try {
       const message = JSON.parse(data.toString()) as ClientMessage;
       console.log('[WebSocket] server_receive', {
         connectionId,
-        userId: connection.userId,
+        userId: authenticatedConnection.userId,
         ...summarizeClientMessage(message),
       });
-      void handleMessage(connection, message).catch((error) => {
+      const messageHandler = shouldSerializeSessionAction(message)
+        ? runWebSocketSessionAction(authenticatedConnection.userId, message.sessionId, () => handleMessage(authenticatedConnection, message))
+        : handleMessage(authenticatedConnection, message);
+      void messageHandler.catch((error) => {
         console.error('[WebSocket] handleMessage failed', {
           connectionId,
           userId: connection?.userId,

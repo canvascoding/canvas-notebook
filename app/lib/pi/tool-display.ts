@@ -94,6 +94,11 @@ const TOOL_DISPLAY: Record<string, ToolDisplayEntry> = {
   delegate_task: { label: 'Delegated task', labelDe: 'Aufgabe delegiert', tone: 'delegation' },
   create_human_todo: { label: 'Created human to-do', labelDe: 'To-do für Menschen erstellt', tone: 'todo' },
   public_share_file: { label: 'Managed public file link', labelDe: 'Öffentlichen Datei-Link verwaltet', tone: 'publicShare' },
+  canvas_extensions: { label: 'Used extension gateway', labelDe: 'Erweiterungs-Gateway verwendet', tone: 'list' },
+  email: { label: 'Used email gateway', labelDe: 'E-Mail-Gateway verwendet', tone: 'emailAccounts' },
+  studio: { label: 'Used Studio gateway', labelDe: 'Studio-Gateway verwendet', tone: 'image' },
+  automation_manage: { label: 'Used automation gateway', labelDe: 'Automations-Gateway verwendet', tone: 'automationList' },
+  composio: { label: 'Used connected-app gateway', labelDe: 'App-Gateway verwendet', tone: 'composioExecute' },
   COMPOSIO_SEARCH_TOOLS: { label: 'Searched external tools', labelDe: 'Externe Tools gesucht', tone: 'composioSearch' },
   COMPOSIO_GET_TOOL_SCHEMAS: { label: 'Loaded tool schemas', labelDe: 'Tool-Schemas geladen', tone: 'composioSchema' },
   composio_execute: { label: 'Ran external tool', labelDe: 'Externes Tool ausgeführt', tone: 'composioExecute' },
@@ -118,7 +123,10 @@ function isNewFileWriteResult(details: unknown): boolean {
 }
 
 export function getToolDisplayInfo(toolName: string | undefined, locale: string, details?: unknown): ToolDisplayInfo {
-  const normalizedName = (toolName || '').trim();
+  const gatewayOperation = isRecord(details) && typeof details.operation === 'string'
+    ? details.operation.trim()
+    : '';
+  const normalizedName = gatewayOperation || (toolName || '').trim();
   if (normalizedName === 'write' && isNewFileWriteResult(details)) {
     return {
       label: locale.startsWith('de') ? 'Datei erstellt' : 'Created a file',

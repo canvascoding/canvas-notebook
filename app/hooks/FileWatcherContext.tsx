@@ -2,6 +2,7 @@
 
 import { useEffect, useState, type ReactNode } from 'react';
 import { getFileWatcherClient, type FileEvent } from '@/app/lib/file-watcher/client';
+import { invalidateFileReferenceValidationCache } from '@/app/lib/chat/validate-file-paths';
 
 interface FileWatcherContextValue {
   isConnected: boolean;
@@ -11,9 +12,20 @@ interface FileWatcherContextValue {
 export function FileWatcherProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const client = getFileWatcherClient();
+    const onFileChange = (event: Event) => {
+      const detail = (event as CustomEvent<FileEvent>).detail;
+      if (!detail) return;
+      invalidateFileReferenceValidationCache({
+        workspaceId: detail.workspaceId,
+        path: detail.relativePath,
+      });
+    };
+
+    client.addEventListener('filechange', onFileChange);
     client.acquire();
 
     return () => {
+      client.removeEventListener('filechange', onFileChange);
       client.releaseConnection();
     };
   }, []);

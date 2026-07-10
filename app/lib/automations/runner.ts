@@ -7,6 +7,9 @@ import { resolveAgentRuntimeConfig } from '@/app/lib/agents/effective-runtime-co
 import { createDirectory } from '@/app/lib/filesystem/workspace-files';
 import { resolvePiApiKey } from '@/app/lib/pi/api-key-resolver';
 import { normalizePiMessagesForLlm } from '@/app/lib/pi/message-normalization';
+import { preparePiHistoryContext } from '@/app/lib/pi/session-summary';
+import { estimateTextTokens } from '@/app/lib/pi/history-budget';
+import { MAX_LLM_HISTORY_BYTES } from '@/app/lib/pi/llm-payload-limits';
 import { loadPiSessionWithSummary, savePiSession } from '@/app/lib/pi/session-store';
 import { runWithAgentExecutionContext } from '@/app/lib/pi/agent-execution-context';
 import { workspaceToAgentExecutionContext } from '@/app/lib/pi/session-workspace-context';
@@ -55,6 +58,19 @@ const EMPTY_USAGE = {
     total: 0,
   },
 } as const;
+
+function estimateAutomationToolSchemaTokens(tools: AgentContext['tools']): number {
+  try {
+    return estimateTextTokens(JSON.stringify((tools || []).map((tool) => ({
+      name: tool.name,
+      label: tool.label,
+      description: tool.description,
+      parameters: tool.parameters,
+    }))));
+  } catch {
+    return (tools || []).reduce((total, tool) => total + estimateTextTokens(`${tool.name}\n${tool.label}\n${tool.description || ''}`), 0);
+  }
+}
 
 function extractAssistantText(messages: AgentMessage[]): string {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
@@ -224,7 +240,7 @@ export async function executeAutomationRun(runId: string): Promise<void> {
 
       const includeAutomatedHeartbeatContext = job.jobType === 'heartbeat' && run.triggerType !== 'manual';
       const jobPrompt = job.jobType === 'heartbeat'
-        ? await buildHeartbeatPrompt(job, { includeAutomatedRuntimeContext: includeAutomatedHeartbeatContext })
+        ? await buildHeartbeatPrompt(job, { includeAutomatedRuntimeContext: includeAutomatedHeartbeatContext, userId: automationUserId })
         : job.prompt;
       const promptText = buildAutomationPrompt({
         name: job.name,
@@ -244,6 +260,12 @@ export async function executeAutomationRun(runId: string): Promise<void> {
         ? null
         : await loadPiSessionWithSummary(piSessionId, automationUserId, job.agentId);
       const existingMessages = existingSession?.messages ?? [];
+      let sessionSummary = existingSession?.summary ?? {
+        summaryText: null,
+        summaryUpdatedAt: null,
+        summaryThroughTimestamp: null,
+        summaryThroughSequence: null,
+      };
 
       const effectiveConfig = await resolveAgentRuntimeConfig(job.agentId);
       const provider = effectiveConfig.activeProvider;
@@ -263,16 +285,44 @@ export async function executeAutomationRun(runId: string): Promise<void> {
         content: promptText,
         timestamp: Date.now(),
       };
+      const preparedHistory = await preparePiHistoryContext({
+        messages: [...existingMessages, promptMessage],
+        summary: sessionSummary,
+        systemPromptTokens: estimateTextTokens(systemPrompt),
+        model,
+        toolTokens: estimateAutomationToolSchemaTokens(tools),
+        sessionId: piSessionId,
+      });
+      if (preparedHistory.composition.contextBudgetExceeded) {
+        if (preparedHistory.composition.payloadBudgetExceeded) {
+          throw new Error(
+            `Automation request exceeds the ${Math.floor(MAX_LLM_HISTORY_BYTES / (1024 * 1024))}MB LLM transfer budget. ` +
+            'Shorten the latest prompt or attachments.',
+          );
+        }
+        throw new Error('Automation context exceeds the selected model window. Use a larger-context model or start a new automation session.');
+      }
+      if (preparedHistory.summaryFailed && preparedHistory.composition.omittedMessages.length > 0) {
+        throw new Error('Automation context compaction failed because its summary could not be updated.');
+      }
+      sessionSummary = preparedHistory.summary;
+      const preparedMessages = preparedHistory.composition.llmMessages;
+      if (preparedMessages[preparedMessages.length - 1] !== promptMessage) {
+        throw new Error('Automation prompt could not be retained inside the model context budget.');
+      }
       const config = {
         model,
         thinkingLevel: (providerConfig?.thinking || 'off') as ThinkingLevel,
-        convertToLlm: async (messages: AgentMessage[]) => normalizePiMessagesForLlm(messages),
+        convertToLlm: async (messages: AgentMessage[]) => normalizePiMessagesForLlm(messages, {
+          workspaceImageRoot: automationWorkspace.rootPath,
+          allowedImageFileRoots: [automationWorkspace.rootPath],
+        }),
         getApiKey: resolvePiApiKey,
         sessionId: piSessionId,
       };
       const context: AgentContext = {
         systemPrompt,
-        messages: existingMessages,
+        messages: preparedMessages.slice(0, -1),
         tools,
       };
 
@@ -298,7 +348,7 @@ export async function executeAutomationRun(runId: string): Promise<void> {
           provider,
           model.id,
           [...existingMessages, promptMessage],
-          undefined,
+          sessionSummary,
           {
             titleOverride: piSessionTitle,
             agentId: job.agentId,
@@ -363,7 +413,7 @@ export async function executeAutomationRun(runId: string): Promise<void> {
           provider,
           model.id,
           persistedFinalMessages,
-          undefined,
+          sessionSummary,
           {
             titleOverride: piSessionTitle,
             agentId: job.agentId,
@@ -414,7 +464,7 @@ export async function executeAutomationRun(runId: string): Promise<void> {
           provider,
           model.id,
           persistedFailureMessages,
-          undefined,
+          sessionSummary,
           {
             titleOverride: piSessionTitle,
             agentId: job.agentId,

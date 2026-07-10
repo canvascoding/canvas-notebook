@@ -11,6 +11,7 @@ function getText(result: unknown): string {
 async function main() {
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'canvas-mcp-proxy-'));
   process.env.CANVAS_DATA_ROOT = tempRoot;
+  process.env.MCP_ALLOW_STDIO = 'true';
   process.env.MCP_TEST_PREFIX = 'from-env:';
 
   const projectRoot = process.cwd();

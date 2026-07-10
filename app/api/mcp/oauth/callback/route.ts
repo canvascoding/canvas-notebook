@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+import { auth } from '@/app/lib/auth';
 import { completeMcpOAuthCallback } from '@/app/lib/mcp/oauth';
 
 function escapeHtml(value: string): string {
@@ -24,6 +25,10 @@ function htmlResponse(title: string, message: string, status = 200) {
 }
 
 export async function GET(request: NextRequest) {
+  const session = await auth.api.getSession({ headers: request.headers });
+  if (!session) {
+    return htmlResponse('MCP OAuth failed', 'You must remain signed in to complete MCP authorization.', 401);
+  }
   const code = request.nextUrl.searchParams.get('code');
   const state = request.nextUrl.searchParams.get('state');
   const error = request.nextUrl.searchParams.get('error');
@@ -36,7 +41,7 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const token = await completeMcpOAuthCallback(code, state);
+    const token = await completeMcpOAuthCallback(code, state, { userId: session.user.id });
     return htmlResponse('MCP OAuth complete', `Authorization saved for ${token.serverName}. You can close this window.`);
   } catch (callbackError) {
     const message = callbackError instanceof Error ? callbackError.message : 'OAuth callback failed.';

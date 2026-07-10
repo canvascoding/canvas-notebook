@@ -47,7 +47,19 @@ export async function readPluginMcpTemplateFile(params: {
     throw new Error('Invalid connector config path.');
   }
 
-  const rawContent = await fs.readFile(targetPath, 'utf-8');
+  const stat = await fs.lstat(targetPath);
+  if (stat.isSymbolicLink() || !stat.isFile()) {
+    throw new Error('Invalid connector config path.');
+  }
+  const [realRootDir, realTargetPath] = await Promise.all([
+    fs.realpath(params.rootDir),
+    fs.realpath(targetPath),
+  ]);
+  if (!isPathInside(realRootDir, realTargetPath)) {
+    throw new Error('Invalid connector config path.');
+  }
+
+  const rawContent = await fs.readFile(realTargetPath, 'utf-8');
   return {
     rawContent,
     config: parsePluginMcpTemplateJson(rawContent),

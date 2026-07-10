@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { auth } from '@/app/lib/auth';
 import { recordAuditEvent } from '@/app/lib/audit/audit-service';
+import { initializeUserOnboarding } from '@/app/lib/user-preferences';
+import { isOnboardingComplete, isOnboardingEnabled } from '@/app/lib/onboarding/status';
 
 function hasAuthPathSegment(pathname: string, segment: string): boolean {
   return new RegExp(`/${segment}(?:/|$)`).test(pathname);
@@ -79,6 +81,14 @@ async function recordAuthRequestAudit(
   });
 }
 
+async function initializeCreatedUserOnboarding(pathname: string, response: Response): Promise<void> {
+  if (!hasAuthPathSegment(pathname, 'create-user') || response.status >= 400) return;
+  if (!isOnboardingEnabled() || !(await isOnboardingComplete())) return;
+  const userId = await getAuthResponseUserId(response);
+  if (!userId) return;
+  await initializeUserOnboarding(userId);
+}
+
 export async function GET(request: NextRequest) {
   return auth.handler(request);
 }
@@ -95,6 +105,13 @@ export async function POST(request: NextRequest) {
   }
 
   const response = await auth.handler(request);
+  try {
+    await initializeCreatedUserOnboarding(pathname, response);
+  } catch (error) {
+    // Account creation must keep Better Auth's response semantics. The admin
+    // UI retries the explicit initializer if persistence briefly fails.
+    console.error('[auth] Failed to initialize personal onboarding for created user:', error);
+  }
   if (action) await recordAuthRequestAudit(request, action, response, beforeUserId);
   return response;
 }

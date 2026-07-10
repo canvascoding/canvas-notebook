@@ -28,6 +28,9 @@ import { notifyWorkspaceFileOpened } from '@/app/lib/files/workspace-file-events
 import { PublicShareDialog } from './PublicShareDialog';
 import { useCreateItemDialog } from './useCreateItemDialog';
 import { useWorkspaceStore } from '@/app/store/workspace-store';
+import { useEditorStore } from '@/app/store/editor-store';
+import { invalidateFileReferenceValidationCache } from '@/app/lib/chat/validate-file-paths';
+import { useShallow } from 'zustand/react/shallow';
 
 
 import { AppLauncher } from '@/app/components/AppLauncher';
@@ -55,6 +58,7 @@ export function FileBrowser({ variant = 'default', onFileSelect }: FileBrowserPr
   const [activeFilePath, setActiveFilePath] = useState<string | null>(null);
   const [publicShareOpen, setPublicShareOpen] = useState(false);
   const [publicSharePaths, setPublicSharePaths] = useState<string[]>([]);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   const isFullscreen = variant === 'fullscreen';
   const isMobileSheet = variant === 'mobile-sheet';
@@ -71,7 +75,6 @@ export function FileBrowser({ variant = 'default', onFileSelect }: FileBrowserPr
     setSearchQuery,
     collapseAllDirectories,
     fileTree,
-    hydrateClientPreferences,
     isMultiSelectMode,
     toggleMultiSelectMode,
     multiSelectPaths,
@@ -79,17 +82,31 @@ export function FileBrowser({ variant = 'default', onFileSelect }: FileBrowserPr
     downloadFile,
     revealAndLoadFile,
     setBulkMoveOpen,
-    resetWorkspaceView,
-    loadFileTree,
-  } = useFileStore();
+    currentFile,
+    refreshCurrentFileContent,
+  } = useFileStore(useShallow((state) => ({
+    refreshDirectory: state.refreshDirectory,
+    refreshVisibleTree: state.refreshVisibleTree,
+    selectedNode: state.selectedNode,
+    deletePath: state.deletePath,
+    uploadFile: state.uploadFile,
+    uploadProgress: state.uploadProgress,
+    currentDirectory: state.currentDirectory,
+    searchQuery: state.searchQuery,
+    setSearchQuery: state.setSearchQuery,
+    collapseAllDirectories: state.collapseAllDirectories,
+    fileTree: state.fileTree,
+    isMultiSelectMode: state.isMultiSelectMode,
+    toggleMultiSelectMode: state.toggleMultiSelectMode,
+    multiSelectPaths: state.multiSelectPaths,
+    clearMultiSelect: state.clearMultiSelect,
+    downloadFile: state.downloadFile,
+    revealAndLoadFile: state.revealAndLoadFile,
+    setBulkMoveOpen: state.setBulkMoveOpen,
+    currentFile: state.currentFile,
+    refreshCurrentFileContent: state.refreshCurrentFileContent,
+  })));
   const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
-
-  useEffect(() => {
-    const handle = window.setTimeout(() => {
-      hydrateClientPreferences();
-    }, 0);
-    return () => window.clearTimeout(handle);
-  }, [hydrateClientPreferences]);
 
   useEffect(() => {
     if (!activeWorkspaceId) return;
@@ -107,13 +124,12 @@ export function FileBrowser({ variant = 'default', onFileSelect }: FileBrowserPr
     setDeleteOpen(false);
     setDeletePaths([]);
     setDeleteSkippedCount(0);
-    resetWorkspaceView();
-    void loadFileTree('.', undefined, true);
-  }, [activeWorkspaceId, loadFileTree, resetWorkspaceView]);
+  }, [activeWorkspaceId]);
 
   const isDirectoryReachableInTree = useCallback(
     (dirPath: string) => {
       if (dirPath === '.') return true;
+      if (fileTree.length === 0) return true;
       if (findPathInTree(dirPath, fileTree)) return true;
       const [rootSegment] = dirPath.split('/');
       return fileTree.some((node) => node.type === 'directory' && node.path === rootSegment);
@@ -248,15 +264,17 @@ export function FileBrowser({ variant = 'default', onFileSelect }: FileBrowserPr
   );
 
   const handleOpenFile = useCallback((path: string) => {
-    notifyWorkspaceFileOpened(path, 'file-browser');
+    void useFileStore.getState().revealAndLoadFile(path, { revealInTree: false })
+      .then((result) => {
+        if (result.status !== 'opened') {
+          if (result.status !== 'superseded') toast.error(result.error);
+          return;
+        }
 
-    if (isFullscreen) {
-      void useFileStore.getState().loadFile(path, true);
-      setActiveFilePath(path);
-    } else {
-      void useFileStore.getState().loadFile(path, true);
-    }
-    onFileSelect?.(path);
+        notifyWorkspaceFileOpened(path, 'file-browser');
+        if (isFullscreen) setActiveFilePath(path);
+        onFileSelect?.(path);
+      });
   }, [isFullscreen, onFileSelect]);
 
   const pathParam = normalizeWorkspacePathParam(searchParams.get('path'));
@@ -275,8 +293,12 @@ export function FileBrowser({ variant = 'default', onFileSelect }: FileBrowserPr
     let cancelled = false;
     const handle = window.setTimeout(() => {
       void revealAndLoadFile(pathParam)
-        .then(() => {
+        .then((result) => {
           if (cancelled) return;
+          if (result.status !== 'opened') {
+            if (result.status !== 'superseded') toast.error(result.error);
+            return;
+          }
           openedPathParamRef.current = pathParam;
           setActiveFilePath(pathParam);
           onFileSelect?.(pathParam);
@@ -302,9 +324,21 @@ export function FileBrowser({ variant = 'default', onFileSelect }: FileBrowserPr
     };
   }, [isFullscreen, onFileSelect, pathParam, revealAndLoadFile, t]);
 
-  const handleRefresh = useCallback(() => {
-    void refreshVisibleTree();
-  }, [refreshVisibleTree]);
+  const handleRefresh = useCallback(async () => {
+    if (isRefreshing) return;
+    setIsRefreshing(true);
+    try {
+      await refreshVisibleTree();
+      invalidateFileReferenceValidationCache();
+
+      const editorState = useEditorStore.getState();
+      if (currentFile?.path && !editorState.isDirty && editorState.activePath === currentFile.path) {
+        await refreshCurrentFileContent(currentFile.path);
+      }
+    } finally {
+      setIsRefreshing(false);
+    }
+  }, [currentFile?.path, isRefreshing, refreshCurrentFileContent, refreshVisibleTree]);
 
   const toolbarHandlers: FileToolbarHandlers = {
     onToggleMultiSelect: toggleMultiSelectMode,
@@ -345,6 +379,7 @@ export function FileBrowser({ variant = 'default', onFileSelect }: FileBrowserPr
           variant={toolbarVariant}
           isMultiSelectMode={isMultiSelectMode}
           isDeleteDisabled={isDeleteDisabled}
+          isRefreshing={isRefreshing}
           handlers={toolbarHandlers}
         />
 

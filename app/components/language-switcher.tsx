@@ -1,8 +1,9 @@
 'use client';
 
-import { useTransition } from 'react';
-import { usePathname, useRouter } from '@/i18n/navigation';
+import { useState, useSyncExternalStore } from 'react';
+import { usePathname } from '@/i18n/navigation';
 import { routing } from '@/i18n/routing';
+import { buildLocalePath } from '@/app/lib/locale-path';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -11,9 +12,19 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Languages } from 'lucide-react';
-import { useParams } from 'next/navigation';
+import { useLocale } from 'next-intl';
 
-async function persistPreferredLocale(locale: string): Promise<void> {
+function getBrowserPathLocale(fallback: string) {
+  if (typeof window === 'undefined') return fallback;
+  const match = window.location.pathname.match(/^\/(de|en)(?:\/|$)/u);
+  return match?.[1] || routing.defaultLocale;
+}
+
+function subscribeToBrowserLocation() {
+  return () => undefined;
+}
+
+async function persistPreferredLocale(locale: string): Promise<boolean> {
   try {
     const response = await fetch('/api/user-preferences', {
       method: 'PATCH',
@@ -21,26 +32,46 @@ async function persistPreferredLocale(locale: string): Promise<void> {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ locale }),
     });
-    if (!response.ok && response.status !== 401) {
+    if (response.ok) {
+      return true;
+    }
+    if (response.status === 401) {
+      // Public setup/login pages have no user preference to persist yet. Keep
+      // next-intl's locale cookie in sync before the document navigation.
+      document.cookie = `NEXT_LOCALE=${encodeURIComponent(locale)}; Path=/; SameSite=Lax; Max-Age=31536000`;
+      return true;
+    }
+    if (!response.ok) {
       console.warn('[LanguageSwitcher] Failed to save preferred locale:', response.status);
     }
   } catch (error) {
     console.warn('[LanguageSwitcher] Failed to save preferred locale:', error);
   }
+  return false;
 }
 
 export function LanguageSwitcher() {
-  const router = useRouter();
-  const [isPending, startTransition] = useTransition();
+  const [isSaving, setIsSaving] = useState(false);
   const pathname = usePathname();
-  const params = useParams();
-  const currentLocale = params.locale as string || routing.defaultLocale;
+  const locale = useLocale();
+  const currentLocale = useSyncExternalStore(
+    subscribeToBrowserLocation,
+    () => getBrowserPathLocale(locale),
+    () => locale,
+  );
 
-  function onSelectLocale(nextLocale: string) {
-    startTransition(() => {
-      void persistPreferredLocale(nextLocale);
-      router.replace(pathname, { locale: nextLocale });
-    });
+  async function onSelectLocale(nextLocale: string) {
+    const activeLocale = getBrowserPathLocale(currentLocale);
+    if (nextLocale === activeLocale || isSaving) return;
+    setIsSaving(true);
+    const persisted = await persistPreferredLocale(nextLocale);
+    if (!persisted) {
+      setIsSaving(false);
+      return;
+    }
+    // A full navigation avoids React clearing a mutated document during
+    // locale transitions on public pages (see the Sentry hydration failure).
+    window.location.assign(buildLocalePath(nextLocale, pathname));
   }
 
   return (
@@ -50,7 +81,7 @@ export function LanguageSwitcher() {
           variant="ghost"
           size="icon-sm"
           className="h-8 w-8"
-          disabled={isPending}
+          disabled={isSaving}
         >
           <Languages className="h-4 w-4" />
           <span className="sr-only">Switch language</span>
@@ -60,8 +91,8 @@ export function LanguageSwitcher() {
         {routing.locales.map((locale) => (
           <DropdownMenuItem
             key={locale}
-            onClick={() => onSelectLocale(locale)}
-            disabled={locale === currentLocale}
+            onClick={() => void onSelectLocale(locale)}
+            disabled={isSaving}
             className={locale === currentLocale ? 'bg-accent font-medium' : ''}
           >
             {locale === 'de' ? 'Deutsch' : 'English'}

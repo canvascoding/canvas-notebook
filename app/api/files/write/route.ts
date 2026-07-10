@@ -104,7 +104,11 @@ export async function POST(request: NextRequest) {
       path,
       ensureDocument: true,
     });
-    invalidateWorkspaceFileViews({ fileOptions, subtreeDirs: [getParentDirectory(path)] });
+    invalidateWorkspaceFileViews({
+      fileOptions,
+      subtreeDirs: [getParentDirectory(path)],
+      mutations: [{ path, type: 'change' }],
+    });
     queuePublicSharesAfterWrite([path], workspaceResult.workspace);
     await recordAuditEvent({
       organizationId: workspaceResult.workspace.organizationId,

@@ -12,6 +12,7 @@ import {
 } from '@/app/lib/workspaces/path-guard';
 import { compactWorkspaceSelection } from '@/app/lib/files/operation-flows';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
+import { AsyncSemaphore } from '@/app/lib/utils/async-semaphore';
 
 export type { FileNode } from '@/app/lib/files/types';
 
@@ -30,6 +31,28 @@ function getWorkspace(options?: WorkspaceFileOperationOptions): WorkspaceContext
 
 const IGNORED_WORKSPACE_DIRS = new Set(['node_modules', '.next', '.git', 'dist', 'build', '.cache']);
 const HIDDEN_WORKSPACE_METADATA_FILES = new Set(['.gitkeep', '.keep']);
+const FILE_METADATA_CONCURRENCY = 32;
+const FILE_TREE_DIRECTORY_CONCURRENCY = 16;
+
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  concurrency: number,
+  mapper: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let cursor = 0;
+  const workerCount = Math.min(concurrency, items.length);
+
+  await Promise.all(Array.from({ length: workerCount }, async () => {
+    while (cursor < items.length) {
+      const index = cursor;
+      cursor += 1;
+      results[index] = await mapper(items[index], index);
+    }
+  }));
+
+  return results;
+}
 
 export function validatePath(userPath: string, options?: WorkspaceFileOperationOptions): string {
   return resolveWorkspacePath(getWorkspace(options), userPath).absolutePath;
@@ -60,11 +83,6 @@ async function resolveDirectoryCreationPath(
   return resolveDirectoryCreationPathForContext(getWorkspace(options), userPath);
 }
 
-function isAppOutputMetadataFile(_filePath: string, fileName: string): boolean {
-  if (!fileName.endsWith('.json')) return false;
-  return false;
-}
-
 export async function listDirectory(
   dirPath: string = '.',
   options?: WorkspaceFileOperationOptions
@@ -73,47 +91,40 @@ export async function listDirectory(
   const entries = await fs.readdir(fullPath, {withFileTypes: true});
   const includeMetadata = options?.includeMetadata ?? true;
 
-  return Promise.all(
-    entries
-      .filter((entry) => {
-        if (entry.isDirectory()) {
-          return !IGNORED_WORKSPACE_DIRS.has(entry.name);
-        }
+  const visibleEntries = entries.filter((entry) => {
+    if (entry.isDirectory()) {
+      return !IGNORED_WORKSPACE_DIRS.has(entry.name);
+    }
+    return !HIDDEN_WORKSPACE_METADATA_FILES.has(entry.name);
+  });
+  const toNode = (entry: import('fs').Dirent): FileNode => ({
+    name: entry.name,
+    path: dirPath === '.' ? entry.name : path.posix.join(dirPath, entry.name),
+    type: entry.isDirectory() ? 'directory' : 'file',
+  });
 
-        if (HIDDEN_WORKSPACE_METADATA_FILES.has(entry.name)) {
-          return false;
-        }
+  if (!includeMetadata) {
+    return visibleEntries.map(toNode);
+  }
 
-        // Hide app output metadata JSON files
-        const entryPath = path.join(dirPath, entry.name);
-        if (isAppOutputMetadataFile(entryPath, entry.name)) {
-          return false;
-        }
+  const nodes = await mapWithConcurrency<import('fs').Dirent, FileNode | null>(
+    visibleEntries,
+    FILE_METADATA_CONCURRENCY,
+    async (entry) => {
+    const node = toNode(entry);
+    const entryPath = path.join(fullPath, entry.name);
+    const stats = await safeStat(entryPath);
+    if (!stats) return null;
 
-        return true;
-      })
-      .map(async (entry) => {
-        const node: FileNode = {
-          name: entry.name,
-          path: path.join(dirPath, entry.name),
-          type: entry.isDirectory() ? 'directory' : 'file',
-        };
-
-        if (!includeMetadata) {
-          return node;
-        }
-
-        const entryPath = path.join(fullPath, entry.name);
-        const stats = await fs.stat(entryPath);
-
-        return {
-          ...node,
-          size: stats.size,
-          modified: Math.floor(stats.mtimeMs / 1000),
-          permissions: stats.mode?.toString(8),
-        };
-      })
+    return {
+      ...node,
+      size: stats.size,
+      modified: Math.floor(stats.mtimeMs / 1000),
+      permissions: stats.mode?.toString(8),
+    };
+    },
   );
+  return nodes.filter((node): node is FileNode => node !== null);
 }
 
 export async function readFile(filePath: string, options?: WorkspaceFileOperationOptions): Promise<Buffer> {
@@ -323,13 +334,14 @@ export async function buildFileTree(
   dirPath: string = '.',
   depth: number = 4,
   currentDepth: number = 0,
-  options?: WorkspaceFileOperationOptions
+  options?: WorkspaceFileOperationOptions,
+  directorySemaphore = new AsyncSemaphore(FILE_TREE_DIRECTORY_CONCURRENCY),
 ): Promise<FileNode[]> {
   if (currentDepth > depth) {
     return [];
   }
 
-  const files = await listDirectory(dirPath, options);
+  const files = await directorySemaphore.run(() => listDirectory(dirPath, options));
 
   files.sort((a, b) => {
     if (a.type === b.type) {
@@ -343,7 +355,13 @@ export async function buildFileTree(
       files.map(async (file) => {
         if (file.type === 'directory') {
           try {
-            file.children = await buildFileTree(file.path, depth, currentDepth + 1, options);
+            file.children = await buildFileTree(
+              file.path,
+              depth,
+              currentDepth + 1,
+              options,
+              directorySemaphore,
+            );
           } catch (error) {
             console.warn(`Failed to read directory ${file.path}:`, error);
             file.children = [];

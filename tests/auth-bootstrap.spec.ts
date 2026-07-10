@@ -46,7 +46,7 @@ test.describe('Bootstrap auth flow', () => {
     await page.fill('input[type="password"]', TEST_PASSWORD);
     await page.click('button[type="submit"]');
 
-    await expect(page).toHaveURL('/onboarding', { timeout: 15000 });
+    await expect(page).toHaveURL(/\/(?:en\/)?onboarding$/, { timeout: 15000 });
 
     const scrollRoot = page.getByTestId('onboarding-scroll-root');
     await expect(scrollRoot).toBeVisible();
@@ -65,30 +65,31 @@ test.describe('Bootstrap auth flow', () => {
     await expect
       .poll(() => scrollRoot.evaluate((element) => element.scrollTop))
       .toBeGreaterThan(0);
-    await expect(page.getByRole('button', { name: 'Später einrichten' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: /Instanz-Einstellungen|Instance settings/ })).toBeVisible();
+    await expect(page.locator('select')).toBeVisible();
+    await expect(page.getByRole('button', { name: /Instanz-Einstellungen speichern|Save instance settings/ })).toBeVisible();
   });
 
-  test('sends the bootstrap admin into provider-only onboarding and completes it', async ({ page }) => {
+  test('changes the public language with a document navigation', async ({ page }) => {
+    const pageErrors: Error[] = [];
+    page.on('pageerror', (error) => pageErrors.push(error));
+
     await page.goto('/login');
-    await page.fill('input[type="email"]', TEST_EMAIL);
-    await page.fill('input[type="password"]', TEST_PASSWORD);
-    await page.click('button[type="submit"]');
-
-    await expect(page).toHaveURL('/onboarding', { timeout: 15000 });
-    await expect(
-      page.getByText(/du bist mit dem per environment konfigurierten admin bereits angemeldet/i),
-    ).toBeVisible();
-    await expect(page.locator('#name')).toHaveCount(0);
-    await expect(page.locator('#email')).toHaveCount(0);
-    await expect(page.locator('#password')).toHaveCount(0);
-
-    await page.getByRole('button', { name: 'Später einrichten' }).click();
-    await expect(page.getByText('Einrichtung abgeschlossen')).toBeVisible();
-
-    await page.getByRole('button', { name: 'Zur App' }).click();
-    await expect(page).toHaveURL('/', { timeout: 15000 });
-
-    await page.goto('/onboarding');
-    await expect(page).toHaveURL('/', { timeout: 15000 });
+    if (page.url().includes('/en/login')) {
+      await page.getByRole('button', { name: 'Switch language' }).click();
+      await page.getByRole('menuitem', { name: 'Deutsch' }).click();
+      await expect(page).toHaveURL('/login', { timeout: 15000 });
+      await page.getByRole('button', { name: 'Switch language' }).click();
+      await page.getByRole('menuitem', { name: 'English' }).click();
+      await expect(page).toHaveURL('/en/login', { timeout: 15000 });
+    } else {
+      await page.getByRole('button', { name: 'Switch language' }).click();
+      await page.getByRole('menuitem', { name: 'English' }).click();
+      await expect(page).toHaveURL('/en/login', { timeout: 15000 });
+      await page.getByRole('button', { name: 'Switch language' }).click();
+      await page.getByRole('menuitem', { name: 'Deutsch' }).click();
+      await expect(page).toHaveURL('/login', { timeout: 15000 });
+    }
+    expect(pageErrors.some((error) => error.message.includes("Cannot read properties of undefined (reading 'toLowerCase')"))).toBe(false);
   });
 });

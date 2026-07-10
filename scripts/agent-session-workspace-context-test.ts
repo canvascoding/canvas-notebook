@@ -8,7 +8,9 @@ async function main() {
   const dataRoot = path.join(tempRoot, 'data');
   process.env.DATA = dataRoot;
   process.env.CANVAS_DEPLOYMENT_MODE = 'managed-team';
-  process.env.CANVAS_DATABASE_PROVIDER = 'postgres';
+  // This test exercises file-scope behavior against an isolated local database.
+  // Managed-team mode alone does not require a live Postgres service.
+  process.env.CANVAS_DATABASE_PROVIDER = 'sqlite';
 
   try {
     await fs.mkdir(dataRoot, { recursive: true });
@@ -203,7 +205,15 @@ async function main() {
       const runtimeTempDir = resolveAgentRuntimeTempDir(executionContext);
       assert.equal(
         runtimeTempDir,
-        path.join(dataRoot, 'temp', 'agent-runtime', 'org-personal', `user-${userId}`, 'agent-canvas-agent', `session-${sessionId}`),
+        path.join(
+          dataRoot,
+          'temp',
+          'agent-runtime',
+          `org-${executionContext.organizationId || 'personal'}`,
+          `user-${userId}`,
+          'agent-canvas-agent',
+          `session-${sessionId}`,
+        ),
       );
       const tempEnv = getAgentRuntimeTempEnv(runtimeTempDir);
       assert.equal(tempEnv.CANVAS_AGENT_TEMP_DIR, runtimeTempDir);
@@ -254,7 +264,7 @@ async function main() {
           sourcePaths: [userUploadPath],
           destinationPath: 'uploads/moved-voice.ogg',
         }),
-        /writes are limited to the workspace bound/,
+        /mutations are limited to the workspace bound/,
       );
 
       const outsideReadRoot = path.join(tempRoot, 'outside-read');
