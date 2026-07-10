@@ -161,6 +161,16 @@ function getAvailableChatMaxWidth(containerWidth?: number) {
   return Math.min(CHAT_PANEL_MAX, Math.max(CHAT_PANEL_MIN, availableWidth - MIN_EDITOR_WIDTH));
 }
 
+function hasNotebookSideChatSpace(
+  viewportWidth: number,
+  sidebarVisible: boolean,
+  sidebarWidth: number,
+  chatWidth: number,
+) {
+  const availableWidth = viewportWidth - (sidebarVisible ? sidebarWidth : 0);
+  return availableWidth >= MIN_EDITOR_WIDTH + chatWidth;
+}
+
 function MobileNotebookEmptyState({
   onOpenExplorer,
   onOpenChat,
@@ -210,6 +220,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
   const tNav = useTranslations('navigation');
   const searchParams = useSearchParams();
   const [viewportMode, setViewportMode] = useState<'mobile' | 'desktop' | null>(null);
+  const [viewportWidth, setViewportWidth] = useState(0);
   const [sidebarVisible, setSidebarVisible] = useState(true);
   const [sidebarWidth, setSidebarWidth] = useState(LEFT_SIDEBAR_DEFAULT);
   const [chatVisible, setChatVisible] = useState(true);
@@ -541,11 +552,20 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
     return getAvailableChatMaxWidth(containerWidth);
   }, []);
 
+  const getSidebarPanelMaxWidth = useCallback(() => {
+    const sideChatFits = hasNotebookSideChatSpace(window.innerWidth, sidebarVisible, sidebarWidth, chatWidth);
+    const reservedChatWidth = chatVisible && desktopChatMode === 'side' && sideChatFits ? chatWidth : 0;
+    return Math.min(
+      LEFT_SIDEBAR_MAX,
+      Math.max(LEFT_SIDEBAR_MIN, window.innerWidth - MIN_EDITOR_WIDTH - reservedChatWidth),
+    );
+  }, [chatVisible, chatWidth, desktopChatMode, sidebarVisible, sidebarWidth]);
+
   const sidebarResize = usePanelResize({
     orientation: 'vertical',
     value: sidebarWidth,
     min: LEFT_SIDEBAR_MIN,
-    max: getSidebarMaxWidth,
+    max: getSidebarPanelMaxWidth,
     onResize: applySidebarPanelWidth,
     onResizeEnd: setSidebarWidth,
   });
@@ -578,8 +598,12 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
       return;
     }
 
-    setDesktopChatMode('side');
-  }, [chatVisible, desktopChatMode, viewportMode]);
+    if (hasNotebookSideChatSpace(window.innerWidth, sidebarVisible, sidebarWidth, chatWidth)) {
+      setDesktopChatMode('side');
+    } else {
+      setChatVisible(false);
+    }
+  }, [chatVisible, chatWidth, desktopChatMode, sidebarVisible, sidebarWidth, viewportMode]);
 
   const handleDesktopChatPrimaryAction = useCallback(() => {
     if (!chatVisible) {
@@ -588,12 +612,16 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
     }
 
     if (desktopChatMode === 'fullscreen') {
-      setDesktopChatMode('side');
+      if (hasNotebookSideChatSpace(window.innerWidth, sidebarVisible, sidebarWidth, chatWidth)) {
+        setDesktopChatMode('side');
+      } else {
+        setChatVisible(false);
+      }
       return;
     }
 
     setChatVisible(false);
-  }, [chatVisible, desktopChatMode, openDesktopChat]);
+  }, [chatVisible, chatWidth, desktopChatMode, openDesktopChat, sidebarVisible, sidebarWidth]);
 
   const handleClosePreview = useCallback(() => {
     useFileStore.getState().clearCurrentFile();
@@ -618,6 +646,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
       const isMobile = nextWidth < 768;
       const nextMode = isMobile ? 'mobile' : 'desktop';
       setViewportMode((current) => (current === nextMode ? current : nextMode));
+      setViewportWidth(nextWidth);
 
       if (!isMobile) {
         setSidebarWidth((prev) => {
@@ -752,10 +781,13 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
 
   const isMobileViewport = viewportMode === 'mobile';
   const isDesktopViewport = viewportMode === 'desktop';
-  const isDesktopChatSideVisible = isDesktopViewport && chatVisible && desktopChatMode === 'side';
-  const isDesktopChatFullscreen = isDesktopViewport && chatVisible && desktopChatMode === 'fullscreen';
+  const shouldUseResponsiveChatOverlay = isDesktopViewport
+    && desktopChatMode === 'side'
+    && !hasNotebookSideChatSpace(viewportWidth, sidebarVisible, sidebarWidth, chatWidth);
+  const usesDesktopChatOverlay = desktopChatMode === 'fullscreen' || shouldUseResponsiveChatOverlay;
+  const isDesktopChatSideVisible = isDesktopViewport && chatVisible && !usesDesktopChatOverlay;
   const desktopChatWrapperStyle =
-    desktopChatMode === 'side'
+    !usesDesktopChatOverlay
       ? ({
         '--desktop-chat-width': `${chatWidth}px`,
         width: chatVisible ? 'var(--desktop-chat-width)' : '0px',
@@ -1041,9 +1073,10 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
 
                   <div
                     ref={desktopChatWrapperRef}
+                    data-chat-mode={shouldUseResponsiveChatOverlay ? 'responsive-overlay' : desktopChatMode}
                     style={desktopChatWrapperStyle}
                     className={cn(
-                      desktopChatMode === 'fullscreen'
+                      usesDesktopChatOverlay
                         ? 'absolute inset-0 z-[70] overflow-hidden bg-background shadow-[0_0_0_1px_hsl(var(--border)),0_24px_60px_-24px_hsl(var(--foreground)/0.45)] transition-[opacity,box-shadow] duration-200 ease-out motion-reduce:transition-none'
                         : cn(
                           'relative flex-shrink-0 overflow-hidden bg-background',
@@ -1051,13 +1084,11 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
                             ? 'transition-none'
                             : 'transition-[width,opacity] duration-200 ease-out motion-reduce:transition-none',
                         ),
-                      isDesktopChatFullscreen
+                      chatVisible
                         ? 'opacity-100'
-                        : desktopChatMode === 'fullscreen'
+                        : usesDesktopChatOverlay
                           ? 'pointer-events-none opacity-0'
-                          : chatVisible
-                            ? 'opacity-100'
-                            : 'pointer-events-none w-0 opacity-0',
+                          : 'pointer-events-none w-0 opacity-0',
                     )}
                   >
                     <div id="onboarding-notebook-chat" className="flex flex-col w-full h-full relative">

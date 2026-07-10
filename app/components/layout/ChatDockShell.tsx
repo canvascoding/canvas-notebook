@@ -47,6 +47,7 @@ export type DesktopChatMode = 'side' | 'fullscreen';
 const CHAT_WIDTH_MIN = 390;
 const CHAT_WIDTH_MAX = 600;
 const DEFAULT_CHAT_WIDTH = 420;
+const MAIN_CONTENT_MIN_WIDTH = 480;
 
 function getStoredBoolean(key: string, fallback: boolean) {
   if (typeof window === 'undefined') return fallback;
@@ -182,7 +183,7 @@ export function ChatDockShell({
 
   const getChatMaxWidth = useCallback(() => {
     const containerWidth = desktopMainRef.current?.getBoundingClientRect().width ?? window.innerWidth;
-    return Math.min(CHAT_WIDTH_MAX, Math.max(CHAT_WIDTH_MIN, containerWidth - CHAT_WIDTH_MIN));
+    return Math.min(CHAT_WIDTH_MAX, Math.max(CHAT_WIDTH_MIN, containerWidth - MAIN_CONTENT_MIN_WIDTH));
   }, []);
 
   const chatResize = usePanelResize({
@@ -263,16 +264,19 @@ export function ChatDockShell({
 
   const isMobileViewport = viewportMode === 'mobile';
   const isDesktopViewport = viewportMode === 'desktop';
-  const isDesktopChatSideVisible = isDesktopViewport && chatVisible && desktopChatMode === 'side';
-  const isDesktopChatFullscreen = isDesktopViewport && chatVisible && desktopChatMode === 'fullscreen';
+  const shouldUseResponsiveChatOverlay = isDesktopViewport
+    && desktopChatMode === 'side'
+    && viewportWidth < MAIN_CONTENT_MIN_WIDTH + chatWidth;
+  const usesDesktopChatOverlay = desktopChatMode === 'fullscreen' || shouldUseResponsiveChatOverlay;
+  const isDesktopChatSideVisible = isDesktopViewport && chatVisible && !usesDesktopChatOverlay;
   const desktopChatWrapperStyle =
-    desktopChatMode === 'side'
+    !usesDesktopChatOverlay
       ? ({
         '--desktop-chat-width': `${chatWidth}px`,
         width: chatVisible ? 'var(--desktop-chat-width)' : '0px',
       } as CSSProperties)
       : undefined;
-  const chatContainerWidth = isDesktopChatFullscreen ? viewportWidth : chatWidth;
+  const chatContainerWidth = usesDesktopChatOverlay ? viewportWidth : chatWidth;
 
   const chatModeControl = (
     <DropdownMenu modal={false}>
@@ -398,10 +402,10 @@ export function ChatDockShell({
                 id="chat-dock-desktop"
                 data-testid="chat-dock-desktop"
                 data-chat-visible={chatVisible ? 'true' : 'false'}
-                data-chat-mode={desktopChatMode}
+                data-chat-mode={shouldUseResponsiveChatOverlay ? 'responsive-overlay' : desktopChatMode}
                 style={desktopChatWrapperStyle}
                 className={cn(
-                  desktopChatMode === 'fullscreen'
+                  usesDesktopChatOverlay
                     ? 'absolute inset-0 z-[70] overflow-hidden bg-background shadow-[0_0_0_1px_hsl(var(--border)),0_24px_60px_-24px_hsl(var(--foreground)/0.45)] transition-[opacity,box-shadow] duration-200 ease-out motion-reduce:transition-none'
                     : cn(
                       'relative flex-shrink-0 overflow-hidden bg-background',
@@ -409,13 +413,11 @@ export function ChatDockShell({
                         ? 'transition-none'
                         : 'transition-[width,opacity] duration-200 ease-out motion-reduce:transition-none',
                     ),
-                  isDesktopChatFullscreen
+                  chatVisible
                     ? 'opacity-100'
-                    : desktopChatMode === 'fullscreen'
+                    : usesDesktopChatOverlay
                       ? 'pointer-events-none opacity-0'
-                      : chatVisible
-                        ? 'opacity-100'
-                        : 'pointer-events-none w-0 opacity-0',
+                      : 'pointer-events-none w-0 opacity-0',
                 )}
               >
                 <div className="flex h-full w-full flex-col">
