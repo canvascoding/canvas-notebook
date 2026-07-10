@@ -172,7 +172,7 @@
     "timeZoneTitle": "Zeitzone auswählen",
     "timeZoneDescription": "Diese Zeitzone gilt serverweit für geplante Automationen und Agent-Zeitkontext. Als Administrator legst du hier den Standard fest.",
     "timeZoneLabel": "Zeitzone",
-    "preferencesSaveFailed": "Sprache und Zeitzone konnten nicht gespeichert werden.",
+    "preferencesSaveFailed": "Sprache konnte nicht gespeichert werden.",
     "licenseTitle": "Lizenz aktivieren",
     "licenseDescription": "Prüfe die Lizenz dieser Instanz. Managed-Instanzen werden automatisch aktiviert; bei Self-Hosting kannst du hier einen kostenlosen Community-Key anfordern.",
     "licenseManagedTitle": "Managed-Lizenz aktiv",

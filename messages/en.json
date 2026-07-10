@@ -172,7 +172,7 @@
     "timeZoneTitle": "Choose time zone",
     "timeZoneDescription": "This time zone applies server-wide for scheduled automations and the agent time context. As an administrator, you set the default here.",
     "timeZoneLabel": "Time zone",
-    "preferencesSaveFailed": "Could not save language and time zone.",
+    "preferencesSaveFailed": "Could not save language.",
     "licenseTitle": "Activate license",
     "licenseDescription": "Check this instance license. Managed instances activate automatically; for self-hosting, request a free Community key here.",
     "licenseManagedTitle": "Managed license active",
