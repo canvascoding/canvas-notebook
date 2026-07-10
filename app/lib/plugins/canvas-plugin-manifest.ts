@@ -6,6 +6,7 @@ import { isPathInside, requirePathInside, resolvePathInside } from '@/app/lib/se
 export { isPathInside } from '@/app/lib/security/safe-paths';
 
 export const CANVAS_PLUGIN_MANIFEST_PATH = path.join('.canvas-plugin', 'plugin.json');
+const IGNORED_PLUGIN_PACKAGE_ENTRIES = new Set(['.git', 'node_modules', '.DS_Store']);
 
 export interface CanvasPluginAuthor {
   name?: string;
@@ -375,6 +376,26 @@ async function readTextFileInside(rootDir: string, targetPath: string) {
   return fs.readFile(requirePathInside(rootDir, relativePath || '.'), 'utf-8');
 }
 
+async function findPluginPackageSymlinks(rootDir: string, currentDir = rootDir): Promise<string[]> {
+  const entries = await fs.readdir(currentDir, { withFileTypes: true });
+  const symlinks: string[] = [];
+
+  for (const entry of entries) {
+    if (IGNORED_PLUGIN_PACKAGE_ENTRIES.has(entry.name)) continue;
+
+    const fullPath = path.join(currentDir, entry.name);
+    if (entry.isSymbolicLink()) {
+      symlinks.push(path.relative(rootDir, fullPath).split(path.sep).join('/'));
+      continue;
+    }
+    if (entry.isDirectory()) {
+      symlinks.push(...await findPluginPackageSymlinks(rootDir, fullPath));
+    }
+  }
+
+  return symlinks;
+}
+
 export async function validateCanvasPluginPackage(sourcePath: string): Promise<CanvasPluginValidationResult> {
   const errors: string[] = [];
   const warnings: string[] = [];
@@ -390,11 +411,21 @@ export async function validateCanvasPluginPackage(sourcePath: string): Promise<C
 
   let rawManifest: string;
   try {
-    const stat = await statPathInside(rootDir, rootDir);
+    const stat = await fs.lstat(rootDir);
     if (!stat.isDirectory()) {
       return {
         valid: false,
         errors: ['Plugin source path must be a directory.'],
+        warnings,
+        rootDir,
+        manifestPath,
+      };
+    }
+    const symlinks = await findPluginPackageSymlinks(rootDir);
+    if (symlinks.length > 0) {
+      return {
+        valid: false,
+        errors: [`Plugin packages must not contain symbolic links: ${symlinks.slice(0, 5).join(', ')}${symlinks.length > 5 ? ', ...' : ''}`],
         warnings,
         rootDir,
         manifestPath,

@@ -59,12 +59,23 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const stat = await fs.stat(fullPath);
+    const stat = await fs.lstat(fullPath);
+    if (stat.isSymbolicLink()) {
+      return NextResponse.json({ success: false, error: 'Symbolic links are not supported' }, { status: 400 });
+    }
     if (!stat.isFile()) {
       return NextResponse.json({ success: false, error: 'Path is not a file' }, { status: 400 });
     }
 
-    const bytes = await fs.readFile(fullPath);
+    const [realInstallDir, realFilePath] = await Promise.all([
+      fs.realpath(plugin.installDir),
+      fs.realpath(fullPath),
+    ]);
+    if (!isPathInside(realInstallDir, realFilePath)) {
+      return NextResponse.json({ success: false, error: 'Invalid path' }, { status: 400 });
+    }
+
+    const bytes = await fs.readFile(realFilePath);
     return new NextResponse(new Uint8Array(bytes), {
       headers: {
         'Cache-Control': 'private, max-age=3600',

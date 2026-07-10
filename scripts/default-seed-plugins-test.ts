@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import { promises as fs } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 
 import {
@@ -33,6 +35,24 @@ async function main() {
     'xlsx',
   ]);
   assert.equal(validation.skillsDir, undefined);
+
+  const symlinkRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'canvas-plugin-symlink-test-'));
+  try {
+    await fs.mkdir(path.join(symlinkRoot, '.canvas-plugin'), { recursive: true });
+    await fs.writeFile(path.join(symlinkRoot, '.canvas-plugin', 'plugin.json'), JSON.stringify({
+      name: 'symlink-test',
+      version: '1.0.0',
+      description: 'Temporary plugin package used to validate symlink rejection.',
+      skillRefs: [{ name: 'pdf', source: 'seed' }],
+    }), 'utf8');
+    await fs.symlink('/tmp', path.join(symlinkRoot, 'outside-link'));
+
+    const symlinkValidation = await validateCanvasPluginPackage(symlinkRoot);
+    assert.equal(symlinkValidation.valid, false);
+    assert.match(symlinkValidation.errors.join('\n'), /symbolic links/i);
+  } finally {
+    await fs.rm(symlinkRoot, { recursive: true, force: true });
+  }
 
   console.log('default seed plugins test passed');
 }
