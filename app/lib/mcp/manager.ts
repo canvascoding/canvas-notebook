@@ -544,6 +544,17 @@ export async function closeMcpServer(serverName: string, scope?: McpScope | null
   }
 }
 
+export async function closeMcpServersForScope(scope?: McpScope | null): Promise<void> {
+  const normalizedScope = normalizeMcpScope(scope);
+  const store = getStore();
+  for (const [key, entry] of store.entries) {
+    if (getMcpScopeKey(entry.scope) !== getMcpScopeKey(normalizedScope)) continue;
+    logMcp('info', 'Closing scoped server', { server: entry.serverName, transport: entry.transport, pid: entry.processPid });
+    await entry.client?.close().catch(() => undefined);
+    store.entries.delete(key);
+  }
+}
+
 export async function closeAllMcpServers(): Promise<void> {
   const store = getStore();
   for (const entry of store.entries.values()) {

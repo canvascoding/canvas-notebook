@@ -111,6 +111,7 @@ async function main() {
     cleanupIdleMcpServers,
     callMcpTool,
     closeAllMcpServers,
+    closeMcpServersForScope,
     getMcpRuntimeStatus,
     listMcpTools,
   } = await import('../app/lib/mcp/manager');
@@ -235,6 +236,9 @@ async function main() {
   assert.match((userAResult.content[0] as { text: string }).text, /^user-a:/);
   assert.match((userBResult.content[0] as { text: string }).text, /^user-b:/);
   assert.equal((await getMcpRuntimeStatus('shared', userA)).servers[0].connected, true);
+  assert.equal((await getMcpRuntimeStatus('shared', userB)).servers[0].connected, true);
+  await closeMcpServersForScope(userA);
+  assert.equal((await getMcpRuntimeStatus('shared', userA)).servers[0].connected, false);
   assert.equal((await getMcpRuntimeStatus('shared', userB)).servers[0].connected, true);
   await closeAllMcpServers();
 

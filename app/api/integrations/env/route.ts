@@ -7,6 +7,7 @@ import {
   replaceScopedEnvEntries,
   writeScopedEnvRaw,
 } from '@/app/lib/integrations/env-config';
+import { closeMcpServersForScope } from '@/app/lib/mcp/manager';
 import { migrateLegacyAgentEnvIfNeeded } from '@/app/lib/agents/storage';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 
@@ -92,6 +93,7 @@ export async function PUT(request: NextRequest) {
     if (mode === 'raw') {
       await writeScopedEnvRaw(scope, payload.rawContent ?? '', storageScope);
       const updated = await readScopedEnvState(scope, storageScope);
+      await closeMcpServersForScope(storageScope);
       await recordAuditEvent({
         userId: authResult.session.user.id,
         source: 'integrations',
@@ -113,6 +115,7 @@ export async function PUT(request: NextRequest) {
 
     const entries = Array.isArray(payload.entries) ? payload.entries : [];
     const updated = await replaceScopedEnvEntries(scope, entries, storageScope);
+    await closeMcpServersForScope(storageScope);
     await recordAuditEvent({
       userId: authResult.session.user.id,
       source: 'integrations',
