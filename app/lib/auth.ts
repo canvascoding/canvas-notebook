@@ -4,6 +4,7 @@ import { db } from "@/app/lib/db";
 import { getDatabaseProvider } from "@/app/lib/db/provider";
 import { nextCookies } from "better-auth/next-js";
 import { admin, bearer } from "better-auth/plugins";
+import { getConfiguredTrustedOrigins } from '@/app/lib/security/trusted-origins';
 
 const authBaseURL =
   process.env.BETTER_AUTH_BASE_URL ||
@@ -21,12 +22,7 @@ const emailAndPasswordConfig = {
   disableSignUp: true,
 };
 
-const trustedOrigins = [
-  authBaseURL,
-  ...(process.env.BETTER_AUTH_TRUSTED_ORIGINS
-    ? process.env.BETTER_AUTH_TRUSTED_ORIGINS.split(',').map(o => o.trim())
-    : []),
-].filter(Boolean) as string[];
+const trustedOrigins = getConfiguredTrustedOrigins();
 
 export const auth = betterAuth({
   secret: authSecret,

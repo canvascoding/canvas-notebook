@@ -135,6 +135,7 @@
     "test:all": "node scripts/test-all.mjs",
     "test:websocket:connection": "node scripts/test-websocket-connection.js",
     "test:websocket:multitab": "node scripts/test-websocket-multitab.js",
+    "test:websocket:origin": "tsx scripts/trusted-origins-test.ts",
     "test:websocket:read-unread": "node scripts/test-websocket-read-unread.js",
     "test:websocket:toast": "node scripts/test-websocket-toast.js",
     "test:websocket:load": "node scripts/test-websocket-load.js",

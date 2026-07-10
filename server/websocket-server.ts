@@ -30,6 +30,7 @@ import { and, eq } from 'drizzle-orm';
 import { WEB_CHANNEL_ID, webChannelSessionKey } from '@/app/lib/channels/constants';
 import { getLicenseStatus } from '@/app/lib/license';
 import { isOnboardingComplete, isOnboardingEnabled } from '@/app/lib/onboarding/status';
+import { isConfiguredTrustedOrigin } from '@/app/lib/security/trusted-origins';
 
 type ControlAction = 'follow_up' | 'steer' | 'promote_queued_to_steer' | 'remove_queued_item' | 'abort' | 'replace' | 'compact';
 type PiRuntimeStatus = Record<string, unknown>;
@@ -264,6 +265,11 @@ export function isChatWebSocketRequest(requestUrl?: string): boolean {
   return normalizeChatWebSocketPath(requestUrl) !== null;
 }
 
+function rejectWebSocketUpgrade(socket: net.Socket): void {
+  socket.write('HTTP/1.1 403 Forbidden\r\nConnection: close\r\nContent-Length: 0\r\n\r\n');
+  socket.destroy();
+}
+
 /**
  * Create WebSocket Server attached to HTTP server
  */
@@ -281,6 +287,15 @@ export function createWebSocketServer(server: http.Server): WebSocketServer {
     const normalizedUrl = normalizeChatWebSocketPath(request.url);
 
     if (normalizedUrl) {
+      const origin = getHeaderValue(request.headers, 'origin');
+      if (!isConfiguredTrustedOrigin(origin)) {
+        console.warn('[WebSocket] upgrade rejected untrusted_origin', {
+          origin: truncateForLog(origin),
+        });
+        rejectWebSocketUpgrade(socket);
+        return;
+      }
+
       if (upgradedSockets.has(socket)) {
         console.warn('[WebSocket] Duplicate upgrade on same socket — skipping');
         return;

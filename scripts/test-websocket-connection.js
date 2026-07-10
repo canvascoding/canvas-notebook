@@ -72,6 +72,42 @@ async function createSession(cookieHeader) {
   return sessionId;
 }
 
+async function testUntrustedOriginIsRejected() {
+  return new Promise((resolve, reject) => {
+    const ws = new WebSocket(WS_URL, {
+      headers: {
+        origin: 'https://attacker.example',
+      },
+    });
+    const timeout = setTimeout(() => {
+      ws.terminate();
+      reject(new Error('Untrusted-origin connection did not receive a response after 10s'));
+    }, 10_000);
+
+    ws.on('unexpected-response', (_request, response) => {
+      clearTimeout(timeout);
+      response.resume();
+      if (response.statusCode === 403) {
+        console.log('[WebSocket Test] Untrusted origin rejected with HTTP 403');
+        resolve();
+        return;
+      }
+      reject(new Error(`Untrusted origin returned HTTP ${response.statusCode}`));
+    });
+
+    ws.on('open', () => {
+      clearTimeout(timeout);
+      ws.close();
+      reject(new Error('Untrusted origin was accepted'));
+    });
+
+    ws.on('error', (error) => {
+      clearTimeout(timeout);
+      reject(error);
+    });
+  });
+}
+
 async function testConnection() {
   const cookieHeader = await authenticate();
   const sessionId = await createSession(cookieHeader);
@@ -167,7 +203,8 @@ async function testConnection() {
   });
 }
 
-testConnection()
+testUntrustedOriginIsRejected()
+  .then(() => testConnection())
   .then(() => {
     console.log('[WebSocket Test] All tests passed');
     process.exit(0);
