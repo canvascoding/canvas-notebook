@@ -74,6 +74,7 @@
     "test:editor:markdown": "tsx scripts/tiptap-markdown-roundtrip-test.ts",
     "test:pdf:mermaid": "tsx --conditions react-server scripts/mermaid-pdf-export-test.ts",
     "test:pdf:markdown-table": "tsx scripts/markdown-wide-table-export-test.ts",
+    "test:rate-limit": "tsx scripts/rate-limit-test.ts",
     "test:media:references": "tsx --conditions react-server scripts/media-reference-resolver-test.ts",
     "test:upload:conversion": "tsx --conditions react-server scripts/upload-conversion-test.ts",
     "test:migration:upload": "tsx --conditions react-server scripts/migration-upload-test.ts",

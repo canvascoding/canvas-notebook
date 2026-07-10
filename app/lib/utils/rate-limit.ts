@@ -1,4 +1,6 @@
+import { createHash } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
+import { getSessionCookie } from 'better-auth/cookies';
 
 interface RateLimitOptions {
   limit: number;
@@ -26,12 +28,16 @@ if (!globalRateLimitStore.__canvasRateLimitCleanupStarted) {
 }
 
 function getClientId(request: NextRequest) {
-  const forwarded = request.headers.get('x-forwarded-for');
-  if (forwarded) {
-    return forwarded.split(',')[0].trim();
+  const sessionCookie = getSessionCookie(request);
+  if (sessionCookie) {
+    // This opaque value is only used as an in-memory bucket key. Route handlers
+    // still validate the session separately before serving protected resources.
+    return `session:${createHash('sha256').update(sessionCookie).digest('base64url')}`;
   }
-  const realIp = request.headers.get('x-real-ip');
-  if (realIp) return realIp;
+
+  // Forwarded IP headers are client-controlled unless an ingress proxy strips
+  // and overwrites them. Keep anonymous routes in a shared bucket; deployments
+  // that need IP-based anonymous limits should enforce them at the ingress.
   return 'anonymous';
 }
 
