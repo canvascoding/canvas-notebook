@@ -101,6 +101,21 @@ queues.consume(selected.signature, agent);
 assert.deepEqual(queues.followUps, [keepQueued, laterFollowUp]);
 assert.deepEqual(queuedTexts(agent.followUps), ['keep queued']);
 
+const idleAgent = createAgentSpy();
+const idleQueues = new RuntimeMessageQueues();
+const idleKeepQueued = entry('idle-keep', 'keep queued while idle', 10);
+const idleSelected = entry('idle-selected', 'start immediately while idle', 11);
+idleQueues.enqueueFollowUp(idleKeepQueued, idleAgent);
+idleQueues.enqueueFollowUp(idleSelected, idleAgent);
+
+const idlePromoted = idleQueues.promoteFollowUp(idleSelected.id, idleAgent);
+assert.equal(idlePromoted, idleSelected);
+idleQueues.trackSteering(idlePromoted!);
+assert.deepEqual(idleAgent.steering, []);
+
+idleQueues.consume(idleSelected.signature, idleAgent);
+assert.deepEqual(queuedTexts(idleAgent.followUps), ['keep queued while idle']);
+
 assert.equal(queues.remove(keepQueued.id, agent), 'follow_up');
 assert.equal(queues.remove(laterFollowUp.id, agent), 'follow_up');
 

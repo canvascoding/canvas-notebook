@@ -46,7 +46,15 @@ export interface WorkspaceFileMutation {
 }
 
 function normalizeRelativePath(value: string): string {
-  return value.replace(/\\/g, '/').replace(/^\.\//, '').replace(/^\/+|\/+$/g, '') || '.';
+  const normalized = value.replaceAll('\\', '/');
+  const withoutCurrentDirectory = normalized.startsWith('./') ? normalized.slice(2) : normalized;
+  let start = 0;
+  let end = withoutCurrentDirectory.length;
+
+  while (withoutCurrentDirectory.charCodeAt(start) === 47) start += 1;
+  while (end > start && withoutCurrentDirectory.charCodeAt(end - 1) === 47) end -= 1;
+
+  return withoutCurrentDirectory.slice(start, end) || '.';
 }
 
 function getParentDirectory(relativePath: string): string {

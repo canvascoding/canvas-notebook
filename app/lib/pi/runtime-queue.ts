@@ -35,8 +35,12 @@ export class RuntimeMessageQueues {
   }
 
   enqueueSteering(entry: RuntimeQueueEntry, agent: RuntimeQueueAgent): void {
-    this.steering.push(entry);
+    this.trackSteering(entry);
     agent.steer(entry.message);
+  }
+
+  trackSteering(entry: RuntimeQueueEntry): void {
+    this.steering.push(entry);
   }
 
   promoteFollowUp(queueItemId: string, agent: RuntimeQueueAgent): RuntimeQueueEntry | null {

@@ -536,6 +536,7 @@ class LivePiRuntime {
     }
 
     if (!this.isRunning && !this.agent.state.isStreaming) {
+      this.messageQueues.trackSteering(entry);
       this.startPrompt(entry.message);
       return this.getStatus();
     }
