@@ -54,7 +54,7 @@ export type PluginPickerPlugin = {
   }>;
 };
 
-export type SkillPickerSkill = Pick<CanvasSkill, 'name' | 'title' | 'description' | 'enabled' | 'interface' | 'plugin'>;
+export type SkillPickerSkill = Pick<CanvasSkill, 'name' | 'title' | 'description' | 'enabled' | 'core' | 'interface' | 'plugin'>;
 export type ReferencePickerValue = FilePickerFile | PluginPickerPlugin | SkillPickerSkill;
 
 export const ChatComposer = forwardRef<HTMLDivElement, {

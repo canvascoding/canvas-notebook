@@ -232,6 +232,8 @@ export type AgentProfile = {
   iconId?: string;
   type: string;
   removable: boolean;
+  relevantSkills?: string[] | null;
+  relevantConnections?: string[] | null;
 };
 
 export type ChatHistoryGroup = 'today' | 'last7' | 'last14' | 'last30' | 'older';

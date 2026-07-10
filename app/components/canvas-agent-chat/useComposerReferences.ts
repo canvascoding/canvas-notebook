@@ -13,6 +13,8 @@ import {
 import type { ComposerReferencePickerItem } from '@/app/components/canvas-agent-chat/ComposerReferencePicker';
 import type { FilePickerFile, PluginPickerPlugin, ReferencePickerValue, SkillPickerSkill } from '@/app/components/canvas-agent-chat/ChatComposer';
 import { findActiveComposerReference, replaceComposerReference, type ComposerReferenceMatch } from '@/app/lib/chat/composer-references';
+import { filterSkillsForAgent } from '@/app/lib/chat/reference-capabilities';
+import { DEFAULT_AGENT_ID } from '@/app/lib/channels/constants';
 import { safeFetchJson } from '@/app/lib/chat/fetch-json';
 import { getFileDisplayPath } from '@/app/lib/files/display-name';
 import { listWorkspaceFileReferences } from '@/app/lib/files/client';
@@ -22,7 +24,9 @@ import { CanvasSkillIcon } from '@/app/lib/skills/skill-icons';
 import { searchSkillReferenceEntries } from '@/app/lib/skills/skill-reference-search';
 
 type UseComposerReferencesParams = {
+  agentId: string;
   input: string;
+  relevantSkillNames?: string[] | null;
   workspaceId: string | null;
   resetInputHistoryNavigation: () => void;
   setInput: Dispatch<SetStateAction<string>>;
@@ -30,7 +34,9 @@ type UseComposerReferencesParams = {
 };
 
 export function useComposerReferences({
+  agentId,
   input,
+  relevantSkillNames,
   workspaceId,
   resetInputHistoryNavigation,
   setInput,
@@ -53,31 +59,28 @@ export function useComposerReferences({
     referenceRequestIdRef.current += 1;
   }, []);
 
-  const fetchFiles = useCallback(async (query: string = '', requestId: number) => {
-    try {
-      if (!workspaceId) {
-        throw new Error('Workspace context is not ready');
-      }
-      const files = await listWorkspaceFileReferences({ query, limit: 50, workspaceId });
-      if (requestId !== referenceRequestIdRef.current) {
-        return;
-      }
-
-      const items = files.map((file) => ({
-          id: `file:${file.path}`,
-          kind: 'file' as const,
-          icon: getFileIconComponent({ name: file.name, path: file.path, type: file.type }),
-          label: getFileDisplayPath(file.path),
-          payload: file as FilePickerFile,
-        }));
-      setReferencePickerItems(items);
-      setSelectedReferenceIndex(0);
-    } catch (err) {
-      console.error('Failed to fetch files', err);
+  const fetchFiles = useCallback(async (query: string = ''): Promise<ComposerReferencePickerItem<ReferencePickerValue>[]> => {
+    if (!workspaceId) {
+      throw new Error('Workspace context is not ready');
     }
+    const files = await listWorkspaceFileReferences({ query, limit: 50, workspaceId });
+    return files.map((file) => ({
+      id: `file:${file.path}`,
+      kind: 'file' as const,
+      icon: getFileIconComponent({ name: file.name, path: file.path, type: file.type }),
+      label: getFileDisplayPath(file.path),
+      secondaryLabel: 'File',
+      payload: file as FilePickerFile,
+    }));
   }, [workspaceId]);
 
-  const setCapabilityReferenceItems = useCallback((plugins: PluginPickerPlugin[], skills: SkillPickerSkill[], query: string) => {
+  const buildCapabilityReferenceItems = useCallback((plugins: PluginPickerPlugin[], skills: SkillPickerSkill[], query: string) => {
+    const effectiveSkills = filterSkillsForAgent(skills, {
+      agentId,
+      defaultAgentId: DEFAULT_AGENT_ID,
+      relevantSkillNames,
+    });
+    const skillNames = new Set(effectiveSkills.map((skill) => skill.name));
     const pluginItems = searchSkillReferenceEntries(
       plugins.map((plugin) => ({
         ...plugin,
@@ -85,7 +88,7 @@ export function useComposerReferences({
         description: plugin.interface?.shortDescription || plugin.description,
       })),
       query,
-    ).map((plugin) => ({
+    ).filter((plugin) => !skillNames.has(plugin.name)).map((plugin) => ({
       id: `plugin:${plugin.name}`,
       kind: 'plugin' as const,
       icon: createElement(CanvasPluginIcon, { plugin, className: 'h-5 w-5 text-[10px]' }),
@@ -94,18 +97,18 @@ export function useComposerReferences({
       payload: plugin,
     }));
 
-    const skillItems = searchSkillReferenceEntries(skills, query).map((skill) => ({
+    const pluginNames = new Set(plugins.map((plugin) => plugin.name));
+    const skillItems = searchSkillReferenceEntries(effectiveSkills, query).map((skill) => ({
       id: `skill:${skill.name}`,
       kind: 'skill' as const,
       icon: createElement(CanvasSkillIcon, { skill, className: 'h-5 w-5 text-[10px]' }),
       label: skill.title,
-      secondaryLabel: `/${skill.name} · Skill`,
+      secondaryLabel: `/${skill.name} · ${pluginNames.has(skill.name) ? 'Skill + Plugin' : 'Skill'}`,
       payload: skill,
     }));
 
-    setReferencePickerItems([...pluginItems, ...skillItems]);
-    setSelectedReferenceIndex(0);
-  }, []);
+    return [...pluginItems, ...skillItems];
+  }, [agentId, relevantSkillNames]);
 
   const fetchPlugins = useCallback(async () => {
     if (availablePlugins) {
@@ -152,6 +155,7 @@ export function useComposerReferences({
       const nextSkills = (data.skills || []).filter((skill) => skill.enabled).map((skill) => ({
           description: skill.description,
           enabled: skill.enabled,
+          core: skill.core,
           interface: skill.interface,
           name: skill.name,
           plugin: skill.plugin,
@@ -189,10 +193,29 @@ export function useComposerReferences({
     referenceRequestIdRef.current = requestId;
 
     if (match.kind === 'file') {
-      void fetchFiles(match.query, requestId).finally(() => {
+      void fetchFiles(match.query).then((items) => {
+        if (referenceRequestIdRef.current !== requestId) return;
+        setReferencePickerItems(items);
+        setSelectedReferenceIndex(0);
+      }).catch((err) => {
+        console.error('Failed to fetch files', err);
+      }).finally(() => {
         if (referenceRequestIdRef.current === requestId) {
           setIsLoadingReferenceItems(false);
         }
+      });
+      return;
+    }
+
+    if (match.kind === 'all') {
+      void Promise.all([fetchFiles(match.query), fetchCapabilities()]).then(([fileItems, { plugins, skills }]) => {
+        if (referenceRequestIdRef.current !== requestId) return;
+        setReferencePickerItems([...fileItems, ...buildCapabilityReferenceItems(plugins, skills, match.query)]);
+        setSelectedReferenceIndex(0);
+      }).catch((err) => {
+        console.error('Failed to fetch references', err);
+      }).finally(() => {
+        if (referenceRequestIdRef.current === requestId) setIsLoadingReferenceItems(false);
       });
       return;
     }
@@ -202,10 +225,11 @@ export function useComposerReferences({
         return;
       }
 
-      setCapabilityReferenceItems(plugins, skills, match.query);
+      setReferencePickerItems(buildCapabilityReferenceItems(plugins, skills, match.query));
+      setSelectedReferenceIndex(0);
       setIsLoadingReferenceItems(false);
     });
-  }, [closeReferencePicker, fetchCapabilities, fetchFiles, resetInputHistoryNavigation, setCapabilityReferenceItems, setInput]);
+  }, [buildCapabilityReferenceItems, closeReferencePicker, fetchCapabilities, fetchFiles, resetInputHistoryNavigation, setInput]);
 
   const handleReferenceSelect = useCallback((item: ComposerReferencePickerItem<ReferencePickerValue>) => {
     if (!activeReferenceMatch) {

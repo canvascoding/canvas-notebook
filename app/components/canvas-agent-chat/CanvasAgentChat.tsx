@@ -216,6 +216,7 @@ export default function CanvasAgentChat({
     initialAgentId: CHAT_AGENT_ID,
     sessionId,
   });
+  const selectedAgentProfile = availableAgents.find((agent) => agent.agentId === selectedAgentId);
   const [hasUnreadInCurrentSession, setHasUnreadInCurrentSession] = useState(false);
   const [showUnreadBanner, setShowUnreadBanner] = useState(false);
   const [openQueueItemPopoverId, setOpenQueueItemPopoverId] = useState<string | null>(null);
@@ -401,7 +402,9 @@ export default function CanvasAgentChat({
     selectNextReference,
     selectPreviousReference,
   } = useComposerReferences({
+    agentId: selectedAgentId,
     input,
+    relevantSkillNames: selectedAgentProfile?.relevantSkills,
     workspaceId: activeWorkspaceId,
     resetInputHistoryNavigation,
     setInput,
@@ -1004,14 +1007,22 @@ export default function CanvasAgentChat({
       : t('composerHintIdle');
   const composerDisabled = isUploading || isWebSocketUnavailable;
   const activeReferenceKind = activeReferenceMatch?.kind;
-  const referencePickerHeader = activeReferenceKind === 'skill'
+  const referencePickerHeader = activeReferenceKind === 'all'
+    ? isLoadingReferenceItems
+      ? t('loadingReferences')
+      : t('referencesFound', { count: referencePickerItems.length })
+    : activeReferenceKind === 'capability'
     ? isLoadingReferenceItems
       ? t('loadingCapabilities')
       : t('capabilitiesFound', { count: referencePickerItems.length })
     : isLoadingReferenceItems
       ? t('loadingFiles')
       : t('filesFound', { count: referencePickerItems.length });
-  const referencePickerEmptyState = activeReferenceKind === 'skill'
+  const referencePickerEmptyState = activeReferenceKind === 'all'
+    ? activeReferenceMatch?.query
+      ? t('noReferencesFoundMatching', { query: activeReferenceMatch.query })
+      : t('noReferencesAvailable')
+    : activeReferenceKind === 'capability'
     ? activeReferenceMatch?.query
       ? t('noCapabilitiesFoundMatching', { query: activeReferenceMatch.query })
       : t('noCapabilitiesAvailable')

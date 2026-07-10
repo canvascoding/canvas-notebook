@@ -1,4 +1,4 @@
-export type ComposerReferenceKind = 'file' | 'skill';
+export type ComposerReferenceKind = 'file' | 'capability' | 'all';
 export type ComposerReferenceTrigger = '@' | '+' | '/';
 
 export interface ComposerReferenceMatch {
@@ -38,7 +38,7 @@ function getFileReferenceMatchForTrigger(value: string, cursorPosition: number, 
   }
 
   return {
-    kind: 'file',
+    kind: trigger === '+' ? 'all' : 'file',
     trigger,
     query,
     startIndex: lastTriggerIndex,
@@ -77,7 +77,7 @@ function getSkillReferenceMatch(value: string, cursorPosition: number): Composer
   }
 
   return {
-    kind: 'skill',
+    kind: 'capability',
     trigger: '/',
     query,
     startIndex: lastSlashIndex,
