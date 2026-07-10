@@ -26,6 +26,11 @@ export type ToolMetadata = {
     executableSource?: string | null;
     checkedAt: string;
   };
+  gateway?: {
+    name: string;
+    label: string;
+    operationCount: number;
+  };
 };
 
 export type AgentToolsEditorProps = {
@@ -234,6 +239,7 @@ export function AgentToolsEditor({
                             <div className="flex flex-wrap items-center gap-2">
                               <span className="text-sm font-medium">{displayTool.label || tool.name}</span>
                               {displayGroup && <Badge variant="secondary">{displayGroup}</Badge>}
+                              {tool.gateway && <Badge variant="outline">{locale.startsWith('de') ? 'Bedarfsgesteuert' : 'On demand'}</Badge>}
                             </div>
                             <div className="mt-1 truncate font-mono text-xs text-muted-foreground">{tool.name}</div>
                           </div>
@@ -248,6 +254,13 @@ export function AgentToolsEditor({
                       <CollapsibleContent>
                         <div className={compact ? 'border-t border-border px-8 py-2.5 text-xs' : 'border-t border-border px-10 py-3 text-sm'}>
                           <p className="text-muted-foreground">{displayTool.description || t('agentPanel.tools.noDescription')}</p>
+                          {tool.gateway && (
+                            <p className="mt-2 text-xs text-muted-foreground">
+                              {locale.startsWith('de')
+                                ? `Wird über das Gateway „${tool.gateway.label}“ bei Bedarf geladen. Dieser Schalter erlaubt nur diese einzelne Operation.`
+                                : `Loaded on demand through the ${tool.gateway.label} gateway. This switch permits only this individual operation.`}
+                            </p>
+                          )}
                           <div className={compact ? 'mt-2 grid gap-2 md:grid-cols-2' : 'mt-3 grid gap-3 md:grid-cols-2'}>
                             <div>
                               <div className="text-xs font-semibold uppercase text-muted-foreground">{t('agentPanel.tools.parameters')}</div>

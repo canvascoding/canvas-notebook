@@ -18,6 +18,12 @@ import { getAgentExecutionContext, type AgentExecutionContext } from '@/app/lib/
 import { resolveAgentExecutionContextForSession } from '@/app/lib/pi/session-workspace-context';
 import { getErrorMessage, wrapToolWithExecutionContext } from '@/app/lib/pi/tool-runtime-helpers';
 import { piTools } from '@/app/lib/pi/core-tools';
+import {
+  collapseProgressiveToolGroups,
+  getProgressiveGatewayCapabilityNames,
+  isProgressiveGatewayTool,
+  withAllowedProgressiveGatewayOperations,
+} from '@/app/lib/pi/progressive-tool-gateway';
 
 export { piTools } from '@/app/lib/pi/core-tools';
 export { createRipgrepTool } from '@/app/lib/pi/web-tools';
@@ -45,6 +51,11 @@ export type PiToolMetadata = {
     executableSource?: string | null;
     checkedAt: string;
   };
+  gateway?: {
+    name: string;
+    label: string;
+    operationCount: number;
+  };
 };
 
 function getToolGroup(toolName: string): PiToolGroup {
@@ -53,16 +64,18 @@ function getToolGroup(toolName: string): PiToolGroup {
   if (toolName === 'memory') return 'Memory';
   if (toolName === 'browser') return 'Browser';
   if (toolName === 'transcribe_audio') return 'Audio';
+  if (toolName === 'email' || toolName.startsWith('email_')) return 'Email';
+  if (toolName === 'canvas_extensions' || toolName.includes('canvas_skill') || toolName.includes('canvas_plugin')) return 'Skills';
+  if (toolName === 'automation_manage' || toolName.includes('automation_job')) return 'Automation';
   if (toolName.startsWith('web_')) return 'Web';
   if (toolName === 'create_human_todo') return 'Todo';
   if (toolName === 'public_share_file') return 'Security';
-  if (toolName.includes('canvas_skill')) return 'Skills';
   if (toolName === 'delegate_task') return 'Delegation';
   if (toolName === 'session_search') return 'Session';
   if (toolName.startsWith('email_')) return 'Email';
   if (toolName.startsWith('studio_')) return 'Studio';
   if (toolName.includes('automation_job')) return 'Automation';
-  if (toolName.startsWith('COMPOSIO_') || toolName === 'composio_execute') return 'Composio';
+  if (toolName === 'composio' || toolName.startsWith('COMPOSIO_') || toolName === 'composio_execute') return 'Composio';
   return 'Core';
 }
 
@@ -184,7 +197,7 @@ export function buildPiToolRegistry(userId?: string, agentId?: string | null, se
     ...piTools.filter((tool) => tool.name !== 'mcp' && !overriddenNames.has(tool.name)),
     ...(overriddenNames.has('mcp') ? [] : [createMcpProxyTool(userId)]),
   ];
-  return [...coreTools, ...userScopedTools];
+  return collapseProgressiveToolGroups([...coreTools, ...userScopedTools]);
 }
 
 export async function buildPiToolRegistryAsync(userId?: string, agentId?: string | null, sessionId?: string | null): Promise<AgentTool[]> {
@@ -209,30 +222,38 @@ export async function buildPiToolRegistryAsync(userId?: string, agentId?: string
       console.error('[ToolRegistry] Error building direct MCP tools:', error);
       return [];
     });
-  return [...coreTools, ...userScopedTools, ...composioTools, ...directMcpTools];
+  return collapseProgressiveToolGroups([...coreTools, ...userScopedTools, ...composioTools, ...directMcpTools]);
 }
 
 export async function getPiToolMetadata(): Promise<PiToolMetadata[]> {
   const allTools = await buildPiToolRegistryAsync();
-  const allToolNames = allTools.map((tool) => tool.name);
+  const allToolNames = getProgressiveGatewayCapabilityNames(allTools);
   const defaultEnabledSet = getDefaultEnabledToolNames(allToolNames);
   const browserCapability = allToolNames.includes('browser')
     ? await resolveBrowserRuntimeCapability()
     : null;
 
-  return allTools.map((tool) => {
-    const group = getToolGroup(tool.name);
+  return allTools.flatMap((tool) => {
+    const entries = isProgressiveGatewayTool(tool)
+      ? tool.progressiveGateway.operations.map((operation) => ({
+          tool: operation,
+          gateway: tool.progressiveGateway.definition,
+        }))
+      : [{ tool, gateway: null }];
+
+    return entries.map(({ tool: entryTool, gateway }) => {
+    const group = getToolGroup(entryTool.name);
     return {
-      name: tool.name,
-      label: tool.label ?? tool.name,
-      description: tool.description ?? '',
+      name: entryTool.name,
+      label: entryTool.label ?? entryTool.name,
+      description: entryTool.description ?? '',
       group,
-      toolsets: getPiToolsetsForTool(tool.name),
-      parameters: summarizeToolParameters(tool.parameters),
-      planningModeAllowed: PLANNING_MODE_ALLOWED_TOOLS.has(tool.name),
-      defaultEnabled: defaultEnabledSet.has(tool.name),
-      notes: getToolNotes(tool, group),
-      availability: tool.name === 'browser' && browserCapability
+      toolsets: getPiToolsetsForTool(entryTool.name),
+      parameters: summarizeToolParameters(entryTool.parameters),
+      planningModeAllowed: PLANNING_MODE_ALLOWED_TOOLS.has(entryTool.name),
+      defaultEnabled: defaultEnabledSet.has(entryTool.name),
+      notes: getToolNotes(entryTool, group),
+      availability: entryTool.name === 'browser' && browserCapability
         ? {
             available: browserCapability.browserToolAvailable,
             reason: browserCapability.browserToolAvailable
@@ -243,7 +264,15 @@ export async function getPiToolMetadata(): Promise<PiToolMetadata[]> {
             checkedAt: browserCapability.checkedAt,
           }
         : undefined,
+      gateway: gateway
+        ? {
+            name: gateway.name,
+            label: gateway.label,
+            operationCount: gateway.operations.length,
+          }
+        : undefined,
     };
+    });
   });
 }
 
@@ -255,16 +284,28 @@ export async function getPiTools(userId?: string, agentId?: string | null, sessi
     const effectiveConfig = await resolveAgentRuntimeSettings(agentId);
     const enabledTools = effectiveConfig.enabledTools;
 
-    const allToolNames = allTools.map((t) => t.name);
+    const allToolNames = getProgressiveGatewayCapabilityNames(allTools);
 
     if (enabledTools && enabledTools.length > 0 && !isLegacyEnabledToolsValue(enabledTools)) {
       // User has explicitly configured tool preferences — apply them
       const enabledSet = resolveEnabledToolNames(allToolNames, enabledTools);
-      allTools = allTools.filter((t) => enabledSet.has(t.name));
+      allTools = allTools.flatMap((tool) => {
+        if (isProgressiveGatewayTool(tool)) {
+          const configuredGateway = withAllowedProgressiveGatewayOperations(tool, enabledSet);
+          return configuredGateway ? [configuredGateway] : [];
+        }
+        return enabledSet.has(tool.name) ? [tool] : [];
+      });
     } else {
       // No user config yet (default state) — exclude disabled-by-default tools
       const defaultEnabledSet = getDefaultEnabledToolNames(allToolNames);
-      allTools = allTools.filter((t) => defaultEnabledSet.has(t.name));
+      allTools = allTools.flatMap((tool) => {
+        if (isProgressiveGatewayTool(tool)) {
+          const configuredGateway = withAllowedProgressiveGatewayOperations(tool, defaultEnabledSet);
+          return configuredGateway ? [configuredGateway] : [];
+        }
+        return defaultEnabledSet.has(tool.name) ? [tool] : [];
+      });
     }
 
     if (allTools.some((tool) => tool.name === 'browser')) {
@@ -281,9 +322,15 @@ export async function getPiTools(userId?: string, agentId?: string | null, sessi
   } catch (error) {
     console.error('[ToolRegistry] Error reading config for tool filtering, returning default tools:', error);
     // Fallback: exclude disabled-by-default tools even on error
-    const allToolNames = allTools.map((t) => t.name);
+    const allToolNames = getProgressiveGatewayCapabilityNames(allTools);
     const defaultEnabledSet = getDefaultEnabledToolNames(allToolNames);
-    allTools = allTools.filter((t) => defaultEnabledSet.has(t.name));
+    allTools = allTools.flatMap((tool) => {
+      if (isProgressiveGatewayTool(tool)) {
+        const configuredGateway = withAllowedProgressiveGatewayOperations(tool, defaultEnabledSet);
+        return configuredGateway ? [configuredGateway] : [];
+      }
+      return defaultEnabledSet.has(tool.name) ? [tool] : [];
+    });
 
     if (onboardingProfileToolAvailable && !allTools.some((tool) => tool.name === ONBOARDING_PROFILE_TOOL_NAME)) {
       allTools.push(createOnboardingProfileTool(userId, agentId, sessionId));
