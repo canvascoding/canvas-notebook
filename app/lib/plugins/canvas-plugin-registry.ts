@@ -1066,6 +1066,7 @@ export async function installCanvasPluginFromPath(
   }
 
   const manifest = validation.manifest;
+  const rootDir = validation.rootDir;
   return withPluginMutation(options.scope, async () => {
     await adoptLegacyStandaloneSkillsForScope(options.scope);
     const installDir = resolvePluginInstallDir(manifest.name, manifest.version, options.scope);
@@ -1083,7 +1084,7 @@ export async function installCanvasPluginFromPath(
 
     const candidateSkills = await parsePluginSkillsFromManifest(
       manifest,
-      validation.rootDir,
+      rootDir,
       validation.skillsDir,
     );
     if (candidateSkills.errors.length > 0) {
@@ -1121,10 +1122,10 @@ export async function installCanvasPluginFromPath(
     try {
       registrySnapshot = await snapshotPluginMutationFile(resolveScopedPluginRegistryPath(options.scope));
       enabledSkillsSnapshot = await snapshotPluginMutationFile(resolveEnabledSkillsStoragePath(options.scope));
-      await copyPluginPackage(validation.rootDir, stagingDir);
+      await copyPluginPackage(rootDir, stagingDir);
       const built = await buildPluginRecordFromInstalledPackage(
         manifest,
-        validation.rootDir,
+        rootDir,
         stagingDir,
         options.enable ?? existingRecord?.enabled ?? true,
         options,

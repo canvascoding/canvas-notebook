@@ -63,6 +63,17 @@ function entry(id: string, text: string, timestamp: number): RuntimeQueueEntry {
   };
 }
 
+function queuedTexts(messages: AgentMessage[]): string[] {
+  return messages.map((message) => {
+    assert.equal(message.role, 'user');
+    const content = (message as Extract<AgentMessage, { role: 'user' }>).content;
+    if (typeof content !== 'string') {
+      throw new Error('Queue test expects text-only user messages.');
+    }
+    return content;
+  });
+}
+
 const agent = createAgentSpy();
 const queues = new RuntimeMessageQueues();
 const keepQueued = entry('keep', 'keep queued', 1);
@@ -70,7 +81,7 @@ const selected = entry('selected', 'steer only this', 2);
 
 queues.enqueueFollowUp(keepQueued, agent);
 queues.enqueueFollowUp(selected, agent);
-assert.deepEqual(agent.followUps.map((message) => message.content), ['keep queued']);
+assert.deepEqual(queuedTexts(agent.followUps), ['keep queued']);
 
 const promoted = queues.promoteFollowUp(selected.id, agent);
 assert.equal(promoted, selected);
@@ -78,7 +89,7 @@ assert.deepEqual(queues.followUps, [keepQueued]);
 assert.deepEqual(agent.followUps, []);
 
 queues.enqueueSteering(promoted!, agent);
-assert.deepEqual(agent.steering.map((message) => message.content), ['steer only this']);
+assert.deepEqual(queuedTexts(agent.steering), ['steer only this']);
 
 const laterFollowUp = entry('later', 'also keep queued', 3);
 queues.enqueueFollowUp(laterFollowUp, agent);
@@ -88,14 +99,14 @@ assert.deepEqual(agent.followUps, []);
 agent.steering.shift();
 queues.consume(selected.signature, agent);
 assert.deepEqual(queues.followUps, [keepQueued, laterFollowUp]);
-assert.deepEqual(agent.followUps.map((message) => message.content), ['keep queued']);
+assert.deepEqual(queuedTexts(agent.followUps), ['keep queued']);
 
 assert.equal(queues.remove(keepQueued.id, agent), 'follow_up');
 assert.equal(queues.remove(laterFollowUp.id, agent), 'follow_up');
 
 const resumedFollowUp = entry('resumed', 'queue normally again', 4);
 queues.enqueueFollowUp(resumedFollowUp, agent);
-assert.deepEqual(agent.followUps.map((message) => message.content), ['queue normally again']);
+assert.deepEqual(queuedTexts(agent.followUps), ['queue normally again']);
 
 const automaticAgent = createAgentSpy();
 const automaticQueues = new RuntimeMessageQueues();
@@ -103,12 +114,12 @@ const firstAutomatic = entry('first-auto', 'first automatic', 5);
 const secondAutomatic = entry('second-auto', 'second automatic', 6);
 automaticQueues.enqueueFollowUp(firstAutomatic, automaticAgent);
 automaticQueues.enqueueFollowUp(secondAutomatic, automaticAgent);
-assert.deepEqual(automaticAgent.followUps.map((message) => message.content), ['first automatic']);
+assert.deepEqual(queuedTexts(automaticAgent.followUps), ['first automatic']);
 
 // Agent-core removes the active entry before emitting message_start. The queue
 // controller then releases exactly one following entry.
 automaticAgent.followUps.shift();
 automaticQueues.consume(firstAutomatic.signature, automaticAgent);
-assert.deepEqual(automaticAgent.followUps.map((message) => message.content), ['second automatic']);
+assert.deepEqual(queuedTexts(automaticAgent.followUps), ['second automatic']);
 
 console.log('pi-runtime-queue-test: ok');

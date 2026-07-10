@@ -380,17 +380,18 @@ async function handleConnection(ws: WebSocket, request: IncomingMessage): Promis
       });
       return;
     }
+    const authenticatedConnection = connection;
 
     try {
       const message = JSON.parse(data.toString()) as ClientMessage;
       console.log('[WebSocket] server_receive', {
         connectionId,
-        userId: connection.userId,
+        userId: authenticatedConnection.userId,
         ...summarizeClientMessage(message),
       });
       const messageHandler = shouldSerializeSessionAction(message)
-        ? runWebSocketSessionAction(connection.userId, message.sessionId, () => handleMessage(connection, message))
-        : handleMessage(connection, message);
+        ? runWebSocketSessionAction(authenticatedConnection.userId, message.sessionId, () => handleMessage(authenticatedConnection, message))
+        : handleMessage(authenticatedConnection, message);
       void messageHandler.catch((error) => {
         console.error('[WebSocket] handleMessage failed', {
           connectionId,

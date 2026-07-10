@@ -1,5 +1,5 @@
 import { type AgentTool, type AgentToolResult } from '@earendil-works/pi-agent-core';
-import { Type } from 'typebox';
+import { Type, type TSchema } from 'typebox';
 import { Value } from 'typebox/value';
 
 type GatewayAction = 'search' | 'describe' | 'call';
@@ -20,7 +20,7 @@ export type ProgressiveGatewayDefinition = {
 
 export type ProgressiveGatewayMetadata = {
   definition: ProgressiveGatewayDefinition;
-  operations: AgentTool[];
+  operations: readonly AgentTool[];
   withAllowedOperations: (allowedOperationNames: Iterable<string>) => ProgressiveGatewayTool;
 };
 
@@ -50,10 +50,12 @@ function summarizeDescription(value: string | undefined): string {
     : description;
 }
 
-function formatSchemaErrors(schema: unknown, value: unknown): string {
+function formatSchemaErrors(schema: TSchema, value: unknown): string {
   const errors = Array.from(Value.Errors(schema, value)).slice(0, 3);
   if (errors.length === 0) return 'Arguments do not match the operation schema.';
-  return errors.map((error) => `${error.path || '/'}: ${error.message}`).join('; ');
+  return errors
+    .map((error) => `${'path' in error && typeof error.path === 'string' && error.path ? error.path : '/'}: ${error.message}`)
+    .join('; ');
 }
 
 function textResult(text: string, details: Record<string, unknown>): AgentToolResult<unknown> {
