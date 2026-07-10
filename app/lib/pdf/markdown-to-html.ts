@@ -32,7 +32,7 @@ function escapeForJsTemplate(code: string): string {
     .replace(/\$/g, '\\$');
 }
 
-async function renderMermaidToSvg(code: string): Promise<string | null> {
+export async function renderMermaidToSvg(code: string): Promise<string | null> {
   const pageRef: { current: Page | null } = { current: null };
 
   try {
@@ -71,7 +71,7 @@ async function renderMermaidToSvg(code: string): Promise<string | null> {
                 mermaid.initialize({
                   startOnLoad: false,
                   theme: 'default',
-                  securityLevel: 'loose'
+                  securityLevel: 'strict'
                 });
                 mermaid.render('mermaid-svg', \`${escapedCode}\`)
                   .then(({ svg }) => {

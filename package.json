@@ -72,6 +72,7 @@
     "test:browser-url-policy": "tsx scripts/browser-url-policy-test.ts",
     "test:file-watcher": "tsx scripts/file-watcher-client-test.ts && tsx scripts/file-browser-refresh-test.ts",
     "test:editor:markdown": "tsx scripts/tiptap-markdown-roundtrip-test.ts",
+    "test:pdf:mermaid": "tsx --conditions react-server scripts/mermaid-pdf-export-test.ts",
     "test:pdf:markdown-table": "tsx scripts/markdown-wide-table-export-test.ts",
     "test:media:references": "tsx --conditions react-server scripts/media-reference-resolver-test.ts",
     "test:upload:conversion": "tsx --conditions react-server scripts/upload-conversion-test.ts",
