@@ -78,6 +78,14 @@ async function main() {
     assert.equal(await validateFileExists('/data/workspace/docs/loaded.md', fileTree), true);
     assert.equal(fetchCalls.length, 0, 'absolute workspace tree entries should not hit the API');
 
+    assert.deepEqual(
+      await validateFileReference('docs/loaded.md', fileTree, { fileTreeWorkspaceId: 'workspace-b' }),
+      { path: 'docs/loaded.md', type: 'missing', exists: false },
+      'a file tree from another workspace must never validate the active workspace',
+    );
+    assert.equal(fetchCalls.length, 1, 'workspace-mismatched trees must fall back to the scoped API');
+    fetchCalls.length = 0;
+
     assert.deepEqual(await validateFileReference('docs', fileTree), {
       path: 'docs',
       type: 'directory',

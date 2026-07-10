@@ -5,13 +5,11 @@ import { Check, Copy, Folder } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
-import { useLocale, useTranslations } from 'next-intl';
-import { usePathname as useLocalePathname, useRouter, getPathname } from '@/i18n/navigation';
+import { useTranslations } from 'next-intl';
 import { MermaidDiagram } from '@/components/ui/mermaid-diagram';
 import { ColorSwatch, isColorCode } from '@/app/lib/markdown/color-swatch';
 import { rehypeInlineColorSwatch } from '@/app/lib/markdown/rehype-inline-color-swatch';
 import { isFilePath, normalizeChatFilePath } from '@/app/lib/chat/extract-file-paths';
-import { notifyChatFileReferenceOpened } from '@/app/lib/chat/file-reference-events';
 import { extractStudioImageMediaUrls } from '@/app/lib/chat/studio-image-markdown';
 import {
   subscribeToFileReferenceValidationInvalidation,
@@ -28,6 +26,8 @@ import { SafeMarkdownImage } from '@/app/components/shared/SafeMarkdownImage';
 import { resolvePreviewSrcFromMediaUrl } from '@/app/lib/chat/attachment-preview';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import { useOpenChatFileReference } from '@/app/components/canvas-agent-chat/useOpenChatFileReference';
+import { LEGACY_PERSONAL_WORKSPACE_ID } from '@/app/lib/workspaces/constants';
 
 const CodeBlockContext = React.createContext(false);
 
@@ -315,19 +315,25 @@ export function getRecentStudioImageMediaUrls(messages: ChatMessage[], messageIn
 }
 
 function FileLink({ href, children, showIcon = false }: { href: string; children: React.ReactNode; showIcon?: boolean }) {
-  const fileStore = useFileStore();
-  const fileTree = fileStore.fileTree;
   const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
-  const pathname = useLocalePathname();
-  const locale = useLocale();
-  const router = useRouter();
+  const openFileReference = useOpenChatFileReference();
   const normalizedPath = React.useMemo(() => normalizeChatFilePath(href), [href]);
-  const [validation, setValidation] = React.useState<FileReferenceValidationResult | null>(null);
+  const [validationState, setValidationState] = React.useState<{
+    workspaceId: string | null;
+    result: FileReferenceValidationResult;
+  } | null>(null);
   const [validationVersion, setValidationVersion] = React.useState(0);
 
-  React.useEffect(() => subscribeToFileReferenceValidationInvalidation(() => {
+  React.useEffect(() => subscribeToFileReferenceValidationInvalidation((event) => {
+    if (event.workspaceId !== (activeWorkspaceId ?? LEGACY_PERSONAL_WORKSPACE_ID)) return;
+    if (
+      event.path &&
+      event.path !== normalizedPath &&
+      !event.path.startsWith(`${normalizedPath}/`) &&
+      !normalizedPath.startsWith(`${event.path}/`)
+    ) return;
     setValidationVersion((version) => version + 1);
-  }), []);
+  }), [activeWorkspaceId, normalizedPath]);
 
   React.useEffect(() => {
     if (!normalizedPath) {
@@ -335,39 +341,35 @@ function FileLink({ href, children, showIcon = false }: { href: string; children
     }
 
     let cancelled = false;
+    const { fileTree, fileTreeWorkspaceId } = useFileStore.getState();
 
-    validateFileReference(normalizedPath, fileTree).then((result) => {
+    validateFileReference(normalizedPath, fileTree, { fileTreeWorkspaceId }).then((result) => {
       if (!cancelled) {
-        setValidation(result);
+        setValidationState({ workspaceId: activeWorkspaceId, result });
       }
     });
 
     return () => {
       cancelled = true;
     };
-  }, [activeWorkspaceId, fileTree, normalizedPath, validationVersion]);
+  }, [activeWorkspaceId, normalizedPath, validationVersion]);
 
   const handleClick = (event: React.MouseEvent) => {
     event.preventDefault();
     event.stopPropagation();
 
+    const validation = validationState?.workspaceId === activeWorkspaceId
+      ? validationState.result
+      : null;
     if (!normalizedPath || validation?.path !== normalizedPath || validation.type !== 'file') return;
 
-    if (pathname.includes('/chat')) {
-      const notebookPath = getPathname({
-        locale,
-        href: { pathname: '/notebook', query: { path: normalizedPath } },
-      });
-      router.push(notebookPath);
-      return;
-    }
-
-    notifyChatFileReferenceOpened(normalizedPath);
-    void fileStore.revealAndLoadFile(normalizedPath);
+    void openFileReference(normalizedPath);
   };
 
   const displayChildren = getFileReferenceLabel(href, children);
-  const activeValidation = validation?.path === normalizedPath ? validation : null;
+  const activeValidation = validationState?.workspaceId === activeWorkspaceId && validationState.result.path === normalizedPath
+    ? validationState.result
+    : null;
   const isFile = activeValidation?.type === 'file';
   const isDirectory = activeValidation?.type === 'directory';
   const isMissing = !normalizedPath || activeValidation?.type === 'missing';

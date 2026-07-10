@@ -1,3 +1,5 @@
+import { normalizeWorkspacePathParam } from '@/app/lib/files/path-utils';
+
 export interface FilePathEntry {
   path: string;
   label: string;
@@ -6,10 +8,10 @@ export interface FilePathEntry {
 const ABSOLUTE_WORKSPACE_PREFIX = '/data/workspace/';
 
 export function normalizeChatFilePath(filePath: string): string {
-  return filePath
+  const stripped = filePath
     .replace(/^["'`]+|["'`]+$/g, '')
-    .replace(/^\.\/|\/$/g, '')
     .replace(/^\/data\/workspace\//, '');
+  return normalizeWorkspacePathParam(stripped) ?? '';
 }
 
 export function isFilePath(href: string): boolean {

@@ -35,15 +35,22 @@ export function flattenDirectoryChildren(nodes: FileNode[], dirPath: string): Fi
 }
 
 export function mergeSubtreeChildren(nodes: FileNode[], targetPath: string, children: FileNode[]): FileNode[] {
-  return nodes.map((node) => {
+  let changed = false;
+  const nextNodes = nodes.map((node) => {
     if (node.path === targetPath) {
+      changed = true;
       return { ...node, children };
     }
-    if (node.children) {
-      return { ...node, children: mergeSubtreeChildren(node.children, targetPath, children) };
+    if (node.children && targetPath.startsWith(`${node.path}/`)) {
+      const nextChildren = mergeSubtreeChildren(node.children, targetPath, children);
+      if (nextChildren !== node.children) {
+        changed = true;
+        return { ...node, children: nextChildren };
+      }
     }
     return node;
   });
+  return changed ? nextNodes : nodes;
 }
 
 export function mergeRootNodesPreservingChildren(nextNodes: FileNode[], currentNodes: FileNode[]): FileNode[] {
@@ -76,15 +83,23 @@ export function clearUnrefreshedDirectoryChildren(
 }
 
 export function clearDirectoryChildren(nodes: FileNode[], targetPath: string): FileNode[] {
-  return nodes.map((node) => {
+  let changed = false;
+  const nextNodes = nodes.map((node) => {
     if (node.path === targetPath && node.type === 'directory') {
+      if (!node.children) return node;
+      changed = true;
       return { ...node, children: undefined };
     }
-    if (node.children) {
-      return { ...node, children: clearDirectoryChildren(node.children, targetPath) };
+    if (node.children && targetPath.startsWith(`${node.path}/`)) {
+      const nextChildren = clearDirectoryChildren(node.children, targetPath);
+      if (nextChildren !== node.children) {
+        changed = true;
+        return { ...node, children: nextChildren };
+      }
     }
     return node;
   });
+  return changed ? nextNodes : nodes;
 }
 
 export function flattenTreePaths(nodes: FileNode[], result: string[] = []): string[] {

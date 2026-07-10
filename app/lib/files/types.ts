@@ -75,3 +75,20 @@ export interface CurrentFile {
   revision?: FileRevisionRecord | null;
   collaboration?: FileCollaborationState | null;
 }
+
+export type FileLoadResult =
+  | { status: 'loaded'; path: string; file: CurrentFile }
+  | { status: 'missing'; path: string; error: string }
+  | { status: 'failed'; path: string; error: string }
+  | { status: 'superseded'; path: string };
+
+export interface OpenWorkspaceFileOptions {
+  workspaceId?: string | null;
+  revealInTree?: boolean;
+}
+
+export type OpenWorkspaceFileResult =
+  | { status: 'opened'; path: string }
+  | { status: 'missing'; path: string; error: string }
+  | { status: 'failed'; path: string; error: string }
+  | { status: 'superseded'; path: string };

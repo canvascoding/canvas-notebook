@@ -340,7 +340,17 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
       suppressNextMobileFileOpenCloseRef.current += 1;
     }
 
-    await useFileStore.getState().revealAndLoadFile(normalizedPath);
+    const result = await useFileStore.getState().revealAndLoadFile(normalizedPath);
+    if (result.status !== 'opened') {
+      if (options.suppressMobileChatClose) {
+        suppressNextMobileFileOpenCloseRef.current = Math.max(
+          0,
+          suppressNextMobileFileOpenCloseRef.current - 1,
+        );
+      }
+      clearStoredNotebookOpenFilePath();
+      return;
+    }
 
     const loadedPath = useFileStore.getState().currentFile?.path ?? null;
     if (loadedPath === normalizedPath) {

@@ -74,7 +74,7 @@
     "test:browser-export": "tsx scripts/browser-export-service-test.ts",
     "test:browser-start": "tsx scripts/browser-runtime-test.ts",
     "test:browser-url-policy": "tsx scripts/browser-url-policy-test.ts",
-    "test:file-watcher": "tsx --conditions react-server scripts/file-watcher-service-test.ts && tsx scripts/file-watcher-client-test.ts && tsx scripts/file-browser-refresh-test.ts",
+    "test:file-watcher": "tsx --conditions react-server scripts/file-watcher-service-test.ts && tsx scripts/file-watcher-client-test.ts && tsx scripts/file-browser-refresh-test.ts && tsx scripts/file-open-flow-test.ts",
     "test:editor:markdown": "tsx scripts/tiptap-markdown-roundtrip-test.ts",
     "test:pdf:mermaid": "tsx --conditions react-server scripts/mermaid-pdf-export-test.ts",
     "test:pdf:markdown-table": "tsx scripts/markdown-wide-table-export-test.ts",

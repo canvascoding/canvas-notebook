@@ -23,7 +23,12 @@ type ValidationCacheEntry = {
 };
 
 const validationCache = new Map<string, ValidationCacheEntry>();
-const validationListeners = new Set<() => void>();
+export interface FileReferenceValidationInvalidation {
+  workspaceId: string;
+  path: string | null;
+}
+
+const validationListeners = new Set<(event: FileReferenceValidationInvalidation) => void>();
 
 function getActiveWorkspaceId(): string | null {
   return useWorkspaceStore.getState().activeWorkspaceId;
@@ -33,11 +38,13 @@ function buildValidationCacheKey(workspaceId: string | null, path: string): stri
   return `${workspaceId ?? LEGACY_PERSONAL_WORKSPACE_ID}\0${path}`;
 }
 
-function notifyValidationListeners() {
-  for (const listener of validationListeners) listener();
+function notifyValidationListeners(event: FileReferenceValidationInvalidation) {
+  for (const listener of validationListeners) listener(event);
 }
 
-export function subscribeToFileReferenceValidationInvalidation(listener: () => void): () => void {
+export function subscribeToFileReferenceValidationInvalidation(
+  listener: (event: FileReferenceValidationInvalidation) => void,
+): () => void {
   validationListeners.add(listener);
   return () => validationListeners.delete(listener);
 }
@@ -63,7 +70,7 @@ export function invalidateFileReferenceValidationCache(options: {
     validationCache.delete(key);
   }
 
-  notifyValidationListeners();
+  notifyValidationListeners({ workspaceId, path: normalizedPath });
 }
 
 function missingValidationResult(path: string): FileReferenceValidationResult {
@@ -118,12 +125,14 @@ function getCacheTtl(result: FileReferenceValidationResult): number {
 
 export async function validateFileReference(
   filePath: string,
-  fileTree: FileNode[]
+  fileTree: FileNode[],
+  options: { fileTreeWorkspaceId?: string | null } = {},
 ): Promise<FileReferenceValidationResult> {
   const normalizedPath = normalizeChatFilePath(filePath);
   const workspaceId = getActiveWorkspaceId();
 
-  const nodeInTree = findNodeInTree(normalizedPath, fileTree);
+  const canUseTree = options.fileTreeWorkspaceId === undefined || options.fileTreeWorkspaceId === workspaceId;
+  const nodeInTree = canUseTree ? findNodeInTree(normalizedPath, fileTree) : null;
   if (nodeInTree !== null) {
     return validationResultFromType(normalizedPath, nodeInTree.type);
   }
