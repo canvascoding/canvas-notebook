@@ -275,6 +275,15 @@ async function main() {
   assert.match(mcpPrompt.systemPrompt, /Connector Discovery Hints/);
   assert.match(mcpPrompt.systemPrompt, /search_tools/);
 
+  const restrictedEmailAgent = await createAgentProfile({
+    name: 'Restricted Email Agent',
+    enabledTools: ['email_search'],
+  });
+  const restrictedEmailPrompt = await loadManagedAgentSystemPrompt(restrictedEmailAgent.agentId);
+  assert.match(restrictedEmailPrompt.systemPrompt, /`email` \(Managing email\) \[on-demand\]/);
+  assert.match(restrictedEmailPrompt.systemPrompt, /email_search/);
+  assert.doesNotMatch(restrictedEmailPrompt.systemPrompt, /email_send_draft/);
+
   const legacyAgent = await createAgentProfile({
     name: 'Legacy OpenRouter Agent',
     defaultProvider: 'openrouter',
