@@ -1,11 +1,12 @@
 'use client';
 
-import { memo, useCallback } from 'react';
+import { memo, useCallback, type CSSProperties } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import {
   ChevronRight,
   Square,
   CheckSquare,
+  AlertCircle,
   Globe2,
   Loader2,
   MoreVertical,
@@ -21,8 +22,8 @@ import type { BrowserMode, FileNode as FileNodeType } from '@/app/lib/files/type
 import { cn } from '@/lib/utils';
 import { getFileIconComponent, isImageFile } from '@/app/lib/files/file-icons';
 import { getFileDisplayName } from '@/app/lib/files/display-name';
-import { useIsMobile } from '@/hooks/use-mobile';
 import { ImageThumbnailIcon } from '@/app/components/shared/ImageThumbnailIcon';
+import { formatCompactFileSize } from '@/app/lib/files/format';
 
 interface FileTreeNodeProps {
   node: FileNodeType;
@@ -34,31 +35,28 @@ interface FileTreeNodeProps {
 }
 
 function FileTreeNodeComponent({ node, depth = 0, browserMode = 'tree', onNavigateInto, onOpenFile, selectionOrder }: FileTreeNodeProps) {
-  const isMobile = useIsMobile();
   const {
     isExpanded,
     isLoading,
+    directoryError,
     isSelected,
     isMultiSelected,
     toggleDirectory,
     selectNode,
-    loadFile,
     isMultiSelectMode,
     toggleMultiSelectPath,
     openContextMenu,
-    mobileFileOpened,
   } = useFileStore(useShallow((state) => ({
     isExpanded: state.expandedDirs.has(node.path),
     isLoading: state.loadingDirs.has(node.path),
+    directoryError: state.directoryErrors[node.path] ?? null,
     isSelected: state.selectedNode?.path === node.path,
     isMultiSelected: state.multiSelectPaths.has(node.path),
     toggleDirectory: state.toggleDirectory,
     selectNode: state.selectNode,
-    loadFile: state.loadFile,
     isMultiSelectMode: state.isMultiSelectMode,
     toggleMultiSelectPath: state.toggleMultiSelectPath,
     openContextMenu: state.openContextMenu,
-    mobileFileOpened: state.mobileFileOpened,
   })));
 
   const isDirectory = node.type === 'directory';
@@ -67,9 +65,12 @@ function FileTreeNodeComponent({ node, depth = 0, browserMode = 'tree', onNaviga
   const hasLoadedChildren = Array.isArray(node.children);
   const childNodes = node.children ?? [];
   const displayName = getFileDisplayName(node);
-  const rowPaddingStyle = isMobile
-    ? { paddingLeft: `${8 + Math.min(depth, 4) * 12}px` }
-    : undefined;
+  const rowPaddingStyle = {
+    '--tree-mobile-padding': `${8 + Math.min(depth, 4) * 12}px`,
+  } as CSSProperties;
+  const childPaddingStyle = {
+    '--tree-mobile-padding': `${8 + Math.min(depth + 1, 4) * 12}px`,
+  } as CSSProperties;
 
   const handleToggle = useCallback(() => {
     if (isDirectory) {
@@ -95,12 +96,11 @@ function FileTreeNodeComponent({ node, depth = 0, browserMode = 'tree', onNaviga
         if (onOpenFile) {
           onOpenFile(node.path);
         } else {
-          loadFile(node.path, true);
+          void useFileStore.getState().revealAndLoadFile(node.path, { revealInTree: false });
         }
-        mobileFileOpened();
       }
     },
-    [isMultiSelectMode, node, selectNode, selectionOrder, onOpenFile, loadFile, mobileFileOpened]
+    [isMultiSelectMode, node, selectNode, selectionOrder, onOpenFile]
   );
 
   const handleListDirectoryClick = useCallback(
@@ -189,13 +189,6 @@ function FileTreeNodeComponent({ node, depth = 0, browserMode = 'tree', onNaviga
     });
   };
 
-  const formatSize = (bytes?: number) => {
-    if (!bytes) return '';
-    if (bytes < 1024) return `${bytes}B`;
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`;
-    return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
-  };
-
   if (isDirectory) {
     if (browserMode === 'list') {
       return (
@@ -204,7 +197,7 @@ function FileTreeNodeComponent({ node, depth = 0, browserMode = 'tree', onNaviga
             data-file-path={node.path}
             className={cn(
               'group relative flex w-full min-w-0 items-center px-2 text-foreground transition-colors',
-              isMobile ? 'py-1.5' : 'py-0.5',
+              'py-1.5 md:py-0.5',
               isRowActive ? 'bg-accent/70' : 'hover:bg-accent/50',
               isPublic && 'border-l-2 border-amber-500 bg-amber-500/10'
             )}
@@ -213,7 +206,7 @@ function FileTreeNodeComponent({ node, depth = 0, browserMode = 'tree', onNaviga
             <SidebarMenuButton
               className={cn(
                 'min-w-0 flex-1 justify-start gap-2 bg-transparent text-foreground hover:!bg-transparent hover:text-foreground active:!bg-transparent data-[state=open]:hover:!bg-transparent',
-                isMobile && 'min-h-[44px] py-2',
+                'min-h-[44px] py-2 md:min-h-0 md:py-0',
                 isRowActive && 'text-foreground'
               )}
               onClick={handleListDirectoryClick}
@@ -241,7 +234,7 @@ function FileTreeNodeComponent({ node, depth = 0, browserMode = 'tree', onNaviga
                 onClick={handleDotsClickForListMode}
                 className={cn(
                   'ml-auto shrink-0 rounded p-1 text-muted-foreground hover:bg-accent/70 hover:text-foreground transition-opacity',
-                  isMobile ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+                  'opacity-100 md:opacity-0 md:group-hover:opacity-100'
                 )}
               >
                 <MoreVertical className="h-4 w-4" />
@@ -252,7 +245,7 @@ function FileTreeNodeComponent({ node, depth = 0, browserMode = 'tree', onNaviga
       );
     }
 
-    const showChildren = isExpanded && (hasLoadedChildren || isLoading);
+    const showChildren = isExpanded && (hasLoadedChildren || isLoading || Boolean(directoryError));
     return (
       <Collapsible open={isExpanded} onOpenChange={handleToggle}>
         <SidebarMenuItem>
@@ -260,7 +253,7 @@ function FileTreeNodeComponent({ node, depth = 0, browserMode = 'tree', onNaviga
             data-file-path={node.path}
           className={cn(
             'group relative flex w-full min-w-0 items-center px-2 text-foreground transition-colors',
-            isMobile ? 'py-1.5' : 'py-0.5',
+            'py-1.5 pl-[var(--tree-mobile-padding)] md:py-0.5 md:pl-2',
             isRowActive ? 'bg-accent/70' : 'hover:bg-accent/50',
             isPublic && 'border-l-2 border-amber-500 bg-amber-500/10'
           )}
@@ -271,7 +264,7 @@ function FileTreeNodeComponent({ node, depth = 0, browserMode = 'tree', onNaviga
               <SidebarMenuButton
                 className={cn(
                   'min-w-0 flex-1 justify-start gap-2 bg-transparent text-foreground hover:!bg-transparent hover:text-foreground active:!bg-transparent data-[state=open]:hover:!bg-transparent',
-                  isMobile && 'min-h-[44px] py-2',
+                  'min-h-[44px] py-2 md:min-h-0 md:py-0',
                   isRowActive && 'text-foreground'
                 )}
                 onClick={handleSelect}
@@ -306,7 +299,7 @@ function FileTreeNodeComponent({ node, depth = 0, browserMode = 'tree', onNaviga
                 onClick={handleDotsClick}
                 className={cn(
                   'ml-auto shrink-0 rounded p-1 text-muted-foreground hover:bg-accent/70 hover:text-foreground transition-opacity',
-                  isMobile ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+                  'opacity-100 md:opacity-0 md:group-hover:opacity-100'
                 )}
               >
                 <MoreVertical className="h-4 w-4" />
@@ -316,12 +309,23 @@ function FileTreeNodeComponent({ node, depth = 0, browserMode = 'tree', onNaviga
         </SidebarMenuItem>
         {showChildren && (
           <CollapsibleContent>
-            <SidebarMenuSub className={cn('mr-0 pr-0', isMobile && 'mx-0 border-l-0 px-0 py-0')}>
+            <SidebarMenuSub className="mx-0 mr-0 border-l-0 px-0 py-0 pr-0 md:ml-3.5 md:border-l md:pl-2.5">
               {isLoading ? (
-                <div className="flex items-center gap-2 px-2 py-1 text-xs text-muted-foreground" style={isMobile ? { paddingLeft: `${8 + Math.min(depth + 1, 4) * 12}px` } : undefined}>
+                <div className="flex items-center gap-2 py-1 pl-[var(--tree-mobile-padding)] pr-2 text-xs text-muted-foreground md:px-2" style={childPaddingStyle}>
                   <Loader2 className="h-3 w-3 animate-spin" />
                   <span>Loading...</span>
                 </div>
+              ) : directoryError ? (
+                <button
+                  type="button"
+                  className="flex w-full items-start gap-2 py-1 pl-[var(--tree-mobile-padding)] pr-2 text-left text-xs text-destructive hover:bg-destructive/10 md:px-2"
+                  style={childPaddingStyle}
+                  onClick={() => void useFileStore.getState().loadSubdirectory(node.path, true, false)}
+                  title={directoryError}
+                >
+                  <AlertCircle className="mt-0.5 h-3 w-3 shrink-0" />
+                  <span className="line-clamp-2">{directoryError}</span>
+                </button>
               ) : (
                 childNodes.map((child) => (
                   <FileTreeNode
@@ -348,7 +352,7 @@ function FileTreeNodeComponent({ node, depth = 0, browserMode = 'tree', onNaviga
         data-file-path={node.path}
           className={cn(
             'group relative flex w-full min-w-0 items-center px-2 text-foreground transition-colors',
-            isMobile ? 'py-1.5' : 'py-0.5',
+            'py-1.5 pl-[var(--tree-mobile-padding)] md:py-0.5 md:pl-2',
             isRowActive ? 'bg-accent/70' : 'hover:bg-accent/50',
             isPublic && 'border-l-2 border-amber-500 bg-amber-500/10'
           )}
@@ -358,16 +362,12 @@ function FileTreeNodeComponent({ node, depth = 0, browserMode = 'tree', onNaviga
         <SidebarMenuButton
           className={cn(
             'min-w-0 flex-1 justify-start gap-2 bg-transparent text-foreground hover:!bg-transparent hover:text-foreground active:!bg-transparent data-[state=open]:hover:!bg-transparent',
-            isMobile && 'min-h-[44px] py-2',
+            'min-h-[44px] py-2 md:min-h-0 md:py-0',
             isRowActive && 'text-foreground'
           )}
           onClick={handleSelect}
         >
-          {isDirectory ? (
-            <span className="h-4 w-4 shrink-0" />
-          ) : (
-            <span className={cn('h-4 w-4 shrink-0', isMobile ? 'pl-3' : 'pl-6')} />
-          )}
+          <span className="h-4 w-4 shrink-0 pl-3 md:pl-6" />
           {getFileIcon()}
           <span className="min-w-0 flex-1 truncate text-sm" title={node.name}>{displayName}</span>
           {isPublic && (
@@ -376,9 +376,9 @@ function FileTreeNodeComponent({ node, depth = 0, browserMode = 'tree', onNaviga
               aria-label="Public"
             />
           )}
-          {!isMobile && !isDirectory && node.size !== undefined && (
-            <span className="ml-auto shrink-0 text-xs text-muted-foreground">
-              {formatSize(node.size)}
+          {!isDirectory && node.size !== undefined && (
+            <span className="ml-auto hidden shrink-0 text-xs text-muted-foreground md:inline">
+              {formatCompactFileSize(node.size)}
             </span>
           )}
         </SidebarMenuButton>
@@ -398,7 +398,7 @@ function FileTreeNodeComponent({ node, depth = 0, browserMode = 'tree', onNaviga
             onClick={handleDotsClick}
             className={cn(
               'ml-auto shrink-0 rounded p-1 text-muted-foreground hover:bg-accent/70 hover:text-foreground transition-opacity',
-              isMobile ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+              'opacity-100 md:opacity-0 md:group-hover:opacity-100'
             )}
           >
             <MoreVertical className="h-4 w-4" />

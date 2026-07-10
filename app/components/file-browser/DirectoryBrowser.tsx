@@ -5,6 +5,7 @@ import { ChevronRight, Folder, Loader2 } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { useFileStore } from '@/app/store/file-store';
 import type { FileNode } from '@/app/lib/files/types';
+import { useShallow } from 'zustand/react/shallow';
 
 interface DirectoryBrowserProps {
   tree: FileNode[];
@@ -26,7 +27,10 @@ export function DirectoryBrowser({
   onLoadSubdirectory,
 }: DirectoryBrowserProps) {
   const t = useTranslations('notebook');
-  const { loadSubdirectory, loadingDirs: storeLoadingDirs } = useFileStore();
+  const { loadSubdirectory, storeLoadingDirs } = useFileStore(useShallow((state) => ({
+    loadSubdirectory: state.loadSubdirectory,
+    storeLoadingDirs: state.loadingDirs,
+  })));
   const loadingDirs = providedLoadingDirs ?? storeLoadingDirs;
 
   const handleToggleDir = async (path: string, isExpanded: boolean) => {

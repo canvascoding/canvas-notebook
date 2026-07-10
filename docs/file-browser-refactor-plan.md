@@ -17,6 +17,21 @@ Grundprinzip aus dem `code-structure`-Skill:
 - Service- und Utility-Schichten kapseln wiederverwendbare Mechanik: Pfade, Tree-Operationen, Fetch/Error-Handling, Upload, Cache-Invalidierung, Filesystem-Zugriffe.
 - Migration erfolgt schrittweise: einen Block extrahieren, einen Satz Verbraucher umstellen, verifizieren, dann weiter.
 
+## Abschlussstand vom 10. Juli 2026
+
+Die im Performance-/Stabilitaetsaudit gefundenen FileTree- und Chat-Referenzprobleme sind umgesetzt:
+
+- Ein gemeinsamer Datei-Open-Flow schuetzt Dirty-Editor-Inhalte, startet Preview und Tree-Reveal parallel und verwendet Latest-request-wins.
+- Tree- und File-Requests sind an den aktiven Workspace gebunden; veraltete Responses werden verworfen.
+- Gleichzeitige Directory-Loads teilen ein Promise, statt vorzeitig aufzuloesen oder doppelt zu laden.
+- Explorer-Zustand wird pro Workspace gespeichert und vor dem Restore hydriert.
+- Chat-Referenzen validieren workspace-sicher, reagieren nur auf relevante Invalidierungen und verwenden ein einheitliches Open-Verhalten.
+- Directory-Fehler bleiben lokal, Bulk-Move aktualisiert den sichtbaren Tree einmalig und Tree-Merges erhalten unveraenderte Referenzen.
+- Breite FileBrowser-Subscriptions, per-Node-Media-Query-Listener, unbeschraenkte Tree-Depth und der sequenzielle Suchindex wurden korrigiert.
+- Eindeutig tote Auto-Refresh-, Chat-Event- und Metadata-Placeholder wurden entfernt.
+
+Automatisch verifiziert wurden `npm run test:file-watcher`, `scripts/chat-file-link-validation-test.ts`, `npm run lint` und `npm run build`. Die interaktive UI-/E2E-Pruefung bleibt gemaess Repository-Regel bis zur ausdruecklichen Browser-/Playwright-Freigabe offen.
+
 ## Status Quo
 
 Der File-Browser besteht aktuell aus mehreren gekoppelten Schichten:
@@ -39,8 +54,8 @@ Aktueller Fortschritt:
 Offen:
 
 - `file-store.ts` ist weiterhin ein grosser Orchestrierungs-Store mit Tree, Preview, Clipboard, Upload, Selection und Dialog-State.
-- `FileGridView.tsx` enthaelt weiterhin Restore, Suche, View-Mode-Auswahl, Keyboard-Handling und Rendering fuer drei Darstellungen.
-- `FileTreeNode.tsx` und `FileGridItem.tsx` abonnieren noch breite Store-Zustaende und koppeln Click-Semantik direkt an Rendering.
+- `useFileExplorerViewModel.ts` buendelt weiterhin Restore, Suche und die Ableitungen fuer drei Darstellungen; diese Logik ist inzwischen aus `FileGridView.tsx` entfernt.
+- `FileTreeNode.tsx` und `FileGridItem.tsx` koppeln Click-Semantik weiterhin direkt an Rendering, abonnieren aber nur noch schmale primitive Store-Ausschnitte.
 - `FileActionsDropdown.tsx` ist weiterhin ein Action-Controller mit vielen Dialog- und Operation-Flows.
 
 Grobe Codegroesse der betrachteten Bereiche:
@@ -355,6 +370,8 @@ Commit:
 
 - `Extract file explorer view model`
 
+Status: erledigt.
+
 ### Phase 5b: Item-Subscriptions verschlanken
 
 Ziel:
@@ -378,6 +395,8 @@ Verifikation:
 Commit:
 
 - `Reduce file explorer item rerenders`
+
+Status: erledigt.
 
 ### Phase 5c: Action-Flows aus `FileActionsDropdown` ziehen
 
@@ -447,8 +466,6 @@ Commit:
 
 Kandidaten:
 
-- `app/components/file-browser/FileNode.tsx.backup`
-- doppelte File Size Formatter
 - direkte `useFileStore.setState` Calls in UI-Komponenten
 - leere `catch {}` Bloecke bei Nutzeraktionen
 

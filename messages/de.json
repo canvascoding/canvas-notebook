@@ -436,8 +436,6 @@
     "browserModeList": "Listenansicht",
     "browserModeGrid": "Rasteransicht",
     "goUpFolder": "Nach oben",
-    "autoRefreshConnected": "Auto-Refresh: Verbunden",
-    "autoRefreshDisconnected": "Auto-Refresh: Getrennt",
     "selectedCount": "{count} ausgewählt",
     "cancel": "Abbrechen",
     "root": "Root",

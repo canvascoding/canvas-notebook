@@ -65,6 +65,7 @@ import { MarpExportDialog } from './MarpExportDialog';
 import { useCreateItemDialog } from './useCreateItemDialog';
 import { WorkspaceDestinationPicker } from '@/app/components/workspaces/WorkspaceDestinationPicker';
 import { selectActiveWorkspace, useWorkspaceStore } from '@/app/store/workspace-store';
+import { useShallow } from 'zustand/react/shallow';
 
 type DropdownMenuContentProps = ComponentProps<typeof DropdownMenuContent>;
 
@@ -128,7 +129,21 @@ export function FileActionsDropdown({
     clipboardMode,
     setBulkMoveOpen,
     refreshDirectory,
-  } = useFileStore();
+  } = useFileStore(useShallow((state) => ({
+    deletePath: state.deletePath,
+    renamePath: state.renamePath,
+    downloadFile: state.downloadFile,
+    fileTree: state.fileTree,
+    multiSelectPaths: state.multiSelectPaths,
+    clearMultiSelect: state.clearMultiSelect,
+    copyPaths: state.copyPaths,
+    pastePaths: state.pastePaths,
+    duplicatePath: state.duplicatePath,
+    clipboardPaths: state.clipboardPaths,
+    clipboardMode: state.clipboardMode,
+    setBulkMoveOpen: state.setBulkMoveOpen,
+    refreshDirectory: state.refreshDirectory,
+  })));
 
   const parentPath = useMemo(() => {
     if (!node) return '.';

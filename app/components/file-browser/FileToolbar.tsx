@@ -49,7 +49,8 @@ const VIEW_MODES: { mode: BrowserMode; Icon: typeof LayoutGrid; labelKey: string
 
 export function FileToolbar({ variant, isMultiSelectMode, isDeleteDisabled, isRefreshing = false, handlers }: FileToolbarProps) {
   const t = useTranslations('notebook');
-  const { browserMode, setBrowserMode } = useFileStore();
+  const browserMode = useFileStore((state) => state.browserMode);
+  const setBrowserMode = useFileStore((state) => state.setBrowserMode);
 
   const isMobileSheet = variant === 'mobile-sheet';
   const isFullscreen = variant === 'fullscreen';

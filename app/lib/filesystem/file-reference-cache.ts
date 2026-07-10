@@ -1,8 +1,10 @@
 import { listDirectory, type WorkspaceFileOperationOptions } from './workspace-files';
 import type { FileReferenceEntry } from './file-reference-search';
+import { AsyncSemaphore } from '@/app/lib/utils/async-semaphore';
 
 const IMAGE_EXTENSIONS = new Set(['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp']);
 const FILE_REFERENCE_CACHE_TTL_MS = 30_000;
+const FILE_REFERENCE_DIRECTORY_CONCURRENCY = 12;
 
 interface FileReferenceCacheEntry {
   expiresAt: number;
@@ -18,20 +20,20 @@ function getWorkspaceCacheKey(options?: WorkspaceFileOperationOptions): string {
 
 async function collectFilesRecursive(
   dirPath: string,
-  options?: WorkspaceFileOperationOptions
+  options: WorkspaceFileOperationOptions | undefined,
+  semaphore: AsyncSemaphore,
 ): Promise<FileReferenceEntry[]> {
   try {
-    const entries = await listDirectory(dirPath, options);
+    const entries = await semaphore.run(() => listDirectory(dirPath, {
+      ...options,
+      includeMetadata: false,
+    }));
     const files: FileReferenceEntry[] = [];
+    const directories = [];
 
     for (const entry of entries) {
       if (entry.type === 'directory') {
-        try {
-          const subFiles = await collectFilesRecursive(entry.path, options);
-          files.push(...subFiles);
-        } catch {
-          // Skip directories we can't read.
-        }
+        directories.push(entry.path);
         continue;
       }
 
@@ -45,6 +47,11 @@ async function collectFilesRecursive(
         size: entry.size,
       });
     }
+
+    const nestedFiles = await Promise.all(
+      directories.map((path) => collectFilesRecursive(path, options, semaphore)),
+    );
+    for (const entries of nestedFiles) files.push(...entries);
 
     return files;
   } catch {
@@ -80,7 +87,11 @@ export async function getCachedFileReferenceEntries(
     return pendingBuild;
   }
 
-  const nextBuild = collectFilesRecursive('.', options)
+  const nextBuild = collectFilesRecursive(
+    '.',
+    options,
+    new AsyncSemaphore(FILE_REFERENCE_DIRECTORY_CONCURRENCY),
+  )
     .then((entries) => {
       cacheEntries.set(cacheKey, {
         entries,
