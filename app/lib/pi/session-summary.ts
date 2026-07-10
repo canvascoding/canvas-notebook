@@ -2,7 +2,7 @@ import 'server-only';
 
 import type { AgentMessage } from '@earendil-works/pi-agent-core';
 import { completeSimple } from '@earendil-works/pi-ai/compat';
-import type { Api, AssistantMessage, Message, Model } from '@earendil-works/pi-ai';
+import type { Api, AssistantMessage, Message, Model, UserMessage } from '@earendil-works/pi-ai';
 
 import { resolvePiApiKey } from './api-key-resolver';
 import {
@@ -142,7 +142,7 @@ function compactToolResultForSummary(message: AgentMessage): Message {
   } as unknown as Message;
 }
 
-function wrapUntrustedSummaryRecord(role: string, text: string, timestamp: number): Message {
+function wrapUntrustedSummaryRecord(role: string, text: string, timestamp: number): UserMessage {
   return {
     role: 'user',
     content: [
@@ -154,7 +154,7 @@ function wrapUntrustedSummaryRecord(role: string, text: string, timestamp: numbe
   };
 }
 
-function estimateSummaryMessageTokens(message: Message): number {
+function estimateSummaryMessageTokens(message: UserMessage): number {
   if (typeof message.content === 'string') {
     return estimateTextTokens(message.content) + 24;
   }
@@ -164,7 +164,7 @@ function estimateSummaryMessageTokens(message: Message): number {
   }, 24);
 }
 
-function truncateSummaryMessageToBudget(message: Message, tokenBudget: number): Message {
+function truncateSummaryMessageToBudget(message: UserMessage, tokenBudget: number): UserMessage {
   if (estimateSummaryMessageTokens(message) <= tokenBudget || typeof message.content !== 'string') {
     return message;
   }
@@ -188,7 +188,7 @@ function truncateSummaryMessageToBudget(message: Message, tokenBudget: number): 
   };
 }
 
-async function sanitizeMessagesForSummary(messages: AgentMessage[]): Promise<Message[]> {
+async function sanitizeMessagesForSummary(messages: AgentMessage[]): Promise<UserMessage[]> {
   let normalized: Message[];
   try {
     // Summaries never need to read local image paths. If an older persisted
@@ -205,7 +205,7 @@ async function sanitizeMessagesForSummary(messages: AgentMessage[]): Promise<Mes
       }) as Message);
   }
 
-  return normalized.flatMap((message): Message[] => {
+  return normalized.flatMap((message): UserMessage[] => {
     let text = '';
     if ((message as unknown as AgentMessage).role === 'toolResult') {
       text = extractTextForSummary(compactToolResultForSummary(message as unknown as AgentMessage).content);
@@ -293,7 +293,7 @@ export async function summarizePiSessionHistory({
     if (batchBudget <= 24) {
       return null;
     }
-    const boundedBatch: Message[] = [];
+    const boundedBatch: UserMessage[] = [];
     let batchTokens = 0;
     while (pendingMessages.length > 0) {
       const nextMessage = truncateSummaryMessageToBudget(pendingMessages[0], batchBudget);
