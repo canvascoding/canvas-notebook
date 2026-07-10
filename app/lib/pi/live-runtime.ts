@@ -12,7 +12,7 @@ import {
   ensurePiSessionSystemPromptSnapshot,
   piSystemPromptSnapshotDbFields,
 } from '@/app/lib/pi/system-prompt-snapshot';
-import { resolvePiApiKey } from '@/app/lib/pi/api-key-resolver';
+import { createUserScopedPiApiKeyResolver } from '@/app/lib/pi/api-key-resolver';
 import {
   composePiHistoryForLlm,
   estimateTextTokens,
@@ -1545,7 +1545,7 @@ async function createRuntime(sessionId: string, userId: string): Promise<LivePiR
 
       return runtimeRef.current.transformContext(messages, signal);
     },
-    getApiKey: resolvePiApiKey,
+    getApiKey: createUserScopedPiApiKeyResolver(userId),
     afterToolCall: async (context) => toolLoopGuard.afterToolCall(context),
     sessionId,
   });

@@ -30,6 +30,16 @@ async function main() {
   const originalLoad = moduleInternals._load;
 
   moduleInternals._load = (request, parent, isMain) => {
+    if (request === 'server-only') {
+      return {};
+    }
+    if (request === '@earendil-works/pi-ai/compat') {
+      return {
+        getModels: () => [],
+        getProviders: () => [],
+        registerBuiltInApiProviders: () => undefined,
+      };
+    }
     if (request === '@earendil-works/pi-ai/oauth') {
       return {
         getOAuthProvider: () => ({
@@ -71,6 +81,12 @@ async function main() {
 
     assert.equal((await oauth.getProviderApiKey(provider, userA))?.apiKey, 'user-a-token');
     assert.equal(await oauth.getProviderApiKey(provider, userC), null);
+
+    const { createUserScopedPiApiKeyResolver } = await import('../app/lib/pi/api-key-resolver');
+    const resolveUserAApiKey = createUserScopedPiApiKeyResolver(userA.userId);
+    const resolveUserBApiKey = createUserScopedPiApiKeyResolver(userB.userId);
+    assert.equal(await resolveUserAApiKey(provider), 'user-a-token');
+    assert.equal(await resolveUserBApiKey(provider), 'user-b-token');
 
     oauth.saveProviderCredentials(provider, { access: 'global-token', refresh: 'refresh-global', expires });
     assert.equal(oauth.getProviderCredentials(provider)?.access, 'global-token');
