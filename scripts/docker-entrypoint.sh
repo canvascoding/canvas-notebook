@@ -102,6 +102,7 @@ fi
 
 # ─── Pre-compute all flags ────────────────────────────────────────────────
 export CANVAS_APP_ROOT="${CANVAS_APP_ROOT:-/app}"
+app_version="$(node -p "require('${CANVAS_APP_ROOT}/package.json').version" 2>/dev/null || printf 'unknown')"
 auto_install="${AI_CLI_AUTO_INSTALL:-${CODEX_AUTO_INSTALL:-false}}"
 ollama_auto_install="${OLLAMA_CLI_AUTO_INSTALL:-false}"
 
@@ -144,6 +145,7 @@ cat << 'BANNER'
    ╚═════╝╚═╝  ╚═╝╚═╝  ╚═══╝  ╚═══╝  ╚═╝  ╚═╝╚══════╝
 
   https://github.com/canvascoding/canvas-notebook
+  Version: ${app_version}
 
 BANNER
 printf 'Canvas initializing...\n\n'
