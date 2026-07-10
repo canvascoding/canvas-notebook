@@ -23,6 +23,7 @@ import {
 import type { AgentMessage } from '@earendil-works/pi-agent-core';
 import { initializeWebSocketBridge } from './chat-event-bridge';
 import { checkWsRateLimit } from './websocket-rate-limit';
+import { runWebSocketSessionAction } from './websocket-session-queue';
 import type { ChatRequestContext } from '@/app/lib/chat/types';
 import { db } from '@/app/lib/db';
 import { piSessions } from '@/app/lib/db/schema';
@@ -109,6 +110,16 @@ type ServerMessage =
       timestamp: number;
     }
   | { type: 'error'; error: string; code: string };
+
+function shouldSerializeSessionAction(message: ClientMessage): message is Extract<ClientMessage, {
+  type: 'send_message' | 'control' | 'change_model' | 'get_status';
+}> {
+  return (
+    (message.type === 'send_message' || message.type === 'control' || message.type === 'change_model' || message.type === 'get_status') &&
+    typeof message.sessionId === 'string' &&
+    message.sessionId.length > 0
+  );
+}
 
 const QUIET_SERVER_MESSAGE_TYPES = new Set(['agent_event']);
 
@@ -377,7 +388,10 @@ async function handleConnection(ws: WebSocket, request: IncomingMessage): Promis
         userId: connection.userId,
         ...summarizeClientMessage(message),
       });
-      void handleMessage(connection, message).catch((error) => {
+      const messageHandler = shouldSerializeSessionAction(message)
+        ? runWebSocketSessionAction(connection.userId, message.sessionId, () => handleMessage(connection, message))
+        : handleMessage(connection, message);
+      void messageHandler.catch((error) => {
         console.error('[WebSocket] handleMessage failed', {
           connectionId,
           userId: connection?.userId,
