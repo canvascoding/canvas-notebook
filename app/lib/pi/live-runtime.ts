@@ -59,6 +59,11 @@ import {
   getAgentRuntimeTempPromptBlock,
   resolveAgentRuntimeTempDir,
 } from '@/app/lib/pi/agent-runtime-temp';
+import {
+  RuntimeMessageQueues,
+  type RuntimeQueueEntry,
+  type RuntimeQueuePreview,
+} from '@/app/lib/pi/runtime-queue';
 
 export type { PiRuntimePromptContext } from '@/app/lib/pi/runtime-prompt-context';
 
@@ -121,21 +126,13 @@ async function getEmitter() {
 
 type RuntimePhase = 'idle' | 'streaming' | 'running_tool' | 'aborting';
 
-type QueueEntryPreview = {
-  id: string;
-  text: string;
-  attachmentCount: number;
-  messageTimestamp?: number;
-  signature?: string;
-};
-
 export type PiRuntimeStatus = {
   sessionId: string;
   phase: RuntimePhase;
   activeTool: { toolCallId: string; name: string } | null;
   pendingToolCalls: number;
-  followUpQueue: QueueEntryPreview[];
-  steeringQueue: QueueEntryPreview[];
+  followUpQueue: RuntimeQueuePreview[];
+  steeringQueue: RuntimeQueuePreview[];
   canAbort: boolean;
   contextWindow: number;
   estimatedHistoryTokens: number;
@@ -169,13 +166,6 @@ export type RuntimeErrorEvent = {
 
 export type PiRuntimeStreamEvent = AgentEvent | RuntimeStatusEvent | ContextCompactedEvent | RuntimeErrorEvent;
 type RuntimeSubscriber = (event: PiRuntimeStreamEvent) => void;
-
-type RuntimeQueueEntry = {
-  id: string;
-  preview: QueueEntryPreview;
-  message: Extract<AgentMessage, { role: 'user' }>;
-  signature: string;
-};
 
 type RuntimeTurnEndEvent = Extract<AgentEvent, { type: 'turn_end' }>;
 
@@ -276,7 +266,7 @@ function countMessageAttachments(message: Extract<AgentMessage, { role: 'user' }
   return message.content.filter((part) => part && typeof part === 'object' && 'type' in part && part.type === 'image').length;
 }
 
-function buildQueuePreview(message: Extract<AgentMessage, { role: 'user' }>): QueueEntryPreview {
+function buildQueuePreview(message: Extract<AgentMessage, { role: 'user' }>): RuntimeQueuePreview {
   return {
     id: `queue-${message.timestamp}-${Math.random().toString(36).slice(2, 8)}`,
     text: extractUserMessageText(message),
@@ -363,8 +353,7 @@ class LivePiRuntime {
   readonly agent: Agent;
 
   private readonly subscribers = new Set<RuntimeSubscriber>();
-  private followUpQueue: RuntimeQueueEntry[] = [];
-  private steeringQueue: RuntimeQueueEntry[] = [];
+  private readonly messageQueues = new RuntimeMessageQueues();
   private pendingReplace: RuntimeQueueEntry | null = null;
   private activeTool: { toolCallId: string; name: string } | null = null;
   private abortRequested = false;
@@ -438,6 +427,14 @@ class LivePiRuntime {
     return this.pendingReplace !== null;
   }
 
+  private get followUpQueue() {
+    return this.messageQueues.followUps;
+  }
+
+  private get steeringQueue() {
+    return this.messageQueues.steering;
+  }
+
   subscribe(subscriber: RuntimeSubscriber) {
     this.subscribers.add(subscriber);
     return () => {
@@ -492,9 +489,8 @@ class LivePiRuntime {
 
     const sanitized = sanitizeUserMessage(message);
     const entry = this.createQueueEntry(sanitized);
-    this.followUpQueue.push(entry);
+    this.messageQueues.enqueueFollowUp(entry, this.agent);
     this.touch();
-    this.agent.followUp(entry.message);
     this.publishStatus();
     return this.getStatus();
   }
@@ -506,27 +502,16 @@ class LivePiRuntime {
 
     const sanitized = sanitizeUserMessage(message);
     const entry = this.createQueueEntry(sanitized);
-    this.steeringQueue.push(entry);
+    this.messageQueues.enqueueSteering(entry, this.agent);
     this.touch();
-    this.agent.steer(entry.message);
     this.publishStatus();
     return this.getStatus();
   }
 
   async promoteQueuedMessageToSteering(queueItemId: string) {
-    const followUpIndex = this.followUpQueue.findIndex((entry) => entry.preview.id === queueItemId || entry.id === queueItemId);
-    if (followUpIndex === -1) {
-      return this.getStatus();
-    }
-
-    const [entry] = this.followUpQueue.splice(followUpIndex, 1);
+    const entry = this.messageQueues.promoteFollowUp(queueItemId, this.agent);
     if (!entry) {
       return this.getStatus();
-    }
-
-    this.agent.clearFollowUpQueue();
-    for (const queuedEntry of this.followUpQueue) {
-      this.agent.followUp(queuedEntry.message);
     }
 
     if (!this.isRunning && !this.agent.state.isStreaming) {
@@ -534,33 +519,15 @@ class LivePiRuntime {
       return this.getStatus();
     }
 
-    this.steeringQueue.push(entry);
+    this.messageQueues.enqueueSteering(entry, this.agent);
     this.touch();
-    this.agent.steer(entry.message);
     this.publishStatus();
     return this.getStatus();
   }
 
   async removeQueuedMessage(queueItemId: string) {
-    const followUpIndex = this.followUpQueue.findIndex((entry) => entry.preview.id === queueItemId || entry.id === queueItemId);
-    if (followUpIndex !== -1) {
-      this.followUpQueue.splice(followUpIndex, 1);
-      this.agent.clearFollowUpQueue();
-      for (const entry of this.followUpQueue) {
-        this.agent.followUp(entry.message);
-      }
-      this.touch();
-      this.publishStatus();
-      return this.getStatus();
-    }
-
-    const steeringIndex = this.steeringQueue.findIndex((entry) => entry.preview.id === queueItemId || entry.id === queueItemId);
-    if (steeringIndex !== -1) {
-      this.steeringQueue.splice(steeringIndex, 1);
-      this.agent.clearSteeringQueue();
-      for (const entry of this.steeringQueue) {
-        this.agent.steer(entry.message);
-      }
+    const removedKind = this.messageQueues.remove(queueItemId, this.agent);
+    if (removedKind) {
       this.touch();
       this.publishStatus();
     }
@@ -576,9 +543,7 @@ class LivePiRuntime {
       return this.getStatus();
     }
 
-    this.agent.clearAllQueues();
-    this.followUpQueue = [];
-    this.steeringQueue = [];
+    this.messageQueues.clear(this.agent);
     this.pendingReplace = this.createQueueEntry(sanitized);
     this.abortRequested = true;
     this.touch();
@@ -1223,17 +1188,7 @@ class LivePiRuntime {
   }
 
   private consumeQueuedMessage(message: Extract<AgentMessage, { role: 'user' }>) {
-    const signature = getMessageSignature(message);
-    const steeringIndex = this.steeringQueue.findIndex((entry) => entry.signature === signature);
-    if (steeringIndex !== -1) {
-      this.steeringQueue.splice(steeringIndex, 1);
-      return;
-    }
-
-    const followUpIndex = this.followUpQueue.findIndex((entry) => entry.signature === signature);
-    if (followUpIndex !== -1) {
-      this.followUpQueue.splice(followUpIndex, 1);
-    }
+    this.messageQueues.consume(getMessageSignature(message), this.agent);
   }
 
   private async handleTurnEnd(event: RuntimeTurnEndEvent) {
