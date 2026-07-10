@@ -938,6 +938,16 @@ async function updateRuntimeConfigForPluginSkills(
   await writeEnabledSkillsForScope(nextEnabledSkills, { scope, updatedBy });
 }
 
+async function refreshPluginRuntimeForScope(scope?: CanvasPluginStorageScope | null): Promise<void> {
+  const userId = scope?.userId?.trim();
+  if (!userId) return;
+
+  const { invalidatePiSystemPromptSnapshotsForUser } = await import('@/app/lib/pi/system-prompt-snapshot');
+  const { requestPiRuntimePromptRefreshForUser } = await import('@/app/lib/pi/live-runtime');
+  await invalidatePiSystemPromptSnapshotsForUser(userId);
+  await requestPiRuntimePromptRefreshForUser(userId);
+}
+
 export async function installCanvasPluginFromPath(
   sourcePath: string,
   options: CanvasPluginInstallOptions = {},
@@ -1053,6 +1063,9 @@ export async function installCanvasPluginFromPath(
     ).catch((error) => {
       console.warn('[CanvasPluginRegistry] Failed to update plugin skill activation:', error);
     });
+    await refreshPluginRuntimeForScope(options.scope).catch((error) => {
+      console.warn('[CanvasPluginRegistry] Failed to refresh plugin runtime context:', error);
+    });
 
     return {
       success: true,
@@ -1116,6 +1129,9 @@ export async function setCanvasPluginEnabled(
     await updateRuntimeConfigForPluginSkills(getPluginInstallEnabledSkillNames(plugin), enabled, scope, updatedBy).catch((error) => {
       console.warn('[CanvasPluginRegistry] Failed to update runtime config for plugin skills:', error);
     });
+    await refreshPluginRuntimeForScope(scope).catch((error) => {
+      console.warn('[CanvasPluginRegistry] Failed to refresh plugin runtime context:', error);
+    });
 
     return { success: true, plugin };
   });
@@ -1151,6 +1167,9 @@ export async function deleteCanvasPlugin(
     await fs.rm(plugin.installDir, { recursive: true, force: true }).catch(() => undefined);
     await updateRuntimeConfigForPluginSkills(getPluginInstallEnabledSkillNames(plugin), false, scope, updatedBy).catch((error) => {
       console.warn('[CanvasPluginRegistry] Failed to disable removed plugin skills:', error);
+    });
+    await refreshPluginRuntimeForScope(scope).catch((error) => {
+      console.warn('[CanvasPluginRegistry] Failed to refresh plugin runtime context:', error);
     });
 
     return { success: true };

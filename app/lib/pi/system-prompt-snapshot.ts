@@ -82,6 +82,21 @@ export async function ensurePiSessionSystemPromptSnapshot(
   return snapshot;
 }
 
+/**
+ * Plugin and skill mutations change the generated prompt. Clear persisted
+ * snapshots so inactive sessions regenerate their prompt on their next turn.
+ */
+export async function invalidatePiSystemPromptSnapshotsForUser(userId: string): Promise<void> {
+  await db
+    .update(piSessions)
+    .set({
+      systemPromptSnapshot: null,
+      systemPromptSnapshotHash: null,
+      systemPromptSnapshotCreatedAt: null,
+    })
+    .where(eq(piSessions.userId, userId));
+}
+
 export async function loadPiSessionSystemPromptSnapshot(input: {
   sessionId: string;
   userId: string;

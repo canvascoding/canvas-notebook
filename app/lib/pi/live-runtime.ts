@@ -7,7 +7,11 @@ import type { Api, AssistantMessage, Model } from '@earendil-works/pi-ai';
 import { db } from '@/app/lib/db';
 import { piSessions } from '@/app/lib/db/schema';
 import { resolveAgentRuntimeConfig } from '@/app/lib/agents/effective-runtime-config';
-import { createPiSystemPromptSnapshot, ensurePiSessionSystemPromptSnapshot } from '@/app/lib/pi/system-prompt-snapshot';
+import {
+  createPiSystemPromptSnapshot,
+  ensurePiSessionSystemPromptSnapshot,
+  piSystemPromptSnapshotDbFields,
+} from '@/app/lib/pi/system-prompt-snapshot';
 import { resolvePiApiKey } from '@/app/lib/pi/api-key-resolver';
 import {
   composePiHistoryForLlm,
@@ -348,7 +352,7 @@ class LivePiRuntime {
   readonly agentId: string;
   readonly provider: string;
   readonly model: Model<Api>;
-  readonly systemPrompt: string;
+  private systemPrompt: string;
   private tools: AgentTool[];
   readonly agent: Agent;
 
@@ -665,9 +669,30 @@ class LivePiRuntime {
   }
 
   async reloadTools() {
+    if (this.systemPromptRefreshRequested && !this.isRunning && !this.agent.state.isStreaming) {
+      await this.refreshSystemPrompt();
+    }
     this.tools = await getPiTools(this.userId, this.agentId, this.sessionId);
     this.lastComposition = null;
     this.agent.state.tools = this.planningMode ? filterToolsForPlanningMode(this.tools) : this.tools;
+  }
+
+  private systemPromptRefreshRequested = false;
+
+  requestSystemPromptRefresh(): void {
+    this.systemPromptRefreshRequested = true;
+  }
+
+  private async refreshSystemPrompt(): Promise<void> {
+    const snapshot = await createPiSystemPromptSnapshot(this.agentId, { userId: this.userId });
+    this.systemPrompt = snapshot.systemPrompt;
+    this.systemPromptRefreshRequested = false;
+    this.lastComposition = null;
+    this.agent.state.systemPrompt = this.getEffectiveSystemPrompt();
+    await db
+      .update(piSessions)
+      .set(piSystemPromptSnapshotDbFields(snapshot))
+      .where(and(eq(piSessions.sessionId, this.sessionId), eq(piSessions.userId, this.userId)));
   }
 
   private getEffectiveSystemPrompt(): string {
@@ -1587,6 +1612,23 @@ export async function getExistingPiRuntime(sessionId: string, userId: string) {
   const resolved = await runtime;
   resolved.touch();
   return resolved;
+}
+
+/** Marks live sessions for a prompt reload at their next safe turn boundary. */
+export async function requestPiRuntimePromptRefreshForUser(userId: string): Promise<number> {
+  const store = getStore();
+  let count = 0;
+  for (const runtimePromise of store.runtimes.values()) {
+    try {
+      const runtime = await runtimePromise;
+      if (runtime.userId !== userId) continue;
+      runtime.requestSystemPromptRefresh();
+      count += 1;
+    } catch {
+      // A failed runtime is cleaned up by the regular store lifecycle.
+    }
+  }
+  return count;
 }
 
 export async function getExistingPiRuntimeStatuses(
