@@ -20,6 +20,8 @@ export type ServerSettings = {
   onboardingUpdatedBy?: string;
   providerVerifiedAt?: string;
   providerVerifiedBy?: string;
+  providerVerifiedCatalogRevision?: number;
+  providerVerifiedInstallationId?: string;
 };
 
 type ServerSettingsFile = {
@@ -65,6 +67,8 @@ function normalizeServerSettings(value: unknown): ServerSettings {
     onboardingUpdatedBy?: unknown;
     providerVerifiedAt?: unknown;
     providerVerifiedBy?: unknown;
+    providerVerifiedCatalogRevision?: unknown;
+    providerVerifiedInstallationId?: unknown;
   };
   const timeZone = normalizeTimeZoneValue(record.timeZone);
   const onboardingStep = normalizeInstanceOnboardingStep(record.onboardingStep);
@@ -77,6 +81,14 @@ function normalizeServerSettings(value: unknown): ServerSettings {
     ...(typeof record.onboardingUpdatedBy === 'string' ? { onboardingUpdatedBy: record.onboardingUpdatedBy } : {}),
     ...(typeof record.providerVerifiedAt === 'string' ? { providerVerifiedAt: record.providerVerifiedAt } : {}),
     ...(typeof record.providerVerifiedBy === 'string' ? { providerVerifiedBy: record.providerVerifiedBy } : {}),
+    ...(typeof record.providerVerifiedCatalogRevision === 'number'
+      && Number.isSafeInteger(record.providerVerifiedCatalogRevision)
+      && record.providerVerifiedCatalogRevision >= 0
+      ? { providerVerifiedCatalogRevision: record.providerVerifiedCatalogRevision }
+      : {}),
+    ...(typeof record.providerVerifiedInstallationId === 'string' && /^aip_[a-f0-9]{24}$/u.test(record.providerVerifiedInstallationId)
+      ? { providerVerifiedInstallationId: record.providerVerifiedInstallationId }
+      : {}),
   };
 }
 
@@ -174,13 +186,27 @@ export async function setInstanceOnboardingStep(
   return nextSettings;
 }
 
-export async function markInstanceProviderVerified(userId: string): Promise<ServerSettings> {
+export async function markInstanceProviderVerified(
+  userId: string,
+  verification?: { catalogRevision: number; providerInstallationId: string },
+): Promise<ServerSettings> {
+  if (verification && (
+    !Number.isSafeInteger(verification.catalogRevision)
+    || verification.catalogRevision < 0
+    || !/^aip_[a-f0-9]{24}$/u.test(verification.providerInstallationId)
+  )) {
+    throw new Error('Unsupported provider verification metadata.');
+  }
   const file = await readServerSettingsFile();
   const now = new Date().toISOString();
   const nextSettings: ServerSettings = {
     ...file.settings,
     providerVerifiedAt: now,
     providerVerifiedBy: userId,
+    ...(verification ? {
+      providerVerifiedCatalogRevision: verification.catalogRevision,
+      providerVerifiedInstallationId: verification.providerInstallationId,
+    } : {}),
   };
   await writeServerSettingsFileAtomic({ version: 1, settings: nextSettings });
   return nextSettings;

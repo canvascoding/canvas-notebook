@@ -1302,16 +1302,33 @@ export function AgentSettingsPanel() {
         </Card>
       )}
 
-      {(isMainAgent || modelOverrideEnabled) && (
+      {isMainAgent && (
+        <Card id="onboarding-settings-agentSettings">
+          <CardHeader>
+            <CardTitle>{t('agentPanel.runtimeMoved.title')}</CardTitle>
+            <CardDescription>{t('agentPanel.runtimeMoved.description')}</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <a
+              href="?tab=my-agent-runtime"
+              className="inline-flex h-9 items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground shadow-sm transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              {t('agentPanel.runtimeMoved.action')}
+            </a>
+          </CardContent>
+        </Card>
+      )}
+
+      {!isMainAgent && modelOverrideEnabled && (
         <div id="onboarding-settings-agentSettings">
           <PiProviderSetupCard
             agentId={selectedAgentId}
-            mode={isMainAgent ? 'main' : 'override'}
+            mode="override"
             isOpen={agentSectionOpenById.runtime}
             onOpenChange={(isOpen) => setAgentSectionOpen('runtime', isOpen)}
-            title={isMainAgent ? undefined : t('agentPanel.inheritance.modelCardTitle')}
-            description={isMainAgent ? undefined : t('agentPanel.inheritance.modelCardDescription')}
-            saveSuccessMessage={isMainAgent ? undefined : t('agentPanel.inheritance.overrideSaved')}
+            title={t('agentPanel.inheritance.modelCardTitle')}
+            description={t('agentPanel.inheritance.modelCardDescription')}
+            saveSuccessMessage={t('agentPanel.inheritance.overrideSaved')}
             onSaved={async () => {
               await loadAgents();
               await loadToolsConfig();

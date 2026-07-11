@@ -207,6 +207,8 @@ async function main() {
     assert.match(await readOnboardingBootstrapPrompt() || '', /Bootstrap setup/);
 
     await initializeUserOnboarding(userId);
+    await updateUserOnboardingState(userId, { step: 'runtime' });
+    await updateUserOnboardingState(userId, { step: 'profile', runtime: 'completed' });
     const profileSession = await ensureOnboardingProfileSession({ userId, locale: 'de' });
     assert.equal(profileSession.sessionId, buildOnboardingProfileSessionId(userId));
 
@@ -245,7 +247,7 @@ async function main() {
     assert.match(await fs.readFile(path.join(scopedCanvasAgentPath, 'SOUL.md'), 'utf8'), /Canvas Agent/);
     assert.equal(await isOnboardingComplete(), false);
 
-    await updateUserOnboardingState(userId, { step: 'profile', profile: 'pending', tour: 'pending' });
+    await updateUserOnboardingState(userId, { step: 'profile', runtime: 'completed', profile: 'pending', tour: 'pending' });
     await fs.writeFile(bootstrapPath, 'Bootstrap setup instructions.\n', 'utf8');
     await fs.writeFile(path.join(scopedCanvasAgentPath, 'USER.md'), '', 'utf8');
     await fs.writeFile(path.join(scopedCanvasAgentPath, 'SOUL.md'), 'Default soul.\n', 'utf8');
@@ -279,6 +281,8 @@ async function main() {
     });
     await fs.writeFile(bootstrapPath, 'Instance bootstrap remains managed by the owner.\n', 'utf8');
     await initializeUserOnboarding(secondaryUserId);
+    await updateUserOnboardingState(secondaryUserId, { step: 'runtime' });
+    await updateUserOnboardingState(secondaryUserId, { step: 'profile', runtime: 'skipped' });
     const secondarySession = await ensureOnboardingProfileSession({ userId: secondaryUserId, locale: 'en' });
     assert.equal(secondarySession.sessionId, buildOnboardingProfileSessionId(secondaryUserId));
     const secondaryCompleted = await completeOnboardingProfile({

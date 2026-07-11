@@ -66,6 +66,26 @@ export type ReplaceCatalogStoreInput = {
   legacySourceHash?: string | null;
 };
 
+export type UpdateProviderVerificationStoreInput = {
+  organizationId: string;
+  providerInstallationId: string;
+  actorUserId: string;
+  expectedCatalogRevision: number;
+  expectedProviderRevision: number;
+  status: Extract<AiProviderInstallation['status'], 'ready' | 'degraded' | 'unverified'>;
+  verifiedAt: number | null;
+  verifiedByUserId: string | null;
+  updatedAt: number;
+};
+
+export type ProviderVerificationStoreResult = {
+  catalogRevision: number;
+  providerRevision: number;
+  status: UpdateProviderVerificationStoreInput['status'];
+  verifiedAt: number | null;
+  verifiedByUserId: string | null;
+};
+
 export class CatalogRevisionConflictError extends Error {
   readonly code = 'CATALOG_REVISION_CONFLICT';
   readonly status = 409;
@@ -76,6 +96,16 @@ export class CatalogRevisionConflictError extends Error {
   }
 }
 
+export class ProviderVerificationStoreConflictError extends Error {
+  readonly code = 'PROVIDER_VERIFICATION_CONFLICT';
+  readonly status = 409;
+
+  constructor() {
+    super('The provider installation changed while verification was running. Retry with the current catalog.');
+    this.name = 'ProviderVerificationStoreConflictError';
+  }
+}
+
 function booleanValue(value: unknown): boolean {
   return value === true || value === 1 || value === '1';
 }
@@ -83,6 +113,12 @@ function booleanValue(value: unknown): boolean {
 function numberValue(value: unknown, fallback = 0): number {
   const parsed = typeof value === 'number' ? value : Number.parseInt(String(value ?? ''), 10);
   return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function affectedRows(value: unknown): number {
+  if (!value || typeof value !== 'object') return 0;
+  const result = value as { changes?: unknown; rowCount?: unknown };
+  return numberValue(result.changes ?? result.rowCount, 0);
 }
 
 function isoTimestamp(value: unknown): string | null {
@@ -341,6 +377,102 @@ export async function replaceAppRuntimeCatalogStore(input: ReplaceCatalogStoreIn
         await connection.run('ROLLBACK');
       } catch {
         // Preserve the original catalog update error.
+      }
+    }
+    throw error;
+  } finally {
+    await connection.close?.();
+  }
+}
+
+export async function updateProviderVerificationStore(
+  input: UpdateProviderVerificationStoreInput,
+): Promise<ProviderVerificationStoreResult> {
+  const connection = await openDb();
+  let transactionStarted = false;
+  try {
+    await connection.run('BEGIN');
+    transactionStarted = true;
+
+    const defaults = await connection.get(
+      `SELECT catalog_revision
+       FROM ai_runtime_defaults
+       WHERE organization_id = ?
+       LIMIT 1`,
+      [input.organizationId],
+    ) as { catalog_revision?: number | string | null } | undefined;
+    const currentCatalogRevision = numberValue(defaults?.catalog_revision, 0);
+    if (currentCatalogRevision !== input.expectedCatalogRevision) {
+      throw new CatalogRevisionConflictError(currentCatalogRevision);
+    }
+
+    const provider = await connection.get(
+      `SELECT revision, enabled
+       FROM ai_provider_installations
+       WHERE organization_id = ? AND id = ?
+       LIMIT 1`,
+      [input.organizationId, input.providerInstallationId],
+    ) as { revision?: number | string | null; enabled?: number | string | boolean } | undefined;
+    if (
+      !provider
+      || !booleanValue(provider.enabled)
+      || numberValue(provider.revision, 0) !== input.expectedProviderRevision
+    ) {
+      throw new ProviderVerificationStoreConflictError();
+    }
+
+    const nextCatalogRevision = currentCatalogRevision + 1;
+    const nextProviderRevision = input.expectedProviderRevision + 1;
+    const defaultsResult = await connection.run(
+      `UPDATE ai_runtime_defaults
+       SET catalog_revision = ?, updated_by_user_id = ?, updated_at = ?
+       WHERE organization_id = ? AND catalog_revision = ?`,
+      [
+        nextCatalogRevision,
+        input.actorUserId,
+        input.updatedAt,
+        input.organizationId,
+        currentCatalogRevision,
+      ],
+    );
+    if (affectedRows(defaultsResult) !== 1) {
+      throw new CatalogRevisionConflictError(currentCatalogRevision + 1);
+    }
+
+    const providerResult = await connection.run(
+      `UPDATE ai_provider_installations
+       SET status = ?, verified_at = ?, verified_by_user_id = ?, revision = ?, updated_at = ?
+       WHERE organization_id = ? AND id = ? AND revision = ? AND enabled = 1`,
+      [
+        input.status,
+        input.verifiedAt,
+        input.verifiedByUserId,
+        nextProviderRevision,
+        input.updatedAt,
+        input.organizationId,
+        input.providerInstallationId,
+        input.expectedProviderRevision,
+      ],
+    );
+    if (affectedRows(providerResult) !== 1) {
+      throw new ProviderVerificationStoreConflictError();
+    }
+
+    await connection.run('COMMIT');
+    transactionStarted = false;
+    return {
+      catalogRevision: nextCatalogRevision,
+      providerRevision: nextProviderRevision,
+      status: input.status,
+      verifiedAt: input.verifiedAt,
+      verifiedByUserId: input.verifiedByUserId,
+    };
+  } catch (error) {
+    if (transactionStarted) {
+      try {
+        await connection.run('ROLLBACK');
+      } catch {
+        // Preserve the original verification mutation error.
       }
     }
     throw error;

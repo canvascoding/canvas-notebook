@@ -126,7 +126,10 @@ function normalizeProfileContent(value: string, label: string): string {
 }
 
 async function isProfilePending(userId: string): Promise<boolean> {
-  return (await getUserOnboardingState(userId)).profile === 'pending';
+  const onboarding = await getUserOnboardingState(userId);
+  return onboarding.step === 'profile'
+    && onboarding.runtime !== 'pending'
+    && onboarding.profile === 'pending';
 }
 
 async function onboardingSessionHasMessages(sessionDbId: number): Promise<boolean> {

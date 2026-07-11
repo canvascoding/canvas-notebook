@@ -11,26 +11,30 @@ const SUPPORTED_LOCALES = routing.locales as readonly string[];
 
 export type UserLocale = typeof routing.locales[number];
 
-export type UserOnboardingStep = 'language' | 'workspace' | 'profile' | 'tour' | 'complete';
+export type UserOnboardingStep = 'language' | 'workspace' | 'runtime' | 'profile' | 'tour' | 'complete';
+export type UserOnboardingRuntimeStatus = 'pending' | 'completed' | 'skipped';
 export type UserOnboardingProfileStatus = 'pending' | 'completed' | 'skipped';
 export type UserOnboardingTourStatus = 'pending' | 'started' | 'skipped' | 'completed';
 
 export type UserOnboardingState = {
-  version: 2;
+  version: 3;
   step: UserOnboardingStep;
+  runtime: UserOnboardingRuntimeStatus;
   profile: UserOnboardingProfileStatus;
   tour: UserOnboardingTourStatus;
   updatedAt: string;
 };
 
-const USER_ONBOARDING_STEPS = new Set<UserOnboardingStep>(['language', 'workspace', 'profile', 'tour', 'complete']);
+const USER_ONBOARDING_STEPS = new Set<UserOnboardingStep>(['language', 'workspace', 'runtime', 'profile', 'tour', 'complete']);
+const USER_ONBOARDING_RUNTIME_STATUSES = new Set<UserOnboardingRuntimeStatus>(['pending', 'completed', 'skipped']);
 const USER_ONBOARDING_PROFILE_STATUSES = new Set<UserOnboardingProfileStatus>(['pending', 'completed', 'skipped']);
 const USER_ONBOARDING_TOUR_STATUSES = new Set<UserOnboardingTourStatus>(['pending', 'started', 'skipped', 'completed']);
 
 export function createDefaultUserOnboardingState(): UserOnboardingState {
   return {
-    version: 2,
+    version: 3,
     step: 'language',
+    runtime: 'pending',
     profile: 'pending',
     tour: 'pending',
     updatedAt: new Date().toISOString(),
@@ -39,8 +43,9 @@ export function createDefaultUserOnboardingState(): UserOnboardingState {
 
 export function createCompletedUserOnboardingState(): UserOnboardingState {
   return {
-    version: 2,
+    version: 3,
     step: 'complete',
+    runtime: 'skipped',
     profile: 'skipped',
     tour: 'completed',
     updatedAt: new Date().toISOString(),
@@ -52,6 +57,7 @@ function normalizeUserOnboardingState(value: unknown): UserOnboardingState | und
   const record = value as {
     version?: unknown;
     step?: unknown;
+    runtime?: unknown;
     profile?: unknown;
     tour?: unknown;
     updatedAt?: unknown;
@@ -59,15 +65,29 @@ function normalizeUserOnboardingState(value: unknown): UserOnboardingState | und
   const step = typeof record.step === 'string' && USER_ONBOARDING_STEPS.has(record.step as UserOnboardingStep)
     ? record.step as UserOnboardingStep
     : 'language';
+  const isLegacyState = record.version !== 3;
+  const runtime = typeof record.runtime === 'string'
+    && USER_ONBOARDING_RUNTIME_STATUSES.has(record.runtime as UserOnboardingRuntimeStatus)
+    ? record.runtime as UserOnboardingRuntimeStatus
+    : isLegacyState && (step === 'profile' || step === 'tour' || step === 'complete')
+      ? (step === 'profile' && record.profile !== 'completed' && record.profile !== 'skipped' ? 'pending' : 'skipped')
+      : 'pending';
   const profile = typeof record.profile === 'string' && USER_ONBOARDING_PROFILE_STATUSES.has(record.profile as UserOnboardingProfileStatus)
     ? record.profile as UserOnboardingProfileStatus
     : 'pending';
   const tour = typeof record.tour === 'string' && USER_ONBOARDING_TOUR_STATUSES.has(record.tour as UserOnboardingTourStatus)
     ? record.tour as UserOnboardingTourStatus
     : 'pending';
+  const migratedStep = isLegacyState && step === 'profile' && profile === 'pending' && runtime === 'pending'
+    ? 'runtime'
+    : step;
+  const normalizedStep = migratedStep === 'complete' && (runtime === 'pending' || profile === 'pending' || tour === 'pending')
+    ? 'language'
+    : migratedStep;
   return {
-    version: 2,
-    step: step === 'complete' && (profile === 'pending' || tour === 'pending') ? 'language' : step,
+    version: 3,
+    step: normalizedStep,
+    runtime,
     profile,
     tour,
     updatedAt: typeof record.updatedAt === 'string' ? record.updatedAt : new Date().toISOString(),
@@ -301,7 +321,7 @@ export async function setUserPreferredLocale(userId: string, locale: unknown): P
 
 export async function updateUserOnboardingState(
   userId: string,
-  updates: Partial<Pick<UserOnboardingState, 'step' | 'profile' | 'tour'>>,
+  updates: Partial<Pick<UserOnboardingState, 'step' | 'runtime' | 'profile' | 'tour'>>,
 ): Promise<UserOnboardingState> {
   const current = await getUserOnboardingState(userId, { missing: 'pending' });
   const candidate = normalizeUserOnboardingState({

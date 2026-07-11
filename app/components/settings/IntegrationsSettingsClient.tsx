@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, startTransition, type ReactNode } from 'react';
 import dynamic from 'next/dynamic';
 import { useSearchParams } from 'next/navigation';
-import { useTranslations } from 'next-intl';
+import { useLocale, useTranslations } from 'next-intl';
 import { ChevronDown, Copy, ExternalLink, Eye, EyeOff, Loader2, Mail, Plus, RefreshCw, Save, Search, Settings, Star, Trash2 } from 'lucide-react';
 
 import { GeneralSettingsPanel } from '@/app/components/settings/GeneralSettingsPanel';
@@ -268,6 +268,13 @@ type UsageAnalyticsClientProps = {
 type LicenseActivationPanelProps = {
   defaultEmail: string;
 };
+type AiProvidersModelsPanelProps = {
+  locale?: string;
+  deploymentMode?: 'managed' | 'self-hosted';
+};
+type AiProviderCredentialsPanelProps = {
+  locale?: string;
+};
 type UserManagementPanelProps = {
   currentUserId: string;
   isAdmin: boolean;
@@ -301,6 +308,21 @@ function SettingsTabLoader() {
 
 const AgentSettingsPanel = dynamic(
   () => import('@/app/components/settings/AgentSettingsPanel').then((module) => module.AgentSettingsPanel),
+  { loading: SettingsTabLoader },
+);
+
+const MyAgentRuntimePanel = dynamic(
+  () => import('@/app/components/settings/MyAgentRuntimePanel').then((module) => module.MyAgentRuntimePanel),
+  { loading: SettingsTabLoader },
+);
+
+const AiProvidersModelsPanel = dynamic<AiProvidersModelsPanelProps>(
+  () => import('@/app/components/settings/AiProvidersModelsPanel').then((module) => module.AiProvidersModelsPanel),
+  { loading: SettingsTabLoader },
+);
+
+const AiProviderCredentialsPanel = dynamic<AiProviderCredentialsPanelProps>(
+  () => import('@/app/components/settings/AiProviderCredentialsPanel').then((module) => module.AiProviderCredentialsPanel),
   { loading: SettingsTabLoader },
 );
 
@@ -2232,6 +2254,7 @@ export function IntegrationsSettingsClient({
   organizationPermission?: WorkspaceOrganizationPermission;
 }) {
   const t = useTranslations('settings');
+  const locale = useLocale();
   const searchParams = useSearchParams();
 
   const requestedTab = searchParams.get('tab');
@@ -2248,6 +2271,7 @@ export function IntegrationsSettingsClient({
   const visibleSettingsTabItems = useMemo(
     () => SETTINGS_TAB_ITEMS.filter((tab) => {
       if (tab.value === 'user-management') return isAdmin;
+      if (tab.value === 'ai-providers') return isAdmin;
       if (tab.value === 'knowledge') return isAdmin || organizationPermission?.canEnableKnowledge === true;
       return true;
     }),
@@ -3043,6 +3067,8 @@ export function IntegrationsSettingsClient({
 
           {renderLazyTabContent('agent-settings', <AgentSettingsPanel />)}
 
+          {renderLazyTabContent('my-agent-runtime', <MyAgentRuntimePanel locale={locale} />)}
+
           {renderLazyTabContent('browser', <BrowserSettingsPanel isAdmin={isAdmin} />)}
 
           {renderLazyTabContent('workspace', (
@@ -3059,6 +3085,16 @@ export function IntegrationsSettingsClient({
           {renderLazyTabContent('user-management',
             <UserManagementPanel currentUserId={currentUserId} isAdmin={isAdmin} />,
           )}
+
+          {renderLazyTabContent('ai-providers', (
+            <>
+              <AiProvidersModelsPanel
+                locale={locale}
+                deploymentMode={isManagedControlPlane ? 'managed' : 'self-hosted'}
+              />
+              <AiProviderCredentialsPanel locale={locale} />
+            </>
+          ))}
 
           {renderLazyTabContent('channels', <ChannelsPanel isAdmin={isAdmin} />)}
 

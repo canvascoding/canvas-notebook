@@ -24,6 +24,7 @@ export async function GET(request: NextRequest) {
     enabled: true,
     complete: instanceComplete,
     instanceComplete,
+    runtimeComplete: userOnboarding.runtime !== 'pending',
     profileComplete: userOnboarding.profile !== 'pending',
     userOnboarding,
   });

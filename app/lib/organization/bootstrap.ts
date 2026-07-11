@@ -331,7 +331,13 @@ function ensurePermissionRow(
     WHERE organization_id = ? AND user_id = ?
     LIMIT 1
   `).get(organizationId, userId) as { role?: string } | undefined;
-  const role = existing?.role === 'owner' ? 'owner' : requestedRole;
+  const existingRole = existing?.role === 'owner'
+    || existing?.role === 'admin'
+    || existing?.role === 'member'
+    || existing?.role === 'external'
+    ? existing.role
+    : null;
+  const role = existingRole ?? requestedRole;
   const defaults = permissionDefaults(role);
   const now = Date.now();
 
@@ -452,8 +458,12 @@ export function ensureOrganizationBootstrapForUser(
 
   const ownerPermission = ensurePermissionRow(sqlite, organization.organization_id, ownerUser.id, 'owner');
   if (targetUser.id !== ownerUser.id) {
-    sqlite.prepare('UPDATE user SET role = ?, updated_at = ? WHERE id = ?').run('admin', now, targetUser.id);
-    ensurePermissionRow(sqlite, organization.organization_id, targetUser.id, 'admin');
+    ensurePermissionRow(
+      sqlite,
+      organization.organization_id,
+      targetUser.id,
+      targetUser.role === 'admin' ? 'admin' : 'member',
+    );
   }
 
   ensureScopedDirectories(organization.organization_id, ownerUser.id, teamFeaturesEnabled);

@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { isAdminUser } from '@/app/lib/admin-auth';
+import { readAppRuntimeCatalog } from '@/app/lib/agent-runtime-policy/catalog-store';
 import { auth } from '@/app/lib/auth';
 import { getLicenseStatus } from '@/app/lib/license';
 import { deleteOnboardingBootstrapFile } from '@/app/lib/onboarding/profile';
 import { getUserOnboardingState, initializeUserOnboarding } from '@/app/lib/user-preferences';
 import { isOnboardingEnabled, isOnboardingComplete, markOnboardingComplete } from '@/app/lib/onboarding/status';
+import { readOrganizationPermissionForUser } from '@/app/lib/organization/permissions';
 import { getServerSettings, setInstanceOnboardingStep } from '@/app/lib/server-settings';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 
@@ -43,9 +45,42 @@ export async function POST(request: NextRequest) {
   }
 
   const settings = await getServerSettings();
-  if (!settings.providerVerifiedAt) {
+  const organizationState = await readOrganizationPermissionForUser(session.user.id);
+  if (!organizationState.configured || !organizationState.organizationId) {
     return NextResponse.json(
-      { success: false, error: 'Verify the configured agent provider before completing instance setup.', code: 'PROVIDER_VERIFICATION_REQUIRED' },
+      { success: false, error: 'Complete the workspace organization setup before finishing onboarding.', code: 'ORGANIZATION_SETUP_REQUIRED' },
+      { status: 409 },
+    );
+  }
+
+  const catalog = await readAppRuntimeCatalog(organizationState.organizationId);
+  const defaultSelection = catalog.defaultSelection;
+  const defaultProvider = defaultSelection
+    ? catalog.providers.find((provider) => provider.installationId === defaultSelection.providerInstallationId)
+    : null;
+  const defaultModel = defaultSelection
+    ? defaultProvider?.models.find((model) => model.id === defaultSelection.modelId)
+    : null;
+  const currentDefaultReady = Boolean(
+    defaultSelection
+    && defaultProvider?.enabled
+    && defaultProvider.status === 'ready'
+    && defaultProvider.providerId === defaultSelection.providerId
+    && defaultModel?.enabled,
+  );
+
+  if (
+    !settings.providerVerifiedAt
+    || settings.providerVerifiedCatalogRevision !== catalog.revision
+    || settings.providerVerifiedInstallationId !== defaultSelection?.providerInstallationId
+    || !currentDefaultReady
+  ) {
+    return NextResponse.json(
+      {
+        success: false,
+        error: 'Verify the current app-default AI provider and model before completing instance setup.',
+        code: 'PROVIDER_VERIFICATION_REQUIRED',
+      },
       { status: 409 },
     );
   }

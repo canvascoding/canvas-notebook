@@ -13,6 +13,9 @@ async function main() {
   const pending = createDefaultUserOnboardingState();
   const complete = createCompletedUserOnboardingState();
 
+  assert.equal(pending.runtime, 'pending');
+  assert.equal(complete.runtime, 'skipped');
+
   assert.equal(resolveOnboardingPhase({ instanceComplete: false, isInstanceAdmin: true, userOnboarding: pending }), 'instance');
   assert.equal(resolveOnboardingPhase({ instanceComplete: false, isInstanceAdmin: false, userOnboarding: pending }), 'waiting');
   assert.equal(resolveOnboardingPhase({ instanceComplete: true, isInstanceAdmin: true, userOnboarding: pending }), 'user');

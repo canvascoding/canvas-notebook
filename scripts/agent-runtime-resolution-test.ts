@@ -360,6 +360,8 @@ async function main() {
   const catalogRoute = await import('../app/api/admin/agent-runtime/catalog/route');
   const workspacePolicyRoute = await import('../app/api/admin/agent-runtime/workspace-policy/route');
   const legacyConfigRoute = await import('../app/api/agents/config/route');
+  const onboardingUserRoute = await import('../app/api/onboarding/user/route');
+  const envRoute = await import('../app/api/integrations/env/route');
 
   const unauthorizedPreferenceResponse = await preferencesRoute.GET(new NextRequest(
     `http://localhost:3000/api/agent-runtime/preferences?workspaceId=${organizationWorkspaceId}&agentId=canvas-agent`,
@@ -411,6 +413,18 @@ async function main() {
     },
   ));
   assert.equal(memberLegacyMutationResponse.status, 403);
+  const memberRoleAfterWorkspaceAccess = sqlite.prepare(`
+    SELECT u.role AS globalRole, p.role AS organizationRole
+    FROM user u
+    JOIN organization_user_permissions p ON p.user_id = u.id
+    WHERE p.organization_id = ? AND u.id = ?
+  `).get(organization.organizationId, memberId) as { globalRole: string; organizationRole: string };
+  assert.deepEqual(memberRoleAfterWorkspaceAccess, { globalRole: 'user', organizationRole: 'member' });
+  const memberOrganizationSecretsResponse = await envRoute.GET(new NextRequest(
+    'http://localhost:3000/api/integrations/env?scope=agents&secretScope=organization',
+  ));
+  const memberOrganizationSecretsPayload = await memberOrganizationSecretsResponse.json();
+  assert.equal(memberOrganizationSecretsResponse.status, 403, JSON.stringify(memberOrganizationSecretsPayload));
 
   const memberPreferenceUpdateResponse = await preferencesRoute.PATCH(new NextRequest(
     'http://localhost:3000/api/agent-runtime/preferences',
@@ -453,6 +467,76 @@ async function main() {
     `http://localhost:3000/api/admin/agent-runtime/workspace-policy?workspaceId=${organizationWorkspaceId}`,
   ));
   assert.equal(ownerPolicyResponse.status, 200);
+
+  const ownerOrganizationSecretWrite = await envRoute.PUT(new NextRequest(
+    'http://localhost:3000/api/integrations/env?scope=agents&secretScope=organization',
+    {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        scope: 'agents',
+        secretScope: 'organization',
+        mode: 'kv',
+        entries: [
+          { key: 'OPENAI_COMPATIBLE_API_KEY', value: 'organization-secret-value' },
+          { key: 'UNRELATED_SECRET', value: 'must-not-be-returned' },
+        ],
+      }),
+    },
+  ));
+  assert.equal(ownerOrganizationSecretWrite.status, 200);
+  const scopedKeyRead = await envRoute.GET(new NextRequest(
+    'http://localhost:3000/api/integrations/env?scope=agents&secretScope=organization&key=OPENAI_COMPATIBLE_API_KEY',
+  ));
+  assert.equal(scopedKeyRead.status, 200);
+  const scopedKeyPayload = await scopedKeyRead.json();
+  assert.equal(scopedKeyPayload.data.rawContent, '');
+  assert.deepEqual(scopedKeyPayload.data.entries.map((entry: { key: string }) => entry.key), ['OPENAI_COMPATIBLE_API_KEY']);
+  assert.equal(JSON.stringify(scopedKeyPayload).includes('must-not-be-returned'), false);
+
+  const { initializeUserOnboarding } = await import('../app/lib/user-preferences');
+  await initializeUserOnboarding(owner.id);
+  const onboardingWorkspaceResponse = await onboardingUserRoute.PATCH(new NextRequest(
+    'http://localhost:3000/api/onboarding/user',
+    {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ step: 'workspace' }),
+    },
+  ));
+  assert.equal(onboardingWorkspaceResponse.status, 200);
+  const skippedRuntimeStep = await onboardingUserRoute.PATCH(new NextRequest(
+    'http://localhost:3000/api/onboarding/user',
+    {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ step: 'profile', runtime: 'completed' }),
+    },
+  ));
+  assert.equal(skippedRuntimeStep.status, 400);
+  const onboardingRuntimeResponse = await onboardingUserRoute.PATCH(new NextRequest(
+    'http://localhost:3000/api/onboarding/user',
+    {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ step: 'runtime' }),
+    },
+  ));
+  assert.equal(onboardingRuntimeResponse.status, 200);
+  const completedRuntimeResponse = await onboardingUserRoute.PATCH(new NextRequest(
+    'http://localhost:3000/api/onboarding/user',
+    {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        step: 'profile',
+        runtime: 'completed',
+        workspaceId: personalWorkspaceId,
+        agentId: 'canvas-agent',
+      }),
+    },
+  ));
+  assert.equal(completedRuntimeResponse.status, 200);
 
   organizationPolicy = await replaceWorkspaceRuntimePolicy({
     organizationId: organization.organizationId,

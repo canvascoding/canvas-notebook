@@ -22,6 +22,7 @@ interface EnvVarState {
 interface ProviderEnvEditorProps {
   providerId: string;
   envVars: ProviderHelpInfo['envVars'];
+  credentialScope?: 'user' | 'organization' | 'system';
   onSaveComplete?: () => void;
   onProviderActivate?: () => Promise<void>;
 }
@@ -42,7 +43,13 @@ function getEnvHelperText(providerId: string, state: EnvVarState, t: ReturnType<
   return null;
 }
 
-export function ProviderEnvEditor({ providerId, envVars, onSaveComplete, onProviderActivate }: ProviderEnvEditorProps) {
+export function ProviderEnvEditor({
+  providerId,
+  envVars,
+  credentialScope = 'user',
+  onSaveComplete,
+  onProviderActivate,
+}: ProviderEnvEditorProps) {
   const t = useTranslations('settings');
   const [envStates, setEnvStates] = useState<EnvVarState[]>([]);
   const [loading, setLoading] = useState(true);
@@ -63,7 +70,7 @@ export function ProviderEnvEditor({ providerId, envVars, onSaveComplete, onProvi
         envVars.map(async (envVar) => {
           try {
             const response = await fetch(
-              `/api/integrations/env?scope=${envVar.scope}&key=${encodeURIComponent(envVar.name)}`,
+              `/api/integrations/env?scope=${envVar.scope}&secretScope=${credentialScope}&key=${encodeURIComponent(envVar.name)}`,
               { credentials: 'include' }
             );
             const data = await response.json();
@@ -104,7 +111,7 @@ export function ProviderEnvEditor({ providerId, envVars, onSaveComplete, onProvi
     } finally {
       setLoading(false);
     }
-  }, [envVars, t]);
+  }, [credentialScope, envVars, t]);
 
   useEffect(() => {
     startTransition(() => { loadEnvValues(); });
@@ -145,7 +152,7 @@ export function ProviderEnvEditor({ providerId, envVars, onSaveComplete, onProvi
     setSaving(true);
     try {
       // Load all current entries for this scope
-      const response = await fetch(`/api/integrations/env?scope=${state.scope}`, {
+      const response = await fetch(`/api/integrations/env?scope=${state.scope}&secretScope=${credentialScope}`, {
         credentials: 'include',
       });
       const data = await response.json();
@@ -166,6 +173,7 @@ export function ProviderEnvEditor({ providerId, envVars, onSaveComplete, onProvi
         credentials: 'include',
         body: JSON.stringify({
           scope: state.scope,
+          secretScope: credentialScope,
           mode: 'kv',
           entries: currentEntries.map((e: { key: string; value: string }) => ({
             key: e.key,
@@ -242,7 +250,7 @@ export function ProviderEnvEditor({ providerId, envVars, onSaveComplete, onProvi
       // Save each scope
       for (const [scope, states] of Object.entries(byScope)) {
         // Load current entries
-        const response = await fetch(`/api/integrations/env?scope=${scope}`, {
+        const response = await fetch(`/api/integrations/env?scope=${scope}&secretScope=${credentialScope}`, {
           credentials: 'include',
         });
         const data = await response.json();
@@ -274,6 +282,7 @@ export function ProviderEnvEditor({ providerId, envVars, onSaveComplete, onProvi
           credentials: 'include',
           body: JSON.stringify({
             scope,
+            secretScope: credentialScope,
             mode: 'kv',
             entries: Array.from(entriesMap.entries()).map(([key, value]) => ({
               key,

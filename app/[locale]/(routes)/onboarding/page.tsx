@@ -62,13 +62,7 @@ export default async function OnboardingPage({ searchParams }: OnboardingPagePro
 
   const initialTimeZone = await getServerPreferredTimeZone();
   const initialStep = instanceComplete
-    ? (userOnboarding.profile === 'pending'
-      ? (userOnboarding.step === 'profile'
-        ? 'profile'
-        : userOnboarding.step === 'workspace'
-          ? 'workspace'
-          : 'language')
-      : (userOnboarding.tour === 'pending' ? 'tour' : 'done'))
+    ? (userOnboarding.step === 'complete' ? 'done' : userOnboarding.step)
     : await getInstanceOnboardingStep();
 
   return (

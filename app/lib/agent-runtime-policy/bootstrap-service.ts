@@ -500,7 +500,7 @@ export async function ensureAgentRuntimeCatalogInitialized(input: {
       });
       return { catalog, action: 'managed_initialized', issueCode: null };
     }
-    return migrateLegacyRuntimeConfig({ ...input, state });
+    return await migrateLegacyRuntimeConfig({ ...input, state });
   } catch (error) {
     if (error instanceof CatalogRevisionConflictError) {
       return {

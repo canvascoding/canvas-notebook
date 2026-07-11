@@ -6,6 +6,7 @@ import {
   BarChart3,
   Bot,
   BrainCircuit,
+  Cpu,
   FolderCog,
   Globe,
   Menu,
@@ -15,6 +16,7 @@ import {
   Puzzle,
   Radio,
   Settings2,
+  SlidersHorizontal,
   UserRound,
   Users,
   type LucideProps,
@@ -40,12 +42,14 @@ import { cn } from '@/lib/utils';
 
 export type SettingsTab =
   | 'general'
+  | 'my-agent-runtime'
   | 'integrations'
   | 'agent-settings'
   | 'browser'
   | 'workspace'
   | 'knowledge'
   | 'user-management'
+  | 'ai-providers'
   | 'channels'
   | 'usage'
   | 'skills'
@@ -78,6 +82,13 @@ export const SETTINGS_TAB_ITEMS: ReadonlyArray<SettingsNavigationItem> = [
     descriptionKey: 'navigation.descriptions.general',
     group: 'account',
     icon: UserRound,
+  },
+  {
+    value: 'my-agent-runtime',
+    labelKey: 'tabs.myAgentRuntime',
+    descriptionKey: 'navigation.descriptions.myAgentRuntime',
+    group: 'account',
+    icon: SlidersHorizontal,
   },
   {
     value: 'workspace',
@@ -127,6 +138,13 @@ export const SETTINGS_TAB_ITEMS: ReadonlyArray<SettingsNavigationItem> = [
     descriptionKey: 'navigation.descriptions.channels',
     group: 'connections',
     icon: Radio,
+  },
+  {
+    value: 'ai-providers',
+    labelKey: 'tabs.aiProviders',
+    descriptionKey: 'navigation.descriptions.aiProviders',
+    group: 'system',
+    icon: Cpu,
   },
   {
     value: 'user-management',

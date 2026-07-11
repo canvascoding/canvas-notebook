@@ -116,10 +116,19 @@ async function main() {
   await fs.mkdir(path.dirname(runtimeConfigPath), { recursive: true });
   await fs.writeFile(runtimeConfigPath, JSON.stringify(legacyConfig()), 'utf8');
 
-  const migrated = await ensureAgentRuntimeCatalogInitialized({
-    organizationId: organization.organizationId,
-    actorUserId: owner.id,
-  });
+  const concurrentMigrations = await Promise.all([
+    ensureAgentRuntimeCatalogInitialized({
+      organizationId: organization.organizationId,
+      actorUserId: owner.id,
+    }),
+    ensureAgentRuntimeCatalogInitialized({
+      organizationId: organization.organizationId,
+      actorUserId: owner.id,
+    }),
+  ]);
+  const migrated = concurrentMigrations.find((result) => result.action === 'legacy_migrated')
+    ?? concurrentMigrations[0];
+  assert.equal(concurrentMigrations.some((result) => result.action === 'existing'), true);
   assert.equal(migrated.action, 'legacy_migrated');
   assert.equal(migrated.issueCode, null);
   assert.equal(migrated.catalog.migrationState, 'migrated');

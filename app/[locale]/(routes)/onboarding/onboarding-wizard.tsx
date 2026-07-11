@@ -8,7 +8,9 @@ import { routing } from '@/i18n/routing';
 import { buildLocalePath } from '@/app/lib/locale-path';
 
 import CanvasAgentChat from '@/app/components/canvas-agent-chat/CanvasAgentChat';
-import { PiProviderSetupCard } from '@/app/components/settings/PiProviderSetupCard';
+import { AiProviderCredentialsPanel } from '@/app/components/settings/AiProviderCredentialsPanel';
+import { AiProvidersModelsPanel } from '@/app/components/settings/AiProvidersModelsPanel';
+import { MyAgentRuntimePanel } from '@/app/components/settings/MyAgentRuntimePanel';
 import { ThemeToggle } from '@/app/components/ThemeToggle';
 import { DEFAULT_USER_TIME_ZONE, getSupportedTimeZones, normalizeTimeZone } from '@/app/lib/time-zones';
 import { Button } from '@/components/ui/button';
@@ -19,12 +21,12 @@ import { Switch } from '@/components/ui/switch';
 import { toast } from 'sonner';
 import { CheckCircle2, Clock3, Compass, FolderKanban, KeyRound, Languages, Loader2, Mail, RefreshCw, ServerCog, ShieldAlert, Sparkles, Users, Workflow, type LucideIcon } from 'lucide-react';
 
-type Step = 'server' | 'language' | 'license' | 'provider' | 'workspace' | 'review' | 'profile' | 'tour' | 'done';
+type Step = 'server' | 'language' | 'license' | 'provider' | 'workspace' | 'review' | 'runtime' | 'profile' | 'tour' | 'done';
 type OnboardingMode = 'instance' | 'user';
 type OnboardingRuntimePhase = 'idle' | 'streaming' | 'running_tool' | 'aborting';
 
 const INSTANCE_STEPS: Step[] = ['server', 'license', 'provider', 'workspace', 'review'];
-const USER_STEPS: Step[] = ['language', 'workspace', 'profile', 'tour', 'done'];
+const USER_STEPS: Step[] = ['language', 'workspace', 'runtime', 'profile', 'tour', 'done'];
 const ONBOARDING_LICENSE_KEY_STORAGE_KEY = 'canvas.onboarding.licenseKey';
 
 type LicenseStatus = {
@@ -196,29 +198,39 @@ export default function OnboardingWizard({
   const [completeLoading, setCompleteLoading] = useState(false);
   const [modelTestLoading, setModelTestLoading] = useState(false);
   const [modelTestError, setModelTestError] = useState<string | null>(null);
+  const [providerCatalogRefreshKey, setProviderCatalogRefreshKey] = useState(0);
   const [profileSessionId, setProfileSessionId] = useState<string | null>(null);
   const isInstanceOnboarding = mode === 'instance';
   const steps = isInstanceOnboarding ? INSTANCE_STEPS : USER_STEPS;
 
   const advanceTo = useCallback(async (nextStep: Step) => {
-    setStep(nextStep);
-    if (isInstanceOnboarding && ['server', 'license', 'provider', 'workspace', 'review'].includes(nextStep)) {
-      await fetch('/api/onboarding/instance-progress', {
-        method: 'PATCH',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ step: nextStep }),
-      }).catch(() => undefined);
+    try {
+      let response: Response | null = null;
+      if (isInstanceOnboarding && ['server', 'license', 'provider', 'workspace', 'review'].includes(nextStep)) {
+        response = await fetch('/api/onboarding/instance-progress', {
+          method: 'PATCH',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ step: nextStep }),
+        });
+      }
+      if (!isInstanceOnboarding && ['language', 'workspace', 'runtime', 'profile', 'tour', 'complete'].includes(nextStep)) {
+        response = await fetch('/api/onboarding/user', {
+          method: 'PATCH',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ step: nextStep }),
+        });
+      }
+      if (response && !response.ok) {
+        const payload = await response.json().catch(() => null) as { error?: string } | null;
+        throw new Error(payload?.error || t('unexpectedError'));
+      }
+      setStep(nextStep);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : t('unexpectedError'));
     }
-    if (!isInstanceOnboarding && ['language', 'workspace', 'profile', 'tour', 'complete'].includes(nextStep)) {
-      await fetch('/api/onboarding/user', {
-        method: 'PATCH',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ step: nextStep }),
-      }).catch(() => undefined);
-    }
-  }, [isInstanceOnboarding]);
+  }, [isInstanceOnboarding, t]);
 
   const openProfileSession = useCallback(async () => {
     const response = await fetch('/api/onboarding/profile-session', {
@@ -261,14 +273,12 @@ export default function OnboardingWizard({
   }, [openProfileSession, profileSessionId, step, t]);
 
   async function handleProviderSaved() {
-    toast.success(t('providerSaved'));
     setModelTestLoading(true);
     setModelTestError(null);
     try {
       const response = await fetch('/api/onboarding/provider-verify', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}),
+        credentials: 'include',
       });
       const data = (await response.json().catch(() => ({}))) as {
         success?: boolean;
@@ -317,7 +327,7 @@ export default function OnboardingWizard({
         </div>
 
         <div className="flex flex-1 items-start justify-center py-4">
-          <div className={`w-full ${step === 'provider' || step === 'profile' || step === 'workspace' ? 'max-w-5xl' : 'max-w-lg'}`}>
+          <div className={`w-full ${step === 'provider' || step === 'profile' || step === 'workspace' || step === 'runtime' ? 'max-w-5xl' : 'max-w-lg'}`}>
             <div className="rounded-xl border border-border bg-card p-6 shadow-sm sm:p-8">
               <div className="mb-2 flex items-center justify-center">
                 <Image
@@ -373,12 +383,13 @@ export default function OnboardingWizard({
                     </p>
                   </div>
 
-                  <PiProviderSetupCard
-                    title={t('providerTitle')}
-                    description={t('providerDescription')}
-                    saveButtonLabel={t('saveProvider')}
-                    saveSuccessMessage={t('saveSuccessMessage')}
-                    onSaved={handleProviderSaved}
+                  <AiProvidersModelsPanel
+                    locale={currentLocale}
+                    onCatalogChanged={() => setProviderCatalogRefreshKey((current) => current + 1)}
+                  />
+                  <AiProviderCredentialsPanel
+                    locale={currentLocale}
+                    refreshKey={providerCatalogRefreshKey}
                   />
 
                   {modelTestLoading && (
@@ -393,18 +404,32 @@ export default function OnboardingWizard({
                       {modelTestError}
                     </div>
                   )}
+
+                  <div className="flex justify-end">
+                    <Button type="button" onClick={() => void handleProviderSaved()} disabled={modelTestLoading}>
+                      {modelTestLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                      {t('providerVerifyContinue')}
+                    </Button>
+                  </div>
                 </div>
               )}
 
               {step === 'workspace' && (
                 <WorkspaceReadinessStep
                   mode={mode}
-                  onContinue={() => void advanceTo(isInstanceOnboarding ? 'review' : 'profile')}
+                  onContinue={() => void advanceTo(isInstanceOnboarding ? 'review' : 'runtime')}
                 />
               )}
 
               {step === 'review' && isInstanceOnboarding && (
                 <InstanceReviewStep onComplete={beginPersonalOnboarding} />
+              )}
+
+              {step === 'runtime' && !isInstanceOnboarding && (
+                <PersonalRuntimeStep
+                  locale={currentLocale}
+                  onContinue={() => setStep('profile')}
+                />
               )}
 
               {step === 'profile' && profileSessionId && (
@@ -433,6 +458,85 @@ export default function OnboardingWizard({
             </div>
           </div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function PersonalRuntimeStep({
+  locale,
+  onContinue,
+}: {
+  locale: string;
+  onContinue: () => void;
+}) {
+  const t = useTranslations('onboarding');
+  const [savedContext, setSavedContext] = useState<{ workspaceId: string; agentId: string } | null>(null);
+  const [saving, setSaving] = useState<'completed' | 'skipped' | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const handlePreferenceSaved = useCallback((context: { workspaceId: string; agentId: string }) => setSavedContext(context), []);
+
+  async function completeRuntimeChoice(runtime: 'completed' | 'skipped') {
+    if (saving) return;
+    setSaving(runtime);
+    setError(null);
+    try {
+      const response = await fetch('/api/onboarding/user', {
+        method: 'PATCH',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          step: 'profile',
+          runtime,
+          ...(runtime === 'completed' && savedContext ? savedContext : {}),
+        }),
+      });
+      const payload = await response.json().catch(() => null) as { error?: string } | null;
+      if (!response.ok) throw new Error(payload?.error || t('runtimeSaveFailed'));
+      onContinue();
+    } catch (runtimeError) {
+      setError(runtimeError instanceof Error ? runtimeError.message : t('runtimeSaveFailed'));
+    } finally {
+      setSaving(null);
+    }
+  }
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h2 className="mb-1 text-xl font-semibold">{t('runtimeTitle')}</h2>
+        <p className="text-sm text-muted-foreground">{t('runtimeDescription')}</p>
+      </div>
+
+      <MyAgentRuntimePanel
+        locale={locale}
+        onPreferenceSaved={handlePreferenceSaved}
+      />
+
+      {error && (
+        <div className="border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive" role="alert">
+          {error}
+        </div>
+      )}
+
+      <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+        <Button
+          type="button"
+          variant="outline"
+          onClick={() => void completeRuntimeChoice('skipped')}
+          disabled={saving !== null}
+        >
+          {saving === 'skipped' && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+          {t('runtimeUseInherited')}
+        </Button>
+        <Button
+          type="button"
+          onClick={() => void completeRuntimeChoice('completed')}
+          disabled={!savedContext || saving !== null}
+        >
+          {saving === 'completed' && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+          {t('runtimeContinue')}
+        </Button>
       </div>
     </div>
   );
@@ -981,7 +1085,7 @@ function WorkspaceReadinessStep({
 
       <div className="flex justify-center">
         <Button onClick={onContinue} className="min-w-[200px]" disabled={loading || Boolean(error)}>
-          {t('workspaceContinue')}
+          {t(instanceCopy ? 'workspaceContinueReview' : 'workspaceContinue')}
         </Button>
       </div>
     </div>
@@ -1013,6 +1117,70 @@ function InstanceReviewStep({ onComplete }: { onComplete: () => void }) {
   const t = useTranslations('onboarding');
   const [completing, setCompleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [catalogLoading, setCatalogLoading] = useState(true);
+  const [catalogSummary, setCatalogSummary] = useState<{
+    revision: number;
+    provider: string;
+    model: string;
+    status: string;
+    ready: boolean;
+  } | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      void fetch('/api/admin/agent-runtime/catalog', { credentials: 'include', cache: 'no-store' })
+        .then(async (response) => {
+          const payload = await response.json().catch(() => null) as {
+            success?: boolean;
+            error?: string;
+            data?: {
+              catalog?: {
+                revision: number;
+                defaultSelection: { providerInstallationId: string; modelId: string } | null;
+                providers: Array<{
+                  installationId: string;
+                  name: string;
+                  status: string;
+                  models: Array<{ id: string; name: string; enabled: boolean }>;
+                }>;
+              };
+            };
+          } | null;
+          if (!response.ok || !payload?.success || !payload.data?.catalog?.defaultSelection) {
+            throw new Error(payload?.error || t('instanceReviewCatalogError'));
+          }
+          const catalog = payload.data.catalog;
+          const provider = catalog.providers.find((entry) => (
+            entry.installationId === catalog.defaultSelection?.providerInstallationId
+          ));
+          const model = provider?.models.find((entry) => entry.id === catalog.defaultSelection?.modelId);
+          if (!provider || !model?.enabled) throw new Error(t('instanceReviewCatalogError'));
+          if (!cancelled) {
+            setCatalogSummary({
+              revision: catalog.revision,
+              provider: provider.name,
+              model: model.name || model.id,
+              status: provider.status,
+              ready: provider.status === 'ready',
+            });
+          }
+        })
+        .catch((catalogError: unknown) => {
+          if (!cancelled) {
+            setCatalogSummary(null);
+            setError(catalogError instanceof Error ? catalogError.message : t('instanceReviewCatalogError'));
+          }
+        })
+        .finally(() => {
+          if (!cancelled) setCatalogLoading(false);
+        });
+    }, 0);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [t]);
 
   async function completeInstanceSetup() {
     setCompleting(true);
@@ -1051,8 +1219,22 @@ function InstanceReviewStep({ onComplete }: { onComplete: () => void }) {
           <li>✓ {t('instanceReviewWorkspace')}</li>
         </ul>
       </div>
+      {catalogLoading && (
+        <div className="flex items-center gap-2 border border-border bg-muted/20 p-3 text-sm text-muted-foreground" role="status">
+          <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+          {t('instanceReviewCatalogLoading')}
+        </div>
+      )}
+      {catalogSummary && (
+        <dl className="grid gap-3 border border-border bg-background p-4 text-sm sm:grid-cols-2">
+          <div><dt className="text-xs text-muted-foreground">{t('instanceReviewCatalogRevision')}</dt><dd className="font-medium">r{catalogSummary.revision}</dd></div>
+          <div><dt className="text-xs text-muted-foreground">{t('instanceReviewCatalogStatus')}</dt><dd className="font-medium">{catalogSummary.status}</dd></div>
+          <div><dt className="text-xs text-muted-foreground">{t('instanceReviewCatalogProvider')}</dt><dd className="font-medium">{catalogSummary.provider}</dd></div>
+          <div><dt className="text-xs text-muted-foreground">{t('instanceReviewCatalogModel')}</dt><dd className="font-medium">{catalogSummary.model}</dd></div>
+        </dl>
+      )}
       {error && <div className="border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">{error}</div>}
-      <Button onClick={() => void completeInstanceSetup()} className="w-full" disabled={completing}>
+      <Button onClick={() => void completeInstanceSetup()} className="w-full" disabled={completing || catalogLoading || !catalogSummary?.ready}>
         {completing && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
         {t('instanceCompleteAction')}
       </Button>

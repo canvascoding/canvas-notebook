@@ -1,9 +1,15 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import Module from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
 
 async function main() {
+  const moduleInternals = Module as typeof Module & {
+    _load: (request: string, parent: NodeModule | null, isMain: boolean) => unknown;
+  };
+  const originalLoad = moduleInternals._load;
+  moduleInternals._load = (request, parent, isMain) => request === 'server-only' ? {} : originalLoad(request, parent, isMain);
   const dataDir = await mkdtemp(path.join(os.tmpdir(), 'canvas-onboarding-preferences-'));
   const previousData = process.env.DATA;
   process.env.DATA = dataDir;
@@ -27,11 +33,13 @@ async function main() {
 
     const initial = await getUserOnboardingState('user-a');
     assert.equal(initial.step, 'complete');
+    assert.equal(initial.runtime, 'skipped');
     assert.equal(initial.profile, 'skipped');
     assert.equal(initial.tour, 'completed');
 
     const initialized = await initializeUserOnboarding('user-a');
     assert.equal(initialized.step, 'language');
+    assert.equal(initialized.runtime, 'pending');
     assert.equal(initialized.profile, 'pending');
     assert.equal(initialized.tour, 'pending');
 
@@ -41,6 +49,11 @@ async function main() {
     assert.equal(afterLanguage.profile, 'pending');
     assert.equal((await getUserPreferences('user-a')).locale, 'en');
 
+    const afterRuntime = await updateUserOnboardingState('user-a', { step: 'runtime' });
+    assert.equal(afterRuntime.runtime, 'pending');
+    const afterRuntimeSelection = await updateUserOnboardingState('user-a', { runtime: 'completed', step: 'profile' });
+    assert.equal(afterRuntimeSelection.runtime, 'completed');
+
     const afterProfile = await updateUserOnboardingState('user-a', { profile: 'completed', step: 'tour' });
     assert.equal(afterProfile.profile, 'completed');
     assert.equal(afterProfile.step, 'tour');
@@ -49,13 +62,52 @@ async function main() {
     assert.equal(await getInstanceOnboardingStep(), 'server');
     await setInstanceOnboardingStep('owner-a', 'provider');
     assert.equal(await getInstanceOnboardingStep(), 'provider');
-    await markInstanceProviderVerified('owner-a');
+    await markInstanceProviderVerified('owner-a', {
+      catalogRevision: 4,
+      providerInstallationId: 'aip_0123456789abcdef01234567',
+    });
     assert.equal((await getServerSettings()).providerVerifiedBy, 'owner-a');
+    assert.equal((await getServerSettings()).providerVerifiedCatalogRevision, 4);
+    assert.equal((await getServerSettings()).providerVerifiedInstallationId, 'aip_0123456789abcdef01234567');
     await setServerPreferredTimeZone('owner-a', 'UTC');
     assert.equal(await getServerPreferredTimeZone(), 'UTC');
 
+    const settingsDir = path.join(dataDir, 'settings');
+    await mkdir(settingsDir, { recursive: true });
+    await writeFile(path.join(settingsDir, 'user-preferences.json'), JSON.stringify({
+      version: 1,
+      users: {
+        'legacy-profile': {
+          onboarding: {
+            version: 2,
+            step: 'profile',
+            profile: 'pending',
+            tour: 'pending',
+            updatedAt: '2026-01-01T00:00:00.000Z',
+          },
+        },
+        'legacy-complete': {
+          onboarding: {
+            version: 2,
+            step: 'complete',
+            profile: 'skipped',
+            tour: 'completed',
+            updatedAt: '2026-01-01T00:00:00.000Z',
+          },
+        },
+      },
+    }), 'utf8');
+    const migratedProfile = await getUserOnboardingState('legacy-profile');
+    assert.equal(migratedProfile.version, 3);
+    assert.equal(migratedProfile.step, 'runtime');
+    assert.equal(migratedProfile.runtime, 'pending');
+    const migratedComplete = await getUserOnboardingState('legacy-complete');
+    assert.equal(migratedComplete.step, 'complete');
+    assert.equal(migratedComplete.runtime, 'skipped');
+
     console.log('onboarding-preferences-test: ok');
   } finally {
+    moduleInternals._load = originalLoad;
     if (previousData === undefined) delete process.env.DATA;
     else process.env.DATA = previousData;
     await rm(dataDir, { recursive: true, force: true });
