@@ -11,6 +11,38 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.7.11.1] - 2026-07-11
+
+### Added
+
+- Added progressive agent tool gateways and modularized the tool registry so core, file, Studio, email, and web capabilities load with clearer runtime boundaries.
+- Added transactional agent plugin management tools, including safe local package validation, registry updates, prompt refreshes, and MCP reconnection after configuration changes.
+- Added separate instance and personal onboarding flows with resumable per-user initialization and provider verification.
+- Added accessible keyboard and pointer resizing across notebook, chat, email, and todo panels, including nested layouts that adapt to the available space.
+
+### Changed
+
+- Scoped MCP runtimes, OAuth credentials, file references, open-file state, file watchers, and workspace searches to the active user and workspace.
+- Improved agent context budgeting, compaction, summaries, heartbeat context, provider switching, and request payload limits.
+- Unified chat file references and optimized file-tree rendering, search, synchronization, and reload behavior.
+
+### Fixed
+
+- Serialized WebSocket session actions and fixed promoted follow-ups so queued agent work is not drained or reordered by Steer requests.
+- Fixed file explorer open races, workspace watcher isolation, stale reference reloads, and user-scoped Codex OAuth resolution.
+- Filtered image attachments for non-vision models and constrained agent image context paths.
+
+### Security
+
+- Hardened WebSocket origin validation, application rate-limit identities, Mermaid rendering, PDF export, and MCP management authorization.
+- Rejected symlinks and unsafe local paths in plugin packages, skill drafts, plugin storage, and MCP configuration.
+- Required MCP OAuth during plugin preflight and made plugin registry mutations transactional and concurrency-safe.
+
+### Verification
+
+- `npm run build`
+- GitHub Actions `Build and Push (Both Arch)` on `main`: `29146604729` built and pushed both architectures and merged the image manifest successfully before release prep.
+
 ## [2026.7.9.3] - 2026-07-09
 
 ### Changed
